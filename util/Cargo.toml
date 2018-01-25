@@ -1,0 +1,9 @@
+[package]
+name = "nervos-util"
+version = "0.1.0"
+authors = ["Nervos <dev@nervos.org>"]
+
+[dependencies]
+logger = { path = "./logger" }
+ctrlc = { version = "3.1", features = ["termination"] }
+parking_lot = "0.5"

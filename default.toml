@@ -1,0 +1,4 @@
+[log]
+filter = "main=info"
+file = "/tmp/nervos.log"
+color = true
