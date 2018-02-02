@@ -1,0 +1,17 @@
+[package]
+name = "fixed-hash"
+version = "0.1.2"
+authors = ["Parity Technologies <admin@parity.io>"]
+license = "MIT"
+homepage = "https://github.com/paritytech/primitives"
+description = "Fixed-size hashes"
+
+[dependencies]
+heapsize = { version = "0.4", optional = true }
+libc = { version = "0.2", default-features = false }
+rand = { version = "0.4", optional = true }
+rustc-hex = { version = "1.0", optional = true }
+
+[features]
+std = ["rustc-hex", "rand"]
+heapsizeof = ["heapsize"]

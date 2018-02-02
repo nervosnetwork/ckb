@@ -4,3 +4,6 @@ version = "0.1.0"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 
 [dependencies]
+bigint = { path = "../util/bigint" }
+bls = {path = "../util/bls"}
+tiny-keccak = "1.4"

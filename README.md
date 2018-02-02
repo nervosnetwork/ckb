@@ -28,6 +28,8 @@ we would like to track `nightly`, report new breakage is welcome.
 
 ## Build from source
 
+You should install The PBC library first: https://crypto.stanford.edu/pbc/ .
+
 ```bash
 # download Nervos
 $ git clone https://github.com/NervosFoundation/nervos.git

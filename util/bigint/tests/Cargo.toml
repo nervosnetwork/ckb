@@ -1,0 +1,16 @@
+[package]
+name = "tests"
+version = "0.1.0"
+authors = ["Parity Technologies <admin@parity.io>"]
+
+[build-dependencies]
+rustc_version = "0.2"
+
+[dependencies]
+crunchy = "0.1.5"
+bigint = { path ="../../bigint", features = ["std", "heapsizeof"] }
+quickcheck = "0.6"
+uint = { path = "../uint" }
+
+[features]
+use_asm = ["uint/use_asm", "bigint/use_asm"]

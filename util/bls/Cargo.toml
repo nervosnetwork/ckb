@@ -1,0 +1,10 @@
+[package]
+description = "Rust bindings for pbc C library"
+license = "GPL-3.0"
+name = "bls"
+version = "0.1.0"
+authors = ["Ke Wang <ke@bll.io>"]
+build = "build.rs"
+
+[build-dependencies]
+cc = "1.0"
