@@ -20,7 +20,6 @@ use log::{Log, Metadata, Record};
 use parking_lot::Mutex;
 use regex::Regex;
 use std::{fs, thread};
-use std::io::BufWriter;
 use std::io::Write;
 
 enum Message {
@@ -71,10 +70,9 @@ impl Logger {
                             } else {
                                 removed_color.clone()
                             };
-                            if let Some(file) = file.as_ref() {
-                                let mut buf = BufWriter::new(file);
-                                let _ = buf.write_all(removed_color.as_bytes());
-                                let _ = buf.write_all(b"\n");
+                            if let Some(mut file) = file.as_ref() {
+                                let _ = file.write_all(removed_color.as_bytes());
+                                let _ = file.write_all(b"\n");
                             };
                             println!("{}", output);
                         }
