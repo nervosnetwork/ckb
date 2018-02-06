@@ -1,5 +1,6 @@
 use bigint::{H256, U256};
 use bls;
+use difficulty::boundary_to_difficulty;
 use hash::{Sha3, sha3_256};
 
 const TIME_STEP: u64 = 1;
@@ -49,6 +50,6 @@ impl Proof {
 
     /// Get difficulty
     pub fn difficulty(&self) -> U256 {
-        U256::from(sha3_256(self.sig.as_slice()))
+        boundary_to_difficulty(&(sha3_256(self.sig.as_slice()).into()))
     }
 }
