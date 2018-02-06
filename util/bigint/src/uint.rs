@@ -333,7 +333,10 @@ macro_rules! impl_serde {
     ($name: ident, $len: expr) => {
         #[cfg(feature="serialize")]
         impl Serialize for $name {
-            fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: Serializer {
+            fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+            where
+                S: Serializer
+            {
                 let mut bytes = [0u8; $len * 8];
                 self.to_big_endian(&mut bytes);
                 bigint_serialize::serialize_uint(&bytes, serializer)
@@ -342,7 +345,10 @@ macro_rules! impl_serde {
 
         #[cfg(feature="serialize")]
         impl<'de> Deserialize<'de> for $name {
-            fn deserialize<D>(deserializer: D) -> Result<Self, D::Error> where D: Deserializer<'de> {
+            fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+            where
+                D: Deserializer<'de>
+            {
                 bigint_serialize::deserialize_check_len(deserializer,
                                                         bigint_serialize::
                                                         ExpectedLen::Between(0, $len * 8))

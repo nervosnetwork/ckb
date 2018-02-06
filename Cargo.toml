@@ -11,3 +11,10 @@ serde_derive = "1.0"
 log = "0.4"
 nervos-util = { path = "./util" }
 core = { path = "./core" }
+
+
+[workspace]
+members = [
+	"util",
+    # "network",
+]

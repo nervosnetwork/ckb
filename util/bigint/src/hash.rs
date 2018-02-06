@@ -80,14 +80,20 @@ macro_rules! impl_serde {
     ($name: ident, $len: expr) => {
         #[cfg(feature="serialize")]
         impl Serialize for $name {
-            fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: Serializer {
+            fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+            where
+                S: Serializer
+            {
                 bigint_serialize::serialize(&self.0, serializer)
             }
         }
 
         #[cfg(feature="serialize")]
         impl<'de> Deserialize<'de> for $name {
-            fn deserialize<D>(deserializer: D) -> Result<Self, D::Error> where D: Deserializer<'de> {
+            fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+            where
+                D: Deserializer<'de>
+            {
                 bigint_serialize::deserialize_check_len(deserializer,
                                                         bigint_serialize::ExpectedLen::Exact($len)
                                                         )

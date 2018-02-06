@@ -110,7 +110,7 @@ version = "0.1.0"
 dependencies = [
  "bigint 0.2.1",
  "bls 0.1.0",
- "tiny-keccak 1.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "hash 0.1.0",
 ]
 
 [[package]]
@@ -194,6 +194,13 @@ dependencies = [
 name = "fuchsia-zircon-sys"
 version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
+
+[[package]]
+name = "hash"
+version = "0.1.0"
+dependencies = [
+ "tiny-keccak 1.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
+]
 
 [[package]]
 name = "heapsize"
@@ -281,8 +288,6 @@ dependencies = [
 name = "nervos-util"
 version = "0.1.0"
 dependencies = [
- "bigint 0.2.1",
- "bls 0.1.0",
  "ctrlc 3.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "logger 0.1.0",
  "parking_lot 0.5.3 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -578,6 +583,7 @@ name = "uint"
 version = "0.1.1"
 dependencies = [
  "byteorder 1.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "crunchy 0.1.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "heapsize 0.4.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "rustc-hex 1.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "rustc_version 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",

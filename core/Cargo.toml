@@ -6,4 +6,4 @@ authors = ["Nervos Core Dev <dev@nervos.org>"]
 [dependencies]
 bigint = { path = "../util/bigint" }
 bls = {path = "../util/bls"}
-tiny-keccak = "1.4"
+hash = {path = "../util/hash"}

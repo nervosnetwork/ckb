@@ -1,13 +1,14 @@
-extern crate serde;
 extern crate rustc_hex;
+extern crate serde;
 
 use std::fmt;
 
-use serde::{de, Serializer, Deserializer};
-use rustc_hex::{ToHex, FromHex};
+use rustc_hex::{FromHex, ToHex};
+use serde::{de, Deserializer, Serializer};
 
 /// Serializes a slice of bytes.
-pub fn serialize<S>(bytes: &[u8], serializer: S) -> Result<S::Ok, S::Error> where
+pub fn serialize<S>(bytes: &[u8], serializer: S) -> Result<S::Ok, S::Error>
+where
     S: Serializer,
 {
     let hex = ToHex::to_hex(bytes);
@@ -17,7 +18,8 @@ pub fn serialize<S>(bytes: &[u8], serializer: S) -> Result<S::Ok, S::Error> wher
 /// Serialize a slice of bytes as uint.
 ///
 /// The representation will have all leading zeros trimmed.
-pub fn serialize_uint<S>(bytes: &[u8], serializer: S) -> Result<S::Ok, S::Error> where
+pub fn serialize_uint<S>(bytes: &[u8], serializer: S) -> Result<S::Ok, S::Error>
+where
     S: Serializer,
 {
     let non_zero = bytes.iter().take_while(|b| **b == 0).count();
@@ -28,9 +30,10 @@ pub fn serialize_uint<S>(bytes: &[u8], serializer: S) -> Result<S::Ok, S::Error>
 
     let hex = ToHex::to_hex(bytes);
     let has_leading_zero = !hex.is_empty() && &hex[0..1] == "0";
-    serializer.serialize_str(
-        &format!("0x{}", if has_leading_zero { &hex[1..] } else { &hex })
-    )
+    serializer.serialize_str(&format!(
+        "0x{}",
+        if has_leading_zero { &hex[1..] } else { &hex }
+    ))
 }
 
 /// Expected length of bytes vector.
@@ -49,20 +52,24 @@ impl fmt::Display for ExpectedLen {
         match *self {
             ExpectedLen::Any => write!(fmt, "even length"),
             ExpectedLen::Exact(v) => write!(fmt, "length of {}", v * 2),
-            ExpectedLen::Between(min, max) => write!(fmt, "length between ({}; {}]", min * 2, max * 2),
+            ExpectedLen::Between(min, max) => {
+                write!(fmt, "length between ({}; {}]", min * 2, max * 2)
+            }
         }
     }
 }
 
 /// Deserialize into vector of bytes.
-pub fn deserialize<'de, D>(deserializer: D) -> Result<Vec<u8>, D::Error> where
+pub fn deserialize<'de, D>(deserializer: D) -> Result<Vec<u8>, D::Error>
+where
     D: Deserializer<'de>,
 {
     deserialize_check_len(deserializer, ExpectedLen::Any)
 }
 
 /// Deserialize into vector of bytes with additional size check.
-pub fn deserialize_check_len<'de, D>(deserializer: D, len: ExpectedLen) -> Result<Vec<u8>, D::Error> where
+pub fn deserialize_check_len<'de, D>(deserializer: D, len: ExpectedLen) -> Result<Vec<u8>, D::Error>
+where
     D: Deserializer<'de>,
 {
     struct Visitor {
@@ -77,8 +84,8 @@ pub fn deserialize_check_len<'de, D>(deserializer: D, len: ExpectedLen) -> Resul
         }
 
         fn visit_str<E: de::Error>(self, v: &str) -> Result<Self::Value, E> {
-            if v.len() < 2  || &v[0..2] != "0x" {
-                return Err(E::custom("prefix is missing"))
+            if v.len() < 2 || &v[0..2] != "0x" {
+                return Err(E::custom("prefix is missing"));
             }
 
             let is_len_valid = match self.len {
@@ -89,14 +96,14 @@ pub fn deserialize_check_len<'de, D>(deserializer: D, len: ExpectedLen) -> Resul
             };
 
             if !is_len_valid {
-                return Err(E::invalid_length(v.len() - 2, &self))
+                return Err(E::invalid_length(v.len() - 2, &self));
             }
 
             let bytes = match self.len {
                 ExpectedLen::Between(..) if v.len() % 2 != 0 => {
                     FromHex::from_hex(&*format!("0{}", &v[2..]))
-                },
-                _ => FromHex::from_hex(&v[2..])
+                }
+                _ => FromHex::from_hex(&v[2..]),
             };
 
             bytes.map_err(|e| E::custom(&format!("invalid hex value: {:?}", e)))
