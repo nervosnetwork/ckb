@@ -1,12 +1,14 @@
-# [Nervos]() - Common Knowledge Base
+# [Nervos CKB]() - The Common Knowledge Base
 
 [![CircleCI](https://circleci.com/gh/NervosFoundation/nervos.svg?style=svg&circle-token=5e9e1e761685962d44dffa25af631e9c56151cea)](https://circleci.com/gh/NervosFoundation/nervos)
 
 ----
 
-## About Nervos
+## About Nervos CKB
 
-Nervos is a Common Knowledge Base blockchain system, it defines a suite of scalable and interoperable blockchain protocols for human to create the [common knowledge](https://en.wikipedia.org/wiki/Common_knowledge_(logic)), a self-evolving synchronized community with novel economic model, stable coin, identity and more.
+Nervos CKB is the first Common Knowledge Base to facilitate the creation and storage of [common knowledge](https://en.wikipedia.org/wiki/Common_knowledge_(logic)) of our society.
+
+Nervos project defines a suite of scalable and interoperable blockchain protocols. Nervos CKB uses those protocols to create a self-evolving distributed network with novel economic model, data model and more.
 
 ----
 
