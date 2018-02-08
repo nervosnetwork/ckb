@@ -7,3 +7,6 @@ authors = ["Nervos Core Dev <dev@nervos.org>"]
 bigint = { path = "../util/bigint" }
 bls = { git = "https://github.com/NervosFoundation/bls-rs.git" }
 hash = {path = "../util/hash"}
+serialize = {path = "../util/serialize"}
+kvdb = {path = "../util/kvdb"}
+kvdb-rocksdb = { path = "../util/kvdb-rocksdb" }
