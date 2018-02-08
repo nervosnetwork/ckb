@@ -5,5 +5,5 @@ authors = ["Nervos Core Dev <dev@nervos.org>"]
 
 [dependencies]
 bigint = { path = "../util/bigint" }
-bls = {path = "../util/bls"}
+bls = { git = "https://github.com/NervosFoundation/bls-rs.git" }
 hash = {path = "../util/hash"}

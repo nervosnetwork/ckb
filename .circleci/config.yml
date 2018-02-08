@@ -33,7 +33,7 @@ jobs:
           key: deps-{{ checksum "Cargo.lock" }}
       - run:
           name: test
-          command: 'cargo test'
+          command: 'cargo test --all'
 
 workflows:
   version: 2
