@@ -18,6 +18,7 @@ extern crate serde;
 mod hash;
 mod uint;
 
+pub use fixed_hash::clean_0x;
 pub use hash::{H1024, H128, H160, H256, H264, H32, H512, H520, H64};
 pub use uint::{U128, U256, U512};
 

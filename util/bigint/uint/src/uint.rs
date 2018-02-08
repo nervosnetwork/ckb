@@ -93,7 +93,7 @@ macro_rules! uint_overflowing_add {
                 "
             : "=r"(result[0]), "=r"(result[1]), "=r"(result[2]), "=r"(result[3]), "={al}"(overflow)
             : "0"(self_t[0]), "1"(self_t[1]), "2"(self_t[2]), "3"(self_t[3]),
-              "mr"(other_t[0]), "mr"(other_t[1]), "mr"(other_t[2]), "mr"(other_t[3])
+                "mr"(other_t[0]), "mr"(other_t[1]), "mr"(other_t[2]), "mr"(other_t[3])
             :
             :
             );
@@ -129,16 +129,16 @@ macro_rules! uint_overflowing_add {
 
                 ": "=r"(result[0]), "=r"(result[1]), "=r"(result[2]), "=r"(result[3]),
 
-              "={al}"(overflow) /* $0 - $4 */
+                "={al}"(overflow) /* $0 - $4 */
 
-            : "{rdi}"(&result[4] as *const u64) /* $5 */
-              "{rsi}"(&other_t[4] as *const u64) /* $6 */
-              "0"(self_t[0]), "1"(self_t[1]), "2"(self_t[2]), "3"(self_t[3]),
-                "m"(self_t[4]), "m"(self_t[5]), "m"(self_t[6]), "m"(self_t[7]),
-              /* $7 - $14 */
+                        : "{rdi}"(&result[4] as *const u64) /* $5 */
+                "{rsi}"(&other_t[4] as *const u64) /* $6 */
+                "0"(self_t[0]), "1"(self_t[1]), "2"(self_t[2]), "3"(self_t[3]),
+                    "m"(self_t[4]), "m"(self_t[5]), "m"(self_t[6]), "m"(self_t[7]),
+                /* $7 - $14 */
 
-              "mr"(other_t[0]), "mr"(other_t[1]), "mr"(other_t[2]), "mr"(other_t[3]),
-              "m"(other_t[4]), "m"(other_t[5]), "m"(other_t[6]), "m"(other_t[7]) /* $15 - $22 */
+                "mr"(other_t[0]), "mr"(other_t[1]), "mr"(other_t[2]), "mr"(other_t[3]),
+                            "m"(other_t[4]), "m"(other_t[5]), "m"(other_t[6]), "m"(other_t[7]) /* $15 - $22 */
             : "rdi", "rsi"
             :
             );
@@ -274,16 +274,16 @@ macro_rules! uint_overflowing_sub {
                 "
             : "=r"(result[0]), "=r"(result[1]), "=r"(result[2]), "=r"(result[3]),
 
-              "={al}"(overflow) /* $0 - $4 */
+                "={al}"(overflow) /* $0 - $4 */
 
             : "{rdi}"(&result[4] as *const u64) /* $5 */
              "{rsi}"(&self_t[4] as *const u64) /* $6 */
-              "0"(self_t[0]), "1"(self_t[1]), "2"(self_t[2]), "3"(self_t[3]),
-              "m"(self_t[4]), "m"(self_t[5]), "m"(self_t[6]), "m"(self_t[7]),
-              /* $7 - $14 */
+                "0"(self_t[0]), "1"(self_t[1]), "2"(self_t[2]), "3"(self_t[3]),
+                "m"(self_t[4]), "m"(self_t[5]), "m"(self_t[6]), "m"(self_t[7]),
+                /* $7 - $14 */
 
-              "m"(other_t[0]), "m"(other_t[1]), "m"(other_t[2]), "m"(other_t[3]),
-              "m"(other_t[4]), "m"(other_t[5]), "m"(other_t[6]), "m"(other_t[7]) /* $15 - $22 */
+                "m"(other_t[0]), "m"(other_t[1]), "m"(other_t[2]), "m"(other_t[3]),
+                "m"(other_t[4]), "m"(other_t[5]), "m"(other_t[6]), "m"(other_t[7]) /* $15 - $22 */
             : "rdi", "rsi"
             :
             );
@@ -399,12 +399,12 @@ macro_rules! uint_overflowing_mul {
                 2:
                 "
                 : /* $0 */ "={r8}"(result[0]), /* $1 */ "={r9}"(result[1]), /* $2 */ "={r10}"(result[2]),
-                  /* $3 */ "={r11}"(result[3]), /* $4 */  "={rcx}"(overflow)
+                    /* $3 */ "={r11}"(result[3]), /* $4 */  "={rcx}"(overflow)
 
                 : /* $5 */ "m"(self_t[0]), /* $6 */ "m"(self_t[1]), /* $7 */  "m"(self_t[2]),
-                  /* $8 */ "m"(self_t[3]), /* $9 */ "m"(other_t[0]), /* $10 */ "m"(other_t[1]),
-                  /* $11 */ "m"(other_t[2]), /* $12 */ "m"(other_t[3])
-                   : "rax", "rdx"
+                    /* $8 */ "m"(self_t[3]), /* $9 */ "m"(other_t[0]), /* $10 */ "m"(other_t[1]),
+                    /* $11 */ "m"(other_t[2]), /* $12 */ "m"(other_t[3])
+                            : "rax", "rdx"
                 :
 
             );
@@ -631,8 +631,8 @@ macro_rules! construct_uint {
                 let &$name(ref arr) = self;
                 for i in 1..$n_words {
                     if arr[$n_words - i] > 0 {
-                        return (0x40 * ($n_words - i + 1))
-                               - arr[$n_words - i].leading_zeros() as usize;
+                        return (0x40 * ($n_words - i + 1)) - arr[$n_words - i].leading_zeros()
+                            as usize;
                     }
                 }
                 0x40 - arr[0].leading_zeros() as usize
@@ -720,7 +720,7 @@ macro_rules! construct_uint {
             pub fn exp10(n: usize) -> Self {
                 match n {
                     0 => Self::from(1u64),
-                    _ => Self::exp10(n - 1).mul_u32(10)
+                    _ => Self::exp10(n - 1) * 10u32
                 }
             }
 
@@ -916,10 +916,9 @@ macro_rules! construct_uint {
             }
 
             /// Multiplication by u32
+            #[deprecated(note = "Use Mul<u32> instead.")]
             pub fn mul_u32(self, other: u32) -> Self {
-                let (ret, overflow) = self.overflowing_mul_u32(other);
-                panic_on_overflow!(overflow);
-                ret
+                self * other
             }
 
             /// Overflowing multiplication by u32
@@ -938,6 +937,8 @@ macro_rules! construct_uint {
 
                 ($name(ret), carry > 0)
             }
+
+            impl_std_for_uint_internals!($name, $n_words);
 
             /// Converts from big endian representation bytes in memory
             /// Can also be used as (&slice).into(), as it is default `From`
@@ -972,8 +973,6 @@ macro_rules! construct_uint {
 
                 $name(ret)
             }
-
-            impl_std_for_uint_internals!($name, $n_words);
         }
 
         impl Default for $name {
@@ -1036,6 +1035,16 @@ macro_rules! construct_uint {
                 let (result, overflow) = self.overflowing_sub(other);
                 panic_on_overflow!(overflow);
                 result
+            }
+        }
+
+        impl ::core::ops::Mul<u32> for $name {
+            type Output = $name;
+
+            fn mul(self, other: u32) -> $name {
+                let (ret, overflow) = self.overflowing_mul_u32(other);
+                panic_on_overflow!(overflow);
+                ret
             }
         }
 
@@ -1232,18 +1241,9 @@ macro_rules! construct_uint {
 macro_rules! impl_std_for_uint_internals {
     ($name: ident, $n_words: tt) => {
         /// Convert to hex string.
-        #[inline]
+        #[deprecated(note = "Use LowerHex instead.")]
         pub fn to_hex(&self) -> String {
-            use core::cmp;
-            use $crate::rustc_hex::ToHex;;
-
-            if self.is_zero() { return "0".to_owned(); }    // special case.
-            let mut bytes = [0u8; 8 * $n_words];
-            self.to_big_endian(&mut bytes);
-            let bp7 = self.bits() + 7;
-            let len = cmp::max(bp7 / 8, 1);
-            let bytes_hex = bytes[bytes.len() - len..].to_hex();
-            (&bytes_hex[1 - bp7 % 8 / 4..]).to_owned()
+            format!("{:x}", self)
         }
     }
 }
@@ -1297,16 +1297,23 @@ macro_rules! impl_std_for_uint {
         impl ::core::fmt::LowerHex for $name {
             fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
                 let &$name(ref data) = self;
-                try!(write!(f, "0x"));
+                // special case.
+                if self.is_zero() {
+                    return write!(f, "0");
+                }
+
                 let mut latch = false;
                 for ch in data.iter().rev() {
                     for x in 0..16 {
-                        let nibble = (ch & (15u64 << ((15 - x) * 4) as u64)) >>
-                                        (((15 - x) * 4) as u64);
+                        let nibble = (
+                            ch & (15u64 << ((15 - x) * 4) as u64)) >> (((15 - x) * 4) as u64
+                        );
+                        if !latch {
+                            latch = nibble != 0;
+                        }
 
-                        if !latch { latch = nibble != 0 }
                         if latch {
-                            try!(write!(f, "{:x}", nibble));
+                            write!(f, "{:x}", nibble)?;
                         }
                     }
                 }
@@ -1325,14 +1332,14 @@ macro_rules! impl_std_for_uint {
 #[cfg(not(feature = "std"))]
 #[macro_export]
 #[doc(hidden)]
-macro_rules! impl_std_for_uint_internals {
+macro_rules! impl_std_for_uint {
     ($name: ident, $n_words: tt) => {}
 }
 
 #[cfg(not(feature = "std"))]
 #[macro_export]
 #[doc(hidden)]
-macro_rules! impl_std_for_uint {
+macro_rules! impl_std_for_uint_internals {
     ($name: ident, $n_words: tt) => {}
 }
 

@@ -1,6 +1,6 @@
 [package]
 name = "fixed-hash"
-version = "0.1.2"
+version = "0.1.3"
 authors = ["Parity Technologies <admin@parity.io>"]
 license = "MIT"
 homepage = "https://github.com/paritytech/primitives"

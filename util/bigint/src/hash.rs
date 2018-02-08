@@ -84,7 +84,8 @@ macro_rules! impl_serde {
             where
                 S: Serializer
             {
-                bigint_serialize::serialize(&self.0, serializer)
+                let mut slice = [0u8; 2 + 2 * $len];
+                bigint_serialize::serialize(&mut slice, &self.0, serializer)
             }
         }
 
@@ -94,10 +95,12 @@ macro_rules! impl_serde {
             where
                 D: Deserializer<'de>
             {
-                bigint_serialize::deserialize_check_len(deserializer,
-                                                        bigint_serialize::ExpectedLen::Exact($len)
-                                                        )
-                                                        .map(|x| (&*x).into())
+                let mut bytes = [0u8; $len];
+                bigint_serialize::deserialize_check_len(
+                    deserializer,
+                    bigint_serialize::ExpectedLen::Exact(&mut bytes)
+                )?;
+                Ok($name(bytes))
             }
         }
     }

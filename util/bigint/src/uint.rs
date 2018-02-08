@@ -337,9 +337,10 @@ macro_rules! impl_serde {
             where
                 S: Serializer
             {
+                let mut slice = [0u8; 2 + 2 * $len * 8];
                 let mut bytes = [0u8; $len * 8];
                 self.to_big_endian(&mut bytes);
-                bigint_serialize::serialize_uint(&bytes, serializer)
+                bigint_serialize::serialize_uint(&mut slice, &bytes, serializer)
             }
         }
 
@@ -349,10 +350,12 @@ macro_rules! impl_serde {
             where
                 D: Deserializer<'de>
             {
-                bigint_serialize::deserialize_check_len(deserializer,
-                                                        bigint_serialize::
-                                                        ExpectedLen::Between(0, $len * 8))
-                    .map(|x| (&*x).into())
+                let mut bytes = [0u8; $len * 8];
+                let wrote = bigint_serialize::deserialize_check_len(
+                    deserializer,
+                    bigint_serialize::ExpectedLen::Between(0, &mut bytes)
+                )?;
+                Ok(bytes[0..wrote].into())
             }
         }
     }

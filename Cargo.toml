@@ -27,4 +27,7 @@ core = { path = "./core" }
 members = [
     "util",
     "network",
+    "core",
+    "util/hash",
+    "util/bigint"
 ]

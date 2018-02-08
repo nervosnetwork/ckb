@@ -1,24 +1,46 @@
-extern crate rustc_hex;
 extern crate serde;
 
+use serde::{de, Deserializer, Serializer};
 use std::fmt;
 
-use rustc_hex::{FromHex, ToHex};
-use serde::{de, Deserializer, Serializer};
+static CHARS: &'static [u8] = b"0123456789abcdef";
+
+fn to_hex<'a>(v: &'a mut [u8], bytes: &[u8], skip_leading_zero: bool) -> &'a str {
+    assert!(v.len() > 1 + bytes.len() * 2);
+
+    v[0] = '0' as u8;
+    v[1] = 'x' as u8;
+
+    let mut idx = 2;
+    let first_nibble = bytes[0] >> 4;
+    if first_nibble != 0 || !skip_leading_zero {
+        v[idx] = CHARS[first_nibble as usize];
+        idx += 1;
+    }
+    v[idx] = CHARS[(bytes[0] & 0xf) as usize];
+    idx += 1;
+
+    for &byte in bytes.iter().skip(1) {
+        v[idx] = CHARS[(byte >> 4) as usize];
+        v[idx + 1] = CHARS[(byte & 0xf) as usize];
+        idx += 2;
+    }
+
+    ::std::str::from_utf8(&v[0..idx]).expect("All characters are coming from CHARS")
+}
 
 /// Serializes a slice of bytes.
-pub fn serialize<S>(bytes: &[u8], serializer: S) -> Result<S::Ok, S::Error>
+pub fn serialize<S>(slice: &mut [u8], bytes: &[u8], serializer: S) -> Result<S::Ok, S::Error>
 where
     S: Serializer,
 {
-    let hex = ToHex::to_hex(bytes);
-    serializer.serialize_str(&format!("0x{}", hex))
+    serializer.serialize_str(to_hex(slice, bytes, false))
 }
 
 /// Serialize a slice of bytes as uint.
 ///
 /// The representation will have all leading zeros trimmed.
-pub fn serialize_uint<S>(bytes: &[u8], serializer: S) -> Result<S::Ok, S::Error>
+pub fn serialize_uint<S>(slice: &mut [u8], bytes: &[u8], serializer: S) -> Result<S::Ok, S::Error>
 where
     S: Serializer,
 {
@@ -28,56 +50,44 @@ where
         return serializer.serialize_str("0x0");
     }
 
-    let hex = ToHex::to_hex(bytes);
-    let has_leading_zero = !hex.is_empty() && &hex[0..1] == "0";
-    serializer.serialize_str(&format!(
-        "0x{}",
-        if has_leading_zero { &hex[1..] } else { &hex }
-    ))
+    serializer.serialize_str(to_hex(slice, bytes, true))
 }
 
 /// Expected length of bytes vector.
 #[derive(Debug, PartialEq, Eq)]
-pub enum ExpectedLen {
-    /// Any length in bytes.
-    Any,
+pub enum ExpectedLen<'a> {
     /// Exact length in bytes.
-    Exact(usize),
-    /// A bytes length between (min; max].
-    Between(usize, usize),
+    Exact(&'a mut [u8]),
+    /// A bytes length between (min; slice.len()].
+    Between(usize, &'a mut [u8]),
 }
 
-impl fmt::Display for ExpectedLen {
+impl<'a> fmt::Display for ExpectedLen<'a> {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            ExpectedLen::Any => write!(fmt, "even length"),
-            ExpectedLen::Exact(v) => write!(fmt, "length of {}", v * 2),
-            ExpectedLen::Between(min, max) => {
-                write!(fmt, "length between ({}; {}]", min * 2, max * 2)
+            ExpectedLen::Exact(ref v) => write!(fmt, "length of {}", v.len() * 2),
+            ExpectedLen::Between(min, ref v) => {
+                write!(fmt, "length between ({}; {}]", min * 2, v.len() * 2)
             }
         }
     }
 }
 
-/// Deserialize into vector of bytes.
-pub fn deserialize<'de, D>(deserializer: D) -> Result<Vec<u8>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    deserialize_check_len(deserializer, ExpectedLen::Any)
-}
-
 /// Deserialize into vector of bytes with additional size check.
-pub fn deserialize_check_len<'de, D>(deserializer: D, len: ExpectedLen) -> Result<Vec<u8>, D::Error>
+/// Returns number of bytes written.
+pub fn deserialize_check_len<'a, 'de, D>(
+    deserializer: D,
+    len: ExpectedLen<'a>,
+) -> Result<usize, D::Error>
 where
     D: Deserializer<'de>,
 {
-    struct Visitor {
-        len: ExpectedLen,
+    struct Visitor<'a> {
+        len: ExpectedLen<'a>,
     }
 
-    impl<'a> de::Visitor<'a> for Visitor {
-        type Value = Vec<u8>;
+    impl<'a, 'b> de::Visitor<'b> for Visitor<'a> {
+        type Value = usize;
 
         fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
             write!(formatter, "a 0x-prefixed hex string with {}", self.len)
@@ -89,10 +99,10 @@ where
             }
 
             let is_len_valid = match self.len {
-                // just make sure that we have all nibbles
-                ExpectedLen::Any => v.len() % 2 == 0,
-                ExpectedLen::Exact(len) => v.len() == 2 * len + 2,
-                ExpectedLen::Between(min, max) => v.len() <= 2 * max + 2 && v.len() > 2 * min + 2,
+                ExpectedLen::Exact(ref slice) => v.len() == 2 * slice.len() + 2,
+                ExpectedLen::Between(min, ref slice) => {
+                    v.len() <= 2 * slice.len() + 2 && v.len() > 2 * min + 2
+                }
             };
 
             if !is_len_valid {
@@ -100,20 +110,48 @@ where
             }
 
             let bytes = match self.len {
-                ExpectedLen::Between(..) if v.len() % 2 != 0 => {
-                    FromHex::from_hex(&*format!("0{}", &v[2..]))
-                }
-                _ => FromHex::from_hex(&v[2..]),
+                ExpectedLen::Exact(slice) => slice,
+                ExpectedLen::Between(_, slice) => slice,
             };
 
-            bytes.map_err(|e| E::custom(&format!("invalid hex value: {:?}", e)))
+            let mut modulus = v.len() % 2;
+            let mut buf = 0;
+            let mut pos = 0;
+            for (idx, byte) in v.bytes().enumerate().skip(2) {
+                buf <<= 4;
+
+                match byte {
+                    b'A'...b'F' => buf |= byte - b'A' + 10,
+                    b'a'...b'f' => buf |= byte - b'a' + 10,
+                    b'0'...b'9' => buf |= byte - b'0',
+                    b' ' | b'\r' | b'\n' | b'\t' => {
+                        buf >>= 4;
+                        continue;
+                    }
+                    _ => {
+                        let ch = v[idx..].chars().next().unwrap();
+                        return Err(E::custom(&format!(
+                            "invalid hex character: {}, at {}",
+                            ch, idx
+                        )));
+                    }
+                }
+
+                modulus += 1;
+                if modulus == 2 {
+                    modulus = 0;
+                    bytes[pos] = buf;
+                    pos += 1;
+                }
+            }
+
+            Ok(pos)
         }
 
         fn visit_string<E: de::Error>(self, v: String) -> Result<Self::Value, E> {
             self.visit_str(&v)
         }
     }
-    // TODO [ToDr] Use raw bytes if we switch to RLP / binencoding
-    // (visit_bytes, visit_bytes_buf)
+
     deserializer.deserialize_str(Visitor { len })
 }
