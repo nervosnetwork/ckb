@@ -1,6 +1,6 @@
 # [Nervos CKB]() - The Common Knowledge Base
 
-[![CircleCI](https://circleci.com/gh/NervosFoundation/nervos.svg?style=svg&circle-token=5e9e1e761685962d44dffa25af631e9c56151cea)](https://circleci.com/gh/NervosFoundation/nervos)
+[![TravisCI](https://travis-ci.com/NervosFoundation/nervos.svg?token=y9uR6ygmT3geQaMJ4jpJ&branch=develop)](https://travis-ci.com/NervosFoundation/nervos)
 
 ----
 
@@ -19,19 +19,29 @@ Nervos project defines a suite of scalable and interoperable blockchain protocol
 We recommend installing Rust through [rustup](https://www.rustup.rs/)
 
 ```bash
-# Get rustup from rustup.rs, then in your `Nervos` folder:
+# Get rustup from rustup.rs, then in your `nervos` folder:
 rustup override set nightly-2018-01-23
 rustup component add rustfmt-preview --toolchain=nightly-2018-01-23
 ```
 
 we would like to track `nightly`, report new breakage is welcome.
 
+you alse need to get the following packages：
+
+* Ubuntu and Debian:
+```shell
+sudo apt-get install git autoconf flex bison texinfo libtool
+```
+
+* OSX:
+```shell
+brew install autoconf libtool
+```
+
+
 ----
 
 ## Build from source
-
-You should install The PBC library first: https://crypto.stanford.edu/pbc/ .
-
 ```bash
 # download Nervos
 $ git clone https://github.com/NervosFoundation/nervos.git
