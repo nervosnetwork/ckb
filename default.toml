@@ -1,4 +1,4 @@
 [log]
-filter = "main=info"
+filter = "main=info,miner=info"
 file = "/tmp/nervos.log"
 color = true

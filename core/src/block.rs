@@ -1,7 +1,10 @@
 use super::transaction::Transaction;
 use bigint::{H256, H512, U256};
+use bincode::serialize;
+use hash::sha3_256;
 use proof::Proof;
 
+#[derive(Serialize, Deserialize, PartialEq, Debug)]
 pub struct Header {
     /// Parent hash.
     pub parent_hash: H256,
@@ -22,33 +25,23 @@ pub struct Header {
 }
 
 impl Header {
-    pub fn parent_hash(&self) -> &H256 {
-        &self.parent_hash
-    }
-    pub fn timestamp(&self) -> u64 {
-        self.timestamp
-    }
-    pub fn height(&self) -> u64 {
-        self.height
-    }
-    pub fn transactions_root(&self) -> &H256 {
-        &self.transactions_root
-    }
-    pub fn difficulty(&self) -> &U256 {
-        &self.difficulty
-    }
-    pub fn challenge(&self) -> &H256 {
-        &self.challenge
-    }
-    pub fn proof(&self) -> &Proof {
-        &self.proof
-    }
-    pub fn signature(&self) -> &H512 {
-        &self.signature
+    pub fn hash(&self) -> H256 {
+        sha3_256(serialize(self).unwrap()).into()
     }
 }
 
+#[derive(Serialize, Deserialize, PartialEq, Debug)]
 pub struct Block {
     pub header: Header,
     pub transactions: Vec<Transaction>,
+}
+
+impl Block {
+    pub fn hash(&self) -> H256 {
+        self.header.hash()
+    }
+
+    pub fn validate(&self) -> bool {
+        true
+    }
 }

@@ -13,15 +13,14 @@ const LIMIT: u64 = 99;
 
 pub fn calculate_difficulty(header: &Header, parent: &Header) -> U256 {
     let diff_bound_div = U256::from(DIFFICULTY_BOUND_DIVISOR);
-    let diff_inc = (header.timestamp() - parent.timestamp()) / INCREMENT_DIVISOR;
+    let diff_inc = (header.timestamp - parent.timestamp) / INCREMENT_DIVISOR;
     if diff_inc <= THRESHOLD {
-        *parent.difficulty()
-            + *parent.difficulty() / diff_bound_div * U256::from(THRESHOLD - diff_inc)
+        parent.difficulty + parent.difficulty / diff_bound_div * U256::from(THRESHOLD - diff_inc)
     } else {
         let multiplier: U256 = cmp::min(diff_inc - THRESHOLD, LIMIT).into();
         parent
-            .difficulty()
-            .saturating_sub(*parent.difficulty() / diff_bound_div * multiplier)
+            .difficulty
+            .saturating_sub(parent.difficulty / diff_bound_div * multiplier)
     }
 }
 
