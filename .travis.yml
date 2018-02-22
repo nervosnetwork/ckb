@@ -13,6 +13,4 @@ matrix:
 
 
 script:
-- cargo fmt --all -- --write-mode=diff
-- cargo test --release
-- git diff --exit-code Cargo.lock
+- make ci
