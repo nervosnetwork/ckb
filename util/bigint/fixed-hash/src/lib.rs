@@ -6,6 +6,10 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+#![allow(unknown_lints)]
+#![allow(clippy)]
+#![cfg_attr(rustfmt, rustfmt_skip)]
+
 #[doc(hidden)]
 pub extern crate libc;
 

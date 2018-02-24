@@ -1,3 +1,8 @@
+#![allow(unknown_lints)]
+#![allow(clippy)]
+#![cfg_attr(rustfmt, rustfmt_skip)]
+
+
 extern crate serde;
 
 use serde::{de, Deserializer, Serializer};

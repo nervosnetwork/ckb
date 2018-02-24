@@ -1,16 +1,26 @@
 language: rust
 sudo: true
 cache: cargo
+
+env:
+  global:
+    - CLIPPY_VERSION=0.0.181
+
 matrix:
   include:
     - os: osx
       rust: nightly-2018-01-23
       before_script:
         - rustup component add rustfmt-preview --toolchain=nightly-2018-01-23
+        - bash -c 'if [[ ! -e $HOME/.cargo/bin/cargo-clippy ]]; then
+            cargo install clippy --vers $CLIPPY_VERSION --force;
+          fi'
     - rust: nightly-2018-01-23
       before_script:
         - rustup component add rustfmt-preview --toolchain=nightly-2018-01-23
-
+        - bash -c 'if [[ ! -e $HOME/.cargo/bin/cargo-clippy ]]; then
+            cargo install clippy --vers $CLIPPY_VERSION --force;
+          fi'
 
 script:
 - make ci

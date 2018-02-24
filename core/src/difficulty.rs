@@ -7,9 +7,10 @@ const THRESHOLD: u64 = 1;
 const DIFFICULTY_BOUND_DIVISOR: u64 = 2048;
 const LIMIT: u64 = 99;
 
-/// new_diff = parent_diff +
-///            parent_diff // DIFFICULTY_BOUND_DIVISOR *
-///            max(THRESHOLD - (block_timestamp - parent_timestamp) // INCREMENT_DIVISOR, -LIMIT)
+// new_diff = parent_diff +
+//            parent_diff // DIFFICULTY_BOUND_DIVISOR *
+//            max(THRESHOLD - (block_timestamp - parent_timestamp) // INCREMENT_DIVISOR, -LIMIT)
+
 pub fn calculate_difficulty(header: &Header, parent: &Header) -> U256 {
     let diff_bound_div = U256::from(DIFFICULTY_BOUND_DIVISOR);
     let diff_inc = (header.timestamp() - parent.timestamp()) / INCREMENT_DIVISOR;

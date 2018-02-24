@@ -23,7 +23,3 @@ crunchy = "0.1.5"
 std = ["rustc-hex"]
 heapsizeof = ["heapsize"]
 use_asm = []
-
-[[example]]
-name = "modular"
-required-features = ["std"]

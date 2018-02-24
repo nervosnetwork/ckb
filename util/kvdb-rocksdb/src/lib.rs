@@ -75,22 +75,22 @@ impl Default for CompactionProfile {
 
 /// Given output of df command return Linux rotational flag file path.
 #[cfg(target_os = "linux")]
-pub fn rotational_from_df_output(df_out: Vec<u8>) -> Option<PathBuf> {
+pub fn rotational_from_df_output(df_out: &[u8]) -> Option<PathBuf> {
     use std::str;
-    str::from_utf8(df_out.as_slice())
-		.ok()
-		// Get the drive name.
-		.and_then(|df_str| Regex::new(r"/dev/(sd[:alpha:]{1,2})")
-			.ok()
-			.and_then(|re| re.captures(df_str))
-			.and_then(|captures| captures.get(1)))
-		// Generate path e.g. /sys/block/sda/queue/rotational
-		.map(|drive_path| {
-			let mut p = PathBuf::from("/sys/block");
-			p.push(drive_path.as_str());
-			p.push("queue/rotational");
-			p
-		})
+    str::from_utf8(df_out)
+        .ok()
+        // Get the drive name.
+        .and_then(|df_str| Regex::new(r"/dev/(sd[:alpha:]{1,2})")
+            .ok()
+            .and_then(|re| re.captures(df_str))
+            .and_then(|captures| captures.get(1)))
+        // Generate path e.g. /sys/block/sda/queue/rotational
+        .map(|drive_path| {
+            let mut p = PathBuf::from("/sys/block");
+            p.push(drive_path.as_str());
+            p.push("queue/rotational");
+            p
+        })
 }
 
 impl CompactionProfile {
@@ -101,11 +101,14 @@ impl CompactionProfile {
         let hdd_check_file = db_path
             .to_str()
             .and_then(|path_str| Command::new("df").arg(path_str).output().ok())
-            .and_then(|df_res| match df_res.status.success() {
-                true => Some(df_res.stdout),
-                false => None,
+            .and_then(|df_res| {
+                if df_res.status.success() {
+                    Some(df_res.stdout)
+                } else {
+                    None
+                }
             })
-            .and_then(rotational_from_df_output);
+            .and_then(|df| rotational_from_df_output(&df));
         // Read out the file and match compaction profile.
         if let Some(hdd_check) = hdd_check_file {
             if let Ok(mut file) = File::open(hdd_check.as_path()) {
@@ -200,13 +203,15 @@ impl Default for DatabaseConfig {
 // The compromise of holding only a virtual borrow vs. holding a lock on the
 // inner DB (to prevent closing via restoration) may be re-evaluated in the future.
 //
+type DBItem = (Box<[u8]>, Box<[u8]>);
+
 pub struct DatabaseIterator<'a> {
-    iter: InterleaveOrdered<::std::vec::IntoIter<(Box<[u8]>, Box<[u8]>)>, DBIterator>,
+    iter: InterleaveOrdered<::std::vec::IntoIter<DBItem>, DBIterator>,
     _marker: PhantomData<&'a Database>,
 }
 
 impl<'a> Iterator for DatabaseIterator<'a> {
-    type Item = (Box<[u8]>, Box<[u8]>);
+    type Item = DBItem;
 
     fn next(&mut self) -> Option<Self::Item> {
         self.iter.next()
@@ -326,7 +331,7 @@ impl Database {
         let cfnames: Vec<&str> = cfnames.iter().map(|n| n as &str).collect();
 
         for _ in 0..config.columns.unwrap_or(0) {
-            cf_options.push(col_config(&config, &block_opts)?);
+            cf_options.push(col_config(config, &block_opts)?);
         }
 
         let mut write_opts = WriteOptions::new();
@@ -375,19 +380,18 @@ impl Database {
                 warn!("DB corrupted: {}, attempting repair", s);
                 DB::repair(&opts, path)?;
 
-                match cfnames.is_empty() {
-                    true => DB::open(&opts, path)?,
-                    false => {
-                        let db = DB::open_cf(&opts, path, &cfnames, &cf_options)?;
-                        cfs = cfnames
-                            .iter()
-                            .map(|n| {
-                                db.cf_handle(n)
-                                    .expect("rocksdb opens a cf_handle for each cfname; qed")
-                            })
-                            .collect();
-                        db
-                    }
+                if cfnames.is_empty() {
+                    DB::open(&opts, path)?
+                } else {
+                    let db = DB::open_cf(&opts, path, &cfnames, &cf_options)?;
+                    cfs = cfnames
+                        .iter()
+                        .map(|n| {
+                            db.cf_handle(n)
+                                .expect("rocksdb opens a cf_handle for each cfname; qed")
+                        })
+                        .collect();
+                    db
                 }
             }
             Err(s) => {
@@ -413,6 +417,7 @@ impl Database {
         DBTransaction::new()
     }
 
+    #[cfg_attr(feature = "cargo-clippy", allow(wrong_self_convention))]
     fn to_overlay_column(col: Option<u32>) -> usize {
         col.map_or(0, |c| (c + 1) as usize)
     }
@@ -443,20 +448,20 @@ impl Database {
                 mem::swap(&mut *self.overlay.write(), &mut *self.flushing.write());
                 {
                     for (c, column) in self.flushing.read().iter().enumerate() {
-                        for (ref key, ref state) in column.iter() {
-                            match **state {
+                        for (key, state) in column.iter() {
+                            match *state {
                                 KeyState::Delete => {
                                     if c > 0 {
-                                        batch.delete_cf(cfs[c - 1], &key)?;
+                                        batch.delete_cf(cfs[c - 1], key)?;
                                     } else {
-                                        batch.delete(&key)?;
+                                        batch.delete(key)?;
                                     }
                                 }
                                 KeyState::Insert(ref value) => {
                                     if c > 0 {
-                                        batch.put_cf(cfs[c - 1], &key, value)?;
+                                        batch.put_cf(cfs[c - 1], key, value)?;
                                     } else {
-                                        batch.put(&key, &value)?;
+                                        batch.put(key, value)?;
                                     }
                                 }
                             }
@@ -698,9 +703,8 @@ impl Database {
                 ref mut db,
                 ref mut cfs,
             }) => {
-                if let Some(col) = cfs.pop() {
+                if let Some(_col) = cfs.pop() {
                     let name = format!("col{}", cfs.len());
-                    drop(col);
                     db.drop_cf(&name)?;
                 }
                 Ok(())
@@ -749,7 +753,7 @@ impl KeyValueDB for Database {
         Database::flush(self)
     }
 
-    fn iter<'a>(&'a self, col: Option<u32>) -> Box<Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a> {
+    fn iter<'a>(&'a self, col: Option<u32>) -> Box<Iterator<Item = DBItem> + 'a> {
         let unboxed = Database::iter(self, col);
         Box::new(unboxed.into_iter().flat_map(|inner| inner))
     }
@@ -758,7 +762,7 @@ impl KeyValueDB for Database {
         &'a self,
         col: Option<u32>,
         prefix: &'a [u8],
-    ) -> Box<Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a> {
+    ) -> Box<Iterator<Item = DBItem> + 'a> {
         let unboxed = Database::iter_from_prefix(self, col, prefix);
         Box::new(unboxed.into_iter().flat_map(|inner| inner))
     }
@@ -864,7 +868,7 @@ mod tests {
             52, 54, 49, 54, 32, 32, 54, 55, 37, 32, 47, 10,
         ];
         let expected_output = Some(PathBuf::from("/sys/block/sda/queue/rotational"));
-        assert_eq!(rotational_from_df_output(example_df), expected_output);
+        assert_eq!(rotational_from_df_output(&example_df[..]), expected_output);
     }
 
     #[test]

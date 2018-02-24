@@ -1,5 +1,5 @@
 test:
-	cargo test --release
+	cargo test --verbose --all
 
 build:
 	cargo build --release
@@ -7,7 +7,10 @@ build:
 fmt:
 	cargo fmt --all -- --write-mode=diff
 
-ci: fmt test
+clippy: 
+	cargo clippy --all -- -D warnings
+
+ci: fmt clippy test
 	git diff --exit-code Cargo.lock
 
-.PHONY: build fmt test ci
+.PHONY: build fmt test clippy ci

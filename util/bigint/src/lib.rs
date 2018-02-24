@@ -1,3 +1,7 @@
+#![allow(unknown_lints)]
+#![allow(clippy)]
+#![cfg_attr(rustfmt, rustfmt_skip)]
+
 #![cfg_attr(not(feature = "std"), no_std)]
 #![cfg_attr(asm_available, feature(asm))]
 

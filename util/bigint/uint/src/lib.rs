@@ -7,6 +7,10 @@
 // except according to those terms.
 
 //! Efficient large, fixed-size big integers and hashes.
+#![allow(unknown_lints)]
+#![allow(clippy)]
+
+#![cfg_attr(rustfmt, rustfmt_skip)]
 
 #![cfg_attr(asm_available, feature(asm))]
 

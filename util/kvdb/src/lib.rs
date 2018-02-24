@@ -112,7 +112,7 @@ impl DBTransaction {
 ///
 /// This makes a distinction between "buffered" and "flushed" values. Values which have been
 /// written can always be read, but may be present in an in-memory buffer. Values which have
-/// been flushed have been moved to backing storage, like a RocksDB instance. There are certain
+/// been flushed have been moved to backing storage, like a `RocksDB` instance. There are certain
 /// operations which are only guaranteed to operate on flushed data and not buffered,
 /// although implementations may differ in this regard.
 ///
@@ -126,6 +126,8 @@ impl DBTransaction {
 ///
 /// The API laid out here, along with the `Sync` bound implies interior synchronization for
 /// implementation.
+type DBItem = (Box<[u8]>, Box<[u8]>);
+
 pub trait KeyValueDB: Sync + Send {
     /// Helper to create a new transaction.
     fn transaction(&self) -> DBTransaction {
@@ -151,14 +153,14 @@ pub trait KeyValueDB: Sync + Send {
     fn flush(&self) -> Result<()>;
 
     /// Iterate over flushed data for a given column.
-    fn iter<'a>(&'a self, col: Option<u32>) -> Box<Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a>;
+    fn iter<'a>(&'a self, col: Option<u32>) -> Box<Iterator<Item = DBItem> + 'a>;
 
     /// Iterate over flushed data for a given column, starting from a given prefix.
     fn iter_from_prefix<'a>(
         &'a self,
         col: Option<u32>,
         prefix: &'a [u8],
-    ) -> Box<Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a>;
+    ) -> Box<Iterator<Item = DBItem> + 'a>;
 
     /// Attempt to replace this database with a new one located at the given path.
     fn restore(&self, new_db: &str) -> Result<()>;

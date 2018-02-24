@@ -1,6 +1,5 @@
 //! Transaction using Cell.
-//! It is similar to Bitcoin Tx https://en.bitcoin.it/wiki/Protocol_documentation#tx
-
+//! It is similar to Bitcoin Tx <https://en.bitcoin.it/wiki/Protocol_documentation#tx/>
 pub struct OutPoint {
     // Hash of Transaction
     pub hash: [u8; 32],

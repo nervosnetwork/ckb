@@ -25,9 +25,10 @@ core = { path = "./core" }
 
 [workspace]
 members = [
-    "util",
+    "util/logger",
+    "util/hash",
+    "util/kvdb-rocksdb",
+    "util/serialize",
     "network",
     "core",
-    "util/hash",
-    "util/bigint"
 ]
