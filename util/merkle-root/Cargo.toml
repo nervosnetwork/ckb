@@ -1,10 +1,8 @@
 [package]
-name = "serialize"
+name = "merkle-root"
 version = "0.1.0"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 
 [dependencies]
-bincode = "0.9.2"
-serde = "^1.0.27"
-serde_derive = "^1.0.27"
 bigint = { path = "../bigint" }
+hash = {path = "../hash"}

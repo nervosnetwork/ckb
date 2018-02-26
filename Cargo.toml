@@ -28,7 +28,7 @@ members = [
     "util/logger",
     "util/hash",
     "util/kvdb-rocksdb",
-    "util/serialize",
+    "util/merkle-root",
     "network",
     "core",
 ]
