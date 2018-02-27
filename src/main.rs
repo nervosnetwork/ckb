@@ -1,7 +1,9 @@
 #[macro_use]
 extern crate clap;
+extern crate ctrlc;
 #[macro_use]
 extern crate log;
+extern crate logger;
 extern crate nervos_chain as chain;
 extern crate nervos_db as db;
 extern crate nervos_miner as miner;
@@ -26,8 +28,7 @@ use pool::{OrphanBlockPool, TransactionPool};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::RwLock;
-use util::logger;
-use util::wait_for_exit;
+use util::{Condvar, Mutex};
 
 fn main() {
     let matches = clap_app!(nervos =>
@@ -76,4 +77,18 @@ fn main() {
     info!(target: "main", "Finishing work, please wait...");
 
     logger::flush();
+}
+
+pub fn wait_for_exit() {
+    let exit = Arc::new((Mutex::new(()), Condvar::new()));
+
+    // Handle possible exits
+    let e = exit.clone();
+    let _ = ctrlc::set_handler(move || {
+        e.1.notify_all();
+    });
+
+    // Wait for signal
+    let mut l = exit.0.lock();
+    exit.1.wait(&mut l);
 }

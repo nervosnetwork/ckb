@@ -16,6 +16,9 @@ matrix:
             cargo install clippy --vers $CLIPPY_VERSION --force;
           fi'
     - rust: nightly-2018-01-23
+      before_install:
+        - sudo apt-get -qq update
+        - sudo apt-get install -y git autoconf flex bison texinfo libtool
       before_script:
         - rustup component add rustfmt-preview --toolchain=nightly-2018-01-23
         - bash -c 'if [[ ! -e $HOME/.cargo/bin/cargo-clippy ]]; then
