@@ -6,6 +6,7 @@ authors = ["Nervos Core Dev <dev@nervos.org>"]
 [dependencies]
 log = "0.4"
 bigint = { path = "../util/bigint" }
+nervos-time = { path = "../util/time" }
 nervos-core = { path = "../core" }
 nervos-pool = { path = "../pool" }
 nervos-chain = { path = "../chain" }

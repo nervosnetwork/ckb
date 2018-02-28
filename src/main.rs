@@ -1,3 +1,4 @@
+extern crate bigint;
 #[macro_use]
 extern crate clap;
 extern crate ctrlc;
@@ -20,6 +21,7 @@ mod config;
 mod adapter;
 
 use adapter::{ChainToNetAndPoolAdapter, NetToChainAndPoolAdapter};
+use bigint::H256;
 use chain::chain::Chain;
 use chain::store::ChainKVStore;
 use config::Config;
@@ -70,7 +72,8 @@ fn main() {
     let miner = Miner {
         chain: chain,
         tx_pool: Arc::new(tx_pool),
-        private_key: vec![0, 1, 2],
+        miner_key: vec![0, 1, 2],
+        signer_key: H256::default(),
     };
 
     miner.run_loop();

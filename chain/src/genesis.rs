@@ -1,18 +1,20 @@
-use bigint::{H256, H512, U256};
-use core::block::{Block, Header};
+use bigint::{H256, H520, U256};
+use core::block::{Block, Header, UnsignHeader};
 use core::proof::Proof;
 
 pub fn genesis_dev() -> Block {
     Block {
         header: Header {
-            parent_hash: H256::from(0),
-            timestamp: 0,
-            transactions_root: H256::from(0),
-            difficulty: U256::from(0),
-            challenge: H256::from(0),
-            proof: Proof::new(&vec![0], 0, 0, H256::from(0)),
-            height: 0,
-            signature: H512::from(0),
+            unsign_header: UnsignHeader {
+                pre_hash: H256::from(0),
+                timestamp: 0,
+                transactions_root: H256::from(0),
+                difficulty: U256::from(0),
+                challenge: H256::from(0),
+                proof: Proof::new(&[0], 0, 0, &H256::from(0)),
+                height: 0,
+            },
+            signature: H520::from(0),
         },
         transactions: vec![],
     }

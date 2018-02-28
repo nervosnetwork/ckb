@@ -2,13 +2,22 @@ use bigint::H256;
 use core::block::{Block, Header};
 use db::kvdb::KeyValueDB;
 
-const HEAD_HEADER_KEY: u8 = 'H' as u8;
+#[derive(Serialize, Deserialize, PartialEq, Debug)]
+pub enum Key {
+    BlockHash(u64),
+    BlockHeader(H256),
+    Block(H256),
+    Transaction(H256),
+    HeadHeader,
+}
 
 pub trait ChainStore {
     fn get_block(&self, h: &H256) -> Option<Block>;
     fn save_block(&self, b: &Block);
     fn get_header(&self, h: &H256) -> Option<Header>;
     fn save_header(&self, h: &Header);
+    fn get_block_hash(&self, height: u64) -> Option<H256>;
+    fn save_block_hash(&self, height: u64, hash: &H256);
     fn head_header(&self) -> Option<Header>;
     fn init(&self, genesis: &Block) -> ();
 }
@@ -20,30 +29,37 @@ pub struct ChainKVStore<T: KeyValueDB> {
 impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
     // TODO error log
     fn get_block(&self, h: &H256) -> Option<Block> {
-        self.db.read(h).ok().unwrap()
+        self.db.read(&Key::Block(*h)).ok().unwrap()
     }
 
     fn save_block(&self, b: &Block) {
-        self.db.write(&b.hash(), b).unwrap();
+        self.db.write(&Key::Block(b.hash()), b).unwrap();
     }
 
     fn get_header(&self, h: &H256) -> Option<Header> {
-        self.db.read(h).ok().unwrap()
+        self.db.read(&Key::BlockHeader(*h)).ok().unwrap()
     }
 
     fn save_header(&self, h: &Header) {
-        self.db.write(&h.hash(), h).unwrap();
+        self.db.write(&Key::BlockHeader(h.hash()), h).unwrap();
+    }
+
+    fn save_block_hash(&self, height: u64, hash: &H256) {
+        self.db.write(&Key::BlockHash(height), hash).unwrap();
+    }
+
+    fn get_block_hash(&self, height: u64) -> Option<H256> {
+        self.db.read(&Key::BlockHash(height)).unwrap()
     }
 
     fn head_header(&self) -> Option<Header> {
-        self.db.read(&vec![HEAD_HEADER_KEY]).ok().unwrap()
+        self.db.read(&Key::HeadHeader).ok().unwrap()
     }
 
     fn init(&self, genesis: &Block) {
         self.save_block(genesis);
         self.save_header(&genesis.header);
-        self.db.write(&vec![HEAD_HEADER_KEY], &genesis.header).unwrap();
-        ()
+        self.db.write(&Key::HeadHeader, &genesis.header).unwrap();
     }
 }
 

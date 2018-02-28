@@ -11,4 +11,6 @@ bigint = { path = "../util/bigint" }
 bls = { git = "https://github.com/NervosFoundation/bls-rs.git" }
 hash = {path = "../util/hash"}
 kvdb = {path = "../util/kvdb"}
+crypto = {path = "../util/crypto"}
+merkle-root = {path = "../util/merkle-root"}
 kvdb-rocksdb = { path = "../util/kvdb-rocksdb" }

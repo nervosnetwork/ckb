@@ -1,9 +1,8 @@
 use bigint::{H256, U256};
 use bls;
 use difficulty::boundary_to_difficulty;
+use global::TIME_STEP;
 use hash::{Sha3, sha3_256};
-
-const TIME_STEP: u64 = 1;
 
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 pub struct Proof {
@@ -12,7 +11,7 @@ pub struct Proof {
 
 impl Proof {
     // generate proof
-    pub fn new(private_key: &[u8], time: u64, height: u64, challenge: H256) -> Proof {
+    pub fn new(private_key: &[u8], time: u64, height: u64, challenge: &H256) -> Proof {
         let mut hash = [0u8; 32];
         let h1 = H256::from(time / TIME_STEP).to_vec();
         let h2 = H256::from(height).to_vec();
@@ -48,8 +47,12 @@ impl Proof {
         bls::verify(hash.to_vec(), self.sig.clone(), pubkey, g)
     }
 
+    pub fn hash(&self) -> H256 {
+        sha3_256(self.sig.as_slice()).into()
+    }
+
     /// Get difficulty
     pub fn difficulty(&self) -> U256 {
-        boundary_to_difficulty(&(sha3_256(self.sig.as_slice()).into()))
+        boundary_to_difficulty(&self.hash())
     }
 }

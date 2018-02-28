@@ -1,4 +1,5 @@
 use bincode::{deserialize, serialize};
+use bincode::Error as BcError;
 use serde::de::DeserializeOwned;
 use serde::ser::Serialize;
 use std::collections::HashMap;
@@ -15,30 +16,29 @@ pub enum ErrorKind {
     SerializationError(String),
 }
 
+impl From<BcError> for Error {
+    fn from(err: BcError) -> Error {
+        Box::new(ErrorKind::SerializationError(err.description().to_string()))
+    }
+}
+
 pub trait KeyValueDB {
     fn put(&self, key: &[u8], value: &[u8]) -> Result<()>;
     fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>>;
 
-    fn write<T: Serialize>(&self, key: &[u8], value: &T) -> Result<()> {
-        match serialize(value) {
-            Ok(serialized) => self.put(key, &serialized),
-            Err(err) => Err(Box::new(ErrorKind::SerializationError(
-                err.description().to_string(),
-            ))),
-        }
+    fn write<K: Serialize, T: Serialize>(&self, key: &K, value: &T) -> Result<()> {
+        let k = serialize(key)?;
+        let v = serialize(value)?;
+        self.put(&k, &v)
     }
 
-    fn read<T>(&self, key: &[u8]) -> Result<Option<T>>
+    fn read<K: Serialize, T>(&self, key: &K) -> Result<Option<T>>
     where
         T: DeserializeOwned,
     {
-        match self.get(key) {
-            Ok(Some(ref value)) => match deserialize(value) {
-                Ok(deserialized) => Ok(Some(deserialized)),
-                Err(err) => Err(Box::new(ErrorKind::SerializationError(
-                    err.description().to_string(),
-                ))),
-            },
+        let k = serialize(key)?;
+        match self.get(&k) {
+            Ok(Some(ref value)) => Ok(Some(deserialize(value)?)),
             Ok(None) => Ok(None),
             Err(err) => Err(err),
         }
