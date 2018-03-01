@@ -3,6 +3,7 @@ use chain::chain::Chain;
 use core::block::{Block, Header};
 use core::proof::Proof;
 use pool::TransactionPool;
+use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
@@ -11,8 +12,8 @@ use std::time::Duration;
 const MAX_TX: usize = 1024;
 
 pub struct Miner {
-    pub chain: Box<Chain>,
-    pub tx_pool: Box<TransactionPool>,
+    pub chain: Arc<Chain>,
+    pub tx_pool: Arc<TransactionPool>,
     pub private_key: Vec<u8>,
 }
 

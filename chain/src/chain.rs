@@ -1,4 +1,4 @@
-use adapter::ChainAdapter;
+use core::adapter::ChainAdapter;
 use core::block::{Block, Header};
 use std::sync::Arc;
 use store::ChainStore;

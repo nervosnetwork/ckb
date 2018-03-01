@@ -11,3 +11,4 @@ pub mod transaction;
 pub mod block;
 pub mod proof;
 pub mod difficulty;
+pub mod adapter;

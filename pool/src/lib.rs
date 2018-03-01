@@ -7,8 +7,9 @@ use core::transaction::Transaction;
 use std::collections::HashMap;
 use std::sync::RwLock;
 
+#[derive(Default)]
 pub struct TransactionPool {
-    pub pool: RwLock<HashMap<H256, Transaction>>,
+    pool: RwLock<HashMap<H256, Transaction>>,
 }
 
 impl TransactionPool {
