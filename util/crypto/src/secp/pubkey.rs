@@ -1,11 +1,11 @@
+use super::Message;
+use super::SECP256K1;
+use super::error::Error;
+use super::secp256k1::Error as SecpError;
+use super::secp256k1::Message as SecpMessage;
+use super::secp256k1::key;
+use super::signature::Signature;
 use bigint::H512;
-use error::Error;
-use secp::Message;
-use secp::SECP256K1;
-use secp::secp256k1::Error as SecpError;
-use secp::secp256k1::Message as SecpMessage;
-use secp::secp256k1::key;
-use secp::signature::Signature;
 use std::ops;
 
 #[derive(Debug, Eq, PartialEq)]

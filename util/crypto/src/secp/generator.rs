@@ -1,9 +1,9 @@
-use error::Error;
+use super::SECP256K1;
+use super::error::Error;
+use super::privkey::Privkey;
+use super::pubkey::Pubkey;
+use super::secp256k1::key;
 use rand::{self, ThreadRng};
-use secp::SECP256K1;
-use secp::privkey::Privkey;
-use secp::pubkey::Pubkey;
-use secp::secp256k1::key;
 
 pub struct Generator {
     ///thread-local random number generator Rc<RefCell<_>>
@@ -27,5 +27,11 @@ impl Generator {
         let (sec, publ) = SECP256K1.generate_keypair(&mut rng)?;
 
         Ok((sec.into(), publ.into()))
+    }
+}
+
+impl Default for Generator {
+    fn default() -> Self {
+        Self::new()
     }
 }

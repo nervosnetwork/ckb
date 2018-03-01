@@ -1,9 +1,9 @@
+use super::{Message, SECP256K1};
+use super::error::Error;
+use super::secp256k1::Message as SecpMessage;
+use super::secp256k1::key;
+use super::signature::Signature;
 use bigint::H256;
-use error::Error;
-use secp::{Message, SECP256K1};
-use secp::secp256k1::Message as SecpMessage;
-use secp::secp256k1::key;
-use secp::signature::Signature;
 use std::ops;
 use std::str::FromStr;
 

@@ -1,11 +1,11 @@
+use super::Message;
+use super::SECP256K1;
+use super::error::Error;
+use super::pubkey::Pubkey;
+use super::secp256k1::{RecoverableSignature, RecoveryId};
+use super::secp256k1::Message as SecpMessage;
 use bigint::{H256, H512, H520};
-use error::Error;
 use rustc_hex::ToHex;
-use secp::Message;
-use secp::SECP256K1;
-use secp::pubkey::Pubkey;
-use secp::secp256k1::{RecoverableSignature, RecoveryId};
-use secp::secp256k1::Message as SecpMessage;
 use std::fmt;
 use std::str::FromStr;
 

@@ -11,7 +11,9 @@ failure_derive = "0.1.1"
 bigint = { path = "../bigint" }
 rand = "0.4"
 rustc-hex = "1.0"
+crunchy = "0.1.5"
 
 [features]
 default = ["secp"]
 secp = ["secp256k1"]
+dev = []
