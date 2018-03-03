@@ -22,10 +22,8 @@ impl TransactionPool {
         let pool = self.pool.read().unwrap();
         pool.iter().take(limit).map(|(_, tx)| tx).cloned().collect()
     }
-}
-
-pub struct OrphanBlockPool {}
-
-impl OrphanBlockPool {
-    pub fn add_block(&self, _b: &Block) {}
+    /// Updates the pool with the details of a new block.
+    pub fn accommodate(&self, _block: &Block) {
+        // TODO implement this
+    }
 }

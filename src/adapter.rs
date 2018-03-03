@@ -3,10 +3,10 @@ use core::adapter::{ChainAdapter, NetAdapter};
 use core::block::Block;
 use core::transaction::Transaction;
 use network::Network;
-use pool::{OrphanBlockPool, TransactionPool};
+use pool::TransactionPool;
 use std::cell::{Ref, RefCell};
 use std::ops::Deref;
-use std::sync::{Arc, RwLock, Weak};
+use std::sync::{Arc, Weak};
 
 // helper function
 fn w<T>(weak: &RefCell<Option<Weak<T>>>) -> Arc<T> {
@@ -16,14 +16,14 @@ fn w<T>(weak: &RefCell<Option<Weak<T>>>) -> Arc<T> {
 
 #[derive(Clone)]
 pub struct ChainToNetAndPoolAdapter {
-    orphan_pool: Arc<RwLock<OrphanBlockPool>>,
+    tx_pool: Arc<TransactionPool>,
     network: RefCell<Option<Weak<Network>>>,
 }
 
 impl Default for ChainToNetAndPoolAdapter {
     fn default() -> ChainToNetAndPoolAdapter {
         ChainToNetAndPoolAdapter {
-            orphan_pool: Arc::new(RwLock::new(OrphanBlockPool {})),
+            tx_pool: Arc::new(TransactionPool::default()),
             network: RefCell::new(None),
         }
     }
@@ -31,7 +31,7 @@ impl Default for ChainToNetAndPoolAdapter {
 
 impl ChainAdapter for ChainToNetAndPoolAdapter {
     fn block_accepted(&self, b: &Block) {
-        self.orphan_pool.write().unwrap().add_block(b);
+        self.tx_pool.accommodate(b);
         w(&self.network).broadcast(b)
     }
 }
