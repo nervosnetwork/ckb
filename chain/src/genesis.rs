@@ -15,6 +15,7 @@ pub fn genesis_dev() -> Block {
                 height: 0,
             },
             signature: H520::from(0),
+            total_difficulty: U256::from(0),
         },
         transactions: vec![],
     }

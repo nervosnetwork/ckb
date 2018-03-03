@@ -4,7 +4,7 @@ use difficulty::boundary_to_difficulty;
 use global::TIME_STEP;
 use hash::{Sha3, sha3_256};
 
-#[derive(Serialize, Deserialize, PartialEq, Debug)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]
 pub struct Proof {
     sig: Vec<u8>,
 }

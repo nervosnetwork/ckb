@@ -988,6 +988,7 @@ dependencies = [
  "nervos-miner 0.1.0",
  "nervos-network 0.1.0",
  "nervos-pool 0.1.0",
+ "nervos-time 0.1.0",
  "nervos-util 0.1.0",
  "serde 1.0.27 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.27 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1001,12 +1002,11 @@ dependencies = [
  "bigint 0.2.3",
  "bincode 1.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "env_logger 0.4.3 (registry+https://github.com/rust-lang/crates.io-index)",
- "hash 0.1.0",
  "log 0.4.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "nervos-core 0.1.0",
  "nervos-db 0.1.0",
- "nervos-network 0.1.0",
- "nervos-pool 0.1.0",
+ "nervos-util 0.1.0",
+ "rand 0.4.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.27 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.27 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
@@ -1023,6 +1023,7 @@ dependencies = [
  "kvdb 0.1.0",
  "kvdb-rocksdb 0.1.0",
  "merkle-root 0.1.0",
+ "nervos-time 0.1.0",
  "serde 1.0.27 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.27 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
@@ -1032,6 +1033,7 @@ name = "nervos-db"
 version = "0.1.0"
 dependencies = [
  "bincode 1.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "nervos-util 0.1.0",
  "serde 1.0.27 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.27 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
@@ -1082,6 +1084,7 @@ version = "0.1.0"
 dependencies = [
  "bigint 0.2.3",
  "nervos-core 0.1.0",
+ "nervos-util 0.1.0",
 ]
 
 [[package]]

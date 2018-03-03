@@ -11,6 +11,7 @@ extern crate nervos_db as db;
 extern crate nervos_miner as miner;
 extern crate nervos_network as network;
 extern crate nervos_pool as pool;
+extern crate nervos_time as time;
 extern crate nervos_util as util;
 extern crate serde;
 #[macro_use]
@@ -21,7 +22,6 @@ mod config;
 mod adapter;
 
 use adapter::{ChainToNetAndPoolAdapter, NetToChainAndPoolAdapter};
-use bigint::H256;
 use chain::chain::Chain;
 use chain::store::ChainKVStore;
 use config::Config;
@@ -50,30 +50,34 @@ fn main() {
     let db = MemoryKeyValueDB::default();
     let store = ChainKVStore { db: Box::new(db) };
 
-    let net_adapter = NetToChainAndPoolAdapter::default();
-    let network = Arc::new(Network {
-        adapter: Arc::new(net_adapter.clone()),
-    });
+    let tx_pool = Arc::new(TransactionPool::default());
 
-    let chain_adapter = ChainToNetAndPoolAdapter::default();
+    let chain_adapter = Arc::new(ChainToNetAndPoolAdapter::new(tx_pool.clone()));
     let chain = Arc::new(
         Chain::init(
             Arc::new(store),
-            Arc::new(chain_adapter.clone()),
+            chain_adapter.clone(),
             &chain::genesis::genesis_dev(),
         ).unwrap(),
     );
 
-    net_adapter.init(Arc::downgrade(&chain));
-    chain_adapter.init(Arc::downgrade(&network));
+    let kg = Arc::new(config.key_group());
 
-    let tx_pool = TransactionPool::default();
+    let net_adapter = NetToChainAndPoolAdapter::new(kg, chain.clone(), tx_pool.clone());
+
+    let network = Arc::new(Network {
+        adapter: net_adapter,
+    });
+
+    chain_adapter.init(network);
+
+    // chain_adapter.network = network;
 
     let miner = Miner {
         chain: chain,
-        tx_pool: Arc::new(tx_pool),
-        miner_key: vec![0, 1, 2],
-        signer_key: H256::default(),
+        tx_pool: tx_pool,
+        miner_key: config.miner_private_key,
+        signer_key: config.signer_private_key,
     };
 
     miner.run_loop();

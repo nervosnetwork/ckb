@@ -5,7 +5,7 @@ use serde::ser::Serialize;
 use std::collections::HashMap;
 use std::error::Error as StdError;
 use std::result;
-use std::sync::RwLock;
+use util::RwLock;
 
 type Error = Box<ErrorKind>;
 type Result<T> = result::Result<T, Error>;
@@ -22,7 +22,7 @@ impl From<BcError> for Error {
     }
 }
 
-pub trait KeyValueDB {
+pub trait KeyValueDB: Sync + Send {
     fn put(&self, key: &[u8], value: &[u8]) -> Result<()>;
     fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>>;
 
@@ -52,13 +52,13 @@ pub struct MemoryKeyValueDB {
 
 impl KeyValueDB for MemoryKeyValueDB {
     fn put(&self, key: &[u8], value: &[u8]) -> Result<()> {
-        let mut hashmap = self.hashmap.write().unwrap();
+        let mut hashmap = self.hashmap.write();
         hashmap.insert(key.to_vec(), value.to_vec());
         Ok(())
     }
 
     fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
-        let hashmap = self.hashmap.read().unwrap();
+        let hashmap = self.hashmap.read();
         if let Some(result) = hashmap.get(key) {
             Ok(Some(result.to_vec()))
         } else {

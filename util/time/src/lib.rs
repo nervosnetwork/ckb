@@ -1,4 +1,5 @@
 use std::time::{SystemTime, UNIX_EPOCH};
+pub use std::time::Duration;
 
 pub fn now_ms() -> u64 {
     let start = SystemTime::now();

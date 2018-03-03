@@ -16,6 +16,7 @@ nervos-miner = { path = "miner" }
 nervos-db = { path = "db" }
 nervos-network = { path = "network"}
 nervos-pool = { path = "pool"}
+nervos-time = { path = "util/time"}
 logger = { path = "util/logger" }
 bigint = { path = "util/bigint" }
 ctrlc = { version = "3.1", features = ["termination"] }

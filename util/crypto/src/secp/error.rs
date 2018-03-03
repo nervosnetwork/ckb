@@ -1,6 +1,6 @@
 use super::secp256k1::Error as SecpError;
 
-#[derive(Debug, Fail)]
+#[derive(Debug, PartialEq, Eq, Fail)]
 pub enum Error {
     #[fail(display = "invalid privkey")] InvalidPrivKey,
     #[fail(display = "invalid pubkey")] InvalidPubKey,

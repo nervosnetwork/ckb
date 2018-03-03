@@ -11,7 +11,7 @@ pub enum Key {
     HeadHeader,
 }
 
-pub trait ChainStore {
+pub trait ChainStore: Sync + Send {
     fn get_block(&self, h: &H256) -> Option<Block>;
     fn save_block(&self, b: &Block);
     fn get_header(&self, h: &H256) -> Option<Header>;
@@ -19,6 +19,7 @@ pub trait ChainStore {
     fn get_block_hash(&self, height: u64) -> Option<H256>;
     fn save_block_hash(&self, height: u64, hash: &H256);
     fn head_header(&self) -> Option<Header>;
+    fn save_head_header(&self, h: &Header);
     fn init(&self, genesis: &Block) -> ();
 }
 
@@ -56,10 +57,15 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
         self.db.read(&Key::HeadHeader).ok().unwrap()
     }
 
+    fn save_head_header(&self, h: &Header) {
+        self.db.write(&Key::HeadHeader, h).unwrap();
+    }
+
     fn init(&self, genesis: &Block) {
         self.save_block(genesis);
         self.save_header(&genesis.header);
-        self.db.write(&Key::HeadHeader, &genesis.header).unwrap();
+        self.save_head_header(&genesis.header);
+        self.save_block_hash(genesis.header.height, &genesis.hash());
     }
 }
 
