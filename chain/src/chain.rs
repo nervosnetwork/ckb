@@ -2,7 +2,7 @@ use bigint::{H256, U256};
 use core::adapter::ChainAdapter;
 use core::block::{Block, Header};
 use core::difficulty::calculate_difficulty;
-use core::global::{EPOCH_LEN, HEIGHT_SHIFT, TIME_STEP};
+use core::global::{EPOCH_LEN, HEIGHT_SHIFT, MIN_DIFFICULTY, TIME_STEP};
 use rand::{thread_rng, Rng};
 use std::sync::Arc;
 use store::ChainStore;
@@ -174,6 +174,9 @@ impl Chain {
     }
 
     pub fn cal_difficulty(&self, pre_header: &Header) -> U256 {
+        if pre_header.height == 0 {
+            return U256::from(MIN_DIFFICULTY);
+        }
         let parent = self.block_header(&pre_header.pre_hash).unwrap();
         calculate_difficulty(pre_header, &parent)
     }

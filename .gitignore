@@ -10,6 +10,9 @@
 # intermedia file directory
 target/
 */target/
+admintool/example/
+
+*.pyc
 
 # Cargo lock in subs
 **/Cargo.lock
