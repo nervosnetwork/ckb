@@ -27,9 +27,9 @@ impl ChainToNetAndPoolAdapter {
     pub fn new(tx_pool: Arc<TransactionPool>) -> Self {
         ChainToNetAndPoolAdapter {
             tx_pool: tx_pool,
-            network: RwLock::new(Arc::new(Network {
-                adapter: Arc::new(FakeNet::default()),
-            })),
+            network: RwLock::new(Arc::new(
+                Network::init(Arc::new(FakeNet::default()), vec![], vec![]).unwrap(),
+            )),
         }
     }
     pub fn init(&self, network: Arc<Network>) {

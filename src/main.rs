@@ -22,7 +22,7 @@ mod config;
 mod adapter;
 
 use adapter::{ChainToNetAndPoolAdapter, NetToChainAndPoolAdapter};
-
+use bigint::H256;
 use chain::chain::Chain;
 use chain::store::ChainKVStore;
 use config::Config;
@@ -31,9 +31,13 @@ use miner::miner::Miner;
 use network::Network;
 use pool::TransactionPool;
 use std::sync::Arc;
+use std::thread;
 use util::{Condvar, Mutex};
 
 fn main() {
+    // Always print backtrace on panic.
+    ::std::env::set_var("RUST_BACKTRACE", "1");
+
     let matches = clap_app!(nervos =>
         (version: "0.1")
         (author: "Nervos <dev@nervos.org>")
@@ -66,22 +70,34 @@ fn main() {
 
     let net_adapter = NetToChainAndPoolAdapter::new(kg, chain.clone(), tx_pool.clone());
 
-    let network = Arc::new(Network {
-        adapter: net_adapter,
-    });
+    let network = Arc::new(
+        Network::init(
+            net_adapter,
+            include_bytes!("test-private-key.pk8").to_vec(),
+            include_bytes!("test-public-key.der").to_vec(),
+        ).unwrap(),
+    );
 
-    chain_adapter.init(network);
-
-    // chain_adapter.network = network;
+    chain_adapter.init(network.clone());
 
     let miner = Miner {
         chain: chain,
         tx_pool: tx_pool,
         miner_key: config.miner_private_key,
-        signer_key: bigint::H256::from(&config.signer_private_key[..]),
+        signer_key: config.signer_private_key,
     };
 
-    miner.run_loop();
+    let _ = thread::Builder::new()
+        .name("network".to_string())
+        .spawn(move || {
+            network.start();
+        });
+
+    let _ = thread::Builder::new()
+        .name("miner".to_string())
+        .spawn(move || {
+            miner.run_loop();
+        });
 
     wait_for_exit();
 
