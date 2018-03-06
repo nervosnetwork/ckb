@@ -3,7 +3,7 @@ signer_private_key = [17, 98, 178, 241, 80, 199, 137, 174, 211, 46, 46, 11, 48, 
 
 [logger]
 file = "/tmp/nervos.log"
-filter = "main=info,miner=info"
+filter = "main=info,miner=info,chain=info"
 color = true
 [[key_pairs]]
 proof_public_key = [3, 113, 81, 173, 253, 155, 1, 103, 217, 67, 173, 129, 99, 82, 191, 10, 150, 207, 237, 250, 21, 182, 12, 173, 221, 169, 26, 215, 16, 115, 44, 184, 12, 181, 77, 70, 206, 47, 169, 252, 0]

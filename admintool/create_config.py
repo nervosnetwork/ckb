@@ -19,7 +19,7 @@ def make_config():
     secret_path = os.path.join(path, "signer_privkey")
     f.write("[logger]" + "\n")
     f.write("file = \"/tmp/nervos.log\"\n")
-    f.write("filter = \"main=info,miner=info\"\n")
+    f.write("filter = \"main=info,miner=info,chain=info\"\n")
     f.write("color = true\n")
     secret_key = open(secret_path, "r")
     key = secret_key.read()

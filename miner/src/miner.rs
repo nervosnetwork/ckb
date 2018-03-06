@@ -8,6 +8,8 @@ use std::sync::Arc;
 use std::thread;
 use time::{now_ms, Duration};
 
+const FREQUENCY: usize = 50;
+
 pub struct Miner {
     pub chain: Arc<Chain>,
     pub tx_pool: Arc<TransactionPool>,
@@ -21,6 +23,7 @@ impl Miner {
         let mut challenge = self.chain.challenge(&pre_header).unwrap();
         let mut difficulty = self.chain.cal_difficulty(&pre_header);
         let mut pre_time = now_ms();
+        let mut num: usize = 0;
 
         loop {
             thread::sleep(Duration::from_millis(TIME_STEP / 10));
@@ -30,7 +33,10 @@ impl Miner {
             }
             pre_time = time;
 
-            info!(target: "miner", "minning loop ...");
+            if num == FREQUENCY {
+                info!(target: "miner", "{} times is tried", FREQUENCY);
+                num = 0;
+            }
 
             let head_header = self.chain.head_header();
 
@@ -51,6 +57,8 @@ impl Miner {
                 let txs = self.tx_pool.get_transactions(MAX_TX);
                 let mut block = Block::new(&pre_header, time, difficulty, challenge, proof, txs);
                 block.sign(self.signer_key);
+
+                info!(target: "miner", "new block mined: {}", block.hash());
                 self.chain.process_block(&block).unwrap();
             }
         }

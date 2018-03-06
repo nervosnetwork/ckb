@@ -43,6 +43,7 @@ impl Chain {
     }
 
     pub fn process_block(&self, b: &Block) -> Result<(), Error> {
+        info!(target: "chain", "begin processing block: {}", b.hash());
         self.check_block(&b.header)?;
         self.insert_block(b);
         self.adapter.block_accepted(b);
@@ -90,6 +91,7 @@ impl Chain {
             || (b.header.total_difficulty == head_header.total_difficulty
                 && rng.gen_range(0, 2) == 0)
         {
+            info!(target: "chain", "new best block found: {}", b.hash());
             let _guard = self.lock.lock();
             self.update_main_chain(&b.header);
             self.store.save_head_header(&b.header);
@@ -182,15 +184,15 @@ impl Chain {
     }
 
     pub fn print_chain(&self, tip: u64, len: u64) {
-        info!("Chain {{");
+        info!(target: "chain", "Chain {{");
 
         let limit = if tip > len { len } else { tip } + 1;
 
         for i in 0..limit {
             let hash = self.block_hash(tip - i).expect("invaild block number");
-            info!("   {} => {}", tip - i, hash);
+            info!(target: "chain", "   {} => {}", tip - i, hash);
         }
 
-        info!("}}");
+        info!(target: "chain", "}}");
     }
 }
