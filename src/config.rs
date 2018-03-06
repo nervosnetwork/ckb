@@ -1,4 +1,3 @@
-use bigint::H256;
 use core::PublicKey;
 use core::keygroup::KeyGroup;
 use logger::Config as LogConfig;
@@ -9,10 +8,9 @@ use toml;
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 pub struct Config {
-    #[serde(rename = "log")]
-    pub miner_private_key: Vec<u8>,
-    pub signer_private_key: H256,
     pub logger: LogConfig,
+    pub miner_private_key: Vec<u8>,
+    pub signer_private_key: Vec<u8>,
     pub key_pairs: Vec<KeyPair>,
 }
 

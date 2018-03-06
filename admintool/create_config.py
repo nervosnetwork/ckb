@@ -13,15 +13,17 @@ def make_config():
     config_name = "config"
     dump_path = os.path.join(path, config_name)
     f = open(dump_path, "w")
-    f.write("[logger]" + "\n")
-    f.write("color = true \n")
     key = keypairs[nid * 3]
     f.write("miner_private_key = " + key)
+    f.write("signer_private_key = " + key + "\n")
     secret_path = os.path.join(path, "signer_privkey")
+    f.write("[logger]" + "\n")
+    f.write("file = \"/tmp/nervos.log\"\n")
+    f.write("filter = \"main=info,miner=info\"\n")
+    f.write("color = true\n")
     secret_key = open(secret_path, "r")
     key = secret_key.read()
     secret_key.close()
-    f.write("signer_private_key = \"" + key + "\"\n")
     
     #generate keypairs
     signer_auth_path = os.path.join(sys.argv[1], "signer_authorities")
@@ -34,10 +36,10 @@ def make_config():
         proof_g = keypairs[i+1]
         if (not signer_key) or (not proof_key):
             break
-        f.write("[[keygroups]]" + "\n")
+        f.write("[[key_pairs]]" + "\n")
         f.write("proof_public_key = " + proof_key)
         f.write("proof_public_g = " + proof_g)
-        f.write("signer_public_key = \"" + signer_key + "\"\n")
+        f.write("signer_public_key = \"0x" + signer_key + "\"\n")
         i += 3
 
     signer_auth.close()

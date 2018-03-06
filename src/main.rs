@@ -22,6 +22,7 @@ mod config;
 mod adapter;
 
 use adapter::{ChainToNetAndPoolAdapter, NetToChainAndPoolAdapter};
+
 use chain::chain::Chain;
 use chain::store::ChainKVStore;
 use config::Config;
@@ -77,7 +78,7 @@ fn main() {
         chain: chain,
         tx_pool: tx_pool,
         miner_key: config.miner_private_key,
-        signer_key: config.signer_private_key,
+        signer_key: bigint::H256::from(&config.signer_private_key[..]),
     };
 
     miner.run_loop();
