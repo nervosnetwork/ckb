@@ -9,6 +9,7 @@ pub enum Error {
     InvalidProof,
     InvalidDifficulty(U256, U256),
     InvalidSignature(CrypError),
+    InvalidHash(H256, H256),
 }
 
 impl From<CrypError> for Error {

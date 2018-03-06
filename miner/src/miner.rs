@@ -33,6 +33,7 @@ impl Miner {
             }
             pre_time = time;
 
+            num += 1;
             if num == FREQUENCY {
                 info!(target: "miner", "{} times is tried", FREQUENCY);
                 num = 0;

@@ -12,7 +12,7 @@ use std::ops::{Deref, DerefMut};
 use time::now_ms;
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]
-pub struct UnsignHeader {
+pub struct RawHeader {
     /// Previous hash.
     pub pre_hash: H256,
     /// Block timestamp(ms).
@@ -29,40 +29,55 @@ pub struct UnsignHeader {
     pub proof: Proof,
 }
 
+impl RawHeader {
+    pub fn cal_hash(&self) -> H256 {
+        sha3_256(serialize(self).unwrap()).into()
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]
 pub struct Header {
     /// unsign header.
-    pub unsign_header: UnsignHeader,
+    pub raw: RawHeader,
     /// Block signature
     pub signature: H520,
     /// Total difficulty
     pub total_difficulty: U256,
+    /// Hash
+    pub hash: H256,
 }
 
 impl Deref for Header {
-    type Target = UnsignHeader;
+    type Target = RawHeader;
 
-    fn deref(&self) -> &UnsignHeader {
-        &self.unsign_header
+    fn deref(&self) -> &RawHeader {
+        &self.raw
     }
 }
 
 impl DerefMut for Header {
-    fn deref_mut(&mut self) -> &mut UnsignHeader {
-        &mut self.unsign_header
+    fn deref_mut(&mut self) -> &mut RawHeader {
+        &mut self.raw
     }
 }
 
 impl Header {
-    pub fn new(unsign_header: UnsignHeader, total_difficulty: U256) -> Header {
+    pub fn new(raw: RawHeader, total_difficulty: U256, sig: Option<H520>) -> Header {
+        let hash = raw.cal_hash();
         Header {
-            unsign_header: unsign_header,
-            signature: H520::default(),
+            raw: raw,
+            signature: sig.unwrap_or_default(),
             total_difficulty: total_difficulty,
+            hash: hash,
         }
     }
+
     pub fn hash(&self) -> H256 {
-        sha3_256(serialize(&self.unsign_header).unwrap()).into()
+        self.hash
+    }
+
+    pub fn update_hash(&mut self) {
+        self.hash = self.cal_hash();
     }
 
     /// sign header
@@ -98,6 +113,16 @@ impl Header {
         }
     }
 
+    // check hash
+    pub fn check_hash(&self) -> Result<(), Error> {
+        let hash = self.cal_hash();
+        if self.hash() == hash {
+            Ok(())
+        } else {
+            Err(Error::InvalidHash(self.hash(), hash))
+        }
+    }
+
     // check proof
     pub fn check_proof(&self, pubkey: Vec<u8>, g: Vec<u8>) -> Result<(), Error> {
         if self.proof
@@ -116,43 +141,38 @@ pub struct Block {
     pub transactions: Vec<Transaction>,
 }
 
-impl Deref for Block {
-    type Target = Header;
-
-    fn deref(&self) -> &Header {
-        &self.header
-    }
-}
-
-impl DerefMut for Block {
-    fn deref_mut(&mut self) -> &mut Header {
-        &mut self.header
-    }
-}
-
 impl Block {
+    pub fn hash(&self) -> H256 {
+        self.header.hash()
+    }
+
     pub fn validate(&self, kg: &KeyGroup) -> Result<(), Error> {
-        self.check_time()?;
-        self.check_difficulty()?;
+        self.header.check_time()?;
+        self.header.check_hash()?;
+        self.header.check_difficulty()?;
         self.check_txs_root()?;
-        let pubkey = self.recover_pubkey()?;
+        let pubkey = self.header.recover_pubkey()?;
         let (key, g) = kg.get(&pubkey)
             .ok_or_else(|| Error::InvalidPublicKey(pubkey))?;
-        self.check_proof(key, g)?;
+        self.header.check_proof(key, g)?;
         Ok(())
     }
 
     pub fn check_txs_root(&self) -> Result<(), Error> {
         let txs_hash: Vec<H256> = self.transactions.iter().map(|t| t.hash()).collect();
         let txs_root = merkle_root(txs_hash.as_slice());
-        if txs_root == self.transactions_root {
+        if txs_root == self.header.transactions_root {
             Ok(())
         } else {
             Err(Error::InvalidTransactionsRoot(
-                self.transactions_root,
+                self.header.transactions_root,
                 txs_root,
             ))
         }
+    }
+
+    pub fn sign(&mut self, private_key: H256) {
+        self.header.sign(private_key);
     }
 
     pub fn new(
@@ -165,7 +185,7 @@ impl Block {
     ) -> Block {
         let txs_hash: Vec<H256> = txs.iter().map(|t| t.hash()).collect();
         let txs_root = merkle_root(txs_hash.as_slice());
-        let unsign_header = UnsignHeader {
+        let raw = RawHeader {
             pre_hash: pre_header.hash(),
             timestamp: timestamp,
             height: pre_header.height + 1,
@@ -176,7 +196,7 @@ impl Block {
         };
 
         Block {
-            header: Header::new(unsign_header, pre_header.total_difficulty + difficulty),
+            header: Header::new(raw, pre_header.total_difficulty + difficulty, None),
             transactions: txs,
         }
     }

@@ -6,7 +6,7 @@ use core::global::{EPOCH_LEN, HEIGHT_SHIFT, MIN_DIFFICULTY, TIME_STEP};
 use rand::{thread_rng, Rng};
 use std::sync::Arc;
 use store::ChainStore;
-use util::Mutex;
+use util::{Mutex, RwLock};
 
 #[derive(Debug)]
 pub enum Error {
@@ -16,12 +16,14 @@ pub enum Error {
     InvalidChallenge,
     InvalidDifficulty,
     InvalidTotalDifficulty,
+    InvalidBlockHash,
     NotFound,
 }
 
 pub struct Chain {
     store: Arc<ChainStore>,
     adapter: Arc<ChainAdapter>,
+    head_header: RwLock<Header>,
     lock: Arc<Mutex<u32>>,
 }
 
@@ -32,12 +34,17 @@ impl Chain {
         genesis: &Block,
     ) -> Result<Chain, Error> {
         // check head in store or save the genesis block as head
-        if store.head_header() == None {
-            store.init(genesis);
-        }
+        let head_header = match store.head_header() {
+            Some(h) => h,
+            None => {
+                store.init(genesis);
+                genesis.header.clone()
+            }
+        };
         Ok(Chain {
             store: store,
             adapter: adapter,
+            head_header: RwLock::new(head_header),
             lock: Arc::new(Mutex::new(0)),
         })
     }
@@ -94,7 +101,7 @@ impl Chain {
             info!(target: "chain", "new best block found: {}", b.hash());
             let _guard = self.lock.lock();
             self.update_main_chain(&b.header);
-            self.store.save_head_header(&b.header);
+            self.save_head_header(&b.header);
         }
     }
 
@@ -117,12 +124,23 @@ impl Chain {
         self.print_chain(header.height, 10);
     }
 
+    pub fn save_head_header(&self, h: &Header) {
+        let mut head_header = self.head_header.write();
+        *head_header = h.clone();
+        self.store.save_head_header(h);
+    }
+
     pub fn head_header(&self) -> Header {
-        self.store.head_header().unwrap()
+        self.head_header.read().clone()
     }
 
     pub fn block_header(&self, hash: &H256) -> Option<Header> {
-        self.store.get_header(hash)
+        let head_header = self.head_header.read();
+        if &head_header.hash() == hash {
+            Some(head_header.clone())
+        } else {
+            self.store.get_header(hash)
+        }
     }
 
     pub fn block_hash(&self, height: u64) -> Option<H256> {
