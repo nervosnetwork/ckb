@@ -22,3 +22,5 @@ pub mod keygroup;
 pub use error::Error;
 
 pub type PublicKey = bigint::H512;
+pub type ProofPublickey = bigint::H328;
+pub type ProofPublicG = bigint::H328;

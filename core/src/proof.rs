@@ -1,3 +1,4 @@
+use super::{ProofPublicG, ProofPublickey};
 use bigint::{H256, U256};
 use bls;
 use difficulty::boundary_to_difficulty;
@@ -32,8 +33,8 @@ impl Proof {
         time: u64,
         height: u64,
         challenge: H256,
-        pubkey: Vec<u8>,
-        g: Vec<u8>,
+        pubkey: ProofPublickey,
+        g: ProofPublicG,
     ) -> bool {
         let mut hash = [0u8; 32];
         let h1 = H256::from(time / TIME_STEP).to_vec();
@@ -44,7 +45,7 @@ impl Proof {
         sha3.update(&h2);
         sha3.update(&h3);
         sha3.finalize(&mut hash);
-        bls::verify(hash.to_vec(), self.sig.clone(), pubkey, g)
+        bls::verify(hash.to_vec(), self.sig.clone(), pubkey.to_vec(), g.to_vec())
     }
 
     pub fn hash(&self) -> H256 {

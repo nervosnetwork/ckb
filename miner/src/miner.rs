@@ -1,4 +1,4 @@
-use bigint::H256;
+use bigint::{H160, H256};
 use chain::chain::Chain;
 use core::block::Block;
 use core::global::{MAX_TX, TIME_STEP};
@@ -13,7 +13,7 @@ const FREQUENCY: usize = 50;
 pub struct Miner {
     pub chain: Arc<Chain>,
     pub tx_pool: Arc<TransactionPool>,
-    pub miner_key: Vec<u8>,
+    pub miner_key: H160,
     pub signer_key: H256,
 }
 

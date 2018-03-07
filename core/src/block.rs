@@ -1,4 +1,4 @@
-use super::{Error, PublicKey};
+use super::{Error, ProofPublicG, ProofPublickey, PublicKey};
 use super::transaction::Transaction;
 use bigint::{H256, H520, U256};
 use bincode::serialize;
@@ -124,7 +124,7 @@ impl Header {
     }
 
     // check proof
-    pub fn check_proof(&self, pubkey: Vec<u8>, g: Vec<u8>) -> Result<(), Error> {
+    pub fn check_proof(&self, pubkey: ProofPublickey, g: ProofPublicG) -> Result<(), Error> {
         if self.proof
             .verify(self.timestamp, self.height, self.challenge, pubkey, g)
         {
