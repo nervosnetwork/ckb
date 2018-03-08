@@ -4,7 +4,7 @@ use core::block::Block;
 use core::global::TIME_STEP;
 use core::keygroup::KeyGroup;
 use core::transaction::Transaction;
-use network::Network;
+use network::{Config, Network};
 use pool::{OrphanBlockPool, PendingBlockPool, TransactionPool};
 use std::sync::Arc;
 use std::thread;
@@ -28,7 +28,7 @@ impl ChainToNetAndPoolAdapter {
         ChainToNetAndPoolAdapter {
             tx_pool: tx_pool,
             network: RwLock::new(Arc::new(
-                Network::init(Arc::new(FakeNet::default()), vec![], vec![]).unwrap(),
+                Network::init(Arc::new(FakeNet::default()), Config::default()).unwrap(),
             )),
         }
     }

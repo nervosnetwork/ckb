@@ -2,6 +2,7 @@ use bigint::H160;
 use core::{ProofPublicG, ProofPublickey, PublicKey};
 use core::keygroup::KeyGroup;
 use logger::Config as LogConfig;
+use network::Config as NetworkConfig;
 use std::fs::File;
 use std::io::BufReader;
 use std::io::Read;
@@ -13,6 +14,7 @@ pub struct Config {
     pub miner_private_key: H160,
     pub signer_private_key: H160,
     pub key_pairs: Vec<KeyPair>,
+    pub network: NetworkConfig,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
@@ -74,6 +76,10 @@ mod tests {
             proof_public_key = "0x07cafa7797efe36d26bb0af68bf8a55640f57fc811f5ee73bb7d10a2735cf0eb059b7cfb1107fc9d00"
             proof_public_g = "0x0318e21e32b26d6310e3609e78cdddfcc817f0f41a3deb02a611d63af17c7246b939360692bfd14900"
             signer_public_key = "0x223f2c5f71a9b3f42c65accc76ca90cd3a76f8587bf40f1069f3a6c05d1fbd645b04cfa45beaf884e2cf3b8d734aa7c6b68063eaa530f8fabf20c0341ae95156"
+            [network]
+            private_key = [0, 1, 2]
+            public_key = [3, 4, 5]
+            bootstrap_nodes = [["QmWvoPbu9AgEFLL5UyxpCfhxkLDd9T7zuerjhHiwsnqSh4", "/ip4/127.0.0.1/tcp/12345"]]
         "#).expect("Load config.");
 
         assert_eq!(true, config.logger_config().color);
