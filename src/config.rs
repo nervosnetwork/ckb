@@ -79,6 +79,7 @@ mod tests {
             [network]
             private_key = [0, 1, 2]
             public_key = [3, 4, 5]
+            listen_addr = "/ip4/0.0.0.0/tcp/0"
             bootstrap_nodes = [["QmWvoPbu9AgEFLL5UyxpCfhxkLDd9T7zuerjhHiwsnqSh4", "/ip4/127.0.0.1/tcp/12345"]]
         "#).expect("Load config.");
 

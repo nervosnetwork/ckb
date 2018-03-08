@@ -7,7 +7,7 @@ use hash::{Sha3, sha3_256};
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]
 pub struct Proof {
-    sig: Vec<u8>,
+    pub sig: Vec<u8>,
 }
 
 impl Proof {
