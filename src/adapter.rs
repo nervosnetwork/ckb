@@ -108,8 +108,8 @@ impl NetToChainAndPoolAdapter {
         if b.header.timestamp > now_ms() {
             self.pending_pool.add_block(b);
         } else if self.is_orphan(&b) {
-            if self.orphan_pool.add_block(b) {
-                // TODO: request pre block
+            if let Some(_h) = self.orphan_pool.add_block(b) {
+                // TODO: self.request_block_by_hash(h)
             }
         } else {
             self.process_block_no_orphan(&b);

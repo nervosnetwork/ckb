@@ -32,20 +32,34 @@ impl TransactionPool {
 #[derive(Default)]
 pub struct OrphanBlockPool {
     pool: RwLock<HashMap<H256, Vec<Block>>>,
-    hashes: RwLock<HashSet<H256>>,
+    hashes: RwLock<HashMap<H256, H256>>,
 }
 
 impl OrphanBlockPool {
-    pub fn add_block(&self, b: Block) -> bool {
-        let v = { !self.hashes.read().contains(&b.hash()) };
-        if v {
+    pub fn add_block(&self, b: Block) -> Option<H256> {
+        if self.hashes.read().contains_key(&b.hash()) {
+            None
+        } else {
             let mut pool = self.pool.write();
             let mut hashes = self.hashes.write();
-            hashes.insert(b.hash());
-            let blocks = pool.entry(b.header.pre_hash).or_insert_with(Vec::new);
+            let pre_hash = b.header.pre_hash;
+
+            hashes.insert(b.hash(), pre_hash);
+            let blocks = pool.entry(pre_hash).or_insert_with(Vec::new);
             blocks.push(b);
+
+            Some(self.tail_hash(pre_hash))
         }
-        v
+    }
+
+    pub fn tail_hash(&self, mut hash: H256) -> H256 {
+        let hashes = self.hashes.read();
+
+        while let Some(h) = hashes.get(&hash) {
+            hash = *h;
+        }
+
+        hash
     }
 
     pub fn remove_block(&self, h: &H256) -> Vec<Block> {
@@ -62,7 +76,7 @@ impl OrphanBlockPool {
     }
 
     pub fn contains(&self, h: &H256) -> bool {
-        self.hashes.read().contains(h)
+        self.hashes.read().contains_key(h)
     }
 }
 
