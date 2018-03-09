@@ -9,7 +9,7 @@ pub fn genesis_dev() -> Block {
         transactions_root: H256::from(0),
         difficulty: U256::from(0),
         challenge: H256::from(0),
-        proof: Proof::new(&[0], 0, 0, &H256::from(0)),
+        proof: Proof::default(),
         height: 0,
     };
 

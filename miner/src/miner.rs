@@ -23,9 +23,9 @@ impl<CA: ChainAdapter, CS: ChainStore> Miner<CA, CS> {
     pub fn run_loop(&self) {
         let mut pre_header = self.chain.head_header();
         let mut challenge = self.chain.challenge(&pre_header).unwrap();
-        let mut difficulty = self.chain.cal_difficulty(&pre_header);
         let mut pre_time = now_ms();
         let mut num: usize = 0;
+        let mut mined: bool = false;
 
         loop {
             thread::sleep(Duration::from_millis(TIME_STEP / 10));
@@ -50,10 +50,15 @@ impl<CA: ChainAdapter, CS: ChainStore> Miner<CA, CS> {
 
             if head_header != pre_header {
                 challenge = self.chain.challenge(&head_header).unwrap();
-                difficulty = self.chain.cal_difficulty(&head_header);
                 pre_header = head_header;
+                mined = false;
             }
 
+            if mined {
+                continue;
+            }
+
+            let difficulty = self.chain.cal_difficulty(&pre_header, time);
             let proof = Proof::new(&self.miner_key, time, pre_header.height + 1, &challenge);
 
             if proof.difficulty() > difficulty {
@@ -61,8 +66,10 @@ impl<CA: ChainAdapter, CS: ChainStore> Miner<CA, CS> {
                 let mut block = Block::new(&pre_header, time, difficulty, challenge, proof, txs);
                 block.sign(self.signer_key);
 
-                info!(target: "miner", "new block mined: {}", block.hash());
+                info!(target: "miner", "new block mined: {} -> ({}, {})", block.hash(), block.header.timestamp, block.header.difficulty);
                 self.chain.process_block(&block).unwrap();
+
+                mined = true;
             }
         }
     }

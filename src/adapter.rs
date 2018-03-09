@@ -39,7 +39,7 @@ pub struct ChainToNetAndPoolAdapter {
 impl ChainAdapter for ChainToNetAndPoolAdapter {
     fn block_accepted(&self, b: &Block) {
         self.tx_pool.accommodate(b);
-        upgrade_network(&self.network).broadcast(b)
+        upgrade_network(&self.network).broadcast(b);
     }
 }
 

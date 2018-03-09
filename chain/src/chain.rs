@@ -24,7 +24,7 @@ pub struct Chain<CA, CS> {
     store: CS,
     adapter: Arc<CA>,
     head_header: RwLock<Header>,
-    lock: Arc<Mutex<u32>>,
+    lock: Mutex<()>,
 }
 
 impl<CA: ChainAdapter, CS: ChainStore> Chain<CA, CS> {
@@ -41,7 +41,7 @@ impl<CA: ChainAdapter, CS: ChainStore> Chain<CA, CS> {
             store: store,
             adapter: adapter,
             head_header: RwLock::new(head_header),
-            lock: Arc::new(Mutex::new(0)),
+            lock: Mutex::new(()),
         })
     }
 
@@ -72,7 +72,7 @@ impl<CA: ChainAdapter, CS: ChainStore> Chain<CA, CS> {
             return Err(Error::InvalidTotalDifficulty);
         }
 
-        if self.cal_difficulty(&pre_header) != h.difficulty {
+        if self.cal_difficulty(&pre_header, h.timestamp) != h.difficulty {
             return Err(Error::InvalidDifficulty);
         }
 
@@ -189,12 +189,11 @@ impl<CA: ChainAdapter, CS: ChainStore> Chain<CA, CS> {
             .map(|v| v.proof.hash())
     }
 
-    pub fn cal_difficulty(&self, pre_header: &Header) -> U256 {
+    pub fn cal_difficulty(&self, pre_header: &Header, current_time: u64) -> U256 {
         if pre_header.height == 0 {
             return U256::from(MIN_DIFFICULTY);
         }
-        let parent = self.block_header(&pre_header.pre_hash).unwrap();
-        calculate_difficulty(pre_header, &parent)
+        calculate_difficulty(pre_header, current_time)
     }
 
     pub fn print_chain(&self, tip: u64, len: u64) {

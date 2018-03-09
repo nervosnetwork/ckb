@@ -1,4 +1,4 @@
-use bigint::H160;
+use bigint::{H160, H256};
 use core::{ProofPublicG, ProofPublickey, PublicKey};
 use core::keygroup::KeyGroup;
 use logger::Config as LogConfig;
@@ -12,7 +12,7 @@ use toml;
 pub struct Config {
     pub logger: LogConfig,
     pub miner_private_key: H160,
-    pub signer_private_key: H160,
+    pub signer_private_key: H256,
     pub key_pairs: Vec<KeyPair>,
     pub network: NetworkConfig,
 }
@@ -55,7 +55,7 @@ mod tests {
     fn config_deserialize() {
         let config: Config = toml::from_str(r#"
             miner_private_key = "0x1162b2f150c789aed32e2e0b3081dd6852926865"
-            signer_private_key = "0x1162b2f150c789aed32e2e0b3081dd6852926865"
+            signer_private_key = "0x097c1a2d03b6c8fc270991051553219e34951b656382ca951c4c226d40a3b2d5"
             [logger]
             file = "/tmp/nervos.log"
             filter = "main=info,miner=info,chain=info"

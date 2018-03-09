@@ -17,15 +17,15 @@ def make_config():
     f = open(dump_path, "w")
     key = keypairs[nid * 3]
     f.write("miner_private_key = \"0x" + ''.join(format(x, '02x') for x in ast.literal_eval(key)) + "\"\n")
-    f.write("signer_private_key = \"0x" + ''.join(format(x, '02x') for x in ast.literal_eval(key)) + "\"\n")
     secret_path = os.path.join(path, "signer_privkey")
+    secret_key = open(secret_path, "r")
+    key = secret_key.read()
+    secret_key.close()
+    f.write("signer_private_key = \"0x" + key + "\"\n")
     f.write("[logger]" + "\n")
     f.write("file = \"/tmp/nervos" + str(nid) +".log\"\n")
     f.write("filter = \"main=info,miner=info,chain=info\"\n")
     f.write("color = true\n")
-    secret_key = open(secret_path, "r")
-    key = secret_key.read()
-    secret_key.close()
     
     #generate keypairs
     signer_auth_path = os.path.join(sys.argv[1], "signer_authorities")

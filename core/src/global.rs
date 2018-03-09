@@ -5,9 +5,9 @@ pub const TIME_STEP: u64 = 250;
 pub const MAX_TIME_DEVIAT: u64 = 30_000;
 
 // parameters used for calculating difficulty
-pub const INCREMENT_DIVISOR: u64 = 15_000;
+pub const INCREMENT_DIVISOR: u64 = 10_000;
 pub const THRESHOLD: u64 = 1;
-pub const DIFFICULTY_BOUND_DIVISOR: u64 = 2048;
+pub const DIFFICULTY_BOUND_DIVISOR: u64 = 8;
 pub const LIMIT: u64 = 99;
 
 // parameters used for calculating block height
@@ -21,4 +21,4 @@ pub const HEIGHT_SHIFT: u64 = 50;
 pub const MAX_TX: usize = 1024;
 
 //Min difficulty
-pub const MIN_DIFFICULTY: u64 = 100;
+pub const MIN_DIFFICULTY: u64 = 64;
