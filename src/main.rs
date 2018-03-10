@@ -32,7 +32,7 @@ fn main() {
         (about: "Nervos")
         (@subcommand run =>
             (about: "run nervos")
-            (@arg CONFIG: -c --config +takes_value "Sets a custom config file")
+            (@arg config: -c --config +takes_value "Sets a custom config file")
         )
         (@subcommand new =>
             (about: "new nervos config")

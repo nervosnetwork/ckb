@@ -28,7 +28,7 @@ pub fn run(config_path: &str) {
 
     let chain_adapter = Arc::new(ChainToNetAndPoolAdapter::new(tx_pool.clone()));
     let chain = Arc::new(
-        Chain::init(store, chain_adapter.clone(), &chain::genesis::genesis_dev()).unwrap()
+        Chain::init(store, chain_adapter.clone(), &chain::genesis::genesis_dev()).unwrap(),
     );
 
     let kg = Arc::new(config.key_group());

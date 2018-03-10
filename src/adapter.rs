@@ -1,23 +1,22 @@
 use chain::chain::Chain;
+use chain::store::ChainKVStore;
 use core::adapter::{ChainAdapter, NetAdapter};
 use core::block::Block;
 use core::global::TIME_STEP;
 use core::keygroup::KeyGroup;
 use core::transaction::Transaction;
-use network::{Config, Network};
+use db::kvdb::MemoryKeyValueDB;
+use network::Network;
 use pool::{OrphanBlockPool, PendingBlockPool, TransactionPool};
 use std::sync::Arc;
+use std::sync::Weak;
 use std::thread;
 use time::{now_ms, Duration};
 use util::RwLock;
-use chain::store::ChainKVStore;
-use db::kvdb::MemoryKeyValueDB;
-use std::sync::Weak;
 
 type NetworkImpl = Network<NetToChainAndPoolAdapter>;
 type ChainImpl = Chain<ChainToNetAndPoolAdapter, ChainKVStore<MemoryKeyValueDB>>;
 type NetworkWeakRef = RwLock<Option<Weak<NetworkImpl>>>;
-
 
 fn upgrade_chain(chain: &Weak<ChainImpl>) -> Arc<ChainImpl> {
     chain.upgrade().expect("Chain must haven't dropped.")
@@ -88,7 +87,7 @@ impl NetToChainAndPoolAdapter {
         kg: Arc<KeyGroup>,
         chain: &Arc<ChainImpl>,
         tx_pool: Arc<TransactionPool>,
-    ) -> Arc<Self>{
+    ) -> Arc<Self> {
         let adapter = Arc::new(NetToChainAndPoolAdapter {
             key_group: kg,
             orphan_pool: Arc::new(OrphanBlockPool::default()),
@@ -111,7 +110,7 @@ impl NetToChainAndPoolAdapter {
 
     pub fn is_orphan(&self, b: &Block) -> bool {
         upgrade_chain(&self.chain)
-            .block_header(&b.header.hash())
+            .block_header(&b.header.pre_hash)
             .is_none()
     }
 

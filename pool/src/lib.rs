@@ -37,19 +37,21 @@ pub struct OrphanBlockPool {
 
 impl OrphanBlockPool {
     pub fn add_block(&self, b: Block) -> Option<H256> {
-        if self.hashes.read().contains_key(&b.hash()) {
-            None
-        } else {
+        {
+            if self.hashes.read().contains_key(&b.hash()) {
+                return None;
+            }
+        }
+        let pre_hash = b.header.pre_hash;
+        {
             let mut pool = self.pool.write();
             let mut hashes = self.hashes.write();
-            let pre_hash = b.header.pre_hash;
 
             hashes.insert(b.hash(), pre_hash);
             let blocks = pool.entry(pre_hash).or_insert_with(Vec::new);
             blocks.push(b);
-
-            Some(self.tail_hash(pre_hash))
         }
+        Some(self.tail_hash(pre_hash))
     }
 
     pub fn tail_hash(&self, mut hash: H256) -> H256 {
@@ -99,15 +101,15 @@ impl PendingBlockPool {
     pub fn get_block(&self, t: u64) -> Vec<Block> {
         let bt: Vec<Block> = self.pool
             .read()
-            .clone()
-            .into_iter()
+            .iter()
             .filter(|b| b.header.timestamp <= t)
+            .cloned()
             .collect();
         let lt: Vec<Block> = self.pool
             .read()
-            .clone()
-            .into_iter()
+            .iter()
             .filter(|b| b.header.timestamp > t)
+            .cloned()
             .collect();
         *self.pool.write() = lt;
 
