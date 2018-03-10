@@ -20,19 +20,15 @@ pub enum Error {
     NotFound,
 }
 
-pub struct Chain {
-    store: Arc<ChainStore>,
-    adapter: Arc<ChainAdapter>,
+pub struct Chain<CA, CS> {
+    store: CS,
+    adapter: Arc<CA>,
     head_header: RwLock<Header>,
     lock: Arc<Mutex<u32>>,
 }
 
-impl Chain {
-    pub fn init(
-        store: Arc<ChainStore>,
-        adapter: Arc<ChainAdapter>,
-        genesis: &Block,
-    ) -> Result<Chain, Error> {
+impl<CA: ChainAdapter, CS: ChainStore> Chain<CA, CS> {
+    pub fn init(store: CS, adapter: Arc<CA>, genesis: &Block) -> Result<Chain<CA, CS>, Error> {
         // check head in store or save the genesis block as head
         let head_header = match store.head_header() {
             Some(h) => h,

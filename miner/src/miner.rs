@@ -7,17 +7,19 @@ use pool::TransactionPool;
 use std::sync::Arc;
 use std::thread;
 use time::{now_ms, Duration};
+use chain::store::ChainStore;
+use core::adapter::ChainAdapter;
 
 const FREQUENCY: usize = 50;
 
-pub struct Miner {
-    pub chain: Arc<Chain>,
+pub struct Miner<CA, CS> {
+    pub chain: Arc<Chain<CA, CS>>,
     pub tx_pool: Arc<TransactionPool>,
     pub miner_key: H160,
     pub signer_key: H256,
 }
 
-impl Miner {
+impl<CA: ChainAdapter, CS: ChainStore> Miner<CA, CS> {
     pub fn run_loop(&self) {
         let mut pre_header = self.chain.head_header();
         let mut challenge = self.chain.challenge(&pre_header).unwrap();

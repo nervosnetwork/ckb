@@ -10,16 +10,36 @@ use std::sync::Arc;
 use std::thread;
 use time::{now_ms, Duration};
 use util::RwLock;
+use chain::store::ChainKVStore;
+use db::kvdb::MemoryKeyValueDB;
+use std::sync::Weak;
+
+type NetworkImpl = Network<NetToChainAndPoolAdapter>;
+type ChainImpl = Chain<ChainToNetAndPoolAdapter, ChainKVStore<MemoryKeyValueDB>>;
+type NetworkWeakRef = RwLock<Option<Weak<NetworkImpl>>>;
+
+
+fn upgrade_chain(chain: &Weak<ChainImpl>) -> Arc<ChainImpl> {
+    chain.upgrade().expect("Chain must haven't dropped.")
+}
+
+fn upgrade_network(network: &NetworkWeakRef) -> Arc<NetworkImpl> {
+    network
+        .read()
+        .as_ref()
+        .and_then(|weak| weak.upgrade())
+        .expect("ChainAdapter methods are called after network is init.")
+}
 
 pub struct ChainToNetAndPoolAdapter {
     tx_pool: Arc<TransactionPool>,
-    network: RwLock<Arc<Network>>,
+    network: NetworkWeakRef,
 }
 
 impl ChainAdapter for ChainToNetAndPoolAdapter {
     fn block_accepted(&self, b: &Block) {
         self.tx_pool.accommodate(b);
-        self.network.read().broadcast(b)
+        upgrade_network(&self.network).broadcast(b)
     }
 }
 
@@ -27,27 +47,12 @@ impl ChainToNetAndPoolAdapter {
     pub fn new(tx_pool: Arc<TransactionPool>) -> Self {
         ChainToNetAndPoolAdapter {
             tx_pool: tx_pool,
-            network: RwLock::new(Arc::new(
-                Network::init(Arc::new(FakeNet::default()), Config::default()).unwrap(),
-            )),
+            network: RwLock::new(None),
         }
     }
-    pub fn init(&self, network: Arc<Network>) {
+    pub fn init(&self, network: &Arc<NetworkImpl>) {
         let mut inner = self.network.write();
-        *inner = network;
-    }
-}
-
-#[derive(Clone, Default)]
-pub struct FakeNet {}
-
-impl NetAdapter for FakeNet {
-    fn block_received(&self, _: Block) {
-        unimplemented!();
-    }
-
-    fn transaction_received(&self, _: Transaction) {
-        unimplemented!();
+        *inner = Some(Arc::downgrade(network));
     }
 }
 
@@ -57,7 +62,7 @@ pub struct NetToChainAndPoolAdapter {
     orphan_pool: Arc<OrphanBlockPool>,
     pending_pool: Arc<PendingBlockPool>,
     tx_pool: Arc<TransactionPool>,
-    chain: Arc<Chain>,
+    chain: Weak<ChainImpl>,
 }
 
 impl NetAdapter for NetToChainAndPoolAdapter {
@@ -79,13 +84,17 @@ impl NetAdapter for NetToChainAndPoolAdapter {
 }
 
 impl NetToChainAndPoolAdapter {
-    pub fn new(kg: Arc<KeyGroup>, chain: Arc<Chain>, tx_pool: Arc<TransactionPool>) -> Arc<Self> {
+    pub fn new(
+        kg: Arc<KeyGroup>,
+        chain: &Arc<ChainImpl>,
+        tx_pool: Arc<TransactionPool>,
+    ) -> Arc<Self>{
         let adapter = Arc::new(NetToChainAndPoolAdapter {
             key_group: kg,
             orphan_pool: Arc::new(OrphanBlockPool::default()),
             pending_pool: Arc::new(PendingBlockPool::default()),
             tx_pool: tx_pool,
-            chain: chain,
+            chain: Arc::downgrade(chain),
         });
 
         let subtask = adapter.clone();
@@ -101,7 +110,9 @@ impl NetToChainAndPoolAdapter {
     }
 
     pub fn is_orphan(&self, b: &Block) -> bool {
-        self.chain.block_header(&b.header.pre_hash).is_none()
+        upgrade_chain(&self.chain)
+            .block_header(&b.header.hash())
+            .is_none()
     }
 
     pub fn process_block(&self, b: Block) {
@@ -117,7 +128,7 @@ impl NetToChainAndPoolAdapter {
     }
 
     pub fn process_block_no_orphan(&self, b: &Block) {
-        if self.chain.process_block(b).is_ok() {
+        if upgrade_chain(&self.chain).process_block(b).is_ok() {
             let blocks = self.orphan_pool.remove_block(&b.hash());
 
             for b in blocks {

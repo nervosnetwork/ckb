@@ -28,16 +28,12 @@ pub fn run(config_path: &str) {
 
     let chain_adapter = Arc::new(ChainToNetAndPoolAdapter::new(tx_pool.clone()));
     let chain = Arc::new(
-        Chain::init(
-            Arc::new(store),
-            chain_adapter.clone(),
-            &chain::genesis::genesis_dev(),
-        ).unwrap(),
+        Chain::init(store, chain_adapter.clone(), &chain::genesis::genesis_dev()).unwrap()
     );
 
     let kg = Arc::new(config.key_group());
 
-    let net_adapter = NetToChainAndPoolAdapter::new(kg, chain.clone(), tx_pool.clone());
+    let net_adapter = NetToChainAndPoolAdapter::new(kg, &chain, tx_pool.clone());
 
     let network = Arc::new(
         Network::init(
@@ -47,7 +43,7 @@ pub fn run(config_path: &str) {
         ).unwrap(),
     );
 
-    chain_adapter.init(network.clone());
+    chain_adapter.init(&network);
 
     let miner = Miner {
         chain: chain,
