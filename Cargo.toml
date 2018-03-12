@@ -4,7 +4,7 @@ version = "0.1.0"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 
 [dependencies]
-clap = "2"
+clap = { version = "2", features = ["yaml"] }
 toml = "0.4"
 serde = "1.0"
 serde_derive = "1.0"
@@ -19,7 +19,11 @@ nervos-pool = { path = "pool"}
 nervos-time = { path = "util/time"}
 logger = { path = "util/logger" }
 bigint = { path = "util/bigint" }
+dir = { path = "util/dir" }
+crypto = { path = "util/crypto", features = ["rsa"] }
 ctrlc = { version = "3.1", features = ["termination"] }
+tera = "0.11"
+lazy_static = "1.0"
 
 # The [patch] sections in Cargo.toml are only recognized in the root crate's manifest
 [patch.crates-io]
@@ -31,6 +35,7 @@ ctrlc = { version = "3.1", features = ["termination"] }
 # Using a version of rust-multihash that compiles on emscripten
 # TODO: remove once merged upstream
 "multihash" = { git = "https://github.com/tomaka/rust-multihash", branch = "emscripten-hack" }
+"openssl-sys" = { git = "https://github.com/NervosFoundation/rust-openssl.git", branch = "pkcs8_der" }
 
 [workspace]
 members = [
@@ -38,6 +43,7 @@ members = [
     "util/hash",
     "util/merkle-root",
     "util/crypto",
+    "util/dir",
     "network",
     "core",
     "chain",

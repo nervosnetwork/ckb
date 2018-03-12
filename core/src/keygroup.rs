@@ -8,6 +8,12 @@ pub struct KeyGroup {
 }
 
 impl KeyGroup {
+    pub fn with_capacity(capacity: usize) -> KeyGroup {
+        KeyGroup {
+            data: HashMap::with_capacity(capacity),
+        }
+    }
+
     pub fn insert(
         &mut self,
         signer_public_key: PublicKey,

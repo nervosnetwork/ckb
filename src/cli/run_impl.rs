@@ -16,9 +16,7 @@ use std::sync::Arc;
 use std::thread;
 use util::{Condvar, Mutex};
 
-pub fn run(config_path: &str) {
-    let config = Config::load(config_path);
-
+pub fn run(config: Config) {
     logger::init(config.logger_config()).expect("Init Logger");
 
     info!(target: "main", "Value for config: {:?}", config);
@@ -44,8 +42,8 @@ pub fn run(config_path: &str) {
     let miner = Miner {
         chain,
         tx_pool,
-        miner_key: config.miner_private_key,
-        signer_key: bigint::H256::from(&config.signer_private_key[..]),
+        miner_key: config.signer.miner_private_key,
+        signer_key: bigint::H256::from(&config.signer.signer_private_key[..]),
     };
 
     let _ = thread::Builder::new()
