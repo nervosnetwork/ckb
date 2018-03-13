@@ -5,4 +5,5 @@ reorder_imported_names = true
 reorder_imports_in_group = true
 reorder_extern_crates = true
 reorder_extern_crates_in_group = true
+reorder_modules = true
 use_try_shorthand = true

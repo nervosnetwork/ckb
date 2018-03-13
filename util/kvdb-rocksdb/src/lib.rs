@@ -400,15 +400,15 @@ impl Database {
         };
         let num_cols = cfs.len();
         Ok(Database {
-            db: RwLock::new(Some(DBAndColumns { db: db, cfs: cfs })),
+            read_opts,
+            block_opts,
+            write_opts,
+            db: RwLock::new(Some(DBAndColumns { db, cfs })),
             config: config.clone(),
-            write_opts: write_opts,
             overlay: RwLock::new((0..(num_cols + 1)).map(|_| HashMap::new()).collect()),
             flushing: RwLock::new((0..(num_cols + 1)).map(|_| HashMap::new()).collect()),
             flushing_lock: Mutex::new(false),
             path: path.to_owned(),
-            read_opts: read_opts,
-            block_opts: block_opts,
         })
     }
 

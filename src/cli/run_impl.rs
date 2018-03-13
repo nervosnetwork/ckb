@@ -40,8 +40,8 @@ pub fn run(config_path: &str) {
     chain_adapter.init(&network);
 
     let miner = Miner {
-        chain: chain,
-        tx_pool: tx_pool,
+        chain,
+        tx_pool,
         miner_key: config.miner_private_key,
         signer_key: bigint::H256::from(&config.signer_private_key[..]),
     };

@@ -45,7 +45,7 @@ impl ChainAdapter for ChainToNetAndPoolAdapter {
 impl ChainToNetAndPoolAdapter {
     pub fn new(tx_pool: Arc<TransactionPool>) -> Self {
         ChainToNetAndPoolAdapter {
-            tx_pool: tx_pool,
+            tx_pool,
             network: RwLock::new(None),
         }
     }
@@ -89,10 +89,10 @@ impl NetToChainAndPoolAdapter {
         tx_pool: Arc<TransactionPool>,
     ) -> Arc<Self> {
         let adapter = Arc::new(NetToChainAndPoolAdapter {
+            tx_pool,
             key_group: kg,
             orphan_pool: Arc::new(OrphanBlockPool::default()),
             pending_pool: Arc::new(PendingBlockPool::default()),
-            tx_pool: tx_pool,
             chain: Arc::downgrade(chain),
         });
 

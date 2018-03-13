@@ -80,7 +80,7 @@ impl DBTransaction {
         let mut ekey = ElasticArray32::new();
         ekey.append_slice(key);
         self.ops.push(DBOp::Insert {
-            col: col,
+            col,
             key: ekey,
             value: DBValue::from_slice(value),
         });
@@ -91,7 +91,7 @@ impl DBTransaction {
         let mut ekey = ElasticArray32::new();
         ekey.append_slice(key);
         self.ops.push(DBOp::Insert {
-            col: col,
+            col,
             key: ekey,
             value: DBValue::from_vec(value),
         });
@@ -101,10 +101,7 @@ impl DBTransaction {
     pub fn delete(&mut self, col: Option<u32>, key: &[u8]) {
         let mut ekey = ElasticArray32::new();
         ekey.append_slice(key);
-        self.ops.push(DBOp::Delete {
-            col: col,
-            key: ekey,
-        });
+        self.ops.push(DBOp::Delete { col, key: ekey });
     }
 }
 

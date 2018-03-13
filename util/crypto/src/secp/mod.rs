@@ -10,11 +10,11 @@ lazy_static! {
     pub static ref SECP256K1: secp256k1::Secp256k1 = secp256k1::Secp256k1::new();
 }
 
+mod error;
+mod generator;
 mod privkey;
 mod pubkey;
 mod signature;
-mod generator;
-mod error;
 
 pub use self::error::Error;
 pub use self::generator::Generator;

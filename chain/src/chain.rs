@@ -38,8 +38,8 @@ impl<CA: ChainAdapter, CS: ChainStore> Chain<CA, CS> {
             }
         };
         Ok(Chain {
-            store: store,
-            adapter: adapter,
+            store,
+            adapter,
             head_header: RwLock::new(head_header),
             lock: Mutex::new(()),
         })

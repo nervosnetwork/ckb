@@ -18,9 +18,9 @@ extern crate serde;
 extern crate serde_derive;
 extern crate toml;
 
-mod config;
 mod adapter;
 mod cli;
+mod config;
 
 fn main() {
     // Always print backtrace on panic.
