@@ -10,3 +10,4 @@ nervos-time = { path = "../util/time" }
 nervos-core = { path = "../core" }
 nervos-pool = { path = "../pool" }
 nervos-chain = { path = "../chain" }
+nervos-db = { path = "../db" }

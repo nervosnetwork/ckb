@@ -1,10 +1,10 @@
 use bigint::{H160, H256};
 use chain::chain::Chain;
-use chain::store::ChainStore;
 use core::adapter::ChainAdapter;
 use core::block::Block;
 use core::global::{MAX_TX, TIME_STEP};
 use core::proof::Proof;
+use db::store::ChainStore;
 use pool::TransactionPool;
 use std::sync::Arc;
 use std::thread;

@@ -2,14 +2,16 @@ use adapter::{ChainToNetAndPoolAdapter, NetToChainAndPoolAdapter};
 use bigint;
 use chain;
 use chain::chain::Chain;
-use chain::store::ChainKVStore;
 use config::Config;
 use ctrlc;
-use db::kvdb::MemoryKeyValueDB;
+use db::cachedb::CacheKeyValueDB;
+use db::diskdb::RocksKeyValueDB;
+use db::store::ChainKVStore;
 use logger;
 use miner::miner::Miner;
 use network::Network;
 use pool::TransactionPool;
+use std::path::Path;
 use std::sync::Arc;
 use std::thread;
 use util::{Condvar, Mutex};
@@ -21,7 +23,7 @@ pub fn run(config_path: &str) {
 
     info!(target: "main", "Value for config: {:?}", config);
 
-    let db = MemoryKeyValueDB::default();
+    let db = CacheKeyValueDB::new(RocksKeyValueDB::open(Path::new(&config.db_path)));
     let store = ChainKVStore { db: Box::new(db) };
 
     let tx_pool = Arc::new(TransactionPool::default());

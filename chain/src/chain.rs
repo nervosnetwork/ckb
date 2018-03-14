@@ -3,9 +3,9 @@ use core::adapter::ChainAdapter;
 use core::block::{Block, Header};
 use core::difficulty::calculate_difficulty;
 use core::global::{EPOCH_LEN, HEIGHT_SHIFT, MIN_DIFFICULTY, TIME_STEP};
+use db::store::ChainStore;
 use rand::{thread_rng, Rng};
 use std::sync::Arc;
-use store::ChainStore;
 use util::{Mutex, RwLock};
 
 #[derive(Debug)]
@@ -53,7 +53,7 @@ impl<CA: ChainAdapter, CS: ChainStore> Chain<CA, CS> {
         Ok(())
     }
 
-    pub fn check_block(&self, h: &Header) -> Result<(), Error> {
+    fn check_block(&self, h: &Header) -> Result<(), Error> {
         if self.block_header(&h.hash()).is_some() {
             return Err(Error::Duplicate);
         }
@@ -83,8 +83,7 @@ impl<CA: ChainAdapter, CS: ChainStore> Chain<CA, CS> {
         Ok(())
     }
 
-    pub fn insert_block(&self, b: &Block) {
-        self.store.save_header(&b.header);
+    fn insert_block(&self, b: &Block) {
         self.store.save_block(b);
 
         let head_header = self.head_header();
@@ -101,7 +100,7 @@ impl<CA: ChainAdapter, CS: ChainStore> Chain<CA, CS> {
         }
     }
 
-    pub fn update_main_chain(&self, header: &Header) {
+    fn update_main_chain(&self, header: &Header) {
         self.store.save_block_hash(header.height, &header.hash());
         let mut height = header.height - 1;
         let mut hash = header.pre_hash;
@@ -120,7 +119,7 @@ impl<CA: ChainAdapter, CS: ChainStore> Chain<CA, CS> {
         self.print_chain(header.height, 10);
     }
 
-    pub fn save_head_header(&self, h: &Header) {
+    fn save_head_header(&self, h: &Header) {
         let mut head_header = self.head_header.write();
         *head_header = h.clone();
         self.store.save_head_header(h);
@@ -139,11 +138,11 @@ impl<CA: ChainAdapter, CS: ChainStore> Chain<CA, CS> {
         }
     }
 
-    pub fn block_hash(&self, height: u64) -> Option<H256> {
+    fn block_hash(&self, height: u64) -> Option<H256> {
         self.store.get_block_hash(height)
     }
 
-    pub fn ancestor_hash(&self, height: u64, header: &Header) -> Option<H256> {
+    fn ancestor_hash(&self, height: u64, header: &Header) -> Option<H256> {
         if header.height < height {
             return None;
         }
@@ -167,7 +166,7 @@ impl<CA: ChainAdapter, CS: ChainStore> Chain<CA, CS> {
         Some(current_hash)
     }
 
-    pub fn ancestor_header(&self, height: u64, header: &Header) -> Option<Header> {
+    fn ancestor_header(&self, height: u64, header: &Header) -> Option<Header> {
         self.ancestor_hash(height, header)
             .and_then(|v| self.block_header(&v))
     }
@@ -196,7 +195,7 @@ impl<CA: ChainAdapter, CS: ChainStore> Chain<CA, CS> {
         calculate_difficulty(pre_header, current_time)
     }
 
-    pub fn print_chain(&self, tip: u64, len: u64) {
+    fn print_chain(&self, tip: u64, len: u64) {
         info!(target: "chain", "Chain {{");
 
         let limit = if tip > len { len } else { tip } + 1;

@@ -36,7 +36,6 @@ ctrlc = { version = "3.1", features = ["termination"] }
 members = [
     "util/logger",
     "util/hash",
-    "util/kvdb-rocksdb",
     "util/merkle-root",
     "util/crypto",
     "network",

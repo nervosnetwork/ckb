@@ -1,11 +1,12 @@
 use chain::chain::Chain;
-use chain::store::ChainKVStore;
 use core::adapter::{ChainAdapter, NetAdapter};
 use core::block::Block;
 use core::global::TIME_STEP;
 use core::keygroup::KeyGroup;
 use core::transaction::Transaction;
-use db::kvdb::MemoryKeyValueDB;
+use db::cachedb::CacheKeyValueDB;
+use db::diskdb::RocksKeyValueDB;
+use db::store::ChainKVStore;
 use network::Network;
 use pool::{OrphanBlockPool, PendingBlockPool, TransactionPool};
 use std::sync::Arc;
@@ -15,7 +16,7 @@ use time::{now_ms, Duration};
 use util::RwLock;
 
 type NetworkImpl = Network<NetToChainAndPoolAdapter>;
-type ChainImpl = Chain<ChainToNetAndPoolAdapter, ChainKVStore<MemoryKeyValueDB>>;
+type ChainImpl = Chain<ChainToNetAndPoolAdapter, ChainKVStore<CacheKeyValueDB<RocksKeyValueDB>>>;
 type NetworkWeakRef = RwLock<Option<Weak<NetworkImpl>>>;
 
 fn upgrade_chain(chain: &Weak<ChainImpl>) -> Arc<ChainImpl> {
