@@ -27,7 +27,7 @@ ctrlc = { version = "3.1", features = ["termination"] }
 "ring" = { git = "https://github.com/briansmith/ring", rev = "3a14ef619559f7d4b69e2286d49c833409eef34a" }
 # Using a local improved version of multiaddr for now
 # TODO: remove once merged upstream
-"multiaddr" = { git = "https://github.com/libp2p/rust-libp2p" }
+"multiaddr" = { git = "https://github.com/multiformats/rust-multiaddr" }
 # Using a version of rust-multihash that compiles on emscripten
 # TODO: remove once merged upstream
 "multihash" = { git = "https://github.com/tomaka/rust-multihash", branch = "emscripten-hack" }
