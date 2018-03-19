@@ -13,9 +13,9 @@ pub struct OutPoint {
 }
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]
-pub enum Lock {
-    LockForever,
-    LockByScript(Vec<u8>),
+pub struct Recipient {
+    pub module_id: u32,
+    pub lock: Vec<u8>,
 }
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]
@@ -28,10 +28,11 @@ pub struct CellInput {
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]
 pub struct CellOutput {
+    pub module: u32,
+    pub capacity: u32,
     pub data: Vec<u8>,
-    pub capacity: u64,
-    pub transform_lock: Lock,
-    pub destroy_lock: Option<Lock>,
+    pub lock: Vec<u8>,
+    pub recipient: Option<Recipient>,
 }
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]
@@ -43,7 +44,7 @@ pub struct CellOperation {
 #[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]
 pub struct Transaction {
     pub version: u32,
-    pub cell_operations: Vec<CellOperation>,
+    pub cell_groups: Vec<Vec<CellOperation>>,
 }
 
 impl Transaction {
