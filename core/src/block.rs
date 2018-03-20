@@ -124,9 +124,9 @@ impl Header {
     }
 
     // check proof
-    pub fn check_proof(&self, pubkey: ProofPublickey, g: ProofPublicG) -> Result<(), Error> {
+    pub fn check_proof(&self, pubkey: &ProofPublickey, g: &ProofPublicG) -> Result<(), Error> {
         if self.proof
-            .verify(self.timestamp, self.height, self.challenge, pubkey, g)
+            .verify(self.timestamp, self.height, &self.challenge, pubkey, g)
         {
             Ok(())
         } else {
@@ -154,7 +154,7 @@ impl Block {
         let pubkey = self.header.recover_pubkey()?;
         let (key, g) = kg.get(&pubkey)
             .ok_or_else(|| Error::InvalidPublicKey(pubkey))?;
-        self.header.check_proof(key, g)?;
+        self.header.check_proof(&key, &g)?;
         Ok(())
     }
 

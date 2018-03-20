@@ -11,6 +11,10 @@ args:
         takes_value: true
 subcommands:
     - run:
+        version: "0.1.0"
         about: run
-    - new:
-        about: init data dir 
+    - signer:
+        version: "0.1.0"
+        subcommands:
+            - new:
+                about: generate new signer

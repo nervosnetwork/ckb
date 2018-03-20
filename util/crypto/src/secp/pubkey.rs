@@ -6,7 +6,7 @@ use super::secp256k1::Message as SecpMessage;
 use super::secp256k1::key;
 use super::signature::Signature;
 use bigint::H512;
-use std::ops;
+use std::{fmt, ops};
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct Pubkey {
@@ -59,5 +59,11 @@ impl From<key::PublicKey> for Pubkey {
         let mut pubkey = H512::default();
         pubkey.copy_from_slice(&serialized[1..65]);
         pubkey.into()
+    }
+}
+
+impl fmt::Display for Pubkey {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        write!(f, "{:x}", self.inner)
     }
 }

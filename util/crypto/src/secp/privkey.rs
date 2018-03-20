@@ -4,7 +4,7 @@ use super::secp256k1::Message as SecpMessage;
 use super::secp256k1::key;
 use super::signature::Signature;
 use bigint::H256;
-use std::ops;
+use std::{fmt, ops};
 use std::str::FromStr;
 
 #[derive(Debug, Eq, PartialEq)]
@@ -62,5 +62,11 @@ impl From<key::SecretKey> for Privkey {
         let mut h = H256::default();
         h.copy_from_slice(&key[0..32]);
         Privkey { inner: h }
+    }
+}
+
+impl fmt::Display for Privkey {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        write!(f, "{:x}", self.inner)
     }
 }

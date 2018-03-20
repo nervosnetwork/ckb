@@ -1,4 +1,5 @@
 extern crate bigint;
+extern crate bls;
 #[macro_use]
 extern crate clap;
 extern crate crypto;
@@ -43,7 +44,7 @@ fn main() {
         ("run", Some(_run_cmd)) => {
             cli::run(config);
         }
-        ("new", Some(_new_cmd)) => {}
+        ("signer", Some(signer_matches)) => cli::signer_cmd(signer_matches),
         _ => {
             cli::run(config);
         }

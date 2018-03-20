@@ -67,10 +67,9 @@ impl OrphanBlockPool {
     pub fn remove_block(&self, h: &H256) -> Vec<Block> {
         if let Some(blocks) = self.pool.write().remove(h) {
             let mut hashes = self.hashes.write();
-            for b in blocks.clone() {
+            for b in &blocks {
                 hashes.remove(&b.hash());
             }
-
             blocks
         } else {
             Vec::new()
@@ -114,7 +113,7 @@ impl PendingBlockPool {
         *self.pool.write() = lt;
 
         let mut hashes = self.hashes.write();
-        for b in bt.clone() {
+        for b in &bt {
             hashes.remove(&b.hash());
         }
         bt

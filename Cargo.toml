@@ -20,10 +20,11 @@ nervos-time = { path = "util/time"}
 logger = { path = "util/logger" }
 bigint = { path = "util/bigint" }
 dir = { path = "util/dir" }
-crypto = { path = "util/crypto", features = ["rsa"] }
+crypto = { path = "util/crypto", features = ["rsa", "secp"] }
 ctrlc = { version = "3.1", features = ["termination"] }
 tera = "0.11"
 lazy_static = "1.0"
+bls = { git = "https://github.com/NervosFoundation/bls-rs.git" }
 
 # The [patch] sections in Cargo.toml are only recognized in the root crate's manifest
 [patch.crates-io]

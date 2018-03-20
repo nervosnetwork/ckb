@@ -1,6 +1,9 @@
+use super::helper::HexSlice;
 use super::template::{TemplatesExt, TEMPLATES};
 use bigint::{H160, H256};
+use bls;
 use core::{ProofPublicG, ProofPublickey, PublicKey};
+use crypto::secp::Generator;
 use std::fs::{File, OpenOptions};
 use std::io::{self, BufReader, Read, Write};
 use std::path::Path;
@@ -18,6 +21,32 @@ pub struct Signer {
     pub miner_private_key: H160,
     pub signer_private_key: H256,
     pub key_pairs: Vec<KeyPair>,
+}
+
+impl Signer {
+    // temporary
+    pub fn gen_and_print() {
+        let (miner_private_key, proof_public_key, proof_public_g) = bls::key_gen();
+
+        let gen = Generator::new();
+        let (signer_private_key, signer_public_key) = gen.random_keypair()
+            .expect("Generate random secp256k1 keypair");
+
+        println!(
+            "miner_private_key:    0x{}",
+            HexSlice::new(&miner_private_key[..])
+        );
+        println!(
+            "proof_public_key:    0x{}",
+            HexSlice::new(&proof_public_key[..])
+        );
+        println!(
+            "proof_public_g:    0x{}",
+            HexSlice::new(&proof_public_g[..])
+        );
+        println!("signer_private_key:    0x{}", signer_private_key);
+        println!("signer_public_key:    0x{}", signer_public_key);
+    }
 }
 
 impl Default for Signer {
