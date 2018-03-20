@@ -1,6 +1,6 @@
 <img src="https://raw.githubusercontent.com/poshboytl/tuchuang/master/nervos-logo-dark.png" width="256">
 
-# [Nervos CKB]() - The Common Knowledge Base
+# [Nervos CKB](http://nervos.org) - The Common Knowledge Base
 
 [![TravisCI](https://travis-ci.com/NervosFoundation/nervos.svg?token=y9uR6ygmT3geQaMJ4jpJ&branch=develop)](https://travis-ci.com/NervosFoundation/nervos)
 
