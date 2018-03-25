@@ -20,13 +20,13 @@ pub struct Spec {
 impl Default for Spec {
     fn default() -> Self {
         let logger = LogConfig {
-            filter: Some("main=info,miner=info,chain=info".to_string()),
+            filter: Some("main=info,miner=info,chain=info,network=debug".to_string()),
             color: true,
             file: Some("/tmp/nervos0.log".to_string()),
         };
 
         let network = NetworkConfig {
-            listen_addr: "/ip4/0.0.0.0/tcp/12300".to_string(),
+            listen_addr: "/ip4/0.0.0.0/tcp/0".to_string(),
             bootstrap_nodes: vec![
                 (
                     "QmWvoPbu9AgEFLL5UyxpCfhxkLDd9T7zuerjhHiwsnqSh4".to_string(),

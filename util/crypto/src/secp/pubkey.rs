@@ -45,6 +45,12 @@ impl From<H512> for Pubkey {
     }
 }
 
+impl Into<H512> for Pubkey {
+    fn into(self) -> H512 {
+        self.inner
+    }
+}
+
 impl ops::Deref for Pubkey {
     type Target = H512;
 

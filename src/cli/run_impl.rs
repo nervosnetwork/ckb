@@ -26,16 +26,21 @@ pub fn run(config: Config) {
 
     let tx_pool = Arc::new(TransactionPool::default());
 
-    let chain_adapter = Arc::new(ChainToNetAndPoolAdapter::new(tx_pool.clone()));
+    let chain_adapter = Arc::new(ChainToNetAndPoolAdapter::new(Arc::clone(&tx_pool)));
+
     let chain = Arc::new(
-        Chain::init(store, chain_adapter.clone(), &chain::genesis::genesis_dev()).unwrap(),
+        Chain::init(
+            store,
+            Arc::clone(&chain_adapter),
+            &chain::genesis::genesis_dev(),
+        ).unwrap(),
     );
 
     let kg = Arc::new(config.key_group());
 
-    let net_adapter = NetToChainAndPoolAdapter::new(kg, &chain, tx_pool.clone());
+    let net_adapter = NetToChainAndPoolAdapter::new(kg, &chain, Arc::clone(&tx_pool));
 
-    let network = Arc::new(Network::init(net_adapter, config.network).unwrap());
+    let network = Arc::new(Network::new(net_adapter, config.network));
 
     chain_adapter.init(&network);
 
@@ -46,10 +51,11 @@ pub fn run(config: Config) {
         signer_key: bigint::H256::from(&config.signer.signer_private_key[..]),
     };
 
+    let network_clone = Arc::clone(&network);
     let _ = thread::Builder::new()
         .name("network".to_string())
         .spawn(move || {
-            network.start();
+            network_clone.start();
         });
 
     let _ = thread::Builder::new()
@@ -62,6 +68,7 @@ pub fn run(config: Config) {
 
     info!(target: "main", "Finishing work, please wait...");
 
+    // network.flush();
     logger::flush();
 }
 
@@ -69,7 +76,7 @@ fn wait_for_exit() {
     let exit = Arc::new((Mutex::new(()), Condvar::new()));
 
     // Handle possible exits
-    let e = exit.clone();
+    let e = Arc::<(Mutex<()>, Condvar)>::clone(&exit);
     let _ = ctrlc::set_handler(move || {
         e.1.notify_all();
     });

@@ -9,8 +9,9 @@ use network::Config as NetworkConfig;
 const CONFIG_FILE: &str = "config.toml";
 const SIGNER_FILE: &str = "signer.toml";
 const RSA_FILE: &str = "rsa.toml";
+const PEERS: &str = "peers.json";
 
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Config {
     pub logger: LogConfig,
     pub signer: Signer,
@@ -35,6 +36,7 @@ impl Config {
             public_key: rsa.pubkey_der,
             listen_addr: network.listen_addr,
             bootstrap_nodes: network.bootstrap_nodes,
+            peer_path: dirs.base.join(PEERS),
         };
 
         Config {

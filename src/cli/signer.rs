@@ -51,40 +51,26 @@ impl Signer {
 
 impl Default for Signer {
     fn default() -> Self {
-        use std::str::FromStr;
+        let (miner_private_key, proof_public_key, proof_public_g) = bls::key_gen();
+
+        let gen = Generator::new();
+        let (signer_private_key, signer_public_key) = gen.random_keypair()
+            .expect("Generate random secp256k1 keypair");
 
         let key_pairs = vec![
             KeyPair {
-                proof_public_key: ProofPublickey::from_str("037151adfd9b0167d943ad816352bf0a96cfedfa15b60caddda91ad710732cb80cb54d46ce2fa9fc00").unwrap(),
-                proof_public_g: ProofPublicG::from_str("0ce477d8a5e6b27c9d8ec9e54efbf6f5b3455ffa01899a237d80d463f737f65f0d975a8bb3ceca9e00").unwrap(),
-                signer_public_key: PublicKey::from_str("8c651d8deaef3119589ab0ba527661d97cb2fd595348ef283b7a14ba252ba493184be105beeb4ef62a20fa93a3d93672dab07381e8f01017ef5124624ddbe2a0").unwrap(),
+                proof_public_key: ProofPublickey::from_slice(&proof_public_key[..]),
+                proof_public_g: ProofPublicG::from_slice(&proof_public_g[..]),
+                signer_public_key: signer_public_key.into(),
             },
-            KeyPair {
-                proof_public_key: ProofPublickey::from_str("03a02e943dc86d0d09a84f4c9c1d5ce0fbe4337c06fe1975e13fa1a7013f297701818d27400604d101").unwrap(),
-                proof_public_g: ProofPublicG::from_str("15f3b0f38a316392cb6829b18eb220bf9e40bef301869f275d27d35e176fcfaae839bc387021c7ce01").unwrap(),
-                signer_public_key: PublicKey::from_str("2cb94bd40d4f9edbeb77f682f095fc68e71a8d639d4afd93470e23a2cfb845e1ec4d0c034913e27eb64fad7c8254db7812252065bfbc7432f38944569e7941d5").unwrap(),
-            },
-            KeyPair {
-                proof_public_key: ProofPublickey::from_str("133f84a2fba7d7d75c8bef53662ce555c034bdcc059765937f5b5fa3fad7fc5de96929f47285612001").unwrap(),
-                proof_public_g: ProofPublicG::from_str("004ca4aa1dcafbf4392cf395e8e78f3ebdc880ab0ef4a512f0dd486bf1a6861114f4d835d6dcacf001").unwrap(),
-                signer_public_key: PublicKey::from_str("aef7c4b07094501fe566859b6b713b541beb4ddf5c1821337d57836095a1eb1371223aa6904a26dbe1ebd74556c1cf1831910c5349a118a771edd6919aed701e").unwrap(),
-            },
-            KeyPair {
-                proof_public_key: ProofPublickey::from_str("07cafa7797efe36d26bb0af68bf8a55640f57fc811f5ee73bb7d10a2735cf0eb059b7cfb1107fc9d00").unwrap(),
-                proof_public_g: ProofPublicG::from_str("0318e21e32b26d6310e3609e78cdddfcc817f0f41a3deb02a611d63af17c7246b939360692bfd14900").unwrap(),
-                signer_public_key: PublicKey::from_str("415a033b4596c0c95542b304ae3241bbc82508cf4425950abb273023931adc37c77f92759e079c81967a5ba65b2d93027eda0e4c89a84f32917c24bf82be57ad").unwrap(),
-            }
         ];
 
-        let miner_private_key = H160::from_str("1162b2f150c789aed32e2e0b3081dd6852926865").unwrap();
-        let signer_private_key = H256::from_str(
-            "097c1a2d03b6c8fc270991051553219e34951b656382ca951c4c226d40a3b2d5",
-        ).unwrap();
+        let miner_private_key = H160::from_slice(&miner_private_key[..]);
 
         Signer {
             miner_private_key,
-            signer_private_key,
             key_pairs,
+            signer_private_key: signer_private_key.into(),
         }
     }
 }

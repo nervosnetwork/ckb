@@ -97,7 +97,7 @@ impl NetToChainAndPoolAdapter {
             chain: Arc::downgrade(chain),
         });
 
-        let subtask = adapter.clone();
+        let subtask = Arc::clone(&adapter);
         thread::spawn(move || {
             let dur = Duration::from_millis(TIME_STEP);
             loop {

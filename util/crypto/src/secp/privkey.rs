@@ -40,6 +40,12 @@ impl From<H256> for Privkey {
     }
 }
 
+impl Into<H256> for Privkey {
+    fn into(self) -> H256 {
+        self.inner
+    }
+}
+
 impl FromStr for Privkey {
     type Err = Error;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
