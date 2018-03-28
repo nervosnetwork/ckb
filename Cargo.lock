@@ -1312,6 +1312,7 @@ dependencies = [
  "nervos-db 0.1.0",
  "nervos-pool 0.1.0",
  "nervos-time 0.1.0",
+ "nervos-util 0.1.0",
 ]
 
 [[package]]
@@ -1352,6 +1353,8 @@ name = "nervos-pool"
 version = "0.1.0"
 dependencies = [
  "bigint 0.2.3",
+ "env_logger 0.4.3 (registry+https://github.com/rust-lang/crates.io-index)",
+ "log 0.4.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "nervos-core 0.1.0",
  "nervos-util 0.1.0",
 ]

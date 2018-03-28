@@ -1,5 +1,6 @@
 use bigint::H256;
 use core::{block, transaction};
+use transaction_meta::TransactionMeta;
 
 #[derive(Debug)]
 pub enum Operation {
@@ -14,6 +15,7 @@ pub enum KeyValue {
     BlockTransactions(H256, Vec<H256>),
     Meta(&'static str, Vec<u8>),
     Transaction(H256, Box<transaction::Transaction>),
+    TransactionMeta(H256, Box<TransactionMeta>),
 }
 
 #[derive(Debug, PartialEq)]
@@ -23,6 +25,7 @@ pub enum Key {
     BlockTransactions(H256),
     Meta(&'static str),
     Transaction(H256),
+    TransactionMeta(H256),
 }
 
 #[derive(Debug, PartialEq)]
@@ -32,6 +35,7 @@ pub enum Value {
     BlockTransactions(Vec<H256>),
     Meta(Vec<u8>),
     Transaction(Box<transaction::Transaction>),
+    TransactionMeta(Box<TransactionMeta>),
 }
 
 #[derive(Debug)]

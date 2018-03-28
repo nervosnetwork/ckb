@@ -1,12 +1,14 @@
 use bigint::{H256, U256};
 use core::adapter::ChainAdapter;
 use core::block::{Block, Header};
+use core::cell::{CellProvider, CellState};
 use core::difficulty::calculate_difficulty;
 use core::global::{EPOCH_LEN, HEIGHT_SHIFT, MIN_DIFFICULTY, TIME_STEP};
+use core::transaction::OutPoint;
 use db::store::ChainStore;
 use rand::{thread_rng, Rng};
 use std::sync::Arc;
-use util::{Mutex, RwLock};
+use util::RwLock;
 
 #[derive(Debug)]
 pub enum Error {
@@ -24,7 +26,6 @@ pub struct Chain<CA, CS> {
     store: CS,
     adapter: Arc<CA>,
     head_header: RwLock<Header>,
-    lock: Mutex<()>,
 }
 
 impl<CA: ChainAdapter, CS: ChainStore> Chain<CA, CS> {
@@ -41,7 +42,6 @@ impl<CA: ChainAdapter, CS: ChainStore> Chain<CA, CS> {
             store,
             adapter,
             head_header: RwLock::new(head_header),
-            lock: Mutex::new(()),
         })
     }
 
@@ -53,6 +53,7 @@ impl<CA: ChainAdapter, CS: ChainStore> Chain<CA, CS> {
         Ok(())
     }
 
+    // TODO: validate transactions in block
     fn check_block(&self, h: &Header) -> Result<(), Error> {
         if self.block_header(&h.hash()).is_some() {
             return Err(Error::Duplicate);
@@ -94,35 +95,15 @@ impl<CA: ChainAdapter, CS: ChainStore> Chain<CA, CS> {
                 && rng.gen_range(0, 2) == 0)
         {
             info!(target: "chain", "new best block found: {}", b.hash());
-            let _guard = self.lock.lock();
-            self.update_main_chain(&b.header);
             self.save_head_header(&b.header);
         }
-    }
-
-    fn update_main_chain(&self, header: &Header) {
-        self.store.save_block_hash(header.height, &header.hash());
-        let mut height = header.height - 1;
-        let mut hash = header.pre_hash;
-
-        loop {
-            if Some(hash) == self.block_hash(height) {
-                break;
-            }
-
-            self.store.save_block_hash(height, &hash);
-
-            hash = self.block_header(&hash).unwrap().pre_hash;
-            height -= 1;
-        }
-
-        self.print_chain(header.height, 10);
     }
 
     fn save_head_header(&self, h: &Header) {
         let mut head_header = self.head_header.write();
         *head_header = h.clone();
         self.store.save_head_header(h);
+        self.print_chain(h.height, 10);
     }
 
     pub fn head_header(&self) -> Header {
@@ -206,5 +187,34 @@ impl<CA: ChainAdapter, CS: ChainStore> Chain<CA, CS> {
         }
 
         info!(target: "chain", "}}");
+
+        // TODO: remove me when block explorer is available
+        info!(target: "chain", "Tx in Head Block {{");
+        for transaction in self.block_hash(tip)
+            .and_then(|hash| self.store.get_block_transactions(&hash))
+            .expect("invalid block number")
+        {
+            info!(target: "chain", "   {} => {:?}", transaction.hash(), transaction);
+        }
+        info!(target: "chain", "}}");
+    }
+}
+
+impl<CA: ChainAdapter, CS: ChainStore> CellProvider for Chain<CA, CS> {
+    fn cell(&self, out_point: &OutPoint) -> CellState {
+        let index = out_point.index as usize;
+        if let Some(meta) = self.store.get_transaction_meta(&out_point.hash) {
+            if index < meta.spent_at.len() {
+                if !meta.is_spent(index) {
+                    let mut transaction = self.store
+                        .get_transaction(&out_point.hash)
+                        .expect("transaction must exist");
+                    return CellState::Head(transaction.outputs.swap_remove(index));
+                } else {
+                    return CellState::Tail;
+                }
+            }
+        }
+        CellState::Unknown
     }
 }

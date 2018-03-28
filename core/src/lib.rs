@@ -12,6 +12,8 @@ extern crate serde;
 
 pub mod adapter;
 pub mod block;
+pub mod cell;
+pub mod chain;
 pub mod difficulty;
 pub mod error;
 pub mod global;

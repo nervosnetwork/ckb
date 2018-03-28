@@ -9,6 +9,7 @@ use pool::TransactionPool;
 use std::sync::Arc;
 use std::thread;
 use time::{now_ms, Duration};
+use util::Mutex;
 
 const FREQUENCY: usize = 50;
 
@@ -17,6 +18,7 @@ pub struct Miner<CA, CS> {
     pub tx_pool: Arc<TransactionPool>,
     pub miner_key: H160,
     pub signer_key: H256,
+    pub lock: Arc<Mutex<()>>,
 }
 
 impl<CA: ChainAdapter, CS: ChainStore> Miner<CA, CS> {
@@ -29,6 +31,7 @@ impl<CA: ChainAdapter, CS: ChainStore> Miner<CA, CS> {
 
         loop {
             thread::sleep(Duration::from_millis(TIME_STEP / 10));
+            let _guard = self.lock.lock();
             let time = now_ms();
             if time / TIME_STEP <= pre_time / TIME_STEP {
                 continue;

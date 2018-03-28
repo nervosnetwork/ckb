@@ -4,6 +4,10 @@ version = "0.1.0"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 
 [dependencies]
+log = "0.4"
 nervos-core = { path = "../core" }
 bigint = { path = "../util/bigint" }
 nervos-util = { path = "../util" }
+
+[dev-dependencies]
+env_logger = "0.4"

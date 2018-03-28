@@ -4,6 +4,7 @@ use core::block::Header;
 use core::transaction::Transaction;
 use kvdb::{KeyValueDB, Result};
 use std::collections::HashMap;
+use transaction_meta::TransactionMeta;
 use util::RwLock;
 
 #[derive(Default, Debug)]
@@ -13,6 +14,7 @@ struct Inner {
     block_header: HashMap<H256, Box<Header>>,
     block_transactions: HashMap<H256, Vec<H256>>,
     transaction: HashMap<H256, Box<Transaction>>,
+    transaction_meta: HashMap<H256, Box<TransactionMeta>>,
 }
 
 #[derive(Default, Debug)]
@@ -40,6 +42,9 @@ impl KeyValueDB for MemoryKeyValueDB {
                 KeyValue::Transaction(key, value) => {
                     db.transaction.insert(key, value);
                 }
+                KeyValue::TransactionMeta(key, value) => {
+                    db.transaction_meta.insert(key, value);
+                }
             },
             Operation::Delete(delete) => match delete {
                 Key::BlockHash(key) => {
@@ -56,6 +61,9 @@ impl KeyValueDB for MemoryKeyValueDB {
                 }
                 Key::Transaction(key) => {
                     db.transaction.remove(&key);
+                }
+                Key::TransactionMeta(key) => {
+                    db.transaction_meta.remove(&key);
                 }
             },
         });
@@ -78,6 +86,9 @@ impl KeyValueDB for MemoryKeyValueDB {
             Key::Transaction(ref key) => db.transaction
                 .get(key)
                 .and_then(|v| Some(Value::Transaction(v.clone()))),
+            Key::TransactionMeta(ref key) => db.transaction_meta
+                .get(key)
+                .and_then(|v| Some(Value::TransactionMeta(v.clone()))),
         };
         Ok(result)
     }

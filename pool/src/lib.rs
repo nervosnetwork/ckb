@@ -1,10 +1,13 @@
 extern crate bigint;
+#[macro_use]
+extern crate log;
 extern crate nervos_core as core;
 extern crate nervos_util as util;
 
 use bigint::H256;
 use core::block::Block;
-use core::transaction::Transaction;
+use core::cell::{CellProvider, CellState};
+use core::transaction::{OutPoint, Transaction};
 use std::collections::{HashMap, HashSet};
 use util::RwLock;
 
@@ -16,8 +19,9 @@ pub struct TransactionPool {
 impl TransactionPool {
     pub fn add_transaction(&self, tx: Transaction) {
         let mut pool = self.pool.write();
-        pool.insert(tx.hash(), tx);
-        ()
+        let txid = tx.hash();
+        pool.insert(txid, tx);
+        info!(target: "pool", "inserted tx : {}", txid);
     }
     pub fn get_transactions(&self, limit: usize) -> Vec<Transaction> {
         let pool = self.pool.read();
@@ -25,7 +29,34 @@ impl TransactionPool {
     }
     /// Updates the pool with the details of a new block.
     pub fn accommodate(&self, _block: &Block) {
-        // TODO implement this
+        // TODO: pool should known all rollback and appended blocks.
+        let mut pool = self.pool.write();
+        pool.clear();
+    }
+}
+
+impl CellProvider for TransactionPool {
+    fn cell(&self, out_point: &OutPoint) -> CellState {
+        let pool = self.pool.read();
+
+        match pool.get(&out_point.hash) {
+            Some(transaction) => {
+                if (out_point.index as usize) < transaction.inputs.len() {
+                    // TODO: index by prev output to detect double spend more efficiently.
+                    for (_, spend_transaction) in pool.iter() {
+                        for input in &spend_transaction.inputs {
+                            if &input.previous_output == out_point {
+                                return CellState::Tail;
+                            }
+                        }
+                    }
+                    CellState::Head(transaction.outputs[out_point.index as usize].clone())
+                } else {
+                    CellState::Unknown
+                }
+            }
+            None => CellState::Unknown,
+        }
     }
 }
 

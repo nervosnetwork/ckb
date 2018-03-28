@@ -3,7 +3,7 @@ signer_private_key = "0x097c1a2d03b6c8fc270991051553219e34951b656382ca951c4c226d
 db_path = ".nervos/db"
 [logger]
 file = "/tmp/nervos0.log"
-filter = "main=info,miner=info,chain=info"
+filter = "main=info,miner=info,chain=info,tx=debug"
 color = true
 [[key_pairs]]
 proof_public_key = "0x037151adfd9b0167d943ad816352bf0a96cfedfa15b60caddda91ad710732cb80cb54d46ce2fa9fc00"

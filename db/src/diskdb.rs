@@ -10,6 +10,7 @@ const COLUMN_FAMILIES: &[&str] = &[
     "block_transactions",
     "meta",
     "transaction",
+    "transaction_meta",
 ];
 
 pub struct RocksKeyValueDB {
@@ -69,6 +70,13 @@ impl KeyValueDB for RocksKeyValueDB {
                             &serialize(&value).unwrap().to_vec(),
                         )?;
                     }
+                    KeyValue::TransactionMeta(key, value) => {
+                        wb.put_cf(
+                            self.db.cf_handle(COLUMN_FAMILIES[5]).unwrap(),
+                            &serialize(&key).unwrap().to_vec(),
+                            &serialize(&value).unwrap().to_vec(),
+                        )?;
+                    }
                 },
                 Operation::Delete(delete) => match delete {
                     Key::BlockHash(key) => {
@@ -98,6 +106,12 @@ impl KeyValueDB for RocksKeyValueDB {
                     Key::Transaction(key) => {
                         wb.delete_cf(
                             self.db.cf_handle(COLUMN_FAMILIES[4]).unwrap(),
+                            &serialize(&key).unwrap().to_vec(),
+                        )?;
+                    }
+                    Key::TransactionMeta(key) => {
+                        wb.delete_cf(
+                            self.db.cf_handle(COLUMN_FAMILIES[5]).unwrap(),
                             &serialize(&key).unwrap().to_vec(),
                         )?;
                     }
@@ -141,6 +155,12 @@ impl KeyValueDB for RocksKeyValueDB {
                     &serialize(&key).unwrap().to_vec(),
                 )
                 .map(|v| v.and_then(|ref v| Some(Value::Transaction(deserialize(v).unwrap())))),
+            Key::TransactionMeta(ref key) => self.db
+                .get_cf(
+                    self.db.cf_handle(COLUMN_FAMILIES[5]).unwrap(),
+                    &serialize(&key).unwrap().to_vec(),
+                )
+                .map(|v| v.and_then(|ref v| Some(Value::TransactionMeta(deserialize(v).unwrap())))),
         };
         result.map_err(|e| e.into())
     }

@@ -19,7 +19,7 @@ use std::sync::Arc;
 
 build_rpc_trait! {
     pub trait Rpc {
-        // url -d '{"id": 2, "jsonrpc": "2.0", "method":"send_transaction","params": [{"version":2, "inputs":[], "outputs":[], "grouping":[]}]}' -H 'content-type:application/json' 'http://localhost:3030'
+        // curl -d '{"id": 2, "jsonrpc": "2.0", "method":"send_transaction","params": [{"version":2, "inputs":[], "outputs":[], "groupings":[]}]}' -H 'content-type:application/json' 'http://localhost:3030'
         #[rpc(name = "send_transaction")]
         fn send_transaction(&self, Transaction) -> Result<H256>;
     }
@@ -31,6 +31,8 @@ struct RpcImpl<NA> {
 impl<NA: NetAdapter + 'static> Rpc for RpcImpl<NA> {
     fn send_transaction(&self, tx: Transaction) -> Result<H256> {
         let result = tx.hash();
+        self.network.transaction_received(tx.clone());
+        // TODO: should only broadcast after validate the transaction
         self.network.broadcast(Broadcastable::Transaction(box tx));
         Ok(result)
     }

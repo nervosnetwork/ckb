@@ -1,6 +1,7 @@
 use chain::chain::Chain;
 use core::adapter::{ChainAdapter, NetAdapter};
 use core::block::Block;
+use core::cell::CellProvider;
 use core::global::TIME_STEP;
 use core::keygroup::KeyGroup;
 use core::transaction::Transaction;
@@ -13,7 +14,7 @@ use std::sync::Arc;
 use std::sync::Weak;
 use std::thread;
 use time::{now_ms, Duration};
-use util::RwLock;
+use util::{Mutex, RwLock};
 
 type NetworkImpl = Network<NetToChainAndPoolAdapter>;
 type ChainImpl = Chain<ChainToNetAndPoolAdapter, ChainKVStore<CacheKeyValueDB<RocksKeyValueDB>>>;
@@ -63,10 +64,12 @@ pub struct NetToChainAndPoolAdapter {
     pending_pool: Arc<PendingBlockPool>,
     tx_pool: Arc<TransactionPool>,
     chain: Weak<ChainImpl>,
+    lock: Arc<Mutex<()>>,
 }
 
 impl NetAdapter for NetToChainAndPoolAdapter {
     fn block_received(&self, b: Block) {
+        let _guard = self.lock.lock();
         if b.validate(&self.key_group).is_ok() {
             self.process_block(b);
         } else {
@@ -74,11 +77,37 @@ impl NetAdapter for NetToChainAndPoolAdapter {
         }
     }
 
+    // TODO: the logic should not be in adapter
     fn transaction_received(&self, tx: Transaction) {
-        if tx.validate() {
-            self.tx_pool.add_transaction(tx)
+        let _guard = self.lock.lock();
+        if tx.validate(false) {
+            let mut resolved_tx = upgrade_chain(&self.chain).resolve_transaction(tx);
+            if resolved_tx.is_double_spend() {
+                debug!(target: "tx", "tx double spends");
+                // TODO process double spend tx
+                return;
+            }
+            self.tx_pool
+                .resolve_transaction_unknown_inputs(&mut resolved_tx);
+            if resolved_tx.is_double_spend() {
+                debug!(target: "tx", "tx double spends");
+                // TODO process double spend tx
+                return;
+            }
+            if resolved_tx.is_orphan() {
+                // TODO add to orphan pool
+                debug!(target: "tx", "tx is orphan");
+            } else if resolved_tx.validate(false) {
+                // TODO check orphan pool
+                self.tx_pool.add_transaction(resolved_tx.transaction);
+                debug!(target: "tx", "tx is added to pool");
+            } else {
+                // TODO ban remote peer
+                debug!(target: "tx", "tx is invalid with resolved inputs");
+            }
         } else {
             // TODO ban remote peer
+            debug!(target: "tx", "tx is invalid");
         }
     }
 }
@@ -88,6 +117,7 @@ impl NetToChainAndPoolAdapter {
         kg: Arc<KeyGroup>,
         chain: &Arc<ChainImpl>,
         tx_pool: Arc<TransactionPool>,
+        lock: Arc<Mutex<()>>,
     ) -> Arc<Self> {
         let adapter = Arc::new(NetToChainAndPoolAdapter {
             tx_pool,
@@ -95,6 +125,7 @@ impl NetToChainAndPoolAdapter {
             orphan_pool: Arc::new(OrphanBlockPool::default()),
             pending_pool: Arc::new(PendingBlockPool::default()),
             chain: Arc::downgrade(chain),
+            lock,
         });
 
         let subtask = Arc::clone(&adapter);

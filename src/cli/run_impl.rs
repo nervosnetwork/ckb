@@ -21,6 +21,8 @@ pub fn run(config: Config) {
 
     info!(target: "main", "Value for config: {:?}", config);
 
+    let lock = Arc::new(Mutex::new(()));
+
     let db = CacheKeyValueDB::new(RocksKeyValueDB::open(&config.dirs.db));
     let store = ChainKVStore { db: Box::new(db) };
 
@@ -38,7 +40,8 @@ pub fn run(config: Config) {
 
     let kg = Arc::new(config.key_group());
 
-    let net_adapter = NetToChainAndPoolAdapter::new(kg, &chain, Arc::clone(&tx_pool));
+    let net_adapter =
+        NetToChainAndPoolAdapter::new(kg, &chain, Arc::clone(&tx_pool), Arc::clone(&lock));
 
     let network = Arc::new(Network::new(net_adapter, config.network));
 
@@ -49,6 +52,7 @@ pub fn run(config: Config) {
         tx_pool,
         miner_key: config.signer.miner_private_key,
         signer_key: bigint::H256::from(&config.signer.signer_private_key[..]),
+        lock,
     };
 
     let network_clone = Arc::clone(&network);
@@ -64,7 +68,7 @@ pub fn run(config: Config) {
             miner.run_loop();
         });
 
-    let rpc_server = RpcServer { config: config.rpc };
+    let rpc_server = RpcServer;
     let network_clone = Arc::clone(&network);
     let _ = thread::Builder::new()
         .name("rpc".to_string())
