@@ -21,7 +21,6 @@ type NetworkImpl = Network<NetToChainAndPoolAdapter>;
 type ChainImpl = Chain<ChainToNetAndPoolAdapter, ChainKVStore<CacheKeyValueDB<RocksKeyValueDB>>>;
 type NetworkWeakRef = RwLock<Option<Weak<NetworkImpl>>>;
 type ChainWeakRef = RwLock<Option<Weak<ChainImpl>>>;
-type TxPoolImpl = TransactionPool<PoolToChainAdapter>;
 
 fn upgrade_chain(chain: &Weak<ChainImpl>) -> Arc<ChainImpl> {
     chain.upgrade().expect("Chain must haven't dropped.")
@@ -44,10 +43,11 @@ fn upgrade_chain_ref(chain: &ChainWeakRef) -> Arc<ChainImpl> {
 }
 
 pub struct ChainToNetAndPoolAdapter {
-    tx_pool: Arc<TxPoolImpl>,
+    tx_pool: Arc<TransactionPool>,
     network: NetworkWeakRef,
 }
 
+/// TODO remove this adapter by adding floodsub
 impl ChainAdapter for ChainToNetAndPoolAdapter {
     fn block_accepted(&self, b: &Block) {
         self.tx_pool.reconcile_block(b);
@@ -56,7 +56,7 @@ impl ChainAdapter for ChainToNetAndPoolAdapter {
 }
 
 impl ChainToNetAndPoolAdapter {
-    pub fn new(tx_pool: Arc<TxPoolImpl>) -> Self {
+    pub fn new(tx_pool: Arc<TransactionPool>) -> Self {
         ChainToNetAndPoolAdapter {
             tx_pool,
             network: RwLock::new(None),
@@ -73,7 +73,7 @@ pub struct NetToChainAndPoolAdapter {
     key_group: Arc<KeyGroup>,
     orphan_pool: Arc<OrphanBlockPool>,
     pending_pool: Arc<PendingBlockPool>,
-    tx_pool: Arc<TxPoolImpl>,
+    tx_pool: Arc<TransactionPool>,
     chain: Weak<ChainImpl>,
     lock: Arc<Mutex<()>>,
 }
@@ -100,7 +100,7 @@ impl NetToChainAndPoolAdapter {
     pub fn new(
         kg: Arc<KeyGroup>,
         chain: &Arc<ChainImpl>,
-        tx_pool: Arc<TxPoolImpl>,
+        tx_pool: Arc<TransactionPool>,
         lock: Arc<Mutex<()>>,
     ) -> Arc<Self> {
         let adapter = Arc::new(NetToChainAndPoolAdapter {
@@ -200,6 +200,7 @@ pub struct PoolToNetAdapter {
     network: NetworkWeakRef,
 }
 
+/// TODO remove this adapter by adding floodsub
 impl PoolAdapter for PoolToNetAdapter {
     fn tx_accepted(&self, _tx: &Transaction) {
         // brocast tx

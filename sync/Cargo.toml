@@ -1,0 +1,20 @@
+[package]
+name = "nervos-sync"
+version = "0.1.0"
+authors = ["Nervos Core Dev <dev@nervos.org>"]
+
+[dependencies]
+actix = "0.5"
+protobuf = "1.5"
+nervos-chain = { path = "../chain" }
+nervos-core = { path = "../core" }
+bigint = { path = "../util/bigint" }
+multiaddr = "0.3"
+nervos-network = { path = "../network" }
+tokio-core  = "0.1"
+log = "0.4"
+futures = "0.1"
+nervos-protocol = { path = "../network/protocol" }
+nervos-util = { path = "../util" }
+nervos-pool = { path = "../pool" }
+nervos-time = { path = "../util/time" }

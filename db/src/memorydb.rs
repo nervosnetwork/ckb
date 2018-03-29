@@ -10,6 +10,7 @@ use util::RwLock;
 #[derive(Default, Debug)]
 struct Inner {
     meta: HashMap<&'static str, Vec<u8>>,
+    block_height: HashMap<H256, u64>,
     block_hash: HashMap<u64, H256>,
     block_header: HashMap<H256, Box<Header>>,
     block_transactions: HashMap<H256, Vec<H256>>,
@@ -30,6 +31,9 @@ impl KeyValueDB for MemoryKeyValueDB {
                 KeyValue::BlockHash(key, value) => {
                     db.block_hash.insert(key, value);
                 }
+                KeyValue::BlockHeight(key, value) => {
+                    db.block_height.insert(key, value);
+                }
                 KeyValue::BlockHeader(key, value) => {
                     db.block_header.insert(key, value);
                 }
@@ -49,6 +53,9 @@ impl KeyValueDB for MemoryKeyValueDB {
             Operation::Delete(delete) => match delete {
                 Key::BlockHash(key) => {
                     db.block_hash.remove(&key);
+                }
+                Key::BlockHeight(key) => {
+                    db.block_height.remove(&key);
                 }
                 Key::BlockHeader(key) => {
                     db.block_header.remove(&key);
@@ -76,6 +83,9 @@ impl KeyValueDB for MemoryKeyValueDB {
             Key::BlockHash(ref key) => db.block_hash
                 .get(key)
                 .and_then(|v| Some(Value::BlockHash(*v))),
+            Key::BlockHeight(ref key) => db.block_height
+                .get(key)
+                .and_then(|v| Some(Value::BlockHeight(*v))),
             Key::BlockHeader(ref key) => db.block_header
                 .get(key)
                 .and_then(|v| Some(Value::BlockHeader(v.clone()))),

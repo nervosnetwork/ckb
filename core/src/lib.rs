@@ -1,14 +1,14 @@
 extern crate bigint;
+extern crate bincode;
 extern crate bls;
 extern crate crypto;
 extern crate hash;
 extern crate merkle_root;
+extern crate nervos_protocol;
 extern crate nervos_time as time;
+extern crate serde;
 #[macro_use]
 extern crate serde_derive;
-
-extern crate bincode;
-extern crate serde;
 
 pub mod adapter;
 pub mod block;

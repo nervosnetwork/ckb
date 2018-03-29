@@ -10,6 +10,7 @@ pub enum Operation {
 
 #[derive(Debug)]
 pub enum KeyValue {
+    BlockHeight(H256, u64),
     BlockHash(u64, H256),
     BlockHeader(H256, Box<block::Header>),
     BlockTransactions(H256, Vec<H256>),
@@ -20,6 +21,7 @@ pub enum KeyValue {
 
 #[derive(Debug, PartialEq)]
 pub enum Key {
+    BlockHeight(H256),
     BlockHash(u64),
     BlockHeader(H256),
     BlockTransactions(H256),
@@ -30,6 +32,7 @@ pub enum Key {
 
 #[derive(Debug, PartialEq)]
 pub enum Value {
+    BlockHeight(u64),
     BlockHash(H256),
     BlockHeader(Box<block::Header>),
     BlockTransactions(Vec<H256>),

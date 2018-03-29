@@ -13,6 +13,7 @@ pub trait ChainStore: Sync + Send {
     fn get_block(&self, h: &H256) -> Option<Block>;
     fn get_header(&self, h: &H256) -> Option<Header>;
     fn get_block_hash(&self, height: u64) -> Option<H256>;
+    fn get_block_height(&self, h: &H256) -> Option<u64>;
     fn get_block_transactions(&self, h: &H256) -> Option<Vec<Transaction>>;
     fn get_transaction(&self, h: &H256) -> Option<Transaction>;
     fn get_transaction_meta(&self, h: &H256) -> Option<TransactionMeta>;
@@ -42,7 +43,7 @@ where
 }
 
 pub struct ChainKVStore<T: KeyValueDB> {
-    pub db: Box<T>,
+    pub db: T,
 }
 
 impl<'a, T: ChainStore> ChainStoreBlockIterator<'a, T> {
@@ -187,6 +188,7 @@ impl<T: KeyValueDB> ChainKVStore<T> {
                 while old_head_height > h.height {
                     let current_old_head = old_head_iter.next().unwrap();
                     batch.delete(Key::BlockHash(current_old_head.height));
+                    batch.delete(Key::BlockHeight(current_old_head.hash()));
                     route.rollback.push(current_old_head.hash());
                     old_head_height -= 1;
                 }
@@ -197,6 +199,7 @@ impl<T: KeyValueDB> ChainKVStore<T> {
                     let current_new_head = new_head_iter.next().unwrap();
                     let hash = current_new_head.hash();
                     batch.insert(KeyValue::BlockHash(current_new_head.height, hash));
+                    batch.insert(KeyValue::BlockHeight(hash, current_new_head.height));
                     append_reversed.push(hash);
                 }
 
@@ -208,6 +211,7 @@ impl<T: KeyValueDB> ChainKVStore<T> {
                     }
 
                     batch.insert(KeyValue::BlockHash(current_new_head.height, new_hash));
+                    batch.insert(KeyValue::BlockHeight(new_hash, current_new_head.height));
                     route.rollback.push(old_hash);
                     append_reversed.push(new_hash);
                 }
@@ -215,6 +219,7 @@ impl<T: KeyValueDB> ChainKVStore<T> {
             None => for header in self.headers_iter(h.clone()) {
                 let hash = header.hash();
                 batch.insert(KeyValue::BlockHash(header.height, hash));
+                batch.insert(KeyValue::BlockHeight(hash, header.height));
                 append_reversed.push(hash);
             },
         }
@@ -298,6 +303,13 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
         })
     }
 
+    fn get_block_height(&self, hash: &H256) -> Option<u64> {
+        self.get(&Key::BlockHeight(*hash)).and_then(|v| match v {
+            Value::BlockHeight(h) => Some(h),
+            _ => None,
+        })
+    }
+
     fn head_header(&self) -> Option<Header> {
         self.get(&Key::Meta(META_HEAD_HEADER_KEY))
             .and_then(|v| match v {
@@ -330,7 +342,7 @@ mod tests {
     #[test]
     fn save_and_get_block() {
         let db = MemoryKeyValueDB::default();
-        let store = ChainKVStore { db: Box::new(db) };
+        let store = ChainKVStore { db: db };
         let raw_header = RawHeader {
             pre_hash: H256::from(0),
             timestamp: 0,

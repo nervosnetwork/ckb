@@ -13,3 +13,4 @@ hash = {path = "../util/hash"}
 crypto = {path = "../util/crypto"}
 merkle-root = {path = "../util/merkle-root"}
 nervos-time = { path = "../util/time" }
+nervos-protocol = { path = "../network/protocol" }

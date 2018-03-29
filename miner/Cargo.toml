@@ -12,3 +12,6 @@ nervos-core = { path = "../core" }
 nervos-pool = { path = "../pool" }
 nervos-chain = { path = "../chain" }
 nervos-db = { path = "../db" }
+nervos-protocol = { path = "../network/protocol" }
+nervos-network = { path = "../network" }
+protobuf = "1.5"

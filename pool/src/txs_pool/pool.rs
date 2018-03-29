@@ -8,23 +8,24 @@ use txs_pool::types::*;
 use util::RwLock;
 
 /// The pool itself.
-pub struct TransactionPool<T> {
+pub struct TransactionPool {
     pub config: PoolConfig,
     /// The pool itself
     pub pool: RwLock<Pool>,
     /// Orphans in the pool
     pub orphan: RwLock<OrphanPool>,
     // chain will offer to the pool
-    pub chain: Arc<T>,
+    pub chain: Arc<BlockChain>,
     pub adapter: Arc<PoolAdapter>,
 }
 
-impl<T> TransactionPool<T>
-where
-    T: BlockChain,
-{
+impl TransactionPool {
     /// Create a new transaction pool
-    pub fn new(config: PoolConfig, chain: Arc<T>, adapter: Arc<PoolAdapter>) -> TransactionPool<T> {
+    pub fn new(
+        config: PoolConfig,
+        chain: Arc<BlockChain>,
+        adapter: Arc<PoolAdapter>,
+    ) -> TransactionPool {
         TransactionPool {
             config,
             pool: RwLock::new(Pool::new()),

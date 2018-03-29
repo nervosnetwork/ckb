@@ -1,6 +1,5 @@
 use clap;
 use cli::{Signer, Spec, TemplatesExt};
-use core::keygroup::KeyGroup;
 use crypto::rsa::Rsa;
 use dir::{default_base_path, Directories};
 use logger::Config as LogConfig;
@@ -29,7 +28,7 @@ impl Config {
         let signer =
             Signer::load_or_write_default(&dirs.signer.join(SIGNER_FILE)).expect("load signer");
 
-        let rsa = Rsa::load_or_write_default(&dirs.keys.join(RSA_FILE)).expect("load signer");
+        let rsa = Rsa::load_or_write_default(&dirs.keys.join(RSA_FILE)).expect("load rsa");
 
         let Spec {
             network,
@@ -72,12 +71,12 @@ impl Config {
         self.logger.clone()
     }
 
-    pub fn key_group(&self) -> KeyGroup {
-        let key_pairs = self.signer.key_pairs.clone();
-        let mut kg = KeyGroup::with_capacity(key_pairs.len());
-        for kp in key_pairs {
-            kg.insert(kp.signer_public_key, kp.proof_public_key, kp.proof_public_g);
-        }
-        kg
-    }
+    // pub fn key_group(&self) -> KeyGroup {
+    //     let key_pairs = self.signer.key_pairs.clone();
+    //     let mut kg = KeyGroup::with_capacity(key_pairs.len());
+    //     for kp in key_pairs {
+    //         kg.insert(kp.signer_public_key, kp.proof_public_key, kp.proof_public_g);
+    //     }
+    //     kg
+    // }
 }

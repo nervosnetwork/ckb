@@ -3,6 +3,7 @@
 use bigint::H256;
 use bincode::serialize;
 use hash::sha3_256;
+use nervos_protocol;
 use std::slice::Iter;
 
 use error::TxError;
@@ -260,6 +261,100 @@ impl<'a> Iterator for OperationGroupIter<'a> {
 
     fn size_hint(&self) -> (usize, Option<usize>) {
         self.groupings_iter.size_hint()
+    }
+}
+
+impl<'a> From<&'a nervos_protocol::Transaction> for Transaction {
+    fn from(t: &'a nervos_protocol::Transaction) -> Self {
+        Self {
+            version: t.get_version(),
+            inputs: t.get_inputs().iter().map(|i| i.into()).collect(),
+            outputs: t.get_outputs().iter().map(|o| o.into()).collect(),
+            groupings: t.get_groupings().iter().map(|g| g.into()).collect(),
+        }
+    }
+}
+
+impl<'a> From<&'a nervos_protocol::CellInput> for CellInput {
+    fn from(c: &'a nervos_protocol::CellInput) -> Self {
+        Self {
+            previous_output: OutPoint {
+                hash: H256::from(c.get_out_point_hash()),
+                index: c.get_out_point_index(),
+            },
+            unlock: c.get_unlock().to_vec(),
+        }
+    }
+}
+
+impl<'a> From<&'a nervos_protocol::CellOutput> for CellOutput {
+    fn from(c: &'a nervos_protocol::CellOutput) -> Self {
+        Self {
+            module: c.get_module(),
+            capacity: c.get_capacity(),
+            data: c.get_data().to_vec(),
+            lock: c.get_lock().to_vec(),
+            recipient: Some(Recipient {
+                module: c.get_recipient_module(),
+                lock: c.get_recipient_lock().to_vec(),
+            }),
+        }
+    }
+}
+
+impl<'a> From<&'a nervos_protocol::OperationGrouping> for OperationGrouping {
+    fn from(o: &'a nervos_protocol::OperationGrouping) -> Self {
+        Self {
+            transform_count: o.get_transform_count(),
+            destroy_count: o.get_destroy_count(),
+            create_count: o.get_create_count(),
+        }
+    }
+}
+
+impl<'a> From<&'a Transaction> for nervos_protocol::Transaction {
+    fn from(t: &'a Transaction) -> Self {
+        let mut tx = nervos_protocol::Transaction::new();
+        tx.set_version(t.version);
+        tx.set_inputs(t.inputs.iter().map(|i| i.into()).collect());
+        tx.set_outputs(t.outputs.iter().map(|o| o.into()).collect());
+        tx.set_groupings(t.groupings.iter().map(|g| g.into()).collect());
+        tx
+    }
+}
+
+impl<'a> From<&'a CellInput> for nervos_protocol::CellInput {
+    fn from(c: &'a CellInput) -> Self {
+        let mut ci = nervos_protocol::CellInput::new();
+        ci.set_out_point_hash(c.previous_output.hash.to_vec());
+        ci.set_out_point_index(c.previous_output.index);
+        ci.set_unlock(c.unlock.clone());
+        ci
+    }
+}
+
+impl<'a> From<&'a CellOutput> for nervos_protocol::CellOutput {
+    fn from(c: &'a CellOutput) -> Self {
+        let mut co = nervos_protocol::CellOutput::new();
+        co.set_module(c.module);
+        co.set_capacity(c.capacity);
+        co.set_data(c.data.clone());
+        co.set_lock(c.lock.clone());
+        if let Some(ref r) = c.recipient {
+            co.set_recipient_module(r.module);
+            co.set_recipient_lock(r.lock.clone());
+        }
+        co
+    }
+}
+
+impl<'a> From<&'a OperationGrouping> for nervos_protocol::OperationGrouping {
+    fn from(o: &'a OperationGrouping) -> Self {
+        let mut og = nervos_protocol::OperationGrouping::new();
+        og.set_transform_count(o.transform_count);
+        og.set_destroy_count(o.destroy_count);
+        og.set_create_count(o.create_count);
+        og
     }
 }
 

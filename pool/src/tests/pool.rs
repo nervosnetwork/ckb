@@ -421,7 +421,7 @@ fn test_block_building() {
     assert_eq!(pool.total_size(), 2);
 }
 
-fn test_setup(dummy_chain: &Arc<DummyChainImpl>) -> TransactionPool<DummyChainImpl> {
+fn test_setup(dummy_chain: &Arc<DummyChainImpl>) -> TransactionPool {
     TransactionPool::new(
         PoolConfig::default(),
         dummy_chain.clone(),

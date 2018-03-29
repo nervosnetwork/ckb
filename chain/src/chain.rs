@@ -1,14 +1,13 @@
-use bigint::{H256, U256};
-use core::adapter::ChainAdapter;
+use super::genesis::genesis_hash;
+use bigint::H256;
 use core::block::{Block, Header};
 use core::cell::{CellProvider, CellState};
-use core::difficulty::calculate_difficulty;
-use core::global::{EPOCH_LEN, HEIGHT_SHIFT, MIN_DIFFICULTY, TIME_STEP};
-use core::transaction::{OutPoint, Transaction};
+use core::difficulty::cal_difficulty;
+use core::global::{EPOCH_LEN, HEIGHT_SHIFT, TIME_STEP};
+use core::transaction::OutPoint;
 use db::store::ChainStore;
 use rand::{thread_rng, Rng};
-use std::sync::Arc;
-use util::RwLock;
+use util::{RwLock, RwLockReadGuard};
 
 #[derive(Debug)]
 pub enum Error {
@@ -22,14 +21,32 @@ pub enum Error {
     NotFound,
 }
 
-pub struct Chain<CA, CS> {
+#[derive(Debug)]
+pub struct Chain<CS> {
     store: CS,
-    adapter: Arc<CA>,
     head_header: RwLock<Header>,
 }
 
-impl<CA: ChainAdapter, CS: ChainStore> Chain<CA, CS> {
-    pub fn init(store: CS, adapter: Arc<CA>, genesis: &Block) -> Result<Chain<CA, CS>, Error> {
+pub trait ChainClient: Sync + Send {
+    fn process_block(&self, b: &Block) -> Result<(), Error>;
+
+    fn get_locator(&self) -> Vec<H256>;
+
+    fn block_header(&self, hash: &H256) -> Option<Header>;
+
+    fn block_hash(&self, height: u64) -> Option<H256>;
+
+    fn block_height(&self, hash: &H256) -> Option<u64>;
+
+    fn block(&self, hash: &H256) -> Option<Block>;
+
+    fn head_header(&self) -> RwLockReadGuard<Header>;
+
+    fn challenge(&self, pre_header: &Header) -> Option<H256>;
+}
+
+impl<CS: ChainStore> Chain<CS> {
+    pub fn init(store: CS, genesis: &Block) -> Result<Chain<CS>, Error> {
         // check head in store or save the genesis block as head
         let head_header = match store.head_header() {
             Some(h) => h,
@@ -40,17 +57,8 @@ impl<CA: ChainAdapter, CS: ChainStore> Chain<CA, CS> {
         };
         Ok(Chain {
             store,
-            adapter,
             head_header: RwLock::new(head_header),
         })
-    }
-
-    pub fn process_block(&self, b: &Block) -> Result<(), Error> {
-        info!(target: "chain", "begin processing block: {}", b.hash());
-        self.check_block(&b.header)?;
-        self.insert_block(b);
-        self.adapter.block_accepted(b);
-        Ok(())
     }
 
     // TODO: validate transactions in block
@@ -73,7 +81,7 @@ impl<CA: ChainAdapter, CS: ChainStore> Chain<CA, CS> {
             return Err(Error::InvalidTotalDifficulty);
         }
 
-        if self.cal_difficulty(&pre_header, h.timestamp) != h.difficulty {
+        if cal_difficulty(&pre_header, h.timestamp) != h.difficulty {
             return Err(Error::InvalidDifficulty);
         }
 
@@ -87,13 +95,15 @@ impl<CA: ChainAdapter, CS: ChainStore> Chain<CA, CS> {
     fn insert_block(&self, b: &Block) {
         self.store.save_block(b);
 
-        let head_header = self.head_header();
-        let mut rng = thread_rng();
+        let best_block = {
+            let head_header = self.head_header.read();
+            let mut rng = thread_rng();
+            b.header.total_difficulty > head_header.total_difficulty
+                || (b.header.total_difficulty == head_header.total_difficulty
+                    && rng.gen_range(0, 2) == 0)
+        };
 
-        if b.header.total_difficulty > head_header.total_difficulty
-            || (b.header.total_difficulty == head_header.total_difficulty
-                && rng.gen_range(0, 2) == 0)
-        {
+        if best_block {
             info!(target: "chain", "new best block found: {}", b.hash());
             self.save_head_header(&b.header);
         }
@@ -104,31 +114,6 @@ impl<CA: ChainAdapter, CS: ChainStore> Chain<CA, CS> {
         *head_header = h.clone();
         self.store.save_head_header(h);
         self.print_chain(h.height, 10);
-    }
-
-    pub fn head_header(&self) -> Header {
-        self.head_header.read().clone()
-    }
-
-    pub fn block_header(&self, hash: &H256) -> Option<Header> {
-        let head_header = self.head_header.read();
-        if &head_header.hash() == hash {
-            Some(head_header.clone())
-        } else {
-            self.store.get_header(hash)
-        }
-    }
-
-    pub fn get_block(&self, hash: &H256) -> Option<Block> {
-        self.store.get_block(hash)
-    }
-
-    pub fn get_transaction(&self, hash: &H256) -> Option<Transaction> {
-        self.store.get_transaction(hash)
-    }
-
-    pub fn block_hash(&self, height: u64) -> Option<H256> {
-        self.store.get_block_hash(height)
     }
 
     fn ancestor_hash(&self, height: u64, header: &Header) -> Option<H256> {
@@ -160,30 +145,6 @@ impl<CA: ChainAdapter, CS: ChainStore> Chain<CA, CS> {
             .and_then(|v| self.block_header(&v))
     }
 
-    pub fn challenge(&self, pre_header: &Header) -> Option<H256> {
-        let height = pre_header.height + 1;
-
-        if height % EPOCH_LEN != 0 {
-            return Some(pre_header.challenge);
-        }
-
-        let pick_height = if height < HEIGHT_SHIFT {
-            0
-        } else {
-            height - HEIGHT_SHIFT
-        };
-
-        self.ancestor_header(pick_height, pre_header)
-            .map(|v| v.proof.hash())
-    }
-
-    pub fn cal_difficulty(&self, pre_header: &Header, current_time: u64) -> U256 {
-        if pre_header.height == 0 {
-            return U256::from(MIN_DIFFICULTY);
-        }
-        calculate_difficulty(pre_header, current_time)
-    }
-
     fn print_chain(&self, tip: u64, len: u64) {
         info!(target: "chain", "Chain {{");
 
@@ -208,7 +169,7 @@ impl<CA: ChainAdapter, CS: ChainStore> Chain<CA, CS> {
     }
 }
 
-impl<CA: ChainAdapter, CS: ChainStore> CellProvider for Chain<CA, CS> {
+impl<CS: ChainStore> CellProvider for Chain<CS> {
     fn cell(&self, out_point: &OutPoint) -> CellState {
         let index = out_point.index as usize;
         if let Some(meta) = self.store.get_transaction_meta(&out_point.hash) {
@@ -224,5 +185,83 @@ impl<CA: ChainAdapter, CS: ChainStore> CellProvider for Chain<CA, CS> {
             }
         }
         CellState::Unknown
+    }
+}
+
+impl<CS: ChainStore> ChainClient for Chain<CS> {
+    fn get_locator(&self) -> Vec<H256> {
+        let mut step = 1;
+        let mut locator = Vec::with_capacity(32);
+        let header = self.head_header.read();
+        let mut index = header.height;
+        loop {
+            let block_hash = self.block_hash(index)
+                .expect("index calculated in get_locator");
+            locator.push(block_hash);
+
+            if locator.len() >= 10 {
+                step <<= 1;
+            }
+
+            if index < step {
+                // always include genesis hash
+                if index != 0 {
+                    locator.push(genesis_hash())
+                }
+                break;
+            }
+            index -= step;
+        }
+        locator
+    }
+
+    fn process_block(&self, b: &Block) -> Result<(), Error> {
+        info!(target: "chain", "begin processing block: {}", b.hash());
+        self.check_block(&b.header)?;
+        self.insert_block(b);
+        info!(target: "chain", "finish processing block");
+        Ok(())
+    }
+
+    fn block(&self, hash: &H256) -> Option<Block> {
+        self.store.get_block(hash)
+    }
+
+    fn block_hash(&self, height: u64) -> Option<H256> {
+        self.store.get_block_hash(height)
+    }
+
+    fn block_height(&self, hash: &H256) -> Option<u64> {
+        self.store.get_block_height(hash)
+    }
+
+    fn block_header(&self, hash: &H256) -> Option<Header> {
+        let head_header = self.head_header.read();
+        if &head_header.hash() == hash {
+            Some(head_header.clone())
+        } else {
+            self.store.get_header(hash)
+        }
+    }
+
+    fn head_header(&self) -> RwLockReadGuard<Header> {
+        self.head_header.read()
+    }
+
+    fn challenge(&self, pre_header: &Header) -> Option<H256> {
+        let height = pre_header.height + 1;
+
+        if height % EPOCH_LEN != 0 {
+            return Some(pre_header.challenge);
+        }
+
+        let pick_height = if height < HEIGHT_SHIFT {
+            0
+        } else {
+            height - HEIGHT_SHIFT
+        };
+
+        self.ancestor_header(pick_height, pre_header)
+            .map(|v| v.proof.hash())
     }
 }

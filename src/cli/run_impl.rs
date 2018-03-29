@@ -1,5 +1,3 @@
-use adapter::{ChainToNetAndPoolAdapter, NetToChainAndPoolAdapter, PoolToChainAdapter,
-              PoolToNetAdapter};
 use bigint;
 use chain;
 use chain::chain::Chain;
@@ -11,10 +9,11 @@ use db::store::ChainKVStore;
 use logger;
 use miner::miner::Miner;
 use network::Network;
-use pool::*;
+use pool::TransactionPool;
 use rpc::RpcServer;
 use std::sync::Arc;
 use std::thread;
+use sync::node::Node;
 use util::{Condvar, Mutex};
 
 pub fn run(config: Config) {
@@ -25,53 +24,30 @@ pub fn run(config: Config) {
     let lock = Arc::new(Mutex::new(()));
 
     let db = CacheKeyValueDB::new(RocksKeyValueDB::open(&config.dirs.db));
-    let store = ChainKVStore { db: Box::new(db) };
+    let store = ChainKVStore { db };
 
-    let pool_net_adapter = Arc::new(PoolToNetAdapter::new());
+    let tx_pool = Arc::new(TransactionPool::default());
 
-    let pool_chain_adapter = Arc::new(PoolToChainAdapter::new());
+    let chain = Arc::new(Chain::init(store, &chain::genesis::genesis_dev()).unwrap());
 
-    let tx_pool = Arc::new(TransactionPool::new(
-        PoolConfig::default(),
-        Arc::<PoolToChainAdapter>::clone(&pool_chain_adapter),
-        Arc::<PoolToNetAdapter>::clone(&pool_net_adapter),
-    ));
+    // let kg = Arc::new(config.key_group());
 
-    let chain_adapter = Arc::new(ChainToNetAndPoolAdapter::new(Arc::clone(&tx_pool)));
+    let network = Arc::new(Network::new(config.network));
 
-    let chain = Arc::new(
-        Chain::init(
-            store,
-            Arc::clone(&chain_adapter),
-            &chain::genesis::genesis_dev(),
-        ).unwrap(),
+    let node_network = Arc::clone(&network);
+    let node_chain = Arc::clone(&chain);
+    let node = Node::new(node_network, node_chain, &tx_pool, &lock);
+    node.start();
+
+    let miner_chain = Arc::clone(&chain);
+    let miner = Miner::new(
+        miner_chain,
+        &tx_pool,
+        config.signer.miner_private_key,
+        bigint::H256::from(&config.signer.signer_private_key[..]),
+        &network,
+        &lock,
     );
-
-    let kg = Arc::new(config.key_group());
-
-    let net_adapter =
-        NetToChainAndPoolAdapter::new(kg, &chain, Arc::clone(&tx_pool), Arc::clone(&lock));
-
-    let network = Arc::new(Network::new(net_adapter, config.network));
-
-    chain_adapter.init(&network);
-    pool_net_adapter.init(&network);
-    pool_chain_adapter.init(&chain);
-
-    let miner = Miner {
-        tx_pool,
-        lock,
-        chain: Arc::clone(&chain),
-        miner_key: config.signer.miner_private_key,
-        signer_key: bigint::H256::from(&config.signer.signer_private_key[..]),
-    };
-
-    let network_clone = Arc::clone(&network);
-    let _ = thread::Builder::new()
-        .name("network".to_string())
-        .spawn(move || {
-            network_clone.start();
-        });
 
     let _ = thread::Builder::new()
         .name("miner".to_string())
@@ -81,6 +57,7 @@ pub fn run(config: Config) {
 
     let rpc_server = RpcServer { config: config.rpc };
     let network_clone = Arc::clone(&network);
+
     let chain_clone = Arc::clone(&chain);
     let _ = thread::Builder::new()
         .name("rpc".to_string())

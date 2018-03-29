@@ -18,6 +18,7 @@ extern crate nervos_miner as miner;
 extern crate nervos_network as network;
 extern crate nervos_pool as pool;
 extern crate nervos_rpc as rpc;
+extern crate nervos_sync as sync;
 extern crate nervos_time as time;
 extern crate nervos_util as util;
 extern crate serde;
@@ -26,7 +27,6 @@ extern crate serde_derive;
 extern crate tera;
 extern crate toml;
 
-mod adapter;
 mod cli;
 mod config;
 

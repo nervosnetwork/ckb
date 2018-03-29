@@ -57,7 +57,7 @@ pub enum PoolError {
 }
 
 /// Interface that the pool requires from a blockchain implementation.
-pub trait BlockChain {
+pub trait BlockChain: Send + Sync {
     /// Check the output is not spent
     fn is_spent(&self, output_ref: &OutPoint) -> Option<Parent>;
 

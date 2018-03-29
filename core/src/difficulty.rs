@@ -6,16 +6,20 @@ use std::cmp;
 // new_diff = parent_diff +
 //            parent_diff // DIFFICULTY_BOUND_DIVISOR *
 //            max(THRESHOLD - (block_timestamp - parent_timestamp) // INCREMENT_DIVISOR, -LIMIT)
-pub fn calculate_difficulty(parent: &Header, current_time: u64) -> U256 {
+pub fn cal_difficulty(pre_header: &Header, current_time: u64) -> U256 {
+    if pre_header.height == 0 {
+        return U256::from(MIN_DIFFICULTY);
+    }
     let diff_bound_div = U256::from(DIFFICULTY_BOUND_DIVISOR);
-    let diff_inc = (current_time - parent.timestamp) / INCREMENT_DIVISOR;
+    let diff_inc = (current_time - pre_header.timestamp) / INCREMENT_DIVISOR;
     let target = if diff_inc <= THRESHOLD {
-        parent.difficulty + parent.difficulty / diff_bound_div * U256::from(THRESHOLD - diff_inc)
+        pre_header.difficulty
+            + pre_header.difficulty / diff_bound_div * U256::from(THRESHOLD - diff_inc)
     } else {
         let multiplier: U256 = cmp::min(diff_inc - THRESHOLD, LIMIT).into();
-        parent
+        pre_header
             .difficulty
-            .saturating_sub(parent.difficulty / diff_bound_div * multiplier)
+            .saturating_sub(pre_header.difficulty / diff_bound_div * multiplier)
     };
 
     cmp::max(U256::from(MIN_DIFFICULTY), target)
@@ -33,7 +37,7 @@ pub fn boundary_to_difficulty(boundary: &H256) -> U256 {
 
 #[cfg(test)]
 mod tests {
-    use super::{boundary_to_difficulty, calculate_difficulty};
+    use super::{boundary_to_difficulty, cal_difficulty};
     use bigint::{H256, H520, U256};
     use block::{Header, RawHeader};
     use proof::Proof;
@@ -46,19 +50,19 @@ mod tests {
             difficulty: U256::from(difficulty),
             challenge: H256::from(0),
             proof: Proof::default(),
-            height: 0,
+            height: 10,
         };
 
         Header::new(raw, U256::from(0), Some(H520::from(0)))
     }
 
     #[test]
-    fn test_calculate_difficulty() {
+    fn test_cal_difficulty() {
         let h1 = gen_test_header(0, 100);
 
-        assert_eq!(calculate_difficulty(&h1, 15_000), U256::from(100));
-        assert_eq!(calculate_difficulty(&h1, 20_000), U256::from(88));
-        assert_eq!(calculate_difficulty(&h1, 8_000), U256::from(112));
+        assert_eq!(cal_difficulty(&h1, 15_000), U256::from(100));
+        assert_eq!(cal_difficulty(&h1, 20_000), U256::from(88));
+        assert_eq!(cal_difficulty(&h1, 8_000), U256::from(112));
     }
 
     #[test]

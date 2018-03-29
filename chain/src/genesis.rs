@@ -19,6 +19,11 @@ pub fn genesis_dev() -> Block {
     }
 }
 
+// TODO: should be const
+pub fn genesis_hash() -> H256 {
+    genesis_dev().hash()
+}
+
 pub fn genesis_testnet() -> Block {
     unimplemented!()
 }

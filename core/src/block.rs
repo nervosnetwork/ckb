@@ -7,11 +7,12 @@ use global::MAX_TIME_DEVIAT;
 use hash::sha3_256;
 use keygroup::KeyGroup;
 use merkle_root::*;
+use nervos_protocol;
 use proof::Proof;
 use std::ops::{Deref, DerefMut};
 use time::now_ms;
 
-#[derive(Clone, Serialize, Deserialize, PartialEq, Debug, Default)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]
 pub struct RawHeader {
     /// Previous hash.
     pub pre_hash: H256,
@@ -35,7 +36,8 @@ impl RawHeader {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize, PartialEq, Debug, Default)]
+// FIXME: block hash not equal consensus proof hash, should be distinguished
+#[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]
 pub struct Header {
     /// unsign header.
     pub raw: RawHeader,
@@ -135,13 +137,17 @@ impl Header {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize, PartialEq, Default, Debug)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]
 pub struct Block {
     pub header: Header,
     pub transactions: Vec<Transaction>,
 }
 
 impl Block {
+    pub fn header(&self) -> &Header {
+        &self.header
+    }
+
     pub fn hash(&self) -> H256 {
         self.header.hash()
     }
@@ -199,5 +205,65 @@ impl Block {
             header: Header::new(raw, pre_header.total_difficulty + difficulty, None),
             transactions: txs,
         }
+    }
+}
+
+impl<'a> From<&'a nervos_protocol::Header> for Header {
+    fn from(proto: &'a nervos_protocol::Header) -> Self {
+        let raw = RawHeader {
+            pre_hash: H256::from_slice(proto.get_parent_hash()),
+            timestamp: proto.get_timestamp(),
+            height: proto.get_height(),
+            transactions_root: H256::from_slice(proto.get_transactions_root()),
+            challenge: H256::from_slice(proto.get_challenge()),
+            proof: Proof::from_slice(proto.get_proof()),
+            difficulty: H256::from_slice(proto.get_difficulty()).into(),
+        };
+
+        let hash = raw.cal_hash();
+
+        Header {
+            raw,
+            hash,
+            signature: H520::from_slice(proto.get_signature()),
+            total_difficulty: H256::from(proto.get_total_difficulty()).into(),
+        }
+    }
+}
+
+impl<'a> From<&'a Header> for nervos_protocol::Header {
+    fn from(h: &'a Header) -> Self {
+        let mut header = nervos_protocol::Header::new();
+        header.set_challenge(h.challenge.to_vec());
+        let temp_difficulty: H256 = h.difficulty.into();
+        header.set_difficulty(temp_difficulty.to_vec());
+        header.set_height(h.height);
+        header.set_parent_hash(h.pre_hash.to_vec());
+        header.set_proof(h.proof.sig.to_vec());
+        header.set_signature(h.signature.to_vec());
+        header.set_timestamp(h.timestamp);
+        let temp_total_difficulty: H256 = h.total_difficulty.into();
+        header.set_total_difficulty(temp_total_difficulty.to_vec());
+        header.set_transactions_root(h.transactions_root.to_vec());
+        header
+    }
+}
+
+impl<'a> From<&'a nervos_protocol::Block> for Block {
+    fn from(b: &'a nervos_protocol::Block) -> Self {
+        Block {
+            header: b.get_block_header().into(),
+            transactions: b.get_transactions().iter().map(|t| t.into()).collect(),
+        }
+    }
+}
+
+impl<'a> From<&'a Block> for nervos_protocol::Block {
+    fn from(b: &'a Block) -> Self {
+        let mut block = nervos_protocol::Block::new();
+        block.set_block_header(b.header().into());
+        let transactions = b.transactions.iter().map(|t| t.into()).collect();
+        block.set_transactions(transactions);
+        block
     }
 }

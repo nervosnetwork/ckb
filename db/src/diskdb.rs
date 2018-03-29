@@ -11,6 +11,7 @@ const COLUMN_FAMILIES: &[&str] = &[
     "meta",
     "transaction",
     "transaction_meta",
+    "block_height",
 ];
 
 pub struct RocksKeyValueDB {
@@ -77,6 +78,13 @@ impl KeyValueDB for RocksKeyValueDB {
                             &serialize(&value).unwrap().to_vec(),
                         )?;
                     }
+                    KeyValue::BlockHeight(key, value) => {
+                        wb.put_cf(
+                            self.db.cf_handle(COLUMN_FAMILIES[6]).unwrap(),
+                            &serialize(&key).unwrap().to_vec(),
+                            &serialize(&value).unwrap().to_vec(),
+                        )?;
+                    }
                 },
                 Operation::Delete(delete) => match delete {
                     Key::BlockHash(key) => {
@@ -112,6 +120,12 @@ impl KeyValueDB for RocksKeyValueDB {
                     Key::TransactionMeta(key) => {
                         wb.delete_cf(
                             self.db.cf_handle(COLUMN_FAMILIES[5]).unwrap(),
+                            &serialize(&key).unwrap().to_vec(),
+                        )?;
+                    }
+                    Key::BlockHeight(key) => {
+                        wb.delete_cf(
+                            self.db.cf_handle(COLUMN_FAMILIES[6]).unwrap(),
                             &serialize(&key).unwrap().to_vec(),
                         )?;
                     }
@@ -161,6 +175,12 @@ impl KeyValueDB for RocksKeyValueDB {
                     &serialize(&key).unwrap().to_vec(),
                 )
                 .map(|v| v.and_then(|ref v| Some(Value::TransactionMeta(deserialize(v).unwrap())))),
+            Key::BlockHeight(ref key) => self.db
+                .get_cf(
+                    self.db.cf_handle(COLUMN_FAMILIES[6]).unwrap(),
+                    &serialize(&key).unwrap().to_vec(),
+                )
+                .map(|v| v.and_then(|ref v| Some(Value::BlockHeight(deserialize(v).unwrap())))),
         };
         result.map_err(|e| e.into())
     }

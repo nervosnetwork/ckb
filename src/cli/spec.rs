@@ -27,7 +27,7 @@ impl Default for Spec {
     fn default() -> Self {
         let logger = LogConfig {
             filter: Some(
-                "main=info,miner=info,chain=info,network=debug,tx=debug,pool=debug,rpc=info"
+                "main=info,miner=info,chain=info,network=debug,tx=debug,pool=debug,rpc=info,sync=debug"
                     .to_string(),
             ),
             color: true,
