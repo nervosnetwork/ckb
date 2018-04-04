@@ -7,7 +7,7 @@ use core::transaction::Transaction;
 use db::cachedb::CacheKeyValueDB;
 use db::diskdb::RocksKeyValueDB;
 use db::store::ChainKVStore;
-use network::Network;
+use network::{Broadcastable, Network};
 use pool::{OrphanBlockPool, PendingBlockPool, TransactionPool};
 use std::sync::Arc;
 use std::sync::Weak;
@@ -39,7 +39,7 @@ pub struct ChainToNetAndPoolAdapter {
 impl ChainAdapter for ChainToNetAndPoolAdapter {
     fn block_accepted(&self, b: &Block) {
         self.tx_pool.accommodate(b);
-        upgrade_network(&self.network).broadcast(b);
+        upgrade_network(&self.network).broadcast(Broadcastable::Block(box b.clone()));
     }
 }
 

@@ -8,3 +8,6 @@ listen_addr = "{{ network.listen_addr }}"
 bootstrap_nodes = [{% for bootstrap_node in network.bootstrap_nodes %}
   ["{{bootstrap_node.0}}", "{{bootstrap_node.1}}"]
 {% endfor %}]
+
+[rpc]
+listen_addr = "{{ rpc.listen_addr }}"

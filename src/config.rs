@@ -5,6 +5,7 @@ use crypto::rsa::Rsa;
 use dir::{default_base_path, Directories};
 use logger::Config as LogConfig;
 use network::Config as NetworkConfig;
+use rpc::Config as RpcConfig;
 
 const CONFIG_FILE: &str = "config.toml";
 const SIGNER_FILE: &str = "signer.toml";
@@ -17,6 +18,7 @@ pub struct Config {
     pub signer: Signer,
     pub network: NetworkConfig,
     pub dirs: Directories,
+    pub rpc: RpcConfig,
 }
 
 impl Config {
@@ -29,7 +31,11 @@ impl Config {
 
         let rsa = Rsa::load_or_write_default(&dirs.keys.join(RSA_FILE)).expect("load signer");
 
-        let Spec { network, logger } = spec;
+        let Spec {
+            network,
+            logger,
+            rpc,
+        } = spec;
 
         let network = NetworkConfig {
             private_key: rsa.privkey_pkcs8,
@@ -39,11 +45,16 @@ impl Config {
             peer_path: dirs.base.join(PEERS),
         };
 
+        let rpc = RpcConfig {
+            listen_addr: rpc.listen_addr,
+        };
+
         Config {
             dirs,
             signer,
             logger,
             network,
+            rpc,
         }
     }
 

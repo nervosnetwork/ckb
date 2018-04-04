@@ -1,6 +1,8 @@
 language: rust
 sudo: true
-cache: cargo
+cache:
+  cargo: true
+  timeout: 1024
 
 env:
   global:

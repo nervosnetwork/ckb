@@ -43,6 +43,7 @@ impl Templates {
         let mut context = Context::new();
         context.add("logger", &spec.logger);
         context.add("network", &spec.network);
+        context.add("rpc", &spec.rpc);
         self.inner
             .render("config.toml", &context)
             .expect("Render config")

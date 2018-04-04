@@ -1,3 +1,4 @@
+#![feature(box_syntax)]
 extern crate bigint;
 extern crate bls;
 #[macro_use]
@@ -16,6 +17,7 @@ extern crate nervos_db as db;
 extern crate nervos_miner as miner;
 extern crate nervos_network as network;
 extern crate nervos_pool as pool;
+extern crate nervos_rpc as rpc;
 extern crate nervos_time as time;
 extern crate nervos_util as util;
 extern crate serde;

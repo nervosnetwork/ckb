@@ -16,6 +16,7 @@ nervos-miner = { path = "miner" }
 nervos-db = { path = "db" }
 nervos-network = { path = "network"}
 nervos-pool = { path = "pool"}
+nervos-rpc = { path = "rpc"}
 nervos-time = { path = "util/time"}
 logger = { path = "util/logger" }
 bigint = { path = "util/bigint" }
@@ -50,5 +51,6 @@ members = [
     "chain",
     "miner",
     "db",
-    "pool"
+    "pool",
+    "rpc"
 ]

@@ -11,7 +11,7 @@ use logger;
 use miner::miner::Miner;
 use network::Network;
 use pool::TransactionPool;
-use std::path::Path;
+use rpc::RpcServer;
 use std::sync::Arc;
 use std::thread;
 use util::{Condvar, Mutex};
@@ -21,7 +21,7 @@ pub fn run(config: Config) {
 
     info!(target: "main", "Value for config: {:?}", config);
 
-    let db = CacheKeyValueDB::new(RocksKeyValueDB::open(Path::new(&config.db_path)));
+    let db = CacheKeyValueDB::new(RocksKeyValueDB::open(&config.dirs.db));
     let store = ChainKVStore { db: Box::new(db) };
 
     let tx_pool = Arc::new(TransactionPool::default());
@@ -62,6 +62,14 @@ pub fn run(config: Config) {
         .name("miner".to_string())
         .spawn(move || {
             miner.run_loop();
+        });
+
+    let rpc_server = RpcServer { config: config.rpc };
+    let network_clone = Arc::clone(&network);
+    let _ = thread::Builder::new()
+        .name("rpc".to_string())
+        .spawn(move || {
+            rpc_server.start(network_clone);
         });
 
     wait_for_exit();
