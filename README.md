@@ -67,6 +67,8 @@ target/release/nervos
 
 ### Send Transaction via RPC
 
+Find RPC port in the log output, the following command assumes 3030 is used:
+
 ```shell
 curl -d '{"id": 2, "jsonrpc": "2.0", "method":"send_transaction","params": [{"version":2, "inputs":[], "outputs":[], "groupings":[]}]}' \
   -H 'content-type:application/json' 'http://localhost:3030'
