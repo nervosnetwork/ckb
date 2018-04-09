@@ -28,7 +28,7 @@ admintool/example/
 .idea
 *.iml
 # mac stuff
-.
+.DS_Store
 
 # vagrant file
 .vagrant

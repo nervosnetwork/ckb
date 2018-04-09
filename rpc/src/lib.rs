@@ -4,16 +4,24 @@ extern crate jsonrpc_core;
 #[macro_use]
 extern crate jsonrpc_macros;
 extern crate jsonrpc_minihttp_server;
+extern crate jsonrpc_server_utils;
 #[macro_use]
 extern crate log;
+extern crate nervos_chain as chain;
 extern crate nervos_core as core;
+extern crate nervos_db as db;
 extern crate nervos_network as network;
 
 use bigint::H256;
-use core::adapter::NetAdapter;
+use chain::chain::Chain;
+use core::adapter::{ChainAdapter, NetAdapter};
+use core::block::{Block, Header};
 use core::transaction::Transaction;
+use db::store::ChainStore;
 use jsonrpc_core::{IoHandler, Result};
 use jsonrpc_minihttp_server::ServerBuilder;
+use jsonrpc_server_utils::cors::AccessControlAllowOrigin;
+use jsonrpc_server_utils::hosts::DomainsValidation;
 use network::{Broadcastable, Network};
 use std::sync::Arc;
 
@@ -22,13 +30,35 @@ build_rpc_trait! {
         // curl -d '{"id": 2, "jsonrpc": "2.0", "method":"send_transaction","params": [{"version":2, "inputs":[], "outputs":[], "groupings":[]}]}' -H 'content-type:application/json' 'http://localhost:3030'
         #[rpc(name = "send_transaction")]
         fn send_transaction(&self, Transaction) -> Result<H256>;
+
+        // curl -d '{"id": 2, "jsonrpc": "2.0", "method":"get_block","params": ["0x0f9da6db98d0acd1ae0cf7ae3ee0b2b5ad2855d93c18d27c0961f985a62a93c3"]}' -H 'content-type:application/json' 'http://localhost:3030'
+        #[rpc(name = "get_block")]
+        fn get_block(&self, H256) -> Result<Option<Block>>;
+
+        // curl -d '{"id": 2, "jsonrpc": "2.0", "method":"get_transaction","params": ["0x0f9da6db98d0acd1ae0cf7ae3ee0b2b5ad2855d93c18d27c0961f985a62a93c3"]}' -H 'content-type:application/json' 'http://localhost:3030'
+        #[rpc(name = "get_transaction")]
+        fn get_transaction(&self, H256) -> Result<Option<Transaction>>;
+
+        // curl -d '{"id": 2, "jsonrpc": "2.0", "method":"get_block_hash","params": [1]}' -H 'content-type:application/json' 'http://localhost:3030'
+        #[rpc(name = "get_block_hash")]
+        fn get_block_hash(&self, u64) -> Result<Option<H256>>;
+
+        #[rpc(name = "get_head_header")]
+        fn get_head_header(&self) -> Result<Header>;
     }
 }
 
-struct RpcImpl<NA> {
+struct RpcImpl<NA, CA, CS> {
     pub network: Arc<Network<NA>>,
+    pub chain: Arc<Chain<CA, CS>>,
 }
-impl<NA: NetAdapter + 'static> Rpc for RpcImpl<NA> {
+
+impl<NA, CA, CS> Rpc for RpcImpl<NA, CA, CS>
+where
+    NA: NetAdapter + 'static,
+    CA: ChainAdapter + 'static,
+    CS: ChainStore + 'static,
+{
     fn send_transaction(&self, tx: Transaction) -> Result<H256> {
         let result = tx.hash();
         self.network.transaction_received(tx.clone());
@@ -36,20 +66,42 @@ impl<NA: NetAdapter + 'static> Rpc for RpcImpl<NA> {
         self.network.broadcast(Broadcastable::Transaction(box tx));
         Ok(result)
     }
+
+    fn get_block(&self, hash: H256) -> Result<Option<Block>> {
+        Ok(self.chain.get_block(&hash))
+    }
+
+    fn get_transaction(&self, hash: H256) -> Result<Option<Transaction>> {
+        Ok(self.chain.get_transaction(&hash))
+    }
+
+    fn get_block_hash(&self, height: u64) -> Result<Option<H256>> {
+        Ok(self.chain.block_hash(height))
+    }
+
+    fn get_head_header(&self) -> Result<Header> {
+        Ok(self.chain.head_header())
+    }
 }
 
 pub struct RpcServer {
     pub config: Config,
 }
 impl RpcServer {
-    pub fn start<NA>(&self, network: Arc<Network<NA>>)
+    pub fn start<NA, CA, CS>(&self, network: Arc<Network<NA>>, chain: Arc<Chain<CA, CS>>)
     where
         NA: NetAdapter + 'static,
+        CA: ChainAdapter + 'static,
+        CS: ChainStore + 'static,
     {
         let mut io = IoHandler::new();
-        io.extend_with(RpcImpl { network }.to_delegate());
+        io.extend_with(RpcImpl { network, chain }.to_delegate());
 
         let server = ServerBuilder::new(io)
+            .cors(DomainsValidation::AllowOnly(vec![
+                AccessControlAllowOrigin::Null,
+                AccessControlAllowOrigin::Any,
+            ]))
             .threads(3)
             .start_http(&self.config.listen_addr.parse().unwrap())
             .unwrap();

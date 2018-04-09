@@ -4,7 +4,7 @@ use core::block::{Block, Header};
 use core::cell::{CellProvider, CellState};
 use core::difficulty::calculate_difficulty;
 use core::global::{EPOCH_LEN, HEIGHT_SHIFT, MIN_DIFFICULTY, TIME_STEP};
-use core::transaction::OutPoint;
+use core::transaction::{OutPoint, Transaction};
 use db::store::ChainStore;
 use rand::{thread_rng, Rng};
 use std::sync::Arc;
@@ -119,7 +119,15 @@ impl<CA: ChainAdapter, CS: ChainStore> Chain<CA, CS> {
         }
     }
 
-    fn block_hash(&self, height: u64) -> Option<H256> {
+    pub fn get_block(&self, hash: &H256) -> Option<Block> {
+        self.store.get_block(hash)
+    }
+
+    pub fn get_transaction(&self, hash: &H256) -> Option<Transaction> {
+        self.store.get_transaction(hash)
+    }
+
+    pub fn block_hash(&self, height: u64) -> Option<H256> {
         self.store.get_block_hash(height)
     }
 

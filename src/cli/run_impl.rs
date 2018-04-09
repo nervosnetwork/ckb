@@ -48,11 +48,11 @@ pub fn run(config: Config) {
     chain_adapter.init(&network);
 
     let miner = Miner {
-        chain,
         tx_pool,
+        lock,
+        chain: Arc::clone(&chain),
         miner_key: config.signer.miner_private_key,
         signer_key: bigint::H256::from(&config.signer.signer_private_key[..]),
-        lock,
     };
 
     let network_clone = Arc::clone(&network);
@@ -70,10 +70,11 @@ pub fn run(config: Config) {
 
     let rpc_server = RpcServer { config: config.rpc };
     let network_clone = Arc::clone(&network);
+    let chain_clone = Arc::clone(&chain);
     let _ = thread::Builder::new()
         .name("rpc".to_string())
         .spawn(move || {
-            rpc_server.start(network_clone);
+            rpc_server.start(network_clone, chain_clone);
         });
 
     wait_for_exit();
