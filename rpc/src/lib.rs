@@ -27,7 +27,7 @@ use std::sync::Arc;
 
 build_rpc_trait! {
     pub trait Rpc {
-        // curl -d '{"id": 2, "jsonrpc": "2.0", "method":"send_transaction","params": [{"version":2, "inputs":[], "outputs":[], "groupings":[]}]}' -H 'content-type:application/json' 'http://localhost:3030'
+        // curl -d '{"id": 2, "jsonrpc": "2.0", "method":"send_transaction","params": [{"version":2, "deps":[], "inputs":[], "outputs":[]}]}' -H 'content-type:application/json' 'http://localhost:3030'
         #[rpc(name = "send_transaction")]
         fn send_transaction(&self, Transaction) -> Result<H256>;
 

@@ -80,34 +80,37 @@ impl NetAdapter for NetToChainAndPoolAdapter {
     // TODO: the logic should not be in adapter
     fn transaction_received(&self, tx: Transaction) {
         let _guard = self.lock.lock();
-        if tx.validate(false) {
-            let mut resolved_tx = upgrade_chain(&self.chain).resolve_transaction(tx);
-            if resolved_tx.is_double_spend() {
-                debug!(target: "tx", "tx double spends");
-                // TODO process double spend tx
-                return;
+        match tx.validate(false) {
+            Ok(_) => {
+                let mut resolved_tx = upgrade_chain(&self.chain).resolve_transaction(tx);
+                if resolved_tx.is_double_spend() {
+                    debug!(target: "tx", "tx double spends");
+                    // TODO process double spend tx
+                    return;
+                }
+                self.tx_pool
+                    .resolve_transaction_unknown_inputs(&mut resolved_tx);
+                if resolved_tx.is_double_spend() {
+                    debug!(target: "tx", "tx double spends");
+                    // TODO process double spend tx
+                    return;
+                }
+                if resolved_tx.is_orphan() {
+                    // TODO add to orphan pool
+                    debug!(target: "tx", "tx is orphan");
+                } else if resolved_tx.validate(false) {
+                    // TODO check orphan pool
+                    self.tx_pool.add_transaction(resolved_tx.transaction);
+                    debug!(target: "tx", "tx is added to pool");
+                } else {
+                    // TODO ban remote peer
+                    debug!(target: "tx", "tx is invalid with resolved inputs");
+                }
             }
-            self.tx_pool
-                .resolve_transaction_unknown_inputs(&mut resolved_tx);
-            if resolved_tx.is_double_spend() {
-                debug!(target: "tx", "tx double spends");
-                // TODO process double spend tx
-                return;
-            }
-            if resolved_tx.is_orphan() {
-                // TODO add to orphan pool
-                debug!(target: "tx", "tx is orphan");
-            } else if resolved_tx.validate(false) {
-                // TODO check orphan pool
-                self.tx_pool.add_transaction(resolved_tx.transaction);
-                debug!(target: "tx", "tx is added to pool");
-            } else {
+            Err(err) => {
                 // TODO ban remote peer
-                debug!(target: "tx", "tx is invalid with resolved inputs");
+                info!(target: "tx", "tx is invalid: {:?}", err);
             }
-        } else {
-            // TODO ban remote peer
-            debug!(target: "tx", "tx is invalid");
         }
     }
 }

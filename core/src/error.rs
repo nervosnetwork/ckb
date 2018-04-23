@@ -17,3 +17,11 @@ impl From<CrypError> for Error {
         Error::InvalidSignature(e)
     }
 }
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum TxError {
+    OutofBound,
+    NotMatch,
+    EmptyGroup,
+    WrongFormat,
+}

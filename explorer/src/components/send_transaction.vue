@@ -14,6 +14,15 @@ export default {
     return {
       json: {
         version: 1,
+        deps: [
+          {
+            previous_output: {
+              hash: "0x0000000000000000000000000000000000000000000000000000000000000000",
+              index: 0,
+            },
+            unlock: [0],
+          },
+        ],
         inputs: [
           {
             previous_output: {
@@ -33,13 +42,6 @@ export default {
               module: 0,
               lock: [0]
             }
-          }
-        ],
-        groupings: [
-          {
-            transform_count: 0,
-            destroy_count: 0,
-            create_count: 0,
           }
         ]
       }
