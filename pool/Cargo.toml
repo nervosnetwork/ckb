@@ -4,10 +4,11 @@ version = "0.1.0"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 
 [dependencies]
-log = "0.4"
+serde = "1.0"
+serde_derive = "1.0"
+bincode = "1.0"
+rand = "0.4"
 nervos-core = { path = "../core" }
 bigint = { path = "../util/bigint" }
 nervos-util = { path = "../util" }
-
-[dev-dependencies]
-env_logger = "0.4"
+nervos-time = { path = "../util/time" }

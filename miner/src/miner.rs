@@ -5,7 +5,7 @@ use core::block::Block;
 use core::global::{MAX_TX, TIME_STEP};
 use core::proof::Proof;
 use db::store::ChainStore;
-use pool::TransactionPool;
+use pool::{BlockChain, TransactionPool};
 use std::sync::Arc;
 use std::thread;
 use time::{now_ms, Duration};
@@ -13,15 +13,15 @@ use util::Mutex;
 
 const FREQUENCY: usize = 50;
 
-pub struct Miner<CA, CS> {
+pub struct Miner<C, CA, CS> {
     pub chain: Arc<Chain<CA, CS>>,
-    pub tx_pool: Arc<TransactionPool>,
+    pub tx_pool: Arc<TransactionPool<C>>,
     pub miner_key: H160,
     pub signer_key: H256,
     pub lock: Arc<Mutex<()>>,
 }
 
-impl<CA: ChainAdapter, CS: ChainStore> Miner<CA, CS> {
+impl<C: BlockChain, CA: ChainAdapter, CS: ChainStore> Miner<C, CA, CS> {
     pub fn run_loop(&self) {
         let mut pre_header = self.chain.head_header();
         let mut challenge = self.chain.challenge(&pre_header).unwrap();
@@ -65,7 +65,7 @@ impl<CA: ChainAdapter, CS: ChainStore> Miner<CA, CS> {
             let proof = Proof::new(&self.miner_key, time, pre_header.height + 1, &challenge);
 
             if proof.difficulty() > difficulty {
-                let txs = self.tx_pool.get_transactions(MAX_TX);
+                let txs = self.tx_pool.prepare_mineable_transactions(MAX_TX);
                 let mut block = Block::new(&pre_header, time, difficulty, challenge, proof, txs);
                 block.sign(self.signer_key);
 

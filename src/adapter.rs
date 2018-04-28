@@ -1,15 +1,16 @@
 use chain::chain::Chain;
 use core::adapter::{ChainAdapter, NetAdapter};
 use core::block::Block;
-use core::cell::CellProvider;
+use core::block::Header;
+use core::cell::{CellProvider, CellState};
 use core::global::TIME_STEP;
 use core::keygroup::KeyGroup;
-use core::transaction::Transaction;
+use core::transaction::{OutPoint, Transaction};
 use db::cachedb::CacheKeyValueDB;
 use db::diskdb::RocksKeyValueDB;
 use db::store::ChainKVStore;
 use network::{Broadcastable, Network};
-use pool::{OrphanBlockPool, PendingBlockPool, TransactionPool};
+use pool::{BlockChain, OrphanBlockPool, Parent, PendingBlockPool, PoolAdapter, TransactionPool};
 use std::sync::Arc;
 use std::sync::Weak;
 use std::thread;
@@ -19,6 +20,8 @@ use util::{Mutex, RwLock};
 type NetworkImpl = Network<NetToChainAndPoolAdapter>;
 type ChainImpl = Chain<ChainToNetAndPoolAdapter, ChainKVStore<CacheKeyValueDB<RocksKeyValueDB>>>;
 type NetworkWeakRef = RwLock<Option<Weak<NetworkImpl>>>;
+type ChainWeakRef = RwLock<Option<Weak<ChainImpl>>>;
+type TxPoolImpl = TransactionPool<PoolToChainAdapter>;
 
 fn upgrade_chain(chain: &Weak<ChainImpl>) -> Arc<ChainImpl> {
     chain.upgrade().expect("Chain must haven't dropped.")
@@ -32,20 +35,28 @@ fn upgrade_network(network: &NetworkWeakRef) -> Arc<NetworkImpl> {
         .expect("ChainAdapter methods are called after network is init.")
 }
 
+fn upgrade_chain_ref(chain: &ChainWeakRef) -> Arc<ChainImpl> {
+    chain
+        .read()
+        .as_ref()
+        .and_then(|weak| weak.upgrade())
+        .expect("Chain is not init.")
+}
+
 pub struct ChainToNetAndPoolAdapter {
-    tx_pool: Arc<TransactionPool>,
+    tx_pool: Arc<TxPoolImpl>,
     network: NetworkWeakRef,
 }
 
 impl ChainAdapter for ChainToNetAndPoolAdapter {
     fn block_accepted(&self, b: &Block) {
-        self.tx_pool.accommodate(b);
+        self.tx_pool.reconcile_block(b);
         upgrade_network(&self.network).broadcast(Broadcastable::Block(box b.clone()));
     }
 }
 
 impl ChainToNetAndPoolAdapter {
-    pub fn new(tx_pool: Arc<TransactionPool>) -> Self {
+    pub fn new(tx_pool: Arc<TxPoolImpl>) -> Self {
         ChainToNetAndPoolAdapter {
             tx_pool,
             network: RwLock::new(None),
@@ -62,7 +73,7 @@ pub struct NetToChainAndPoolAdapter {
     key_group: Arc<KeyGroup>,
     orphan_pool: Arc<OrphanBlockPool>,
     pending_pool: Arc<PendingBlockPool>,
-    tx_pool: Arc<TransactionPool>,
+    tx_pool: Arc<TxPoolImpl>,
     chain: Weak<ChainImpl>,
     lock: Arc<Mutex<()>>,
 }
@@ -77,40 +88,10 @@ impl NetAdapter for NetToChainAndPoolAdapter {
         }
     }
 
-    // TODO: the logic should not be in adapter
     fn transaction_received(&self, tx: Transaction) {
         let _guard = self.lock.lock();
-        match tx.validate(false) {
-            Ok(_) => {
-                let mut resolved_tx = upgrade_chain(&self.chain).resolve_transaction(tx);
-                if resolved_tx.is_double_spend() {
-                    debug!(target: "tx", "tx double spends");
-                    // TODO process double spend tx
-                    return;
-                }
-                self.tx_pool
-                    .resolve_transaction_unknown_inputs(&mut resolved_tx);
-                if resolved_tx.is_double_spend() {
-                    debug!(target: "tx", "tx double spends");
-                    // TODO process double spend tx
-                    return;
-                }
-                if resolved_tx.is_orphan() {
-                    // TODO add to orphan pool
-                    debug!(target: "tx", "tx is orphan");
-                } else if resolved_tx.validate(false) {
-                    // TODO check orphan pool
-                    self.tx_pool.add_transaction(resolved_tx.transaction);
-                    debug!(target: "tx", "tx is added to pool");
-                } else {
-                    // TODO ban remote peer
-                    debug!(target: "tx", "tx is invalid with resolved inputs");
-                }
-            }
-            Err(err) => {
-                // TODO ban remote peer
-                info!(target: "tx", "tx is invalid: {:?}", err);
-            }
+        if let Err(e) = self.tx_pool.add_to_memory_pool(tx) {
+            debug!("Transaction rejected: {:?}", e);
         }
     }
 }
@@ -119,7 +100,7 @@ impl NetToChainAndPoolAdapter {
     pub fn new(
         kg: Arc<KeyGroup>,
         chain: &Arc<ChainImpl>,
-        tx_pool: Arc<TransactionPool>,
+        tx_pool: Arc<TxPoolImpl>,
         lock: Arc<Mutex<()>>,
     ) -> Arc<Self> {
         let adapter = Arc::new(NetToChainAndPoolAdapter {
@@ -176,5 +157,66 @@ impl NetToChainAndPoolAdapter {
         for b in blocks {
             self.process_block(b);
         }
+    }
+}
+
+/// dependency between the pool and the chain.
+pub struct PoolToChainAdapter {
+    chain: ChainWeakRef,
+}
+
+impl PoolToChainAdapter {
+    /// Create a new pool adapter
+    pub fn new() -> PoolToChainAdapter {
+        PoolToChainAdapter {
+            chain: RwLock::new(None),
+        }
+    }
+
+    /// Init
+    pub fn init(&self, chain: &Arc<ChainImpl>) {
+        let mut inner = self.chain.write();
+        *inner = Some(Arc::downgrade(chain));
+    }
+}
+
+impl BlockChain for PoolToChainAdapter {
+    fn is_spent(&self, o: &OutPoint) -> Option<Parent> {
+        match upgrade_chain_ref(&self.chain).cell(o) {
+            CellState::Tail => Some(Parent::AlreadySpent),
+            CellState::Head(_) => Some(Parent::BlockTransaction),
+            CellState::Unknown => None,
+        }
+    }
+
+    fn head_header(&self) -> Option<Header> {
+        Some(upgrade_chain_ref(&self.chain).head_header())
+    }
+}
+
+/// Adapter between the transaction pool and the network, to relay
+/// transactions that have been accepted.
+pub struct PoolToNetAdapter {
+    network: NetworkWeakRef,
+}
+
+impl PoolAdapter for PoolToNetAdapter {
+    fn tx_accepted(&self, _tx: &Transaction) {
+        // brocast tx
+    }
+}
+
+impl PoolToNetAdapter {
+    /// Create a new pool to net adapter
+    pub fn new() -> PoolToNetAdapter {
+        PoolToNetAdapter {
+            network: RwLock::new(None),
+        }
+    }
+
+    /// init
+    pub fn init(&self, network: &Arc<NetworkImpl>) {
+        let mut inner = self.network.write();
+        *inner = Some(Arc::downgrade(network));
     }
 }

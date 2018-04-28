@@ -11,7 +11,7 @@ use proof::Proof;
 use std::ops::{Deref, DerefMut};
 use time::now_ms;
 
-#[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Debug, Default)]
 pub struct RawHeader {
     /// Previous hash.
     pub pre_hash: H256,
@@ -35,7 +35,7 @@ impl RawHeader {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Debug, Default)]
 pub struct Header {
     /// unsign header.
     pub raw: RawHeader,
@@ -135,7 +135,7 @@ impl Header {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Default, Debug)]
 pub struct Block {
     pub header: Header,
     pub transactions: Vec<Transaction>,

@@ -1,4 +1,5 @@
-use adapter::{ChainToNetAndPoolAdapter, NetToChainAndPoolAdapter};
+use adapter::{ChainToNetAndPoolAdapter, NetToChainAndPoolAdapter, PoolToChainAdapter,
+              PoolToNetAdapter};
 use bigint;
 use chain;
 use chain::chain::Chain;
@@ -10,7 +11,7 @@ use db::store::ChainKVStore;
 use logger;
 use miner::miner::Miner;
 use network::Network;
-use pool::TransactionPool;
+use pool::*;
 use rpc::RpcServer;
 use std::sync::Arc;
 use std::thread;
@@ -26,7 +27,15 @@ pub fn run(config: Config) {
     let db = CacheKeyValueDB::new(RocksKeyValueDB::open(&config.dirs.db));
     let store = ChainKVStore { db: Box::new(db) };
 
-    let tx_pool = Arc::new(TransactionPool::default());
+    let pool_net_adapter = Arc::new(PoolToNetAdapter::new());
+
+    let pool_chain_adapter = Arc::new(PoolToChainAdapter::new());
+
+    let tx_pool = Arc::new(TransactionPool::new(
+        PoolConfig::default(),
+        Arc::<PoolToChainAdapter>::clone(&pool_chain_adapter),
+        Arc::<PoolToNetAdapter>::clone(&pool_net_adapter),
+    ));
 
     let chain_adapter = Arc::new(ChainToNetAndPoolAdapter::new(Arc::clone(&tx_pool)));
 
@@ -46,6 +55,8 @@ pub fn run(config: Config) {
     let network = Arc::new(Network::new(net_adapter, config.network));
 
     chain_adapter.init(&network);
+    pool_net_adapter.init(&network);
+    pool_chain_adapter.init(&chain);
 
     let miner = Miner {
         tx_pool,
