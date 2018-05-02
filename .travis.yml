@@ -1,8 +1,9 @@
 language: rust
 sudo: true
 cache:
-  cargo: true
   timeout: 1024
+  directories:
+     - /home/travis/.cargo/
 
 env:
   global:
