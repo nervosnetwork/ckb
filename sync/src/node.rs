@@ -4,12 +4,11 @@ use super::peers::Peers;
 use super::server::{Request, Server, ServerAddr};
 use futures::Future;
 use futures::Stream;
-use multiaddr::Multiaddr;
 use nervos_chain::chain::ChainClient;
 use nervos_protocol;
 use network::Network;
+use network::protocol::Peer;
 use pool::TransactionPool;
-use protobuf;
 use std::sync::Arc;
 use std::thread;
 use tokio_core::reactor::Core;
@@ -63,19 +62,8 @@ impl Node {
                 let server = server_clone.clone();
                 let client = client_clone.clone();
                 let network_reciver = network_reciver.for_each(move |msg| {
-                    info!(target: "sync", "received msg from {:?}", msg.source);
-                    let input = match protobuf::parse_from_bytes::<nervos_protocol::Payload>(
-                        &msg.data,
-                    ) {
-                        Ok(msg) => msg,
-                        Err(err) => {
-                            info!(target: "sync", "sync Failed to parse protobuf message ; err = {:?}", err);
-                            return Err(err.into());
-                        }
-                    };
-
-                    on_message(&server, &client, input, msg.source);
-
+                    info!(target: "sync", "received msg from {:?}", msg.peer);
+                    on_message(&server, &client, msg.payload, msg.peer);
                     Ok(())
                 });
                 core.run(
@@ -92,7 +80,7 @@ fn on_message(
     server: &ServerAddr,
     client: &ClientAddr,
     mut input: nervos_protocol::Payload,
-    source: Multiaddr,
+    source: Peer,
 ) {
     if input.has_getheaders() {
         let getheaders = input.take_getheaders();

@@ -159,12 +159,12 @@ dependencies = [
 name = "bigint"
 version = "0.2.3"
 dependencies = [
+ "bigint-serialize 0.2.1",
  "crunchy 0.1.6 (registry+https://github.com/rust-lang/crates.io-index)",
- "ethereum-types-serialize 0.2.1 (git+https://github.com/NervosFoundation/primitives)",
- "fixed-hash 0.2.1 (git+https://github.com/NervosFoundation/primitives)",
+ "fixed-hash 0.1.3",
  "rustc_version 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.43 (registry+https://github.com/rust-lang/crates.io-index)",
- "uint 0.2.0 (git+https://github.com/NervosFoundation/primitives)",
+ "uint 0.1.2",
 ]
 
 [[package]]
@@ -174,6 +174,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "byteorder 1.2.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "crunchy 0.1.6 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
+name = "bigint-serialize"
+version = "0.2.1"
+dependencies = [
+ "serde 1.0.43 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -204,16 +211,6 @@ dependencies = [
  "regex 0.2.10 (registry+https://github.com/rust-lang/crates.io-index)",
  "syntex_syntax 0.58.1 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
-
-[[package]]
-name = "bit-vec"
-version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-
-[[package]]
-name = "bitflags"
-version = "0.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
 name = "bitflags"
@@ -252,11 +249,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 [[package]]
 name = "byteorder"
 version = "0.4.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-
-[[package]]
-name = "byteorder"
-version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
@@ -338,7 +330,7 @@ dependencies = [
 [[package]]
 name = "circular-buffer"
 version = "0.1.0"
-source = "git+https://github.com/NervosFoundation/rust-libp2p#590bc91d592d4971e16d41df50bcf18b41bd0328"
+source = "git+https://github.com/NervosFoundation/rust-libp2p#0e60ec8263bce1144bc71020842f2d427629627a"
 dependencies = [
  "smallvec 0.6.0 (git+https://github.com/Vurich/rust-smallvec.git?branch=array-zero)",
 ]
@@ -504,7 +496,7 @@ dependencies = [
 [[package]]
 name = "datastore"
 version = "0.1.0"
-source = "git+https://github.com/NervosFoundation/rust-libp2p#590bc91d592d4971e16d41df50bcf18b41bd0328"
+source = "git+https://github.com/NervosFoundation/rust-libp2p#0e60ec8263bce1144bc71020842f2d427629627a"
 dependencies = [
  "base64 0.7.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "chashmap 2.2.1 (git+https://github.com/redox-os/tfs)",
@@ -528,25 +520,6 @@ name = "dir"
 version = "0.1.0"
 dependencies = [
  "app_dirs 1.1.1 (git+https://github.com/NervosFoundation/app-dirs-rs.git)",
-]
-
-[[package]]
-name = "dns-parser"
-version = "0.3.2"
-source = "git+https://github.com/plietar/dns-parser#1d3e5a5591bc72eb061c23bd426c4a25f2f73791"
-dependencies = [
- "byteorder 0.5.3 (registry+https://github.com/rust-lang/crates.io-index)",
- "matches 0.1.6 (registry+https://github.com/rust-lang/crates.io-index)",
- "quick-error 1.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
-]
-
-[[package]]
-name = "dns-parser"
-version = "0.7.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-dependencies = [
- "byteorder 1.2.2 (registry+https://github.com/rust-lang/crates.io-index)",
- "quick-error 1.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -598,26 +571,10 @@ dependencies = [
 
 [[package]]
 name = "error-chain"
-version = "0.10.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-dependencies = [
- "backtrace 0.3.6 (registry+https://github.com/rust-lang/crates.io-index)",
-]
-
-[[package]]
-name = "error-chain"
 version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "backtrace 0.3.6 (registry+https://github.com/rust-lang/crates.io-index)",
-]
-
-[[package]]
-name = "ethereum-types-serialize"
-version = "0.2.1"
-source = "git+https://github.com/NervosFoundation/primitives#dfb17048cba127e086d9105e5ef9ecea240575c2"
-dependencies = [
- "serde 1.0.43 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -641,12 +598,10 @@ dependencies = [
 
 [[package]]
 name = "fixed-hash"
-version = "0.2.1"
-source = "git+https://github.com/NervosFoundation/primitives#dfb17048cba127e086d9105e5ef9ecea240575c2"
+version = "0.1.3"
 dependencies = [
  "heapsize 0.4.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "libc 0.2.40 (registry+https://github.com/rust-lang/crates.io-index)",
- "quickcheck 0.6.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "rand 0.4.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "rustc-hex 1.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
@@ -790,15 +745,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ifaces"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-dependencies = [
- "libc 0.2.40 (registry+https://github.com/rust-lang/crates.io-index)",
- "nix 0.8.1 (registry+https://github.com/rust-lang/crates.io-index)",
-]
-
-[[package]]
 name = "integer-encoding"
 version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -936,7 +882,7 @@ dependencies = [
 [[package]]
 name = "libp2p-floodsub"
 version = "0.1.0"
-source = "git+https://github.com/NervosFoundation/rust-libp2p#590bc91d592d4971e16d41df50bcf18b41bd0328"
+source = "git+https://github.com/NervosFoundation/rust-libp2p#0e60ec8263bce1144bc71020842f2d427629627a"
 dependencies = [
  "bs58 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "byteorder 1.2.2 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -957,7 +903,7 @@ dependencies = [
 [[package]]
 name = "libp2p-identify"
 version = "0.1.0"
-source = "git+https://github.com/NervosFoundation/rust-libp2p#590bc91d592d4971e16d41df50bcf18b41bd0328"
+source = "git+https://github.com/NervosFoundation/rust-libp2p#0e60ec8263bce1144bc71020842f2d427629627a"
 dependencies = [
  "bytes 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "futures 0.1.21 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -973,7 +919,7 @@ dependencies = [
 [[package]]
 name = "libp2p-kad"
 version = "0.1.0"
-source = "git+https://github.com/NervosFoundation/rust-libp2p#590bc91d592d4971e16d41df50bcf18b41bd0328"
+source = "git+https://github.com/NervosFoundation/rust-libp2p#0e60ec8263bce1144bc71020842f2d427629627a"
 dependencies = [
  "arrayvec 0.4.7 (registry+https://github.com/rust-lang/crates.io-index)",
  "bigint 4.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1000,7 +946,7 @@ dependencies = [
 [[package]]
 name = "libp2p-peerstore"
 version = "0.1.0"
-source = "git+https://github.com/NervosFoundation/rust-libp2p#590bc91d592d4971e16d41df50bcf18b41bd0328"
+source = "git+https://github.com/NervosFoundation/rust-libp2p#0e60ec8263bce1144bc71020842f2d427629627a"
 dependencies = [
  "bs58 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "datastore 0.1.0 (git+https://github.com/NervosFoundation/rust-libp2p)",
@@ -1015,7 +961,7 @@ dependencies = [
 [[package]]
 name = "libp2p-ping"
 version = "0.1.0"
-source = "git+https://github.com/NervosFoundation/rust-libp2p#590bc91d592d4971e16d41df50bcf18b41bd0328"
+source = "git+https://github.com/NervosFoundation/rust-libp2p#0e60ec8263bce1144bc71020842f2d427629627a"
 dependencies = [
  "bytes 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "futures 0.1.21 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1031,7 +977,7 @@ dependencies = [
 [[package]]
 name = "libp2p-secio"
 version = "0.1.0"
-source = "git+https://github.com/NervosFoundation/rust-libp2p#590bc91d592d4971e16d41df50bcf18b41bd0328"
+source = "git+https://github.com/NervosFoundation/rust-libp2p#0e60ec8263bce1144bc71020842f2d427629627a"
 dependencies = [
  "bytes 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "futures 0.1.21 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1049,7 +995,7 @@ dependencies = [
 [[package]]
 name = "libp2p-swarm"
 version = "0.1.0"
-source = "git+https://github.com/NervosFoundation/rust-libp2p#590bc91d592d4971e16d41df50bcf18b41bd0328"
+source = "git+https://github.com/NervosFoundation/rust-libp2p#0e60ec8263bce1144bc71020842f2d427629627a"
 dependencies = [
  "bytes 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "fnv 1.0.6 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1065,7 +1011,7 @@ dependencies = [
 [[package]]
 name = "libp2p-tcp-transport"
 version = "0.1.0"
-source = "git+https://github.com/NervosFoundation/rust-libp2p#590bc91d592d4971e16d41df50bcf18b41bd0328"
+source = "git+https://github.com/NervosFoundation/rust-libp2p#0e60ec8263bce1144bc71020842f2d427629627a"
 dependencies = [
  "futures 0.1.21 (registry+https://github.com/rust-lang/crates.io-index)",
  "libp2p-swarm 0.1.0 (git+https://github.com/NervosFoundation/rust-libp2p)",
@@ -1078,7 +1024,7 @@ dependencies = [
 [[package]]
 name = "libp2p-websocket"
 version = "0.1.0"
-source = "git+https://github.com/NervosFoundation/rust-libp2p#590bc91d592d4971e16d41df50bcf18b41bd0328"
+source = "git+https://github.com/NervosFoundation/rust-libp2p#0e60ec8263bce1144bc71020842f2d427629627a"
 dependencies = [
  "futures 0.1.21 (registry+https://github.com/rust-lang/crates.io-index)",
  "libp2p-swarm 0.1.0 (git+https://github.com/NervosFoundation/rust-libp2p)",
@@ -1155,35 +1101,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 name = "matches"
 version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-
-[[package]]
-name = "mdns-discover"
-version = "0.2.0"
-source = "git+https://github.com/NervosFoundation/rust-mdns-discover#d3f07a6fa93a766ea4c07fbc4cfe42b087bf7ba1"
-dependencies = [
- "dns-parser 0.7.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "error-chain 0.10.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "ifaces 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "mio 0.6.14 (registry+https://github.com/rust-lang/crates.io-index)",
- "net2 0.2.32 (registry+https://github.com/rust-lang/crates.io-index)",
-]
-
-[[package]]
-name = "mdns-responder"
-version = "0.2.0"
-source = "git+https://github.com/NervosFoundation/rust-mdns-responder#64761272affceb03fb758b22c57f3757e1db6504"
-dependencies = [
- "byteorder 1.2.2 (registry+https://github.com/rust-lang/crates.io-index)",
- "dns-parser 0.3.2 (git+https://github.com/plietar/dns-parser)",
- "futures 0.1.21 (registry+https://github.com/rust-lang/crates.io-index)",
- "libc 0.2.40 (registry+https://github.com/rust-lang/crates.io-index)",
- "log 0.3.9 (registry+https://github.com/rust-lang/crates.io-index)",
- "multimap 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "net2 0.2.32 (registry+https://github.com/rust-lang/crates.io-index)",
- "nix 0.8.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "rand 0.3.22 (registry+https://github.com/rust-lang/crates.io-index)",
- "tokio-core 0.1.17 (registry+https://github.com/rust-lang/crates.io-index)",
-]
 
 [[package]]
 name = "memchr"
@@ -1293,14 +1210,9 @@ dependencies = [
 ]
 
 [[package]]
-name = "multimap"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-
-[[package]]
 name = "multiplex"
 version = "0.1.0"
-source = "git+https://github.com/NervosFoundation/rust-libp2p#590bc91d592d4971e16d41df50bcf18b41bd0328"
+source = "git+https://github.com/NervosFoundation/rust-libp2p#0e60ec8263bce1144bc71020842f2d427629627a"
 dependencies = [
  "arrayvec 0.4.7 (registry+https://github.com/rust-lang/crates.io-index)",
  "bytes 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1320,7 +1232,7 @@ dependencies = [
 [[package]]
 name = "multistream-select"
 version = "0.1.0"
-source = "git+https://github.com/NervosFoundation/rust-libp2p#590bc91d592d4971e16d41df50bcf18b41bd0328"
+source = "git+https://github.com/NervosFoundation/rust-libp2p#0e60ec8263bce1144bc71020842f2d427629627a"
 dependencies = [
  "bytes 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "futures 0.1.21 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1410,7 +1322,6 @@ version = "0.1.0"
 dependencies = [
  "bigint 0.2.3",
  "bincode 1.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "bit-vec 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "lru-cache 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "nervos-core 0.1.0",
  "nervos-util 0.1.0",
@@ -1459,8 +1370,6 @@ dependencies = [
  "libp2p-tcp-transport 0.1.0 (git+https://github.com/NervosFoundation/rust-libp2p)",
  "libp2p-websocket 0.1.0 (git+https://github.com/NervosFoundation/rust-libp2p)",
  "log 0.4.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "mdns-discover 0.2.0 (git+https://github.com/NervosFoundation/rust-mdns-discover)",
- "mdns-responder 0.2.0 (git+https://github.com/NervosFoundation/rust-mdns-responder)",
  "multiaddr 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "multiplex 0.1.0 (git+https://github.com/NervosFoundation/rust-libp2p)",
  "nervos-chain 0.1.0",
@@ -1470,6 +1379,7 @@ dependencies = [
  "nervos-util 0.1.0",
  "protobuf 1.5.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "rand 0.4.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "slab 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "smallvec 0.6.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "tokio-core 0.1.17 (registry+https://github.com/rust-lang/crates.io-index)",
  "tokio-io 0.1.6 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1482,10 +1392,16 @@ name = "nervos-pool"
 version = "0.1.0"
 dependencies = [
  "bigint 0.2.3",
+ "bincode 1.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "env_logger 0.4.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.4.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "nervos-chain 0.1.0",
  "nervos-core 0.1.0",
+ "nervos-time 0.1.0",
  "nervos-util 0.1.0",
+ "rand 0.4.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "serde 1.0.43 (registry+https://github.com/rust-lang/crates.io-index)",
+ "serde_derive 1.0.43 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -1553,17 +1469,6 @@ dependencies = [
  "cfg-if 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "libc 0.2.40 (registry+https://github.com/rust-lang/crates.io-index)",
  "winapi 0.3.4 (registry+https://github.com/rust-lang/crates.io-index)",
-]
-
-[[package]]
-name = "nix"
-version = "0.8.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-dependencies = [
- "bitflags 0.7.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "cfg-if 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
- "libc 0.2.40 (registry+https://github.com/rust-lang/crates.io-index)",
- "void 1.0.2 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -1788,16 +1693,6 @@ version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
-name = "quickcheck"
-version = "0.6.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-dependencies = [
- "env_logger 0.5.9 (registry+https://github.com/rust-lang/crates.io-index)",
- "log 0.4.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "rand 0.4.2 (registry+https://github.com/rust-lang/crates.io-index)",
-]
-
-[[package]]
 name = "quote"
 version = "0.3.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1969,7 +1864,7 @@ dependencies = [
 [[package]]
 name = "rw-stream-sink"
 version = "0.1.0"
-source = "git+https://github.com/NervosFoundation/rust-libp2p#590bc91d592d4971e16d41df50bcf18b41bd0328"
+source = "git+https://github.com/NervosFoundation/rust-libp2p#0e60ec8263bce1144bc71020842f2d427629627a"
 dependencies = [
  "bytes 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "futures 0.1.21 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -2620,12 +2515,11 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
 name = "uint"
-version = "0.2.0"
-source = "git+https://github.com/NervosFoundation/primitives#dfb17048cba127e086d9105e5ef9ecea240575c2"
+version = "0.1.2"
 dependencies = [
  "byteorder 1.2.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "crunchy 0.1.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "heapsize 0.4.2 (registry+https://github.com/rust-lang/crates.io-index)",
- "quickcheck 0.6.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "rustc-hex 1.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "rustc_version 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
@@ -2711,7 +2605,7 @@ dependencies = [
 [[package]]
 name = "varint"
 version = "0.1.0"
-source = "git+https://github.com/NervosFoundation/rust-libp2p#590bc91d592d4971e16d41df50bcf18b41bd0328"
+source = "git+https://github.com/NervosFoundation/rust-libp2p#0e60ec8263bce1144bc71020842f2d427629627a"
 dependencies = [
  "bytes 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "error-chain 0.11.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -2869,8 +2763,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 "checksum bigint 4.3.0 (registry+https://github.com/rust-lang/crates.io-index)" = "b4a6d961f23ce43ce7391b994c78174691e41274a5c48a1cda69caf04af173e1"
 "checksum bincode 1.0.0 (registry+https://github.com/rust-lang/crates.io-index)" = "bda13183df33055cbb84b847becce220d392df502ebe7a4a78d7021771ed94d0"
 "checksum bindgen 0.29.1 (registry+https://github.com/rust-lang/crates.io-index)" = "ba610cba0c1727ed837316540068b51349b8268c073906067b7c3948598929bd"
-"checksum bit-vec 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)" = "4440d5cb623bb7390ae27fec0bb6c61111969860f8e3ae198bfa0663645e67cf"
-"checksum bitflags 0.7.0 (registry+https://github.com/rust-lang/crates.io-index)" = "aad18937a628ec6abcd26d1489012cc0e18c21798210f491af69ded9b881106d"
 "checksum bitflags 0.8.2 (registry+https://github.com/rust-lang/crates.io-index)" = "1370e9fc2a6ae53aea8b7a5110edbd08836ed87c88736dfabccade1c2b44bff4"
 "checksum bitflags 0.9.1 (registry+https://github.com/rust-lang/crates.io-index)" = "4efd02e230a02e18f92fc2735f44597385ed02ad8f831e7c1c1156ee5e1ab3a5"
 "checksum bitflags 1.0.2 (registry+https://github.com/rust-lang/crates.io-index)" = "1b2bf7093258c32e0825b635948de528a5949799dcd61bef39534c8aab95870c"
@@ -2878,7 +2770,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 "checksum bs58 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)" = "2e6ea4851598d7433fbdba71fa2509d9b0df68124b9c0effe7588f5149692d9f"
 "checksum bytecount 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)" = "af27422163679dea46a1a7239dffff64d3dcdc3ba5fe9c49c789fbfe0eb949de"
 "checksum byteorder 0.4.2 (registry+https://github.com/rust-lang/crates.io-index)" = "96c8b41881888cc08af32d47ac4edd52bc7fa27fef774be47a92443756451304"
-"checksum byteorder 0.5.3 (registry+https://github.com/rust-lang/crates.io-index)" = "0fc10e8cc6b2580fda3f36eb6dc5316657f812a3df879a44a66fc9f0fdbc4855"
 "checksum byteorder 1.2.2 (registry+https://github.com/rust-lang/crates.io-index)" = "73b5bdfe7ee3ad0b99c9801d58807a9dbc9e09196365b0203853b99889ab3c87"
 "checksum bytes 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)" = "1b7db437d718977f6dc9b2e3fd6fc343c02ac6b899b73fdd2179163447bd9ce9"
 "checksum cargo_metadata 0.3.3 (registry+https://github.com/rust-lang/crates.io-index)" = "1f56ec3e469bca7c276f2eea015aa05c5e381356febdbb0683c2580189604537"
@@ -2905,20 +2796,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 "checksum ctrlc 3.1.0 (registry+https://github.com/rust-lang/crates.io-index)" = "653abc99aa905f693d89df4797fadc08085baee379db92be9f2496cefe8a6f2c"
 "checksum datastore 0.1.0 (git+https://github.com/NervosFoundation/rust-libp2p)" = "<none>"
 "checksum dbghelp-sys 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)" = "97590ba53bcb8ac28279161ca943a924d1fd4a8fb3fa63302591647c4fc5b850"
-"checksum dns-parser 0.3.2 (git+https://github.com/plietar/dns-parser)" = "<none>"
-"checksum dns-parser 0.7.1 (registry+https://github.com/rust-lang/crates.io-index)" = "f7020f6760aea312d43d23cb83bf6c0c49f162541db8b02bf95209ac51dc253d"
 "checksum dtoa 0.4.2 (registry+https://github.com/rust-lang/crates.io-index)" = "09c3753c3db574d215cba4ea76018483895d7bff25a31b49ba45db21c48e50ab"
 "checksum either 1.5.0 (registry+https://github.com/rust-lang/crates.io-index)" = "3be565ca5c557d7f59e7cfcf1844f9e3033650c929c6566f511e8005f205c1d0"
 "checksum env_logger 0.4.3 (registry+https://github.com/rust-lang/crates.io-index)" = "3ddf21e73e016298f5cb37d6ef8e8da8e39f91f9ec8b0df44b7deb16a9f8cd5b"
 "checksum env_logger 0.5.9 (registry+https://github.com/rust-lang/crates.io-index)" = "00c45cec4cde3daac5f036c74098b4956151525cdf360cff5ee0092c98823e54"
 "checksum error-chain 0.1.12 (registry+https://github.com/rust-lang/crates.io-index)" = "faa976b4fd2e4c2b2f3f486874b19e61944d3de3de8b61c9fcf835d583871bcc"
-"checksum error-chain 0.10.0 (registry+https://github.com/rust-lang/crates.io-index)" = "d9435d864e017c3c6afeac1654189b06cdb491cf2ff73dbf0d73b0f292f42ff8"
 "checksum error-chain 0.11.0 (registry+https://github.com/rust-lang/crates.io-index)" = "ff511d5dc435d703f4971bc399647c9bc38e20cb41452e3b9feb4765419ed3f3"
 "checksum error-chain 0.8.1 (registry+https://github.com/rust-lang/crates.io-index)" = "6930e04918388a9a2e41d518c25cf679ccafe26733fb4127dbf21993f2575d46"
-"checksum ethereum-types-serialize 0.2.1 (git+https://github.com/NervosFoundation/primitives)" = "<none>"
 "checksum failure 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)" = "934799b6c1de475a012a02dab0ace1ace43789ee4b99bcfbf1a2e3e8ced5de82"
 "checksum failure_derive 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)" = "c7cdda555bb90c9bb67a3b670a0f42de8e73f5981524123ad8578aafec8ddb8b"
-"checksum fixed-hash 0.2.1 (git+https://github.com/NervosFoundation/primitives)" = "<none>"
 "checksum fnv 1.0.6 (registry+https://github.com/rust-lang/crates.io-index)" = "2fad85553e09a6f881f739c29f0b00b0f01357c743266d478b68951ce23285f3"
 "checksum foreign-types 0.3.2 (registry+https://github.com/rust-lang/crates.io-index)" = "f6f339eb8adc052cd2ca78910fda869aefa38d22d5cb648e6485e4d3fc06f3b1"
 "checksum foreign-types-shared 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)" = "00b0228411908ca8685dba7fc2cdd70ec9990a6e753e89b6ac91a84c40fbaf4b"
@@ -2936,7 +2822,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 "checksum humantime 1.1.1 (registry+https://github.com/rust-lang/crates.io-index)" = "0484fda3e7007f2a4a0d9c3a703ca38c71c54c55602ce4660c419fd32e188c9e"
 "checksum hyper 0.10.13 (registry+https://github.com/rust-lang/crates.io-index)" = "368cb56b2740ebf4230520e2b90ebb0461e69034d85d1945febd9b3971426db2"
 "checksum idna 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)" = "014b298351066f1512874135335d62a789ffe78a9974f94b43ed5621951eaf7d"
-"checksum ifaces 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)" = "fa5cce6b4cae6792378aefb34152be19600949dde0041e7910430022f94b81f1"
 "checksum integer-encoding 1.0.5 (registry+https://github.com/rust-lang/crates.io-index)" = "26746cbc2e680af687e88d717f20ff90079bd10fc984ad57d277cd0e37309fa5"
 "checksum iovec 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)" = "dbe6e417e7d0975db6512b90796e8ce223145ac4e33c377e4a42882a0e88bb08"
 "checksum ipconfig 0.1.6 (registry+https://github.com/rust-lang/crates.io-index)" = "9ec4e18c0a0d4340870c14284293632d8421f419008371422dd327892b88877c"
@@ -2969,8 +2854,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 "checksum lru-cache 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)" = "4d06ff7ff06f729ce5f4e227876cb88d10bc59cd4ae1e09fbb2bde15c850dc21"
 "checksum make-cmd 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)" = "a8ca8afbe8af1785e09636acb5a41e08a765f5f0340568716c18a8700ba3c0d3"
 "checksum matches 0.1.6 (registry+https://github.com/rust-lang/crates.io-index)" = "100aabe6b8ff4e4a7e32c1c13523379802df0772b82466207ac25b013f193376"
-"checksum mdns-discover 0.2.0 (git+https://github.com/NervosFoundation/rust-mdns-discover)" = "<none>"
-"checksum mdns-responder 0.2.0 (git+https://github.com/NervosFoundation/rust-mdns-responder)" = "<none>"
 "checksum memchr 1.0.2 (registry+https://github.com/rust-lang/crates.io-index)" = "148fab2e51b4f1cfc66da2a7c32981d1d3c083a803978268bb11fe4b86925e7a"
 "checksum memchr 2.0.1 (registry+https://github.com/rust-lang/crates.io-index)" = "796fba70e76612589ed2ce7f45282f5af869e0fdd7cc6199fa1aa1f1d591ba9d"
 "checksum memoffset 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)" = "e163e5baece1a039e71e75b074de17a9b4114982aa109921fc20253bdf91a53c"
@@ -2982,12 +2865,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 "checksum multiaddr 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)" = "b97d4088dff9e0a93617a3f00213c6c1e338342c45de23cf317e613eb8e04e36"
 "checksum multibase 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)" = "b9c35dac080fd6e16a99924c8dfdef0af89d797dd851adab25feaffacf7850d6"
 "checksum multihash 0.7.0 (registry+https://github.com/rust-lang/crates.io-index)" = "7d49add5f49eb08bfc4d01ff286b84a48f53d45314f165c2d6efe477222d24f3"
-"checksum multimap 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)" = "9223f4774d08e06185e44e555b9a7561243d387bac49c78a6205c42d6975fbf2"
 "checksum multiplex 0.1.0 (git+https://github.com/NervosFoundation/rust-libp2p)" = "<none>"
 "checksum multistream-select 0.1.0 (git+https://github.com/NervosFoundation/rust-libp2p)" = "<none>"
 "checksum native-tls 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)" = "f74dbadc8b43df7864539cedb7bc91345e532fdd913cfdc23ad94f4d2d40fbc0"
 "checksum net2 0.2.32 (registry+https://github.com/rust-lang/crates.io-index)" = "9044faf1413a1057267be51b5afba8eb1090bd2231c693664aa1db716fe1eae0"
-"checksum nix 0.8.1 (registry+https://github.com/rust-lang/crates.io-index)" = "47e49f6982987135c5e9620ab317623e723bd06738fd85377e8d55f57c8b6487"
 "checksum nix 0.9.0 (registry+https://github.com/rust-lang/crates.io-index)" = "a2c5afeb0198ec7be8569d666644b574345aad2e95a53baf3a532da3e0f3fb32"
 "checksum nodrop 0.1.12 (registry+https://github.com/rust-lang/crates.io-index)" = "9a2228dca57108069a5262f2ed8bd2e82496d2e074a06d1ccc7ce1687b6ae0a2"
 "checksum nom 3.2.1 (registry+https://github.com/rust-lang/crates.io-index)" = "05aec50c70fd288702bcd93284a8444607f3292dbdf2a30de5ea5dcdbe72287b"
@@ -3015,7 +2896,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 "checksum quasi 0.32.0 (registry+https://github.com/rust-lang/crates.io-index)" = "18c45c4854d6d1cf5d531db97c75880feb91c958b0720f4ec1057135fec358b3"
 "checksum quasi_codegen 0.32.0 (registry+https://github.com/rust-lang/crates.io-index)" = "51b9e25fa23c044c1803f43ca59c98dac608976dd04ce799411edd58ece776d4"
 "checksum quick-error 1.2.1 (registry+https://github.com/rust-lang/crates.io-index)" = "eda5fe9b71976e62bc81b781206aaa076401769b2143379d3eb2118388babac4"
-"checksum quickcheck 0.6.2 (registry+https://github.com/rust-lang/crates.io-index)" = "c01babc5ffd48a2a83744b3024814bb46dfd4f2a4705ccb44b1b60e644fdcab7"
 "checksum quote 0.3.15 (registry+https://github.com/rust-lang/crates.io-index)" = "7a6e920b65c65f10b2ae65c831a81a073a89edd28c7cce89475bff467ab4167a"
 "checksum quote 0.5.2 (registry+https://github.com/rust-lang/crates.io-index)" = "9949cfe66888ffe1d53e6ec9d9f3b70714083854be20fd5e271b232a017401e8"
 "checksum rand 0.3.22 (registry+https://github.com/rust-lang/crates.io-index)" = "15a732abf9d20f0ad8eeb6f909bf6868722d9a06e1e50802b6a70351f40b4eb1"
@@ -3106,7 +2986,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 "checksum trust-dns-resolver 0.8.2 (registry+https://github.com/rust-lang/crates.io-index)" = "9b0a0c9d4f8dd56481209c5ae1a8965ed022461d352c81fb92466ec9d846929e"
 "checksum typeable 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)" = "1410f6f91f21d1612654e7cc69193b0334f909dcf2c790c4826254fbb86f8887"
 "checksum ucd-util 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)" = "fd2be2d6639d0f8fe6cdda291ad456e23629558d466e2789d2c3e9892bda285d"
-"checksum uint 0.2.0 (git+https://github.com/NervosFoundation/primitives)" = "<none>"
 "checksum unicase 1.4.2 (registry+https://github.com/rust-lang/crates.io-index)" = "7f4765f83163b74f957c797ad9253caf97f103fb064d3999aea9568d09fc8a33"
 "checksum unicode-bidi 0.3.4 (registry+https://github.com/rust-lang/crates.io-index)" = "49f2bd0c6468a8230e1db229cff8029217cf623c767ea5d60bfbd42729ea54d5"
 "checksum unicode-normalization 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)" = "51ccda9ef9efa3f7ef5d91e8f9b83bbe6955f9bf86aec89d5cce2c874625920f"

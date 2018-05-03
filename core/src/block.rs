@@ -5,7 +5,6 @@ use bincode::serialize;
 use crypto::secp::{Privkey, Signature};
 use global::MAX_TIME_DEVIAT;
 use hash::sha3_256;
-use keygroup::KeyGroup;
 use merkle_root::*;
 use nervos_protocol;
 use proof::Proof;
@@ -152,15 +151,17 @@ impl Block {
         self.header.hash()
     }
 
-    pub fn validate(&self, kg: &KeyGroup) -> Result<(), Error> {
+    // TODO review this after POW change
+    // pub fn validate(&self, kg: &KeyGroup) -> Result<(), Error> {
+    pub fn validate(&self) -> Result<(), Error> {
         self.header.check_time()?;
         self.header.check_hash()?;
         self.header.check_difficulty()?;
         self.check_txs_root()?;
-        let pubkey = self.header.recover_pubkey()?;
-        let (key, g) = kg.get(&pubkey)
-            .ok_or_else(|| Error::InvalidPublicKey(pubkey))?;
-        self.header.check_proof(&key, &g)?;
+        // let pubkey = self.header.recover_pubkey()?;
+        // let (key, g) = kg.get(&pubkey)
+        //     .ok_or_else(|| Error::InvalidPublicKey(pubkey))?;
+        // self.header.check_proof(&key, &g)?;
         Ok(())
     }
 

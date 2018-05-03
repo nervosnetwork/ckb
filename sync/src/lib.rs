@@ -17,7 +17,6 @@ extern crate tokio_core;
 mod chain;
 mod client;
 mod executor;
-mod message;
 pub mod node;
 mod peers;
 mod queue;

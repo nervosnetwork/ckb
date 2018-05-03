@@ -1,11 +1,10 @@
-use super::message;
 use actix::prelude::*;
 use bigint::H256;
 use core::block::{Block, Header};
-use multiaddr::Multiaddr;
 use nervos_protocol;
 use network::Network;
-use protobuf::{Message as ProtobufMessage, RepeatedField};
+use network::protocol::Peer;
+use protobuf::RepeatedField;
 use std::sync::Arc;
 use std::sync::mpsc::channel;
 use std::thread;
@@ -14,10 +13,10 @@ pub type ExecutorAddr = Addr<Syn, Executor>;
 
 #[derive(Debug, PartialEq)]
 pub enum Task {
-    GetHeaders(Multiaddr, Vec<H256>),
-    GetData(Multiaddr, nervos_protocol::GetData),
-    Headers(Multiaddr, Vec<Header>),
-    Block(Multiaddr, Box<Block>), //boxing the large fields to reduce the total size of the enum
+    GetHeaders(Peer, Vec<H256>),
+    GetData(Peer, nervos_protocol::GetData),
+    Headers(Peer, Vec<Header>),
+    Block(Peer, Box<Block>), //boxing the large fields to reduce the total size of the enum
 }
 
 impl Message for Task {
@@ -50,22 +49,25 @@ impl Executor {
         receiver.recv().unwrap()
     }
 
-    fn execute_headers(&self, addr: Multiaddr, headers: &[Header]) {
-        info!(target: "sync", "sync executor execute_headers to {:?}", addr);
-        let message = message::new_headers_payload(headers);
-        self.network.unicast(addr, message);
+    fn execute_headers(&self, peer: Peer, headers: &[Header]) {
+        info!(target: "sync", "sync executor execute_headers to {:?}", peer);
+        let mut payload = nervos_protocol::Payload::new();
+        let mut headers_proto = nervos_protocol::Headers::new();
+        let headers = headers.iter().map(Into::into).collect();
+        headers_proto.set_headers(RepeatedField::from_vec(headers));
+        payload.set_headers(headers_proto);
+        self.network.unicast(peer, payload);
     }
 
-    fn execute_getdata(&self, addr: Multiaddr, getdata: nervos_protocol::GetData) {
-        info!(target: "sync", "sync executor execute_getdata to {:?}", addr);
+    fn execute_getdata(&self, peer: Peer, getdata: nervos_protocol::GetData) {
+        info!(target: "sync", "sync executor execute_getdata to {:?}", peer);
         let mut payload = nervos_protocol::Payload::new();
         payload.set_getdata(getdata);
-        let message = payload.write_to_bytes().unwrap();
-        self.network.unicast(addr, message);
+        self.network.unicast(peer, payload);
     }
 
-    fn execute_getheaders(&self, addr: Multiaddr, locator_hash: &[H256]) {
-        info!(target: "sync", "sync executor execute_getheaders to {:?}", addr);
+    fn execute_getheaders(&self, peer: Peer, locator_hash: &[H256]) {
+        info!(target: "sync", "sync executor execute_getheaders to {:?}", peer);
         let mut payload = nervos_protocol::Payload::new();
         let mut getheaders = nervos_protocol::GetHeaders::new();
         let locator_hash = locator_hash.iter().map(|hash| hash.to_vec()).collect();
@@ -73,16 +75,14 @@ impl Executor {
         getheaders.set_block_locator_hashes(RepeatedField::from_vec(locator_hash));
         getheaders.set_hash_stop(H256::default().to_vec());
         payload.set_getheaders(getheaders);
-        self.network
-            .unicast(addr, payload.write_to_bytes().unwrap());
+        self.network.unicast(peer, payload);
     }
 
-    fn execute_block(&self, addr: Multiaddr, block: &Block) {
-        info!(target: "sync", "sync executor execute_block to {:?}", addr);
+    fn execute_block(&self, peer: Peer, block: &Block) {
+        info!(target: "sync", "sync executor execute_block to {:?}", peer);
         let mut payload = nervos_protocol::Payload::new();
         payload.set_block(block.into());
-        self.network
-            .unicast(addr, payload.write_to_bytes().unwrap());
+        self.network.unicast(peer, payload);
     }
 }
 

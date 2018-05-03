@@ -5,11 +5,11 @@ use super::peers::Peers;
 use actix::prelude::*;
 use bigint::H256;
 use core::block::{Block, Header};
-use core::cell::CellProvider;
-use core::transaction::Transaction;
-use multiaddr::Multiaddr;
+// use core::cell::CellProvider;
+// use core::transaction::Transaction;
 use nervos_chain::chain::ChainClient;
 use nervos_protocol;
+use network::protocol::Peer;
 use pool::{OrphanBlockPool, TransactionPool};
 use protobuf::RepeatedField;
 use std::cmp::min;
@@ -20,40 +20,39 @@ use std::thread;
 use util::{Mutex, RwLock};
 
 pub type PeersRef = Arc<RwLock<Peers>>;
-pub type ClientAddr = Addr<Syn, Client>;
 
 #[derive(Debug, PartialEq)]
 pub enum Command {
-    OnHeaders(Multiaddr, nervos_protocol::Headers),
-    OnTransaction(Multiaddr, nervos_protocol::Transaction),
-    OnBlock(Multiaddr, nervos_protocol::Block),
+    OnHeaders(Peer, nervos_protocol::Headers),
+    OnTransaction(Peer, nervos_protocol::Transaction),
+    OnBlock(Peer, nervos_protocol::Block),
 }
 
 impl Message for Command {
     type Result = ();
 }
 
-pub struct Client {
-    pub chain: Chain,
+pub struct Client<C> {
+    pub chain: Chain<C>,
     pub executor: Arc<ExecutorAddr>,
     pub peers: PeersRef,
-    pub tx_pool: Arc<TransactionPool>,
+    pub tx_pool: Arc<TransactionPool<C>>,
     pub orphaned_blocks_pool: Arc<OrphanBlockPool>,
     pub miner_lock: Arc<Mutex<()>>,
 }
 
-impl Actor for Client {
+impl<C: ChainClient + 'static> Actor for Client<C> {
     type Context = Context<Self>;
 }
 
-impl Client {
+impl<C: ChainClient + 'static> Client<C> {
     pub fn new(
-        chain: &Arc<ChainClient>,
+        chain: &Arc<C>,
         executor: &Arc<ExecutorAddr>,
         peers: &PeersRef,
-        tx_pool: &Arc<TransactionPool>,
+        tx_pool: &Arc<TransactionPool<C>>,
         miner_lock: &Arc<Mutex<()>>,
-    ) -> ClientAddr {
+    ) -> Addr<Syn, Client<C>> {
         let executor_clone = Arc::clone(executor);
         let (sender, receiver) = channel();
         let client = Client {
@@ -77,44 +76,18 @@ impl Client {
     }
 
     //TODO: broadcast Transaction
-    fn on_transaction(&self, _addr: &Multiaddr, tx: &nervos_protocol::Transaction) {
-        let tx: Transaction = tx.into();
-        if tx.validate(false) {
-            let mut resolved_tx = self.chain.resolve_transaction(tx);
-            if resolved_tx.is_double_spend() {
-                debug!(target: "tx", "tx double spends");
-                // TODO process double spend tx
-                return;
-            }
-            self.tx_pool
-                .resolve_transaction_unknown_inputs(&mut resolved_tx);
-            if resolved_tx.is_double_spend() {
-                debug!(target: "tx", "tx double spends");
-                // TODO process double spend tx
-                return;
-            }
-            if resolved_tx.is_orphan() {
-                // TODO add to orphan pool
-                debug!(target: "tx", "tx is orphan");
-            } else if resolved_tx.validate(false) {
-                // TODO check orphan pool
-                self.tx_pool.add_transaction(resolved_tx.transaction);
-                debug!(target: "tx", "tx is added to pool");
-            } else {
-                // TODO ban remote peer
-                debug!(target: "tx", "tx is invalid with resolved inputs");
-            }
-        } else {
-            // TODO ban remote peer
-            debug!(target: "tx", "tx is invalid");
+    fn on_transaction(&self, _peer: Peer, tx: &nervos_protocol::Transaction) {
+        let _guard = self.miner_lock.lock();
+        if let Err(e) = self.tx_pool.add_to_memory_pool(tx.into()) {
+            debug!("Transaction rejected: {:?}", e);
         }
     }
 
-    fn on_block(&self, addr: &Multiaddr, block: Block) {
-        info!(target: "sync", "client on_block peer#{}", addr);
+    fn on_block(&self, peer: Peer, block: Block) {
+        info!(target: "sync", "client on_block peer#{}", peer);
         let block_hash = block.hash();
         {
-            self.peers.write().on_block_received(addr, &block_hash);
+            self.peers.write().on_block_received(peer, &block_hash);
         }
         let block_state = self.chain.block_state(&block_hash);
 
@@ -123,7 +96,7 @@ impl Client {
                 //ban peer
             }
             BlockState::Verifying | BlockState::Stored => {
-                self.peers.write().as_useful_peer(addr);
+                self.peers.write().as_useful_peer(peer);
             }
             BlockState::Unknown | BlockState::Scheduled | BlockState::Requested => {
                 let parent_state = self.chain.block_state(&block.header.raw.pre_hash);
@@ -138,7 +111,7 @@ impl Client {
                     }
                     BlockState::Verifying | BlockState::Stored => {
                         {
-                            self.peers.write().as_useful_peer(addr);
+                            self.peers.write().as_useful_peer(peer);
                         }
                         let mut blocks_to_verify: VecDeque<Block> = VecDeque::new();
                         let blocks_to_forget: Vec<_> =
@@ -161,7 +134,7 @@ impl Client {
                     }
                     BlockState::Requested | BlockState::Scheduled => {
                         {
-                            self.peers.write().as_useful_peer(addr);
+                            self.peers.write().as_useful_peer(peer);
                         }
                         // remember as orphan block
                         self.orphaned_blocks_pool.insert(block);
@@ -171,7 +144,7 @@ impl Client {
         }
     }
 
-    fn on_headers(&self, addr: &Multiaddr, message: &nervos_protocol::Headers) {
+    fn on_headers(&self, peer: Peer, message: &nervos_protocol::Headers) {
         info!(target: "sync", "sync client on_headers");
 
         let mut headers: Vec<Header> = message.headers.iter().map(From::from).collect();
@@ -184,7 +157,7 @@ impl Client {
             return;
         }
         {
-            self.peers.write().on_headers_received(addr);
+            self.peers.write().on_headers_received(peer);
         }
 
         let header0 = headers[0].clone();
@@ -193,7 +166,7 @@ impl Client {
             info!(
                 target: "sync",
                 "Previous header of the first header from peer#{} `headers` message is unknown. First: {}. Previous: {}", 
-                addr, header0.hash, &header0.raw.pre_hash
+                peer, header0.hash, &header0.raw.pre_hash
             );
             return;
         }
@@ -213,17 +186,17 @@ impl Client {
                         } else {
                             info!(
                                 target: "sync",
-                                "`headers` message out of order from peer#{}", addr
+                                "`headers` message out of order from peer#{}", peer
                             );
                             return;
                         }
                     }
                     // else all headers are known
                     _ => {
-                        info!(target: "sync", "Ignoring {} known headers from peer#{}", headers.len(), addr);
+                        info!(target: "sync", "Ignoring {} known headers from peer#{}", headers.len(), peer);
                         // but this peer is still useful for synchronization
                         {
-                            self.peers.write().as_useful_peer(addr);
+                            self.peers.write().as_useful_peer(peer);
                         }
                         return;
                     }
@@ -245,7 +218,7 @@ impl Client {
         info!(target: "sync", "on_headers new_headers");
         self.chain.schedule_blocks_headers(new_headers);
         {
-            self.peers.write().as_useful_peer(addr);
+            self.peers.write().as_useful_peer(peer);
         }
         self.execute_tasks();
     }
@@ -267,14 +240,14 @@ impl Client {
         };
         if !headers_idle_peers.is_empty() {
             if scheduled_len < MAX_SCHEDULED_LEN {
-                for addr in &headers_idle_peers {
-                    self.peers.write().on_headers_requested(addr);
+                for peer in &headers_idle_peers {
+                    self.peers.write().on_headers_requested(*peer);
                 }
 
                 let block_locator_hashes = self.chain.get_locator();
                 let headers_tasks = headers_idle_peers
                     .into_iter()
-                    .map(move |addr| Task::GetHeaders(addr, block_locator_hashes.clone()));
+                    .map(|peer| Task::GetHeaders(peer, block_locator_hashes.clone()));
                 tasks.extend(headers_tasks);
             } else {
                 //ban peer
@@ -297,11 +270,7 @@ impl Client {
         }
     }
 
-    fn prepare_blocks_requests_tasks(
-        &self,
-        peers: Vec<Multiaddr>,
-        mut hashes: Vec<H256>,
-    ) -> Vec<Task> {
+    fn prepare_blocks_requests_tasks(&self, peers: Vec<usize>, mut hashes: Vec<H256>) -> Vec<Task> {
         use std::mem::swap;
 
         let mut tasks: Vec<Task> = Vec::new();
@@ -320,12 +289,12 @@ impl Client {
             hashes_count
         };
 
-        for addr in peers {
+        for peer in peers {
             let index = min(hashes.len(), chunk_size as usize);
             let mut chunk_hashes = hashes.split_off(index);
             swap(&mut chunk_hashes, &mut hashes);
             {
-                self.peers.write().on_blocks_requested(&addr, &chunk_hashes);
+                self.peers.write().on_blocks_requested(peer, &chunk_hashes);
             }
 
             let mut getdata = nervos_protocol::GetData::new();
@@ -340,20 +309,20 @@ impl Client {
                 .collect();
             getdata.set_inventory(RepeatedField::from_vec(inventory));
 
-            tasks.push(Task::GetData(addr, getdata));
+            tasks.push(Task::GetData(peer, getdata));
         }
         tasks
     }
 }
 
-impl Handler<Command> for Client {
+impl<C: ChainClient + 'static> Handler<Command> for Client<C> {
     type Result = ();
 
     fn handle(&mut self, cmd: Command, _ctx: &mut Self::Context) -> Self::Result {
         match cmd {
-            Command::OnHeaders(addr, message) => self.on_headers(&addr, &message),
-            Command::OnTransaction(addr, transaction) => self.on_transaction(&addr, &transaction),
-            Command::OnBlock(addr, block) => self.on_block(&addr, (&block).into()),
+            Command::OnHeaders(peer, message) => self.on_headers(peer, &message),
+            Command::OnTransaction(peer, transaction) => self.on_transaction(peer, &transaction),
+            Command::OnBlock(peer, block) => self.on_block(peer, (&block).into()),
         }
     }
 }

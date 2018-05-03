@@ -2,9 +2,9 @@ use super::{BlockHeight, MAX_HEADERS_LEN};
 use super::executor::{ExecutorAddr, Task};
 use actix::prelude::*;
 use bigint::H256;
-use multiaddr::Multiaddr;
 use nervos_chain::chain::ChainClient;
 use nervos_protocol;
+use network::protocol::Peer;
 use std::sync::Arc;
 use std::sync::mpsc::channel;
 use std::thread;
@@ -14,9 +14,9 @@ pub type ServerAddr = Addr<Syn, Server>;
 #[derive(Debug, PartialEq)]
 pub enum Request {
     /// Serve 'getdata' request
-    GetData(Multiaddr, nervos_protocol::GetData),
+    GetData(Peer, nervos_protocol::GetData),
     /// Serve 'getheaders' request
-    GetHeaders(Multiaddr, nervos_protocol::GetHeaders),
+    GetHeaders(Peer, nervos_protocol::GetHeaders),
 }
 
 impl Message for Request {
@@ -52,22 +52,21 @@ impl Server {
         receiver.recv().unwrap()
     }
 
-    fn handle_getdata(&self, addr: &Multiaddr, mut message: nervos_protocol::GetData) {
+    fn handle_getdata(&self, peer: Peer, mut message: nervos_protocol::GetData) {
         info!(target: "sync", "sync server handle_getdata {:?}", message);
         let inventory_vec = message.take_inventory();
         for inventory in inventory_vec.iter() {
-            self.process_inventory(addr, inventory);
+            self.process_inventory(peer, inventory);
         }
     }
 
-    fn process_inventory(&self, addr: &Multiaddr, inventory: &nervos_protocol::Inventory) {
+    fn process_inventory(&self, peer: Peer, inventory: &nervos_protocol::Inventory) {
         let inv_type = inventory.get_inv_type();
         match inv_type {
             nervos_protocol::InventoryType::MSG_BLOCK => {
                 if let Some(block) = self.chain.block(&H256::from(inventory.get_hash())) {
-                    trace!(target: "sync", "'getdata' response to peer#{}", addr);
-                    self.executor
-                        .do_send(Task::Block(addr.clone(), Box::new(block)));
+                    trace!(target: "sync", "'getdata' response to peer#{}", peer);
+                    self.executor.do_send(Task::Block(peer, Box::new(block)));
                 } else {
                     //Reponse notfound
                 }
@@ -76,7 +75,7 @@ impl Server {
         }
     }
 
-    fn handle_getheaders(&self, addr: Multiaddr, mut message: nervos_protocol::GetHeaders) {
+    fn handle_getheaders(&self, peer: Peer, mut message: nervos_protocol::GetHeaders) {
         info!(target: "sync", "sync server handle_getheaders");
         let hash_stop = H256::from_slice(message.get_hash_stop());
         let block_locator_hashes: Vec<H256> = message
@@ -93,7 +92,7 @@ impl Server {
                 .filter_map(|block_hash| self.chain.block_header(&block_hash))
                 .collect();
             // response headers
-            self.executor.do_send(Task::Headers(addr, headers));
+            self.executor.do_send(Task::Headers(peer, headers));
         } else {
             // Got 'headers' message without known blocks
             // ban or close peers
@@ -133,8 +132,8 @@ impl Handler<Request> for Server {
 
     fn handle(&mut self, req: Request, _ctx: &mut Self::Context) -> Self::Result {
         match req {
-            Request::GetData(addr, message) => self.handle_getdata(&addr, message),
-            Request::GetHeaders(addr, message) => self.handle_getheaders(addr, message),
+            Request::GetData(peer, message) => self.handle_getdata(peer, message),
+            Request::GetHeaders(peer, message) => self.handle_getheaders(peer, message),
         }
     }
 }
