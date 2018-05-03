@@ -1,9 +1,7 @@
-#![allow(unknown_lints)]
-#![allow(clippy)]
-#![cfg_attr(rustfmt, rustfmt_skip)]
-
+#![feature(custom_attribute)]
 #![cfg_attr(not(feature = "std"), no_std)]
 #![cfg_attr(asm_available, feature(asm))]
+#![allow(unused_attributes)]
 
 #[cfg(feature = "std")]
 extern crate core;
@@ -15,16 +13,20 @@ extern crate fixed_hash;
 extern crate uint as uint_crate;
 
 #[cfg(feature = "serialize")]
-extern crate bigint_serialize;
+extern crate ethereum_types_serialize;
 #[cfg(feature = "serialize")]
 extern crate serde;
 
+#[rustfmt_skip]
+#[cfg_attr(feature = "cargo-clippy", allow(clippy))]
 mod hash;
+#[rustfmt_skip]
+#[cfg_attr(feature = "cargo-clippy", allow(clippy))]
 mod uint;
 
 pub use fixed_hash::clean_0x;
-pub use hash::{H1024, H128, H160, H256, H264, H32, H512, H520, H64, H328};
-pub use uint::{U128, U256, U512};
+pub use hash::{H1024, H128, H160, H256, H264, H32, H328, H512, H520, H64};
+pub use uint::{U1024, U128, U256, U512, U64};
 
 pub type Secret = H256;
 pub type Public = H512;

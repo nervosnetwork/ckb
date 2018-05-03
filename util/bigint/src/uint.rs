@@ -1,17 +1,48 @@
-#[cfg(feature = "serialize")]
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+#[cfg(feature="serialize")]
+use serde::{Serialize, Serializer, Deserialize, Deserializer};
 
-#[cfg(feature = "serialize")]
-use bigint_serialize;
+#[cfg(feature="serialize")]
+use ethereum_types_serialize;
 
+macro_rules! impl_serde {
+    ($name: ident, $len: expr) => {
+        #[cfg(feature="serialize")]
+        impl Serialize for $name {
+            fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: Serializer {
+                let mut slice = [0u8; 2 + 2 * $len * 8];
+                let mut bytes = [0u8; $len * 8];
+                self.to_big_endian(&mut bytes);
+                ethereum_types_serialize::serialize_uint(&mut slice, &bytes, serializer)
+            }
+        }
+
+        #[cfg(feature="serialize")]
+        impl<'de> Deserialize<'de> for $name {
+            fn deserialize<D>(deserializer: D) -> Result<Self, D::Error> where D: Deserializer<'de> {
+                let mut bytes = [0u8; $len * 8];
+                let wrote = ethereum_types_serialize::deserialize_check_len(deserializer, ethereum_types_serialize::ExpectedLen::Between(0, &mut bytes))?;
+                Ok(bytes[0..wrote].into())
+            }
+        }
+    }
+}
+
+construct_uint!(U64, 1);
 construct_uint!(U128, 2);
 construct_uint!(U256, 4);
 construct_uint!(U512, 8);
+construct_uint!(U1024, 16);
+
+impl_serde!(U64, 1);
+impl_serde!(U128, 2);
+impl_serde!(U256, 4);
+impl_serde!(U512, 8);
+impl_serde!(U1024, 16);
 
 impl U256 {
     /// Multiplies two 256-bit integers to produce full 512-bit integer
     /// No overflow possible
-    #[cfg(all(asm_available, target_arch = "x86_64"))]
+    #[cfg(all(asm_available, target_arch="x86_64"))]
     pub fn full_mul(self, other: U256) -> U512 {
         let self_t: &[u64; 4] = &self.0;
         let other_t: &[u64; 4] = &other.0;
@@ -22,25 +53,21 @@ impl U256 {
                 mulq $12
                 mov %rax, $0
                 mov %rdx, $1
-
                 mov $8, %rax
                 mulq $13
                 add %rax, $1
                 adc $$0, %rdx
                 mov %rdx, $2
-
                 mov $8, %rax
                 mulq $14
                 add %rax, $2
                 adc $$0, %rdx
                 mov %rdx, $3
-
                 mov $8, %rax
                 mulq $15
                 add %rax, $3
                 adc $$0, %rdx
                 mov %rdx, $4
-
                 mov $9, %rax
                 mulq $12
                 add %rax, $1
@@ -53,7 +80,6 @@ impl U256 {
                 adc $$0, $6
                 xor $7, $7
                 adc $$0, $7
-
                 mov $9, %rax
                 mulq $13
                 add %rax, $2
@@ -62,7 +88,6 @@ impl U256 {
                 adc $$0, $5
                 adc $$0, $6
                 adc $$0, $7
-
                 mov $9, %rax
                 mulq $14
                 add %rax, $3
@@ -70,14 +95,12 @@ impl U256 {
                 adc $$0, $5
                 adc $$0, $6
                 adc $$0, $7
-
                 mov $9, %rax
                 mulq $15
                 add %rax, $4
                 adc %rdx, $5
                 adc $$0, $6
                 adc $$0, $7
-
                 mov $10, %rax
                 mulq $12
                 add %rax, $2
@@ -86,7 +109,6 @@ impl U256 {
                 adc $$0, $5
                 adc $$0, $6
                 adc $$0, $7
-
                 mov $10, %rax
                 mulq $13
                 add %rax, $3
@@ -94,20 +116,17 @@ impl U256 {
                 adc $$0, $5
                 adc $$0, $6
                 adc $$0, $7
-
                 mov $10, %rax
                 mulq $14
                 add %rax, $4
                 adc %rdx, $5
                 adc $$0, $6
                 adc $$0, $7
-
                 mov $10, %rax
                 mulq $15
                 add %rax, $5
                 adc %rdx, $6
                 adc $$0, $7
-
                 mov $11, %rax
                 mulq $12
                 add %rax, $3
@@ -115,32 +134,29 @@ impl U256 {
                 adc $$0, $5
                 adc $$0, $6
                 adc $$0, $7
-
                 mov $11, %rax
                 mulq $13
                 add %rax, $4
                 adc %rdx, $5
                 adc $$0, $6
                 adc $$0, $7
-
                 mov $11, %rax
                 mulq $14
                 add %rax, $5
                 adc %rdx, $6
                 adc $$0, $7
-
                 mov $11, %rax
                 mulq $15
                 add %rax, $6
                 adc %rdx, $7
                 "
             : /* $0 */ "={r8}"(result[0]), /* $1 */ "={r9}"(result[1]), /* $2 */ "={r10}"(result[2]),
-              /* $3 */ "={r11}"(result[3]), /* $4 */ "={r12}"(result[4]), /* $5 */ "={r13}"(result[5]),
-              /* $6 */ "={r14}"(result[6]), /* $7 */ "={r15}"(result[7])
+            /* $3 */ "={r11}"(result[3]), /* $4 */ "={r12}"(result[4]), /* $5 */ "={r13}"(result[5]),
+            /* $6 */ "={r14}"(result[6]), /* $7 */ "={r15}"(result[7])
 
             : /* $8 */ "m"(self_t[0]), /* $9 */ "m"(self_t[1]), /* $10 */  "m"(self_t[2]),
-              /* $11 */ "m"(self_t[3]), /* $12 */ "m"(other_t[0]), /* $13 */ "m"(other_t[1]),
-              /* $14 */ "m"(other_t[2]), /* $15 */ "m"(other_t[3])
+            /* $11 */ "m"(self_t[3]), /* $12 */ "m"(other_t[0]), /* $13 */ "m"(other_t[1]),
+            /* $14 */ "m"(other_t[2]), /* $15 */ "m"(other_t[3])
             : "rax", "rdx"
             :
             );
@@ -151,7 +167,7 @@ impl U256 {
     /// Multiplies two 256-bit integers to produce full 512-bit integer
     /// No overflow possible
     #[inline(always)]
-    #[cfg(not(all(asm_available, target_arch = "x86_64")))]
+    #[cfg(not(all(asm_available, target_arch="x86_64")))]
     pub fn full_mul(self, other: U256) -> U512 {
         U512(uint_full_mul_reg!(U256, 4, self, other))
     }
@@ -328,39 +344,3 @@ impl From<U512> for [u8; 64] {
         arr
     }
 }
-
-macro_rules! impl_serde {
-    ($name: ident, $len: expr) => {
-        #[cfg(feature="serialize")]
-        impl Serialize for $name {
-            fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-            where
-                S: Serializer
-            {
-                let mut slice = [0u8; 2 + 2 * $len * 8];
-                let mut bytes = [0u8; $len * 8];
-                self.to_big_endian(&mut bytes);
-                bigint_serialize::serialize_uint(&mut slice, &bytes, serializer)
-            }
-        }
-
-        #[cfg(feature="serialize")]
-        impl<'de> Deserialize<'de> for $name {
-            fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-            where
-                D: Deserializer<'de>
-            {
-                let mut bytes = [0u8; $len * 8];
-                let wrote = bigint_serialize::deserialize_check_len(
-                    deserializer,
-                    bigint_serialize::ExpectedLen::Between(0, &mut bytes)
-                )?;
-                Ok(bytes[0..wrote].into())
-            }
-        }
-    }
-}
-
-impl_serde!(U128, 2);
-impl_serde!(U256, 4);
-impl_serde!(U512, 8);

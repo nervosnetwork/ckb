@@ -52,5 +52,5 @@ members = [
     "miner",
     "db",
     "pool",
-    "rpc"
+    "rpc",
 ]
