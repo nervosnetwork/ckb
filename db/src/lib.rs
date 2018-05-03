@@ -1,5 +1,6 @@
 extern crate bigint;
 extern crate bincode;
+extern crate bit_vec;
 extern crate lru_cache;
 extern crate nervos_core as core;
 extern crate nervos_util as util;

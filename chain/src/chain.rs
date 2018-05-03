@@ -4,8 +4,9 @@ use core::block::{Block, Header};
 use core::cell::{CellProvider, CellState};
 use core::difficulty::cal_difficulty;
 use core::global::{EPOCH_LEN, HEIGHT_SHIFT, TIME_STEP};
-use core::transaction::OutPoint;
+use core::transaction::{OutPoint, Transaction};
 use db::store::ChainStore;
+pub use db::transaction_meta::TransactionMeta;
 use rand::{thread_rng, Rng};
 use util::{RwLock, RwLockReadGuard};
 
@@ -27,7 +28,7 @@ pub struct Chain<CS> {
     head_header: RwLock<Header>,
 }
 
-pub trait ChainClient: Sync + Send {
+pub trait ChainClient: Sync + Send + CellProvider {
     fn process_block(&self, b: &Block) -> Result<(), Error>;
 
     fn get_locator(&self) -> Vec<H256>;
@@ -40,9 +41,37 @@ pub trait ChainClient: Sync + Send {
 
     fn block(&self, hash: &H256) -> Option<Block>;
 
+    //FIXME: This is bad idea
     fn head_header(&self) -> RwLockReadGuard<Header>;
 
     fn challenge(&self, pre_header: &Header) -> Option<H256>;
+
+    fn get_transaction(&self, hash: &H256) -> Option<Transaction>;
+
+    fn get_transaction_meta(&self, hash: &H256) -> Option<TransactionMeta>;
+}
+
+impl<CS: ChainStore> CellProvider for Chain<CS> {
+    fn cell(&self, out_point: &OutPoint) -> CellState {
+        let index = out_point.index as usize;
+        if let Some(meta) = self.store.get_transaction_meta(&out_point.hash) {
+            if meta.is_fully_spent() {
+                return CellState::Unknown;
+            }
+
+            if index < meta.len() {
+                if !meta.is_spent(index) {
+                    let mut transaction = self.store
+                        .get_transaction(&out_point.hash)
+                        .expect("transaction must exist");
+                    return CellState::Head(transaction.outputs.swap_remove(index));
+                } else {
+                    return CellState::Tail;
+                }
+            }
+        }
+        CellState::Unknown
+    }
 }
 
 impl<CS: ChainStore> Chain<CS> {
@@ -169,25 +198,6 @@ impl<CS: ChainStore> Chain<CS> {
     }
 }
 
-impl<CS: ChainStore> CellProvider for Chain<CS> {
-    fn cell(&self, out_point: &OutPoint) -> CellState {
-        let index = out_point.index as usize;
-        if let Some(meta) = self.store.get_transaction_meta(&out_point.hash) {
-            if index < meta.spent_at.len() {
-                if !meta.is_spent(index) {
-                    let mut transaction = self.store
-                        .get_transaction(&out_point.hash)
-                        .expect("transaction must exist");
-                    return CellState::Head(transaction.outputs.swap_remove(index));
-                } else {
-                    return CellState::Tail;
-                }
-            }
-        }
-        CellState::Unknown
-    }
-}
-
 impl<CS: ChainStore> ChainClient for Chain<CS> {
     fn get_locator(&self) -> Vec<H256> {
         let mut step = 1;
@@ -246,6 +256,14 @@ impl<CS: ChainStore> ChainClient for Chain<CS> {
 
     fn head_header(&self) -> RwLockReadGuard<Header> {
         self.head_header.read()
+    }
+
+    fn get_transaction(&self, hash: &H256) -> Option<Transaction> {
+        self.store.get_transaction(hash)
+    }
+
+    fn get_transaction_meta(&self, hash: &H256) -> Option<TransactionMeta> {
+        self.store.get_transaction_meta(hash)
     }
 
     fn challenge(&self, pre_header: &Header) -> Option<H256> {

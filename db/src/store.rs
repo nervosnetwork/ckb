@@ -116,13 +116,26 @@ impl<T: KeyValueDB> ChainKVStore<T> {
         meta_table: &mut HashMap<H256, Option<TransactionMeta>>,
         hash: &H256,
     ) {
-        let height = self.get_header(hash)
-            .expect("block header must be stored")
-            .height;
         for tx in self.get_block_transactions(hash)
             .expect("block transactions must be stored")
         {
-            meta_table.insert(*hash, Some(TransactionMeta::new(height, tx.outputs.len())));
+            {
+                let mut meta_option =
+                    self.get_transaction_meta_mut_with_meta_table(meta_table, hash);
+
+                *meta_option = Some(match meta_option.take() {
+                    Some(mut meta) => {
+                        assert!(meta.is_fully_spent(), "Tx conflict, not fully spent yet");
+                        assert!(
+                            meta.len() >= tx.outputs.len(),
+                            "Tx conflict, hash collision"
+                        );
+                        meta.renew();
+                        meta
+                    }
+                    None => TransactionMeta::new(0, tx.outputs.len()),
+                });
+            }
 
             for input in &tx.inputs {
                 let meta = self.get_transaction_meta_mut_with_meta_table(
@@ -131,7 +144,7 @@ impl<T: KeyValueDB> ChainKVStore<T> {
                 ).as_mut()
                     .expect("block transaction input meta must be stored");
 
-                meta.set_spent(input.previous_output.index as usize, height);
+                meta.set_spent(input.previous_output.index as usize);
             }
         }
     }
@@ -146,30 +159,32 @@ impl<T: KeyValueDB> ChainKVStore<T> {
             .iter()
             .rev()
         {
-            meta_table.remove(hash);
+            {
+                let mut meta_option =
+                    self.get_transaction_meta_mut_with_meta_table(meta_table, hash);
+
+                let mut meta = meta_option.take().expect("Tx meta not found when rollback");
+
+                assert!(meta.is_new(), "Tx conflict, cannot rollback");
+                assert!(
+                    meta.len() >= tx.outputs.len(),
+                    "Tx conflict, hash collision"
+                );
+
+                if meta.fully_spent_count > 0 {
+                    meta.rollback();
+                    *meta_option = Some(meta);
+                }
+            }
 
             for input in &tx.inputs {
-                match self.get_transaction_meta_mut_with_meta_table(
+                match *self.get_transaction_meta_mut_with_meta_table(
                     meta_table,
                     &input.previous_output.hash,
                 ) {
-                    &mut Some(ref mut meta) => {
-                        meta.unset_spent(input.previous_output.index as usize)
-                    }
-                    meta_option => {
-                        // TODO: TX can repear when the former one is fully spent. When rollback block, and
-                        // an input is not found, we must restore the original tx meta.
-                        //
-                        // Here it is assumed that the tx is created in genisis and all outputs are
-                        // spent in genisis
-                        let tx = self.get_transaction(&input.previous_output.hash)
-                            .expect("transaction must be stored");
-                        let mut meta = TransactionMeta::new(0, tx.outputs.len());
-                        for h in &mut meta.spent_at {
-                            *h = 0;
-                        }
-                        meta.unset_spent(input.previous_output.index as usize);
-                        *meta_option = Some(meta);
+                    Some(ref mut meta) => meta.unset_spent(input.previous_output.index as usize),
+                    _ => {
+                        unreachable!("Tx meta not found when rollback");
                     }
                 }
             }
