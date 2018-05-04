@@ -1,9 +1,9 @@
-use super::Message;
-use super::SECP256K1;
 use super::error::Error;
 use super::pubkey::Pubkey;
-use super::secp256k1::{RecoverableSignature, RecoveryId};
 use super::secp256k1::Message as SecpMessage;
+use super::secp256k1::{RecoverableSignature, RecoveryId};
+use super::Message;
+use super::SECP256K1;
 use bigint::{H256, H512, H520};
 use rustc_hex::ToHex;
 use std::fmt;
@@ -61,8 +61,11 @@ impl Signature {
 
     /// Check if each component of the signature is in range.
     pub fn is_valid(&self) -> bool {
-        self.v() <= 1 && H256::from_slice(self.r()) < N && H256::from_slice(self.r()) >= 1.into()
-            && H256::from_slice(self.s()) < N && H256::from_slice(self.s()) >= 1.into()
+        self.v() <= 1
+            && H256::from_slice(self.r()) < N
+            && H256::from_slice(self.r()) >= 1.into()
+            && H256::from_slice(self.s()) < N
+            && H256::from_slice(self.s()) >= 1.into()
     }
 
     /// Converts compact signature to a recoverable signature

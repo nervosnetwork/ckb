@@ -1,11 +1,11 @@
 #![feature(box_syntax)]
 extern crate bigint;
-extern crate bls;
 #[macro_use]
 extern crate clap;
 extern crate crypto;
 extern crate ctrlc;
 extern crate dir;
+extern crate ethash;
 #[macro_use]
 extern crate lazy_static;
 #[macro_use]
@@ -16,6 +16,7 @@ extern crate nervos_core as core;
 extern crate nervos_db as db;
 extern crate nervos_miner as miner;
 extern crate nervos_network as network;
+extern crate nervos_notify;
 extern crate nervos_pool as pool;
 extern crate nervos_rpc as rpc;
 extern crate nervos_sync as sync;

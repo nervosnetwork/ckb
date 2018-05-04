@@ -4,7 +4,7 @@ version = "0.1.0"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 
 [dependencies]
-bigint = { path = "../util/bigint" }
+bigint = { git = "https://github.com/NervosFoundation/bigint" }
 nervos-core = { path = "../core" }
 nervos-network = { path = "../network" }
 nervos-chain = { path = "../chain" }

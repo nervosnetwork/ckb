@@ -4,5 +4,5 @@ version = "0.1.0"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 
 [dependencies]
-bigint = { path = "../bigint" }
+bigint = { git = "https://github.com/NervosFoundation/bigint" }
 hash = {path = "../hash"}

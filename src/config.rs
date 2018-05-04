@@ -70,13 +70,4 @@ impl Config {
     pub fn logger_config(&self) -> LogConfig {
         self.logger.clone()
     }
-
-    // pub fn key_group(&self) -> KeyGroup {
-    //     let key_pairs = self.signer.key_pairs.clone();
-    //     let mut kg = KeyGroup::with_capacity(key_pairs.len());
-    //     for kp in key_pairs {
-    //         kg.insert(kp.signer_public_key, kp.proof_public_key, kp.proof_public_g);
-    //     }
-    //     kg
-    // }
 }

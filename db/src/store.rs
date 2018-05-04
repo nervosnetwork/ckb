@@ -1,7 +1,8 @@
 use batch::{Batch, Key, KeyValue, Value};
 use bigint::H256;
-use core::block::{Block, Header};
+use core::block::Block;
 use core::chain::HeadRoute;
+use core::header::Header;
 use core::transaction::Transaction;
 use kvdb::KeyValueDB;
 use std::collections::HashMap;
@@ -60,7 +61,7 @@ impl<'a, T: ChainStore> Iterator for ChainStoreBlockIterator<'a, T> {
         self.head = match current_header {
             Some(ref h) => {
                 if h.height > 0 {
-                    self.store.get_header(&h.pre_hash)
+                    self.store.get_header(&h.parent_hash)
                 } else {
                     None
                 }
@@ -90,7 +91,8 @@ impl<T: KeyValueDB> ChainKVStore<T> {
     fn save_block_with_batch(&self, batch: &mut Batch, b: &Block) {
         batch.insert(KeyValue::BlockHeader(b.hash(), Box::new(b.header.clone())));
 
-        let txids = b.transactions
+        let txids = b
+            .transactions
             .iter()
             .map(|tx| tx.hash())
             .collect::<Vec<H256>>();
@@ -116,7 +118,8 @@ impl<T: KeyValueDB> ChainKVStore<T> {
         meta_table: &mut HashMap<H256, Option<TransactionMeta>>,
         hash: &H256,
     ) {
-        for tx in self.get_block_transactions(hash)
+        for tx in self
+            .get_block_transactions(hash)
             .expect("block transactions must be stored")
         {
             {
@@ -138,11 +141,12 @@ impl<T: KeyValueDB> ChainKVStore<T> {
             }
 
             for input in &tx.inputs {
-                let meta = self.get_transaction_meta_mut_with_meta_table(
-                    meta_table,
-                    &input.previous_output.hash,
-                ).as_mut()
-                    .expect("block transaction input meta must be stored");
+                let meta =
+                    self.get_transaction_meta_mut_with_meta_table(
+                        meta_table,
+                        &input.previous_output.hash,
+                    ).as_mut()
+                        .expect("block transaction input meta must be stored");
 
                 meta.set_spent(input.previous_output.index as usize);
             }
@@ -154,7 +158,8 @@ impl<T: KeyValueDB> ChainKVStore<T> {
         meta_table: &mut HashMap<H256, Option<TransactionMeta>>,
         hash: &H256,
     ) {
-        for tx in self.get_block_transactions(hash)
+        for tx in self
+            .get_block_transactions(hash)
             .expect("block transactions must be stored")
             .iter()
             .rev()
@@ -266,7 +271,8 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
     // TODO error log
     fn get_block(&self, h: &H256) -> Option<Block> {
         self.get_header(h).and_then(|header| {
-            let transactions = self.get_block_transactions(h)
+            let transactions = self
+                .get_block_transactions(h)
                 .expect("block transactions must be stored");
             Some(Block {
                 header,
@@ -349,27 +355,18 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bigint::{H256, H520, U256};
-    use core::block::{Block, Header, RawHeader};
-    use core::proof::Proof;
+    use core::block::Block;
+    use core::header::Header;
     use memorydb::MemoryKeyValueDB;
 
     #[test]
     fn save_and_get_block() {
         let db = MemoryKeyValueDB::default();
         let store = ChainKVStore { db: db };
-        let raw_header = RawHeader {
-            pre_hash: H256::from(0),
-            timestamp: 0,
-            transactions_root: H256::from(0),
-            difficulty: U256::from(0),
-            challenge: H256::from(0),
-            proof: Proof::default(),
-            height: 0,
-        };
+        let header = Header::default();
 
         let block = Block {
-            header: Header::new(raw_header, U256::from(0), Some(H520::from(0))),
+            header,
             transactions: vec![],
         };
 

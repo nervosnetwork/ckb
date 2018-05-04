@@ -1,6 +1,6 @@
 use batch::{Batch, Key, KeyValue, Operation, Value};
 use bigint::H256;
-use core::block::Header;
+use core::header::Header;
 use core::transaction::Transaction;
 use kvdb::{KeyValueDB, Result};
 use std::collections::HashMap;
@@ -80,23 +80,29 @@ impl KeyValueDB for MemoryKeyValueDB {
     fn read(&self, key: &Key) -> Result<Option<Value>> {
         let db = self.db.read();
         let result = match *key {
-            Key::BlockHash(ref key) => db.block_hash
+            Key::BlockHash(ref key) => db
+                .block_hash
                 .get(key)
                 .and_then(|v| Some(Value::BlockHash(*v))),
-            Key::BlockHeight(ref key) => db.block_height
+            Key::BlockHeight(ref key) => db
+                .block_height
                 .get(key)
                 .and_then(|v| Some(Value::BlockHeight(*v))),
-            Key::BlockHeader(ref key) => db.block_header
+            Key::BlockHeader(ref key) => db
+                .block_header
                 .get(key)
                 .and_then(|v| Some(Value::BlockHeader(v.clone()))),
-            Key::BlockTransactions(ref key) => db.block_transactions
+            Key::BlockTransactions(ref key) => db
+                .block_transactions
                 .get(key)
                 .and_then(|v| Some(Value::BlockTransactions(v.clone()))),
             Key::Meta(key) => db.meta.get(key).and_then(|v| Some(Value::Meta(v.clone()))),
-            Key::Transaction(ref key) => db.transaction
+            Key::Transaction(ref key) => db
+                .transaction
                 .get(key)
                 .and_then(|v| Some(Value::Transaction(v.clone()))),
-            Key::TransactionMeta(ref key) => db.transaction_meta
+            Key::TransactionMeta(ref key) => db
+                .transaction_meta
                 .get(key)
                 .and_then(|v| Some(Value::TransactionMeta(v.clone()))),
         };

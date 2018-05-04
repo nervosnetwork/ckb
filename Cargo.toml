@@ -18,14 +18,15 @@ nervos-network = { path = "network"}
 nervos-pool = { path = "pool"}
 nervos-rpc = { path = "rpc"}
 nervos-time = { path = "util/time"}
+nervos-notify = { path = "notify"}
+ethash = { git = "https://github.com/NervosFoundation/ethash", tag = "v1.0.0" }
 logger = { path = "util/logger" }
-bigint = { path = "util/bigint" }
+bigint = { git = "https://github.com/NervosFoundation/bigint" }
 dir = { path = "util/dir" }
 crypto = { path = "util/crypto", features = ["rsa", "secp"] }
 ctrlc = { version = "3.1", features = ["termination"] }
 tera = "0.11"
 lazy_static = "1.0"
-bls = { git = "https://github.com/NervosFoundation/bls-rs.git" }
 nervos-sync = { path = "sync"}
 
 # The [patch] sections in Cargo.toml are only recognized in the root crate's manifest
@@ -53,4 +54,5 @@ members = [
     "db",
     "pool",
     "rpc",
+    "notify"
 ]

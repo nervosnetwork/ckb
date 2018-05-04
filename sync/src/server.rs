@@ -1,12 +1,12 @@
-use super::{BlockHeight, MAX_HEADERS_LEN};
 use super::executor::{ExecutorAddr, Task};
+use super::{BlockHeight, MAX_HEADERS_LEN};
 use actix::prelude::*;
 use bigint::H256;
 use nervos_chain::chain::ChainClient;
 use nervos_protocol;
 use network::protocol::Peer;
-use std::sync::Arc;
 use std::sync::mpsc::channel;
+use std::sync::Arc;
 use std::thread;
 
 pub type ServerAddr = Addr<Syn, Server>;
@@ -115,11 +115,11 @@ impl Server {
                     Some(block_header) => block_header,
                 };
 
-                if let Some(block_height) = self.chain.block_height(&block_header.pre_hash) {
+                if let Some(block_height) = self.chain.block_height(&block_header.parent_hash) {
                     return Some(block_height);
                 }
 
-                block_hash = block_header.pre_hash;
+                block_hash = block_header.parent_hash;
             }
         }
 

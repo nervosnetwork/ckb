@@ -1,6 +1,6 @@
 use batch::{Batch, Key, KeyValue, Operation, Value};
 use bigint::H256;
-use core::block::Header;
+use core::header::Header;
 use kvdb::{KeyValueDB, Result};
 use lru_cache::LruCache;
 use util::Mutex;
@@ -21,8 +21,8 @@ where
     pub fn new(db: T) -> Self {
         CacheKeyValueDB {
             db,
-            block_header: Mutex::new(LruCache::new(4096)),
-            block_hash: Mutex::new(LruCache::new(4096)),
+            block_header: Mutex::new(LruCache::new(4096, true)),
+            block_hash: Mutex::new(LruCache::new(4096, true)),
         }
     }
 }
@@ -70,9 +70,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bigint::{H520, U256};
-    use core::block::RawHeader;
-    use core::proof::Proof;
+    use core::header::Header;
 
     struct DummyDB {}
 
@@ -89,20 +87,7 @@ mod tests {
     #[test]
     fn write_and_read() {
         let db = CacheKeyValueDB::new(DummyDB {});
-
-        let header = Header::new(
-            RawHeader {
-                pre_hash: H256::from(0),
-                timestamp: 0,
-                transactions_root: H256::from(0),
-                difficulty: U256::from(0),
-                challenge: H256::from(0),
-                proof: Proof::default(),
-                height: 0,
-            },
-            U256::from(0),
-            Some(H520::from(0)),
-        );
+        let header = Header::default();
 
         let mut batch = Batch::default();
         batch.insert(KeyValue::BlockHeader(

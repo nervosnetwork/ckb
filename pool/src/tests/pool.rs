@@ -5,8 +5,10 @@ use tests::dummy::*;
 use txs_pool::pool::*;
 use txs_pool::types::*;
 
-use core::block::{Block, Header};
+use core::block::Block;
+use core::header::Header;
 use core::transaction::*;
+use nervos_notify::Notify;
 
 macro_rules! expect_output_parent {
     ($pool:expr, $expected:pat, $( $output:expr ),+ ) => {
@@ -421,11 +423,11 @@ fn test_block_building() {
     assert_eq!(pool.total_size(), 2);
 }
 
-fn test_setup(dummy_chain: &Arc<DummyChainImpl>) -> TransactionPool {
+fn test_setup(dummy_chain: &Arc<DummyChainImpl>) -> TransactionPool<DummyChainImpl> {
     TransactionPool::new(
         PoolConfig::default(),
         dummy_chain.clone(),
-        Arc::new(NoopAdapter {}),
+        Notify::default(),
     )
 }
 

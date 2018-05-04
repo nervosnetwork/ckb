@@ -1,28 +1,30 @@
-use super::client::{Client, ClientAddr, Command};
+use super::client::{Client, Command};
 use super::executor::Executor;
 use super::peers::Peers;
-use super::server::{Request, Server, ServerAddr};
+use super::server::{Request, Server};
+use actix::prelude::*;
 use futures::Future;
 use futures::Stream;
 use nervos_chain::chain::ChainClient;
+use nervos_notify::Notify;
 use nervos_protocol;
-use network::Network;
 use network::protocol::Peer;
+use network::Network;
 use pool::TransactionPool;
 use std::sync::Arc;
 use std::thread;
 use tokio_core::reactor::Core;
-use util::{Mutex, RwLock};
+use util::RwLock;
 
 #[derive(Clone)]
-pub struct Node {
+pub struct Node<C: ChainClient + 'static> {
     pub network: Arc<Network>,
-    pub chain: Arc<ChainClient>,
-    pub server: ServerAddr,
-    pub client: ClientAddr,
+    pub chain: Arc<C>,
+    pub server: Addr<Syn, Server<C>>,
+    pub client: Addr<Syn, Client<C>>,
 }
 
-impl Node {
+impl<C: ChainClient + 'static> Node<C> {
     // /// When new peer connects to the node
     // pub fn on_connect(&self, peer_id: PeerId) {}
 
@@ -31,14 +33,14 @@ impl Node {
 
     pub fn new(
         network: Arc<Network>,
-        chain: Arc<ChainClient>,
-        tx_pool: &Arc<TransactionPool>,
-        miner_lock: &Arc<Mutex<()>>,
+        chain: Arc<C>,
+        tx_pool: &Arc<TransactionPool<C>>,
+        notify: Notify,
     ) -> Self {
         let peers = Arc::new(RwLock::new(Peers::default()));
         let executor = Arc::new(Executor::new(&network));
         let server = Server::new(&chain, &executor);
-        let client = Client::new(&chain, &executor, &peers, tx_pool, miner_lock);
+        let client = Client::new(&chain, &executor, &peers, tx_pool, notify);
 
         Node {
             network,
@@ -76,9 +78,9 @@ impl Node {
     }
 }
 
-fn on_message(
-    server: &ServerAddr,
-    client: &ClientAddr,
+fn on_message<C: ChainClient + 'static>(
+    server: &Addr<Syn, Server<C>>,
+    client: &Addr<Syn, Client<C>>,
     mut input: nervos_protocol::Payload,
     source: Peer,
 ) {

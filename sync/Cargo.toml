@@ -8,7 +8,7 @@ actix = "0.5"
 protobuf = "1.5"
 nervos-chain = { path = "../chain" }
 nervos-core = { path = "../core" }
-bigint = { path = "../util/bigint" }
+bigint = { git = "https://github.com/NervosFoundation/bigint" }
 multiaddr = "0.3"
 nervos-network = { path = "../network" }
 tokio-core  = "0.1"
@@ -18,3 +18,4 @@ nervos-protocol = { path = "../network/protocol" }
 nervos-util = { path = "../util" }
 nervos-pool = { path = "../pool" }
 nervos-time = { path = "../util/time" }
+nervos-notify = { path = "../notify" }

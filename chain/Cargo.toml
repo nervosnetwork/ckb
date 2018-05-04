@@ -12,7 +12,7 @@ rand = "0.4"
 nervos-core = { path = "../core" }
 nervos-util = { path = "../util" }
 nervos-db = { path = "../db" }
-bigint = { path = "../util/bigint" }
+bigint = { git = "https://github.com/NervosFoundation/bigint" }
 
 [dev-dependencies]
 env_logger = "0.4"

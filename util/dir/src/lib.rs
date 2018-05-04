@@ -1,8 +1,8 @@
 extern crate app_dirs;
 
 use app_dirs::{get_app_root, AppDataType, AppInfo};
-use std::{env, fs, io};
 use std::path::{Path, PathBuf};
+use std::{env, fs, io};
 
 const APP_INFO: AppInfo = AppInfo {
     name: "nervos",

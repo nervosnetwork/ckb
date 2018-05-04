@@ -19,8 +19,8 @@ use log::{LevelFilter, SetLoggerError};
 use log::{Log, Metadata, Record};
 use parking_lot::Mutex;
 use regex::Regex;
-use std::{fs, thread};
 use std::io::Write;
+use std::{fs, thread};
 
 enum Message {
     Record(String),

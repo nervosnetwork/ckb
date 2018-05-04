@@ -1,7 +1,8 @@
 use super::queue::{BlockQueue, BlockQueueState, HeaderQueue, Position};
 use bigint::H256;
-use core::block::{Block, Header};
-use core::cell::{CellProvider, CellState};
+use core::block::Block;
+use core::cell::CellState;
+use core::header::Header;
 use core::transaction::OutPoint;
 use nervos_chain::chain::ChainClient;
 use std::sync::Arc;
@@ -27,33 +28,14 @@ impl From<BlockQueueState> for BlockState {
     }
 }
 
-pub struct Chain {
-    pub chain_store: Arc<ChainClient>,
+pub struct Chain<C> {
+    pub chain_store: Arc<C>,
     pub block_queue: RwLock<BlockQueue>,
     pub header_queue: RwLock<HeaderQueue>,
 }
 
-impl CellProvider for Chain {
-    fn cell(&self, out_point: &OutPoint) -> CellState {
-        let index = out_point.index as usize;
-        if let Some(meta) = self.chain_store.get_transaction_meta(&out_point.hash) {
-            if index < meta.spent_at.len() {
-                if !meta.is_spent(index) {
-                    let mut transaction = self.chain_store
-                        .get_transaction(&out_point.hash)
-                        .expect("transaction must exist");
-                    return CellState::Head(transaction.outputs.swap_remove(index));
-                } else {
-                    return CellState::Tail;
-                }
-            }
-        }
-        CellState::Unknown
-    }
-}
-
-impl Chain {
-    pub fn new(store: &Arc<ChainClient>) -> Chain {
+impl<C: ChainClient> Chain<C> {
+    pub fn new(store: &Arc<C>) -> Chain<C> {
         let head = store.head_header();
         Chain {
             chain_store: Arc::clone(store),
@@ -74,6 +56,10 @@ impl Chain {
                 BlockState::Unknown
             },
         }
+    }
+
+    pub fn cell_state(&self, o: &OutPoint) -> CellState {
+        self.chain_store.cell(o)
     }
 
     pub fn block_hash(&self, height: u64) -> Option<H256> {
@@ -103,7 +89,7 @@ impl Chain {
         let mut write_guard = self.block_queue.write();
         write_guard
             .scheduled
-            .push_back_n(headers.iter().map(|h| h.hash).collect());
+            .push_back_n(headers.iter().map(|h| h.hash()).collect());
         self.header_queue.write().insert_n(headers);
     }
 
@@ -116,7 +102,7 @@ impl Chain {
 
     pub fn verify_header(&self, header: Header) {
         let mut write_guard = self.block_queue.write();
-        write_guard.verifying.push_back(header.hash);
+        write_guard.verifying.push_back(header.hash());
         self.header_queue.write().insert(header);
     }
 

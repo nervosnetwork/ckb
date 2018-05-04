@@ -51,9 +51,7 @@ impl Templates {
 
     pub fn render_signer(&self, signer: &Signer) -> String {
         let mut context = Context::new();
-        context.add("miner_private_key", &signer.miner_private_key);
-        context.add("signer_private_key", &signer.signer_private_key);
-        context.add("key_pairs", &signer.key_pairs);
+        context.add("private_key", &signer.private_key);
         self.inner
             .render("signer.toml", &context)
             .expect("Render signer")

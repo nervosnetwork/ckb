@@ -1,8 +1,8 @@
-use super::SECP256K1;
 use super::error::Error;
 use super::privkey::Privkey;
 use super::pubkey::Pubkey;
 use super::secp256k1::key;
+use super::SECP256K1;
 use rand::{self, ThreadRng};
 
 pub struct Generator {

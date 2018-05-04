@@ -1,11 +1,11 @@
-use super::{Message, SECP256K1};
 use super::error::Error;
-use super::secp256k1::Message as SecpMessage;
 use super::secp256k1::key;
+use super::secp256k1::Message as SecpMessage;
 use super::signature::Signature;
+use super::{Message, SECP256K1};
 use bigint::H256;
-use std::{fmt, ops};
 use std::str::FromStr;
+use std::{fmt, ops};
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct Privkey {
@@ -48,6 +48,7 @@ impl Into<H256> for Privkey {
 
 impl FromStr for Privkey {
     type Err = Error;
+
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Ok(H256::from_str(s)
             .map_err(|e| Error::Other(format!("{:?}", e)))?

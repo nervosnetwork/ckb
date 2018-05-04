@@ -1,5 +1,5 @@
 use bigint::H256;
-use core::block::Header;
+use core::header::Header;
 use std::collections::{HashMap, HashSet, VecDeque};
 
 /// Block position
@@ -253,8 +253,8 @@ impl HeaderQueue {
     /// Insert new block header
     pub fn insert(&mut self, header: Header) {
         // append to the best chain
-        if self.best_block_hash() == header.raw.pre_hash {
-            let header_hash = header.hash;
+        if self.best_block_hash() == header.parent_hash {
+            let header_hash = header.hash();
             self.headers.insert(header_hash, header);
             self.best.push_back(header_hash);
             return;

@@ -9,6 +9,12 @@ serde_derive = "1.0"
 bincode = "1.0"
 rand = "0.4"
 nervos-core = { path = "../core" }
-bigint = { path = "../util/bigint" }
+nervos-chain = { path = "../chain" }
+bigint = { git = "https://github.com/NervosFoundation/bigint" }
 nervos-util = { path = "../util" }
 nervos-time = { path = "../util/time" }
+log = "0.4"
+nervos-notify = { path = "../notify" }
+
+[dev-dependencies]
+env_logger = "0.4"

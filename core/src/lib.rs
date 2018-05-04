@@ -1,6 +1,5 @@
 extern crate bigint;
 extern crate bincode;
-extern crate bls;
 extern crate crypto;
 extern crate hash;
 extern crate merkle_root;
@@ -17,8 +16,7 @@ pub mod chain;
 pub mod difficulty;
 pub mod error;
 pub mod global;
-pub mod keygroup;
-pub mod proof;
+pub mod header;
 pub mod transaction;
 
 pub use error::Error;

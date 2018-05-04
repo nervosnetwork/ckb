@@ -5,8 +5,8 @@ use std::collections::HashMap;
 use std::iter::Iterator;
 
 use bigint::H256;
-use core::block::Header;
 use core::error::TxError;
+use core::header::Header;
 use core::transaction::{OutPoint, Transaction};
 
 use time;
@@ -407,24 +407,28 @@ impl DirectedGraph {
     /// Get the current list of roots
     pub fn get_roots(&self, n: usize) -> Vec<Transaction> {
         self.roots
-            .iter()
+            .values()
             .take(n)
-            .map(|x| x.1.transaction.clone())
+            .map(|x| &x.transaction)
+            .cloned()
             .collect()
     }
 
     /// Get list of all vertices in this graph including the roots
     pub fn get_vertices(&self) -> Vec<Transaction> {
-        let mut txs = self.roots
-            .iter()
-            .map(|x| x.1.transaction.clone())
+        let mut txs = self
+            .roots
+            .values()
+            .map(|x| &x.transaction)
+            .cloned()
             .collect::<Vec<Transaction>>();
-        let non_roots = self.vertices
-            .iter()
-            .map(|x| x.1.transaction.clone())
+        let non_roots = self
+            .vertices
+            .values()
+            .map(|x| &x.transaction)
+            .cloned()
             .collect::<Vec<Transaction>>();
         txs.extend(non_roots);
-
         txs
     }
 }

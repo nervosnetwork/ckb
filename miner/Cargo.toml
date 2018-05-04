@@ -5,7 +5,7 @@ authors = ["Nervos Core Dev <dev@nervos.org>"]
 
 [dependencies]
 log = "0.4"
-bigint = { path = "../util/bigint" }
+bigint = { git = "https://github.com/NervosFoundation/bigint" }
 nervos-util = { path = "../util" }
 nervos-time = { path = "../util/time" }
 nervos-core = { path = "../core" }
@@ -14,4 +14,8 @@ nervos-chain = { path = "../chain" }
 nervos-db = { path = "../db" }
 nervos-protocol = { path = "../network/protocol" }
 nervos-network = { path = "../network" }
+ethash = { git = "https://github.com/NervosFoundation/ethash", tag = "v1.0.0" }
 protobuf = "1.5"
+rand = "0.4"
+nervos-notify = { path = "../notify" }
+crossbeam-channel = "0.1"

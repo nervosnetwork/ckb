@@ -15,7 +15,8 @@ impl Default for Rsa {
     fn default() -> Self {
         let rsa = RsaGen::generate(2048).expect("Initialize Rsa");
         let pkey = PKey::from_rsa(rsa).expect("Initialize PKey");
-        let privkey_pkcs8: Vec<u8> = pkey.private_key_to_der_pkcs8()
+        let privkey_pkcs8: Vec<u8> = pkey
+            .private_key_to_der_pkcs8()
             .expect("Serialize privkey to pkcs8");
         let pubkey_der: Vec<u8> = pkey.public_key_to_der().expect("Serialize pubkey der");
 
@@ -30,7 +31,8 @@ impl Rsa {
     fn from_private_pem<T: AsRef<[u8]>>(privkey_pem: T) -> Self {
         let rsa = RsaGen::private_key_from_pem(privkey_pem.as_ref()).expect("Read privkey pem");
         let pkey = PKey::from_rsa(rsa).expect("Initialize PKey");
-        let privkey_pkcs8: Vec<u8> = pkey.private_key_to_der_pkcs8()
+        let privkey_pkcs8: Vec<u8> = pkey
+            .private_key_to_der_pkcs8()
             .expect("Serialize privkey to pkcs8");
         let pubkey_der: Vec<u8> = pkey.public_key_to_der().expect("Serialize pubkey der");
 

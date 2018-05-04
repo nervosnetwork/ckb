@@ -137,19 +137,28 @@ impl KeyValueDB for RocksKeyValueDB {
 
     fn read(&self, key: &Key) -> Result<Option<Value>> {
         let result = match *key {
-            Key::BlockHash(ref key) => self.db
+            Key::BlockHash(ref key) => self
+                .db
                 .get_cf(
                     self.db.cf_handle(COLUMN_FAMILIES[0]).unwrap(),
                     &serialize(&key).unwrap().to_vec(),
                 )
                 .map(|v| v.and_then(|ref v| Some(Value::BlockHash(deserialize(v).unwrap())))),
-            Key::BlockHeader(ref key) => self.db
+            Key::BlockHeader(ref key) => self
+                .db
                 .get_cf(
                     self.db.cf_handle(COLUMN_FAMILIES[1]).unwrap(),
                     &serialize(&key).unwrap().to_vec(),
                 )
-                .map(|v| v.and_then(|ref v| Some(Value::BlockHeader(deserialize(v).unwrap())))),
-            Key::BlockTransactions(ref key) => self.db
+                .map(|v| {
+                    v.and_then(|ref v| {
+                        Some(Value::BlockHeader(
+                            deserialize(v).expect("BlockHeader deserialize"),
+                        ))
+                    })
+                }),
+            Key::BlockTransactions(ref key) => self
+                .db
                 .get_cf(
                     self.db.cf_handle(COLUMN_FAMILIES[2]).unwrap(),
                     &serialize(&key).unwrap().to_vec(),
@@ -157,25 +166,29 @@ impl KeyValueDB for RocksKeyValueDB {
                 .map(|v| {
                     v.and_then(|ref v| Some(Value::BlockTransactions(deserialize(v).unwrap())))
                 }),
-            Key::Meta(key) => self.db
+            Key::Meta(key) => self
+                .db
                 .get_cf(
                     self.db.cf_handle(COLUMN_FAMILIES[3]).unwrap(),
                     &serialize(&key).unwrap().to_vec(),
                 )
                 .map(|v| v.and_then(|v| Some(Value::Meta(v.to_vec())))),
-            Key::Transaction(ref key) => self.db
+            Key::Transaction(ref key) => self
+                .db
                 .get_cf(
                     self.db.cf_handle(COLUMN_FAMILIES[4]).unwrap(),
                     &serialize(&key).unwrap().to_vec(),
                 )
                 .map(|v| v.and_then(|ref v| Some(Value::Transaction(deserialize(v).unwrap())))),
-            Key::TransactionMeta(ref key) => self.db
+            Key::TransactionMeta(ref key) => self
+                .db
                 .get_cf(
                     self.db.cf_handle(COLUMN_FAMILIES[5]).unwrap(),
                     &serialize(&key).unwrap().to_vec(),
                 )
                 .map(|v| v.and_then(|ref v| Some(Value::TransactionMeta(deserialize(v).unwrap())))),
-            Key::BlockHeight(ref key) => self.db
+            Key::BlockHeight(ref key) => self
+                .db
                 .get_cf(
                     self.db.cf_handle(COLUMN_FAMILIES[6]).unwrap(),
                     &serialize(&key).unwrap().to_vec(),

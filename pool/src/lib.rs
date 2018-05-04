@@ -1,65 +1,27 @@
 extern crate bigint;
-#[macro_use]
-extern crate log;
+extern crate bincode;
+extern crate nervos_chain;
 extern crate nervos_core as core;
+extern crate nervos_notify;
+extern crate nervos_time as time;
 extern crate nervos_util as util;
+extern crate rand;
+extern crate serde;
+#[macro_use]
+extern crate serde_derive;
+
+mod tests;
+pub mod txs_pool;
 
 use bigint::H256;
 use core::block::Block;
-use core::cell::{CellProvider, CellState};
-use core::transaction::{OutPoint, Transaction};
-use std::collections::{HashMap, HashSet, VecDeque};
+// use core::cell::{CellProvider, CellState};
+// use core::transaction::{OutPoint, Transaction};
 use std::collections::hash_map::Entry;
+use std::collections::{HashMap, HashSet, VecDeque};
 use util::RwLock;
 
-#[derive(Default)]
-pub struct TransactionPool {
-    pool: RwLock<HashMap<H256, Transaction>>,
-}
-
-impl TransactionPool {
-    pub fn add_transaction(&self, tx: Transaction) {
-        let mut pool = self.pool.write();
-        let txid = tx.hash();
-        pool.insert(txid, tx);
-        info!(target: "pool", "inserted tx : {}", txid);
-    }
-    pub fn get_transactions(&self, limit: usize) -> Vec<Transaction> {
-        let pool = self.pool.read();
-        pool.iter().take(limit).map(|(_, tx)| tx).cloned().collect()
-    }
-    /// Updates the pool with the details of a new block.
-    pub fn accommodate(&self, _block: &Block) {
-        // TODO: pool should known all rollback and appended blocks.
-        let mut pool = self.pool.write();
-        pool.clear();
-    }
-}
-
-impl CellProvider for TransactionPool {
-    fn cell(&self, out_point: &OutPoint) -> CellState {
-        let pool = self.pool.read();
-
-        match pool.get(&out_point.hash) {
-            Some(transaction) => {
-                if (out_point.index as usize) < transaction.inputs.len() {
-                    // TODO: index by prev output to detect double spend more efficiently.
-                    for (_, spend_transaction) in pool.iter() {
-                        for input in &spend_transaction.inputs {
-                            if &input.previous_output == out_point {
-                                return CellState::Tail;
-                            }
-                        }
-                    }
-                    CellState::Head(transaction.outputs[out_point.index as usize].clone())
-                } else {
-                    CellState::Unknown
-                }
-            }
-            None => CellState::Unknown,
-        }
-    }
-}
+pub use txs_pool::*;
 
 #[derive(Default)]
 pub struct OrphanBlockPool {
@@ -71,7 +33,7 @@ impl OrphanBlockPool {
     pub fn insert(&self, block: Block) {
         self.blocks
             .write()
-            .entry(block.header.raw.pre_hash)
+            .entry(block.header.parent_hash)
             .or_insert_with(HashMap::new)
             .insert(block.hash(), block);
     }
@@ -117,13 +79,15 @@ impl PendingBlockPool {
     }
 
     pub fn get_block(&self, t: u64) -> Vec<Block> {
-        let bt: Vec<Block> = self.pool
+        let bt: Vec<Block> = self
+            .pool
             .read()
             .iter()
             .filter(|b| b.header.timestamp <= t)
             .cloned()
             .collect();
-        let lt: Vec<Block> = self.pool
+        let lt: Vec<Block> = self
+            .pool
             .read()
             .iter()
             .filter(|b| b.header.timestamp > t)

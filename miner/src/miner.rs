@@ -1,105 +1,99 @@
-use bigint::{H160, H256};
+use super::sealer::{Sealer, Signal};
 use chain::chain::ChainClient;
 use core::block::Block;
-use core::difficulty::cal_difficulty;
-use core::global::{MAX_TX, TIME_STEP};
-use core::proof::Proof;
-use network::{Broadcastable, Network};
+use core::global::MAX_TX;
+use core::header::Header;
+use core::transaction::Transaction;
+use crossbeam_channel;
+use ethash::{get_epoch, Ethash};
+use nervos_notify::{Event, Notify};
+use nervos_protocol;
+use network::Network;
 use pool::TransactionPool;
+use protobuf::Message as ProtobufMessage;
 use std::sync::Arc;
 use std::thread;
-use time::{now_ms, Duration};
-use util::Mutex;
-
-const FREQUENCY: usize = 50;
+use time::now_ms;
 
 pub struct Miner<C> {
     pub chain: Arc<C>,
-    pub tx_pool: Arc<TransactionPool<C>>,
-    pub miner_key: H160,
-    pub signer_key: H256,
     pub network: Arc<Network>,
-    pub lock: Arc<Mutex<()>>,
+    pub tx_pool: Arc<TransactionPool<C>>,
+    pub sealer: Sealer,
+    pub signal: Signal,
+}
+
+pub struct Work {
+    pub time: u64,
+    pub head: Header,
+    pub transactions: Vec<Transaction>,
+    pub signal: Signal,
 }
 
 impl<C: ChainClient> Miner<C> {
     pub fn new(
         chain: Arc<C>,
         tx_pool: &Arc<TransactionPool<C>>,
-        miner_key: H160,
-        signer_key: H256,
         network: &Arc<Network>,
-        lock: &Arc<Mutex<()>>,
+        ethash: &Arc<Ethash>,
+        notify: &Notify,
     ) -> Self {
-        Miner {
+        let height = { chain.head_header().height };
+        let _dataset = ethash.gen_dataset(get_epoch(height));
+        let (sealer, signal) = Sealer::new(ethash);
+
+        let miner = Miner {
             chain,
-            miner_key,
-            signer_key,
+            sealer,
+            signal,
             tx_pool: Arc::clone(tx_pool),
             network: Arc::clone(network),
-            lock: Arc::clone(lock),
-        }
+        };
+        let (tx, rx) = crossbeam_channel::unbounded();
+        notify.register_transaction_subscriber("miner", tx.clone());
+        notify.register_sync_subscribers("miner", tx);
+        miner.subscribe_update(rx);
+        miner
+    }
+
+    pub fn subscribe_update(&self, sub: crossbeam_channel::Receiver<Event>) {
+        let signal = self.signal.clone();
+        thread::spawn(move || {
+            // some work here
+            while let Ok(_event) = sub.recv() {
+                signal.send_abort();
+            }
+        });
     }
 
     pub fn run_loop(&self) {
-        let mut pre_header = { self.chain.head_header().clone() };
-        let mut challenge = self.chain.challenge(&pre_header).unwrap();
-        let mut pre_time = now_ms();
-        let mut num: usize = 0;
-        let mut mined: bool = false;
-
         loop {
-            thread::sleep(Duration::from_millis(TIME_STEP / 10));
-            let _guard = self.lock.lock();
-            let time = now_ms();
-            if time / TIME_STEP <= pre_time / TIME_STEP {
-                continue;
-            }
-            pre_time = time;
+            self.commit_new_work();
+        }
+    }
 
-            num += 1;
-            if num == FREQUENCY {
-                info!(target: "miner", "{} times is tried", FREQUENCY);
-                num = 0;
-            }
-            {
-                let head_guard = self.chain.head_header();
-
-                if time / TIME_STEP <= head_guard.timestamp / TIME_STEP {
-                    pre_time = head_guard.timestamp;
-                    continue;
-                }
-
-                if *head_guard != pre_header {
-                    challenge = self.chain.challenge(&head_guard).unwrap();
-                    pre_header = head_guard.clone();
-                    mined = false;
-                }
-            }
-
-            if mined {
-                continue;
-            }
-
-            let difficulty = cal_difficulty(&pre_header, time);
-            let proof = Proof::new(&self.miner_key, time, pre_header.height + 1, &challenge);
-
-            if proof.difficulty() > difficulty {
-                let txs = self.tx_pool.prepare_mineable_transactions(MAX_TX);
-                let mut block = Block::new(&pre_header, time, difficulty, challenge, proof, txs);
-                block.sign(self.signer_key);
-
-                info!(target: "miner", "new block mined: {} -> ({}, {})", block.hash(), block.header.timestamp, block.header.difficulty);
-                if self.chain.process_block(&block).is_ok() {
-                    self.announce_new_block(&block);
-                }
-
-                mined = true;
+    fn commit_new_work(&self) {
+        let time = now_ms();
+        let head = { self.chain.head_header().clone() };
+        let transactions = self.tx_pool.prepare_mineable_transactions(MAX_TX);
+        let signal = self.signal.clone();
+        let work = Work {
+            time,
+            head,
+            transactions,
+            signal,
+        };
+        if let Some(block) = self.sealer.seal(work) {
+            info!(target: "miner", "new block mined: {} -> ({}, {})", block.hash(), block.header.height, block.header.difficulty);
+            if self.chain.process_block(&block).is_ok() {
+                self.announce_new_block(&block);
             }
         }
     }
 
     fn announce_new_block(&self, block: &Block) {
-        self.network.broadcast(Broadcastable::Block(block.into()));
+        let mut payload = nervos_protocol::Payload::new();
+        payload.set_block(block.into());
+        self.network.broadcast(payload.write_to_bytes().unwrap());
     }
 }

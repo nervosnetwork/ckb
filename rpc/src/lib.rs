@@ -16,7 +16,8 @@ extern crate protobuf;
 
 use bigint::H256;
 use chain::chain::ChainClient;
-use core::block::{Block, Header};
+use core::block::Block;
+use core::header::Header;
 use core::transaction::Transaction;
 use jsonrpc_core::{IoHandler, Result};
 use jsonrpc_minihttp_server::ServerBuilder;

@@ -1,19 +1,19 @@
+use bigint::H256;
+use core::block::Block;
+use core::cell::{CellProvider, CellState};
+use core::header::Header;
+use core::transaction::{OutPoint, Transaction};
+use nervos_chain::chain::{ChainClient, Error, TransactionMeta};
 use std::collections::HashMap;
 use util::RwLock;
-
-use core::block::{Block, Header};
-use core::transaction::{OutPoint, Transaction};
-
-use bigint::H256;
-
-use txs_pool::types::{BlockChain, Parent, PoolAdapter};
+use util::RwLockReadGuard;
 
 /// Dummy adapter used as a placeholder for real implementations
 // TODO: do we need this dummy, if it's never used?
-pub struct NoopAdapter {}
-impl PoolAdapter for NoopAdapter {
-    fn tx_accepted(&self, _: &Transaction) {}
-}
+// pub struct NoopAdapter {}
+// impl PoolAdapter for NoopAdapter {
+//     fn tx_accepted(&self, _: &Transaction) {}
+// }
 
 /// A DummyOutputSet for mocking up the chain
 #[derive(Debug, PartialEq, Clone)]
@@ -65,6 +65,7 @@ impl DummyOutputSet {
 pub struct DummyChainImpl {
     output: RwLock<DummyOutputSet>,
     headers: RwLock<Vec<Header>>,
+    head: RwLock<Header>,
 }
 
 impl DummyChainImpl {
@@ -72,25 +73,60 @@ impl DummyChainImpl {
         DummyChainImpl {
             output: RwLock::new(DummyOutputSet::new()),
             headers: RwLock::new(Vec::new()),
+            head: RwLock::new(Header::default()),
         }
     }
 }
 
-impl BlockChain for DummyChainImpl {
-    fn is_spent(&self, o: &OutPoint) -> Option<Parent> {
-        self.output.read().get_output(o).map(|x| match x {
-            &Some(_) => Parent::AlreadySpent,
-            &None => Parent::BlockTransaction,
-        })
+impl CellProvider for DummyChainImpl {
+    fn cell(&self, o: &OutPoint) -> CellState {
+        self.output
+            .read()
+            .get_output(o)
+            .map(|x| match x {
+                &Some(_) => CellState::Tail,
+                &None => CellState::Head(Default::default()),
+            })
+            .unwrap_or(CellState::Unknown)
+    }
+}
+
+impl ChainClient for DummyChainImpl {
+    fn process_block(&self, _b: &Block) -> Result<(), Error> {
+        Ok(())
     }
 
-    fn head_header(&self) -> Option<Header> {
-        let headers = self.headers.read();
-        if headers.len() > 0 {
-            Some(headers[0].clone())
-        } else {
-            None
-        }
+    fn get_locator(&self) -> Vec<H256> {
+        vec![]
+    }
+
+    fn block_header(&self, _hash: &H256) -> Option<Header> {
+        None
+    }
+
+    fn block_hash(&self, _height: u64) -> Option<H256> {
+        None
+    }
+
+    fn block_height(&self, _hash: &H256) -> Option<u64> {
+        None
+    }
+
+    fn block(&self, _hash: &H256) -> Option<Block> {
+        None
+    }
+
+    //FIXME: This is bad idea
+    fn head_header(&self) -> RwLockReadGuard<Header> {
+        self.head.read()
+    }
+
+    fn get_transaction(&self, _hash: &H256) -> Option<Transaction> {
+        None
+    }
+
+    fn get_transaction_meta(&self, _hash: &H256) -> Option<TransactionMeta> {
+        None
     }
 }
 
@@ -110,7 +146,7 @@ impl DummyChain for DummyChainImpl {
     }
 }
 
-pub trait DummyChain: BlockChain {
+pub trait DummyChain: ChainClient {
     fn update_output_set(&mut self, new_output: DummyOutputSet);
     fn apply_block(&self, b: &Block);
     fn store_head_header(&self, header: &Header);

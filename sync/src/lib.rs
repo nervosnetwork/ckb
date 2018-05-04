@@ -7,6 +7,7 @@ extern crate multiaddr;
 extern crate nervos_chain;
 extern crate nervos_core as core;
 extern crate nervos_network as network;
+extern crate nervos_notify;
 extern crate nervos_pool as pool;
 extern crate nervos_protocol;
 extern crate nervos_time;

@@ -1,5 +1,5 @@
 use bigint::H256;
-use core::{block, transaction};
+use core::{header, transaction};
 use transaction_meta::TransactionMeta;
 
 #[derive(Debug)]
@@ -12,7 +12,7 @@ pub enum Operation {
 pub enum KeyValue {
     BlockHeight(H256, u64),
     BlockHash(u64, H256),
-    BlockHeader(H256, Box<block::Header>),
+    BlockHeader(H256, Box<header::Header>),
     BlockTransactions(H256, Vec<H256>),
     Meta(&'static str, Vec<u8>),
     Transaction(H256, Box<transaction::Transaction>),
@@ -34,7 +34,7 @@ pub enum Key {
 pub enum Value {
     BlockHeight(u64),
     BlockHash(H256),
-    BlockHeader(Box<block::Header>),
+    BlockHeader(Box<header::Header>),
     BlockTransactions(Vec<H256>),
     Meta(Vec<u8>),
     Transaction(Box<transaction::Transaction>),

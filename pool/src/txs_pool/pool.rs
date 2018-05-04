@@ -1,37 +1,38 @@
 //! Top-level Pool type, methods, and tests
-use std::sync::Arc;
-
 use core::block::Block;
+use core::cell::CellState;
 use core::transaction::{OutPoint, Transaction};
-
+use nervos_chain::chain::ChainClient;
+use nervos_notify::Notify;
+use std::sync::Arc;
 use txs_pool::types::*;
 use util::RwLock;
 
 /// The pool itself.
-pub struct TransactionPool {
+pub struct TransactionPool<T> {
     pub config: PoolConfig,
     /// The pool itself
     pub pool: RwLock<Pool>,
     /// Orphans in the pool
     pub orphan: RwLock<OrphanPool>,
     // chain will offer to the pool
-    pub chain: Arc<BlockChain>,
-    pub adapter: Arc<PoolAdapter>,
+    pub chain: Arc<T>,
+
+    pub notify: Notify,
 }
 
-impl TransactionPool {
+impl<T> TransactionPool<T>
+where
+    T: ChainClient,
+{
     /// Create a new transaction pool
-    pub fn new(
-        config: PoolConfig,
-        chain: Arc<BlockChain>,
-        adapter: Arc<PoolAdapter>,
-    ) -> TransactionPool {
+    pub fn new(config: PoolConfig, chain: Arc<T>, notify: Notify) -> TransactionPool<T> {
         TransactionPool {
             config,
             pool: RwLock::new(Pool::new()),
             orphan: RwLock::new(OrphanPool::new()),
             chain,
-            adapter,
+            notify,
         }
     }
 
@@ -40,8 +41,16 @@ impl TransactionPool {
             .read()
             .is_spent(o)
             .or_else(|| self.orphan.read().is_spent(o))
-            .or_else(|| self.chain.is_spent(o))
+            .or_else(|| self.cell_state(o))
             .unwrap_or(Parent::Unknown)
+    }
+
+    fn cell_state(&self, o: &OutPoint) -> Option<Parent> {
+        match self.chain.cell(o) {
+            CellState::Tail => Some(Parent::AlreadySpent),
+            CellState::Head(_) => Some(Parent::BlockTransaction),
+            CellState::Unknown => None,
+        }
     }
 
     /// Get the number of transactions in the pool
@@ -60,7 +69,7 @@ impl TransactionPool {
     }
 
     /// Attempts to add a transaction to the stempool or the memory pool.
-    pub fn add_to_memory_pool(&self, tx: Transaction) -> Result<(), PoolError> {
+    pub fn add_to_memory_pool(&self, tx: Transaction) -> Result<InsertionResult, PoolError> {
         // Do we have the capacity to accept this transaction?
         self.is_acceptable()?;
 
@@ -89,12 +98,9 @@ impl TransactionPool {
         }
 
         if is_orphan {
-            self.adapter.tx_accepted(&tx);
             self.orphan.write().add_transaction(tx, unknowns);
-            return Err(PoolError::OrphanTransaction);
+            return Ok(InsertionResult::Orphan);
         } else {
-            self.adapter.tx_accepted(&tx);
-
             let txs = {
                 let mut orphan = self.orphan.write();
                 orphan.commit_transaction(&tx);
@@ -108,9 +114,10 @@ impl TransactionPool {
             for tx in txs {
                 pool.add_transaction(tx);
             }
+            self.notify.notify_new_transaction();
         }
 
-        Ok(())
+        Ok(InsertionResult::Normal)
     }
 
     /// Updates the pool with the details of a new block.
@@ -162,7 +169,7 @@ impl TransactionPool {
         let outputs = tx.output_pts();
 
         for o in outputs {
-            if self.chain.is_spent(&o).is_some() {
+            if self.cell_state(&o).is_some() {
                 return Err(PoolError::DuplicateOutput);
             }
         }

@@ -5,7 +5,7 @@ build:
 	cargo build --release
 
 fmt:
-	cargo fmt --all -- --write-mode=diff
+	cargo fmt --all -- --check
 
 clippy: 
 	cargo clippy --all -- -D warnings -D clone_on_ref_ptr

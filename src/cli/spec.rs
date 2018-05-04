@@ -36,12 +36,10 @@ impl Default for Spec {
 
         let network = NetworkConfig {
             listen_addr: "/ip4/0.0.0.0/tcp/0".to_string(),
-            bootstrap_nodes: vec![
-                (
-                    "QmWvoPbu9AgEFLL5UyxpCfhxkLDd9T7zuerjhHiwsnqSh4".to_string(),
-                    "/ip4/127.0.0.1/tcp/12345".to_string(),
-                ),
-            ],
+            bootstrap_nodes: vec![(
+                "QmWvoPbu9AgEFLL5UyxpCfhxkLDd9T7zuerjhHiwsnqSh4".to_string(),
+                "/ip4/127.0.0.1/tcp/12345".to_string(),
+            )],
         };
 
         let rpc = RpcConfig {

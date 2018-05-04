@@ -1,12 +1,13 @@
 use actix::prelude::*;
 use bigint::H256;
-use core::block::{Block, Header};
+use core::block::Block;
+use core::header::Header;
 use nervos_protocol;
-use network::Network;
 use network::protocol::Peer;
+use network::Network;
 use protobuf::RepeatedField;
-use std::sync::Arc;
 use std::sync::mpsc::channel;
+use std::sync::Arc;
 use std::thread;
 
 pub type ExecutorAddr = Addr<Syn, Executor>;
