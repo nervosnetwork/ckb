@@ -8,6 +8,7 @@ extern crate nervos_time as time;
 extern crate serde;
 #[macro_use]
 extern crate serde_derive;
+extern crate bit_vec;
 
 pub mod adapter;
 pub mod block;
@@ -19,6 +20,7 @@ pub mod extras;
 pub mod global;
 pub mod header;
 pub mod transaction;
+pub mod transaction_meta;
 
 pub use error::Error;
 

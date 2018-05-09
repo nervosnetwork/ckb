@@ -40,6 +40,7 @@ nervos-sync = { path = "sync"}
 
 [workspace]
 members = [
+    "util/avl",
     "util/logger",
     "util/hash",
     "util/merkle-root",

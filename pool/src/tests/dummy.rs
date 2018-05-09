@@ -128,6 +128,14 @@ impl ChainClient for DummyChainImpl {
     fn get_transaction_meta(&self, _hash: &H256) -> Option<TransactionMeta> {
         None
     }
+
+    fn block_body(&self, _hash: &H256) -> Option<Vec<Transaction>> {
+        None
+    }
+
+    fn output_root(&self, _hash: &H256) -> Option<H256> {
+        None
+    }
 }
 
 impl DummyChain for DummyChainImpl {

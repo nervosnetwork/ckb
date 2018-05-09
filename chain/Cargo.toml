@@ -12,6 +12,7 @@ rand = "0.5.0"
 nervos-core = { path = "../core" }
 nervos-util = { path = "../util" }
 nervos-db = { path = "../db" }
+avl-merkle = { path = "../util/avl" }
 bigint = { git = "https://github.com/NervosFoundation/bigint" }
 lru-cache = { git = "https://github.com/NervosFoundation/lru-cache" }
 fnv = "1.0.3"

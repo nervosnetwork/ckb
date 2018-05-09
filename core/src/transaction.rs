@@ -6,6 +6,14 @@ use error::TxError;
 use hash::sha3_256;
 use nervos_protocol;
 
+#[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Debug)]
+pub struct TransactionAddress {
+    // Hash of Transaction
+    pub hash: H256,
+    // Index of cell_operations
+    pub index: u32,
+}
+
 #[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Hash, Debug)]
 pub struct OutPoint {
     // Hash of Transaction

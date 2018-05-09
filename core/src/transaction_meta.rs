@@ -13,7 +13,7 @@ impl From<BitVecSerde> for BitVec {
     }
 }
 
-#[derive(Default, Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[derive(Default, Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub struct TransactionMeta {
     /// Times that this transaction has been fully spent in the chain.
     pub fully_spent_count: u32,

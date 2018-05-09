@@ -1,74 +1,244 @@
-use batch::{Batch, Col, Operation};
-use kvdb::{ErrorKind, KeyValueDB, Result};
-use rocksdb::{ColumnFamily, Options, WriteBatch, DB};
+use batch::{Batch, Key, KeyValue, Operation, Value};
+use bigint::H256;
+use bincode::{deserialize, serialize};
+use kvdb::{KeyValueDB, Result};
+use rocksdb::{Options, WriteBatch, DB};
 use std::path::Path;
 
-struct Inner {
+const COLUMN_FAMILIES: &[&str] = &[
+    "block_hash",
+    "block_header",
+    "block_transactions",
+    "meta",
+    "transaction_address",
+    "transaction_meta",
+    "Raw",
+    "block_height",
+    "output_root",
+];
+
+pub struct RocksKeyValueDB {
     db: DB,
-    cfnames: Vec<String>,
 }
 
-pub struct RocksDB {
-    inner: Inner,
-}
-
-impl RocksDB {
-    pub fn open<P: AsRef<Path>>(path: P, columns: u32) -> Self {
+impl RocksKeyValueDB {
+    pub fn open<P: AsRef<Path>>(path: P) -> Self {
         let mut opts = Options::default();
         opts.create_if_missing(true);
         opts.create_missing_column_families(true);
-        let cfnames: Vec<_> = (0..columns).map(|c| format!("c{}", c)).collect();
-        let cf_options: Vec<&str> = cfnames.iter().map(|n| n as &str).collect();
-        let db = DB::open_cf(&opts, path, &cf_options).expect("rocksdb open");
-        let inner = Inner {
-            db,
-            cfnames: cfnames.clone(),
-        };
-        RocksDB { inner }
-    }
 
-    fn cf_handle(&self, col: Option<u32>) -> Result<Option<ColumnFamily>> {
-        if let Some(col) = col {
-            self.inner
-                .cfnames
-                .get(col as usize)
-                .ok_or_else(|| ErrorKind::DBError(format!("column {:?} not found ", col)))
-                .map(|cfname| self.inner.db.cf_handle(&cfname))
-        } else {
-            Ok(None)
-        }
+        let db = DB::open_cf(&opts, path, COLUMN_FAMILIES).unwrap();
+
+        RocksKeyValueDB { db }
     }
 }
 
-impl KeyValueDB for RocksDB {
-    fn cols(&self) -> u32 {
-        self.inner.cfnames.len() as u32
-    }
-
+impl KeyValueDB for RocksKeyValueDB {
     fn write(&self, batch: Batch) -> Result<()> {
         let mut wb = WriteBatch::default();
         for op in batch.operations {
             match op {
-                Operation::Insert { col, key, value } => match self.cf_handle(col)? {
-                    Some(cf) => wb.put_cf(cf, &key, &value),
-                    None => wb.put(&key, &value),
+                Operation::Insert(insert) => match insert {
+                    KeyValue::BlockHash(key, value) => {
+                        wb.put_cf(
+                            self.db.cf_handle(COLUMN_FAMILIES[0]).unwrap(),
+                            &serialize(&key).unwrap().to_vec(),
+                            &value.to_vec(),
+                        )?;
+                    }
+                    KeyValue::BlockHeader(key, value) => {
+                        wb.put_cf(
+                            self.db.cf_handle(COLUMN_FAMILIES[1]).unwrap(),
+                            &key.to_vec(),
+                            &serialize(&value).unwrap().to_vec(),
+                        )?;
+                    }
+                    KeyValue::BlockBody(key, value) => {
+                        wb.put_cf(
+                            self.db.cf_handle(COLUMN_FAMILIES[2]).unwrap(),
+                            &key.to_vec(),
+                            &serialize(&value).unwrap().to_vec(),
+                        )?;
+                    }
+                    KeyValue::Meta(key, value) => {
+                        wb.put_cf(
+                            self.db.cf_handle(COLUMN_FAMILIES[3]).unwrap(),
+                            &serialize(&key).unwrap().to_vec(),
+                            &value,
+                        )?;
+                    }
+                    KeyValue::TransactionAddress(key, value) => {
+                        wb.put_cf(
+                            self.db.cf_handle(COLUMN_FAMILIES[4]).unwrap(),
+                            &key.to_vec(),
+                            &serialize(&value).unwrap().to_vec(),
+                        )?;
+                    }
+                    KeyValue::TransactionMeta(key, value) => {
+                        wb.put_cf(
+                            self.db.cf_handle(COLUMN_FAMILIES[5]).unwrap(),
+                            &key.to_vec(),
+                            &serialize(&value).unwrap().to_vec(),
+                        )?;
+                    }
+                    KeyValue::Raw(key, value) => {
+                        wb.put_cf(
+                            self.db.cf_handle(COLUMN_FAMILIES[6]).unwrap(),
+                            &key.to_vec(),
+                            &value,
+                        )?;
+                    }
+                    KeyValue::BlockHeight(key, value) => {
+                        wb.put_cf(
+                            self.db.cf_handle(COLUMN_FAMILIES[6]).unwrap(),
+                            &serialize(&key).unwrap().to_vec(),
+                            &serialize(&value).unwrap().to_vec(),
+                        )?;
+                    }
+                    KeyValue::OutputRoot(key, value) => {
+                        wb.put_cf(
+                            self.db.cf_handle(COLUMN_FAMILIES[7]).unwrap(),
+                            &key.to_vec(),
+                            &value.to_vec(),
+                        )?;
+                    }
                 },
-                Operation::Delete { col, key } => match self.cf_handle(col)? {
-                    None => wb.delete(&key),
-                    Some(cf) => wb.delete_cf(cf, &key),
+                Operation::Delete(delete) => match delete {
+                    Key::BlockHash(key) => {
+                        wb.delete_cf(
+                            self.db.cf_handle(COLUMN_FAMILIES[0]).unwrap(),
+                            &serialize(&key).unwrap().to_vec(),
+                        )?;
+                    }
+                    Key::BlockHeader(key) => {
+                        wb.delete_cf(
+                            self.db.cf_handle(COLUMN_FAMILIES[1]).unwrap(),
+                            &key.to_vec(),
+                        )?;
+                    }
+                    Key::BlockBody(key) => {
+                        wb.delete_cf(
+                            self.db.cf_handle(COLUMN_FAMILIES[2]).unwrap(),
+                            &key.to_vec(),
+                        )?;
+                    }
+                    Key::Meta(key) => {
+                        wb.delete_cf(
+                            self.db.cf_handle(COLUMN_FAMILIES[3]).unwrap(),
+                            &serialize(&key).unwrap().to_vec(),
+                        )?;
+                    }
+                    Key::TransactionAddress(key) => {
+                        wb.delete_cf(
+                            self.db.cf_handle(COLUMN_FAMILIES[4]).unwrap(),
+                            &key.to_vec(),
+                        )?;
+                    }
+                    Key::TransactionMeta(key) => {
+                        wb.delete_cf(
+                            self.db.cf_handle(COLUMN_FAMILIES[5]).unwrap(),
+                            &key.to_vec(),
+                        )?;
+                    }
+                    Key::Raw(key) => {
+                        wb.delete_cf(
+                            self.db.cf_handle(COLUMN_FAMILIES[6]).unwrap(),
+                            &key.to_vec(),
+                        )?;
+                    }
+                    Key::BlockHeight(key) => {
+                        wb.delete_cf(
+                            self.db.cf_handle(COLUMN_FAMILIES[6]).unwrap(),
+                            &serialize(&key).unwrap().to_vec(),
+                        )?;
+                    }
+                    Key::OutputRoot(key) => {
+                        wb.delete_cf(
+                            self.db.cf_handle(COLUMN_FAMILIES[7]).unwrap(),
+                            &key.to_vec(),
+                        )?;
+                    }
                 },
-            }?;
+            }
         }
-        self.inner.db.write(wb)?;
-        Ok(())
+        self.db.write(wb).map_err(|err| err.into())
     }
 
-    fn read(&self, col: Col, key: &[u8]) -> Result<Option<Vec<u8>>> {
-        match self.cf_handle(col)? {
-            Some(cf) => self.inner.db.get_cf(cf, &key),
-            None => self.inner.db.get(&key),
-        }.map(|v| v.map(|vi| vi.to_vec()))
-            .map_err(|e| e.into())
+    fn read(&self, key: &Key) -> Result<Option<Value>> {
+        let result = match *key {
+            Key::BlockHash(ref key) => self
+                .db
+                .get_cf(
+                    self.db.cf_handle(COLUMN_FAMILIES[0]).unwrap(),
+                    &serialize(&key).unwrap().to_vec(),
+                )
+                .map(|v| v.and_then(|ref v| Some(Value::BlockHash(deserialize(v).unwrap())))),
+            Key::BlockHeader(ref key) => self
+                .db
+                .get_cf(
+                    self.db.cf_handle(COLUMN_FAMILIES[1]).unwrap(),
+                    &key.to_vec(),
+                )
+                .map(|v| {
+                    v.and_then(|ref v| {
+                        Some(Value::BlockHeader(
+                            deserialize(v).expect("BlockHeader deserialize"),
+                        ))
+                    })
+                }),
+            Key::BlockBody(ref key) => self
+                .db
+                .get_cf(
+                    self.db.cf_handle(COLUMN_FAMILIES[2]).unwrap(),
+                    &key.to_vec(),
+                )
+                .map(|v| v.and_then(|ref v| Some(Value::BlockBody(deserialize(v).unwrap())))),
+            Key::Meta(key) => self
+                .db
+                .get_cf(
+                    self.db.cf_handle(COLUMN_FAMILIES[3]).unwrap(),
+                    &serialize(&key).unwrap().to_vec(),
+                )
+                .map(|v| v.and_then(|v| Some(Value::Meta(v.to_vec())))),
+            Key::TransactionAddress(ref key) => self
+                .db
+                .get_cf(
+                    self.db.cf_handle(COLUMN_FAMILIES[4]).unwrap(),
+                    &key.to_vec(),
+                )
+                .map(|v| {
+                    v.and_then(|ref v| Some(Value::TransactionAddress(deserialize(v).unwrap())))
+                }),
+            Key::TransactionMeta(ref key) => self
+                .db
+                .get_cf(
+                    self.db.cf_handle(COLUMN_FAMILIES[5]).unwrap(),
+                    &key.to_vec(),
+                )
+                .map(|v| v.and_then(|ref v| Some(Value::TransactionMeta(deserialize(v).unwrap())))),
+            Key::Raw(ref key) => self
+                .db
+                .get_cf(
+                    self.db.cf_handle(COLUMN_FAMILIES[6]).unwrap(),
+                    &key.to_vec(),
+                )
+                .map(|v| v.and_then(|v| Some(Value::Raw(v.to_vec())))),
+            Key::BlockHeight(ref key) => self
+                .db
+                .get_cf(
+                    self.db.cf_handle(COLUMN_FAMILIES[6]).unwrap(),
+                    &serialize(&key).unwrap().to_vec(),
+                )
+                .map(|v| v.and_then(|ref v| Some(Value::BlockHeight(deserialize(v).unwrap())))),
+            Key::OutputRoot(ref key) => self
+                .db
+                .get_cf(
+                    self.db.cf_handle(COLUMN_FAMILIES[6]).unwrap(),
+                    &key.to_vec(),
+                )
+                .map(|v| v.and_then(|ref v| Some(Value::OutputRoot(H256::from_slice(&v))))),
+        };
+        result.map_err(|e| e.into())
     }
 }
 
@@ -78,21 +248,23 @@ mod tests {
     use tempdir::TempDir;
 
     #[test]
-    fn write_and_read() {
-        let tmp_dir = TempDir::new("write_and_read").unwrap();
-        let db = RocksDB::open(tmp_dir, 2);
+    fn save_and_get_meta() {
+        let dir = TempDir::new("_nervos_test_db").unwrap();
+        let db = RocksKeyValueDB::open(dir);
         let mut batch = Batch::default();
-        batch.insert(None, vec![0, 0], vec![0, 0, 0]);
-        batch.insert(Some(1), vec![1, 1], vec![1, 1, 1]);
+        batch.insert(KeyValue::Meta("abc", [0, 1, 2].to_vec()));
         db.write(batch).unwrap();
 
-        assert_eq!(Some(vec![0, 0, 0]), db.read(None, &vec![0, 0]).unwrap());
-        assert_eq!(None, db.read(None, &vec![1, 1]).unwrap());
+        assert_eq!(
+            db.read(&Key::Meta("abc")).unwrap().unwrap(),
+            Value::Meta([0, 1, 2].to_vec())
+        );
+    }
 
-        assert_eq!(None, db.read(Some(1), &vec![0, 0]).unwrap());
-        assert_eq!(Some(vec![1, 1, 1]), db.read(Some(1), &vec![1, 1]).unwrap());
-
-        //return err when col doesn't exist
-        assert!(db.read(Some(2), &vec![0, 0]).is_err());
+    #[test]
+    fn get_empty() {
+        let dir = TempDir::new("_nervos_test_db").unwrap();
+        let db = RocksKeyValueDB::open(dir);
+        assert_eq!(db.read(&Key::BlockHash(0)).unwrap(), None);
     }
 }

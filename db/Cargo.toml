@@ -11,7 +11,7 @@ nervos-core = { path = "../core" }
 bigint = { git = "https://github.com/NervosFoundation/bigint" }
 serde_derive = "1.0"
 rocksdb = "0.10"
-fnv = "1.0.3"
+lru-cache = { git = "https://github.com/NervosFoundation/lru-cache" }
 
 [dev-dependencies]
 tempdir = "0.3"
