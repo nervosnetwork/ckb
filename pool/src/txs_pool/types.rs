@@ -5,9 +5,9 @@ use std::collections::HashMap;
 use std::iter::Iterator;
 
 use bigint::H256;
-use core::error::TxError;
 use core::header::Header;
 use core::transaction::{OutPoint, Transaction};
+use nervos_verification::TransactionError;
 
 use time;
 
@@ -43,7 +43,7 @@ pub enum Parent {
 #[derive(Debug)]
 pub enum PoolError {
     /// An invalid pool entry caused by underlying tx validation error
-    InvalidTx(TxError),
+    InvalidTx(TransactionError),
     /// An entry already in the pool
     AlreadyInPool,
     /// A double spend

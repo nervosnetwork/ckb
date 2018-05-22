@@ -22,14 +22,6 @@ impl Block {
 
     //TODO: move to verification
     pub fn validate(&self) -> Result<(), Error> {
-        // self.header.check_time()?;
-        // self.header.check_hash()?;
-        // self.header.check_difficulty()?;
-        // self.check_txs_root()?;
-        // let pubkey = self.header.recover_pubkey()?;
-        // let (key, g) = kg.get(&pubkey)
-        //     .ok_or_else(|| Error::InvalidPublicKey(pubkey))?;
-        // self.header.check_proof(&key, &g)?;
         Ok(())
     }
 

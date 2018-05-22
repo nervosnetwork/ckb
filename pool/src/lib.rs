@@ -5,6 +5,7 @@ extern crate nervos_core as core;
 extern crate nervos_notify;
 extern crate nervos_time as time;
 extern crate nervos_util as util;
+extern crate nervos_verification;
 extern crate rand;
 extern crate serde;
 #[macro_use]

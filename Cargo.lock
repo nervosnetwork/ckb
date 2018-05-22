@@ -1517,6 +1517,7 @@ dependencies = [
  "nervos-db 0.1.0",
  "nervos-protocol 0.1.0",
  "nervos-util 0.1.0",
+ "nervos-verification 0.1.0",
  "protobuf 1.5.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "rand 0.4.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "smallvec 0.6.1 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1548,6 +1549,7 @@ dependencies = [
  "nervos-notify 0.1.0",
  "nervos-time 0.1.0",
  "nervos-util 0.1.0",
+ "nervos-verification 0.1.0",
  "rand 0.4.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.59 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.59 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1609,6 +1611,19 @@ name = "nervos-util"
 version = "0.1.0"
 dependencies = [
  "parking_lot 0.5.5 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
+name = "nervos-verification"
+version = "0.1.0"
+dependencies = [
+ "bigint 0.2.3 (git+https://github.com/NervosFoundation/bigint)",
+ "ethash 1.0.0 (git+https://github.com/NervosFoundation/ethash?tag=v1.0.0)",
+ "log 0.4.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "merkle-root 0.1.0",
+ "nervos-core 0.1.0",
+ "nervos-time 0.1.0",
+ "rayon 1.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]

@@ -54,5 +54,6 @@ members = [
     "db",
     "pool",
     "rpc",
-    "notify"
+    "notify",
+    "verification",
 ]

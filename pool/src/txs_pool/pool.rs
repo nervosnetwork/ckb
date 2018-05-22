@@ -4,6 +4,7 @@ use core::cell::CellState;
 use core::transaction::{OutPoint, Transaction};
 use nervos_chain::chain::ChainClient;
 use nervos_notify::Notify;
+use nervos_verification::TransactionVerifier;
 use std::sync::Arc;
 use txs_pool::types::*;
 use util::RwLock;
@@ -74,7 +75,10 @@ where
         self.is_acceptable()?;
 
         // Making sure the transaction is valid before anything else.
-        tx.validate(false).map_err(PoolError::InvalidTx)?;
+        // maybe need do some state verify
+        TransactionVerifier::new(&tx)
+            .verify()
+            .map_err(PoolError::InvalidTx)?;
 
         self.check_duplicate(&tx)?;
 

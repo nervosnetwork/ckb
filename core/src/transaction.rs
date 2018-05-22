@@ -6,7 +6,7 @@ use error::TxError;
 use hash::sha3_256;
 use nervos_protocol;
 
-#[derive(Clone, Default, Serialize, Deserialize, Eq, PartialEq, Hash, Debug)]
+#[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Hash, Debug)]
 pub struct OutPoint {
     // Hash of Transaction
     pub hash: H256,
@@ -14,19 +14,36 @@ pub struct OutPoint {
     pub index: u32,
 }
 
+impl Default for OutPoint {
+    fn default() -> Self {
+        OutPoint {
+            hash: H256::zero(),
+            index: u32::max_value(),
+        }
+    }
+}
+
 impl OutPoint {
     pub fn new(hash: H256, index: u32) -> Self {
         OutPoint { hash, index }
     }
+
+    pub fn null() -> Self {
+        OutPoint::default()
+    }
+
+    pub fn is_null(&self) -> bool {
+        self.hash.is_zero() && self.index == u32::max_value()
+    }
 }
 
-#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Debug)]
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct Recipient {
     pub module: u32,
     pub lock: Vec<u8>,
 }
 
-#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Debug)]
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct CellInput {
     pub previous_output: OutPoint,
     // Depends on whether the operation is Transform or Destroy, this is the proof to transform
@@ -43,7 +60,7 @@ impl CellInput {
     }
 }
 
-#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Debug)]
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct CellOutput {
     pub module: u32,
     pub capacity: u32,
@@ -70,7 +87,7 @@ impl CellOutput {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize, PartialEq, Debug, Default)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug, Default)]
 pub struct Transaction {
     pub version: u32,
     pub deps: Vec<OutPoint>,
@@ -107,6 +124,10 @@ impl Transaction {
             outputs,
             hash: None,
         }
+    }
+
+    pub fn is_cellbase(&self) -> bool {
+        self.inputs.len() == 1 && self.inputs[0].previous_output.is_null()
     }
 
     // TODO: split it
@@ -159,6 +180,10 @@ impl Transaction {
 
     pub fn dep_pts(&self) -> Vec<OutPoint> {
         self.deps.clone()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.inputs.is_empty() || self.outputs.is_empty()
     }
 }
 

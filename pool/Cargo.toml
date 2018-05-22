@@ -15,6 +15,7 @@ nervos-util = { path = "../util" }
 nervos-time = { path = "../util/time" }
 log = "0.4"
 nervos-notify = { path = "../notify" }
+nervos-verification = { path = "../verification" }
 
 [dev-dependencies]
 env_logger = "0.4"

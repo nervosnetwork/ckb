@@ -90,7 +90,7 @@ impl Sealer {
         difficulty: U256,
         signal: &Signal,
     ) -> Message {
-        let target = difficulty_to_boundary(&difficulty);
+        let boundary = difficulty_to_boundary(&difficulty);
         loop {
             if let Ok(message) = self.signal.try_recv() {
                 break message;
@@ -98,7 +98,7 @@ impl Sealer {
             let signal = signal.clone();
             let ethash = Arc::clone(&self.ethash);
             let pow = ethash.compute(height, pow_hash, nonce);
-            if pow.value < target {
+            if pow.value < boundary {
                 signal.send_found(Solution {
                     nonce,
                     mix_hash: pow.mix,
