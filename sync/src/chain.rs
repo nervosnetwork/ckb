@@ -5,6 +5,7 @@ use core::cell::CellState;
 use core::header::Header;
 use core::transaction::OutPoint;
 use nervos_chain::chain::ChainClient;
+use nervos_notify::Notify;
 use std::sync::Arc;
 use util::RwLock;
 
@@ -29,26 +30,32 @@ impl From<BlockQueueState> for BlockState {
 }
 
 pub struct Chain<C> {
-    pub chain_store: Arc<C>,
-    pub block_queue: RwLock<BlockQueue>,
-    pub header_queue: RwLock<HeaderQueue>,
+    chain_provider: Arc<C>,
+    block_queue: RwLock<BlockQueue>,
+    header_queue: RwLock<HeaderQueue>,
+    notify: Notify,
 }
 
 impl<C: ChainClient> Chain<C> {
-    pub fn new(store: &Arc<C>) -> Chain<C> {
-        let head = store.head_header();
+    pub fn new(provider: &Arc<C>, notify: Notify) -> Chain<C> {
+        let head = provider.head_header();
         Chain {
-            chain_store: Arc::clone(store),
+            chain_provider: Arc::clone(provider),
             block_queue: RwLock::new(BlockQueue::new()),
             header_queue: RwLock::new(HeaderQueue::new(head.hash())),
+            notify,
         }
+    }
+
+    pub fn provider(&self) -> &Arc<C> {
+        &self.chain_provider
     }
 
     pub fn block_state(&self, hash: &H256) -> BlockState {
         let guard = self.block_queue.read();
         match guard.contains(hash) {
             Some(queue_state) => BlockState::from(queue_state),
-            None => if self.chain_store.block_header(hash).is_some() {
+            None => if self.chain_provider.block_header(hash).is_some() {
                 BlockState::Stored
             // } else if self.dead_end_blocks.contains(hash) {
             //     BlockState::DeadEnd
@@ -59,13 +66,13 @@ impl<C: ChainClient> Chain<C> {
     }
 
     pub fn cell_state(&self, o: &OutPoint) -> CellState {
-        self.chain_store.cell(o)
+        self.chain_provider.cell(o)
     }
 
     pub fn block_hash(&self, height: u64) -> Option<H256> {
-        let best_storage_height = self.chain_store.head_header().height;
+        let best_storage_height = self.chain_provider.head_header().height;
         if height <= best_storage_height {
-            self.chain_store.block_hash(height)
+            self.chain_provider.block_hash(height)
         } else {
             // we try to keep these in order, but they are probably not
             self.block_queue
@@ -75,11 +82,11 @@ impl<C: ChainClient> Chain<C> {
     }
 
     pub fn block_header(&self, height: u64) -> Option<Header> {
-        let best_storage_height = self.chain_store.head_header().height;
+        let best_storage_height = self.chain_provider.head_header().height;
         if height <= best_storage_height {
-            self.chain_store
+            self.chain_provider
                 .block_hash(height)
-                .and_then(|hash| self.chain_store.block_header(&hash))
+                .and_then(|hash| self.chain_provider.block_header(&hash))
         } else {
             self.header_queue.read().at(height - best_storage_height)
         }
@@ -111,7 +118,7 @@ impl<C: ChainClient> Chain<C> {
     }
 
     pub fn get_locator(&self) -> Vec<H256> {
-        self.chain_store.get_locator()
+        self.chain_provider.get_locator()
     }
 
     pub fn forget_block_leave_header(&self, hash: &H256) -> Position {
@@ -147,10 +154,11 @@ impl<C: ChainClient> Chain<C> {
 
     pub fn insert_block(&self, block: &Block) {
         let hash = block.hash();
-        if self.chain_store.process_block(block).is_ok() {
+        if self.chain_provider.process_block(block).is_ok() {
             self.header_queue.write().block_inserted_to_storage(&hash);
             self.forget_block_leave_header(&hash);
         }
+        self.notify.notify_sync_head();
         //TODO: remove dup transaction from pool
     }
 }

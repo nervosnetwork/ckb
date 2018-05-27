@@ -1,33 +1,35 @@
-use super::genesis::genesis_hash;
-use bigint::H256;
+use bigint::{H256, U256};
 use core::block::Block;
 use core::cell::{CellProvider, CellState};
-use core::difficulty::cal_difficulty;
+use core::extras::BlockExt;
 use core::header::Header;
 use core::transaction::{OutPoint, Transaction};
-pub use core::transaction_meta::TransactionMeta;
-use rand::{thread_rng, Rng};
-use store::ChainStore;
+use core::transaction_meta::TransactionMeta;
+use db::batch::Batch;
+use ethash::Ethash;
+use index::ChainIndex;
+use nervos_verification::{Error as VerifyError, HeaderVerifier, Verifier, VerifierType};
+use spec::Spec;
+use std::sync::Arc;
+use time::now_ms;
 use util::{Mutex, RwLock, RwLockReadGuard};
 
 #[derive(Debug)]
 pub enum Error {
     Duplicate,
-    InvalidBlockTime,
-    InvalidBlockHeight,
-    InvalidChallenge,
-    InvalidDifficulty,
-    InvalidTotalDifficulty,
-    InvalidBlockHash,
+    UnknownParent,
+    Verification(VerifyError),
     InvalidOutput,
     NotFound,
 }
 
-#[derive(Debug)]
 pub struct Chain<CS> {
     store: CS,
+    spec: Spec,
     head_header: RwLock<Header>,
+    total_difficulty: RwLock<U256>,
     output_root: RwLock<H256>,
+    ethash: Arc<Ethash>,
     lock: Mutex<()>,
 }
 
@@ -56,7 +58,7 @@ pub trait ChainClient: Sync + Send + CellProvider {
     fn get_transaction_meta(&self, hash: &H256) -> Option<TransactionMeta>;
 }
 
-impl<CS: ChainStore> CellProvider for Chain<CS> {
+impl<CS: ChainIndex> CellProvider for Chain<CS> {
     fn cell(&self, out_point: &OutPoint) -> CellState {
         let index = out_point.index as usize;
         if let Some(meta) = self.get_transaction_meta(&out_point.hash) {
@@ -80,57 +82,54 @@ impl<CS: ChainStore> CellProvider for Chain<CS> {
     }
 }
 
-impl<CS: ChainStore> Chain<CS> {
-    pub fn init(store: CS, genesis: &Block) -> Result<Chain<CS>, Error> {
+impl<CS: ChainIndex> Chain<CS> {
+    pub fn init(store: CS, spec: Spec, ethash: &Arc<Ethash>) -> Result<Chain<CS>, Error> {
         // check head in store or save the genesis block as head
-        let head_header = match store.head_header() {
+        let genesis = spec.genesis_block();
+        let head_header = match store.get_head_header() {
             Some(h) => h,
             None => {
-                store.init(genesis);
+                store.init(&genesis);
                 genesis.header.clone()
             }
         };
 
-        let r = match store.get_output_root(head_header.hash()) {
+        let r = match store.get_output_root(&head_header.hash()) {
             Some(h) => h,
             None => H256::zero(),
         };
 
+        let td = store
+            .get_block_ext(&head_header.hash())
+            .expect("block_ext stored")
+            .total_difficulty;
+
         Ok(Chain {
             store,
+            spec,
             head_header: RwLock::new(head_header),
             output_root: RwLock::new(r),
+            total_difficulty: RwLock::new(td),
+            ethash: Arc::clone(ethash),
             lock: Mutex::new(()),
         })
     }
 
-    // TODO: validate transactions in block
     fn check_header(&self, h: &Header) -> Result<(), Error> {
         if self.block_header(&h.hash()).is_some() {
             return Err(Error::Duplicate);
         }
 
-        let pre_header = self.block_header(&h.parent_hash).unwrap();
+        let pre_header = self
+            .block_header(&h.parent_hash)
+            .ok_or(Error::UnknownParent)?;
 
-        if pre_header.height + 1 != h.height {
-            return Err(Error::InvalidBlockHeight);
+        // TODO use factory pattern and move code to verification module
+        if let VerifierType::Normal = self.spec.verifier_type {
+            HeaderVerifier::new(&pre_header, h, &self.ethash)
+                .verify()
+                .map_err(Error::Verification)?;
         }
-
-        // if pre_header.timestamp / TIME_STEP >= h.timestamp / TIME_STEP {
-        //     return Err(Error::InvalidBlockTime);
-        // }
-
-        // if h.total_difficulty != pre_header.total_difficulty + h.difficulty {
-        //     return Err(Error::InvalidTotalDifficulty);
-        // }
-
-        if cal_difficulty(&pre_header, h.timestamp) != h.difficulty {
-            return Err(Error::InvalidDifficulty);
-        }
-
-        // if self.challenge(&pre_header) != Some(h.challenge) {
-        //     return Err(Error::InvalidChallenge);
-        // }
 
         Ok(())
     }
@@ -156,76 +155,44 @@ impl<CS: ChainStore> Chain<CS> {
 
     //TODO: best block
     fn insert_block(&self, b: &Block, root: H256) {
-        self.store.save_block(b);
-        self.store.save_output_root(b.hash(), root);
-
-        // let best_block = {
-        //     let head_header = self.head_header.read();
-        //     // if b.header.height == head_header.height {
-        //     //     let mut rng = thread_rng();
-        //     //     b.header.difficulty > head_header.difficulty
-        //     //         || (b.header.difficulty == head_header.difficulty && rng.gen_range(0, 2) == 0)
-        //     // } else
-
-        //     // b.header.difficulty > head_header.difficulty
-        //     //     || (b.header.difficulty == head_header.difficulty && rng.gen_range(0, 2) == 0)
-        // };
-        let best_block = {
-            let head_header = self.head_header.read();
-            if b.header.height == head_header.height {
-                let mut rng = thread_rng();
-                b.header.difficulty > head_header.difficulty
-                    || (b.header.difficulty == head_header.difficulty && rng.gen_range(0, 2) == 0)
-            } else {
-                b.header.height == head_header.height + 1
-            }
-        };
-
-        if best_block {
-            info!(target: "chain", "new best block found: {}", b.hash());
+        self.store.save_with_batch(|batch| {
             let _guard = self.lock.lock();
-            self.update_main_chain(&b);
-            self.save_head_header(&b.header);
-            *self.output_root.write() = root;
-        }
+
+            let block_hash = b.hash();
+            let parent_ext = self
+                .store
+                .get_block_ext(&b.header.parent_hash)
+                .expect("parent already store");
+            let cannon_total_difficulty = parent_ext.total_difficulty + b.header.difficulty;
+
+            let ext = BlockExt {
+                received_at: now_ms(),
+                total_difficulty: cannon_total_difficulty,
+            };
+
+            self.store.insert_block(batch, b);
+            self.store.insert_output_root(batch, block_hash, root);
+            self.store.insert_block_ext(batch, &b.hash(), &ext);
+
+            let best_block = {
+                let current_total_difficulty = *self.total_difficulty.read();
+                cannon_total_difficulty > current_total_difficulty
+            };
+
+            if best_block {
+                info!(target: "chain", "new best block found: {}", b.hash());
+                *self.total_difficulty.write() = cannon_total_difficulty;
+                self.update_index(batch, &b);
+                *self.head_header.write() = b.header.clone();
+                self.store.insert_head_header(batch, &b.header);
+                *self.output_root.write() = root;
+            }
+        });
+        self.print_chain(b.header.height, 10);
     }
 
-    fn save_head_header(&self, h: &Header) {
-        let mut head_header = self.head_header.write();
-        *head_header = h.clone();
-        self.store.save_head_header(h);
-    }
-
-    // fn ancestor_hash(&self, height: u64, header: &Header) -> Option<H256> {
-    //     if header.height < height {
-    //         return None;
-    //     }
-
-    //     if header.height == height {
-    //         return Some(header.hash());
-    //     }
-
-    //     let mut current_hash = header.parent_hash;
-    //     let mut current_height = header.height - 1;
-
-    //     while current_height > height {
-    //         let hash = self.block_hash(current_height).unwrap();
-    //         if hash == current_hash {
-    //             return self.block_hash(height);
-    //         }
-    //         current_hash = self.block_header(&current_hash).unwrap().parent_hash;
-    //         current_height -= 1;
-    //     }
-
-    //     Some(current_hash)
-    // }
-
-    // fn ancestor_header(&self, height: u64, header: &Header) -> Option<Header> {
-    //     self.ancestor_hash(height, header)
-    //         .and_then(|v| self.block_header(&v))
-    // }
-
-    pub fn update_main_chain(&self, b: &Block) {
+    // we found new best_block total_difficulty > old_chain.total_difficulty
+    pub fn update_index(&self, batch: &mut Batch, b: &Block) {
         let old_height = { self.head_header.read().height };
         let mut height = b.header.height - 1;
 
@@ -233,14 +200,18 @@ impl<CS: ChainStore> Chain<CS> {
             for h in height..old_height + 1 {
                 let hash = self.block_hash(h).unwrap();
                 let txs = self.block_body(&hash).unwrap();
-                self.store.delete_block_hash(h);
-                self.store.delete_transaction_address(&txs);
+                self.store.delete_block_hash(batch, h);
+                self.store.delete_block_height(batch, &hash);
+                self.store.delete_transaction_address(batch, &txs);
             }
         }
 
-        self.store.save_block_hash(b.header.height, &b.hash());
         self.store
-            .save_transaction_address(&b.hash(), &b.transactions);
+            .insert_block_hash(batch, b.header.height, &b.hash());
+        self.store
+            .insert_block_height(batch, &b.hash(), b.header.height);
+        self.store
+            .insert_transaction_address(batch, &b.hash(), &b.transactions);
 
         let mut hash = b.header.parent_hash;
 
@@ -250,18 +221,17 @@ impl<CS: ChainStore> Chain<CS> {
                     break;
                 }
                 let txs = self.block_body(&old_hash).unwrap();
-                self.store.delete_transaction_address(&txs);
+                self.store.delete_transaction_address(batch, &txs);
             }
 
             let txs = self.block_body(&hash).unwrap();
-            self.store.save_block_hash(height, &hash);
-            self.store.save_transaction_address(&hash, &txs);
+            self.store.insert_block_hash(batch, height, &hash);
+            self.store.insert_block_height(batch, &hash, height);
+            self.store.insert_transaction_address(batch, &hash, &txs);
 
             hash = self.block_header(&hash).unwrap().parent_hash;
             height -= 1;
         }
-
-        self.print_chain(b.header.height, 10);
     }
 
     fn print_chain(&self, tip: u64, len: u64) {
@@ -289,7 +259,7 @@ impl<CS: ChainStore> Chain<CS> {
     }
 }
 
-impl<CS: ChainStore> ChainClient for Chain<CS> {
+impl<CS: ChainIndex> ChainClient for Chain<CS> {
     fn get_locator(&self) -> Vec<H256> {
         let mut step = 1;
         let mut locator = Vec::with_capacity(32);
@@ -308,7 +278,7 @@ impl<CS: ChainStore> ChainClient for Chain<CS> {
             if index < step {
                 // always include genesis hash
                 if index != 0 {
-                    locator.push(genesis_hash())
+                    locator.push(self.spec.hash)
                 }
                 break;
             }
@@ -339,7 +309,7 @@ impl<CS: ChainStore> ChainClient for Chain<CS> {
     }
 
     fn block_height(&self, hash: &H256) -> Option<u64> {
-        self.block_header(hash).map(|v| v.height)
+        self.store.get_block_height(hash)
     }
 
     fn block_header(&self, hash: &H256) -> Option<Header> {
@@ -356,7 +326,7 @@ impl<CS: ChainStore> ChainClient for Chain<CS> {
     }
 
     fn output_root(&self, hash: &H256) -> Option<H256> {
-        self.store.get_output_root(*hash)
+        self.store.get_output_root(hash)
     }
 
     fn get_transaction(&self, hash: &H256) -> Option<Transaction> {

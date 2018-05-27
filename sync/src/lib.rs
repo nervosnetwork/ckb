@@ -1,8 +1,11 @@
 extern crate actix;
 extern crate bigint;
+extern crate fnv;
 extern crate futures;
 #[macro_use]
 extern crate log;
+extern crate byteorder;
+extern crate hash;
 extern crate multiaddr;
 extern crate nervos_chain;
 extern crate nervos_core as core;
@@ -13,15 +16,16 @@ extern crate nervos_protocol;
 extern crate nervos_time;
 extern crate nervos_util as util;
 extern crate protobuf;
+extern crate rand;
+extern crate siphasher;
 extern crate tokio_core;
 
-mod chain;
-mod client;
+pub mod chain;
+pub mod compact_block;
 mod executor;
-pub mod node;
 mod peers;
+pub mod protocol;
 mod queue;
-mod server;
 
 pub const MAX_HEADERS_LEN: usize = 2_000;
 pub const MAX_INVENTORY_LEN: usize = 50_000;

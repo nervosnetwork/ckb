@@ -1,16 +1,16 @@
 use bigint::H256;
 use nervos_time::now_ms;
-use network::protocol::Peer;
+use network::protocol::PeerIndex;
 use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Default)]
 pub struct Peers {
-    all: HashSet<Peer>,
-    unuseful: HashSet<Peer>,
-    idle_for_headers: HashSet<Peer>,
-    idle_for_blocks: HashSet<Peer>,
-    headers_requests: HashSet<Peer>,
-    blocks_requests: HashMap<Peer, BlocksRequest>,
+    all: HashSet<PeerIndex>,
+    unuseful: HashSet<PeerIndex>,
+    idle_for_headers: HashSet<PeerIndex>,
+    idle_for_blocks: HashSet<PeerIndex>,
+    headers_requests: HashSet<PeerIndex>,
+    blocks_requests: HashMap<PeerIndex, BlocksRequest>,
 }
 
 #[derive(Debug, Clone)]
@@ -33,27 +33,27 @@ impl BlocksRequest {
 }
 
 impl Peers {
-    pub fn all_peers(&self) -> &HashSet<Peer> {
+    pub fn all_peers(&self) -> &HashSet<PeerIndex> {
         &self.all
     }
 
     /// Get useful peers
-    pub fn useful_peers(&self) -> Vec<Peer> {
+    pub fn useful_peers(&self) -> Vec<PeerIndex> {
         self.all.difference(&self.unuseful).cloned().collect()
     }
 
     /// Get idle peers for headers request.
-    pub fn idle_peers_for_headers(&self) -> &HashSet<Peer> {
+    pub fn idle_peers_for_headers(&self) -> &HashSet<PeerIndex> {
         &self.idle_for_headers
     }
 
     /// Get idle peers for blocks request.
-    pub fn idle_peers_for_blocks(&self) -> &HashSet<Peer> {
+    pub fn idle_peers_for_blocks(&self) -> &HashSet<PeerIndex> {
         &self.idle_for_blocks
     }
 
     /// Mark peer as useful.
-    pub fn as_useful_peer(&mut self, peer: Peer) {
+    pub fn as_useful_peer(&mut self, peer: PeerIndex) {
         self.all.insert(peer);
         self.unuseful.remove(&peer);
         self.idle_for_headers.insert(peer);
@@ -61,7 +61,7 @@ impl Peers {
     }
 
     /// Mark peer as unuseful.
-    pub fn as_unuseful_peer(&mut self, peer: Peer) {
+    pub fn as_unuseful_peer(&mut self, peer: PeerIndex) {
         debug_assert!(!self.blocks_requests.contains_key(&peer));
 
         self.all.insert(peer);
@@ -71,7 +71,7 @@ impl Peers {
     }
 
     /// Headers been requested from peer.
-    pub fn on_headers_requested(&mut self, peer: Peer) {
+    pub fn on_headers_requested(&mut self, peer: PeerIndex) {
         if !self.all.contains(&peer) {
             self.as_unuseful_peer(peer);
         }
@@ -81,7 +81,7 @@ impl Peers {
     }
 
     /// Headers received from peer.
-    pub fn on_headers_received(&mut self, peer: Peer) {
+    pub fn on_headers_received(&mut self, peer: PeerIndex) {
         self.headers_requests.remove(&peer);
         // we only ask for new headers when peer is also not asked for blocks
         // => only insert to idle queue if no active blocks requests
@@ -91,7 +91,7 @@ impl Peers {
     }
 
     /// Blocks have been requested from peer.
-    pub fn on_blocks_requested(&mut self, peer: Peer, blocks_hashes: &[H256]) {
+    pub fn on_blocks_requested(&mut self, peer: PeerIndex, blocks_hashes: &[H256]) {
         if !self.all.contains(&peer) {
             self.as_unuseful_peer(peer);
         }
@@ -109,7 +109,7 @@ impl Peers {
             .extend(blocks_hashes.iter().cloned());
     }
 
-    pub fn on_block_received(&mut self, peer: Peer, block_hash: &H256) {
+    pub fn on_block_received(&mut self, peer: PeerIndex, block_hash: &H256) {
         if let Some(blocks_request) = self.blocks_requests.get_mut(&peer) {
             // if block hasn't been requested => do nothing
             if !blocks_request.blocks.remove(block_hash) {

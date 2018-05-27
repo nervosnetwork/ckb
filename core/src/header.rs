@@ -64,7 +64,7 @@ impl RawHeader {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize, PartialEq, Debug, Default)]
+#[derive(Clone, Serialize, Deserialize, Debug, Default)]
 pub struct Header {
     pub raw: RawHeader,
     /// proof seal
@@ -72,6 +72,12 @@ pub struct Header {
     /// memorise Hash
     #[serde(skip_serializing, skip_deserializing)]
     pub hash: Option<H256>,
+}
+
+impl PartialEq for Header {
+    fn eq(&self, other: &Header) -> bool {
+        self.raw == other.raw && self.seal == other.seal
+    }
 }
 
 impl Header {

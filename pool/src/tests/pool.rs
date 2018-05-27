@@ -425,11 +425,7 @@ fn test_block_building() {
 }
 
 fn test_setup(dummy_chain: &Arc<DummyChainImpl>) -> TransactionPool<DummyChainImpl> {
-    TransactionPool::new(
-        PoolConfig::default(),
-        dummy_chain.clone(),
-        Notify::default(),
-    )
+    TransactionPool::new(PoolConfig::default(), dummy_chain, Notify::default())
 }
 
 fn test_transaction(input_values: Vec<OutPoint>, output_num: usize) -> Transaction {

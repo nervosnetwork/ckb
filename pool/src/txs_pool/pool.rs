@@ -27,12 +27,12 @@ where
     T: ChainClient,
 {
     /// Create a new transaction pool
-    pub fn new(config: PoolConfig, chain: Arc<T>, notify: Notify) -> TransactionPool<T> {
+    pub fn new(config: PoolConfig, chain: &Arc<T>, notify: Notify) -> TransactionPool<T> {
         TransactionPool {
             config,
             pool: RwLock::new(Pool::new()),
             orphan: RwLock::new(OrphanPool::new()),
-            chain,
+            chain: Arc::clone(chain),
             notify,
         }
     }
@@ -118,6 +118,7 @@ where
             for tx in txs {
                 pool.add_transaction(tx);
             }
+
             self.notify.notify_new_transaction();
         }
 

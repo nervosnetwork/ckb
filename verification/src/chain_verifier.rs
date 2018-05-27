@@ -1,6 +1,7 @@
 use super::block_verifier::BlockVerifier;
 use super::header_verifier::HeaderVerifier;
 use super::transaction_verifier::TransactionVerifier;
+use super::Verifier;
 use core::block::Block;
 use core::header::Header;
 use error::{Error, TransactionError};
@@ -14,6 +15,15 @@ pub struct ChainVerifier<'a> {
     pub transactions: Vec<TransactionVerifier<'a>>,
 }
 
+impl<'a> Verifier for ChainVerifier<'a> {
+    fn verify(&self) -> Result<(), Error> {
+        self.block.verify()?;
+        self.header.verify()?;
+        self.verify_transactions()?;
+        Ok(())
+    }
+}
+
 impl<'a> ChainVerifier<'a> {
     pub fn new(parent_header: &'a Header, block: &'a Block, ethash: &Arc<Ethash>) -> Self {
         ChainVerifier {
@@ -25,13 +35,6 @@ impl<'a> ChainVerifier<'a> {
                 .map(TransactionVerifier::new)
                 .collect(),
         }
-    }
-
-    pub fn verify(&self) -> Result<(), Error> {
-        self.block.verify()?;
-        self.header.verify()?;
-        self.verify_transactions()?;
-        Ok(())
     }
 
     fn verify_transactions(&self) -> Result<(), Error> {

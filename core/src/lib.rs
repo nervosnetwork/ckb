@@ -10,7 +10,6 @@ extern crate serde;
 extern crate serde_derive;
 extern crate bit_vec;
 
-pub mod adapter;
 pub mod block;
 pub mod cell;
 pub mod chain;

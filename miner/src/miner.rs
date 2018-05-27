@@ -7,12 +7,15 @@ use core::transaction::Transaction;
 use crossbeam_channel;
 use ethash::{get_epoch, Ethash};
 use nervos_notify::{Event, Notify};
-use nervos_protocol;
+use nervos_protocol::Payload;
 use network::Network;
+use network::protocol::NetworkContext;
 use pool::TransactionPool;
-use protobuf::Message as ProtobufMessage;
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::thread;
+use sync::compact_block::build_compact_block;
+use sync::protocol::SYNC_PROTOCOL_ID;
 use time::now_ms;
 
 pub struct Miner<C> {
@@ -49,6 +52,7 @@ impl<C: ChainClient> Miner<C> {
             tx_pool: Arc::clone(tx_pool),
             network: Arc::clone(network),
         };
+
         let (tx, rx) = crossbeam_channel::unbounded();
         notify.register_transaction_subscriber("miner", tx.clone());
         notify.register_sync_subscribers("miner", tx);
@@ -92,8 +96,10 @@ impl<C: ChainClient> Miner<C> {
     }
 
     fn announce_new_block(&self, block: &Block) {
-        let mut payload = nervos_protocol::Payload::new();
-        payload.set_block(block.into());
-        self.network.broadcast(payload.write_to_bytes().unwrap());
+        let nc = self.network.build_network_context(SYNC_PROTOCOL_ID);
+        let mut payload = Payload::new();
+        let compact_block = build_compact_block(block, &HashSet::new());
+        payload.set_compact_block(compact_block.into());
+        nc.send_all(payload)
     }
 }

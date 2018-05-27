@@ -16,6 +16,7 @@ pub struct HashQueue {
     set: HashSet<H256>,
 }
 
+#[allow(dead_code)]
 impl HashQueue {
     pub fn new() -> Self {
         HashQueue {
@@ -158,6 +159,7 @@ pub struct BlockQueue {
     pub verifying: HashQueue,
 }
 
+#[allow(dead_code)]
 impl BlockQueue {
     pub fn new() -> Self {
         BlockQueue {
@@ -206,6 +208,7 @@ pub struct HeaderQueue {
     pub best: HashQueue,
 }
 
+#[allow(dead_code)]
 impl HeaderQueue {
     /// Create new best headers chain
     pub fn new(storage_best_hash: H256) -> Self {

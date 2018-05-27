@@ -1,3 +1,4 @@
+use super::Verifier;
 use bigint::H256;
 use core::difficulty::{boundary_to_difficulty, cal_difficulty};
 use core::header::Header;
@@ -24,8 +25,10 @@ impl<'a> HeaderVerifier<'a> {
             difficulty: DifficultyVerifier::new(parent, header),
         }
     }
+}
 
-    pub fn verify(&self) -> Result<(), Error> {
+impl<'a> Verifier for HeaderVerifier<'a> {
+    fn verify(&self) -> Result<(), Error> {
         self.height.verify()?;
         self.timestamp.verify()?;
         self.difficulty.verify()?;

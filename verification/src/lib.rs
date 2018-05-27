@@ -18,3 +18,21 @@ pub use chain_verifier::ChainVerifier;
 pub use error::{Error, TransactionError};
 pub use header_verifier::HeaderVerifier;
 pub use transaction_verifier::TransactionVerifier;
+
+pub trait Verifier {
+    fn verify(&self) -> Result<(), Error>;
+}
+
+#[derive(Debug, Clone)]
+pub enum VerifierType {
+    Normal,
+    // Skip seal verification
+    NoSeal,
+    // Used in tests.
+    Noop,
+}
+
+// TODO
+// 1. add Verifiers trait
+// 2. use factory and composite pattern
+// 3. add NoopVerifier for test

@@ -12,6 +12,7 @@ extern crate nervos_core as core;
 extern crate nervos_db as db;
 extern crate nervos_network as network;
 extern crate nervos_protocol;
+extern crate nervos_sync as sync;
 extern crate protobuf;
 
 use bigint::H256;
@@ -23,8 +24,11 @@ use jsonrpc_core::{IoHandler, Result};
 use jsonrpc_minihttp_server::ServerBuilder;
 use jsonrpc_server_utils::cors::AccessControlAllowOrigin;
 use jsonrpc_server_utils::hosts::DomainsValidation;
-use network::{Broadcastable, Network};
+use nervos_protocol::Payload;
+use network::Network;
+use network::protocol::NetworkContext;
 use std::sync::Arc;
+use sync::protocol::SYNC_PROTOCOL_ID;
 
 build_rpc_trait! {
     pub trait Rpc {
@@ -58,8 +62,10 @@ impl Rpc for RpcImpl {
     fn send_transaction(&self, tx: Transaction) -> Result<H256> {
         let result = tx.hash();
         let tx: nervos_protocol::Transaction = (&tx).into();
-        // TODO: should only broadcast after validate the transaction
-        self.network.broadcast(Broadcastable::Transaction(tx));
+        let nc = self.network.build_network_context(SYNC_PROTOCOL_ID);
+        let mut payload = Payload::new();
+        payload.set_transaction(tx);
+        nc.send_all(payload);
         Ok(result)
     }
 

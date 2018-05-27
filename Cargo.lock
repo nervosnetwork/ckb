@@ -166,7 +166,7 @@ dependencies = [
 [[package]]
 name = "bigint"
 version = "0.2.3"
-source = "git+https://github.com/NervosFoundation/bigint#d0f918b44c271cee56c553fb88694f0483e47489"
+source = "git+https://github.com/NervosFoundation/bigint#2ad3cc5228ca9af05a033e21849f87f9e8e1d2bb"
 dependencies = [
  "crunchy 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "ethereum-types-serialize 0.2.1 (git+https://github.com/NervosFoundation/primitives)",
@@ -1414,6 +1414,7 @@ dependencies = [
  "nervos-notify 0.1.0",
  "nervos-pool 0.1.0",
  "nervos-protocol 0.1.0",
+ "nervos-sync 0.1.0",
  "nervos-time 0.1.0",
  "nervos-util 0.1.0",
  "protobuf 1.5.1 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1464,7 +1465,7 @@ dependencies = [
 name = "nervos-notify"
 version = "0.1.0"
 dependencies = [
- "crossbeam-channel 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "crossbeam-channel 0.1.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "fnv 1.0.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "nervos-util 0.1.0",
 ]
@@ -1510,6 +1511,7 @@ dependencies = [
  "nervos-db 0.1.0",
  "nervos-network 0.1.0",
  "nervos-protocol 0.1.0",
+ "nervos-sync 0.1.0",
  "protobuf 1.5.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_json 1.0.17 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
@@ -1520,18 +1522,28 @@ version = "0.1.0"
 dependencies = [
  "actix 0.5.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "bigint 0.2.3 (git+https://github.com/NervosFoundation/bigint)",
+ "byteorder 1.2.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "env_logger 0.5.10 (registry+https://github.com/rust-lang/crates.io-index)",
+ "ethash 1.0.0 (git+https://github.com/NervosFoundation/ethash?tag=v1.0.0)",
+ "fnv 1.0.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "futures 0.1.21 (registry+https://github.com/rust-lang/crates.io-index)",
+ "hash 0.1.0",
  "log 0.4.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "multiaddr 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "nervos-chain 0.1.0",
  "nervos-core 0.1.0",
+ "nervos-db 0.1.0",
  "nervos-network 0.1.0",
  "nervos-notify 0.1.0",
  "nervos-pool 0.1.0",
  "nervos-protocol 0.1.0",
  "nervos-time 0.1.0",
  "nervos-util 0.1.0",
+ "nervos-verification 0.1.0",
  "protobuf 1.5.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "rand 0.5.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "siphasher 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "tempdir 0.3.7 (registry+https://github.com/rust-lang/crates.io-index)",
  "tokio-core 0.1.17 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
@@ -1600,7 +1612,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "num-integer 0.1.36 (registry+https://github.com/rust-lang/crates.io-index)",
  "num-traits 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)",
- "rand 0.3.22 (registry+https://github.com/rust-lang/crates.io-index)",
+ "rand 0.4.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "rustc-serialize 0.3.24 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
@@ -1892,7 +1904,7 @@ dependencies = [
  "lazy_static 1.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "libc 0.2.40 (registry+https://github.com/rust-lang/crates.io-index)",
  "num_cpus 1.8.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "rand 0.3.22 (registry+https://github.com/rust-lang/crates.io-index)",
+ "rand 0.4.2 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -2154,6 +2166,11 @@ dependencies = [
  "winapi 0.2.8 (registry+https://github.com/rust-lang/crates.io-index)",
  "winapi-build 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
+
+[[package]]
+name = "siphasher"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
 name = "skeptic"
@@ -3115,6 +3132,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 "checksum serde_json 1.0.17 (registry+https://github.com/rust-lang/crates.io-index)" = "f3ad6d546e765177cf3dded3c2e424a8040f870083a0e64064746b958ece9cb1"
 "checksum sha1 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)" = "cc30b1e1e8c40c121ca33b86c23308a090d19974ef001b4bf6e61fd1a0fb095c"
 "checksum shell32-sys 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)" = "9ee04b46101f57121c9da2b151988283b6beb79b34f5bb29a58ee48cb695122c"
+"checksum siphasher 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)" = "0df90a788073e8d0235a67e50441d47db7c8ad9debd91cbf43736a2a92d36537"
 "checksum skeptic 0.13.2 (registry+https://github.com/rust-lang/crates.io-index)" = "c8431f8fca168e2db4be547bd8329eac70d095dff1444fee4b0fa0fabc7df75a"
 "checksum slab 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)" = "17b4fcaed89ab08ef143da37bc52adbcc04d4a69014f4c1208d6b51f0c47bc23"
 "checksum slab 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)" = "fdeff4cd9ecff59ec7e3744cbca73dfe5ac35c2aedb2cfba8a1c715a18912e9d"

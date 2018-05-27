@@ -9,6 +9,7 @@ nervos-core = { path = "../core" }
 nervos-network = { path = "../network" }
 nervos-chain = { path = "../chain" }
 nervos-db = { path = "../db" }
+nervos-sync = { path = "../sync" }
 jsonrpc-core = { git = "https://github.com/paritytech/jsonrpc" }
 jsonrpc-macros = { git = "https://github.com/paritytech/jsonrpc" }
 jsonrpc-minihttp-server = { git = "https://github.com/paritytech/jsonrpc" }

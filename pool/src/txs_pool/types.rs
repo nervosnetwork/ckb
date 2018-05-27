@@ -65,15 +65,6 @@ pub trait BlockChain: Send + Sync {
     fn head_header(&self) -> Option<Header>;
 }
 
-/// Bridge between the transaction pool and the rest of the system. Handles
-/// downstream processing of valid transacti ons by the rest of the system, most
-/// importantly the broadcasting of transactions to our peers.
-pub trait PoolAdapter: Send + Sync {
-    /// The transaction pool has accepted this transactions as valid and added
-    /// it to its internal cache.
-    fn tx_accepted(&self, tx: &Transaction);
-}
-
 pub struct Pool {
     pub pool: DirectedGraph,
 }

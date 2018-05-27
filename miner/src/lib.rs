@@ -10,6 +10,7 @@ extern crate nervos_network as network;
 extern crate nervos_notify;
 extern crate nervos_pool as pool;
 extern crate nervos_protocol;
+extern crate nervos_sync as sync;
 extern crate nervos_time as time;
 extern crate nervos_util as util;
 extern crate protobuf;
