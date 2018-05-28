@@ -1,6 +1,7 @@
 use bigint::H256;
 use std::sync::Arc;
 
+use super::super::PendingBlockPool;
 use tests::dummy::*;
 use txs_pool::pool::*;
 use txs_pool::types::*;
@@ -446,4 +447,44 @@ fn test_transaction(input_values: Vec<OutPoint>, output_num: usize) -> Transacti
 /// Deterministically generate an output defined by our test scheme
 fn test_output(value: u32) -> OutPoint {
     OutPoint::new(H256::zero(), value)
+}
+
+#[test]
+fn test_pending_pool() {
+    fn test_block(timestamp: u64) -> Block {
+        let mut header = Header::default();
+        header.raw.timestamp = timestamp;
+        let transactions = vec![];
+        Block {
+            header,
+            transactions,
+        }
+    }
+
+    fn test_blocks() -> Vec<Block> {
+        let t: Vec<u64> = (0..10).collect();
+        t.iter().map(|t| test_block(*t)).collect()
+    }
+
+    let blocks = test_blocks();
+    let pool = PendingBlockPool::default();
+
+    for b in blocks {
+        pool.add_block(b);
+    }
+
+    let bt = pool.get_block(5);
+
+    assert!(bt.len() == 5);
+    assert!(bt.iter().all(|b| b.header.timestamp < 5));
+    assert!(pool.len() == 5);
+
+    let bt = pool.get_block(10);
+
+    assert!(bt.len() == 5);
+    assert!(
+        bt.iter()
+            .all(|b| b.header.timestamp >= 5 && b.header.timestamp < 10)
+    );
+    assert!(pool.len() == 0);
 }

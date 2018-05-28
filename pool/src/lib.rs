@@ -19,6 +19,7 @@ use core::block::Block;
 // use core::cell::{CellProvider, CellState};
 // use core::transaction::{OutPoint, Transaction};
 use std::collections::hash_map::Entry;
+use std::collections::BTreeMap;
 use std::collections::{HashMap, HashSet, VecDeque};
 use util::RwLock;
 
@@ -30,6 +31,12 @@ pub struct OrphanBlockPool {
 }
 
 impl OrphanBlockPool {
+    pub fn with_capacity(capacity: usize) -> Self {
+        OrphanBlockPool {
+            blocks: RwLock::new(HashMap::with_capacity(capacity)),
+        }
+    }
+
     /// Insert orphaned block, for which we have already requested its parent block
     pub fn insert(&self, block: Block) {
         self.blocks
@@ -65,41 +72,49 @@ impl OrphanBlockPool {
 
 #[derive(Default)]
 pub struct PendingBlockPool {
-    pool: RwLock<Vec<Block>>,
+    pool: RwLock<BTreeMap<u64, Block>>,
     hashes: RwLock<HashSet<H256>>,
 }
 
 impl PendingBlockPool {
-    pub fn add_block(&self, b: Block) -> bool {
-        let v = { !self.hashes.read().contains(&b.hash()) };
-        if v {
-            self.hashes.write().insert(b.hash());
-            self.pool.write().push(b);
+    pub fn with_capacity(capacity: usize) -> Self {
+        PendingBlockPool {
+            pool: RwLock::new(BTreeMap::new()),
+            hashes: RwLock::new(HashSet::with_capacity(capacity)),
         }
-        v
+    }
+
+    pub fn add_block(&self, b: Block) -> bool {
+        let hashes = self.hashes.upgradable_read();
+        let exists = !hashes.contains(&b.hash());
+        if exists {
+            let mut write_hashes = hashes.upgrade();
+            write_hashes.insert(b.hash());
+            self.pool.write().insert(b.header.timestamp, b);
+        }
+        exists
     }
 
     pub fn get_block(&self, t: u64) -> Vec<Block> {
-        let bt: Vec<Block> = self
-            .pool
-            .read()
-            .iter()
-            .filter(|b| b.header.timestamp <= t)
-            .cloned()
-            .collect();
-        let lt: Vec<Block> = self
-            .pool
-            .read()
-            .iter()
-            .filter(|b| b.header.timestamp > t)
-            .cloned()
-            .collect();
-        *self.pool.write() = lt;
-
+        use std::mem::swap;
+        let mut lt = self.pool.write();
         let mut hashes = self.hashes.write();
+        let mut bt = lt.split_off(&t);
+        swap(&mut bt, &mut lt);
+
+        let bt: Vec<_> = bt.into_iter().map(|(_k, v)| v).collect();
+
         for b in &bt {
             hashes.remove(&b.hash());
         }
         bt
+    }
+
+    pub fn len(&self) -> usize {
+        self.pool.read().len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 }
