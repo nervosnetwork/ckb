@@ -416,20 +416,12 @@ impl DirectedGraph {
 
     /// Get list of all vertices in this graph including the roots
     pub fn get_vertices(&self) -> Vec<Transaction> {
-        let mut txs = self
-            .roots
+        self.roots
             .values()
             .map(|x| &x.transaction)
+            .chain(self.vertices.values().map(|x| &x.transaction))
             .cloned()
-            .collect::<Vec<Transaction>>();
-        let non_roots = self
-            .vertices
-            .values()
-            .map(|x| &x.transaction)
-            .cloned()
-            .collect::<Vec<Transaction>>();
-        txs.extend(non_roots);
-        txs
+            .collect::<Vec<Transaction>>()
     }
 }
 
