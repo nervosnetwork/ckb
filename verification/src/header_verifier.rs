@@ -1,7 +1,7 @@
 use bigint::H256;
 use core::difficulty::{boundary_to_difficulty, cal_difficulty};
 use core::header::Header;
-use error::{Error, InvalidDifficulty, InvalidHeight, InvalidPow, InvalidTimestamp};
+use error::{DifficultyError, Error, HeightError, PowError, TimestampError};
 use ethash::{recover_boundary, Ethash, Pow};
 use shared::ALLOWED_FUTURE_BLOCKTIME;
 use std::sync::Arc;
@@ -58,7 +58,7 @@ impl<'a> PowVerifier<'a> {
         ));
 
         if difficulty < self.header.difficulty {
-            Err(Error::Pow(InvalidPow::Boundary {
+            Err(Error::Pow(PowError::Boundary {
                 expected: self.header.difficulty,
                 actual: difficulty,
             }))
@@ -72,7 +72,7 @@ impl<'a> PowVerifier<'a> {
             self.ethash
                 .light_compute(self.header.height, *pow_hash, self.header.seal.nonce);
         if mix != self.header.seal.mix_hash {
-            return Err(Error::Pow(InvalidPow::MixMismatch {
+            return Err(Error::Pow(PowError::MixMismatch {
                 expected: self.header.seal.mix_hash,
                 actual: mix,
             }));
@@ -80,7 +80,7 @@ impl<'a> PowVerifier<'a> {
         let difficulty = boundary_to_difficulty(&value);
 
         if difficulty < self.header.difficulty {
-            return Err(Error::Pow(InvalidPow::Boundary {
+            return Err(Error::Pow(PowError::Boundary {
                 expected: self.header.difficulty,
                 actual: difficulty,
             }));
@@ -107,17 +107,15 @@ impl<'a> TimestampVerifier<'a> {
     pub fn verify(&self) -> Result<(), Error> {
         let min = self.parent.timestamp + 1;
         if self.header.timestamp < min {
-            return Err(Error::Timestamp(InvalidTimestamp {
-                min: Some(min),
-                max: None,
+            return Err(Error::Timestamp(TimestampError::ZeroBlockTime {
+                min,
                 found: self.header.timestamp,
             }));
         }
         let max = self.now + ALLOWED_FUTURE_BLOCKTIME;
         if self.header.timestamp > max {
-            return Err(Error::Timestamp(InvalidTimestamp {
-                max: Some(max),
-                min: None,
+            return Err(Error::Timestamp(TimestampError::FutureBlockTime {
+                max,
                 found: self.header.timestamp,
             }));
         }
@@ -137,7 +135,7 @@ impl<'a> HeightVerifier<'a> {
 
     pub fn verify(&self) -> Result<(), Error> {
         if self.header.height != self.parent.height + 1 {
-            return Err(Error::Height(InvalidHeight {
+            return Err(Error::Height(HeightError {
                 expected: self.parent.height + 1,
                 actual: self.header.height,
             }));
@@ -159,7 +157,7 @@ impl<'a> DifficultyVerifier<'a> {
     pub fn verify(&self) -> Result<(), Error> {
         let expected_difficulty = cal_difficulty(self.parent, self.header.timestamp);
         if expected_difficulty != self.header.difficulty {
-            return Err(Error::Difficulty(InvalidDifficulty {
+            return Err(Error::Difficulty(DifficultyError {
                 expected: expected_difficulty,
                 actual: self.header.difficulty,
             }));
