@@ -280,7 +280,7 @@ impl HeaderQueue {
     }
 
     /// Remove blocks headers with given hash and all its children
-    pub fn remove_n<I: IntoIterator<Item = H256>>(&mut self, hashes: I) {
+    pub fn remove_n(&mut self, hashes: impl IntoIterator<Item = H256>) {
         for hash in hashes {
             self.remove(&hash);
         }

@@ -20,6 +20,10 @@ impl Block {
         self.header.hash()
     }
 
+    pub fn is_genesis(&self) -> bool {
+        self.header.is_genesis()
+    }
+
     //TODO: move to verification
     pub fn validate(&self) -> Result<(), Error> {
         Ok(())

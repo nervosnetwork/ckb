@@ -1,10 +1,10 @@
-use batch::{Batch, Key, Value};
+use batch::{Batch, Col};
 use bincode::Error as BcError;
 use rocksdb::Error as RdbError;
 use std::error::Error as StdError;
 use std::result;
 
-type Error = ErrorKind;
+pub type Error = ErrorKind;
 pub type Result<T> = result::Result<T, Error>;
 
 #[derive(Debug)]
@@ -27,5 +27,9 @@ impl From<RdbError> for Error {
 
 pub trait KeyValueDB: Sync + Send {
     fn write(&self, batch: Batch) -> Result<()>;
-    fn read(&self, key: &Key) -> Result<Option<Value>>;
+    fn read(&self, col: Col, key: &[u8]) -> Result<Option<Vec<u8>>>;
+    fn cols(&self) -> u32;
+    fn batch(&self) -> Batch {
+        Batch::new()
+    }
 }

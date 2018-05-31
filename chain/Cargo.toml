@@ -13,6 +13,12 @@ nervos-core = { path = "../core" }
 nervos-util = { path = "../util" }
 nervos-db = { path = "../db" }
 bigint = { git = "https://github.com/NervosFoundation/bigint" }
+lru-cache = { git = "https://github.com/NervosFoundation/lru-cache" }
+fnv = "1.0.3"
+nervos-time = { path = "../util/time" }
+nervos-verification = { path = "../verification" }
+ethash = { git = "https://github.com/NervosFoundation/ethash", tag = "v1.0.0" }
 
 [dev-dependencies]
 env_logger = "0.4"
+tempdir = "0.3"

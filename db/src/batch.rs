@@ -1,69 +1,45 @@
-use bigint::H256;
-use core::{header, transaction};
-use transaction_meta::TransactionMeta;
+pub type Col = Option<u32>;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Operation {
-    Insert(KeyValue),
-    Delete(Key),
+    Insert {
+        col: Col,
+        key: Vec<u8>,
+        value: Vec<u8>,
+    },
+    Delete {
+        col: Col,
+        key: Vec<u8>,
+    },
 }
 
-#[derive(Debug)]
-pub enum KeyValue {
-    BlockHeight(H256, u64),
-    BlockHash(u64, H256),
-    BlockHeader(H256, Box<header::Header>),
-    BlockTransactions(H256, Vec<H256>),
-    Meta(&'static str, Vec<u8>),
-    Transaction(H256, Box<transaction::Transaction>),
-    TransactionMeta(H256, Box<TransactionMeta>),
+impl Operation {
+    pub fn insert(col: Col, key: Vec<u8>, value: Vec<u8>) -> Self {
+        Operation::Insert { col, key, value }
+    }
+
+    pub fn delete(col: Col, key: Vec<u8>) -> Self {
+        Operation::Delete { col, key }
+    }
 }
 
-#[derive(Debug, PartialEq)]
-pub enum Key {
-    BlockHeight(H256),
-    BlockHash(u64),
-    BlockHeader(H256),
-    BlockTransactions(H256),
-    Meta(&'static str),
-    Transaction(H256),
-    TransactionMeta(H256),
-}
-
-#[derive(Debug, PartialEq)]
-pub enum Value {
-    BlockHeight(u64),
-    BlockHash(H256),
-    BlockHeader(Box<header::Header>),
-    BlockTransactions(Vec<H256>),
-    Meta(Vec<u8>),
-    Transaction(Box<transaction::Transaction>),
-    TransactionMeta(Box<TransactionMeta>),
-}
-
-#[derive(Debug)]
+#[derive(Debug, Default, Clone)]
 pub struct Batch {
     pub operations: Vec<Operation>,
 }
 
-impl Default for Batch {
-    fn default() -> Self {
-        Batch {
-            operations: Vec::with_capacity(32),
-        }
-    }
-}
-
 impl Batch {
     pub fn new() -> Self {
-        Batch::default()
+        Batch {
+            operations: Vec::new(),
+        }
     }
 
-    pub fn insert(&mut self, insert: KeyValue) {
-        self.operations.push(Operation::Insert(insert));
+    pub fn insert(&mut self, col: Col, key: Vec<u8>, value: Vec<u8>) {
+        self.operations.push(Operation::insert(col, key, value));
     }
 
-    pub fn delete(&mut self, delete: Key) {
-        self.operations.push(Operation::Delete(delete));
+    pub fn delete(&mut self, col: Col, key: Vec<u8>) {
+        self.operations.push(Operation::delete(col, key));
     }
 }

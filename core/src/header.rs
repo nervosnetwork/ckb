@@ -30,15 +30,12 @@ pub struct RawHeader {
 }
 
 impl RawHeader {
-    pub fn new<'a, I>(
+    pub fn new<'a>(
         parent_header: &Header,
-        transactions: I,
+        transactions: impl Iterator<Item = &'a Transaction>,
         timestamp: u64,
         difficulty: U256,
-    ) -> RawHeader
-    where
-        I: Iterator<Item = &'a Transaction>,
-    {
+    ) -> RawHeader {
         let transactions_hash: Vec<H256> = transactions.map(|t: &Transaction| t.hash()).collect();
         let transactions_root = merkle_root(transactions_hash.as_slice());
         let parent_hash = parent_header.hash();
@@ -81,6 +78,10 @@ impl Header {
     pub fn hash(&self) -> H256 {
         self.hash
             .unwrap_or_else(|| sha3_256(serialize(self).unwrap()).into())
+    }
+
+    pub fn is_genesis(&self) -> bool {
+        self.height == 0
     }
 }
 
