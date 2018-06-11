@@ -9,7 +9,7 @@ lazy_static = "1.0"
 failure = "0.1.1"
 failure_derive = "0.1.1"
 bigint = { git = "https://github.com/NervosFoundation/bigint" }
-rand = "0.4"
+rand = "0.5.0"
 rustc-hex = "1.0"
 crunchy = "0.2"
 openssl = { git = "https://github.com/NervosFoundation/rust-openssl.git", branch = "pkcs8_der", optional = true }

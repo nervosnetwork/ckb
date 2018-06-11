@@ -16,6 +16,6 @@ nervos-protocol = { path = "../network/protocol" }
 nervos-network = { path = "../network" }
 ethash = { git = "https://github.com/NervosFoundation/ethash", tag = "v1.0.0" }
 protobuf = "1.5"
-rand = "0.4"
+rand = "0.5.0"
 nervos-notify = { path = "../notify" }
 crossbeam-channel = "0.1"
