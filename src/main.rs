@@ -15,6 +15,7 @@ extern crate nervos_pool as pool;
 extern crate nervos_rpc as rpc;
 extern crate nervos_sync as sync;
 extern crate nervos_util as util;
+extern crate nervos_verification;
 #[macro_use]
 extern crate serde_derive;
 extern crate config;

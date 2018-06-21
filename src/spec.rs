@@ -7,6 +7,7 @@ use miner::Config as MinerConfig;
 use network::Config as NetworkConfig;
 use rpc::Config as RpcConfig;
 use std::env;
+use sync::Config as SyncConfig;
 
 #[derive(Clone, Debug)]
 pub struct Spec {
@@ -21,12 +22,13 @@ pub struct Configs {
     pub rpc: RpcConfig,
     pub chain: ChainConfig,
     pub miner: MinerConfig,
+    pub sync: SyncConfig,
 }
 
 impl Spec {
     pub fn new(matches: &clap::ArgMatches) -> Result<Self, ConfigError> {
         let data_path = matches
-            .value_of("data-dir")
+            .value_of("config")
             .map(Into::into)
             .unwrap_or_else(default_base_path);
         let dirs = Directories::new(&data_path);
@@ -36,7 +38,7 @@ impl Spec {
             include_str!("config/default.toml"),
             FileFormat::Toml,
         ))?;
-        let env = env::var("NERVOS_ENV").unwrap_or_else(|_| "development".into());
+        let env = env::var("NERVOS_ENV").unwrap_or_else(|_| "development.toml".into());
         c.merge(File::with_name(data_path.join(env).to_str().unwrap()).required(false))?;
         c.try_into().map(|mut configs: Configs| {
             if let Some(file) = configs.logger.file {

@@ -3,18 +3,18 @@ use bincode::serialize;
 use hash::sha3_256;
 use merkle_root::*;
 use nervos_protocol;
-use std::ops::Deref;
+use std::ops::{Deref, DerefMut};
 use transaction::Transaction;
 
 const VERSION: u32 = 0;
 
-#[derive(Clone, Serialize, Deserialize, PartialEq, Debug, Default)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug, Default)]
 pub struct Seal {
     pub nonce: u64,
     pub mix_hash: H256,
 }
 
-#[derive(Clone, Serialize, Deserialize, PartialEq, Debug, Default)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug, Default)]
 pub struct RawHeader {
     pub version: u32,
     //// Parent hash.
@@ -58,32 +58,21 @@ impl RawHeader {
     pub fn with_seal(self, nonce: u64, mix_hash: H256) -> Header {
         Header {
             raw: self,
-            hash: None,
             seal: Seal { nonce, mix_hash },
         }
     }
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug, Default)]
+#[derive(Clone, Serialize, Deserialize, Debug, Default, PartialEq, Eq)]
 pub struct Header {
     pub raw: RawHeader,
     /// proof seal
     pub seal: Seal,
-    /// memorise Hash
-    #[serde(skip_serializing, skip_deserializing)]
-    pub hash: Option<H256>,
-}
-
-impl PartialEq for Header {
-    fn eq(&self, other: &Header) -> bool {
-        self.raw == other.raw && self.seal == other.seal
-    }
 }
 
 impl Header {
     pub fn hash(&self) -> H256 {
-        self.hash
-            .unwrap_or_else(|| sha3_256(serialize(self).unwrap()).into())
+        sha3_256(serialize(self).unwrap()).into()
     }
 
     pub fn is_genesis(&self) -> bool {
@@ -96,6 +85,56 @@ impl Deref for Header {
 
     fn deref(&self) -> &Self::Target {
         &self.raw
+    }
+}
+
+impl DerefMut for IndexedHeader {
+    fn deref_mut(&mut self) -> &mut Header {
+        &mut self.header
+    }
+}
+
+impl Deref for IndexedHeader {
+    type Target = Header;
+
+    fn deref(&self) -> &Self::Target {
+        &self.header
+    }
+}
+
+#[derive(Clone, Debug, Eq, Default)]
+pub struct IndexedHeader {
+    pub header: Header,
+    /// memorise hash
+    hash: H256,
+}
+
+impl PartialEq for IndexedHeader {
+    fn eq(&self, other: &IndexedHeader) -> bool {
+        self.hash == other.hash
+    }
+}
+
+impl IndexedHeader {
+    pub fn hash(&self) -> H256 {
+        self.hash
+    }
+
+    pub fn new(header: Header, hash: H256) -> Self {
+        IndexedHeader { header, hash }
+    }
+}
+
+impl From<Header> for IndexedHeader {
+    fn from(header: Header) -> Self {
+        let hash = header.hash();
+        IndexedHeader { header, hash }
+    }
+}
+
+impl From<IndexedHeader> for Header {
+    fn from(indexed_header: IndexedHeader) -> Self {
+        indexed_header.header
     }
 }
 
@@ -114,8 +153,14 @@ impl<'a> From<&'a nervos_protocol::Header> for Header {
                 nonce: proto.get_nonce(),
                 mix_hash: H256::from_slice(proto.get_mix_hash()),
             },
-            hash: None,
         }
+    }
+}
+
+impl<'a> From<&'a nervos_protocol::Header> for IndexedHeader {
+    fn from(proto: &'a nervos_protocol::Header) -> Self {
+        let header: Header = proto.into();
+        header.into()
     }
 }
 
@@ -132,5 +177,12 @@ impl<'a> From<&'a Header> for nervos_protocol::Header {
         header.set_timestamp(h.timestamp);
         header.set_txs_commit(h.txs_commit.to_vec());
         header
+    }
+}
+
+impl<'a> From<&'a IndexedHeader> for nervos_protocol::Header {
+    fn from(h: &'a IndexedHeader) -> Self {
+        let header = &h.header;
+        header.into()
     }
 }

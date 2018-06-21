@@ -5,7 +5,7 @@ extern crate fnv;
 extern crate nervos_core as core;
 extern crate nervos_util as util;
 
-use core::block::Block;
+use core::block::IndexedBlock;
 use core::transaction::Transaction;
 use fnv::FnvHashMap;
 use std::sync::Arc;
@@ -20,7 +20,7 @@ pub enum Event {
 
 pub type Subscriber = crossbeam_channel::Sender<Event>;
 pub type Subscribers = FnvHashMap<String, Subscriber>;
-pub type CanonSubscriber = crossbeam_channel::Sender<Block>;
+pub type CanonSubscriber = crossbeam_channel::Sender<IndexedBlock>;
 pub type CanonSubscribers = FnvHashMap<String, CanonSubscriber>;
 pub type ForkSubscriber = crossbeam_channel::Sender<(Vec<Transaction>, Vec<Transaction>)>;
 pub type ForkSubscribers = FnvHashMap<String, ForkSubscriber>;
@@ -58,25 +58,25 @@ impl Notify {
 
     pub fn notify_sync_head(&self) {
         for sub in self.sync_subscribers.read().values() {
-            let _ = sub.send(Event::NewHead);
+            sub.send(Event::NewHead);
         }
     }
 
     pub fn notify_new_transaction(&self) {
         for sub in self.transaction_subscribers.read().values() {
-            let _ = sub.send(Event::NewTransaction);
+            sub.send(Event::NewTransaction);
         }
     }
 
-    pub fn notify_canon_block(&self, b: Block) {
+    pub fn notify_canon_block(&self, b: IndexedBlock) {
         for sub in self.canon_subscribers.read().values() {
-            let _ = sub.send(b.clone());
+            sub.send(b.clone());
         }
     }
 
     pub fn notify_switch_fork(&self, txs: (Vec<Transaction>, Vec<Transaction>)) {
         for sub in self.fork_subscribers.read().values() {
-            let _ = sub.send(txs.clone());
+            sub.send(txs.clone());
         }
     }
 }

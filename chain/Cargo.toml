@@ -17,8 +17,7 @@ bigint = { git = "https://github.com/NervosFoundation/bigint" }
 lru-cache = { git = "https://github.com/NervosFoundation/lru-cache" }
 fnv = "1.0.3"
 nervos-time = { path = "../util/time" }
-ethash = { git = "https://github.com/NervosFoundation/ethash", tag = "v1.0.0" }
-nervos-notify = { path = "../notify" }
+nervos-verification = { path = "../verification" }
 
 [dev-dependencies]
 env_logger = "0.4"

@@ -1,3 +1,4 @@
+use super::miner::SealerType;
 use bigint::{H256, U256};
 use core::block::Block;
 use core::difficulty::cal_difficulty;
@@ -40,17 +41,19 @@ impl Signal {
 }
 
 pub struct Sealer {
-    pub ethash: Option<Arc<Ethash>>,
+    pub ethash: Arc<Ethash>,
     pub signal: mpsc::Receiver<Message>,
+    pub sealer_type: SealerType,
 }
 
 impl Sealer {
-    pub fn new(ethash: Option<Arc<Ethash>>) -> (Self, Signal) {
+    pub fn new(ethash: &Arc<Ethash>, sealer_type: SealerType) -> (Sealer, Signal) {
         let (signal_tx, signal_rx) = mpsc::channel();
         (
             Sealer {
-                ethash,
+                ethash: Arc::clone(ethash),
                 signal: signal_rx,
+                sealer_type,
             },
             self::Signal::new(signal_tx),
         )
@@ -59,18 +62,18 @@ impl Sealer {
     pub fn seal(&self, work: Work) -> Option<Block> {
         let Work {
             time,
-            head,
+            tip,
             transactions,
             signal,
         } = work;
-        let difficulty = cal_difficulty(&head, time);
+        let difficulty = cal_difficulty(&tip, time);
 
-        let raw_header = RawHeader::new(&head, transactions.iter(), time, difficulty);
+        let raw_header = RawHeader::new(&tip, transactions.iter(), time, difficulty);
         let pow_hash = raw_header.pow_hash();
-        let height = raw_header.number;
+        let number = raw_header.number;
 
         let nonce: u64 = thread_rng().gen();
-        match self.mine(pow_hash, height, nonce, difficulty, &signal) {
+        match self.mine(pow_hash, number, nonce, difficulty, &signal) {
             self::Message::Found(solution) => {
                 let Solution { nonce, mix_hash } = solution;
                 let header = raw_header.with_seal(nonce, mix_hash);
@@ -86,7 +89,7 @@ impl Sealer {
     fn mine(
         &self,
         pow_hash: H256,
-        height: u64,
+        number: u64,
         mut nonce: u64,
         difficulty: U256,
         signal: &Signal,
@@ -96,11 +99,12 @@ impl Sealer {
             if let Ok(message) = self.signal.try_recv() {
                 break message;
             }
-            match self.ethash {
-                Some(ref ethash) => {
+            // TODO add trait and use factory to create different sealer
+            match self.sealer_type {
+                SealerType::Normal => {
                     let signal = signal.clone();
-                    let ethash = Arc::clone(&ethash);
-                    let pow = ethash.compute(height, pow_hash, nonce);
+                    let ethash = Arc::clone(&self.ethash);
+                    let pow = ethash.compute(number, pow_hash, nonce);
                     if pow.value < boundary {
                         signal.send_found(Solution {
                             nonce,
@@ -109,7 +113,7 @@ impl Sealer {
                     }
                     nonce = nonce.wrapping_add(1);
                 }
-                None => {
+                SealerType::Noop => {
                     thread::sleep(std_time::Duration::from_secs(thread_rng().gen_range(2, 5)));
                     signal.send_found(Solution {
                         nonce: 0,

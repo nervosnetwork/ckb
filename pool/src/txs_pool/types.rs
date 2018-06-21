@@ -1,7 +1,6 @@
 //! The primary module containing the implementations of the transaction pool
 //! and its top-level members.
-#![allow(unknown_lints)]
-#![allow(while_let_loop)]
+#![cfg_attr(feature = "cargo-clippy", allow(while_let_loop))]
 
 use std::collections::HashMap;
 use std::iter::Iterator;

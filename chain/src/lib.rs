@@ -3,7 +3,6 @@ extern crate bincode;
 #[macro_use]
 extern crate log;
 extern crate avl_merkle as avl;
-extern crate ethash;
 extern crate fnv;
 extern crate lru_cache;
 extern crate nervos_core as core;

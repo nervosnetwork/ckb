@@ -22,6 +22,7 @@ pub mod tests;
 pub use block_verifier::BlockVerifier;
 pub use error::{Error, TransactionError};
 pub use header_verifier::HeaderVerifier;
+pub use pow_verifier::{EthashVerifier, NoopVerifier, PowVerifier, PowVerifierImpl};
 pub use transaction_verifier::TransactionVerifier;
 
 pub trait Verifier {

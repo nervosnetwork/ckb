@@ -1,5 +1,5 @@
 use bigint::{H256, U256};
-use core::block::Block;
+use core::block::IndexedBlock;
 use core::header::{Header, RawHeader, Seal};
 
 #[derive(Clone, Debug, Deserialize)]
@@ -14,8 +14,6 @@ pub struct Config {
     pub number: u64,
     pub nonce: u64,
     pub mix_hash: H256,
-    // other config
-    pub verification_level: String,
     pub initial_block_reward: u32,
 }
 
@@ -31,12 +29,11 @@ impl Config {
             number: 0,
             nonce: 0,
             mix_hash: H256::from(0),
-            verification_level: "Full".to_string(),
             initial_block_reward: 0,
         }
     }
 
-    pub fn genesis_block(&self) -> Block {
+    pub fn genesis_block(&self) -> IndexedBlock {
         let header = Header {
             raw: RawHeader {
                 version: self.version,
@@ -50,11 +47,10 @@ impl Config {
                 nonce: self.nonce,
                 mix_hash: self.mix_hash,
             },
-            hash: Some(self.hash),
         };
 
-        Block {
-            header,
+        IndexedBlock {
+            header: header.into(),
             transactions: vec![],
         }
     }

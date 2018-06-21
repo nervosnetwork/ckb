@@ -1,11 +1,11 @@
-use super::header::Header;
+use super::header::{Header, IndexedHeader};
 use super::transaction::Transaction;
 use super::Error;
 use bigint::H256;
 use merkle_root::*;
 use nervos_protocol;
 
-#[derive(Clone, Serialize, Deserialize, PartialEq, Default, Debug)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Default, Debug)]
 pub struct Block {
     pub header: Header,
     pub transactions: Vec<Transaction>,
@@ -51,12 +51,71 @@ impl Block {
     }
 }
 
+#[derive(Clone, Eq, Default, Debug)]
+pub struct IndexedBlock {
+    pub header: IndexedHeader,
+    pub transactions: Vec<Transaction>,
+}
+
+impl PartialEq for IndexedBlock {
+    fn eq(&self, other: &IndexedBlock) -> bool {
+        self.header == other.header
+    }
+}
+
+impl IndexedBlock {
+    pub fn hash(&self) -> H256 {
+        self.header.hash()
+    }
+
+    pub fn header(&self) -> &IndexedHeader {
+        &self.header
+    }
+
+    pub fn is_genesis(&self) -> bool {
+        self.header.is_genesis()
+    }
+}
+
+impl From<Block> for IndexedBlock {
+    fn from(block: Block) -> Self {
+        let Block {
+            header,
+            transactions,
+        } = block;
+        IndexedBlock {
+            transactions,
+            header: header.into(),
+        }
+    }
+}
+
+impl From<IndexedBlock> for Block {
+    fn from(block: IndexedBlock) -> Self {
+        let IndexedBlock {
+            header,
+            transactions,
+        } = block;
+        Block {
+            transactions,
+            header: header.header,
+        }
+    }
+}
+
 impl<'a> From<&'a nervos_protocol::Block> for Block {
     fn from(b: &'a nervos_protocol::Block) -> Self {
         Block {
             header: b.get_header().into(),
             transactions: b.get_transactions().iter().map(|t| t.into()).collect(),
         }
+    }
+}
+
+impl<'a> From<&'a nervos_protocol::Block> for IndexedBlock {
+    fn from(b: &'a nervos_protocol::Block) -> Self {
+        let block: Block = b.into();
+        block.into()
     }
 }
 
@@ -70,5 +129,12 @@ impl<'a> From<&'a Block> for nervos_protocol::Block {
     }
 }
 
-#[cfg(test)]
-mod tests {}
+impl<'a> From<&'a IndexedBlock> for nervos_protocol::Block {
+    fn from(b: &'a IndexedBlock) -> Self {
+        let mut block = nervos_protocol::Block::new();
+        block.set_header((&b.header).into());
+        let transactions = b.transactions.iter().map(|t| t.into()).collect();
+        block.set_transactions(transactions);
+        block
+    }
+}

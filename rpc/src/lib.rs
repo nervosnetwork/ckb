@@ -10,14 +10,13 @@ extern crate log;
 extern crate nervos_chain as chain;
 extern crate nervos_core as core;
 extern crate nervos_network as network;
-extern crate nervos_pool as pool;
 extern crate nervos_protocol;
 extern crate nervos_sync as sync;
 #[macro_use]
 extern crate serde_derive;
 
 use bigint::H256;
-use chain::chain::ChainClient;
+use chain::chain::ChainProvider;
 use core::block::Block;
 use core::header::Header;
 use core::transaction::Transaction;
@@ -27,9 +26,8 @@ use jsonrpc_server_utils::cors::AccessControlAllowOrigin;
 use jsonrpc_server_utils::hosts::DomainsValidation;
 use nervos_protocol::Payload;
 use network::NetworkService;
-use pool::TransactionPool;
 use std::sync::Arc;
-use sync::protocol::RELAY_PROTOCOL_ID;
+use sync::RELAY_PROTOCOL_ID;
 
 build_rpc_trait! {
     pub trait Rpc {
@@ -54,20 +52,17 @@ build_rpc_trait! {
     }
 }
 
-struct RpcImpl<C> {
+struct RpcImpl {
     pub network: Arc<NetworkService>,
-    pub chain: Arc<C>,
-    pub tx_pool: Arc<TransactionPool<C>>,
+    pub chain: Arc<ChainProvider>,
 }
 
-impl<C: ChainClient + 'static> Rpc for RpcImpl<C> {
+impl Rpc for RpcImpl {
     fn send_transaction(&self, tx: Transaction) -> Result<H256> {
-        let pool_result = self.tx_pool.add_to_memory_pool(tx.clone());
-        debug!(target: "rpc", "send_transaction add to pool result: {:?}", pool_result);
-
         let result = tx.hash();
+        let tx: nervos_protocol::Transaction = (&tx).into();
         let mut payload = Payload::new();
-        payload.set_transaction((&tx).into());
+        payload.set_transaction(tx);
         self.network.with_context_eval(RELAY_PROTOCOL_ID, |nc| {
             for (peer_id, _session) in nc.sessions() {
                 nc.send(peer_id, payload.clone()).ok();
@@ -77,54 +72,30 @@ impl<C: ChainClient + 'static> Rpc for RpcImpl<C> {
     }
 
     fn get_block(&self, hash: H256) -> Result<Option<Block>> {
-        // TODO should use a different struct for serialization with transaction hash
-        Ok(self.chain.block(&hash).map(|mut block| {
-            block.transactions = block
-                .transactions
-                .into_iter()
-                .map(|mut t| {
-                    t.hash = Some(t.hash());
-                    t
-                })
-                .collect();
-            block
-        }))
+        Ok(self.chain.block(&hash).map(Into::into))
     }
 
     fn get_transaction(&self, hash: H256) -> Result<Option<Transaction>> {
-        Ok(self.chain.get_transaction(&hash))
+        Ok(self.chain.get_transaction(&hash).map(|t| t.transaction))
     }
 
-    fn get_block_hash(&self, height: u64) -> Result<Option<H256>> {
-        Ok(self.chain.block_hash(height))
+    fn get_block_hash(&self, number: u64) -> Result<Option<H256>> {
+        Ok(self.chain.block_hash(number))
     }
 
+    // what's happening 😨
     fn get_tip_header(&self) -> Result<Header> {
-        Ok(self.chain.tip_header().clone())
+        Ok(self.chain.tip_header().read().header.header.clone())
     }
 }
 
 pub struct RpcServer {
     pub config: Config,
 }
-
 impl RpcServer {
-    pub fn start<C>(
-        &self,
-        network: Arc<NetworkService>,
-        chain: Arc<C>,
-        tx_pool: Arc<TransactionPool<C>>,
-    ) where
-        C: ChainClient + 'static,
-    {
+    pub fn start(&self, network: Arc<NetworkService>, chain: Arc<ChainProvider>) {
         let mut io = IoHandler::new();
-        io.extend_with(
-            RpcImpl {
-                network,
-                chain,
-                tx_pool,
-            }.to_delegate(),
-        );
+        io.extend_with(RpcImpl { network, chain }.to_delegate());
 
         let server = ServerBuilder::new(io)
             .cors(DomainsValidation::AllowOnly(vec![

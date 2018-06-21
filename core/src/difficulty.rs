@@ -66,7 +66,6 @@ mod tests {
                 difficulty: U256::from(difficulty),
                 number: 3500000,
             },
-            hash: None,
             seal: Seal {
                 nonce: 0,
                 mix_hash: H256::from(0),

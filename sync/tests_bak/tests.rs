@@ -1,6 +1,6 @@
 extern crate bigint;
 extern crate env_logger;
-extern crate ethash;
+#[cfg(test)]
 extern crate futures;
 extern crate nervos_chain as chain;
 extern crate nervos_core as core;
@@ -14,9 +14,11 @@ extern crate nervos_verification as verification;
 extern crate tempdir;
 
 use bigint::H256;
-use chain::chain::{Chain, ChainBuilder, ChainClient};
+use chain::chain::{Chain, ChainBuilder, ChainProvider};
 use chain::store::ChainKVStore;
-use core::block::Block;
+use chain::Config;
+use chain::COLUMNS;
+use core::block::IndexedBlock;
 use core::difficulty::cal_difficulty;
 use core::header::{Header, RawHeader, Seal};
 use core::transaction::{CellInput, CellOutput, OutPoint, Transaction};
@@ -27,10 +29,12 @@ use notify::Notify;
 use std::collections::HashMap;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
-use std::thread;
 use std::time::Duration;
-use sync::chain::Chain as SyncChain;
-use sync::protocol::{SyncProtocol, SYNC_PROTOCOL_ID};
+use std::{thread, time as std_time};
+use sync::protocol::SyncProtocol;
+use sync::synchronizer::Synchronizer;
+use sync::{Config as SyncConfig, SYNC_PROTOCOL_ID};
+use tempdir::TempDir;
 use time::now_ms;
 
 #[derive(Default)]
@@ -63,11 +67,11 @@ impl TestNode {
 
         if let Some(handler) = self.protocols.get(&protocol) {
             handler.connected(
-                &TestNetworkContext {
+                Box::new(TestNetworkContext {
                     protocol,
                     current_peer: Some(local_index),
                     senders: self.senders.clone(),
-                },
+                }),
                 local_index,
             )
         }
@@ -83,11 +87,11 @@ impl TestNode {
                 }
                 if let Some(handler) = self.protocols.get(protocol) {
                     handler.process(
-                        &TestNetworkContext {
+                        Box::new(TestNetworkContext {
                             protocol: *protocol,
                             current_peer: Some(*peer),
                             senders: self.senders.clone(),
-                        },
+                        }),
                         *peer,
                         payload,
                     )
@@ -149,22 +153,22 @@ impl NetworkContext for TestNetworkContext {
     }
 
     /// Register a new IO timer. 'IoHandler::timeout' will be called with the token.
-    fn register_timer(&self, _token: TimerToken, _delay: Duration) -> Result<(), Error> {
+    fn register_timer(&self, token: TimerToken, delay: Duration) -> Result<(), Error> {
         unimplemented!()
     }
 
     /// Returns peer identification string
-    fn peer_client_version(&self, _peer: PeerId) -> String {
+    fn peer_client_version(&self, peer: PeerId) -> String {
         unimplemented!()
     }
 
     /// Returns information on p2p session
-    fn session_info(&self, _peer: PeerId) -> Option<SessionInfo> {
+    fn session_info(&self, peer: PeerId) -> Option<SessionInfo> {
         None
     }
 
     /// Returns max version for a given protocol.
-    fn protocol_version(&self, _protocol: ProtocolId, _peer: PeerId) -> Option<u8> {
+    fn protocol_version(&self, protocol: ProtocolId, peer: PeerId) -> Option<u8> {
         unimplemented!()
     }
 
@@ -202,19 +206,18 @@ fn basic_sync() {
 
 fn setup_node(height: u64) -> (TestNode, Arc<Chain<ChainKVStore<MemoryKeyValueDB>>>) {
     let notify = Notify::new();
-    let builder = ChainBuilder::<ChainKVStore<MemoryKeyValueDB>>::new_memory()
-        .verification_level("NoVerification")
-        .notify(notify.clone());
+    let builder =
+        ChainBuilder::<ChainKVStore<MemoryKeyValueDB>>::new_memory().notify(notify.clone());
     let mut block = builder.get_config().genesis_block();
     let chain = Arc::new(builder.build().unwrap());
 
-    for _i in 0..height {
+    for i in 0..height {
         let time = now_ms();
         let transactions = vec![Transaction::new(
             0,
             Vec::new(),
-            vec![CellInput::new(OutPoint::null(), Default::default())],
-            vec![CellOutput::new(0, 50, Vec::new(), H256::default())],
+            vec![CellInput::new(OutPoint::null(), Vec::new())],
+            vec![CellOutput::new(0, 50, Vec::new(), Vec::new())],
         )];
 
         let header = Header {
@@ -228,18 +231,21 @@ fn setup_node(height: u64) -> (TestNode, Arc<Chain<ChainKVStore<MemoryKeyValueDB
                 nonce: 0,
                 mix_hash: H256::from(0),
             },
-            hash: None,
         };
 
-        block = Block {
-            header,
+        block = IndexedBlock {
+            header: header.into(),
             transactions,
         };
         chain.process_block(&block).unwrap();
     }
 
-    let sync_chain = Arc::new(SyncChain::new(&chain, notify.clone()));
-    let sync_protocol = Arc::new(SyncProtocol::new(&sync_chain));
+    let synchronizer = Synchronizer::new(&chain, notify.clone(), None, SyncConfig::default());
+    let sync_protocol = Arc::new(SyncProtocol::new(synchronizer));
+    let sync_protocol_clone = Arc::clone(&sync_protocol);
+    let _ = thread::Builder::new().spawn(move || {
+        sync_protocol_clone.start();
+    });
 
     let mut node = TestNode::default();
     node.protocols.insert(SYNC_PROTOCOL_ID, sync_protocol);

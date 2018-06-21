@@ -5,13 +5,14 @@ use avl::node::search;
 use avl::tree::AvlTree;
 use bigint::H256;
 use bincode::{deserialize, serialize};
-use core::block::Block;
+use core::block::{Block, IndexedBlock};
 use core::extras::BlockExt;
-use core::header::Header;
+use core::header::IndexedHeader;
 use core::transaction::{OutPoint, Transaction};
 use core::transaction_meta::TransactionMeta;
 use db::batch::{Batch, Col};
 use db::kvdb::KeyValueDB;
+use std::ops::Deref;
 use std::ops::Range;
 use {
     COLUMN_BLOCK_BODY, COLUMN_BLOCK_HEADER, COLUMN_BLOCK_TRANSACTION_ADDRESSES, COLUMN_EXT,
@@ -39,12 +40,12 @@ where
     T: 'a,
 {
     store: &'a T,
-    head: Option<Header>,
+    head: Option<IndexedHeader>,
 }
 
 pub trait ChainStore: Sync + Send {
-    fn get_block(&self, block_hash: &H256) -> Option<Block>;
-    fn get_header(&self, block_hash: &H256) -> Option<Header>;
+    fn get_block(&self, block_hash: &H256) -> Option<IndexedBlock>;
+    fn get_header(&self, block_hash: &H256) -> Option<IndexedHeader>;
     fn get_output_root(&self, block_hash: &H256) -> Option<H256>;
     fn get_block_body(&self, block_hash: &H256) -> Option<Vec<Transaction>>;
     fn get_transaction_meta(&self, root: H256, key: H256) -> Option<TransactionMeta>;
@@ -56,13 +57,13 @@ pub trait ChainStore: Sync + Send {
         cells: Vec<(Vec<OutPoint>, Vec<OutPoint>)>,
     ) -> Option<H256>;
 
-    fn insert_block(&self, batch: &mut Batch, b: &Block);
+    fn insert_block(&self, batch: &mut Batch, b: &IndexedBlock);
     fn insert_block_ext(&self, batch: &mut Batch, block_hash: &H256, ext: &BlockExt);
     fn insert_output_root(&self, batch: &mut Batch, block_hash: H256, r: H256);
     fn save_with_batch<F: FnOnce(&mut Batch)>(&self, f: F);
 
     /// Visits block headers backward to genesis.
-    fn headers_iter<'a>(&'a self, head: Header) -> ChainStoreHeaderIterator<'a, Self>
+    fn headers_iter<'a>(&'a self, head: IndexedHeader) -> ChainStoreHeaderIterator<'a, Self>
     where
         Self: 'a + Sized,
     {
@@ -74,7 +75,7 @@ pub trait ChainStore: Sync + Send {
 }
 
 impl<'a, T: ChainStore> Iterator for ChainStoreHeaderIterator<'a, T> {
-    type Item = Header;
+    type Item = IndexedHeader;
 
     fn next(&mut self) -> Option<Self::Item> {
         let current_header = self.head.take();
@@ -101,21 +102,21 @@ impl<'a, T: ChainStore> Iterator for ChainStoreHeaderIterator<'a, T> {
 
 impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
     // TODO error log
-    fn get_block(&self, h: &H256) -> Option<Block> {
+    fn get_block(&self, h: &H256) -> Option<IndexedBlock> {
         self.get_header(h).and_then(|header| {
             let transactions = self
                 .get_block_body(h)
                 .expect("block transactions must be stored");
-            Some(Block {
+            Some(IndexedBlock {
                 header,
                 transactions,
             })
         })
     }
 
-    fn get_header(&self, h: &H256) -> Option<Header> {
+    fn get_header(&self, h: &H256) -> Option<IndexedHeader> {
         self.get(COLUMN_BLOCK_HEADER, &h)
-            .map(|raw| deserialize(&raw[..]).unwrap())
+            .map(|raw| IndexedHeader::new(deserialize(&raw[..]).unwrap(), *h))
     }
 
     fn get_block_body(&self, h: &H256) -> Option<Vec<Transaction>> {
@@ -183,12 +184,12 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
         self.db.write(batch).expect("db operation should be ok")
     }
 
-    fn insert_block(&self, batch: &mut Batch, b: &Block) {
+    fn insert_block(&self, batch: &mut Batch, b: &IndexedBlock) {
         let hash = b.hash().to_vec();
         batch.insert(
             COLUMN_BLOCK_HEADER,
             hash.clone(),
-            serialize(&b.header).unwrap().to_vec(),
+            serialize(&b.header.deref()).unwrap().to_vec(),
         );
         let (block_data, block_addresses) = flat_serialize(&b.transactions).unwrap();
         batch.insert(COLUMN_BLOCK_BODY, hash.clone(), block_data);

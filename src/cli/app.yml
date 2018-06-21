@@ -3,11 +3,11 @@ version: "0.1.0"
 author: Nervos Core Dev <dev@nervos.org>
 about: Nervos CKB - The Common Knowledge Base
 args:
-    - data-dir:
-        short: d
-        long: data-dir
-        value_name: PATH
-        help: Specify the database and configuration directory PATH.
+    - config:
+        short: c
+        long: config
+        value_name: CONFIG
+        help: Specify the configuration file.
         takes_value: true
 subcommands:
     - run:

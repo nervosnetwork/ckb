@@ -1,6 +1,6 @@
 use bigint::{H256, H48};
 use byteorder::{ByteOrder, LittleEndian, WriteBytesExt};
-use core::block::Block;
+use core::block::IndexedBlock;
 use core::header::Header;
 use core::transaction::Transaction;
 use hash::sha3_256;
@@ -39,38 +39,52 @@ impl PrefilledTransaction {
     }
 }
 
-pub fn build_compact_block<S: ::std::hash::BuildHasher>(
-    block: &Block,
-    prefilled_transactions_indexes: &HashSet<usize, S>,
-) -> CompactBlock {
-    let nonce: u64 = thread_rng().gen();
+pub struct CompactBlockBuilder<'a, S: ::std::hash::BuildHasher + 'a> {
+    block: &'a IndexedBlock,
+    prefilled_transactions_indexes: &'a HashSet<usize, S>,
+}
 
-    let prefilled_transactions_len = prefilled_transactions_indexes.len();
-    let mut short_ids: Vec<ShortTransactionID> =
-        Vec::with_capacity(block.transactions.len() - prefilled_transactions_len);
-    let mut prefilled_transactions: Vec<PrefilledTransaction> =
-        Vec::with_capacity(prefilled_transactions_len);
-
-    let (key0, key1) = short_transaction_id_keys(nonce, &block.header);
-    for (transaction_index, transaction) in block.transactions.iter().enumerate() {
-        // Since cellbase transaction is very unlikely to be included in mem pool,
-        // we will always include it in prefilled transaction
-        if prefilled_transactions_indexes.contains(&transaction_index) || transaction.is_cellbase()
-        {
-            prefilled_transactions.push(PrefilledTransaction {
-                index: transaction_index,
-                transaction: transaction.clone(),
-            })
-        } else {
-            short_ids.push(short_transaction_id(key0, key1, &transaction.hash()));
+impl<'a, S: ::std::hash::BuildHasher> CompactBlockBuilder<'a, S> {
+    pub fn new(
+        block: &'a IndexedBlock,
+        prefilled_transactions_indexes: &'a HashSet<usize, S>,
+    ) -> Self {
+        CompactBlockBuilder {
+            block,
+            prefilled_transactions_indexes,
         }
     }
 
-    CompactBlock {
-        header: block.header.clone(),
-        nonce,
-        short_ids,
-        prefilled_transactions,
+    pub fn build(&self) -> CompactBlock {
+        let nonce: u64 = thread_rng().gen();
+
+        let prefilled_transactions_len = self.prefilled_transactions_indexes.len();
+        let mut short_ids: Vec<ShortTransactionID> =
+            Vec::with_capacity(self.block.transactions.len() - prefilled_transactions_len);
+        let mut prefilled_transactions: Vec<PrefilledTransaction> =
+            Vec::with_capacity(prefilled_transactions_len);
+
+        let (key0, key1) = short_transaction_id_keys(nonce, &self.block.header);
+        for (transaction_index, transaction) in self.block.transactions.iter().enumerate() {
+            if self
+                .prefilled_transactions_indexes
+                .contains(&transaction_index) || transaction.is_cellbase()
+            {
+                prefilled_transactions.push(PrefilledTransaction {
+                    index: transaction_index,
+                    transaction: transaction.clone(),
+                })
+            } else {
+                short_ids.push(short_transaction_id(key0, key1, &transaction.hash()));
+            }
+        }
+
+        CompactBlock {
+            header: self.block.header.clone().into(),
+            nonce,
+            short_ids,
+            prefilled_transactions,
+        }
     }
 }
 

@@ -1,7 +1,6 @@
-use super::{HeaderVerifier, TransactionVerifier, Verifier};
-use chain::chain::ChainClient;
-use core::block::Block;
-use core::cell::ResolvedTransaction;
+use super::{TransactionVerifier, Verifier};
+use chain::chain::ChainProvider;
+use core::block::IndexedBlock;
 use error::{Error, TransactionError};
 use merkle_root::merkle_root;
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
@@ -16,7 +15,6 @@ use std::sync::Arc;
 
 //TODO: cellbase, witness
 pub struct BlockVerifier<'a, C> {
-    pub header_verifier: HeaderVerifier<'a, C>,
     pub empty_transactions: EmptyTransactionsVerifier<'a>,
     pub duplicate_transactions: DuplicateTransactionsVerifier<'a>,
     pub cellbase: CellbaseTransactionsVerifier<'a, C>,
@@ -26,60 +24,22 @@ pub struct BlockVerifier<'a, C> {
 
 impl<'a, C> BlockVerifier<'a, C>
 where
-    C: ChainClient,
+    C: ChainProvider,
 {
-    pub fn new(block: &'a Block, chain: &Arc<C>) -> Self {
+    pub fn new(block: &'a IndexedBlock, chain: &Arc<C>) -> Self {
         BlockVerifier {
-            header_verifier: HeaderVerifier::new(&block.header, Arc::clone(chain)),
             empty_transactions: EmptyTransactionsVerifier::new(block),
             duplicate_transactions: DuplicateTransactionsVerifier::new(block),
             cellbase: CellbaseTransactionsVerifier::new(block, Arc::clone(chain)),
             merkle_root: MerkleRootVerifier::new(block),
-            transactions: Self::resolve_transaction(block, chain)
-                .into_iter()
+            transactions: block
+                .transactions
+                .iter()
                 .map(TransactionVerifier::new)
                 .collect(),
         }
     }
 
-    fn resolve_transaction(block: &'a Block, chain: &Arc<C>) -> Vec<ResolvedTransaction<'a>> {
-        let parent_hash = block.header.parent_hash;
-
-        if block.transactions[0].is_cellbase() {
-            block
-                .transactions
-                .iter()
-                .skip(1)
-                .map(|x| chain.resolve_transaction_at(x, &parent_hash))
-                .collect()
-        } else {
-            block
-                .transactions
-                .iter()
-                .map(|x| chain.resolve_transaction_at(x, &parent_hash))
-                .collect()
-        }
-    }
-}
-
-impl<'a, C> Verifier for BlockVerifier<'a, C>
-where
-    C: ChainClient,
-{
-    fn verify(&self) -> Result<(), Error> {
-        self.header_verifier.verify()?;
-        self.empty_transactions.verify()?;
-        self.duplicate_transactions.verify()?;
-        self.cellbase.verify()?;
-        self.merkle_root.verify()?;
-        self.verify_transactions()
-    }
-}
-
-impl<'a, C> BlockVerifier<'a, C>
-where
-    C: ChainClient,
-{
     fn verify_transactions(&self) -> Result<(), Error> {
         let err: Vec<(usize, TransactionError)> = self
             .transactions
@@ -95,16 +55,29 @@ where
     }
 }
 
+impl<'a, C> Verifier for BlockVerifier<'a, C>
+where
+    C: ChainProvider,
+{
+    fn verify(&self) -> Result<(), Error> {
+        self.empty_transactions.verify()?;
+        self.duplicate_transactions.verify()?;
+        self.cellbase.verify()?;
+        self.merkle_root.verify()?;
+        self.verify_transactions()
+    }
+}
+
 pub struct CellbaseTransactionsVerifier<'a, C> {
-    block: &'a Block,
+    block: &'a IndexedBlock,
     chain: Arc<C>,
 }
 
 impl<'a, C> CellbaseTransactionsVerifier<'a, C>
 where
-    C: ChainClient,
+    C: ChainProvider,
 {
-    pub fn new(block: &'a Block, chain: Arc<C>) -> Self {
+    pub fn new(block: &'a IndexedBlock, chain: Arc<C>) -> Self {
         CellbaseTransactionsVerifier { block, chain }
     }
 
@@ -144,11 +117,11 @@ where
 }
 
 pub struct EmptyTransactionsVerifier<'a> {
-    block: &'a Block,
+    block: &'a IndexedBlock,
 }
 
 impl<'a> EmptyTransactionsVerifier<'a> {
-    pub fn new(block: &'a Block) -> Self {
+    pub fn new(block: &'a IndexedBlock) -> Self {
         EmptyTransactionsVerifier { block }
     }
 
@@ -162,11 +135,11 @@ impl<'a> EmptyTransactionsVerifier<'a> {
 }
 
 pub struct DuplicateTransactionsVerifier<'a> {
-    block: &'a Block,
+    block: &'a IndexedBlock,
 }
 
 impl<'a> DuplicateTransactionsVerifier<'a> {
-    pub fn new(block: &'a Block) -> Self {
+    pub fn new(block: &'a IndexedBlock) -> Self {
         DuplicateTransactionsVerifier { block }
     }
 
@@ -186,11 +159,11 @@ impl<'a> DuplicateTransactionsVerifier<'a> {
 }
 
 pub struct MerkleRootVerifier<'a> {
-    block: &'a Block,
+    block: &'a IndexedBlock,
 }
 
 impl<'a> MerkleRootVerifier<'a> {
-    pub fn new(block: &'a Block) -> Self {
+    pub fn new(block: &'a IndexedBlock) -> Self {
         MerkleRootVerifier { block }
     }
 

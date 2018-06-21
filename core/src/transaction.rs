@@ -1,11 +1,11 @@
 //! Transaction using Cell.
 //! It is similar to Bitcoin Tx <https://en.bitcoin.it/wiki/Protocol_documentation#tx/>
 use bigint::H256;
-use bincode::{deserialize, serialize};
+use bincode::serialize;
 use error::TxError;
 use hash::sha3_256;
 use nervos_protocol;
-use script::Script;
+use std::ops::{Deref, DerefMut};
 
 pub const VERSION: u32 = 0;
 
@@ -45,11 +45,11 @@ pub struct CellInput {
     pub previous_output: OutPoint,
     // Depends on whether the operation is Transform or Destroy, this is the proof to transform
     // lock or destroy lock.
-    pub unlock: Script,
+    pub unlock: Vec<u8>,
 }
 
 impl CellInput {
-    pub fn new(previous_output: OutPoint, unlock: Script) -> Self {
+    pub fn new(previous_output: OutPoint, unlock: Vec<u8>) -> Self {
         CellInput {
             previous_output,
             unlock,
@@ -62,11 +62,11 @@ pub struct CellOutput {
     pub module: u32,
     pub capacity: u32,
     pub data: Vec<u8>,
-    pub lock: H256,
+    pub lock: Vec<u8>,
 }
 
 impl CellOutput {
-    pub fn new(module: u32, capacity: u32, data: Vec<u8>, lock: H256) -> Self {
+    pub fn new(module: u32, capacity: u32, data: Vec<u8>, lock: Vec<u8>) -> Self {
         CellOutput {
             module,
             capacity,
@@ -82,10 +82,6 @@ pub struct Transaction {
     pub deps: Vec<OutPoint>,
     pub inputs: Vec<CellInput>,
     pub outputs: Vec<CellOutput>,
-    /// memorise Hash
-    // TODO should use a different struct for serialization with transaction hash
-    #[serde(skip_serializing_if = "Option::is_none", skip_deserializing)]
-    pub hash: Option<H256>,
 }
 
 impl CellOutput {
@@ -106,7 +102,6 @@ impl Transaction {
             deps,
             inputs,
             outputs,
-            hash: None,
         }
     }
 
@@ -131,8 +126,7 @@ impl Transaction {
     }
 
     pub fn hash(&self) -> H256 {
-        self.hash
-            .unwrap_or_else(|| sha3_256(serialize(self).unwrap()).into())
+        sha3_256(serialize(self).unwrap()).into()
     }
 
     pub fn check_lock(&self, unlock: &[u8], lock: &[u8]) -> bool {
@@ -171,6 +165,50 @@ impl Transaction {
     }
 }
 
+impl Deref for IndexedTransaction {
+    type Target = Transaction;
+
+    fn deref(&self) -> &Self::Target {
+        &self.transaction
+    }
+}
+
+impl DerefMut for IndexedTransaction {
+    fn deref_mut(&mut self) -> &mut Transaction {
+        &mut self.transaction
+    }
+}
+
+#[derive(Clone, Debug, Eq, Default)]
+pub struct IndexedTransaction {
+    pub transaction: Transaction,
+    /// memorise hash
+    hash: H256,
+}
+
+impl PartialEq for IndexedTransaction {
+    fn eq(&self, other: &IndexedTransaction) -> bool {
+        self.hash == other.hash
+    }
+}
+
+impl IndexedTransaction {
+    pub fn hash(&self) -> H256 {
+        self.hash
+    }
+
+    pub fn new(transaction: Transaction, hash: H256) -> Self {
+        IndexedTransaction { transaction, hash }
+    }
+}
+
+impl From<Transaction> for IndexedTransaction {
+    fn from(transaction: Transaction) -> Self {
+        let hash = transaction.hash();
+        IndexedTransaction { transaction, hash }
+    }
+}
+
 impl<'a> From<&'a OutPoint> for nervos_protocol::OutPoint {
     fn from(o: &'a OutPoint) -> Self {
         let mut op = nervos_protocol::OutPoint::new();
@@ -193,7 +231,7 @@ impl<'a> From<&'a nervos_protocol::CellInput> for CellInput {
     fn from(c: &'a nervos_protocol::CellInput) -> Self {
         Self {
             previous_output: c.get_previous_output().into(),
-            unlock: deserialize(c.get_unlock()).unwrap(),
+            unlock: c.get_unlock().to_vec(),
         }
     }
 }
@@ -202,7 +240,7 @@ impl<'a> From<&'a CellInput> for nervos_protocol::CellInput {
     fn from(c: &'a CellInput) -> Self {
         let mut ci = nervos_protocol::CellInput::new();
         ci.set_previous_output((&c.previous_output).into());
-        ci.set_unlock(serialize(&c.unlock).unwrap());
+        ci.set_unlock(c.unlock.clone());
         ci
     }
 }
@@ -215,7 +253,7 @@ impl From<CellInput> for nervos_protocol::CellInput {
         } = c;
         let mut ci = nervos_protocol::CellInput::new();
         ci.set_previous_output((&previous_output).into());
-        ci.set_unlock(serialize(&unlock).unwrap());
+        ci.set_unlock(unlock);
         ci
     }
 }
@@ -227,7 +265,7 @@ impl<'a> From<&'a nervos_protocol::CellOutput> for CellOutput {
             module: c.get_module(),
             capacity: c.get_capacity(),
             data: c.get_data().to_vec(),
-            lock: c.get_lock().into(),
+            lock: c.get_lock().to_vec(),
         }
     }
 }
@@ -238,7 +276,7 @@ impl<'a> From<&'a CellOutput> for nervos_protocol::CellOutput {
         co.set_module(c.module);
         co.set_capacity(c.capacity);
         co.set_data(c.data.clone());
-        co.set_lock(c.lock.to_vec());
+        co.set_lock(c.lock.clone());
         co
     }
 }
@@ -255,7 +293,7 @@ impl From<CellOutput> for nervos_protocol::CellOutput {
         co.set_module(module);
         co.set_capacity(capacity);
         co.set_data(data);
-        co.set_lock(lock.to_vec());
+        co.set_lock(lock);
         co
     }
 }
@@ -267,8 +305,14 @@ impl<'a> From<&'a nervos_protocol::Transaction> for Transaction {
             deps: t.get_deps().iter().map(Into::into).collect(),
             inputs: t.get_inputs().iter().map(Into::into).collect(),
             outputs: t.get_outputs().iter().map(Into::into).collect(),
-            hash: None,
         }
+    }
+}
+
+impl<'a> From<&'a nervos_protocol::Transaction> for IndexedTransaction {
+    fn from(t: &'a nervos_protocol::Transaction) -> Self {
+        let tx: Transaction = t.into();
+        tx.into()
     }
 }
 
@@ -279,5 +323,12 @@ impl<'a> From<&'a Transaction> for nervos_protocol::Transaction {
         tx.set_inputs(t.inputs.iter().map(Into::into).collect());
         tx.set_outputs(t.outputs.iter().map(Into::into).collect());
         tx
+    }
+}
+
+impl<'a> From<&'a IndexedTransaction> for nervos_protocol::Transaction {
+    fn from(t: &'a IndexedTransaction) -> Self {
+        let tx = &t.transaction;
+        tx.into()
     }
 }

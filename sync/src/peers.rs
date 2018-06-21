@@ -1,135 +1,134 @@
 use bigint::H256;
+use core::block::IndexedBlock;
+use fnv::{FnvHashMap, FnvHashSet};
+use header_view::HeaderView;
 use nervos_time::now_ms;
 use network::PeerId;
-use std::collections::{HashMap, HashSet};
+use util::RwLock;
+
+// const BANSCORE: u32 = 100;
+
+#[derive(Clone, Copy, Debug, PartialEq, Default)]
+pub struct Negotiate {
+    pub prefer_headers: bool,
+    //     pub want_cmpct: bool,
+    //     pub have_witness: bool,
+}
+
+#[derive(Clone, Default, Debug, PartialEq)]
+pub struct PeerState {
+    pub negotiate: Negotiate,
+    pub sync_started: bool,
+    pub last_block_announcement: Option<u64>, //ms,
+}
 
 #[derive(Debug, Default)]
 pub struct Peers {
-    all: HashSet<PeerId>,
-    unuseful: HashSet<PeerId>,
-    idle_for_headers: HashSet<PeerId>,
-    idle_for_blocks: HashSet<PeerId>,
-    headers_requests: HashSet<PeerId>,
-    blocks_requests: HashMap<PeerId, BlocksRequest>,
+    pub state: RwLock<FnvHashMap<PeerId, PeerState>>,
+    pub misbehavior: RwLock<FnvHashMap<PeerId, u32>>,
+    pub blocks_inflight: RwLock<FnvHashMap<PeerId, BlocksInflight>>,
+    pub best_known_headers: RwLock<FnvHashMap<PeerId, HeaderView>>,
 }
 
 #[derive(Debug, Clone)]
-pub struct BlocksRequest {
+pub struct BlocksInflight {
     pub timestamp: u64,
-    pub blocks: HashSet<H256>,
+    pub blocks: FnvHashSet<H256>,
 }
 
-impl BlocksRequest {
-    pub fn new() -> Self {
-        BlocksRequest {
+impl Default for BlocksInflight {
+    fn default() -> Self {
+        BlocksInflight {
+            blocks: FnvHashSet::default(),
             timestamp: now_ms(),
-            blocks: HashSet::new(),
+        }
+    }
+}
+
+impl BlocksInflight {
+    pub fn new(blocks_hash: &H256) -> Self {
+        let mut blocks = FnvHashSet::default();
+        blocks.insert(*blocks_hash);
+        BlocksInflight {
+            blocks,
+            timestamp: now_ms(),
         }
     }
 
-    pub fn set_timestamp(&mut self, timestamp: u64) {
-        self.timestamp = timestamp;
+    pub fn len(&self) -> usize {
+        self.blocks.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    pub fn insert(&mut self, hash: H256) -> bool {
+        self.blocks.insert(hash)
+    }
+
+    pub fn remove(&mut self, hash: &H256) -> bool {
+        self.blocks.remove(hash)
+    }
+
+    pub fn update_timestamp(&mut self) {
+        self.timestamp = now_ms();
     }
 }
 
 impl Peers {
-    pub fn all_peers(&self) -> &HashSet<PeerId> {
-        &self.all
-    }
-
-    /// Get useful peers
-    pub fn useful_peers(&self) -> Vec<PeerId> {
-        self.all.difference(&self.unuseful).cloned().collect()
-    }
-
-    /// Get idle peers for headers request.
-    pub fn idle_peers_for_headers(&self) -> &HashSet<PeerId> {
-        &self.idle_for_headers
-    }
-
-    /// Get idle peers for blocks request.
-    pub fn idle_peers_for_blocks(&self) -> &HashSet<PeerId> {
-        &self.idle_for_blocks
-    }
-
-    /// Mark peer as useful.
-    pub fn as_useful_peer(&mut self, peer: PeerId) {
-        self.all.insert(peer);
-        self.unuseful.remove(&peer);
-        self.idle_for_headers.insert(peer);
-        self.idle_for_blocks.insert(peer);
-    }
-
-    /// Mark peer as unuseful.
-    pub fn as_unuseful_peer(&mut self, peer: PeerId) {
-        debug_assert!(!self.blocks_requests.contains_key(&peer));
-
-        self.all.insert(peer);
-        self.unuseful.insert(peer);
-        self.idle_for_headers.remove(&peer);
-        self.idle_for_blocks.remove(&peer);
-    }
-
-    /// Headers been requested from peer.
-    pub fn on_headers_requested(&mut self, peer: PeerId) {
-        if !self.all.contains(&peer) {
-            self.as_unuseful_peer(peer);
-        }
-
-        self.idle_for_headers.remove(&peer);
-        self.headers_requests.replace(peer);
-    }
-
-    /// Headers received from peer.
-    pub fn on_headers_received(&mut self, peer: PeerId) {
-        self.headers_requests.remove(&peer);
-        // we only ask for new headers when peer is also not asked for blocks
-        // => only insert to idle queue if no active blocks requests
-        if !self.blocks_requests.contains_key(&peer) {
-            self.idle_for_headers.insert(peer);
-        }
-    }
-
-    /// Blocks have been requested from peer.
-    pub fn on_blocks_requested(&mut self, peer: PeerId, blocks_hashes: &[H256]) {
-        if !self.all.contains(&peer) {
-            self.as_unuseful_peer(peer);
-        }
-        self.unuseful.remove(&peer);
-        self.idle_for_blocks.remove(&peer);
-
-        self.blocks_requests
-            .entry(peer)
-            .or_insert_with(BlocksRequest::new);
-
-        self.blocks_requests
-            .get_mut(&peer)
-            .expect("inserted one")
-            .blocks
-            .extend(blocks_hashes.iter().cloned());
-    }
-
-    pub fn on_block_received(&mut self, peer: PeerId, block_hash: &H256) {
-        if let Some(blocks_request) = self.blocks_requests.get_mut(&peer) {
-            // if block hasn't been requested => do nothing
-            if !blocks_request.blocks.remove(block_hash) {
-                return;
-            }
-
-            if !blocks_request.blocks.is_empty() {
-                blocks_request.set_timestamp(now_ms());
-            }
-        } else {
-            // this peers hasn't been requested for blocks at all
+    pub fn misbehavior(&self, peer: &PeerId, score: u32) {
+        if score == 0 {
             return;
         }
 
-        // mark this peer as idle for blocks request
-        self.blocks_requests.remove(&peer);
-        self.idle_for_blocks.insert(peer);
-        // also mark as available for headers request if not yet
-        if !self.headers_requests.contains(&peer) {
-            self.idle_for_headers.insert(peer);
-        }
+        let mut map = self.misbehavior.write();
+        map.entry(*peer)
+            .and_modify(|e| *e += score)
+            .or_insert_with(|| score);
+    }
+
+    pub fn best_known_header(&self, peer: &PeerId) -> Option<HeaderView> {
+        self.best_known_headers.read().get(peer).cloned()
+    }
+
+    pub fn new_header_received(&self, peer: &PeerId, header_view: &HeaderView) {
+        self.best_known_headers
+            .write()
+            .entry(*peer)
+            .and_modify(|hv| {
+                if header_view.total_difficulty > hv.total_difficulty
+                    || (header_view.total_difficulty == hv.total_difficulty
+                        && header_view.header.hash() < hv.header.hash())
+                {
+                    *hv = header_view.clone();
+                }
+            })
+            .or_insert_with(|| header_view.clone());
+    }
+
+    pub fn getheaders_received(&self, peer: &PeerId) {
+        self.state
+            .write()
+            .entry(*peer)
+            .or_insert_with(|| PeerState {
+                negotiate: Negotiate::default(),
+                sync_started: true,
+                last_block_announcement: None,
+            });
+    }
+
+    pub fn disconnected(&self, peer: &PeerId) {
+        self.state.write().remove(peer);
+        // self.misbehavior.write().remove(peer);
+        self.blocks_inflight.write().remove(peer);
+        self.best_known_headers.write().remove(peer);
+    }
+
+    pub fn block_received(&self, peer: PeerId, block: &IndexedBlock) {
+        let mut blocks_inflight = self.blocks_inflight.write();
+        blocks_inflight.entry(peer).and_modify(|inflight| {
+            inflight.remove(&block.hash());
+        });
     }
 }
