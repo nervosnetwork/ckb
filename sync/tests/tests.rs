@@ -168,7 +168,7 @@ fn basic_sync() {
     // TODO use join
     thread::sleep(std_time::Duration::from_secs(5));
 
-    assert_eq!(chain1.head_header().height, chain2.head_header().height);
+    assert_eq!(chain1.tip_header().number, chain2.tip_header().number);
 }
 
 fn setup_node(height: u64) -> (TestNode, Arc<Chain<ChainKVStore<MemoryKeyValueDB>>>) {
@@ -187,9 +187,9 @@ fn setup_node(height: u64) -> (TestNode, Arc<Chain<ChainKVStore<MemoryKeyValueDB
                 version: 0,
                 parent_hash: block.header.hash(),
                 timestamp: time,
-                transactions_root: H256::from(0),
+                txs_commit: H256::from(0),
                 difficulty: cal_difficulty(&block.header, time),
-                height: i + 1,
+                number: i + 1,
             },
             seal: Seal {
                 nonce: 0,

@@ -73,3 +73,17 @@ Find RPC port in the log output, the following command assumes 3030 is used:
 curl -d '{"id": 2, "jsonrpc": "2.0", "method":"send_transaction","params": [{"version":2, "inputs":[], "outputs":[], "groupings":[]}]}' \
   -H 'content-type:application/json' 'http://localhost:3030'
 ```
+
+### Protobuf Code Generation
+
+Install protobuf:
+
+```shell
+cargo install protobuf --force --vers 1.4.3
+```
+
+Generate code from proto definition:
+
+```shell
+make proto
+```

@@ -42,7 +42,7 @@ export default {
   },
   methods: {
     connect: function() {
-      this.jrpc().call('get_head_header', []).then((result) => {
+      this.jrpc().call('get_tip_header', []).then((result) => {
         this.blocks = []
         this.transactions = []
         _.range(result.raw.height, result.raw.height - 10, -1).forEach((height, _) => {

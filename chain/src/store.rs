@@ -68,7 +68,7 @@ impl<'a, T: ChainStore> Iterator for ChainStoreHeaderIterator<'a, T> {
         let current_header = self.head.take();
         self.head = match current_header {
             Some(ref h) => {
-                if h.height > 0 {
+                if h.number > 0 {
                     self.store.get_header(&h.parent_hash)
                 } else {
                     None
@@ -81,7 +81,7 @@ impl<'a, T: ChainStore> Iterator for ChainStoreHeaderIterator<'a, T> {
 
     fn size_hint(&self) -> (usize, Option<usize>) {
         match self.head {
-            Some(ref h) => (1, Some(h.height as usize + 1)),
+            Some(ref h) => (1, Some(h.number as usize + 1)),
             None => (0, Some(0)),
         }
     }

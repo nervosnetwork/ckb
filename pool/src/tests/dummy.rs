@@ -118,7 +118,7 @@ impl ChainClient for DummyChainImpl {
     }
 
     //FIXME: This is bad idea
-    fn head_header(&self) -> RwLockReadGuard<Header> {
+    fn tip_header(&self) -> RwLockReadGuard<Header> {
         self.head.read()
     }
 
@@ -146,10 +146,10 @@ impl DummyChain for DummyChainImpl {
 
     fn apply_block(&self, b: &Block) {
         self.output.write().with_block(b);
-        self.store_head_header(&b.header)
+        self.store_tip_header(&b.header)
     }
 
-    fn store_head_header(&self, header: &Header) {
+    fn store_tip_header(&self, header: &Header) {
         let mut headers = self.headers.write();
         headers.insert(0, header.clone());
     }
@@ -158,5 +158,5 @@ impl DummyChain for DummyChainImpl {
 pub trait DummyChain: ChainClient {
     fn update_output_set(&mut self, new_output: DummyOutputSet);
     fn apply_block(&self, b: &Block);
-    fn store_head_header(&self, header: &Header);
+    fn store_tip_header(&self, header: &Header);
 }

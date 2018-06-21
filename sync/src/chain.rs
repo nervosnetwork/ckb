@@ -38,11 +38,11 @@ pub struct Chain<C> {
 
 impl<C: ChainClient> Chain<C> {
     pub fn new(provider: &Arc<C>, notify: Notify) -> Chain<C> {
-        let head = provider.head_header();
+        let tip = provider.tip_header();
         Chain {
             chain_provider: Arc::clone(provider),
             block_queue: RwLock::new(BlockQueue::new()),
-            header_queue: RwLock::new(HeaderQueue::new(head.hash())),
+            header_queue: RwLock::new(HeaderQueue::new(tip.hash())),
             notify,
         }
     }
@@ -70,7 +70,7 @@ impl<C: ChainClient> Chain<C> {
     }
 
     pub fn block_hash(&self, height: u64) -> Option<H256> {
-        let best_storage_height = self.chain_provider.head_header().height;
+        let best_storage_height = self.chain_provider.tip_header().number;
         if height <= best_storage_height {
             self.chain_provider.block_hash(height)
         } else {
@@ -82,7 +82,7 @@ impl<C: ChainClient> Chain<C> {
     }
 
     pub fn block_header(&self, height: u64) -> Option<Header> {
-        let best_storage_height = self.chain_provider.head_header().height;
+        let best_storage_height = self.chain_provider.tip_header().number;
         if height <= best_storage_height {
             self.chain_provider
                 .block_hash(height)

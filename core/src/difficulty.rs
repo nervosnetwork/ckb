@@ -8,7 +8,7 @@ use std::cmp;
 //            max(THRESHOLD - (block_timestamp - parent_timestamp) // INCREMENT_DIVISOR, -LIMIT)
 // INCREMENT_DIVISOR: expect period ms
 pub fn cal_difficulty(pre_header: &Header, current_time: u64) -> U256 {
-    if pre_header.height == 0 {
+    if pre_header.number == 0 {
         return U256::from(MIN_DIFFICULTY);
     }
 
@@ -58,9 +58,9 @@ mod tests {
                 version: 0,
                 parent_hash: H256::from(0),
                 timestamp,
-                transactions_root: H256::from(0),
+                txs_commit: H256::from(0),
                 difficulty: U256::from(difficulty),
-                height: 3500000,
+                number: 3500000,
             },
             hash: None,
             seal: Seal {

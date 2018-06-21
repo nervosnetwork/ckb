@@ -41,8 +41,8 @@ impl<C: ChainClient> Miner<C> {
         ethash: &Arc<Ethash>,
         notify: &Notify,
     ) -> Self {
-        let height = { chain.head_header().height };
-        let _dataset = ethash.gen_dataset(get_epoch(height));
+        let number = { chain.tip_header().number };
+        let _dataset = ethash.gen_dataset(get_epoch(number));
         let (sealer, signal) = Sealer::new(ethash);
 
         let miner = Miner {
@@ -78,7 +78,7 @@ impl<C: ChainClient> Miner<C> {
 
     fn commit_new_work(&self) {
         let time = now_ms();
-        let head = { self.chain.head_header().clone() };
+        let head = { self.chain.tip_header().clone() };
         let transactions = self.tx_pool.prepare_mineable_transactions(MAX_TX);
         let signal = self.signal.clone();
         let work = Work {
@@ -88,7 +88,7 @@ impl<C: ChainClient> Miner<C> {
             signal,
         };
         if let Some(block) = self.sealer.seal(work) {
-            info!(target: "miner", "new block mined: {} -> ({}, {})", block.hash(), block.header.height, block.header.difficulty);
+            info!(target: "miner", "new block mined: {} -> ({}, {})", block.hash(), block.header.number, block.header.difficulty);
             if self.chain.process_block(&block).is_ok() {
                 self.announce_new_block(&block);
             }

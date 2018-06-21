@@ -21,10 +21,10 @@ pub struct RawHeader {
     pub parent_hash: H256,
     /// Block timestamp(ms).
     pub timestamp: u64,
-    /// Block height.
-    pub height: u64,
-    /// Transactions root.
-    pub transactions_root: H256,
+    /// Genesis number is 0, Child block number is parent block number + 1.
+    pub number: u64,
+    /// Transactions merkle tree root.
+    pub txs_commit: H256,
     /// Block difficulty.
     pub difficulty: U256,
 }
@@ -37,16 +37,16 @@ impl RawHeader {
         difficulty: U256,
     ) -> RawHeader {
         let transactions_hash: Vec<H256> = transactions.map(|t: &Transaction| t.hash()).collect();
-        let transactions_root = merkle_root(transactions_hash.as_slice());
+        let txs_commit = merkle_root(transactions_hash.as_slice());
         let parent_hash = parent_header.hash();
-        let height = parent_header.height + 1;
+        let number = parent_header.number + 1;
 
         RawHeader {
             version: VERSION,
             parent_hash,
-            transactions_root,
+            txs_commit,
             timestamp,
-            height,
+            number,
             difficulty,
         }
     }
@@ -87,7 +87,7 @@ impl Header {
     }
 
     pub fn is_genesis(&self) -> bool {
-        self.height == 0
+        self.number == 0
     }
 }
 
@@ -106,8 +106,8 @@ impl<'a> From<&'a nervos_protocol::Header> for Header {
                 version: proto.get_version(),
                 parent_hash: H256::from_slice(proto.get_parent_hash()),
                 timestamp: proto.get_timestamp(),
-                height: proto.get_height(),
-                transactions_root: H256::from_slice(proto.get_transactions_root()),
+                number: proto.get_number(),
+                txs_commit: H256::from_slice(proto.get_txs_commit()),
                 difficulty: H256::from_slice(proto.get_difficulty()).into(),
             },
             seal: Seal {
@@ -125,12 +125,12 @@ impl<'a> From<&'a Header> for nervos_protocol::Header {
         let temp_difficulty: H256 = h.difficulty.into();
         header.set_version(h.version);
         header.set_difficulty(temp_difficulty.to_vec());
-        header.set_height(h.height);
+        header.set_number(h.number);
         header.set_nonce(h.seal.nonce);
         header.set_mix_hash(h.seal.mix_hash.to_vec());
         header.set_parent_hash(h.parent_hash.to_vec());
         header.set_timestamp(h.timestamp);
-        header.set_transactions_root(h.transactions_root.to_vec());
+        header.set_txs_commit(h.txs_commit.to_vec());
         header
     }
 }

@@ -33,11 +33,11 @@ impl Block {
     pub fn check_txs_root(&self) -> Result<(), Error> {
         let txs_hash: Vec<H256> = self.transactions.iter().map(|t| t.hash()).collect();
         let txs_root = merkle_root(txs_hash.as_slice());
-        if txs_root == self.header.transactions_root {
+        if txs_root == self.header.txs_commit {
             Ok(())
         } else {
             Err(Error::InvalidTransactionsRoot(
-                self.header.transactions_root,
+                self.header.txs_commit,
                 txs_root,
             ))
         }
@@ -54,7 +54,7 @@ impl Block {
 impl<'a> From<&'a nervos_protocol::Block> for Block {
     fn from(b: &'a nervos_protocol::Block) -> Self {
         Block {
-            header: b.get_block_header().into(),
+            header: b.get_header().into(),
             transactions: b.get_transactions().iter().map(|t| t.into()).collect(),
         }
     }
@@ -63,7 +63,7 @@ impl<'a> From<&'a nervos_protocol::Block> for Block {
 impl<'a> From<&'a Block> for nervos_protocol::Block {
     fn from(b: &'a Block) -> Self {
         let mut block = nervos_protocol::Block::new();
-        block.set_block_header(b.header().into());
+        block.set_header(b.header().into());
         let transactions = b.transactions.iter().map(|t| t.into()).collect();
         block.set_transactions(transactions);
         block

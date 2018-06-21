@@ -9,14 +9,14 @@ use db::kvdb::KeyValueDB;
 use store::{ChainKVStore, ChainStore};
 use {COLUMN_INDEX, COLUMN_META, COLUMN_TRANSACTION_ADDR};
 
-const META_HEAD_HEADER_KEY: &[u8] = b"HEAD_HEADER";
+const META_TIP_HEADER_KEY: &[u8] = b"TIP_HEADER";
 
 // maintain chain index, extend chainstore
 pub trait ChainIndex: ChainStore {
     fn init(&self, genesis: &Block);
     fn get_block_hash(&self, height: u64) -> Option<H256>;
     fn get_block_height(&self, hash: &H256) -> Option<u64>;
-    fn get_head_header(&self) -> Option<Header>;
+    fn get_tip_header(&self) -> Option<Header>;
     fn get_transaction(&self, h: &H256) -> Option<Transaction>;
     fn get_transaction_address(&self, hash: &H256) -> Option<TransactionAddress>;
 
@@ -24,7 +24,7 @@ pub trait ChainIndex: ChainStore {
     fn delete_block_hash(&self, batch: &mut Batch, height: u64);
     fn insert_block_height(&self, batch: &mut Batch, hash: &H256, height: u64);
     fn delete_block_height(&self, batch: &mut Batch, hash: &H256);
-    fn insert_head_header(&self, batch: &mut Batch, h: &Header);
+    fn insert_tip_header(&self, batch: &mut Batch, h: &Header);
     fn insert_transaction_address(&self, batch: &mut Batch, block_hash: &H256, txs: &[Transaction]);
     fn delete_transaction_address(&self, batch: &mut Batch, txs: &[Transaction]);
 }
@@ -38,7 +38,7 @@ impl<T: KeyValueDB> ChainIndex for ChainKVStore<T> {
             };
             self.insert_block(batch, genesis);
             self.insert_block_ext(batch, &genesis.hash(), &ext);
-            self.insert_head_header(batch, &genesis.header);
+            self.insert_tip_header(batch, &genesis.header);
             self.insert_output_root(batch, genesis.hash(), H256::zero());
             self.insert_block_hash(batch, 0, &genesis.hash());
             self.insert_block_height(batch, &genesis.hash(), 0);
@@ -55,8 +55,8 @@ impl<T: KeyValueDB> ChainIndex for ChainKVStore<T> {
             .map(|raw| deserialize(&raw[..]).unwrap())
     }
 
-    fn get_head_header(&self) -> Option<Header> {
-        self.get(COLUMN_META, META_HEAD_HEADER_KEY)
+    fn get_tip_header(&self) -> Option<Header> {
+        self.get(COLUMN_META, META_TIP_HEADER_KEY)
             .and_then(|raw| self.get_header(&H256::from(&raw[..])))
     }
 
@@ -72,12 +72,8 @@ impl<T: KeyValueDB> ChainIndex for ChainKVStore<T> {
             .map(|raw| deserialize(&raw[..]).unwrap())
     }
 
-    fn insert_head_header(&self, batch: &mut Batch, h: &Header) {
-        batch.insert(
-            COLUMN_META,
-            META_HEAD_HEADER_KEY.to_vec(),
-            h.hash().to_vec(),
-        );
+    fn insert_tip_header(&self, batch: &mut Batch, h: &Header) {
+        batch.insert(COLUMN_META, META_TIP_HEADER_KEY.to_vec(), h.hash().to_vec());
     }
 
     fn insert_block_hash(&self, batch: &mut Batch, height: u64, hash: &H256) {
@@ -150,8 +146,8 @@ mod tests {
             store.get_block_ext(&hash).unwrap().total_difficulty
         );
 
-        assert_eq!(block.header.height, store.get_block_height(&hash).unwrap());
+        assert_eq!(block.header.number, store.get_block_height(&hash).unwrap());
 
-        assert_eq!(block.header, store.get_head_header().unwrap());
+        assert_eq!(block.header, store.get_tip_header().unwrap());
     }
 }

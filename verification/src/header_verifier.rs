@@ -73,7 +73,7 @@ impl<'a> PowVerifier<'a> {
     fn heavy_verify(&self, pow_hash: &H256) -> Result<(), Error> {
         let Pow { mix, value } =
             self.ethash
-                .light_compute(self.header.height, *pow_hash, self.header.seal.nonce);
+                .light_compute(self.header.number, *pow_hash, self.header.seal.nonce);
         if mix != self.header.seal.mix_hash {
             return Err(Error::Pow(PowError::MixMismatch {
                 expected: self.header.seal.mix_hash,
@@ -137,10 +137,10 @@ impl<'a> HeightVerifier<'a> {
     }
 
     pub fn verify(&self) -> Result<(), Error> {
-        if self.header.height != self.parent.height + 1 {
+        if self.header.number != self.parent.number + 1 {
             return Err(Error::Height(HeightError {
-                expected: self.parent.height + 1,
-                actual: self.header.height,
+                expected: self.parent.number + 1,
+                actual: self.header.number,
             }));
         }
         Ok(())

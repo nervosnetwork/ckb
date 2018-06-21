@@ -19,8 +19,8 @@
           <td>{{ block.header.raw.height }}</td>
         </tr>
         <tr>
-          <td>Transactions Root</td>
-          <td>{{ block.header.raw.transactions_root }}</td>
+          <td>Transactions Commit</td>
+          <td>{{ block.header.raw.txs_commit }}</td>
         </tr>
         <tr>
           <td>Difficulty</td>

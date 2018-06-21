@@ -48,8 +48,8 @@ build_rpc_trait! {
         #[rpc(name = "get_block_hash")]
         fn get_block_hash(&self, u64) -> Result<Option<H256>>;
 
-        #[rpc(name = "get_head_header")]
-        fn get_head_header(&self) -> Result<Header>;
+        #[rpc(name = "get_tip_header")]
+        fn get_tip_header(&self) -> Result<Header>;
     }
 }
 
@@ -81,8 +81,8 @@ impl Rpc for RpcImpl {
         Ok(self.chain.block_hash(height))
     }
 
-    fn get_head_header(&self) -> Result<Header> {
-        Ok(self.chain.head_header().clone())
+    fn get_tip_header(&self) -> Result<Header> {
+        Ok(self.chain.tip_header().clone())
     }
 }
 

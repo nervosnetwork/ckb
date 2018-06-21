@@ -31,8 +31,8 @@ macro_rules! expect_output_parent {
 /// A basic test; add a pair of transactions to the pool.
 fn test_basic_pool_add() {
     let mut dummy_chain = DummyChainImpl::new();
-    let head_header = Header::default();
-    dummy_chain.store_head_header(&head_header);
+    let tip_header = Header::default();
+    dummy_chain.store_tip_header(&tip_header);
 
     let parent_transaction =
         test_transaction(vec![test_output(5), test_output(6), test_output(7)], 2);
@@ -95,8 +95,8 @@ fn test_basic_pool_add() {
 /// Testing various expected error conditions
 pub fn test_pool_add_error() {
     let mut dummy_chain = DummyChainImpl::new();
-    let head_header = Header::default();
-    dummy_chain.store_head_header(&head_header);
+    let tip_header = Header::default();
+    dummy_chain.store_tip_header(&tip_header);
 
     let duplicate_tx = test_transaction(vec![test_output(5), test_output(6)], 1);
     let tx_hash = duplicate_tx.hash();
@@ -173,8 +173,8 @@ pub fn test_pool_add_error() {
 #[test]
 fn test_zero_confirmation_reconciliation() {
     let mut dummy_chain = DummyChainImpl::new();
-    let head_header = Header::default();
-    dummy_chain.store_head_header(&head_header);
+    let tip_header = Header::default();
+    dummy_chain.store_tip_header(&tip_header);
 
     // single Output
     let new_output = DummyOutputSet::new().with_output(test_output(100));
@@ -224,8 +224,8 @@ fn test_zero_confirmation_reconciliation() {
 /// Testing block reconciliation
 fn test_block_reconciliation() {
     let mut dummy_chain = DummyChainImpl::new();
-    let head_header = Header::default();
-    dummy_chain.store_head_header(&head_header);
+    let tip_header = Header::default();
+    dummy_chain.store_tip_header(&tip_header);
 
     // We want this transaction to be rooted in the blockchain.
     let new_output = DummyOutputSet::new()
@@ -373,8 +373,8 @@ fn test_block_reconciliation() {
 fn test_block_building() {
     // Add a handful of transactions
     let mut dummy_chain = DummyChainImpl::new();
-    let head_header = Header::default();
-    dummy_chain.store_head_header(&head_header);
+    let tip_header = Header::default();
+    dummy_chain.store_tip_header(&tip_header);
 
     // We want this transaction to be rooted in the blockchain.
     let new_output = DummyOutputSet::new()

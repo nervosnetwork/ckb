@@ -92,7 +92,7 @@ impl<'a> MerkleRootVerifier<'a> {
             .map(|tx| tx.hash())
             .collect::<Vec<_>>();
 
-        if self.block.header.transactions_root == merkle_root(&hashes[..]) {
+        if self.block.header.txs_commit == merkle_root(&hashes[..]) {
             Ok(())
         } else {
             Err(Error::TransactionsRoot)

@@ -26,7 +26,7 @@ pub enum Error {
 pub struct Chain<CS> {
     store: CS,
     spec: Spec,
-    head_header: RwLock<Header>,
+    tip_header: RwLock<Header>,
     total_difficulty: RwLock<U256>,
     output_root: RwLock<H256>,
     ethash: Arc<Ethash>,
@@ -51,7 +51,7 @@ pub trait ChainClient: Sync + Send + CellProvider {
     fn block(&self, hash: &H256) -> Option<Block>;
 
     //FIXME: This is bad idea
-    fn head_header(&self) -> RwLockReadGuard<Header>;
+    fn tip_header(&self) -> RwLockReadGuard<Header>;
 
     fn get_transaction(&self, hash: &H256) -> Option<Transaction>;
 
@@ -86,7 +86,7 @@ impl<CS: ChainIndex> Chain<CS> {
     pub fn init(store: CS, spec: Spec, ethash: &Arc<Ethash>) -> Result<Chain<CS>, Error> {
         // check head in store or save the genesis block as head
         let genesis = spec.genesis_block();
-        let head_header = match store.get_head_header() {
+        let tip_header = match store.get_tip_header() {
             Some(h) => h,
             None => {
                 store.init(&genesis);
@@ -94,20 +94,20 @@ impl<CS: ChainIndex> Chain<CS> {
             }
         };
 
-        let r = match store.get_output_root(&head_header.hash()) {
+        let r = match store.get_output_root(&tip_header.hash()) {
             Some(h) => h,
             None => H256::zero(),
         };
 
         let td = store
-            .get_block_ext(&head_header.hash())
+            .get_block_ext(&tip_header.hash())
             .expect("block_ext stored")
             .total_difficulty;
 
         Ok(Chain {
             store,
             spec,
-            head_header: RwLock::new(head_header),
+            tip_header: RwLock::new(tip_header),
             output_root: RwLock::new(r),
             total_difficulty: RwLock::new(td),
             ethash: Arc::clone(ethash),
@@ -183,18 +183,18 @@ impl<CS: ChainIndex> Chain<CS> {
                 info!(target: "chain", "new best block found: {}", b.hash());
                 *self.total_difficulty.write() = cannon_total_difficulty;
                 self.update_index(batch, &b);
-                *self.head_header.write() = b.header.clone();
-                self.store.insert_head_header(batch, &b.header);
+                *self.tip_header.write() = b.header.clone();
+                self.store.insert_tip_header(batch, &b.header);
                 *self.output_root.write() = root;
             }
         });
-        self.print_chain(b.header.height, 10);
+        self.print_chain(b.header.number, 10);
     }
 
     // we found new best_block total_difficulty > old_chain.total_difficulty
     pub fn update_index(&self, batch: &mut Batch, b: &Block) {
-        let old_height = { self.head_header.read().height };
-        let mut height = b.header.height - 1;
+        let old_height = { self.tip_header.read().number };
+        let mut height = b.header.number - 1;
 
         if height < old_height {
             for h in height..old_height + 1 {
@@ -207,9 +207,9 @@ impl<CS: ChainIndex> Chain<CS> {
         }
 
         self.store
-            .insert_block_hash(batch, b.header.height, &b.hash());
+            .insert_block_hash(batch, b.header.number, &b.hash());
         self.store
-            .insert_block_height(batch, &b.hash(), b.header.height);
+            .insert_block_height(batch, &b.hash(), b.header.number);
         self.store
             .insert_transaction_address(batch, &b.hash(), &b.transactions);
 
@@ -263,8 +263,8 @@ impl<CS: ChainIndex> ChainClient for Chain<CS> {
     fn get_locator(&self) -> Vec<H256> {
         let mut step = 1;
         let mut locator = Vec::with_capacity(32);
-        let header = self.head_header.read();
-        let mut index = header.height;
+        let header = self.tip_header.read();
+        let mut index = header.number;
         loop {
             let block_hash = self
                 .block_hash(index)
@@ -313,16 +313,16 @@ impl<CS: ChainIndex> ChainClient for Chain<CS> {
     }
 
     fn block_header(&self, hash: &H256) -> Option<Header> {
-        let head_header = self.head_header.read();
-        if &head_header.hash() == hash {
-            Some(head_header.clone())
+        let tip_header = self.tip_header.read();
+        if &tip_header.hash() == hash {
+            Some(tip_header.clone())
         } else {
             self.store.get_header(hash)
         }
     }
 
-    fn head_header(&self) -> RwLockReadGuard<Header> {
-        self.head_header.read()
+    fn tip_header(&self) -> RwLockReadGuard<Header> {
+        self.tip_header.read()
     }
 
     fn output_root(&self, hash: &H256) -> Option<H256> {

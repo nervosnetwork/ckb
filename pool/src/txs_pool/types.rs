@@ -61,8 +61,8 @@ pub trait BlockChain: Send + Sync {
     /// Check the output is not spent
     fn is_spent(&self, output_ref: &OutPoint) -> Option<Parent>;
 
-    /// Get the block header at the head
-    fn head_header(&self) -> Option<Header>;
+    /// Get the tip block header
+    fn tip_header(&self) -> Option<Header>;
 }
 
 pub struct Pool {

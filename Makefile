@@ -13,4 +13,7 @@ clippy:
 ci: fmt clippy test
 	git diff --exit-code Cargo.lock
 
-.PHONY: build fmt test clippy ci
+proto:
+	protoc --rust_out network/protocol/src network/protocol/src/protocol.proto
+
+.PHONY: build fmt test clippy ci proto

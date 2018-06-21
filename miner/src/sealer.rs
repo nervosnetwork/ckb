@@ -66,7 +66,7 @@ impl Sealer {
 
         let raw_header = RawHeader::new(&head, transactions.iter(), time, difficulty);
         let pow_hash = raw_header.pow_hash();
-        let height = raw_header.height;
+        let height = raw_header.number;
 
         let nonce: u64 = thread_rng().gen();
         match self.mine(pow_hash, height, nonce, difficulty, &signal) {
