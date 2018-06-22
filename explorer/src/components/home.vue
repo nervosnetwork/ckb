@@ -6,7 +6,7 @@
         <ul class="uk-list">
           <li class="uk-flex" v-for="block in blocks" :key="block.header.hash">
             <div class="uk-card uk-card-default uk-card-body uk-width-1-2">         
-              Block #{{ block.header.raw.height }}
+              Block #{{ block.header.raw.number }}
               <div class="uk-text-truncate">
                 <router-link v-bind:to="{ name: 'blocks', params: { id: block.header.hash }}">{{ block.header.hash }}</router-link>
               </div>

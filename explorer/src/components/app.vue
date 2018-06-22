@@ -45,7 +45,7 @@ export default {
       this.jrpc().call('get_tip_header', []).then((result) => {
         this.blocks = []
         this.transactions = []
-        _.range(result.raw.height, result.raw.height - 10, -1).forEach((height, _) => {
+        _.range(result.raw.number, result.raw.number - 10, -1).forEach((height, _) => {
           this.jrpc().call('get_block_hash', [height]).then((hash) => {
             this.jrpc().call('get_block', [hash]).then((block) => {
               this.blocks.push(block)

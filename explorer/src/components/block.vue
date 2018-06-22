@@ -1,6 +1,6 @@
 <template>
   <table class="uk-table">
-    <caption>Block #{{ block.header.raw.height }}</caption>
+    <caption>Block #{{ block.header.raw.number }}</caption>
     <tbody>
         <tr>
           <td>Hash</td>
@@ -16,7 +16,7 @@
         </tr>
         <tr>
           <td>Height</td>
-          <td>{{ block.header.raw.height }}</td>
+          <td>{{ block.header.raw.number }}</td>
         </tr>
         <tr>
           <td>Transactions Commit</td>
