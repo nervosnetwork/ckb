@@ -3,7 +3,7 @@ sudo: true
 cache:
   timeout: 1024
   directories:
-     - /home/travis/.cargo/
+     - $HOME/.cargo/
 
 env:
   global:

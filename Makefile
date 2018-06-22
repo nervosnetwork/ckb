@@ -16,4 +16,9 @@ ci: fmt clippy test
 proto:
 	protoc --rust_out network/protocol/src network/protocol/src/protocol.proto
 
-.PHONY: build fmt test clippy ci proto
+info:
+	date
+	pwd
+	env
+
+.PHONY: build fmt test clippy ci proto info
