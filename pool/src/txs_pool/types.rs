@@ -428,7 +428,7 @@ mod tests {
             CellInput::new(OutPoint::new(H256::zero(), 2), Vec::new()),
         ];
 
-        let outputs = vec![CellOutput::new(10, 10, Vec::new(), Vec::new(), None)];
+        let outputs = vec![CellOutput::new(10, 10, Vec::new(), Vec::new())];
 
         let tx1 = Transaction::new(0, Vec::new(), inputs, outputs.clone());
 

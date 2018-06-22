@@ -170,7 +170,6 @@ mod tests {
             capacity: 2,
             data: vec![],
             lock: vec![],
-            recipient: None,
         };
 
         db.cells.insert(p1.clone(), Some(o.clone()));

@@ -46,12 +46,6 @@ impl OutPoint {
 }
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
-pub struct Recipient {
-    pub module: u32,
-    pub lock: Vec<u8>,
-}
-
-#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct CellInput {
     pub previous_output: OutPoint,
     // Depends on whether the operation is Transform or Destroy, this is the proof to transform
@@ -74,23 +68,15 @@ pub struct CellOutput {
     pub capacity: u32,
     pub data: Vec<u8>,
     pub lock: Vec<u8>,
-    pub recipient: Option<Recipient>,
 }
 
 impl CellOutput {
-    pub fn new(
-        module: u32,
-        capacity: u32,
-        data: Vec<u8>,
-        lock: Vec<u8>,
-        recipient: Option<Recipient>,
-    ) -> Self {
+    pub fn new(module: u32, capacity: u32, data: Vec<u8>, lock: Vec<u8>) -> Self {
         CellOutput {
             module,
             capacity,
             data,
             lock,
-            recipient,
         }
     }
 }
@@ -108,13 +94,7 @@ pub struct Transaction {
 
 impl CellOutput {
     pub fn bytes_len(&self) -> usize {
-        8 + self.data.len() + self.lock.len() + self.recipient.as_ref().map_or(0, |r| r.bytes_len())
-    }
-}
-
-impl Recipient {
-    pub fn bytes_len(&self) -> usize {
-        4 + self.lock.len()
+        8 + self.data.len() + self.lock.len()
     }
 }
 
@@ -213,34 +193,6 @@ impl<'a> From<&'a nervos_protocol::OutPoint> for OutPoint {
     }
 }
 
-impl<'a> From<&'a Recipient> for nervos_protocol::Recipient {
-    fn from(r: &'a Recipient) -> Self {
-        let mut rep = nervos_protocol::Recipient::new();
-        rep.set_module(r.module);
-        rep.set_lock(r.lock.clone());
-        rep
-    }
-}
-
-impl From<Recipient> for nervos_protocol::Recipient {
-    fn from(r: Recipient) -> Self {
-        let Recipient { module, lock } = r;
-        let mut rep = nervos_protocol::Recipient::new();
-        rep.set_module(module);
-        rep.set_lock(lock);
-        rep
-    }
-}
-
-impl<'a> From<&'a nervos_protocol::Recipient> for Recipient {
-    fn from(r: &'a nervos_protocol::Recipient) -> Self {
-        Self {
-            module: r.get_module(),
-            lock: r.get_lock().to_vec(),
-        }
-    }
-}
-
 impl<'a> From<&'a nervos_protocol::CellInput> for CellInput {
     fn from(c: &'a nervos_protocol::CellInput) -> Self {
         Self {
@@ -275,14 +227,7 @@ impl From<CellInput> for nervos_protocol::CellInput {
 /// stupid proto3
 impl<'a> From<&'a nervos_protocol::CellOutput> for CellOutput {
     fn from(c: &'a nervos_protocol::CellOutput) -> Self {
-        let recipient_proto = c.get_recipient();
-        let recipient = if recipient_proto == nervos_protocol::Recipient::default_instance() {
-            None
-        } else {
-            Some(recipient_proto.into())
-        };
         Self {
-            recipient,
             module: c.get_module(),
             capacity: c.get_capacity(),
             data: c.get_data().to_vec(),
@@ -298,9 +243,6 @@ impl<'a> From<&'a CellOutput> for nervos_protocol::CellOutput {
         co.set_capacity(c.capacity);
         co.set_data(c.data.clone());
         co.set_lock(c.lock.clone());
-        if c.recipient.is_some() {
-            co.set_recipient(c.recipient.clone().unwrap().into())
-        }
         co
     }
 }
@@ -312,16 +254,12 @@ impl From<CellOutput> for nervos_protocol::CellOutput {
             capacity,
             data,
             lock,
-            recipient,
         } = c;
         let mut co = nervos_protocol::CellOutput::new();
         co.set_module(module);
         co.set_capacity(capacity);
         co.set_data(data);
         co.set_lock(lock);
-        if recipient.is_some() {
-            co.set_recipient(recipient.unwrap().into())
-        }
         co
     }
 }

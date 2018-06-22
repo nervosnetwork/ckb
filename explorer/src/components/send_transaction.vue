@@ -38,10 +38,6 @@ export default {
             capacity: 0,
             data: [0],
             lock: [0],
-            recipient: {
-              module: 0,
-              lock: [0]
-            }
           }
         ]
       }
