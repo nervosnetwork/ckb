@@ -14,6 +14,8 @@ extern crate nervos_network as network;
 extern crate nervos_protocol;
 extern crate nervos_sync as sync;
 extern crate protobuf;
+#[macro_use]
+extern crate serde_derive;
 
 use bigint::H256;
 use chain::chain::ChainClient;
@@ -108,7 +110,7 @@ impl RpcServer {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct Config {
     pub listen_addr: String,
 }

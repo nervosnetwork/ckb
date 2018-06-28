@@ -87,3 +87,17 @@ Generate code from proto definition:
 ```shell
 make proto
 ```
+
+### Development running
+
+Run multiple nodes:
+
+```shell
+$ cargo run -- --data-dir=/tmp/node1
+$ cargo run -- --data-dir=/tmp/node2
+```
+
+Modify development config file
+```shell
+cp src/config/development.toml /tmp/node1
+```

@@ -15,13 +15,15 @@ extern crate rand;
 extern crate serde;
 #[cfg(test)]
 extern crate tempdir;
+#[macro_use]
+extern crate serde_derive;
 
 pub mod cachedb;
 pub mod chain;
+mod config;
 pub mod index;
-mod spec;
 pub mod store;
-pub use spec::Spec;
+pub use config::Config;
 
 use db::batch::Col;
 

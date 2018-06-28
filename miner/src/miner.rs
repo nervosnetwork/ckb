@@ -1,7 +1,7 @@
 use super::sealer::{Sealer, Signal};
+use super::Config;
 use chain::chain::ChainClient;
 use core::block::Block;
-use core::global::MAX_TX;
 use core::header::Header;
 use core::transaction::Transaction;
 use crossbeam_channel;
@@ -19,11 +19,17 @@ use sync::protocol::SYNC_PROTOCOL_ID;
 use time::now_ms;
 
 pub struct Miner<C> {
+    pub config: Config,
     pub chain: Arc<C>,
     pub network: Arc<Network>,
     pub tx_pool: Arc<TransactionPool<C>>,
     pub sealer: Sealer,
     pub signal: Signal,
+}
+
+pub enum SealerType {
+    Normal,
+    Noop,
 }
 
 pub struct Work {
@@ -35,6 +41,7 @@ pub struct Work {
 
 impl<C: ChainClient> Miner<C> {
     pub fn new(
+        config: Config,
         chain: Arc<C>,
         tx_pool: &Arc<TransactionPool<C>>,
         network: &Arc<Network>,
@@ -43,9 +50,15 @@ impl<C: ChainClient> Miner<C> {
     ) -> Self {
         let number = { chain.tip_header().number };
         let _dataset = ethash.gen_dataset(get_epoch(number));
-        let (sealer, signal) = Sealer::new(ethash);
+        let sealer_type = if config.sealer_type == "Normal" {
+            SealerType::Normal
+        } else {
+            SealerType::Noop
+        };
+        let (sealer, signal) = Sealer::new(ethash, sealer_type);
 
         let miner = Miner {
+            config,
             chain,
             sealer,
             signal,
@@ -79,7 +92,9 @@ impl<C: ChainClient> Miner<C> {
     fn commit_new_work(&self) {
         let time = now_ms();
         let head = { self.chain.tip_header().clone() };
-        let transactions = self.tx_pool.prepare_mineable_transactions(MAX_TX);
+        let transactions = self
+            .tx_pool
+            .prepare_mineable_transactions(self.config.max_tx);
         let signal = self.signal.clone();
         let work = Work {
             time,

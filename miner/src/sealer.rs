@@ -1,3 +1,4 @@
+use super::miner::SealerType;
 use bigint::{H256, U256};
 use core::block::Block;
 use core::difficulty::cal_difficulty;
@@ -8,6 +9,7 @@ use miner::Work;
 use rand::{thread_rng, Rng};
 use std::sync::mpsc;
 use std::sync::Arc;
+use std::{thread, time as std_time};
 
 pub struct Solution {
     pub nonce: u64,
@@ -41,15 +43,17 @@ impl Signal {
 pub struct Sealer {
     pub ethash: Arc<Ethash>,
     pub signal: mpsc::Receiver<Message>,
+    pub sealer_type: SealerType,
 }
 
 impl Sealer {
-    pub fn new(ethash: &Arc<Ethash>) -> (Sealer, Signal) {
+    pub fn new(ethash: &Arc<Ethash>, sealer_type: SealerType) -> (Sealer, Signal) {
         let (signal_tx, signal_rx) = mpsc::channel();
         (
             Sealer {
                 ethash: Arc::clone(ethash),
                 signal: signal_rx,
+                sealer_type,
             },
             self::Signal::new(signal_tx),
         )
@@ -95,16 +99,28 @@ impl Sealer {
             if let Ok(message) = self.signal.try_recv() {
                 break message;
             }
-            let signal = signal.clone();
-            let ethash = Arc::clone(&self.ethash);
-            let pow = ethash.compute(height, pow_hash, nonce);
-            if pow.value < boundary {
-                signal.send_found(Solution {
-                    nonce,
-                    mix_hash: pow.mix,
-                });
+            // TODO add trait and use factory to create different sealer
+            match self.sealer_type {
+                SealerType::Normal => {
+                    let signal = signal.clone();
+                    let ethash = Arc::clone(&self.ethash);
+                    let pow = ethash.compute(height, pow_hash, nonce);
+                    if pow.value < boundary {
+                        signal.send_found(Solution {
+                            nonce,
+                            mix_hash: pow.mix,
+                        });
+                    }
+                    nonce = nonce.wrapping_add(1);
+                }
+                SealerType::Noop => {
+                    thread::sleep(std_time::Duration::from_secs(thread_rng().gen_range(2, 5)));
+                    signal.send_found(Solution {
+                        nonce: 0,
+                        mix_hash: H256::from(0),
+                    });
+                }
             }
-            nonce = nonce.wrapping_add(1);
         }
     }
 }

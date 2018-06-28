@@ -1,0 +1,32 @@
+[logger]
+file = "nervos.log"
+filter = "info"
+color = true
+
+[network]
+listen_addr = "/ip4/0.0.0.0/tcp/0"
+bootstrap_nodes = [
+  ["QmWvoPbu9AgEFLL5UyxpCfhxkLDd9T7zuerjhHiwsnqSh4", "/ip4/127.0.0.1/tcp/12345"]
+]
+private_key_file = "private.pk8"
+public_key_file  = "public.der"
+peer_store_file  = "peers.json"
+
+[rpc]
+listen_addr = "0.0.0.0:0"
+
+[chain]
+version = 0
+parent_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
+hash        = "0x1d3c78fcf6a6c98b53aed1bfebe53d5d7a1a0b8dced33576e3806915ce51aa00"
+timestamp   = 0
+txs_commit  = "0x0000000000000000000000000000000000000000000000000000000000000000"
+difficulty  = "0x0000000000000000000000000000000000000000000000000000000000000000"
+number      = 0
+nonce       = 0
+mix_hash    = "0x0000000000000000000000000000000000000000000000000000000000000000"
+verifier_type = "Normal"
+
+[miner]
+max_tx = 1024
+sealer_type  = "Normal"

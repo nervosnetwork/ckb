@@ -1,0 +1,8 @@
+[logger]
+filter = "main=info,miner=info,chain=info,network=debug,tx=debug,pool=debug,rpc=info,sync=debug"
+
+[chain]
+verifier_type = "NoSeal"
+
+[miner]
+sealer_type="Noop"

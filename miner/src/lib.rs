@@ -15,6 +15,15 @@ extern crate nervos_time as time;
 extern crate nervos_util as util;
 extern crate protobuf;
 extern crate rand;
+#[macro_use]
+extern crate serde_derive;
 
 pub mod miner;
 mod sealer;
+
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+pub struct Config {
+    // Max number of transactions this miner will assemble in a block
+    pub max_tx: usize,
+    pub sealer_type: String,
+}

@@ -17,8 +17,5 @@ pub const LIMIT: u64 = 99;
 // pub const EPOCH_LEN: u64 = 10;
 // pub const HEIGHT_SHIFT: u64 = 50;
 
-// Max number of transactions this miner will assemble in a block
-pub const MAX_TX: usize = 1024;
-
 //Min difficulty
 pub const MIN_DIFFICULTY: u64 = 0x2_0000;

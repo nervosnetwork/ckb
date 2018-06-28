@@ -199,7 +199,7 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
 
 #[cfg(test)]
 mod tests {
-    use super::super::{Spec, COLUMNS};
+    use super::super::{Config, COLUMNS};
     use super::*;
     use db::diskdb::RocksDB;
     use tempdir::TempDir;
@@ -224,7 +224,7 @@ mod tests {
         let tmp_dir = TempDir::new("save_and_get_block").unwrap();
         let db = RocksDB::open(tmp_dir, COLUMNS);
         let store = ChainKVStore { db: db };
-        let block = Spec::default().genesis_block();
+        let block = Config::default().genesis_block();
 
         let hash = block.hash();
 
@@ -239,7 +239,7 @@ mod tests {
         let tmp_dir = TempDir::new("save_and_get_block_ext").unwrap();
         let db = RocksDB::open(tmp_dir, COLUMNS);
         let store = ChainKVStore { db: db };
-        let block = Spec::default().genesis_block();
+        let block = Config::default().genesis_block();
 
         let ext = BlockExt {
             received_at: block.header.timestamp,

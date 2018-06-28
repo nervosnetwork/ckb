@@ -16,7 +16,7 @@ extern crate tempdir;
 use bigint::H256;
 use chain::chain::{Chain, ChainClient};
 use chain::store::ChainKVStore;
-use chain::Spec;
+use chain::Config;
 use chain::COLUMNS;
 use core::block::Block;
 use core::difficulty::cal_difficulty;
@@ -36,7 +36,6 @@ use sync::chain::Chain as SyncChain;
 use sync::protocol::{SyncProtocol, SYNC_PROTOCOL_ID};
 use tempdir::TempDir;
 use time::now_ms;
-use verification::VerifierType;
 
 #[derive(Default)]
 struct TestNode {
@@ -174,8 +173,8 @@ fn basic_sync() {
 fn setup_node(height: u64) -> (TestNode, Arc<Chain<ChainKVStore<MemoryKeyValueDB>>>) {
     let db = MemoryKeyValueDB::open(COLUMNS as usize);
     let store = ChainKVStore { db };
-    let mut spec = Spec::default();
-    spec.verifier_type = VerifierType::Noop;
+    let mut spec = Config::default();
+    spec.verifier_type = "Noop".to_string();
 
     let ethash = Arc::new(Ethash::new(TempDir::new("").unwrap().path()));
     let chain = Arc::new(Chain::init(store, spec.clone(), &ethash).unwrap());

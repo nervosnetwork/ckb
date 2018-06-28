@@ -1,4 +1,5 @@
 use bigint::{H256, U256};
+use config::Config;
 use core::block::Block;
 use core::cell::{CellProvider, CellState};
 use core::extras::BlockExt;
@@ -8,8 +9,7 @@ use core::transaction_meta::TransactionMeta;
 use db::batch::Batch;
 use ethash::Ethash;
 use index::ChainIndex;
-use nervos_verification::{Error as VerifyError, HeaderVerifier, Verifier, VerifierType};
-use spec::Spec;
+use nervos_verification::{Error as VerifyError, HeaderVerifier, Verifier};
 use std::sync::Arc;
 use time::now_ms;
 use util::{Mutex, RwLock, RwLockReadGuard};
@@ -25,7 +25,7 @@ pub enum Error {
 
 pub struct Chain<CS> {
     store: CS,
-    spec: Spec,
+    config: Config,
     tip_header: RwLock<Header>,
     total_difficulty: RwLock<U256>,
     output_root: RwLock<H256>,
@@ -83,9 +83,9 @@ impl<CS: ChainIndex> CellProvider for Chain<CS> {
 }
 
 impl<CS: ChainIndex> Chain<CS> {
-    pub fn init(store: CS, spec: Spec, ethash: &Arc<Ethash>) -> Result<Chain<CS>, Error> {
+    pub fn init(store: CS, config: Config, ethash: &Arc<Ethash>) -> Result<Chain<CS>, Error> {
         // check head in store or save the genesis block as head
-        let genesis = spec.genesis_block();
+        let genesis = config.genesis_block();
         let tip_header = match store.get_tip_header() {
             Some(h) => h,
             None => {
@@ -106,7 +106,7 @@ impl<CS: ChainIndex> Chain<CS> {
 
         Ok(Chain {
             store,
-            spec,
+            config,
             tip_header: RwLock::new(tip_header),
             output_root: RwLock::new(r),
             total_difficulty: RwLock::new(td),
@@ -125,7 +125,7 @@ impl<CS: ChainIndex> Chain<CS> {
             .ok_or(Error::UnknownParent)?;
 
         // TODO use factory pattern and move code to verification module
-        if let VerifierType::Normal = self.spec.verifier_type {
+        if self.config.verifier_type == "Normal" {
             HeaderVerifier::new(&pre_header, h, &self.ethash)
                 .verify()
                 .map_err(Error::Verification)?;
@@ -278,7 +278,7 @@ impl<CS: ChainIndex> ChainClient for Chain<CS> {
             if index < step {
                 // always include genesis hash
                 if index != 0 {
-                    locator.push(self.spec.hash)
+                    locator.push(self.config.hash)
                 }
                 break;
             }

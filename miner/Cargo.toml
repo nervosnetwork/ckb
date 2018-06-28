@@ -20,3 +20,5 @@ protobuf = "1.5"
 rand = "0.5.0"
 nervos-notify = { path = "../notify" }
 crossbeam-channel = "0.1"
+serde = "1.0"
+serde_derive = "1.0"

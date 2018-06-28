@@ -126,7 +126,7 @@ impl<T: KeyValueDB> ChainIndex for ChainKVStore<T> {
 
 #[cfg(test)]
 mod tests {
-    use super::super::{Spec, COLUMNS};
+    use super::super::{Config, COLUMNS};
     use super::*;
     use db::diskdb::RocksDB;
     use tempdir::TempDir;
@@ -136,7 +136,7 @@ mod tests {
         let tmp_dir = TempDir::new("index_init").unwrap();
         let db = RocksDB::open(tmp_dir, COLUMNS);
         let store = ChainKVStore { db: db };
-        let block = Spec::default().genesis_block();
+        let block = Config::default().genesis_block();
         let hash = block.hash();
         store.init(&block);
         assert_eq!(hash, store.get_block_hash(0).unwrap());
