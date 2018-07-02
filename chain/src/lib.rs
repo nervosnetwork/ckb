@@ -11,8 +11,6 @@ extern crate nervos_db as db;
 extern crate nervos_time as time;
 extern crate nervos_util as util;
 extern crate nervos_verification;
-extern crate rand;
-extern crate serde;
 #[cfg(test)]
 extern crate tempdir;
 #[macro_use]

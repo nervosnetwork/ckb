@@ -1,8 +1,5 @@
-#![feature(box_syntax)]
-extern crate bigint;
 #[macro_use]
 extern crate clap;
-extern crate crypto;
 extern crate ctrlc;
 extern crate dir;
 extern crate ethash;
@@ -10,7 +7,6 @@ extern crate ethash;
 extern crate log;
 extern crate logger;
 extern crate nervos_chain as chain;
-extern crate nervos_core as core;
 extern crate nervos_db as db;
 extern crate nervos_miner as miner;
 extern crate nervos_network as network;
@@ -18,14 +14,10 @@ extern crate nervos_notify;
 extern crate nervos_pool as pool;
 extern crate nervos_rpc as rpc;
 extern crate nervos_sync as sync;
-extern crate nervos_time as time;
 extern crate nervos_util as util;
-extern crate serde;
 #[macro_use]
 extern crate serde_derive;
 extern crate config;
-extern crate tera;
-extern crate toml;
 
 mod cli;
 mod spec;

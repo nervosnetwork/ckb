@@ -9,11 +9,9 @@ extern crate jsonrpc_server_utils;
 extern crate log;
 extern crate nervos_chain as chain;
 extern crate nervos_core as core;
-extern crate nervos_db as db;
 extern crate nervos_network as network;
 extern crate nervos_protocol;
 extern crate nervos_sync as sync;
-extern crate protobuf;
 #[macro_use]
 extern crate serde_derive;
 

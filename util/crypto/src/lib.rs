@@ -13,8 +13,6 @@ extern crate lazy_static;
 extern crate rand;
 extern crate rustc_hex;
 #[cfg(feature = "rsa")]
-extern crate serde;
-#[cfg(feature = "rsa")]
 #[macro_use]
 extern crate serde_derive;
 

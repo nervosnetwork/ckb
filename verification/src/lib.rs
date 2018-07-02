@@ -1,6 +1,5 @@
 extern crate bigint;
 extern crate ethash;
-extern crate log;
 extern crate merkle_root;
 extern crate nervos_core as core;
 extern crate nervos_time as time;

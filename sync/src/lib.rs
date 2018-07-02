@@ -1,12 +1,9 @@
-extern crate actix;
 extern crate bigint;
 extern crate fnv;
-extern crate futures;
 #[macro_use]
 extern crate log;
 extern crate byteorder;
 extern crate hash;
-extern crate multiaddr;
 extern crate nervos_chain;
 extern crate nervos_core as core;
 extern crate nervos_network as network;
@@ -18,7 +15,6 @@ extern crate nervos_util as util;
 extern crate protobuf;
 extern crate rand;
 extern crate siphasher;
-extern crate tokio_core;
 
 pub mod chain;
 pub mod compact_block;

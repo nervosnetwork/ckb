@@ -5,15 +5,12 @@ extern crate ethash;
 extern crate log;
 extern crate nervos_chain as chain;
 extern crate nervos_core as core;
-extern crate nervos_db as db;
 extern crate nervos_network as network;
 extern crate nervos_notify;
 extern crate nervos_pool as pool;
 extern crate nervos_protocol;
 extern crate nervos_sync as sync;
 extern crate nervos_time as time;
-extern crate nervos_util as util;
-extern crate protobuf;
 extern crate rand;
 #[macro_use]
 extern crate serde_derive;
