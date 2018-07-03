@@ -26,15 +26,23 @@ rustup override set nightly-2018-05-23
 rustup component add rustfmt-preview --toolchain=nightly-2018-05-23
 ```
 
-we would like to track `nightly`, report new breakage is welcome.
+We would like to track `nightly`, report new breakage is welcome.
 
-you alse need to get the following packages：
+You also need to get the following packages：
 
 * Ubuntu and Debian:
 
 ```shell
-sudo apt-get install git autoconf flex bison texinfo libtool
+sudo apt-get install git autoconf flex bison texinfo libtool pkg-config libssl-dev libclang-dev
 ```
+
+If you are on Ubuntu 18.04, you might run into `'stdarg.h' file not found` error, this is because `librocksdb-sys` fails to find the correct include path. A temporary fix until `librocksdb-sys` fixes this problem is as follows:
+
+```shell
+sudo ln -s /usr/lib/gcc/x86_64-linux-gnu/7/include/stdarg.h /usr/include/stdarg.h
+sudo ln -s /usr/lib/gcc/x86_64-linux-gnu/7/include/stddef.h /usr/include/stddef.h
+```
+
 
 * OSX:
 
