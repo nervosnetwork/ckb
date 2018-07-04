@@ -5,7 +5,7 @@ authors = ["Nervos Core Dev <dev@nervos.org>"]
 
 [dependencies]
 actix = "0.5"
-protobuf = "1.5"
+protobuf = "2.0.2"
 nervos-chain = { path = "../chain" }
 nervos-core = { path = "../core" }
 bigint = { git = "https://github.com/NervosFoundation/bigint" }

@@ -1453,7 +1453,7 @@ dependencies = [
  "nervos-sync 0.1.0",
  "nervos-time 0.1.0",
  "nervos-util 0.1.0",
- "protobuf 1.5.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "protobuf 2.0.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "rand 0.5.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.59 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.59 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1490,7 +1490,7 @@ dependencies = [
  "nervos-protocol 0.1.0",
  "nervos-util 0.1.0",
  "nervos-verification 0.1.0",
- "protobuf 1.5.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "protobuf 2.0.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "rand 0.5.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.59 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.59 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1534,7 +1534,7 @@ dependencies = [
 name = "nervos-protocol"
 version = "0.1.0"
 dependencies = [
- "protobuf 1.5.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "protobuf 2.0.2 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -1553,7 +1553,7 @@ dependencies = [
  "nervos-network 0.1.0",
  "nervos-protocol 0.1.0",
  "nervos-sync 0.1.0",
- "protobuf 1.5.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "protobuf 2.0.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.59 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.59 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_json 1.0.17 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1583,7 +1583,7 @@ dependencies = [
  "nervos-time 0.1.0",
  "nervos-util 0.1.0",
  "nervos-verification 0.1.0",
- "protobuf 1.5.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "protobuf 2.0.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "rand 0.5.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "siphasher 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "tempdir 0.3.7 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1852,6 +1852,11 @@ dependencies = [
 [[package]]
 name = "protobuf"
 version = "1.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+
+[[package]]
+name = "protobuf"
+version = "2.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
@@ -3224,6 +3229,7 @@ dependencies = [
 "checksum primal-sieve 0.2.8 (registry+https://github.com/rust-lang/crates.io-index)" = "c0911abe7b63ddec27527ba7579c3017f645eb992be6ddbfad605e34aca01876"
 "checksum proc-macro2 0.4.3 (registry+https://github.com/rust-lang/crates.io-index)" = "a45f2f0ae0b5757f6fe9e68745ba25f5246aea3598984ed81d013865873c1f84"
 "checksum protobuf 1.5.1 (registry+https://github.com/rust-lang/crates.io-index)" = "40e2484e639dcae0985fc483ad76ce7ad78ee5aa092751d7d538f0b20d76486b"
+"checksum protobuf 2.0.2 (registry+https://github.com/rust-lang/crates.io-index)" = "a163be69698a5cb7baa28819474344d3a268b3f3e41877e61d5555e3d3add1af"
 "checksum pulldown-cmark 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)" = "d6fdf85cda6cadfae5428a54661d431330b312bc767ddbc57adbedc24da66e32"
 "checksum quasi 0.32.0 (registry+https://github.com/rust-lang/crates.io-index)" = "18c45c4854d6d1cf5d531db97c75880feb91c958b0720f4ec1057135fec358b3"
 "checksum quasi_codegen 0.32.0 (registry+https://github.com/rust-lang/crates.io-index)" = "51b9e25fa23c044c1803f43ca59c98dac608976dd04ce799411edd58ece776d4"

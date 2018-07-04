@@ -21,5 +21,4 @@ serde_json = "1.0"
 log = "0.4"
 
 nervos-protocol = { path = "../network/protocol" }
-protobuf = "1.5"
-rand = "0.5.0"
+protobuf = "2.0.2"
