@@ -13,6 +13,7 @@ use std::collections::HashSet;
 pub struct BlockVerifier<'a> {
     pub empty_transactions: EmptyTransactionsVerifier<'a>,
     pub duplicate_transactions: DuplicateTransactionsVerifier<'a>,
+    pub cellbase: CellbaseTransactionsVerifier<'a>,
     pub merkle_root: MerkleRootVerifier<'a>,
 }
 
@@ -21,6 +22,7 @@ impl<'a> BlockVerifier<'a> {
         BlockVerifier {
             empty_transactions: EmptyTransactionsVerifier::new(block),
             duplicate_transactions: DuplicateTransactionsVerifier::new(block),
+            cellbase: CellbaseTransactionsVerifier::new(block),
             merkle_root: MerkleRootVerifier::new(block),
         }
     }
@@ -28,7 +30,37 @@ impl<'a> BlockVerifier<'a> {
     pub fn verify(&self) -> Result<(), Error> {
         self.empty_transactions.verify()?;
         self.duplicate_transactions.verify()?;
+        self.cellbase.verify()?;
         self.merkle_root.verify()?;
+        Ok(())
+    }
+}
+
+pub struct CellbaseTransactionsVerifier<'a> {
+    block: &'a Block,
+}
+
+impl<'a> CellbaseTransactionsVerifier<'a> {
+    pub fn new(block: &'a Block) -> Self {
+        CellbaseTransactionsVerifier { block }
+    }
+
+    pub fn verify(&self) -> Result<(), Error> {
+        if self.block.transactions.is_empty() {
+            return Ok(());
+        }
+        let cellbase_len = self
+            .block
+            .transactions
+            .iter()
+            .filter(|tx| tx.is_cellbase())
+            .count();
+        if cellbase_len > 1 {
+            return Err(Error::MultipleCellbase);
+        }
+        if cellbase_len == 1 && (!self.block.transactions[0].is_cellbase()) {
+            return Err(Error::CellbaseNotAtFirst);
+        }
         Ok(())
     }
 }

@@ -10,6 +10,8 @@ pub enum Error {
     EmptyTransactions,
     DuplicateTransactions,
     TransactionsRoot,
+    MultipleCellbase,
+    CellbaseNotAtFirst,
 }
 
 #[derive(Debug, PartialEq, Clone, Copy, Eq)]
@@ -42,4 +44,5 @@ pub enum TransactionError {
     OutofBound,
     DuplicateInputs,
     Empty,
+    InvalidCellbase,
 }

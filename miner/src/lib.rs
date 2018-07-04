@@ -23,4 +23,5 @@ pub struct Config {
     // Max number of transactions this miner will assemble in a block
     pub max_tx: usize,
     pub sealer_type: String,
+    pub miner_address: String,
 }

@@ -1,27 +1,27 @@
 use super::sealer::{Sealer, Signal};
 use super::Config;
-use chain::chain::ChainClient;
+use chain::chain::{ChainClient, Error};
 use core::block::Block;
 use core::header::Header;
-use core::transaction::Transaction;
+use core::transaction::{CellInput, CellOutput, OutPoint, Transaction, VERSION};
 use crossbeam_channel;
 use ethash::{get_epoch, Ethash};
 use nervos_notify::{Event, Notify};
 use nervos_protocol::Payload;
-use network::NetworkService;
+use network::protocol::NetworkContext;
+use network::Network;
 use pool::TransactionPool;
-use rand::{thread_rng, Rng};
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::thread;
 use sync::compact_block::build_compact_block;
-use sync::protocol::RELAY_PROTOCOL_ID;
+use sync::protocol::SYNC_PROTOCOL_ID;
 use time::now_ms;
 
 pub struct Miner<C> {
     pub config: Config,
     pub chain: Arc<C>,
-    pub network: Arc<NetworkService>,
+    pub network: Arc<Network>,
     pub tx_pool: Arc<TransactionPool<C>>,
     pub sealer: Sealer,
     pub signal: Signal,
@@ -44,7 +44,7 @@ impl<C: ChainClient> Miner<C> {
         config: Config,
         chain: Arc<C>,
         tx_pool: &Arc<TransactionPool<C>>,
-        network: &Arc<NetworkService>,
+        network: &Arc<Network>,
         ethash: &Arc<Ethash>,
         notify: &Notify,
     ) -> Self {
@@ -92,32 +92,62 @@ impl<C: ChainClient> Miner<C> {
     fn commit_new_work(&self) {
         let time = now_ms();
         let head = { self.chain.tip_header().clone() };
-        let transactions = self
+        let mut transactions = self
             .tx_pool
             .prepare_mineable_transactions(self.config.max_tx);
-        let signal = self.signal.clone();
-        let work = Work {
-            time,
-            head,
-            transactions,
-            signal,
-        };
-        if let Some(block) = self.sealer.seal(work) {
-            info!(target: "miner", "new block mined: {} -> ({}, {})", block.hash(), block.header.number, block.header.difficulty);
-            if self.chain.process_block(&block).is_ok() {
-                self.announce_new_block(&block);
+        match self.create_cellbase_transaction(&head, &transactions) {
+            Ok(cellbase_transaction) => {
+                transactions.insert(0, cellbase_transaction);
+                let signal = self.signal.clone();
+                let work = Work {
+                    time,
+                    head,
+                    transactions,
+                    signal,
+                };
+                if let Some(block) = self.sealer.seal(work) {
+                    info!(target: "miner", "new block mined: {} -> ({}, {})", block.hash(), block.header.number, block.header.difficulty);
+                    if self.chain.process_block(&block).is_ok() {
+                        self.announce_new_block(&block);
+                    }
+                }
+            }
+            Err(err) => {
+                error!(target: "miner", "error generating cellbase transaction: {:?}", err);
             }
         }
     }
 
+    fn create_cellbase_transaction(
+        &self,
+        head: &Header,
+        transactions: &[Transaction],
+    ) -> Result<Transaction, Error> {
+        let inputs = vec![CellInput::new(OutPoint::null(), Vec::new())];
+        // NOTE: We could've just used byteorder to serialize u64 and hex string into bytes,
+        // but the truth is we will modify this after we designed lock script anyway, so let's
+        // stick to the simpler way and just convert everything to a single string, then to UTF8
+        // bytes, they really serve the same purpose at the moment
+        let lock = format!("{}{}", head.raw.number, self.config.miner_address).into_bytes();
+        let reward = self.cellbase_reward(head, transactions)?;
+        let outputs = vec![CellOutput::new(0, reward, Vec::new(), lock)];
+        Ok(Transaction::new(VERSION, Vec::new(), inputs, outputs))
+    }
+
+    fn cellbase_reward(&self, head: &Header, transactions: &[Transaction]) -> Result<u32, Error> {
+        let block_reward = self.chain.block_reward(head.raw.number);
+        let mut fee = 0;
+        for transaction in transactions {
+            fee += self.chain.calculate_transaction_fee(transaction)?;
+        }
+        Ok(block_reward + fee)
+    }
+
     fn announce_new_block(&self, block: &Block) {
+        let nc = self.network.build_network_context(SYNC_PROTOCOL_ID);
         let mut payload = Payload::new();
         let compact_block = build_compact_block(block, &HashSet::new());
         payload.set_compact_block(compact_block.into());
-        if let Some(peer_id) = thread_rng().choose(&self.network.connected_peers()) {
-            self.network.with_context(RELAY_PROTOCOL_ID, |nc| {
-                nc.send(*peer_id, payload).ok();
-            })
-        }
+        nc.send_all(payload)
     }
 }

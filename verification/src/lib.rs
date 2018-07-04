@@ -10,6 +10,7 @@ mod chain_verifier;
 mod error;
 mod header_verifier;
 mod shared;
+mod tests;
 mod transaction_verifier;
 
 pub use block_verifier::BlockVerifier;

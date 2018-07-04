@@ -7,6 +7,7 @@ pub struct TransactionVerifier<'a> {
     pub empty: EmptyVerifier<'a>,
     pub capacity: CapacityVerifier<'a>,
     pub duplicate_inputs: DuplicateInputsVerifier<'a>,
+    pub cellbase: CellbaseVerifier<'a>,
 }
 
 impl<'a> TransactionVerifier<'a> {
@@ -16,6 +17,7 @@ impl<'a> TransactionVerifier<'a> {
             empty: EmptyVerifier::new(transaction),
             capacity: CapacityVerifier::new(transaction),
             duplicate_inputs: DuplicateInputsVerifier::new(transaction),
+            cellbase: CellbaseVerifier::new(transaction),
         }
     }
 
@@ -24,6 +26,7 @@ impl<'a> TransactionVerifier<'a> {
         self.null.verify()?;
         self.capacity.verify()?;
         self.duplicate_inputs.verify()?;
+        self.cellbase.verify()?;
         Ok(())
     }
 }
@@ -107,6 +110,27 @@ impl<'a> CapacityVerifier<'a> {
             .any(|output| output.bytes_len() > (output.capacity as usize))
         {
             Err(TransactionError::OutofBound)
+        } else {
+            Ok(())
+        }
+    }
+}
+
+pub struct CellbaseVerifier<'a> {
+    transaction: &'a Transaction,
+}
+
+impl<'a> CellbaseVerifier<'a> {
+    pub fn new(transaction: &'a Transaction) -> Self {
+        CellbaseVerifier { transaction }
+    }
+
+    pub fn verify(&self) -> Result<(), TransactionError> {
+        if !self.transaction.is_cellbase() {
+            return Ok(());
+        }
+        if self.transaction.outputs.len() != 1 {
+            Err(TransactionError::InvalidCellbase)
         } else {
             Ok(())
         }

@@ -19,6 +19,7 @@ pub enum Error {
     Duplicate,
     UnknownParent,
     Verification(VerifyError),
+    InvalidInput,
     InvalidOutput,
     NotFound,
 }
@@ -56,6 +57,15 @@ pub trait ChainClient: Sync + Send + CellProvider {
     fn get_transaction(&self, hash: &H256) -> Option<Transaction>;
 
     fn get_transaction_meta(&self, hash: &H256) -> Option<TransactionMeta>;
+
+    // NOTE: reward and fee are returned now as u32 since capacity is also
+    // u32 in protocol, we might want to revisit this later
+    fn block_reward(&self, block_number: u64) -> u32;
+
+    // Loops through all inputs and outputs of given transaction to calculate
+    // fee that miner can obtain. Could result in error state when input
+    // transaction is missing.
+    fn calculate_transaction_fee(&self, transaction: &Transaction) -> Result<u32, Error>;
 }
 
 impl<CS: ChainIndex> CellProvider for Chain<CS> {
@@ -142,7 +152,10 @@ impl<CS: ChainIndex> Chain<CS> {
             let mut ins = tx.input_pts();
             let mut outs = tx.output_pts();
 
-            inputs.append(&mut ins);
+            // Cellbase transaction only has one null input
+            if !tx.is_cellbase() {
+                inputs.append(&mut ins);
+            }
             outputs.append(&mut outs);
         }
 
@@ -151,6 +164,24 @@ impl<CS: ChainIndex> Chain<CS> {
         self.store
             .update_transaction_meta(root, inputs, outputs)
             .ok_or(Error::InvalidOutput)
+    }
+
+    fn check_cellbase(&self, b: &Block) -> Result<(), Error> {
+        if b.transactions.is_empty() || (!b.transactions[0].is_cellbase()) {
+            return Ok(());
+        }
+        let cellbase_transaction = &b.transactions[0];
+        let block_reward = self.block_reward(b.header.raw.number);
+        let mut fee = 0;
+        for transaction in b.transactions.iter().skip(1) {
+            fee += self.calculate_transaction_fee(transaction)?;
+        }
+        let total_reward = block_reward + fee;
+        if cellbase_transaction.outputs[0].capacity != total_reward {
+            Err(Error::InvalidOutput)
+        } else {
+            Ok(())
+        }
     }
 
     //TODO: best block
@@ -290,6 +321,7 @@ impl<CS: ChainIndex> ChainClient for Chain<CS> {
     fn process_block(&self, b: &Block) -> Result<(), Error> {
         info!(target: "chain", "begin processing block: {}", b.hash());
         self.check_header(&b.header)?;
+        self.check_cellbase(b)?;
         let root = self.check_transactions(b)?;
         self.insert_block(b, root);
         info!(target: "chain", "finish processing block");
@@ -336,5 +368,40 @@ impl<CS: ChainIndex> ChainClient for Chain<CS> {
     fn get_transaction_meta(&self, hash: &H256) -> Option<TransactionMeta> {
         self.store
             .get_transaction_meta(*self.output_root.read(), *hash)
+    }
+
+    fn block_reward(&self, _block_number: u64) -> u32 {
+        // TODO: block reward calculation algorithm
+        self.config.initial_block_reward
+    }
+
+    // TODO: find a way to write test for this once we can build a mock on
+    // ChainIndex
+    fn calculate_transaction_fee(&self, transaction: &Transaction) -> Result<u32, Error> {
+        let mut fee = 0;
+        for input in &transaction.inputs {
+            let previous_output = &input.previous_output;
+            match self.get_transaction(&previous_output.hash) {
+                Some(previous_transaction) => {
+                    let index = previous_output.index as usize;
+                    if index < previous_transaction.outputs.len() {
+                        fee += previous_transaction.outputs[index].capacity;
+                    } else {
+                        return Err(Error::InvalidInput);
+                    }
+                }
+                None => return Err(Error::InvalidInput),
+            }
+        }
+        let spent_capacity: u32 = transaction
+            .outputs
+            .iter()
+            .map(|output| output.capacity)
+            .sum();
+        if spent_capacity > fee {
+            return Err(Error::InvalidOutput);
+        }
+        fee -= spent_capacity;
+        Ok(fee)
     }
 }

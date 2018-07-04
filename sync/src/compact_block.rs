@@ -53,7 +53,10 @@ pub fn build_compact_block<S: ::std::hash::BuildHasher>(
 
     let (key0, key1) = short_transaction_id_keys(nonce, &block.header);
     for (transaction_index, transaction) in block.transactions.iter().enumerate() {
-        if prefilled_transactions_indexes.contains(&transaction_index) {
+        // Since cellbase transaction is very unlikely to be included in mem pool,
+        // we will always include it in prefilled transaction
+        if prefilled_transactions_indexes.contains(&transaction_index) || transaction.is_cellbase()
+        {
             prefilled_transactions.push(PrefilledTransaction {
                 index: transaction_index,
                 transaction: transaction.clone(),

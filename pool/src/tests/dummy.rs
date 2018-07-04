@@ -137,6 +137,14 @@ impl ChainClient for DummyChainImpl {
     fn output_root(&self, _hash: &H256) -> Option<H256> {
         None
     }
+
+    fn block_reward(&self, _block_number: u64) -> u32 {
+        0
+    }
+
+    fn calculate_transaction_fee(&self, _transaction: &Transaction) -> Result<u32, Error> {
+        Ok(0)
+    }
 }
 
 impl DummyChain for DummyChainImpl {
