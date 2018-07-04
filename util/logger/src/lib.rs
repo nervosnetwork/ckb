@@ -19,7 +19,6 @@ use log::{Log, Metadata, Record};
 use parking_lot::Mutex;
 use regex::Regex;
 use std::io::Write;
-use std::path::PathBuf;
 use std::{fs, thread};
 
 enum Message {
@@ -35,7 +34,7 @@ pub struct Logger {
 }
 
 impl Logger {
-    fn new(config: Config, base: PathBuf) -> Logger {
+    fn new(config: Config) -> Logger {
         let mut builder = Builder::new();
 
         if let Ok(ref env_filter) = std::env::var("NERVOS_LOG") {
@@ -57,7 +56,7 @@ impl Logger {
                     fs::OpenOptions::new()
                         .append(true)
                         .create(true)
-                        .open(base.join(file.clone()))
+                        .open(file.clone())
                         .expect(&format!("Cannot write to log file given: {}", file))
                 });
 
@@ -155,8 +154,8 @@ fn sanitize_color(s: &str) -> String {
     RE.replace_all(s, "").to_string()
 }
 
-pub fn init(config: Config, base: PathBuf) -> Result<(), SetLoggerError> {
-    let logger = Logger::new(config, base);
+pub fn init(config: Config) -> Result<(), SetLoggerError> {
+    let logger = Logger::new(config);
     log::set_max_level(logger.filter());
     log::set_boxed_logger(Box::new(logger))
 }

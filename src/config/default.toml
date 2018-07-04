@@ -4,13 +4,18 @@ filter = "info"
 color = true
 
 [network]
-listen_addr = "/ip4/0.0.0.0/tcp/0"
-bootstrap_nodes = [
-  ["QmWvoPbu9AgEFLL5UyxpCfhxkLDd9T7zuerjhHiwsnqSh4", "/ip4/127.0.0.1/tcp/12345"]
+listen_address = "0.0.0.0:0"
+boot_nodes = [
+    "/ip4/127.0.0.1/tcp/12345/p2p/QmVMJYDCL2vDnk4PmRGNdDRTWRnfeboUsriYA9CixJsBRf"
 ]
-private_key_file = "private.pk8"
-public_key_file  = "public.der"
-peer_store_file  = "peers.json"
+reserved_nodes = [
+    "/ip4/127.0.0.1/tcp/12345/p2p/QmVMJYDCL2vDnk4PmRGNdDRTWRnfeboUsriYA9CixJsBRf"
+]
+only_reserved_peers = false
+min_peers = 4
+max_peers = 8
+secret_file = "secret"
+nodes_file = "nodes.json"
 
 [rpc]
 listen_addr = "0.0.0.0:0"

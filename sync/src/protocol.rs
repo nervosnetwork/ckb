@@ -10,7 +10,7 @@ use core::transaction::Transaction;
 use fnv::{FnvHashMap, FnvHashSet};
 use nervos_chain::chain::ChainClient;
 use nervos_protocol;
-use network::protocol::{NetworkContext, NetworkProtocolHandler, PeerIndex, ProtocolId};
+use network::{NetworkContext, NetworkProtocolHandler, PeerId, ProtocolId};
 use pool::txs_pool::TransactionPool;
 use protobuf::RepeatedField;
 use std::cmp::min;
@@ -36,7 +36,7 @@ impl<C: ChainClient + 'static> SyncProtocol<C> {
     pub fn handle_getheaders(
         &self,
         nc: &NetworkContext,
-        peer: PeerIndex,
+        peer: PeerId,
         message: &nervos_protocol::GetHeaders,
     ) {
         info!(target: "sync", "handle_getheaders from peer {}", peer);
@@ -61,7 +61,7 @@ impl<C: ChainClient + 'static> SyncProtocol<C> {
                 headers.iter().map(Into::into).collect(),
             ));
             payload.set_headers(headers_proto);
-            let _ = nc.response(payload);
+            let _ = nc.respond(payload);
         } else {
             info!(target: "sync", "unknown block headers from peer {}", peer);
             // Got 'headers' message without known blocks
@@ -72,7 +72,7 @@ impl<C: ChainClient + 'static> SyncProtocol<C> {
     pub fn handle_headers(
         &self,
         nc: &NetworkContext,
-        peer: PeerIndex,
+        peer: PeerId,
         message: &nervos_protocol::Headers,
     ) {
         info!(target: "sync", "handle_headers from peer {}", peer);
@@ -157,7 +157,7 @@ impl<C: ChainClient + 'static> SyncProtocol<C> {
     fn handle_getdata(
         &self,
         nc: &NetworkContext,
-        peer: PeerIndex,
+        peer: PeerId,
         message: &nervos_protocol::GetData,
     ) {
         info!(target: "sync", "handle_getdata from peer {}", peer);
@@ -170,7 +170,7 @@ impl<C: ChainClient + 'static> SyncProtocol<C> {
     fn process_inventory(
         &self,
         nc: &NetworkContext,
-        _peer: PeerIndex,
+        _peer: PeerId,
         inventory: &nervos_protocol::Inventory,
     ) {
         let inv_type = inventory.get_inv_type();
@@ -183,7 +183,7 @@ impl<C: ChainClient + 'static> SyncProtocol<C> {
                 {
                     let mut payload = nervos_protocol::Payload::new();
                     payload.set_block(block.into());
-                    let _ = nc.response(payload);
+                    let _ = nc.respond(payload);
                 } else {
                     //Reponse notfound
                 }
@@ -192,7 +192,7 @@ impl<C: ChainClient + 'static> SyncProtocol<C> {
         }
     }
 
-    fn handle_block(&self, nc: &NetworkContext, peer: PeerIndex, message: &nervos_protocol::Block) {
+    fn handle_block(&self, nc: &NetworkContext, peer: PeerId, message: &nervos_protocol::Block) {
         info!(target: "sync", "handle_block from peer {}", peer);
 
         let block: Block = message.into();
@@ -378,7 +378,7 @@ impl<C: ChainClient + 'static> SyncProtocol<C> {
 }
 
 impl<C: ChainClient + 'static> NetworkProtocolHandler for SyncProtocol<C> {
-    fn process(&self, nc: &NetworkContext, peer: PeerIndex, payload: nervos_protocol::Payload) {
+    fn process(&self, nc: &NetworkContext, peer: PeerId, payload: nervos_protocol::Payload) {
         if payload.has_getheaders() {
             self.handle_getheaders(nc, peer, payload.get_getheaders());
         } else if payload.has_headers() {
@@ -390,7 +390,7 @@ impl<C: ChainClient + 'static> NetworkProtocolHandler for SyncProtocol<C> {
         }
     }
 
-    fn connected(&self, nc: &NetworkContext, peer: PeerIndex) {
+    fn connected(&self, nc: &NetworkContext, peer: PeerId) {
         let locator_hash = self.chain.get_locator();
         let mut payload = nervos_protocol::Payload::new();
         let mut getheaders = nervos_protocol::GetHeaders::new();
@@ -402,7 +402,7 @@ impl<C: ChainClient + 'static> NetworkProtocolHandler for SyncProtocol<C> {
         let _ = nc.send(peer, payload);
     }
 
-    fn disconnected(&self, _nc: &NetworkContext, _peer: PeerIndex) {
+    fn disconnected(&self, _nc: &NetworkContext, _peer: PeerId) {
         // TODO
     }
 }
@@ -429,17 +429,14 @@ impl<C: ChainClient + 'static> RelayProtocol<C> {
         }
     }
 
-    pub fn relay(
-        &self,
-        nc: &NetworkContext,
-        source: PeerIndex,
-        payload: &nervos_protocol::Payload,
-    ) {
-        for peer in nc.peers() {
-            if peer != source {
-                let _ = nc.send(peer, payload.clone());
-            }
-        }
+    #[allow(unused_variables)]
+    pub fn relay(&self, nc: &NetworkContext, source: PeerId, payload: &nervos_protocol::Payload) {
+        unimplemented!()
+        // for peer in nc.peers() {
+        //     if peer != source {
+        //         let _ = nc.send(peer, payload.clone());
+        //     }
+        // }
     }
 
     fn reconstruct_block(
@@ -479,7 +476,7 @@ impl<C: ChainClient + 'static> RelayProtocol<C> {
 }
 
 impl<C: ChainClient + 'static> NetworkProtocolHandler for RelayProtocol<C> {
-    fn process(&self, nc: &NetworkContext, peer: PeerIndex, payload: nervos_protocol::Payload) {
+    fn process(&self, nc: &NetworkContext, peer: PeerId, payload: nervos_protocol::Payload) {
         if payload.has_transaction() {
             let tx: Transaction = payload.get_transaction().into();
             if !self.received_transactions.lock().insert(tx.hash()) {
@@ -513,7 +510,7 @@ impl<C: ChainClient + 'static> NetworkProtocolHandler for RelayProtocol<C> {
                         self.pending_compact_blocks
                             .lock()
                             .insert(compact_block.header.hash(), compact_block);
-                        let _ = nc.response(payload);
+                        let _ = nc.respond(payload);
                     }
                     (None, None) => {
                         // TODO fail to reconstruct block, downgrade to header first?
@@ -535,7 +532,7 @@ impl<C: ChainClient + 'static> NetworkProtocolHandler for RelayProtocol<C> {
                         .map(Into::into)
                         .collect(),
                 ));
-                let _ = nc.response(payload);
+                let _ = nc.respond(payload);
             }
         } else if payload.has_block_transactions() {
             let bt = payload.get_block_transactions();
@@ -550,11 +547,11 @@ impl<C: ChainClient + 'static> NetworkProtocolHandler for RelayProtocol<C> {
         }
     }
 
-    fn connected(&self, _nc: &NetworkContext, _peer: PeerIndex) {
+    fn connected(&self, _nc: &NetworkContext, _peer: PeerId) {
         // do nothing
     }
 
-    fn disconnected(&self, _nc: &NetworkContext, _peer: PeerIndex) {
+    fn disconnected(&self, _nc: &NetworkContext, _peer: PeerId) {
         // TODO
     }
 }

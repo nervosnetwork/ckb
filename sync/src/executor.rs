@@ -2,18 +2,17 @@ use bigint::H256;
 use core::block::Block;
 use core::header::Header;
 use nervos_protocol;
-use network::protocol::NetworkContext;
-use network::protocol::PeerIndex;
+use network::{NetworkContext, PeerId};
 use protobuf::RepeatedField;
 
 // TODO refactor these code and protocol.rs
 #[allow(dead_code)]
 #[derive(Debug, PartialEq)]
 pub enum Task {
-    GetHeaders(PeerIndex, Vec<H256>),
-    GetData(PeerIndex, nervos_protocol::GetData),
-    Headers(PeerIndex, Vec<Header>),
-    Block(PeerIndex, Box<Block>), //boxing the large fields to reduce the total size of the enum
+    GetHeaders(PeerId, Vec<H256>),
+    GetData(PeerId, nervos_protocol::GetData),
+    Headers(PeerId, Vec<Header>),
+    Block(PeerId, Box<Block>), //boxing the large fields to reduce the total size of the enum
 }
 
 pub struct Executor<'a> {
@@ -32,7 +31,7 @@ impl<'a> Executor<'a> {
         }
     }
 
-    fn execute_headers(&self, peer: PeerIndex, headers: &[Header]) {
+    fn execute_headers(&self, peer: PeerId, headers: &[Header]) {
         info!(target: "sync", "sync executor execute_headers to {:?}", peer);
         let mut payload = nervos_protocol::Payload::new();
         let mut headers_proto = nervos_protocol::Headers::new();
@@ -42,14 +41,14 @@ impl<'a> Executor<'a> {
         let _ = self.nc.send(peer, payload);
     }
 
-    fn execute_getdata(&self, peer: PeerIndex, getdata: nervos_protocol::GetData) {
+    fn execute_getdata(&self, peer: PeerId, getdata: nervos_protocol::GetData) {
         info!(target: "sync", "sync executor execute_getdata to {:?}", peer);
         let mut payload = nervos_protocol::Payload::new();
         payload.set_getdata(getdata);
         let _ = self.nc.send(peer, payload);
     }
 
-    fn execute_getheaders(&self, peer: PeerIndex, locator_hash: &[H256]) {
+    fn execute_getheaders(&self, peer: PeerId, locator_hash: &[H256]) {
         info!(target: "sync", "sync executor execute_getheaders to {:?}", peer);
         let mut payload = nervos_protocol::Payload::new();
         let mut getheaders = nervos_protocol::GetHeaders::new();
@@ -61,7 +60,7 @@ impl<'a> Executor<'a> {
         let _ = self.nc.send(peer, payload);
     }
 
-    fn execute_block(&self, peer: PeerIndex, block: &Block) {
+    fn execute_block(&self, peer: PeerId, block: &Block) {
         info!(target: "sync", "sync executor execute_block to {:?}", peer);
         let mut payload = nervos_protocol::Payload::new();
         payload.set_block(block.into());

@@ -38,6 +38,23 @@ impl Spec {
         ))?;
         let env = env::var("NERVOS_ENV").unwrap_or_else(|_| "development".into());
         c.merge(File::with_name(data_path.join(env).to_str().unwrap()).required(false))?;
-        c.try_into().map(|configs| Spec { configs, dirs })
+        c.try_into().map(|mut configs: Configs| {
+            if let Some(file) = configs.logger.file {
+                let mut path = dirs.join("logs");
+                path.push(file);
+                configs.logger.file = Some(path.to_str().unwrap().to_string());
+            }
+            if let Some(file) = configs.network.secret_file {
+                let mut path = dirs.join("network");
+                path.push(file);
+                configs.network.secret_file = Some(path.to_str().unwrap().to_string());
+            }
+            if let Some(file) = configs.network.nodes_file {
+                let mut path = dirs.join("network");
+                path.push(file);
+                configs.network.nodes_file = Some(path.to_str().unwrap().to_string());
+            }
+            Spec { configs, dirs }
+        })
     }
 }

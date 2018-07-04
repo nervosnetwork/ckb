@@ -14,6 +14,7 @@ extern crate nervos_protocol;
 extern crate nervos_sync as sync;
 #[macro_use]
 extern crate serde_derive;
+extern crate rand;
 
 use bigint::H256;
 use chain::chain::ChainClient;
@@ -25,10 +26,10 @@ use jsonrpc_minihttp_server::ServerBuilder;
 use jsonrpc_server_utils::cors::AccessControlAllowOrigin;
 use jsonrpc_server_utils::hosts::DomainsValidation;
 use nervos_protocol::Payload;
-use network::Network;
-use network::protocol::NetworkContext;
+use network::NetworkService;
+use rand::{thread_rng, Rng};
 use std::sync::Arc;
-use sync::protocol::SYNC_PROTOCOL_ID;
+use sync::protocol::RELAY_PROTOCOL_ID;
 
 build_rpc_trait! {
     pub trait Rpc {
@@ -54,7 +55,7 @@ build_rpc_trait! {
 }
 
 struct RpcImpl {
-    pub network: Arc<Network>,
+    pub network: Arc<NetworkService>,
     pub chain: Arc<ChainClient>,
 }
 
@@ -62,10 +63,13 @@ impl Rpc for RpcImpl {
     fn send_transaction(&self, tx: Transaction) -> Result<H256> {
         let result = tx.hash();
         let tx: nervos_protocol::Transaction = (&tx).into();
-        let nc = self.network.build_network_context(SYNC_PROTOCOL_ID);
         let mut payload = Payload::new();
         payload.set_transaction(tx);
-        nc.send_all(payload);
+        if let Some(peer_id) = thread_rng().choose(&self.network.connected_peers()) {
+            self.network.with_context(RELAY_PROTOCOL_ID, |nc| {
+                nc.send(*peer_id, payload).ok();
+            })
+        };
         Ok(result)
     }
 
@@ -90,7 +94,7 @@ pub struct RpcServer {
     pub config: Config,
 }
 impl RpcServer {
-    pub fn start(&self, network: Arc<Network>, chain: Arc<ChainClient>) {
+    pub fn start(&self, network: Arc<NetworkService>, chain: Arc<ChainClient>) {
         let mut io = IoHandler::new();
         io.extend_with(RpcImpl { network, chain }.to_delegate());
 

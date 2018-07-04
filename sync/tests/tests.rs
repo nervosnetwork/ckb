@@ -24,13 +24,12 @@ use core::header::{Header, RawHeader, Seal};
 use db::memorydb::MemoryKeyValueDB;
 use ethash::Ethash;
 use nervos_protocol::Payload;
-use network::protocol::{NetworkContext, NetworkProtocolHandler};
-use network::protocol::{PeerIndex, ProtocolId};
+use network::*;
 use notify::Notify;
 use std::collections::HashMap;
-use std::io::Error;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
+use std::time::Duration;
 use std::{thread, time as std_time};
 use sync::chain::Chain as SyncChain;
 use sync::protocol::{SyncProtocol, SYNC_PROTOCOL_ID};
@@ -39,9 +38,9 @@ use time::now_ms;
 
 #[derive(Default)]
 struct TestNode {
-    pub peers: Vec<PeerIndex>,
-    pub senders: HashMap<(ProtocolId, PeerIndex), Sender<Payload>>,
-    pub receivers: HashMap<(ProtocolId, PeerIndex), Receiver<Payload>>,
+    pub peers: Vec<PeerId>,
+    pub senders: HashMap<(ProtocolId, PeerId), Sender<Payload>>,
+    pub receivers: HashMap<(ProtocolId, PeerId), Receiver<Payload>>,
     pub protocols: HashMap<ProtocolId, Arc<NetworkProtocolHandler + Send + Sync>>,
 }
 
@@ -99,21 +98,15 @@ impl TestNode {
 
 struct TestNetworkContext {
     protocol: ProtocolId,
-    current_peer: Option<PeerIndex>,
-    senders: HashMap<(ProtocolId, PeerIndex), Sender<Payload>>,
+    current_peer: Option<PeerId>,
+    senders: HashMap<(ProtocolId, PeerId), Sender<Payload>>,
 }
 
 impl NetworkContext for TestNetworkContext {
-    fn send_all(&self, payload: Payload) {
-        for peer in self.peers() {
-            let _ = self.send_protocol(self.protocol, peer, payload.clone());
-        }
-    }
-
     fn send_protocol(
         &self,
         protocol: ProtocolId,
-        peer: PeerIndex,
+        peer: PeerId,
         payload: Payload,
     ) -> Result<(), Error> {
         if let Some(sender) = self.senders.get(&(protocol, peer)) {
@@ -122,11 +115,11 @@ impl NetworkContext for TestNetworkContext {
         Ok(())
     }
 
-    fn send(&self, peer: PeerIndex, payload: Payload) -> Result<(), Error> {
+    fn send(&self, peer: PeerId, payload: Payload) -> Result<(), Error> {
         self.send_protocol(self.protocol, peer, payload)
     }
 
-    fn response(&self, payload: Payload) -> Result<(), Error> {
+    fn respond(&self, payload: Payload) -> Result<(), Error> {
         if let Some(peer) = self.current_peer {
             self.send(peer, payload)
         } else {
@@ -134,15 +127,41 @@ impl NetworkContext for TestNetworkContext {
         }
     }
 
-    fn disable_peer(&self, _peer: PeerIndex) {
+    fn disable_peer(&self, _peer: PeerId) {
         unimplemented!()
     }
 
-    fn disconnect_peer(&self, _peer: PeerIndex) {
+    fn disconnect_peer(&self, _peer: PeerId) {
         unimplemented!()
     }
 
-    fn peers(&self) -> Vec<PeerIndex> {
+    /// Check if the session is still active.
+    fn is_expired(&self) -> bool {
+        unimplemented!()
+    }
+
+    /// Register a new IO timer. 'IoHandler::timeout' will be called with the token.
+    fn register_timer(&self, token: TimerToken, delay: Duration) -> Result<(), Error> {
+        unimplemented!()
+    }
+
+    /// Returns peer identification string
+    fn peer_client_version(&self, peer: PeerId) -> String {
+        unimplemented!()
+    }
+
+    /// Returns information on p2p session
+    fn session_info(&self, peer: PeerId) -> Option<SessionInfo> {
+        unimplemented!()
+    }
+
+    /// Returns max version for a given protocol.
+    fn protocol_version(&self, protocol: ProtocolId, peer: PeerId) -> Option<u8> {
+        unimplemented!()
+    }
+
+    /// Returns this object's subprotocol name.
+    fn subprotocol_name(&self) -> ProtocolId {
         unimplemented!()
     }
 }
