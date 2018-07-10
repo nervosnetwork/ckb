@@ -16,6 +16,7 @@ nervos-time = { path = "../util/time" }
 log = "0.4"
 nervos-notify = { path = "../notify" }
 nervos-verification = { path = "../verification" }
+crossbeam-channel = "0.1"
 
 [dev-dependencies]
 env_logger = "0.4"

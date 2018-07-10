@@ -1,5 +1,7 @@
 //! The primary module containing the implementations of the transaction pool
 //! and its top-level members.
+#![allow(unknown_lints)]
+#![allow(while_let_loop)]
 
 use std::collections::HashMap;
 use std::iter::Iterator;
@@ -89,6 +91,11 @@ impl Pool {
     /// add a verified transaction
     pub fn add_transaction(&mut self, tx: Transaction) {
         self.pool.add_transaction(tx);
+    }
+
+    /// readd a verified transaction
+    pub fn readd_transaction(&mut self, tx: &Transaction) {
+        self.pool.readd_transaction(&tx);
     }
 
     /// when the transaction related to the vertex was packaged, we remove it.
@@ -248,7 +255,7 @@ fn estimate_transaction_size(_tx: &Transaction) -> u64 {
 pub struct DirectedGraph {
     edges: HashMap<OutPoint, Option<H256>>,
     out_edges: HashMap<OutPoint, Option<H256>>,
-    vertices: HashMap<H256, PoolEntry>,
+    no_roots: HashMap<H256, PoolEntry>,
 
     // roots (vertices with in-degree 0, no pool reference)
     roots: HashMap<H256, PoolEntry>,
@@ -260,7 +267,7 @@ impl DirectedGraph {
         DirectedGraph {
             edges: HashMap::new(),
             out_edges: HashMap::new(),
-            vertices: HashMap::new(),
+            no_roots: HashMap::new(),
             roots: HashMap::new(),
         }
     }
@@ -281,7 +288,32 @@ impl DirectedGraph {
     }
 
     pub fn is_pool_tx(&self, h: &H256) -> bool {
-        self.roots.contains_key(h) || self.vertices.contains_key(h)
+        self.roots.contains_key(h) || self.no_roots.contains_key(h)
+    }
+
+    //
+    pub fn readd_transaction(&mut self, tx: &Transaction) {
+        let inputs = tx.input_pts();
+        let outputs = tx.output_pts();
+        let h = tx.hash();
+
+        for i in inputs {
+            self.out_edges.insert(i, Some(h));
+        }
+
+        for o in outputs {
+            if let Some(h) = self.remove_out_edge(&o) {
+                if let Some(mut x) = self.roots.remove(&h) {
+                    x.refs_count += 1;
+                    self.no_roots.insert(h, x);
+                } else if let Some(x) = self.no_roots.get_mut(&h) {
+                    x.refs_count += 1;
+                }
+                self.edges.insert(o, Some(h));
+            } else {
+                self.edges.insert(o, None);
+            }
+        }
     }
 
     /// add a verified transaction
@@ -308,7 +340,7 @@ impl DirectedGraph {
         if count == 0 {
             self.roots.insert(h, PoolEntry::new(tx, count));
         } else {
-            self.vertices.insert(h, PoolEntry::new(tx, count));
+            self.no_roots.insert(h, PoolEntry::new(tx, count));
         }
     }
 
@@ -340,7 +372,7 @@ impl DirectedGraph {
 
     /// when the transaction's input is used by other transaction, we remove it.
     pub fn remove_vertex(&mut self, h: &H256) {
-        if let Some(x) = self.vertices.remove(h).or_else(|| self.roots.remove(h)) {
+        if let Some(x) = self.no_roots.remove(h).or_else(|| self.roots.remove(h)) {
             let tx = x.transaction;
 
             for i in tx.input_pts() {
@@ -363,7 +395,7 @@ impl DirectedGraph {
     /// dec vertex's pool output ref num
     pub fn dec_ref(&mut self, h: &H256) {
         let mut count = 1;
-        if let Some(x) = self.vertices.get_mut(h) {
+        if let Some(x) = self.no_roots.get_mut(h) {
             x.refs_count -= 1;
             count = x.refs_count;
         }
@@ -373,16 +405,40 @@ impl DirectedGraph {
         }
     }
 
+    pub fn get_potential_root(
+        &self,
+        tx: &Transaction,
+        counts: &mut HashMap<H256, u64>,
+    ) -> Vec<Transaction> {
+        let mut roots = Vec::new();
+        let outputs = tx.output_pts();
+
+        for o in outputs {
+            if let Some(h) = self.get_edge(&o) {
+                if let Some(x) = self.no_roots.get(&h) {
+                    let c = *counts.get(&h).unwrap_or(&1);
+                    if x.refs_count == c {
+                        roots.push(x.transaction.clone());
+                    } else {
+                        counts.insert(h, c + 1);
+                    }
+                }
+            }
+        }
+
+        roots
+    }
+
     /// move a poolentry from vertices to roots
     pub fn update_root(&mut self, h: &H256) {
-        if let Some(x) = self.vertices.remove(h) {
+        if let Some(x) = self.no_roots.remove(h) {
             self.roots.insert(*h, x);
         }
     }
 
     /// Number of vertices (root + internal)
     pub fn len_vertices(&self) -> usize {
-        self.vertices.len() + self.roots.len()
+        self.no_roots.len() + self.roots.len()
     }
 
     /// Number of root vertices only
@@ -397,12 +453,43 @@ impl DirectedGraph {
 
     /// Get the current list of roots
     pub fn get_roots(&self, n: usize) -> Vec<Transaction> {
-        self.roots
-            .values()
-            .take(n)
-            .map(|x| &x.transaction)
-            .cloned()
-            .collect()
+        if self.roots.len() <= n {
+            self.roots
+                .values()
+                .take(n)
+                .map(|x| &x.transaction)
+                .cloned()
+                .collect()
+        } else {
+            let mut roots: Vec<Transaction> = self
+                .roots
+                .values()
+                .map(|x| &x.transaction)
+                .cloned()
+                .collect();
+            let mut counts = HashMap::new();
+            let mut i = 0;
+            let mut new;
+            loop {
+                if let Some(r) = roots.get(i) {
+                    new = self.get_potential_root(&r, &mut counts);
+                } else {
+                    break;
+                }
+
+                roots.append(&mut new);
+                if roots.len() >= n {
+                    break;
+                }
+                i += 1;
+            }
+
+            if roots.len() > n {
+                roots.split_off(n);
+            }
+
+            roots
+        }
     }
 
     /// Get list of all vertices in this graph including the roots
@@ -410,7 +497,7 @@ impl DirectedGraph {
         self.roots
             .values()
             .map(|x| &x.transaction)
-            .chain(self.vertices.values().map(|x| &x.transaction))
+            .chain(self.no_roots.values().map(|x| &x.transaction))
             .cloned()
             .collect::<Vec<Transaction>>()
     }
@@ -443,14 +530,14 @@ mod tests {
         pool.add_transaction(tx1.clone());
         pool.add_transaction(tx2.clone());
 
-        assert_eq!(pool.pool.vertices.len(), 1);
+        assert_eq!(pool.pool.no_roots.len(), 1);
         assert_eq!(pool.pool.roots.len(), 1);
         assert_eq!(pool.pool.edges.len(), 2);
 
         pool.commit_transaction(&tx1);
 
         assert_eq!(pool.pool.roots.len(), 1);
-        assert_eq!(pool.pool.vertices.len(), 0);
+        assert_eq!(pool.pool.no_roots.len(), 0);
     }
 
 }

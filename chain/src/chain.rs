@@ -9,19 +9,20 @@ use core::transaction_meta::TransactionMeta;
 use db::batch::Batch;
 use ethash::Ethash;
 use index::ChainIndex;
+use nervos_notify::Notify;
+use nervos_verification::{Error as VerifyError, HeaderVerifier, Verifier};
 use std::sync::Arc;
 use time::now_ms;
 use util::{Mutex, RwLock, RwLockReadGuard};
 
-#[derive(Debug, PartialEq, Clone, Eq)]
+#[derive(Debug)]
 pub enum Error {
+    Duplicate,
+    UnknownParent,
+    Verification(VerifyError),
     InvalidInput,
     InvalidOutput,
-}
-
-pub enum SealerType {
-    Normal,
-    Noop,
+    NotFound,
 }
 
 pub struct Chain<CS> {
@@ -30,8 +31,9 @@ pub struct Chain<CS> {
     tip_header: RwLock<Header>,
     total_difficulty: RwLock<U256>,
     output_root: RwLock<H256>,
-    ethash: Option<Arc<Ethash>>,
+    ethash: Arc<Ethash>,
     lock: Mutex<()>,
+    notify: Notify,
 }
 
 pub trait ChainClient: Sync + Send + CellProvider {
@@ -56,6 +58,8 @@ pub trait ChainClient: Sync + Send + CellProvider {
 
     fn get_transaction(&self, hash: &H256) -> Option<Transaction>;
 
+    fn contain_transaction(&self, hash: &H256) -> bool;
+
     fn get_transaction_meta(&self, hash: &H256) -> Option<TransactionMeta>;
 
     // NOTE: reward and fee are returned now as u32 since capacity is also
@@ -66,10 +70,6 @@ pub trait ChainClient: Sync + Send + CellProvider {
     // fee that miner can obtain. Could result in error state when input
     // transaction is missing.
     fn calculate_transaction_fee(&self, transaction: &Transaction) -> Result<u32, Error>;
-
-    fn sealer_type(&self) -> SealerType;
-
-    fn ethash(&self) -> Option<Arc<Ethash>>;
 }
 
 impl<CS: ChainIndex> CellProvider for Chain<CS> {
@@ -100,7 +100,8 @@ impl<CS: ChainIndex> Chain<CS> {
     pub fn init(
         store: CS,
         config: Config,
-        ethash: Option<Arc<Ethash>>,
+        ethash: &Arc<Ethash>,
+        notify: Notify,
     ) -> Result<Chain<CS>, Error> {
         // check head in store or save the genesis block as head
         let genesis = config.genesis_block();
@@ -125,12 +126,32 @@ impl<CS: ChainIndex> Chain<CS> {
         Ok(Chain {
             store,
             config,
-            ethash,
             tip_header: RwLock::new(tip_header),
             output_root: RwLock::new(r),
             total_difficulty: RwLock::new(td),
+            ethash: Arc::clone(ethash),
             lock: Mutex::new(()),
+            notify,
         })
+    }
+
+    fn check_header(&self, h: &Header) -> Result<(), Error> {
+        if self.block_header(&h.hash()).is_some() {
+            return Err(Error::Duplicate);
+        }
+
+        let pre_header = self
+            .block_header(&h.parent_hash)
+            .ok_or(Error::UnknownParent)?;
+
+        // TODO use factory pattern and move code to verification module
+        if self.config.verifier_type == "Normal" {
+            HeaderVerifier::new(&pre_header, h, &self.ethash)
+                .verify()
+                .map_err(Error::Verification)?;
+        }
+
+        Ok(())
     }
 
     fn check_transactions(&self, b: &Block) -> Result<H256, Error> {
@@ -139,13 +160,13 @@ impl<CS: ChainIndex> Chain<CS> {
 
         for tx in &b.transactions {
             let mut ins = tx.input_pts();
-            let outs = tx.output_pts();
+            let mut outs = tx.output_pts();
 
             // Cellbase transaction only has one null input
             if !tx.is_cellbase() {
                 inputs.append(&mut ins);
             }
-            outputs.push(outs);
+            outputs.append(&mut outs);
         }
 
         let root = self.output_root(&b.header.parent_hash).unwrap();
@@ -155,11 +176,27 @@ impl<CS: ChainIndex> Chain<CS> {
             .ok_or(Error::InvalidOutput)
     }
 
+    fn check_cellbase(&self, b: &Block) -> Result<(), Error> {
+        if b.transactions.is_empty() || (!b.transactions[0].is_cellbase()) {
+            return Ok(());
+        }
+        let cellbase_transaction = &b.transactions[0];
+        let block_reward = self.block_reward(b.header.raw.number);
+        let mut fee = 0;
+        for transaction in b.transactions.iter().skip(1) {
+            fee += self.calculate_transaction_fee(transaction)?;
+        }
+        let total_reward = block_reward + fee;
+        if cellbase_transaction.outputs[0].capacity != total_reward {
+            Err(Error::InvalidOutput)
+        } else {
+            Ok(())
+        }
+    }
+
     //TODO: best block
     fn insert_block(&self, b: &Block, root: H256) {
         self.store.save_with_batch(|batch| {
-            let _guard = self.lock.lock();
-
             let block_hash = b.hash();
             let parent_ext = self
                 .store
@@ -182,7 +219,9 @@ impl<CS: ChainIndex> Chain<CS> {
             };
 
             if best_block {
+                let _guard = self.lock.lock();
                 info!(target: "chain", "new best block found: {}", b.hash());
+                self.notify.notify_canon_block(b.clone());
                 *self.total_difficulty.write() = cannon_total_difficulty;
                 self.update_index(batch, &b);
                 *self.tip_header.write() = b.header.clone();
@@ -198,13 +237,18 @@ impl<CS: ChainIndex> Chain<CS> {
         let old_height = { self.tip_header.read().number };
         let mut height = b.header.number - 1;
 
+        let mut old_txs = Vec::new();
+        let mut new_txs = Vec::new();
+
         if height < old_height {
             for h in height..old_height + 1 {
                 let hash = self.block_hash(h).unwrap();
-                let txs = self.block_body(&hash).unwrap();
+                let mut txs = self.block_body(&hash).unwrap();
                 self.store.delete_block_hash(batch, h);
                 self.store.delete_block_height(batch, &hash);
                 self.store.delete_transaction_address(batch, &txs);
+                txs.reverse();
+                old_txs.append(&mut txs);
             }
         }
 
@@ -222,17 +266,25 @@ impl<CS: ChainIndex> Chain<CS> {
                 if old_hash == hash {
                     break;
                 }
-                let txs = self.block_body(&old_hash).unwrap();
+                let mut txs = self.block_body(&old_hash).unwrap();
                 self.store.delete_transaction_address(batch, &txs);
+                txs.reverse();
+                old_txs.append(&mut txs);
             }
 
-            let txs = self.block_body(&hash).unwrap();
+            let mut txs = self.block_body(&hash).unwrap();
             self.store.insert_block_hash(batch, height, &hash);
             self.store.insert_block_height(batch, &hash, height);
             self.store.insert_transaction_address(batch, &hash, &txs);
+            txs.reverse();
+            new_txs.append(&mut txs);
 
             hash = self.block_header(&hash).unwrap().parent_hash;
             height -= 1;
+        }
+
+        if !old_txs.is_empty() || !new_txs.is_empty() {
+            self.notify.notify_switch_fork((old_txs, new_txs));
         }
     }
 
@@ -291,7 +343,8 @@ impl<CS: ChainIndex> ChainClient for Chain<CS> {
 
     fn process_block(&self, b: &Block) -> Result<(), Error> {
         info!(target: "chain", "begin processing block: {}", b.hash());
-        // TODO move avl check to verifier??
+        self.check_header(&b.header)?;
+        self.check_cellbase(b)?;
         let root = self.check_transactions(b)?;
         self.insert_block(b, root);
         info!(target: "chain", "finish processing block");
@@ -335,6 +388,10 @@ impl<CS: ChainIndex> ChainClient for Chain<CS> {
         self.store.get_transaction(hash)
     }
 
+    fn contain_transaction(&self, hash: &H256) -> bool {
+        self.store.get_transaction_address(hash).is_some()
+    }
+
     fn get_transaction_meta(&self, hash: &H256) -> Option<TransactionMeta> {
         self.store
             .get_transaction_meta(*self.output_root.read(), *hash)
@@ -373,17 +430,5 @@ impl<CS: ChainIndex> ChainClient for Chain<CS> {
         }
         fee -= spent_capacity;
         Ok(fee)
-    }
-
-    fn sealer_type(&self) -> SealerType {
-        if self.config.sealer_type == "Normal" {
-            SealerType::Normal
-        } else {
-            SealerType::Noop
-        }
-    }
-
-    fn ethash(&self) -> Option<Arc<Ethash>> {
-        self.ethash.clone()
     }
 }

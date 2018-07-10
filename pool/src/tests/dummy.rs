@@ -99,6 +99,10 @@ impl ChainClient for DummyChainImpl {
         Ok(())
     }
 
+    fn contain_transaction(&self, _h: &H256) -> bool {
+        false
+    }
+
     fn get_locator(&self) -> Vec<H256> {
         vec![]
     }

@@ -2,10 +2,12 @@
 use core::block::Block;
 use core::cell::CellState;
 use core::transaction::{OutPoint, Transaction};
+use crossbeam_channel;
 use nervos_chain::chain::ChainClient;
 use nervos_notify::Notify;
 use nervos_verification::TransactionVerifier;
 use std::sync::Arc;
+use std::thread;
 use txs_pool::types::*;
 use util::RwLock;
 
@@ -24,16 +26,56 @@ pub struct TransactionPool<T> {
 
 impl<T> TransactionPool<T>
 where
-    T: ChainClient,
+    T: ChainClient + 'static,
 {
     /// Create a new transaction pool
-    pub fn new(config: PoolConfig, chain: &Arc<T>, notify: Notify) -> TransactionPool<T> {
-        TransactionPool {
+    pub fn new(config: PoolConfig, chain: Arc<T>, notify: Notify) -> Arc<TransactionPool<T>> {
+        let pool = Arc::new(TransactionPool {
             config,
             pool: RwLock::new(Pool::new()),
             orphan: RwLock::new(OrphanPool::new()),
-            chain: Arc::clone(chain),
+            chain,
             notify,
+        });
+
+        let (tx1, rx1) = crossbeam_channel::unbounded();
+        pool.notify.register_canon_subscribers("pool", tx1);
+        let pool1 = Arc::<TransactionPool<T>>::clone(&pool);
+        thread::spawn(move || {
+            while let Ok(b) = rx1.recv() {
+                pool1.reconcile_block(&b);
+            }
+        });
+
+        let (tx2, rx2) = crossbeam_channel::unbounded();
+        pool.notify.register_fork_subscribers("pool", tx2);
+        let pool2 = Arc::<TransactionPool<T>>::clone(&pool);
+        thread::spawn(move || {
+            while let Ok(t) = rx2.recv() {
+                pool2.switch_fork(t);
+            }
+        });
+
+        pool
+    }
+
+    pub fn switch_fork(&self, txs: (Vec<Transaction>, Vec<Transaction>)) {
+        let (old, mut new) = txs;
+        for tx in old {
+            self.pool.write().readd_transaction(&tx);
+        }
+
+        new.reverse();
+
+        for tx in new {
+            let in_pool = { self.pool.write().commit_transaction(&tx) };
+            if !in_pool {
+                {
+                    self.orphan.write().commit_transaction(&tx);
+                }
+
+                self.resolve_conflict(&tx);
+            }
         }
     }
 
@@ -171,12 +213,8 @@ where
             }
         }
 
-        let outputs = tx.output_pts();
-
-        for o in outputs {
-            if self.cell_state(&o).is_some() {
-                return Err(PoolError::DuplicateOutput);
-            }
+        if self.chain.contain_transaction(&h) {
+            return Err(PoolError::DuplicateOutput);
         }
 
         Ok(())

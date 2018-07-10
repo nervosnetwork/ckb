@@ -7,3 +7,4 @@ authors = ["Nervos Core Dev <dev@nervos.org>"]
 fnv = "1.0"
 nervos-util = { path = "../util" }
 crossbeam-channel = "0.1"
+nervos-core = { path = "../core" }

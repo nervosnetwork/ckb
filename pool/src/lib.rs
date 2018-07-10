@@ -1,4 +1,5 @@
 extern crate bigint;
+extern crate crossbeam_channel;
 extern crate nervos_chain;
 extern crate nervos_core as core;
 extern crate nervos_notify;

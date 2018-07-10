@@ -17,6 +17,7 @@ extern crate serde;
 extern crate tempdir;
 #[macro_use]
 extern crate serde_derive;
+extern crate nervos_notify;
 
 pub mod cachedb;
 pub mod chain;

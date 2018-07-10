@@ -10,7 +10,7 @@ use ethash::Ethash;
 use logger;
 use miner::miner::Miner;
 use nervos_notify::Notify;
-use network::NetworkService;
+use network::Network;
 use pool::*;
 use rpc::RpcServer;
 use std::sync::Arc;
@@ -20,7 +20,7 @@ use sync::protocol::{RelayProtocol, SyncProtocol, RELAY_PROTOCOL_ID, SYNC_PROTOC
 use util::{Condvar, Mutex};
 
 pub fn run(spec: Spec) {
-    logger::init(spec.configs.logger.clone()).expect("Init Logger");
+    logger::init(spec.configs.logger.clone(), spec.dirs.join("logs")).expect("Init Logger");
 
     info!(target: "main", "Value for spec: {:?}", spec);
 
@@ -32,24 +32,23 @@ pub fn run(spec: Spec) {
 
     let ethash = Arc::new(Ethash::new(spec.dirs.join("ethash")));
     let notify = Notify::new();
-    let chain =
-        Arc::new(Chain::init(store, spec.configs.chain, Some(Arc::clone(&ethash))).unwrap());
+    let chain = Arc::new(Chain::init(store, spec.configs.chain, &ethash, notify.clone()).unwrap());
     let sync_chain = Arc::new(SyncChain::new(&chain, notify.clone()));
 
-    let tx_pool = Arc::new(TransactionPool::new(
-        PoolConfig::default(),
-        &chain,
-        notify.clone(),
-    ));
+    let chain1 = Arc::<Chain<ChainKVStore<CacheDB<RocksDB>>>>::clone(&chain);
+    let tx_pool = TransactionPool::new(PoolConfig::default(), chain1, notify.clone());
 
-    let network =
-        Arc::new(NetworkService::new(spec.configs.network, Option::None).expect("Create network"));
-    network.start().expect("Start network service");
-
+    let network = Arc::new(
+        Network::new(&spec.configs.network, spec.dirs.join("network")).expect("Create network"),
+    );
     let sync_protocol = Arc::new(SyncProtocol::new(&sync_chain));
     let relay_protocol = Arc::new(RelayProtocol::new(&sync_chain, &tx_pool));
-    network.register_protocol(sync_protocol, SYNC_PROTOCOL_ID, &[(1, 0)]);
-    network.register_protocol(relay_protocol, RELAY_PROTOCOL_ID, &[(1, 0)]);
+    network
+        .register_protocol(sync_protocol, SYNC_PROTOCOL_ID, &[1])
+        .unwrap();
+    network
+        .register_protocol(relay_protocol, RELAY_PROTOCOL_ID, &[1])
+        .unwrap();
 
     let miner_chain = Arc::clone(&chain);
     let miner = Miner::new(

@@ -33,7 +33,7 @@ pub struct Work {
     pub signal: Signal,
 }
 
-impl<C: ChainClient> Miner<C> {
+impl<C: ChainClient + 'static> Miner<C> {
     pub fn new(
         config: Config,
         chain: Arc<C>,
