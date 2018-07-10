@@ -12,13 +12,9 @@ bigint = { git = "https://github.com/NervosFoundation/bigint" }
 rand = "0.5.0"
 rustc-hex = "1.0"
 crunchy = "0.2"
-openssl = { git = "https://github.com/NervosFoundation/rust-openssl.git", branch = "pkcs8_der", optional = true }
-serde = "1.0"
-serde_derive = "1.0"
 
 [features]
 default = ["secp"]
 secp = ["secp256k1"]
 bech32 = []
-rsa = ["openssl"]
-dev = ["secp", "bech32", "rsa"]
+dev = ["secp", "bech32"]

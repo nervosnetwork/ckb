@@ -429,14 +429,12 @@ impl<C: ChainClient + 'static> RelayProtocol<C> {
         }
     }
 
-    #[allow(unused_variables)]
     pub fn relay(&self, nc: &NetworkContext, source: PeerId, payload: &nervos_protocol::Payload) {
-        unimplemented!()
-        // for peer in nc.peers() {
-        //     if peer != source {
-        //         let _ = nc.send(peer, payload.clone());
-        //     }
-        // }
+        for (peer_id, _session) in nc.sessions() {
+            if peer_id != source {
+                let _ = nc.send(peer_id, payload.clone());
+            }
+        }
     }
 
     fn reconstruct_block(

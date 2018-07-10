@@ -1,8 +1,14 @@
 [logger]
-filter = "main=info,miner=info,chain=info,network=debug,tx=debug,pool=debug,rpc=info,sync=debug"
+filter = "info,sub-libp2p=debug,libp2p=debug,libp2p_kad=info,chain=warn,sync=debug"
 
 [chain]
 verifier_type = "NoSeal"
 
 [miner]
 sealer_type="Noop"
+
+[network]
+boot_nodes = [
+    "/ip4/47.75.42.29/tcp/12345/p2p/QmU6tySavbTF2uftZz1As2at4mxCr3QhhsFpfGpEbhBDiz"
+]
+reserved_nodes = []

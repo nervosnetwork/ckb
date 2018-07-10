@@ -127,6 +127,10 @@ impl NetworkContext for TestNetworkContext {
         }
     }
 
+    fn sessions(&self) -> Vec<(PeerId, SessionInfo)> {
+        unimplemented!()
+    }
+
     fn disable_peer(&self, _peer: PeerId) {
         unimplemented!()
     }

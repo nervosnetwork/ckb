@@ -12,13 +12,8 @@ extern crate failure;
 extern crate lazy_static;
 extern crate rand;
 extern crate rustc_hex;
-#[cfg(feature = "rsa")]
-#[macro_use]
-extern crate serde_derive;
 
 #[cfg(feature = "bech32")]
 pub mod bech32;
-#[cfg(feature = "rsa")]
-pub mod rsa;
 #[cfg(feature = "secp")]
 pub mod secp;

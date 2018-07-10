@@ -23,19 +23,11 @@ ethash = { git = "https://github.com/NervosFoundation/ethash", tag = "v1.0.0" }
 logger = { path = "util/logger" }
 bigint = { git = "https://github.com/NervosFoundation/bigint" }
 dir = { path = "util/dir" }
-crypto = { path = "util/crypto", features = ["rsa", "secp"] }
 ctrlc = { version = "3.1", features = ["termination"] }
 tera = "0.11"
 lazy_static = "1.0"
 nervos-sync = { path = "sync"}
 config = "0.8"
-
-# The [patch] sections in Cargo.toml are only recognized in the root crate's manifest
-[patch.crates-io]
-# Using a version of rust-multihash that compiles on emscripten
-# TODO: remove once merged upstream
-"openssl-sys" = { git = "https://github.com/NervosFoundation/rust-openssl.git", branch = "pkcs8_der" }
-
 
 [workspace]
 members = [

@@ -14,7 +14,6 @@ extern crate nervos_protocol;
 extern crate nervos_sync as sync;
 #[macro_use]
 extern crate serde_derive;
-extern crate rand;
 
 use bigint::H256;
 use chain::chain::ChainClient;
@@ -27,7 +26,6 @@ use jsonrpc_server_utils::cors::AccessControlAllowOrigin;
 use jsonrpc_server_utils::hosts::DomainsValidation;
 use nervos_protocol::Payload;
 use network::NetworkService;
-use rand::{thread_rng, Rng};
 use std::sync::Arc;
 use sync::protocol::RELAY_PROTOCOL_ID;
 
@@ -65,11 +63,11 @@ impl Rpc for RpcImpl {
         let tx: nervos_protocol::Transaction = (&tx).into();
         let mut payload = Payload::new();
         payload.set_transaction(tx);
-        if let Some(peer_id) = thread_rng().choose(&self.network.connected_peers()) {
-            self.network.with_context(RELAY_PROTOCOL_ID, |nc| {
-                nc.send(*peer_id, payload).ok();
-            })
-        };
+        self.network.with_context_eval(RELAY_PROTOCOL_ID, |nc| {
+            for (peer_id, _session) in nc.sessions() {
+                nc.send(peer_id, payload.clone()).ok();
+            }
+        });
         Ok(result)
     }
 

@@ -8,20 +8,19 @@ use crossbeam_channel;
 use ethash::{get_epoch, Ethash};
 use nervos_notify::{Event, Notify};
 use nervos_protocol::Payload;
-use network::protocol::NetworkContext;
-use network::Network;
+use network::NetworkService;
 use pool::TransactionPool;
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::thread;
 use sync::compact_block::build_compact_block;
-use sync::protocol::SYNC_PROTOCOL_ID;
+use sync::protocol::RELAY_PROTOCOL_ID;
 use time::now_ms;
 
 pub struct Miner<C> {
     pub config: Config,
     pub chain: Arc<C>,
-    pub network: Arc<Network>,
+    pub network: Arc<NetworkService>,
     pub tx_pool: Arc<TransactionPool<C>>,
     pub sealer: Sealer,
     pub signal: Signal,
@@ -44,7 +43,7 @@ impl<C: ChainClient> Miner<C> {
         config: Config,
         chain: Arc<C>,
         tx_pool: &Arc<TransactionPool<C>>,
-        network: &Arc<Network>,
+        network: &Arc<NetworkService>,
         ethash: &Arc<Ethash>,
         notify: &Notify,
     ) -> Self {
@@ -144,10 +143,13 @@ impl<C: ChainClient> Miner<C> {
     }
 
     fn announce_new_block(&self, block: &Block) {
-        let nc = self.network.build_network_context(SYNC_PROTOCOL_ID);
-        let mut payload = Payload::new();
-        let compact_block = build_compact_block(block, &HashSet::new());
-        payload.set_compact_block(compact_block.into());
-        nc.send_all(payload)
+        self.network.with_context_eval(RELAY_PROTOCOL_ID, |nc| {
+            for (peer_id, _session) in nc.sessions() {
+                let mut payload = Payload::new();
+                let compact_block = build_compact_block(block, &HashSet::new());
+                payload.set_compact_block(compact_block.into());
+                nc.send(peer_id, payload).ok();
+            }
+        });
     }
 }

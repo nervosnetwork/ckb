@@ -43,11 +43,12 @@ pub fn run(spec: Spec) {
 
     let network =
         Arc::new(NetworkService::new(spec.configs.network, Option::None).expect("Create network"));
+    network.start().expect("Start network service");
+
     let sync_protocol = Arc::new(SyncProtocol::new(&sync_chain));
     let relay_protocol = Arc::new(RelayProtocol::new(&sync_chain, &tx_pool));
     network.register_protocol(sync_protocol, SYNC_PROTOCOL_ID, &[(1, 0)]);
     network.register_protocol(relay_protocol, RELAY_PROTOCOL_ID, &[(1, 0)]);
-    network.start().expect("Start network service");
 
     let miner_chain = Arc::clone(&chain);
     let miner = Miner::new(
