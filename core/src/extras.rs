@@ -10,6 +10,7 @@ pub struct BlockExt {
 pub struct TransactionAddress {
     // Block hash
     pub block_hash: H256,
-    // Index of block transaction
-    pub index: u32,
+    // Offset of block transaction in serialized bytes
+    pub offset: usize,
+    pub length: usize,
 }

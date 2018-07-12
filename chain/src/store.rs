@@ -1,3 +1,6 @@
+use super::flat_serializer::{
+    deserialize as flat_deserialize, serialize as flat_serialize, Address,
+};
 use avl::node::search;
 use avl::tree::AvlTree;
 use bigint::H256;
@@ -9,7 +12,11 @@ use core::transaction::{OutPoint, Transaction};
 use core::transaction_meta::TransactionMeta;
 use db::batch::{Batch, Col};
 use db::kvdb::KeyValueDB;
-use {COLUMN_BLOCK_BODY, COLUMN_BLOCK_HEADER, COLUMN_EXT, COLUMN_OUTPUT_ROOT};
+use std::ops::Range;
+use {
+    COLUMN_BLOCK_BODY, COLUMN_BLOCK_HEADER, COLUMN_BLOCK_TRANSACTION_ADDRESSES, COLUMN_EXT,
+    COLUMN_OUTPUT_ROOT,
+};
 
 pub struct ChainKVStore<T: KeyValueDB> {
     pub db: T,
@@ -18,6 +25,12 @@ pub struct ChainKVStore<T: KeyValueDB> {
 impl<T: KeyValueDB> ChainKVStore<T> {
     pub fn get(&self, col: Col, key: &[u8]) -> Option<Vec<u8>> {
         self.db.read(col, key).expect("db operation should be ok")
+    }
+
+    pub fn partial_get(&self, col: Col, key: &[u8], range: &Range<usize>) -> Option<Vec<u8>> {
+        self.db
+            .partial_read(col, key, range)
+            .expect("db operation should be ok")
     }
 }
 
@@ -107,8 +120,12 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
     }
 
     fn get_block_body(&self, h: &H256) -> Option<Vec<Transaction>> {
-        self.get(COLUMN_BLOCK_BODY, &h)
-            .map(|raw| deserialize(&raw[..]).unwrap())
+        self.get(COLUMN_BLOCK_TRANSACTION_ADDRESSES, &h)
+            .and_then(|serialized_addresses| {
+                let addresses: Vec<Address> = deserialize(&serialized_addresses).unwrap();
+                self.get(COLUMN_BLOCK_BODY, &h)
+                    .map(|serialized_body| flat_deserialize(&serialized_body, &addresses).unwrap())
+            })
     }
 
     fn get_block_ext(&self, block_hash: &H256) -> Option<BlockExt> {
@@ -175,10 +192,12 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
             hash.clone(),
             serialize(&b.header).unwrap().to_vec(),
         );
+        let (block_data, block_addresses) = flat_serialize(&b.transactions).unwrap();
+        batch.insert(COLUMN_BLOCK_BODY, hash.clone(), block_data);
         batch.insert(
-            COLUMN_BLOCK_BODY,
+            COLUMN_BLOCK_TRANSACTION_ADDRESSES,
             hash,
-            serialize(&b.transactions).unwrap().to_vec(),
+            serialize(&block_addresses).unwrap().to_vec(),
         );
     }
 
@@ -200,6 +219,7 @@ mod tests {
     use super::super::{Config, COLUMNS};
     use super::*;
     use db::diskdb::RocksDB;
+    use rand;
     use tempdir::TempDir;
 
     #[test]
@@ -233,6 +253,24 @@ mod tests {
     }
 
     #[test]
+    fn save_and_get_block_with_transactions() {
+        let tmp_dir = TempDir::new("save_and_get_block_with_transaction").unwrap();
+        let db = RocksDB::open(tmp_dir, COLUMNS);
+        let store = ChainKVStore { db: db };
+        let mut block = Config::default().genesis_block();
+        block.transactions.push(create_dummy_transaction());
+        block.transactions.push(create_dummy_transaction());
+        block.transactions.push(create_dummy_transaction());
+
+        let hash = block.hash();
+
+        store.save_with_batch(|batch| {
+            store.insert_block(batch, &block);
+        });
+        assert_eq!(block, store.get_block(&hash).unwrap());
+    }
+
+    #[test]
     fn save_and_get_block_ext() {
         let tmp_dir = TempDir::new("save_and_get_block_ext").unwrap();
         let db = RocksDB::open(tmp_dir, COLUMNS);
@@ -250,5 +288,9 @@ mod tests {
             store.insert_block_ext(batch, &hash, &ext);
         });
         assert_eq!(ext, store.get_block_ext(&hash).unwrap());
+    }
+
+    fn create_dummy_transaction() -> Transaction {
+        Transaction::new(rand::random(), Vec::new(), Vec::new(), Vec::new())
     }
 }

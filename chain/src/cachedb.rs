@@ -2,6 +2,7 @@ use db::batch::{Batch, Col, Operation};
 use db::kvdb::{KeyValueDB, Result};
 use fnv::FnvHashMap;
 use lru_cache::LruCache;
+use std::ops::Range;
 use util::RwLock;
 
 type CacheTable = FnvHashMap<Col, LruCache<Vec<u8>, Vec<u8>>>;
@@ -66,5 +67,21 @@ where
             return Ok(Some(value));
         }
         self.db.read(col, key)
+    }
+
+    fn len(&self, col: Col, key: &[u8]) -> Result<Option<usize>> {
+        let cache_guard = self.cache.read();
+        if let Some(value) = cache_guard.get(&col).and_then(|cache| cache.get(key)) {
+            return Ok(Some(value.len()));
+        }
+        self.db.len(col, key)
+    }
+
+    fn partial_read(&self, col: Col, key: &[u8], range: &Range<usize>) -> Result<Option<Vec<u8>>> {
+        let cache_guard = self.cache.read();
+        if let Some(data) = cache_guard.get(&col).and_then(|cache| cache.get(key)) {
+            return Ok(data.get(range.start..range.end).map(|slice| slice.to_vec()));
+        }
+        self.db.partial_read(col, key, range)
     }
 }

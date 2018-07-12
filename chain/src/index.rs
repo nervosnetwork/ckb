@@ -1,3 +1,4 @@
+use super::flat_serializer::serialized_addresses;
 use bigint::H256;
 use bincode::{deserialize, serialize};
 use core::block::Block;
@@ -7,7 +8,7 @@ use core::transaction::Transaction;
 use db::batch::Batch;
 use db::kvdb::KeyValueDB;
 use store::{ChainKVStore, ChainStore};
-use {COLUMN_INDEX, COLUMN_META, COLUMN_TRANSACTION_ADDR};
+use {COLUMN_BLOCK_BODY, COLUMN_INDEX, COLUMN_META, COLUMN_TRANSACTION_ADDR};
 
 const META_TIP_HEADER_KEY: &[u8] = b"TIP_HEADER";
 
@@ -61,10 +62,15 @@ impl<T: KeyValueDB> ChainIndex for ChainKVStore<T> {
     }
 
     fn get_transaction(&self, h: &H256) -> Option<Transaction> {
-        self.get_transaction_address(h).and_then(|d| {
-            self.get_block_body(&d.block_hash)
-                .map(|txs| txs[d.index as usize].clone())
-        })
+        self.get_transaction_address(h)
+            .and_then(|d| {
+                self.partial_get(
+                    COLUMN_BLOCK_BODY,
+                    &d.block_hash,
+                    &(d.offset..(d.offset + d.length)),
+                )
+            })
+            .map(|serialized_transaction| deserialize(&serialized_transaction).unwrap())
     }
 
     fn get_transaction_address(&self, h: &H256) -> Option<TransactionAddress> {
@@ -95,10 +101,12 @@ impl<T: KeyValueDB> ChainIndex for ChainKVStore<T> {
         block_hash: &H256,
         txs: &[Transaction],
     ) {
+        let addresses = serialized_addresses(txs).unwrap();
         for (id, tx) in txs.iter().enumerate() {
             let address = TransactionAddress {
                 block_hash: *block_hash,
-                index: id as u32,
+                offset: addresses[id].offset,
+                length: addresses[id].length,
             };
             batch.insert(
                 COLUMN_TRANSACTION_ADDR,

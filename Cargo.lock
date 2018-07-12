@@ -1300,7 +1300,7 @@ dependencies = [
 [[package]]
 name = "librocksdb-sys"
 version = "5.11.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
+source = "git+https://github.com/NervosFoundation/rust-rocksdb#f4bdb623c1ff1eb7d7ec846986cb166090916c95"
 dependencies = [
  "bindgen 0.29.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "cc 1.0.17 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1640,7 +1640,7 @@ dependencies = [
  "fnv 1.0.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "nervos-core 0.1.0",
  "nervos-util 0.1.0",
- "rocksdb 0.10.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "rocksdb 0.10.0 (git+https://github.com/NervosFoundation/rust-rocksdb)",
  "serde 1.0.70 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.70 (registry+https://github.com/rust-lang/crates.io-index)",
  "tempdir 0.3.7 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -2289,10 +2289,10 @@ dependencies = [
 [[package]]
 name = "rocksdb"
 version = "0.10.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
+source = "git+https://github.com/NervosFoundation/rust-rocksdb#f4bdb623c1ff1eb7d7ec846986cb166090916c95"
 dependencies = [
  "libc 0.2.42 (registry+https://github.com/rust-lang/crates.io-index)",
- "librocksdb-sys 5.11.3 (registry+https://github.com/rust-lang/crates.io-index)",
+ "librocksdb-sys 5.11.3 (git+https://github.com/NervosFoundation/rust-rocksdb)",
 ]
 
 [[package]]
@@ -3428,7 +3428,7 @@ dependencies = [
 "checksum libp2p-tcp-transport 0.1.0 (git+https://github.com/NervosFoundation/rust-libp2p?rev=77b1c445807e53b8c5e4e5e2da751222da15b8cc)" = "<none>"
 "checksum libp2p-transport-timeout 0.1.0 (git+https://github.com/NervosFoundation/rust-libp2p?rev=77b1c445807e53b8c5e4e5e2da751222da15b8cc)" = "<none>"
 "checksum libp2p-websocket 0.1.0 (git+https://github.com/NervosFoundation/rust-libp2p?rev=77b1c445807e53b8c5e4e5e2da751222da15b8cc)" = "<none>"
-"checksum librocksdb-sys 5.11.3 (registry+https://github.com/rust-lang/crates.io-index)" = "1b0fa7f4ca5ceff76237db63802cb073d84e64a327e38478e79a669093fb7fa5"
+"checksum librocksdb-sys 5.11.3 (git+https://github.com/NervosFoundation/rust-rocksdb)" = "<none>"
 "checksum linked-hash-map 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)" = "6d262045c5b87c0861b3f004610afd0e2c851e2908d08b6c870cbb9d5f494ecd"
 "checksum linked-hash-map 0.4.2 (registry+https://github.com/rust-lang/crates.io-index)" = "7860ec297f7008ff7a1e3382d7f7e1dcd69efc94751a2284bafc3d013c2aa939"
 "checksum linked-hash-map 0.5.1 (registry+https://github.com/rust-lang/crates.io-index)" = "70fb39025bc7cdd76305867c4eccf2f2dcf6e9a57f5b21a93e1c2d86cd03ec9e"
@@ -3511,7 +3511,7 @@ dependencies = [
 "checksum remove_dir_all 0.5.1 (registry+https://github.com/rust-lang/crates.io-index)" = "3488ba1b9a2084d38645c4c08276a1752dcbf2c7130d74f1569681ad5d2799c5"
 "checksum resolv-conf 0.6.1 (registry+https://github.com/rust-lang/crates.io-index)" = "c62bd95a41841efdf7fca2ae9951e64a8d8eae7e5da196d8ce489a2241491a92"
 "checksum ring 0.12.1 (registry+https://github.com/rust-lang/crates.io-index)" = "6f7d28b30a72c01b458428e0ae988d4149c20d902346902be881e3edc4bb325c"
-"checksum rocksdb 0.10.0 (registry+https://github.com/rust-lang/crates.io-index)" = "a806011ca1d26f37729ed4dc78afd607cc86d37ee913718108b0b267e768d46f"
+"checksum rocksdb 0.10.0 (git+https://github.com/NervosFoundation/rust-rocksdb)" = "<none>"
 "checksum rust-crypto 0.2.36 (registry+https://github.com/rust-lang/crates.io-index)" = "f76d05d3993fd5f4af9434e8e436db163a12a9d40e1a58a726f27a01dfd12a2a"
 "checksum rustc-demangle 0.1.8 (registry+https://github.com/rust-lang/crates.io-index)" = "76d7ba1feafada44f2d38eed812bd2489a03c0f5abb975799251518b68848649"
 "checksum rustc-hex 1.0.0 (registry+https://github.com/rust-lang/crates.io-index)" = "0ceb8ce7a5e520de349e1fa172baeba4a9e8d5ef06c47471863530bc4972ee1e"
