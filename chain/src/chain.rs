@@ -150,13 +150,13 @@ impl<CS: ChainIndex> Chain<CS> {
 
         for tx in &b.transactions {
             let mut ins = tx.input_pts();
-            let mut outs = tx.output_pts();
+            let outs = tx.output_pts();
 
             // Cellbase transaction only has one null input
             if !tx.is_cellbase() {
                 inputs.append(&mut ins);
             }
-            outputs.append(&mut outs);
+            outputs.push(outs);
         }
 
         let root = self.output_root(&b.header.parent_hash).unwrap();

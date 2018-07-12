@@ -41,7 +41,7 @@ pub trait ChainStore: Sync + Send {
         &self,
         root: H256,
         inputs: Vec<OutPoint>,
-        outputs: Vec<OutPoint>,
+        outputs: Vec<Vec<OutPoint>>,
     ) -> Option<H256>;
 
     fn insert_block(&self, batch: &mut Batch, b: &Block);
@@ -129,7 +129,7 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
         &self,
         root: H256,
         inputs: Vec<OutPoint>,
-        outputs: Vec<OutPoint>,
+        outputs_list: Vec<Vec<OutPoint>>,
     ) -> Option<H256> {
         let mut avl = AvlTree::new(&self.db, root);
 
@@ -142,26 +142,24 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
             }
         }
 
-        let len = outputs.len();
+        for outputs in outputs_list {
+            let len = outputs.len();
 
-        if len != 0 {
-            let hash = outputs[0].hash;
-            let meta = TransactionMeta::new(0, len);
-            match avl.insert(hash, meta).expect("tree operation error") {
-                None => Some(avl.commit()),
-                Some(mut old) => {
-                    if old.is_fully_spent() {
-                        old.renew();
-                        avl.insert(hash, old).expect("tree operation error"); //Do we need the fully_spent_count?
-                        Some(avl.commit())
-                    } else {
-                        None
+            if len != 0 {
+                let hash = outputs[0].hash;
+                let meta = TransactionMeta::new(0, len);
+                match avl.insert(hash, meta).expect("tree operation error") {
+                    None => {}
+                    Some(mut old) => {
+                        if !old.is_fully_spent() {
+                            return None;
+                        }
                     }
                 }
             }
-        } else {
-            Some(avl.commit())
         }
+
+        Some(avl.commit())
     }
 
     fn save_with_batch<F: FnOnce(&mut Batch)>(&self, f: F) {
