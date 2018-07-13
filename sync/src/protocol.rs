@@ -78,6 +78,9 @@ impl<C: ChainClient + 'static> SyncProtocol<C> {
         info!(target: "sync", "handle_headers from peer {}", peer);
 
         let mut headers: Vec<Header> = message.headers.iter().map(From::from).collect();
+        headers.iter().enumerate().for_each(|(i, header)| {
+            debug!(target: "sync", " <-- Received headers[{:02}]: {} => {}", i, header.number, header.hash());
+        });
         if headers.is_empty() {
             return;
         }
@@ -96,7 +99,7 @@ impl<C: ChainClient + 'static> SyncProtocol<C> {
         if self.chain.block_state(&header0.parent_hash) == BlockState::Unknown {
             info!(
                 target: "sync",
-                "Previous header of the first header from peer#{} `headers` message is unknown. First: {}. Previous: {}", 
+                "Previous header of the first header from peer#{} `headers` message is unknown. First: {}. Previous: {}",
                 peer, header0.hash(), &header0.parent_hash
             );
             return;
@@ -193,7 +196,11 @@ impl<C: ChainClient + 'static> SyncProtocol<C> {
     }
 
     fn handle_block(&self, nc: &NetworkContext, peer: PeerId, message: &nervos_protocol::Block) {
-        info!(target: "sync", "handle_block from peer {}", peer);
+        let peer_id = nc
+            .session_info(peer)
+            .map(|info| info.id.to_base58())
+            .unwrap_or_else(String::new);
+        info!(target: "sync", "handle_block from peer {} => {}", peer, peer_id);
 
         let block: Block = message.into();
         let block_hash = block.hash();
@@ -489,6 +496,11 @@ impl<C: ChainClient + 'static> NetworkProtocolHandler for RelayProtocol<C> {
             }
         } else if payload.has_compact_block() {
             let compact_block: CompactBlock = payload.get_compact_block().into();
+            debug!(target: "sync", "receive compact block from peer#{}, {} => {}",
+                   peer,
+                   compact_block.header().number,
+                   compact_block.header().hash(),
+            );
             if !self
                 .received_blocks
                 .lock()

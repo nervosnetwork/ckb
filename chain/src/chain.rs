@@ -1,4 +1,6 @@
+use super::{COLUMNS, COLUMN_BLOCK_HEADER};
 use bigint::{H256, U256};
+use cachedb::CacheDB;
 use config::Config;
 use core::block::Block;
 use core::cell::{CellProvider, CellState};
@@ -7,10 +9,16 @@ use core::header::Header;
 use core::transaction::{OutPoint, Transaction};
 use core::transaction_meta::TransactionMeta;
 use db::batch::Batch;
+use db::diskdb::RocksDB;
+use db::kvdb::KeyValueDB;
+use db::memorydb::MemoryKeyValueDB;
 use ethash::Ethash;
 use index::ChainIndex;
 use nervos_notify::Notify;
+use std::cmp;
+use std::path::Path;
 use std::sync::Arc;
+use store::ChainKVStore;
 use time::now_ms;
 use util::{Mutex, RwLock, RwLockReadGuard};
 
@@ -186,12 +194,19 @@ impl<CS: ChainIndex> Chain<CS> {
 
             let best_block = {
                 let current_total_difficulty = *self.total_difficulty.read();
+                info!(
+                    "difficulty diff = {}; current = {}, cannon = {}",
+                    cannon_total_difficulty.low_u64() as i64
+                        - current_total_difficulty.low_u64() as i64,
+                    current_total_difficulty,
+                    cannon_total_difficulty,
+                );
                 cannon_total_difficulty > current_total_difficulty
             };
 
             if best_block {
                 let _guard = self.lock.lock();
-                info!(target: "chain", "new best block found: {}", b.hash());
+                info!(target: "chain", "new best block found: {} => {}", b.header().number, b.hash());
                 self.notify.notify_canon_block(b.clone());
                 *self.total_difficulty.write() = cannon_total_difficulty;
                 self.update_index(batch, &b);
@@ -200,87 +215,83 @@ impl<CS: ChainIndex> Chain<CS> {
                 *self.output_root.write() = root;
             }
         });
-        self.print_chain(b.header.number, 10);
+        self.print_chain(10);
     }
 
     // we found new best_block total_difficulty > old_chain.total_difficulty
-    pub fn update_index(&self, batch: &mut Batch, b: &Block) {
-        let old_height = { self.tip_header.read().number };
-        let mut height = b.header.number - 1;
-
-        let mut old_txs = Vec::new();
-        let mut new_txs = Vec::new();
-
-        if height < old_height {
-            for h in height..old_height + 1 {
-                let hash = self.block_hash(h).unwrap();
-                let mut txs = self.block_body(&hash).unwrap();
-                self.store.delete_block_hash(batch, h);
-                self.store.delete_block_height(batch, &hash);
-                self.store.delete_transaction_address(batch, &txs);
-                txs.reverse();
-                old_txs.append(&mut txs);
-            }
-        }
-
-        self.store
-            .insert_block_hash(batch, b.header.number, &b.hash());
-        self.store
-            .insert_block_height(batch, &b.hash(), b.header.number);
-        self.store
-            .insert_transaction_address(batch, &b.hash(), &b.transactions);
-
-        let mut hash = b.header.parent_hash;
-
+    pub fn update_index(&self, batch: &mut Batch, block: &Block) {
+        let mut new_block: Option<Block> = None;
+        let mut old_cumulative_txs = Vec::new();
+        let mut new_cumulative_txs = Vec::new();
         loop {
-            if let Some(old_hash) = self.block_hash(height) {
-                if old_hash == hash {
-                    break;
+            new_block = {
+                let new_block_ref = new_block.as_ref().unwrap_or(block);
+                let new_hash = new_block_ref.hash();
+                let height = new_block_ref.header().number;
+
+                if let Some(old_hash) = self.block_hash(height) {
+                    if new_hash == old_hash {
+                        break;
+                    }
+                    let old_txs = self.block_body(&old_hash).unwrap();
+                    self.store.delete_block_hash(batch, height);
+                    self.store.delete_block_height(batch, &old_hash);
+                    self.store.delete_transaction_address(batch, &old_txs);
+                    old_cumulative_txs.extend(old_txs.into_iter().rev());
                 }
-                let mut txs = self.block_body(&old_hash).unwrap();
-                self.store.delete_transaction_address(batch, &txs);
-                txs.reverse();
-                old_txs.append(&mut txs);
-            }
 
-            let mut txs = self.block_body(&hash).unwrap();
-            self.store.insert_block_hash(batch, height, &hash);
-            self.store.insert_block_height(batch, &hash, height);
-            self.store.insert_transaction_address(batch, &hash, &txs);
-            txs.reverse();
-            new_txs.append(&mut txs);
+                self.store.insert_block_hash(batch, height, &new_hash);
+                self.store.insert_block_height(batch, &new_hash, height);
+                self.store.insert_transaction_address(
+                    batch,
+                    &new_hash,
+                    &new_block_ref.transactions,
+                );
+                // Current block body not insert into store yet.
+                if new_block.is_some() {
+                    let new_txs = self.block_body(&new_hash).unwrap();
+                    new_cumulative_txs.extend(new_txs.into_iter().rev());
+                }
 
-            hash = self.block_header(&hash).unwrap().parent_hash;
-            height -= 1;
+                // NOTE: Block number should be checked, so loop will finally stop.
+                //         1. block.number > 0
+                //         2. block.number = block.parent.number + 1
+                let block = self.block(&new_block_ref.header().parent_hash).unwrap();
+                Some(block)
+            };
         }
 
-        if !old_txs.is_empty() || !new_txs.is_empty() {
-            self.notify.notify_switch_fork((old_txs, new_txs));
+        if !old_cumulative_txs.is_empty() || !new_cumulative_txs.is_empty() {
+            self.notify
+                .notify_switch_fork((old_cumulative_txs, new_cumulative_txs));
         }
     }
 
-    fn print_chain(&self, tip: u64, len: u64) {
-        info!(target: "chain", "Chain {{");
+    fn print_chain(&self, len: u64) {
+        debug!(target: "chain", "Chain {{");
 
-        let limit = if tip > len { len } else { tip } + 1;
+        let tip = self.tip_header().number;
+        let bottom = tip - cmp::min(tip, len);
 
-        for i in 0..limit {
-            let hash = self.block_hash(tip - i).expect("invaild block number");
-            info!(target: "chain", "   {} => {}", tip - i, hash);
+        for number in (bottom..tip + 1).rev() {
+            let hash = self
+                .block_hash(number)
+                .expect(format!("invaild block number({}), tip={}", number, tip).as_str());
+            debug!(target: "chain", "   {} => {}", number, hash);
         }
 
-        info!(target: "chain", "}}");
+        debug!(target: "chain", "}}");
 
         // TODO: remove me when block explorer is available
-        info!(target: "chain", "Tx in Head Block {{");
+        debug!(target: "chain", "Tx in Head Block {{");
         for transaction in self
             .block_hash(tip)
             .and_then(|hash| self.store.get_block_body(&hash))
             .expect("invalid block number")
         {
-            info!(target: "chain", "   {} => {:?}", transaction.hash(), transaction);
+            debug!(target: "chain", "   {} => {:?}", transaction.hash(), transaction);
         }
-        info!(target: "chain", "}}");
+        debug!(target: "chain", "}}");
     }
 }
 
@@ -313,7 +324,7 @@ impl<CS: ChainIndex> ChainClient for Chain<CS> {
     }
 
     fn process_block(&self, b: &Block) -> Result<(), Error> {
-        info!(target: "chain", "begin processing block: {}", b.hash());
+        info!(target: "chain", "begin processing block: {} => {}", b.header().number, b.hash());
         // TODO move avl check to verifier??
         let root = self.check_transactions(b)?;
         self.insert_block(b, root);
@@ -414,5 +425,140 @@ impl<CS: ChainIndex> ChainClient for Chain<CS> {
 
     fn ethash(&self) -> Option<Arc<Ethash>> {
         self.ethash.clone()
+    }
+}
+
+pub struct ChainBuilder<'a, CS> {
+    store: CS,
+    config: Config,
+    ethash: Option<&'a Arc<Ethash>>,
+    notify: Option<Notify>,
+}
+
+impl<'a, CS: ChainIndex> ChainBuilder<'a, CS> {
+    pub fn new_memory() -> ChainBuilder<'a, ChainKVStore<MemoryKeyValueDB>> {
+        let db = MemoryKeyValueDB::open(COLUMNS as usize);
+        ChainBuilder::<ChainKVStore<MemoryKeyValueDB>>::new_simple(db)
+    }
+
+    pub fn new_rocks<P: AsRef<Path>>(path: P) -> ChainBuilder<'a, ChainKVStore<CacheDB<RocksDB>>> {
+        let db = CacheDB::new(
+            RocksDB::open(path, COLUMNS),
+            &[(COLUMN_BLOCK_HEADER.unwrap(), 4096)],
+        );
+        ChainBuilder::<ChainKVStore<CacheDB<RocksDB>>>::new_simple(db)
+    }
+
+    pub fn new_simple<T: KeyValueDB>(db: T) -> ChainBuilder<'a, ChainKVStore<T>> {
+        let mut config = Config::default();
+        config.initial_block_reward = 50;
+        ChainBuilder {
+            store: ChainKVStore { db },
+            config,
+            ethash: None,
+            notify: None,
+        }
+    }
+
+    pub fn config(mut self, value: Config) -> Self {
+        self.config = value;
+        self
+    }
+
+    pub fn get_config(&self) -> &Config {
+        &self.config
+    }
+
+    pub fn verification_level(mut self, value: &str) -> Self {
+        self.config.verification_level = value.to_string();
+        self
+    }
+
+    pub fn ethash(mut self, value: &'a Arc<Ethash>) -> Self {
+        self.ethash = Some(value);
+        self
+    }
+
+    pub fn notify(mut self, value: Notify) -> Self {
+        self.notify = Some(value);
+        self
+    }
+
+    pub fn build(self) -> Result<Chain<CS>, Error> {
+        let notify = self.notify.unwrap_or_else(Notify::new);
+        let ethash = self.ethash.map(Arc::clone);
+        Chain::init(self.store, self.config, ethash, notify)
+    }
+}
+
+#[cfg(test)]
+pub mod test {
+    use super::*;
+
+    use core::header::{Header, RawHeader, Seal};
+    use db::memorydb::MemoryKeyValueDB;
+    use ethash::Ethash;
+    use store::ChainKVStore;
+    use tempdir::TempDir;
+
+    fn gen_block<CS: ChainIndex>(
+        chain: &Chain<CS>,
+        parent_header: Option<Header>,
+        nonce: u64,
+        difficulty: u64,
+        number: u64,
+    ) -> Block {
+        let parent_header = parent_header.unwrap_or_else(|| {
+            let parent_hash = chain.block_hash(number - 1).unwrap();
+            chain.block_header(&parent_hash).unwrap()
+        });
+        let time = now_ms();
+        let header = Header {
+            raw: RawHeader {
+                number,
+                version: 0,
+                parent_hash: parent_header.hash(),
+                timestamp: time,
+                txs_commit: H256::from(0),
+                difficulty: U256::from(100000 + difficulty),
+            },
+            seal: Seal {
+                nonce,
+                mix_hash: H256::from(nonce),
+            },
+            hash: None,
+        };
+
+        Block {
+            header,
+            transactions: vec![],
+        }
+    }
+
+    #[test]
+    fn test_chain_fork() {
+        let tmp_dir = TempDir::new("").unwrap();
+        let ethash = Arc::new(Ethash::new(tmp_dir.path()));
+        let chain = ChainBuilder::<ChainKVStore<MemoryKeyValueDB>>::new_memory()
+            .ethash(&ethash)
+            .verification_level("NoVerification")
+            .build()
+            .unwrap();
+        let final_number = 10;
+
+        // block mined from local
+        for i in 1..final_number {
+            println!("insert block number = {}", i);
+            let new_block = gen_block(&chain, None, i, i * 100, i);
+            chain.process_block(&new_block).expect("process block ok");
+            assert!(chain.block_hash(i).is_some());
+        }
+        // block sync from remote (bigger difficulty)
+        for i in 1..final_number {
+            println!("insert block number = {}", i);
+            let new_block = gen_block(&chain, None, 1000 + i, i * 200, i);
+            chain.process_block(&new_block).expect("process block ok");
+            assert!(chain.block_hash(i).is_some());
+        }
     }
 }

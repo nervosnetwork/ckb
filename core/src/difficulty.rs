@@ -13,6 +13,10 @@ pub fn cal_difficulty(pre_header: &Header, current_time: u64) -> U256 {
     }
 
     let diff_bound_div = U256::from(DIFFICULTY_BOUND_DIVISOR);
+    if current_time <= pre_header.timestamp {
+        error!(target: "core", "diff increment: current_time={}, pre_header.timestamp={}",
+               current_time, pre_header.timestamp);
+    }
     let diff_inc = (current_time - pre_header.timestamp) / INCREMENT_DIVISOR;
     let target = if diff_inc <= THRESHOLD {
         pre_header.difficulty

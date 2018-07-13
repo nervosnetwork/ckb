@@ -1,9 +1,7 @@
 use super::super::Spec;
 use chain::cachedb::CacheDB;
-use chain::chain::Chain;
+use chain::chain::{Chain, ChainBuilder};
 use chain::store::ChainKVStore;
-use chain::COLUMNS;
-use chain::COLUMN_BLOCK_HEADER;
 use ctrlc;
 use db::diskdb::RocksDB;
 use ethash::Ethash;
@@ -23,13 +21,7 @@ pub fn run(spec: Spec) {
     logger::init(spec.configs.logger.clone()).expect("Init Logger");
 
     info!(target: "main", "Value for spec: {:?}", spec);
-
-    let db = CacheDB::new(
-        RocksDB::open(&spec.dirs.join("db"), COLUMNS),
-        &[(COLUMN_BLOCK_HEADER.unwrap(), 4096)],
-    );
-    let store = ChainKVStore { db };
-
+    let rocks_db_path = spec.dirs.join("db");
     let ethash = spec
         .configs
         .miner
@@ -37,8 +29,16 @@ pub fn run(spec: Spec) {
         .ethash_path
         .map(|path| Arc::new(Ethash::new(path)));
     let notify = Notify::new();
-    let chain =
-        Arc::new(Chain::init(store, spec.configs.chain, ethash.clone(), notify.clone()).unwrap());
+    let chain = {
+        let mut builder = ChainBuilder::<ChainKVStore<CacheDB<RocksDB>>>::new_rocks(&rocks_db_path)
+            .config(spec.configs.chain)
+            .notify(notify.clone());
+        if let Some(ref ethash) = ethash {
+            builder = builder.ethash(&ethash);
+        }
+        Arc::new(builder.build().unwrap())
+    };
+
     let sync_chain = Arc::new(SyncChain::new(&chain, notify.clone()));
 
     let chain1 = Arc::<Chain<ChainKVStore<CacheDB<RocksDB>>>>::clone(&chain);

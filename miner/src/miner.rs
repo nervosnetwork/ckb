@@ -42,12 +42,10 @@ impl<C: ChainClient + 'static> Miner<C> {
         ethash: Option<Arc<Ethash>>,
         notify: &Notify,
     ) -> Self {
-        ethash.clone().map(|e| {
+        if let Some(ref ethash) = ethash {
             let number = { chain.tip_header().number };
-            let _ = e.gen_dataset(get_epoch(number));
-            Some(())
-        });
-
+            let _ = ethash.gen_dataset(get_epoch(number));
+        }
         let (sealer, signal) = Sealer::new(ethash);
 
         let miner = Miner {
@@ -99,7 +97,8 @@ impl<C: ChainClient + 'static> Miner<C> {
                     signal,
                 };
                 if let Some(block) = self.sealer.seal(work) {
-                    info!(target: "miner", "new block mined: {} -> ({}, {})", block.hash(), block.header.number, block.header.difficulty);
+                    info!(target: "miner", "new block mined: {} -> (number: {}, difficulty: {}, timestamp: {})",
+                          block.hash(), block.header.number, block.header.difficulty, block.header.timestamp);
                     if self.chain.process_block(&block).is_ok() {
                         self.announce_new_block(&block);
                     }
@@ -139,6 +138,8 @@ impl<C: ChainClient + 'static> Miner<C> {
     fn announce_new_block(&self, block: &Block) {
         self.network.with_context_eval(RELAY_PROTOCOL_ID, |nc| {
             for (peer_id, _session) in nc.sessions() {
+                debug!(target: "miner", "announce new block to peer#{:?}, {} => {}",
+                       peer_id, block.header().number, block.hash());
                 let mut payload = Payload::new();
                 let compact_block = build_compact_block(block, &HashSet::new());
                 payload.set_compact_block(compact_block.into());

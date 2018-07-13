@@ -14,7 +14,7 @@ extern crate nervos_verification as verification;
 extern crate tempdir;
 
 use bigint::H256;
-use chain::chain::{Chain, ChainClient};
+use chain::chain::{Chain, ChainBuilder, ChainClient};
 use chain::store::ChainKVStore;
 use chain::Config;
 use chain::COLUMNS;
@@ -77,10 +77,14 @@ impl TestNode {
         }
     }
 
-    pub fn start(&self) {
+    pub fn start<F: Fn(u32) -> bool>(&self, signal: Sender<()>, pred: F) {
+        let mut block_count = 0u32;
         loop {
             for ((protocol, peer), receiver) in &self.receivers {
                 let payload = receiver.recv().unwrap();
+                if payload.has_block() {
+                    block_count += 1;
+                }
                 if let Some(handler) = self.protocols.get(protocol) {
                     handler.process(
                         &TestNetworkContext {
@@ -91,6 +95,9 @@ impl TestNode {
                         *peer,
                         payload,
                     )
+                }
+                if pred(block_count) {
+                    signal.send(()).unwrap();
                 }
             }
         }
@@ -157,7 +164,7 @@ impl NetworkContext for TestNetworkContext {
 
     /// Returns information on p2p session
     fn session_info(&self, peer: PeerId) -> Option<SessionInfo> {
-        unimplemented!()
+        None
     }
 
     /// Returns max version for a given protocol.
@@ -180,30 +187,31 @@ fn basic_sync() {
 
     node1.connect(&mut node2, SYNC_PROTOCOL_ID);
 
+    let (signal_tx1, signal_rx1) = channel();
     thread::spawn(move || {
-        node1.start();
+        node1.start(signal_tx1, |block_count| block_count >= 1);
     });
 
+    let (signal_tx2, _) = channel();
     thread::spawn(move || {
-        node2.start();
+        node2.start(signal_tx2, |_| false);
     });
 
-    // TODO use join
-    thread::sleep(std_time::Duration::from_secs(5));
+    // Wait node1 receive block from node2
+    let _ = signal_rx1.recv();
 
+    assert_eq!(chain1.tip_header().number, 1);
     assert_eq!(chain1.tip_header().number, chain2.tip_header().number);
 }
 
 fn setup_node(height: u64) -> (TestNode, Arc<Chain<ChainKVStore<MemoryKeyValueDB>>>) {
-    let db = MemoryKeyValueDB::open(COLUMNS as usize);
-    let store = ChainKVStore { db };
-    let mut config = Config::default();
-    config.verification_level = "NoVerification".to_string();
-    config.initial_block_reward = 50;
-
     let notify = Notify::new();
-    let chain = Arc::new(Chain::init(store, config.clone(), None, notify.clone()).unwrap());
-    let block = config.genesis_block();
+    let builder = ChainBuilder::<ChainKVStore<MemoryKeyValueDB>>::new_memory()
+        .verification_level("NoVerification")
+        .notify(notify.clone());
+    let mut block = builder.get_config().genesis_block();
+    let chain = Arc::new(builder.build().unwrap());
+
     for i in 0..height {
         let time = now_ms();
         let transactions = vec![Transaction::new(
@@ -227,7 +235,7 @@ fn setup_node(height: u64) -> (TestNode, Arc<Chain<ChainKVStore<MemoryKeyValueDB
             hash: None,
         };
 
-        let block = Block {
+        block = Block {
             header,
             transactions,
         };

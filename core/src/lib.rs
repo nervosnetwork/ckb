@@ -7,6 +7,8 @@ extern crate nervos_protocol;
 #[macro_use]
 extern crate serde_derive;
 extern crate bit_vec;
+#[macro_use]
+extern crate log;
 
 pub mod block;
 pub mod cell;

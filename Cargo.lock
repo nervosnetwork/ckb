@@ -1414,6 +1414,7 @@ dependencies = [
  "bit-vec 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "crypto 0.1.0",
  "hash 0.1.0",
+ "log 0.4.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "merkle-root 0.1.0",
  "nervos-protocol 0.1.0",
  "nervos-time 0.1.0",
