@@ -32,7 +32,8 @@ pub fn run(spec: Spec) {
 
     let ethash = Arc::new(Ethash::new(spec.dirs.join("ethash")));
     let notify = Notify::new();
-    let chain = Arc::new(Chain::init(store, spec.configs.chain, &ethash).unwrap());
+    let chain =
+        Arc::new(Chain::init(store, spec.configs.chain, Some(Arc::clone(&ethash))).unwrap());
     let sync_chain = Arc::new(SyncChain::new(&chain, notify.clone()));
 
     let tx_pool = Arc::new(TransactionPool::new(

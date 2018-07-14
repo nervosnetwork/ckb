@@ -1,119 +1,93 @@
-use super::pow_verifier::{PowVerifier, PowVerifierWrapper};
+use super::pow_verifier::EthashVerifier;
 use super::Verifier;
+use chain::chain::{ChainClient, SealerType};
 use core::difficulty::cal_difficulty;
 use core::header::Header;
 use error::{DifficultyError, Error, HeightError, TimestampError};
 use shared::ALLOWED_FUTURE_BLOCKTIME;
+use std::sync::Arc;
 use time::now_ms;
 
-pub struct HeaderVerifier<'a, T> {
-    pub pow: PowVerifierWrapper<'a, T>,
-    pub timestamp: TimestampVerifier<'a>,
-    pub number: NumberVerifier<'a>,
-    pub difficulty: DifficultyVerifier<'a>,
+pub struct HeaderVerifier<'a, C> {
+    pub header: &'a Header,
+    pub chain: Arc<C>,
 }
 
-impl<'a, T> HeaderVerifier<'a, T>
+impl<'a, C> HeaderVerifier<'a, C>
 where
-    T: PowVerifier,
+    C: ChainClient,
 {
-    pub fn new(parent: &'a Header, header: &'a Header, pow_verifier: T) -> Self {
-        debug_assert_eq!(parent.hash(), header.parent_hash);
-        HeaderVerifier {
-            pow: PowVerifierWrapper::new(header, pow_verifier),
-            timestamp: TimestampVerifier::new(parent, header),
-            number: NumberVerifier::new(parent, header),
-            difficulty: DifficultyVerifier::new(parent, header),
-        }
+    pub fn new(header: &'a Header, chain: Arc<C>) -> Self {
+        HeaderVerifier { header, chain }
     }
 }
 
-impl<'a, T> Verifier for HeaderVerifier<'a, T>
+impl<'a, C> Verifier for HeaderVerifier<'a, C>
 where
-    T: PowVerifier,
+    C: ChainClient,
 {
     fn verify(&self) -> Result<(), Error> {
-        self.number.verify()?;
-        self.timestamp.verify()?;
-        self.difficulty.verify()?;
-        self.pow.verify()?;
-        Ok(())
-    }
-}
+        match self.chain.block_header(&self.header.hash()) {
+            Some(_) => Err(Error::DuplicateHeader),
+            None => {
+                let header = self.header;
+                let parent = self
+                    .chain
+                    .block_header(&header.parent_hash)
+                    .ok_or(Error::UnknownParent)?;
 
-pub struct TimestampVerifier<'a> {
-    parent: &'a Header,
-    header: &'a Header,
-    now: u64,
-}
-
-impl<'a> TimestampVerifier<'a> {
-    pub fn new(parent: &'a Header, header: &'a Header) -> Self {
-        TimestampVerifier {
-            parent,
-            header,
-            now: now_ms(),
+                verify_number(&header, &parent)?;
+                verify_timestamp(&header, &parent)?;
+                verify_diffculty(&header, &parent)?;
+                verify_pow(&header, &self.chain)
+            }
         }
     }
-
-    pub fn verify(&self) -> Result<(), Error> {
-        let min = self.parent.timestamp + 1;
-        if self.header.timestamp < min {
-            return Err(Error::Timestamp(TimestampError::ZeroBlockTime {
-                min,
-                found: self.header.timestamp,
-            }));
-        }
-        let max = self.now + ALLOWED_FUTURE_BLOCKTIME;
-        if self.header.timestamp > max {
-            return Err(Error::Timestamp(TimestampError::FutureBlockTime {
-                max,
-                found: self.header.timestamp,
-            }));
-        }
-        Ok(())
-    }
 }
 
-pub struct NumberVerifier<'a> {
-    parent: &'a Header,
-    header: &'a Header,
+fn verify_number(header: &Header, parent: &Header) -> Result<(), Error> {
+    if header.number != parent.number + 1 {
+        return Err(Error::Height(HeightError {
+            expected: parent.number + 1,
+            actual: header.number,
+        }));
+    }
+    Ok(())
 }
 
-impl<'a> NumberVerifier<'a> {
-    pub fn new(parent: &'a Header, header: &'a Header) -> Self {
-        NumberVerifier { parent, header }
+fn verify_timestamp(header: &Header, parent: &Header) -> Result<(), Error> {
+    let min = parent.timestamp + 1;
+    if header.timestamp < min {
+        return Err(Error::Timestamp(TimestampError::ZeroBlockTime {
+            min,
+            found: header.timestamp,
+        }));
     }
-
-    pub fn verify(&self) -> Result<(), Error> {
-        if self.header.number != self.parent.number + 1 {
-            return Err(Error::Height(HeightError {
-                expected: self.parent.number + 1,
-                actual: self.header.number,
-            }));
-        }
-        Ok(())
+    let max = now_ms() + ALLOWED_FUTURE_BLOCKTIME;
+    if header.timestamp > max {
+        return Err(Error::Timestamp(TimestampError::FutureBlockTime {
+            max,
+            found: header.timestamp,
+        }));
     }
+    Ok(())
 }
 
-pub struct DifficultyVerifier<'a> {
-    parent: &'a Header,
-    header: &'a Header,
+fn verify_diffculty(header: &Header, parent: &Header) -> Result<(), Error> {
+    let expected_difficulty = cal_difficulty(parent, header.timestamp);
+    if expected_difficulty != header.difficulty {
+        return Err(Error::Difficulty(DifficultyError {
+            expected: expected_difficulty,
+            actual: header.difficulty,
+        }));
+    }
+    Ok(())
 }
 
-impl<'a> DifficultyVerifier<'a> {
-    pub fn new(parent: &'a Header, header: &'a Header) -> Self {
-        DifficultyVerifier { parent, header }
-    }
-
-    pub fn verify(&self) -> Result<(), Error> {
-        let expected_difficulty = cal_difficulty(self.parent, self.header.timestamp);
-        if expected_difficulty != self.header.difficulty {
-            return Err(Error::Difficulty(DifficultyError {
-                expected: expected_difficulty,
-                actual: self.header.difficulty,
-            }));
-        }
-        Ok(())
+fn verify_pow<C: ChainClient>(header: &Header, chain: &Arc<C>) -> Result<(), Error> {
+    match chain.sealer_type() {
+        SealerType::Normal => EthashVerifier::new(&chain.ethash().expect("Ethash exists"))
+            .verify(header, &header.pow_hash()),
+        SealerType::Noop => Ok(()),
     }
 }

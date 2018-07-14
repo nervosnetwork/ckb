@@ -15,7 +15,7 @@ pub struct Config {
     pub nonce: u64,
     pub mix_hash: H256,
     // other config
-    pub verifier_type: String,
+    pub sealer_type: String,
     pub initial_block_reward: u32,
 }
 
@@ -31,7 +31,7 @@ impl Config {
             number: 0,
             nonce: 0,
             mix_hash: H256::from(0),
-            verifier_type: "Normal".to_string(),
+            sealer_type: "Normal".to_string(),
             initial_block_reward: 0,
         }
     }

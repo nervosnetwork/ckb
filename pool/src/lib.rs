@@ -7,6 +7,8 @@ extern crate nervos_util as util;
 extern crate nervos_verification;
 #[macro_use]
 extern crate serde_derive;
+#[cfg(test)]
+extern crate ethash;
 
 mod tests;
 pub mod txs_pool;

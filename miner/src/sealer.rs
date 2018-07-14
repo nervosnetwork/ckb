@@ -1,5 +1,5 @@
-use super::miner::SealerType;
 use bigint::{H256, U256};
+use chain::chain::SealerType;
 use core::block::Block;
 use core::difficulty::cal_difficulty;
 use core::difficulty::difficulty_to_boundary;

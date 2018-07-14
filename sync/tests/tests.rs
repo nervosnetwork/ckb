@@ -21,6 +21,7 @@ use chain::COLUMNS;
 use core::block::Block;
 use core::difficulty::cal_difficulty;
 use core::header::{Header, RawHeader, Seal};
+use core::transaction::{CellInput, CellOutput, OutPoint, Transaction};
 use db::memorydb::MemoryKeyValueDB;
 use ethash::Ethash;
 use nervos_protocol::Payload;
@@ -196,23 +197,28 @@ fn basic_sync() {
 fn setup_node(height: u64) -> (TestNode, Arc<Chain<ChainKVStore<MemoryKeyValueDB>>>) {
     let db = MemoryKeyValueDB::open(COLUMNS as usize);
     let store = ChainKVStore { db };
-    let mut spec = Config::default();
-    spec.verifier_type = "Noop".to_string();
+    let mut config = Config::default();
+    config.sealer_type = "Noop".to_string();
+    config.initial_block_reward = 50;
 
-    let ethash = Arc::new(Ethash::new(TempDir::new("").unwrap().path()));
-    let chain = Arc::new(Chain::init(store, spec.clone(), &ethash).unwrap());
-    let block = spec.genesis_block();
+    let chain = Arc::new(Chain::init(store, config.clone(), None).unwrap());
+    let block = config.genesis_block();
     for i in 0..height {
         let time = now_ms();
+        let transactions = vec![Transaction::new(
+            0,
+            Vec::new(),
+            vec![CellInput::new(OutPoint::null(), Vec::new())],
+            vec![CellOutput::new(0, 50, Vec::new(), Vec::new())],
+        )];
+
         let header = Header {
-            raw: RawHeader {
-                version: 0,
-                parent_hash: block.header.hash(),
-                timestamp: time,
-                txs_commit: H256::from(0),
-                difficulty: cal_difficulty(&block.header, time),
-                number: i + 1,
-            },
+            raw: RawHeader::new(
+                &block.header,
+                transactions.iter(),
+                time,
+                cal_difficulty(&block.header, time),
+            ),
             seal: Seal {
                 nonce: 0,
                 mix_hash: H256::from(0),
@@ -222,7 +228,7 @@ fn setup_node(height: u64) -> (TestNode, Arc<Chain<ChainKVStore<MemoryKeyValueDB
 
         let block = Block {
             header,
-            transactions: vec![],
+            transactions,
         };
         chain.process_block(&block).unwrap();
     }

@@ -12,6 +12,7 @@ extern crate nervos_pool as pool;
 extern crate nervos_protocol;
 extern crate nervos_time;
 extern crate nervos_util as util;
+extern crate nervos_verification;
 extern crate protobuf;
 extern crate rand;
 extern crate siphasher;

@@ -9,19 +9,19 @@ use core::transaction_meta::TransactionMeta;
 use db::batch::Batch;
 use ethash::Ethash;
 use index::ChainIndex;
-use nervos_verification::{Error as VerifyError, HeaderVerifier, Verifier};
 use std::sync::Arc;
 use time::now_ms;
 use util::{Mutex, RwLock, RwLockReadGuard};
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Clone, Eq)]
 pub enum Error {
-    Duplicate,
-    UnknownParent,
-    Verification(VerifyError),
     InvalidInput,
     InvalidOutput,
-    NotFound,
+}
+
+pub enum SealerType {
+    Normal,
+    Noop,
 }
 
 pub struct Chain<CS> {
@@ -30,7 +30,7 @@ pub struct Chain<CS> {
     tip_header: RwLock<Header>,
     total_difficulty: RwLock<U256>,
     output_root: RwLock<H256>,
-    ethash: Arc<Ethash>,
+    ethash: Option<Arc<Ethash>>,
     lock: Mutex<()>,
 }
 
@@ -66,6 +66,10 @@ pub trait ChainClient: Sync + Send + CellProvider {
     // fee that miner can obtain. Could result in error state when input
     // transaction is missing.
     fn calculate_transaction_fee(&self, transaction: &Transaction) -> Result<u32, Error>;
+
+    fn sealer_type(&self) -> SealerType;
+
+    fn ethash(&self) -> Option<Arc<Ethash>>;
 }
 
 impl<CS: ChainIndex> CellProvider for Chain<CS> {
@@ -93,7 +97,11 @@ impl<CS: ChainIndex> CellProvider for Chain<CS> {
 }
 
 impl<CS: ChainIndex> Chain<CS> {
-    pub fn init(store: CS, config: Config, ethash: &Arc<Ethash>) -> Result<Chain<CS>, Error> {
+    pub fn init(
+        store: CS,
+        config: Config,
+        ethash: Option<Arc<Ethash>>,
+    ) -> Result<Chain<CS>, Error> {
         // check head in store or save the genesis block as head
         let genesis = config.genesis_block();
         let tip_header = match store.get_tip_header() {
@@ -117,31 +125,12 @@ impl<CS: ChainIndex> Chain<CS> {
         Ok(Chain {
             store,
             config,
+            ethash,
             tip_header: RwLock::new(tip_header),
             output_root: RwLock::new(r),
             total_difficulty: RwLock::new(td),
-            ethash: Arc::clone(ethash),
             lock: Mutex::new(()),
         })
-    }
-
-    fn check_header(&self, h: &Header) -> Result<(), Error> {
-        if self.block_header(&h.hash()).is_some() {
-            return Err(Error::Duplicate);
-        }
-
-        let pre_header = self
-            .block_header(&h.parent_hash)
-            .ok_or(Error::UnknownParent)?;
-
-        // TODO use factory pattern and move code to verification module
-        if self.config.verifier_type == "Normal" {
-            HeaderVerifier::new(&pre_header, h, &self.ethash)
-                .verify()
-                .map_err(Error::Verification)?;
-        }
-
-        Ok(())
     }
 
     fn check_transactions(&self, b: &Block) -> Result<H256, Error> {
@@ -164,24 +153,6 @@ impl<CS: ChainIndex> Chain<CS> {
         self.store
             .update_transaction_meta(root, inputs, outputs)
             .ok_or(Error::InvalidOutput)
-    }
-
-    fn check_cellbase(&self, b: &Block) -> Result<(), Error> {
-        if b.transactions.is_empty() || (!b.transactions[0].is_cellbase()) {
-            return Ok(());
-        }
-        let cellbase_transaction = &b.transactions[0];
-        let block_reward = self.block_reward(b.header.raw.number);
-        let mut fee = 0;
-        for transaction in b.transactions.iter().skip(1) {
-            fee += self.calculate_transaction_fee(transaction)?;
-        }
-        let total_reward = block_reward + fee;
-        if cellbase_transaction.outputs[0].capacity != total_reward {
-            Err(Error::InvalidOutput)
-        } else {
-            Ok(())
-        }
     }
 
     //TODO: best block
@@ -320,8 +291,7 @@ impl<CS: ChainIndex> ChainClient for Chain<CS> {
 
     fn process_block(&self, b: &Block) -> Result<(), Error> {
         info!(target: "chain", "begin processing block: {}", b.hash());
-        self.check_header(&b.header)?;
-        self.check_cellbase(b)?;
+        // TODO move avl check to verifier??
         let root = self.check_transactions(b)?;
         self.insert_block(b, root);
         info!(target: "chain", "finish processing block");
@@ -403,5 +373,17 @@ impl<CS: ChainIndex> ChainClient for Chain<CS> {
         }
         fee -= spent_capacity;
         Ok(fee)
+    }
+
+    fn sealer_type(&self) -> SealerType {
+        if self.config.sealer_type == "Normal" {
+            SealerType::Normal
+        } else {
+            SealerType::Noop
+        }
+    }
+
+    fn ethash(&self) -> Option<Arc<Ethash>> {
+        self.ethash.clone()
     }
 }

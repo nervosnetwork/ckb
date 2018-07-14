@@ -10,7 +10,6 @@ extern crate nervos_core as core;
 extern crate nervos_db as db;
 extern crate nervos_time as time;
 extern crate nervos_util as util;
-extern crate nervos_verification;
 #[cfg(test)]
 extern crate rand;
 extern crate serde;

@@ -4,8 +4,10 @@ use core::cell::{CellProvider, CellState};
 use core::header::Header;
 use core::transaction::{OutPoint, Transaction};
 use core::transaction_meta::TransactionMeta;
-use nervos_chain::chain::{ChainClient, Error};
+use ethash::Ethash;
+use nervos_chain::chain::{ChainClient, Error, SealerType};
 use std::collections::HashMap;
+use std::sync::Arc;
 use util::RwLock;
 use util::RwLockReadGuard;
 
@@ -144,6 +146,14 @@ impl ChainClient for DummyChainImpl {
 
     fn calculate_transaction_fee(&self, _transaction: &Transaction) -> Result<u32, Error> {
         Ok(0)
+    }
+
+    fn sealer_type(&self) -> SealerType {
+        SealerType::Noop
+    }
+
+    fn ethash(&self) -> Option<Arc<Ethash>> {
+        None
     }
 }
 

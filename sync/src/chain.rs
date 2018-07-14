@@ -6,6 +6,7 @@ use core::header::Header;
 use core::transaction::OutPoint;
 use nervos_chain::chain::ChainClient;
 use nervos_notify::Notify;
+use nervos_verification::{BlockVerifier, Verifier};
 use std::sync::Arc;
 use util::RwLock;
 
@@ -153,12 +154,14 @@ impl<C: ChainClient> Chain<C> {
     }
 
     pub fn insert_block(&self, block: &Block) {
-        let hash = block.hash();
-        if self.chain_provider.process_block(block).is_ok() {
-            self.header_queue.write().block_inserted_to_storage(&hash);
-            self.forget_block_leave_header(&hash);
+        if BlockVerifier::new(block, self.provider()).verify().is_ok() {
+            let hash = block.hash();
+            if self.chain_provider.process_block(block).is_ok() {
+                self.header_queue.write().block_inserted_to_storage(&hash);
+                self.forget_block_leave_header(&hash);
+            }
+            self.notify.notify_sync_head();
         }
-        self.notify.notify_sync_head();
         //TODO: remove dup transaction from pool
     }
 }

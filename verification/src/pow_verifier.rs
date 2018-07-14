@@ -5,34 +5,6 @@ use error::{Error, PowError};
 use ethash::{recover_boundary, Ethash, Pow};
 use std::sync::Arc;
 
-pub trait PowVerifier: Clone + Send + Sync {
-    fn verify(&self, header: &Header, pow_hash: &H256) -> Result<(), Error>;
-}
-
-#[derive(Clone)]
-pub enum PowVerifierImpl {
-    Noop(NoopVerifier),
-    Ethash(EthashVerifier),
-}
-
-impl PowVerifier for PowVerifierImpl {
-    fn verify(&self, header: &Header, pow_hash: &H256) -> Result<(), Error> {
-        match self {
-            PowVerifierImpl::Noop(noop) => noop.verify(header, pow_hash),
-            PowVerifierImpl::Ethash(ethash) => ethash.verify(header, pow_hash),
-        }
-    }
-}
-
-#[derive(Clone)]
-pub struct NoopVerifier;
-
-impl PowVerifier for NoopVerifier {
-    fn verify(&self, _header: &Header, _pow_hash: &H256) -> Result<(), Error> {
-        Ok(())
-    }
-}
-
 #[derive(Clone)]
 pub struct EthashVerifier {
     inner: Arc<Ethash>,
@@ -43,6 +15,11 @@ impl EthashVerifier {
         EthashVerifier {
             inner: Arc::clone(ethash),
         }
+    }
+
+    pub fn verify(&self, header: &Header, pow_hash: &H256) -> Result<(), Error> {
+        self.cheap_verify(header, pow_hash)
+            .and_then(|_| self.heavy_verify(header, pow_hash))
     }
 
     fn cheap_verify(&self, header: &Header, pow_hash: &H256) -> Result<(), Error> {
@@ -81,34 +58,5 @@ impl EthashVerifier {
             }));
         }
         Ok(())
-    }
-}
-
-impl PowVerifier for EthashVerifier {
-    fn verify(&self, header: &Header, pow_hash: &H256) -> Result<(), Error> {
-        self.cheap_verify(header, pow_hash)
-            .and_then(|_| self.heavy_verify(header, pow_hash))
-    }
-}
-
-pub struct PowVerifierWrapper<'a, T> {
-    header: &'a Header,
-    verifier_impl: T,
-}
-
-impl<'a, T> PowVerifierWrapper<'a, T>
-where
-    T: PowVerifier,
-{
-    pub fn new(header: &'a Header, verifier_impl: T) -> Self {
-        PowVerifierWrapper {
-            header,
-            verifier_impl,
-        }
-    }
-
-    pub fn verify(&self) -> Result<(), Error> {
-        let pow_hash = self.header.pow_hash();
-        self.verifier_impl.verify(self.header, &pow_hash)
     }
 }

@@ -24,11 +24,11 @@ nervos-util = { path = "../util" }
 nervos-pool = { path = "../pool" }
 nervos-time = { path = "../util/time" }
 nervos-notify = { path = "../notify" }
+nervos-verification = { path = "../verification" }
 
 [dev-dependencies]
 nervos-db = { path = "../db" }
 nervos-time = { path = "../util/time" }
-nervos-verification = { path = "../verification" }
 env_logger = "0.5"
 tempdir = "0.3"
 ethash = { git = "https://github.com/NervosFoundation/ethash", tag = "v1.0.0" }

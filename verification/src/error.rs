@@ -1,4 +1,5 @@
 use bigint::{H256, U256};
+use chain::chain::Error as ChainError;
 
 #[derive(Debug, PartialEq, Clone, Eq)]
 pub enum Error {
@@ -7,11 +8,14 @@ pub enum Error {
     Height(HeightError),
     Difficulty(DifficultyError),
     Transaction(Vec<(usize, TransactionError)>),
+    Chain(ChainError),
     EmptyTransactions,
     DuplicateTransactions,
     TransactionsRoot,
     MultipleCellbase,
     CellbaseNotAtFirst,
+    DuplicateHeader,
+    UnknownParent,
 }
 
 #[derive(Debug, PartialEq, Clone, Copy, Eq)]
@@ -45,4 +49,11 @@ pub enum TransactionError {
     DuplicateInputs,
     Empty,
     InvalidCellbase,
+    InvalidCapacity,
+}
+
+impl From<ChainError> for Error {
+    fn from(e: ChainError) -> Self {
+        Error::Chain(e)
+    }
 }

@@ -26,11 +26,6 @@ pub struct Miner<C> {
     pub signal: Signal,
 }
 
-pub enum SealerType {
-    Normal,
-    Noop,
-}
-
 pub struct Work {
     pub time: u64,
     pub head: Header,
@@ -49,12 +44,7 @@ impl<C: ChainClient> Miner<C> {
     ) -> Self {
         let number = { chain.tip_header().number };
         let _dataset = ethash.gen_dataset(get_epoch(number));
-        let sealer_type = if config.sealer_type == "Normal" {
-            SealerType::Normal
-        } else {
-            SealerType::Noop
-        };
-        let (sealer, signal) = Sealer::new(ethash, sealer_type);
+        let (sealer, signal) = Sealer::new(ethash, chain.sealer_type());
 
         let miner = Miner {
             config,
