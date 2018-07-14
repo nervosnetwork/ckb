@@ -50,6 +50,9 @@ pub enum TransactionError {
     Empty,
     InvalidCellbase,
     InvalidCapacity,
+    InvalidScript,
+    DoubleSpent,
+    UnknownInput,
 }
 
 impl From<ChainError> for Error {

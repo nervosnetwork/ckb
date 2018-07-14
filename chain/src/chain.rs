@@ -28,6 +28,7 @@ pub enum Error {
     InvalidOutput,
 }
 
+#[derive(Debug, PartialEq, Clone, Eq)]
 pub enum VerificationLevel {
     /// Full verification.
     Full,
@@ -74,6 +75,8 @@ pub trait ChainClient: Sync + Send + CellProvider {
 
     fn get_transaction_meta(&self, hash: &H256) -> Option<TransactionMeta>;
 
+    fn get_transaction_meta_at(&self, hash: &H256, parent: &H256) -> Option<TransactionMeta>;
+
     // NOTE: reward and fee are returned now as u32 since capacity is also
     // u32 in protocol, we might want to revisit this later
     fn block_reward(&self, block_number: u64) -> u32;
@@ -88,12 +91,34 @@ pub trait ChainClient: Sync + Send + CellProvider {
     fn ethash(&self) -> Option<Arc<Ethash>>;
 }
 
-impl<CS: ChainIndex> CellProvider for Chain<CS> {
+impl<'a, CS: ChainIndex> CellProvider for Chain<CS> {
     fn cell(&self, out_point: &OutPoint) -> CellState {
         let index = out_point.index as usize;
         if let Some(meta) = self.get_transaction_meta(&out_point.hash) {
             if meta.is_fully_spent() {
-                return CellState::Unknown;
+                return CellState::Tail;
+            }
+
+            if index < meta.len() {
+                if !meta.is_spent(index) {
+                    let mut transaction = self
+                        .store
+                        .get_transaction(&out_point.hash)
+                        .expect("transaction must exist");
+                    return CellState::Head(transaction.outputs.swap_remove(index));
+                } else {
+                    return CellState::Tail;
+                }
+            }
+        }
+        CellState::Unknown
+    }
+
+    fn cell_at(&self, out_point: &OutPoint, parent: &H256) -> CellState {
+        let index = out_point.index as usize;
+        if let Some(meta) = self.get_transaction_meta_at(&out_point.hash, parent) {
+            if meta.is_fully_spent() {
+                return CellState::Tail;
             }
 
             if index < meta.len() {
@@ -152,27 +177,25 @@ impl<CS: ChainIndex> Chain<CS> {
     }
 
     fn check_transactions(&self, b: &Block) -> Result<H256, Error> {
-        let mut inputs = Vec::new();
-        let mut outputs = Vec::new();
+        let mut cells = Vec::new();
 
         for tx in &b.transactions {
-            let mut ins = tx.input_pts();
+            let ins = if tx.is_cellbase() {
+                Vec::new()
+            } else {
+                tx.input_pts()
+            };
             let outs = tx.output_pts();
 
-            // Cellbase transaction only has one null input
-            if !tx.is_cellbase() {
-                inputs.append(&mut ins);
-            }
-            outputs.push(outs);
+            cells.push((ins, outs));
         }
 
         let root = self.output_root(&b.header.parent_hash).unwrap();
 
         self.store
-            .update_transaction_meta(root, inputs, outputs)
+            .update_transaction_meta(root, cells)
             .ok_or(Error::InvalidOutput)
     }
-
     //TODO: best block
     fn insert_block(&self, b: &Block, root: H256) {
         self.store.save_with_batch(|batch| {
@@ -376,6 +399,11 @@ impl<CS: ChainIndex> ChainClient for Chain<CS> {
     fn get_transaction_meta(&self, hash: &H256) -> Option<TransactionMeta> {
         self.store
             .get_transaction_meta(*self.output_root.read(), *hash)
+    }
+
+    fn get_transaction_meta_at(&self, hash: &H256, parent: &H256) -> Option<TransactionMeta> {
+        self.output_root(parent)
+            .and_then(|root| self.store.get_transaction_meta(root, *hash))
     }
 
     fn block_reward(&self, _block_number: u64) -> u32 {

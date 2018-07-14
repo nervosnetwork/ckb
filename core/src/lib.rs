@@ -18,11 +18,10 @@ pub mod error;
 pub mod extras;
 pub mod global;
 pub mod header;
+pub mod script;
 pub mod transaction;
 pub mod transaction_meta;
 
 pub use error::Error;
 
 pub type PublicKey = bigint::H512;
-pub type ProofPublickey = bigint::H328;
-pub type ProofPublicG = bigint::H328;

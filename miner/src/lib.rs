@@ -1,3 +1,4 @@
+#![feature(int_to_from_bytes)]
 extern crate bigint;
 extern crate crossbeam_channel;
 extern crate ethash;
@@ -15,6 +16,8 @@ extern crate rand;
 #[macro_use]
 extern crate serde_derive;
 
+use bigint::H256;
+
 pub mod miner;
 mod sealer;
 
@@ -23,5 +26,5 @@ pub struct Config {
     // Max number of transactions this miner will assemble in a block
     pub max_tx: usize,
     pub ethash_path: Option<String>,
-    pub miner_address: String,
+    pub redeem_script_hash: H256,
 }

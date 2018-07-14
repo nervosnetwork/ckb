@@ -10,6 +10,7 @@ extern crate log;
 extern crate nervos_chain as chain;
 extern crate nervos_core as core;
 extern crate nervos_network as network;
+extern crate nervos_pool as pool;
 extern crate nervos_protocol;
 extern crate nervos_sync as sync;
 #[macro_use]
@@ -26,6 +27,7 @@ use jsonrpc_server_utils::cors::AccessControlAllowOrigin;
 use jsonrpc_server_utils::hosts::DomainsValidation;
 use nervos_protocol::Payload;
 use network::NetworkService;
+use pool::TransactionPool;
 use std::sync::Arc;
 use sync::protocol::RELAY_PROTOCOL_ID;
 
@@ -52,17 +54,20 @@ build_rpc_trait! {
     }
 }
 
-struct RpcImpl {
+struct RpcImpl<C> {
     pub network: Arc<NetworkService>,
-    pub chain: Arc<ChainClient>,
+    pub chain: Arc<C>,
+    pub tx_pool: Arc<TransactionPool<C>>,
 }
 
-impl Rpc for RpcImpl {
+impl<C: ChainClient + 'static> Rpc for RpcImpl<C> {
     fn send_transaction(&self, tx: Transaction) -> Result<H256> {
+        let pool_result = self.tx_pool.add_to_memory_pool(tx.clone());
+        debug!(target: "rpc", "send_transaction add to pool result: {:?}", pool_result);
+
         let result = tx.hash();
-        let tx: nervos_protocol::Transaction = (&tx).into();
         let mut payload = Payload::new();
-        payload.set_transaction(tx);
+        payload.set_transaction((&tx).into());
         self.network.with_context_eval(RELAY_PROTOCOL_ID, |nc| {
             for (peer_id, _session) in nc.sessions() {
                 nc.send(peer_id, payload.clone()).ok();
@@ -72,7 +77,18 @@ impl Rpc for RpcImpl {
     }
 
     fn get_block(&self, hash: H256) -> Result<Option<Block>> {
-        Ok(self.chain.block(&hash))
+        // TODO should use a different struct for serialization with transaction hash
+        Ok(self.chain.block(&hash).map(|mut block| {
+            block.transactions = block
+                .transactions
+                .into_iter()
+                .map(|mut t| {
+                    t.hash = Some(t.hash());
+                    t
+                })
+                .collect();
+            block
+        }))
     }
 
     fn get_transaction(&self, hash: H256) -> Result<Option<Transaction>> {
@@ -91,10 +107,24 @@ impl Rpc for RpcImpl {
 pub struct RpcServer {
     pub config: Config,
 }
+
 impl RpcServer {
-    pub fn start(&self, network: Arc<NetworkService>, chain: Arc<ChainClient>) {
+    pub fn start<C>(
+        &self,
+        network: Arc<NetworkService>,
+        chain: Arc<C>,
+        tx_pool: Arc<TransactionPool<C>>,
+    ) where
+        C: ChainClient + 'static,
+    {
         let mut io = IoHandler::new();
-        io.extend_with(RpcImpl { network, chain }.to_delegate());
+        io.extend_with(
+            RpcImpl {
+                network,
+                chain,
+                tx_pool,
+            }.to_delegate(),
+        );
 
         let server = ServerBuilder::new(io)
             .cors(DomainsValidation::AllowOnly(vec![

@@ -53,8 +53,7 @@ pub trait ChainStore: Sync + Send {
     fn update_transaction_meta(
         &self,
         root: H256,
-        inputs: Vec<OutPoint>,
-        outputs: Vec<Vec<OutPoint>>,
+        cells: Vec<(Vec<OutPoint>, Vec<OutPoint>)>,
     ) -> Option<H256>;
 
     fn insert_block(&self, batch: &mut Batch, b: &Block);
@@ -145,21 +144,20 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
     fn update_transaction_meta(
         &self,
         root: H256,
-        inputs: Vec<OutPoint>,
-        outputs_list: Vec<Vec<OutPoint>>,
+        cells: Vec<(Vec<OutPoint>, Vec<OutPoint>)>,
     ) -> Option<H256> {
         let mut avl = AvlTree::new(&self.db, root);
 
-        for input in inputs {
-            if !avl
-                .update(input.hash, input.index as usize)
-                .expect("tree operation error")
-            {
-                return None;
+        for (inputs, outputs) in cells {
+            for input in inputs {
+                if !avl
+                    .update(input.hash, input.index as usize)
+                    .expect("tree operation error")
+                {
+                    return None;
+                }
             }
-        }
 
-        for outputs in outputs_list {
             let len = outputs.len();
 
             if len != 0 {

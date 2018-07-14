@@ -30,9 +30,9 @@ difficulty  = "0x000000000000000000000000000000000000000000000000000000000000000
 number      = 0
 nonce       = 0
 mix_hash    = "0x0000000000000000000000000000000000000000000000000000000000000000"
-verification_level = "Full"
+verifier_type = "Normal"
 initial_block_reward = 50000
 
 [miner]
-max_tx = 1024
-miner_address = "0x0000000000000000000000000000000000000000"
+max_tx              = 1024
+redeem_script_hash  = "0x1d3c78fcf6a6c98b53aed1bfebe53d5d7a1a0b8dced33576e3806915ce51aa00"

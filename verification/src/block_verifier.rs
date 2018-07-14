@@ -1,6 +1,7 @@
 use super::{HeaderVerifier, TransactionVerifier, Verifier};
 use chain::chain::ChainClient;
 use core::block::Block;
+use core::cell::ResolvedTransaction;
 use error::{Error, TransactionError};
 use merkle_root::merkle_root;
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
@@ -34,11 +35,29 @@ where
             duplicate_transactions: DuplicateTransactionsVerifier::new(block),
             cellbase: CellbaseTransactionsVerifier::new(block, Arc::clone(chain)),
             merkle_root: MerkleRootVerifier::new(block),
-            transactions: block
-                .transactions
-                .iter()
+            transactions: Self::resolve_transaction(block, chain)
+                .into_iter()
                 .map(TransactionVerifier::new)
                 .collect(),
+        }
+    }
+
+    fn resolve_transaction(block: &'a Block, chain: &Arc<C>) -> Vec<ResolvedTransaction<'a>> {
+        let parent_hash = block.header.parent_hash;
+
+        if block.transactions[0].is_cellbase() {
+            block
+                .transactions
+                .iter()
+                .skip(1)
+                .map(|x| chain.resolve_transaction_at(x, &parent_hash))
+                .collect()
+        } else {
+            block
+                .transactions
+                .iter()
+                .map(|x| chain.resolve_transaction_at(x, &parent_hash))
+                .collect()
         }
     }
 }

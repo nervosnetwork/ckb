@@ -1372,6 +1372,7 @@ dependencies = [
  "nervos-notify 0.1.0",
  "nervos-pool 0.1.0",
  "nervos-rpc 0.1.0",
+ "nervos-script 0.1.0",
  "nervos-sync 0.1.0",
  "nervos-time 0.1.0",
  "nervos-util 0.1.0",
@@ -1412,6 +1413,7 @@ dependencies = [
  "bigint 0.2.3 (git+https://github.com/NervosFoundation/bigint)",
  "bincode 1.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "bit-vec 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "bytes 0.4.8 (registry+https://github.com/rust-lang/crates.io-index)",
  "crypto 0.1.0",
  "hash 0.1.0",
  "log 0.4.3 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1525,6 +1527,7 @@ dependencies = [
  "log 0.4.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "nervos-chain 0.1.0",
  "nervos-core 0.1.0",
+ "nervos-db 0.1.0",
  "nervos-notify 0.1.0",
  "nervos-time 0.1.0",
  "nervos-util 0.1.0",
@@ -1555,12 +1558,23 @@ dependencies = [
  "nervos-core 0.1.0",
  "nervos-db 0.1.0",
  "nervos-network 0.1.0",
+ "nervos-pool 0.1.0",
  "nervos-protocol 0.1.0",
  "nervos-sync 0.1.0",
  "protobuf 2.0.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.59 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.59 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_json 1.0.17 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
+name = "nervos-script"
+version = "0.1.0"
+dependencies = [
+ "crypto 0.1.0",
+ "nervos-core 0.1.0",
+ "serde 1.0.70 (registry+https://github.com/rust-lang/crates.io-index)",
+ "serde_derive 1.0.70 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]

@@ -2,6 +2,8 @@ extern crate bigint;
 extern crate crossbeam_channel;
 extern crate nervos_chain;
 extern crate nervos_core as core;
+#[cfg(test)]
+extern crate nervos_db;
 extern crate nervos_notify;
 extern crate nervos_time as time;
 extern crate nervos_util as util;

@@ -19,6 +19,7 @@ nervos-network = { path = "network"}
 nervos-pool = { path = "pool"}
 nervos-rpc = { path = "rpc"}
 nervos-time = { path = "util/time"}
+nervos-script= { path = "script"}
 ethash = { git = "https://github.com/NervosFoundation/ethash", tag = "v1.0.0" }
 logger = { path = "util/logger" }
 bigint = { git = "https://github.com/NervosFoundation/bigint" }
@@ -48,4 +49,5 @@ members = [
     "rpc",
     "notify",
     "verification",
+    "script",
 ]

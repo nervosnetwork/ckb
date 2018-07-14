@@ -73,12 +73,12 @@ pub fn run(spec: Spec) {
         config: spec.configs.rpc,
     };
     let network_clone = Arc::clone(&network);
-
     let chain_clone = Arc::clone(&chain);
+    let tx_pool_clone = Arc::clone(&tx_pool);
     let _ = thread::Builder::new()
         .name("rpc".to_string())
         .spawn(move || {
-            rpc_server.start(network_clone, chain_clone);
+            rpc_server.start(network_clone, chain_clone, tx_pool_clone);
         });
 
     wait_for_exit();

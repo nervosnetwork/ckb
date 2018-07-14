@@ -8,7 +8,7 @@ use std::iter::Iterator;
 
 use bigint::H256;
 use core::header::Header;
-use core::transaction::{OutPoint, Transaction};
+use core::transaction::{CellOutput, OutPoint, Transaction};
 use nervos_verification::TransactionError;
 
 use time;
@@ -31,13 +31,19 @@ impl Default for PoolConfig {
 }
 
 /// This enum describes the parent for a given input of a transaction.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Parent {
     Unknown,
     BlockTransaction,
     PoolTransaction,
     OrphanTransaction,
     AlreadySpent,
+}
+
+#[derive(Clone, Debug)]
+pub enum InsertionResult {
+    Normal,
+    Orphan,
 }
 
 // TODO document this enum more accurately
@@ -52,14 +58,12 @@ pub enum PoolError {
     DoubleSpend,
     /// Transaction pool is over capacity, can't accept more transactions
     OverCapacity,
-    /// orphan transaction
-    OrphanTransaction,
     /// A duplicate output
     DuplicateOutput,
 }
 
 /// Interface that the pool requires from a blockchain implementation.
-pub trait BlockChain: Send + Sync {
+pub trait BlockChain {
     /// Check the output is not spent
     fn is_spent(&self, output_ref: &OutPoint) -> Option<Parent>;
 
@@ -88,18 +92,21 @@ impl Pool {
         self.pool.is_pool_tx(h)
     }
 
-    /// Add a verified transaction.
+    pub fn get_output(&self, o: &OutPoint) -> Option<CellOutput> {
+        self.pool.get_output(o)
+    }
+
+    /// add a verified transaction
     pub fn add_transaction(&mut self, tx: Transaction) {
         self.pool.add_transaction(tx);
     }
 
-    /// Readd a verified transaction which is rolled back from chain. Since the rolled back
-    /// transaction should depend on any transaction in the pool, it is safe to skip some checking.
+    /// readd a verified transaction
     pub fn readd_transaction(&mut self, tx: &Transaction) {
         self.pool.readd_transaction(&tx);
     }
 
-    /// When the transaction related to the vertex was packaged, we remove it.
+    /// when the transaction related to the vertex was packaged, we remove it.
     pub fn commit_transaction(&mut self, tx: &Transaction) -> bool {
         let hash = tx.hash();
 
@@ -127,15 +134,18 @@ impl Pool {
         }
     }
 
-    pub fn is_spent(&self, o: &OutPoint) -> Option<Parent> {
-        if self.pool.out_edges.get(o).is_some() {
-            return Some(Parent::AlreadySpent);
-        }
-
-        self.pool.edges.get(o).map(|x| match *x {
-            Some(_) => Parent::AlreadySpent,
-            None => Parent::PoolTransaction,
-        })
+    pub fn parent(&self, o: &OutPoint) -> Parent {
+        self.pool
+            .out_edges
+            .get(o)
+            .map(|_| Parent::AlreadySpent)
+            .or_else(|| {
+                self.pool.edges.get(o).map(|x| match *x {
+                    Some(_) => Parent::AlreadySpent,
+                    None => Parent::OrphanTransaction,
+                })
+            })
+            .unwrap_or(Parent::Unknown)
     }
 
     pub fn size(&self) -> usize {
@@ -164,6 +174,10 @@ impl OrphanPool {
         self.pool.is_pool_tx(h)
     }
 
+    pub fn get_output(&self, o: &OutPoint) -> Option<CellOutput> {
+        self.pool.get_output(o)
+    }
+
     /// add orphan transaction
     pub fn add_transaction(&mut self, tx: Transaction, unknown: Vec<OutPoint>) {
         for o in unknown {
@@ -173,15 +187,18 @@ impl OrphanPool {
         self.pool.add_transaction(tx);
     }
 
-    pub fn is_spent(&self, o: &OutPoint) -> Option<Parent> {
-        if self.pool.out_edges.get(o).is_some() {
-            return Some(Parent::AlreadySpent);
-        }
-
-        self.pool.edges.get(o).map(|x| match *x {
-            Some(_) => Parent::AlreadySpent,
-            None => Parent::OrphanTransaction,
-        })
+    pub fn parent(&self, o: &OutPoint) -> Parent {
+        self.pool
+            .out_edges
+            .get(o)
+            .map(|_| Parent::AlreadySpent)
+            .or_else(|| {
+                self.pool.edges.get(o).map(|x| match *x {
+                    Some(_) => Parent::AlreadySpent,
+                    None => Parent::OrphanTransaction,
+                })
+            })
+            .unwrap_or(Parent::Unknown)
     }
 
     /// when a transaction is added in pool or chain, reconcile it.
@@ -254,20 +271,12 @@ fn estimate_transaction_size(_tx: &Transaction) -> u64 {
 /// structure and add additional capability on top of it.
 #[derive(Debug, PartialEq, Clone, Default)]
 pub struct DirectedGraph {
-    /// Transactions which dependencies are not in the graph.
-    roots: HashMap<H256, PoolEntry>,
-    /// Transactions which has at least a dependency in the graph.
-    no_roots: HashMap<H256, PoolEntry>,
-    /// Keys are OutPoints pointing to transactions that are not in the graph.
-    ///
-    /// The value is the hash of transaction in the graph if it is not none. The transaction
-    /// contains the key as one of its inputs.
     edges: HashMap<OutPoint, Option<H256>>,
-    /// Keys are OutPoints pointing to transactions that are in the graph.
-    ///
-    /// The value is the hash of transaction in the graph if it is not none. The transaction
-    /// contains the key as one of its inputs.
     out_edges: HashMap<OutPoint, Option<H256>>,
+    no_roots: HashMap<H256, PoolEntry>,
+
+    // roots (vertices with in-degree 0, no pool reference)
+    roots: HashMap<H256, PoolEntry>,
 }
 
 impl DirectedGraph {
@@ -281,18 +290,26 @@ impl DirectedGraph {
         }
     }
 
-    /// Get an edge's destnation(tx hash) by OutPoint
-    fn get_edge(&self, o: &OutPoint) -> Option<H256> {
+    /// Get an edge's destnation(tx hash) by output
+    pub fn get_edge(&self, o: &OutPoint) -> Option<H256> {
         self.edges.get(o).and_then(|x| *x)
     }
 
-    /// Remove an edge by OutPoint
-    fn remove_edge(&mut self, o: &OutPoint) -> Option<H256> {
+    pub fn get_output(&self, o: &OutPoint) -> Option<CellOutput> {
+        (self
+            .roots
+            .get(&o.hash)
+            .or_else(|| self.no_roots.get(&o.hash)))
+            .and_then(|x| x.transaction.outputs.get(o.index as usize).cloned())
+    }
+
+    /// Remove an edge by output's hash
+    pub fn remove_edge(&mut self, o: &OutPoint) -> Option<H256> {
         self.edges.remove(o).unwrap_or(None)
     }
 
-    /// Remove an out edge by OutPoint
-    fn remove_out_edge(&mut self, o: &OutPoint) -> Option<H256> {
+    /// Remove an out edge by output's hash
+    pub fn remove_out_edge(&mut self, o: &OutPoint) -> Option<H256> {
         self.out_edges.remove(o).unwrap_or(None)
     }
 
@@ -300,6 +317,7 @@ impl DirectedGraph {
         self.roots.contains_key(h) || self.no_roots.contains_key(h)
     }
 
+    //
     pub fn readd_transaction(&mut self, tx: &Transaction) {
         let inputs = tx.input_pts();
         let outputs = tx.output_pts();
@@ -379,7 +397,7 @@ impl DirectedGraph {
     }
 
     /// when the transaction's input is used by other transaction, we remove it.
-    fn remove_vertex(&mut self, h: &H256) {
+    pub fn remove_vertex(&mut self, h: &H256) {
         if let Some(x) = self.no_roots.remove(h).or_else(|| self.roots.remove(h)) {
             let tx = x.transaction;
 
@@ -401,7 +419,7 @@ impl DirectedGraph {
     }
 
     /// dec vertex's pool output ref num
-    fn dec_ref(&mut self, h: &H256) {
+    pub fn dec_ref(&mut self, h: &H256) {
         let mut count = 1;
         if let Some(x) = self.no_roots.get_mut(h) {
             x.refs_count -= 1;
@@ -413,7 +431,7 @@ impl DirectedGraph {
         }
     }
 
-    fn get_potential_root(
+    pub fn get_potential_root(
         &self,
         tx: &Transaction,
         counts: &mut HashMap<H256, u64>,
@@ -424,11 +442,11 @@ impl DirectedGraph {
         for o in outputs {
             if let Some(h) = self.get_edge(&o) {
                 if let Some(x) = self.no_roots.get(&h) {
-                    let c = counts.get(&h).map_or(1, |c| *c + 1);
+                    let c = *counts.get(&h).unwrap_or(&1);
                     if x.refs_count == c {
                         roots.push(x.transaction.clone());
                     } else {
-                        counts.insert(h, c);
+                        counts.insert(h, c + 1);
                     }
                 }
             }
@@ -461,7 +479,7 @@ impl DirectedGraph {
 
     /// Get the current list of roots
     pub fn get_roots(&self, n: usize) -> Vec<Transaction> {
-        if self.roots.len() >= n {
+        if self.roots.len() <= n {
             self.roots
                 .values()
                 .take(n)
@@ -516,25 +534,25 @@ mod tests {
     use super::*;
     use core::transaction::{CellInput, CellOutput};
 
-    fn build_tx(inputs: Vec<(H256, u32)>, outputs_len: usize) -> Transaction {
-        Transaction::new(
-            0,
-            Vec::new(),
-            inputs
-                .into_iter()
-                .map(|(txid, index)| CellInput::new(OutPoint::new(txid, index), Vec::new()))
-                .collect(),
-            (0..outputs_len)
-                .map(|i| CellOutput::new(0, (i + 1) as u32, Vec::new(), Vec::new()))
-                .collect(),
-        )
-    }
-
     #[test]
     fn test_add_entry() {
-        let tx1 = build_tx(vec![(H256::zero(), 1), (H256::zero(), 2)], 1);
+        let inputs = vec![
+            CellInput::new(OutPoint::new(H256::zero(), 1), Default::default()),
+            CellInput::new(OutPoint::new(H256::zero(), 2), Default::default()),
+        ];
+
+        let outputs = vec![CellOutput::new(10, 10, Vec::new(), H256::default())];
+
+        let tx1 = Transaction::new(0, Vec::new(), inputs, outputs.clone());
+
         let tx1_hash = tx1.hash();
-        let tx2 = build_tx(vec![(tx1_hash, 0)], 1);
+
+        let inputs2 = vec![CellInput::new(
+            OutPoint::new(tx1_hash, 0),
+            Default::default(),
+        )];
+
+        let tx2 = Transaction::new(0, Vec::new(), inputs2, outputs);
 
         let mut pool = Pool::new();
 
@@ -551,129 +569,4 @@ mod tests {
         assert_eq!(pool.pool.no_roots.len(), 0);
     }
 
-    #[test]
-    fn test_add_roots() {
-        let tx1 = build_tx(vec![(H256::zero(), 1), (H256::zero(), 2)], 1);
-        let tx2 = build_tx(vec![(H256::from(2), 1), (H256::from(3), 2)], 3);
-
-        let mut pool = Pool::new();
-
-        pool.add_transaction(tx1.clone());
-        pool.add_transaction(tx2.clone());
-
-        assert_eq!(pool.pool.no_roots.len(), 0);
-        assert_eq!(pool.pool.roots.len(), 2);
-        assert_eq!(pool.pool.edges.len(), 4);
-        assert_eq!(pool.pool.out_edges.len(), 4);
-
-        let mut mineable = pool.get_mineable_transactions(0);
-        assert_eq!(0, mineable.len());
-
-        mineable = pool.get_mineable_transactions(1);
-        assert_eq!(1, mineable.len());
-        assert!(mineable.contains(&tx1) || mineable.contains(&tx2));
-
-        mineable = pool.get_mineable_transactions(2);
-        assert_eq!(2, mineable.len());
-        assert!(mineable.contains(&tx1) && mineable.contains(&tx2));
-
-        mineable = pool.get_mineable_transactions(3);
-        assert_eq!(2, mineable.len());
-        assert!(mineable.contains(&tx1) && mineable.contains(&tx2));
-
-        pool.commit_transaction(&tx1);
-
-        assert_eq!(pool.pool.no_roots.len(), 0);
-        assert_eq!(pool.pool.roots.len(), 1);
-        assert_eq!(pool.pool.edges.len(), 3);
-        assert_eq!(pool.pool.out_edges.len(), 2);
-    }
-
-    #[test]
-    fn test_add_no_roots() {
-        let tx1 = build_tx(vec![(H256::zero(), 1)], 3);
-        let tx2 = build_tx(vec![], 4);
-        let tx1_hash = tx1.hash();
-        let tx2_hash = tx2.hash();
-
-        let tx3 = build_tx(vec![(tx1_hash, 0), (H256::zero(), 2)], 2);
-        let tx4 = build_tx(vec![(tx1_hash, 1), (tx2_hash, 0)], 2);
-
-        let tx3_hash = tx3.hash();
-        let tx5 = build_tx(vec![(tx1_hash, 2), (tx3_hash, 0)], 2);
-
-        let mut pool = Pool::new();
-
-        pool.add_transaction(tx1.clone());
-        pool.add_transaction(tx2.clone());
-        pool.add_transaction(tx3.clone());
-        pool.add_transaction(tx4.clone());
-        pool.add_transaction(tx5.clone());
-
-        assert_eq!(pool.pool.no_roots.len(), 3);
-        assert_eq!(pool.pool.roots.len(), 2);
-        assert_eq!(pool.pool.edges.len(), 13);
-        assert_eq!(pool.pool.out_edges.len(), 2);
-
-        let mut mineable = pool.get_mineable_transactions(0);
-        assert_eq!(0, mineable.len());
-
-        mineable = pool.get_mineable_transactions(1);
-        assert_eq!(1, mineable.len());
-        assert!(mineable.contains(&tx1) || mineable.contains(&tx2));
-
-        mineable = pool.get_mineable_transactions(2);
-        assert_eq!(2, mineable.len());
-        assert!(mineable.contains(&tx1) && mineable.contains(&tx2));
-
-        mineable = pool.get_mineable_transactions(3);
-        assert_eq!(3, mineable.len());
-        assert!(mineable.contains(&tx1) && mineable.contains(&tx2));
-        assert!(mineable.contains(&tx3) || mineable.contains(&tx4));
-
-        mineable = pool.get_mineable_transactions(4);
-        assert_eq!(4, mineable.len());
-        assert!(mineable.contains(&tx1) && mineable.contains(&tx2));
-        assert!(mineable.contains(&tx3) && mineable.contains(&tx4));
-
-        mineable = pool.get_mineable_transactions(5);
-        assert_eq!(5, mineable.len());
-        assert!(mineable.contains(&tx1) && mineable.contains(&tx2));
-        assert!(mineable.contains(&tx3) && mineable.contains(&tx4));
-        assert!(mineable.contains(&tx5));
-
-        mineable = pool.get_mineable_transactions(6);
-        assert_eq!(5, mineable.len());
-        assert!(mineable.contains(&tx1) && mineable.contains(&tx2));
-        assert!(mineable.contains(&tx3) && mineable.contains(&tx4));
-        assert!(mineable.contains(&tx5));
-
-        pool.commit_transaction(&tx1);
-
-        assert_eq!(pool.pool.no_roots.len(), 2);
-        assert_eq!(pool.pool.roots.len(), 2);
-        assert_eq!(pool.pool.edges.len(), 10);
-        assert_eq!(pool.pool.out_edges.len(), 4);
-
-        mineable = pool.get_mineable_transactions(1);
-        assert_eq!(1, mineable.len());
-        assert!(mineable.contains(&tx2) || mineable.contains(&tx3));
-
-        mineable = pool.get_mineable_transactions(2);
-        assert_eq!(2, mineable.len());
-        assert!(mineable.contains(&tx2) && mineable.contains(&tx3));
-
-        mineable = pool.get_mineable_transactions(3);
-        assert_eq!(3, mineable.len());
-        assert!(mineable.contains(&tx2) && mineable.contains(&tx3));
-        assert!(mineable.contains(&tx4) || mineable.contains(&tx5));
-
-        mineable = pool.get_mineable_transactions(4);
-        assert_eq!(4, mineable.len());
-        assert!(mineable.contains(&tx2) && mineable.contains(&tx3));
-        assert!(mineable.contains(&tx4) && mineable.contains(&tx5));
-
-        mineable = pool.get_mineable_transactions(5);
-        assert_eq!(4, mineable.len());
-    }
 }

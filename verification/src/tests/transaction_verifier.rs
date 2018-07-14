@@ -8,10 +8,10 @@ pub fn test_cellbase_with_one_output() {
     let mut transaction = create_dummy_transaction();
     transaction
         .inputs
-        .push(CellInput::new(OutPoint::null(), Vec::new()));
+        .push(CellInput::new(OutPoint::null(), Default::default()));
     transaction
         .outputs
-        .push(CellOutput::new(0, 100, Vec::new(), Vec::new()));
+        .push(CellOutput::new(0, 100, Vec::new(), H256::default()));
 
     let verifier = CellbaseVerifier::new(&transaction);
     assert!(verifier.verify().is_ok());
@@ -22,13 +22,13 @@ pub fn test_cellbase_with_two_outputs() {
     let mut transaction = create_dummy_transaction();
     transaction
         .inputs
-        .push(CellInput::new(OutPoint::null(), Vec::new()));
+        .push(CellInput::new(OutPoint::null(), Default::default()));
     transaction
         .outputs
-        .push(CellOutput::new(0, 100, Vec::new(), Vec::new()));
+        .push(CellOutput::new(0, 100, Vec::new(), H256::default()));
     transaction
         .outputs
-        .push(CellOutput::new(0, 100, Vec::new(), Vec::new()));
+        .push(CellOutput::new(0, 100, Vec::new(), H256::default()));
 
     let verifier = CellbaseVerifier::new(&transaction);
     assert!(verifier.verify().is_err());
@@ -37,12 +37,13 @@ pub fn test_cellbase_with_two_outputs() {
 #[test]
 pub fn test_non_cellbase_with_one_output() {
     let mut transaction = create_dummy_transaction();
-    transaction
-        .inputs
-        .push(CellInput::new(OutPoint::new(H256::from(1), 0), Vec::new()));
+    transaction.inputs.push(CellInput::new(
+        OutPoint::new(H256::from(1), 0),
+        Default::default(),
+    ));
     transaction
         .outputs
-        .push(CellOutput::new(0, 100, Vec::new(), Vec::new()));
+        .push(CellOutput::new(0, 100, Vec::new(), H256::default()));
 
     let verifier = CellbaseVerifier::new(&transaction);
     assert!(verifier.verify().is_ok());
@@ -51,15 +52,16 @@ pub fn test_non_cellbase_with_one_output() {
 #[test]
 pub fn test_non_cellbase_with_two_outputs() {
     let mut transaction = create_dummy_transaction();
-    transaction
-        .inputs
-        .push(CellInput::new(OutPoint::new(H256::from(1), 0), Vec::new()));
-    transaction
-        .outputs
-        .push(CellOutput::new(0, 100, Vec::new(), Vec::new()));
+    transaction.inputs.push(CellInput::new(
+        OutPoint::new(H256::from(1), 0),
+        Default::default(),
+    ));
     transaction
         .outputs
-        .push(CellOutput::new(0, 100, Vec::new(), Vec::new()));
+        .push(CellOutput::new(0, 100, Vec::new(), H256::default()));
+    transaction
+        .outputs
+        .push(CellOutput::new(0, 100, Vec::new(), H256::default()));
 
     let verifier = CellbaseVerifier::new(&transaction);
     assert!(verifier.verify().is_ok());

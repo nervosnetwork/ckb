@@ -49,11 +49,11 @@ impl TransactionMeta {
     }
 
     pub fn is_new(&self) -> bool {
-        self.output_spent.all()
+        self.output_spent.none()
     }
 
     pub fn is_fully_spent(&self) -> bool {
-        self.output_spent.none()
+        self.output_spent.all()
     }
 
     pub fn is_spent(&self, index: usize) -> bool {

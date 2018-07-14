@@ -9,3 +9,9 @@ boot_nodes = [
     "/ip4/47.75.42.29/tcp/12345/p2p/QmU6tySavbTF2uftZz1As2at4mxCr3QhhsFpfGpEbhBDiz"
 ]
 reserved_nodes = []
+
+[miner]
+redeem_script_hash  = "0x8b133a3868993176b613738816247a7f4d357cae555996519cf5b543e9b3554b"
+# miner: 0x8b133a3868993176b613738816247a7f4d357cae555996519cf5b543e9b3554b
+# alice: 0x2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6e90
+# bob:   0x81b637d8fcd2c6da6359e6963113a1170de795e4b725b84d1e0b4cfd9ec58ce9

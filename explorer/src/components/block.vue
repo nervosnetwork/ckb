@@ -4,7 +4,7 @@
     <tbody>
         <tr>
           <td>Hash</td>
-          <td>#{{ block.header.hash }}</td>
+          <td>#{{ block.hash }}</td>
         </tr>
         <tr>
           <td>Pre Hash</td>

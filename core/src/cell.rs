@@ -1,3 +1,4 @@
+use bigint::H256;
 use std::iter::Chain;
 use std::slice;
 use transaction::{CellOutput, OutPoint, Transaction};
@@ -6,6 +7,10 @@ use transaction::{CellOutput, OutPoint, Transaction};
 pub enum CellState {
     /// Cell exists and is the head in its cell chain.
     Head(CellOutput),
+    /// Cell in Pool
+    Pool(CellOutput),
+    /// Cell in Orphan Pool
+    Orphan(CellOutput),
     /// Cell exists and is not the head of its cell chain.
     Tail,
     /// Cell does not exist.
@@ -13,8 +18,9 @@ pub enum CellState {
 }
 
 /// Transaction with resolved input cells.
-pub struct ResolvedTransaction {
-    pub transaction: Transaction,
+#[derive(Clone)]
+pub struct ResolvedTransaction<'a> {
+    pub transaction: &'a Transaction,
     pub dep_cells: Vec<CellState>,
     pub input_cells: Vec<CellState>,
 }
@@ -22,13 +28,38 @@ pub struct ResolvedTransaction {
 pub trait CellProvider {
     fn cell(&self, out_point: &OutPoint) -> CellState;
 
-    fn resolve_transaction(&self, transaction: Transaction) -> ResolvedTransaction {
+    fn cell_at(&self, out_point: &OutPoint, parent: &H256) -> CellState;
+
+    fn resolve_transaction<'a>(&self, transaction: &'a Transaction) -> ResolvedTransaction<'a> {
         let input_cells = transaction
             .inputs
             .iter()
             .map(|input| self.cell(&input.previous_output))
             .collect();
         let dep_cells = transaction.deps.iter().map(|dep| self.cell(dep)).collect();
+
+        ResolvedTransaction {
+            transaction,
+            input_cells,
+            dep_cells,
+        }
+    }
+
+    fn resolve_transaction_at<'a>(
+        &self,
+        transaction: &'a Transaction,
+        parent: &H256,
+    ) -> ResolvedTransaction<'a> {
+        let input_cells = transaction
+            .inputs
+            .iter()
+            .map(|input| self.cell_at(&input.previous_output, parent))
+            .collect();
+        let dep_cells = transaction
+            .deps
+            .iter()
+            .map(|dep| self.cell_at(dep, parent))
+            .collect();
 
         ResolvedTransaction {
             transaction,
@@ -67,7 +98,7 @@ impl CellState {
     }
 }
 
-impl ResolvedTransaction {
+impl<'a> ResolvedTransaction<'a> {
     pub fn cells_iter(&self) -> Chain<slice::Iter<CellState>, slice::Iter<CellState>> {
         self.dep_cells.iter().chain(&self.input_cells)
     }
@@ -132,6 +163,7 @@ impl ResolvedTransaction {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bigint::H256;
     use std::collections::HashMap;
 
     struct CellMemoryDb {
@@ -139,6 +171,14 @@ mod tests {
     }
     impl CellProvider for CellMemoryDb {
         fn cell(&self, out_point: &OutPoint) -> CellState {
+            match self.cells.get(out_point) {
+                Some(&Some(ref cell_output)) => CellState::Head(cell_output.clone()),
+                Some(&None) => CellState::Tail,
+                None => CellState::Unknown,
+            }
+        }
+
+        fn cell_at(&self, out_point: &OutPoint, _: &H256) -> CellState {
             match self.cells.get(out_point) {
                 Some(&Some(ref cell_output)) => CellState::Head(cell_output.clone()),
                 Some(&None) => CellState::Tail,
@@ -169,7 +209,7 @@ mod tests {
             module: 1,
             capacity: 2,
             data: vec![],
-            lock: vec![],
+            lock: H256::default(),
         };
 
         db.cells.insert(p1.clone(), Some(o.clone()));

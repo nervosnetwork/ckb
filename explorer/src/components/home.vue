@@ -8,7 +8,7 @@
             <div class="uk-card uk-card-default uk-card-body uk-width-1-2">         
               Block #{{ block.header.raw.number }}
               <div class="uk-text-truncate">
-                <router-link v-bind:to="{ name: 'blocks', params: { id: block.header.hash }}">{{ block.header.hash }}</router-link>
+                <router-link v-bind:to="{ name: 'blocks', params: { id: block.hash }}">{{ block.hash }}</router-link>
               </div>
             </div>
             <div class="uk-card uk-card-default uk-card-body uk-margin-left uk-width-1-2">
