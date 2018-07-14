@@ -1,93 +1,42 @@
+use super::pow_verifier::{PowVerifier, PowVerifierWrapper};
 use super::Verifier;
-use bigint::H256;
-use core::difficulty::{boundary_to_difficulty, cal_difficulty};
+use core::difficulty::cal_difficulty;
 use core::header::Header;
-use error::{DifficultyError, Error, HeightError, PowError, TimestampError};
-use ethash::{recover_boundary, Ethash, Pow};
+use error::{DifficultyError, Error, HeightError, TimestampError};
 use shared::ALLOWED_FUTURE_BLOCKTIME;
-use std::sync::Arc;
 use time::now_ms;
 
-pub struct HeaderVerifier<'a> {
-    pub pow: PowVerifier<'a>,
+pub struct HeaderVerifier<'a, T> {
+    pub pow: PowVerifierWrapper<'a, T>,
     pub timestamp: TimestampVerifier<'a>,
-    pub height: HeightVerifier<'a>,
+    pub number: NumberVerifier<'a>,
     pub difficulty: DifficultyVerifier<'a>,
 }
 
-impl<'a> HeaderVerifier<'a> {
-    pub fn new(parent: &'a Header, header: &'a Header, ethash: &Arc<Ethash>) -> Self {
+impl<'a, T> HeaderVerifier<'a, T>
+where
+    T: PowVerifier,
+{
+    pub fn new(parent: &'a Header, header: &'a Header, pow_verifier: T) -> Self {
         debug_assert_eq!(parent.hash(), header.parent_hash);
         HeaderVerifier {
-            pow: PowVerifier::new(header, Arc::clone(ethash)),
+            pow: PowVerifierWrapper::new(header, pow_verifier),
             timestamp: TimestampVerifier::new(parent, header),
-            height: HeightVerifier::new(parent, header),
+            number: NumberVerifier::new(parent, header),
             difficulty: DifficultyVerifier::new(parent, header),
         }
     }
 }
 
-impl<'a> Verifier for HeaderVerifier<'a> {
+impl<'a, T> Verifier for HeaderVerifier<'a, T>
+where
+    T: PowVerifier,
+{
     fn verify(&self) -> Result<(), Error> {
-        self.height.verify()?;
+        self.number.verify()?;
         self.timestamp.verify()?;
         self.difficulty.verify()?;
         self.pow.verify()?;
-        Ok(())
-    }
-}
-
-pub struct PowVerifier<'a> {
-    header: &'a Header,
-    ethash: Arc<Ethash>,
-}
-
-impl<'a> PowVerifier<'a> {
-    pub fn new(header: &'a Header, ethash: Arc<Ethash>) -> Self {
-        PowVerifier { header, ethash }
-    }
-
-    pub fn verify(&self) -> Result<(), Error> {
-        let pow_hash = self.header.pow_hash();
-        self.cheap_verify(&pow_hash)
-            .and_then(|_| self.heavy_verify(&pow_hash))
-    }
-
-    fn cheap_verify(&self, pow_hash: &H256) -> Result<(), Error> {
-        let difficulty = boundary_to_difficulty(&recover_boundary(
-            pow_hash,
-            self.header.seal.nonce,
-            &self.header.seal.mix_hash,
-        ));
-
-        if difficulty < self.header.difficulty {
-            Err(Error::Pow(PowError::Boundary {
-                expected: self.header.difficulty,
-                actual: difficulty,
-            }))
-        } else {
-            Ok(())
-        }
-    }
-
-    fn heavy_verify(&self, pow_hash: &H256) -> Result<(), Error> {
-        let Pow { mix, value } =
-            self.ethash
-                .light_compute(self.header.number, *pow_hash, self.header.seal.nonce);
-        if mix != self.header.seal.mix_hash {
-            return Err(Error::Pow(PowError::MixMismatch {
-                expected: self.header.seal.mix_hash,
-                actual: mix,
-            }));
-        }
-        let difficulty = boundary_to_difficulty(&value);
-
-        if difficulty < self.header.difficulty {
-            return Err(Error::Pow(PowError::Boundary {
-                expected: self.header.difficulty,
-                actual: difficulty,
-            }));
-        }
         Ok(())
     }
 }
@@ -126,14 +75,14 @@ impl<'a> TimestampVerifier<'a> {
     }
 }
 
-pub struct HeightVerifier<'a> {
+pub struct NumberVerifier<'a> {
     parent: &'a Header,
     header: &'a Header,
 }
 
-impl<'a> HeightVerifier<'a> {
+impl<'a> NumberVerifier<'a> {
     pub fn new(parent: &'a Header, header: &'a Header) -> Self {
-        HeightVerifier { parent, header }
+        NumberVerifier { parent, header }
     }
 
     pub fn verify(&self) -> Result<(), Error> {

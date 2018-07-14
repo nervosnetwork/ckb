@@ -9,6 +9,7 @@ mod block_verifier;
 mod chain_verifier;
 mod error;
 mod header_verifier;
+mod pow_verifier;
 mod shared;
 mod tests;
 mod transaction_verifier;
@@ -17,6 +18,7 @@ pub use block_verifier::BlockVerifier;
 pub use chain_verifier::ChainVerifier;
 pub use error::{Error, TransactionError};
 pub use header_verifier::HeaderVerifier;
+pub use pow_verifier::{EthashVerifier, NoopVerifier, PowVerifier, PowVerifierImpl};
 pub use transaction_verifier::TransactionVerifier;
 
 pub trait Verifier {

@@ -1,21 +1,23 @@
 use super::block_verifier::BlockVerifier;
 use super::header_verifier::HeaderVerifier;
+use super::pow_verifier::PowVerifier;
 use super::transaction_verifier::TransactionVerifier;
 use super::Verifier;
 use core::block::Block;
 use core::header::Header;
 use error::{Error, TransactionError};
-use ethash::Ethash;
 use rayon::prelude::*;
-use std::sync::Arc;
 
-pub struct ChainVerifier<'a> {
+pub struct ChainVerifier<'a, T> {
     pub block: BlockVerifier<'a>,
-    pub header: HeaderVerifier<'a>,
+    pub header: HeaderVerifier<'a, T>,
     pub transactions: Vec<TransactionVerifier<'a>>,
 }
 
-impl<'a> Verifier for ChainVerifier<'a> {
+impl<'a, T> Verifier for ChainVerifier<'a, T>
+where
+    T: PowVerifier,
+{
     fn verify(&self) -> Result<(), Error> {
         self.block.verify()?;
         self.header.verify()?;
@@ -24,11 +26,14 @@ impl<'a> Verifier for ChainVerifier<'a> {
     }
 }
 
-impl<'a> ChainVerifier<'a> {
-    pub fn new(parent_header: &'a Header, block: &'a Block, ethash: &Arc<Ethash>) -> Self {
+impl<'a, T> ChainVerifier<'a, T>
+where
+    T: PowVerifier,
+{
+    pub fn new(parent_header: &'a Header, block: &'a Block, pow_verifier: T) -> Self {
         ChainVerifier {
             block: BlockVerifier::new(block),
-            header: HeaderVerifier::new(parent_header, &block.header, ethash),
+            header: HeaderVerifier::new(parent_header, &block.header, pow_verifier),
             transactions: block
                 .transactions
                 .iter()
