@@ -97,8 +97,11 @@ do
     fi
 	fi
 done
-if [ FMTFAILED = 0 ]; then
+if [ "$FMTFAILED" = 0 ]; then
   printf "${SUCCESS}\n"
+else
+	printf "${FAILURE}\n"
+	exit 1
 fi
 
 exit "$FAILED"
