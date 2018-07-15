@@ -1,5 +1,5 @@
 test:
-	cargo test --verbose --all
+	cargo test --all -- --nocapture
 
 build:
 	cargo build --release

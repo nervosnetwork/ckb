@@ -11,6 +11,7 @@ cache:
 env:
   global:
     - CLIPPY_VERSION=0.0.204
+    - RUST_BACKTRACE=full
 
 matrix:
   include:
