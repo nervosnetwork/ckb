@@ -1,2 +1,5 @@
 [logger]
 filter = "warn"
+
+[miner]
+ethash_path = "ethash"

@@ -5,7 +5,7 @@ use core::header::Header;
 use core::transaction::{OutPoint, Transaction};
 use core::transaction_meta::TransactionMeta;
 use ethash::Ethash;
-use nervos_chain::chain::{ChainClient, Error, SealerType};
+use nervos_chain::chain::{ChainClient, Error, VerificationLevel};
 use std::collections::HashMap;
 use std::sync::Arc;
 use util::RwLock;
@@ -152,8 +152,8 @@ impl ChainClient for DummyChainImpl {
         Ok(0)
     }
 
-    fn sealer_type(&self) -> SealerType {
-        SealerType::Noop
+    fn verification_level(&self) -> VerificationLevel {
+        VerificationLevel::NoVerification
     }
 
     fn ethash(&self) -> Option<Arc<Ethash>> {

@@ -2,7 +2,7 @@
 filter = "info,sub-libp2p=debug,libp2p=debug,libp2p_kad=info,chain=warn,sync=debug"
 
 [chain]
-sealer_type = "Noop"
+verification_level = "NoVerification"
 
 [network]
 boot_nodes = [

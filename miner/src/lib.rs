@@ -22,5 +22,6 @@ mod sealer;
 pub struct Config {
     // Max number of transactions this miner will assemble in a block
     pub max_tx: usize,
+    pub ethash_path: Option<String>,
     pub miner_address: String,
 }

@@ -1,6 +1,6 @@
 use super::pow_verifier::EthashVerifier;
 use super::Verifier;
-use chain::chain::{ChainClient, SealerType};
+use chain::chain::{ChainClient, VerificationLevel};
 use core::difficulty::cal_difficulty;
 use core::header::Header;
 use error::{DifficultyError, Error, HeightError, TimestampError};
@@ -85,9 +85,9 @@ fn verify_diffculty(header: &Header, parent: &Header) -> Result<(), Error> {
 }
 
 fn verify_pow<C: ChainClient>(header: &Header, chain: &Arc<C>) -> Result<(), Error> {
-    match chain.sealer_type() {
-        SealerType::Normal => EthashVerifier::new(&chain.ethash().expect("Ethash exists"))
+    match chain.verification_level() {
+        VerificationLevel::Full => EthashVerifier::new(&chain.ethash().expect("Ethash exists"))
             .verify(header, &header.pow_hash()),
-        SealerType::Noop => Ok(()),
+        _ => Ok(()),
     }
 }

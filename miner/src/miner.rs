@@ -39,12 +39,16 @@ impl<C: ChainClient + 'static> Miner<C> {
         chain: Arc<C>,
         tx_pool: &Arc<TransactionPool<C>>,
         network: &Arc<NetworkService>,
-        ethash: &Arc<Ethash>,
+        ethash: Option<Arc<Ethash>>,
         notify: &Notify,
     ) -> Self {
-        let number = { chain.tip_header().number };
-        let _dataset = ethash.gen_dataset(get_epoch(number));
-        let (sealer, signal) = Sealer::new(ethash, chain.sealer_type());
+        ethash.clone().map(|e| {
+            let number = { chain.tip_header().number };
+            let _ = e.gen_dataset(get_epoch(number));
+            Some(())
+        });
+
+        let (sealer, signal) = Sealer::new(ethash);
 
         let miner = Miner {
             config,

@@ -54,6 +54,11 @@ impl Spec {
                 path.push(file);
                 configs.network.nodes_file = Some(path.to_str().unwrap().to_string());
             }
+            if let Some(file) = configs.miner.ethash_path {
+                let mut path = dirs.join("miner");
+                path.push(file);
+                configs.miner.ethash_path = Some(path.to_str().unwrap().to_string());
+            }
             Spec { configs, dirs }
         })
     }

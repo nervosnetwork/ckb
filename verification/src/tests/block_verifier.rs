@@ -8,6 +8,7 @@ use chain::COLUMNS;
 use core::block::Block;
 use core::transaction::{CellInput, CellOutput, OutPoint, Transaction};
 use db::memorydb::MemoryKeyValueDB;
+use notify::Notify;
 use std::sync::Arc;
 
 fn create_cellbase_transaction() -> Transaction {
@@ -79,7 +80,8 @@ fn dummy_chain() -> Arc<impl ChainClient> {
     let db = MemoryKeyValueDB::open(COLUMNS as usize);
     let store = ChainKVStore { db };
     let mut config = Config::default();
-    config.sealer_type = "Noop".to_string();
+    config.verification_level = "NoVerification".to_string();
     config.initial_block_reward = 100;
-    Arc::new(Chain::init(store, config, None).unwrap())
+    let notify = Notify::new();
+    Arc::new(Chain::init(store, config, None, notify).unwrap())
 }
