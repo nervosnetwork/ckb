@@ -6,7 +6,7 @@ branches:
 cache:
   timeout: 1024
   directories:
-     - $HOME/.cargo/
+    - $HOME/.cargo
 
 env:
   global:
@@ -16,20 +16,23 @@ matrix:
   include:
     - os: osx
       rust: nightly-2018-05-23
-      before_script:
-        - rustup component add rustfmt-preview --toolchain=nightly-2018-05-23
-        - bash -c 'if [[ ! -e $HOME/.cargo/bin/cargo-clippy ]]; then
-            cargo install clippy --vers $CLIPPY_VERSION --force;
-          fi'
+      install:
+        - cargo fmt --version || rustup component add rustfmt-preview --toolchain=nightly-2018-05-23
+        - cargo clippy --version || cargo install clippy --vers $CLIPPY_VERSION --force
     - rust: nightly-2018-05-23
-      before_install:
-        - sudo apt-get -qq update
-        - sudo apt-get install -y git autoconf flex bison texinfo libtool
-      before_script:
-        - rustup component add rustfmt-preview --toolchain=nightly-2018-05-23
-        - bash -c 'if [[ ! -e $HOME/.cargo/bin/cargo-clippy ]]; then
-            cargo install clippy --vers $CLIPPY_VERSION --force;
-          fi'
+      addons:
+        apt:
+          packages:
+            - git
+            - autoconf
+            - flex
+            - bison
+            - texinfo
+            - libtool
+      install:
+        - cargo fmt --version || rustup component add rustfmt-preview --toolchain=nightly-2018-05-23
+        - cargo clippy --version || cargo install clippy --vers $CLIPPY_VERSION --force
 
 script:
+- make info
 - make ci
