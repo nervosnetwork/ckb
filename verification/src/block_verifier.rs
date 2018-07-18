@@ -91,6 +91,9 @@ where
             .iter()
             .filter(|tx| tx.is_cellbase())
             .count();
+        if cellbase_len == 0 {
+            return Ok(());
+        }
         if cellbase_len > 1 {
             return Err(Error::MultipleCellbase);
         }
@@ -105,7 +108,12 @@ where
             fee += self.chain.calculate_transaction_fee(transaction)?;
         }
         let total_reward = block_reward + fee;
-        if cellbase_transaction.outputs[0].capacity != total_reward {
+        let output_capacity: u32 = cellbase_transaction
+            .outputs
+            .iter()
+            .map(|output| output.capacity)
+            .sum();
+        if output_capacity > total_reward {
             Err(Error::Transaction(vec![(
                 0,
                 TransactionError::InvalidCapacity,

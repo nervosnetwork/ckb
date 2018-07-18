@@ -9,6 +9,7 @@ log = "0.4"
 nervos-core = { path = "../core" }
 nervos-time = { path = "../util/time" }
 nervos-chain = { path = "../chain" }
+nervos-util = { path = "../util" }
 bigint = { git = "https://github.com/NervosFoundation/bigint" }
 merkle-root = {path = "../util/merkle-root"}
 rayon = "1.0"

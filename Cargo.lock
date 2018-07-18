@@ -1712,6 +1712,7 @@ dependencies = [
  "nervos-db 0.1.0",
  "nervos-notify 0.1.0",
  "nervos-time 0.1.0",
+ "nervos-util 0.1.0",
  "rayon 1.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
