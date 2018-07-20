@@ -17,7 +17,7 @@
 #
 # Options:
 #
-# - TARPC_SKIP_RUSTFMT, default = 0
+# - SKIP_RUSTFMT, default = 0
 #
 #   Set this to 1 to skip running rustfmt
 #
@@ -67,14 +67,6 @@ else
 	printf "${FAILURE}\n"
 fi
 
-printf "${PREFIX} Checking for rustfmt ... "
-if command -v cargo &>/dev/null; then
-	printf "${SUCCESS}\n"
-else
-	printf "${FAILURE}\n"
-	exit 1
-fi
-
 printf "${PREFIX} Checking for shasum ... "
 if command -v shasum &>/dev/null; then
 	printf "${SUCCESS}\n"
@@ -87,21 +79,24 @@ fi
 # modifying the file because I don't want to mess with the developer's index, which may
 # not only contain discrete files.
 printf "${PREFIX} Checking formatting ... "
-FMTFAILED=0
-for file in $(git diff --name-only --cached);
-do
-	if [ ${file: -3} == ".rs" ]; then
-    if ! rustfmt --skip-children --check "$file"; then
-      FAILED=1
-      FMTFAILED=1
-    fi
-	fi
-done
-if [ "$FMTFAILED" = 0 ]; then
-  printf "${SUCCESS}\n"
+if [ "$SKIP_RUSTFMT" = 1 ]; then
+	printf "${SKIPPED}\n"
 else
-	printf "${FAILURE}\n"
-	exit 1
+  FMTFAILED=0
+  for file in $(git diff --name-only --cached);
+  do
+    if [ -f "$file" ] && [ ${file: -3} == ".rs" ]; then
+      if ! rustfmt --skip-children --check "$file"; then
+        FAILED=1
+        FMTFAILED=1
+      fi
+    fi
+  done
+  if [ "$FMTFAILED" = 0 ]; then
+    printf "${SUCCESS}\n"
+  else
+    printf "${FAILURE}\n"
+  fi
 fi
 
 exit "$FAILED"
