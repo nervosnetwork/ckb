@@ -24,9 +24,19 @@
         <h3 class="uk-card-title">Transactions</h3>
         <ul class="uk-list">
           <li v-for="tx in transactions" :key="tx.hash">
-            Tx {{ tx }}
-            <!-- TODO -->
-            <!-- <router-link v-bind:to="{ name: 'transactions', params: { id: tx.hash }}">{{ tx.hash }}</router-link> -->
+            <router-link v-bind:to="{ name: 'transactions', params: { id: tx.hash }}">{{ tx.hash }}</router-link>
+            Inputs
+            <ul>
+              <li v-for="i in tx.transaction.inputs" :key="i">
+                {{ i }}
+              </li>
+            </ul>
+            Outputs
+            <ul>
+              <li v-for="o in tx.transaction.outputs" :key="o">
+                {{ o }}
+              </li>
+            </ul>
           </li>
         </ul>
       </div>

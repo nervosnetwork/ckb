@@ -8,7 +8,7 @@
         </tr>
         <tr>
           <td>Pre Hash</td>
-          <td><router-link v-bind:to="{ name: 'blocks', params: { id: block.header.raw.pre_hash }}">{{ block.header.raw.pre_hash}}</router-link></td>
+          <td><router-link v-bind:to="{ name: 'blocks', params: { id: block.header.raw.parent_hash }}">{{ block.header.raw.parent_hash}}</router-link></td>
         </tr>
         <tr>
           <td>Timestamp</td>

@@ -10,6 +10,7 @@ extern crate log;
 extern crate nervos_chain as chain;
 extern crate nervos_core as core;
 extern crate nervos_network as network;
+extern crate nervos_pool as pool;
 extern crate nervos_protocol;
 extern crate nervos_sync as sync;
 #[macro_use]
@@ -17,7 +18,6 @@ extern crate serde_derive;
 
 use bigint::H256;
 use chain::chain::ChainProvider;
-use core::block::Block;
 use core::header::Header;
 use core::transaction::Transaction;
 use jsonrpc_core::{IoHandler, Result};
@@ -26,6 +26,7 @@ use jsonrpc_server_utils::cors::AccessControlAllowOrigin;
 use jsonrpc_server_utils::hosts::DomainsValidation;
 use nervos_protocol::Payload;
 use network::NetworkService;
+use pool::TransactionPool;
 use std::sync::Arc;
 use sync::RELAY_PROTOCOL_ID;
 
@@ -37,7 +38,7 @@ build_rpc_trait! {
 
         // curl -d '{"id": 2, "jsonrpc": "2.0", "method":"get_block","params": ["0x0f9da6db98d0acd1ae0cf7ae3ee0b2b5ad2855d93c18d27c0961f985a62a93c3"]}' -H 'content-type:application/json' 'http://localhost:3030'
         #[rpc(name = "get_block")]
-        fn get_block(&self, H256) -> Result<Option<Block>>;
+        fn get_block(&self, H256) -> Result<Option<BlockWithHashedTransactions>>;
 
         // curl -d '{"id": 2, "jsonrpc": "2.0", "method":"get_transaction","params": ["0x0f9da6db98d0acd1ae0cf7ae3ee0b2b5ad2855d93c18d27c0961f985a62a93c3"]}' -H 'content-type:application/json' 'http://localhost:3030'
         #[rpc(name = "get_transaction")]
@@ -52,17 +53,32 @@ build_rpc_trait! {
     }
 }
 
-struct RpcImpl {
+struct RpcImpl<C> {
     pub network: Arc<NetworkService>,
-    pub chain: Arc<ChainProvider>,
+    pub chain: Arc<C>,
+    pub tx_pool: Arc<TransactionPool<C>>,
 }
 
-impl Rpc for RpcImpl {
+#[derive(Serialize)]
+pub struct TransactionWithHash {
+    pub transaction: Transaction,
+    pub hash: H256,
+}
+
+#[derive(Serialize)]
+pub struct BlockWithHashedTransactions {
+    pub header: Header,
+    pub transactions: Vec<TransactionWithHash>,
+}
+
+impl<C: ChainProvider + 'static> Rpc for RpcImpl<C> {
     fn send_transaction(&self, tx: Transaction) -> Result<H256> {
+        let pool_result = self.tx_pool.add_to_memory_pool(tx.clone());
+        debug!(target: "rpc", "send_transaction add to pool result: {:?}", pool_result);
+
         let result = tx.hash();
-        let tx: nervos_protocol::Transaction = (&tx).into();
         let mut payload = Payload::new();
-        payload.set_transaction(tx);
+        payload.set_transaction((&tx).into());
         self.network.with_context_eval(RELAY_PROTOCOL_ID, |nc| {
             for (peer_id, _session) in nc.sessions() {
                 nc.send(peer_id, payload.clone()).ok();
@@ -71,8 +87,21 @@ impl Rpc for RpcImpl {
         Ok(result)
     }
 
-    fn get_block(&self, hash: H256) -> Result<Option<Block>> {
-        Ok(self.chain.block(&hash).map(Into::into))
+    fn get_block(&self, hash: H256) -> Result<Option<BlockWithHashedTransactions>> {
+        Ok(self
+            .chain
+            .block(&hash)
+            .map(|block| BlockWithHashedTransactions {
+                header: block.header.into(),
+                transactions: block
+                    .transactions
+                    .into_iter()
+                    .map(|transaction| TransactionWithHash {
+                        transaction: transaction.clone(),
+                        hash: transaction.hash(),
+                    })
+                    .collect(),
+            }))
     }
 
     fn get_transaction(&self, hash: H256) -> Result<Option<Transaction>> {
@@ -92,10 +121,24 @@ impl Rpc for RpcImpl {
 pub struct RpcServer {
     pub config: Config,
 }
+
 impl RpcServer {
-    pub fn start(&self, network: Arc<NetworkService>, chain: Arc<ChainProvider>) {
+    pub fn start<C>(
+        &self,
+        network: Arc<NetworkService>,
+        chain: Arc<C>,
+        tx_pool: Arc<TransactionPool<C>>,
+    ) where
+        C: ChainProvider + 'static,
+    {
         let mut io = IoHandler::new();
-        io.extend_with(RpcImpl { network, chain }.to_delegate());
+        io.extend_with(
+            RpcImpl {
+                network,
+                chain,
+                tx_pool,
+            }.to_delegate(),
+        );
 
         let server = ServerBuilder::new(io)
             .cors(DomainsValidation::AllowOnly(vec![

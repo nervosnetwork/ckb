@@ -59,6 +59,7 @@ export default {
 
     get_block: function(hash) {
       this.jrpc().call('get_block', [hash]).then((block) => {
+        block.hash = hash
         this.block = block
         console.log(block)
       })

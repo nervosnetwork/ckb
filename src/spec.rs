@@ -28,7 +28,7 @@ pub struct Configs {
 impl Spec {
     pub fn new(matches: &clap::ArgMatches) -> Result<Self, ConfigError> {
         let data_path = matches
-            .value_of("config")
+            .value_of("data-dir")
             .map(Into::into)
             .unwrap_or_else(default_base_path);
         let dirs = Directories::new(&data_path);

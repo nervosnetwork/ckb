@@ -1,6 +1,20 @@
 <template>
   <div>
     <h3>Show Transaction</h3>
+    <div>
+      Inputs
+      <ul class="uk-list">
+        <li v-for="i in transaction.inputs" :key="i">
+          {{ i }}
+        </li>
+      </ul>
+      Outputs
+      <ul class="uk-list">
+        <li v-for="o in transaction.outputs" :key="o">
+          {{ o }}
+        </li>
+      </ul>
+    </div>
   </div>
 </template>
 
