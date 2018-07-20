@@ -63,6 +63,16 @@ impl PartialEq for IndexedBlock {
     }
 }
 
+impl ::std::hash::Hash for IndexedBlock {
+    fn hash<H>(&self, state: &mut H)
+    where
+        H: ::std::hash::Hasher,
+    {
+        state.write(&self.header.hash());
+        state.finish();
+    }
+}
+
 impl IndexedBlock {
     pub fn hash(&self) -> H256 {
         self.header.hash()

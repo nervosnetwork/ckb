@@ -179,6 +179,16 @@ impl DerefMut for IndexedTransaction {
     }
 }
 
+impl ::std::hash::Hash for IndexedTransaction {
+    fn hash<H>(&self, state: &mut H)
+    where
+        H: ::std::hash::Hasher,
+    {
+        state.write(&self.hash);
+        state.finish();
+    }
+}
+
 #[derive(Clone, Debug, Eq, Default)]
 pub struct IndexedTransaction {
     pub transaction: Transaction,

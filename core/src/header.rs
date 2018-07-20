@@ -102,6 +102,16 @@ impl Deref for IndexedHeader {
     }
 }
 
+impl ::std::hash::Hash for IndexedHeader {
+    fn hash<H>(&self, state: &mut H)
+    where
+        H: ::std::hash::Hasher,
+    {
+        state.write(&self.hash);
+        state.finish();
+    }
+}
+
 #[derive(Clone, Debug, Eq, Default)]
 pub struct IndexedHeader {
     pub header: Header,
