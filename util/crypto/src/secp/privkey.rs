@@ -25,6 +25,15 @@ impl Privkey {
         Ok(Signature::from_compact(rec_id, data))
     }
 
+    pub fn sign_schnorr(&self, message: &Message) -> Result<Signature, Error> {
+        let context = &SECP256K1;
+        let message = message.as_ref();
+        let privkey = key::SecretKey::from_slice(context, &self.inner)?;
+        let message = SecpMessage::from_slice(message)?;
+        let data = context.sign_schnorr(&message, &privkey)?;
+        Ok(Signature::from_schnorr(data))
+    }
+
     pub fn from_slice(key: &[u8]) -> Self {
         assert_eq!(32, key.len(), "should provide 32-byte length slice");
 

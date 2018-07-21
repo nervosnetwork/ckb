@@ -1,6 +1,5 @@
 use super::error::Error;
 use super::secp256k1::key;
-use super::secp256k1::Error as SecpError;
 use super::secp256k1::Message as SecpMessage;
 use super::signature::Signature;
 use super::Message;
@@ -16,7 +15,7 @@ pub struct Pubkey {
 impl Pubkey {
     /// Checks that `signature` is a valid ECDSA signature for `message` using the public
     /// key `pubkey`
-    pub fn verify(&self, message: &Message, signature: &Signature) -> Result<bool, Error> {
+    pub fn verify(&self, message: &Message, signature: &Signature) -> Result<(), Error> {
         let context = &SECP256K1;
 
         // non-compressed key prefix 4
@@ -31,11 +30,26 @@ impl Pubkey {
         let signature = recoverable_signature.to_standard(context);
 
         let message = SecpMessage::from_slice(message)?;
-        match context.verify(&message, &signature, &pubkey) {
-            Ok(_) => Ok(true),
-            Err(SecpError::IncorrectSignature) => Ok(false),
-            Err(x) => Err(x.into()),
-        }
+        context.verify(&message, &signature, &pubkey)?;
+        Ok(())
+    }
+
+    pub fn verify_schnorr(&self, message: &Message, signature: &Signature) -> Result<(), Error> {
+        let context = &SECP256K1;
+
+        // non-compressed key prefix 4
+        let prefix_key: [u8; 65] = {
+            let mut temp = [4u8; 65];
+            temp[1..65].copy_from_slice(self);
+            temp
+        };
+
+        let pubkey = key::PublicKey::from_slice(context, &prefix_key)?;
+        let schnorr_signature = signature.to_schnorr();
+
+        let message = SecpMessage::from_slice(message)?;
+        context.verify_schnorr(&message, &schnorr_signature, &pubkey)?;
+        Ok(())
     }
 }
 

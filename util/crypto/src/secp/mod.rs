@@ -32,7 +32,7 @@ mod tests {
         let (privkey, pubkey) = gen.random_keypair().unwrap();
         let message = Message::default();
         let signature = privkey.sign_recoverable(&message).unwrap();
-        assert!(pubkey.verify(&message, &signature).unwrap());
+        assert!(pubkey.verify(&message, &signature).is_ok());
     }
 
     #[test]
@@ -43,4 +43,23 @@ mod tests {
         let signature = privkey.sign_recoverable(&message).unwrap();
         assert_eq!(pubkey, signature.recover(&message).unwrap());
     }
+
+    #[test]
+    fn test_schnorr_sign_verify() {
+        let gen = Generator::new();
+        let (privkey, pubkey) = gen.random_keypair().unwrap();
+        let message = Message::default();
+        let signature = privkey.sign_schnorr(&message).unwrap();
+        assert!(pubkey.verify_schnorr(&message, &signature).is_ok());
+    }
+
+    #[test]
+    fn test_schnorr_recover() {
+        let gen = Generator::new();
+        let (privkey, pubkey) = gen.random_keypair().unwrap();
+        let message = Message::default();
+        let signature = privkey.sign_schnorr(&message).unwrap();
+        assert_eq!(pubkey, signature.recover_schnorr(&message).unwrap());
+    }
+
 }
