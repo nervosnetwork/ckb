@@ -38,5 +38,5 @@ verification_level = "Full"
 orphan_block_limit = 1024
 
 [miner]
-max_tx = 1024
-miner_address = "0x0000000000000000000000000000000000000000"
+max_tx              = 1024
+redeem_script_hash  = "0x6463e95f5f1f15415962563b0d4227635d8ae2a74137afbe3e052ef1f9470074"

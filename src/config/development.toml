@@ -1,5 +1,8 @@
 [logger]
-filter = "info,sub-libp2p=debug,libp2p=debug,libp2p_kad=info,chain=warn,sync=debug"
+filter = "info,sub-libp2p=debug,libp2p=debug,libp2p_kad=info,chain=warn,sync=debug,rpc=debug"
+
+[rpc]
+listen_addr = "0.0.0.0:3030"
 
 [chain]
 verification_level = "NoVerification"
@@ -11,7 +14,7 @@ boot_nodes = [
 reserved_nodes = []
 
 [miner]
-redeem_script_hash  = "0x8b133a3868993176b613738816247a7f4d357cae555996519cf5b543e9b3554b"
-# miner: 0x8b133a3868993176b613738816247a7f4d357cae555996519cf5b543e9b3554b
-# alice: 0x2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6e90
-# bob:   0x81b637d8fcd2c6da6359e6963113a1170de795e4b725b84d1e0b4cfd9ec58ce9
+redeem_script_hash  = "0x6463e95f5f1f15415962563b0d4227635d8ae2a74137afbe3e052ef1f9470074"
+# sha3_256("miner"): 0x6463e95f5f1f15415962563b0d4227635d8ae2a74137afbe3e052ef1f9470074
+# sha3_256("alice"): 0xa7dcef9aef26202fce82a7c7d6672afb3a149db207d90a07e437d5abc7fc99ed
+# sha3_256("bob"):   0xb5d577dc9ce59725e29886632e69ecdf3b6ca49c0a14f4315a2404fc1508672d
