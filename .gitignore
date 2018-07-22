@@ -9,6 +9,7 @@
 
 # intermedia file directory
 target/
+target-cache/
 */target/
 admintool/example/
 
