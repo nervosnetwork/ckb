@@ -12,6 +12,7 @@ extern crate nervos_verification;
 extern crate serde_derive;
 #[cfg(test)]
 extern crate ethash;
+extern crate fnv;
 
 mod tests;
 pub mod txs_pool;
@@ -20,8 +21,8 @@ use bigint::H256;
 use core::block::IndexedBlock;
 // use core::cell::{CellProvider, CellState};
 // use core::transaction::{OutPoint, Transaction};
+use fnv::FnvHashSet;
 use std::collections::BTreeMap;
-use std::collections::HashSet;
 use util::{RwLock, RwLockUpgradableReadGuard};
 
 pub use txs_pool::*;
@@ -29,14 +30,17 @@ pub use txs_pool::*;
 #[derive(Default)]
 pub struct PendingBlockPool {
     pool: RwLock<BTreeMap<u64, IndexedBlock>>,
-    hashes: RwLock<HashSet<H256>>,
+    hashes: RwLock<FnvHashSet<H256>>,
 }
 
 impl PendingBlockPool {
     pub fn with_capacity(capacity: usize) -> Self {
         PendingBlockPool {
             pool: RwLock::new(BTreeMap::new()),
-            hashes: RwLock::new(HashSet::with_capacity(capacity)),
+            hashes: RwLock::new(FnvHashSet::with_capacity_and_hasher(
+                capacity,
+                Default::default(),
+            )),
         }
     }
 

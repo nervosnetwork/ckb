@@ -2,6 +2,7 @@
 //! and its top-level members.
 #![cfg_attr(feature = "cargo-clippy", allow(while_let_loop))]
 
+use fnv::FnvHashMap;
 use std::collections::HashMap;
 use std::iter::Iterator;
 
@@ -220,7 +221,7 @@ impl OrphanPool {
                 break;
             }
 
-            self.pool.roots = HashMap::new();
+            self.pool.roots = FnvHashMap::default();
 
             for tx in &tmp {
                 self.pool.reconcile_transaction(tx);
@@ -272,29 +273,29 @@ fn estimate_transaction_size(_tx: &Transaction) -> u64 {
 #[derive(Debug, PartialEq, Clone, Default)]
 pub struct DirectedGraph {
     /// Transactions which dependencies are not in the graph.
-    roots: HashMap<H256, PoolEntry>,
+    roots: FnvHashMap<H256, PoolEntry>,
     /// Transactions which has at least a dependency in the graph.
-    no_roots: HashMap<H256, PoolEntry>,
+    no_roots: FnvHashMap<H256, PoolEntry>,
     /// Keys are OutPoints pointing to transactions that are not in the graph.
     ///
     /// The value is the hash of transaction in the graph if it is not none. The transaction
     /// contains the key as one of its inputs.
-    edges: HashMap<OutPoint, Option<H256>>,
+    edges: FnvHashMap<OutPoint, Option<H256>>,
     /// Keys are OutPoints pointing to transactions that are in the graph.
     ///
     /// The value is the hash of transaction in the graph if it is not none. The transaction
     /// contains the key as one of its inputs.
-    out_edges: HashMap<OutPoint, Option<H256>>,
+    out_edges: FnvHashMap<OutPoint, Option<H256>>,
 }
 
 impl DirectedGraph {
     /// Create an empty directed graph
     pub fn new() -> DirectedGraph {
         DirectedGraph {
-            edges: HashMap::new(),
-            out_edges: HashMap::new(),
-            no_roots: HashMap::new(),
-            roots: HashMap::new(),
+            edges: FnvHashMap::default(),
+            out_edges: FnvHashMap::default(),
+            no_roots: FnvHashMap::default(),
+            roots: FnvHashMap::default(),
         }
     }
 

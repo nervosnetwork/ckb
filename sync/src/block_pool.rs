@@ -1,8 +1,9 @@
 use bigint::H256;
 use core::block::{Block, IndexedBlock};
 use core::header::IndexedHeader;
+use fnv::FnvHashMap;
 use std::collections::hash_map::Entry;
-use std::collections::{HashMap, VecDeque};
+use std::collections::VecDeque;
 use util::RwLock;
 
 pub type BlockHash = H256;
@@ -10,13 +11,16 @@ pub type ParentHash = H256;
 
 #[derive(Default)]
 pub struct OrphanBlockPool {
-    blocks: RwLock<HashMap<ParentHash, HashMap<BlockHash, Block>>>,
+    blocks: RwLock<FnvHashMap<ParentHash, FnvHashMap<BlockHash, Block>>>,
 }
 
 impl OrphanBlockPool {
     pub fn with_capacity(capacity: usize) -> Self {
         OrphanBlockPool {
-            blocks: RwLock::new(HashMap::with_capacity(capacity)),
+            blocks: RwLock::new(FnvHashMap::with_capacity_and_hasher(
+                capacity,
+                Default::default(),
+            )),
         }
     }
 
@@ -25,7 +29,7 @@ impl OrphanBlockPool {
         self.blocks
             .write()
             .entry(block.header.parent_hash)
-            .or_insert_with(HashMap::new)
+            .or_insert_with(FnvHashMap::default)
             .insert(block.hash(), block.into());
     }
 
