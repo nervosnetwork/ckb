@@ -20,11 +20,11 @@ extern crate nervos_notify;
 
 pub mod cachedb;
 pub mod chain;
-mod config;
+pub mod consensus;
+// mod config;
+mod flat_serializer;
 pub mod index;
 pub mod store;
-pub use config::Config;
-mod flat_serializer;
 
 use db::batch::Col;
 

@@ -1,9 +1,9 @@
-use super::super::Spec;
+use super::super::helper::wait_for_exit;
+use super::super::Setup;
 use chain::cachedb::CacheDB;
 use chain::chain::ChainProvider;
 use chain::chain::{Chain, ChainBuilder};
 use chain::store::ChainKVStore;
-use ctrlc;
 use db::diskdb::RocksDB;
 use ethash::Ethash;
 use logger;
@@ -11,21 +11,20 @@ use miner::miner::Miner;
 use nervos_notify::Notify;
 use nervos_verification::EthashVerifier;
 use network::NetworkService;
-use pool::*;
+use pool::{PoolConfig, TransactionPool};
 use rpc::RpcServer;
 use std::sync::Arc;
 use std::thread;
 use sync::protocol::{RelayProtocol, SyncProtocol};
 use sync::synchronizer::Synchronizer;
 use sync::{RELAY_PROTOCOL_ID, SYNC_PROTOCOL_ID};
-use util::{Condvar, Mutex};
 
-pub fn run(spec: Spec) {
-    logger::init(spec.configs.logger.clone()).expect("Init Logger");
+pub fn run(setup: Setup) {
+    logger::init(setup.configs.logger.clone()).expect("Init Logger");
 
-    info!(target: "main", "Value for spec: {:?}", spec);
-    let rocks_db_path = spec.dirs.join("db");
-    let ethash = spec
+    info!(target: "main", "Value for setup: {:?}", setup);
+    let rocks_db_path = setup.dirs.join("db");
+    let ethash = setup
         .configs
         .miner
         .clone()
@@ -36,7 +35,7 @@ pub fn run(spec: Spec) {
 
     let chain = {
         let mut builder = ChainBuilder::<ChainKVStore<CacheDB<RocksDB>>>::new_rocks(&rocks_db_path)
-            .config(spec.configs.chain)
+            .consensus(setup.chain_spec.to_consensus())
             .notify(notify.clone());
         Arc::new(builder.build().unwrap())
     };
@@ -47,14 +46,14 @@ pub fn run(spec: Spec) {
         &chain,
         notify.clone(),
         ethash.clone().map(|e| EthashVerifier::new(&e)),
-        spec.configs.sync,
+        setup.configs.sync,
     );
 
     let chain1 = Arc::<Chain<ChainKVStore<CacheDB<RocksDB>>>>::clone(&chain);
     let tx_pool = TransactionPool::new(PoolConfig::default(), chain1, notify.clone());
 
     let network =
-        Arc::new(NetworkService::new(spec.configs.network, Option::None).expect("Create network"));
+        Arc::new(NetworkService::new(setup.configs.network, Option::None).expect("Create network"));
 
     let sync_protocol = Arc::new(SyncProtocol::new(synchronizer.clone()));
     let sync_protocol_clone = Arc::clone(&sync_protocol);
@@ -72,7 +71,7 @@ pub fn run(spec: Spec) {
 
     let miner_chain = Arc::clone(&chain);
     let miner = Miner::new(
-        spec.configs.miner,
+        setup.configs.miner,
         miner_chain,
         &tx_pool,
         &network,
@@ -87,7 +86,7 @@ pub fn run(spec: Spec) {
         });
 
     let rpc_server = RpcServer {
-        config: spec.configs.rpc,
+        config: setup.configs.rpc,
     };
     let network_clone = Arc::clone(&network);
     let chain_clone = Arc::clone(&chain);
@@ -104,18 +103,4 @@ pub fn run(spec: Spec) {
 
     // network.flush();
     logger::flush();
-}
-
-fn wait_for_exit() {
-    let exit = Arc::new((Mutex::new(()), Condvar::new()));
-
-    // Handle possible exits
-    let e = Arc::<(Mutex<()>, Condvar)>::clone(&exit);
-    let _ = ctrlc::set_handler(move || {
-        e.1.notify_all();
-    });
-
-    // Wait for signal
-    let mut l = exit.0.lock();
-    exit.1.wait(&mut l);
 }

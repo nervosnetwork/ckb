@@ -28,8 +28,12 @@ ctrlc = { version = "3.1", features = ["termination"] }
 tera = "0.11"
 lazy_static = "1.0"
 nervos-sync = { path = "sync"}
-config = "0.8"
+serde_yaml = "0.7"
+config = "0.9"
 nervos-verification = { path = "verification" }
+
+[dev-dependencies]
+tempdir = "0.3"
 
 [workspace]
 members = [

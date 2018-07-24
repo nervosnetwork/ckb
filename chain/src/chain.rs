@@ -1,7 +1,7 @@
 use super::{COLUMNS, COLUMN_BLOCK_HEADER};
 use bigint::{H256, U256};
 use cachedb::CacheDB;
-use config::Config;
+use consensus::Consensus;
 use core::block::IndexedBlock;
 use core::cell::{CellProvider, CellState};
 use core::extras::BlockExt;
@@ -21,25 +21,10 @@ use store::ChainKVStore;
 use time::now_ms;
 use util::RwLock;
 
-pub struct GenesisHash(pub H256);
-
-// guarantee inly init once
-unsafe impl Sync for GenesisHash {}
-
 #[derive(Debug, PartialEq, Clone, Eq)]
 pub enum Error {
     InvalidInput,
     InvalidOutput,
-}
-
-#[derive(Debug, PartialEq, Clone, Eq)]
-pub enum VerificationLevel {
-    /// Full verification.
-    Full,
-    /// Transaction scripts are not checked.
-    Header,
-    /// No verification at all.
-    NoVerification,
 }
 
 #[derive(Default, Debug, PartialEq, Clone, Eq)]
@@ -51,9 +36,8 @@ pub struct TipHeader {
 
 pub struct Chain<CS> {
     store: CS,
-    config: Config,
     tip_header: RwLock<TipHeader>,
-    genesis_hash: GenesisHash,
+    consensus: Consensus,
     notify: Notify,
 }
 
@@ -144,14 +128,16 @@ impl<'a, CS: ChainIndex> CellProvider for Chain<CS> {
 }
 
 impl<CS: ChainIndex> Chain<CS> {
-    pub fn init(store: CS, config: Config, notify: Notify) -> Result<Chain<CS>, Error> {
+    pub fn init(store: CS, consensus: Consensus, notify: Notify) -> Result<Chain<CS>, Error> {
         // check head in store or save the genesis block as head
-        let genesis = config.genesis_block();
-        let header = match store.get_tip_header() {
-            Some(h) => h,
-            None => {
-                store.init(&genesis);
-                genesis.header.clone()
+        let header = {
+            let genesis = consensus.genesis_block();
+            match store.get_tip_header() {
+                Some(h) => h,
+                None => {
+                    store.init(&genesis);
+                    genesis.header.clone()
+                }
             }
         };
 
@@ -173,8 +159,7 @@ impl<CS: ChainIndex> Chain<CS> {
 
         Ok(Chain {
             store,
-            config,
-            genesis_hash: GenesisHash(genesis.hash()),
+            consensus,
             tip_header: RwLock::new(tip_header),
             notify,
         })
@@ -372,7 +357,7 @@ impl<CS: ChainIndex> ChainProvider for Chain<CS> {
     }
 
     fn genesis_hash(&self) -> H256 {
-        self.genesis_hash.0
+        self.consensus.genesis_block().hash()
     }
 
     fn block_header(&self, hash: &H256) -> Option<IndexedHeader> {
@@ -412,7 +397,7 @@ impl<CS: ChainIndex> ChainProvider for Chain<CS> {
 
     fn block_reward(&self, _block_number: u64) -> u32 {
         // TODO: block reward calculation algorithm
-        self.config.initial_block_reward
+        self.consensus.initial_block_reward()
     }
 
     // TODO: find a way to write test for this once we can build a mock on
@@ -448,7 +433,7 @@ impl<CS: ChainIndex> ChainProvider for Chain<CS> {
 
 pub struct ChainBuilder<CS> {
     store: CS,
-    config: Config,
+    consensus: Consensus,
     notify: Option<Notify>,
 }
 
@@ -467,22 +452,31 @@ impl<CS: ChainIndex> ChainBuilder<CS> {
     }
 
     pub fn new_simple<T: KeyValueDB>(db: T) -> ChainBuilder<ChainKVStore<T>> {
-        let mut config = Config::default();
-        config.initial_block_reward = 50;
+        let mut consensus = Consensus::default();
+        consensus.initial_block_reward = 50;
         ChainBuilder {
             store: ChainKVStore { db },
-            config,
+            consensus,
             notify: None,
         }
     }
 
-    pub fn config(mut self, value: Config) -> Self {
-        self.config = value;
+    // pub fn config(mut self, value: Config) -> Self {
+    //     self.config = value;
+    //     self
+    // }
+
+    // pub fn get_config(&self) -> &Config {
+    //     &self.config
+    // }
+
+    pub fn consensus(mut self, value: Consensus) -> Self {
+        self.consensus = value;
         self
     }
 
-    pub fn get_config(&self) -> &Config {
-        &self.config
+    pub fn get_consensus(&self) -> &Consensus {
+        &self.consensus
     }
 
     pub fn notify(mut self, value: Notify) -> Self {
@@ -492,7 +486,7 @@ impl<CS: ChainIndex> ChainBuilder<CS> {
 
     pub fn build(self) -> Result<Chain<CS>, Error> {
         let notify = self.notify.unwrap_or_else(Notify::new);
-        Chain::init(self.store, self.config, notify)
+        Chain::init(self.store, self.consensus, notify)
     }
 }
 

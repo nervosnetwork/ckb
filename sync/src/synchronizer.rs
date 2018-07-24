@@ -563,9 +563,9 @@ mod tests {
     use db::memorydb::MemoryKeyValueDB;
     use headers_process::HeadersProcess;
     use nervos_chain::chain::Chain;
+    use nervos_chain::consensus::Consensus;
     use nervos_chain::index::ChainIndex;
     use nervos_chain::store::ChainKVStore;
-    use nervos_chain::Config as ChainConfig;
     use nervos_chain::COLUMNS;
     use nervos_notify::Notify;
     use nervos_protocol::{self, Payload};
@@ -582,10 +582,10 @@ mod tests {
         assert!((status2 & BlockStatus::FAILED_MASK) == status2);
     }
 
-    fn gen_chain(config: &ChainConfig) -> Chain<ChainKVStore<MemoryKeyValueDB>> {
+    fn gen_chain(consensus: &Consensus) -> Chain<ChainKVStore<MemoryKeyValueDB>> {
         let db = MemoryKeyValueDB::open(COLUMNS as usize);
         let store = ChainKVStore { db };
-        let chain = Chain::init(store, config.clone(), Notify::default()).unwrap();
+        let chain = Chain::init(store, consensus.clone(), Notify::default()).unwrap();
         chain
     }
 
@@ -643,7 +643,7 @@ mod tests {
 
     #[test]
     fn test_locator() {
-        let config = ChainConfig::default();
+        let config = Consensus::default();
         let chain = Arc::new(gen_chain(&config));
 
         let num = 200;
@@ -672,7 +672,7 @@ mod tests {
 
     #[test]
     fn test_locate_latest_common_block() {
-        let config = ChainConfig::default();
+        let config = Consensus::default();
         let chain1 = Arc::new(gen_chain(&config));
         let chain2 = Arc::new(gen_chain(&config));
         let num = 200;
@@ -710,13 +710,13 @@ mod tests {
 
     #[test]
     fn test_locate_latest_common_block2() {
-        let config = ChainConfig::default();
+        let config = Consensus::default();
         let chain1 = Arc::new(gen_chain(&config));
         let chain2 = Arc::new(gen_chain(&config));
         let block_number = 200;
 
         let mut blocks: Vec<IndexedBlock> = Vec::new();
-        let mut parent = config.genesis_block().header;
+        let mut parent = config.genesis_block().header.clone();
         for _ in 1..block_number {
             let difficulty = parent.header.difficulty;
             let new_block = gen_block(parent, difficulty + U256::from(100));
@@ -764,7 +764,7 @@ mod tests {
 
     #[test]
     fn test_get_ancestor() {
-        let config = ChainConfig::default();
+        let config = Consensus::default();
         let chain = Arc::new(gen_chain(&config));
         let num = 200;
 
@@ -789,7 +789,7 @@ mod tests {
 
     #[test]
     fn test_process_new_block() {
-        let config = ChainConfig::default();
+        let config = Consensus::default();
         let chain = Arc::new(gen_chain(&config));
         let block_number = 2000;
 
@@ -816,7 +816,7 @@ mod tests {
 
     #[test]
     fn test_get_locator_response() {
-        let config = ChainConfig::default();
+        let config = Consensus::default();
         let chain = Arc::new(gen_chain(&config));
         let block_number = 200;
 
@@ -904,7 +904,7 @@ mod tests {
 
     #[test]
     fn test_sync_process() {
-        let config = ChainConfig::default();
+        let config = Consensus::default();
         let chain1 = Arc::new(gen_chain(&config));
         let chain2 = Arc::new(gen_chain(&config));
         let num = 200;

@@ -75,7 +75,7 @@ mod tests {
     use bigint::{H256, U256};
     use core::header::Seal;
     use core::header::{Header, IndexedHeader, RawHeader};
-    use nervos_chain::Config;
+    use nervos_chain::consensus::Consensus;
     use nervos_time::now_ms;
     use std::collections::HashSet;
     use std::iter::FromIterator;
@@ -106,10 +106,10 @@ mod tests {
 
     #[test]
     fn test_remove_blocks_by_parent() {
-        let config = Config::default();
+        let consensus = Consensus::default();
         let block_number = 200;
         let mut blocks: Vec<IndexedBlock> = Vec::new();
-        let mut parent = config.genesis_block().header;
+        let mut parent = consensus.genesis_block().header.clone();
         let pool = OrphanBlockPool::with_capacity(200);
         for _ in 1..block_number {
             let new_block = gen_block(parent);
@@ -118,7 +118,7 @@ mod tests {
             parent = new_block.header;
         }
 
-        let orphan = pool.remove_blocks_by_parent(&config.genesis_block().hash());
+        let orphan = pool.remove_blocks_by_parent(&consensus.genesis_block().hash());
         let orphan: HashSet<IndexedBlock> = HashSet::from_iter(orphan.into_iter());
         let block: HashSet<IndexedBlock> = HashSet::from_iter(blocks.into_iter());
         assert_eq!(orphan, block)
