@@ -1,8 +1,8 @@
 use bigint::{H256, U256};
 use bincode::serialize;
+use ckb_protocol;
 use hash::sha3_256;
 use merkle_root::*;
-use nervos_protocol;
 use std::ops::{Deref, DerefMut};
 use transaction::Transaction;
 
@@ -148,8 +148,8 @@ impl From<IndexedHeader> for Header {
     }
 }
 
-impl<'a> From<&'a nervos_protocol::Header> for Header {
-    fn from(proto: &'a nervos_protocol::Header) -> Self {
+impl<'a> From<&'a ckb_protocol::Header> for Header {
+    fn from(proto: &'a ckb_protocol::Header) -> Self {
         Header {
             raw: RawHeader {
                 version: proto.get_version(),
@@ -167,16 +167,16 @@ impl<'a> From<&'a nervos_protocol::Header> for Header {
     }
 }
 
-impl<'a> From<&'a nervos_protocol::Header> for IndexedHeader {
-    fn from(proto: &'a nervos_protocol::Header) -> Self {
+impl<'a> From<&'a ckb_protocol::Header> for IndexedHeader {
+    fn from(proto: &'a ckb_protocol::Header) -> Self {
         let header: Header = proto.into();
         header.into()
     }
 }
 
-impl<'a> From<&'a Header> for nervos_protocol::Header {
+impl<'a> From<&'a Header> for ckb_protocol::Header {
     fn from(h: &'a Header) -> Self {
-        let mut header = nervos_protocol::Header::new();
+        let mut header = ckb_protocol::Header::new();
         let temp_difficulty: H256 = h.difficulty.into();
         header.set_version(h.version);
         header.set_difficulty(temp_difficulty.to_vec());
@@ -190,7 +190,7 @@ impl<'a> From<&'a Header> for nervos_protocol::Header {
     }
 }
 
-impl<'a> From<&'a IndexedHeader> for nervos_protocol::Header {
+impl<'a> From<&'a IndexedHeader> for ckb_protocol::Header {
     fn from(h: &'a IndexedHeader) -> Self {
         let header = &h.header;
         header.into()

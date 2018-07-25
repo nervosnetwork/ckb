@@ -1,5 +1,5 @@
 [package]
-name = "nervos-pool"
+name = "ckb-pool"
 version = "0.1.0"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 
@@ -8,18 +8,18 @@ serde = "1.0"
 serde_derive = "1.0"
 bincode = "1.0"
 rand = "0.5.0"
-nervos-core = { path = "../core" }
-nervos-chain = { path = "../chain" }
+ckb-core = { path = "../core" }
+ckb-chain = { path = "../chain" }
 bigint = { git = "https://github.com/NervosFoundation/bigint" }
-nervos-util = { path = "../util" }
-nervos-time = { path = "../util/time" }
+ckb-util = { path = "../util" }
+ckb-time = { path = "../util/time" }
 log = "0.4"
 fnv = "1.0.3"
-nervos-notify = { path = "../notify" }
-nervos-verification = { path = "../verification" }
+ckb-notify = { path = "../notify" }
+ckb-verification = { path = "../verification" }
 crossbeam-channel = "0.2"
 
 [dev-dependencies]
 env_logger = "0.4"
 ethash = { git = "https://github.com/NervosFoundation/ethash", tag = "v1.0.0" }
-nervos-db = { path = "../db" }
+ckb-db = { path = "../db" }

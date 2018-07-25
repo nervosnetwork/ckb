@@ -2,8 +2,8 @@ use super::header::{Header, IndexedHeader};
 use super::transaction::Transaction;
 use super::Error;
 use bigint::H256;
+use ckb_protocol;
 use merkle_root::*;
-use nervos_protocol;
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Default, Debug)]
 pub struct Block {
@@ -113,8 +113,8 @@ impl From<IndexedBlock> for Block {
     }
 }
 
-impl<'a> From<&'a nervos_protocol::Block> for Block {
-    fn from(b: &'a nervos_protocol::Block) -> Self {
+impl<'a> From<&'a ckb_protocol::Block> for Block {
+    fn from(b: &'a ckb_protocol::Block) -> Self {
         Block {
             header: b.get_header().into(),
             transactions: b.get_transactions().iter().map(|t| t.into()).collect(),
@@ -122,16 +122,16 @@ impl<'a> From<&'a nervos_protocol::Block> for Block {
     }
 }
 
-impl<'a> From<&'a nervos_protocol::Block> for IndexedBlock {
-    fn from(b: &'a nervos_protocol::Block) -> Self {
+impl<'a> From<&'a ckb_protocol::Block> for IndexedBlock {
+    fn from(b: &'a ckb_protocol::Block) -> Self {
         let block: Block = b.into();
         block.into()
     }
 }
 
-impl<'a> From<&'a Block> for nervos_protocol::Block {
+impl<'a> From<&'a Block> for ckb_protocol::Block {
     fn from(b: &'a Block) -> Self {
-        let mut block = nervos_protocol::Block::new();
+        let mut block = ckb_protocol::Block::new();
         block.set_header(b.header().into());
         let transactions = b.transactions.iter().map(|t| t.into()).collect();
         block.set_transactions(transactions);
@@ -139,9 +139,9 @@ impl<'a> From<&'a Block> for nervos_protocol::Block {
     }
 }
 
-impl<'a> From<&'a IndexedBlock> for nervos_protocol::Block {
+impl<'a> From<&'a IndexedBlock> for ckb_protocol::Block {
     fn from(b: &'a IndexedBlock) -> Self {
-        let mut block = nervos_protocol::Block::new();
+        let mut block = ckb_protocol::Block::new();
         block.set_header((&b.header).into());
         let transactions = b.transactions.iter().map(|t| t.into()).collect();
         block.set_transactions(transactions);

@@ -1,10 +1,10 @@
 use bigint::{H256, H48};
 use byteorder::{ByteOrder, LittleEndian, WriteBytesExt};
+use ckb_protocol;
 use core::block::IndexedBlock;
 use core::header::Header;
 use core::transaction::Transaction;
 use hash::sha3_256;
-use nervos_protocol;
 use protobuf::RepeatedField;
 use rand::{thread_rng, Rng};
 use siphasher::sip::SipHasher;
@@ -115,8 +115,8 @@ pub fn short_transaction_id(key0: u64, key1: u64, transaction_hash: &H256) -> Sh
     siphash_transaction_hash_bytes[0..6].into()
 }
 
-impl<'a> From<&'a nervos_protocol::CompactBlock> for CompactBlock {
-    fn from(b: &'a nervos_protocol::CompactBlock) -> Self {
+impl<'a> From<&'a ckb_protocol::CompactBlock> for CompactBlock {
+    fn from(b: &'a ckb_protocol::CompactBlock) -> Self {
         CompactBlock {
             header: b.get_block_header().into(),
             nonce: b.get_nonce(),
@@ -134,9 +134,9 @@ impl<'a> From<&'a nervos_protocol::CompactBlock> for CompactBlock {
     }
 }
 
-impl From<CompactBlock> for nervos_protocol::CompactBlock {
+impl From<CompactBlock> for ckb_protocol::CompactBlock {
     fn from(b: CompactBlock) -> Self {
-        let mut block = nervos_protocol::CompactBlock::new();
+        let mut block = ckb_protocol::CompactBlock::new();
         block.set_block_header(b.header().into());
         block.set_nonce(b.nonce);
         block.set_short_ids(RepeatedField::from_vec(
@@ -152,8 +152,8 @@ impl From<CompactBlock> for nervos_protocol::CompactBlock {
     }
 }
 
-impl<'a> From<&'a nervos_protocol::PrefilledTransaction> for PrefilledTransaction {
-    fn from(pt: &'a nervos_protocol::PrefilledTransaction) -> Self {
+impl<'a> From<&'a ckb_protocol::PrefilledTransaction> for PrefilledTransaction {
+    fn from(pt: &'a ckb_protocol::PrefilledTransaction) -> Self {
         PrefilledTransaction {
             index: pt.get_index() as usize,
             transaction: pt.get_transaction().into(),
@@ -161,9 +161,9 @@ impl<'a> From<&'a nervos_protocol::PrefilledTransaction> for PrefilledTransactio
     }
 }
 
-impl<'a> From<&'a PrefilledTransaction> for nervos_protocol::PrefilledTransaction {
+impl<'a> From<&'a PrefilledTransaction> for ckb_protocol::PrefilledTransaction {
     fn from(pt: &'a PrefilledTransaction) -> Self {
-        let mut prefilled_transaction = nervos_protocol::PrefilledTransaction::new();
+        let mut prefilled_transaction = ckb_protocol::PrefilledTransaction::new();
         prefilled_transaction.set_index(pt.index as u32);
         prefilled_transaction.set_transaction(pt.transaction().into());
         prefilled_transaction

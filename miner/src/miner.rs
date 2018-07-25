@@ -1,14 +1,14 @@
 use super::sealer::{Sealer, Signal};
 use super::Config;
 use chain::chain::{ChainProvider, Error};
+use ckb_notify::{Event, Notify};
+use ckb_protocol::Payload;
 use core::block::IndexedBlock;
 use core::header::{Header, IndexedHeader};
 use core::script::Script;
 use core::transaction::{CellInput, CellOutput, OutPoint, Transaction, VERSION};
 use crossbeam_channel;
 use ethash::{get_epoch, Ethash};
-use nervos_notify::{Event, Notify};
-use nervos_protocol::Payload;
 use network::NetworkService;
 use pool::TransactionPool;
 use std::collections::HashSet;

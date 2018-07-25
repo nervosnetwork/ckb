@@ -1,8 +1,8 @@
 use bigint::H256;
+use ckb_time::now_ms;
 use core::block::IndexedBlock;
 use fnv::{FnvHashMap, FnvHashSet};
 use header_view::HeaderView;
-use nervos_time::now_ms;
 use network::PeerId;
 use util::RwLock;
 

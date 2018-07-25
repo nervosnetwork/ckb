@@ -1,5 +1,5 @@
 [package]
-name = "nervos-chain"
+name = "ckb-chain"
 version = "0.1.0"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 
@@ -9,16 +9,16 @@ serde_derive = "1.0"
 bincode = "1.0"
 log = "0.4"
 rand = "0.5.0"
-nervos-core = { path = "../core" }
-nervos-util = { path = "../util" }
-nervos-db = { path = "../db" }
+ckb-core = { path = "../core" }
+ckb-util = { path = "../util" }
+ckb-db = { path = "../db" }
 avl-merkle = { path = "../util/avl" }
 bigint = { git = "https://github.com/NervosFoundation/bigint" }
 lru-cache = { git = "https://github.com/NervosFoundation/lru-cache" }
 fnv = "1.0.3"
-nervos-time = { path = "../util/time" }
+ckb-time = { path = "../util/time" }
 ethash = { git = "https://github.com/NervosFoundation/ethash", tag = "v1.0.0" }
-nervos-notify = { path = "../notify" }
+ckb-notify = { path = "../notify" }
 
 
 [dev-dependencies]

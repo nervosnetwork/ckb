@@ -1,6 +1,7 @@
 use super::{COLUMNS, COLUMN_BLOCK_HEADER};
 use bigint::{H256, U256};
 use cachedb::CacheDB;
+use ckb_notify::Notify;
 use consensus::Consensus;
 use core::block::IndexedBlock;
 use core::cell::{CellProvider, CellState};
@@ -14,7 +15,6 @@ use db::kvdb::KeyValueDB;
 use db::memorydb::MemoryKeyValueDB;
 use index::ChainIndex;
 use log;
-use nervos_notify::Notify;
 use std::cmp;
 use std::path::Path;
 use store::ChainKVStore;

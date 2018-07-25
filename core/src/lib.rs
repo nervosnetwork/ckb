@@ -1,9 +1,9 @@
 extern crate bigint;
 extern crate bincode;
+extern crate ckb_protocol;
 extern crate crypto;
 extern crate hash;
 extern crate merkle_root;
-extern crate nervos_protocol;
 #[macro_use]
 extern crate serde_derive;
 extern crate bit_vec;

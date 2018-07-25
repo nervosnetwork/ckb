@@ -1,13 +1,13 @@
 use bigint::H256;
 use block_pool::OrphanBlockPool;
+use ckb_chain::chain::{ChainProvider, TipHeader};
+use ckb_notify::Notify;
+use ckb_time::now_ms;
+use ckb_verification::{BlockVerifier, EthashVerifier, Verifier};
 use config::Config;
 use core::block::IndexedBlock;
 use core::header::IndexedHeader;
 use header_view::HeaderView;
-use nervos_chain::chain::{ChainProvider, TipHeader};
-use nervos_notify::Notify;
-use nervos_time::now_ms;
-use nervos_verification::{BlockVerifier, EthashVerifier, Verifier};
 use network::PeerId;
 use peers::Peers;
 use std::cmp;
@@ -558,18 +558,18 @@ where
 mod tests {
     use super::*;
     use bigint::U256;
+    use ckb_chain::chain::Chain;
+    use ckb_chain::consensus::Consensus;
+    use ckb_chain::index::ChainIndex;
+    use ckb_chain::store::ChainKVStore;
+    use ckb_chain::COLUMNS;
+    use ckb_notify::Notify;
+    use ckb_protocol::{self, Payload};
+    use ckb_time::now_ms;
     use core::difficulty::cal_difficulty;
     use core::header::{Header, RawHeader, Seal};
     use db::memorydb::MemoryKeyValueDB;
     use headers_process::HeadersProcess;
-    use nervos_chain::chain::Chain;
-    use nervos_chain::consensus::Consensus;
-    use nervos_chain::index::ChainIndex;
-    use nervos_chain::store::ChainKVStore;
-    use nervos_chain::COLUMNS;
-    use nervos_notify::Notify;
-    use nervos_protocol::{self, Payload};
-    use nervos_time::now_ms;
     use network::{Error as NetworkError, NetworkContext, PeerId, ProtocolId, SessionInfo};
     use protobuf::RepeatedField;
     use std::time::Duration;
@@ -937,7 +937,7 @@ mod tests {
             chain2.block_hash(200).unwrap()
         );
 
-        let mut headers_proto = nervos_protocol::Headers::new();
+        let mut headers_proto = ckb_protocol::Headers::new();
         headers_proto.set_headers(RepeatedField::from_vec(
             headers.iter().map(|h| &h.header).map(Into::into).collect(),
         ));

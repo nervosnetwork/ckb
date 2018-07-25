@@ -7,9 +7,9 @@ use std::collections::HashMap;
 use std::iter::Iterator;
 
 use bigint::H256;
+use ckb_verification::TransactionError;
 use core::header::Header;
 use core::transaction::{CellOutput, OutPoint, Transaction};
-use nervos_verification::TransactionError;
 
 use time;
 

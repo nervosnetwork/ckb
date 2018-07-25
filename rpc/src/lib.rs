@@ -7,24 +7,24 @@ extern crate jsonrpc_minihttp_server;
 extern crate jsonrpc_server_utils;
 #[macro_use]
 extern crate log;
-extern crate nervos_chain as chain;
-extern crate nervos_core as core;
-extern crate nervos_network as network;
-extern crate nervos_pool as pool;
-extern crate nervos_protocol;
-extern crate nervos_sync as sync;
+extern crate ckb_chain as chain;
+extern crate ckb_core as core;
+extern crate ckb_network as network;
+extern crate ckb_pool as pool;
+extern crate ckb_protocol;
+extern crate ckb_sync as sync;
 #[macro_use]
 extern crate serde_derive;
 
 use bigint::H256;
 use chain::chain::ChainProvider;
+use ckb_protocol::Payload;
 use core::header::Header;
 use core::transaction::Transaction;
 use jsonrpc_core::{IoHandler, Result};
 use jsonrpc_minihttp_server::ServerBuilder;
 use jsonrpc_server_utils::cors::AccessControlAllowOrigin;
 use jsonrpc_server_utils::hosts::DomainsValidation;
-use nervos_protocol::Payload;
 use network::NetworkService;
 use pool::TransactionPool;
 use std::sync::Arc;

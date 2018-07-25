@@ -1,13 +1,13 @@
 use bigint::H256;
+use ckb_chain::chain::ChainProvider;
+use ckb_protocol;
 use core::header::IndexedHeader;
-use nervos_chain::chain::ChainProvider;
-use nervos_protocol;
 use network::{NetworkContext, PeerId};
 use protobuf::RepeatedField;
 use synchronizer::Synchronizer;
 
 pub struct GetHeadersProcess<'a, C: 'a> {
-    message: &'a nervos_protocol::GetHeaders,
+    message: &'a ckb_protocol::GetHeaders,
     synchronizer: &'a Synchronizer<C>,
     peer: PeerId,
     nc: &'a NetworkContext,
@@ -18,7 +18,7 @@ where
     C: ChainProvider + 'a,
 {
     pub fn new(
-        message: &'a nervos_protocol::GetHeaders,
+        message: &'a ckb_protocol::GetHeaders,
         synchronizer: &'a Synchronizer<C>,
         peer: &PeerId,
         nc: &'a NetworkContext,
@@ -57,8 +57,8 @@ where
             // response headers
 
             debug!(target: "sync", "\nheaders len={}\n", headers.len());
-            let mut payload = nervos_protocol::Payload::new();
-            let mut headers_proto = nervos_protocol::Headers::new();
+            let mut payload = ckb_protocol::Payload::new();
+            let mut headers_proto = ckb_protocol::Headers::new();
             headers_proto.set_headers(RepeatedField::from_vec(
                 headers.iter().map(|h| &h.header).map(Into::into).collect(),
             ));

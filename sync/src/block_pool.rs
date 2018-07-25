@@ -73,10 +73,10 @@ impl OrphanBlockPool {
 mod tests {
     use super::*;
     use bigint::{H256, U256};
+    use ckb_chain::consensus::Consensus;
+    use ckb_time::now_ms;
     use core::header::Seal;
     use core::header::{Header, IndexedHeader, RawHeader};
-    use nervos_chain::consensus::Consensus;
-    use nervos_time::now_ms;
     use std::collections::HashSet;
     use std::iter::FromIterator;
 

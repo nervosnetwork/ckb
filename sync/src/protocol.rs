@@ -3,6 +3,8 @@
 use super::compact_block::{short_transaction_id, short_transaction_id_keys, CompactBlock};
 use bigint::H256;
 use block_process::BlockProcess;
+use ckb_chain::chain::ChainProvider;
+use ckb_protocol;
 use core::block::{Block, IndexedBlock};
 use core::transaction::Transaction;
 use fnv::{FnvHashMap, FnvHashSet};
@@ -12,8 +14,6 @@ use futures::sync::mpsc;
 use getdata_process::GetDataProcess;
 use getheaders_process::GetHeadersProcess;
 use headers_process::HeadersProcess;
-use nervos_chain::chain::ChainProvider;
-use nervos_protocol;
 use network::{NetworkContext, NetworkProtocolHandler, PeerId, TimerToken};
 use pool::txs_pool::TransactionPool;
 use protobuf::RepeatedField;
@@ -32,11 +32,11 @@ pub enum Task {
     SendGetHeadersToAll(Box<NetworkContext>),
     FetchBlock(Box<NetworkContext>),
     SendGetHeadersToPeer(Box<NetworkContext>, PeerId),
-    HandleGetheaders(Box<NetworkContext>, PeerId, nervos_protocol::GetHeaders),
-    HandleHeaders(Box<NetworkContext>, PeerId, nervos_protocol::Headers),
-    HandleGetdata(Box<NetworkContext>, PeerId, nervos_protocol::GetData),
-    // HandleCompactBlock(Box<NetworkContext>, PeerId, nervos_protocol::CompactBlock),
-    HandleBlock(Box<NetworkContext>, PeerId, nervos_protocol::Block),
+    HandleGetheaders(Box<NetworkContext>, PeerId, ckb_protocol::GetHeaders),
+    HandleHeaders(Box<NetworkContext>, PeerId, ckb_protocol::Headers),
+    HandleGetdata(Box<NetworkContext>, PeerId, ckb_protocol::GetData),
+    // HandleCompactBlock(Box<NetworkContext>, PeerId, ckb_protocol::CompactBlock),
+    HandleBlock(Box<NetworkContext>, PeerId, ckb_protocol::Block),
 }
 
 pub struct SyncProtocol<C> {
@@ -102,7 +102,7 @@ impl<C: ChainProvider + 'static> SyncProtocol<C> {
         synchronizer: Synchronizer<C>,
         nc: Box<NetworkContext>,
         peer: PeerId,
-        message: &nervos_protocol::GetHeaders,
+        message: &ckb_protocol::GetHeaders,
     ) {
         GetHeadersProcess::new(message, &synchronizer, &peer, nc.as_ref()).execute()
     }
@@ -111,7 +111,7 @@ impl<C: ChainProvider + 'static> SyncProtocol<C> {
         synchronizer: Synchronizer<C>,
         nc: Box<NetworkContext>,
         peer: PeerId,
-        message: &nervos_protocol::Headers,
+        message: &ckb_protocol::Headers,
     ) {
         HeadersProcess::new(message, &synchronizer, &peer, nc.as_ref()).execute()
     }
@@ -120,7 +120,7 @@ impl<C: ChainProvider + 'static> SyncProtocol<C> {
         synchronizer: Synchronizer<C>,
         nc: Box<NetworkContext>,
         peer: PeerId,
-        message: &nervos_protocol::GetData,
+        message: &ckb_protocol::GetData,
     ) {
         GetDataProcess::new(message, &synchronizer, &peer, nc.as_ref()).execute()
     }
@@ -129,7 +129,7 @@ impl<C: ChainProvider + 'static> SyncProtocol<C> {
     //     synchronizer: Synchronizer<C>,
     //     nc: Box<NetworkContext>,
     //     peer: PeerId,
-    //     message: &nervos_protocol::CompactBlock,
+    //     message: &ckb_protocol::CompactBlock,
     // ) {
     //     CompactBlockProcess::new(message, &synchronizer, &peer, nc.as_ref()).execute()
     // }
@@ -138,7 +138,7 @@ impl<C: ChainProvider + 'static> SyncProtocol<C> {
         synchronizer: Synchronizer<C>,
         nc: Box<NetworkContext>,
         peer: PeerId,
-        message: &nervos_protocol::Block,
+        message: &ckb_protocol::Block,
     ) {
         BlockProcess::new(message, &synchronizer, &peer, nc.as_ref()).execute()
     }
@@ -155,13 +155,13 @@ impl<C: ChainProvider + 'static> SyncProtocol<C> {
     }
 
     fn send_block_getdata(v_fetch: &[H256], nc: &NetworkContext, peer: PeerId) {
-        let mut payload = nervos_protocol::Payload::new();
-        let mut getdata = nervos_protocol::GetData::new();
+        let mut payload = ckb_protocol::Payload::new();
+        let mut getdata = ckb_protocol::GetData::new();
         let inventory = v_fetch
             .iter()
             .map(|h| {
-                let mut inventory = nervos_protocol::Inventory::new();
-                inventory.set_inv_type(nervos_protocol::InventoryType::MSG_BLOCK);
+                let mut inventory = ckb_protocol::Inventory::new();
+                inventory.set_inv_type(ckb_protocol::InventoryType::MSG_BLOCK);
                 inventory.set_hash(h.to_vec());
                 inventory
             })
@@ -186,8 +186,8 @@ impl<C: ChainProvider + 'static> SyncProtocol<C> {
         synchronizer.n_sync.fetch_add(1, Ordering::Release);
         let tip = synchronizer.tip_header();
         let locator_hash = synchronizer.get_locator(&tip);
-        let mut payload = nervos_protocol::Payload::new();
-        let mut getheaders = nervos_protocol::GetHeaders::new();
+        let mut payload = ckb_protocol::Payload::new();
+        let mut getheaders = ckb_protocol::GetHeaders::new();
         let locator_hash = locator_hash.into_iter().map(|hash| hash.to_vec()).collect();
         getheaders.set_version(0);
         getheaders.set_block_locator_hashes(RepeatedField::from_vec(locator_hash));
@@ -237,12 +237,7 @@ impl<C: ChainProvider + 'static> SyncProtocol<C> {
 }
 
 impl<C: ChainProvider + 'static> NetworkProtocolHandler for SyncProtocol<C> {
-    fn process(
-        &self,
-        nc: Box<NetworkContext>,
-        peer: PeerId,
-        mut payload: nervos_protocol::Payload,
-    ) {
+    fn process(&self, nc: Box<NetworkContext>, peer: PeerId, mut payload: ckb_protocol::Payload) {
         let mut sender = self.sender.clone();
 
         let ret = if payload.has_getheaders() {
@@ -306,7 +301,7 @@ impl<C: ChainProvider + 'static> RelayProtocol<C> {
         }
     }
 
-    pub fn relay(&self, nc: &NetworkContext, source: PeerId, payload: &nervos_protocol::Payload) {
+    pub fn relay(&self, nc: &NetworkContext, source: PeerId, payload: &ckb_protocol::Payload) {
         for (peer_id, _session) in nc.sessions() {
             if peer_id != source {
                 let _ = nc.send(peer_id, payload.clone());
@@ -351,7 +346,7 @@ impl<C: ChainProvider + 'static> RelayProtocol<C> {
 }
 
 impl<C: ChainProvider + 'static> NetworkProtocolHandler for RelayProtocol<C> {
-    fn process(&self, nc: Box<NetworkContext>, peer: PeerId, payload: nervos_protocol::Payload) {
+    fn process(&self, nc: Box<NetworkContext>, peer: PeerId, payload: ckb_protocol::Payload) {
         if payload.has_transaction() {
             let tx: Transaction = payload.get_transaction().into();
             if !self.received_transactions.lock().insert(tx.hash()) {
@@ -382,8 +377,8 @@ impl<C: ChainProvider + 'static> NetworkProtocolHandler for RelayProtocol<C> {
                         self.relay(nc.as_ref(), peer, &payload);
                     }
                     (_, Some(missing_indexes)) => {
-                        let mut payload = nervos_protocol::Payload::new();
-                        let mut cbr = nervos_protocol::BlockTransactionsRequest::new();
+                        let mut payload = ckb_protocol::Payload::new();
+                        let mut cbr = ckb_protocol::BlockTransactionsRequest::new();
                         cbr.set_hash(compact_block.header.hash().to_vec());
                         cbr.set_indexes(missing_indexes.into_iter().map(|i| i as u32).collect());
                         payload.set_block_transactions_request(cbr);
@@ -402,8 +397,8 @@ impl<C: ChainProvider + 'static> NetworkProtocolHandler for RelayProtocol<C> {
             let hash = H256::from_slice(btr.get_hash());
             let indexes = btr.get_indexes();
             if let Some(block) = self.synchronizer.get_block(&hash) {
-                let mut payload = nervos_protocol::Payload::new();
-                let mut bt = nervos_protocol::BlockTransactions::new();
+                let mut payload = ckb_protocol::Payload::new();
+                let mut bt = ckb_protocol::BlockTransactions::new();
                 bt.set_hash(hash.to_vec());
                 bt.set_transactions(RepeatedField::from_vec(
                     indexes

@@ -5,17 +5,17 @@ extern crate fnv;
 #[macro_use]
 extern crate log;
 extern crate byteorder;
+extern crate ckb_chain;
+extern crate ckb_core as core;
+extern crate ckb_network as network;
+extern crate ckb_notify;
+extern crate ckb_pool as pool;
+extern crate ckb_protocol;
+extern crate ckb_time;
 extern crate hash;
-extern crate nervos_chain;
-extern crate nervos_core as core;
-extern crate nervos_network as network;
-extern crate nervos_notify;
-extern crate nervos_pool as pool;
-extern crate nervos_protocol;
-extern crate nervos_time;
 #[macro_use]
-extern crate nervos_util as util;
-extern crate nervos_verification;
+extern crate ckb_util as util;
+extern crate ckb_verification;
 extern crate protobuf;
 extern crate rand;
 extern crate siphasher;
@@ -27,7 +27,7 @@ extern crate tokio;
 #[macro_use]
 extern crate serde_derive;
 #[cfg(test)]
-extern crate nervos_db as db;
+extern crate ckb_db as db;
 
 pub mod block_pool;
 pub mod block_process;

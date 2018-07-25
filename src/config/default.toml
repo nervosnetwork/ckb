@@ -2,7 +2,7 @@
 chain = "dev"
 
 [logger]
-file = "nervos.log"
+file = "ckb.log"
 filter = "info"
 color = true
 

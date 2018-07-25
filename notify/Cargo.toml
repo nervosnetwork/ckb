@@ -1,10 +1,10 @@
 [package]
-name = "nervos-notify"
+name = "ckb-notify"
 version = "0.1.0"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 
 [dependencies]
 fnv = "1.0"
-nervos-util = { path = "../util" }
-nervos-core = { path = "../core" }
+ckb-util = { path = "../util" }
+ckb-core = { path = "../core" }
 crossbeam-channel = "0.2"

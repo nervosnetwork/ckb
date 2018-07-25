@@ -1,9 +1,9 @@
 use bigint::H256;
+use ckb_chain::chain::ChainProvider;
+use ckb_protocol;
+use ckb_verification::{Error as VerifyError, HeaderVerifier, Verifier};
 use core::header::IndexedHeader;
 use log;
-use nervos_chain::chain::ChainProvider;
-use nervos_protocol;
-use nervos_verification::{Error as VerifyError, HeaderVerifier, Verifier};
 use network::{NetworkContext, PeerId};
 use protobuf::RepeatedField;
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
@@ -11,7 +11,7 @@ use synchronizer::{BlockStatus, Synchronizer};
 use MAX_HEADERS_LEN;
 
 pub struct HeadersProcess<'a, C: 'a> {
-    message: &'a nervos_protocol::Headers,
+    message: &'a ckb_protocol::Headers,
     synchronizer: &'a Synchronizer<C>,
     peer: PeerId,
     nc: &'a NetworkContext,
@@ -22,7 +22,7 @@ where
     C: ChainProvider + 'a,
 {
     pub fn new(
-        message: &'a nervos_protocol::Headers,
+        message: &'a ckb_protocol::Headers,
         synchronizer: &'a Synchronizer<C>,
         peer: &PeerId,
         nc: &'a NetworkContext,
@@ -61,8 +61,8 @@ where
 
     fn push_getheaders(&self, start: &IndexedHeader) {
         let locator_hash = self.synchronizer.get_locator(start);
-        let mut payload = nervos_protocol::Payload::new();
-        let mut getheaders = nervos_protocol::GetHeaders::new();
+        let mut payload = ckb_protocol::Payload::new();
+        let mut getheaders = ckb_protocol::GetHeaders::new();
         let locator_hash = locator_hash.iter().map(|hash| hash.to_vec()).collect();
         getheaders.set_version(0);
         getheaders.set_block_locator_hashes(RepeatedField::from_vec(locator_hash));

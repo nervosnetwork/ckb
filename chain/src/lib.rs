@@ -3,12 +3,12 @@ extern crate bincode;
 #[macro_use]
 extern crate log;
 extern crate avl_merkle as avl;
+extern crate ckb_core as core;
+extern crate ckb_db as db;
+extern crate ckb_time as time;
+extern crate ckb_util as util;
 extern crate fnv;
 extern crate lru_cache;
-extern crate nervos_core as core;
-extern crate nervos_db as db;
-extern crate nervos_time as time;
-extern crate nervos_util as util;
 #[cfg(test)]
 extern crate rand;
 extern crate serde;
@@ -16,7 +16,7 @@ extern crate serde;
 extern crate tempdir;
 #[macro_use]
 extern crate serde_derive;
-extern crate nervos_notify;
+extern crate ckb_notify;
 
 pub mod cachedb;
 pub mod chain;

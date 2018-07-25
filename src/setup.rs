@@ -131,7 +131,7 @@ pub mod test {
     fn test_data_dir() {
         let tmp_dir = TempDir::new("test_data_dir").unwrap();
         let data_path = tmp_dir.path().to_str().unwrap();
-        let arg_vec = vec!["nervos", "--data-dir", data_path];
+        let arg_vec = vec!["ckb", "--data-dir", data_path];
         let yaml = load_yaml!("cli/app.yml");
         let matches = clap::App::from_yaml(yaml).get_matches_from(arg_vec);
         let setup = Setup::new(&matches);
@@ -148,7 +148,7 @@ pub mod test {
                              listen_address = "1.1.1.1:1""#;
         let config_path = tmp_dir.path().join("config.toml");
         write_file(config_path, test_conifg);
-        let arg_vec = vec!["nervos", "--data-dir", data_path];
+        let arg_vec = vec!["ckb", "--data-dir", data_path];
         let yaml = load_yaml!("cli/app.yml");
         let matches = clap::App::from_yaml(yaml).get_matches_from(arg_vec);
         let setup = Setup::new(&matches);
@@ -169,7 +169,7 @@ pub mod test {
         let config_path = tmp_dir.path().join("specify.toml");
         write_file(&config_path, test_conifg);
         let arg_vec = vec![
-            "nervos",
+            "ckb",
             "--data-dir",
             data_path,
             "--config",
@@ -189,7 +189,7 @@ pub mod test {
     fn test_custom_chain_spec_with_config() {
         let tmp_dir = TempDir::new("test_custom_chain_spec").unwrap();
         let data_path = tmp_dir.path().to_str().unwrap();
-        let arg_vec = vec!["nervos", "--data-dir", data_path];
+        let arg_vec = vec!["ckb", "--data-dir", data_path];
         let yaml = load_yaml!("cli/app.yml");
 
         let chain_spec_path = tmp_dir.path().join("ckb_test_custom.toml");
@@ -211,7 +211,7 @@ pub mod test {
 
         let chain_spec_path = tmp_dir.path().join("ckb_test_custom.toml");
         let arg_vec = vec![
-            "nervos",
+            "ckb",
             "--data-dir",
             data_path,
             "--chain",

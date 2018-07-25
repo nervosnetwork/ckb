@@ -1,5 +1,5 @@
+extern crate ckb_core as core;
 extern crate crypto;
-extern crate nervos_core as core;
 #[macro_use]
 extern crate serde_derive;
 

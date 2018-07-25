@@ -12,7 +12,7 @@ pub use parking_lot::{
 ///
 
 /// ```
-/// # #[macro_use] extern crate nervos_util;
+/// # #[macro_use] extern crate ckb_util;
 /// # fn foo() -> Option<u64> {
 ///     let a = try_option!(Some(4));
 ///     let b = try_option!(Some(3));

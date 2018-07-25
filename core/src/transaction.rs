@@ -2,9 +2,9 @@
 //! It is similar to Bitcoin Tx <https://en.bitcoin.it/wiki/Protocol_documentation#tx/>
 use bigint::H256;
 use bincode::{deserialize, serialize};
+use ckb_protocol;
 use error::TxError;
 use hash::sha3_256;
-use nervos_protocol;
 use script::Script;
 use std::ops::{Deref, DerefMut};
 
@@ -220,17 +220,17 @@ impl From<Transaction> for IndexedTransaction {
     }
 }
 
-impl<'a> From<&'a OutPoint> for nervos_protocol::OutPoint {
+impl<'a> From<&'a OutPoint> for ckb_protocol::OutPoint {
     fn from(o: &'a OutPoint) -> Self {
-        let mut op = nervos_protocol::OutPoint::new();
+        let mut op = ckb_protocol::OutPoint::new();
         op.set_hash(o.hash.to_vec());
         op.set_index(o.index);
         op
     }
 }
 
-impl<'a> From<&'a nervos_protocol::OutPoint> for OutPoint {
-    fn from(o: &'a nervos_protocol::OutPoint) -> Self {
+impl<'a> From<&'a ckb_protocol::OutPoint> for OutPoint {
+    fn from(o: &'a ckb_protocol::OutPoint) -> Self {
         Self {
             hash: H256::from(o.get_hash()),
             index: o.get_index(),
@@ -238,8 +238,8 @@ impl<'a> From<&'a nervos_protocol::OutPoint> for OutPoint {
     }
 }
 
-impl<'a> From<&'a nervos_protocol::CellInput> for CellInput {
-    fn from(c: &'a nervos_protocol::CellInput) -> Self {
+impl<'a> From<&'a ckb_protocol::CellInput> for CellInput {
+    fn from(c: &'a ckb_protocol::CellInput) -> Self {
         Self {
             previous_output: c.get_previous_output().into(),
             unlock: deserialize(c.get_unlock()).unwrap(),
@@ -247,22 +247,22 @@ impl<'a> From<&'a nervos_protocol::CellInput> for CellInput {
     }
 }
 
-impl<'a> From<&'a CellInput> for nervos_protocol::CellInput {
+impl<'a> From<&'a CellInput> for ckb_protocol::CellInput {
     fn from(c: &'a CellInput) -> Self {
-        let mut ci = nervos_protocol::CellInput::new();
+        let mut ci = ckb_protocol::CellInput::new();
         ci.set_previous_output((&c.previous_output).into());
         ci.set_unlock(serialize(&c.unlock).unwrap());
         ci
     }
 }
 
-impl From<CellInput> for nervos_protocol::CellInput {
+impl From<CellInput> for ckb_protocol::CellInput {
     fn from(c: CellInput) -> Self {
         let CellInput {
             previous_output,
             unlock,
         } = c;
-        let mut ci = nervos_protocol::CellInput::new();
+        let mut ci = ckb_protocol::CellInput::new();
         ci.set_previous_output((&previous_output).into());
         ci.set_unlock(serialize(&unlock).unwrap());
         ci
@@ -270,8 +270,8 @@ impl From<CellInput> for nervos_protocol::CellInput {
 }
 
 /// stupid proto3
-impl<'a> From<&'a nervos_protocol::CellOutput> for CellOutput {
-    fn from(c: &'a nervos_protocol::CellOutput) -> Self {
+impl<'a> From<&'a ckb_protocol::CellOutput> for CellOutput {
+    fn from(c: &'a ckb_protocol::CellOutput) -> Self {
         Self {
             module: c.get_module(),
             capacity: c.get_capacity(),
@@ -281,9 +281,9 @@ impl<'a> From<&'a nervos_protocol::CellOutput> for CellOutput {
     }
 }
 
-impl<'a> From<&'a CellOutput> for nervos_protocol::CellOutput {
+impl<'a> From<&'a CellOutput> for ckb_protocol::CellOutput {
     fn from(c: &'a CellOutput) -> Self {
-        let mut co = nervos_protocol::CellOutput::new();
+        let mut co = ckb_protocol::CellOutput::new();
         co.set_module(c.module);
         co.set_capacity(c.capacity);
         co.set_data(c.data.clone());
@@ -292,7 +292,7 @@ impl<'a> From<&'a CellOutput> for nervos_protocol::CellOutput {
     }
 }
 
-impl From<CellOutput> for nervos_protocol::CellOutput {
+impl From<CellOutput> for ckb_protocol::CellOutput {
     fn from(c: CellOutput) -> Self {
         let CellOutput {
             module,
@@ -300,7 +300,7 @@ impl From<CellOutput> for nervos_protocol::CellOutput {
             data,
             lock,
         } = c;
-        let mut co = nervos_protocol::CellOutput::new();
+        let mut co = ckb_protocol::CellOutput::new();
         co.set_module(module);
         co.set_capacity(capacity);
         co.set_data(data);
@@ -309,8 +309,8 @@ impl From<CellOutput> for nervos_protocol::CellOutput {
     }
 }
 
-impl<'a> From<&'a nervos_protocol::Transaction> for Transaction {
-    fn from(t: &'a nervos_protocol::Transaction) -> Self {
+impl<'a> From<&'a ckb_protocol::Transaction> for Transaction {
+    fn from(t: &'a ckb_protocol::Transaction) -> Self {
         Self {
             version: t.get_version(),
             deps: t.get_deps().iter().map(Into::into).collect(),
@@ -320,16 +320,16 @@ impl<'a> From<&'a nervos_protocol::Transaction> for Transaction {
     }
 }
 
-impl<'a> From<&'a nervos_protocol::Transaction> for IndexedTransaction {
-    fn from(t: &'a nervos_protocol::Transaction) -> Self {
+impl<'a> From<&'a ckb_protocol::Transaction> for IndexedTransaction {
+    fn from(t: &'a ckb_protocol::Transaction) -> Self {
         let tx: Transaction = t.into();
         tx.into()
     }
 }
 
-impl<'a> From<&'a Transaction> for nervos_protocol::Transaction {
+impl<'a> From<&'a Transaction> for ckb_protocol::Transaction {
     fn from(t: &'a Transaction) -> Self {
-        let mut tx = nervos_protocol::Transaction::new();
+        let mut tx = ckb_protocol::Transaction::new();
         tx.set_version(t.version);
         tx.set_inputs(t.inputs.iter().map(Into::into).collect());
         tx.set_outputs(t.outputs.iter().map(Into::into).collect());
@@ -337,7 +337,7 @@ impl<'a> From<&'a Transaction> for nervos_protocol::Transaction {
     }
 }
 
-impl<'a> From<&'a IndexedTransaction> for nervos_protocol::Transaction {
+impl<'a> From<&'a IndexedTransaction> for ckb_protocol::Transaction {
     fn from(t: &'a IndexedTransaction) -> Self {
         let tx = &t.transaction;
         tx.into()

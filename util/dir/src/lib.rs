@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::{env, fs};
 
 const APP_INFO: AppInfo = AppInfo {
-    name: "nervos",
+    name: "ckb",
     author: "Nervos Dev",
 };
 
@@ -36,7 +36,7 @@ impl Directories {
 
 /// Default data path
 pub fn default_base_path() -> PathBuf {
-    get_app_root(AppDataType::UserData, &APP_INFO).unwrap_or_else(|_| home().join(".nervos"))
+    get_app_root(AppDataType::UserData, &APP_INFO).unwrap_or_else(|_| home().join(".ckb"))
 }
 
 /// Get home directory.
