@@ -1,3 +1,4 @@
+#![feature(int_to_from_bytes)]
 extern crate bigint;
 extern crate bincode;
 extern crate ckb_protocol;

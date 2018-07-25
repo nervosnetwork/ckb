@@ -129,35 +129,6 @@ impl<'a> ResolvedTransaction<'a> {
             _ => false,
         })
     }
-
-    // TODO: split it
-    // TODO: tells validation error
-    pub fn validate(&self, _is_enlarge_transaction: bool) -> bool {
-        // check inputs
-        let mut input_cells = Vec::<&CellOutput>::with_capacity(self.input_cells.len());
-        for input in &self.input_cells {
-            match input.head() {
-                Some(cell) => input_cells.push(cell),
-                None => {
-                    return false;
-                }
-            }
-        }
-
-        // check capacity balance
-        // TODO: capacity check is disabled to ease testing.
-        // if !is_enlarge_transaction {
-        //     let input_capacity: u32 = input_cells.iter().map(|c| c.capacity).sum();
-        //     let output_capacity: u32 = self.transaction.outputs.iter().map(|c| c.capacity).sum();
-        //     if output_capacity > input_capacity {
-        //         return false;
-        //     }
-        // }
-
-        // TODO: run checker
-
-        true
-    }
 }
 
 #[cfg(test)]

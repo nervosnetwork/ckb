@@ -15,29 +15,15 @@ impl From<BitVecSerde> for BitVec {
 
 #[derive(Default, Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub struct TransactionMeta {
-    /// Times that this transaction has been fully spent in the chain.
-    pub fully_spent_count: u32,
-
     #[serde(with = "BitVecSerde")]
     pub output_spent: BitVec,
 }
 
 impl TransactionMeta {
-    pub fn new(fully_spent_count: u32, outputs_count: usize) -> TransactionMeta {
+    pub fn new(outputs_count: usize) -> TransactionMeta {
         TransactionMeta {
-            fully_spent_count,
             output_spent: BitVec::from_elem(outputs_count, false),
         }
-    }
-
-    pub fn renew(&mut self) {
-        self.fully_spent_count += 1;
-        self.output_spent.clear()
-    }
-
-    pub fn rollback(&mut self) {
-        self.fully_spent_count -= 1;
-        self.output_spent.set_all()
     }
 
     pub fn len(&self) -> usize {
@@ -76,14 +62,13 @@ mod tests {
 
     #[test]
     fn transaction_meta_serde() {
-        let mut original = TransactionMeta::new(1, 4);
+        let mut original = TransactionMeta::new(4);
         original.set_spent(1);
         original.set_spent(3);
 
         let decoded: TransactionMeta =
             bincode::deserialize(&(bincode::serialize(&original).unwrap())[..]).unwrap();
 
-        assert_eq!(decoded.fully_spent_count, 1);
         assert!(!decoded.is_spent(0));
         assert!(decoded.is_spent(1));
         assert!(!decoded.is_spent(2));

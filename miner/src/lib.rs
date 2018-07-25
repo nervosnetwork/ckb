@@ -1,4 +1,3 @@
-#![feature(int_to_from_bytes)]
 extern crate bigint;
 extern crate crossbeam_channel;
 extern crate ethash;

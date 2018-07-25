@@ -7,11 +7,11 @@ use core::transaction::{CellInput, CellOutput, OutPoint, Transaction};
 use std::collections::HashMap;
 use std::sync::Arc;
 
-fn create_cellbase_transaction_with_capacity(capacity: u32) -> Transaction {
+fn create_cellbase_transaction_with_capacity(block_number: u64, capacity: u32) -> Transaction {
     let mut transaction = create_dummy_transaction();
     transaction
         .inputs
-        .push(CellInput::new(OutPoint::null(), Default::default()));
+        .push(CellInput::new_cellbase_input(block_number));
     transaction
         .outputs
         .push(CellOutput::new(0, capacity, Vec::new(), H256::default()));
@@ -19,8 +19,8 @@ fn create_cellbase_transaction_with_capacity(capacity: u32) -> Transaction {
     transaction
 }
 
-fn create_cellbase_transaction() -> Transaction {
-    create_cellbase_transaction_with_capacity(100)
+fn create_cellbase_transaction(block_number: u64) -> Transaction {
+    create_cellbase_transaction_with_capacity(block_number, 100)
 }
 
 fn create_normal_transaction() -> Transaction {
@@ -50,7 +50,9 @@ pub fn test_block_with_one_cellbase_at_first() {
     let mut block = create_dummy_block();
     let mut transaction_fees = HashMap::<H256, Result<u32, Error>>::new();
 
-    block.transactions.push(create_cellbase_transaction());
+    block
+        .transactions
+        .push(create_cellbase_transaction(block.header.number));
 
     let transaction = create_normal_transaction();
     transaction_fees.insert(transaction.hash(), Ok(0));
@@ -69,7 +71,9 @@ pub fn test_block_with_one_cellbase_at_first() {
 pub fn test_block_with_one_cellbase_at_last() {
     let mut block = create_dummy_block();
     block.transactions.push(create_normal_transaction());
-    block.transactions.push(create_cellbase_transaction());
+    block
+        .transactions
+        .push(create_cellbase_transaction(block.header.number));
 
     let verifier = CellbaseTransactionsVerifier::new(&block, dummy_chain());
     assert!(verifier.verify().is_err());
@@ -78,9 +82,13 @@ pub fn test_block_with_one_cellbase_at_last() {
 #[test]
 pub fn test_block_with_two_cellbases() {
     let mut block = create_dummy_block();
-    block.transactions.push(create_cellbase_transaction());
+    block
+        .transactions
+        .push(create_cellbase_transaction(block.header.number));
     block.transactions.push(create_normal_transaction());
-    block.transactions.push(create_cellbase_transaction());
+    block
+        .transactions
+        .push(create_cellbase_transaction(block.header.number));
 
     let verifier = CellbaseTransactionsVerifier::new(&block, dummy_chain());
     assert!(verifier.verify().is_err());
@@ -93,7 +101,10 @@ pub fn test_cellbase_with_less_reward() {
 
     block
         .transactions
-        .push(create_cellbase_transaction_with_capacity(50));
+        .push(create_cellbase_transaction_with_capacity(
+            block.header.number,
+            50,
+        ));
 
     let transaction = create_normal_transaction();
     transaction_fees.insert(transaction.hash(), Ok(0));
@@ -115,7 +126,10 @@ pub fn test_cellbase_with_fee() {
 
     block
         .transactions
-        .push(create_cellbase_transaction_with_capacity(110));
+        .push(create_cellbase_transaction_with_capacity(
+            block.header.number,
+            110,
+        ));
 
     let transaction = create_normal_transaction();
     transaction_fees.insert(transaction.hash(), Ok(10));
@@ -137,7 +151,10 @@ pub fn test_cellbase_with_more_reward_than_available() {
 
     block
         .transactions
-        .push(create_cellbase_transaction_with_capacity(130));
+        .push(create_cellbase_transaction_with_capacity(
+            block.header.number,
+            130,
+        ));
 
     let transaction = create_normal_transaction();
     transaction_fees.insert(transaction.hash(), Ok(10));
@@ -159,7 +176,10 @@ pub fn test_cellbase_with_invalid_transaction() {
 
     block
         .transactions
-        .push(create_cellbase_transaction_with_capacity(100));
+        .push(create_cellbase_transaction_with_capacity(
+            block.header.number,
+            100,
+        ));
 
     let transaction = create_normal_transaction();
     transaction_fees.insert(transaction.hash(), Err(Error::InvalidOutput));
@@ -179,7 +199,8 @@ pub fn test_cellbase_with_two_outputs() {
     let mut block = create_dummy_block();
     let mut transaction_fees = HashMap::<H256, Result<u32, Error>>::new();
 
-    let mut cellbase_transaction = create_cellbase_transaction_with_capacity(100);
+    let mut cellbase_transaction =
+        create_cellbase_transaction_with_capacity(block.header.number, 100);
     // Add another output
     cellbase_transaction
         .outputs
@@ -204,7 +225,8 @@ pub fn test_cellbase_with_two_outputs_and_more_rewards_than_maximum() {
     let mut block = create_dummy_block();
     let mut transaction_fees = HashMap::<H256, Result<u32, Error>>::new();
 
-    let mut cellbase_transaction = create_cellbase_transaction_with_capacity(100);
+    let mut cellbase_transaction =
+        create_cellbase_transaction_with_capacity(block.header.number, 100);
     // Add another output
     cellbase_transaction
         .outputs

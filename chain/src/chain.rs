@@ -85,10 +85,6 @@ impl<'a, CS: ChainIndex> CellProvider for Chain<CS> {
     fn cell(&self, out_point: &OutPoint) -> CellState {
         let index = out_point.index as usize;
         if let Some(meta) = self.get_transaction_meta(&out_point.hash) {
-            if meta.is_fully_spent() {
-                return CellState::Tail;
-            }
-
             if index < meta.len() {
                 if !meta.is_spent(index) {
                     let mut transaction = self
@@ -107,10 +103,6 @@ impl<'a, CS: ChainIndex> CellProvider for Chain<CS> {
     fn cell_at(&self, out_point: &OutPoint, parent: &H256) -> CellState {
         let index = out_point.index as usize;
         if let Some(meta) = self.get_transaction_meta_at(&out_point.hash, parent) {
-            if meta.is_fully_spent() {
-                return CellState::Tail;
-            }
-
             if index < meta.len() {
                 if !meta.is_spent(index) {
                     let mut transaction = self

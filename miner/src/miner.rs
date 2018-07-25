@@ -5,8 +5,7 @@ use ckb_notify::{Event, Notify};
 use ckb_protocol::Payload;
 use core::block::IndexedBlock;
 use core::header::{Header, IndexedHeader};
-use core::script::Script;
-use core::transaction::{CellInput, CellOutput, OutPoint, Transaction, VERSION};
+use core::transaction::{CellInput, CellOutput, Transaction, VERSION};
 use crossbeam_channel;
 use ethash::{get_epoch, Ethash};
 use network::NetworkService;
@@ -118,10 +117,7 @@ impl<C: ChainProvider + 'static> Miner<C> {
         transactions: &[Transaction],
     ) -> Result<Transaction, Error> {
         // NOTE: To generate different cellbase txid, we put header number in the input script
-        let inputs = vec![CellInput::new(
-            OutPoint::null(),
-            Script::new(0, Vec::new(), head.raw.number.to_le().to_bytes().to_vec()),
-        )];
+        let inputs = vec![CellInput::new_cellbase_input(head.raw.number)];
         // NOTE: We could've just used byteorder to serialize u64 and hex string into bytes,
         // but the truth is we will modify this after we designed lock script anyway, so let's
         // stick to the simpler way and just convert everything to a single string, then to UTF8

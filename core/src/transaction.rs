@@ -3,7 +3,6 @@
 use bigint::H256;
 use bincode::{deserialize, serialize};
 use ckb_protocol;
-use error::TxError;
 use hash::sha3_256;
 use script::Script;
 use std::ops::{Deref, DerefMut};
@@ -54,6 +53,13 @@ impl CellInput {
         CellInput {
             previous_output,
             unlock,
+        }
+    }
+
+    pub fn new_cellbase_input(block_number: u64) -> Self {
+        CellInput {
+            previous_output: OutPoint::null(),
+            unlock: Script::new(0, Vec::new(), block_number.to_le().to_bytes().to_vec()),
         }
     }
 }
@@ -108,22 +114,6 @@ impl Transaction {
 
     pub fn is_cellbase(&self) -> bool {
         self.inputs.len() == 1 && self.inputs[0].previous_output.is_null()
-    }
-
-    // TODO: split it
-    pub fn validate(&self, is_enlarge_transaction: bool) -> Result<(), TxError> {
-        if is_enlarge_transaction && !(self.inputs.is_empty() && self.outputs.len() == 1) {
-            return Err(TxError::WrongFormat);
-        }
-
-        // check outputs capacity
-        for output in &self.outputs {
-            if output.bytes_len() > (output.capacity as usize) {
-                return Err(TxError::OutofBound);
-            }
-        }
-
-        Ok(())
     }
 
     pub fn hash(&self) -> H256 {

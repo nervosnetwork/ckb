@@ -163,13 +163,12 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
 
             if len != 0 {
                 let hash = outputs[0].hash;
-                let meta = TransactionMeta::new(0, len);
+                let meta = TransactionMeta::new(len);
                 match avl.insert(hash, meta).expect("tree operation error") {
                     None => {}
-                    Some(mut old) => {
-                        if !old.is_fully_spent() {
-                            return None;
-                        }
+                    Some(_) => {
+                        // txid must be unique in chain
+                        return None;
                     }
                 }
             }
