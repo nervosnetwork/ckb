@@ -8,7 +8,6 @@ use core::header::{Header, IndexedHeader};
 use core::transaction::{Capacity, CellInput, CellOutput, Transaction, VERSION};
 use crossbeam_channel;
 use ethash::{get_epoch, Ethash};
-use network::NetworkContextExt;
 use network::NetworkService;
 use pool::TransactionPool;
 use std::collections::HashSet;
@@ -118,7 +117,7 @@ impl<C: ChainProvider + 'static> Miner<C> {
         transactions: &[Transaction],
     ) -> Result<Transaction, Error> {
         // NOTE: To generate different cellbase txid, we put header number in the input script
-        let inputs = vec![CellInput::new_cellbase_input(head.raw.number + 1)];
+        let inputs = vec![CellInput::new_cellbase_input(head.raw.number)];
         // NOTE: We could've just used byteorder to serialize u64 and hex string into bytes,
         // but the truth is we will modify this after we designed lock script anyway, so let's
         // stick to the simpler way and just convert everything to a single string, then to UTF8
@@ -147,13 +146,13 @@ impl<C: ChainProvider + 'static> Miner<C> {
 
     fn announce_new_block(&self, block: &IndexedBlock) {
         self.network.with_context_eval(RELAY_PROTOCOL_ID, |nc| {
-            for (peer_id, _session) in nc.sessions(&self.network.connected_peers()) {
+            for (peer_id, _session) in nc.sessions() {
                 debug!(target: "miner", "announce new block to peer#{:?}, {} => {}",
                        peer_id, block.header().number, block.hash());
                 let mut payload = Payload::new();
                 let compact_block = CompactBlockBuilder::new(block, &HashSet::new()).build();
                 payload.set_compact_block(compact_block.into());
-                let _ = nc.send_payload(peer_id, payload);
+                nc.send(peer_id, payload).ok();
             }
         });
     }
