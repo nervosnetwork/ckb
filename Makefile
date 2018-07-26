@@ -1,5 +1,5 @@
 test:
-	cargo test --all -- --nocapture
+	RUSTFLAGS="--cfg ckb_test" cargo test --all -- --nocapture
 
 build:
 	cargo build --release

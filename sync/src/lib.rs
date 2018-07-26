@@ -29,6 +29,7 @@ extern crate serde_derive;
 #[cfg(test)]
 extern crate ckb_db as db;
 
+pub mod block_fetcher;
 pub mod block_pool;
 pub mod block_process;
 pub mod compact_block;
@@ -57,3 +58,14 @@ pub const BLOCK_DOWNLOAD_WINDOW: u64 = 1024;
 pub const PER_FETCH_BLOCK_LIMIT: usize = 128;
 pub const SYNC_PROTOCOL_ID: ProtocolId = *b"syn";
 pub const RELAY_PROTOCOL_ID: ProtocolId = *b"rel";
+
+//  Timeout = base + per_header * (expected number of headers)
+pub const HEADERS_DOWNLOAD_TIMEOUT_BASE: u64 = 15 * 60 * 1000; // 15 minutes
+pub const HEADERS_DOWNLOAD_TIMEOUT_PER_HEADER: u64 = 1; //1ms/header
+pub const POW_SPACE: u64 = 10_000; //10s
+
+// Protect at least this many outbound peers from disconnection due to slow
+// behind headers chain.
+pub const MAX_OUTBOUND_PEERS_TO_PROTECT_FROM_DISCONNECT: usize = 4;
+pub const CHAIN_SYNC_TIMEOUT: u64 = 20 * 60 * 1000; // 20 minutes
+pub const EVICTION_TEST_RESPONSE_TIME: u64 = 120 * 1000; // 2 minutes

@@ -52,7 +52,7 @@ brew install autoconf libtool
 
 ---
 
-## Build from source
+## Build from source & testing
 
 ```bash
 # download Nervos
@@ -61,6 +61,14 @@ $ cd ckb
 
 # build in release mode
 $ cargo build --release
+```
+
+You can run the full test suite, or just run a specific package test:
+```bash
+# Run the full suite
+make test
+# Run a specific package test
+RUSTFLAGS="--cfg ckb_test" cargo test --package ckb-chain
 ```
 
 ---
@@ -96,7 +104,7 @@ Generate code from proto definition:
 make proto
 ```
 
-### Development running
+### Development running 
 
 Run multiple nodes:
 

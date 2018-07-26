@@ -1,4 +1,5 @@
 use bigint::H256;
+use ckb_chain::chain::TipHeader;
 use ckb_time::now_ms;
 use core::block::IndexedBlock;
 use fnv::{FnvHashMap, FnvHashSet};
@@ -15,11 +16,47 @@ pub struct Negotiate {
     //     pub have_witness: bool,
 }
 
+// State used to enforce CHAIN_SYNC_TIMEOUT
+// Only in effect for outbound, non-manual connections, with
+// m_protect == false
+// Algorithm: if a peer's best known block has less work than our tip,
+// set a timeout CHAIN_SYNC_TIMEOUT seconds in the future:
+//   - If at timeout their best known block now has more work than our tip
+//     when the timeout was set, then either reset the timeout or clear it
+//     (after comparing against our current tip's work)
+//   - If at timeout their best known block still has less work than our
+//     tip did when the timeout was set, then send a getheaders message,
+//     and set a shorter timeout, HEADERS_RESPONSE_TIME seconds in future.
+//     If their best known block is still behind when that new timeout is
+//     reached, disconnect.
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ChainSyncState {
+    pub timeout: u64,
+    pub work_header: Option<TipHeader>,
+    pub sent_getheaders: bool,
+    pub protect: bool,
+}
+
+impl Default for ChainSyncState {
+    fn default() -> Self {
+        ChainSyncState {
+            timeout: 0,
+            work_header: None,
+            sent_getheaders: false,
+            protect: false,
+        }
+    }
+}
+
 #[derive(Clone, Default, Debug, PartialEq)]
 pub struct PeerState {
     pub negotiate: Negotiate,
     pub sync_started: bool,
-    pub last_block_announcement: Option<u64>, //ms,
+    pub last_block_announcement: Option<u64>, //ms
+    pub headers_sync_timeout: Option<u64>,
+    pub disconnect: bool,
+    pub chain_sync: ChainSyncState,
 }
 
 #[derive(Debug, Default)]
@@ -88,6 +125,28 @@ impl Peers {
             .or_insert_with(|| score);
     }
 
+    pub fn on_connected(&self, peer: &PeerId, headers_sync_timeout: u64, protect: bool) {
+        self.state
+            .write()
+            .entry(*peer)
+            .and_modify(|state| {
+                state.headers_sync_timeout = Some(headers_sync_timeout);
+                state.chain_sync.protect = protect;
+            })
+            .or_insert_with(|| {
+                let mut chain_sync = ChainSyncState::default();
+                chain_sync.protect = protect;
+                PeerState {
+                    negotiate: Negotiate::default(),
+                    sync_started: true,
+                    last_block_announcement: None,
+                    headers_sync_timeout: Some(headers_sync_timeout),
+                    disconnect: false,
+                    chain_sync,
+                }
+            });
+    }
+
     pub fn best_known_header(&self, peer: &PeerId) -> Option<HeaderView> {
         self.best_known_headers.read().get(peer).cloned()
     }
@@ -119,14 +178,17 @@ impl Peers {
                 negotiate: Negotiate::default(),
                 sync_started: true,
                 last_block_announcement: None,
+                headers_sync_timeout: None,
+                disconnect: false,
+                chain_sync: ChainSyncState::default(),
             });
     }
 
     pub fn disconnected(&self, peer: &PeerId) {
         self.state.write().remove(peer);
+        self.best_known_headers.write().remove(peer);
         // self.misbehavior.write().remove(peer);
         self.blocks_inflight.write().remove(peer);
-        self.best_known_headers.write().remove(peer);
     }
 
     pub fn block_received(&self, peer: PeerId, block: &IndexedBlock) {

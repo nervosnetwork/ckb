@@ -113,16 +113,16 @@ impl<C: ChainProvider + 'static> Miner<C> {
 
     fn create_cellbase_transaction(
         &self,
-        head: &Header,
+        tip: &Header,
         transactions: &[Transaction],
     ) -> Result<Transaction, Error> {
         // NOTE: To generate different cellbase txid, we put header number in the input script
-        let inputs = vec![CellInput::new_cellbase_input(head.raw.number)];
+        let inputs = vec![CellInput::new_cellbase_input(tip.raw.number + 1)];
         // NOTE: We could've just used byteorder to serialize u64 and hex string into bytes,
         // but the truth is we will modify this after we designed lock script anyway, so let's
         // stick to the simpler way and just convert everything to a single string, then to UTF8
         // bytes, they really serve the same purpose at the moment
-        let reward = self.cellbase_reward(head, transactions)?;
+        let reward = self.cellbase_reward(tip, transactions)?;
         let outputs = vec![CellOutput::new(
             reward,
             Vec::new(),
@@ -133,10 +133,10 @@ impl<C: ChainProvider + 'static> Miner<C> {
 
     fn cellbase_reward(
         &self,
-        head: &Header,
+        tip: &Header,
         transactions: &[Transaction],
     ) -> Result<Capacity, Error> {
-        let block_reward = self.chain.block_reward(head.raw.number);
+        let block_reward = self.chain.block_reward(tip.raw.number + 1);
         let mut fee = 0;
         for transaction in transactions {
             fee += self.chain.calculate_transaction_fee(transaction)?;

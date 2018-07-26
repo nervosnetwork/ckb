@@ -1,4 +1,5 @@
 use bigint::H256;
+use block_fetcher::BlockFetcher;
 use block_pool::OrphanBlockPool;
 use ckb_chain::chain::{ChainProvider, TipHeader};
 use ckb_notify::Notify;
@@ -16,8 +17,8 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 use util::{RwLock, RwLockUpgradableReadGuard};
 use {
-    BLOCK_DOWNLOAD_WINDOW, MAX_BLOCKS_IN_TRANSIT_PER_PEER, MAX_HEADERS_LEN, MAX_TIP_AGE,
-    PER_FETCH_BLOCK_LIMIT,
+    HEADERS_DOWNLOAD_TIMEOUT_BASE, HEADERS_DOWNLOAD_TIMEOUT_PER_HEADER, MAX_HEADERS_LEN,
+    MAX_TIP_AGE, POW_SPACE,
 };
 
 bitflags! {
@@ -54,6 +55,7 @@ pub struct Synchronizer<C> {
     pub config: Arc<Config>,
     pub ethash: Option<EthashVerifier>,
     pub orphan_block_pool: Arc<OrphanBlockPool>,
+    pub outbound_peers_with_protect: Arc<AtomicUsize>,
 }
 
 impl<C> Clone for Synchronizer<C>
@@ -72,6 +74,7 @@ where
             ethash: self.ethash.clone(),
             config: Arc::clone(&self.config),
             orphan_block_pool: Arc::clone(&self.orphan_block_pool),
+            outbound_peers_with_protect: Arc::clone(&self.outbound_peers_with_protect),
         }
     }
 }
@@ -105,6 +108,7 @@ where
             status_map: Arc::new(RwLock::new(HashMap::new())),
             header_map: Arc::new(RwLock::new(HashMap::new())),
             n_sync: Arc::new(AtomicUsize::new(0)),
+            outbound_peers_with_protect: Arc::new(AtomicUsize::new(0)),
         }
     }
 
@@ -120,6 +124,10 @@ where
         }
     }
 
+    pub fn peers(&self) -> Arc<Peers> {
+        Arc::clone(&self.peers)
+    }
+
     pub fn insert_block_status(&self, hash: H256, status: BlockStatus) {
         self.status_map.write().insert(hash, status);
     }
@@ -130,6 +138,12 @@ where
 
     pub fn is_initial_block_download(&self) -> bool {
         now_ms().saturating_sub(self.chain.tip_header().read().header.timestamp) > MAX_TIP_AGE
+    }
+
+    pub fn get_headers_sync_timeout(&self, tip: &IndexedHeader) -> u64 {
+        HEADERS_DOWNLOAD_TIMEOUT_BASE
+            + HEADERS_DOWNLOAD_TIMEOUT_PER_HEADER
+                * (now_ms().saturating_sub(tip.header.timestamp) / POW_SPACE)
     }
 
     pub fn tip_header(&self) -> IndexedHeader {
@@ -411,152 +425,6 @@ where
     }
 }
 
-pub struct BlockFetcher<C> {
-    synchronizer: Synchronizer<C>,
-    peer: PeerId,
-}
-
-impl<C> BlockFetcher<C>
-where
-    C: ChainProvider,
-{
-    pub fn new(synchronizer: &Synchronizer<C>, peer: PeerId) -> Self {
-        BlockFetcher {
-            peer,
-            synchronizer: synchronizer.clone(),
-        }
-    }
-    pub fn inflight_limit_reach(&self) -> bool {
-        let mut blocks_inflight = self.synchronizer.peers.blocks_inflight.write();
-        let inflight_count = blocks_inflight
-            .entry(self.peer)
-            .or_insert_with(Default::default)
-            .len();
-
-        // current peer block blocks_inflight reach limit
-        if MAX_BLOCKS_IN_TRANSIT_PER_PEER.saturating_sub(inflight_count) == 0 {
-            debug!(target: "sync", "[block downloader] inflight count reach limit");
-            true
-        } else {
-            false
-        }
-    }
-
-    pub fn peer_best_known_header(&self) -> Option<HeaderView> {
-        self.synchronizer
-            .peers
-            .best_known_headers
-            .read()
-            .get(&self.peer)
-            .cloned()
-    }
-
-    pub fn latest_common_height(&self, header: &HeaderView) -> Option<BlockNumber> {
-        let chain_tip = self.synchronizer.chain.tip_header().read();
-        //if difficulty of this peer less than our
-        if header.total_difficulty < chain_tip.total_difficulty {
-            debug!(
-                target: "sync",
-                "[block downloader] best_known_header {} chain {}",
-                header.total_difficulty,
-                chain_tip.total_difficulty
-            );
-            None
-        } else {
-            Some(cmp::min(header.header.number, chain_tip.header.number))
-        }
-    }
-
-    // this peer's tip is wherethe the ancestor of global_best_known_header
-    pub fn is_known_best(&self, header: &HeaderView) -> bool {
-        let global_best_known_header = { self.synchronizer.best_known_header.read().clone() };
-        if let Some(ancestor) = self.synchronizer.get_ancestor(
-            &global_best_known_header.header.hash(),
-            header.header.number,
-        ) {
-            if ancestor != header.header {
-                debug!(
-                    target: "sync",
-                    "[block downloader] peer best_known_header is not ancestor of global_best_known_header"
-                );
-                return false;
-            }
-        } else {
-            return false;
-        }
-        true
-    }
-
-    fn fetch(self) -> Option<Vec<H256>> {
-        debug!(target: "sync", "[block downloader] BlockFetcher process");
-
-        if self.inflight_limit_reach() {
-            debug!(target: "sync", "[block downloader] inflight count reach limit");
-            return None;
-        }
-
-        let best_known_header = match self.peer_best_known_header() {
-            Some(best_known_header) => best_known_header,
-            _ => {
-                debug!(target: "sync", "[block downloader] peer_best_known_header not found peer={}", self.peer);
-                return None;
-            }
-        };
-
-        let latest_common_height = try_option!(self.latest_common_height(&best_known_header));
-
-        if !self.is_known_best(&best_known_header) {
-            return None;
-        }
-
-        let latest_common_hash =
-            try_option!(self.synchronizer.chain.block_hash(latest_common_height));
-        let latest_common_header =
-            try_option!(self.synchronizer.chain.block_header(&latest_common_hash));
-
-        // If the peer reorganized, our previous last_common_header may not be an ancestor
-        // of its current best_known_header. Go back enough to fix that.
-        let fixed_latest_common_header = try_option!(
-            self.synchronizer
-                .last_common_ancestor(&latest_common_header, &best_known_header.header)
-        );
-
-        if fixed_latest_common_header == best_known_header.header {
-            debug!(target: "sync", "[block downloader] fixed_latest_common_header == best_known_header");
-            return None;
-        }
-
-        debug!(target: "sync", "[block downloader] fixed_latest_common_header = {}", fixed_latest_common_header.number);
-
-        debug_assert!(best_known_header.header.number > fixed_latest_common_header.number);
-
-        let window_end = fixed_latest_common_header.number + BLOCK_DOWNLOAD_WINDOW;
-        let max_height = cmp::min(window_end + 1, best_known_header.header.number);
-
-        let mut n_height = fixed_latest_common_header.number;
-        let mut v_fetch = Vec::with_capacity(PER_FETCH_BLOCK_LIMIT);
-
-        {
-            let mut guard = self.synchronizer.peers.blocks_inflight.write();
-            let inflight = guard.get_mut(&self.peer).expect("inflight already init");
-
-            while n_height < max_height && v_fetch.len() < PER_FETCH_BLOCK_LIMIT {
-                n_height += 1;
-                let to_fetch = try_option!(
-                    self.synchronizer
-                        .get_ancestor(&best_known_header.header.hash(), n_height)
-                );
-                let to_fetch_hash = to_fetch.header.hash();
-
-                if inflight.insert(to_fetch_hash) {
-                    v_fetch.push(to_fetch_hash);
-                }
-            }
-        }
-        Some(v_fetch)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -567,13 +435,12 @@ mod tests {
     use ckb_chain::store::ChainKVStore;
     use ckb_chain::COLUMNS;
     use ckb_notify::Notify;
-    use ckb_protocol::{self, Payload};
+    use ckb_protocol;
     use ckb_time::now_ms;
     use core::difficulty::cal_difficulty;
     use core::header::{Header, RawHeader, Seal};
     use db::memorydb::MemoryKeyValueDB;
     use headers_process::HeadersProcess;
-    use network::NetworkContextExt;
     use network::{
         Error as NetworkError, NetworkContext, PacketId, PeerId, ProtocolId, SessionInfo, Severity,
         TimerToken,
@@ -859,23 +726,23 @@ mod tests {
 
     impl NetworkContext for DummyNetworkContext {
         /// Send a packet over the network to another peer.
-        fn send(&self, peer: PeerId, packet_id: PacketId, data: Vec<u8>) {}
+        fn send(&self, _peer: PeerId, _packet_id: PacketId, data: Vec<u8>) {}
 
         /// Send a packet over the network to another peer using specified protocol.
         fn send_protocol(
             &self,
-            protocol: ProtocolId,
-            peer: PeerId,
-            packet_id: PacketId,
-            data: Vec<u8>,
+            _protocol: ProtocolId,
+            _peer: PeerId,
+            _packet_id: PacketId,
+            _data: Vec<u8>,
         ) {
         }
 
         /// Respond to a current network message. Panics if no there is no packet in the context. If the session is expired returns nothing.
-        fn respond(&self, packet_id: PacketId, data: Vec<u8>) {}
+        fn respond(&self, _packet_id: PacketId, _data: Vec<u8>) {}
 
         /// Report peer. Depending on the report, peer may be disconnected and possibly banned.
-        fn report_peer(&self, peer: PeerId, reason: Severity) {}
+        fn report_peer(&self, _peer: PeerId, _reason: Severity) {}
 
         /// Check if the session is still active.
         fn is_expired(&self) -> bool {
@@ -883,22 +750,22 @@ mod tests {
         }
 
         /// Register a new IO timer. 'IoHandler::timeout' will be called with the token.
-        fn register_timer(&self, token: TimerToken, delay: Duration) -> Result<(), NetworkError> {
+        fn register_timer(&self, _token: TimerToken, _delay: Duration) -> Result<(), NetworkError> {
             Ok(())
         }
 
         /// Returns peer identification string
-        fn peer_client_version(&self, peer: PeerId) -> String {
+        fn peer_client_version(&self, _peer: PeerId) -> String {
             "unknown".to_string()
         }
 
         /// Returns information on p2p session
-        fn session_info(&self, peer: PeerId) -> Option<SessionInfo> {
+        fn session_info(&self, _peer: PeerId) -> Option<SessionInfo> {
             None
         }
 
         /// Returns max version for a given protocol.
-        fn protocol_version(&self, protocol: ProtocolId, peer: PeerId) -> Option<u8> {
+        fn protocol_version(&self, _protocol: ProtocolId, peer: PeerId) -> Option<u8> {
             None
         }
 
