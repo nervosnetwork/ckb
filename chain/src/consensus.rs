@@ -2,14 +2,15 @@ use bigint::{H256, U256};
 use core::block::IndexedBlock;
 use core::global::MIN_DIFFICULTY;
 use core::header::{Header, RawHeader, Seal};
+use core::transaction::Capacity;
 
-pub const DEFAULT_BLOCK_REWARD: u32 = 5_000;
+pub const DEFAULT_BLOCK_REWARD: Capacity = 5_000;
 
 #[derive(Clone, Eq, PartialEq, Debug)]
 pub struct Consensus {
     pub genesis_block: IndexedBlock,
     pub min_difficulty: U256,
-    pub initial_block_reward: u32,
+    pub initial_block_reward: Capacity,
 }
 
 impl Default for Consensus {
@@ -30,7 +31,7 @@ impl Consensus {
         &self.genesis_block
     }
 
-    pub fn initial_block_reward(&self) -> u32 {
+    pub fn initial_block_reward(&self) -> Capacity {
         self.initial_block_reward
     }
 }

@@ -1,5 +1,5 @@
 use core::cell::{CellState, ResolvedTransaction};
-use core::transaction::Transaction;
+use core::transaction::{Capacity, Transaction};
 use error::TransactionError;
 use std::collections::HashSet;
 
@@ -147,7 +147,7 @@ impl<'a> CapacityVerifier<'a> {
             .transaction
             .outputs
             .iter()
-            .any(|output| output.bytes_len() > (output.capacity as usize))
+            .any(|output| output.bytes_len() as Capacity > output.capacity)
         {
             Err(TransactionError::OutofBound)
         } else {

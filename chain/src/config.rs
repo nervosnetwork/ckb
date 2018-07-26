@@ -1,6 +1,6 @@
 use bigint::{H256, U256};
 use core::block::IndexedBlock;
-use core::header::{Header, RawHeader, Seal};
+use core::header::{BlockNumber, Header, RawHeader, Seal};
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct Config {
@@ -11,11 +11,11 @@ pub struct Config {
     pub timestamp: u64,
     pub txs_commit: H256,
     pub difficulty: U256,
-    pub number: u64,
+    pub number: BlockNumber,
     pub nonce: u64,
     pub mix_hash: H256,
     // other config
-    pub initial_block_reward: u32,
+    pub initial_block_reward: Capacity,
 }
 
 impl Config {

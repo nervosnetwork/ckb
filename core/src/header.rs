@@ -8,6 +8,8 @@ use transaction::Transaction;
 
 const VERSION: u32 = 0;
 
+pub use BlockNumber;
+
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug, Default)]
 pub struct Seal {
     pub nonce: u64,
@@ -22,7 +24,7 @@ pub struct RawHeader {
     /// Block timestamp(ms).
     pub timestamp: u64,
     /// Genesis number is 0, Child block number is parent block number + 1.
-    pub number: u64,
+    pub number: BlockNumber,
     /// Transactions merkle tree root.
     pub txs_commit: H256,
     /// Block difficulty.

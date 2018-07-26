@@ -19,7 +19,7 @@ extern crate serde_derive;
 use bigint::H256;
 use chain::chain::ChainProvider;
 use ckb_protocol::Payload;
-use core::header::Header;
+use core::header::{BlockNumber, Header};
 use core::transaction::Transaction;
 use jsonrpc_core::{IoHandler, Result};
 use jsonrpc_minihttp_server::ServerBuilder;
@@ -108,7 +108,7 @@ impl<C: ChainProvider + 'static> Rpc for RpcImpl<C> {
         Ok(self.chain.get_transaction(&hash).map(|t| t.transaction))
     }
 
-    fn get_block_hash(&self, number: u64) -> Result<Option<H256>> {
+    fn get_block_hash(&self, number: BlockNumber) -> Result<Option<H256>> {
         Ok(self.chain.block_hash(number))
     }
 

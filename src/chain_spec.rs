@@ -1,5 +1,6 @@
 use bigint::{H256, U256};
 use chain::consensus::{Consensus, GenesisBuilder};
+use core::Capacity;
 use serde_yaml;
 use std::error::Error;
 use std::fs::File;
@@ -20,7 +21,7 @@ pub struct ChainSpec {
 
 #[derive(Clone, PartialEq, Eq, Debug, Deserialize)]
 pub struct Params {
-    pub initial_block_reward: u32,
+    pub initial_block_reward: Capacity,
     pub min_difficulty: U256,
 }
 

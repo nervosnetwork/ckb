@@ -5,7 +5,7 @@ use ckb_notify::{Event, Notify};
 use ckb_protocol::Payload;
 use core::block::IndexedBlock;
 use core::header::{Header, IndexedHeader};
-use core::transaction::{CellInput, CellOutput, Transaction, VERSION};
+use core::transaction::{Capacity, CellInput, CellOutput, Transaction, VERSION};
 use crossbeam_channel;
 use ethash::{get_epoch, Ethash};
 use network::NetworkService;
@@ -124,7 +124,6 @@ impl<C: ChainProvider + 'static> Miner<C> {
         // bytes, they really serve the same purpose at the moment
         let reward = self.cellbase_reward(head, transactions)?;
         let outputs = vec![CellOutput::new(
-            0,
             reward,
             Vec::new(),
             self.config.redeem_script_hash,
@@ -132,7 +131,11 @@ impl<C: ChainProvider + 'static> Miner<C> {
         Ok(Transaction::new(VERSION, Vec::new(), inputs, outputs))
     }
 
-    fn cellbase_reward(&self, head: &Header, transactions: &[Transaction]) -> Result<u32, Error> {
+    fn cellbase_reward(
+        &self,
+        head: &Header,
+        transactions: &[Transaction],
+    ) -> Result<Capacity, Error> {
         let block_reward = self.chain.block_reward(head.raw.number);
         let mut fee = 0;
         for transaction in transactions {

@@ -177,7 +177,6 @@ mod tests {
             index: 3,
         };
         let o = CellOutput {
-            module: 1,
             capacity: 2,
             data: vec![],
             lock: H256::default(),

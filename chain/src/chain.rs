@@ -6,8 +6,8 @@ use consensus::Consensus;
 use core::block::IndexedBlock;
 use core::cell::{CellProvider, CellState};
 use core::extras::BlockExt;
-use core::header::IndexedHeader;
-use core::transaction::{IndexedTransaction, OutPoint, Transaction};
+use core::header::{BlockNumber, IndexedHeader};
+use core::transaction::{Capacity, IndexedTransaction, OutPoint, Transaction};
 use core::transaction_meta::TransactionMeta;
 use db::batch::Batch;
 use db::diskdb::RocksDB;
@@ -48,13 +48,13 @@ pub trait ChainProvider: Sync + Send + CellProvider {
 
     fn block_body(&self, hash: &H256) -> Option<Vec<Transaction>>;
 
-    fn block_hash(&self, number: u64) -> Option<H256>;
+    fn block_hash(&self, number: BlockNumber) -> Option<H256>;
 
     fn block_ext(&self, hash: &H256) -> Option<BlockExt>;
 
     fn output_root(&self, hash: &H256) -> Option<H256>;
 
-    fn block_number(&self, hash: &H256) -> Option<u64>;
+    fn block_number(&self, hash: &H256) -> Option<BlockNumber>;
 
     fn block(&self, hash: &H256) -> Option<IndexedBlock>;
 
@@ -71,14 +71,12 @@ pub trait ChainProvider: Sync + Send + CellProvider {
 
     fn get_transaction_meta_at(&self, hash: &H256, parent: &H256) -> Option<TransactionMeta>;
 
-    // NOTE: reward and fee are returned now as u32 since capacity is also
-    // u32 in protocol, we might want to revisit this later
-    fn block_reward(&self, block_number: u64) -> u32;
+    fn block_reward(&self, block_number: BlockNumber) -> Capacity;
 
     // Loops through all inputs and outputs of given transaction to calculate
     // fee that miner can obtain. Could result in error state when input
     // transaction is missing.
-    fn calculate_transaction_fee(&self, transaction: &Transaction) -> Result<u32, Error>;
+    fn calculate_transaction_fee(&self, transaction: &Transaction) -> Result<Capacity, Error>;
 }
 
 impl<'a, CS: ChainIndex> CellProvider for Chain<CS> {
@@ -336,7 +334,7 @@ impl<CS: ChainIndex> ChainProvider for Chain<CS> {
         self.store.get_block_body(hash)
     }
 
-    fn block_hash(&self, number: u64) -> Option<H256> {
+    fn block_hash(&self, number: BlockNumber) -> Option<H256> {
         self.store.get_block_hash(number)
     }
 
@@ -344,7 +342,7 @@ impl<CS: ChainIndex> ChainProvider for Chain<CS> {
         self.store.get_block_ext(hash)
     }
 
-    fn block_number(&self, hash: &H256) -> Option<u64> {
+    fn block_number(&self, hash: &H256) -> Option<BlockNumber> {
         self.store.get_block_number(hash)
     }
 
@@ -387,14 +385,14 @@ impl<CS: ChainIndex> ChainProvider for Chain<CS> {
             .and_then(|root| self.store.get_transaction_meta(root, *hash))
     }
 
-    fn block_reward(&self, _block_number: u64) -> u32 {
+    fn block_reward(&self, _block_number: BlockNumber) -> Capacity {
         // TODO: block reward calculation algorithm
         self.consensus.initial_block_reward()
     }
 
     // TODO: find a way to write test for this once we can build a mock on
     // ChainIndex
-    fn calculate_transaction_fee(&self, transaction: &Transaction) -> Result<u32, Error> {
+    fn calculate_transaction_fee(&self, transaction: &Transaction) -> Result<Capacity, Error> {
         let mut fee = 0;
         for input in &transaction.inputs {
             let previous_output = &input.previous_output;
@@ -410,7 +408,7 @@ impl<CS: ChainIndex> ChainProvider for Chain<CS> {
                 None => return Err(Error::InvalidInput),
             }
         }
-        let spent_capacity: u32 = transaction
+        let spent_capacity: Capacity = transaction
             .outputs
             .iter()
             .map(|output| output.capacity)
@@ -495,7 +493,7 @@ pub mod test {
         parent_header: IndexedHeader,
         nonce: u64,
         difficulty: U256,
-        number: u64,
+        number: BlockNumber,
     ) -> IndexedBlock {
         let time = now_ms();
         let header = Header {

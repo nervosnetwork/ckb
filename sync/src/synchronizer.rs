@@ -6,7 +6,7 @@ use ckb_time::now_ms;
 use ckb_verification::{BlockVerifier, EthashVerifier, Verifier};
 use config::Config;
 use core::block::IndexedBlock;
-use core::header::IndexedHeader;
+use core::header::{BlockNumber, IndexedHeader};
 use header_view::HeaderView;
 use network::PeerId;
 use peers::Peers;
@@ -16,8 +16,8 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 use util::{RwLock, RwLockUpgradableReadGuard};
 use {
-    BlockNumber, BLOCK_DOWNLOAD_WINDOW, MAX_BLOCKS_IN_TRANSIT_PER_PEER, MAX_HEADERS_LEN,
-    MAX_TIP_AGE, PER_FETCH_BLOCK_LIMIT,
+    BLOCK_DOWNLOAD_WINDOW, MAX_BLOCKS_IN_TRANSIT_PER_PEER, MAX_HEADERS_LEN, MAX_TIP_AGE,
+    PER_FETCH_BLOCK_LIMIT,
 };
 
 bitflags! {
@@ -233,11 +233,11 @@ where
             .or_else(|| self.chain.block_header(&hash))
     }
 
-    pub fn get_number(&self, hash: &H256) -> Option<u64> {
+    pub fn get_number(&self, hash: &H256) -> Option<BlockNumber> {
         self.chain.block_number(hash)
     }
 
-    pub fn get_hash(&self, number: u64) -> Option<H256> {
+    pub fn get_hash(&self, number: BlockNumber) -> Option<H256> {
         self.chain.block_hash(number)
     }
 
@@ -245,18 +245,18 @@ where
         self.chain.block(hash)
     }
 
-    pub fn get_ancestor(&self, base: &H256, height: u64) -> Option<IndexedHeader> {
+    pub fn get_ancestor(&self, base: &H256, number: BlockNumber) -> Option<IndexedHeader> {
         if let Some(header) = self.get_header(base) {
-            let mut n_height = header.number;
+            let mut n_number = header.number;
             let mut index_walk = header;
-            if height > n_height {
+            if number > n_number {
                 return None;
             }
 
-            while n_height > height {
+            while n_number > number {
                 if let Some(header) = self.get_header(&index_walk.parent_hash) {
                     index_walk = header;
-                    n_height -= 1;
+                    n_number -= 1;
                 } else {
                     return None;
                 }
@@ -272,7 +272,10 @@ where
         hash_stop: &H256,
     ) -> Vec<IndexedHeader> {
         let tip_number = self.tip_header().number;
-        let max_height = cmp::min(block_number + 1 + MAX_HEADERS_LEN as u64, tip_number + 1);
+        let max_height = cmp::min(
+            block_number + 1 + MAX_HEADERS_LEN as BlockNumber,
+            tip_number + 1,
+        );
         (block_number + 1..max_height)
             .filter_map(|block_number| self.chain.block_hash(block_number))
             .take_while(|block_hash| block_hash != hash_stop)
@@ -613,7 +616,7 @@ mod tests {
         }
     }
 
-    fn insert_block<CS: ChainIndex>(chain: &Chain<CS>, nonce: u64, number: u64) {
+    fn insert_block<CS: ChainIndex>(chain: &Chain<CS>, nonce: u64, number: BlockNumber) {
         let parent = chain
             .block_header(&chain.block_hash(number - 1).unwrap())
             .unwrap();

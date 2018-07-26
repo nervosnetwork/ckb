@@ -4,10 +4,13 @@ use bigint::H256;
 use bincode::{deserialize, serialize};
 use ckb_protocol;
 use hash::sha3_256;
+use header::BlockNumber;
 use script::Script;
 use std::ops::{Deref, DerefMut};
 
 pub const VERSION: u32 = 0;
+
+pub use Capacity;
 
 #[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Hash, Debug)]
 pub struct OutPoint {
@@ -56,7 +59,7 @@ impl CellInput {
         }
     }
 
-    pub fn new_cellbase_input(block_number: u64) -> Self {
+    pub fn new_cellbase_input(block_number: BlockNumber) -> Self {
         CellInput {
             previous_output: OutPoint::null(),
             unlock: Script::new(0, Vec::new(), block_number.to_le().to_bytes().to_vec()),
@@ -66,16 +69,14 @@ impl CellInput {
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct CellOutput {
-    pub module: u32,
-    pub capacity: u32,
+    pub capacity: Capacity,
     pub data: Vec<u8>,
     pub lock: H256,
 }
 
 impl CellOutput {
-    pub fn new(module: u32, capacity: u32, data: Vec<u8>, lock: H256) -> Self {
+    pub fn new(capacity: Capacity, data: Vec<u8>, lock: H256) -> Self {
         CellOutput {
-            module,
             capacity,
             data,
             lock,
@@ -263,7 +264,6 @@ impl From<CellInput> for ckb_protocol::CellInput {
 impl<'a> From<&'a ckb_protocol::CellOutput> for CellOutput {
     fn from(c: &'a ckb_protocol::CellOutput) -> Self {
         Self {
-            module: c.get_module(),
             capacity: c.get_capacity(),
             data: c.get_data().to_vec(),
             lock: c.get_lock().into(),
@@ -274,7 +274,6 @@ impl<'a> From<&'a ckb_protocol::CellOutput> for CellOutput {
 impl<'a> From<&'a CellOutput> for ckb_protocol::CellOutput {
     fn from(c: &'a CellOutput) -> Self {
         let mut co = ckb_protocol::CellOutput::new();
-        co.set_module(c.module);
         co.set_capacity(c.capacity);
         co.set_data(c.data.clone());
         co.set_lock(c.lock.to_vec());
@@ -285,13 +284,11 @@ impl<'a> From<&'a CellOutput> for ckb_protocol::CellOutput {
 impl From<CellOutput> for ckb_protocol::CellOutput {
     fn from(c: CellOutput) -> Self {
         let CellOutput {
-            module,
             capacity,
             data,
             lock,
         } = c;
         let mut co = ckb_protocol::CellOutput::new();
-        co.set_module(module);
         co.set_capacity(capacity);
         co.set_data(data);
         co.set_lock(lock.to_vec());

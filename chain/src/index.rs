@@ -3,7 +3,7 @@ use bigint::H256;
 use bincode::{deserialize, serialize};
 use core::block::IndexedBlock;
 use core::extras::{BlockExt, TransactionAddress};
-use core::header::{Header, IndexedHeader};
+use core::header::{BlockNumber, Header, IndexedHeader};
 use core::transaction::{IndexedTransaction, Transaction};
 use db::batch::Batch;
 use db::kvdb::KeyValueDB;
@@ -15,15 +15,15 @@ const META_TIP_HEADER_KEY: &[u8] = b"TIP_HEADER";
 // maintain chain index, extend chainstore
 pub trait ChainIndex: ChainStore {
     fn init(&self, genesis: &IndexedBlock);
-    fn get_block_hash(&self, number: u64) -> Option<H256>;
-    fn get_block_number(&self, hash: &H256) -> Option<u64>;
+    fn get_block_hash(&self, number: BlockNumber) -> Option<H256>;
+    fn get_block_number(&self, hash: &H256) -> Option<BlockNumber>;
     fn get_tip_header(&self) -> Option<IndexedHeader>;
     fn get_transaction(&self, h: &H256) -> Option<IndexedTransaction>;
     fn get_transaction_address(&self, hash: &H256) -> Option<TransactionAddress>;
 
-    fn insert_block_hash(&self, batch: &mut Batch, number: u64, hash: &H256);
-    fn delete_block_hash(&self, batch: &mut Batch, number: u64);
-    fn insert_block_number(&self, batch: &mut Batch, hash: &H256, number: u64);
+    fn insert_block_hash(&self, batch: &mut Batch, number: BlockNumber, hash: &H256);
+    fn delete_block_hash(&self, batch: &mut Batch, number: BlockNumber);
+    fn insert_block_number(&self, batch: &mut Batch, hash: &H256, number: BlockNumber);
     fn delete_block_number(&self, batch: &mut Batch, hash: &H256);
     fn insert_tip_header(&self, batch: &mut Batch, h: &Header);
     fn insert_transaction_address(&self, batch: &mut Batch, block_hash: &H256, txs: &[Transaction]);
@@ -47,12 +47,12 @@ impl<T: KeyValueDB> ChainIndex for ChainKVStore<T> {
         });
     }
 
-    fn get_block_hash(&self, number: u64) -> Option<H256> {
+    fn get_block_hash(&self, number: BlockNumber) -> Option<H256> {
         let key = serialize(&number).unwrap();
         self.get(COLUMN_INDEX, &key).map(|raw| H256::from(&raw[..]))
     }
 
-    fn get_block_number(&self, hash: &H256) -> Option<u64> {
+    fn get_block_number(&self, hash: &H256) -> Option<BlockNumber> {
         self.get(COLUMN_INDEX, &hash)
             .map(|raw| deserialize(&raw[..]).unwrap())
     }
@@ -86,12 +86,12 @@ impl<T: KeyValueDB> ChainIndex for ChainKVStore<T> {
         batch.insert(COLUMN_META, META_TIP_HEADER_KEY.to_vec(), h.hash().to_vec());
     }
 
-    fn insert_block_hash(&self, batch: &mut Batch, number: u64, hash: &H256) {
+    fn insert_block_hash(&self, batch: &mut Batch, number: BlockNumber, hash: &H256) {
         let key = serialize(&number).unwrap().to_vec();
         batch.insert(COLUMN_INDEX, key, hash.to_vec());
     }
 
-    fn insert_block_number(&self, batch: &mut Batch, hash: &H256, number: u64) {
+    fn insert_block_number(&self, batch: &mut Batch, hash: &H256, number: BlockNumber) {
         batch.insert(
             COLUMN_INDEX,
             hash.to_vec(),
@@ -126,7 +126,7 @@ impl<T: KeyValueDB> ChainIndex for ChainKVStore<T> {
         }
     }
 
-    fn delete_block_hash(&self, batch: &mut Batch, number: u64) {
+    fn delete_block_hash(&self, batch: &mut Batch, number: BlockNumber) {
         let key = serialize(&number).unwrap().to_vec();
         batch.delete(COLUMN_INDEX, key);
     }

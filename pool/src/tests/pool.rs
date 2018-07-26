@@ -370,7 +370,7 @@ fn test_setup() -> (
         0,
         Vec::new(),
         vec![CellInput::new(OutPoint::null(), Default::default())],
-        vec![CellOutput::new(0, 50, Vec::new(), H256::default()); 100],
+        vec![CellOutput::new(50, Vec::new(), H256::default()); 100],
     );
     let transactions = vec![tx.clone()];
     apply_transactions(transactions, &chain);

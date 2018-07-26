@@ -7,6 +7,7 @@ extern crate ethash;
 extern crate log;
 extern crate bigint;
 extern crate ckb_chain as chain;
+extern crate ckb_core as core;
 extern crate ckb_db as db;
 extern crate ckb_miner as miner;
 extern crate ckb_network as network;

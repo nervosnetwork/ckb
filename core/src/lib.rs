@@ -26,3 +26,5 @@ pub mod transaction_meta;
 pub use error::Error;
 
 pub type PublicKey = bigint::H512;
+pub type BlockNumber = u64;
+pub type Capacity = u64;

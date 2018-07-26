@@ -1,5 +1,5 @@
 use core::script::Script;
-use core::transaction::{CellInput, CellOutput, OutPoint, Transaction};
+use core::transaction::{Capacity, CellInput, CellOutput, OutPoint, Transaction};
 use crypto::secp::Privkey;
 
 #[derive(Debug, Serialize)]
@@ -37,7 +37,7 @@ impl TransactionInputSigner {
         &self,
         _privkey: &Privkey,
         _input_index: usize,
-        _input_capacity: u32,
+        _input_capacity: Capacity,
         _script: &Script,
     ) -> CellInput {
         unimplemented!()
@@ -50,7 +50,12 @@ impl TransactionInputSigner {
         // }
     }
 
-    pub fn sign(&self, _input_index: usize, _input_capacity: u32, _script: &Script) -> CellInput {
+    pub fn sign(
+        &self,
+        _input_index: usize,
+        _input_capacity: Capacity,
+        _script: &Script,
+    ) -> CellInput {
         unimplemented!()
         // currently only supports hash_all: https://en.bitcoin.it/wiki/OP_CHECKSIG#Hashtype_SIGHASH_ALL_.28default.29
         // TODO add more hash type and optimize: https://github.com/bitcoin/bips/blob/master/bip-0143.mediawiki

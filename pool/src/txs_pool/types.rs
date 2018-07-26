@@ -551,7 +551,7 @@ mod tests {
                 .map(|(txid, index)| CellInput::new(OutPoint::new(txid, index), Default::default()))
                 .collect(),
             (0..outputs_len)
-                .map(|i| CellOutput::new(0, (i + 1) as u32, Vec::new(), H256::from(0)))
+                .map(|i| CellOutput::new((i + 1) as u64, Vec::new(), H256::from(0)))
                 .collect(),
         )
     }
