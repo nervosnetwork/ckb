@@ -1,6 +1,7 @@
 use bigint::H256;
 use ckb_chain::chain::ChainProvider;
 use ckb_protocol;
+use network::NetworkContextExt;
 use network::{NetworkContext, PeerId};
 use synchronizer::Synchronizer;
 
@@ -67,7 +68,7 @@ where
                 {
                     let mut payload = ckb_protocol::Payload::new();
                     payload.set_block(block.into());
-                    let _ = self.nc.respond(payload);
+                    let _ = self.nc.respond_payload(payload);
                 } else {
                     //Reponse notfound
                 }

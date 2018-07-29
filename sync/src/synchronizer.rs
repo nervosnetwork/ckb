@@ -573,7 +573,11 @@ mod tests {
     use core::header::{Header, RawHeader, Seal};
     use db::memorydb::MemoryKeyValueDB;
     use headers_process::HeadersProcess;
-    use network::{Error as NetworkError, NetworkContext, PeerId, ProtocolId, SessionInfo};
+    use network::NetworkContextExt;
+    use network::{
+        Error as NetworkError, NetworkContext, PacketId, PeerId, ProtocolId, SessionInfo, Severity,
+        TimerToken,
+    };
     use protobuf::RepeatedField;
     use std::time::Duration;
 
@@ -854,52 +858,51 @@ mod tests {
     struct DummyNetworkContext {}
 
     impl NetworkContext for DummyNetworkContext {
-        fn send(&self, _peer: PeerId, _payload: Payload) -> Result<(), NetworkError> {
-            Ok(())
-        }
+        /// Send a packet over the network to another peer.
+        fn send(&self, peer: PeerId, packet_id: PacketId, data: Vec<u8>) {}
 
+        /// Send a packet over the network to another peer using specified protocol.
         fn send_protocol(
             &self,
-            _protocol: ProtocolId,
-            _peer: PeerId,
-            _payload: Payload,
-        ) -> Result<(), NetworkError> {
-            Ok(())
+            protocol: ProtocolId,
+            peer: PeerId,
+            packet_id: PacketId,
+            data: Vec<u8>,
+        ) {
         }
 
-        fn respond(&self, _payload: Payload) -> Result<(), NetworkError> {
-            Ok(())
-        }
+        /// Respond to a current network message. Panics if no there is no packet in the context. If the session is expired returns nothing.
+        fn respond(&self, packet_id: PacketId, data: Vec<u8>) {}
 
-        fn disable_peer(&self, _peer: PeerId) {}
+        /// Report peer. Depending on the report, peer may be disconnected and possibly banned.
+        fn report_peer(&self, peer: PeerId, reason: Severity) {}
 
-        fn disconnect_peer(&self, _peer: PeerId) {}
-
+        /// Check if the session is still active.
         fn is_expired(&self) -> bool {
             false
         }
 
-        fn register_timer(&self, _token: usize, _duration: Duration) -> Result<(), NetworkError> {
+        /// Register a new IO timer. 'IoHandler::timeout' will be called with the token.
+        fn register_timer(&self, token: TimerToken, delay: Duration) -> Result<(), NetworkError> {
             Ok(())
         }
 
-        fn peer_client_version(&self, _peer: PeerId) -> String {
-            // Devp2p returns "unknown" on unknown peer ID, so we do the same.
+        /// Returns peer identification string
+        fn peer_client_version(&self, peer: PeerId) -> String {
             "unknown".to_string()
         }
 
-        fn session_info(&self, _peer: PeerId) -> Option<SessionInfo> {
+        /// Returns information on p2p session
+        fn session_info(&self, peer: PeerId) -> Option<SessionInfo> {
             None
         }
 
-        fn sessions(&self) -> Vec<(PeerId, SessionInfo)> {
-            vec![]
-        }
-
-        fn protocol_version(&self, _protocol: ProtocolId, _peer: PeerId) -> Option<u8> {
+        /// Returns max version for a given protocol.
+        fn protocol_version(&self, protocol: ProtocolId, peer: PeerId) -> Option<u8> {
             None
         }
 
+        /// Returns this object's subprotocol name.
         fn subprotocol_name(&self) -> ProtocolId {
             [1, 1, 1]
         }

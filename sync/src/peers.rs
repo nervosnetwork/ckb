@@ -107,7 +107,11 @@ impl Peers {
             .or_insert_with(|| header_view.clone());
     }
 
-    pub fn getheaders_received(&self, peer: &PeerId) {
+    pub fn getheaders_received(&self, _peer: &PeerId) {
+        // TODO:
+    }
+
+    pub fn connected(&self, peer: &PeerId) {
         self.state
             .write()
             .entry(*peer)

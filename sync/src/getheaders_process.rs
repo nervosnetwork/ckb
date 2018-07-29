@@ -2,6 +2,7 @@ use bigint::H256;
 use ckb_chain::chain::ChainProvider;
 use ckb_protocol;
 use core::header::IndexedHeader;
+use network::NetworkContextExt;
 use network::{NetworkContext, PeerId};
 use protobuf::RepeatedField;
 use synchronizer::Synchronizer;
@@ -63,7 +64,7 @@ where
                 headers.iter().map(|h| &h.header).map(Into::into).collect(),
             ));
             payload.set_headers(headers_proto);
-            let _ = self.nc.respond(payload);
+            let _ = self.nc.respond_payload(payload);
             debug!(target: "sync", "\nrespond headers len={}\n", headers.len());
         } else {
             warn!(target: "sync", "\n\nunknown block headers from peer {} {:#?}\n\n", self.peer, block_locator_hashes);

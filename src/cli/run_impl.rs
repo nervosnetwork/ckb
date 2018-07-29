@@ -10,6 +10,7 @@ use db::diskdb::RocksDB;
 use ethash::Ethash;
 use logger;
 use miner::miner::Miner;
+use network::NetworkConfiguration;
 use network::NetworkService;
 use pool::{PoolConfig, TransactionPool};
 use rpc::RpcServer;
@@ -52,8 +53,8 @@ pub fn run(setup: Setup) {
     let chain1 = Arc::<Chain<ChainKVStore<CacheDB<RocksDB>>>>::clone(&chain);
     let tx_pool = TransactionPool::new(PoolConfig::default(), chain1, notify.clone());
 
-    let network =
-        Arc::new(NetworkService::new(setup.configs.network, Option::None).expect("Create network"));
+    let network_config = NetworkConfiguration::from(setup.configs.network);
+    let network = Arc::new(NetworkService::new(network_config, None).expect("Create network"));
 
     let sync_protocol = Arc::new(SyncProtocol::new(synchronizer.clone()));
     let sync_protocol_clone = Arc::clone(&sync_protocol);
@@ -65,9 +66,11 @@ pub fn run(setup: Setup) {
         });
 
     let relay_protocol = Arc::new(RelayProtocol::new(synchronizer, &tx_pool));
-    network.register_protocol(sync_protocol, SYNC_PROTOCOL_ID, &[(1, 0)]);
-    network.register_protocol(relay_protocol, RELAY_PROTOCOL_ID, &[(1, 0)]);
-    network.start().expect("Start network service");
+    let protocols = vec![
+        (sync_protocol as Arc<_>, SYNC_PROTOCOL_ID, &[(1, 1)][..]),
+        (relay_protocol as Arc<_>, RELAY_PROTOCOL_ID, &[(1, 1)][..]),
+    ];
+    network.start(protocols).expect("Start network service");
 
     let miner_chain = Arc::clone(&chain);
     let miner = Miner::new(

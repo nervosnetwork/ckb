@@ -64,15 +64,9 @@ impl Setup {
             path.push(file);
             configs.logger.file = Some(path.to_str().unwrap().to_string());
         }
-        if let Some(file) = configs.network.secret_file {
-            let mut path = dirs.join("network");
-            path.push(file);
-            configs.network.secret_file = Some(path.to_str().unwrap().to_string());
-        }
-        if let Some(file) = configs.network.nodes_file {
-            let mut path = dirs.join("network");
-            path.push(file);
-            configs.network.nodes_file = Some(path.to_str().unwrap().to_string());
+        if configs.network.net_config_path.is_none() {
+            configs.network.net_config_path =
+                Some(dirs.join("network").to_string_lossy().to_string());
         }
         if let Some(file) = configs.miner.ethash_path {
             let mut path = dirs.join("miner");

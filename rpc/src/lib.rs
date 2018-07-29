@@ -25,6 +25,7 @@ use jsonrpc_core::{IoHandler, Result};
 use jsonrpc_minihttp_server::ServerBuilder;
 use jsonrpc_server_utils::cors::AccessControlAllowOrigin;
 use jsonrpc_server_utils::hosts::DomainsValidation;
+use network::NetworkContextExt;
 use network::NetworkService;
 use pool::TransactionPool;
 use std::sync::Arc;
@@ -80,8 +81,8 @@ impl<C: ChainProvider + 'static> Rpc for RpcImpl<C> {
         let mut payload = Payload::new();
         payload.set_transaction((&tx).into());
         self.network.with_context_eval(RELAY_PROTOCOL_ID, |nc| {
-            for (peer_id, _session) in nc.sessions() {
-                nc.send(peer_id, payload.clone()).ok();
+            for (peer_id, _session) in nc.sessions(&self.network.connected_peers()) {
+                let _ = nc.send_payload(peer_id, payload.clone());
             }
         });
         Ok(result)
