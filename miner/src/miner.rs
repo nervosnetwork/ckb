@@ -117,7 +117,7 @@ impl<C: ChainProvider + 'static> Miner<C> {
         transactions: &[Transaction],
     ) -> Result<Transaction, Error> {
         // NOTE: To generate different cellbase txid, we put header number in the input script
-        let inputs = vec![CellInput::new_cellbase_input(head.raw.number)];
+        let inputs = vec![CellInput::new_cellbase_input(head.raw.number + 1)];
         // NOTE: We could've just used byteorder to serialize u64 and hex string into bytes,
         // but the truth is we will modify this after we designed lock script anyway, so let's
         // stick to the simpler way and just convert everything to a single string, then to UTF8
