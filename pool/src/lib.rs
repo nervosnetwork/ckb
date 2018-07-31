@@ -13,6 +13,8 @@ extern crate serde_derive;
 #[cfg(test)]
 extern crate ethash;
 extern crate fnv;
+#[cfg(test)]
+extern crate hash;
 
 mod tests;
 pub mod txs_pool;
