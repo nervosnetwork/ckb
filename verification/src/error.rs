@@ -54,6 +54,7 @@ pub enum TransactionError {
     InvalidCellbase,
     InvalidCapacity,
     InvalidScript,
+    InvalidSignature,
     DoubleSpent,
     UnknownInput,
 }

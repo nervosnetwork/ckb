@@ -28,7 +28,7 @@ export default {
             },
             unlock: {
               version: 0,
-              data: [0],
+              arguments: [],
               redeem_script: [109, 105, 110, 101, 114], // "miner".into_bytes
             },
           },

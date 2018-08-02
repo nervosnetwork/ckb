@@ -115,6 +115,10 @@ impl Signature {
         pubkey.copy_from_slice(&serialized[1..65]);
         Ok(pubkey.into())
     }
+
+    pub fn serialize(&self) -> Vec<u8> {
+        Vec::from(&self.0[..])
+    }
 }
 
 impl fmt::Debug for Signature {
@@ -136,6 +140,14 @@ impl From<H520> for Signature {
 impl From<Signature> for H520 {
     fn from(s: Signature) -> Self {
         H520(s.0)
+    }
+}
+
+impl From<Vec<u8>> for Signature {
+    fn from(sig: Vec<u8>) -> Self {
+        let mut data = [0; 65];
+        data[0..65].copy_from_slice(sig.as_slice());
+        Signature(data)
     }
 }
 

@@ -515,8 +515,12 @@ dependencies = [
 name = "ckb-script"
 version = "0.1.0"
 dependencies = [
+ "bigint 0.2.3 (git+https://github.com/NervosFoundation/bigint)",
+ "bincode 1.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "byteorder 1.2.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "ckb-core 0.1.0",
  "crypto 0.1.0",
+ "hash 0.1.0",
  "serde 1.0.70 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.70 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
@@ -575,6 +579,7 @@ dependencies = [
  "ckb-core 0.1.0",
  "ckb-db 0.1.0",
  "ckb-notify 0.1.0",
+ "ckb-script 0.1.0",
  "ckb-time 0.1.0",
  "ckb-util 0.1.0",
  "ethash 1.0.0 (git+https://github.com/NervosFoundation/ethash?tag=v1.0.0)",

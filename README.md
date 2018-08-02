@@ -115,5 +115,5 @@ $ cargo run -- --data-dir=/tmp/node2
 
 Modify development config file
 ```shell
-cp src/config/development.toml /tmp/node1
+cp src/config/development.toml /tmp/node1/config.toml
 ```
