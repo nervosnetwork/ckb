@@ -4,7 +4,6 @@ use ckb_protocol;
 use core::header::IndexedHeader;
 use network::NetworkContextExt;
 use network::{NetworkContext, PeerId};
-use protobuf::RepeatedField;
 use synchronizer::Synchronizer;
 
 pub struct GetHeadersProcess<'a, C: 'a> {
@@ -60,9 +59,7 @@ where
             debug!(target: "sync", "\nheaders len={}\n", headers.len());
             let mut payload = ckb_protocol::Payload::new();
             let mut headers_proto = ckb_protocol::Headers::new();
-            headers_proto.set_headers(RepeatedField::from_vec(
-                headers.iter().map(|h| &h.header).map(Into::into).collect(),
-            ));
+            headers_proto.set_headers(headers.iter().map(|h| &h.header).map(Into::into).collect());
             payload.set_headers(headers_proto);
             let _ = self.nc.respond_payload(payload);
             debug!(target: "sync", "\nrespond headers len={}\n", headers.len());

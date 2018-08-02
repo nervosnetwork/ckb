@@ -8,7 +8,6 @@ extern crate byteorder;
 extern crate ckb_chain;
 extern crate ckb_core as core;
 extern crate ckb_network as network;
-extern crate ckb_notify;
 extern crate ckb_pool as pool;
 extern crate ckb_protocol;
 extern crate ckb_time;
@@ -28,6 +27,12 @@ extern crate tokio;
 extern crate serde_derive;
 #[cfg(test)]
 extern crate ckb_db as db;
+#[cfg(test)]
+extern crate ckb_notify;
+#[cfg(test)]
+extern crate crossbeam_channel;
+#[cfg(test)]
+extern crate merkle_root;
 
 pub mod block_fetcher;
 pub mod block_pool;

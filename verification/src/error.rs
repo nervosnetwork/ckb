@@ -1,5 +1,6 @@
 use bigint::{H256, U256};
 use chain::chain::Error as ChainError;
+use core::BlockNumber;
 
 #[derive(Debug, PartialEq, Clone, Eq)]
 pub enum Error {
@@ -19,6 +20,28 @@ pub enum Error {
     UnknownParent,
     InvalidInput,
     InvalidOutput,
+    Uncles(UnclesError),
+}
+
+#[derive(Debug, PartialEq, Clone, Copy, Eq)]
+pub enum UnclesError {
+    OverLength {
+        max: usize,
+        actual: usize,
+    },
+    InvalidDepth {
+        max: BlockNumber,
+        min: BlockNumber,
+        actual: BlockNumber,
+    },
+    InvalidHash {
+        expected: H256,
+        actual: H256,
+    },
+    Duplicate(H256),
+    InvalidParent(H256),
+    InvalidInclude(H256),
+    InvalidCellbase,
 }
 
 #[derive(Debug, PartialEq, Clone, Copy, Eq)]

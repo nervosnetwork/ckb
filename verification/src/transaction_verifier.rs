@@ -179,11 +179,12 @@ impl<'a> CapacityVerifier<'a> {
     }
 
     pub fn verify(&self) -> Result<(), TransactionError> {
-        if self
-            .transaction
-            .outputs
-            .iter()
-            .any(|output| output.bytes_len() as Capacity > output.capacity)
+        if !self.transaction.is_cellbase()
+            && self
+                .transaction
+                .outputs
+                .iter()
+                .any(|output| output.bytes_len() as Capacity > output.capacity)
         {
             Err(TransactionError::OutofBound)
         } else {

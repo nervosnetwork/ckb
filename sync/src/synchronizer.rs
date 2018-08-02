@@ -2,7 +2,6 @@ use bigint::H256;
 use block_fetcher::BlockFetcher;
 use block_pool::OrphanBlockPool;
 use ckb_chain::chain::{ChainProvider, TipHeader};
-use ckb_notify::Notify;
 use ckb_time::now_ms;
 use ckb_verification::{BlockVerifier, EthashVerifier, Verifier};
 use config::Config;
@@ -48,7 +47,6 @@ pub struct Synchronizer<C> {
     pub chain: Arc<C>,
     pub status_map: BlockStatusMap,
     pub header_map: BlockHeaderMap,
-    pub notify: Notify,
     pub best_known_header: Arc<RwLock<HeaderView>>,
     pub n_sync: Arc<AtomicUsize>,
     pub peers: Arc<Peers>,
@@ -67,7 +65,6 @@ where
             chain: Arc::clone(&self.chain),
             status_map: Arc::clone(&self.status_map),
             header_map: Arc::clone(&self.header_map),
-            notify: self.notify.clone(),
             best_known_header: Arc::clone(&self.best_known_header),
             n_sync: Arc::clone(&self.n_sync),
             peers: Arc::clone(&self.peers),
@@ -83,12 +80,7 @@ impl<C> Synchronizer<C>
 where
     C: ChainProvider,
 {
-    pub fn new(
-        chain: &Arc<C>,
-        notify: Notify,
-        ethash: Option<EthashVerifier>,
-        config: Config,
-    ) -> Synchronizer<C> {
+    pub fn new(chain: &Arc<C>, ethash: Option<EthashVerifier>, config: Config) -> Synchronizer<C> {
         let TipHeader {
             header,
             total_difficulty,
@@ -99,7 +91,6 @@ where
 
         Synchronizer {
             ethash,
-            notify,
             config: Arc::new(config),
             chain: Arc::clone(chain),
             peers: Arc::new(Peers::default()),
@@ -372,7 +363,7 @@ where
     pub fn process_new_block(&self, _peer: PeerId, block: IndexedBlock) {
         match self.get_block_status(&block.hash()) {
             BlockStatus::VALID_MASK => {
-                let verify = BlockVerifier::new(&block, &self.chain).verify();
+                let verify = BlockVerifier::new(&block, &self.chain, self.ethash.clone()).verify();
                 if verify.is_ok() {
                     self.insert_new_block(block);
                 } else {
@@ -388,14 +379,14 @@ where
     //FIXME: guarantee concurrent block process
     fn insert_new_block(&self, block: IndexedBlock) {
         if self.chain.output_root(&block.header.parent_hash).is_some() {
-            let process_ret = self.chain.process_block(&block);
+            let process_ret = self.chain.process_block(&block, false);
             if process_ret.is_ok() {
                 let pre_orphan_block = self
                     .orphan_block_pool
                     .remove_blocks_by_parent(&block.hash());
                 for block in pre_orphan_block {
                     if self.chain.output_root(&block.header.parent_hash).is_some() {
-                        let ret = self.chain.process_block(&block);
+                        let ret = self.chain.process_block(&block, false);
                         if ret.is_err() {
                             info!(
                                 target: "sync", "[Synchronizer] insert_new_block {:#?} error {:?}",
@@ -429,23 +420,28 @@ where
 mod tests {
     use super::*;
     use bigint::U256;
+    use block_process::BlockProcess;
     use ckb_chain::chain::Chain;
     use ckb_chain::consensus::Consensus;
     use ckb_chain::index::ChainIndex;
     use ckb_chain::store::ChainKVStore;
     use ckb_chain::COLUMNS;
-    use ckb_notify::Notify;
+    use ckb_notify::{Event, Notify, MINER_SUBSCRIBER};
     use ckb_protocol;
     use ckb_time::now_ms;
     use core::difficulty::cal_difficulty;
     use core::header::{Header, RawHeader, Seal};
+    use core::transaction::{CellInput, CellOutput, Transaction, VERSION};
+    use core::uncle::uncles_hash;
+    use crossbeam_channel;
+    use crossbeam_channel::Receiver;
     use db::memorydb::MemoryKeyValueDB;
     use headers_process::HeadersProcess;
+    use merkle_root::merkle_root;
     use network::{
         Error as NetworkError, NetworkContext, PacketId, PeerId, ProtocolId, SessionInfo, Severity,
         TimerToken,
     };
-    use protobuf::RepeatedField;
     use std::time::Duration;
 
     #[test]
@@ -456,10 +452,10 @@ mod tests {
         assert!((status2 & BlockStatus::FAILED_MASK) == status2);
     }
 
-    fn gen_chain(consensus: &Consensus) -> Chain<ChainKVStore<MemoryKeyValueDB>> {
+    fn gen_chain(consensus: &Consensus, notify: Notify) -> Chain<ChainKVStore<MemoryKeyValueDB>> {
         let db = MemoryKeyValueDB::open(COLUMNS as usize);
         let store = ChainKVStore { db };
-        let chain = Chain::init(store, consensus.clone(), Notify::default()).unwrap();
+        let chain = Chain::init(store, consensus.clone(), notify).unwrap();
         chain
     }
 
@@ -472,8 +468,10 @@ mod tests {
                 version: 0,
                 parent_hash: parent_header.hash(),
                 timestamp: time,
-                txs_commit: H256::from(0),
+                txs_commit: H256::zero(),
                 difficulty: difficulty,
+                cellbase_id: H256::zero(),
+                uncles_hash: H256::zero(),
             },
             seal: Seal {
                 nonce,
@@ -484,7 +482,14 @@ mod tests {
         IndexedBlock {
             header: header.into(),
             transactions: vec![],
+            uncles: vec![],
         }
+    }
+
+    fn create_cellbase(number: BlockNumber) -> Transaction {
+        let inputs = vec![CellInput::new_cellbase_input(number)];
+        let outputs = vec![CellOutput::new(0, vec![], H256::from(0))];
+        Transaction::new(VERSION, Vec::new(), inputs, outputs)
     }
 
     fn insert_block<CS: ChainIndex>(chain: &Chain<CS>, nonce: u64, number: BlockNumber) {
@@ -493,13 +498,23 @@ mod tests {
             .unwrap();
         let now = 1 + parent.timestamp;
         let difficulty = cal_difficulty(&parent, now);
+        let cellbase = create_cellbase(number);
+        let cellbase_id = cellbase.hash();
+        let txs = vec![cellbase];
+        let txs_hash: Vec<H256> = txs.iter().map(|t: &Transaction| t.hash()).collect();
+        let txs_commit = merkle_root(txs_hash.as_slice());
+
+        let uncles = vec![];
+        let uncles_hash = uncles_hash(&uncles);
         let header = Header {
             raw: RawHeader {
                 number,
+                txs_commit,
+                cellbase_id,
+                uncles_hash,
                 version: 0,
                 parent_hash: parent.hash(),
                 timestamp: now,
-                txs_commit: H256::from(0),
                 difficulty: difficulty,
             },
             seal: Seal {
@@ -510,15 +525,18 @@ mod tests {
 
         let block = IndexedBlock {
             header: header.into(),
-            transactions: vec![],
+            transactions: txs,
+            uncles: vec![],
         };
-        chain.process_block(&block).expect("process block ok");
+        chain
+            .process_block(&block, false)
+            .expect("process block ok");
     }
 
     #[test]
     fn test_locator() {
         let config = Consensus::default();
-        let chain = Arc::new(gen_chain(&config));
+        let chain = Arc::new(gen_chain(&config, Notify::default()));
 
         let num = 200;
         let index = [
@@ -529,7 +547,7 @@ mod tests {
             insert_block(&chain, i, i);
         }
 
-        let synchronizer = Synchronizer::new(&chain, Notify::default(), None, Config::default());
+        let synchronizer = Synchronizer::new(&chain, None, Config::default());
 
         let locator = synchronizer.get_locator(&chain.tip_header().read().header);
 
@@ -547,8 +565,8 @@ mod tests {
     #[test]
     fn test_locate_latest_common_block() {
         let config = Consensus::default();
-        let chain1 = Arc::new(gen_chain(&config));
-        let chain2 = Arc::new(gen_chain(&config));
+        let chain1 = Arc::new(gen_chain(&config, Notify::default()));
+        let chain2 = Arc::new(gen_chain(&config, Notify::default()));
         let num = 200;
 
         for i in 1..num {
@@ -559,9 +577,9 @@ mod tests {
             insert_block(&chain2, i + 1, i);
         }
 
-        let synchronizer1 = Synchronizer::new(&chain1, Notify::default(), None, Config::default());
+        let synchronizer1 = Synchronizer::new(&chain1, None, Config::default());
 
-        let synchronizer2 = Synchronizer::new(&chain2, Notify::default(), None, Config::default());
+        let synchronizer2 = Synchronizer::new(&chain2, None, Config::default());
 
         let locator1 = synchronizer1.get_locator(&chain1.tip_header().read().header);
 
@@ -569,14 +587,14 @@ mod tests {
 
         assert_eq!(latest_common, Some(0));
 
-        let chain3 = Arc::new(gen_chain(&config));
+        let chain3 = Arc::new(gen_chain(&config, Notify::default()));
 
         for i in 1..num {
             let j = if i > 192 { i + 1 } else { i };
             insert_block(&chain3, j, i);
         }
 
-        let synchronizer3 = Synchronizer::new(&chain3, Notify::default(), None, Config::default());
+        let synchronizer3 = Synchronizer::new(&chain3, None, Config::default());
 
         let latest_common3 = synchronizer3.locate_latest_common_block(&H256::zero(), &locator1[..]);
         assert_eq!(latest_common3, Some(192));
@@ -585,8 +603,8 @@ mod tests {
     #[test]
     fn test_locate_latest_common_block2() {
         let config = Consensus::default();
-        let chain1 = Arc::new(gen_chain(&config));
-        let chain2 = Arc::new(gen_chain(&config));
+        let chain1 = Arc::new(gen_chain(&config, Notify::default()));
+        let chain2 = Arc::new(gen_chain(&config, Notify::default()));
         let block_number = 200;
 
         let mut blocks: Vec<IndexedBlock> = Vec::new();
@@ -599,11 +617,15 @@ mod tests {
         }
 
         for block in &blocks {
-            chain1.process_block(&block).expect("process block ok");
+            chain1
+                .process_block(&block, false)
+                .expect("process block ok");
         }
 
         for block in &blocks {
-            chain2.process_block(&block).expect("process block ok");
+            chain2
+                .process_block(&block, false)
+                .expect("process block ok");
         }
 
         parent = blocks[150].header.clone();
@@ -611,13 +633,15 @@ mod tests {
         for _ in 1..block_number + 1 {
             let difficulty = parent.header.difficulty;
             let new_block = gen_block(parent, difficulty + U256::from(200));
-            chain2.process_block(&new_block).expect("process block ok");
+            chain2
+                .process_block(&new_block, false)
+                .expect("process block ok");
             parent = new_block.header;
         }
 
-        let synchronizer1 = Synchronizer::new(&chain1, Notify::default(), None, Config::default());
+        let synchronizer1 = Synchronizer::new(&chain1, None, Config::default());
 
-        let synchronizer2 = Synchronizer::new(&chain2, Notify::default(), None, Config::default());
+        let synchronizer2 = Synchronizer::new(&chain2, None, Config::default());
 
         let locator1 = synchronizer1.get_locator(&chain1.tip_header().read().header);
 
@@ -639,14 +663,14 @@ mod tests {
     #[test]
     fn test_get_ancestor() {
         let config = Consensus::default();
-        let chain = Arc::new(gen_chain(&config));
+        let chain = Arc::new(gen_chain(&config, Notify::default()));
         let num = 200;
 
         for i in 1..num {
             insert_block(&chain, i, i);
         }
 
-        let synchronizer = Synchronizer::new(&chain, Notify::default(), None, Config::default());
+        let synchronizer = Synchronizer::new(&chain, None, Config::default());
 
         let header = synchronizer.get_ancestor(&chain.tip_header().read().header.hash(), 100);
         let tip = synchronizer.get_ancestor(&chain.tip_header().read().header.hash(), 199);
@@ -664,7 +688,7 @@ mod tests {
     #[test]
     fn test_process_new_block() {
         let config = Consensus::default();
-        let chain = Arc::new(gen_chain(&config));
+        let chain = Arc::new(gen_chain(&config, Notify::default()));
         let block_number = 2000;
 
         let mut blocks: Vec<IndexedBlock> = Vec::new();
@@ -676,7 +700,7 @@ mod tests {
             parent = new_block.header;
         }
 
-        let synchronizer = Synchronizer::new(&chain, Notify::default(), None, Config::default());
+        let synchronizer = Synchronizer::new(&chain, None, Config::default());
 
         blocks.clone().into_iter().for_each(|block| {
             synchronizer.insert_new_block(block);
@@ -691,7 +715,7 @@ mod tests {
     #[test]
     fn test_get_locator_response() {
         let config = Consensus::default();
-        let chain = Arc::new(gen_chain(&config));
+        let chain = Arc::new(gen_chain(&config, Notify::default()));
         let block_number = 200;
 
         let mut blocks: Vec<IndexedBlock> = Vec::new();
@@ -704,10 +728,12 @@ mod tests {
         }
 
         for block in &blocks {
-            chain.process_block(&block).expect("process block ok");
+            chain
+                .process_block(&block, false)
+                .expect("process block ok");
         }
 
-        let synchronizer = Synchronizer::new(&chain, Notify::default(), None, Config::default());
+        let synchronizer = Synchronizer::new(&chain, None, Config::default());
 
         let headers = synchronizer.get_locator_response(180, &H256::zero());
 
@@ -726,7 +752,7 @@ mod tests {
 
     impl NetworkContext for DummyNetworkContext {
         /// Send a packet over the network to another peer.
-        fn send(&self, _peer: PeerId, _packet_id: PacketId, data: Vec<u8>) {}
+        fn send(&self, _peer: PeerId, _packet_id: PacketId, _data: Vec<u8>) {}
 
         /// Send a packet over the network to another peer using specified protocol.
         fn send_protocol(
@@ -765,7 +791,7 @@ mod tests {
         }
 
         /// Returns max version for a given protocol.
-        fn protocol_version(&self, _protocol: ProtocolId, peer: PeerId) -> Option<u8> {
+        fn protocol_version(&self, _protocol: ProtocolId, _peer: PeerId) -> Option<u8> {
             None
         }
 
@@ -778,14 +804,15 @@ mod tests {
     #[test]
     fn test_sync_process() {
         let config = Consensus::default();
-        let chain1 = Arc::new(gen_chain(&config));
-        let chain2 = Arc::new(gen_chain(&config));
+        let notify = Notify::default();
+        let chain1 = Arc::new(gen_chain(&config, notify.clone()));
+        let chain2 = Arc::new(gen_chain(&config, notify.clone()));
         let num = 200;
 
         for i in 1..num {
             insert_block(&chain1, i, i);
         }
-        let synchronizer1 = Synchronizer::new(&chain1, Notify::default(), None, Config::default());
+        let synchronizer1 = Synchronizer::new(&chain1, None, Config::default());
 
         let locator1 = synchronizer1.get_locator(&chain1.tip_header().read().header);
 
@@ -794,7 +821,7 @@ mod tests {
             insert_block(&chain2, j, i);
         }
 
-        let synchronizer2 = Synchronizer::new(&chain2, Notify::default(), None, Config::default());
+        let synchronizer2 = Synchronizer::new(&chain2, None, Config::default());
         let latest_common = synchronizer2.locate_latest_common_block(&H256::zero(), &locator1[..]);
         assert_eq!(latest_common, Some(192));
 
@@ -810,9 +837,7 @@ mod tests {
         );
 
         let mut headers_proto = ckb_protocol::Headers::new();
-        headers_proto.set_headers(RepeatedField::from_vec(
-            headers.iter().map(|h| &h.header).map(Into::into).collect(),
-        ));
+        headers_proto.set_headers(headers.iter().map(|h| &h.header).map(Into::into).collect());
 
         let peer = 1usize;
         HeadersProcess::new(
@@ -838,6 +863,46 @@ mod tests {
         assert_eq!(
             blocks_to_fetch.last().unwrap(),
             &chain2.block_hash(200).unwrap()
+        );
+
+        let mut fetched_blocks = Vec::new();
+        for block_hash in &blocks_to_fetch {
+            fetched_blocks.push(chain2.block(block_hash).unwrap());
+        }
+
+        let (tx, rx) = crossbeam_channel::unbounded();
+        notify.register_transaction_subscriber(MINER_SUBSCRIBER, tx.clone());
+        notify.register_tip_subscriber(MINER_SUBSCRIBER, tx.clone());
+        notify.register_side_chain_subscriber(MINER_SUBSCRIBER, tx);
+
+        pub struct TryIter<'a, T: 'a> {
+            pub inner: &'a Receiver<T>,
+        }
+
+        impl<'a, T> Iterator for TryIter<'a, T> {
+            type Item = T;
+
+            fn next(&mut self) -> Option<T> {
+                self.inner.try_recv()
+            }
+        }
+
+        for block in &fetched_blocks {
+            BlockProcess::new(
+                &block.into(),
+                &synchronizer1,
+                &peer,
+                &DummyNetworkContext {},
+            ).execute();
+        }
+
+        let mut iter = TryIter { inner: &rx };
+
+        assert_eq!(
+            iter.next(),
+            Some(Event::SideChainBlock(Arc::new(
+                fetched_blocks.first().cloned().unwrap()
+            )))
         );
     }
 }

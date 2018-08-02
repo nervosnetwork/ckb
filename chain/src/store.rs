@@ -10,13 +10,14 @@ use core::extras::BlockExt;
 use core::header::IndexedHeader;
 use core::transaction::{OutPoint, Transaction};
 use core::transaction_meta::TransactionMeta;
+use core::uncle::UncleBlock;
 use db::batch::{Batch, Col};
 use db::kvdb::KeyValueDB;
 use std::ops::Deref;
 use std::ops::Range;
 use {
-    COLUMN_BLOCK_BODY, COLUMN_BLOCK_HEADER, COLUMN_BLOCK_TRANSACTION_ADDRESSES, COLUMN_EXT,
-    COLUMN_OUTPUT_ROOT,
+    COLUMN_BLOCK_BODY, COLUMN_BLOCK_HEADER, COLUMN_BLOCK_TRANSACTION_ADDRESSES, COLUMN_BLOCK_UNCLE,
+    COLUMN_EXT, COLUMN_OUTPUT_ROOT,
 };
 
 pub struct ChainKVStore<T: KeyValueDB> {
@@ -48,6 +49,7 @@ pub trait ChainStore: Sync + Send {
     fn get_header(&self, block_hash: &H256) -> Option<IndexedHeader>;
     fn get_output_root(&self, block_hash: &H256) -> Option<H256>;
     fn get_block_body(&self, block_hash: &H256) -> Option<Vec<Transaction>>;
+    fn get_block_uncles(&self, block_hash: &H256) -> Option<Vec<UncleBlock>>;
     fn get_transaction_meta(&self, root: H256, key: H256) -> Option<TransactionMeta>;
     fn get_block_ext(&self, block_hash: &H256) -> Option<BlockExt>;
 
@@ -107,9 +109,13 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
             let transactions = self
                 .get_block_body(h)
                 .expect("block transactions must be stored");
+            let uncles = self
+                .get_block_uncles(h)
+                .expect("block uncles must be stored");
             Some(IndexedBlock {
                 header,
                 transactions,
+                uncles,
             })
         })
     }
@@ -117,6 +123,11 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
     fn get_header(&self, h: &H256) -> Option<IndexedHeader> {
         self.get(COLUMN_BLOCK_HEADER, &h)
             .map(|raw| IndexedHeader::new(deserialize(&raw[..]).unwrap(), *h))
+    }
+
+    fn get_block_uncles(&self, h: &H256) -> Option<Vec<UncleBlock>> {
+        self.get(COLUMN_BLOCK_UNCLE, &h)
+            .map(|raw| deserialize(&raw[..]).unwrap())
     }
 
     fn get_block_body(&self, h: &H256) -> Option<Vec<Transaction>> {
@@ -191,6 +202,11 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
             serialize(&b.header.deref()).unwrap().to_vec(),
         );
         let (block_data, block_addresses) = flat_serialize(&b.transactions).unwrap();
+        batch.insert(
+            COLUMN_BLOCK_UNCLE,
+            hash.clone(),
+            serialize(&b.uncles).unwrap().to_vec(),
+        );
         batch.insert(COLUMN_BLOCK_BODY, hash.clone(), block_data);
         batch.insert(
             COLUMN_BLOCK_TRANSACTION_ADDRESSES,

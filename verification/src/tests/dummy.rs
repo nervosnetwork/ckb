@@ -1,5 +1,6 @@
 use bigint::H256;
 use chain::chain::{ChainProvider, Error, TipHeader};
+use chain::consensus::Consensus;
 use core::block::IndexedBlock;
 use core::cell::{CellProvider, CellState};
 use core::extras::BlockExt;
@@ -23,7 +24,7 @@ impl ChainProvider for DummyChainClient {
         self.transaction_fees[&transaction.hash()].clone()
     }
 
-    fn process_block(&self, _b: &IndexedBlock) -> Result<(), Error> {
+    fn process_block(&self, _b: &IndexedBlock, _local: bool) -> Result<(), Error> {
         panic!("Not implemented!");
     }
 
@@ -36,6 +37,10 @@ impl ChainProvider for DummyChainClient {
     }
 
     fn genesis_hash(&self) -> H256 {
+        panic!("Not implemented!");
+    }
+
+    fn consensus(&self) -> &Consensus {
         panic!("Not implemented!");
     }
 

@@ -4,8 +4,8 @@ use ckb_protocol;
 use core::block::IndexedBlock;
 use core::header::Header;
 use core::transaction::Transaction;
+use core::uncle::UncleBlock;
 use hash::sha3_256;
-use protobuf::RepeatedField;
 use rand::{thread_rng, Rng};
 use siphasher::sip::SipHasher;
 use std::collections::HashSet;
@@ -13,15 +13,16 @@ use std::hash::Hasher;
 
 pub type ShortTransactionID = H48;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct CompactBlock {
     pub header: Header,
+    pub uncles: Vec<UncleBlock>,
     pub nonce: u64,
     pub short_ids: Vec<ShortTransactionID>,
     pub prefilled_transactions: Vec<PrefilledTransaction>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct PrefilledTransaction {
     pub index: usize,
     pub transaction: Transaction,
@@ -81,6 +82,7 @@ impl<'a, S: ::std::hash::BuildHasher> CompactBlockBuilder<'a, S> {
 
         CompactBlock {
             header: self.block.header.clone().into(),
+            uncles: self.block.uncles.clone(),
             nonce,
             short_ids,
             prefilled_transactions,
@@ -128,8 +130,9 @@ impl<'a> From<&'a ckb_protocol::CompactBlock> for CompactBlock {
             prefilled_transactions: b
                 .get_prefilled_transactions()
                 .iter()
-                .map(|t| t.into())
+                .map(Into::into)
                 .collect(),
+            uncles: b.get_uncles().iter().map(Into::into).collect(),
         }
     }
 }
@@ -139,15 +142,14 @@ impl From<CompactBlock> for ckb_protocol::CompactBlock {
         let mut block = ckb_protocol::CompactBlock::new();
         block.set_block_header(b.header().into());
         block.set_nonce(b.nonce);
-        block.set_short_ids(RepeatedField::from_vec(
+        block.set_short_ids(
             b.short_ids
                 .iter()
                 .map(|short_id| short_id.to_vec())
                 .collect(),
-        ));
-        block.set_prefilled_transactions(RepeatedField::from_vec(
-            b.prefilled_transactions.iter().map(Into::into).collect(),
-        ));
+        );
+        block.set_uncles(b.uncles.iter().map(Into::into).collect());
+        block.set_prefilled_transactions(b.prefilled_transactions.iter().map(Into::into).collect());
         block
     }
 }
@@ -167,5 +169,85 @@ impl<'a> From<&'a PrefilledTransaction> for ckb_protocol::PrefilledTransaction {
         prefilled_transaction.set_index(pt.index as u32);
         prefilled_transaction.set_transaction(pt.transaction().into());
         prefilled_transaction
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bigint::U256;
+    use core::block::IndexedBlock;
+    use core::header::{RawHeader, Seal};
+    use protobuf;
+    use protobuf::Message;
+
+    fn dummy_block() -> IndexedBlock {
+        let cellbase = dummy_cellbase();
+        let uncles = vec![dummy_uncle(), dummy_uncle()];
+        let header = Header {
+            raw: RawHeader {
+                number: 0,
+                version: 0,
+                parent_hash: H256::zero(),
+                timestamp: 10,
+                txs_commit: H256::zero(),
+                difficulty: U256::zero(),
+                cellbase_id: cellbase.hash(),
+                uncles_hash: H256::zero(),
+            },
+            seal: Seal {
+                nonce: 0,
+                mix_hash: H256::zero(),
+            },
+        };
+
+        IndexedBlock {
+            header: header.into(),
+            transactions: vec![cellbase],
+            uncles,
+        }
+    }
+
+    fn dummy_cellbase() -> Transaction {
+        use core::transaction::{CellInput, CellOutput, VERSION};
+
+        let inputs = vec![CellInput::new_cellbase_input(0)];
+        let outputs = vec![CellOutput::new(0, vec![], H256::from(0))];
+        Transaction::new(VERSION, vec![], inputs, outputs)
+    }
+
+    fn dummy_uncle() -> UncleBlock {
+        let cellbase = dummy_cellbase();
+        let header = Header {
+            raw: RawHeader {
+                number: 0,
+                version: 0,
+                parent_hash: H256::zero(),
+                timestamp: 10,
+                txs_commit: H256::zero(),
+                difficulty: U256::zero(),
+                cellbase_id: cellbase.hash(),
+                uncles_hash: H256::zero(),
+            },
+            seal: Seal {
+                nonce: 0,
+                mix_hash: H256::zero(),
+            },
+        };
+        UncleBlock { header, cellbase }
+    }
+
+    #[test]
+    fn test_proto_convert() {
+        let block = dummy_block();
+        let cmpt_block = CompactBlockBuilder::new(&block, &HashSet::new()).build();
+        let proto_cmpt_block: ckb_protocol::CompactBlock = cmpt_block.clone().into();
+
+        let message = proto_cmpt_block.write_to_bytes().unwrap();
+        let decoded_proto_cmpt_block =
+            protobuf::parse_from_bytes::<ckb_protocol::CompactBlock>(&message).unwrap();
+        assert_eq!(proto_cmpt_block, decoded_proto_cmpt_block);
+        let decoded_cmpt_block: CompactBlock = (&decoded_proto_cmpt_block).into();
+        assert_eq!(cmpt_block, decoded_cmpt_block);
     }
 }

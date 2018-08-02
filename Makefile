@@ -8,7 +8,7 @@ fmt:
 	cargo fmt --all -- --check
 
 clippy: 
-	cargo clippy --all -- -D warnings -D clone_on_ref_ptr -D unused-extern-crates
+	cargo clippy --all -- -D warnings -D clone_on_ref_ptr -D unused_extern_crates -D enum_glob_use
 
 ci: fmt clippy test
 	git diff --exit-code Cargo.lock

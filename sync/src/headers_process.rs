@@ -6,7 +6,6 @@ use core::header::IndexedHeader;
 use log;
 use network::NetworkContextExt;
 use network::{NetworkContext, PeerId};
-use protobuf::RepeatedField;
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 use synchronizer::{BlockStatus, Synchronizer};
 use MAX_HEADERS_LEN;
@@ -66,7 +65,7 @@ where
         let mut getheaders = ckb_protocol::GetHeaders::new();
         let locator_hash = locator_hash.iter().map(|hash| hash.to_vec()).collect();
         getheaders.set_version(0);
-        getheaders.set_block_locator_hashes(RepeatedField::from_vec(locator_hash));
+        getheaders.set_block_locator_hashes(locator_hash);
         getheaders.set_hash_stop(H256::default().to_vec());
         payload.set_getheaders(getheaders);
         let _ = self.nc.send_payload(self.peer, payload);

@@ -2,7 +2,7 @@ use bigint::{H256, U256};
 use bincode::serialize;
 use ckb_protocol;
 use hash::sha3_256;
-use merkle_root::*;
+use merkle_root::merkle_root;
 use std::ops::{Deref, DerefMut};
 use transaction::Transaction;
 
@@ -29,6 +29,10 @@ pub struct RawHeader {
     pub txs_commit: H256,
     /// Block difficulty.
     pub difficulty: U256,
+    /// Hash of the cellbase
+    pub cellbase_id: H256,
+    /// Hash of the uncles
+    pub uncles_hash: H256,
 }
 
 impl RawHeader {
@@ -37,6 +41,8 @@ impl RawHeader {
         transactions: impl Iterator<Item = &'a Transaction>,
         timestamp: u64,
         difficulty: U256,
+        cellbase_id: H256,
+        uncles_hash: H256,
     ) -> RawHeader {
         let transactions_hash: Vec<H256> = transactions.map(|t: &Transaction| t.hash()).collect();
         let txs_commit = merkle_root(transactions_hash.as_slice());
@@ -50,6 +56,8 @@ impl RawHeader {
             timestamp,
             number,
             difficulty,
+            cellbase_id,
+            uncles_hash,
         }
     }
 
@@ -79,6 +87,12 @@ impl Header {
 
     pub fn is_genesis(&self) -> bool {
         self.number == 0
+    }
+}
+
+impl DerefMut for Header {
+    fn deref_mut(&mut self) -> &mut RawHeader {
+        &mut self.raw
     }
 }
 
@@ -135,6 +149,10 @@ impl IndexedHeader {
     pub fn new(header: Header, hash: H256) -> Self {
         IndexedHeader { header, hash }
     }
+
+    pub fn finalize_dirty(&mut self) {
+        self.hash = self.header.hash();
+    }
 }
 
 impl From<Header> for IndexedHeader {
@@ -160,6 +178,8 @@ impl<'a> From<&'a ckb_protocol::Header> for Header {
                 number: proto.get_number(),
                 txs_commit: H256::from_slice(proto.get_txs_commit()),
                 difficulty: H256::from_slice(proto.get_difficulty()).into(),
+                cellbase_id: H256::from_slice(proto.get_cellbase_id()),
+                uncles_hash: H256::from_slice(proto.get_uncles_hash()),
             },
             seal: Seal {
                 nonce: proto.get_nonce(),
@@ -188,6 +208,8 @@ impl<'a> From<&'a Header> for ckb_protocol::Header {
         header.set_parent_hash(h.parent_hash.to_vec());
         header.set_timestamp(h.timestamp);
         header.set_txs_commit(h.txs_commit.to_vec());
+        header.set_cellbase_id(h.cellbase_id.to_vec());
+        header.set_uncles_hash(h.uncles_hash.to_vec());
         header
     }
 }

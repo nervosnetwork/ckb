@@ -45,7 +45,6 @@ pub fn run(setup: Setup) {
 
     let synchronizer = Synchronizer::new(
         &chain,
-        notify.clone(),
         ethash.clone().map(|e| EthashVerifier::new(&e)),
         setup.configs.sync,
     );
