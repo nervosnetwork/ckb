@@ -136,6 +136,7 @@ where
         self.check_duplicate(&tx)?;
 
         let inputs = tx.input_pts();
+        let deps = tx.dep_pts();
 
         let mut is_orphan = false;
         let mut unknowns = Vec::new();
@@ -149,6 +150,17 @@ where
                     CellState::Unknown => {
                         is_orphan = true;
                         unknowns.push(inputs[i].clone());
+                    }
+                    _ => {}
+                }
+            }
+
+            for (i, cs) in rtx.dep_cells.iter().enumerate() {
+                match cs {
+                    CellState::Orphan(_) => is_orphan = true,
+                    CellState::Unknown => {
+                        is_orphan = true;
+                        unknowns.push(deps[i].clone());
                     }
                     _ => {}
                 }

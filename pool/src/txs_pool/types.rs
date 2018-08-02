@@ -2,7 +2,7 @@
 //! and its top-level members.
 #![cfg_attr(feature = "cargo-clippy", allow(while_let_loop))]
 
-use fnv::FnvHashMap;
+use fnv::{FnvHashMap, FnvHashSet};
 use std::collections::HashMap;
 use std::iter::Iterator;
 
@@ -182,7 +182,8 @@ impl OrphanPool {
     /// add orphan transaction
     pub fn add_transaction(&mut self, tx: Transaction, unknown: Vec<OutPoint>) {
         for o in unknown {
-            self.pool.edges.insert(o, None);
+            self.pool.edges.insert(o.clone(), None);
+            self.pool.dep_edges.insert(o, FnvHashSet::default());
         }
 
         self.pool.add_transaction(tx);
@@ -276,16 +277,22 @@ pub struct DirectedGraph {
     roots: FnvHashMap<H256, PoolEntry>,
     /// Transactions which has at least a dependency in the graph.
     no_roots: FnvHashMap<H256, PoolEntry>,
-    /// Keys are OutPoints pointing to transactions that are not in the graph.
-    ///
-    /// The value is the hash of transaction in the graph if it is not none. The transaction
-    /// contains the key as one of its inputs.
-    edges: FnvHashMap<OutPoint, Option<H256>>,
     /// Keys are OutPoints pointing to transactions that are in the graph.
     ///
     /// The value is the hash of transaction in the graph if it is not none. The transaction
     /// contains the key as one of its inputs.
+    edges: FnvHashMap<OutPoint, Option<H256>>,
+    /// Keys are OutPoints pointing to transactions that are not in the graph(on chain).
+    ///
+    /// The value is the hash of transaction in the graph if it is not none. The transaction
+    /// contains the key as one of its inputs.
     out_edges: FnvHashMap<OutPoint, Option<H256>>,
+
+    ///Keys are Dependents OutPoints pointing to transactions that are in the graph.
+    dep_edges: FnvHashMap<OutPoint, FnvHashSet<H256>>,
+
+    ///Keys are Dependents OutPoints pointing to transactions that are not in the graph(on chain).
+    out_dep_edges: FnvHashMap<OutPoint, FnvHashSet<H256>>,
 }
 
 impl DirectedGraph {
@@ -294,6 +301,8 @@ impl DirectedGraph {
         DirectedGraph {
             edges: FnvHashMap::default(),
             out_edges: FnvHashMap::default(),
+            dep_edges: FnvHashMap::default(),
+            out_dep_edges: FnvHashMap::default(),
             no_roots: FnvHashMap::default(),
             roots: FnvHashMap::default(),
         }
@@ -329,10 +338,19 @@ impl DirectedGraph {
     pub fn readd_transaction(&mut self, tx: &Transaction) {
         let inputs = tx.input_pts();
         let outputs = tx.output_pts();
+        let deps = tx.dep_pts();
         let h = tx.hash();
 
         for i in inputs {
             self.out_edges.insert(i, Some(h));
+        }
+
+        for d in deps {
+            let e = self
+                .out_dep_edges
+                .entry(d)
+                .or_insert_with(FnvHashSet::default);
+            e.insert(h);
         }
 
         for o in outputs {
@@ -344,8 +362,19 @@ impl DirectedGraph {
                     x.refs_count += 1;
                 }
                 self.edges.insert(o, Some(h));
+            } else if let Some(hs) = self.out_dep_edges.remove(&o) {
+                for h in hs.clone() {
+                    if let Some(mut x) = self.roots.remove(&h) {
+                        x.refs_count += 1;
+                        self.no_roots.insert(h, x);
+                    } else if let Some(x) = self.no_roots.get_mut(&h) {
+                        x.refs_count += 1;
+                    }
+                }
+                self.dep_edges.insert(o, hs);
             } else {
-                self.edges.insert(o, None);
+                self.edges.insert(o.clone(), None);
+                self.dep_edges.insert(o, FnvHashSet::default());
             }
         }
     }
@@ -354,11 +383,19 @@ impl DirectedGraph {
     pub fn add_transaction(&mut self, tx: Transaction) {
         let inputs = tx.input_pts();
         let outputs = tx.output_pts();
+        let deps = tx.dep_pts();
+
         let h = tx.hash();
 
         let mut count: u64 = 0;
 
         for i in inputs {
+            if let Some(x) = { self.dep_edges.get(&i).cloned() } {
+                for h in x {
+                    self.remove_vertex(&h);
+                }
+            }
+
             if let Some(x) = self.edges.get_mut(&i) {
                 *x = Some(h);
                 count += 1;
@@ -367,8 +404,22 @@ impl DirectedGraph {
             }
         }
 
+        for d in deps {
+            if let Some(x) = self.dep_edges.get_mut(&d) {
+                x.insert(h);
+                count += 1;
+            } else {
+                let e = self
+                    .out_dep_edges
+                    .entry(d)
+                    .or_insert_with(FnvHashSet::default);
+                e.insert(h);
+            }
+        }
+
         for o in outputs {
-            self.edges.entry(o).or_insert(None);
+            self.edges.entry(o.clone()).or_insert(None);
+            self.dep_edges.entry(o).or_insert_with(FnvHashSet::default);
         }
 
         if count == 0 {
@@ -381,24 +432,59 @@ impl DirectedGraph {
     fn reconcile_transaction(&mut self, tx: &Transaction) {
         let outputs = tx.output_pts();
         let inputs = tx.input_pts();
+        let deps = tx.dep_pts();
+        let tx_hash = tx.hash();
 
         for o in outputs {
             if let Some(h) = self.remove_edge(&o) {
                 self.dec_ref(&h);
-                self.out_edges.insert(o, Some(h));
+                self.out_edges.insert(o.clone(), Some(h));
+            }
+
+            if let Some(x) = self.dep_edges.remove(&o) {
+                for h in x.clone() {
+                    self.dec_ref(&h);
+                }
+
+                self.out_dep_edges.insert(o, x);
             }
         }
 
         for i in inputs {
             self.out_edges.remove(&i);
         }
+
+        for d in deps {
+            let mut empty = false;
+            if let Some(x) = self.out_dep_edges.get_mut(&d) {
+                x.remove(&tx_hash);
+                empty = x.is_empty();
+            };
+
+            if empty {
+                self.out_dep_edges.remove(&d);
+            }
+        }
     }
 
     fn resolve_conflict(&mut self, tx: &Transaction) {
         let inputs = tx.input_pts();
+        let deps = tx.dep_pts();
 
         for i in inputs {
             if let Some(h) = self.remove_out_edge(&i) {
+                self.remove_vertex(&h);
+            }
+
+            if let Some(x) = self.out_dep_edges.remove(&i) {
+                for h in x {
+                    self.remove_vertex(&h);
+                }
+            }
+        }
+
+        for d in deps {
+            if let Some(h) = self.remove_out_edge(&d) {
                 self.remove_vertex(&h);
             }
         }
@@ -418,9 +504,30 @@ impl DirectedGraph {
                 }
             }
 
+            for d in tx.dep_pts() {
+                let mut empty = false;
+
+                if let Some(x) = self.dep_edges.get_mut(&d) {
+                    x.remove(&h);
+                } else if let Some(x) = self.out_dep_edges.get_mut(&d) {
+                    x.remove(&h);
+                    empty = x.is_empty();
+                }
+
+                if empty {
+                    self.out_dep_edges.remove(&d);
+                }
+            }
+
             for o in tx.output_pts() {
                 if let Some(ch) = self.remove_edge(&o) {
                     self.remove_vertex(&ch);
+                }
+
+                if let Some(x) = self.dep_edges.remove(&o) {
+                    for ch in x {
+                        self.remove_vertex(&ch);
+                    }
                 }
             }
         }
@@ -455,6 +562,19 @@ impl DirectedGraph {
                         roots.push(x.transaction.clone());
                     } else {
                         counts.insert(h, c);
+                    }
+                }
+            }
+
+            if let Some(d) = self.dep_edges.get(&o) {
+                for h in d {
+                    if let Some(x) = self.no_roots.get(&h) {
+                        let c = counts.get(&h).map_or(1, |c| *c + 1);
+                        if x.refs_count == c {
+                            roots.push(x.transaction.clone());
+                        } else {
+                            counts.insert(*h, c);
+                        }
                     }
                 }
             }

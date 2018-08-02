@@ -788,7 +788,6 @@ mod tests {
         let synchronizer1 = Synchronizer::new(&chain1, Notify::default(), None, Config::default());
 
         let locator1 = synchronizer1.get_locator(&chain1.tip_header().read().header);
-        let chain2 = Arc::new(gen_chain(&config));
 
         for i in 1..num + 1 {
             let j = if i > 192 { i + 1 } else { i };

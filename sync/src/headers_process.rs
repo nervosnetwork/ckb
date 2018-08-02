@@ -4,7 +4,6 @@ use ckb_protocol;
 use ckb_verification::{Error as VerifyError, HeaderVerifier, Verifier};
 use core::header::IndexedHeader;
 use log;
-use network::NetworkContextExt;
 use network::{NetworkContext, PeerId};
 use protobuf::RepeatedField;
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
@@ -69,7 +68,7 @@ where
         getheaders.set_block_locator_hashes(RepeatedField::from_vec(locator_hash));
         getheaders.set_hash_stop(H256::default().to_vec());
         payload.set_getheaders(getheaders);
-        let _ = self.nc.send_payload(self.peer, payload);
+        let _ = self.nc.send(self.peer, payload);
     }
 
     pub fn accept_first(&self, first: &IndexedHeader) -> ValidationResult {
@@ -145,22 +144,24 @@ where
         if log_enabled!(target: "sync", log::Level::Debug) {
             let own = { self.synchronizer.best_known_header.read().clone() };
             let chain_tip = { self.synchronizer.chain.tip_header().read().clone() };
-            let peer_state = self.synchronizer.peers.best_known_header(&self.peer);
+            let peer_state = self
+                .synchronizer
+                .peers
+                .best_known_header(&self.peer)
+                .unwrap();
             debug!(
                 target: "sync",
-                concat!(
-                    "\nchain total_difficulty = {}; number={}\n",
-                    "number={}; best_known_header = {}; total_difficulty = {};\n",
-                    "number={:?}; best_known_header = {:?}; total_difficulty = {:?}\n",
-                ),
+                "\n\nchain total_difficulty = {}; number={}\n
+                number={}; best_known_header = {}; total_difficulty = {};\n\n
+                number={}; best_known_header = {}; total_difficulty = {}\n",
                 chain_tip.total_difficulty,
                 chain_tip.header.number,
                 own.header.number,
                 own.hash(),
                 own.total_difficulty,
-                peer_state.as_ref().map(|state| state.header.number),
-                peer_state.as_ref().map(|state| state.hash()),
-                peer_state.as_ref().map(|state| state.total_difficulty),
+                peer_state.header.number,
+                peer_state.hash(),
+                peer_state.total_difficulty,
             );
         }
 
