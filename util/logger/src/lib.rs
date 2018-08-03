@@ -126,7 +126,7 @@ impl Log for Logger {
             let with_color = {
                 let thread_name = format!("{}", Colour::Blue.bold().paint(thread_name));
                 let dt: DateTime<Local> = Local::now();
-                let timestamp = dt.format("%Y-%m-%d %H:%M:%S %Z").to_string();
+                let timestamp = dt.format("%Y-%m-%d %H:%M:%S%.3f %Z").to_string();
                 format!(
                     "{} {} {} {}  {}",
                     Colour::Black.bold().paint(timestamp),
