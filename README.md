@@ -104,13 +104,13 @@ Generate code from proto definition:
 make proto
 ```
 
-### Development running 
+### Development running
 
 Run multiple nodes:
 
 ```shell
-$ cargo run -- --data-dir=/tmp/node1
-$ cargo run -- --data-dir=/tmp/node2
+$ cargo run -- run --data-dir=/tmp/node1
+$ cargo run -- run --data-dir=/tmp/node2
 ```
 
 Modify development config file

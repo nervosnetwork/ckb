@@ -20,7 +20,11 @@ extern crate ckb_verification;
 extern crate logger;
 #[macro_use]
 extern crate serde_derive;
+extern crate ckb_script as script;
 extern crate config as config_tool;
+extern crate crypto;
+extern crate reqwest;
+extern crate serde_json;
 extern crate serde_yaml;
 #[cfg(test)]
 extern crate tempdir;
@@ -39,15 +43,17 @@ fn main() {
     let yaml = load_yaml!("cli/app.yml");
     let matches = clap::App::from_yaml(yaml).get_matches();
 
-    match Setup::new(&matches) {
-        Ok(setup) => match matches.subcommand() {
-            ("run", Some(_run_cmd)) => {
-                cli::run(setup);
-            }
-            _ => {
-                cli::run(setup);
-            }
+    match matches.subcommand() {
+        ("cli", Some(client_matches)) => match client_matches.subcommand() {
+            ("rpc", Some(rpc_matches)) => cli::rpc(rpc_matches),
+            ("sign", Some(sign_matches)) => cli::sign(sign_matches),
+            ("keygen", _) => cli::keygen(),
+            _ => println!("Invalid client subcommand"),
         },
-        Err(e) => println!("Failed to setup, cause err {}", e.description()),
+        ("run", Some(run_matches)) => match Setup::new(&run_matches) {
+            Ok(setup) => cli::run(setup),
+            Err(e) => println!("Failed to setup, cause err {}", e.description()),
+        },
+        _ => println!("Invalid subcommand"),
     }
 }

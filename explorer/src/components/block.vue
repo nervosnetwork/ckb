@@ -44,10 +44,10 @@ export default {
 
   created () {
     this.get_block(this.$route.params.id)
-  }, 
+  },
 
   beforeRouteUpdate (to, from, next) {
     this.get_block(to.params.id)
-  }, 
+  },
 }
 </script>

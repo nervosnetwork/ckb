@@ -2,27 +2,63 @@ name: ckb
 version: "0.1.0"
 author: Nervos Core Dev <dev@nervos.org>
 about: Nervos CKB - The Common Knowledge Base
-args:
-    - config:
-        short: c
-        long: config
-        value_name: CONFIG
-        help: Specify the configuration file PATH.
-    - data-dir:
-        short: d
-        long: data-dir
-        value_name: PATH
-        help: Specify data directory.
-    - chain:
-        long: chain
-        value_name: CHAIN
-        help: Specify the chain spec file.
+
 subcommands:
     - run:
-        version: "0.1.0"
-        about: run
-    - signer:
-        version: "0.1.0"
+        about: Running ckb node
+        args:
+            - config:
+                short: c
+                long: config
+                value_name: CONFIG
+                help: Specify the configuration file PATH.
+            - data-dir:
+                short: d
+                long: data-dir
+                value_name: PATH
+                help: Specify data directory.
+            - chain:
+                long: chain
+                value_name: CHAIN
+                help: Specify the chain spec file.
+
+    - cli:
+        about: Running ckb cli
         subcommands:
-            - new:
-                about: generate new signer
+            - rpc:
+                about: Remote procedure call
+                args:
+                    - uri:
+                        short: u
+                        long: uri
+                        help: Specify the rpc uri, e.g. http://localhost:3000
+                        takes_value: true
+                    - method:
+                        short: m
+                        long: method
+                        help: Specify the rpc method, e.g. get_block_hash
+                        takes_value: true
+                    - params:
+                        short: p
+                        long: params
+                        help: Specify the rpc params, e.g. [42]
+                        takes_value: true
+            - sign:
+                about: Sign transaction
+                args:
+                    - private-key:
+                        short: p
+                        long: private-key
+                        value_name: H256
+                        help: Specify the private key
+                        takes_value: true
+                        required: true
+                    - unsigned-transaction:
+                        short: u
+                        long: unsigned-transaction
+                        value_name: TX JSON STRING
+                        help: Specify the unsigned transaction json string
+                        takes_value: true
+                        required: true
+            - keygen:
+                about: Generate new key
