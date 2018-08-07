@@ -30,9 +30,7 @@ where
     T: ChainProvider,
 {
     fn cell(&self, o: &OutPoint) -> CellState {
-        if self.pool.read().parent(o) == Parent::AlreadySpent
-            || self.orphan.read().parent(o) == Parent::AlreadySpent
-        {
+        if self.pool.read().parent(o) == Parent::AlreadySpent {
             CellState::Tail
         } else if let Some(output) = self.pool.read().get_output(o) {
             CellState::Pool(output)
@@ -43,18 +41,8 @@ where
         }
     }
 
-    fn cell_at(&self, o: &OutPoint, parent: &H256) -> CellState {
-        if self.pool.read().parent(o) == Parent::AlreadySpent
-            || self.orphan.read().parent(o) == Parent::AlreadySpent
-        {
-            CellState::Tail
-        } else if let Some(output) = self.pool.read().get_output(o) {
-            CellState::Pool(output)
-        } else if let Some(output) = self.orphan.read().get_output(o) {
-            CellState::Orphan(output)
-        } else {
-            self.chain.cell_at(o, parent)
-        }
+    fn cell_at(&self, _o: &OutPoint, _parent: &H256) -> CellState {
+        unreachable!()
     }
 }
 
@@ -155,11 +143,16 @@ where
 
         let mut is_orphan = false;
         let mut unknowns = Vec::new();
+        let mut conflict = false;
 
         {
             let rtx = self.resolve_transaction(&tx);
 
             for (i, cs) in rtx.input_cells.iter().enumerate() {
+                if !conflict && self.orphan.read().parent(&inputs[i]) == Parent::AlreadySpent {
+                    conflict = true;
+                }
+
                 match cs {
                     CellState::Orphan(_) => is_orphan = true,
                     CellState::Unknown => {
@@ -168,9 +161,17 @@ where
                     }
                     _ => {}
                 }
+
+                if is_orphan && conflict {
+                    return Err(PoolError::ConflictOrphan);
+                }
             }
 
             for (i, cs) in rtx.dep_cells.iter().enumerate() {
+                if self.orphan.read().parent(&deps[i]) == Parent::AlreadySpent {
+                    return Err(PoolError::ConflictOrphan);
+                }
+
                 match cs {
                     CellState::Orphan(_) => is_orphan = true,
                     CellState::Unknown => {
@@ -192,6 +193,10 @@ where
             self.orphan.write().add_transaction(tx, unknowns);
             return Ok(InsertionResult::Orphan);
         } else {
+            if conflict {
+                self.orphan.write().resolve_conflict(&tx);
+            }
+
             let txs = {
                 let mut orphan = self.orphan.write();
                 orphan.commit_transaction(&tx);
