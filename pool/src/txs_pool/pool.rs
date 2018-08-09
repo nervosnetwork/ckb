@@ -101,10 +101,18 @@ where
 
     pub fn switch_fork(&self, txs: &ForkTxs) {
         for tx in txs.old_txs() {
+            if tx.is_cellbase() {
+                continue;
+            }
+
             self.pool.write().readd_transaction(&tx);
         }
 
         for tx in txs.new_txs().iter().rev() {
+            if tx.is_cellbase() {
+                continue;
+            }
+
             let in_pool = { self.pool.write().commit_transaction(&tx) };
             if !in_pool {
                 {
@@ -135,6 +143,10 @@ where
     pub fn add_to_memory_pool(&self, tx: Transaction) -> Result<InsertionResult, PoolError> {
         // Do we have the capacity to accept this transaction?
         self.is_acceptable()?;
+
+        if tx.is_cellbase() {
+            return Err(PoolError::CellBase);
+        }
 
         self.check_duplicate(&tx)?;
 
@@ -205,6 +217,10 @@ where
         let txs = &b.transactions;
 
         for tx in txs {
+            if tx.is_cellbase() {
+                continue;
+            }
+
             let in_pool = { self.pool.write().commit_transaction(tx) };
             if !in_pool {
                 {
@@ -217,6 +233,10 @@ where
     }
 
     pub fn resolve_conflict(&self, tx: &Transaction) {
+        if tx.is_cellbase() {
+            return;
+        }
+
         self.pool.write().resolve_conflict(tx);
         self.orphan.write().resolve_conflict(tx);
     }

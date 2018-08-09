@@ -60,6 +60,8 @@ pub enum PoolError {
     OverCapacity,
     /// A duplicate output
     DuplicateOutput,
+    /// Coinbase transaction
+    CellBase,
 }
 
 /// Interface that the pool requires from a blockchain implementation.
