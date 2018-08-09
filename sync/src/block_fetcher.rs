@@ -1,15 +1,17 @@
 use bigint::H256;
-use ckb_chain::chain::ChainProvider;
-use core::header::BlockNumber;
+use ckb_chain::chain::{ChainProvider, TipHeader};
+use core::header::IndexedHeader;
 use header_view::HeaderView;
 use network::PeerId;
 use std::cmp;
-use synchronizer::Synchronizer;
+use synchronizer::{BlockStatus, Synchronizer};
+use util::RwLockUpgradableReadGuard;
 use {BLOCK_DOWNLOAD_WINDOW, MAX_BLOCKS_IN_TRANSIT_PER_PEER, PER_FETCH_BLOCK_LIMIT};
 
 pub struct BlockFetcher<C> {
     synchronizer: Synchronizer<C>,
     peer: PeerId,
+    tip_header: TipHeader,
 }
 
 impl<C> BlockFetcher<C>
@@ -17,7 +19,9 @@ where
     C: ChainProvider,
 {
     pub fn new(synchronizer: &Synchronizer<C>, peer: PeerId) -> Self {
+        let tip_header = synchronizer.chain.tip_header().read().clone();
         BlockFetcher {
+            tip_header,
             peer,
             synchronizer: synchronizer.clone(),
         }
@@ -38,6 +42,10 @@ where
         }
     }
 
+    pub fn is_better_chain(&self, header: &HeaderView) -> bool {
+        header.total_difficulty >= self.tip_header.total_difficulty
+    }
+
     pub fn peer_best_known_header(&self) -> Option<HeaderView> {
         self.synchronizer
             .peers
@@ -47,20 +55,39 @@ where
             .cloned()
     }
 
-    pub fn latest_common_height(&self, header: &HeaderView) -> Option<BlockNumber> {
-        let chain_tip = self.synchronizer.chain.tip_header().read();
-        //if difficulty of this peer less than our
-        if header.total_difficulty < chain_tip.total_difficulty {
-            debug!(
-                target: "sync",
-                "[block downloader] best_known_header {} chain {}",
-                header.total_difficulty,
-                chain_tip.total_difficulty
-            );
-            None
-        } else {
-            Some(cmp::min(header.header.number, chain_tip.header.number))
+    pub fn last_common_header(&self, best: &HeaderView) -> Option<IndexedHeader> {
+        let guard = self
+            .synchronizer
+            .peers
+            .last_common_headers
+            .upgradable_read();
+
+        let last_common_header = try_option!(guard.get(&self.peer).cloned().or_else(|| {
+            if best.header.number < self.tip_header.header.number {
+                let last_common_hash =
+                    try_option!(self.synchronizer.chain.block_hash(best.header.number));
+                self.synchronizer.chain.block_header(&last_common_hash)
+            } else {
+                Some(self.tip_header.header.clone())
+            }
+        }));
+
+        let fixed_last_common_header = try_option!(
+            self.synchronizer
+                .last_common_ancestor(&last_common_header, &best.header)
+        );
+
+        if fixed_last_common_header != last_common_header {
+            let mut write_guard = RwLockUpgradableReadGuard::upgrade(guard);
+            write_guard
+                .entry(self.peer)
+                .and_modify(|last_common_header| {
+                    *last_common_header = fixed_last_common_header.clone()
+                })
+                .or_insert_with(|| fixed_last_common_header.clone());
         }
+
+        Some(fixed_last_common_header)
     }
 
     // this peer's tip is wherethe the ancestor of global_best_known_header
@@ -99,37 +126,43 @@ where
             }
         };
 
-        let latest_common_height = try_option!(self.latest_common_height(&best_known_header));
+        // This peer has nothing interesting.
+        if !self.is_better_chain(&best_known_header) {
+            debug!(
+                target: "sync",
+                "[block downloader] best_known_header {} chain {}",
+                best_known_header.total_difficulty,
+                self.tip_header.total_difficulty
+            );
+            return None;
+        }
 
         if !self.is_known_best(&best_known_header) {
             return None;
         }
 
-        let latest_common_hash =
-            try_option!(self.synchronizer.chain.block_hash(latest_common_height));
-        let latest_common_header =
-            try_option!(self.synchronizer.chain.block_header(&latest_common_hash));
-
         // If the peer reorganized, our previous last_common_header may not be an ancestor
         // of its current best_known_header. Go back enough to fix that.
-        let fixed_latest_common_header = try_option!(
-            self.synchronizer
-                .last_common_ancestor(&latest_common_header, &best_known_header.header)
-        );
+        let fixed_last_common_header = try_option!(self.last_common_header(&best_known_header));
 
-        if fixed_latest_common_header == best_known_header.header {
-            debug!(target: "sync", "[block downloader] fixed_latest_common_header == best_known_header");
+        if fixed_last_common_header == best_known_header.header {
+            debug!(target: "sync", "[block downloader] fixed_last_common_header == best_known_header");
             return None;
         }
 
-        debug!(target: "sync", "[block downloader] fixed_latest_common_header = {}", fixed_latest_common_header.number);
+        debug!(
+            target: "sync",
+            "[block downloader] fixed_last_common_header = {} best_known_header = {}",
+            fixed_last_common_header.number,
+            best_known_header.header.number
+        );
 
-        debug_assert!(best_known_header.header.number > fixed_latest_common_header.number);
+        debug_assert!(best_known_header.header.number > fixed_last_common_header.number);
 
-        let window_end = fixed_latest_common_header.number + BLOCK_DOWNLOAD_WINDOW;
+        let window_end = fixed_last_common_header.number + BLOCK_DOWNLOAD_WINDOW;
         let max_height = cmp::min(window_end + 1, best_known_header.header.number);
 
-        let mut n_height = fixed_latest_common_header.number;
+        let mut n_height = fixed_last_common_header.number;
         let mut v_fetch = Vec::with_capacity(PER_FETCH_BLOCK_LIMIT);
 
         {
@@ -144,7 +177,13 @@ where
                 );
                 let to_fetch_hash = to_fetch.header.hash();
 
-                if inflight.insert(to_fetch_hash) {
+                let block_status = self.synchronizer.get_block_status(&to_fetch_hash);
+                if block_status == BlockStatus::VALID_MASK && inflight.insert(to_fetch_hash) {
+                    debug!(
+                        target: "sync", "[Synchronizer] inflight insert {:#?}------------{:?}",
+                        to_fetch.header.number,
+                        to_fetch_hash
+                    );
                     v_fetch.push(to_fetch_hash);
                 }
             }

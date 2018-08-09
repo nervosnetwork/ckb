@@ -30,10 +30,8 @@ where
 
     pub fn execute(self) {
         let block: IndexedBlock = self.message.into();
-        debug!(target: "sync", "handle_block from peer {} {:?}", self.peer, block);
 
         self.synchronizer.peers.block_received(self.peer, &block);
-
         self.synchronizer.process_new_block(self.peer, block);
     }
 }

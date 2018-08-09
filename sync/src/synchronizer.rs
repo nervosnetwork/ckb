@@ -1,9 +1,9 @@
 use bigint::H256;
 use block_fetcher::BlockFetcher;
 use block_pool::OrphanBlockPool;
-use ckb_chain::chain::{ChainProvider, TipHeader};
+use ckb_chain::chain::{ChainProvider, Error as ChainError, TipHeader};
 use ckb_time::now_ms;
-use ckb_verification::{BlockVerifier, EthashVerifier, Verifier};
+use ckb_verification::{BlockVerifier, Error as VerificationError, EthashVerifier, Verifier};
 use config::Config;
 use core::block::IndexedBlock;
 use core::header::{BlockNumber, IndexedHeader};
@@ -56,6 +56,24 @@ pub struct Synchronizer<C> {
     pub outbound_peers_with_protect: Arc<AtomicUsize>,
 }
 
+#[derive(Debug, PartialEq, Clone, Eq)]
+pub enum AcceptBlockError {
+    Chain(ChainError),
+    Verification(VerificationError),
+}
+
+impl From<ChainError> for AcceptBlockError {
+    fn from(error: ChainError) -> Self {
+        AcceptBlockError::Chain(error)
+    }
+}
+
+impl From<VerificationError> for AcceptBlockError {
+    fn from(error: VerificationError) -> Self {
+        AcceptBlockError::Verification(error)
+    }
+}
+
 impl<C> Clone for Synchronizer<C>
 where
     C: ChainProvider,
@@ -104,10 +122,12 @@ where
     }
 
     pub fn get_block_status(&self, hash: &H256) -> BlockStatus {
-        let guard = self.status_map.read();
+        let guard = self.status_map.upgradable_read();
         match guard.get(hash).cloned() {
             Some(s) => s,
             None => if self.chain.block_header(hash).is_some() {
+                let mut write_guard = RwLockUpgradableReadGuard::upgrade(guard);
+                write_guard.insert(*hash, BlockStatus::BLOCK_HAVE_MASK);
                 BlockStatus::BLOCK_HAVE_MASK
             } else {
                 BlockStatus::UNKNOWN
@@ -135,6 +155,14 @@ where
         HEADERS_DOWNLOAD_TIMEOUT_BASE
             + HEADERS_DOWNLOAD_TIMEOUT_PER_HEADER
                 * (now_ms().saturating_sub(tip.header.timestamp) / POW_SPACE)
+    }
+
+    pub fn mark_block_stored(&self, hash: H256) {
+        self.status_map
+            .write()
+            .entry(hash)
+            .and_modify(|status| *status = BlockStatus::BLOCK_HAVE_MASK)
+            .or_insert_with(|| BlockStatus::BLOCK_HAVE_MASK);
     }
 
     pub fn tip_header(&self) -> IndexedHeader {
@@ -307,7 +335,6 @@ where
             };
 
             self.peers.new_header_received(peer, &header_view);
-            self.insert_block_status(header.hash(), BlockStatus::VALID_MASK);
 
             let mut header_map = self.header_map.write();
             header_map.insert(header.hash(), header_view);
@@ -360,58 +387,72 @@ where
 
     //TODO: process block which we don't request
     #[cfg_attr(feature = "cargo-clippy", allow(single_match))]
-    pub fn process_new_block(&self, _peer: PeerId, block: IndexedBlock) {
+    pub fn process_new_block(&self, peer: PeerId, block: IndexedBlock) {
         match self.get_block_status(&block.hash()) {
             BlockStatus::VALID_MASK => {
-                let verify = BlockVerifier::new(&block, &self.chain, self.ethash.clone()).verify();
-                if verify.is_ok() {
-                    self.insert_new_block(block);
-                } else {
-                    warn!(target: "sync", "[Synchronizer] process_new_block {:#?} verifier error {:?}", block, verify.unwrap_err());
-                }
+                self.insert_new_block(peer, block);
             }
             status => {
-                info!(target: "sync", "[Synchronizer] process_new_block unexpect status {:?}", status);
+                debug!(target: "sync", "[Synchronizer] process_new_block unexpect status {:?}", status);
             }
         }
     }
 
+    fn accept_block(&self, peer: PeerId, block: &IndexedBlock) -> Result<(), AcceptBlockError> {
+        BlockVerifier::new(block, &self.chain, self.ethash.clone()).verify()?;
+        self.chain.process_block(&block, false)?;
+        self.mark_block_stored(block.hash());
+        self.peers.set_last_common_header(peer, &block.header);
+        Ok(())
+    }
+
     //FIXME: guarantee concurrent block process
-    fn insert_new_block(&self, block: IndexedBlock) {
+    fn insert_new_block(&self, peer: PeerId, block: IndexedBlock) {
         if self.chain.output_root(&block.header.parent_hash).is_some() {
-            let process_ret = self.chain.process_block(&block, false);
-            if process_ret.is_ok() {
+            let accept_ret = self.accept_block(peer, &block);
+            if accept_ret.is_ok() {
                 let pre_orphan_block = self
                     .orphan_block_pool
                     .remove_blocks_by_parent(&block.hash());
                 for block in pre_orphan_block {
                     if self.chain.output_root(&block.header.parent_hash).is_some() {
-                        let ret = self.chain.process_block(&block, false);
+                        let ret = self.accept_block(peer, &block);
                         if ret.is_err() {
-                            info!(
-                                target: "sync", "[Synchronizer] insert_new_block {:#?} error {:?}",
+                            debug!(
+                                target: "sync", "[Synchronizer] accept_block {:#?} error {:?}",
                                 block,
                                 ret.unwrap_err()
                             );
                         }
                     } else {
+                        debug!(
+                            target: "sync", "[Synchronizer] insert_orphan_block {:#?}------------{:?}",
+                            block.number(),
+                            block.hash()
+                        );
                         self.orphan_block_pool.insert(block);
                     }
                 }
             } else {
-                info!(
-                    target: "sync", "[Synchronizer] insert_new_block {:#?} error {:?}",
+                debug!(
+                    target: "sync", "[Synchronizer] accept_block {:#?} error {:?}",
                     block,
-                    process_ret.unwrap_err()
+                    accept_ret.unwrap_err()
                 )
             }
         } else {
+            debug!(
+                target: "sync", "[Synchronizer] insert_orphan_block {:#?}------------{:?}",
+                block.number(),
+                block.hash()
+            );
             self.orphan_block_pool.insert(block);
         }
+
+        debug!(target: "sync", "[Synchronizer] insert_new_block finish");
     }
 
     pub fn get_blocks_to_fetch(&self, peer: PeerId) -> Option<Vec<H256>> {
-        debug!(target: "sync", "[block downloader] process");
         BlockFetcher::new(&self, peer).fetch()
     }
 }
@@ -419,7 +460,6 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bigint::U256;
     use block_process::BlockProcess;
     use ckb_chain::chain::Chain;
     use ckb_chain::consensus::Consensus;
@@ -428,7 +468,6 @@ mod tests {
     use ckb_chain::COLUMNS;
     use ckb_notify::{Event, Notify, MINER_SUBSCRIBER};
     use ckb_protocol;
-    use ckb_time::now_ms;
     use core::difficulty::cal_difficulty;
     use core::header::{Header, RawHeader, Seal};
     use core::transaction::{CellInput, CellOutput, Transaction, VERSION};
@@ -459,19 +498,33 @@ mod tests {
         chain
     }
 
-    fn gen_block(parent_header: IndexedHeader, difficulty: U256) -> IndexedBlock {
-        let time = now_ms();
-        let nonce = parent_header.seal.nonce + 1;
+    fn create_cellbase(number: BlockNumber) -> Transaction {
+        let inputs = vec![CellInput::new_cellbase_input(number)];
+        let outputs = vec![CellOutput::new(0, vec![], H256::from(0))];
+        Transaction::new(VERSION, Vec::new(), inputs, outputs)
+    }
+
+    fn gen_block(parent_header: IndexedHeader, nonce: u64) -> IndexedBlock {
+        let now = 1 + parent_header.timestamp;
+        let difficulty = cal_difficulty(&parent_header, now);
+        let number = parent_header.number + 1;
+        let cellbase = create_cellbase(number);
+        let cellbase_id = cellbase.hash();
+        let txs = vec![cellbase];
+        let txs_hash = vec![cellbase_id];
+        let txs_commit = merkle_root(txs_hash.as_slice());
+        let uncles = vec![];
+        let uncles_hash = uncles_hash(&uncles);
         let header = Header {
             raw: RawHeader {
-                number: parent_header.number + 1,
+                number,
+                txs_commit,
+                cellbase_id,
+                uncles_hash,
                 version: 0,
                 parent_hash: parent_header.hash(),
-                timestamp: time,
-                txs_commit: H256::zero(),
+                timestamp: now,
                 difficulty: difficulty,
-                cellbase_id: H256::zero(),
-                uncles_hash: H256::zero(),
             },
             seal: Seal {
                 nonce,
@@ -480,16 +533,10 @@ mod tests {
         };
 
         IndexedBlock {
+            uncles,
             header: header.into(),
-            transactions: vec![],
-            uncles: vec![],
+            transactions: txs,
         }
-    }
-
-    fn create_cellbase(number: BlockNumber) -> Transaction {
-        let inputs = vec![CellInput::new_cellbase_input(number)];
-        let outputs = vec![CellOutput::new(0, vec![], H256::from(0))];
-        Transaction::new(VERSION, Vec::new(), inputs, outputs)
     }
 
     fn insert_block<CS: ChainIndex>(chain: &Chain<CS>, nonce: u64, number: BlockNumber) {
@@ -610,8 +657,8 @@ mod tests {
         let mut blocks: Vec<IndexedBlock> = Vec::new();
         let mut parent = config.genesis_block().header.clone();
         for _ in 1..block_number {
-            let difficulty = parent.header.difficulty;
-            let new_block = gen_block(parent, difficulty + U256::from(100));
+            let nonce = parent.header.seal.nonce;
+            let new_block = gen_block(parent, nonce + 100);
             blocks.push(new_block.clone());
             parent = new_block.header;
         }
@@ -631,8 +678,8 @@ mod tests {
         parent = blocks[150].header.clone();
         let fork = parent.number;
         for _ in 1..block_number + 1 {
-            let difficulty = parent.header.difficulty;
-            let new_block = gen_block(parent, difficulty + U256::from(200));
+            let nonce = parent.header.seal.nonce;
+            let new_block = gen_block(parent, nonce + 200);
             chain2
                 .process_block(&new_block, false)
                 .expect("process block ok");
@@ -694,8 +741,8 @@ mod tests {
         let mut blocks: Vec<IndexedBlock> = Vec::new();
         let mut parent = chain.block_header(&chain.block_hash(0).unwrap()).unwrap();
         for _ in 1..block_number {
-            let difficulty = parent.difficulty;
-            let new_block = gen_block(parent, difficulty + U256::from(100));
+            let nonce = parent.seal.nonce;
+            let new_block = gen_block(parent, nonce + 100);
             blocks.push(new_block.clone());
             parent = new_block.header;
         }
@@ -703,7 +750,7 @@ mod tests {
         let synchronizer = Synchronizer::new(&chain, None, Config::default());
 
         blocks.clone().into_iter().for_each(|block| {
-            synchronizer.insert_new_block(block);
+            synchronizer.insert_new_block(0, block);
         });
 
         assert_eq!(
@@ -721,8 +768,8 @@ mod tests {
         let mut blocks: Vec<IndexedBlock> = Vec::new();
         let mut parent = chain.block_header(&chain.block_hash(0).unwrap()).unwrap();
         for _ in 1..block_number + 1 {
-            let difficulty = parent.difficulty;
-            let new_block = gen_block(parent, difficulty + U256::from(100));
+            let nonce = parent.seal.nonce;
+            let new_block = gen_block(parent, nonce + 100);
             blocks.push(new_block.clone());
             parent = new_block.header;
         }
@@ -897,6 +944,19 @@ mod tests {
         }
 
         let mut iter = TryIter { inner: &rx };
+
+        {
+            assert_eq!(
+                &synchronizer1
+                    .peers
+                    .last_common_headers
+                    .read()
+                    .get(&peer)
+                    .unwrap()
+                    .hash(),
+                blocks_to_fetch.last().unwrap()
+            );
+        }
 
         assert_eq!(
             iter.next(),

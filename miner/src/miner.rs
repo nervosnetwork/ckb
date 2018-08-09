@@ -14,6 +14,7 @@ use fnv::{FnvHashMap, FnvHashSet};
 use network::NetworkContextExt;
 use network::NetworkService;
 use pool::TransactionPool;
+use std::cmp;
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::thread;
@@ -152,7 +153,8 @@ impl<C: ChainProvider + 'static> Miner<C> {
 
     fn make_current_work(&self) -> Result<Work, Error> {
         let tip = self.chain.tip_header().read();
-        let now = now_ms();
+        let now = cmp::max(now_ms(), tip.header.timestamp + 1);
+
         let transactions = self
             .tx_pool
             .prepare_mineable_transactions(self.config.max_tx);
@@ -205,7 +207,7 @@ impl<C: ChainProvider + 'static> Miner<C> {
             Ok(work) => {
                 if let Some(block) = self.sealer.seal(work) {
                     let block: IndexedBlock = block.into();
-                    info!(target: "miner", "new block mined: {} -> (number: {}, difficulty: {}, timestamp: {})",
+                    debug!(target: "miner", "new block mined: {} -> (number: {}, difficulty: {}, timestamp: {})",
                           block.hash(), block.header.number, block.header.difficulty, block.header.timestamp);
                     if self.chain.process_block(&block, true).is_ok() {
                         self.announce_new_block(&block);

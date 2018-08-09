@@ -157,7 +157,17 @@ impl<C: ChainProvider + 'static> SyncProtocol<C> {
     }
 
     pub fn find_blocks_to_fetch(synchronizer: Synchronizer<C>, nc: Box<NetworkContext>) {
-        let peers: Vec<PeerId> = { synchronizer.peers.state.read().keys().cloned().collect() };
+        let peers: Vec<PeerId> = {
+            synchronizer
+                .peers
+                .state
+                .read()
+                .iter()
+                .filter(|(_, state)| state.sync_started)
+                .map(|(peer_id, _)| peer_id)
+                .cloned()
+                .collect()
+        };
         debug!(target: "sync", "poll find_blocks_to_fetch select peers");
         for peer in peers {
             let ret = synchronizer.get_blocks_to_fetch(peer);
@@ -190,7 +200,7 @@ impl<C: ChainProvider + 'static> SyncProtocol<C> {
         let tip = synchronizer.tip_header();
         let timeout = synchronizer.get_headers_sync_timeout(&tip);
 
-        let protect_outbound = is_outbound(nc, peer).expect("session exist")
+        let protect_outbound = is_outbound(nc, peer).unwrap_or_else(|| false)
             && synchronizer
                 .outbound_peers_with_protect
                 .load(Ordering::Acquire)
@@ -277,7 +287,17 @@ impl<C: ChainProvider + 'static> SyncProtocol<C> {
     }
 
     fn send_getheaders_to_all(synchronizer: Synchronizer<C>, nc: Box<NetworkContext>) {
-        let peers: Vec<PeerId> = { synchronizer.peers.state.read().keys().cloned().collect() };
+        let peers: Vec<PeerId> = {
+            synchronizer
+                .peers
+                .state
+                .read()
+                .iter()
+                .filter(|(_, state)| state.sync_started)
+                .map(|(peer_id, _)| peer_id)
+                .cloned()
+                .collect()
+        };
         debug!(target: "sync", "send_getheaders to peers= {:?}", &peers);
         let tip = synchronizer.tip_header();
         for peer in peers {
@@ -304,16 +324,12 @@ impl<C: ChainProvider + 'static> SyncProtocol<C> {
     }
 
     fn dispatch_getheaders(&self, nc: Box<NetworkContext>) {
-        if self.synchronizer.n_sync.load(Ordering::Acquire) == 0
-            || !self.synchronizer.is_initial_block_download()
-        {
-            debug!(target: "sync", "dispatch_getheaders");
-            let mut sender = self.sender.clone();
-            let ret = sender.try_send(Task::SendGetHeadersToAll(nc));
+        debug!(target: "sync", "dispatch_getheaders");
+        let mut sender = self.sender.clone();
+        let ret = sender.try_send(Task::SendGetHeadersToAll(nc));
 
-            if ret.is_err() {
-                error!(target: "sync", "dispatch_getheaders peer error {:?}", ret);
-            }
+        if ret.is_err() {
+            error!(target: "sync", "dispatch_getheaders peer error {:?}", ret);
         }
     }
 

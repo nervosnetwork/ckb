@@ -214,7 +214,7 @@ impl<CS: ChainIndex> Chain<CS> {
                 debug!(target: "chain", "acquire lock");
                 let mut tip_header = self.tip_header.write();
                 let current_total_difficulty = tip_header.total_difficulty;
-                info!(
+                debug!(
                     "difficulty diff = {}; current = {}, cannon = {}",
                     cannon_total_difficulty.low_u64() as i64
                         - current_total_difficulty.low_u64() as i64,
@@ -226,7 +226,7 @@ impl<CS: ChainIndex> Chain<CS> {
                     || (current_total_difficulty == cannon_total_difficulty
                         && b.hash() < tip_header.header.hash())
                 {
-                    info!(target: "chain", "new best block found: {} => {}", b.header().number, b.hash());
+                    debug!(target: "chain", "new best block found: {} => {}", b.header().number, b.hash());
                     new_best_block = true;
                     let new_tip_header = TipHeader {
                         header: b.header.clone(),
@@ -364,12 +364,12 @@ impl<CS: ChainIndex> Chain<CS> {
 
 impl<CS: ChainIndex> ChainProvider for Chain<CS> {
     fn process_block(&self, b: &IndexedBlock, local: bool) -> Result<(), Error> {
-        info!(target: "chain", "begin processing block: {}", b.hash());
+        debug!(target: "chain", "begin processing block: {}", b.hash());
 
         let root = self.check_transactions(b)?;
         let insert_result = self.insert_block(b, root);
         self.notify_insert_result(b, insert_result, local);
-        info!(target: "chain", "finish processing block");
+        debug!(target: "chain", "finish processing block");
         Ok(())
     }
 

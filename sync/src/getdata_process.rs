@@ -31,6 +31,7 @@ where
     pub fn execute(self) {
         let inventory_vec = self.message.get_inventory();
         for inventory in inventory_vec.iter() {
+            debug!(target: "sync", "inv {:?}", H256::from(inventory.get_hash()));
             InventoryProcess::new(self.nc, self.synchronizer, inventory).execute();
         }
     }
@@ -67,6 +68,7 @@ where
                     .get_block(&H256::from(self.inventory.get_hash()))
                 {
                     let mut payload = ckb_protocol::Payload::new();
+                    debug!(target: "sync", "respond_block {} {:?}", block.number(), block.hash());
                     payload.set_block(block.into());
                     let _ = self.nc.respond_payload(payload);
                 } else {
