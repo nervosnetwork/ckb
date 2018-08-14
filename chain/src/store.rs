@@ -17,7 +17,7 @@ use std::ops::Deref;
 use std::ops::Range;
 use {
     COLUMN_BLOCK_BODY, COLUMN_BLOCK_HEADER, COLUMN_BLOCK_TRANSACTION_ADDRESSES, COLUMN_BLOCK_UNCLE,
-    COLUMN_EXT, COLUMN_OUTPUT_ROOT,
+    COLUMN_EXT, COLUMN_OUTPUT_ROOT, COLUMN_TRANSACTION_META,
 };
 
 pub struct ChainKVStore<T: KeyValueDB> {
@@ -145,7 +145,7 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
     }
 
     fn get_transaction_meta(&self, root: H256, key: H256) -> Option<TransactionMeta> {
-        search(&self.db, root, key).expect("tree operation error")
+        search(&self.db, COLUMN_TRANSACTION_META, root, key).expect("tree operation error")
     }
 
     fn get_output_root(&self, block_hash: &H256) -> Option<H256> {
@@ -158,7 +158,7 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
         root: H256,
         cells: Vec<(Vec<OutPoint>, Vec<OutPoint>)>,
     ) -> Option<H256> {
-        let mut avl = AvlTree::new(&self.db, root);
+        let mut avl = AvlTree::new(&self.db, COLUMN_TRANSACTION_META, root);
 
         for (inputs, outputs) in cells {
             for input in inputs {
