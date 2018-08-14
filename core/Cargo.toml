@@ -13,7 +13,6 @@ crypto = {path = "../util/crypto"}
 merkle-root = {path = "../util/merkle-root"}
 ckb-time = { path = "../util/time" }
 ckb-protocol = { path = "../network/protocol" }
-log = "0.4"
 bit-vec = "0.5.0"
 
 [dev-dependencies]

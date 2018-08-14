@@ -12,4 +12,3 @@ genesis:
     uncles_hash: "0x0000000000000000000000000000000000000000000000000000000000000000"
 params:
     initial_block_reward: 50000
-    min_difficulty: "0x20000"

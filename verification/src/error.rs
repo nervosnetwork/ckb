@@ -14,9 +14,9 @@ pub enum Error {
     DuplicateTransactions,
     TransactionsRoot,
     DuplicateHeader,
-    UnknownParent,
     InvalidInput,
     InvalidOutput,
+    UnknownParent(H256),
     Uncles(UnclesError),
     Cellbase(CellbaseError),
 }
@@ -45,7 +45,6 @@ pub enum UnclesError {
         actual: H256,
     },
     Duplicate(H256),
-    InvalidParent(H256),
     InvalidInclude(H256),
     InvalidCellbase,
 }
@@ -69,9 +68,9 @@ pub struct HeightError {
 }
 
 #[derive(Debug, PartialEq, Clone, Copy, Eq)]
-pub struct DifficultyError {
-    pub expected: U256,
-    pub actual: U256,
+pub enum DifficultyError {
+    MixMismatch { expected: U256, actual: U256 },
+    AncestorNotFound,
 }
 
 #[derive(Debug, PartialEq, Clone, Copy, Eq)]

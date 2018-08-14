@@ -1,21 +1,18 @@
 use bigint::H256;
-use std::sync::Arc;
-
-use txs_pool::pool::*;
-use txs_pool::types::*;
-
 use ckb_chain::chain::{ChainBuilder, ChainProvider};
 use ckb_chain::store::ChainKVStore;
 use ckb_db::memorydb::MemoryKeyValueDB;
 use ckb_notify::Notify;
 use core::block::{Block, IndexedBlock};
 use core::cell::{CellProvider, CellState};
-use core::difficulty::cal_difficulty;
 use core::header::{Header, RawHeader, Seal};
 use core::script::Script;
 use core::transaction::*;
 use hash::sha3_256;
+use std::sync::Arc;
 use time::now_ms;
+use txs_pool::pool::*;
+use txs_pool::types::*;
 
 macro_rules! expect_output_parent {
     ($pool:expr, $expected:pat, $( $output:expr ),+ ) => {
@@ -428,12 +425,14 @@ fn apply_transactions(
         H256::zero()
     };
 
+    let parent = { chain.tip_header().read().header.clone() };
+
     let header = Header {
         raw: RawHeader::new(
-            &chain.tip_header().read().header,
+            &parent,
             transactions.iter(),
             time,
-            cal_difficulty(&chain.tip_header().read().header, time),
+            chain.calculate_difficulty(&parent).unwrap(),
             cellbase_id,
             H256::zero(),
         ),

@@ -1,6 +1,6 @@
 use super::sealer::{Sealer, Signal};
 use super::Config;
-use bigint::H256;
+use bigint::{H256, U256};
 use chain::chain::{ChainProvider, Error};
 use ckb_notify::{Event, Notify, MINER_SUBSCRIBER};
 use ckb_protocol::Payload;
@@ -8,6 +8,7 @@ use core::block::IndexedBlock;
 use core::header::{Header, IndexedHeader};
 use core::transaction::{Capacity, CellInput, CellOutput, Transaction, VERSION};
 use core::uncle::UncleBlock;
+use core::BlockNumber;
 use crossbeam_channel;
 use ethash::{get_epoch, Ethash};
 use fnv::{FnvHashMap, FnvHashSet};
@@ -37,6 +38,7 @@ pub struct Work {
     pub time: u64,
     pub tip: IndexedHeader,
     pub cellbase: Transaction,
+    pub difficulty: U256,
     pub transactions: Vec<Transaction>,
     pub signal: Signal,
     pub uncles: Vec<UncleBlock>,
@@ -109,10 +111,11 @@ impl<C: ChainProvider + 'static> Miner<C> {
     // Make sure every uncle is rewarded only once
     fn select_uncles(
         &self,
-        ancestors: &FnvHashSet<H256>,
+        current_number: BlockNumber,
         excluded: &FnvHashSet<H256>,
     ) -> Vec<UncleBlock> {
         let max_uncles_len = self.chain.consensus().max_uncles_len();
+        let max_uncles_age = self.chain.consensus().max_uncles_age();
         let mut included = FnvHashSet::default();
         let mut uncles = Vec::with_capacity(max_uncles_len);
         let mut bad_uncles = Vec::new();
@@ -122,20 +125,20 @@ impl<C: ChainProvider + 'static> Miner<C> {
                 break;
             }
 
-            if !included.contains(hash)
-                && ancestors.contains(&block.header.parent_hash)
-                && !excluded.contains(hash)
+            let depth = current_number.saturating_sub(block.number());
+            if depth > max_uncles_age as u64
+                || depth < 1
+                || included.contains(hash)
+                || excluded.contains(hash)
             {
-                if let Some(cellbase) = block.transactions.first() {
-                    let uncle = UncleBlock {
-                        header: block.header.header.clone(),
-                        cellbase: cellbase.clone(),
-                    };
-                    uncles.push(uncle);
-                    included.insert(*hash);
-                } else {
-                    bad_uncles.push(*hash);
-                }
+                bad_uncles.push(*hash);
+            } else if let Some(cellbase) = block.transactions.first() {
+                let uncle = UncleBlock {
+                    header: block.header.header.clone(),
+                    cellbase: cellbase.clone(),
+                };
+                uncles.push(uncle);
+                included.insert(*hash);
             } else {
                 bad_uncles.push(*hash);
             }
@@ -155,12 +158,16 @@ impl<C: ChainProvider + 'static> Miner<C> {
         let tip = self.chain.tip_header().read();
         let now = cmp::max(now_ms(), tip.header.timestamp + 1);
 
+        let difficulty = self
+            .chain
+            .calculate_difficulty(&tip.header)
+            .expect("get difficulty");
+
         let transactions = self
             .tx_pool
             .prepare_mineable_transactions(self.config.max_tx);
         let cellbase = self.create_cellbase_transaction(&tip.header, &transactions)?;
 
-        let mut ancestors = FnvHashSet::default();
         let mut excluded = FnvHashSet::default();
 
         // cB
@@ -176,7 +183,6 @@ impl<C: ChainProvider + 'static> Miner<C> {
         excluded.insert(block_hash);
         for _depth in 0..self.chain.consensus().max_uncles_age() {
             if let Some(block) = self.chain.block(&block_hash) {
-                ancestors.insert(block.header.parent_hash);
                 excluded.insert(block.header.parent_hash);
                 for uncle in block.uncles() {
                     excluded.insert(uncle.header.hash());
@@ -188,11 +194,13 @@ impl<C: ChainProvider + 'static> Miner<C> {
             }
         }
 
-        let uncles = self.select_uncles(&ancestors, &excluded);
+        let current_number = tip.header.number + 1;
+        let uncles = self.select_uncles(current_number, &excluded);
 
         let work = Work {
             cellbase,
             transactions,
+            difficulty,
             uncles,
             signal: self.signal.clone(),
             tip: tip.header.clone(),

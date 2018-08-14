@@ -1,7 +1,9 @@
-use super::header_verifier::HeaderVerifier;
+use super::header_verifier::{HeaderResolver, HeaderVerifier};
 use super::{TransactionVerifier, Verifier};
+use bigint::U256;
 use chain::chain::ChainProvider;
 use core::block::IndexedBlock;
+use core::header::IndexedHeader;
 use core::transaction::{Capacity, CellInput};
 use error::{CellbaseError, Error, TransactionError, UnclesError};
 use fnv::FnvHashSet;
@@ -183,6 +185,44 @@ impl<'a> MerkleRootVerifier<'a> {
     }
 }
 
+pub struct HeaderResolverWrapper<'a, C> {
+    chain: Arc<C>,
+    header: &'a IndexedHeader,
+    parent: Option<IndexedHeader>,
+}
+
+impl<'a, C> HeaderResolverWrapper<'a, C>
+where
+    C: ChainProvider,
+{
+    pub fn new(header: &'a IndexedHeader, chain: &Arc<C>) -> Self {
+        let parent = chain.block_header(&header.parent_hash);
+        HeaderResolverWrapper {
+            parent,
+            header,
+            chain: Arc::clone(chain),
+        }
+    }
+}
+
+impl<'a, C> HeaderResolver for HeaderResolverWrapper<'a, C>
+where
+    C: ChainProvider,
+{
+    fn header(&self) -> &IndexedHeader {
+        self.header
+    }
+
+    fn parent(&self) -> Option<&IndexedHeader> {
+        self.parent.as_ref()
+    }
+
+    fn calculate_difficulty(&self) -> Option<U256> {
+        self.parent()
+            .and_then(|parent| self.chain.calculate_difficulty(parent))
+    }
+}
+
 pub struct UnclesVerifier<'a, C, P> {
     block: &'a IndexedBlock,
     chain: Arc<C>,
@@ -230,11 +270,7 @@ where
 
         let max_uncles_age = self.chain.consensus().max_uncles_age();
         for uncle in self.block.uncles() {
-            let depth = if self.block.number() > uncle.number() {
-                self.block.number() - uncle.number()
-            } else {
-                0
-            };
+            let depth = self.block.number().saturating_sub(uncle.number());
 
             if depth > max_uncles_age as u64 || depth < 1 {
                 return Err(Error::Uncles(UnclesError::InvalidDepth {
@@ -254,16 +290,13 @@ where
         // cB.p^5   -----------/  6
         // cB.p^6   -------------/
         // cB.p^7
-        let mut ancestors = FnvHashSet::default();
         let mut excluded = FnvHashSet::default();
         let mut included = FnvHashSet::default();
-
         excluded.insert(self.block.hash());
         let mut block_hash = self.block.header.parent_hash;
         excluded.insert(block_hash);
         for _ in 0..max_uncles_age {
             if let Some(block) = self.chain.block(&block_hash) {
-                ancestors.insert(block.header.parent_hash);
                 excluded.insert(block.header.parent_hash);
                 for uncle in block.uncles() {
                     excluded.insert(uncle.header.hash());
@@ -280,9 +313,9 @@ where
                 return Err(Error::Uncles(UnclesError::InvalidCellbase));
             }
 
-            let uncle_hash = uncle.header.hash();
-            let uncle_parent_hash = uncle.header.parent_hash;
+            let uncle_header: IndexedHeader = uncle.header.clone().into();
 
+            let uncle_hash = uncle_header.hash();
             if included.contains(&uncle_hash) {
                 return Err(Error::Uncles(UnclesError::Duplicate(uncle_hash)));
             }
@@ -291,20 +324,9 @@ where
                 return Err(Error::Uncles(UnclesError::InvalidInclude(uncle_hash)));
             }
 
-            if !ancestors.contains(&uncle_parent_hash) {
-                return Err(Error::Uncles(UnclesError::InvalidParent(uncle_parent_hash)));
-            }
+            let resolver = HeaderResolverWrapper::new(&uncle_header, &self.chain);
 
-            let uncle_parent = self
-                .chain
-                .block_header(&uncle_parent_hash)
-                .expect("parent verified");
-
-            HeaderVerifier::new(
-                &uncle_parent,
-                &uncle.header.clone().into(),
-                self.pow.clone(),
-            ).verify()?;
+            HeaderVerifier::new(resolver, self.pow.clone()).verify()?;
 
             included.insert(uncle_hash);
         }

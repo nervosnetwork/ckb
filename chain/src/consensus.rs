@@ -1,48 +1,84 @@
 use bigint::{H256, U256};
 use core::block::IndexedBlock;
-use core::global::MIN_DIFFICULTY;
 use core::header::{Header, RawHeader, Seal};
 use core::transaction::Capacity;
+use core::BlockNumber;
 
 pub const DEFAULT_BLOCK_REWARD: Capacity = 5_000;
 pub const MAX_UNCLE_LEN: usize = 2;
 pub const MAX_UNCLE_AGE: usize = 6;
 
-#[derive(Clone, Eq, PartialEq, Debug)]
+//TODO：find best ORPHAN_RATE_TARGET
+pub const ORPHAN_RATE_TARGET: f32 = 0.1;
+pub const POW_TIME_SPAN: u64 = 12 * 60 * 60 * 1000; // 12 hours
+pub const POW_SPACING: u64 = 15 * 1000; //15s
+
+#[derive(Clone, PartialEq, Debug)]
 pub struct Consensus {
     pub genesis_block: IndexedBlock,
-    pub min_difficulty: U256,
     pub initial_block_reward: Capacity,
+    pub max_uncles_age: usize,
+    pub max_uncles_len: usize,
+    pub orphan_rate_target: f32,
+    pub pow_time_span: u64,
+    pub pow_spacing: u64,
 }
 
+// genesis difficulty should not be zero
 impl Default for Consensus {
     fn default() -> Self {
         let genesis_builder = GenesisBuilder::default();
-        let genesis_block = genesis_builder.build();
+        let genesis_block = genesis_builder.difficulty(U256::one()).build();
 
         Consensus {
             genesis_block,
-            min_difficulty: U256::from(MIN_DIFFICULTY),
+            max_uncles_age: MAX_UNCLE_AGE,
+            max_uncles_len: MAX_UNCLE_LEN,
             initial_block_reward: DEFAULT_BLOCK_REWARD,
+            orphan_rate_target: ORPHAN_RATE_TARGET,
+            pow_time_span: POW_TIME_SPAN,
+            pow_spacing: POW_SPACING,
         }
     }
 }
 
 impl Consensus {
+    pub fn set_genesis_block(mut self, genesis_block: IndexedBlock) -> Self {
+        self.genesis_block = genesis_block;
+        self
+    }
+
+    pub fn set_initial_block_reward(mut self, initial_block_reward: Capacity) -> Self {
+        self.initial_block_reward = initial_block_reward;
+        self
+    }
+
     pub fn genesis_block(&self) -> &IndexedBlock {
         &self.genesis_block
     }
 
     pub fn max_uncles_len(&self) -> usize {
-        MAX_UNCLE_LEN
+        self.max_uncles_len
     }
 
     pub fn max_uncles_age(&self) -> usize {
-        MAX_UNCLE_AGE
+        self.max_uncles_age
+    }
+
+    pub fn min_difficulty(&self) -> U256 {
+        self.genesis_block.header.difficulty
     }
 
     pub fn initial_block_reward(&self) -> Capacity {
         self.initial_block_reward
+    }
+
+    pub fn difficulty_adjustment_interval(&self) -> BlockNumber {
+        self.pow_time_span / self.pow_spacing
+    }
+
+    pub fn orphan_rate_target(&self) -> f32 {
+        self.orphan_rate_target
     }
 }
 

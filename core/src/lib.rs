@@ -8,8 +8,6 @@ extern crate merkle_root;
 #[macro_use]
 extern crate serde_derive;
 extern crate bit_vec;
-#[macro_use]
-extern crate log;
 #[cfg(test)]
 extern crate protobuf;
 

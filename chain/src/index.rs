@@ -37,6 +37,7 @@ impl<T: KeyValueDB> ChainIndex for ChainKVStore<T> {
             let ext = BlockExt {
                 received_at: genesis.header.timestamp,
                 total_difficulty: genesis.header.difficulty,
+                total_uncles_count: 0,
             };
             self.insert_block(batch, genesis);
             self.insert_block_ext(batch, &genesis_hash, &ext);

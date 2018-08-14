@@ -1,4 +1,4 @@
-use bigint::H256;
+use bigint::{H256, U256};
 use chain::chain::{ChainProvider, Error, TipHeader};
 use chain::consensus::Consensus;
 use core::block::IndexedBlock;
@@ -41,6 +41,14 @@ impl ChainProvider for DummyChainClient {
     }
 
     fn consensus(&self) -> &Consensus {
+        panic!("Not implemented!");
+    }
+
+    fn calculate_difficulty(&self, _last: &IndexedHeader) -> Option<U256> {
+        panic!("Not implemented!");
+    }
+
+    fn get_ancestor(&self, _base: &H256, _number: BlockNumber) -> Option<IndexedHeader> {
         panic!("Not implemented!");
     }
 

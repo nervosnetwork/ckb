@@ -72,6 +72,8 @@ pub trait ChainProvider: Sync + Send + CellProvider {
 
     fn consensus(&self) -> &Consensus;
 
+    fn get_ancestor(&self, base: &H256, number: BlockNumber) -> Option<IndexedHeader>;
+
     //FIXME: This is bad idea
     fn tip_header(&self) -> &RwLock<TipHeader>;
 
@@ -89,6 +91,8 @@ pub trait ChainProvider: Sync + Send + CellProvider {
     // fee that miner can obtain. Could result in error state when input
     // transaction is missing.
     fn calculate_transaction_fee(&self, transaction: &Transaction) -> Result<Capacity, Error>;
+
+    fn calculate_difficulty(&self, last: &IndexedHeader) -> Option<U256>;
 }
 
 impl<'a, CS: ChainIndex> CellProvider for Chain<CS> {
@@ -204,6 +208,7 @@ impl<CS: ChainIndex> Chain<CS> {
             let ext = BlockExt {
                 received_at: now_ms(),
                 total_difficulty: cannon_total_difficulty,
+                total_uncles_count: parent_ext.total_uncles_count + b.uncles().len() as u64,
             };
 
             self.store.insert_block(batch, b);
@@ -401,6 +406,41 @@ impl<CS: ChainIndex> ChainProvider for Chain<CS> {
         &self.consensus
     }
 
+    fn get_ancestor(&self, base: &H256, number: BlockNumber) -> Option<IndexedHeader> {
+        {
+            let tip = self.tip_header().read();
+            if let Some(n_number) = self.block_number(base) {
+                if number > n_number {
+                    return None;
+                } else if number == n_number {
+                    return Some(tip.header.clone());
+                } else {
+                    return self
+                        .block_hash(number)
+                        .and_then(|hash| self.block_header(&hash));
+                }
+            }
+        }
+        if let Some(header) = self.block_header(base) {
+            let mut n_number = header.number;
+            let mut index_walk = header;
+            if number > n_number {
+                return None;
+            }
+
+            while n_number > number {
+                if let Some(header) = self.block_header(&index_walk.parent_hash) {
+                    index_walk = header;
+                    n_number -= 1;
+                } else {
+                    return None;
+                }
+            }
+            return Some(index_walk);
+        }
+        None
+    }
+
     fn block_header(&self, hash: &H256) -> Option<IndexedHeader> {
         let tip_header = self.tip_header.read();
         if &tip_header.header.hash() == hash {
@@ -470,6 +510,47 @@ impl<CS: ChainIndex> ChainProvider for Chain<CS> {
         fee -= spent_capacity;
         Ok(fee)
     }
+
+    // T_interval = L / C_m
+    // HR_m = HR_last/ (1 + o)
+    // Diff= HR_m * T_interval / H = Diff_last * o_last / o
+    fn calculate_difficulty(&self, last: &IndexedHeader) -> Option<U256> {
+        let interval = self.consensus().difficulty_adjustment_interval();
+
+        if (last.number + 1) % interval != 0 {
+            return Some(last.difficulty);
+        }
+
+        let start = last.number.saturating_sub(interval);
+        if let Some(start_header) = self.get_ancestor(&last.hash(), start) {
+            let start_total_uncles_count = self
+                .block_ext(&start_header.hash())
+                .expect("block_ext exist")
+                .total_uncles_count;
+
+            let last_total_uncles_count = self
+                .block_ext(&last.hash())
+                .expect("block_ext exist")
+                .total_uncles_count;
+
+            let difficulty = last.difficulty
+                * U256::from(last_total_uncles_count - start_total_uncles_count)
+                * U256::from((1.0 / self.consensus().orphan_rate_target()) as u64)
+                / U256::from(interval);
+
+            let min_difficulty = self.consensus().min_difficulty();
+            let max_difficulty = last.difficulty * 2;
+            if difficulty > max_difficulty {
+                return Some(max_difficulty);
+            }
+
+            if difficulty < min_difficulty {
+                return Some(min_difficulty);
+            }
+            return Some(difficulty);
+        }
+        None
+    }
 }
 
 pub struct ChainBuilder<CS> {
@@ -535,17 +616,23 @@ impl<CS: ChainIndex> ChainBuilder<CS> {
 pub mod test {
     use super::*;
 
+    use consensus::GenesisBuilder;
     use core::header::{Header, RawHeader, Seal};
+    use core::transaction::{CellInput, CellOutput, Transaction, VERSION};
+    use core::uncle::UncleBlock;
     use db::memorydb::MemoryKeyValueDB;
     use store::ChainKVStore;
 
-    fn gen_block(
-        parent_header: IndexedHeader,
-        nonce: u64,
-        difficulty: U256,
-        number: BlockNumber,
-    ) -> IndexedBlock {
+    fn create_cellbase(number: BlockNumber) -> Transaction {
+        let inputs = vec![CellInput::new_cellbase_input(number)];
+        let outputs = vec![CellOutput::new(0, vec![], H256::from(0))];
+        Transaction::new(VERSION, Vec::new(), inputs, outputs)
+    }
+
+    fn gen_block(parent_header: IndexedHeader, nonce: u64, difficulty: U256) -> IndexedBlock {
         let time = now_ms();
+        let number = parent_header.number + 1;
+        let cellbase = create_cellbase(number);
         let header = Header {
             raw: RawHeader {
                 number,
@@ -565,7 +652,7 @@ pub mod test {
 
         IndexedBlock {
             header: header.into(),
-            transactions: vec![],
+            transactions: vec![cellbase],
             uncles: vec![],
         }
     }
@@ -583,7 +670,7 @@ pub mod test {
         let mut parent = chain.block_header(&chain.block_hash(0).unwrap()).unwrap();
         for i in 1..final_number {
             let difficulty = parent.difficulty;
-            let new_block = gen_block(parent, i, difficulty + U256::from(100), i);
+            let new_block = gen_block(parent, i, difficulty + U256::from(100));
             chain1.push(new_block.clone());
             parent = new_block.header;
         }
@@ -592,7 +679,7 @@ pub mod test {
         for i in 1..final_number {
             let difficulty = parent.difficulty;
             let j = if i > 10 { 110 } else { 99 };
-            let new_block = gen_block(parent, i + 1000, difficulty + U256::from(j), i);
+            let new_block = gen_block(parent, i + 1000, difficulty + U256::from(j));
             chain2.push(new_block.clone());
             parent = new_block.header;
         }
@@ -624,7 +711,7 @@ pub mod test {
         let mut parent = chain.block_header(&chain.block_hash(0).unwrap()).unwrap();
         for i in 1..final_number {
             let difficulty = parent.difficulty;
-            let new_block = gen_block(parent, i, difficulty + U256::from(100), i);
+            let new_block = gen_block(parent, i, difficulty + U256::from(100));
             chain1.push(new_block.clone());
             parent = new_block.header;
         }
@@ -632,7 +719,7 @@ pub mod test {
         parent = chain.block_header(&chain.block_hash(0).unwrap()).unwrap();
         for i in 1..final_number {
             let difficulty = parent.difficulty;
-            let new_block = gen_block(parent, i + 1000, difficulty + U256::from(100), i);
+            let new_block = gen_block(parent, i + 1000, difficulty + U256::from(100));
             chain2.push(new_block.clone());
             parent = new_block.header;
         }
@@ -666,5 +753,183 @@ pub mod test {
         };
         assert_eq!(chain.block_hash(8), best.get(7).map(|b| b.hash()));
         assert_eq!(chain.block_hash(19), best.get(18).map(|b| b.hash()));
+    }
+
+    #[test]
+    fn test_chain_get_ancestor() {
+        let chain = ChainBuilder::<ChainKVStore<MemoryKeyValueDB>>::new_memory()
+            .build()
+            .unwrap();
+        let final_number = 20;
+
+        let mut chain1: Vec<IndexedBlock> = Vec::new();
+        let mut chain2: Vec<IndexedBlock> = Vec::new();
+
+        let mut parent = chain.block_header(&chain.block_hash(0).unwrap()).unwrap();
+        for i in 1..final_number {
+            let difficulty = parent.difficulty;
+            let new_block = gen_block(parent, i, difficulty + U256::from(100));
+            chain1.push(new_block.clone());
+            parent = new_block.header;
+        }
+
+        parent = chain.block_header(&chain.block_hash(0).unwrap()).unwrap();
+        for i in 1..final_number {
+            let difficulty = parent.difficulty;
+            let new_block = gen_block(parent, i + 1000, difficulty + U256::from(100));
+            chain2.push(new_block.clone());
+            parent = new_block.header;
+        }
+
+        for block in &chain1 {
+            chain
+                .process_block(&block, false)
+                .expect("process block ok");
+        }
+
+        for block in &chain2 {
+            chain
+                .process_block(&block, false)
+                .expect("process block ok");
+        }
+
+        assert_eq!(
+            chain1[9].header,
+            chain
+                .get_ancestor(&chain1.last().unwrap().hash(), 10)
+                .unwrap()
+        );
+
+        assert_eq!(
+            chain2[9].header,
+            chain
+                .get_ancestor(&chain2.last().unwrap().hash(), 10)
+                .unwrap()
+        );
+    }
+
+    fn push_uncle(block: &mut IndexedBlock, uncle: &IndexedBlock) {
+        let uncle = UncleBlock {
+            header: uncle.header.header.clone(),
+            cellbase: uncle.transactions.first().cloned().unwrap(),
+        };
+
+        block.uncles.push(uncle);
+        block.header.uncles_hash = block.cal_uncles_hash();
+        block.finalize_dirty();
+    }
+
+    #[test]
+    fn test_calculate_difficulty() {
+        let genesis_builder = GenesisBuilder::default();
+        let genesis_block = genesis_builder.difficulty(U256::from(1000)).build();
+        let mut consensus = Consensus::default().set_genesis_block(genesis_block);
+        consensus.pow_time_span = 200;
+        consensus.pow_spacing = 1;
+
+        let chain = ChainBuilder::<ChainKVStore<MemoryKeyValueDB>>::new_memory()
+            .consensus(consensus.clone())
+            .build()
+            .unwrap();
+        let final_number = chain.consensus().difficulty_adjustment_interval();
+
+        let mut chain1: Vec<IndexedBlock> = Vec::new();
+        let mut chain2: Vec<IndexedBlock> = Vec::new();
+
+        let mut parent = chain.block_header(&chain.block_hash(0).unwrap()).unwrap();
+        for i in 1..final_number - 1 {
+            let difficulty = chain.calculate_difficulty(&parent).unwrap();
+            let new_block = gen_block(parent, i, difficulty);
+            chain
+                .process_block(&new_block, false)
+                .expect("process block ok");
+            chain1.push(new_block.clone());
+            parent = new_block.header;
+        }
+
+        parent = chain.block_header(&chain.block_hash(0).unwrap()).unwrap();
+        for i in 1..final_number {
+            let difficulty = chain.calculate_difficulty(&parent).unwrap();
+            let mut new_block = gen_block(parent, i + 100, difficulty);
+            if i < 26 {
+                push_uncle(&mut new_block, &chain1[i as usize]);
+            }
+            chain
+                .process_block(&new_block, false)
+                .expect("process block ok");
+            chain2.push(new_block.clone());
+            parent = new_block.header;
+        }
+        let tip = { chain.tip_header().read().header.clone() };
+        let total_uncles_count = chain.block_ext(&tip.hash()).unwrap().total_uncles_count;
+        assert_eq!(total_uncles_count, 25);
+        let difficulty = chain.calculate_difficulty(&tip).unwrap();
+
+        // 25 * 10 * 1000 / 200
+        assert_eq!(difficulty, U256::from(1250));
+
+        let chain = ChainBuilder::<ChainKVStore<MemoryKeyValueDB>>::new_memory()
+            .consensus(consensus.clone())
+            .build()
+            .unwrap();
+        let mut chain2: Vec<IndexedBlock> = Vec::new();
+        for i in 1..final_number - 1 {
+            chain
+                .process_block(&chain1[(i - 1) as usize], false)
+                .expect("process block ok");
+        }
+
+        parent = chain.block_header(&chain.block_hash(0).unwrap()).unwrap();
+        for i in 1..final_number {
+            let difficulty = chain.calculate_difficulty(&parent).unwrap();
+            let mut new_block = gen_block(parent, i + 100, difficulty);
+            if i < 11 {
+                push_uncle(&mut new_block, &chain1[i as usize]);
+            }
+            chain
+                .process_block(&new_block, false)
+                .expect("process block ok");
+            chain2.push(new_block.clone());
+            parent = new_block.header;
+        }
+        let tip = { chain.tip_header().read().header.clone() };
+        let total_uncles_count = chain.block_ext(&tip.hash()).unwrap().total_uncles_count;
+        assert_eq!(total_uncles_count, 10);
+        let difficulty = chain.calculate_difficulty(&tip).unwrap();
+
+        // min[10 * 10 * 1000 / 200, 1000]
+        assert_eq!(difficulty, U256::from(1000));
+
+        let chain = ChainBuilder::<ChainKVStore<MemoryKeyValueDB>>::new_memory()
+            .consensus(consensus.clone())
+            .build()
+            .unwrap();
+        let mut chain2: Vec<IndexedBlock> = Vec::new();
+        for i in 1..final_number - 1 {
+            chain
+                .process_block(&chain1[(i - 1) as usize], false)
+                .expect("process block ok");
+        }
+
+        parent = chain.block_header(&chain.block_hash(0).unwrap()).unwrap();
+        for i in 1..final_number {
+            let difficulty = chain.calculate_difficulty(&parent).unwrap();
+            let mut new_block = gen_block(parent, i + 100, difficulty);
+            if i < 151 {
+                push_uncle(&mut new_block, &chain1[i as usize]);
+            }
+            chain
+                .process_block(&new_block, false)
+                .expect("process block ok");
+            chain2.push(new_block.clone());
+            parent = new_block.header;
+        }
+        let tip = { chain.tip_header().read().header.clone() };
+        let total_uncles_count = chain.block_ext(&tip.hash()).unwrap().total_uncles_count;
+        assert_eq!(total_uncles_count, 150);
+        let difficulty = chain.calculate_difficulty(&tip).unwrap();
+
+        // max[150 * 10 * 1000 / 200, 2 * 1000]
+        assert_eq!(difficulty, U256::from(2000));
     }
 }
