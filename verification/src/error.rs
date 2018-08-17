@@ -13,14 +13,20 @@ pub enum Error {
     EmptyTransactions,
     DuplicateTransactions,
     TransactionsRoot,
-    MultipleCellbase,
-    CellbaseNotAtFirst,
-    InvalidCellbaseInput,
     DuplicateHeader,
     UnknownParent,
     InvalidInput,
     InvalidOutput,
     Uncles(UnclesError),
+    Cellbase(CellbaseError),
+}
+
+#[derive(Debug, PartialEq, Clone, Eq)]
+pub enum CellbaseError {
+    InvalidInput,
+    InvalidReward,
+    InvalidQuantity,
+    InvalidPosition,
 }
 
 #[derive(Debug, PartialEq, Clone, Copy, Eq)]
@@ -70,11 +76,10 @@ pub struct DifficultyError {
 
 #[derive(Debug, PartialEq, Clone, Copy, Eq)]
 pub enum TransactionError {
-    NullNonCellbase,
+    NullInput,
     OutofBound,
     DuplicateInputs,
     Empty,
-    InvalidCellbase,
     InvalidCapacity,
     InvalidScript,
     InvalidSignature,

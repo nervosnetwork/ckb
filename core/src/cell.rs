@@ -19,9 +19,9 @@ pub enum CellState {
 }
 
 /// Transaction with resolved input cells.
-#[derive(Clone)]
-pub struct ResolvedTransaction<'a> {
-    pub transaction: &'a Transaction,
+#[derive(Debug)]
+pub struct ResolvedTransaction {
+    pub transaction: Transaction,
     pub dep_cells: Vec<CellState>,
     pub input_cells: Vec<CellState>,
 }
@@ -31,7 +31,7 @@ pub trait CellProvider {
 
     fn cell_at(&self, out_point: &OutPoint, parent: &H256) -> CellState;
 
-    fn resolve_transaction<'a>(&self, transaction: &'a Transaction) -> ResolvedTransaction<'a> {
+    fn resolve_transaction(&self, transaction: &Transaction) -> ResolvedTransaction {
         let mut seen_outpoints = HashSet::new();
 
         let input_cells = transaction
@@ -58,17 +58,17 @@ pub trait CellProvider {
             .collect();
 
         ResolvedTransaction {
-            transaction,
+            transaction: transaction.clone(),
             input_cells,
             dep_cells,
         }
     }
 
-    fn resolve_transaction_at<'a>(
+    fn resolve_transaction_at(
         &self,
-        transaction: &'a Transaction,
+        transaction: &Transaction,
         parent: &H256,
-    ) -> ResolvedTransaction<'a> {
+    ) -> ResolvedTransaction {
         let input_cells = transaction
             .inputs
             .iter()
@@ -81,7 +81,7 @@ pub trait CellProvider {
             .collect();
 
         ResolvedTransaction {
-            transaction,
+            transaction: transaction.clone(),
             input_cells,
             dep_cells,
         }
@@ -117,7 +117,7 @@ impl CellState {
     }
 }
 
-impl<'a> ResolvedTransaction<'a> {
+impl ResolvedTransaction {
     pub fn cells_iter(&self) -> Chain<slice::Iter<CellState>, slice::Iter<CellState>> {
         self.dep_cells.iter().chain(&self.input_cells)
     }

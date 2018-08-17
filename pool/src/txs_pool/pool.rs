@@ -183,7 +183,7 @@ where
             }
 
             if unknowns.is_empty() {
-                TransactionVerifier::new(rtx)
+                TransactionVerifier::new(&rtx)
                     .verify()
                     .map_err(PoolError::InvalidTx)?;
             }

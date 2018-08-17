@@ -2,9 +2,8 @@ use super::header_verifier::HeaderVerifier;
 use super::{TransactionVerifier, Verifier};
 use chain::chain::ChainProvider;
 use core::block::IndexedBlock;
-use core::cell::ResolvedTransaction;
 use core::transaction::{Capacity, CellInput};
-use error::{Error, TransactionError, UnclesError};
+use error::{CellbaseError, Error, TransactionError, UnclesError};
 use fnv::FnvHashSet;
 use merkle_root::merkle_root;
 use pow_verifier::PowVerifier;
@@ -25,7 +24,7 @@ pub struct BlockVerifier<'a, C, P> {
     pub cellbase: CellbaseTransactionsVerifier<'a, C>,
     pub merkle_root: MerkleRootVerifier<'a>,
     pub uncles: UnclesVerifier<'a, C, P>,
-    pub transactions: Vec<TransactionVerifier<'a>>,
+    pub transactions: TransactionsVerifier<'a, C>,
 }
 
 impl<'a, C, P> BlockVerifier<'a, C, P>
@@ -40,39 +39,7 @@ where
             cellbase: CellbaseTransactionsVerifier::new(block, Arc::clone(chain)),
             merkle_root: MerkleRootVerifier::new(block),
             uncles: UnclesVerifier::new(block, Arc::clone(chain), pow),
-            transactions: Self::resolve_transaction(block, chain)
-                .into_iter()
-                .map(TransactionVerifier::new)
-                .collect(),
-        }
-    }
-
-    fn resolve_transaction(
-        block: &'a IndexedBlock,
-        chain: &Arc<C>,
-    ) -> Vec<ResolvedTransaction<'a>> {
-        let parent_hash = block.header.parent_hash;
-        // make verifiers orthogonal
-        // skip first tx, assume the first is cellbase, other verifier will verify cellbase
-        block
-            .transactions
-            .iter()
-            .skip(1)
-            .map(|x| chain.resolve_transaction_at(x, &parent_hash))
-            .collect()
-    }
-
-    fn verify_transactions(&self) -> Result<(), Error> {
-        let err: Vec<(usize, TransactionError)> = self
-            .transactions
-            .par_iter()
-            .enumerate()
-            .filter_map(|(index, tx)| tx.verify().err().map(|e| (index, e)))
-            .collect();
-        if err.is_empty() {
-            Ok(())
-        } else {
-            Err(Error::Transaction(err))
+            transactions: TransactionsVerifier::new(block, Arc::clone(chain)),
         }
     }
 }
@@ -88,7 +55,7 @@ where
         self.cellbase.verify()?;
         self.merkle_root.verify()?;
         self.uncles.verify()?;
-        self.verify_transactions()
+        self.transactions.verify()
     }
 }
 
@@ -119,16 +86,16 @@ where
             return Ok(());
         }
         if cellbase_len > 1 {
-            return Err(Error::MultipleCellbase);
+            return Err(Error::Cellbase(CellbaseError::InvalidQuantity));
         }
         if cellbase_len == 1 && (!self.block.transactions[0].is_cellbase()) {
-            return Err(Error::CellbaseNotAtFirst);
+            return Err(Error::Cellbase(CellbaseError::InvalidPosition));
         }
 
         let cellbase_transaction = &self.block.transactions[0];
         if cellbase_transaction.inputs[0] != CellInput::new_cellbase_input(self.block.header.number)
         {
-            return Err(Error::InvalidCellbaseInput);
+            return Err(Error::Cellbase(CellbaseError::InvalidInput));
         }
         let block_reward = self.chain.block_reward(self.block.header.raw.number);
         let mut fee = 0;
@@ -142,10 +109,7 @@ where
             .map(|output| output.capacity)
             .sum();
         if output_capacity > total_reward {
-            Err(Error::Transaction(vec![(
-                0,
-                TransactionError::InvalidCapacity,
-            )]))
+            Err(Error::Cellbase(CellbaseError::InvalidReward))
         } else {
             Ok(())
         }
@@ -346,5 +310,44 @@ where
         }
 
         Ok(())
+    }
+}
+
+pub struct TransactionsVerifier<'a, C> {
+    block: &'a IndexedBlock,
+    chain: Arc<C>,
+}
+
+impl<'a, C> TransactionsVerifier<'a, C>
+where
+    C: ChainProvider,
+{
+    pub fn new(block: &'a IndexedBlock, chain: Arc<C>) -> Self {
+        TransactionsVerifier { block, chain }
+    }
+
+    pub fn verify(&self) -> Result<(), Error> {
+        let parent_hash = self.block.header.parent_hash;
+        // make verifiers orthogonal
+        // skip first tx, assume the first is cellbase, other verifier will verify cellbase
+        let err: Vec<(usize, TransactionError)> = self
+            .block
+            .transactions
+            .par_iter()
+            .skip(1)
+            .map(|x| self.chain.resolve_transaction_at(x, &parent_hash))
+            .enumerate()
+            .filter_map(|(index, tx)| {
+                TransactionVerifier::new(&tx)
+                    .verify()
+                    .err()
+                    .map(|e| (index, e))
+            })
+            .collect();
+        if err.is_empty() {
+            Ok(())
+        } else {
+            Err(Error::Transaction(err))
+        }
     }
 }
