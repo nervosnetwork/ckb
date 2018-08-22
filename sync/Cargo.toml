@@ -4,7 +4,7 @@ version = "0.1.0"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 
 [dependencies]
-protobuf = "2.0.2"
+protobuf = "2.0.4"
 ckb-chain = { path = "../chain" }
 ckb-core = { path = "../core" }
 bigint = { git = "https://github.com/NervosFoundation/bigint" }

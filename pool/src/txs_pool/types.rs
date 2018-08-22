@@ -1,15 +1,19 @@
 //! The primary module containing the implementations of the transaction pool
 //! and its top-level members.
-#![cfg_attr(feature = "cargo-clippy", allow(while_let_loop))]
-
-use fnv::{FnvHashMap, FnvHashSet};
-use std::collections::HashMap;
-use std::iter::Iterator;
 
 use bigint::H256;
 use ckb_verification::TransactionError;
-use core::transaction::{CellOutput, OutPoint, Transaction};
-
+use core::transaction::{
+    CellOutput, IndexedTransaction, OutPoint, ProposalShortId, ProposalTransaction,
+};
+use core::BlockNumber;
+use fnv::{FnvHashMap, FnvHashSet};
+use std::collections::btree_map;
+use std::collections::BTreeMap;
+use std::collections::HashMap;
+use std::iter::Iterator;
+use std::mem;
+use std::ops::Range;
 use time;
 
 /// Transaction pool configuration
@@ -20,14 +24,12 @@ pub struct PoolConfig {
     pub max_mining_size: usize,
 }
 
-/// This enum describes the parent for a given input of a transaction.
+/// This enum describes the status of a transaction's outpoint.
 #[derive(Clone, Debug, PartialEq)]
-pub enum Parent {
+pub enum OutPointStatus {
     Unknown,
-    BlockTransaction,
-    PoolTransaction,
-    OrphanTransaction,
-    AlreadySpent,
+    InOrphan,
+    Spent,
 }
 
 #[derive(Clone, Debug)]
@@ -56,19 +58,127 @@ pub enum PoolError {
     CellBase,
 }
 
-pub struct Pool {
+#[derive(Default, Debug)]
+pub struct CandidatePool {
+    inner: FnvHashSet<ProposalTransaction>,
+}
+
+impl CandidatePool {
+    pub fn new() -> CandidatePool {
+        CandidatePool::default()
+    }
+
+    pub fn with_capacity(capacity: usize) -> CandidatePool {
+        CandidatePool {
+            inner: FnvHashSet::with_capacity_and_hasher(capacity, Default::default()),
+        }
+    }
+
+    pub fn size(&self) -> usize {
+        self.inner.len()
+    }
+
+    pub fn insert(&mut self, tx: IndexedTransaction) -> bool {
+        self.inner.insert(tx.into())
+    }
+
+    pub fn take(&self, n: usize) -> FnvHashSet<ProposalTransaction> {
+        if n > self.inner.len() {
+            self.inner.clone()
+        } else {
+            self.inner.iter().take(n).cloned().collect()
+        }
+    }
+
+    pub fn update_difference(&mut self, remove: &FnvHashSet<ProposalTransaction>) {
+        self.inner = self.inner.difference(&remove).cloned().collect();
+    }
+
+    pub fn remove(&mut self, remove: &ProposalTransaction) {
+        self.inner.remove(remove);
+    }
+}
+
+#[derive(Default, Debug)]
+pub struct ProposalPool {
+    inner: BTreeMap<BlockNumber, FnvHashMap<ProposalShortId, IndexedTransaction>>,
+}
+
+impl ProposalPool {
+    pub fn new() -> ProposalPool {
+        ProposalPool::default()
+    }
+
+    pub fn insert(
+        &mut self,
+        block_number: BlockNumber,
+        txs: impl Iterator<Item = ProposalTransaction>,
+    ) {
+        match self.inner.entry(block_number) {
+            btree_map::Entry::Vacant(v) => {
+                v.insert(txs.map(|ptx| ptx.into_pair()).collect());
+            }
+            btree_map::Entry::Occupied(mut o) => {
+                o.get_mut().extend(txs.map(|ptx| ptx.into_pair()));
+            }
+        }
+    }
+
+    pub fn query(
+        &self,
+        block_number: &BlockNumber,
+        filter: impl Iterator<Item = ProposalShortId>,
+    ) -> Option<(Vec<IndexedTransaction>, Vec<ProposalShortId>)> {
+        self.inner.get(block_number).map(|txs_map| {
+            filter.fold((vec![], vec![]), |mut acc, id| {
+                if let Some(tx) = txs_map.get(&id) {
+                    acc.0.push(tx.clone());
+                } else {
+                    acc.1.push(id);
+                }
+                acc
+            })
+        })
+    }
+
+    pub fn query_ids(&self, block_number: &BlockNumber) -> Option<FnvHashSet<ProposalShortId>> {
+        self.inner
+            .get(block_number)
+            .map(|txs_map| txs_map.keys().cloned().collect())
+    }
+
+    //Panics if range start > end. Panics if range start == end and both bounds are Excluded.
+    pub fn take(&self, range: Range<BlockNumber>) -> FnvHashSet<ProposalTransaction> {
+        let mut proposals = FnvHashSet::default();
+        for (_, txs) in self.inner.range(range) {
+            proposals.extend(
+                txs.clone()
+                    .into_iter()
+                    .map(|(k, v)| ProposalTransaction::new(k, v)),
+            );
+        }
+        proposals
+    }
+
+    pub fn clean(&mut self, block_number: &BlockNumber) {
+        let mut retain = self.inner.split_off(&block_number);
+        mem::swap(&mut retain, &mut self.inner);
+    }
+}
+
+pub struct CommitPool {
     pub pool: DirectedGraph,
 }
 
-impl Default for Pool {
+impl Default for CommitPool {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl Pool {
+impl CommitPool {
     pub fn new() -> Self {
-        Pool {
+        CommitPool {
             pool: DirectedGraph::new(),
         }
     }
@@ -82,18 +192,18 @@ impl Pool {
     }
 
     /// Add a verified transaction.
-    pub fn add_transaction(&mut self, tx: Transaction) {
+    pub fn add_transaction(&mut self, tx: IndexedTransaction) {
         self.pool.add_transaction(tx);
     }
 
     /// Readd a verified transaction which is rolled back from chain. Since the rolled back
     /// transaction should depend on any transaction in the pool, it is safe to skip some checking.
-    pub fn readd_transaction(&mut self, tx: &Transaction) {
+    pub fn readd_transaction(&mut self, tx: &IndexedTransaction) {
         self.pool.readd_transaction(&tx);
     }
 
     /// When the transaction related to the vertex was packaged, we remove it.
-    pub fn commit_transaction(&mut self, tx: &Transaction) -> bool {
+    pub fn commit_transaction(&mut self, tx: &IndexedTransaction) -> bool {
         let hash = tx.hash();
 
         // only roots can be removed
@@ -105,14 +215,14 @@ impl Pool {
         }
     }
 
-    pub fn resolve_conflict(&mut self, tx: &Transaction) {
+    pub fn resolve_conflict(&mut self, tx: &IndexedTransaction) {
         self.pool.resolve_conflict(tx);
     }
 
     /// Currently a single rule for miner preference -
     /// return all txs if less than `n` txs in the entire pool
     /// otherwise return `n` of just the roots
-    pub fn get_mineable_transactions(&self, n: usize) -> Vec<Transaction> {
+    pub fn get_mineable_transactions(&self, n: usize) -> Vec<IndexedTransaction> {
         if self.size() <= n {
             self.pool.get_vertices()
         } else {
@@ -120,18 +230,18 @@ impl Pool {
         }
     }
 
-    pub fn parent(&self, o: &OutPoint) -> Parent {
+    pub fn outpoint_status(&self, o: &OutPoint) -> OutPointStatus {
         self.pool
             .out_edges
             .get(o)
-            .map(|_| Parent::AlreadySpent)
+            .map(|_| OutPointStatus::Spent)
             .or_else(|| {
                 self.pool.edges.get(o).map(|x| match *x {
-                    Some(_) => Parent::AlreadySpent,
-                    None => Parent::OrphanTransaction,
+                    Some(_) => OutPointStatus::Spent,
+                    None => OutPointStatus::InOrphan,
                 })
             })
-            .unwrap_or(Parent::Unknown)
+            .unwrap_or(OutPointStatus::Unknown)
     }
 
     pub fn size(&self) -> usize {
@@ -165,39 +275,43 @@ impl OrphanPool {
     }
 
     /// add orphan transaction
-    pub fn add_transaction(&mut self, tx: Transaction, unknown: Vec<OutPoint>) {
+    pub fn add_transaction(
+        &mut self,
+        tx: IndexedTransaction,
+        unknown: impl Iterator<Item = OutPoint>,
+    ) {
         for o in unknown {
-            self.pool.edges.insert(o.clone(), None);
+            self.pool.edges.insert(o, None);
             self.pool.dep_edges.insert(o, FnvHashSet::default());
         }
 
         self.pool.add_transaction(tx);
     }
 
-    pub fn parent(&self, o: &OutPoint) -> Parent {
+    pub fn outpoint_status(&self, o: &OutPoint) -> OutPointStatus {
         self.pool
             .out_edges
             .get(o)
-            .map(|_| Parent::AlreadySpent)
+            .map(|_| OutPointStatus::Spent)
             .or_else(|| {
                 self.pool.edges.get(o).map(|x| match *x {
-                    Some(_) => Parent::AlreadySpent,
-                    None => Parent::OrphanTransaction,
+                    Some(_) => OutPointStatus::Spent,
+                    None => OutPointStatus::InOrphan,
                 })
             })
-            .unwrap_or(Parent::Unknown)
+            .unwrap_or(OutPointStatus::Unknown)
     }
 
     /// when a transaction is added in pool or chain, reconcile it.
-    pub fn commit_transaction(&mut self, tx: &Transaction) {
+    pub fn commit_transaction(&mut self, tx: &IndexedTransaction) {
         self.pool.reconcile_transaction(tx);
     }
 
-    pub fn resolve_conflict(&mut self, tx: &Transaction) {
+    pub fn resolve_conflict(&mut self, tx: &IndexedTransaction) {
         self.pool.resolve_conflict(tx);
     }
 
-    pub fn get_no_orphan(&mut self) -> Vec<Transaction> {
+    pub fn get_no_orphan(&mut self) -> Vec<IndexedTransaction> {
         let mut txs = Vec::new();
 
         loop {
@@ -228,7 +342,7 @@ impl OrphanPool {
 #[derive(Debug, PartialEq, Clone)]
 pub struct PoolEntry {
     /// Transaction
-    pub transaction: Transaction,
+    pub transaction: IndexedTransaction,
     /// refs count
     pub refs_count: u64,
     /// Size estimate
@@ -239,7 +353,7 @@ pub struct PoolEntry {
 
 impl PoolEntry {
     /// Create new transaction pool entry
-    pub fn new(tx: Transaction, count: u64) -> PoolEntry {
+    pub fn new(tx: IndexedTransaction, count: u64) -> PoolEntry {
         PoolEntry {
             size_estimate: estimate_transaction_size(&tx),
             transaction: tx,
@@ -250,7 +364,7 @@ impl PoolEntry {
 }
 
 /// TODO guessing this needs implementing
-fn estimate_transaction_size(_tx: &Transaction) -> u64 {
+fn estimate_transaction_size(_tx: &IndexedTransaction) -> u64 {
     0
 }
 
@@ -320,7 +434,7 @@ impl DirectedGraph {
         self.roots.contains_key(h) || self.no_roots.contains_key(h)
     }
 
-    pub fn readd_transaction(&mut self, tx: &Transaction) {
+    pub fn readd_transaction(&mut self, tx: &IndexedTransaction) {
         let inputs = tx.input_pts();
         let outputs = tx.output_pts();
         let deps = tx.dep_pts();
@@ -358,14 +472,14 @@ impl DirectedGraph {
                 }
                 self.dep_edges.insert(o, hs);
             } else {
-                self.edges.insert(o.clone(), None);
+                self.edges.insert(o, None);
                 self.dep_edges.insert(o, FnvHashSet::default());
             }
         }
     }
 
     /// add a verified transaction
-    pub fn add_transaction(&mut self, tx: Transaction) {
+    pub fn add_transaction(&mut self, tx: IndexedTransaction) {
         let inputs = tx.input_pts();
         let outputs = tx.output_pts();
         let deps = tx.dep_pts();
@@ -403,7 +517,7 @@ impl DirectedGraph {
         }
 
         for o in outputs {
-            self.edges.entry(o.clone()).or_insert(None);
+            self.edges.entry(o).or_insert(None);
             self.dep_edges.entry(o).or_insert_with(FnvHashSet::default);
         }
 
@@ -414,7 +528,7 @@ impl DirectedGraph {
         }
     }
 
-    fn reconcile_transaction(&mut self, tx: &Transaction) {
+    fn reconcile_transaction(&mut self, tx: &IndexedTransaction) {
         let outputs = tx.output_pts();
         let inputs = tx.input_pts();
         let deps = tx.dep_pts();
@@ -423,7 +537,7 @@ impl DirectedGraph {
         for o in outputs {
             if let Some(h) = self.remove_edge(&o) {
                 self.dec_ref(&h);
-                self.out_edges.insert(o.clone(), Some(h));
+                self.out_edges.insert(o, Some(h));
             }
 
             if let Some(x) = self.dep_edges.remove(&o) {
@@ -452,7 +566,7 @@ impl DirectedGraph {
         }
     }
 
-    fn resolve_conflict(&mut self, tx: &Transaction) {
+    fn resolve_conflict(&mut self, tx: &IndexedTransaction) {
         let inputs = tx.input_pts();
 
         for i in inputs {
@@ -528,9 +642,9 @@ impl DirectedGraph {
 
     fn get_potential_root(
         &self,
-        tx: &Transaction,
+        tx: &IndexedTransaction,
         counts: &mut HashMap<H256, u64>,
-    ) -> Vec<Transaction> {
+    ) -> Vec<IndexedTransaction> {
         let mut roots = Vec::new();
         let outputs = tx.output_pts();
 
@@ -586,7 +700,8 @@ impl DirectedGraph {
     }
 
     /// Get the current list of roots
-    pub fn get_roots(&self, n: usize) -> Vec<Transaction> {
+    #[cfg_attr(feature = "cargo-clippy", allow(while_let_loop))]
+    pub fn get_roots(&self, n: usize) -> Vec<IndexedTransaction> {
         if self.roots.len() >= n {
             self.roots
                 .values()
@@ -595,7 +710,7 @@ impl DirectedGraph {
                 .cloned()
                 .collect()
         } else {
-            let mut roots: Vec<Transaction> = self
+            let mut roots: Vec<IndexedTransaction> = self
                 .roots
                 .values()
                 .map(|x| &x.transaction)
@@ -627,22 +742,22 @@ impl DirectedGraph {
     }
 
     /// Get list of all vertices in this graph including the roots
-    pub fn get_vertices(&self) -> Vec<Transaction> {
+    pub fn get_vertices(&self) -> Vec<IndexedTransaction> {
         self.roots
             .values()
             .map(|x| &x.transaction)
             .chain(self.no_roots.values().map(|x| &x.transaction))
             .cloned()
-            .collect::<Vec<Transaction>>()
+            .collect::<Vec<IndexedTransaction>>()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use core::transaction::{CellInput, CellOutput};
+    use core::transaction::{CellInput, CellOutput, Transaction};
 
-    fn build_tx(inputs: Vec<(H256, u32)>, outputs_len: usize) -> Transaction {
+    fn build_tx(inputs: Vec<(H256, u32)>, outputs_len: usize) -> IndexedTransaction {
         Transaction::new(
             0,
             Vec::new(),
@@ -653,7 +768,7 @@ mod tests {
             (0..outputs_len)
                 .map(|i| CellOutput::new((i + 1) as u64, Vec::new(), H256::from(0)))
                 .collect(),
-        )
+        ).into()
     }
 
     #[test]
@@ -662,7 +777,7 @@ mod tests {
         let tx1_hash = tx1.hash();
         let tx2 = build_tx(vec![(tx1_hash, 0)], 1);
 
-        let mut pool = Pool::new();
+        let mut pool = CommitPool::new();
 
         pool.add_transaction(tx1.clone());
         pool.add_transaction(tx2.clone());
@@ -682,7 +797,7 @@ mod tests {
         let tx1 = build_tx(vec![(H256::zero(), 1), (H256::zero(), 2)], 1);
         let tx2 = build_tx(vec![(H256::from(2), 1), (H256::from(3), 2)], 3);
 
-        let mut pool = Pool::new();
+        let mut pool = CommitPool::new();
 
         pool.add_transaction(tx1.clone());
         pool.add_transaction(tx2.clone());
@@ -728,7 +843,7 @@ mod tests {
         let tx3_hash = tx3.hash();
         let tx5 = build_tx(vec![(tx1_hash, 2), (tx3_hash, 0)], 2);
 
-        let mut pool = Pool::new();
+        let mut pool = CommitPool::new();
 
         pool.add_transaction(tx1.clone());
         pool.add_transaction(tx2.clone());

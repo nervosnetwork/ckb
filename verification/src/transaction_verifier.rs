@@ -4,17 +4,17 @@ use error::TransactionError;
 use script::{SignatureVerifier, TransactionInputSigner, TransactionSignatureVerifier};
 use std::collections::HashSet;
 
-pub struct TransactionVerifier<'a> {
+pub struct TransactionVerifier<'a, S: 'a> {
     pub null: NullVerifier<'a>,
     pub empty: EmptyVerifier<'a>,
-    pub capacity: CapacityVerifier<'a>,
+    pub capacity: CapacityVerifier<'a, S>,
     pub duplicate_inputs: DuplicateInputsVerifier<'a>,
-    pub inputs: InputVerifier<'a>,
+    pub inputs: InputVerifier<'a, S>,
     pub script: ScriptVerifier<'a>,
 }
 
-impl<'a> TransactionVerifier<'a> {
-    pub fn new(rtx: &'a ResolvedTransaction) -> Self {
+impl<'a, S: CellState> TransactionVerifier<'a, S> {
+    pub fn new(rtx: &'a ResolvedTransaction<S>) -> Self {
         TransactionVerifier {
             null: NullVerifier::new(&rtx.transaction),
             empty: EmptyVerifier::new(&rtx.transaction),
@@ -36,12 +36,12 @@ impl<'a> TransactionVerifier<'a> {
     }
 }
 
-pub struct InputVerifier<'a> {
-    resolved_transaction: &'a ResolvedTransaction,
+pub struct InputVerifier<'a, S: 'a> {
+    resolved_transaction: &'a ResolvedTransaction<S>,
 }
 
-impl<'a> InputVerifier<'a> {
-    pub fn new(resolved_transaction: &'a ResolvedTransaction) -> Self {
+impl<'a, S: CellState> InputVerifier<'a, S> {
+    pub fn new(resolved_transaction: &'a ResolvedTransaction<S>) -> Self {
         InputVerifier {
             resolved_transaction,
         }
@@ -50,24 +50,24 @@ impl<'a> InputVerifier<'a> {
     pub fn verify(&self) -> Result<(), TransactionError> {
         let mut inputs = self.resolved_transaction.transaction.inputs.iter();
         for cs in &self.resolved_transaction.input_cells {
-            match *cs {
-                CellState::Head(ref input)
-                | CellState::Pool(ref input)
-                | CellState::Orphan(ref input) => {
+            if cs.is_head() {
+                if let Some(ref input) = cs.head() {
                     if input.lock != inputs.next().unwrap().unlock.redeem_script_hash() {
                         return Err(TransactionError::InvalidScript);
                     }
                 }
-                CellState::Tail => return Err(TransactionError::DoubleSpent),
-                CellState::Unknown => return Err(TransactionError::UnknownInput),
+            } else if cs.is_tail() {
+                return Err(TransactionError::DoubleSpent);
+            } else if cs.is_unknown() {
+                return Err(TransactionError::UnknownInput);
             }
         }
 
         for cs in &self.resolved_transaction.dep_cells {
-            match *cs {
-                CellState::Tail => return Err(TransactionError::DoubleSpent),
-                CellState::Unknown => return Err(TransactionError::UnknownInput),
-                _ => {}
+            if cs.is_tail() {
+                return Err(TransactionError::DoubleSpent);
+            } else if cs.is_unknown() {
+                return Err(TransactionError::UnknownInput);
             }
         }
         Ok(())
@@ -168,12 +168,12 @@ impl<'a> NullVerifier<'a> {
     }
 }
 
-pub struct CapacityVerifier<'a> {
-    resolved_transaction: &'a ResolvedTransaction,
+pub struct CapacityVerifier<'a, S: 'a> {
+    resolved_transaction: &'a ResolvedTransaction<S>,
 }
 
-impl<'a> CapacityVerifier<'a> {
-    pub fn new(resolved_transaction: &'a ResolvedTransaction) -> Self {
+impl<'a, S: CellState> CapacityVerifier<'a, S> {
+    pub fn new(resolved_transaction: &'a ResolvedTransaction<S>) -> Self {
         CapacityVerifier {
             resolved_transaction,
         }
@@ -184,12 +184,8 @@ impl<'a> CapacityVerifier<'a> {
             .resolved_transaction
             .input_cells
             .iter()
-            .fold(0, |acc, state| match state {
-                CellState::Head(output) | CellState::Pool(output) | CellState::Orphan(output) => {
-                    acc + output.capacity
-                }
-                _ => acc,
-            });
+            .filter_map(|state| state.head())
+            .fold(0, |acc, output| acc + output.capacity);
 
         let outputs_total = self
             .resolved_transaction

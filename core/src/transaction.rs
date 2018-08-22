@@ -3,7 +3,7 @@
 use bigint::H256;
 use bincode::{deserialize, serialize};
 use ckb_protocol;
-use hash::sha3_256;
+use hash::{sha3_256, Sha3};
 use header::BlockNumber;
 use script::Script;
 use std::ops::{Deref, DerefMut};
@@ -12,7 +12,7 @@ pub const VERSION: u32 = 0;
 
 pub use Capacity;
 
-#[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Hash, Debug)]
+#[derive(Clone, Copy, Serialize, Deserialize, Eq, PartialEq, Hash, Debug)]
 pub struct OutPoint {
     // Hash of Transaction
     pub hash: H256,
@@ -98,6 +98,39 @@ impl CellOutput {
     }
 }
 
+#[derive(Serialize, Deserialize, Copy, Clone, Debug, PartialEq, Eq, Default, Hash)]
+pub struct ProposalShortId([u8; 10]);
+
+impl Deref for ProposalShortId {
+    type Target = [u8; 10];
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for ProposalShortId {
+    fn deref_mut(&mut self) -> &mut [u8; 10] {
+        &mut self.0
+    }
+}
+
+impl ProposalShortId {
+    pub fn from_slice(slice: &[u8]) -> Option<Self> {
+        if slice.len() == 10usize {
+            let mut id = [0u8; 10];
+            id.copy_from_slice(slice);
+            Some(ProposalShortId(id))
+        } else {
+            None
+        }
+    }
+
+    pub fn hash(&self) -> H256 {
+        sha3_256(serialize(self).unwrap()).into()
+    }
+}
+
 impl Transaction {
     pub fn new(
         version: u32,
@@ -142,10 +175,7 @@ impl Transaction {
     }
 
     pub fn input_pts(&self) -> Vec<OutPoint> {
-        self.inputs
-            .iter()
-            .map(|x| x.previous_output.clone())
-            .collect()
+        self.inputs.iter().map(|x| x.previous_output).collect()
     }
 
     pub fn dep_pts(&self) -> Vec<OutPoint> {
@@ -154,6 +184,16 @@ impl Transaction {
 
     pub fn is_empty(&self) -> bool {
         self.inputs.is_empty() || self.outputs.is_empty()
+    }
+
+    pub fn proposal_short_id(&self) -> ProposalShortId {
+        let mut hash = self.hash();
+        let mut sha3 = Sha3::new_sha3_256();
+        let mut id = ProposalShortId::default();
+        sha3.update(&hash);
+        sha3.finalize(&mut hash);
+        id.copy_from_slice(&hash.0[..10]);
+        id
     }
 }
 
@@ -202,12 +242,86 @@ impl IndexedTransaction {
     pub fn new(transaction: Transaction, hash: H256) -> Self {
         IndexedTransaction { transaction, hash }
     }
+
+    pub fn proposal_short_id(&self) -> ProposalShortId {
+        let mut hash = self.hash();
+        let mut sha3 = Sha3::new_sha3_256();
+        let mut id = ProposalShortId::default();
+        sha3.update(&hash);
+        sha3.finalize(&mut hash);
+        id.copy_from_slice(&hash.0[..10]);
+        id
+    }
+}
+
+#[derive(Clone, Debug, Eq)]
+pub struct ProposalTransaction {
+    pub transaction: IndexedTransaction,
+    pub proposal_short_id: ProposalShortId,
+}
+
+impl ProposalTransaction {
+    pub fn proposal_short_id(&self) -> ProposalShortId {
+        self.proposal_short_id
+    }
+
+    pub fn new(proposal_short_id: ProposalShortId, transaction: IndexedTransaction) -> Self {
+        ProposalTransaction {
+            transaction,
+            proposal_short_id,
+        }
+    }
+
+    pub fn into_pair(self) -> (ProposalShortId, IndexedTransaction) {
+        let ProposalTransaction {
+            proposal_short_id,
+            transaction,
+        } = self;
+        (proposal_short_id, transaction)
+    }
+}
+
+impl PartialEq for ProposalTransaction {
+    fn eq(&self, other: &ProposalTransaction) -> bool {
+        self.proposal_short_id == other.proposal_short_id
+    }
+}
+
+impl ::std::hash::Hash for ProposalTransaction {
+    fn hash<H>(&self, state: &mut H)
+    where
+        H: ::std::hash::Hasher,
+    {
+        state.write(&self.proposal_short_id[..]);
+        state.finish();
+    }
+}
+
+impl From<IndexedTransaction> for ProposalTransaction {
+    fn from(transaction: IndexedTransaction) -> Self {
+        let proposal_short_id = transaction.proposal_short_id();
+        ProposalTransaction::new(proposal_short_id, transaction)
+    }
+}
+
+impl From<ProposalTransaction> for IndexedTransaction {
+    fn from(proposal: ProposalTransaction) -> Self {
+        let ProposalTransaction { transaction, .. } = proposal;
+        transaction
+    }
 }
 
 impl From<Transaction> for IndexedTransaction {
     fn from(transaction: Transaction) -> Self {
         let hash = transaction.hash();
         IndexedTransaction { transaction, hash }
+    }
+}
+
+impl From<IndexedTransaction> for Transaction {
+    fn from(indexed_transaction: IndexedTransaction) -> Self {
+        let IndexedTransaction { transaction, .. } = indexed_transaction;
+        transaction
     }
 }
 
@@ -314,6 +428,13 @@ impl<'a> From<&'a ckb_protocol::Transaction> for IndexedTransaction {
     }
 }
 
+impl<'a> From<&'a ckb_protocol::Transaction> for ProposalTransaction {
+    fn from(t: &'a ckb_protocol::Transaction) -> Self {
+        let idx_tx: IndexedTransaction = t.into();
+        idx_tx.into()
+    }
+}
+
 impl<'a> From<&'a Transaction> for ckb_protocol::Transaction {
     fn from(t: &'a Transaction) -> Self {
         let mut tx = ckb_protocol::Transaction::new();
@@ -328,5 +449,40 @@ impl<'a> From<&'a IndexedTransaction> for ckb_protocol::Transaction {
     fn from(t: &'a IndexedTransaction) -> Self {
         let tx = &t.transaction;
         tx.into()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use protobuf;
+    use protobuf::Message;
+
+    fn dummy_transaction() -> IndexedTransaction {
+        use transaction::{CellInput, CellOutput, VERSION};
+
+        let inputs = vec![CellInput::new_cellbase_input(0)];
+        let outputs = vec![CellOutput::new(0, vec![], H256::from(0))];
+        Transaction::new(VERSION, vec![], inputs, outputs).into()
+    }
+
+    #[test]
+    fn test_proposal_short_id() {
+        let indexed_tx = dummy_transaction();
+        let tx: Transaction = indexed_tx.clone().into();
+
+        assert_eq!(tx.proposal_short_id(), indexed_tx.proposal_short_id());
+    }
+
+    #[test]
+    fn test_proto() {
+        let tx = dummy_transaction();
+        let proto_tx: ckb_protocol::Transaction = (&tx).into();
+        let message = proto_tx.write_to_bytes().unwrap();
+        let decoded_proto_tx =
+            protobuf::parse_from_bytes::<ckb_protocol::Transaction>(&message).unwrap();
+        assert_eq!(proto_tx, decoded_proto_tx);
+        let decoded_tx: IndexedTransaction = (&decoded_proto_tx).into();
+        assert_eq!(tx, decoded_tx);
     }
 }

@@ -56,7 +56,7 @@ impl TransactionInputSigner {
         let input = &self.inputs[input_index];
 
         CellInput {
-            previous_output: input.previous_output.clone(),
+            previous_output: input.previous_output,
             unlock: Script {
                 version: input.unlock.version,
                 arguments: vec![signature.serialize()],

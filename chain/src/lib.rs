@@ -1,3 +1,12 @@
+//! # The Chain Library
+//!
+//! This Library contains the `ChainProvider` traits and `Chain` implement:
+//!
+//! - [ChainProvider](chain::chain::ChainProvider) provide index
+//!   and store interface.
+//! - [Chain](chain::chain::Chain) represent a struct which
+//!   implement `ChainProvider`
+
 extern crate bigint;
 extern crate bincode;
 #[macro_use]
@@ -22,6 +31,7 @@ pub mod cachedb;
 pub mod chain;
 pub mod consensus;
 // mod config;
+pub mod error;
 mod flat_serializer;
 pub mod index;
 pub mod store;
@@ -29,7 +39,7 @@ pub mod store;
 use db::batch::Col;
 
 // REMEMBER to update the const defined in util/avl/src/lib.rs as well
-pub const COLUMNS: u32 = 10;
+pub const COLUMNS: u32 = 12;
 pub const COLUMN_INDEX: Col = Some(0);
 pub const COLUMN_BLOCK_HEADER: Col = Some(1);
 pub const COLUMN_BLOCK_BODY: Col = Some(2);
@@ -40,3 +50,5 @@ pub const COLUMN_TRANSACTION_META: Col = Some(6);
 pub const COLUMN_EXT: Col = Some(7);
 pub const COLUMN_OUTPUT_ROOT: Col = Some(8);
 pub const COLUMN_BLOCK_TRANSACTION_ADDRESSES: Col = Some(9);
+pub const COLUMN_BLOCK_TRANSACTION_IDS: Col = Some(10);
+pub const COLUMN_BLOCK_PROPOSAL_IDS: Col = Some(11);

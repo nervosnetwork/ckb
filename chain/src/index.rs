@@ -4,9 +4,11 @@ use bincode::{deserialize, serialize};
 use core::block::IndexedBlock;
 use core::extras::{BlockExt, TransactionAddress};
 use core::header::{BlockNumber, Header, IndexedHeader};
-use core::transaction::{IndexedTransaction, Transaction};
+use core::transaction::IndexedTransaction;
 use db::batch::Batch;
 use db::kvdb::KeyValueDB;
+use error::Error;
+use std::ops::Deref;
 use store::{ChainKVStore, ChainStore};
 use {COLUMN_BLOCK_BODY, COLUMN_INDEX, COLUMN_META, COLUMN_TRANSACTION_ADDR};
 
@@ -26,8 +28,13 @@ pub trait ChainIndex: ChainStore {
     fn insert_block_number(&self, batch: &mut Batch, hash: &H256, number: BlockNumber);
     fn delete_block_number(&self, batch: &mut Batch, hash: &H256);
     fn insert_tip_header(&self, batch: &mut Batch, h: &Header);
-    fn insert_transaction_address(&self, batch: &mut Batch, block_hash: &H256, txs: &[Transaction]);
-    fn delete_transaction_address(&self, batch: &mut Batch, txs: &[Transaction]);
+    fn insert_transaction_address(
+        &self,
+        batch: &mut Batch,
+        block_hash: &H256,
+        txs: &[IndexedTransaction],
+    );
+    fn delete_transaction_address(&self, batch: &mut Batch, txs: &[IndexedTransaction]);
 }
 
 impl<T: KeyValueDB> ChainIndex for ChainKVStore<T> {
@@ -39,13 +46,31 @@ impl<T: KeyValueDB> ChainIndex for ChainKVStore<T> {
                 total_difficulty: genesis.header.difficulty,
                 total_uncles_count: 0,
             };
+
+            let mut cells = Vec::with_capacity(genesis.commit_transactions.len());
+
+            for tx in &genesis.commit_transactions {
+                let ins = if tx.is_cellbase() {
+                    Vec::new()
+                } else {
+                    tx.input_pts()
+                };
+                let outs = tx.output_pts();
+
+                cells.push((ins, outs));
+            }
+
+            let output_root = self
+                .update_transaction_meta(batch, H256::zero(), cells)
+                .ok_or(Error::InvalidOutput)?;
             self.insert_block(batch, genesis);
             self.insert_block_ext(batch, &genesis_hash, &ext);
             self.insert_tip_header(batch, &genesis.header);
-            self.insert_output_root(batch, genesis_hash, H256::zero());
+            self.insert_output_root(batch, genesis_hash, output_root);
             self.insert_block_hash(batch, 0, &genesis_hash);
             self.insert_block_number(batch, &genesis_hash, 0);
-        });
+            Ok(())
+        }).expect("genesis init");
     }
 
     fn get_block_hash(&self, number: BlockNumber) -> Option<H256> {
@@ -88,25 +113,22 @@ impl<T: KeyValueDB> ChainIndex for ChainKVStore<T> {
     }
 
     fn insert_block_hash(&self, batch: &mut Batch, number: BlockNumber, hash: &H256) {
-        let key = serialize(&number).unwrap().to_vec();
+        let key = serialize(&number).unwrap();
         batch.insert(COLUMN_INDEX, key, hash.to_vec());
     }
 
     fn insert_block_number(&self, batch: &mut Batch, hash: &H256, number: BlockNumber) {
-        batch.insert(
-            COLUMN_INDEX,
-            hash.to_vec(),
-            serialize(&number).unwrap().to_vec(),
-        );
+        batch.insert(COLUMN_INDEX, hash.to_vec(), serialize(&number).unwrap());
     }
 
     fn insert_transaction_address(
         &self,
         batch: &mut Batch,
         block_hash: &H256,
-        txs: &[Transaction],
+        txs: &[IndexedTransaction],
     ) {
-        let addresses = serialized_addresses(txs).unwrap();
+        let raw_txs = txs.iter().map(|tx| tx.deref());
+        let addresses = serialized_addresses(raw_txs).unwrap();
         for (id, tx) in txs.iter().enumerate() {
             let address = TransactionAddress {
                 block_hash: *block_hash,
@@ -116,19 +138,19 @@ impl<T: KeyValueDB> ChainIndex for ChainKVStore<T> {
             batch.insert(
                 COLUMN_TRANSACTION_ADDR,
                 tx.hash().to_vec(),
-                serialize(&address).unwrap().to_vec(),
+                serialize(&address).unwrap(),
             );
         }
     }
 
-    fn delete_transaction_address(&self, batch: &mut Batch, txs: &[Transaction]) {
+    fn delete_transaction_address(&self, batch: &mut Batch, txs: &[IndexedTransaction]) {
         for tx in txs {
             batch.delete(COLUMN_TRANSACTION_ADDR, tx.hash().to_vec());
         }
     }
 
     fn delete_block_hash(&self, batch: &mut Batch, number: BlockNumber) {
-        let key = serialize(&number).unwrap().to_vec();
+        let key = serialize(&number).unwrap();
         batch.delete(COLUMN_INDEX, key);
     }
 

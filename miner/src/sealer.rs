@@ -1,9 +1,13 @@
 use super::BlockTemplate;
 use bigint::{H256, U256};
-use core::block::Block;
+use core::block::IndexedBlock;
 use core::difficulty::difficulty_to_boundary;
-use core::header::BlockNumber;
+use core::header::{BlockNumber, RawHeader};
+use core::transaction::ProposalTransaction;
+use core::uncle::uncles_hash;
 use ethash::Ethash;
+use fnv::FnvHashSet;
+use miner::Work;
 use rand::{thread_rng, Rng};
 use std::sync::mpsc;
 use std::sync::Arc;
@@ -55,12 +59,33 @@ impl Sealer {
         )
     }
 
-    pub fn seal(&self, block_template: BlockTemplate, signal: &Signal) -> Option<Block> {
-        let BlockTemplate {
-            raw_header,
-            transactions,
+    pub fn seal(&self, work: Work) -> Option<(IndexedBlock, FnvHashSet<ProposalTransaction>)> {
+        let Work {
+            time,
+            tip,
+            cellbase,
+            difficulty,
+            mut commit,
+            propasal,
+            signal,
             uncles,
-        } = block_template;
+        } = work;
+
+        let uncles_hash = uncles_hash(&uncles);
+        let cellbase_id = cellbase.hash();
+        commit.insert(0, cellbase);
+
+        let raw_header = RawHeader::new(
+            &tip,
+            commit.iter(),
+            propasal.iter(),
+            time,
+            difficulty,
+            cellbase_id,
+            uncles_hash,
+        );
+        let pow_hash = raw_header.pow_hash();
+        let number = raw_header.number;
 
         let nonce: u64 = thread_rng().gen();
         match self.mine(
@@ -73,11 +98,18 @@ impl Sealer {
             self::Message::Found(solution) => {
                 let Solution { nonce, mix_hash } = solution;
                 let header = raw_header.with_seal(nonce, mix_hash);
-                Some(Block {
-                    header,
-                    transactions,
-                    uncles,
-                })
+                Some((
+                    IndexedBlock {
+                        header: header.into(),
+                        uncles,
+                        commit_transactions: commit,
+                        proposal_transactions: propasal
+                            .iter()
+                            .map(|p| p.proposal_short_id())
+                            .collect(),
+                    },
+                    propasal,
+                ))
             }
             self::Message::Abort => None,
         }

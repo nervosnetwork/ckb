@@ -21,7 +21,7 @@ use bigint::H256;
 use chain::chain::ChainProvider;
 use ckb_protocol::Payload;
 use core::header::{BlockNumber, Header};
-use core::transaction::Transaction;
+use core::transaction::{IndexedTransaction, Transaction};
 use jsonrpc_core::{IoHandler, Result};
 use jsonrpc_minihttp_server::ServerBuilder;
 use jsonrpc_server_utils::cors::AccessControlAllowOrigin;
@@ -81,12 +81,13 @@ pub struct BlockWithHashedTransactions {
 
 impl<C: ChainProvider + 'static> Rpc for RpcImpl<C> {
     fn send_transaction(&self, tx: Transaction) -> Result<H256> {
-        let pool_result = self.tx_pool.add_to_memory_pool(tx.clone());
+        let indexed_tx: IndexedTransaction = tx.into();
+        let result = indexed_tx.hash();
+        let pool_result = self.tx_pool.insert_candidate(indexed_tx.clone());
         debug!(target: "rpc", "send_transaction add to pool result: {:?}", pool_result);
 
-        let result = tx.hash();
         let mut payload = Payload::new();
-        payload.set_transaction((&tx).into());
+        payload.set_transaction((&indexed_tx).into());
         self.network.with_context_eval(RELAY_PROTOCOL_ID, |nc| {
             for (peer_id, _session) in nc.sessions(&self.network.connected_peers()) {
                 let _ = nc.send_payload(peer_id, payload.clone());
@@ -102,11 +103,14 @@ impl<C: ChainProvider + 'static> Rpc for RpcImpl<C> {
             .map(|block| BlockWithHashedTransactions {
                 header: block.header.into(),
                 transactions: block
-                    .transactions
+                    .commit_transactions
                     .into_iter()
-                    .map(|transaction| TransactionWithHash {
-                        transaction: transaction.clone(),
-                        hash: transaction.hash(),
+                    .map(|transaction| {
+                        let hash = transaction.hash();
+                        TransactionWithHash {
+                            transaction: transaction.into(),
+                            hash,
+                        }
                     })
                     .collect(),
             }))

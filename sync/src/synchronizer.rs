@@ -1,7 +1,8 @@
 use bigint::H256;
 use block_fetcher::BlockFetcher;
 use block_pool::OrphanBlockPool;
-use ckb_chain::chain::{ChainProvider, Error as ChainError, TipHeader};
+use ckb_chain::chain::{ChainProvider, TipHeader};
+use ckb_chain::error::Error as ChainError;
 use ckb_time::now_ms;
 use ckb_verification::{BlockVerifier, Error as VerificationError, EthashVerifier, Verifier};
 use config::Config;
@@ -338,12 +339,6 @@ where
 
             let mut header_map = self.header_map.write();
             header_map.insert(header.hash(), header_view);
-
-            // debug!(target: "sync", "\n\nheader_view");
-            // for (k, v) in header_map.iter() {
-            //     debug!(target: "sync", "   {} => {:?}", k, v);
-            // }
-            // debug!(target: "sync", "header_view\n\n");
         }
     }
 
@@ -374,16 +369,6 @@ where
         }
         Some(m_left)
     }
-
-    // fn verification_level(&self) -> VerificationLevel {
-    //     if self.config.verification_level == "Full" {
-    //         VerificationLevel::Full
-    //     } else if self.config.verification_level == "Header" {
-    //         VerificationLevel::Header
-    //     } else {
-    //         VerificationLevel::Noop
-    //     }
-    // }
 
     //TODO: process block which we don't request
     #[cfg_attr(feature = "cargo-clippy", allow(single_match))]
@@ -470,7 +455,7 @@ mod tests {
     use ckb_notify::{Notify, MINER_SUBSCRIBER};
     use ckb_protocol;
     use core::header::{Header, RawHeader, Seal};
-    use core::transaction::{CellInput, CellOutput, Transaction, VERSION};
+    use core::transaction::{CellInput, CellOutput, IndexedTransaction, Transaction, VERSION};
     use core::uncle::uncles_hash;
     use crossbeam_channel;
     use crossbeam_channel::Receiver;
@@ -498,10 +483,10 @@ mod tests {
         chain
     }
 
-    fn create_cellbase(number: BlockNumber) -> Transaction {
+    fn create_cellbase(number: BlockNumber) -> IndexedTransaction {
         let inputs = vec![CellInput::new_cellbase_input(number)];
         let outputs = vec![CellOutput::new(0, vec![], H256::from(0))];
-        Transaction::new(VERSION, Vec::new(), inputs, outputs)
+        Transaction::new(VERSION, Vec::new(), inputs, outputs).into()
     }
 
     fn gen_block(parent_header: IndexedHeader, difficulty: U256, nonce: u64) -> IndexedBlock {
@@ -517,9 +502,10 @@ mod tests {
         let header = Header {
             raw: RawHeader {
                 number,
-                txs_commit,
                 cellbase_id,
                 uncles_hash,
+                txs_commit,
+                txs_proposal: H256::zero(),
                 version: 0,
                 parent_hash: parent_header.hash(),
                 timestamp: now,
@@ -534,7 +520,8 @@ mod tests {
         IndexedBlock {
             uncles,
             header: header.into(),
-            transactions: txs,
+            commit_transactions: txs,
+            proposal_transactions: vec![],
         }
     }
 
@@ -547,7 +534,7 @@ mod tests {
         let cellbase = create_cellbase(number);
         let cellbase_id = cellbase.hash();
         let txs = vec![cellbase];
-        let txs_hash: Vec<H256> = txs.iter().map(|t: &Transaction| t.hash()).collect();
+        let txs_hash: Vec<H256> = txs.iter().map(|t| t.hash()).collect();
         let txs_commit = merkle_root(txs_hash.as_slice());
 
         let uncles = vec![];
@@ -559,6 +546,7 @@ mod tests {
                 cellbase_id,
                 uncles_hash,
                 version: 0,
+                txs_proposal: H256::zero(),
                 parent_hash: parent.hash(),
                 timestamp: now,
                 difficulty: difficulty,
@@ -571,8 +559,9 @@ mod tests {
 
         let block = IndexedBlock {
             header: header.into(),
-            transactions: txs,
             uncles: vec![],
+            commit_transactions: txs,
+            proposal_transactions: vec![],
         };
         chain.process_block(&block).expect("process block ok");
     }

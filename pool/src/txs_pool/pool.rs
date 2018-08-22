@@ -5,18 +5,30 @@ use ckb_notify::{Event, ForkTxs, Notify, TXS_POOL_SUBSCRIBER};
 use ckb_verification::TransactionVerifier;
 use core::block::IndexedBlock;
 use core::cell::{CellProvider, CellState};
-use core::transaction::{OutPoint, Transaction};
+use core::transaction::{
+    CellOutput, IndexedTransaction, OutPoint, ProposalShortId, ProposalTransaction,
+};
+use core::BlockNumber;
 use crossbeam_channel;
+use fnv::FnvHashSet;
+use std::iter;
 use std::sync::Arc;
 use std::thread;
-use txs_pool::types::{InsertionResult, OrphanPool, Parent, Pool, PoolConfig, PoolError};
+use txs_pool::types::{
+    CandidatePool, CommitPool, InsertionResult, OrphanPool, OutPointStatus, PoolConfig, PoolError,
+    ProposalPool,
+};
 use util::RwLock;
 
 /// The pool itself.
 pub struct TransactionPool<T> {
     pub config: PoolConfig,
-    /// The pool itself
-    pub pool: RwLock<Pool>,
+    /// The candidate pool
+    pub candidate: RwLock<CandidatePool>,
+    /// The proposal pool
+    pub proposal: RwLock<ProposalPool>,
+    /// The commit pool
+    pub commit: RwLock<CommitPool>,
     /// Orphans in the pool
     pub orphan: RwLock<OrphanPool>,
     // chain will offer to the pool
@@ -25,23 +37,93 @@ pub struct TransactionPool<T> {
     pub notify: Notify,
 }
 
+#[derive(Clone, PartialEq, Debug)]
+pub enum PoolCellState {
+    /// Cell exists and is the head in its cell chain.
+    Head(CellOutput),
+    /// Cell in Pool
+    Commit(CellOutput),
+    /// Cell in Orphan Pool
+    Orphan(CellOutput),
+    /// Cell exists and is not the head of its cell chain.
+    Tail,
+    /// Cell does not exist.
+    Unknown,
+}
+
+impl CellState for PoolCellState {
+    fn tail() -> Self {
+        PoolCellState::Tail
+    }
+
+    fn unknown() -> Self {
+        PoolCellState::Unknown
+    }
+
+    fn head(&self) -> Option<&CellOutput> {
+        match *self {
+            PoolCellState::Head(ref output)
+            | PoolCellState::Commit(ref output)
+            | PoolCellState::Orphan(ref output) => Some(output),
+            _ => None,
+        }
+    }
+
+    fn take_head(self) -> Option<CellOutput> {
+        match self {
+            PoolCellState::Head(output)
+            | PoolCellState::Commit(output)
+            | PoolCellState::Orphan(output) => Some(output),
+            _ => None,
+        }
+    }
+
+    fn is_head(&self) -> bool {
+        match *self {
+            PoolCellState::Head(_) | PoolCellState::Commit(_) | PoolCellState::Orphan(_) => true,
+            _ => false,
+        }
+    }
+    fn is_unknown(&self) -> bool {
+        match *self {
+            PoolCellState::Unknown => true,
+            _ => false,
+        }
+    }
+    fn is_tail(&self) -> bool {
+        match *self {
+            PoolCellState::Tail => true,
+            _ => false,
+        }
+    }
+}
+
 impl<T> CellProvider for TransactionPool<T>
 where
     T: ChainProvider,
 {
-    fn cell(&self, o: &OutPoint) -> CellState {
-        if self.pool.read().parent(o) == Parent::AlreadySpent {
-            CellState::Tail
-        } else if let Some(output) = self.pool.read().get_output(o) {
-            CellState::Pool(output)
+    type State = PoolCellState;
+
+    fn cell(&self, o: &OutPoint) -> Self::State {
+        if self.commit.read().outpoint_status(o) == OutPointStatus::Spent {
+            PoolCellState::Tail
+        } else if let Some(output) = self.commit.read().get_output(o) {
+            PoolCellState::Commit(output)
         } else if let Some(output) = self.orphan.read().get_output(o) {
-            CellState::Orphan(output)
+            PoolCellState::Orphan(output)
         } else {
-            self.chain.cell(o)
+            let chain_cell_state = self.chain.cell(o);
+            if chain_cell_state.is_head() {
+                PoolCellState::Head(chain_cell_state.take_head().expect("state checked"))
+            } else if chain_cell_state.is_tail() {
+                PoolCellState::Tail
+            } else {
+                PoolCellState::Unknown
+            }
         }
     }
 
-    fn cell_at(&self, _o: &OutPoint, _parent: &H256) -> CellState {
+    fn cell_at(&self, _o: &OutPoint, _parent: &H256) -> Self::State {
         unreachable!()
     }
 }
@@ -54,7 +136,9 @@ where
     pub fn new(config: PoolConfig, chain: Arc<T>, notify: Notify) -> Arc<TransactionPool<T>> {
         let pool = Arc::new(TransactionPool {
             config,
-            pool: RwLock::new(Pool::new()),
+            candidate: RwLock::new(CandidatePool::new()),
+            proposal: RwLock::new(ProposalPool::new()),
+            commit: RwLock::new(CommitPool::new()),
             orphan: RwLock::new(OrphanPool::new()),
             chain,
             notify,
@@ -93,7 +177,7 @@ where
                 continue;
             }
 
-            self.pool.write().readd_transaction(&tx);
+            self.commit.write().readd_transaction(&tx);
         }
 
         for tx in txs.new_txs().iter().rev() {
@@ -101,7 +185,7 @@ where
                 continue;
             }
 
-            let in_pool = { self.pool.write().commit_transaction(&tx) };
+            let in_pool = { self.commit.write().commit_transaction(&tx) };
             if !in_pool {
                 {
                     self.orphan.write().commit_transaction(&tx);
@@ -113,22 +197,92 @@ where
     }
 
     /// Get the number of transactions in the pool
-    pub fn pool_size(&self) -> usize {
-        self.pool.read().size()
+    pub fn commit_pool_size(&self) -> usize {
+        self.commit.read().size()
     }
 
     /// Get the number of orphans in the pool
-    pub fn orphan_size(&self) -> usize {
+    pub fn orphan_pool_size(&self) -> usize {
         self.orphan.read().size()
+    }
+
+    /// Get the number of orphans in the pool
+    pub fn candidate_pool_size(&self) -> usize {
+        self.candidate.read().size()
     }
 
     /// Get the total size (transactions + orphans) of the pool
     pub fn total_size(&self) -> usize {
-        self.pool_size() + self.orphan_size()
+        self.commit_pool_size() + self.orphan_pool_size()
+    }
+
+    pub fn insert_candidate(&self, tx: IndexedTransaction) -> bool {
+        self.candidate.write().insert(tx)
+    }
+
+    pub fn prepare_proposal(&self, n: usize) -> FnvHashSet<ProposalTransaction> {
+        self.candidate.read().take(n)
+    }
+
+    pub fn query_proposal(
+        &self,
+        block_number: &BlockNumber,
+        filter: impl Iterator<Item = ProposalShortId>,
+    ) -> Option<(Vec<IndexedTransaction>, Vec<ProposalShortId>)> {
+        self.proposal.read().query(block_number, filter)
+    }
+
+    pub fn query_proposal_ids(
+        &self,
+        block_number: &BlockNumber,
+    ) -> Option<FnvHashSet<ProposalShortId>> {
+        self.proposal.read().query_ids(block_number)
+    }
+
+    pub fn proposal_n(&self, block_number: BlockNumber, txs: FnvHashSet<ProposalTransaction>) {
+        self.candidate.write().update_difference(&txs);
+        let clean =
+            block_number.saturating_sub(self.chain.consensus().transaction_propagation_time * 2);
+        let mut proposal = self.proposal.write();
+        proposal.clean(&clean);
+        proposal.insert(block_number, txs.into_iter());
+    }
+
+    pub fn proposal(&self, block_number: BlockNumber, tx: ProposalTransaction) {
+        self.candidate.write().remove(&tx);
+        let clean =
+            block_number.saturating_sub(self.chain.consensus().transaction_propagation_time * 2);
+        let mut proposal = self.proposal.write();
+        proposal.clean(&clean);
+        proposal.insert(block_number, iter::once(tx));
+    }
+
+    pub fn prepare_commit(
+        &self,
+        block_number: BlockNumber,
+        include: &FnvHashSet<ProposalShortId>,
+        n: usize,
+    ) -> Vec<IndexedTransaction> {
+        let t_prop = self.chain.consensus().transaction_propagation_time;
+        let t_timeout = self.chain.consensus().transaction_propagation_timeout;
+
+        // x >= number - t_timeout && x =< block_number - t_prop
+        let end = block_number.saturating_sub(t_prop) + 1;
+        let start = block_number.saturating_sub(t_timeout);
+
+        let mut pre_commit = { self.proposal.read().take(start..end) };
+
+        pre_commit.retain(|tx| include.contains(&tx.proposal_short_id()));
+
+        for tx in pre_commit {
+            let _ = self.add_to_commit_pool(tx.into());
+        }
+
+        self.commit.read().get_mineable_transactions(n)
     }
 
     /// Attempts to add a transaction to the memory pool.
-    pub fn add_to_memory_pool(&self, tx: Transaction) -> Result<InsertionResult, PoolError> {
+    pub fn add_to_commit_pool(&self, tx: IndexedTransaction) -> Result<InsertionResult, PoolError> {
         // Do we have the capacity to accept this transaction?
         self.is_acceptable()?;
 
@@ -149,15 +303,17 @@ where
             let rtx = self.resolve_transaction(&tx);
 
             for (i, cs) in rtx.input_cells.iter().enumerate() {
-                if !conflict && self.orphan.read().parent(&inputs[i]) == Parent::AlreadySpent {
+                if !conflict
+                    && self.orphan.read().outpoint_status(&inputs[i]) == OutPointStatus::Spent
+                {
                     conflict = true;
                 }
 
                 match cs {
-                    CellState::Orphan(_) => is_orphan = true,
-                    CellState::Unknown => {
+                    PoolCellState::Orphan(_) => is_orphan = true,
+                    PoolCellState::Unknown => {
                         is_orphan = true;
-                        unknowns.push(inputs[i].clone());
+                        unknowns.push(inputs[i]);
                     }
                     _ => {}
                 }
@@ -168,15 +324,15 @@ where
             }
 
             for (i, cs) in rtx.dep_cells.iter().enumerate() {
-                if self.orphan.read().parent(&deps[i]) == Parent::AlreadySpent {
+                if self.orphan.read().outpoint_status(&deps[i]) == OutPointStatus::Spent {
                     return Err(PoolError::ConflictOrphan);
                 }
 
                 match cs {
-                    CellState::Orphan(_) => is_orphan = true,
-                    CellState::Unknown => {
+                    PoolCellState::Orphan(_) => is_orphan = true,
+                    PoolCellState::Unknown => {
                         is_orphan = true;
-                        unknowns.push(deps[i].clone());
+                        unknowns.push(deps[i]);
                     }
                     _ => {}
                 }
@@ -190,7 +346,9 @@ where
         }
 
         if is_orphan {
-            self.orphan.write().add_transaction(tx, unknowns);
+            self.orphan
+                .write()
+                .add_transaction(tx, unknowns.into_iter());
             return Ok(InsertionResult::Orphan);
         } else {
             if conflict {
@@ -198,8 +356,8 @@ where
             }
 
             {
-                let mut pool = self.pool.write();
-                pool.add_transaction(tx.clone());
+                let mut commit = self.commit.write();
+                commit.add_transaction(tx.clone());
             }
 
             self.notify.notify_new_transaction();
@@ -209,7 +367,7 @@ where
     }
 
     /// Updates the pool and orphan pool with new transactions.
-    pub fn reconcile_orphan(&self, tx: &Transaction) {
+    pub fn reconcile_orphan(&self, tx: &IndexedTransaction) {
         let txs = {
             let mut orphan = self.orphan.write();
             orphan.commit_transaction(tx);
@@ -219,22 +377,22 @@ where
         for tx in txs {
             let rtx = self.resolve_transaction(&tx);
             if TransactionVerifier::new(&rtx).verify().is_ok() {
-                let mut pool = self.pool.write();
-                pool.add_transaction(tx);
+                let mut commit = self.commit.write();
+                commit.add_transaction(tx);
             }
         }
     }
 
     /// Updates the pool with the details of a new block.
     pub fn reconcile_block(&self, b: &IndexedBlock) {
-        let txs = &b.transactions;
+        let txs = &b.commit_transactions;
 
         for tx in txs {
             if tx.is_cellbase() {
                 continue;
             }
 
-            let in_pool = { self.pool.write().commit_transaction(tx) };
+            let in_pool = { self.commit.write().commit_transaction(tx) };
             if !in_pool {
                 {
                     self.orphan.write().commit_transaction(tx);
@@ -245,21 +403,19 @@ where
         }
     }
 
-    pub fn resolve_conflict(&self, tx: &Transaction) {
+    pub fn resolve_conflict(&self, tx: &IndexedTransaction) {
         if tx.is_cellbase() {
             return;
         }
 
-        self.pool.write().resolve_conflict(tx);
+        self.commit.write().resolve_conflict(tx);
         self.orphan.write().resolve_conflict(tx);
     }
 
-    /// Select a set of mineable transactions for block building.
-    pub fn prepare_mineable_transactions(&self) -> Vec<Transaction> {
-        self.pool
-            .read()
-            .get_mineable_transactions(self.config.max_mining_size)
-    }
+    // /// Select a set of mineable transactions for block building.
+    // pub fn prepare_mineable_transactions(&self, n: usize) -> Vec<IndexedTransaction> {
+    //     self.commit.read().get_mineable_transactions(n)
+    // }
 
     /// Whether the transaction is acceptable to the pool, given both how
     /// full the pool is and the transaction weight.
@@ -272,11 +428,11 @@ where
     }
 
     // Check that the transaction is not in the pool or chain
-    fn check_duplicate(&self, tx: &Transaction) -> Result<(), PoolError> {
+    fn check_duplicate(&self, tx: &IndexedTransaction) -> Result<(), PoolError> {
         let h = tx.hash();
 
         {
-            if self.pool.read().is_pool_tx(&h) || self.orphan.read().is_pool_tx(&h) {
+            if self.commit.read().is_pool_tx(&h) || self.orphan.read().is_pool_tx(&h) {
                 return Err(PoolError::AlreadyInPool);
             }
         }

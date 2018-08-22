@@ -1,7 +1,6 @@
 use bigint::H256;
-use core::block::{Block, IndexedBlock};
-use core::header::IndexedHeader;
-use fnv::FnvHashMap;
+use core::block::IndexedBlock;
+use fnv::{FnvHashMap, FnvHashSet};
 use std::collections::hash_map::Entry;
 use std::collections::VecDeque;
 use util::RwLock;
@@ -11,7 +10,7 @@ pub type ParentHash = H256;
 
 #[derive(Default)]
 pub struct OrphanBlockPool {
-    blocks: RwLock<FnvHashMap<ParentHash, FnvHashMap<BlockHash, Block>>>,
+    blocks: RwLock<FnvHashMap<ParentHash, FnvHashSet<IndexedBlock>>>,
 }
 
 impl OrphanBlockPool {
@@ -29,8 +28,8 @@ impl OrphanBlockPool {
         self.blocks
             .write()
             .entry(block.header.parent_hash)
-            .or_insert_with(FnvHashMap::default)
-            .insert(block.hash(), block.into());
+            .or_insert_with(FnvHashSet::default)
+            .insert(block);
     }
 
     pub fn remove_blocks_by_parent(&self, hash: &H256) -> VecDeque<IndexedBlock> {
@@ -42,21 +41,8 @@ impl OrphanBlockPool {
         while let Some(parent_hash) = queue.pop_front() {
             if let Entry::Occupied(entry) = guard.entry(parent_hash) {
                 let (_, orphaned) = entry.remove_entry();
-                queue.extend(orphaned.keys().cloned());
-                removed.extend(orphaned.into_iter().map(|(h, b)| {
-                    let Block {
-                        header,
-                        transactions,
-                        uncles,
-                    } = b;
-                    let header = IndexedHeader::new(header, h);
-
-                    IndexedBlock {
-                        header,
-                        transactions,
-                        uncles,
-                    }
-                }));
+                queue.extend(orphaned.iter().map(|b| b.hash()));
+                removed.extend(orphaned.into_iter());
             }
         }
         removed
@@ -92,6 +78,7 @@ mod tests {
                 parent_hash: parent_header.hash(),
                 timestamp: time,
                 txs_commit: H256::zero(),
+                txs_proposal: H256::zero(),
                 difficulty: U256::zero(),
                 cellbase_id: H256::zero(),
                 uncles_hash: H256::zero(),
@@ -104,8 +91,9 @@ mod tests {
 
         IndexedBlock {
             header: header.into(),
-            transactions: vec![],
             uncles: vec![],
+            commit_transactions: vec![],
+            proposal_transactions: vec![],
         }
     }
 

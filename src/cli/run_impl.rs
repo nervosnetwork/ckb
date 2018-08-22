@@ -65,14 +65,6 @@ pub fn run(setup: Setup) {
     let network = Arc::new(NetworkService::new(network_config, None).expect("Create network"));
 
     let sync_protocol = Arc::new(SyncProtocol::new(synchronizer.clone()));
-    let sync_protocol_clone = Arc::clone(&sync_protocol);
-
-    let _ = thread::Builder::new()
-        .name("sync".to_string())
-        .spawn(move || {
-            sync_protocol_clone.start();
-        });
-
     let relay_protocol = Arc::new(RelayProtocol::new(synchronizer, &tx_pool));
     let protocols = vec![
         (sync_protocol as Arc<_>, SYNC_PROTOCOL_ID, &[(1, 1)][..]),

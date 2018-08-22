@@ -6,7 +6,9 @@ use chain::chain::{ChainBuilder, ChainProvider};
 use chain::store::ChainKVStore;
 use core::block::IndexedBlock;
 use core::header::{Header, IndexedHeader, RawHeader, Seal};
-use core::transaction::{CellInput, CellOutput, Transaction, VERSION};
+use core::transaction::{
+    CellInput, CellOutput, IndexedTransaction, ProposalShortId, Transaction, VERSION,
+};
 use core::uncle::UncleBlock;
 use core::BlockNumber;
 use db::memorydb::MemoryKeyValueDB;
@@ -25,6 +27,7 @@ fn gen_block(parent_header: IndexedHeader, nonce: u64, difficulty: U256) -> Inde
             parent_hash: parent_header.hash(),
             timestamp: now,
             txs_commit: H256::zero(),
+            txs_proposal: H256::zero(),
             cellbase_id: cellbase.hash(),
             uncles_hash: H256::zero(),
         },
@@ -36,21 +39,23 @@ fn gen_block(parent_header: IndexedHeader, nonce: u64, difficulty: U256) -> Inde
 
     IndexedBlock {
         header: header.into(),
-        transactions: vec![cellbase],
         uncles: vec![],
+        commit_transactions: vec![cellbase],
+        proposal_transactions: vec![ProposalShortId::from_slice(&[1; 10]).unwrap()],
     }
 }
 
-fn create_cellbase(number: BlockNumber) -> Transaction {
+fn create_cellbase(number: BlockNumber) -> IndexedTransaction {
     let inputs = vec![CellInput::new_cellbase_input(number)];
     let outputs = vec![CellOutput::new(0, vec![], H256::from(0))];
-    Transaction::new(VERSION, Vec::new(), inputs, outputs)
+    Transaction::new(VERSION, Vec::new(), inputs, outputs).into()
 }
 
 fn push_uncle(block: &mut IndexedBlock, uncle: &IndexedBlock) {
     let uncle = UncleBlock {
         header: uncle.header.header.clone(),
-        cellbase: uncle.transactions.first().cloned().unwrap(),
+        cellbase: uncle.commit_transactions.first().cloned().unwrap().into(),
+        proposal_transactions: uncle.proposal_transactions.clone(),
     };
 
     block.uncles.push(uncle);
@@ -95,7 +100,8 @@ fn test_uncle_verifier() {
 
     let uncle_block = UncleBlock {
         header: uncle.header.header.clone(),
-        cellbase: uncle.transactions.first().cloned().unwrap(),
+        cellbase: uncle.commit_transactions.first().cloned().unwrap().into(),
+        proposal_transactions: uncle.proposal_transactions.clone(),
     };
 
     block.uncles.push(uncle_block);

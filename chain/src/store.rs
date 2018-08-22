@@ -8,15 +8,17 @@ use bincode::{deserialize, serialize};
 use core::block::IndexedBlock;
 use core::extras::BlockExt;
 use core::header::IndexedHeader;
-use core::transaction::{OutPoint, Transaction};
+use core::transaction::{IndexedTransaction, OutPoint, ProposalShortId, Transaction};
 use core::transaction_meta::TransactionMeta;
 use core::uncle::UncleBlock;
 use db::batch::{Batch, Col};
 use db::kvdb::KeyValueDB;
+use error::Error;
 use std::ops::Deref;
 use std::ops::Range;
 use {
-    COLUMN_BLOCK_BODY, COLUMN_BLOCK_HEADER, COLUMN_BLOCK_TRANSACTION_ADDRESSES, COLUMN_BLOCK_UNCLE,
+    COLUMN_BLOCK_BODY, COLUMN_BLOCK_HEADER, COLUMN_BLOCK_PROPOSAL_IDS,
+    COLUMN_BLOCK_TRANSACTION_ADDRESSES, COLUMN_BLOCK_TRANSACTION_IDS, COLUMN_BLOCK_UNCLE,
     COLUMN_EXT, COLUMN_OUTPUT_ROOT, COLUMN_TRANSACTION_META,
 };
 
@@ -48,13 +50,15 @@ pub trait ChainStore: Sync + Send {
     fn get_block(&self, block_hash: &H256) -> Option<IndexedBlock>;
     fn get_header(&self, block_hash: &H256) -> Option<IndexedHeader>;
     fn get_output_root(&self, block_hash: &H256) -> Option<H256>;
-    fn get_block_body(&self, block_hash: &H256) -> Option<Vec<Transaction>>;
+    fn get_block_body(&self, block_hash: &H256) -> Option<Vec<IndexedTransaction>>;
+    fn get_block_proposal_txs_ids(&self, h: &H256) -> Option<Vec<ProposalShortId>>;
     fn get_block_uncles(&self, block_hash: &H256) -> Option<Vec<UncleBlock>>;
     fn get_transaction_meta(&self, root: H256, key: H256) -> Option<TransactionMeta>;
     fn get_block_ext(&self, block_hash: &H256) -> Option<BlockExt>;
 
     fn update_transaction_meta(
         &self,
+        batch: &mut Batch,
         root: H256,
         cells: Vec<(Vec<OutPoint>, Vec<OutPoint>)>,
     ) -> Option<H256>;
@@ -62,7 +66,10 @@ pub trait ChainStore: Sync + Send {
     fn insert_block(&self, batch: &mut Batch, b: &IndexedBlock);
     fn insert_block_ext(&self, batch: &mut Batch, block_hash: &H256, ext: &BlockExt);
     fn insert_output_root(&self, batch: &mut Batch, block_hash: H256, r: H256);
-    fn save_with_batch<F: FnOnce(&mut Batch)>(&self, f: F);
+    fn save_with_batch<F: FnOnce(&mut Batch) -> Result<(), Error>>(
+        &self,
+        f: F,
+    ) -> Result<(), Error>;
 
     /// Visits block headers backward to genesis.
     fn headers_iter<'a>(&'a self, head: IndexedHeader) -> ChainStoreHeaderIterator<'a, Self>
@@ -106,16 +113,20 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
     // TODO error log
     fn get_block(&self, h: &H256) -> Option<IndexedBlock> {
         self.get_header(h).and_then(|header| {
-            let transactions = self
+            let commit_transactions = self
                 .get_block_body(h)
                 .expect("block transactions must be stored");
             let uncles = self
                 .get_block_uncles(h)
                 .expect("block uncles must be stored");
+            let proposal_transactions = self
+                .get_block_proposal_txs_ids(h)
+                .expect("block proposal_ids must be stored");
             Some(IndexedBlock {
                 header,
-                transactions,
+                commit_transactions,
                 uncles,
+                proposal_transactions,
             })
         })
     }
@@ -130,12 +141,28 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
             .map(|raw| deserialize(&raw[..]).unwrap())
     }
 
-    fn get_block_body(&self, h: &H256) -> Option<Vec<Transaction>> {
+    fn get_block_proposal_txs_ids(&self, h: &H256) -> Option<Vec<ProposalShortId>> {
+        self.get(COLUMN_BLOCK_PROPOSAL_IDS, &h)
+            .map(|raw| deserialize(&raw[..]).unwrap())
+    }
+
+    fn get_block_body(&self, h: &H256) -> Option<Vec<IndexedTransaction>> {
         self.get(COLUMN_BLOCK_TRANSACTION_ADDRESSES, &h)
             .and_then(|serialized_addresses| {
                 let addresses: Vec<Address> = deserialize(&serialized_addresses).unwrap();
-                self.get(COLUMN_BLOCK_BODY, &h)
-                    .map(|serialized_body| flat_deserialize(&serialized_body, &addresses).unwrap())
+                self.get(COLUMN_BLOCK_BODY, &h).and_then(|serialized_body| {
+                    let txs: Vec<Transaction> =
+                        flat_deserialize(&serialized_body, &addresses).unwrap();
+                    self.get(COLUMN_BLOCK_TRANSACTION_IDS, &h)
+                        .map(|serialized_ids| (txs, serialized_ids))
+                })
+            })
+            .map(|(txs, serialized_ids)| {
+                let txs_ids: Vec<H256> = deserialize(&serialized_ids[..]).unwrap();
+                txs.into_iter()
+                    .zip(txs_ids.into_iter())
+                    .map(|(tx, id)| IndexedTransaction::new(tx, id))
+                    .collect()
             })
     }
 
@@ -155,6 +182,7 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
 
     fn update_transaction_meta(
         &self,
+        batch: &mut Batch,
         root: H256,
         cells: Vec<(Vec<OutPoint>, Vec<OutPoint>)>,
     ) -> Option<H256> {
@@ -185,42 +213,58 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
             }
         }
 
-        Some(avl.commit())
+        Some(avl.commit(batch))
     }
 
-    fn save_with_batch<F: FnOnce(&mut Batch)>(&self, f: F) {
+    fn save_with_batch<F: FnOnce(&mut Batch) -> Result<(), Error>>(
+        &self,
+        f: F,
+    ) -> Result<(), Error> {
         let mut batch = Batch::new();
-        f(&mut batch);
-        self.db.write(batch).expect("db operation should be ok")
+        f(&mut batch)?;
+        self.db.write(batch)?;
+        Ok(())
     }
 
     fn insert_block(&self, batch: &mut Batch, b: &IndexedBlock) {
         let hash = b.hash().to_vec();
+        let txs_ids = b
+            .commit_transactions
+            .iter()
+            .map(|tx| tx.hash())
+            .collect::<Vec<H256>>();
         batch.insert(
             COLUMN_BLOCK_HEADER,
             hash.clone(),
-            serialize(&b.header.deref()).unwrap().to_vec(),
+            serialize(&b.header.deref()).unwrap(),
         );
-        let (block_data, block_addresses) = flat_serialize(&b.transactions).unwrap();
+        let (block_data, block_addresses) =
+            flat_serialize(b.commit_transactions.iter().map(|tx| tx.deref())).unwrap();
+        batch.insert(
+            COLUMN_BLOCK_TRANSACTION_IDS,
+            hash.clone(),
+            serialize(&txs_ids).unwrap(),
+        );
         batch.insert(
             COLUMN_BLOCK_UNCLE,
             hash.clone(),
-            serialize(&b.uncles).unwrap().to_vec(),
+            serialize(&b.uncles).unwrap(),
         );
         batch.insert(COLUMN_BLOCK_BODY, hash.clone(), block_data);
         batch.insert(
+            COLUMN_BLOCK_PROPOSAL_IDS,
+            hash.clone(),
+            serialize(&b.proposal_transactions).unwrap(),
+        );
+        batch.insert(
             COLUMN_BLOCK_TRANSACTION_ADDRESSES,
             hash,
-            serialize(&block_addresses).unwrap().to_vec(),
+            serialize(&block_addresses).unwrap(),
         );
     }
 
     fn insert_block_ext(&self, batch: &mut Batch, block_hash: &H256, ext: &BlockExt) {
-        batch.insert(
-            COLUMN_EXT,
-            block_hash.to_vec(),
-            serialize(&ext).unwrap().to_vec(),
-        );
+        batch.insert(COLUMN_EXT, block_hash.to_vec(), serialize(&ext).unwrap());
     }
 
     fn insert_output_root(&self, batch: &mut Batch, block_hash: H256, r: H256) {
@@ -243,9 +287,14 @@ mod tests {
         let db = RocksDB::open(tmp_dir, COLUMNS);
         let store = ChainKVStore { db: db };
 
-        store.save_with_batch(|batch| {
-            store.insert_output_root(batch, H256::from(10), H256::from(20));
-        });
+        assert!(
+            store
+                .save_with_batch(|batch| {
+                    store.insert_output_root(batch, H256::from(10), H256::from(20));
+                    Ok(())
+                })
+                .is_ok()
+        );
         assert_eq!(
             H256::from(20),
             store.get_output_root(&H256::from(10)).unwrap()
@@ -261,10 +310,14 @@ mod tests {
         let block = consensus.genesis_block();
 
         let hash = block.hash();
-
-        store.save_with_batch(|batch| {
-            store.insert_block(batch, &block);
-        });
+        assert!(
+            store
+                .save_with_batch(|batch| {
+                    store.insert_block(batch, &block);
+                    Ok(())
+                })
+                .is_ok()
+        );
         assert_eq!(block, &store.get_block(&hash).unwrap());
     }
 
@@ -275,15 +328,25 @@ mod tests {
         let store = ChainKVStore { db: db };
         let consensus = Consensus::default();
         let mut block = consensus.genesis_block().clone();
-        block.transactions.push(create_dummy_transaction());
-        block.transactions.push(create_dummy_transaction());
-        block.transactions.push(create_dummy_transaction());
+        block
+            .commit_transactions
+            .push(create_dummy_transaction().into());
+        block
+            .commit_transactions
+            .push(create_dummy_transaction().into());
+        block
+            .commit_transactions
+            .push(create_dummy_transaction().into());
 
         let hash = block.hash();
-
-        store.save_with_batch(|batch| {
-            store.insert_block(batch, &block);
-        });
+        assert!(
+            store
+                .save_with_batch(|batch| {
+                    store.insert_block(batch, &block);
+                    Ok(())
+                })
+                .is_ok()
+        );
         assert_eq!(block, store.get_block(&hash).unwrap());
     }
 
@@ -303,9 +366,14 @@ mod tests {
 
         let hash = block.hash();
 
-        store.save_with_batch(|batch| {
-            store.insert_block_ext(batch, &hash, &ext);
-        });
+        assert!(
+            store
+                .save_with_batch(|batch| {
+                    store.insert_block_ext(batch, &hash, &ext);
+                    Ok(())
+                })
+                .is_ok()
+        );
         assert_eq!(ext, store.get_block_ext(&hash).unwrap());
     }
 

@@ -95,7 +95,7 @@ curl -d '{"id": 2, "jsonrpc": "2.0", "method":"send_transaction","params": [{"ve
 Install protobuf:
 
 ```shell
-cargo install protobuf-codegen --force --vers 2.0.2
+cargo install protobuf-codegen --force --vers 2.0.4
 ```
 
 Generate code from proto definition:

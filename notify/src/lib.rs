@@ -6,13 +6,13 @@ extern crate crossbeam_channel;
 extern crate fnv;
 
 use core::block::IndexedBlock;
-use core::transaction::Transaction;
+use core::transaction::IndexedTransaction;
 use fnv::FnvHashMap;
 use std::sync::Arc;
 use util::RwLock;
 
-pub type OldTxs = Vec<Transaction>;
-pub type NewTxs = Vec<Transaction>;
+pub type OldTxs = Vec<IndexedTransaction>;
+pub type NewTxs = Vec<IndexedTransaction>;
 
 pub const MINER_SUBSCRIBER: &str = "miner";
 pub const TXS_POOL_SUBSCRIBER: &str = "txs_pool";
@@ -21,11 +21,11 @@ pub const TXS_POOL_SUBSCRIBER: &str = "txs_pool";
 pub struct ForkTxs(pub OldTxs, pub NewTxs);
 
 impl ForkTxs {
-    pub fn old_txs(&self) -> &Vec<Transaction> {
+    pub fn old_txs(&self) -> &Vec<IndexedTransaction> {
         &self.0
     }
 
-    pub fn new_txs(&self) -> &Vec<Transaction> {
+    pub fn new_txs(&self) -> &Vec<IndexedTransaction> {
         &self.1
     }
 }

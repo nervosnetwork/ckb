@@ -3,7 +3,7 @@ use byteorder::{ByteOrder, LittleEndian, WriteBytesExt};
 use ckb_protocol;
 use core::block::IndexedBlock;
 use core::header::Header;
-use core::transaction::Transaction;
+use core::transaction::{ProposalShortId, Transaction};
 use core::uncle::UncleBlock;
 use hash::sha3_256;
 use rand::{thread_rng, Rng};
@@ -20,6 +20,7 @@ pub struct CompactBlock {
     pub nonce: u64,
     pub short_ids: Vec<ShortTransactionID>,
     pub prefilled_transactions: Vec<PrefilledTransaction>,
+    pub proposal_transactions: Vec<ProposalShortId>,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -61,19 +62,19 @@ impl<'a, S: ::std::hash::BuildHasher> CompactBlockBuilder<'a, S> {
 
         let prefilled_transactions_len = self.prefilled_transactions_indexes.len();
         let mut short_ids: Vec<ShortTransactionID> =
-            Vec::with_capacity(self.block.transactions.len() - prefilled_transactions_len);
+            Vec::with_capacity(self.block.commit_transactions.len() - prefilled_transactions_len);
         let mut prefilled_transactions: Vec<PrefilledTransaction> =
             Vec::with_capacity(prefilled_transactions_len);
 
         let (key0, key1) = short_transaction_id_keys(nonce, &self.block.header);
-        for (transaction_index, transaction) in self.block.transactions.iter().enumerate() {
+        for (transaction_index, transaction) in self.block.commit_transactions.iter().enumerate() {
             if self
                 .prefilled_transactions_indexes
                 .contains(&transaction_index) || transaction.is_cellbase()
             {
                 prefilled_transactions.push(PrefilledTransaction {
                     index: transaction_index,
-                    transaction: transaction.clone(),
+                    transaction: transaction.clone().into(),
                 })
             } else {
                 short_ids.push(short_transaction_id(key0, key1, &transaction.hash()));
@@ -86,6 +87,7 @@ impl<'a, S: ::std::hash::BuildHasher> CompactBlockBuilder<'a, S> {
             nonce,
             short_ids,
             prefilled_transactions,
+            proposal_transactions: self.block.proposal_transactions.clone(),
         }
     }
 }
@@ -133,6 +135,11 @@ impl<'a> From<&'a ckb_protocol::CompactBlock> for CompactBlock {
                 .map(Into::into)
                 .collect(),
             uncles: b.get_uncles().iter().map(Into::into).collect(),
+            proposal_transactions: b
+                .get_proposal_transactions()
+                .iter()
+                .filter_map(|id| ProposalShortId::from_slice(&id))
+                .collect(),
         }
     }
 }
@@ -150,6 +157,9 @@ impl From<CompactBlock> for ckb_protocol::CompactBlock {
         );
         block.set_uncles(b.uncles.iter().map(Into::into).collect());
         block.set_prefilled_transactions(b.prefilled_transactions.iter().map(Into::into).collect());
+        block.set_proposal_transactions(
+            b.proposal_transactions.iter().map(|t| t.to_vec()).collect(),
+        );
         block
     }
 }
@@ -178,6 +188,7 @@ mod tests {
     use bigint::U256;
     use core::block::IndexedBlock;
     use core::header::{RawHeader, Seal};
+    use core::transaction::{IndexedTransaction, ProposalShortId};
     use protobuf;
     use protobuf::Message;
 
@@ -191,6 +202,7 @@ mod tests {
                 parent_hash: H256::zero(),
                 timestamp: 10,
                 txs_commit: H256::zero(),
+                txs_proposal: H256::zero(),
                 difficulty: U256::zero(),
                 cellbase_id: cellbase.hash(),
                 uncles_hash: H256::zero(),
@@ -203,17 +215,18 @@ mod tests {
 
         IndexedBlock {
             header: header.into(),
-            transactions: vec![cellbase],
             uncles,
+            commit_transactions: vec![cellbase],
+            proposal_transactions: vec![ProposalShortId::from_slice(&[1; 10]).unwrap()],
         }
     }
 
-    fn dummy_cellbase() -> Transaction {
+    fn dummy_cellbase() -> IndexedTransaction {
         use core::transaction::{CellInput, CellOutput, VERSION};
 
         let inputs = vec![CellInput::new_cellbase_input(0)];
         let outputs = vec![CellOutput::new(0, vec![], H256::from(0))];
-        Transaction::new(VERSION, vec![], inputs, outputs)
+        Transaction::new(VERSION, vec![], inputs, outputs).into()
     }
 
     fn dummy_uncle() -> UncleBlock {
@@ -225,6 +238,7 @@ mod tests {
                 parent_hash: H256::zero(),
                 timestamp: 10,
                 txs_commit: H256::zero(),
+                txs_proposal: H256::zero(),
                 difficulty: U256::zero(),
                 cellbase_id: cellbase.hash(),
                 uncles_hash: H256::zero(),
@@ -234,7 +248,11 @@ mod tests {
                 mix_hash: H256::zero(),
             },
         };
-        UncleBlock { header, cellbase }
+        UncleBlock {
+            header,
+            cellbase: cellbase.into(),
+            proposal_transactions: vec![ProposalShortId::from_slice(&[1; 10]).unwrap()],
+        }
     }
 
     #[test]

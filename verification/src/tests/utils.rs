@@ -16,6 +16,7 @@ pub fn create_dummy_block() -> IndexedBlock {
         timestamp: 0,
         number: 123,
         txs_commit: H256::zero(),
+        txs_proposal: H256::zero(),
         difficulty: U256::zero(),
         cellbase_id: H256::zero(),
         uncles_hash: H256::zero(),
@@ -29,7 +30,8 @@ pub fn create_dummy_block() -> IndexedBlock {
     };
     IndexedBlock {
         header: header.into(),
-        transactions: vec![],
+        commit_transactions: vec![],
+        proposal_transactions: vec![],
         uncles: vec![],
     }
 }
