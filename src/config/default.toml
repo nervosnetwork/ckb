@@ -28,6 +28,11 @@ listen_addr = "0.0.0.0:0"
 verification_level = "Full"
 orphan_block_limit = 1024
 
+[pool]
+max_pool_size = 65535
+max_mining_size = 4095
+
 [miner]
 max_tx              = 1024
+new_transactions_threshold = 8
 redeem_script_hash  = "0x6463e95f5f1f15415962563b0d4227635d8ae2a74137afbe3e052ef1f9470074"

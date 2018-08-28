@@ -146,16 +146,12 @@ fn test_uncle_verifier() {
     assert_eq!(verify, Err(Error::UnknownParent(uncle.header.parent_hash)));
 
     for block in &chain1 {
-        chain
-            .process_block(&block, false)
-            .expect("process block ok");
+        chain.process_block(&block).expect("process block ok");
     }
 
     // chain2's block in index now
     for block in &chain2 {
-        chain
-            .process_block(&block, false)
-            .expect("process block ok");
+        chain.process_block(&block).expect("process block ok");
     }
 
     let mut block = chain1.get(10).cloned().unwrap();

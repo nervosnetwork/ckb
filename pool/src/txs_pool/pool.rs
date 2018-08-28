@@ -202,9 +202,7 @@ where
                 pool.add_transaction(tx.clone());
             }
 
-            self.reconcile_orphan(&tx);
-
-            self.notify.notify_new_transaction::<fn(&str) -> bool>(None);
+            self.notify.notify_new_transaction();
         }
 
         Ok(InsertionResult::Normal)
@@ -257,8 +255,10 @@ where
     }
 
     /// Select a set of mineable transactions for block building.
-    pub fn prepare_mineable_transactions(&self, n: usize) -> Vec<Transaction> {
-        self.pool.read().get_mineable_transactions(n)
+    pub fn prepare_mineable_transactions(&self) -> Vec<Transaction> {
+        self.pool
+            .read()
+            .get_mineable_transactions(self.config.max_mining_size)
     }
 
     /// Whether the transaction is acceptable to the pool, given both how

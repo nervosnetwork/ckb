@@ -400,7 +400,7 @@ where
 
     fn accept_block(&self, peer: PeerId, block: &IndexedBlock) -> Result<(), AcceptBlockError> {
         BlockVerifier::new(block, &self.chain, self.ethash.clone()).verify()?;
-        self.chain.process_block(&block, false)?;
+        self.chain.process_block(&block)?;
         self.mark_block_stored(block.hash());
         self.peers.set_last_common_header(peer, &block.header);
         Ok(())
@@ -467,7 +467,7 @@ mod tests {
     use ckb_chain::index::ChainIndex;
     use ckb_chain::store::ChainKVStore;
     use ckb_chain::COLUMNS;
-    use ckb_notify::{Event, Notify, MINER_SUBSCRIBER};
+    use ckb_notify::{Notify, MINER_SUBSCRIBER};
     use ckb_protocol;
     use core::header::{Header, RawHeader, Seal};
     use core::transaction::{CellInput, CellOutput, Transaction, VERSION};
@@ -574,9 +574,7 @@ mod tests {
             transactions: txs,
             uncles: vec![],
         };
-        chain
-            .process_block(&block, false)
-            .expect("process block ok");
+        chain.process_block(&block).expect("process block ok");
     }
 
     #[test]
@@ -660,13 +658,9 @@ mod tests {
             let new_block = gen_block(parent, difficulty, i);
             blocks.push(new_block.clone());
 
-            chain1
-                .process_block(&new_block, false)
-                .expect("process block ok");
+            chain1.process_block(&new_block).expect("process block ok");
 
-            chain2
-                .process_block(&new_block, false)
-                .expect("process block ok");
+            chain2.process_block(&new_block).expect("process block ok");
             parent = new_block.header;
         }
 
@@ -675,9 +669,7 @@ mod tests {
         for i in 1..block_number + 1 {
             let difficulty = chain1.calculate_difficulty(&parent).unwrap();
             let new_block = gen_block(parent, difficulty, i + 100);
-            chain2
-                .process_block(&new_block, false)
-                .expect("process block ok");
+            chain2.process_block(&new_block).expect("process block ok");
             parent = new_block.header;
         }
 
@@ -739,9 +731,7 @@ mod tests {
         for i in 1..block_number {
             let difficulty = chain1.calculate_difficulty(&parent).unwrap();
             let new_block = gen_block(parent, difficulty, i + 100);
-            chain1
-                .process_block(&new_block, false)
-                .expect("process block ok");
+            chain1.process_block(&new_block).expect("process block ok");
             blocks.push(new_block.clone());
             parent = new_block.header;
         }
@@ -770,9 +760,7 @@ mod tests {
             let difficulty = chain.calculate_difficulty(&parent).unwrap();
             let new_block = gen_block(parent, difficulty, i + 100);
             blocks.push(new_block.clone());
-            chain
-                .process_block(&new_block, false)
-                .expect("process block ok");
+            chain.process_block(&new_block).expect("process block ok");
             parent = new_block.header;
         }
 
@@ -916,7 +904,6 @@ mod tests {
         let (tx, rx) = crossbeam_channel::unbounded();
         notify.register_transaction_subscriber(MINER_SUBSCRIBER, tx.clone());
         notify.register_tip_subscriber(MINER_SUBSCRIBER, tx.clone());
-        notify.register_side_chain_subscriber(MINER_SUBSCRIBER, tx);
 
         pub struct TryIter<'a, T: 'a> {
             pub inner: &'a Receiver<T>,
@@ -939,26 +926,15 @@ mod tests {
             ).execute();
         }
 
-        let mut iter = TryIter { inner: &rx };
-
-        {
-            assert_eq!(
-                &synchronizer1
-                    .peers
-                    .last_common_headers
-                    .read()
-                    .get(&peer)
-                    .unwrap()
-                    .hash(),
-                blocks_to_fetch.last().unwrap()
-            );
-        }
-
         assert_eq!(
-            iter.next(),
-            Some(Event::SideChainBlock(Arc::new(
-                fetched_blocks.first().cloned().unwrap()
-            )))
+            &synchronizer1
+                .peers
+                .last_common_headers
+                .read()
+                .get(&peer)
+                .unwrap()
+                .hash(),
+            blocks_to_fetch.last().unwrap()
         );
     }
 }

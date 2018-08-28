@@ -238,7 +238,7 @@ fn setup_node(height: u64) -> (TestNode, Arc<Chain<ChainKVStore<MemoryKeyValueDB
             header: header.into(),
             transactions,
         };
-        chain.process_block(&block, false).unwrap();
+        chain.process_block(&block).unwrap();
     }
 
     let synchronizer = Synchronizer::new(&chain, notify.clone(), None, SyncConfig::default());

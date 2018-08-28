@@ -1,10 +1,9 @@
+use super::BlockTemplate;
 use bigint::{H256, U256};
 use core::block::Block;
 use core::difficulty::difficulty_to_boundary;
-use core::header::{BlockNumber, RawHeader};
-use core::uncle::uncles_hash;
+use core::header::BlockNumber;
 use ethash::Ethash;
-use miner::Work;
 use rand::{thread_rng, Rng};
 use std::sync::mpsc;
 use std::sync::Arc;
@@ -56,34 +55,21 @@ impl Sealer {
         )
     }
 
-    pub fn seal(&self, work: Work) -> Option<Block> {
-        let Work {
-            time,
-            tip,
-            cellbase,
-            difficulty,
-            mut transactions,
-            signal,
+    pub fn seal(&self, block_template: BlockTemplate, signal: &Signal) -> Option<Block> {
+        let BlockTemplate {
+            raw_header,
+            transactions,
             uncles,
-        } = work;
-
-        let uncles_hash = uncles_hash(&uncles);
-        let cellbase_id = cellbase.hash();
-        transactions.insert(0, cellbase);
-
-        let raw_header = RawHeader::new(
-            &tip,
-            transactions.iter(),
-            time,
-            difficulty,
-            cellbase_id,
-            uncles_hash,
-        );
-        let pow_hash = raw_header.pow_hash();
-        let number = raw_header.number;
+        } = block_template;
 
         let nonce: u64 = thread_rng().gen();
-        match self.mine(pow_hash, number, nonce, difficulty, &signal) {
+        match self.mine(
+            raw_header.pow_hash(),
+            raw_header.number,
+            nonce,
+            raw_header.difficulty,
+            &signal,
+        ) {
             self::Message::Found(solution) => {
                 let Solution { nonce, mix_hash } = solution;
                 let header = raw_header.with_seal(nonce, mix_hash);

@@ -7,6 +7,7 @@ use core::extras::BlockExt;
 use core::header::{BlockNumber, IndexedHeader};
 use core::transaction::{Capacity, IndexedTransaction, OutPoint, Transaction};
 use core::transaction_meta::TransactionMeta;
+use core::uncle::UncleBlock;
 use std::collections::HashMap;
 use tests::util::RwLock;
 
@@ -24,7 +25,7 @@ impl ChainProvider for DummyChainClient {
         self.transaction_fees[&transaction.hash()].clone()
     }
 
-    fn process_block(&self, _b: &IndexedBlock, _local: bool) -> Result<(), Error> {
+    fn process_block(&self, _b: &IndexedBlock) -> Result<(), Error> {
         panic!("Not implemented!");
     }
 
@@ -69,6 +70,10 @@ impl ChainProvider for DummyChainClient {
     }
 
     fn block(&self, _hash: &H256) -> Option<IndexedBlock> {
+        panic!("Not implemented!");
+    }
+
+    fn get_tip_uncles(&self) -> Vec<UncleBlock> {
         panic!("Not implemented!");
     }
 

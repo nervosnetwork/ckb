@@ -1,7 +1,7 @@
 use super::{COLUMNS, COLUMN_BLOCK_HEADER};
 use bigint::{H256, U256};
 use cachedb::CacheDB;
-use ckb_notify::{ForkTxs, Notify, MINER_SUBSCRIBER};
+use ckb_notify::{ForkTxs, Notify};
 use consensus::Consensus;
 use core::block::IndexedBlock;
 use core::cell::{CellProvider, CellState};
@@ -9,17 +9,20 @@ use core::extras::BlockExt;
 use core::header::{BlockNumber, IndexedHeader};
 use core::transaction::{Capacity, IndexedTransaction, OutPoint, Transaction};
 use core::transaction_meta::TransactionMeta;
+use core::uncle::UncleBlock;
 use db::batch::Batch;
 use db::diskdb::RocksDB;
 use db::kvdb::KeyValueDB;
 use db::memorydb::MemoryKeyValueDB;
+use fnv::{FnvHashMap, FnvHashSet};
 use index::ChainIndex;
 use log;
 use std::cmp;
 use std::path::Path;
+use std::sync::Arc;
 use store::ChainKVStore;
 use time::now_ms;
-use util::RwLock;
+use util::{RwLock, RwLockUpgradableReadGuard};
 
 #[derive(Debug, PartialEq, Clone, Eq)]
 pub enum Error {
@@ -38,6 +41,7 @@ pub struct Chain<CS> {
     store: CS,
     tip_header: RwLock<TipHeader>,
     consensus: Consensus,
+    candidate_uncles: Arc<RwLock<FnvHashMap<H256, Arc<IndexedBlock>>>>,
     notify: Notify,
 }
 
@@ -47,12 +51,8 @@ pub struct BlockInsertionResult {
     pub new_best_block: bool,
 }
 
-pub fn exclude_miner_sub(name: &str) -> bool {
-    name != MINER_SUBSCRIBER
-}
-
 pub trait ChainProvider: Sync + Send + CellProvider {
-    fn process_block(&self, b: &IndexedBlock, local: bool) -> Result<(), Error>;
+    fn process_block(&self, b: &IndexedBlock) -> Result<(), Error>;
 
     fn block_header(&self, hash: &H256) -> Option<IndexedHeader>;
 
@@ -73,6 +73,8 @@ pub trait ChainProvider: Sync + Send + CellProvider {
     fn consensus(&self) -> &Consensus;
 
     fn get_ancestor(&self, base: &H256, number: BlockNumber) -> Option<IndexedHeader>;
+
+    fn get_tip_uncles(&self) -> Vec<UncleBlock>;
 
     //FIXME: This is bad idea
     fn tip_header(&self) -> &RwLock<TipHeader>;
@@ -167,6 +169,7 @@ impl<CS: ChainIndex> Chain<CS> {
             store,
             consensus,
             tip_header: RwLock::new(tip_header),
+            candidate_uncles: Default::default(),
             notify,
         })
     }
@@ -252,30 +255,24 @@ impl<CS: ChainIndex> Chain<CS> {
         }
     }
 
-    pub fn notify_insert_result(
-        &self,
-        b: &IndexedBlock,
-        result: BlockInsertionResult,
-        local: bool,
-    ) {
+    fn post_insert_result(&self, block: &IndexedBlock, result: BlockInsertionResult) {
         let BlockInsertionResult {
             new_best_block,
             fork_txs,
         } = result;
         if !fork_txs.old_txs().is_empty() || !fork_txs.new_txs().is_empty() {
-            self.notify
-                .notify_switch_fork::<fn(&str) -> bool>(fork_txs, None);
+            self.notify.notify_switch_fork(fork_txs);
         }
 
-        let filter = if local { Some(exclude_miner_sub) } else { None };
-
         if new_best_block {
-            self.notify.notify_new_tip(b, filter);
+            self.notify.notify_new_tip(block);
             if log_enabled!(target: "chain", log::Level::Debug) {
                 self.print_chain(10);
             }
         } else {
-            self.notify.notify_side_chain_block(b, filter);
+            self.candidate_uncles
+                .write()
+                .insert(block.hash(), Arc::new(block.clone()));
         }
     }
 
@@ -368,12 +365,12 @@ impl<CS: ChainIndex> Chain<CS> {
 }
 
 impl<CS: ChainIndex> ChainProvider for Chain<CS> {
-    fn process_block(&self, b: &IndexedBlock, local: bool) -> Result<(), Error> {
+    fn process_block(&self, b: &IndexedBlock) -> Result<(), Error> {
         debug!(target: "chain", "begin processing block: {}", b.hash());
 
         let root = self.check_transactions(b)?;
         let insert_result = self.insert_block(b, root);
-        self.notify_insert_result(b, insert_result, local);
+        self.post_insert_result(b, insert_result);
         debug!(target: "chain", "finish processing block");
         Ok(())
     }
@@ -448,6 +445,75 @@ impl<CS: ChainIndex> ChainProvider for Chain<CS> {
         } else {
             self.store.get_header(hash)
         }
+    }
+
+    fn get_tip_uncles(&self) -> Vec<UncleBlock> {
+        let max_uncles_age = self.consensus().max_uncles_age();
+        let header = self.tip_header().read().header.clone();
+        let mut excluded = FnvHashSet::default();
+
+        // cB
+        // tip      1 depth, valid uncle
+        // tip.p^0  ---/  2
+        // tip.p^1  -----/  3
+        // tip.p^2  -------/  4
+        // tip.p^3  ---------/  5
+        // tip.p^4  -----------/  6
+        // tip.p^5  -------------/
+        // tip.p^6
+        let mut block_hash = header.hash();
+        excluded.insert(block_hash);
+        for _depth in 0..max_uncles_age {
+            if let Some(block) = self.block(&block_hash) {
+                excluded.insert(block.header.parent_hash);
+                for uncle in block.uncles() {
+                    excluded.insert(uncle.header.hash());
+                }
+
+                block_hash = block.header.parent_hash;
+            } else {
+                break;
+            }
+        }
+
+        let max_uncles_len = self.consensus().max_uncles_len();
+        let mut included = FnvHashSet::default();
+        let mut uncles = Vec::with_capacity(max_uncles_len);
+        let mut bad_uncles = Vec::new();
+        let r_candidate_uncle = self.candidate_uncles.upgradable_read();
+        let current_number = self.tip_header().read().header.number + 1;
+        for (hash, block) in r_candidate_uncle.iter() {
+            if uncles.len() == max_uncles_len {
+                break;
+            }
+
+            let depth = current_number.saturating_sub(block.number());
+            if depth > max_uncles_age as u64
+                || depth < 1
+                || included.contains(hash)
+                || excluded.contains(hash)
+            {
+                bad_uncles.push(*hash);
+            } else if let Some(cellbase) = block.transactions.first() {
+                let uncle = UncleBlock {
+                    header: block.header.header.clone(),
+                    cellbase: cellbase.clone(),
+                };
+                uncles.push(uncle);
+                included.insert(*hash);
+            } else {
+                bad_uncles.push(*hash);
+            }
+        }
+
+        if !bad_uncles.is_empty() {
+            let mut w_candidate_uncles = RwLockUpgradableReadGuard::upgrade(r_candidate_uncle);
+            for bad in bad_uncles {
+                w_candidate_uncles.remove(&bad);
+            }
+        }
+
+        uncles
     }
 
     fn tip_header(&self) -> &RwLock<TipHeader> {
@@ -685,15 +751,11 @@ pub mod test {
         }
 
         for block in &chain1 {
-            chain
-                .process_block(&block, false)
-                .expect("process block ok");
+            chain.process_block(&block).expect("process block ok");
         }
 
         for block in &chain2 {
-            chain
-                .process_block(&block, false)
-                .expect("process block ok");
+            chain.process_block(&block).expect("process block ok");
         }
         assert_eq!(chain.block_hash(8), chain2.get(7).map(|b| b.hash()));
     }
@@ -725,15 +787,11 @@ pub mod test {
         }
 
         for block in &chain1 {
-            chain
-                .process_block(&block, false)
-                .expect("process block ok");
+            chain.process_block(&block).expect("process block ok");
         }
 
         for block in &chain2 {
-            chain
-                .process_block(&block, false)
-                .expect("process block ok");
+            chain.process_block(&block).expect("process block ok");
         }
 
         //if total_difficulty equal, we chose block which have smaller hash as best
@@ -782,15 +840,11 @@ pub mod test {
         }
 
         for block in &chain1 {
-            chain
-                .process_block(&block, false)
-                .expect("process block ok");
+            chain.process_block(&block).expect("process block ok");
         }
 
         for block in &chain2 {
-            chain
-                .process_block(&block, false)
-                .expect("process block ok");
+            chain.process_block(&block).expect("process block ok");
         }
 
         assert_eq!(
@@ -840,9 +894,7 @@ pub mod test {
         for i in 1..final_number - 1 {
             let difficulty = chain.calculate_difficulty(&parent).unwrap();
             let new_block = gen_block(parent, i, difficulty);
-            chain
-                .process_block(&new_block, false)
-                .expect("process block ok");
+            chain.process_block(&new_block).expect("process block ok");
             chain1.push(new_block.clone());
             parent = new_block.header;
         }
@@ -854,9 +906,7 @@ pub mod test {
             if i < 26 {
                 push_uncle(&mut new_block, &chain1[i as usize]);
             }
-            chain
-                .process_block(&new_block, false)
-                .expect("process block ok");
+            chain.process_block(&new_block).expect("process block ok");
             chain2.push(new_block.clone());
             parent = new_block.header;
         }
@@ -875,7 +925,7 @@ pub mod test {
         let mut chain2: Vec<IndexedBlock> = Vec::new();
         for i in 1..final_number - 1 {
             chain
-                .process_block(&chain1[(i - 1) as usize], false)
+                .process_block(&chain1[(i - 1) as usize])
                 .expect("process block ok");
         }
 
@@ -886,9 +936,7 @@ pub mod test {
             if i < 11 {
                 push_uncle(&mut new_block, &chain1[i as usize]);
             }
-            chain
-                .process_block(&new_block, false)
-                .expect("process block ok");
+            chain.process_block(&new_block).expect("process block ok");
             chain2.push(new_block.clone());
             parent = new_block.header;
         }
@@ -907,7 +955,7 @@ pub mod test {
         let mut chain2: Vec<IndexedBlock> = Vec::new();
         for i in 1..final_number - 1 {
             chain
-                .process_block(&chain1[(i - 1) as usize], false)
+                .process_block(&chain1[(i - 1) as usize])
                 .expect("process block ok");
         }
 
@@ -918,9 +966,7 @@ pub mod test {
             if i < 151 {
                 push_uncle(&mut new_block, &chain1[i as usize]);
             }
-            chain
-                .process_block(&new_block, false)
-                .expect("process block ok");
+            chain.process_block(&new_block).expect("process block ok");
             chain2.push(new_block.clone());
             parent = new_block.header;
         }

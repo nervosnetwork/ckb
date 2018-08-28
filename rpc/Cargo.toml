@@ -11,6 +11,7 @@ ckb-chain = { path = "../chain" }
 ckb-db = { path = "../db" }
 ckb-sync = { path = "../sync" }
 ckb-pool = { path = "../pool" }
+ckb-miner = { path = "../miner" }
 jsonrpc-core = { git = "https://github.com/paritytech/jsonrpc" }
 jsonrpc-macros = { git = "https://github.com/paritytech/jsonrpc" }
 jsonrpc-minihttp-server = { git = "https://github.com/paritytech/jsonrpc" }

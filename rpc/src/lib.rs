@@ -9,6 +9,7 @@ extern crate jsonrpc_server_utils;
 extern crate log;
 extern crate ckb_chain as chain;
 extern crate ckb_core as core;
+extern crate ckb_miner as miner;
 extern crate ckb_network as network;
 extern crate ckb_pool as pool;
 extern crate ckb_protocol;
@@ -25,6 +26,7 @@ use jsonrpc_core::{IoHandler, Result};
 use jsonrpc_minihttp_server::ServerBuilder;
 use jsonrpc_server_utils::cors::AccessControlAllowOrigin;
 use jsonrpc_server_utils::hosts::DomainsValidation;
+use miner::{build_block_template, BlockTemplate};
 use network::NetworkContextExt;
 use network::NetworkService;
 use pool::TransactionPool;
@@ -49,8 +51,13 @@ build_rpc_trait! {
         #[rpc(name = "get_block_hash")]
         fn get_block_hash(&self, u64) -> Result<Option<H256>>;
 
+        // curl -d '{"id": 2, "jsonrpc": "2.0", "method":"get_tip_header","params": []}' -H 'content-type:application/json' 'http://localhost:3030'
         #[rpc(name = "get_tip_header")]
         fn get_tip_header(&self) -> Result<Header>;
+
+        // curl -d '{"id": 2, "jsonrpc": "2.0", "method":"get_block_template","params": []}' -H 'content-type:application/json' 'http://localhost:3030'
+        #[rpc(name = "get_block_template")]
+        fn get_block_template(&self) -> Result<BlockTemplate>;
     }
 }
 
@@ -116,6 +123,10 @@ impl<C: ChainProvider + 'static> Rpc for RpcImpl<C> {
     // what's happening 😨
     fn get_tip_header(&self) -> Result<Header> {
         Ok(self.chain.tip_header().read().header.header.clone())
+    }
+
+    fn get_block_template(&self) -> Result<BlockTemplate> {
+        Ok(build_block_template(&self.chain, &self.tx_pool).unwrap())
     }
 }
 

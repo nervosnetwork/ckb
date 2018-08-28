@@ -33,7 +33,7 @@ macro_rules! expect_output_parent {
 #[test]
 /// A basic test; add a pair of transactions to the pool.
 fn test_basic_pool_add() {
-    let (_chain, pool, tx_hash) = test_setup();
+    let (_chain, pool, tx_hash) = test_setup(1024);
     assert_eq!(pool.total_size(), 0);
 
     let parent_transaction = test_transaction(
@@ -88,7 +88,7 @@ fn test_basic_pool_add() {
 
 #[test]
 pub fn test_cellbase_spent() {
-    let (chain, pool, _tx_hash) = test_setup();
+    let (chain, pool, _tx_hash) = test_setup(1024);
     let cellbase_tx = Transaction::new(
         0,
         Vec::new(),
@@ -121,7 +121,7 @@ pub fn test_cellbase_spent() {
 #[test]
 /// Testing various expected error conditions
 pub fn test_pool_add_error() {
-    let (_chain, pool, tx_hash) = test_setup();
+    let (_chain, pool, tx_hash) = test_setup(1024);
     assert_eq!(pool.total_size(), 0);
 
     // let duplicate_tx = test_transaction(vec![OutPoint::new(tx_hash, 5), OutPoint::new(tx_hash, 6)], 1);
@@ -181,7 +181,7 @@ pub fn test_pool_add_error() {
 
 #[test]
 fn test_zero_confirmation_reconciliation() {
-    let (_chain, pool, tx_hash) = test_setup();
+    let (_chain, pool, tx_hash) = test_setup(1024);
 
     // now create two txs
     // tx1 spends the Output
@@ -199,7 +199,7 @@ fn test_zero_confirmation_reconciliation() {
 
     let mut block: IndexedBlock = Block::default().into();
 
-    let txs = pool.prepare_mineable_transactions(3);
+    let txs = pool.prepare_mineable_transactions();
 
     // confirm we can preparing both txs for mining here
     // one root tx in the pool, and one non-root vertex in the pool
@@ -218,7 +218,7 @@ fn test_zero_confirmation_reconciliation() {
 #[test]
 /// Testing block reconciliation
 fn test_block_reconciliation() {
-    let (chain, pool, tx_hash) = test_setup();
+    let (chain, pool, tx_hash) = test_setup(1024);
     // Preparation: We will introduce a three root pool transactions.
     // 1. A transaction that should be invalidated because it is exactly
     //  contained in the block.
@@ -351,7 +351,8 @@ fn test_block_reconciliation() {
 #[test]
 /// Test transaction selection and block building.
 fn test_block_building() {
-    let (_chain, pool, tx_hash) = test_setup();
+    let max_mining_size = 3;
+    let (_chain, pool, tx_hash) = test_setup(max_mining_size);
 
     let root_tx_1 = test_transaction(
         vec![OutPoint::new(tx_hash, 10), OutPoint::new(tx_hash, 20)],
@@ -378,8 +379,8 @@ fn test_block_building() {
     // Request blocks
     let mut block: IndexedBlock = Block::default().into();
 
-    let txs = pool.prepare_mineable_transactions(3);
-    assert_eq!(txs.len(), 3);
+    let txs = pool.prepare_mineable_transactions();
+    assert_eq!(txs.len(), max_mining_size);
 
     block.transactions = txs;
 
@@ -387,10 +388,12 @@ fn test_block_building() {
 
     pool.reconcile_block(&block);
 
-    assert_eq!(pool.total_size(), 2);
+    assert_eq!(pool.total_size(), 5 - max_mining_size);
 }
 
-fn test_setup() -> (
+fn test_setup(
+    max_mining_size: usize,
+) -> (
     Arc<impl ChainProvider>,
     Arc<TransactionPool<impl ChainProvider>>,
     H256,
@@ -400,7 +403,14 @@ fn test_setup() -> (
         // .verification_level("NoVerification")
         .notify(notify.clone());
     let chain = Arc::new(builder.build().unwrap());
-    let pool = TransactionPool::new(PoolConfig::default(), Arc::clone(&chain), notify);
+    let pool = TransactionPool::new(
+        PoolConfig {
+            max_pool_size: 1024,
+            max_mining_size,
+        },
+        Arc::clone(&chain),
+        notify,
+    );
 
     let tx = Transaction::new(
         0,
@@ -447,7 +457,7 @@ fn apply_transactions(
         transactions,
         uncles: vec![],
     };
-    chain.process_block(&block, false).unwrap();
+    chain.process_block(&block).unwrap();
     block
 }
 

@@ -12,21 +12,12 @@ use core::transaction::{CellOutput, OutPoint, Transaction};
 
 use time;
 
-const DEFAULT_MAX_POOL_SIZE: usize = 50_000;
-
 /// Transaction pool configuration
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PoolConfig {
     /// Maximum capacity of the pool in number of transactions
     pub max_pool_size: usize,
-}
-
-impl Default for PoolConfig {
-    fn default() -> PoolConfig {
-        PoolConfig {
-            max_pool_size: DEFAULT_MAX_POOL_SIZE,
-        }
-    }
+    pub max_mining_size: usize,
 }
 
 /// This enum describes the parent for a given input of a transaction.

@@ -5,6 +5,7 @@ use dir::{default_base_path, Directories};
 use logger::Config as LogConfig;
 use miner::Config as MinerConfig;
 use network::Config as NetworkConfig;
+use pool::txs_pool::PoolConfig;
 use rpc::Config as RpcConfig;
 use std::error::Error;
 use sync::Config as SyncConfig;
@@ -29,6 +30,7 @@ pub struct Configs {
     pub rpc: RpcConfig,
     pub miner: MinerConfig,
     pub sync: SyncConfig,
+    pub pool: PoolConfig,
 }
 
 pub const DEFAULT_CONFIG_FILENAME: &str = "config.toml";

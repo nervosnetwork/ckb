@@ -16,7 +16,7 @@ use logger;
 use miner::miner::Miner;
 use network::NetworkConfiguration;
 use network::NetworkService;
-use pool::{PoolConfig, TransactionPool};
+use pool::TransactionPool;
 use reqwest::header::{HeaderMap, HeaderValue, CONTENT_TYPE};
 use reqwest::Client;
 use rpc::RpcServer;
@@ -59,7 +59,7 @@ pub fn run(setup: Setup) {
     );
 
     let chain1 = Arc::<Chain<ChainKVStore<CacheDB<RocksDB>>>>::clone(&chain);
-    let tx_pool = TransactionPool::new(PoolConfig::default(), chain1, notify.clone());
+    let tx_pool = TransactionPool::new(setup.configs.pool, chain1, notify.clone());
 
     let network_config = NetworkConfiguration::from(setup.configs.network);
     let network = Arc::new(NetworkService::new(network_config, None).expect("Create network"));
@@ -81,7 +81,7 @@ pub fn run(setup: Setup) {
     network.start(protocols).expect("Start network service");
 
     let miner_chain = Arc::clone(&chain);
-    let miner = Miner::new(
+    let mut miner = Miner::new(
         setup.configs.miner,
         miner_chain,
         &tx_pool,
