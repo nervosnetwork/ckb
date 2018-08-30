@@ -1,12 +1,13 @@
 use super::header_verifier::{HeaderResolver, HeaderVerifier};
 use super::{TransactionVerifier, Verifier};
-use bigint::U256;
+use bigint::{H256, U256};
 use chain::chain::ChainProvider;
 use core::block::IndexedBlock;
+use core::cell::{CellProvider, CellState};
 use core::header::IndexedHeader;
-use core::transaction::{Capacity, CellInput};
+use core::transaction::{Capacity, CellInput, OutPoint};
 use error::{CellbaseError, Error, TransactionError, UnclesError};
-use fnv::FnvHashSet;
+use fnv::{FnvHashMap, FnvHashSet};
 use merkle_root::merkle_root;
 use pow_verifier::PowVerifier;
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
@@ -337,7 +338,28 @@ where
 
 pub struct TransactionsVerifier<'a, C> {
     block: &'a IndexedBlock,
+    output_indexs: FnvHashMap<H256, usize>,
     chain: Arc<C>,
+}
+
+impl<'a, C> CellProvider for TransactionsVerifier<'a, C>
+where
+    C: ChainProvider,
+{
+    fn cell(&self, _o: &OutPoint) -> CellState {
+        unreachable!()
+    }
+
+    fn cell_at(&self, o: &OutPoint, parent: &H256) -> CellState {
+        if let Some(i) = self.output_indexs.get(&o.hash) {
+            match self.block.transactions[*i].outputs.get(o.index as usize) {
+                Some(x) => CellState::Head(x.clone()),
+                None => CellState::Unknown,
+            }
+        } else {
+            self.chain.cell_at(o, parent)
+        }
+    }
 }
 
 impl<'a, C> TransactionsVerifier<'a, C>
@@ -345,7 +367,17 @@ where
     C: ChainProvider,
 {
     pub fn new(block: &'a IndexedBlock, chain: Arc<C>) -> Self {
-        TransactionsVerifier { block, chain }
+        let mut output_indexs = FnvHashMap::default();
+
+        for (i, tx) in block.transactions.iter().enumerate() {
+            output_indexs.insert(tx.hash(), i);
+        }
+
+        TransactionsVerifier {
+            block,
+            output_indexs,
+            chain,
+        }
     }
 
     pub fn verify(&self) -> Result<(), Error> {
@@ -357,7 +389,7 @@ where
             .transactions
             .par_iter()
             .skip(1)
-            .map(|x| self.chain.resolve_transaction_at(x, &parent_hash))
+            .map(|x| self.resolve_transaction_at(x, &parent_hash))
             .enumerate()
             .filter_map(|(index, tx)| {
                 TransactionVerifier::new(&tx)
