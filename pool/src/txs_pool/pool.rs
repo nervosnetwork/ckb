@@ -197,24 +197,34 @@ where
                 self.orphan.write().resolve_conflict(&tx);
             }
 
-            let txs = {
-                let mut orphan = self.orphan.write();
-                orphan.commit_transaction(&tx);
-                orphan.get_no_orphan()
-            };
-
-            let mut pool = self.pool.write();
-
-            pool.add_transaction(tx);
-
-            for tx in txs {
-                let _ = self.add_to_memory_pool(tx);
+            {
+                let mut pool = self.pool.write();
+                pool.add_transaction(tx.clone());
             }
+
+            self.reconcile_orphan(&tx);
 
             self.notify.notify_new_transaction::<fn(&str) -> bool>(None);
         }
 
         Ok(InsertionResult::Normal)
+    }
+
+    /// Updates the pool and orphan pool with new transactions.
+    pub fn reconcile_orphan(&self, tx: &Transaction) {
+        let txs = {
+            let mut orphan = self.orphan.write();
+            orphan.commit_transaction(tx);
+            orphan.get_no_orphan()
+        };
+
+        for tx in txs {
+            let rtx = self.resolve_transaction(&tx);
+            if TransactionVerifier::new(&rtx).verify().is_ok() {
+                let mut pool = self.pool.write();
+                pool.add_transaction(tx);
+            }
+        }
     }
 
     /// Updates the pool with the details of a new block.
