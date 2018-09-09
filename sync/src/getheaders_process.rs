@@ -1,25 +1,27 @@
 use bigint::H256;
 use ckb_chain::chain::ChainProvider;
+use ckb_chain::PowEngine;
 use ckb_protocol;
 use core::header::IndexedHeader;
 use network::NetworkContextExt;
 use network::{NetworkContext, PeerId};
 use synchronizer::Synchronizer;
 
-pub struct GetHeadersProcess<'a, C: 'a> {
+pub struct GetHeadersProcess<'a, C: 'a, P: 'a> {
     message: &'a ckb_protocol::GetHeaders,
-    synchronizer: &'a Synchronizer<C>,
+    synchronizer: &'a Synchronizer<C, P>,
     peer: PeerId,
     nc: &'a NetworkContext,
 }
 
-impl<'a, C> GetHeadersProcess<'a, C>
+impl<'a, C, P> GetHeadersProcess<'a, C, P>
 where
     C: ChainProvider + 'a,
+    P: PowEngine + 'a,
 {
     pub fn new(
         message: &'a ckb_protocol::GetHeaders,
-        synchronizer: &'a Synchronizer<C>,
+        synchronizer: &'a Synchronizer<C, P>,
         peer: PeerId,
         nc: &'a NetworkContext,
     ) -> Self {

@@ -229,7 +229,7 @@ impl<'a> From<&'a IndexedBlock> for ckb_protocol::Block {
 mod tests {
     use super::*;
     use bigint::U256;
-    use header::{RawHeader, Seal};
+    use header::RawHeader;
     use protobuf;
     use protobuf::Message;
 
@@ -248,10 +248,7 @@ mod tests {
                 cellbase_id: cellbase.hash(),
                 uncles_hash: H256::zero(),
             },
-            seal: Seal {
-                nonce: 0,
-                mix_hash: H256::zero(),
-            },
+            seal: Default::default(),
         };
 
         IndexedBlock {
@@ -284,10 +281,7 @@ mod tests {
                 cellbase_id: cellbase.hash(),
                 uncles_hash: H256::zero(),
             },
-            seal: Seal {
-                nonce: 0,
-                mix_hash: H256::zero(),
-            },
+            seal: Default::default(),
         };
         UncleBlock {
             header,

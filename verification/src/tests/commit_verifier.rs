@@ -39,7 +39,7 @@ fn gen_block(
         },
         seal: Seal {
             nonce,
-            mix_hash: H256::from(nonce),
+            proof: Default::default(),
         },
     };
     commit_transactions.insert(0, cellbase);

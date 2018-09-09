@@ -19,7 +19,8 @@ fnv = "1.0.3"
 ckb-time = { path = "../util/time" }
 ethash = { git = "https://github.com/NervosFoundation/ethash", tag = "v1.1.0" }
 ckb-notify = { path = "../notify" }
-
+byteorder = "1.2.2"
+hash = {path = "../util/hash"}
 
 [dev-dependencies]
 env_logger = "0.4"

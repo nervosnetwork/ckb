@@ -27,7 +27,7 @@ pub struct Params {
 #[derive(Clone, PartialEq, Eq, Debug, Deserialize)]
 pub struct Seal {
     pub nonce: u64,
-    pub mix_hash: H256,
+    pub proof: Vec<u8>,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug, Deserialize)]
@@ -63,7 +63,7 @@ impl ChainSpec {
             .txs_commit(self.genesis.txs_commit)
             .txs_proposal(self.genesis.txs_proposal)
             .difficulty(self.genesis.difficulty)
-            .seal(self.genesis.seal.nonce, self.genesis.seal.mix_hash)
+            .seal(self.genesis.seal.nonce, self.genesis.seal.proof.clone())
             .cellbase_id(self.genesis.cellbase_id)
             .uncles_hash(self.genesis.uncles_hash)
             .build();

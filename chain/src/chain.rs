@@ -772,7 +772,7 @@ pub mod test {
             },
             seal: Seal {
                 nonce,
-                mix_hash: H256::from(nonce),
+                proof: Default::default(),
             },
         };
 

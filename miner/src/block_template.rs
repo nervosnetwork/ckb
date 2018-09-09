@@ -80,11 +80,10 @@ pub mod test {
     use super::*;
     use chain::chain::ChainBuilder;
     use chain::store::ChainKVStore;
+    use chain::DummyPowEngine;
     use ckb_db::memorydb::MemoryKeyValueDB;
     use ckb_notify::Notify;
-    use ckb_verification::{
-        BlockVerifier, EthashVerifier, HeaderResolverWrapper, HeaderVerifier, Verifier,
-    };
+    use ckb_verification::{BlockVerifier, HeaderResolverWrapper, HeaderVerifier, Verifier};
     use core::block::IndexedBlock;
     use pool::PoolConfig;
 
@@ -95,6 +94,8 @@ pub mod test {
                 .build()
                 .unwrap(),
         );
+
+        let pow_engine = Arc::new(DummyPowEngine::new());
 
         let tx_pool = Arc::new(TransactionPool::new(
             PoolConfig {
@@ -116,7 +117,7 @@ pub mod test {
         } = block_template;
 
         //do not verfiy pow here
-        let header = raw_header.with_seal(0, H256::zero());
+        let header = raw_header.with_seal(Default::default());
 
         let block = IndexedBlock {
             header: header.into(),
@@ -129,13 +130,11 @@ pub mod test {
         };
 
         let resolver = HeaderResolverWrapper::new(&block.header, &chain);
-        let header_verify: HeaderVerifier<Option<EthashVerifier>, _> =
-            HeaderVerifier::new(resolver, None);
+        let header_verify = HeaderVerifier::new(resolver, &pow_engine);
 
         assert!(header_verify.verify().is_ok());
 
-        let block_verfiy: BlockVerifier<_, Option<EthashVerifier>> =
-            BlockVerifier::new(&block, &chain, None);
+        let block_verfiy = BlockVerifier::new(&block, &chain, &pow_engine);
         assert!(block_verfiy.verify().is_ok());
     }
 }

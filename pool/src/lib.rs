@@ -10,8 +10,6 @@ extern crate ckb_verification;
 extern crate crossbeam_channel;
 #[macro_use]
 extern crate serde_derive;
-#[cfg(test)]
-extern crate ethash;
 extern crate fnv;
 #[cfg(test)]
 extern crate hash;

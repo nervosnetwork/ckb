@@ -3,8 +3,9 @@ use block_fetcher::BlockFetcher;
 use block_pool::OrphanBlockPool;
 use ckb_chain::chain::{ChainProvider, TipHeader};
 use ckb_chain::error::Error as ChainError;
+use ckb_chain::PowEngine;
 use ckb_time::now_ms;
-use ckb_verification::{BlockVerifier, Error as VerificationError, EthashVerifier, Verifier};
+use ckb_verification::{BlockVerifier, Error as VerificationError, Verifier};
 use config::Config;
 use core::block::IndexedBlock;
 use core::header::{BlockNumber, IndexedHeader};
@@ -44,15 +45,15 @@ bitflags! {
 pub type BlockStatusMap = Arc<RwLock<HashMap<H256, BlockStatus>>>;
 pub type BlockHeaderMap = Arc<RwLock<HashMap<H256, HeaderView>>>;
 
-pub struct Synchronizer<C> {
+pub struct Synchronizer<C, P> {
     pub chain: Arc<C>,
+    pub pow: Arc<P>,
     pub status_map: BlockStatusMap,
     pub header_map: BlockHeaderMap,
     pub best_known_header: Arc<RwLock<HeaderView>>,
     pub n_sync: Arc<AtomicUsize>,
     pub peers: Arc<Peers>,
     pub config: Arc<Config>,
-    pub ethash: Option<EthashVerifier>,
     pub orphan_block_pool: Arc<OrphanBlockPool>,
     pub outbound_peers_with_protect: Arc<AtomicUsize>,
 }
@@ -75,19 +76,20 @@ impl From<VerificationError> for AcceptBlockError {
     }
 }
 
-impl<C> Clone for Synchronizer<C>
+impl<C, P> Clone for Synchronizer<C, P>
 where
     C: ChainProvider,
+    P: PowEngine,
 {
-    fn clone(&self) -> Synchronizer<C> {
+    fn clone(&self) -> Synchronizer<C, P> {
         Synchronizer {
             chain: Arc::clone(&self.chain),
+            pow: Arc::clone(&self.pow),
             status_map: Arc::clone(&self.status_map),
             header_map: Arc::clone(&self.header_map),
             best_known_header: Arc::clone(&self.best_known_header),
             n_sync: Arc::clone(&self.n_sync),
             peers: Arc::clone(&self.peers),
-            ethash: self.ethash.clone(),
             config: Arc::clone(&self.config),
             orphan_block_pool: Arc::clone(&self.orphan_block_pool),
             outbound_peers_with_protect: Arc::clone(&self.outbound_peers_with_protect),
@@ -95,11 +97,12 @@ where
     }
 }
 
-impl<C> Synchronizer<C>
+impl<C, P> Synchronizer<C, P>
 where
     C: ChainProvider,
+    P: PowEngine,
 {
-    pub fn new(chain: &Arc<C>, ethash: Option<EthashVerifier>, config: Config) -> Synchronizer<C> {
+    pub fn new(chain: &Arc<C>, pow: &Arc<P>, config: Config) -> Synchronizer<C, P> {
         let TipHeader {
             header,
             total_difficulty,
@@ -109,9 +112,9 @@ where
         let orphan_block_limit = config.orphan_block_limit;
 
         Synchronizer {
-            ethash,
             config: Arc::new(config),
             chain: Arc::clone(chain),
+            pow: Arc::clone(pow),
             peers: Arc::new(Peers::default()),
             orphan_block_pool: Arc::new(OrphanBlockPool::with_capacity(orphan_block_limit)),
             best_known_header: Arc::new(RwLock::new(best_known_header)),
@@ -384,7 +387,7 @@ where
     }
 
     fn accept_block(&self, peer: PeerId, block: &IndexedBlock) -> Result<(), AcceptBlockError> {
-        BlockVerifier::new(block, &self.chain, self.ethash.clone()).verify()?;
+        BlockVerifier::new(block, &self.chain, &self.pow).verify()?;
         self.chain.process_block(&block)?;
         self.mark_block_stored(block.hash());
         self.peers.set_last_common_header(peer, &block.header);
@@ -451,8 +454,8 @@ mod tests {
     use ckb_chain::consensus::Consensus;
     use ckb_chain::index::ChainIndex;
     use ckb_chain::store::ChainKVStore;
-    use ckb_chain::COLUMNS;
-    use ckb_notify::{Notify, MINER_SUBSCRIBER};
+    use ckb_chain::{DummyPowEngine, COLUMNS};
+    use ckb_notify::{Event, Notify, MINER_SUBSCRIBER};
     use ckb_protocol;
     use core::header::{Header, RawHeader, Seal};
     use core::transaction::{CellInput, CellOutput, IndexedTransaction, Transaction, VERSION};
@@ -513,7 +516,7 @@ mod tests {
             },
             seal: Seal {
                 nonce,
-                mix_hash: H256::from(nonce),
+                proof: Default::default(),
             },
         };
 
@@ -553,7 +556,7 @@ mod tests {
             },
             seal: Seal {
                 nonce,
-                mix_hash: H256::from(nonce),
+                proof: Default::default(),
             },
         };
 
@@ -580,7 +583,8 @@ mod tests {
             insert_block(&chain, i, i);
         }
 
-        let synchronizer = Synchronizer::new(&chain, None, Config::default());
+        let synchronizer =
+            Synchronizer::new(&chain, &Arc::new(DummyPowEngine::new()), Config::default());
 
         let locator = synchronizer.get_locator(&chain.tip_header().read().header);
 
@@ -610,9 +614,11 @@ mod tests {
             insert_block(&chain2, i + 1, i);
         }
 
-        let synchronizer1 = Synchronizer::new(&chain1, None, Config::default());
+        let pow_engine = Arc::new(DummyPowEngine::new());
 
-        let synchronizer2 = Synchronizer::new(&chain2, None, Config::default());
+        let synchronizer1 = Synchronizer::new(&chain1, &pow_engine, Config::default());
+
+        let synchronizer2 = Synchronizer::new(&chain2, &pow_engine, Config::default());
 
         let locator1 = synchronizer1.get_locator(&chain1.tip_header().read().header);
 
@@ -627,7 +633,7 @@ mod tests {
             insert_block(&chain3, j, i);
         }
 
-        let synchronizer3 = Synchronizer::new(&chain3, None, Config::default());
+        let synchronizer3 = Synchronizer::new(&chain3, &pow_engine, Config::default());
 
         let latest_common3 = synchronizer3.locate_latest_common_block(&H256::zero(), &locator1[..]);
         assert_eq!(latest_common3, Some(192));
@@ -662,9 +668,11 @@ mod tests {
             parent = new_block.header;
         }
 
-        let synchronizer1 = Synchronizer::new(&chain1, None, Config::default());
+        let pow_engine = Arc::new(DummyPowEngine::new());
 
-        let synchronizer2 = Synchronizer::new(&chain2, None, Config::default());
+        let synchronizer1 = Synchronizer::new(&chain1, &pow_engine, Config::default());
+
+        let synchronizer2 = Synchronizer::new(&chain2, &pow_engine, Config::default());
 
         let locator1 = synchronizer1.get_locator(&chain1.tip_header().read().header);
 
@@ -693,7 +701,8 @@ mod tests {
             insert_block(&chain, i, i);
         }
 
-        let synchronizer = Synchronizer::new(&chain, None, Config::default());
+        let synchronizer =
+            Synchronizer::new(&chain, &Arc::new(DummyPowEngine::new()), Config::default());
 
         let header = synchronizer.get_ancestor(&chain.tip_header().read().header.hash(), 100);
         let tip = synchronizer.get_ancestor(&chain.tip_header().read().header.hash(), 199);
@@ -725,7 +734,8 @@ mod tests {
             parent = new_block.header;
         }
 
-        let synchronizer = Synchronizer::new(&chain2, None, Config::default());
+        let synchronizer =
+            Synchronizer::new(&chain2, &Arc::new(DummyPowEngine::new()), Config::default());
 
         blocks.clone().into_iter().for_each(|block| {
             synchronizer.insert_new_block(0, block);
@@ -753,7 +763,8 @@ mod tests {
             parent = new_block.header;
         }
 
-        let synchronizer = Synchronizer::new(&chain, None, Config::default());
+        let synchronizer =
+            Synchronizer::new(&chain, &Arc::new(DummyPowEngine::new()), Config::default());
 
         let headers = synchronizer.get_locator_response(180, &H256::zero());
 
@@ -832,7 +843,8 @@ mod tests {
         for i in 1..num {
             insert_block(&chain1, i, i);
         }
-        let synchronizer1 = Synchronizer::new(&chain1, None, Config::default());
+        let synchronizer1 =
+            Synchronizer::new(&chain1, &Arc::new(DummyPowEngine::new()), Config::default());
 
         let locator1 = synchronizer1.get_locator(&chain1.tip_header().read().header);
 
@@ -841,7 +853,8 @@ mod tests {
             insert_block(&chain2, j, i);
         }
 
-        let synchronizer2 = Synchronizer::new(&chain2, None, Config::default());
+        let synchronizer2 =
+            Synchronizer::new(&chain2, &Arc::new(DummyPowEngine::new()), Config::default());
         let latest_common = synchronizer2.locate_latest_common_block(&H256::zero(), &locator1[..]);
         assert_eq!(latest_common, Some(192));
 

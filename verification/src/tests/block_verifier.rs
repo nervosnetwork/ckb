@@ -2,12 +2,12 @@ use super::super::block_verifier::{
     BlockVerifier, CellbaseTransactionsVerifier, EmptyTransactionsVerifier,
 };
 use super::super::error::Error as VerifyError;
-use super::super::pow_verifier::EthashVerifier;
 use super::dummy::DummyChainClient;
 use super::utils::{create_dummy_block, create_dummy_transaction};
 use bigint::H256;
 use chain::chain::ChainProvider;
 use chain::error::Error;
+use chain::DummyPowEngine;
 use core::transaction::{CellInput, CellOutput, IndexedTransaction, OutPoint};
 use core::{BlockNumber, Capacity};
 use std::collections::HashMap;
@@ -266,8 +266,10 @@ pub fn test_empty_transactions() {
         transaction_fees: transaction_fees,
     });
 
+    let pow = Arc::new(DummyPowEngine::new());
+
     let verifier = EmptyTransactionsVerifier::new(&block);
-    let full_verifier = BlockVerifier::new(&block, &chain, None as Option<EthashVerifier>);
+    let full_verifier = BlockVerifier::new(&block, &chain, &pow);
     assert_eq!(verifier.verify(), Err(VerifyError::EmptyTransactions));
     // short-circuit, Empty check first
     assert_eq!(full_verifier.verify(), Err(VerifyError::EmptyTransactions));

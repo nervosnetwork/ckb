@@ -70,11 +70,6 @@ impl Setup {
             configs.network.net_config_path =
                 Some(dirs.join("network").to_string_lossy().to_string());
         }
-        if let Some(file) = configs.miner.ethash_path {
-            let mut path = dirs.join("miner");
-            path.push(file);
-            configs.miner.ethash_path = Some(path.to_str().unwrap().to_string());
-        }
 
         //run with the --chain option or with a config file specifying chain = "path" under [ckb]
         let spec_type: SpecType = matches
@@ -111,7 +106,7 @@ pub mod test {
         genesis:
             seal:
                 nonce: 233
-                mix_hash: "0x0000000000000000000000000000000000000000000000000000000000000233"
+                proof: [2, 3, 3]
             version: 0
             parent_hash: "0x0000000000000000000000000000000000000000000000000000000000000233"
             timestamp: 0

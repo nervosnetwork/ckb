@@ -13,7 +13,7 @@ pub use BlockNumber;
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug, Default)]
 pub struct Seal {
     pub nonce: u64,
-    pub mix_hash: H256,
+    pub proof: Vec<u8>,
 }
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug, Default)]
@@ -78,11 +78,8 @@ impl RawHeader {
         sha3_256(serialize(self).unwrap()).into()
     }
 
-    pub fn with_seal(self, nonce: u64, mix_hash: H256) -> Header {
-        Header {
-            raw: self,
-            seal: Seal { nonce, mix_hash },
-        }
+    pub fn with_seal(self, seal: Seal) -> Header {
+        Header { raw: self, seal }
     }
 }
 
@@ -197,7 +194,7 @@ impl<'a> From<&'a ckb_protocol::Header> for Header {
             },
             seal: Seal {
                 nonce: proto.get_nonce(),
-                mix_hash: H256::from_slice(proto.get_mix_hash()),
+                proof: proto.get_proof().to_vec(),
             },
         }
     }
@@ -218,7 +215,7 @@ impl<'a> From<&'a Header> for ckb_protocol::Header {
         header.set_difficulty(temp_difficulty.to_vec());
         header.set_number(h.number);
         header.set_nonce(h.seal.nonce);
-        header.set_mix_hash(h.seal.mix_hash.to_vec());
+        header.set_proof(h.seal.proof.to_vec());
         header.set_parent_hash(h.parent_hash.to_vec());
         header.set_timestamp(h.timestamp);
         header.set_txs_commit(h.txs_commit.to_vec());

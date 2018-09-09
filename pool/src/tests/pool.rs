@@ -5,7 +5,7 @@ use ckb_db::memorydb::MemoryKeyValueDB;
 use ckb_notify::Notify;
 use core::block::{Block, IndexedBlock};
 use core::cell::CellProvider;
-use core::header::{Header, RawHeader, Seal};
+use core::header::{Header, RawHeader};
 use core::script::Script;
 use core::transaction::*;
 use hash::sha3_256;
@@ -506,10 +506,7 @@ fn apply_transactions(
             cellbase_id,
             H256::zero(),
         ),
-        seal: Seal {
-            nonce: 0,
-            mix_hash: H256::from(0),
-        },
+        seal: Default::default(),
     };
 
     let block = IndexedBlock {

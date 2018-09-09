@@ -60,7 +60,7 @@ pub enum UnclesError {
 #[derive(Debug, PartialEq, Clone, Copy, Eq)]
 pub enum PowError {
     Boundary { expected: U256, actual: U256 },
-    MixMismatch { expected: H256, actual: H256 },
+    InvalidProof,
 }
 
 #[derive(Debug, PartialEq, Clone, Copy, Eq)]

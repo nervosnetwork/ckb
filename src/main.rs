@@ -2,7 +2,6 @@
 extern crate clap;
 extern crate ctrlc;
 extern crate dir;
-extern crate ethash;
 #[macro_use]
 extern crate log;
 extern crate bigint;
@@ -16,7 +15,6 @@ extern crate ckb_pool as pool;
 extern crate ckb_rpc as rpc;
 extern crate ckb_sync as sync;
 extern crate ckb_util as util;
-extern crate ckb_verification;
 extern crate logger;
 #[macro_use]
 extern crate serde_derive;

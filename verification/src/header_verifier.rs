@@ -1,9 +1,10 @@
-use super::pow_verifier::{PowVerifier, PowVerifierWrapper};
 use super::Verifier;
 use bigint::U256;
+use chain::PowEngine;
 use core::header::IndexedHeader;
-use error::{DifficultyError, Error, HeightError, TimestampError};
+use error::{DifficultyError, Error, HeightError, PowError, TimestampError};
 use shared::ALLOWED_FUTURE_BLOCKTIME;
+use std::sync::Arc;
 use time::now_ms;
 
 pub trait HeaderResolver {
@@ -16,22 +17,25 @@ pub trait HeaderResolver {
 
 pub struct HeaderVerifier<P, R> {
     pub resolver: R,
-    pub pow: P,
+    pub pow: Arc<P>,
 }
 
 impl<P, R> HeaderVerifier<P, R>
 where
-    P: PowVerifier,
+    P: PowEngine,
     R: HeaderResolver,
 {
-    pub fn new(resolver: R, pow: P) -> Self {
-        HeaderVerifier { resolver, pow }
+    pub fn new(resolver: R, pow: &Arc<P>) -> Self {
+        HeaderVerifier {
+            resolver,
+            pow: Arc::clone(pow),
+        }
     }
 }
 
 impl<P, R> Verifier for HeaderVerifier<P, R>
 where
-    P: PowVerifier,
+    P: PowEngine,
     R: HeaderResolver,
 {
     fn verify(&self) -> Result<(), Error> {
@@ -43,7 +47,7 @@ where
         NumberVerifier::new(parent, header).verify()?;
         TimestampVerifier::new(parent, header).verify()?;
         DifficultyVerifier::new(&self.resolver).verify()?;
-        PowVerifierWrapper::new(header, self.pow.clone()).verify()?;
+        PowVerifier::new(header, &self.pow).verify()?;
         Ok(())
     }
 }
@@ -128,5 +132,30 @@ where
             }));
         }
         Ok(())
+    }
+}
+
+pub struct PowVerifier<'a, P> {
+    header: &'a IndexedHeader,
+    pow: Arc<P>,
+}
+
+impl<'a, P> PowVerifier<'a, P>
+where
+    P: PowEngine,
+{
+    pub fn new(header: &'a IndexedHeader, pow: &Arc<P>) -> Self {
+        PowVerifier {
+            header,
+            pow: Arc::clone(pow),
+        }
+    }
+
+    pub fn verify(&self) -> Result<(), Error> {
+        if self.pow.verify_header(self.header) {
+            Ok(())
+        } else {
+            Err(Error::Pow(PowError::InvalidProof))
+        }
     }
 }

@@ -4,6 +4,7 @@ use super::compact_block::{short_transaction_id, short_transaction_id_keys, Comp
 use bigint::H256;
 use block_process::BlockProcess;
 use ckb_chain::chain::ChainProvider;
+use ckb_chain::PowEngine;
 use ckb_protocol;
 use ckb_time::now_ms;
 use core::block::IndexedBlock;
@@ -41,17 +42,21 @@ fn is_outbound(nc: &NetworkContext, peer: PeerId) -> Option<bool> {
         .map(|session_info| session_info.originated)
 }
 
-pub struct SyncProtocol<C> {
-    pub synchronizer: Synchronizer<C>,
+pub struct SyncProtocol<C, P> {
+    pub synchronizer: Synchronizer<C, P>,
 }
 
-impl<C: ChainProvider + 'static> SyncProtocol<C> {
-    pub fn new(synchronizer: Synchronizer<C>) -> Self {
+impl<C, P> SyncProtocol<C, P>
+where
+    C: ChainProvider + 'static,
+    P: PowEngine + 'static,
+{
+    pub fn new(synchronizer: Synchronizer<C, P>) -> Self {
         SyncProtocol { synchronizer }
     }
 
     pub fn handle_getheaders(
-        synchronizer: Synchronizer<C>,
+        synchronizer: Synchronizer<C, P>,
         nc: Box<NetworkContext>,
         peer: PeerId,
         message: &ckb_protocol::GetHeaders,
@@ -60,7 +65,7 @@ impl<C: ChainProvider + 'static> SyncProtocol<C> {
     }
 
     pub fn handle_headers(
-        synchronizer: Synchronizer<C>,
+        synchronizer: Synchronizer<C, P>,
         nc: Box<NetworkContext>,
         peer: PeerId,
         message: &ckb_protocol::Headers,
@@ -69,7 +74,7 @@ impl<C: ChainProvider + 'static> SyncProtocol<C> {
     }
 
     fn handle_getdata(
-        synchronizer: Synchronizer<C>,
+        synchronizer: Synchronizer<C, P>,
         nc: Box<NetworkContext>,
         peer: PeerId,
         message: &ckb_protocol::GetData,
@@ -78,7 +83,7 @@ impl<C: ChainProvider + 'static> SyncProtocol<C> {
     }
 
     // fn handle_cmpt_block(
-    //     synchronizer: Synchronizer<C>,
+    //     synchronizer: Synchronizer<C, P>,
     //     nc: Box<NetworkContext>,
     //     peer: PeerId,
     //     message: &ckb_protocol::CompactBlock,
@@ -87,7 +92,7 @@ impl<C: ChainProvider + 'static> SyncProtocol<C> {
     // }
 
     fn handle_block(
-        synchronizer: Synchronizer<C>,
+        synchronizer: Synchronizer<C, P>,
         nc: Box<NetworkContext>,
         peer: PeerId,
         message: &ckb_protocol::Block,
@@ -95,7 +100,7 @@ impl<C: ChainProvider + 'static> SyncProtocol<C> {
         BlockProcess::new(message, &synchronizer, peer, nc.as_ref()).execute()
     }
 
-    pub fn find_blocks_to_fetch(synchronizer: Synchronizer<C>, nc: Box<NetworkContext>) {
+    pub fn find_blocks_to_fetch(synchronizer: Synchronizer<C, P>, nc: Box<NetworkContext>) {
         let peers: Vec<PeerId> = {
             synchronizer
                 .peers
@@ -134,7 +139,7 @@ impl<C: ChainProvider + 'static> SyncProtocol<C> {
         debug!(target: "sync", "send_block_getdata len={:?} to peer={:?}", v_fetch.len() , peer);
     }
 
-    fn on_connected(synchronizer: Synchronizer<C>, nc: &NetworkContext, peer: PeerId) {
+    fn on_connected(synchronizer: Synchronizer<C, P>, nc: &NetworkContext, peer: PeerId) {
         let tip = synchronizer.tip_header();
         let timeout = synchronizer.get_headers_sync_timeout(&tip);
 
@@ -157,7 +162,7 @@ impl<C: ChainProvider + 'static> SyncProtocol<C> {
         Self::send_getheaders_to_peer(synchronizer, nc, peer, &tip);
     }
 
-    pub fn eviction(synchronizer: Synchronizer<C>, nc: &NetworkContext) {
+    pub fn eviction(synchronizer: Synchronizer<C, P>, nc: &NetworkContext) {
         let mut peer_state = synchronizer.peers.state.write();
         let best_known_headers = synchronizer.peers.best_known_headers.read();
         let is_initial_block_download = synchronizer.is_initial_block_download();
@@ -224,7 +229,7 @@ impl<C: ChainProvider + 'static> SyncProtocol<C> {
         }
     }
 
-    fn send_getheaders_to_all(synchronizer: Synchronizer<C>, nc: Box<NetworkContext>) {
+    fn send_getheaders_to_all(synchronizer: Synchronizer<C, P>, nc: Box<NetworkContext>) {
         let peers: Vec<PeerId> = {
             synchronizer
                 .peers
@@ -244,7 +249,7 @@ impl<C: ChainProvider + 'static> SyncProtocol<C> {
     }
 
     fn send_getheaders_to_peer(
-        synchronizer: Synchronizer<C>,
+        synchronizer: Synchronizer<C, P>,
         nc: &NetworkContext,
         peer: PeerId,
         tip: &IndexedHeader,
@@ -262,7 +267,7 @@ impl<C: ChainProvider + 'static> SyncProtocol<C> {
     }
 
     fn process(
-        synchronizer: Synchronizer<C>,
+        synchronizer: Synchronizer<C, P>,
         nc: Box<NetworkContext>,
         peer: PeerId,
         payload: ckb_protocol::Payload,
@@ -279,7 +284,11 @@ impl<C: ChainProvider + 'static> SyncProtocol<C> {
     }
 }
 
-impl<C: ChainProvider + 'static> NetworkProtocolHandler for SyncProtocol<C> {
+impl<C, P> NetworkProtocolHandler for SyncProtocol<C, P>
+where
+    C: ChainProvider + 'static,
+    P: PowEngine + 'static,
+{
     fn initialize(&self, nc: Box<NetworkContext>) {
         // NOTE: 100ms is what bitcoin use.
         let _ = nc.register_timer(SEND_GET_HEADERS_TOKEN, Duration::from_millis(100));
@@ -359,17 +368,18 @@ struct RelayState {
     pub pending_proposals_request: Mutex<FnvHashMap<PeerId, TxProposalIdTable>>,
 }
 
-pub struct RelayProtocol<C> {
-    synchronizer: Synchronizer<C>,
+pub struct RelayProtocol<C, P> {
+    synchronizer: Synchronizer<C, P>,
     tx_pool: Arc<TransactionPool<C>>,
     state: Arc<RelayState>,
 }
 
-impl<C> Clone for RelayProtocol<C>
+impl<C, P> Clone for RelayProtocol<C, P>
 where
     C: ChainProvider,
+    P: PowEngine,
 {
-    fn clone(&self) -> RelayProtocol<C> {
+    fn clone(&self) -> RelayProtocol<C, P> {
         RelayProtocol {
             synchronizer: self.synchronizer.clone(),
             tx_pool: Arc::clone(&self.tx_pool),
@@ -378,8 +388,12 @@ where
     }
 }
 
-impl<C: ChainProvider + 'static> RelayProtocol<C> {
-    pub fn new(synchronizer: Synchronizer<C>, tx_pool: &Arc<TransactionPool<C>>) -> Self {
+impl<C, P> RelayProtocol<C, P>
+where
+    C: ChainProvider + 'static,
+    P: PowEngine + 'static,
+{
+    pub fn new(synchronizer: Synchronizer<C, P>, tx_pool: &Arc<TransactionPool<C>>) -> Self {
         RelayProtocol {
             synchronizer,
             tx_pool: Arc::clone(tx_pool),
@@ -641,7 +655,11 @@ impl<C: ChainProvider + 'static> RelayProtocol<C> {
     }
 }
 
-impl<C: ChainProvider + 'static> NetworkProtocolHandler for RelayProtocol<C> {
+impl<C, P> NetworkProtocolHandler for RelayProtocol<C, P>
+where
+    C: ChainProvider + 'static,
+    P: PowEngine + 'static,
+{
     fn initialize(&self, nc: Box<NetworkContext>) {
         let _ = nc.register_timer(TX_PROPOSAL_TOKEN, Duration::from_millis(100));
     }
@@ -693,7 +711,7 @@ mod tests {
     use ckb_chain::chain::Chain;
     use ckb_chain::consensus::Consensus;
     use ckb_chain::store::ChainKVStore;
-    use ckb_chain::COLUMNS;
+    use ckb_chain::{DummyPowEngine, COLUMNS};
     use ckb_notify::Notify;
     use ckb_time::{now_ms, set_mock_timer};
     use config::Config;
@@ -813,7 +831,8 @@ mod tests {
         let config = Consensus::default();
         let chain = Arc::new(gen_chain(&config));
 
-        let synchronizer = Synchronizer::new(&chain, None, Config::default());
+        let synchronizer =
+            Synchronizer::new(&chain, &Arc::new(DummyPowEngine::new()), Config::default());
 
         let network_context = mock_network_context(5);
 
@@ -845,7 +864,8 @@ mod tests {
 
         assert_eq!(chain.tip_header().read().total_difficulty, U256::from(2));
 
-        let synchronizer = Synchronizer::new(&chain, None, Config::default());
+        let synchronizer =
+            Synchronizer::new(&chain, &Arc::new(DummyPowEngine::new()), Config::default());
 
         let network_context = mock_network_context(6);
 

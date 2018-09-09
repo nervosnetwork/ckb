@@ -136,8 +136,8 @@ impl GenesisBuilder {
         self
     }
 
-    pub fn seal(mut self, nonce: u64, mix_hash: H256) -> Self {
-        self.seal = Seal { nonce, mix_hash };
+    pub fn seal(mut self, nonce: u64, proof: Vec<u8>) -> Self {
+        self.seal = Seal { nonce, proof };
         self
     }
 

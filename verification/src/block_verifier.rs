@@ -2,6 +2,7 @@ use super::header_verifier::{HeaderResolver, HeaderVerifier};
 use super::{TransactionVerifier, Verifier};
 use bigint::{H256, U256};
 use chain::chain::{ChainCellState, ChainProvider};
+use chain::PowEngine;
 use core::block::IndexedBlock;
 use core::cell::{CellProvider, CellState};
 use core::header::IndexedHeader;
@@ -9,7 +10,6 @@ use core::transaction::{Capacity, CellInput, OutPoint};
 use error::{CellbaseError, CommitError, Error, TransactionError, UnclesError};
 use fnv::{FnvHashMap, FnvHashSet};
 use merkle_root::merkle_root;
-use pow_verifier::PowVerifier;
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -34,15 +34,16 @@ pub struct BlockVerifier<'a, C, P> {
 impl<'a, C, P> BlockVerifier<'a, C, P>
 where
     C: ChainProvider,
-    P: PowVerifier,
+    P: PowEngine,
 {
-    pub fn new(block: &'a IndexedBlock, chain: &Arc<C>, pow: P) -> Self {
+    pub fn new(block: &'a IndexedBlock, chain: &Arc<C>, pow: &Arc<P>) -> Self {
         BlockVerifier {
+            // TODO change all new fn's chain to reference
             empty_transactions: EmptyTransactionsVerifier::new(block),
             duplicate_transactions: DuplicateTransactionsVerifier::new(block),
             cellbase: CellbaseTransactionsVerifier::new(block, Arc::clone(chain)),
             merkle_root: MerkleRootVerifier::new(block),
-            uncles: UnclesVerifier::new(block, Arc::clone(chain), pow),
+            uncles: UnclesVerifier::new(block, chain, pow),
             commit: CommitVerifier::new(block, Arc::clone(chain)),
             transactions: TransactionsVerifier::new(block, Arc::clone(chain)),
         }
@@ -52,7 +53,7 @@ where
 impl<'a, C, P> Verifier for BlockVerifier<'a, C, P>
 where
     C: ChainProvider,
-    P: PowVerifier,
+    P: PowEngine,
 {
     fn verify(&self) -> Result<(), Error> {
         self.empty_transactions.verify()?;
@@ -230,16 +231,20 @@ where
 pub struct UnclesVerifier<'a, C, P> {
     block: &'a IndexedBlock,
     chain: Arc<C>,
-    pow: P,
+    pow: Arc<P>,
 }
 
 impl<'a, C, P> UnclesVerifier<'a, C, P>
 where
     C: ChainProvider,
-    P: PowVerifier,
+    P: PowEngine,
 {
-    pub fn new(block: &'a IndexedBlock, chain: Arc<C>, pow: P) -> Self {
-        UnclesVerifier { block, chain, pow }
+    pub fn new(block: &'a IndexedBlock, chain: &Arc<C>, pow: &Arc<P>) -> Self {
+        UnclesVerifier {
+            block,
+            chain: Arc::clone(chain),
+            pow: Arc::clone(pow),
+        }
     }
 
     // -  uncles_hash
@@ -330,7 +335,7 @@ where
 
             let resolver = HeaderResolverWrapper::new(&uncle_header, &self.chain);
 
-            HeaderVerifier::new(resolver, self.pow.clone()).verify()?;
+            HeaderVerifier::new(resolver, &self.pow).verify()?;
 
             included.insert(uncle_hash);
         }

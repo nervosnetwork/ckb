@@ -1,9 +1,9 @@
 use super::super::block_verifier::UnclesVerifier;
 use super::super::error::{Error, UnclesError};
-use super::super::pow_verifier::EthashVerifier;
 use bigint::{H256, U256};
 use chain::chain::{ChainBuilder, ChainProvider};
 use chain::store::ChainKVStore;
+use chain::DummyPowEngine;
 use core::block::IndexedBlock;
 use core::header::{Header, IndexedHeader, RawHeader, Seal};
 use core::transaction::{
@@ -33,7 +33,7 @@ fn gen_block(parent_header: IndexedHeader, nonce: u64, difficulty: U256) -> Inde
         },
         seal: Seal {
             nonce,
-            mix_hash: H256::from(nonce),
+            proof: Default::default(),
         },
     };
 
@@ -70,6 +70,7 @@ fn test_uncle_verifier() {
             .build()
             .unwrap(),
     );
+    let pow = Arc::new(DummyPowEngine::new());
     let number = 20;
     let mut chain1: Vec<IndexedBlock> = Vec::new();
     let mut chain2: Vec<IndexedBlock> = Vec::new();
@@ -105,8 +106,7 @@ fn test_uncle_verifier() {
     };
 
     block.uncles.push(uncle_block);
-    let verify =
-        UnclesVerifier::new(&block, Arc::clone(&chain), None as Option<EthashVerifier>).verify();
+    let verify = UnclesVerifier::new(&block, &chain, &pow).verify();
     // Uncles not match uncles_hash
     assert_eq!(
         verify,
@@ -120,8 +120,7 @@ fn test_uncle_verifier() {
     let uncle = chain1.last().cloned().unwrap();
 
     push_uncle(&mut block, &uncle);
-    let verify =
-        UnclesVerifier::new(&block, Arc::clone(&chain), None as Option<EthashVerifier>).verify();
+    let verify = UnclesVerifier::new(&block, &chain, &pow).verify();
 
     // Uncle depth is invalid
     assert_eq!(
@@ -137,8 +136,7 @@ fn test_uncle_verifier() {
     let uncle = chain1.get(17).cloned().unwrap();
 
     push_uncle(&mut block, &uncle);
-    let verify =
-        UnclesVerifier::new(&block, Arc::clone(&chain), None as Option<EthashVerifier>).verify();
+    let verify = UnclesVerifier::new(&block, &chain, &pow).verify();
     // Uncle's parent not found
     assert_eq!(verify, Err(Error::UnknownParent(uncle.header.parent_hash)));
 
@@ -146,8 +144,7 @@ fn test_uncle_verifier() {
     let uncle = chain1.get(8).cloned().unwrap();
 
     push_uncle(&mut block, &uncle);
-    let verify =
-        UnclesVerifier::new(&block, Arc::clone(&chain), None as Option<EthashVerifier>).verify();
+    let verify = UnclesVerifier::new(&block, &chain, &pow).verify();
     // Uncle's parent not found
     assert_eq!(verify, Err(Error::UnknownParent(uncle.header.parent_hash)));
 
@@ -164,8 +161,7 @@ fn test_uncle_verifier() {
     let uncle = chain2.get(8).cloned().unwrap();
 
     push_uncle(&mut block, &uncle);
-    let verify =
-        UnclesVerifier::new(&block, Arc::clone(&chain), None as Option<EthashVerifier>).verify();
+    let verify = UnclesVerifier::new(&block, &chain, &pow).verify();
 
     assert_eq!(verify, Ok(()));
 
@@ -173,8 +169,7 @@ fn test_uncle_verifier() {
     let uncle = chain1.get(8).cloned().unwrap();
 
     push_uncle(&mut block, &uncle);
-    let verify =
-        UnclesVerifier::new(&block, Arc::clone(&chain), None as Option<EthashVerifier>).verify();
+    let verify = UnclesVerifier::new(&block, &chain, &pow).verify();
 
     assert_eq!(verify, Ok(()));
 
@@ -183,8 +178,7 @@ fn test_uncle_verifier() {
 
     let number = block.number();
     push_uncle(&mut block, &uncle);
-    let verify =
-        UnclesVerifier::new(&block, Arc::clone(&chain), None as Option<EthashVerifier>).verify();
+    let verify = UnclesVerifier::new(&block, &chain, &pow).verify();
     assert_eq!(
         verify,
         Err(Error::Uncles(UnclesError::InvalidDepth {
@@ -199,8 +193,7 @@ fn test_uncle_verifier() {
 
     let number = block.number();
     push_uncle(&mut block, &uncle);
-    let verify =
-        UnclesVerifier::new(&block, Arc::clone(&chain), None as Option<EthashVerifier>).verify();
+    let verify = UnclesVerifier::new(&block, &chain, &pow).verify();
     assert_eq!(
         verify,
         Err(Error::Uncles(UnclesError::InvalidDepth {
@@ -214,8 +207,7 @@ fn test_uncle_verifier() {
     let uncle = chain1.get(10).cloned().unwrap();
 
     push_uncle(&mut block, &uncle);
-    let verify =
-        UnclesVerifier::new(&block, Arc::clone(&chain), None as Option<EthashVerifier>).verify();
+    let verify = UnclesVerifier::new(&block, &chain, &pow).verify();
     assert_eq!(verify, Ok(()));
 
     let mut block = chain2.get(12).cloned().unwrap();
@@ -223,8 +215,7 @@ fn test_uncle_verifier() {
     let uncle2 = chain1.get(10).cloned().unwrap();
     push_uncle(&mut block, &uncle1);
     push_uncle(&mut block, &uncle2);
-    let verify =
-        UnclesVerifier::new(&block, Arc::clone(&chain), None as Option<EthashVerifier>).verify();
+    let verify = UnclesVerifier::new(&block, &chain, &pow).verify();
 
     // uncle duplicate
     assert_eq!(
@@ -241,8 +232,7 @@ fn test_uncle_verifier() {
         push_uncle(&mut block, &uncle);
     }
 
-    let verify =
-        UnclesVerifier::new(&block, Arc::clone(&chain), None as Option<EthashVerifier>).verify();
+    let verify = UnclesVerifier::new(&block, &chain, &pow).verify();
 
     // uncle overlength
     assert_eq!(
