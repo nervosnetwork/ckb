@@ -397,14 +397,7 @@ pub struct DirectedGraph {
 impl DirectedGraph {
     /// Create an empty directed graph
     pub fn new() -> DirectedGraph {
-        DirectedGraph {
-            edges: FnvHashMap::default(),
-            out_edges: FnvHashMap::default(),
-            dep_edges: FnvHashMap::default(),
-            out_dep_edges: FnvHashMap::default(),
-            no_roots: FnvHashMap::default(),
-            roots: FnvHashMap::default(),
-        }
+        DirectedGraph::default()
     }
 
     /// Get an edge's destnation(tx hash) by OutPoint
