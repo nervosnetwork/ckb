@@ -25,8 +25,8 @@ impl Directories {
     }
 
     pub fn join<P: AsRef<Path>>(&self, path: P) -> PathBuf {
-        let result = self.base.join(path);
-        fs::create_dir_all(result.clone()).expect("Unable to create dir");
+        let result = self.base.join(path.as_ref());
+        fs::create_dir_all(&result).expect("Unable to create dir");
         result
     }
 }

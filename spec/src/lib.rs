@@ -1,7 +1,21 @@
+//! # The Chain Specification
+//!
+//! By default, when simply running CKB, CKB will connect to the official public Nervos network.
+//!
+//! In order to run a chain different to the official public one, CKB provide the --chain option or
+//! with a config file specifying chain = "path" under [ckb].
+//! There are a few named presets that can be selected from or a custom yaml spec file can be supplied.
+
+extern crate bigint;
+extern crate ckb_chain as chain;
+extern crate ckb_core as core;
+extern crate serde_yaml;
+#[macro_use]
+extern crate serde_derive;
+
 use bigint::{H256, U256};
 use chain::consensus::{Consensus, GenesisBuilder};
 use core::Capacity;
-use serde_yaml;
 use std::error::Error;
 use std::fs::File;
 use std::path::Path;
@@ -51,7 +65,7 @@ impl ChainSpec {
     }
 
     pub fn new_dev() -> Result<ChainSpec, Box<Error>> {
-        let spec = serde_yaml::from_str(include_str!("spec/dev.yaml"))?;
+        let spec = serde_yaml::from_str(include_str!("../res/dev.yaml"))?;
         Ok(spec)
     }
 

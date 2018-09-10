@@ -12,6 +12,7 @@ log = "0.4"
 ckb-util = { path = "util" }
 ckb-core = { path = "core" }
 ckb-chain = { path = "chain" }
+ckb-chain-spec = {path = "spec"}
 ckb-notify = { path = "notify"}
 ckb-miner = { path = "miner" }
 ckb-db = { path = "db" }
@@ -26,11 +27,11 @@ dir = { path = "util/dir" }
 ctrlc = { version = "3.1", features = ["termination"] }
 lazy_static = "1.0"
 ckb-sync = { path = "sync"}
-serde_yaml = "0.7"
 config = "0.9"
-reqwest = { git = "https://github.com/seanmonstar/reqwest" }
 serde_json = "1.0"
-crypto = {path = "util/crypto"}
+crypto = { path = "util/crypto"}
+ckb-test-harness = { path = "util/harness"}
+ckb-instrument = { path = "util/instrument"}
 
 [features]
 default = ["pow_engine_cuckoo"]
@@ -48,6 +49,7 @@ members = [
     "util/merkle-root",
     "util/crypto",
     "util/dir",
+    "util/instrument",
     "network",
     "network/protocol",
     "sync",
@@ -58,6 +60,9 @@ members = [
     "pool",
     "rpc",
     "notify",
+    "spec",
     "verification",
     "script",
+    "integration_tests",
+    "util/harness"
 ]

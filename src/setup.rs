@@ -1,4 +1,4 @@
-use chain_spec::{ChainSpec, SpecType};
+use ckb_chain_spec::{ChainSpec, SpecType};
 use clap;
 use config_tool::{Config as ConfigTool, File, FileFormat};
 use dir::{default_base_path, Directories};
@@ -9,6 +9,7 @@ use pool::txs_pool::PoolConfig;
 use rpc::Config as RpcConfig;
 use std::error::Error;
 use sync::Config as SyncConfig;
+use {DEFAULT_CONFIG, DEFAULT_CONFIG_FILENAME};
 
 #[derive(Clone, Debug)]
 pub struct Setup {
@@ -19,7 +20,7 @@ pub struct Setup {
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct CKB {
-    chain: String,
+    pub chain: String,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -33,8 +34,6 @@ pub struct Configs {
     pub pool: PoolConfig,
 }
 
-pub const DEFAULT_CONFIG_FILENAME: &str = "config.toml";
-
 impl Setup {
     pub fn new(matches: &clap::ArgMatches) -> Result<Self, Box<Error>> {
         let data_path = matches
@@ -44,10 +43,7 @@ impl Setup {
         let dirs = Directories::new(&data_path);
 
         let mut config_tool = ConfigTool::new();
-        config_tool.merge(File::from_str(
-            include_str!("config/default.toml"),
-            FileFormat::Toml,
-        ))?;
+        config_tool.merge(File::from_str(DEFAULT_CONFIG, FileFormat::Toml))?;
 
         // if config arg is present, open and load it as required,
         // otherwise load the default config from data-dir

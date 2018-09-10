@@ -12,16 +12,71 @@ subcommands:
                 long: config
                 value_name: CONFIG
                 help: Specify the configuration file PATH.
+                takes_value: true
             - data-dir:
                 short: d
                 long: data-dir
                 value_name: PATH
                 help: Specify data directory.
+                takes_value: true
             - chain:
                 long: chain
                 value_name: CHAIN
                 help: Specify the chain spec file.
+                takes_value: true
+    - export:
+        about: Export ckb data
+        args:
+            - data-dir:
+                short: d
+                long: data-dir
+                value_name: PATH
+                help: Specify data directory.
+                takes_value: true
+            - format:
+                short: f
+                long: format
+                value_name: FORMAT
+                help: Specify the format.
+                required: true
+                takes_value: true
+            - chain:
+                long: chain
+                value_name: CHAIN
+                help: Specify the chain spec file.
+                takes_value: true
+            - target:
+                short: t
+                long: target
+                value_name: TARGET
+                help: Specify the export target path.
+                required: true
+                index: 1
 
+    - import:
+        about: Import ckb data
+        args:
+            - data-dir:
+                short: d
+                long: data-dir
+                value_name: PATH
+                help: Specify data directory.
+                takes_value: true
+            - format:
+                short: f
+                long: format
+                value_name: FORMAT
+                help: Specify the format.
+                required: true
+                takes_value: true
+            - chain:
+                long: chain
+                value_name: CHAIN
+                help: Specify the chain spec file.
+                takes_value: true
+            - source:
+                value_name: SOURCE
+                required: true
     - cli:
         about: Running ckb cli
         subcommands:

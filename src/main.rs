@@ -6,6 +6,7 @@ extern crate dir;
 extern crate log;
 extern crate bigint;
 extern crate ckb_chain as chain;
+extern crate ckb_chain_spec;
 extern crate ckb_core as core;
 extern crate ckb_db as db;
 extern crate ckb_miner as miner;
@@ -18,21 +19,22 @@ extern crate ckb_util as util;
 extern crate logger;
 #[macro_use]
 extern crate serde_derive;
+extern crate ckb_instrument;
 extern crate ckb_script as script;
+extern crate ckb_test_harness;
 extern crate config as config_tool;
 extern crate crypto;
-extern crate reqwest;
 extern crate serde_json;
-extern crate serde_yaml;
 #[cfg(test)]
 extern crate tempdir;
 
-mod chain_spec;
 mod cli;
 mod helper;
 mod setup;
 
 use setup::Setup;
+pub const DEFAULT_CONFIG_FILENAME: &str = "config.toml";
+pub const DEFAULT_CONFIG: &str = include_str!("config/default.toml");
 
 fn main() {
     // Always print backtrace on panic.
@@ -52,6 +54,8 @@ fn main() {
             Ok(setup) => cli::run(setup),
             Err(e) => println!("Failed to setup, cause err {}", e.description()),
         },
+        ("export", Some(export_matches)) => cli::export(&export_matches),
+        ("import", Some(import_matches)) => cli::import(&import_matches),
         _ => println!("Invalid subcommand"),
     }
 }

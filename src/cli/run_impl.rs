@@ -11,6 +11,8 @@ use chain::DummyPowEngine;
 #[cfg(feature = "pow_engine_ethash")]
 use chain::EthashEngine;
 use ckb_notify::Notify;
+use ckb_test_harness;
+use ckb_test_harness::rt::Future;
 use clap::ArgMatches;
 use core::transaction::Transaction;
 use crypto::secp::{Generator, Privkey};
@@ -20,13 +22,10 @@ use miner::Miner;
 use network::NetworkConfiguration;
 use network::NetworkService;
 use pool::TransactionPool;
-use reqwest::header::{HeaderMap, HeaderValue, CONTENT_TYPE};
-use reqwest::Client;
 use rpc::RpcServer;
 use script::TransactionInputSigner;
 use serde_json::{self, Value};
 use std::path::Path;
-use std::str::FromStr;
 use std::sync::Arc;
 use std::thread;
 use sync::protocol::{RelayProtocol, SyncProtocol};
@@ -120,35 +119,30 @@ fn build_pow_engine<P: AsRef<Path>>(_pow_data_path: P) -> Arc<DummyPowEngine> {
 }
 
 pub fn rpc(matches: &ArgMatches) {
-    let uri = matches.value_of("uri").unwrap_or("http://localhost:3030");
+    let uri = value_t!(matches.value_of("uri"), ckb_test_harness::rpc::Uri)
+        .unwrap_or_else(|_| "http://localhost:3030".parse().unwrap());
     let method = matches.value_of("method").unwrap_or("get_tip_header");
     let params = matches.value_of("params").unwrap_or("null");
-    let body = format!(
-        r#"{{"id": 1, "jsonrpc": "2.0", "method": "{}", "params": {}}}"#,
-        method, params
-    );
 
-    let mut headers = HeaderMap::new();
-    headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+    let rpc = ckb_test_harness::rpc::Rpc::new(uri);
 
-    let result: Value = Client::new()
-        .post(uri)
-        .headers(headers)
-        .body(body)
-        .send()
-        .unwrap()
-        .json()
-        .unwrap();
+    let result: Value = rpc
+        .request(method, params)
+        .map(|chunk| {
+            serde_json::from_slice(&chunk).unwrap_or_else(|e| panic!("Deserialize error {:?} ", e))
+        }).wait()
+        .unwrap_or_else(|e| panic!("Request error {:?} ", e));
 
     println!("{}", result)
 }
 
 pub fn sign(matches: &ArgMatches) {
-    let privkey: Privkey = H256::from_str(matches.value_of("private-key").unwrap())
-        .unwrap()
+    let privkey: Privkey = value_t!(matches.value_of("private-key"), H256)
+        .unwrap_or_else(|e| e.exit())
         .into();
-    let json = matches.value_of("unsigned-transaction").unwrap();
-    let transaction: Transaction = serde_json::from_str(json).unwrap();
+    let json =
+        value_t!(matches.value_of("unsigned-transaction"), String).unwrap_or_else(|e| e.exit());
+    let transaction: Transaction = serde_json::from_str(&json).unwrap();
     let mut result = transaction.clone();
     let mut inputs = Vec::new();
     let signer: TransactionInputSigner = transaction.into();

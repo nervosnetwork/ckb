@@ -1,0 +1,14 @@
+[package]
+name = "ckb-test-harness"
+version = "0.1.0"
+authors = ["Nervos Core Dev <dev@nervos.org>"]
+
+[dependencies]
+toml = "0.4"
+serde = "1.0"
+serde_derive = "1.0"
+serde_json = "1.0"
+tempdir = "0.3"
+hyper = "0.12"
+ckb-core = { path = "../../core" }
+futures = "0.1"

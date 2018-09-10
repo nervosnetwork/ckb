@@ -20,18 +20,10 @@ extern crate ckb_db;
 extern crate ckb_verification;
 extern crate fnv;
 
-use bigint::H256;
-
 mod block_template;
+mod config;
 mod miner;
 
 pub use block_template::{build_block_template, BlockTemplate};
+pub use config::Config;
 pub use miner::Miner;
-
-#[derive(Clone, Debug, PartialEq, Deserialize)]
-pub struct Config {
-    // Max number of transactions this miner will assemble in a block
-    pub max_tx: usize,
-    pub new_transactions_threshold: u16,
-    pub redeem_script_hash: H256,
-}
