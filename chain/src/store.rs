@@ -16,6 +16,8 @@ use db::kvdb::KeyValueDB;
 use error::Error;
 use std::ops::Deref;
 use std::ops::Range;
+use std::sync::Arc;
+use util::RwLock;
 use {
     COLUMN_BLOCK_BODY, COLUMN_BLOCK_HEADER, COLUMN_BLOCK_PROPOSAL_IDS,
     COLUMN_BLOCK_TRANSACTION_ADDRESSES, COLUMN_BLOCK_TRANSACTION_IDS, COLUMN_BLOCK_UNCLE,
@@ -23,10 +25,22 @@ use {
 };
 
 pub struct ChainKVStore<T: KeyValueDB> {
-    pub db: T,
+    pub db: Arc<T>,
+    tree: RwLock<AvlTree>,
 }
 
-impl<T: KeyValueDB> ChainKVStore<T> {
+impl<T: 'static + KeyValueDB> ChainKVStore<T> {
+    pub fn new(db: T) -> Self {
+        let db = Arc::new(db);
+        let tree = RwLock::new(AvlTree::new(
+            Arc::<T>::clone(&db),
+            COLUMN_TRANSACTION_META,
+            H256::zero(),
+        ));
+
+        ChainKVStore { db, tree }
+    }
+
     pub fn get(&self, col: Col, key: &[u8]) -> Option<Vec<u8>> {
         self.db.read(col, key).expect("db operation should be ok")
     }
@@ -81,6 +95,9 @@ pub trait ChainStore: Sync + Send {
             head: Some(head),
         }
     }
+
+    ///  Rebuild output tree
+    fn rebuild_tree(&self, r: H256);
 }
 
 impl<'a, T: ChainStore> Iterator for ChainStoreHeaderIterator<'a, T> {
@@ -109,7 +126,7 @@ impl<'a, T: ChainStore> Iterator for ChainStoreHeaderIterator<'a, T> {
     }
 }
 
-impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
+impl<T: 'static + KeyValueDB> ChainStore for ChainKVStore<T> {
     // TODO error log
     fn get_block(&self, h: &H256) -> Option<IndexedBlock> {
         self.get_header(h).and_then(|header| {
@@ -171,7 +188,13 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
     }
 
     fn get_transaction_meta(&self, root: H256, key: H256) -> Option<TransactionMeta> {
-        search(&self.db, COLUMN_TRANSACTION_META, root, key).expect("tree operation error")
+        {
+            let mut tree = self.tree.write();
+            if tree.root_hash() == Some(root) {
+                return tree.get(key).unwrap_or(None);
+            }
+        }
+        search(&*self.db, COLUMN_TRANSACTION_META, root, key).expect("tree operation error")
     }
 
     fn get_output_root(&self, block_hash: &H256) -> Option<H256> {
@@ -185,7 +208,17 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
         root: H256,
         cells: Vec<(Vec<OutPoint>, Vec<OutPoint>)>,
     ) -> Option<H256> {
-        let mut avl = AvlTree::new(&self.db, COLUMN_TRANSACTION_META, root);
+        //is mut reference to self.tree will end?
+        let mut tree = self.tree.write();
+        let mut new = AvlTree::new(Arc::<T>::clone(&self.db), COLUMN_TRANSACTION_META, root);
+        let avl = {
+            if tree.root_hash() == Some(root) {
+                &mut *tree
+            } else {
+                drop(tree);
+                &mut new
+            }
+        };
 
         for (inputs, outputs) in cells {
             for input in inputs {
@@ -213,6 +246,11 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
         }
 
         Some(avl.commit(batch))
+    }
+
+    fn rebuild_tree(&self, r: H256) {
+        let mut tree = self.tree.write();
+        tree.reconstruct(r);
     }
 
     fn save_with_batch<F: FnOnce(&mut Batch) -> Result<(), Error>>(
@@ -284,7 +322,7 @@ mod tests {
     fn save_and_get_output_root() {
         let tmp_dir = TempDir::new("save_and_get_output_root").unwrap();
         let db = RocksDB::open(tmp_dir, COLUMNS);
-        let store = ChainKVStore { db: db };
+        let store = ChainKVStore::new(db);
 
         assert!(
             store
@@ -303,7 +341,7 @@ mod tests {
     fn save_and_get_block() {
         let tmp_dir = TempDir::new("save_and_get_block").unwrap();
         let db = RocksDB::open(tmp_dir, COLUMNS);
-        let store = ChainKVStore { db: db };
+        let store = ChainKVStore::new(db);
         let consensus = Consensus::default();
         let block = consensus.genesis_block();
 
@@ -322,7 +360,7 @@ mod tests {
     fn save_and_get_block_with_transactions() {
         let tmp_dir = TempDir::new("save_and_get_block_with_transaction").unwrap();
         let db = RocksDB::open(tmp_dir, COLUMNS);
-        let store = ChainKVStore { db: db };
+        let store = ChainKVStore::new(db);
         let consensus = Consensus::default();
         let mut block = consensus.genesis_block().clone();
         block
@@ -350,7 +388,7 @@ mod tests {
     fn save_and_get_block_ext() {
         let tmp_dir = TempDir::new("save_and_get_block_ext").unwrap();
         let db = RocksDB::open(tmp_dir, COLUMNS);
-        let store = ChainKVStore { db: db };
+        let store = ChainKVStore::new(db);
         let consensus = Consensus::default();
         let block = consensus.genesis_block();
 

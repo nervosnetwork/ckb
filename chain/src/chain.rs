@@ -298,6 +298,7 @@ impl<CS: ChainIndex> Chain<CS> {
                     *tip_header = new_tip_header;
                     self.update_index(batch, b, &mut old_cumulative_txs, &mut new_cumulative_txs);
                     self.store.insert_tip_header(batch, &b.header);
+                    self.store.rebuild_tree(root);
                 }
                 debug!(target: "chain", "lock release");
             }
@@ -696,11 +697,11 @@ impl<CS: ChainIndex> ChainBuilder<CS> {
         ChainBuilder::<ChainKVStore<CacheDB<RocksDB>>>::new_simple(db)
     }
 
-    pub fn new_simple<T: KeyValueDB>(db: T) -> ChainBuilder<ChainKVStore<T>> {
+    pub fn new_simple<T: 'static + KeyValueDB>(db: T) -> ChainBuilder<ChainKVStore<T>> {
         let mut consensus = Consensus::default();
         consensus.initial_block_reward = 50;
         ChainBuilder {
-            store: ChainKVStore { db },
+            store: ChainKVStore::new(db),
             consensus,
             notify: None,
         }

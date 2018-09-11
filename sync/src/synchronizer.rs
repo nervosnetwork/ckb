@@ -481,7 +481,7 @@ mod tests {
 
     fn gen_chain(consensus: &Consensus, notify: Notify) -> Chain<ChainKVStore<MemoryKeyValueDB>> {
         let db = MemoryKeyValueDB::open(COLUMNS as usize);
-        let store = ChainKVStore { db };
+        let store = ChainKVStore::new(db);
         let chain = Chain::init(store, consensus.clone(), notify).unwrap();
         chain
     }

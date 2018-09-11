@@ -37,7 +37,7 @@ pub trait ChainIndex: ChainStore {
     fn delete_transaction_address(&self, batch: &mut Batch, txs: &[IndexedTransaction]);
 }
 
-impl<T: KeyValueDB> ChainIndex for ChainKVStore<T> {
+impl<T: 'static + KeyValueDB> ChainIndex for ChainKVStore<T> {
     fn init(&self, genesis: &IndexedBlock) {
         self.save_with_batch(|batch| {
             let genesis_hash = genesis.hash();
@@ -170,7 +170,7 @@ mod tests {
     fn index_store() {
         let tmp_dir = TempDir::new("index_init").unwrap();
         let db = RocksDB::open(tmp_dir, COLUMNS);
-        let store = ChainKVStore { db: db };
+        let store = ChainKVStore::new(db);
         let consensus = Consensus::default();
         let block = consensus.genesis_block();
         let hash = block.hash();
