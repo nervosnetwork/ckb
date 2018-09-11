@@ -7,7 +7,9 @@ filter = "info"
 color = true
 
 [network]
-listen_address = "0.0.0.0:0"
+listen_addresses = [
+    "/ip4/0.0.0.0/tcp/0"
+]
 boot_nodes = [
     "/ip4/127.0.0.1/tcp/12345/p2p/QmVMJYDCL2vDnk4PmRGNdDRTWRnfeboUsriYA9CixJsBRf"
 ]

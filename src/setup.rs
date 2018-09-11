@@ -144,7 +144,7 @@ pub mod test {
         let data_path = tmp_dir.path().to_str().unwrap();
 
         let test_conifg = r#"[network]
-                             listen_address = "1.1.1.1:1""#;
+                             listen_addresses = ["/ip4/1.1.1.1/tcp/1"]"#;
         let config_path = tmp_dir.path().join("config.toml");
         write_file(config_path, test_conifg);
         let arg_vec = vec!["ckb", "run", "--data-dir", data_path];
@@ -153,8 +153,8 @@ pub mod test {
         let setup = Setup::new(&matches.subcommand_matches("run").unwrap());
         assert!(setup.is_ok());
         assert_eq!(
-            setup.unwrap().configs.network.listen_address,
-            "1.1.1.1:1".parse().ok()
+            setup.unwrap().configs.network.listen_addresses,
+            vec!["/ip4/1.1.1.1/tcp/1".parse().unwrap()]
         );
     }
 
@@ -164,7 +164,7 @@ pub mod test {
         let data_path = tmp_dir.path().to_str().unwrap();
 
         let test_conifg = r#"[network]
-                             listen_address = "1.1.1.1:1""#;
+                             listen_addresses = ["/ip4/1.1.1.1/tcp/1"]"#;
         let config_path = tmp_dir.path().join("specify.toml");
         write_file(&config_path, test_conifg);
         let arg_vec = vec![
@@ -180,8 +180,8 @@ pub mod test {
         let setup = Setup::new(&matches.subcommand_matches("run").unwrap());
         assert!(setup.is_ok());
         assert_eq!(
-            setup.unwrap().configs.network.listen_address,
-            "1.1.1.1:1".parse().ok()
+            setup.unwrap().configs.network.listen_addresses,
+            vec!["/ip4/1.1.1.1/tcp/1".parse().unwrap()]
         );
     }
 

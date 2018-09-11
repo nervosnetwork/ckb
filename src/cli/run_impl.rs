@@ -62,15 +62,14 @@ pub fn run(setup: Setup) {
     let tx_pool = TransactionPool::new(setup.configs.pool, chain1, notify.clone());
 
     let network_config = NetworkConfiguration::from(setup.configs.network);
-    let network = Arc::new(NetworkService::new(network_config, None).expect("Create network"));
-
     let sync_protocol = Arc::new(SyncProtocol::new(synchronizer.clone()));
     let relay_protocol = Arc::new(RelayProtocol::new(synchronizer, &tx_pool));
     let protocols = vec![
         (sync_protocol as Arc<_>, SYNC_PROTOCOL_ID, &[(1, 1)][..]),
         (relay_protocol as Arc<_>, RELAY_PROTOCOL_ID, &[(1, 1)][..]),
     ];
-    network.start(protocols).expect("Start network service");
+    let network =
+        Arc::new(NetworkService::new(network_config, protocols).expect("Create and start network"));
 
     let miner_chain = Arc::clone(&chain);
     let mut miner = Miner::new(
