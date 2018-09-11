@@ -15,6 +15,11 @@ extern crate ckb_util as util;
 extern crate rand;
 #[macro_use]
 extern crate serde_derive;
+#[cfg(test)]
+extern crate ckb_db;
+#[cfg(test)]
+extern crate ckb_verification;
+extern crate fnv;
 
 use bigint::H256;
 

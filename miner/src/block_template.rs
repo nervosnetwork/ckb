@@ -26,17 +26,18 @@ pub fn build_block_template<C: ChainProvider + 'static>(
     let mut transactions = tx_pool.prepare_mineable_transactions();
     let cellbase = create_cellbase_transaction(&chain, &header, &transactions)?;
     let uncles = chain.get_tip_uncles();
+    let cellbase_id = cellbase.hash();
+
+    commit_transactions.insert(0, cellbase);
 
     let raw_header = RawHeader::new(
         &header,
         transactions.iter(),
         now,
         difficulty,
-        cellbase.hash(),
+        cellbase_id,
         uncles_hash(&uncles),
     );
-
-    transactions.insert(0, cellbase);
 
     let block = BlockTemplate {
         transactions,
@@ -72,4 +73,69 @@ fn create_cellbase_transaction<C: ChainProvider + 'static>(
     )];
 
     Ok(Transaction::new(VERSION, Vec::new(), inputs, outputs))
+}
+
+#[cfg(test)]
+pub mod test {
+    use super::*;
+    use chain::chain::ChainBuilder;
+    use chain::store::ChainKVStore;
+    use ckb_db::memorydb::MemoryKeyValueDB;
+    use ckb_notify::Notify;
+    use ckb_verification::{
+        BlockVerifier, EthashVerifier, HeaderResolverWrapper, HeaderVerifier, Verifier,
+    };
+    use core::block::IndexedBlock;
+    use pool::PoolConfig;
+
+    #[test]
+    fn test_block_template() {
+        let chain = Arc::new(
+            ChainBuilder::<ChainKVStore<MemoryKeyValueDB>>::new_memory()
+                .build()
+                .unwrap(),
+        );
+
+        let tx_pool = Arc::new(TransactionPool::new(
+            PoolConfig {
+                max_pool_size: 1024,
+                max_proposal_size: 1024,
+                max_commit_size: 1024,
+            },
+            Arc::clone(&chain),
+            Notify::default(),
+        ));
+
+        let block_template = build_block_template(&chain, &tx_pool).unwrap();
+
+        let BlockTemplate {
+            raw_header,
+            uncles,
+            commit_transactions,
+            proposal_transactions,
+        } = block_template;
+
+        //do not verfiy pow here
+        let header = raw_header.with_seal(0, H256::zero());
+
+        let block = IndexedBlock {
+            header: header.into(),
+            uncles,
+            commit_transactions,
+            proposal_transactions: proposal_transactions
+                .iter()
+                .map(|p| p.proposal_short_id())
+                .collect(),
+        };
+
+        let resolver = HeaderResolverWrapper::new(&block.header, &chain);
+        let header_verify: HeaderVerifier<Option<EthashVerifier>, _> =
+            HeaderVerifier::new(resolver, None);
+
+        assert!(header_verify.verify().is_ok());
+
+        let block_verfiy: BlockVerifier<_, Option<EthashVerifier>> =
+            BlockVerifier::new(&block, &chain, None);
+        assert!(block_verfiy.verify().is_ok());
+    }
 }

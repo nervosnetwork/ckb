@@ -10,7 +10,7 @@ ckb-time = { path = "../util/time" }
 ckb-core = { path = "../core" }
 ckb-pool = { path = "../pool" }
 ckb-chain = { path = "../chain" }
-ckb-db = { path = "../db" }
+
 ckb-protocol = { path = "../network/protocol" }
 ckb-network = { path = "../network" }
 ckb-sync = { path = "../sync" }
@@ -22,3 +22,8 @@ ckb-notify = { path = "../notify" }
 serde = "1.0"
 serde_derive = "1.0"
 crossbeam-channel = "0.2"
+fnv = "1.0.3"
+
+[dev-dependencies]
+ckb-db = { path = "../db" }
+ckb-verification = { path = "../verification" }

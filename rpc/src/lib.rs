@@ -1,4 +1,3 @@
-#![feature(box_syntax)]
 extern crate bigint;
 extern crate jsonrpc_core;
 #[macro_use]

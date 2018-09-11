@@ -23,7 +23,7 @@ mod transaction_verifier;
 #[cfg(test)]
 pub mod tests;
 
-pub use block_verifier::BlockVerifier;
+pub use block_verifier::{BlockVerifier, HeaderResolverWrapper};
 pub use error::{Error, TransactionError};
 pub use header_verifier::{HeaderResolver, HeaderVerifier};
 pub use pow_verifier::{EthashVerifier, PowVerifier};
