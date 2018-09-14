@@ -386,9 +386,9 @@ impl<CS: ChainIndex> Chain<CS> {
         let bottom = tip - cmp::min(tip, len);
 
         for number in (bottom..tip + 1).rev() {
-            let hash = self
-                .block_hash(number)
-                .expect(format!("invaild block number({}), tip={}", number, tip).as_str());
+            let hash = self.block_hash(number).unwrap_or_else(|| {
+                panic!(format!("invaild block number({}), tip={}", number, tip))
+            });
             debug!(target: "chain", "   {} => {}", number, hash);
         }
 

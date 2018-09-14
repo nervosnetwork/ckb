@@ -83,8 +83,7 @@ where
                 .entry(self.peer)
                 .and_modify(|last_common_header| {
                     *last_common_header = fixed_last_common_header.clone()
-                })
-                .or_insert_with(|| fixed_last_common_header.clone());
+                }).or_insert_with(|| fixed_last_common_header.clone());
         }
 
         Some(fixed_last_common_header)

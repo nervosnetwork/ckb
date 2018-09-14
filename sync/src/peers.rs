@@ -107,26 +107,25 @@ impl BlocksInflight {
 }
 
 impl Peers {
-    pub fn misbehavior(&self, peer: &PeerId, score: u32) {
+    pub fn misbehavior(&self, peer: PeerId, score: u32) {
         if score == 0 {
             return;
         }
 
         let mut map = self.misbehavior.write();
-        map.entry(*peer)
+        map.entry(peer)
             .and_modify(|e| *e += score)
             .or_insert_with(|| score);
     }
 
-    pub fn on_connected(&self, peer: &PeerId, headers_sync_timeout: u64, protect: bool) {
+    pub fn on_connected(&self, peer: PeerId, headers_sync_timeout: u64, protect: bool) {
         self.state
             .write()
-            .entry(*peer)
+            .entry(peer)
             .and_modify(|state| {
                 state.headers_sync_timeout = Some(headers_sync_timeout);
                 state.chain_sync.protect = protect;
-            })
-            .or_insert_with(|| {
+            }).or_insert_with(|| {
                 let mut chain_sync = ChainSyncState::default();
                 chain_sync.protect = protect;
                 PeerState {
@@ -140,14 +139,14 @@ impl Peers {
             });
     }
 
-    pub fn best_known_header(&self, peer: &PeerId) -> Option<HeaderView> {
-        self.best_known_headers.read().get(peer).cloned()
+    pub fn best_known_header(&self, peer: PeerId) -> Option<HeaderView> {
+        self.best_known_headers.read().get(&peer).cloned()
     }
 
-    pub fn new_header_received(&self, peer: &PeerId, header_view: &HeaderView) {
+    pub fn new_header_received(&self, peer: PeerId, header_view: &HeaderView) {
         self.best_known_headers
             .write()
-            .entry(*peer)
+            .entry(peer)
             .and_modify(|hv| {
                 if header_view.total_difficulty > hv.total_difficulty
                     || (header_view.total_difficulty == hv.total_difficulty
@@ -155,33 +154,29 @@ impl Peers {
                 {
                     *hv = header_view.clone();
                 }
-            })
-            .or_insert_with(|| header_view.clone());
+            }).or_insert_with(|| header_view.clone());
     }
 
-    pub fn getheaders_received(&self, _peer: &PeerId) {
+    pub fn getheaders_received(&self, _peer: PeerId) {
         // TODO:
     }
 
-    pub fn connected(&self, peer: &PeerId) {
-        self.state
-            .write()
-            .entry(*peer)
-            .or_insert_with(|| PeerState {
-                negotiate: Negotiate::default(),
-                sync_started: true,
-                last_block_announcement: None,
-                headers_sync_timeout: None,
-                disconnect: false,
-                chain_sync: ChainSyncState::default(),
-            });
+    pub fn connected(&self, peer: PeerId) {
+        self.state.write().entry(peer).or_insert_with(|| PeerState {
+            negotiate: Negotiate::default(),
+            sync_started: true,
+            last_block_announcement: None,
+            headers_sync_timeout: None,
+            disconnect: false,
+            chain_sync: ChainSyncState::default(),
+        });
     }
 
-    pub fn disconnected(&self, peer: &PeerId) {
-        self.state.write().remove(peer);
-        self.best_known_headers.write().remove(peer);
+    pub fn disconnected(&self, peer: PeerId) {
+        self.state.write().remove(&peer);
+        self.best_known_headers.write().remove(&peer);
         // self.misbehavior.write().remove(peer);
-        self.blocks_inflight.write().remove(peer);
+        self.blocks_inflight.write().remove(&peer);
     }
 
     pub fn block_received(&self, peer: PeerId, block: &IndexedBlock) {

@@ -17,7 +17,7 @@ where
     pub fn new(
         message: &'a ckb_protocol::CompactBlock,
         synchronizer: &'a Synchronizer<C>,
-        peer: &PeerId,
+        peer: PeerId,
         nc: &'a NetworkContext,
     ) -> Self {
         CompactBlockProcess {

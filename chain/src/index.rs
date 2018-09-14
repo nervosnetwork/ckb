@@ -97,8 +97,7 @@ impl<T: KeyValueDB> ChainIndex for ChainKVStore<T> {
                     &d.block_hash,
                     &(d.offset..(d.offset + d.length)),
                 )
-            })
-            .map(|serialized_transaction| {
+            }).map(|serialized_transaction| {
                 IndexedTransaction::new(deserialize(&serialized_transaction).unwrap(), *h)
             })
     }

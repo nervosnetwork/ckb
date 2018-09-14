@@ -2,10 +2,10 @@
 //!
 //! This Library provides the essential types for building ckb.
 
-#![feature(int_to_from_bytes)]
 extern crate bigint;
 extern crate bincode;
 extern crate ckb_protocol;
+extern crate ckb_util;
 extern crate crypto;
 extern crate hash;
 extern crate merkle_root;

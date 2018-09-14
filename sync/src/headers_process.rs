@@ -66,14 +66,14 @@ where
     pub fn new(
         message: &'a ckb_protocol::Headers,
         synchronizer: &'a Synchronizer<C>,
-        peer: &PeerId,
+        peer: PeerId,
         nc: &'a NetworkContext,
     ) -> Self {
         HeadersProcess {
             message,
             nc,
             synchronizer,
-            peer: *peer,
+            peer,
         }
     }
 
@@ -125,7 +125,7 @@ where
         debug!(target: "sync", "HeadersProcess begin");
 
         if self.is_oversize() {
-            self.synchronizer.peers.misbehavior(&self.peer, 20);
+            self.synchronizer.peers.misbehavior(self.peer, 20);
             debug!(target: "sync", "HeadersProcess is_oversize");
             return ();
         }
@@ -138,7 +138,7 @@ where
         let headers: Vec<IndexedHeader> = self.message.headers.par_iter().map(From::from).collect();
 
         if !self.is_continuous(&headers) {
-            self.synchronizer.peers.misbehavior(&self.peer, 20);
+            self.synchronizer.peers.misbehavior(self.peer, 20);
             debug!(target: "sync", "HeadersProcess is not continuous");
             return ();
         }
@@ -148,7 +148,7 @@ where
             if result.misbehavior > 0 {
                 self.synchronizer
                     .peers
-                    .misbehavior(&self.peer, result.misbehavior);
+                    .misbehavior(self.peer, result.misbehavior);
             }
             debug!(target: "sync", "\n\nHeadersProcess accept_first is_valid {:?} headers = {:#?}\n\n", result, headers[0]);
             return ();
@@ -167,7 +167,7 @@ where
                     if result.misbehavior > 0 {
                         self.synchronizer
                             .peers
-                            .misbehavior(&self.peer, result.misbehavior);
+                            .misbehavior(self.peer, result.misbehavior);
                     }
                     debug!(target: "sync", "HeadersProcess accept is invalid {:?}", result);
                     return ();
@@ -178,7 +178,7 @@ where
         if log_enabled!(target: "sync", log::Level::Debug) {
             let own = { self.synchronizer.best_known_header.read().clone() };
             let chain_tip = { self.synchronizer.chain.tip_header().read().clone() };
-            let peer_state = self.synchronizer.peers.best_known_header(&self.peer);
+            let peer_state = self.synchronizer.peers.best_known_header(self.peer);
             debug!(
                 target: "sync",
                 concat!(
@@ -326,7 +326,7 @@ where
         }
 
         self.synchronizer
-            .insert_header_view(&self.header, &self.peer);
+            .insert_header_view(&self.header, self.peer);
         self.synchronizer
             .insert_block_status(self.header.hash(), BlockStatus::VALID_MASK);
         result

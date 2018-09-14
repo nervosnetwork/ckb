@@ -110,8 +110,7 @@ impl<C: ChainProvider + 'static> Rpc for RpcImpl<C> {
                             transaction: transaction.into(),
                             hash,
                         }
-                    })
-                    .collect(),
+                    }).collect(),
             }))
     }
 
@@ -159,8 +158,7 @@ impl RpcServer {
             .cors(DomainsValidation::AllowOnly(vec![
                 AccessControlAllowOrigin::Null,
                 AccessControlAllowOrigin::Any,
-            ]))
-            .threads(3)
+            ])).threads(3)
             .start_http(&self.config.listen_addr.parse().unwrap())
             .unwrap();
 

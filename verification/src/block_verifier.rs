@@ -410,8 +410,7 @@ where
                     .verify()
                     .err()
                     .map(|e| (index, e))
-            })
-            .collect();
+            }).collect();
         if err.is_empty() {
             Ok(())
         } else {

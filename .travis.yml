@@ -12,18 +12,17 @@ cache:
 
 env:
   global:
-    - CLIPPY_VERSION=0.0.204
     - RUST_BACKTRACE=full
 
 matrix:
   include:
     - os: osx
-      rust: nightly-2018-05-23
+      rust: 1.29.0
       install:
-        - cargo fmt --version || rustup component add rustfmt-preview --toolchain=nightly-2018-05-23
-        - cargo clippy --version || cargo install clippy --vers $CLIPPY_VERSION --force
+        - cargo fmt --version || rustup component add rustfmt-preview
+        - cargo clippy --version || rustup component add clippy-preview
       env: SUITE=ci
-    - rust: nightly-2018-05-23
+    - rust: 1.29.0
       addons:
         apt:
           packages:

@@ -15,6 +15,7 @@ ckb-time = { path = "../util/time" }
 ckb-protocol = { path = "../network/protocol" }
 bit-vec = "0.5.0"
 rayon = "1.0"
+ckb-util = { path = "../util" }
 
 [dev-dependencies]
 protobuf = "2.0.4"

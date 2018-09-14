@@ -64,8 +64,7 @@ pub fn deserialize<'a, T: Deserialize<'a>>(
                     "address is invalid!".to_string(),
                 ))),
             },
-        )
-        .collect()
+        ).collect()
 }
 
 fn generate_addresses_from_sizes(sizes: &[usize]) -> Vec<Address> {

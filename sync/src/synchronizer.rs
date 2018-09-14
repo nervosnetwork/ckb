@@ -317,7 +317,7 @@ where
             .collect()
     }
 
-    pub fn insert_header_view(&self, header: &IndexedHeader, peer: &PeerId) {
+    pub fn insert_header_view(&self, header: &IndexedHeader, peer: PeerId) {
         if let Some(parent_view) = self.get_header_view(&header.parent_hash) {
             let total_difficulty = parent_view.total_difficulty + header.difficulty;
             let header_view = {
@@ -863,11 +863,11 @@ mod tests {
         HeadersProcess::new(
             &headers_proto,
             &synchronizer1,
-            &peer,
+            peer,
             &DummyNetworkContext {},
         ).execute();
 
-        let best_known_header = synchronizer1.peers.best_known_header(&peer);
+        let best_known_header = synchronizer1.peers.best_known_header(peer);
 
         assert_eq!(
             best_known_header.clone().map(|h| h.header),
@@ -907,12 +907,8 @@ mod tests {
         }
 
         for block in &fetched_blocks {
-            BlockProcess::new(
-                &block.into(),
-                &synchronizer1,
-                &peer,
-                &DummyNetworkContext {},
-            ).execute();
+            BlockProcess::new(&block.into(), &synchronizer1, peer, &DummyNetworkContext {})
+                .execute();
         }
 
         assert_eq!(

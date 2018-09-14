@@ -226,7 +226,7 @@ where
 
     pub fn query_proposal(
         &self,
-        block_number: &BlockNumber,
+        block_number: BlockNumber,
         filter: impl Iterator<Item = ProposalShortId>,
     ) -> Option<(Vec<IndexedTransaction>, Vec<ProposalShortId>)> {
         self.proposal.read().query(block_number, filter)
@@ -234,7 +234,7 @@ where
 
     pub fn query_proposal_ids(
         &self,
-        block_number: &BlockNumber,
+        block_number: BlockNumber,
     ) -> Option<FnvHashSet<ProposalShortId>> {
         self.proposal.read().query_ids(block_number)
     }
@@ -244,7 +244,7 @@ where
         let clean =
             block_number.saturating_sub(self.chain.consensus().transaction_propagation_time * 2);
         let mut proposal = self.proposal.write();
-        proposal.clean(&clean);
+        proposal.clean(clean);
         proposal.insert(block_number, txs.into_iter());
     }
 
@@ -253,7 +253,7 @@ where
         let clean =
             block_number.saturating_sub(self.chain.consensus().transaction_propagation_time * 2);
         let mut proposal = self.proposal.write();
-        proposal.clean(&clean);
+        proposal.clean(clean);
         proposal.insert(block_number, iter::once(tx));
     }
 

@@ -18,13 +18,13 @@ where
     pub fn new(
         message: &'a ckb_protocol::Block,
         synchronizer: &'a Synchronizer<C>,
-        peer: &PeerId,
+        peer: PeerId,
         _nc: &'a NetworkContext,
     ) -> Self {
         BlockProcess {
             message,
             synchronizer,
-            peer: *peer,
+            peer,
         }
     }
 

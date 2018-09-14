@@ -126,10 +126,10 @@ impl ProposalPool {
 
     pub fn query(
         &self,
-        block_number: &BlockNumber,
+        block_number: BlockNumber,
         filter: impl Iterator<Item = ProposalShortId>,
     ) -> Option<(Vec<IndexedTransaction>, Vec<ProposalShortId>)> {
-        self.inner.get(block_number).map(|txs_map| {
+        self.inner.get(&block_number).map(|txs_map| {
             filter.fold((vec![], vec![]), |mut acc, id| {
                 if let Some(tx) = txs_map.get(&id) {
                     acc.0.push(tx.clone());
@@ -141,9 +141,9 @@ impl ProposalPool {
         })
     }
 
-    pub fn query_ids(&self, block_number: &BlockNumber) -> Option<FnvHashSet<ProposalShortId>> {
+    pub fn query_ids(&self, block_number: BlockNumber) -> Option<FnvHashSet<ProposalShortId>> {
         self.inner
-            .get(block_number)
+            .get(&block_number)
             .map(|txs_map| txs_map.keys().cloned().collect())
     }
 
@@ -160,7 +160,7 @@ impl ProposalPool {
         proposals
     }
 
-    pub fn clean(&mut self, block_number: &BlockNumber) {
+    pub fn clean(&mut self, block_number: BlockNumber) {
         let mut retain = self.inner.split_off(&block_number);
         mem::swap(&mut retain, &mut self.inner);
     }
@@ -240,8 +240,7 @@ impl CommitPool {
                     Some(_) => OutPointStatus::Spent,
                     None => OutPointStatus::InOrphan,
                 })
-            })
-            .unwrap_or(OutPointStatus::Unknown)
+            }).unwrap_or(OutPointStatus::Unknown)
     }
 
     pub fn size(&self) -> usize {
@@ -298,8 +297,7 @@ impl OrphanPool {
                     Some(_) => OutPointStatus::Spent,
                     None => OutPointStatus::InOrphan,
                 })
-            })
-            .unwrap_or(OutPointStatus::Unknown)
+            }).unwrap_or(OutPointStatus::Unknown)
     }
 
     /// when a transaction is added in pool or chain, reconcile it.

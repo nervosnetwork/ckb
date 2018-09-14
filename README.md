@@ -16,17 +16,17 @@ Nervos project defines a suite of scalable and interoperable blockchain protocol
 
 ## Build dependencies
 
-**Rust Nightly is required**. Nervos is currently tested mainly with `nightly-2018-05-23`.
+Nervos is currently tested mainly with `stabe-1.29.0`.
 
 We recommend installing Rust through [rustup](https://www.rustup.rs/)
 
 ```bash
 # Get rustup from rustup.rs, then in your `ckb` folder:
-rustup override set nightly-2018-05-23
-rustup component add rustfmt-preview --toolchain=nightly-2018-05-23
+rustup override set 1.29.0
+rustup component add rustfmt-preview
 ```
 
-We would like to track `nightly`, report new breakage is welcome.
+Report new breakage is welcome.
 
 You also need to get the following packages：
 

@@ -69,7 +69,7 @@ impl KeyValueDB for RocksDB {
             Some(cf) => self.inner.db.get_cf(cf, &key),
             None => self.inner.db.get(&key),
         }.map(|v| v.map(|vi| vi.to_vec()))
-            .map_err(Into::into)
+        .map_err(Into::into)
     }
 
     fn len(&self, col: Col, key: &[u8]) -> Result<Option<usize>> {
@@ -77,7 +77,7 @@ impl KeyValueDB for RocksDB {
             Some(cf) => self.inner.db.get_pinned_cf(cf, &key),
             None => self.inner.db.get_pinned(&key),
         }.map(|v| v.map(|vi| vi.len()))
-            .map_err(Into::into)
+        .map_err(Into::into)
     }
 
     fn partial_read(&self, col: Col, key: &[u8], range: &Range<usize>) -> Result<Option<Vec<u8>>> {
@@ -85,7 +85,7 @@ impl KeyValueDB for RocksDB {
             Some(cf) => self.inner.db.get_pinned_cf(cf, &key),
             None => self.inner.db.get_pinned(&key),
         }.map(|v| v.and_then(|vi| vi.get(range.start..range.end).map(|slice| slice.to_vec())))
-            .map_err(Into::into)
+        .map_err(Into::into)
     }
 }
 

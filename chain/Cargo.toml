@@ -17,7 +17,7 @@ bigint = { git = "https://github.com/NervosFoundation/bigint" }
 lru-cache = { git = "https://github.com/NervosFoundation/lru-cache" }
 fnv = "1.0.3"
 ckb-time = { path = "../util/time" }
-ethash = { git = "https://github.com/NervosFoundation/ethash", tag = "v1.0.0" }
+ethash = { git = "https://github.com/NervosFoundation/ethash", tag = "v1.1.0" }
 ckb-notify = { path = "../notify" }
 
 

@@ -18,7 +18,7 @@ where
     pub fn new(
         message: &'a ckb_protocol::GetData,
         synchronizer: &'a Synchronizer<C>,
-        _peer: &PeerId,
+        _peer: PeerId,
         nc: &'a NetworkContext,
     ) -> Self {
         GetDataProcess {

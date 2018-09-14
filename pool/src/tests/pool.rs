@@ -62,12 +62,12 @@ fn test_proposal_pool() {
     pool.proposal_n(block_number, txs100.clone());
     assert_eq!(pool.candidate_pool_size(), 100);
 
-    let proposal_txs = pool.query_proposal(&block_number, ::std::iter::empty());
+    let proposal_txs = pool.query_proposal(block_number, ::std::iter::empty());
     assert!(proposal_txs.is_some());
     assert_eq!(proposal_txs.unwrap().0.len(), 0);
 
     let proposal_txs =
-        pool.query_proposal(&block_number, txs.iter().map(|tx| tx.proposal_short_id()));
+        pool.query_proposal(block_number, txs.iter().map(|tx| tx.proposal_short_id()));
     assert!(proposal_txs.is_some());
     assert_eq!(proposal_txs.unwrap().0.len(), 100);
 

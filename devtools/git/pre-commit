@@ -86,7 +86,7 @@ else
   for file in $(git diff --name-only --cached);
   do
     if [ -f "$file" ] && [ ${file: -3} == ".rs" ]; then
-      if ! rustfmt --skip-children --check "$file"; then
+      if ! rustfmt --check "$file"; then
         FAILED=1
         FMTFAILED=1
       fi

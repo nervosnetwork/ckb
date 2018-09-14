@@ -156,8 +156,7 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
                     self.get(COLUMN_BLOCK_TRANSACTION_IDS, &h)
                         .map(|serialized_ids| (txs, serialized_ids))
                 })
-            })
-            .map(|(txs, serialized_ids)| {
+            }).map(|(txs, serialized_ids)| {
                 let txs_ids: Vec<H256> = deserialize(&serialized_ids[..]).unwrap();
                 txs.into_iter()
                     .zip(txs_ids.into_iter())
@@ -292,8 +291,7 @@ mod tests {
                 .save_with_batch(|batch| {
                     store.insert_output_root(batch, H256::from(10), H256::from(20));
                     Ok(())
-                })
-                .is_ok()
+                }).is_ok()
         );
         assert_eq!(
             H256::from(20),
@@ -315,8 +313,7 @@ mod tests {
                 .save_with_batch(|batch| {
                     store.insert_block(batch, &block);
                     Ok(())
-                })
-                .is_ok()
+                }).is_ok()
         );
         assert_eq!(block, &store.get_block(&hash).unwrap());
     }
@@ -344,8 +341,7 @@ mod tests {
                 .save_with_batch(|batch| {
                     store.insert_block(batch, &block);
                     Ok(())
-                })
-                .is_ok()
+                }).is_ok()
         );
         assert_eq!(block, store.get_block(&hash).unwrap());
     }
@@ -371,8 +367,7 @@ mod tests {
                 .save_with_batch(|batch| {
                     store.insert_block_ext(batch, &hash, &ext);
                     Ok(())
-                })
-                .is_ok()
+                }).is_ok()
         );
         assert_eq!(ext, store.get_block_ext(&hash).unwrap());
     }

@@ -20,14 +20,14 @@ where
     pub fn new(
         message: &'a ckb_protocol::GetHeaders,
         synchronizer: &'a Synchronizer<C>,
-        peer: &PeerId,
+        peer: PeerId,
         nc: &'a NetworkContext,
     ) -> Self {
         GetHeadersProcess {
             message,
             nc,
             synchronizer,
-            peer: *peer,
+            peer,
         }
     }
 
@@ -50,7 +50,7 @@ where
         {
             debug!(target: "sync", "\n\nheaders latest_common={} tip={} begin\n\n", block_number, {self.synchronizer.tip_header().number});
 
-            self.synchronizer.peers.getheaders_received(&self.peer);
+            self.synchronizer.peers.getheaders_received(self.peer);
             let headers: Vec<IndexedHeader> = self
                 .synchronizer
                 .get_locator_response(block_number, &hash_stop);

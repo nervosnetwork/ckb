@@ -41,8 +41,7 @@ pub trait CellProvider {
                 } else {
                     Self::State::tail()
                 }
-            })
-            .collect();
+            }).collect();
         let dep_cells = transaction
             .deps
             .iter()
@@ -52,8 +51,7 @@ pub trait CellProvider {
                 } else {
                     Self::State::tail()
                 }
-            })
-            .collect();
+            }).collect();
 
         ResolvedTransaction {
             transaction: transaction.clone(),

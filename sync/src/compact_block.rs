@@ -70,7 +70,8 @@ impl<'a, S: ::std::hash::BuildHasher> CompactBlockBuilder<'a, S> {
         for (transaction_index, transaction) in self.block.commit_transactions.iter().enumerate() {
             if self
                 .prefilled_transactions_indexes
-                .contains(&transaction_index) || transaction.is_cellbase()
+                .contains(&transaction_index)
+                || transaction.is_cellbase()
             {
                 prefilled_transactions.push(PrefilledTransaction {
                     index: transaction_index,

@@ -20,7 +20,7 @@ ckb-pool = { path = "pool"}
 ckb-rpc = { path = "rpc"}
 ckb-time = { path = "util/time"}
 ckb-script= { path = "script"}
-ethash = { git = "https://github.com/NervosFoundation/ethash", tag = "v1.0.0" }
+ethash = { git = "https://github.com/NervosFoundation/ethash", tag = "v1.1.0" }
 logger = { path = "util/logger" }
 bigint = { git = "https://github.com/NervosFoundation/bigint" }
 dir = { path = "util/dir" }

@@ -3,6 +3,7 @@
 use bigint::H256;
 use bincode::{deserialize, serialize};
 use ckb_protocol;
+use ckb_util::u64_to_bytes;
 use hash::{sha3_256, Sha3};
 use header::BlockNumber;
 use script::Script;
@@ -62,7 +63,7 @@ impl CellInput {
     pub fn new_cellbase_input(block_number: BlockNumber) -> Self {
         CellInput {
             previous_output: OutPoint::null(),
-            unlock: Script::new(0, Vec::new(), block_number.to_le().to_bytes().to_vec()),
+            unlock: Script::new(0, Vec::new(), u64_to_bytes(block_number.to_le()).to_vec()),
         }
     }
 }
