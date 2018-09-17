@@ -8,7 +8,6 @@ cache:
   timeout: 1024
   directories:
     - $HOME/.cargo
-    - target-cache
 
 env:
   global:
@@ -38,8 +37,5 @@ script:
 - make info
 - make "$SUITE"
 
-before_install:
-- make cache-warm
-
 before_cache:
-- make cache-clean
+- rm -rf $HOME/.cargo/registry
