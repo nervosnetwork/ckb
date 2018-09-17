@@ -1,0 +1,13 @@
+[package]
+name = "integration-tests-network"
+version = "0.1.0"
+authors = ["Nervos Core Dev <dev@nervos.org>"]
+
+[dependencies]
+ckb-network = { path = "../../network"}
+env_logger = "0.5"
+log = "0.4"
+crossbeam-channel = "0.2"
+tempdir = "0.3.7"
+clap = "2"
+parking_lot = "0.6"

@@ -63,6 +63,7 @@ members = [
     "spec",
     "verification",
     "script",
+    "util/harness",
     "integration_tests",
-    "util/harness"
+    "integration_tests/network"
 ]
