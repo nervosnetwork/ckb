@@ -16,11 +16,12 @@ jsonrpc-core = { git = "https://github.com/paritytech/jsonrpc" }
 jsonrpc-macros = { git = "https://github.com/paritytech/jsonrpc" }
 jsonrpc-minihttp-server = { git = "https://github.com/paritytech/jsonrpc" }
 jsonrpc-server-utils = { git = "https://github.com/paritytech/jsonrpc" }
-
 serde = "1.0"
 serde_derive = "1.0"
 serde_json = "1.0"
 log = "0.4"
-
 ckb-protocol = { path = "../network/protocol" }
 protobuf = "2.0.4"
+
+[features]
+integration_test = []

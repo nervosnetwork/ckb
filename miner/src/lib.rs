@@ -10,7 +10,6 @@ extern crate crossbeam_channel;
 extern crate log;
 extern crate ckb_sync as sync;
 extern crate ckb_time as time;
-extern crate ckb_util as util;
 extern crate rand;
 #[macro_use]
 extern crate serde_derive;

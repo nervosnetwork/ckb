@@ -37,6 +37,7 @@ ckb-instrument = { path = "util/instrument"}
 default = ["pow_engine_cuckoo"]
 pow_engine_cuckoo = []
 pow_engine_ethash = []
+integration_test = ["ckb-rpc/integration_test"]
 
 [dev-dependencies]
 tempdir = "0.3"
@@ -65,5 +66,6 @@ members = [
     "script",
     "util/harness",
     "integration_tests",
-    "integration_tests/network"
+    "integration_tests/network",
+    "benches"
 ]

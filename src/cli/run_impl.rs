@@ -4,6 +4,8 @@ use bigint::H256;
 use chain::cachedb::CacheDB;
 use chain::chain::{Chain, ChainBuilder, ChainProvider};
 use chain::store::ChainKVStore;
+#[cfg(feature = "integration_test")]
+use chain::Clicker;
 #[cfg(feature = "pow_engine_cuckoo")]
 use chain::CuckooEngine;
 #[cfg(feature = "pow_engine_dummy")]
@@ -22,7 +24,7 @@ use miner::Miner;
 use network::NetworkConfiguration;
 use network::NetworkService;
 use pool::TransactionPool;
-use rpc::RpcServer;
+use rpc::{Config as RpcConfig, RpcServer};
 use script::TransactionInputSigner;
 use serde_json::{self, Value};
 use std::path::Path;
@@ -71,7 +73,7 @@ pub fn run(setup: Setup) {
     let mut miner = Miner::new(
         setup.configs.miner,
         miner_chain,
-        pow_engine,
+        &pow_engine,
         &tx_pool,
         &network,
         &notify,
@@ -83,9 +85,15 @@ pub fn run(setup: Setup) {
             miner.start();
         });
 
-    let rpc_server = RpcServer {
-        config: setup.configs.rpc,
-    };
+    let rpc_server = build_rpc(
+        setup.configs.rpc,
+        if cfg!(feature = "integration_test") {
+            Some(pow_engine)
+        } else {
+            None
+        },
+    );
+
     let network_clone = Arc::clone(&network);
     let chain_clone = Arc::clone(&chain);
     let tx_pool_clone = Arc::clone(&tx_pool);
@@ -118,6 +126,37 @@ fn build_pow_engine<P: AsRef<Path>>(_pow_data_path: P) -> Arc<DummyPowEngine> {
     Arc::new(DummyPowEngine::new())
 }
 
+#[cfg(feature = "integration_test")]
+fn build_pow_engine<P: AsRef<Path>>(_pow_data_path: P) -> Arc<Clicker> {
+    Arc::new(Clicker::new())
+}
+
+#[cfg(feature = "integration_test")]
+fn build_rpc(config: RpcConfig, mut pow: Option<Arc<Clicker>>) -> RpcServer {
+    RpcServer {
+        config,
+        pow: pow.take().expect("must assign clicker engine"),
+    }
+}
+
+#[cfg(feature = "pow_engine_cuckoo")]
+#[cfg_attr(feature = "cargo-clippy", allow(needless_pass_by_value))]
+fn build_rpc(config: RpcConfig, _pow: Option<Arc<CuckooEngine>>) -> RpcServer {
+    RpcServer { config }
+}
+
+#[cfg(feature = "pow_engine_dummy")]
+#[cfg_attr(feature = "cargo-clippy", allow(needless_pass_by_value))]
+fn build_rpc(config: RpcConfig, _pow: Option<Arc<EthashEngine>>) -> RpcServer {
+    RpcServer { config }
+}
+
+#[cfg(feature = "pow_engine_ethash")]
+#[cfg_attr(feature = "cargo-clippy", allow(needless_pass_by_value))]
+fn build_rpc(config: RpcConfig, _pow: Option<Arc<DummyPowEngine>>) -> RpcServer {
+    RpcServer { config }
+}
+
 pub fn rpc(matches: &ArgMatches) {
     let uri = value_t!(matches.value_of("uri"), ckb_test_harness::rpc::Uri)
         .unwrap_or_else(|_| "http://localhost:3030".parse().unwrap());
@@ -127,7 +166,7 @@ pub fn rpc(matches: &ArgMatches) {
     let rpc = ckb_test_harness::rpc::Rpc::new(uri);
 
     let result: Value = rpc
-        .request(method, params)
+        .request(method.to_string(), params.to_string())
         .map(|chunk| {
             serde_json::from_slice(&chunk).unwrap_or_else(|e| panic!("Deserialize error {:?} ", e))
         }).wait()

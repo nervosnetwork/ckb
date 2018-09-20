@@ -173,10 +173,6 @@ where
         self.chain.tip_header().read().header.clone()
     }
 
-    // pub fn best_known_header(&self) -> HeaderView {
-
-    // }
-
     pub fn get_locator(&self, start: &IndexedHeader) -> Vec<H256> {
         let mut step = 1;
         let mut locator = Vec::with_capacity(32);

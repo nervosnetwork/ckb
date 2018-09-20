@@ -99,13 +99,13 @@ impl Rpc {
         }
     }
 
-    pub fn request<S: Into<String>>(
+    pub fn request(
         &self,
-        method: S,
-        params: S,
+        method: String,
+        params: String,
     ) -> impl Future<Item = Chunk, Error = Error> {
         let (req, res) = oneshot::channel();
-        let req = (req, method.into(), params.into());
+        let req = (req, method, params);
 
         let mut sender = self.sender.clone();
         let _ = sender.try_send(req);
@@ -114,11 +114,21 @@ impl Rpc {
     }
 
     pub fn get_tip_header(&self) -> impl Future<Item = Header, Error = Error> {
-        self.request("get_tip_header", "null").and_then(|chunk| {
-            serde_json::from_slice(&chunk)
-                .map_err(Error::new_parse)
-                .and_then(|res: RpcResponse| res.parse())
-        })
+        self.request("get_tip_header".to_owned(), "null".to_owned())
+            .and_then(|chunk| {
+                serde_json::from_slice(&chunk)
+                    .map_err(Error::new_parse)
+                    .and_then(|res: RpcResponse| res.parse())
+            })
+    }
+
+    pub fn submit_pow_solution(&self, nonce: u64) -> impl Future<Item = (), Error = Error> {
+        self.request("submit_pow_solution".to_owned(), format!("[{}]", nonce))
+            .and_then(|chunk| {
+                serde_json::from_slice(&chunk)
+                    .map_err(Error::new_parse)
+                    .and_then(|res: RpcResponse| res.parse())
+            })
     }
 }
 

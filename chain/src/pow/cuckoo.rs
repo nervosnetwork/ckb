@@ -1,9 +1,10 @@
-use std::collections::HashMap;
-
 use super::PowEngine;
 use byteorder::{ByteOrder, LittleEndian};
 use core::header::BlockNumber;
 use hash::blake2b;
+use std::collections::HashMap;
+
+pub const PROOF_LEN: usize = 42;
 
 pub struct CuckooEngine {
     cuckoo: Cuckoo,
@@ -12,7 +13,7 @@ pub struct CuckooEngine {
 impl CuckooEngine {
     pub fn new() -> Self {
         CuckooEngine {
-            cuckoo: Cuckoo::new(0x4000_0000, 0x2000_0000, 42),
+            cuckoo: Cuckoo::new(0x4000_0000, 0x2000_0000, PROOF_LEN),
         }
     }
 }
@@ -26,12 +27,14 @@ impl Default for CuckooEngine {
 impl PowEngine for CuckooEngine {
     fn init(&self, _number: BlockNumber) {}
 
+    #[inline]
     fn verify(&self, _number: BlockNumber, message: &[u8], proof: &[u8]) -> bool {
         let mut proof_u32 = vec![];
         LittleEndian::read_u32_into(&proof, &mut proof_u32);
         self.cuckoo.verify(message, &proof_u32)
     }
 
+    #[inline]
     fn solve(&self, _number: BlockNumber, message: &[u8]) -> Option<Vec<u8>> {
         self.cuckoo.solve(message).map(|proof| {
             let mut proof_u8 = vec![];
@@ -93,6 +96,16 @@ impl CuckooSip {
     }
 }
 
+fn message_to_keys(message: &[u8]) -> [u64; 4] {
+    let result = blake2b(message);
+    [
+        LittleEndian::read_u64(&result[0..8]).to_le(),
+        LittleEndian::read_u64(&result[8..16]).to_le(),
+        LittleEndian::read_u64(&result[16..24]).to_le(),
+        LittleEndian::read_u64(&result[24..32]).to_le(),
+    ]
+}
+
 pub struct Cuckoo {
     max_vertex: usize,
     max_edge: usize,
@@ -109,6 +122,7 @@ impl Cuckoo {
     }
 
     // https://github.com/tromp/cuckoo/blob/master/doc/spec#L19
+    #[inline]
     pub fn verify(&self, message: &[u8], proof: &[u32]) -> bool {
         if proof.len() != self.cycle_length {
             return false;
@@ -119,23 +133,19 @@ impl Cuckoo {
             return false;
         }
 
-        let keys = {
-            let result = blake2b(message);
-            [
-                LittleEndian::read_u64(&result[0..8]).to_le(),
-                LittleEndian::read_u64(&result[8..16]).to_le(),
-                LittleEndian::read_u64(&result[16..24]).to_le(),
-                LittleEndian::read_u64(&result[24..32]).to_le(),
-            ]
-        };
+        let keys = message_to_keys(message);
 
-        let mut from_upper: HashMap<_, Vec<_>> = HashMap::new();
-        let mut from_lower: HashMap<_, Vec<_>> = HashMap::new();
+        let mut from_upper: HashMap<_, Vec<_>> = HashMap::with_capacity(proof.len());
+        let mut from_lower: HashMap<_, Vec<_>> = HashMap::with_capacity(proof.len());
         for (u, v) in proof.iter().map(|i| self.edge(&keys, *i)) {
-            from_upper.entry(u).or_insert_with(Vec::new);
-            from_lower.entry(v).or_insert_with(Vec::new);
-            from_upper.get_mut(&u).unwrap().push(v);
-            from_lower.get_mut(&v).unwrap().push(u);
+            from_upper
+                .entry(u)
+                .and_modify(|upper| upper.push(v))
+                .or_insert_with(|| vec![v]);
+            from_lower
+                .entry(v)
+                .and_modify(|lower| lower.push(u))
+                .or_insert_with(|| vec![u]);
         }
         if from_upper.values().any(|list| list.len() != 2) {
             return false;
@@ -166,17 +176,10 @@ impl Cuckoo {
         cycle_length == self.cycle_length
     }
 
+    #[inline]
     pub fn solve(&self, message: &[u8]) -> Option<Vec<u32>> {
         let mut graph = vec![0; self.max_vertex].into_boxed_slice();
-        let keys = {
-            let result = blake2b(message);
-            [
-                LittleEndian::read_u64(&result[0..8]).to_le(),
-                LittleEndian::read_u64(&result[8..16]).to_le(),
-                LittleEndian::read_u64(&result[16..24]).to_le(),
-                LittleEndian::read_u64(&result[24..32]).to_le(),
-            ]
-        };
+        let keys = message_to_keys(message);
 
         for nonce in 0..self.max_edge {
             let (u, v) = {
@@ -197,13 +200,16 @@ impl Cuckoo {
                     .count();
                 if (path_u.len() - common) + (path_v.len() - common) + 1 == self.cycle_length {
                     let mut cycle: Vec<_> = {
-                        let mut list = Vec::new();
-                        list.extend(path_u.iter().take(path_u.len() - common + 1));
-                        list.extend(path_v.iter().rev().skip(common));
-                        list.push(u);
+                        let list: Vec<_> = path_u
+                            .iter()
+                            .take(path_u.len() - common + 1)
+                            .chain(path_v.iter().rev().skip(common))
+                            .chain(::std::iter::once(&u))
+                            .cloned()
+                            .collect();
                         list.windows(2).map(|edge| (edge[0], edge[1])).collect()
                     };
-                    let mut result = Vec::new();
+                    let mut result = Vec::with_capacity(PROOF_LEN);
                     for n in 0..self.max_edge {
                         let cur_edge = {
                             let edge = self.edge(&keys, n as u32);

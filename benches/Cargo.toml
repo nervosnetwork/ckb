@@ -1,0 +1,15 @@
+[package]
+name = "ckb-benches"
+version = "0.1.0"
+authors = ["Nervos Core Dev <dev@nervos.org>"]
+
+[dependencies]
+
+
+[dev-dependencies]
+criterion = "0.2"
+ckb-chain = { path = "../chain" }
+
+[[bench]]
+name = "cuckoo"
+harness = false

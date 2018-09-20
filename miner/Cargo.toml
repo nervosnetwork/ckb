@@ -13,7 +13,6 @@ ckb-chain = { path = "../chain" }
 ckb-protocol = { path = "../network/protocol" }
 ckb-network = { path = "../network" }
 ckb-sync = { path = "../sync" }
-ckb-util = { path = "../util" }
 protobuf = "2.0.4"
 rand = "0.5.0"
 ckb-notify = { path = "../notify" }

@@ -4,10 +4,12 @@ use core::difficulty::{boundary_to_difficulty, difficulty_to_boundary};
 use core::header::{BlockNumber, Header, RawHeader, Seal};
 use hash::blake2b;
 
+mod clicker;
 mod cuckoo;
 mod ethash;
 
-pub use self::cuckoo::CuckooEngine;
+pub use self::clicker::Clicker;
+pub use self::cuckoo::{Cuckoo, CuckooEngine};
 pub use self::ethash::EthashEngine;
 
 pub trait PowEngine: Send + Sync {

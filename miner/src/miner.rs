@@ -16,17 +16,9 @@ use network::NetworkService;
 use pool::TransactionPool;
 use rand::{thread_rng, Rng};
 use std::collections::HashSet;
-use std::sync::mpsc;
 use std::sync::Arc;
-use std::thread;
 use sync::compact_block::CompactBlockBuilder;
 use sync::RELAY_PROTOCOL_ID;
-use util::RwLock;
-
-enum Message {
-    Abort,
-    Found(Seal),
-}
 
 pub struct Miner<C, P> {
     config: Config,
@@ -34,9 +26,8 @@ pub struct Miner<C, P> {
     pow: Arc<P>,
     network: Arc<NetworkService>,
     tx_pool: Arc<TransactionPool<C>>,
-    signal_tx: mpsc::Sender<Message>,
-    signal_rx: mpsc::Receiver<Message>,
-    mining_number: Arc<RwLock<BlockNumber>>,
+    sub_rx: crossbeam_channel::Receiver<Event>,
+    mining_number: BlockNumber,
 }
 
 impl<C, P> Miner<C, P>
@@ -47,65 +38,30 @@ where
     pub fn new(
         config: Config,
         chain: Arc<C>,
-        pow: Arc<P>,
+        pow: &Arc<P>,
         tx_pool: &Arc<TransactionPool<C>>,
         network: &Arc<NetworkService>,
         notify: &Notify,
     ) -> Self {
-        let (signal_tx, signal_rx) = mpsc::channel();
         let number = chain.tip_header().read().header.number;
 
-        let miner = Miner {
+        let (sub_tx, sub_rx) = crossbeam_channel::unbounded();
+        notify.register_transaction_subscriber(MINER_SUBSCRIBER, sub_tx.clone());
+        notify.register_tip_subscriber(MINER_SUBSCRIBER, sub_tx);
+
+        Miner {
             config,
             chain,
-            pow,
-            signal_tx,
-            signal_rx,
+            sub_rx,
+            pow: Arc::clone(pow),
             tx_pool: Arc::clone(tx_pool),
             network: Arc::clone(network),
-            mining_number: Arc::new(RwLock::new(number)),
-        };
-
-        let (tx, rx) = crossbeam_channel::unbounded();
-        notify.register_transaction_subscriber(MINER_SUBSCRIBER, tx.clone());
-        notify.register_tip_subscriber(MINER_SUBSCRIBER, tx.clone());
-        miner.subscribe_update(rx);
-        miner
-    }
-
-    pub fn subscribe_update(&self, sub: crossbeam_channel::Receiver<Event>) {
-        let signal_tx = self.signal_tx.clone();
-        let mining_number = Arc::clone(&self.mining_number);
-        let new_transactions_threshold = self.config.new_transactions_threshold;
-        let mut new_transactions_counter = 0;
-        thread::spawn(move || loop {
-            match sub.recv() {
-                Some(Event::NewTip(block)) => {
-                    if block.header.number >= *mining_number.read() {
-                        let _ = signal_tx.send(Message::Abort);
-                    }
-                }
-                Some(Event::NewTransaction) => {
-                    if new_transactions_counter >= new_transactions_threshold {
-                        let _ = signal_tx.send(Message::Abort);
-                        new_transactions_counter = 0;
-                    } else {
-                        new_transactions_counter += 1;
-                    }
-                }
-                None => {
-                    info!(target: "miner", "sub channel closed");
-                    break;
-                }
-                event => {
-                    warn!(target: "miner", "Unexpected sub message {:?}", event);
-                }
-            }
-        });
+            mining_number: number,
+        }
     }
 
     pub fn start(&mut self) {
-        self.pow.init(*self.mining_number.read());
+        self.pow.init(self.mining_number);
 
         loop {
             self.commit_new_block();
@@ -115,8 +71,7 @@ where
     fn commit_new_block(&mut self) {
         match build_block_template(&self.chain, &self.tx_pool) {
             Ok(block_template) => {
-                let mut mining_number = self.mining_number.write();
-                *mining_number = block_template.raw_header.number;
+                self.mining_number = block_template.raw_header.number;
                 if let Some((block, propasal)) = self.mine(block_template) {
                     debug!(target: "miner", "new block mined: {} -> (number: {}, difficulty: {}, timestamp: {})",
                           block.hash(), block.header.number, block.header.difficulty, block.header.timestamp);
@@ -143,8 +98,8 @@ where
             proposal_transactions,
         } = block_template;
 
-        match self.mine_loop(&raw_header) {
-            Message::Found(seal) => Some((
+        self.mine_loop(&raw_header).map(|seal| {
+            (
                 IndexedBlock {
                     header: raw_header.with_seal(seal).into(),
                     uncles,
@@ -155,20 +110,35 @@ where
                         .collect(),
                 },
                 proposal_transactions,
-            )),
-            Message::Abort => None,
-        }
+            )
+        })
     }
 
-    fn mine_loop(&self, header: &RawHeader) -> Message {
+    fn mine_loop(&self, header: &RawHeader) -> Option<Seal> {
+        let new_transactions_threshold = self.config.new_transactions_threshold;
+        let mut new_transactions_counter = 0;
         let mut nonce: u64 = thread_rng().gen();
         loop {
             debug!(target: "miner", "mining {}", nonce);
-            if let Ok(message) = self.signal_rx.try_recv() {
-                break message;
+            match self.sub_rx.try_recv() {
+                Some(Event::NewTip(block)) => {
+                    if block.header.number >= self.mining_number {
+                        break None;
+                    }
+                }
+                Some(Event::NewTransaction) => {
+                    if new_transactions_counter >= new_transactions_threshold {
+                        break None;
+                    } else {
+                        new_transactions_counter += 1;
+                    }
+                }
+                event => {
+                    warn!(target: "miner", "Unexpected sub message {:?}", event);
+                }
             }
             if let Some(seal) = self.pow.solve_header(header, nonce) {
-                break Message::Found(seal);
+                break Some(seal);
             }
             nonce = nonce.wrapping_add(1);
         }

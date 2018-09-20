@@ -25,6 +25,7 @@ extern crate lru_cache;
 extern crate serde;
 #[macro_use]
 extern crate serde_derive;
+extern crate crossbeam_channel;
 #[cfg(test)]
 extern crate rand;
 #[cfg(test)]
@@ -37,7 +38,7 @@ pub mod consensus;
 pub mod error;
 mod flat_serializer;
 pub mod index;
-mod pow;
+pub mod pow;
 pub mod store;
 
 use db::batch::Col;
@@ -57,4 +58,4 @@ pub const COLUMN_BLOCK_TRANSACTION_ADDRESSES: Col = Some(9);
 pub const COLUMN_BLOCK_TRANSACTION_IDS: Col = Some(10);
 pub const COLUMN_BLOCK_PROPOSAL_IDS: Col = Some(11);
 
-pub use pow::{CuckooEngine, DummyPowEngine, EthashEngine, PowEngine};
+pub use pow::{Clicker, CuckooEngine, DummyPowEngine, EthashEngine, PowEngine};
