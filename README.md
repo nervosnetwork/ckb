@@ -8,7 +8,7 @@
 
 ## About Nervos CKB
 
-Nervos CKB is the first Common Knowledge Base to facilitate the creation and storage of [common knowledge](<https://en.wikipedia.org/wiki/Common_knowledge_(logic)>) of our society.
+Nervos CKB is the layer 1 of Nervos Network, a public blockchain with PoW and cell model.
 
 Nervos project defines a suite of scalable and interoperable blockchain protocols. Nervos CKB uses those protocols to create a self-evolving distributed network with novel economic model, data model and more.
 
