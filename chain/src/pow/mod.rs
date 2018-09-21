@@ -15,7 +15,7 @@ pub trait PowEngine: Send + Sync {
 
     fn verify_header(&self, header: &Header) -> bool {
         let proof_hash: H256 = blake2b(&header.seal.proof).into();
-        if boundary_to_difficulty(&proof_hash) >= header.difficulty {
+        if boundary_to_difficulty(&proof_hash) < header.difficulty {
             return false;
         }
 
