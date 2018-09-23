@@ -17,6 +17,10 @@ impl<'a, P: ChainProvider> ChainIterator<'a, P> {
             tip: chain.tip_header().read().header.number,
         }
     }
+
+    pub fn len(&self) -> u64 {
+        self.tip + 1
+    }
 }
 
 impl<'a, P: ChainProvider> Iterator for ChainIterator<'a, P> {

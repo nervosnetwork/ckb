@@ -133,8 +133,9 @@ where
                         new_transactions_counter += 1;
                     }
                 }
+                None => {}
                 event => {
-                    warn!(target: "miner", "Unexpected sub message {:?}", event);
+                    debug!(target: "miner", "Unexpected sub message {:?}", event);
                 }
             }
             if let Some(seal) = self.pow.solve_header(header, nonce) {

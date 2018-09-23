@@ -31,7 +31,7 @@ config = "0.9"
 serde_json = "1.0"
 crypto = { path = "util/crypto"}
 ckb-test-harness = { path = "util/harness"}
-ckb-instrument = { path = "util/instrument"}
+ckb-instrument = { path = "util/instrument", features = ["progress_bar"] }
 
 [features]
 default = ["pow_engine_cuckoo"]

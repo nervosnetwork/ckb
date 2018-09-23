@@ -4,6 +4,8 @@ use core::header::BlockNumber;
 use hash::blake2b;
 use std::collections::HashMap;
 
+pub const MAX_VERTEX: usize = 0x4000_0000;
+pub const MAX_EDGE: usize = 0x2000_0000;
 pub const PROOF_LEN: usize = 42;
 
 pub struct CuckooEngine {
@@ -13,7 +15,7 @@ pub struct CuckooEngine {
 impl CuckooEngine {
     pub fn new() -> Self {
         CuckooEngine {
-            cuckoo: Cuckoo::new(0x4000_0000, 0x2000_0000, PROOF_LEN),
+            cuckoo: Cuckoo::new(MAX_VERTEX, MAX_EDGE, PROOF_LEN),
         }
     }
 }
@@ -29,7 +31,7 @@ impl PowEngine for CuckooEngine {
 
     #[inline]
     fn verify(&self, _number: BlockNumber, message: &[u8], proof: &[u8]) -> bool {
-        let mut proof_u32 = vec![];
+        let mut proof_u32 = [0u32; PROOF_LEN];
         LittleEndian::read_u32_into(&proof, &mut proof_u32);
         self.cuckoo.verify(message, &proof_u32)
     }
@@ -37,7 +39,7 @@ impl PowEngine for CuckooEngine {
     #[inline]
     fn solve(&self, _number: BlockNumber, message: &[u8]) -> Option<Vec<u8>> {
         self.cuckoo.solve(message).map(|proof| {
-            let mut proof_u8 = vec![];
+            let mut proof_u8 = [0u8; PROOF_LEN * 4];
             LittleEndian::write_u32_into(&proof, &mut proof_u8);
             proof_u8.to_vec()
         })
@@ -267,6 +269,37 @@ impl Cuckoo {
 #[cfg(test)]
 mod test {
     use super::Cuckoo;
+    use core::BlockNumber;
+    use quickcheck;
+    use std::fmt;
+
+    #[derive(Copy, Clone)]
+    struct Message([u8; 80]);
+
+    impl fmt::Debug for Message {
+        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            for byte in self.0.iter() {
+                write!(f, "{}", byte)?;
+            }
+            Ok(())
+        }
+    }
+
+    impl quickcheck::Arbitrary for Message {
+        fn arbitrary<G: quickcheck::Gen>(g: &mut G) -> Self {
+            let mut res = [0u8; 80];
+            g.fill_bytes(&mut res[..80]);
+            Message(res)
+        }
+    }
+
+    quickcheck! {
+        fn cuckoo_solve(_number: BlockNumber, message: Message) -> bool {
+            let cuckoo = Cuckoo::new(16, 8, 6);
+            cuckoo.solve(&message.0);
+            true
+        }
+    }
 
     const TESTSET: [([u8; 80], [u32; 6]); 3] = [
         (

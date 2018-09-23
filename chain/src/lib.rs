@@ -30,6 +30,9 @@ extern crate crossbeam_channel;
 extern crate rand;
 #[cfg(test)]
 extern crate tempdir;
+#[cfg(test)]
+#[macro_use]
+extern crate quickcheck;
 
 pub mod cachedb;
 pub mod chain;

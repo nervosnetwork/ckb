@@ -26,3 +26,4 @@ crossbeam-channel = "0.2"
 [dev-dependencies]
 env_logger = "0.4"
 tempdir = "0.3"
+quickcheck = "0.7.1"
