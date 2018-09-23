@@ -6,27 +6,34 @@ extern crate crossbeam_channel;
 extern crate fnv;
 
 use core::block::IndexedBlock;
-use core::transaction::IndexedTransaction;
 use fnv::FnvHashMap;
 use std::sync::Arc;
 use util::RwLock;
-
-pub type OldTxs = Vec<IndexedTransaction>;
-pub type NewTxs = Vec<IndexedTransaction>;
 
 pub const MINER_SUBSCRIBER: &str = "miner";
 pub const TXS_POOL_SUBSCRIBER: &str = "txs_pool";
 
 #[derive(Clone, PartialEq, Debug, Default)]
-pub struct ForkTxs(pub OldTxs, pub NewTxs);
+pub struct ForkBlocks {
+    olds: Vec<IndexedBlock>,
+    news: Vec<IndexedBlock>,
+}
 
-impl ForkTxs {
-    pub fn old_txs(&self) -> &Vec<IndexedTransaction> {
-        &self.0
+impl ForkBlocks {
+    pub fn new(olds: Vec<IndexedBlock>, news: Vec<IndexedBlock>) -> Self {
+        ForkBlocks { olds, news }
     }
 
-    pub fn new_txs(&self) -> &Vec<IndexedTransaction> {
-        &self.1
+    pub fn old_blks(&self) -> &Vec<IndexedBlock> {
+        &self.olds
+    }
+
+    pub fn new_blks(&self) -> &Vec<IndexedBlock> {
+        &self.news
+    }
+
+    pub fn push_new(&mut self, b: IndexedBlock) {
+        self.news.push(b);
     }
 }
 
@@ -34,7 +41,7 @@ impl ForkTxs {
 pub enum Event {
     NewTransaction,
     NewTip(Arc<IndexedBlock>),
-    SwitchFork(Arc<ForkTxs>),
+    SwitchFork(Arc<ForkBlocks>),
 }
 
 pub type Subscriber = crossbeam_channel::Sender<Event>;
@@ -79,7 +86,7 @@ impl Notify {
         }
     }
 
-    pub fn notify_switch_fork(&self, txs: ForkTxs) {
+    pub fn notify_switch_fork(&self, txs: ForkBlocks) {
         let txs = Arc::new(txs);
         for sub in self.fork_subscribers.read().values() {
             sub.send(Event::SwitchFork(Arc::clone(&txs)));
@@ -115,13 +122,13 @@ mod tests {
     fn test_switch_fork() {
         let notify = Notify::default();
         let (tx, rx) = crossbeam_channel::unbounded();
-        let txs = ForkTxs::default();
+        let blks = ForkBlocks::default();
 
         notify.register_fork_subscriber(MINER_SUBSCRIBER, tx.clone());
-        notify.notify_switch_fork(txs.clone());
+        notify.notify_switch_fork(blks.clone());
         assert_eq!(
             rx.try_recv(),
-            Some(Event::SwitchFork(Arc::new(txs.clone())))
+            Some(Event::SwitchFork(Arc::new(blks.clone())))
         );
     }
 }

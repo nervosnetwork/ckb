@@ -12,6 +12,7 @@ extern crate merkle_root;
 #[macro_use]
 extern crate serde_derive;
 extern crate bit_vec;
+extern crate fnv;
 #[cfg(test)]
 extern crate protobuf;
 extern crate rayon;

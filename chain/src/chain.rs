@@ -1,15 +1,13 @@
 use super::{COLUMNS, COLUMN_BLOCK_HEADER};
 use bigint::{H256, U256};
 use cachedb::CacheDB;
-use ckb_notify::{ForkTxs, Notify};
+use ckb_notify::{ForkBlocks, Notify};
 use consensus::Consensus;
 use core::block::IndexedBlock;
 use core::cell::{CellProvider, CellState};
 use core::extras::BlockExt;
 use core::header::{BlockNumber, IndexedHeader};
-use core::transaction::{
-    Capacity, CellOutput, IndexedTransaction, OutPoint, ProposalShortId, Transaction,
-};
+use core::transaction::{Capacity, IndexedTransaction, OutPoint, ProposalShortId, Transaction};
 use core::transaction_meta::TransactionMeta;
 use core::uncle::UncleBlock;
 use db::batch::Batch;
@@ -34,6 +32,12 @@ pub struct TipHeader {
     pub output_root: H256,
 }
 
+impl TipHeader {
+    pub fn number(&self) -> BlockNumber {
+        self.header.number
+    }
+}
+
 pub struct Chain<CS> {
     store: CS,
     tip_header: RwLock<TipHeader>,
@@ -44,7 +48,7 @@ pub struct Chain<CS> {
 
 #[derive(Debug, Clone)]
 pub struct BlockInsertionResult {
-    pub fork_txs: ForkTxs,
+    pub fork_blks: ForkBlocks,
     pub new_best_block: bool,
 }
 
@@ -56,6 +60,11 @@ pub trait ChainProvider: Sync + Send + CellProvider {
     fn block_body(&self, hash: &H256) -> Option<Vec<IndexedTransaction>>;
 
     fn block_proposal_txs_ids(&self, hash: &H256) -> Option<Vec<ProposalShortId>>;
+
+    // Proposals in blocks from bn-n(exclusive) to bn(inclusive)
+    fn union_proposal_ids_n(&self, bn: BlockNumber, n: usize) -> Vec<Vec<ProposalShortId>>;
+
+    fn uncles(&self, hash: &H256) -> Option<Vec<UncleBlock>>;
 
     fn block_hash(&self, number: BlockNumber) -> Option<H256>;
 
@@ -96,63 +105,8 @@ pub trait ChainProvider: Sync + Send + CellProvider {
     fn calculate_difficulty(&self, last: &IndexedHeader) -> Option<U256>;
 }
 
-#[derive(Clone, PartialEq, Debug)]
-pub enum ChainCellState {
-    /// Cell exists and is the head in its cell chain.
-    Head(CellOutput),
-    /// Cell exists and is not the head of its cell chain.
-    Tail,
-    /// Cell does not exist.
-    Unknown,
-}
-
-impl CellState for ChainCellState {
-    fn tail() -> Self {
-        ChainCellState::Tail
-    }
-
-    fn unknown() -> Self {
-        ChainCellState::Unknown
-    }
-
-    fn head(&self) -> Option<&CellOutput> {
-        match *self {
-            ChainCellState::Head(ref output) => Some(output),
-            _ => None,
-        }
-    }
-
-    fn take_head(self) -> Option<CellOutput> {
-        match self {
-            ChainCellState::Head(output) => Some(output),
-            _ => None,
-        }
-    }
-
-    fn is_head(&self) -> bool {
-        match *self {
-            ChainCellState::Head(_) => true,
-            _ => false,
-        }
-    }
-    fn is_unknown(&self) -> bool {
-        match *self {
-            ChainCellState::Unknown => true,
-            _ => false,
-        }
-    }
-    fn is_tail(&self) -> bool {
-        match *self {
-            ChainCellState::Tail => true,
-            _ => false,
-        }
-    }
-}
-
 impl<'a, CS: ChainIndex> CellProvider for Chain<CS> {
-    type State = ChainCellState;
-
-    fn cell(&self, out_point: &OutPoint) -> ChainCellState {
+    fn cell(&self, out_point: &OutPoint) -> CellState {
         let index = out_point.index as usize;
         if let Some(meta) = self.get_transaction_meta(&out_point.hash) {
             if index < meta.len() {
@@ -161,16 +115,19 @@ impl<'a, CS: ChainIndex> CellProvider for Chain<CS> {
                         .store
                         .get_transaction(&out_point.hash)
                         .expect("transaction must exist");
-                    return ChainCellState::Head(transaction.outputs.swap_remove(index));
+                    CellState::Head(transaction.outputs.swap_remove(index))
                 } else {
-                    return ChainCellState::Tail;
+                    CellState::Tail
                 }
+            } else {
+                CellState::Unknown
             }
+        } else {
+            CellState::Unknown
         }
-        ChainCellState::Unknown
     }
 
-    fn cell_at(&self, out_point: &OutPoint, parent: &H256) -> ChainCellState {
+    fn cell_at(&self, out_point: &OutPoint, parent: &H256) -> CellState {
         let index = out_point.index as usize;
         if let Some(meta) = self.get_transaction_meta_at(&out_point.hash, parent) {
             if index < meta.len() {
@@ -179,13 +136,16 @@ impl<'a, CS: ChainIndex> CellProvider for Chain<CS> {
                         .store
                         .get_transaction(&out_point.hash)
                         .expect("transaction must exist");
-                    return ChainCellState::Head(transaction.outputs.swap_remove(index));
+                    CellState::Head(transaction.outputs.swap_remove(index))
                 } else {
-                    return ChainCellState::Tail;
+                    CellState::Tail
                 }
+            } else {
+                CellState::Unknown
             }
+        } else {
+            CellState::Unknown
         }
-        ChainCellState::Unknown
     }
 }
 
@@ -253,8 +213,8 @@ impl<CS: ChainIndex> Chain<CS> {
 
     fn insert_block(&self, b: &IndexedBlock) -> Result<BlockInsertionResult, Error> {
         let mut new_best_block = false;
-        let mut old_cumulative_txs = Vec::new();
-        let mut new_cumulative_txs = Vec::new();
+        let mut old_cumulative_blks = Vec::new();
+        let mut new_cumulative_blks = Vec::new();
         self.store.save_with_batch(|batch| {
             let root = self.check_transactions(batch, b)?;
             let parent_ext = self
@@ -296,8 +256,10 @@ impl<CS: ChainIndex> Chain<CS> {
                         total_difficulty: cannon_total_difficulty,
                         output_root: root,
                     };
+
+                    self.update_index(batch, tip_header.number(), b, &mut old_cumulative_blks, &mut new_cumulative_blks);
+                    // TODO: Move out
                     *tip_header = new_tip_header;
-                    self.update_index(batch, b, &mut old_cumulative_txs, &mut new_cumulative_txs);
                     self.store.insert_tip_header(batch, &b.header);
                     self.store.rebuild_tree(root);
                 }
@@ -308,17 +270,18 @@ impl<CS: ChainIndex> Chain<CS> {
 
         Ok(BlockInsertionResult {
             new_best_block,
-            fork_txs: ForkTxs(old_cumulative_txs, new_cumulative_txs),
+            fork_blks: ForkBlocks::new(old_cumulative_blks, new_cumulative_blks),
         })
     }
 
     fn post_insert_result(&self, block: &IndexedBlock, result: BlockInsertionResult) {
         let BlockInsertionResult {
             new_best_block,
-            fork_txs,
+            mut fork_blks,
         } = result;
-        if !fork_txs.old_txs().is_empty() || !fork_txs.new_txs().is_empty() {
-            self.notify.notify_switch_fork(fork_txs);
+        if !fork_blks.old_blks().is_empty() {
+            fork_blks.push_new(block.clone());
+            self.notify.notify_switch_fork(fork_blks);
         }
 
         if new_best_block {
@@ -337,48 +300,67 @@ impl<CS: ChainIndex> Chain<CS> {
     pub fn update_index(
         &self,
         batch: &mut Batch,
+        tip_number: BlockNumber,
         block: &IndexedBlock,
-        old_cumulative_txs: &mut Vec<IndexedTransaction>,
-        new_cumulative_txs: &mut Vec<IndexedTransaction>,
+        old_cumulative_blks: &mut Vec<IndexedBlock>,
+        new_cumulative_blks: &mut Vec<IndexedBlock>,
     ) {
-        let mut new_block: Option<IndexedBlock> = None;
-        loop {
-            new_block = {
-                let new_block_ref = new_block.as_ref().unwrap_or(block);
-                let new_hash = new_block_ref.hash();
-                let height = new_block_ref.header().number;
+        let mut number = block.header.number - 1;
 
-                if let Some(old_hash) = self.block_hash(height) {
-                    if new_hash == old_hash {
-                        break;
-                    }
-                    let old_txs = self.block_body(&old_hash).unwrap();
-                    self.store.delete_block_hash(batch, height);
-                    self.store.delete_block_number(batch, &old_hash);
-                    self.store.delete_transaction_address(batch, &old_txs);
-                    old_cumulative_txs.extend(old_txs.into_iter().rev());
-                }
+        // The old fork may longer than new fork
+        if number < tip_number {
+            for n in number..tip_number + 1 {
+                let hash = self.block_hash(n).unwrap();
+                let old_block = self.block(&hash).unwrap();
+                self.store.delete_block_hash(batch, n);
+                self.store.delete_block_number(batch, &hash);
+                self.store
+                    .delete_transaction_address(batch, &old_block.commit_transactions());
 
-                self.store.insert_block_hash(batch, height, &new_hash);
-                self.store.insert_block_number(batch, &new_hash, height);
-                self.store.insert_transaction_address(
-                    batch,
-                    &new_hash,
-                    &new_block_ref.commit_transactions,
-                );
-                // Current block body not insert into store yet.
-                if new_block.is_some() {
-                    let new_txs = self.block_body(&new_hash).unwrap();
-                    new_cumulative_txs.extend(new_txs.into_iter().rev());
-                }
-
-                // NOTE: Block number should be checked, so loop will finally stop.
-                //         1. block.number > 0
-                //         2. block.number = block.parent.number + 1
-                let block = self.block(&new_block_ref.header().parent_hash).unwrap();
-                Some(block)
-            };
+                old_cumulative_blks.push(old_block);
+            }
         }
+
+        // The best block should always be insert
+        {
+            let number = block.header.number;
+            let hash = block.hash();
+            self.store.insert_block_hash(batch, number, &hash);
+            self.store.insert_block_number(batch, &hash, number);
+            self.store
+                .insert_transaction_address(batch, &hash, &block.commit_transactions());
+        }
+
+        let mut hash = block.header.parent_hash;
+
+        loop {
+            if let Some(old_hash) = self.block_hash(number) {
+                if old_hash == hash {
+                    break;
+                }
+                let old_block = self.block(&old_hash).unwrap();
+
+                self.store.delete_block_hash(batch, number);
+                self.store.delete_block_number(batch, &old_hash);
+                self.store
+                    .delete_transaction_address(batch, &old_block.commit_transactions());
+                old_cumulative_blks.push(old_block);
+            }
+
+            let new_block = self.block(&hash).unwrap();
+
+            self.store.insert_block_hash(batch, number, &hash);
+            self.store.insert_block_number(batch, &hash, number);
+            self.store
+                .insert_transaction_address(batch, &hash, &new_block.commit_transactions());
+
+            hash = new_block.header.parent_hash;
+            number -= 1;
+
+            new_cumulative_blks.push(new_block);
+        }
+
+        new_cumulative_blks.reverse();
     }
 
     fn print_chain(&self, len: u64) {
@@ -440,6 +422,39 @@ impl<CS: ChainIndex> ChainProvider for Chain<CS> {
 
     fn block_proposal_txs_ids(&self, hash: &H256) -> Option<Vec<ProposalShortId>> {
         self.store.get_block_proposal_txs_ids(hash)
+    }
+
+    fn uncles(&self, hash: &H256) -> Option<Vec<UncleBlock>> {
+        self.store.get_block_uncles(hash)
+    }
+
+    fn union_proposal_ids_n(&self, bn: BlockNumber, n: usize) -> Vec<Vec<ProposalShortId>> {
+        let m = if bn > n as u64 { n } else { bn as usize };
+        let mut ret = Vec::new();
+
+        if let Some(mut hash) = self.block_hash(bn) {
+            for _ in 0..m {
+                let mut ids_set = FnvHashSet::default();
+
+                if let Some(ids) = self.block_proposal_txs_ids(&hash) {
+                    ids_set.extend(ids)
+                }
+
+                if let Some(us) = self.uncles(&hash) {
+                    for u in us {
+                        let ids = u.proposal_transactions;
+                        ids_set.extend(ids);
+                    }
+                }
+
+                let ids_vec: Vec<ProposalShortId> = ids_set.into_iter().collect();
+                ret.push(ids_vec);
+
+                hash = self.block_header(&hash).unwrap().parent_hash;
+            }
+        }
+
+        ret
     }
 
     fn block_hash(&self, number: BlockNumber) -> Option<H256> {

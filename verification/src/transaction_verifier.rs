@@ -1,21 +1,21 @@
-use core::cell::{CellState, ResolvedTransaction};
+use core::cell::ResolvedTransaction;
 use core::transaction::{Capacity, Transaction};
 use error::TransactionError;
 use fnv::FnvHashMap;
 use script::TransactionInputVerifier;
 use std::collections::HashSet;
 
-pub struct TransactionVerifier<'a, S: 'a> {
+pub struct TransactionVerifier<'a> {
     pub null: NullVerifier<'a>,
     pub empty: EmptyVerifier<'a>,
-    pub capacity: CapacityVerifier<'a, S>,
+    pub capacity: CapacityVerifier<'a>,
     pub duplicate_inputs: DuplicateInputsVerifier<'a>,
-    pub inputs: InputVerifier<'a, S>,
-    pub script: ScriptVerifier<'a, S>,
+    pub inputs: InputVerifier<'a>,
+    pub script: ScriptVerifier<'a>,
 }
 
-impl<'a, S: CellState> TransactionVerifier<'a, S> {
-    pub fn new(rtx: &'a ResolvedTransaction<S>) -> Self {
+impl<'a> TransactionVerifier<'a> {
+    pub fn new(rtx: &'a ResolvedTransaction) -> Self {
         TransactionVerifier {
             null: NullVerifier::new(&rtx.transaction),
             empty: EmptyVerifier::new(&rtx.transaction),
@@ -38,12 +38,12 @@ impl<'a, S: CellState> TransactionVerifier<'a, S> {
     }
 }
 
-pub struct InputVerifier<'a, S: 'a> {
-    resolved_transaction: &'a ResolvedTransaction<S>,
+pub struct InputVerifier<'a> {
+    resolved_transaction: &'a ResolvedTransaction,
 }
 
-impl<'a, S: CellState> InputVerifier<'a, S> {
-    pub fn new(resolved_transaction: &'a ResolvedTransaction<S>) -> Self {
+impl<'a> InputVerifier<'a> {
+    pub fn new(resolved_transaction: &'a ResolvedTransaction) -> Self {
         InputVerifier {
             resolved_transaction,
         }
@@ -180,12 +180,12 @@ impl<'a> NullVerifier<'a> {
     }
 }
 
-pub struct CapacityVerifier<'a, S: 'a> {
-    resolved_transaction: &'a ResolvedTransaction<S>,
+pub struct CapacityVerifier<'a> {
+    resolved_transaction: &'a ResolvedTransaction,
 }
 
-impl<'a, S: CellState> CapacityVerifier<'a, S> {
-    pub fn new(resolved_transaction: &'a ResolvedTransaction<S>) -> Self {
+impl<'a> CapacityVerifier<'a> {
+    pub fn new(resolved_transaction: &'a ResolvedTransaction) -> Self {
         CapacityVerifier {
             resolved_transaction,
         }

@@ -658,7 +658,7 @@ mod tests {
         parent = blocks[150].header.clone();
         let fork = parent.number;
         for i in 1..block_number + 1 {
-            let difficulty = chain1.calculate_difficulty(&parent).unwrap();
+            let difficulty = chain2.calculate_difficulty(&parent).unwrap();
             let new_block = gen_block(parent, difficulty, i + 100);
             chain2.process_block(&new_block).expect("process block ok");
             parent = new_block.header;

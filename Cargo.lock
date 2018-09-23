@@ -417,6 +417,7 @@ dependencies = [
  "ckb-time 0.1.0",
  "ckb-util 0.1.0",
  "crypto 0.1.0",
+ "fnv 1.0.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "hash 0.1.0",
  "merkle-root 0.1.0",
  "protobuf 2.0.5 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -517,7 +518,9 @@ dependencies = [
  "env_logger 0.4.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "fnv 1.0.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "hash 0.1.0",
+ "linked-hash-map 0.5.1 (git+https://github.com/NervosFoundation/linked-hash-map?rev=df27f21)",
  "log 0.4.5 (registry+https://github.com/rust-lang/crates.io-index)",
+ "lru-cache 0.1.0 (git+https://github.com/NervosFoundation/lru-cache)",
  "rand 0.5.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.79 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.79 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1839,6 +1842,11 @@ dependencies = [
  "serde 0.8.23 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_test 0.8.23 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
+
+[[package]]
+name = "linked-hash-map"
+version = "0.5.1"
+source = "git+https://github.com/NervosFoundation/linked-hash-map?rev=df27f21#df27f2194df66d3c652b0fb661da707cc167c9d1"
 
 [[package]]
 name = "linked-hash-map"
@@ -3824,6 +3832,7 @@ dependencies = [
 "checksum libp2p-yamux 0.1.0 (git+https://github.com/libp2p/rust-libp2p?rev=cfdfca1a06fb2deb9ebcc15a63d715ebddb23bd0)" = "<none>"
 "checksum librocksdb-sys 5.11.3 (git+https://github.com/NervosFoundation/rust-rocksdb)" = "<none>"
 "checksum linked-hash-map 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)" = "6d262045c5b87c0861b3f004610afd0e2c851e2908d08b6c870cbb9d5f494ecd"
+"checksum linked-hash-map 0.5.1 (git+https://github.com/NervosFoundation/linked-hash-map?rev=df27f21)" = "<none>"
 "checksum linked-hash-map 0.5.1 (registry+https://github.com/rust-lang/crates.io-index)" = "70fb39025bc7cdd76305867c4eccf2f2dcf6e9a57f5b21a93e1c2d86cd03ec9e"
 "checksum lock_api 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)" = "775751a3e69bde4df9b38dd00a1b5d6ac13791e4223d4a0506577f0dd27cfb7a"
 "checksum log 0.3.9 (registry+https://github.com/rust-lang/crates.io-index)" = "e19e8d5c34a3e0e2223db8e060f9e8264aeeb5c5fc64a4ee9965c062211c024b"

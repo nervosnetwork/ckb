@@ -31,11 +31,14 @@ verification_level = "Full"
 orphan_block_limit = 1024
 
 [pool]
-max_pool_size = 65535
-max_proposal_size = 4095
-max_commit_size = 4096
+max_pool_size = 10000
+max_orphan_size = 10000
+max_proposal_size = 10000
+max_cache_size = 1000
+max_pending_size = 10000
 
 [miner]
 max_tx              = 1024
+max_prop            = 1024
 new_transactions_threshold = 8
 redeem_script_hash  = "0x1b1c832d02fdb4339f9868c8a8636c3d9dd10bd53ac7ce99595825bd6beeffb3"

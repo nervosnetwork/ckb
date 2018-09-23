@@ -9,7 +9,7 @@ use ckb_protocol;
 use ckb_time::now_ms;
 use core::block::IndexedBlock;
 use core::header::IndexedHeader;
-use core::transaction::{IndexedTransaction, ProposalShortId, ProposalTransaction};
+use core::transaction::{IndexedTransaction, ProposalShortId};
 use core::BlockNumber;
 use fnv::{FnvHashMap, FnvHashSet};
 use futures::future;
@@ -21,7 +21,6 @@ use network::NetworkContextExt;
 use network::{NetworkContext, NetworkProtocolHandler, PeerId, Severity, TimerToken};
 use pool::txs_pool::TransactionPool;
 use protobuf;
-use std::collections::hash_map;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
@@ -356,7 +355,7 @@ where
     }
 }
 
-pub type TxProposalIdTable = FnvHashMap<BlockNumber, FnvHashSet<ProposalShortId>>;
+// pub type TxProposalIdTable = FnvHashSet<BlockNumber, FnvHashSet<ProposalShortId>>;
 
 #[derive(Default)]
 struct RelayState {
@@ -364,8 +363,8 @@ struct RelayState {
     pub received_blocks: Mutex<FnvHashSet<H256>>,
     pub received_transactions: Mutex<FnvHashSet<H256>>,
     pub pending_compact_blocks: Mutex<FnvHashMap<H256, CompactBlock>>,
-    pub inflight_proposals: Mutex<TxProposalIdTable>,
-    pub pending_proposals_request: Mutex<FnvHashMap<PeerId, TxProposalIdTable>>,
+    pub inflight_proposals: Mutex<FnvHashSet<ProposalShortId>>,
+    pub pending_proposals_request: Mutex<FnvHashMap<ProposalShortId, FnvHashSet<PeerId>>>,
 }
 
 pub struct RelayProtocol<C, P> {
@@ -423,29 +422,15 @@ where
         block_number: BlockNumber,
         proposal_ids: impl Iterator<Item = &'a ProposalShortId>,
     ) {
-        let proposal_ids: Vec<Vec<u8>> =
-            if let Some(known_proposal_ids) = self.tx_pool.query_proposal_ids(block_number) {
-                let proposal_ids: FnvHashSet<ProposalShortId> = proposal_ids.cloned().collect();
-                let request_proposal = proposal_ids.difference(&known_proposal_ids);
-
-                match self.state.inflight_proposals.lock().entry(block_number) {
-                    hash_map::Entry::Vacant(v) => {
-                        v.insert(request_proposal.clone().cloned().collect());
-                    }
-                    hash_map::Entry::Occupied(mut o) => {
-                        o.get_mut().extend(request_proposal.clone().cloned());
-                    }
-                }
-
-                request_proposal.map(|id| id.to_vec()).collect()
-            } else {
-                proposal_ids.map(|id| id.to_vec()).collect()
-            };
+        let mut inflight = self.state.inflight_proposals.lock();
+        let unknown_ids = proposal_ids
+            .filter(|x| !self.tx_pool.contains_key(x) && inflight.insert((*x).clone()))
+            .map(|x| x.to_vec());
 
         let mut payload = ckb_protocol::Payload::new();
         let mut proposal_request = ckb_protocol::BlockProposalRequest::new();
         proposal_request.set_block_number(block_number);
-        proposal_request.set_proposal_ids(proposal_ids.into());
+        proposal_request.set_proposal_ids(unknown_ids.map(|x| x).collect());
         payload.set_block_proposal_request(proposal_request);
         let _ = nc.respond_payload(payload);
     }
@@ -458,8 +443,7 @@ where
         let (key0, key1) = short_transaction_id_keys(compact_block.nonce, &compact_block.header);
 
         let mut txs = transactions;
-        txs.extend(self.tx_pool.commit.read().pool.get_vertices());
-        txs.extend(self.tx_pool.orphan.read().pool.get_vertices());
+        txs.extend(self.tx_pool.get_potential_transactions());
 
         let mut txs_map = FnvHashMap::default();
         for tx in txs {
@@ -494,7 +478,7 @@ where
         if payload.has_transaction() {
             let tx: IndexedTransaction = payload.get_transaction().into();
             if !self.state.received_transactions.lock().insert(tx.hash()) {
-                self.tx_pool.insert_candidate(tx);
+                let _ = self.tx_pool.add_transaction(tx);
                 self.relay(nc.as_ref(), peer, &payload);
             }
         } else if payload.has_block() {
@@ -588,70 +572,74 @@ where
             }
         } else if payload.has_block_proposal_request() {
             let request = payload.get_block_proposal_request();
-            let number = request.get_block_number();
             let proposal_ids = request
                 .get_proposal_ids()
                 .iter()
                 .filter_map(|bytes| ProposalShortId::from_slice(&bytes));
-            if let Some((txs, notfound)) = self.tx_pool.query_proposal(number, proposal_ids) {
-                if !txs.is_empty() {
-                    let mut payload = ckb_protocol::Payload::new();
-                    let mut response = ckb_protocol::BlockProposalResponse::new();
-                    response.set_block_number(number);
-                    response.set_transactions(txs.iter().map(Into::into).collect());
-                    payload.set_block_proposal_response(response);
-                    let _ = nc.respond_payload(payload);
-                }
-                if !notfound.is_empty() {
-                    let mut pending_proposals_request = self.state.pending_proposals_request.lock();
-                    let txs_table = pending_proposals_request
-                        .entry(peer)
-                        .or_insert_with(FnvHashMap::default);
-                    let mut txs = txs_table.entry(number).or_insert_with(FnvHashSet::default);
-                    txs.extend(notfound.into_iter());
-                }
-            }
+
+            let mut pending_proposals_request = self.state.pending_proposals_request.lock();
+
+            let txs: Vec<IndexedTransaction> = proposal_ids
+                .filter_map(|x| {
+                    if let Some(tx) = self.tx_pool.get(&x) {
+                        Some(tx)
+                    } else {
+                        let mut peer_set = pending_proposals_request
+                            .entry(x)
+                            .or_insert_with(FnvHashSet::default);
+                        peer_set.insert(peer);
+                        None
+                    }
+                }).collect();
+
+            let mut payload = ckb_protocol::Payload::new();
+            let mut response = ckb_protocol::BlockProposalResponse::new();
+            response.set_transactions(txs.iter().map(Into::into).collect());
+            payload.set_block_proposal_response(response);
+            let _ = nc.respond_payload(payload);
         } else if payload.has_block_proposal_response() {
             let mut response = payload.take_block_proposal_response();
-            let block_number = response.get_block_number();
-            let txs: FnvHashSet<ProposalTransaction> = response
+            let txs: Vec<IndexedTransaction> = response
                 .take_transactions()
                 .iter()
                 .map(Into::into)
                 .collect();
 
-            let txs_ids: FnvHashSet<ProposalShortId> =
-                txs.iter().map(|tx| tx.proposal_short_id()).collect();
+            let mut inflight = self.state.inflight_proposals.lock();
 
-            if let Some(proposals) = self.state.inflight_proposals.lock().get_mut(&block_number) {
-                proposals.retain(|id| !txs_ids.contains(id));
+            for tx in txs {
+                inflight.remove(&tx.proposal_short_id());
+                let _ = self.tx_pool.add_transaction(tx);
             }
-            self.tx_pool.proposal_n(block_number, txs);
         }
     }
 
     fn prune_tx_proposal_request(&self, nc: Box<NetworkContext>) {
         let mut pending_proposals_request = self.state.pending_proposals_request.lock();
-        for (peer, mut txs_table) in pending_proposals_request.iter_mut() {
-            for (number, mut proposal_ids) in txs_table.iter_mut() {
-                let result = { self.tx_pool.query_proposal(*number, proposal_ids.drain()) };
-                if let Some((txs, notfound)) = result {
-                    if !txs.is_empty() {
-                        let mut payload = ckb_protocol::Payload::new();
-                        let mut response = ckb_protocol::BlockProposalResponse::new();
-                        response.set_block_number(*number);
-                        response.set_transactions(txs.iter().map(Into::into).collect());
-                        payload.set_block_proposal_response(response);
-                        let _ = nc.send_payload(*peer, payload);
-                    }
-                    if !notfound.is_empty() {
-                        *proposal_ids = notfound.into_iter().collect();
-                    }
+        let mut peer_txs = FnvHashMap::default();
+        let mut remove_ids = Vec::new();
+
+        for (id, peers) in pending_proposals_request.iter() {
+            if let Some(tx) = self.tx_pool.get(id) {
+                for peer in peers {
+                    let mut tx_set = peer_txs.entry(*peer).or_insert_with(Vec::new);
+                    tx_set.push(tx.clone());
                 }
             }
-            txs_table.retain(|_, txs| !txs.is_empty());
+            remove_ids.push(*id);
         }
-        pending_proposals_request.retain(|_, table| !table.is_empty());
+
+        for id in remove_ids {
+            pending_proposals_request.remove(&id);
+        }
+
+        for (peer, txs) in peer_txs {
+            let mut payload = ckb_protocol::Payload::new();
+            let mut response = ckb_protocol::BlockProposalResponse::new();
+            response.set_transactions(txs.iter().map(Into::into).collect());
+            payload.set_block_proposal_response(response);
+            let _ = nc.send_payload(peer, payload);
+        }
     }
 }
 

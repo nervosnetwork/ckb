@@ -4,7 +4,7 @@ use ckb_protocol;
 use hash::sha3_256;
 use merkle_root::merkle_root;
 use std::ops::{Deref, DerefMut};
-use transaction::{IndexedTransaction, ProposalTransaction};
+use transaction::{IndexedTransaction, ProposalShortId};
 
 const VERSION: u32 = 0;
 
@@ -41,7 +41,7 @@ impl RawHeader {
     pub fn new<'a>(
         parent_header: &Header,
         commit_transactions: impl Iterator<Item = &'a IndexedTransaction>,
-        proposal_transactions: impl Iterator<Item = &'a ProposalTransaction>,
+        proposal_short_ids: impl Iterator<Item = &'a ProposalShortId>,
         timestamp: u64,
         difficulty: U256,
         cellbase_id: H256,
@@ -52,9 +52,7 @@ impl RawHeader {
             .collect();
         let txs_commit = merkle_root(commit_txs_hash.as_slice());
 
-        let proposal_txs_hash: Vec<H256> = proposal_transactions
-            .map(|t: &ProposalTransaction| t.proposal_short_id().hash())
-            .collect();
+        let proposal_txs_hash: Vec<H256> = proposal_short_ids.map(|t| t.hash()).collect();
 
         let txs_proposal = merkle_root(proposal_txs_hash.as_slice());
 

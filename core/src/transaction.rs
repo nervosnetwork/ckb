@@ -4,7 +4,7 @@ use bigint::H256;
 use bincode::{deserialize, serialize};
 use ckb_protocol;
 use ckb_util::u64_to_bytes;
-use hash::{sha3_256, Sha3};
+use hash::sha3_256;
 use header::BlockNumber;
 use script::Script;
 use std::ops::{Deref, DerefMut};
@@ -133,8 +133,19 @@ impl ProposalShortId {
         }
     }
 
+    pub fn from_h256(h: &H256) -> Self {
+        let v = h.to_vec();
+        let mut inner = [0u8; 10];
+        inner.copy_from_slice(&v[..10]);
+        ProposalShortId(inner)
+    }
+
     pub fn hash(&self) -> H256 {
         sha3_256(serialize(self).unwrap()).into()
+    }
+
+    pub fn zero() -> Self {
+        ProposalShortId([0; 10])
     }
 }
 
@@ -194,13 +205,11 @@ impl Transaction {
     }
 
     pub fn proposal_short_id(&self) -> ProposalShortId {
-        let mut hash = self.hash();
-        let mut sha3 = Sha3::new_sha3_256();
-        let mut id = ProposalShortId::default();
-        sha3.update(&hash);
-        sha3.finalize(&mut hash);
-        id.copy_from_slice(&hash.0[..10]);
-        id
+        ProposalShortId::from_h256(&self.hash())
+    }
+
+    pub fn get_output(&self, i: usize) -> Option<CellOutput> {
+        self.outputs.get(i).cloned()
     }
 }
 
@@ -251,13 +260,7 @@ impl IndexedTransaction {
     }
 
     pub fn proposal_short_id(&self) -> ProposalShortId {
-        let mut hash = self.hash();
-        let mut sha3 = Sha3::new_sha3_256();
-        let mut id = ProposalShortId::default();
-        sha3.update(&hash);
-        sha3.finalize(&mut hash);
-        id.copy_from_slice(&hash.0[..10]);
-        id
+        ProposalShortId::from_h256(&self.hash())
     }
 }
 

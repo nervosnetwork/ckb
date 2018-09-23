@@ -2,15 +2,16 @@ use bigint::H256;
 use ckb_chain::chain::{ChainBuilder, ChainProvider};
 use ckb_chain::store::ChainKVStore;
 use ckb_db::memorydb::MemoryKeyValueDB;
-use ckb_notify::Notify;
+use ckb_notify::{ForkBlocks, Notify};
 use core::block::{Block, IndexedBlock};
-use core::cell::CellProvider;
+use core::cell::{CellProvider, CellState};
 use core::header::{Header, RawHeader};
 use core::script::Script;
 use core::transaction::*;
 use std::fs::File;
 use std::io::Read;
 use std::sync::Arc;
+use std::{thread, time};
 use time::now_ms;
 use txs_pool::pool::*;
 use txs_pool::types::*;
@@ -31,12 +32,14 @@ macro_rules! expect_output_parent {
     }
 }
 
+// Work only when TRANSACTION_PROPAGATION_TIME = 1, TRANSACTION_PROPAGATION_TIMEOUT = 10
 #[test]
 fn test_proposal_pool() {
-    let max_proposal_size = 200;
-    let max_commit_size = 300;
-    let (_chain, pool, mut tx_hash) = test_setup(max_commit_size, max_proposal_size);
+    let (chain, pool, mut tx_hash) = test_setup();
+
     assert_eq!(pool.total_size(), 0);
+
+    let block_number = { chain.tip_header().read().number() };
 
     let mut txs = vec![];
 
@@ -49,39 +52,49 @@ fn test_proposal_pool() {
         txs.push(tx);
     }
 
-    for tx in txs.clone() {
-        pool.insert_candidate(tx);
+    for tx in &txs[1..20] {
+        pool.add_transaction(tx.clone()).unwrap();
     }
 
-    let block_number = 100;
-    assert_eq!(pool.candidate_pool_size(), 200);
-    let txs200 = pool.prepare_proposal();
-    assert_eq!(pool.candidate_pool_size(), 200);
-    assert_eq!(txs200.len(), 200);
+    pool.add_transaction(txs[21].clone()).unwrap();
 
-    pool.proposal_n(block_number, txs200.clone());
-    assert_eq!(pool.candidate_pool_size(), 0);
+    assert_eq!(pool.pending_size(), 20);
 
-    let proposal_txs = pool.query_proposal(block_number, ::std::iter::empty());
-    assert!(proposal_txs.is_some());
-    assert_eq!(proposal_txs.unwrap().0.len(), 0);
+    let mut prop_ids = pool.prepare_proposal(22);
 
-    let proposal_txs =
-        pool.query_proposal(block_number, txs.iter().map(|tx| tx.proposal_short_id()));
-    assert!(proposal_txs.is_some());
-    assert_eq!(proposal_txs.unwrap().0.len(), 200);
+    assert_eq!(20, prop_ids.len());
 
-    let commit = pool.prepare_commit(
-        block_number + 1,
-        &txs.iter().map(|tx| tx.proposal_short_id()).collect(),
-    );
-    assert_eq!(commit.len(), 200);
+    prop_ids.push(txs[20].proposal_short_id());
+    prop_ids.push(txs[0].proposal_short_id());
+
+    let mut block: IndexedBlock = Block::default().into();
+    block.header.number = block_number + 1;
+    block.proposal_transactions = prop_ids.clone();
+
+    pool.reconcile_block(&block);
+
+    assert_eq!(0, pool.pool_size());
+    assert_eq!(20, pool.orphan_size());
+    assert_eq!(0, pool.proposed_size());
+
+    pool.add_transaction(txs[0].clone()).unwrap();
+    assert_eq!(20, pool.pool_size());
+    assert_eq!(1, pool.orphan_size());
+
+    pool.propose_transaction(block_number + 1, txs[20].clone());
+
+    assert_eq!(22, pool.pool_size());
+    assert_eq!(0, pool.orphan_size());
+
+    pool.propose_transaction(block_number + 1, txs[25].clone());
+
+    assert_eq!(1, pool.pending_size());
 }
 
 #[test]
 /// A basic test; add a pair of transactions to the pool.
-fn test_basic_pool_add() {
-    let (_chain, pool, tx_hash) = test_setup(1024, 1024);
+fn test_add_pool() {
+    let (_chain, pool, tx_hash) = test_setup();
     assert_eq!(pool.total_size(), 0);
 
     let parent_transaction = test_transaction(
@@ -106,14 +119,12 @@ fn test_basic_pool_add() {
 
     let child_tx_hash = child_transaction.hash();
 
-    // First, add the transaction rooted in the blockchain
-    let result = pool.add_to_commit_pool(parent_transaction);
+    let result = pool.add_to_pool(parent_transaction);
     if result.is_err() {
         panic!("got an error adding parent tx: {:?}", result.err().unwrap());
     }
 
-    // Now, add the transaction connected as a child to the first
-    let child_result = pool.add_to_commit_pool(child_transaction);
+    let child_result = pool.add_to_pool(child_transaction);
 
     if child_result.is_err() {
         panic!(
@@ -123,24 +134,20 @@ fn test_basic_pool_add() {
     }
 
     assert_eq!(pool.total_size(), 2);
+    expect_output_parent!(pool, CellState::Head(_), OutPoint::new(child_tx_hash, 0));
     expect_output_parent!(
         pool,
-        PoolCellState::Commit(_),
-        OutPoint::new(child_tx_hash, 0)
-    );
-    expect_output_parent!(
-        pool,
-        PoolCellState::Tail,
+        CellState::Tail,
         OutPoint::new(parent_tx_hash, 0),
         OutPoint::new(parent_tx_hash, 1)
     );
-    expect_output_parent!(pool, PoolCellState::Head(_), OutPoint::new(tx_hash, 8));
-    expect_output_parent!(pool, PoolCellState::Unknown, OutPoint::new(tx_hash, 200));
+    expect_output_parent!(pool, CellState::Head(_), OutPoint::new(tx_hash, 8));
+    expect_output_parent!(pool, CellState::Unknown, OutPoint::new(tx_hash, 200));
 }
 
 #[test]
 pub fn test_cellbase_spent() {
-    let (chain, pool, _tx_hash) = test_setup(1024, 1024);
+    let (chain, pool, _tx_hash) = test_setup();
     let cellbase_tx: IndexedTransaction = Transaction::new(
         0,
         Vec::new(),
@@ -153,7 +160,7 @@ pub fn test_cellbase_spent() {
             create_valid_script().redeem_script_hash(),
         )],
     ).into();
-    apply_transactions(vec![cellbase_tx.clone()], &chain);
+    apply_transactions(vec![cellbase_tx.clone()], vec![], &chain);
 
     let valid_tx = Transaction::new(
         0,
@@ -165,7 +172,7 @@ pub fn test_cellbase_spent() {
         vec![CellOutput::new(50000, Vec::new(), H256::default())],
     );
 
-    match pool.add_to_commit_pool(valid_tx.into()) {
+    match pool.add_to_pool(valid_tx.into()) {
         Ok(_) => {}
         Err(err) => panic!(
             "Unexpected error while adding a valid transaction: {:?}",
@@ -176,11 +183,9 @@ pub fn test_cellbase_spent() {
 
 #[test]
 /// Testing various expected error conditions
-pub fn test_pool_add_error() {
-    let (_chain, pool, tx_hash) = test_setup(1024, 1024);
+pub fn test_add_pool_error() {
+    let (_chain, pool, tx_hash) = test_setup();
     assert_eq!(pool.total_size(), 0);
-
-    // let duplicate_tx = test_transaction(vec![OutPoint::new(tx_hash, 5), OutPoint::new(tx_hash, 6)], 1);
 
     // To test DoubleSpend and AlreadyInPool conditions, we need to add
     // a valid transaction.
@@ -189,39 +194,29 @@ pub fn test_pool_add_error() {
         2,
     );
 
-    match pool.add_to_commit_pool(valid_transaction.clone()) {
+    match pool.add_to_pool(valid_transaction.clone()) {
         Ok(_) => {}
         Err(_) => panic!("Unexpected error while adding a valid transaction"),
     };
 
-    // Now, test a DoubleSpend by consuming the same blockchain unspent
-    // as valid_transaction:
-    let double_spend_transaction = test_transaction(vec![OutPoint::new(tx_hash, 6)], 2);
+    let double_spent_transaction = test_transaction(vec![OutPoint::new(tx_hash, 6)], 2);
 
-    match pool.add_to_commit_pool(double_spend_transaction) {
-        Ok(_) => panic!("Expected error when adding double spend, got Ok"),
+    match pool.add_to_pool(double_spent_transaction) {
+        Ok(_) => panic!("Expected error when adding DoubleSpent tx, got Ok"),
         Err(x) => {
             match x {
-                PoolError::InvalidTx(_) => {}
-                _ => panic!("Unexpected error when adding double spend transaction"),
+                PoolError::DoubleSpent => {}
+                _ => panic!("Unexpected error when adding doubleSpent transaction"),
             };
         }
     };
 
-    // Note, this used to work as expected, but after aggsig implementation
-    // creating another transaction with the same inputs/outputs doesn't create
-    // the same hash ID due to the random nonces in an aggsig. This
-    // will instead throw a (correct as well) Already spent error. An AlreadyInPool
-    // error can only come up in the case of the exact same transaction being
-    // added
-    //let already_in_pool = test_transaction(vec![5, 6], vec![9]);
-
-    match pool.add_to_commit_pool(valid_transaction) {
-        Ok(_) => panic!("Expected error when adding already in pool, got Ok"),
+    match pool.add_to_pool(valid_transaction) {
+        Ok(_) => panic!("Expected error when adding already_in_pool, got Ok"),
         Err(x) => {
             match x {
                 PoolError::AlreadyInPool => {}
-                _ => panic!("Unexpected error when adding already in pool tx: {:?}", x),
+                _ => panic!("Unexpected error when adding already_in_pool tx: {:?}", x),
             };
         }
     };
@@ -229,237 +224,209 @@ pub fn test_pool_add_error() {
     assert_eq!(pool.total_size(), 1);
 }
 
-// // #[test]
-// // /// Testing an expected orphan
-// // fn test_add_orphan() {
-// //     // TODO we need a test here
-// // }
+// #[test]
+// /// Testing an expected orphan
+// fn test_add_orphan() {
+//     // TODO we need a test here
+// }
 
 #[test]
-fn test_zero_confirmation_reconciliation() {
-    let (_chain, pool, tx_hash) = test_setup(1024, 1024);
+fn test_get_mineable_transactions() {
+    let (_chain, pool, tx_hash) = test_setup();
 
-    // now create two txs
-    // tx1 spends the Output
-    // tx2 spends output from tx1
-    let tx1 = test_transaction(vec![OutPoint::new(tx_hash, 0)], 1);
+    let tx1 = test_transaction_with_capacity(
+        vec![
+            OutPoint::new(tx_hash, 0),
+            OutPoint::new(tx_hash, 1),
+            OutPoint::new(tx_hash, 2),
+            OutPoint::new(tx_hash, 3),
+            OutPoint::new(tx_hash, 4),
+        ],
+        5,
+        1000_000,
+    );
     let tx1_hash = tx1.hash();
-    let tx2 = test_transaction(vec![OutPoint::new(tx1_hash, 0)], 1);
+    let tx2 = test_transaction(
+        vec![OutPoint::new(tx1_hash, 3), OutPoint::new(tx1_hash, 4)],
+        2,
+    );
+    let tx2_hash = tx2.hash();
+    let tx3 = test_transaction(
+        vec![OutPoint::new(tx1_hash, 2), OutPoint::new(tx2_hash, 1)],
+        2,
+    );
+    let tx3_hash = tx3.hash();
+    let tx4 = test_transaction(
+        vec![
+            OutPoint::new(tx1_hash, 1),
+            OutPoint::new(tx2_hash, 0),
+            OutPoint::new(tx3_hash, 1),
+        ],
+        2,
+    );
 
-    // now add both txs to the pool (tx2 spends tx1 with zero confirmations)
-    // both should be accepted if tx1 added before tx2
-    pool.add_to_commit_pool(tx1).unwrap();
-    pool.add_to_commit_pool(tx2).unwrap();
+    pool.add_to_pool(tx3.clone()).unwrap();
+    assert_eq!(pool.orphan_size(), 1);
+    pool.add_to_pool(tx4.clone()).unwrap();
+    assert_eq!(pool.orphan_size(), 2);
+    pool.add_to_pool(tx1.clone()).unwrap();
+    assert_eq!(pool.orphan_size(), 2);
+    pool.add_to_pool(tx2.clone()).unwrap();
 
-    assert_eq!(pool.commit_pool_size(), 2);
+    assert_eq!(pool.pool_size(), 4);
 
-    let mut block: IndexedBlock = Block::default().into();
-
-    let txs = { pool.commit.read().get_mineable_transactions(3) };
-
-    // confirm we can preparing both txs for mining here
-    // one root tx in the pool, and one non-root vertex in the pool
-    assert_eq!(txs.len(), 2);
-    block.commit_transactions = txs;
-
-    // now reconcile the block
-    pool.reconcile_block(&block);
-
-    // check the pool is consistent after reconciling the block
-    // we should have zero txs in the pool (neither roots nor non-roots)
-
-    assert_eq!(pool.commit_pool_size(), 0);
+    let txs = pool.get_mineable_transactions(10);
+    assert_eq!(txs, vec![tx1, tx2, tx3, tx4])
 }
 
 #[test]
 /// Testing block reconciliation
 fn test_block_reconciliation() {
-    let (chain, pool, tx_hash) = test_setup(1024, 1024);
-    // Preparation: We will introduce a three root pool transactions.
-    // 1. A transaction that should be invalidated because it is exactly
-    //  contained in the block.
-    // 2. A transaction that should be invalidated because the input is
-    //  consumed in the block, although it is not exactly consumed.
-    // 3. A transaction that should remain after block reconciliation.
-    let block_transaction = test_transaction(vec![OutPoint::new(tx_hash, 10)], 1);
-    let conflict_transaction = test_transaction(vec![OutPoint::new(tx_hash, 20)], 2);
-    let valid_transaction = test_transaction(vec![OutPoint::new(tx_hash, 30)], 2);
+    let (chain, pool, tx_hash) = test_setup();
 
-    // We will also introduce a few children:
-    // 4. A transaction that descends from transaction 1, that is in
-    //  turn exactly contained in the block.
-    let block_tx_hash = block_transaction.hash();
-    let block_child = test_transaction(vec![OutPoint::new(block_tx_hash, 0)], 2);
-    // 5. A transaction that descends from transaction 4, that is not
-    //  contained in the block at all and should be valid after
-    //  reconciliation.
-    let block_child_tx_hash = block_child.hash();
-    let pool_child =
-        test_transaction_with_capacity(vec![OutPoint::new(block_child_tx_hash, 0)], 1, 1000);
-    // 6. A transaction that descends from transaction 2 that does not
-    //  conflict with anything in the block in any way, but should be
-    //  invalidated (orphaned).
-    let conflict_tx_hash = conflict_transaction.hash();
-    let conflict_child =
-        test_transaction_with_capacity(vec![OutPoint::new(conflict_tx_hash, 0)], 1, 1000);
-    // 7. A transaction that descends from transaction 2 that should be
-    //  valid due to its inputs being satisfied by the block.
-    let conflict_valid_child =
-        test_transaction_with_capacity(vec![OutPoint::new(conflict_tx_hash, 1)], 1, 500);
-    // 8. A transaction that descends from transaction 3 that should be
-    //  invalidated due to an output conflict.
-    let valid_tx_hash = valid_transaction.hash();
-    let valid_child_conflict =
-        test_transaction_with_capacity(vec![OutPoint::new(valid_tx_hash, 0)], 1, 2000);
-    // 9. A transaction that descends from transaction 3 that should remain
-    //  valid after reconciliation.
-    let valid_child_valid =
-        test_transaction_with_capacity(vec![OutPoint::new(valid_tx_hash, 1)], 1, 1500);
-    // 10. A transaction that descends from both transaction 6 and
-    //  transaction 9
-    let conflict_child_tx_hash = conflict_child.hash();
-    let valid_child_valid_tx_hash = valid_child_valid.hash();
-    let mixed_child = test_transaction_with_capacity(
+    let tx0 = test_transaction(vec![OutPoint::new(tx_hash, 0)], 2);
+    // tx1 is conflict
+    let tx1 = test_transaction_with_capacity(
         vec![
-            OutPoint::new(conflict_child_tx_hash, 0),
-            OutPoint::new(valid_child_valid_tx_hash, 0),
+            OutPoint::new(tx_hash, 1),
+            OutPoint::new(tx_hash, 2),
+            OutPoint::new(tx_hash, 3),
+            OutPoint::new(tx_hash, 4),
         ],
-        1,
-        2500,
+        5,
+        1000_000,
     );
-    let mixed_child_tx_hash = mixed_child.hash();
-    // Add transactions.
-    // Note: There are some ordering constraints that must be followed here
-    // until orphans is 100% implemented. Once the orphans process has
-    // stabilized, we can mix these up to exercise that path a bit.
-    let mut txs_to_add = vec![
-        block_transaction,
-        conflict_transaction,
-        valid_transaction,
-        block_child,
-        pool_child,
-        conflict_child,
-        conflict_valid_child,
-        valid_child_conflict,
-        valid_child_valid,
-        mixed_child,
-    ];
+    let tx1_hash = tx1.hash();
+    let tx2 = test_transaction(
+        vec![OutPoint::new(tx1_hash, 3), OutPoint::new(tx1_hash, 4)],
+        2,
+    );
+    let tx2_hash = tx2.hash();
+    let tx3 = test_transaction(
+        vec![OutPoint::new(tx1_hash, 2), OutPoint::new(tx2_hash, 1)],
+        2,
+    );
+    let tx3_hash = tx3.hash();
+    let tx4 = test_transaction(
+        vec![
+            OutPoint::new(tx1_hash, 1),
+            OutPoint::new(tx2_hash, 0),
+            OutPoint::new(tx3_hash, 1),
+        ],
+        2,
+    );
 
-    let expected_pool_size = txs_to_add.len();
+    let block_tx0 = tx0.clone();
+    let block_tx1 = test_transaction(
+        vec![OutPoint::new(tx_hash, 1), OutPoint::new(tx_hash, 2)],
+        2,
+    );
+    let block_tx5 = test_transaction(vec![OutPoint::new(tx_hash, 5)], 1);
+    let block_tx5_hash = block_tx5.hash();
+    let block_tx6 = test_transaction(
+        vec![OutPoint::new(block_tx5_hash, 0), OutPoint::new(tx_hash, 6)],
+        1,
+    );
 
-    // First we add the above transactions to the pool; all should be
-    // accepted.
+    //tx5 is conflict, in orphan
+    let tx5 = test_transaction(vec![OutPoint::new(block_tx5_hash, 0)], 2);
+
+    //next block: tx6 is conflict, in pool
+    let tx6 = test_transaction(vec![OutPoint::new(tx_hash, 6)], 2);
+
+    pool.add_to_pool(tx5.clone()).unwrap();
+    pool.add_to_pool(tx4.clone()).unwrap();
+    pool.add_to_pool(tx3.clone()).unwrap();
+    pool.add_to_pool(tx2.clone()).unwrap();
+    pool.add_to_pool(tx1.clone()).unwrap();
+    pool.add_to_pool(tx0.clone()).unwrap();
+
+    pool.add_transaction(tx6.clone()).unwrap();
+
+    assert_eq!(5, pool.pool_size());
+    assert_eq!(1, pool.orphan_size());
+    assert_eq!(1, pool.pending_size());
+
+    let txs = vec![block_tx0, block_tx1, block_tx5, block_tx6];
+    let prop_ids = vec![tx6.proposal_short_id()];
+
+    apply_transactions(txs, prop_ids, &chain);
+
+    let t = time::Duration::from_millis(1000);
+    thread::sleep(t);
+
+    assert_eq!(0, pool.pending_size());
+    assert_eq!(0, pool.proposed_size());
+    assert_eq!(0, pool.pool_size());
+    assert_eq!(0, pool.orphan_size());
+    // when TRANSACTION_PROPAGATION_TIME = 1
+    assert_eq!(1, pool.cache_size());
+}
+
+// Work only when TRANSACTION_PROPAGATION_TIME = 1, TRANSACTION_PROPAGATION_TIMEOUT = 10
+#[test]
+fn test_switch_fork() {
+    let (chain, pool, tx_hash) = test_setup();
+
     assert_eq!(pool.total_size(), 0);
 
-    for tx in txs_to_add.drain(..) {
-        pool.add_to_commit_pool(tx).unwrap();
+    let block_number = { chain.tip_header().read().number() };
+
+    let mut txs = vec![];
+
+    for i in 0..20 {
+        let tx = test_transaction(
+            vec![OutPoint::new(tx_hash, i), OutPoint::new(tx_hash, i + 20)],
+            2,
+        );
+
+        txs.push(tx);
     }
 
-    assert_eq!(pool.total_size(), expected_pool_size);
+    for tx in &txs[0..20] {
+        pool.add_transaction(tx.clone()).unwrap();
+    }
 
-    // Now we prepare the block that will cause the above condition.
-    // First, the transactions we want in the block:
-    // - Copy of 1
-    let block_tx_1 = test_transaction(vec![OutPoint::new(tx_hash, 10)], 1);
-    // - Conflict w/ 2, satisfies 7
-    let block_tx_2 = test_transaction(vec![OutPoint::new(tx_hash, 20)], 1);
-    // - Copy of 4
-    let block_tx_3 = test_transaction(vec![OutPoint::new(block_tx_hash, 0)], 2);
+    assert_eq!(pool.pending_size(), 20);
 
-    let block = apply_transactions(vec![block_tx_1, block_tx_2, block_tx_3], &chain);
+    let prop_ids: Vec<ProposalShortId> = txs.iter().map(|x| x.proposal_short_id()).collect();
 
-    // Block reconciliation
-    pool.reconcile_block(&block);
+    let mut block01: IndexedBlock = Block::default().into();
+    block01.header.number = block_number + 1;
+    block01.proposal_transactions = vec![prop_ids[0], prop_ids[1]];
+    block01.commit_transactions = vec![];
 
-    // Using the pool's methods to validate a few end conditions.
-    assert_eq!(pool.total_size(), 4);
+    let mut block02: IndexedBlock = Block::default().into();
+    block02.header.number = block_number + 2;
+    block02.proposal_transactions = vec![prop_ids[2], prop_ids[3]];
+    block02.commit_transactions = vec![txs[0].clone()];
 
-    // We should have available blockchain outputs
-    expect_output_parent!(
-        pool,
-        PoolCellState::Head(_),
-        OutPoint::new(block_child_tx_hash, 1)
-    );
+    let mut block11: IndexedBlock = Block::default().into();
+    block11.header.number = block_number + 1;
+    block11.proposal_transactions = vec![prop_ids[3], prop_ids[4]];
+    block11.commit_transactions = vec![];
 
-    // We should have spent blockchain outputs
-    expect_output_parent!(
-        pool,
-        PoolCellState::Tail,
-        OutPoint::new(block_child_tx_hash, 0)
-    );
+    let mut block12: IndexedBlock = Block::default().into();
+    block12.header.number = block_number + 2;
+    block12.proposal_transactions = vec![prop_ids[5], prop_ids[6]];
+    block12.commit_transactions = vec![txs[4].clone()];
 
-    // We should have spent pool references
-    expect_output_parent!(pool, PoolCellState::Tail, OutPoint::new(valid_tx_hash, 1));
+    pool.reconcile_block(&block01);
+    pool.reconcile_block(&block02);
 
-    // We should have unspent pool references
-    expect_output_parent!(
-        pool,
-        PoolCellState::Commit(_),
-        OutPoint::new(valid_child_valid_tx_hash, 0)
-    );
+    let olds = vec![block02, block01];
+    let news = vec![block11, block12];
 
-    expect_output_parent!(pool, PoolCellState::Tail, OutPoint::new(block_tx_hash, 0));
+    let fb = ForkBlocks::new(olds, news);
 
-    // Evicted transactions should have unknown outputs
-    expect_output_parent!(
-        pool,
-        PoolCellState::Unknown,
-        OutPoint::new(mixed_child_tx_hash, 0)
-    );
+    pool.switch_fork(&fb);
+
+    let mtxs = pool.get_mineable_transactions(10);
+
+    assert_eq!(mtxs, vec![txs[3].clone(), txs[5].clone(), txs[6].clone()]);
 }
 
-#[test]
-/// Test transaction selection and block building.
-fn test_block_building() {
-    let max_commit_size = 3;
-    let max_proposal_size = 3;
-    let (_chain, pool, tx_hash) = test_setup(max_commit_size, max_proposal_size);
-
-    let root_tx_1 = test_transaction(
-        vec![OutPoint::new(tx_hash, 10), OutPoint::new(tx_hash, 20)],
-        1,
-    );
-    let root_tx_2 = test_transaction(vec![OutPoint::new(tx_hash, 30)], 1);
-    let root_tx_3 = test_transaction(vec![OutPoint::new(tx_hash, 40)], 1);
-
-    let root_tx_hash_1 = root_tx_1.hash();
-    let root_tx_hash_3 = root_tx_3.hash();
-    let child_tx_1 = test_transaction(vec![OutPoint::new(root_tx_hash_1, 0)], 1);
-    let child_tx_2 = test_transaction(vec![OutPoint::new(root_tx_hash_3, 0)], 1);
-
-    assert_eq!(pool.total_size(), 0);
-
-    assert!(pool.add_to_commit_pool(root_tx_1).is_ok());
-    assert!(pool.add_to_commit_pool(root_tx_2).is_ok());
-    assert!(pool.add_to_commit_pool(root_tx_3).is_ok());
-    assert!(pool.add_to_commit_pool(child_tx_1).is_ok());
-    assert!(pool.add_to_commit_pool(child_tx_2).is_ok());
-
-    assert_eq!(pool.total_size(), 5);
-
-    // Request blocks
-    let mut block: IndexedBlock = Block::default().into();
-
-    let txs = {
-        pool.commit
-            .read()
-            .get_mineable_transactions(max_commit_size)
-    };
-    assert_eq!(txs.len(), max_commit_size);
-
-    block.commit_transactions = txs;
-
-    // Reconcile block
-
-    pool.reconcile_block(&block);
-
-    assert_eq!(pool.total_size(), 5 - max_commit_size);
-}
-
-fn test_setup(
-    max_commit_size: usize,
-    max_proposal_size: usize,
-) -> (
+fn test_setup() -> (
     Arc<impl ChainProvider>,
     Arc<TransactionPool<impl ChainProvider>>,
     H256,
@@ -471,9 +438,11 @@ fn test_setup(
     let chain = Arc::new(builder.build().unwrap());
     let pool = TransactionPool::new(
         PoolConfig {
-            max_pool_size: 1024,
-            max_proposal_size,
-            max_commit_size,
+            max_pool_size: 1000,
+            max_orphan_size: 1000,
+            max_proposal_size: 1000,
+            max_cache_size: 1000,
+            max_pending_size: 1000,
         },
         Arc::clone(&chain),
         notify,
@@ -487,12 +456,13 @@ fn test_setup(
         vec![CellOutput::new(100_000_000, Vec::new(), default_script_hash.clone()); 100],
     ).into();
     let transactions = vec![tx.clone()];
-    apply_transactions(transactions, &chain);
+    apply_transactions(transactions, vec![], &chain);
     (chain, pool, tx.hash())
 }
 
 fn apply_transactions(
     transactions: Vec<IndexedTransaction>,
+    prop_ids: Vec<ProposalShortId>,
     chain: &Arc<impl ChainProvider>,
 ) -> IndexedBlock {
     let time = now_ms();
@@ -522,7 +492,7 @@ fn apply_transactions(
         header: header.into(),
         uncles: vec![],
         commit_transactions: transactions,
-        proposal_transactions: vec![],
+        proposal_transactions: prop_ids,
     };
     chain.process_block(&block).unwrap();
     block

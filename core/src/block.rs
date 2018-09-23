@@ -2,6 +2,7 @@ use super::header::{Header, IndexedHeader};
 use super::transaction::{IndexedTransaction, ProposalShortId, Transaction};
 use bigint::H256;
 use ckb_protocol;
+use fnv::FnvHashSet;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use uncle::{uncles_hash, UncleBlock};
 use BlockNumber;
@@ -127,6 +128,18 @@ impl IndexedBlock {
 
     pub fn proposal_transactions(&self) -> &[ProposalShortId] {
         &self.proposal_transactions
+    }
+
+    pub fn union_proposal_ids(&self) -> Vec<ProposalShortId> {
+        let mut ids = FnvHashSet::default();
+
+        ids.extend(self.proposal_transactions.clone());
+
+        for uc in &self.uncles {
+            ids.extend(uc.proposal_transactions.clone());
+        }
+
+        ids.into_iter().collect()
     }
 
     pub fn cal_uncles_hash(&self) -> H256 {

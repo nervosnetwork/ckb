@@ -17,7 +17,6 @@ extern crate serde_derive;
 extern crate ckb_db;
 #[cfg(test)]
 extern crate ckb_verification;
-extern crate fnv;
 
 mod block_template;
 mod config;

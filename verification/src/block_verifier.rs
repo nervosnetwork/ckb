@@ -1,7 +1,7 @@
 use super::header_verifier::HeaderResolver;
 use super::{TransactionVerifier, Verifier};
 use bigint::{H256, U256};
-use chain::chain::{ChainCellState, ChainProvider};
+use chain::chain::ChainProvider;
 use chain::PowEngine;
 use core::block::IndexedBlock;
 use core::cell::{CellProvider, CellState};
@@ -410,28 +410,27 @@ impl<'a, C> CellProvider for TransactionsVerifier<'a, C>
 where
     C: ChainProvider,
 {
-    type State = ChainCellState;
-    fn cell(&self, _o: &OutPoint) -> ChainCellState {
+    fn cell(&self, _o: &OutPoint) -> CellState {
         unreachable!()
     }
 
-    fn cell_at(&self, o: &OutPoint, parent: &H256) -> ChainCellState {
+    fn cell_at(&self, o: &OutPoint, parent: &H256) -> CellState {
         if let Some(i) = self.output_indexs.get(&o.hash) {
             match self.block.commit_transactions[*i]
                 .outputs
                 .get(o.index as usize)
             {
-                Some(x) => ChainCellState::Head(x.clone()),
-                None => ChainCellState::Unknown,
+                Some(x) => CellState::Head(x.clone()),
+                None => CellState::Unknown,
             }
         } else {
             let chain_cell_state = self.chain.cell_at(o, parent);
             if chain_cell_state.is_head() {
-                ChainCellState::Head(chain_cell_state.take_head().expect("state checked"))
+                CellState::Head(chain_cell_state.take_head().expect("state checked"))
             } else if chain_cell_state.is_tail() {
-                ChainCellState::Tail
+                CellState::Tail
             } else {
-                ChainCellState::Unknown
+                CellState::Unknown
             }
         }
     }

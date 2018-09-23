@@ -53,7 +53,7 @@ impl<C: ChainProvider + 'static> Rpc for RpcImpl<C> {
     fn send_transaction(&self, tx: Transaction) -> Result<H256> {
         let indexed_tx: IndexedTransaction = tx.into();
         let result = indexed_tx.hash();
-        let pool_result = self.tx_pool.insert_candidate(indexed_tx.clone());
+        let pool_result = self.tx_pool.add_transaction(indexed_tx.clone());
         debug!(target: "rpc", "send_transaction add to pool result: {:?}", pool_result);
 
         let mut payload = Payload::new();
@@ -98,8 +98,9 @@ impl<C: ChainProvider + 'static> Rpc for RpcImpl<C> {
         Ok(self.chain.tip_header().read().header.header.clone())
     }
 
+    // TODO: the max size
     fn get_block_template(&self) -> Result<BlockTemplate> {
-        Ok(build_block_template(&self.chain, &self.tx_pool, H256::from(0)).unwrap())
+        Ok(build_block_template(&self.chain, &self.tx_pool, 20000, 20000).unwrap())
     }
 }
 

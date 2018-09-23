@@ -7,10 +7,8 @@ use ckb_notify::{Event, Notify, MINER_SUBSCRIBER};
 use ckb_protocol::Payload;
 use core::block::IndexedBlock;
 use core::header::{RawHeader, Seal};
-use core::transaction::ProposalTransaction;
 use core::BlockNumber;
 use crossbeam_channel;
-use fnv::FnvHashSet;
 use network::NetworkContextExt;
 use network::NetworkService;
 use pool::TransactionPool;
@@ -69,14 +67,18 @@ where
     }
 
     fn commit_new_block(&mut self) {
-        match build_block_template(&self.chain, &self.tx_pool, self.config.redeem_script_hash) {
+        match build_block_template(
+            &self.chain,
+            &self.tx_pool,
+            self.config.max_tx,
+            self.config.max_prop,
+        ) {
             Ok(block_template) => {
                 self.mining_number = block_template.raw_header.number;
-                if let Some((block, propasal)) = self.mine(block_template) {
+                if let Some(block) = self.mine(block_template) {
                     debug!(target: "miner", "new block mined: {} -> (number: {}, difficulty: {}, timestamp: {})",
                           block.hash(), block.header.number, block.header.difficulty, block.header.timestamp);
                     if self.chain.process_block(&block).is_ok() {
-                        self.tx_pool.proposal_n(block.number(), propasal);
                         self.announce_new_block(&block);
                     }
                 }
@@ -87,10 +89,7 @@ where
         }
     }
 
-    fn mine(
-        &self,
-        block_template: BlockTemplate,
-    ) -> Option<(IndexedBlock, FnvHashSet<ProposalTransaction>)> {
+    fn mine(&self, block_template: BlockTemplate) -> Option<IndexedBlock> {
         let BlockTemplate {
             raw_header,
             uncles,
@@ -98,19 +97,11 @@ where
             proposal_transactions,
         } = block_template;
 
-        self.mine_loop(&raw_header).map(|seal| {
-            (
-                IndexedBlock {
-                    header: raw_header.with_seal(seal).into(),
-                    uncles,
-                    commit_transactions,
-                    proposal_transactions: proposal_transactions
-                        .iter()
-                        .map(|p| p.proposal_short_id())
-                        .collect(),
-                },
-                proposal_transactions,
-            )
+        self.mine_loop(&raw_header).map(|seal| IndexedBlock {
+            header: raw_header.with_seal(seal).into(),
+            uncles,
+            commit_transactions,
+            proposal_transactions,
         })
     }
 
