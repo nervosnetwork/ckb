@@ -12,7 +12,6 @@ use network::NetworkContextExt;
 use network::NetworkService;
 use pool::TransactionPool;
 use std::sync::Arc;
-use sync::RELAY_PROTOCOL_ID;
 use {BlockWithHashedTransactions, Config, TransactionWithHash};
 
 build_rpc_trait! {
@@ -55,14 +54,11 @@ impl<C: ChainProvider + 'static> Rpc for RpcImpl<C> {
         let result = indexed_tx.hash();
         let pool_result = self.tx_pool.add_transaction(indexed_tx.clone());
         debug!(target: "rpc", "send_transaction add to pool result: {:?}", pool_result);
-
-        let mut payload = Payload::new();
-        payload.set_transaction((&indexed_tx).into());
-        self.network.with_context_eval(RELAY_PROTOCOL_ID, |nc| {
-            for (peer_id, _session) in nc.sessions(&self.network.connected_peers()) {
-                let _ = nc.send_payload(peer_id, payload.clone());
-            }
-        });
+        // TODO PENDING new api NetworkContext#connected_peers
+        // for peer_id in self.nc.connected_peers() {
+        //     let data = builde_transaction(indexed_tx);
+        //     self.nc.send(peer_id, 0, data.to_vec());
+        // }
         Ok(result)
     }
 

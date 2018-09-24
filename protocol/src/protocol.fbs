@@ -1,0 +1,137 @@
+namespace Ckb.Protocol;
+
+union SyncPayload {
+    GetHeaders,
+    Headers,
+    GetBlocks,
+    Block,
+}
+
+table SyncMessage {
+    payload:        SyncPayload;
+}
+
+table GetHeaders {
+    version:                uint;
+    block_locator_hashes:   [ubyte];
+    hash_stop:              [ubyte];
+}
+
+table GetBlocks {
+    block_hashes:           [ubyte];
+}
+
+table Headers {
+    headers:                [Header];
+}
+
+table Header {
+    version:        uint;
+    parent_hash:    [ubyte];
+    timestamp:      ulong;
+    number:         ulong;
+    txs_commit:     [ubyte];
+    txs_proposal:   [ubyte];
+    difficulty:     [ubyte];
+    nonce:          ulong;
+    proof:          [ubyte];
+    cellbase_id:    [ubyte];
+    uncles_hash:    [ubyte];
+}
+
+table Block {
+    header:                 Header;
+    uncles:                 [UncleBlock];
+    commit_transactions:    [Transaction];
+    proposal_transactions:  [ubyte];
+}
+
+table UncleBlock {
+    header:                 Header;
+    cellbase:               Transaction;
+    proposal_transactions:  [ubyte];
+}
+
+table Transaction {
+    version:        uint;
+    deps:           [OutPoint];
+    inputs:         [CellInput];
+    outputs:        [CellOutput];
+}
+
+table OutPoint {
+    hash:           [ubyte];
+    index:          uint;
+}
+
+table CellInput {
+    hash:           [ubyte];
+    index:          uint;
+    unlock:         Script;
+}
+
+table CellOutput {
+    capacity:       ulong;
+    data:           [ubyte];
+    lock:           [ubyte];
+}
+
+table Script {
+    version:          uint8;
+    arguments:        [Argument];
+    redeem_script:    [ubyte];
+    redeem_reference: OutPoint;
+    redeem_arguments: [Argument];
+}
+
+table Argument {
+    value:          [ubyte];
+}
+
+root_type SyncMessage;
+
+union RelayPayload {
+    CompactBlock,
+    Transaction,
+    GetBlockTransactions,
+    BlockTransactions,
+    GetBlockProposal,
+    BlockProposal,
+}
+
+table RelayMessage {
+    payload:        RelayPayload;
+}
+
+table CompactBlock {
+    header:                     Header;
+    nonce:                      ulong;
+    short_ids:                  [ubyte];
+    prefilled_transactions:     [PrefilledTransaction];
+    uncles:                     [UncleBlock];
+    proposal_transactions:      [ubyte];
+}
+
+table PrefilledTransaction {
+    index:                      uint;
+    transaction:                Transaction;
+}
+
+table GetBlockTransactions {
+    hash:                      [ubyte];
+    indexes:                   [uint32];
+}
+
+table BlockTransactions {
+    hash:                      [ubyte];
+    transactions:              [Transaction];
+}
+
+table GetBlockProposal {
+    block_number:              uint64;
+    proposal_transactions:     [ubyte];
+}
+
+table BlockProposal {
+    transactions:              [Transaction];
+}

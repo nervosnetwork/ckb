@@ -25,15 +25,12 @@ use network::NetworkConfiguration;
 use network::NetworkService;
 use pool::TransactionPool;
 use rpc::{Config as RpcConfig, RpcServer};
-use rustc_hex::ToHex;
 use serde_json;
 use std::io::Write;
 use std::path::Path;
 use std::sync::Arc;
 use std::thread;
-use sync::protocol::{RelayProtocol, SyncProtocol};
-use sync::synchronizer::Synchronizer;
-use sync::{RELAY_PROTOCOL_ID, SYNC_PROTOCOL_ID};
+use sync::{Relayer, Synchronizer, RELAY_PROTOCOL_ID, SYNC_PROTOCOL_ID};
 
 pub fn run(setup: Setup) {
     logger::init(setup.configs.logger.clone()).expect("Init Logger");
@@ -53,20 +50,15 @@ pub fn run(setup: Setup) {
     info!(target: "main", "chain genesis hash: {:?}", chain.genesis_hash());
 
     let pow_engine = build_pow_engine(setup.dirs.join("pow"));
+    let synchronizer = Arc::new(Synchronizer::new(&chain, &pow_engine, setup.configs.sync));
 
-    let synchronizer = Synchronizer::new(&chain, &pow_engine, setup.configs.sync);
-
-    let tx_pool = {
-        let chain_clone = Arc::clone(&chain);
-        TransactionPool::new(setup.configs.pool, chain_clone, notify.clone())
-    };
+    let tx_pool = TransactionPool::new(setup.configs.pool, Arc::clone(&chain), notify.clone());
+    let relayer = Arc::new(Relayer::new(&chain, &pow_engine, &tx_pool));
 
     let network_config = NetworkConfiguration::from(setup.configs.network);
-    let sync_protocol = Arc::new(SyncProtocol::new(synchronizer.clone()));
-    let relay_protocol = Arc::new(RelayProtocol::new(synchronizer, &tx_pool));
     let protocols = vec![
-        (sync_protocol as Arc<_>, SYNC_PROTOCOL_ID, &[(1, 1)][..]),
-        (relay_protocol as Arc<_>, RELAY_PROTOCOL_ID, &[(1, 1)][..]),
+        (synchronizer as Arc<_>, SYNC_PROTOCOL_ID, &[(1, 1)][..]),
+        (relayer as Arc<_>, RELAY_PROTOCOL_ID, &[(1, 1)][..]),
     ];
     let network =
         Arc::new(NetworkService::new(network_config, protocols).expect("Create and start network"));
@@ -181,20 +173,20 @@ pub fn sign(setup: &Setup, matches: &ArgMatches) {
     for unsigned_input in result.inputs {
         let mut bytes = vec![];
         for argument in &unsigned_input.unlock.arguments {
-            bytes.write_all(argument.as_bytes()).unwrap();
+            bytes.write_all(argument).unwrap();
         }
         let hash1 = sha3_256(&bytes);
         let hash2 = sha3_256(hash1);
         let signature = privkey.sign_recoverable(&hash2.into()).unwrap();
 
-        let mut new_arguments = vec![signature.serialize_der().to_hex()];
+        let mut new_arguments = vec![signature.serialize_der()];
         new_arguments.extend_from_slice(&unsigned_input.unlock.arguments);
         let script = Script::new(
             0,
             new_arguments,
             Some(system_cell_outpoint),
             None,
-            vec![pubkey.serialize().to_hex()],
+            vec![pubkey.serialize()],
         );
         let signed_input = CellInput::new(unsigned_input.previous_output, script);
         inputs.push(signed_input);
@@ -218,9 +210,9 @@ pub fn redeem_script_hash(setup: &Setup, matches: &ArgMatches) {
         Vec::new(),
         Some(system_cell_outpoint),
         None,
-        vec![pubkey.serialize().to_hex()],
+        vec![pubkey.serialize()],
     );
-    println!("{}", script.redeem_script_hash().to_hex());
+    println!("{}", script.redeem_script_hash());
 }
 
 pub fn keygen() {

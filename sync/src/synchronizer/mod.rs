@@ -1,26 +1,53 @@
+mod block_fetcher;
+mod block_pool;
+mod block_process;
+mod get_blocks_process;
+mod get_headers_process;
+mod header_view;
+mod headers_process;
+mod peers;
+
+use self::block_fetcher::BlockFetcher;
+use self::block_pool::OrphanBlockPool;
+use self::block_process::BlockProcess;
+use self::get_blocks_process::GetBlocksProcess;
+use self::get_headers_process::GetHeadersProcess;
+use self::header_view::HeaderView;
+use self::headers_process::HeadersProcess;
+use self::peers::Peers;
 use bigint::H256;
-use block_fetcher::BlockFetcher;
-use block_pool::OrphanBlockPool;
 use ckb_chain::chain::{ChainProvider, TipHeader};
-use ckb_chain::error::Error as ChainError;
 use ckb_chain::PowEngine;
+use ckb_protocol::{
+    GetBlocks, GetBlocksArgs, GetHeaders, GetHeadersArgs, SyncMessage, SyncMessageArgs, SyncPayload,
+};
 use ckb_time::now_ms;
-use ckb_verification::{BlockVerifier, Error as VerificationError, Verifier};
+use ckb_verification::{BlockVerifier, Verifier};
 use config::Config;
 use core::block::IndexedBlock;
 use core::header::{BlockNumber, IndexedHeader};
-use header_view::HeaderView;
+use flatbuffers::{get_root, FlatBufferBuilder};
+use futures::future;
+use futures::future::lazy;
 use network::PeerId;
-use peers::Peers;
 use std::cmp;
 use std::collections::HashMap;
 use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
+use std::time::Duration;
+use tokio;
 use util::{RwLock, RwLockUpgradableReadGuard};
+use AcceptBlockError;
 use {
     HEADERS_DOWNLOAD_TIMEOUT_BASE, HEADERS_DOWNLOAD_TIMEOUT_PER_HEADER, MAX_HEADERS_LEN,
-    MAX_TIP_AGE, POW_SPACE,
+    MAX_OUTBOUND_PEERS_TO_PROTECT_FROM_DISCONNECT, MAX_TIP_AGE, POW_SPACE,
 };
+
+use network::{NetworkContext, NetworkProtocolHandler, TimerToken};
+
+pub const SEND_GET_HEADERS_TOKEN: TimerToken = 0;
+pub const BLOCK_FETCH_TOKEN: TimerToken = 1;
 
 bitflags! {
     pub struct BlockStatus: u32 {
@@ -58,22 +85,9 @@ pub struct Synchronizer<C, P> {
     pub outbound_peers_with_protect: Arc<AtomicUsize>,
 }
 
-#[derive(Debug, PartialEq, Clone, Eq)]
-pub enum AcceptBlockError {
-    Chain(ChainError),
-    Verification(VerificationError),
-}
-
-impl From<ChainError> for AcceptBlockError {
-    fn from(error: ChainError) -> Self {
-        AcceptBlockError::Chain(error)
-    }
-}
-
-impl From<VerificationError> for AcceptBlockError {
-    fn from(error: VerificationError) -> Self {
-        AcceptBlockError::Verification(error)
-    }
+fn is_outbound(nc: &NetworkContext, peer: PeerId) -> Option<bool> {
+    nc.session_info(peer)
+        .map(|session_info| session_info.originated)
 }
 
 impl<C, P> Clone for Synchronizer<C, P>
@@ -122,6 +136,27 @@ where
             header_map: Arc::new(RwLock::new(HashMap::new())),
             n_sync: Arc::new(AtomicUsize::new(0)),
             outbound_peers_with_protect: Arc::new(AtomicUsize::new(0)),
+        }
+    }
+
+    fn process(&self, nc: &NetworkContext, peer: PeerId, message: SyncMessage) {
+        match message.payload_type() {
+            SyncPayload::GetHeaders => {
+                GetHeadersProcess::new(&message.payload_as_get_headers().unwrap(), self, peer, nc)
+                    .execute()
+            }
+            SyncPayload::Headers => {
+                HeadersProcess::new(&message.payload_as_headers().unwrap(), self, peer, nc)
+                    .execute()
+            }
+            SyncPayload::GetBlocks => {
+                GetBlocksProcess::new(&message.payload_as_get_blocks().unwrap(), self, peer, nc)
+                    .execute()
+            }
+            SyncPayload::Block => {
+                BlockProcess::new(&message.payload_as_block().unwrap(), self, peer, nc).execute()
+            }
+            SyncPayload::NONE => {}
         }
     }
 
@@ -264,14 +299,6 @@ where
             .map(|view| &view.header)
             .cloned()
             .or_else(|| self.chain.block_header(&hash))
-    }
-
-    pub fn get_number(&self, hash: &H256) -> Option<BlockNumber> {
-        self.chain.block_number(hash)
-    }
-
-    pub fn get_hash(&self, number: BlockNumber) -> Option<H256> {
-        self.chain.block_hash(number)
     }
 
     pub fn get_block(&self, hash: &H256) -> Option<IndexedBlock> {
@@ -439,27 +466,222 @@ where
     pub fn get_blocks_to_fetch(&self, peer: PeerId) -> Option<Vec<H256>> {
         BlockFetcher::new(&self, peer).fetch()
     }
+
+    fn on_connected(&self, nc: &NetworkContext, peer: PeerId) {
+        let tip = self.tip_header();
+        let timeout = self.get_headers_sync_timeout(&tip);
+
+        let protect_outbound = is_outbound(nc, peer).unwrap_or_else(|| false)
+            && self.outbound_peers_with_protect.load(Ordering::Acquire)
+                < MAX_OUTBOUND_PEERS_TO_PROTECT_FROM_DISCONNECT;
+
+        if protect_outbound {
+            self.outbound_peers_with_protect
+                .fetch_add(1, Ordering::Release);
+        }
+
+        self.peers.on_connected(peer, timeout, protect_outbound);
+        self.n_sync.fetch_add(1, Ordering::Release);
+        self.send_getheaders_to_peer(nc, peer, &tip);
+    }
+
+    pub fn send_getheaders_to_peer(&self, nc: &NetworkContext, peer: PeerId, tip: &IndexedHeader) {
+        let locator_hash = self.get_locator(tip);
+
+        let builder = &mut FlatBufferBuilder::new();
+        {
+            let block_locator_hashes = Some(
+                builder.create_vector(
+                    &locator_hash
+                        .iter()
+                        .flat_map(|hash| hash.iter().cloned())
+                        .collect::<Vec<_>>(),
+                ),
+            );
+            let payload = Some(
+                GetHeaders::create(
+                    builder,
+                    &GetHeadersArgs {
+                        version: 0,
+                        hash_stop: None, // TODO PENDING hash_stop
+                        block_locator_hashes,
+                    },
+                ).as_union_value(),
+            );
+            let payload_type = SyncPayload::GetHeaders;
+            let message = SyncMessage::create(
+                builder,
+                &SyncMessageArgs {
+                    payload_type,
+                    payload,
+                },
+            );
+            builder.finish(message, None);
+        }
+
+        nc.send(peer, 0, builder.finished_data().to_vec());
+    }
+
+    fn send_getheaders_to_all(&self, nc: &NetworkContext) {
+        let peers: Vec<PeerId> = self
+            .peers
+            .state
+            .read()
+            .iter()
+            .filter(|(_, state)| state.sync_started)
+            .map(|(peer_id, _)| peer_id)
+            .cloned()
+            .collect();
+        debug!(target: "sync", "send_getheaders to peers= {:?}", &peers);
+        let tip = self.tip_header();
+        for peer in peers {
+            self.send_getheaders_to_peer(nc, peer, &tip);
+        }
+    }
+
+    fn find_blocks_to_fetch(&self, nc: &NetworkContext) {
+        let peers: Vec<PeerId> = self
+            .peers
+            .state
+            .read()
+            .iter()
+            .filter(|(_, state)| state.sync_started)
+            .map(|(peer_id, _)| peer_id)
+            .cloned()
+            .collect();
+
+        debug!(target: "sync", "poll find_blocks_to_fetch select peers");
+        for peer in peers {
+            if let Some(v_fetch) = self.get_blocks_to_fetch(peer) {
+                self.send_getblocks(&v_fetch, nc, peer);
+            }
+        }
+    }
+
+    fn send_getblocks(&self, v_fetch: &[H256], nc: &NetworkContext, peer: PeerId) {
+        let builder = &mut FlatBufferBuilder::new();
+        {
+            let block_hashes = Some(
+                builder.create_vector(
+                    &v_fetch
+                        .iter()
+                        .flat_map(|hash| hash.iter().cloned())
+                        .collect::<Vec<_>>(),
+                ),
+            );
+            let payload =
+                Some(GetBlocks::create(builder, &GetBlocksArgs { block_hashes }).as_union_value());
+            let payload_type = SyncPayload::GetBlocks;
+            let message = SyncMessage::create(
+                builder,
+                &SyncMessageArgs {
+                    payload_type,
+                    payload,
+                },
+            );
+            builder.finish(message, None);
+        }
+
+        nc.send(peer, 0, builder.finished_data().to_vec());
+
+        debug!(target: "sync", "send_getblocks len={:?} to peer={:?}", v_fetch.len() , peer);
+    }
+}
+
+impl<C, P> NetworkProtocolHandler for Synchronizer<C, P>
+where
+    C: ChainProvider + 'static,
+    P: PowEngine + 'static,
+{
+    fn initialize(&self, nc: Box<NetworkContext>) {
+        // NOTE: 100ms is what bitcoin use.
+        let _ = nc.register_timer(SEND_GET_HEADERS_TOKEN, Duration::from_millis(100));
+        let _ = nc.register_timer(BLOCK_FETCH_TOKEN, Duration::from_millis(100));
+    }
+
+    fn read(&self, nc: Box<NetworkContext>, peer: &PeerId, _packet_id: u8, data: &[u8]) {
+        let data = data.to_owned();
+        let synchronizer = self.clone();
+        let peer = *peer;
+        tokio::spawn(lazy(move || {
+            // TODO use flatbuffers verifier
+            let msg = get_root::<SyncMessage>(&data);
+            debug!(target: "sync", "msg {:?}", msg.payload_type());
+            synchronizer.process(&nc, peer, msg);
+            future::ok(())
+        }));
+    }
+
+    fn connected(&self, nc: Box<NetworkContext>, peer: &PeerId) {
+        let synchronizer = self.clone();
+        let peer = *peer;
+        tokio::spawn(lazy(move || {
+            if synchronizer.n_sync.load(Ordering::Acquire) == 0
+                || !synchronizer.is_initial_block_download()
+            {
+                debug!(target: "sync", "init_getheaders peer={:?} connected", peer);
+                synchronizer.on_connected(nc.as_ref(), peer);
+            }
+            future::ok(())
+        }));
+    }
+
+    fn disconnected(&self, _nc: Box<NetworkContext>, peer: &PeerId) {
+        let synchronizer = self.clone();
+        let peer = *peer;
+        tokio::spawn(lazy(move || {
+            info!(target: "sync", "peer={} SyncProtocol.disconnected", peer);
+            synchronizer.peers.disconnected(peer);
+            future::ok(())
+        }));
+    }
+
+    fn timeout(&self, nc: Box<NetworkContext>, token: TimerToken) {
+        let synchronizer = self.clone();
+        tokio::spawn(lazy(move || {
+            if !synchronizer.peers.state.read().is_empty() {
+                match token as usize {
+                    SEND_GET_HEADERS_TOKEN => {
+                        synchronizer.send_getheaders_to_all(&nc);
+                    }
+                    BLOCK_FETCH_TOKEN => {
+                        synchronizer.find_blocks_to_fetch(&nc);
+                    }
+                    _ => unreachable!(),
+                }
+            } else {
+                debug!(target: "sync", "no peers connected");
+            }
+            future::ok(())
+        }));
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    extern crate env_logger;
+
+    use self::block_process::BlockProcess;
+    use self::headers_process::HeadersProcess;
     use super::*;
     use bigint::U256;
-    use block_process::BlockProcess;
     use ckb_chain::chain::Chain;
     use ckb_chain::consensus::Consensus;
     use ckb_chain::index::ChainIndex;
     use ckb_chain::store::ChainKVStore;
     use ckb_chain::{DummyPowEngine, COLUMNS};
     use ckb_notify::{Event, Notify, MINER_SUBSCRIBER};
-    use ckb_protocol;
+    use ckb_protocol::{
+        build_block_args, build_header_args, get_root_as_sync_message, Block, Header as FbsHeader,
+        Headers, HeadersArgs, SyncMessage, SyncMessageArgs, SyncPayload,
+    };
     use core::header::{Header, RawHeader, Seal};
     use core::transaction::{CellInput, CellOutput, IndexedTransaction, Transaction, VERSION};
     use core::uncle::uncles_hash;
     use crossbeam_channel;
     use crossbeam_channel::Receiver;
     use db::memorydb::MemoryKeyValueDB;
-    use headers_process::HeadersProcess;
+    use flatbuffers::FlatBufferBuilder;
     use merkle_root::merkle_root;
     use network::{
         Error as NetworkError, NetworkContext, PacketId, PeerId, ProtocolId, SessionInfo, Severity,
@@ -830,6 +1052,7 @@ mod tests {
 
     #[test]
     fn test_sync_process() {
+        let _ = env_logger::try_init();
         let config = Consensus::default();
         let notify = Notify::default();
         let chain1 = Arc::new(gen_chain(&config, notify.clone()));
@@ -865,12 +1088,33 @@ mod tests {
             chain2.block_hash(200).unwrap()
         );
 
-        let mut headers_proto = ckb_protocol::Headers::new();
-        headers_proto.set_headers(headers.iter().map(|h| &h.header).map(Into::into).collect());
+        let builder = &mut FlatBufferBuilder::new();
+
+        {
+            let vec = headers
+                .iter()
+                .map(|header| {
+                    let header_args = build_header_args(builder, header);
+                    FbsHeader::create(builder, &header_args)
+                }).collect::<Vec<_>>();
+
+            let headers = Some(builder.create_vector(&vec));
+            let payload = Headers::create(builder, &HeadersArgs { headers });
+            let message = SyncMessage::create(
+                builder,
+                &SyncMessageArgs {
+                    payload_type: SyncPayload::Headers,
+                    payload: Some(payload.as_union_value()),
+                },
+            );
+            builder.finish(message, None);
+        }
 
         let peer = 1usize;
         HeadersProcess::new(
-            &headers_proto,
+            &get_root_as_sync_message(builder.finished_data())
+                .payload_as_headers()
+                .unwrap(),
             &synchronizer1,
             peer,
             &DummyNetworkContext {},
@@ -916,8 +1160,26 @@ mod tests {
         }
 
         for block in &fetched_blocks {
-            BlockProcess::new(&block.into(), &synchronizer1, peer, &DummyNetworkContext {})
-                .execute();
+            let builder = &mut FlatBufferBuilder::new();
+            let block_args = build_block_args(builder, &block);
+            let payload = Block::create(builder, &block_args);
+            let message = SyncMessage::create(
+                builder,
+                &SyncMessageArgs {
+                    payload_type: SyncPayload::Block,
+                    payload: Some(payload.as_union_value()),
+                },
+            );
+            builder.finish(message, None);
+
+            BlockProcess::new(
+                &get_root_as_sync_message(builder.finished_data())
+                    .payload_as_block()
+                    .unwrap(),
+                &synchronizer1,
+                peer,
+                &DummyNetworkContext {},
+            ).execute();
         }
 
         let mut iter = TryIter { inner: &rx };

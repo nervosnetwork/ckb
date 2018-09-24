@@ -76,12 +76,12 @@ impl<'a> InputVerifier<'a> {
     }
 }
 
-pub struct ScriptVerifier<'a, S: 'a> {
-    resolved_transaction: &'a ResolvedTransaction<S>,
+pub struct ScriptVerifier<'a> {
+    resolved_transaction: &'a ResolvedTransaction,
 }
 
-impl<'a, S: CellState> ScriptVerifier<'a, S> {
-    pub fn new(resolved_transaction: &'a ResolvedTransaction<S>) -> Self {
+impl<'a> ScriptVerifier<'a> {
+    pub fn new(resolved_transaction: &'a ResolvedTransaction) -> Self {
         ScriptVerifier {
             resolved_transaction,
         }
@@ -94,7 +94,7 @@ impl<'a, S: CellState> ScriptVerifier<'a, S> {
             .resolved_transaction
             .dep_cells
             .iter()
-            .map(|cell| cell.head().unwrap());
+            .map(|cell| cell.get_current().unwrap());
         let dep_outpoints = self.resolved_transaction.transaction.deps.iter();
         for (outpoint, cell_output) in dep_outpoints.zip(dep_cell_outputs) {
             dep_cells.insert(outpoint, cell_output);

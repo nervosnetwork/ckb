@@ -1,8 +1,8 @@
+use super::header_view::HeaderView;
 use bigint::H256;
 use ckb_chain::chain::{ChainProvider, TipHeader};
 use ckb_chain::PowEngine;
 use core::header::IndexedHeader;
-use header_view::HeaderView;
 use network::PeerId;
 use std::cmp;
 use synchronizer::{BlockStatus, Synchronizer};

@@ -1,10 +1,10 @@
+use super::header_view::HeaderView;
 use bigint::H256;
 use ckb_chain::chain::TipHeader;
 use ckb_time::now_ms;
 use core::block::IndexedBlock;
 use core::header::IndexedHeader;
 use fnv::{FnvHashMap, FnvHashSet};
-use header_view::HeaderView;
 use network::PeerId;
 use util::RwLock;
 

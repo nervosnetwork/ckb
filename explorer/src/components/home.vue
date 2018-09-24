@@ -4,7 +4,7 @@
       <div class="uk-width-1-2 uk-card uk-card-default uk-card-body">
         <h3 class="uk-card-title">Blocks</h3>
         <ul class="uk-list">
-          <li class="uk-flex" v-for="block in blocks" :key="block.header.hash">
+          <li class="uk-flex" v-for="block in orderedBlocks" :key="block.header.hash">
             <div class="uk-card uk-card-default uk-card-body uk-width-1-2">
               Block #{{ block.header.raw.number }}
               <div class="uk-text-truncate">
@@ -51,5 +51,13 @@ export default {
   created () {
     this.connect()
   },
+
+  computed: {
+    orderedBlocks: function () {
+      return this.blocks.sort(function(a, b) {
+        return b.header.raw.number - a.header.raw.number
+      })
+    }
+  }
 }
 </script>

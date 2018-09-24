@@ -5,7 +5,6 @@ use std::collections::hash_map::Entry;
 use std::collections::VecDeque;
 use util::RwLock;
 
-pub type BlockHash = H256;
 pub type ParentHash = H256;
 
 #[derive(Default)]

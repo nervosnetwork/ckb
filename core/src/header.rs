@@ -1,6 +1,5 @@
 use bigint::{H256, U256};
 use bincode::serialize;
-use ckb_protocol;
 use hash::sha3_256;
 use merkle_root::merkle_root;
 use std::ops::{Deref, DerefMut};
@@ -173,60 +172,5 @@ impl From<Header> for IndexedHeader {
 impl From<IndexedHeader> for Header {
     fn from(indexed_header: IndexedHeader) -> Self {
         indexed_header.header
-    }
-}
-
-impl<'a> From<&'a ckb_protocol::Header> for Header {
-    fn from(proto: &'a ckb_protocol::Header) -> Self {
-        Header {
-            raw: RawHeader {
-                version: proto.get_version(),
-                parent_hash: H256::from_slice(proto.get_parent_hash()),
-                timestamp: proto.get_timestamp(),
-                number: proto.get_number(),
-                txs_commit: H256::from_slice(proto.get_txs_commit()),
-                txs_proposal: H256::from_slice(proto.get_txs_proposal()),
-                difficulty: H256::from_slice(proto.get_difficulty()).into(),
-                cellbase_id: H256::from_slice(proto.get_cellbase_id()),
-                uncles_hash: H256::from_slice(proto.get_uncles_hash()),
-            },
-            seal: Seal {
-                nonce: proto.get_nonce(),
-                proof: proto.get_proof().to_vec(),
-            },
-        }
-    }
-}
-
-impl<'a> From<&'a ckb_protocol::Header> for IndexedHeader {
-    fn from(proto: &'a ckb_protocol::Header) -> Self {
-        let header: Header = proto.into();
-        header.into()
-    }
-}
-
-impl<'a> From<&'a Header> for ckb_protocol::Header {
-    fn from(h: &'a Header) -> Self {
-        let mut header = ckb_protocol::Header::new();
-        let temp_difficulty: H256 = h.difficulty.into();
-        header.set_version(h.version);
-        header.set_difficulty(temp_difficulty.to_vec());
-        header.set_number(h.number);
-        header.set_nonce(h.seal.nonce);
-        header.set_proof(h.seal.proof.to_vec());
-        header.set_parent_hash(h.parent_hash.to_vec());
-        header.set_timestamp(h.timestamp);
-        header.set_txs_commit(h.txs_commit.to_vec());
-        header.set_txs_proposal(h.txs_proposal.to_vec());
-        header.set_cellbase_id(h.cellbase_id.to_vec());
-        header.set_uncles_hash(h.uncles_hash.to_vec());
-        header
-    }
-}
-
-impl<'a> From<&'a IndexedHeader> for ckb_protocol::Header {
-    fn from(h: &'a IndexedHeader) -> Self {
-        let header = &h.header;
-        header.into()
     }
 }

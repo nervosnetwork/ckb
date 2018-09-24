@@ -4,6 +4,8 @@ use hash::sha3_256;
 use std::io::Write;
 use transaction::OutPoint;
 
+pub type Argument = Vec<u8>;
+
 // TODO: when flatbuffer work is done, remove Serialize/Deserialize here and
 // implement proper From trait
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
@@ -12,7 +14,7 @@ pub struct Script {
     // We used string here, since arguments are passed into the VM in unix
     // standard argc/argv convention, which contains only null terminated
     // strings. As a result, binaries will be converted to hex string first.
-    pub arguments: Vec<String>,
+    pub arguments: Vec<Argument>,
 
     // There're 2 ways of specifying redeem script: one way is directly embed
     // the script to run in redeem_script part; however, a common use case is
@@ -49,16 +51,16 @@ pub struct Script {
     // For most verification algorithms, arguments will contain the signature
     // and any additional parameters needed by cell validator, while
     // redeem_arguments will contain pubkey used in the signing part.
-    pub redeem_arguments: Vec<String>,
+    pub redeem_arguments: Vec<Argument>,
 }
 
 impl Script {
     pub fn new(
         version: u8,
-        arguments: Vec<String>,
+        arguments: Vec<Argument>,
         redeem_reference: Option<OutPoint>,
         redeem_script: Option<Vec<u8>>,
-        redeem_arguments: Vec<String>,
+        redeem_arguments: Vec<Argument>,
     ) -> Self {
         Script {
             version,
@@ -89,7 +91,7 @@ impl Script {
                     bytes.write_all(&data).unwrap()
                 }
                 for argument in &self.redeem_arguments {
-                    bytes.write_all(argument.as_bytes()).unwrap();
+                    bytes.write_all(argument).unwrap();
                 }
                 sha3_256(bytes).into()
             }

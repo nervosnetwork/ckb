@@ -1,8 +1,7 @@
 //! Transaction using Cell.
 //! It is similar to Bitcoin Tx <https://en.bitcoin.it/wiki/Protocol_documentation#tx/>
 use bigint::H256;
-use bincode::{deserialize, serialize};
-use ckb_protocol;
+use bincode::serialize;
 use ckb_util::u64_to_bytes;
 use hash::sha3_256;
 use header::BlockNumber;
@@ -335,138 +334,9 @@ impl From<IndexedTransaction> for Transaction {
     }
 }
 
-impl<'a> From<&'a OutPoint> for ckb_protocol::OutPoint {
-    fn from(o: &'a OutPoint) -> Self {
-        let mut op = ckb_protocol::OutPoint::new();
-        op.set_hash(o.hash.to_vec());
-        op.set_index(o.index);
-        op
-    }
-}
-
-impl<'a> From<&'a ckb_protocol::OutPoint> for OutPoint {
-    fn from(o: &'a ckb_protocol::OutPoint) -> Self {
-        Self {
-            hash: H256::from(o.get_hash()),
-            index: o.get_index(),
-        }
-    }
-}
-
-impl<'a> From<&'a ckb_protocol::CellInput> for CellInput {
-    fn from(c: &'a ckb_protocol::CellInput) -> Self {
-        Self {
-            previous_output: c.get_previous_output().into(),
-            unlock: deserialize(c.get_unlock()).unwrap(),
-        }
-    }
-}
-
-impl<'a> From<&'a CellInput> for ckb_protocol::CellInput {
-    fn from(c: &'a CellInput) -> Self {
-        let mut ci = ckb_protocol::CellInput::new();
-        ci.set_previous_output((&c.previous_output).into());
-        ci.set_unlock(serialize(&c.unlock).unwrap());
-        ci
-    }
-}
-
-impl From<CellInput> for ckb_protocol::CellInput {
-    fn from(c: CellInput) -> Self {
-        let CellInput {
-            previous_output,
-            unlock,
-        } = c;
-        let mut ci = ckb_protocol::CellInput::new();
-        ci.set_previous_output((&previous_output).into());
-        ci.set_unlock(serialize(&unlock).unwrap());
-        ci
-    }
-}
-
-/// stupid proto3
-impl<'a> From<&'a ckb_protocol::CellOutput> for CellOutput {
-    fn from(c: &'a ckb_protocol::CellOutput) -> Self {
-        Self {
-            capacity: c.get_capacity(),
-            data: c.get_data().to_vec(),
-            lock: c.get_lock().into(),
-        }
-    }
-}
-
-impl<'a> From<&'a CellOutput> for ckb_protocol::CellOutput {
-    fn from(c: &'a CellOutput) -> Self {
-        let mut co = ckb_protocol::CellOutput::new();
-        co.set_capacity(c.capacity);
-        co.set_data(c.data.clone());
-        co.set_lock(c.lock.to_vec());
-        co
-    }
-}
-
-impl From<CellOutput> for ckb_protocol::CellOutput {
-    fn from(c: CellOutput) -> Self {
-        let CellOutput {
-            capacity,
-            data,
-            lock,
-        } = c;
-        let mut co = ckb_protocol::CellOutput::new();
-        co.set_capacity(capacity);
-        co.set_data(data);
-        co.set_lock(lock.to_vec());
-        co
-    }
-}
-
-impl<'a> From<&'a ckb_protocol::Transaction> for Transaction {
-    fn from(t: &'a ckb_protocol::Transaction) -> Self {
-        Self {
-            version: t.get_version(),
-            deps: t.get_deps().iter().map(Into::into).collect(),
-            inputs: t.get_inputs().iter().map(Into::into).collect(),
-            outputs: t.get_outputs().iter().map(Into::into).collect(),
-        }
-    }
-}
-
-impl<'a> From<&'a ckb_protocol::Transaction> for IndexedTransaction {
-    fn from(t: &'a ckb_protocol::Transaction) -> Self {
-        let tx: Transaction = t.into();
-        tx.into()
-    }
-}
-
-impl<'a> From<&'a ckb_protocol::Transaction> for ProposalTransaction {
-    fn from(t: &'a ckb_protocol::Transaction) -> Self {
-        let idx_tx: IndexedTransaction = t.into();
-        idx_tx.into()
-    }
-}
-
-impl<'a> From<&'a Transaction> for ckb_protocol::Transaction {
-    fn from(t: &'a Transaction) -> Self {
-        let mut tx = ckb_protocol::Transaction::new();
-        tx.set_version(t.version);
-        tx.set_inputs(t.inputs.iter().map(Into::into).collect());
-        tx.set_outputs(t.outputs.iter().map(Into::into).collect());
-        tx
-    }
-}
-
-impl<'a> From<&'a IndexedTransaction> for ckb_protocol::Transaction {
-    fn from(t: &'a IndexedTransaction) -> Self {
-        let tx = &t.transaction;
-        tx.into()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use protobuf;
-    use protobuf::Message;
 
     fn dummy_transaction() -> IndexedTransaction {
         use transaction::{CellInput, CellOutput, VERSION};
@@ -482,17 +352,5 @@ mod tests {
         let tx: Transaction = indexed_tx.clone().into();
 
         assert_eq!(tx.proposal_short_id(), indexed_tx.proposal_short_id());
-    }
-
-    #[test]
-    fn test_proto() {
-        let tx = dummy_transaction();
-        let proto_tx: ckb_protocol::Transaction = (&tx).into();
-        let message = proto_tx.write_to_bytes().unwrap();
-        let decoded_proto_tx =
-            protobuf::parse_from_bytes::<ckb_protocol::Transaction>(&message).unwrap();
-        assert_eq!(proto_tx, decoded_proto_tx);
-        let decoded_tx: IndexedTransaction = (&decoded_proto_tx).into();
-        assert_eq!(tx, decoded_tx);
     }
 }

@@ -4,19 +4,17 @@ use block_template::BlockTemplate;
 use chain::chain::ChainProvider;
 use chain::PowEngine;
 use ckb_notify::{Event, Notify, MINER_SUBSCRIBER};
-use ckb_protocol::Payload;
 use core::block::IndexedBlock;
 use core::header::{RawHeader, Seal};
 use core::BlockNumber;
 use crossbeam_channel;
-use network::NetworkContextExt;
+use fnv::FnvHashSet;
 use network::NetworkService;
 use pool::TransactionPool;
 use rand::{thread_rng, Rng};
 use std::collections::HashSet;
 use std::sync::Arc;
-use sync::compact_block::CompactBlockBuilder;
-use sync::RELAY_PROTOCOL_ID;
+use sync::{CompactBlockBuilder, RELAY_PROTOCOL_ID};
 
 pub struct Miner<C, P> {
     config: Config,
@@ -138,13 +136,11 @@ where
 
     fn announce_new_block(&self, block: &IndexedBlock) {
         self.network.with_context_eval(RELAY_PROTOCOL_ID, |nc| {
-            for (peer_id, _session) in nc.sessions(&self.network.connected_peers()) {
+            for peer_id in self.network.connected_peers() {
                 debug!(target: "miner", "announce new block to peer#{:?}, {} => {}",
                        peer_id, block.header().number, block.hash());
-                let mut payload = Payload::new();
                 let compact_block = CompactBlockBuilder::new(block, &HashSet::new()).build();
-                payload.set_compact_block(compact_block.into());
-                let _ = nc.send_payload(peer_id, payload);
+                nc.send(peer_id, 0, compact_block.to_vec());
             }
         });
     }

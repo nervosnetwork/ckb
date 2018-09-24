@@ -1,14 +1,17 @@
 use bigint::H256;
 use ckb_chain::chain::ChainProvider;
 use ckb_chain::PowEngine;
-use ckb_protocol;
+use ckb_protocol::{
+    build_header_args, GetHeaders, Header, Headers, HeadersArgs, SyncMessage, SyncMessageArgs,
+    SyncPayload,
+};
 use core::header::IndexedHeader;
-use network::NetworkContextExt;
+use flatbuffers::FlatBufferBuilder;
 use network::{NetworkContext, PeerId};
 use synchronizer::Synchronizer;
 
 pub struct GetHeadersProcess<'a, C: 'a, P: 'a> {
-    message: &'a ckb_protocol::GetHeaders,
+    message: &'a GetHeaders<'a>,
     synchronizer: &'a Synchronizer<C, P>,
     peer: PeerId,
     nc: &'a NetworkContext,
@@ -20,7 +23,7 @@ where
     P: PowEngine + 'a,
 {
     pub fn new(
-        message: &'a ckb_protocol::GetHeaders,
+        message: &'a GetHeaders,
         synchronizer: &'a Synchronizer<C, P>,
         peer: PeerId,
         nc: &'a NetworkContext,
@@ -38,14 +41,15 @@ where
             info!(target: "sync", "Ignoring getheaders from peer={} because node is in initial block download", self.peer);
             return;
         }
-
-        let hash_stop = H256::from_slice(self.message.get_hash_stop());
-        let block_locator_hashes: Vec<H256> = self
+        let hash_stop = H256::zero(); // TODO PENDING self.message.hash_stop().unwrap().into();
+        let block_locator_hashes = self
             .message
-            .get_block_locator_hashes()
-            .iter()
-            .map(|hash| H256::from_slice(&hash[..]))
-            .collect();
+            .block_locator_hashes()
+            .unwrap()
+            .chunks(32)
+            .map(H256::from)
+            .collect::<Vec<_>>();
+
         if let Some(block_number) = self
             .synchronizer
             .locate_latest_common_block(&hash_stop, &block_locator_hashes[..])
@@ -59,12 +63,30 @@ where
             // response headers
 
             debug!(target: "sync", "\nheaders len={}\n", headers.len());
-            let mut payload = ckb_protocol::Payload::new();
-            let mut headers_proto = ckb_protocol::Headers::new();
-            headers_proto.set_headers(headers.iter().map(|h| &h.header).map(Into::into).collect());
-            payload.set_headers(headers_proto);
-            let _ = self.nc.respond_payload(payload);
-            debug!(target: "sync", "\nrespond headers len={}\n", headers.len());
+
+            let builder = &mut FlatBufferBuilder::new();
+            {
+                let vec = headers
+                    .iter()
+                    .map(|header| {
+                        let header_args = build_header_args(builder, header);
+                        Header::create(builder, &header_args)
+                    }).collect::<Vec<_>>();
+                let headers = Some(builder.create_vector(&vec));
+                let payload =
+                    Some(Headers::create(builder, &HeadersArgs { headers }).as_union_value());
+                let payload_type = SyncPayload::Headers;
+                let message = SyncMessage::create(
+                    builder,
+                    &SyncMessageArgs {
+                        payload_type,
+                        payload,
+                    },
+                );
+                builder.finish(message, None);
+            }
+
+            self.nc.respond(0, builder.finished_data().to_vec());
         } else {
             warn!(target: "sync", "\n\nunknown block headers from peer {} {:#?}\n\n", self.peer, block_locator_hashes);
             // Got 'headers' message without known blocks

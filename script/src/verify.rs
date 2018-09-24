@@ -27,10 +27,10 @@ impl<'a> TransactionInputVerifier<'a> {
     pub fn verify(&self, index: usize) -> Result<(), Error> {
         let input = self.inputs[index];
         self.extract_script(index).and_then(|script| {
-            let mut args = vec!["verify".to_string()];
-            args.extend_from_slice(&input.unlock.redeem_arguments[..]);
-            args.extend_from_slice(&input.unlock.arguments[..]);
-            run(script, &args)
+            let mut args = vec![b"verify".to_vec()];
+            args.extend_from_slice(&input.unlock.redeem_arguments.as_slice());
+            args.extend_from_slice(&input.unlock.arguments.as_slice());
+            run(script, &args.to_vec())
                 .map_err(|_| Error::VMError)
                 .and_then(|code| {
                     if code == 0 {
@@ -65,23 +65,31 @@ mod tests {
 
         let gen = Generator::new();
         let privkey = gen.random_privkey();
-        let mut arguments: Vec<String> = vec!["foo".to_string(), "bar".to_string()];
+        let mut arguments = vec![b"foo".to_vec(), b"bar".to_vec()];
 
         let mut bytes = vec![];
         for argument in &arguments {
-            bytes.write(argument.as_bytes()).unwrap();
+            bytes.write(argument).unwrap();
         }
         let hash1 = sha3_256(&bytes);
         let hash2 = sha3_256(hash1);
         let signature = privkey.sign_recoverable(&hash2.into()).unwrap();
-        arguments.insert(0, signature.serialize_der().to_hex());
+        arguments.insert(0, signature.serialize_der().to_hex().into_bytes());
 
         let script = Script::new(
             0,
             arguments,
             None,
             Some(buffer),
-            vec![privkey.pubkey().unwrap().serialize().to_hex()],
+            vec![
+                privkey
+                    .pubkey()
+                    .unwrap()
+                    .serialize()
+                    .to_hex()
+                    .as_bytes()
+                    .to_owned(),
+            ],
         );
         let input = CellInput::new(OutPoint::null(), script);
         let inputs = vec![&input];
@@ -102,25 +110,33 @@ mod tests {
 
         let gen = Generator::new();
         let privkey = gen.random_privkey();
-        let mut arguments: Vec<String> = vec!["foo".to_string(), "bar".to_string()];
+        let mut arguments = vec![b"foo".to_vec(), b"bar".to_vec()];
 
         let mut bytes = vec![];
         for argument in &arguments {
-            bytes.write(argument.as_bytes()).unwrap();
+            bytes.write(argument).unwrap();
         }
         let hash1 = sha3_256(&bytes);
         let hash2 = sha3_256(hash1);
         let signature = privkey.sign_recoverable(&hash2.into()).unwrap();
-        arguments.insert(0, signature.serialize_der().to_hex());
+        arguments.insert(0, signature.serialize_der().to_hex().into_bytes());
         // This line makes the verification invalid
-        arguments.push("extrastring".to_string());
+        arguments.push(b"extrastring".to_vec());
 
         let script = Script::new(
             0,
             arguments,
             None,
             Some(buffer),
-            vec![privkey.pubkey().unwrap().serialize().to_hex()],
+            vec![
+                privkey
+                    .pubkey()
+                    .unwrap()
+                    .serialize()
+                    .to_hex()
+                    .as_bytes()
+                    .to_owned(),
+            ],
         );
         let input = CellInput::new(OutPoint::null(), script);
         let inputs = vec![&input];
@@ -141,16 +157,16 @@ mod tests {
 
         let gen = Generator::new();
         let privkey = gen.random_privkey();
-        let mut arguments: Vec<String> = vec!["foo".to_string(), "bar".to_string()];
+        let mut arguments = vec![b"foo".to_vec(), b"bar".to_vec()];
 
         let mut bytes = vec![];
         for argument in &arguments {
-            bytes.write(argument.as_bytes()).unwrap();
+            bytes.write(argument).unwrap();
         }
         let hash1 = sha3_256(&bytes);
         let hash2 = sha3_256(hash1);
         let signature = privkey.sign_recoverable(&hash2.into()).unwrap();
-        arguments.insert(0, signature.serialize_der().to_hex());
+        arguments.insert(0, signature.serialize_der().to_hex().into_bytes());
 
         let dep_outpoint = OutPoint::new(H256::from(123), 8);
         let dep_cell = CellOutput::new(buffer.len() as Capacity, buffer, H256::from(0));
@@ -161,7 +177,15 @@ mod tests {
             arguments,
             Some(dep_outpoint),
             None,
-            vec![privkey.pubkey().unwrap().serialize().to_hex()],
+            vec![
+                privkey
+                    .pubkey()
+                    .unwrap()
+                    .serialize()
+                    .to_hex()
+                    .as_bytes()
+                    .to_owned(),
+            ],
         );
         let input = CellInput::new(OutPoint::null(), script);
         let inputs = vec![&input];
@@ -179,16 +203,16 @@ mod tests {
 
         let gen = Generator::new();
         let privkey = gen.random_privkey();
-        let mut arguments: Vec<String> = vec!["foo".to_string(), "bar".to_string()];
+        let mut arguments = vec![b"foo".to_vec(), b"bar".to_vec()];
 
         let mut bytes = vec![];
         for argument in &arguments {
-            bytes.write(argument.as_bytes()).unwrap();
+            bytes.write(argument).unwrap();
         }
         let hash1 = sha3_256(&bytes);
         let hash2 = sha3_256(hash1);
         let signature = privkey.sign_recoverable(&hash2.into()).unwrap();
-        arguments.insert(0, signature.serialize_der().to_hex());
+        arguments.insert(0, signature.serialize_der().to_hex().into_bytes());
 
         let dep_outpoint = OutPoint::new(H256::from(123), 8);
         let script = Script::new(
@@ -196,7 +220,7 @@ mod tests {
             arguments,
             Some(dep_outpoint),
             None,
-            vec![privkey.pubkey().unwrap().serialize().to_hex()],
+            vec![privkey.pubkey().unwrap().serialize()],
         );
         let input = CellInput::new(OutPoint::null(), script);
         let inputs = vec![&input];

@@ -64,7 +64,7 @@ where
         self.cellbase.verify()?;
         self.merkle_root.verify()?;
         self.commit.verify()?;
-        self.uncles.verify()?;
+        // self.uncles.verify()?;
         self.transactions.verify()
     }
 }

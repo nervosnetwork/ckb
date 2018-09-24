@@ -1,19 +1,17 @@
-use bigint::{H256, U256};
+use bigint::U256;
 use ckb_chain::chain::ChainProvider;
 use ckb_chain::PowEngine;
-use ckb_protocol;
+use ckb_protocol::{FlatbuffersVectorIterator, Headers};
 use ckb_verification::{Error as VerifyError, HeaderResolver, HeaderVerifier, Verifier};
 use core::header::IndexedHeader;
 use log;
-use network::NetworkContextExt;
 use network::{NetworkContext, PeerId};
-use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 use std::sync::Arc;
 use synchronizer::{BlockStatus, Synchronizer};
 use MAX_HEADERS_LEN;
 
 pub struct HeadersProcess<'a, C: 'a, P: 'a> {
-    message: &'a ckb_protocol::Headers,
+    message: &'a Headers<'a>,
     synchronizer: &'a Synchronizer<C, P>,
     peer: PeerId,
     nc: &'a NetworkContext,
@@ -66,7 +64,7 @@ where
     P: PowEngine + 'a,
 {
     pub fn new(
-        message: &'a ckb_protocol::Headers,
+        message: &'a Headers,
         synchronizer: &'a Synchronizer<C, P>,
         peer: PeerId,
         nc: &'a NetworkContext,
@@ -80,11 +78,11 @@ where
     }
 
     fn is_empty(&self) -> bool {
-        self.message.headers.len() == 0
+        self.message.headers().unwrap().len() == 0
     }
 
     fn is_oversize(&self) -> bool {
-        self.message.headers.len() > MAX_HEADERS_LEN
+        self.message.headers().unwrap().len() > MAX_HEADERS_LEN
     }
 
     fn is_continuous(&self, headers: &[IndexedHeader]) -> bool {
@@ -101,18 +99,6 @@ where
     fn received_new_header(&self, headers: &[IndexedHeader]) -> bool {
         let last = headers.last().expect("empty checked");
         self.synchronizer.get_block_status(&last.hash()) == BlockStatus::UNKNOWN
-    }
-
-    fn push_getheaders(&self, start: &IndexedHeader) {
-        let locator_hash = self.synchronizer.get_locator(start);
-        let mut payload = ckb_protocol::Payload::new();
-        let mut getheaders = ckb_protocol::GetHeaders::new();
-        let locator_hash = locator_hash.iter().map(|hash| hash.to_vec()).collect();
-        getheaders.set_version(0);
-        getheaders.set_block_locator_hashes(locator_hash);
-        getheaders.set_hash_stop(H256::default().to_vec());
-        payload.set_getheaders(getheaders);
-        let _ = self.nc.send_payload(self.peer, payload);
     }
 
     pub fn accept_first(&self, first: &IndexedHeader) -> ValidationResult {
@@ -137,7 +123,9 @@ where
             return ();
         }
 
-        let headers: Vec<IndexedHeader> = self.message.headers.par_iter().map(From::from).collect();
+        let headers = FlatbuffersVectorIterator::new(self.message.headers().unwrap())
+            .map(Into::into)
+            .collect::<Vec<IndexedHeader>>();
 
         if !self.is_continuous(&headers) {
             self.synchronizer.peers.misbehavior(self.peer, 20);
@@ -210,7 +198,8 @@ where
         // TODO: optimize: if last is an ancestor of BestKnownHeader, continue from there instead.
         if headers.len() == MAX_HEADERS_LEN {
             let start = headers.last().expect("empty checked");
-            self.push_getheaders(&start);
+            self.synchronizer
+                .send_getheaders_to_peer(self.nc, self.peer, start);
         }
     }
 }
@@ -270,13 +259,6 @@ where
             VerifyError::Pow(e) => {
                 debug!(target: "sync", "HeadersProcess accept {:?} pow", self.header.number);
                 state.dos(Some(ValidationError::Verify(VerifyError::Pow(e))), 100);
-            }
-            VerifyError::UnknownParent(hash) => {
-                debug!(target: "sync", "HeadersProcess accept UnknownParent {:?} {:?}", self.header.number, hash);
-                state.dos(
-                    Some(ValidationError::Verify(VerifyError::UnknownParent(hash))),
-                    10,
-                );
             }
             VerifyError::Difficulty(e) => {
                 debug!(target: "sync", "HeadersProcess accept {:?} difficulty", self.header.number);
@@ -340,7 +322,6 @@ where
 pub enum ValidationState {
     VALID,
     INVALID,
-    ERROR,
 }
 
 impl Default for ValidationState {
@@ -354,7 +335,6 @@ pub enum ValidationError {
     Verify(VerifyError),
     FailedMask,
     Version,
-    UnknownParent,
     InvalidParent,
 }
 
@@ -366,11 +346,6 @@ pub struct ValidationResult {
 }
 
 impl ValidationResult {
-    pub fn error(&mut self, error: Option<ValidationError>) {
-        self.error = error;
-        self.state = ValidationState::ERROR;
-    }
-
     pub fn invalid(&mut self, error: Option<ValidationError>) {
         self.dos(error, 0);
     }
