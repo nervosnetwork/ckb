@@ -2,7 +2,7 @@ use super::super::helper::wait_for_exit;
 use super::super::Setup;
 use bigint::H256;
 use chain::cachedb::CacheDB;
-use chain::chain::{Chain, ChainBuilder, ChainProvider};
+use chain::chain::{ChainBuilder, ChainProvider};
 use chain::store::ChainKVStore;
 #[cfg(feature = "integration_test")]
 use chain::Clicker;
@@ -55,8 +55,10 @@ pub fn run(setup: Setup) {
 
     let synchronizer = Synchronizer::new(&chain, &pow_engine, setup.configs.sync);
 
-    let chain1 = Arc::<Chain<ChainKVStore<CacheDB<RocksDB>>>>::clone(&chain);
-    let tx_pool = TransactionPool::new(setup.configs.pool, chain1, notify.clone());
+    let tx_pool = {
+        let chain_clone = Arc::clone(&chain);
+        TransactionPool::new(setup.configs.pool, chain_clone, notify.clone())
+    };
 
     let network_config = NetworkConfiguration::from(setup.configs.network);
     let sync_protocol = Arc::new(SyncProtocol::new(synchronizer.clone()));
@@ -68,22 +70,22 @@ pub fn run(setup: Setup) {
     let network =
         Arc::new(NetworkService::new(network_config, protocols).expect("Create and start network"));
 
-    let miner_chain = Arc::clone(&chain);
+    let _ = thread::Builder::new().name("miner".to_string()).spawn({
+        let miner_clone = Arc::clone(&chain);
 
-    let mut miner = Miner::new(
-        setup.configs.miner,
-        miner_chain,
-        &pow_engine,
-        &tx_pool,
-        &network,
-        &notify,
-    );
+        let mut miner = Miner::new(
+            setup.configs.miner,
+            miner_clone,
+            &pow_engine,
+            &tx_pool,
+            &network,
+            &notify,
+        );
 
-    let _ = thread::Builder::new()
-        .name("miner".to_string())
-        .spawn(move || {
+        move || {
             miner.start();
-        });
+        }
+    });
 
     let rpc_server = build_rpc(
         setup.configs.rpc,
@@ -94,14 +96,14 @@ pub fn run(setup: Setup) {
         },
     );
 
-    let network_clone = Arc::clone(&network);
-    let chain_clone = Arc::clone(&chain);
-    let tx_pool_clone = Arc::clone(&tx_pool);
-    let _ = thread::Builder::new()
-        .name("rpc".to_string())
-        .spawn(move || {
+    let _ = thread::Builder::new().name("rpc".to_string()).spawn({
+        let network_clone = Arc::clone(&network);
+        let chain_clone = Arc::clone(&chain);
+        let tx_pool_clone = Arc::clone(&tx_pool);
+        move || {
             rpc_server.start(network_clone, chain_clone, tx_pool_clone);
-        });
+        }
+    });
 
     wait_for_exit();
 

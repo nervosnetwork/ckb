@@ -17,7 +17,7 @@ pub use Capacity;
 pub struct OutPoint {
     // Hash of Transaction
     pub hash: H256,
-    // Index of cell_operations
+    // Index of output
     pub index: u32,
 }
 

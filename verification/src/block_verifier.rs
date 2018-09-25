@@ -56,6 +56,8 @@ where
     P: PowEngine,
 {
     fn verify(&self) -> Result<(), Error> {
+        // EmptyTransactionsVerifier must be executed first. Other verifiers may depend on the
+        // assumption that the transactions list is not empty.
         self.empty_transactions.verify()?;
         self.duplicate_transactions.verify()?;
         self.cellbase.verify()?;
@@ -151,13 +153,13 @@ impl<'a> DuplicateTransactionsVerifier<'a> {
     }
 
     pub fn verify(&self) -> Result<(), Error> {
-        let hashes = self
+        let mut seen = HashSet::new();
+        if self
             .block
             .commit_transactions
             .iter()
-            .map(|tx| tx.hash())
-            .collect::<HashSet<_>>();
-        if hashes.len() == self.block.commit_transactions.len() {
+            .all(|tx| seen.insert(tx.hash()))
+        {
             Ok(())
         } else {
             Err(Error::DuplicateTransactions)
@@ -480,7 +482,7 @@ where
             .collect();
 
         if commited_ids.len() != self.block.commit_transactions().len().saturating_sub(1) {
-            return Err(Error::Commit(CommitError::Confilct));
+            return Err(Error::Commit(CommitError::Conflict));
         }
 
         let difference: Vec<_> = commited_ids.difference(&proposal_txs_ids).collect();

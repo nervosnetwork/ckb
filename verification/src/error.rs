@@ -2,30 +2,44 @@ use bigint::{H256, U256};
 use chain::error::Error as ChainError;
 use core::BlockNumber;
 
+/// Block verification error
 #[derive(Debug, PartialEq, Clone, Eq)]
 pub enum Error {
+    /// PoW proof is corrupt or does not meet the difficulty target.
     Pow(PowError),
+    /// The field timestamp in block header is invalid.
     Timestamp(TimestampError),
+    /// The field number in block header is invalid.
     Height(HeightError),
+    /// The field difficulty in block header is invalid.
     Difficulty(DifficultyError),
+    /// Committed transactions verification error. It contains errors for all the transactions that
+    /// fail the verification. The errors are stored as a Vec of tuple, where the first item is the
+    /// transaction index in the block and the second item is the transaction verification error.
     Transaction(Vec<(usize, TransactionError)>),
+    /// This is a wrapper of error encountered when invoking chain API.
     Chain(ChainError),
+    /// The committed transactions list is empty.
     EmptyTransactions,
+    /// There are duplicate committed transactions.
     DuplicateTransactions,
+    /// The merkle tree hash of committed transactions does not match the one in header.
     TransactionsRoot,
-    DuplicateHeader,
-    InvalidInput,
-    InvalidOutput,
+    /// The parent of the block is unknown.
     UnknownParent(H256),
+    /// Uncles does not meet the consensus requirements.
     Uncles(UnclesError),
+    /// Cellbase transaction is invalid.
     Cellbase(CellbaseError),
+    /// This error is returned when the committed transactions does not meet the 2-phases
+    /// propose-then-commit consensus rule.
     Commit(CommitError),
 }
 
 #[derive(Debug, PartialEq, Clone, Eq)]
 pub enum CommitError {
     AncestorNotFound,
-    Confilct,
+    Conflict,
     Invalid,
 }
 

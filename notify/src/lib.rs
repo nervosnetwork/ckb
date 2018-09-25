@@ -44,7 +44,6 @@ pub type Subscribers = FnvHashMap<String, Subscriber>;
 pub struct Notify {
     pub tip_subscribers: Arc<RwLock<Subscribers>>,
     pub transaction_subscribers: Arc<RwLock<Subscribers>>,
-    pub side_chain_subscribers: Arc<RwLock<Subscribers>>,
     pub fork_subscribers: Arc<RwLock<Subscribers>>,
 }
 
