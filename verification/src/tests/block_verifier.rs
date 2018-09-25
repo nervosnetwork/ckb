@@ -1,6 +1,4 @@
-use super::super::block_verifier::{
-    BlockVerifier, CellbaseTransactionsVerifier, EmptyTransactionsVerifier,
-};
+use super::super::block_verifier::{BlockVerifier, CellbaseVerifier, EmptyVerifier};
 use super::super::error::Error as VerifyError;
 use super::dummy::DummyChainClient;
 use super::utils::{create_dummy_block, create_dummy_transaction};
@@ -50,9 +48,8 @@ fn create_normal_transaction() -> IndexedTransaction {
 pub fn test_block_without_cellbase() {
     let mut block = create_dummy_block();
     block.commit_transactions.push(create_normal_transaction());
-
-    let verifier = CellbaseTransactionsVerifier::new(&block, dummy_chain());
-    assert!(verifier.verify().is_ok());
+    let verifier = CellbaseVerifier::new(&block, dummy_chain());
+    assert!(verifier.verify().is_err());
 }
 
 #[test]
@@ -73,7 +70,7 @@ pub fn test_block_with_one_cellbase_at_first() {
         transaction_fees: transaction_fees,
     });
 
-    let verifier = CellbaseTransactionsVerifier::new(&block, chain);
+    let verifier = CellbaseVerifier::new(&block, chain);
     assert!(verifier.verify().is_ok());
 }
 
@@ -85,7 +82,7 @@ pub fn test_block_with_one_cellbase_at_last() {
         .commit_transactions
         .push(create_cellbase_transaction(block.header.number));
 
-    let verifier = CellbaseTransactionsVerifier::new(&block, dummy_chain());
+    let verifier = CellbaseVerifier::new(&block, dummy_chain());
     assert!(verifier.verify().is_err());
 }
 
@@ -100,7 +97,7 @@ pub fn test_block_with_two_cellbases() {
         .commit_transactions
         .push(create_cellbase_transaction(block.header.number));
 
-    let verifier = CellbaseTransactionsVerifier::new(&block, dummy_chain());
+    let verifier = CellbaseVerifier::new(&block, dummy_chain());
     assert!(verifier.verify().is_err());
 }
 
@@ -125,7 +122,7 @@ pub fn test_cellbase_with_less_reward() {
         transaction_fees: transaction_fees,
     });
 
-    let verifier = CellbaseTransactionsVerifier::new(&block, chain);
+    let verifier = CellbaseVerifier::new(&block, chain);
     assert!(verifier.verify().is_ok());
 }
 
@@ -150,7 +147,7 @@ pub fn test_cellbase_with_fee() {
         transaction_fees: transaction_fees,
     });
 
-    let verifier = CellbaseTransactionsVerifier::new(&block, chain);
+    let verifier = CellbaseVerifier::new(&block, chain);
     assert!(verifier.verify().is_ok());
 }
 
@@ -175,7 +172,7 @@ pub fn test_cellbase_with_more_reward_than_available() {
         transaction_fees: transaction_fees,
     });
 
-    let verifier = CellbaseTransactionsVerifier::new(&block, chain);
+    let verifier = CellbaseVerifier::new(&block, chain);
     assert!(verifier.verify().is_err());
 }
 
@@ -200,7 +197,7 @@ pub fn test_cellbase_with_invalid_transaction() {
         transaction_fees: transaction_fees,
     });
 
-    let verifier = CellbaseTransactionsVerifier::new(&block, chain);
+    let verifier = CellbaseVerifier::new(&block, chain);
     assert!(verifier.verify().is_err());
 }
 
@@ -226,7 +223,7 @@ pub fn test_cellbase_with_two_outputs() {
         transaction_fees: transaction_fees,
     });
 
-    let verifier = CellbaseTransactionsVerifier::new(&block, chain);
+    let verifier = CellbaseVerifier::new(&block, chain);
     assert!(verifier.verify().is_ok());
 }
 
@@ -252,7 +249,7 @@ pub fn test_cellbase_with_two_outputs_and_more_rewards_than_maximum() {
         transaction_fees: transaction_fees,
     });
 
-    let verifier = CellbaseTransactionsVerifier::new(&block, chain);
+    let verifier = CellbaseVerifier::new(&block, chain);
     assert!(verifier.verify().is_err());
 }
 
@@ -268,11 +265,14 @@ pub fn test_empty_transactions() {
 
     let pow = Arc::new(DummyPowEngine::new());
 
-    let verifier = EmptyTransactionsVerifier::new(&block);
+    let verifier = EmptyVerifier::new(&block);
     let full_verifier = BlockVerifier::new(&block, &chain, &pow);
-    assert_eq!(verifier.verify(), Err(VerifyError::EmptyTransactions));
+    assert_eq!(verifier.verify(), Err(VerifyError::CommitTransactionsEmpty));
     // short-circuit, Empty check first
-    assert_eq!(full_verifier.verify(), Err(VerifyError::EmptyTransactions));
+    assert_eq!(
+        full_verifier.verify(),
+        Err(VerifyError::CommitTransactionsEmpty)
+    );
 }
 
 fn dummy_chain() -> Arc<impl ChainProvider> {

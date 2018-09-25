@@ -4,7 +4,7 @@ use ckb_protocol::Payload;
 use core::header::{BlockNumber, Header};
 use core::transaction::{IndexedTransaction, Transaction};
 use jsonrpc_core::{IoHandler, Result};
-use jsonrpc_minihttp_server::ServerBuilder;
+use jsonrpc_http_server::ServerBuilder;
 use jsonrpc_server_utils::cors::AccessControlAllowOrigin;
 use jsonrpc_server_utils::hosts::DomainsValidation;
 use miner::{build_block_template, BlockTemplate};
@@ -129,11 +129,10 @@ impl RpcServer {
             .cors(DomainsValidation::AllowOnly(vec![
                 AccessControlAllowOrigin::Null,
                 AccessControlAllowOrigin::Any,
-            ])).threads(3)
-            .start_http(&self.config.listen_addr.parse().unwrap())
+            ])).start_http(&self.config.listen_addr.parse().unwrap())
             .unwrap();
 
         info!(target: "rpc", "Now listening on {:?}", server.address());
-        server.wait().unwrap();
+        server.wait();
     }
 }

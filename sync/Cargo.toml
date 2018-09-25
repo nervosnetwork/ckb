@@ -34,6 +34,5 @@ ckb-notify = { path = "../notify" }
 ckb-db = { path = "../db" }
 ckb-time = { path = "../util/time" }
 env_logger = "0.5"
-tempdir = "0.3"
 crossbeam-channel = "0.2"
 merkle-root = {path = "../util/merkle-root"}

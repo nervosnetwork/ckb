@@ -30,7 +30,6 @@ ckb-sync = { path = "sync"}
 config = "0.9"
 serde_json = "1.0"
 crypto = { path = "util/crypto"}
-ckb-test-harness = { path = "util/harness"}
 ckb-instrument = { path = "util/instrument", features = ["progress_bar"] }
 
 [features]
@@ -40,7 +39,7 @@ pow_engine_ethash = []
 integration_test = ["ckb-rpc/integration_test"]
 
 [dev-dependencies]
-tempdir = "0.3"
+tempfile = "3.0"
 
 [workspace]
 members = [
@@ -64,8 +63,5 @@ members = [
     "spec",
     "verification",
     "script",
-    "util/harness",
-    "integration_tests",
-    "integration_tests/network",
     "benches"
 ]

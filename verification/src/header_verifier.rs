@@ -2,7 +2,7 @@ use super::Verifier;
 use bigint::U256;
 use chain::PowEngine;
 use core::header::IndexedHeader;
-use error::{DifficultyError, Error, HeightError, PowError, TimestampError};
+use error::{DifficultyError, Error, NumberError, PowError, TimestampError};
 use shared::ALLOWED_FUTURE_BLOCKTIME;
 use std::sync::Arc;
 use time::now_ms;
@@ -40,6 +40,9 @@ where
 {
     fn verify(&self) -> Result<(), Error> {
         let header = self.resolver.header();
+
+        // POW check first
+        PowVerifier::new(header, &self.pow).verify()?;
         let parent = self
             .resolver
             .parent()
@@ -47,7 +50,6 @@ where
         NumberVerifier::new(parent, header).verify()?;
         TimestampVerifier::new(parent, header).verify()?;
         DifficultyVerifier::new(&self.resolver).verify()?;
-        PowVerifier::new(header, &self.pow).verify()?;
         Ok(())
     }
 }
@@ -98,7 +100,7 @@ impl<'a> NumberVerifier<'a> {
 
     pub fn verify(&self) -> Result<(), Error> {
         if self.header.number != self.parent.number + 1 {
-            return Err(Error::Height(HeightError {
+            return Err(Error::Number(NumberError {
                 expected: self.parent.number + 1,
                 actual: self.header.number,
             }));

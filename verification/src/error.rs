@@ -10,21 +10,25 @@ pub enum Error {
     /// The field timestamp in block header is invalid.
     Timestamp(TimestampError),
     /// The field number in block header is invalid.
-    Height(HeightError),
+    Number(NumberError),
     /// The field difficulty in block header is invalid.
     Difficulty(DifficultyError),
     /// Committed transactions verification error. It contains errors for all the transactions that
     /// fail the verification. The errors are stored as a Vec of tuple, where the first item is the
     /// transaction index in the block and the second item is the transaction verification error.
-    Transaction(Vec<(usize, TransactionError)>),
+    Transactions(Vec<(usize, TransactionError)>),
     /// This is a wrapper of error encountered when invoking chain API.
     Chain(ChainError),
     /// The committed transactions list is empty.
-    EmptyTransactions,
+    CommitTransactionsEmpty,
+    /// There are duplicate proposed transactions.
+    ProposalTransactionDuplicate,
     /// There are duplicate committed transactions.
-    DuplicateTransactions,
+    CommitTransactionDuplicate,
+    /// The merkle tree hash of proposed transactions does not match the one in header.
+    ProposalTransactionsRoot,
     /// The merkle tree hash of committed transactions does not match the one in header.
-    TransactionsRoot,
+    CommitTransactionsRoot,
     /// The parent of the block is unknown.
     UnknownParent(H256),
     /// Uncles does not meet the consensus requirements.
@@ -38,8 +42,9 @@ pub enum Error {
 
 #[derive(Debug, PartialEq, Clone, Eq)]
 pub enum CommitError {
+    /// Ancestor not found, should not happen, we check header first and check ancestor.
     AncestorNotFound,
-    Conflict,
+    /// Break propose-then-commit consensus rule.
     Invalid,
 }
 
@@ -84,7 +89,7 @@ pub enum TimestampError {
 }
 
 #[derive(Debug, PartialEq, Clone, Copy, Eq)]
-pub struct HeightError {
+pub struct NumberError {
     pub expected: u64,
     pub actual: u64,
 }

@@ -1,9 +1,0 @@
-[package]
-name = "integration_tests"
-version = "0.1.0"
-authors = ["Nervos Core Dev <dev@nervos.org>"]
-
-
-[dev-dependencies]
-tempdir = "0.3"
-ckb-test-harness = {path = "../util/harness"}

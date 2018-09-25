@@ -28,7 +28,7 @@ pub fn now() -> Duration {
 
 pub fn now_ms() -> u64 {
     let duration = now();
-    duration.as_secs() * 1000 + u64::from(duration.subsec_nanos()) / 1_000_000
+    duration.as_secs() * 1000 + u64::from(duration.subsec_millis())
 }
 
 #[cfg(test)]

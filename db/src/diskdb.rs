@@ -92,11 +92,14 @@ impl KeyValueDB for RocksDB {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempdir::TempDir;
+    use tempfile;
 
     #[test]
     fn write_and_read() {
-        let tmp_dir = TempDir::new("write_and_read").unwrap();
+        let tmp_dir = tempfile::Builder::new()
+            .prefix("write_and_read")
+            .tempdir()
+            .unwrap();
         let db = RocksDB::open(tmp_dir, 2);
         let mut batch = Batch::default();
         batch.insert(None, vec![0, 0], vec![0, 0, 0]);
@@ -115,7 +118,10 @@ mod tests {
 
     #[test]
     fn write_and_len() {
-        let tmp_dir = TempDir::new("write_and_len").unwrap();
+        let tmp_dir = tempfile::Builder::new()
+            .prefix("write_and_len")
+            .tempdir()
+            .unwrap();
         let db = RocksDB::open(tmp_dir, 2);
         let mut batch = Batch::default();
         batch.insert(None, vec![0, 0], vec![5, 4, 3, 2]);
@@ -131,7 +137,10 @@ mod tests {
 
     #[test]
     fn write_and_partial_read() {
-        let tmp_dir = TempDir::new("write_and_partial_read").unwrap();
+        let tmp_dir = tempfile::Builder::new()
+            .prefix("write_and_partial_read")
+            .tempdir()
+            .unwrap();
         let db = RocksDB::open(tmp_dir, 2);
         let mut batch = Batch::default();
         batch.insert(None, vec![0, 0], vec![5, 4, 3, 2]);

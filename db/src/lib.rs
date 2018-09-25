@@ -14,4 +14,4 @@ pub mod kvdb;
 pub mod memorydb;
 
 #[cfg(test)]
-extern crate tempdir;
+extern crate tempfile;

@@ -29,7 +29,7 @@ extern crate crossbeam_channel;
 #[cfg(test)]
 extern crate rand;
 #[cfg(test)]
-extern crate tempdir;
+extern crate tempfile;
 #[cfg(test)]
 #[macro_use]
 extern crate quickcheck;

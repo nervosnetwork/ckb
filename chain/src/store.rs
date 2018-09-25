@@ -316,11 +316,14 @@ mod tests {
     use consensus::Consensus;
     use db::diskdb::RocksDB;
     use rand;
-    use tempdir::TempDir;
+    use tempfile;
 
     #[test]
     fn save_and_get_output_root() {
-        let tmp_dir = TempDir::new("save_and_get_output_root").unwrap();
+        let tmp_dir = tempfile::Builder::new()
+            .prefix("save_and_get_output_root")
+            .tempdir()
+            .unwrap();
         let db = RocksDB::open(tmp_dir, COLUMNS);
         let store = ChainKVStore::new(db);
 
@@ -339,7 +342,10 @@ mod tests {
 
     #[test]
     fn save_and_get_block() {
-        let tmp_dir = TempDir::new("save_and_get_block").unwrap();
+        let tmp_dir = tempfile::Builder::new()
+            .prefix("save_and_get_block")
+            .tempdir()
+            .unwrap();
         let db = RocksDB::open(tmp_dir, COLUMNS);
         let store = ChainKVStore::new(db);
         let consensus = Consensus::default();
@@ -358,7 +364,10 @@ mod tests {
 
     #[test]
     fn save_and_get_block_with_transactions() {
-        let tmp_dir = TempDir::new("save_and_get_block_with_transaction").unwrap();
+        let tmp_dir = tempfile::Builder::new()
+            .prefix("save_and_get_block_with_transaction")
+            .tempdir()
+            .unwrap();
         let db = RocksDB::open(tmp_dir, COLUMNS);
         let store = ChainKVStore::new(db);
         let consensus = Consensus::default();
@@ -386,7 +395,10 @@ mod tests {
 
     #[test]
     fn save_and_get_block_ext() {
-        let tmp_dir = TempDir::new("save_and_get_block_ext").unwrap();
+        let tmp_dir = tempfile::Builder::new()
+            .prefix("save_and_get_block_ext")
+            .tempdir()
+            .unwrap();
         let db = RocksDB::open(tmp_dir, COLUMNS);
         let store = ChainKVStore::new(db);
         let consensus = Consensus::default();

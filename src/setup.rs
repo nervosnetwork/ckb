@@ -72,6 +72,7 @@ impl Setup {
             .value_of("chain")
             .unwrap_or_else(|| &configs.ckb.chain)
             .parse()?;
+
         let chain_spec = spec_type.load_spec()?;
 
         Ok(Setup {
@@ -88,7 +89,7 @@ pub mod test {
     use std::fs::File;
     use std::io::Write;
     use std::path::Path;
-    use tempdir::TempDir;
+    use tempfile;
 
     fn write_file<P: AsRef<Path>>(file: P, content: &str) {
         let mut file = File::create(file).expect("test dir clean");
@@ -119,7 +120,10 @@ pub mod test {
 
     #[test]
     fn test_data_dir() {
-        let tmp_dir = TempDir::new("test_data_dir").unwrap();
+        let tmp_dir = tempfile::Builder::new()
+            .prefix("test_data_dir")
+            .tempdir()
+            .unwrap();
         let data_path = tmp_dir.path().to_str().unwrap();
         let arg_vec = vec!["ckb", "run", "--data-dir", data_path];
         let yaml = load_yaml!("cli/app.yml");
@@ -131,7 +135,11 @@ pub mod test {
 
     #[test]
     fn test_load_config() {
-        let tmp_dir = TempDir::new("test_load_config").unwrap();
+        let tmp_dir = tempfile::Builder::new()
+            .prefix("test_load_config")
+            .tempdir()
+            .unwrap();
+
         let data_path = tmp_dir.path().to_str().unwrap();
 
         let test_conifg = r#"[network]
@@ -151,7 +159,10 @@ pub mod test {
 
     #[test]
     fn test_specify_config() {
-        let tmp_dir = TempDir::new("test_specify_config").unwrap();
+        let tmp_dir = tempfile::Builder::new()
+            .prefix("test_specify_config")
+            .tempdir()
+            .unwrap();
         let data_path = tmp_dir.path().to_str().unwrap();
 
         let test_conifg = r#"[network]
@@ -178,7 +189,11 @@ pub mod test {
 
     #[test]
     fn test_custom_chain_spec_with_config() {
-        let tmp_dir = TempDir::new("test_custom_chain_spec_with_config").unwrap();
+        let tmp_dir = tempfile::Builder::new()
+            .prefix("test_custom_chain_spec_with_config")
+            .tempdir()
+            .unwrap();
+
         let data_path = tmp_dir.path().to_str().unwrap();
         let arg_vec = vec!["ckb", "run", "--data-dir", data_path];
         let yaml = load_yaml!("cli/app.yml");
@@ -197,7 +212,11 @@ pub mod test {
 
     #[test]
     fn test_custom_chain_spec_with_arg() {
-        let tmp_dir = TempDir::new("test_custom_chain_spec_with_arg").unwrap();
+        let tmp_dir = tempfile::Builder::new()
+            .prefix("test_custom_chain_spec_with_arg")
+            .tempdir()
+            .unwrap();
+
         let data_path = tmp_dir.path().to_str().unwrap();
 
         let chain_spec_path = tmp_dir.path().join("ckb_test_custom.toml");

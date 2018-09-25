@@ -1,6 +1,0 @@
-[package]
-name = "ckb-p2p-simulator"
-version = "0.1.0"
-authors = ["Nervos Core Dev <dev@nervos.org>"]
-
-[dependencies]

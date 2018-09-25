@@ -2,7 +2,7 @@ extern crate bigint;
 extern crate jsonrpc_core;
 #[macro_use]
 extern crate jsonrpc_macros;
-extern crate jsonrpc_minihttp_server;
+extern crate jsonrpc_http_server;
 extern crate jsonrpc_server_utils;
 #[macro_use]
 extern crate log;

@@ -21,12 +21,11 @@ extern crate logger;
 extern crate serde_derive;
 extern crate ckb_instrument;
 extern crate ckb_script as script;
-extern crate ckb_test_harness;
 extern crate config as config_tool;
 extern crate crypto;
 extern crate serde_json;
 #[cfg(test)]
-extern crate tempdir;
+extern crate tempfile;
 
 mod cli;
 mod helper;
@@ -45,7 +44,6 @@ fn main() {
 
     match matches.subcommand() {
         ("cli", Some(client_matches)) => match client_matches.subcommand() {
-            ("rpc", Some(rpc_matches)) => cli::rpc(rpc_matches),
             ("sign", Some(sign_matches)) => cli::sign(sign_matches),
             ("keygen", _) => cli::keygen(),
             _ => println!("Invalid client subcommand"),

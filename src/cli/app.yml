@@ -80,24 +80,6 @@ subcommands:
     - cli:
         about: Running ckb cli
         subcommands:
-            - rpc:
-                about: Remote procedure call
-                args:
-                    - uri:
-                        short: u
-                        long: uri
-                        help: Specify the rpc uri, e.g. http://localhost:3000
-                        takes_value: true
-                    - method:
-                        short: m
-                        long: method
-                        help: Specify the rpc method, e.g. get_block_hash
-                        takes_value: true
-                    - params:
-                        short: p
-                        long: params
-                        help: Specify the rpc params, e.g. [42]
-                        takes_value: true
             - sign:
                 about: Sign transaction
                 args:

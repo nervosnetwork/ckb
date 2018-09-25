@@ -13,8 +13,6 @@ use chain::DummyPowEngine;
 #[cfg(feature = "pow_engine_ethash")]
 use chain::EthashEngine;
 use ckb_notify::Notify;
-use ckb_test_harness;
-use ckb_test_harness::rt::Future;
 use clap::ArgMatches;
 use core::transaction::Transaction;
 use crypto::secp::{Generator, Privkey};
@@ -26,7 +24,7 @@ use network::NetworkService;
 use pool::TransactionPool;
 use rpc::{Config as RpcConfig, RpcServer};
 use script::TransactionInputSigner;
-use serde_json::{self, Value};
+use serde_json;
 use std::path::Path;
 use std::sync::Arc;
 use std::thread;
@@ -157,24 +155,6 @@ fn build_rpc(config: RpcConfig, _pow: Option<Arc<EthashEngine>>) -> RpcServer {
 #[cfg_attr(feature = "cargo-clippy", allow(needless_pass_by_value))]
 fn build_rpc(config: RpcConfig, _pow: Option<Arc<DummyPowEngine>>) -> RpcServer {
     RpcServer { config }
-}
-
-pub fn rpc(matches: &ArgMatches) {
-    let uri = value_t!(matches.value_of("uri"), ckb_test_harness::rpc::Uri)
-        .unwrap_or_else(|_| "http://localhost:3030".parse().unwrap());
-    let method = matches.value_of("method").unwrap_or("get_tip_header");
-    let params = matches.value_of("params").unwrap_or("null");
-
-    let rpc = ckb_test_harness::rpc::Rpc::new(uri);
-
-    let result: Value = rpc
-        .request(method.to_string(), params.to_string())
-        .map(|chunk| {
-            serde_json::from_slice(&chunk).unwrap_or_else(|e| panic!("Deserialize error {:?} ", e))
-        }).wait()
-        .unwrap_or_else(|e| panic!("Request error {:?} ", e));
-
-    println!("{}", result)
 }
 
 pub fn sign(matches: &ArgMatches) {

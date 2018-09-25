@@ -12,4 +12,4 @@ rocksdb = { git = "https://github.com/NervosFoundation/rust-rocksdb" }
 fnv = "1.0.3"
 
 [dev-dependencies]
-tempdir = "0.3"
+tempfile = "3.0"

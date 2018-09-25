@@ -164,11 +164,14 @@ mod tests {
     use super::*;
     use consensus::Consensus;
     use db::diskdb::RocksDB;
-    use tempdir::TempDir;
+    use tempfile;
 
     #[test]
     fn index_store() {
-        let tmp_dir = TempDir::new("index_init").unwrap();
+        let tmp_dir = tempfile::Builder::new()
+            .prefix("index_init")
+            .tempdir()
+            .unwrap();
         let db = RocksDB::open(tmp_dir, COLUMNS);
         let store = ChainKVStore::new(db);
         let consensus = Consensus::default();
