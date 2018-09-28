@@ -3,6 +3,8 @@ use byteorder::{ByteOrder, LittleEndian};
 use core::difficulty::{boundary_to_difficulty, difficulty_to_boundary};
 use core::header::{BlockNumber, Header, RawHeader, Seal};
 use hash::blake2b;
+use rand::{thread_rng, Rng};
+use std::{thread, time};
 
 mod clicker;
 mod cuckoo;
@@ -72,6 +74,10 @@ impl PowEngine for DummyPowEngine {
     }
 
     fn solve_header(&self, _header: &RawHeader, nonce: u64) -> Option<Seal> {
+        // Sleep for some time before returning result to miner
+        let seconds = thread_rng().gen_range(5, 20);
+        let duration = time::Duration::from_secs(seconds);
+        thread::sleep(duration);
         Some(Seal {
             nonce,
             proof: Vec::new(),

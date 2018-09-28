@@ -69,6 +69,7 @@ impl<T: 'static + KeyValueDB> ChainIndex for ChainKVStore<T> {
             self.insert_output_root(batch, genesis_hash, output_root);
             self.insert_block_hash(batch, 0, &genesis_hash);
             self.insert_block_number(batch, &genesis_hash, 0);
+            self.insert_transaction_address(batch, &genesis_hash, &genesis.commit_transactions);
             Ok(())
         }).expect("genesis init");
     }

@@ -38,4 +38,4 @@ max_commit_size = 4096
 [miner]
 max_tx              = 1024
 new_transactions_threshold = 8
-redeem_script_hash  = "0x6463e95f5f1f15415962563b0d4227635d8ae2a74137afbe3e052ef1f9470074"
+redeem_script_hash  = "0x1b1c832d02fdb4339f9868c8a8636c3d9dd10bd53ac7ce99595825bd6beeffb3"

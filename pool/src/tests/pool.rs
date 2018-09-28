@@ -8,7 +8,8 @@ use core::cell::CellProvider;
 use core::header::{Header, RawHeader};
 use core::script::Script;
 use core::transaction::*;
-use hash::sha3_256;
+use std::fs::File;
+use std::io::Read;
 use std::sync::Arc;
 use time::now_ms;
 use txs_pool::pool::*;
@@ -146,7 +147,11 @@ pub fn test_cellbase_spent() {
         vec![CellInput::new_cellbase_input(
             chain.tip_header().read().header.raw.number + 1,
         )],
-        vec![CellOutput::new(50000, Vec::new(), sha3_256(vec![1]).into())],
+        vec![CellOutput::new(
+            50000,
+            Vec::new(),
+            create_valid_script().redeem_script_hash(),
+        )],
     ).into();
     apply_transactions(vec![cellbase_tx.clone()], &chain);
 
@@ -155,7 +160,7 @@ pub fn test_cellbase_spent() {
         Vec::new(),
         vec![CellInput::new(
             OutPoint::new(cellbase_tx.hash(), 0),
-            Script::new(0, Vec::new(), vec![1]),
+            create_valid_script(),
         )],
         vec![CellOutput::new(50000, Vec::new(), H256::default())],
     );
@@ -474,11 +479,12 @@ fn test_setup(
         notify,
     );
 
+    let default_script_hash = create_valid_script().redeem_script_hash();
     let tx: IndexedTransaction = Transaction::new(
         0,
         Vec::new(),
         vec![CellInput::new(OutPoint::null(), Default::default())],
-        vec![CellOutput::new(100_000_000, Vec::new(), H256::default()); 100],
+        vec![CellOutput::new(100_000_000, Vec::new(), default_script_hash.clone()); 100],
     ).into();
     let transactions = vec![tx.clone()];
     apply_transactions(transactions, &chain);
@@ -533,12 +539,23 @@ fn test_transaction_with_capacity(
 ) -> IndexedTransaction {
     let inputs: Vec<CellInput> = input_values
         .iter()
-        .map(|x| CellInput::new(x.clone(), Script::new(1, Vec::new(), Vec::new())))
+        .map(|x| CellInput::new(x.clone(), create_valid_script()))
         .collect();
 
     let mut output = CellOutput::default();
     output.capacity = capacity / output_num as u64;
+    output.lock = create_valid_script().redeem_script_hash();
     let outputs: Vec<CellOutput> = vec![output.clone(); output_num];
 
     Transaction::new(0, Vec::new(), inputs, outputs).into()
+}
+
+// Since the main point here is to test pool functionality, not scripting
+// behavior, we use a dummy script here that always passes in testing
+fn create_valid_script() -> Script {
+    let mut file = File::open("../spec/res/cells/always_success").unwrap();
+    let mut buffer = Vec::new();
+    file.read_to_end(&mut buffer).unwrap();
+
+    Script::new(0, Vec::new(), None, Some(buffer), Vec::new())
 }

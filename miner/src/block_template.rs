@@ -24,6 +24,7 @@ pub struct BlockTemplate {
 pub fn build_block_template<C: ChainProvider + 'static>(
     chain: &Arc<C>,
     tx_pool: &Arc<TransactionPool<C>>,
+    redeem_script_hash: H256,
 ) -> Result<BlockTemplate, Error> {
     let header = chain.tip_header().read().header.clone();
     let now = cmp::max(now_ms(), header.timestamp + 1);
@@ -32,7 +33,8 @@ pub fn build_block_template<C: ChainProvider + 'static>(
     let proposal_transactions = tx_pool.prepare_proposal();
     let include_ids = select_commit_ids(chain, &header);
     let mut commit_transactions = tx_pool.prepare_commit(header.number + 1, &include_ids);
-    let cellbase = create_cellbase_transaction(&chain, &header, &commit_transactions)?;
+    let cellbase =
+        create_cellbase_transaction(&chain, &header, &commit_transactions, redeem_script_hash)?;
     let uncles = chain.get_tip_uncles();
     let cellbase_id = cellbase.hash();
 
@@ -62,6 +64,7 @@ fn create_cellbase_transaction<C: ChainProvider + 'static>(
     chain: &Arc<C>,
     header: &Header,
     transactions: &[IndexedTransaction],
+    redeem_script_hash: H256,
 ) -> Result<IndexedTransaction, Error> {
     // NOTE: To generate different cellbase txid, we put header number in the input script
     let inputs = vec![CellInput::new_cellbase_input(header.raw.number + 1)];
@@ -78,8 +81,7 @@ fn create_cellbase_transaction<C: ChainProvider + 'static>(
     let outputs = vec![CellOutput::new(
         block_reward + fee,
         Vec::new(),
-        // self.config.redeem_script_hash,
-        H256::default(),
+        redeem_script_hash,
     )];
 
     Ok(Transaction::new(VERSION, Vec::new(), inputs, outputs).into())
@@ -121,6 +123,7 @@ fn select_commit_ids<C: ChainProvider>(
 #[cfg(test)]
 pub mod test {
     use super::*;
+    use bigint::H256;
     use chain::chain::ChainBuilder;
     use chain::store::ChainKVStore;
     use chain::DummyPowEngine;
@@ -150,7 +153,7 @@ pub mod test {
             Notify::default(),
         ));
 
-        let block_template = build_block_template(&chain, &tx_pool).unwrap();
+        let block_template = build_block_template(&chain, &tx_pool, H256::from(0)).unwrap();
 
         let BlockTemplate {
             raw_header,

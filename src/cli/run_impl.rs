@@ -14,17 +14,20 @@ use chain::DummyPowEngine;
 use chain::EthashEngine;
 use ckb_notify::Notify;
 use clap::ArgMatches;
-use core::transaction::Transaction;
+use core::script::Script;
+use core::transaction::{CellInput, OutPoint, Transaction};
 use crypto::secp::{Generator, Privkey};
 use db::diskdb::RocksDB;
+use hash::sha3_256;
 use logger;
 use miner::Miner;
 use network::NetworkConfiguration;
 use network::NetworkService;
 use pool::TransactionPool;
 use rpc::{Config as RpcConfig, RpcServer};
-use script::TransactionInputSigner;
+use rustc_hex::ToHex;
 use serde_json;
+use std::io::Write;
 use std::path::Path;
 use std::sync::Arc;
 use std::thread;
@@ -36,7 +39,7 @@ pub fn run(setup: Setup) {
     logger::init(setup.configs.logger.clone()).expect("Init Logger");
     info!(target: "main", "Value for setup: {:?}", setup);
 
-    let consensus = setup.chain_spec.to_consensus();
+    let consensus = setup.chain_spec.to_consensus().unwrap();
     let db_path = setup.dirs.join("db");
     let notify = Notify::new();
 
@@ -145,33 +148,79 @@ fn build_rpc(config: RpcConfig, _pow: Option<Arc<CuckooEngine>>) -> RpcServer {
     RpcServer { config }
 }
 
-#[cfg(feature = "pow_engine_dummy")]
+#[cfg(feature = "pow_engine_ethash")]
 #[cfg_attr(feature = "cargo-clippy", allow(needless_pass_by_value))]
 fn build_rpc(config: RpcConfig, _pow: Option<Arc<EthashEngine>>) -> RpcServer {
     RpcServer { config }
 }
 
-#[cfg(feature = "pow_engine_ethash")]
+#[cfg(feature = "pow_engine_dummy")]
 #[cfg_attr(feature = "cargo-clippy", allow(needless_pass_by_value))]
 fn build_rpc(config: RpcConfig, _pow: Option<Arc<DummyPowEngine>>) -> RpcServer {
     RpcServer { config }
 }
 
-pub fn sign(matches: &ArgMatches) {
+pub fn sign(setup: &Setup, matches: &ArgMatches) {
+    let consensus = setup.chain_spec.to_consensus().unwrap();
+    let system_cell_tx_hash = consensus.genesis_block().commit_transactions[0].hash();
+    let system_cell_outpoint = OutPoint::new(system_cell_tx_hash, 0);
+
     let privkey: Privkey = value_t!(matches.value_of("private-key"), H256)
         .unwrap_or_else(|e| e.exit())
         .into();
+    let pubkey = privkey.pubkey().unwrap();
     let json =
         value_t!(matches.value_of("unsigned-transaction"), String).unwrap_or_else(|e| e.exit());
     let transaction: Transaction = serde_json::from_str(&json).unwrap();
     let mut result = transaction.clone();
+
+    // First, add verify system cell as a dep
+    result.deps.push(system_cell_outpoint);
+    // Then, sign each input
     let mut inputs = Vec::new();
-    let signer: TransactionInputSigner = transaction.into();
-    for index in 0..result.inputs.len() {
-        inputs.push(signer.signed_input(&privkey, index));
+    for unsigned_input in result.inputs {
+        let mut bytes = vec![];
+        for argument in &unsigned_input.unlock.arguments {
+            bytes.write_all(argument.as_bytes()).unwrap();
+        }
+        let hash1 = sha3_256(&bytes);
+        let hash2 = sha3_256(hash1);
+        let signature = privkey.sign_recoverable(&hash2.into()).unwrap();
+
+        let mut new_arguments = vec![signature.serialize_der().to_hex()];
+        new_arguments.extend_from_slice(&unsigned_input.unlock.arguments);
+        let script = Script::new(
+            0,
+            new_arguments,
+            Some(system_cell_outpoint),
+            None,
+            vec![pubkey.serialize().to_hex()],
+        );
+        let signed_input = CellInput::new(unsigned_input.previous_output, script);
+        inputs.push(signed_input);
     }
     result.inputs = inputs;
     println!("{}", serde_json::to_string(&result).unwrap())
+}
+
+pub fn redeem_script_hash(setup: &Setup, matches: &ArgMatches) {
+    let consensus = setup.chain_spec.to_consensus().unwrap();
+    let system_cell_tx_hash = consensus.genesis_block().commit_transactions[0].hash();
+    let system_cell_outpoint = OutPoint::new(system_cell_tx_hash, 0);
+
+    let privkey: Privkey = value_t!(matches.value_of("private-key"), H256)
+        .unwrap_or_else(|e| e.exit())
+        .into();
+    let pubkey = privkey.pubkey().unwrap();
+
+    let script = Script::new(
+        0,
+        Vec::new(),
+        Some(system_cell_outpoint),
+        None,
+        vec![pubkey.serialize().to_hex()],
+    );
+    println!("{}", script.redeem_script_hash().to_hex());
 }
 
 pub fn keygen() {

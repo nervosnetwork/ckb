@@ -47,7 +47,7 @@ impl Export {
         let spec = spec_type.load_spec()?;
 
         let builder = ChainBuilder::<ChainKVStore<CacheDB<RocksDB>>>::new_rocks(&db_path)
-            .consensus(spec.to_consensus());
+            .consensus(spec.to_consensus()?);
         let chain = builder.build().unwrap();
 
         Ok(Export {

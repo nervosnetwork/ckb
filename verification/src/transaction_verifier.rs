@@ -1,7 +1,8 @@
 use core::cell::{CellState, ResolvedTransaction};
 use core::transaction::{Capacity, Transaction};
 use error::TransactionError;
-use script::{SignatureVerifier, TransactionInputSigner, TransactionSignatureVerifier};
+use fnv::FnvHashMap;
+use script::TransactionInputVerifier;
 use std::collections::HashSet;
 
 pub struct TransactionVerifier<'a, S: 'a> {
@@ -10,7 +11,7 @@ pub struct TransactionVerifier<'a, S: 'a> {
     pub capacity: CapacityVerifier<'a, S>,
     pub duplicate_inputs: DuplicateInputsVerifier<'a>,
     pub inputs: InputVerifier<'a, S>,
-    pub script: ScriptVerifier<'a>,
+    pub script: ScriptVerifier<'a, S>,
 }
 
 impl<'a, S: CellState> TransactionVerifier<'a, S> {
@@ -19,7 +20,7 @@ impl<'a, S: CellState> TransactionVerifier<'a, S> {
             null: NullVerifier::new(&rtx.transaction),
             empty: EmptyVerifier::new(&rtx.transaction),
             duplicate_inputs: DuplicateInputsVerifier::new(&rtx.transaction),
-            script: ScriptVerifier::new(&rtx.transaction),
+            script: ScriptVerifier::new(rtx),
             capacity: CapacityVerifier::new(rtx),
             inputs: InputVerifier::new(rtx),
         }
@@ -30,6 +31,7 @@ impl<'a, S: CellState> TransactionVerifier<'a, S> {
         self.null.verify()?;
         self.capacity.verify()?;
         self.duplicate_inputs.verify()?;
+        // InputVerifier should be executed before ScriptVerifier
         self.inputs.verify()?;
         self.script.verify()?;
         Ok(())
@@ -52,6 +54,8 @@ impl<'a, S: CellState> InputVerifier<'a, S> {
         for cs in &self.resolved_transaction.input_cells {
             if cs.is_head() {
                 if let Some(ref input) = cs.head() {
+                    // TODO: remove this once VM mmap is in place so we can
+                    // do P2SH within the VM.
                     if input.lock != inputs.next().unwrap().unlock.redeem_script_hash() {
                         return Err(TransactionError::InvalidScript);
                     }
@@ -74,32 +78,40 @@ impl<'a, S: CellState> InputVerifier<'a, S> {
     }
 }
 
-pub struct ScriptVerifier<'a> {
-    transaction: &'a Transaction,
+pub struct ScriptVerifier<'a, S: 'a> {
+    resolved_transaction: &'a ResolvedTransaction<S>,
 }
 
-impl<'a> ScriptVerifier<'a> {
-    // TODO this verifier should be replaced by VM
-    pub fn new(transaction: &'a Transaction) -> Self {
-        ScriptVerifier { transaction }
+impl<'a, S: CellState> ScriptVerifier<'a, S> {
+    pub fn new(resolved_transaction: &'a ResolvedTransaction<S>) -> Self {
+        ScriptVerifier {
+            resolved_transaction,
+        }
     }
 
     pub fn verify(&self) -> Result<(), TransactionError> {
-        let signer: TransactionInputSigner = self.transaction.clone().into();
-
-        let mut verifier = TransactionSignatureVerifier {
-            signer,
-            input_index: 0,
-        };
-
-        for (index, input) in self.transaction.inputs.iter().enumerate() {
-            if !input.unlock.arguments.is_empty() {
-                let signature = input.unlock.arguments[0].clone().into();
-                verifier.input_index = index;
-                if !verifier.verify(&signature) {
-                    return Err(TransactionError::InvalidSignature);
-                }
-            }
+        let mut dep_cells = FnvHashMap::default();
+        // InputVerifier already verifies that all dep cells are valid
+        let dep_cell_outputs = self
+            .resolved_transaction
+            .dep_cells
+            .iter()
+            .map(|cell| cell.head().unwrap());
+        let dep_outpoints = self.resolved_transaction.transaction.deps.iter();
+        for (outpoint, cell_output) in dep_outpoints.zip(dep_cell_outputs) {
+            dep_cells.insert(outpoint, cell_output);
+        }
+        let inputs = self
+            .resolved_transaction
+            .transaction
+            .inputs
+            .iter()
+            .collect();
+        let verifier = TransactionInputVerifier { dep_cells, inputs };
+        for index in 0..self.resolved_transaction.transaction.inputs.len() {
+            verifier
+                .verify(index)
+                .map_err(TransactionError::ScriptFailure)?;
         }
 
         Ok(())

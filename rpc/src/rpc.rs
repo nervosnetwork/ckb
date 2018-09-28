@@ -99,7 +99,7 @@ impl<C: ChainProvider + 'static> Rpc for RpcImpl<C> {
     }
 
     fn get_block_template(&self) -> Result<BlockTemplate> {
-        Ok(build_block_template(&self.chain, &self.tx_pool).unwrap())
+        Ok(build_block_template(&self.chain, &self.tx_pool, H256::from(0)).unwrap())
     }
 }
 

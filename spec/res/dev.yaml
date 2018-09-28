@@ -13,3 +13,9 @@ genesis:
     uncles_hash: "0x0000000000000000000000000000000000000000000000000000000000000000"
 params:
     initial_block_reward: 50000
+system_cells:
+    # When loading dev.yaml, we will modify the path here to simplify loading,
+    # but if you are copying this file elsewhere, you will need to provide full
+    # path or relative path to where ckb is executing.
+    - path: "verify"
+    - path: "always_success"

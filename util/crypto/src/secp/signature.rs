@@ -119,6 +119,14 @@ impl Signature {
     pub fn serialize(&self) -> Vec<u8> {
         Vec::from(&self.0[..])
     }
+
+    pub fn serialize_der(&self) -> Vec<u8> {
+        let context = &SECP256K1;
+        self.to_recoverable()
+            .unwrap()
+            .to_standard(context)
+            .serialize_der(context)
+    }
 }
 
 impl fmt::Debug for Signature {

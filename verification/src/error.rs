@@ -1,6 +1,7 @@
 use bigint::{H256, U256};
 use chain::error::Error as ChainError;
 use core::BlockNumber;
+use script::Error as ScriptError;
 
 /// Block verification error
 #[derive(Debug, PartialEq, Clone, Eq)]
@@ -108,6 +109,7 @@ pub enum TransactionError {
     Empty,
     InvalidCapacity,
     InvalidScript,
+    ScriptFailure(ScriptError),
     InvalidSignature,
     DoubleSpent,
     UnknownInput,

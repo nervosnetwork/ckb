@@ -1,7 +1,7 @@
 use bigint::{H256, U256};
 use core::block::IndexedBlock;
 use core::header::{Header, RawHeader, Seal};
-use core::transaction::Capacity;
+use core::transaction::{Capacity, IndexedTransaction};
 use core::BlockNumber;
 
 pub const DEFAULT_BLOCK_REWARD: Capacity = 5_000;
@@ -99,6 +99,7 @@ pub struct GenesisBuilder {
     seal: Seal,
     uncles_hash: H256,
     cellbase_id: H256,
+    commit_transactions: Vec<IndexedTransaction>,
 }
 
 impl GenesisBuilder {
@@ -151,6 +152,11 @@ impl GenesisBuilder {
         self
     }
 
+    pub fn add_commit_transaction(mut self, transaction: IndexedTransaction) -> Self {
+        self.commit_transactions.push(transaction);
+        self
+    }
+
     // verify?
     pub fn build(self) -> IndexedBlock {
         let header = Header {
@@ -171,7 +177,7 @@ impl GenesisBuilder {
         IndexedBlock {
             header: header.into(),
             uncles: vec![],
-            commit_transactions: vec![],
+            commit_transactions: self.commit_transactions,
             proposal_transactions: vec![],
         }
     }

@@ -934,7 +934,7 @@ mod tests {
 
         assert_eq!(
             iter.next(),
-            Some(Event::NewTip(Arc::new(fetched_blocks[6].clone())))
+            Some(Event::NewTip(Arc::new(fetched_blocks[7].clone())))
         );
     }
 }

@@ -63,7 +63,13 @@ impl CellInput {
     pub fn new_cellbase_input(block_number: BlockNumber) -> Self {
         CellInput {
             previous_output: OutPoint::null(),
-            unlock: Script::new(0, Vec::new(), u64_to_bytes(block_number.to_le()).to_vec()),
+            unlock: Script::new(
+                0,
+                Vec::new(),
+                None,
+                Some(u64_to_bytes(block_number.to_le()).to_vec()),
+                Vec::new(),
+            ),
         }
     }
 }

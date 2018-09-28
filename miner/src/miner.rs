@@ -69,7 +69,7 @@ where
     }
 
     fn commit_new_block(&mut self) {
-        match build_block_template(&self.chain, &self.tx_pool) {
+        match build_block_template(&self.chain, &self.tx_pool, self.config.redeem_script_hash) {
             Ok(block_template) => {
                 self.mining_number = block_template.raw_header.number;
                 if let Some((block, propasal)) = self.mine(block_template) {

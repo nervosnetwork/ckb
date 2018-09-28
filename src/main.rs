@@ -16,13 +16,14 @@ extern crate ckb_pool as pool;
 extern crate ckb_rpc as rpc;
 extern crate ckb_sync as sync;
 extern crate ckb_util as util;
+extern crate hash;
 extern crate logger;
 #[macro_use]
 extern crate serde_derive;
 extern crate ckb_instrument;
-extern crate ckb_script as script;
 extern crate config as config_tool;
 extern crate crypto;
+extern crate rustc_hex;
 extern crate serde_json;
 #[cfg(test)]
 extern crate tempfile;
@@ -44,7 +45,14 @@ fn main() {
 
     match matches.subcommand() {
         ("cli", Some(client_matches)) => match client_matches.subcommand() {
-            ("sign", Some(sign_matches)) => cli::sign(sign_matches),
+            ("sign", Some(sign_matches)) => match Setup::new(&sign_matches) {
+                Ok(setup) => cli::sign(&setup, sign_matches),
+                Err(e) => println!("Failed to setup, cause err {}", e.description()),
+            },
+            ("redeem_script_hash", Some(matches)) => match Setup::new(&matches) {
+                Ok(setup) => cli::redeem_script_hash(&setup, matches),
+                Err(e) => println!("Failed to setup, cause err {}", e.description()),
+            },
             ("keygen", _) => cli::keygen(),
             _ => println!("Invalid client subcommand"),
         },

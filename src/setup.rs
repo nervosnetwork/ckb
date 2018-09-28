@@ -115,6 +115,7 @@ pub mod test {
         params:
             initial_block_reward: 233
             min_difficulty: "0x233"
+        system_cells: []
         "#
     }
 

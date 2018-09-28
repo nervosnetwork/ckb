@@ -811,8 +811,10 @@ pub mod test {
         let mut root_hash = tx.hash();
 
         let genesis_builder = GenesisBuilder::default();
-        let mut genesis_block = genesis_builder.difficulty(U256::from(1000)).build();
-        genesis_block.commit_transactions.push(tx);
+        let genesis_block = genesis_builder
+            .difficulty(U256::from(1000))
+            .add_commit_transaction(tx)
+            .build();
 
         let consensus = Consensus::default().set_genesis_block(genesis_block);
         let chain = ChainBuilder::<ChainKVStore<MemoryKeyValueDB>>::new_memory()
@@ -837,6 +839,33 @@ pub mod test {
         for block in &blocks1[0..10] {
             assert!(chain.process_block(&block).is_ok());
         }
+    }
+
+    #[test]
+    fn test_genesis_transaction_fetch() {
+        let tx: IndexedTransaction = Transaction::new(
+            0,
+            vec![],
+            vec![CellInput::new(OutPoint::null(), Default::default())],
+            vec![CellOutput::new(100_000_000, vec![], H256::default()); 100],
+        ).into();
+        let root_hash = tx.hash();
+
+        let genesis_builder = GenesisBuilder::default();
+        let genesis_block = genesis_builder
+            .difficulty(U256::from(1000))
+            .add_commit_transaction(tx)
+            .build();
+
+        let consensus = Consensus::default().set_genesis_block(genesis_block);
+        let chain = ChainBuilder::<ChainKVStore<MemoryKeyValueDB>>::new_memory()
+            .consensus(consensus)
+            .build()
+            .unwrap();
+
+        let outpoint = OutPoint::new(root_hash, 0);
+        let state = chain.cell(&outpoint);
+        assert!(state.is_head());
     }
 
     #[test]

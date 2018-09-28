@@ -2,7 +2,7 @@ use super::error::Error;
 use super::secp256k1::key;
 use super::secp256k1::Message as SecpMessage;
 use super::signature::Signature;
-use super::{Message, SECP256K1};
+use super::{Message, Pubkey, SECP256K1};
 use bigint::H256;
 use std::str::FromStr;
 use std::{fmt, ops};
@@ -32,6 +32,13 @@ impl Privkey {
         let message = SecpMessage::from_slice(message)?;
         let data = context.sign_schnorr(&message, &privkey)?;
         Ok(Signature::from_schnorr(data))
+    }
+
+    pub fn pubkey(&self) -> Result<Pubkey, Error> {
+        let context = &SECP256K1;
+        let privkey = key::SecretKey::from_slice(context, &self.inner)?;
+        let pubkey = key::PublicKey::from_secret_key(context, &privkey)?;
+        Ok(Pubkey::from(pubkey))
     }
 
     pub fn from_slice(key: &[u8]) -> Self {

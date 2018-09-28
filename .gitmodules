@@ -1,0 +1,3 @@
+[submodule "vm"]
+	path = vm
+	url = git@github.com:NervosFoundation/ckb-vm.git

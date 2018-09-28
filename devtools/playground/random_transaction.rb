@@ -1,24 +1,26 @@
 #!/usr/bin/env ruby
 require 'json'
+require 'net/http'
+require 'uri'
 
-URI      = ARGV[0] || "http://localhost:3030"
+URL      = ARGV[0] || "http://localhost:3030"
 CKB_BIN  = ARGV[1] || "./target/debug/ckb"
 ACCOUNTS = [
     {
         name: "miner",
-        redeem_script_hash: "6463e95f5f1f15415962563b0d4227635d8ae2a74137afbe3e052ef1f9470074",
+        redeem_script_hash: "1b1c832d02fdb4339f9868c8a8636c3d9dd10bd53ac7ce99595825bd6beeffb3",
         private_key: "e79f3207ea4980b7fed79956d5934249ceac4751a4fae01a0f7c4a96884bc4e3",
         utxo: []
     },
     {
         name: "alice",
-        redeem_script_hash: "a7dcef9aef26202fce82a7c7d6672afb3a149db207d90a07e437d5abc7fc99ed",
+        redeem_script_hash: "05b86bedcddf5e4b2e1014b5e6feb522f6bda61bc1d355ce8980d4b839fdf408",
         private_key: "76e853efa8245389e33f6fe49dcbd359eb56be2f6c3594e12521d2a806d32156",
         utxo: []
     },
     {
         name: "bob",
-        redeem_script_hash: "b5d577dc9ce59725e29886632e69ecdf3b6ca49c0a14f4315a2404fc1508672d",
+        redeem_script_hash: "5a2bcc83e84b0ffa4738c245ec24e6130e541ee9dba4a12cc74ab1136f6fff2b",
         private_key: "9f7fd78dffeda83b77c5c2d7eeaccb05120457787defdbb46da6d2186bf28f13",
         utxo: []
     }
@@ -68,8 +70,8 @@ def send_transactions
                 },
                 unlock: {
                     version: 0,
-                    arguments: [],
-                    redeem_script: account[:name].bytes
+                    arguments: [account[:name]],
+                    redeem_arguments: []
                 }
             }
         end
@@ -93,8 +95,11 @@ end
 
 def rpc(method, params = "null")
     puts "rpc method: #{method}, params: #{params}"
-    response = `#{CKB_BIN} cli rpc -u #{URI} -m #{method} -p '#{params}'`
-    JSON.parse(response, symbolize_names: true)[:result]
+    response = Net::HTTP.post(
+        URI(URL),
+        "{\"id\": 1, \"jsonrpc\": \"2.0\", \"method\": \"#{method}\", \"params\": #{params}}",
+        "Content-Type" => "application/json")
+    JSON.parse(response.body, symbolize_names: true)[:result]
 end
 
 10.times do
