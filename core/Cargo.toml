@@ -1,6 +1,7 @@
 [package]
 name = "ckb-core"
 version = "0.1.0"
+license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 
 [dependencies]
