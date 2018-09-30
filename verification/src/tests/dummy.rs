@@ -3,7 +3,7 @@ use chain::chain::{ChainProvider, TipHeader};
 use chain::consensus::Consensus;
 use chain::error::Error;
 use core::block::IndexedBlock;
-use core::cell::{CellProvider, CellState};
+use core::cell::{CellProvider, CellStatus};
 use core::extras::BlockExt;
 use core::header::{BlockNumber, IndexedHeader};
 use core::transaction::{Capacity, IndexedTransaction, OutPoint, ProposalShortId, Transaction};
@@ -112,11 +112,11 @@ impl ChainProvider for DummyChainClient {
 }
 
 impl CellProvider for DummyChainClient {
-    fn cell(&self, _o: &OutPoint) -> CellState {
+    fn cell(&self, _o: &OutPoint) -> CellStatus {
         panic!("Not implemented!");
     }
 
-    fn cell_at(&self, _out_point: &OutPoint, _parent: &H256) -> CellState {
+    fn cell_at(&self, _out_point: &OutPoint, _parent: &H256) -> CellStatus {
         panic!("Not implemented!");
     }
 }

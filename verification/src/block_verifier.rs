@@ -4,7 +4,7 @@ use bigint::{H256, U256};
 use chain::chain::ChainProvider;
 use chain::PowEngine;
 use core::block::IndexedBlock;
-use core::cell::{CellProvider, CellState};
+use core::cell::{CellProvider, CellStatus};
 use core::header::IndexedHeader;
 use core::transaction::{Capacity, CellInput, OutPoint};
 use error::{CellbaseError, CommitError, Error, TransactionError, UnclesError};
@@ -410,27 +410,27 @@ impl<'a, C> CellProvider for TransactionsVerifier<'a, C>
 where
     C: ChainProvider,
 {
-    fn cell(&self, _o: &OutPoint) -> CellState {
+    fn cell(&self, _o: &OutPoint) -> CellStatus {
         unreachable!()
     }
 
-    fn cell_at(&self, o: &OutPoint, parent: &H256) -> CellState {
+    fn cell_at(&self, o: &OutPoint, parent: &H256) -> CellStatus {
         if let Some(i) = self.output_indexs.get(&o.hash) {
             match self.block.commit_transactions[*i]
                 .outputs
                 .get(o.index as usize)
             {
-                Some(x) => CellState::Head(x.clone()),
-                None => CellState::Unknown,
+                Some(x) => CellStatus::Current(x.clone()),
+                None => CellStatus::Unknown,
             }
         } else {
             let chain_cell_state = self.chain.cell_at(o, parent);
-            if chain_cell_state.is_head() {
-                CellState::Head(chain_cell_state.take_head().expect("state checked"))
-            } else if chain_cell_state.is_tail() {
-                CellState::Tail
+            if chain_cell_state.is_current() {
+                CellStatus::Current(chain_cell_state.take_current().expect("state checked"))
+            } else if chain_cell_state.is_old() {
+                CellStatus::Old
             } else {
-                CellState::Unknown
+                CellStatus::Unknown
             }
         }
     }

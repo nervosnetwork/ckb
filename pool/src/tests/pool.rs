@@ -4,7 +4,7 @@ use ckb_chain::store::ChainKVStore;
 use ckb_db::memorydb::MemoryKeyValueDB;
 use ckb_notify::{ForkBlocks, Notify};
 use core::block::{Block, IndexedBlock};
-use core::cell::{CellProvider, CellState};
+use core::cell::{CellProvider, CellStatus};
 use core::header::{Header, RawHeader};
 use core::script::Script;
 use core::transaction::*;
@@ -134,15 +134,19 @@ fn test_add_pool() {
     }
 
     assert_eq!(pool.total_size(), 2);
-    expect_output_parent!(pool, CellState::Head(_), OutPoint::new(child_tx_hash, 0));
     expect_output_parent!(
         pool,
-        CellState::Tail,
+        CellStatus::Current(_),
+        OutPoint::new(child_tx_hash, 0)
+    );
+    expect_output_parent!(
+        pool,
+        CellStatus::Old,
         OutPoint::new(parent_tx_hash, 0),
         OutPoint::new(parent_tx_hash, 1)
     );
-    expect_output_parent!(pool, CellState::Head(_), OutPoint::new(tx_hash, 8));
-    expect_output_parent!(pool, CellState::Unknown, OutPoint::new(tx_hash, 200));
+    expect_output_parent!(pool, CellStatus::Current(_), OutPoint::new(tx_hash, 8));
+    expect_output_parent!(pool, CellStatus::Unknown, OutPoint::new(tx_hash, 200));
 }
 
 #[test]

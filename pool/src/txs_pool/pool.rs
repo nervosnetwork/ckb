@@ -4,7 +4,7 @@ use ckb_chain::chain::ChainProvider;
 use ckb_notify::{Event, ForkBlocks, Notify, TXS_POOL_SUBSCRIBER};
 use ckb_verification::{TransactionError, TransactionVerifier};
 use core::block::IndexedBlock;
-use core::cell::{CellProvider, CellState};
+use core::cell::{CellProvider, CellStatus};
 use core::transaction::{IndexedTransaction, OutPoint, ProposalShortId};
 use core::BlockNumber;
 use crossbeam_channel;
@@ -39,15 +39,15 @@ impl<T> CellProvider for TransactionPool<T>
 where
     T: ChainProvider,
 {
-    fn cell(&self, o: &OutPoint) -> CellState {
+    fn cell(&self, o: &OutPoint) -> CellStatus {
         match { self.pool.read().txo_status(o) } {
-            TxoStatus::Spent => CellState::Tail,
-            TxoStatus::InPool => CellState::Head(self.pool.read().get_output(o).unwrap()),
+            TxoStatus::Spent => CellStatus::Old,
+            TxoStatus::InPool => CellStatus::Current(self.pool.read().get_output(o).unwrap()),
             TxoStatus::Unknown => self.chain.cell(o),
         }
     }
 
-    fn cell_at(&self, _o: &OutPoint, _parent: &H256) -> CellState {
+    fn cell_at(&self, _o: &OutPoint, _parent: &H256) -> CellStatus {
         unreachable!()
     }
 }
@@ -279,10 +279,10 @@ where
 
             for (i, cs) in rtx.input_cells.iter().enumerate() {
                 match cs {
-                    CellState::Unknown => {
+                    CellStatus::Unknown => {
                         unknowns.push(inputs[i]);
                     }
-                    CellState::Tail => {
+                    CellStatus::Old => {
                         self.cache.write().insert(tx.proposal_short_id(), tx);
                         return Err(PoolError::DoubleSpent);
                     }
@@ -292,10 +292,10 @@ where
 
             for (i, cs) in rtx.dep_cells.iter().enumerate() {
                 match cs {
-                    CellState::Unknown => {
+                    CellStatus::Unknown => {
                         unknowns.push(deps[i]);
                     }
-                    CellState::Tail => {
+                    CellStatus::Old => {
                         self.cache.write().insert(tx.proposal_short_id(), tx);
                         return Err(PoolError::DoubleSpent);
                     }

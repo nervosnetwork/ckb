@@ -4,7 +4,7 @@ use cachedb::CacheDB;
 use ckb_notify::{ForkBlocks, Notify};
 use consensus::Consensus;
 use core::block::IndexedBlock;
-use core::cell::{CellProvider, CellState};
+use core::cell::{CellProvider, CellStatus};
 use core::extras::BlockExt;
 use core::header::{BlockNumber, IndexedHeader};
 use core::transaction::{Capacity, IndexedTransaction, OutPoint, ProposalShortId, Transaction};
@@ -106,7 +106,7 @@ pub trait ChainProvider: Sync + Send + CellProvider {
 }
 
 impl<'a, CS: ChainIndex> CellProvider for Chain<CS> {
-    fn cell(&self, out_point: &OutPoint) -> CellState {
+    fn cell(&self, out_point: &OutPoint) -> CellStatus {
         let index = out_point.index as usize;
         if let Some(meta) = self.get_transaction_meta(&out_point.hash) {
             if index < meta.len() {
@@ -115,19 +115,19 @@ impl<'a, CS: ChainIndex> CellProvider for Chain<CS> {
                         .store
                         .get_transaction(&out_point.hash)
                         .expect("transaction must exist");
-                    CellState::Head(transaction.outputs.swap_remove(index))
+                    CellStatus::Current(transaction.outputs.swap_remove(index))
                 } else {
-                    CellState::Tail
+                    CellStatus::Old
                 }
             } else {
-                CellState::Unknown
+                CellStatus::Unknown
             }
         } else {
-            CellState::Unknown
+            CellStatus::Unknown
         }
     }
 
-    fn cell_at(&self, out_point: &OutPoint, parent: &H256) -> CellState {
+    fn cell_at(&self, out_point: &OutPoint, parent: &H256) -> CellStatus {
         let index = out_point.index as usize;
         if let Some(meta) = self.get_transaction_meta_at(&out_point.hash, parent) {
             if index < meta.len() {
@@ -136,15 +136,15 @@ impl<'a, CS: ChainIndex> CellProvider for Chain<CS> {
                         .store
                         .get_transaction(&out_point.hash)
                         .expect("transaction must exist");
-                    CellState::Head(transaction.outputs.swap_remove(index))
+                    CellStatus::Current(transaction.outputs.swap_remove(index))
                 } else {
-                    CellState::Tail
+                    CellStatus::Old
                 }
             } else {
-                CellState::Unknown
+                CellStatus::Unknown
             }
         } else {
-            CellState::Unknown
+            CellStatus::Unknown
         }
     }
 }
@@ -895,7 +895,7 @@ pub mod test {
 
         let outpoint = OutPoint::new(root_hash, 0);
         let state = chain.cell(&outpoint);
-        assert!(state.is_head());
+        assert!(state.is_current());
     }
 
     #[test]

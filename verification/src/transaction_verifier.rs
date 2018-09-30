@@ -52,15 +52,13 @@ impl<'a> InputVerifier<'a> {
     pub fn verify(&self) -> Result<(), TransactionError> {
         let mut inputs = self.resolved_transaction.transaction.inputs.iter();
         for cs in &self.resolved_transaction.input_cells {
-            if cs.is_head() {
-                if let Some(ref input) = cs.head() {
-                    // TODO: remove this once VM mmap is in place so we can
-                    // do P2SH within the VM.
+            if cs.is_current() {
+                if let Some(ref input) = cs.get_current() {
                     if input.lock != inputs.next().unwrap().unlock.redeem_script_hash() {
                         return Err(TransactionError::InvalidScript);
                     }
                 }
-            } else if cs.is_tail() {
+            } else if cs.is_old() {
                 return Err(TransactionError::DoubleSpent);
             } else if cs.is_unknown() {
                 return Err(TransactionError::UnknownInput);
@@ -68,7 +66,7 @@ impl<'a> InputVerifier<'a> {
         }
 
         for cs in &self.resolved_transaction.dep_cells {
-            if cs.is_tail() {
+            if cs.is_old() {
                 return Err(TransactionError::DoubleSpent);
             } else if cs.is_unknown() {
                 return Err(TransactionError::UnknownInput);
@@ -196,7 +194,7 @@ impl<'a> CapacityVerifier<'a> {
             .resolved_transaction
             .input_cells
             .iter()
-            .filter_map(|state| state.head())
+            .filter_map(|state| state.get_current())
             .fold(0, |acc, output| acc + output.capacity);
 
         let outputs_total = self
