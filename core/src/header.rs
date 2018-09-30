@@ -19,7 +19,7 @@ pub struct Seal {
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug, Default)]
 pub struct RawHeader {
     pub version: u32,
-    //// Parent hash.
+    /// Parent hash.
     pub parent_hash: H256,
     /// Block timestamp(ms).
     pub timestamp: u64,
@@ -27,7 +27,7 @@ pub struct RawHeader {
     pub number: BlockNumber,
     /// Transactions merkle root.
     pub txs_commit: H256,
-    // /// Transactions proposal merkle root.
+    /// Transactions proposal merkle root.
     pub txs_proposal: H256,
     /// Block difficulty.
     pub difficulty: U256,

@@ -1,4 +1,4 @@
-use super::header_verifier::{HeaderResolver, HeaderVerifier};
+use super::header_verifier::HeaderResolver;
 use super::{TransactionVerifier, Verifier};
 use bigint::{H256, U256};
 use chain::chain::{ChainCellState, ChainProvider};
@@ -276,10 +276,9 @@ where
     // -  depth
     // -  uncle cellbase_id
     // -  uncle not in main chain
-    // -  uncle parent
     // -  uncle duplicate
-    // -  header verifier
     pub fn verify(&self) -> Result<(), Error> {
+        // verify uncles_hash
         let actual_uncles_hash = self.block.cal_uncles_hash();
         if actual_uncles_hash != self.block.header.uncles_hash {
             return Err(Error::Uncles(UnclesError::InvalidHash {
@@ -287,11 +286,12 @@ where
                 actual: actual_uncles_hash,
             }));
         }
-
+        // if block.uncles is empty, return
         if self.block.uncles().is_empty() {
             return Ok(());
         }
 
+        // verify uncles lenght =< max_uncles_len
         let uncles_len = self.block.uncles().len();
         let max_uncles_len = self.chain.consensus().max_uncles_len();
         if uncles_len > max_uncles_len {
@@ -301,6 +301,7 @@ where
             }));
         }
 
+        // verify uncles age
         let max_uncles_age = self.chain.consensus().max_uncles_age();
         for uncle in self.block.uncles() {
             let depth = self.block.number().saturating_sub(uncle.number());
@@ -323,6 +324,8 @@ where
         // cB.p^5   -----------/  6
         // cB.p^6   -------------/
         // cB.p^7
+        // verify uncles is not included in main chain
+        // TODO: cache context
         let mut excluded = FnvHashSet::default();
         let mut included = FnvHashSet::default();
         excluded.insert(self.block.hash());
@@ -341,7 +344,21 @@ where
             }
         }
 
+        let block_difficulty_epoch =
+            self.block.number() / self.chain.consensus().difficulty_adjustment_interval();
+
         for uncle in self.block.uncles() {
+            let uncle_difficulty_epoch =
+                uncle.number() / self.chain.consensus().difficulty_adjustment_interval();
+
+            if uncle.header.difficulty != self.block.header.difficulty {
+                return Err(Error::Uncles(UnclesError::InvalidDifficulty));
+            }
+
+            if block_difficulty_epoch != uncle_difficulty_epoch {
+                return Err(Error::Uncles(UnclesError::InvalidDifficultyEpoch));
+            }
+
             if uncle.header.cellbase_id != uncle.cellbase.hash() {
                 return Err(Error::Uncles(UnclesError::InvalidCellbase));
             }
@@ -357,9 +374,24 @@ where
                 return Err(Error::Uncles(UnclesError::InvalidInclude(uncle_hash)));
             }
 
-            let resolver = HeaderResolverWrapper::new(&uncle_header, &self.chain);
+            let proposals = uncle
+                .proposal_transactions
+                .iter()
+                .map(|id| id.hash())
+                .collect::<Vec<_>>();
 
-            HeaderVerifier::new(resolver, &self.pow).verify()?;
+            if uncle_header.txs_proposal != merkle_root(&proposals[..]) {
+                return Err(Error::Uncles(UnclesError::ProposalTransactionsRoot));
+            }
+
+            let mut seen = HashSet::with_capacity(uncle.proposal_transactions.len());
+            if !uncle.proposal_transactions.iter().all(|id| seen.insert(id)) {
+                return Err(Error::Uncles(UnclesError::ProposalTransactionDuplicate));
+            }
+
+            if !self.pow.verify_header(&uncle_header) {
+                return Err(Error::Uncles(UnclesError::InvalidProof));
+            }
 
             included.insert(uncle_hash);
         }

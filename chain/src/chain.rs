@@ -506,9 +506,10 @@ impl<CS: ChainIndex> ChainProvider for Chain<CS> {
         }
     }
 
+    // TODO: Move to uncle provider
     fn get_tip_uncles(&self) -> Vec<UncleBlock> {
         let max_uncles_age = self.consensus().max_uncles_age();
-        let header = self.tip_header().read().header.clone();
+        let header = &self.tip_header().read().header;
         let mut excluded = FnvHashSet::default();
 
         // cB
@@ -535,6 +536,9 @@ impl<CS: ChainIndex> ChainProvider for Chain<CS> {
             }
         }
 
+        let tip_difficulty_epoch =
+            header.raw.number / self.consensus().difficulty_adjustment_interval();
+
         let max_uncles_len = self.consensus().max_uncles_len();
         let mut included = FnvHashSet::default();
         let mut uncles = Vec::with_capacity(max_uncles_len);
@@ -544,6 +548,17 @@ impl<CS: ChainIndex> ChainProvider for Chain<CS> {
         for (hash, block) in r_candidate_uncle.iter() {
             if uncles.len() == max_uncles_len {
                 break;
+            }
+
+            let block_difficulty_epoch =
+                block.number() / self.consensus().difficulty_adjustment_interval();
+
+            // uncle must be same difficulty epoch with tip
+            if !block.header.difficulty == header.difficulty
+                || !block_difficulty_epoch == tip_difficulty_epoch
+            {
+                bad_uncles.push(*hash);
+                continue;
             }
 
             let depth = current_number.saturating_sub(block.number());
