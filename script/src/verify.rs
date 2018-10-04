@@ -30,7 +30,7 @@ impl<'a> TransactionInputVerifier<'a> {
             let mut args = vec![b"verify".to_vec()];
             args.extend_from_slice(&input.unlock.redeem_arguments.as_slice());
             args.extend_from_slice(&input.unlock.arguments.as_slice());
-            run(script, &args.to_vec())
+            run(script, &args)
                 .map_err(|_| Error::VMError)
                 .and_then(|code| {
                     if code == 0 {
@@ -220,7 +220,7 @@ mod tests {
             arguments,
             Some(dep_outpoint),
             None,
-            vec![privkey.pubkey().unwrap().serialize()],
+            vec![privkey.pubkey().unwrap().serialize().to_hex().into_bytes()],
         );
         let input = CellInput::new(OutPoint::null(), script);
         let inputs = vec![&input];

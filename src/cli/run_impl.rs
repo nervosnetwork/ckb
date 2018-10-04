@@ -25,6 +25,7 @@ use network::NetworkConfiguration;
 use network::NetworkService;
 use pool::TransactionPool;
 use rpc::{Config as RpcConfig, RpcServer};
+use rustc_hex::ToHex;
 use serde_json;
 use std::io::Write;
 use std::path::Path;
@@ -179,20 +180,20 @@ pub fn sign(setup: &Setup, matches: &ArgMatches) {
         let hash2 = sha3_256(hash1);
         let signature = privkey.sign_recoverable(&hash2.into()).unwrap();
 
-        let mut new_arguments = vec![signature.serialize_der()];
+        let mut new_arguments = vec![signature.serialize_der().to_hex().into_bytes()];
         new_arguments.extend_from_slice(&unsigned_input.unlock.arguments);
         let script = Script::new(
             0,
             new_arguments,
             Some(system_cell_outpoint),
             None,
-            vec![pubkey.serialize()],
+            vec![pubkey.serialize().to_hex().into_bytes()],
         );
         let signed_input = CellInput::new(unsigned_input.previous_output, script);
         inputs.push(signed_input);
     }
     result.inputs = inputs;
-    println!("{}", serde_json::to_string(&result).unwrap())
+    println!("{}", serde_json::to_string(&result).unwrap());
 }
 
 pub fn redeem_script_hash(setup: &Setup, matches: &ArgMatches) {
@@ -210,9 +211,9 @@ pub fn redeem_script_hash(setup: &Setup, matches: &ArgMatches) {
         Vec::new(),
         Some(system_cell_outpoint),
         None,
-        vec![pubkey.serialize()],
+        vec![pubkey.serialize().to_hex().into_bytes()],
     );
-    println!("{}", script.redeem_script_hash());
+    println!("{}", script.redeem_script_hash().to_hex());
 }
 
 pub fn keygen() {

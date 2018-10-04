@@ -70,7 +70,7 @@ def send_transactions
                 },
                 unlock: {
                     version: 0,
-                    arguments: [account[:name]],
+                    arguments: [account[:name].bytes.to_a],
                     redeem_arguments: []
                 }
             }

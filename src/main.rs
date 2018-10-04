@@ -23,6 +23,7 @@ extern crate serde_derive;
 extern crate ckb_instrument;
 extern crate config as config_tool;
 extern crate crypto;
+extern crate rustc_hex;
 extern crate serde_json;
 #[cfg(test)]
 extern crate tempfile;
