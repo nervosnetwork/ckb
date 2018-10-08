@@ -8,10 +8,7 @@
 //!   export from `Export`.
 
 extern crate ckb_chain;
-extern crate ckb_chain_spec;
 extern crate ckb_core;
-extern crate ckb_db;
-extern crate dir;
 #[cfg(feature = "progress_bar")]
 extern crate indicatif;
 extern crate serde_json;

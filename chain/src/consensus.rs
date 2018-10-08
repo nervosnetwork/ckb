@@ -17,6 +17,7 @@ pub const POW_SPACING: u64 = 15 * 1000; //15s
 
 #[derive(Clone, PartialEq, Debug)]
 pub struct Consensus {
+    pub id: String,
     pub genesis_block: IndexedBlock,
     pub initial_block_reward: Capacity,
     pub max_uncles_age: usize,
@@ -36,6 +37,7 @@ impl Default for Consensus {
 
         Consensus {
             genesis_block,
+            id: "main".to_owned(),
             max_uncles_age: MAX_UNCLE_AGE,
             max_uncles_len: MAX_UNCLE_LEN,
             initial_block_reward: DEFAULT_BLOCK_REWARD,
@@ -49,6 +51,11 @@ impl Default for Consensus {
 }
 
 impl Consensus {
+    pub fn set_id(mut self, id: String) -> Self {
+        self.id = id;
+        self
+    }
+
     pub fn set_genesis_block(mut self, genesis_block: IndexedBlock) -> Self {
         self.genesis_block = genesis_block;
         self

@@ -116,6 +116,7 @@ impl ChainSpec {
             .build();
 
         let consensus = Consensus::default()
+            .set_id(self.name.clone())
             .set_genesis_block(genesis_block)
             .set_initial_block_reward(self.params.initial_block_reward);
 
