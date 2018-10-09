@@ -2,7 +2,7 @@ test:
 	RUSTFLAGS="--cfg ckb_test" cargo test --all -- --nocapture
 
 build-integration-test:
-	cargo build --release --features integration_test --no-default-features
+	RUSTFLAGS="--cfg ckb_test" cargo build --all --features integration_test --no-default-features
 
 build:
 	cargo build --release
@@ -13,10 +13,10 @@ fmt:
 clippy:
 	cargo clippy --all -- -D warnings -D clone_on_ref_ptr -D unused_extern_crates -D enum_glob_use
 
-ci: fmt clippy test
+ci: fmt clippy test build-integration-test
 	git diff --exit-code Cargo.lock
 
-ci-quick: test
+ci-quick: test build-integration-test
 	git diff --exit-code Cargo.lock
 
 proto:

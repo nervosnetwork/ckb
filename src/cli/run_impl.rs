@@ -103,7 +103,6 @@ pub fn run(setup: Setup) {
 
     info!(target: "main", "Finishing work, please wait...");
 
-    // network.flush();
     logger::flush();
 }
 
