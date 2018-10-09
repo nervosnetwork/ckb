@@ -26,7 +26,7 @@ where
     }
 
     pub fn execute(self) {
-        let hash = H256::from_slice(self.message.hash().unwrap());
+        let hash = H256::from_slice(self.message.hash().and_then(|b| b.seq()).unwrap());
         if let Some(compact_block) = self
             .relayer
             .state

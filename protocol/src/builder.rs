@@ -6,8 +6,8 @@ use ckb_core::transaction::{CellInput, CellOutput, OutPoint, ProposalShortId, Tr
 use ckb_core::uncle::UncleBlock;
 use flatbuffers::{FlatBufferBuilder, WIPOffset};
 use protocol_generated::ckb::protocol::{
-    Block as FbsBlock, BlockBuilder, BlockProposalBuilder, BlockTransactionsBuilder,
-    Bytes as FbsBytes, BytesBuilder, CellInput as FbsCellInput, CellInputBuilder,
+    Argument as FbsArgument, ArgumentBuilder, Block as FbsBlock, BlockBuilder,
+    BlockProposalBuilder, BlockTransactionsBuilder, CellInput as FbsCellInput, CellInputBuilder,
     CellOutput as FbsCellOutput, CellOutputBuilder, CompactBlock, CompactBlockBuilder,
     GetBlockProposalBuilder, GetBlockTransactionsBuilder, GetBlocks as FbsGetBlocks,
     GetBlocksBuilder, GetHeaders as FbsGetHeaders, GetHeadersBuilder, Header as FbsHeader,
@@ -21,27 +21,18 @@ use rand::{thread_rng, Rng};
 use std::collections::HashSet;
 use {short_transaction_id, short_transaction_id_keys};
 
-impl<'a> FbsBytes<'a> {
-    pub fn build<'b>(fbb: &mut FlatBufferBuilder<'b>, seq: &[u8]) -> WIPOffset<FbsBytes<'b>> {
-        let seq = fbb.create_vector(seq);
-        let mut builder = BytesBuilder::new(fbb);
-        builder.add_seq(seq);
-        builder.finish()
-    }
-}
-
 impl<'a> FbsHeader<'a> {
     pub fn build<'b>(
         fbb: &mut FlatBufferBuilder<'b>,
         header: &IndexedHeader,
     ) -> WIPOffset<FbsHeader<'b>> {
-        let parent_hash = FbsBytes::build(fbb, &header.parent_hash);
-        let txs_commit = FbsBytes::build(fbb, &header.txs_commit);
-        let txs_proposal = FbsBytes::build(fbb, &header.txs_proposal);
-        let difficulty = FbsBytes::build(fbb, &<[u8; 32]>::from(header.difficulty));
-        let proof = FbsBytes::build(fbb, &header.seal.proof);
-        let cellbase_id = FbsBytes::build(fbb, &header.cellbase_id);
-        let uncles_hash = FbsBytes::build(fbb, &header.uncles_hash);
+        let parent_hash = fbb.create_vector(&header.parent_hash);
+        let txs_commit = fbb.create_vector(&header.txs_commit);
+        let txs_proposal = fbb.create_vector(&header.txs_proposal);
+        let difficulty = fbb.create_vector(&<[u8; 32]>::from(header.difficulty));
+        let proof = fbb.create_vector(&header.seal.proof);
+        let cellbase_id = fbb.create_vector(&header.cellbase_id);
+        let uncles_hash = fbb.create_vector(&header.uncles_hash);
         let mut builder = HeaderBuilder::new(fbb);
         builder.add_version(header.version);
         builder.add_parent_hash(parent_hash);
@@ -98,7 +89,7 @@ impl<'a> FbsOutPoint<'a> {
         fbb: &mut FlatBufferBuilder<'b>,
         out_point: &OutPoint,
     ) -> WIPOffset<FbsOutPoint<'b>> {
-        let hash = FbsBytes::build(fbb, &out_point.hash);
+        let hash = fbb.create_vector(&out_point.hash);
         let mut builder = OutPointBuilder::new(fbb);
         builder.add_hash(hash);
         builder.add_index(out_point.index);
@@ -111,11 +102,12 @@ impl<'a> FbsCellInput<'a> {
         fbb: &mut FlatBufferBuilder<'b>,
         cell_input: &CellInput,
     ) -> WIPOffset<FbsCellInput<'b>> {
-        let hash = FbsBytes::build(fbb, &cell_input.previous_output.hash);
+        let hash = fbb.create_vector(&cell_input.previous_output.hash);
         let unlock = FbsScript::build(fbb, &cell_input.unlock);
 
         let mut builder = CellInputBuilder::new(fbb);
         builder.add_hash(hash);
+        builder.add_index(cell_input.previous_output.index);
         builder.add_unlock(unlock);
         builder.finish()
     }
@@ -126,24 +118,24 @@ impl<'a> FbsScript<'a> {
         let vec = script
             .arguments
             .iter()
-            .map(|argument| FbsBytes::build(fbb, argument))
+            .map(|argument| FbsArgument::build(fbb, argument))
             .collect::<Vec<_>>();
         let arguments = fbb.create_vector(&vec);
 
+        // TODO how to avoid clone here?
         let redeem_script = script
             .redeem_script
-            .as_ref()
-            .map(|s| FbsBytes::build(fbb, s));
+            .clone()
+            .map(|ref s| fbb.create_vector(s));
 
         let redeem_reference = script
             .redeem_reference
-            .as_ref()
-            .map(|out_point| FbsOutPoint::build(fbb, out_point));
+            .map(|ref out_point| FbsOutPoint::build(fbb, out_point));
 
         let vec = script
             .redeem_arguments
             .iter()
-            .map(|argument| FbsBytes::build(fbb, argument))
+            .map(|argument| FbsArgument::build(fbb, argument))
             .collect::<Vec<_>>();
         let redeem_arguments = fbb.create_vector(&vec);
 
@@ -161,13 +153,25 @@ impl<'a> FbsScript<'a> {
     }
 }
 
+impl<'a> FbsArgument<'a> {
+    pub fn build<'b>(
+        fbb: &mut FlatBufferBuilder<'b>,
+        argument: &[u8],
+    ) -> WIPOffset<FbsArgument<'b>> {
+        let value = fbb.create_vector(argument);
+        let mut builder = ArgumentBuilder::new(fbb);
+        builder.add_value(value);
+        builder.finish()
+    }
+}
+
 impl<'a> FbsCellOutput<'a> {
     pub fn build<'b>(
         fbb: &mut FlatBufferBuilder<'b>,
         cell_output: &CellOutput,
     ) -> WIPOffset<FbsCellOutput<'b>> {
-        let data = FbsBytes::build(fbb, &cell_output.data);
-        let lock = FbsBytes::build(fbb, &cell_output.lock);
+        let data = fbb.create_vector(&cell_output.data);
+        let lock = fbb.create_vector(&cell_output.lock);
         let mut builder = CellOutputBuilder::new(fbb);
         builder.add_capacity(cell_output.capacity);
         builder.add_data(data);
@@ -200,7 +204,7 @@ impl<'a> FbsBlock<'a> {
         let vec = block
             .proposal_transactions
             .iter()
-            .map(|id| FbsBytes::build(fbb, &id[..]))
+            .flat_map(|id| id.iter().cloned())
             .collect::<Vec<_>>();
         let proposal_transactions = fbb.create_vector(&vec);
 
@@ -224,7 +228,7 @@ impl<'a> FbsUncleBlock<'a> {
         let vec = uncle_block
             .proposal_transactions
             .iter()
-            .map(|id| FbsBytes::build(fbb, &id[..]))
+            .flat_map(|id| id.iter().cloned())
             .collect::<Vec<_>>();
         let proposal_transactions = fbb.create_vector(&vec);
 
@@ -259,7 +263,7 @@ impl<'a> FbsGetHeaders<'a> {
     ) -> WIPOffset<FbsGetHeaders<'b>> {
         let vec = block_locator_hashes
             .iter()
-            .map(|hash| FbsBytes::build(fbb, &hash))
+            .flat_map(|hash| hash.iter().cloned())
             .collect::<Vec<_>>();
         let block_locator_hashes = fbb.create_vector(&vec);
         let mut builder = GetHeadersBuilder::new(fbb);
@@ -279,7 +283,7 @@ impl<'a> FbsGetBlocks<'a> {
     ) -> WIPOffset<FbsGetBlocks<'b>> {
         let vec = block_hashes
             .iter()
-            .map(|hash| FbsBytes::build(fbb, &hash))
+            .flat_map(|hash| hash.iter().cloned())
             .collect::<Vec<_>>();
         let block_hashes = fbb.create_vector(&vec);
         let mut builder = GetBlocksBuilder::new(fbb);
@@ -343,7 +347,7 @@ impl<'a> CompactBlock<'a> {
         let nonce: u64 = thread_rng().gen();
 
         let prefilled_transactions_len = prefilled_transactions_indexes.len() + 1;
-        let mut short_ids: Vec<_> =
+        let mut short_ids: Vec<u8> =
             Vec::with_capacity(block.commit_transactions.len() - prefilled_transactions_len);
         let mut prefilled_transactions = Vec::with_capacity(prefilled_transactions_len);
 
@@ -358,10 +362,7 @@ impl<'a> CompactBlock<'a> {
                 builder.add_transaction(fbs_transaction);
                 prefilled_transactions.push(builder.finish());
             } else {
-                short_ids.push(FbsBytes::build(
-                    fbb,
-                    &short_transaction_id(key0, key1, &transaction.hash()),
-                ));
+                short_ids.extend(short_transaction_id(key0, key1, &transaction.hash()).iter());
             }
         }
 
@@ -377,7 +378,7 @@ impl<'a> CompactBlock<'a> {
         let vec = block
             .proposal_transactions
             .iter()
-            .map(|id| FbsBytes::build(fbb, &id[..]))
+            .flat_map(|id| id.iter().cloned())
             .collect::<Vec<_>>();
         let proposal_transactions = fbb.create_vector(&vec);
 
@@ -422,7 +423,7 @@ impl<'a> RelayMessage<'a> {
         indexes: &[u32],
     ) -> WIPOffset<RelayMessage<'b>> {
         let get_block_transactions = {
-            let hash = FbsBytes::build(fbb, hash);
+            let hash = fbb.create_vector(hash);
             let indexes = fbb.create_vector(indexes);
             let mut builder = GetBlockTransactionsBuilder::new(fbb);
             builder.add_hash(hash);
@@ -442,7 +443,7 @@ impl<'a> RelayMessage<'a> {
         transactions: &[Transaction],
     ) -> WIPOffset<RelayMessage<'b>> {
         let block_transactions = {
-            let hash = FbsBytes::build(fbb, hash);;
+            let hash = fbb.create_vector(hash);
             let vec = transactions
                 .iter()
                 .map(|transaction| FbsTransaction::build(fbb, transaction))
@@ -469,7 +470,7 @@ impl<'a> RelayMessage<'a> {
         let get_block_proposal = {
             let vec = proposal_transactions
                 .iter()
-                .map(|id| FbsBytes::build(fbb, &id[..]))
+                .flat_map(|id| id.iter().cloned())
                 .collect::<Vec<_>>();
             let proposal_transactions = fbb.create_vector(&vec);
             let mut builder = GetBlockProposalBuilder::new(fbb);

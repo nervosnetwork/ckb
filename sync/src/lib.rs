@@ -7,7 +7,6 @@ extern crate bigint;
 extern crate fnv;
 #[macro_use]
 extern crate log;
-extern crate byteorder;
 extern crate ckb_chain;
 extern crate ckb_core as core;
 extern crate ckb_network as network;
@@ -15,12 +14,9 @@ extern crate ckb_pool as pool;
 extern crate ckb_protocol;
 extern crate ckb_time;
 extern crate flatbuffers;
-extern crate hash;
 #[macro_use]
 extern crate ckb_util as util;
 extern crate ckb_verification;
-extern crate rand;
-extern crate siphasher;
 #[macro_use]
 extern crate bitflags;
 extern crate futures;
@@ -41,7 +37,6 @@ mod relayer;
 mod synchronizer;
 
 pub use config::Config;
-pub use relayer::compact_block::CompactBlockBuilder;
 pub use relayer::Relayer;
 pub use synchronizer::Synchronizer;
 

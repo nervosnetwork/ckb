@@ -9,3 +9,6 @@ flatbuffers = "0.5.0"
 bigint = { git = "https://github.com/NervosFoundation/bigint" }
 byteorder = "1.2.2"
 ckb-core = { path = "../core" }
+hash = { path = "../util/hash"}
+siphasher = "0.2.2"
+rand = "0.5.0"

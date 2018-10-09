@@ -4,16 +4,18 @@ use block_template::BlockTemplate;
 use chain::chain::ChainProvider;
 use chain::PowEngine;
 use ckb_notify::{Event, Notify, MINER_SUBSCRIBER};
+use ckb_protocol::RelayMessage;
 use core::block::IndexedBlock;
 use core::header::{RawHeader, Seal};
 use core::BlockNumber;
 use crossbeam_channel;
+use flatbuffers::FlatBufferBuilder;
 use network::NetworkService;
 use pool::TransactionPool;
 use rand::{thread_rng, Rng};
 use std::collections::HashSet;
 use std::sync::Arc;
-use sync::{CompactBlockBuilder, RELAY_PROTOCOL_ID};
+use sync::RELAY_PROTOCOL_ID;
 
 pub struct Miner<C, P> {
     config: Config,
@@ -139,8 +141,10 @@ where
             for peer_id in self.network.connected_peers() {
                 debug!(target: "miner", "announce new block to peer#{:?}, {} => {}",
                        peer_id, block.header().number, block.hash());
-                let compact_block = CompactBlockBuilder::new(block, &HashSet::new()).build();
-                nc.send(peer_id, 0, compact_block.to_vec());
+                let fbb = &mut FlatBufferBuilder::new();
+                let message = RelayMessage::build_compact_block(fbb, &block, &HashSet::new());
+                fbb.finish(message, None);
+                nc.send(peer_id, 0, fbb.finished_data().to_vec());
             }
         });
     }
