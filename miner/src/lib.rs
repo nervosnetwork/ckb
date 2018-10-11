@@ -16,6 +16,7 @@ extern crate rand;
 extern crate serde_derive;
 #[cfg(test)]
 extern crate ckb_db;
+extern crate ckb_pow;
 #[cfg(test)]
 extern crate ckb_verification;
 

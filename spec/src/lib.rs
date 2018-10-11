@@ -12,15 +12,18 @@ extern crate ckb_core as core;
 extern crate serde_yaml;
 #[macro_use]
 extern crate serde_derive;
+extern crate ckb_pow;
 
 use bigint::{H256, U256};
 use chain::consensus::{Consensus, GenesisBuilder};
+use ckb_pow::{Pow, PowEngine};
 use core::transaction::{CellOutput, IndexedTransaction, Transaction};
 use core::Capacity;
 use std::error::Error;
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;
+use std::sync::Arc;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum SpecType {
@@ -34,6 +37,7 @@ pub struct ChainSpec {
     pub genesis: Genesis,
     pub params: Params,
     pub system_cells: Vec<SystemCell>,
+    pub pow: Pow,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug, Deserialize)]
@@ -99,6 +103,10 @@ impl ChainSpec {
             cell.path = path_str.to_string();
         }
         Ok(spec)
+    }
+
+    pub fn pow_engine(&self) -> Arc<dyn PowEngine> {
+        self.pow.engine()
     }
 
     pub fn to_consensus(&self) -> Result<Consensus, Box<Error>> {

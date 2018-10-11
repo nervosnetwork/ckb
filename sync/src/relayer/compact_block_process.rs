@@ -1,26 +1,24 @@
 use super::compact_block::CompactBlock;
 use ckb_chain::chain::ChainProvider;
-use ckb_chain::PowEngine;
 use ckb_protocol::{CompactBlock as FbsCompactBlock, RelayMessage};
 use flatbuffers::FlatBufferBuilder;
 use network::{NetworkContext, PeerId};
 use relayer::Relayer;
 
-pub struct CompactBlockProcess<'a, C: 'a, P: 'a> {
+pub struct CompactBlockProcess<'a, C: 'a> {
     message: &'a FbsCompactBlock<'a>,
-    relayer: &'a Relayer<C, P>,
+    relayer: &'a Relayer<C>,
     peer: PeerId,
     nc: &'a NetworkContext,
 }
 
-impl<'a, C, P> CompactBlockProcess<'a, C, P>
+impl<'a, C> CompactBlockProcess<'a, C>
 where
     C: ChainProvider + 'static,
-    P: PowEngine + 'static,
 {
     pub fn new(
         message: &'a FbsCompactBlock,
-        relayer: &'a Relayer<C, P>,
+        relayer: &'a Relayer<C>,
         peer: PeerId,
         nc: &'a NetworkContext,
     ) -> Self {

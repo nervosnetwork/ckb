@@ -1,25 +1,23 @@
 use ckb_chain::chain::ChainProvider;
-use ckb_chain::PowEngine;
 use ckb_protocol::Block;
 use core::block::IndexedBlock;
 use network::{NetworkContext, PeerId};
 use synchronizer::Synchronizer;
 
-pub struct BlockProcess<'a, C: 'a, P: 'a> {
+pub struct BlockProcess<'a, C: 'a> {
     message: &'a Block<'a>,
-    synchronizer: &'a Synchronizer<C, P>,
+    synchronizer: &'a Synchronizer<C>,
     peer: PeerId,
     // nc: &'a NetworkContext,
 }
 
-impl<'a, C, P> BlockProcess<'a, C, P>
+impl<'a, C> BlockProcess<'a, C>
 where
     C: ChainProvider + 'a,
-    P: PowEngine + 'a,
 {
     pub fn new(
         message: &'a Block,
-        synchronizer: &'a Synchronizer<C, P>,
+        synchronizer: &'a Synchronizer<C>,
         peer: PeerId,
         _nc: &'a NetworkContext,
     ) -> Self {

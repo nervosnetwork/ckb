@@ -1,11 +1,13 @@
 use super::PowEngine;
-use core::header::{BlockNumber, Header, RawHeader, Seal};
+use ckb_core::header::{BlockNumber, Header, RawHeader, Seal};
 use crossbeam_channel;
+use std::any::Any;
 
 /// Clicker meant to serve as a pow engine Stub
 ///
 /// - submit fake pow solution
 /// - verify consistent return ture
+#[derive(Clone, Debug)]
 pub struct Clicker {
     rx: crossbeam_channel::Receiver<u64>,
     tx: crossbeam_channel::Sender<u64>,
@@ -48,5 +50,9 @@ impl PowEngine for Clicker {
 
     fn verify(&self, _number: BlockNumber, _message: &[u8], _proof: &[u8]) -> bool {
         unimplemented!();
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
     }
 }

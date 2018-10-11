@@ -11,6 +11,7 @@ extern crate ckb_chain;
 extern crate ckb_core as core;
 extern crate ckb_network as network;
 extern crate ckb_pool as pool;
+extern crate ckb_pow;
 extern crate ckb_protocol;
 extern crate ckb_time;
 extern crate flatbuffers;

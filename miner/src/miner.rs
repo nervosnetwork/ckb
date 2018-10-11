@@ -2,8 +2,8 @@ use super::build_block_template;
 use super::Config;
 use block_template::BlockTemplate;
 use chain::chain::ChainProvider;
-use chain::PowEngine;
 use ckb_notify::{Event, Notify, MINER_SUBSCRIBER};
+use ckb_pow::PowEngine;
 use ckb_protocol::RelayMessage;
 use core::block::IndexedBlock;
 use core::header::{RawHeader, Seal};
@@ -17,25 +17,24 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use sync::RELAY_PROTOCOL_ID;
 
-pub struct Miner<C, P> {
+pub struct Miner<C> {
     config: Config,
     chain: Arc<C>,
-    pow: Arc<P>,
+    pow: Arc<dyn PowEngine>,
     network: Arc<NetworkService>,
     tx_pool: Arc<TransactionPool<C>>,
     sub_rx: crossbeam_channel::Receiver<Event>,
     mining_number: BlockNumber,
 }
 
-impl<C, P> Miner<C, P>
+impl<C> Miner<C>
 where
     C: ChainProvider + 'static,
-    P: PowEngine + 'static,
 {
     pub fn new(
         config: Config,
         chain: Arc<C>,
-        pow: &Arc<P>,
+        pow: &Arc<dyn PowEngine>,
         tx_pool: &Arc<TransactionPool<C>>,
         network: &Arc<NetworkService>,
         notify: &Notify,

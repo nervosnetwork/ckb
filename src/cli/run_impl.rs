@@ -4,15 +4,8 @@ use bigint::H256;
 use chain::cachedb::CacheDB;
 use chain::chain::{ChainBuilder, ChainProvider};
 use chain::store::ChainKVStore;
-#[cfg(feature = "integration_test")]
-use chain::Clicker;
-#[cfg(feature = "pow_engine_cuckoo")]
-use chain::CuckooEngine;
-#[cfg(feature = "pow_engine_dummy")]
-use chain::DummyPowEngine;
-#[cfg(feature = "pow_engine_ethash")]
-use chain::EthashEngine;
 use ckb_notify::Notify;
+use ckb_pow::PowEngine;
 use clap::ArgMatches;
 use core::script::Script;
 use core::transaction::{CellInput, OutPoint, Transaction};
@@ -24,11 +17,10 @@ use miner::Miner;
 use network::NetworkConfiguration;
 use network::NetworkService;
 use pool::TransactionPool;
-use rpc::{Config as RpcConfig, RpcServer};
+use rpc::RpcServer;
 use rustc_hex::ToHex;
 use serde_json;
 use std::io::Write;
-use std::path::Path;
 use std::sync::Arc;
 use std::thread;
 use sync::{Relayer, Synchronizer, RELAY_PROTOCOL_ID, SYNC_PROTOCOL_ID};
@@ -50,7 +42,7 @@ pub fn run(setup: Setup) {
 
     info!(target: "main", "chain genesis hash: {:?}", chain.genesis_hash());
 
-    let pow_engine = build_pow_engine(setup.dirs.join("pow"));
+    let pow_engine = setup.chain_spec.pow_engine();
     let synchronizer = Arc::new(Synchronizer::new(&chain, &pow_engine, setup.configs.sync));
 
     let tx_pool = TransactionPool::new(setup.configs.pool, Arc::clone(&chain), notify.clone());
@@ -81,23 +73,11 @@ pub fn run(setup: Setup) {
         }
     });
 
-    let rpc_server = build_rpc(
-        setup.configs.rpc,
-        if cfg!(feature = "integration_test") {
-            Some(pow_engine)
-        } else {
-            None
-        },
-    );
+    let rpc_server = RpcServer {
+        config: setup.configs.rpc,
+    };
 
-    let _ = thread::Builder::new().name("rpc".to_string()).spawn({
-        let network_clone = Arc::clone(&network);
-        let chain_clone = Arc::clone(&chain);
-        let tx_pool_clone = Arc::clone(&tx_pool);
-        move || {
-            rpc_server.start(network_clone, chain_clone, tx_pool_clone);
-        }
-    });
+    setup_rpc(rpc_server, &pow_engine, &network, &chain, &tx_pool);
 
     wait_for_exit();
 
@@ -106,50 +86,51 @@ pub fn run(setup: Setup) {
     logger::flush();
 }
 
-#[cfg(feature = "pow_engine_cuckoo")]
-fn build_pow_engine<P: AsRef<Path>>(_pow_data_path: P) -> Arc<CuckooEngine> {
-    Arc::new(CuckooEngine::new())
-}
-
-#[cfg(feature = "pow_engine_ethash")]
-fn build_pow_engine<P: AsRef<Path>>(pow_data_path: P) -> Arc<EthashEngine> {
-    Arc::new(EthashEngine::new(pow_data_path))
-}
-
-#[cfg(feature = "pow_engine_dummy")]
-fn build_pow_engine<P: AsRef<Path>>(_pow_data_path: P) -> Arc<DummyPowEngine> {
-    Arc::new(DummyPowEngine::new())
-}
-
 #[cfg(feature = "integration_test")]
-fn build_pow_engine<P: AsRef<Path>>(_pow_data_path: P) -> Arc<Clicker> {
-    Arc::new(Clicker::new())
+fn setup_rpc<C: ChainProvider + 'static>(
+    server: RpcServer,
+    pow: &Arc<dyn PowEngine>,
+    network: &Arc<NetworkService>,
+    chain: &Arc<C>,
+    tx_pool: &Arc<TransactionPool<C>>,
+) {
+    use ckb_pow::Clicker;
+
+    let network = Arc::clone(network);
+    let chain = Arc::clone(chain);
+    let tx_pool = Arc::clone(tx_pool);
+
+    let pow = pow.as_ref().as_any();
+
+    let pow = match pow.downcast_ref::<Clicker>() {
+        Some(pow) => Arc::new(pow.clone()),
+        None => panic!("pow isn't a Clicker!"),
+    };
+
+    let _ = thread::Builder::new().name("rpc".to_string()).spawn({
+        move || {
+            server.start(network, chain, tx_pool, pow);
+        }
+    });
 }
 
-#[cfg(feature = "integration_test")]
-fn build_rpc(config: RpcConfig, mut pow: Option<Arc<Clicker>>) -> RpcServer {
-    RpcServer {
-        config,
-        pow: pow.take().expect("must assign clicker engine"),
-    }
-}
-
-#[cfg(feature = "pow_engine_cuckoo")]
+#[cfg(not(feature = "integration_test"))]
 #[cfg_attr(feature = "cargo-clippy", allow(needless_pass_by_value))]
-fn build_rpc(config: RpcConfig, _pow: Option<Arc<CuckooEngine>>) -> RpcServer {
-    RpcServer { config }
-}
-
-#[cfg(feature = "pow_engine_ethash")]
-#[cfg_attr(feature = "cargo-clippy", allow(needless_pass_by_value))]
-fn build_rpc(config: RpcConfig, _pow: Option<Arc<EthashEngine>>) -> RpcServer {
-    RpcServer { config }
-}
-
-#[cfg(feature = "pow_engine_dummy")]
-#[cfg_attr(feature = "cargo-clippy", allow(needless_pass_by_value))]
-fn build_rpc(config: RpcConfig, _pow: Option<Arc<DummyPowEngine>>) -> RpcServer {
-    RpcServer { config }
+fn setup_rpc<C: ChainProvider + 'static>(
+    server: RpcServer,
+    _pow: &Arc<dyn PowEngine>,
+    network: &Arc<NetworkService>,
+    chain: &Arc<C>,
+    tx_pool: &Arc<TransactionPool<C>>,
+) {
+    let network = Arc::clone(network);
+    let chain = Arc::clone(chain);
+    let tx_pool = Arc::clone(tx_pool);
+    let _ = thread::Builder::new().name("rpc".to_string()).spawn({
+        move || {
+            server.start(network, chain, tx_pool);
+        }
+    });
 }
 
 pub fn sign(setup: &Setup, matches: &ArgMatches) {

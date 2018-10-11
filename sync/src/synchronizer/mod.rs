@@ -17,7 +17,7 @@ use self::headers_process::HeadersProcess;
 use self::peers::Peers;
 use bigint::H256;
 use ckb_chain::chain::{ChainProvider, TipHeader};
-use ckb_chain::PowEngine;
+use ckb_pow::PowEngine;
 use ckb_protocol::{SyncMessage, SyncPayload};
 use ckb_time::now_ms;
 use ckb_verification::{BlockVerifier, Verifier};
@@ -70,9 +70,9 @@ bitflags! {
 pub type BlockStatusMap = Arc<RwLock<HashMap<H256, BlockStatus>>>;
 pub type BlockHeaderMap = Arc<RwLock<HashMap<H256, HeaderView>>>;
 
-pub struct Synchronizer<C, P> {
+pub struct Synchronizer<C> {
     pub chain: Arc<C>,
-    pub pow: Arc<P>,
+    pub pow: Arc<dyn PowEngine>,
     pub status_map: BlockStatusMap,
     pub header_map: BlockHeaderMap,
     pub best_known_header: Arc<RwLock<HeaderView>>,
@@ -88,12 +88,11 @@ fn is_outbound(nc: &NetworkContext, peer: PeerId) -> Option<bool> {
         .map(|session_info| session_info.originated)
 }
 
-impl<C, P> Clone for Synchronizer<C, P>
+impl<C> Clone for Synchronizer<C>
 where
     C: ChainProvider,
-    P: PowEngine,
 {
-    fn clone(&self) -> Synchronizer<C, P> {
+    fn clone(&self) -> Synchronizer<C> {
         Synchronizer {
             chain: Arc::clone(&self.chain),
             pow: Arc::clone(&self.pow),
@@ -109,12 +108,11 @@ where
     }
 }
 
-impl<C, P> Synchronizer<C, P>
+impl<C> Synchronizer<C>
 where
     C: ChainProvider,
-    P: PowEngine,
 {
-    pub fn new(chain: &Arc<C>, pow: &Arc<P>, config: Config) -> Synchronizer<C, P> {
+    pub fn new(chain: &Arc<C>, pow: &Arc<dyn PowEngine>, config: Config) -> Synchronizer<C> {
         let TipHeader {
             header,
             total_difficulty,
@@ -536,10 +534,9 @@ where
     }
 }
 
-impl<C, P> NetworkProtocolHandler for Synchronizer<C, P>
+impl<C> NetworkProtocolHandler for Synchronizer<C>
 where
     C: ChainProvider + 'static,
-    P: PowEngine + 'static,
 {
     fn initialize(&self, nc: Box<NetworkContext>) {
         // NOTE: 100ms is what bitcoin use.
@@ -617,8 +614,9 @@ mod tests {
     use ckb_chain::consensus::Consensus;
     use ckb_chain::index::ChainIndex;
     use ckb_chain::store::ChainKVStore;
-    use ckb_chain::{DummyPowEngine, COLUMNS};
+    use ckb_chain::COLUMNS;
     use ckb_notify::{Event, Notify, MINER_SUBSCRIBER};
+    use ckb_pow::DummyPowEngine;
     use ckb_protocol::{Block as FbsBlock, Headers as FbsHeaders};
     use core::header::{Header, RawHeader, Seal};
     use core::transaction::{CellInput, CellOutput, IndexedTransaction, Transaction, VERSION};
@@ -633,6 +631,10 @@ mod tests {
         TimerToken,
     };
     use std::time::Duration;
+
+    fn dummy_pow_engine() -> Arc<dyn PowEngine> {
+        Arc::new(DummyPowEngine::new())
+    }
 
     #[test]
     fn test_block_status() {
@@ -746,8 +748,7 @@ mod tests {
             insert_block(&chain, i, i);
         }
 
-        let synchronizer =
-            Synchronizer::new(&chain, &Arc::new(DummyPowEngine::new()), Config::default());
+        let synchronizer = Synchronizer::new(&chain, &dummy_pow_engine(), Config::default());
 
         let locator = synchronizer.get_locator(&chain.tip_header().read().header);
 
@@ -777,7 +778,7 @@ mod tests {
             insert_block(&chain2, i + 1, i);
         }
 
-        let pow_engine = Arc::new(DummyPowEngine::new());
+        let pow_engine = dummy_pow_engine();
 
         let synchronizer1 = Synchronizer::new(&chain1, &pow_engine, Config::default());
 
@@ -831,7 +832,7 @@ mod tests {
             parent = new_block.header;
         }
 
-        let pow_engine = Arc::new(DummyPowEngine::new());
+        let pow_engine = dummy_pow_engine();
 
         let synchronizer1 = Synchronizer::new(&chain1, &pow_engine, Config::default());
 
@@ -864,8 +865,7 @@ mod tests {
             insert_block(&chain, i, i);
         }
 
-        let synchronizer =
-            Synchronizer::new(&chain, &Arc::new(DummyPowEngine::new()), Config::default());
+        let synchronizer = Synchronizer::new(&chain, &dummy_pow_engine(), Config::default());
 
         let header = synchronizer.get_ancestor(&chain.tip_header().read().header.hash(), 100);
         let tip = synchronizer.get_ancestor(&chain.tip_header().read().header.hash(), 199);
@@ -897,8 +897,7 @@ mod tests {
             parent = new_block.header;
         }
 
-        let synchronizer =
-            Synchronizer::new(&chain2, &Arc::new(DummyPowEngine::new()), Config::default());
+        let synchronizer = Synchronizer::new(&chain2, &dummy_pow_engine(), Config::default());
 
         blocks.clone().into_iter().for_each(|block| {
             synchronizer.insert_new_block(0, block);
@@ -926,8 +925,7 @@ mod tests {
             parent = new_block.header;
         }
 
-        let synchronizer =
-            Synchronizer::new(&chain, &Arc::new(DummyPowEngine::new()), Config::default());
+        let synchronizer = Synchronizer::new(&chain, &dummy_pow_engine(), Config::default());
 
         let headers = synchronizer.get_locator_response(180, &H256::zero());
 
@@ -1007,8 +1005,7 @@ mod tests {
         for i in 1..num {
             insert_block(&chain1, i, i);
         }
-        let synchronizer1 =
-            Synchronizer::new(&chain1, &Arc::new(DummyPowEngine::new()), Config::default());
+        let synchronizer1 = Synchronizer::new(&chain1, &dummy_pow_engine(), Config::default());
 
         let locator1 = synchronizer1.get_locator(&chain1.tip_header().read().header);
 
@@ -1017,8 +1014,7 @@ mod tests {
             insert_block(&chain2, j, i);
         }
 
-        let synchronizer2 =
-            Synchronizer::new(&chain2, &Arc::new(DummyPowEngine::new()), Config::default());
+        let synchronizer2 = Synchronizer::new(&chain2, &dummy_pow_engine(), Config::default());
         let latest_common = synchronizer2.locate_latest_common_block(&H256::zero(), &locator1[..]);
         assert_eq!(latest_common, Some(192));
 

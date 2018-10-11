@@ -20,6 +20,7 @@ serde = "1.0"
 serde_derive = "1.0"
 crossbeam-channel = "0.2"
 fnv = "1.0.3"
+ckb-pow = { path = "../pow" }
 
 [dev-dependencies]
 ckb-db = { path = "../db" }

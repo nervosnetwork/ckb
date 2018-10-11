@@ -8,7 +8,6 @@ serde = "1.0"
 serde_derive = "1.0"
 bincode = "1.0"
 log = "0.4"
-rand = "0.5.0"
 ckb-core = { path = "../core" }
 ckb-util = { path = "../util" }
 ckb-db = { path = "../db" }
@@ -17,13 +16,9 @@ bigint = { git = "https://github.com/NervosFoundation/bigint" }
 lru-cache = { git = "https://github.com/NervosFoundation/lru-cache" }
 fnv = "1.0.3"
 ckb-time = { path = "../util/time" }
-ethash = { git = "https://github.com/NervosFoundation/ethash", tag = "v1.1.0" }
 ckb-notify = { path = "../notify" }
-byteorder = "1.2.2"
-hash = {path = "../util/hash"}
-crossbeam-channel = "0.2"
 
 [dev-dependencies]
 env_logger = "0.4"
 tempfile = "3.0"
-quickcheck = "0.7.1"
+rand = "0.5.0"

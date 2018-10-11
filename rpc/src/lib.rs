@@ -13,6 +13,8 @@ extern crate ckb_network as network;
 extern crate ckb_pool as pool;
 #[macro_use]
 extern crate serde_derive;
+#[cfg(feature = "integration_test")]
+extern crate ckb_pow;
 
 use bigint::H256;
 use core::header::Header;

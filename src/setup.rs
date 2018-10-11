@@ -116,6 +116,11 @@ pub mod test {
             initial_block_reward: 233
             min_difficulty: "0x233"
         system_cells: []
+        pow:
+            Cuckoo:
+                max_vertex: 40000000
+                max_edge: 20000000
+                cycle_length: 42
         "#
     }
 

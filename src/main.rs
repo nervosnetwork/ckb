@@ -21,6 +21,7 @@ extern crate logger;
 #[macro_use]
 extern crate serde_derive;
 extern crate ckb_instrument;
+extern crate ckb_pow;
 extern crate config as config_tool;
 extern crate crypto;
 extern crate rustc_hex;

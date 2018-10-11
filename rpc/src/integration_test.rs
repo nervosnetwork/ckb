@@ -1,6 +1,6 @@
 use bigint::H256;
 use chain::chain::ChainProvider;
-use chain::Clicker;
+use ckb_pow::Clicker;
 use core::header::{BlockNumber, Header};
 use core::transaction::{IndexedTransaction, Transaction};
 use jsonrpc_core::{IoHandler, Result};
@@ -52,17 +52,16 @@ build_rpc_trait! {
     }
 }
 
-#[cfg(feature = "integration_test")]
 struct RpcImpl<C> {
     pub network: Arc<NetworkService>,
     pub chain: Arc<C>,
     pub tx_pool: Arc<TransactionPool<C>>,
-    pub pow_clicker: Arc<Clicker>,
+    pub pow: Arc<Clicker>,
 }
 
 impl<C: ChainProvider + 'static> IntegrationTestRpc for RpcImpl<C> {
     fn submit_pow_solution(&self, nonce: u64) -> Result<()> {
-        self.pow_clicker.submit(nonce);
+        self.pow.submit(nonce);
         Ok(())
     }
 
@@ -128,7 +127,6 @@ impl<C: ChainProvider + 'static> IntegrationTestRpc for RpcImpl<C> {
 
 pub struct RpcServer {
     pub config: Config,
-    pub pow: Arc<Clicker>,
 }
 
 impl RpcServer {
@@ -137,6 +135,7 @@ impl RpcServer {
         network: Arc<NetworkService>,
         chain: Arc<C>,
         tx_pool: Arc<TransactionPool<C>>,
+        pow: Arc<Clicker>,
     ) where
         C: ChainProvider + 'static,
     {
@@ -146,7 +145,7 @@ impl RpcServer {
                 network,
                 chain,
                 tx_pool,
-                pow_clicker: self.pow.clone(),
+                pow,
             }.to_delegate(),
         );
 

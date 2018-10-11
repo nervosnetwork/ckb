@@ -1,27 +1,25 @@
 use bigint::H256;
 use ckb_chain::chain::ChainProvider;
-use ckb_chain::PowEngine;
 use ckb_protocol::{FlatbuffersVectorIterator, GetHeaders, SyncMessage};
 use core::header::IndexedHeader;
 use flatbuffers::FlatBufferBuilder;
 use network::{NetworkContext, PeerId};
 use synchronizer::Synchronizer;
 
-pub struct GetHeadersProcess<'a, C: 'a, P: 'a> {
+pub struct GetHeadersProcess<'a, C: 'a> {
     message: &'a GetHeaders<'a>,
-    synchronizer: &'a Synchronizer<C, P>,
+    synchronizer: &'a Synchronizer<C>,
     peer: PeerId,
     nc: &'a NetworkContext,
 }
 
-impl<'a, C, P> GetHeadersProcess<'a, C, P>
+impl<'a, C> GetHeadersProcess<'a, C>
 where
     C: ChainProvider + 'a,
-    P: PowEngine + 'a,
 {
     pub fn new(
         message: &'a GetHeaders,
-        synchronizer: &'a Synchronizer<C, P>,
+        synchronizer: &'a Synchronizer<C>,
         peer: PeerId,
         nc: &'a NetworkContext,
     ) -> Self {

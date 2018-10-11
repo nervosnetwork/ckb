@@ -1,26 +1,24 @@
 use ckb_chain::chain::ChainProvider;
-use ckb_chain::PowEngine;
 use ckb_protocol::{FlatbuffersVectorIterator, GetBlockProposal, RelayMessage};
 use core::transaction::ProposalShortId;
 use flatbuffers::FlatBufferBuilder;
 use network::{NetworkContext, PeerId};
 use relayer::Relayer;
 
-pub struct GetBlockProposalProcess<'a, C: 'a, P: 'a> {
+pub struct GetBlockProposalProcess<'a, C: 'a> {
     message: &'a GetBlockProposal<'a>,
-    relayer: &'a Relayer<C, P>,
+    relayer: &'a Relayer<C>,
     peer: PeerId,
     nc: &'a NetworkContext,
 }
 
-impl<'a, C, P> GetBlockProposalProcess<'a, C, P>
+impl<'a, C> GetBlockProposalProcess<'a, C>
 where
     C: ChainProvider + 'static,
-    P: PowEngine + 'static,
 {
     pub fn new(
         message: &'a GetBlockProposal,
-        relayer: &'a Relayer<C, P>,
+        relayer: &'a Relayer<C>,
         peer: PeerId,
         nc: &'a NetworkContext,
     ) -> Self {

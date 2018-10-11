@@ -1,8 +1,8 @@
 use super::Verifier;
 use bigint::U256;
-use chain::PowEngine;
 use core::header::IndexedHeader;
 use error::{DifficultyError, Error, NumberError, PowError, TimestampError};
+use pow::PowEngine;
 use shared::ALLOWED_FUTURE_BLOCKTIME;
 use std::sync::Arc;
 use time::now_ms;
@@ -15,17 +15,16 @@ pub trait HeaderResolver {
     fn calculate_difficulty(&self) -> Option<U256>;
 }
 
-pub struct HeaderVerifier<P, R> {
+pub struct HeaderVerifier<R> {
     pub resolver: R,
-    pub pow: Arc<P>,
+    pub pow: Arc<dyn PowEngine>,
 }
 
-impl<P, R> HeaderVerifier<P, R>
+impl<R> HeaderVerifier<R>
 where
-    P: PowEngine,
     R: HeaderResolver,
 {
-    pub fn new(resolver: R, pow: &Arc<P>) -> Self {
+    pub fn new(resolver: R, pow: &Arc<dyn PowEngine>) -> Self {
         HeaderVerifier {
             resolver,
             pow: Arc::clone(pow),
@@ -33,9 +32,8 @@ where
     }
 }
 
-impl<P, R> Verifier for HeaderVerifier<P, R>
+impl<R> Verifier for HeaderVerifier<R>
 where
-    P: PowEngine,
     R: HeaderResolver,
 {
     fn verify(&self) -> Result<(), Error> {
@@ -137,16 +135,13 @@ where
     }
 }
 
-pub struct PowVerifier<'a, P> {
+pub struct PowVerifier<'a> {
     header: &'a IndexedHeader,
-    pow: Arc<P>,
+    pow: Arc<dyn PowEngine>,
 }
 
-impl<'a, P> PowVerifier<'a, P>
-where
-    P: PowEngine,
-{
-    pub fn new(header: &'a IndexedHeader, pow: &Arc<P>) -> Self {
+impl<'a> PowVerifier<'a> {
+    pub fn new(header: &'a IndexedHeader, pow: &Arc<dyn PowEngine>) -> Self {
         PowVerifier {
             header,
             pow: Arc::clone(pow),

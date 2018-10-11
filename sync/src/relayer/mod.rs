@@ -15,7 +15,7 @@ use self::get_block_transactions_process::GetBlockTransactionsProcess;
 use self::transaction_process::TransactionProcess;
 use bigint::H256;
 use ckb_chain::chain::ChainProvider;
-use ckb_chain::PowEngine;
+use ckb_pow::PowEngine;
 use ckb_protocol::{short_transaction_id, short_transaction_id_keys, RelayMessage, RelayPayload};
 use ckb_verification::{BlockVerifier, Verifier};
 use core::block::IndexedBlock;
@@ -34,19 +34,18 @@ use AcceptBlockError;
 
 pub const TX_PROPOSAL_TOKEN: TimerToken = 0;
 
-pub struct Relayer<C, P> {
+pub struct Relayer<C> {
     pub chain: Arc<C>,
-    pub pow: Arc<P>,
+    pub pow: Arc<dyn PowEngine>,
     pub state: Arc<RelayState>,
     pub tx_pool: Arc<TransactionPool<C>>,
 }
 
-impl<C, P> Clone for Relayer<C, P>
+impl<C> Clone for Relayer<C>
 where
     C: ChainProvider,
-    P: PowEngine,
 {
-    fn clone(&self) -> Relayer<C, P> {
+    fn clone(&self) -> Relayer<C> {
         Relayer {
             chain: Arc::clone(&self.chain),
             pow: Arc::clone(&self.pow),
@@ -56,12 +55,15 @@ where
     }
 }
 
-impl<C, P> Relayer<C, P>
+impl<C> Relayer<C>
 where
     C: ChainProvider + 'static,
-    P: PowEngine + 'static,
 {
-    pub fn new(chain: &Arc<C>, pow: &Arc<P>, tx_pool: &Arc<TransactionPool<C>>) -> Self {
+    pub fn new(
+        chain: &Arc<C>,
+        pow: &Arc<dyn PowEngine>,
+        tx_pool: &Arc<TransactionPool<C>>,
+    ) -> Self {
         Relayer {
             chain: Arc::clone(chain),
             pow: Arc::clone(pow),
@@ -215,10 +217,9 @@ where
     }
 }
 
-impl<C, P> NetworkProtocolHandler for Relayer<C, P>
+impl<C> NetworkProtocolHandler for Relayer<C>
 where
     C: ChainProvider + 'static,
-    P: PowEngine + 'static,
 {
     fn initialize(&self, nc: Box<NetworkContext>) {
         let _ = nc.register_timer(TX_PROPOSAL_TOKEN, Duration::from_millis(100));
