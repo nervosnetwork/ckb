@@ -16,13 +16,13 @@ Nervos project defines a suite of scalable and interoperable blockchain protocol
 
 ## Build dependencies
 
-Nervos is currently tested mainly with `stabe-1.29.1`.
+Nervos is currently tested mainly with `stabe-1.29.2`.
 
 We recommend installing Rust through [rustup](https://www.rustup.rs/)
 
 ```bash
 # Get rustup from rustup.rs, then in your `ckb` folder:
-rustup override set 1.29.1
+rustup override set 1.29.2
 rustup component add rustfmt-preview
 ```
 
