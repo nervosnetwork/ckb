@@ -1,7 +1,7 @@
 use super::Error;
 use core::transaction::{CellInput, CellOutput, OutPoint};
 use fnv::FnvHashMap;
-use vm::run;
+use vm::{run, SparseMemory};
 
 // This struct leverages CKB VM to verify transaction inputs.
 pub struct TransactionInputVerifier<'a> {
@@ -30,7 +30,7 @@ impl<'a> TransactionInputVerifier<'a> {
             let mut args = vec![b"verify".to_vec()];
             args.extend_from_slice(&input.unlock.redeem_arguments.as_slice());
             args.extend_from_slice(&input.unlock.arguments.as_slice());
-            run(script, &args)
+            run::<u64, SparseMemory>(script, &args)
                 .map_err(|_| Error::VMError)
                 .and_then(|code| {
                     if code == 0 {
