@@ -1,7 +1,7 @@
 use bigint::H256;
 use ckb_chain::chain::ChainProvider;
 use ckb_protocol::{BlockTransactions, FlatbuffersVectorIterator};
-use core::transaction::IndexedTransaction;
+use core::transaction::Transaction;
 use network::PeerId;
 use relayer::Relayer;
 
@@ -32,7 +32,7 @@ where
             .lock()
             .remove(&hash)
         {
-            let transactions: Vec<IndexedTransaction> =
+            let transactions: Vec<Transaction> =
                 FlatbuffersVectorIterator::new(self.message.transactions().unwrap())
                     .map(Into::into)
                     .collect();

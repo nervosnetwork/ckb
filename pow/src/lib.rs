@@ -55,22 +55,22 @@ pub trait PowEngine: Send + Sync {
     fn init(&self, number: BlockNumber);
 
     fn verify_header(&self, header: &Header) -> bool {
-        let proof_hash: H256 = blake2b(&header.seal.proof).into();
-        if boundary_to_difficulty(&proof_hash) < header.difficulty {
+        let proof_hash: H256 = blake2b(&header.proof()).into();
+        if boundary_to_difficulty(&proof_hash) < header.difficulty() {
             return false;
         }
 
-        let message = pow_message(&header.pow_hash()[..], header.seal.nonce);
-        self.verify(header.number, &message, &header.seal.proof)
+        let message = pow_message(&header.pow_hash()[..], header.nonce());
+        self.verify(header.number(), &message, &header.proof())
     }
 
     fn solve_header(&self, header: &RawHeader, nonce: u64) -> Option<Seal> {
         let message = pow_message(&header.pow_hash()[..], nonce);
 
-        if let Some(proof) = self.solve(header.number, &message) {
+        if let Some(proof) = self.solve(header.number(), &message) {
             let result: H256 = blake2b(&proof).into();
-            if result < difficulty_to_boundary(&header.difficulty) {
-                return Some(Seal { nonce, proof });
+            if result < difficulty_to_boundary(&header.difficulty()) {
+                return Some(Seal::new(nonce, proof));
             }
         }
 

@@ -1,7 +1,6 @@
 use super::format::Format;
 use super::iter::ChainIterator;
 use ckb_chain::chain::ChainProvider;
-use ckb_core::block::Block;
 #[cfg(feature = "progress_bar")]
 use indicatif::{ProgressBar, ProgressStyle};
 use serde_json;
@@ -82,7 +81,6 @@ impl<'a, P: ChainProvider> Export<'a, P> {
                 .progress_chars("##-"),
         );
         for block in blocks_iter {
-            let block: Block = block.into();
             let encoded = serde_json::to_vec(&block)?;
             writer.write_all(&encoded)?;
             writer.write_all(b"\n")?;

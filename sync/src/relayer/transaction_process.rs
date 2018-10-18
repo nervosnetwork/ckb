@@ -1,6 +1,5 @@
 use ckb_chain::chain::ChainProvider;
 use ckb_protocol::Transaction;
-use core::transaction::IndexedTransaction;
 use network::{NetworkContext, PeerId};
 use relayer::Relayer;
 
@@ -32,7 +31,7 @@ where
     }
 
     pub fn execute(self) {
-        let tx: IndexedTransaction = (*self.message).into();
+        let tx = (*self.message).into();
         let _ = self.relayer.tx_pool.add_transaction(tx);
         // TODO PENDING new api NetworkContext#connected_peers
         // for peer_id in self.nc.connected_peers() {

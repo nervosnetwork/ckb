@@ -18,8 +18,8 @@ use ckb_chain::chain::ChainProvider;
 use ckb_pow::PowEngine;
 use ckb_protocol::{short_transaction_id, short_transaction_id_keys, RelayMessage, RelayPayload};
 use ckb_verification::{BlockVerifier, Verifier};
-use core::block::IndexedBlock;
-use core::transaction::{IndexedTransaction, ProposalShortId};
+use core::block::{Block, BlockBuilder};
+use core::transaction::{ProposalShortId, Transaction};
 use flatbuffers::{get_root, FlatBufferBuilder};
 use fnv::{FnvHashMap, FnvHashSet};
 use futures::future;
@@ -125,17 +125,13 @@ where
 
         let fbb = &mut FlatBufferBuilder::new();
         let message =
-            RelayMessage::build_get_block_proposal(fbb, block.header.number, &unknown_ids);
+            RelayMessage::build_get_block_proposal(fbb, block.header.number(), &unknown_ids);
         fbb.finish(message, None);
 
         nc.send(peer, 0, fbb.finished_data().to_vec());
     }
 
-    pub fn accept_block(
-        &self,
-        _peer: PeerId,
-        block: &IndexedBlock,
-    ) -> Result<(), AcceptBlockError> {
+    pub fn accept_block(&self, _peer: PeerId, block: &Block) -> Result<(), AcceptBlockError> {
         BlockVerifier::new(block, &self.chain, &self.pow).verify()?;
         self.chain.process_block(&block)?;
         Ok(())
@@ -144,10 +140,10 @@ where
     pub fn reconstruct_block(
         &self,
         compact_block: &CompactBlock,
-        transactions: Vec<IndexedTransaction>,
-    ) -> (Option<IndexedBlock>, Option<Vec<usize>>) {
+        transactions: Vec<Transaction>,
+    ) -> (Option<Block>, Option<Vec<usize>>) {
         let (key0, key1) =
-            short_transaction_id_keys(compact_block.header.seal.nonce, compact_block.nonce);
+            short_transaction_id_keys(compact_block.header.nonce(), compact_block.nonce);
 
         let mut txs = transactions;
         txs.extend(self.tx_pool.get_potential_transactions());
@@ -168,12 +164,12 @@ where
         }
 
         if missing_indexes.is_empty() {
-            let block = IndexedBlock::new(
-                compact_block.header.clone().into(),
-                compact_block.uncles.clone(),
-                block_transactions,
-                compact_block.proposal_transactions.clone(),
-            );
+            let block = BlockBuilder::default()
+                .header(compact_block.header.clone())
+                .uncles(compact_block.uncles.clone())
+                .commit_transactions(block_transactions)
+                .proposal_transactions(compact_block.proposal_transactions.clone())
+                .build();
 
             (Some(block), None)
         } else {
@@ -212,7 +208,7 @@ where
         }
     }
 
-    pub fn get_block(&self, hash: &H256) -> Option<IndexedBlock> {
+    pub fn get_block(&self, hash: &H256) -> Option<Block> {
         self.chain.block(hash)
     }
 }

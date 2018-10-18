@@ -33,7 +33,7 @@ where
             let block_hash = H256::from_slice(bytes.seq().unwrap());
             debug!(target: "sync", "get_blocks {:?}", block_hash);
             if let Some(block) = self.synchronizer.get_block(&block_hash) {
-                debug!(target: "sync", "respond_block {} {:?}", block.number(), block.hash());
+                debug!(target: "sync", "respond_block {} {:?}", block.header().number(), block.header().hash());
                 let fbb = &mut FlatBufferBuilder::new();
                 let message = SyncMessage::build_block(fbb, &block);
                 fbb.finish(message, None);

@@ -30,10 +30,7 @@ impl PowEngine for DummyPowEngine {
         let seconds = thread_rng().gen_range(5, 20);
         let duration = time::Duration::from_secs(seconds);
         thread::sleep(duration);
-        Some(Seal {
-            nonce,
-            proof: Vec::new(),
-        })
+        Some(Seal::new(nonce, vec![]))
     }
 
     fn verify(&self, _number: BlockNumber, _message: &[u8], _proof: &[u8]) -> bool {

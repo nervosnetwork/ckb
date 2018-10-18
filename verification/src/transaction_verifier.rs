@@ -50,7 +50,7 @@ impl<'a> InputVerifier<'a> {
     }
 
     pub fn verify(&self) -> Result<(), TransactionError> {
-        let mut inputs = self.resolved_transaction.transaction.inputs.iter();
+        let mut inputs = self.resolved_transaction.transaction.inputs().iter();
         for cs in &self.resolved_transaction.input_cells {
             if cs.is_current() {
                 if let Some(ref input) = cs.get_current() {
@@ -97,18 +97,18 @@ impl<'a> ScriptVerifier<'a> {
             .dep_cells
             .iter()
             .map(|cell| cell.get_current().unwrap());
-        let dep_outpoints = self.resolved_transaction.transaction.deps.iter();
+        let dep_outpoints = self.resolved_transaction.transaction.deps().iter();
         for (outpoint, cell_output) in dep_outpoints.zip(dep_cell_outputs) {
             dep_cells.insert(outpoint, cell_output);
         }
         let inputs = self
             .resolved_transaction
             .transaction
-            .inputs
+            .inputs()
             .iter()
             .collect();
         let verifier = TransactionInputVerifier { dep_cells, inputs };
-        for index in 0..self.resolved_transaction.transaction.inputs.len() {
+        for index in 0..self.resolved_transaction.transaction.inputs().len() {
             verifier
                 .verify(index)
                 .map_err(TransactionError::ScriptFailure)?;
@@ -147,9 +147,9 @@ impl<'a> DuplicateInputsVerifier<'a> {
 
     pub fn verify(&self) -> Result<(), TransactionError> {
         let transaction = self.transaction;
-        let inputs = transaction.inputs.iter().collect::<HashSet<_>>();
+        let inputs = transaction.inputs().iter().collect::<HashSet<_>>();
 
-        if inputs.len() == transaction.inputs.len() {
+        if inputs.len() == transaction.inputs().len() {
             Ok(())
         } else {
             Err(TransactionError::DuplicateInputs)
@@ -169,7 +169,7 @@ impl<'a> NullVerifier<'a> {
     pub fn verify(&self) -> Result<(), TransactionError> {
         let transaction = self.transaction;
         if transaction
-            .inputs
+            .inputs()
             .iter()
             .any(|input| input.previous_output.is_null())
         {
@@ -202,7 +202,7 @@ impl<'a> CapacityVerifier<'a> {
         let outputs_total = self
             .resolved_transaction
             .transaction
-            .outputs
+            .outputs()
             .iter()
             .fold(0, |acc, output| acc + output.capacity);
 
@@ -211,7 +211,7 @@ impl<'a> CapacityVerifier<'a> {
         } else if self
             .resolved_transaction
             .transaction
-            .outputs
+            .outputs()
             .iter()
             .any(|output| output.bytes_len() as Capacity > output.capacity)
         {

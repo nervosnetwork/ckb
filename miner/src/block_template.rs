@@ -1,11 +1,10 @@
 use bigint::H256;
 use chain::chain::ChainProvider;
 use chain::error::Error;
-use core::header::{Header, RawHeader};
-use core::transaction::{
-    CellInput, CellOutput, IndexedTransaction, ProposalShortId, Transaction, VERSION,
-};
-use core::uncle::{uncles_hash, UncleBlock};
+use core::block::BlockBuilder;
+use core::header::{Header, HeaderBuilder, RawHeader};
+use core::transaction::{CellInput, CellOutput, ProposalShortId, Transaction, TransactionBuilder};
+use core::uncle::UncleBlock;
 use pool::TransactionPool;
 use std::cmp;
 use std::sync::Arc;
@@ -15,7 +14,7 @@ use time::now_ms;
 pub struct BlockTemplate {
     pub raw_header: RawHeader,
     pub uncles: Vec<UncleBlock>,
-    pub commit_transactions: Vec<IndexedTransaction>,
+    pub commit_transactions: Vec<Transaction>,
     pub proposal_transactions: Vec<ProposalShortId>,
 }
 
@@ -27,63 +26,58 @@ pub fn build_block_template<C: ChainProvider + 'static>(
     max_prop: usize,
 ) -> Result<BlockTemplate, Error> {
     let header = chain.tip_header().read().header.clone();
-    let now = cmp::max(now_ms(), header.timestamp + 1);
+    let now = cmp::max(now_ms(), header.timestamp() + 1);
     let difficulty = chain.calculate_difficulty(&header).expect("get difficulty");
-
-    let proposal_transactions = tx_pool.prepare_proposal(max_prop);
-    let mut commit_transactions = tx_pool.get_mineable_transactions(max_tx);
+    let commit_transactions = tx_pool.get_mineable_transactions(max_tx);
     let cellbase =
         create_cellbase_transaction(&chain, &header, &commit_transactions, redeem_script_hash)?;
-    let uncles = chain.get_tip_uncles();
-    let cellbase_id = cellbase.hash();
 
-    commit_transactions.insert(0, cellbase);
+    let header_builder = HeaderBuilder::default()
+        .parent_hash(&header.hash())
+        .timestamp(now)
+        .number(header.number() + 1)
+        .difficulty(&difficulty)
+        .cellbase_id(&cellbase.hash());
 
-    let raw_header = RawHeader::new(
-        &header,
-        commit_transactions.iter(),
-        proposal_transactions.iter(),
-        now,
-        difficulty,
-        cellbase_id,
-        uncles_hash(&uncles),
-    );
+    let block = BlockBuilder::default()
+        .commit_transaction(cellbase)
+        .commit_transactions(commit_transactions)
+        .proposal_transactions(tx_pool.prepare_proposal(max_prop))
+        .uncles(chain.get_tip_uncles())
+        .with_header_builder(header_builder);
 
-    let block = BlockTemplate {
-        raw_header,
-        uncles,
-        commit_transactions,
-        proposal_transactions,
-    };
-
-    Ok(block)
+    Ok(BlockTemplate {
+        raw_header: block.header().clone().raw(),
+        uncles: block.uncles().to_vec(),
+        commit_transactions: block.commit_transactions().to_vec(),
+        proposal_transactions: block.proposal_transactions().to_vec(),
+    })
 }
 
 fn create_cellbase_transaction<C: ChainProvider + 'static>(
     chain: &Arc<C>,
     header: &Header,
-    transactions: &[IndexedTransaction],
+    transactions: &[Transaction],
     redeem_script_hash: H256,
-) -> Result<IndexedTransaction, Error> {
+) -> Result<Transaction, Error> {
     // NOTE: To generate different cellbase txid, we put header number in the input script
-    let inputs = vec![CellInput::new_cellbase_input(header.raw.number + 1)];
+    let input = CellInput::new_cellbase_input(header.number() + 1);
     // NOTE: We could've just used byteorder to serialize u64 and hex string into bytes,
     // but the truth is we will modify this after we designed lock script anyway, so let's
     // stick to the simpler way and just convert everything to a single string, then to UTF8
     // bytes, they really serve the same purpose at the moment
-    let block_reward = chain.block_reward(header.raw.number + 1);
+    let block_reward = chain.block_reward(header.number() + 1);
     let mut fee = 0;
     for transaction in transactions {
         fee += chain.calculate_transaction_fee(transaction)?;
     }
 
-    let outputs = vec![CellOutput::new(
-        block_reward + fee,
-        Vec::new(),
-        redeem_script_hash,
-    )];
+    let output = CellOutput::new(block_reward + fee, Vec::new(), redeem_script_hash);
 
-    Ok(Transaction::new(VERSION, Vec::new(), inputs, outputs).into())
+    Ok(TransactionBuilder::default()
+        .input(input)
+        .output(output)
+        .build())
 }
 
 #[cfg(test)]
@@ -96,7 +90,7 @@ pub mod test {
     use ckb_notify::Notify;
     use ckb_pow::{DummyPowEngine, PowEngine};
     use ckb_verification::{BlockVerifier, HeaderResolverWrapper, HeaderVerifier, Verifier};
-    use core::block::IndexedBlock;
+    use core::block::BlockBuilder;
     use pool::PoolConfig;
 
     fn dummy_pow_engine() -> Arc<dyn PowEngine> {
@@ -132,14 +126,14 @@ pub mod test {
         //do not verfiy pow here
         let header = raw_header.with_seal(Default::default());
 
-        let block = IndexedBlock {
-            header: header.into(),
-            uncles,
-            commit_transactions,
-            proposal_transactions: proposal_transactions,
-        };
+        let block = BlockBuilder::default()
+            .header(header)
+            .uncles(uncles)
+            .commit_transactions(commit_transactions)
+            .proposal_transactions(proposal_transactions)
+            .build();
 
-        let resolver = HeaderResolverWrapper::new(&block.header, &chain);
+        let resolver = HeaderResolverWrapper::new(block.header(), &chain);
         let header_verify = HeaderVerifier::new(resolver, &pow_engine);
 
         assert!(header_verify.verify().is_ok());

@@ -2,7 +2,7 @@ use bigint::U256;
 use ckb_chain::chain::ChainProvider;
 use ckb_protocol::{FlatbuffersVectorIterator, Headers};
 use ckb_verification::{Error as VerifyError, HeaderResolver, HeaderVerifier, Verifier};
-use core::header::IndexedHeader;
+use core::header::Header;
 use log;
 use network::{NetworkContext, PeerId};
 use std::sync::Arc;
@@ -18,19 +18,15 @@ pub struct HeadersProcess<'a, C: 'a> {
 
 pub struct VerifierResolver<'a, C> {
     chain: Arc<C>,
-    header: &'a IndexedHeader,
-    parent: Option<&'a IndexedHeader>,
+    header: &'a Header,
+    parent: Option<&'a Header>,
 }
 
 impl<'a, C> VerifierResolver<'a, C>
 where
     C: ChainProvider,
 {
-    pub fn new(
-        parent: Option<&'a IndexedHeader>,
-        header: &'a IndexedHeader,
-        chain: &Arc<C>,
-    ) -> Self {
+    pub fn new(parent: Option<&'a Header>, header: &'a Header, chain: &Arc<C>) -> Self {
         VerifierResolver {
             parent,
             header,
@@ -43,11 +39,11 @@ impl<'a, C> HeaderResolver for VerifierResolver<'a, C>
 where
     C: ChainProvider,
 {
-    fn header(&self) -> &IndexedHeader {
+    fn header(&self) -> &Header {
         self.header
     }
 
-    fn parent(&self) -> Option<&IndexedHeader> {
+    fn parent(&self) -> Option<&Header> {
         self.parent
     }
 
@@ -83,10 +79,10 @@ where
         self.message.headers().unwrap().len() > MAX_HEADERS_LEN
     }
 
-    fn is_continuous(&self, headers: &[IndexedHeader]) -> bool {
+    fn is_continuous(&self, headers: &[Header]) -> bool {
         for window in headers.windows(2) {
             if let [parent, header] = &window {
-                if header.parent_hash != parent.hash() {
+                if header.parent_hash() != parent.hash() {
                     return false;
                 }
             }
@@ -94,13 +90,13 @@ where
         true
     }
 
-    fn received_new_header(&self, headers: &[IndexedHeader]) -> bool {
+    fn received_new_header(&self, headers: &[Header]) -> bool {
         let last = headers.last().expect("empty checked");
         self.synchronizer.get_block_status(&last.hash()) == BlockStatus::UNKNOWN
     }
 
-    pub fn accept_first(&self, first: &IndexedHeader) -> ValidationResult {
-        let parent = self.synchronizer.get_header(&first.parent_hash);
+    pub fn accept_first(&self, first: &Header) -> ValidationResult {
+        let parent = self.synchronizer.get_header(&first.parent_hash());
         let resolver = VerifierResolver::new(parent.as_ref(), &first, &self.synchronizer.chain);
         let verifier = HeaderVerifier::new(resolver, &self.synchronizer.pow);
         let acceptor = HeaderAcceptor::new(first, self.peer, &self.synchronizer, verifier);
@@ -123,7 +119,7 @@ where
 
         let headers = FlatbuffersVectorIterator::new(self.message.headers().unwrap())
             .map(Into::into)
-            .collect::<Vec<IndexedHeader>>();
+            .collect::<Vec<Header>>();
 
         if !self.is_continuous(&headers) {
             self.synchronizer.peers.misbehavior(self.peer, 20);
@@ -175,11 +171,11 @@ where
                     "number={:?}; best_known_header = {:?}; total_difficulty = {:?}\n",
                 ),
                 chain_tip.total_difficulty,
-                chain_tip.header.number,
-                own.header.number,
+                chain_tip.header.number(),
+                own.header.number(),
                 own.hash(),
                 own.total_difficulty,
-                peer_state.as_ref().map(|state| state.header.number),
+                peer_state.as_ref().map(|state| state.header.number()),
                 peer_state.as_ref().map(|state| state.hash()),
                 peer_state.as_ref().map(|state| state.total_difficulty),
             );
@@ -204,7 +200,7 @@ where
 
 #[derive(Clone)]
 pub struct HeaderAcceptor<'a, V, C: 'a> {
-    header: &'a IndexedHeader,
+    header: &'a Header,
     peer: PeerId,
     synchronizer: &'a Synchronizer<C>,
     verifier: V,
@@ -216,7 +212,7 @@ where
     C: ChainProvider + 'a,
 {
     pub fn new(
-        header: &'a IndexedHeader,
+        header: &'a Header,
         peer: PeerId,
         synchronizer: &'a Synchronizer<C>,
         verifier: V,
@@ -242,7 +238,9 @@ where
     }
 
     pub fn prev_block_check(&self, state: &mut ValidationResult) -> Result<(), ()> {
-        let status = self.synchronizer.get_block_status(&self.header.parent_hash);
+        let status = self
+            .synchronizer
+            .get_block_status(&self.header.parent_hash());
 
         if (status & BlockStatus::FAILED_MASK) == status {
             state.dos(Some(ValidationError::InvalidParent), 100);
@@ -254,24 +252,24 @@ where
     pub fn non_contextual_check(&self, state: &mut ValidationResult) -> Result<(), ()> {
         self.verifier.verify().map_err(|error| match error {
             VerifyError::Pow(e) => {
-                debug!(target: "sync", "HeadersProcess accept {:?} pow", self.header.number);
+                debug!(target: "sync", "HeadersProcess accept {:?} pow", self.header.number());
                 state.dos(Some(ValidationError::Verify(VerifyError::Pow(e))), 100);
             }
             VerifyError::Difficulty(e) => {
-                debug!(target: "sync", "HeadersProcess accept {:?} difficulty", self.header.number);
+                debug!(target: "sync", "HeadersProcess accept {:?} difficulty", self.header.number());
                 state.dos(
                     Some(ValidationError::Verify(VerifyError::Difficulty(e))),
                     50,
                 );
             }
             error => {
-                debug!(target: "sync", "HeadersProcess accept {:?} {:?}", self.header.number, error);
+                debug!(target: "sync", "HeadersProcess accept {:?} {:?}", self.header.number(), error);
             }
         })
     }
 
     pub fn version_check(&self, state: &mut ValidationResult) -> Result<(), ()> {
-        if self.header.version != 0 {
+        if self.header.version() != 0 {
             state.invalid(Some(ValidationError::Version));
             Err(())
         } else {
@@ -282,26 +280,26 @@ where
     pub fn accept(&self) -> ValidationResult {
         let mut result = ValidationResult::default();
         if self.duplicate_check(&mut result).is_err() {
-            debug!(target: "sync", "HeadersProcess accept {:?} duplicate", self.header.number);
+            debug!(target: "sync", "HeadersProcess accept {:?} duplicate", self.header.number());
             return result;
         }
 
         if self.prev_block_check(&mut result).is_err() {
-            debug!(target: "sync", "HeadersProcess accept {:?} prev_block", self.header.number);
+            debug!(target: "sync", "HeadersProcess accept {:?} prev_block", self.header.number());
             self.synchronizer
                 .insert_block_status(self.header.hash(), BlockStatus::FAILED_MASK);
             return result;
         }
 
         if self.non_contextual_check(&mut result).is_err() {
-            debug!(target: "sync", "HeadersProcess accept {:?} non_contextual", self.header.number);
+            debug!(target: "sync", "HeadersProcess accept {:?} non_contextual", self.header.number());
             self.synchronizer
                 .insert_block_status(self.header.hash(), BlockStatus::FAILED_MASK);
             return result;
         }
 
         if self.version_check(&mut result).is_err() {
-            debug!(target: "sync", "HeadersProcess accept {:?} version", self.header.number);
+            debug!(target: "sync", "HeadersProcess accept {:?} version", self.header.number());
             self.synchronizer
                 .insert_block_status(self.header.hash(), BlockStatus::FAILED_MASK);
             return result;

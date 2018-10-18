@@ -7,12 +7,11 @@ extern crate bincode;
 extern crate ckb_util;
 extern crate crypto;
 extern crate hash;
-extern crate merkle_root;
 #[macro_use]
 extern crate serde_derive;
 extern crate bit_vec;
 extern crate fnv;
-extern crate rayon;
+extern crate merkle_root;
 
 pub mod block;
 pub mod cell;

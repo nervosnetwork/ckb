@@ -1,7 +1,7 @@
 use bigint::H256;
 use ckb_chain::chain::ChainProvider;
 use ckb_protocol::{FlatbuffersVectorIterator, GetHeaders, SyncMessage};
-use core::header::IndexedHeader;
+use core::header::Header;
 use flatbuffers::FlatBufferBuilder;
 use network::{NetworkContext, PeerId};
 use synchronizer::Synchronizer;
@@ -46,10 +46,10 @@ where
             .synchronizer
             .locate_latest_common_block(&hash_stop, &block_locator_hashes[..])
         {
-            debug!(target: "sync", "\n\nheaders latest_common={} tip={} begin\n\n", block_number, {self.synchronizer.tip_header().number});
+            debug!(target: "sync", "\n\nheaders latest_common={} tip={} begin\n\n", block_number, {self.synchronizer.tip_header().number()});
 
             self.synchronizer.peers.getheaders_received(self.peer);
-            let headers: Vec<IndexedHeader> = self
+            let headers: Vec<Header> = self
                 .synchronizer
                 .get_locator_response(block_number, &hash_stop);
             // response headers

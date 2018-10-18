@@ -17,6 +17,7 @@ extern crate serde_derive;
 extern crate ckb_pow;
 
 use bigint::H256;
+use core::block::Block;
 use core::header::Header;
 use core::transaction::Transaction;
 
@@ -32,14 +33,38 @@ pub use rpc::RpcServer;
 
 #[derive(Serialize)]
 pub struct TransactionWithHash {
-    pub transaction: Transaction,
     pub hash: H256,
+    pub transaction: Transaction,
+}
+
+impl From<Transaction> for TransactionWithHash {
+    fn from(transaction: Transaction) -> Self {
+        Self {
+            hash: transaction.hash(),
+            transaction,
+        }
+    }
 }
 
 #[derive(Serialize)]
-pub struct BlockWithHashedTransactions {
+pub struct BlockWithHash {
+    pub hash: H256,
     pub header: Header,
     pub transactions: Vec<TransactionWithHash>,
+}
+
+impl From<Block> for BlockWithHash {
+    fn from(block: Block) -> Self {
+        Self {
+            header: block.header().clone(),
+            transactions: block
+                .commit_transactions()
+                .iter()
+                .map(|tx| tx.clone().into())
+                .collect(),
+            hash: block.header().hash(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]

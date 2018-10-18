@@ -41,7 +41,7 @@ where
                 .unwrap()
                 .safe_slice()
                 .iter()
-                .filter_map(|i| block.commit_transactions.get(*i as usize).cloned())
+                .filter_map(|i| block.commit_transactions().get(*i as usize).cloned())
                 .map(Into::into)
                 .collect::<Vec<_>>();
             let fbb = &mut FlatBufferBuilder::new();

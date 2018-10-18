@@ -51,6 +51,7 @@ pub fn serialized_addresses<'a, T: Serialize + 'a>(
         .map(|serialized_sizes| generate_addresses_from_sizes(&serialized_sizes))
 }
 
+#[allow(dead_code)]
 pub fn deserialize<'a, T: Deserialize<'a>>(
     bytes: &'a [u8],
     addresses: &'a [Address],

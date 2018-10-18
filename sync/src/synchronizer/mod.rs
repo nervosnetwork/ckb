@@ -22,8 +22,8 @@ use ckb_protocol::{SyncMessage, SyncPayload};
 use ckb_time::now_ms;
 use ckb_verification::{BlockVerifier, Verifier};
 use config::Config;
-use core::block::IndexedBlock;
-use core::header::{BlockNumber, IndexedHeader};
+use core::block::Block;
+use core::header::{BlockNumber, Header};
 use flatbuffers::{get_root, FlatBufferBuilder};
 use futures::future;
 use futures::future::lazy;
@@ -183,13 +183,13 @@ where
     }
 
     pub fn is_initial_block_download(&self) -> bool {
-        now_ms().saturating_sub(self.chain.tip_header().read().header.timestamp) > MAX_TIP_AGE
+        now_ms().saturating_sub(self.chain.tip_header().read().header.timestamp()) > MAX_TIP_AGE
     }
 
-    pub fn get_headers_sync_timeout(&self, tip: &IndexedHeader) -> u64 {
+    pub fn get_headers_sync_timeout(&self, header: &Header) -> u64 {
         HEADERS_DOWNLOAD_TIMEOUT_BASE
             + HEADERS_DOWNLOAD_TIMEOUT_PER_HEADER
-                * (now_ms().saturating_sub(tip.header.timestamp) / POW_SPACE)
+                * (now_ms().saturating_sub(header.timestamp()) / POW_SPACE)
     }
 
     pub fn mark_block_stored(&self, hash: H256) {
@@ -200,14 +200,14 @@ where
             .or_insert_with(|| BlockStatus::BLOCK_HAVE_MASK);
     }
 
-    pub fn tip_header(&self) -> IndexedHeader {
+    pub fn tip_header(&self) -> Header {
         self.chain.tip_header().read().header.clone()
     }
 
-    pub fn get_locator(&self, start: &IndexedHeader) -> Vec<H256> {
+    pub fn get_locator(&self, start: &Header) -> Vec<H256> {
         let mut step = 1;
         let mut locator = Vec::with_capacity(32);
-        let mut index = start.number;
+        let mut index = start.number();
         let base = start.hash();
         loop {
             let header = self
@@ -260,7 +260,7 @@ where
             .get(index - 1)
             .and_then(|hash| self.chain.block_header(&hash))
         {
-            let mut block_hash = header.parent_hash;
+            let mut block_hash = header.parent_hash();
             loop {
                 let block_header = match self.chain.block_header(&block_hash) {
                     None => break latest_common,
@@ -271,7 +271,7 @@ where
                     return Some(block_number);
                 }
 
-                block_hash = block_header.parent_hash;
+                block_hash = block_header.parent_hash();
             }
         } else {
             latest_common
@@ -288,7 +288,7 @@ where
         })
     }
 
-    pub fn get_header(&self, hash: &H256) -> Option<IndexedHeader> {
+    pub fn get_header(&self, hash: &H256) -> Option<Header> {
         self.header_map
             .read()
             .get(hash)
@@ -297,20 +297,20 @@ where
             .or_else(|| self.chain.block_header(&hash))
     }
 
-    pub fn get_block(&self, hash: &H256) -> Option<IndexedBlock> {
+    pub fn get_block(&self, hash: &H256) -> Option<Block> {
         self.chain.block(hash)
     }
 
-    pub fn get_ancestor(&self, base: &H256, number: BlockNumber) -> Option<IndexedHeader> {
+    pub fn get_ancestor(&self, base: &H256, number: BlockNumber) -> Option<Header> {
         if let Some(header) = self.get_header(base) {
-            let mut n_number = header.number;
+            let mut n_number = header.number();
             let mut index_walk = header;
             if number > n_number {
                 return None;
             }
 
             while n_number > number {
-                if let Some(header) = self.get_header(&index_walk.parent_hash) {
+                if let Some(header) = self.get_header(&index_walk.parent_hash()) {
                     index_walk = header;
                     n_number -= 1;
                 } else {
@@ -322,12 +322,8 @@ where
         None
     }
 
-    pub fn get_locator_response(
-        &self,
-        block_number: BlockNumber,
-        hash_stop: &H256,
-    ) -> Vec<IndexedHeader> {
-        let tip_number = self.tip_header().number;
+    pub fn get_locator_response(&self, block_number: BlockNumber, hash_stop: &H256) -> Vec<Header> {
+        let tip_number = self.tip_header().number();
         let max_height = cmp::min(
             block_number + 1 + MAX_HEADERS_LEN as BlockNumber,
             tip_number + 1,
@@ -339,9 +335,9 @@ where
             .collect()
     }
 
-    pub fn insert_header_view(&self, header: &IndexedHeader, peer: PeerId) {
-        if let Some(parent_view) = self.get_header_view(&header.parent_hash) {
-            let total_difficulty = parent_view.total_difficulty + header.difficulty;
+    pub fn insert_header_view(&self, header: &Header, peer: PeerId) {
+        if let Some(parent_view) = self.get_header_view(&header.parent_hash()) {
+            let total_difficulty = parent_view.total_difficulty + header.difficulty();
             let header_view = {
                 let best_known_header = self.best_known_header.upgradable_read();
                 let header_view = HeaderView::new(header.clone(), total_difficulty);
@@ -368,34 +364,32 @@ where
     // of its current best_known_header. Go back enough to fix that.
     pub fn last_common_ancestor(
         &self,
-        last_common_header: &IndexedHeader,
-        best_known_header: &IndexedHeader,
-    ) -> Option<IndexedHeader> {
-        debug_assert!(best_known_header.number >= last_common_header.number);
+        last_common_header: &Header,
+        best_known_header: &Header,
+    ) -> Option<Header> {
+        debug_assert!(best_known_header.number() >= last_common_header.number());
 
         let mut m_right =
-            try_option!(self.get_ancestor(&best_known_header.hash(), last_common_header.number));
+            try_option!(self.get_ancestor(&best_known_header.hash(), last_common_header.number()));
 
         if &m_right == last_common_header {
             return Some(m_right);
         }
 
         let mut m_left = try_option!(self.get_header(&last_common_header.hash()));
-        debug_assert!(m_right.header.number == m_left.header.number);
+        debug_assert!(m_right.number() == m_left.number());
 
         while m_left != m_right {
-            m_left =
-                try_option!(self.get_ancestor(&m_left.header.hash(), m_left.header.number - 1));
-            m_right =
-                try_option!(self.get_ancestor(&m_right.header.hash(), m_right.header.number - 1));
+            m_left = try_option!(self.get_ancestor(&m_left.hash(), m_left.number() - 1));
+            m_right = try_option!(self.get_ancestor(&m_right.hash(), m_right.number() - 1));
         }
         Some(m_left)
     }
 
     //TODO: process block which we don't request
     #[cfg_attr(feature = "cargo-clippy", allow(single_match))]
-    pub fn process_new_block(&self, peer: PeerId, block: IndexedBlock) {
-        match self.get_block_status(&block.hash()) {
+    pub fn process_new_block(&self, peer: PeerId, block: Block) {
+        match self.get_block_status(&block.header().hash()) {
             BlockStatus::VALID_MASK => {
                 self.insert_new_block(peer, block);
             }
@@ -405,24 +399,32 @@ where
         }
     }
 
-    fn accept_block(&self, peer: PeerId, block: &IndexedBlock) -> Result<(), AcceptBlockError> {
+    fn accept_block(&self, peer: PeerId, block: &Block) -> Result<(), AcceptBlockError> {
         BlockVerifier::new(block, &self.chain, &self.pow).verify()?;
         self.chain.process_block(&block)?;
-        self.mark_block_stored(block.hash());
-        self.peers.set_last_common_header(peer, &block.header);
+        self.mark_block_stored(block.header().hash());
+        self.peers.set_last_common_header(peer, block.header());
         Ok(())
     }
 
     //FIXME: guarantee concurrent block process
-    fn insert_new_block(&self, peer: PeerId, block: IndexedBlock) {
-        if self.chain.output_root(&block.header.parent_hash).is_some() {
+    fn insert_new_block(&self, peer: PeerId, block: Block) {
+        if self
+            .chain
+            .output_root(&block.header().parent_hash())
+            .is_some()
+        {
             let accept_ret = self.accept_block(peer, &block);
             if accept_ret.is_ok() {
                 let pre_orphan_block = self
                     .orphan_block_pool
-                    .remove_blocks_by_parent(&block.hash());
+                    .remove_blocks_by_parent(&block.header().hash());
                 for block in pre_orphan_block {
-                    if self.chain.output_root(&block.header.parent_hash).is_some() {
+                    if self
+                        .chain
+                        .output_root(&block.header().parent_hash())
+                        .is_some()
+                    {
                         let ret = self.accept_block(peer, &block);
                         if ret.is_err() {
                             debug!(
@@ -434,8 +436,8 @@ where
                     } else {
                         debug!(
                             target: "sync", "[Synchronizer] insert_orphan_block {:#?}------------{:?}",
-                            block.number(),
-                            block.hash()
+                            block.header().number(),
+                            block.header().hash()
                         );
                         self.orphan_block_pool.insert(block);
                     }
@@ -450,8 +452,8 @@ where
         } else {
             debug!(
                 target: "sync", "[Synchronizer] insert_orphan_block {:#?}------------{:?}",
-                block.number(),
-                block.hash()
+                block.header().number(),
+                block.header().hash()
             );
             self.orphan_block_pool.insert(block);
         }
@@ -481,8 +483,8 @@ where
         self.send_getheaders_to_peer(nc, peer, &tip);
     }
 
-    pub fn send_getheaders_to_peer(&self, nc: &NetworkContext, peer: PeerId, tip: &IndexedHeader) {
-        let locator_hash = self.get_locator(tip);
+    pub fn send_getheaders_to_peer(&self, nc: &NetworkContext, peer: PeerId, header: &Header) {
+        let locator_hash = self.get_locator(header);
         let fbb = &mut FlatBufferBuilder::new();
         let message = SyncMessage::build_get_headers(fbb, &locator_hash);
         fbb.finish(message, None);
@@ -618,14 +620,13 @@ mod tests {
     use ckb_notify::{Event, Notify, MINER_SUBSCRIBER};
     use ckb_pow::DummyPowEngine;
     use ckb_protocol::{Block as FbsBlock, Headers as FbsHeaders};
-    use core::header::{Header, RawHeader, Seal};
-    use core::transaction::{CellInput, CellOutput, IndexedTransaction, Transaction, VERSION};
-    use core::uncle::uncles_hash;
+    use core::block::BlockBuilder;
+    use core::header::{Header, HeaderBuilder};
+    use core::transaction::{CellInput, CellOutput, Transaction, TransactionBuilder};
     use crossbeam_channel;
     use crossbeam_channel::Receiver;
     use db::memorydb::MemoryKeyValueDB;
     use flatbuffers::FlatBufferBuilder;
-    use merkle_root::merkle_root;
     use network::{
         Error as NetworkError, NetworkContext, PacketId, PeerId, ProtocolId, SessionInfo, Severity,
         TimerToken,
@@ -651,86 +652,37 @@ mod tests {
         chain
     }
 
-    fn create_cellbase(number: BlockNumber) -> IndexedTransaction {
-        let inputs = vec![CellInput::new_cellbase_input(number)];
-        let outputs = vec![CellOutput::new(0, vec![], H256::from(0))];
-        Transaction::new(VERSION, Vec::new(), inputs, outputs).into()
+    fn create_cellbase(number: BlockNumber) -> Transaction {
+        TransactionBuilder::default()
+            .input(CellInput::new_cellbase_input(number))
+            .output(CellOutput::new(0, vec![], H256::from(0)))
+            .build()
     }
 
-    fn gen_block(parent_header: IndexedHeader, difficulty: U256, nonce: u64) -> IndexedBlock {
-        let now = 1 + parent_header.timestamp;
-        let number = parent_header.number + 1;
+    fn gen_block(parent_header: Header, difficulty: U256, nonce: u64) -> Block {
+        let now = 1 + parent_header.timestamp();
+        let number = parent_header.number() + 1;
         let cellbase = create_cellbase(number);
-        let cellbase_id = cellbase.hash();
-        let txs = vec![cellbase];
-        let txs_hash = vec![cellbase_id];
-        let txs_commit = merkle_root(txs_hash.as_slice());
-        let uncles = vec![];
-        let uncles_hash = uncles_hash(&uncles);
-        let header = Header {
-            raw: RawHeader {
-                number,
-                cellbase_id,
-                uncles_hash,
-                txs_commit,
-                txs_proposal: H256::zero(),
-                version: 0,
-                parent_hash: parent_header.hash(),
-                timestamp: now,
-                difficulty: difficulty,
-            },
-            seal: Seal {
-                nonce,
-                proof: Default::default(),
-            },
-        };
+        let header_builder = HeaderBuilder::default()
+            .parent_hash(&parent_header.hash())
+            .timestamp(now)
+            .number(number)
+            .difficulty(&difficulty)
+            .cellbase_id(&cellbase.hash())
+            .nonce(nonce);
 
-        IndexedBlock {
-            uncles,
-            header: header.into(),
-            commit_transactions: txs,
-            proposal_transactions: vec![],
-        }
+        BlockBuilder::default()
+            .commit_transaction(cellbase)
+            .with_header_builder(header_builder)
     }
 
     fn insert_block<CS: ChainIndex>(chain: &Chain<CS>, nonce: u64, number: BlockNumber) {
         let parent = chain
             .block_header(&chain.block_hash(number - 1).unwrap())
             .unwrap();
-        let now = 1 + parent.timestamp;
         let difficulty = chain.calculate_difficulty(&parent).unwrap();
-        let cellbase = create_cellbase(number);
-        let cellbase_id = cellbase.hash();
-        let txs = vec![cellbase];
-        let txs_hash: Vec<H256> = txs.iter().map(|t| t.hash()).collect();
-        let txs_commit = merkle_root(txs_hash.as_slice());
+        let block = gen_block(parent, difficulty, nonce);
 
-        let uncles = vec![];
-        let uncles_hash = uncles_hash(&uncles);
-        let header = Header {
-            raw: RawHeader {
-                number,
-                txs_commit,
-                cellbase_id,
-                uncles_hash,
-                version: 0,
-                txs_proposal: H256::zero(),
-                parent_hash: parent.hash(),
-                timestamp: now,
-                difficulty: difficulty,
-            },
-            seal: Seal {
-                nonce,
-                proof: Default::default(),
-            },
-        };
-
-        let block = IndexedBlock {
-            header: header.into(),
-            uncles: vec![],
-            commit_transactions: txs,
-            proposal_transactions: vec![],
-        };
         chain.process_block(&block).expect("process block ok");
     }
 
@@ -810,8 +762,8 @@ mod tests {
         let chain2 = Arc::new(gen_chain(&config, Notify::default()));
         let block_number = 200;
 
-        let mut blocks: Vec<IndexedBlock> = Vec::new();
-        let mut parent = config.genesis_block().header.clone();
+        let mut blocks: Vec<Block> = Vec::new();
+        let mut parent = config.genesis_block().header().clone();
         for i in 1..block_number {
             let difficulty = chain1.calculate_difficulty(&parent).unwrap();
             let new_block = gen_block(parent, difficulty, i);
@@ -820,16 +772,16 @@ mod tests {
             chain1.process_block(&new_block).expect("process block ok");
 
             chain2.process_block(&new_block).expect("process block ok");
-            parent = new_block.header;
+            parent = new_block.header().clone();
         }
 
-        parent = blocks[150].header.clone();
-        let fork = parent.number;
+        parent = blocks[150].header().clone();
+        let fork = parent.number();
         for i in 1..block_number + 1 {
             let difficulty = chain2.calculate_difficulty(&parent).unwrap();
             let new_block = gen_block(parent, difficulty, i + 100);
             chain2.process_block(&new_block).expect("process block ok");
-            parent = new_block.header;
+            parent = new_block.header().clone();
         }
 
         let pow_engine = dummy_pow_engine();
@@ -887,14 +839,14 @@ mod tests {
         let chain2 = Arc::new(gen_chain(&config, Notify::default()));
         let block_number = 2000;
 
-        let mut blocks: Vec<IndexedBlock> = Vec::new();
+        let mut blocks: Vec<Block> = Vec::new();
         let mut parent = chain1.block_header(&chain1.block_hash(0).unwrap()).unwrap();
         for i in 1..block_number {
             let difficulty = chain1.calculate_difficulty(&parent).unwrap();
             let new_block = gen_block(parent, difficulty, i + 100);
             chain1.process_block(&new_block).expect("process block ok");
             blocks.push(new_block.clone());
-            parent = new_block.header;
+            parent = new_block.header().clone();
         }
 
         let synchronizer = Synchronizer::new(&chain2, &dummy_pow_engine(), Config::default());
@@ -904,7 +856,7 @@ mod tests {
         });
 
         assert_eq!(
-            blocks.last().unwrap().header,
+            blocks.last().unwrap().header().clone(),
             chain2.tip_header().read().header
         );
     }
@@ -915,26 +867,26 @@ mod tests {
         let chain = Arc::new(gen_chain(&config, Notify::default()));
         let block_number = 200;
 
-        let mut blocks: Vec<IndexedBlock> = Vec::new();
+        let mut blocks: Vec<Block> = Vec::new();
         let mut parent = chain.block_header(&chain.block_hash(0).unwrap()).unwrap();
         for i in 1..block_number + 1 {
             let difficulty = chain.calculate_difficulty(&parent).unwrap();
             let new_block = gen_block(parent, difficulty, i + 100);
             blocks.push(new_block.clone());
             chain.process_block(&new_block).expect("process block ok");
-            parent = new_block.header;
+            parent = new_block.header().clone();
         }
 
         let synchronizer = Synchronizer::new(&chain, &dummy_pow_engine(), Config::default());
 
         let headers = synchronizer.get_locator_response(180, &H256::zero());
 
-        assert_eq!(headers.first().unwrap(), &blocks[180].header);
-        assert_eq!(headers.last().unwrap(), &blocks[199].header);
+        assert_eq!(headers.first().unwrap(), blocks[180].header());
+        assert_eq!(headers.last().unwrap(), blocks[199].header());
 
         for window in headers.windows(2) {
             if let [parent, header] = &window {
-                assert_eq!(header.parent_hash, parent.hash());
+                assert_eq!(header.parent_hash(), parent.hash());
             }
         }
     }

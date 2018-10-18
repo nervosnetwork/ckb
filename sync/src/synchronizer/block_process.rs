@@ -1,6 +1,5 @@
 use ckb_chain::chain::ChainProvider;
 use ckb_protocol::Block;
-use core::block::IndexedBlock;
 use network::{NetworkContext, PeerId};
 use synchronizer::Synchronizer;
 
@@ -29,7 +28,7 @@ where
     }
 
     pub fn execute(self) {
-        let block: IndexedBlock = (*self.message).into();
+        let block = (*self.message).into();
 
         self.synchronizer.peers.block_received(self.peer, &block);
         self.synchronizer.process_new_block(self.peer, block);

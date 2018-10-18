@@ -15,9 +15,11 @@ extern crate serde_derive;
 extern crate ckb_pow;
 
 use bigint::{H256, U256};
-use chain::consensus::{Consensus, GenesisBuilder};
+use chain::consensus::Consensus;
 use ckb_pow::{Pow, PowEngine};
-use core::transaction::{CellOutput, IndexedTransaction, Transaction};
+use core::block::BlockBuilder;
+use core::header::HeaderBuilder;
+use core::transaction::{CellOutput, Transaction, TransactionBuilder};
 use core::Capacity;
 use std::error::Error;
 use std::fs::File;
@@ -69,7 +71,7 @@ pub struct SystemCell {
     pub path: String,
 }
 
-fn build_system_cell_transaction(cells: &[SystemCell]) -> Result<IndexedTransaction, Box<Error>> {
+fn build_system_cell_transaction(cells: &[SystemCell]) -> Result<Transaction, Box<Error>> {
     let mut outputs = Vec::new();
     for system_cell in cells {
         let mut file = File::open(&system_cell.path)?;
@@ -82,9 +84,7 @@ fn build_system_cell_transaction(cells: &[SystemCell]) -> Result<IndexedTransact
         outputs.push(output);
     }
 
-    let transaction = Transaction::new(0, Vec::new(), Vec::new(), outputs);
-    let hash = transaction.hash();
-    Ok(IndexedTransaction::new(transaction, hash))
+    Ok(TransactionBuilder::default().outputs(outputs).build())
 }
 
 impl ChainSpec {
@@ -110,17 +110,22 @@ impl ChainSpec {
     }
 
     pub fn to_consensus(&self) -> Result<Consensus, Box<Error>> {
-        let genesis_block = GenesisBuilder::new()
+        let header = HeaderBuilder::default()
             .version(self.genesis.version)
-            .parent_hash(self.genesis.parent_hash)
+            .parent_hash(&self.genesis.parent_hash)
             .timestamp(self.genesis.timestamp)
-            .txs_commit(self.genesis.txs_commit)
-            .txs_proposal(self.genesis.txs_proposal)
-            .difficulty(self.genesis.difficulty)
-            .seal(self.genesis.seal.nonce, self.genesis.seal.proof.clone())
-            .cellbase_id(self.genesis.cellbase_id)
-            .uncles_hash(self.genesis.uncles_hash)
-            .add_commit_transaction(build_system_cell_transaction(&self.system_cells)?)
+            .txs_commit(&self.genesis.txs_commit)
+            .txs_proposal(&self.genesis.txs_proposal)
+            .difficulty(&self.genesis.difficulty)
+            .nonce(self.genesis.seal.nonce)
+            .proof(&self.genesis.seal.proof)
+            .cellbase_id(&self.genesis.cellbase_id)
+            .uncles_hash(&self.genesis.uncles_hash)
+            .build();
+
+        let genesis_block = BlockBuilder::default()
+            .commit_transaction(build_system_cell_transaction(&self.system_cells)?)
+            .header(header)
             .build();
 
         let consensus = Consensus::default()

@@ -1,7 +1,7 @@
 use bigint::H256;
 use chain::chain::ChainProvider;
 use core::header::{BlockNumber, Header};
-use core::transaction::{IndexedTransaction, Transaction};
+use core::transaction::Transaction;
 use jsonrpc_core::{IoHandler, Result};
 use jsonrpc_http_server::ServerBuilder;
 use jsonrpc_server_utils::cors::AccessControlAllowOrigin;
@@ -10,7 +10,7 @@ use miner::{build_block_template, BlockTemplate};
 use network::NetworkService;
 use pool::TransactionPool;
 use std::sync::Arc;
-use {BlockWithHashedTransactions, Config, TransactionWithHash};
+use {BlockWithHash, Config, TransactionWithHash};
 
 build_rpc_trait! {
     pub trait Rpc {
@@ -20,11 +20,11 @@ build_rpc_trait! {
 
         // curl -d '{"id": 2, "jsonrpc": "2.0", "method":"get_block","params": ["0x0f9da6db98d0acd1ae0cf7ae3ee0b2b5ad2855d93c18d27c0961f985a62a93c3"]}' -H 'content-type:application/json' 'http://localhost:3030'
         #[rpc(name = "get_block")]
-        fn get_block(&self, H256) -> Result<Option<BlockWithHashedTransactions>>;
+        fn get_block(&self, H256) -> Result<Option<BlockWithHash>>;
 
         // curl -d '{"id": 2, "jsonrpc": "2.0", "method":"get_transaction","params": ["0x0f9da6db98d0acd1ae0cf7ae3ee0b2b5ad2855d93c18d27c0961f985a62a93c3"]}' -H 'content-type:application/json' 'http://localhost:3030'
         #[rpc(name = "get_transaction")]
-        fn get_transaction(&self, H256) -> Result<Option<Transaction>>;
+        fn get_transaction(&self, H256) -> Result<Option<TransactionWithHash>>;
 
         // curl -d '{"id": 2, "jsonrpc": "2.0", "method":"get_block_hash","params": [1]}' -H 'content-type:application/json' 'http://localhost:3030'
         #[rpc(name = "get_block_hash")]
@@ -48,9 +48,8 @@ struct RpcImpl<C> {
 
 impl<C: ChainProvider + 'static> Rpc for RpcImpl<C> {
     fn send_transaction(&self, tx: Transaction) -> Result<H256> {
-        let indexed_tx: IndexedTransaction = tx.into();
-        let result = indexed_tx.hash();
-        let pool_result = self.tx_pool.add_transaction(indexed_tx.clone());
+        let result = tx.hash();
+        let pool_result = self.tx_pool.add_transaction(tx);
         debug!(target: "rpc", "send_transaction add to pool result: {:?}", pool_result);
         // TODO PENDING new api NetworkContext#connected_peers
         // for peer_id in self.nc.connected_peers() {
@@ -60,36 +59,20 @@ impl<C: ChainProvider + 'static> Rpc for RpcImpl<C> {
         Ok(result)
     }
 
-    fn get_block(&self, hash: H256) -> Result<Option<BlockWithHashedTransactions>> {
-        Ok(self
-            .chain
-            .block(&hash)
-            .map(|block| BlockWithHashedTransactions {
-                header: block.header.into(),
-                transactions: block
-                    .commit_transactions
-                    .into_iter()
-                    .map(|transaction| {
-                        let hash = transaction.hash();
-                        TransactionWithHash {
-                            transaction: transaction.into(),
-                            hash,
-                        }
-                    }).collect(),
-            }))
+    fn get_block(&self, hash: H256) -> Result<Option<BlockWithHash>> {
+        Ok(self.chain.block(&hash).map(Into::into))
     }
 
-    fn get_transaction(&self, hash: H256) -> Result<Option<Transaction>> {
-        Ok(self.chain.get_transaction(&hash).map(|t| t.transaction))
+    fn get_transaction(&self, hash: H256) -> Result<Option<TransactionWithHash>> {
+        Ok(self.chain.get_transaction(&hash).map(Into::into))
     }
 
     fn get_block_hash(&self, number: BlockNumber) -> Result<Option<H256>> {
         Ok(self.chain.block_hash(number))
     }
 
-    // what's happening 😨
     fn get_tip_header(&self) -> Result<Header> {
-        Ok(self.chain.tip_header().read().header.header.clone())
+        Ok(self.chain.tip_header().read().header.clone())
     }
 
     // TODO: the max size

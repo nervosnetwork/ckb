@@ -8,7 +8,7 @@ use ckb_notify::Notify;
 use ckb_pow::PowEngine;
 use clap::ArgMatches;
 use core::script::Script;
-use core::transaction::{CellInput, OutPoint, Transaction};
+use core::transaction::{CellInput, OutPoint, Transaction, TransactionBuilder};
 use crypto::secp::{Generator, Privkey};
 use db::diskdb::RocksDB;
 use hash::sha3_256;
@@ -135,7 +135,7 @@ fn setup_rpc<C: ChainProvider + 'static>(
 
 pub fn sign(setup: &Setup, matches: &ArgMatches) {
     let consensus = setup.chain_spec.to_consensus().unwrap();
-    let system_cell_tx_hash = consensus.genesis_block().commit_transactions[0].hash();
+    let system_cell_tx_hash = consensus.genesis_block().commit_transactions()[0].hash();
     let system_cell_outpoint = OutPoint::new(system_cell_tx_hash, 0);
 
     let privkey: Privkey = value_t!(matches.value_of("private-key"), H256)
@@ -145,13 +145,8 @@ pub fn sign(setup: &Setup, matches: &ArgMatches) {
     let json =
         value_t!(matches.value_of("unsigned-transaction"), String).unwrap_or_else(|e| e.exit());
     let transaction: Transaction = serde_json::from_str(&json).unwrap();
-    let mut result = transaction.clone();
-
-    // First, add verify system cell as a dep
-    result.deps.push(system_cell_outpoint);
-    // Then, sign each input
     let mut inputs = Vec::new();
-    for unsigned_input in result.inputs {
+    for unsigned_input in transaction.inputs() {
         let mut bytes = vec![];
         for argument in &unsigned_input.unlock.arguments {
             bytes.write_all(argument).unwrap();
@@ -172,13 +167,20 @@ pub fn sign(setup: &Setup, matches: &ArgMatches) {
         let signed_input = CellInput::new(unsigned_input.previous_output, script);
         inputs.push(signed_input);
     }
-    result.inputs = inputs;
+    // First, add verify system cell as a dep
+    // Then, sign each input
+    let result = TransactionBuilder::default()
+        .transaction(transaction)
+        .dep(system_cell_outpoint)
+        .inputs(inputs)
+        .build();
+
     println!("{}", serde_json::to_string(&result).unwrap());
 }
 
 pub fn redeem_script_hash(setup: &Setup, matches: &ArgMatches) {
     let consensus = setup.chain_spec.to_consensus().unwrap();
-    let system_cell_tx_hash = consensus.genesis_block().commit_transactions[0].hash();
+    let system_cell_tx_hash = consensus.genesis_block().commit_transactions()[0].hash();
     let system_cell_outpoint = OutPoint::new(system_cell_tx_hash, 0);
 
     let privkey: Privkey = value_t!(matches.value_of("private-key"), H256)

@@ -38,10 +38,7 @@ impl PowEngine for Clicker {
     }
 
     fn solve_header(&self, _header: &RawHeader, _nonce: u64) -> Option<Seal> {
-        self.rx.recv().map(|nonce| Seal {
-            nonce,
-            proof: vec![],
-        })
+        self.rx.recv().map(|nonce| Seal::new(nonce, vec![]))
     }
 
     fn solve(&self, _number: BlockNumber, _message: &[u8]) -> Option<Vec<u8>> {

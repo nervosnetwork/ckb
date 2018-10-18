@@ -3,9 +3,9 @@ use ckb_chain::chain::{ChainBuilder, ChainProvider};
 use ckb_chain::store::ChainKVStore;
 use ckb_db::memorydb::MemoryKeyValueDB;
 use ckb_notify::{ForkBlocks, Notify};
-use core::block::{Block, IndexedBlock};
+use core::block::{Block, BlockBuilder};
 use core::cell::{CellProvider, CellStatus};
-use core::header::{Header, RawHeader};
+use core::header::HeaderBuilder;
 use core::script::Script;
 use core::transaction::*;
 use std::fs::File;
@@ -67,9 +67,11 @@ fn test_proposal_pool() {
     prop_ids.push(txs[20].proposal_short_id());
     prop_ids.push(txs[0].proposal_short_id());
 
-    let mut block: IndexedBlock = Block::default().into();
-    block.header.number = block_number + 1;
-    block.proposal_transactions = prop_ids.clone();
+    let header = HeaderBuilder::default().number(block_number + 1).build();
+    let block = BlockBuilder::default()
+        .header(header)
+        .proposal_transactions(prop_ids)
+        .build();
 
     pool.reconcile_block(&block);
 
@@ -152,29 +154,23 @@ fn test_add_pool() {
 #[test]
 pub fn test_cellbase_spent() {
     let (chain, pool, _tx_hash) = test_setup();
-    let cellbase_tx: IndexedTransaction = Transaction::new(
-        0,
-        Vec::new(),
-        vec![CellInput::new_cellbase_input(
-            chain.tip_header().read().header.raw.number + 1,
-        )],
-        vec![CellOutput::new(
+    let cellbase_tx: Transaction = TransactionBuilder::default()
+        .input(CellInput::new_cellbase_input(
+            chain.tip_header().read().header.number() + 1,
+        )).output(CellOutput::new(
             50000,
             Vec::new(),
             create_valid_script().redeem_script_hash(),
-        )],
-    ).into();
+        )).build();
+
     apply_transactions(vec![cellbase_tx.clone()], vec![], &chain);
 
-    let valid_tx = Transaction::new(
-        0,
-        Vec::new(),
-        vec![CellInput::new(
+    let valid_tx = TransactionBuilder::default()
+        .input(CellInput::new(
             OutPoint::new(cellbase_tx.hash(), 0),
             create_valid_script(),
-        )],
-        vec![CellOutput::new(50000, Vec::new(), H256::default())],
-    );
+        )).output(CellOutput::new(50000, Vec::new(), H256::default()))
+        .build();
 
     match pool.add_to_pool(valid_tx.into()) {
         Ok(_) => {}
@@ -395,25 +391,23 @@ fn test_switch_fork() {
 
     let prop_ids: Vec<ProposalShortId> = txs.iter().map(|x| x.proposal_short_id()).collect();
 
-    let mut block01: IndexedBlock = Block::default().into();
-    block01.header.number = block_number + 1;
-    block01.proposal_transactions = vec![prop_ids[0], prop_ids[1]];
-    block01.commit_transactions = vec![];
+    let block01 = BlockBuilder::default()
+        .proposal_transactions(vec![prop_ids[0], prop_ids[1]])
+        .with_header_builder(HeaderBuilder::default().number(block_number + 1));
 
-    let mut block02: IndexedBlock = Block::default().into();
-    block02.header.number = block_number + 2;
-    block02.proposal_transactions = vec![prop_ids[2], prop_ids[3]];
-    block02.commit_transactions = vec![txs[0].clone()];
+    let block02 = BlockBuilder::default()
+        .proposal_transactions(vec![prop_ids[2], prop_ids[3]])
+        .commit_transaction(txs[0].clone())
+        .with_header_builder(HeaderBuilder::default().number(block_number + 2));
 
-    let mut block11: IndexedBlock = Block::default().into();
-    block11.header.number = block_number + 1;
-    block11.proposal_transactions = vec![prop_ids[3], prop_ids[4]];
-    block11.commit_transactions = vec![];
+    let block11 = BlockBuilder::default()
+        .proposal_transactions(vec![prop_ids[3], prop_ids[4]])
+        .with_header_builder(HeaderBuilder::default().number(block_number + 1));
 
-    let mut block12: IndexedBlock = Block::default().into();
-    block12.header.number = block_number + 2;
-    block12.proposal_transactions = vec![prop_ids[5], prop_ids[6]];
-    block12.commit_transactions = vec![txs[4].clone()];
+    let block12 = BlockBuilder::default()
+        .proposal_transactions(vec![prop_ids[5], prop_ids[6]])
+        .commit_transaction(txs[4].clone())
+        .with_header_builder(HeaderBuilder::default().number(block_number + 2));
 
     pool.reconcile_block(&block01);
     pool.reconcile_block(&block02);
@@ -453,24 +447,27 @@ fn test_setup() -> (
     );
 
     let default_script_hash = create_valid_script().redeem_script_hash();
-    let tx: IndexedTransaction = Transaction::new(
-        0,
-        Vec::new(),
-        vec![CellInput::new(OutPoint::null(), Default::default())],
-        vec![CellOutput::new(100_000_000, Vec::new(), default_script_hash.clone()); 100],
-    ).into();
+    let tx = TransactionBuilder::default()
+        .input(CellInput::new(OutPoint::null(), Default::default()))
+        .outputs(vec![
+            CellOutput::new(
+                100_000_000,
+                Vec::new(),
+                default_script_hash.clone()
+            );
+            100
+        ]).build();
+
     let transactions = vec![tx.clone()];
     apply_transactions(transactions, vec![], &chain);
     (chain, pool, tx.hash())
 }
 
 fn apply_transactions(
-    transactions: Vec<IndexedTransaction>,
+    transactions: Vec<Transaction>,
     prop_ids: Vec<ProposalShortId>,
     chain: &Arc<impl ChainProvider>,
-) -> IndexedBlock {
-    let time = now_ms();
-
+) -> Block {
     let cellbase_id = if let Some(cellbase) = transactions.first() {
         cellbase.hash()
     } else {
@@ -479,30 +476,23 @@ fn apply_transactions(
 
     let parent = { chain.tip_header().read().header.clone() };
 
-    let header = Header {
-        raw: RawHeader::new(
-            &parent,
-            transactions.iter(),
-            vec![].iter(),
-            time,
-            chain.calculate_difficulty(&parent).unwrap(),
-            cellbase_id,
-            H256::zero(),
-        ),
-        seal: Default::default(),
-    };
+    let header_builder = HeaderBuilder::default()
+        .parent_hash(&parent.hash())
+        .number(parent.number() + 1)
+        .timestamp(now_ms())
+        .cellbase_id(&cellbase_id)
+        .difficulty(&chain.calculate_difficulty(&parent).unwrap());
 
-    let block = IndexedBlock {
-        header: header.into(),
-        uncles: vec![],
-        commit_transactions: transactions,
-        proposal_transactions: prop_ids,
-    };
+    let block = BlockBuilder::default()
+        .commit_transactions(transactions)
+        .proposal_transactions(prop_ids)
+        .with_header_builder(header_builder);
+
     chain.process_block(&block).unwrap();
     block
 }
 
-fn test_transaction(input_values: Vec<OutPoint>, output_num: usize) -> IndexedTransaction {
+fn test_transaction(input_values: Vec<OutPoint>, output_num: usize) -> Transaction {
     test_transaction_with_capacity(input_values, output_num, 100_000)
 }
 
@@ -510,7 +500,7 @@ fn test_transaction_with_capacity(
     input_values: Vec<OutPoint>,
     output_num: usize,
     capacity: u64,
-) -> IndexedTransaction {
+) -> Transaction {
     let inputs: Vec<CellInput> = input_values
         .iter()
         .map(|x| CellInput::new(x.clone(), create_valid_script()))
@@ -521,7 +511,10 @@ fn test_transaction_with_capacity(
     output.lock = create_valid_script().redeem_script_hash();
     let outputs: Vec<CellOutput> = vec![output.clone(); output_num];
 
-    Transaction::new(0, Vec::new(), inputs, outputs).into()
+    TransactionBuilder::default()
+        .inputs(inputs)
+        .outputs(outputs)
+        .build()
 }
 
 // Since the main point here is to test pool functionality, not scripting

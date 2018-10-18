@@ -1,17 +1,16 @@
-use super::header::{Header, IndexedHeader};
-use super::transaction::{IndexedTransaction, ProposalShortId, Transaction};
 use bigint::H256;
 use fnv::FnvHashSet;
-use rayon::iter::{IntoParallelIterator, ParallelIterator};
+use header::{Header, HeaderBuilder};
+use merkle_root::merkle_root;
+use transaction::{ProposalShortId, Transaction};
 use uncle::{uncles_hash, UncleBlock};
-use BlockNumber;
 
-#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Default, Debug)]
+#[derive(Clone, Serialize, Deserialize, Eq, Default, Debug)]
 pub struct Block {
-    pub header: Header,
-    pub uncles: Vec<UncleBlock>,
-    pub commit_transactions: Vec<Transaction>,
-    pub proposal_transactions: Vec<ProposalShortId>,
+    header: Header,
+    uncles: Vec<UncleBlock>,
+    commit_transactions: Vec<Transaction>,
+    proposal_transactions: Vec<ProposalShortId>,
 }
 
 impl Block {
@@ -33,14 +32,6 @@ impl Block {
         &self.header
     }
 
-    pub fn number(&self) -> BlockNumber {
-        self.header.number
-    }
-
-    pub fn hash(&self) -> H256 {
-        self.header.hash()
-    }
-
     pub fn is_genesis(&self) -> bool {
         self.header.is_genesis()
     }
@@ -60,23 +51,21 @@ impl Block {
     pub fn cal_uncles_hash(&self) -> H256 {
         uncles_hash(&self.uncles)
     }
-}
 
-#[derive(Clone, Eq, Default, Debug)]
-pub struct IndexedBlock {
-    pub header: IndexedHeader,
-    pub uncles: Vec<UncleBlock>,
-    pub commit_transactions: Vec<IndexedTransaction>,
-    pub proposal_transactions: Vec<ProposalShortId>,
-}
+    pub fn union_proposal_ids(&self) -> Vec<ProposalShortId> {
+        let mut ids = FnvHashSet::default();
 
-impl PartialEq for IndexedBlock {
-    fn eq(&self, other: &IndexedBlock) -> bool {
-        self.header == other.header
+        ids.extend(self.proposal_transactions.clone());
+
+        for uc in self.uncles.clone() {
+            ids.extend(uc.proposal_transactions());
+        }
+
+        ids.into_iter().collect()
     }
 }
 
-impl ::std::hash::Hash for IndexedBlock {
+impl ::std::hash::Hash for Block {
     fn hash<H>(&self, state: &mut H)
     where
         H: ::std::hash::Hasher,
@@ -86,103 +75,88 @@ impl ::std::hash::Hash for IndexedBlock {
     }
 }
 
-impl IndexedBlock {
-    pub fn new(
-        header: IndexedHeader,
-        uncles: Vec<UncleBlock>,
-        commit_transactions: Vec<IndexedTransaction>,
-        proposal_transactions: Vec<ProposalShortId>,
-    ) -> IndexedBlock {
-        IndexedBlock {
-            header,
-            uncles,
-            commit_transactions,
-            proposal_transactions,
-        }
-    }
-
-    pub fn hash(&self) -> H256 {
-        self.header.hash()
-    }
-
-    pub fn number(&self) -> BlockNumber {
-        self.header.number
-    }
-
-    pub fn header(&self) -> &IndexedHeader {
-        &self.header
-    }
-
-    pub fn is_genesis(&self) -> bool {
-        self.header.is_genesis()
-    }
-
-    pub fn uncles(&self) -> &[UncleBlock] {
-        &self.uncles
-    }
-
-    pub fn commit_transactions(&self) -> &[IndexedTransaction] {
-        &self.commit_transactions
-    }
-
-    pub fn proposal_transactions(&self) -> &[ProposalShortId] {
-        &self.proposal_transactions
-    }
-
-    pub fn union_proposal_ids(&self) -> Vec<ProposalShortId> {
-        let mut ids = FnvHashSet::default();
-
-        ids.extend(self.proposal_transactions.clone());
-
-        for uc in &self.uncles {
-            ids.extend(uc.proposal_transactions.clone());
-        }
-
-        ids.into_iter().collect()
-    }
-
-    pub fn cal_uncles_hash(&self) -> H256 {
-        uncles_hash(&self.uncles)
-    }
-
-    pub fn finalize_dirty(&mut self) {
-        self.header.finalize_dirty()
+impl PartialEq for Block {
+    fn eq(&self, other: &Block) -> bool {
+        self.header().hash() == other.header().hash()
     }
 }
 
-impl From<Block> for IndexedBlock {
-    fn from(block: Block) -> Self {
-        let Block {
-            header,
-            uncles,
-            commit_transactions,
-            proposal_transactions,
-        } = block;
-        IndexedBlock {
-            header: header.into(),
-            uncles,
-            commit_transactions: commit_transactions
-                .into_par_iter()
-                .map(Into::into)
-                .collect(),
-            proposal_transactions,
-        }
-    }
+#[derive(Default)]
+pub struct BlockBuilder {
+    inner: Block,
 }
 
-impl From<IndexedBlock> for Block {
-    fn from(block: IndexedBlock) -> Self {
-        let IndexedBlock {
-            header,
-            uncles,
-            commit_transactions,
-            proposal_transactions,
-        } = block;
-        Block {
-            header: header.header,
-            uncles,
-            commit_transactions: commit_transactions.into_iter().map(Into::into).collect(),
-            proposal_transactions,
-        }
+impl BlockBuilder {
+    pub fn block(mut self, block: Block) -> Self {
+        self.inner = block;
+        self
+    }
+
+    pub fn header(mut self, header: Header) -> Self {
+        self.inner.header = header;
+        self
+    }
+
+    pub fn uncle(mut self, uncle: UncleBlock) -> Self {
+        self.inner.uncles.push(uncle);
+        self
+    }
+
+    pub fn uncles(mut self, uncles: Vec<UncleBlock>) -> Self {
+        self.inner.uncles.extend(uncles);
+        self
+    }
+
+    pub fn commit_transaction(mut self, transaction: Transaction) -> Self {
+        self.inner.commit_transactions.push(transaction);
+        self
+    }
+
+    pub fn commit_transactions(mut self, transactions: Vec<Transaction>) -> Self {
+        self.inner.commit_transactions.extend(transactions);
+        self
+    }
+
+    pub fn proposal_transaction(mut self, proposal_short_id: ProposalShortId) -> Self {
+        self.inner.proposal_transactions.push(proposal_short_id);
+        self
+    }
+
+    pub fn proposal_transactions(mut self, proposal_short_ids: Vec<ProposalShortId>) -> Self {
+        self.inner.proposal_transactions.extend(proposal_short_ids);
+        self
+    }
+
+    pub fn build(self) -> Block {
+        self.inner
+    }
+
+    pub fn with_header_builder(mut self, header_builder: HeaderBuilder) -> Block {
+        let txs_commit = merkle_root(
+            &self
+                .inner
+                .commit_transactions
+                .iter()
+                .map(|t| t.hash())
+                .collect::<Vec<_>>(),
+        );
+
+        let txs_proposal = merkle_root(
+            &self
+                .inner
+                .proposal_transactions
+                .iter()
+                .map(|t| t.hash())
+                .collect::<Vec<_>>(),
+        );
+
+        let uncles_hash = uncles_hash(&self.inner.uncles);
+
+        self.inner.header = header_builder
+            .txs_commit(&txs_commit)
+            .txs_proposal(&txs_proposal)
+            .uncles_hash(&uncles_hash)
+            .build();
+        self.inner
     }
 }

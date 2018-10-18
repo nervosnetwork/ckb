@@ -1,7 +1,7 @@
 use super::header_view::HeaderView;
 use bigint::H256;
 use ckb_chain::chain::{ChainProvider, TipHeader};
-use core::header::IndexedHeader;
+use core::header::Header;
 use network::PeerId;
 use std::cmp;
 use synchronizer::{BlockStatus, Synchronizer};
@@ -55,7 +55,7 @@ where
             .cloned()
     }
 
-    pub fn last_common_header(&self, best: &HeaderView) -> Option<IndexedHeader> {
+    pub fn last_common_header(&self, best: &HeaderView) -> Option<Header> {
         let guard = self
             .synchronizer
             .peers
@@ -63,9 +63,9 @@ where
             .upgradable_read();
 
         let last_common_header = try_option!(guard.get(&self.peer).cloned().or_else(|| {
-            if best.header.number < self.tip_header.header.number {
+            if best.header.number() < self.tip_header.header.number() {
                 let last_common_hash =
-                    try_option!(self.synchronizer.chain.block_hash(best.header.number));
+                    try_option!(self.synchronizer.chain.block_hash(best.header.number()));
                 self.synchronizer.chain.block_header(&last_common_hash)
             } else {
                 Some(self.tip_header.header.clone())
@@ -94,7 +94,7 @@ where
         let global_best_known_header = { self.synchronizer.best_known_header.read().clone() };
         if let Some(ancestor) = self.synchronizer.get_ancestor(
             &global_best_known_header.header.hash(),
-            header.header.number,
+            header.header.number(),
         ) {
             if ancestor != header.header {
                 debug!(
@@ -152,16 +152,16 @@ where
         debug!(
             target: "sync",
             "[block downloader] fixed_last_common_header = {} best_known_header = {}",
-            fixed_last_common_header.number,
-            best_known_header.header.number
+            fixed_last_common_header.number(),
+            best_known_header.header.number()
         );
 
-        debug_assert!(best_known_header.header.number > fixed_last_common_header.number);
+        debug_assert!(best_known_header.header.number() > fixed_last_common_header.number());
 
-        let window_end = fixed_last_common_header.number + BLOCK_DOWNLOAD_WINDOW;
-        let max_height = cmp::min(window_end + 1, best_known_header.header.number);
+        let window_end = fixed_last_common_header.number() + BLOCK_DOWNLOAD_WINDOW;
+        let max_height = cmp::min(window_end + 1, best_known_header.header.number());
 
-        let mut n_height = fixed_last_common_header.number;
+        let mut n_height = fixed_last_common_header.number();
         let mut v_fetch = Vec::with_capacity(PER_FETCH_BLOCK_LIMIT);
 
         {
@@ -174,13 +174,13 @@ where
                     self.synchronizer
                         .get_ancestor(&best_known_header.header.hash(), n_height)
                 );
-                let to_fetch_hash = to_fetch.header.hash();
+                let to_fetch_hash = to_fetch.hash();
 
                 let block_status = self.synchronizer.get_block_status(&to_fetch_hash);
                 if block_status == BlockStatus::VALID_MASK && inflight.insert(to_fetch_hash) {
                     debug!(
                         target: "sync", "[Synchronizer] inflight insert {:#?}------------{:?}",
-                        to_fetch.header.number,
+                        to_fetch.number(),
                         to_fetch_hash
                     );
                     v_fetch.push(to_fetch_hash);

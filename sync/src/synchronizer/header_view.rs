@@ -1,15 +1,15 @@
 use bigint::{H256, U256};
-use core::header::IndexedHeader;
+use core::header::Header;
 use std::cmp::Ordering;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct HeaderView {
-    pub header: IndexedHeader,
+    pub header: Header,
     pub total_difficulty: U256,
 }
 
 impl HeaderView {
-    pub fn new(header: IndexedHeader, total_difficulty: U256) -> Self {
+    pub fn new(header: Header, total_difficulty: U256) -> Self {
         HeaderView {
             header,
             total_difficulty,

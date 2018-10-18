@@ -3,9 +3,9 @@ use bigint::H256;
 use ckb_chain::chain::ChainProvider;
 use ckb_notify::{Event, ForkBlocks, Notify, TXS_POOL_SUBSCRIBER};
 use ckb_verification::{TransactionError, TransactionVerifier};
-use core::block::IndexedBlock;
+use core::block::Block;
 use core::cell::{CellProvider, CellStatus};
-use core::transaction::{IndexedTransaction, OutPoint, ProposalShortId};
+use core::transaction::{OutPoint, ProposalShortId, Transaction};
 use core::BlockNumber;
 use crossbeam_channel;
 use lru_cache::LruCache;
@@ -26,7 +26,7 @@ pub struct TransactionPool<T> {
     /// Orphans in the pool
     pub orphan: RwLock<Orphan>,
     /// cache for conflict transaction
-    pub cache: RwLock<LruCache<ProposalShortId, IndexedTransaction>>,
+    pub cache: RwLock<LruCache<ProposalShortId, Transaction>>,
     /// chain will offer to the pool
     pub chain: Arc<T>,
 
@@ -112,8 +112,8 @@ where
             let mut cache = self.cache.write();
 
             for b in blks.old_blks() {
-                let bn = b.number();
-                let mut txs = b.commit_transactions.clone();
+                let bn = b.header().number();
+                let mut txs = b.commit_transactions().to_vec();
                 txs.reverse();
 
                 //remove proposed id, txs can be already in pool
@@ -156,7 +156,7 @@ where
                     if tx.is_cellbase() {
                         continue;
                     }
-                    pool.add_transaction(tx);
+                    pool.add_transaction(tx.clone());
                 }
             }
             // We may not need readd timeout transactions in pool, because new main chain is mostly longer
@@ -175,7 +175,7 @@ where
             || self.proposed.read().contains_key(id)
     }
 
-    pub fn get(&self, id: &ProposalShortId) -> Option<IndexedTransaction> {
+    pub fn get(&self, id: &ProposalShortId) -> Option<Transaction> {
         self.pending
             .read()
             .get(id)
@@ -216,7 +216,7 @@ where
         self.pool_size() + self.orphan_size()
     }
 
-    pub fn add_transaction(&self, tx: IndexedTransaction) -> Result<InsertionResult, PoolError> {
+    pub fn add_transaction(&self, tx: Transaction) -> Result<InsertionResult, PoolError> {
         let _guard = self.lock.lock();
         match { self.proposed.write().insert(tx) } {
             TxStage::Mineable(x) => self.add_to_pool(x),
@@ -233,7 +233,7 @@ where
         self.pending.read().fetch(n)
     }
 
-    pub fn propose_transaction(&self, bn: BlockNumber, tx: IndexedTransaction) {
+    pub fn propose_transaction(&self, bn: BlockNumber, tx: Transaction) {
         let _guard = self.lock.lock();
         match { self.proposed.write().insert_with_n(bn, tx) } {
             TxStage::Mineable(x) => {
@@ -246,20 +246,20 @@ where
         };
     }
 
-    pub fn get_mineable_transactions(&self, max: usize) -> Vec<IndexedTransaction> {
+    pub fn get_mineable_transactions(&self, max: usize) -> Vec<Transaction> {
         let _guard = self.lock.lock();
         self.pool.read().get_mineable_transactions(max)
     }
 
     // Get all transactions that can be in next block, cache should added
-    pub fn get_potential_transactions(&self) -> Vec<IndexedTransaction> {
+    pub fn get_potential_transactions(&self) -> Vec<Transaction> {
         let _guard = self.lock.lock();
         let pool = self.pool.read();
         pool.get_mineable_transactions(pool.size())
     }
 
     /// Attempts to add a transaction to the memory pool.
-    pub fn add_to_pool(&self, tx: IndexedTransaction) -> Result<InsertionResult, PoolError> {
+    pub fn add_to_pool(&self, tx: Transaction) -> Result<InsertionResult, PoolError> {
         // Do we have the capacity to accept this transaction?
         self.is_acceptable()?;
 
@@ -330,7 +330,7 @@ where
     }
 
     /// Updates the pool and orphan pool with new transactions.
-    pub fn reconcile_orphan(&self, tx: &IndexedTransaction) {
+    pub fn reconcile_orphan(&self, tx: &Transaction) {
         let txs = { self.orphan.write().reconcile_transaction(tx) };
 
         for tx in txs {
@@ -346,9 +346,9 @@ where
 
     /// Updates the pool with the details of a new block.
     // TODO: call it in order
-    pub fn reconcile_block(&self, b: &IndexedBlock) {
-        let txs = &b.commit_transactions;
-        let bn = b.number();
+    pub fn reconcile_block(&self, b: &Block) {
+        let txs = b.commit_transactions();
+        let bn = b.header().number();
         let ids = b.union_proposal_ids();
 
         // must do this first
@@ -413,7 +413,7 @@ where
         }
     }
 
-    pub fn resolve_conflict(&self, tx: &IndexedTransaction) {
+    pub fn resolve_conflict(&self, tx: &Transaction) {
         if tx.is_cellbase() {
             return;
         }
@@ -430,7 +430,7 @@ where
     }
 
     // Check that the transaction is not in the pool or chain
-    fn check_duplicate(&self, tx: &IndexedTransaction) -> Result<(), PoolError> {
+    fn check_duplicate(&self, tx: &Transaction) -> Result<(), PoolError> {
         let h = tx.hash();
 
         {
