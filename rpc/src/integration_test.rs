@@ -136,9 +136,8 @@ impl<C: ChainProvider + 'static> IntegrationTestRpc for RpcImpl<C> {
         Ok(self.network.external_url())
     }
 
-    fn add_node(&self, node_id: String) -> Result<()> {
-        let _ = self.network.add_peer(&node_id);
-        Ok(())
+    fn add_node(&self, _node_id: String) -> Result<()> {
+        unimplemented!()
     }
 }
 

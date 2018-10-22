@@ -4,7 +4,7 @@ use ckb_protocol::{FlatbuffersVectorIterator, Headers};
 use ckb_verification::{Error as VerifyError, HeaderResolver, HeaderVerifier, Verifier};
 use core::header::Header;
 use log;
-use network::{NetworkContext, PeerId};
+use network::{CKBProtocolContext, PeerIndex};
 use std::sync::Arc;
 use synchronizer::{BlockStatus, Synchronizer};
 use MAX_HEADERS_LEN;
@@ -12,8 +12,8 @@ use MAX_HEADERS_LEN;
 pub struct HeadersProcess<'a, C: 'a> {
     message: &'a Headers<'a>,
     synchronizer: &'a Synchronizer<C>,
-    peer: PeerId,
-    nc: &'a NetworkContext,
+    peer: PeerIndex,
+    nc: &'a CKBProtocolContext,
 }
 
 pub struct VerifierResolver<'a, C> {
@@ -60,8 +60,8 @@ where
     pub fn new(
         message: &'a Headers,
         synchronizer: &'a Synchronizer<C>,
-        peer: PeerId,
-        nc: &'a NetworkContext,
+        peer: PeerIndex,
+        nc: &'a CKBProtocolContext,
     ) -> Self {
         HeadersProcess {
             message,
@@ -201,7 +201,7 @@ where
 #[derive(Clone)]
 pub struct HeaderAcceptor<'a, V, C: 'a> {
     header: &'a Header,
-    peer: PeerId,
+    peer: PeerIndex,
     synchronizer: &'a Synchronizer<C>,
     verifier: V,
 }
@@ -213,7 +213,7 @@ where
 {
     pub fn new(
         header: &'a Header,
-        peer: PeerId,
+        peer: PeerIndex,
         synchronizer: &'a Synchronizer<C>,
         verifier: V,
     ) -> Self {

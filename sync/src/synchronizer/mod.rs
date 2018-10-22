@@ -27,7 +27,7 @@ use core::header::{BlockNumber, Header};
 use flatbuffers::{get_root, FlatBufferBuilder};
 use futures::future;
 use futures::future::lazy;
-use network::PeerId;
+use network::PeerIndex;
 use std::cmp;
 use std::collections::HashMap;
 use std::sync::atomic::AtomicUsize;
@@ -42,7 +42,7 @@ use {
     MAX_OUTBOUND_PEERS_TO_PROTECT_FROM_DISCONNECT, MAX_TIP_AGE, POW_SPACE,
 };
 
-use network::{NetworkContext, NetworkProtocolHandler, TimerToken};
+use network::{CKBProtocolContext, CKBProtocolHandler, TimerToken};
 
 pub const SEND_GET_HEADERS_TOKEN: TimerToken = 0;
 pub const BLOCK_FETCH_TOKEN: TimerToken = 1;
@@ -83,9 +83,9 @@ pub struct Synchronizer<C> {
     pub outbound_peers_with_protect: Arc<AtomicUsize>,
 }
 
-fn is_outbound(nc: &NetworkContext, peer: PeerId) -> Option<bool> {
+fn is_outbound(nc: &CKBProtocolContext, peer: PeerIndex) -> Option<bool> {
     nc.session_info(peer)
-        .map(|session_info| session_info.originated)
+        .map(|session_info| session_info.peer.is_outgoing())
 }
 
 impl<C> Clone for Synchronizer<C>
@@ -132,7 +132,7 @@ where
         }
     }
 
-    fn process(&self, nc: &NetworkContext, peer: PeerId, message: SyncMessage) {
+    fn process(&self, nc: &CKBProtocolContext, peer: PeerIndex, message: SyncMessage) {
         match message.payload_type() {
             SyncPayload::GetHeaders => {
                 GetHeadersProcess::new(&message.payload_as_get_headers().unwrap(), self, peer, nc)
@@ -332,7 +332,7 @@ where
             .collect()
     }
 
-    pub fn insert_header_view(&self, header: &Header, peer: PeerId) {
+    pub fn insert_header_view(&self, header: &Header, peer: PeerIndex) {
         if let Some(parent_view) = self.get_header_view(&header.parent_hash()) {
             let total_difficulty = parent_view.total_difficulty() + header.difficulty();
             let header_view = {
@@ -385,7 +385,7 @@ where
 
     //TODO: process block which we don't request
     #[cfg_attr(feature = "cargo-clippy", allow(single_match))]
-    pub fn process_new_block(&self, peer: PeerId, block: Block) {
+    pub fn process_new_block(&self, peer: PeerIndex, block: Block) {
         match self.get_block_status(&block.header().hash()) {
             BlockStatus::VALID_MASK => {
                 self.insert_new_block(peer, block);
@@ -396,7 +396,7 @@ where
         }
     }
 
-    fn accept_block(&self, peer: PeerId, block: &Block) -> Result<(), AcceptBlockError> {
+    fn accept_block(&self, peer: PeerIndex, block: &Block) -> Result<(), AcceptBlockError> {
         BlockVerifier::new(block, &self.chain, &self.pow).verify()?;
         self.chain.process_block(&block)?;
         self.mark_block_stored(block.header().hash());
@@ -405,7 +405,7 @@ where
     }
 
     //FIXME: guarantee concurrent block process
-    fn insert_new_block(&self, peer: PeerId, block: Block) {
+    fn insert_new_block(&self, peer: PeerIndex, block: Block) {
         if self
             .chain
             .output_root(&block.header().parent_hash())
@@ -458,11 +458,11 @@ where
         debug!(target: "sync", "[Synchronizer] insert_new_block finish");
     }
 
-    pub fn get_blocks_to_fetch(&self, peer: PeerId) -> Option<Vec<H256>> {
+    pub fn get_blocks_to_fetch(&self, peer: PeerIndex) -> Option<Vec<H256>> {
         BlockFetcher::new(&self, peer).fetch()
     }
 
-    fn on_connected(&self, nc: &NetworkContext, peer: PeerId) {
+    fn on_connected(&self, nc: &CKBProtocolContext, peer: PeerIndex) {
         let tip = self.tip_header();
         let timeout = self.get_headers_sync_timeout(&tip);
 
@@ -480,16 +480,21 @@ where
         self.send_getheaders_to_peer(nc, peer, &tip);
     }
 
-    pub fn send_getheaders_to_peer(&self, nc: &NetworkContext, peer: PeerId, header: &Header) {
+    pub fn send_getheaders_to_peer(
+        &self,
+        nc: &CKBProtocolContext,
+        peer: PeerIndex,
+        header: &Header,
+    ) {
         let locator_hash = self.get_locator(header);
         let fbb = &mut FlatBufferBuilder::new();
         let message = SyncMessage::build_get_headers(fbb, &locator_hash);
         fbb.finish(message, None);
-        nc.send(peer, 0, fbb.finished_data().to_vec());
+        let _ = nc.send(peer, fbb.finished_data().to_vec());
     }
 
-    fn send_getheaders_to_all(&self, nc: &NetworkContext) {
-        let peers: Vec<PeerId> = self
+    fn send_getheaders_to_all(&self, nc: &CKBProtocolContext) {
+        let peers: Vec<PeerIndex> = self
             .peers
             .state
             .read()
@@ -505,8 +510,8 @@ where
         }
     }
 
-    fn find_blocks_to_fetch(&self, nc: &NetworkContext) {
-        let peers: Vec<PeerId> = self
+    fn find_blocks_to_fetch(&self, nc: &CKBProtocolContext) {
+        let peers: Vec<PeerIndex> = self
             .peers
             .state
             .read()
@@ -524,55 +529,55 @@ where
         }
     }
 
-    fn send_getblocks(&self, v_fetch: &[H256], nc: &NetworkContext, peer: PeerId) {
+    fn send_getblocks(&self, v_fetch: &[H256], nc: &CKBProtocolContext, peer: PeerIndex) {
         let fbb = &mut FlatBufferBuilder::new();
         let message = SyncMessage::build_get_blocks(fbb, v_fetch);
         fbb.finish(message, None);
-        nc.send(peer, 0, fbb.finished_data().to_vec());
-        debug!(target: "sync", "send_getblocks len={:?} to peer={:?}", v_fetch.len() , peer);
+        let _ = nc.send(peer, fbb.finished_data().to_vec());
+        debug!(target: "sync", "send_getblocks len={:?} to peer={}", v_fetch.len() , peer);
     }
 }
 
-impl<C> NetworkProtocolHandler for Synchronizer<C>
+impl<C> CKBProtocolHandler for Synchronizer<C>
 where
     C: ChainProvider + 'static,
 {
-    fn initialize(&self, nc: Box<NetworkContext>) {
+    fn initialize(&self, nc: Box<CKBProtocolContext>) {
         // NOTE: 100ms is what bitcoin use.
         let _ = nc.register_timer(SEND_GET_HEADERS_TOKEN, Duration::from_millis(100));
         let _ = nc.register_timer(BLOCK_FETCH_TOKEN, Duration::from_millis(100));
     }
 
-    fn read(&self, nc: Box<NetworkContext>, peer: &PeerId, _packet_id: u8, data: &[u8]) {
+    fn received(&self, nc: Box<CKBProtocolContext>, peer: PeerIndex, data: &[u8]) {
         let data = data.to_owned();
         let synchronizer = self.clone();
-        let peer = *peer;
+        let peer = peer;
         tokio::spawn(lazy(move || {
             // TODO use flatbuffers verifier
             let msg = get_root::<SyncMessage>(&data);
             debug!(target: "sync", "msg {:?}", msg.payload_type());
-            synchronizer.process(&nc, peer, msg);
+            synchronizer.process(nc.as_ref(), peer, msg);
             future::ok(())
         }));
     }
 
-    fn connected(&self, nc: Box<NetworkContext>, peer: &PeerId) {
+    fn connected(&self, nc: Box<CKBProtocolContext>, peer: PeerIndex) {
         let synchronizer = self.clone();
-        let peer = *peer;
+        let peer = peer;
         tokio::spawn(lazy(move || {
             if synchronizer.n_sync.load(Ordering::Acquire) == 0
                 || !synchronizer.is_initial_block_download()
             {
-                debug!(target: "sync", "init_getheaders peer={:?} connected", peer);
+                debug!(target: "sync", "init_getheaders peer={} connected", peer);
                 synchronizer.on_connected(nc.as_ref(), peer);
             }
             future::ok(())
         }));
     }
 
-    fn disconnected(&self, _nc: Box<NetworkContext>, peer: &PeerId) {
+    fn disconnected(&self, _nc: Box<CKBProtocolContext>, peer: PeerIndex) {
         let synchronizer = self.clone();
-        let peer = *peer;
+        let peer = peer;
         tokio::spawn(lazy(move || {
             info!(target: "sync", "peer={} SyncProtocol.disconnected", peer);
             synchronizer.peers.disconnected(peer);
@@ -580,16 +585,16 @@ where
         }));
     }
 
-    fn timeout(&self, nc: Box<NetworkContext>, token: TimerToken) {
+    fn timer_triggered(&self, nc: Box<CKBProtocolContext>, token: TimerToken) {
         let synchronizer = self.clone();
         tokio::spawn(lazy(move || {
             if !synchronizer.peers.state.read().is_empty() {
                 match token as usize {
                     SEND_GET_HEADERS_TOKEN => {
-                        synchronizer.send_getheaders_to_all(&nc);
+                        synchronizer.send_getheaders_to_all(nc.as_ref());
                     }
                     BLOCK_FETCH_TOKEN => {
-                        synchronizer.find_blocks_to_fetch(&nc);
+                        synchronizer.find_blocks_to_fetch(nc.as_ref());
                     }
                     _ => unreachable!(),
                 }
@@ -625,7 +630,7 @@ mod tests {
     use db::memorydb::MemoryKeyValueDB;
     use flatbuffers::FlatBufferBuilder;
     use network::{
-        Error as NetworkError, NetworkContext, PacketId, PeerId, ProtocolId, SessionInfo, Severity,
+        CKBProtocolContext, Error as NetworkError, PeerIndex, ProtocolId, SessionInfo, Severity,
         TimerToken,
     };
     use std::time::Duration;
@@ -835,6 +840,7 @@ mod tests {
         let chain1 = Arc::new(gen_chain(&config, Notify::default()));
         let chain2 = Arc::new(gen_chain(&config, Notify::default()));
         let block_number = 2000;
+        let peer = 0;
 
         let mut blocks: Vec<Block> = Vec::new();
         let mut parent = chain1.block_header(&chain1.block_hash(0).unwrap()).unwrap();
@@ -849,7 +855,7 @@ mod tests {
         let synchronizer = Synchronizer::new(&chain2, &dummy_pow_engine(), Config::default());
 
         blocks.clone().into_iter().for_each(|block| {
-            synchronizer.insert_new_block(0, block);
+            synchronizer.insert_new_block(peer, block);
         });
 
         assert_eq!(
@@ -891,53 +897,43 @@ mod tests {
     #[derive(Clone)]
     struct DummyNetworkContext {}
 
-    impl NetworkContext for DummyNetworkContext {
+    impl CKBProtocolContext for DummyNetworkContext {
         /// Send a packet over the network to another peer.
-        fn send(&self, _peer: PeerId, _packet_id: PacketId, _data: Vec<u8>) {}
+        fn send(&self, _peer: PeerIndex, _data: Vec<u8>) -> Result<(), NetworkError> {
+            Ok(())
+        }
 
         /// Send a packet over the network to another peer using specified protocol.
         fn send_protocol(
             &self,
+            _peer: PeerIndex,
             _protocol: ProtocolId,
-            _peer: PeerId,
-            _packet_id: PacketId,
             _data: Vec<u8>,
-        ) {
+        ) -> Result<(), NetworkError> {
+            Ok(())
         }
-
-        /// Respond to a current network message. Panics if no there is no packet in the context. If the session is expired returns nothing.
-        fn respond(&self, _packet_id: PacketId, _data: Vec<u8>) {}
 
         /// Report peer. Depending on the report, peer may be disconnected and possibly banned.
-        fn report_peer(&self, _peer: PeerId, _reason: Severity) {}
-
-        /// Check if the session is still active.
-        fn is_expired(&self) -> bool {
-            false
-        }
+        fn report_peer(&self, _peer: PeerIndex, _reason: Severity) {}
+        fn ban_peer(&self, _peer: PeerIndex, _duration: Duration) {}
 
         /// Register a new IO timer. 'IoHandler::timeout' will be called with the token.
         fn register_timer(&self, _token: TimerToken, _delay: Duration) -> Result<(), NetworkError> {
             Ok(())
         }
 
-        /// Returns peer identification string
-        fn peer_client_version(&self, _peer: PeerId) -> String {
-            "unknown".to_string()
-        }
-
         /// Returns information on p2p session
-        fn session_info(&self, _peer: PeerId) -> Option<SessionInfo> {
+        fn session_info(&self, _peer: PeerIndex) -> Option<SessionInfo> {
             None
         }
 
         /// Returns max version for a given protocol.
-        fn protocol_version(&self, _protocol: ProtocolId, _peer: PeerId) -> Option<u8> {
+        fn protocol_version(&self, _peer: PeerIndex, _protocol: ProtocolId) -> Option<u8> {
             None
         }
 
-        /// Returns this object's subprotocol name.
-        fn subprotocol_name(&self) -> ProtocolId {
+        fn disconnect(&self, _peer: PeerIndex) {}
+        fn protocol_id(&self) -> ProtocolId {
             [1, 1, 1]
         }
     }
@@ -983,7 +979,7 @@ mod tests {
         fbb.finish(fbs_headers, None);
         let fbs_headers = get_root::<FbsHeaders>(fbb.finished_data());
 
-        let peer = 1usize;
+        let peer = 0;
         HeadersProcess::new(&fbs_headers, &synchronizer1, peer, &DummyNetworkContext {}).execute();
 
         let best_known_header = synchronizer1.peers.best_known_header(peer);

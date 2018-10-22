@@ -5,12 +5,12 @@ extern crate ckb_protocol;
 extern crate ckb_vm as vm;
 #[cfg(test)]
 extern crate crypto;
+#[cfg(test)]
+extern crate faster_hex;
 extern crate flatbuffers;
 extern crate fnv;
 #[cfg(test)]
 extern crate hash;
-#[cfg(test)]
-extern crate rustc_hex;
 #[cfg(test)]
 #[macro_use]
 extern crate proptest;

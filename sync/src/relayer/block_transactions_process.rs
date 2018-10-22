@@ -2,20 +2,20 @@ use bigint::H256;
 use ckb_chain::chain::ChainProvider;
 use ckb_protocol::{BlockTransactions, FlatbuffersVectorIterator};
 use core::transaction::Transaction;
-use network::PeerId;
+use network::PeerIndex;
 use relayer::Relayer;
 
 pub struct BlockTransactionsProcess<'a, C: 'a> {
     message: &'a BlockTransactions<'a>,
     relayer: &'a Relayer<C>,
-    peer: PeerId,
+    peer: PeerIndex,
 }
 
 impl<'a, C> BlockTransactionsProcess<'a, C>
 where
     C: ChainProvider + 'static,
 {
-    pub fn new(message: &'a BlockTransactions, relayer: &'a Relayer<C>, peer: PeerId) -> Self {
+    pub fn new(message: &'a BlockTransactions, relayer: &'a Relayer<C>, peer: PeerIndex) -> Self {
         BlockTransactionsProcess {
             message,
             relayer,

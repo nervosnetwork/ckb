@@ -107,9 +107,9 @@ mod tests {
     use core::transaction::{CellInput, CellOutput, OutPoint, TransactionBuilder};
     use core::Capacity;
     use crypto::secp::Generator;
+    use faster_hex::hex_to;
     use fnv::FnvHashMap;
     use hash::sha3_256;
-    use rustc_hex::ToHex;
     use std::fs::File;
     use std::io::{Read, Write};
 
@@ -130,23 +130,17 @@ mod tests {
         let hash1 = sha3_256(&bytes);
         let hash2 = sha3_256(hash1);
         let signature = privkey.sign_recoverable(&hash2.into()).unwrap();
-        arguments.insert(0, signature.serialize_der().to_hex().into_bytes());
 
-        let script = Script::new(
-            0,
-            arguments,
-            None,
-            Some(buffer),
-            vec![
-                privkey
-                    .pubkey()
-                    .unwrap()
-                    .serialize()
-                    .to_hex()
-                    .as_bytes()
-                    .to_owned(),
-            ],
-        );
+        let signature_der = signature.serialize_der();
+        let mut hex_signature = vec![0; signature_der.len() * 2];
+        hex_to(&signature_der, &mut hex_signature).expect("hex privkey");
+        arguments.insert(0, hex_signature);
+
+        let privkey = privkey.pubkey().unwrap().serialize();
+        let mut hex_privkey = vec![0; privkey.len() * 2];
+        hex_to(&privkey, &mut hex_privkey).expect("hex privkey");
+
+        let script = Script::new(0, arguments, None, Some(buffer), vec![hex_privkey]);
         let input = CellInput::new(OutPoint::null(), script);
 
         let transaction = TransactionBuilder::default().input(input.clone()).build();
@@ -179,25 +173,19 @@ mod tests {
         let hash1 = sha3_256(&bytes);
         let hash2 = sha3_256(hash1);
         let signature = privkey.sign_recoverable(&hash2.into()).unwrap();
-        arguments.insert(0, signature.serialize_der().to_hex().into_bytes());
+
+        let signature_der = signature.serialize_der();
+        let mut hex_signature = vec![0; signature_der.len() * 2];
+        hex_to(&signature_der, &mut hex_signature).expect("hex privkey");
+        arguments.insert(0, hex_signature);
         // This line makes the verification invalid
         arguments.push(b"extrastring".to_vec());
 
-        let script = Script::new(
-            0,
-            arguments,
-            None,
-            Some(buffer),
-            vec![
-                privkey
-                    .pubkey()
-                    .unwrap()
-                    .serialize()
-                    .to_hex()
-                    .as_bytes()
-                    .to_owned(),
-            ],
-        );
+        let privkey = privkey.pubkey().unwrap().serialize();
+        let mut hex_privkey = vec![0; privkey.len() * 2];
+        hex_to(&privkey, &mut hex_privkey).expect("hex privkey");
+
+        let script = Script::new(0, arguments, None, Some(buffer), vec![hex_privkey]);
         let input = CellInput::new(OutPoint::null(), script);
 
         let transaction = TransactionBuilder::default().input(input.clone()).build();
@@ -230,27 +218,21 @@ mod tests {
         let hash1 = sha3_256(&bytes);
         let hash2 = sha3_256(hash1);
         let signature = privkey.sign_recoverable(&hash2.into()).unwrap();
-        arguments.insert(0, signature.serialize_der().to_hex().into_bytes());
+        let signature_der = signature.serialize_der();
+        let mut hex_signature = vec![0; signature_der.len() * 2];
+        hex_to(&signature_der, &mut hex_signature).expect("hex privkey");
+        arguments.insert(0, hex_signature);
 
         let dep_outpoint = OutPoint::new(H256::from(123), 8);
         let dep_cell = CellOutput::new(buffer.len() as Capacity, buffer, H256::from(0));
         let mut dep_cells = FnvHashMap::default();
         dep_cells.insert(&dep_outpoint, &dep_cell);
-        let script = Script::new(
-            0,
-            arguments,
-            Some(dep_outpoint),
-            None,
-            vec![
-                privkey
-                    .pubkey()
-                    .unwrap()
-                    .serialize()
-                    .to_hex()
-                    .as_bytes()
-                    .to_owned(),
-            ],
-        );
+
+        let privkey = privkey.pubkey().unwrap().serialize();
+        let mut hex_privkey = vec![0; privkey.len() * 2];
+        hex_to(&privkey, &mut hex_privkey).expect("hex privkey");
+
+        let script = Script::new(0, arguments, Some(dep_outpoint), None, vec![hex_privkey]);
         let input = CellInput::new(OutPoint::null(), script);
 
         let transaction = TransactionBuilder::default()
@@ -286,16 +268,17 @@ mod tests {
         let hash1 = sha3_256(&bytes);
         let hash2 = sha3_256(hash1);
         let signature = privkey.sign_recoverable(&hash2.into()).unwrap();
-        arguments.insert(0, signature.serialize_der().to_hex().into_bytes());
+        let signature_der = signature.serialize_der();
+        let mut hex_signature = vec![0; signature_der.len() * 2];
+        hex_to(&signature_der, &mut hex_signature).expect("hex privkey");
+        arguments.insert(0, hex_signature);
 
         let dep_outpoint = OutPoint::new(H256::from(123), 8);
-        let script = Script::new(
-            0,
-            arguments,
-            Some(dep_outpoint),
-            None,
-            vec![privkey.pubkey().unwrap().serialize().to_hex().into_bytes()],
-        );
+
+        let privkey = privkey.pubkey().unwrap().serialize();
+        let mut hex_privkey = vec![0; privkey.len() * 2];
+        hex_to(&privkey, &mut hex_privkey).expect("hex privkey");
+        let script = Script::new(0, arguments, Some(dep_outpoint), None, vec![hex_privkey]);
 
         let input = CellInput::new(OutPoint::null(), script);
 

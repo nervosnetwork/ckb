@@ -62,8 +62,8 @@ impl Setup {
             path.push(file);
             configs.logger.file = Some(path.to_str().unwrap().to_string());
         }
-        if configs.network.net_config_path.is_none() {
-            configs.network.net_config_path =
+        if configs.network.config_dir_path.is_none() {
+            configs.network.config_dir_path =
                 Some(dirs.join("network").to_string_lossy().to_string());
         }
 

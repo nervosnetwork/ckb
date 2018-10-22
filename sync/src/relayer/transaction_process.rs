@@ -1,6 +1,6 @@
 use ckb_chain::chain::ChainProvider;
 use ckb_protocol::Transaction;
-use network::{NetworkContext, PeerId};
+use network::{CKBProtocolContext, PeerIndex};
 use relayer::Relayer;
 
 // TODO PENDING remove this attribute later
@@ -8,8 +8,8 @@ use relayer::Relayer;
 pub struct TransactionProcess<'a, C: 'a> {
     message: &'a Transaction<'a>,
     relayer: &'a Relayer<C>,
-    peer: PeerId,
-    nc: &'a NetworkContext,
+    peer: PeerIndex,
+    nc: &'a CKBProtocolContext,
 }
 
 impl<'a, C> TransactionProcess<'a, C>
@@ -19,8 +19,8 @@ where
     pub fn new(
         message: &'a Transaction,
         relayer: &'a Relayer<C>,
-        peer: PeerId,
-        nc: &'a NetworkContext,
+        peer: PeerIndex,
+        nc: &'a CKBProtocolContext,
     ) -> Self {
         TransactionProcess {
             message,

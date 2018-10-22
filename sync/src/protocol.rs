@@ -417,7 +417,7 @@ where
 
     pub fn request_proposal_txs<'a>(
         &self,
-        nc: &NetworkContext,
+        nc: &Box<CKBProtocolContext>,
         block_number: BlockNumber,
         proposal_ids: impl Iterator<Item = &'a ProposalShortId>,
     ) {

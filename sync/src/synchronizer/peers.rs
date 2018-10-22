@@ -5,7 +5,7 @@ use ckb_time::now_ms;
 use core::block::Block;
 use core::header::Header;
 use fnv::{FnvHashMap, FnvHashSet};
-use network::PeerId;
+use network::PeerIndex;
 use util::RwLock;
 
 // const BANSCORE: u32 = 100;
@@ -62,11 +62,11 @@ pub struct PeerState {
 
 #[derive(Debug, Default)]
 pub struct Peers {
-    pub state: RwLock<FnvHashMap<PeerId, PeerState>>,
-    pub misbehavior: RwLock<FnvHashMap<PeerId, u32>>,
-    pub blocks_inflight: RwLock<FnvHashMap<PeerId, BlocksInflight>>,
-    pub best_known_headers: RwLock<FnvHashMap<PeerId, HeaderView>>,
-    pub last_common_headers: RwLock<FnvHashMap<PeerId, Header>>,
+    pub state: RwLock<FnvHashMap<PeerIndex, PeerState>>,
+    pub misbehavior: RwLock<FnvHashMap<PeerIndex, u32>>,
+    pub blocks_inflight: RwLock<FnvHashMap<PeerIndex, BlocksInflight>>,
+    pub best_known_headers: RwLock<FnvHashMap<PeerIndex, HeaderView>>,
+    pub last_common_headers: RwLock<FnvHashMap<PeerIndex, Header>>,
 }
 
 #[derive(Debug, Clone)]
@@ -107,7 +107,7 @@ impl BlocksInflight {
 }
 
 impl Peers {
-    pub fn misbehavior(&self, peer: PeerId, score: u32) {
+    pub fn misbehavior(&self, peer: PeerIndex, score: u32) {
         if score == 0 {
             return;
         }
@@ -118,7 +118,7 @@ impl Peers {
             .or_insert_with(|| score);
     }
 
-    pub fn on_connected(&self, peer: PeerId, headers_sync_timeout: u64, protect: bool) {
+    pub fn on_connected(&self, peer: PeerIndex, headers_sync_timeout: u64, protect: bool) {
         self.state
             .write()
             .entry(peer)
@@ -139,11 +139,11 @@ impl Peers {
             });
     }
 
-    pub fn best_known_header(&self, peer: PeerId) -> Option<HeaderView> {
+    pub fn best_known_header(&self, peer: PeerIndex) -> Option<HeaderView> {
         self.best_known_headers.read().get(&peer).cloned()
     }
 
-    pub fn new_header_received(&self, peer: PeerId, header_view: &HeaderView) {
+    pub fn new_header_received(&self, peer: PeerIndex, header_view: &HeaderView) {
         self.best_known_headers
             .write()
             .entry(peer)
@@ -157,11 +157,11 @@ impl Peers {
             }).or_insert_with(|| header_view.clone());
     }
 
-    pub fn getheaders_received(&self, _peer: PeerId) {
+    pub fn getheaders_received(&self, _peer: PeerIndex) {
         // TODO:
     }
 
-    pub fn connected(&self, peer: PeerId) {
+    pub fn connected(&self, peer: PeerIndex) {
         self.state.write().entry(peer).or_insert_with(|| PeerState {
             negotiate: Negotiate::default(),
             sync_started: true,
@@ -172,14 +172,14 @@ impl Peers {
         });
     }
 
-    pub fn disconnected(&self, peer: PeerId) {
+    pub fn disconnected(&self, peer: PeerIndex) {
         self.state.write().remove(&peer);
         self.best_known_headers.write().remove(&peer);
         // self.misbehavior.write().remove(peer);
         self.blocks_inflight.write().remove(&peer);
     }
 
-    pub fn block_received(&self, peer: PeerId, block: &Block) {
+    pub fn block_received(&self, peer: PeerIndex, block: &Block) {
         let mut blocks_inflight = self.blocks_inflight.write();
         debug!(target: "sync", "block_received from peer {} {} {:?}", peer, block.header().number(), block.header().hash());
         blocks_inflight.entry(peer).and_modify(|inflight| {
@@ -187,7 +187,7 @@ impl Peers {
         });
     }
 
-    pub fn set_last_common_header(&self, peer: PeerId, header: &Header) {
+    pub fn set_last_common_header(&self, peer: PeerIndex, header: &Header) {
         let mut last_common_headers = self.last_common_headers.write();
         last_common_headers
             .entry(peer)

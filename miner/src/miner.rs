@@ -138,14 +138,14 @@ where
     }
 
     fn announce_new_block(&self, block: &Block) {
-        self.network.with_context_eval(RELAY_PROTOCOL_ID, |nc| {
-            for peer_id in self.network.connected_peers() {
-                debug!(target: "miner", "announce new block to peer#{:?}, {} => {}",
-                       peer_id, block.header().number(), block.header().hash());
+        self.network.with_protocol_context(RELAY_PROTOCOL_ID, |nc| {
+            for peer in self.network.connected_peers_indexes() {
+                debug!(target: "miner", "announce new block to peer#{}, {} => {}",
+                       peer, block.header().number(), block.header().hash());
                 let fbb = &mut FlatBufferBuilder::new();
                 let message = RelayMessage::build_compact_block(fbb, &block, &HashSet::new());
                 fbb.finish(message, None);
-                nc.send(peer_id, 0, fbb.finished_data().to_vec());
+                let _ = nc.send(peer, fbb.finished_data().to_vec());
             }
         });
     }
