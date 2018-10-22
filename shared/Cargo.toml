@@ -1,5 +1,5 @@
 [package]
-name = "ckb-chain"
+name = "ckb-shared"
 version = "0.1.0"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 
@@ -9,11 +9,9 @@ serde_derive = "1.0"
 bincode = "1.0"
 log = "0.4"
 ckb-core = { path = "../core" }
-ckb-shared = { path = "../shared" }
 ckb-util = { path = "../util" }
 ckb-db = { path = "../db" }
 ckb-time = { path = "../util/time" }
-ckb-notify = { path = "../notify" }
 avl-merkle = { path = "../util/avl" }
 bigint = { git = "https://github.com/nervosnetwork/bigint" }
 lru-cache = { git = "https://github.com/nervosnetwork/lru-cache" }

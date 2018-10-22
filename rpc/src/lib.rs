@@ -6,30 +6,38 @@ extern crate jsonrpc_http_server;
 extern crate jsonrpc_server_utils;
 #[macro_use]
 extern crate log;
-extern crate ckb_chain as chain;
 extern crate ckb_core as core;
-extern crate ckb_miner as miner;
 extern crate ckb_network as network;
+extern crate ckb_notify as notify;
 extern crate ckb_pool as pool;
+extern crate ckb_shared as shared;
+extern crate ckb_time;
 #[macro_use]
 extern crate serde_derive;
 #[cfg(feature = "integration_test")]
 extern crate ckb_pow;
+#[macro_use]
+extern crate crossbeam_channel as channel;
+extern crate fnv;
 
 use bigint::H256;
 use core::block::Block;
 use core::header::Header;
 use core::transaction::{Capacity, OutPoint, Transaction};
 
+mod service;
+
+pub use service::{BlockTemplate, RpcController, RpcReceivers, RpcService};
+
 #[cfg(feature = "integration_test")]
 mod integration_test;
 #[cfg(not(feature = "integration_test"))]
-mod rpc;
+mod server;
 
 #[cfg(feature = "integration_test")]
 pub use integration_test::RpcServer;
 #[cfg(not(feature = "integration_test"))]
-pub use rpc::RpcServer;
+pub use server::RpcServer;
 
 #[derive(Serialize)]
 pub struct TransactionWithHash {

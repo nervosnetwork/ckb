@@ -8,6 +8,7 @@ serde_yaml = "0.7"
 bigint = { git = "https://github.com/nervosnetwork/bigint" }
 ckb-core = { path = "../core" }
 ckb-chain = { path = "../chain" }
+ckb-shared = { path = "../shared" }
 serde_derive = "1.0"
 serde = "1.0"
 ckb-pow = { path = "../pow" }

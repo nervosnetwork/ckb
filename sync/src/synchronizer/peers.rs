@@ -1,6 +1,6 @@
 use super::header_view::HeaderView;
 use bigint::H256;
-use ckb_chain::chain::TipHeader;
+use ckb_shared::shared::TipHeader;
 use ckb_time::now_ms;
 use core::block::Block;
 use core::header::Header;

@@ -1,24 +1,24 @@
-use ckb_chain::chain::ChainProvider;
 use ckb_protocol::{FlatbuffersVectorIterator, GetBlockProposal, RelayMessage};
+use ckb_shared::index::ChainIndex;
 use core::transaction::ProposalShortId;
 use flatbuffers::FlatBufferBuilder;
 use network::{CKBProtocolContext, PeerIndex};
 use relayer::Relayer;
 
-pub struct GetBlockProposalProcess<'a, C: 'a> {
+pub struct GetBlockProposalProcess<'a, CI: ChainIndex + 'a> {
     message: &'a GetBlockProposal<'a>,
-    relayer: &'a Relayer<C>,
+    relayer: &'a Relayer<CI>,
     peer: PeerIndex,
     nc: &'a CKBProtocolContext,
 }
 
-impl<'a, C> GetBlockProposalProcess<'a, C>
+impl<'a, CI> GetBlockProposalProcess<'a, CI>
 where
-    C: ChainProvider + 'static,
+    CI: ChainIndex + 'static,
 {
     pub fn new(
         message: &'a GetBlockProposal,
-        relayer: &'a Relayer<C>,
+        relayer: &'a Relayer<CI>,
         peer: PeerIndex,
         nc: &'a CKBProtocolContext,
     ) -> Self {
@@ -36,16 +36,14 @@ where
         let transactions = {
             FlatbuffersVectorIterator::new(self.message.proposal_transactions().unwrap())
                 .filter_map(|bytes| ProposalShortId::from_slice(bytes.seq().unwrap()))
-                .filter_map({
-                    |short_id| {
-                        self.relayer.tx_pool.get(&short_id).or({
-                            pending_proposals_request
-                                .entry(short_id)
-                                .or_insert_with(Default::default)
-                                .insert(self.peer);
-                            None
-                        })
-                    }
+                .filter_map(|short_id| {
+                    self.relayer.tx_pool.get_transaction(short_id).or({
+                        pending_proposals_request
+                            .entry(short_id)
+                            .or_insert_with(Default::default)
+                            .insert(self.peer);
+                        None
+                    })
                 }).map(Into::into)
                 .collect::<Vec<_>>()
         };

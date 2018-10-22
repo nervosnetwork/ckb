@@ -59,7 +59,7 @@ impl OrphanBlockPool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ckb_chain::consensus::Consensus;
+    use ckb_shared::consensus::Consensus;
     use ckb_time::now_ms;
     use core::block::BlockBuilder;
     use core::header::{Header, HeaderBuilder};

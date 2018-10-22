@@ -345,9 +345,11 @@ dependencies = [
  "ckb-pow 0.1.0",
  "ckb-rpc 0.1.0",
  "ckb-script 0.1.0",
+ "ckb-shared 0.1.0",
  "ckb-sync 0.1.0",
  "ckb-time 0.1.0",
  "ckb-util 0.1.0",
+ "ckb-verification 0.1.0",
  "clap 2.32.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "config 0.9.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "crypto 0.1.0",
@@ -383,8 +385,10 @@ dependencies = [
  "ckb-core 0.1.0",
  "ckb-db 0.1.0",
  "ckb-notify 0.1.0",
+ "ckb-shared 0.1.0",
  "ckb-time 0.1.0",
  "ckb-util 0.1.0",
+ "crossbeam-channel 0.2.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "env_logger 0.4.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "fnv 1.0.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -403,6 +407,7 @@ dependencies = [
  "ckb-chain 0.1.0",
  "ckb-core 0.1.0",
  "ckb-pow 0.1.0",
+ "ckb-shared 0.1.0",
  "serde 1.0.80 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.79 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_yaml 0.7.5 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -417,10 +422,12 @@ dependencies = [
  "bit-vec 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "ckb-time 0.1.0",
  "ckb-util 0.1.0",
+ "crossbeam-channel 0.2.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "crypto 0.1.0",
  "fnv 1.0.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "hash 0.1.0",
  "merkle-root 0.1.0",
+ "rayon 1.0.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.80 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.79 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
@@ -444,6 +451,7 @@ version = "0.1.0"
 dependencies = [
  "ckb-chain 0.1.0",
  "ckb-core 0.1.0",
+ "ckb-shared 0.1.0",
  "indicatif 0.9.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_json 1.0.32 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
@@ -461,6 +469,8 @@ dependencies = [
  "ckb-pool 0.1.0",
  "ckb-pow 0.1.0",
  "ckb-protocol 0.1.0",
+ "ckb-rpc 0.1.0",
+ "ckb-shared 0.1.0",
  "ckb-sync 0.1.0",
  "ckb-time 0.1.0",
  "ckb-verification 0.1.0",
@@ -498,6 +508,7 @@ dependencies = [
  "ckb-util 0.1.0",
  "crossbeam-channel 0.2.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "fnv 1.0.6 (registry+https://github.com/rust-lang/crates.io-index)",
+ "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -510,6 +521,7 @@ dependencies = [
  "ckb-core 0.1.0",
  "ckb-db 0.1.0",
  "ckb-notify 0.1.0",
+ "ckb-shared 0.1.0",
  "ckb-time 0.1.0",
  "ckb-util 0.1.0",
  "ckb-verification 0.1.0",
@@ -558,15 +570,18 @@ name = "ckb-rpc"
 version = "0.1.0"
 dependencies = [
  "bigint 0.2.3 (git+https://github.com/nervosnetwork/bigint)",
- "ckb-chain 0.1.0",
  "ckb-core 0.1.0",
  "ckb-db 0.1.0",
- "ckb-miner 0.1.0",
  "ckb-network 0.1.0",
+ "ckb-notify 0.1.0",
  "ckb-pool 0.1.0",
  "ckb-pow 0.1.0",
  "ckb-protocol 0.1.0",
+ "ckb-shared 0.1.0",
  "ckb-sync 0.1.0",
+ "ckb-time 0.1.0",
+ "crossbeam-channel 0.2.6 (registry+https://github.com/rust-lang/crates.io-index)",
+ "fnv 1.0.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "jsonrpc-core 8.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "jsonrpc-http-server 8.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "jsonrpc-macros 8.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -597,6 +612,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "ckb-shared"
+version = "0.1.0"
+dependencies = [
+ "avl-merkle 0.1.0",
+ "bigint 0.2.3 (git+https://github.com/nervosnetwork/bigint)",
+ "bincode 1.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "ckb-core 0.1.0",
+ "ckb-db 0.1.0",
+ "ckb-time 0.1.0",
+ "ckb-util 0.1.0",
+ "crossbeam-channel 0.2.6 (registry+https://github.com/rust-lang/crates.io-index)",
+ "env_logger 0.4.3 (registry+https://github.com/rust-lang/crates.io-index)",
+ "fnv 1.0.6 (registry+https://github.com/rust-lang/crates.io-index)",
+ "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
+ "lru-cache 0.1.0 (git+https://github.com/nervosnetwork/lru-cache)",
+ "rand 0.5.5 (registry+https://github.com/rust-lang/crates.io-index)",
+ "serde 1.0.80 (registry+https://github.com/rust-lang/crates.io-index)",
+ "serde_derive 1.0.79 (registry+https://github.com/rust-lang/crates.io-index)",
+ "tempfile 3.0.4 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
 name = "ckb-sync"
 version = "0.1.0"
 dependencies = [
@@ -610,6 +647,7 @@ dependencies = [
  "ckb-pool 0.1.0",
  "ckb-pow 0.1.0",
  "ckb-protocol 0.1.0",
+ "ckb-shared 0.1.0",
  "ckb-time 0.1.0",
  "ckb-util 0.1.0",
  "ckb-verification 0.1.0",
@@ -646,8 +684,10 @@ dependencies = [
  "ckb-notify 0.1.0",
  "ckb-pow 0.1.0",
  "ckb-script 0.1.0",
+ "ckb-shared 0.1.0",
  "ckb-time 0.1.0",
  "ckb-util 0.1.0",
+ "crossbeam-channel 0.2.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "fnv 1.0.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "merkle-root 0.1.0",

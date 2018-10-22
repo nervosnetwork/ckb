@@ -1,5 +1,8 @@
+use super::{
+    BlockTemplate, BlockWithHash, CellOutputWithOutPoint, Config, RpcController,
+    TransactionWithHash,
+};
 use bigint::H256;
-use chain::chain::ChainProvider;
 use ckb_pow::Clicker;
 use core::header::{BlockNumber, Header};
 use core::transaction::{OutPoint, Transaction};
@@ -7,11 +10,11 @@ use jsonrpc_core::{Error, IoHandler, Result};
 use jsonrpc_http_server::ServerBuilder;
 use jsonrpc_server_utils::cors::AccessControlAllowOrigin;
 use jsonrpc_server_utils::hosts::DomainsValidation;
-use miner::{build_block_template, BlockTemplate};
 use network::NetworkService;
-use pool::TransactionPool;
+use pool::txs_pool::TransactionPoolController;
+use shared::index::ChainIndex;
+use shared::shared::{ChainProvider, Shared};
 use std::sync::Arc;
-use {BlockWithHash, CellOutputWithOutPoint, Config, TransactionWithHash};
 
 //TODO: build_rpc_trait! do not surppot trait bounds
 build_rpc_trait! {
@@ -56,14 +59,15 @@ build_rpc_trait! {
     }
 }
 
-struct RpcImpl<C> {
+struct RpcImpl<CI> {
     pub network: Arc<NetworkService>,
-    pub chain: Arc<C>,
-    pub tx_pool: Arc<TransactionPool<C>>,
+    pub shared: Shared<CI>,
+    pub rpc: RpcController,
+    pub tx_pool: TransactionPoolController,
     pub pow: Arc<Clicker>,
 }
 
-impl<C: ChainProvider + 'static> IntegrationTestRpc for RpcImpl<C> {
+impl<CI: ChainIndex + 'static> IntegrationTestRpc for RpcImpl<CI> {
     fn submit_pow_solution(&self, nonce: u64) -> Result<()> {
         self.pow.submit(nonce);
         Ok(())
@@ -84,23 +88,26 @@ impl<C: ChainProvider + 'static> IntegrationTestRpc for RpcImpl<C> {
     }
 
     fn get_block(&self, hash: H256) -> Result<Option<BlockWithHash>> {
-        Ok(self.chain.block(&hash).map(Into::into))
+        Ok(self.shared.block(&hash).map(Into::into))
     }
 
     fn get_transaction(&self, hash: H256) -> Result<Option<TransactionWithHash>> {
-        Ok(self.chain.get_transaction(&hash).map(Into::into))
+        Ok(self.shared.get_transaction(&hash).map(Into::into))
     }
 
     fn get_block_hash(&self, number: BlockNumber) -> Result<Option<H256>> {
-        Ok(self.chain.block_hash(number))
+        Ok(self.shared.block_hash(number))
     }
 
     fn get_tip_header(&self) -> Result<Header> {
-        Ok(self.chain.tip_header().read().inner().clone())
+        Ok(self.shared.tip_header().read().inner().clone())
     }
 
     fn get_block_template(&self) -> Result<BlockTemplate> {
-        Ok(build_block_template(&self.chain, &self.tx_pool, H256::from(0), 20000, 20000).unwrap())
+        Ok(self
+            .rpc
+            .get_block_template(H256::from(0), 20000, 20000)
+            .unwrap())
     }
 
     fn get_cells_by_type_hash(
@@ -111,14 +118,14 @@ impl<C: ChainProvider + 'static> IntegrationTestRpc for RpcImpl<C> {
     ) -> Result<Vec<CellOutputWithOutPoint>> {
         let mut result = Vec::new();
         for block_number in from..=to {
-            if let Some(block_hash) = self.chain.block_hash(block_number) {
+            if let Some(block_hash) = self.shared.block_hash(block_number) {
                 let block = self
-                    .chain
+                    .shared
                     .block(&block_hash)
                     .ok_or_else(Error::internal_error)?;
                 for transaction in block.commit_transactions() {
                     let transaction_meta = self
-                        .chain
+                        .shared
                         .get_transaction_meta(&transaction.hash())
                         .ok_or_else(Error::internal_error)?;
                     for (i, output) in transaction.outputs().iter().enumerate() {
@@ -150,21 +157,23 @@ pub struct RpcServer {
 }
 
 impl RpcServer {
-    pub fn start<C>(
+    pub fn start<CI>(
         &self,
         network: Arc<NetworkService>,
-        chain: Arc<C>,
-        tx_pool: Arc<TransactionPool<C>>,
+        shared: Shared<CI>,
+        tx_pool: TransactionPoolController,
+        rpc: RpcController,
         pow: Arc<Clicker>,
     ) where
-        C: ChainProvider + 'static,
+        CI: ChainIndex + 'static,
     {
         let mut io = IoHandler::new();
         io.extend_with(
             RpcImpl {
                 network,
-                chain,
+                shared,
                 tx_pool,
+                rpc,
                 pow,
             }.to_delegate(),
         );

@@ -1,7 +1,4 @@
 use super::super::setup::Configs;
-use chain::cachedb::CacheDB;
-use chain::chain::ChainBuilder;
-use chain::store::ChainKVStore;
 use ckb_chain_spec::SpecType;
 use ckb_instrument::{Export, Format};
 use clap::ArgMatches;
@@ -9,6 +6,9 @@ use config_tool::{Config as ConfigTool, File, FileFormat};
 use db::diskdb::RocksDB;
 use dir::default_base_path;
 use dir::Directories;
+use shared::cachedb::CacheDB;
+use shared::shared::SharedBuilder;
+use shared::store::ChainKVStore;
 use {DEFAULT_CONFIG, DEFAULT_CONFIG_FILENAME};
 
 pub fn export(matches: &ArgMatches) {
@@ -55,11 +55,10 @@ pub fn export(matches: &ArgMatches) {
         .load_spec()
         .unwrap_or_else(|e| panic!("load spec error {:?} ", e));
 
-    let builder = ChainBuilder::<ChainKVStore<CacheDB<RocksDB>>>::new_rocks(&db_path)
-        .consensus(spec.to_consensus().unwrap());
-    let chain = builder.build().unwrap();
-
-    Export::new(&chain, format, target.into())
+    let shared = SharedBuilder::<ChainKVStore<CacheDB<RocksDB>>>::new_rocks(&db_path)
+        .consensus(spec.to_consensus().unwrap())
+        .build();
+    Export::new(shared, format, target.into())
         .execute()
         .unwrap_or_else(|e| panic!("Export error {:?} ", e));
 }

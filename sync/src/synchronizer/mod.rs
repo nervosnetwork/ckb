@@ -16,9 +16,11 @@ use self::header_view::HeaderView;
 use self::headers_process::HeadersProcess;
 use self::peers::Peers;
 use bigint::H256;
-use ckb_chain::chain::ChainProvider;
+use ckb_chain::chain::ChainController;
 use ckb_pow::PowEngine;
 use ckb_protocol::{SyncMessage, SyncPayload};
+use ckb_shared::index::ChainIndex;
+use ckb_shared::shared::{ChainProvider, Shared};
 use ckb_time::now_ms;
 use ckb_verification::{BlockVerifier, Verifier};
 use config::Config;
@@ -67,9 +69,11 @@ bitflags! {
 pub type BlockStatusMap = Arc<RwLock<HashMap<H256, BlockStatus>>>;
 pub type BlockHeaderMap = Arc<RwLock<HashMap<H256, HeaderView>>>;
 
-pub struct Synchronizer<C> {
-    pub chain: Arc<C>,
-    pub pow: Arc<dyn PowEngine>,
+pub struct Synchronizer<CI: ChainIndex> {
+    chain: ChainController,
+    shared: Shared<CI>,
+    pow: Arc<dyn PowEngine>,
+    block_verifier: BlockVerifier<Shared<CI>>,
     pub status_map: BlockStatusMap,
     pub header_map: BlockHeaderMap,
     pub best_known_header: Arc<RwLock<HeaderView>>,
@@ -80,19 +84,13 @@ pub struct Synchronizer<C> {
     pub outbound_peers_with_protect: Arc<AtomicUsize>,
 }
 
-fn is_outbound(nc: &CKBProtocolContext, peer: PeerIndex) -> Option<bool> {
-    nc.session_info(peer)
-        .map(|session_info| session_info.peer.is_outgoing())
-}
-
-impl<C> Clone for Synchronizer<C>
-where
-    C: ChainProvider,
-{
-    fn clone(&self) -> Synchronizer<C> {
+impl<CI: ChainIndex> ::std::clone::Clone for Synchronizer<CI> {
+    fn clone(&self) -> Self {
         Synchronizer {
-            chain: Arc::clone(&self.chain),
+            chain: self.chain.clone(),
+            shared: self.shared.clone(),
             pow: Arc::clone(&self.pow),
+            block_verifier: self.block_verifier.clone(),
             status_map: Arc::clone(&self.status_map),
             header_map: Arc::clone(&self.header_map),
             best_known_header: Arc::clone(&self.best_known_header),
@@ -105,20 +103,32 @@ where
     }
 }
 
-impl<C> Synchronizer<C>
-where
-    C: ChainProvider,
-{
-    pub fn new(chain: &Arc<C>, pow: &Arc<dyn PowEngine>, config: Config) -> Synchronizer<C> {
-        let tip_header = chain.tip_header().read();
-        let best_known_header =
-            HeaderView::new(tip_header.inner().clone(), tip_header.total_difficulty());
+fn is_outbound(nc: &CKBProtocolContext, peer: PeerIndex) -> Option<bool> {
+    nc.session_info(peer)
+        .map(|session_info| session_info.peer.is_outgoing())
+}
+
+impl<CI: ChainIndex> Synchronizer<CI> {
+    pub fn new(
+        chain: ChainController,
+        shared: Shared<CI>,
+        pow: Arc<dyn PowEngine>,
+        block_verifier: BlockVerifier<Shared<CI>>,
+        config: Config,
+    ) -> Synchronizer<CI> {
+        let (total_difficulty, header) = {
+            let tip_header = shared.tip_header().read();
+            (tip_header.total_difficulty(), tip_header.inner().clone())
+        };
+        let best_known_header = HeaderView::new(header, total_difficulty);
         let orphan_block_limit = config.orphan_block_limit;
 
         Synchronizer {
             config: Arc::new(config),
-            chain: Arc::clone(chain),
-            pow: Arc::clone(pow),
+            chain,
+            shared,
+            pow,
+            block_verifier,
             peers: Arc::new(Peers::default()),
             orphan_block_pool: Arc::new(OrphanBlockPool::with_capacity(orphan_block_limit)),
             best_known_header: Arc::new(RwLock::new(best_known_header)),
@@ -154,7 +164,7 @@ where
         let guard = self.status_map.upgradable_read();
         match guard.get(hash).cloned() {
             Some(s) => s,
-            None => if self.chain.block_header(hash).is_some() {
+            None => if self.shared.block_header(hash).is_some() {
                 let mut write_guard = RwLockUpgradableReadGuard::upgrade(guard);
                 write_guard.insert(*hash, BlockStatus::BLOCK_HAVE_MASK);
                 BlockStatus::BLOCK_HAVE_MASK
@@ -177,7 +187,7 @@ where
     }
 
     pub fn is_initial_block_download(&self) -> bool {
-        now_ms().saturating_sub(self.chain.tip_header().read().inner().timestamp()) > MAX_TIP_AGE
+        now_ms().saturating_sub(self.shared.tip_header().read().inner().timestamp()) > MAX_TIP_AGE
     }
 
     pub fn get_headers_sync_timeout(&self, header: &Header) -> u64 {
@@ -195,7 +205,7 @@ where
     }
 
     pub fn tip_header(&self) -> Header {
-        self.chain.tip_header().read().inner().clone()
+        self.shared.tip_header().read().inner().clone()
     }
 
     pub fn get_locator(&self, start: &Header) -> Vec<H256> {
@@ -216,7 +226,7 @@ where
             if index < step {
                 // always include genesis hash
                 if index != 0 {
-                    locator.push(self.chain.genesis_hash());
+                    locator.push(self.shared.genesis_hash());
                 }
                 break;
             }
@@ -234,7 +244,7 @@ where
             return None;
         }
 
-        if locator.last().expect("empty checked") != &self.chain.genesis_hash() {
+        if locator.last().expect("empty checked") != &self.shared.genesis_hash() {
             return None;
         }
 
@@ -242,7 +252,7 @@ where
         let (index, latest_common) = locator
             .iter()
             .enumerate()
-            .map(|(index, hash)| (index, self.chain.block_number(hash)))
+            .map(|(index, hash)| (index, self.shared.block_number(hash)))
             .find(|(_index, number)| number.is_some())
             .expect("locator last checked");
 
@@ -252,16 +262,16 @@ where
 
         if let Some(header) = locator
             .get(index - 1)
-            .and_then(|hash| self.chain.block_header(&hash))
+            .and_then(|hash| self.shared.block_header(hash))
         {
             let mut block_hash = header.parent_hash();
             loop {
-                let block_header = match self.chain.block_header(&block_hash) {
+                let block_header = match self.shared.block_header(&block_hash) {
                     None => break latest_common,
                     Some(block_header) => block_header,
                 };
 
-                if let Some(block_number) = self.chain.block_number(&block_hash) {
+                if let Some(block_number) = self.shared.block_number(&block_hash) {
                     return Some(block_number);
                 }
 
@@ -274,8 +284,8 @@ where
 
     pub fn get_header_view(&self, hash: &H256) -> Option<HeaderView> {
         self.header_map.read().get(hash).cloned().or_else(|| {
-            self.chain.block_header(&hash).and_then(|header| {
-                self.chain
+            self.shared.block_header(hash).and_then(|header| {
+                self.shared
                     .block_ext(&hash)
                     .map(|block_ext| HeaderView::new(header, block_ext.total_difficulty))
             })
@@ -288,11 +298,11 @@ where
             .get(hash)
             .map(|view| view.inner())
             .cloned()
-            .or_else(|| self.chain.block_header(&hash))
+            .or_else(|| self.shared.block_header(hash))
     }
 
     pub fn get_block(&self, hash: &H256) -> Option<Block> {
-        self.chain.block(hash)
+        self.shared.block(hash)
     }
 
     pub fn get_ancestor(&self, base: &H256, number: BlockNumber) -> Option<Header> {
@@ -323,9 +333,9 @@ where
             tip_number + 1,
         );
         (block_number + 1..max_height)
-            .filter_map(|block_number| self.chain.block_hash(block_number))
+            .filter_map(|block_number| self.shared.block_hash(block_number))
             .take_while(|block_hash| block_hash != hash_stop)
-            .filter_map(|block_hash| self.chain.block_header(&block_hash))
+            .filter_map(|block_hash| self.shared.block_header(&block_hash))
             .collect()
     }
 
@@ -393,18 +403,19 @@ where
         }
     }
 
-    fn accept_block(&self, peer: PeerIndex, block: &Block) -> Result<(), AcceptBlockError> {
-        BlockVerifier::new(block, &self.chain, &self.pow).verify()?;
-        self.chain.process_block(&block)?;
+    fn accept_block(&self, peer: PeerIndex, block: &Arc<Block>) -> Result<(), AcceptBlockError> {
+        self.block_verifier.verify(&block)?;
+        self.chain.process_block(Arc::clone(&block))?;
         self.mark_block_stored(block.header().hash());
-        self.peers.set_last_common_header(peer, block.header());
+        self.peers.set_last_common_header(peer, &block.header());
         Ok(())
     }
 
     //FIXME: guarantee concurrent block process
     fn insert_new_block(&self, peer: PeerIndex, block: Block) {
+        let block = Arc::new(block);
         if self
-            .chain
+            .shared
             .output_root(&block.header().parent_hash())
             .is_some()
         {
@@ -414,8 +425,9 @@ where
                     .orphan_block_pool
                     .remove_blocks_by_parent(&block.header().hash());
                 for block in pre_orphan_block {
+                    let block = Arc::new(block);
                     if self
-                        .chain
+                        .shared
                         .output_root(&block.header().parent_hash())
                         .is_some()
                     {
@@ -433,7 +445,7 @@ where
                             block.header().number(),
                             block.header().hash()
                         );
-                        self.orphan_block_pool.insert(block);
+                        self.orphan_block_pool.insert(Block::clone(&block));
                     }
                 }
             } else {
@@ -449,7 +461,7 @@ where
                 block.header().number(),
                 block.header().hash()
             );
-            self.orphan_block_pool.insert(block);
+            self.orphan_block_pool.insert(Block::clone(&block));
         }
 
         debug!(target: "sync", "[Synchronizer] insert_new_block finish");
@@ -517,7 +529,7 @@ where
                 if !state.chain_sync.protect && is_outbound {
                     let best_known_header = best_known_headers.get(peer);
 
-                    let chain_tip = self.chain.tip_header().read();
+                    let chain_tip = self.shared.tip_header().read();
                     if best_known_header.map(|h| h.total_difficulty())
                         >= Some(chain_tip.total_difficulty())
                     {
@@ -611,9 +623,9 @@ where
     }
 }
 
-impl<C> CKBProtocolHandler for Synchronizer<C>
+impl<CI> CKBProtocolHandler for Synchronizer<CI>
 where
-    C: ChainProvider + 'static,
+    CI: ChainIndex + 'static,
 {
     fn initialize(&self, nc: Box<CKBProtocolContext>) {
         // NOTE: 100ms is what bitcoin use.
@@ -666,20 +678,19 @@ mod tests {
     use self::headers_process::HeadersProcess;
     use super::*;
     use bigint::U256;
-    use ckb_chain::chain::Chain;
-    use ckb_chain::consensus::Consensus;
-    use ckb_chain::index::ChainIndex;
-    use ckb_chain::store::ChainKVStore;
-    use ckb_chain::COLUMNS;
-    use ckb_notify::{Event, Notify, MINER_SUBSCRIBER};
+    use ckb_chain::chain::ChainBuilder;
+    use ckb_notify::{NotifyController, NotifyService, MINER_SUBSCRIBER};
     use ckb_pow::DummyPowEngine;
     use ckb_protocol::{Block as FbsBlock, Headers as FbsHeaders};
+    use ckb_shared::consensus::Consensus;
+    use ckb_shared::index::ChainIndex;
+    use ckb_shared::shared::SharedBuilder;
+    use ckb_shared::store::ChainKVStore;
     use ckb_time::set_mock_timer;
+    use ckb_verification::BlockVerifier;
     use core::block::BlockBuilder;
     use core::header::{Header, HeaderBuilder};
     use core::transaction::{CellInput, CellOutput, Transaction, TransactionBuilder};
-    use crossbeam_channel;
-    use crossbeam_channel::Receiver;
     use db::memorydb::MemoryKeyValueDB;
     use flatbuffers::FlatBufferBuilder;
     use fnv::{FnvHashMap, FnvHashSet};
@@ -691,6 +702,48 @@ mod tests {
     use std::time::Duration;
     use util::Mutex;
 
+    fn start_chain(
+        consensus: Option<Consensus>,
+        notify: Option<NotifyController>,
+    ) -> (
+        ChainController,
+        Shared<ChainKVStore<MemoryKeyValueDB>>,
+        NotifyController,
+    ) {
+        let mut builder = SharedBuilder::<ChainKVStore<MemoryKeyValueDB>>::new_memory();
+        if let Some(consensus) = consensus {
+            builder = builder.consensus(consensus);
+        }
+        let shared = builder.build();
+
+        let notify = notify.unwrap_or_else(|| NotifyService::default().start::<&str>(None).1);
+        let (chain_controller, chain_receivers) = ChainController::new();
+        let chain_service = ChainBuilder::new(shared.clone())
+            .notify(notify.clone())
+            .build();
+        let _handle = chain_service.start::<&str>(None, chain_receivers);
+        (chain_controller, shared, notify)
+    }
+
+    fn gen_synchronizer<CI: ChainIndex + 'static>(
+        pow_engine: Arc<dyn PowEngine>,
+        chain_controller: ChainController,
+        shared: Shared<CI>,
+    ) -> Synchronizer<CI> {
+        let block_verifier = BlockVerifier::new(
+            shared.clone(),
+            shared.consensus().clone(),
+            Arc::clone(&pow_engine),
+        );
+        Synchronizer::new(
+            chain_controller,
+            shared,
+            pow_engine,
+            block_verifier,
+            Config::default(),
+        )
+    }
+
     fn dummy_pow_engine() -> Arc<dyn PowEngine> {
         Arc::new(DummyPowEngine::new())
     }
@@ -701,13 +754,6 @@ mod tests {
         let status2 = BlockStatus::FAILED_CHILD;
         assert!((status1 & BlockStatus::FAILED_MASK) == status1);
         assert!((status2 & BlockStatus::FAILED_MASK) == status2);
-    }
-
-    fn gen_chain(consensus: &Consensus, notify: Notify) -> Chain<ChainKVStore<MemoryKeyValueDB>> {
-        let db = MemoryKeyValueDB::open(COLUMNS as usize);
-        let store = ChainKVStore::new(db);
-        let chain = Chain::init(store, consensus.clone(), notify).unwrap();
-        chain
     }
 
     fn create_cellbase(number: BlockNumber) -> Transaction {
@@ -734,20 +780,26 @@ mod tests {
             .with_header_builder(header_builder)
     }
 
-    fn insert_block<CS: ChainIndex>(chain: &Chain<CS>, nonce: u64, number: BlockNumber) {
-        let parent = chain
-            .block_header(&chain.block_hash(number - 1).unwrap())
+    fn insert_block<CI: ChainIndex>(
+        chain_controller: &ChainController,
+        shared: &Shared<CI>,
+        nonce: u64,
+        number: BlockNumber,
+    ) {
+        let parent = shared
+            .block_header(&shared.block_hash(number - 1).unwrap())
             .unwrap();
-        let difficulty = chain.calculate_difficulty(&parent).unwrap();
+        let difficulty = shared.calculate_difficulty(&parent).unwrap();
         let block = gen_block(parent, difficulty, nonce);
 
-        chain.process_block(&block).expect("process block ok");
+        chain_controller
+            .process_block(Arc::new(block))
+            .expect("process block ok");
     }
 
     #[test]
     fn test_locator() {
-        let config = Consensus::default();
-        let chain = Arc::new(gen_chain(&config, Notify::default()));
+        let (chain_controller, shared, _notify) = start_chain(None, None);
 
         let num = 200;
         let index = [
@@ -755,59 +807,72 @@ mod tests {
         ];
 
         for i in 1..num {
-            insert_block(&chain, i, i);
+            insert_block(&chain_controller, &shared, i, i);
         }
 
-        let synchronizer = Synchronizer::new(&chain, &dummy_pow_engine(), Config::default());
+        let pow_engine = dummy_pow_engine();
+        let synchronizer = gen_synchronizer(pow_engine, chain_controller.clone(), shared.clone());
 
-        let locator = synchronizer.get_locator(&chain.tip_header().read().inner());
+        let locator = synchronizer.get_locator(&shared.tip_header().read().inner());
 
         let mut expect = Vec::new();
 
         for i in index.iter() {
-            expect.push(chain.block_hash(*i).unwrap());
+            expect.push(shared.block_hash(*i).unwrap());
         }
         //genesis_hash must be the last one
-        expect.push(chain.genesis_hash());
+        expect.push(shared.genesis_hash());
 
         assert_eq!(expect, locator);
     }
 
     #[test]
     fn test_locate_latest_common_block() {
-        let config = Consensus::default();
-        let chain1 = Arc::new(gen_chain(&config, Notify::default()));
-        let chain2 = Arc::new(gen_chain(&config, Notify::default()));
+        let consensus = Consensus::default();
+        let (chain_controller1, shared1, _notify1) = start_chain(Some(consensus.clone()), None);
+        let (chain_controller2, shared2, _notify2) = start_chain(Some(consensus.clone()), None);
         let num = 200;
 
         for i in 1..num {
-            insert_block(&chain1, i, i);
+            insert_block(&chain_controller1, &shared1, i, i);
         }
 
         for i in 1..num {
-            insert_block(&chain2, i + 1, i);
+            insert_block(&chain_controller2, &shared2, i + 1, i);
         }
 
         let pow_engine = dummy_pow_engine();
 
-        let synchronizer1 = Synchronizer::new(&chain1, &pow_engine, Config::default());
+        let synchronizer1 = gen_synchronizer(
+            Arc::clone(&pow_engine),
+            chain_controller1.clone(),
+            shared1.clone(),
+        );
 
-        let synchronizer2 = Synchronizer::new(&chain2, &pow_engine, Config::default());
+        let synchronizer2 = gen_synchronizer(
+            Arc::clone(&pow_engine),
+            chain_controller2.clone(),
+            shared2.clone(),
+        );
 
-        let locator1 = synchronizer1.get_locator(&chain1.tip_header().read().inner());
+        let locator1 = synchronizer1.get_locator(&shared1.tip_header().read().inner());
 
         let latest_common = synchronizer2.locate_latest_common_block(&H256::zero(), &locator1[..]);
 
         assert_eq!(latest_common, Some(0));
 
-        let chain3 = Arc::new(gen_chain(&config, Notify::default()));
+        let (chain_controller3, shared3, _notify3) = start_chain(Some(consensus), None);
 
         for i in 1..num {
             let j = if i > 192 { i + 1 } else { i };
-            insert_block(&chain3, j, i);
+            insert_block(&chain_controller3, &shared3, j, i);
         }
 
-        let synchronizer3 = Synchronizer::new(&chain3, &pow_engine, Config::default());
+        let synchronizer3 = gen_synchronizer(
+            Arc::clone(&pow_engine),
+            chain_controller3.clone(),
+            shared3.clone(),
+        );
 
         let latest_common3 = synchronizer3.locate_latest_common_block(&H256::zero(), &locator1[..]);
         assert_eq!(latest_common3, Some(192));
@@ -815,100 +880,119 @@ mod tests {
 
     #[test]
     fn test_locate_latest_common_block2() {
-        let config = Consensus::default();
-        let chain1 = Arc::new(gen_chain(&config, Notify::default()));
-        let chain2 = Arc::new(gen_chain(&config, Notify::default()));
+        let consensus = Consensus::default();
+        let (chain_controller1, shared1, _notify1) = start_chain(Some(consensus.clone()), None);
+        let (chain_controller2, shared2, _notify2) = start_chain(Some(consensus.clone()), None);
         let block_number = 200;
 
         let mut blocks: Vec<Block> = Vec::new();
-        let mut parent = config.genesis_block().header().clone();
+        let mut parent = consensus.genesis_block().header().clone();
         for i in 1..block_number {
-            let difficulty = chain1.calculate_difficulty(&parent).unwrap();
+            let difficulty = shared1.calculate_difficulty(&parent).unwrap();
             let new_block = gen_block(parent, difficulty, i);
             blocks.push(new_block.clone());
 
-            chain1.process_block(&new_block).expect("process block ok");
-
-            chain2.process_block(&new_block).expect("process block ok");
+            chain_controller1
+                .process_block(Arc::new(new_block.clone()))
+                .expect("process block ok");
+            chain_controller2
+                .process_block(Arc::new(new_block.clone()))
+                .expect("process block ok");
             parent = new_block.header().clone();
         }
 
         parent = blocks[150].header().clone();
         let fork = parent.number();
         for i in 1..block_number + 1 {
-            let difficulty = chain2.calculate_difficulty(&parent).unwrap();
+            let difficulty = shared2.calculate_difficulty(&parent).unwrap();
             let new_block = gen_block(parent, difficulty, i + 100);
-            chain2.process_block(&new_block).expect("process block ok");
+            chain_controller2
+                .process_block(Arc::new(new_block.clone()))
+                .expect("process block ok");
             parent = new_block.header().clone();
         }
 
         let pow_engine = dummy_pow_engine();
 
-        let synchronizer1 = Synchronizer::new(&chain1, &pow_engine, Config::default());
-
-        let synchronizer2 = Synchronizer::new(&chain2, &pow_engine, Config::default());
-
-        let locator1 = synchronizer1.get_locator(&chain1.tip_header().read().inner());
+        let synchronizer1 = gen_synchronizer(
+            Arc::clone(&pow_engine),
+            chain_controller1.clone(),
+            shared1.clone(),
+        );
+        let synchronizer2 = gen_synchronizer(
+            Arc::clone(&pow_engine),
+            chain_controller2.clone(),
+            shared2.clone(),
+        );
+        let locator1 = synchronizer1.get_locator(&shared1.tip_header().read().inner());
 
         let latest_common = synchronizer2
             .locate_latest_common_block(&H256::zero(), &locator1[..])
             .unwrap();
 
         assert_eq!(
-            chain1.block_hash(fork).unwrap(),
-            chain2.block_hash(fork).unwrap()
+            shared1.block_hash(fork).unwrap(),
+            shared2.block_hash(fork).unwrap()
         );
-        assert!(chain1.block_hash(fork + 1).unwrap() != chain2.block_hash(fork + 1).unwrap());
+        assert!(shared1.block_hash(fork + 1).unwrap() != shared2.block_hash(fork + 1).unwrap());
         assert_eq!(
-            chain1.block_hash(latest_common).unwrap(),
-            chain1.block_hash(fork).unwrap()
+            shared1.block_hash(latest_common).unwrap(),
+            shared1.block_hash(fork).unwrap()
         );
     }
 
     #[test]
     fn test_get_ancestor() {
-        let config = Consensus::default();
-        let chain = Arc::new(gen_chain(&config, Notify::default()));
+        let consensus = Consensus::default();
+        let (chain_controller, shared, _notify) = start_chain(Some(consensus), None);
         let num = 200;
 
         for i in 1..num {
-            insert_block(&chain, i, i);
+            insert_block(&chain_controller, &shared, i, i);
         }
 
-        let synchronizer = Synchronizer::new(&chain, &dummy_pow_engine(), Config::default());
+        let pow_engine = dummy_pow_engine();
+        let synchronizer = gen_synchronizer(pow_engine, chain_controller.clone(), shared.clone());
 
-        let header = synchronizer.get_ancestor(&chain.tip_header().read().hash(), 100);
-        let tip = synchronizer.get_ancestor(&chain.tip_header().read().hash(), 199);
-        let noop = synchronizer.get_ancestor(&chain.tip_header().read().hash(), 200);
+        let header = synchronizer.get_ancestor(&shared.tip_header().read().hash(), 100);
+        let tip = synchronizer.get_ancestor(&shared.tip_header().read().hash(), 199);
+        let noop = synchronizer.get_ancestor(&shared.tip_header().read().hash(), 200);
         assert!(tip.is_some());
         assert!(header.is_some());
         assert!(noop.is_none());
-        assert_eq!(tip.unwrap(), chain.tip_header().read().inner().clone());
+        assert_eq!(tip.unwrap(), shared.tip_header().read().inner().clone());
         assert_eq!(
             header.unwrap(),
-            chain.block_header(&chain.block_hash(100).unwrap()).unwrap()
+            shared
+                .block_header(&shared.block_hash(100).unwrap())
+                .unwrap()
         );
     }
 
     #[test]
     fn test_process_new_block() {
-        let config = Consensus::default();
-        let chain1 = Arc::new(gen_chain(&config, Notify::default()));
-        let chain2 = Arc::new(gen_chain(&config, Notify::default()));
+        let consensus = Consensus::default();
+        let (chain_controller1, shared1, _notify1) = start_chain(Some(consensus.clone()), None);
+        let (chain_controller2, shared2, _notify2) = start_chain(Some(consensus.clone()), None);
         let block_number = 2000;
         let peer = 0;
 
         let mut blocks: Vec<Block> = Vec::new();
-        let mut parent = chain1.block_header(&chain1.block_hash(0).unwrap()).unwrap();
+        let mut parent = shared1
+            .block_header(&shared1.block_hash(0).unwrap())
+            .unwrap();
         for i in 1..block_number {
-            let difficulty = chain1.calculate_difficulty(&parent).unwrap();
+            let difficulty = shared1.calculate_difficulty(&parent).unwrap();
             let new_block = gen_block(parent, difficulty, i + 100);
-            chain1.process_block(&new_block).expect("process block ok");
+            chain_controller1
+                .process_block(Arc::new(new_block.clone()))
+                .expect("process block ok");
             blocks.push(new_block.clone());
             parent = new_block.header().clone();
         }
 
-        let synchronizer = Synchronizer::new(&chain2, &dummy_pow_engine(), Config::default());
+        let pow_engine = dummy_pow_engine();
+        let synchronizer = gen_synchronizer(pow_engine, chain_controller2.clone(), shared2.clone());
 
         blocks.clone().into_iter().for_each(|block| {
             synchronizer.insert_new_block(peer, block);
@@ -916,27 +1000,30 @@ mod tests {
 
         assert_eq!(
             blocks.last().unwrap().header(),
-            chain2.tip_header().read().inner()
+            shared2.tip_header().read().inner()
         );
     }
 
     #[test]
     fn test_get_locator_response() {
-        let config = Consensus::default();
-        let chain = Arc::new(gen_chain(&config, Notify::default()));
+        let consensus = Consensus::default();
+        let (chain_controller, shared, _notify) = start_chain(Some(consensus), None);
         let block_number = 200;
 
         let mut blocks: Vec<Block> = Vec::new();
-        let mut parent = chain.block_header(&chain.block_hash(0).unwrap()).unwrap();
+        let mut parent = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
         for i in 1..block_number + 1 {
-            let difficulty = chain.calculate_difficulty(&parent).unwrap();
+            let difficulty = shared.calculate_difficulty(&parent).unwrap();
             let new_block = gen_block(parent, difficulty, i + 100);
             blocks.push(new_block.clone());
-            chain.process_block(&new_block).expect("process block ok");
+            chain_controller
+                .process_block(Arc::new(new_block.clone()))
+                .expect("process block ok");
             parent = new_block.header().clone();
         }
 
-        let synchronizer = Synchronizer::new(&chain, &dummy_pow_engine(), Config::default());
+        let pow_engine = dummy_pow_engine();
+        let synchronizer = gen_synchronizer(pow_engine, chain_controller.clone(), shared.clone());
 
         let headers = synchronizer.get_locator_response(180, &H256::zero());
 
@@ -1032,25 +1119,33 @@ mod tests {
     #[test]
     fn test_sync_process() {
         let _ = env_logger::try_init();
-        let config = Consensus::default();
-        let notify = Notify::default();
-        let chain1 = Arc::new(gen_chain(&config, notify.clone()));
-        let chain2 = Arc::new(gen_chain(&config, notify.clone()));
+        let consensus = Consensus::default();
+        let (_handle, notify) = NotifyService::default().start::<&str>(None);
+        let (chain_controller1, shared1, _) =
+            start_chain(Some(consensus.clone()), Some(notify.clone()));
+        let (chain_controller2, shared2, _) =
+            start_chain(Some(consensus.clone()), Some(notify.clone()));
         let num = 200;
 
         for i in 1..num {
-            insert_block(&chain1, i, i);
+            insert_block(&chain_controller1, &shared1, i, i);
         }
-        let synchronizer1 = Synchronizer::new(&chain1, &dummy_pow_engine(), Config::default());
+        let pow_engine = dummy_pow_engine();
+        let synchronizer1 = gen_synchronizer(
+            Arc::clone(&pow_engine),
+            chain_controller1.clone(),
+            shared1.clone(),
+        );
 
-        let locator1 = synchronizer1.get_locator(&chain1.tip_header().read().inner());
+        let locator1 = synchronizer1.get_locator(&shared1.tip_header().read().inner());
 
         for i in 1..num + 1 {
             let j = if i > 192 { i + 1 } else { i };
-            insert_block(&chain2, j, i);
+            insert_block(&chain_controller2, &shared2, j, i);
         }
 
-        let synchronizer2 = Synchronizer::new(&chain2, &dummy_pow_engine(), Config::default());
+        let synchronizer2 =
+            gen_synchronizer(pow_engine, chain_controller2.clone(), shared2.clone());
         let latest_common = synchronizer2.locate_latest_common_block(&H256::zero(), &locator1[..]);
         assert_eq!(latest_common, Some(192));
 
@@ -1058,11 +1153,11 @@ mod tests {
 
         assert_eq!(
             headers.first().unwrap().hash(),
-            chain2.block_hash(193).unwrap()
+            shared2.block_hash(193).unwrap()
         );
         assert_eq!(
             headers.last().unwrap().hash(),
-            chain2.block_hash(200).unwrap()
+            shared2.block_hash(200).unwrap()
         );
 
         let fbb = &mut FlatBufferBuilder::new();
@@ -1081,33 +1176,19 @@ mod tests {
 
         assert_eq!(
             blocks_to_fetch.first().unwrap(),
-            &chain2.block_hash(193).unwrap()
+            &shared2.block_hash(193).unwrap()
         );
         assert_eq!(
             blocks_to_fetch.last().unwrap(),
-            &chain2.block_hash(200).unwrap()
+            &shared2.block_hash(200).unwrap()
         );
 
         let mut fetched_blocks = Vec::new();
         for block_hash in &blocks_to_fetch {
-            fetched_blocks.push(chain2.block(block_hash).unwrap());
+            fetched_blocks.push(shared2.block(block_hash).unwrap());
         }
 
-        let (tx, rx) = crossbeam_channel::unbounded();
-        notify.register_transaction_subscriber(MINER_SUBSCRIBER, tx.clone());
-        notify.register_tip_subscriber(MINER_SUBSCRIBER, tx.clone());
-
-        pub struct TryIter<'a, T: 'a> {
-            pub inner: &'a Receiver<T>,
-        }
-
-        impl<'a, T> Iterator for TryIter<'a, T> {
-            type Item = T;
-
-            fn next(&mut self) -> Option<T> {
-                self.inner.try_recv()
-            }
-        }
+        let new_tip_receiver = notify.subscribe_new_tip(MINER_SUBSCRIBER);
 
         for block in &fetched_blocks {
             let fbb = &mut FlatBufferBuilder::new();
@@ -1118,7 +1199,6 @@ mod tests {
             BlockProcess::new(&fbs_block, &synchronizer1, peer, &mock_network_context(0)).execute();
         }
 
-        let mut iter = TryIter { inner: &rx };
         assert_eq!(
             &synchronizer1
                 .peers
@@ -1131,8 +1211,8 @@ mod tests {
         );
 
         assert_eq!(
-            iter.next(),
-            Some(Event::NewTip(Arc::new(fetched_blocks[6].clone())))
+            new_tip_receiver.recv(),
+            Some(Arc::new(fetched_blocks[6].clone()))
         );
     }
 
@@ -1140,9 +1220,11 @@ mod tests {
     fn test_header_sync_timeout() {
         use std::iter::FromIterator;
 
-        let config = Consensus::default();
-        let chain = Arc::new(gen_chain(&config, Notify::default()));
-        let synchronizer = Synchronizer::new(&chain, &dummy_pow_engine(), Config::default());
+        let (chain_controller, shared, _notify) = start_chain(None, None);
+
+        let pow_engine = dummy_pow_engine();
+        let synchronizer = gen_synchronizer(pow_engine, chain_controller.clone(), shared.clone());
+
         let network_context = mock_network_context(5);
         set_mock_timer(MAX_TIP_AGE * 2);
         assert!(synchronizer.is_initial_block_download());
@@ -1167,9 +1249,13 @@ mod tests {
         let block = BlockBuilder::default().header(header).build();
         let consensus = consensus.set_genesis_block(block);
 
-        let chain = Arc::new(gen_chain(&consensus, Notify::default()));
-        assert_eq!(chain.tip_header().read().total_difficulty(), U256::from(2));
-        let synchronizer = Synchronizer::new(&chain, &dummy_pow_engine(), Config::default());
+        let (chain_controller, shared, _notify) = start_chain(Some(consensus), None);
+
+        assert_eq!(shared.tip_header().read().total_difficulty(), U256::from(2));
+
+        let pow_engine = dummy_pow_engine();
+        let synchronizer = gen_synchronizer(pow_engine, chain_controller.clone(), shared.clone());
+
         let network_context = mock_network_context(6);
         let peers = synchronizer.peers();
         //6 peers do not trigger header sync timeout
@@ -1199,7 +1285,7 @@ mod tests {
             // that for the first time, OR this peer was able to catch up to some earlier point
             // where we checked against our tip.
             // Either way, set a new timeout based on current tip.
-            let tip = { chain.tip_header().read().clone() };
+            let tip = { shared.tip_header().read().clone() };
             assert_eq!(
                 peer_state.get(&3).unwrap().chain_sync.work_header,
                 Some(tip.clone())

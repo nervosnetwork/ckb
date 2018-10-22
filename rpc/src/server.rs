@@ -1,16 +1,17 @@
+use super::service::{BlockTemplate, RpcController};
+use super::{BlockWithHash, CellOutputWithOutPoint, Config, TransactionWithHash};
 use bigint::H256;
-use chain::chain::ChainProvider;
 use core::header::{BlockNumber, Header};
 use core::transaction::{OutPoint, Transaction};
 use jsonrpc_core::{Error, IoHandler, Result};
 use jsonrpc_http_server::ServerBuilder;
 use jsonrpc_server_utils::cors::AccessControlAllowOrigin;
 use jsonrpc_server_utils::hosts::DomainsValidation;
-use miner::{build_block_template, BlockTemplate};
 use network::NetworkService;
-use pool::TransactionPool;
+use pool::txs_pool::TransactionPoolController;
+use shared::index::ChainIndex;
+use shared::shared::{ChainProvider, Shared};
 use std::sync::Arc;
-use {BlockWithHash, CellOutputWithOutPoint, Config, TransactionWithHash};
 
 build_rpc_trait! {
     pub trait Rpc {
@@ -44,13 +45,14 @@ build_rpc_trait! {
     }
 }
 
-struct RpcImpl<C> {
-    pub network: Arc<NetworkService>,
-    pub chain: Arc<C>,
-    pub tx_pool: Arc<TransactionPool<C>>,
+struct RpcImpl<CI> {
+    _network: Arc<NetworkService>,
+    shared: Shared<CI>,
+    tx_pool: TransactionPoolController,
+    controller: RpcController,
 }
 
-impl<C: ChainProvider + 'static> Rpc for RpcImpl<C> {
+impl<CI: ChainIndex + 'static> Rpc for RpcImpl<CI> {
     fn send_transaction(&self, tx: Transaction) -> Result<H256> {
         let result = tx.hash();
         let pool_result = self.tx_pool.add_transaction(tx);
@@ -64,24 +66,19 @@ impl<C: ChainProvider + 'static> Rpc for RpcImpl<C> {
     }
 
     fn get_block(&self, hash: H256) -> Result<Option<BlockWithHash>> {
-        Ok(self.chain.block(&hash).map(Into::into))
+        Ok(self.shared.block(&hash).map(Into::into))
     }
 
     fn get_transaction(&self, hash: H256) -> Result<Option<TransactionWithHash>> {
-        Ok(self.chain.get_transaction(&hash).map(Into::into))
+        Ok(self.shared.get_transaction(&hash).map(Into::into))
     }
 
     fn get_block_hash(&self, number: BlockNumber) -> Result<Option<H256>> {
-        Ok(self.chain.block_hash(number))
+        Ok(self.shared.block_hash(number))
     }
 
     fn get_tip_header(&self) -> Result<Header> {
-        Ok(self.chain.tip_header().read().inner().clone())
-    }
-
-    // TODO: the max size
-    fn get_block_template(&self) -> Result<BlockTemplate> {
-        Ok(build_block_template(&self.chain, &self.tx_pool, H256::from(0), 20000, 20000).unwrap())
+        Ok(self.shared.tip_header().read().inner().clone())
     }
 
     // TODO: we need to build a proper index instead of scanning every time
@@ -93,14 +90,14 @@ impl<C: ChainProvider + 'static> Rpc for RpcImpl<C> {
     ) -> Result<Vec<CellOutputWithOutPoint>> {
         let mut result = Vec::new();
         for block_number in from..=to {
-            if let Some(block_hash) = self.chain.block_hash(block_number) {
+            if let Some(block_hash) = self.shared.block_hash(block_number) {
                 let block = self
-                    .chain
+                    .shared
                     .block(&block_hash)
                     .ok_or_else(Error::internal_error)?;
                 for transaction in block.commit_transactions() {
                     let transaction_meta = self
-                        .chain
+                        .shared
                         .get_transaction_meta(&transaction.hash())
                         .ok_or_else(Error::internal_error)?;
                     for (i, output) in transaction.outputs().iter().enumerate() {
@@ -117,6 +114,13 @@ impl<C: ChainProvider + 'static> Rpc for RpcImpl<C> {
         }
         Ok(result)
     }
+
+    // TODO: the max size
+    fn get_block_template(&self) -> Result<BlockTemplate> {
+        self.controller
+            .get_block_template(H256::from(0), 20000, 20000)
+            .map_err(|_| Error::internal_error())
+    }
 }
 
 pub struct RpcServer {
@@ -124,20 +128,22 @@ pub struct RpcServer {
 }
 
 impl RpcServer {
-    pub fn start<C>(
+    pub fn start<CI: ChainIndex + 'static>(
         &self,
-        network: Arc<NetworkService>,
-        chain: Arc<C>,
-        tx_pool: Arc<TransactionPool<C>>,
+        _network: Arc<NetworkService>,
+        shared: Shared<CI>,
+        tx_pool: TransactionPoolController,
+        controller: RpcController,
     ) where
-        C: ChainProvider + 'static,
+        CI: ChainIndex,
     {
         let mut io = IoHandler::new();
         io.extend_with(
             RpcImpl {
-                network,
-                chain,
+                _network,
+                shared,
                 tx_pool,
+                controller,
             }.to_delegate(),
         );
 

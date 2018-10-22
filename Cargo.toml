@@ -13,6 +13,7 @@ log = "0.4"
 ckb-util = { path = "util" }
 ckb-core = { path = "core" }
 ckb-chain = { path = "chain" }
+ckb-shared = { path = "shared" }
 ckb-chain-spec = {path = "spec"}
 ckb-notify = { path = "notify"}
 ckb-miner = { path = "miner" }
@@ -21,6 +22,7 @@ ckb-pow = { path = "pow" }
 ckb-network = { path = "network"}
 ckb-pool = { path = "pool"}
 ckb-rpc = { path = "rpc"}
+ckb-verification = { path = "verification"}
 ckb-time = { path = "util/time"}
 ckb-script= { path = "script"}
 logger = { path = "util/logger" }
@@ -60,6 +62,7 @@ members = [
     "protocol",
     "sync",
     "core",
+    "shared",
     "chain",
     "miner",
     "db",

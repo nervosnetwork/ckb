@@ -1,16 +1,19 @@
 extern crate bigint;
-extern crate ckb_chain as chain;
 extern crate ckb_core as core;
-#[cfg(test)]
-extern crate ckb_db as db;
-#[cfg(test)]
-extern crate ckb_notify as notify;
 extern crate ckb_pow as pow;
 extern crate ckb_script as script;
+extern crate ckb_shared;
 extern crate ckb_time as time;
 extern crate fnv;
 extern crate merkle_root;
 extern crate rayon;
+
+#[cfg(test)]
+extern crate ckb_chain as chain;
+#[cfg(test)]
+extern crate ckb_db as db;
+#[cfg(test)]
+extern crate ckb_notify as notify;
 
 mod block_verifier;
 mod error;
@@ -27,5 +30,6 @@ pub use header_verifier::{HeaderResolver, HeaderVerifier};
 pub use transaction_verifier::TransactionVerifier;
 
 pub trait Verifier {
-    fn verify(&self) -> Result<(), Error>;
+    type Target;
+    fn verify(&self, target: &Self::Target) -> Result<(), Error>;
 }

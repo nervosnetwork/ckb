@@ -1,4 +1,4 @@
-use super::Error;
+use super::ScriptError;
 use bigint::H256;
 use core::cell::ResolvedTransaction;
 use core::script::Script;
@@ -68,20 +68,20 @@ impl<'a> TransactionScriptsVerifier<'a> {
 
     // Script struct might contain references to external cells, this
     // method exacts the real script from Stript struct.
-    fn extract_script(&self, script: &'a Script) -> Result<&'a [u8], Error> {
+    fn extract_script(&self, script: &'a Script) -> Result<&'a [u8], ScriptError> {
         if let Some(ref data) = script.binary {
             return Ok(data);
         }
         if let Some(hash) = script.reference {
             return match self.dep_cells.get(&hash) {
                 Some(ref cell_output) => Ok(&cell_output.data),
-                None => Err(Error::InvalidReferenceIndex),
+                None => Err(ScriptError::InvalidReferenceIndex),
             };
         }
-        Err(Error::NoScript)
+        Err(ScriptError::NoScript)
     }
 
-    pub fn verify_script(&self, script: &Script) -> Result<(), Error> {
+    pub fn verify_script(&self, script: &Script) -> Result<(), ScriptError> {
         self.extract_script(script).and_then(|script_binary| {
             let mut args = vec![b"verify".to_vec()];
             args.extend_from_slice(&script.signed_args.as_slice());
@@ -92,18 +92,18 @@ impl<'a> TransactionScriptsVerifier<'a> {
             machine.add_syscall_module(Box::new(self.build_mmap_cell()));
             machine
                 .run(script_binary, &args)
-                .map_err(Error::VMError)
+                .map_err(ScriptError::VMError)
                 .and_then(|code| {
                     if code == 0 {
                         Ok(())
                     } else {
-                        Err(Error::ValidationFailure(code))
+                        Err(ScriptError::ValidationFailure(code))
                     }
                 })
         })
     }
 
-    pub fn verify(&self) -> Result<(), Error> {
+    pub fn verify(&self) -> Result<(), ScriptError> {
         for (i, input) in self.inputs.iter().enumerate() {
             self.verify_script(&input.unlock).map_err(|e| {
                 info!(target: "script", "Error validating input {} of transaction {}: {:?}", i, self.hash, e);

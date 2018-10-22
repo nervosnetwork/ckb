@@ -1,26 +1,26 @@
 use bigint::H256;
-use ckb_chain::chain::ChainProvider;
 use ckb_protocol::{FlatbuffersVectorIterator, GetHeaders, SyncMessage};
+use ckb_shared::index::ChainIndex;
 use core::header::Header;
 use flatbuffers::FlatBufferBuilder;
 use network::{CKBProtocolContext, PeerIndex, Severity};
 use synchronizer::Synchronizer;
 use MAX_LOCATOR_SIZE;
 
-pub struct GetHeadersProcess<'a, C: 'a> {
+pub struct GetHeadersProcess<'a, CI: ChainIndex + 'a> {
     message: &'a GetHeaders<'a>,
-    synchronizer: &'a Synchronizer<C>,
+    synchronizer: &'a Synchronizer<CI>,
     peer: PeerIndex,
     nc: &'a CKBProtocolContext,
 }
 
-impl<'a, C> GetHeadersProcess<'a, C>
+impl<'a, CI> GetHeadersProcess<'a, CI>
 where
-    C: ChainProvider + 'a,
+    CI: ChainIndex + 'a,
 {
     pub fn new(
         message: &'a GetHeaders,
-        synchronizer: &'a Synchronizer<C>,
+        synchronizer: &'a Synchronizer<CI>,
         peer: PeerIndex,
         nc: &'a CKBProtocolContext,
     ) -> Self {

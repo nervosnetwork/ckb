@@ -1,10 +1,8 @@
 use super::super::helper::wait_for_exit;
 use super::super::Setup;
 use bigint::H256;
-use chain::cachedb::CacheDB;
-use chain::chain::{ChainBuilder, ChainProvider};
-use chain::store::ChainKVStore;
-use ckb_notify::Notify;
+use chain::chain::{ChainBuilder, ChainController};
+use ckb_notify::NotifyService;
 use ckb_pow::PowEngine;
 use clap::ArgMatches;
 use core::script::Script;
@@ -14,40 +12,75 @@ use db::diskdb::RocksDB;
 use faster_hex::{hex_string, hex_to};
 use hash::sha3_256;
 use logger;
-use miner::Miner;
+use miner::MinerService;
 use network::CKBProtocol;
 use network::NetworkConfig;
 use network::NetworkService;
-use pool::TransactionPool;
-use rpc::RpcServer;
+use pool::txs_pool::{TransactionPoolController, TransactionPoolService};
+use rpc::{RpcController, RpcServer, RpcService};
 use serde_json;
+use shared::cachedb::CacheDB;
+use shared::index::ChainIndex;
+use shared::shared::{ChainProvider, Shared, SharedBuilder};
+use shared::store::ChainKVStore;
 use std::io::Write;
 use std::sync::Arc;
 use std::thread;
 use sync::{Relayer, Synchronizer, RELAY_PROTOCOL_ID, SYNC_PROTOCOL_ID};
+use verification::BlockVerifier;
 
 pub fn run(setup: Setup) {
     logger::init(setup.configs.logger.clone()).expect("Init Logger");
     info!(target: "main", "Value for setup: {:?}", setup);
 
     let consensus = setup.chain_spec.to_consensus().unwrap();
-    let db_path = setup.dirs.join("db");
-    let notify = Notify::new();
-
-    let chain = {
-        let mut builder = ChainBuilder::<ChainKVStore<CacheDB<RocksDB>>>::new_rocks(&db_path)
-            .consensus(consensus.clone())
-            .notify(notify.clone());
-        Arc::new(builder.build().unwrap())
-    };
-
-    info!(target: "main", "chain genesis hash: {:?}", chain.genesis_hash());
-
     let pow_engine = setup.chain_spec.pow_engine();
-    let synchronizer = Arc::new(Synchronizer::new(&chain, &pow_engine, setup.configs.sync));
+    let db_path = setup.dirs.join("db");
 
-    let tx_pool = TransactionPool::new(setup.configs.pool, Arc::clone(&chain), notify.clone());
-    let relayer = Arc::new(Relayer::new(&chain, &pow_engine, &tx_pool));
+    let shared = SharedBuilder::<ChainKVStore<CacheDB<RocksDB>>>::new_rocks(&db_path)
+        .consensus(consensus)
+        .build();
+
+    let (_handle, notify) = NotifyService::default().start(Some("notify"));
+    let (chain_controller, chain_receivers) = ChainController::new();
+    let (tx_pool_controller, tx_pool_receivers) = TransactionPoolController::new();
+    let (rpc_controller, rpc_receivers) = RpcController::new();
+
+    let chain_service = ChainBuilder::new(shared.clone())
+        .notify(notify.clone())
+        .build();
+    let _handle = chain_service.start(Some("ChainService"), chain_receivers);
+
+    info!(target: "main", "chain genesis hash: {:?}", shared.genesis_hash());
+
+    let block_verifier = BlockVerifier::new(
+        shared.clone(),
+        shared.consensus().clone(),
+        Arc::clone(&pow_engine),
+    );
+
+    let tx_pool_service =
+        TransactionPoolService::new(setup.configs.pool, shared.clone(), notify.clone());
+    let _handle = tx_pool_service.start(Some("TransactionPoolService"), tx_pool_receivers);
+
+    let rpc_service = RpcService::new(shared.clone(), tx_pool_controller.clone());
+    let _handle = rpc_service.start(Some("RpcService"), rpc_receivers, &notify);
+
+    let synchronizer = Arc::new(Synchronizer::new(
+        chain_controller.clone(),
+        shared.clone(),
+        Arc::clone(&pow_engine),
+        block_verifier.clone(),
+        setup.configs.sync,
+    ));
+
+    let relayer = Arc::new(Relayer::new(
+        chain_controller.clone(),
+        shared.clone(),
+        Arc::clone(&pow_engine),
+        tx_pool_controller.clone(),
+        block_verifier,
+    ));
 
     let network_config = NetworkConfig::from(setup.configs.network);
     let protocol_base_name = "ckb";
@@ -70,28 +103,29 @@ pub fn run(setup: Setup) {
             .expect("Create and start network"),
     );
 
-    let _ = thread::Builder::new().name("miner".to_string()).spawn({
-        let miner_clone = Arc::clone(&chain);
-
-        let mut miner = Miner::new(
-            setup.configs.miner,
-            miner_clone,
-            &pow_engine,
-            &tx_pool,
-            &network,
-            &notify,
-        );
-
-        move || {
-            miner.start();
-        }
-    });
+    let miner_service = MinerService::new(
+        setup.configs.miner,
+        Arc::clone(&pow_engine),
+        &shared,
+        chain_controller.clone(),
+        rpc_controller.clone(),
+        Arc::clone(&network),
+        &notify,
+    );
+    let _handle = miner_service.start(Some("MinerService"));
 
     let rpc_server = RpcServer {
         config: setup.configs.rpc,
     };
 
-    setup_rpc(rpc_server, &pow_engine, &network, &chain, &tx_pool);
+    setup_rpc(
+        rpc_server,
+        rpc_controller,
+        Arc::clone(&pow_engine),
+        Arc::clone(&network),
+        shared,
+        tx_pool_controller,
+    );
 
     wait_for_exit();
 
@@ -101,18 +135,15 @@ pub fn run(setup: Setup) {
 }
 
 #[cfg(feature = "integration_test")]
-fn setup_rpc<C: ChainProvider + 'static>(
+fn setup_rpc<CI: ChainIndex + 'static>(
     server: RpcServer,
-    pow: &Arc<dyn PowEngine>,
-    network: &Arc<NetworkService>,
-    chain: &Arc<C>,
-    tx_pool: &Arc<TransactionPool<C>>,
+    rpc: RpcController,
+    pow: Arc<dyn PowEngine>,
+    network: Arc<NetworkService>,
+    shared: Shared<CI>,
+    tx_pool: TransactionPoolController,
 ) {
     use ckb_pow::Clicker;
-
-    let network = Arc::clone(network);
-    let chain = Arc::clone(chain);
-    let tx_pool = Arc::clone(tx_pool);
 
     let pow = pow.as_ref().as_any();
 
@@ -123,26 +154,24 @@ fn setup_rpc<C: ChainProvider + 'static>(
 
     let _ = thread::Builder::new().name("rpc".to_string()).spawn({
         move || {
-            server.start(network, chain, tx_pool, pow);
+            server.start(network, shared, tx_pool, rpc, pow);
         }
     });
 }
 
 #[cfg(not(feature = "integration_test"))]
 #[cfg_attr(feature = "cargo-clippy", allow(needless_pass_by_value))]
-fn setup_rpc<C: ChainProvider + 'static>(
+fn setup_rpc<CI: ChainIndex + 'static>(
     server: RpcServer,
-    _pow: &Arc<dyn PowEngine>,
-    network: &Arc<NetworkService>,
-    chain: &Arc<C>,
-    tx_pool: &Arc<TransactionPool<C>>,
+    rpc: RpcController,
+    _pow: Arc<dyn PowEngine>,
+    network: Arc<NetworkService>,
+    shared: Shared<CI>,
+    tx_pool: TransactionPoolController,
 ) {
-    let network = Arc::clone(network);
-    let chain = Arc::clone(chain);
-    let tx_pool = Arc::clone(tx_pool);
     let _ = thread::Builder::new().name("rpc".to_string()).spawn({
         move || {
-            server.start(network, chain, tx_pool);
+            server.start(network, shared, tx_pool, rpc);
         }
     });
 }

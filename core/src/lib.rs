@@ -10,6 +10,7 @@ extern crate hash;
 #[macro_use]
 extern crate serde_derive;
 extern crate bit_vec;
+extern crate crossbeam_channel as channel;
 extern crate fnv;
 extern crate merkle_root;
 
@@ -22,6 +23,7 @@ pub mod extras;
 pub mod global;
 pub mod header;
 pub mod script;
+pub mod service;
 pub mod transaction;
 pub mod transaction_meta;
 pub mod uncle;

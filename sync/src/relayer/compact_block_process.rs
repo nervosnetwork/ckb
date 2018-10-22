@@ -1,24 +1,24 @@
 use super::compact_block::CompactBlock;
-use ckb_chain::chain::ChainProvider;
 use ckb_protocol::{CompactBlock as FbsCompactBlock, RelayMessage};
+use ckb_shared::index::ChainIndex;
 use flatbuffers::FlatBufferBuilder;
 use network::{CKBProtocolContext, PeerIndex};
 use relayer::Relayer;
 
-pub struct CompactBlockProcess<'a, C: 'a> {
+pub struct CompactBlockProcess<'a, CI: ChainIndex + 'a> {
     message: &'a FbsCompactBlock<'a>,
-    relayer: &'a Relayer<C>,
+    relayer: &'a Relayer<CI>,
     peer: PeerIndex,
     nc: &'a CKBProtocolContext,
 }
 
-impl<'a, C> CompactBlockProcess<'a, C>
+impl<'a, CI> CompactBlockProcess<'a, CI>
 where
-    C: ChainProvider + 'static,
+    CI: ChainIndex + 'static,
 {
     pub fn new(
         message: &'a FbsCompactBlock,
-        relayer: &'a Relayer<C>,
+        relayer: &'a Relayer<CI>,
         peer: PeerIndex,
         nc: &'a CKBProtocolContext,
     ) -> Self {
@@ -45,7 +45,7 @@ where
 
             match self.relayer.reconstruct_block(&compact_block, Vec::new()) {
                 (Some(block), _) => {
-                    let _ = self.relayer.accept_block(self.peer, &block);
+                    let _ = self.relayer.accept_block(self.peer, block);
                     // TODO PENDING new api NetworkContext#connected_peers
                     // for peer_id in self.nc.connected_peers() {
                     //     let fbb = &mut FlatBufferBuilder::new();

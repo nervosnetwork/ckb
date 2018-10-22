@@ -1,7 +1,5 @@
 use super::super::setup::Configs;
-use chain::cachedb::CacheDB;
-use chain::chain::ChainBuilder;
-use chain::store::ChainKVStore;
+use chain::chain::{ChainBuilder, ChainController};
 use ckb_chain_spec::SpecType;
 use ckb_instrument::{Format, Import};
 use clap::ArgMatches;
@@ -9,6 +7,9 @@ use config_tool::{Config as ConfigTool, File, FileFormat};
 use db::diskdb::RocksDB;
 use dir::default_base_path;
 use dir::Directories;
+use shared::cachedb::CacheDB;
+use shared::shared::SharedBuilder;
+use shared::store::ChainKVStore;
 use {DEFAULT_CONFIG, DEFAULT_CONFIG_FILENAME};
 
 pub fn import(matches: &ArgMatches) {
@@ -55,11 +56,14 @@ pub fn import(matches: &ArgMatches) {
         .load_spec()
         .unwrap_or_else(|e| panic!("load spec error {:?} ", e));
 
-    let builder = ChainBuilder::<ChainKVStore<CacheDB<RocksDB>>>::new_rocks(&db_path)
-        .consensus(spec.to_consensus().unwrap());
-    let chain = builder.build().unwrap();
+    let shared = SharedBuilder::<ChainKVStore<CacheDB<RocksDB>>>::new_rocks(&db_path)
+        .consensus(spec.to_consensus().unwrap())
+        .build();
+    let (chain_controller, chain_receivers) = ChainController::new();
+    let chain_service = ChainBuilder::new(shared).build();
+    let _handle = chain_service.start(Some("ImportChainService"), chain_receivers);
 
-    Import::new(&chain, format, source.into())
+    Import::new(chain_controller, format, source.into())
         .execute()
         .unwrap_or_else(|e| panic!("Import error {:?} ", e));
 }

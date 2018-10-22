@@ -24,7 +24,7 @@ use vm::Error as VMInternalError;
 pub use verify::TransactionScriptsVerifier;
 
 #[derive(Debug, PartialEq, Clone, Copy, Eq)]
-pub enum Error {
+pub enum ScriptError {
     NoScript,
     InvalidReferenceIndex,
     ValidationFailure(u8),

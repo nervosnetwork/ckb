@@ -1,5 +1,6 @@
 use bigint::H256;
-use chain::chain::ChainProvider;
+use chain::shared::ChainProvider;
+use chain::index::ChainIndex;
 use chain::error::Error;
 use core::block::BlockBuilder;
 use core::header::{Header, HeaderBuilder, RawHeader};
@@ -25,8 +26,8 @@ pub fn build_block_template<C: ChainProvider + 'static>(
     max_tx: usize,
     max_prop: usize,
 ) -> Result<BlockTemplate, Error> {
-    let header = chain.tip_header().read().inner().clone();
-    let now = cmp::max(now_ms(), header.timestamp() + 1);
+    let header = chain.get_tip_header().header.clone();
+    let now = cmp::max(now_ms(), header.timestamp + 1);
     let difficulty = chain.calculate_difficulty(&header).expect("get difficulty");
     let commit_transactions = tx_pool.get_mineable_transactions(max_tx);
     let cellbase = create_cellbase_transaction(&chain, &header, &commit_transactions, type_hash)?;
@@ -86,7 +87,7 @@ pub mod test {
     use chain::chain::ChainBuilder;
     use chain::store::ChainKVStore;
     use ckb_db::memorydb::MemoryKeyValueDB;
-    use ckb_notify::Notify;
+    use ckb_notify::NotifyService;
     use ckb_pow::{DummyPowEngine, PowEngine};
     use ckb_verification::{BlockVerifier, HeaderResolverWrapper, HeaderVerifier, Verifier};
     use core::block::BlockBuilder;
@@ -106,10 +107,11 @@ pub mod test {
 
         let pow_engine = dummy_pow_engine();
 
+        let (_handle, notify) = NotifyService::default().start::<&str>(None);
         let tx_pool = Arc::new(TransactionPool::new(
             PoolConfig::default(),
             Arc::clone(&chain),
-            Notify::default(),
+            notify,
         ));
 
         let block_template =

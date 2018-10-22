@@ -6,6 +6,7 @@ authors = ["Nervos Core Dev <dev@nervos.org>"]
 [dependencies]
 ckb-core = { path = "../../core" }
 ckb-chain = { path = "../../chain" }
+ckb-shared = { path = "../../shared" }
 serde_json = "1.0"
 indicatif = { version = "0.9.0", optional = true }
 

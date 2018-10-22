@@ -1,21 +1,21 @@
 use bigint::H256;
-use ckb_chain::chain::ChainProvider;
 use ckb_protocol::{BlockTransactions, FlatbuffersVectorIterator};
+use ckb_shared::index::ChainIndex;
 use core::transaction::Transaction;
 use network::PeerIndex;
 use relayer::Relayer;
 
-pub struct BlockTransactionsProcess<'a, C: 'a> {
+pub struct BlockTransactionsProcess<'a, CI: ChainIndex + 'a> {
     message: &'a BlockTransactions<'a>,
-    relayer: &'a Relayer<C>,
+    relayer: &'a Relayer<CI>,
     peer: PeerIndex,
 }
 
-impl<'a, C> BlockTransactionsProcess<'a, C>
+impl<'a, CI> BlockTransactionsProcess<'a, CI>
 where
-    C: ChainProvider + 'static,
+    CI: ChainIndex + 'static,
 {
-    pub fn new(message: &'a BlockTransactions, relayer: &'a Relayer<C>, peer: PeerIndex) -> Self {
+    pub fn new(message: &'a BlockTransactions, relayer: &'a Relayer<CI>, peer: PeerIndex) -> Self {
         BlockTransactionsProcess {
             message,
             relayer,
@@ -38,7 +38,7 @@ where
                     .collect();
 
             if let (Some(block), _) = self.relayer.reconstruct_block(&compact_block, transactions) {
-                let _ = self.relayer.accept_block(self.peer, &block);
+                let _ = self.relayer.accept_block(self.peer, block);
             }
         }
     }

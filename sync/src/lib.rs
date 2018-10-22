@@ -13,6 +13,7 @@ extern crate ckb_network as network;
 extern crate ckb_pool as pool;
 extern crate ckb_pow;
 extern crate ckb_protocol;
+extern crate ckb_shared;
 extern crate ckb_time;
 extern crate flatbuffers;
 #[macro_use]
@@ -26,6 +27,8 @@ extern crate serde_derive;
 extern crate ckb_db as db;
 #[cfg(test)]
 extern crate ckb_notify;
+#[cfg(test)]
+extern crate ckb_pool;
 #[cfg(test)]
 extern crate crossbeam_channel;
 
@@ -70,12 +73,12 @@ pub const MAX_LOCATOR_SIZE: usize = 101;
 
 #[derive(Debug, PartialEq, Clone, Eq)]
 pub enum AcceptBlockError {
-    Chain(ckb_chain::error::Error),
+    Chain(ckb_shared::error::SharedError),
     Verification(ckb_verification::Error),
 }
 
-impl From<ckb_chain::error::Error> for AcceptBlockError {
-    fn from(error: ckb_chain::error::Error) -> Self {
+impl From<ckb_shared::error::SharedError> for AcceptBlockError {
+    fn from(error: ckb_shared::error::SharedError) -> Self {
         AcceptBlockError::Chain(error)
     }
 }

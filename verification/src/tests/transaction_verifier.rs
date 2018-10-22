@@ -1,4 +1,3 @@
-use super::super::error::TransactionError;
 use super::super::transaction_verifier::{
     CapacityVerifier, DuplicateInputsVerifier, EmptyVerifier, NullVerifier,
 };
@@ -6,6 +5,7 @@ use bigint::H256;
 use core::cell::CellStatus;
 use core::cell::ResolvedTransaction;
 use core::transaction::{CellInput, CellOutput, OutPoint, TransactionBuilder};
+use error::TransactionError;
 
 #[test]
 pub fn test_null() {

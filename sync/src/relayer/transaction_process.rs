@@ -1,24 +1,24 @@
-use ckb_chain::chain::ChainProvider;
 use ckb_protocol::Transaction;
+use ckb_shared::index::ChainIndex;
 use network::{CKBProtocolContext, PeerIndex};
 use relayer::Relayer;
 
 // TODO PENDING remove this attribute later
 #[allow(dead_code)]
-pub struct TransactionProcess<'a, C: 'a> {
+pub struct TransactionProcess<'a, CI: ChainIndex + 'a> {
     message: &'a Transaction<'a>,
-    relayer: &'a Relayer<C>,
+    relayer: &'a Relayer<CI>,
     peer: PeerIndex,
     nc: &'a CKBProtocolContext,
 }
 
-impl<'a, C> TransactionProcess<'a, C>
+impl<'a, CI> TransactionProcess<'a, CI>
 where
-    C: ChainProvider + 'static,
+    CI: ChainIndex + 'static,
 {
     pub fn new(
         message: &'a Transaction,
-        relayer: &'a Relayer<C>,
+        relayer: &'a Relayer<CI>,
         peer: PeerIndex,
         nc: &'a CKBProtocolContext,
     ) -> Self {

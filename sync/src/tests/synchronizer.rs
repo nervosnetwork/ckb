@@ -1,9 +1,12 @@
 use bigint::U256;
-use ckb_chain::chain::{Chain, ChainBuilder, ChainProvider};
-use ckb_chain::consensus::Consensus;
-use ckb_chain::store::ChainKVStore;
+use ckb_chain::chain::{ChainBuilder, ChainController};
+use ckb_notify::NotifyService;
 use ckb_protocol::SyncMessage;
+use ckb_shared::consensus::Consensus;
+use ckb_shared::shared::{ChainProvider, Shared, SharedBuilder};
+use ckb_shared::store::ChainKVStore;
 use ckb_time::now_ms;
+use ckb_verification::BlockVerifier;
 use core::block::BlockBuilder;
 use core::header::HeaderBuilder;
 use core::transaction::{CellInput, CellOutput, TransactionBuilder};
@@ -18,8 +21,8 @@ use {Config, Synchronizer, SYNC_PROTOCOL_ID};
 
 #[test]
 fn basic_sync() {
-    let (mut node1, chain1) = setup_node(1);
-    let (mut node2, chain2) = setup_node(3);
+    let (mut node1, shared1) = setup_node(1);
+    let (mut node2, shared2) = setup_node(3);
 
     node1.connect(&mut node2, SYNC_PROTOCOL_ID);
 
@@ -42,14 +45,14 @@ fn basic_sync() {
     // Wait node1 receive block from node2
     let _ = signal_rx1.recv();
 
-    assert_eq!(chain1.tip_header().read().number(), 3);
+    assert_eq!(shared1.tip_header().read().number(), 3);
     assert_eq!(
-        chain1.tip_header().read().number(),
-        chain2.tip_header().read().number()
+        shared1.tip_header().read().number(),
+        shared2.tip_header().read().number()
     );
 }
 
-fn setup_node(height: u64) -> (TestNode, Arc<Chain<ChainKVStore<MemoryKeyValueDB>>>) {
+fn setup_node(height: u64) -> (TestNode, Shared<ChainKVStore<MemoryKeyValueDB>>) {
     let mut block = BlockBuilder::default().with_header_builder(
         HeaderBuilder::default()
             .timestamp(now_ms())
@@ -57,14 +60,21 @@ fn setup_node(height: u64) -> (TestNode, Arc<Chain<ChainKVStore<MemoryKeyValueDB
     );
 
     let consensus = Consensus::default().set_genesis_block(block.clone());
-    let builder =
-        ChainBuilder::<ChainKVStore<MemoryKeyValueDB>>::new_memory().consensus(consensus.clone());
-    let chain = Arc::new(builder.build().unwrap());
+    let shared = SharedBuilder::<ChainKVStore<MemoryKeyValueDB>>::new_memory()
+        .consensus(consensus)
+        .build();
+    let (chain_controller, chain_receivers) = ChainController::new();
+    let (_handle, notify) = NotifyService::default().start::<&str>(None);
+
+    let chain_service = ChainBuilder::new(shared.clone())
+        .notify(notify.clone())
+        .build();
+    let _handle = chain_service.start::<&str>(None, chain_receivers);
 
     for _i in 0..height {
         let number = block.header().number() + 1;
         let timestamp = block.header().timestamp() + 1;
-        let difficulty = chain.calculate_difficulty(&block.header()).unwrap();
+        let difficulty = shared.calculate_difficulty(&block.header()).unwrap();
         let cellbase = TransactionBuilder::default()
             .input(CellInput::new_cellbase_input(number))
             .output(CellOutput::default())
@@ -81,17 +91,29 @@ fn setup_node(height: u64) -> (TestNode, Arc<Chain<ChainKVStore<MemoryKeyValueDB
             .commit_transaction(cellbase)
             .with_header_builder(header_builder);
 
-        chain
-            .process_block(&block)
+        chain_controller
+            .process_block(Arc::new(block.clone()))
             .expect("process block should be OK");
     }
 
-    let synchronizer = Synchronizer::new(&chain, &dummy_pow_engine(), Config::default());
+    let pow_engine = dummy_pow_engine();
+    let block_verifier = BlockVerifier::new(
+        shared.clone(),
+        shared.consensus().clone(),
+        Arc::clone(&pow_engine),
+    );
+    let synchronizer = Synchronizer::new(
+        chain_controller,
+        shared.clone(),
+        pow_engine,
+        block_verifier,
+        Config::default(),
+    );
     let mut node = TestNode::default();
     node.add_protocol(
         SYNC_PROTOCOL_ID,
         Arc::new(synchronizer),
         vec![BLOCK_FETCH_TOKEN],
     );
-    (node, chain)
+    (node, shared)
 }

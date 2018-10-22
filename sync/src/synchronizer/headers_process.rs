@@ -1,6 +1,7 @@
 use bigint::U256;
-use ckb_chain::chain::ChainProvider;
 use ckb_protocol::{FlatbuffersVectorIterator, Headers};
+use ckb_shared::index::ChainIndex;
+use ckb_shared::shared::ChainProvider;
 use ckb_verification::{Error as VerifyError, HeaderResolver, HeaderVerifier, Verifier};
 use core::header::Header;
 use log;
@@ -9,36 +10,30 @@ use std::sync::Arc;
 use synchronizer::{BlockStatus, Synchronizer};
 use MAX_HEADERS_LEN;
 
-pub struct HeadersProcess<'a, C: 'a> {
+pub struct HeadersProcess<'a, CI: ChainIndex + 'a> {
     message: &'a Headers<'a>,
-    synchronizer: &'a Synchronizer<C>,
+    synchronizer: &'a Synchronizer<CI>,
     peer: PeerIndex,
     nc: &'a CKBProtocolContext,
 }
 
-pub struct VerifierResolver<'a, C> {
-    chain: Arc<C>,
+pub struct VerifierResolver<'a, CP: 'a> {
+    provider: &'a CP,
     header: &'a Header,
     parent: Option<&'a Header>,
 }
 
-impl<'a, C> VerifierResolver<'a, C>
-where
-    C: ChainProvider,
-{
-    pub fn new(parent: Option<&'a Header>, header: &'a Header, chain: &Arc<C>) -> Self {
+impl<'a, CP: ChainProvider> VerifierResolver<'a, CP> {
+    pub fn new(parent: Option<&'a Header>, header: &'a Header, provider: &'a CP) -> Self {
         VerifierResolver {
             parent,
             header,
-            chain: Arc::clone(chain),
+            provider,
         }
     }
 }
 
-impl<'a, C> HeaderResolver for VerifierResolver<'a, C>
-where
-    C: ChainProvider,
-{
+impl<'a, CP: ChainProvider> HeaderResolver for VerifierResolver<'a, CP> {
     fn header(&self) -> &Header {
         self.header
     }
@@ -49,17 +44,17 @@ where
 
     fn calculate_difficulty(&self) -> Option<U256> {
         self.parent()
-            .and_then(|parent| self.chain.calculate_difficulty(parent))
+            .and_then(|parent| self.provider.calculate_difficulty(parent))
     }
 }
 
-impl<'a, C> HeadersProcess<'a, C>
+impl<'a, CI> HeadersProcess<'a, CI>
 where
-    C: ChainProvider + 'a,
+    CI: ChainIndex + 'a,
 {
     pub fn new(
         message: &'a Headers,
-        synchronizer: &'a Synchronizer<C>,
+        synchronizer: &'a Synchronizer<CI>,
         peer: PeerIndex,
         nc: &'a CKBProtocolContext,
     ) -> Self {
@@ -97,9 +92,10 @@ where
 
     pub fn accept_first(&self, first: &Header) -> ValidationResult {
         let parent = self.synchronizer.get_header(&first.parent_hash());
-        let resolver = VerifierResolver::new(parent.as_ref(), &first, &self.synchronizer.chain);
-        let verifier = HeaderVerifier::new(resolver, &self.synchronizer.pow);
-        let acceptor = HeaderAcceptor::new(first, self.peer, &self.synchronizer, verifier);
+        let resolver = VerifierResolver::new(parent.as_ref(), &first, &self.synchronizer.shared);
+        let verifier = HeaderVerifier::new(Arc::clone(&self.synchronizer.pow));
+        let acceptor =
+            HeaderAcceptor::new(first, self.peer, &self.synchronizer, resolver, verifier);
         acceptor.accept()
     }
 
@@ -141,10 +137,10 @@ where
         for window in headers.windows(2) {
             if let [parent, header] = &window {
                 let resolver =
-                    VerifierResolver::new(Some(&parent), &header, &self.synchronizer.chain);
-                let verifier = HeaderVerifier::new(resolver, &self.synchronizer.pow);
+                    VerifierResolver::new(Some(&parent), &header, &self.synchronizer.shared);
+                let verifier = HeaderVerifier::new(Arc::clone(&self.synchronizer.pow));
                 let acceptor =
-                    HeaderAcceptor::new(&header, self.peer, &self.synchronizer, verifier);
+                    HeaderAcceptor::new(&header, self.peer, &self.synchronizer, resolver, verifier);
                 let result = acceptor.accept();
 
                 if !result.is_valid() {
@@ -161,7 +157,7 @@ where
 
         if log_enabled!(target: "sync", log::Level::Debug) {
             let own = { self.synchronizer.best_known_header.read().clone() };
-            let chain_tip = { self.synchronizer.chain.tip_header().read().clone() };
+            let chain_tip = self.synchronizer.shared.tip_header().read();
             let peer_state = self.synchronizer.peers.best_known_header(self.peer);
             debug!(
                 target: "sync",
@@ -199,27 +195,30 @@ where
 }
 
 #[derive(Clone)]
-pub struct HeaderAcceptor<'a, V, C: 'a> {
+pub struct HeaderAcceptor<'a, V: Verifier, CI: ChainIndex + 'a> {
     header: &'a Header,
     peer: PeerIndex,
-    synchronizer: &'a Synchronizer<C>,
+    synchronizer: &'a Synchronizer<CI>,
+    resolver: V::Target,
     verifier: V,
 }
 
-impl<'a, V, C> HeaderAcceptor<'a, V, C>
+impl<'a, V, CI> HeaderAcceptor<'a, V, CI>
 where
     V: Verifier,
-    C: ChainProvider + 'a,
+    CI: ChainIndex + 'a,
 {
     pub fn new(
         header: &'a Header,
         peer: PeerIndex,
-        synchronizer: &'a Synchronizer<C>,
+        synchronizer: &'a Synchronizer<CI>,
+        resolver: V::Target,
         verifier: V,
     ) -> Self {
         HeaderAcceptor {
             header,
             peer,
+            resolver,
             verifier,
             synchronizer,
         }
@@ -250,7 +249,7 @@ where
     }
 
     pub fn non_contextual_check(&self, state: &mut ValidationResult) -> Result<(), ()> {
-        self.verifier.verify().map_err(|error| match error {
+        self.verifier.verify(&self.resolver).map_err(|error| match error {
             VerifyError::Pow(e) => {
                 debug!(target: "sync", "HeadersProcess accept {:?} pow", self.header.number());
                 state.dos(Some(ValidationError::Verify(VerifyError::Pow(e))), 100);

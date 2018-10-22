@@ -8,3 +8,4 @@ fnv = "1.0"
 ckb-util = { path = "../util" }
 ckb-core = { path = "../core" }
 crossbeam-channel = "0.2"
+log = "0.4"

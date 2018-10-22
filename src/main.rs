@@ -14,8 +14,10 @@ extern crate ckb_network as network;
 extern crate ckb_notify;
 extern crate ckb_pool as pool;
 extern crate ckb_rpc as rpc;
+extern crate ckb_shared as shared;
 extern crate ckb_sync as sync;
 extern crate ckb_util as util;
+extern crate ckb_verification as verification;
 extern crate hash;
 extern crate logger;
 #[macro_use]

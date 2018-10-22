@@ -16,16 +16,18 @@ use self::get_block_proposal_process::GetBlockProposalProcess;
 use self::get_block_transactions_process::GetBlockTransactionsProcess;
 use self::transaction_process::TransactionProcess;
 use bigint::H256;
-use ckb_chain::chain::ChainProvider;
+use ckb_chain::chain::ChainController;
 use ckb_pow::PowEngine;
 use ckb_protocol::{short_transaction_id, short_transaction_id_keys, RelayMessage, RelayPayload};
+use ckb_shared::index::ChainIndex;
+use ckb_shared::shared::{ChainProvider, Shared};
 use ckb_verification::{BlockVerifier, Verifier};
 use core::block::{Block, BlockBuilder};
 use core::transaction::{ProposalShortId, Transaction};
 use flatbuffers::{get_root, FlatBufferBuilder};
 use fnv::{FnvHashMap, FnvHashSet};
 use network::{CKBProtocolContext, CKBProtocolHandler, PeerIndex, TimerToken};
-use pool::txs_pool::TransactionPool;
+use pool::txs_pool::TransactionPoolController;
 use std::sync::Arc;
 use std::time::Duration;
 use util::Mutex;
@@ -33,41 +35,46 @@ use AcceptBlockError;
 
 pub const TX_PROPOSAL_TOKEN: TimerToken = 0;
 
-pub struct Relayer<C> {
-    pub chain: Arc<C>,
-    pub pow: Arc<dyn PowEngine>,
-    pub state: Arc<RelayState>,
-    pub tx_pool: Arc<TransactionPool<C>>,
+pub struct Relayer<CI: ChainIndex> {
+    chain: ChainController,
+    shared: Shared<CI>,
+    pow: Arc<dyn PowEngine>,
+    tx_pool: TransactionPoolController,
+    block_verifier: BlockVerifier<Shared<CI>>,
+    state: Arc<RelayState>,
 }
 
-impl<C> Clone for Relayer<C>
-where
-    C: ChainProvider,
-{
-    fn clone(&self) -> Relayer<C> {
+impl<CI: ChainIndex> ::std::clone::Clone for Relayer<CI> {
+    fn clone(&self) -> Self {
         Relayer {
-            chain: Arc::clone(&self.chain),
+            chain: self.chain.clone(),
+            shared: self.shared.clone(),
             pow: Arc::clone(&self.pow),
+            tx_pool: self.tx_pool.clone(),
+            block_verifier: self.block_verifier.clone(),
             state: Arc::clone(&self.state),
-            tx_pool: Arc::clone(&self.tx_pool),
         }
     }
 }
 
-impl<C> Relayer<C>
+impl<CI> Relayer<CI>
 where
-    C: ChainProvider + 'static,
+    CI: ChainIndex + 'static,
 {
     pub fn new(
-        chain: &Arc<C>,
-        pow: &Arc<dyn PowEngine>,
-        tx_pool: &Arc<TransactionPool<C>>,
+        chain: ChainController,
+        shared: Shared<CI>,
+        pow: Arc<dyn PowEngine>,
+        tx_pool: TransactionPoolController,
+        block_verifier: BlockVerifier<Shared<CI>>,
     ) -> Self {
         Relayer {
-            chain: Arc::clone(chain),
-            pow: Arc::clone(pow),
+            chain,
+            shared,
+            pow,
+            tx_pool,
+            block_verifier,
             state: Arc::new(RelayState::default()),
-            tx_pool: Arc::clone(tx_pool),
         }
     }
 
@@ -123,7 +130,7 @@ where
                     .uncles
                     .iter()
                     .flat_map(|uncle| uncle.proposal_transactions()),
-            ).filter(|x| !self.tx_pool.contains_key(x) && inflight.insert((*x).clone()))
+            ).filter(|x| !self.tx_pool.contains_key(**x) && inflight.insert(**x))
             .cloned()
             .collect::<Vec<_>>();
 
@@ -135,9 +142,9 @@ where
         let _ = nc.send(peer, fbb.finished_data().to_vec());
     }
 
-    pub fn accept_block(&self, _peer: PeerIndex, block: &Block) -> Result<(), AcceptBlockError> {
-        BlockVerifier::new(block, &self.chain, &self.pow).verify()?;
-        self.chain.process_block(&block)?;
+    pub fn accept_block(&self, _peer: PeerIndex, block: Block) -> Result<(), AcceptBlockError> {
+        self.block_verifier.verify(&block)?;
+        self.chain.process_block(Arc::new(block))?;
         Ok(())
     }
 
@@ -204,7 +211,7 @@ where
         let mut remove_ids = Vec::new();
 
         for (id, peers) in pending_proposals_request.iter() {
-            if let Some(tx) = self.tx_pool.get(id) {
+            if let Some(tx) = self.tx_pool.get_transaction(*id) {
                 for peer in peers {
                     let mut tx_set = peer_txs.entry(*peer).or_insert_with(Vec::new);
                     tx_set.push(tx.clone());
@@ -230,13 +237,13 @@ where
     }
 
     pub fn get_block(&self, hash: &H256) -> Option<Block> {
-        self.chain.block(hash)
+        self.shared.block(hash)
     }
 }
 
-impl<C> CKBProtocolHandler for Relayer<C>
+impl<CI> CKBProtocolHandler for Relayer<CI>
 where
-    C: ChainProvider + 'static,
+    CI: ChainIndex + 'static,
 {
     fn initialize(&self, nc: Box<CKBProtocolContext>) {
         let _ = nc.register_timer(TX_PROPOSAL_TOKEN, Duration::from_millis(100));

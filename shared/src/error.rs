@@ -1,14 +1,14 @@
 use db::kvdb::Error as DBError;
 
 #[derive(Debug, PartialEq, Clone, Eq)]
-pub enum Error {
+pub enum SharedError {
     InvalidInput,
     InvalidOutput,
     DB(DBError),
 }
 
-impl From<DBError> for Error {
+impl From<DBError> for SharedError {
     fn from(err: DBError) -> Self {
-        Error::DB(err)
+        SharedError::DB(err)
     }
 }

@@ -1,10 +1,13 @@
 use bigint::{H256, U256};
-use ckb_chain::chain::{Chain, ChainBuilder, ChainProvider};
-use ckb_chain::consensus::Consensus;
-use ckb_chain::store::ChainKVStore;
-use ckb_notify::Notify;
+use ckb_chain::chain::{ChainBuilder, ChainController};
+use ckb_notify::NotifyService;
+use ckb_pool::txs_pool::{PoolConfig, TransactionPoolController, TransactionPoolService};
 use ckb_protocol::RelayMessage;
+use ckb_shared::consensus::Consensus;
+use ckb_shared::shared::{ChainProvider, Shared, SharedBuilder};
+use ckb_shared::store::ChainKVStore;
 use ckb_time::now_ms;
+use ckb_verification::BlockVerifier;
 use core::block::BlockBuilder;
 use core::header::HeaderBuilder;
 use core::script::Script;
@@ -12,7 +15,6 @@ use core::transaction::{CellInput, CellOutput, OutPoint, TransactionBuilder};
 use db::memorydb::MemoryKeyValueDB;
 use flatbuffers::get_root;
 use flatbuffers::FlatBufferBuilder;
-use pool::{PoolConfig, TransactionPool};
 use relayer::TX_PROPOSAL_TOKEN;
 use std::collections::HashSet;
 use std::fs::File;
@@ -25,14 +27,15 @@ use {Relayer, RELAY_PROTOCOL_ID};
 
 #[test]
 fn relay_compact_block_with_one_tx() {
-    let (mut node1, chain1) = setup_node(3);
-    let (mut node2, chain2) = setup_node(3);
+    let (mut node1, shared1, chain_controller1) = setup_node(3);
+    let (mut node2, shared2, _chain_controller2) = setup_node(3);
+    let barrier = Arc::new(Barrier::new(2));
 
     node1.connect(&mut node2, RELAY_PROTOCOL_ID);
 
     let (signal_tx1, _) = channel();
     thread::spawn(move || {
-        let last_block = chain1.block(&chain1.tip_header().read().hash()).unwrap();
+        let last_block = shared1.block(&shared1.tip_header().read().hash()).unwrap();
         let last_cellbase = last_block.commit_transactions().first().unwrap();
 
         // building tx and broadcast it
@@ -54,7 +57,7 @@ fn relay_compact_block_with_one_tx() {
         let block = {
             let number = last_block.header().number() + 1;
             let timestamp = last_block.header().timestamp() + 1;
-            let difficulty = chain1.calculate_difficulty(&last_block.header()).unwrap();
+            let difficulty = shared1.calculate_difficulty(&last_block.header()).unwrap();
             let cellbase = TransactionBuilder::default()
                 .input(CellInput::new_cellbase_input(number))
                 .output(CellOutput::default())
@@ -74,8 +77,8 @@ fn relay_compact_block_with_one_tx() {
         };
 
         {
-            chain1
-                .process_block(&block)
+            chain_controller1
+                .process_block(Arc::new(block.clone()))
                 .expect("process block should be OK");
 
             let fbb = &mut FlatBufferBuilder::new();
@@ -90,7 +93,7 @@ fn relay_compact_block_with_one_tx() {
         let block = {
             let number = last_block.header().number() + 1;
             let timestamp = last_block.header().timestamp() + 1;
-            let difficulty = chain1.calculate_difficulty(&last_block.header()).unwrap();
+            let difficulty = shared1.calculate_difficulty(&last_block.header()).unwrap();
             let cellbase = TransactionBuilder::default()
                 .input(CellInput::new_cellbase_input(number))
                 .output(CellOutput::default())
@@ -110,8 +113,8 @@ fn relay_compact_block_with_one_tx() {
         };
 
         {
-            chain1
-                .process_block(&block)
+            chain_controller1
+                .process_block(Arc::new(block.clone()))
                 .expect("process block should be OK");
 
             let fbb = &mut FlatBufferBuilder::new();
@@ -141,19 +144,19 @@ fn relay_compact_block_with_one_tx() {
     // find a solution to remove this line after pool refactoring
     thread::sleep(time::Duration::from_secs(2));
 
-    assert_eq!(chain2.tip_header().read().number(), 5);
+    assert_eq!(shared2.tip_header().read().number(), 5);
 }
 
 #[test]
 fn relay_compact_block_with_missing_indexs() {
-    let (mut node1, chain1) = setup_node(3);
-    let (mut node2, chain2) = setup_node(3);
+    let (mut node1, shared1, chain_controller1) = setup_node(3);
+    let (mut node2, shared2, _chain_controller2) = setup_node(3);
 
     node1.connect(&mut node2, RELAY_PROTOCOL_ID);
 
     let (signal_tx1, _) = channel();
     thread::spawn(move || {
-        let last_block = chain1.block(&chain1.tip_header().read().hash()).unwrap();
+        let last_block = shared1.block(&shared1.tip_header().read().hash()).unwrap();
         let last_cellbase = last_block.commit_transactions().first().unwrap();
 
         // building 10 txs and broadcast some
@@ -178,7 +181,7 @@ fn relay_compact_block_with_missing_indexs() {
         let block = {
             let number = last_block.header().number() + 1;
             let timestamp = last_block.header().timestamp() + 1;
-            let difficulty = chain1.calculate_difficulty(&last_block.header()).unwrap();
+            let difficulty = shared1.calculate_difficulty(&last_block.header()).unwrap();
             let cellbase = TransactionBuilder::default()
                 .input(CellInput::new_cellbase_input(number))
                 .output(CellOutput::default())
@@ -198,8 +201,8 @@ fn relay_compact_block_with_missing_indexs() {
         };
 
         {
-            chain1
-                .process_block(&block)
+            chain_controller1
+                .process_block(Arc::new(block.clone()))
                 .expect("process block should be OK");
 
             let fbb = &mut FlatBufferBuilder::new();
@@ -214,7 +217,7 @@ fn relay_compact_block_with_missing_indexs() {
         let block = {
             let number = last_block.header().number() + 1;
             let timestamp = last_block.header().timestamp() + 1;
-            let difficulty = chain1.calculate_difficulty(&last_block.header()).unwrap();
+            let difficulty = shared1.calculate_difficulty(&last_block.header()).unwrap();
             let cellbase = TransactionBuilder::default()
                 .input(CellInput::new_cellbase_input(number))
                 .output(CellOutput::default())
@@ -234,8 +237,8 @@ fn relay_compact_block_with_missing_indexs() {
         };
 
         {
-            chain1
-                .process_block(&block)
+            chain_controller1
+                .process_block(Arc::new(block.clone()))
                 .expect("process block should be OK");
 
             let fbb = &mut FlatBufferBuilder::new();
@@ -261,28 +264,44 @@ fn relay_compact_block_with_missing_indexs() {
     // Wait node2 receive transaction and block from node1
     let _ = signal_rx2.recv();
 
-    assert_eq!(chain2.tip_header().read().number(), 5);
+    assert_eq!(shared2.tip_header().read().number(), 5);
 }
 
-fn setup_node(height: u64) -> (TestNode, Arc<Chain<ChainKVStore<MemoryKeyValueDB>>>) {
+fn setup_node(
+    height: u64,
+) -> (
+    TestNode,
+    Shared<ChainKVStore<MemoryKeyValueDB>>,
+    ChainController,
+) {
     let mut block = BlockBuilder::default().with_header_builder(
         HeaderBuilder::default()
             .timestamp(now_ms())
             .difficulty(&U256::from(1000)),
     );
-
-    let notify = Notify::new();
-
     let consensus = Consensus::default().set_genesis_block(block.clone());
-    let builder = ChainBuilder::<ChainKVStore<MemoryKeyValueDB>>::new_memory()
-        .consensus(consensus.clone())
-        .notify(notify.clone());
-    let chain = Arc::new(builder.build().unwrap());
+
+    let shared = SharedBuilder::<ChainKVStore<MemoryKeyValueDB>>::new_memory()
+        .consensus(consensus)
+        .build();
+    let (chain_controller, chain_receivers) = ChainController::new();
+    let (tx_pool_controller, tx_pool_receivers) = TransactionPoolController::new();
+
+    let (_handle, notify) = NotifyService::default().start::<&str>(None);
+
+    let tx_pool_service =
+        TransactionPoolService::new(PoolConfig::default(), shared.clone(), notify.clone());
+    let _handle = tx_pool_service.start::<&str>(None, tx_pool_receivers);
+
+    let chain_service = ChainBuilder::new(shared.clone())
+        .notify(notify.clone())
+        .build();
+    let _handle = chain_service.start::<&str>(None, chain_receivers);
 
     for _i in 0..height {
         let number = block.header().number() + 1;
         let timestamp = block.header().timestamp() + 1;
-        let difficulty = chain.calculate_difficulty(&block.header()).unwrap();
+        let difficulty = shared.calculate_difficulty(&block.header()).unwrap();
         let outputs = (0..20)
             .map(|_| CellOutput::new(50, Vec::new(), create_valid_script().type_hash(), None))
             .collect::<Vec<_>>();
@@ -302,13 +321,24 @@ fn setup_node(height: u64) -> (TestNode, Arc<Chain<ChainKVStore<MemoryKeyValueDB
             .commit_transaction(cellbase)
             .with_header_builder(header_builder);
 
-        chain
-            .process_block(&block)
+        chain_controller
+            .process_block(Arc::new(block.clone()))
             .expect("process block should be OK");
     }
 
-    let tx_pool = TransactionPool::new(PoolConfig::default(), Arc::clone(&chain), notify);
-    let relayer = Relayer::new(&chain, &dummy_pow_engine(), &tx_pool);
+    let pow_engine = dummy_pow_engine();
+    let block_verifier = BlockVerifier::new(
+        shared.clone(),
+        shared.consensus().clone(),
+        Arc::clone(&pow_engine),
+    );
+    let relayer = Relayer::new(
+        chain_controller.clone(),
+        shared.clone(),
+        pow_engine,
+        tx_pool_controller,
+        block_verifier,
+    );
 
     let mut node = TestNode::default();
     node.add_protocol(
@@ -316,7 +346,7 @@ fn setup_node(height: u64) -> (TestNode, Arc<Chain<ChainKVStore<MemoryKeyValueDB
         Arc::new(relayer),
         vec![TX_PROPOSAL_TOKEN],
     );
-    (node, chain)
+    (node, shared, chain_controller)
 }
 
 // This helper is copied from pool test

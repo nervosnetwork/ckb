@@ -3,5 +3,7 @@
 pub mod pool;
 pub mod types;
 
-pub use pool::TransactionPool;
-pub use types::*;
+pub use self::pool::{TransactionPoolController, TransactionPoolService};
+pub use self::types::{
+    Orphan, PendingQueue, Pool, PoolConfig, PoolError, ProposedQueue, TxStage, TxoStatus,
+};

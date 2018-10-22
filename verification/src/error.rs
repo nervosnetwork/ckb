@@ -1,7 +1,7 @@
 use bigint::{H256, U256};
-use chain::error::Error as ChainError;
+use ckb_shared::error::SharedError;
 use core::BlockNumber;
-use script::Error as ScriptError;
+use script::ScriptError;
 
 /// Block verification error
 #[derive(Debug, PartialEq, Clone, Eq)]
@@ -19,7 +19,7 @@ pub enum Error {
     /// transaction index in the block and the second item is the transaction verification error.
     Transactions(Vec<(usize, TransactionError)>),
     /// This is a wrapper of error encountered when invoking chain API.
-    Chain(ChainError),
+    Chain(SharedError),
     /// The committed transactions list is empty.
     CommitTransactionsEmpty,
     /// There are duplicate proposed transactions.
@@ -120,8 +120,8 @@ pub enum TransactionError {
     UnknownInput,
 }
 
-impl From<ChainError> for Error {
-    fn from(e: ChainError) -> Self {
+impl From<SharedError> for Error {
+    fn from(e: SharedError) -> Self {
         Error::Chain(e)
     }
 }

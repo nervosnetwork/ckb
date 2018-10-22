@@ -1,12 +1,14 @@
 use super::header_verifier::HeaderResolver;
 use super::{TransactionVerifier, Verifier};
 use bigint::{H256, U256};
-use chain::chain::ChainProvider;
+use ckb_shared::consensus::Consensus;
+use ckb_shared::shared::ChainProvider;
 use core::block::Block;
 use core::cell::{CellProvider, CellStatus};
 use core::header::Header;
 use core::transaction::{Capacity, CellInput, OutPoint};
-use error::{CellbaseError, CommitError, Error, TransactionError, UnclesError};
+use error::TransactionError;
+use error::{CellbaseError, CommitError, Error, UnclesError};
 use fnv::{FnvHashMap, FnvHashSet};
 use merkle_root::merkle_root;
 use pow::PowEngine;
@@ -15,77 +17,86 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 //TODO: cellbase, witness
-pub struct BlockVerifier<'a, C> {
+pub struct BlockVerifier<P: ChainProvider + CellProvider + Clone> {
     // Verify if the committed transactions is empty
-    pub empty: EmptyVerifier<'a>,
+    empty: EmptyVerifier,
     // Verify if the committed and proposed transactions contains duplicate
-    pub duplicate: DuplicateVerifier<'a>,
+    duplicate: DuplicateVerifier,
     // Verify the cellbase
-    pub cellbase: CellbaseVerifier<'a, C>,
+    cellbase: CellbaseVerifier<P>,
     // Verify the the committed and proposed transactions merkle root match header's announce
-    pub merkle_root: MerkleRootVerifier<'a>,
+    merkle_root: MerkleRootVerifier,
     // Verify the the uncle
-    pub uncles: UnclesVerifier<'a, C>,
+    uncles: UnclesVerifier<P>,
     // Verify the the propose-then-commit consensus rule
-    pub commit: CommitVerifier<'a, C>,
+    commit: CommitVerifier<P>,
     // Verify all the committed transactions through TransactionVerifier
-    pub transactions: TransactionsVerifier<'a, C>,
+    transactions: TransactionsVerifier<P>,
 }
 
-impl<'a, C> BlockVerifier<'a, C>
+impl<P: ChainProvider + CellProvider + Clone> ::std::clone::Clone for BlockVerifier<P> {
+    fn clone(&self) -> Self {
+        BlockVerifier {
+            empty: self.empty.clone(),
+            duplicate: self.duplicate.clone(),
+            cellbase: self.cellbase.clone(),
+            merkle_root: self.merkle_root.clone(),
+            uncles: self.uncles.clone(),
+            commit: self.commit.clone(),
+            transactions: self.transactions.clone(),
+        }
+    }
+}
+
+impl<P> BlockVerifier<P>
 where
-    C: ChainProvider,
+    P: ChainProvider + CellProvider + Clone + 'static,
 {
-    pub fn new(block: &'a Block, chain: &Arc<C>, pow: &Arc<dyn PowEngine>) -> Self {
+    pub fn new(provider: P, consensus: Consensus, pow: Arc<dyn PowEngine>) -> Self {
         BlockVerifier {
             // TODO change all new fn's chain to reference
-            empty: EmptyVerifier::new(block),
-            duplicate: DuplicateVerifier::new(block),
-            cellbase: CellbaseVerifier::new(block, Arc::clone(chain)),
-            merkle_root: MerkleRootVerifier::new(block),
-            uncles: UnclesVerifier::new(block, chain, pow),
-            commit: CommitVerifier::new(block, Arc::clone(chain)),
-            transactions: TransactionsVerifier::new(block, Arc::clone(chain)),
+            empty: EmptyVerifier::new(),
+            duplicate: DuplicateVerifier::new(),
+            cellbase: CellbaseVerifier::new(provider.clone()),
+            merkle_root: MerkleRootVerifier::new(),
+            uncles: UnclesVerifier::new(provider.clone(), consensus.clone(), pow),
+            commit: CommitVerifier::new(provider.clone(), consensus),
+            transactions: TransactionsVerifier::new(provider),
         }
     }
 }
 
-impl<'a, C> Verifier for BlockVerifier<'a, C>
-where
-    C: ChainProvider,
-{
-    fn verify(&self) -> Result<(), Error> {
+impl<P: ChainProvider + CellProvider + Clone> Verifier for BlockVerifier<P> {
+    type Target = Block;
+
+    fn verify(&self, target: &Block) -> Result<(), Error> {
         // EmptyTransactionsVerifier must be executed first. Other verifiers may depend on the
         // assumption that the transactions list is not empty.
-        self.empty.verify()?;
-        self.duplicate.verify()?;
-        self.cellbase.verify()?;
-        self.merkle_root.verify()?;
-        self.commit.verify()?;
-        self.uncles.verify()?;
-        self.transactions.verify()
+        self.empty.verify(target)?;
+        self.duplicate.verify(target)?;
+        self.cellbase.verify(target)?;
+        self.merkle_root.verify(target)?;
+        self.commit.verify(target)?;
+        self.uncles.verify(target)?;
+        self.transactions.verify(target)
     }
 }
 
-pub struct CellbaseVerifier<'a, C> {
-    block: &'a Block,
-    chain: Arc<C>,
+#[derive(Clone)]
+pub struct CellbaseVerifier<CP: Clone> {
+    provider: CP,
 }
 
-impl<'a, C> CellbaseVerifier<'a, C>
-where
-    C: ChainProvider,
-{
-    pub fn new(block: &'a Block, chain: Arc<C>) -> Self {
-        CellbaseVerifier { block, chain }
+impl<CP: ChainProvider + Clone> CellbaseVerifier<CP> {
+    pub fn new(provider: CP) -> Self {
+        CellbaseVerifier { provider }
     }
 
-    pub fn verify(&self) -> Result<(), Error> {
-        if self.block.commit_transactions().is_empty() {
+    pub fn verify(&self, block: &Block) -> Result<(), Error> {
+        if block.commit_transactions().is_empty() {
             return Ok(());
         }
-        let cellbase_len = self
-            .block
+        let cellbase_len = block
             .commit_transactions()
             .iter()
             .filter(|tx| tx.is_cellbase())
@@ -96,20 +107,20 @@ where
             return Err(Error::Cellbase(CellbaseError::InvalidQuantity));
         }
 
-        if !self.block.commit_transactions()[0].is_cellbase() {
+        if !block.commit_transactions()[0].is_cellbase() {
             return Err(Error::Cellbase(CellbaseError::InvalidPosition));
         }
 
-        let cellbase_transaction = &self.block.commit_transactions()[0];
+        let cellbase_transaction = &block.commit_transactions()[0];
         if cellbase_transaction.inputs()[0]
-            != CellInput::new_cellbase_input(self.block.header().number())
+            != CellInput::new_cellbase_input(block.header().number())
         {
             return Err(Error::Cellbase(CellbaseError::InvalidInput));
         }
-        let block_reward = self.chain.block_reward(self.block.header().number());
+        let block_reward = self.provider.block_reward(block.header().number());
         let mut fee = 0;
-        for transaction in self.block.commit_transactions().iter().skip(1) {
-            fee += self.chain.calculate_transaction_fee(transaction)?;
+        for transaction in block.commit_transactions().iter().skip(1) {
+            fee += self.provider.calculate_transaction_fee(transaction)?;
         }
         let total_reward = block_reward + fee;
         let output_capacity: Capacity = cellbase_transaction
@@ -125,17 +136,16 @@ where
     }
 }
 
-pub struct EmptyVerifier<'a> {
-    block: &'a Block,
-}
+#[derive(Clone)]
+pub struct EmptyVerifier {}
 
-impl<'a> EmptyVerifier<'a> {
-    pub fn new(block: &'a Block) -> Self {
-        EmptyVerifier { block }
+impl EmptyVerifier {
+    pub fn new() -> Self {
+        EmptyVerifier {}
     }
 
-    pub fn verify(&self) -> Result<(), Error> {
-        if self.block.commit_transactions().is_empty() {
+    pub fn verify(&self, block: &Block) -> Result<(), Error> {
+        if block.commit_transactions().is_empty() {
             Err(Error::CommitTransactionsEmpty)
         } else {
             Ok(())
@@ -143,19 +153,17 @@ impl<'a> EmptyVerifier<'a> {
     }
 }
 
-pub struct DuplicateVerifier<'a> {
-    block: &'a Block,
-}
+#[derive(Clone)]
+pub struct DuplicateVerifier {}
 
-impl<'a> DuplicateVerifier<'a> {
-    pub fn new(block: &'a Block) -> Self {
-        DuplicateVerifier { block }
+impl DuplicateVerifier {
+    pub fn new() -> Self {
+        DuplicateVerifier {}
     }
 
-    pub fn verify(&self) -> Result<(), Error> {
-        let mut seen = HashSet::with_capacity(self.block.commit_transactions().len());
-        if !self
-            .block
+    pub fn verify(&self, block: &Block) -> Result<(), Error> {
+        let mut seen = HashSet::with_capacity(block.commit_transactions().len());
+        if !block
             .commit_transactions()
             .iter()
             .all(|tx| seen.insert(tx.hash()))
@@ -163,9 +171,8 @@ impl<'a> DuplicateVerifier<'a> {
             return Err(Error::CommitTransactionDuplicate);
         }
 
-        let mut seen = HashSet::with_capacity(self.block.proposal_transactions().len());
-        if !self
-            .block
+        let mut seen = HashSet::with_capacity(block.proposal_transactions().len());
+        if !block
             .proposal_transactions()
             .iter()
             .all(|id| seen.insert(id))
@@ -176,35 +183,32 @@ impl<'a> DuplicateVerifier<'a> {
     }
 }
 
-pub struct MerkleRootVerifier<'a> {
-    block: &'a Block,
-}
+#[derive(Clone)]
+pub struct MerkleRootVerifier {}
 
-impl<'a> MerkleRootVerifier<'a> {
-    pub fn new(block: &'a Block) -> Self {
-        MerkleRootVerifier { block }
+impl MerkleRootVerifier {
+    pub fn new() -> Self {
+        MerkleRootVerifier {}
     }
 
-    pub fn verify(&self) -> Result<(), Error> {
-        let commits = self
-            .block
+    pub fn verify(&self, block: &Block) -> Result<(), Error> {
+        let commits = block
             .commit_transactions()
             .iter()
             .map(|tx| tx.hash())
             .collect::<Vec<_>>();
 
-        if self.block.header().txs_commit() != merkle_root(&commits[..]) {
+        if block.header().txs_commit() != merkle_root(&commits[..]) {
             return Err(Error::CommitTransactionsRoot);
         }
 
-        let proposals = self
-            .block
+        let proposals = block
             .proposal_transactions()
             .iter()
             .map(|id| id.hash())
             .collect::<Vec<_>>();
 
-        if self.block.header().txs_proposal() != merkle_root(&proposals[..]) {
+        if block.header().txs_proposal() != merkle_root(&proposals[..]) {
             return Err(Error::ProposalTransactionsRoot);
         }
 
@@ -212,30 +216,24 @@ impl<'a> MerkleRootVerifier<'a> {
     }
 }
 
-pub struct HeaderResolverWrapper<'a, C> {
-    chain: Arc<C>,
+pub struct HeaderResolverWrapper<'a, CP> {
+    provider: CP,
     header: &'a Header,
     parent: Option<Header>,
 }
 
-impl<'a, C> HeaderResolverWrapper<'a, C>
-where
-    C: ChainProvider,
-{
-    pub fn new(header: &'a Header, chain: &Arc<C>) -> Self {
-        let parent = chain.block_header(&header.parent_hash());
+impl<'a, CP: ChainProvider> HeaderResolverWrapper<'a, CP> {
+    pub fn new(header: &'a Header, provider: CP) -> Self {
+        let parent = provider.block_header(&header.parent_hash());
         HeaderResolverWrapper {
             parent,
             header,
-            chain: Arc::clone(chain),
+            provider,
         }
     }
 }
 
-impl<'a, C> HeaderResolver for HeaderResolverWrapper<'a, C>
-where
-    C: ChainProvider,
-{
+impl<'a, CP: ChainProvider> HeaderResolver for HeaderResolverWrapper<'a, CP> {
     fn header(&self) -> &Header {
         self.header
     }
@@ -246,26 +244,33 @@ where
 
     fn calculate_difficulty(&self) -> Option<U256> {
         self.parent()
-            .and_then(|parent| self.chain.calculate_difficulty(parent))
+            .and_then(|parent| self.provider.calculate_difficulty(parent))
     }
 }
 
 // TODO redo uncle verifier, check uncle proposal duplicate
-pub struct UnclesVerifier<'a, C> {
-    block: &'a Block,
-    chain: Arc<C>,
+pub struct UnclesVerifier<CP: Clone> {
+    provider: CP,
+    consensus: Consensus,
     pow: Arc<dyn PowEngine>,
 }
 
-impl<'a, C> UnclesVerifier<'a, C>
-where
-    C: ChainProvider,
-{
-    pub fn new(block: &'a Block, chain: &Arc<C>, pow: &Arc<dyn PowEngine>) -> Self {
+impl<CP: ChainProvider + Clone> ::std::clone::Clone for UnclesVerifier<CP> {
+    fn clone(&self) -> Self {
         UnclesVerifier {
-            block,
-            chain: Arc::clone(chain),
-            pow: Arc::clone(pow),
+            provider: self.provider.clone(),
+            consensus: self.consensus.clone(),
+            pow: Arc::clone(&self.pow),
+        }
+    }
+}
+
+impl<CP: ChainProvider + Clone> UnclesVerifier<CP> {
+    pub fn new(provider: CP, consensus: Consensus, pow: Arc<dyn PowEngine>) -> Self {
+        UnclesVerifier {
+            provider,
+            consensus,
+            pow,
         }
     }
 
@@ -275,23 +280,23 @@ where
     // -  uncle cellbase_id
     // -  uncle not in main chain
     // -  uncle duplicate
-    pub fn verify(&self) -> Result<(), Error> {
+    pub fn verify(&self, block: &Block) -> Result<(), Error> {
         // verify uncles_hash
-        let actual_uncles_hash = self.block.cal_uncles_hash();
-        if actual_uncles_hash != self.block.header().uncles_hash() {
+        let actual_uncles_hash = block.cal_uncles_hash();
+        if actual_uncles_hash != block.header().uncles_hash() {
             return Err(Error::Uncles(UnclesError::InvalidHash {
-                expected: self.block.header().uncles_hash(),
+                expected: block.header().uncles_hash(),
                 actual: actual_uncles_hash,
             }));
         }
         // if block.uncles is empty, return
-        if self.block.uncles().is_empty() {
+        if block.uncles().is_empty() {
             return Ok(());
         }
 
         // verify uncles lenght =< max_uncles_len
-        let uncles_len = self.block.uncles().len();
-        let max_uncles_len = self.chain.consensus().max_uncles_len();
+        let uncles_len = block.uncles().len();
+        let max_uncles_len = self.consensus.max_uncles_len();
         if uncles_len > max_uncles_len {
             return Err(Error::Uncles(UnclesError::OverLength {
                 max: max_uncles_len,
@@ -300,14 +305,14 @@ where
         }
 
         // verify uncles age
-        let max_uncles_age = self.chain.consensus().max_uncles_age();
-        for uncle in self.block.uncles() {
-            let depth = self.block.header().number().saturating_sub(uncle.number());
+        let max_uncles_age = self.consensus.max_uncles_age();
+        for uncle in block.uncles() {
+            let depth = block.header().number().saturating_sub(uncle.number());
 
             if depth > max_uncles_age as u64 || depth < 1 {
                 return Err(Error::Uncles(UnclesError::InvalidDepth {
-                    min: self.block.header().number() - max_uncles_age as u64,
-                    max: self.block.header().number() - 1,
+                    min: block.header().number() - max_uncles_age as u64,
+                    max: block.header().number() - 1,
                     actual: uncle.number(),
                 }));
             }
@@ -326,11 +331,11 @@ where
         // TODO: cache context
         let mut excluded = FnvHashSet::default();
         let mut included = FnvHashSet::default();
-        excluded.insert(self.block.header().hash());
-        let mut block_hash = self.block.header().parent_hash();
+        excluded.insert(block.header().hash());
+        let mut block_hash = block.header().parent_hash();
         excluded.insert(block_hash);
         for _ in 0..max_uncles_age {
-            if let Some(block) = self.chain.block(&block_hash) {
+            if let Some(block) = self.provider.block(&block_hash) {
                 excluded.insert(block.header().parent_hash());
                 for uncle in block.uncles() {
                     excluded.insert(uncle.header.hash());
@@ -343,13 +348,13 @@ where
         }
 
         let block_difficulty_epoch =
-            self.block.header().number() / self.chain.consensus().difficulty_adjustment_interval();
+            block.header().number() / self.consensus.difficulty_adjustment_interval();
 
-        for uncle in self.block.uncles() {
+        for uncle in block.uncles() {
             let uncle_difficulty_epoch =
-                uncle.number() / self.chain.consensus().difficulty_adjustment_interval();
+                uncle.header().number() / self.consensus.difficulty_adjustment_interval();
 
-            if uncle.header().difficulty() != self.block.header().difficulty() {
+            if uncle.header().difficulty() != block.header().difficulty() {
                 return Err(Error::Uncles(UnclesError::InvalidDifficulty));
             }
 
@@ -402,16 +407,25 @@ where
     }
 }
 
-pub struct TransactionsVerifier<'a, C> {
-    block: &'a Block,
-    output_indexs: FnvHashMap<H256, usize>,
-    chain: Arc<C>,
+pub struct TransactionsVerifier<P> {
+    provider: P,
 }
 
-impl<'a, C> CellProvider for TransactionsVerifier<'a, C>
-where
-    C: ChainProvider,
-{
+impl<P: ChainProvider + CellProvider + Clone> ::std::clone::Clone for TransactionsVerifier<P> {
+    fn clone(&self) -> Self {
+        TransactionsVerifier {
+            provider: self.provider.clone(),
+        }
+    }
+}
+
+struct TransactionsVerifierWrapper<'a, P: CellProvider + 'a> {
+    verifier: &'a TransactionsVerifier<P>,
+    block: &'a Block,
+    output_indexs: FnvHashMap<H256, usize>,
+}
+
+impl<'a, P: CellProvider> CellProvider for TransactionsVerifierWrapper<'a, P> {
     fn cell(&self, _o: &OutPoint) -> CellStatus {
         unreachable!()
     }
@@ -426,7 +440,7 @@ where
                 None => CellStatus::Unknown,
             }
         } else {
-            let chain_cell_state = self.chain.cell_at(o, parent);
+            let chain_cell_state = self.verifier.provider.cell_at(o, parent);
             if chain_cell_state.is_current() {
                 CellStatus::Current(chain_cell_state.take_current().expect("state checked"))
             } else if chain_cell_state.is_old() {
@@ -438,34 +452,31 @@ where
     }
 }
 
-impl<'a, C> TransactionsVerifier<'a, C>
-where
-    C: ChainProvider,
-{
-    pub fn new(block: &'a Block, chain: Arc<C>) -> Self {
+impl<P: ChainProvider + CellProvider> TransactionsVerifier<P> {
+    pub fn new(provider: P) -> Self {
+        TransactionsVerifier { provider }
+    }
+
+    pub fn verify(&self, block: &Block) -> Result<(), Error> {
         let mut output_indexs = FnvHashMap::default();
 
         for (i, tx) in block.commit_transactions().iter().enumerate() {
             output_indexs.insert(tx.hash(), i);
         }
-
-        TransactionsVerifier {
+        let wrapper = TransactionsVerifierWrapper {
+            verifier: &self,
             block,
             output_indexs,
-            chain,
-        }
-    }
+        };
 
-    pub fn verify(&self) -> Result<(), Error> {
-        let parent_hash = self.block.header().parent_hash();
+        let parent_hash = block.header().parent_hash();
         // make verifiers orthogonal
         // skip first tx, assume the first is cellbase, other verifier will verify cellbase
-        let err: Vec<(usize, TransactionError)> = self
-            .block
+        let err: Vec<(usize, TransactionError)> = block
             .commit_transactions()
             .par_iter()
             .skip(1)
-            .map(|x| self.resolve_transaction_at(x, &parent_hash))
+            .map(|x| wrapper.resolve_transaction_at(x, &parent_hash))
             .enumerate()
             .filter_map(|(index, tx)| {
                 TransactionVerifier::new(&tx)
@@ -481,35 +492,36 @@ where
     }
 }
 
-pub struct CommitVerifier<'a, C> {
-    block: &'a Block,
-    chain: Arc<C>,
+#[derive(Clone)]
+pub struct CommitVerifier<CP: Clone> {
+    provider: CP,
+    consensus: Consensus,
 }
 
-impl<'a, C> CommitVerifier<'a, C>
-where
-    C: ChainProvider,
-{
-    pub fn new(block: &'a Block, chain: Arc<C>) -> Self {
-        CommitVerifier { block, chain }
+impl<CP: ChainProvider + Clone> CommitVerifier<CP> {
+    pub fn new(provider: CP, consensus: Consensus) -> Self {
+        CommitVerifier {
+            provider,
+            consensus,
+        }
     }
 
-    pub fn verify(&self) -> Result<(), Error> {
-        let block_number = self.block.header().number();
-        let t_prop = self.chain.consensus().transaction_propagation_time;
-        let mut walk = self.chain.consensus().transaction_propagation_timeout;
+    pub fn verify(&self, block: &Block) -> Result<(), Error> {
+        let block_number = block.header().number();
+        let t_prop = self.consensus.transaction_propagation_time;
+        let mut walk = self.consensus.transaction_propagation_timeout;
         let start = block_number.saturating_sub(t_prop);
 
         if start < 1 {
             return Ok(());
         }
 
-        let mut block_hash = self.block.header().parent_hash();
+        let mut block_hash = block.header().parent_hash();
         let mut proposal_txs_ids = FnvHashSet::default();
 
         while walk > 0 {
             let block = self
-                .chain
+                .provider
                 .block(&block_hash)
                 .ok_or_else(|| Error::Commit(CommitError::AncestorNotFound))?;
             if block.is_genesis() {
@@ -528,8 +540,7 @@ where
             walk -= 1;
         }
 
-        let commited_ids: FnvHashSet<_> = self
-            .block
+        let commited_ids: FnvHashSet<_> = block
             .commit_transactions()
             .par_iter()
             .skip(1)

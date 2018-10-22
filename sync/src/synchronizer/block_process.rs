@@ -1,22 +1,22 @@
-use ckb_chain::chain::ChainProvider;
 use ckb_protocol::Block;
+use ckb_shared::index::ChainIndex;
 use network::{CKBProtocolContext, PeerIndex};
 use synchronizer::Synchronizer;
 
-pub struct BlockProcess<'a, C: 'a> {
+pub struct BlockProcess<'a, CI: ChainIndex + 'a> {
     message: &'a Block<'a>,
-    synchronizer: &'a Synchronizer<C>,
+    synchronizer: &'a Synchronizer<CI>,
     peer: PeerIndex,
     // nc: &'a CKBProtocolContext,
 }
 
-impl<'a, C> BlockProcess<'a, C>
+impl<'a, CI> BlockProcess<'a, CI>
 where
-    C: ChainProvider + 'a,
+    CI: ChainIndex + 'a,
 {
     pub fn new(
         message: &'a Block,
-        synchronizer: &'a Synchronizer<C>,
+        synchronizer: &'a Synchronizer<CI>,
         peer: PeerIndex,
         _nc: &'a CKBProtocolContext,
     ) -> Self {

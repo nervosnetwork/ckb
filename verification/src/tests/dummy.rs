@@ -1,7 +1,6 @@
 use bigint::{H256, U256};
-use chain::chain::{ChainProvider, TipHeader};
-use chain::consensus::Consensus;
-use chain::error::Error;
+use ckb_shared::error::SharedError;
+use ckb_shared::shared::ChainProvider;
 use core::block::Block;
 use core::cell::{CellProvider, CellStatus};
 use core::extras::BlockExt;
@@ -10,27 +9,26 @@ use core::transaction::{Capacity, OutPoint, ProposalShortId, Transaction};
 use core::transaction_meta::TransactionMeta;
 use core::uncle::UncleBlock;
 use std::collections::HashMap;
-use tests::util::RwLock;
 
-pub struct DummyChainClient {
-    pub transaction_fees: HashMap<H256, Result<Capacity, Error>>,
+#[derive(Default, Clone)]
+pub struct DummyChainProvider {
+    pub transaction_fees: HashMap<H256, Result<Capacity, SharedError>>,
     pub block_reward: Capacity,
 }
 
-impl ChainProvider for DummyChainClient {
+impl ChainProvider for DummyChainProvider {
     fn block_reward(&self, _block_number: BlockNumber) -> Capacity {
         self.block_reward
     }
 
-    fn calculate_transaction_fee(&self, transaction: &Transaction) -> Result<Capacity, Error> {
+    fn calculate_transaction_fee(
+        &self,
+        transaction: &Transaction,
+    ) -> Result<Capacity, SharedError> {
         self.transaction_fees[&transaction.hash()].clone()
     }
 
-    fn process_block(&self, _b: &Block) -> Result<(), Error> {
-        panic!("Not implemented!");
-    }
-
-    fn block_header(&self, _hash: &H256) -> Option<Header> {
+    fn union_proposal_ids_n(&self, _bn: BlockNumber, _n: usize) -> Vec<Vec<ProposalShortId>> {
         panic!("Not implemented!");
     }
 
@@ -42,19 +40,11 @@ impl ChainProvider for DummyChainClient {
         panic!("Not implemented!");
     }
 
-    fn consensus(&self) -> &Consensus {
-        panic!("Not implemented!");
-    }
-
-    fn calculate_difficulty(&self, _last: &Header) -> Option<U256> {
-        panic!("Not implemented!");
-    }
-
-    fn get_ancestor(&self, _base: &H256, _number: BlockNumber) -> Option<Header> {
-        panic!("Not implemented!");
-    }
-
     fn block_body(&self, _hash: &H256) -> Option<Vec<Transaction>> {
+        panic!("Not implemented!");
+    }
+
+    fn block_header(&self, _hash: &H256) -> Option<Header> {
         panic!("Not implemented!");
     }
 
@@ -66,6 +56,10 @@ impl ChainProvider for DummyChainClient {
         panic!("Not implemented!");
     }
 
+    fn get_ancestor(&self, _base: &H256, _number: BlockNumber) -> Option<Header> {
+        panic!("Not implemented!");
+    }
+
     fn output_root(&self, _hash: &H256) -> Option<H256> {
         panic!("Not implemented!");
     }
@@ -74,23 +68,11 @@ impl ChainProvider for DummyChainClient {
         panic!("Not implemented!");
     }
 
-    fn union_proposal_ids_n(&self, _bn: BlockNumber, _n: usize) -> Vec<Vec<ProposalShortId>> {
-        panic!("Not implemented!");
-    }
-
     fn uncles(&self, _hash: &H256) -> Option<Vec<UncleBlock>> {
         panic!("Not implemented!");
     }
 
     fn block(&self, _hash: &H256) -> Option<Block> {
-        panic!("Not implemented!");
-    }
-
-    fn get_tip_uncles(&self) -> Vec<UncleBlock> {
-        panic!("Not implemented!");
-    }
-
-    fn tip_header(&self) -> &RwLock<TipHeader> {
         panic!("Not implemented!");
     }
 
@@ -109,9 +91,13 @@ impl ChainProvider for DummyChainClient {
     fn get_transaction_meta_at(&self, _hash: &H256, _parent: &H256) -> Option<TransactionMeta> {
         panic!("Not implemented!");
     }
+
+    fn calculate_difficulty(&self, _last: &Header) -> Option<U256> {
+        panic!("Not implemented!");
+    }
 }
 
-impl CellProvider for DummyChainClient {
+impl CellProvider for DummyChainProvider {
     fn cell(&self, _o: &OutPoint) -> CellStatus {
         panic!("Not implemented!");
     }

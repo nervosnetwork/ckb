@@ -7,16 +7,18 @@ authors = ["Nervos Core Dev <dev@nervos.org>"]
 log = "0.4"
 ckb-core = { path = "../core" }
 ckb-time = { path = "../util/time" }
-ckb-chain = { path = "../chain" }
+ckb-shared = { path = "../shared" }
 ckb-util = { path = "../util" }
 ckb-script = { path = "../script" }
-bigint = { git = "https://github.com/nervosnetwork/bigint" }
+ckb-pow = { path = "../pow" }
 merkle-root = {path = "../util/merkle-root"}
+bigint = { git = "https://github.com/nervosnetwork/bigint" }
 rayon = "1.0"
 fnv = "1.0.3"
-ckb-pow = { path = "../pow" }
+crossbeam-channel = "0.2"
 
 [dev-dependencies]
 ckb-db = { path = "../db" }
 ckb-notify = { path = "../notify" }
 ckb-time = { path = "../util/time", features = ["mock_timer"] }
+ckb-chain = { path = "../chain" }

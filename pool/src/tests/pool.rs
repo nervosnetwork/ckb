@@ -1,8 +1,11 @@
 use bigint::H256;
-use ckb_chain::chain::{ChainBuilder, ChainProvider};
-use ckb_chain::store::ChainKVStore;
+use channel::{self, Receiver};
+use ckb_chain::chain::{ChainBuilder, ChainController};
 use ckb_db::memorydb::MemoryKeyValueDB;
-use ckb_notify::{ForkBlocks, Notify};
+use ckb_notify::{ForkBlocks, MsgNewTip, MsgSwitchFork, NotifyService, TXS_POOL_SUBSCRIBER};
+use ckb_shared::index::ChainIndex;
+use ckb_shared::shared::{ChainProvider, Shared, SharedBuilder};
+use ckb_shared::store::ChainKVStore;
 use core::block::{Block, BlockBuilder};
 use core::cell::{CellProvider, CellStatus};
 use core::header::HeaderBuilder;
@@ -11,9 +14,9 @@ use core::transaction::*;
 use std::fs::File;
 use std::io::Read;
 use std::sync::Arc;
-use std::{thread, time};
+use std::time;
 use time::now_ms;
-use txs_pool::pool::*;
+use txs_pool::pool::TransactionPoolService;
 use txs_pool::types::*;
 
 macro_rules! expect_output_parent {
@@ -35,32 +38,35 @@ macro_rules! expect_output_parent {
 // Work only when TRANSACTION_PROPAGATION_TIME = 1, TRANSACTION_PROPAGATION_TIMEOUT = 10
 #[test]
 fn test_proposal_pool() {
-    let (chain, pool, mut tx_hash) = test_setup();
+    let mut pool = TestPool::<ChainKVStore<MemoryKeyValueDB>>::simple();
 
-    assert_eq!(pool.total_size(), 0);
+    assert_eq!(pool.service.total_size(), 0);
 
-    let block_number = { chain.tip_header().read().number() };
+    let block_number = { pool.shared.tip_header().read().number() };
 
     let mut txs = vec![];
 
     for _ in 0..200 {
         let tx = test_transaction(
-            vec![OutPoint::new(tx_hash, 0), OutPoint::new(tx_hash, 1)],
+            vec![
+                OutPoint::new(pool.tx_hash, 0),
+                OutPoint::new(pool.tx_hash, 1),
+            ],
             2,
         );
-        tx_hash = tx.hash();
+        pool.tx_hash = tx.hash();
         txs.push(tx);
     }
 
     for tx in &txs[1..20] {
-        pool.add_transaction(tx.clone()).unwrap();
+        pool.service.add_transaction(tx.clone()).unwrap();
     }
 
-    pool.add_transaction(txs[21].clone()).unwrap();
+    pool.service.add_transaction(txs[21].clone()).unwrap();
 
-    assert_eq!(pool.pending_size(), 20);
+    assert_eq!(pool.service.pending_size(), 20);
 
-    let mut prop_ids = pool.prepare_proposal(22);
+    let mut prop_ids = pool.service.prepare_proposal(22);
 
     assert_eq!(20, prop_ids.len());
 
@@ -73,37 +79,39 @@ fn test_proposal_pool() {
         .proposal_transactions(prop_ids)
         .build();
 
-    pool.reconcile_block(&block);
+    pool.service.reconcile_block(&block);
 
-    assert_eq!(0, pool.pool_size());
-    assert_eq!(20, pool.orphan_size());
-    assert_eq!(0, pool.proposed_size());
+    assert_eq!(0, pool.service.pool_size());
+    assert_eq!(20, pool.service.orphan_size());
+    assert_eq!(0, pool.service.proposed_size());
 
-    pool.add_transaction(txs[0].clone()).unwrap();
-    assert_eq!(20, pool.pool_size());
-    assert_eq!(1, pool.orphan_size());
+    pool.service.add_transaction(txs[0].clone()).unwrap();
+    assert_eq!(20, pool.service.pool_size());
+    assert_eq!(1, pool.service.orphan_size());
 
-    pool.propose_transaction(block_number + 1, txs[20].clone());
+    pool.service
+        .propose_transaction(block_number + 1, txs[20].clone());
 
-    assert_eq!(22, pool.pool_size());
-    assert_eq!(0, pool.orphan_size());
+    assert_eq!(22, pool.service.pool_size());
+    assert_eq!(0, pool.service.orphan_size());
 
-    pool.propose_transaction(block_number + 1, txs[25].clone());
+    pool.service
+        .propose_transaction(block_number + 1, txs[25].clone());
 
-    assert_eq!(1, pool.pending_size());
+    assert_eq!(1, pool.service.pending_size());
 }
 
 #[test]
 /// A basic test; add a pair of transactions to the pool.
 fn test_add_pool() {
-    let (_chain, pool, tx_hash) = test_setup();
-    assert_eq!(pool.total_size(), 0);
+    let mut pool = TestPool::<ChainKVStore<MemoryKeyValueDB>>::simple();
+    assert_eq!(pool.service.total_size(), 0);
 
     let parent_transaction = test_transaction(
         vec![
-            OutPoint::new(tx_hash, 5),
-            OutPoint::new(tx_hash, 6),
-            OutPoint::new(tx_hash, 7),
+            OutPoint::new(pool.tx_hash, 5),
+            OutPoint::new(pool.tx_hash, 6),
+            OutPoint::new(pool.tx_hash, 7),
         ],
         2,
     );
@@ -121,12 +129,12 @@ fn test_add_pool() {
 
     let child_tx_hash = child_transaction.hash();
 
-    let result = pool.add_to_pool(parent_transaction);
+    let result = pool.service.add_to_pool(parent_transaction);
     if result.is_err() {
         panic!("got an error adding parent tx: {:?}", result.err().unwrap());
     }
 
-    let child_result = pool.add_to_pool(child_transaction);
+    let child_result = pool.service.add_to_pool(child_transaction);
 
     if child_result.is_err() {
         panic!(
@@ -135,28 +143,36 @@ fn test_add_pool() {
         );
     }
 
-    assert_eq!(pool.total_size(), 2);
+    assert_eq!(pool.service.total_size(), 2);
     expect_output_parent!(
-        pool,
+        pool.service,
         CellStatus::Current(_),
         OutPoint::new(child_tx_hash, 0)
     );
     expect_output_parent!(
-        pool,
+        pool.service,
         CellStatus::Old,
         OutPoint::new(parent_tx_hash, 0),
         OutPoint::new(parent_tx_hash, 1)
     );
-    expect_output_parent!(pool, CellStatus::Current(_), OutPoint::new(tx_hash, 8));
-    expect_output_parent!(pool, CellStatus::Unknown, OutPoint::new(tx_hash, 200));
+    expect_output_parent!(
+        pool.service,
+        CellStatus::Current(_),
+        OutPoint::new(pool.tx_hash, 8)
+    );
+    expect_output_parent!(
+        pool.service,
+        CellStatus::Unknown,
+        OutPoint::new(pool.tx_hash, 200)
+    );
 }
 
 #[test]
 pub fn test_cellbase_spent() {
-    let (chain, pool, _tx_hash) = test_setup();
+    let mut pool = TestPool::<ChainKVStore<MemoryKeyValueDB>>::simple();
     let cellbase_tx: Transaction = TransactionBuilder::default()
         .input(CellInput::new_cellbase_input(
-            chain.tip_header().read().number() + 1,
+            pool.shared.tip_header().read().number() + 1,
         )).output(CellOutput::new(
             50000,
             Vec::new(),
@@ -164,7 +180,7 @@ pub fn test_cellbase_spent() {
             None,
         )).build();
 
-    apply_transactions(vec![cellbase_tx.clone()], vec![], &chain);
+    apply_transactions(vec![cellbase_tx.clone()], vec![], &mut pool);
 
     let valid_tx = TransactionBuilder::default()
         .input(CellInput::new(
@@ -173,7 +189,7 @@ pub fn test_cellbase_spent() {
         )).output(CellOutput::new(50000, Vec::new(), H256::default(), None))
         .build();
 
-    match pool.add_to_pool(valid_tx.into()) {
+    match pool.service.add_to_pool(valid_tx.into()) {
         Ok(_) => {}
         Err(err) => panic!(
             "Unexpected error while adding a valid transaction: {:?}",
@@ -185,24 +201,27 @@ pub fn test_cellbase_spent() {
 #[test]
 /// Testing various expected error conditions
 pub fn test_add_pool_error() {
-    let (_chain, pool, tx_hash) = test_setup();
-    assert_eq!(pool.total_size(), 0);
+    let mut pool = TestPool::<ChainKVStore<MemoryKeyValueDB>>::simple();
+    assert_eq!(pool.service.total_size(), 0);
 
     // To test DoubleSpend and AlreadyInPool conditions, we need to add
     // a valid transaction.
     let valid_transaction = test_transaction(
-        vec![OutPoint::new(tx_hash, 5), OutPoint::new(tx_hash, 6)],
+        vec![
+            OutPoint::new(pool.tx_hash, 5),
+            OutPoint::new(pool.tx_hash, 6),
+        ],
         2,
     );
 
-    match pool.add_to_pool(valid_transaction.clone()) {
+    match pool.service.add_to_pool(valid_transaction.clone()) {
         Ok(_) => {}
         Err(_) => panic!("Unexpected error while adding a valid transaction"),
     };
 
-    let double_spent_transaction = test_transaction(vec![OutPoint::new(tx_hash, 6)], 2);
+    let double_spent_transaction = test_transaction(vec![OutPoint::new(pool.tx_hash, 6)], 2);
 
-    match pool.add_to_pool(double_spent_transaction) {
+    match pool.service.add_to_pool(double_spent_transaction) {
         Ok(_) => panic!("Expected error when adding DoubleSpent tx, got Ok"),
         Err(x) => {
             match x {
@@ -212,7 +231,7 @@ pub fn test_add_pool_error() {
         }
     };
 
-    match pool.add_to_pool(valid_transaction) {
+    match pool.service.add_to_pool(valid_transaction) {
         Ok(_) => panic!("Expected error when adding already_in_pool, got Ok"),
         Err(x) => {
             match x {
@@ -222,7 +241,7 @@ pub fn test_add_pool_error() {
         }
     };
 
-    assert_eq!(pool.total_size(), 1);
+    assert_eq!(pool.service.total_size(), 1);
 }
 
 // #[test]
@@ -233,15 +252,15 @@ pub fn test_add_pool_error() {
 
 #[test]
 fn test_get_mineable_transactions() {
-    let (_chain, pool, tx_hash) = test_setup();
+    let mut pool = TestPool::<ChainKVStore<MemoryKeyValueDB>>::simple();
 
     let tx1 = test_transaction_with_capacity(
         vec![
-            OutPoint::new(tx_hash, 0),
-            OutPoint::new(tx_hash, 1),
-            OutPoint::new(tx_hash, 2),
-            OutPoint::new(tx_hash, 3),
-            OutPoint::new(tx_hash, 4),
+            OutPoint::new(pool.tx_hash, 0),
+            OutPoint::new(pool.tx_hash, 1),
+            OutPoint::new(pool.tx_hash, 2),
+            OutPoint::new(pool.tx_hash, 3),
+            OutPoint::new(pool.tx_hash, 4),
         ],
         5,
         1000_000,
@@ -266,33 +285,33 @@ fn test_get_mineable_transactions() {
         2,
     );
 
-    pool.add_to_pool(tx3.clone()).unwrap();
-    assert_eq!(pool.orphan_size(), 1);
-    pool.add_to_pool(tx4.clone()).unwrap();
-    assert_eq!(pool.orphan_size(), 2);
-    pool.add_to_pool(tx1.clone()).unwrap();
-    assert_eq!(pool.orphan_size(), 2);
-    pool.add_to_pool(tx2.clone()).unwrap();
+    pool.service.add_to_pool(tx3.clone()).unwrap();
+    assert_eq!(pool.service.orphan_size(), 1);
+    pool.service.add_to_pool(tx4.clone()).unwrap();
+    assert_eq!(pool.service.orphan_size(), 2);
+    pool.service.add_to_pool(tx1.clone()).unwrap();
+    assert_eq!(pool.service.orphan_size(), 2);
+    pool.service.add_to_pool(tx2.clone()).unwrap();
 
-    assert_eq!(pool.pool_size(), 4);
+    assert_eq!(pool.service.pool_size(), 4);
 
-    let txs = pool.get_mineable_transactions(10);
+    let txs = pool.service.get_mineable_transactions(10);
     assert_eq!(txs, vec![tx1, tx2, tx3, tx4])
 }
 
 #[test]
 /// Testing block reconciliation
 fn test_block_reconciliation() {
-    let (chain, pool, tx_hash) = test_setup();
+    let mut pool = TestPool::<ChainKVStore<MemoryKeyValueDB>>::simple();
 
-    let tx0 = test_transaction(vec![OutPoint::new(tx_hash, 0)], 2);
+    let tx0 = test_transaction(vec![OutPoint::new(pool.tx_hash, 0)], 2);
     // tx1 is conflict
     let tx1 = test_transaction_with_capacity(
         vec![
-            OutPoint::new(tx_hash, 1),
-            OutPoint::new(tx_hash, 2),
-            OutPoint::new(tx_hash, 3),
-            OutPoint::new(tx_hash, 4),
+            OutPoint::new(pool.tx_hash, 1),
+            OutPoint::new(pool.tx_hash, 2),
+            OutPoint::new(pool.tx_hash, 3),
+            OutPoint::new(pool.tx_hash, 4),
         ],
         5,
         1000_000,
@@ -319,13 +338,19 @@ fn test_block_reconciliation() {
 
     let block_tx0 = tx0.clone();
     let block_tx1 = test_transaction(
-        vec![OutPoint::new(tx_hash, 1), OutPoint::new(tx_hash, 2)],
+        vec![
+            OutPoint::new(pool.tx_hash, 1),
+            OutPoint::new(pool.tx_hash, 2),
+        ],
         2,
     );
-    let block_tx5 = test_transaction(vec![OutPoint::new(tx_hash, 5)], 1);
+    let block_tx5 = test_transaction(vec![OutPoint::new(pool.tx_hash, 5)], 1);
     let block_tx5_hash = block_tx5.hash();
     let block_tx6 = test_transaction(
-        vec![OutPoint::new(block_tx5_hash, 0), OutPoint::new(tx_hash, 6)],
+        vec![
+            OutPoint::new(block_tx5_hash, 0),
+            OutPoint::new(pool.tx_hash, 6),
+        ],
         1,
     );
 
@@ -333,51 +358,51 @@ fn test_block_reconciliation() {
     let tx5 = test_transaction(vec![OutPoint::new(block_tx5_hash, 0)], 2);
 
     //next block: tx6 is conflict, in pool
-    let tx6 = test_transaction(vec![OutPoint::new(tx_hash, 6)], 2);
+    let tx6 = test_transaction(vec![OutPoint::new(pool.tx_hash, 6)], 2);
 
-    pool.add_to_pool(tx5.clone()).unwrap();
-    pool.add_to_pool(tx4.clone()).unwrap();
-    pool.add_to_pool(tx3.clone()).unwrap();
-    pool.add_to_pool(tx2.clone()).unwrap();
-    pool.add_to_pool(tx1.clone()).unwrap();
-    pool.add_to_pool(tx0.clone()).unwrap();
+    pool.service.add_to_pool(tx5.clone()).unwrap();
+    pool.service.add_to_pool(tx4.clone()).unwrap();
+    pool.service.add_to_pool(tx3.clone()).unwrap();
+    pool.service.add_to_pool(tx2.clone()).unwrap();
+    pool.service.add_to_pool(tx1.clone()).unwrap();
+    pool.service.add_to_pool(tx0.clone()).unwrap();
 
-    pool.add_transaction(tx6.clone()).unwrap();
+    pool.service.add_transaction(tx6.clone()).unwrap();
 
-    assert_eq!(5, pool.pool_size());
-    assert_eq!(1, pool.orphan_size());
-    assert_eq!(1, pool.pending_size());
+    assert_eq!(5, pool.service.pool_size());
+    assert_eq!(1, pool.service.orphan_size());
+    assert_eq!(1, pool.service.pending_size());
 
     let txs = vec![block_tx0, block_tx1, block_tx5, block_tx6];
     let prop_ids = vec![tx6.proposal_short_id()];
 
-    apply_transactions(txs, prop_ids, &chain);
+    apply_transactions(txs, prop_ids, &mut pool);
 
-    let t = time::Duration::from_millis(1000);
-    thread::sleep(t);
-
-    assert_eq!(0, pool.pending_size());
-    assert_eq!(0, pool.proposed_size());
-    assert_eq!(0, pool.pool_size());
-    assert_eq!(0, pool.orphan_size());
+    assert_eq!(0, pool.service.pending_size());
+    assert_eq!(0, pool.service.proposed_size());
+    assert_eq!(0, pool.service.pool_size());
+    assert_eq!(0, pool.service.orphan_size());
     // when TRANSACTION_PROPAGATION_TIME = 1
-    assert_eq!(1, pool.cache_size());
+    assert_eq!(1, pool.service.cache_size());
 }
 
 // Work only when TRANSACTION_PROPAGATION_TIME = 1, TRANSACTION_PROPAGATION_TIMEOUT = 10
 #[test]
 fn test_switch_fork() {
-    let (chain, pool, tx_hash) = test_setup();
+    let mut pool = TestPool::<ChainKVStore<MemoryKeyValueDB>>::simple();
 
-    assert_eq!(pool.total_size(), 0);
+    assert_eq!(pool.service.total_size(), 0);
 
-    let block_number = { chain.tip_header().read().number() };
+    let block_number = { pool.shared.tip_header().read().number() };
 
     let mut txs = vec![];
 
     for i in 0..20 {
         let tx = test_transaction(
-            vec![OutPoint::new(tx_hash, i), OutPoint::new(tx_hash, i + 20)],
+            vec![
+                OutPoint::new(pool.tx_hash, i),
+                OutPoint::new(pool.tx_hash, i + 20),
+            ],
             2,
         );
 
@@ -385,10 +410,10 @@ fn test_switch_fork() {
     }
 
     for tx in &txs[0..20] {
-        pool.add_transaction(tx.clone()).unwrap();
+        pool.service.add_transaction(tx.clone()).unwrap();
     }
 
-    assert_eq!(pool.pending_size(), 20);
+    assert_eq!(pool.service.pending_size(), 20);
 
     let prop_ids: Vec<ProposalShortId> = txs.iter().map(|x| x.proposal_short_id()).collect();
 
@@ -410,65 +435,110 @@ fn test_switch_fork() {
         .commit_transaction(txs[4].clone())
         .with_header_builder(HeaderBuilder::default().number(block_number + 2));
 
-    pool.reconcile_block(&block01);
-    pool.reconcile_block(&block02);
+    pool.service.reconcile_block(&block01);
+    pool.service.reconcile_block(&block02);
 
     let olds = vec![block02, block01];
     let news = vec![block11, block12];
 
     let fb = ForkBlocks::new(olds, news);
 
-    pool.switch_fork(&fb);
+    pool.service.switch_fork(&fb);
 
-    let mtxs = pool.get_mineable_transactions(10);
+    let mtxs = pool.service.get_mineable_transactions(10);
 
     assert_eq!(mtxs, vec![txs[3].clone(), txs[6].clone(), txs[5].clone()]);
 }
 
-fn test_setup() -> (
-    Arc<impl ChainProvider>,
-    Arc<TransactionPool<impl ChainProvider>>,
-    H256,
-) {
-    let notify = Notify::new();
-    let builder = ChainBuilder::<ChainKVStore<MemoryKeyValueDB>>::new_memory()
-        // .verification_level("NoVerification")
-        .notify(notify.clone());
-    let chain = Arc::new(builder.build().unwrap());
-    let pool = TransactionPool::new(
-        PoolConfig {
-            max_pool_size: 1000,
-            max_orphan_size: 1000,
-            max_proposal_size: 1000,
-            max_cache_size: 1000,
-            max_pending_size: 1000,
-        },
-        Arc::clone(&chain),
-        notify,
-    );
-
-    let default_script_hash = create_valid_script().type_hash();
-    let tx = TransactionBuilder::default()
-        .input(CellInput::new(OutPoint::null(), Default::default()))
-        .outputs(vec![
-            CellOutput::new(
-                100_000_000,
-                Vec::new(),
-                default_script_hash.clone(),
-                None
-            );
-            100
-        ]).build();
-
-    let transactions = vec![tx.clone()];
-    apply_transactions(transactions, vec![], &chain);
-    (chain, pool, tx.hash())
+struct TestPool<CI> {
+    service: TransactionPoolService<CI>,
+    chain: ChainController,
+    shared: Shared<CI>,
+    tx_hash: H256,
+    new_tip_receiver: Receiver<MsgNewTip>,
+    switch_fork_receiver: Receiver<MsgSwitchFork>,
 }
 
-fn apply_transactions(
+impl<CI: ChainIndex + 'static> TestPool<CI> {
+    fn simple() -> TestPool<ChainKVStore<MemoryKeyValueDB>> {
+        let (_handle, notify) = NotifyService::default().start::<&str>(None);
+        let new_tip_receiver = notify.subscribe_new_tip(TXS_POOL_SUBSCRIBER);
+        let switch_fork_receiver = notify.subscribe_switch_fork(TXS_POOL_SUBSCRIBER);
+        let shared = SharedBuilder::<ChainKVStore<MemoryKeyValueDB>>::new_memory().build();
+
+        let (chain_controller, chain_receivers) = ChainController::new();
+        let chain_service = ChainBuilder::new(shared.clone())
+            .notify(notify.clone())
+            .build();
+        let _handle = chain_service.start::<&str>(None, chain_receivers);
+
+        let tx_pool_service = TransactionPoolService::new(
+            PoolConfig {
+                max_pool_size: 1000,
+                max_orphan_size: 1000,
+                max_proposal_size: 1000,
+                max_cache_size: 1000,
+                max_pending_size: 1000,
+            },
+            shared.clone(),
+            notify.clone(),
+        );
+
+        let default_script_hash = create_valid_script().type_hash();
+        let tx = TransactionBuilder::default()
+            .input(CellInput::new(OutPoint::null(), Default::default()))
+            .outputs(vec![
+                CellOutput::new(
+                    100_000_000,
+                    Vec::new(),
+                    default_script_hash.clone(),
+                    None,
+                );
+                100
+            ]).build();
+
+        let transactions = vec![tx.clone()];
+        let mut pool = TestPool {
+            service: tx_pool_service,
+            chain: chain_controller,
+            shared,
+            tx_hash: tx.hash(),
+            new_tip_receiver,
+            switch_fork_receiver,
+        };
+        apply_transactions(transactions, vec![], &mut pool);
+        pool
+    }
+
+    fn handle_notify_messages(&mut self) {
+        loop {
+            select! {
+                recv(self.new_tip_receiver, msg) => match msg {
+                    Some(block) => self.service.reconcile_block(&block),
+                    None => {
+                        error!(target: "txs_pool", "channel new_tip_receiver closed");
+                        break;
+                    }
+                }
+                recv(self.switch_fork_receiver, msg) => match msg {
+                    Some(blocks) => self.service.switch_fork(&blocks),
+                    None => {
+                        error!(target: "txs_pool", "channel switch_fork_receiver closed");
+                        break;
+                    }
+                }
+                recv(channel::after(time::Duration::from_millis(100))) => {
+                    break;
+                }
+            }
+        }
+    }
+}
+
+fn apply_transactions<CI: ChainIndex + 'static>(
     transactions: Vec<Transaction>,
     prop_ids: Vec<ProposalShortId>,
-    chain: &Arc<impl ChainProvider>,
+    pool: &mut TestPool<CI>,
 ) -> Block {
     let cellbase_id = if let Some(cellbase) = transactions.first() {
         cellbase.hash()
@@ -476,21 +546,22 @@ fn apply_transactions(
         H256::zero()
     };
 
-    let parent = chain.tip_header().read().inner().clone();
+    let parent = pool.shared.tip_header().read().inner().clone();
 
     let header_builder = HeaderBuilder::default()
         .parent_hash(&parent.hash())
         .number(parent.number() + 1)
         .timestamp(now_ms())
         .cellbase_id(&cellbase_id)
-        .difficulty(&chain.calculate_difficulty(&parent).unwrap());
+        .difficulty(&pool.shared.calculate_difficulty(&parent).unwrap());
 
     let block = BlockBuilder::default()
         .commit_transactions(transactions)
         .proposal_transactions(prop_ids)
         .with_header_builder(header_builder);
 
-    chain.process_block(&block).unwrap();
+    pool.chain.process_block(Arc::new(block.clone())).unwrap();
+    pool.handle_notify_messages();
     block
 }
 

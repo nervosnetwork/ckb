@@ -1,6 +1,7 @@
 use super::header_view::HeaderView;
 use bigint::H256;
-use ckb_chain::chain::{ChainProvider, TipHeader};
+use ckb_shared::index::ChainIndex;
+use ckb_shared::shared::{ChainProvider, TipHeader};
 use core::header::Header;
 use network::PeerIndex;
 use std::cmp;
@@ -8,18 +9,18 @@ use synchronizer::{BlockStatus, Synchronizer};
 use util::RwLockUpgradableReadGuard;
 use {BLOCK_DOWNLOAD_WINDOW, MAX_BLOCKS_IN_TRANSIT_PER_PEER, PER_FETCH_BLOCK_LIMIT};
 
-pub struct BlockFetcher<C> {
-    synchronizer: Synchronizer<C>,
+pub struct BlockFetcher<CI: ChainIndex> {
+    synchronizer: Synchronizer<CI>,
     peer: PeerIndex,
     tip_header: TipHeader,
 }
 
-impl<C> BlockFetcher<C>
+impl<CI> BlockFetcher<CI>
 where
-    C: ChainProvider,
+    CI: ChainIndex,
 {
-    pub fn new(synchronizer: &Synchronizer<C>, peer: PeerIndex) -> Self {
-        let tip_header = synchronizer.chain.tip_header().read().clone();
+    pub fn new(synchronizer: &Synchronizer<CI>, peer: PeerIndex) -> Self {
+        let tip_header = synchronizer.shared.tip_header().read().clone();
         BlockFetcher {
             tip_header,
             peer,
@@ -64,18 +65,16 @@ where
 
         let last_common_header = try_option!(guard.get(&self.peer).cloned().or_else(|| {
             if best.number() < self.tip_header.number() {
-                let last_common_hash =
-                    try_option!(self.synchronizer.chain.block_hash(best.number()));
-                self.synchronizer.chain.block_header(&last_common_hash)
+                let last_common_hash = self.synchronizer.shared.block_hash(best.number())?;
+                self.synchronizer.shared.block_header(&last_common_hash)
             } else {
                 Some(self.tip_header.inner().clone())
             }
         }));
 
-        let fixed_last_common_header = try_option!(
-            self.synchronizer
-                .last_common_ancestor(&last_common_header, best.inner())
-        );
+        let fixed_last_common_header = self
+            .synchronizer
+            .last_common_ancestor(&last_common_header, &best.inner())?;
 
         if fixed_last_common_header != last_common_header {
             let mut write_guard = RwLockUpgradableReadGuard::upgrade(guard);
