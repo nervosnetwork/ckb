@@ -1,15 +1,65 @@
 use super::Error;
+use core::cell::ResolvedTransaction;
 use core::transaction::{CellInput, CellOutput, OutPoint};
+use flatbuffers::FlatBufferBuilder;
 use fnv::FnvHashMap;
-use vm::{run, SparseMemory};
+use syscalls::{build_tx, MmapCell, MmapTx};
+use vm::{DefaultMachine, SparseMemory};
 
 // This struct leverages CKB VM to verify transaction inputs.
+// FlatBufferBuilder owned Vec<u8> that grows as needed, in the
+// future, we might refactor this to share buffer to achive zero-copy
 pub struct TransactionInputVerifier<'a> {
-    pub dep_cells: FnvHashMap<&'a OutPoint, &'a CellOutput>,
-    pub inputs: Vec<&'a CellInput>,
+    dep_cells: FnvHashMap<&'a OutPoint, &'a CellOutput>,
+    inputs: Vec<&'a CellInput>,
+    outputs: Vec<&'a CellOutput>,
+    tx_builder: FlatBufferBuilder<'a>,
+    input_cells: Vec<&'a CellOutput>,
 }
 
 impl<'a> TransactionInputVerifier<'a> {
+    pub fn new(rtx: &'a ResolvedTransaction) -> TransactionInputVerifier<'a> {
+        let dep_cell_outputs = rtx.dep_cells.iter().map(|cell| {
+            cell.get_current()
+                .expect("already verifies that all dep cells are valid")
+        });
+        let dep_outpoints = rtx.transaction.deps().iter();
+
+        let dep_cells: FnvHashMap<&'a OutPoint, &'a CellOutput> =
+            dep_outpoints.zip(dep_cell_outputs).collect();
+
+        let inputs = rtx.transaction.inputs().iter().collect();
+        let outputs = rtx.transaction.outputs().iter().collect();
+
+        let input_cells = rtx
+            .input_cells
+            .iter()
+            .map(|cell| {
+                cell.get_current()
+                    .expect("already verifies that all input cells are valid")
+            }).collect();
+
+        let mut tx_builder = FlatBufferBuilder::new();
+        let tx_offset = build_tx(&mut tx_builder, &rtx.transaction);
+        tx_builder.finish(tx_offset, None);
+
+        TransactionInputVerifier {
+            dep_cells,
+            inputs,
+            tx_builder,
+            outputs,
+            input_cells,
+        }
+    }
+
+    fn build_mmap_tx(&self) -> MmapTx {
+        MmapTx::new(self.tx_builder.finished_data())
+    }
+
+    fn build_mmap_cell(&self) -> MmapCell {
+        MmapCell::new(&self.outputs, &self.input_cells)
+    }
+
     fn extract_script(&self, index: usize) -> Result<&[u8], Error> {
         let input = self.inputs[index];
         if let Some(ref data) = input.unlock.redeem_script {
@@ -30,7 +80,12 @@ impl<'a> TransactionInputVerifier<'a> {
             let mut args = vec![b"verify".to_vec()];
             args.extend_from_slice(&input.unlock.redeem_arguments.as_slice());
             args.extend_from_slice(&input.unlock.arguments.as_slice());
-            run::<u64, SparseMemory>(script, &args)
+
+            let mut machine = DefaultMachine::<u64, SparseMemory>::default();
+            machine.add_syscall_module(Box::new(self.build_mmap_tx()));
+            machine.add_syscall_module(Box::new(self.build_mmap_cell()));
+            machine
+                .run(script, &args)
                 .map_err(|_| Error::VMError)
                 .and_then(|code| {
                     if code == 0 {
@@ -47,8 +102,9 @@ impl<'a> TransactionInputVerifier<'a> {
 mod tests {
     use super::*;
     use bigint::H256;
+    use core::cell::CellStatus;
     use core::script::Script;
-    use core::transaction::{CellInput, CellOutput, OutPoint};
+    use core::transaction::{CellInput, CellOutput, OutPoint, TransactionBuilder};
     use core::Capacity;
     use crypto::secp::Generator;
     use fnv::FnvHashMap;
@@ -92,12 +148,16 @@ mod tests {
             ],
         );
         let input = CellInput::new(OutPoint::null(), script);
-        let inputs = vec![&input];
 
-        let verifier = TransactionInputVerifier {
-            dep_cells: FnvHashMap::default(),
-            inputs,
+        let transaction = TransactionBuilder::default().input(input.clone()).build();
+
+        let rtx = ResolvedTransaction {
+            transaction,
+            dep_cells: vec![],
+            input_cells: vec![],
         };
+
+        let verifier = TransactionInputVerifier::new(&rtx);
 
         assert!(verifier.verify(0).is_ok());
     }
@@ -139,12 +199,16 @@ mod tests {
             ],
         );
         let input = CellInput::new(OutPoint::null(), script);
-        let inputs = vec![&input];
 
-        let verifier = TransactionInputVerifier {
-            dep_cells: FnvHashMap::default(),
-            inputs,
+        let transaction = TransactionBuilder::default().input(input.clone()).build();
+
+        let rtx = ResolvedTransaction {
+            transaction,
+            dep_cells: vec![],
+            input_cells: vec![],
         };
+
+        let verifier = TransactionInputVerifier::new(&rtx);
 
         assert!(verifier.verify(0).is_err());
     }
@@ -188,9 +252,19 @@ mod tests {
             ],
         );
         let input = CellInput::new(OutPoint::null(), script);
-        let inputs = vec![&input];
 
-        let verifier = TransactionInputVerifier { dep_cells, inputs };
+        let transaction = TransactionBuilder::default()
+            .input(input.clone())
+            .dep(dep_outpoint)
+            .build();
+
+        let rtx = ResolvedTransaction {
+            transaction,
+            dep_cells: vec![CellStatus::Current(dep_cell.clone())],
+            input_cells: vec![],
+        };
+
+        let verifier = TransactionInputVerifier::new(&rtx);
 
         assert!(verifier.verify(0).is_ok());
     }
@@ -222,13 +296,21 @@ mod tests {
             None,
             vec![privkey.pubkey().unwrap().serialize().to_hex().into_bytes()],
         );
-        let input = CellInput::new(OutPoint::null(), script);
-        let inputs = vec![&input];
 
-        let verifier = TransactionInputVerifier {
-            dep_cells: FnvHashMap::default(),
-            inputs,
+        let input = CellInput::new(OutPoint::null(), script);
+
+        let transaction = TransactionBuilder::default()
+            .input(input.clone())
+            .dep(dep_outpoint)
+            .build();
+
+        let rtx = ResolvedTransaction {
+            transaction,
+            dep_cells: vec![],
+            input_cells: vec![],
         };
+
+        let verifier = TransactionInputVerifier::new(&rtx);
 
         assert!(verifier.verify(0).is_err());
     }

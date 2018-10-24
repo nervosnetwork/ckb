@@ -9,9 +9,6 @@ use transaction::OutPoint;
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct Script {
     pub version: u8,
-    // We used string here, since arguments are passed into the VM in unix
-    // standard argc/argv convention, which contains only null terminated
-    // strings. As a result, binaries will be converted to hex string first.
     pub arguments: Vec<Vec<u8>>,
 
     // There're 2 ways of specifying redeem script: one way is directly embed

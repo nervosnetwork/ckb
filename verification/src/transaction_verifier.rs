@@ -1,7 +1,6 @@
 use core::cell::ResolvedTransaction;
 use core::transaction::{Capacity, Transaction};
 use error::TransactionError;
-use fnv::FnvHashMap;
 use script::TransactionInputVerifier;
 use std::collections::HashSet;
 
@@ -90,24 +89,8 @@ impl<'a> ScriptVerifier<'a> {
     }
 
     pub fn verify(&self) -> Result<(), TransactionError> {
-        let mut dep_cells = FnvHashMap::default();
-        // InputVerifier already verifies that all dep cells are valid
-        let dep_cell_outputs = self
-            .resolved_transaction
-            .dep_cells
-            .iter()
-            .map(|cell| cell.get_current().unwrap());
-        let dep_outpoints = self.resolved_transaction.transaction.deps().iter();
-        for (outpoint, cell_output) in dep_outpoints.zip(dep_cell_outputs) {
-            dep_cells.insert(outpoint, cell_output);
-        }
-        let inputs = self
-            .resolved_transaction
-            .transaction
-            .inputs()
-            .iter()
-            .collect();
-        let verifier = TransactionInputVerifier { dep_cells, inputs };
+        let verifier = TransactionInputVerifier::new(&self.resolved_transaction);
+
         for index in 0..self.resolved_transaction.transaction.inputs().len() {
             verifier
                 .verify(index)
