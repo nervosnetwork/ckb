@@ -1,25 +1,27 @@
+#[cfg(feature = "mock_timer")]
 use std::cell::Cell;
-pub use std::time::Duration;
-#[cfg(not(ckb_test))]
+use std::time::Duration;
+#[cfg(not(feature = "mock_timer"))]
 use std::time::{SystemTime, UNIX_EPOCH};
 
+#[cfg(feature = "mock_timer")]
 thread_local! {
     pub static MOCK_TIMER: Cell<Duration> = Cell::new(Duration::from_millis(0));
 }
 
-#[cfg(ckb_test)]
+#[cfg(feature = "mock_timer")]
 pub fn now() -> Duration {
     MOCK_TIMER.with(|t| t.get())
 }
 
-#[cfg(ckb_test)]
+#[cfg(feature = "mock_timer")]
 pub fn set_mock_timer(ms: u64) {
     MOCK_TIMER.with(|t| {
         t.replace(Duration::from_millis(ms));
     });
 }
 
-#[cfg(not(ckb_test))]
+#[cfg(not(feature = "mock_timer"))]
 pub fn now() -> Duration {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
