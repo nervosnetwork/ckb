@@ -364,7 +364,7 @@ dependencies = [
 name = "ckb-benches"
 version = "0.1.0"
 dependencies = [
- "ckb-chain 0.1.0",
+ "ckb-pow 0.1.0",
  "criterion 0.2.5 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 

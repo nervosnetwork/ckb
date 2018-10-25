@@ -118,8 +118,7 @@ pub mod test {
         system_cells: []
         pow:
             Cuckoo:
-                max_vertex: 40000000
-                max_edge: 20000000
+                edge_bits: 29
                 cycle_length: 42
         "#
     }

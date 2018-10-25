@@ -8,7 +8,7 @@ authors = ["Nervos Core Dev <dev@nervos.org>"]
 
 [dev-dependencies]
 criterion = "0.2"
-ckb-chain = { path = "../chain" }
+ckb-pow = { path = "../pow" }
 
 [[bench]]
 name = "cuckoo"

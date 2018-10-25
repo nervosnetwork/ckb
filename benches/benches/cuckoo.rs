@@ -1,8 +1,8 @@
 #[macro_use]
 extern crate criterion;
-extern crate ckb_chain;
+extern crate ckb_pow;
 
-use ckb_chain::pow::Cuckoo;
+use ckb_pow::Cuckoo;
 use criterion::Criterion;
 
 const TESTSET: [([u8; 80], [u32; 6]); 3] = [
@@ -34,7 +34,7 @@ const TESTSET: [([u8; 80], [u32; 6]); 3] = [
 
 fn bench(c: &mut Criterion) {
     c.bench_function("bench_solve", |b| {
-        let cuckoo = Cuckoo::new(16, 8, 6);
+        let cuckoo = Cuckoo::new(3, 6);
         b.iter(|| {
             for _ in 0..100 {
                 for (message, _) in TESTSET.iter() {
@@ -45,7 +45,7 @@ fn bench(c: &mut Criterion) {
     });
 
     c.bench_function("bench_verify", |b| {
-        let cuckoo = Cuckoo::new(16, 8, 6);
+        let cuckoo = Cuckoo::new(3, 6);
         b.iter(|| {
             for _ in 0..100 {
                 for (message, proof) in TESTSET.iter() {

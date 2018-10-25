@@ -39,7 +39,7 @@ impl Pow {
         match *self {
             Pow::Dummy => Arc::new(DummyPowEngine::new()),
             Pow::Clicker => Arc::new(Clicker::new()),
-            Pow::Cuckoo(ref params) => Arc::new(CuckooEngine::new(params)),
+            Pow::Cuckoo(params) => Arc::new(CuckooEngine::new(params)),
         }
     }
 }
