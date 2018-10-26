@@ -156,7 +156,7 @@ pub fn test_cellbase_spent() {
     let (chain, pool, _tx_hash) = test_setup();
     let cellbase_tx: Transaction = TransactionBuilder::default()
         .input(CellInput::new_cellbase_input(
-            chain.tip_header().read().header.number() + 1,
+            chain.tip_header().read().number() + 1,
         )).output(CellOutput::new(
             50000,
             Vec::new(),
@@ -474,7 +474,7 @@ fn apply_transactions(
         H256::zero()
     };
 
-    let parent = { chain.tip_header().read().header.clone() };
+    let parent = chain.tip_header().read().inner().clone();
 
     let header_builder = HeaderBuilder::default()
         .parent_hash(&parent.hash())

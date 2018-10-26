@@ -16,7 +16,7 @@ use self::header_view::HeaderView;
 use self::headers_process::HeadersProcess;
 use self::peers::Peers;
 use bigint::H256;
-use ckb_chain::chain::{ChainProvider, TipHeader};
+use ckb_chain::chain::ChainProvider;
 use ckb_pow::PowEngine;
 use ckb_protocol::{SyncMessage, SyncPayload};
 use ckb_time::now_ms;
@@ -113,12 +113,9 @@ where
     C: ChainProvider,
 {
     pub fn new(chain: &Arc<C>, pow: &Arc<dyn PowEngine>, config: Config) -> Synchronizer<C> {
-        let TipHeader {
-            header,
-            total_difficulty,
-            ..
-        } = chain.tip_header().read().clone();
-        let best_known_header = HeaderView::new(header, total_difficulty);
+        let tip_header = chain.tip_header().read();
+        let best_known_header =
+            HeaderView::new(tip_header.inner().clone(), tip_header.total_difficulty());
         let orphan_block_limit = config.orphan_block_limit;
 
         Synchronizer {
@@ -183,7 +180,7 @@ where
     }
 
     pub fn is_initial_block_download(&self) -> bool {
-        now_ms().saturating_sub(self.chain.tip_header().read().header.timestamp()) > MAX_TIP_AGE
+        now_ms().saturating_sub(self.chain.tip_header().read().inner().timestamp()) > MAX_TIP_AGE
     }
 
     pub fn get_headers_sync_timeout(&self, header: &Header) -> u64 {
@@ -201,7 +198,7 @@ where
     }
 
     pub fn tip_header(&self) -> Header {
-        self.chain.tip_header().read().header.clone()
+        self.chain.tip_header().read().inner().clone()
     }
 
     pub fn get_locator(&self, start: &Header) -> Vec<H256> {
@@ -292,7 +289,7 @@ where
         self.header_map
             .read()
             .get(hash)
-            .map(|view| &view.header)
+            .map(|view| view.inner())
             .cloned()
             .or_else(|| self.chain.block_header(&hash))
     }
@@ -337,14 +334,14 @@ where
 
     pub fn insert_header_view(&self, header: &Header, peer: PeerId) {
         if let Some(parent_view) = self.get_header_view(&header.parent_hash()) {
-            let total_difficulty = parent_view.total_difficulty + header.difficulty();
+            let total_difficulty = parent_view.total_difficulty() + header.difficulty();
             let header_view = {
                 let best_known_header = self.best_known_header.upgradable_read();
                 let header_view = HeaderView::new(header.clone(), total_difficulty);
 
-                if total_difficulty > best_known_header.total_difficulty
-                    || (total_difficulty == best_known_header.total_difficulty
-                        && header.hash() < best_known_header.header.hash())
+                if total_difficulty > best_known_header.total_difficulty()
+                    || (total_difficulty == best_known_header.total_difficulty()
+                        && header.hash() < best_known_header.hash())
                 {
                     let mut best_known_header =
                         RwLockUpgradableReadGuard::upgrade(best_known_header);
@@ -702,7 +699,7 @@ mod tests {
 
         let synchronizer = Synchronizer::new(&chain, &dummy_pow_engine(), Config::default());
 
-        let locator = synchronizer.get_locator(&chain.tip_header().read().header);
+        let locator = synchronizer.get_locator(&chain.tip_header().read().inner());
 
         let mut expect = Vec::new();
 
@@ -736,7 +733,7 @@ mod tests {
 
         let synchronizer2 = Synchronizer::new(&chain2, &pow_engine, Config::default());
 
-        let locator1 = synchronizer1.get_locator(&chain1.tip_header().read().header);
+        let locator1 = synchronizer1.get_locator(&chain1.tip_header().read().inner());
 
         let latest_common = synchronizer2.locate_latest_common_block(&H256::zero(), &locator1[..]);
 
@@ -790,7 +787,7 @@ mod tests {
 
         let synchronizer2 = Synchronizer::new(&chain2, &pow_engine, Config::default());
 
-        let locator1 = synchronizer1.get_locator(&chain1.tip_header().read().header);
+        let locator1 = synchronizer1.get_locator(&chain1.tip_header().read().inner());
 
         let latest_common = synchronizer2
             .locate_latest_common_block(&H256::zero(), &locator1[..])
@@ -819,13 +816,13 @@ mod tests {
 
         let synchronizer = Synchronizer::new(&chain, &dummy_pow_engine(), Config::default());
 
-        let header = synchronizer.get_ancestor(&chain.tip_header().read().header.hash(), 100);
-        let tip = synchronizer.get_ancestor(&chain.tip_header().read().header.hash(), 199);
-        let noop = synchronizer.get_ancestor(&chain.tip_header().read().header.hash(), 200);
+        let header = synchronizer.get_ancestor(&chain.tip_header().read().hash(), 100);
+        let tip = synchronizer.get_ancestor(&chain.tip_header().read().hash(), 199);
+        let noop = synchronizer.get_ancestor(&chain.tip_header().read().hash(), 200);
         assert!(tip.is_some());
         assert!(header.is_some());
         assert!(noop.is_none());
-        assert_eq!(tip.unwrap(), chain.tip_header().read().header.clone());
+        assert_eq!(tip.unwrap(), chain.tip_header().read().inner().clone());
         assert_eq!(
             header.unwrap(),
             chain.block_header(&chain.block_hash(100).unwrap()).unwrap()
@@ -856,8 +853,8 @@ mod tests {
         });
 
         assert_eq!(
-            blocks.last().unwrap().header().clone(),
-            chain2.tip_header().read().header
+            blocks.last().unwrap().header(),
+            chain2.tip_header().read().inner()
         );
     }
 
@@ -959,7 +956,7 @@ mod tests {
         }
         let synchronizer1 = Synchronizer::new(&chain1, &dummy_pow_engine(), Config::default());
 
-        let locator1 = synchronizer1.get_locator(&chain1.tip_header().read().header);
+        let locator1 = synchronizer1.get_locator(&chain1.tip_header().read().inner());
 
         for i in 1..num + 1 {
             let j = if i > 192 { i + 1 } else { i };
@@ -991,10 +988,7 @@ mod tests {
 
         let best_known_header = synchronizer1.peers.best_known_header(peer);
 
-        assert_eq!(
-            best_known_header.clone().map(|h| h.header),
-            headers.last().cloned()
-        );
+        assert_eq!(best_known_header.unwrap().inner(), headers.last().unwrap());
 
         let blocks_to_fetch = synchronizer1.get_blocks_to_fetch(peer).unwrap();
 

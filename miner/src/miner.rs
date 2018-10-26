@@ -39,7 +39,7 @@ where
         network: &Arc<NetworkService>,
         notify: &Notify,
     ) -> Self {
-        let number = chain.tip_header().read().header.number();
+        let number = chain.tip_header().read().number();
 
         let (sub_tx, sub_rx) = crossbeam_channel::unbounded();
         notify.register_transaction_subscriber(MINER_SUBSCRIBER, sub_tx.clone());

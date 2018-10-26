@@ -25,7 +25,7 @@ pub fn build_block_template<C: ChainProvider + 'static>(
     max_tx: usize,
     max_prop: usize,
 ) -> Result<BlockTemplate, Error> {
-    let header = chain.tip_header().read().header.clone();
+    let header = chain.tip_header().read().inner().clone();
     let now = cmp::max(now_ms(), header.timestamp() + 1);
     let difficulty = chain.calculate_difficulty(&header).expect("get difficulty");
     let commit_transactions = tx_pool.get_mineable_transactions(max_tx);

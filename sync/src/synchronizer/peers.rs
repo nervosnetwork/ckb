@@ -148,9 +148,9 @@ impl Peers {
             .write()
             .entry(peer)
             .and_modify(|hv| {
-                if header_view.total_difficulty > hv.total_difficulty
-                    || (header_view.total_difficulty == hv.total_difficulty
-                        && header_view.header.hash() < hv.header.hash())
+                if header_view.total_difficulty() > hv.total_difficulty()
+                    || (header_view.total_difficulty() == hv.total_difficulty()
+                        && header_view.hash() < hv.hash())
                 {
                     *hv = header_view.clone();
                 }

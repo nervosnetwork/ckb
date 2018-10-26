@@ -92,7 +92,7 @@ impl<C: ChainProvider + 'static> IntegrationTestRpc for RpcImpl<C> {
     }
 
     fn get_tip_header(&self) -> Result<Header> {
-        Ok(self.chain.tip_header().read().header.clone())
+        Ok(self.chain.tip_header().read().inner().clone())
     }
 
     fn get_block_template(&self) -> Result<BlockTemplate> {

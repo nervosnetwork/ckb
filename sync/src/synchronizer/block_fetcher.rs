@@ -43,7 +43,7 @@ where
     }
 
     pub fn is_better_chain(&self, header: &HeaderView) -> bool {
-        header.total_difficulty >= self.tip_header.total_difficulty
+        header.total_difficulty() >= self.tip_header.total_difficulty()
     }
 
     pub fn peer_best_known_header(&self) -> Option<HeaderView> {
@@ -63,18 +63,18 @@ where
             .upgradable_read();
 
         let last_common_header = try_option!(guard.get(&self.peer).cloned().or_else(|| {
-            if best.header.number() < self.tip_header.header.number() {
+            if best.number() < self.tip_header.number() {
                 let last_common_hash =
-                    try_option!(self.synchronizer.chain.block_hash(best.header.number()));
+                    try_option!(self.synchronizer.chain.block_hash(best.number()));
                 self.synchronizer.chain.block_header(&last_common_hash)
             } else {
-                Some(self.tip_header.header.clone())
+                Some(self.tip_header.inner().clone())
             }
         }));
 
         let fixed_last_common_header = try_option!(
             self.synchronizer
-                .last_common_ancestor(&last_common_header, &best.header)
+                .last_common_ancestor(&last_common_header, best.inner())
         );
 
         if fixed_last_common_header != last_common_header {
@@ -92,11 +92,11 @@ where
     // this peer's tip is wherethe the ancestor of global_best_known_header
     pub fn is_known_best(&self, header: &HeaderView) -> bool {
         let global_best_known_header = { self.synchronizer.best_known_header.read().clone() };
-        if let Some(ancestor) = self.synchronizer.get_ancestor(
-            &global_best_known_header.header.hash(),
-            header.header.number(),
-        ) {
-            if ancestor != header.header {
+        if let Some(ancestor) = self
+            .synchronizer
+            .get_ancestor(&global_best_known_header.hash(), header.number())
+        {
+            if ancestor != header.inner().clone() {
                 debug!(
                     target: "sync",
                     "[block downloader] peer best_known_header is not ancestor of global_best_known_header"
@@ -130,8 +130,8 @@ where
             debug!(
                 target: "sync",
                 "[block downloader] best_known_header {} chain {}",
-                best_known_header.total_difficulty,
-                self.tip_header.total_difficulty
+                best_known_header.total_difficulty(),
+                self.tip_header.total_difficulty()
             );
             return None;
         }
@@ -144,7 +144,7 @@ where
         // of its current best_known_header. Go back enough to fix that.
         let fixed_last_common_header = try_option!(self.last_common_header(&best_known_header));
 
-        if fixed_last_common_header == best_known_header.header {
+        if fixed_last_common_header == best_known_header.inner().clone() {
             debug!(target: "sync", "[block downloader] fixed_last_common_header == best_known_header");
             return None;
         }
@@ -153,13 +153,13 @@ where
             target: "sync",
             "[block downloader] fixed_last_common_header = {} best_known_header = {}",
             fixed_last_common_header.number(),
-            best_known_header.header.number()
+            best_known_header.number()
         );
 
-        debug_assert!(best_known_header.header.number() > fixed_last_common_header.number());
+        debug_assert!(best_known_header.number() > fixed_last_common_header.number());
 
         let window_end = fixed_last_common_header.number() + BLOCK_DOWNLOAD_WINDOW;
-        let max_height = cmp::min(window_end + 1, best_known_header.header.number());
+        let max_height = cmp::min(window_end + 1, best_known_header.number());
 
         let mut n_height = fixed_last_common_header.number();
         let mut v_fetch = Vec::with_capacity(PER_FETCH_BLOCK_LIMIT);
@@ -172,7 +172,7 @@ where
                 n_height += 1;
                 let to_fetch = try_option!(
                     self.synchronizer
-                        .get_ancestor(&best_known_header.header.hash(), n_height)
+                        .get_ancestor(&best_known_header.hash(), n_height)
                 );
                 let to_fetch_hash = to_fetch.hash();
 

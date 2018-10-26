@@ -14,7 +14,7 @@ impl<'a, P: ChainProvider> ChainIterator<'a, P> {
         ChainIterator {
             chain,
             current: chain.block_hash(0).and_then(|h| chain.block(&h)),
-            tip: chain.tip_header().read().header.number(),
+            tip: chain.tip_header().read().number(),
         }
     }
 

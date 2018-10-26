@@ -170,14 +170,14 @@ where
                     "number={}; best_known_header = {}; total_difficulty = {};\n",
                     "number={:?}; best_known_header = {:?}; total_difficulty = {:?}\n",
                 ),
-                chain_tip.total_difficulty,
-                chain_tip.header.number(),
-                own.header.number(),
+                chain_tip.total_difficulty(),
+                chain_tip.number(),
+                own.number(),
                 own.hash(),
-                own.total_difficulty,
-                peer_state.as_ref().map(|state| state.header.number()),
+                own.total_difficulty(),
+                peer_state.as_ref().map(|state| state.number()),
                 peer_state.as_ref().map(|state| state.hash()),
-                peer_state.as_ref().map(|state| state.total_difficulty),
+                peer_state.as_ref().map(|state| state.total_difficulty()),
             );
         }
 

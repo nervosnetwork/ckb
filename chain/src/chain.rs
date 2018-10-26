@@ -27,14 +27,26 @@ use util::{RwLock, RwLockUpgradableReadGuard};
 
 #[derive(Default, Debug, PartialEq, Clone, Eq)]
 pub struct TipHeader {
-    pub header: Header,
-    pub total_difficulty: U256,
-    pub output_root: H256,
+    inner: Header,
+    total_difficulty: U256,
+    output_root: H256,
 }
 
 impl TipHeader {
     pub fn number(&self) -> BlockNumber {
-        self.header.number()
+        self.inner.number()
+    }
+
+    pub fn hash(&self) -> H256 {
+        self.inner.hash()
+    }
+
+    pub fn total_difficulty(&self) -> U256 {
+        self.total_difficulty
+    }
+
+    pub fn inner(&self) -> &Header {
+        &self.inner
     }
 }
 
@@ -176,7 +188,7 @@ impl<CS: ChainIndex> Chain<CS> {
             .total_difficulty;
 
         let tip_header = TipHeader {
-            header,
+            inner: header,
             total_difficulty,
             output_root,
         };
@@ -249,12 +261,12 @@ impl<CS: ChainIndex> Chain<CS> {
 
                 if cannon_total_difficulty > current_total_difficulty
                     || (current_total_difficulty == cannon_total_difficulty
-                        && b.header().hash() < tip_header.header.hash())
+                        && b.header().hash() < tip_header.hash())
                 {
                     debug!(target: "chain", "new best block found: {} => {}", b.header().number(), b.header().hash());
                     new_best_block = true;
                     let new_tip_header = TipHeader {
-                        header: b.header().clone(),
+                        inner: b.header().clone(),
                         total_difficulty: cannon_total_difficulty,
                         output_root: root,
                     };
@@ -368,7 +380,7 @@ impl<CS: ChainIndex> Chain<CS> {
     fn print_chain(&self, len: u64) {
         debug!(target: "chain", "Chain {{");
 
-        let tip = { self.tip_header().read().header.number() };
+        let tip = { self.tip_header().read().number() };
         let bottom = tip - cmp::min(tip, len);
 
         for number in (bottom..tip + 1).rev() {
@@ -486,7 +498,7 @@ impl<CS: ChainIndex> ChainProvider for Chain<CS> {
                 if number > n_number {
                     return None;
                 } else if number == n_number {
-                    return Some(tip.header.clone());
+                    return Some(tip.inner.clone());
                 } else {
                     return self
                         .block_hash(number)
@@ -516,8 +528,8 @@ impl<CS: ChainIndex> ChainProvider for Chain<CS> {
 
     fn block_header(&self, hash: &H256) -> Option<Header> {
         let tip_header = self.tip_header.read();
-        if &tip_header.header.hash() == hash {
-            Some(tip_header.header.clone())
+        if &tip_header.hash() == hash {
+            Some(tip_header.inner.clone())
         } else {
             self.store.get_header(hash)
         }
@@ -526,7 +538,7 @@ impl<CS: ChainIndex> ChainProvider for Chain<CS> {
     // TODO: Move to uncle provider
     fn get_tip_uncles(&self) -> Vec<UncleBlock> {
         let max_uncles_age = self.consensus().max_uncles_age();
-        let header = &self.tip_header().read().header;
+        let header = &self.tip_header().read().inner;
         let mut excluded = FnvHashSet::default();
 
         // cB
@@ -561,7 +573,7 @@ impl<CS: ChainIndex> ChainProvider for Chain<CS> {
         let mut uncles = Vec::with_capacity(max_uncles_len);
         let mut bad_uncles = Vec::new();
         let r_candidate_uncle = self.candidate_uncles.upgradable_read();
-        let current_number = self.tip_header().read().header.number() + 1;
+        let current_number = self.tip_header().read().number() + 1;
         for (hash, block) in r_candidate_uncle.iter() {
             if uncles.len() == max_uncles_len {
                 break;
@@ -1086,7 +1098,7 @@ pub mod test {
             chain2.push(new_block.clone());
             parent = new_block.header().clone();
         }
-        let tip = { chain.tip_header().read().header.clone() };
+        let tip = chain.tip_header().read().inner.clone();
         let total_uncles_count = chain.block_ext(&tip.hash()).unwrap().total_uncles_count;
         assert_eq!(total_uncles_count, 25);
         let difficulty = chain.calculate_difficulty(&tip).unwrap();
@@ -1117,7 +1129,7 @@ pub mod test {
             chain2.push(new_block.clone());
             parent = new_block.header().clone();
         }
-        let tip = { chain.tip_header().read().header.clone() };
+        let tip = chain.tip_header().read().inner.clone();
         let total_uncles_count = chain.block_ext(&tip.hash()).unwrap().total_uncles_count;
         assert_eq!(total_uncles_count, 10);
         let difficulty = chain.calculate_difficulty(&tip).unwrap();
@@ -1148,7 +1160,7 @@ pub mod test {
             chain2.push(new_block.clone());
             parent = new_block.header().clone();
         }
-        let tip = { chain.tip_header().read().header.clone() };
+        let tip = chain.tip_header().read().inner.clone();
         let total_uncles_count = chain.block_ext(&tip.hash()).unwrap().total_uncles_count;
         assert_eq!(total_uncles_count, 150);
         let difficulty = chain.calculate_difficulty(&tip).unwrap();
