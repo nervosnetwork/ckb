@@ -286,37 +286,21 @@ impl Cuckoo {
 #[cfg(test)]
 mod test {
     use super::Cuckoo;
-    use ckb_core::BlockNumber;
-    use quickcheck;
-    use std::fmt;
+    use proptest::collection::size_range;
+    use proptest::prelude::any_with;
 
-    #[derive(Copy, Clone)]
-    struct Message([u8; 80]);
-
-    impl fmt::Debug for Message {
-        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-            for byte in self.0.iter() {
-                write!(f, "{}", byte)?;
-            }
-            Ok(())
+    fn _cuckoo_solve(message: &[u8]) -> bool {
+        let cuckoo = Cuckoo::new(3, 6);
+        if let Some(proof) = cuckoo.solve(message) {
+            assert!(cuckoo.verify(message, &proof));
         }
+        true
     }
 
-    impl quickcheck::Arbitrary for Message {
-        fn arbitrary<G: quickcheck::Gen>(g: &mut G) -> Self {
-            let mut res = [0u8; 80];
-            g.fill_bytes(&mut res[..80]);
-            Message(res)
-        }
-    }
-
-    quickcheck! {
-        fn cuckoo_solve(_number: BlockNumber, message: Message) -> bool {
-            let cuckoo = Cuckoo::new(3, 6);
-            if let Some(proof) = cuckoo.solve(&message.0) {
-                assert!(cuckoo.verify(&message.0, &proof));
-            }
-            true
+    proptest! {
+        #[test]
+        fn cuckoo_solve(ref message in any_with::<Vec<u8>>(size_range(80).lift())) {
+            _cuckoo_solve(message)
         }
     }
 

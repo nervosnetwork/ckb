@@ -8,7 +8,7 @@ extern crate rand;
 extern crate serde_derive;
 #[cfg(test)]
 #[macro_use]
-extern crate quickcheck;
+extern crate proptest;
 
 use bigint::H256;
 use byteorder::{ByteOrder, LittleEndian};

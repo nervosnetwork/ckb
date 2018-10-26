@@ -16,4 +16,4 @@ serde_derive = "1.0"
 
 
 [dev-dependencies]
-quickcheck = "0.7.1"
+proptest = "0.8"
