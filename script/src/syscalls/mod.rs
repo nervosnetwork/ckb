@@ -11,6 +11,9 @@ use vm::Error;
 pub const SUCCESS: u8 = 0;
 pub const OVERRIDE_LEN: u8 = 1;
 
+pub const MMAP_TX_SYSCALL_NUMBER: u64 = 2049;
+pub const MMAP_CELL_SYSCALL_NUMBER: u64 = 2050;
+
 #[derive(Debug, PartialEq, Clone, Copy, Eq)]
 pub enum Mode {
     ALL,
@@ -36,7 +39,7 @@ mod tests {
     use proptest::prelude::any_with;
     use vm::machine::DefaultCoreMachine;
     use vm::{
-        CoreMachine, Error as VMError, Memory, SparseMemory, Syscalls, A0, A1, A2, A3, A4, A5,
+        CoreMachine, Error as VMError, Memory, SparseMemory, Syscalls, A0, A1, A2, A3, A4, A5, A7,
     };
 
     fn _test_mmap_tx_all(tx: &Vec<u8>) {
@@ -47,6 +50,7 @@ mod tests {
         machine.registers_mut()[A0] = addr; // addr
         machine.registers_mut()[A1] = size_addr; // size_addr
         machine.registers_mut()[A2] = 0; // mode: all
+        machine.registers_mut()[A7] = MMAP_TX_SYSCALL_NUMBER; // syscall number
 
         assert!(
             machine
@@ -107,6 +111,7 @@ mod tests {
         machine.registers_mut()[A1] = size_addr; // size_addr
         machine.registers_mut()[A2] = 1; // mode: partial
         machine.registers_mut()[A3] = offset as u64; // offset
+        machine.registers_mut()[A7] = MMAP_TX_SYSCALL_NUMBER; // syscall number
 
         assert!(
             machine
@@ -145,6 +150,7 @@ mod tests {
         machine.registers_mut()[A2] = 0; // mode: all
         machine.registers_mut()[A4] = 1; //index
         machine.registers_mut()[A5] = 0; //source: 0 input
+        machine.registers_mut()[A7] = MMAP_CELL_SYSCALL_NUMBER; // syscall number
 
         assert!(
             machine
@@ -179,6 +185,7 @@ mod tests {
         machine.registers_mut()[A2] = 0; // mode: all
         machine.registers_mut()[A4] = 0; //index
         machine.registers_mut()[A5] = 0; //source: 0 input
+        machine.registers_mut()[A7] = MMAP_CELL_SYSCALL_NUMBER; // syscall number
 
         assert!(
             machine
@@ -253,6 +260,7 @@ mod tests {
         machine.registers_mut()[A3] = offset as u64; // offset
         machine.registers_mut()[A4] = 0; // index
         machine.registers_mut()[A5] = 0; // source: 0 input
+        machine.registers_mut()[A7] = MMAP_CELL_SYSCALL_NUMBER; // syscall number
 
         assert!(
             machine

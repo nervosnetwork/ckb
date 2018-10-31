@@ -1,9 +1,9 @@
 use core::transaction::CellOutput;
 use std::cmp;
 use std::rc::Rc;
-use syscalls::{Mode, OVERRIDE_LEN, SUCCESS};
+use syscalls::{Mode, MMAP_CELL_SYSCALL_NUMBER, OVERRIDE_LEN, SUCCESS};
 use vm::memory::PROT_READ;
-use vm::{CoreMachine, Error as VMError, Memory, Register, Syscalls, A0, A1, A2, A3, A4, A5};
+use vm::{CoreMachine, Error as VMError, Memory, Register, Syscalls, A0, A1, A2, A3, A4, A5, A7};
 
 #[derive(Debug, PartialEq, Clone, Copy, Eq)]
 enum Source {
@@ -49,6 +49,10 @@ impl<'a, R: Register, M: Memory> Syscalls<R, M> for MmapCell<'a> {
     }
 
     fn ecall(&mut self, machine: &mut CoreMachine<R, M>) -> Result<bool, VMError> {
+        if machine.registers()[A7].to_u64() != MMAP_CELL_SYSCALL_NUMBER {
+            return Ok(false);
+        }
+
         let addr = machine.registers()[A0].to_usize();
         let size_addr = machine.registers()[A1].to_usize();
         let mode = Mode::parse_from_flag(machine.registers()[A2].to_u64())?;
