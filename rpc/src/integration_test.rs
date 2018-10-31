@@ -2,8 +2,8 @@ use bigint::H256;
 use chain::chain::ChainProvider;
 use ckb_pow::Clicker;
 use core::header::{BlockNumber, Header};
-use core::transaction::Transaction;
-use jsonrpc_core::{IoHandler, Result};
+use core::transaction::{CellOutput, Transaction};
+use jsonrpc_core::{Error, IoHandler, Result};
 use jsonrpc_http_server::ServerBuilder;
 use jsonrpc_server_utils::cors::AccessControlAllowOrigin;
 use jsonrpc_server_utils::hosts::DomainsValidation;
@@ -43,6 +43,10 @@ build_rpc_trait! {
         // curl -d '{"id": 2, "jsonrpc": "2.0", "method":"get_block_template","params": []}' -H 'content-type:application/json' 'http://localhost:3030'
         #[rpc(name = "get_block_template")]
         fn get_block_template(&self) -> Result<BlockTemplate>;
+
+        // curl -d '{"id": 2, "jsonrpc": "2.0", "method":"get_cells_by_redeem_script_hash","params": ["0x1b1c832d02fdb4339f9868c8a8636c3d9dd10bd53ac7ce99595825bd6beeffb3", 1, 10]}' -H 'content-type:application/json' 'http://localhost:3030'
+        #[rpc(name = "get_cells_by_redeem_script_hash")]
+        fn get_cells_by_redeem_script_hash(&self, H256, u64, u64) -> Result<Vec<CellOutput>>;
 
         #[rpc(name = "local_node_id")]
         fn local_node_id(&self) -> Result<Option<String>>;
@@ -97,6 +101,35 @@ impl<C: ChainProvider + 'static> IntegrationTestRpc for RpcImpl<C> {
 
     fn get_block_template(&self) -> Result<BlockTemplate> {
         Ok(build_block_template(&self.chain, &self.tx_pool, H256::from(0), 20000, 20000).unwrap())
+    }
+
+    fn get_cells_by_redeem_script_hash(
+        &self,
+        redeem_script_hash: H256,
+        from: u64,
+        to: u64,
+    ) -> Result<Vec<CellOutput>> {
+        let mut result = Vec::new();
+        for block_number in from..=to {
+            if let Some(block_hash) = self.chain.block_hash(block_number) {
+                let block = self
+                    .chain
+                    .block(&block_hash)
+                    .ok_or_else(Error::internal_error)?;
+                for transaction in block.commit_transactions() {
+                    let transaction_meta = self
+                        .chain
+                        .get_transaction_meta(&transaction.hash())
+                        .ok_or_else(Error::internal_error)?;
+                    for (i, output) in transaction.outputs().iter().enumerate() {
+                        if output.lock == redeem_script_hash && (!transaction_meta.is_spent(i)) {
+                            result.push(output.clone());
+                        }
+                    }
+                }
+            }
+        }
+        Ok(result)
     }
 
     fn local_node_id(&self) -> Result<Option<String>> {
