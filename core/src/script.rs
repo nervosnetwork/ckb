@@ -1,5 +1,5 @@
 use bigint::H256;
-use bincode::serialize;
+use byteorder::{LittleEndian, WriteBytesExt};
 use hash::sha3_256;
 use std::io::Write;
 use transaction::OutPoint;
@@ -70,9 +70,11 @@ impl Script {
         match self.version {
             0 => {
                 let mut bytes = vec![];
+                // TODO: switch to flatbuffer serialization once we
+                // can do stable serialization using flatbuffer.
                 if let Some(outpoint) = self.redeem_reference {
-                    let data = serialize(&outpoint).unwrap();
-                    bytes.write_all(&data).unwrap();
+                    bytes.write_all(&outpoint.hash).unwrap();
+                    bytes.write_u32::<LittleEndian>(outpoint.index).unwrap();
                 }
                 // A separator is used here to prevent the rare case
                 // that some redeem_script might contain the exactly

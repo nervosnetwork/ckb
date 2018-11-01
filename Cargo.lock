@@ -418,6 +418,7 @@ dependencies = [
  "bigint 0.2.3 (git+https://github.com/NervosFoundation/bigint)",
  "bincode 1.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "bit-vec 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "byteorder 1.2.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "ckb-time 0.1.0",
  "ckb-util 0.1.0",
  "crypto 0.1.0",
