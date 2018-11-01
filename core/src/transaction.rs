@@ -258,6 +258,11 @@ impl TransactionBuilder {
         self
     }
 
+    pub fn inputs_clear(mut self) -> Self {
+        self.inner.inputs.clear();
+        self
+    }
+
     pub fn output(mut self, output: CellOutput) -> Self {
         self.inner.outputs.push(output);
         self

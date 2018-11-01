@@ -172,6 +172,7 @@ pub fn sign(setup: &Setup, matches: &ArgMatches) {
     let result = TransactionBuilder::default()
         .transaction(transaction)
         .dep(system_cell_outpoint)
+        .inputs_clear()
         .inputs(inputs)
         .build();
 
