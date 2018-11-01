@@ -409,7 +409,10 @@ where
 
         // We can sort it by some rules
         for tx in new_txs {
-            let _ = self.add_to_pool(tx);
+            let tx_hash = tx.hash();
+            if let Err(error) = self.add_to_pool(tx) {
+                info!(target: "txs_pool", "Failed to add proposed tx {:} to pool, reason: {:?}", tx_hash, error);
+            }
         }
     }
 
