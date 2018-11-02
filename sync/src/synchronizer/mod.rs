@@ -25,9 +25,7 @@ use config::Config;
 use core::block::Block;
 use core::header::{BlockNumber, Header};
 use flatbuffers::{get_root, FlatBufferBuilder};
-use futures::future;
-use futures::future::lazy;
-use network::PeerIndex;
+use network::{CKBProtocolContext, CKBProtocolHandler, PeerIndex, Severity, TimerToken};
 use std::cmp;
 use std::collections::HashMap;
 use std::sync::atomic::AtomicUsize;
@@ -38,14 +36,14 @@ use tokio;
 use util::{RwLock, RwLockUpgradableReadGuard};
 use AcceptBlockError;
 use {
-    HEADERS_DOWNLOAD_TIMEOUT_BASE, HEADERS_DOWNLOAD_TIMEOUT_PER_HEADER, MAX_HEADERS_LEN,
+    CHAIN_SYNC_TIMEOUT, EVICTION_HEADERS_RESPONSE_TIME, HEADERS_DOWNLOAD_TIMEOUT_BASE,
+    HEADERS_DOWNLOAD_TIMEOUT_PER_HEADER, MAX_HEADERS_LEN,
     MAX_OUTBOUND_PEERS_TO_PROTECT_FROM_DISCONNECT, MAX_TIP_AGE, POW_SPACE,
 };
 
-use network::{CKBProtocolContext, CKBProtocolHandler, TimerToken};
-
 pub const SEND_GET_HEADERS_TOKEN: TimerToken = 0;
 pub const BLOCK_FETCH_TOKEN: TimerToken = 1;
+pub const TIMEOUT_EVICTION_TOKEN: TimerToken = 2;
 
 bitflags! {
     pub struct BlockStatus: u32 {
@@ -493,6 +491,82 @@ where
         let _ = nc.send(peer, fbb.finished_data().to_vec());
     }
 
+    //   - If at timeout their best known block now has more work than our tip
+    //     when the timeout was set, then either reset the timeout or clear it
+    //     (after comparing against our current tip's work)
+    //   - If at timeout their best known block still has less work than our
+    //     tip did when the timeout was set, then send a getheaders message,
+    //     and set a shorter timeout, HEADERS_RESPONSE_TIME seconds in future.
+    //     If their best known block is still behind when that new timeout is
+    //     reached, disconnect.
+    pub fn eviction(&self, nc: &CKBProtocolContext) {
+        let mut peer_state = self.peers.state.write();
+        let best_known_headers = self.peers.best_known_headers.read();
+        let is_initial_block_download = self.is_initial_block_download();
+        let mut eviction = Vec::new();
+        for (peer, state) in peer_state.iter_mut() {
+            let now = now_ms();
+            // headers_sync_timeout
+            if let Some(timeout) = state.headers_sync_timeout {
+                if now > timeout && is_initial_block_download && !state.disconnect {
+                    eviction.push(*peer);
+                    state.disconnect = true;
+                    continue;
+                }
+            }
+            if let Some(is_outbound) = is_outbound(nc, *peer) {
+                if !state.chain_sync.protect && is_outbound {
+                    let best_known_header = best_known_headers.get(peer);
+
+                    let chain_tip = self.chain.tip_header().read();
+                    if best_known_header.map(|h| h.total_difficulty())
+                        >= Some(chain_tip.total_difficulty())
+                    {
+                        if state.chain_sync.timeout != 0 {
+                            state.chain_sync.timeout = 0;
+                            state.chain_sync.work_header = None;
+                            state.chain_sync.sent_getheaders = false;
+                        }
+                    } else if state.chain_sync.timeout == 0
+                        || (best_known_header.is_some()
+                            && best_known_header.map(|h| h.total_difficulty()) >= state
+                                .chain_sync
+                                .work_header
+                                .as_ref()
+                                .map(|h| h.total_difficulty()))
+                    {
+                        // Our best block known by this peer is behind our tip, and we're either noticing
+                        // that for the first time, OR this peer was able to catch up to some earlier point
+                        // where we checked against our tip.
+                        // Either way, set a new timeout based on current tip.
+                        state.chain_sync.timeout = now + CHAIN_SYNC_TIMEOUT;
+                        state.chain_sync.work_header = Some(chain_tip.clone());
+                        state.chain_sync.sent_getheaders = false;
+                    } else if state.chain_sync.timeout > 0 && now > state.chain_sync.timeout {
+                        // No evidence yet that our peer has synced to a chain with work equal to that
+                        // of our tip, when we first detected it was behind. Send a single getheaders
+                        // message to give the peer a chance to update us.
+                        if state.chain_sync.sent_getheaders {
+                            eviction.push(*peer);
+                            state.disconnect = true;
+                        } else {
+                            state.chain_sync.sent_getheaders = true;
+                            state.chain_sync.timeout = now + EVICTION_HEADERS_RESPONSE_TIME;
+                            self.send_getheaders_to_peer(
+                                nc,
+                                *peer,
+                                state.chain_sync.work_header.clone().unwrap().inner(),
+                            );
+                        }
+                    }
+                }
+            }
+        }
+        for peer in eviction {
+            nc.report_peer(peer, Severity::Timeout);
+        }
+    }
+
     fn send_getheaders_to_all(&self, nc: &CKBProtocolContext) {
         let peers: Vec<PeerIndex> = self
             .peers
@@ -546,6 +620,7 @@ where
         // NOTE: 100ms is what bitcoin use.
         let _ = nc.register_timer(SEND_GET_HEADERS_TOKEN, Duration::from_millis(100));
         let _ = nc.register_timer(BLOCK_FETCH_TOKEN, Duration::from_millis(100));
+        let _ = nc.register_timer(TIMEOUT_EVICTION_TOKEN, Duration::from_millis(100));
     }
 
     fn received(&self, nc: Box<CKBProtocolContext>, peer: PeerIndex, data: &[u8]) {
@@ -598,8 +673,10 @@ where
                     }
                     _ => unreachable!(),
                 }
-            } else {
-                debug!(target: "sync", "no peers connected");
+                TIMEOUT_EVICTION_TOKEN => {
+                    self.eviction(nc.as_ref());
+                }
+                _ => unreachable!(),
             }
             future::ok(())
         }));
@@ -622,6 +699,7 @@ mod tests {
     use ckb_notify::{Event, Notify, MINER_SUBSCRIBER};
     use ckb_pow::DummyPowEngine;
     use ckb_protocol::{Block as FbsBlock, Headers as FbsHeaders};
+    use ckb_time::set_mock_timer;
     use core::block::BlockBuilder;
     use core::header::{Header, HeaderBuilder};
     use core::transaction::{CellInput, CellOutput, Transaction, TransactionBuilder};
@@ -629,11 +707,14 @@ mod tests {
     use crossbeam_channel::Receiver;
     use db::memorydb::MemoryKeyValueDB;
     use flatbuffers::FlatBufferBuilder;
+    use fnv::{FnvHashMap, FnvHashSet};
     use network::{
-        CKBProtocolContext, Error as NetworkError, PeerIndex, ProtocolId, SessionInfo, Severity,
-        TimerToken,
+        random_peer_id, CKBProtocolContext, Endpoint, Error as NetworkError, PeerIndex, PeerInfo,
+        ProtocolId, SessionInfo, Severity, TimerToken,
     };
+    use std::ops::Deref;
     use std::time::Duration;
+    use util::Mutex;
 
     fn dummy_pow_engine() -> Arc<dyn PowEngine> {
         Arc::new(DummyPowEngine::new())
@@ -895,7 +976,30 @@ mod tests {
     }
 
     #[derive(Clone)]
-    struct DummyNetworkContext {}
+    struct DummyNetworkContext {
+        pub sessions: FnvHashMap<PeerIndex, SessionInfo>,
+        pub disconnected: Arc<Mutex<FnvHashSet<PeerIndex>>>,
+    }
+
+    fn mock_session_info() -> SessionInfo {
+        SessionInfo {
+            peer: PeerInfo {
+                peer_id: random_peer_id().unwrap(),
+                endpoint_role: Endpoint::Dialer,
+                last_ping_time: None,
+                remote_addresses: vec![],
+                identify_info: None,
+            },
+            protocol_version: None,
+        }
+    }
+
+    fn mock_header_view(total_difficulty: u64) -> HeaderView {
+        HeaderView::new(
+            HeaderBuilder::default().build(),
+            U256::from(total_difficulty),
+        )
+    }
 
     impl CKBProtocolContext for DummyNetworkContext {
         /// Send a packet over the network to another peer.
@@ -912,29 +1016,41 @@ mod tests {
         ) -> Result<(), NetworkError> {
             Ok(())
         }
-
         /// Report peer. Depending on the report, peer may be disconnected and possibly banned.
-        fn report_peer(&self, _peer: PeerIndex, _reason: Severity) {}
+        fn report_peer(&self, peer: PeerIndex, _reason: Severity) {
+            self.disconnected.lock().insert(peer);
+        }
+
         fn ban_peer(&self, _peer: PeerIndex, _duration: Duration) {}
 
         /// Register a new IO timer. 'IoHandler::timeout' will be called with the token.
         fn register_timer(&self, _token: TimerToken, _delay: Duration) -> Result<(), NetworkError> {
-            Ok(())
+            unimplemented!();
         }
 
         /// Returns information on p2p session
-        fn session_info(&self, _peer: PeerIndex) -> Option<SessionInfo> {
-            None
+        fn session_info(&self, peer: PeerIndex) -> Option<SessionInfo> {
+            self.sessions.get(&peer).cloned()
         }
-
         /// Returns max version for a given protocol.
         fn protocol_version(&self, _peer: PeerIndex, _protocol: ProtocolId) -> Option<u8> {
-            None
+            unimplemented!();
         }
 
         fn disconnect(&self, _peer: PeerIndex) {}
         fn protocol_id(&self) -> ProtocolId {
-            [1, 1, 1]
+            unimplemented!();
+        }
+    }
+
+    fn mock_network_context(peer_num: usize) -> DummyNetworkContext {
+        let mut sessions = FnvHashMap::default();
+        for peer in 0..peer_num {
+            sessions.insert(peer, mock_session_info());
+        }
+        DummyNetworkContext {
+            sessions,
+            disconnected: Arc::new(Mutex::new(FnvHashSet::default())),
         }
     }
 
@@ -979,8 +1095,8 @@ mod tests {
         fbb.finish(fbs_headers, None);
         let fbs_headers = get_root::<FbsHeaders>(fbb.finished_data());
 
-        let peer = 0;
-        HeadersProcess::new(&fbs_headers, &synchronizer1, peer, &DummyNetworkContext {}).execute();
+        let peer = 1usize;
+        HeadersProcess::new(&fbs_headers, &synchronizer1, peer, &mock_network_context(0)).execute();
 
         let best_known_header = synchronizer1.peers.best_known_header(peer);
 
@@ -1024,7 +1140,7 @@ mod tests {
             fbb.finish(fbs_block, None);
             let fbs_block = get_root::<FbsBlock>(fbb.finished_data());
 
-            BlockProcess::new(&fbs_block, &synchronizer1, peer, &DummyNetworkContext {}).execute();
+            BlockProcess::new(&fbs_block, &synchronizer1, peer, &mock_network_context(0)).execute();
         }
 
         let mut iter = TryIter { inner: &rx };
@@ -1043,5 +1159,115 @@ mod tests {
             iter.next(),
             Some(Event::NewTip(Arc::new(fetched_blocks[7].clone())))
         );
+    }
+
+    #[test]
+    fn test_header_sync_timeout() {
+        use std::iter::FromIterator;
+
+        let config = Consensus::default();
+        let chain = Arc::new(gen_chain(&config, Notify::default()));
+        let synchronizer = Synchronizer::new(&chain, &dummy_pow_engine(), Config::default());
+        let network_context = mock_network_context(5);
+        set_mock_timer(MAX_TIP_AGE * 2);
+        assert!(synchronizer.is_initial_block_download());
+        let peers = synchronizer.peers();
+        // protect should not effect headers_timeout
+        peers.on_connected(0, 0, true);
+        peers.on_connected(1, 0, false);
+        peers.on_connected(2, MAX_TIP_AGE * 2, false);
+        synchronizer.eviction(&network_context);
+        let disconnected = network_context.disconnected.lock();
+        assert_eq!(
+            disconnected.deref(),
+            &FnvHashSet::from_iter(vec![0, 1].into_iter())
+        )
+    }
+    #[test]
+    fn test_chain_sync_timeout() {
+        use std::iter::FromIterator;
+
+        let consensus = Consensus::default();
+        let header = HeaderBuilder::default().difficulty(&U256::from(2)).build();
+        let block = BlockBuilder::default().header(header).build();
+        let consensus = consensus.set_genesis_block(block);
+
+        let chain = Arc::new(gen_chain(&consensus, Notify::default()));
+        assert_eq!(chain.tip_header().read().total_difficulty(), U256::from(2));
+        let synchronizer = Synchronizer::new(&chain, &dummy_pow_engine(), Config::default());
+        let network_context = mock_network_context(6);
+        let peers = synchronizer.peers();
+        //6 peers do not trigger header sync timeout
+        peers.on_connected(0, MAX_TIP_AGE * 2, true);
+        peers.on_connected(1, MAX_TIP_AGE * 2, true);
+        peers.on_connected(2, MAX_TIP_AGE * 2, true);
+        peers.on_connected(3, MAX_TIP_AGE * 2, false);
+        peers.on_connected(4, MAX_TIP_AGE * 2, false);
+        peers.on_connected(5, MAX_TIP_AGE * 2, false);
+        peers.new_header_received(0, &mock_header_view(1));
+        peers.new_header_received(2, &mock_header_view(3));
+        peers.new_header_received(3, &mock_header_view(1));
+        peers.new_header_received(5, &mock_header_view(3));
+        synchronizer.eviction(&network_context);
+        {
+            assert!({ network_context.disconnected.lock().is_empty() });
+            let peer_state = peers.state.read();
+            assert_eq!(peer_state.get(&0).unwrap().chain_sync.protect, true);
+            assert_eq!(peer_state.get(&1).unwrap().chain_sync.protect, true);
+            assert_eq!(peer_state.get(&2).unwrap().chain_sync.protect, true);
+            //protect peer is protected from disconnection
+            assert!(peer_state.get(&2).unwrap().chain_sync.work_header.is_none());
+            assert_eq!(peer_state.get(&3).unwrap().chain_sync.protect, false);
+            assert_eq!(peer_state.get(&4).unwrap().chain_sync.protect, false);
+            assert_eq!(peer_state.get(&5).unwrap().chain_sync.protect, false);
+            // Our best block known by this peer is behind our tip, and we're either noticing
+            // that for the first time, OR this peer was able to catch up to some earlier point
+            // where we checked against our tip.
+            // Either way, set a new timeout based on current tip.
+            let tip = { chain.tip_header().read().clone() };
+            assert_eq!(
+                peer_state.get(&3).unwrap().chain_sync.work_header,
+                Some(tip.clone())
+            );
+            assert_eq!(
+                peer_state.get(&4).unwrap().chain_sync.work_header,
+                Some(tip)
+            );
+            assert_eq!(
+                peer_state.get(&3).unwrap().chain_sync.timeout,
+                CHAIN_SYNC_TIMEOUT
+            );
+            assert_eq!(
+                peer_state.get(&4).unwrap().chain_sync.timeout,
+                CHAIN_SYNC_TIMEOUT
+            );
+        }
+        set_mock_timer(CHAIN_SYNC_TIMEOUT + 1);
+        synchronizer.eviction(&network_context);
+        {
+            let peer_state = peers.state.read();
+            // No evidence yet that our peer has synced to a chain with work equal to that
+            // of our tip, when we first detected it was behind. Send a single getheaders
+            // message to give the peer a chance to update us.
+            assert!({ network_context.disconnected.lock().is_empty() });
+            assert_eq!(
+                peer_state.get(&3).unwrap().chain_sync.timeout,
+                now_ms() + EVICTION_HEADERS_RESPONSE_TIME
+            );
+            assert_eq!(
+                peer_state.get(&4).unwrap().chain_sync.timeout,
+                now_ms() + EVICTION_HEADERS_RESPONSE_TIME
+            );
+        }
+        set_mock_timer(now_ms() + EVICTION_HEADERS_RESPONSE_TIME + 1);
+        synchronizer.eviction(&network_context);
+        {
+            // Peer(3,4) run out of time to catch up!
+            let disconnected = network_context.disconnected.lock();
+            assert_eq!(
+                disconnected.deref(),
+                &FnvHashSet::from_iter(vec![3, 4].into_iter())
+            )
+        }
     }
 }

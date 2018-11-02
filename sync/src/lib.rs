@@ -63,7 +63,7 @@ pub const POW_SPACE: u64 = 10_000; //10s
 // behind headers chain.
 pub const MAX_OUTBOUND_PEERS_TO_PROTECT_FROM_DISCONNECT: usize = 4;
 pub const CHAIN_SYNC_TIMEOUT: u64 = 20 * 60 * 1000; // 20 minutes
-pub const EVICTION_TEST_RESPONSE_TIME: u64 = 120 * 1000; // 2 minutes
+pub const EVICTION_HEADERS_RESPONSE_TIME: u64 = 120 * 1000; // 2 minutes
 
 #[derive(Debug, PartialEq, Clone, Eq)]
 pub enum AcceptBlockError {

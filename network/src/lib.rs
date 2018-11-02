@@ -32,13 +32,12 @@ mod timer_service;
 mod transport;
 
 pub use self::errors::{Error, ErrorKind};
-pub use self::network::Network;
-pub use self::network::SessionInfo;
+pub use self::network::{Network, PeerInfo, SessionInfo};
 pub use self::network_config::NetworkConfig;
 pub use self::network_service::NetworkService;
 pub use ckb_protocol::{CKBProtocol, CKBProtocols};
 pub use ckb_protocol_handler::{CKBProtocolContext, CKBProtocolHandler, Severity};
-pub use libp2p::{multiaddr::AddrComponent, Multiaddr, PeerId};
+pub use libp2p::{core::Endpoint, multiaddr::AddrComponent, Multiaddr, PeerId};
 
 pub type TimerToken = usize;
 pub type ProtocolId = [u8; 3];

@@ -15,6 +15,7 @@ use protocol_service::ProtocolService;
 use std::boxed::Box;
 use std::io::{Error as IoError, ErrorKind as IoErrorKind};
 use std::sync::Arc;
+use tokio;
 
 pub struct CKBService {
     // used to update kbuckets
@@ -73,14 +74,17 @@ impl CKBService {
                 move |data| {
                     // update kad_system when we received data
                     kad_system.update_kbuckets(peer_id.clone());
-                    protocol_handler.received(
-                        Box::new(DefaultCKBProtocolContext::new(
-                            Arc::clone(&network),
-                            protocol_id,
-                        )),
-                        peer_index,
-                        &data,
-                    );
+                    let protocol_handler = Arc::clone(&protocol_handler);
+                    let network = Arc::clone(&network);
+                    let handle_received = future::lazy(move || {
+                        protocol_handler.received(
+                            Box::new(DefaultCKBProtocolContext::new(network, protocol_id)),
+                            peer_index,
+                            &data,
+                        );
+                        Ok(())
+                    });
+                    tokio::spawn(handle_received);
                     Ok(())
                 }
             });
