@@ -1,6 +1,6 @@
 use ckb_pow::{DummyPowEngine, PowEngine};
 use network::{
-    CKBProtocolContext, CKBProtocolHandler, Error as NetworkError, PeerIndex, ProtocolId,
+    Error as NetworkError, NetworkContext, NetworkProtocolHandler, PacketId, PeerId, ProtocolId,
     SessionInfo, Severity, TimerToken,
 };
 use std::collections::HashMap;
@@ -14,10 +14,10 @@ mod synchronizer;
 
 #[derive(Default)]
 struct TestNode {
-    pub peers: Vec<PeerIndex>,
-    pub protocols: HashMap<ProtocolId, Arc<CKBProtocolHandler + Send + Sync>>,
-    pub msg_senders: HashMap<(ProtocolId, PeerIndex), Sender<Vec<u8>>>,
-    pub msg_receivers: HashMap<(ProtocolId, PeerIndex), Receiver<Vec<u8>>>,
+    pub peers: Vec<PeerId>,
+    pub protocols: HashMap<ProtocolId, Arc<NetworkProtocolHandler + Send + Sync>>,
+    pub msg_senders: HashMap<(ProtocolId, PeerId), Sender<Vec<u8>>>,
+    pub msg_receivers: HashMap<(ProtocolId, PeerId), Receiver<Vec<u8>>>,
     pub timer_senders: HashMap<(ProtocolId, TimerToken), Sender<()>>,
     pub timer_receivers: HashMap<(ProtocolId, TimerToken), Receiver<()>>,
 }
@@ -26,7 +26,7 @@ impl TestNode {
     pub fn add_protocol(
         &mut self,
         protocol: ProtocolId,
-        handler: Arc<CKBProtocolHandler + Send + Sync>,
+        handler: Arc<NetworkProtocolHandler + Send + Sync>,
         timers: Vec<TimerToken>,
     ) {
         self.protocols.insert(protocol, Arc::clone(&handler));
@@ -39,6 +39,7 @@ impl TestNode {
 
         handler.initialize(Box::new(TestNetworkContext {
             protocol,
+            current_peer: None,
             msg_senders: self.msg_senders.clone(),
             timer_senders: self.timer_senders.clone(),
         }))
@@ -68,10 +69,11 @@ impl TestNode {
             handler.connected(
                 Box::new(TestNetworkContext {
                     protocol,
+                    current_peer: Some(local_index),
                     msg_senders: self.msg_senders.clone(),
                     timer_senders: self.timer_senders.clone(),
                 }),
-                local_index,
+                &local_index,
             )
         }
     }
@@ -81,13 +83,15 @@ impl TestNode {
             for ((protocol, peer), receiver) in &self.msg_receivers {
                 let _ = receiver.try_recv().map(|payload| {
                     if let Some(handler) = self.protocols.get(protocol) {
-                        handler.received(
+                        handler.read(
                             Box::new(TestNetworkContext {
                                 protocol: *protocol,
+                                current_peer: Some(*peer),
                                 msg_senders: self.msg_senders.clone(),
                                 timer_senders: self.timer_senders.clone(),
                             }),
-                            *peer,
+                            &peer,
+                            0,
                             &payload,
                         )
                     };
@@ -101,9 +105,10 @@ impl TestNode {
             for ((protocol, timer), receiver) in &self.timer_receivers {
                 let _ = receiver.try_recv().map(|_| {
                     if let Some(handler) = self.protocols.get(protocol) {
-                        handler.timer_triggered(
+                        handler.timeout(
                             Box::new(TestNetworkContext {
                                 protocol: *protocol,
+                                current_peer: None,
                                 msg_senders: self.msg_senders.clone(),
                                 timer_senders: self.timer_senders.clone(),
                             }),
@@ -128,28 +133,37 @@ impl TestNode {
 
 struct TestNetworkContext {
     protocol: ProtocolId,
-    msg_senders: HashMap<(ProtocolId, PeerIndex), Sender<Vec<u8>>>,
+    current_peer: Option<PeerId>,
+    msg_senders: HashMap<(ProtocolId, PeerId), Sender<Vec<u8>>>,
     timer_senders: HashMap<(ProtocolId, TimerToken), Sender<()>>,
 }
 
-impl CKBProtocolContext for TestNetworkContext {
-    fn send(&self, peer: PeerIndex, data: Vec<u8>) -> Result<(), NetworkError> {
+impl NetworkContext for TestNetworkContext {
+    fn send(&self, peer: PeerId, _packet_id: PacketId, data: Vec<u8>) {
         if let Some(sender) = self.msg_senders.get(&(self.protocol, peer)) {
             let _ = sender.send(data);
         }
-        Ok(())
     }
+
     /// Send a packet over the network to another peer using specified protocol.
     fn send_protocol(
         &self,
-        _peer: PeerIndex,
         _protocol: ProtocolId,
+        _peer: PeerId,
+        _packet_id: PacketId,
         _data: Vec<u8>,
-    ) -> Result<(), NetworkError> {
-        Ok(())
+    ) {
     }
 
-    fn report_peer(&self, _peer: PeerIndex, _reason: Severity) {}
+    fn respond(&self, packet_id: PacketId, data: Vec<u8>) {
+        self.send(self.current_peer.unwrap(), packet_id, data)
+    }
+
+    fn report_peer(&self, _peer: PeerId, _reason: Severity) {}
+
+    fn is_expired(&self) -> bool {
+        false
+    }
 
     fn register_timer(&self, token: TimerToken, delay: Duration) -> Result<(), NetworkError> {
         if let Some(sender) = self.timer_senders.get(&(self.protocol, token)) {
@@ -162,20 +176,20 @@ impl CKBProtocolContext for TestNetworkContext {
         Ok(())
     }
 
-    fn ban_peer(&self, _peer: PeerIndex, _duration: Duration) {}
+    fn peer_client_version(&self, _peer: PeerId) -> String {
+        "unknown".to_string()
+    }
 
-    /// Returns information on p2p session
-    fn session_info(&self, _peer: PeerIndex) -> Option<SessionInfo> {
+    fn session_info(&self, _peer: PeerId) -> Option<SessionInfo> {
         None
     }
-    /// Returns max version for a given protocol.
-    fn protocol_version(&self, _peer: PeerIndex, _protocol: ProtocolId) -> Option<u8> {
-        unimplemented!();
+
+    fn protocol_version(&self, _protocol: ProtocolId, _peer: PeerId) -> Option<u8> {
+        None
     }
 
-    fn disconnect(&self, _peer: PeerIndex) {}
-    fn protocol_id(&self) -> ProtocolId {
-        unimplemented!();
+    fn subprotocol_name(&self) -> ProtocolId {
+        [1, 1, 1]
     }
 }
 

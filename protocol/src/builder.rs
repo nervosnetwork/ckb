@@ -336,10 +336,14 @@ impl<'a> CompactBlock<'a> {
         prefilled_transactions_indexes: &HashSet<usize>,
     ) -> WIPOffset<CompactBlock<'b>> {
         let nonce: u64 = thread_rng().gen();
-
+        // always prefill cellbase
         let prefilled_transactions_len = prefilled_transactions_indexes.len() + 1;
-        let mut short_ids: Vec<_> =
-            Vec::with_capacity(block.commit_transactions().len() - prefilled_transactions_len);
+        let mut short_ids: Vec<_> = Vec::with_capacity(
+            block
+                .commit_transactions()
+                .len()
+                .saturating_sub(prefilled_transactions_len),
+        );
         let mut prefilled_transactions = Vec::with_capacity(prefilled_transactions_len);
 
         let (key0, key1) = short_transaction_id_keys(block.header().nonce(), nonce);
@@ -506,6 +510,7 @@ mod tests {
     use super::*;
     use ckb_core::block::BlockBuilder;
     use ckb_core::header::HeaderBuilder;
+    use ckb_core::transaction::TransactionBuilder;
     use flatbuffers::get_root;
 
     #[test]
@@ -530,5 +535,22 @@ mod tests {
 
         let fbs_block = get_root::<FbsBlock>(builder.finished_data());
         assert_eq!(block, fbs_block.into());
+    }
+
+    #[test]
+    fn build_compcat_block_prefilled_transactions_indexes_overflow() {
+        let block = BlockBuilder::default()
+            .header(HeaderBuilder::default().build())
+            .commit_transaction(TransactionBuilder::default().build())
+            .build();
+        let builder = &mut FlatBufferBuilder::new();
+        let mut prefilled_transactions_indexes = HashSet::new();
+        prefilled_transactions_indexes.insert(0);
+        prefilled_transactions_indexes.insert(2);
+        let b = CompactBlock::build(builder, &block, &prefilled_transactions_indexes);
+        builder.finish(b, None);
+
+        let fbs_compact_block = get_root::<CompactBlock>(builder.finished_data());
+        assert_eq!(1, fbs_compact_block.prefilled_transactions().unwrap().len());
     }
 }

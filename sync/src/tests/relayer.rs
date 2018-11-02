@@ -19,7 +19,7 @@ use std::fs::File;
 use std::io::Read;
 use std::sync::mpsc::channel;
 use std::sync::{Arc, Barrier};
-use std::thread;
+use std::{thread, time};
 use tests::{dummy_pow_engine, TestNode};
 use {Relayer, RELAY_PROTOCOL_ID};
 
@@ -27,12 +27,10 @@ use {Relayer, RELAY_PROTOCOL_ID};
 fn relay_compact_block_with_one_tx() {
     let (mut node1, chain1) = setup_node(3);
     let (mut node2, chain2) = setup_node(3);
-    let barrier = Arc::new(Barrier::new(2));
 
     node1.connect(&mut node2, RELAY_PROTOCOL_ID);
 
     let (signal_tx1, _) = channel();
-    let barrier1 = Arc::clone(&barrier);
     thread::spawn(move || {
         let last_block = chain1.block(&chain1.tip_header().read().hash()).unwrap();
         let last_cellbase = last_block.commit_transactions().first().unwrap();
@@ -123,10 +121,8 @@ fn relay_compact_block_with_one_tx() {
         }
 
         node1.start(signal_tx1, |_| false);
-        barrier1.wait();
     });
 
-    let barrier2 = Arc::clone(&barrier);
     let (signal_tx2, signal_rx2) = channel();
     thread::spawn(move || {
         node2.start(signal_tx2, |data| {
@@ -136,11 +132,14 @@ fn relay_compact_block_with_one_tx() {
                 .map(|block| block.header().unwrap().number() == 5)
                 .unwrap_or(false)
         });
-        barrier2.wait();
     });
 
     // Wait node2 receive transaction and block from node1
     let _ = signal_rx2.recv();
+
+    // workaround for the delay of notification btween chain and pool
+    // find a solution to remove this line after pool refactoring
+    thread::sleep(time::Duration::from_secs(2));
 
     assert_eq!(chain2.tip_header().read().number(), 5);
 }

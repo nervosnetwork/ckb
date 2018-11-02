@@ -20,8 +20,6 @@ extern crate ckb_util as util;
 extern crate ckb_verification;
 #[macro_use]
 extern crate bitflags;
-extern crate futures;
-extern crate tokio;
 #[macro_use]
 extern crate serde_derive;
 #[cfg(test)]
@@ -34,6 +32,8 @@ extern crate crossbeam_channel;
 mod config;
 mod relayer;
 mod synchronizer;
+#[cfg(test)]
+mod tests;
 
 pub use config::Config;
 pub use relayer::Relayer;

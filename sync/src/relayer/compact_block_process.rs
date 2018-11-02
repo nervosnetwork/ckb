@@ -33,7 +33,7 @@ where
     pub fn execute(self) {
         let compact_block: CompactBlock = (*self.message).into();
 
-        if !self
+        if self
             .relayer
             .state
             .received_blocks

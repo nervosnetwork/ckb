@@ -30,7 +30,6 @@ extern crate tempfile;
 pub mod cachedb;
 pub mod chain;
 pub mod consensus;
-// mod config;
 pub mod error;
 mod flat_serializer;
 pub mod index;

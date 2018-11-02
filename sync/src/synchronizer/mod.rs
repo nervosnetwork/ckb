@@ -25,14 +25,13 @@ use config::Config;
 use core::block::Block;
 use core::header::{BlockNumber, Header};
 use flatbuffers::{get_root, FlatBufferBuilder};
-use network::{CKBProtocolContext, CKBProtocolHandler, PeerIndex, Severity, TimerToken};
+use network::PeerIndex;
 use std::cmp;
 use std::collections::HashMap;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio;
 use util::{RwLock, RwLockUpgradableReadGuard};
 use AcceptBlockError;
 use {
@@ -624,62 +623,38 @@ where
     }
 
     fn received(&self, nc: Box<CKBProtocolContext>, peer: PeerIndex, data: &[u8]) {
-        let data = data.to_owned();
-        let synchronizer = self.clone();
-        let peer = peer;
-        tokio::spawn(lazy(move || {
-            // TODO use flatbuffers verifier
-            let msg = get_root::<SyncMessage>(&data);
-            debug!(target: "sync", "msg {:?}", msg.payload_type());
-            synchronizer.process(nc.as_ref(), peer, msg);
-            future::ok(())
-        }));
+        // TODO use flatbuffers verifier
+        let msg = get_root::<SyncMessage>(&data);
+        debug!(target: "sync", "msg {:?}", msg.payload_type());
+        self.process(nc.as_ref(), peer, msg);
     }
 
     fn connected(&self, nc: Box<CKBProtocolContext>, peer: PeerIndex) {
-        let synchronizer = self.clone();
-        let peer = peer;
-        tokio::spawn(lazy(move || {
-            if synchronizer.n_sync.load(Ordering::Acquire) == 0
-                || !synchronizer.is_initial_block_download()
-            {
-                debug!(target: "sync", "init_getheaders peer={} connected", peer);
-                synchronizer.on_connected(nc.as_ref(), peer);
-            }
-            future::ok(())
-        }));
+        if self.n_sync.load(Ordering::Acquire) == 0 || !self.is_initial_block_download() {
+            debug!(target: "sync", "init_getheaders peer={:?} connected", peer);
+            self.on_connected(nc.as_ref(), peer);
+        }
     }
 
     fn disconnected(&self, _nc: Box<CKBProtocolContext>, peer: PeerIndex) {
-        let synchronizer = self.clone();
-        let peer = peer;
-        tokio::spawn(lazy(move || {
-            info!(target: "sync", "peer={} SyncProtocol.disconnected", peer);
-            synchronizer.peers.disconnected(peer);
-            future::ok(())
-        }));
+        info!(target: "sync", "peer={} SyncProtocol.disconnected", peer);
+        self.peers.disconnected(peer);
     }
 
     fn timer_triggered(&self, nc: Box<CKBProtocolContext>, token: TimerToken) {
-        let synchronizer = self.clone();
-        tokio::spawn(lazy(move || {
-            if !synchronizer.peers.state.read().is_empty() {
-                match token as usize {
-                    SEND_GET_HEADERS_TOKEN => {
-                        synchronizer.send_getheaders_to_all(nc.as_ref());
-                    }
-                    BLOCK_FETCH_TOKEN => {
-                        synchronizer.find_blocks_to_fetch(nc.as_ref());
-                    }
-                    _ => unreachable!(),
+        if !self.peers.state.read().is_empty() {
+            match token as usize {
+                SEND_GET_HEADERS_TOKEN => {
+                    self.send_getheaders_to_all(nc.as_ref());
                 }
-                TIMEOUT_EVICTION_TOKEN => {
-                    self.eviction(nc.as_ref());
+                BLOCK_FETCH_TOKEN => {
+                    self.find_blocks_to_fetch(nc.as_ref());
                 }
                 _ => unreachable!(),
             }
-            future::ok(())
-        }));
+        } else {
+            debug!(target: "sync", "no peers connected");
+        }
     }
 }
 

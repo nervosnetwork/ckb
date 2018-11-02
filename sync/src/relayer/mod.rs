@@ -24,13 +24,10 @@ use core::block::{Block, BlockBuilder};
 use core::transaction::{ProposalShortId, Transaction};
 use flatbuffers::{get_root, FlatBufferBuilder};
 use fnv::{FnvHashMap, FnvHashSet};
-use futures::future;
-use futures::future::lazy;
 use network::{CKBProtocolContext, CKBProtocolHandler, PeerIndex, TimerToken};
 use pool::txs_pool::TransactionPool;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio;
 use util::Mutex;
 use AcceptBlockError;
 
@@ -161,12 +158,29 @@ where
             txs_map.insert(short_id, tx);
         }
 
-        let mut block_transactions = Vec::with_capacity(compact_block.short_ids.len());
+        let short_ids_iter = &mut compact_block.short_ids.iter();
+        let mut block_transactions = Vec::with_capacity(
+            compact_block.prefilled_transactions.len() + compact_block.short_ids.len(),
+        );
+
+        // fill transactions gap
+        compact_block.prefilled_transactions.iter().for_each(|pt| {
+            let gap = pt.index - block_transactions.len();
+            if gap > 0 {
+                short_ids_iter
+                    .take(gap)
+                    .for_each(|short_id| block_transactions.push(txs_map.remove(short_id)));
+            }
+            block_transactions.push(Some(pt.transaction.clone()));
+        });
+
+        // append remain transactions
+        short_ids_iter.for_each(|short_id| block_transactions.push(txs_map.remove(short_id)));
+
         let mut missing_indexes = Vec::new();
-        for (index, short_id) in compact_block.short_ids.iter().enumerate() {
-            match txs_map.remove(short_id) {
-                Some(tx) => block_transactions.insert(index, tx),
-                None => missing_indexes.push(index),
+        for (i, t) in block_transactions.iter().enumerate() {
+            if t.is_none() {
+                missing_indexes.push(i);
             }
         }
 
@@ -174,7 +188,7 @@ where
             let block = BlockBuilder::default()
                 .header(compact_block.header.clone())
                 .uncles(compact_block.uncles.clone())
-                .commit_transactions(block_transactions)
+                .commit_transactions(block_transactions.into_iter().map(|t| t.unwrap()).collect())
                 .proposal_transactions(compact_block.proposal_transactions.clone())
                 .build();
 
@@ -229,15 +243,10 @@ where
     }
 
     fn received(&self, nc: Box<CKBProtocolContext>, peer: PeerIndex, data: &[u8]) {
-        let data = data.to_owned();
-        let relayer = self.clone();
-        tokio::spawn(lazy(move || {
-            // TODO use flatbuffers verifier
-            let msg = get_root::<RelayMessage>(&data);
-            debug!(target: "relay", "msg {:?}", msg.payload_type());
-            relayer.process(nc.as_ref(), peer, msg);
-            future::ok(())
-        }));
+        // TODO use flatbuffers verifier
+        let msg = get_root::<RelayMessage>(data);
+        debug!(target: "relay", "msg {:?}", msg.payload_type());
+        self.process(nc.as_ref(), peer, msg);
     }
 
     fn connected(&self, _nc: Box<CKBProtocolContext>, peer: PeerIndex) {
@@ -251,14 +260,10 @@ where
     }
 
     fn timer_triggered(&self, nc: Box<CKBProtocolContext>, token: TimerToken) {
-        let relayer = self.clone();
-        tokio::spawn(lazy(move || {
-            match token as usize {
-                TX_PROPOSAL_TOKEN => relayer.prune_tx_proposal_request(nc.as_ref()),
-                _ => unreachable!(),
-            }
-            future::ok(())
-        }));
+        match token as usize {
+            TX_PROPOSAL_TOKEN => self.prune_tx_proposal_request(nc.as_ref()),
+            _ => unreachable!(),
+        }
     }
 }
 
