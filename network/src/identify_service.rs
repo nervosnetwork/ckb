@@ -47,6 +47,7 @@ impl IdentifyService {
                         client_version: info.agent_version.clone(),
                         protocol_version: info.protocol_version.clone(),
                         supported_protocols: info.protocols.clone(),
+                        count_of_known_listen_addrs: info.listen_addrs.len(),
                     })
                 }
                 None => error!(
@@ -193,6 +194,11 @@ where
             move |_| {
                 let peers_registry = network.peers_registry().read();
                 for (peer_id, peer) in peers_registry.peers_iter() {
+                    if let Some(ref identify_info) = peer.identify_info {
+                        if identify_info.count_of_known_listen_addrs > 0 {
+                            continue;
+                        }
+                    }
                     trace!(
                         "request identify to peer {:?} {:?}",
                         peer_id,
