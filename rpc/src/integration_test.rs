@@ -2,7 +2,7 @@ use bigint::H256;
 use chain::chain::ChainProvider;
 use ckb_pow::Clicker;
 use core::header::{BlockNumber, Header};
-use core::transaction::{CellOutput, Transaction};
+use core::transaction::{OutPoint, Transaction};
 use jsonrpc_core::{Error, IoHandler, Result};
 use jsonrpc_http_server::ServerBuilder;
 use jsonrpc_server_utils::cors::AccessControlAllowOrigin;
@@ -11,7 +11,7 @@ use miner::{build_block_template, BlockTemplate};
 use network::NetworkService;
 use pool::TransactionPool;
 use std::sync::Arc;
-use {BlockWithHash, Config, TransactionWithHash};
+use {BlockWithHash, CellOutputWithOutPoint, Config, TransactionWithHash};
 
 //TODO: build_rpc_trait! do not surppot trait bounds
 build_rpc_trait! {
@@ -46,7 +46,7 @@ build_rpc_trait! {
 
         // curl -d '{"id": 2, "jsonrpc": "2.0", "method":"get_cells_by_redeem_script_hash","params": ["0x1b1c832d02fdb4339f9868c8a8636c3d9dd10bd53ac7ce99595825bd6beeffb3", 1, 10]}' -H 'content-type:application/json' 'http://localhost:3030'
         #[rpc(name = "get_cells_by_redeem_script_hash")]
-        fn get_cells_by_redeem_script_hash(&self, H256, u64, u64) -> Result<Vec<CellOutput>>;
+        fn get_cells_by_redeem_script_hash(&self, H256, u64, u64) -> Result<Vec<CellOutputWithOutPoint>>;
 
         #[rpc(name = "local_node_id")]
         fn local_node_id(&self) -> Result<Option<String>>;
@@ -108,7 +108,7 @@ impl<C: ChainProvider + 'static> IntegrationTestRpc for RpcImpl<C> {
         redeem_script_hash: H256,
         from: u64,
         to: u64,
-    ) -> Result<Vec<CellOutput>> {
+    ) -> Result<Vec<CellOutputWithOutPoint>> {
         let mut result = Vec::new();
         for block_number in from..=to {
             if let Some(block_hash) = self.chain.block_hash(block_number) {
@@ -123,7 +123,11 @@ impl<C: ChainProvider + 'static> IntegrationTestRpc for RpcImpl<C> {
                         .ok_or_else(Error::internal_error)?;
                     for (i, output) in transaction.outputs().iter().enumerate() {
                         if output.lock == redeem_script_hash && (!transaction_meta.is_spent(i)) {
-                            result.push(output.clone());
+                            result.push(CellOutputWithOutPoint {
+                                outpoint: OutPoint::new(transaction.hash(), i as u32),
+                                capacity: output.capacity,
+                                lock: output.lock,
+                            });
                         }
                     }
                 }

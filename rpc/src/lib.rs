@@ -19,7 +19,7 @@ extern crate ckb_pow;
 use bigint::H256;
 use core::block::Block;
 use core::header::Header;
-use core::transaction::Transaction;
+use core::transaction::{Capacity, OutPoint, Transaction};
 
 #[cfg(feature = "integration_test")]
 mod integration_test;
@@ -65,6 +65,16 @@ impl From<Block> for BlockWithHash {
             hash: block.header().hash(),
         }
     }
+}
+
+// This is used as return value of get_cells_by_redeem_script_hash RPC:
+// it contains both OutPoint data used for referencing a cell, as well as
+// cell's own data such as lock and capacity
+#[derive(Serialize)]
+pub struct CellOutputWithOutPoint {
+    pub outpoint: OutPoint,
+    pub capacity: Capacity,
+    pub lock: H256,
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
