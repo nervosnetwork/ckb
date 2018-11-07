@@ -10,7 +10,7 @@ bincode = "1.0"
 rand = "0.5.0"
 ckb-core = { path = "../core" }
 ckb-chain = { path = "../chain" }
-bigint = { git = "https://github.com/NervosFoundation/bigint" }
+bigint = { git = "https://github.com/nervosnetwork/bigint" }
 ckb-util = { path = "../util" }
 ckb-time = { path = "../util/time" }
 log = "0.4"
@@ -18,8 +18,8 @@ fnv = "1.0.3"
 ckb-notify = { path = "../notify" }
 ckb-verification = { path = "../verification" }
 crossbeam-channel = "0.2"
-lru-cache = { git = "https://github.com/NervosFoundation/lru-cache" }
-linked-hash-map = { git = "https://github.com/NervosFoundation/linked-hash-map", rev = "df27f21" }
+lru-cache = { git = "https://github.com/nervosnetwork/lru-cache" }
+linked-hash-map = { git = "https://github.com/nervosnetwork/linked-hash-map", rev = "df27f21" }
 
 [dev-dependencies]
 env_logger = "0.4"

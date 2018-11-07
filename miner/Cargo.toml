@@ -5,7 +5,7 @@ authors = ["Nervos Core Dev <dev@nervos.org>"]
 
 [dependencies]
 log = "0.4"
-bigint = { git = "https://github.com/NervosFoundation/bigint" }
+bigint = { git = "https://github.com/nervosnetwork/bigint" }
 ckb-time = { path = "../util/time" }
 ckb-core = { path = "../core" }
 ckb-pool = { path = "../pool" }

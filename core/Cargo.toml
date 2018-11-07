@@ -7,7 +7,7 @@ authors = ["Nervos Core Dev <dev@nervos.org>"]
 serde = "1.0"
 serde_derive = "1.0"
 bincode = "1.0"
-bigint = { git = "https://github.com/NervosFoundation/bigint" }
+bigint = { git = "https://github.com/nervosnetwork/bigint" }
 byteorder = "1"
 hash = {path = "../util/hash"}
 crypto = {path = "../util/crypto"}

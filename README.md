@@ -2,7 +2,7 @@
 
 # [Nervos CKB](http://nervos.org) - The Common Knowledge Base
 
-[![TravisCI](https://travis-ci.com/NervosFoundation/ckb.svg?token=y9uR6ygmT3geQaMJ4jpJ&branch=develop)](https://travis-ci.com/NervosFoundation/ckb)
+[![TravisCI](https://travis-ci.com/nervosnetwork/ckb.svg?token=y9uR6ygmT3geQaMJ4jpJ&branch=develop)](https://travis-ci.com/nervosnetwork/ckb)
 
 ---
 
@@ -56,7 +56,7 @@ brew install autoconf libtool
 
 ```bash
 # download Nervos
-$ git clone https://github.com/NervosFoundation/ckb.git
+$ git clone https://github.com/nervosnetwork/ckb.git
 $ cd ckb
 
 # build in release mode

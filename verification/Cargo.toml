@@ -10,7 +10,7 @@ ckb-time = { path = "../util/time" }
 ckb-chain = { path = "../chain" }
 ckb-util = { path = "../util" }
 ckb-script = { path = "../script" }
-bigint = { git = "https://github.com/NervosFoundation/bigint" }
+bigint = { git = "https://github.com/nervosnetwork/bigint" }
 merkle-root = {path = "../util/merkle-root"}
 rayon = "1.0"
 fnv = "1.0.3"

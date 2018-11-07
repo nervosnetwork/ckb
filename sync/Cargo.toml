@@ -6,7 +6,7 @@ authors = ["Nervos Core Dev <dev@nervos.org>"]
 [dependencies]
 ckb-chain = { path = "../chain" }
 ckb-core = { path = "../core" }
-bigint = { git = "https://github.com/NervosFoundation/bigint" }
+bigint = { git = "https://github.com/nervosnetwork/bigint" }
 multiaddr = "0.3"
 ckb-network = { path = "../network" }
 log = "0.4"

@@ -12,8 +12,8 @@ ckb-core = { path = "../core" }
 ckb-util = { path = "../util" }
 ckb-db = { path = "../db" }
 avl-merkle = { path = "../util/avl" }
-bigint = { git = "https://github.com/NervosFoundation/bigint" }
-lru-cache = { git = "https://github.com/NervosFoundation/lru-cache" }
+bigint = { git = "https://github.com/nervosnetwork/bigint" }
+lru-cache = { git = "https://github.com/nervosnetwork/lru-cache" }
 fnv = "1.0.3"
 ckb-time = { path = "../util/time" }
 ckb-notify = { path = "../notify" }

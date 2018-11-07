@@ -23,7 +23,7 @@ ckb-rpc = { path = "rpc"}
 ckb-time = { path = "util/time"}
 ckb-script= { path = "script"}
 logger = { path = "util/logger" }
-bigint = { git = "https://github.com/NervosFoundation/bigint" }
+bigint = { git = "https://github.com/nervosnetwork/bigint" }
 dir = { path = "util/dir" }
 ctrlc = { version = "3.1", features = ["termination"] }
 lazy_static = "1.0"

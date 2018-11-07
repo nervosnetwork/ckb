@@ -17,5 +17,5 @@ ckb-protocol = { path = "../protocol" }
 
 
 [dev-dependencies]
-bigint = { git = "https://github.com/NervosFoundation/bigint" }
+bigint = { git = "https://github.com/nervosnetwork/bigint" }
 proptest = "0.8"
