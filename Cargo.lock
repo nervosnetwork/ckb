@@ -245,6 +245,10 @@ version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
+name = "build-info"
+version = "0.1.0"
+
+[[package]]
 name = "byte-tools"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -328,6 +332,7 @@ name = "ckb"
 version = "0.1.0"
 dependencies = [
  "bigint 0.2.3 (git+https://github.com/nervosnetwork/bigint)",
+ "build-info 0.1.0",
  "ckb-chain 0.1.0",
  "ckb-chain-spec 0.1.0",
  "ckb-core 0.1.0",

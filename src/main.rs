@@ -20,6 +20,8 @@ extern crate hash;
 extern crate logger;
 #[macro_use]
 extern crate serde_derive;
+#[macro_use]
+extern crate build_info;
 extern crate ckb_instrument;
 extern crate ckb_pow;
 extern crate config as config_tool;
@@ -36,13 +38,18 @@ mod setup;
 use setup::Setup;
 pub const DEFAULT_CONFIG_FILENAME: &str = "config.toml";
 pub const DEFAULT_CONFIG: &str = include_str!("config/default.toml");
+use build_info::Version;
 
 fn main() {
     // Always print backtrace on panic.
     ::std::env::set_var("RUST_BACKTRACE", "full");
 
     let yaml = load_yaml!("cli/app.yml");
-    let matches = clap::App::from_yaml(yaml).get_matches();
+    let version = get_version!();
+    let matches = clap::App::from_yaml(yaml)
+        .version(version.short().as_str())
+        .long_version(version.long().as_str())
+        .get_matches();
 
     match matches.subcommand() {
         ("cli", Some(client_matches)) => match client_matches.subcommand() {

@@ -2,6 +2,7 @@
 name = "ckb"
 version = "0.1.0"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
+build = "build.rs"
 
 [dependencies]
 clap = { version = "2", features = ["yaml"] }
@@ -34,12 +35,16 @@ crypto = { path = "util/crypto"}
 ckb-instrument = { path = "util/instrument", features = ["progress_bar"] }
 hash = { path = "util/hash"}
 faster-hex = "0.1"
+build-info = { path = "util/build-info" }
 
 [features]
 integration_test = ["ckb-rpc/integration_test"]
 
 [dev-dependencies]
 tempfile = "3.0"
+
+[build-dependencies]
+build-info = { path = "util/build-info" }
 
 [workspace]
 members = [
@@ -50,6 +55,7 @@ members = [
     "util/crypto",
     "util/dir",
     "util/instrument",
+    "util/build-info",
     "network",
     "protocol",
     "sync",
