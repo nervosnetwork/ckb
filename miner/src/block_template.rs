@@ -21,7 +21,7 @@ pub struct BlockTemplate {
 pub fn build_block_template<C: ChainProvider + 'static>(
     chain: &Arc<C>,
     tx_pool: &Arc<TransactionPool<C>>,
-    redeem_script_hash: H256,
+    type_hash: H256,
     max_tx: usize,
     max_prop: usize,
 ) -> Result<BlockTemplate, Error> {
@@ -29,8 +29,7 @@ pub fn build_block_template<C: ChainProvider + 'static>(
     let now = cmp::max(now_ms(), header.timestamp() + 1);
     let difficulty = chain.calculate_difficulty(&header).expect("get difficulty");
     let commit_transactions = tx_pool.get_mineable_transactions(max_tx);
-    let cellbase =
-        create_cellbase_transaction(&chain, &header, &commit_transactions, redeem_script_hash)?;
+    let cellbase = create_cellbase_transaction(&chain, &header, &commit_transactions, type_hash)?;
 
     let header_builder = HeaderBuilder::default()
         .parent_hash(&header.hash())
@@ -58,7 +57,7 @@ fn create_cellbase_transaction<C: ChainProvider + 'static>(
     chain: &Arc<C>,
     header: &Header,
     transactions: &[Transaction],
-    redeem_script_hash: H256,
+    type_hash: H256,
 ) -> Result<Transaction, Error> {
     // NOTE: To generate different cellbase txid, we put header number in the input script
     let input = CellInput::new_cellbase_input(header.number() + 1);
@@ -72,7 +71,7 @@ fn create_cellbase_transaction<C: ChainProvider + 'static>(
         fee += chain.calculate_transaction_fee(transaction)?;
     }
 
-    let output = CellOutput::new(block_reward + fee, Vec::new(), redeem_script_hash);
+    let output = CellOutput::new(block_reward + fee, Vec::new(), type_hash, None);
 
     Ok(TransactionBuilder::default()
         .input(input)

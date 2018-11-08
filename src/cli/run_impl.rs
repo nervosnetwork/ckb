@@ -149,7 +149,9 @@ fn setup_rpc<C: ChainProvider + 'static>(
 
 pub fn sign(setup: &Setup, matches: &ArgMatches) {
     let consensus = setup.chain_spec.to_consensus().unwrap();
-    let system_cell_tx_hash = consensus.genesis_block().commit_transactions()[0].hash();
+    let system_cell_tx = &consensus.genesis_block().commit_transactions()[0];
+    let system_cell_data_hash = system_cell_tx.outputs()[0].data_hash();
+    let system_cell_tx_hash = system_cell_tx.hash();
     let system_cell_outpoint = OutPoint::new(system_cell_tx_hash, 0);
 
     let privkey: Privkey = value_t!(matches.value_of("private-key"), H256)
@@ -162,7 +164,7 @@ pub fn sign(setup: &Setup, matches: &ArgMatches) {
     let mut inputs = Vec::new();
     for unsigned_input in transaction.inputs() {
         let mut bytes = vec![];
-        for argument in &unsigned_input.unlock.arguments {
+        for argument in &unsigned_input.unlock.args {
             bytes.write_all(argument).unwrap();
         }
         let hash1 = sha3_256(&bytes);
@@ -172,16 +174,16 @@ pub fn sign(setup: &Setup, matches: &ArgMatches) {
         let mut hex_signature = vec![0; signature_der.len() * 2];
         hex_to(&signature_der, &mut hex_signature).expect("hex signature");
 
-        let mut new_arguments = vec![hex_signature];
-        new_arguments.extend_from_slice(&unsigned_input.unlock.arguments);
+        let mut new_args = vec![hex_signature];
+        new_args.extend_from_slice(&unsigned_input.unlock.args);
 
         let pubkey_ser = pubkey.serialize();
         let mut hex_pubkey = vec![0; pubkey_ser.len() * 2];
         hex_to(&pubkey_ser, &mut hex_pubkey).expect("hex pubkey");
         let script = Script::new(
             0,
-            new_arguments,
-            Some(system_cell_outpoint),
+            new_args,
+            Some(system_cell_data_hash),
             None,
             vec![hex_pubkey],
         );
@@ -200,10 +202,10 @@ pub fn sign(setup: &Setup, matches: &ArgMatches) {
     println!("{}", serde_json::to_string(&result).unwrap());
 }
 
-pub fn redeem_script_hash(setup: &Setup, matches: &ArgMatches) {
+pub fn type_hash(setup: &Setup, matches: &ArgMatches) {
     let consensus = setup.chain_spec.to_consensus().unwrap();
-    let system_cell_tx_hash = consensus.genesis_block().commit_transactions()[0].hash();
-    let system_cell_outpoint = OutPoint::new(system_cell_tx_hash, 0);
+    let system_cell_tx = &consensus.genesis_block().commit_transactions()[0];
+    let system_cell_data_hash = system_cell_tx.outputs()[0].data_hash();
 
     let privkey: Privkey = value_t!(matches.value_of("private-key"), H256)
         .unwrap_or_else(|e| e.exit())
@@ -217,14 +219,11 @@ pub fn redeem_script_hash(setup: &Setup, matches: &ArgMatches) {
     let script = Script::new(
         0,
         Vec::new(),
-        Some(system_cell_outpoint),
+        Some(system_cell_data_hash),
         None,
         vec![hex_pubkey],
     );
-    println!(
-        "{}",
-        hex_string(&script.redeem_script_hash()).expect("hex string")
-    );
+    println!("{}", hex_string(&script.type_hash()).expect("hex string"));
 }
 
 pub fn keygen() {

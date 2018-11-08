@@ -15,7 +15,7 @@ use Verifier;
 fn create_cellbase_transaction_with_capacity(capacity: Capacity) -> Transaction {
     TransactionBuilder::default()
         .input(CellInput::new_cellbase_input(0))
-        .output(CellOutput::new(capacity, Vec::new(), H256::default()))
+        .output(CellOutput::new(capacity, Vec::new(), H256::default(), None))
         .build()
 }
 
@@ -28,7 +28,7 @@ fn create_normal_transaction() -> Transaction {
         .input(CellInput::new(
             OutPoint::new(H256::from(1), 0),
             Default::default(),
-        )).output(CellOutput::new(100, Vec::new(), H256::default()))
+        )).output(CellOutput::new(100, Vec::new(), H256::default(), None))
         .build()
 }
 
@@ -186,8 +186,8 @@ pub fn test_cellbase_with_two_outputs() {
 
     let cellbase_transaction = TransactionBuilder::default()
         .input(CellInput::new_cellbase_input(0))
-        .output(CellOutput::new(100, Vec::new(), H256::default()))
-        .output(CellOutput::new(50, Vec::new(), H256::default()))
+        .output(CellOutput::new(100, Vec::new(), H256::default(), None))
+        .output(CellOutput::new(50, Vec::new(), H256::default(), None))
         .build();
 
     let block = BlockBuilder::default()
@@ -212,8 +212,8 @@ pub fn test_cellbase_with_two_outputs_and_more_rewards_than_maximum() {
 
     let cellbase_transaction = TransactionBuilder::default()
         .input(CellInput::new_cellbase_input(0))
-        .output(CellOutput::new(100, Vec::new(), H256::default()))
-        .output(CellOutput::new(50, Vec::new(), H256::default()))
+        .output(CellOutput::new(100, Vec::new(), H256::default(), None))
+        .output(CellOutput::new(50, Vec::new(), H256::default(), None))
         .build();
 
     let block = BlockBuilder::default()

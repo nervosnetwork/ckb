@@ -159,8 +159,13 @@ mod tests {
                 .is_ok()
         );
 
-        let output = CellOutput::new(100, data.clone(), H256::zero());
-        let input_cell = CellOutput::new(100, data.iter().rev().cloned().collect(), H256::zero());
+        let output = CellOutput::new(100, data.clone(), H256::zero(), None);
+        let input_cell = CellOutput::new(
+            100,
+            data.iter().rev().cloned().collect(),
+            H256::zero(),
+            None,
+        );
         let outputs = vec![&output];
         let input_cells = vec![&input_cell];
         let mut mmap_cell = MmapCell::new(&outputs, &input_cells);
@@ -194,8 +199,13 @@ mod tests {
                 .is_ok()
         );
 
-        let output = CellOutput::new(100, data.clone(), H256::zero());
-        let input_cell = CellOutput::new(100, data.iter().rev().cloned().collect(), H256::zero());
+        let output = CellOutput::new(100, data.clone(), H256::zero(), None);
+        let input_cell = CellOutput::new(
+            100,
+            data.iter().rev().cloned().collect(),
+            H256::zero(),
+            None,
+        );
         let outputs = vec![&output];
         let input_cells = vec![&input_cell];
         let mut mmap_cell = MmapCell::new(&outputs, &input_cells);
@@ -269,8 +279,13 @@ mod tests {
                 .is_ok()
         );
 
-        let output = CellOutput::new(100, data.clone(), H256::zero());
-        let input_cell = CellOutput::new(100, data.iter().rev().cloned().collect(), H256::zero());
+        let output = CellOutput::new(100, data.clone(), H256::zero(), None);
+        let input_cell = CellOutput::new(
+            100,
+            data.iter().rev().cloned().collect(),
+            H256::zero(),
+            None,
+        );
         let outputs = vec![&output];
         let input_cells = vec![&input_cell];
         let mut mmap_cell = MmapCell::new(&outputs, &input_cells);

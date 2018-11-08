@@ -28,8 +28,8 @@ export default {
             },
             unlock: {
               version: 0,
-              arguments: [],
-              redeem_script: [109, 105, 110, 101, 114], // "miner".into_bytes
+              args: [],
+              binary: [109, 105, 110, 101, 114], // "miner".into_bytes
             },
           },
         ],

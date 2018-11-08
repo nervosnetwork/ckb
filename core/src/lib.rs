@@ -4,7 +4,6 @@
 
 extern crate bigint;
 extern crate bincode;
-extern crate byteorder;
 extern crate ckb_util;
 extern crate crypto;
 extern crate hash;

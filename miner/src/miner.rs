@@ -68,7 +68,7 @@ where
         match build_block_template(
             &self.chain,
             &self.tx_pool,
-            self.config.redeem_script_hash,
+            self.config.type_hash,
             self.config.max_tx,
             self.config.max_prop,
         ) {

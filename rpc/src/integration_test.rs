@@ -44,9 +44,9 @@ build_rpc_trait! {
         #[rpc(name = "get_block_template")]
         fn get_block_template(&self) -> Result<BlockTemplate>;
 
-        // curl -d '{"id": 2, "jsonrpc": "2.0", "method":"get_cells_by_redeem_script_hash","params": ["0x1b1c832d02fdb4339f9868c8a8636c3d9dd10bd53ac7ce99595825bd6beeffb3", 1, 10]}' -H 'content-type:application/json' 'http://localhost:3030'
-        #[rpc(name = "get_cells_by_redeem_script_hash")]
-        fn get_cells_by_redeem_script_hash(&self, H256, u64, u64) -> Result<Vec<CellOutputWithOutPoint>>;
+        // curl -d '{"id": 2, "jsonrpc": "2.0", "method":"get_cells_by_type_hash","params": ["0x1b1c832d02fdb4339f9868c8a8636c3d9dd10bd53ac7ce99595825bd6beeffb3", 1, 10]}' -H 'content-type:application/json' 'http://localhost:3030'
+        #[rpc(name = "get_cells_by_type_hash")]
+        fn get_cells_by_type_hash(&self, H256, u64, u64) -> Result<Vec<CellOutputWithOutPoint>>;
 
         #[rpc(name = "local_node_id")]
         fn local_node_id(&self) -> Result<Option<String>>;
@@ -103,9 +103,9 @@ impl<C: ChainProvider + 'static> IntegrationTestRpc for RpcImpl<C> {
         Ok(build_block_template(&self.chain, &self.tx_pool, H256::from(0), 20000, 20000).unwrap())
     }
 
-    fn get_cells_by_redeem_script_hash(
+    fn get_cells_by_type_hash(
         &self,
-        redeem_script_hash: H256,
+        type_hash: H256,
         from: u64,
         to: u64,
     ) -> Result<Vec<CellOutputWithOutPoint>> {
@@ -122,7 +122,7 @@ impl<C: ChainProvider + 'static> IntegrationTestRpc for RpcImpl<C> {
                         .get_transaction_meta(&transaction.hash())
                         .ok_or_else(Error::internal_error)?;
                     for (i, output) in transaction.outputs().iter().enumerate() {
-                        if output.lock == redeem_script_hash && (!transaction_meta.is_spent(i)) {
+                        if output.lock == type_hash && (!transaction_meta.is_spent(i)) {
                             result.push(CellOutputWithOutPoint {
                                 outpoint: OutPoint::new(transaction.hash(), i as u32),
                                 capacity: output.capacity,

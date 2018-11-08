@@ -1,4 +1,3 @@
-#[cfg(test)]
 extern crate bigint;
 extern crate ckb_core as core;
 extern crate ckb_protocol;
@@ -11,6 +10,8 @@ extern crate flatbuffers;
 extern crate fnv;
 #[cfg(test)]
 extern crate hash;
+#[macro_use]
+extern crate log;
 #[cfg(test)]
 #[macro_use]
 extern crate proptest;
@@ -18,12 +19,14 @@ extern crate proptest;
 mod syscalls;
 mod verify;
 
-pub use verify::TransactionInputVerifier;
+use vm::Error as VMInternalError;
+
+pub use verify::TransactionScriptsVerifier;
 
 #[derive(Debug, PartialEq, Clone, Copy, Eq)]
 pub enum Error {
     NoScript,
     InvalidReferenceIndex,
     ValidationFailure(u8),
-    VMError,
+    VMError(VMInternalError),
 }

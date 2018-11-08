@@ -1,7 +1,7 @@
 use core::cell::ResolvedTransaction;
 use core::transaction::{Capacity, Transaction};
 use error::TransactionError;
-use script::TransactionInputVerifier;
+use script::TransactionScriptsVerifier;
 use std::collections::HashSet;
 
 pub struct TransactionVerifier<'a> {
@@ -55,7 +55,7 @@ impl<'a> InputVerifier<'a> {
                 if let Some(ref input) = cs.get_current() {
                     // TODO: remove this once VM mmap is in place so we can
                     // do P2SH within the VM.
-                    if input.lock != inputs.next().unwrap().unlock.redeem_script_hash() {
+                    if input.lock != inputs.next().unwrap().unlock.type_hash() {
                         return Err(TransactionError::InvalidScript);
                     }
                 }
@@ -89,15 +89,9 @@ impl<'a> ScriptVerifier<'a> {
     }
 
     pub fn verify(&self) -> Result<(), TransactionError> {
-        let verifier = TransactionInputVerifier::new(&self.resolved_transaction);
-
-        for index in 0..self.resolved_transaction.transaction.inputs().len() {
-            verifier
-                .verify(index)
-                .map_err(TransactionError::ScriptFailure)?;
-        }
-
-        Ok(())
+        TransactionScriptsVerifier::new(&self.resolved_transaction)
+            .verify()
+            .map_err(TransactionError::ScriptFailure)
     }
 }
 

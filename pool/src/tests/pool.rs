@@ -160,7 +160,8 @@ pub fn test_cellbase_spent() {
         )).output(CellOutput::new(
             50000,
             Vec::new(),
-            create_valid_script().redeem_script_hash(),
+            create_valid_script().type_hash(),
+            None,
         )).build();
 
     apply_transactions(vec![cellbase_tx.clone()], vec![], &chain);
@@ -169,7 +170,7 @@ pub fn test_cellbase_spent() {
         .input(CellInput::new(
             OutPoint::new(cellbase_tx.hash(), 0),
             create_valid_script(),
-        )).output(CellOutput::new(50000, Vec::new(), H256::default()))
+        )).output(CellOutput::new(50000, Vec::new(), H256::default(), None))
         .build();
 
     match pool.add_to_pool(valid_tx.into()) {
@@ -421,7 +422,7 @@ fn test_switch_fork() {
 
     let mtxs = pool.get_mineable_transactions(10);
 
-    assert_eq!(mtxs, vec![txs[3].clone(), txs[5].clone(), txs[6].clone()]);
+    assert_eq!(mtxs, vec![txs[3].clone(), txs[6].clone(), txs[5].clone()]);
 }
 
 fn test_setup() -> (
@@ -446,14 +447,15 @@ fn test_setup() -> (
         notify,
     );
 
-    let default_script_hash = create_valid_script().redeem_script_hash();
+    let default_script_hash = create_valid_script().type_hash();
     let tx = TransactionBuilder::default()
         .input(CellInput::new(OutPoint::null(), Default::default()))
         .outputs(vec![
             CellOutput::new(
                 100_000_000,
                 Vec::new(),
-                default_script_hash.clone()
+                default_script_hash.clone(),
+                None
             );
             100
         ]).build();
@@ -508,7 +510,7 @@ fn test_transaction_with_capacity(
 
     let mut output = CellOutput::default();
     output.capacity = capacity / output_num as u64;
-    output.lock = create_valid_script().redeem_script_hash();
+    output.lock = create_valid_script().type_hash();
     let outputs: Vec<CellOutput> = vec![output.clone(); output_num];
 
     TransactionBuilder::default()

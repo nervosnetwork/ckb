@@ -78,9 +78,9 @@ fn build_system_cell_transaction(cells: &[SystemCell]) -> Result<Transaction, Bo
         let mut data = Vec::new();
         file.read_to_end(&mut data)?;
 
-        // TODO: we should either provide a valid redeem script hash so we can
+        // TODO: we should either provide a valid type hash so we can
         // update system cell, or we can update this when P2SH is moved into VM.
-        let output = CellOutput::new(data.len() as Capacity, data, H256::default());
+        let output = CellOutput::new(data.len() as Capacity, data, H256::default(), None);
         outputs.push(output);
     }
 

@@ -40,7 +40,7 @@ fn relay_compact_block_with_one_tx() {
             .input(CellInput::new(
                 OutPoint::new(last_cellbase.hash(), 0),
                 create_valid_script(),
-            )).output(CellOutput::new(50, Vec::new(), H256::zero()))
+            )).output(CellOutput::new(50, Vec::new(), H256::zero(), None))
             .build();
 
         {
@@ -163,7 +163,7 @@ fn relay_compact_block_with_missing_indexs() {
                     .input(CellInput::new(
                         OutPoint::new(last_cellbase.hash(), i as u32),
                         create_valid_script(),
-                    )).output(CellOutput::new(50, vec![i], H256::zero()))
+                    )).output(CellOutput::new(50, vec![i], H256::zero(), None))
                     .build()
             }).collect::<Vec<_>>();
 
@@ -284,7 +284,7 @@ fn setup_node(height: u64) -> (TestNode, Arc<Chain<ChainKVStore<MemoryKeyValueDB
         let timestamp = block.header().timestamp() + 1;
         let difficulty = chain.calculate_difficulty(&block.header()).unwrap();
         let outputs = (0..20)
-            .map(|_| CellOutput::new(50, Vec::new(), create_valid_script().redeem_script_hash()))
+            .map(|_| CellOutput::new(50, Vec::new(), create_valid_script().type_hash(), None))
             .collect::<Vec<_>>();
         let cellbase = TransactionBuilder::default()
             .input(CellInput::new_cellbase_input(number))

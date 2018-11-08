@@ -213,6 +213,7 @@ mod tests {
             capacity: 2,
             data: vec![],
             lock: H256::default(),
+            contract: None,
         };
 
         db.cells.insert(p1.clone(), Some(o.clone()));

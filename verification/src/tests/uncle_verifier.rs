@@ -34,7 +34,7 @@ fn gen_block(parent_header: Header, nonce: u64, difficulty: U256) -> Block {
 fn create_cellbase(number: BlockNumber) -> Transaction {
     TransactionBuilder::default()
         .input(CellInput::new_cellbase_input(number))
-        .output(CellOutput::new(0, vec![], H256::from(0)))
+        .output(CellOutput::new(0, vec![], H256::from(0), None))
         .build()
 }
 

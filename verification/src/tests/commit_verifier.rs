@@ -54,7 +54,7 @@ fn create_transaction(parent: H256) -> Transaction {
 fn create_cellbase(number: BlockNumber) -> Transaction {
     TransactionBuilder::default()
         .input(CellInput::new_cellbase_input(number))
-        .outputs(vec![CellOutput::new(0, vec![], H256::from(0))])
+        .outputs(vec![CellOutput::new(0, vec![], H256::from(0), None)])
         .build()
 }
 
@@ -66,7 +66,8 @@ fn test_blank_proposal() {
             CellOutput::new(
                 100_000_000,
                 Vec::new(),
-                H256::default()
+                H256::default(),
+                None,
             );
             100
         ]).build();
@@ -112,7 +113,8 @@ fn test_uncle_proposal() {
             CellOutput::new(
                 100_000_000,
                 Vec::new(),
-                H256::default()
+                H256::default(),
+                None,
             );
             100
         ]).build();
@@ -159,7 +161,8 @@ fn test_block_proposal() {
             CellOutput::new(
                 100_000_000,
                 Vec::new(),
-                H256::default()
+                H256::default(),
+                None,
             );
             100
         ]).build();
@@ -205,7 +208,8 @@ fn test_proposal_timeout() {
             CellOutput::new(
                 100_000_000,
                 Vec::new(),
-                H256::default()
+                H256::default(),
+                None,
             );
             100
         ]).build();

@@ -41,4 +41,4 @@ max_pending_size = 10000
 max_tx              = 1024
 max_prop            = 1024
 new_transactions_threshold = 8
-redeem_script_hash  = "0x321c1ca2887fb8eddaaa7e917399f71e63e03a1c83ff75ed12099a01115ea2ff"
+type_hash  = "0x321c1ca2887fb8eddaaa7e917399f71e63e03a1c83ff75ed12099a01115ea2ff"

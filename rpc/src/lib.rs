@@ -67,7 +67,7 @@ impl From<Block> for BlockWithHash {
     }
 }
 
-// This is used as return value of get_cells_by_redeem_script_hash RPC:
+// This is used as return value of get_cells_by_type_hash RPC:
 // it contains both OutPoint data used for referencing a cell, as well as
 // cell's own data such as lock and capacity
 #[derive(Serialize)]

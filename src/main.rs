@@ -57,8 +57,8 @@ fn main() {
                 Ok(setup) => cli::sign(&setup, sign_matches),
                 Err(e) => println!("Failed to setup, cause err {}", e.description()),
             },
-            ("redeem_script_hash", Some(matches)) => match Setup::new(&matches) {
-                Ok(setup) => cli::redeem_script_hash(&setup, matches),
+            ("type_hash", Some(matches)) => match Setup::new(&matches) {
+                Ok(setup) => cli::type_hash(&setup, matches),
                 Err(e) => println!("Failed to setup, cause err {}", e.description()),
             },
             ("keygen", _) => cli::keygen(),

@@ -844,7 +844,7 @@ mod tests {
                     }).collect(),
             ).outputs(
                 (0..outputs_len)
-                    .map(|i| CellOutput::new((i + 1) as u64, Vec::new(), H256::from(0)))
+                    .map(|i| CellOutput::new((i + 1) as u64, Vec::new(), H256::from(0), None))
                     .collect(),
             ).build()
     }

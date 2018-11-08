@@ -78,14 +78,15 @@ table CellOutput {
     capacity:       uint64;
     data:           Bytes;
     lock:           Bytes;
+    contract:       Script;
 }
 
 table Script {
-    version:          uint8;
-    arguments:        [Bytes];
-    redeem_script:    Bytes;
-    redeem_reference: OutPoint;
-    redeem_arguments: [Bytes];
+    version:        uint8;
+    args:           [Bytes];
+    binary:         Bytes;
+    reference:      Bytes;
+    signed_args:    [Bytes];
 }
 
 root_type SyncMessage;

@@ -122,39 +122,33 @@ impl<'a> FbsCellInput<'a> {
 impl<'a> FbsScript<'a> {
     pub fn build<'b>(fbb: &mut FlatBufferBuilder<'b>, script: &Script) -> WIPOffset<FbsScript<'b>> {
         let vec = script
-            .arguments
+            .args
             .iter()
             .map(|argument| FbsBytes::build(fbb, argument))
             .collect::<Vec<_>>();
-        let arguments = fbb.create_vector(&vec);
+        let args = fbb.create_vector(&vec);
 
-        let redeem_script = script
-            .redeem_script
-            .as_ref()
-            .map(|s| FbsBytes::build(fbb, s));
+        let binary = script.binary.as_ref().map(|s| FbsBytes::build(fbb, s));
 
-        let redeem_reference = script
-            .redeem_reference
-            .as_ref()
-            .map(|out_point| FbsOutPoint::build(fbb, out_point));
+        let reference = script.reference.as_ref().map(|b| FbsBytes::build(fbb, b));
 
         let vec = script
-            .redeem_arguments
+            .signed_args
             .iter()
             .map(|argument| FbsBytes::build(fbb, argument))
             .collect::<Vec<_>>();
-        let redeem_arguments = fbb.create_vector(&vec);
+        let signed_args = fbb.create_vector(&vec);
 
         let mut builder = ScriptBuilder::new(fbb);
         builder.add_version(script.version);
-        builder.add_arguments(arguments);
-        if let Some(s) = redeem_script {
-            builder.add_redeem_script(s);
+        builder.add_args(args);
+        if let Some(s) = binary {
+            builder.add_binary(s);
         }
-        if let Some(r) = redeem_reference {
-            builder.add_redeem_reference(r);
+        if let Some(r) = reference {
+            builder.add_reference(r);
         }
-        builder.add_redeem_arguments(redeem_arguments);
+        builder.add_signed_args(signed_args);
         builder.finish()
     }
 }
@@ -166,10 +160,17 @@ impl<'a> FbsCellOutput<'a> {
     ) -> WIPOffset<FbsCellOutput<'b>> {
         let data = FbsBytes::build(fbb, &cell_output.data);
         let lock = FbsBytes::build(fbb, &cell_output.lock);
+        let contract = cell_output
+            .contract
+            .as_ref()
+            .map(|s| FbsScript::build(fbb, s));
         let mut builder = CellOutputBuilder::new(fbb);
         builder.add_capacity(cell_output.capacity);
         builder.add_data(data);
         builder.add_lock(lock);
+        if let Some(s) = contract {
+            builder.add_contract(s);
+        }
         builder.finish()
     }
 }

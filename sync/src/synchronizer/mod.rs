@@ -713,7 +713,7 @@ mod tests {
     fn create_cellbase(number: BlockNumber) -> Transaction {
         TransactionBuilder::default()
             .input(CellInput::new_cellbase_input(number))
-            .output(CellOutput::new(0, vec![], H256::from(0)))
+            .output(CellOutput::new(0, vec![], H256::from(0), None))
             .build()
     }
 
@@ -1132,7 +1132,7 @@ mod tests {
 
         assert_eq!(
             iter.next(),
-            Some(Event::NewTip(Arc::new(fetched_blocks[7].clone())))
+            Some(Event::NewTip(Arc::new(fetched_blocks[6].clone())))
         );
     }
 

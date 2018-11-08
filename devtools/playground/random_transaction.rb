@@ -8,19 +8,19 @@ CKB_BIN  = ARGV[1] || "./target/debug/ckb"
 ACCOUNTS = [
     {
         name: "miner",
-        redeem_script_hash: "321c1ca2887fb8eddaaa7e917399f71e63e03a1c83ff75ed12099a01115ea2ff",
+        type_hash: "321c1ca2887fb8eddaaa7e917399f71e63e03a1c83ff75ed12099a01115ea2ff",
         private_key: "e79f3207ea4980b7fed79956d5934249ceac4751a4fae01a0f7c4a96884bc4e3",
         utxo: []
     },
     {
         name: "alice",
-        redeem_script_hash: "67295822d1f852602a7d398edfe9ad42734cf41999c084ea8a401ff7cc994cfa",
+        type_hash: "67295822d1f852602a7d398edfe9ad42734cf41999c084ea8a401ff7cc994cfa",
         private_key: "76e853efa8245389e33f6fe49dcbd359eb56be2f6c3594e12521d2a806d32156",
         utxo: []
     },
     {
         name: "bob",
-        redeem_script_hash: "45996d79e9403f99eb2d79c4f649d45be4b5ab8458e359f5421ff1ab4e88e9f4",
+        type_hash: "45996d79e9403f99eb2d79c4f649d45be4b5ab8458e359f5421ff1ab4e88e9f4",
         private_key: "9f7fd78dffeda83b77c5c2d7eeaccb05120457787defdbb46da6d2186bf28f13",
         utxo: []
     }
@@ -49,7 +49,7 @@ def pull_transactions
     block = rpc('get_block', "[\"#{block_hash}\"]")
     block[:transactions].each do |tx|
         tx[:transaction][:outputs].each_with_index do |output, i|
-            if match = ACCOUNTS.find{|account| output[:lock] == "0x#{account[:redeem_script_hash]}" }
+            if match = ACCOUNTS.find{|account| output[:lock] == "0x#{account[:type_hash]}" }
                 match[:utxo] << {hash: tx[:hash], index: i, capacity: output[:capacity]}
             end
         end
@@ -70,8 +70,8 @@ def send_transactions
                 },
                 unlock: {
                     version: 0,
-                    arguments: [account[:name].bytes.to_a],
-                    redeem_arguments: []
+                    args: [account[:name].bytes.to_a],
+                    signed_args: []
                 }
             }
         end
@@ -79,7 +79,7 @@ def send_transactions
             {
                 capacity: capacity,
                 data: [0],
-                lock: "0x#{ACCOUNTS.sample[:redeem_script_hash]}"
+                lock: "0x#{ACCOUNTS.sample[:type_hash]}"
             }
         end
         transaction = {
