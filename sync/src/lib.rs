@@ -65,6 +65,9 @@ pub const MAX_OUTBOUND_PEERS_TO_PROTECT_FROM_DISCONNECT: usize = 4;
 pub const CHAIN_SYNC_TIMEOUT: u64 = 20 * 60 * 1000; // 20 minutes
 pub const EVICTION_HEADERS_RESPONSE_TIME: u64 = 120 * 1000; // 2 minutes
 
+//The maximum number of entries in a locator
+pub const MAX_LOCATOR_SIZE: usize = 101;
+
 #[derive(Debug, PartialEq, Clone, Eq)]
 pub enum AcceptBlockError {
     Chain(ckb_chain::error::Error),

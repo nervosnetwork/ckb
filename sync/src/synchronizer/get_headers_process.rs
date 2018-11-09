@@ -3,8 +3,9 @@ use ckb_chain::chain::ChainProvider;
 use ckb_protocol::{FlatbuffersVectorIterator, GetHeaders, SyncMessage};
 use core::header::Header;
 use flatbuffers::FlatBufferBuilder;
-use network::{CKBProtocolContext, PeerIndex};
+use network::{CKBProtocolContext, PeerIndex, Severity};
 use synchronizer::Synchronizer;
+use MAX_LOCATOR_SIZE;
 
 pub struct GetHeadersProcess<'a, C: 'a> {
     message: &'a GetHeaders<'a>,
@@ -36,34 +37,45 @@ where
             info!(target: "sync", "Ignoring getheaders from peer={} because node is in initial block download", self.peer);
             return;
         }
-        let hash_stop = H256::zero(); // TODO PENDING self.message.hash_stop().unwrap().into();
-        let block_locator_hashes =
-            FlatbuffersVectorIterator::new(self.message.block_locator_hashes().unwrap())
+        if let Some(locator) = self.message.block_locator_hashes() {
+            let locator_size = locator.len();
+            if locator_size > MAX_LOCATOR_SIZE {
+                warn!(target: "sync", " getheaders locator size {} from peer={}", locator_size, self.peer);
+                self.nc
+                    .report_peer(self.peer, Severity::Bad("over maximum locator size"));
+                return;
+            }
+
+            let hash_stop = H256::zero(); // TODO PENDING self.message.hash_stop().unwrap().into();
+            let block_locator_hashes = FlatbuffersVectorIterator::new(locator)
                 .map(|bytes| H256::from_slice(bytes.seq().unwrap()))
                 .collect::<Vec<_>>();
 
-        if let Some(block_number) = self
-            .synchronizer
-            .locate_latest_common_block(&hash_stop, &block_locator_hashes[..])
-        {
-            debug!(target: "sync", "\n\nheaders latest_common={} tip={} begin\n\n", block_number, {self.synchronizer.tip_header().number()});
-
-            self.synchronizer.peers.getheaders_received(self.peer);
-            let headers: Vec<Header> = self
+            if let Some(block_number) = self
                 .synchronizer
-                .get_locator_response(block_number, &hash_stop);
-            // response headers
+                .locate_latest_common_block(&hash_stop, &block_locator_hashes[..])
+            {
+                debug!(target: "sync", "\n\nheaders latest_common={} tip={} begin\n\n", block_number, {self.synchronizer.tip_header().number()});
 
-            debug!(target: "sync", "\nheaders len={}\n", headers.len());
+                self.synchronizer.peers.getheaders_received(self.peer);
+                let headers: Vec<Header> = self
+                    .synchronizer
+                    .get_locator_response(block_number, &hash_stop);
+                // response headers
 
-            let fbb = &mut FlatBufferBuilder::new();
-            let message = SyncMessage::build_headers(fbb, &headers);
-            fbb.finish(message, None);
-            let _ = self.nc.send(self.peer, fbb.finished_data().to_vec());
-        } else {
-            warn!(target: "sync", "\n\nunknown block headers from peer {} {:#?}\n\n", self.peer, block_locator_hashes);
-            // Got 'headers' message without known blocks
-            // ban or close peers
+                debug!(target: "sync", "\nheaders len={}\n", headers.len());
+
+                let fbb = &mut FlatBufferBuilder::new();
+                let message = SyncMessage::build_headers(fbb, &headers);
+                fbb.finish(message, None);
+                let _ = self.nc.send(self.peer, fbb.finished_data().to_vec());
+            } else {
+                warn!(target: "sync", "\n\nunknown block headers from peer {} {:#?}\n\n", self.peer, block_locator_hashes);
+                // Got 'headers' message without known blocks
+                // ban or close peers
+                self.nc
+                    .report_peer(self.peer, Severity::Bad("without common headers"));
+            }
         }
     }
 }
