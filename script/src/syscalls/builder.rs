@@ -1,8 +1,8 @@
 use ckb_protocol::{
-    Bytes as FbsBytes, CellInput as FbsCellInput, CellOutput as FbsCellOutput, CellOutputBuilder,
-    OutPoint as FbsOutPoint, Transaction as FbsTransaction, TransactionBuilder,
+    Bytes as FbsBytes, CellInput as FbsCellInput, CellInputBuilder, CellOutput as FbsCellOutput,
+    CellOutputBuilder, OutPoint as FbsOutPoint, Transaction as FbsTransaction, TransactionBuilder,
 };
-use core::transaction::{CellOutput, Transaction};
+use core::transaction::{CellInput, CellOutput, Transaction};
 use flatbuffers::{FlatBufferBuilder, WIPOffset};
 
 pub fn build_tx<'b>(
@@ -19,7 +19,7 @@ pub fn build_tx<'b>(
     let vec = tx
         .inputs()
         .iter()
-        .map(|cell_input| FbsCellInput::build(fbb, cell_input))
+        .map(|cell_input| build_input(fbb, cell_input))
         .collect::<Vec<_>>();
     let inputs = fbb.create_vector(&vec);
 
@@ -46,5 +46,16 @@ fn build_output<'b>(
     let mut builder = CellOutputBuilder::new(fbb);
     builder.add_capacity(output.capacity);
     builder.add_lock(lock);
+    builder.finish()
+}
+
+fn build_input<'b>(
+    fbb: &mut FlatBufferBuilder<'b>,
+    input: &CellInput,
+) -> WIPOffset<FbsCellInput<'b>> {
+    let hash = FbsBytes::build(fbb, &input.previous_output.hash);
+    let mut builder = CellInputBuilder::new(fbb);
+    builder.add_hash(hash);
+    builder.add_index(input.previous_output.index);
     builder.finish()
 }

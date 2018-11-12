@@ -1,25 +1,9 @@
 use core::transaction::CellOutput;
 use std::cmp;
 use std::rc::Rc;
-use syscalls::{Mode, MMAP_CELL_SYSCALL_NUMBER, OVERRIDE_LEN, SUCCESS};
+use syscalls::{Mode, Source, MMAP_CELL_SYSCALL_NUMBER, OVERRIDE_LEN, SUCCESS};
 use vm::memory::PROT_READ;
 use vm::{CoreMachine, Error as VMError, Memory, Register, Syscalls, A0, A1, A2, A3, A4, A5, A7};
-
-#[derive(Debug, PartialEq, Clone, Copy, Eq)]
-enum Source {
-    INPUT,
-    OUTPUT,
-}
-
-impl Source {
-    fn parse_from_u64(i: u64) -> Result<Source, VMError> {
-        match i {
-            0 => Ok(Source::INPUT),
-            1 => Ok(Source::OUTPUT),
-            _ => Err(VMError::ParseError),
-        }
-    }
-}
 
 #[derive(Debug)]
 pub struct MmapCell<'a> {

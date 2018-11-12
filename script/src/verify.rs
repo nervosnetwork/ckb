@@ -5,7 +5,7 @@ use core::script::Script;
 use core::transaction::{CellInput, CellOutput};
 use flatbuffers::FlatBufferBuilder;
 use fnv::FnvHashMap;
-use syscalls::{build_tx, MmapCell, MmapTx};
+use syscalls::{build_tx, FetchScriptHash, MmapCell, MmapTx};
 use vm::{DefaultMachine, SparseMemory};
 
 // This struct leverages CKB VM to verify transaction inputs.
@@ -66,6 +66,10 @@ impl<'a> TransactionScriptsVerifier<'a> {
         MmapCell::new(&self.outputs, &self.input_cells)
     }
 
+    fn build_fetch_script_hash(&self) -> FetchScriptHash {
+        FetchScriptHash::new(&self.outputs, &self.inputs, &self.input_cells)
+    }
+
     // Script struct might contain references to external cells, this
     // method exacts the real script from Stript struct.
     fn extract_script(&self, script: &'a Script) -> Result<&'a [u8], ScriptError> {
@@ -90,6 +94,7 @@ impl<'a> TransactionScriptsVerifier<'a> {
             let mut machine = DefaultMachine::<u64, SparseMemory>::default();
             machine.add_syscall_module(Box::new(self.build_mmap_tx()));
             machine.add_syscall_module(Box::new(self.build_mmap_cell()));
+            machine.add_syscall_module(Box::new(self.build_fetch_script_hash()));
             machine
                 .run(script_binary, &args)
                 .map_err(ScriptError::VMError)
