@@ -1,4 +1,3 @@
-use ckb_pow::{DummyPowEngine, PowEngine};
 use network::{
     Error as NetworkError, NetworkContext, NetworkProtocolHandler, PacketId, PeerId, ProtocolId,
     SessionInfo, Severity, TimerToken,
@@ -191,8 +190,4 @@ impl NetworkContext for TestNetworkContext {
     fn subprotocol_name(&self) -> ProtocolId {
         [1, 1, 1]
     }
-}
-
-fn dummy_pow_engine() -> Arc<dyn PowEngine> {
-    Arc::new(DummyPowEngine::new())
 }

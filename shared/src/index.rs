@@ -156,7 +156,7 @@ impl<T: 'static + KeyValueDB> ChainIndex for ChainKVStore<T> {
 mod tests {
     use super::super::COLUMNS;
     use super::*;
-    use consensus::Consensus;
+    use chain_spec::consensus::Consensus;
     use db::diskdb::RocksDB;
     use tempfile;
 

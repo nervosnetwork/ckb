@@ -1,9 +1,8 @@
 use super::super::block_verifier::UnclesVerifier;
 use super::super::error::{Error, UnclesError};
-use super::utils::dummy_pow_engine;
 use bigint::{H256, U256};
 use chain::chain::{ChainBuilder, ChainController};
-use ckb_shared::consensus::Consensus;
+use chain_spec::consensus::Consensus;
 use ckb_shared::shared::{ChainProvider, Shared, SharedBuilder};
 use ckb_shared::store::ChainKVStore;
 use core::block::{Block, BlockBuilder};
@@ -63,7 +62,6 @@ fn test_uncle_verifier() {
     let (chain_controller, shared) = start_chain(Some(consensus));
 
     assert_eq!(shared.consensus().difficulty_adjustment_interval(), 10);
-    let pow = dummy_pow_engine();
     let number = 20;
     let mut chain1: Vec<Block> = Vec::new();
     let mut chain2: Vec<Block> = Vec::new();
@@ -94,8 +92,7 @@ fn test_uncle_verifier() {
         parent = new_block.header().clone();
     }
 
-    let verifier =
-        UnclesVerifier::new(shared.clone(), shared.consensus().clone(), Arc::clone(&pow));
+    let verifier = UnclesVerifier::new(shared.clone());
 
     let block = BlockBuilder::default()
         .block(chain1.last().cloned().unwrap())

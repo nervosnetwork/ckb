@@ -7,11 +7,15 @@ extern crate jsonrpc_server_utils;
 #[macro_use]
 extern crate log;
 extern crate ckb_core as core;
+#[cfg(test)]
+extern crate ckb_db as db;
 extern crate ckb_network as network;
 extern crate ckb_notify as notify;
 extern crate ckb_pool as pool;
 extern crate ckb_shared as shared;
 extern crate ckb_time;
+#[cfg(test)]
+extern crate ckb_verification as verification;
 #[macro_use]
 extern crate serde_derive;
 #[cfg(feature = "integration_test")]

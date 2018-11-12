@@ -11,9 +11,13 @@ extern crate rayon;
 #[cfg(test)]
 extern crate ckb_chain as chain;
 #[cfg(test)]
+extern crate ckb_chain_spec as chain_spec;
+#[cfg(test)]
 extern crate ckb_db as db;
 #[cfg(test)]
 extern crate ckb_notify as notify;
+#[cfg(test)]
+extern crate hash;
 
 mod block_verifier;
 mod error;

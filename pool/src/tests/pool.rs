@@ -1,4 +1,5 @@
 use bigint::H256;
+use chain_spec::consensus::Consensus;
 use channel::{self, Receiver};
 use ckb_chain::chain::{ChainBuilder, ChainController};
 use ckb_db::memorydb::MemoryKeyValueDB;
@@ -464,7 +465,9 @@ impl<CI: ChainIndex + 'static> TestPool<CI> {
         let (_handle, notify) = NotifyService::default().start::<&str>(None);
         let new_tip_receiver = notify.subscribe_new_tip(TXS_POOL_SUBSCRIBER);
         let switch_fork_receiver = notify.subscribe_switch_fork(TXS_POOL_SUBSCRIBER);
-        let shared = SharedBuilder::<ChainKVStore<MemoryKeyValueDB>>::new_memory().build();
+        let shared = SharedBuilder::<ChainKVStore<MemoryKeyValueDB>>::new_memory()
+            .consensus(Consensus::default().set_verification(false))
+            .build();
 
         let (chain_controller, chain_receivers) = ChainController::new();
         let chain_service = ChainBuilder::new(shared.clone())

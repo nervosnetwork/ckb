@@ -27,5 +27,9 @@ log = "0.4"
 crossbeam-channel = "0.2"
 fnv = "1.0.3"
 
+[dev-dependencies]
+ckb-db = { path = "../db" }
+ckb-verification = { path = "../verification" }
+
 [features]
 integration_test = ["ckb-pow"]

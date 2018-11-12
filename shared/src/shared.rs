@@ -1,7 +1,7 @@
 use super::{COLUMNS, COLUMN_BLOCK_HEADER};
 use bigint::{H256, U256};
 use cachedb::CacheDB;
-use consensus::Consensus;
+use chain_spec::consensus::Consensus;
 use core::block::Block;
 use core::cell::{CellProvider, CellStatus};
 use core::extras::BlockExt;
@@ -119,10 +119,6 @@ impl<CI: ChainIndex> Shared<CI> {
     pub fn store(&self) -> &Arc<CI> {
         &self.store
     }
-
-    pub fn consensus(&self) -> &Consensus {
-        &self.consensus
-    }
 }
 
 impl<CI: ChainIndex> CellProvider for Shared<CI> {
@@ -211,6 +207,8 @@ pub trait ChainProvider: Sync + Send {
         -> Result<Capacity, SharedError>;
 
     fn calculate_difficulty(&self, last: &Header) -> Option<U256>;
+
+    fn consensus(&self) -> &Consensus;
 }
 
 impl<CI: ChainIndex> ChainProvider for Shared<CI> {
@@ -422,6 +420,10 @@ impl<CI: ChainIndex> ChainProvider for Shared<CI> {
             return Some(difficulty);
         }
         None
+    }
+
+    fn consensus(&self) -> &Consensus {
+        &self.consensus
     }
 }
 

@@ -9,6 +9,7 @@ serde_derive = "1.0"
 bincode = "1.0"
 log = "0.4"
 ckb-core = { path = "../core" }
+ckb-chain-spec = { path = "../spec" }
 ckb-util = { path = "../util" }
 ckb-db = { path = "../db" }
 ckb-time = { path = "../util/time" }

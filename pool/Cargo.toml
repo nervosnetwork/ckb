@@ -7,6 +7,7 @@ authors = ["Nervos Core Dev <dev@nervos.org>"]
 [dependencies]
 ckb-core = { path = "../core" }
 ckb-shared = { path = "../shared" }
+ckb-chain-spec = { path = "../spec" }
 ckb-util = { path = "../util" }
 ckb-time = { path = "../util/time" }
 ckb-notify = { path = "../notify" }

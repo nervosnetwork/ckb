@@ -1,4 +1,5 @@
 use bigint::{H256, U256};
+use chain_spec::consensus::Consensus;
 use ckb_shared::error::SharedError;
 use ckb_shared::shared::ChainProvider;
 use core::block::Block;
@@ -93,6 +94,10 @@ impl ChainProvider for DummyChainProvider {
     }
 
     fn calculate_difficulty(&self, _last: &Header) -> Option<U256> {
+        panic!("Not implemented!");
+    }
+
+    fn consensus(&self) -> &Consensus {
         panic!("Not implemented!");
     }
 }

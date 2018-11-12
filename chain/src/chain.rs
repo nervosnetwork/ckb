@@ -1,4 +1,5 @@
 use bigint::H256;
+use chain_spec::consensus::Consensus;
 use channel::{self, Receiver, Sender};
 use ckb_notify::{ForkBlocks, NotifyController, NotifyService};
 use core::block::Block;
@@ -6,8 +7,8 @@ use core::extras::BlockExt;
 use core::header::BlockNumber;
 use core::service::{Request, DEFAULT_CHANNEL_SIZE};
 use db::batch::Batch;
+use error::ProcessBlockError;
 use log;
-use shared::consensus::Consensus;
 use shared::error::SharedError;
 use shared::index::ChainIndex;
 use shared::shared::{ChainProvider, Shared, TipHeader};
@@ -15,6 +16,7 @@ use std::cmp;
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 use time::now_ms;
+use verification::{BlockVerifier, Verifier};
 
 pub struct ChainService<CI> {
     shared: Shared<CI>,
@@ -23,11 +25,11 @@ pub struct ChainService<CI> {
 
 #[derive(Clone)]
 pub struct ChainController {
-    process_block_sender: Sender<Request<Arc<Block>, Result<(), SharedError>>>,
+    process_block_sender: Sender<Request<Arc<Block>, Result<(), ProcessBlockError>>>,
 }
 
 pub struct ChainReceivers {
-    process_block_receiver: Receiver<Request<Arc<Block>, Result<(), SharedError>>>,
+    process_block_receiver: Receiver<Request<Arc<Block>, Result<(), ProcessBlockError>>>,
 }
 
 impl ChainController {
@@ -43,7 +45,7 @@ impl ChainController {
         )
     }
 
-    pub fn process_block(&self, block: Arc<Block>) -> Result<(), SharedError> {
+    pub fn process_block(&self, block: Arc<Block>) -> Result<(), ProcessBlockError> {
         Request::call(&self.process_block_sender, block).expect("process_block() failed")
     }
 }
@@ -85,9 +87,16 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
             }).expect("Start ChainService failed")
     }
 
-    fn process_block(&mut self, block: Arc<Block>) -> Result<(), SharedError> {
+    fn process_block(&mut self, block: Arc<Block>) -> Result<(), ProcessBlockError> {
         debug!(target: "chain", "begin processing block: {}", block.header().hash());
-        let insert_result = self.insert_block(&block)?;
+        if self.shared.consensus().verification {
+            BlockVerifier::new(self.shared.clone())
+                .verify(&block)
+                .map_err(ProcessBlockError::Verification)?
+        }
+        let insert_result = self
+            .insert_block(&block)
+            .map_err(ProcessBlockError::Shared)?;
         self.post_insert_result(block, insert_result);
         debug!(target: "chain", "finish processing block");
         Ok(())
@@ -343,8 +352,8 @@ impl<CI: ChainIndex + 'static> ChainBuilder<CI> {
         self
     }
 
-    pub fn build(self) -> ChainService<CI> {
-        let notify = self.notify.unwrap_or_else(|| {
+    pub fn build(mut self) -> ChainService<CI> {
+        let notify = self.notify.take().unwrap_or_else(|| {
             // FIXME: notify should not be optional
             let (_handle, notify) = NotifyService::default().start::<&str>(None);
             notify
@@ -371,11 +380,10 @@ pub mod test {
     fn start_chain(
         consensus: Option<Consensus>,
     ) -> (ChainController, Shared<ChainKVStore<MemoryKeyValueDB>>) {
-        let mut builder = SharedBuilder::<ChainKVStore<MemoryKeyValueDB>>::new_memory();
-        if let Some(consensus) = consensus {
-            builder = builder.consensus(consensus);
-        }
-        let shared = builder.build();
+        let builder = SharedBuilder::<ChainKVStore<MemoryKeyValueDB>>::new_memory();
+        let shared = builder
+            .consensus(consensus.unwrap_or(Consensus::default().set_verification(false)))
+            .build();
 
         let (chain_controller, chain_receivers) = ChainController::new();
         let chain_service = ChainBuilder::new(shared.clone()).build();
@@ -447,7 +455,9 @@ pub mod test {
             .commit_transaction(tx)
             .with_header_builder(HeaderBuilder::default().difficulty(&U256::from(1000)));
 
-        let consensus = Consensus::default().set_genesis_block(genesis_block);
+        let consensus = Consensus::default()
+            .set_genesis_block(genesis_block)
+            .set_verification(false);
         let (chain_controller, shared) = start_chain(Some(consensus));
 
         let end = 21;
@@ -492,7 +502,9 @@ pub mod test {
             .commit_transaction(tx)
             .with_header_builder(HeaderBuilder::default().difficulty(&U256::from(1000)));
 
-        let consensus = Consensus::default().set_genesis_block(genesis_block);
+        let consensus = Consensus::default()
+            .set_genesis_block(genesis_block)
+            .set_verification(false);
         let (_chain_controller, shared) = start_chain(Some(consensus));
 
         let outpoint = OutPoint::new(root_hash, 0);
@@ -667,7 +679,9 @@ pub mod test {
     fn test_calculate_difficulty() {
         let genesis_block = BlockBuilder::default()
             .with_header_builder(HeaderBuilder::default().difficulty(&U256::from(1000)));
-        let mut consensus = Consensus::default().set_genesis_block(genesis_block);
+        let mut consensus = Consensus::default()
+            .set_genesis_block(genesis_block)
+            .set_verification(false);
         consensus.pow_time_span = 200;
         consensus.pow_spacing = 1;
 

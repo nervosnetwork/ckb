@@ -1,13 +1,12 @@
 use bigint::{H256, U256};
+use chain_spec::consensus::Consensus;
 use ckb_chain::chain::{ChainBuilder, ChainController};
 use ckb_notify::NotifyService;
 use ckb_pool::txs_pool::{PoolConfig, TransactionPoolController, TransactionPoolService};
 use ckb_protocol::RelayMessage;
-use ckb_shared::consensus::Consensus;
 use ckb_shared::shared::{ChainProvider, Shared, SharedBuilder};
 use ckb_shared::store::ChainKVStore;
 use ckb_time::now_ms;
-use ckb_verification::BlockVerifier;
 use core::block::BlockBuilder;
 use core::header::HeaderBuilder;
 use core::script::Script;
@@ -22,7 +21,7 @@ use std::io::Read;
 use std::sync::mpsc::channel;
 use std::sync::{Arc, Barrier};
 use std::{thread, time};
-use tests::{dummy_pow_engine, TestNode};
+use tests::TestNode;
 use {Relayer, RELAY_PROTOCOL_ID};
 
 #[test]
@@ -326,19 +325,7 @@ fn setup_node(
             .expect("process block should be OK");
     }
 
-    let pow_engine = dummy_pow_engine();
-    let block_verifier = BlockVerifier::new(
-        shared.clone(),
-        shared.consensus().clone(),
-        Arc::clone(&pow_engine),
-    );
-    let relayer = Relayer::new(
-        chain_controller.clone(),
-        shared.clone(),
-        pow_engine,
-        tx_pool_controller,
-        block_verifier,
-    );
+    let relayer = Relayer::new(chain_controller.clone(), shared.clone(), tx_pool_controller);
 
     let mut node = TestNode::default();
     node.add_protocol(

@@ -10,6 +10,7 @@
 extern crate avl_merkle as avl;
 extern crate bigint;
 extern crate bincode;
+extern crate ckb_chain_spec as chain_spec;
 extern crate ckb_core as core;
 extern crate ckb_db as db;
 extern crate ckb_util as util;
@@ -25,7 +26,6 @@ extern crate rand;
 extern crate tempfile;
 
 pub mod cachedb;
-pub mod consensus;
 // mod config;
 pub mod error;
 mod flat_serializer;

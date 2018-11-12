@@ -27,7 +27,6 @@ use std::io::Write;
 use std::sync::Arc;
 use std::thread;
 use sync::{Relayer, Synchronizer, RELAY_PROTOCOL_ID, SYNC_PROTOCOL_ID};
-use verification::BlockVerifier;
 
 pub fn run(setup: Setup) {
     logger::init(setup.configs.logger.clone()).expect("Init Logger");
@@ -53,12 +52,6 @@ pub fn run(setup: Setup) {
 
     info!(target: "main", "chain genesis hash: {:?}", shared.genesis_hash());
 
-    let block_verifier = BlockVerifier::new(
-        shared.clone(),
-        shared.consensus().clone(),
-        Arc::clone(&pow_engine),
-    );
-
     let tx_pool_service =
         TransactionPoolService::new(setup.configs.pool, shared.clone(), notify.clone());
     let _handle = tx_pool_service.start(Some("TransactionPoolService"), tx_pool_receivers);
@@ -69,17 +62,13 @@ pub fn run(setup: Setup) {
     let synchronizer = Arc::new(Synchronizer::new(
         chain_controller.clone(),
         shared.clone(),
-        Arc::clone(&pow_engine),
-        block_verifier.clone(),
         setup.configs.sync,
     ));
 
     let relayer = Arc::new(Relayer::new(
         chain_controller.clone(),
         shared.clone(),
-        Arc::clone(&pow_engine),
         tx_pool_controller.clone(),
-        block_verifier,
     ));
 
     let network_config = NetworkConfig::from(setup.configs.network);

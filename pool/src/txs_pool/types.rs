@@ -1,7 +1,7 @@
 //! The primary module containing the implementations of the transaction pool
 //! and its top-level members.
 
-use ckb_shared::consensus::{TRANSACTION_PROPAGATION_TIME, TRANSACTION_PROPAGATION_TIMEOUT};
+use chain_spec::consensus::{TRANSACTION_PROPAGATION_TIME, TRANSACTION_PROPAGATION_TIMEOUT};
 use ckb_verification::TransactionError;
 use core::transaction::{CellOutput, OutPoint, ProposalShortId, Transaction};
 use core::BlockNumber;

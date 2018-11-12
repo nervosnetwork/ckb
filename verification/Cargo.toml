@@ -23,3 +23,5 @@ ckb-db = { path = "../db" }
 ckb-notify = { path = "../notify" }
 ckb-time = { path = "../util/time", features = ["mock_timer"] }
 ckb-chain = { path = "../chain" }
+ckb-chain-spec = { path = "../spec" }
+hash = {path = "../util/hash"}

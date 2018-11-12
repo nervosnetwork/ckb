@@ -1,9 +1,7 @@
 use super::super::block_verifier::{BlockVerifier, CellbaseVerifier, EmptyVerifier};
 use super::super::error::{CellbaseError, Error as VerifyError};
 use super::dummy::DummyChainProvider;
-use super::utils::dummy_pow_engine;
 use bigint::H256;
-use ckb_shared::consensus::Consensus;
 use ckb_shared::error::SharedError;
 use core::block::BlockBuilder;
 use core::transaction::{CellInput, CellOutput, OutPoint, Transaction, TransactionBuilder};
@@ -235,7 +233,6 @@ pub fn test_cellbase_with_two_outputs_and_more_rewards_than_maximum() {
 #[test]
 pub fn test_empty_transactions() {
     let block = BlockBuilder::default().build();
-    let consensus = Consensus::default();
     let transaction_fees = HashMap::<H256, Result<Capacity, SharedError>>::new();
 
     let provider = DummyChainProvider {
@@ -243,10 +240,8 @@ pub fn test_empty_transactions() {
         transaction_fees: transaction_fees,
     };
 
-    let pow = dummy_pow_engine();
-
     let verifier = EmptyVerifier::new();
-    let full_verifier = BlockVerifier::new(provider, consensus, pow);
+    let full_verifier = BlockVerifier::new(provider);
     assert_eq!(
         verifier.verify(&block),
         Err(VerifyError::CommitTransactionsEmpty)

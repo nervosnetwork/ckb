@@ -2,11 +2,12 @@ use super::super::block_verifier::CommitVerifier;
 use super::super::error::{CommitError, Error};
 use bigint::{H256, U256};
 use chain::chain::{ChainBuilder, ChainController};
-use ckb_shared::consensus::Consensus;
+use chain_spec::consensus::Consensus;
 use ckb_shared::shared::{ChainProvider, Shared, SharedBuilder};
 use ckb_shared::store::ChainKVStore;
 use core::block::{Block, BlockBuilder};
 use core::header::{Header, HeaderBuilder};
+use core::script::Script;
 use core::transaction::{
     CellInput, CellOutput, OutPoint, ProposalShortId, Transaction, TransactionBuilder,
 };
@@ -14,6 +15,8 @@ use core::uncle::UncleBlock;
 use core::BlockNumber;
 use db::memorydb::MemoryKeyValueDB;
 use fnv::FnvHashMap;
+use std::fs::File;
+use std::io::Read;
 use std::sync::Arc;
 
 fn gen_block(
@@ -42,13 +45,30 @@ fn gen_block(
         .with_header_builder(header_builder)
 }
 
+fn get_script() -> Script {
+    let mut file = File::open("../spec/res/cells/always_success").unwrap();
+    let mut buffer = Vec::new();
+    file.read_to_end(&mut buffer).unwrap();
+
+    Script::new(0, Vec::new(), None, Some(buffer), Vec::new())
+}
+
 fn create_transaction(parent: H256) -> Transaction {
-    let mut output = CellOutput::default();
-    output.capacity = 100_000_000 / 100 as u64;
+    let script = get_script();
+    let capacity = 100_000_000 / 100 as u64;
+    let output = CellOutput::new(
+        capacity,
+        Vec::new(),
+        script.type_hash(),
+        Some(script.clone()),
+    );
+    let inputs: Vec<CellInput> = (0..100)
+        .map(|index| CellInput::new(OutPoint::new(parent, index), script.clone()))
+        .collect();
 
     TransactionBuilder::default()
-        .input(CellInput::new(OutPoint::new(parent, 0), Default::default()))
-        .outputs(vec![output.clone(); 100])
+        .inputs(inputs)
+        .outputs(vec![output; 100])
         .build()
 }
 
@@ -76,14 +96,15 @@ fn create_cellbase(number: BlockNumber) -> Transaction {
 
 #[test]
 fn test_blank_proposal() {
+    let script = get_script();
     let tx = TransactionBuilder::default()
         .input(CellInput::new(OutPoint::null(), Default::default()))
         .outputs(vec![
             CellOutput::new(
-                100_000_000,
+                1_000_000,
                 Vec::new(),
-                H256::default(),
-                None,
+                script.type_hash(),
+                Some(script),
             );
             100
         ]).build();
@@ -93,51 +114,70 @@ fn test_blank_proposal() {
     let (chain_controller, shared) = start_chain(Some(consensus));
 
     let mut txs = FnvHashMap::default();
-    let end = 21;
 
     let mut blocks: Vec<Block> = Vec::new();
     let mut parent = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
-    for i in 1..end {
+    let mut prev_txs = Vec::new();
+    for i in 1..6 {
         txs.insert(i, Vec::new());
         let tx = create_transaction(root_hash);
         root_hash = tx.hash();
         txs.get_mut(&i).unwrap().push(tx.clone());
-        let new_block = gen_block(parent, vec![tx], vec![], vec![]);
+        let next_proposal_ids = vec![tx.proposal_short_id()];
+        let new_block = gen_block(parent, prev_txs, next_proposal_ids, vec![]);
+        prev_txs = vec![tx];
         blocks.push(new_block.clone());
         parent = new_block.header().clone();
     }
 
-    for block in &blocks[0..10] {
-        assert!(
-            chain_controller
-                .process_block(Arc::new(block.clone()))
-                .is_ok()
-        );
+    for block in &blocks[0..5] {
+        let result = chain_controller.process_block(Arc::new(block.clone()));
+        if result.is_err() {
+            println!("number: {}, result: {:?}", block.header().number(), result);
+        }
+        assert!(result.is_ok());
     }
 
-    let verifier = CommitVerifier::new(shared.clone(), shared.consensus().clone());
+    let blank_proposal_block = gen_block(parent, prev_txs, Vec::new(), Vec::new());
+    parent = blank_proposal_block.header().clone();
+    let result = chain_controller.process_block(Arc::new(blank_proposal_block.clone()));
+    if result.is_err() {
+        println!(
+            "[blank proposal] number: {}, result: {:?}",
+            blank_proposal_block.header().number(),
+            result
+        );
+    }
+    assert!(result.is_ok());
+
+    let tx = create_transaction(root_hash);
+    let invalid_block = gen_block(parent, vec![tx], Vec::new(), Vec::new());
+    let verifier = CommitVerifier::new(shared.clone());
     assert_eq!(
-        verifier.verify(&blocks[10]),
+        verifier.verify(&invalid_block),
         Err(Error::Commit(CommitError::Invalid))
     );
 }
 
 #[test]
 fn test_uncle_proposal() {
+    let script = get_script();
     let tx = TransactionBuilder::default()
         .input(CellInput::new(OutPoint::null(), Default::default()))
         .outputs(vec![
             CellOutput::new(
-                100_000_000,
+                1_000_000,
                 Vec::new(),
-                H256::default(),
-                None,
+                script.type_hash(),
+                Some(script),
             );
             100
         ]).build();
     let mut root_hash = tx.hash();
     let genesis_block = BlockBuilder::default().commit_transaction(tx).build();
-    let consensus = Consensus::default().set_genesis_block(genesis_block);
+    let consensus = Consensus::default()
+        .set_genesis_block(genesis_block)
+        .set_verification(false);
     let (chain_controller, shared) = start_chain(Some(consensus));
 
     let mut txs = Vec::new();
@@ -151,19 +191,43 @@ fn test_uncle_proposal() {
     }
 
     let proposal_ids: Vec<_> = txs.iter().map(|tx| tx.proposal_short_id()).collect();
-    let uncle = gen_block(parent.clone(), vec![], proposal_ids, vec![]).into();
-    let block = gen_block(parent.clone(), vec![], vec![], vec![uncle]);
+    let uncle: Block = gen_block(parent.clone(), vec![], proposal_ids, vec![]).into();
+    let result = chain_controller.process_block(Arc::new(uncle.clone()));
+    if result.is_err() {
+        println!(
+            "[uncle] number: {}, result: {:?}",
+            uncle.header().number(),
+            result
+        );
+    }
+    assert!(result.is_ok());
 
-    assert!(
-        chain_controller
-            .process_block(Arc::new(block.clone()))
-            .is_ok()
-    );
+    let block1 = gen_block(parent.clone(), vec![], vec![], vec![]);
+    parent = block1.header().clone();
+    let result = chain_controller.process_block(Arc::new(block1.clone()));
+    if result.is_err() {
+        println!(
+            "[block1] number: {}, result: {:?}",
+            block1.header().number(),
+            result
+        );
+    }
+    assert!(result.is_ok());
 
-    parent = block.header().clone();
+    let block2 = gen_block(parent.clone(), vec![], vec![], vec![uncle.into()]);
+    let result = chain_controller.process_block(Arc::new(block2.clone()));
+    if result.is_err() {
+        println!(
+            "[block2] number: {}, result: {:?}",
+            block2.header().number(),
+            result
+        );
+    }
+    assert!(result.is_ok());
+    parent = block2.header().clone();
 
     let new_block = gen_block(parent, txs, vec![], vec![]);
-    let verifier = CommitVerifier::new(shared.clone(), shared.consensus().clone());
+    let verifier = CommitVerifier::new(shared.clone());
     assert_eq!(verifier.verify(&new_block), Ok(()));
 }
 
@@ -207,7 +271,7 @@ fn test_block_proposal() {
     parent = block.header().clone();
 
     let new_block = gen_block(parent, txs, vec![], vec![]);
-    let verifier = CommitVerifier::new(shared.clone(), shared.consensus().clone());
+    let verifier = CommitVerifier::new(shared.clone());
     assert_eq!(verifier.verify(&new_block), Ok(()));
 }
 
@@ -260,7 +324,7 @@ fn test_proposal_timeout() {
         parent = block.header().clone();
     }
 
-    let verifier = CommitVerifier::new(shared.clone(), shared.consensus().clone());
+    let verifier = CommitVerifier::new(shared.clone());
 
     let new_block = gen_block(parent.clone(), txs.clone(), vec![], vec![]);
     assert_eq!(verifier.verify(&new_block), Ok(()));

@@ -1,5 +1,5 @@
 use super::super::setup::Configs;
-use ckb_chain_spec::SpecType;
+use chain_spec::SpecType;
 use ckb_instrument::{Export, Format};
 use clap::ArgMatches;
 use config_tool::{Config as ConfigTool, File, FileFormat};

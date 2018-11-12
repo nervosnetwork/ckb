@@ -11,7 +11,6 @@ extern crate ckb_chain;
 extern crate ckb_core as core;
 extern crate ckb_network as network;
 extern crate ckb_pool as pool;
-extern crate ckb_pow;
 extern crate ckb_protocol;
 extern crate ckb_shared;
 extern crate ckb_time;
@@ -23,6 +22,9 @@ extern crate ckb_verification;
 extern crate bitflags;
 #[macro_use]
 extern crate serde_derive;
+
+#[cfg(test)]
+extern crate ckb_chain_spec as chain_spec;
 #[cfg(test)]
 extern crate ckb_db as db;
 #[cfg(test)]
@@ -35,6 +37,7 @@ extern crate crossbeam_channel;
 mod config;
 mod relayer;
 mod synchronizer;
+
 #[cfg(test)]
 mod tests;
 
@@ -70,21 +73,3 @@ pub const EVICTION_HEADERS_RESPONSE_TIME: u64 = 120 * 1000; // 2 minutes
 
 //The maximum number of entries in a locator
 pub const MAX_LOCATOR_SIZE: usize = 101;
-
-#[derive(Debug, PartialEq, Clone, Eq)]
-pub enum AcceptBlockError {
-    Chain(ckb_shared::error::SharedError),
-    Verification(ckb_verification::Error),
-}
-
-impl From<ckb_shared::error::SharedError> for AcceptBlockError {
-    fn from(error: ckb_shared::error::SharedError) -> Self {
-        AcceptBlockError::Chain(error)
-    }
-}
-
-impl From<ckb_verification::Error> for AcceptBlockError {
-    fn from(error: ckb_verification::Error) -> Self {
-        AcceptBlockError::Verification(error)
-    }
-}

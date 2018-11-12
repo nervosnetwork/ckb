@@ -1,4 +1,4 @@
-use ckb_chain_spec::{ChainSpec, SpecType};
+use chain_spec::{ChainSpec, SpecType};
 use clap;
 use config_tool::{Config as ConfigTool, File, FileFormat};
 use dir::{default_base_path, Directories};

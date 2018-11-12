@@ -17,13 +17,6 @@ extern crate rand;
 extern crate serde_derive;
 extern crate ckb_pow;
 
-#[cfg(test)]
-extern crate ckb_db as db;
-#[cfg(test)]
-extern crate ckb_pool as pool;
-#[cfg(test)]
-extern crate ckb_verification as verification;
-
 mod config;
 mod miner;
 

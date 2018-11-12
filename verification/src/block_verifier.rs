@@ -1,7 +1,6 @@
 use super::header_verifier::HeaderResolver;
 use super::{TransactionVerifier, Verifier};
 use bigint::{H256, U256};
-use ckb_shared::consensus::Consensus;
 use ckb_shared::shared::ChainProvider;
 use core::block::Block;
 use core::cell::{CellProvider, CellStatus};
@@ -11,13 +10,11 @@ use error::TransactionError;
 use error::{CellbaseError, CommitError, Error, UnclesError};
 use fnv::{FnvHashMap, FnvHashSet};
 use merkle_root::merkle_root;
-use pow::PowEngine;
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use std::collections::HashSet;
-use std::sync::Arc;
 
 //TODO: cellbase, witness
-pub struct BlockVerifier<P: ChainProvider + CellProvider + Clone> {
+pub struct BlockVerifier<P> {
     // Verify if the committed transactions is empty
     empty: EmptyVerifier,
     // Verify if the committed and proposed transactions contains duplicate
@@ -52,15 +49,15 @@ impl<P> BlockVerifier<P>
 where
     P: ChainProvider + CellProvider + Clone + 'static,
 {
-    pub fn new(provider: P, consensus: Consensus, pow: Arc<dyn PowEngine>) -> Self {
+    pub fn new(provider: P) -> Self {
         BlockVerifier {
             // TODO change all new fn's chain to reference
             empty: EmptyVerifier::new(),
             duplicate: DuplicateVerifier::new(),
             cellbase: CellbaseVerifier::new(provider.clone()),
             merkle_root: MerkleRootVerifier::new(),
-            uncles: UnclesVerifier::new(provider.clone(), consensus.clone(), pow),
-            commit: CommitVerifier::new(provider.clone(), consensus),
+            uncles: UnclesVerifier::new(provider.clone()),
+            commit: CommitVerifier::new(provider.clone()),
             transactions: TransactionsVerifier::new(provider),
         }
     }
@@ -83,7 +80,7 @@ impl<P: ChainProvider + CellProvider + Clone> Verifier for BlockVerifier<P> {
 }
 
 #[derive(Clone)]
-pub struct CellbaseVerifier<CP: Clone> {
+pub struct CellbaseVerifier<CP> {
     provider: CP,
 }
 
@@ -249,29 +246,21 @@ impl<'a, CP: ChainProvider> HeaderResolver for HeaderResolverWrapper<'a, CP> {
 }
 
 // TODO redo uncle verifier, check uncle proposal duplicate
-pub struct UnclesVerifier<CP: Clone> {
+pub struct UnclesVerifier<CP> {
     provider: CP,
-    consensus: Consensus,
-    pow: Arc<dyn PowEngine>,
 }
 
 impl<CP: ChainProvider + Clone> ::std::clone::Clone for UnclesVerifier<CP> {
     fn clone(&self) -> Self {
         UnclesVerifier {
             provider: self.provider.clone(),
-            consensus: self.consensus.clone(),
-            pow: Arc::clone(&self.pow),
         }
     }
 }
 
 impl<CP: ChainProvider + Clone> UnclesVerifier<CP> {
-    pub fn new(provider: CP, consensus: Consensus, pow: Arc<dyn PowEngine>) -> Self {
-        UnclesVerifier {
-            provider,
-            consensus,
-            pow,
-        }
+    pub fn new(provider: CP) -> Self {
+        UnclesVerifier { provider }
     }
 
     // -  uncles_hash
@@ -296,7 +285,7 @@ impl<CP: ChainProvider + Clone> UnclesVerifier<CP> {
 
         // verify uncles lenght =< max_uncles_len
         let uncles_len = block.uncles().len();
-        let max_uncles_len = self.consensus.max_uncles_len();
+        let max_uncles_len = self.provider.consensus().max_uncles_len();
         if uncles_len > max_uncles_len {
             return Err(Error::Uncles(UnclesError::OverLength {
                 max: max_uncles_len,
@@ -305,7 +294,7 @@ impl<CP: ChainProvider + Clone> UnclesVerifier<CP> {
         }
 
         // verify uncles age
-        let max_uncles_age = self.consensus.max_uncles_age();
+        let max_uncles_age = self.provider.consensus().max_uncles_age();
         for uncle in block.uncles() {
             let depth = block.header().number().saturating_sub(uncle.number());
 
@@ -348,11 +337,12 @@ impl<CP: ChainProvider + Clone> UnclesVerifier<CP> {
         }
 
         let block_difficulty_epoch =
-            block.header().number() / self.consensus.difficulty_adjustment_interval();
+            block.header().number() / self.provider.consensus().difficulty_adjustment_interval();
 
         for uncle in block.uncles() {
             let uncle_difficulty_epoch =
-                uncle.header().number() / self.consensus.difficulty_adjustment_interval();
+                uncle.header().number()
+                    / self.provider.consensus().difficulty_adjustment_interval();
 
             if uncle.header().difficulty() != block.header().difficulty() {
                 return Err(Error::Uncles(UnclesError::InvalidDifficulty));
@@ -396,7 +386,12 @@ impl<CP: ChainProvider + Clone> UnclesVerifier<CP> {
                 return Err(Error::Uncles(UnclesError::ProposalTransactionDuplicate));
             }
 
-            if !self.pow.verify_header(&uncle_header) {
+            if !self
+                .provider
+                .consensus()
+                .pow_engine()
+                .verify_header(&uncle_header)
+            {
                 return Err(Error::Uncles(UnclesError::InvalidProof));
             }
 
@@ -493,23 +488,19 @@ impl<P: ChainProvider + CellProvider> TransactionsVerifier<P> {
 }
 
 #[derive(Clone)]
-pub struct CommitVerifier<CP: Clone> {
+pub struct CommitVerifier<CP> {
     provider: CP,
-    consensus: Consensus,
 }
 
 impl<CP: ChainProvider + Clone> CommitVerifier<CP> {
-    pub fn new(provider: CP, consensus: Consensus) -> Self {
-        CommitVerifier {
-            provider,
-            consensus,
-        }
+    pub fn new(provider: CP) -> Self {
+        CommitVerifier { provider }
     }
 
     pub fn verify(&self, block: &Block) -> Result<(), Error> {
         let block_number = block.header().number();
-        let t_prop = self.consensus.transaction_propagation_time;
-        let mut walk = self.consensus.transaction_propagation_timeout;
+        let t_prop = self.provider.consensus().transaction_propagation_time;
+        let mut walk = self.provider.consensus().transaction_propagation_timeout;
         let start = block_number.saturating_sub(t_prop);
 
         if start < 1 {

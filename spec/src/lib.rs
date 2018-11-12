@@ -8,7 +8,6 @@
 
 extern crate bigint;
 extern crate ckb_core as core;
-extern crate ckb_shared as shared;
 extern crate serde_yaml;
 #[macro_use]
 extern crate serde_derive;
@@ -16,16 +15,18 @@ extern crate ckb_pow;
 
 use bigint::{H256, U256};
 use ckb_pow::{Pow, PowEngine};
+use consensus::Consensus;
 use core::block::BlockBuilder;
 use core::header::HeaderBuilder;
 use core::transaction::{CellOutput, Transaction, TransactionBuilder};
 use core::Capacity;
-use shared::consensus::Consensus;
 use std::error::Error;
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;
 use std::sync::Arc;
+
+pub mod consensus;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum SpecType {
@@ -131,7 +132,8 @@ impl ChainSpec {
         let consensus = Consensus::default()
             .set_id(self.name.clone())
             .set_genesis_block(genesis_block)
-            .set_initial_block_reward(self.params.initial_block_reward);
+            .set_initial_block_reward(self.params.initial_block_reward)
+            .set_pow(self.pow.clone());
 
         Ok(consensus)
     }

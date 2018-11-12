@@ -288,3 +288,60 @@ impl<CI: ChainIndex + 'static> RpcService<CI> {
         uncles
     }
 }
+
+#[cfg(test)]
+pub mod test {
+    use super::*;
+    use bigint::H256;
+    use core::block::BlockBuilder;
+    use db::memorydb::MemoryKeyValueDB;
+    use notify::NotifyService;
+    use pool::txs_pool::{PoolConfig, TransactionPoolController, TransactionPoolService};
+    use shared::shared::SharedBuilder;
+    use shared::store::ChainKVStore;
+    use verification::{BlockVerifier, HeaderResolverWrapper, HeaderVerifier, Verifier};
+
+    #[test]
+    fn test_block_template() {
+        let (_handle, notify) = NotifyService::default().start::<&str>(None);
+        let (tx_pool_controller, tx_pool_receivers) = TransactionPoolController::new();
+        let (rpc_controller, rpc_receivers) = RpcController::new();
+
+        let shared = SharedBuilder::<ChainKVStore<MemoryKeyValueDB>>::new_memory().build();
+        let tx_pool_service =
+            TransactionPoolService::new(PoolConfig::default(), shared.clone(), notify.clone());
+        let _handle = tx_pool_service.start::<&str>(None, tx_pool_receivers);
+
+        let rpc_service = RpcService::new(shared.clone(), tx_pool_controller.clone());
+        let _handle = rpc_service.start(Some("RpcService"), rpc_receivers, &notify);
+
+        let block_template = rpc_controller
+            .get_block_template(H256::from(0), 1000, 1000)
+            .unwrap();
+
+        let BlockTemplate {
+            raw_header,
+            uncles,
+            commit_transactions,
+            proposal_transactions,
+        } = block_template;
+
+        //do not verfiy pow here
+        let header = raw_header.with_seal(Default::default());
+
+        let block = BlockBuilder::default()
+            .header(header)
+            .uncles(uncles)
+            .commit_transactions(commit_transactions)
+            .proposal_transactions(proposal_transactions)
+            .build();
+
+        let resolver = HeaderResolverWrapper::new(block.header(), shared.clone());
+        let header_verifier = HeaderVerifier::new(Arc::clone(&shared.consensus().pow_engine()));
+
+        assert!(header_verifier.verify(&resolver).is_ok());
+
+        let block_verfier = BlockVerifier::new(shared.clone());
+        assert!(block_verfier.verify(&block).is_ok());
+    }
+}

@@ -17,11 +17,10 @@ use self::get_block_transactions_process::GetBlockTransactionsProcess;
 use self::transaction_process::TransactionProcess;
 use bigint::H256;
 use ckb_chain::chain::ChainController;
-use ckb_pow::PowEngine;
+use ckb_chain::error::ProcessBlockError;
 use ckb_protocol::{short_transaction_id, short_transaction_id_keys, RelayMessage, RelayPayload};
 use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::{ChainProvider, Shared};
-use ckb_verification::{BlockVerifier, Verifier};
 use core::block::{Block, BlockBuilder};
 use core::transaction::{ProposalShortId, Transaction};
 use flatbuffers::{get_root, FlatBufferBuilder};
@@ -31,16 +30,13 @@ use pool::txs_pool::TransactionPoolController;
 use std::sync::Arc;
 use std::time::Duration;
 use util::Mutex;
-use AcceptBlockError;
 
 pub const TX_PROPOSAL_TOKEN: TimerToken = 0;
 
 pub struct Relayer<CI: ChainIndex> {
     chain: ChainController,
     shared: Shared<CI>,
-    pow: Arc<dyn PowEngine>,
     tx_pool: TransactionPoolController,
-    block_verifier: BlockVerifier<Shared<CI>>,
     state: Arc<RelayState>,
 }
 
@@ -49,9 +45,7 @@ impl<CI: ChainIndex> ::std::clone::Clone for Relayer<CI> {
         Relayer {
             chain: self.chain.clone(),
             shared: self.shared.clone(),
-            pow: Arc::clone(&self.pow),
             tx_pool: self.tx_pool.clone(),
-            block_verifier: self.block_verifier.clone(),
             state: Arc::clone(&self.state),
         }
     }
@@ -64,16 +58,12 @@ where
     pub fn new(
         chain: ChainController,
         shared: Shared<CI>,
-        pow: Arc<dyn PowEngine>,
         tx_pool: TransactionPoolController,
-        block_verifier: BlockVerifier<Shared<CI>>,
     ) -> Self {
         Relayer {
             chain,
             shared,
-            pow,
             tx_pool,
-            block_verifier,
             state: Arc::new(RelayState::default()),
         }
     }
@@ -142,10 +132,8 @@ where
         let _ = nc.send(peer, fbb.finished_data().to_vec());
     }
 
-    pub fn accept_block(&self, _peer: PeerIndex, block: Block) -> Result<(), AcceptBlockError> {
-        self.block_verifier.verify(&block)?;
-        self.chain.process_block(Arc::new(block))?;
-        Ok(())
+    pub fn accept_block(&self, _peer: PeerIndex, block: Block) -> Result<(), ProcessBlockError> {
+        self.chain.process_block(Arc::new(block))
     }
 
     pub fn reconstruct_block(

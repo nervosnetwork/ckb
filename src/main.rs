@@ -6,7 +6,7 @@ extern crate dir;
 extern crate log;
 extern crate bigint;
 extern crate ckb_chain as chain;
-extern crate ckb_chain_spec;
+extern crate ckb_chain_spec as chain_spec;
 extern crate ckb_core as core;
 extern crate ckb_db as db;
 extern crate ckb_miner as miner;
@@ -17,7 +17,6 @@ extern crate ckb_rpc as rpc;
 extern crate ckb_shared as shared;
 extern crate ckb_sync as sync;
 extern crate ckb_util as util;
-extern crate ckb_verification as verification;
 extern crate hash;
 extern crate logger;
 #[macro_use]

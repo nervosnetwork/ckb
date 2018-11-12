@@ -1,6 +1,6 @@
 use super::super::setup::Configs;
 use chain::chain::{ChainBuilder, ChainController};
-use ckb_chain_spec::SpecType;
+use chain_spec::SpecType;
 use ckb_instrument::{Format, Import};
 use clap::ArgMatches;
 use config_tool::{Config as ConfigTool, File, FileFormat};

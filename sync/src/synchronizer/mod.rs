@@ -17,12 +17,11 @@ use self::headers_process::HeadersProcess;
 use self::peers::Peers;
 use bigint::H256;
 use ckb_chain::chain::ChainController;
-use ckb_pow::PowEngine;
+use ckb_chain::error::ProcessBlockError;
 use ckb_protocol::{SyncMessage, SyncPayload};
 use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::{ChainProvider, Shared};
 use ckb_time::now_ms;
-use ckb_verification::{BlockVerifier, Verifier};
 use config::Config;
 use core::block::Block;
 use core::header::{BlockNumber, Header};
@@ -35,7 +34,6 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
 use util::{RwLock, RwLockUpgradableReadGuard};
-use AcceptBlockError;
 use {
     CHAIN_SYNC_TIMEOUT, EVICTION_HEADERS_RESPONSE_TIME, HEADERS_DOWNLOAD_TIMEOUT_BASE,
     HEADERS_DOWNLOAD_TIMEOUT_PER_HEADER, MAX_HEADERS_LEN,
@@ -72,8 +70,6 @@ pub type BlockHeaderMap = Arc<RwLock<HashMap<H256, HeaderView>>>;
 pub struct Synchronizer<CI: ChainIndex> {
     chain: ChainController,
     shared: Shared<CI>,
-    pow: Arc<dyn PowEngine>,
-    block_verifier: BlockVerifier<Shared<CI>>,
     pub status_map: BlockStatusMap,
     pub header_map: BlockHeaderMap,
     pub best_known_header: Arc<RwLock<HeaderView>>,
@@ -89,8 +85,6 @@ impl<CI: ChainIndex> ::std::clone::Clone for Synchronizer<CI> {
         Synchronizer {
             chain: self.chain.clone(),
             shared: self.shared.clone(),
-            pow: Arc::clone(&self.pow),
-            block_verifier: self.block_verifier.clone(),
             status_map: Arc::clone(&self.status_map),
             header_map: Arc::clone(&self.header_map),
             best_known_header: Arc::clone(&self.best_known_header),
@@ -109,13 +103,7 @@ fn is_outbound(nc: &CKBProtocolContext, peer: PeerIndex) -> Option<bool> {
 }
 
 impl<CI: ChainIndex> Synchronizer<CI> {
-    pub fn new(
-        chain: ChainController,
-        shared: Shared<CI>,
-        pow: Arc<dyn PowEngine>,
-        block_verifier: BlockVerifier<Shared<CI>>,
-        config: Config,
-    ) -> Synchronizer<CI> {
+    pub fn new(chain: ChainController, shared: Shared<CI>, config: Config) -> Synchronizer<CI> {
         let (total_difficulty, header) = {
             let tip_header = shared.tip_header().read();
             (tip_header.total_difficulty(), tip_header.inner().clone())
@@ -127,8 +115,6 @@ impl<CI: ChainIndex> Synchronizer<CI> {
             config: Arc::new(config),
             chain,
             shared,
-            pow,
-            block_verifier,
             peers: Arc::new(Peers::default()),
             orphan_block_pool: Arc::new(OrphanBlockPool::with_capacity(orphan_block_limit)),
             best_known_header: Arc::new(RwLock::new(best_known_header)),
@@ -403,8 +389,7 @@ impl<CI: ChainIndex> Synchronizer<CI> {
         }
     }
 
-    fn accept_block(&self, peer: PeerIndex, block: &Arc<Block>) -> Result<(), AcceptBlockError> {
-        self.block_verifier.verify(&block)?;
+    fn accept_block(&self, peer: PeerIndex, block: &Arc<Block>) -> Result<(), ProcessBlockError> {
         self.chain.process_block(Arc::clone(&block))?;
         self.mark_block_stored(block.header().hash());
         self.peers.set_last_common_header(peer, &block.header());
@@ -678,16 +663,14 @@ mod tests {
     use self::headers_process::HeadersProcess;
     use super::*;
     use bigint::U256;
+    use chain_spec::consensus::Consensus;
     use ckb_chain::chain::ChainBuilder;
     use ckb_notify::{NotifyController, NotifyService, MINER_SUBSCRIBER};
-    use ckb_pow::DummyPowEngine;
     use ckb_protocol::{Block as FbsBlock, Headers as FbsHeaders};
-    use ckb_shared::consensus::Consensus;
     use ckb_shared::index::ChainIndex;
     use ckb_shared::shared::SharedBuilder;
     use ckb_shared::store::ChainKVStore;
     use ckb_time::set_mock_timer;
-    use ckb_verification::BlockVerifier;
     use core::block::BlockBuilder;
     use core::header::{Header, HeaderBuilder};
     use core::transaction::{CellInput, CellOutput, Transaction, TransactionBuilder};
@@ -726,26 +709,10 @@ mod tests {
     }
 
     fn gen_synchronizer<CI: ChainIndex + 'static>(
-        pow_engine: Arc<dyn PowEngine>,
         chain_controller: ChainController,
         shared: Shared<CI>,
     ) -> Synchronizer<CI> {
-        let block_verifier = BlockVerifier::new(
-            shared.clone(),
-            shared.consensus().clone(),
-            Arc::clone(&pow_engine),
-        );
-        Synchronizer::new(
-            chain_controller,
-            shared,
-            pow_engine,
-            block_verifier,
-            Config::default(),
-        )
-    }
-
-    fn dummy_pow_engine() -> Arc<dyn PowEngine> {
-        Arc::new(DummyPowEngine::new())
+        Synchronizer::new(chain_controller, shared, Config::default())
     }
 
     #[test]
@@ -810,8 +777,7 @@ mod tests {
             insert_block(&chain_controller, &shared, i, i);
         }
 
-        let pow_engine = dummy_pow_engine();
-        let synchronizer = gen_synchronizer(pow_engine, chain_controller.clone(), shared.clone());
+        let synchronizer = gen_synchronizer(chain_controller.clone(), shared.clone());
 
         let locator = synchronizer.get_locator(&shared.tip_header().read().inner());
 
@@ -841,19 +807,9 @@ mod tests {
             insert_block(&chain_controller2, &shared2, i + 1, i);
         }
 
-        let pow_engine = dummy_pow_engine();
+        let synchronizer1 = gen_synchronizer(chain_controller1.clone(), shared1.clone());
 
-        let synchronizer1 = gen_synchronizer(
-            Arc::clone(&pow_engine),
-            chain_controller1.clone(),
-            shared1.clone(),
-        );
-
-        let synchronizer2 = gen_synchronizer(
-            Arc::clone(&pow_engine),
-            chain_controller2.clone(),
-            shared2.clone(),
-        );
+        let synchronizer2 = gen_synchronizer(chain_controller2.clone(), shared2.clone());
 
         let locator1 = synchronizer1.get_locator(&shared1.tip_header().read().inner());
 
@@ -868,11 +824,7 @@ mod tests {
             insert_block(&chain_controller3, &shared3, j, i);
         }
 
-        let synchronizer3 = gen_synchronizer(
-            Arc::clone(&pow_engine),
-            chain_controller3.clone(),
-            shared3.clone(),
-        );
+        let synchronizer3 = gen_synchronizer(chain_controller3.clone(), shared3.clone());
 
         let latest_common3 = synchronizer3.locate_latest_common_block(&H256::zero(), &locator1[..]);
         assert_eq!(latest_common3, Some(192));
@@ -912,18 +864,8 @@ mod tests {
             parent = new_block.header().clone();
         }
 
-        let pow_engine = dummy_pow_engine();
-
-        let synchronizer1 = gen_synchronizer(
-            Arc::clone(&pow_engine),
-            chain_controller1.clone(),
-            shared1.clone(),
-        );
-        let synchronizer2 = gen_synchronizer(
-            Arc::clone(&pow_engine),
-            chain_controller2.clone(),
-            shared2.clone(),
-        );
+        let synchronizer1 = gen_synchronizer(chain_controller1.clone(), shared1.clone());
+        let synchronizer2 = gen_synchronizer(chain_controller2.clone(), shared2.clone());
         let locator1 = synchronizer1.get_locator(&shared1.tip_header().read().inner());
 
         let latest_common = synchronizer2
@@ -951,8 +893,7 @@ mod tests {
             insert_block(&chain_controller, &shared, i, i);
         }
 
-        let pow_engine = dummy_pow_engine();
-        let synchronizer = gen_synchronizer(pow_engine, chain_controller.clone(), shared.clone());
+        let synchronizer = gen_synchronizer(chain_controller.clone(), shared.clone());
 
         let header = synchronizer.get_ancestor(&shared.tip_header().read().hash(), 100);
         let tip = synchronizer.get_ancestor(&shared.tip_header().read().hash(), 199);
@@ -991,8 +932,7 @@ mod tests {
             parent = new_block.header().clone();
         }
 
-        let pow_engine = dummy_pow_engine();
-        let synchronizer = gen_synchronizer(pow_engine, chain_controller2.clone(), shared2.clone());
+        let synchronizer = gen_synchronizer(chain_controller2.clone(), shared2.clone());
 
         blocks.clone().into_iter().for_each(|block| {
             synchronizer.insert_new_block(peer, block);
@@ -1022,8 +962,7 @@ mod tests {
             parent = new_block.header().clone();
         }
 
-        let pow_engine = dummy_pow_engine();
-        let synchronizer = gen_synchronizer(pow_engine, chain_controller.clone(), shared.clone());
+        let synchronizer = gen_synchronizer(chain_controller.clone(), shared.clone());
 
         let headers = synchronizer.get_locator_response(180, &H256::zero());
 
@@ -1130,12 +1069,8 @@ mod tests {
         for i in 1..num {
             insert_block(&chain_controller1, &shared1, i, i);
         }
-        let pow_engine = dummy_pow_engine();
-        let synchronizer1 = gen_synchronizer(
-            Arc::clone(&pow_engine),
-            chain_controller1.clone(),
-            shared1.clone(),
-        );
+
+        let synchronizer1 = gen_synchronizer(chain_controller1.clone(), shared1.clone());
 
         let locator1 = synchronizer1.get_locator(&shared1.tip_header().read().inner());
 
@@ -1144,8 +1079,7 @@ mod tests {
             insert_block(&chain_controller2, &shared2, j, i);
         }
 
-        let synchronizer2 =
-            gen_synchronizer(pow_engine, chain_controller2.clone(), shared2.clone());
+        let synchronizer2 = gen_synchronizer(chain_controller2.clone(), shared2.clone());
         let latest_common = synchronizer2.locate_latest_common_block(&H256::zero(), &locator1[..]);
         assert_eq!(latest_common, Some(192));
 
@@ -1222,8 +1156,7 @@ mod tests {
 
         let (chain_controller, shared, _notify) = start_chain(None, None);
 
-        let pow_engine = dummy_pow_engine();
-        let synchronizer = gen_synchronizer(pow_engine, chain_controller.clone(), shared.clone());
+        let synchronizer = gen_synchronizer(chain_controller.clone(), shared.clone());
 
         let network_context = mock_network_context(5);
         set_mock_timer(MAX_TIP_AGE * 2);
@@ -1253,8 +1186,7 @@ mod tests {
 
         assert_eq!(shared.tip_header().read().total_difficulty(), U256::from(2));
 
-        let pow_engine = dummy_pow_engine();
-        let synchronizer = gen_synchronizer(pow_engine, chain_controller.clone(), shared.clone());
+        let synchronizer = gen_synchronizer(chain_controller.clone(), shared.clone());
 
         let network_context = mock_network_context(6);
         let peers = synchronizer.peers();

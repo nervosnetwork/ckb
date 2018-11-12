@@ -1,7 +1,7 @@
 use super::format::Format;
 use super::iter::ChainIterator;
 use ckb_shared::index::ChainIndex;
-use ckb_shared::shared::Shared;
+use ckb_shared::shared::{ChainProvider, Shared};
 #[cfg(feature = "progress_bar")]
 use indicatif::{ProgressBar, ProgressStyle};
 use serde_json;

@@ -1,12 +1,11 @@
 use bigint::U256;
+use chain_spec::consensus::Consensus;
 use ckb_chain::chain::{ChainBuilder, ChainController};
 use ckb_notify::NotifyService;
 use ckb_protocol::SyncMessage;
-use ckb_shared::consensus::Consensus;
 use ckb_shared::shared::{ChainProvider, Shared, SharedBuilder};
 use ckb_shared::store::ChainKVStore;
 use ckb_time::now_ms;
-use ckb_verification::BlockVerifier;
 use core::block::BlockBuilder;
 use core::header::HeaderBuilder;
 use core::transaction::{CellInput, CellOutput, TransactionBuilder};
@@ -16,7 +15,7 @@ use std::sync::mpsc::channel;
 use std::sync::Arc;
 use std::thread;
 use synchronizer::BLOCK_FETCH_TOKEN;
-use tests::{dummy_pow_engine, TestNode};
+use tests::TestNode;
 use {Config, Synchronizer, SYNC_PROTOCOL_ID};
 
 #[test]
@@ -96,19 +95,7 @@ fn setup_node(height: u64) -> (TestNode, Shared<ChainKVStore<MemoryKeyValueDB>>)
             .expect("process block should be OK");
     }
 
-    let pow_engine = dummy_pow_engine();
-    let block_verifier = BlockVerifier::new(
-        shared.clone(),
-        shared.consensus().clone(),
-        Arc::clone(&pow_engine),
-    );
-    let synchronizer = Synchronizer::new(
-        chain_controller,
-        shared.clone(),
-        pow_engine,
-        block_verifier,
-        Config::default(),
-    );
+    let synchronizer = Synchronizer::new(chain_controller, shared.clone(), Config::default());
     let mut node = TestNode::default();
     node.add_protocol(
         SYNC_PROTOCOL_ID,
