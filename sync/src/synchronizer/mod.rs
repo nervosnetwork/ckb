@@ -1042,6 +1042,10 @@ mod tests {
         fn protocol_id(&self) -> ProtocolId {
             unimplemented!();
         }
+
+        fn connected_peers(&self) -> Vec<PeerIndex> {
+            unimplemented!();
+        }
     }
 
     fn mock_network_context(peer_num: usize) -> DummyNetworkContext {

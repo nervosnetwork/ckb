@@ -4,6 +4,7 @@ use ckb_shared::index::ChainIndex;
 use flatbuffers::FlatBufferBuilder;
 use network::{CKBProtocolContext, PeerIndex};
 use relayer::Relayer;
+use std::collections::HashSet;
 
 pub struct CompactBlockProcess<'a, CI: ChainIndex + 'a> {
     message: &'a FbsCompactBlock<'a>,
@@ -45,14 +46,18 @@ where
 
             match self.relayer.reconstruct_block(&compact_block, Vec::new()) {
                 (Some(block), _) => {
-                    let _ = self.relayer.accept_block(self.peer, block);
-                    // TODO PENDING new api NetworkContext#connected_peers
-                    // for peer_id in self.nc.connected_peers() {
-                    //     let fbb = &mut FlatBufferBuilder::new();
-                    //     let message = RelayMessage::build_compact_block(fbb, &block, &HashSet::new());
-                    //     fbb.finish(message, None);
-                    //     self.nc.send(peer_id, 0, fbb.finished_data().to_vec());
-                    // }
+                    if self.relayer.accept_block(self.peer, block.clone()).is_ok() {
+                        let fbb = &mut FlatBufferBuilder::new();
+                        let message =
+                            RelayMessage::build_compact_block(fbb, &block, &HashSet::new());
+                        fbb.finish(message, None);
+
+                        for peer_id in self.nc.connected_peers() {
+                            if peer_id != self.peer {
+                                let _ = self.nc.send(peer_id, fbb.finished_data().to_vec());
+                            }
+                        }
+                    }
                 }
                 (_, Some(missing_indexes)) => {
                     let hash = compact_block.header.hash();

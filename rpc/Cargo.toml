@@ -26,6 +26,7 @@ serde_json = "1.0"
 log = "0.4"
 crossbeam-channel = "0.2"
 fnv = "1.0.3"
+flatbuffers = "0.5.0"
 
 [dev-dependencies]
 ckb-db = { path = "../db" }

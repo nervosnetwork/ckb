@@ -36,6 +36,7 @@ pub trait CKBProtocolContext: Send {
                     .and_then(|session| Some((*peer_index, session)))
             }).collect()
     }
+    fn connected_peers(&self) -> Vec<PeerIndex>;
 }
 
 pub(crate) struct DefaultCKBProtocolContext {
@@ -146,6 +147,12 @@ impl CKBProtocolContext for DefaultCKBProtocolContext {
 
     fn protocol_id(&self) -> ProtocolId {
         self.protocol_id
+    }
+
+    fn connected_peers(&self) -> Vec<PeerIndex> {
+        let peers_registry = self.network.peers_registry().read();
+        let iter = peers_registry.connected_peers_indexes();
+        iter.collect::<Vec<_>>()
     }
 }
 

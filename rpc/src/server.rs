@@ -3,15 +3,18 @@ use super::{BlockWithHash, CellOutputWithOutPoint, Config, TransactionWithHash};
 use bigint::H256;
 use core::header::{BlockNumber, Header};
 use core::transaction::{OutPoint, Transaction};
+use flatbuffers::FlatBufferBuilder;
 use jsonrpc_core::{Error, IoHandler, Result};
 use jsonrpc_http_server::ServerBuilder;
 use jsonrpc_server_utils::cors::AccessControlAllowOrigin;
 use jsonrpc_server_utils::hosts::DomainsValidation;
 use network::NetworkService;
 use pool::txs_pool::TransactionPoolController;
+use protocol::RelayMessage;
 use shared::index::ChainIndex;
 use shared::shared::{ChainProvider, Shared};
 use std::sync::Arc;
+use sync::RELAY_PROTOCOL_ID;
 
 build_rpc_trait! {
     pub trait Rpc {
@@ -46,7 +49,7 @@ build_rpc_trait! {
 }
 
 struct RpcImpl<CI> {
-    _network: Arc<NetworkService>,
+    network: Arc<NetworkService>,
     shared: Shared<CI>,
     tx_pool: TransactionPoolController,
     controller: RpcController,
@@ -54,15 +57,21 @@ struct RpcImpl<CI> {
 
 impl<CI: ChainIndex + 'static> Rpc for RpcImpl<CI> {
     fn send_transaction(&self, tx: Transaction) -> Result<H256> {
-        let result = tx.hash();
-        let pool_result = self.tx_pool.add_transaction(tx);
+        let tx_hash = tx.hash();
+        let pool_result = self.tx_pool.add_transaction(tx.clone());
         debug!(target: "rpc", "send_transaction add to pool result: {:?}", pool_result);
-        // TODO PENDING new api NetworkContext#connected_peers
-        // for peer_id in self.nc.connected_peers() {
-        //     let data = builde_transaction(indexed_tx);
-        //     self.nc.send(peer_id, 0, data.to_vec());
-        // }
-        Ok(result)
+
+        let fbb = &mut FlatBufferBuilder::new();
+        let message = RelayMessage::build_transaction(fbb, &tx);
+        fbb.finish(message, None);
+
+        self.network.with_protocol_context(RELAY_PROTOCOL_ID, |nc| {
+            for peer in nc.connected_peers() {
+                debug!(target: "rpc", "relay transaction {} to peer#{}", tx_hash, peer);
+                let _ = nc.send(peer, fbb.finished_data().to_vec());
+            }
+        });
+        Ok(tx_hash)
     }
 
     fn get_block(&self, hash: H256) -> Result<Option<BlockWithHash>> {
@@ -130,7 +139,7 @@ pub struct RpcServer {
 impl RpcServer {
     pub fn start<CI: ChainIndex + 'static>(
         &self,
-        _network: Arc<NetworkService>,
+        network: Arc<NetworkService>,
         shared: Shared<CI>,
         tx_pool: TransactionPoolController,
         controller: RpcController,
@@ -140,7 +149,7 @@ impl RpcServer {
         let mut io = IoHandler::new();
         io.extend_with(
             RpcImpl {
-                _network,
+                network,
                 shared,
                 tx_pool,
                 controller,

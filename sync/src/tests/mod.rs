@@ -187,6 +187,11 @@ impl NetworkContext for TestNetworkContext {
         None
     }
 
+    fn connected_peers(&self) -> Vec<PeerIndex> {
+        self.msg_senders.keys().map(|k| k.1).collect::<Vec<_>>()
+    }
+}
+
     fn subprotocol_name(&self) -> ProtocolId {
         [1, 1, 1]
     }

@@ -1,4 +1,5 @@
 extern crate bigint;
+extern crate flatbuffers;
 extern crate jsonrpc_core;
 #[macro_use]
 extern crate jsonrpc_macros;
@@ -12,7 +13,9 @@ extern crate ckb_db as db;
 extern crate ckb_network as network;
 extern crate ckb_notify as notify;
 extern crate ckb_pool as pool;
+extern crate ckb_protocol as protocol;
 extern crate ckb_shared as shared;
+extern crate ckb_sync as sync;
 extern crate ckb_time;
 #[cfg(test)]
 extern crate ckb_verification as verification;

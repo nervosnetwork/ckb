@@ -157,12 +157,12 @@ impl MinerService {
 
     fn announce_new_block(&self, block: &Arc<Block>) {
         self.network.with_protocol_context(RELAY_PROTOCOL_ID, |nc| {
-            for peer in self.network.connected_peers_indexes() {
+            let fbb = &mut FlatBufferBuilder::new();
+            let message = RelayMessage::build_compact_block(fbb, &block, &HashSet::new());
+            fbb.finish(message, None);
+            for peer in nc.connected_peers() {
                 debug!(target: "miner", "announce new block to peer#{}, {} => {}",
                        peer, block.header().number(), block.header().hash());
-                let fbb = &mut FlatBufferBuilder::new();
-                let message = RelayMessage::build_compact_block(fbb, &block, &HashSet::new());
-                fbb.finish(message, None);
                 let _ = nc.send(peer, fbb.finished_data().to_vec());
             }
         });

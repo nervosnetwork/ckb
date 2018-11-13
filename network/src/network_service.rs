@@ -1,5 +1,5 @@
+use super::NetworkConfig;
 use super::{Error, ErrorKind, ProtocolId};
-use super::{NetworkConfig, PeerIndex};
 use ckb_protocol::CKBProtocol;
 use ckb_protocol_handler::CKBProtocolHandler;
 use ckb_protocol_handler::{CKBProtocolContext, DefaultCKBProtocolContext};
@@ -43,23 +43,6 @@ impl NetworkService {
     #[inline]
     pub(crate) fn peer_store<'a>(&'a self) -> &'a RwLock<Box<PeerStore>> {
         &self.network.peer_store()
-    }
-
-    #[cfg_attr(feature = "cargo-clippy", allow(let_and_return))]
-    pub fn connected_peers(&self) -> Vec<PeerId> {
-        let peers_registry = self.peers_registry().read();
-        let peers = peers_registry
-            .connected_peers()
-            .map(|peer_id| peer_id.to_owned())
-            .collect::<Vec<_>>();
-        peers
-    }
-
-    #[cfg_attr(feature = "cargo-clippy", allow(let_and_return))]
-    pub fn connected_peers_indexes(&self) -> Vec<PeerIndex> {
-        let peers_registry = self.peers_registry().read();
-        let peers = peers_registry.connected_peers_indexes().collect::<Vec<_>>();
-        peers
     }
 
     pub fn add_peer(&self, peer_id: PeerId, peer: PeerConnection) {

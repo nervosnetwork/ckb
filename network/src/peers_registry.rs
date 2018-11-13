@@ -272,11 +272,6 @@ impl PeersRegistry {
     }
 
     #[inline]
-    pub fn connected_peers<'a>(&'a self) -> impl Iterator<Item = &'a PeerId> + 'a {
-        Box::new(self.peer_connections.iter().map(|(k, _v)| k))
-    }
-
-    #[inline]
     pub fn connected_peers_indexes<'a>(&'a self) -> impl Iterator<Item = PeerIndex> + 'a {
         Box::new(
             self.peer_connections

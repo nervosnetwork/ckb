@@ -1,12 +1,12 @@
-use ckb_protocol::Transaction;
+use ckb_protocol::{RelayMessage, Transaction as FbsTransaction};
 use ckb_shared::index::ChainIndex;
+use core::transaction::Transaction;
+use flatbuffers::FlatBufferBuilder;
 use network::{CKBProtocolContext, PeerIndex};
 use relayer::Relayer;
 
-// TODO PENDING remove this attribute later
-#[allow(dead_code)]
 pub struct TransactionProcess<'a, CI: ChainIndex + 'a> {
-    message: &'a Transaction<'a>,
+    message: &'a FbsTransaction<'a>,
     relayer: &'a Relayer<CI>,
     peer: PeerIndex,
     nc: &'a CKBProtocolContext,
@@ -17,7 +17,7 @@ where
     CI: ChainIndex + 'static,
 {
     pub fn new(
-        message: &'a Transaction,
+        message: &'a FbsTransaction,
         relayer: &'a Relayer<CI>,
         peer: PeerIndex,
         nc: &'a CKBProtocolContext,
@@ -31,12 +31,17 @@ where
     }
 
     pub fn execute(self) {
-        let tx = (*self.message).into();
-        let _ = self.relayer.tx_pool.add_transaction(tx);
-        // TODO PENDING new api NetworkContext#connected_peers
-        // for peer_id in self.nc.connected_peers() {
-        //     let data = builde_transaction(indexed_tx);
-        //     self.nc.send(peer_id, 0, data.to_vec());
-        // }
+        let tx: Transaction = (*self.message).into();
+        let _ = self.relayer.tx_pool.add_transaction(tx.clone());
+
+        let fbb = &mut FlatBufferBuilder::new();
+        let message = RelayMessage::build_transaction(fbb, &tx);
+        fbb.finish(message, None);
+
+        for peer_id in self.nc.connected_peers() {
+            if peer_id != self.peer {
+                let _ = self.nc.send(peer_id, fbb.finished_data().to_vec());
+            }
+        }
     }
 }
