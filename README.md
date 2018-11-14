@@ -90,20 +90,6 @@ curl -d '{"id": 2, "jsonrpc": "2.0", "method":"send_transaction","params": [{"ve
   -H 'content-type:application/json' 'http://localhost:3030'
 ```
 
-### Protobuf Code Generation
-
-Install protobuf:
-
-```shell
-cargo install protobuf-codegen --force --vers 2.0.4
-```
-
-Generate code from proto definition:
-
-```shell
-make proto
-```
-
 ### Development running
 
 Run multiple nodes:
