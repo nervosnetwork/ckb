@@ -28,9 +28,6 @@ ci: fmt clippy test build-integration-test
 ci-quick: test build-integration-test
 	git diff --exit-code Cargo.lock
 
-proto:
-	protoc --rust_out network/protocol/src network/protocol/src/protocol.proto
-
 info:
 	date
 	pwd
