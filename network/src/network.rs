@@ -97,13 +97,18 @@ impl Network {
     }
 
     pub fn external_url(&self) -> Option<String> {
-        self.original_listened_addresses.read().get(0).map(|addr| {
-            format!(
-                "{}/p2p/{}",
-                addr,
-                self.local_private_key.to_peer_id().to_base58()
-            )
-        })
+        self.original_listened_addresses
+            .read()
+            .get(0)
+            .map(|addr| self.to_external_url(addr))
+    }
+
+    fn to_external_url(&self, addr: &Multiaddr) -> String {
+        format!(
+            "{}/p2p/{}",
+            addr,
+            self.local_private_key.to_peer_id().to_base58()
+        )
     }
 
     pub(crate) fn send(
@@ -536,7 +541,6 @@ impl Network {
             match swarm_controller.listen_on(addr.clone()) {
                 Ok(listen_address) => {
                     info!(
-                        target: "network",
                         "Listen on address: {}",
                         network.to_external_url(&listen_address)
                     );
