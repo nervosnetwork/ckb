@@ -112,7 +112,6 @@ impl<'a> TransactionScriptsVerifier<'a> {
         for (i, input) in self.inputs.iter().enumerate() {
             self.verify_script(&input.unlock).map_err(|e| {
                 info!(target: "script", "Error validating input {} of transaction {}: {:?}", i, self.hash, e);
-                println!("Error validating input {} of transaction {}: {:?}", i, self.hash, e);
                 e
             })?;
         }
@@ -120,7 +119,6 @@ impl<'a> TransactionScriptsVerifier<'a> {
             if let Some(ref contract) = output.contract {
                 self.verify_script(contract).map_err(|e| {
                     info!(target: "script", "Error validating output {} of transaction {}: {:?}", i, self.hash, e);
-                    println!("Error validating output {} of transaction {}: {:?}", i, self.hash, e);
                     e
                 })?;
             }
