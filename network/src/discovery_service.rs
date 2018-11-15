@@ -8,7 +8,6 @@ use libp2p::core::{upgrade, MuxedTransport, PeerId};
 use libp2p::core::{Endpoint, Multiaddr, UniqueConnec};
 use libp2p::core::{PublicKey, SwarmController};
 use libp2p::{kad, Transport};
-use parking_lot::Mutex;
 use peer_store::Status;
 use protocol::Protocol;
 use protocol_service::ProtocolService;
@@ -25,6 +24,7 @@ use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::timer::Interval;
 use tokio::timer::Timeout;
 use transport::TransportOutput;
+use util::Mutex;
 
 pub struct DiscoveryService {
     timeout: Duration,
@@ -111,7 +111,7 @@ impl<T: Send> ProtocolService<T> for DiscoveryService {
             let kad_upgrade = self.kad_upgrade.clone();
             // dial kad peer
             move |peer_id| {
-                debug!("Initialize kad search peers from peer {:?}", peer_id);
+                debug!(target: "network", "Initialize kad search peers from peer {:?}", peer_id);
                 Self::dial_kad_peer(
                     Arc::clone(&kad_manage),
                     kad_upgrade.clone(),
@@ -223,7 +223,7 @@ impl DiscoveryService {
         _endpoint: Endpoint,
         kademlia_stream: Box<Stream<Item = kad::KadIncomingRequest, Error = IoError> + Send>,
     ) -> Result<Box<Future<Item = (), Error = IoError> + Send>, IoError> {
-        debug!("client_addr is {:?}", client_addr);
+        debug!(target: "network", "client_addr is {:?}", client_addr);
         //let peer_id = match convert_addr_into_peer_id(client_addr) {
         //    Some(peer_id) => peer_id,
         //    None => {
@@ -247,7 +247,7 @@ impl DiscoveryService {
                     Timeout::new(next_future, timeout)
                         .map_err({
                             move |err| {
-                                info!("kad timeout error {:?}", err.description());
+                                info!(target: "network", "kad timeout error {:?}", err.description());
                                 IoError::new(
                                     IoErrorKind::Other,
                                     format!("discovery request timeout {:?}", err.description()),
@@ -278,6 +278,7 @@ impl DiscoveryService {
                 let peer_id = peer_id.clone();
                 move |val| {
                     trace!(
+                        target: "network",
                         "Kad connection closed when handling peer {:?} reason: {:?}",
                         peer_id,
                         val
@@ -314,7 +315,8 @@ impl DiscoveryService {
                 let network = Arc::clone(&network);
                 move |peer_id| {
                     if peer_id == *kad_system.local_peer_id() {
-                        info!(
+                        debug!(
+                            target: "network",
                             "response self address to kad {:?}",
                             network.listened_addresses.read().clone()
                         );
@@ -336,7 +338,8 @@ impl DiscoveryService {
                             Status::Connected => kad::KadConnectionType::Connected,
                             _ => kad::KadConnectionType::NotConnected,
                         };
-                        info!(
+                        debug!(
+                            target: "network",
                             "response other address to kad {:?} {:?}",
                             peer_id,
                             multiaddrs.clone()
@@ -404,6 +407,7 @@ impl DiscoveryService {
                 Some(Some(addr)) => addr.to_owned(),
                 _ => {
                     debug!(
+                        target: "network",
                         "dial kad error, can't find dial address for peer_id {:?}",
                         peer_id
                     );

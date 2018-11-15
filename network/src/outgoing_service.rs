@@ -106,7 +106,7 @@ impl<T: Send + 'static> ProtocolService<T> for OutgoingService {
                 Box::new(lazy(|| future::ok(()))) as Box<Future<Item = _, Error = _> + Send>
             }
         }).then(|err| {
-            warn!("Outgoing service stopped, reason: {:?}", err);
+            warn!(target: "network", "Outgoing service stopped, reason: {:?}", err);
             err
         });
         Box::new(outgoing_future) as Box<Future<Item = _, Error = _> + Send>

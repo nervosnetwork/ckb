@@ -242,7 +242,7 @@ impl<CI: ChainIndex + 'static> RpcService<CI> {
         let mut included = FnvHashSet::default();
         let mut uncles = Vec::with_capacity(max_uncles_len);
         let mut bad_uncles = Vec::new();
-        let current_number = self.shared.tip_header().read().number() + 1;
+        let current_number = tip_header.number() + 1;
         for (hash, block) in &self.candidate_uncles {
             if uncles.len() == max_uncles_len {
                 break;

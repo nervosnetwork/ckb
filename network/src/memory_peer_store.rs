@@ -113,6 +113,7 @@ impl PeerStore for MemoryPeerStore {
     }
     fn peers_to_attempt<'a>(&'a self) -> Box<Iterator<Item = (&'a PeerId, &'a Multiaddr)> + 'a> {
         trace!(
+            target: "network",
             "try fetch attempt peers from {:?}",
             self.peers.iter().collect::<Vec<_>>()
         );

@@ -554,14 +554,17 @@ where
                 }
             }
 
-            self.proposed.reconcile(bn, ids).unwrap()
+            self.proposed.reconcile(bn, ids).unwrap_or_else(|error| {
+                error!(target: "txs_pool", "Failed to proposed reconcile {:?}", error);
+                vec![]
+            })
         };
 
         // We can sort it by some rules
         for tx in new_txs {
             let tx_hash = tx.hash();
             if let Err(error) = self.add_to_pool(tx) {
-                info!(target: "txs_pool", "Failed to add proposed tx {:} to pool, reason: {:?}", tx_hash, error);
+                error!(target: "txs_pool", "Failed to add proposed tx {:} to pool, reason: {:?}", tx_hash, error);
             }
         }
     }

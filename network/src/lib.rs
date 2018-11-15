@@ -8,9 +8,9 @@ extern crate unsigned_varint;
 #[macro_use]
 extern crate log;
 extern crate fnv;
-extern crate parking_lot;
 #[macro_use]
 extern crate serde_derive;
+extern crate ckb_util as util;
 
 mod ckb_protocol;
 mod ckb_protocol_handler;

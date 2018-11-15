@@ -104,6 +104,10 @@ impl BlocksInflight {
     pub fn update_timestamp(&mut self) {
         self.timestamp = now_ms();
     }
+
+    pub fn clear(&mut self) {
+        self.blocks.clear();
+    }
 }
 
 impl Peers {
@@ -177,6 +181,7 @@ impl Peers {
         self.best_known_headers.write().remove(&peer);
         // self.misbehavior.write().remove(peer);
         self.blocks_inflight.write().remove(&peer);
+        self.last_common_headers.write().remove(&peer);
     }
 
     pub fn block_received(&self, peer: PeerIndex, block: &Block) {
@@ -184,6 +189,7 @@ impl Peers {
         debug!(target: "sync", "block_received from peer {} {} {:?}", peer, block.header().number(), block.header().hash());
         blocks_inflight.entry(peer).and_modify(|inflight| {
             inflight.remove(&block.header().hash());
+            inflight.update_timestamp();
         });
     }
 

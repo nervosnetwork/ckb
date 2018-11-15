@@ -63,7 +63,7 @@ impl NetworkConfig {
     }
 
     pub fn generate_random_key(&mut self) -> Result<secio::SecioKeyPair, IoError> {
-        info!("Generate random key");
+        info!(target: "network", "Generate random key");
         let mut key: [u8; 32] = [0; 32];
         rand::rngs::EntropyRng::new().fill(&mut key);
         self.secret_key = Some(Bytes::from(key.to_vec()));
@@ -78,7 +78,7 @@ impl NetworkConfig {
     pub fn write_secret_key_to_file(&mut self) -> Result<(), IoError> {
         if let Some(ref secret_key_path) = self.secret_key_path {
             if let Some(secret_key) = self.secret_key.clone() {
-                info!("write random secret key to {}", secret_key_path);
+                info!(target: "network", "write random secret key to {}", secret_key_path);
                 return fs::OpenOptions::new()
                     .create(true)
                     .write(true)

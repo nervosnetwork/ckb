@@ -19,7 +19,6 @@ use libp2p::core::{PublicKey, SwarmController};
 use libp2p::{self, identify, kad, secio, Transport, TransportTimeout};
 use memory_peer_store::MemoryPeerStore;
 use outgoing_service::OutgoingService;
-use parking_lot::{Mutex, RwLock};
 use peer_store::{Behaviour, PeerStore};
 use peers_registry::PeerIdentifyInfo;
 use peers_registry::PeersRegistry;
@@ -35,6 +34,7 @@ use std::usize;
 use timer_service::TimerService;
 use tokio::io::{AsyncRead, AsyncWrite};
 use transport::{new_transport, TransportOutput};
+use util::{Mutex, RwLock};
 
 const WAIT_LOCK_TIMEOUT: u64 = 3;
 const KBUCKETS_TIMEOUT: u64 = 600;
@@ -272,6 +272,7 @@ impl Network {
         C: Send + 'static,
     {
         trace!(
+            target: "network",
             "prepare open protocol {:?} to {:?}",
             protocol.base_name(),
             addr
@@ -326,6 +327,7 @@ impl Network {
         });
 
         trace!(
+            target: "network",
             "Opening connection to {:?} addr {} with protocol {:?}",
             expected_peer_id,
             addr,
@@ -389,7 +391,7 @@ impl Network {
                     move |err, addr| {
                         let mut peer_store = network.peer_store().write();
                         peer_store.report_address(&addr, Behaviour::FailedToConnect);
-                        trace!("Failed to connect to peer {}, error: {:?}", addr, err);
+                        trace!(target: "network", "Failed to connect to peer {}, error: {:?}", addr, err);
                         err
                     }
                 });
@@ -398,9 +400,9 @@ impl Network {
                 let local_peer_id = local_peer_id.clone();
                 move |(peer_id, stream), _endpoint, remote_addr_fut| {
                     remote_addr_fut.and_then(move |remote_addr| {
-                        trace!("connection from {:?}", remote_addr);
+                        trace!(target: "network", "connection from {:?}", remote_addr);
                         if peer_id == local_peer_id {
-                            trace!("connect to self, disconnect");
+                            trace!(target: "network", "connect to self, disconnect");
                             return Err(IoErrorKind::ConnectionRefused.into());
                         }
                         let out = TransportOutput {
@@ -533,7 +535,11 @@ impl Network {
         for addr in &config.listen_addresses {
             match swarm_controller.listen_on(addr.clone()) {
                 Ok(listen_address) => {
-                    info!("Listen on address {}", listen_address.clone());
+                    info!(
+                        target: "network",
+                        "Listen on address: {}",
+                        network.to_external_url(&listen_address)
+                    );
                     network
                         .original_listened_addresses
                         .write()
@@ -541,6 +547,7 @@ impl Network {
                 }
                 Err(err) => {
                     warn!(
+                        target: "network",
                         "listen on address {} failed, due to error: {}",
                         addr.clone(),
                         err
@@ -567,7 +574,7 @@ impl Network {
             }
             // dial bootnodes
             for (peer_id, addr) in peer_store.bootnodes().take(max_outgoing) {
-                debug!("dial bootnode {:?} {:?}", peer_id, addr);
+                debug!(target: "network", "dial bootnode {:?} {:?}", peer_id, addr);
                 network.dial_to_peer(
                     basic_transport.clone(),
                     addr,
@@ -613,12 +620,12 @@ impl Network {
                 let network = Arc::clone(&network);
                 move |_| {
                     let mut peers_registry = network.peers_registry().write();
-                    debug!("drop all connections...");
+                    debug!(target: "network", "drop all connections...");
                     peers_registry.drop_all();
                     Ok(())
                 }
             }).map_err(|(err, _, _)| {
-                debug!("network exit, error {:?}", err);
+                debug!(target: "network", "network exit, error {:?}", err);
                 err
             });
         let service_futures =

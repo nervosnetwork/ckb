@@ -559,6 +559,7 @@ impl<CI: ChainIndex> Synchronizer<CI> {
             }
         }
         for peer in eviction {
+            warn!(target: "sync", "timeout eviction peer={}", peer);
             nc.report_peer(peer, Severity::Timeout);
         }
     }
@@ -614,9 +615,9 @@ where
 {
     fn initialize(&self, nc: Box<CKBProtocolContext>) {
         // NOTE: 100ms is what bitcoin use.
-        let _ = nc.register_timer(SEND_GET_HEADERS_TOKEN, Duration::from_millis(100));
-        let _ = nc.register_timer(BLOCK_FETCH_TOKEN, Duration::from_millis(100));
-        let _ = nc.register_timer(TIMEOUT_EVICTION_TOKEN, Duration::from_millis(100));
+        let _ = nc.register_timer(SEND_GET_HEADERS_TOKEN, Duration::from_millis(1000));
+        let _ = nc.register_timer(BLOCK_FETCH_TOKEN, Duration::from_millis(1000));
+        let _ = nc.register_timer(TIMEOUT_EVICTION_TOKEN, Duration::from_millis(1000));
     }
 
     fn received(&self, nc: Box<CKBProtocolContext>, peer: PeerIndex, data: &[u8]) {

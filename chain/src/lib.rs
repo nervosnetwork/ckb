@@ -19,6 +19,7 @@ extern crate ckb_verification as verification;
 extern crate log;
 #[macro_use]
 extern crate crossbeam_channel as channel;
+extern crate ckb_util as util;
 
 #[cfg(test)]
 extern crate rand;

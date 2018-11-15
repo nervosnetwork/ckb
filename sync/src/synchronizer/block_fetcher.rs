@@ -2,12 +2,16 @@ use super::header_view::HeaderView;
 use bigint::H256;
 use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::{ChainProvider, TipHeader};
+use ckb_time::now_ms;
 use core::header::Header;
 use network::PeerIndex;
 use std::cmp;
 use synchronizer::{BlockStatus, Synchronizer};
 use util::RwLockUpgradableReadGuard;
-use {BLOCK_DOWNLOAD_WINDOW, MAX_BLOCKS_IN_TRANSIT_PER_PEER, PER_FETCH_BLOCK_LIMIT};
+use {
+    BLOCK_DOWNLOAD_TIMEOUT, BLOCK_DOWNLOAD_WINDOW, MAX_BLOCKS_IN_TRANSIT_PER_PEER,
+    PER_FETCH_BLOCK_LIMIT,
+};
 
 pub struct BlockFetcher<CI: ChainIndex> {
     synchronizer: Synchronizer<CI>,
@@ -29,13 +33,17 @@ where
     }
     pub fn initial_and_check_inflight(&self) -> bool {
         let mut blocks_inflight = self.synchronizer.peers.blocks_inflight.write();
-        let inflight_count = blocks_inflight
+        let inflight = blocks_inflight
             .entry(self.peer)
-            .or_insert_with(Default::default)
-            .len();
+            .or_insert_with(Default::default);
+
+        if inflight.timestamp < now_ms().saturating_sub(BLOCK_DOWNLOAD_TIMEOUT) {
+            debug!(target: "sync", "[block downloader] inflight block download timeout");
+            inflight.clear();
+        }
 
         // current peer block blocks_inflight reach limit
-        if MAX_BLOCKS_IN_TRANSIT_PER_PEER.saturating_sub(inflight_count) == 0 {
+        if MAX_BLOCKS_IN_TRANSIT_PER_PEER.saturating_sub(inflight.len()) == 0 {
             debug!(target: "sync", "[block downloader] inflight count reach limit");
             true
         } else {

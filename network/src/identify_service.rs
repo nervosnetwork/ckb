@@ -2,7 +2,7 @@
 
 use super::Network;
 use super::PeerId;
-use futures::future::{self, lazy, Future};
+use futures::future::{self, Future};
 use futures::Stream;
 use libp2p::core::Multiaddr;
 use libp2p::core::SwarmController;
@@ -51,6 +51,7 @@ impl IdentifyService {
                     })
                 }
                 None => error!(
+                    target: "network",
                     "can't find peer_id {:?} during process identify info",
                     peer_id
                 ),
@@ -61,13 +62,14 @@ impl IdentifyService {
         for original_address in network.original_listened_addresses.read().iter() {
             let transport = libp2p::tcp::TcpConfig::new();
             trace!(
+                target: "network",
                 "try get address use original_address {:?} and observed_address {:?}",
                 original_address,
                 observed_addr
             );
             // get an external addrs for our node
             if let Some(mut ext_addr) = transport.nat_traversal(original_address, &observed_addr) {
-                debug!("get new external address {:?}", ext_addr);
+                debug!(target: "network", "get new external address {:?}", ext_addr);
                 let mut listened_addresses = network.listened_addresses.write();
                 if !listened_addresses.iter().any(|a| a == &ext_addr) {
                     listened_addresses.push(ext_addr.clone());
@@ -182,7 +184,7 @@ where
             Instant::now() + Duration::from_secs(5),
             self.identify_interval,
         ).map_err(|err| {
-            debug!("identify periodic error {:?}", err);
+            debug!(target: "network", "identify periodic error {:?}", err);
             IoError::new(
                 IoErrorKind::Other,
                 format!("identify periodic error {:?}", err),
@@ -200,6 +202,7 @@ where
                         }
                     }
                     trace!(
+                        target: "network",
                         "request identify to peer {:?} {:?}",
                         peer_id,
                         peer.remote_addresses
@@ -210,15 +213,16 @@ where
                         let _ = swarm_controller.dial(addr.clone(), transport.clone());
                     } else {
                         error!(
+                            target: "network",
                             "error when prepare identify : can't find addresses for peer {:?}",
                             peer_id
                         );
                     }
                 }
-                Box::new(lazy(|| future::ok(()))) as Box<Future<Item = _, Error = _> + Send>
+                Ok(())
             }
         }).then(|err| {
-            warn!("Identify service stopped, reason: {:?}", err);
+            warn!(target: "network", "Identify service stopped, reason: {:?}", err);
             err
         });
         Box::new(periodic_identify_future) as Box<Future<Item = _, Error = _> + Send>

@@ -104,7 +104,7 @@ where
                 Ok(result) => result,
                 Err(err) => {
                     return {
-                        error!("failed to upgrade ckb_protocol");
+                        error!(target: "network", "failed to upgrade ckb_protocol");
                         future::err(IoError::new(IoErrorKind::Other, err))
                     }
                 }
@@ -118,7 +118,7 @@ where
             outgoing_msg_channel,
             incoming_stream,
         };
-        trace!("success to upgrade ckb_protocol");
+        trace!(target: "network", "success to upgrade ckb_protocol");
 
         future::ok((out, remote_addr))
     }

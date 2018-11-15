@@ -145,6 +145,7 @@ impl<T: Send> ProtocolService<T> for PingService {
                                                 let received_during = ping_start_time.elapsed();
                                                 peer_store.report(&peer_id, Behaviour::Ping);
                                                 trace!(
+                                                    target: "network",
                                                     "received pong from {:?} in {:?}",
                                                     peer_id,
                                                     received_during
@@ -159,6 +160,7 @@ impl<T: Send> ProtocolService<T> for PingService {
                                                     .write()
                                                     .drop_peer(&peer_id);
                                                 trace!(
+                                                    target: "network",
                                                     "error when send ping to {:?}, error: {:?}",
                                                     peer_id,
                                                     err
@@ -180,7 +182,7 @@ impl<T: Send> ProtocolService<T> for PingService {
                         ) as Box<Future<Item = _, Error = _> + Send>
                     }
                 }).then(|err| {
-                    warn!("Ping service stopped, reason: {:?}", err);
+                    warn!(target: "network", "Ping service stopped, reason: {:?}", err);
                     err
                 });
         Box::new(periodic_ping_future) as Box<Future<Item = _, Error = _> + Send>

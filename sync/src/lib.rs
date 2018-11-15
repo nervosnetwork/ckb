@@ -73,3 +73,5 @@ pub const EVICTION_HEADERS_RESPONSE_TIME: u64 = 120 * 1000; // 2 minutes
 
 //The maximum number of entries in a locator
 pub const MAX_LOCATOR_SIZE: usize = 101;
+
+pub const BLOCK_DOWNLOAD_TIMEOUT: u64 = 30 * 1000; // 30s

@@ -7,7 +7,6 @@ use futures::future::Future;
 use futures::sync::oneshot;
 use libp2p::core::PeerId;
 use network::Network;
-use parking_lot::RwLock;
 use peer_store::PeerStore;
 use peers_registry::{PeerConnection, PeersRegistry};
 use std::boxed::Box;
@@ -15,6 +14,7 @@ use std::io::{Error as IoError, ErrorKind as IoErrorKind};
 use std::sync::Arc;
 use std::thread;
 use tokio::runtime::current_thread;
+use util::RwLock;
 
 pub struct NetworkService {
     network: Arc<Network>,
@@ -74,11 +74,16 @@ impl NetworkService {
             let network = Arc::clone(&network);
             let config = config.clone();
             move || {
+                info!(
+                    target: "network",
+                    "network peer_id {:?}",
+                    network.local_public_key().clone().into_peer_id()
+                );
                 let network_future =
                     Network::build_network_future(network, &config, close_rx).unwrap();
                 init_tx.send(()).unwrap();
                 match current_thread::block_on_all(network_future) {
-                    Ok(_) => info!("network service exit"),
+                    Ok(_) => info!(target: "network", "network service exit"),
                     Err(err) => panic!("network service exit unexpected {}", err),
                 }
             }
@@ -99,11 +104,11 @@ impl NetworkService {
     // This method will not wait for the server stopped, you should use server_future or
     // thread_handle to achieve that.
     fn shutdown(&mut self) -> Result<(), IoError> {
-        debug!("shutdown network service self: {:?}", self.external_url());
+        debug!(target: "network", "shutdown network service self: {:?}", self.external_url());
         if let Some(close_tx) = self.close_tx.take() {
             let _ = close_tx
                 .send(())
-                .map_err(|err| debug!("send shutdown signal error, ignoring error: {:?}", err));
+                .map_err(|err| debug!(target: "network", "send shutdown signal error, ignoring error: {:?}", err));
         };
         if let Some(join_handle) = self.join_handle.take() {
             join_handle.join().map_err(|_| {

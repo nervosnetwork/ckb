@@ -104,10 +104,11 @@ impl<CI: ChainIndex + 'static> Rpc for RpcImpl<CI> {
                     .shared
                     .block(&block_hash)
                     .ok_or_else(Error::internal_error)?;
+                let tip_header = self.shared.tip_header().read();
                 for transaction in block.commit_transactions() {
                     let transaction_meta = self
                         .shared
-                        .get_transaction_meta(&transaction.hash())
+                        .get_transaction_meta(&tip_header.output_root(), &transaction.hash())
                         .ok_or_else(Error::internal_error)?;
                     for (i, output) in transaction.outputs().iter().enumerate() {
                         if output.lock == type_hash && (!transaction_meta.is_spent(i)) {

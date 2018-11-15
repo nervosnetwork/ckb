@@ -85,7 +85,7 @@ impl ChainProvider for DummyChainProvider {
         panic!("Not implemented!");
     }
 
-    fn get_transaction_meta(&self, _hash: &H256) -> Option<TransactionMeta> {
+    fn get_transaction_meta(&self, _output_root: &H256, _hash: &H256) -> Option<TransactionMeta> {
         panic!("Not implemented!");
     }
 

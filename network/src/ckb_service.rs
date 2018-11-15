@@ -46,6 +46,7 @@ impl CKBService {
             };
         if protocol_connec.state() == UniqueConnecState::Full {
             error!(
+                target: "network",
                 "we already connected peer {:?} with {:?}, stop handling",
                 peer_id, protocol_id
             );
@@ -99,6 +100,7 @@ impl CKBService {
                     let protocol_id = protocol_id;
                     move |val| {
                         info!(
+                            target: "network",
                             "Disconnect! peer {:?} protocol_id {:?} reason {:?}",
                             peer_id, protocol_id, val
                         );
@@ -122,6 +124,7 @@ impl CKBService {
         };
 
         info!(
+            target: "network",
             "Connected to peer {:?} with protocol_id {:?} version {}",
             peer_id, protocol_id, protocol_version
         );

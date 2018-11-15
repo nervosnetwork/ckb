@@ -1,9 +1,9 @@
 use super::errors::{Error, ErrorKind};
 use super::{Network, SessionInfo, Timer};
 use super::{PeerIndex, ProtocolId, TimerToken};
-use parking_lot::Mutex;
 use std::sync::Arc;
 use std::time::Duration;
+use util::Mutex;
 
 #[derive(Clone, Debug)]
 pub enum Severity<'a> {
@@ -83,7 +83,7 @@ impl CKBProtocolContext for DefaultCKBProtocolContext {
     // report peer behaviour
     fn report_peer(&self, peer_index: PeerIndex, reason: Severity) {
         // TODO combinate this interface with peer score
-        info!("report peer {} reason: {:?}", peer_index, reason);
+        info!(target: "network", "report peer {} reason: {:?}", peer_index, reason);
         self.disconnect(peer_index);
     }
     // ban peer

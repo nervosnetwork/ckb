@@ -1,4 +1,4 @@
-use bigint::H256;
+use bigint::{H256, U256};
 use chain_spec::consensus::Consensus;
 use channel::{self, Receiver, Sender};
 use ckb_notify::{ForkBlocks, NotifyController, NotifyService};
@@ -16,6 +16,7 @@ use std::cmp;
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 use time::now_ms;
+use util::RwLockUpgradableReadGuard;
 use verification::{BlockVerifier, Verifier};
 
 pub struct ChainService<CI> {
@@ -129,8 +130,14 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
 
     fn insert_block(&self, block: &Block) -> Result<BlockInsertionResult, SharedError> {
         let mut new_best_block = false;
+        let mut output_root = H256::zero();
+        let mut total_difficulty = U256::zero();
+
         let mut old_cumulative_blks = Vec::new();
         let mut new_cumulative_blks = Vec::new();
+
+        let tip_header = self.shared.tip_header().upgradable_read();
+        let tip_number = tip_header.number();
         self.shared.store().save_with_batch(|batch| {
             let root = self.check_transactions(batch, block)?;
             let parent_ext = self
@@ -150,40 +157,49 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
             self.shared.store().insert_output_root(batch, block.header().hash(), root);
             self.shared.store().insert_block_ext(batch, &block.header().hash(), &ext);
 
+            let current_total_difficulty = tip_header.total_difficulty();
+            debug!(
+                "difficulty diff = {}; current = {}, cannon = {}",
+                cannon_total_difficulty.low_u64() as i64
+                    - current_total_difficulty.low_u64() as i64,
+                current_total_difficulty,
+                cannon_total_difficulty,
+            );
+
+            if cannon_total_difficulty > current_total_difficulty
+                || (current_total_difficulty == cannon_total_difficulty
+                    && block.header().hash() < tip_header.hash())
             {
-                debug!(target: "chain", "acquire lock");
-                let mut tip_header = self.shared.tip_header().write();
-                let current_total_difficulty = tip_header.total_difficulty();
-                debug!(
-                    "difficulty diff = {}; current = {}, cannon = {}",
-                    cannon_total_difficulty.low_u64() as i64
-                        - current_total_difficulty.low_u64() as i64,
-                    current_total_difficulty,
-                    cannon_total_difficulty,
-                );
-
-                if cannon_total_difficulty > current_total_difficulty
-                    || (current_total_difficulty == cannon_total_difficulty
-                        && block.header().hash() < tip_header.hash())
-                {
-                    debug!(target: "chain", "new best block found: {} => {}", block.header().number(), block.header().hash());
-                    new_best_block = true;
-                    let new_tip_header = TipHeader::new(
-                        block.header().clone(),
-                        cannon_total_difficulty,
-                        root,
-                    );
-
-                    self.update_index(batch, tip_header.number(), block, &mut old_cumulative_blks, &mut new_cumulative_blks);
-                    // TODO: Move out
-                    *tip_header = new_tip_header;
-                    self.shared.store().insert_tip_header(batch, &block.header());
-                    self.shared.store().rebuild_tree(root);
-                }
-                debug!(target: "chain", "lock release");
+                debug!(target: "chain", "new best block found: {} => {}", block.header().number(), block.header().hash());
+                new_best_block = true;
+                output_root = root;
+                total_difficulty = cannon_total_difficulty;
             }
             Ok(())
         })?;
+
+        if new_best_block {
+            debug!(target: "chain", "update index");
+            let mut guard = RwLockUpgradableReadGuard::upgrade(tip_header);
+            let new_tip_header =
+                TipHeader::new(block.header().clone(), total_difficulty, output_root);
+            self.shared.store().save_with_batch(|batch| {
+                self.update_index(
+                    batch,
+                    tip_number,
+                    block,
+                    &mut old_cumulative_blks,
+                    &mut new_cumulative_blks,
+                );
+                self.shared
+                    .store()
+                    .insert_tip_header(batch, &block.header());
+                self.shared.store().rebuild_tree(output_root);
+                Ok(())
+            })?;
+            *guard = new_tip_header;
+            debug!(target: "chain", "update index release");
+        }
 
         Ok(BlockInsertionResult {
             new_best_block,
@@ -220,11 +236,11 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
         old_cumulative_blks: &mut Vec<Block>,
         new_cumulative_blks: &mut Vec<Block>,
     ) {
-        let mut number = block.header().number() - 1;
+        let mut number = block.header().number();
 
         // The old fork may longer than new fork
-        if number < tip_number {
-            for n in number..tip_number + 1 {
+        if tip_number >= number {
+            for n in number..=tip_number {
                 let hash = self.shared.block_hash(n).unwrap();
                 let old_block = self.shared.block(&hash).unwrap();
                 self.shared.store().delete_block_hash(batch, n);
@@ -253,7 +269,7 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
         }
 
         let mut hash = block.header().parent_hash();
-
+        number -= 1;
         loop {
             if let Some(old_hash) = self.shared.block_hash(number) {
                 if old_hash == hash {

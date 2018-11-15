@@ -117,7 +117,6 @@ impl MinerService {
         let mut new_transactions_counter = 0;
         let mut nonce: u64 = thread_rng().gen();
         loop {
-            debug!(target: "miner", "mining {}", nonce);
             loop {
                 select! {
                     recv(self.new_tx_receiver, msg) => match msg {

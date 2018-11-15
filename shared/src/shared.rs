@@ -55,6 +55,10 @@ impl TipHeader {
     pub fn into_inner(self) -> Header {
         self.inner
     }
+
+    pub fn output_root(&self) -> H256 {
+        self.output_root
+    }
 }
 
 pub struct Shared<CI> {
@@ -124,7 +128,8 @@ impl<CI: ChainIndex> Shared<CI> {
 impl<CI: ChainIndex> CellProvider for Shared<CI> {
     fn cell(&self, out_point: &OutPoint) -> CellStatus {
         let index = out_point.index as usize;
-        if let Some(meta) = self.get_transaction_meta(&out_point.hash) {
+        let tip_header = self.tip_header().read();
+        if let Some(meta) = self.get_transaction_meta(&tip_header.output_root, &out_point.hash) {
             if index < meta.len() {
                 if !meta.is_spent(index) {
                     let mut transaction = self
@@ -192,7 +197,7 @@ pub trait ChainProvider: Sync + Send {
 
     fn contain_transaction(&self, hash: &H256) -> bool;
 
-    fn get_transaction_meta(&self, hash: &H256) -> Option<TransactionMeta>;
+    fn get_transaction_meta(&self, output_root: &H256, hash: &H256) -> Option<TransactionMeta>;
 
     fn get_transaction_meta_at(&self, hash: &H256, parent: &H256) -> Option<TransactionMeta>;
 
@@ -221,11 +226,7 @@ impl<CI: ChainIndex> ChainProvider for Shared<CI> {
     }
 
     fn block_header(&self, hash: &H256) -> Option<Header> {
-        if &self.tip_header.read().hash() == hash {
-            Some(self.tip_header.read().inner().clone())
-        } else {
-            self.store.get_header(hash)
-        }
+        self.store.get_header(hash)
     }
 
     fn block_proposal_txs_ids(&self, hash: &H256) -> Option<Vec<ProposalShortId>> {
@@ -264,10 +265,8 @@ impl<CI: ChainIndex> ChainProvider for Shared<CI> {
         self.store.get_transaction_address(hash).is_some()
     }
 
-    fn get_transaction_meta(&self, hash: &H256) -> Option<TransactionMeta> {
-        let tip_header = self.tip_header.read();
-        self.store
-            .get_transaction_meta(tip_header.output_root, *hash)
+    fn get_transaction_meta(&self, output_root: &H256, hash: &H256) -> Option<TransactionMeta> {
+        self.store.get_transaction_meta(*output_root, *hash)
     }
 
     fn get_transaction_meta_at(&self, hash: &H256, parent: &H256) -> Option<TransactionMeta> {
