@@ -3,6 +3,7 @@ extern crate bytes;
 extern crate futures;
 extern crate libp2p;
 extern crate rand;
+extern crate snap;
 extern crate tokio;
 extern crate unsigned_varint;
 #[macro_use]

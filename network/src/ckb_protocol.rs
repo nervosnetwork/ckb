@@ -1,10 +1,14 @@
 #![cfg_attr(feature = "cargo-clippy", allow(needless_pass_by_value))]
 
 use super::{Error, ProtocolId};
+use bytes::BufMut;
+use bytes::{Buf, IntoBuf};
 use bytes::{Bytes, BytesMut};
 use futures::sync::mpsc;
 use futures::{future, stream, Future, Sink, Stream};
 use libp2p::core::{ConnectionUpgrade, Endpoint, Multiaddr};
+use snap;
+use std::io;
 use std::io::{Error as IoError, ErrorKind as IoErrorKind};
 use std::string::ToString;
 use std::vec::IntoIter as VecIntoIter;
@@ -170,23 +174,49 @@ impl<T> CKBProtocol<T> {
 
                 Some(stream.into_future().map_err(|(err, _)| err).and_then(
                     move |(message, stream)| match message {
-                        Some(Message::Recv(data)) => {
-                            if data.is_empty() {
+                        Some(Message::Recv(compressed_data)) => {
+                            if compressed_data.is_empty() {
                                 debug!("receive a empty message, ignoring");
                                 let f = future::ok((None, (sink, stream, false)));
                                 return future::Either::A(f);
                             }
-
-                            let out = Some(data.freeze());
-                            let f = future::ok((out, (sink, stream, false)));
-                            future::Either::A(f)
+                            // decompress data
+                            let mut decompresser = snap::Reader::new(compressed_data.freeze().into_buf().reader());
+                            let mut data = vec![].writer();
+                            match io::copy(&mut decompresser, &mut data) {
+                                Ok(_) => {
+                                let out = Some(data.into_inner().into());
+                                let f = future::ok((out, (sink, stream, false)));
+                                future::Either::A(f)
+                                },
+                                Err(e) => {
+                                    future::Either::A(future::err(e))
+                                }
+                            }
                         }
 
                         Some(Message::SendData(data)) => {
-                            let fut = sink
-                                .send(data)
-                                .map(move |sink| (None, (sink, stream, false)));
-                            future::Either::B(fut)
+                            let mut compressed_data = vec![].writer();
+                            let mut compresser = snap::Writer::new(compressed_data);
+                            let mut data_buf = data.into_buf();
+                            match io::copy(&mut data_buf.reader(), &mut compresser) {
+                                Ok(_) => {
+                                    match compresser.into_inner() {
+                                        Ok(compressed_data) => {
+                                            let compressed_data : Bytes = compressed_data.into_inner().into();
+                                            let fut = sink
+                                                .send(compressed_data)
+                                                .map(move |sink| (None, (sink, stream, false)));
+                                            future::Either::B(fut)
+                                        },
+                                                Err(e) => {
+                                    future::Either::A(future::err(IoError::new(IoErrorKind::Other, format!("compressed data error {}", e.to_string()))))
+                                        }
+                                }}
+                                Err(e) => {
+                                    future::Either::A(future::err(e))
+                                }
+                            }
                         }
 
                         Some(Message::Finished) | None => {

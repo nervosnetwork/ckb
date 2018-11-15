@@ -15,4 +15,5 @@ log = "0.4.5"
 bytes = "0.4.9"
 tokio = "0.1.8"
 futures = { version = "0.1.19", features = ["use_std"] }
+snap = "0.2"
 libp2p = { git = "https://github.com/libp2p/rust-libp2p", rev="cfdfca1a06fb2deb9ebcc15a63d715ebddb23bd0", default-features = false, features = ["libp2p-secio", "libp2p-secio-secp256k1"] }
