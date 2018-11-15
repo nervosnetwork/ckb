@@ -1,4 +1,4 @@
-use libp2p::core::{either, transport::BoxedMuxed, upgrade, Multiaddr, PeerId, Transport};
+use libp2p::core::{transport::BoxedMuxed, upgrade, Multiaddr, PeerId, Transport};
 use libp2p::{self, mplex, secio, yamux, TransportTimeout};
 use std::time::Duration;
 use std::usize;
@@ -16,13 +16,8 @@ pub fn new_transport(
         .with_upgrade(secio::SecioConfig {
             key: local_private_key,
         }).and_then(move |out, endpoint, client_addr| {
-            // TODO: find out what is yamux?
-            let upgrade = upgrade::or(
-                upgrade::map(mplex_config, either::EitherOutput::First),
-                upgrade::map(yamux::Config::default(), either::EitherOutput::Second),
-            );
             let key = out.remote_key;
-            let upgrade = upgrade::map(upgrade, move |muxer| (key, muxer));
+            let upgrade = upgrade::map(yamux::Config::default(), move |muxer| (key, muxer));
             upgrade::apply(out.stream, upgrade, endpoint, client_addr)
             // TODO: check key
         }).into_connection_reuse()
