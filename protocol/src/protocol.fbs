@@ -41,6 +41,7 @@ table Header {
     proof:          Bytes;
     cellbase_id:    Bytes;
     uncles_hash:    Bytes;
+    uncles_count:   uint32;
 }
 
 table Block {

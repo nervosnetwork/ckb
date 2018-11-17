@@ -65,6 +65,7 @@ impl<'a> From<ckb_protocol::Header<'a>> for ckb_core::header::Header {
                 header.uncles_hash().and_then(|b| b.seq()).unwrap(),
             )).nonce(header.nonce())
             .proof(header.proof().and_then(|b| b.seq()).unwrap())
+            .uncles_count(header.uncles_count())
             .build()
     }
 }

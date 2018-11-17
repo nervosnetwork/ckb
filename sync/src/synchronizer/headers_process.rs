@@ -17,23 +17,27 @@ pub struct HeadersProcess<'a, CI: ChainIndex + 'a> {
     nc: &'a CKBProtocolContext,
 }
 
-pub struct VerifierResolver<'a, CP: 'a> {
-    provider: &'a CP,
+pub struct VerifierResolver<'a, CI: ChainIndex + 'a> {
+    synchronizer: &'a Synchronizer<CI>,
     header: &'a Header,
     parent: Option<&'a Header>,
 }
 
-impl<'a, CP: ChainProvider> VerifierResolver<'a, CP> {
-    pub fn new(parent: Option<&'a Header>, header: &'a Header, provider: &'a CP) -> Self {
+impl<'a, CI: ChainIndex + 'a> VerifierResolver<'a, CI> {
+    pub fn new(
+        parent: Option<&'a Header>,
+        header: &'a Header,
+        synchronizer: &'a Synchronizer<CI>,
+    ) -> Self {
         VerifierResolver {
             parent,
             header,
-            provider,
+            synchronizer,
         }
     }
 }
 
-impl<'a, CP: ChainProvider> HeaderResolver for VerifierResolver<'a, CP> {
+impl<'a, CI: ChainIndex> HeaderResolver for VerifierResolver<'a, CI> {
     fn header(&self) -> &Header {
         self.header
     }
@@ -43,8 +47,53 @@ impl<'a, CP: ChainProvider> HeaderResolver for VerifierResolver<'a, CP> {
     }
 
     fn calculate_difficulty(&self) -> Option<U256> {
-        self.parent()
-            .and_then(|parent| self.provider.calculate_difficulty(parent))
+        self.parent().and_then(|parent| {
+            let parent_hash = parent.hash();
+            let parent_number = parent.number();
+            let last_difficulty = parent.difficulty();
+
+            let interval = self
+                .synchronizer
+                .consensus()
+                .difficulty_adjustment_interval();
+
+            if self.header().number() % interval != 0 {
+                return Some(last_difficulty);
+            }
+
+            let start = parent_number.saturating_sub(interval);
+
+            if let Some(start_header) = self.synchronizer.get_ancestor(&parent_hash, start) {
+                let start_total_uncles_count = self
+                    .synchronizer
+                    .get_header_view(&start_header.hash())
+                    .expect("start header_view exist")
+                    .total_uncles_count();
+
+                let last_total_uncles_count = self
+                    .synchronizer
+                    .get_header_view(&parent_hash)
+                    .expect("last header_view exist")
+                    .total_uncles_count();
+
+                let difficulty = last_difficulty
+                    * U256::from(last_total_uncles_count - start_total_uncles_count)
+                    * U256::from((1.0 / self.synchronizer.consensus().orphan_rate_target()) as u64)
+                    / U256::from(interval);
+
+                let min_difficulty = self.synchronizer.consensus().min_difficulty();
+                let max_difficulty = last_difficulty * 2;
+                if difficulty > max_difficulty {
+                    return Some(max_difficulty);
+                }
+
+                if difficulty < min_difficulty {
+                    return Some(min_difficulty);
+                }
+                return Some(difficulty);
+            }
+            None
+        })
     }
 }
 
@@ -92,7 +141,7 @@ where
 
     pub fn accept_first(&self, first: &Header) -> ValidationResult {
         let parent = self.synchronizer.get_header(&first.parent_hash());
-        let resolver = VerifierResolver::new(parent.as_ref(), &first, &self.synchronizer.shared);
+        let resolver = VerifierResolver::new(parent.as_ref(), &first, &self.synchronizer);
         let verifier = HeaderVerifier::new(Arc::clone(
             &self.synchronizer.shared.consensus().pow_engine(),
         ));
@@ -138,8 +187,7 @@ where
 
         for window in headers.windows(2) {
             if let [parent, header] = &window {
-                let resolver =
-                    VerifierResolver::new(Some(&parent), &header, &self.synchronizer.shared);
+                let resolver = VerifierResolver::new(Some(&parent), &header, &self.synchronizer);
                 let verifier = HeaderVerifier::new(Arc::clone(
                     &self.synchronizer.shared.consensus().pow_engine(),
                 ));
@@ -166,15 +214,16 @@ where
             debug!(
                 target: "sync",
                 concat!(
-                    "\nchain total_difficulty = {}; number={}\n",
+                    "\n\nchain total_difficulty = {}; number={}\n",
                     "number={}; best_known_header = {}; total_difficulty = {};\n",
-                    "number={:?}; best_known_header = {:?}; total_difficulty = {:?}\n",
+                    "peers={} number={:?}; best_known_header = {:?}; total_difficulty = {:?}\n",
                 ),
                 chain_tip.total_difficulty(),
                 chain_tip.number(),
                 own.number(),
                 own.hash(),
                 own.total_difficulty(),
+                self.peer,
                 peer_state.as_ref().map(|state| state.number()),
                 peer_state.as_ref().map(|state| state.hash()),
                 peer_state.as_ref().map(|state| state.total_difficulty()),

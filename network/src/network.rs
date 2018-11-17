@@ -597,11 +597,11 @@ impl Network {
                 swarm_controller.clone(),
                 basic_transport.clone(),
             ),
-            discovery_service.start_protocol(
-                Arc::clone(&network),
-                swarm_controller.clone(),
-                basic_transport.clone(),
-            ),
+            // discovery_service.start_protocol(
+            //     Arc::clone(&network),
+            //     swarm_controller.clone(),
+            //     basic_transport.clone(),
+            // ),
             identify_service.start_protocol(
                 Arc::clone(&network),
                 swarm_controller.clone(),

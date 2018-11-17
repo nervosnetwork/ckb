@@ -94,6 +94,23 @@ fn test_uncle_verifier() {
 
     let verifier = UnclesVerifier::new(shared.clone());
 
+    let mut block = BlockBuilder::default()
+        .block(chain1.last().cloned().unwrap())
+        .uncle(chain2.last().cloned().unwrap().into())
+        .build();
+
+    *block.mut_header().mut_raw().mut_uncles_count() = 0;
+    // Uncles not match uncles_hash
+    assert_eq!(
+        verifier.verify(&block),
+        Err(Error::Uncles(UnclesError::MissMatchCount {
+            expected: 0,
+            actual: 1
+        }))
+    );
+
+    let verifier = UnclesVerifier::new(shared.clone());
+
     let block = BlockBuilder::default()
         .block(chain1.last().cloned().unwrap())
         .uncle(chain2.last().cloned().unwrap().into())
@@ -292,7 +309,7 @@ fn test_uncle_verifier() {
     // uncle overlength
     assert_eq!(
         verifier.verify(&block),
-        Err(Error::Uncles(UnclesError::OverLength {
+        Err(Error::Uncles(UnclesError::OverCount {
             max: max_uncles_len,
             actual: max_uncles_len + 1
         }))

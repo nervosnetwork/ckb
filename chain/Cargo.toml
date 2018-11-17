@@ -12,7 +12,6 @@ log = "0.4"
 ckb-core = { path = "../core" }
 ckb-shared = { path = "../shared" }
 ckb-chain-spec = { path = "../spec" }
-ckb-util = { path = "../util" }
 ckb-db = { path = "../db" }
 ckb-time = { path = "../util/time" }
 ckb-notify = { path = "../notify" }

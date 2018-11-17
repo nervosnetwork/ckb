@@ -16,6 +16,7 @@ use self::header_view::HeaderView;
 use self::headers_process::HeadersProcess;
 use self::peers::Peers;
 use bigint::H256;
+use chain_spec::consensus::Consensus;
 use ckb_chain::chain::ChainController;
 use ckb_chain::error::ProcessBlockError;
 use ckb_protocol::{SyncMessage, SyncPayload};
@@ -104,11 +105,18 @@ fn is_outbound(nc: &CKBProtocolContext, peer: PeerIndex) -> Option<bool> {
 
 impl<CI: ChainIndex> Synchronizer<CI> {
     pub fn new(chain: ChainController, shared: Shared<CI>, config: Config) -> Synchronizer<CI> {
-        let (total_difficulty, header) = {
+        let (total_difficulty, header, total_uncles_count) = {
             let tip_header = shared.tip_header().read();
-            (tip_header.total_difficulty(), tip_header.inner().clone())
+            let block_ext = shared
+                .block_ext(&tip_header.hash())
+                .expect("tip block_ext must exist");
+            (
+                tip_header.total_difficulty(),
+                tip_header.inner().clone(),
+                block_ext.total_uncles_count,
+            )
         };
-        let best_known_header = HeaderView::new(header, total_difficulty);
+        let best_known_header = HeaderView::new(header, total_difficulty, total_uncles_count);
         let orphan_block_limit = config.orphan_block_limit;
 
         Synchronizer {
@@ -271,11 +279,19 @@ impl<CI: ChainIndex> Synchronizer<CI> {
     pub fn get_header_view(&self, hash: &H256) -> Option<HeaderView> {
         self.header_map.read().get(hash).cloned().or_else(|| {
             self.shared.block_header(hash).and_then(|header| {
-                self.shared
-                    .block_ext(&hash)
-                    .map(|block_ext| HeaderView::new(header, block_ext.total_difficulty))
+                self.shared.block_ext(&hash).map(|block_ext| {
+                    HeaderView::new(
+                        header,
+                        block_ext.total_difficulty,
+                        block_ext.total_uncles_count,
+                    )
+                })
             })
         })
+    }
+
+    pub fn consensus(&self) -> &Consensus {
+        self.shared.consensus()
     }
 
     pub fn get_header(&self, hash: &H256) -> Option<Header> {
@@ -328,9 +344,12 @@ impl<CI: ChainIndex> Synchronizer<CI> {
     pub fn insert_header_view(&self, header: &Header, peer: PeerIndex) {
         if let Some(parent_view) = self.get_header_view(&header.parent_hash()) {
             let total_difficulty = parent_view.total_difficulty() + header.difficulty();
+            let total_uncles_count =
+                parent_view.total_uncles_count() + u64::from(header.uncles_count());
             let header_view = {
                 let best_known_header = self.best_known_header.upgradable_read();
-                let header_view = HeaderView::new(header.clone(), total_difficulty);
+                let header_view =
+                    HeaderView::new(header.clone(), total_difficulty, total_uncles_count);
 
                 if total_difficulty > best_known_header.total_difficulty()
                     || (total_difficulty == best_known_header.total_difficulty()
@@ -575,7 +594,18 @@ impl<CI: ChainIndex> Synchronizer<CI> {
             .cloned()
             .collect();
         debug!(target: "sync", "send_getheaders to peers= {:?}", &peers);
-        let tip = self.tip_header();
+        let tip = {
+            let local = { self.shared.tip_header().read().clone() };
+            let best_known = self.best_known_header();
+            if local.total_difficulty() > best_known.total_difficulty()
+                || (local.total_difficulty() == best_known.total_difficulty()
+                    && local.hash() < best_known.hash())
+            {
+                local.into_inner()
+            } else {
+                best_known.into_inner()
+            }
+        };
         for peer in peers {
             self.send_getheaders_to_peer(nc, peer, &tip);
         }
@@ -1000,6 +1030,7 @@ mod tests {
         HeaderView::new(
             HeaderBuilder::default().build(),
             U256::from(total_difficulty),
+            0,
         )
     }
 
@@ -1149,10 +1180,7 @@ mod tests {
             blocks_to_fetch.last().unwrap()
         );
 
-        assert_eq!(
-            new_tip_receiver.recv(),
-            Some(Arc::new(fetched_blocks[6].clone()))
-        );
+        assert!(new_tip_receiver.recv().is_some());
     }
 
     #[test]

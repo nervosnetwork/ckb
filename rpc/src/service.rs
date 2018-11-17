@@ -172,7 +172,7 @@ impl<CI: ChainIndex + 'static> RpcService<CI> {
             .with_header_builder(header_builder);
 
         Ok(BlockTemplate {
-            raw_header: block.header().clone().raw(),
+            raw_header: block.header().clone().into_raw(),
             uncles: block.uncles().to_vec(),
             commit_transactions: block.commit_transactions().to_vec(),
             proposal_transactions: block.proposal_transactions().to_vec(),

@@ -51,6 +51,7 @@ impl<'a> FbsHeader<'a> {
         builder.add_proof(proof);
         builder.add_cellbase_id(cellbase_id);
         builder.add_uncles_hash(uncles_hash);
+        builder.add_uncles_count(header.uncles_count());
         builder.finish()
     }
 }

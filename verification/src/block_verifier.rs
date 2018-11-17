@@ -270,6 +270,15 @@ impl<CP: ChainProvider + Clone> UnclesVerifier<CP> {
     // -  uncle not in main chain
     // -  uncle duplicate
     pub fn verify(&self, block: &Block) -> Result<(), Error> {
+        // verify uncles_count
+        let uncles_count = block.uncles().len() as u32;
+        if uncles_count != block.header().uncles_count() {
+            return Err(Error::Uncles(UnclesError::MissMatchCount {
+                expected: block.header().uncles_count(),
+                actual: uncles_count,
+            }));
+        }
+
         // verify uncles_hash
         let actual_uncles_hash = block.cal_uncles_hash();
         if actual_uncles_hash != block.header().uncles_hash() {
@@ -287,7 +296,7 @@ impl<CP: ChainProvider + Clone> UnclesVerifier<CP> {
         let uncles_len = block.uncles().len();
         let max_uncles_len = self.provider.consensus().max_uncles_len();
         if uncles_len > max_uncles_len {
-            return Err(Error::Uncles(UnclesError::OverLength {
+            return Err(Error::Uncles(UnclesError::OverCount {
                 max: max_uncles_len,
                 actual: uncles_len,
             }));

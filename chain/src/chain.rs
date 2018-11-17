@@ -16,7 +16,6 @@ use std::cmp;
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 use time::now_ms;
-use util::RwLockUpgradableReadGuard;
 use verification::{BlockVerifier, Verifier};
 
 pub struct ChainService<CI> {
@@ -136,7 +135,7 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
         let mut old_cumulative_blks = Vec::new();
         let mut new_cumulative_blks = Vec::new();
 
-        let tip_header = self.shared.tip_header().upgradable_read();
+        let mut tip_header = self.shared.tip_header().write();
         let tip_number = tip_header.number();
         self.shared.store().save_with_batch(|batch| {
             let root = self.check_transactions(batch, block)?;
@@ -180,7 +179,6 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
 
         if new_best_block {
             debug!(target: "chain", "update index");
-            let mut guard = RwLockUpgradableReadGuard::upgrade(tip_header);
             let new_tip_header =
                 TipHeader::new(block.header().clone(), total_difficulty, output_root);
             self.shared.store().save_with_batch(|batch| {
@@ -197,7 +195,7 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
                 self.shared.store().rebuild_tree(output_root);
                 Ok(())
             })?;
-            *guard = new_tip_header;
+            *tip_header = new_tip_header;
             debug!(target: "chain", "update index release");
         }
 

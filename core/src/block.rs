@@ -32,6 +32,10 @@ impl Block {
         &self.header
     }
 
+    pub fn mut_header(&mut self) -> &mut Header {
+        &mut self.header
+    }
+
     pub fn is_genesis(&self) -> bool {
         self.header.is_genesis()
     }
@@ -98,11 +102,15 @@ impl BlockBuilder {
     }
 
     pub fn uncle(mut self, uncle: UncleBlock) -> Self {
+        *self.inner.mut_header().mut_raw().mut_uncles_count() =
+            self.inner.header().raw().uncles_count() + 1;
         self.inner.uncles.push(uncle);
         self
     }
 
     pub fn uncles(mut self, uncles: Vec<UncleBlock>) -> Self {
+        *self.inner.mut_header().mut_raw().mut_uncles_count() =
+            self.inner.header().raw().uncles_count() + uncles.len() as u32;
         self.inner.uncles.extend(uncles);
         self
     }
@@ -156,6 +164,7 @@ impl BlockBuilder {
             .txs_commit(&txs_commit)
             .txs_proposal(&txs_proposal)
             .uncles_hash(&uncles_hash)
+            .uncles_count(self.inner.uncles.len() as u32)
             .build();
         self.inner
     }

@@ -23,6 +23,7 @@ ckb-verification = { path = "../verification" }
 serde = "1.0"
 serde_derive = "1.0"
 flatbuffers = "0.5.0"
+ckb-chain-spec = { path = "../spec" }
 
 [dev-dependencies]
 ckb-notify = { path = "../notify" }
@@ -30,4 +31,3 @@ ckb-db = { path = "../db" }
 ckb-time = { path = "../util/time", features = ["mock_timer"] }
 env_logger = "0.5"
 crossbeam-channel = "0.2"
-ckb-chain-spec = { path = "../spec" }
