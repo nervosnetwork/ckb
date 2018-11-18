@@ -85,25 +85,26 @@ impl<T: Send> ProtocolService<T> for TimerService {
                         duration
                     );
                     let timer_interval = Interval::new_interval(duration);
-                    let network_clone = Arc::clone(&network);
-                    let handler_clone = Arc::clone(&handler);
                     let timer_future = Box::new(
                         timer_interval
-                            .for_each(move |_| {
-                                let network_clone = Arc::clone(&network_clone);
-                                let handler_clone = Arc::clone(&handler_clone);
-                                let handle_timer = future::lazy(move || {
-                                    handler_clone.timer_triggered(
-                                        Box::new(DefaultCKBProtocolContext::new(
-                                            Arc::clone(&network_clone),
-                                            protocol_id,
-                                        )),
-                                        timer_symbol,
-                                    );
+                            .for_each({
+                                let network = Arc::clone(&network);
+                                move |_| {
+                                    let network = Arc::clone(&network);
+                                    let handler = Arc::clone(&handler);
+                                    let handle_timer = future::lazy(move || {
+                                        handler.timer_triggered(
+                                            Box::new(DefaultCKBProtocolContext::new(
+                                                Arc::clone(&network),
+                                                protocol_id,
+                                            )),
+                                            timer_symbol,
+                                        );
+                                        Ok(())
+                                    });
+                                    tokio::spawn(handle_timer);
                                     Ok(())
-                                });
-                                tokio::spawn(handle_timer);
-                                Ok(())
+                                }
                             }).map_err(|err| IoError::new(IoErrorKind::Other, err)),
                     );
                     timer_futures.push(timer_future);
