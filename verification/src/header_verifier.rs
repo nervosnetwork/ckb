@@ -1,6 +1,6 @@
 use super::Verifier;
 use bigint::U256;
-use core::header::IndexedHeader;
+use core::header::Header;
 use error::{DifficultyError, Error, NumberError, PowError, TimestampError};
 use pow::PowEngine;
 use shared::ALLOWED_FUTURE_BLOCKTIME;
@@ -8,9 +8,9 @@ use std::sync::Arc;
 use time::now_ms;
 
 pub trait HeaderResolver {
-    fn header(&self) -> &IndexedHeader;
+    fn header(&self) -> &Header;
     /// resolves parent header
-    fn parent(&self) -> Option<&IndexedHeader>;
+    fn parent(&self) -> Option<&Header>;
     /// resolves header difficulty
     fn calculate_difficulty(&self) -> Option<U256>;
 }
@@ -44,7 +44,7 @@ where
         let parent = self
             .resolver
             .parent()
-            .ok_or_else(|| Error::UnknownParent(header.parent_hash))?;
+            .ok_or_else(|| Error::UnknownParent(header.parent_hash()))?;
         NumberVerifier::new(parent, header).verify()?;
         TimestampVerifier::new(parent, header).verify()?;
         DifficultyVerifier::new(&self.resolver).verify()?;
@@ -53,13 +53,13 @@ where
 }
 
 pub struct TimestampVerifier<'a> {
-    parent: &'a IndexedHeader,
-    header: &'a IndexedHeader,
+    parent: &'a Header,
+    header: &'a Header,
     now: u64,
 }
 
 impl<'a> TimestampVerifier<'a> {
-    pub fn new(parent: &'a IndexedHeader, header: &'a IndexedHeader) -> Self {
+    pub fn new(parent: &'a Header, header: &'a Header) -> Self {
         TimestampVerifier {
             parent,
             header,
@@ -68,18 +68,18 @@ impl<'a> TimestampVerifier<'a> {
     }
 
     pub fn verify(&self) -> Result<(), Error> {
-        let min = self.parent.timestamp + 1;
-        if self.header.timestamp < min {
+        let min = self.parent.timestamp() + 1;
+        if self.header.timestamp() < min {
             return Err(Error::Timestamp(TimestampError::ZeroBlockTime {
                 min,
-                found: self.header.timestamp,
+                found: self.header.timestamp(),
             }));
         }
         let max = self.now + ALLOWED_FUTURE_BLOCKTIME;
-        if self.header.timestamp > max {
+        if self.header.timestamp() > max {
             return Err(Error::Timestamp(TimestampError::FutureBlockTime {
                 max,
-                found: self.header.timestamp,
+                found: self.header.timestamp(),
             }));
         }
         Ok(())
@@ -87,20 +87,20 @@ impl<'a> TimestampVerifier<'a> {
 }
 
 pub struct NumberVerifier<'a> {
-    parent: &'a IndexedHeader,
-    header: &'a IndexedHeader,
+    parent: &'a Header,
+    header: &'a Header,
 }
 
 impl<'a> NumberVerifier<'a> {
-    pub fn new(parent: &'a IndexedHeader, header: &'a IndexedHeader) -> Self {
+    pub fn new(parent: &'a Header, header: &'a Header) -> Self {
         NumberVerifier { parent, header }
     }
 
     pub fn verify(&self) -> Result<(), Error> {
-        if self.header.number != self.parent.number + 1 {
+        if self.header.number() != self.parent.number() + 1 {
             return Err(Error::Number(NumberError {
-                expected: self.parent.number + 1,
-                actual: self.header.number,
+                expected: self.parent.number() + 1,
+                actual: self.header.number(),
             }));
         }
         Ok(())
@@ -124,7 +124,7 @@ where
             .resolver
             .calculate_difficulty()
             .ok_or_else(|| Error::Difficulty(DifficultyError::AncestorNotFound))?;
-        let actual = self.resolver.header().difficulty;
+        let actual = self.resolver.header().difficulty();
         if expected != actual {
             return Err(Error::Difficulty(DifficultyError::MixMismatch {
                 expected,
@@ -136,12 +136,12 @@ where
 }
 
 pub struct PowVerifier<'a> {
-    header: &'a IndexedHeader,
+    header: &'a Header,
     pow: Arc<dyn PowEngine>,
 }
 
 impl<'a> PowVerifier<'a> {
-    pub fn new(header: &'a IndexedHeader, pow: &Arc<dyn PowEngine>) -> Self {
+    pub fn new(header: &'a Header, pow: &Arc<dyn PowEngine>) -> Self {
         PowVerifier {
             header,
             pow: Arc::clone(pow),

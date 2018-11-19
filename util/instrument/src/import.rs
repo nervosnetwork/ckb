@@ -1,6 +1,6 @@
 use super::format::Format;
 use ckb_chain::chain::ChainProvider;
-use ckb_core::block::{Block, IndexedBlock};
+use ckb_core::block::Block;
 #[cfg(feature = "progress_bar")]
 use indicatif::{ProgressBar, ProgressStyle};
 use serde_json;
@@ -43,7 +43,7 @@ impl<'a, P: ChainProvider> Import<'a, P> {
         for line in reader.lines() {
             let s = line?;
             let encoded: Block = serde_json::from_str(&s)?;
-            let block: IndexedBlock = encoded.into();
+            let block: Block = encoded.into();
             if !block.is_genesis() {
                 self.provider
                     .process_block(&block)
@@ -66,8 +66,7 @@ impl<'a, P: ChainProvider> Import<'a, P> {
         );
         for line in reader.lines() {
             let s = line?;
-            let encoded: Block = serde_json::from_str(&s)?;
-            let block: IndexedBlock = encoded.into();
+            let block: Block = serde_json::from_str(&s)?;
             if !block.is_genesis() {
                 self.provider
                     .process_block(&block)

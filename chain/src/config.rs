@@ -1,5 +1,5 @@
 use bigint::{H256, U256};
-use core::block::IndexedBlock;
+use core::block::Block;
 use core::header::{BlockNumber, Header, RawHeader, Seal};
 
 #[derive(Clone, Debug, Deserialize)]
@@ -32,7 +32,7 @@ impl Config {
         }
     }
 
-    pub fn genesis_block(&self) -> IndexedBlock {
+    pub fn genesis_block(&self) -> Block {
         let header = Header {
             raw: RawHeader {
                 version: self.version,
@@ -48,7 +48,7 @@ impl Config {
             },
         };
 
-        IndexedBlock {
+        Block {
             header: header.into(),
             transactions: vec![],
         }

@@ -3,7 +3,7 @@
 
 use ckb_chain::consensus::{TRANSACTION_PROPAGATION_TIME, TRANSACTION_PROPAGATION_TIMEOUT};
 use ckb_verification::TransactionError;
-use core::transaction::{CellOutput, IndexedTransaction, OutPoint, ProposalShortId};
+use core::transaction::{CellOutput, OutPoint, ProposalShortId, Transaction};
 use core::BlockNumber;
 use fnv::{FnvHashMap, FnvHashSet};
 use linked_hash_map::LinkedHashMap;
@@ -54,10 +54,10 @@ pub enum InsertionResult {
 
 #[derive(PartialEq, Clone, Debug)]
 pub enum TxStage {
-    Unknown(IndexedTransaction),
-    Fork(IndexedTransaction),
-    Mineable(IndexedTransaction),
-    TimeOut(IndexedTransaction),
+    Unknown(Transaction),
+    Fork(Transaction),
+    Mineable(Transaction),
+    TimeOut(Transaction),
     Proposed,
 }
 
@@ -87,7 +87,7 @@ pub enum PoolError {
 #[derive(Debug, PartialEq, Clone)]
 pub struct PoolEntry {
     /// Transaction
-    pub transaction: IndexedTransaction,
+    pub transaction: Transaction,
     /// refs count
     pub refs_count: usize,
     /// Size estimate
@@ -96,7 +96,7 @@ pub struct PoolEntry {
 
 impl PoolEntry {
     /// Create new transaction pool entry
-    pub fn new(tx: IndexedTransaction, count: usize) -> PoolEntry {
+    pub fn new(tx: Transaction, count: usize) -> PoolEntry {
         PoolEntry {
             size_estimate: estimate_transaction_size(&tx),
             transaction: tx,
@@ -106,7 +106,7 @@ impl PoolEntry {
 }
 
 /// TODO guessing this needs implementing
-fn estimate_transaction_size(_tx: &IndexedTransaction) -> usize {
+fn estimate_transaction_size(_tx: &Transaction) -> usize {
     0
 }
 
@@ -209,7 +209,7 @@ impl Pool {
         self.vertices.len()
     }
 
-    pub fn contains(&self, tx: &IndexedTransaction) -> bool {
+    pub fn contains(&self, tx: &Transaction) -> bool {
         self.vertices.contains_key(&tx.proposal_short_id())
     }
 
@@ -235,11 +235,11 @@ impl Pool {
         self.vertices.get(id)
     }
 
-    pub fn get(&self, id: &ProposalShortId) -> Option<&IndexedTransaction> {
+    pub fn get(&self, id: &ProposalShortId) -> Option<&Transaction> {
         self.vertices.get(id).map(|x| &x.transaction)
     }
 
-    pub fn get_transaction(&self, id: &ProposalShortId) -> Option<&IndexedTransaction> {
+    pub fn get_transaction(&self, id: &ProposalShortId) -> Option<&Transaction> {
         self.vertices.get(id).map(|x| &x.transaction)
     }
 
@@ -249,7 +249,7 @@ impl Pool {
             .and_then(|x| x.transaction.get_output(o.index as usize))
     }
 
-    pub fn remove_vertex(&mut self, id: &ProposalShortId, rtxs: &mut Vec<IndexedTransaction>) {
+    pub fn remove_vertex(&mut self, id: &ProposalShortId, rtxs: &mut Vec<Transaction>) {
         if let Some(x) = self.vertices.remove(id) {
             let tx = x.transaction;
             let inputs = tx.input_pts();
@@ -284,7 +284,7 @@ impl Pool {
         }
     }
 
-    pub fn remove(&mut self, id: &ProposalShortId) -> Option<Vec<IndexedTransaction>> {
+    pub fn remove(&mut self, id: &ProposalShortId) -> Option<Vec<Transaction>> {
         let mut rtxs = Vec::new();
 
         self.remove_vertex(id, &mut rtxs);
@@ -297,7 +297,7 @@ impl Pool {
     }
 
     /// Add a verified transaction.
-    pub fn add_transaction(&mut self, tx: IndexedTransaction) {
+    pub fn add_transaction(&mut self, tx: Transaction) {
         let inputs = tx.input_pts();
         let outputs = tx.output_pts();
         let deps = tx.dep_pts();
@@ -335,7 +335,7 @@ impl Pool {
 
     /// Readd a verified transaction which is rolled back from chain. Since the rolled back
     /// transaction should depend on any transaction in the pool, it is safe to skip some checking.
-    pub fn readd_transaction(&mut self, tx: &IndexedTransaction) {
+    pub fn readd_transaction(&mut self, tx: &Transaction) {
         let inputs = tx.input_pts();
         let outputs = tx.output_pts();
         let deps = tx.dep_pts();
@@ -369,7 +369,7 @@ impl Pool {
     }
 
     ///Commit proposed transaction
-    pub fn commit_transaction(&mut self, tx: &IndexedTransaction) {
+    pub fn commit_transaction(&mut self, tx: &Transaction) {
         let outputs = tx.output_pts();
         let inputs = tx.input_pts();
         let deps = tx.dep_pts();
@@ -401,7 +401,7 @@ impl Pool {
         }
     }
 
-    pub fn resolve_conflict(&mut self, tx: &IndexedTransaction) {
+    pub fn resolve_conflict(&mut self, tx: &Transaction) {
         let inputs = tx.input_pts();
 
         for i in inputs {
@@ -418,7 +418,7 @@ impl Pool {
     }
 
     /// Get n transactions in topology
-    pub fn get_mineable_transactions(&self, n: usize) -> Vec<IndexedTransaction> {
+    pub fn get_mineable_transactions(&self, n: usize) -> Vec<Transaction> {
         self.vertices
             .front_n(n)
             .into_iter()
@@ -456,11 +456,11 @@ impl Orphan {
         self.vertices.len()
     }
 
-    pub fn get(&self, id: &ProposalShortId) -> Option<&IndexedTransaction> {
+    pub fn get(&self, id: &ProposalShortId) -> Option<&Transaction> {
         self.vertices.get(id).map(|x| &x.transaction)
     }
 
-    pub fn contains(&self, tx: &IndexedTransaction) -> bool {
+    pub fn contains(&self, tx: &Transaction) -> bool {
         self.vertices.contains_key(&tx.proposal_short_id())
     }
 
@@ -469,11 +469,7 @@ impl Orphan {
     }
 
     /// add orphan transaction
-    pub fn add_transaction(
-        &mut self,
-        tx: IndexedTransaction,
-        unknown: impl Iterator<Item = OutPoint>,
-    ) {
+    pub fn add_transaction(&mut self, tx: Transaction, unknown: impl Iterator<Item = OutPoint>) {
         let id = tx.proposal_short_id();
 
         let mut count: usize = 0;
@@ -487,7 +483,7 @@ impl Orphan {
         self.vertices.insert(id, PoolEntry::new(tx, count));
     }
 
-    pub fn remove(&mut self, id: &ProposalShortId) -> Option<IndexedTransaction> {
+    pub fn remove(&mut self, id: &ProposalShortId) -> Option<Transaction> {
         if let Some(x) = self.vertices.remove(id) {
             let tx = x.transaction;
 
@@ -506,7 +502,7 @@ impl Orphan {
         }
     }
 
-    pub fn reconcile_transaction(&mut self, tx: &IndexedTransaction) -> Vec<IndexedTransaction> {
+    pub fn reconcile_transaction(&mut self, tx: &Transaction) -> Vec<Transaction> {
         let mut txs = Vec::new();
         let mut q = VecDeque::new();
 
@@ -534,7 +530,7 @@ impl Orphan {
         txs
     }
 
-    pub fn resolve_conflict(&mut self, tx: &IndexedTransaction) {
+    pub fn resolve_conflict(&mut self, tx: &Transaction) {
         let inputs = tx.input_pts();
 
         for i in inputs {
@@ -549,7 +545,7 @@ impl Orphan {
 
 #[derive(Default, Debug)]
 pub struct PendingQueue {
-    inner: FnvHashMap<ProposalShortId, IndexedTransaction>,
+    inner: FnvHashMap<ProposalShortId, Transaction>,
 }
 
 impl PendingQueue {
@@ -563,11 +559,7 @@ impl PendingQueue {
         self.inner.len()
     }
 
-    pub fn insert(
-        &mut self,
-        id: ProposalShortId,
-        tx: IndexedTransaction,
-    ) -> Option<IndexedTransaction> {
+    pub fn insert(&mut self, id: ProposalShortId, tx: Transaction) -> Option<Transaction> {
         self.inner.insert(id, tx)
     }
 
@@ -575,11 +567,11 @@ impl PendingQueue {
         self.inner.contains_key(id)
     }
 
-    pub fn get(&self, id: &ProposalShortId) -> Option<&IndexedTransaction> {
+    pub fn get(&self, id: &ProposalShortId) -> Option<&Transaction> {
         self.inner.get(id)
     }
 
-    pub fn remove(&mut self, id: &ProposalShortId) -> Option<IndexedTransaction> {
+    pub fn remove(&mut self, id: &ProposalShortId) -> Option<Transaction> {
         self.inner.remove(id)
     }
 
@@ -598,7 +590,7 @@ pub struct ProposedQueue {
     tip: BlockNumber,
     queue: VecDeque<FnvHashSet<ProposalShortId>>,
     numbers: FnvHashMap<ProposalShortId, BlockNumber>,
-    buff: FnvHashMap<ProposalShortId, IndexedTransaction>,
+    buff: FnvHashMap<ProposalShortId, Transaction>,
 }
 
 impl ProposedQueue {
@@ -668,7 +660,7 @@ impl ProposedQueue {
         self.queue.get(id)
     }
 
-    pub fn insert(&mut self, tx: IndexedTransaction) -> TxStage {
+    pub fn insert(&mut self, tx: Transaction) -> TxStage {
         let id = tx.proposal_short_id();
         if let Some(bn) = self.numbers.get(&id) {
             if bn + TRANSACTION_PROPAGATION_TIME > self.tip + 1 {
@@ -682,7 +674,7 @@ impl ProposedQueue {
         }
     }
 
-    pub fn insert_with_n(&mut self, bn: BlockNumber, tx: IndexedTransaction) -> TxStage {
+    pub fn insert_with_n(&mut self, bn: BlockNumber, tx: Transaction) -> TxStage {
         if bn <= self.tip {
             if bn + TRANSACTION_PROPAGATION_TIMEOUT <= self.tip {
                 TxStage::TimeOut(tx)
@@ -712,7 +704,7 @@ impl ProposedQueue {
         }
     }
 
-    pub fn insert_without_check(&mut self, id: ProposalShortId, tx: IndexedTransaction) {
+    pub fn insert_without_check(&mut self, id: ProposalShortId, tx: Transaction) {
         self.buff.insert(id, tx);
     }
 
@@ -769,7 +761,7 @@ impl ProposedQueue {
         &mut self,
         bn: BlockNumber,
         ids: Vec<ProposalShortId>,
-    ) -> Result<Vec<IndexedTransaction>, PoolError> {
+    ) -> Result<Vec<Transaction>, PoolError> {
         if bn < TRANSACTION_PROPAGATION_TIME {
             self.push_back(ids);
             return Ok(Vec::new());
@@ -783,21 +775,21 @@ impl ProposedQueue {
         self.push_back(ids);
 
         if let Some(x) = self.get_ids(m).cloned() {
-            let r: Vec<IndexedTransaction> = x.iter().filter_map(|i| self.buff.remove(i)).collect();
+            let r: Vec<Transaction> = x.iter().filter_map(|i| self.buff.remove(i)).collect();
             Ok(r)
         } else {
             Ok(Vec::new())
         }
     }
 
-    pub fn get(&self, id: &ProposalShortId) -> Option<&IndexedTransaction> {
+    pub fn get(&self, id: &ProposalShortId) -> Option<&Transaction> {
         self.buff.get(id)
     }
 
     pub fn remove(
         &mut self,
         bn: BlockNumber,
-    ) -> Option<FnvHashMap<ProposalShortId, Option<IndexedTransaction>>> {
+    ) -> Option<FnvHashMap<ProposalShortId, Option<Transaction>>> {
         if self.tip < bn {
             return None;
         }
@@ -840,20 +832,21 @@ impl ProposedQueue {
 mod tests {
     use super::*;
     use bigint::H256;
-    use core::transaction::{CellInput, CellOutput, Transaction};
+    use core::transaction::{CellInput, CellOutput, Transaction, TransactionBuilder};
 
-    fn build_tx(inputs: Vec<(H256, u32)>, outputs_len: usize) -> IndexedTransaction {
-        Transaction::new(
-            0,
-            Vec::new(),
-            inputs
-                .into_iter()
-                .map(|(txid, index)| CellInput::new(OutPoint::new(txid, index), Default::default()))
-                .collect(),
-            (0..outputs_len)
-                .map(|i| CellOutput::new((i + 1) as u64, Vec::new(), H256::from(0)))
-                .collect(),
-        ).into()
+    fn build_tx(inputs: Vec<(H256, u32)>, outputs_len: usize) -> Transaction {
+        TransactionBuilder::default()
+            .inputs(
+                inputs
+                    .into_iter()
+                    .map(|(txid, index)| {
+                        CellInput::new(OutPoint::new(txid, index), Default::default())
+                    }).collect(),
+            ).outputs(
+                (0..outputs_len)
+                    .map(|i| CellOutput::new((i + 1) as u64, Vec::new(), H256::from(0)))
+                    .collect(),
+            ).build()
     }
 
     #[test]

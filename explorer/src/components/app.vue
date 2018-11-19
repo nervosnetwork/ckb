@@ -48,7 +48,6 @@ export default {
         _.range(result.raw.number, result.raw.number - 10, -1).forEach((number, _) => {
           this.jrpc().call('get_block_hash', [number]).then((hash) => {
             this.jrpc().call('get_block', [hash]).then((block) => {
-              block.hash = hash
               this.blocks.push(block)
               this.transactions = this.transactions.concat(block.transactions)
             })
@@ -59,7 +58,6 @@ export default {
 
     get_block: function(hash) {
       this.jrpc().call('get_block', [hash]).then((block) => {
-        block.hash = hash
         this.block = block
         console.log(block)
       })

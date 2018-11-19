@@ -24,7 +24,7 @@ extern crate ckb_instrument;
 extern crate ckb_pow;
 extern crate config as config_tool;
 extern crate crypto;
-extern crate rustc_hex;
+extern crate faster_hex;
 extern crate serde_json;
 #[cfg(test)]
 extern crate tempfile;

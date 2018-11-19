@@ -2,13 +2,14 @@ use bigint::H256;
 use ckb_chain::chain::ChainProvider;
 use ckb_protocol::{FlatbuffersVectorIterator, GetBlocks, SyncMessage};
 use flatbuffers::FlatBufferBuilder;
-use network::{NetworkContext, PeerId};
+use network::{CKBProtocolContext, PeerIndex};
 use synchronizer::Synchronizer;
 
 pub struct GetBlocksProcess<'a, C: 'a> {
     message: &'a GetBlocks<'a>,
     synchronizer: &'a Synchronizer<C>,
-    nc: &'a NetworkContext,
+    nc: &'a CKBProtocolContext,
+    peer: PeerIndex,
 }
 
 impl<'a, C> GetBlocksProcess<'a, C>
@@ -18,10 +19,11 @@ where
     pub fn new(
         message: &'a GetBlocks,
         synchronizer: &'a Synchronizer<C>,
-        _peer: PeerId,
-        nc: &'a NetworkContext,
+        peer: PeerIndex,
+        nc: &'a CKBProtocolContext,
     ) -> Self {
         GetBlocksProcess {
+            peer,
             message,
             nc,
             synchronizer,
@@ -33,11 +35,11 @@ where
             let block_hash = H256::from_slice(bytes.seq().unwrap());
             debug!(target: "sync", "get_blocks {:?}", block_hash);
             if let Some(block) = self.synchronizer.get_block(&block_hash) {
-                debug!(target: "sync", "respond_block {} {:?}", block.number(), block.hash());
+                debug!(target: "sync", "respond_block {} {:?}", block.header().number(), block.header().hash());
                 let fbb = &mut FlatBufferBuilder::new();
                 let message = SyncMessage::build_block(fbb, &block);
                 fbb.finish(message, None);
-                self.nc.respond(0, fbb.finished_data().to_vec());
+                let _ = self.nc.send(self.peer, fbb.finished_data().to_vec());
             } else {
                 // TODO response not found
                 // TODO add timeout check in synchronizer

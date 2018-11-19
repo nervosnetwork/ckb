@@ -8,17 +8,18 @@ use ckb_notify::Notify;
 use ckb_pow::PowEngine;
 use clap::ArgMatches;
 use core::script::Script;
-use core::transaction::{CellInput, OutPoint, Transaction};
+use core::transaction::{CellInput, OutPoint, Transaction, TransactionBuilder};
 use crypto::secp::{Generator, Privkey};
 use db::diskdb::RocksDB;
+use faster_hex::{hex_string, hex_to};
 use hash::sha3_256;
 use logger;
 use miner::Miner;
-use network::NetworkConfiguration;
+use network::CKBProtocol;
+use network::NetworkConfig;
 use network::NetworkService;
 use pool::TransactionPool;
 use rpc::RpcServer;
-use rustc_hex::ToHex;
 use serde_json;
 use std::io::Write;
 use std::sync::Arc;
@@ -48,13 +49,26 @@ pub fn run(setup: Setup) {
     let tx_pool = TransactionPool::new(setup.configs.pool, Arc::clone(&chain), notify.clone());
     let relayer = Arc::new(Relayer::new(&chain, &pow_engine, &tx_pool));
 
-    let network_config = NetworkConfiguration::from(setup.configs.network);
+    let network_config = NetworkConfig::from(setup.configs.network);
+    let protocol_base_name = "ckb";
     let protocols = vec![
-        (synchronizer as Arc<_>, SYNC_PROTOCOL_ID, &[(1, 1)][..]),
-        (relayer as Arc<_>, RELAY_PROTOCOL_ID, &[(1, 1)][..]),
+        CKBProtocol::new(
+            protocol_base_name.to_string(),
+            synchronizer as Arc<_>,
+            SYNC_PROTOCOL_ID,
+            &[1][..],
+        ),
+        CKBProtocol::new(
+            protocol_base_name.to_string(),
+            relayer as Arc<_>,
+            RELAY_PROTOCOL_ID,
+            &[1][..],
+        ),
     ];
-    let network =
-        Arc::new(NetworkService::new(network_config, protocols).expect("Create and start network"));
+    let network = Arc::new(
+        NetworkService::run_in_thread(&network_config, protocols)
+            .expect("Create and start network"),
+    );
 
     let _ = thread::Builder::new().name("miner".to_string()).spawn({
         let miner_clone = Arc::clone(&chain);
@@ -135,7 +149,7 @@ fn setup_rpc<C: ChainProvider + 'static>(
 
 pub fn sign(setup: &Setup, matches: &ArgMatches) {
     let consensus = setup.chain_spec.to_consensus().unwrap();
-    let system_cell_tx_hash = consensus.genesis_block().commit_transactions[0].hash();
+    let system_cell_tx_hash = consensus.genesis_block().commit_transactions()[0].hash();
     let system_cell_outpoint = OutPoint::new(system_cell_tx_hash, 0);
 
     let privkey: Privkey = value_t!(matches.value_of("private-key"), H256)
@@ -145,13 +159,8 @@ pub fn sign(setup: &Setup, matches: &ArgMatches) {
     let json =
         value_t!(matches.value_of("unsigned-transaction"), String).unwrap_or_else(|e| e.exit());
     let transaction: Transaction = serde_json::from_str(&json).unwrap();
-    let mut result = transaction.clone();
-
-    // First, add verify system cell as a dep
-    result.deps.push(system_cell_outpoint);
-    // Then, sign each input
     let mut inputs = Vec::new();
-    for unsigned_input in result.inputs {
+    for unsigned_input in transaction.inputs() {
         let mut bytes = vec![];
         for argument in &unsigned_input.unlock.arguments {
             bytes.write_all(argument).unwrap();
@@ -159,26 +168,41 @@ pub fn sign(setup: &Setup, matches: &ArgMatches) {
         let hash1 = sha3_256(&bytes);
         let hash2 = sha3_256(hash1);
         let signature = privkey.sign_recoverable(&hash2.into()).unwrap();
+        let signature_der = signature.serialize_der();
+        let mut hex_signature = vec![0; signature_der.len() * 2];
+        hex_to(&signature_der, &mut hex_signature).expect("hex signature");
 
-        let mut new_arguments = vec![signature.serialize_der().to_hex().into_bytes()];
+        let mut new_arguments = vec![hex_signature];
         new_arguments.extend_from_slice(&unsigned_input.unlock.arguments);
+
+        let pubkey_ser = pubkey.serialize();
+        let mut hex_pubkey = vec![0; pubkey_ser.len() * 2];
+        hex_to(&pubkey_ser, &mut hex_pubkey).expect("hex pubkey");
         let script = Script::new(
             0,
             new_arguments,
             Some(system_cell_outpoint),
             None,
-            vec![pubkey.serialize().to_hex().into_bytes()],
+            vec![hex_pubkey],
         );
         let signed_input = CellInput::new(unsigned_input.previous_output, script);
         inputs.push(signed_input);
     }
-    result.inputs = inputs;
+    // First, add verify system cell as a dep
+    // Then, sign each input
+    let result = TransactionBuilder::default()
+        .transaction(transaction)
+        .dep(system_cell_outpoint)
+        .inputs_clear()
+        .inputs(inputs)
+        .build();
+
     println!("{}", serde_json::to_string(&result).unwrap());
 }
 
 pub fn redeem_script_hash(setup: &Setup, matches: &ArgMatches) {
     let consensus = setup.chain_spec.to_consensus().unwrap();
-    let system_cell_tx_hash = consensus.genesis_block().commit_transactions[0].hash();
+    let system_cell_tx_hash = consensus.genesis_block().commit_transactions()[0].hash();
     let system_cell_outpoint = OutPoint::new(system_cell_tx_hash, 0);
 
     let privkey: Privkey = value_t!(matches.value_of("private-key"), H256)
@@ -186,14 +210,21 @@ pub fn redeem_script_hash(setup: &Setup, matches: &ArgMatches) {
         .into();
     let pubkey = privkey.pubkey().unwrap();
 
+    let pubkey_ser = pubkey.serialize();
+    let mut hex_pubkey = vec![0; pubkey_ser.len() * 2];
+    hex_to(&pubkey_ser, &mut hex_pubkey).expect("hex pubkey");
+
     let script = Script::new(
         0,
         Vec::new(),
         Some(system_cell_outpoint),
         None,
-        vec![pubkey.serialize().to_hex().into_bytes()],
+        vec![hex_pubkey],
     );
-    println!("{}", script.redeem_script_hash().to_hex());
+    println!(
+        "{}",
+        hex_string(&script.redeem_script_hash()).expect("hex string")
+    );
 }
 
 pub fn keygen() {

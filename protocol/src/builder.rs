@@ -1,6 +1,6 @@
 use bigint::H256;
-use ckb_core::block::IndexedBlock;
-use ckb_core::header::{BlockNumber, IndexedHeader};
+use ckb_core::block::Block;
+use ckb_core::header::{BlockNumber, Header};
 use ckb_core::script::Script;
 use ckb_core::transaction::{CellInput, CellOutput, OutPoint, ProposalShortId, Transaction};
 use ckb_core::uncle::UncleBlock;
@@ -31,26 +31,23 @@ impl<'a> FbsBytes<'a> {
 }
 
 impl<'a> FbsHeader<'a> {
-    pub fn build<'b>(
-        fbb: &mut FlatBufferBuilder<'b>,
-        header: &IndexedHeader,
-    ) -> WIPOffset<FbsHeader<'b>> {
-        let parent_hash = FbsBytes::build(fbb, &header.parent_hash);
-        let txs_commit = FbsBytes::build(fbb, &header.txs_commit);
-        let txs_proposal = FbsBytes::build(fbb, &header.txs_proposal);
-        let difficulty = FbsBytes::build(fbb, &<[u8; 32]>::from(header.difficulty));
-        let proof = FbsBytes::build(fbb, &header.seal.proof);
-        let cellbase_id = FbsBytes::build(fbb, &header.cellbase_id);
-        let uncles_hash = FbsBytes::build(fbb, &header.uncles_hash);
+    pub fn build<'b>(fbb: &mut FlatBufferBuilder<'b>, header: &Header) -> WIPOffset<FbsHeader<'b>> {
+        let parent_hash = FbsBytes::build(fbb, &header.parent_hash());
+        let txs_commit = FbsBytes::build(fbb, &header.txs_commit());
+        let txs_proposal = FbsBytes::build(fbb, &header.txs_proposal());
+        let difficulty = FbsBytes::build(fbb, &<[u8; 32]>::from(header.difficulty()));
+        let proof = FbsBytes::build(fbb, &header.proof());
+        let cellbase_id = FbsBytes::build(fbb, &header.cellbase_id());
+        let uncles_hash = FbsBytes::build(fbb, &header.uncles_hash());
         let mut builder = HeaderBuilder::new(fbb);
-        builder.add_version(header.version);
+        builder.add_version(header.version());
         builder.add_parent_hash(parent_hash);
-        builder.add_timestamp(header.timestamp);
-        builder.add_number(header.number);
+        builder.add_timestamp(header.timestamp());
+        builder.add_number(header.number());
         builder.add_txs_commit(txs_commit);
         builder.add_txs_proposal(txs_proposal);
         builder.add_difficulty(difficulty);
-        builder.add_nonce(header.seal.nonce);
+        builder.add_nonce(header.nonce());
         builder.add_proof(proof);
         builder.add_cellbase_id(cellbase_id);
         builder.add_uncles_hash(uncles_hash);
@@ -64,28 +61,28 @@ impl<'a> FbsTransaction<'a> {
         transaction: &Transaction,
     ) -> WIPOffset<FbsTransaction<'b>> {
         let vec = transaction
-            .deps
+            .deps()
             .iter()
             .map(|out_point| FbsOutPoint::build(fbb, out_point))
             .collect::<Vec<_>>();
         let deps = fbb.create_vector(&vec);
 
         let vec = transaction
-            .inputs
+            .inputs()
             .iter()
             .map(|cell_input| FbsCellInput::build(fbb, cell_input))
             .collect::<Vec<_>>();
         let inputs = fbb.create_vector(&vec);
 
         let vec = transaction
-            .outputs
+            .outputs()
             .iter()
             .map(|cell_output| FbsCellOutput::build(fbb, cell_output))
             .collect::<Vec<_>>();
         let outputs = fbb.create_vector(&vec);
 
         let mut builder = TransactionBuilder::new(fbb);
-        builder.add_version(transaction.version);
+        builder.add_version(transaction.version());
         builder.add_deps(deps);
         builder.add_inputs(inputs);
         builder.add_outputs(outputs);
@@ -178,28 +175,25 @@ impl<'a> FbsCellOutput<'a> {
 }
 
 impl<'a> FbsBlock<'a> {
-    pub fn build<'b>(
-        fbb: &mut FlatBufferBuilder<'b>,
-        block: &IndexedBlock,
-    ) -> WIPOffset<FbsBlock<'b>> {
-        let header = FbsHeader::build(fbb, &block.header);
+    pub fn build<'b>(fbb: &mut FlatBufferBuilder<'b>, block: &Block) -> WIPOffset<FbsBlock<'b>> {
+        let header = FbsHeader::build(fbb, &block.header());
 
         let vec = block
-            .uncles
+            .uncles()
             .iter()
             .map(|uncle| FbsUncleBlock::build(fbb, uncle))
             .collect::<Vec<_>>();
         let uncles = fbb.create_vector(&vec);
 
         let vec = block
-            .commit_transactions
+            .commit_transactions()
             .iter()
             .map(|transaction| FbsTransaction::build(fbb, transaction))
             .collect::<Vec<_>>();
         let commit_transactions = fbb.create_vector(&vec);
 
         let vec = block
-            .proposal_transactions
+            .proposal_transactions()
             .iter()
             .map(|id| FbsBytes::build(fbb, &id[..]))
             .collect::<Vec<_>>();
@@ -220,7 +214,7 @@ impl<'a> FbsUncleBlock<'a> {
         uncle_block: &UncleBlock,
     ) -> WIPOffset<FbsUncleBlock<'b>> {
         // TODO how to avoid clone here?
-        let header = FbsHeader::build(fbb, &uncle_block.header.clone().into());
+        let header = FbsHeader::build(fbb, &uncle_block.header().clone());
         let cellbase = FbsTransaction::build(fbb, &uncle_block.cellbase);
         let vec = uncle_block
             .proposal_transactions
@@ -240,7 +234,7 @@ impl<'a> FbsUncleBlock<'a> {
 impl<'a> FbsHeaders<'a> {
     pub fn build<'b>(
         fbb: &mut FlatBufferBuilder<'b>,
-        headers: &[IndexedHeader],
+        headers: &[Header],
     ) -> WIPOffset<FbsHeaders<'b>> {
         let vec = headers
             .iter()
@@ -303,7 +297,7 @@ impl<'a> SyncMessage<'a> {
 
     pub fn build_headers<'b>(
         fbb: &mut FlatBufferBuilder<'b>,
-        headers: &[IndexedHeader],
+        headers: &[Header],
     ) -> WIPOffset<SyncMessage<'b>> {
         let fbs_headers = FbsHeaders::build(fbb, headers);
         let mut builder = SyncMessageBuilder::new(fbb);
@@ -325,7 +319,7 @@ impl<'a> SyncMessage<'a> {
 
     pub fn build_block<'b>(
         fbb: &mut FlatBufferBuilder<'b>,
-        block: &IndexedBlock,
+        block: &Block,
     ) -> WIPOffset<SyncMessage<'b>> {
         let fbs_block = FbsBlock::build(fbb, &block);
         let mut builder = SyncMessageBuilder::new(fbb);
@@ -338,18 +332,18 @@ impl<'a> SyncMessage<'a> {
 impl<'a> CompactBlock<'a> {
     pub fn build<'b>(
         fbb: &mut FlatBufferBuilder<'b>,
-        block: &IndexedBlock,
+        block: &Block,
         prefilled_transactions_indexes: &HashSet<usize>,
     ) -> WIPOffset<CompactBlock<'b>> {
         let nonce: u64 = thread_rng().gen();
 
         let prefilled_transactions_len = prefilled_transactions_indexes.len() + 1;
         let mut short_ids: Vec<_> =
-            Vec::with_capacity(block.commit_transactions.len() - prefilled_transactions_len);
+            Vec::with_capacity(block.commit_transactions().len() - prefilled_transactions_len);
         let mut prefilled_transactions = Vec::with_capacity(prefilled_transactions_len);
 
-        let (key0, key1) = short_transaction_id_keys(block.header.seal.nonce, nonce);
-        for (transaction_index, transaction) in block.commit_transactions.iter().enumerate() {
+        let (key0, key1) = short_transaction_id_keys(block.header().nonce(), nonce);
+        for (transaction_index, transaction) in block.commit_transactions().iter().enumerate() {
             if prefilled_transactions_indexes.contains(&transaction_index)
                 || transaction.is_cellbase()
             {
@@ -366,17 +360,17 @@ impl<'a> CompactBlock<'a> {
             }
         }
 
-        let header = FbsHeader::build(fbb, &block.header);
+        let header = FbsHeader::build(fbb, &block.header());
         let short_ids = fbb.create_vector(&short_ids);
         let prefilled_transactions = fbb.create_vector(&prefilled_transactions);
         let vec = block
-            .uncles
+            .uncles()
             .iter()
             .map(|uncle| FbsUncleBlock::build(fbb, uncle))
             .collect::<Vec<_>>();
         let uncles = fbb.create_vector(&vec);
         let vec = block
-            .proposal_transactions
+            .proposal_transactions()
             .iter()
             .map(|id| FbsBytes::build(fbb, &id[..]))
             .collect::<Vec<_>>();
@@ -396,7 +390,7 @@ impl<'a> CompactBlock<'a> {
 impl<'a> RelayMessage<'a> {
     pub fn build_compact_block<'b>(
         fbb: &mut FlatBufferBuilder<'b>,
-        block: &IndexedBlock,
+        block: &Block,
         prefilled_transactions_indexes: &HashSet<usize>,
     ) -> WIPOffset<RelayMessage<'b>> {
         let compact_block = CompactBlock::build(fbb, block, prefilled_transactions_indexes);
@@ -510,13 +504,13 @@ impl<'a> RelayMessage<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ckb_core::block::Block;
-    use ckb_core::header::Header;
+    use ckb_core::block::BlockBuilder;
+    use ckb_core::header::HeaderBuilder;
     use flatbuffers::get_root;
 
     #[test]
     fn build_and_convert_header() {
-        let header = Header::default().into();
+        let header = HeaderBuilder::default().build();
         let builder = &mut FlatBufferBuilder::new();
         let b = FbsHeader::build(builder, &header);
         builder.finish(b, None);
@@ -527,7 +521,9 @@ mod tests {
 
     #[test]
     fn build_and_convert_block() {
-        let block = Block::default().into();
+        let block = BlockBuilder::default()
+            .header(HeaderBuilder::default().build())
+            .build();
         let builder = &mut FlatBufferBuilder::new();
         let b = FbsBlock::build(builder, &block);
         builder.finish(b, None);

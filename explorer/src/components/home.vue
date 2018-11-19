@@ -4,7 +4,7 @@
       <div class="uk-width-1-2 uk-card uk-card-default uk-card-body">
         <h3 class="uk-card-title">Blocks</h3>
         <ul class="uk-list">
-          <li class="uk-flex" v-for="block in orderedBlocks" :key="block.header.hash">
+          <li class="uk-flex" v-for="block in orderedBlocks" :key="block.hash">
             <div class="uk-card uk-card-default uk-card-body uk-width-1-2">
               Block #{{ block.header.raw.number }}
               <div class="uk-text-truncate">
@@ -27,13 +27,13 @@
             <router-link v-bind:to="{ name: 'transactions', params: { id: tx.hash }}">{{ tx.hash }}</router-link>
             Inputs
             <ul>
-              <li v-for="i in tx.transaction.inputs" :key="i">
+              <li v-for="(i, index) in tx.transaction.inputs" :key="index">
                 {{ i }}
               </li>
             </ul>
             Outputs
             <ul>
-              <li v-for="o in tx.transaction.outputs" :key="o">
+              <li v-for="(o, index) in tx.transaction.outputs" :key="index">
                 {{ o }}
               </li>
             </ul>

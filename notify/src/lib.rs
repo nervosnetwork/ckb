@@ -5,7 +5,7 @@ extern crate ckb_util as util;
 extern crate crossbeam_channel;
 extern crate fnv;
 
-use core::block::IndexedBlock;
+use core::block::Block;
 use fnv::FnvHashMap;
 use std::sync::Arc;
 use util::RwLock;
@@ -15,24 +15,24 @@ pub const TXS_POOL_SUBSCRIBER: &str = "txs_pool";
 
 #[derive(Clone, PartialEq, Debug, Default)]
 pub struct ForkBlocks {
-    olds: Vec<IndexedBlock>,
-    news: Vec<IndexedBlock>,
+    olds: Vec<Block>,
+    news: Vec<Block>,
 }
 
 impl ForkBlocks {
-    pub fn new(olds: Vec<IndexedBlock>, news: Vec<IndexedBlock>) -> Self {
+    pub fn new(olds: Vec<Block>, news: Vec<Block>) -> Self {
         ForkBlocks { olds, news }
     }
 
-    pub fn old_blks(&self) -> &Vec<IndexedBlock> {
+    pub fn old_blks(&self) -> &Vec<Block> {
         &self.olds
     }
 
-    pub fn new_blks(&self) -> &Vec<IndexedBlock> {
+    pub fn new_blks(&self) -> &Vec<Block> {
         &self.news
     }
 
-    pub fn push_new(&mut self, b: IndexedBlock) {
+    pub fn push_new(&mut self, b: Block) {
         self.news.push(b);
     }
 }
@@ -40,7 +40,7 @@ impl ForkBlocks {
 #[derive(Clone, PartialEq, Debug)]
 pub enum Event {
     NewTransaction,
-    NewTip(Arc<IndexedBlock>),
+    NewTip(Arc<Block>),
     SwitchFork(Arc<ForkBlocks>),
 }
 
@@ -73,7 +73,7 @@ impl Notify {
         self.fork_subscribers.write().insert(name.to_string(), sub);
     }
 
-    pub fn notify_new_tip(&self, block: &IndexedBlock) {
+    pub fn notify_new_tip(&self, block: &Block) {
         let block = Arc::new(block.clone());
         for sub in self.tip_subscribers.read().values() {
             sub.send(Event::NewTip(Arc::clone(&block)));
@@ -111,7 +111,7 @@ mod tests {
     fn test_new_tip() {
         let notify = Notify::default();
         let (tx, rx) = crossbeam_channel::unbounded();
-        let tip = Arc::new(IndexedBlock::default());
+        let tip = Arc::new(Block::default());
 
         notify.register_tip_subscriber(MINER_SUBSCRIBER, tx.clone());
         notify.notify_new_tip(&tip);

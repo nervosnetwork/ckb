@@ -16,18 +16,18 @@ use self::header_view::HeaderView;
 use self::headers_process::HeadersProcess;
 use self::peers::Peers;
 use bigint::H256;
-use ckb_chain::chain::{ChainProvider, TipHeader};
+use ckb_chain::chain::ChainProvider;
 use ckb_pow::PowEngine;
 use ckb_protocol::{SyncMessage, SyncPayload};
 use ckb_time::now_ms;
 use ckb_verification::{BlockVerifier, Verifier};
 use config::Config;
-use core::block::IndexedBlock;
-use core::header::{BlockNumber, IndexedHeader};
+use core::block::Block;
+use core::header::{BlockNumber, Header};
 use flatbuffers::{get_root, FlatBufferBuilder};
 use futures::future;
 use futures::future::lazy;
-use network::PeerId;
+use network::PeerIndex;
 use std::cmp;
 use std::collections::HashMap;
 use std::sync::atomic::AtomicUsize;
@@ -42,7 +42,7 @@ use {
     MAX_OUTBOUND_PEERS_TO_PROTECT_FROM_DISCONNECT, MAX_TIP_AGE, POW_SPACE,
 };
 
-use network::{NetworkContext, NetworkProtocolHandler, TimerToken};
+use network::{CKBProtocolContext, CKBProtocolHandler, TimerToken};
 
 pub const SEND_GET_HEADERS_TOKEN: TimerToken = 0;
 pub const BLOCK_FETCH_TOKEN: TimerToken = 1;
@@ -83,9 +83,9 @@ pub struct Synchronizer<C> {
     pub outbound_peers_with_protect: Arc<AtomicUsize>,
 }
 
-fn is_outbound(nc: &NetworkContext, peer: PeerId) -> Option<bool> {
+fn is_outbound(nc: &CKBProtocolContext, peer: PeerIndex) -> Option<bool> {
     nc.session_info(peer)
-        .map(|session_info| session_info.originated)
+        .map(|session_info| session_info.peer.is_outgoing())
 }
 
 impl<C> Clone for Synchronizer<C>
@@ -113,12 +113,9 @@ where
     C: ChainProvider,
 {
     pub fn new(chain: &Arc<C>, pow: &Arc<dyn PowEngine>, config: Config) -> Synchronizer<C> {
-        let TipHeader {
-            header,
-            total_difficulty,
-            ..
-        } = chain.tip_header().read().clone();
-        let best_known_header = HeaderView::new(header, total_difficulty);
+        let tip_header = chain.tip_header().read();
+        let best_known_header =
+            HeaderView::new(tip_header.inner().clone(), tip_header.total_difficulty());
         let orphan_block_limit = config.orphan_block_limit;
 
         Synchronizer {
@@ -135,7 +132,7 @@ where
         }
     }
 
-    fn process(&self, nc: &NetworkContext, peer: PeerId, message: SyncMessage) {
+    fn process(&self, nc: &CKBProtocolContext, peer: PeerIndex, message: SyncMessage) {
         match message.payload_type() {
             SyncPayload::GetHeaders => {
                 GetHeadersProcess::new(&message.payload_as_get_headers().unwrap(), self, peer, nc)
@@ -183,13 +180,13 @@ where
     }
 
     pub fn is_initial_block_download(&self) -> bool {
-        now_ms().saturating_sub(self.chain.tip_header().read().header.timestamp) > MAX_TIP_AGE
+        now_ms().saturating_sub(self.chain.tip_header().read().inner().timestamp()) > MAX_TIP_AGE
     }
 
-    pub fn get_headers_sync_timeout(&self, tip: &IndexedHeader) -> u64 {
+    pub fn get_headers_sync_timeout(&self, header: &Header) -> u64 {
         HEADERS_DOWNLOAD_TIMEOUT_BASE
             + HEADERS_DOWNLOAD_TIMEOUT_PER_HEADER
-                * (now_ms().saturating_sub(tip.header.timestamp) / POW_SPACE)
+                * (now_ms().saturating_sub(header.timestamp()) / POW_SPACE)
     }
 
     pub fn mark_block_stored(&self, hash: H256) {
@@ -200,14 +197,14 @@ where
             .or_insert_with(|| BlockStatus::BLOCK_HAVE_MASK);
     }
 
-    pub fn tip_header(&self) -> IndexedHeader {
-        self.chain.tip_header().read().header.clone()
+    pub fn tip_header(&self) -> Header {
+        self.chain.tip_header().read().inner().clone()
     }
 
-    pub fn get_locator(&self, start: &IndexedHeader) -> Vec<H256> {
+    pub fn get_locator(&self, start: &Header) -> Vec<H256> {
         let mut step = 1;
         let mut locator = Vec::with_capacity(32);
-        let mut index = start.number;
+        let mut index = start.number();
         let base = start.hash();
         loop {
             let header = self
@@ -260,7 +257,7 @@ where
             .get(index - 1)
             .and_then(|hash| self.chain.block_header(&hash))
         {
-            let mut block_hash = header.parent_hash;
+            let mut block_hash = header.parent_hash();
             loop {
                 let block_header = match self.chain.block_header(&block_hash) {
                     None => break latest_common,
@@ -271,7 +268,7 @@ where
                     return Some(block_number);
                 }
 
-                block_hash = block_header.parent_hash;
+                block_hash = block_header.parent_hash();
             }
         } else {
             latest_common
@@ -288,29 +285,29 @@ where
         })
     }
 
-    pub fn get_header(&self, hash: &H256) -> Option<IndexedHeader> {
+    pub fn get_header(&self, hash: &H256) -> Option<Header> {
         self.header_map
             .read()
             .get(hash)
-            .map(|view| &view.header)
+            .map(|view| view.inner())
             .cloned()
             .or_else(|| self.chain.block_header(&hash))
     }
 
-    pub fn get_block(&self, hash: &H256) -> Option<IndexedBlock> {
+    pub fn get_block(&self, hash: &H256) -> Option<Block> {
         self.chain.block(hash)
     }
 
-    pub fn get_ancestor(&self, base: &H256, number: BlockNumber) -> Option<IndexedHeader> {
+    pub fn get_ancestor(&self, base: &H256, number: BlockNumber) -> Option<Header> {
         if let Some(header) = self.get_header(base) {
-            let mut n_number = header.number;
+            let mut n_number = header.number();
             let mut index_walk = header;
             if number > n_number {
                 return None;
             }
 
             while n_number > number {
-                if let Some(header) = self.get_header(&index_walk.parent_hash) {
+                if let Some(header) = self.get_header(&index_walk.parent_hash()) {
                     index_walk = header;
                     n_number -= 1;
                 } else {
@@ -322,12 +319,8 @@ where
         None
     }
 
-    pub fn get_locator_response(
-        &self,
-        block_number: BlockNumber,
-        hash_stop: &H256,
-    ) -> Vec<IndexedHeader> {
-        let tip_number = self.tip_header().number;
+    pub fn get_locator_response(&self, block_number: BlockNumber, hash_stop: &H256) -> Vec<Header> {
+        let tip_number = self.tip_header().number();
         let max_height = cmp::min(
             block_number + 1 + MAX_HEADERS_LEN as BlockNumber,
             tip_number + 1,
@@ -339,16 +332,16 @@ where
             .collect()
     }
 
-    pub fn insert_header_view(&self, header: &IndexedHeader, peer: PeerId) {
-        if let Some(parent_view) = self.get_header_view(&header.parent_hash) {
-            let total_difficulty = parent_view.total_difficulty + header.difficulty;
+    pub fn insert_header_view(&self, header: &Header, peer: PeerIndex) {
+        if let Some(parent_view) = self.get_header_view(&header.parent_hash()) {
+            let total_difficulty = parent_view.total_difficulty() + header.difficulty();
             let header_view = {
                 let best_known_header = self.best_known_header.upgradable_read();
                 let header_view = HeaderView::new(header.clone(), total_difficulty);
 
-                if total_difficulty > best_known_header.total_difficulty
-                    || (total_difficulty == best_known_header.total_difficulty
-                        && header.hash() < best_known_header.header.hash())
+                if total_difficulty > best_known_header.total_difficulty()
+                    || (total_difficulty == best_known_header.total_difficulty()
+                        && header.hash() < best_known_header.hash())
                 {
                     let mut best_known_header =
                         RwLockUpgradableReadGuard::upgrade(best_known_header);
@@ -368,34 +361,32 @@ where
     // of its current best_known_header. Go back enough to fix that.
     pub fn last_common_ancestor(
         &self,
-        last_common_header: &IndexedHeader,
-        best_known_header: &IndexedHeader,
-    ) -> Option<IndexedHeader> {
-        debug_assert!(best_known_header.number >= last_common_header.number);
+        last_common_header: &Header,
+        best_known_header: &Header,
+    ) -> Option<Header> {
+        debug_assert!(best_known_header.number() >= last_common_header.number());
 
         let mut m_right =
-            try_option!(self.get_ancestor(&best_known_header.hash(), last_common_header.number));
+            try_option!(self.get_ancestor(&best_known_header.hash(), last_common_header.number()));
 
         if &m_right == last_common_header {
             return Some(m_right);
         }
 
         let mut m_left = try_option!(self.get_header(&last_common_header.hash()));
-        debug_assert!(m_right.header.number == m_left.header.number);
+        debug_assert!(m_right.number() == m_left.number());
 
         while m_left != m_right {
-            m_left =
-                try_option!(self.get_ancestor(&m_left.header.hash(), m_left.header.number - 1));
-            m_right =
-                try_option!(self.get_ancestor(&m_right.header.hash(), m_right.header.number - 1));
+            m_left = try_option!(self.get_ancestor(&m_left.hash(), m_left.number() - 1));
+            m_right = try_option!(self.get_ancestor(&m_right.hash(), m_right.number() - 1));
         }
         Some(m_left)
     }
 
     //TODO: process block which we don't request
     #[cfg_attr(feature = "cargo-clippy", allow(single_match))]
-    pub fn process_new_block(&self, peer: PeerId, block: IndexedBlock) {
-        match self.get_block_status(&block.hash()) {
+    pub fn process_new_block(&self, peer: PeerIndex, block: Block) {
+        match self.get_block_status(&block.header().hash()) {
             BlockStatus::VALID_MASK => {
                 self.insert_new_block(peer, block);
             }
@@ -405,24 +396,32 @@ where
         }
     }
 
-    fn accept_block(&self, peer: PeerId, block: &IndexedBlock) -> Result<(), AcceptBlockError> {
+    fn accept_block(&self, peer: PeerIndex, block: &Block) -> Result<(), AcceptBlockError> {
         BlockVerifier::new(block, &self.chain, &self.pow).verify()?;
         self.chain.process_block(&block)?;
-        self.mark_block_stored(block.hash());
-        self.peers.set_last_common_header(peer, &block.header);
+        self.mark_block_stored(block.header().hash());
+        self.peers.set_last_common_header(peer, block.header());
         Ok(())
     }
 
     //FIXME: guarantee concurrent block process
-    fn insert_new_block(&self, peer: PeerId, block: IndexedBlock) {
-        if self.chain.output_root(&block.header.parent_hash).is_some() {
+    fn insert_new_block(&self, peer: PeerIndex, block: Block) {
+        if self
+            .chain
+            .output_root(&block.header().parent_hash())
+            .is_some()
+        {
             let accept_ret = self.accept_block(peer, &block);
             if accept_ret.is_ok() {
                 let pre_orphan_block = self
                     .orphan_block_pool
-                    .remove_blocks_by_parent(&block.hash());
+                    .remove_blocks_by_parent(&block.header().hash());
                 for block in pre_orphan_block {
-                    if self.chain.output_root(&block.header.parent_hash).is_some() {
+                    if self
+                        .chain
+                        .output_root(&block.header().parent_hash())
+                        .is_some()
+                    {
                         let ret = self.accept_block(peer, &block);
                         if ret.is_err() {
                             debug!(
@@ -434,8 +433,8 @@ where
                     } else {
                         debug!(
                             target: "sync", "[Synchronizer] insert_orphan_block {:#?}------------{:?}",
-                            block.number(),
-                            block.hash()
+                            block.header().number(),
+                            block.header().hash()
                         );
                         self.orphan_block_pool.insert(block);
                     }
@@ -450,8 +449,8 @@ where
         } else {
             debug!(
                 target: "sync", "[Synchronizer] insert_orphan_block {:#?}------------{:?}",
-                block.number(),
-                block.hash()
+                block.header().number(),
+                block.header().hash()
             );
             self.orphan_block_pool.insert(block);
         }
@@ -459,11 +458,11 @@ where
         debug!(target: "sync", "[Synchronizer] insert_new_block finish");
     }
 
-    pub fn get_blocks_to_fetch(&self, peer: PeerId) -> Option<Vec<H256>> {
+    pub fn get_blocks_to_fetch(&self, peer: PeerIndex) -> Option<Vec<H256>> {
         BlockFetcher::new(&self, peer).fetch()
     }
 
-    fn on_connected(&self, nc: &NetworkContext, peer: PeerId) {
+    fn on_connected(&self, nc: &CKBProtocolContext, peer: PeerIndex) {
         let tip = self.tip_header();
         let timeout = self.get_headers_sync_timeout(&tip);
 
@@ -481,16 +480,21 @@ where
         self.send_getheaders_to_peer(nc, peer, &tip);
     }
 
-    pub fn send_getheaders_to_peer(&self, nc: &NetworkContext, peer: PeerId, tip: &IndexedHeader) {
-        let locator_hash = self.get_locator(tip);
+    pub fn send_getheaders_to_peer(
+        &self,
+        nc: &CKBProtocolContext,
+        peer: PeerIndex,
+        header: &Header,
+    ) {
+        let locator_hash = self.get_locator(header);
         let fbb = &mut FlatBufferBuilder::new();
         let message = SyncMessage::build_get_headers(fbb, &locator_hash);
         fbb.finish(message, None);
-        nc.send(peer, 0, fbb.finished_data().to_vec());
+        let _ = nc.send(peer, fbb.finished_data().to_vec());
     }
 
-    fn send_getheaders_to_all(&self, nc: &NetworkContext) {
-        let peers: Vec<PeerId> = self
+    fn send_getheaders_to_all(&self, nc: &CKBProtocolContext) {
+        let peers: Vec<PeerIndex> = self
             .peers
             .state
             .read()
@@ -506,8 +510,8 @@ where
         }
     }
 
-    fn find_blocks_to_fetch(&self, nc: &NetworkContext) {
-        let peers: Vec<PeerId> = self
+    fn find_blocks_to_fetch(&self, nc: &CKBProtocolContext) {
+        let peers: Vec<PeerIndex> = self
             .peers
             .state
             .read()
@@ -525,55 +529,55 @@ where
         }
     }
 
-    fn send_getblocks(&self, v_fetch: &[H256], nc: &NetworkContext, peer: PeerId) {
+    fn send_getblocks(&self, v_fetch: &[H256], nc: &CKBProtocolContext, peer: PeerIndex) {
         let fbb = &mut FlatBufferBuilder::new();
         let message = SyncMessage::build_get_blocks(fbb, v_fetch);
         fbb.finish(message, None);
-        nc.send(peer, 0, fbb.finished_data().to_vec());
-        debug!(target: "sync", "send_getblocks len={:?} to peer={:?}", v_fetch.len() , peer);
+        let _ = nc.send(peer, fbb.finished_data().to_vec());
+        debug!(target: "sync", "send_getblocks len={:?} to peer={}", v_fetch.len() , peer);
     }
 }
 
-impl<C> NetworkProtocolHandler for Synchronizer<C>
+impl<C> CKBProtocolHandler for Synchronizer<C>
 where
     C: ChainProvider + 'static,
 {
-    fn initialize(&self, nc: Box<NetworkContext>) {
+    fn initialize(&self, nc: Box<CKBProtocolContext>) {
         // NOTE: 100ms is what bitcoin use.
         let _ = nc.register_timer(SEND_GET_HEADERS_TOKEN, Duration::from_millis(100));
         let _ = nc.register_timer(BLOCK_FETCH_TOKEN, Duration::from_millis(100));
     }
 
-    fn read(&self, nc: Box<NetworkContext>, peer: &PeerId, _packet_id: u8, data: &[u8]) {
+    fn received(&self, nc: Box<CKBProtocolContext>, peer: PeerIndex, data: &[u8]) {
         let data = data.to_owned();
         let synchronizer = self.clone();
-        let peer = *peer;
+        let peer = peer;
         tokio::spawn(lazy(move || {
             // TODO use flatbuffers verifier
             let msg = get_root::<SyncMessage>(&data);
             debug!(target: "sync", "msg {:?}", msg.payload_type());
-            synchronizer.process(&nc, peer, msg);
+            synchronizer.process(nc.as_ref(), peer, msg);
             future::ok(())
         }));
     }
 
-    fn connected(&self, nc: Box<NetworkContext>, peer: &PeerId) {
+    fn connected(&self, nc: Box<CKBProtocolContext>, peer: PeerIndex) {
         let synchronizer = self.clone();
-        let peer = *peer;
+        let peer = peer;
         tokio::spawn(lazy(move || {
             if synchronizer.n_sync.load(Ordering::Acquire) == 0
                 || !synchronizer.is_initial_block_download()
             {
-                debug!(target: "sync", "init_getheaders peer={:?} connected", peer);
+                debug!(target: "sync", "init_getheaders peer={} connected", peer);
                 synchronizer.on_connected(nc.as_ref(), peer);
             }
             future::ok(())
         }));
     }
 
-    fn disconnected(&self, _nc: Box<NetworkContext>, peer: &PeerId) {
+    fn disconnected(&self, _nc: Box<CKBProtocolContext>, peer: PeerIndex) {
         let synchronizer = self.clone();
-        let peer = *peer;
+        let peer = peer;
         tokio::spawn(lazy(move || {
             info!(target: "sync", "peer={} SyncProtocol.disconnected", peer);
             synchronizer.peers.disconnected(peer);
@@ -581,16 +585,16 @@ where
         }));
     }
 
-    fn timeout(&self, nc: Box<NetworkContext>, token: TimerToken) {
+    fn timer_triggered(&self, nc: Box<CKBProtocolContext>, token: TimerToken) {
         let synchronizer = self.clone();
         tokio::spawn(lazy(move || {
             if !synchronizer.peers.state.read().is_empty() {
                 match token as usize {
                     SEND_GET_HEADERS_TOKEN => {
-                        synchronizer.send_getheaders_to_all(&nc);
+                        synchronizer.send_getheaders_to_all(nc.as_ref());
                     }
                     BLOCK_FETCH_TOKEN => {
-                        synchronizer.find_blocks_to_fetch(&nc);
+                        synchronizer.find_blocks_to_fetch(nc.as_ref());
                     }
                     _ => unreachable!(),
                 }
@@ -618,16 +622,15 @@ mod tests {
     use ckb_notify::{Event, Notify, MINER_SUBSCRIBER};
     use ckb_pow::DummyPowEngine;
     use ckb_protocol::{Block as FbsBlock, Headers as FbsHeaders};
-    use core::header::{Header, RawHeader, Seal};
-    use core::transaction::{CellInput, CellOutput, IndexedTransaction, Transaction, VERSION};
-    use core::uncle::uncles_hash;
+    use core::block::BlockBuilder;
+    use core::header::{Header, HeaderBuilder};
+    use core::transaction::{CellInput, CellOutput, Transaction, TransactionBuilder};
     use crossbeam_channel;
     use crossbeam_channel::Receiver;
     use db::memorydb::MemoryKeyValueDB;
     use flatbuffers::FlatBufferBuilder;
-    use merkle_root::merkle_root;
     use network::{
-        Error as NetworkError, NetworkContext, PacketId, PeerId, ProtocolId, SessionInfo, Severity,
+        CKBProtocolContext, Error as NetworkError, PeerIndex, ProtocolId, SessionInfo, Severity,
         TimerToken,
     };
     use std::time::Duration;
@@ -651,86 +654,37 @@ mod tests {
         chain
     }
 
-    fn create_cellbase(number: BlockNumber) -> IndexedTransaction {
-        let inputs = vec![CellInput::new_cellbase_input(number)];
-        let outputs = vec![CellOutput::new(0, vec![], H256::from(0))];
-        Transaction::new(VERSION, Vec::new(), inputs, outputs).into()
+    fn create_cellbase(number: BlockNumber) -> Transaction {
+        TransactionBuilder::default()
+            .input(CellInput::new_cellbase_input(number))
+            .output(CellOutput::new(0, vec![], H256::from(0)))
+            .build()
     }
 
-    fn gen_block(parent_header: IndexedHeader, difficulty: U256, nonce: u64) -> IndexedBlock {
-        let now = 1 + parent_header.timestamp;
-        let number = parent_header.number + 1;
+    fn gen_block(parent_header: Header, difficulty: U256, nonce: u64) -> Block {
+        let now = 1 + parent_header.timestamp();
+        let number = parent_header.number() + 1;
         let cellbase = create_cellbase(number);
-        let cellbase_id = cellbase.hash();
-        let txs = vec![cellbase];
-        let txs_hash = vec![cellbase_id];
-        let txs_commit = merkle_root(txs_hash.as_slice());
-        let uncles = vec![];
-        let uncles_hash = uncles_hash(&uncles);
-        let header = Header {
-            raw: RawHeader {
-                number,
-                cellbase_id,
-                uncles_hash,
-                txs_commit,
-                txs_proposal: H256::zero(),
-                version: 0,
-                parent_hash: parent_header.hash(),
-                timestamp: now,
-                difficulty: difficulty,
-            },
-            seal: Seal {
-                nonce,
-                proof: Default::default(),
-            },
-        };
+        let header_builder = HeaderBuilder::default()
+            .parent_hash(&parent_header.hash())
+            .timestamp(now)
+            .number(number)
+            .difficulty(&difficulty)
+            .cellbase_id(&cellbase.hash())
+            .nonce(nonce);
 
-        IndexedBlock {
-            uncles,
-            header: header.into(),
-            commit_transactions: txs,
-            proposal_transactions: vec![],
-        }
+        BlockBuilder::default()
+            .commit_transaction(cellbase)
+            .with_header_builder(header_builder)
     }
 
     fn insert_block<CS: ChainIndex>(chain: &Chain<CS>, nonce: u64, number: BlockNumber) {
         let parent = chain
             .block_header(&chain.block_hash(number - 1).unwrap())
             .unwrap();
-        let now = 1 + parent.timestamp;
         let difficulty = chain.calculate_difficulty(&parent).unwrap();
-        let cellbase = create_cellbase(number);
-        let cellbase_id = cellbase.hash();
-        let txs = vec![cellbase];
-        let txs_hash: Vec<H256> = txs.iter().map(|t| t.hash()).collect();
-        let txs_commit = merkle_root(txs_hash.as_slice());
+        let block = gen_block(parent, difficulty, nonce);
 
-        let uncles = vec![];
-        let uncles_hash = uncles_hash(&uncles);
-        let header = Header {
-            raw: RawHeader {
-                number,
-                txs_commit,
-                cellbase_id,
-                uncles_hash,
-                version: 0,
-                txs_proposal: H256::zero(),
-                parent_hash: parent.hash(),
-                timestamp: now,
-                difficulty: difficulty,
-            },
-            seal: Seal {
-                nonce,
-                proof: Default::default(),
-            },
-        };
-
-        let block = IndexedBlock {
-            header: header.into(),
-            uncles: vec![],
-            commit_transactions: txs,
-            proposal_transactions: vec![],
-        };
         chain.process_block(&block).expect("process block ok");
     }
 
@@ -750,7 +704,7 @@ mod tests {
 
         let synchronizer = Synchronizer::new(&chain, &dummy_pow_engine(), Config::default());
 
-        let locator = synchronizer.get_locator(&chain.tip_header().read().header);
+        let locator = synchronizer.get_locator(&chain.tip_header().read().inner());
 
         let mut expect = Vec::new();
 
@@ -784,7 +738,7 @@ mod tests {
 
         let synchronizer2 = Synchronizer::new(&chain2, &pow_engine, Config::default());
 
-        let locator1 = synchronizer1.get_locator(&chain1.tip_header().read().header);
+        let locator1 = synchronizer1.get_locator(&chain1.tip_header().read().inner());
 
         let latest_common = synchronizer2.locate_latest_common_block(&H256::zero(), &locator1[..]);
 
@@ -810,8 +764,8 @@ mod tests {
         let chain2 = Arc::new(gen_chain(&config, Notify::default()));
         let block_number = 200;
 
-        let mut blocks: Vec<IndexedBlock> = Vec::new();
-        let mut parent = config.genesis_block().header.clone();
+        let mut blocks: Vec<Block> = Vec::new();
+        let mut parent = config.genesis_block().header().clone();
         for i in 1..block_number {
             let difficulty = chain1.calculate_difficulty(&parent).unwrap();
             let new_block = gen_block(parent, difficulty, i);
@@ -820,16 +774,16 @@ mod tests {
             chain1.process_block(&new_block).expect("process block ok");
 
             chain2.process_block(&new_block).expect("process block ok");
-            parent = new_block.header;
+            parent = new_block.header().clone();
         }
 
-        parent = blocks[150].header.clone();
-        let fork = parent.number;
+        parent = blocks[150].header().clone();
+        let fork = parent.number();
         for i in 1..block_number + 1 {
             let difficulty = chain2.calculate_difficulty(&parent).unwrap();
             let new_block = gen_block(parent, difficulty, i + 100);
             chain2.process_block(&new_block).expect("process block ok");
-            parent = new_block.header;
+            parent = new_block.header().clone();
         }
 
         let pow_engine = dummy_pow_engine();
@@ -838,7 +792,7 @@ mod tests {
 
         let synchronizer2 = Synchronizer::new(&chain2, &pow_engine, Config::default());
 
-        let locator1 = synchronizer1.get_locator(&chain1.tip_header().read().header);
+        let locator1 = synchronizer1.get_locator(&chain1.tip_header().read().inner());
 
         let latest_common = synchronizer2
             .locate_latest_common_block(&H256::zero(), &locator1[..])
@@ -867,13 +821,13 @@ mod tests {
 
         let synchronizer = Synchronizer::new(&chain, &dummy_pow_engine(), Config::default());
 
-        let header = synchronizer.get_ancestor(&chain.tip_header().read().header.hash(), 100);
-        let tip = synchronizer.get_ancestor(&chain.tip_header().read().header.hash(), 199);
-        let noop = synchronizer.get_ancestor(&chain.tip_header().read().header.hash(), 200);
+        let header = synchronizer.get_ancestor(&chain.tip_header().read().hash(), 100);
+        let tip = synchronizer.get_ancestor(&chain.tip_header().read().hash(), 199);
+        let noop = synchronizer.get_ancestor(&chain.tip_header().read().hash(), 200);
         assert!(tip.is_some());
         assert!(header.is_some());
         assert!(noop.is_none());
-        assert_eq!(tip.unwrap(), chain.tip_header().read().header.clone());
+        assert_eq!(tip.unwrap(), chain.tip_header().read().inner().clone());
         assert_eq!(
             header.unwrap(),
             chain.block_header(&chain.block_hash(100).unwrap()).unwrap()
@@ -886,26 +840,27 @@ mod tests {
         let chain1 = Arc::new(gen_chain(&config, Notify::default()));
         let chain2 = Arc::new(gen_chain(&config, Notify::default()));
         let block_number = 2000;
+        let peer = 0;
 
-        let mut blocks: Vec<IndexedBlock> = Vec::new();
+        let mut blocks: Vec<Block> = Vec::new();
         let mut parent = chain1.block_header(&chain1.block_hash(0).unwrap()).unwrap();
         for i in 1..block_number {
             let difficulty = chain1.calculate_difficulty(&parent).unwrap();
             let new_block = gen_block(parent, difficulty, i + 100);
             chain1.process_block(&new_block).expect("process block ok");
             blocks.push(new_block.clone());
-            parent = new_block.header;
+            parent = new_block.header().clone();
         }
 
         let synchronizer = Synchronizer::new(&chain2, &dummy_pow_engine(), Config::default());
 
         blocks.clone().into_iter().for_each(|block| {
-            synchronizer.insert_new_block(0, block);
+            synchronizer.insert_new_block(peer, block);
         });
 
         assert_eq!(
-            blocks.last().unwrap().header,
-            chain2.tip_header().read().header
+            blocks.last().unwrap().header(),
+            chain2.tip_header().read().inner()
         );
     }
 
@@ -915,26 +870,26 @@ mod tests {
         let chain = Arc::new(gen_chain(&config, Notify::default()));
         let block_number = 200;
 
-        let mut blocks: Vec<IndexedBlock> = Vec::new();
+        let mut blocks: Vec<Block> = Vec::new();
         let mut parent = chain.block_header(&chain.block_hash(0).unwrap()).unwrap();
         for i in 1..block_number + 1 {
             let difficulty = chain.calculate_difficulty(&parent).unwrap();
             let new_block = gen_block(parent, difficulty, i + 100);
             blocks.push(new_block.clone());
             chain.process_block(&new_block).expect("process block ok");
-            parent = new_block.header;
+            parent = new_block.header().clone();
         }
 
         let synchronizer = Synchronizer::new(&chain, &dummy_pow_engine(), Config::default());
 
         let headers = synchronizer.get_locator_response(180, &H256::zero());
 
-        assert_eq!(headers.first().unwrap(), &blocks[180].header);
-        assert_eq!(headers.last().unwrap(), &blocks[199].header);
+        assert_eq!(headers.first().unwrap(), blocks[180].header());
+        assert_eq!(headers.last().unwrap(), blocks[199].header());
 
         for window in headers.windows(2) {
             if let [parent, header] = &window {
-                assert_eq!(header.parent_hash, parent.hash());
+                assert_eq!(header.parent_hash(), parent.hash());
             }
         }
     }
@@ -942,53 +897,43 @@ mod tests {
     #[derive(Clone)]
     struct DummyNetworkContext {}
 
-    impl NetworkContext for DummyNetworkContext {
+    impl CKBProtocolContext for DummyNetworkContext {
         /// Send a packet over the network to another peer.
-        fn send(&self, _peer: PeerId, _packet_id: PacketId, _data: Vec<u8>) {}
+        fn send(&self, _peer: PeerIndex, _data: Vec<u8>) -> Result<(), NetworkError> {
+            Ok(())
+        }
 
         /// Send a packet over the network to another peer using specified protocol.
         fn send_protocol(
             &self,
+            _peer: PeerIndex,
             _protocol: ProtocolId,
-            _peer: PeerId,
-            _packet_id: PacketId,
             _data: Vec<u8>,
-        ) {
+        ) -> Result<(), NetworkError> {
+            Ok(())
         }
-
-        /// Respond to a current network message. Panics if no there is no packet in the context. If the session is expired returns nothing.
-        fn respond(&self, _packet_id: PacketId, _data: Vec<u8>) {}
 
         /// Report peer. Depending on the report, peer may be disconnected and possibly banned.
-        fn report_peer(&self, _peer: PeerId, _reason: Severity) {}
-
-        /// Check if the session is still active.
-        fn is_expired(&self) -> bool {
-            false
-        }
+        fn report_peer(&self, _peer: PeerIndex, _reason: Severity) {}
+        fn ban_peer(&self, _peer: PeerIndex, _duration: Duration) {}
 
         /// Register a new IO timer. 'IoHandler::timeout' will be called with the token.
         fn register_timer(&self, _token: TimerToken, _delay: Duration) -> Result<(), NetworkError> {
             Ok(())
         }
 
-        /// Returns peer identification string
-        fn peer_client_version(&self, _peer: PeerId) -> String {
-            "unknown".to_string()
-        }
-
         /// Returns information on p2p session
-        fn session_info(&self, _peer: PeerId) -> Option<SessionInfo> {
+        fn session_info(&self, _peer: PeerIndex) -> Option<SessionInfo> {
             None
         }
 
         /// Returns max version for a given protocol.
-        fn protocol_version(&self, _protocol: ProtocolId, _peer: PeerId) -> Option<u8> {
+        fn protocol_version(&self, _peer: PeerIndex, _protocol: ProtocolId) -> Option<u8> {
             None
         }
 
-        /// Returns this object's subprotocol name.
-        fn subprotocol_name(&self) -> ProtocolId {
+        fn disconnect(&self, _peer: PeerIndex) {}
+        fn protocol_id(&self) -> ProtocolId {
             [1, 1, 1]
         }
     }
@@ -1007,7 +952,7 @@ mod tests {
         }
         let synchronizer1 = Synchronizer::new(&chain1, &dummy_pow_engine(), Config::default());
 
-        let locator1 = synchronizer1.get_locator(&chain1.tip_header().read().header);
+        let locator1 = synchronizer1.get_locator(&chain1.tip_header().read().inner());
 
         for i in 1..num + 1 {
             let j = if i > 192 { i + 1 } else { i };
@@ -1034,15 +979,12 @@ mod tests {
         fbb.finish(fbs_headers, None);
         let fbs_headers = get_root::<FbsHeaders>(fbb.finished_data());
 
-        let peer = 1usize;
+        let peer = 0;
         HeadersProcess::new(&fbs_headers, &synchronizer1, peer, &DummyNetworkContext {}).execute();
 
         let best_known_header = synchronizer1.peers.best_known_header(peer);
 
-        assert_eq!(
-            best_known_header.clone().map(|h| h.header),
-            headers.last().cloned()
-        );
+        assert_eq!(best_known_header.unwrap().inner(), headers.last().unwrap());
 
         let blocks_to_fetch = synchronizer1.get_blocks_to_fetch(peer).unwrap();
 

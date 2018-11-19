@@ -3,11 +3,11 @@ use bigint::{H256, U256};
 use cachedb::CacheDB;
 use ckb_notify::{ForkBlocks, Notify};
 use consensus::Consensus;
-use core::block::IndexedBlock;
+use core::block::Block;
 use core::cell::{CellProvider, CellStatus};
 use core::extras::BlockExt;
-use core::header::{BlockNumber, IndexedHeader};
-use core::transaction::{Capacity, IndexedTransaction, OutPoint, ProposalShortId, Transaction};
+use core::header::{BlockNumber, Header};
+use core::transaction::{Capacity, OutPoint, ProposalShortId, Transaction};
 use core::transaction_meta::TransactionMeta;
 use core::uncle::UncleBlock;
 use db::batch::Batch;
@@ -27,14 +27,26 @@ use util::{RwLock, RwLockUpgradableReadGuard};
 
 #[derive(Default, Debug, PartialEq, Clone, Eq)]
 pub struct TipHeader {
-    pub header: IndexedHeader,
-    pub total_difficulty: U256,
-    pub output_root: H256,
+    inner: Header,
+    total_difficulty: U256,
+    output_root: H256,
 }
 
 impl TipHeader {
     pub fn number(&self) -> BlockNumber {
-        self.header.number
+        self.inner.number()
+    }
+
+    pub fn hash(&self) -> H256 {
+        self.inner.hash()
+    }
+
+    pub fn total_difficulty(&self) -> U256 {
+        self.total_difficulty
+    }
+
+    pub fn inner(&self) -> &Header {
+        &self.inner
     }
 }
 
@@ -42,7 +54,7 @@ pub struct Chain<CS> {
     store: CS,
     tip_header: RwLock<TipHeader>,
     consensus: Consensus,
-    candidate_uncles: Arc<RwLock<FnvHashMap<H256, Arc<IndexedBlock>>>>,
+    candidate_uncles: Arc<RwLock<FnvHashMap<H256, Arc<Block>>>>,
     notify: Notify,
 }
 
@@ -53,11 +65,11 @@ pub struct BlockInsertionResult {
 }
 
 pub trait ChainProvider: Sync + Send + CellProvider {
-    fn process_block(&self, b: &IndexedBlock) -> Result<(), Error>;
+    fn process_block(&self, b: &Block) -> Result<(), Error>;
 
-    fn block_header(&self, hash: &H256) -> Option<IndexedHeader>;
+    fn block_header(&self, hash: &H256) -> Option<Header>;
 
-    fn block_body(&self, hash: &H256) -> Option<Vec<IndexedTransaction>>;
+    fn block_body(&self, hash: &H256) -> Option<Vec<Transaction>>;
 
     fn block_proposal_txs_ids(&self, hash: &H256) -> Option<Vec<ProposalShortId>>;
 
@@ -74,20 +86,20 @@ pub trait ChainProvider: Sync + Send + CellProvider {
 
     fn block_number(&self, hash: &H256) -> Option<BlockNumber>;
 
-    fn block(&self, hash: &H256) -> Option<IndexedBlock>;
+    fn block(&self, hash: &H256) -> Option<Block>;
 
     fn genesis_hash(&self) -> H256;
 
     fn consensus(&self) -> &Consensus;
 
-    fn get_ancestor(&self, base: &H256, number: BlockNumber) -> Option<IndexedHeader>;
+    fn get_ancestor(&self, base: &H256, number: BlockNumber) -> Option<Header>;
 
     fn get_tip_uncles(&self) -> Vec<UncleBlock>;
 
     //FIXME: This is bad idea
     fn tip_header(&self) -> &RwLock<TipHeader>;
 
-    fn get_transaction(&self, hash: &H256) -> Option<IndexedTransaction>;
+    fn get_transaction(&self, hash: &H256) -> Option<Transaction>;
 
     fn contain_transaction(&self, hash: &H256) -> bool;
 
@@ -102,7 +114,7 @@ pub trait ChainProvider: Sync + Send + CellProvider {
     // transaction is missing.
     fn calculate_transaction_fee(&self, transaction: &Transaction) -> Result<Capacity, Error>;
 
-    fn calculate_difficulty(&self, last: &IndexedHeader) -> Option<U256>;
+    fn calculate_difficulty(&self, last: &Header) -> Option<U256>;
 }
 
 impl<'a, CS: ChainIndex> CellProvider for Chain<CS> {
@@ -111,11 +123,12 @@ impl<'a, CS: ChainIndex> CellProvider for Chain<CS> {
         if let Some(meta) = self.get_transaction_meta(&out_point.hash) {
             if index < meta.len() {
                 if !meta.is_spent(index) {
-                    let mut transaction = self
+                    let transaction = self
                         .store
                         .get_transaction(&out_point.hash)
                         .expect("transaction must exist");
-                    CellStatus::Current(transaction.outputs.swap_remove(index))
+                    // TODO Q refactoring this after zero copy
+                    CellStatus::Current(transaction.outputs()[index].clone())
                 } else {
                     CellStatus::Old
                 }
@@ -132,11 +145,12 @@ impl<'a, CS: ChainIndex> CellProvider for Chain<CS> {
         if let Some(meta) = self.get_transaction_meta_at(&out_point.hash, parent) {
             if index < meta.len() {
                 if !meta.is_spent(index) {
-                    let mut transaction = self
+                    let transaction = self
                         .store
                         .get_transaction(&out_point.hash)
                         .expect("transaction must exist");
-                    CellStatus::Current(transaction.outputs.swap_remove(index))
+                    // TODO Q refactoring this after zero copy
+                    CellStatus::Current(transaction.outputs()[index].clone())
                 } else {
                     CellStatus::Old
                 }
@@ -158,7 +172,7 @@ impl<CS: ChainIndex> Chain<CS> {
                 Some(h) => h,
                 None => {
                     store.init(&genesis);
-                    genesis.header.clone()
+                    genesis.header().clone()
                 }
             }
         };
@@ -174,7 +188,7 @@ impl<CS: ChainIndex> Chain<CS> {
             .total_difficulty;
 
         let tip_header = TipHeader {
-            header,
+            inner: header,
             total_difficulty,
             output_root,
         };
@@ -188,10 +202,10 @@ impl<CS: ChainIndex> Chain<CS> {
         })
     }
 
-    fn check_transactions(&self, batch: &mut Batch, b: &IndexedBlock) -> Result<H256, Error> {
-        let mut cells = Vec::with_capacity(b.commit_transactions.len());
+    fn check_transactions(&self, batch: &mut Batch, b: &Block) -> Result<H256, Error> {
+        let mut cells = Vec::with_capacity(b.commit_transactions().len());
 
-        for tx in &b.commit_transactions {
+        for tx in b.commit_transactions() {
             let ins = if tx.is_cellbase() {
                 Vec::new()
             } else {
@@ -203,7 +217,7 @@ impl<CS: ChainIndex> Chain<CS> {
         }
 
         let root = self
-            .output_root(&b.header.parent_hash)
+            .output_root(&b.header().parent_hash())
             .ok_or(Error::InvalidOutput)?;
 
         self.store
@@ -211,7 +225,7 @@ impl<CS: ChainIndex> Chain<CS> {
             .ok_or(Error::InvalidOutput)
     }
 
-    fn insert_block(&self, b: &IndexedBlock) -> Result<BlockInsertionResult, Error> {
+    fn insert_block(&self, b: &Block) -> Result<BlockInsertionResult, Error> {
         let mut new_best_block = false;
         let mut old_cumulative_blks = Vec::new();
         let mut new_cumulative_blks = Vec::new();
@@ -219,9 +233,9 @@ impl<CS: ChainIndex> Chain<CS> {
             let root = self.check_transactions(batch, b)?;
             let parent_ext = self
                 .store
-                .get_block_ext(&b.header.parent_hash)
+                .get_block_ext(&b.header().parent_hash())
                 .expect("parent already store");
-            let cannon_total_difficulty = parent_ext.total_difficulty + b.header.difficulty;
+            let cannon_total_difficulty = parent_ext.total_difficulty + b.header().difficulty();
 
             let ext = BlockExt {
                 received_at: now_ms(),
@@ -230,8 +244,8 @@ impl<CS: ChainIndex> Chain<CS> {
             };
 
             self.store.insert_block(batch, b);
-            self.store.insert_output_root(batch, b.hash(), root);
-            self.store.insert_block_ext(batch, &b.hash(), &ext);
+            self.store.insert_output_root(batch, b.header().hash(), root);
+            self.store.insert_block_ext(batch, &b.header().hash(), &ext);
 
             {
                 debug!(target: "chain", "acquire lock");
@@ -247,12 +261,12 @@ impl<CS: ChainIndex> Chain<CS> {
 
                 if cannon_total_difficulty > current_total_difficulty
                     || (current_total_difficulty == cannon_total_difficulty
-                        && b.hash() < tip_header.header.hash())
+                        && b.header().hash() < tip_header.hash())
                 {
-                    debug!(target: "chain", "new best block found: {} => {}", b.header().number, b.hash());
+                    debug!(target: "chain", "new best block found: {} => {}", b.header().number(), b.header().hash());
                     new_best_block = true;
                     let new_tip_header = TipHeader {
-                        header: b.header.clone(),
+                        inner: b.header().clone(),
                         total_difficulty: cannon_total_difficulty,
                         output_root: root,
                     };
@@ -260,7 +274,7 @@ impl<CS: ChainIndex> Chain<CS> {
                     self.update_index(batch, tip_header.number(), b, &mut old_cumulative_blks, &mut new_cumulative_blks);
                     // TODO: Move out
                     *tip_header = new_tip_header;
-                    self.store.insert_tip_header(batch, &b.header);
+                    self.store.insert_tip_header(batch, &b.header());
                     self.store.rebuild_tree(root);
                 }
                 debug!(target: "chain", "lock release");
@@ -274,7 +288,7 @@ impl<CS: ChainIndex> Chain<CS> {
         })
     }
 
-    fn post_insert_result(&self, block: &IndexedBlock, result: BlockInsertionResult) {
+    fn post_insert_result(&self, block: &Block, result: BlockInsertionResult) {
         let BlockInsertionResult {
             new_best_block,
             mut fork_blks,
@@ -292,7 +306,7 @@ impl<CS: ChainIndex> Chain<CS> {
         } else {
             self.candidate_uncles
                 .write()
-                .insert(block.hash(), Arc::new(block.clone()));
+                .insert(block.header().hash(), Arc::new(block.clone()));
         }
     }
 
@@ -301,11 +315,11 @@ impl<CS: ChainIndex> Chain<CS> {
         &self,
         batch: &mut Batch,
         tip_number: BlockNumber,
-        block: &IndexedBlock,
-        old_cumulative_blks: &mut Vec<IndexedBlock>,
-        new_cumulative_blks: &mut Vec<IndexedBlock>,
+        block: &Block,
+        old_cumulative_blks: &mut Vec<Block>,
+        new_cumulative_blks: &mut Vec<Block>,
     ) {
-        let mut number = block.header.number - 1;
+        let mut number = block.header().number() - 1;
 
         // The old fork may longer than new fork
         if number < tip_number {
@@ -315,7 +329,7 @@ impl<CS: ChainIndex> Chain<CS> {
                 self.store.delete_block_hash(batch, n);
                 self.store.delete_block_number(batch, &hash);
                 self.store
-                    .delete_transaction_address(batch, &old_block.commit_transactions());
+                    .delete_transaction_address(batch, old_block.commit_transactions());
 
                 old_cumulative_blks.push(old_block);
             }
@@ -323,15 +337,15 @@ impl<CS: ChainIndex> Chain<CS> {
 
         // The best block should always be insert
         {
-            let number = block.header.number;
-            let hash = block.hash();
+            let number = block.header().number();
+            let hash = block.header().hash();
             self.store.insert_block_hash(batch, number, &hash);
             self.store.insert_block_number(batch, &hash, number);
             self.store
-                .insert_transaction_address(batch, &hash, &block.commit_transactions());
+                .insert_transaction_address(batch, &hash, block.commit_transactions());
         }
 
-        let mut hash = block.header.parent_hash;
+        let mut hash = block.header().parent_hash();
 
         loop {
             if let Some(old_hash) = self.block_hash(number) {
@@ -343,7 +357,7 @@ impl<CS: ChainIndex> Chain<CS> {
                 self.store.delete_block_hash(batch, number);
                 self.store.delete_block_number(batch, &old_hash);
                 self.store
-                    .delete_transaction_address(batch, &old_block.commit_transactions());
+                    .delete_transaction_address(batch, old_block.commit_transactions());
                 old_cumulative_blks.push(old_block);
             }
 
@@ -354,7 +368,7 @@ impl<CS: ChainIndex> Chain<CS> {
             self.store
                 .insert_transaction_address(batch, &hash, &new_block.commit_transactions());
 
-            hash = new_block.header.parent_hash;
+            hash = new_block.header().parent_hash();
             number -= 1;
 
             new_cumulative_blks.push(new_block);
@@ -366,7 +380,7 @@ impl<CS: ChainIndex> Chain<CS> {
     fn print_chain(&self, len: u64) {
         debug!(target: "chain", "Chain {{");
 
-        let tip = { self.tip_header().read().header.number };
+        let tip = { self.tip_header().read().number() };
         let bottom = tip - cmp::min(tip, len);
 
         for number in (bottom..tip + 1).rev() {
@@ -404,19 +418,19 @@ impl<CS: ChainIndex> Chain<CS> {
 }
 
 impl<CS: ChainIndex> ChainProvider for Chain<CS> {
-    fn process_block(&self, b: &IndexedBlock) -> Result<(), Error> {
-        debug!(target: "chain", "begin processing block: {}", b.hash());
+    fn process_block(&self, b: &Block) -> Result<(), Error> {
+        debug!(target: "chain", "begin processing block: {}", b.header().hash());
         let insert_result = self.insert_block(b)?;
         self.post_insert_result(b, insert_result);
         debug!(target: "chain", "finish processing block");
         Ok(())
     }
 
-    fn block(&self, hash: &H256) -> Option<IndexedBlock> {
+    fn block(&self, hash: &H256) -> Option<Block> {
         self.store.get_block(hash)
     }
 
-    fn block_body(&self, hash: &H256) -> Option<Vec<IndexedTransaction>> {
+    fn block_body(&self, hash: &H256) -> Option<Vec<Transaction>> {
         self.store.get_block_body(hash)
     }
 
@@ -450,7 +464,7 @@ impl<CS: ChainIndex> ChainProvider for Chain<CS> {
                 let ids_vec: Vec<ProposalShortId> = ids_set.into_iter().collect();
                 ret.push(ids_vec);
 
-                hash = self.block_header(&hash).unwrap().parent_hash;
+                hash = self.block_header(&hash).unwrap().parent_hash();
             }
         }
 
@@ -470,21 +484,21 @@ impl<CS: ChainIndex> ChainProvider for Chain<CS> {
     }
 
     fn genesis_hash(&self) -> H256 {
-        self.consensus.genesis_block().hash()
+        self.consensus.genesis_block().header().hash()
     }
 
     fn consensus(&self) -> &Consensus {
         &self.consensus
     }
 
-    fn get_ancestor(&self, base: &H256, number: BlockNumber) -> Option<IndexedHeader> {
+    fn get_ancestor(&self, base: &H256, number: BlockNumber) -> Option<Header> {
         {
             let tip = self.tip_header().read();
             if let Some(n_number) = self.block_number(base) {
                 if number > n_number {
                     return None;
                 } else if number == n_number {
-                    return Some(tip.header.clone());
+                    return Some(tip.inner.clone());
                 } else {
                     return self
                         .block_hash(number)
@@ -493,14 +507,14 @@ impl<CS: ChainIndex> ChainProvider for Chain<CS> {
             }
         }
         if let Some(header) = self.block_header(base) {
-            let mut n_number = header.number;
+            let mut n_number = header.number();
             let mut index_walk = header;
             if number > n_number {
                 return None;
             }
 
             while n_number > number {
-                if let Some(header) = self.block_header(&index_walk.parent_hash) {
+                if let Some(header) = self.block_header(&index_walk.parent_hash()) {
                     index_walk = header;
                     n_number -= 1;
                 } else {
@@ -512,10 +526,10 @@ impl<CS: ChainIndex> ChainProvider for Chain<CS> {
         None
     }
 
-    fn block_header(&self, hash: &H256) -> Option<IndexedHeader> {
+    fn block_header(&self, hash: &H256) -> Option<Header> {
         let tip_header = self.tip_header.read();
-        if &tip_header.header.hash() == hash {
-            Some(tip_header.header.clone())
+        if &tip_header.hash() == hash {
+            Some(tip_header.inner.clone())
         } else {
             self.store.get_header(hash)
         }
@@ -524,7 +538,7 @@ impl<CS: ChainIndex> ChainProvider for Chain<CS> {
     // TODO: Move to uncle provider
     fn get_tip_uncles(&self) -> Vec<UncleBlock> {
         let max_uncles_age = self.consensus().max_uncles_age();
-        let header = &self.tip_header().read().header;
+        let header = &self.tip_header().read().inner;
         let mut excluded = FnvHashSet::default();
 
         // cB
@@ -540,54 +554,54 @@ impl<CS: ChainIndex> ChainProvider for Chain<CS> {
         excluded.insert(block_hash);
         for _depth in 0..max_uncles_age {
             if let Some(block) = self.block(&block_hash) {
-                excluded.insert(block.header.parent_hash);
+                excluded.insert(block.header().parent_hash());
                 for uncle in block.uncles() {
                     excluded.insert(uncle.header.hash());
                 }
 
-                block_hash = block.header.parent_hash;
+                block_hash = block.header().parent_hash();
             } else {
                 break;
             }
         }
 
         let tip_difficulty_epoch =
-            header.raw.number / self.consensus().difficulty_adjustment_interval();
+            header.number() / self.consensus().difficulty_adjustment_interval();
 
         let max_uncles_len = self.consensus().max_uncles_len();
         let mut included = FnvHashSet::default();
         let mut uncles = Vec::with_capacity(max_uncles_len);
         let mut bad_uncles = Vec::new();
         let r_candidate_uncle = self.candidate_uncles.upgradable_read();
-        let current_number = self.tip_header().read().header.number + 1;
+        let current_number = self.tip_header().read().number() + 1;
         for (hash, block) in r_candidate_uncle.iter() {
             if uncles.len() == max_uncles_len {
                 break;
             }
 
             let block_difficulty_epoch =
-                block.number() / self.consensus().difficulty_adjustment_interval();
+                block.header().number() / self.consensus().difficulty_adjustment_interval();
 
             // uncle must be same difficulty epoch with tip
-            if !block.header.difficulty == header.difficulty
+            if !block.header().difficulty() == header.difficulty()
                 || !block_difficulty_epoch == tip_difficulty_epoch
             {
                 bad_uncles.push(*hash);
                 continue;
             }
 
-            let depth = current_number.saturating_sub(block.number());
+            let depth = current_number.saturating_sub(block.header().number());
             if depth > max_uncles_age as u64
                 || depth < 1
                 || included.contains(hash)
                 || excluded.contains(hash)
             {
                 bad_uncles.push(*hash);
-            } else if let Some(cellbase) = block.commit_transactions.first() {
+            } else if let Some(cellbase) = block.commit_transactions().first() {
                 let uncle = UncleBlock {
-                    header: block.header.header.clone(),
-                    cellbase: cellbase.clone().into(),
-                    proposal_transactions: block.proposal_transactions.clone(),
+                    header: block.header().clone(),
+                    cellbase: cellbase.clone(),
+                    proposal_transactions: block.proposal_transactions().to_vec(),
                 };
                 uncles.push(uncle);
                 included.insert(*hash);
@@ -614,7 +628,7 @@ impl<CS: ChainIndex> ChainProvider for Chain<CS> {
         self.store.get_output_root(hash)
     }
 
-    fn get_transaction(&self, hash: &H256) -> Option<IndexedTransaction> {
+    fn get_transaction(&self, hash: &H256) -> Option<Transaction> {
         self.store.get_transaction(hash)
     }
 
@@ -641,13 +655,13 @@ impl<CS: ChainIndex> ChainProvider for Chain<CS> {
     // ChainIndex
     fn calculate_transaction_fee(&self, transaction: &Transaction) -> Result<Capacity, Error> {
         let mut fee = 0;
-        for input in &transaction.inputs {
+        for input in transaction.inputs() {
             let previous_output = &input.previous_output;
             match self.get_transaction(&previous_output.hash) {
                 Some(previous_transaction) => {
                     let index = previous_output.index as usize;
-                    if index < previous_transaction.outputs.len() {
-                        fee += previous_transaction.outputs[index].capacity;
+                    if index < previous_transaction.outputs().len() {
+                        fee += previous_transaction.outputs()[index].capacity;
                     } else {
                         return Err(Error::InvalidInput);
                     }
@@ -656,7 +670,7 @@ impl<CS: ChainIndex> ChainProvider for Chain<CS> {
             }
         }
         let spent_capacity: Capacity = transaction
-            .outputs
+            .outputs()
             .iter()
             .map(|output| output.capacity)
             .sum();
@@ -670,14 +684,14 @@ impl<CS: ChainIndex> ChainProvider for Chain<CS> {
     // T_interval = L / C_m
     // HR_m = HR_last/ (1 + o)
     // Diff= HR_m * T_interval / H = Diff_last * o_last / o
-    fn calculate_difficulty(&self, last: &IndexedHeader) -> Option<U256> {
+    fn calculate_difficulty(&self, last: &Header) -> Option<U256> {
         let interval = self.consensus().difficulty_adjustment_interval();
 
-        if (last.number + 1) % interval != 0 {
-            return Some(last.difficulty);
+        if (last.number() + 1) % interval != 0 {
+            return Some(last.difficulty());
         }
 
-        let start = last.number.saturating_sub(interval);
+        let start = last.number().saturating_sub(interval);
         if let Some(start_header) = self.get_ancestor(&last.hash(), start) {
             let start_total_uncles_count = self
                 .block_ext(&start_header.hash())
@@ -689,13 +703,13 @@ impl<CS: ChainIndex> ChainProvider for Chain<CS> {
                 .expect("block_ext exist")
                 .total_uncles_count;
 
-            let difficulty = last.difficulty
+            let difficulty = last.difficulty()
                 * U256::from(last_total_uncles_count - start_total_uncles_count)
                 * U256::from((1.0 / self.consensus().orphan_rate_target()) as u64)
                 / U256::from(interval);
 
             let min_difficulty = self.consensus().min_difficulty();
-            let max_difficulty = last.difficulty * 2;
+            let max_difficulty = last.difficulty() * 2;
             if difficulty > max_difficulty {
                 return Some(max_difficulty);
             }
@@ -771,80 +785,73 @@ impl<CS: ChainIndex> ChainBuilder<CS> {
 #[cfg(test)]
 pub mod test {
     use super::*;
-
-    use consensus::GenesisBuilder;
-    use core::header::{Header, RawHeader, Seal};
+    use core::block::BlockBuilder;
+    use core::header::{Header, HeaderBuilder};
     use core::transaction::{
-        CellInput, CellOutput, IndexedTransaction, ProposalShortId, Transaction, VERSION,
+        CellInput, CellOutput, ProposalShortId, Transaction, TransactionBuilder,
     };
     use core::uncle::UncleBlock;
     use db::memorydb::MemoryKeyValueDB;
     use store::ChainKVStore;
 
-    fn create_cellbase(number: BlockNumber) -> IndexedTransaction {
-        let inputs = vec![CellInput::new_cellbase_input(number)];
-        let outputs = vec![CellOutput::new(0, vec![], H256::from(0))];
-        Transaction::new(VERSION, Vec::new(), inputs, outputs).into()
+    fn create_cellbase(number: BlockNumber) -> Transaction {
+        TransactionBuilder::default()
+            .input(CellInput::new_cellbase_input(number))
+            .output(CellOutput::new(0, vec![], H256::from(0)))
+            .build()
     }
 
-    fn gen_block(parent_header: IndexedHeader, nonce: u64, difficulty: U256) -> IndexedBlock {
-        let time = now_ms();
-        let number = parent_header.number + 1;
+    fn gen_block(
+        parent_header: Header,
+        nonce: u64,
+        difficulty: U256,
+        commit_transactions: Vec<Transaction>,
+        uncles: Vec<UncleBlock>,
+    ) -> Block {
+        let number = parent_header.number() + 1;
         let cellbase = create_cellbase(number);
-        let header = Header {
-            raw: RawHeader {
-                number,
-                version: 0,
-                parent_hash: parent_header.hash(),
-                timestamp: time,
-                txs_commit: H256::zero(),
-                txs_proposal: H256::zero(),
-                difficulty: difficulty,
-                cellbase_id: H256::zero(),
-                uncles_hash: H256::zero(),
-            },
-            seal: Seal {
-                nonce,
-                proof: Default::default(),
-            },
-        };
+        let header = HeaderBuilder::default()
+            .parent_hash(&parent_header.hash())
+            .timestamp(now_ms())
+            .number(number)
+            .difficulty(&difficulty)
+            .nonce(nonce)
+            .build();
 
-        IndexedBlock {
-            header: header.into(),
-            uncles: vec![],
-            commit_transactions: vec![cellbase],
-            proposal_transactions: vec![ProposalShortId::from_slice(&[1; 10]).unwrap()],
-        }
+        BlockBuilder::default()
+            .header(header)
+            .commit_transaction(cellbase)
+            .commit_transactions(commit_transactions)
+            .uncles(uncles)
+            .proposal_transaction(ProposalShortId::from_slice(&[1; 10]).unwrap())
+            .build()
     }
 
-    fn create_transaction(parent: H256) -> IndexedTransaction {
+    fn create_transaction(parent: H256) -> Transaction {
         let mut output = CellOutput::default();
         output.capacity = 100_000_000 / 100 as u64;
         let outputs: Vec<CellOutput> = vec![output.clone(); 100];
 
-        Transaction::new(
-            0,
-            vec![],
-            vec![CellInput::new(OutPoint::new(parent, 0), Default::default())],
-            outputs,
-        ).into()
+        TransactionBuilder::default()
+            .input(CellInput::new(OutPoint::new(parent, 0), Default::default()))
+            .outputs(outputs)
+            .build()
     }
 
     #[test]
     fn test_genesis_transaction_spend() {
-        let tx: IndexedTransaction = Transaction::new(
-            0,
-            vec![],
-            vec![CellInput::new(OutPoint::null(), Default::default())],
-            vec![CellOutput::new(100_000_000, vec![], H256::default()); 100],
-        ).into();
+        let tx = TransactionBuilder::default()
+            .input(CellInput::new(OutPoint::null(), Default::default()))
+            .outputs(vec![
+                CellOutput::new(100_000_000, vec![], H256::default());
+                100
+            ]).build();
+
         let mut root_hash = tx.hash();
 
-        let genesis_builder = GenesisBuilder::default();
-        let genesis_block = genesis_builder
-            .difficulty(U256::from(1000))
-            .add_commit_transaction(tx)
-            .build();
+        let genesis_block = BlockBuilder::default()
+            .commit_transaction(tx)
+            .with_header_builder(HeaderBuilder::default().difficulty(&U256::from(1000)));
 
         let consensus = Consensus::default().set_genesis_block(genesis_block);
         let chain = ChainBuilder::<ChainKVStore<MemoryKeyValueDB>>::new_memory()
@@ -854,16 +861,15 @@ pub mod test {
 
         let end = 21;
 
-        let mut blocks1: Vec<IndexedBlock> = vec![];
+        let mut blocks1: Vec<Block> = vec![];
         let mut parent = chain.block_header(&chain.block_hash(0).unwrap()).unwrap();
         for i in 1..end {
-            let difficulty = parent.difficulty;
+            let difficulty = parent.difficulty();
             let tx = create_transaction(root_hash);
             root_hash = tx.hash();
-            let mut new_block = gen_block(parent, i, difficulty + U256::from(1));
-            new_block.commit_transactions.push(tx);
+            let new_block = gen_block(parent, i, difficulty + U256::from(1), vec![tx], vec![]);
             blocks1.push(new_block.clone());
-            parent = new_block.header;
+            parent = new_block.header().clone();
         }
 
         for block in &blocks1[0..10] {
@@ -873,19 +879,18 @@ pub mod test {
 
     #[test]
     fn test_genesis_transaction_fetch() {
-        let tx: IndexedTransaction = Transaction::new(
-            0,
-            vec![],
-            vec![CellInput::new(OutPoint::null(), Default::default())],
-            vec![CellOutput::new(100_000_000, vec![], H256::default()); 100],
-        ).into();
+        let tx = TransactionBuilder::default()
+            .input(CellInput::new(OutPoint::null(), Default::default()))
+            .outputs(vec![
+                CellOutput::new(100_000_000, vec![], H256::default());
+                100
+            ]).build();
+
         let root_hash = tx.hash();
 
-        let genesis_builder = GenesisBuilder::default();
-        let genesis_block = genesis_builder
-            .difficulty(U256::from(1000))
-            .add_commit_transaction(tx)
-            .build();
+        let genesis_block = BlockBuilder::default()
+            .commit_transaction(tx)
+            .with_header_builder(HeaderBuilder::default().difficulty(&U256::from(1000)));
 
         let consensus = Consensus::default().set_genesis_block(genesis_block);
         let chain = ChainBuilder::<ChainKVStore<MemoryKeyValueDB>>::new_memory()
@@ -905,24 +910,24 @@ pub mod test {
             .unwrap();
         let final_number = 20;
 
-        let mut chain1: Vec<IndexedBlock> = Vec::new();
-        let mut chain2: Vec<IndexedBlock> = Vec::new();
+        let mut chain1: Vec<Block> = Vec::new();
+        let mut chain2: Vec<Block> = Vec::new();
 
         let mut parent = chain.block_header(&chain.block_hash(0).unwrap()).unwrap();
         for i in 1..final_number {
-            let difficulty = parent.difficulty;
-            let new_block = gen_block(parent, i, difficulty + U256::from(100));
+            let difficulty = parent.difficulty();
+            let new_block = gen_block(parent, i, difficulty + U256::from(100), vec![], vec![]);
             chain1.push(new_block.clone());
-            parent = new_block.header;
+            parent = new_block.header().clone();
         }
 
         parent = chain.block_header(&chain.block_hash(0).unwrap()).unwrap();
         for i in 1..final_number {
-            let difficulty = parent.difficulty;
+            let difficulty = parent.difficulty();
             let j = if i > 10 { 110 } else { 99 };
-            let new_block = gen_block(parent, i + 1000, difficulty + U256::from(j));
+            let new_block = gen_block(parent, i + 1000, difficulty + U256::from(j), vec![], vec![]);
             chain2.push(new_block.clone());
-            parent = new_block.header;
+            parent = new_block.header().clone();
         }
 
         for block in &chain1 {
@@ -932,7 +937,10 @@ pub mod test {
         for block in &chain2 {
             chain.process_block(&block).expect("process block ok");
         }
-        assert_eq!(chain.block_hash(8), chain2.get(7).map(|b| b.hash()));
+        assert_eq!(
+            chain.block_hash(8),
+            chain2.get(7).map(|b| b.header().hash())
+        );
     }
 
     #[test]
@@ -942,23 +950,29 @@ pub mod test {
             .unwrap();
         let final_number = 20;
 
-        let mut chain1: Vec<IndexedBlock> = Vec::new();
-        let mut chain2: Vec<IndexedBlock> = Vec::new();
+        let mut chain1: Vec<Block> = Vec::new();
+        let mut chain2: Vec<Block> = Vec::new();
 
         let mut parent = chain.block_header(&chain.block_hash(0).unwrap()).unwrap();
         for i in 1..final_number {
-            let difficulty = parent.difficulty;
-            let new_block = gen_block(parent, i, difficulty + U256::from(100));
+            let difficulty = parent.difficulty();
+            let new_block = gen_block(parent, i, difficulty + U256::from(100), vec![], vec![]);
             chain1.push(new_block.clone());
-            parent = new_block.header;
+            parent = new_block.header().clone();
         }
 
         parent = chain.block_header(&chain.block_hash(0).unwrap()).unwrap();
         for i in 1..final_number {
-            let difficulty = parent.difficulty;
-            let new_block = gen_block(parent, i + 1000, difficulty + U256::from(100));
+            let difficulty = parent.difficulty();
+            let new_block = gen_block(
+                parent,
+                i + 1000,
+                difficulty + U256::from(100),
+                vec![],
+                vec![],
+            );
             chain2.push(new_block.clone());
-            parent = new_block.header;
+            parent = new_block.header().clone();
         }
 
         for block in &chain1 {
@@ -974,18 +988,21 @@ pub mod test {
             chain1
                 .iter()
                 .zip(chain2.iter())
-                .all(|(a, b)| a.header.difficulty == b.header.difficulty)
+                .all(|(a, b)| a.header().difficulty() == b.header().difficulty())
         );
 
-        let best = if chain1[(final_number - 2) as usize].hash()
-            < chain2[(final_number - 2) as usize].hash()
+        let best = if chain1[(final_number - 2) as usize].header().hash()
+            < chain2[(final_number - 2) as usize].header().hash()
         {
             chain1
         } else {
             chain2
         };
-        assert_eq!(chain.block_hash(8), best.get(7).map(|b| b.hash()));
-        assert_eq!(chain.block_hash(19), best.get(18).map(|b| b.hash()));
+        assert_eq!(chain.block_hash(8), best.get(7).map(|b| b.header().hash()));
+        assert_eq!(
+            chain.block_hash(19),
+            best.get(18).map(|b| b.header().hash())
+        );
     }
 
     #[test]
@@ -995,23 +1012,29 @@ pub mod test {
             .unwrap();
         let final_number = 20;
 
-        let mut chain1: Vec<IndexedBlock> = Vec::new();
-        let mut chain2: Vec<IndexedBlock> = Vec::new();
+        let mut chain1: Vec<Block> = Vec::new();
+        let mut chain2: Vec<Block> = Vec::new();
 
         let mut parent = chain.block_header(&chain.block_hash(0).unwrap()).unwrap();
         for i in 1..final_number {
-            let difficulty = parent.difficulty;
-            let new_block = gen_block(parent, i, difficulty + U256::from(100));
+            let difficulty = parent.difficulty();
+            let new_block = gen_block(parent, i, difficulty + U256::from(100), vec![], vec![]);
             chain1.push(new_block.clone());
-            parent = new_block.header;
+            parent = new_block.header().clone();
         }
 
         parent = chain.block_header(&chain.block_hash(0).unwrap()).unwrap();
         for i in 1..final_number {
-            let difficulty = parent.difficulty;
-            let new_block = gen_block(parent, i + 1000, difficulty + U256::from(100));
+            let difficulty = parent.difficulty();
+            let new_block = gen_block(
+                parent,
+                i + 1000,
+                difficulty + U256::from(100),
+                vec![],
+                vec![],
+            );
             chain2.push(new_block.clone());
-            parent = new_block.header;
+            parent = new_block.header().clone();
         }
 
         for block in &chain1 {
@@ -1023,36 +1046,24 @@ pub mod test {
         }
 
         assert_eq!(
-            chain1[9].header,
+            *chain1[9].header(),
             chain
-                .get_ancestor(&chain1.last().unwrap().hash(), 10)
+                .get_ancestor(&chain1.last().unwrap().header().hash(), 10)
                 .unwrap()
         );
 
         assert_eq!(
-            chain2[9].header,
+            *chain2[9].header(),
             chain
-                .get_ancestor(&chain2.last().unwrap().hash(), 10)
+                .get_ancestor(&chain2.last().unwrap().header().hash(), 10)
                 .unwrap()
         );
     }
 
-    fn push_uncle(block: &mut IndexedBlock, uncle: &IndexedBlock) {
-        let uncle = UncleBlock {
-            header: uncle.header.header.clone(),
-            cellbase: uncle.commit_transactions.first().cloned().unwrap().into(),
-            proposal_transactions: uncle.proposal_transactions.clone(),
-        };
-
-        block.uncles.push(uncle);
-        block.header.uncles_hash = block.cal_uncles_hash();
-        block.finalize_dirty();
-    }
-
     #[test]
     fn test_calculate_difficulty() {
-        let genesis_builder = GenesisBuilder::default();
-        let genesis_block = genesis_builder.difficulty(U256::from(1000)).build();
+        let genesis_block = BlockBuilder::default()
+            .with_header_builder(HeaderBuilder::default().difficulty(&U256::from(1000)));
         let mut consensus = Consensus::default().set_genesis_block(genesis_block);
         consensus.pow_time_span = 200;
         consensus.pow_spacing = 1;
@@ -1063,30 +1074,31 @@ pub mod test {
             .unwrap();
         let final_number = chain.consensus().difficulty_adjustment_interval();
 
-        let mut chain1: Vec<IndexedBlock> = Vec::new();
-        let mut chain2: Vec<IndexedBlock> = Vec::new();
+        let mut chain1: Vec<Block> = Vec::new();
+        let mut chain2: Vec<Block> = Vec::new();
 
         let mut parent = chain.block_header(&chain.block_hash(0).unwrap()).unwrap();
         for i in 1..final_number - 1 {
             let difficulty = chain.calculate_difficulty(&parent).unwrap();
-            let new_block = gen_block(parent, i, difficulty);
+            let new_block = gen_block(parent, i, difficulty, vec![], vec![]);
             chain.process_block(&new_block).expect("process block ok");
             chain1.push(new_block.clone());
-            parent = new_block.header;
+            parent = new_block.header().clone();
         }
 
         parent = chain.block_header(&chain.block_hash(0).unwrap()).unwrap();
         for i in 1..final_number {
             let difficulty = chain.calculate_difficulty(&parent).unwrap();
-            let mut new_block = gen_block(parent, i + 100, difficulty);
+            let mut uncles = vec![];
             if i < 26 {
-                push_uncle(&mut new_block, &chain1[i as usize]);
+                uncles.push(chain1[i as usize].clone().into());
             }
+            let new_block = gen_block(parent, i + 100, difficulty, vec![], uncles);
             chain.process_block(&new_block).expect("process block ok");
             chain2.push(new_block.clone());
-            parent = new_block.header;
+            parent = new_block.header().clone();
         }
-        let tip = { chain.tip_header().read().header.clone() };
+        let tip = chain.tip_header().read().inner.clone();
         let total_uncles_count = chain.block_ext(&tip.hash()).unwrap().total_uncles_count;
         assert_eq!(total_uncles_count, 25);
         let difficulty = chain.calculate_difficulty(&tip).unwrap();
@@ -1098,7 +1110,7 @@ pub mod test {
             .consensus(consensus.clone())
             .build()
             .unwrap();
-        let mut chain2: Vec<IndexedBlock> = Vec::new();
+        let mut chain2: Vec<Block> = Vec::new();
         for i in 1..final_number - 1 {
             chain
                 .process_block(&chain1[(i - 1) as usize])
@@ -1108,15 +1120,16 @@ pub mod test {
         parent = chain.block_header(&chain.block_hash(0).unwrap()).unwrap();
         for i in 1..final_number {
             let difficulty = chain.calculate_difficulty(&parent).unwrap();
-            let mut new_block = gen_block(parent, i + 100, difficulty);
+            let mut uncles = vec![];
             if i < 11 {
-                push_uncle(&mut new_block, &chain1[i as usize]);
+                uncles.push(chain1[i as usize].clone().into());
             }
+            let new_block = gen_block(parent, i + 100, difficulty, vec![], uncles);
             chain.process_block(&new_block).expect("process block ok");
             chain2.push(new_block.clone());
-            parent = new_block.header;
+            parent = new_block.header().clone();
         }
-        let tip = { chain.tip_header().read().header.clone() };
+        let tip = chain.tip_header().read().inner.clone();
         let total_uncles_count = chain.block_ext(&tip.hash()).unwrap().total_uncles_count;
         assert_eq!(total_uncles_count, 10);
         let difficulty = chain.calculate_difficulty(&tip).unwrap();
@@ -1128,7 +1141,7 @@ pub mod test {
             .consensus(consensus.clone())
             .build()
             .unwrap();
-        let mut chain2: Vec<IndexedBlock> = Vec::new();
+        let mut chain2: Vec<Block> = Vec::new();
         for i in 1..final_number - 1 {
             chain
                 .process_block(&chain1[(i - 1) as usize])
@@ -1138,15 +1151,16 @@ pub mod test {
         parent = chain.block_header(&chain.block_hash(0).unwrap()).unwrap();
         for i in 1..final_number {
             let difficulty = chain.calculate_difficulty(&parent).unwrap();
-            let mut new_block = gen_block(parent, i + 100, difficulty);
+            let mut uncles = vec![];
             if i < 151 {
-                push_uncle(&mut new_block, &chain1[i as usize]);
+                uncles.push(chain1[i as usize].clone().into());
             }
+            let new_block = gen_block(parent, i + 100, difficulty, vec![], uncles);
             chain.process_block(&new_block).expect("process block ok");
             chain2.push(new_block.clone());
-            parent = new_block.header;
+            parent = new_block.header().clone();
         }
-        let tip = { chain.tip_header().read().header.clone() };
+        let tip = chain.tip_header().read().inner.clone();
         let total_uncles_count = chain.block_ext(&tip.hash()).unwrap().total_uncles_count;
         assert_eq!(total_uncles_count, 150);
         let difficulty = chain.calculate_difficulty(&tip).unwrap();

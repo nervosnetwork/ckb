@@ -14,24 +14,19 @@ impl<'a> From<ckb_protocol::Block<'a>> for ckb_core::block::Block {
             .map(Into::into)
             .collect();
 
-        ckb_core::block::Block {
-            header: block.header().unwrap().into(),
-            commit_transactions,
-            uncles,
-            proposal_transactions: FlatbuffersVectorIterator::new(
-                block.proposal_transactions().unwrap(),
-            ).filter_map(|s| {
-                s.seq()
-                    .and_then(ckb_core::transaction::ProposalShortId::from_slice)
-            }).collect(),
-        }
-    }
-}
+        let proposal_transactions =
+            FlatbuffersVectorIterator::new(block.proposal_transactions().unwrap())
+                .filter_map(|s| {
+                    s.seq()
+                        .and_then(ckb_core::transaction::ProposalShortId::from_slice)
+                }).collect();
 
-impl<'a> From<ckb_protocol::Block<'a>> for ckb_core::block::IndexedBlock {
-    fn from(block: ckb_protocol::Block<'a>) -> Self {
-        let b: ckb_core::block::Block = block.into();
-        b.into()
+        ckb_core::block::BlockBuilder::default()
+            .header(block.header().unwrap().into())
+            .uncles(uncles)
+            .commit_transactions(commit_transactions)
+            .proposal_transactions(proposal_transactions)
+            .build()
     }
 }
 
@@ -52,33 +47,25 @@ impl<'a> From<ckb_protocol::UncleBlock<'a>> for ckb_core::uncle::UncleBlock {
 
 impl<'a> From<ckb_protocol::Header<'a>> for ckb_core::header::Header {
     fn from(header: ckb_protocol::Header<'a>) -> Self {
-        ckb_core::header::Header {
-            raw: ckb_core::header::RawHeader {
-                version: header.version(),
-                parent_hash: H256::from_slice(header.parent_hash().and_then(|b| b.seq()).unwrap()),
-                timestamp: header.timestamp(),
-                number: header.number(),
-                txs_commit: H256::from_slice(header.txs_commit().and_then(|b| b.seq()).unwrap()),
-                txs_proposal: H256::from_slice(
-                    header.txs_proposal().and_then(|b| b.seq()).unwrap(),
-                ),
-                difficulty: H256::from_slice(header.difficulty().and_then(|b| b.seq()).unwrap())
-                    .into(),
-                cellbase_id: H256::from_slice(header.cellbase_id().and_then(|b| b.seq()).unwrap()),
-                uncles_hash: H256::from_slice(header.uncles_hash().and_then(|b| b.seq()).unwrap()),
-            },
-            seal: ckb_core::header::Seal {
-                nonce: header.nonce(),
-                proof: header.proof().and_then(|b| b.seq()).unwrap().to_vec(),
-            },
-        }
-    }
-}
-
-impl<'a> From<ckb_protocol::Header<'a>> for ckb_core::header::IndexedHeader {
-    fn from(header: ckb_protocol::Header<'a>) -> Self {
-        let header: ckb_core::header::Header = header.into();
-        header.into()
+        ckb_core::header::HeaderBuilder::default()
+            .version(header.version())
+            .parent_hash(&H256::from_slice(
+                header.parent_hash().and_then(|b| b.seq()).unwrap(),
+            )).timestamp(header.timestamp())
+            .number(header.number())
+            .txs_commit(&H256::from_slice(
+                header.txs_commit().and_then(|b| b.seq()).unwrap(),
+            )).txs_proposal(&H256::from_slice(
+                header.txs_proposal().and_then(|b| b.seq()).unwrap(),
+            )).difficulty(
+                &H256::from_slice(header.difficulty().and_then(|b| b.seq()).unwrap()).into(),
+            ).cellbase_id(&H256::from_slice(
+                header.cellbase_id().and_then(|b| b.seq()).unwrap(),
+            )).uncles_hash(&H256::from_slice(
+                header.uncles_hash().and_then(|b| b.seq()).unwrap(),
+            )).nonce(header.nonce())
+            .proof(header.proof().and_then(|b| b.seq()).unwrap())
+            .build()
     }
 }
 
@@ -96,19 +83,12 @@ impl<'a> From<ckb_protocol::Transaction<'a>> for ckb_core::transaction::Transact
             .map(Into::into)
             .collect();
 
-        ckb_core::transaction::Transaction {
-            version: transaction.version(),
-            deps,
-            inputs,
-            outputs,
-        }
-    }
-}
-
-impl<'a> From<ckb_protocol::Transaction<'a>> for ckb_core::transaction::IndexedTransaction {
-    fn from(transaction: ckb_protocol::Transaction<'a>) -> Self {
-        let tx: ckb_core::transaction::Transaction = transaction.into();
-        tx.into()
+        ckb_core::transaction::TransactionBuilder::default()
+            .version(transaction.version())
+            .deps(deps)
+            .inputs(inputs)
+            .outputs(outputs)
+            .build()
     }
 }
 

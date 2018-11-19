@@ -2,11 +2,11 @@ use bigint::{H256, U256};
 use chain::chain::{ChainProvider, TipHeader};
 use chain::consensus::Consensus;
 use chain::error::Error;
-use core::block::IndexedBlock;
+use core::block::Block;
 use core::cell::{CellProvider, CellStatus};
 use core::extras::BlockExt;
-use core::header::{BlockNumber, IndexedHeader};
-use core::transaction::{Capacity, IndexedTransaction, OutPoint, ProposalShortId, Transaction};
+use core::header::{BlockNumber, Header};
+use core::transaction::{Capacity, OutPoint, ProposalShortId, Transaction};
 use core::transaction_meta::TransactionMeta;
 use core::uncle::UncleBlock;
 use std::collections::HashMap;
@@ -26,11 +26,11 @@ impl ChainProvider for DummyChainClient {
         self.transaction_fees[&transaction.hash()].clone()
     }
 
-    fn process_block(&self, _b: &IndexedBlock) -> Result<(), Error> {
+    fn process_block(&self, _b: &Block) -> Result<(), Error> {
         panic!("Not implemented!");
     }
 
-    fn block_header(&self, _hash: &H256) -> Option<IndexedHeader> {
+    fn block_header(&self, _hash: &H256) -> Option<Header> {
         panic!("Not implemented!");
     }
 
@@ -46,15 +46,15 @@ impl ChainProvider for DummyChainClient {
         panic!("Not implemented!");
     }
 
-    fn calculate_difficulty(&self, _last: &IndexedHeader) -> Option<U256> {
+    fn calculate_difficulty(&self, _last: &Header) -> Option<U256> {
         panic!("Not implemented!");
     }
 
-    fn get_ancestor(&self, _base: &H256, _number: BlockNumber) -> Option<IndexedHeader> {
+    fn get_ancestor(&self, _base: &H256, _number: BlockNumber) -> Option<Header> {
         panic!("Not implemented!");
     }
 
-    fn block_body(&self, _hash: &H256) -> Option<Vec<IndexedTransaction>> {
+    fn block_body(&self, _hash: &H256) -> Option<Vec<Transaction>> {
         panic!("Not implemented!");
     }
 
@@ -82,7 +82,7 @@ impl ChainProvider for DummyChainClient {
         panic!("Not implemented!");
     }
 
-    fn block(&self, _hash: &H256) -> Option<IndexedBlock> {
+    fn block(&self, _hash: &H256) -> Option<Block> {
         panic!("Not implemented!");
     }
 
@@ -94,7 +94,7 @@ impl ChainProvider for DummyChainClient {
         panic!("Not implemented!");
     }
 
-    fn get_transaction(&self, _hash: &H256) -> Option<IndexedTransaction> {
+    fn get_transaction(&self, _hash: &H256) -> Option<Transaction> {
         panic!("Not implemented!");
     }
 

@@ -1,16 +1,16 @@
 use bigint::H256;
 use ckb_chain::chain::ChainProvider;
 use ckb_protocol::{FlatbuffersVectorIterator, GetHeaders, SyncMessage};
-use core::header::IndexedHeader;
+use core::header::Header;
 use flatbuffers::FlatBufferBuilder;
-use network::{NetworkContext, PeerId};
+use network::{CKBProtocolContext, PeerIndex};
 use synchronizer::Synchronizer;
 
 pub struct GetHeadersProcess<'a, C: 'a> {
     message: &'a GetHeaders<'a>,
     synchronizer: &'a Synchronizer<C>,
-    peer: PeerId,
-    nc: &'a NetworkContext,
+    peer: PeerIndex,
+    nc: &'a CKBProtocolContext,
 }
 
 impl<'a, C> GetHeadersProcess<'a, C>
@@ -20,8 +20,8 @@ where
     pub fn new(
         message: &'a GetHeaders,
         synchronizer: &'a Synchronizer<C>,
-        peer: PeerId,
-        nc: &'a NetworkContext,
+        peer: PeerIndex,
+        nc: &'a CKBProtocolContext,
     ) -> Self {
         GetHeadersProcess {
             message,
@@ -46,10 +46,10 @@ where
             .synchronizer
             .locate_latest_common_block(&hash_stop, &block_locator_hashes[..])
         {
-            debug!(target: "sync", "\n\nheaders latest_common={} tip={} begin\n\n", block_number, {self.synchronizer.tip_header().number});
+            debug!(target: "sync", "\n\nheaders latest_common={} tip={} begin\n\n", block_number, {self.synchronizer.tip_header().number()});
 
             self.synchronizer.peers.getheaders_received(self.peer);
-            let headers: Vec<IndexedHeader> = self
+            let headers: Vec<Header> = self
                 .synchronizer
                 .get_locator_response(block_number, &hash_stop);
             // response headers
@@ -59,7 +59,7 @@ where
             let fbb = &mut FlatBufferBuilder::new();
             let message = SyncMessage::build_headers(fbb, &headers);
             fbb.finish(message, None);
-            self.nc.respond(0, fbb.finished_data().to_vec());
+            let _ = self.nc.send(self.peer, fbb.finished_data().to_vec());
         } else {
             warn!(target: "sync", "\n\nunknown block headers from peer {} {:#?}\n\n", self.peer, block_locator_hashes);
             // Got 'headers' message without known blocks

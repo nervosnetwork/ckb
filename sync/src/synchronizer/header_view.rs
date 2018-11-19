@@ -1,23 +1,35 @@
 use bigint::{H256, U256};
-use core::header::IndexedHeader;
+use core::header::{BlockNumber, Header};
 use std::cmp::Ordering;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct HeaderView {
-    pub header: IndexedHeader,
-    pub total_difficulty: U256,
+    inner: Header,
+    total_difficulty: U256,
 }
 
 impl HeaderView {
-    pub fn new(header: IndexedHeader, total_difficulty: U256) -> Self {
+    pub fn new(inner: Header, total_difficulty: U256) -> Self {
         HeaderView {
-            header,
+            inner,
             total_difficulty,
         }
     }
 
+    pub fn number(&self) -> BlockNumber {
+        self.inner.number()
+    }
+
     pub fn hash(&self) -> H256 {
-        self.header.hash()
+        self.inner.hash()
+    }
+
+    pub fn total_difficulty(&self) -> U256 {
+        self.total_difficulty
+    }
+
+    pub fn inner(&self) -> &Header {
+        &self.inner
     }
 }
 

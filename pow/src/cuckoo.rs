@@ -5,11 +5,16 @@ use hash::blake2b;
 use std::any::Any;
 use std::collections::HashMap;
 
+// Cuckatoo proofs take the form of a length 42 off-by-1-cycle in a bipartite graph with
+// 2^N+2^N nodes and 2^N edges, with N ranging from 10 up to 64.
 #[derive(Copy, Clone, Deserialize, Eq, PartialEq, Hash, Debug)]
 pub struct CuckooParams {
-    pub max_vertex: usize,
-    pub max_edge: usize,
-    pub cycle_length: usize,
+    // the main parameter is the 2-log of the graph size,
+    // which is the size in bits of the node identifiers
+    edge_bits: u8,
+    // the next most important parameter is the (even) length
+    // of the cycle to be found. a minimum of 12 is recommended
+    cycle_length: u32,
 }
 
 pub struct CuckooEngine {
@@ -17,9 +22,9 @@ pub struct CuckooEngine {
 }
 
 impl CuckooEngine {
-    pub fn new(params: &CuckooParams) -> Self {
+    pub fn new(params: CuckooParams) -> Self {
         CuckooEngine {
-            cuckoo: Cuckoo::new(params.max_vertex, params.max_edge, params.cycle_length),
+            cuckoo: Cuckoo::new(params.edge_bits, params.cycle_length as usize),
         }
     }
 }
@@ -27,8 +32,7 @@ impl CuckooEngine {
 impl Default for CuckooParams {
     fn default() -> Self {
         CuckooParams {
-            max_vertex: 40_000_000,
-            max_edge: 20_000_000,
+            edge_bits: 29,
             cycle_length: 42,
         }
     }
@@ -70,7 +74,7 @@ impl CuckooSip {
     }
 
     // https://github.com/tromp/cuckoo/blob/master/doc/spec#L11
-    pub fn hash(&self, val: u64) -> u64 {
+    fn hash(&self, val: u64) -> u64 {
         let mut v0 = self.keys[0];
         let mut v1 = self.keys[1];
         let mut v2 = self.keys[2];
@@ -108,6 +112,13 @@ impl CuckooSip {
         *v3 ^= *v0;
         *v2 = v2.rotate_left(32);
     }
+
+    pub fn edge(&self, val: u32, edge_mask: u64) -> (u64, u64) {
+        let upper = self.hash(u64::from(val) << 1) & edge_mask;
+        let lower = self.hash((u64::from(val) << 1) + 1) & edge_mask;
+
+        (upper, lower)
+    }
 }
 
 fn message_to_keys(message: &[u8]) -> [u64; 4] {
@@ -121,16 +132,16 @@ fn message_to_keys(message: &[u8]) -> [u64; 4] {
 }
 
 pub struct Cuckoo {
-    max_vertex: usize,
-    max_edge: usize,
+    max_edge: u64,
+    edge_mask: u64,
     cycle_length: usize,
 }
 
 impl Cuckoo {
-    pub fn new(max_vertex: usize, max_edge: usize, cycle_length: usize) -> Self {
+    pub fn new(edge_bits: u8, cycle_length: usize) -> Self {
         Self {
-            max_vertex,
-            max_edge,
+            max_edge: 1 << edge_bits,
+            edge_mask: (1 << edge_bits) - 1,
             cycle_length,
         }
     }
@@ -148,10 +159,11 @@ impl Cuckoo {
         }
 
         let keys = message_to_keys(message);
+        let hasher = CuckooSip::new(keys[0], keys[1], keys[2], keys[3]);
 
         let mut from_upper: HashMap<_, Vec<_>> = HashMap::with_capacity(proof.len());
         let mut from_lower: HashMap<_, Vec<_>> = HashMap::with_capacity(proof.len());
-        for (u, v) in proof.iter().map(|i| self.edge(&keys, *i)) {
+        for (u, v) in proof.iter().map(|i| hasher.edge(*i, self.edge_mask)) {
             from_upper
                 .entry(u)
                 .and_modify(|upper| upper.push(v))
@@ -169,7 +181,7 @@ impl Cuckoo {
         }
 
         let mut cycle_length = 0;
-        let mut cur_edge = self.edge(&keys, proof[0]);
+        let mut cur_edge = hasher.edge(proof[0], self.edge_mask);
         let start = cur_edge.0;
         loop {
             let next_lower = *from_upper[&cur_edge.0]
@@ -192,13 +204,14 @@ impl Cuckoo {
 
     #[inline]
     pub fn solve(&self, message: &[u8]) -> Option<Vec<u32>> {
-        let mut graph = vec![0; self.max_vertex].into_boxed_slice();
+        let mut graph = vec![0; (self.max_edge << 1) as usize].into_boxed_slice();
         let keys = message_to_keys(message);
+        let hasher = CuckooSip::new(keys[0], keys[1], keys[2], keys[3]);
 
         for nonce in 0..self.max_edge {
             let (u, v) = {
-                let edge = self.edge(&keys, nonce as u32);
-                (2 * edge.0, 2 * edge.1 + 1)
+                let edge = hasher.edge(nonce as u32, self.edge_mask);
+                (edge.0 << 1, (edge.1 << 1) + 1)
             };
             if u == 0 {
                 continue;
@@ -226,8 +239,8 @@ impl Cuckoo {
                     let mut result = Vec::with_capacity(self.cycle_length);
                     for n in 0..self.max_edge {
                         let cur_edge = {
-                            let edge = self.edge(&keys, n as u32);
-                            (2 * edge.0, 2 * edge.1 + 1)
+                            let edge = hasher.edge(n as u32, self.edge_mask);
+                            (edge.0 << 1, (edge.1 << 1) + 1)
                         };
                         for i in 0..cycle.len() {
                             let cycle_edge = cycle[i];
@@ -268,48 +281,26 @@ impl Cuckoo {
         }
         path
     }
-
-    fn edge(&self, keys: &[u64; 4], index: u32) -> (u64, u64) {
-        let hasher = CuckooSip::new(keys[0], keys[1], keys[2], keys[3]);
-        let upper = hasher.hash(2 * u64::from(index)) % ((self.max_vertex as u64) / 2);
-        let lower = hasher.hash(2 * u64::from(index) + 1) % ((self.max_vertex as u64) / 2);
-
-        (upper, lower)
-    }
 }
 
 #[cfg(test)]
 mod test {
     use super::Cuckoo;
-    use ckb_core::BlockNumber;
-    use quickcheck;
-    use std::fmt;
+    use proptest::collection::size_range;
+    use proptest::prelude::any_with;
 
-    #[derive(Copy, Clone)]
-    struct Message([u8; 80]);
-
-    impl fmt::Debug for Message {
-        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-            for byte in self.0.iter() {
-                write!(f, "{}", byte)?;
-            }
-            Ok(())
+    fn _cuckoo_solve(message: &[u8]) -> bool {
+        let cuckoo = Cuckoo::new(3, 6);
+        if let Some(proof) = cuckoo.solve(message) {
+            assert!(cuckoo.verify(message, &proof));
         }
+        true
     }
 
-    impl quickcheck::Arbitrary for Message {
-        fn arbitrary<G: quickcheck::Gen>(g: &mut G) -> Self {
-            let mut res = [0u8; 80];
-            g.fill_bytes(&mut res[..80]);
-            Message(res)
-        }
-    }
-
-    quickcheck! {
-        fn cuckoo_solve(_number: BlockNumber, message: Message) -> bool {
-            let cuckoo = Cuckoo::new(16, 8, 6);
-            cuckoo.solve(&message.0);
-            true
+    proptest! {
+        #[test]
+        fn cuckoo_solve(ref message in any_with::<Vec<u8>>(size_range(80).lift())) {
+            _cuckoo_solve(message)
         }
     }
 
@@ -342,7 +333,7 @@ mod test {
 
     #[test]
     fn solve_cuckoo() {
-        let cuckoo = Cuckoo::new(16, 8, 6);
+        let cuckoo = Cuckoo::new(3, 6);
         for (message, proof) in TESTSET.iter() {
             assert_eq!(cuckoo.solve(message).unwrap(), proof);
         }
@@ -350,7 +341,7 @@ mod test {
 
     #[test]
     fn verify_cuckoo() {
-        let cuckoo = Cuckoo::new(16, 8, 6);
+        let cuckoo = Cuckoo::new(3, 6);
         for (message, proof) in TESTSET.iter() {
             assert!(cuckoo.verify(message, proof));
         }

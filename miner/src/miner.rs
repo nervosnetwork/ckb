@@ -5,7 +5,7 @@ use chain::chain::ChainProvider;
 use ckb_notify::{Event, Notify, MINER_SUBSCRIBER};
 use ckb_pow::PowEngine;
 use ckb_protocol::RelayMessage;
-use core::block::IndexedBlock;
+use core::block::{Block, BlockBuilder};
 use core::header::{RawHeader, Seal};
 use core::BlockNumber;
 use crossbeam_channel;
@@ -39,7 +39,7 @@ where
         network: &Arc<NetworkService>,
         notify: &Notify,
     ) -> Self {
-        let number = chain.tip_header().read().header.number;
+        let number = chain.tip_header().read().number();
 
         let (sub_tx, sub_rx) = crossbeam_channel::unbounded();
         notify.register_transaction_subscriber(MINER_SUBSCRIBER, sub_tx.clone());
@@ -73,10 +73,10 @@ where
             self.config.max_prop,
         ) {
             Ok(block_template) => {
-                self.mining_number = block_template.raw_header.number;
+                self.mining_number = block_template.raw_header.number();
                 if let Some(block) = self.mine(block_template) {
                     debug!(target: "miner", "new block mined: {} -> (number: {}, difficulty: {}, timestamp: {})",
-                          block.hash(), block.header.number, block.header.difficulty, block.header.timestamp);
+                          block.header().hash(), block.header().number(), block.header().difficulty(), block.header().timestamp());
                     if self.chain.process_block(&block).is_ok() {
                         self.announce_new_block(&block);
                     }
@@ -88,7 +88,7 @@ where
         }
     }
 
-    fn mine(&self, block_template: BlockTemplate) -> Option<IndexedBlock> {
+    fn mine(&self, block_template: BlockTemplate) -> Option<Block> {
         let BlockTemplate {
             raw_header,
             uncles,
@@ -96,11 +96,13 @@ where
             proposal_transactions,
         } = block_template;
 
-        self.mine_loop(&raw_header).map(|seal| IndexedBlock {
-            header: raw_header.with_seal(seal).into(),
-            uncles,
-            commit_transactions,
-            proposal_transactions,
+        self.mine_loop(&raw_header).map(|seal| {
+            BlockBuilder::default()
+                .header(raw_header.with_seal(seal))
+                .uncles(uncles)
+                .commit_transactions(commit_transactions)
+                .proposal_transactions(proposal_transactions)
+                .build()
         })
     }
 
@@ -112,7 +114,7 @@ where
             debug!(target: "miner", "mining {}", nonce);
             match self.sub_rx.try_recv() {
                 Some(Event::NewTip(block)) => {
-                    if block.header.number >= self.mining_number {
+                    if block.header().number() >= self.mining_number {
                         break None;
                     }
                 }
@@ -135,15 +137,15 @@ where
         }
     }
 
-    fn announce_new_block(&self, block: &IndexedBlock) {
-        self.network.with_context_eval(RELAY_PROTOCOL_ID, |nc| {
-            for peer_id in self.network.connected_peers() {
-                debug!(target: "miner", "announce new block to peer#{:?}, {} => {}",
-                       peer_id, block.header().number, block.hash());
+    fn announce_new_block(&self, block: &Block) {
+        self.network.with_protocol_context(RELAY_PROTOCOL_ID, |nc| {
+            for peer in self.network.connected_peers_indexes() {
+                debug!(target: "miner", "announce new block to peer#{}, {} => {}",
+                       peer, block.header().number(), block.header().hash());
                 let fbb = &mut FlatBufferBuilder::new();
                 let message = RelayMessage::build_compact_block(fbb, &block, &HashSet::new());
                 fbb.finish(message, None);
-                nc.send(peer_id, 0, fbb.finished_data().to_vec());
+                let _ = nc.send(peer, fbb.finished_data().to_vec());
             }
         });
     }

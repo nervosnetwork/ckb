@@ -10,8 +10,8 @@ extern crate crunchy;
 extern crate failure;
 #[macro_use]
 extern crate lazy_static;
+extern crate faster_hex;
 extern crate rand;
-extern crate rustc_hex;
 
 #[cfg(feature = "bech32")]
 pub mod bech32;

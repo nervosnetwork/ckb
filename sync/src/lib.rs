@@ -30,8 +30,6 @@ extern crate ckb_db as db;
 extern crate ckb_notify;
 #[cfg(test)]
 extern crate crossbeam_channel;
-#[cfg(test)]
-extern crate merkle_root;
 
 mod config;
 mod relayer;

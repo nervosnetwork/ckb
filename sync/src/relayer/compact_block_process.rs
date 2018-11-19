@@ -2,14 +2,14 @@ use super::compact_block::CompactBlock;
 use ckb_chain::chain::ChainProvider;
 use ckb_protocol::{CompactBlock as FbsCompactBlock, RelayMessage};
 use flatbuffers::FlatBufferBuilder;
-use network::{NetworkContext, PeerId};
+use network::{CKBProtocolContext, PeerIndex};
 use relayer::Relayer;
 
 pub struct CompactBlockProcess<'a, C: 'a> {
     message: &'a FbsCompactBlock<'a>,
     relayer: &'a Relayer<C>,
-    peer: PeerId,
-    nc: &'a NetworkContext,
+    peer: PeerIndex,
+    nc: &'a CKBProtocolContext,
 }
 
 impl<'a, C> CompactBlockProcess<'a, C>
@@ -19,8 +19,8 @@ where
     pub fn new(
         message: &'a FbsCompactBlock,
         relayer: &'a Relayer<C>,
-        peer: PeerId,
-        nc: &'a NetworkContext,
+        peer: PeerIndex,
+        nc: &'a CKBProtocolContext,
     ) -> Self {
         CompactBlockProcess {
             message,
@@ -72,7 +72,7 @@ where
                             .collect::<Vec<_>>(),
                     );
                     fbb.finish(message, None);
-                    self.nc.respond(0, fbb.finished_data().to_vec());
+                    let _ = self.nc.send(self.peer, fbb.finished_data().to_vec());
                 }
                 (None, None) => {
                     // TODO fail to reconstruct block, downgrade to header first?

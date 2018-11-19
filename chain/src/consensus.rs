@@ -1,7 +1,7 @@
-use bigint::{H256, U256};
-use core::block::IndexedBlock;
-use core::header::{Header, RawHeader, Seal};
-use core::transaction::{Capacity, IndexedTransaction};
+use bigint::U256;
+use core::block::{Block, BlockBuilder};
+use core::header::HeaderBuilder;
+use core::transaction::Capacity;
 use core::BlockNumber;
 
 pub const DEFAULT_BLOCK_REWARD: Capacity = 5_000;
@@ -18,7 +18,7 @@ pub const POW_SPACING: u64 = 15 * 1000; //15s
 #[derive(Clone, PartialEq, Debug)]
 pub struct Consensus {
     pub id: String,
-    pub genesis_block: IndexedBlock,
+    pub genesis_block: Block,
     pub initial_block_reward: Capacity,
     pub max_uncles_age: usize,
     pub max_uncles_len: usize,
@@ -32,8 +32,8 @@ pub struct Consensus {
 // genesis difficulty should not be zero
 impl Default for Consensus {
     fn default() -> Self {
-        let genesis_builder = GenesisBuilder::default();
-        let genesis_block = genesis_builder.difficulty(U256::one()).build();
+        let genesis_block = BlockBuilder::default()
+            .with_header_builder(HeaderBuilder::default().difficulty(&U256::one()));
 
         Consensus {
             genesis_block,
@@ -56,7 +56,7 @@ impl Consensus {
         self
     }
 
-    pub fn set_genesis_block(mut self, genesis_block: IndexedBlock) -> Self {
+    pub fn set_genesis_block(mut self, genesis_block: Block) -> Self {
         self.genesis_block = genesis_block;
         self
     }
@@ -66,7 +66,7 @@ impl Consensus {
         self
     }
 
-    pub fn genesis_block(&self) -> &IndexedBlock {
+    pub fn genesis_block(&self) -> &Block {
         &self.genesis_block
     }
 
@@ -79,7 +79,7 @@ impl Consensus {
     }
 
     pub fn min_difficulty(&self) -> U256 {
-        self.genesis_block.header.difficulty
+        self.genesis_block.header().difficulty()
     }
 
     pub fn initial_block_reward(&self) -> Capacity {
@@ -92,100 +92,5 @@ impl Consensus {
 
     pub fn orphan_rate_target(&self) -> f32 {
         self.orphan_rate_target
-    }
-}
-
-#[derive(Clone, PartialEq, Eq, Default, Debug)]
-pub struct GenesisBuilder {
-    version: u32,
-    parent_hash: H256,
-    timestamp: u64,
-    txs_commit: H256,
-    txs_proposal: H256,
-    difficulty: U256,
-    seal: Seal,
-    uncles_hash: H256,
-    cellbase_id: H256,
-    commit_transactions: Vec<IndexedTransaction>,
-}
-
-impl GenesisBuilder {
-    pub fn new() -> GenesisBuilder {
-        GenesisBuilder::default()
-    }
-
-    pub fn version(mut self, value: u32) -> Self {
-        self.version = value;
-        self
-    }
-
-    pub fn parent_hash(mut self, value: H256) -> Self {
-        self.parent_hash = value;
-        self
-    }
-
-    pub fn timestamp(mut self, value: u64) -> Self {
-        self.timestamp = value;
-        self
-    }
-
-    pub fn txs_proposal(mut self, value: H256) -> Self {
-        self.txs_proposal = value;
-        self
-    }
-
-    pub fn txs_commit(mut self, value: H256) -> Self {
-        self.txs_commit = value;
-        self
-    }
-
-    pub fn difficulty(mut self, value: U256) -> Self {
-        self.difficulty = value;
-        self
-    }
-
-    pub fn seal(mut self, nonce: u64, proof: Vec<u8>) -> Self {
-        self.seal = Seal { nonce, proof };
-        self
-    }
-
-    pub fn cellbase_id(mut self, cellbase_id: H256) -> Self {
-        self.cellbase_id = cellbase_id;
-        self
-    }
-
-    pub fn uncles_hash(mut self, uncles_hash: H256) -> Self {
-        self.uncles_hash = uncles_hash;
-        self
-    }
-
-    pub fn add_commit_transaction(mut self, transaction: IndexedTransaction) -> Self {
-        self.commit_transactions.push(transaction);
-        self
-    }
-
-    // verify?
-    pub fn build(self) -> IndexedBlock {
-        let header = Header {
-            raw: RawHeader {
-                version: self.version,
-                parent_hash: self.parent_hash,
-                timestamp: self.timestamp,
-                txs_commit: self.txs_commit,
-                txs_proposal: self.txs_proposal,
-                difficulty: self.difficulty,
-                uncles_hash: self.uncles_hash,
-                cellbase_id: self.cellbase_id,
-                number: 0,
-            },
-            seal: self.seal,
-        };
-
-        IndexedBlock {
-            header: header.into(),
-            uncles: vec![],
-            commit_transactions: self.commit_transactions,
-            proposal_transactions: vec![],
-        }
     }
 }

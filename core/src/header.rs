@@ -1,176 +1,218 @@
 use bigint::{H256, U256};
-use bincode::serialize;
+use bincode::{deserialize, serialize};
 use hash::sha3_256;
-use merkle_root::merkle_root;
-use std::ops::{Deref, DerefMut};
-use transaction::{IndexedTransaction, ProposalShortId};
-
-const VERSION: u32 = 0;
 
 pub use BlockNumber;
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug, Default)]
 pub struct Seal {
-    pub nonce: u64,
-    pub proof: Vec<u8>,
+    nonce: u64,
+    proof: Vec<u8>,
+}
+
+impl Seal {
+    pub fn new(nonce: u64, proof: Vec<u8>) -> Self {
+        Seal { nonce, proof }
+    }
 }
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug, Default)]
 pub struct RawHeader {
-    pub version: u32,
+    version: u32,
     /// Parent hash.
-    pub parent_hash: H256,
+    parent_hash: H256,
     /// Block timestamp(ms).
-    pub timestamp: u64,
+    timestamp: u64,
     /// Genesis number is 0, Child block number is parent block number + 1.
-    pub number: BlockNumber,
+    number: BlockNumber,
     /// Transactions merkle root.
-    pub txs_commit: H256,
+    txs_commit: H256,
     /// Transactions proposal merkle root.
-    pub txs_proposal: H256,
+    txs_proposal: H256,
     /// Block difficulty.
-    pub difficulty: U256,
+    difficulty: U256,
     /// Hash of the cellbase
-    pub cellbase_id: H256,
+    cellbase_id: H256,
     /// Hash of the uncles
-    pub uncles_hash: H256,
+    uncles_hash: H256,
 }
 
 impl RawHeader {
-    pub fn new<'a>(
-        parent_header: &Header,
-        commit_transactions: impl Iterator<Item = &'a IndexedTransaction>,
-        proposal_short_ids: impl Iterator<Item = &'a ProposalShortId>,
-        timestamp: u64,
-        difficulty: U256,
-        cellbase_id: H256,
-        uncles_hash: H256,
-    ) -> RawHeader {
-        let commit_txs_hash: Vec<H256> = commit_transactions
-            .map(|t: &IndexedTransaction| t.hash())
-            .collect();
-        let txs_commit = merkle_root(commit_txs_hash.as_slice());
-
-        let proposal_txs_hash: Vec<H256> = proposal_short_ids.map(|t| t.hash()).collect();
-
-        let txs_proposal = merkle_root(proposal_txs_hash.as_slice());
-
-        let parent_hash = parent_header.hash();
-        let number = parent_header.number + 1;
-
-        RawHeader {
-            version: VERSION,
-            parent_hash,
-            txs_commit,
-            txs_proposal,
-            timestamp,
-            number,
-            difficulty,
-            cellbase_id,
-            uncles_hash,
-        }
-    }
-
     pub fn pow_hash(&self) -> H256 {
         sha3_256(serialize(self).unwrap()).into()
     }
 
     pub fn with_seal(self, seal: Seal) -> Header {
-        Header { raw: self, seal }
+        let builder = HeaderBuilder {
+            inner: Header {
+                raw: self,
+                seal,
+                hash: H256::zero(),
+            },
+        };
+        builder.build()
+    }
+
+    pub fn number(&self) -> BlockNumber {
+        self.number
+    }
+
+    pub fn difficulty(&self) -> U256 {
+        self.difficulty
     }
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug, Default, PartialEq, Eq)]
 pub struct Header {
-    pub raw: RawHeader,
+    raw: RawHeader,
     /// proof seal
-    pub seal: Seal,
-}
-
-impl Header {
-    pub fn hash(&self) -> H256 {
-        sha3_256(serialize(self).unwrap()).into()
-    }
-
-    pub fn is_genesis(&self) -> bool {
-        self.number == 0
-    }
-}
-
-impl DerefMut for Header {
-    fn deref_mut(&mut self) -> &mut RawHeader {
-        &mut self.raw
-    }
-}
-
-impl Deref for Header {
-    type Target = RawHeader;
-
-    fn deref(&self) -> &Self::Target {
-        &self.raw
-    }
-}
-
-impl DerefMut for IndexedHeader {
-    fn deref_mut(&mut self) -> &mut Header {
-        &mut self.header
-    }
-}
-
-impl Deref for IndexedHeader {
-    type Target = Header;
-
-    fn deref(&self) -> &Self::Target {
-        &self.header
-    }
-}
-
-impl ::std::hash::Hash for IndexedHeader {
-    fn hash<H>(&self, state: &mut H)
-    where
-        H: ::std::hash::Hasher,
-    {
-        state.write(&self.hash);
-        state.finish();
-    }
-}
-
-#[derive(Clone, Debug, Eq, Default)]
-pub struct IndexedHeader {
-    pub header: Header,
-    /// memorise hash
+    seal: Seal,
+    #[serde(skip)]
     hash: H256,
 }
 
-impl PartialEq for IndexedHeader {
-    fn eq(&self, other: &IndexedHeader) -> bool {
-        self.hash == other.hash
+impl Header {
+    pub fn version(&self) -> u32 {
+        self.raw.version
     }
-}
 
-impl IndexedHeader {
+    pub fn number(&self) -> BlockNumber {
+        self.raw.number
+    }
+
+    pub fn difficulty(&self) -> U256 {
+        self.raw.difficulty
+    }
+
+    pub fn timestamp(&self) -> u64 {
+        self.raw.timestamp
+    }
+
+    pub fn proof(&self) -> &[u8] {
+        &self.seal.proof
+    }
+
+    pub fn nonce(&self) -> u64 {
+        self.seal.nonce
+    }
+
     pub fn hash(&self) -> H256 {
         self.hash
     }
 
-    pub fn new(header: Header, hash: H256) -> Self {
-        IndexedHeader { header, hash }
+    pub fn pow_hash(&self) -> H256 {
+        self.raw.pow_hash()
     }
 
-    pub fn finalize_dirty(&mut self) {
-        self.hash = self.header.hash();
+    pub fn is_genesis(&self) -> bool {
+        self.number() == 0
+    }
+
+    pub fn parent_hash(&self) -> H256 {
+        self.raw.parent_hash
+    }
+
+    pub fn txs_commit(&self) -> H256 {
+        self.raw.txs_commit
+    }
+
+    pub fn txs_proposal(&self) -> H256 {
+        self.raw.txs_proposal
+    }
+
+    pub fn cellbase_id(&self) -> H256 {
+        self.raw.cellbase_id
+    }
+
+    pub fn uncles_hash(&self) -> H256 {
+        self.raw.uncles_hash
+    }
+
+    pub fn raw(self) -> RawHeader {
+        self.raw
     }
 }
 
-impl From<Header> for IndexedHeader {
-    fn from(header: Header) -> Self {
-        let hash = header.hash();
-        IndexedHeader { header, hash }
-    }
+#[derive(Default)]
+pub struct HeaderBuilder {
+    inner: Header,
 }
 
-impl From<IndexedHeader> for Header {
-    fn from(indexed_header: IndexedHeader) -> Self {
-        indexed_header.header
+impl HeaderBuilder {
+    pub fn new(bytes: &[u8]) -> Self {
+        HeaderBuilder {
+            inner: deserialize(bytes).expect("header deserializing should be ok"),
+        }
+    }
+
+    pub fn header(mut self, header: Header) -> Self {
+        self.inner = header;
+        self
+    }
+
+    pub fn version(mut self, version: u32) -> Self {
+        self.inner.raw.version = version;
+        self
+    }
+
+    pub fn number(mut self, number: BlockNumber) -> Self {
+        self.inner.raw.number = number;
+        self
+    }
+
+    pub fn difficulty(mut self, difficulty: &U256) -> Self {
+        self.inner.raw.difficulty = *difficulty;
+        self
+    }
+
+    pub fn timestamp(mut self, timestamp: u64) -> Self {
+        self.inner.raw.timestamp = timestamp;
+        self
+    }
+
+    pub fn proof(mut self, proof: &[u8]) -> Self {
+        self.inner.seal.proof = proof.to_vec();
+        self
+    }
+
+    pub fn nonce(mut self, nonce: u64) -> Self {
+        self.inner.seal.nonce = nonce;
+        self
+    }
+
+    pub fn parent_hash(mut self, hash: &H256) -> Self {
+        self.inner.raw.parent_hash = *hash;
+        self
+    }
+
+    pub fn txs_commit(mut self, hash: &H256) -> Self {
+        self.inner.raw.txs_commit = *hash;
+        self
+    }
+
+    pub fn txs_proposal(mut self, hash: &H256) -> Self {
+        self.inner.raw.txs_proposal = *hash;
+        self
+    }
+
+    pub fn cellbase_id(mut self, hash: &H256) -> Self {
+        self.inner.raw.cellbase_id = *hash;
+        self
+    }
+
+    pub fn uncles_hash(mut self, hash: &H256) -> Self {
+        self.inner.raw.uncles_hash = *hash;
+        self
+    }
+
+    pub fn build(self) -> Header {
+        let hash = H256::from_slice(&sha3_256(serialize(&self.inner).unwrap()));
+        self.with_hash(&hash)
+    }
+
+    pub fn with_hash(self, hash: &H256) -> Header {
+        let mut header = self.inner;
+        header.hash = *hash;
+        header
     }
 }

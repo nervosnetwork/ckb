@@ -19,3 +19,4 @@ ckb-pow = { path = "../pow" }
 [dev-dependencies]
 ckb-db = { path = "../db" }
 ckb-notify = { path = "../notify" }
+ckb-time = { path = "../util/time", features = ["mock_timer"] }

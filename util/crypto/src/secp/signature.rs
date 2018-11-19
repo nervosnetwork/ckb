@@ -6,7 +6,7 @@ use super::secp256k1::{RecoverableSignature, RecoveryId};
 use super::Message;
 use super::SECP256K1;
 use bigint::{H256, H512, H520};
-use rustc_hex::ToHex;
+use faster_hex::hex_string;
 use std::fmt;
 use std::str::FromStr;
 
@@ -132,9 +132,9 @@ impl Signature {
 impl fmt::Debug for Signature {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         f.debug_struct("Signature")
-            .field("r", &self.0[0..32].to_hex())
-            .field("s", &self.0[32..64].to_hex())
-            .field("v", &self.0[64..65].to_hex())
+            .field("r", &hex_string(&self.0[0..32]).expect("hex string"))
+            .field("s", &hex_string(&self.0[32..64]).expect("hex string"))
+            .field("v", &hex_string(&self.0[64..65]).expect("hex string"))
             .finish()
     }
 }

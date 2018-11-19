@@ -68,7 +68,7 @@ You can run the full test suite, or just run a specific package test:
 # Run the full suite
 make test
 # Run a specific package test
-RUSTFLAGS="--cfg ckb_test" cargo test --package ckb-chain
+cargo test --package ckb-chain
 ```
 
 ---
