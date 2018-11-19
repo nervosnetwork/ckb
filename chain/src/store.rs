@@ -298,6 +298,7 @@ mod tests {
         let ext = BlockExt {
             received_at: block.header.timestamp,
             total_difficulty: block.header.difficulty,
+            total_uncles_count: block.uncles().len() as u64,
         };
 
         let hash = block.hash();

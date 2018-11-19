@@ -1,11 +1,13 @@
-use super::header_verifier::HeaderVerifier;
+use super::header_verifier::{HeaderResolver, HeaderVerifier};
 use super::{TransactionVerifier, Verifier};
+use bigint::{H256, U256};
 use chain::chain::ChainProvider;
 use core::block::IndexedBlock;
-use core::cell::ResolvedTransaction;
-use core::transaction::{Capacity, CellInput};
-use error::{Error, TransactionError, UnclesError};
-use fnv::FnvHashSet;
+use core::cell::{CellProvider, CellState};
+use core::header::IndexedHeader;
+use core::transaction::{Capacity, CellInput, OutPoint};
+use error::{CellbaseError, Error, TransactionError, UnclesError};
+use fnv::{FnvHashMap, FnvHashSet};
 use merkle_root::merkle_root;
 use pow_verifier::PowVerifier;
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
@@ -25,7 +27,7 @@ pub struct BlockVerifier<'a, C, P> {
     pub cellbase: CellbaseTransactionsVerifier<'a, C>,
     pub merkle_root: MerkleRootVerifier<'a>,
     pub uncles: UnclesVerifier<'a, C, P>,
-    pub transactions: Vec<TransactionVerifier<'a>>,
+    pub transactions: TransactionsVerifier<'a, C>,
 }
 
 impl<'a, C, P> BlockVerifier<'a, C, P>
@@ -40,39 +42,7 @@ where
             cellbase: CellbaseTransactionsVerifier::new(block, Arc::clone(chain)),
             merkle_root: MerkleRootVerifier::new(block),
             uncles: UnclesVerifier::new(block, Arc::clone(chain), pow),
-            transactions: Self::resolve_transaction(block, chain)
-                .into_iter()
-                .map(TransactionVerifier::new)
-                .collect(),
-        }
-    }
-
-    fn resolve_transaction(
-        block: &'a IndexedBlock,
-        chain: &Arc<C>,
-    ) -> Vec<ResolvedTransaction<'a>> {
-        let parent_hash = block.header.parent_hash;
-        // make verifiers orthogonal
-        // skip first tx, assume the first is cellbase, other verifier will verify cellbase
-        block
-            .transactions
-            .iter()
-            .skip(1)
-            .map(|x| chain.resolve_transaction_at(x, &parent_hash))
-            .collect()
-    }
-
-    fn verify_transactions(&self) -> Result<(), Error> {
-        let err: Vec<(usize, TransactionError)> = self
-            .transactions
-            .par_iter()
-            .enumerate()
-            .filter_map(|(index, tx)| tx.verify().err().map(|e| (index, e)))
-            .collect();
-        if err.is_empty() {
-            Ok(())
-        } else {
-            Err(Error::Transaction(err))
+            transactions: TransactionsVerifier::new(block, Arc::clone(chain)),
         }
     }
 }
@@ -88,7 +58,7 @@ where
         self.cellbase.verify()?;
         self.merkle_root.verify()?;
         self.uncles.verify()?;
-        self.verify_transactions()
+        self.transactions.verify()
     }
 }
 
@@ -119,16 +89,16 @@ where
             return Ok(());
         }
         if cellbase_len > 1 {
-            return Err(Error::MultipleCellbase);
+            return Err(Error::Cellbase(CellbaseError::InvalidQuantity));
         }
         if cellbase_len == 1 && (!self.block.transactions[0].is_cellbase()) {
-            return Err(Error::CellbaseNotAtFirst);
+            return Err(Error::Cellbase(CellbaseError::InvalidPosition));
         }
 
         let cellbase_transaction = &self.block.transactions[0];
         if cellbase_transaction.inputs[0] != CellInput::new_cellbase_input(self.block.header.number)
         {
-            return Err(Error::InvalidCellbaseInput);
+            return Err(Error::Cellbase(CellbaseError::InvalidInput));
         }
         let block_reward = self.chain.block_reward(self.block.header.raw.number);
         let mut fee = 0;
@@ -142,10 +112,7 @@ where
             .map(|output| output.capacity)
             .sum();
         if output_capacity > total_reward {
-            Err(Error::Transaction(vec![(
-                0,
-                TransactionError::InvalidCapacity,
-            )]))
+            Err(Error::Cellbase(CellbaseError::InvalidReward))
         } else {
             Ok(())
         }
@@ -219,6 +186,44 @@ impl<'a> MerkleRootVerifier<'a> {
     }
 }
 
+pub struct HeaderResolverWrapper<'a, C> {
+    chain: Arc<C>,
+    header: &'a IndexedHeader,
+    parent: Option<IndexedHeader>,
+}
+
+impl<'a, C> HeaderResolverWrapper<'a, C>
+where
+    C: ChainProvider,
+{
+    pub fn new(header: &'a IndexedHeader, chain: &Arc<C>) -> Self {
+        let parent = chain.block_header(&header.parent_hash);
+        HeaderResolverWrapper {
+            parent,
+            header,
+            chain: Arc::clone(chain),
+        }
+    }
+}
+
+impl<'a, C> HeaderResolver for HeaderResolverWrapper<'a, C>
+where
+    C: ChainProvider,
+{
+    fn header(&self) -> &IndexedHeader {
+        self.header
+    }
+
+    fn parent(&self) -> Option<&IndexedHeader> {
+        self.parent.as_ref()
+    }
+
+    fn calculate_difficulty(&self) -> Option<U256> {
+        self.parent()
+            .and_then(|parent| self.chain.calculate_difficulty(parent))
+    }
+}
+
 pub struct UnclesVerifier<'a, C, P> {
     block: &'a IndexedBlock,
     chain: Arc<C>,
@@ -266,11 +271,7 @@ where
 
         let max_uncles_age = self.chain.consensus().max_uncles_age();
         for uncle in self.block.uncles() {
-            let depth = if self.block.number() > uncle.number() {
-                self.block.number() - uncle.number()
-            } else {
-                0
-            };
+            let depth = self.block.number().saturating_sub(uncle.number());
 
             if depth > max_uncles_age as u64 || depth < 1 {
                 return Err(Error::Uncles(UnclesError::InvalidDepth {
@@ -290,16 +291,13 @@ where
         // cB.p^5   -----------/  6
         // cB.p^6   -------------/
         // cB.p^7
-        let mut ancestors = FnvHashSet::default();
         let mut excluded = FnvHashSet::default();
         let mut included = FnvHashSet::default();
-
         excluded.insert(self.block.hash());
         let mut block_hash = self.block.header.parent_hash;
         excluded.insert(block_hash);
         for _ in 0..max_uncles_age {
             if let Some(block) = self.chain.block(&block_hash) {
-                ancestors.insert(block.header.parent_hash);
                 excluded.insert(block.header.parent_hash);
                 for uncle in block.uncles() {
                     excluded.insert(uncle.header.hash());
@@ -316,9 +314,9 @@ where
                 return Err(Error::Uncles(UnclesError::InvalidCellbase));
             }
 
-            let uncle_hash = uncle.header.hash();
-            let uncle_parent_hash = uncle.header.parent_hash;
+            let uncle_header: IndexedHeader = uncle.header.clone().into();
 
+            let uncle_hash = uncle_header.hash();
             if included.contains(&uncle_hash) {
                 return Err(Error::Uncles(UnclesError::Duplicate(uncle_hash)));
             }
@@ -327,24 +325,83 @@ where
                 return Err(Error::Uncles(UnclesError::InvalidInclude(uncle_hash)));
             }
 
-            if !ancestors.contains(&uncle_parent_hash) {
-                return Err(Error::Uncles(UnclesError::InvalidParent(uncle_parent_hash)));
-            }
+            let resolver = HeaderResolverWrapper::new(&uncle_header, &self.chain);
 
-            let uncle_parent = self
-                .chain
-                .block_header(&uncle_parent_hash)
-                .expect("parent verified");
-
-            HeaderVerifier::new(
-                &uncle_parent,
-                &uncle.header.clone().into(),
-                self.pow.clone(),
-            ).verify()?;
+            HeaderVerifier::new(resolver, self.pow.clone()).verify()?;
 
             included.insert(uncle_hash);
         }
 
         Ok(())
+    }
+}
+
+pub struct TransactionsVerifier<'a, C> {
+    block: &'a IndexedBlock,
+    output_indexs: FnvHashMap<H256, usize>,
+    chain: Arc<C>,
+}
+
+impl<'a, C> CellProvider for TransactionsVerifier<'a, C>
+where
+    C: ChainProvider,
+{
+    fn cell(&self, _o: &OutPoint) -> CellState {
+        unreachable!()
+    }
+
+    fn cell_at(&self, o: &OutPoint, parent: &H256) -> CellState {
+        if let Some(i) = self.output_indexs.get(&o.hash) {
+            match self.block.transactions[*i].outputs.get(o.index as usize) {
+                Some(x) => CellState::Head(x.clone()),
+                None => CellState::Unknown,
+            }
+        } else {
+            self.chain.cell_at(o, parent)
+        }
+    }
+}
+
+impl<'a, C> TransactionsVerifier<'a, C>
+where
+    C: ChainProvider,
+{
+    pub fn new(block: &'a IndexedBlock, chain: Arc<C>) -> Self {
+        let mut output_indexs = FnvHashMap::default();
+
+        for (i, tx) in block.transactions.iter().enumerate() {
+            output_indexs.insert(tx.hash(), i);
+        }
+
+        TransactionsVerifier {
+            block,
+            output_indexs,
+            chain,
+        }
+    }
+
+    pub fn verify(&self) -> Result<(), Error> {
+        let parent_hash = self.block.header.parent_hash;
+        // make verifiers orthogonal
+        // skip first tx, assume the first is cellbase, other verifier will verify cellbase
+        let err: Vec<(usize, TransactionError)> = self
+            .block
+            .transactions
+            .par_iter()
+            .skip(1)
+            .map(|x| self.resolve_transaction_at(x, &parent_hash))
+            .enumerate()
+            .filter_map(|(index, tx)| {
+                TransactionVerifier::new(&tx)
+                    .verify()
+                    .err()
+                    .map(|e| (index, e))
+            })
+            .collect();
+        if err.is_empty() {
+            Ok(())
+        } else {
+            Err(Error::Transaction(err))
+        }
     }
 }

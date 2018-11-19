@@ -1,12 +1,13 @@
-use bigint::H256;
+use bigint::{H256, U256};
 use ckb_chain::chain::ChainProvider;
 use ckb_protocol;
-use ckb_verification::{Error as VerifyError, HeaderVerifier, Verifier};
+use ckb_verification::{Error as VerifyError, HeaderResolver, HeaderVerifier, Verifier};
 use core::header::IndexedHeader;
 use log;
 use network::NetworkContextExt;
 use network::{NetworkContext, PeerId};
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
+use std::sync::Arc;
 use synchronizer::{BlockStatus, Synchronizer};
 use MAX_HEADERS_LEN;
 
@@ -15,6 +16,47 @@ pub struct HeadersProcess<'a, C: 'a> {
     synchronizer: &'a Synchronizer<C>,
     peer: PeerId,
     nc: &'a NetworkContext,
+}
+
+pub struct VerifierResolver<'a, C> {
+    chain: Arc<C>,
+    header: &'a IndexedHeader,
+    parent: Option<&'a IndexedHeader>,
+}
+
+impl<'a, C> VerifierResolver<'a, C>
+where
+    C: ChainProvider,
+{
+    pub fn new(
+        parent: Option<&'a IndexedHeader>,
+        header: &'a IndexedHeader,
+        chain: &Arc<C>,
+    ) -> Self {
+        VerifierResolver {
+            parent,
+            header,
+            chain: Arc::clone(chain),
+        }
+    }
+}
+
+impl<'a, C> HeaderResolver for VerifierResolver<'a, C>
+where
+    C: ChainProvider,
+{
+    fn header(&self) -> &IndexedHeader {
+        self.header
+    }
+
+    fn parent(&self) -> Option<&IndexedHeader> {
+        self.parent
+    }
+
+    fn calculate_difficulty(&self) -> Option<U256> {
+        self.parent()
+            .and_then(|parent| self.chain.calculate_difficulty(parent))
+    }
 }
 
 impl<'a, C> HeadersProcess<'a, C>
@@ -72,15 +114,11 @@ where
     }
 
     pub fn accept_first(&self, first: &IndexedHeader) -> ValidationResult {
-        if let Some(parent) = self.synchronizer.get_header(&first.parent_hash) {
-            let verifier = HeaderVerifier::new(&parent, first, self.synchronizer.ethash.clone());
-            let acceptor = HeaderAcceptor::new(first, self.peer, &self.synchronizer, verifier);
-            acceptor.accept()
-        } else {
-            let mut result = ValidationResult::default();
-            result.dos(Some(ValidationError::UnknownParent), 10);
-            result
-        }
+        let parent = self.synchronizer.get_header(&first.parent_hash);
+        let resolver = VerifierResolver::new(parent.as_ref(), &first, &self.synchronizer.chain);
+        let verifier = HeaderVerifier::new(resolver, self.synchronizer.ethash.clone());
+        let acceptor = HeaderAcceptor::new(first, self.peer, &self.synchronizer, verifier);
+        acceptor.accept()
     }
 
     pub fn execute(self) {
@@ -118,8 +156,9 @@ where
 
         for window in headers.windows(2) {
             if let [parent, header] = &window {
-                let verifier =
-                    HeaderVerifier::new(&parent, &header, self.synchronizer.ethash.clone());
+                let resolver =
+                    VerifierResolver::new(Some(&parent), &header, &self.synchronizer.chain);
+                let verifier = HeaderVerifier::new(resolver, self.synchronizer.ethash.clone());
                 let acceptor =
                     HeaderAcceptor::new(&header, self.peer, &self.synchronizer, verifier);
                 let result = acceptor.accept();
@@ -216,11 +255,6 @@ where
     pub fn prev_block_check(&self, state: &mut ValidationResult) -> Result<(), ()> {
         let status = self.synchronizer.get_block_status(&self.header.parent_hash);
 
-        if status == BlockStatus::UNKNOWN {
-            state.dos(Some(ValidationError::UnknownParent), 10);
-            return Err(());
-        }
-
         if (status & BlockStatus::FAILED_MASK) == status {
             state.dos(Some(ValidationError::InvalidParent), 100);
             return Err(());
@@ -233,6 +267,13 @@ where
             VerifyError::Pow(e) => {
                 debug!(target: "sync", "HeadersProcess accept {:?} pow", self.header.number);
                 state.dos(Some(ValidationError::Verify(VerifyError::Pow(e))), 100);
+            }
+            VerifyError::UnknownParent(hash) => {
+                debug!(target: "sync", "HeadersProcess accept UnknownParent {:?} {:?}", self.header.number, hash);
+                state.dos(
+                    Some(ValidationError::Verify(VerifyError::UnknownParent(hash))),
+                    10,
+                );
             }
             VerifyError::Difficulty(e) => {
                 debug!(target: "sync", "HeadersProcess accept {:?} difficulty", self.header.number);

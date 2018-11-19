@@ -1,11 +1,10 @@
 use super::super::block_verifier::UnclesVerifier;
 use super::super::error::{Error, UnclesError};
 use super::super::pow_verifier::EthashVerifier;
-use bigint::H256;
+use bigint::{H256, U256};
 use chain::chain::{ChainBuilder, ChainProvider};
 use chain::store::ChainKVStore;
 use core::block::IndexedBlock;
-use core::difficulty::cal_difficulty;
 use core::header::{Header, IndexedHeader, RawHeader, Seal};
 use core::transaction::{CellInput, CellOutput, Transaction, VERSION};
 use core::uncle::UncleBlock;
@@ -14,19 +13,18 @@ use db::memorydb::MemoryKeyValueDB;
 use std::sync::Arc;
 use time::set_mock_timer;
 
-fn gen_block(parent_header: IndexedHeader, nonce: u64) -> IndexedBlock {
+fn gen_block(parent_header: IndexedHeader, nonce: u64, difficulty: U256) -> IndexedBlock {
     let now = 1 + parent_header.timestamp;
-    let difficulty = cal_difficulty(&parent_header, now);
     let number = parent_header.number + 1;
     let cellbase = create_cellbase(number);
     let header = Header {
         raw: RawHeader {
             number,
+            difficulty,
             version: 0,
             parent_hash: parent_header.hash(),
             timestamp: now,
             txs_commit: H256::zero(),
-            difficulty: difficulty,
             cellbase_id: cellbase.hash(),
             uncles_hash: H256::zero(),
         },
@@ -75,7 +73,8 @@ fn test_uncle_verifier() {
 
     let mut parent = chain.block_header(&chain.block_hash(0).unwrap()).unwrap();
     for i in 1..number {
-        let new_block = gen_block(parent, i);
+        let difficulty = chain.calculate_difficulty(&parent).unwrap();
+        let new_block = gen_block(parent, i, difficulty);
         chain1.push(new_block.clone());
         parent = new_block.header;
     }
@@ -84,11 +83,9 @@ fn test_uncle_verifier() {
 
     // if block_number < 11 { chain1 == chain2 } else { chain1 != chain2 }
     for i in 1..number {
-        let new_block = if i > 10 {
-            gen_block(parent, i + 1000)
-        } else {
-            chain1.get((i - 1) as usize).cloned().unwrap()
-        };
+        let difficulty = chain.calculate_difficulty(&parent).unwrap();
+        let new_block = gen_block(parent, i + 1000, difficulty);
+
         chain2.push(new_block.clone());
         parent = new_block.header;
     }
@@ -137,12 +134,7 @@ fn test_uncle_verifier() {
     let verify =
         UnclesVerifier::new(&block, Arc::clone(&chain), None as Option<EthashVerifier>).verify();
     // Uncle's parent not found
-    assert_eq!(
-        verify,
-        Err(Error::Uncles(UnclesError::InvalidParent(
-            uncle.header.parent_hash
-        )))
-    );
+    assert_eq!(verify, Err(Error::UnknownParent(uncle.header.parent_hash)));
 
     let mut block = chain2.get(10).cloned().unwrap();
     let uncle = chain1.get(8).cloned().unwrap();
@@ -151,12 +143,13 @@ fn test_uncle_verifier() {
     let verify =
         UnclesVerifier::new(&block, Arc::clone(&chain), None as Option<EthashVerifier>).verify();
     // Uncle's parent not found
-    assert_eq!(
-        verify,
-        Err(Error::Uncles(UnclesError::InvalidParent(
-            uncle.header.parent_hash
-        )))
-    );
+    assert_eq!(verify, Err(Error::UnknownParent(uncle.header.parent_hash)));
+
+    for block in &chain1 {
+        chain
+            .process_block(&block, false)
+            .expect("process block ok");
+    }
 
     // chain2's block in index now
     for block in &chain2 {
@@ -165,6 +158,15 @@ fn test_uncle_verifier() {
             .expect("process block ok");
     }
 
+    let mut block = chain1.get(10).cloned().unwrap();
+    let uncle = chain2.get(8).cloned().unwrap();
+
+    push_uncle(&mut block, &uncle);
+    let verify =
+        UnclesVerifier::new(&block, Arc::clone(&chain), None as Option<EthashVerifier>).verify();
+
+    assert_eq!(verify, Ok(()));
+
     let mut block = chain2.get(10).cloned().unwrap();
     let uncle = chain1.get(8).cloned().unwrap();
 
@@ -172,12 +174,38 @@ fn test_uncle_verifier() {
     let verify =
         UnclesVerifier::new(&block, Arc::clone(&chain), None as Option<EthashVerifier>).verify();
 
-    // uncle in main chain
+    assert_eq!(verify, Ok(()));
+
+    let mut block = chain2.get(8).cloned().unwrap();
+    let uncle = chain1.get(8).cloned().unwrap();
+
+    let number = block.number();
+    push_uncle(&mut block, &uncle);
+    let verify =
+        UnclesVerifier::new(&block, Arc::clone(&chain), None as Option<EthashVerifier>).verify();
     assert_eq!(
         verify,
-        Err(Error::Uncles(UnclesError::InvalidInclude(
-            uncle.header.hash()
-        )))
+        Err(Error::Uncles(UnclesError::InvalidDepth {
+            max: number - 1,
+            min: number - 6,
+            actual: number
+        }))
+    );
+
+    let mut block = chain2.last().cloned().unwrap();
+    let uncle = chain1.get(8).cloned().unwrap();
+
+    let number = block.number();
+    push_uncle(&mut block, &uncle);
+    let verify =
+        UnclesVerifier::new(&block, Arc::clone(&chain), None as Option<EthashVerifier>).verify();
+    assert_eq!(
+        verify,
+        Err(Error::Uncles(UnclesError::InvalidDepth {
+            max: number - 1,
+            min: number - 6,
+            actual: uncle.number()
+        }))
     );
 
     let mut block = chain2.get(12).cloned().unwrap();

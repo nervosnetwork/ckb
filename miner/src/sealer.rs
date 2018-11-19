@@ -1,6 +1,5 @@
 use bigint::{H256, U256};
 use core::block::Block;
-use core::difficulty::cal_difficulty;
 use core::difficulty::difficulty_to_boundary;
 use core::header::{BlockNumber, RawHeader};
 use core::uncle::uncles_hash;
@@ -62,12 +61,12 @@ impl Sealer {
             time,
             tip,
             cellbase,
+            difficulty,
             mut transactions,
             signal,
             uncles,
         } = work;
 
-        let difficulty = cal_difficulty(&tip, time);
         let uncles_hash = uncles_hash(&uncles);
         let cellbase_id = cellbase.hash();
         transactions.insert(0, cellbase);

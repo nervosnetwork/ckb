@@ -1,21 +1,18 @@
 use bigint::H256;
-use std::sync::Arc;
-
-use txs_pool::pool::*;
-use txs_pool::types::*;
-
 use ckb_chain::chain::{ChainBuilder, ChainProvider};
 use ckb_chain::store::ChainKVStore;
 use ckb_db::memorydb::MemoryKeyValueDB;
 use ckb_notify::Notify;
 use core::block::{Block, IndexedBlock};
 use core::cell::{CellProvider, CellState};
-use core::difficulty::cal_difficulty;
 use core::header::{Header, RawHeader, Seal};
 use core::script::Script;
 use core::transaction::*;
 use hash::sha3_256;
+use std::sync::Arc;
 use time::now_ms;
+use txs_pool::pool::*;
+use txs_pool::types::*;
 
 macro_rules! expect_output_parent {
     ($pool:expr, $expected:pat, $( $output:expr ),+ ) => {
@@ -241,32 +238,38 @@ fn test_block_reconciliation() {
     //  contained in the block at all and should be valid after
     //  reconciliation.
     let block_child_tx_hash = block_child.hash();
-    let pool_child = test_transaction(vec![OutPoint::new(block_child_tx_hash, 0)], 1);
+    let pool_child =
+        test_transaction_with_capacity(vec![OutPoint::new(block_child_tx_hash, 0)], 1, 1000);
     // 6. A transaction that descends from transaction 2 that does not
     //  conflict with anything in the block in any way, but should be
     //  invalidated (orphaned).
     let conflict_tx_hash = conflict_transaction.hash();
-    let conflict_child = test_transaction(vec![OutPoint::new(conflict_tx_hash, 0)], 1);
+    let conflict_child =
+        test_transaction_with_capacity(vec![OutPoint::new(conflict_tx_hash, 0)], 1, 1000);
     // 7. A transaction that descends from transaction 2 that should be
     //  valid due to its inputs being satisfied by the block.
-    let conflict_valid_child = test_transaction(vec![OutPoint::new(conflict_tx_hash, 1)], 1);
+    let conflict_valid_child =
+        test_transaction_with_capacity(vec![OutPoint::new(conflict_tx_hash, 1)], 1, 500);
     // 8. A transaction that descends from transaction 3 that should be
     //  invalidated due to an output conflict.
     let valid_tx_hash = valid_transaction.hash();
-    let valid_child_conflict = test_transaction(vec![OutPoint::new(valid_tx_hash, 0)], 1);
+    let valid_child_conflict =
+        test_transaction_with_capacity(vec![OutPoint::new(valid_tx_hash, 0)], 1, 2000);
     // 9. A transaction that descends from transaction 3 that should remain
     //  valid after reconciliation.
-    let valid_child_valid = test_transaction(vec![OutPoint::new(valid_tx_hash, 1)], 1);
+    let valid_child_valid =
+        test_transaction_with_capacity(vec![OutPoint::new(valid_tx_hash, 1)], 1, 1500);
     // 10. A transaction that descends from both transaction 6 and
     //  transaction 9
     let conflict_child_tx_hash = conflict_child.hash();
     let valid_child_valid_tx_hash = valid_child_valid.hash();
-    let mixed_child = test_transaction(
+    let mixed_child = test_transaction_with_capacity(
         vec![
             OutPoint::new(conflict_child_tx_hash, 0),
             OutPoint::new(valid_child_valid_tx_hash, 0),
         ],
         1,
+        2500,
     );
     let mixed_child_tx_hash = mixed_child.hash();
     // Add transactions.
@@ -403,7 +406,7 @@ fn test_setup() -> (
         0,
         Vec::new(),
         vec![CellInput::new(OutPoint::null(), Default::default())],
-        vec![CellOutput::new(50, Vec::new(), H256::default()); 100],
+        vec![CellOutput::new(100_000_000, Vec::new(), H256::default()); 100],
     );
     let transactions = vec![tx.clone()];
     apply_transactions(transactions, &chain);
@@ -422,12 +425,14 @@ fn apply_transactions(
         H256::zero()
     };
 
+    let parent = { chain.tip_header().read().header.clone() };
+
     let header = Header {
         raw: RawHeader::new(
-            &chain.tip_header().read().header,
+            &parent,
             transactions.iter(),
             time,
-            cal_difficulty(&chain.tip_header().read().header, time),
+            chain.calculate_difficulty(&parent).unwrap(),
             cellbase_id,
             H256::zero(),
         ),
@@ -447,13 +452,21 @@ fn apply_transactions(
 }
 
 fn test_transaction(input_values: Vec<OutPoint>, output_num: usize) -> Transaction {
+    test_transaction_with_capacity(input_values, output_num, 100_000)
+}
+
+fn test_transaction_with_capacity(
+    input_values: Vec<OutPoint>,
+    output_num: usize,
+    capacity: u64,
+) -> Transaction {
     let inputs: Vec<CellInput> = input_values
         .iter()
         .map(|x| CellInput::new(x.clone(), Script::new(1, Vec::new(), Vec::new())))
         .collect();
 
     let mut output = CellOutput::default();
-    output.capacity = 100_000;
+    output.capacity = capacity / output_num as u64;
     let outputs: Vec<CellOutput> = vec![output.clone(); output_num];
 
     Transaction::new(0, Vec::new(), inputs, outputs)

@@ -86,7 +86,7 @@ impl IndexedBlock {
         self.header.is_genesis()
     }
 
-    pub fn uncles(&self) -> &Vec<UncleBlock> {
+    pub fn uncles(&self) -> &[UncleBlock] {
         &self.uncles
     }
 

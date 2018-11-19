@@ -13,14 +13,20 @@ pub enum Error {
     EmptyTransactions,
     DuplicateTransactions,
     TransactionsRoot,
-    MultipleCellbase,
-    CellbaseNotAtFirst,
-    InvalidCellbaseInput,
     DuplicateHeader,
-    UnknownParent,
     InvalidInput,
     InvalidOutput,
+    UnknownParent(H256),
     Uncles(UnclesError),
+    Cellbase(CellbaseError),
+}
+
+#[derive(Debug, PartialEq, Clone, Eq)]
+pub enum CellbaseError {
+    InvalidInput,
+    InvalidReward,
+    InvalidQuantity,
+    InvalidPosition,
 }
 
 #[derive(Debug, PartialEq, Clone, Copy, Eq)]
@@ -39,7 +45,6 @@ pub enum UnclesError {
         actual: H256,
     },
     Duplicate(H256),
-    InvalidParent(H256),
     InvalidInclude(H256),
     InvalidCellbase,
 }
@@ -63,18 +68,17 @@ pub struct HeightError {
 }
 
 #[derive(Debug, PartialEq, Clone, Copy, Eq)]
-pub struct DifficultyError {
-    pub expected: U256,
-    pub actual: U256,
+pub enum DifficultyError {
+    MixMismatch { expected: U256, actual: U256 },
+    AncestorNotFound,
 }
 
 #[derive(Debug, PartialEq, Clone, Copy, Eq)]
 pub enum TransactionError {
-    NullNonCellbase,
+    NullInput,
     OutofBound,
     DuplicateInputs,
     Empty,
-    InvalidCellbase,
     InvalidCapacity,
     InvalidScript,
     InvalidSignature,

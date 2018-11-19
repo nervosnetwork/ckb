@@ -22,7 +22,6 @@ pub struct ChainSpec {
 #[derive(Clone, PartialEq, Eq, Debug, Deserialize)]
 pub struct Params {
     pub initial_block_reward: Capacity,
-    pub min_difficulty: U256,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug, Deserialize)]
@@ -67,11 +66,9 @@ impl ChainSpec {
             .uncles_hash(self.genesis.uncles_hash)
             .build();
 
-        Consensus {
-            genesis_block,
-            min_difficulty: self.params.min_difficulty,
-            initial_block_reward: self.params.initial_block_reward,
-        }
+        Consensus::default()
+            .set_genesis_block(genesis_block)
+            .set_initial_block_reward(self.params.initial_block_reward)
     }
 }
 

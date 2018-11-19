@@ -460,6 +460,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bigint::U256;
     use block_process::BlockProcess;
     use ckb_chain::chain::Chain;
     use ckb_chain::consensus::Consensus;
@@ -468,7 +469,6 @@ mod tests {
     use ckb_chain::COLUMNS;
     use ckb_notify::{Event, Notify, MINER_SUBSCRIBER};
     use ckb_protocol;
-    use core::difficulty::cal_difficulty;
     use core::header::{Header, RawHeader, Seal};
     use core::transaction::{CellInput, CellOutput, Transaction, VERSION};
     use core::uncle::uncles_hash;
@@ -504,9 +504,8 @@ mod tests {
         Transaction::new(VERSION, Vec::new(), inputs, outputs)
     }
 
-    fn gen_block(parent_header: IndexedHeader, nonce: u64) -> IndexedBlock {
+    fn gen_block(parent_header: IndexedHeader, difficulty: U256, nonce: u64) -> IndexedBlock {
         let now = 1 + parent_header.timestamp;
-        let difficulty = cal_difficulty(&parent_header, now);
         let number = parent_header.number + 1;
         let cellbase = create_cellbase(number);
         let cellbase_id = cellbase.hash();
@@ -544,7 +543,7 @@ mod tests {
             .block_header(&chain.block_hash(number - 1).unwrap())
             .unwrap();
         let now = 1 + parent.timestamp;
-        let difficulty = cal_difficulty(&parent, now);
+        let difficulty = chain.calculate_difficulty(&parent).unwrap();
         let cellbase = create_cellbase(number);
         let cellbase_id = cellbase.hash();
         let txs = vec![cellbase];
@@ -656,30 +655,26 @@ mod tests {
 
         let mut blocks: Vec<IndexedBlock> = Vec::new();
         let mut parent = config.genesis_block().header.clone();
-        for _ in 1..block_number {
-            let nonce = parent.header.seal.nonce;
-            let new_block = gen_block(parent, nonce + 100);
+        for i in 1..block_number {
+            let difficulty = chain1.calculate_difficulty(&parent).unwrap();
+            let new_block = gen_block(parent, difficulty, i);
             blocks.push(new_block.clone());
-            parent = new_block.header;
-        }
 
-        for block in &blocks {
             chain1
-                .process_block(&block, false)
+                .process_block(&new_block, false)
                 .expect("process block ok");
-        }
 
-        for block in &blocks {
             chain2
-                .process_block(&block, false)
+                .process_block(&new_block, false)
                 .expect("process block ok");
+            parent = new_block.header;
         }
 
         parent = blocks[150].header.clone();
         let fork = parent.number;
-        for _ in 1..block_number + 1 {
-            let nonce = parent.header.seal.nonce;
-            let new_block = gen_block(parent, nonce + 200);
+        for i in 1..block_number + 1 {
+            let difficulty = chain1.calculate_difficulty(&parent).unwrap();
+            let new_block = gen_block(parent, difficulty, i + 100);
             chain2
                 .process_block(&new_block, false)
                 .expect("process block ok");
@@ -735,19 +730,23 @@ mod tests {
     #[test]
     fn test_process_new_block() {
         let config = Consensus::default();
-        let chain = Arc::new(gen_chain(&config, Notify::default()));
+        let chain1 = Arc::new(gen_chain(&config, Notify::default()));
+        let chain2 = Arc::new(gen_chain(&config, Notify::default()));
         let block_number = 2000;
 
         let mut blocks: Vec<IndexedBlock> = Vec::new();
-        let mut parent = chain.block_header(&chain.block_hash(0).unwrap()).unwrap();
-        for _ in 1..block_number {
-            let nonce = parent.seal.nonce;
-            let new_block = gen_block(parent, nonce + 100);
+        let mut parent = chain1.block_header(&chain1.block_hash(0).unwrap()).unwrap();
+        for i in 1..block_number {
+            let difficulty = chain1.calculate_difficulty(&parent).unwrap();
+            let new_block = gen_block(parent, difficulty, i + 100);
+            chain1
+                .process_block(&new_block, false)
+                .expect("process block ok");
             blocks.push(new_block.clone());
             parent = new_block.header;
         }
 
-        let synchronizer = Synchronizer::new(&chain, None, Config::default());
+        let synchronizer = Synchronizer::new(&chain2, None, Config::default());
 
         blocks.clone().into_iter().for_each(|block| {
             synchronizer.insert_new_block(0, block);
@@ -755,7 +754,7 @@ mod tests {
 
         assert_eq!(
             blocks.last().unwrap().header,
-            chain.tip_header().read().header
+            chain2.tip_header().read().header
         );
     }
 
@@ -767,17 +766,14 @@ mod tests {
 
         let mut blocks: Vec<IndexedBlock> = Vec::new();
         let mut parent = chain.block_header(&chain.block_hash(0).unwrap()).unwrap();
-        for _ in 1..block_number + 1 {
-            let nonce = parent.seal.nonce;
-            let new_block = gen_block(parent, nonce + 100);
+        for i in 1..block_number + 1 {
+            let difficulty = chain.calculate_difficulty(&parent).unwrap();
+            let new_block = gen_block(parent, difficulty, i + 100);
             blocks.push(new_block.clone());
-            parent = new_block.header;
-        }
-
-        for block in &blocks {
             chain
-                .process_block(&block, false)
+                .process_block(&new_block, false)
                 .expect("process block ok");
+            parent = new_block.header;
         }
 
         let synchronizer = Synchronizer::new(&chain, None, Config::default());

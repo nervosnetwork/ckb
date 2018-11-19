@@ -14,13 +14,13 @@ pub struct TransactionVerifier<'a> {
 }
 
 impl<'a> TransactionVerifier<'a> {
-    pub fn new(rtx: ResolvedTransaction<'a>) -> TransactionVerifier<'a> {
+    pub fn new(rtx: &'a ResolvedTransaction) -> Self {
         TransactionVerifier {
-            null: NullVerifier::new(rtx.transaction),
-            empty: EmptyVerifier::new(rtx.transaction),
-            capacity: CapacityVerifier::new(rtx.transaction),
-            duplicate_inputs: DuplicateInputsVerifier::new(rtx.transaction),
-            script: ScriptVerifier::new(rtx.transaction),
+            null: NullVerifier::new(&rtx.transaction),
+            empty: EmptyVerifier::new(&rtx.transaction),
+            duplicate_inputs: DuplicateInputsVerifier::new(&rtx.transaction),
+            script: ScriptVerifier::new(&rtx.transaction),
+            capacity: CapacityVerifier::new(rtx),
             inputs: InputVerifier::new(rtx),
         }
     }
@@ -37,11 +37,11 @@ impl<'a> TransactionVerifier<'a> {
 }
 
 pub struct InputVerifier<'a> {
-    resolved_transaction: ResolvedTransaction<'a>,
+    resolved_transaction: &'a ResolvedTransaction,
 }
 
 impl<'a> InputVerifier<'a> {
-    pub fn new(resolved_transaction: ResolvedTransaction<'a>) -> InputVerifier {
+    pub fn new(resolved_transaction: &'a ResolvedTransaction) -> Self {
         InputVerifier {
             resolved_transaction,
         }
@@ -156,13 +156,12 @@ impl<'a> NullVerifier<'a> {
 
     pub fn verify(&self) -> Result<(), TransactionError> {
         let transaction = self.transaction;
-        if !transaction.is_cellbase()
-            && transaction
-                .inputs
-                .iter()
-                .any(|input| input.previous_output.is_null())
+        if transaction
+            .inputs
+            .iter()
+            .any(|input| input.previous_output.is_null())
         {
-            Err(TransactionError::NullNonCellbase)
+            Err(TransactionError::NullInput)
         } else {
             Ok(())
         }
@@ -170,21 +169,43 @@ impl<'a> NullVerifier<'a> {
 }
 
 pub struct CapacityVerifier<'a> {
-    transaction: &'a Transaction,
+    resolved_transaction: &'a ResolvedTransaction,
 }
 
 impl<'a> CapacityVerifier<'a> {
-    pub fn new(transaction: &'a Transaction) -> Self {
-        CapacityVerifier { transaction }
+    pub fn new(resolved_transaction: &'a ResolvedTransaction) -> Self {
+        CapacityVerifier {
+            resolved_transaction,
+        }
     }
 
     pub fn verify(&self) -> Result<(), TransactionError> {
-        if !self.transaction.is_cellbase()
-            && self
-                .transaction
-                .outputs
-                .iter()
-                .any(|output| output.bytes_len() as Capacity > output.capacity)
+        let inputs_total = self
+            .resolved_transaction
+            .input_cells
+            .iter()
+            .fold(0, |acc, state| match state {
+                CellState::Head(output) | CellState::Pool(output) | CellState::Orphan(output) => {
+                    acc + output.capacity
+                }
+                _ => acc,
+            });
+
+        let outputs_total = self
+            .resolved_transaction
+            .transaction
+            .outputs
+            .iter()
+            .fold(0, |acc, output| acc + output.capacity);
+
+        if inputs_total < outputs_total {
+            Err(TransactionError::InvalidCapacity)
+        } else if self
+            .resolved_transaction
+            .transaction
+            .outputs
+            .iter()
+            .any(|output| output.bytes_len() as Capacity > output.capacity)
         {
             Err(TransactionError::OutofBound)
         } else {

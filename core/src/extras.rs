@@ -4,6 +4,7 @@ use bigint::{H256, U256};
 pub struct BlockExt {
     pub received_at: u64,
     pub total_difficulty: U256,
+    pub total_uncles_count: u64,
 }
 
 #[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Debug)]
