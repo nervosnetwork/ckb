@@ -1,0 +1,7 @@
+[package]
+name = "hash"
+version = "0.1.0"
+authors = ["Nervos Core Dev <dev@nervos.org>"]
+
+[dependencies]
+tiny-keccak = "1.4"

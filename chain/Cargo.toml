@@ -1,0 +1,18 @@
+[package]
+name = "nervos-chain"
+version = "0.1.0"
+authors = ["Nervos Core Dev <dev@nervos.org>"]
+
+[dependencies]
+serde = "1.0"
+serde_derive = "1.0"
+bincode = "1.0"
+log = "0.4"
+rand = "0.4"
+nervos-core = { path = "../core" }
+nervos-util = { path = "../util" }
+nervos-db = { path = "../db" }
+bigint = { path = "../util/bigint" }
+
+[dev-dependencies]
+env_logger = "0.4"

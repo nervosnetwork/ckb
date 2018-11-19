@@ -1,17 +1,54 @@
-The year's at the spring
+<img src="https://raw.githubusercontent.com/poshboytl/tuchuang/master/nervos-logo-dark.png" width="256">
 
-And day's at the morn;
+# [Nervos CKB]() - The Common Knowledge Base
 
-Morning's at seven;
+[![TravisCI](https://travis-ci.com/NervosFoundation/nervos.svg?token=y9uR6ygmT3geQaMJ4jpJ&branch=develop)](https://travis-ci.com/NervosFoundation/nervos)
 
-The hill-side's dew-pearled;
+----
 
-The lark's on the wing;
+## About Nervos CKB
 
-The snail's on the thorn;
+Nervos CKB is the first Common Knowledge Base to facilitate the creation and storage of [common knowledge](https://en.wikipedia.org/wiki/Common_knowledge_(logic)) of our society.
 
-God's in His heaven—
+Nervos project defines a suite of scalable and interoperable blockchain protocols. Nervos CKB uses those protocols to create a self-evolving distributed network with novel economic model, data model and more.
 
-All's right with the world!
+----
 
-          ― Robert Browning
+## Build dependencies
+
+**Rust Nightly is required**. Nervos is currently tested mainly with `nightly-2018-01-23`.
+
+We recommend installing Rust through [rustup](https://www.rustup.rs/)
+
+```bash
+# Get rustup from rustup.rs, then in your `nervos` folder:
+rustup override set nightly-2018-01-23
+rustup component add rustfmt-preview --toolchain=nightly-2018-01-23
+```
+
+we would like to track `nightly`, report new breakage is welcome.
+
+you alse need to get the following packages：
+
+* Ubuntu and Debian:
+```shell
+sudo apt-get install git autoconf flex bison texinfo libtool
+```
+
+* OSX:
+```shell
+brew install autoconf libtool
+```
+
+
+----
+
+## Build from source
+```bash
+# download Nervos
+$ git clone https://github.com/NervosFoundation/nervos.git
+$ cd nervos
+
+# build in release mode
+$ cargo build --release
+```

@@ -1,0 +1,8 @@
+[package]
+name = "merkle-root"
+version = "0.1.0"
+authors = ["Nervos Core Dev <dev@nervos.org>"]
+
+[dependencies]
+bigint = { path = "../bigint" }
+hash = {path = "../hash"}

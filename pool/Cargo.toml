@@ -1,0 +1,9 @@
+[package]
+name = "nervos-pool"
+version = "0.1.0"
+authors = ["Nervos Core Dev <dev@nervos.org>"]
+
+[dependencies]
+nervos-core = { path = "../core" }
+bigint = { path = "../util/bigint" }
+nervos-util = { path = "../util" }

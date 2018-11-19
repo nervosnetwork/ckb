@@ -1,0 +1,7 @@
+[package]
+name = "nervos-util"
+version = "0.1.0"
+authors = ["Nervos Core Dev <dev@nervos.org>"]
+
+[dependencies]
+parking_lot = "0.5"

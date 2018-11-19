@@ -1,0 +1,17 @@
+[package]
+name = "nervos-core"
+version = "0.1.0"
+authors = ["Nervos Core Dev <dev@nervos.org>"]
+
+[dependencies]
+serde = "1.0"
+serde_derive = "1.0"
+bincode = "1.0"
+bigint = { path = "../util/bigint" }
+bls = { git = "https://github.com/NervosFoundation/bls-rs.git" }
+hash = {path = "../util/hash"}
+kvdb = {path = "../util/kvdb"}
+crypto = {path = "../util/crypto"}
+merkle-root = {path = "../util/merkle-root"}
+kvdb-rocksdb = { path = "../util/kvdb-rocksdb" }
+nervos-time = { path = "../util/time" }
