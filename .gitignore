@@ -30,6 +30,8 @@ admintool/example/
 *.iml
 # mac stuff
 .DS_Store
+# ctags
+tags
 
 # vagrant file
 .vagrant
