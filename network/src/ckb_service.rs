@@ -40,8 +40,10 @@ impl CKBService {
             match network.ckb_protocol_connec(&peer_id, protocol_id, endpoint, addresses.clone()) {
                 Ok(protocol_connec) => protocol_connec,
                 Err(err) => {
-                    return Box::new(future::err(IoError::new(IoErrorKind::Other, err)))
-                        as Box<Future<Item = (), Error = IoError> + Send>
+                    return Box::new(future::err(IoError::new(
+                        IoErrorKind::Other,
+                        format!("handle ckb_protocol connection error: {}", err),
+                    ))) as Box<Future<Item = (), Error = IoError> + Send>
                 }
             };
         if protocol_connec.state() == UniqueConnecState::Full {
@@ -133,13 +135,19 @@ impl CKBService {
             peer_store.report(&peer_id, Behaviour::Connect);
             peer_store.report_status(&peer_id, Status::Connected);
         }
-        protocol_handler.connected(
-            Box::new(DefaultCKBProtocolContext::new(
-                Arc::clone(&network),
-                protocol_id,
-            )),
-            peer_index,
-        );
+        {
+            let handle_connected = future::lazy(move || {
+                protocol_handler.connected(
+                    Box::new(DefaultCKBProtocolContext::new(
+                        Arc::clone(&network),
+                        protocol_id,
+                    )),
+                    peer_index,
+                );
+                Ok(())
+            });
+            tokio::spawn(handle_connected);
+        }
         Box::new(protocol_future) as Box<_>
     }
 }
