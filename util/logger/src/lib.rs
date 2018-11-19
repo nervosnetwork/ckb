@@ -85,7 +85,7 @@ impl Logger {
             .unwrap();
 
         Logger {
-            sender: sender,
+            sender,
             handle: Mutex::new(Some(tb)),
             filter: builder.build(),
         }

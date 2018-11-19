@@ -32,3 +32,6 @@ admintool/example/
 
 # vagrant file
 .vagrant
+
+# nervos runtime folder
+.nervos

@@ -65,10 +65,10 @@ impl Header {
     pub fn new(raw: RawHeader, total_difficulty: U256, sig: Option<H520>) -> Header {
         let hash = raw.cal_hash();
         Header {
-            raw: raw,
+            raw,
+            hash,
+            total_difficulty,
             signature: sig.unwrap_or_default(),
-            total_difficulty: total_difficulty,
-            hash: hash,
         }
     }
 
@@ -124,9 +124,9 @@ impl Header {
     }
 
     // check proof
-    pub fn check_proof(&self, pubkey: ProofPublickey, g: ProofPublicG) -> Result<(), Error> {
+    pub fn check_proof(&self, pubkey: &ProofPublickey, g: &ProofPublicG) -> Result<(), Error> {
         if self.proof
-            .verify(self.timestamp, self.height, self.challenge, pubkey, g)
+            .verify(self.timestamp, self.height, &self.challenge, pubkey, g)
         {
             Ok(())
         } else {
@@ -154,7 +154,7 @@ impl Block {
         let pubkey = self.header.recover_pubkey()?;
         let (key, g) = kg.get(&pubkey)
             .ok_or_else(|| Error::InvalidPublicKey(pubkey))?;
-        self.header.check_proof(key, g)?;
+        self.header.check_proof(&key, &g)?;
         Ok(())
     }
 
@@ -186,13 +186,13 @@ impl Block {
         let txs_hash: Vec<H256> = txs.iter().map(|t| t.hash()).collect();
         let txs_root = merkle_root(txs_hash.as_slice());
         let raw = RawHeader {
+            timestamp,
+            difficulty,
+            challenge,
+            proof,
             pre_hash: pre_header.hash(),
-            timestamp: timestamp,
             height: pre_header.height + 1,
             transactions_root: txs_root,
-            difficulty: difficulty,
-            challenge: challenge,
-            proof: proof,
         };
 
         Block {

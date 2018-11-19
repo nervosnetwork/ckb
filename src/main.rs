@@ -1,7 +1,13 @@
+#![feature(box_syntax)]
 extern crate bigint;
+extern crate bls;
 #[macro_use]
 extern crate clap;
+extern crate crypto;
 extern crate ctrlc;
+extern crate dir;
+#[macro_use]
+extern crate lazy_static;
 #[macro_use]
 extern crate log;
 extern crate logger;
@@ -11,40 +17,38 @@ extern crate nervos_db as db;
 extern crate nervos_miner as miner;
 extern crate nervos_network as network;
 extern crate nervos_pool as pool;
+extern crate nervos_rpc as rpc;
 extern crate nervos_time as time;
 extern crate nervos_util as util;
 extern crate serde;
 #[macro_use]
 extern crate serde_derive;
+extern crate tera;
 extern crate toml;
 
-mod config;
 mod adapter;
 mod cli;
+mod config;
+
+use config::Config;
 
 fn main() {
     // Always print backtrace on panic.
-    ::std::env::set_var("RUST_BACKTRACE", "1");
+    ::std::env::set_var("RUST_BACKTRACE", "full");
 
-    let matches = clap_app!(nervos =>
-        (version: "0.1")
-        (author: "Nervos <dev@nervos.org>")
-        (about: "Nervos")
-        (@subcommand run =>
-            (about: "run nervos")
-            (@arg config: -c --config +takes_value "Sets a custom config file")
-        )
-        (@subcommand new =>
-            (about: "new nervos config")
-        )
-    ).get_matches();
+    let yaml = load_yaml!("cli/app.yml");
+
+    let matches = clap::App::from_yaml(yaml).get_matches();
+
+    let config = Config::parse(&matches);
 
     match matches.subcommand() {
-        ("run", Some(run_cmd)) => {
-            let config_path = run_cmd.value_of("config").unwrap_or("default.toml");
-            cli::run(config_path);
+        ("run", Some(_run_cmd)) => {
+            cli::run(config);
         }
-        ("new", Some(_new_cmd)) => {}
-        _ => {}
+        ("signer", Some(signer_matches)) => cli::signer_cmd(signer_matches),
+        _ => {
+            cli::run(config);
+        }
     }
 }
