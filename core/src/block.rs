@@ -1,6 +1,7 @@
 use super::header::{Header, IndexedHeader};
 use super::transaction::{IndexedTransaction, ProposalShortId, Transaction};
 use bigint::H256;
+use fnv::FnvHashSet;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use uncle::{uncles_hash, UncleBlock};
 use BlockNumber;

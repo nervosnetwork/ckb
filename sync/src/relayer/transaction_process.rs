@@ -16,8 +16,8 @@ pub struct TransactionProcess<'a, C: 'a, P: 'a> {
 
 impl<'a, C, P> TransactionProcess<'a, C, P>
 where
-    C: ChainProvider + 'a,
-    P: PowEngine + 'a,
+    C: ChainProvider + 'static,
+    P: PowEngine + 'static,
 {
     pub fn new(
         message: &'a Transaction,

@@ -18,8 +18,8 @@ pub struct CompactBlockProcess<'a, C: 'a, P: 'a> {
 
 impl<'a, C, P> CompactBlockProcess<'a, C, P>
 where
-    C: ChainProvider + 'a,
-    P: PowEngine + 'a,
+    C: ChainProvider + 'static,
+    P: PowEngine + 'static,
 {
     pub fn new(
         message: &'a FbsCompactBlock,

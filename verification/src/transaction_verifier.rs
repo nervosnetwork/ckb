@@ -54,6 +54,8 @@ impl<'a> InputVerifier<'a> {
         for cs in &self.resolved_transaction.input_cells {
             if cs.is_current() {
                 if let Some(ref input) = cs.get_current() {
+                    // TODO: remove this once VM mmap is in place so we can
+                    // do P2SH within the VM.
                     if input.lock != inputs.next().unwrap().unlock.redeem_script_hash() {
                         return Err(TransactionError::InvalidScript);
                     }

@@ -22,6 +22,7 @@ pub struct BlockTemplate {
 pub fn build_block_template<C: ChainProvider + 'static>(
     chain: &Arc<C>,
     tx_pool: &Arc<TransactionPool<C>>,
+    redeem_script_hash: H256,
     max_tx: usize,
     max_prop: usize,
 ) -> Result<BlockTemplate, Error> {
@@ -30,9 +31,9 @@ pub fn build_block_template<C: ChainProvider + 'static>(
     let difficulty = chain.calculate_difficulty(&header).expect("get difficulty");
 
     let proposal_transactions = tx_pool.prepare_proposal(max_prop);
-
     let mut commit_transactions = tx_pool.get_mineable_transactions(max_tx);
-    let cellbase = create_cellbase_transaction(&chain, &header, &commit_transactions)?;
+    let cellbase =
+        create_cellbase_transaction(&chain, &header, &commit_transactions, redeem_script_hash)?;
     let uncles = chain.get_tip_uncles();
     let cellbase_id = cellbase.hash();
 
@@ -114,7 +115,8 @@ pub mod test {
             Notify::default(),
         ));
 
-        let block_template = build_block_template(&chain, &tx_pool, 1000, 1000).unwrap();
+        let block_template =
+            build_block_template(&chain, &tx_pool, H256::from(0), 1000, 1000).unwrap();
 
         let BlockTemplate {
             raw_header,

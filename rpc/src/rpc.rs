@@ -1,6 +1,5 @@
 use bigint::H256;
 use chain::chain::ChainProvider;
-use ckb_protocol::Payload;
 use core::header::{BlockNumber, Header};
 use core::transaction::{IndexedTransaction, Transaction};
 use jsonrpc_core::{IoHandler, Result};
@@ -8,7 +7,6 @@ use jsonrpc_http_server::ServerBuilder;
 use jsonrpc_server_utils::cors::AccessControlAllowOrigin;
 use jsonrpc_server_utils::hosts::DomainsValidation;
 use miner::{build_block_template, BlockTemplate};
-use network::NetworkContextExt;
 use network::NetworkService;
 use pool::TransactionPool;
 use std::sync::Arc;
@@ -96,7 +94,7 @@ impl<C: ChainProvider + 'static> Rpc for RpcImpl<C> {
 
     // TODO: the max size
     fn get_block_template(&self) -> Result<BlockTemplate> {
-        Ok(build_block_template(&self.chain, &self.tx_pool, 20000, 20000).unwrap())
+        Ok(build_block_template(&self.chain, &self.tx_pool, H256::from(0), 20000, 20000).unwrap())
     }
 }
 

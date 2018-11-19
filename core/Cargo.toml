@@ -15,3 +15,4 @@ ckb-time = { path = "../util/time" }
 bit-vec = "0.5.0"
 rayon = "1.0"
 ckb-util = { path = "../util" }
+fnv = "1.0.3"

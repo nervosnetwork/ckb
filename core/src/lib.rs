@@ -11,6 +11,7 @@ extern crate merkle_root;
 #[macro_use]
 extern crate serde_derive;
 extern crate bit_vec;
+extern crate fnv;
 extern crate rayon;
 
 pub mod block;

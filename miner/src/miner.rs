@@ -8,7 +8,6 @@ use core::block::IndexedBlock;
 use core::header::{RawHeader, Seal};
 use core::BlockNumber;
 use crossbeam_channel;
-use fnv::FnvHashSet;
 use network::NetworkService;
 use pool::TransactionPool;
 use rand::{thread_rng, Rng};
@@ -68,6 +67,7 @@ where
         match build_block_template(
             &self.chain,
             &self.tx_pool,
+            self.config.redeem_script_hash,
             self.config.max_tx,
             self.config.max_prop,
         ) {

@@ -61,8 +61,8 @@ where
 
 impl<C, P> Relayer<C, P>
 where
-    C: ChainProvider,
-    P: PowEngine,
+    C: ChainProvider + 'static,
+    P: PowEngine + 'static,
 {
     pub fn new(chain: &Arc<C>, pow: &Arc<P>, tx_pool: &Arc<TransactionPool<C>>) -> Self {
         Relayer {
@@ -171,8 +171,7 @@ where
         let (key0, key1) = short_transaction_id_keys(compact_block.nonce, &compact_block.header);
 
         let mut txs = transactions;
-        txs.extend(self.tx_pool.commit.read().pool.get_vertices());
-        txs.extend(self.tx_pool.orphan.read().pool.get_vertices());
+        txs.extend(self.tx_pool.get_potential_transactions());
 
         let mut txs_map = FnvHashMap::default();
         for tx in txs {

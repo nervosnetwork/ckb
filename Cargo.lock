@@ -531,7 +531,7 @@ dependencies = [
  "byteorder 1.2.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "ckb-core 0.1.0",
  "flatbuffers 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "protobuf 2.0.4 (registry+https://github.com/rust-lang/crates.io-index)",
+ "protobuf 2.0.5 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -552,7 +552,6 @@ dependencies = [
  "jsonrpc-macros 8.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "jsonrpc-server-utils 8.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.4.5 (registry+https://github.com/rust-lang/crates.io-index)",
- "protobuf 2.0.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.79 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.79 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_json 1.0.31 (registry+https://github.com/rust-lang/crates.io-index)",
