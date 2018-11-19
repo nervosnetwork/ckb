@@ -120,7 +120,7 @@ where
                 if let Some((block, propasal)) = self.mine(block_template) {
                     debug!(target: "miner", "new block mined: {} -> (number: {}, difficulty: {}, timestamp: {})",
                           block.hash(), block.header.number, block.header.difficulty, block.header.timestamp);
-                    if self.chain.process_block(&block, true).is_ok() {
+                    if self.chain.process_block(&block).is_ok() {
                         self.tx_pool.proposal_n(block.number(), propasal);
                         self.announce_new_block(&block);
                     }

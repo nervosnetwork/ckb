@@ -220,8 +220,8 @@ where
         self.candidate.write().insert(tx)
     }
 
-    pub fn prepare_proposal(&self, n: usize) -> FnvHashSet<ProposalTransaction> {
-        self.candidate.read().take(n)
+    pub fn prepare_proposal(&self) -> FnvHashSet<ProposalTransaction> {
+        self.candidate.read().take(self.config.max_proposal_size)
     }
 
     pub fn query_proposal(
@@ -261,7 +261,6 @@ where
         &self,
         block_number: BlockNumber,
         include: &FnvHashSet<ProposalShortId>,
-        n: usize,
     ) -> Vec<IndexedTransaction> {
         let t_prop = self.chain.consensus().transaction_propagation_time;
         let t_timeout = self.chain.consensus().transaction_propagation_timeout;
@@ -278,7 +277,9 @@ where
             let _ = self.add_to_commit_pool(tx.into());
         }
 
-        self.commit.read().get_mineable_transactions(n)
+        self.commit
+            .read()
+            .get_mineable_transactions(self.config.max_commit_size)
     }
 
     /// Attempts to add a transaction to the memory pool.
@@ -360,6 +361,8 @@ where
                 commit.add_transaction(tx.clone());
             }
 
+            self.reconcile_orphan(&tx);
+
             self.notify.notify_new_transaction();
         }
 
@@ -411,11 +414,6 @@ where
         self.commit.write().resolve_conflict(tx);
         self.orphan.write().resolve_conflict(tx);
     }
-
-    // /// Select a set of mineable transactions for block building.
-    // pub fn prepare_mineable_transactions(&self, n: usize) -> Vec<IndexedTransaction> {
-    //     self.commit.read().get_mineable_transactions(n)
-    // }
 
     /// Whether the transaction is acceptable to the pool, given both how
     /// full the pool is and the transaction weight.

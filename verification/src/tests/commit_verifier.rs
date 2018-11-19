@@ -118,7 +118,7 @@ fn test_blank_proposal() {
     }
 
     for block in &blocks[0..10] {
-        assert!(chain.process_block(&block, false).is_ok());
+        assert!(chain.process_block(&block).is_ok());
     }
 
     let verify = CommitVerifier::new(&blocks[10], Arc::clone(&chain)).verify();
@@ -162,7 +162,7 @@ fn test_uncle_proposal() {
 
     push_uncle(&mut block, &uncle);
 
-    assert!(chain.process_block(&block, false).is_ok());
+    assert!(chain.process_block(&block).is_ok());
 
     parent = block.header;
 
@@ -206,7 +206,7 @@ fn test_block_proposal() {
     let proposal_ids: Vec<_> = txs.iter().map(|tx| tx.proposal_short_id()).collect();
     let block = gen_block(parent.clone(), vec![], proposal_ids);
 
-    assert!(chain.process_block(&block, false).is_ok());
+    assert!(chain.process_block(&block).is_ok());
 
     parent = block.header;
 
@@ -249,14 +249,14 @@ fn test_proposal_timeout() {
 
     let proposal_ids: Vec<_> = txs.iter().map(|tx| tx.proposal_short_id()).collect();
     let block = gen_block(parent.clone(), vec![], proposal_ids);
-    assert!(chain.process_block(&block, false).is_ok());
+    assert!(chain.process_block(&block).is_ok());
     parent = block.header;
 
     let timeout = chain.consensus().transaction_propagation_timeout;
 
     for _ in 0..timeout - 1 {
         let block = gen_block(parent, vec![], vec![]);
-        assert!(chain.process_block(&block, false).is_ok());
+        assert!(chain.process_block(&block).is_ok());
         parent = block.header;
     }
 
@@ -266,7 +266,7 @@ fn test_proposal_timeout() {
     assert_eq!(verify, Ok(()));
 
     let block = gen_block(parent, vec![], vec![]);
-    assert!(chain.process_block(&block, false).is_ok());
+    assert!(chain.process_block(&block).is_ok());
     parent = block.header;
 
     let new_block = gen_block(parent.clone(), txs, vec![]);

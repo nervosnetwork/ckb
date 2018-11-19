@@ -21,7 +21,8 @@ use time;
 pub struct PoolConfig {
     /// Maximum capacity of the pool in number of transactions
     pub max_pool_size: usize,
-    pub max_mining_size: usize,
+    pub max_commit_size: usize,
+    pub max_proposal_size: usize,
 }
 
 /// This enum describes the status of a transaction's outpoint.

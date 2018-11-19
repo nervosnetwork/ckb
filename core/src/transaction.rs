@@ -222,7 +222,7 @@ impl ::std::hash::Hash for IndexedTransaction {
     }
 }
 
-#[derive(Clone, Debug, Eq, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug, Eq, Default)]
 pub struct IndexedTransaction {
     pub transaction: Transaction,
     /// memorise hash
@@ -255,7 +255,7 @@ impl IndexedTransaction {
     }
 }
 
-#[derive(Clone, Debug, Eq)]
+#[derive(Serialize, Deserialize, Clone, Debug, Eq)]
 pub struct ProposalTransaction {
     pub transaction: IndexedTransaction,
     pub proposal_short_id: ProposalShortId,

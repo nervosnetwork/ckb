@@ -17,6 +17,7 @@ use db::diskdb::RocksDB;
 use db::kvdb::KeyValueDB;
 use db::memorydb::MemoryKeyValueDB;
 use error::Error;
+use fnv::{FnvHashMap, FnvHashSet};
 use index::ChainIndex;
 use log;
 use std::cmp;
@@ -424,7 +425,7 @@ impl<CS: ChainIndex> ChainProvider for Chain<CS> {
     fn process_block(&self, b: &IndexedBlock) -> Result<(), Error> {
         debug!(target: "chain", "begin processing block: {}", b.hash());
         let insert_result = self.insert_block(b)?;
-        self.notify_insert_result(b, insert_result, local);
+        self.post_insert_result(b, insert_result);
         debug!(target: "chain", "finish processing block");
         Ok(())
     }
@@ -552,10 +553,11 @@ impl<CS: ChainIndex> ChainProvider for Chain<CS> {
                 || excluded.contains(hash)
             {
                 bad_uncles.push(*hash);
-            } else if let Some(cellbase) = block.transactions.first() {
+            } else if let Some(cellbase) = block.commit_transactions.first() {
                 let uncle = UncleBlock {
                     header: block.header.header.clone(),
-                    cellbase: cellbase.clone(),
+                    cellbase: cellbase.clone().into(),
+                    proposal_transactions: block.proposal_transactions.clone(),
                 };
                 uncles.push(uncle);
                 included.insert(*hash);
@@ -833,7 +835,7 @@ pub mod test {
         }
 
         for block in &blocks1[0..10] {
-            assert!(chain.process_block(&block, false).is_ok());
+            assert!(chain.process_block(&block).is_ok());
         }
     }
 

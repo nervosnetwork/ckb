@@ -1,8 +1,13 @@
 use bigint::H256;
-use chain::chain::{ChainProvider, Error};
-use core::header::{Header, RawHeader};
-use core::transaction::{CellInput, CellOutput, Transaction, VERSION};
+use chain::chain::ChainProvider;
+use chain::error::Error;
+use core::header::{Header, IndexedHeader, RawHeader};
+use core::transaction::{
+    CellInput, CellOutput, IndexedTransaction, ProposalShortId, ProposalTransaction, Transaction,
+    VERSION,
+};
 use core::uncle::{uncles_hash, UncleBlock};
+use fnv::FnvHashSet;
 use pool::TransactionPool;
 use std::cmp;
 use std::sync::Arc;
@@ -11,8 +16,9 @@ use time::now_ms;
 #[derive(Serialize, Debug)]
 pub struct BlockTemplate {
     pub raw_header: RawHeader,
-    pub transactions: Vec<Transaction>,
     pub uncles: Vec<UncleBlock>,
+    pub commit_transactions: Vec<IndexedTransaction>,
+    pub proposal_transactions: FnvHashSet<ProposalTransaction>,
 }
 
 pub fn build_block_template<C: ChainProvider + 'static>(
@@ -23,8 +29,10 @@ pub fn build_block_template<C: ChainProvider + 'static>(
     let now = cmp::max(now_ms(), header.timestamp + 1);
     let difficulty = chain.calculate_difficulty(&header).expect("get difficulty");
 
-    let mut transactions = tx_pool.prepare_mineable_transactions();
-    let cellbase = create_cellbase_transaction(&chain, &header, &transactions)?;
+    let proposal_transactions = tx_pool.prepare_proposal();
+    let include_ids = select_commit_ids(chain, &header);
+    let mut commit_transactions = tx_pool.prepare_commit(header.number + 1, &include_ids);
+    let cellbase = create_cellbase_transaction(&chain, &header, &commit_transactions)?;
     let uncles = chain.get_tip_uncles();
     let cellbase_id = cellbase.hash();
 
@@ -32,7 +40,8 @@ pub fn build_block_template<C: ChainProvider + 'static>(
 
     let raw_header = RawHeader::new(
         &header,
-        transactions.iter(),
+        commit_transactions.iter(),
+        proposal_transactions.iter(),
         now,
         difficulty,
         cellbase_id,
@@ -40,9 +49,10 @@ pub fn build_block_template<C: ChainProvider + 'static>(
     );
 
     let block = BlockTemplate {
-        transactions,
-        uncles,
         raw_header,
+        uncles,
+        commit_transactions,
+        proposal_transactions,
     };
 
     Ok(block)
@@ -51,8 +61,8 @@ pub fn build_block_template<C: ChainProvider + 'static>(
 fn create_cellbase_transaction<C: ChainProvider + 'static>(
     chain: &Arc<C>,
     header: &Header,
-    transactions: &[Transaction],
-) -> Result<Transaction, Error> {
+    transactions: &[IndexedTransaction],
+) -> Result<IndexedTransaction, Error> {
     // NOTE: To generate different cellbase txid, we put header number in the input script
     let inputs = vec![CellInput::new_cellbase_input(header.raw.number + 1)];
     // NOTE: We could've just used byteorder to serialize u64 and hex string into bytes,
@@ -72,7 +82,40 @@ fn create_cellbase_transaction<C: ChainProvider + 'static>(
         H256::default(),
     )];
 
-    Ok(Transaction::new(VERSION, Vec::new(), inputs, outputs))
+    Ok(Transaction::new(VERSION, Vec::new(), inputs, outputs).into())
+}
+
+fn select_commit_ids<C: ChainProvider>(
+    chain: &Arc<C>,
+    tip: &IndexedHeader,
+) -> FnvHashSet<ProposalShortId> {
+    let mut proposal_txs_ids = FnvHashSet::default();
+    if tip.is_genesis() {
+        return proposal_txs_ids;
+    }
+    let mut walk = chain.consensus().transaction_propagation_timeout;
+    let mut block_hash = tip.hash();
+
+    while walk > 0 {
+        let block = chain
+            .block(&block_hash)
+            .expect("main chain should be stored");
+        if block.is_genesis() {
+            break;
+        }
+        proposal_txs_ids.extend(
+            block.proposal_transactions().iter().chain(
+                block
+                    .uncles()
+                    .iter()
+                    .flat_map(|uncle| uncle.proposal_transactions()),
+            ),
+        );
+        block_hash = block.header.parent_hash;
+        walk -= 1;
+    }
+
+    proposal_txs_ids
 }
 
 #[cfg(test)]

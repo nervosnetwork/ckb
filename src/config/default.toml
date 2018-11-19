@@ -32,7 +32,8 @@ orphan_block_limit = 1024
 
 [pool]
 max_pool_size = 65535
-max_mining_size = 4095
+max_proposal_size = 4095
+max_commit_size = 4096
 
 [miner]
 max_tx              = 1024

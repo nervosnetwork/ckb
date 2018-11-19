@@ -924,6 +924,7 @@ mod tests {
                 .execute();
         }
 
+        let mut iter = TryIter { inner: &rx };
         assert_eq!(
             &synchronizer1
                 .peers
@@ -933,6 +934,11 @@ mod tests {
                 .unwrap()
                 .hash(),
             blocks_to_fetch.last().unwrap()
+        );
+
+        assert_eq!(
+            iter.next(),
+            Some(Event::NewTip(Arc::new(fetched_blocks[6].clone())))
         );
     }
 }

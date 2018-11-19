@@ -32,7 +32,9 @@ macro_rules! expect_output_parent {
 
 #[test]
 fn test_proposal_pool() {
-    let (_chain, pool, mut tx_hash) = test_setup();
+    let max_proposal_size = 200;
+    let max_commit_size = 300;
+    let (_chain, pool, mut tx_hash) = test_setup(max_commit_size, max_proposal_size);
     assert_eq!(pool.total_size(), 0);
 
     let mut txs = vec![];
@@ -52,15 +54,12 @@ fn test_proposal_pool() {
 
     let block_number = 100;
     assert_eq!(pool.candidate_pool_size(), 200);
-    let txs300 = pool.prepare_proposal(300);
+    let txs200 = pool.prepare_proposal();
     assert_eq!(pool.candidate_pool_size(), 200);
-    assert_eq!(txs300.len(), 200);
-    let txs100 = pool.prepare_proposal(100);
-    assert_eq!(pool.candidate_pool_size(), 200);
-    assert_eq!(txs100.len(), 100);
+    assert_eq!(txs200.len(), 200);
 
-    pool.proposal_n(block_number, txs100.clone());
-    assert_eq!(pool.candidate_pool_size(), 100);
+    pool.proposal_n(block_number, txs200.clone());
+    assert_eq!(pool.candidate_pool_size(), 0);
 
     let proposal_txs = pool.query_proposal(block_number, ::std::iter::empty());
     assert!(proposal_txs.is_some());
@@ -69,22 +68,19 @@ fn test_proposal_pool() {
     let proposal_txs =
         pool.query_proposal(block_number, txs.iter().map(|tx| tx.proposal_short_id()));
     assert!(proposal_txs.is_some());
-    assert_eq!(proposal_txs.unwrap().0.len(), 100);
-
-    pool.proposal_n(block_number, txs300);
+    assert_eq!(proposal_txs.unwrap().0.len(), 200);
 
     let commit = pool.prepare_commit(
         block_number + 1,
         &txs.iter().map(|tx| tx.proposal_short_id()).collect(),
-        120,
     );
-    assert_eq!(commit.len(), 120);
+    assert_eq!(commit.len(), 200);
 }
 
 #[test]
 /// A basic test; add a pair of transactions to the pool.
 fn test_basic_pool_add() {
-    let (_chain, pool, tx_hash) = test_setup(1024);
+    let (_chain, pool, tx_hash) = test_setup(1024, 1024);
     assert_eq!(pool.total_size(), 0);
 
     let parent_transaction = test_transaction(
@@ -143,7 +139,7 @@ fn test_basic_pool_add() {
 
 #[test]
 pub fn test_cellbase_spent() {
-    let (chain, pool, _tx_hash) = test_setup();
+    let (chain, pool, _tx_hash) = test_setup(1024, 1024);
     let cellbase_tx: IndexedTransaction = Transaction::new(
         0,
         Vec::new(),
@@ -176,7 +172,7 @@ pub fn test_cellbase_spent() {
 #[test]
 /// Testing various expected error conditions
 pub fn test_pool_add_error() {
-    let (_chain, pool, tx_hash) = test_setup(1024);
+    let (_chain, pool, tx_hash) = test_setup(1024, 1024);
     assert_eq!(pool.total_size(), 0);
 
     // let duplicate_tx = test_transaction(vec![OutPoint::new(tx_hash, 5), OutPoint::new(tx_hash, 6)], 1);
@@ -236,7 +232,7 @@ pub fn test_pool_add_error() {
 
 #[test]
 fn test_zero_confirmation_reconciliation() {
-    let (_chain, pool, tx_hash) = test_setup(1024);
+    let (_chain, pool, tx_hash) = test_setup(1024, 1024);
 
     // now create two txs
     // tx1 spends the Output
@@ -273,7 +269,7 @@ fn test_zero_confirmation_reconciliation() {
 #[test]
 /// Testing block reconciliation
 fn test_block_reconciliation() {
-    let (chain, pool, tx_hash) = test_setup(1024);
+    let (chain, pool, tx_hash) = test_setup(1024, 1024);
     // Preparation: We will introduce a three root pool transactions.
     // 1. A transaction that should be invalidated because it is exactly
     //  contained in the block.
@@ -410,8 +406,9 @@ fn test_block_reconciliation() {
 #[test]
 /// Test transaction selection and block building.
 fn test_block_building() {
-    let max_mining_size = 3;
-    let (_chain, pool, tx_hash) = test_setup(max_mining_size);
+    let max_commit_size = 3;
+    let max_proposal_size = 3;
+    let (_chain, pool, tx_hash) = test_setup(max_commit_size, max_proposal_size);
 
     let root_tx_1 = test_transaction(
         vec![OutPoint::new(tx_hash, 10), OutPoint::new(tx_hash, 20)],
@@ -438,8 +435,12 @@ fn test_block_building() {
     // Request blocks
     let mut block: IndexedBlock = Block::default().into();
 
-    let txs = { pool.commit.read().get_mineable_transactions(3) };
-    assert_eq!(txs.len(), 3);
+    let txs = {
+        pool.commit
+            .read()
+            .get_mineable_transactions(max_commit_size)
+    };
+    assert_eq!(txs.len(), max_commit_size);
 
     block.commit_transactions = txs;
 
@@ -447,11 +448,12 @@ fn test_block_building() {
 
     pool.reconcile_block(&block);
 
-    assert_eq!(pool.total_size(), 5 - max_mining_size);
+    assert_eq!(pool.total_size(), 5 - max_commit_size);
 }
 
 fn test_setup(
-    max_mining_size: usize,
+    max_commit_size: usize,
+    max_proposal_size: usize,
 ) -> (
     Arc<impl ChainProvider>,
     Arc<TransactionPool<impl ChainProvider>>,
@@ -465,7 +467,8 @@ fn test_setup(
     let pool = TransactionPool::new(
         PoolConfig {
             max_pool_size: 1024,
-            max_mining_size,
+            max_proposal_size,
+            max_commit_size,
         },
         Arc::clone(&chain),
         notify,
