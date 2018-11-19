@@ -1,9 +1,11 @@
 mod builder;
+mod debugger;
 mod fetch_script_hash;
 mod mmap_cell;
 mod mmap_tx;
 
 pub use self::builder::build_tx;
+pub use self::debugger::Debugger;
 pub use self::fetch_script_hash::FetchScriptHash;
 pub use self::mmap_cell::MmapCell;
 pub use self::mmap_tx::MmapTx;
@@ -17,6 +19,7 @@ pub const ITEM_MISSING: u8 = 2;
 pub const MMAP_TX_SYSCALL_NUMBER: u64 = 2049;
 pub const MMAP_CELL_SYSCALL_NUMBER: u64 = 2050;
 pub const FETCH_SCRIPT_HASH_SYSCALL_NUMBER: u64 = 2051;
+pub const DEBUG_PRINT_SYSCALL_NUMBER: u64 = 2177;
 
 #[derive(Debug, PartialEq, Clone, Copy, Eq)]
 pub enum Mode {

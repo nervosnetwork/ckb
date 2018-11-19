@@ -5,7 +5,7 @@ use core::script::Script;
 use core::transaction::{CellInput, CellOutput};
 use flatbuffers::FlatBufferBuilder;
 use fnv::FnvHashMap;
-use syscalls::{build_tx, FetchScriptHash, MmapCell, MmapTx};
+use syscalls::{build_tx, Debugger, FetchScriptHash, MmapCell, MmapTx};
 use vm::{DefaultMachine, SparseMemory};
 
 // This struct leverages CKB VM to verify transaction inputs.
@@ -85,7 +85,7 @@ impl<'a> TransactionScriptsVerifier<'a> {
         Err(ScriptError::NoScript)
     }
 
-    pub fn verify_script(&self, script: &Script) -> Result<(), ScriptError> {
+    pub fn verify_script(&self, script: &Script, prefix: &str) -> Result<(), ScriptError> {
         self.extract_script(script).and_then(|script_binary| {
             let mut args = vec![b"verify".to_vec()];
             args.extend_from_slice(&script.signed_args.as_slice());
@@ -95,6 +95,7 @@ impl<'a> TransactionScriptsVerifier<'a> {
             machine.add_syscall_module(Box::new(self.build_mmap_tx()));
             machine.add_syscall_module(Box::new(self.build_mmap_cell()));
             machine.add_syscall_module(Box::new(self.build_fetch_script_hash()));
+            machine.add_syscall_module(Box::new(Debugger::new(prefix)));
             machine
                 .run(script_binary, &args)
                 .map_err(ScriptError::VMError)
@@ -110,14 +111,16 @@ impl<'a> TransactionScriptsVerifier<'a> {
 
     pub fn verify(&self) -> Result<(), ScriptError> {
         for (i, input) in self.inputs.iter().enumerate() {
-            self.verify_script(&input.unlock).map_err(|e| {
+            let prefix = format!("Transaction {}, input {}", self.hash, i);
+            self.verify_script(&input.unlock, &prefix).map_err(|e| {
                 info!(target: "script", "Error validating input {} of transaction {}: {:?}", i, self.hash, e);
                 e
             })?;
         }
         for (i, output) in self.outputs.iter().enumerate() {
             if let Some(ref contract) = output.contract {
-                self.verify_script(contract).map_err(|e| {
+                let prefix = format!("Transaction {}, output {}", self.hash, i);
+                self.verify_script(contract, &prefix).map_err(|e| {
                     info!(target: "script", "Error validating output {} of transaction {}: {:?}", i, self.hash, e);
                     e
                 })?;
