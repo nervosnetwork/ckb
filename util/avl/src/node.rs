@@ -1,9 +1,9 @@
 use super::{AVLError, Result};
 use bigint::H256;
 use bincode::{deserialize, serialize};
-use core::transaction_meta::TransactionMeta;
-use db::batch::{Batch, Col};
-use db::kvdb::KeyValueDB;
+use ckb_core::transaction_meta::TransactionMeta;
+use ckb_db::batch::{Batch, Col};
+use ckb_db::kvdb::KeyValueDB;
 use hash::sha3_256;
 
 // DB node in the avl
@@ -62,7 +62,7 @@ pub fn search(
 mod tests {
     const TEST_COL: Col = Some(0);
     use super::*;
-    use db::memorydb::MemoryKeyValueDB;
+    use ckb_db::memorydb::MemoryKeyValueDB;
 
     fn get_meta(node: &DBNode) -> Option<TransactionMeta> {
         match node {

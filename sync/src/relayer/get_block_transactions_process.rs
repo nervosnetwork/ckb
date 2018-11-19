@@ -1,8 +1,8 @@
 use bigint::H256;
+use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::{GetBlockTransactions, RelayMessage};
 use ckb_shared::index::ChainIndex;
 use flatbuffers::FlatBufferBuilder;
-use network::{CKBProtocolContext, PeerIndex};
 use relayer::Relayer;
 
 pub struct GetBlockTransactionsProcess<'a, CI: ChainIndex + 'a> {

@@ -7,6 +7,7 @@ use ckb_protocol::{CKBProtocol, CKBProtocols};
 use ckb_protocol_handler::CKBProtocolHandler;
 use ckb_protocol_handler::DefaultCKBProtocolContext;
 use ckb_service::CKBService;
+use ckb_util::{Mutex, RwLock};
 use discovery_service::DiscoveryService;
 use futures::future::{self, select_all, Future};
 use futures::sync::mpsc::UnboundedSender;
@@ -34,7 +35,6 @@ use std::usize;
 use timer_service::TimerService;
 use tokio::io::{AsyncRead, AsyncWrite};
 use transport::{new_transport, TransportOutput};
-use util::{Mutex, RwLock};
 
 const WAIT_LOCK_TIMEOUT: u64 = 3;
 const KBUCKETS_TIMEOUT: u64 = 600;

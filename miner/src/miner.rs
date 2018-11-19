@@ -1,22 +1,22 @@
 use super::Config;
-use chain::chain::ChainController;
 use channel::Receiver;
+use ckb_chain::chain::ChainController;
+use ckb_core::block::{Block, BlockBuilder};
+use ckb_core::header::{RawHeader, Seal};
+use ckb_core::BlockNumber;
+use ckb_network::NetworkService;
 use ckb_notify::{MsgNewTip, MsgNewTransaction, NotifyController, MINER_SUBSCRIBER};
 use ckb_pow::PowEngine;
 use ckb_protocol::RelayMessage;
-use core::block::{Block, BlockBuilder};
-use core::header::{RawHeader, Seal};
-use core::BlockNumber;
+use ckb_rpc::{BlockTemplate, RpcController};
+use ckb_shared::index::ChainIndex;
+use ckb_shared::shared::Shared;
+use ckb_sync::RELAY_PROTOCOL_ID;
 use flatbuffers::FlatBufferBuilder;
-use network::NetworkService;
 use rand::{thread_rng, Rng};
-use rpc::{BlockTemplate, RpcController};
-use shared::index::ChainIndex;
-use shared::shared::Shared;
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
-use sync::RELAY_PROTOCOL_ID;
 
 pub struct MinerService {
     config: Config,

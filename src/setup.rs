@@ -1,14 +1,14 @@
-use chain_spec::{ChainSpec, SpecType};
+use ckb_chain_spec::{ChainSpec, SpecType};
+use ckb_miner::Config as MinerConfig;
+use ckb_network::Config as NetworkConfig;
+use ckb_pool::txs_pool::PoolConfig;
+use ckb_rpc::Config as RpcConfig;
+use ckb_sync::Config as SyncConfig;
 use clap;
 use config_tool::{Config as ConfigTool, File, FileFormat};
 use dir::{default_base_path, Directories};
 use logger::Config as LogConfig;
-use miner::Config as MinerConfig;
-use network::Config as NetworkConfig;
-use pool::txs_pool::PoolConfig;
-use rpc::Config as RpcConfig;
 use std::error::Error;
-use sync::Config as SyncConfig;
 use {DEFAULT_CONFIG, DEFAULT_CONFIG_FILENAME};
 
 #[derive(Clone, Debug)]

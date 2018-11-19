@@ -1,7 +1,7 @@
+use ckb_core::block::Block;
+use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::Block as PBlock;
 use ckb_shared::index::ChainIndex;
-use core::block::Block;
-use network::{CKBProtocolContext, PeerIndex};
 use synchronizer::Synchronizer;
 
 pub struct BlockProcess<'a, CI: ChainIndex + 'a> {

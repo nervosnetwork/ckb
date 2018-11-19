@@ -1,4 +1,4 @@
-use network::{
+use ckb_network::{
     CKBProtocolContext, CKBProtocolHandler, Error as NetworkError, PeerIndex, ProtocolId,
     SessionInfo, Severity, TimerToken,
 };

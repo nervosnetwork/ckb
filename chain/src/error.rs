@@ -1,5 +1,5 @@
-use shared::error::SharedError;
-use verification::Error as VerifyError;
+use ckb_shared::error::SharedError;
+use ckb_verification::Error as VerifyError;
 
 #[derive(Debug, PartialEq, Clone, Eq)]
 pub enum ProcessBlockError {

@@ -1,6 +1,6 @@
 extern crate bigint;
-extern crate ckb_chain_spec as chain_spec;
-extern crate ckb_core as core;
+extern crate ckb_chain_spec;
+extern crate ckb_core;
 extern crate ckb_notify;
 extern crate ckb_shared;
 extern crate ckb_verification;
@@ -19,7 +19,7 @@ extern crate ckb_chain;
 #[cfg(test)]
 extern crate ckb_db;
 #[cfg(test)]
-extern crate ckb_time as time;
+extern crate ckb_time;
 #[cfg(test)]
 extern crate hash;
 

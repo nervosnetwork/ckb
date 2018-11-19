@@ -1,9 +1,9 @@
 use bigint::H256;
+use ckb_core::header::Header;
+use ckb_network::{CKBProtocolContext, PeerIndex, Severity};
 use ckb_protocol::{FlatbuffersVectorIterator, GetHeaders, SyncMessage};
 use ckb_shared::index::ChainIndex;
-use core::header::Header;
 use flatbuffers::FlatBufferBuilder;
-use network::{CKBProtocolContext, PeerIndex, Severity};
 use synchronizer::Synchronizer;
 use MAX_LOCATOR_SIZE;
 

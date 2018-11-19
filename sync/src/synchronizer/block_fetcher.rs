@@ -1,13 +1,13 @@
 use super::header_view::HeaderView;
 use bigint::H256;
+use ckb_core::header::Header;
+use ckb_network::PeerIndex;
 use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::{ChainProvider, TipHeader};
 use ckb_time::now_ms;
-use core::header::Header;
-use network::PeerIndex;
+use ckb_util::RwLockUpgradableReadGuard;
 use std::cmp;
 use synchronizer::{BlockStatus, Synchronizer};
-use util::RwLockUpgradableReadGuard;
 use {
     BLOCK_DOWNLOAD_TIMEOUT, BLOCK_DOWNLOAD_WINDOW, MAX_BLOCKS_IN_TRANSIT_PER_PEER,
     PER_FETCH_BLOCK_LIMIT,

@@ -1,21 +1,21 @@
 extern crate bigint;
-extern crate ckb_core as core;
-extern crate ckb_pow as pow;
-extern crate ckb_script as script;
+extern crate ckb_core;
+extern crate ckb_pow;
+extern crate ckb_script;
 extern crate ckb_shared;
-extern crate ckb_time as time;
+extern crate ckb_time;
 extern crate fnv;
 extern crate merkle_root;
 extern crate rayon;
 
 #[cfg(test)]
-extern crate ckb_chain as chain;
+extern crate ckb_chain;
 #[cfg(test)]
-extern crate ckb_chain_spec as chain_spec;
+extern crate ckb_chain_spec;
 #[cfg(test)]
-extern crate ckb_db as db;
+extern crate ckb_db;
 #[cfg(test)]
-extern crate ckb_notify as notify;
+extern crate ckb_notify;
 #[cfg(test)]
 extern crate hash;
 

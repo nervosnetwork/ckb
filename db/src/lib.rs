@@ -4,7 +4,7 @@
 //! which provides key-value store interface
 
 extern crate bincode;
-extern crate ckb_util as util;
+extern crate ckb_util;
 extern crate fnv;
 extern crate rocksdb;
 

@@ -1,20 +1,20 @@
 use super::service::{BlockTemplate, RpcController};
 use super::{BlockWithHash, CellOutputWithOutPoint, Config, TransactionWithHash};
 use bigint::H256;
-use core::header::{BlockNumber, Header};
-use core::transaction::{OutPoint, Transaction};
+use ckb_core::header::{BlockNumber, Header};
+use ckb_core::transaction::{OutPoint, Transaction};
+use ckb_network::NetworkService;
+use ckb_pool::txs_pool::TransactionPoolController;
+use ckb_protocol::RelayMessage;
+use ckb_shared::index::ChainIndex;
+use ckb_shared::shared::{ChainProvider, Shared};
+use ckb_sync::RELAY_PROTOCOL_ID;
 use flatbuffers::FlatBufferBuilder;
 use jsonrpc_core::{Error, IoHandler, Result};
 use jsonrpc_http_server::ServerBuilder;
 use jsonrpc_server_utils::cors::AccessControlAllowOrigin;
 use jsonrpc_server_utils::hosts::DomainsValidation;
-use network::NetworkService;
-use pool::txs_pool::TransactionPoolController;
-use protocol::RelayMessage;
-use shared::index::ChainIndex;
-use shared::shared::{ChainProvider, Shared};
 use std::sync::Arc;
-use sync::RELAY_PROTOCOL_ID;
 
 build_rpc_trait! {
     pub trait Rpc {

@@ -1,6 +1,6 @@
 #![cfg_attr(feature = "cargo-clippy", allow(needless_pass_by_value))]
 
-extern crate ckb_core as core;
+extern crate ckb_core;
 #[macro_use]
 extern crate crossbeam_channel as channel;
 extern crate fnv;
@@ -12,8 +12,8 @@ use std::thread;
 use std::thread::JoinHandle;
 
 use channel::{Receiver, Sender};
-use core::block::Block;
-use core::service::Request;
+use ckb_core::block::Block;
+use ckb_core::service::Request;
 use fnv::FnvHashMap;
 
 pub const MINER_SUBSCRIBER: &str = "miner";

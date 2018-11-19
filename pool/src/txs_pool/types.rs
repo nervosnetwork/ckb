@@ -1,10 +1,10 @@
 //! The primary module containing the implementations of the transaction pool
 //! and its top-level members.
 
-use chain_spec::consensus::{TRANSACTION_PROPAGATION_TIME, TRANSACTION_PROPAGATION_TIMEOUT};
+use ckb_chain_spec::consensus::{TRANSACTION_PROPAGATION_TIME, TRANSACTION_PROPAGATION_TIMEOUT};
+use ckb_core::transaction::{CellOutput, OutPoint, ProposalShortId, Transaction};
+use ckb_core::BlockNumber;
 use ckb_verification::TransactionError;
-use core::transaction::{CellOutput, OutPoint, ProposalShortId, Transaction};
-use core::BlockNumber;
 use fnv::{FnvHashMap, FnvHashSet};
 use linked_hash_map::LinkedHashMap;
 use std::collections::VecDeque;
@@ -832,7 +832,7 @@ impl ProposedQueue {
 mod tests {
     use super::*;
     use bigint::H256;
-    use core::transaction::{CellInput, CellOutput, Transaction, TransactionBuilder};
+    use ckb_core::transaction::{CellInput, CellOutput, Transaction, TransactionBuilder};
 
     fn build_tx(inputs: Vec<(H256, u32)>, outputs_len: usize) -> Transaction {
         TransactionBuilder::default()

@@ -1,24 +1,24 @@
 use super::{COLUMNS, COLUMN_BLOCK_HEADER};
 use bigint::{H256, U256};
 use cachedb::CacheDB;
-use chain_spec::consensus::Consensus;
-use core::block::Block;
-use core::cell::{CellProvider, CellStatus};
-use core::extras::BlockExt;
-use core::header::{BlockNumber, Header};
-use core::transaction::{Capacity, OutPoint, ProposalShortId, Transaction};
-use core::transaction_meta::TransactionMeta;
-use core::uncle::UncleBlock;
-use db::diskdb::RocksDB;
-use db::kvdb::KeyValueDB;
-use db::memorydb::MemoryKeyValueDB;
+use ckb_chain_spec::consensus::Consensus;
+use ckb_core::block::Block;
+use ckb_core::cell::{CellProvider, CellStatus};
+use ckb_core::extras::BlockExt;
+use ckb_core::header::{BlockNumber, Header};
+use ckb_core::transaction::{Capacity, OutPoint, ProposalShortId, Transaction};
+use ckb_core::transaction_meta::TransactionMeta;
+use ckb_core::uncle::UncleBlock;
+use ckb_db::diskdb::RocksDB;
+use ckb_db::kvdb::KeyValueDB;
+use ckb_db::memorydb::MemoryKeyValueDB;
+use ckb_util::RwLock;
 use error::SharedError;
 use fnv::FnvHashSet;
 use index::ChainIndex;
 use std::path::Path;
 use std::sync::Arc;
 use store::ChainKVStore;
-use util::RwLock;
 
 #[derive(Default, Debug, PartialEq, Clone, Eq)]
 pub struct TipHeader {

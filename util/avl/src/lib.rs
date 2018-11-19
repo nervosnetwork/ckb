@@ -3,8 +3,8 @@ extern crate serde_derive;
 
 extern crate bigint;
 extern crate bincode;
-extern crate ckb_core as core;
-extern crate ckb_db as db;
+extern crate ckb_core;
+extern crate ckb_db;
 extern crate hash;
 
 use bigint::H256;

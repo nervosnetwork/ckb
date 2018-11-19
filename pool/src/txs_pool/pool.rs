@@ -5,19 +5,19 @@ use super::types::{
 };
 use bigint::H256;
 use channel::{self, Receiver, Sender};
+use ckb_core::block::Block;
+use ckb_core::cell::{CellProvider, CellStatus};
+use ckb_core::service::{Request, DEFAULT_CHANNEL_SIZE};
+use ckb_core::transaction::{OutPoint, ProposalShortId, Transaction};
 use ckb_notify::{ForkBlocks, MsgNewTip, MsgSwitchFork, NotifyController, TXS_POOL_SUBSCRIBER};
 use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::{ChainProvider, Shared};
 use ckb_verification::{TransactionError, TransactionVerifier};
-use core::block::Block;
-use core::cell::{CellProvider, CellStatus};
-use core::service::{Request, DEFAULT_CHANNEL_SIZE};
-use core::transaction::{OutPoint, ProposalShortId, Transaction};
 use lru_cache::LruCache;
 use std::thread::{self, JoinHandle};
 
 #[cfg(test)]
-use core::BlockNumber;
+use ckb_core::BlockNumber;
 
 pub type TxsArgs = (usize, usize);
 pub type TxsReturn = (Vec<ProposalShortId>, Vec<Transaction>);

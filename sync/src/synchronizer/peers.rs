@@ -1,12 +1,12 @@
 use super::header_view::HeaderView;
 use bigint::H256;
+use ckb_core::block::Block;
+use ckb_core::header::Header;
+use ckb_network::PeerIndex;
 use ckb_shared::shared::TipHeader;
 use ckb_time::now_ms;
-use core::block::Block;
-use core::header::Header;
+use ckb_util::RwLock;
 use fnv::{FnvHashMap, FnvHashSet};
-use network::PeerIndex;
-use util::RwLock;
 
 // const BANSCORE: u32 = 100;
 

@@ -2,6 +2,7 @@ use super::Network;
 use super::PeerId;
 use super::{CKBProtocolHandler, ProtocolId, TimerToken};
 use ckb_protocol_handler::DefaultCKBProtocolContext;
+use ckb_util::Mutex;
 use futures::future::{self, Future};
 use futures::stream::FuturesUnordered;
 use futures::Stream;
@@ -17,7 +18,6 @@ use tokio;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::timer::Interval;
 use transport::TransportOutput;
-use util::Mutex;
 
 pub(crate) type Timer = (Arc<CKBProtocolHandler>, ProtocolId, TimerToken, Duration);
 

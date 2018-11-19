@@ -1,9 +1,9 @@
 use super::errors::{Error, ErrorKind};
 use super::{Network, SessionInfo, Timer};
 use super::{PeerIndex, ProtocolId, TimerToken};
+use ckb_util::Mutex;
 use std::sync::Arc;
 use std::time::Duration;
-use util::Mutex;
 
 #[derive(Clone, Debug)]
 pub enum Severity<'a> {

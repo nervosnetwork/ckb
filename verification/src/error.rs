@@ -1,7 +1,7 @@
 use bigint::{H256, U256};
+use ckb_core::BlockNumber;
+use ckb_script::ScriptError;
 use ckb_shared::error::SharedError;
-use core::BlockNumber;
-use script::ScriptError;
 
 /// Block verification error
 #[derive(Debug, PartialEq, Clone, Eq)]

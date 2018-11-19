@@ -1,16 +1,16 @@
 extern crate bigint;
-extern crate ckb_chain as chain;
-extern crate ckb_core as core;
-extern crate ckb_network as network;
+extern crate ckb_chain;
+extern crate ckb_core;
+extern crate ckb_network;
 extern crate ckb_notify;
 extern crate ckb_protocol;
-extern crate ckb_rpc as rpc;
-extern crate ckb_shared as shared;
+extern crate ckb_rpc;
+extern crate ckb_shared;
 #[macro_use]
 extern crate crossbeam_channel as channel;
 #[macro_use]
 extern crate log;
-extern crate ckb_sync as sync;
+extern crate ckb_sync;
 extern crate flatbuffers;
 extern crate rand;
 #[macro_use]

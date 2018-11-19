@@ -1,9 +1,9 @@
-use db::batch::{Batch, Col, Operation};
-use db::kvdb::{KeyValueDB, Result};
+use ckb_db::batch::{Batch, Col, Operation};
+use ckb_db::kvdb::{KeyValueDB, Result};
+use ckb_util::RwLock;
 use fnv::FnvHashMap;
 use lru_cache::LruCache;
 use std::ops::Range;
-use util::RwLock;
 
 type CacheTable = FnvHashMap<Col, LruCache<Vec<u8>, Vec<u8>>>;
 pub type CacheCols = (u32, usize);

@@ -1,15 +1,15 @@
 use super::super::setup::Configs;
-use chain::chain::{ChainBuilder, ChainController};
-use chain_spec::SpecType;
+use ckb_chain::chain::{ChainBuilder, ChainController};
+use ckb_chain_spec::SpecType;
+use ckb_db::diskdb::RocksDB;
 use ckb_instrument::{Format, Import};
+use ckb_shared::cachedb::CacheDB;
+use ckb_shared::shared::SharedBuilder;
+use ckb_shared::store::ChainKVStore;
 use clap::ArgMatches;
 use config_tool::{Config as ConfigTool, File, FileFormat};
-use db::diskdb::RocksDB;
 use dir::default_base_path;
 use dir::Directories;
-use shared::cachedb::CacheDB;
-use shared::shared::SharedBuilder;
-use shared::store::ChainKVStore;
 use {DEFAULT_CONFIG, DEFAULT_CONFIG_FILENAME};
 
 pub fn import(matches: &ArgMatches) {
