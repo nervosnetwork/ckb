@@ -1,8 +1,0 @@
-miner_private_key = "{{ miner_private_key }}"
-signer_private_key = "{{ signer_private_key }}"
-{% for key_pair in key_pairs %}
-[[key_pairs]]
-proof_public_key = "{{ key_pair.proof_public_key }}"
-proof_public_g = "{{ key_pair.proof_public_g }}"
-signer_public_key = "{{ key_pair.signer_public_key }}"
-{% endfor %}

@@ -25,7 +25,7 @@ pub fn merkle_root(input: &[H256]) -> H256 {
 
     let lwlen = lowest_children_len(inlen);
     let mut i: usize = 0;
-    let mut nodes = Vec::new();
+    let mut nodes = Vec::with_capacity(inlen);
 
     while i < lwlen {
         nodes.push(merge(&input[i], &input[i + 1]));

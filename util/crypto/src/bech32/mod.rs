@@ -59,6 +59,10 @@ pub struct Bech32 {
 }
 
 impl Bech32 {
+    pub fn new(hrp: String, data: Vec<u8>) -> Self {
+        Bech32 { hrp, data }
+    }
+
     pub fn encode(&self) -> Result<String, Error> {
         if self.hrp.len() < 1 {
             return Err(Error::InvalidLength);
@@ -188,15 +192,17 @@ fn polymod(values: &[u8]) -> u32 {
 }
 
 fn hrp_expand(hrp: &[u8]) -> Vec<u8> {
-    let mut v: Vec<u8> = Vec::with_capacity(hrp.len() * 2 + 1);
-    for b in hrp {
-        v.push(*b >> 5);
-    }
+    let mut v = hrp
+        .iter()
+        .fold(Vec::with_capacity(hrp.len() * 2 + 1), |mut acc, x| {
+            acc.push(*x >> 5);
+            acc
+        });
     v.push(0);
-    for b in hrp {
-        v.push(*b & 0x1f);
-    }
-    v
+    hrp.iter().fold(v, |mut acc, x| {
+        acc.push(*x & 0x1f);
+        acc
+    })
 }
 
 fn verify_checksum(hrp: &[u8], data: &[u8]) -> bool {
@@ -210,12 +216,14 @@ fn create_checksum(hrp: &[u8], data: &[u8]) -> Vec<u8> {
     values.extend_from_slice(data);
     values.extend_from_slice(&[0u8; 6]);
     let plm: u32 = polymod(&values[..]) ^ 1;
-    let mut checksum: Vec<u8> = Vec::with_capacity(6);
-    for p in 0..6 {
-        let i = ((plm >> (5 * (5 - p))) & 0x1f) as u8;
-        checksum.push(i);
-    }
-    checksum
+
+    (0..6)
+        .into_iter()
+        .fold(Vec::with_capacity(6), |mut acc, x| {
+            let i = ((plm >> (5 * (5 - x))) & 0x1f) as u8;
+            acc.push(i);
+            acc
+        })
 }
 
 #[cfg(test)]

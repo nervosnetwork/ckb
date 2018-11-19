@@ -1,10 +1,11 @@
-use batch::{Batch, Key, Value};
+use batch::{Batch, Col};
 use bincode::Error as BcError;
 use rocksdb::Error as RdbError;
 use std::error::Error as StdError;
+use std::ops::Range;
 use std::result;
 
-type Error = Box<ErrorKind>;
+pub type Error = ErrorKind;
 pub type Result<T> = result::Result<T, Error>;
 
 #[derive(Debug)]
@@ -15,17 +16,23 @@ pub enum ErrorKind {
 
 impl From<BcError> for Error {
     fn from(err: BcError) -> Error {
-        Box::new(ErrorKind::SerializationError(err.description().to_string()))
+        ErrorKind::SerializationError(err.description().to_string())
     }
 }
 
 impl From<RdbError> for Error {
     fn from(err: RdbError) -> Error {
-        Box::new(ErrorKind::DBError(err.into()))
+        ErrorKind::DBError(err.into())
     }
 }
 
 pub trait KeyValueDB: Sync + Send {
     fn write(&self, batch: Batch) -> Result<()>;
-    fn read(&self, key: &Key) -> Result<Option<Value>>;
+    fn read(&self, col: Col, key: &[u8]) -> Result<Option<Vec<u8>>>;
+    fn len(&self, col: Col, key: &[u8]) -> Result<Option<usize>>;
+    fn partial_read(&self, col: Col, key: &[u8], range: &Range<usize>) -> Result<Option<Vec<u8>>>;
+    fn cols(&self) -> u32;
+    fn batch(&self) -> Batch {
+        Batch::new()
+    }
 }

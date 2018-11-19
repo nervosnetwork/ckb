@@ -1,11 +1,16 @@
 //! Transaction using Cell.
 //! It is similar to Bitcoin Tx <https://en.bitcoin.it/wiki/Protocol_documentation#tx/>
 use bigint::H256;
-use bincode::serialize;
+use bincode::{deserialize, serialize};
+use error::TxError;
 use hash::sha3_256;
-use std::slice::Iter;
+use nervos_protocol;
+use script::Script;
+use std::ops::{Deref, DerefMut};
 
-#[derive(Clone, Default, Serialize, Deserialize, Eq, PartialEq, Hash, Debug)]
+pub const VERSION: u32 = 0;
+
+#[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Hash, Debug)]
 pub struct OutPoint {
     // Hash of Transaction
     pub hash: H256,
@@ -13,278 +18,328 @@ pub struct OutPoint {
     pub index: u32,
 }
 
-#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Debug)]
-pub struct Recipient {
-    pub module: u32,
-    pub lock: Vec<u8>,
+impl Default for OutPoint {
+    fn default() -> Self {
+        OutPoint {
+            hash: H256::zero(),
+            index: u32::max_value(),
+        }
+    }
 }
 
-#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Debug)]
+impl OutPoint {
+    pub fn new(hash: H256, index: u32) -> Self {
+        OutPoint { hash, index }
+    }
+
+    pub fn null() -> Self {
+        OutPoint::default()
+    }
+
+    pub fn is_null(&self) -> bool {
+        self.hash.is_zero() && self.index == u32::max_value()
+    }
+}
+
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct CellInput {
     pub previous_output: OutPoint,
     // Depends on whether the operation is Transform or Destroy, this is the proof to transform
     // lock or destroy lock.
-    pub unlock: Vec<u8>,
+    pub unlock: Script,
 }
 
-#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Debug)]
+impl CellInput {
+    pub fn new(previous_output: OutPoint, unlock: Script) -> Self {
+        CellInput {
+            previous_output,
+            unlock,
+        }
+    }
+}
+
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct CellOutput {
     pub module: u32,
     pub capacity: u32,
     pub data: Vec<u8>,
-    pub lock: Vec<u8>,
-    pub recipient: Option<Recipient>,
+    pub lock: H256,
 }
 
-// The cell operations are ordered by group.
-//
-// In each group, transform inputs are ordered before destroy inputs. And transform outputs are
-// ordered before create outputs.
-//
-// For example, a transaction has inputs i1, i2, i3, outputs o1, o2, o3, o4, 2 groups:
-//
-// - g1: transform_count = 1, destroy_count = 1, create_count = 2
-// - g2: transform_count = 1, destroy_count = 0, create_count = 0
-//
-// Then g1 has operations:
-//
-// - Transform i1 -> o1
-// - Destroy i2 -> x
-// - Create x -> o2
-// - Create x -> o3
-//
-// Group g2 has following operations:
-//
-// - Transform i3 -> o4
-#[derive(Clone, Serialize, Deserialize, PartialEq, Debug, Default)]
-pub struct OperationGrouping {
-    pub transform_count: u32,
-    pub destroy_count: u32,
-    pub create_count: u32,
+impl CellOutput {
+    pub fn new(module: u32, capacity: u32, data: Vec<u8>, lock: H256) -> Self {
+        CellOutput {
+            module,
+            capacity,
+            data,
+            lock,
+        }
+    }
 }
 
-#[derive(Clone, Serialize, Deserialize, PartialEq, Debug, Default)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug, Default)]
 pub struct Transaction {
     pub version: u32,
+    pub deps: Vec<OutPoint>,
     pub inputs: Vec<CellInput>,
     pub outputs: Vec<CellOutput>,
-
-    // Number of operations in each group. Sum of the numbers must equal to the size of operations
-    // list.
-    pub groupings: Vec<OperationGrouping>,
-}
-
-#[derive(PartialEq, Debug)]
-pub struct OperationGroup<'a> {
-    pub transform_inputs: &'a [CellInput],
-    pub transform_outputs: &'a [CellOutput],
-    pub create_outputs: &'a [CellOutput],
-    pub destroy_inputs: &'a [CellInput],
-}
-
-#[derive(Debug)]
-pub struct OperationGroupIter<'a> {
-    inputs_slice: &'a [CellInput],
-    outputs_slice: &'a [CellOutput],
-    groupings_iter: Iter<'a, OperationGrouping>,
 }
 
 impl CellOutput {
     pub fn bytes_len(&self) -> usize {
-        8 + self.data.len() + self.lock.len() + self.recipient.as_ref().map_or(0, |r| r.bytes_len())
-    }
-}
-
-impl Recipient {
-    pub fn bytes_len(&self) -> usize {
-        4 + self.lock.len()
+        8 + self.data.len() + self.lock.len()
     }
 }
 
 impl Transaction {
+    pub fn new(
+        version: u32,
+        deps: Vec<OutPoint>,
+        inputs: Vec<CellInput>,
+        outputs: Vec<CellOutput>,
+    ) -> Self {
+        Transaction {
+            version,
+            deps,
+            inputs,
+            outputs,
+        }
+    }
+
+    pub fn is_cellbase(&self) -> bool {
+        self.inputs.len() == 1 && self.inputs[0].previous_output.is_null()
+    }
+
     // TODO: split it
-    // TODO: tells validation error
-    pub fn validate(&self, is_enlarge_transaction: bool) -> bool {
+    pub fn validate(&self, is_enlarge_transaction: bool) -> Result<(), TxError> {
         if is_enlarge_transaction && !(self.inputs.is_empty() && self.outputs.len() == 1) {
-            return false;
+            return Err(TxError::WrongFormat);
         }
 
         // check outputs capacity
         for output in &self.outputs {
             if output.bytes_len() > (output.capacity as usize) {
-                return false;
+                return Err(TxError::OutofBound);
             }
         }
 
-        // check grouping
-        let mut transform_count = 0;
-        let mut destroy_count = 0;
-        let mut create_count = 0;
-        for grouping in &self.groupings {
-            if grouping.transform_count == 0 && grouping.destroy_count == 0
-                && grouping.create_count == 0
-            {
-                return false;
-            }
-            transform_count += grouping.transform_count;
-            destroy_count += grouping.destroy_count;
-            create_count += grouping.create_count;
-        }
-
-        if (transform_count + destroy_count) as usize != self.inputs.len()
-            || (transform_count + create_count) as usize != self.outputs.len()
-        {
-            return false;
-        }
-
-        true
+        Ok(())
     }
 
     pub fn hash(&self) -> H256 {
         sha3_256(serialize(self).unwrap()).into()
     }
 
-    pub fn groups_iter(&self) -> OperationGroupIter {
-        OperationGroupIter {
-            inputs_slice: &self.inputs[..],
-            outputs_slice: &self.outputs[..],
-            groupings_iter: self.groupings.iter(),
-        }
-    }
-
     pub fn check_lock(&self, unlock: &[u8], lock: &[u8]) -> bool {
         // TODO: check using pubkey signature
         unlock.is_empty() || !lock.is_empty()
     }
-}
 
-impl<'a> Iterator for OperationGroupIter<'a> {
-    type Item = OperationGroup<'a>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        match self.groupings_iter.next() {
-            Some(grouping) => {
-                let transform_count = grouping.transform_count as usize;
-                let consumed_inputs_count =
-                    (grouping.transform_count + grouping.destroy_count) as usize;
-                let consumed_outputs_count =
-                    (grouping.transform_count + grouping.create_count) as usize;
-
-                let group = OperationGroup {
-                    transform_inputs: &self.inputs_slice[0..transform_count],
-                    transform_outputs: &self.outputs_slice[0..transform_count],
-                    destroy_inputs: &self.inputs_slice[transform_count..consumed_inputs_count],
-                    create_outputs: &self.outputs_slice[transform_count..consumed_outputs_count],
-                };
-
-                self.inputs_slice = &self.inputs_slice[consumed_inputs_count..];
-                self.outputs_slice = &self.outputs_slice[consumed_outputs_count..];
-
-                Some(group)
-            }
-            None => None,
-        }
+    pub fn out_points_iter(&self) -> impl Iterator<Item = &OutPoint> {
+        self.deps.iter().chain(
+            self.inputs
+                .iter()
+                .map(|input: &CellInput| &input.previous_output),
+        )
     }
 
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        self.groupings_iter.size_hint()
+    pub fn output_pts(&self) -> Vec<OutPoint> {
+        let h = self.hash();
+        (0..self.outputs.len())
+            .map(|x| OutPoint::new(h, x as u32))
+            .collect()
+    }
+
+    pub fn input_pts(&self) -> Vec<OutPoint> {
+        self.inputs
+            .iter()
+            .map(|x| x.previous_output.clone())
+            .collect()
+    }
+
+    pub fn dep_pts(&self) -> Vec<OutPoint> {
+        self.deps.clone()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.inputs.is_empty() || self.outputs.is_empty()
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+impl Deref for IndexedTransaction {
+    type Target = Transaction;
 
-    fn build_cell_input(tag: &u8) -> CellInput {
-        CellInput {
-            previous_output: OutPoint {
-                hash: 0.into(),
-                index: 0,
-            },
-            unlock: vec![*tag],
-        }
+    fn deref(&self) -> &Self::Target {
+        &self.transaction
+    }
+}
+
+impl DerefMut for IndexedTransaction {
+    fn deref_mut(&mut self) -> &mut Transaction {
+        &mut self.transaction
+    }
+}
+
+impl ::std::hash::Hash for IndexedTransaction {
+    fn hash<H>(&self, state: &mut H)
+    where
+        H: ::std::hash::Hasher,
+    {
+        state.write(&self.hash);
+        state.finish();
+    }
+}
+
+#[derive(Clone, Debug, Eq, Default)]
+pub struct IndexedTransaction {
+    pub transaction: Transaction,
+    /// memorise hash
+    hash: H256,
+}
+
+impl PartialEq for IndexedTransaction {
+    fn eq(&self, other: &IndexedTransaction) -> bool {
+        self.hash == other.hash
+    }
+}
+
+impl IndexedTransaction {
+    pub fn hash(&self) -> H256 {
+        self.hash
     }
 
-    fn build_cell_output(tag: &u8) -> CellOutput {
-        CellOutput {
-            module: 0,
-            capacity: 0,
-            data: vec![],
-            lock: vec![*tag],
-            recipient: None,
+    pub fn new(transaction: Transaction, hash: H256) -> Self {
+        IndexedTransaction { transaction, hash }
+    }
+}
+
+impl From<Transaction> for IndexedTransaction {
+    fn from(transaction: Transaction) -> Self {
+        let hash = transaction.hash();
+        IndexedTransaction { transaction, hash }
+    }
+}
+
+impl<'a> From<&'a OutPoint> for nervos_protocol::OutPoint {
+    fn from(o: &'a OutPoint) -> Self {
+        let mut op = nervos_protocol::OutPoint::new();
+        op.set_hash(o.hash.to_vec());
+        op.set_index(o.index);
+        op
+    }
+}
+
+impl<'a> From<&'a nervos_protocol::OutPoint> for OutPoint {
+    fn from(o: &'a nervos_protocol::OutPoint) -> Self {
+        Self {
+            hash: H256::from(o.get_hash()),
+            index: o.get_index(),
         }
     }
+}
 
-    #[test]
-    fn empty_groups_iter() {
-        let tx = Transaction {
-            version: 0,
-            inputs: Vec::new(),
-            outputs: Vec::new(),
-            groupings: Vec::new(),
-        };
-
-        let mut iter = tx.groups_iter();
-        assert_eq!(iter.next(), None);
+impl<'a> From<&'a nervos_protocol::CellInput> for CellInput {
+    fn from(c: &'a nervos_protocol::CellInput) -> Self {
+        Self {
+            previous_output: c.get_previous_output().into(),
+            unlock: deserialize(c.get_unlock()).unwrap(),
+        }
     }
+}
 
-    #[test]
-    fn groups_iter_happy_pass() {
-        let tx = Transaction {
-            version: 0,
-            inputs: [1u8, 2u8, 3u8].into_iter().map(build_cell_input).collect(),
-            outputs: [1u8, 2u8, 3u8, 4u8]
-                .into_iter()
-                .map(build_cell_output)
-                .collect(),
-            groupings: vec![
-                OperationGrouping {
-                    transform_count: 1,
-                    destroy_count: 1,
-                    create_count: 2,
-                },
-                OperationGrouping {
-                    transform_count: 1,
-                    destroy_count: 0,
-                    create_count: 0,
-                },
-            ],
-        };
+impl<'a> From<&'a CellInput> for nervos_protocol::CellInput {
+    fn from(c: &'a CellInput) -> Self {
+        let mut ci = nervos_protocol::CellInput::new();
+        ci.set_previous_output((&c.previous_output).into());
+        ci.set_unlock(serialize(&c.unlock).unwrap());
+        ci
+    }
+}
 
-        let mut iter = tx.groups_iter();
-        if let Some(group) = iter.next() {
-            assert_eq!(1, group.transform_inputs.len());
-            assert_eq!(1, group.transform_outputs.len());
-            // i1 -> o1
-            assert_eq!(1, group.transform_inputs[0].unlock[0]);
-            assert_eq!(1, group.transform_outputs[0].lock[0]);
+impl From<CellInput> for nervos_protocol::CellInput {
+    fn from(c: CellInput) -> Self {
+        let CellInput {
+            previous_output,
+            unlock,
+        } = c;
+        let mut ci = nervos_protocol::CellInput::new();
+        ci.set_previous_output((&previous_output).into());
+        ci.set_unlock(serialize(&unlock).unwrap());
+        ci
+    }
+}
 
-            assert_eq!(1, group.destroy_inputs.len());
-            // i2 -> x
-            assert_eq!(2, group.destroy_inputs[0].unlock[0]);
-
-            assert_eq!(2, group.create_outputs.len());
-            // x -> o2
-            assert_eq!(2, group.create_outputs[0].lock[0]);
-            // x -> o3
-            assert_eq!(3, group.create_outputs[1].lock[0]);
-        } else {
-            panic!("Expect 2 groups, got 0");
+/// stupid proto3
+impl<'a> From<&'a nervos_protocol::CellOutput> for CellOutput {
+    fn from(c: &'a nervos_protocol::CellOutput) -> Self {
+        Self {
+            module: c.get_module(),
+            capacity: c.get_capacity(),
+            data: c.get_data().to_vec(),
+            lock: c.get_lock().into(),
         }
+    }
+}
 
-        if let Some(group) = iter.next() {
-            assert_eq!(1, group.transform_inputs.len());
-            assert_eq!(1, group.transform_outputs.len());
-            // i3 -> o4
-            assert_eq!(3, group.transform_inputs[0].unlock[0]);
-            assert_eq!(4, group.transform_outputs[0].lock[0]);
+impl<'a> From<&'a CellOutput> for nervos_protocol::CellOutput {
+    fn from(c: &'a CellOutput) -> Self {
+        let mut co = nervos_protocol::CellOutput::new();
+        co.set_module(c.module);
+        co.set_capacity(c.capacity);
+        co.set_data(c.data.clone());
+        co.set_lock(c.lock.to_vec());
+        co
+    }
+}
 
-            assert_eq!(0, group.destroy_inputs.len());
-            assert_eq!(0, group.create_outputs.len());
-        } else {
-            panic!("Expect 2 groups, got 1");
+impl From<CellOutput> for nervos_protocol::CellOutput {
+    fn from(c: CellOutput) -> Self {
+        let CellOutput {
+            module,
+            capacity,
+            data,
+            lock,
+        } = c;
+        let mut co = nervos_protocol::CellOutput::new();
+        co.set_module(module);
+        co.set_capacity(capacity);
+        co.set_data(data);
+        co.set_lock(lock.to_vec());
+        co
+    }
+}
+
+impl<'a> From<&'a nervos_protocol::Transaction> for Transaction {
+    fn from(t: &'a nervos_protocol::Transaction) -> Self {
+        Self {
+            version: t.get_version(),
+            deps: t.get_deps().iter().map(Into::into).collect(),
+            inputs: t.get_inputs().iter().map(Into::into).collect(),
+            outputs: t.get_outputs().iter().map(Into::into).collect(),
         }
+    }
+}
 
-        assert_eq!(iter.next(), None, "Expect 2 groups, got more");
+impl<'a> From<&'a nervos_protocol::Transaction> for IndexedTransaction {
+    fn from(t: &'a nervos_protocol::Transaction) -> Self {
+        let tx: Transaction = t.into();
+        tx.into()
+    }
+}
+
+impl<'a> From<&'a Transaction> for nervos_protocol::Transaction {
+    fn from(t: &'a Transaction) -> Self {
+        let mut tx = nervos_protocol::Transaction::new();
+        tx.set_version(t.version);
+        tx.set_inputs(t.inputs.iter().map(Into::into).collect());
+        tx.set_outputs(t.outputs.iter().map(Into::into).collect());
+        tx
+    }
+}
+
+impl<'a> From<&'a IndexedTransaction> for nervos_protocol::Transaction {
+    fn from(t: &'a IndexedTransaction) -> Self {
+        let tx = &t.transaction;
+        tx.into()
     }
 }

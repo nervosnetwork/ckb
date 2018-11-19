@@ -12,45 +12,43 @@ log = "0.4"
 nervos-util = { path = "util" }
 nervos-core = { path = "core" }
 nervos-chain = { path = "chain" }
+nervos-notify = { path = "notify"}
 nervos-miner = { path = "miner" }
 nervos-db = { path = "db" }
 nervos-network = { path = "network"}
 nervos-pool = { path = "pool"}
 nervos-rpc = { path = "rpc"}
 nervos-time = { path = "util/time"}
+nervos-script= { path = "script"}
+ethash = { git = "https://github.com/NervosFoundation/ethash", tag = "v1.0.0" }
 logger = { path = "util/logger" }
-bigint = { path = "util/bigint" }
+bigint = { git = "https://github.com/NervosFoundation/bigint" }
 dir = { path = "util/dir" }
-crypto = { path = "util/crypto", features = ["rsa", "secp"] }
 ctrlc = { version = "3.1", features = ["termination"] }
 tera = "0.11"
 lazy_static = "1.0"
-bls = { git = "https://github.com/NervosFoundation/bls-rs.git" }
-
-# The [patch] sections in Cargo.toml are only recognized in the root crate's manifest
-[patch.crates-io]
-# TODO: Update ring and solve conflicts
-"ring" = { git = "https://github.com/briansmith/ring", rev = "3a14ef619559f7d4b69e2286d49c833409eef34a" }
-# Using a local improved version of multiaddr for now
-# TODO: remove once merged upstream
-"multiaddr" = { git = "https://github.com/multiformats/rust-multiaddr" }
-# Using a version of rust-multihash that compiles on emscripten
-# TODO: remove once merged upstream
-"multihash" = { git = "https://github.com/tomaka/rust-multihash", branch = "emscripten-hack" }
-"openssl-sys" = { git = "https://github.com/NervosFoundation/rust-openssl.git", branch = "pkcs8_der" }
+nervos-sync = { path = "sync"}
+config = "0.8"
+nervos-verification = { path = "verification" }
 
 [workspace]
 members = [
+    "util/avl",
     "util/logger",
     "util/hash",
     "util/merkle-root",
     "util/crypto",
     "util/dir",
     "network",
+    "network/protocol",
+    "sync",
     "core",
     "chain",
     "miner",
     "db",
     "pool",
-    "rpc"
+    "rpc",
+    "notify",
+    "verification",
+    "script",
 ]

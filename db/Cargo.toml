@@ -8,10 +8,10 @@ serde = "1.0"
 bincode = "1.0"
 nervos-util = { path = "../util" }
 nervos-core = { path = "../core" }
-bigint = { path = "../util/bigint" }
+bigint = { git = "https://github.com/NervosFoundation/bigint" }
 serde_derive = "1.0"
-rocksdb = "0.9.1"
-lru-cache = "0.1.1"
+rocksdb = { git = "https://github.com/NervosFoundation/rust-rocksdb" }
+fnv = "1.0.3"
 
 [dev-dependencies]
 tempdir = "0.3"

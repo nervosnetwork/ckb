@@ -1,11 +1,11 @@
-use super::{Message, SECP256K1};
 use super::error::Error;
-use super::secp256k1::Message as SecpMessage;
 use super::secp256k1::key;
+use super::secp256k1::Message as SecpMessage;
 use super::signature::Signature;
+use super::{Message, SECP256K1};
 use bigint::H256;
-use std::{fmt, ops};
 use std::str::FromStr;
+use std::{fmt, ops};
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct Privkey {
@@ -23,6 +23,15 @@ impl Privkey {
         let data = context.sign_recoverable(&message, &privkey)?;
         let (rec_id, data) = data.serialize_compact(context);
         Ok(Signature::from_compact(rec_id, data))
+    }
+
+    pub fn sign_schnorr(&self, message: &Message) -> Result<Signature, Error> {
+        let context = &SECP256K1;
+        let message = message.as_ref();
+        let privkey = key::SecretKey::from_slice(context, &self.inner)?;
+        let message = SecpMessage::from_slice(message)?;
+        let data = context.sign_schnorr(&message, &privkey)?;
+        Ok(Signature::from_schnorr(data))
     }
 
     pub fn from_slice(key: &[u8]) -> Self {
@@ -48,6 +57,7 @@ impl Into<H256> for Privkey {
 
 impl FromStr for Privkey {
     type Err = Error;
+
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Ok(H256::from_str(s)
             .map_err(|e| Error::Other(format!("{:?}", e)))?

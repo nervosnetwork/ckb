@@ -4,12 +4,22 @@ version = "0.1.0"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 
 [dependencies]
-bigint = { path = "../util/bigint" }
+bigint = { git = "https://github.com/NervosFoundation/bigint" }
 nervos-core = { path = "../core" }
 nervos-network = { path = "../network" }
+nervos-chain = { path = "../chain" }
+nervos-db = { path = "../db" }
+nervos-sync = { path = "../sync" }
+nervos-pool = { path = "../pool" }
 jsonrpc-core = { git = "https://github.com/paritytech/jsonrpc" }
 jsonrpc-macros = { git = "https://github.com/paritytech/jsonrpc" }
 jsonrpc-minihttp-server = { git = "https://github.com/paritytech/jsonrpc" }
+jsonrpc-server-utils = { git = "https://github.com/paritytech/jsonrpc" }
 
+serde = "1.0"
+serde_derive = "1.0"
 serde_json = "1.0"
 log = "0.4"
+
+nervos-protocol = { path = "../network/protocol" }
+protobuf = "2.0.2"

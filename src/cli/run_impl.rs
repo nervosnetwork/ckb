@@ -1,66 +1,84 @@
-use adapter::{ChainToNetAndPoolAdapter, NetToChainAndPoolAdapter};
-use bigint;
-use chain;
-use chain::chain::Chain;
-use config::Config;
+use super::super::Spec;
+use chain::cachedb::CacheDB;
+use chain::chain::ChainProvider;
+use chain::chain::{Chain, ChainBuilder};
+use chain::store::ChainKVStore;
 use ctrlc;
-use db::cachedb::CacheKeyValueDB;
-use db::diskdb::RocksKeyValueDB;
-use db::store::ChainKVStore;
+use db::diskdb::RocksDB;
+use ethash::Ethash;
 use logger;
 use miner::miner::Miner;
-use network::Network;
-use pool::TransactionPool;
+use nervos_notify::Notify;
+use nervos_verification::EthashVerifier;
+use network::NetworkService;
+use pool::*;
 use rpc::RpcServer;
 use std::sync::Arc;
 use std::thread;
+use sync::protocol::{RelayProtocol, SyncProtocol};
+use sync::synchronizer::Synchronizer;
+use sync::{RELAY_PROTOCOL_ID, SYNC_PROTOCOL_ID};
 use util::{Condvar, Mutex};
 
-pub fn run(config: Config) {
-    logger::init(config.logger_config()).expect("Init Logger");
+pub fn run(spec: Spec) {
+    logger::init(spec.configs.logger.clone()).expect("Init Logger");
 
-    info!(target: "main", "Value for config: {:?}", config);
+    info!(target: "main", "Value for spec: {:?}", spec);
+    let rocks_db_path = spec.dirs.join("db");
+    let ethash = spec
+        .configs
+        .miner
+        .clone()
+        .ethash_path
+        .map(|path| Arc::new(Ethash::new(path)));
 
-    let lock = Arc::new(Mutex::new(()));
+    let notify = Notify::new();
 
-    let db = CacheKeyValueDB::new(RocksKeyValueDB::open(&config.dirs.db));
-    let store = ChainKVStore { db: Box::new(db) };
-
-    let tx_pool = Arc::new(TransactionPool::default());
-
-    let chain_adapter = Arc::new(ChainToNetAndPoolAdapter::new(Arc::clone(&tx_pool)));
-
-    let chain = Arc::new(
-        Chain::init(
-            store,
-            Arc::clone(&chain_adapter),
-            &chain::genesis::genesis_dev(),
-        ).unwrap(),
-    );
-
-    let kg = Arc::new(config.key_group());
-
-    let net_adapter =
-        NetToChainAndPoolAdapter::new(kg, &chain, Arc::clone(&tx_pool), Arc::clone(&lock));
-
-    let network = Arc::new(Network::new(net_adapter, config.network));
-
-    chain_adapter.init(&network);
-
-    let miner = Miner {
-        chain,
-        tx_pool,
-        miner_key: config.signer.miner_private_key,
-        signer_key: bigint::H256::from(&config.signer.signer_private_key[..]),
-        lock,
+    let chain = {
+        let mut builder = ChainBuilder::<ChainKVStore<CacheDB<RocksDB>>>::new_rocks(&rocks_db_path)
+            .config(spec.configs.chain)
+            .notify(notify.clone());
+        Arc::new(builder.build().unwrap())
     };
 
-    let network_clone = Arc::clone(&network);
+    info!(target: "main", "chain genesis hash: {:?}", chain.genesis_hash());
+
+    let synchronizer = Synchronizer::new(
+        &chain,
+        notify.clone(),
+        ethash.clone().map(|e| EthashVerifier::new(&e)),
+        spec.configs.sync,
+    );
+
+    let chain1 = Arc::<Chain<ChainKVStore<CacheDB<RocksDB>>>>::clone(&chain);
+    let tx_pool = TransactionPool::new(PoolConfig::default(), chain1, notify.clone());
+
+    let network =
+        Arc::new(NetworkService::new(spec.configs.network, Option::None).expect("Create network"));
+
+    let sync_protocol = Arc::new(SyncProtocol::new(synchronizer.clone()));
+    let sync_protocol_clone = Arc::clone(&sync_protocol);
+
     let _ = thread::Builder::new()
-        .name("network".to_string())
+        .name("sync".to_string())
         .spawn(move || {
-            network_clone.start();
+            sync_protocol_clone.start();
         });
+
+    let relay_protocol = Arc::new(RelayProtocol::new(synchronizer, &tx_pool));
+    network.register_protocol(sync_protocol, SYNC_PROTOCOL_ID, &[(1, 0)]);
+    network.register_protocol(relay_protocol, RELAY_PROTOCOL_ID, &[(1, 0)]);
+    network.start().expect("Start network service");
+
+    let miner_chain = Arc::clone(&chain);
+    let miner = Miner::new(
+        spec.configs.miner,
+        miner_chain,
+        &tx_pool,
+        &network,
+        ethash,
+        &notify,
+    );
 
     let _ = thread::Builder::new()
         .name("miner".to_string())
@@ -68,12 +86,16 @@ pub fn run(config: Config) {
             miner.run_loop();
         });
 
-    let rpc_server = RpcServer { config: config.rpc };
+    let rpc_server = RpcServer {
+        config: spec.configs.rpc,
+    };
     let network_clone = Arc::clone(&network);
+    let chain_clone = Arc::clone(&chain);
+    let tx_pool_clone = Arc::clone(&tx_pool);
     let _ = thread::Builder::new()
         .name("rpc".to_string())
         .spawn(move || {
-            rpc_server.start(network_clone);
+            rpc_server.start(network_clone, chain_clone, tx_pool_clone);
         });
 
     wait_for_exit();

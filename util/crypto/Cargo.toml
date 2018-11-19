@@ -8,17 +8,13 @@ secp256k1 = { git = "https://github.com/NervosFoundation/rust-secp256k1", option
 lazy_static = "1.0"
 failure = "0.1.1"
 failure_derive = "0.1.1"
-bigint = { path = "../bigint" }
-rand = "0.4"
+bigint = { git = "https://github.com/NervosFoundation/bigint" }
+rand = "0.5.0"
 rustc-hex = "1.0"
-crunchy = { version = "0.1.5", optional = true }
-openssl = { git = "https://github.com/NervosFoundation/rust-openssl.git", branch = "pkcs8_der", optional = true }
-serde = "1.0"
-serde_derive = "1.0"
+crunchy = "0.2"
 
 [features]
 default = ["secp"]
 secp = ["secp256k1"]
 bech32 = []
-rsa = ["openssl"]
-dev = []
+dev = ["secp", "bech32"]

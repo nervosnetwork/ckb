@@ -1,0 +1,19 @@
+[package]
+name = "nervos-verification"
+version = "0.1.0"
+authors = ["Nervos Core Dev <dev@nervos.org>"]
+
+[dependencies]
+ethash = { git = "https://github.com/NervosFoundation/ethash", tag = "v1.0.0" }
+log = "0.4"
+nervos-core = { path = "../core" }
+nervos-time = { path = "../util/time" }
+nervos-chain = { path = "../chain" }
+nervos-util = { path = "../util" }
+bigint = { git = "https://github.com/NervosFoundation/bigint" }
+merkle-root = {path = "../util/merkle-root"}
+rayon = "1.0"
+
+[dev-dependencies]
+nervos-db = { path = "../db" }
+nervos-notify = { path = "../notify" }

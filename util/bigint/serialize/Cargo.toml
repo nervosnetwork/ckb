@@ -1,8 +1,0 @@
-[package]
-name = "bigint-serialize"
-version = "0.2.1"
-authors = ["Parity Technologies <admin@parity.io>"]
-license = "MIT"
-
-[dependencies]
-serde = "1.0"

@@ -1,8 +1,8 @@
 extern crate app_dirs;
 
 use app_dirs::{get_app_root, AppDataType, AppInfo};
-use std::{env, fs, io};
 use std::path::{Path, PathBuf};
+use std::{env, fs};
 
 const APP_INFO: AppInfo = AppInfo {
     name: "nervos",
@@ -11,14 +11,7 @@ const APP_INFO: AppInfo = AppInfo {
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct Directories {
-    /// Base dir
     pub base: PathBuf,
-    /// Database dir
-    pub db: PathBuf,
-    /// Dir to store keys
-    pub keys: PathBuf,
-    /// Signer dir
-    pub signer: PathBuf,
 }
 
 impl Default for Directories {
@@ -31,23 +24,13 @@ impl Default for Directories {
 impl Directories {
     pub fn new<P: AsRef<Path>>(base: P) -> Self {
         let base = base.as_ref().to_path_buf();
-        let db = base.join("db");
-        let keys = base.join("keys");
-        let signer = base.join("signer");
-        Directories {
-            base,
-            db,
-            keys,
-            signer,
-        }
+        Directories { base }
     }
 
-    pub fn create_dirs(&self) -> io::Result<()> {
-        fs::create_dir_all(&self.base)?;
-        fs::create_dir_all(&self.db)?;
-        fs::create_dir_all(&self.keys)?;
-        fs::create_dir_all(&self.signer)?;
-        Ok(())
+    pub fn join<P: AsRef<Path>>(&self, path: P) -> PathBuf {
+        let result = self.base.join(path);
+        fs::create_dir_all(result.clone()).expect("Unable to create dir");
+        result
     }
 }
 

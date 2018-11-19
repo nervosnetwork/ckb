@@ -1,79 +1,160 @@
-use bigint::{H160, H256};
-use chain::chain::Chain;
-use core::adapter::ChainAdapter;
-use core::block::Block;
-use core::global::{MAX_TX, TIME_STEP};
-use core::proof::Proof;
-use db::store::ChainStore;
+use super::sealer::{Sealer, Signal};
+use super::Config;
+use chain::chain::{ChainProvider, Error};
+use core::block::IndexedBlock;
+use core::header::{Header, IndexedHeader};
+use core::script::Script;
+use core::transaction::{CellInput, CellOutput, OutPoint, Transaction, VERSION};
+use crossbeam_channel;
+use ethash::{get_epoch, Ethash};
+use nervos_notify::{Event, Notify};
+use nervos_protocol::Payload;
+use network::NetworkService;
 use pool::TransactionPool;
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::thread;
-use time::{now_ms, Duration};
-use util::Mutex;
+use sync::compact_block::CompactBlockBuilder;
+use sync::RELAY_PROTOCOL_ID;
+use time::now_ms;
 
-const FREQUENCY: usize = 50;
-
-pub struct Miner<CA, CS> {
-    pub chain: Arc<Chain<CA, CS>>,
-    pub tx_pool: Arc<TransactionPool>,
-    pub miner_key: H160,
-    pub signer_key: H256,
-    pub lock: Arc<Mutex<()>>,
+pub struct Miner<C> {
+    pub config: Config,
+    pub chain: Arc<C>,
+    pub network: Arc<NetworkService>,
+    pub tx_pool: Arc<TransactionPool<C>>,
+    pub sealer: Sealer,
+    pub signal: Signal,
 }
 
-impl<CA: ChainAdapter, CS: ChainStore> Miner<CA, CS> {
+pub struct Work {
+    pub time: u64,
+    pub tip: IndexedHeader,
+    pub transactions: Vec<Transaction>,
+    pub signal: Signal,
+}
+
+impl<C: ChainProvider + 'static> Miner<C> {
+    pub fn new(
+        config: Config,
+        chain: Arc<C>,
+        tx_pool: &Arc<TransactionPool<C>>,
+        network: &Arc<NetworkService>,
+        ethash: Option<Arc<Ethash>>,
+        notify: &Notify,
+    ) -> Self {
+        if let Some(ref ethash) = ethash {
+            let number = { chain.tip_header().read().header.number };
+            let _ = ethash.gen_dataset(get_epoch(number));
+        }
+        let (sealer, signal) = Sealer::new(ethash);
+
+        let miner = Miner {
+            config,
+            chain,
+            sealer,
+            signal,
+            tx_pool: Arc::clone(tx_pool),
+            network: Arc::clone(network),
+        };
+
+        let (tx, rx) = crossbeam_channel::unbounded();
+        notify.register_transaction_subscriber("miner", tx.clone());
+        notify.register_sync_subscribers("miner", tx);
+        miner.subscribe_update(rx);
+        miner
+    }
+
+    pub fn subscribe_update(&self, sub: crossbeam_channel::Receiver<Event>) {
+        let signal = self.signal.clone();
+        thread::spawn(move || {
+            // some work here
+            while let Some(_event) = sub.recv() {
+                signal.send_abort();
+            }
+        });
+    }
+
     pub fn run_loop(&self) {
-        let mut pre_header = self.chain.head_header();
-        let mut challenge = self.chain.challenge(&pre_header).unwrap();
-        let mut pre_time = now_ms();
-        let mut num: usize = 0;
-        let mut mined: bool = false;
-
         loop {
-            thread::sleep(Duration::from_millis(TIME_STEP / 10));
-            let _guard = self.lock.lock();
-            let time = now_ms();
-            if time / TIME_STEP <= pre_time / TIME_STEP {
-                continue;
+            self.commit_new_work();
+        }
+    }
+
+    fn commit_new_work(&self) {
+        let time = now_ms();
+        let tip = { self.chain.tip_header().read().header.clone() };
+        let mut transactions = self
+            .tx_pool
+            .prepare_mineable_transactions(self.config.max_tx);
+        match self.create_cellbase_transaction(&tip.header, &transactions) {
+            Ok(cellbase_transaction) => {
+                transactions.insert(0, cellbase_transaction);
+                let signal = self.signal.clone();
+                let work = Work {
+                    time,
+                    tip,
+                    transactions,
+                    signal,
+                };
+                if let Some(block) = self.sealer.seal(work) {
+                    let block: IndexedBlock = block.into();
+                    info!(target: "miner", "new block mined: {} -> (number: {}, difficulty: {}, timestamp: {})",
+                          block.hash(), block.header.number, block.header.difficulty, block.header.timestamp);
+                    if self.chain.process_block(&block).is_ok() {
+                        self.announce_new_block(&block);
+                    }
+                }
             }
-            pre_time = time;
-
-            num += 1;
-            if num == FREQUENCY {
-                info!(target: "miner", "{} times is tried", FREQUENCY);
-                num = 0;
-            }
-
-            let head_header = self.chain.head_header();
-
-            if time / TIME_STEP <= head_header.timestamp / TIME_STEP {
-                pre_time = head_header.timestamp;
-                continue;
-            }
-
-            if head_header != pre_header {
-                challenge = self.chain.challenge(&head_header).unwrap();
-                pre_header = head_header;
-                mined = false;
-            }
-
-            if mined {
-                continue;
-            }
-
-            let difficulty = self.chain.cal_difficulty(&pre_header, time);
-            let proof = Proof::new(&self.miner_key, time, pre_header.height + 1, &challenge);
-
-            if proof.difficulty() > difficulty {
-                let txs = self.tx_pool.get_transactions(MAX_TX);
-                let mut block = Block::new(&pre_header, time, difficulty, challenge, proof, txs);
-                block.sign(self.signer_key);
-
-                info!(target: "miner", "new block mined: {} -> ({}, {})", block.hash(), block.header.timestamp, block.header.difficulty);
-                self.chain.process_block(&block).unwrap();
-
-                mined = true;
+            Err(err) => {
+                error!(target: "miner", "error generating cellbase transaction: {:?}", err);
             }
         }
+    }
+
+    fn create_cellbase_transaction(
+        &self,
+        head: &Header,
+        transactions: &[Transaction],
+    ) -> Result<Transaction, Error> {
+        // NOTE: To generate different cellbase txid, we put header number in the input script
+        let inputs = vec![CellInput::new(
+            OutPoint::null(),
+            Script::new(0, Vec::new(), head.raw.number.to_le().to_bytes().to_vec()),
+        )];
+        // NOTE: We could've just used byteorder to serialize u64 and hex string into bytes,
+        // but the truth is we will modify this after we designed lock script anyway, so let's
+        // stick to the simpler way and just convert everything to a single string, then to UTF8
+        // bytes, they really serve the same purpose at the moment
+        let reward = self.cellbase_reward(head, transactions)?;
+        let outputs = vec![CellOutput::new(
+            0,
+            reward,
+            Vec::new(),
+            self.config.redeem_script_hash,
+        )];
+        Ok(Transaction::new(VERSION, Vec::new(), inputs, outputs))
+    }
+
+    fn cellbase_reward(&self, head: &Header, transactions: &[Transaction]) -> Result<u32, Error> {
+        let block_reward = self.chain.block_reward(head.raw.number);
+        let mut fee = 0;
+        for transaction in transactions {
+            fee += self.chain.calculate_transaction_fee(transaction)?;
+        }
+        Ok(block_reward + fee)
+    }
+
+    fn announce_new_block(&self, block: &IndexedBlock) {
+        self.network.with_context_eval(RELAY_PROTOCOL_ID, |nc| {
+            for (peer_id, _session) in nc.sessions() {
+                debug!(target: "miner", "announce new block to peer#{:?}, {} => {}",
+                       peer_id, block.header().number, block.hash());
+                let mut payload = Payload::new();
+                let compact_block = CompactBlockBuilder::new(block, &HashSet::new()).build();
+                payload.set_compact_block(compact_block.into());
+                nc.send(peer_id, payload).ok();
+            }
+        });
     }
 }

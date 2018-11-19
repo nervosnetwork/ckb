@@ -1,0 +1,42 @@
+[logger]
+file = "nervos.log"
+filter = "info"
+color = true
+
+[network]
+listen_address = "0.0.0.0:0"
+boot_nodes = [
+    "/ip4/127.0.0.1/tcp/12345/p2p/QmVMJYDCL2vDnk4PmRGNdDRTWRnfeboUsriYA9CixJsBRf"
+]
+reserved_nodes = [
+    "/ip4/127.0.0.1/tcp/12345/p2p/QmVMJYDCL2vDnk4PmRGNdDRTWRnfeboUsriYA9CixJsBRf"
+]
+only_reserved_peers = false
+min_peers = 4
+max_peers = 8
+secret_file = "secret"
+nodes_file = "nodes.json"
+
+[rpc]
+listen_addr = "0.0.0.0:0"
+
+[chain]
+version = 0
+parent_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
+hash        = "0x1d3c78fcf6a6c98b53aed1bfebe53d5d7a1a0b8dced33576e3806915ce51aa00"
+timestamp   = 0
+txs_commit  = "0x0000000000000000000000000000000000000000000000000000000000000000"
+difficulty  = "0x0000000000000000000000000000000000000000000000000000000000000000"
+number      = 0
+nonce       = 0
+mix_hash    = "0x0000000000000000000000000000000000000000000000000000000000000000"
+verification_level = "Full"
+initial_block_reward = 50000
+
+[sync]
+verification_level = "Full"
+orphan_block_limit = 1024
+
+[miner]
+max_tx              = 1024
+redeem_script_hash  = "0x6463e95f5f1f15415962563b0d4227635d8ae2a74137afbe3e052ef1f9470074"

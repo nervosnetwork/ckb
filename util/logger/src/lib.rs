@@ -7,7 +7,6 @@ extern crate lazy_static;
 extern crate log;
 extern crate parking_lot;
 extern crate regex;
-extern crate serde;
 #[macro_use]
 extern crate serde_derive;
 
@@ -19,8 +18,8 @@ use log::{LevelFilter, SetLoggerError};
 use log::{Log, Metadata, Record};
 use parking_lot::Mutex;
 use regex::Regex;
-use std::{fs, thread};
 use std::io::Write;
+use std::{fs, thread};
 
 enum Message {
     Record(String),
@@ -63,7 +62,7 @@ impl Logger {
 
                 loop {
                     match receiver.recv() {
-                        Ok(Message::Record(record)) => {
+                        Some(Message::Record(record)) => {
                             let removed_color = sanitize_color(record.as_ref());
                             let output = if enable_color {
                                 record
@@ -76,7 +75,7 @@ impl Logger {
                             };
                             println!("{}", output);
                         }
-                        Ok(Message::Terminate) | Err(_) => {
+                        Some(Message::Terminate) | None => {
                             break;
                         }
                     }
@@ -137,13 +136,13 @@ impl Log for Logger {
                     record.args()
                 )
             };
-            let _ = self.sender.send(Message::Record(with_color));
+            self.sender.send(Message::Record(with_color));
         }
     }
 
     fn flush(&self) {
         let handle = self.handle.lock().take().unwrap();
-        let _ = self.sender.send(Message::Terminate);
+        self.sender.send(Message::Terminate);
         let _ = handle.join();
     }
 }

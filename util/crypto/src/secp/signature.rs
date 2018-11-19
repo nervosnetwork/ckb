@@ -1,9 +1,10 @@
-use super::Message;
-use super::SECP256K1;
 use super::error::Error;
 use super::pubkey::Pubkey;
-use super::secp256k1::{RecoverableSignature, RecoveryId};
+use super::secp256k1::schnorr::Signature as SchnorrSignature;
 use super::secp256k1::Message as SecpMessage;
+use super::secp256k1::{RecoverableSignature, RecoveryId};
+use super::Message;
+use super::SECP256K1;
 use bigint::{H256, H512, H520};
 use rustc_hex::ToHex;
 use std::fmt;
@@ -45,6 +46,17 @@ impl Signature {
         Signature(data)
     }
 
+    pub fn from_schnorr(sig: SchnorrSignature) -> Self {
+        let mut data = [0; 65];
+        data[0..64].copy_from_slice(&sig.serialize());
+        data[64] = 0u8;
+        Signature(data)
+    }
+
+    pub fn to_schnorr(&self) -> SchnorrSignature {
+        SchnorrSignature::deserialize(&self.0[0..64])
+    }
+
     /// Create a signature object from the sig.
     pub fn from_rsv(r: &H256, s: &H256, v: u8) -> Self {
         let mut sig = [0u8; 65];
@@ -61,8 +73,11 @@ impl Signature {
 
     /// Check if each component of the signature is in range.
     pub fn is_valid(&self) -> bool {
-        self.v() <= 1 && H256::from_slice(self.r()) < N && H256::from_slice(self.r()) >= 1.into()
-            && H256::from_slice(self.s()) < N && H256::from_slice(self.s()) >= 1.into()
+        self.v() <= 1
+            && H256::from_slice(self.r()) < N
+            && H256::from_slice(self.r()) >= 1.into()
+            && H256::from_slice(self.s()) < N
+            && H256::from_slice(self.s()) >= 1.into()
     }
 
     /// Converts compact signature to a recoverable signature
@@ -82,6 +97,18 @@ impl Signature {
         let recoverable_signature = self.to_recoverable()?;
         let message = SecpMessage::from_slice(&message[..])?;
         let pubkey = context.recover(&message, &recoverable_signature)?;
+        let serialized = pubkey.serialize_uncompressed();
+
+        let mut pubkey = H512::default();
+        pubkey.copy_from_slice(&serialized[1..65]);
+        Ok(pubkey.into())
+    }
+
+    pub fn recover_schnorr(&self, message: &Message) -> Result<Pubkey, Error> {
+        let context = &SECP256K1;
+        let schnorr_signature = self.to_schnorr();
+        let message = SecpMessage::from_slice(&message[..])?;
+        let pubkey = context.recover_schnorr(&message, &schnorr_signature)?;
         let serialized = pubkey.serialize_uncompressed();
 
         let mut pubkey = H512::default();

@@ -8,7 +8,6 @@ args:
         long: data-dir
         value_name: PATH
         help: Specify the database and configuration directory PATH.
-        takes_value: true
 subcommands:
     - run:
         version: "0.1.0"

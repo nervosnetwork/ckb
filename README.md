@@ -2,7 +2,7 @@
 
 # [Nervos CKB](http://nervos.org) - The Common Knowledge Base
 
-[![TravisCI](https://travis-ci.com/NervosFoundation/nervos.svg?token=y9uR6ygmT3geQaMJ4jpJ&branch=develop)](https://travis-ci.com/NervosFoundation/nervos)
+[![TravisCI](https://travis-ci.com/NervosFoundation/ckb.svg?token=y9uR6ygmT3geQaMJ4jpJ&branch=develop)](https://travis-ci.com/NervosFoundation/ckb)
 
 ---
 
@@ -16,25 +16,33 @@ Nervos project defines a suite of scalable and interoperable blockchain protocol
 
 ## Build dependencies
 
-**Rust Nightly is required**. Nervos is currently tested mainly with `nightly-2018-03-07`.
+**Rust Nightly is required**. Nervos is currently tested mainly with `nightly-2018-05-23`.
 
 We recommend installing Rust through [rustup](https://www.rustup.rs/)
 
 ```bash
 # Get rustup from rustup.rs, then in your `nervos` folder:
-rustup override set nightly-2018-03-07
-rustup component add rustfmt-preview --toolchain=nightly-2018-03-07
+rustup override set nightly-2018-05-23
+rustup component add rustfmt-preview --toolchain=nightly-2018-05-23
 ```
 
-we would like to track `nightly`, report new breakage is welcome.
+We would like to track `nightly`, report new breakage is welcome.
 
-you alse need to get the following packages：
+You also need to get the following packages：
 
 * Ubuntu and Debian:
 
 ```shell
-sudo apt-get install git autoconf flex bison texinfo libtool
+sudo apt-get install git autoconf flex bison texinfo libtool pkg-config libssl-dev libclang-dev
 ```
+
+If you are on Ubuntu 18.04, you might run into `'stdarg.h' file not found` error, this is because `librocksdb-sys` fails to find the correct include path. A temporary fix until `librocksdb-sys` fixes this problem is as follows:
+
+```shell
+sudo ln -s /usr/lib/gcc/x86_64-linux-gnu/7/include/stdarg.h /usr/include/stdarg.h
+sudo ln -s /usr/lib/gcc/x86_64-linux-gnu/7/include/stddef.h /usr/include/stddef.h
+```
+
 
 * OSX:
 
@@ -72,4 +80,32 @@ Find RPC port in the log output, the following command assumes 3030 is used:
 ```shell
 curl -d '{"id": 2, "jsonrpc": "2.0", "method":"send_transaction","params": [{"version":2, "inputs":[], "outputs":[], "groupings":[]}]}' \
   -H 'content-type:application/json' 'http://localhost:3030'
+```
+
+### Protobuf Code Generation
+
+Install protobuf:
+
+```shell
+cargo install protobuf --force --vers 1.4.3
+```
+
+Generate code from proto definition:
+
+```shell
+make proto
+```
+
+### Development running
+
+Run multiple nodes:
+
+```shell
+$ cargo run -- --data-dir=/tmp/node1
+$ cargo run -- --data-dir=/tmp/node2
+```
+
+Modify development config file
+```shell
+cp src/config/development.toml /tmp/node1
 ```
