@@ -8,6 +8,7 @@ use core::header::{Header, IndexedHeader};
 use core::transaction::{Capacity, CellInput, CellOutput, Transaction, VERSION};
 use crossbeam_channel;
 use ethash::{get_epoch, Ethash};
+use network::NetworkContextExt;
 use network::NetworkService;
 use pool::TransactionPool;
 use std::collections::HashSet;
@@ -146,13 +147,13 @@ impl<C: ChainProvider + 'static> Miner<C> {
 
     fn announce_new_block(&self, block: &IndexedBlock) {
         self.network.with_context_eval(RELAY_PROTOCOL_ID, |nc| {
-            for (peer_id, _session) in nc.sessions() {
+            for (peer_id, _session) in nc.sessions(&self.network.connected_peers()) {
                 debug!(target: "miner", "announce new block to peer#{:?}, {} => {}",
                        peer_id, block.header().number, block.hash());
                 let mut payload = Payload::new();
                 let compact_block = CompactBlockBuilder::new(block, &HashSet::new()).build();
                 payload.set_compact_block(compact_block.into());
-                nc.send(peer_id, payload).ok();
+                let _ = nc.send_payload(peer_id, payload);
             }
         });
     }

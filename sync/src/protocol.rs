@@ -16,8 +16,10 @@ use futures::sync::mpsc;
 use getdata_process::GetDataProcess;
 use getheaders_process::GetHeadersProcess;
 use headers_process::HeadersProcess;
-use network::{NetworkContext, NetworkProtocolHandler, PeerId, TimerToken};
+use network::NetworkContextExt;
+use network::{NetworkContext, NetworkProtocolHandler, PeerId, Severity, TimerToken};
 use pool::txs_pool::TransactionPool;
+use protobuf;
 use protobuf::RepeatedField;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -180,7 +182,7 @@ impl<C: ChainProvider + 'static> SyncProtocol<C> {
         getdata.set_inventory(RepeatedField::from_vec(inventory));
         payload.set_getdata(getdata);
 
-        let _ = nc.send(peer, payload);
+        let _ = nc.send_payload(peer, payload);
         debug!(target: "sync", "send_block_getdata len={:?} to peer={:?}", v_fetch.len() , peer);
     }
 
@@ -218,7 +220,7 @@ impl<C: ChainProvider + 'static> SyncProtocol<C> {
             // headers_sync_timeout
             if let Some(timeout) = state.headers_sync_timeout {
                 if now > timeout && is_initial_block_download && !state.disconnect {
-                    eviction.push(peer);
+                    eviction.push(*peer);
                     state.disconnect = true;
                     continue;
                 }
@@ -252,7 +254,7 @@ impl<C: ChainProvider + 'static> SyncProtocol<C> {
                         state.chain_sync.sent_getheaders = false;
                     } else if state.chain_sync.timeout > 0 && now > state.chain_sync.timeout {
                         if state.chain_sync.sent_getheaders {
-                            eviction.push(peer);
+                            eviction.push(*peer);
                             state.disconnect = true;
                         } else {
                             state.chain_sync.sent_getheaders = true;
@@ -270,7 +272,7 @@ impl<C: ChainProvider + 'static> SyncProtocol<C> {
         }
 
         for peer in eviction {
-            nc.disconnect_peer(*peer);
+            nc.report_peer(peer, Severity::Timeout);
         }
     }
 
@@ -297,7 +299,7 @@ impl<C: ChainProvider + 'static> SyncProtocol<C> {
         getheaders.set_block_locator_hashes(RepeatedField::from_vec(locator_hash));
         getheaders.set_hash_stop(H256::zero().to_vec());
         payload.set_getheaders(getheaders);
-        let _ = nc.send(peer, payload);
+        let _ = nc.send_payload(peer, payload);
         debug!(target: "sync", "send_getheaders_to_peer getheaders {:?} to peer={:?}", tip.number ,peer);
     }
 
@@ -338,26 +340,19 @@ impl<C: ChainProvider + 'static> SyncProtocol<C> {
             }
         }
     }
-}
 
-impl<C: ChainProvider + 'static> NetworkProtocolHandler for SyncProtocol<C> {
-    fn initialize(&self, nc: Box<NetworkContext>) {
-        let _ = nc.register_timer(SEND_GET_HEADERS_TOKEN, Duration::from_millis(100));
-        let _ = nc.register_timer(BLOCK_FETCH_TOKEN, Duration::from_millis(100));
-    }
-
-    fn process(&self, nc: Box<NetworkContext>, peer: PeerId, mut payload: ckb_protocol::Payload) {
+    fn process(&self, nc: Box<NetworkContext>, peer: &PeerId, mut payload: ckb_protocol::Payload) {
         let mut sender = self.sender.clone();
         let ret = if payload.has_getheaders() {
-            sender.try_send(Task::HandleGetheaders(nc, peer, payload.take_getheaders()))
+            sender.try_send(Task::HandleGetheaders(nc, *peer, payload.take_getheaders()))
         } else if payload.has_headers() {
             let headers = payload.take_headers();
             debug!(target: "sync", "receive headers massge {}", headers.headers.len());
-            sender.try_send(Task::HandleHeaders(nc, peer, headers))
+            sender.try_send(Task::HandleHeaders(nc, *peer, headers))
         } else if payload.has_getdata() {
-            sender.try_send(Task::HandleGetdata(nc, peer, payload.take_getdata()))
+            sender.try_send(Task::HandleGetdata(nc, *peer, payload.take_getdata()))
         } else if payload.has_block() {
-            sender.try_send(Task::HandleBlock(nc, peer, payload.take_block()))
+            sender.try_send(Task::HandleBlock(nc, *peer, payload.take_block()))
         } else {
             Ok(())
         };
@@ -366,23 +361,42 @@ impl<C: ChainProvider + 'static> NetworkProtocolHandler for SyncProtocol<C> {
             error!(target: "sync", "NetworkProtocolHandler dispatch message error {:?}", ret);
         }
     }
+}
 
-    fn connected(&self, nc: Box<NetworkContext>, peer: PeerId) {
-        self.dispatch_on_connected(nc, peer);
+impl<C: ChainProvider + 'static> NetworkProtocolHandler for SyncProtocol<C> {
+    fn initialize(&self, nc: Box<NetworkContext>) {
+        // NOTE: 100ms is what bitcoin use.
+        let _ = nc.register_timer(SEND_GET_HEADERS_TOKEN, Duration::from_millis(100));
+        let _ = nc.register_timer(BLOCK_FETCH_TOKEN, Duration::from_millis(100));
     }
 
-    fn disconnected(&self, _nc: Box<NetworkContext>, peer: PeerId) {
-        info!(target: "sync", "\n\npeer={} disconnected\n\n", peer);
+    /// Called when new network packet received.
+    fn read(&self, nc: Box<NetworkContext>, peer: &PeerId, _packet_id: u8, data: &[u8]) {
+        match protobuf::parse_from_bytes::<ckb_protocol::Payload>(data) {
+            Ok(payload) => self.process(nc, peer, payload),
+            Err(err) => warn!(target: "sync", "Failed to parse protobuf, error={:?}", err),
+        };
+    }
+
+    fn connected(&self, nc: Box<NetworkContext>, peer: &PeerId) {
+        info!(target: "sync", "peer={} SyncProtocol.connected", peer);
+        self.dispatch_on_connected(nc, *peer);
+    }
+
+    fn disconnected(&self, _nc: Box<NetworkContext>, peer: &PeerId) {
+        info!(target: "sync", "peer={} SyncProtocol.disconnected", peer);
         self.synchronizer.peers.disconnected(&peer);
     }
 
     fn timeout(&self, nc: Box<NetworkContext>, token: TimerToken) {
-        if token == SEND_GET_HEADERS_TOKEN {
-            let _ = nc.register_timer(SEND_GET_HEADERS_TOKEN, Duration::from_millis(100));
-            self.dispatch_getheaders(nc);
-        } else if token == BLOCK_FETCH_TOKEN {
-            let _ = nc.register_timer(BLOCK_FETCH_TOKEN, Duration::from_millis(100));
-            self.dispatch_block_fetch(nc);
+        if !self.synchronizer.peers.state.read().is_empty() {
+            match token as usize {
+                SEND_GET_HEADERS_TOKEN => self.dispatch_getheaders(nc),
+                BLOCK_FETCH_TOKEN => self.dispatch_block_fetch(nc),
+                _ => unreachable!(),
+            }
+        } else {
+            debug!(target: "sync", "no peers connected");
         }
     }
 }
@@ -408,9 +422,17 @@ impl<C: ChainProvider + 'static> RelayProtocol<C> {
     }
 
     pub fn relay(&self, nc: &NetworkContext, source: PeerId, payload: &ckb_protocol::Payload) {
-        for (peer_id, _session) in nc.sessions() {
+        let peer_ids = self
+            .synchronizer
+            .peers
+            .state
+            .read()
+            .keys()
+            .cloned()
+            .collect::<Vec<_>>();
+        for (peer_id, _session) in nc.sessions(&peer_ids) {
             if peer_id != source {
-                let _ = nc.send(peer_id, payload.clone());
+                let _ = nc.send_payload(peer_id, payload.clone());
             }
         }
     }
@@ -449,21 +471,19 @@ impl<C: ChainProvider + 'static> RelayProtocol<C> {
             (None, Some(missing_indexes))
         }
     }
-}
 
-impl<C: ChainProvider + 'static> NetworkProtocolHandler for RelayProtocol<C> {
-    fn process(&self, nc: Box<NetworkContext>, peer: PeerId, payload: ckb_protocol::Payload) {
+    fn process(&self, nc: Box<NetworkContext>, peer: &PeerId, payload: ckb_protocol::Payload) {
         if payload.has_transaction() {
             let tx: Transaction = payload.get_transaction().into();
             if !self.received_transactions.lock().insert(tx.hash()) {
                 let _ = self.tx_pool.add_to_memory_pool(tx);
-                self.relay(nc.as_ref(), peer, &payload);
+                self.relay(nc.as_ref(), *peer, &payload);
             }
         } else if payload.has_block() {
             let block: Block = payload.get_block().into();
             if !self.received_blocks.lock().insert(block.hash()) {
-                self.synchronizer.process_new_block(peer, block.into());
-                self.relay(nc.as_ref(), peer, &payload);
+                self.synchronizer.process_new_block(*peer, block.into());
+                self.relay(nc.as_ref(), *peer, &payload);
             }
         } else if payload.has_compact_block() {
             let compact_block: CompactBlock = payload.get_compact_block().into();
@@ -479,8 +499,8 @@ impl<C: ChainProvider + 'static> NetworkProtocolHandler for RelayProtocol<C> {
             {
                 match self.reconstruct_block(&compact_block, Vec::new()) {
                     (Some(block), _) => {
-                        self.synchronizer.process_new_block(peer, block);
-                        self.relay(nc.as_ref(), peer, &payload);
+                        self.synchronizer.process_new_block(*peer, block);
+                        self.relay(nc.as_ref(), *peer, &payload);
                     }
                     (_, Some(missing_indexes)) => {
                         let mut payload = ckb_protocol::Payload::new();
@@ -491,7 +511,7 @@ impl<C: ChainProvider + 'static> NetworkProtocolHandler for RelayProtocol<C> {
                         self.pending_compact_blocks
                             .lock()
                             .insert(compact_block.header.hash(), compact_block);
-                        let _ = nc.respond(payload);
+                        let _ = nc.respond_payload(payload);
                     }
                     (None, None) => {
                         // TODO fail to reconstruct block, downgrade to header first?
@@ -513,7 +533,7 @@ impl<C: ChainProvider + 'static> NetworkProtocolHandler for RelayProtocol<C> {
                         .map(Into::into)
                         .collect(),
                 ));
-                let _ = nc.respond(payload);
+                let _ = nc.respond_payload(payload);
             }
         } else if payload.has_block_transactions() {
             let bt = payload.get_block_transactions();
@@ -522,17 +542,29 @@ impl<C: ChainProvider + 'static> NetworkProtocolHandler for RelayProtocol<C> {
                 let transactions: Vec<Transaction> =
                     bt.get_transactions().iter().map(Into::into).collect();
                 if let (Some(block), _) = self.reconstruct_block(&compact_block, transactions) {
-                    self.synchronizer.process_new_block(peer, block);
+                    self.synchronizer.process_new_block(*peer, block);
                 }
             }
         }
     }
+}
 
-    fn connected(&self, _nc: Box<NetworkContext>, _peer: PeerId) {
+impl<C: ChainProvider + 'static> NetworkProtocolHandler for RelayProtocol<C> {
+    /// Called when new network packet received.
+    fn read(&self, nc: Box<NetworkContext>, peer: &PeerId, _packet_id: u8, data: &[u8]) {
+        match protobuf::parse_from_bytes::<ckb_protocol::Payload>(data) {
+            Ok(payload) => self.process(nc, peer, payload),
+            Err(err) => warn!(target: "sync", "Failed to parse protobuf, error={:?}", err),
+        };
+    }
+
+    fn connected(&self, _nc: Box<NetworkContext>, peer: &PeerId) {
+        info!(target: "sync", "peer={} RelayProtocol.connected", peer);
         // do nothing
     }
 
-    fn disconnected(&self, _nc: Box<NetworkContext>, _peer: PeerId) {
+    fn disconnected(&self, _nc: Box<NetworkContext>, peer: &PeerId) {
+        info!(target: "sync", "peer={} RelayProtocol.disconnected", peer);
         // TODO
     }
 }
