@@ -68,7 +68,7 @@ pub fn run(config: Config) {
             miner.run_loop();
         });
 
-    let rpc_server = RpcServer;
+    let rpc_server = RpcServer { config: config.rpc };
     let network_clone = Arc::clone(&network);
     let _ = thread::Builder::new()
         .name("rpc".to_string())

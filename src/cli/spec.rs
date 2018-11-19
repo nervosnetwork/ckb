@@ -12,16 +12,23 @@ pub struct NetworkConfig {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct RpcConfig {
+    pub listen_addr: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Spec {
     pub logger: LogConfig,
     pub network: NetworkConfig,
+    pub rpc: RpcConfig,
 }
 
 impl Default for Spec {
     fn default() -> Self {
         let logger = LogConfig {
             filter: Some(
-                "main=info,miner=info,chain=info,network=debug,tx=debug,pool=debug".to_string(),
+                "main=info,miner=info,chain=info,network=debug,tx=debug,pool=debug,rpc=info"
+                    .to_string(),
             ),
             color: true,
             file: Some("/tmp/nervos0.log".to_string()),
@@ -37,7 +44,15 @@ impl Default for Spec {
             ],
         };
 
-        Spec { logger, network }
+        let rpc = RpcConfig {
+            listen_addr: "0.0.0.0:0".to_string(),
+        };
+
+        Spec {
+            logger,
+            network,
+            rpc,
+        }
     }
 }
 
@@ -92,6 +107,8 @@ mod tests {
             [network]
             listen_addr = "/ip4/0.0.0.0/tcp/0"
             bootstrap_nodes = [["QmWvoPbu9AgEFLL5UyxpCfhxkLDd9T7zuerjhHiwsnqSh4", "/ip4/127.0.0.1/tcp/12345"]]
+            [rpc]
+            listen_addr = "0.0.0.0:0"
         "#).expect("Spec deserialize.");
 
         assert_eq!(true, spec.logger.color);
