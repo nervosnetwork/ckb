@@ -1,9 +1,18 @@
+extern crate blake2_rfc;
 extern crate tiny_keccak;
 
+pub use blake2_rfc::blake2b::Blake2b;
 pub use tiny_keccak::Keccak as Sha3;
 
 pub fn sha3_256<T: AsRef<[u8]>>(s: T) -> [u8; 32] {
     tiny_keccak::sha3_256(s.as_ref())
+}
+
+pub fn blake2b<T: AsRef<[u8]>>(s: T) -> [u8; 32] {
+    let mut result = [0u8; 32];
+    let hash = blake2_rfc::blake2b::blake2b(32, &[], s.as_ref());
+    result.copy_from_slice(hash.as_bytes());
+    result
 }
 
 #[test]

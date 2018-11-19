@@ -21,6 +21,5 @@ crossbeam-channel = "0.2"
 
 [dev-dependencies]
 env_logger = "0.4"
-ethash = { git = "https://github.com/NervosFoundation/ethash", tag = "v1.0.0" }
 ckb-db = { path = "../db" }
 hash = {path = "../util/hash"}

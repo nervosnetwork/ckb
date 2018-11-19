@@ -1,23 +1,25 @@
 use ckb_chain::chain::ChainProvider;
+use ckb_chain::PowEngine;
 use ckb_protocol;
 use network::{NetworkContext, PeerId};
 use synchronizer::Synchronizer;
 
-pub struct CompactBlockProcess<'a, C: 'a> {
+pub struct CompactBlockProcess<'a, C: 'a, P: 'a> {
     message: &'a ckb_protocol::CompactBlock,
-    synchronizer: &'a Synchronizer<C>,
+    synchronizer: &'a Synchronizer<C, P>,
     peer: PeerId,
     nc: &'a NetworkContext,
 }
 
-impl<'a, C> CompactBlockProcess<'a, C>
+impl<'a, C, P> CompactBlockProcess<'a, C, P>
 where
     C: ChainProvider + 'a,
+    P: PowEngine + 'a,
 {
     pub fn new(
         message: &'a ckb_protocol::CompactBlock,
-        synchronizer: &'a Synchronizer<C>,
-        peer: &PeerId,
+        synchronizer: &'a Synchronizer<C, P>,
+        peer: PeerId,
         nc: &'a NetworkContext,
     ) -> Self {
         CompactBlockProcess {

@@ -1,13 +1,15 @@
-use chain_spec::{ChainSpec, SpecType};
+use ckb_chain_spec::{ChainSpec, SpecType};
 use clap;
 use config_tool::{Config as ConfigTool, File, FileFormat};
 use dir::{default_base_path, Directories};
 use logger::Config as LogConfig;
 use miner::Config as MinerConfig;
 use network::Config as NetworkConfig;
+use pool::txs_pool::PoolConfig;
 use rpc::Config as RpcConfig;
 use std::error::Error;
 use sync::Config as SyncConfig;
+use {DEFAULT_CONFIG, DEFAULT_CONFIG_FILENAME};
 
 #[derive(Clone, Debug)]
 pub struct Setup {
@@ -18,7 +20,7 @@ pub struct Setup {
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct CKB {
-    chain: String,
+    pub chain: String,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -29,9 +31,8 @@ pub struct Configs {
     pub rpc: RpcConfig,
     pub miner: MinerConfig,
     pub sync: SyncConfig,
+    pub pool: PoolConfig,
 }
-
-pub const DEFAULT_CONFIG_FILENAME: &str = "config.toml";
 
 impl Setup {
     pub fn new(matches: &clap::ArgMatches) -> Result<Self, Box<Error>> {
@@ -42,10 +43,7 @@ impl Setup {
         let dirs = Directories::new(&data_path);
 
         let mut config_tool = ConfigTool::new();
-        config_tool.merge(File::from_str(
-            include_str!("config/default.toml"),
-            FileFormat::Toml,
-        ))?;
+        config_tool.merge(File::from_str(DEFAULT_CONFIG, FileFormat::Toml))?;
 
         // if config arg is present, open and load it as required,
         // otherwise load the default config from data-dir
@@ -67,11 +65,6 @@ impl Setup {
         if configs.network.net_config_path.is_none() {
             configs.network.net_config_path =
                 Some(dirs.join("network").to_string_lossy().to_string());
-        }
-        if let Some(file) = configs.miner.ethash_path {
-            let mut path = dirs.join("miner");
-            path.push(file);
-            configs.miner.ethash_path = Some(path.to_str().unwrap().to_string());
         }
 
         //run with the --chain option or with a config file specifying chain = "path" under [ckb]
@@ -109,11 +102,12 @@ pub mod test {
         genesis:
             seal:
                 nonce: 233
-                mix_hash: "0x0000000000000000000000000000000000000000000000000000000000000233"
+                proof: [2, 3, 3]
             version: 0
             parent_hash: "0x0000000000000000000000000000000000000000000000000000000000000233"
             timestamp: 0
             txs_commit: "0x0000000000000000000000000000000000000000000000000000000000000233"
+            txs_proposal: "0x0000000000000000000000000000000000000000000000000000000000000233"
             difficulty: "0x233"
             cellbase_id: "0x0000000000000000000000000000000000000000000000000000000000000000"
             uncles_hash: "0x0000000000000000000000000000000000000000000000000000000000000000"
@@ -141,7 +135,7 @@ pub mod test {
         let data_path = tmp_dir.path().to_str().unwrap();
 
         let test_conifg = r#"[network]
-                             listen_address = "1.1.1.1:1""#;
+                             listen_addresses = ["/ip4/1.1.1.1/tcp/1"]"#;
         let config_path = tmp_dir.path().join("config.toml");
         write_file(config_path, test_conifg);
         let arg_vec = vec!["ckb", "run", "--data-dir", data_path];
@@ -150,8 +144,8 @@ pub mod test {
         let setup = Setup::new(&matches.subcommand_matches("run").unwrap());
         assert!(setup.is_ok());
         assert_eq!(
-            setup.unwrap().configs.network.listen_address,
-            "1.1.1.1:1".parse().ok()
+            setup.unwrap().configs.network.listen_addresses,
+            vec!["/ip4/1.1.1.1/tcp/1".parse().unwrap()]
         );
     }
 
@@ -161,7 +155,7 @@ pub mod test {
         let data_path = tmp_dir.path().to_str().unwrap();
 
         let test_conifg = r#"[network]
-                             listen_address = "1.1.1.1:1""#;
+                             listen_addresses = ["/ip4/1.1.1.1/tcp/1"]"#;
         let config_path = tmp_dir.path().join("specify.toml");
         write_file(&config_path, test_conifg);
         let arg_vec = vec![
@@ -177,8 +171,8 @@ pub mod test {
         let setup = Setup::new(&matches.subcommand_matches("run").unwrap());
         assert!(setup.is_ok());
         assert_eq!(
-            setup.unwrap().configs.network.listen_address,
-            "1.1.1.1:1".parse().ok()
+            setup.unwrap().configs.network.listen_addresses,
+            vec!["/ip4/1.1.1.1/tcp/1".parse().unwrap()]
         );
     }
 

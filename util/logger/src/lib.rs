@@ -57,7 +57,7 @@ impl Logger {
                         .append(true)
                         .create(true)
                         .open(file.clone())
-                        .expect(&format!("Cannot write to log file given: {}", file))
+                        .unwrap_or_else(|_| panic!("Cannot write to log file given: {}", file))
                 });
 
                 loop {
@@ -80,8 +80,7 @@ impl Logger {
                         }
                     }
                 }
-            })
-            .unwrap();
+            }).unwrap();
 
         Logger {
             sender,

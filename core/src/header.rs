@@ -4,7 +4,7 @@ use ckb_protocol;
 use hash::sha3_256;
 use merkle_root::merkle_root;
 use std::ops::{Deref, DerefMut};
-use transaction::Transaction;
+use transaction::{IndexedTransaction, ProposalTransaction};
 
 const VERSION: u32 = 0;
 
@@ -13,7 +13,7 @@ pub use BlockNumber;
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug, Default)]
 pub struct Seal {
     pub nonce: u64,
-    pub mix_hash: H256,
+    pub proof: Vec<u8>,
 }
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug, Default)]
@@ -25,8 +25,10 @@ pub struct RawHeader {
     pub timestamp: u64,
     /// Genesis number is 0, Child block number is parent block number + 1.
     pub number: BlockNumber,
-    /// Transactions merkle tree root.
+    /// Transactions merkle root.
     pub txs_commit: H256,
+    // /// Transactions proposal merkle root.
+    pub txs_proposal: H256,
     /// Block difficulty.
     pub difficulty: U256,
     /// Hash of the cellbase
@@ -38,14 +40,24 @@ pub struct RawHeader {
 impl RawHeader {
     pub fn new<'a>(
         parent_header: &Header,
-        transactions: impl Iterator<Item = &'a Transaction>,
+        commit_transactions: impl Iterator<Item = &'a IndexedTransaction>,
+        proposal_transactions: impl Iterator<Item = &'a ProposalTransaction>,
         timestamp: u64,
         difficulty: U256,
         cellbase_id: H256,
         uncles_hash: H256,
     ) -> RawHeader {
-        let transactions_hash: Vec<H256> = transactions.map(|t: &Transaction| t.hash()).collect();
-        let txs_commit = merkle_root(transactions_hash.as_slice());
+        let commit_txs_hash: Vec<H256> = commit_transactions
+            .map(|t: &IndexedTransaction| t.hash())
+            .collect();
+        let txs_commit = merkle_root(commit_txs_hash.as_slice());
+
+        let proposal_txs_hash: Vec<H256> = proposal_transactions
+            .map(|t: &ProposalTransaction| t.proposal_short_id().hash())
+            .collect();
+
+        let txs_proposal = merkle_root(proposal_txs_hash.as_slice());
+
         let parent_hash = parent_header.hash();
         let number = parent_header.number + 1;
 
@@ -53,6 +65,7 @@ impl RawHeader {
             version: VERSION,
             parent_hash,
             txs_commit,
+            txs_proposal,
             timestamp,
             number,
             difficulty,
@@ -65,11 +78,8 @@ impl RawHeader {
         sha3_256(serialize(self).unwrap()).into()
     }
 
-    pub fn with_seal(self, nonce: u64, mix_hash: H256) -> Header {
-        Header {
-            raw: self,
-            seal: Seal { nonce, mix_hash },
-        }
+    pub fn with_seal(self, seal: Seal) -> Header {
+        Header { raw: self, seal }
     }
 }
 
@@ -177,13 +187,14 @@ impl<'a> From<&'a ckb_protocol::Header> for Header {
                 timestamp: proto.get_timestamp(),
                 number: proto.get_number(),
                 txs_commit: H256::from_slice(proto.get_txs_commit()),
+                txs_proposal: H256::from_slice(proto.get_txs_proposal()),
                 difficulty: H256::from_slice(proto.get_difficulty()).into(),
                 cellbase_id: H256::from_slice(proto.get_cellbase_id()),
                 uncles_hash: H256::from_slice(proto.get_uncles_hash()),
             },
             seal: Seal {
                 nonce: proto.get_nonce(),
-                mix_hash: H256::from_slice(proto.get_mix_hash()),
+                proof: proto.get_proof().to_vec(),
             },
         }
     }
@@ -204,10 +215,11 @@ impl<'a> From<&'a Header> for ckb_protocol::Header {
         header.set_difficulty(temp_difficulty.to_vec());
         header.set_number(h.number);
         header.set_nonce(h.seal.nonce);
-        header.set_mix_hash(h.seal.mix_hash.to_vec());
+        header.set_proof(h.seal.proof.to_vec());
         header.set_parent_hash(h.parent_hash.to_vec());
         header.set_timestamp(h.timestamp);
         header.set_txs_commit(h.txs_commit.to_vec());
+        header.set_txs_proposal(h.txs_proposal.to_vec());
         header.set_cellbase_id(h.cellbase_id.to_vec());
         header.set_uncles_hash(h.uncles_hash.to_vec());
         header

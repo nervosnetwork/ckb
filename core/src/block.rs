@@ -1,23 +1,31 @@
 use super::header::{Header, IndexedHeader};
-use super::transaction::Transaction;
+use super::transaction::{IndexedTransaction, ProposalShortId, Transaction};
 use bigint::H256;
 use ckb_protocol;
+use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use uncle::{uncles_hash, UncleBlock};
 use BlockNumber;
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Default, Debug)]
 pub struct Block {
     pub header: Header,
-    pub transactions: Vec<Transaction>,
     pub uncles: Vec<UncleBlock>,
+    pub commit_transactions: Vec<Transaction>,
+    pub proposal_transactions: Vec<ProposalShortId>,
 }
 
 impl Block {
-    pub fn new(header: Header, transactions: Vec<Transaction>, uncles: Vec<UncleBlock>) -> Block {
+    pub fn new(
+        header: Header,
+        uncles: Vec<UncleBlock>,
+        commit_transactions: Vec<Transaction>,
+        proposal_transactions: Vec<ProposalShortId>,
+    ) -> Block {
         Block {
             header,
-            transactions,
             uncles,
+            commit_transactions,
+            proposal_transactions,
         }
     }
 
@@ -37,6 +45,14 @@ impl Block {
         self.header.is_genesis()
     }
 
+    pub fn commit_transactions(&self) -> &[Transaction] {
+        &self.commit_transactions
+    }
+
+    pub fn proposal_transactions(&self) -> &[ProposalShortId] {
+        &self.proposal_transactions
+    }
+
     pub fn uncles(&self) -> &[UncleBlock] {
         &self.uncles
     }
@@ -49,8 +65,9 @@ impl Block {
 #[derive(Clone, Eq, Default, Debug)]
 pub struct IndexedBlock {
     pub header: IndexedHeader,
-    pub transactions: Vec<Transaction>,
     pub uncles: Vec<UncleBlock>,
+    pub commit_transactions: Vec<IndexedTransaction>,
+    pub proposal_transactions: Vec<ProposalShortId>,
 }
 
 impl PartialEq for IndexedBlock {
@@ -70,6 +87,20 @@ impl ::std::hash::Hash for IndexedBlock {
 }
 
 impl IndexedBlock {
+    pub fn new(
+        header: IndexedHeader,
+        uncles: Vec<UncleBlock>,
+        commit_transactions: Vec<IndexedTransaction>,
+        proposal_transactions: Vec<ProposalShortId>,
+    ) -> IndexedBlock {
+        IndexedBlock {
+            header,
+            uncles,
+            commit_transactions,
+            proposal_transactions,
+        }
+    }
+
     pub fn hash(&self) -> H256 {
         self.header.hash()
     }
@@ -90,6 +121,14 @@ impl IndexedBlock {
         &self.uncles
     }
 
+    pub fn commit_transactions(&self) -> &[IndexedTransaction] {
+        &self.commit_transactions
+    }
+
+    pub fn proposal_transactions(&self) -> &[ProposalShortId] {
+        &self.proposal_transactions
+    }
+
     pub fn cal_uncles_hash(&self) -> H256 {
         uncles_hash(&self.uncles)
     }
@@ -103,13 +142,18 @@ impl From<Block> for IndexedBlock {
     fn from(block: Block) -> Self {
         let Block {
             header,
-            transactions,
             uncles,
+            commit_transactions,
+            proposal_transactions,
         } = block;
         IndexedBlock {
-            transactions,
             header: header.into(),
             uncles,
+            commit_transactions: commit_transactions
+                .into_par_iter()
+                .map(Into::into)
+                .collect(),
+            proposal_transactions,
         }
     }
 }
@@ -118,13 +162,15 @@ impl From<IndexedBlock> for Block {
     fn from(block: IndexedBlock) -> Self {
         let IndexedBlock {
             header,
-            transactions,
             uncles,
+            commit_transactions,
+            proposal_transactions,
         } = block;
         Block {
-            transactions,
             header: header.header,
             uncles,
+            commit_transactions: commit_transactions.into_iter().map(Into::into).collect(),
+            proposal_transactions,
         }
     }
 }
@@ -133,8 +179,13 @@ impl<'a> From<&'a ckb_protocol::Block> for Block {
     fn from(b: &'a ckb_protocol::Block) -> Self {
         Block {
             header: b.get_header().into(),
-            transactions: b.get_transactions().iter().map(|t| t.into()).collect(),
-            uncles: b.get_uncles().iter().map(|t| t.into()).collect(),
+            uncles: b.get_uncles().iter().map(Into::into).collect(),
+            commit_transactions: b.get_commit_transactions().iter().map(Into::into).collect(),
+            proposal_transactions: b
+                .get_proposal_transactions()
+                .iter()
+                .filter_map(|id| ProposalShortId::from_slice(&id))
+                .collect(),
         }
     }
 }
@@ -150,9 +201,11 @@ impl<'a> From<&'a Block> for ckb_protocol::Block {
     fn from(b: &'a Block) -> Self {
         let mut block = ckb_protocol::Block::new();
         block.set_header(b.header().into());
-        let transactions = b.transactions.iter().map(|t| t.into()).collect();
-        block.set_transactions(transactions);
-        let uncles = b.uncles.iter().map(|t| t.into()).collect();
+        let commit_transactions = b.commit_transactions.iter().map(Into::into).collect();
+        block.set_commit_transactions(commit_transactions);
+        let proposal_transactions = b.proposal_transactions.iter().map(|t| t.to_vec()).collect();
+        block.set_proposal_transactions(proposal_transactions);
+        let uncles = b.uncles.iter().map(Into::into).collect();
         block.set_uncles(uncles);
         block
     }
@@ -162,9 +215,11 @@ impl<'a> From<&'a IndexedBlock> for ckb_protocol::Block {
     fn from(b: &'a IndexedBlock) -> Self {
         let mut block = ckb_protocol::Block::new();
         block.set_header((&b.header).into());
-        let transactions = b.transactions.iter().map(|t| t.into()).collect();
-        block.set_transactions(transactions);
-        let uncles = b.uncles.iter().map(|t| t.into()).collect();
+        let commit_transactions = b.commit_transactions.iter().map(Into::into).collect();
+        block.set_commit_transactions(commit_transactions);
+        let proposal_transactions = b.proposal_transactions.iter().map(|t| t.to_vec()).collect();
+        block.set_proposal_transactions(proposal_transactions);
+        let uncles = b.uncles.iter().map(Into::into).collect();
         block.set_uncles(uncles);
         block
     }
@@ -174,7 +229,7 @@ impl<'a> From<&'a IndexedBlock> for ckb_protocol::Block {
 mod tests {
     use super::*;
     use bigint::U256;
-    use header::{RawHeader, Seal};
+    use header::RawHeader;
     use protobuf;
     use protobuf::Message;
 
@@ -188,29 +243,28 @@ mod tests {
                 parent_hash: H256::zero(),
                 timestamp: 10,
                 txs_commit: H256::zero(),
+                txs_proposal: H256::zero(),
                 difficulty: U256::zero(),
                 cellbase_id: cellbase.hash(),
                 uncles_hash: H256::zero(),
             },
-            seal: Seal {
-                nonce: 0,
-                mix_hash: H256::zero(),
-            },
+            seal: Default::default(),
         };
 
         IndexedBlock {
-            header: header.into(),
-            transactions: vec![cellbase],
             uncles,
+            header: header.into(),
+            commit_transactions: vec![cellbase],
+            proposal_transactions: vec![ProposalShortId::from_slice(&[1; 10]).unwrap()],
         }
     }
 
-    fn dummy_cellbase() -> Transaction {
+    fn dummy_cellbase() -> IndexedTransaction {
         use transaction::{CellInput, CellOutput, VERSION};
 
         let inputs = vec![CellInput::new_cellbase_input(0)];
         let outputs = vec![CellOutput::new(0, vec![], H256::from(0))];
-        Transaction::new(VERSION, vec![], inputs, outputs)
+        Transaction::new(VERSION, vec![], inputs, outputs).into()
     }
 
     fn dummy_uncle() -> UncleBlock {
@@ -222,16 +276,18 @@ mod tests {
                 parent_hash: H256::zero(),
                 timestamp: 10,
                 txs_commit: H256::zero(),
+                txs_proposal: H256::zero(),
                 difficulty: U256::zero(),
                 cellbase_id: cellbase.hash(),
                 uncles_hash: H256::zero(),
             },
-            seal: Seal {
-                nonce: 0,
-                mix_hash: H256::zero(),
-            },
+            seal: Default::default(),
         };
-        UncleBlock { header, cellbase }
+        UncleBlock {
+            header,
+            cellbase: cellbase.into(),
+            proposal_transactions: vec![ProposalShortId::from_slice(&[1; 10]).unwrap()],
+        }
     }
 
     #[test]

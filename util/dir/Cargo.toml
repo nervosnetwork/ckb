@@ -4,4 +4,4 @@ version = "0.1.0"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 
 [dependencies]
-app_dirs = { git = "https://github.com/NervosFoundation/app-dirs-rs.git" }
+dirs = "1.0"

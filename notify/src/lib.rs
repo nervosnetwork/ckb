@@ -6,13 +6,13 @@ extern crate crossbeam_channel;
 extern crate fnv;
 
 use core::block::IndexedBlock;
-use core::transaction::Transaction;
+use core::transaction::IndexedTransaction;
 use fnv::FnvHashMap;
 use std::sync::Arc;
 use util::RwLock;
 
-pub type OldTxs = Vec<Transaction>;
-pub type NewTxs = Vec<Transaction>;
+pub type OldTxs = Vec<IndexedTransaction>;
+pub type NewTxs = Vec<IndexedTransaction>;
 
 pub const MINER_SUBSCRIBER: &str = "miner";
 pub const TXS_POOL_SUBSCRIBER: &str = "txs_pool";
@@ -21,11 +21,11 @@ pub const TXS_POOL_SUBSCRIBER: &str = "txs_pool";
 pub struct ForkTxs(pub OldTxs, pub NewTxs);
 
 impl ForkTxs {
-    pub fn old_txs(&self) -> &Vec<Transaction> {
+    pub fn old_txs(&self) -> &Vec<IndexedTransaction> {
         &self.0
     }
 
-    pub fn new_txs(&self) -> &Vec<Transaction> {
+    pub fn new_txs(&self) -> &Vec<IndexedTransaction> {
         &self.1
     }
 }
@@ -34,7 +34,6 @@ impl ForkTxs {
 pub enum Event {
     NewTransaction,
     NewTip(Arc<IndexedBlock>),
-    SideChainBlock(Arc<IndexedBlock>),
     SwitchFork(Arc<ForkTxs>),
 }
 
@@ -68,94 +67,23 @@ impl Notify {
         self.fork_subscribers.write().insert(name.to_string(), sub);
     }
 
-    pub fn register_side_chain_subscriber<S: ToString>(&self, name: S, sub: Subscriber) {
-        self.side_chain_subscribers
-            .write()
-            .insert(name.to_string(), sub);
-    }
-
-    pub fn notify_new_tip<F>(&self, block: &IndexedBlock, filter: Option<F>)
-    where
-        F: Fn(&str) -> bool,
-    {
+    pub fn notify_new_tip(&self, block: &IndexedBlock) {
         let block = Arc::new(block.clone());
-        if let Some(filter) = filter {
-            for (_, sub) in self
-                .tip_subscribers
-                .read()
-                .iter()
-                .filter(|(name, _sub)| filter(name))
-            {
-                sub.send(Event::NewTip(Arc::clone(&block)));
-            }
-        } else {
-            for sub in self.tip_subscribers.read().values() {
-                sub.send(Event::NewTip(Arc::clone(&block)));
-            }
+        for sub in self.tip_subscribers.read().values() {
+            sub.send(Event::NewTip(Arc::clone(&block)));
         }
     }
 
-    pub fn notify_new_transaction<F>(&self, filter: Option<F>)
-    where
-        F: Fn(&str) -> bool,
-    {
-        if let Some(filter) = filter {
-            for (_, sub) in self
-                .transaction_subscribers
-                .read()
-                .iter()
-                .filter(|(name, _sub)| filter(name))
-            {
-                sub.send(Event::NewTransaction);
-            }
-        } else {
-            for sub in self.transaction_subscribers.read().values() {
-                sub.send(Event::NewTransaction);
-            }
+    pub fn notify_new_transaction(&self) {
+        for sub in self.transaction_subscribers.read().values() {
+            sub.send(Event::NewTransaction);
         }
     }
 
-    pub fn notify_side_chain_block<F>(&self, block: &IndexedBlock, filter: Option<F>)
-    where
-        F: Fn(&str) -> bool,
-    {
-        let block = Arc::new(block.clone());
-
-        if let Some(filter) = filter {
-            for (_, sub) in self
-                .side_chain_subscribers
-                .read()
-                .iter()
-                .filter(|(name, _sub)| filter(name))
-            {
-                sub.send(Event::SideChainBlock(Arc::clone(&block)));
-            }
-        } else {
-            for sub in self.side_chain_subscribers.read().values() {
-                sub.send(Event::SideChainBlock(Arc::clone(&block)));
-            }
-        }
-    }
-
-    pub fn notify_switch_fork<F>(&self, txs: ForkTxs, filter: Option<F>)
-    where
-        F: Fn(&str) -> bool,
-    {
+    pub fn notify_switch_fork(&self, txs: ForkTxs) {
         let txs = Arc::new(txs);
-
-        if let Some(filter) = filter {
-            for (_, sub) in self
-                .fork_subscribers
-                .read()
-                .iter()
-                .filter(|(name, _sub)| filter(name))
-            {
-                sub.send(Event::SwitchFork(Arc::clone(&txs)));
-            }
-        } else {
-            for sub in self.fork_subscribers.read().values() {
-                sub.send(Event::SwitchFork(Arc::clone(&txs)));
-            }
+        for sub in self.fork_subscribers.read().values() {
+            sub.send(Event::SwitchFork(Arc::clone(&txs)));
         }
     }
 }
@@ -164,19 +92,13 @@ impl Notify {
 mod tests {
     use super::*;
 
-    fn exclude_miner_sub(name: &str) -> bool {
-        name != MINER_SUBSCRIBER
-    }
-
     #[test]
     fn test_transaction() {
         let notify = Notify::default();
         let (tx, rx) = crossbeam_channel::unbounded();
         notify.register_transaction_subscriber(MINER_SUBSCRIBER, tx.clone());
-        notify.notify_new_transaction::<fn(&str) -> bool>(None);
+        notify.notify_new_transaction();
         assert_eq!(rx.try_recv(), Some(Event::NewTransaction));
-        notify.notify_new_transaction(Some(exclude_miner_sub));
-        assert_eq!(rx.try_recv(), None);
     }
 
     #[test]
@@ -186,23 +108,8 @@ mod tests {
         let tip = Arc::new(IndexedBlock::default());
 
         notify.register_tip_subscriber(MINER_SUBSCRIBER, tx.clone());
-        notify.notify_new_tip::<fn(&str) -> bool>(&tip, None);
+        notify.notify_new_tip(&tip);
         assert_eq!(rx.try_recv(), Some(Event::NewTip(Arc::clone(&tip))));
-        notify.notify_new_tip(&tip, Some(exclude_miner_sub));
-        assert_eq!(rx.try_recv(), None);
-    }
-
-    #[test]
-    fn test_side_chain_block() {
-        let notify = Notify::default();
-        let (tx, rx) = crossbeam_channel::unbounded();
-        let tip = Arc::new(IndexedBlock::default());
-
-        notify.register_side_chain_subscriber(MINER_SUBSCRIBER, tx.clone());
-        notify.notify_side_chain_block::<fn(&str) -> bool>(&tip, None);
-        assert_eq!(rx.try_recv(), Some(Event::SideChainBlock(Arc::clone(&tip))));
-        notify.notify_side_chain_block(&tip, Some(exclude_miner_sub));
-        assert_eq!(rx.try_recv(), None);
     }
 
     #[test]
@@ -212,12 +119,10 @@ mod tests {
         let txs = ForkTxs::default();
 
         notify.register_fork_subscriber(MINER_SUBSCRIBER, tx.clone());
-        notify.notify_switch_fork::<fn(&str) -> bool>(txs.clone(), None);
+        notify.notify_switch_fork(txs.clone());
         assert_eq!(
             rx.try_recv(),
             Some(Event::SwitchFork(Arc::new(txs.clone())))
         );
-        notify.notify_switch_fork(txs, Some(exclude_miner_sub));
-        assert_eq!(rx.try_recv(), None);
     }
 }

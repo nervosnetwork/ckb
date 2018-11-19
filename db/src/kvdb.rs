@@ -8,7 +8,7 @@ use std::result;
 pub type Error = ErrorKind;
 pub type Result<T> = result::Result<T, Error>;
 
-#[derive(Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ErrorKind {
     DBError(String),
     SerializationError(String),

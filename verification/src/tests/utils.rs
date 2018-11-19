@@ -1,6 +1,6 @@
 use bigint::{H256, U256};
 use core::block::IndexedBlock;
-use core::header::{Header, RawHeader, Seal};
+use core::header::{Header, RawHeader};
 use core::transaction::Transaction;
 
 // This function creates a dummy transaction, we can then
@@ -16,20 +16,19 @@ pub fn create_dummy_block() -> IndexedBlock {
         timestamp: 0,
         number: 123,
         txs_commit: H256::zero(),
+        txs_proposal: H256::zero(),
         difficulty: U256::zero(),
         cellbase_id: H256::zero(),
         uncles_hash: H256::zero(),
     };
     let header = Header {
         raw: raw_header,
-        seal: Seal {
-            nonce: 0,
-            mix_hash: H256::zero(),
-        },
+        seal: Default::default(),
     };
     IndexedBlock {
         header: header.into(),
-        transactions: vec![],
+        commit_transactions: vec![],
+        proposal_transactions: vec![],
         uncles: vec![],
     }
 }

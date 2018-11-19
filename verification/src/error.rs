@@ -1,5 +1,5 @@
 use bigint::{H256, U256};
-use chain::chain::Error as ChainError;
+use chain::error::Error as ChainError;
 use core::BlockNumber;
 
 #[derive(Debug, PartialEq, Clone, Eq)]
@@ -19,6 +19,14 @@ pub enum Error {
     UnknownParent(H256),
     Uncles(UnclesError),
     Cellbase(CellbaseError),
+    Commit(CommitError),
+}
+
+#[derive(Debug, PartialEq, Clone, Eq)]
+pub enum CommitError {
+    AncestorNotFound,
+    Confilct,
+    Invalid,
 }
 
 #[derive(Debug, PartialEq, Clone, Eq)]
@@ -52,7 +60,7 @@ pub enum UnclesError {
 #[derive(Debug, PartialEq, Clone, Copy, Eq)]
 pub enum PowError {
     Boundary { expected: U256, actual: U256 },
-    MixMismatch { expected: H256, actual: H256 },
+    InvalidProof,
 }
 
 #[derive(Debug, PartialEq, Clone, Copy, Eq)]

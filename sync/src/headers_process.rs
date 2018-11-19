@@ -1,5 +1,6 @@
 use bigint::{H256, U256};
 use ckb_chain::chain::ChainProvider;
+use ckb_chain::PowEngine;
 use ckb_protocol;
 use ckb_verification::{Error as VerifyError, HeaderResolver, HeaderVerifier, Verifier};
 use core::header::IndexedHeader;
@@ -11,9 +12,9 @@ use std::sync::Arc;
 use synchronizer::{BlockStatus, Synchronizer};
 use MAX_HEADERS_LEN;
 
-pub struct HeadersProcess<'a, C: 'a> {
+pub struct HeadersProcess<'a, C: 'a, P: 'a> {
     message: &'a ckb_protocol::Headers,
-    synchronizer: &'a Synchronizer<C>,
+    synchronizer: &'a Synchronizer<C, P>,
     peer: PeerId,
     nc: &'a NetworkContext,
 }
@@ -59,21 +60,22 @@ where
     }
 }
 
-impl<'a, C> HeadersProcess<'a, C>
+impl<'a, C, P> HeadersProcess<'a, C, P>
 where
     C: ChainProvider + 'a,
+    P: PowEngine + 'a,
 {
     pub fn new(
         message: &'a ckb_protocol::Headers,
-        synchronizer: &'a Synchronizer<C>,
-        peer: &PeerId,
+        synchronizer: &'a Synchronizer<C, P>,
+        peer: PeerId,
         nc: &'a NetworkContext,
     ) -> Self {
         HeadersProcess {
             message,
             nc,
             synchronizer,
-            peer: *peer,
+            peer,
         }
     }
 
@@ -116,7 +118,7 @@ where
     pub fn accept_first(&self, first: &IndexedHeader) -> ValidationResult {
         let parent = self.synchronizer.get_header(&first.parent_hash);
         let resolver = VerifierResolver::new(parent.as_ref(), &first, &self.synchronizer.chain);
-        let verifier = HeaderVerifier::new(resolver, self.synchronizer.ethash.clone());
+        let verifier = HeaderVerifier::new(resolver, &self.synchronizer.pow);
         let acceptor = HeaderAcceptor::new(first, self.peer, &self.synchronizer, verifier);
         acceptor.accept()
     }
@@ -125,7 +127,7 @@ where
         debug!(target: "sync", "HeadersProcess begin");
 
         if self.is_oversize() {
-            self.synchronizer.peers.misbehavior(&self.peer, 20);
+            self.synchronizer.peers.misbehavior(self.peer, 20);
             debug!(target: "sync", "HeadersProcess is_oversize");
             return ();
         }
@@ -138,7 +140,7 @@ where
         let headers: Vec<IndexedHeader> = self.message.headers.par_iter().map(From::from).collect();
 
         if !self.is_continuous(&headers) {
-            self.synchronizer.peers.misbehavior(&self.peer, 20);
+            self.synchronizer.peers.misbehavior(self.peer, 20);
             debug!(target: "sync", "HeadersProcess is not continuous");
             return ();
         }
@@ -148,7 +150,7 @@ where
             if result.misbehavior > 0 {
                 self.synchronizer
                     .peers
-                    .misbehavior(&self.peer, result.misbehavior);
+                    .misbehavior(self.peer, result.misbehavior);
             }
             debug!(target: "sync", "\n\nHeadersProcess accept_first is_valid {:?} headers = {:#?}\n\n", result, headers[0]);
             return ();
@@ -158,7 +160,7 @@ where
             if let [parent, header] = &window {
                 let resolver =
                     VerifierResolver::new(Some(&parent), &header, &self.synchronizer.chain);
-                let verifier = HeaderVerifier::new(resolver, self.synchronizer.ethash.clone());
+                let verifier = HeaderVerifier::new(resolver, &self.synchronizer.pow);
                 let acceptor =
                     HeaderAcceptor::new(&header, self.peer, &self.synchronizer, verifier);
                 let result = acceptor.accept();
@@ -167,7 +169,7 @@ where
                     if result.misbehavior > 0 {
                         self.synchronizer
                             .peers
-                            .misbehavior(&self.peer, result.misbehavior);
+                            .misbehavior(self.peer, result.misbehavior);
                     }
                     debug!(target: "sync", "HeadersProcess accept is invalid {:?}", result);
                     return ();
@@ -178,7 +180,7 @@ where
         if log_enabled!(target: "sync", log::Level::Debug) {
             let own = { self.synchronizer.best_known_header.read().clone() };
             let chain_tip = { self.synchronizer.chain.tip_header().read().clone() };
-            let peer_state = self.synchronizer.peers.best_known_header(&self.peer);
+            let peer_state = self.synchronizer.peers.best_known_header(self.peer);
             debug!(
                 target: "sync",
                 concat!(
@@ -214,22 +216,23 @@ where
 }
 
 #[derive(Clone)]
-pub struct HeaderAcceptor<'a, V, C: 'a> {
+pub struct HeaderAcceptor<'a, V, C: 'a, P: 'a> {
     header: &'a IndexedHeader,
     peer: PeerId,
-    synchronizer: &'a Synchronizer<C>,
+    synchronizer: &'a Synchronizer<C, P>,
     verifier: V,
 }
 
-impl<'a, V, C> HeaderAcceptor<'a, V, C>
+impl<'a, V, C, P> HeaderAcceptor<'a, V, C, P>
 where
     V: Verifier,
     C: ChainProvider + 'a,
+    P: PowEngine + 'a,
 {
     pub fn new(
         header: &'a IndexedHeader,
         peer: PeerId,
-        synchronizer: &'a Synchronizer<C>,
+        synchronizer: &'a Synchronizer<C, P>,
         verifier: V,
     ) -> Self {
         HeaderAcceptor {
@@ -326,7 +329,7 @@ where
         }
 
         self.synchronizer
-            .insert_header_view(&self.header, &self.peer);
+            .insert_header_view(&self.header, self.peer);
         self.synchronizer
             .insert_block_status(self.header.hash(), BlockStatus::VALID_MASK);
         result

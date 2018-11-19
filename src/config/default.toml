@@ -7,7 +7,9 @@ filter = "info"
 color = true
 
 [network]
-listen_address = "0.0.0.0:0"
+listen_addresses = [
+    "/ip4/0.0.0.0/tcp/0"
+]
 boot_nodes = [
     "/ip4/127.0.0.1/tcp/12345/p2p/QmVMJYDCL2vDnk4PmRGNdDRTWRnfeboUsriYA9CixJsBRf"
 ]
@@ -28,6 +30,12 @@ listen_addr = "0.0.0.0:0"
 verification_level = "Full"
 orphan_block_limit = 1024
 
+[pool]
+max_pool_size = 65535
+max_proposal_size = 4095
+max_commit_size = 4096
+
 [miner]
 max_tx              = 1024
+new_transactions_threshold = 8
 redeem_script_hash  = "0x6463e95f5f1f15415962563b0d4227635d8ae2a74137afbe3e052ef1f9470074"

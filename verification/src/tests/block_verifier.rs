@@ -2,12 +2,13 @@ use super::super::block_verifier::{
     BlockVerifier, CellbaseTransactionsVerifier, EmptyTransactionsVerifier,
 };
 use super::super::error::Error as VerifyError;
-use super::super::pow_verifier::EthashVerifier;
 use super::dummy::DummyChainClient;
 use super::utils::{create_dummy_block, create_dummy_transaction};
 use bigint::H256;
-use chain::chain::{ChainProvider, Error};
-use core::transaction::{CellInput, CellOutput, OutPoint, Transaction};
+use chain::chain::ChainProvider;
+use chain::error::Error;
+use chain::DummyPowEngine;
+use core::transaction::{CellInput, CellOutput, IndexedTransaction, OutPoint};
 use core::{BlockNumber, Capacity};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -16,7 +17,7 @@ use Verifier;
 fn create_cellbase_transaction_with_capacity(
     block_number: BlockNumber,
     capacity: Capacity,
-) -> Transaction {
+) -> IndexedTransaction {
     let mut transaction = create_dummy_transaction();
     transaction
         .inputs
@@ -25,14 +26,14 @@ fn create_cellbase_transaction_with_capacity(
         .outputs
         .push(CellOutput::new(capacity, Vec::new(), H256::default()));
 
-    transaction
+    transaction.into()
 }
 
-fn create_cellbase_transaction(block_number: BlockNumber) -> Transaction {
-    create_cellbase_transaction_with_capacity(block_number, 100)
+fn create_cellbase_transaction(block_number: BlockNumber) -> IndexedTransaction {
+    create_cellbase_transaction_with_capacity(block_number, 100).into()
 }
 
-fn create_normal_transaction() -> Transaction {
+fn create_normal_transaction() -> IndexedTransaction {
     let mut transaction = create_dummy_transaction();
     transaction.inputs.push(CellInput::new(
         OutPoint::new(H256::from(1), 0),
@@ -42,13 +43,13 @@ fn create_normal_transaction() -> Transaction {
         .outputs
         .push(CellOutput::new(100, Vec::new(), H256::default()));
 
-    transaction
+    transaction.into()
 }
 
 #[test]
 pub fn test_block_without_cellbase() {
     let mut block = create_dummy_block();
-    block.transactions.push(create_normal_transaction());
+    block.commit_transactions.push(create_normal_transaction());
 
     let verifier = CellbaseTransactionsVerifier::new(&block, dummy_chain());
     assert!(verifier.verify().is_ok());
@@ -60,12 +61,12 @@ pub fn test_block_with_one_cellbase_at_first() {
     let mut transaction_fees = HashMap::<H256, Result<Capacity, Error>>::new();
 
     block
-        .transactions
+        .commit_transactions
         .push(create_cellbase_transaction(block.header.number));
 
     let transaction = create_normal_transaction();
     transaction_fees.insert(transaction.hash(), Ok(0));
-    block.transactions.push(create_normal_transaction());
+    block.commit_transactions.push(create_normal_transaction());
 
     let chain = Arc::new(DummyChainClient {
         block_reward: 100,
@@ -79,9 +80,9 @@ pub fn test_block_with_one_cellbase_at_first() {
 #[test]
 pub fn test_block_with_one_cellbase_at_last() {
     let mut block = create_dummy_block();
-    block.transactions.push(create_normal_transaction());
+    block.commit_transactions.push(create_normal_transaction());
     block
-        .transactions
+        .commit_transactions
         .push(create_cellbase_transaction(block.header.number));
 
     let verifier = CellbaseTransactionsVerifier::new(&block, dummy_chain());
@@ -92,11 +93,11 @@ pub fn test_block_with_one_cellbase_at_last() {
 pub fn test_block_with_two_cellbases() {
     let mut block = create_dummy_block();
     block
-        .transactions
+        .commit_transactions
         .push(create_cellbase_transaction(block.header.number));
-    block.transactions.push(create_normal_transaction());
+    block.commit_transactions.push(create_normal_transaction());
     block
-        .transactions
+        .commit_transactions
         .push(create_cellbase_transaction(block.header.number));
 
     let verifier = CellbaseTransactionsVerifier::new(&block, dummy_chain());
@@ -109,7 +110,7 @@ pub fn test_cellbase_with_less_reward() {
     let mut transaction_fees = HashMap::<H256, Result<Capacity, Error>>::new();
 
     block
-        .transactions
+        .commit_transactions
         .push(create_cellbase_transaction_with_capacity(
             block.header.number,
             50,
@@ -117,7 +118,7 @@ pub fn test_cellbase_with_less_reward() {
 
     let transaction = create_normal_transaction();
     transaction_fees.insert(transaction.hash(), Ok(0));
-    block.transactions.push(create_normal_transaction());
+    block.commit_transactions.push(create_normal_transaction());
 
     let chain = Arc::new(DummyChainClient {
         block_reward: 100,
@@ -134,7 +135,7 @@ pub fn test_cellbase_with_fee() {
     let mut transaction_fees = HashMap::<H256, Result<Capacity, Error>>::new();
 
     block
-        .transactions
+        .commit_transactions
         .push(create_cellbase_transaction_with_capacity(
             block.header.number,
             110,
@@ -142,7 +143,7 @@ pub fn test_cellbase_with_fee() {
 
     let transaction = create_normal_transaction();
     transaction_fees.insert(transaction.hash(), Ok(10));
-    block.transactions.push(create_normal_transaction());
+    block.commit_transactions.push(create_normal_transaction());
 
     let chain = Arc::new(DummyChainClient {
         block_reward: 100,
@@ -159,7 +160,7 @@ pub fn test_cellbase_with_more_reward_than_available() {
     let mut transaction_fees = HashMap::<H256, Result<Capacity, Error>>::new();
 
     block
-        .transactions
+        .commit_transactions
         .push(create_cellbase_transaction_with_capacity(
             block.header.number,
             130,
@@ -167,7 +168,7 @@ pub fn test_cellbase_with_more_reward_than_available() {
 
     let transaction = create_normal_transaction();
     transaction_fees.insert(transaction.hash(), Ok(10));
-    block.transactions.push(create_normal_transaction());
+    block.commit_transactions.push(create_normal_transaction());
 
     let chain = Arc::new(DummyChainClient {
         block_reward: 100,
@@ -184,7 +185,7 @@ pub fn test_cellbase_with_invalid_transaction() {
     let mut transaction_fees = HashMap::<H256, Result<Capacity, Error>>::new();
 
     block
-        .transactions
+        .commit_transactions
         .push(create_cellbase_transaction_with_capacity(
             block.header.number,
             100,
@@ -192,7 +193,7 @@ pub fn test_cellbase_with_invalid_transaction() {
 
     let transaction = create_normal_transaction();
     transaction_fees.insert(transaction.hash(), Err(Error::InvalidOutput));
-    block.transactions.push(create_normal_transaction());
+    block.commit_transactions.push(create_normal_transaction());
 
     let chain = Arc::new(DummyChainClient {
         block_reward: 100,
@@ -214,11 +215,11 @@ pub fn test_cellbase_with_two_outputs() {
     cellbase_transaction
         .outputs
         .push(CellOutput::new(50, Vec::new(), H256::default()));
-    block.transactions.push(cellbase_transaction);
+    block.commit_transactions.push(cellbase_transaction);
 
     let transaction = create_normal_transaction();
     transaction_fees.insert(transaction.hash(), Ok(0));
-    block.transactions.push(create_normal_transaction());
+    block.commit_transactions.push(create_normal_transaction());
 
     let chain = Arc::new(DummyChainClient {
         block_reward: 150,
@@ -240,11 +241,11 @@ pub fn test_cellbase_with_two_outputs_and_more_rewards_than_maximum() {
     cellbase_transaction
         .outputs
         .push(CellOutput::new(50, Vec::new(), H256::default()));
-    block.transactions.push(cellbase_transaction);
+    block.commit_transactions.push(cellbase_transaction);
 
     let transaction = create_normal_transaction();
     transaction_fees.insert(transaction.hash(), Ok(0));
-    block.transactions.push(create_normal_transaction());
+    block.commit_transactions.push(create_normal_transaction());
 
     let chain = Arc::new(DummyChainClient {
         block_reward: 100,
@@ -265,8 +266,10 @@ pub fn test_empty_transactions() {
         transaction_fees: transaction_fees,
     });
 
+    let pow = Arc::new(DummyPowEngine::new());
+
     let verifier = EmptyTransactionsVerifier::new(&block);
-    let full_verifier = BlockVerifier::new(&block, &chain, None as Option<EthashVerifier>);
+    let full_verifier = BlockVerifier::new(&block, &chain, &pow);
     assert_eq!(verifier.verify(), Err(VerifyError::EmptyTransactions));
     // short-circuit, Empty check first
     assert_eq!(full_verifier.verify(), Err(VerifyError::EmptyTransactions));

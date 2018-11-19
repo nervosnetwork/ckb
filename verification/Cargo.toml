@@ -4,7 +4,6 @@ version = "0.1.0"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 
 [dependencies]
-ethash = { git = "https://github.com/NervosFoundation/ethash", tag = "v1.0.0" }
 log = "0.4"
 ckb-core = { path = "../core" }
 ckb-time = { path = "../util/time" }

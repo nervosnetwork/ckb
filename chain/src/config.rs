@@ -12,7 +12,7 @@ pub struct Config {
     pub difficulty: U256,
     pub number: BlockNumber,
     pub nonce: u64,
-    pub mix_hash: H256,
+    pub proof: Vec<u8>,
     // other config
     pub initial_block_reward: Capacity,
 }
@@ -27,7 +27,7 @@ impl Config {
             difficulty: U256::from(0),
             number: 0,
             nonce: 0,
-            mix_hash: H256::from(0),
+            proof: Vec::new(),
             initial_block_reward: 0,
         }
     }
@@ -44,7 +44,7 @@ impl Config {
             },
             seal: Seal {
                 nonce: self.nonce,
-                mix_hash: self.mix_hash,
+                proof: self.proof,
             },
         };
 

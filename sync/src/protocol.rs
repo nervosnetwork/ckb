@@ -4,15 +4,16 @@ use super::compact_block::{short_transaction_id, short_transaction_id_keys, Comp
 use bigint::H256;
 use block_process::BlockProcess;
 use ckb_chain::chain::ChainProvider;
+use ckb_chain::PowEngine;
 use ckb_protocol;
 use ckb_time::now_ms;
-use core::block::{Block, IndexedBlock};
+use core::block::IndexedBlock;
 use core::header::IndexedHeader;
-use core::transaction::Transaction;
+use core::transaction::{IndexedTransaction, ProposalShortId, ProposalTransaction};
+use core::BlockNumber;
 use fnv::{FnvHashMap, FnvHashSet};
 use futures::future;
 use futures::future::lazy;
-use futures::sync::mpsc;
 use getdata_process::GetDataProcess;
 use getheaders_process::GetHeadersProcess;
 use headers_process::HeadersProcess;
@@ -20,13 +21,12 @@ use network::NetworkContextExt;
 use network::{NetworkContext, NetworkProtocolHandler, PeerId, Severity, TimerToken};
 use pool::txs_pool::TransactionPool;
 use protobuf;
+use std::collections::hash_map;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
 use synchronizer::Synchronizer;
 use tokio;
-// use tokio::prelude::*;
-use tokio::prelude::Stream;
 use util::Mutex;
 
 use {
@@ -35,111 +35,55 @@ use {
 
 pub const SEND_GET_HEADERS_TOKEN: TimerToken = 1;
 pub const BLOCK_FETCH_TOKEN: TimerToken = 2;
-
-pub enum Task {
-    OnConnected(Box<NetworkContext>, PeerId),
-    SendGetHeadersToAll(Box<NetworkContext>),
-    FetchBlock(Box<NetworkContext>),
-    HandleGetheaders(Box<NetworkContext>, PeerId, ckb_protocol::GetHeaders),
-    HandleHeaders(Box<NetworkContext>, PeerId, ckb_protocol::Headers),
-    HandleGetdata(Box<NetworkContext>, PeerId, ckb_protocol::GetData),
-    // HandleCompactBlock(Box<NetworkContext>, PeerId, ckb_protocol::CompactBlock),
-    HandleBlock(Box<NetworkContext>, PeerId, ckb_protocol::Block),
-}
+pub const TX_PROPOSAL_TOKEN: TimerToken = 3;
 
 fn is_outbound(nc: &NetworkContext, peer: PeerId) -> Option<bool> {
     nc.session_info(peer)
         .map(|session_info| session_info.originated)
 }
 
-pub struct SyncProtocol<C> {
-    pub synchronizer: Synchronizer<C>,
-    pub receiver: Mutex<Option<mpsc::Receiver<Task>>>,
-    pub sender: mpsc::Sender<Task>,
+pub struct SyncProtocol<C, P> {
+    pub synchronizer: Synchronizer<C, P>,
 }
 
-impl<C: ChainProvider + 'static> SyncProtocol<C> {
-    pub fn new(synchronizer: Synchronizer<C>) -> Self {
-        let (sender, receiver) = mpsc::channel(65535);
-        SyncProtocol {
-            synchronizer,
-            sender,
-            receiver: Mutex::new(Some(receiver)),
-        }
-    }
-
-    pub fn start(&self) {
-        let receiver = self.receiver.lock().take().expect("start once");
-        let synchronizer = self.synchronizer.clone();
-        let handler = receiver.for_each(move |task| {
-            let synchronizer = synchronizer.clone();
-            match task {
-                Task::SendGetHeadersToAll(nc) => tokio::spawn(lazy(move || {
-                    Self::send_getheaders_to_all(synchronizer, nc);
-                    future::ok(())
-                })),
-                Task::OnConnected(nc, peer) => tokio::spawn(lazy(move || {
-                    Self::on_connected(synchronizer, nc.as_ref(), peer);
-                    future::ok(())
-                })),
-                Task::HandleGetheaders(nc, peer, message) => tokio::spawn(lazy(move || {
-                    Self::handle_getheaders(synchronizer, nc, peer, &message);
-                    future::ok(())
-                })),
-                Task::HandleHeaders(nc, peer, message) => tokio::spawn(lazy(move || {
-                    Self::handle_headers(synchronizer, nc, peer, &message);
-                    future::ok(())
-                })),
-                Task::HandleGetdata(nc, peer, message) => tokio::spawn(lazy(move || {
-                    Self::handle_getdata(synchronizer, nc, peer, &message);
-                    future::ok(())
-                })),
-                Task::HandleBlock(nc, peer, message) => tokio::spawn(lazy(move || {
-                    Self::handle_block(synchronizer, nc, peer, &message);
-                    future::ok(())
-                })),
-                Task::FetchBlock(nc) => tokio::spawn(lazy(move || {
-                    Self::find_blocks_to_fetch(synchronizer, nc);
-                    future::ok(())
-                })),
-                // Task::HandleCompactBlock(nc, peer, message) => tokio::spawn(lazy(move || {
-                //     Self::handle_cmpt_block(synchronizer, nc, peer, &message);
-                //     future::ok(())
-                // })),
-            }
-        });
-        tokio::run(handler);
+impl<C, P> SyncProtocol<C, P>
+where
+    C: ChainProvider + 'static,
+    P: PowEngine + 'static,
+{
+    pub fn new(synchronizer: Synchronizer<C, P>) -> Self {
+        SyncProtocol { synchronizer }
     }
 
     pub fn handle_getheaders(
-        synchronizer: Synchronizer<C>,
+        synchronizer: Synchronizer<C, P>,
         nc: Box<NetworkContext>,
         peer: PeerId,
         message: &ckb_protocol::GetHeaders,
     ) {
-        GetHeadersProcess::new(message, &synchronizer, &peer, nc.as_ref()).execute()
+        GetHeadersProcess::new(message, &synchronizer, peer, nc.as_ref()).execute()
     }
 
     pub fn handle_headers(
-        synchronizer: Synchronizer<C>,
+        synchronizer: Synchronizer<C, P>,
         nc: Box<NetworkContext>,
         peer: PeerId,
         message: &ckb_protocol::Headers,
     ) {
-        HeadersProcess::new(message, &synchronizer, &peer, nc.as_ref()).execute()
+        HeadersProcess::new(message, &synchronizer, peer, nc.as_ref()).execute()
     }
 
     fn handle_getdata(
-        synchronizer: Synchronizer<C>,
+        synchronizer: Synchronizer<C, P>,
         nc: Box<NetworkContext>,
         peer: PeerId,
         message: &ckb_protocol::GetData,
     ) {
-        GetDataProcess::new(message, &synchronizer, &peer, nc.as_ref()).execute()
+        GetDataProcess::new(message, &synchronizer, peer, nc.as_ref()).execute()
     }
 
     // fn handle_cmpt_block(
-    //     synchronizer: Synchronizer<C>,
+    //     synchronizer: Synchronizer<C, P>,
     //     nc: Box<NetworkContext>,
     //     peer: PeerId,
     //     message: &ckb_protocol::CompactBlock,
@@ -148,15 +92,15 @@ impl<C: ChainProvider + 'static> SyncProtocol<C> {
     // }
 
     fn handle_block(
-        synchronizer: Synchronizer<C>,
+        synchronizer: Synchronizer<C, P>,
         nc: Box<NetworkContext>,
         peer: PeerId,
         message: &ckb_protocol::Block,
     ) {
-        BlockProcess::new(message, &synchronizer, &peer, nc.as_ref()).execute()
+        BlockProcess::new(message, &synchronizer, peer, nc.as_ref()).execute()
     }
 
-    pub fn find_blocks_to_fetch(synchronizer: Synchronizer<C>, nc: Box<NetworkContext>) {
+    pub fn find_blocks_to_fetch(synchronizer: Synchronizer<C, P>, nc: Box<NetworkContext>) {
         let peers: Vec<PeerId> = {
             synchronizer
                 .peers
@@ -187,8 +131,7 @@ impl<C: ChainProvider + 'static> SyncProtocol<C> {
                 inventory.set_inv_type(ckb_protocol::InventoryType::MSG_BLOCK);
                 inventory.set_hash(h.to_vec());
                 inventory
-            })
-            .collect();
+            }).collect();
         getdata.set_inventory(inventory);
         payload.set_getdata(getdata);
 
@@ -196,7 +139,7 @@ impl<C: ChainProvider + 'static> SyncProtocol<C> {
         debug!(target: "sync", "send_block_getdata len={:?} to peer={:?}", v_fetch.len() , peer);
     }
 
-    fn on_connected(synchronizer: Synchronizer<C>, nc: &NetworkContext, peer: PeerId) {
+    fn on_connected(synchronizer: Synchronizer<C, P>, nc: &NetworkContext, peer: PeerId) {
         let tip = synchronizer.tip_header();
         let timeout = synchronizer.get_headers_sync_timeout(&tip);
 
@@ -214,12 +157,12 @@ impl<C: ChainProvider + 'static> SyncProtocol<C> {
 
         synchronizer
             .peers
-            .on_connected(&peer, timeout, protect_outbound);
+            .on_connected(peer, timeout, protect_outbound);
         synchronizer.n_sync.fetch_add(1, Ordering::Release);
         Self::send_getheaders_to_peer(synchronizer, nc, peer, &tip);
     }
 
-    pub fn eviction(synchronizer: Synchronizer<C>, nc: &NetworkContext) {
+    pub fn eviction(synchronizer: Synchronizer<C, P>, nc: &NetworkContext) {
         let mut peer_state = synchronizer.peers.state.write();
         let best_known_headers = synchronizer.peers.best_known_headers.read();
         let is_initial_block_download = synchronizer.is_initial_block_download();
@@ -250,14 +193,14 @@ impl<C: ChainProvider + 'static> SyncProtocol<C> {
                             state.chain_sync.sent_getheaders = false;
                         }
                     } else if state.chain_sync.timeout == 0
-                        || (best_known_header.is_some() && state.chain_sync.work_header.is_some()
-                            && best_known_header.unwrap().total_difficulty
-                                >= state
-                                    .chain_sync
-                                    .work_header
-                                    .clone()
-                                    .unwrap()
-                                    .total_difficulty)
+                        || (best_known_header.is_some()
+                            && state.chain_sync.work_header.is_some()
+                            && best_known_header.unwrap().total_difficulty >= state
+                                .chain_sync
+                                .work_header
+                                .clone()
+                                .unwrap()
+                                .total_difficulty)
                     {
                         state.chain_sync.timeout = now + CHAIN_SYNC_TIMEOUT;
                         state.chain_sync.work_header = Some(chain_tip);
@@ -286,7 +229,7 @@ impl<C: ChainProvider + 'static> SyncProtocol<C> {
         }
     }
 
-    fn send_getheaders_to_all(synchronizer: Synchronizer<C>, nc: Box<NetworkContext>) {
+    fn send_getheaders_to_all(synchronizer: Synchronizer<C, P>, nc: Box<NetworkContext>) {
         let peers: Vec<PeerId> = {
             synchronizer
                 .peers
@@ -306,7 +249,7 @@ impl<C: ChainProvider + 'static> SyncProtocol<C> {
     }
 
     fn send_getheaders_to_peer(
-        synchronizer: Synchronizer<C>,
+        synchronizer: Synchronizer<C, P>,
         nc: &NetworkContext,
         peer: PeerId,
         tip: &IndexedHeader,
@@ -323,63 +266,29 @@ impl<C: ChainProvider + 'static> SyncProtocol<C> {
         debug!(target: "sync", "send_getheaders_to_peer getheaders {:?} to peer={:?}", tip.number ,peer);
     }
 
-    fn dispatch_getheaders(&self, nc: Box<NetworkContext>) {
-        debug!(target: "sync", "dispatch_getheaders");
-        let mut sender = self.sender.clone();
-        let ret = sender.try_send(Task::SendGetHeadersToAll(nc));
-
-        if ret.is_err() {
-            error!(target: "sync", "dispatch_getheaders peer error {:?}", ret);
-        }
-    }
-
-    fn dispatch_block_fetch(&self, nc: Box<NetworkContext>) {
-        debug!(target: "sync", "dispatch_block_download");
-        let mut sender = self.sender.clone();
-        let ret = sender.try_send(Task::FetchBlock(nc));
-
-        if ret.is_err() {
-            error!(target: "sync", "dispatch_block_download peer error {:?}", ret);
-        }
-    }
-
-    fn dispatch_on_connected(&self, nc: Box<NetworkContext>, peer: PeerId) {
-        if self.synchronizer.n_sync.load(Ordering::Acquire) == 0
-            || !self.synchronizer.is_initial_block_download()
-        {
-            debug!(target: "sync", "init_getheaders peer={:?} connected", peer);
-            let mut sender = self.sender.clone();
-            let ret = sender.try_send(Task::OnConnected(nc, peer));
-
-            if ret.is_err() {
-                error!(target: "sync", "init_getheaders peer={:?} error {:?}", peer, ret);
-            }
-        }
-    }
-
-    fn process(&self, nc: Box<NetworkContext>, peer: &PeerId, mut payload: ckb_protocol::Payload) {
-        let mut sender = self.sender.clone();
-        let ret = if payload.has_getheaders() {
-            sender.try_send(Task::HandleGetheaders(nc, *peer, payload.take_getheaders()))
+    fn process(
+        synchronizer: Synchronizer<C, P>,
+        nc: Box<NetworkContext>,
+        peer: PeerId,
+        payload: ckb_protocol::Payload,
+    ) {
+        if payload.has_getheaders() {
+            Self::handle_getheaders(synchronizer, nc, peer, payload.get_getheaders());
         } else if payload.has_headers() {
-            let headers = payload.take_headers();
-            debug!(target: "sync", "receive headers massge {}", headers.headers.len());
-            sender.try_send(Task::HandleHeaders(nc, *peer, headers))
+            Self::handle_headers(synchronizer, nc, peer, payload.get_headers());
         } else if payload.has_getdata() {
-            sender.try_send(Task::HandleGetdata(nc, *peer, payload.take_getdata()))
+            Self::handle_getdata(synchronizer, nc, peer, payload.get_getdata());
         } else if payload.has_block() {
-            sender.try_send(Task::HandleBlock(nc, *peer, payload.take_block()))
-        } else {
-            Ok(())
-        };
-
-        if ret.is_err() {
-            error!(target: "sync", "NetworkProtocolHandler dispatch message error {:?}", ret);
+            Self::handle_block(synchronizer, nc, peer, payload.get_block());
         }
     }
 }
 
-impl<C: ChainProvider + 'static> NetworkProtocolHandler for SyncProtocol<C> {
+impl<C, P> NetworkProtocolHandler for SyncProtocol<C, P>
+where
+    C: ChainProvider + 'static,
+    P: PowEngine + 'static,
+{
     fn initialize(&self, nc: Box<NetworkContext>) {
         // NOTE: 100ms is what bitcoin use.
         let _ = nc.register_timer(SEND_GET_HEADERS_TOKEN, Duration::from_millis(100));
@@ -389,51 +298,106 @@ impl<C: ChainProvider + 'static> NetworkProtocolHandler for SyncProtocol<C> {
     /// Called when new network packet received.
     fn read(&self, nc: Box<NetworkContext>, peer: &PeerId, _packet_id: u8, data: &[u8]) {
         match protobuf::parse_from_bytes::<ckb_protocol::Payload>(data) {
-            Ok(payload) => self.process(nc, peer, payload),
+            Ok(payload) => {
+                let synchronizer = self.synchronizer.clone();
+                let peer = *peer;
+                tokio::spawn(lazy(move || {
+                    Self::process(synchronizer, nc, peer, payload);
+                    future::ok(())
+                }));
+            }
             Err(err) => warn!(target: "sync", "Failed to parse protobuf, error={:?}", err),
         };
     }
 
     fn connected(&self, nc: Box<NetworkContext>, peer: &PeerId) {
-        info!(target: "sync", "peer={} SyncProtocol.connected", peer);
-        self.dispatch_on_connected(nc, *peer);
+        let synchronizer = self.synchronizer.clone();
+        let peer = *peer;
+        tokio::spawn(lazy(move || {
+            if synchronizer.n_sync.load(Ordering::Acquire) == 0
+                || !synchronizer.is_initial_block_download()
+            {
+                debug!(target: "sync", "init_getheaders peer={:?} connected", peer);
+
+                Self::on_connected(synchronizer, nc.as_ref(), peer);
+            }
+            future::ok(())
+        }));
     }
 
     fn disconnected(&self, _nc: Box<NetworkContext>, peer: &PeerId) {
-        info!(target: "sync", "peer={} SyncProtocol.disconnected", peer);
-        self.synchronizer.peers.disconnected(&peer);
+        let synchronizer = self.synchronizer.clone();
+        let peer = *peer;
+        tokio::spawn(lazy(move || {
+            info!(target: "sync", "peer={} SyncProtocol.disconnected", peer);
+            synchronizer.peers.disconnected(peer);
+            future::ok(())
+        }));
     }
 
     fn timeout(&self, nc: Box<NetworkContext>, token: TimerToken) {
-        if !self.synchronizer.peers.state.read().is_empty() {
-            match token as usize {
-                SEND_GET_HEADERS_TOKEN => self.dispatch_getheaders(nc),
-                BLOCK_FETCH_TOKEN => self.dispatch_block_fetch(nc),
-                _ => unreachable!(),
+        let synchronizer = self.synchronizer.clone();
+        tokio::spawn(lazy(move || {
+            if !synchronizer.peers.state.read().is_empty() {
+                match token as usize {
+                    SEND_GET_HEADERS_TOKEN => {
+                        Self::send_getheaders_to_all(synchronizer, nc);
+                    }
+                    BLOCK_FETCH_TOKEN => {
+                        Self::find_blocks_to_fetch(synchronizer, nc);
+                    }
+                    _ => unreachable!(),
+                }
+            } else {
+                debug!(target: "sync", "no peers connected");
             }
-        } else {
-            debug!(target: "sync", "no peers connected");
-        }
+            future::ok(())
+        }));
     }
 }
 
-pub struct RelayProtocol<C> {
-    pub synchronizer: Synchronizer<C>,
-    pub tx_pool: Arc<TransactionPool<C>>,
+pub type TxProposalIdTable = FnvHashMap<BlockNumber, FnvHashSet<ProposalShortId>>;
+
+#[derive(Default)]
+struct RelayState {
     // TODO add size limit or use bloom filter
     pub received_blocks: Mutex<FnvHashSet<H256>>,
     pub received_transactions: Mutex<FnvHashSet<H256>>,
     pub pending_compact_blocks: Mutex<FnvHashMap<H256, CompactBlock>>,
+    pub inflight_proposals: Mutex<TxProposalIdTable>,
+    pub pending_proposals_request: Mutex<FnvHashMap<PeerId, TxProposalIdTable>>,
 }
 
-impl<C: ChainProvider + 'static> RelayProtocol<C> {
-    pub fn new(synchronizer: Synchronizer<C>, tx_pool: &Arc<TransactionPool<C>>) -> Self {
+pub struct RelayProtocol<C, P> {
+    synchronizer: Synchronizer<C, P>,
+    tx_pool: Arc<TransactionPool<C>>,
+    state: Arc<RelayState>,
+}
+
+impl<C, P> Clone for RelayProtocol<C, P>
+where
+    C: ChainProvider,
+    P: PowEngine,
+{
+    fn clone(&self) -> RelayProtocol<C, P> {
+        RelayProtocol {
+            synchronizer: self.synchronizer.clone(),
+            tx_pool: Arc::clone(&self.tx_pool),
+            state: Arc::clone(&self.state),
+        }
+    }
+}
+
+impl<C, P> RelayProtocol<C, P>
+where
+    C: ChainProvider + 'static,
+    P: PowEngine + 'static,
+{
+    pub fn new(synchronizer: Synchronizer<C, P>, tx_pool: &Arc<TransactionPool<C>>) -> Self {
         RelayProtocol {
             synchronizer,
             tx_pool: Arc::clone(tx_pool),
-            received_blocks: Mutex::new(FnvHashSet::default()),
-            received_transactions: Mutex::new(FnvHashSet::default()),
-            pending_compact_blocks: Mutex::new(FnvHashMap::default()),
+            state: Arc::new(RelayState::default()),
         }
     }
 
@@ -453,15 +417,48 @@ impl<C: ChainProvider + 'static> RelayProtocol<C> {
         }
     }
 
+    pub fn request_proposal_txs<'a>(
+        &self,
+        nc: &NetworkContext,
+        block_number: BlockNumber,
+        proposal_ids: impl Iterator<Item = &'a ProposalShortId>,
+    ) {
+        let proposal_ids: Vec<Vec<u8>> =
+            if let Some(known_proposal_ids) = self.tx_pool.query_proposal_ids(block_number) {
+                let proposal_ids: FnvHashSet<ProposalShortId> = proposal_ids.cloned().collect();
+                let request_proposal = proposal_ids.difference(&known_proposal_ids);
+
+                match self.state.inflight_proposals.lock().entry(block_number) {
+                    hash_map::Entry::Vacant(v) => {
+                        v.insert(request_proposal.clone().cloned().collect());
+                    }
+                    hash_map::Entry::Occupied(mut o) => {
+                        o.get_mut().extend(request_proposal.clone().cloned());
+                    }
+                }
+
+                request_proposal.map(|id| id.to_vec()).collect()
+            } else {
+                proposal_ids.map(|id| id.to_vec()).collect()
+            };
+
+        let mut payload = ckb_protocol::Payload::new();
+        let mut proposal_request = ckb_protocol::BlockProposalRequest::new();
+        proposal_request.set_block_number(block_number);
+        proposal_request.set_proposal_ids(proposal_ids.into());
+        payload.set_block_proposal_request(proposal_request);
+        let _ = nc.respond_payload(payload);
+    }
+
     fn reconstruct_block(
         &self,
         compact_block: &CompactBlock,
-        transactions: Vec<Transaction>,
+        transactions: Vec<IndexedTransaction>,
     ) -> (Option<IndexedBlock>, Option<Vec<usize>>) {
         let (key0, key1) = short_transaction_id_keys(compact_block.nonce, &compact_block.header);
 
         let mut txs = transactions;
-        txs.extend(self.tx_pool.pool.read().pool.get_vertices());
+        txs.extend(self.tx_pool.commit.read().pool.get_vertices());
         txs.extend(self.tx_pool.orphan.read().pool.get_vertices());
 
         let mut txs_map = FnvHashMap::default();
@@ -480,30 +477,42 @@ impl<C: ChainProvider + 'static> RelayProtocol<C> {
         }
 
         if missing_indexes.is_empty() {
-            let block = Block::new(
-                compact_block.header.clone(),
-                block_transactions,
+            let block = IndexedBlock::new(
+                compact_block.header.clone().into(),
                 compact_block.uncles.clone(),
+                block_transactions,
+                compact_block.proposal_transactions.clone(),
             );
 
-            (Some(block.into()), None)
+            (Some(block), None)
         } else {
             (None, Some(missing_indexes))
         }
     }
 
-    fn process(&self, nc: Box<NetworkContext>, peer: &PeerId, payload: ckb_protocol::Payload) {
+    fn process(&self, nc: Box<NetworkContext>, peer: PeerId, mut payload: ckb_protocol::Payload) {
         if payload.has_transaction() {
-            let tx: Transaction = payload.get_transaction().into();
-            if !self.received_transactions.lock().insert(tx.hash()) {
-                let _ = self.tx_pool.add_to_memory_pool(tx);
-                self.relay(nc.as_ref(), *peer, &payload);
+            let tx: IndexedTransaction = payload.get_transaction().into();
+            if !self.state.received_transactions.lock().insert(tx.hash()) {
+                self.tx_pool.insert_candidate(tx);
+                self.relay(nc.as_ref(), peer, &payload);
             }
         } else if payload.has_block() {
-            let block: Block = payload.get_block().into();
-            if !self.received_blocks.lock().insert(block.hash()) {
-                self.synchronizer.process_new_block(*peer, block.into());
-                self.relay(nc.as_ref(), *peer, &payload);
+            let block: IndexedBlock = payload.get_block().into();
+            if !self.state.received_blocks.lock().insert(block.hash()) {
+                self.request_proposal_txs(
+                    nc.as_ref(),
+                    block.number(),
+                    block.proposal_transactions.iter().chain(
+                        block
+                            .uncles()
+                            .iter()
+                            .flat_map(|uncle| uncle.proposal_transactions()),
+                    ),
+                );
+
+                self.synchronizer.process_new_block(peer, block);
+                self.relay(nc.as_ref(), peer, &payload);
             }
         } else if payload.has_compact_block() {
             let compact_block: CompactBlock = payload.get_compact_block().into();
@@ -513,14 +522,25 @@ impl<C: ChainProvider + 'static> RelayProtocol<C> {
                    compact_block.header().hash(),
             );
             if !self
+                .state
                 .received_blocks
                 .lock()
                 .insert(compact_block.header.hash())
             {
+                self.request_proposal_txs(
+                    nc.as_ref(),
+                    compact_block.header.number,
+                    compact_block.proposal_transactions.iter().chain(
+                        compact_block
+                            .uncles
+                            .iter()
+                            .flat_map(|uncle| uncle.proposal_transactions()),
+                    ),
+                );
                 match self.reconstruct_block(&compact_block, Vec::new()) {
                     (Some(block), _) => {
-                        self.synchronizer.process_new_block(*peer, block);
-                        self.relay(nc.as_ref(), *peer, &payload);
+                        self.synchronizer.process_new_block(peer, block);
+                        self.relay(nc.as_ref(), peer, &payload);
                     }
                     (_, Some(missing_indexes)) => {
                         let mut payload = ckb_protocol::Payload::new();
@@ -528,7 +548,8 @@ impl<C: ChainProvider + 'static> RelayProtocol<C> {
                         cbr.set_hash(compact_block.header.hash().to_vec());
                         cbr.set_indexes(missing_indexes.into_iter().map(|i| i as u32).collect());
                         payload.set_block_transactions_request(cbr);
-                        self.pending_compact_blocks
+                        self.state
+                            .pending_compact_blocks
                             .lock()
                             .insert(compact_block.header.hash(), compact_block);
                         let _ = nc.respond_payload(payload);
@@ -549,7 +570,7 @@ impl<C: ChainProvider + 'static> RelayProtocol<C> {
                 bt.set_transactions(
                     indexes
                         .iter()
-                        .filter_map(|i| block.transactions.get(*i as usize))
+                        .filter_map(|i| block.commit_transactions.get(*i as usize))
                         .map(Into::into)
                         .collect(),
                 );
@@ -558,22 +579,101 @@ impl<C: ChainProvider + 'static> RelayProtocol<C> {
         } else if payload.has_block_transactions() {
             let bt = payload.get_block_transactions();
             let hash = H256::from_slice(bt.get_hash());
-            if let Some(compact_block) = self.pending_compact_blocks.lock().remove(&hash) {
-                let transactions: Vec<Transaction> =
+            if let Some(compact_block) = self.state.pending_compact_blocks.lock().remove(&hash) {
+                let transactions: Vec<IndexedTransaction> =
                     bt.get_transactions().iter().map(Into::into).collect();
                 if let (Some(block), _) = self.reconstruct_block(&compact_block, transactions) {
-                    self.synchronizer.process_new_block(*peer, block);
+                    self.synchronizer.process_new_block(peer, block);
                 }
             }
+        } else if payload.has_block_proposal_request() {
+            let request = payload.get_block_proposal_request();
+            let number = request.get_block_number();
+            let proposal_ids = request
+                .get_proposal_ids()
+                .iter()
+                .filter_map(|bytes| ProposalShortId::from_slice(&bytes));
+            if let Some((txs, notfound)) = self.tx_pool.query_proposal(number, proposal_ids) {
+                if !txs.is_empty() {
+                    let mut payload = ckb_protocol::Payload::new();
+                    let mut response = ckb_protocol::BlockProposalResponse::new();
+                    response.set_block_number(number);
+                    response.set_transactions(txs.iter().map(Into::into).collect());
+                    payload.set_block_proposal_response(response);
+                    let _ = nc.respond_payload(payload);
+                }
+                if !notfound.is_empty() {
+                    let mut pending_proposals_request = self.state.pending_proposals_request.lock();
+                    let txs_table = pending_proposals_request
+                        .entry(peer)
+                        .or_insert_with(FnvHashMap::default);
+                    let mut txs = txs_table.entry(number).or_insert_with(FnvHashSet::default);
+                    txs.extend(notfound.into_iter());
+                }
+            }
+        } else if payload.has_block_proposal_response() {
+            let mut response = payload.take_block_proposal_response();
+            let block_number = response.get_block_number();
+            let txs: FnvHashSet<ProposalTransaction> = response
+                .take_transactions()
+                .iter()
+                .map(Into::into)
+                .collect();
+
+            let txs_ids: FnvHashSet<ProposalShortId> =
+                txs.iter().map(|tx| tx.proposal_short_id()).collect();
+
+            if let Some(proposals) = self.state.inflight_proposals.lock().get_mut(&block_number) {
+                proposals.retain(|id| !txs_ids.contains(id));
+            }
+            self.tx_pool.proposal_n(block_number, txs);
         }
+    }
+
+    fn prune_tx_proposal_request(&self, nc: Box<NetworkContext>) {
+        let mut pending_proposals_request = self.state.pending_proposals_request.lock();
+        for (peer, mut txs_table) in pending_proposals_request.iter_mut() {
+            for (number, mut proposal_ids) in txs_table.iter_mut() {
+                let result = { self.tx_pool.query_proposal(*number, proposal_ids.drain()) };
+                if let Some((txs, notfound)) = result {
+                    if !txs.is_empty() {
+                        let mut payload = ckb_protocol::Payload::new();
+                        let mut response = ckb_protocol::BlockProposalResponse::new();
+                        response.set_block_number(*number);
+                        response.set_transactions(txs.iter().map(Into::into).collect());
+                        payload.set_block_proposal_response(response);
+                        let _ = nc.send_payload(*peer, payload);
+                    }
+                    if !notfound.is_empty() {
+                        *proposal_ids = notfound.into_iter().collect();
+                    }
+                }
+            }
+            txs_table.retain(|_, txs| !txs.is_empty());
+        }
+        pending_proposals_request.retain(|_, table| !table.is_empty());
     }
 }
 
-impl<C: ChainProvider + 'static> NetworkProtocolHandler for RelayProtocol<C> {
+impl<C, P> NetworkProtocolHandler for RelayProtocol<C, P>
+where
+    C: ChainProvider + 'static,
+    P: PowEngine + 'static,
+{
+    fn initialize(&self, nc: Box<NetworkContext>) {
+        let _ = nc.register_timer(TX_PROPOSAL_TOKEN, Duration::from_millis(100));
+    }
     /// Called when new network packet received.
     fn read(&self, nc: Box<NetworkContext>, peer: &PeerId, _packet_id: u8, data: &[u8]) {
+        let protocol = self.clone();
+        let peer = *peer;
         match protobuf::parse_from_bytes::<ckb_protocol::Payload>(data) {
-            Ok(payload) => self.process(nc, peer, payload),
+            Ok(payload) => {
+                tokio::spawn(lazy(move || {
+                    protocol.process(nc, peer, payload);
+                    future::ok(())
+                }));
+            }
             Err(err) => warn!(target: "sync", "Failed to parse protobuf, error={:?}", err),
         };
     }
@@ -587,6 +687,21 @@ impl<C: ChainProvider + 'static> NetworkProtocolHandler for RelayProtocol<C> {
         info!(target: "sync", "peer={} RelayProtocol.disconnected", peer);
         // TODO
     }
+
+    fn timeout(&self, nc: Box<NetworkContext>, token: TimerToken) {
+        let protocol = self.clone();
+        tokio::spawn(lazy(move || {
+            if !protocol.synchronizer.peers.state.read().is_empty() {
+                match token as usize {
+                    TX_PROPOSAL_TOKEN => protocol.prune_tx_proposal_request(nc),
+                    _ => unreachable!(),
+                }
+            } else {
+                debug!(target: "sync", "no peers connected");
+            }
+            future::ok(())
+        }));
+    }
 }
 
 #[cfg(test)]
@@ -596,7 +711,7 @@ mod tests {
     use ckb_chain::chain::Chain;
     use ckb_chain::consensus::Consensus;
     use ckb_chain::store::ChainKVStore;
-    use ckb_chain::COLUMNS;
+    use ckb_chain::{DummyPowEngine, COLUMNS};
     use ckb_notify::Notify;
     use ckb_time::{now_ms, set_mock_timer};
     use config::Config;
@@ -634,7 +749,7 @@ mod tests {
 
     fn gen_chain(consensus: &Consensus) -> Chain<ChainKVStore<MemoryKeyValueDB>> {
         let db = MemoryKeyValueDB::open(COLUMNS as usize);
-        let store = ChainKVStore { db };
+        let store = ChainKVStore::new(db);
         let chain = Chain::init(store, consensus.clone(), Notify::default()).unwrap();
         chain
     }
@@ -716,7 +831,8 @@ mod tests {
         let config = Consensus::default();
         let chain = Arc::new(gen_chain(&config));
 
-        let synchronizer = Synchronizer::new(&chain, None, Config::default());
+        let synchronizer =
+            Synchronizer::new(&chain, &Arc::new(DummyPowEngine::new()), Config::default());
 
         let network_context = mock_network_context(5);
 
@@ -726,9 +842,9 @@ mod tests {
 
         let peers = synchronizer.peers();
         // protect should not effect headers_timeout
-        peers.on_connected(&0, 0, true);
-        peers.on_connected(&1, 0, false);
-        peers.on_connected(&2, MAX_TIP_AGE * 2, false);
+        peers.on_connected(0, 0, true);
+        peers.on_connected(1, 0, false);
+        peers.on_connected(2, MAX_TIP_AGE * 2, false);
 
         SyncProtocol::eviction(synchronizer, &network_context);
 
@@ -748,24 +864,25 @@ mod tests {
 
         assert_eq!(chain.tip_header().read().total_difficulty, U256::from(2));
 
-        let synchronizer = Synchronizer::new(&chain, None, Config::default());
+        let synchronizer =
+            Synchronizer::new(&chain, &Arc::new(DummyPowEngine::new()), Config::default());
 
         let network_context = mock_network_context(6);
 
         let peers = synchronizer.peers();
 
         //6 peers do not trigger header sync timeout
-        peers.on_connected(&0, MAX_TIP_AGE * 2, true);
-        peers.on_connected(&1, MAX_TIP_AGE * 2, true);
-        peers.on_connected(&2, MAX_TIP_AGE * 2, true);
-        peers.on_connected(&3, MAX_TIP_AGE * 2, false);
-        peers.on_connected(&4, MAX_TIP_AGE * 2, false);
-        peers.on_connected(&5, MAX_TIP_AGE * 2, false);
+        peers.on_connected(0, MAX_TIP_AGE * 2, true);
+        peers.on_connected(1, MAX_TIP_AGE * 2, true);
+        peers.on_connected(2, MAX_TIP_AGE * 2, true);
+        peers.on_connected(3, MAX_TIP_AGE * 2, false);
+        peers.on_connected(4, MAX_TIP_AGE * 2, false);
+        peers.on_connected(5, MAX_TIP_AGE * 2, false);
 
-        peers.new_header_received(&0, &mock_header_view(1));
-        peers.new_header_received(&2, &mock_header_view(3));
-        peers.new_header_received(&3, &mock_header_view(1));
-        peers.new_header_received(&5, &mock_header_view(3));
+        peers.new_header_received(0, &mock_header_view(1));
+        peers.new_header_received(2, &mock_header_view(3));
+        peers.new_header_received(3, &mock_header_view(1));
+        peers.new_header_received(5, &mock_header_view(3));
 
         SyncProtocol::eviction(synchronizer.clone(), &network_context);
 

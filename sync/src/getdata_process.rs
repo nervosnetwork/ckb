@@ -1,24 +1,26 @@
 use bigint::H256;
 use ckb_chain::chain::ChainProvider;
+use ckb_chain::PowEngine;
 use ckb_protocol;
 use network::NetworkContextExt;
 use network::{NetworkContext, PeerId};
 use synchronizer::Synchronizer;
 
-pub struct GetDataProcess<'a, C: 'a> {
+pub struct GetDataProcess<'a, C: 'a, P: 'a> {
     message: &'a ckb_protocol::GetData,
-    synchronizer: &'a Synchronizer<C>,
+    synchronizer: &'a Synchronizer<C, P>,
     nc: &'a NetworkContext,
 }
 
-impl<'a, C> GetDataProcess<'a, C>
+impl<'a, C, P> GetDataProcess<'a, C, P>
 where
     C: ChainProvider + 'a,
+    P: PowEngine + 'a,
 {
     pub fn new(
         message: &'a ckb_protocol::GetData,
-        synchronizer: &'a Synchronizer<C>,
-        _peer: &PeerId,
+        synchronizer: &'a Synchronizer<C, P>,
+        _peer: PeerId,
         nc: &'a NetworkContext,
     ) -> Self {
         GetDataProcess {
@@ -37,19 +39,20 @@ where
     }
 }
 
-pub struct InventoryProcess<'a, C: 'a> {
+pub struct InventoryProcess<'a, C: 'a, P: 'a> {
     nc: &'a NetworkContext,
-    synchronizer: &'a Synchronizer<C>,
+    synchronizer: &'a Synchronizer<C, P>,
     inventory: &'a ckb_protocol::Inventory,
 }
 
-impl<'a, C> InventoryProcess<'a, C>
+impl<'a, C, P> InventoryProcess<'a, C, P>
 where
     C: ChainProvider + 'a,
+    P: PowEngine + 'a,
 {
     pub fn new(
         nc: &'a NetworkContext,
-        synchronizer: &'a Synchronizer<C>,
+        synchronizer: &'a Synchronizer<C, P>,
         inventory: &'a ckb_protocol::Inventory,
     ) -> Self {
         InventoryProcess {

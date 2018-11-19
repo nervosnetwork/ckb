@@ -24,9 +24,10 @@ pub struct Address {
     pub length: usize,
 }
 
-pub fn serialize<T: Serialize>(values: &[T]) -> Result<(Vec<u8>, Vec<Address>)> {
+pub fn serialize<'a, T: Serialize + 'a>(
+    values: impl Iterator<Item = &'a T>,
+) -> Result<(Vec<u8>, Vec<Address>)> {
     values
-        .iter()
         .map(|value| bincode_serialize(value))
         .collect::<Result<Vec<Vec<u8>>>>()
         .map(|serialized_values| {
@@ -41,9 +42,10 @@ pub fn serialize<T: Serialize>(values: &[T]) -> Result<(Vec<u8>, Vec<Address>)> 
         })
 }
 
-pub fn serialized_addresses<T: Serialize>(values: &[T]) -> Result<Vec<Address>> {
+pub fn serialized_addresses<'a, T: Serialize + 'a>(
+    values: impl Iterator<Item = &'a T>,
+) -> Result<Vec<Address>> {
     values
-        .iter()
         .map(|value| bincode_serialized_size(value).map(|len| len as usize))
         .collect::<Result<Vec<usize>>>()
         .map(|serialized_sizes| generate_addresses_from_sizes(&serialized_sizes))
@@ -62,8 +64,7 @@ pub fn deserialize<'a, T: Deserialize<'a>>(
                     "address is invalid!".to_string(),
                 ))),
             },
-        )
-        .collect()
+        ).collect()
 }
 
 fn generate_addresses_from_sizes(sizes: &[usize]) -> Vec<Address> {
@@ -106,7 +107,7 @@ mod tests {
                 c: 10,
             },
         ];
-        let (data, addresses) = serialize(&items).unwrap();
+        let (data, addresses) = serialize(items.iter()).unwrap();
         let new_items = deserialize(&data, &addresses).unwrap();
         assert_eq!(items, new_items);
     }
@@ -125,8 +126,8 @@ mod tests {
                 c: 10,
             },
         ];
-        let (_, addresses) = serialize(&items).unwrap();
-        let addresses2 = serialized_addresses(&items).unwrap();
+        let (_, addresses) = serialize(items.iter()).unwrap();
+        let addresses2 = serialized_addresses(items.iter()).unwrap();
         assert_eq!(addresses, addresses2);
     }
 
@@ -144,7 +145,7 @@ mod tests {
                 c: 10,
             },
         ];
-        let (data, addresses) = serialize(&items).unwrap();
+        let (data, addresses) = serialize(items.iter()).unwrap();
 
         let sliced_data = &data[addresses[1].offset..(addresses[1].offset + addresses[1].length)];
         let new_item = bincode_deserialize(sliced_data).unwrap();

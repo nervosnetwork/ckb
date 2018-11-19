@@ -1,4 +1,7 @@
-#![feature(slice_patterns)]
+//! # The Sync module
+//!
+//! Sync module implement ckb sync protocol as specified here:
+//! https://github.com/NervosFoundation/rfcs/tree/master/rfcs/0000-block-sync-protocol
 
 extern crate bigint;
 extern crate fnv;

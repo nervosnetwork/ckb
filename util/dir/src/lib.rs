@@ -1,13 +1,10 @@
-extern crate app_dirs;
+extern crate dirs;
 
-use app_dirs::{get_app_root, AppDataType, AppInfo};
+use std::fs;
 use std::path::{Path, PathBuf};
-use std::{env, fs};
 
-const APP_INFO: AppInfo = AppInfo {
-    name: "ckb",
-    author: "Nervos Dev",
-};
+const APP_NANE: &str = "ckb";
+const APP_AUTHOR: &str = "NervosDev";
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct Directories {
@@ -28,20 +25,23 @@ impl Directories {
     }
 
     pub fn join<P: AsRef<Path>>(&self, path: P) -> PathBuf {
-        let result = self.base.join(path);
-        fs::create_dir_all(result.clone()).expect("Unable to create dir");
+        let result = self.base.join(path.as_ref());
+        fs::create_dir_all(&result).expect("Unable to create dir");
         result
     }
 }
 
 /// Default data path
 pub fn default_base_path() -> PathBuf {
-    get_app_root(AppDataType::UserData, &APP_INFO).unwrap_or_else(|_| home().join(".ckb"))
+    dirs::data_dir()
+        .unwrap_or_else(home_dir)
+        .join(APP_AUTHOR)
+        .join(APP_NANE)
 }
 
 /// Get home directory.
-fn home() -> PathBuf {
-    env::home_dir().expect("Failed to get home dir")
+fn home_dir() -> PathBuf {
+    dirs::home_dir().expect("Failed to get home_dir")
 }
 
 #[cfg(test)]

@@ -1,7 +1,11 @@
-#![feature(int_to_from_bytes)]
+//! # The Core Type Library
+//!
+//! This Library provides the essential types for building ckb.
+
 extern crate bigint;
 extern crate bincode;
 extern crate ckb_protocol;
+extern crate ckb_util;
 extern crate crypto;
 extern crate hash;
 extern crate merkle_root;
@@ -10,6 +14,7 @@ extern crate serde_derive;
 extern crate bit_vec;
 #[cfg(test)]
 extern crate protobuf;
+extern crate rayon;
 
 pub mod block;
 pub mod cell;
