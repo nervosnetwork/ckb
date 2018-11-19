@@ -16,3 +16,4 @@ rayon = "1.0"
 
 [dev-dependencies]
 nervos-db = { path = "../db" }
+nervos-notify = { path = "../notify" }

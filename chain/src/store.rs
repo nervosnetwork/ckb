@@ -5,7 +5,7 @@ use avl::node::search;
 use avl::tree::AvlTree;
 use bigint::H256;
 use bincode::{deserialize, serialize};
-use core::block::{Block, IndexedBlock};
+use core::block::IndexedBlock;
 use core::extras::BlockExt;
 use core::header::IndexedHeader;
 use core::transaction::{OutPoint, Transaction};

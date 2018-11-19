@@ -3,6 +3,7 @@ use super::Config;
 use chain::chain::{ChainProvider, Error};
 use core::block::IndexedBlock;
 use core::header::{Header, IndexedHeader};
+use core::script::Script;
 use core::transaction::{CellInput, CellOutput, OutPoint, Transaction, VERSION};
 use crossbeam_channel;
 use ethash::{get_epoch, Ethash};
@@ -116,14 +117,22 @@ impl<C: ChainProvider + 'static> Miner<C> {
         head: &Header,
         transactions: &[Transaction],
     ) -> Result<Transaction, Error> {
-        let inputs = vec![CellInput::new(OutPoint::null(), Vec::new())];
+        // NOTE: To generate different cellbase txid, we put header number in the input script
+        let inputs = vec![CellInput::new(
+            OutPoint::null(),
+            Script::new(0, Vec::new(), head.raw.number.to_le().to_bytes().to_vec()),
+        )];
         // NOTE: We could've just used byteorder to serialize u64 and hex string into bytes,
         // but the truth is we will modify this after we designed lock script anyway, so let's
         // stick to the simpler way and just convert everything to a single string, then to UTF8
         // bytes, they really serve the same purpose at the moment
-        let lock = format!("{}{}", head.raw.number, self.config.miner_address).into_bytes();
         let reward = self.cellbase_reward(head, transactions)?;
-        let outputs = vec![CellOutput::new(0, reward, Vec::new(), lock)];
+        let outputs = vec![CellOutput::new(
+            0,
+            reward,
+            Vec::new(),
+            self.config.redeem_script_hash,
+        )];
         Ok(Transaction::new(VERSION, Vec::new(), inputs, outputs))
     }
 

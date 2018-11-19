@@ -14,6 +14,7 @@ pub struct Config {
     pub number: u64,
     pub nonce: u64,
     pub mix_hash: H256,
+    // other config
     pub initial_block_reward: u32,
 }
 

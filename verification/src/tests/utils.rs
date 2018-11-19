@@ -1,5 +1,5 @@
 use bigint::{H256, U256};
-use core::block::Block;
+use core::block::IndexedBlock;
 use core::header::{Header, RawHeader, Seal};
 use core::transaction::Transaction;
 
@@ -9,7 +9,7 @@ pub fn create_dummy_transaction() -> Transaction {
     Transaction::new(0, Vec::new(), Vec::new(), Vec::new())
 }
 
-pub fn create_dummy_block() -> Block {
+pub fn create_dummy_block() -> IndexedBlock {
     let raw_header = RawHeader {
         version: 0,
         parent_hash: H256::from(0),
@@ -24,10 +24,9 @@ pub fn create_dummy_block() -> Block {
             nonce: 0,
             mix_hash: H256::from(0),
         },
-        hash: None,
     };
-    Block {
-        header,
+    IndexedBlock {
+        header: header.into(),
         transactions: Vec::new(),
     }
 }

@@ -29,6 +29,7 @@ use notify::Notify;
 use std::collections::HashMap;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
+use std::thread;
 use std::time::Duration;
 use std::{thread, time as std_time};
 use sync::protocol::SyncProtocol;
@@ -153,22 +154,22 @@ impl NetworkContext for TestNetworkContext {
     }
 
     /// Register a new IO timer. 'IoHandler::timeout' will be called with the token.
-    fn register_timer(&self, token: TimerToken, delay: Duration) -> Result<(), Error> {
+    fn register_timer(&self, _token: TimerToken, _delay: Duration) -> Result<(), Error> {
         unimplemented!()
     }
 
     /// Returns peer identification string
-    fn peer_client_version(&self, peer: PeerId) -> String {
+    fn peer_client_version(&self, _peer: PeerId) -> String {
         unimplemented!()
     }
 
     /// Returns information on p2p session
-    fn session_info(&self, peer: PeerId) -> Option<SessionInfo> {
+    fn session_info(&self, _peer: PeerId) -> Option<SessionInfo> {
         None
     }
 
     /// Returns max version for a given protocol.
-    fn protocol_version(&self, protocol: ProtocolId, peer: PeerId) -> Option<u8> {
+    fn protocol_version(&self, _protocol: ProtocolId, _peer: PeerId) -> Option<u8> {
         unimplemented!()
     }
 
@@ -211,13 +212,13 @@ fn setup_node(height: u64) -> (TestNode, Arc<Chain<ChainKVStore<MemoryKeyValueDB
     let mut block = builder.get_config().genesis_block();
     let chain = Arc::new(builder.build().unwrap());
 
-    for i in 0..height {
+    for _i in 0..height {
         let time = now_ms();
         let transactions = vec![Transaction::new(
             0,
             Vec::new(),
-            vec![CellInput::new(OutPoint::null(), Vec::new())],
-            vec![CellOutput::new(0, 50, Vec::new(), Vec::new())],
+            vec![CellInput::new(OutPoint::null(), Default::default())],
+            vec![CellOutput::new(0, 50, Vec::new(), H256::default())],
         )];
 
         let header = Header {

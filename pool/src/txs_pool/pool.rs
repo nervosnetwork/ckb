@@ -1,11 +1,14 @@
 //! Top-level Pool type, methods, and tests
+use bigint::H256;
 use core::block::IndexedBlock;
-use core::cell::CellState;
+use core::cell::{CellProvider, CellState};
 use core::transaction::{OutPoint, Transaction};
+use crossbeam_channel;
 use nervos_chain::chain::ChainProvider;
 use nervos_notify::Notify;
 use nervos_verification::TransactionVerifier;
 use std::sync::Arc;
+use std::thread;
 use txs_pool::types::*;
 use util::RwLock;
 
@@ -22,35 +25,91 @@ pub struct TransactionPool<T> {
     pub notify: Notify,
 }
 
-impl<T> TransactionPool<T>
+impl<T> CellProvider for TransactionPool<T>
 where
     T: ChainProvider,
 {
-    /// Create a new transaction pool
-    pub fn new(config: PoolConfig, chain: &Arc<T>, notify: Notify) -> TransactionPool<T> {
-        TransactionPool {
-            config,
-            pool: RwLock::new(Pool::new()),
-            orphan: RwLock::new(OrphanPool::new()),
-            chain: Arc::clone(chain),
-            notify,
+    fn cell(&self, o: &OutPoint) -> CellState {
+        if self.pool.read().parent(o) == Parent::AlreadySpent
+            || self.orphan.read().parent(o) == Parent::AlreadySpent
+        {
+            CellState::Tail
+        } else if let Some(output) = self.pool.read().get_output(o) {
+            CellState::Pool(output)
+        } else if let Some(output) = self.orphan.read().get_output(o) {
+            CellState::Orphan(output)
+        } else {
+            self.chain.cell(o)
         }
     }
 
-    pub fn is_spent(&self, o: &OutPoint) -> Parent {
-        self.pool
-            .read()
-            .is_spent(o)
-            .or_else(|| self.orphan.read().is_spent(o))
-            .or_else(|| self.cell_state(o))
-            .unwrap_or(Parent::Unknown)
+    fn cell_at(&self, o: &OutPoint, parent: &H256) -> CellState {
+        if self.pool.read().parent(o) == Parent::AlreadySpent
+            || self.orphan.read().parent(o) == Parent::AlreadySpent
+        {
+            CellState::Tail
+        } else if let Some(output) = self.pool.read().get_output(o) {
+            CellState::Pool(output)
+        } else if let Some(output) = self.orphan.read().get_output(o) {
+            CellState::Orphan(output)
+        } else {
+            self.chain.cell_at(o, parent)
+        }
+    }
+}
+
+impl<T> TransactionPool<T>
+where
+    T: ChainProvider + 'static,
+{
+    /// Create a new transaction pool
+    pub fn new(config: PoolConfig, chain: Arc<T>, notify: Notify) -> Arc<TransactionPool<T>> {
+        let pool = Arc::new(TransactionPool {
+            config,
+            pool: RwLock::new(Pool::new()),
+            orphan: RwLock::new(OrphanPool::new()),
+            chain,
+            notify,
+        });
+
+        let (tx1, rx1) = crossbeam_channel::unbounded();
+        pool.notify.register_canon_subscribers("pool", tx1);
+        let pool1 = Arc::<TransactionPool<T>>::clone(&pool);
+        thread::spawn(move || {
+            while let Some(b) = rx1.recv() {
+                pool1.reconcile_block(&b);
+            }
+        });
+
+        let (tx2, rx2) = crossbeam_channel::unbounded();
+        pool.notify.register_fork_subscribers("pool", tx2);
+        let pool2 = Arc::<TransactionPool<T>>::clone(&pool);
+        thread::spawn(move || {
+            while let Some(t) = rx2.recv() {
+                pool2.switch_fork(t);
+            }
+        });
+
+        pool
     }
 
-    fn cell_state(&self, o: &OutPoint) -> Option<Parent> {
-        match self.chain.cell(o) {
-            CellState::Tail => Some(Parent::AlreadySpent),
-            CellState::Head(_) => Some(Parent::BlockTransaction),
-            CellState::Unknown => None,
+    pub fn switch_fork(&self, txs: (Vec<Transaction>, Vec<Transaction>)) {
+        let (old, mut new) = txs;
+        for tx in old {
+            self.pool.write().readd_transaction(&tx);
+        }
+
+        new.reverse();
+
+        for tx in new {
+            let in_pool = { self.pool.write().commit_transaction(&tx) };
+            if !in_pool {
+                {
+                    self.orphan.write().commit_transaction(&tx);
+                }
+
+                self.resolve_conflict(&tx);
+            }
         }
     }
 
@@ -69,16 +128,10 @@ where
         self.pool_size() + self.orphan_size()
     }
 
-    /// Attempts to add a transaction to the stempool or the memory pool.
+    /// Attempts to add a transaction to the memory pool.
     pub fn add_to_memory_pool(&self, tx: Transaction) -> Result<InsertionResult, PoolError> {
         // Do we have the capacity to accept this transaction?
         self.is_acceptable()?;
-
-        // Making sure the transaction is valid before anything else.
-        // maybe need do some state verify
-        TransactionVerifier::new(&tx)
-            .verify()
-            .map_err(PoolError::InvalidTx)?;
 
         self.check_duplicate(&tx)?;
 
@@ -87,17 +140,24 @@ where
         let mut is_orphan = false;
         let mut unknowns = Vec::new();
 
-        for input in inputs {
-            match self.is_spent(&input) {
-                Parent::AlreadySpent => return Err(PoolError::DoubleSpend),
-                Parent::OrphanTransaction => {
-                    is_orphan = true;
+        {
+            let rtx = self.resolve_transaction(&tx);
+
+            for (i, cs) in rtx.input_cells.iter().enumerate() {
+                match cs {
+                    CellState::Orphan(_) => is_orphan = true,
+                    CellState::Unknown => {
+                        is_orphan = true;
+                        unknowns.push(inputs[i].clone());
+                    }
+                    _ => {}
                 }
-                Parent::Unknown => {
-                    unknowns.push(input);
-                    is_orphan = true;
-                }
-                _ => {}
+            }
+
+            if unknowns.is_empty() {
+                TransactionVerifier::new(rtx)
+                    .verify()
+                    .map_err(PoolError::InvalidTx)?;
             }
         }
 
@@ -116,7 +176,7 @@ where
             pool.add_transaction(tx);
 
             for tx in txs {
-                pool.add_transaction(tx);
+                let _ = self.add_to_memory_pool(tx);
             }
 
             self.notify.notify_new_transaction();
@@ -171,12 +231,8 @@ where
             }
         }
 
-        let outputs = tx.output_pts();
-
-        for o in outputs {
-            if self.cell_state(&o).is_some() {
-                return Err(PoolError::DuplicateOutput);
-            }
+        if self.chain.contain_transaction(&h) {
+            return Err(PoolError::DuplicateOutput);
         }
 
         Ok(())

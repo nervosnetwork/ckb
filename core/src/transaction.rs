@@ -1,10 +1,11 @@
 //! Transaction using Cell.
 //! It is similar to Bitcoin Tx <https://en.bitcoin.it/wiki/Protocol_documentation#tx/>
 use bigint::H256;
-use bincode::serialize;
+use bincode::{deserialize, serialize};
 use error::TxError;
 use hash::sha3_256;
 use nervos_protocol;
+use script::Script;
 use std::ops::{Deref, DerefMut};
 
 pub const VERSION: u32 = 0;
@@ -45,11 +46,11 @@ pub struct CellInput {
     pub previous_output: OutPoint,
     // Depends on whether the operation is Transform or Destroy, this is the proof to transform
     // lock or destroy lock.
-    pub unlock: Vec<u8>,
+    pub unlock: Script,
 }
 
 impl CellInput {
-    pub fn new(previous_output: OutPoint, unlock: Vec<u8>) -> Self {
+    pub fn new(previous_output: OutPoint, unlock: Script) -> Self {
         CellInput {
             previous_output,
             unlock,
@@ -62,11 +63,11 @@ pub struct CellOutput {
     pub module: u32,
     pub capacity: u32,
     pub data: Vec<u8>,
-    pub lock: Vec<u8>,
+    pub lock: H256,
 }
 
 impl CellOutput {
-    pub fn new(module: u32, capacity: u32, data: Vec<u8>, lock: Vec<u8>) -> Self {
+    pub fn new(module: u32, capacity: u32, data: Vec<u8>, lock: H256) -> Self {
         CellOutput {
             module,
             capacity,
@@ -241,7 +242,7 @@ impl<'a> From<&'a nervos_protocol::CellInput> for CellInput {
     fn from(c: &'a nervos_protocol::CellInput) -> Self {
         Self {
             previous_output: c.get_previous_output().into(),
-            unlock: c.get_unlock().to_vec(),
+            unlock: deserialize(c.get_unlock()).unwrap(),
         }
     }
 }
@@ -250,7 +251,7 @@ impl<'a> From<&'a CellInput> for nervos_protocol::CellInput {
     fn from(c: &'a CellInput) -> Self {
         let mut ci = nervos_protocol::CellInput::new();
         ci.set_previous_output((&c.previous_output).into());
-        ci.set_unlock(c.unlock.clone());
+        ci.set_unlock(serialize(&c.unlock).unwrap());
         ci
     }
 }
@@ -263,7 +264,7 @@ impl From<CellInput> for nervos_protocol::CellInput {
         } = c;
         let mut ci = nervos_protocol::CellInput::new();
         ci.set_previous_output((&previous_output).into());
-        ci.set_unlock(unlock);
+        ci.set_unlock(serialize(&unlock).unwrap());
         ci
     }
 }
@@ -275,7 +276,7 @@ impl<'a> From<&'a nervos_protocol::CellOutput> for CellOutput {
             module: c.get_module(),
             capacity: c.get_capacity(),
             data: c.get_data().to_vec(),
-            lock: c.get_lock().to_vec(),
+            lock: c.get_lock().into(),
         }
     }
 }
@@ -286,7 +287,7 @@ impl<'a> From<&'a CellOutput> for nervos_protocol::CellOutput {
         co.set_module(c.module);
         co.set_capacity(c.capacity);
         co.set_data(c.data.clone());
-        co.set_lock(c.lock.clone());
+        co.set_lock(c.lock.to_vec());
         co
     }
 }
@@ -303,7 +304,7 @@ impl From<CellOutput> for nervos_protocol::CellOutput {
         co.set_module(module);
         co.set_capacity(capacity);
         co.set_data(data);
-        co.set_lock(lock);
+        co.set_lock(lock.to_vec());
         co
     }
 }

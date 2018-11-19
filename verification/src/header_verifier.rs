@@ -1,26 +1,26 @@
 use super::pow_verifier::{PowVerifier, PowVerifierWrapper};
 use super::Verifier;
 use core::difficulty::cal_difficulty;
-use core::header::Header;
+use core::header::IndexedHeader;
 use error::{DifficultyError, Error, HeightError, TimestampError};
 use shared::ALLOWED_FUTURE_BLOCKTIME;
 use time::now_ms;
 
-pub struct HeaderVerifier<'a, T> {
-    pub pow: PowVerifierWrapper<'a, T>,
+pub struct HeaderVerifier<'a, P> {
+    pub pow: PowVerifierWrapper<'a, P>,
     pub timestamp: TimestampVerifier<'a>,
     pub number: NumberVerifier<'a>,
     pub difficulty: DifficultyVerifier<'a>,
 }
 
-impl<'a, T> HeaderVerifier<'a, T>
+impl<'a, P> HeaderVerifier<'a, P>
 where
-    T: PowVerifier,
+    P: PowVerifier,
 {
-    pub fn new(parent: &'a Header, header: &'a Header, pow_verifier: T) -> Self {
+    pub fn new(parent: &'a IndexedHeader, header: &'a IndexedHeader, pow: P) -> Self {
         debug_assert_eq!(parent.hash(), header.parent_hash);
         HeaderVerifier {
-            pow: PowVerifierWrapper::new(header, pow_verifier),
+            pow: PowVerifierWrapper::new(header, pow),
             timestamp: TimestampVerifier::new(parent, header),
             number: NumberVerifier::new(parent, header),
             difficulty: DifficultyVerifier::new(parent, header),
@@ -28,9 +28,9 @@ where
     }
 }
 
-impl<'a, T> Verifier for HeaderVerifier<'a, T>
+impl<'a, P> Verifier for HeaderVerifier<'a, P>
 where
-    T: PowVerifier,
+    P: PowVerifier,
 {
     fn verify(&self) -> Result<(), Error> {
         self.number.verify()?;
@@ -41,69 +41,14 @@ where
     }
 }
 
-// pub struct PowVerifier<'a> {
-//     header: &'a Header,
-//     ethash: Arc<Ethash>,
-// }
-
-// impl<'a> PowVerifier<'a> {
-//     pub fn new(header: &'a Header, ethash: Arc<Ethash>) -> Self {
-//         PowVerifier { header, ethash }
-//     }
-
-//     pub fn verify(&self) -> Result<(), Error> {
-//         let pow_hash = self.header.pow_hash();
-//         self.cheap_verify(&pow_hash)
-//             .and_then(|_| self.heavy_verify(&pow_hash))
-//     }
-
-//     fn cheap_verify(&self, pow_hash: &H256) -> Result<(), Error> {
-//         let difficulty = boundary_to_difficulty(&recover_boundary(
-//             pow_hash,
-//             self.header.seal.nonce,
-//             &self.header.seal.mix_hash,
-//         ));
-
-//         if difficulty < self.header.difficulty {
-//             Err(Error::Pow(PowError::Boundary {
-//                 expected: self.header.difficulty,
-//                 actual: difficulty,
-//             }))
-//         } else {
-//             Ok(())
-//         }
-//     }
-
-//     fn heavy_verify(&self, pow_hash: &H256) -> Result<(), Error> {
-//         let Pow { mix, value } =
-//             self.ethash
-//                 .light_compute(self.header.number, *pow_hash, self.header.seal.nonce);
-//         if mix != self.header.seal.mix_hash {
-//             return Err(Error::Pow(PowError::MixMismatch {
-//                 expected: self.header.seal.mix_hash,
-//                 actual: mix,
-//             }));
-//         }
-//         let difficulty = boundary_to_difficulty(&value);
-
-//         if difficulty < self.header.difficulty {
-//             return Err(Error::Pow(PowError::Boundary {
-//                 expected: self.header.difficulty,
-//                 actual: difficulty,
-//             }));
-//         }
-//         Ok(())
-//     }
-// }
-
 pub struct TimestampVerifier<'a> {
-    parent: &'a Header,
-    header: &'a Header,
+    parent: &'a IndexedHeader,
+    header: &'a IndexedHeader,
     now: u64,
 }
 
 impl<'a> TimestampVerifier<'a> {
-    pub fn new(parent: &'a Header, header: &'a Header) -> Self {
+    pub fn new(parent: &'a IndexedHeader, header: &'a IndexedHeader) -> Self {
         TimestampVerifier {
             parent,
             header,
@@ -131,12 +76,12 @@ impl<'a> TimestampVerifier<'a> {
 }
 
 pub struct NumberVerifier<'a> {
-    parent: &'a Header,
-    header: &'a Header,
+    parent: &'a IndexedHeader,
+    header: &'a IndexedHeader,
 }
 
 impl<'a> NumberVerifier<'a> {
-    pub fn new(parent: &'a Header, header: &'a Header) -> Self {
+    pub fn new(parent: &'a IndexedHeader, header: &'a IndexedHeader) -> Self {
         NumberVerifier { parent, header }
     }
 
@@ -152,12 +97,12 @@ impl<'a> NumberVerifier<'a> {
 }
 
 pub struct DifficultyVerifier<'a> {
-    parent: &'a Header,
-    header: &'a Header,
+    parent: &'a IndexedHeader,
+    header: &'a IndexedHeader,
 }
 
 impl<'a> DifficultyVerifier<'a> {
-    pub fn new(parent: &'a Header, header: &'a Header) -> Self {
+    pub fn new(parent: &'a IndexedHeader, header: &'a IndexedHeader) -> Self {
         DifficultyVerifier { parent, header }
     }
 

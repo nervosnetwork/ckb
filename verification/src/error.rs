@@ -16,6 +16,8 @@ pub enum Error {
     CellbaseNotAtFirst,
     DuplicateHeader,
     UnknownParent,
+    InvalidInput,
+    InvalidOutput,
 }
 
 #[derive(Debug, PartialEq, Clone, Copy, Eq)]

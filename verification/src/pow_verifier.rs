@@ -1,35 +1,23 @@
 use bigint::H256;
 use core::difficulty::boundary_to_difficulty;
-use core::header::Header;
+use core::header::IndexedHeader;
 use error::{Error, PowError};
 use ethash::{recover_boundary, Ethash, Pow};
 use std::sync::Arc;
 
 pub trait PowVerifier: Clone + Send + Sync {
-    fn verify(&self, header: &Header, pow_hash: &H256) -> Result<(), Error>;
+    fn verify(&self, header: &IndexedHeader, pow_hash: &H256) -> Result<(), Error>;
 }
 
-#[derive(Clone)]
-pub enum PowVerifierImpl {
-    Noop(NoopVerifier),
-    Ethash(EthashVerifier),
-}
-
-impl PowVerifier for PowVerifierImpl {
-    fn verify(&self, header: &Header, pow_hash: &H256) -> Result<(), Error> {
+impl<T> PowVerifier for Option<T>
+where
+    T: PowVerifier,
+{
+    fn verify(&self, header: &IndexedHeader, pow_hash: &H256) -> Result<(), Error> {
         match self {
-            PowVerifierImpl::Noop(noop) => noop.verify(header, pow_hash),
-            PowVerifierImpl::Ethash(ethash) => ethash.verify(header, pow_hash),
+            Some(ref verifier) => verifier.verify(header, pow_hash),
+            None => Ok(()),
         }
-    }
-}
-
-#[derive(Clone)]
-pub struct NoopVerifier;
-
-impl PowVerifier for NoopVerifier {
-    fn verify(&self, _header: &Header, _pow_hash: &H256) -> Result<(), Error> {
-        Ok(())
     }
 }
 
@@ -45,7 +33,7 @@ impl EthashVerifier {
         }
     }
 
-    fn cheap_verify(&self, header: &Header, pow_hash: &H256) -> Result<(), Error> {
+    fn cheap_verify(&self, header: &IndexedHeader, pow_hash: &H256) -> Result<(), Error> {
         let difficulty = boundary_to_difficulty(&recover_boundary(
             pow_hash,
             header.seal.nonce,
@@ -62,7 +50,7 @@ impl EthashVerifier {
         }
     }
 
-    fn heavy_verify(&self, header: &Header, pow_hash: &H256) -> Result<(), Error> {
+    fn heavy_verify(&self, header: &IndexedHeader, pow_hash: &H256) -> Result<(), Error> {
         let Pow { mix, value } =
             self.inner
                 .light_compute(header.number, *pow_hash, header.seal.nonce);
@@ -85,14 +73,14 @@ impl EthashVerifier {
 }
 
 impl PowVerifier for EthashVerifier {
-    fn verify(&self, header: &Header, pow_hash: &H256) -> Result<(), Error> {
+    fn verify(&self, header: &IndexedHeader, pow_hash: &H256) -> Result<(), Error> {
         self.cheap_verify(header, pow_hash)
             .and_then(|_| self.heavy_verify(header, pow_hash))
     }
 }
 
 pub struct PowVerifierWrapper<'a, T> {
-    header: &'a Header,
+    header: &'a IndexedHeader,
     verifier_impl: T,
 }
 
@@ -100,7 +88,7 @@ impl<'a, T> PowVerifierWrapper<'a, T>
 where
     T: PowVerifier,
 {
-    pub fn new(header: &'a Header, verifier_impl: T) -> Self {
+    pub fn new(header: &'a IndexedHeader, verifier_impl: T) -> Self {
         PowVerifierWrapper {
             header,
             verifier_impl,
