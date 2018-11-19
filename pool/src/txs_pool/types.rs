@@ -61,6 +61,8 @@ pub enum PoolError {
     DuplicateOutput,
     ///ConflictOrphan
     ConflictOrphan,
+    /// Coinbase transaction
+    CellBase,
 }
 
 pub struct Pool {
