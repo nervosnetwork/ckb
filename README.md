@@ -3,6 +3,7 @@
 # [Nervos CKB](http://nervos.org) - The Common Knowledge Base
 
 [![TravisCI](https://travis-ci.com/nervosnetwork/ckb.svg?token=y9uR6ygmT3geQaMJ4jpJ&branch=develop)](https://travis-ci.com/nervosnetwork/ckb)
+[![Telegram Group](https://cdn.rawgit.com/Patrolavia/telegram-badge/8fe3382b/chat.svg)](https://t.me/nervos_ckb_dev)
 
 ---
 
@@ -11,6 +12,18 @@
 Nervos CKB is the layer 1 of Nervos Network, a public blockchain with PoW and cell model.
 
 Nervos project defines a suite of scalable and interoperable blockchain protocols. Nervos CKB uses those protocols to create a self-evolving distributed network with novel economic model, data model and more.
+
+## License
+
+Nervos CKB is released under the terms of the MIT license. See [COPYING](COPYING) for more information or see [https://opensource.org/licenses/MIT](https://opensource.org/licenses/MIT).
+
+## Development Process
+
+This project is still in development, it's NOT in production ready status.
+
+The `master` branch is regularly built and tested, but is not guaranteed to be completely stable. The `develop` branch is the work branch to merge new features, it's not stable.
+
+The contribution workflow is described in [CONTRIBUTING.md], and security policy is described in [SECURITY.md]. To propose new protocol or standard for Nervos, see [Nervos RFC](https://github.com/nervosnetwork/rfcs).
 
 ---
 

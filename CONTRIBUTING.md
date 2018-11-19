@@ -8,7 +8,7 @@ Please note we have a code of conduct, please follow it in all your interactions
 ### Report Issue
 
 * **Do not open up a GitHub issue to report security vulnerabilities**. Instead,
-  refer to the security policy (TBD: publish the security policy)
+  refer to the [security policy](SECURITY.md).
 
 * Search existing issues to see whether others had already posted a similar issue.
 
