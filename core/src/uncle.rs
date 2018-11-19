@@ -2,7 +2,6 @@ use super::header::Header;
 use super::transaction::{ProposalShortId, Transaction};
 use bigint::H256;
 use bincode::serialize;
-use ckb_protocol;
 use hash::sha3_256;
 use BlockNumber;
 
@@ -33,33 +32,4 @@ impl UncleBlock {
 
 pub fn uncles_hash(uncles: &[UncleBlock]) -> H256 {
     sha3_256(serialize(uncles).unwrap()).into()
-}
-
-impl<'a> From<&'a ckb_protocol::UncleBlock> for UncleBlock {
-    fn from(proto: &'a ckb_protocol::UncleBlock) -> Self {
-        UncleBlock {
-            header: proto.get_header().into(),
-            cellbase: proto.get_cellbase().into(),
-            proposal_transactions: proto
-                .get_proposal_transactions()
-                .iter()
-                .filter_map(|id| ProposalShortId::from_slice(&id))
-                .collect(),
-        }
-    }
-}
-
-impl<'a> From<&'a UncleBlock> for ckb_protocol::UncleBlock {
-    fn from(uncle: &'a UncleBlock) -> Self {
-        let mut proto = ckb_protocol::UncleBlock::new();
-        proto.set_header(uncle.header().into());
-        proto.set_cellbase(uncle.cellbase().into());
-        let proposal_transactions = uncle
-            .proposal_transactions()
-            .iter()
-            .map(|t| t.to_vec())
-            .collect();
-        proto.set_proposal_transactions(proposal_transactions);
-        proto
-    }
 }

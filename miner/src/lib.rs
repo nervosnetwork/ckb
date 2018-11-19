@@ -4,13 +4,11 @@ extern crate ckb_core as core;
 extern crate ckb_network as network;
 extern crate ckb_notify;
 extern crate ckb_pool as pool;
-extern crate ckb_protocol;
 extern crate crossbeam_channel;
 #[macro_use]
 extern crate log;
 extern crate ckb_sync as sync;
 extern crate ckb_time as time;
-extern crate ckb_util as util;
 extern crate rand;
 #[macro_use]
 extern crate serde_derive;
@@ -18,7 +16,6 @@ extern crate serde_derive;
 extern crate ckb_db;
 #[cfg(test)]
 extern crate ckb_verification;
-extern crate fnv;
 
 mod block_template;
 mod config;

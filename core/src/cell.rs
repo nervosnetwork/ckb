@@ -4,52 +4,82 @@ use std::iter::Chain;
 use std::slice;
 use transaction::{CellOutput, OutPoint, Transaction};
 
-pub trait CellState: Send {
-    fn tail() -> Self;
-    fn unknown() -> Self;
-    fn head(&self) -> Option<&CellOutput>;
-    fn take_head(self) -> Option<CellOutput>;
-    fn is_head(&self) -> bool;
-    fn is_unknown(&self) -> bool;
-    fn is_tail(&self) -> bool;
+#[derive(Clone, PartialEq, Debug)]
+pub enum CellStatus {
+    /// Cell exists and has not been spent.
+    Current(CellOutput),
+    /// Cell exists and has been spent.
+    Old,
+    /// Cell does not exist.
+    Unknown,
+}
+
+impl CellStatus {
+    pub fn is_current(&self) -> bool {
+        match *self {
+            CellStatus::Current(_) => true,
+            _ => false,
+        }
+    }
+
+    pub fn is_old(&self) -> bool {
+        self == &CellStatus::Old
+    }
+
+    pub fn is_unknown(&self) -> bool {
+        self == &CellStatus::Unknown
+    }
+
+    pub fn get_current(&self) -> Option<&CellOutput> {
+        match *self {
+            CellStatus::Current(ref output) => Some(output),
+            _ => None,
+        }
+    }
+
+    pub fn take_current(self) -> Option<CellOutput> {
+        match self {
+            CellStatus::Current(output) => Some(output),
+            _ => None,
+        }
+    }
 }
 
 /// Transaction with resolved input cells.
 #[derive(Debug)]
-pub struct ResolvedTransaction<S> {
+pub struct ResolvedTransaction {
     pub transaction: Transaction,
-    pub dep_cells: Vec<S>,
-    pub input_cells: Vec<S>,
+    pub dep_cells: Vec<CellStatus>,
+    pub input_cells: Vec<CellStatus>,
 }
 
 pub trait CellProvider {
-    type State: CellState;
+    fn cell(&self, out_point: &OutPoint) -> CellStatus;
 
-    fn cell(&self, out_point: &OutPoint) -> Self::State;
+    fn cell_at(&self, out_point: &OutPoint, parent: &H256) -> CellStatus;
 
-    fn cell_at(&self, out_point: &OutPoint, parent: &H256) -> Self::State;
-
-    fn resolve_transaction(&self, transaction: &Transaction) -> ResolvedTransaction<Self::State> {
-        let mut seen_outpoints = HashSet::new();
+    fn resolve_transaction(&self, transaction: &Transaction) -> ResolvedTransaction {
+        let mut seen_inputs = HashSet::new();
 
         let input_cells = transaction
-            .inputs
+            .input_pts()
             .iter()
             .map(|input| {
-                if seen_outpoints.insert(input.previous_output) {
-                    self.cell(&input.previous_output)
+                if seen_inputs.insert(*input) {
+                    self.cell(input)
                 } else {
-                    Self::State::tail()
+                    CellStatus::Old
                 }
             }).collect();
+
         let dep_cells = transaction
-            .deps
+            .dep_pts()
             .iter()
             .map(|dep| {
-                if seen_outpoints.insert(dep.clone()) {
+                if seen_inputs.insert(*dep) {
                     self.cell(dep)
                 } else {
-                    Self::State::tail()
+                    CellStatus::Old
                 }
             }).collect();
 
@@ -64,17 +94,30 @@ pub trait CellProvider {
         &self,
         transaction: &Transaction,
         parent: &H256,
-    ) -> ResolvedTransaction<Self::State> {
+    ) -> ResolvedTransaction {
+        let mut seen_inputs = HashSet::new();
+
         let input_cells = transaction
-            .inputs
+            .input_pts()
             .iter()
-            .map(|input| self.cell_at(&input.previous_output, parent))
-            .collect();
+            .map(|input| {
+                if seen_inputs.insert(*input) {
+                    self.cell_at(input, parent)
+                } else {
+                    CellStatus::Old
+                }
+            }).collect();
+
         let dep_cells = transaction
-            .deps
+            .dep_pts()
             .iter()
-            .map(|dep| self.cell_at(dep, parent))
-            .collect();
+            .map(|dep| {
+                if seen_inputs.insert(*dep) {
+                    self.cell_at(dep, parent)
+                } else {
+                    CellStatus::Old
+                }
+            }).collect();
 
         ResolvedTransaction {
             transaction: transaction.clone(),
@@ -83,34 +126,33 @@ pub trait CellProvider {
         }
     }
 
-    fn resolve_transaction_unknown_inputs(
-        &self,
-        resolved_transaction: &mut ResolvedTransaction<Self::State>,
-    ) {
+    fn resolve_transaction_unknown_inputs(&self, resolved_transaction: &mut ResolvedTransaction) {
         for (out_point, state) in resolved_transaction.transaction.out_points_iter().zip(
             resolved_transaction
                 .dep_cells
                 .iter_mut()
                 .chain(&mut resolved_transaction.input_cells),
         ) {
-            if state.is_unknown() {
+            if *state == CellStatus::Unknown {
                 *state = self.cell(out_point);
             }
         }
     }
 }
 
-impl<S: CellState> ResolvedTransaction<S> {
-    pub fn cells_iter(&self) -> Chain<slice::Iter<S>, slice::Iter<S>> {
+impl ResolvedTransaction {
+    pub fn cells_iter(&self) -> Chain<slice::Iter<CellStatus>, slice::Iter<CellStatus>> {
         self.dep_cells.iter().chain(&self.input_cells)
     }
 
-    pub fn cells_iter_mut(&mut self) -> Chain<slice::IterMut<S>, slice::IterMut<S>> {
+    pub fn cells_iter_mut(
+        &mut self,
+    ) -> Chain<slice::IterMut<CellStatus>, slice::IterMut<CellStatus>> {
         self.dep_cells.iter_mut().chain(&mut self.input_cells)
     }
 
     pub fn is_double_spend(&self) -> bool {
-        self.cells_iter().any(|state| state.is_tail())
+        self.cells_iter().any(|state| state.is_old())
     }
 
     pub fn is_orphan(&self) -> bool {
@@ -118,7 +160,7 @@ impl<S: CellState> ResolvedTransaction<S> {
     }
 
     pub fn is_fully_resolved(&self) -> bool {
-        self.cells_iter().all(|state| state.is_head())
+        self.cells_iter().all(|state| state.is_current())
     }
 }
 
@@ -128,75 +170,23 @@ mod tests {
     use bigint::H256;
     use std::collections::HashMap;
 
-    #[derive(Clone, PartialEq, Debug)]
-    pub enum DummyCellState {
-        Head(CellOutput),
-        Tail,
-        Unknown,
-    }
-
-    impl CellState for DummyCellState {
-        fn tail() -> Self {
-            DummyCellState::Tail
-        }
-
-        fn unknown() -> Self {
-            DummyCellState::Unknown
-        }
-
-        fn head(&self) -> Option<&CellOutput> {
-            match *self {
-                DummyCellState::Head(ref output) => Some(output),
-                _ => None,
-            }
-        }
-
-        fn take_head(self) -> Option<CellOutput> {
-            match self {
-                DummyCellState::Head(output) => Some(output),
-                _ => None,
-            }
-        }
-
-        fn is_head(&self) -> bool {
-            match *self {
-                DummyCellState::Head(_) => true,
-                _ => false,
-            }
-        }
-        fn is_unknown(&self) -> bool {
-            match *self {
-                DummyCellState::Unknown => true,
-                _ => false,
-            }
-        }
-        fn is_tail(&self) -> bool {
-            match *self {
-                DummyCellState::Tail => true,
-                _ => false,
-            }
-        }
-    }
-
     struct CellMemoryDb {
         cells: HashMap<OutPoint, Option<CellOutput>>,
     }
     impl CellProvider for CellMemoryDb {
-        type State = DummyCellState;
-
-        fn cell(&self, out_point: &OutPoint) -> Self::State {
-            match self.cells.get(out_point) {
-                Some(&Some(ref cell_output)) => DummyCellState::Head(cell_output.clone()),
-                Some(&None) => DummyCellState::Tail,
-                None => DummyCellState::Unknown,
+        fn cell(&self, o: &OutPoint) -> CellStatus {
+            match self.cells.get(o) {
+                Some(&Some(ref cell_output)) => CellStatus::Current(cell_output.clone()),
+                Some(&None) => CellStatus::Old,
+                None => CellStatus::Unknown,
             }
         }
 
-        fn cell_at(&self, out_point: &OutPoint, _: &H256) -> Self::State {
-            match self.cells.get(out_point) {
-                Some(&Some(ref cell_output)) => DummyCellState::Head(cell_output.clone()),
-                Some(&None) => DummyCellState::Tail,
-                None => DummyCellState::Unknown,
+        fn cell_at(&self, o: &OutPoint, _: &H256) -> CellStatus {
+            match self.cells.get(o) {
+                Some(&Some(ref cell_output)) => CellStatus::Current(cell_output.clone()),
+                Some(&None) => CellStatus::Old,
+                None => CellStatus::Unknown,
             }
         }
     }
@@ -228,8 +218,8 @@ mod tests {
         db.cells.insert(p1.clone(), Some(o.clone()));
         db.cells.insert(p2.clone(), None);
 
-        assert_eq!(DummyCellState::Head(o), db.cell(&p1));
-        assert_eq!(DummyCellState::Tail, db.cell(&p2));
-        assert_eq!(DummyCellState::Unknown, db.cell(&p3));
+        assert_eq!(CellStatus::Current(o), db.cell(&p1));
+        assert_eq!(CellStatus::Old, db.cell(&p2));
+        assert_eq!(CellStatus::Unknown, db.cell(&p3));
     }
 }

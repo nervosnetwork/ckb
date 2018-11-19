@@ -1,6 +1,9 @@
 test:
 	RUSTFLAGS="--cfg ckb_test" cargo test --all -- --nocapture
 
+build-integration-test:
+	cargo build --release --features integration_test --no-default-features
+
 build:
 	cargo build --release
 
@@ -33,5 +36,5 @@ cache-clean:
 	rm -f target-cache/.rustc_info.json
 	@(( "$$(du -sm target-cache | cut -f1)" > 3000 )) && echo "Clean cache since it is larger then 3G!" && rm -rf target-cache && mkdir target-cache || true
 
-.PHONY: build fmt test clippy ci ci-quick proto info
+.PHONY: build build-integration-test fmt test clippy ci ci-quick proto info
 .PHONY: cache-warm cache-clean

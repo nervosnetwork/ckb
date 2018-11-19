@@ -8,7 +8,8 @@ crypto = {path = "../util/crypto"}
 ckb-core = { path = "../core" }
 serde = "1.0"
 serde_derive = "1.0"
-bincode = "1.0"
 bigint = { git = "https://github.com/NervosFoundation/bigint" }
 hash = {path = "../util/hash"}
-byteorder = "1.2.2"
+ckb-vm = { path = "../vm" }
+rustc-hex = "1.0"
+fnv = "1.0.3"

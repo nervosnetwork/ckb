@@ -1,25 +1,26 @@
-use core::cell::{CellState, ResolvedTransaction};
+use core::cell::ResolvedTransaction;
 use core::transaction::{Capacity, Transaction};
 use error::TransactionError;
-use script::{SignatureVerifier, TransactionInputSigner, TransactionSignatureVerifier};
+use fnv::FnvHashMap;
+use script::TransactionInputVerifier;
 use std::collections::HashSet;
 
-pub struct TransactionVerifier<'a, S: 'a> {
+pub struct TransactionVerifier<'a> {
     pub null: NullVerifier<'a>,
     pub empty: EmptyVerifier<'a>,
-    pub capacity: CapacityVerifier<'a, S>,
+    pub capacity: CapacityVerifier<'a>,
     pub duplicate_inputs: DuplicateInputsVerifier<'a>,
-    pub inputs: InputVerifier<'a, S>,
+    pub inputs: InputVerifier<'a>,
     pub script: ScriptVerifier<'a>,
 }
 
-impl<'a, S: CellState> TransactionVerifier<'a, S> {
-    pub fn new(rtx: &'a ResolvedTransaction<S>) -> Self {
+impl<'a> TransactionVerifier<'a> {
+    pub fn new(rtx: &'a ResolvedTransaction) -> Self {
         TransactionVerifier {
             null: NullVerifier::new(&rtx.transaction),
             empty: EmptyVerifier::new(&rtx.transaction),
             duplicate_inputs: DuplicateInputsVerifier::new(&rtx.transaction),
-            script: ScriptVerifier::new(&rtx.transaction),
+            script: ScriptVerifier::new(rtx),
             capacity: CapacityVerifier::new(rtx),
             inputs: InputVerifier::new(rtx),
         }
@@ -30,18 +31,19 @@ impl<'a, S: CellState> TransactionVerifier<'a, S> {
         self.null.verify()?;
         self.capacity.verify()?;
         self.duplicate_inputs.verify()?;
+        // InputVerifier should be executed before ScriptVerifier
         self.inputs.verify()?;
         self.script.verify()?;
         Ok(())
     }
 }
 
-pub struct InputVerifier<'a, S: 'a> {
-    resolved_transaction: &'a ResolvedTransaction<S>,
+pub struct InputVerifier<'a> {
+    resolved_transaction: &'a ResolvedTransaction,
 }
 
-impl<'a, S: CellState> InputVerifier<'a, S> {
-    pub fn new(resolved_transaction: &'a ResolvedTransaction<S>) -> Self {
+impl<'a> InputVerifier<'a> {
+    pub fn new(resolved_transaction: &'a ResolvedTransaction) -> Self {
         InputVerifier {
             resolved_transaction,
         }
@@ -50,13 +52,15 @@ impl<'a, S: CellState> InputVerifier<'a, S> {
     pub fn verify(&self) -> Result<(), TransactionError> {
         let mut inputs = self.resolved_transaction.transaction.inputs.iter();
         for cs in &self.resolved_transaction.input_cells {
-            if cs.is_head() {
-                if let Some(ref input) = cs.head() {
+            if cs.is_current() {
+                if let Some(ref input) = cs.get_current() {
+                    // TODO: remove this once VM mmap is in place so we can
+                    // do P2SH within the VM.
                     if input.lock != inputs.next().unwrap().unlock.redeem_script_hash() {
                         return Err(TransactionError::InvalidScript);
                     }
                 }
-            } else if cs.is_tail() {
+            } else if cs.is_old() {
                 return Err(TransactionError::DoubleSpent);
             } else if cs.is_unknown() {
                 return Err(TransactionError::UnknownInput);
@@ -64,7 +68,7 @@ impl<'a, S: CellState> InputVerifier<'a, S> {
         }
 
         for cs in &self.resolved_transaction.dep_cells {
-            if cs.is_tail() {
+            if cs.is_old() {
                 return Err(TransactionError::DoubleSpent);
             } else if cs.is_unknown() {
                 return Err(TransactionError::UnknownInput);
@@ -75,31 +79,39 @@ impl<'a, S: CellState> InputVerifier<'a, S> {
 }
 
 pub struct ScriptVerifier<'a> {
-    transaction: &'a Transaction,
+    resolved_transaction: &'a ResolvedTransaction,
 }
 
 impl<'a> ScriptVerifier<'a> {
-    // TODO this verifier should be replaced by VM
-    pub fn new(transaction: &'a Transaction) -> Self {
-        ScriptVerifier { transaction }
+    pub fn new(resolved_transaction: &'a ResolvedTransaction) -> Self {
+        ScriptVerifier {
+            resolved_transaction,
+        }
     }
 
     pub fn verify(&self) -> Result<(), TransactionError> {
-        let signer: TransactionInputSigner = self.transaction.clone().into();
-
-        let mut verifier = TransactionSignatureVerifier {
-            signer,
-            input_index: 0,
-        };
-
-        for (index, input) in self.transaction.inputs.iter().enumerate() {
-            if !input.unlock.arguments.is_empty() {
-                let signature = input.unlock.arguments[0].clone().into();
-                verifier.input_index = index;
-                if !verifier.verify(&signature) {
-                    return Err(TransactionError::InvalidSignature);
-                }
-            }
+        let mut dep_cells = FnvHashMap::default();
+        // InputVerifier already verifies that all dep cells are valid
+        let dep_cell_outputs = self
+            .resolved_transaction
+            .dep_cells
+            .iter()
+            .map(|cell| cell.get_current().unwrap());
+        let dep_outpoints = self.resolved_transaction.transaction.deps.iter();
+        for (outpoint, cell_output) in dep_outpoints.zip(dep_cell_outputs) {
+            dep_cells.insert(outpoint, cell_output);
+        }
+        let inputs = self
+            .resolved_transaction
+            .transaction
+            .inputs
+            .iter()
+            .collect();
+        let verifier = TransactionInputVerifier { dep_cells, inputs };
+        for index in 0..self.resolved_transaction.transaction.inputs.len() {
+            verifier
+                .verify(index)
+                .map_err(TransactionError::ScriptFailure)?;
         }
 
         Ok(())
@@ -168,12 +180,12 @@ impl<'a> NullVerifier<'a> {
     }
 }
 
-pub struct CapacityVerifier<'a, S: 'a> {
-    resolved_transaction: &'a ResolvedTransaction<S>,
+pub struct CapacityVerifier<'a> {
+    resolved_transaction: &'a ResolvedTransaction,
 }
 
-impl<'a, S: CellState> CapacityVerifier<'a, S> {
-    pub fn new(resolved_transaction: &'a ResolvedTransaction<S>) -> Self {
+impl<'a> CapacityVerifier<'a> {
+    pub fn new(resolved_transaction: &'a ResolvedTransaction) -> Self {
         CapacityVerifier {
             resolved_transaction,
         }
@@ -184,7 +196,7 @@ impl<'a, S: CellState> CapacityVerifier<'a, S> {
             .resolved_transaction
             .input_cells
             .iter()
-            .filter_map(|state| state.head())
+            .filter_map(|state| state.get_current())
             .fold(0, |acc, output| acc + output.capacity);
 
         let outputs_total = self

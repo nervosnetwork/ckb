@@ -12,15 +12,15 @@ ckb-db = { path = "../db" }
 ckb-sync = { path = "../sync" }
 ckb-pool = { path = "../pool" }
 ckb-miner = { path = "../miner" }
-jsonrpc-core = { git = "https://github.com/paritytech/jsonrpc" }
-jsonrpc-macros = { git = "https://github.com/paritytech/jsonrpc" }
-jsonrpc-minihttp-server = { git = "https://github.com/paritytech/jsonrpc" }
-jsonrpc-server-utils = { git = "https://github.com/paritytech/jsonrpc" }
-
+ckb-protocol = { path = "../protocol" }
+jsonrpc-core = "8.0"
+jsonrpc-macros = "8.0"
+jsonrpc-http-server = "8.0"
+jsonrpc-server-utils = "8.0"
 serde = "1.0"
 serde_derive = "1.0"
 serde_json = "1.0"
 log = "0.4"
 
-ckb-protocol = { path = "../network/protocol" }
-protobuf = "2.0.4"
+[features]
+integration_test = []

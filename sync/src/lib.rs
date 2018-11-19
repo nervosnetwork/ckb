@@ -14,17 +14,16 @@ extern crate ckb_network as network;
 extern crate ckb_pool as pool;
 extern crate ckb_protocol;
 extern crate ckb_time;
+extern crate flatbuffers;
 extern crate hash;
 #[macro_use]
 extern crate ckb_util as util;
 extern crate ckb_verification;
-extern crate protobuf;
 extern crate rand;
 extern crate siphasher;
 #[macro_use]
 extern crate bitflags;
 extern crate futures;
-extern crate rayon;
 extern crate tokio;
 #[macro_use]
 extern crate serde_derive;
@@ -37,21 +36,15 @@ extern crate crossbeam_channel;
 #[cfg(test)]
 extern crate merkle_root;
 
-pub mod block_fetcher;
-pub mod block_pool;
-pub mod block_process;
-pub mod compact_block;
-// pub mod compact_block_process;
-pub mod config;
-pub mod getdata_process;
-pub mod getheaders_process;
-pub mod header_view;
-pub mod headers_process;
-pub mod peers;
-pub mod protocol;
-pub mod synchronizer;
+mod config;
+mod relayer;
+mod synchronizer;
 
 pub use config::Config;
+pub use relayer::compact_block::CompactBlockBuilder;
+pub use relayer::Relayer;
+pub use synchronizer::Synchronizer;
+
 use network::ProtocolId;
 
 pub const MAX_HEADERS_LEN: usize = 2_000;
@@ -77,3 +70,21 @@ pub const POW_SPACE: u64 = 10_000; //10s
 pub const MAX_OUTBOUND_PEERS_TO_PROTECT_FROM_DISCONNECT: usize = 4;
 pub const CHAIN_SYNC_TIMEOUT: u64 = 20 * 60 * 1000; // 20 minutes
 pub const EVICTION_TEST_RESPONSE_TIME: u64 = 120 * 1000; // 2 minutes
+
+#[derive(Debug, PartialEq, Clone, Eq)]
+pub enum AcceptBlockError {
+    Chain(ckb_chain::error::Error),
+    Verification(ckb_verification::Error),
+}
+
+impl From<ckb_chain::error::Error> for AcceptBlockError {
+    fn from(error: ckb_chain::error::Error) -> Self {
+        AcceptBlockError::Chain(error)
+    }
+}
+
+impl From<ckb_verification::Error> for AcceptBlockError {
+    fn from(error: ckb_verification::Error) -> Self {
+        AcceptBlockError::Verification(error)
+    }
+}

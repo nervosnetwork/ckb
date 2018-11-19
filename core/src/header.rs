@@ -1,10 +1,9 @@
 use bigint::{H256, U256};
 use bincode::serialize;
-use ckb_protocol;
 use hash::sha3_256;
 use merkle_root::merkle_root;
 use std::ops::{Deref, DerefMut};
-use transaction::{IndexedTransaction, ProposalTransaction};
+use transaction::{IndexedTransaction, ProposalShortId};
 
 const VERSION: u32 = 0;
 
@@ -19,7 +18,7 @@ pub struct Seal {
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug, Default)]
 pub struct RawHeader {
     pub version: u32,
-    //// Parent hash.
+    /// Parent hash.
     pub parent_hash: H256,
     /// Block timestamp(ms).
     pub timestamp: u64,
@@ -27,7 +26,7 @@ pub struct RawHeader {
     pub number: BlockNumber,
     /// Transactions merkle root.
     pub txs_commit: H256,
-    // /// Transactions proposal merkle root.
+    /// Transactions proposal merkle root.
     pub txs_proposal: H256,
     /// Block difficulty.
     pub difficulty: U256,
@@ -41,7 +40,7 @@ impl RawHeader {
     pub fn new<'a>(
         parent_header: &Header,
         commit_transactions: impl Iterator<Item = &'a IndexedTransaction>,
-        proposal_transactions: impl Iterator<Item = &'a ProposalTransaction>,
+        proposal_short_ids: impl Iterator<Item = &'a ProposalShortId>,
         timestamp: u64,
         difficulty: U256,
         cellbase_id: H256,
@@ -52,9 +51,7 @@ impl RawHeader {
             .collect();
         let txs_commit = merkle_root(commit_txs_hash.as_slice());
 
-        let proposal_txs_hash: Vec<H256> = proposal_transactions
-            .map(|t: &ProposalTransaction| t.proposal_short_id().hash())
-            .collect();
+        let proposal_txs_hash: Vec<H256> = proposal_short_ids.map(|t| t.hash()).collect();
 
         let txs_proposal = merkle_root(proposal_txs_hash.as_slice());
 
@@ -175,60 +172,5 @@ impl From<Header> for IndexedHeader {
 impl From<IndexedHeader> for Header {
     fn from(indexed_header: IndexedHeader) -> Self {
         indexed_header.header
-    }
-}
-
-impl<'a> From<&'a ckb_protocol::Header> for Header {
-    fn from(proto: &'a ckb_protocol::Header) -> Self {
-        Header {
-            raw: RawHeader {
-                version: proto.get_version(),
-                parent_hash: H256::from_slice(proto.get_parent_hash()),
-                timestamp: proto.get_timestamp(),
-                number: proto.get_number(),
-                txs_commit: H256::from_slice(proto.get_txs_commit()),
-                txs_proposal: H256::from_slice(proto.get_txs_proposal()),
-                difficulty: H256::from_slice(proto.get_difficulty()).into(),
-                cellbase_id: H256::from_slice(proto.get_cellbase_id()),
-                uncles_hash: H256::from_slice(proto.get_uncles_hash()),
-            },
-            seal: Seal {
-                nonce: proto.get_nonce(),
-                proof: proto.get_proof().to_vec(),
-            },
-        }
-    }
-}
-
-impl<'a> From<&'a ckb_protocol::Header> for IndexedHeader {
-    fn from(proto: &'a ckb_protocol::Header) -> Self {
-        let header: Header = proto.into();
-        header.into()
-    }
-}
-
-impl<'a> From<&'a Header> for ckb_protocol::Header {
-    fn from(h: &'a Header) -> Self {
-        let mut header = ckb_protocol::Header::new();
-        let temp_difficulty: H256 = h.difficulty.into();
-        header.set_version(h.version);
-        header.set_difficulty(temp_difficulty.to_vec());
-        header.set_number(h.number);
-        header.set_nonce(h.seal.nonce);
-        header.set_proof(h.seal.proof.to_vec());
-        header.set_parent_hash(h.parent_hash.to_vec());
-        header.set_timestamp(h.timestamp);
-        header.set_txs_commit(h.txs_commit.to_vec());
-        header.set_txs_proposal(h.txs_proposal.to_vec());
-        header.set_cellbase_id(h.cellbase_id.to_vec());
-        header.set_uncles_hash(h.uncles_hash.to_vec());
-        header
-    }
-}
-
-impl<'a> From<&'a IndexedHeader> for ckb_protocol::Header {
-    fn from(h: &'a IndexedHeader) -> Self {
-        let header = &h.header;
-        header.into()
     }
 }

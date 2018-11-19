@@ -51,6 +51,19 @@ impl Pubkey {
         context.verify_schnorr(&message, &schnorr_signature, &pubkey)?;
         Ok(())
     }
+
+    pub fn serialize(&self) -> Vec<u8> {
+        let context = &SECP256K1;
+
+        // non-compressed key prefix 4
+        let prefix_key: [u8; 65] = {
+            let mut temp = [4u8; 65];
+            temp[1..65].copy_from_slice(self);
+            temp
+        };
+        let pubkey = key::PublicKey::from_slice(context, &prefix_key).unwrap();
+        Vec::from(&pubkey.serialize()[..])
+    }
 }
 
 impl From<H512> for Pubkey {

@@ -69,6 +69,7 @@ impl<T: 'static + KeyValueDB> ChainIndex for ChainKVStore<T> {
             self.insert_output_root(batch, genesis_hash, output_root);
             self.insert_block_hash(batch, 0, &genesis_hash);
             self.insert_block_number(batch, &genesis_hash, 0);
+            self.insert_transaction_address(batch, &genesis_hash, &genesis.commit_transactions);
             Ok(())
         }).expect("genesis init");
     }
@@ -164,11 +165,14 @@ mod tests {
     use super::*;
     use consensus::Consensus;
     use db::diskdb::RocksDB;
-    use tempdir::TempDir;
+    use tempfile;
 
     #[test]
     fn index_store() {
-        let tmp_dir = TempDir::new("index_init").unwrap();
+        let tmp_dir = tempfile::Builder::new()
+            .prefix("index_init")
+            .tempdir()
+            .unwrap();
         let db = RocksDB::open(tmp_dir, COLUMNS);
         let store = ChainKVStore::new(db);
         let consensus = Consensus::default();

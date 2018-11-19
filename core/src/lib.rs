@@ -4,7 +4,6 @@
 
 extern crate bigint;
 extern crate bincode;
-extern crate ckb_protocol;
 extern crate ckb_util;
 extern crate crypto;
 extern crate hash;
@@ -12,8 +11,7 @@ extern crate merkle_root;
 #[macro_use]
 extern crate serde_derive;
 extern crate bit_vec;
-#[cfg(test)]
-extern crate protobuf;
+extern crate fnv;
 extern crate rayon;
 
 pub mod block;

@@ -2,8 +2,8 @@ use super::super::error::TransactionError;
 use super::super::transaction_verifier::{
     CapacityVerifier, DuplicateInputsVerifier, EmptyVerifier, NullVerifier,
 };
-use super::dummy::DummyCellState;
 use bigint::H256;
+use core::cell::CellStatus;
 use core::cell::ResolvedTransaction;
 use core::transaction::{CellInput, CellOutput, OutPoint, Transaction};
 
@@ -42,7 +42,7 @@ pub fn test_capacity_outofbound() {
     let rtx = ResolvedTransaction {
         transaction,
         dep_cells: Vec::new(),
-        input_cells: vec![DummyCellState::Head(CellOutput::new(
+        input_cells: vec![CellStatus::Current(CellOutput::new(
             50,
             Vec::new(),
             H256::from(0),
@@ -68,8 +68,8 @@ pub fn test_capacity_invalid() {
         transaction,
         dep_cells: Vec::new(),
         input_cells: vec![
-            DummyCellState::Head(CellOutput::new(49, Vec::new(), H256::from(0))),
-            DummyCellState::Head(CellOutput::new(100, Vec::new(), H256::from(0))),
+            CellStatus::Current(CellOutput::new(49, Vec::new(), H256::from(0))),
+            CellStatus::Current(CellOutput::new(100, Vec::new(), H256::from(0))),
         ],
     };
     let verifier = CapacityVerifier::new(&rtx);

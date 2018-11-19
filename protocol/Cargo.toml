@@ -1,0 +1,11 @@
+[package]
+name = "ckb-protocol"
+version = "0.1.0"
+authors = ["Nervos Core Dev <dev@nervos.org>"]
+
+[dependencies]
+protobuf = "2.0.4"
+flatbuffers = "0.4.0"
+bigint = { git = "https://github.com/NervosFoundation/bigint" }
+byteorder = "1.2.2"
+ckb-core = { path = "../core" }

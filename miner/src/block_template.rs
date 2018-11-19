@@ -1,13 +1,11 @@
 use bigint::H256;
 use chain::chain::ChainProvider;
 use chain::error::Error;
-use core::header::{Header, IndexedHeader, RawHeader};
+use core::header::{Header, RawHeader};
 use core::transaction::{
-    CellInput, CellOutput, IndexedTransaction, ProposalShortId, ProposalTransaction, Transaction,
-    VERSION,
+    CellInput, CellOutput, IndexedTransaction, ProposalShortId, Transaction, VERSION,
 };
 use core::uncle::{uncles_hash, UncleBlock};
-use fnv::FnvHashSet;
 use pool::TransactionPool;
 use std::cmp;
 use std::sync::Arc;
@@ -18,21 +16,24 @@ pub struct BlockTemplate {
     pub raw_header: RawHeader,
     pub uncles: Vec<UncleBlock>,
     pub commit_transactions: Vec<IndexedTransaction>,
-    pub proposal_transactions: FnvHashSet<ProposalTransaction>,
+    pub proposal_transactions: Vec<ProposalShortId>,
 }
 
 pub fn build_block_template<C: ChainProvider + 'static>(
     chain: &Arc<C>,
     tx_pool: &Arc<TransactionPool<C>>,
+    redeem_script_hash: H256,
+    max_tx: usize,
+    max_prop: usize,
 ) -> Result<BlockTemplate, Error> {
     let header = chain.tip_header().read().header.clone();
     let now = cmp::max(now_ms(), header.timestamp + 1);
     let difficulty = chain.calculate_difficulty(&header).expect("get difficulty");
 
-    let proposal_transactions = tx_pool.prepare_proposal();
-    let include_ids = select_commit_ids(chain, &header);
-    let mut commit_transactions = tx_pool.prepare_commit(header.number + 1, &include_ids);
-    let cellbase = create_cellbase_transaction(&chain, &header, &commit_transactions)?;
+    let proposal_transactions = tx_pool.prepare_proposal(max_prop);
+    let mut commit_transactions = tx_pool.get_mineable_transactions(max_tx);
+    let cellbase =
+        create_cellbase_transaction(&chain, &header, &commit_transactions, redeem_script_hash)?;
     let uncles = chain.get_tip_uncles();
     let cellbase_id = cellbase.hash();
 
@@ -62,6 +63,7 @@ fn create_cellbase_transaction<C: ChainProvider + 'static>(
     chain: &Arc<C>,
     header: &Header,
     transactions: &[IndexedTransaction],
+    redeem_script_hash: H256,
 ) -> Result<IndexedTransaction, Error> {
     // NOTE: To generate different cellbase txid, we put header number in the input script
     let inputs = vec![CellInput::new_cellbase_input(header.raw.number + 1)];
@@ -78,49 +80,16 @@ fn create_cellbase_transaction<C: ChainProvider + 'static>(
     let outputs = vec![CellOutput::new(
         block_reward + fee,
         Vec::new(),
-        // self.config.redeem_script_hash,
-        H256::default(),
+        redeem_script_hash,
     )];
 
     Ok(Transaction::new(VERSION, Vec::new(), inputs, outputs).into())
 }
 
-fn select_commit_ids<C: ChainProvider>(
-    chain: &Arc<C>,
-    tip: &IndexedHeader,
-) -> FnvHashSet<ProposalShortId> {
-    let mut proposal_txs_ids = FnvHashSet::default();
-    if tip.is_genesis() {
-        return proposal_txs_ids;
-    }
-    let mut walk = chain.consensus().transaction_propagation_timeout;
-    let mut block_hash = tip.hash();
-
-    while walk > 0 {
-        let block = chain
-            .block(&block_hash)
-            .expect("main chain should be stored");
-        if block.is_genesis() {
-            break;
-        }
-        proposal_txs_ids.extend(
-            block.proposal_transactions().iter().chain(
-                block
-                    .uncles()
-                    .iter()
-                    .flat_map(|uncle| uncle.proposal_transactions()),
-            ),
-        );
-        block_hash = block.header.parent_hash;
-        walk -= 1;
-    }
-
-    proposal_txs_ids
-}
-
 #[cfg(test)]
 pub mod test {
     use super::*;
+    use bigint::H256;
     use chain::chain::ChainBuilder;
     use chain::store::ChainKVStore;
     use chain::DummyPowEngine;
@@ -141,16 +110,13 @@ pub mod test {
         let pow_engine = Arc::new(DummyPowEngine::new());
 
         let tx_pool = Arc::new(TransactionPool::new(
-            PoolConfig {
-                max_pool_size: 1024,
-                max_proposal_size: 1024,
-                max_commit_size: 1024,
-            },
+            PoolConfig::default(),
             Arc::clone(&chain),
             Notify::default(),
         ));
 
-        let block_template = build_block_template(&chain, &tx_pool).unwrap();
+        let block_template =
+            build_block_template(&chain, &tx_pool, H256::from(0), 1000, 1000).unwrap();
 
         let BlockTemplate {
             raw_header,
@@ -166,10 +132,7 @@ pub mod test {
             header: header.into(),
             uncles,
             commit_transactions,
-            proposal_transactions: proposal_transactions
-                .iter()
-                .map(|p| p.proposal_short_id())
-                .collect(),
+            proposal_transactions: proposal_transactions,
         };
 
         let resolver = HeaderResolverWrapper::new(&block.header, &chain);
