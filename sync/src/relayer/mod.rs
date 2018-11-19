@@ -8,18 +8,15 @@ mod transaction_process;
 
 use self::block_proposal_process::BlockProposalProcess;
 use self::block_transactions_process::BlockTransactionsProcess;
-use self::compact_block::{short_transaction_id, short_transaction_id_keys, CompactBlock};
+use self::compact_block::CompactBlock;
 use self::compact_block_process::CompactBlockProcess;
 use self::get_block_proposal_process::GetBlockProposalProcess;
 use self::get_block_transactions_process::GetBlockTransactionsProcess;
 use self::transaction_process::TransactionProcess;
 use bigint::H256;
 use ckb_chain::chain::ChainProvider;
-use ckb_chain::PowEngine;
-use ckb_protocol::{
-    build_transaction_args, BlockProposal, BlockProposalArgs, GetBlockProposal,
-    GetBlockProposalArgs, RelayMessage, RelayMessageArgs, RelayPayload, Transaction,
-};
+use ckb_pow::PowEngine;
+use ckb_protocol::{short_transaction_id, short_transaction_id_keys, RelayMessage, RelayPayload};
 use ckb_verification::{BlockVerifier, Verifier};
 use core::block::IndexedBlock;
 use core::transaction::{IndexedTransaction, ProposalShortId};
@@ -37,19 +34,18 @@ use AcceptBlockError;
 
 pub const TX_PROPOSAL_TOKEN: TimerToken = 0;
 
-pub struct Relayer<C, P> {
+pub struct Relayer<C> {
     pub chain: Arc<C>,
-    pub pow: Arc<P>,
+    pub pow: Arc<dyn PowEngine>,
     pub state: Arc<RelayState>,
     pub tx_pool: Arc<TransactionPool<C>>,
 }
 
-impl<C, P> Clone for Relayer<C, P>
+impl<C> Clone for Relayer<C>
 where
     C: ChainProvider,
-    P: PowEngine,
 {
-    fn clone(&self) -> Relayer<C, P> {
+    fn clone(&self) -> Relayer<C> {
         Relayer {
             chain: Arc::clone(&self.chain),
             pow: Arc::clone(&self.pow),
@@ -59,12 +55,15 @@ where
     }
 }
 
-impl<C, P> Relayer<C, P>
+impl<C> Relayer<C>
 where
     C: ChainProvider + 'static,
-    P: PowEngine + 'static,
 {
-    pub fn new(chain: &Arc<C>, pow: &Arc<P>, tx_pool: &Arc<TransactionPool<C>>) -> Self {
+    pub fn new(
+        chain: &Arc<C>,
+        pow: &Arc<dyn PowEngine>,
+        tx_pool: &Arc<TransactionPool<C>>,
+    ) -> Self {
         Relayer {
             chain: Arc::clone(chain),
             pow: Arc::clone(pow),
@@ -120,37 +119,16 @@ where
                     .uncles
                     .iter()
                     .flat_map(|uncle| uncle.proposal_transactions()),
-            ).filter(|x| !self.tx_pool.contains_key(x) && inflight.insert((*x).clone()));
+            ).filter(|x| !self.tx_pool.contains_key(x) && inflight.insert((*x).clone()))
+            .cloned()
+            .collect::<Vec<_>>();
 
-        let builder = &mut FlatBufferBuilder::new();
-        {
-            let block_number = block.header.number;
-            let vec = unknown_ids
-                .flat_map(|id| id.iter().cloned())
-                .collect::<Vec<_>>();
-            let proposal_transactions = Some(builder.create_vector(&vec));
+        let fbb = &mut FlatBufferBuilder::new();
+        let message =
+            RelayMessage::build_get_block_proposal(fbb, block.header.number, &unknown_ids);
+        fbb.finish(message, None);
 
-            let payload = Some(
-                GetBlockProposal::create(
-                    builder,
-                    &GetBlockProposalArgs {
-                        block_number,
-                        proposal_transactions,
-                    },
-                ).as_union_value(),
-            );
-            let payload_type = RelayPayload::GetBlockProposal;
-            let message = RelayMessage::create(
-                builder,
-                &RelayMessageArgs {
-                    payload_type,
-                    payload,
-                },
-            );
-            builder.finish(message, None);
-        }
-
-        nc.send(peer, 0, builder.finished_data().to_vec());
+        nc.send(peer, 0, fbb.finished_data().to_vec());
     }
 
     pub fn accept_block(
@@ -168,7 +146,8 @@ where
         compact_block: &CompactBlock,
         transactions: Vec<IndexedTransaction>,
     ) -> (Option<IndexedBlock>, Option<Vec<usize>>) {
-        let (key0, key1) = short_transaction_id_keys(compact_block.nonce, &compact_block.header);
+        let (key0, key1) =
+            short_transaction_id_keys(compact_block.header.seal.nonce, compact_block.nonce);
 
         let mut txs = transactions;
         txs.extend(self.tx_pool.get_potential_transactions());
@@ -222,32 +201,14 @@ where
         }
 
         for (peer, txs) in peer_txs {
-            let builder = &mut FlatBufferBuilder::new();
-            {
-                let vec = txs
-                    .iter()
-                    .map(|tx| {
-                        let transaction_args = build_transaction_args(builder, tx);
-                        Transaction::create(builder, &transaction_args)
-                    }).collect::<Vec<_>>();
-                let transactions = Some(builder.create_vector(&vec));
+            let fbb = &mut FlatBufferBuilder::new();
+            let message = RelayMessage::build_block_proposal(
+                fbb,
+                &txs.into_iter().map(Into::into).collect::<Vec<_>>(),
+            );
+            fbb.finish(message, None);
 
-                let payload = Some(
-                    BlockProposal::create(builder, &BlockProposalArgs { transactions })
-                        .as_union_value(),
-                );
-                let payload_type = RelayPayload::BlockProposal;
-                let message = RelayMessage::create(
-                    builder,
-                    &RelayMessageArgs {
-                        payload_type,
-                        payload,
-                    },
-                );
-                builder.finish(message, None);
-            }
-
-            nc.send(peer, 0, builder.finished_data().to_vec());
+            nc.send(peer, 0, fbb.finished_data().to_vec());
         }
     }
 
@@ -256,10 +217,9 @@ where
     }
 }
 
-impl<C, P> NetworkProtocolHandler for Relayer<C, P>
+impl<C> NetworkProtocolHandler for Relayer<C>
 where
     C: ChainProvider + 'static,
-    P: PowEngine + 'static,
 {
     fn initialize(&self, nc: Box<NetworkContext>) {
         let _ = nc.register_timer(TX_PROPOSAL_TOKEN, Duration::from_millis(100));

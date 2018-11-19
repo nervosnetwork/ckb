@@ -2,7 +2,6 @@ use super::header_verifier::HeaderResolver;
 use super::{TransactionVerifier, Verifier};
 use bigint::{H256, U256};
 use chain::chain::ChainProvider;
-use chain::PowEngine;
 use core::block::IndexedBlock;
 use core::cell::{CellProvider, CellStatus};
 use core::header::IndexedHeader;
@@ -10,12 +9,13 @@ use core::transaction::{Capacity, CellInput, OutPoint};
 use error::{CellbaseError, CommitError, Error, TransactionError, UnclesError};
 use fnv::{FnvHashMap, FnvHashSet};
 use merkle_root::merkle_root;
+use pow::PowEngine;
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use std::collections::HashSet;
 use std::sync::Arc;
 
 //TODO: cellbase, witness
-pub struct BlockVerifier<'a, C, P> {
+pub struct BlockVerifier<'a, C> {
     // Verify if the committed transactions is empty
     pub empty: EmptyVerifier<'a>,
     // Verify if the committed and proposed transactions contains duplicate
@@ -25,19 +25,18 @@ pub struct BlockVerifier<'a, C, P> {
     // Verify the the committed and proposed transactions merkle root match header's announce
     pub merkle_root: MerkleRootVerifier<'a>,
     // Verify the the uncle
-    pub uncles: UnclesVerifier<'a, C, P>,
+    pub uncles: UnclesVerifier<'a, C>,
     // Verify the the propose-then-commit consensus rule
     pub commit: CommitVerifier<'a, C>,
     // Verify all the committed transactions through TransactionVerifier
     pub transactions: TransactionsVerifier<'a, C>,
 }
 
-impl<'a, C, P> BlockVerifier<'a, C, P>
+impl<'a, C> BlockVerifier<'a, C>
 where
     C: ChainProvider,
-    P: PowEngine,
 {
-    pub fn new(block: &'a IndexedBlock, chain: &Arc<C>, pow: &Arc<P>) -> Self {
+    pub fn new(block: &'a IndexedBlock, chain: &Arc<C>, pow: &Arc<dyn PowEngine>) -> Self {
         BlockVerifier {
             // TODO change all new fn's chain to reference
             empty: EmptyVerifier::new(block),
@@ -51,10 +50,9 @@ where
     }
 }
 
-impl<'a, C, P> Verifier for BlockVerifier<'a, C, P>
+impl<'a, C> Verifier for BlockVerifier<'a, C>
 where
     C: ChainProvider,
-    P: PowEngine,
 {
     fn verify(&self) -> Result<(), Error> {
         // EmptyTransactionsVerifier must be executed first. Other verifiers may depend on the
@@ -64,7 +62,7 @@ where
         self.cellbase.verify()?;
         self.merkle_root.verify()?;
         self.commit.verify()?;
-        // self.uncles.verify()?;
+        self.uncles.verify()?;
         self.transactions.verify()
     }
 }
@@ -252,18 +250,17 @@ where
 }
 
 // TODO redo uncle verifier, check uncle proposal duplicate
-pub struct UnclesVerifier<'a, C, P> {
+pub struct UnclesVerifier<'a, C> {
     block: &'a IndexedBlock,
     chain: Arc<C>,
-    pow: Arc<P>,
+    pow: Arc<dyn PowEngine>,
 }
 
-impl<'a, C, P> UnclesVerifier<'a, C, P>
+impl<'a, C> UnclesVerifier<'a, C>
 where
     C: ChainProvider,
-    P: PowEngine,
 {
-    pub fn new(block: &'a IndexedBlock, chain: &Arc<C>, pow: &Arc<P>) -> Self {
+    pub fn new(block: &'a IndexedBlock, chain: &Arc<C>, pow: &Arc<dyn PowEngine>) -> Self {
         UnclesVerifier {
             block,
             chain: Arc::clone(chain),

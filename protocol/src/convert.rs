@@ -18,12 +18,12 @@ impl<'a> From<ckb_protocol::Block<'a>> for ckb_core::block::Block {
             header: block.header().unwrap().into(),
             commit_transactions,
             uncles,
-            proposal_transactions: block
-                .proposal_transactions()
-                .unwrap()
-                .chunks(10)
-                .filter_map(|s| ckb_core::transaction::ProposalShortId::from_slice(s))
-                .collect(),
+            proposal_transactions: FlatbuffersVectorIterator::new(
+                block.proposal_transactions().unwrap(),
+            ).filter_map(|s| {
+                s.seq()
+                    .and_then(ckb_core::transaction::ProposalShortId::from_slice)
+            }).collect(),
         }
     }
 }
@@ -40,12 +40,12 @@ impl<'a> From<ckb_protocol::UncleBlock<'a>> for ckb_core::uncle::UncleBlock {
         ckb_core::uncle::UncleBlock {
             header: uncle_block.header().unwrap().into(),
             cellbase: uncle_block.cellbase().unwrap().into(),
-            proposal_transactions: uncle_block
-                .proposal_transactions()
-                .unwrap()
-                .chunks(10)
-                .filter_map(|s| ckb_core::transaction::ProposalShortId::from_slice(s))
-                .collect(),
+            proposal_transactions: FlatbuffersVectorIterator::new(
+                uncle_block.proposal_transactions().unwrap(),
+            ).filter_map(|s| {
+                s.seq()
+                    .and_then(ckb_core::transaction::ProposalShortId::from_slice)
+            }).collect(),
         }
     }
 }
@@ -55,18 +55,21 @@ impl<'a> From<ckb_protocol::Header<'a>> for ckb_core::header::Header {
         ckb_core::header::Header {
             raw: ckb_core::header::RawHeader {
                 version: header.version(),
-                parent_hash: H256::from_slice(header.parent_hash().unwrap()),
+                parent_hash: H256::from_slice(header.parent_hash().and_then(|b| b.seq()).unwrap()),
                 timestamp: header.timestamp(),
                 number: header.number(),
-                txs_commit: H256::from_slice(header.txs_commit().unwrap()),
-                txs_proposal: H256::from_slice(header.txs_proposal().unwrap()),
-                difficulty: H256::from_slice(header.difficulty().unwrap()).into(),
-                cellbase_id: H256::from_slice(header.cellbase_id().unwrap()),
-                uncles_hash: H256::from_slice(header.uncles_hash().unwrap()),
+                txs_commit: H256::from_slice(header.txs_commit().and_then(|b| b.seq()).unwrap()),
+                txs_proposal: H256::from_slice(
+                    header.txs_proposal().and_then(|b| b.seq()).unwrap(),
+                ),
+                difficulty: H256::from_slice(header.difficulty().and_then(|b| b.seq()).unwrap())
+                    .into(),
+                cellbase_id: H256::from_slice(header.cellbase_id().and_then(|b| b.seq()).unwrap()),
+                uncles_hash: H256::from_slice(header.uncles_hash().and_then(|b| b.seq()).unwrap()),
             },
             seal: ckb_core::header::Seal {
                 nonce: header.nonce(),
-                proof: header.proof().unwrap().to_vec(),
+                proof: header.proof().and_then(|b| b.seq()).unwrap().to_vec(),
             },
         }
     }
@@ -112,7 +115,7 @@ impl<'a> From<ckb_protocol::Transaction<'a>> for ckb_core::transaction::IndexedT
 impl<'a> From<ckb_protocol::OutPoint<'a>> for ckb_core::transaction::OutPoint {
     fn from(out_point: ckb_protocol::OutPoint<'a>) -> Self {
         ckb_core::transaction::OutPoint {
-            hash: H256::from_slice(out_point.hash().unwrap()),
+            hash: H256::from_slice(out_point.hash().and_then(|b| b.seq()).unwrap()),
             index: out_point.index(),
         }
     }
@@ -122,22 +125,25 @@ impl<'a> From<ckb_protocol::CellInput<'a>> for ckb_core::transaction::CellInput 
     fn from(cell_input: ckb_protocol::CellInput<'a>) -> Self {
         let script = cell_input.unlock().unwrap();
         let arguments = FlatbuffersVectorIterator::new(script.arguments().unwrap())
-            .map(|argument| argument.value().unwrap().to_vec())
+            .map(|argument| argument.seq().unwrap().to_vec())
             .collect();
 
         let redeem_arguments = FlatbuffersVectorIterator::new(script.redeem_arguments().unwrap())
-            .map(|argument| argument.value().unwrap().to_vec())
+            .map(|argument| argument.seq().unwrap().to_vec())
             .collect();
 
         ckb_core::transaction::CellInput {
             previous_output: ckb_core::transaction::OutPoint {
-                hash: H256::from_slice(cell_input.hash().unwrap()),
+                hash: H256::from_slice(cell_input.hash().and_then(|b| b.seq()).unwrap()),
                 index: cell_input.index(),
             },
             unlock: ckb_core::script::Script {
                 version: script.version(),
                 arguments,
-                redeem_script: script.redeem_script().map(|s| s.to_vec()),
+                redeem_script: script
+                    .redeem_script()
+                    .and_then(|s| s.seq())
+                    .map(|s| s.to_vec()),
                 redeem_arguments,
                 redeem_reference: script.redeem_reference().map(Into::into),
             },
@@ -149,8 +155,8 @@ impl<'a> From<ckb_protocol::CellOutput<'a>> for ckb_core::transaction::CellOutpu
     fn from(cell_output: ckb_protocol::CellOutput<'a>) -> Self {
         ckb_core::transaction::CellOutput {
             capacity: cell_output.capacity(),
-            data: cell_output.data().unwrap().to_vec(),
-            lock: H256::from_slice(cell_output.lock().unwrap()),
+            data: cell_output.data().and_then(|b| b.seq()).unwrap().to_vec(),
+            lock: H256::from_slice(cell_output.lock().and_then(|b| b.seq()).unwrap()),
         }
     }
 }

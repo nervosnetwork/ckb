@@ -1,7 +1,6 @@
 use super::header_view::HeaderView;
 use bigint::H256;
 use ckb_chain::chain::{ChainProvider, TipHeader};
-use ckb_chain::PowEngine;
 use core::header::IndexedHeader;
 use network::PeerId;
 use std::cmp;
@@ -9,18 +8,17 @@ use synchronizer::{BlockStatus, Synchronizer};
 use util::RwLockUpgradableReadGuard;
 use {BLOCK_DOWNLOAD_WINDOW, MAX_BLOCKS_IN_TRANSIT_PER_PEER, PER_FETCH_BLOCK_LIMIT};
 
-pub struct BlockFetcher<C, P> {
-    synchronizer: Synchronizer<C, P>,
+pub struct BlockFetcher<C> {
+    synchronizer: Synchronizer<C>,
     peer: PeerId,
     tip_header: TipHeader,
 }
 
-impl<C, P> BlockFetcher<C, P>
+impl<C> BlockFetcher<C>
 where
     C: ChainProvider,
-    P: PowEngine,
 {
-    pub fn new(synchronizer: &Synchronizer<C, P>, peer: PeerId) -> Self {
+    pub fn new(synchronizer: &Synchronizer<C>, peer: PeerId) -> Self {
         let tip_header = synchronizer.chain.tip_header().read().clone();
         BlockFetcher {
             tip_header,

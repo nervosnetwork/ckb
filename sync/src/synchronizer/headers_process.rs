@@ -1,6 +1,5 @@
 use bigint::U256;
 use ckb_chain::chain::ChainProvider;
-use ckb_chain::PowEngine;
 use ckb_protocol::{FlatbuffersVectorIterator, Headers};
 use ckb_verification::{Error as VerifyError, HeaderResolver, HeaderVerifier, Verifier};
 use core::header::IndexedHeader;
@@ -10,9 +9,9 @@ use std::sync::Arc;
 use synchronizer::{BlockStatus, Synchronizer};
 use MAX_HEADERS_LEN;
 
-pub struct HeadersProcess<'a, C: 'a, P: 'a> {
+pub struct HeadersProcess<'a, C: 'a> {
     message: &'a Headers<'a>,
-    synchronizer: &'a Synchronizer<C, P>,
+    synchronizer: &'a Synchronizer<C>,
     peer: PeerId,
     nc: &'a NetworkContext,
 }
@@ -58,14 +57,13 @@ where
     }
 }
 
-impl<'a, C, P> HeadersProcess<'a, C, P>
+impl<'a, C> HeadersProcess<'a, C>
 where
     C: ChainProvider + 'a,
-    P: PowEngine + 'a,
 {
     pub fn new(
         message: &'a Headers,
-        synchronizer: &'a Synchronizer<C, P>,
+        synchronizer: &'a Synchronizer<C>,
         peer: PeerId,
         nc: &'a NetworkContext,
     ) -> Self {
@@ -205,23 +203,22 @@ where
 }
 
 #[derive(Clone)]
-pub struct HeaderAcceptor<'a, V, C: 'a, P: 'a> {
+pub struct HeaderAcceptor<'a, V, C: 'a> {
     header: &'a IndexedHeader,
     peer: PeerId,
-    synchronizer: &'a Synchronizer<C, P>,
+    synchronizer: &'a Synchronizer<C>,
     verifier: V,
 }
 
-impl<'a, V, C, P> HeaderAcceptor<'a, V, C, P>
+impl<'a, V, C> HeaderAcceptor<'a, V, C>
 where
     V: Verifier,
     C: ChainProvider + 'a,
-    P: PowEngine + 'a,
 {
     pub fn new(
         header: &'a IndexedHeader,
         peer: PeerId,
-        synchronizer: &'a Synchronizer<C, P>,
+        synchronizer: &'a Synchronizer<C>,
         verifier: V,
     ) -> Self {
         HeaderAcceptor {

@@ -1,28 +1,36 @@
 use super::PowEngine;
 use byteorder::{ByteOrder, LittleEndian};
-use core::header::BlockNumber;
+use ckb_core::header::BlockNumber;
 use hash::blake2b;
+use std::any::Any;
 use std::collections::HashMap;
 
-pub const MAX_VERTEX: usize = 0x4000_0000;
-pub const MAX_EDGE: usize = 0x2000_0000;
-pub const PROOF_LEN: usize = 42;
+#[derive(Copy, Clone, Deserialize, Eq, PartialEq, Hash, Debug)]
+pub struct CuckooParams {
+    pub max_vertex: usize,
+    pub max_edge: usize,
+    pub cycle_length: usize,
+}
 
 pub struct CuckooEngine {
     cuckoo: Cuckoo,
 }
 
 impl CuckooEngine {
-    pub fn new() -> Self {
+    pub fn new(params: &CuckooParams) -> Self {
         CuckooEngine {
-            cuckoo: Cuckoo::new(MAX_VERTEX, MAX_EDGE, PROOF_LEN),
+            cuckoo: Cuckoo::new(params.max_vertex, params.max_edge, params.cycle_length),
         }
     }
 }
 
-impl Default for CuckooEngine {
+impl Default for CuckooParams {
     fn default() -> Self {
-        Self::new()
+        CuckooParams {
+            max_vertex: 40_000_000,
+            max_edge: 20_000_000,
+            cycle_length: 42,
+        }
     }
 }
 
@@ -31,7 +39,7 @@ impl PowEngine for CuckooEngine {
 
     #[inline]
     fn verify(&self, _number: BlockNumber, message: &[u8], proof: &[u8]) -> bool {
-        let mut proof_u32 = [0u32; PROOF_LEN];
+        let mut proof_u32 = vec![0u32; self.cuckoo.cycle_length];
         LittleEndian::read_u32_into(&proof, &mut proof_u32);
         self.cuckoo.verify(message, &proof_u32)
     }
@@ -39,10 +47,14 @@ impl PowEngine for CuckooEngine {
     #[inline]
     fn solve(&self, _number: BlockNumber, message: &[u8]) -> Option<Vec<u8>> {
         self.cuckoo.solve(message).map(|proof| {
-            let mut proof_u8 = [0u8; PROOF_LEN * 4];
+            let mut proof_u8 = vec![0u8; self.cuckoo.cycle_length * 4];
             LittleEndian::write_u32_into(&proof, &mut proof_u8);
-            proof_u8.to_vec()
+            proof_u8
         })
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
     }
 }
 
@@ -211,7 +223,7 @@ impl Cuckoo {
                             .collect();
                         list.windows(2).map(|edge| (edge[0], edge[1])).collect()
                     };
-                    let mut result = Vec::with_capacity(PROOF_LEN);
+                    let mut result = Vec::with_capacity(self.cycle_length);
                     for n in 0..self.max_edge {
                         let cur_edge = {
                             let edge = self.edge(&keys, n as u32);
@@ -269,7 +281,7 @@ impl Cuckoo {
 #[cfg(test)]
 mod test {
     use super::Cuckoo;
-    use core::BlockNumber;
+    use ckb_core::BlockNumber;
     use quickcheck;
     use std::fmt;
 

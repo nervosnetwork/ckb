@@ -19,3 +19,8 @@ system_cells:
     # path or relative path to where ckb is executing.
     - path: "verify"
     - path: "always_success"
+pow:
+    Cuckoo:
+        max_vertex: 40000000
+        max_edge: 20000000
+        cycle_length: 42

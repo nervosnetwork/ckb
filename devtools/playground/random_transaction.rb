@@ -8,19 +8,19 @@ CKB_BIN  = ARGV[1] || "./target/debug/ckb"
 ACCOUNTS = [
     {
         name: "miner",
-        redeem_script_hash: "1b1c832d02fdb4339f9868c8a8636c3d9dd10bd53ac7ce99595825bd6beeffb3",
+        redeem_script_hash: "bdc254dd4662063fd7649e1ae5e4610675282bfc3faa372a787661950f0cadec",
         private_key: "e79f3207ea4980b7fed79956d5934249ceac4751a4fae01a0f7c4a96884bc4e3",
         utxo: []
     },
     {
         name: "alice",
-        redeem_script_hash: "05b86bedcddf5e4b2e1014b5e6feb522f6bda61bc1d355ce8980d4b839fdf408",
+        redeem_script_hash: "913693c54e0501a896ac331f5ba7a9b1ebd18cd624b83fc257b9bc9f4075ad72",
         private_key: "76e853efa8245389e33f6fe49dcbd359eb56be2f6c3594e12521d2a806d32156",
         utxo: []
     },
     {
         name: "bob",
-        redeem_script_hash: "5a2bcc83e84b0ffa4738c245ec24e6130e541ee9dba4a12cc74ab1136f6fff2b",
+        redeem_script_hash: "2eb08ddb1853aa3c4bb91808b77b68a2fc32e6076801f9e061f91b310d9363bc",
         private_key: "9f7fd78dffeda83b77c5c2d7eeaccb05120457787defdbb46da6d2186bf28f13",
         utxo: []
     }

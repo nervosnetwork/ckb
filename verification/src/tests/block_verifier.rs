@@ -1,11 +1,10 @@
 use super::super::block_verifier::{BlockVerifier, CellbaseVerifier, EmptyVerifier};
 use super::super::error::Error as VerifyError;
 use super::dummy::DummyChainClient;
-use super::utils::{create_dummy_block, create_dummy_transaction};
+use super::utils::{create_dummy_block, create_dummy_transaction, dummy_pow_engine};
 use bigint::H256;
 use chain::chain::ChainProvider;
 use chain::error::Error;
-use chain::DummyPowEngine;
 use core::transaction::{CellInput, CellOutput, IndexedTransaction, OutPoint};
 use core::{BlockNumber, Capacity};
 use std::collections::HashMap;
@@ -263,7 +262,7 @@ pub fn test_empty_transactions() {
         transaction_fees: transaction_fees,
     });
 
-    let pow = Arc::new(DummyPowEngine::new());
+    let pow = dummy_pow_engine();
 
     let verifier = EmptyVerifier::new(&block);
     let full_verifier = BlockVerifier::new(&block, &chain, &pow);

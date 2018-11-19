@@ -1,8 +1,14 @@
 use super::super::setup::Configs;
+use chain::cachedb::CacheDB;
+use chain::chain::ChainBuilder;
+use chain::store::ChainKVStore;
+use ckb_chain_spec::SpecType;
 use ckb_instrument::{Format, Import};
 use clap::ArgMatches;
 use config_tool::{Config as ConfigTool, File, FileFormat};
+use db::diskdb::RocksDB;
 use dir::default_base_path;
+use dir::Directories;
 use {DEFAULT_CONFIG, DEFAULT_CONFIG_FILENAME};
 
 pub fn import(matches: &ArgMatches) {
@@ -39,7 +45,21 @@ pub fn import(matches: &ArgMatches) {
         .unwrap_or_else(|| &configs.ckb.chain);
     let source = value_t!(matches.value_of("source"), String).unwrap_or_else(|e| e.exit());
 
-    Import::new(data_path, format, source.into(), spec_type)
-        .and_then(|import| import.execute())
+    let dirs = Directories::new(&data_path);
+    let db_path = dirs.join("db");
+
+    let spec_type: SpecType = spec_type
+        .parse()
+        .unwrap_or_else(|e| panic!("parse spec error {:?} ", e));
+    let spec = spec_type
+        .load_spec()
+        .unwrap_or_else(|e| panic!("load spec error {:?} ", e));
+
+    let builder = ChainBuilder::<ChainKVStore<CacheDB<RocksDB>>>::new_rocks(&db_path)
+        .consensus(spec.to_consensus().unwrap());
+    let chain = builder.build().unwrap();
+
+    Import::new(&chain, format, source.into())
+        .execute()
         .unwrap_or_else(|e| panic!("Import error {:?} ", e));
 }

@@ -92,12 +92,16 @@ pub mod test {
     use bigint::H256;
     use chain::chain::ChainBuilder;
     use chain::store::ChainKVStore;
-    use chain::DummyPowEngine;
     use ckb_db::memorydb::MemoryKeyValueDB;
     use ckb_notify::Notify;
+    use ckb_pow::{DummyPowEngine, PowEngine};
     use ckb_verification::{BlockVerifier, HeaderResolverWrapper, HeaderVerifier, Verifier};
     use core::block::IndexedBlock;
     use pool::PoolConfig;
+
+    fn dummy_pow_engine() -> Arc<dyn PowEngine> {
+        Arc::new(DummyPowEngine::new())
+    }
 
     #[test]
     fn test_block_template() {
@@ -107,7 +111,7 @@ pub mod test {
                 .unwrap(),
         );
 
-        let pow_engine = Arc::new(DummyPowEngine::new());
+        let pow_engine = dummy_pow_engine();
 
         let tx_pool = Arc::new(TransactionPool::new(
             PoolConfig::default(),

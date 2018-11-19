@@ -5,6 +5,7 @@ extern crate ckb_core as core;
 extern crate ckb_db as db;
 #[cfg(test)]
 extern crate ckb_notify as notify;
+extern crate ckb_pow as pow;
 extern crate ckb_script as script;
 extern crate ckb_time as time;
 extern crate fnv;

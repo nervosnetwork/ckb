@@ -10,28 +10,22 @@
 extern crate avl_merkle as avl;
 extern crate bigint;
 extern crate bincode;
-extern crate byteorder;
 extern crate ckb_core as core;
 extern crate ckb_db as db;
 extern crate ckb_notify;
 extern crate ckb_time as time;
 extern crate ckb_util as util;
-extern crate ethash;
 extern crate fnv;
-extern crate hash;
 #[macro_use]
 extern crate log;
 extern crate lru_cache;
 extern crate serde;
 #[macro_use]
 extern crate serde_derive;
-extern crate crossbeam_channel;
+#[cfg(test)]
 extern crate rand;
 #[cfg(test)]
 extern crate tempfile;
-#[cfg(test)]
-#[macro_use]
-extern crate quickcheck;
 
 pub mod cachedb;
 pub mod chain;
@@ -40,7 +34,6 @@ pub mod consensus;
 pub mod error;
 mod flat_serializer;
 pub mod index;
-pub mod pow;
 pub mod store;
 
 use db::batch::Col;
@@ -59,5 +52,3 @@ pub const COLUMN_OUTPUT_ROOT: Col = Some(8);
 pub const COLUMN_BLOCK_TRANSACTION_ADDRESSES: Col = Some(9);
 pub const COLUMN_BLOCK_TRANSACTION_IDS: Col = Some(10);
 pub const COLUMN_BLOCK_PROPOSAL_IDS: Col = Some(11);
-
-pub use pow::{Clicker, CuckooEngine, DummyPowEngine, EthashEngine, PowEngine};

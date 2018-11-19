@@ -2,6 +2,8 @@ use bigint::{H256, U256};
 use core::block::IndexedBlock;
 use core::header::{Header, RawHeader};
 use core::transaction::Transaction;
+use pow::{DummyPowEngine, PowEngine};
+use std::sync::Arc;
 
 // This function creates a dummy transaction, we can then
 // tweak inputs and outputs later
@@ -31,4 +33,8 @@ pub fn create_dummy_block() -> IndexedBlock {
         proposal_transactions: vec![],
         uncles: vec![],
     }
+}
+
+pub fn dummy_pow_engine() -> Arc<dyn PowEngine> {
+    Arc::new(DummyPowEngine::new())
 }

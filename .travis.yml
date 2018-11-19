@@ -16,12 +16,12 @@ env:
 matrix:
   include:
     - os: osx
-      rust: 1.29.0
+      rust: 1.29.2
       install:
         - cargo fmt --version || rustup component add rustfmt-preview
         - cargo clippy --version || rustup component add clippy-preview
       env: SUITE=ci
-    - rust: 1.29.0
+    - rust: 1.29.2
       addons:
         apt:
           packages:

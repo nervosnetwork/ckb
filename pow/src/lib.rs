@@ -1,18 +1,48 @@
+extern crate bigint;
+extern crate byteorder;
+extern crate ckb_core;
+extern crate crossbeam_channel;
+extern crate hash;
+extern crate rand;
+#[macro_use]
+extern crate serde_derive;
+#[cfg(test)]
+#[macro_use]
+extern crate quickcheck;
+
 use bigint::H256;
 use byteorder::{ByteOrder, LittleEndian};
-use core::difficulty::{boundary_to_difficulty, difficulty_to_boundary};
-use core::header::{BlockNumber, Header, RawHeader, Seal};
+use ckb_core::difficulty::{boundary_to_difficulty, difficulty_to_boundary};
+use ckb_core::header::{BlockNumber, Header, RawHeader, Seal};
 use hash::blake2b;
-use rand::{thread_rng, Rng};
-use std::{thread, time};
+use std::sync::Arc;
+
+use std::any::Any;
 
 mod clicker;
 mod cuckoo;
-mod ethash;
+mod dummy;
 
 pub use self::clicker::Clicker;
-pub use self::cuckoo::{Cuckoo, CuckooEngine};
-pub use self::ethash::EthashEngine;
+pub use self::cuckoo::{Cuckoo, CuckooEngine, CuckooParams};
+pub use self::dummy::DummyPowEngine;
+
+#[derive(Clone, Deserialize, Eq, PartialEq, Hash, Debug)]
+pub enum Pow {
+    Dummy,
+    Clicker,
+    Cuckoo(CuckooParams),
+}
+
+impl Pow {
+    pub fn engine(&self) -> Arc<dyn PowEngine> {
+        match *self {
+            Pow::Dummy => Arc::new(DummyPowEngine::new()),
+            Pow::Clicker => Arc::new(Clicker::new()),
+            Pow::Cuckoo(ref params) => Arc::new(CuckooEngine::new(params)),
+        }
+    }
+}
 
 fn pow_message(pow_hash: &[u8], nonce: u64) -> [u8; 40] {
     let mut message = [0; 40];
@@ -50,47 +80,8 @@ pub trait PowEngine: Send + Sync {
     fn solve(&self, number: BlockNumber, message: &[u8]) -> Option<Vec<u8>>;
 
     fn verify(&self, number: BlockNumber, message: &[u8], proof: &[u8]) -> bool;
-}
 
-#[derive(Clone)]
-pub struct DummyPowEngine {}
-
-impl DummyPowEngine {
-    pub fn new() -> Self {
-        DummyPowEngine {}
-    }
-}
-impl Default for DummyPowEngine {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl PowEngine for DummyPowEngine {
-    fn init(&self, _number: BlockNumber) {}
-
-    fn verify_header(&self, _header: &Header) -> bool {
-        true
-    }
-
-    fn solve_header(&self, _header: &RawHeader, nonce: u64) -> Option<Seal> {
-        // Sleep for some time before returning result to miner
-        let seconds = thread_rng().gen_range(5, 20);
-        let duration = time::Duration::from_secs(seconds);
-        thread::sleep(duration);
-        Some(Seal {
-            nonce,
-            proof: Vec::new(),
-        })
-    }
-
-    fn verify(&self, _number: BlockNumber, _message: &[u8], _proof: &[u8]) -> bool {
-        true
-    }
-
-    fn solve(&self, _number: BlockNumber, _message: &[u8]) -> Option<Vec<u8>> {
-        Some(Vec::new())
-    }
+    fn as_any(&self) -> &dyn Any;
 }
 
 #[cfg(test)]

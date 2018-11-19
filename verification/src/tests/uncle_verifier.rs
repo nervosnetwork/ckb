@@ -1,10 +1,10 @@
 use super::super::block_verifier::UnclesVerifier;
 use super::super::error::{Error, UnclesError};
+use super::utils::dummy_pow_engine;
 use bigint::{H256, U256};
 use chain::chain::{ChainBuilder, ChainProvider};
 use chain::consensus::Consensus;
 use chain::store::ChainKVStore;
-use chain::DummyPowEngine;
 use core::block::IndexedBlock;
 use core::header::{Header, IndexedHeader, RawHeader, Seal};
 use core::transaction::{
@@ -91,7 +91,7 @@ fn test_uncle_verifier() {
     );
 
     assert_eq!(chain.consensus().difficulty_adjustment_interval(), 10);
-    let pow = Arc::new(DummyPowEngine::new());
+    let pow = dummy_pow_engine();
     let number = 20;
     let mut chain1: Vec<IndexedBlock> = Vec::new();
     let mut chain2: Vec<IndexedBlock> = Vec::new();

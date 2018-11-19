@@ -4,7 +4,6 @@ use super::compact_block::{short_transaction_id, short_transaction_id_keys, Comp
 use bigint::H256;
 use block_process::BlockProcess;
 use ckb_chain::chain::ChainProvider;
-use ckb_chain::PowEngine;
 use ckb_protocol;
 use ckb_time::now_ms;
 use core::block::IndexedBlock;
@@ -42,7 +41,7 @@ fn is_outbound(nc: &NetworkContext, peer: PeerId) -> Option<bool> {
 }
 
 pub struct SyncProtocol<C, P> {
-    pub synchronizer: Synchronizer<C, P>,
+    pub synchronizer: Synchronizer<C>,
 }
 
 impl<C, P> SyncProtocol<C, P>
@@ -50,12 +49,12 @@ where
     C: ChainProvider + 'static,
     P: PowEngine + 'static,
 {
-    pub fn new(synchronizer: Synchronizer<C, P>) -> Self {
+    pub fn new(synchronizer: Synchronizer<C>) -> Self {
         SyncProtocol { synchronizer }
     }
 
     pub fn handle_getheaders(
-        synchronizer: Synchronizer<C, P>,
+        synchronizer: Synchronizer<C>,
         nc: Box<NetworkContext>,
         peer: PeerId,
         message: &ckb_protocol::GetHeaders,
@@ -64,7 +63,7 @@ where
     }
 
     pub fn handle_headers(
-        synchronizer: Synchronizer<C, P>,
+        synchronizer: Synchronizer<C>,
         nc: Box<NetworkContext>,
         peer: PeerId,
         message: &ckb_protocol::Headers,
@@ -73,7 +72,7 @@ where
     }
 
     fn handle_getdata(
-        synchronizer: Synchronizer<C, P>,
+        synchronizer: Synchronizer<C>,
         nc: Box<NetworkContext>,
         peer: PeerId,
         message: &ckb_protocol::GetData,
@@ -82,7 +81,7 @@ where
     }
 
     // fn handle_cmpt_block(
-    //     synchronizer: Synchronizer<C, P>,
+    //     synchronizer: Synchronizer<C>,
     //     nc: Box<NetworkContext>,
     //     peer: PeerId,
     //     message: &ckb_protocol::CompactBlock,
@@ -91,7 +90,7 @@ where
     // }
 
     fn handle_block(
-        synchronizer: Synchronizer<C, P>,
+        synchronizer: Synchronizer<C>,
         nc: Box<NetworkContext>,
         peer: PeerId,
         message: &ckb_protocol::Block,
@@ -99,7 +98,7 @@ where
         BlockProcess::new(message, &synchronizer, peer, nc.as_ref()).execute()
     }
 
-    pub fn find_blocks_to_fetch(synchronizer: Synchronizer<C, P>, nc: Box<NetworkContext>) {
+    pub fn find_blocks_to_fetch(synchronizer: Synchronizer<C>, nc: Box<NetworkContext>) {
         let peers: Vec<PeerId> = {
             synchronizer
                 .peers
@@ -138,7 +137,7 @@ where
         debug!(target: "sync", "send_block_getdata len={:?} to peer={:?}", v_fetch.len() , peer);
     }
 
-    fn on_connected(synchronizer: Synchronizer<C, P>, nc: &NetworkContext, peer: PeerId) {
+    fn on_connected(synchronizer: Synchronizer<C>, nc: &NetworkContext, peer: PeerId) {
         let tip = synchronizer.tip_header();
         let timeout = synchronizer.get_headers_sync_timeout(&tip);
 
@@ -161,7 +160,7 @@ where
         Self::send_getheaders_to_peer(synchronizer, nc, peer, &tip);
     }
 
-    pub fn eviction(synchronizer: Synchronizer<C, P>, nc: &NetworkContext) {
+    pub fn eviction(synchronizer: Synchronizer<C>, nc: &NetworkContext) {
         let mut peer_state = synchronizer.peers.state.write();
         let best_known_headers = synchronizer.peers.best_known_headers.read();
         let is_initial_block_download = synchronizer.is_initial_block_download();
@@ -228,7 +227,7 @@ where
         }
     }
 
-    fn send_getheaders_to_all(synchronizer: Synchronizer<C, P>, nc: Box<NetworkContext>) {
+    fn send_getheaders_to_all(synchronizer: Synchronizer<C>, nc: Box<NetworkContext>) {
         let peers: Vec<PeerId> = {
             synchronizer
                 .peers
@@ -248,7 +247,7 @@ where
     }
 
     fn send_getheaders_to_peer(
-        synchronizer: Synchronizer<C, P>,
+        synchronizer: Synchronizer<C>,
         nc: &NetworkContext,
         peer: PeerId,
         tip: &IndexedHeader,
@@ -266,7 +265,7 @@ where
     }
 
     fn process(
-        synchronizer: Synchronizer<C, P>,
+        synchronizer: Synchronizer<C>,
         nc: Box<NetworkContext>,
         peer: PeerId,
         payload: ckb_protocol::Payload,
@@ -368,7 +367,7 @@ struct RelayState {
 }
 
 pub struct RelayProtocol<C, P> {
-    synchronizer: Synchronizer<C, P>,
+    synchronizer: Synchronizer<C>,
     tx_pool: Arc<TransactionPool<C>>,
     state: Arc<RelayState>,
 }
@@ -392,7 +391,7 @@ where
     C: ChainProvider + 'static,
     P: PowEngine + 'static,
 {
-    pub fn new(synchronizer: Synchronizer<C, P>, tx_pool: &Arc<TransactionPool<C>>) -> Self {
+    pub fn new(synchronizer: Synchronizer<C>, tx_pool: &Arc<TransactionPool<C>>) -> Self {
         RelayProtocol {
             synchronizer,
             tx_pool: Arc::clone(tx_pool),

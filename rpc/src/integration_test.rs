@@ -1,7 +1,6 @@
 use bigint::H256;
 use chain::chain::ChainProvider;
-use chain::Clicker;
-use ckb_protocol::Payload;
+use ckb_pow::Clicker;
 use core::header::{BlockNumber, Header};
 use core::transaction::{IndexedTransaction, Transaction};
 use jsonrpc_core::{IoHandler, Result};
@@ -9,11 +8,9 @@ use jsonrpc_http_server::ServerBuilder;
 use jsonrpc_server_utils::cors::AccessControlAllowOrigin;
 use jsonrpc_server_utils::hosts::DomainsValidation;
 use miner::{build_block_template, BlockTemplate};
-use network::NetworkContextExt;
 use network::NetworkService;
 use pool::TransactionPool;
 use std::sync::Arc;
-use sync::RELAY_PROTOCOL_ID;
 use {BlockWithHashedTransactions, Config, TransactionWithHash};
 
 //TODO: build_rpc_trait! do not surppot trait bounds
@@ -46,36 +43,39 @@ build_rpc_trait! {
         // curl -d '{"id": 2, "jsonrpc": "2.0", "method":"get_block_template","params": []}' -H 'content-type:application/json' 'http://localhost:3030'
         #[rpc(name = "get_block_template")]
         fn get_block_template(&self) -> Result<BlockTemplate>;
+
+        #[rpc(name = "local_node_id")]
+        fn local_node_id(&self) -> Result<Option<String>>;
+
+        #[rpc(name = "add_node")]
+        fn add_node(&self, String) -> Result<()>;
     }
 }
 
-#[cfg(feature = "integration_test")]
 struct RpcImpl<C> {
     pub network: Arc<NetworkService>,
     pub chain: Arc<C>,
     pub tx_pool: Arc<TransactionPool<C>>,
-    pub pow_clicker: Arc<Clicker>,
+    pub pow: Arc<Clicker>,
 }
 
 impl<C: ChainProvider + 'static> IntegrationTestRpc for RpcImpl<C> {
     fn submit_pow_solution(&self, nonce: u64) -> Result<()> {
-        self.pow_clicker.submit(nonce);
+        self.pow.submit(nonce);
         Ok(())
     }
 
     fn send_transaction(&self, tx: Transaction) -> Result<H256> {
         let indexed_tx: IndexedTransaction = tx.into();
         let result = indexed_tx.hash();
-        let pool_result = self.tx_pool.insert_candidate(indexed_tx.clone());
+        let pool_result = self.tx_pool.add_transaction(indexed_tx.clone());
         debug!(target: "rpc", "send_transaction add to pool result: {:?}", pool_result);
 
-        let mut payload = Payload::new();
-        payload.set_transaction((&indexed_tx).into());
-        self.network.with_context_eval(RELAY_PROTOCOL_ID, |nc| {
-            for (peer_id, _session) in nc.sessions(&self.network.connected_peers()) {
-                let _ = nc.send_payload(peer_id, payload.clone());
-            }
-        });
+        // TODO PENDING new api NetworkContext#connected_peers
+        // for peer_id in self.nc.connected_peers() {
+        //     let data = builde_transaction(indexed_tx);
+        //     self.nc.send(peer_id, 0, data.to_vec());
+        // }
         Ok(result)
     }
 
@@ -112,13 +112,21 @@ impl<C: ChainProvider + 'static> IntegrationTestRpc for RpcImpl<C> {
     }
 
     fn get_block_template(&self) -> Result<BlockTemplate> {
-        Ok(build_block_template(&self.chain, &self.tx_pool).unwrap())
+        Ok(build_block_template(&self.chain, &self.tx_pool, H256::from(0), 20000, 20000).unwrap())
+    }
+
+    fn local_node_id(&self) -> Result<Option<String>> {
+        Ok(self.network.external_url())
+    }
+
+    fn add_node(&self, node_id: String) -> Result<()> {
+        let _ = self.network.add_peer(&node_id);
+        Ok(())
     }
 }
 
 pub struct RpcServer {
     pub config: Config,
-    pub pow: Arc<Clicker>,
 }
 
 impl RpcServer {
@@ -127,6 +135,7 @@ impl RpcServer {
         network: Arc<NetworkService>,
         chain: Arc<C>,
         tx_pool: Arc<TransactionPool<C>>,
+        pow: Arc<Clicker>,
     ) where
         C: ChainProvider + 'static,
     {
@@ -136,7 +145,7 @@ impl RpcServer {
                 network,
                 chain,
                 tx_pool,
-                pow_clicker: self.pow.clone(),
+                pow,
             }.to_delegate(),
         );
 

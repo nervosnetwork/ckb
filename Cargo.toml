@@ -16,6 +16,7 @@ ckb-chain-spec = {path = "spec"}
 ckb-notify = { path = "notify"}
 ckb-miner = { path = "miner" }
 ckb-db = { path = "db" }
+ckb-pow = { path = "pow" }
 ckb-network = { path = "network"}
 ckb-pool = { path = "pool"}
 ckb-rpc = { path = "rpc"}
@@ -35,10 +36,6 @@ hash = { path = "util/hash"}
 rustc-hex = "1.0"
 
 [features]
-default = ["pow_engine_dummy"]
-pow_engine_cuckoo = []
-pow_engine_dummy = []
-pow_engine_ethash = []
 integration_test = ["ckb-rpc/integration_test"]
 
 [dev-dependencies]
@@ -66,5 +63,6 @@ members = [
     "spec",
     "verification",
     "script",
+    "pow",
     "benches"
 ]

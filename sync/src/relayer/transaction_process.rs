@@ -1,5 +1,4 @@
 use ckb_chain::chain::ChainProvider;
-use ckb_chain::PowEngine;
 use ckb_protocol::Transaction;
 use core::transaction::IndexedTransaction;
 use network::{NetworkContext, PeerId};
@@ -7,21 +6,20 @@ use relayer::Relayer;
 
 // TODO PENDING remove this attribute later
 #[allow(dead_code)]
-pub struct TransactionProcess<'a, C: 'a, P: 'a> {
+pub struct TransactionProcess<'a, C: 'a> {
     message: &'a Transaction<'a>,
-    relayer: &'a Relayer<C, P>,
+    relayer: &'a Relayer<C>,
     peer: PeerId,
     nc: &'a NetworkContext,
 }
 
-impl<'a, C, P> TransactionProcess<'a, C, P>
+impl<'a, C> TransactionProcess<'a, C>
 where
     C: ChainProvider + 'static,
-    P: PowEngine + 'static,
 {
     pub fn new(
         message: &'a Transaction,
-        relayer: &'a Relayer<C, P>,
+        relayer: &'a Relayer<C>,
         peer: PeerId,
         nc: &'a NetworkContext,
     ) -> Self {
