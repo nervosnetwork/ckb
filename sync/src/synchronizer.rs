@@ -1,13 +1,14 @@
 use bigint::H256;
+use block_fetcher::BlockFetcher;
 use block_pool::OrphanBlockPool;
+use ckb_chain::chain::{ChainProvider, TipHeader};
+use ckb_notify::Notify;
+use ckb_time::now_ms;
+use ckb_verification::{BlockVerifier, EthashVerifier, Verifier};
 use config::Config;
 use core::block::IndexedBlock;
-use core::header::IndexedHeader;
+use core::header::{BlockNumber, IndexedHeader};
 use header_view::HeaderView;
-use nervos_chain::chain::{ChainProvider, TipHeader};
-use nervos_notify::Notify;
-use nervos_time::now_ms;
-use nervos_verification::{BlockVerifier, EthashVerifier, Verifier};
 use network::PeerId;
 use peers::Peers;
 use std::cmp;
@@ -16,8 +17,8 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 use util::{RwLock, RwLockUpgradableReadGuard};
 use {
-    BlockNumber, BLOCK_DOWNLOAD_WINDOW, MAX_BLOCKS_IN_TRANSIT_PER_PEER, MAX_HEADERS_LEN,
-    MAX_TIP_AGE, PER_FETCH_BLOCK_LIMIT,
+    HEADERS_DOWNLOAD_TIMEOUT_BASE, HEADERS_DOWNLOAD_TIMEOUT_PER_HEADER, MAX_HEADERS_LEN,
+    MAX_TIP_AGE, POW_SPACE,
 };
 
 bitflags! {
@@ -54,6 +55,7 @@ pub struct Synchronizer<C> {
     pub config: Arc<Config>,
     pub ethash: Option<EthashVerifier>,
     pub orphan_block_pool: Arc<OrphanBlockPool>,
+    pub outbound_peers_with_protect: Arc<AtomicUsize>,
 }
 
 impl<C> Clone for Synchronizer<C>
@@ -72,6 +74,7 @@ where
             ethash: self.ethash.clone(),
             config: Arc::clone(&self.config),
             orphan_block_pool: Arc::clone(&self.orphan_block_pool),
+            outbound_peers_with_protect: Arc::clone(&self.outbound_peers_with_protect),
         }
     }
 }
@@ -105,6 +108,7 @@ where
             status_map: Arc::new(RwLock::new(HashMap::new())),
             header_map: Arc::new(RwLock::new(HashMap::new())),
             n_sync: Arc::new(AtomicUsize::new(0)),
+            outbound_peers_with_protect: Arc::new(AtomicUsize::new(0)),
         }
     }
 
@@ -120,6 +124,10 @@ where
         }
     }
 
+    pub fn peers(&self) -> Arc<Peers> {
+        Arc::clone(&self.peers)
+    }
+
     pub fn insert_block_status(&self, hash: H256, status: BlockStatus) {
         self.status_map.write().insert(hash, status);
     }
@@ -130,6 +138,12 @@ where
 
     pub fn is_initial_block_download(&self) -> bool {
         now_ms().saturating_sub(self.chain.tip_header().read().header.timestamp) > MAX_TIP_AGE
+    }
+
+    pub fn get_headers_sync_timeout(&self, tip: &IndexedHeader) -> u64 {
+        HEADERS_DOWNLOAD_TIMEOUT_BASE
+            + HEADERS_DOWNLOAD_TIMEOUT_PER_HEADER
+                * (now_ms().saturating_sub(tip.header.timestamp) / POW_SPACE)
     }
 
     pub fn tip_header(&self) -> IndexedHeader {
@@ -233,11 +247,11 @@ where
             .or_else(|| self.chain.block_header(&hash))
     }
 
-    pub fn get_number(&self, hash: &H256) -> Option<u64> {
+    pub fn get_number(&self, hash: &H256) -> Option<BlockNumber> {
         self.chain.block_number(hash)
     }
 
-    pub fn get_hash(&self, number: u64) -> Option<H256> {
+    pub fn get_hash(&self, number: BlockNumber) -> Option<H256> {
         self.chain.block_hash(number)
     }
 
@@ -245,18 +259,18 @@ where
         self.chain.block(hash)
     }
 
-    pub fn get_ancestor(&self, base: &H256, height: u64) -> Option<IndexedHeader> {
+    pub fn get_ancestor(&self, base: &H256, number: BlockNumber) -> Option<IndexedHeader> {
         if let Some(header) = self.get_header(base) {
-            let mut n_height = header.number;
+            let mut n_number = header.number;
             let mut index_walk = header;
-            if height > n_height {
+            if number > n_number {
                 return None;
             }
 
-            while n_height > height {
+            while n_number > number {
                 if let Some(header) = self.get_header(&index_walk.parent_hash) {
                     index_walk = header;
-                    n_height -= 1;
+                    n_number -= 1;
                 } else {
                     return None;
                 }
@@ -272,7 +286,10 @@ where
         hash_stop: &H256,
     ) -> Vec<IndexedHeader> {
         let tip_number = self.tip_header().number;
-        let max_height = cmp::min(block_number + 1 + MAX_HEADERS_LEN as u64, tip_number + 1);
+        let max_height = cmp::min(
+            block_number + 1 + MAX_HEADERS_LEN as BlockNumber,
+            tip_number + 1,
+        );
         (block_number + 1..max_height)
             .filter_map(|block_number| self.chain.block_hash(block_number))
             .take_while(|block_hash| block_hash != hash_stop)
@@ -408,169 +425,26 @@ where
     }
 }
 
-pub struct BlockFetcher<C> {
-    synchronizer: Synchronizer<C>,
-    peer: PeerId,
-}
-
-impl<C> BlockFetcher<C>
-where
-    C: ChainProvider,
-{
-    pub fn new(synchronizer: &Synchronizer<C>, peer: PeerId) -> Self {
-        BlockFetcher {
-            peer,
-            synchronizer: synchronizer.clone(),
-        }
-    }
-    pub fn inflight_limit_reach(&self) -> bool {
-        let mut blocks_inflight = self.synchronizer.peers.blocks_inflight.write();
-        let inflight_count = blocks_inflight
-            .entry(self.peer)
-            .or_insert_with(Default::default)
-            .len();
-
-        // current peer block blocks_inflight reach limit
-        if MAX_BLOCKS_IN_TRANSIT_PER_PEER.saturating_sub(inflight_count) == 0 {
-            debug!(target: "sync", "[block downloader] inflight count reach limit");
-            true
-        } else {
-            false
-        }
-    }
-
-    pub fn peer_best_known_header(&self) -> Option<HeaderView> {
-        self.synchronizer
-            .peers
-            .best_known_headers
-            .read()
-            .get(&self.peer)
-            .cloned()
-    }
-
-    pub fn latest_common_height(&self, header: &HeaderView) -> Option<BlockNumber> {
-        let chain_tip = self.synchronizer.chain.tip_header().read();
-        //if difficulty of this peer less than our
-        if header.total_difficulty < chain_tip.total_difficulty {
-            debug!(
-                target: "sync",
-                "[block downloader] best_known_header {} chain {}",
-                header.total_difficulty,
-                chain_tip.total_difficulty
-            );
-            None
-        } else {
-            Some(cmp::min(header.header.number, chain_tip.header.number))
-        }
-    }
-
-    // this peer's tip is wherethe the ancestor of global_best_known_header
-    pub fn is_known_best(&self, header: &HeaderView) -> bool {
-        let global_best_known_header = { self.synchronizer.best_known_header.read().clone() };
-        if let Some(ancestor) = self.synchronizer.get_ancestor(
-            &global_best_known_header.header.hash(),
-            header.header.number,
-        ) {
-            if ancestor != header.header {
-                debug!(
-                    target: "sync",
-                    "[block downloader] peer best_known_header is not ancestor of global_best_known_header"
-                );
-                return false;
-            }
-        } else {
-            return false;
-        }
-        true
-    }
-
-    fn fetch(self) -> Option<Vec<H256>> {
-        debug!(target: "sync", "[block downloader] BlockFetcher process");
-
-        if self.inflight_limit_reach() {
-            debug!(target: "sync", "[block downloader] inflight count reach limit");
-            return None;
-        }
-
-        let best_known_header = match self.peer_best_known_header() {
-            Some(best_known_header) => best_known_header,
-            _ => {
-                debug!(target: "sync", "[block downloader] peer_best_known_header not found peer={}", self.peer);
-                return None;
-            }
-        };
-
-        let latest_common_height = try_option!(self.latest_common_height(&best_known_header));
-
-        if !self.is_known_best(&best_known_header) {
-            return None;
-        }
-
-        let latest_common_hash =
-            try_option!(self.synchronizer.chain.block_hash(latest_common_height));
-        let latest_common_header =
-            try_option!(self.synchronizer.chain.block_header(&latest_common_hash));
-
-        // If the peer reorganized, our previous last_common_header may not be an ancestor
-        // of its current best_known_header. Go back enough to fix that.
-        let fixed_latest_common_header = try_option!(
-            self.synchronizer
-                .last_common_ancestor(&latest_common_header, &best_known_header.header)
-        );
-
-        if fixed_latest_common_header == best_known_header.header {
-            debug!(target: "sync", "[block downloader] fixed_latest_common_header == best_known_header");
-            return None;
-        }
-
-        debug!(target: "sync", "[block downloader] fixed_latest_common_header = {}", fixed_latest_common_header.number);
-
-        debug_assert!(best_known_header.header.number > fixed_latest_common_header.number);
-
-        let window_end = fixed_latest_common_header.number + BLOCK_DOWNLOAD_WINDOW;
-        let max_height = cmp::min(window_end + 1, best_known_header.header.number);
-
-        let mut n_height = fixed_latest_common_header.number;
-        let mut v_fetch = Vec::with_capacity(PER_FETCH_BLOCK_LIMIT);
-
-        {
-            let mut guard = self.synchronizer.peers.blocks_inflight.write();
-            let inflight = guard.get_mut(&self.peer).expect("inflight already init");
-
-            while n_height < max_height && v_fetch.len() < PER_FETCH_BLOCK_LIMIT {
-                n_height += 1;
-                let to_fetch = try_option!(
-                    self.synchronizer
-                        .get_ancestor(&best_known_header.header.hash(), n_height)
-                );
-                let to_fetch_hash = to_fetch.header.hash();
-
-                if inflight.insert(to_fetch_hash) {
-                    v_fetch.push(to_fetch_hash);
-                }
-            }
-        }
-        Some(v_fetch)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use bigint::U256;
+    use ckb_chain::chain::Chain;
+    use ckb_chain::consensus::Consensus;
+    use ckb_chain::index::ChainIndex;
+    use ckb_chain::store::ChainKVStore;
+    use ckb_chain::COLUMNS;
+    use ckb_notify::Notify;
+    use ckb_protocol;
+    use ckb_time::now_ms;
     use core::difficulty::cal_difficulty;
     use core::header::{Header, RawHeader, Seal};
     use db::memorydb::MemoryKeyValueDB;
     use headers_process::HeadersProcess;
-    use nervos_chain::chain::Chain;
-    use nervos_chain::index::ChainIndex;
-    use nervos_chain::store::ChainKVStore;
-    use nervos_chain::Config as ChainConfig;
-    use nervos_chain::COLUMNS;
-    use nervos_notify::Notify;
-    use nervos_protocol::{self, Payload};
-    use nervos_time::now_ms;
-    use network::{Error as NetworkError, NetworkContext, PeerId, ProtocolId, SessionInfo};
+    use network::{
+        Error as NetworkError, NetworkContext, PacketId, PeerId, ProtocolId, SessionInfo, Severity,
+        TimerToken,
+    };
     use protobuf::RepeatedField;
     use std::time::Duration;
 
@@ -582,10 +456,10 @@ mod tests {
         assert!((status2 & BlockStatus::FAILED_MASK) == status2);
     }
 
-    fn gen_chain(config: &ChainConfig) -> Chain<ChainKVStore<MemoryKeyValueDB>> {
+    fn gen_chain(consensus: &Consensus) -> Chain<ChainKVStore<MemoryKeyValueDB>> {
         let db = MemoryKeyValueDB::open(COLUMNS as usize);
         let store = ChainKVStore { db };
-        let chain = Chain::init(store, config.clone(), Notify::default()).unwrap();
+        let chain = Chain::init(store, consensus.clone(), Notify::default()).unwrap();
         chain
     }
 
@@ -613,7 +487,7 @@ mod tests {
         }
     }
 
-    fn insert_block<CS: ChainIndex>(chain: &Chain<CS>, nonce: u64, number: u64) {
+    fn insert_block<CS: ChainIndex>(chain: &Chain<CS>, nonce: u64, number: BlockNumber) {
         let parent = chain
             .block_header(&chain.block_hash(number - 1).unwrap())
             .unwrap();
@@ -643,7 +517,7 @@ mod tests {
 
     #[test]
     fn test_locator() {
-        let config = ChainConfig::default();
+        let config = Consensus::default();
         let chain = Arc::new(gen_chain(&config));
 
         let num = 200;
@@ -672,7 +546,7 @@ mod tests {
 
     #[test]
     fn test_locate_latest_common_block() {
-        let config = ChainConfig::default();
+        let config = Consensus::default();
         let chain1 = Arc::new(gen_chain(&config));
         let chain2 = Arc::new(gen_chain(&config));
         let num = 200;
@@ -710,13 +584,13 @@ mod tests {
 
     #[test]
     fn test_locate_latest_common_block2() {
-        let config = ChainConfig::default();
+        let config = Consensus::default();
         let chain1 = Arc::new(gen_chain(&config));
         let chain2 = Arc::new(gen_chain(&config));
         let block_number = 200;
 
         let mut blocks: Vec<IndexedBlock> = Vec::new();
-        let mut parent = config.genesis_block().header;
+        let mut parent = config.genesis_block().header.clone();
         for _ in 1..block_number {
             let difficulty = parent.header.difficulty;
             let new_block = gen_block(parent, difficulty + U256::from(100));
@@ -764,7 +638,7 @@ mod tests {
 
     #[test]
     fn test_get_ancestor() {
-        let config = ChainConfig::default();
+        let config = Consensus::default();
         let chain = Arc::new(gen_chain(&config));
         let num = 200;
 
@@ -789,7 +663,7 @@ mod tests {
 
     #[test]
     fn test_process_new_block() {
-        let config = ChainConfig::default();
+        let config = Consensus::default();
         let chain = Arc::new(gen_chain(&config));
         let block_number = 2000;
 
@@ -816,7 +690,7 @@ mod tests {
 
     #[test]
     fn test_get_locator_response() {
-        let config = ChainConfig::default();
+        let config = Consensus::default();
         let chain = Arc::new(gen_chain(&config));
         let block_number = 200;
 
@@ -851,52 +725,51 @@ mod tests {
     struct DummyNetworkContext {}
 
     impl NetworkContext for DummyNetworkContext {
-        fn send(&self, _peer: PeerId, _payload: Payload) -> Result<(), NetworkError> {
-            Ok(())
-        }
+        /// Send a packet over the network to another peer.
+        fn send(&self, _peer: PeerId, _packet_id: PacketId, data: Vec<u8>) {}
 
+        /// Send a packet over the network to another peer using specified protocol.
         fn send_protocol(
             &self,
             _protocol: ProtocolId,
             _peer: PeerId,
-            _payload: Payload,
-        ) -> Result<(), NetworkError> {
-            Ok(())
+            _packet_id: PacketId,
+            _data: Vec<u8>,
+        ) {
         }
 
-        fn respond(&self, _payload: Payload) -> Result<(), NetworkError> {
-            Ok(())
-        }
+        /// Respond to a current network message. Panics if no there is no packet in the context. If the session is expired returns nothing.
+        fn respond(&self, _packet_id: PacketId, _data: Vec<u8>) {}
 
-        fn disable_peer(&self, _peer: PeerId) {}
+        /// Report peer. Depending on the report, peer may be disconnected and possibly banned.
+        fn report_peer(&self, _peer: PeerId, _reason: Severity) {}
 
-        fn disconnect_peer(&self, _peer: PeerId) {}
-
+        /// Check if the session is still active.
         fn is_expired(&self) -> bool {
             false
         }
 
-        fn register_timer(&self, _token: usize, _duration: Duration) -> Result<(), NetworkError> {
+        /// Register a new IO timer. 'IoHandler::timeout' will be called with the token.
+        fn register_timer(&self, _token: TimerToken, _delay: Duration) -> Result<(), NetworkError> {
             Ok(())
         }
 
+        /// Returns peer identification string
         fn peer_client_version(&self, _peer: PeerId) -> String {
-            // Devp2p returns "unknown" on unknown peer ID, so we do the same.
             "unknown".to_string()
         }
 
+        /// Returns information on p2p session
         fn session_info(&self, _peer: PeerId) -> Option<SessionInfo> {
             None
         }
 
-        fn sessions(&self) -> Vec<(PeerId, SessionInfo)> {
-            vec![]
-        }
-
-        fn protocol_version(&self, _protocol: ProtocolId, _peer: PeerId) -> Option<u8> {
+        /// Returns max version for a given protocol.
+        fn protocol_version(&self, _protocol: ProtocolId, peer: PeerId) -> Option<u8> {
             None
         }
 
+        /// Returns this object's subprotocol name.
         fn subprotocol_name(&self) -> ProtocolId {
             [1, 1, 1]
         }
@@ -904,7 +777,7 @@ mod tests {
 
     #[test]
     fn test_sync_process() {
-        let config = ChainConfig::default();
+        let config = Consensus::default();
         let chain1 = Arc::new(gen_chain(&config));
         let chain2 = Arc::new(gen_chain(&config));
         let num = 200;
@@ -915,7 +788,6 @@ mod tests {
         let synchronizer1 = Synchronizer::new(&chain1, Notify::default(), None, Config::default());
 
         let locator1 = synchronizer1.get_locator(&chain1.tip_header().read().header);
-        let chain2 = Arc::new(gen_chain(&config));
 
         for i in 1..num + 1 {
             let j = if i > 192 { i + 1 } else { i };
@@ -937,7 +809,7 @@ mod tests {
             chain2.block_hash(200).unwrap()
         );
 
-        let mut headers_proto = nervos_protocol::Headers::new();
+        let mut headers_proto = ckb_protocol::Headers::new();
         headers_proto.set_headers(RepeatedField::from_vec(
             headers.iter().map(|h| &h.header).map(Into::into).collect(),
         ));

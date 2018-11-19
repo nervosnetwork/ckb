@@ -1,12 +1,14 @@
 use bigint::{H256, U256};
 use bincode::serialize;
+use ckb_protocol;
 use hash::sha3_256;
 use merkle_root::*;
-use nervos_protocol;
 use std::ops::{Deref, DerefMut};
 use transaction::Transaction;
 
 const VERSION: u32 = 0;
+
+pub use BlockNumber;
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug, Default)]
 pub struct Seal {
@@ -22,7 +24,7 @@ pub struct RawHeader {
     /// Block timestamp(ms).
     pub timestamp: u64,
     /// Genesis number is 0, Child block number is parent block number + 1.
-    pub number: u64,
+    pub number: BlockNumber,
     /// Transactions merkle tree root.
     pub txs_commit: H256,
     /// Block difficulty.
@@ -148,8 +150,8 @@ impl From<IndexedHeader> for Header {
     }
 }
 
-impl<'a> From<&'a nervos_protocol::Header> for Header {
-    fn from(proto: &'a nervos_protocol::Header) -> Self {
+impl<'a> From<&'a ckb_protocol::Header> for Header {
+    fn from(proto: &'a ckb_protocol::Header) -> Self {
         Header {
             raw: RawHeader {
                 version: proto.get_version(),
@@ -167,16 +169,16 @@ impl<'a> From<&'a nervos_protocol::Header> for Header {
     }
 }
 
-impl<'a> From<&'a nervos_protocol::Header> for IndexedHeader {
-    fn from(proto: &'a nervos_protocol::Header) -> Self {
+impl<'a> From<&'a ckb_protocol::Header> for IndexedHeader {
+    fn from(proto: &'a ckb_protocol::Header) -> Self {
         let header: Header = proto.into();
         header.into()
     }
 }
 
-impl<'a> From<&'a Header> for nervos_protocol::Header {
+impl<'a> From<&'a Header> for ckb_protocol::Header {
     fn from(h: &'a Header) -> Self {
-        let mut header = nervos_protocol::Header::new();
+        let mut header = ckb_protocol::Header::new();
         let temp_difficulty: H256 = h.difficulty.into();
         header.set_version(h.version);
         header.set_difficulty(temp_difficulty.to_vec());
@@ -190,7 +192,7 @@ impl<'a> From<&'a Header> for nervos_protocol::Header {
     }
 }
 
-impl<'a> From<&'a IndexedHeader> for nervos_protocol::Header {
+impl<'a> From<&'a IndexedHeader> for ckb_protocol::Header {
     fn from(h: &'a IndexedHeader) -> Self {
         let header = &h.header;
         header.into()

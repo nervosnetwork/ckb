@@ -3,23 +3,23 @@ use chain::chain::{ChainProvider, Error, TipHeader};
 use core::block::IndexedBlock;
 use core::cell::{CellProvider, CellState};
 use core::extras::BlockExt;
-use core::header::IndexedHeader;
-use core::transaction::{IndexedTransaction, OutPoint, Transaction};
+use core::header::{BlockNumber, IndexedHeader};
+use core::transaction::{Capacity, IndexedTransaction, OutPoint, Transaction};
 use core::transaction_meta::TransactionMeta;
 use std::collections::HashMap;
 use tests::util::RwLock;
 
 pub struct DummyChainClient {
-    pub transaction_fees: HashMap<H256, Result<u32, Error>>,
-    pub block_reward: u32,
+    pub transaction_fees: HashMap<H256, Result<Capacity, Error>>,
+    pub block_reward: Capacity,
 }
 
 impl ChainProvider for DummyChainClient {
-    fn block_reward(&self, _block_number: u64) -> u32 {
+    fn block_reward(&self, _block_number: BlockNumber) -> Capacity {
         self.block_reward
     }
 
-    fn calculate_transaction_fee(&self, transaction: &Transaction) -> Result<u32, Error> {
+    fn calculate_transaction_fee(&self, transaction: &Transaction) -> Result<Capacity, Error> {
         self.transaction_fees[&transaction.hash()].clone()
     }
 
@@ -51,7 +51,7 @@ impl ChainProvider for DummyChainClient {
         panic!("Not implemented!");
     }
 
-    fn block_number(&self, _hash: &H256) -> Option<u64> {
+    fn block_number(&self, _hash: &H256) -> Option<BlockNumber> {
         panic!("Not implemented!");
     }
 

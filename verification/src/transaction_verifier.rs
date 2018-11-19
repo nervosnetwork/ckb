@@ -1,6 +1,7 @@
 use core::cell::{CellState, ResolvedTransaction};
-use core::transaction::Transaction;
+use core::transaction::{Capacity, Transaction};
 use error::TransactionError;
+use script::{SignatureVerifier, TransactionInputSigner, TransactionSignatureVerifier};
 use std::collections::HashSet;
 
 pub struct TransactionVerifier<'a> {
@@ -9,6 +10,7 @@ pub struct TransactionVerifier<'a> {
     pub capacity: CapacityVerifier<'a>,
     pub duplicate_inputs: DuplicateInputsVerifier<'a>,
     pub inputs: InputVerifier<'a>,
+    pub script: ScriptVerifier<'a>,
 }
 
 impl<'a> TransactionVerifier<'a> {
@@ -18,6 +20,7 @@ impl<'a> TransactionVerifier<'a> {
             empty: EmptyVerifier::new(rtx.transaction),
             capacity: CapacityVerifier::new(rtx.transaction),
             duplicate_inputs: DuplicateInputsVerifier::new(rtx.transaction),
+            script: ScriptVerifier::new(rtx.transaction),
             inputs: InputVerifier::new(rtx),
         }
     }
@@ -28,6 +31,7 @@ impl<'a> TransactionVerifier<'a> {
         self.capacity.verify()?;
         self.duplicate_inputs.verify()?;
         self.inputs.verify()?;
+        self.script.verify()?;
         Ok(())
     }
 }
@@ -66,6 +70,38 @@ impl<'a> InputVerifier<'a> {
                 _ => {}
             }
         }
+        Ok(())
+    }
+}
+
+pub struct ScriptVerifier<'a> {
+    transaction: &'a Transaction,
+}
+
+impl<'a> ScriptVerifier<'a> {
+    // TODO this verifier should be replaced by VM
+    pub fn new(transaction: &'a Transaction) -> Self {
+        ScriptVerifier { transaction }
+    }
+
+    pub fn verify(&self) -> Result<(), TransactionError> {
+        let signer: TransactionInputSigner = self.transaction.clone().into();
+
+        let mut verifier = TransactionSignatureVerifier {
+            signer,
+            input_index: 0,
+        };
+
+        for (index, input) in self.transaction.inputs.iter().enumerate() {
+            if !input.unlock.arguments.is_empty() {
+                let signature = input.unlock.arguments[0].clone().into();
+                verifier.input_index = index;
+                if !verifier.verify(&signature) {
+                    return Err(TransactionError::InvalidSignature);
+                }
+            }
+        }
+
         Ok(())
     }
 }
@@ -147,7 +183,7 @@ impl<'a> CapacityVerifier<'a> {
             .transaction
             .outputs
             .iter()
-            .any(|output| output.bytes_len() > (output.capacity as usize))
+            .any(|output| output.bytes_len() as Capacity > output.capacity)
         {
             Err(TransactionError::OutofBound)
         } else {

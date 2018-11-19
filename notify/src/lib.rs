@@ -1,9 +1,9 @@
 #![cfg_attr(feature = "cargo-clippy", allow(needless_pass_by_value))]
 
+extern crate ckb_core as core;
+extern crate ckb_util as util;
 extern crate crossbeam_channel;
 extern crate fnv;
-extern crate nervos_core as core;
-extern crate nervos_util as util;
 
 use core::block::IndexedBlock;
 use core::transaction::Transaction;

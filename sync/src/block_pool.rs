@@ -1,8 +1,9 @@
 use bigint::H256;
 use core::block::{Block, IndexedBlock};
 use core::header::IndexedHeader;
+use fnv::FnvHashMap;
 use std::collections::hash_map::Entry;
-use std::collections::{HashMap, VecDeque};
+use std::collections::VecDeque;
 use util::RwLock;
 
 pub type BlockHash = H256;
@@ -10,13 +11,16 @@ pub type ParentHash = H256;
 
 #[derive(Default)]
 pub struct OrphanBlockPool {
-    blocks: RwLock<HashMap<ParentHash, HashMap<BlockHash, Block>>>,
+    blocks: RwLock<FnvHashMap<ParentHash, FnvHashMap<BlockHash, Block>>>,
 }
 
 impl OrphanBlockPool {
     pub fn with_capacity(capacity: usize) -> Self {
         OrphanBlockPool {
-            blocks: RwLock::new(HashMap::with_capacity(capacity)),
+            blocks: RwLock::new(FnvHashMap::with_capacity_and_hasher(
+                capacity,
+                Default::default(),
+            )),
         }
     }
 
@@ -25,7 +29,7 @@ impl OrphanBlockPool {
         self.blocks
             .write()
             .entry(block.header.parent_hash)
-            .or_insert_with(HashMap::new)
+            .or_insert_with(FnvHashMap::default)
             .insert(block.hash(), block.into());
     }
 
@@ -69,10 +73,10 @@ impl OrphanBlockPool {
 mod tests {
     use super::*;
     use bigint::{H256, U256};
+    use ckb_chain::consensus::Consensus;
+    use ckb_time::now_ms;
     use core::header::Seal;
     use core::header::{Header, IndexedHeader, RawHeader};
-    use nervos_chain::Config;
-    use nervos_time::now_ms;
     use std::collections::HashSet;
     use std::iter::FromIterator;
 
@@ -102,10 +106,10 @@ mod tests {
 
     #[test]
     fn test_remove_blocks_by_parent() {
-        let config = Config::default();
+        let consensus = Consensus::default();
         let block_number = 200;
         let mut blocks: Vec<IndexedBlock> = Vec::new();
-        let mut parent = config.genesis_block().header;
+        let mut parent = consensus.genesis_block().header.clone();
         let pool = OrphanBlockPool::with_capacity(200);
         for _ in 1..block_number {
             let new_block = gen_block(parent);
@@ -114,7 +118,7 @@ mod tests {
             parent = new_block.header;
         }
 
-        let orphan = pool.remove_blocks_by_parent(&config.genesis_block().hash());
+        let orphan = pool.remove_blocks_by_parent(&consensus.genesis_block().hash());
         let orphan: HashSet<IndexedBlock> = HashSet::from_iter(orphan.into_iter());
         let block: HashSet<IndexedBlock> = HashSet::from_iter(blocks.into_iter());
         assert_eq!(orphan, block)

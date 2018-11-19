@@ -14,6 +14,7 @@ pub enum Error {
     TransactionsRoot,
     MultipleCellbase,
     CellbaseNotAtFirst,
+    InvalidCellbaseInput,
     DuplicateHeader,
     UnknownParent,
     InvalidInput,
@@ -53,6 +54,7 @@ pub enum TransactionError {
     InvalidCellbase,
     InvalidCapacity,
     InvalidScript,
+    InvalidSignature,
     DoubleSpent,
     UnknownInput,
 }

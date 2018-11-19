@@ -1,10 +1,14 @@
 [package]
-name = "nervos-script"
+name = "ckb-script"
 version = "0.1.0"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 
 [dependencies]
 crypto = {path = "../util/crypto"}
-nervos-core = { path = "../core" }
+ckb-core = { path = "../core" }
 serde = "1.0"
 serde_derive = "1.0"
+bincode = "1.0"
+bigint = { git = "https://github.com/NervosFoundation/bigint" }
+hash = {path = "../util/hash"}
+byteorder = "1.2.2"

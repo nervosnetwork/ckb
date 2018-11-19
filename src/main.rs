@@ -5,25 +5,32 @@ extern crate dir;
 extern crate ethash;
 #[macro_use]
 extern crate log;
+extern crate bigint;
+extern crate ckb_chain as chain;
+extern crate ckb_core as core;
+extern crate ckb_db as db;
+extern crate ckb_miner as miner;
+extern crate ckb_network as network;
+extern crate ckb_notify;
+extern crate ckb_pool as pool;
+extern crate ckb_rpc as rpc;
+extern crate ckb_sync as sync;
+extern crate ckb_util as util;
+extern crate ckb_verification;
 extern crate logger;
-extern crate nervos_chain as chain;
-extern crate nervos_db as db;
-extern crate nervos_miner as miner;
-extern crate nervos_network as network;
-extern crate nervos_notify;
-extern crate nervos_pool as pool;
-extern crate nervos_rpc as rpc;
-extern crate nervos_sync as sync;
-extern crate nervos_util as util;
-extern crate nervos_verification;
 #[macro_use]
 extern crate serde_derive;
-extern crate config;
+extern crate config as config_tool;
+extern crate serde_yaml;
+#[cfg(test)]
+extern crate tempdir;
 
+mod chain_spec;
 mod cli;
-mod spec;
+mod helper;
+mod setup;
 
-use spec::Spec;
+use setup::Setup;
 
 fn main() {
     // Always print backtrace on panic.
@@ -31,14 +38,16 @@ fn main() {
 
     let yaml = load_yaml!("cli/app.yml");
     let matches = clap::App::from_yaml(yaml).get_matches();
-    let spec = Spec::new(&matches).unwrap();
 
-    match matches.subcommand() {
-        ("run", Some(_run_cmd)) => {
-            cli::run(spec);
-        }
-        _ => {
-            cli::run(spec);
-        }
+    match Setup::new(&matches) {
+        Ok(setup) => match matches.subcommand() {
+            ("run", Some(_run_cmd)) => {
+                cli::run(setup);
+            }
+            _ => {
+                cli::run(setup);
+            }
+        },
+        Err(e) => println!("Failed to setup, cause err {}", e.description()),
     }
 }

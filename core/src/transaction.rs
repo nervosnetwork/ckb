@@ -2,13 +2,15 @@
 //! It is similar to Bitcoin Tx <https://en.bitcoin.it/wiki/Protocol_documentation#tx/>
 use bigint::H256;
 use bincode::{deserialize, serialize};
-use error::TxError;
+use ckb_protocol;
 use hash::sha3_256;
-use nervos_protocol;
+use header::BlockNumber;
 use script::Script;
 use std::ops::{Deref, DerefMut};
 
 pub const VERSION: u32 = 0;
+
+pub use Capacity;
 
 #[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Hash, Debug)]
 pub struct OutPoint {
@@ -56,20 +58,25 @@ impl CellInput {
             unlock,
         }
     }
+
+    pub fn new_cellbase_input(block_number: BlockNumber) -> Self {
+        CellInput {
+            previous_output: OutPoint::null(),
+            unlock: Script::new(0, Vec::new(), block_number.to_le().to_bytes().to_vec()),
+        }
+    }
 }
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct CellOutput {
-    pub module: u32,
-    pub capacity: u32,
+    pub capacity: Capacity,
     pub data: Vec<u8>,
     pub lock: H256,
 }
 
 impl CellOutput {
-    pub fn new(module: u32, capacity: u32, data: Vec<u8>, lock: H256) -> Self {
+    pub fn new(capacity: Capacity, data: Vec<u8>, lock: H256) -> Self {
         CellOutput {
-            module,
             capacity,
             data,
             lock,
@@ -108,22 +115,6 @@ impl Transaction {
 
     pub fn is_cellbase(&self) -> bool {
         self.inputs.len() == 1 && self.inputs[0].previous_output.is_null()
-    }
-
-    // TODO: split it
-    pub fn validate(&self, is_enlarge_transaction: bool) -> Result<(), TxError> {
-        if is_enlarge_transaction && !(self.inputs.is_empty() && self.outputs.len() == 1) {
-            return Err(TxError::WrongFormat);
-        }
-
-        // check outputs capacity
-        for output in &self.outputs {
-            if output.bytes_len() > (output.capacity as usize) {
-                return Err(TxError::OutofBound);
-            }
-        }
-
-        Ok(())
     }
 
     pub fn hash(&self) -> H256 {
@@ -220,17 +211,17 @@ impl From<Transaction> for IndexedTransaction {
     }
 }
 
-impl<'a> From<&'a OutPoint> for nervos_protocol::OutPoint {
+impl<'a> From<&'a OutPoint> for ckb_protocol::OutPoint {
     fn from(o: &'a OutPoint) -> Self {
-        let mut op = nervos_protocol::OutPoint::new();
+        let mut op = ckb_protocol::OutPoint::new();
         op.set_hash(o.hash.to_vec());
         op.set_index(o.index);
         op
     }
 }
 
-impl<'a> From<&'a nervos_protocol::OutPoint> for OutPoint {
-    fn from(o: &'a nervos_protocol::OutPoint) -> Self {
+impl<'a> From<&'a ckb_protocol::OutPoint> for OutPoint {
+    fn from(o: &'a ckb_protocol::OutPoint) -> Self {
         Self {
             hash: H256::from(o.get_hash()),
             index: o.get_index(),
@@ -238,8 +229,8 @@ impl<'a> From<&'a nervos_protocol::OutPoint> for OutPoint {
     }
 }
 
-impl<'a> From<&'a nervos_protocol::CellInput> for CellInput {
-    fn from(c: &'a nervos_protocol::CellInput) -> Self {
+impl<'a> From<&'a ckb_protocol::CellInput> for CellInput {
+    fn from(c: &'a ckb_protocol::CellInput) -> Self {
         Self {
             previous_output: c.get_previous_output().into(),
             unlock: deserialize(c.get_unlock()).unwrap(),
@@ -247,22 +238,22 @@ impl<'a> From<&'a nervos_protocol::CellInput> for CellInput {
     }
 }
 
-impl<'a> From<&'a CellInput> for nervos_protocol::CellInput {
+impl<'a> From<&'a CellInput> for ckb_protocol::CellInput {
     fn from(c: &'a CellInput) -> Self {
-        let mut ci = nervos_protocol::CellInput::new();
+        let mut ci = ckb_protocol::CellInput::new();
         ci.set_previous_output((&c.previous_output).into());
         ci.set_unlock(serialize(&c.unlock).unwrap());
         ci
     }
 }
 
-impl From<CellInput> for nervos_protocol::CellInput {
+impl From<CellInput> for ckb_protocol::CellInput {
     fn from(c: CellInput) -> Self {
         let CellInput {
             previous_output,
             unlock,
         } = c;
-        let mut ci = nervos_protocol::CellInput::new();
+        let mut ci = ckb_protocol::CellInput::new();
         ci.set_previous_output((&previous_output).into());
         ci.set_unlock(serialize(&unlock).unwrap());
         ci
@@ -270,10 +261,9 @@ impl From<CellInput> for nervos_protocol::CellInput {
 }
 
 /// stupid proto3
-impl<'a> From<&'a nervos_protocol::CellOutput> for CellOutput {
-    fn from(c: &'a nervos_protocol::CellOutput) -> Self {
+impl<'a> From<&'a ckb_protocol::CellOutput> for CellOutput {
+    fn from(c: &'a ckb_protocol::CellOutput) -> Self {
         Self {
-            module: c.get_module(),
             capacity: c.get_capacity(),
             data: c.get_data().to_vec(),
             lock: c.get_lock().into(),
@@ -281,10 +271,9 @@ impl<'a> From<&'a nervos_protocol::CellOutput> for CellOutput {
     }
 }
 
-impl<'a> From<&'a CellOutput> for nervos_protocol::CellOutput {
+impl<'a> From<&'a CellOutput> for ckb_protocol::CellOutput {
     fn from(c: &'a CellOutput) -> Self {
-        let mut co = nervos_protocol::CellOutput::new();
-        co.set_module(c.module);
+        let mut co = ckb_protocol::CellOutput::new();
         co.set_capacity(c.capacity);
         co.set_data(c.data.clone());
         co.set_lock(c.lock.to_vec());
@@ -292,16 +281,14 @@ impl<'a> From<&'a CellOutput> for nervos_protocol::CellOutput {
     }
 }
 
-impl From<CellOutput> for nervos_protocol::CellOutput {
+impl From<CellOutput> for ckb_protocol::CellOutput {
     fn from(c: CellOutput) -> Self {
         let CellOutput {
-            module,
             capacity,
             data,
             lock,
         } = c;
-        let mut co = nervos_protocol::CellOutput::new();
-        co.set_module(module);
+        let mut co = ckb_protocol::CellOutput::new();
         co.set_capacity(capacity);
         co.set_data(data);
         co.set_lock(lock.to_vec());
@@ -309,8 +296,8 @@ impl From<CellOutput> for nervos_protocol::CellOutput {
     }
 }
 
-impl<'a> From<&'a nervos_protocol::Transaction> for Transaction {
-    fn from(t: &'a nervos_protocol::Transaction) -> Self {
+impl<'a> From<&'a ckb_protocol::Transaction> for Transaction {
+    fn from(t: &'a ckb_protocol::Transaction) -> Self {
         Self {
             version: t.get_version(),
             deps: t.get_deps().iter().map(Into::into).collect(),
@@ -320,16 +307,16 @@ impl<'a> From<&'a nervos_protocol::Transaction> for Transaction {
     }
 }
 
-impl<'a> From<&'a nervos_protocol::Transaction> for IndexedTransaction {
-    fn from(t: &'a nervos_protocol::Transaction) -> Self {
+impl<'a> From<&'a ckb_protocol::Transaction> for IndexedTransaction {
+    fn from(t: &'a ckb_protocol::Transaction) -> Self {
         let tx: Transaction = t.into();
         tx.into()
     }
 }
 
-impl<'a> From<&'a Transaction> for nervos_protocol::Transaction {
+impl<'a> From<&'a Transaction> for ckb_protocol::Transaction {
     fn from(t: &'a Transaction) -> Self {
-        let mut tx = nervos_protocol::Transaction::new();
+        let mut tx = ckb_protocol::Transaction::new();
         tx.set_version(t.version);
         tx.set_inputs(t.inputs.iter().map(Into::into).collect());
         tx.set_outputs(t.outputs.iter().map(Into::into).collect());
@@ -337,7 +324,7 @@ impl<'a> From<&'a Transaction> for nervos_protocol::Transaction {
     }
 }
 
-impl<'a> From<&'a IndexedTransaction> for nervos_protocol::Transaction {
+impl<'a> From<&'a IndexedTransaction> for ckb_protocol::Transaction {
     fn from(t: &'a IndexedTransaction) -> Self {
         let tx = &t.transaction;
         tx.into()

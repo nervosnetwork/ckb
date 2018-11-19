@@ -21,7 +21,7 @@ Nervos project defines a suite of scalable and interoperable blockchain protocol
 We recommend installing Rust through [rustup](https://www.rustup.rs/)
 
 ```bash
-# Get rustup from rustup.rs, then in your `nervos` folder:
+# Get rustup from rustup.rs, then in your `ckb` folder:
 rustup override set nightly-2018-05-23
 rustup component add rustfmt-preview --toolchain=nightly-2018-05-23
 ```
@@ -52,15 +52,23 @@ brew install autoconf libtool
 
 ---
 
-## Build from source
+## Build from source & testing
 
 ```bash
 # download Nervos
-$ git clone https://github.com/NervosFoundation/nervos.git
-$ cd nervos
+$ git clone https://github.com/NervosFoundation/ckb.git
+$ cd ckb
 
 # build in release mode
 $ cargo build --release
+```
+
+You can run the full test suite, or just run a specific package test:
+```bash
+# Run the full suite
+make test
+# Run a specific package test
+RUSTFLAGS="--cfg ckb_test" cargo test --package ckb-chain
 ```
 
 ---
@@ -70,7 +78,7 @@ $ cargo build --release
 ### Start Node
 
 ```shell
-target/release/nervos
+target/release/ckb
 ```
 
 ### Send Transaction via RPC
@@ -87,7 +95,7 @@ curl -d '{"id": 2, "jsonrpc": "2.0", "method":"send_transaction","params": [{"ve
 Install protobuf:
 
 ```shell
-cargo install protobuf --force --vers 1.4.3
+cargo install protobuf-codegen --force --vers 2.0.2
 ```
 
 Generate code from proto definition:
@@ -96,7 +104,7 @@ Generate code from proto definition:
 make proto
 ```
 
-### Development running
+### Development running 
 
 Run multiple nodes:
 
@@ -107,5 +115,5 @@ $ cargo run -- --data-dir=/tmp/node2
 
 Modify development config file
 ```shell
-cp src/config/development.toml /tmp/node1
+cp src/config/development.toml /tmp/node1/config.toml
 ```

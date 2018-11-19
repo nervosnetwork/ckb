@@ -4,16 +4,17 @@ use std::sync::Arc;
 use txs_pool::pool::*;
 use txs_pool::types::*;
 
+use ckb_chain::chain::{ChainBuilder, ChainProvider};
+use ckb_chain::store::ChainKVStore;
+use ckb_db::memorydb::MemoryKeyValueDB;
+use ckb_notify::Notify;
 use core::block::{Block, IndexedBlock};
 use core::cell::{CellProvider, CellState};
 use core::difficulty::cal_difficulty;
 use core::header::{Header, RawHeader, Seal};
 use core::script::Script;
 use core::transaction::*;
-use nervos_chain::chain::{ChainBuilder, ChainProvider};
-use nervos_chain::store::ChainKVStore;
-use nervos_db::memorydb::MemoryKeyValueDB;
-use nervos_notify::Notify;
+use hash::sha3_256;
 use time::now_ms;
 
 macro_rules! expect_output_parent {
@@ -86,6 +87,38 @@ fn test_basic_pool_add() {
     );
     expect_output_parent!(pool, CellState::Head(_), OutPoint::new(tx_hash, 8));
     expect_output_parent!(pool, CellState::Unknown, OutPoint::new(tx_hash, 200));
+}
+
+#[test]
+pub fn test_cellbase_spent() {
+    let (chain, pool, _tx_hash) = test_setup();
+    let cellbase_tx = Transaction::new(
+        0,
+        Vec::new(),
+        vec![CellInput::new_cellbase_input(
+            chain.tip_header().read().header.raw.number + 1,
+        )],
+        vec![CellOutput::new(50000, Vec::new(), sha3_256(vec![1]).into())],
+    );
+    apply_transactions(vec![cellbase_tx.clone()], &chain);
+
+    let valid_tx = Transaction::new(
+        0,
+        Vec::new(),
+        vec![CellInput::new(
+            OutPoint::new(cellbase_tx.hash(), 0),
+            Script::new(0, Vec::new(), vec![1]),
+        )],
+        vec![CellOutput::new(50000, Vec::new(), H256::default())],
+    );
+
+    match pool.add_to_memory_pool(valid_tx) {
+        Ok(_) => {}
+        Err(err) => panic!(
+            "Unexpected error while adding a valid transaction: {:?}",
+            err
+        ),
+    };
 }
 
 #[test]
@@ -370,7 +403,7 @@ fn test_setup() -> (
         0,
         Vec::new(),
         vec![CellInput::new(OutPoint::null(), Default::default())],
-        vec![CellOutput::new(0, 50, Vec::new(), H256::default()); 100],
+        vec![CellOutput::new(50, Vec::new(), H256::default()); 100],
     );
     let transactions = vec![tx.clone()];
     apply_transactions(transactions, &chain);

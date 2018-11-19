@@ -2,7 +2,7 @@ use bigint::{H256, U256};
 use core::block::Block;
 use core::difficulty::cal_difficulty;
 use core::difficulty::difficulty_to_boundary;
-use core::header::RawHeader;
+use core::header::{BlockNumber, RawHeader};
 use ethash::Ethash;
 use miner::Work;
 use rand::{thread_rng, Rng};
@@ -86,7 +86,7 @@ impl Sealer {
     fn mine(
         &self,
         pow_hash: H256,
-        number: u64,
+        number: BlockNumber,
         mut nonce: u64,
         difficulty: U256,
         signal: &Signal,

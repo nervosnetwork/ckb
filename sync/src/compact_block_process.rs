@@ -1,10 +1,10 @@
-use nervos_chain::chain::ChainProvider;
-use nervos_protocol;
+use ckb_chain::chain::ChainProvider;
+use ckb_protocol;
 use network::{NetworkContext, PeerId};
 use synchronizer::Synchronizer;
 
 pub struct CompactBlockProcess<'a, C: 'a> {
-    message: &'a nervos_protocol::CompactBlock,
+    message: &'a ckb_protocol::CompactBlock,
     synchronizer: &'a Synchronizer<C>,
     peer: PeerId,
     nc: &'a NetworkContext,
@@ -15,7 +15,7 @@ where
     C: ChainProvider + 'a,
 {
     pub fn new(
-        message: &'a nervos_protocol::CompactBlock,
+        message: &'a ckb_protocol::CompactBlock,
         synchronizer: &'a Synchronizer<C>,
         peer: &PeerId,
         nc: &'a NetworkContext,

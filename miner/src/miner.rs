@@ -1,14 +1,14 @@
 use super::sealer::{Sealer, Signal};
 use super::Config;
 use chain::chain::{ChainProvider, Error};
+use ckb_notify::{Event, Notify};
+use ckb_protocol::Payload;
 use core::block::IndexedBlock;
 use core::header::{Header, IndexedHeader};
-use core::script::Script;
-use core::transaction::{CellInput, CellOutput, OutPoint, Transaction, VERSION};
+use core::transaction::{Capacity, CellInput, CellOutput, Transaction, VERSION};
 use crossbeam_channel;
 use ethash::{get_epoch, Ethash};
-use nervos_notify::{Event, Notify};
-use nervos_protocol::Payload;
+use network::NetworkContextExt;
 use network::NetworkService;
 use pool::TransactionPool;
 use std::collections::HashSet;
@@ -114,21 +114,17 @@ impl<C: ChainProvider + 'static> Miner<C> {
 
     fn create_cellbase_transaction(
         &self,
-        head: &Header,
+        tip: &Header,
         transactions: &[Transaction],
     ) -> Result<Transaction, Error> {
         // NOTE: To generate different cellbase txid, we put header number in the input script
-        let inputs = vec![CellInput::new(
-            OutPoint::null(),
-            Script::new(0, Vec::new(), head.raw.number.to_le().to_bytes().to_vec()),
-        )];
+        let inputs = vec![CellInput::new_cellbase_input(tip.raw.number + 1)];
         // NOTE: We could've just used byteorder to serialize u64 and hex string into bytes,
         // but the truth is we will modify this after we designed lock script anyway, so let's
         // stick to the simpler way and just convert everything to a single string, then to UTF8
         // bytes, they really serve the same purpose at the moment
-        let reward = self.cellbase_reward(head, transactions)?;
+        let reward = self.cellbase_reward(tip, transactions)?;
         let outputs = vec![CellOutput::new(
-            0,
             reward,
             Vec::new(),
             self.config.redeem_script_hash,
@@ -136,8 +132,12 @@ impl<C: ChainProvider + 'static> Miner<C> {
         Ok(Transaction::new(VERSION, Vec::new(), inputs, outputs))
     }
 
-    fn cellbase_reward(&self, head: &Header, transactions: &[Transaction]) -> Result<u32, Error> {
-        let block_reward = self.chain.block_reward(head.raw.number);
+    fn cellbase_reward(
+        &self,
+        tip: &Header,
+        transactions: &[Transaction],
+    ) -> Result<Capacity, Error> {
+        let block_reward = self.chain.block_reward(tip.raw.number + 1);
         let mut fee = 0;
         for transaction in transactions {
             fee += self.chain.calculate_transaction_fee(transaction)?;
@@ -147,13 +147,13 @@ impl<C: ChainProvider + 'static> Miner<C> {
 
     fn announce_new_block(&self, block: &IndexedBlock) {
         self.network.with_context_eval(RELAY_PROTOCOL_ID, |nc| {
-            for (peer_id, _session) in nc.sessions() {
+            for (peer_id, _session) in nc.sessions(&self.network.connected_peers()) {
                 debug!(target: "miner", "announce new block to peer#{:?}, {} => {}",
                        peer_id, block.header().number, block.hash());
                 let mut payload = Payload::new();
                 let compact_block = CompactBlockBuilder::new(block, &HashSet::new()).build();
                 payload.set_compact_block(compact_block.into());
-                nc.send(peer_id, payload).ok();
+                let _ = nc.send_payload(peer_id, payload);
             }
         });
     }

@@ -1,13 +1,13 @@
 [package]
-name = "nervos-db"
+name = "ckb-db"
 version = "0.1.0"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 
 [dependencies]
 serde = "1.0"
 bincode = "1.0"
-nervos-util = { path = "../util" }
-nervos-core = { path = "../core" }
+ckb-util = { path = "../util" }
+ckb-core = { path = "../core" }
 bigint = { git = "https://github.com/NervosFoundation/bigint" }
 serde_derive = "1.0"
 rocksdb = { git = "https://github.com/NervosFoundation/rust-rocksdb" }

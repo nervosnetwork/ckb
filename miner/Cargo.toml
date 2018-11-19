@@ -1,24 +1,24 @@
 [package]
-name = "nervos-miner"
+name = "ckb-miner"
 version = "0.1.0"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 
 [dependencies]
 log = "0.4"
 bigint = { git = "https://github.com/NervosFoundation/bigint" }
-nervos-util = { path = "../util" }
-nervos-time = { path = "../util/time" }
-nervos-core = { path = "../core" }
-nervos-pool = { path = "../pool" }
-nervos-chain = { path = "../chain" }
-nervos-db = { path = "../db" }
-nervos-protocol = { path = "../network/protocol" }
-nervos-network = { path = "../network" }
-nervos-sync = { path = "../sync" }
+ckb-util = { path = "../util" }
+ckb-time = { path = "../util/time" }
+ckb-core = { path = "../core" }
+ckb-pool = { path = "../pool" }
+ckb-chain = { path = "../chain" }
+ckb-db = { path = "../db" }
+ckb-protocol = { path = "../network/protocol" }
+ckb-network = { path = "../network" }
+ckb-sync = { path = "../sync" }
 ethash = { git = "https://github.com/NervosFoundation/ethash", tag = "v1.0.0" }
 protobuf = "2.0.2"
 rand = "0.5.0"
-nervos-notify = { path = "../notify" }
+ckb-notify = { path = "../notify" }
 serde = "1.0"
 serde_derive = "1.0"
 crossbeam-channel = "0.2"

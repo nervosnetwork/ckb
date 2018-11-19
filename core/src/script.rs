@@ -3,16 +3,16 @@ use hash::sha3_256;
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct Script {
-    version: u8,
-    data: Vec<u8>,
-    redeem_script: Vec<u8>,
+    pub version: u8,
+    pub arguments: Vec<Vec<u8>>,
+    pub redeem_script: Vec<u8>,
 }
 
 impl Script {
-    pub fn new(version: u8, data: Vec<u8>, redeem_script: Vec<u8>) -> Self {
+    pub fn new(version: u8, arguments: Vec<Vec<u8>>, redeem_script: Vec<u8>) -> Self {
         Script {
             version,
-            data,
+            arguments,
             redeem_script,
         }
     }

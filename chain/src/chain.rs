@@ -1,12 +1,13 @@
 use super::{COLUMNS, COLUMN_BLOCK_HEADER};
 use bigint::{H256, U256};
 use cachedb::CacheDB;
-use config::Config;
+use ckb_notify::Notify;
+use consensus::Consensus;
 use core::block::IndexedBlock;
 use core::cell::{CellProvider, CellState};
 use core::extras::BlockExt;
-use core::header::IndexedHeader;
-use core::transaction::{IndexedTransaction, OutPoint, Transaction};
+use core::header::{BlockNumber, IndexedHeader};
+use core::transaction::{Capacity, IndexedTransaction, OutPoint, Transaction};
 use core::transaction_meta::TransactionMeta;
 use db::batch::Batch;
 use db::diskdb::RocksDB;
@@ -14,32 +15,16 @@ use db::kvdb::KeyValueDB;
 use db::memorydb::MemoryKeyValueDB;
 use index::ChainIndex;
 use log;
-use nervos_notify::Notify;
 use std::cmp;
 use std::path::Path;
 use store::ChainKVStore;
 use time::now_ms;
 use util::RwLock;
 
-pub struct GenesisHash(pub H256);
-
-// guarantee inly init once
-unsafe impl Sync for GenesisHash {}
-
 #[derive(Debug, PartialEq, Clone, Eq)]
 pub enum Error {
     InvalidInput,
     InvalidOutput,
-}
-
-#[derive(Debug, PartialEq, Clone, Eq)]
-pub enum VerificationLevel {
-    /// Full verification.
-    Full,
-    /// Transaction scripts are not checked.
-    Header,
-    /// No verification at all.
-    NoVerification,
 }
 
 #[derive(Default, Debug, PartialEq, Clone, Eq)]
@@ -51,9 +36,8 @@ pub struct TipHeader {
 
 pub struct Chain<CS> {
     store: CS,
-    config: Config,
     tip_header: RwLock<TipHeader>,
-    genesis_hash: GenesisHash,
+    consensus: Consensus,
     notify: Notify,
 }
 
@@ -64,13 +48,13 @@ pub trait ChainProvider: Sync + Send + CellProvider {
 
     fn block_body(&self, hash: &H256) -> Option<Vec<Transaction>>;
 
-    fn block_hash(&self, number: u64) -> Option<H256>;
+    fn block_hash(&self, number: BlockNumber) -> Option<H256>;
 
     fn block_ext(&self, hash: &H256) -> Option<BlockExt>;
 
     fn output_root(&self, hash: &H256) -> Option<H256>;
 
-    fn block_number(&self, hash: &H256) -> Option<u64>;
+    fn block_number(&self, hash: &H256) -> Option<BlockNumber>;
 
     fn block(&self, hash: &H256) -> Option<IndexedBlock>;
 
@@ -87,24 +71,18 @@ pub trait ChainProvider: Sync + Send + CellProvider {
 
     fn get_transaction_meta_at(&self, hash: &H256, parent: &H256) -> Option<TransactionMeta>;
 
-    // NOTE: reward and fee are returned now as u32 since capacity is also
-    // u32 in protocol, we might want to revisit this later
-    fn block_reward(&self, block_number: u64) -> u32;
+    fn block_reward(&self, block_number: BlockNumber) -> Capacity;
 
     // Loops through all inputs and outputs of given transaction to calculate
     // fee that miner can obtain. Could result in error state when input
     // transaction is missing.
-    fn calculate_transaction_fee(&self, transaction: &Transaction) -> Result<u32, Error>;
+    fn calculate_transaction_fee(&self, transaction: &Transaction) -> Result<Capacity, Error>;
 }
 
 impl<'a, CS: ChainIndex> CellProvider for Chain<CS> {
     fn cell(&self, out_point: &OutPoint) -> CellState {
         let index = out_point.index as usize;
         if let Some(meta) = self.get_transaction_meta(&out_point.hash) {
-            if meta.is_fully_spent() {
-                return CellState::Tail;
-            }
-
             if index < meta.len() {
                 if !meta.is_spent(index) {
                     let mut transaction = self
@@ -123,10 +101,6 @@ impl<'a, CS: ChainIndex> CellProvider for Chain<CS> {
     fn cell_at(&self, out_point: &OutPoint, parent: &H256) -> CellState {
         let index = out_point.index as usize;
         if let Some(meta) = self.get_transaction_meta_at(&out_point.hash, parent) {
-            if meta.is_fully_spent() {
-                return CellState::Tail;
-            }
-
             if index < meta.len() {
                 if !meta.is_spent(index) {
                     let mut transaction = self
@@ -144,14 +118,16 @@ impl<'a, CS: ChainIndex> CellProvider for Chain<CS> {
 }
 
 impl<CS: ChainIndex> Chain<CS> {
-    pub fn init(store: CS, config: Config, notify: Notify) -> Result<Chain<CS>, Error> {
+    pub fn init(store: CS, consensus: Consensus, notify: Notify) -> Result<Chain<CS>, Error> {
         // check head in store or save the genesis block as head
-        let genesis = config.genesis_block();
-        let header = match store.get_tip_header() {
-            Some(h) => h,
-            None => {
-                store.init(&genesis);
-                genesis.header.clone()
+        let header = {
+            let genesis = consensus.genesis_block();
+            match store.get_tip_header() {
+                Some(h) => h,
+                None => {
+                    store.init(&genesis);
+                    genesis.header.clone()
+                }
             }
         };
 
@@ -173,8 +149,7 @@ impl<CS: ChainIndex> Chain<CS> {
 
         Ok(Chain {
             store,
-            config,
-            genesis_hash: GenesisHash(genesis.hash()),
+            consensus,
             tip_header: RwLock::new(tip_header),
             notify,
         })
@@ -359,7 +334,7 @@ impl<CS: ChainIndex> ChainProvider for Chain<CS> {
         self.store.get_block_body(hash)
     }
 
-    fn block_hash(&self, number: u64) -> Option<H256> {
+    fn block_hash(&self, number: BlockNumber) -> Option<H256> {
         self.store.get_block_hash(number)
     }
 
@@ -367,12 +342,12 @@ impl<CS: ChainIndex> ChainProvider for Chain<CS> {
         self.store.get_block_ext(hash)
     }
 
-    fn block_number(&self, hash: &H256) -> Option<u64> {
+    fn block_number(&self, hash: &H256) -> Option<BlockNumber> {
         self.store.get_block_number(hash)
     }
 
     fn genesis_hash(&self) -> H256 {
-        self.genesis_hash.0
+        self.consensus.genesis_block().hash()
     }
 
     fn block_header(&self, hash: &H256) -> Option<IndexedHeader> {
@@ -410,14 +385,14 @@ impl<CS: ChainIndex> ChainProvider for Chain<CS> {
             .and_then(|root| self.store.get_transaction_meta(root, *hash))
     }
 
-    fn block_reward(&self, _block_number: u64) -> u32 {
+    fn block_reward(&self, _block_number: BlockNumber) -> Capacity {
         // TODO: block reward calculation algorithm
-        self.config.initial_block_reward
+        self.consensus.initial_block_reward()
     }
 
     // TODO: find a way to write test for this once we can build a mock on
     // ChainIndex
-    fn calculate_transaction_fee(&self, transaction: &Transaction) -> Result<u32, Error> {
+    fn calculate_transaction_fee(&self, transaction: &Transaction) -> Result<Capacity, Error> {
         let mut fee = 0;
         for input in &transaction.inputs {
             let previous_output = &input.previous_output;
@@ -433,7 +408,7 @@ impl<CS: ChainIndex> ChainProvider for Chain<CS> {
                 None => return Err(Error::InvalidInput),
             }
         }
-        let spent_capacity: u32 = transaction
+        let spent_capacity: Capacity = transaction
             .outputs
             .iter()
             .map(|output| output.capacity)
@@ -448,7 +423,7 @@ impl<CS: ChainIndex> ChainProvider for Chain<CS> {
 
 pub struct ChainBuilder<CS> {
     store: CS,
-    config: Config,
+    consensus: Consensus,
     notify: Option<Notify>,
 }
 
@@ -467,22 +442,31 @@ impl<CS: ChainIndex> ChainBuilder<CS> {
     }
 
     pub fn new_simple<T: KeyValueDB>(db: T) -> ChainBuilder<ChainKVStore<T>> {
-        let mut config = Config::default();
-        config.initial_block_reward = 50;
+        let mut consensus = Consensus::default();
+        consensus.initial_block_reward = 50;
         ChainBuilder {
             store: ChainKVStore { db },
-            config,
+            consensus,
             notify: None,
         }
     }
 
-    pub fn config(mut self, value: Config) -> Self {
-        self.config = value;
+    // pub fn config(mut self, value: Config) -> Self {
+    //     self.config = value;
+    //     self
+    // }
+
+    // pub fn get_config(&self) -> &Config {
+    //     &self.config
+    // }
+
+    pub fn consensus(mut self, value: Consensus) -> Self {
+        self.consensus = value;
         self
     }
 
-    pub fn get_config(&self) -> &Config {
-        &self.config
+    pub fn get_consensus(&self) -> &Consensus {
+        &self.consensus
     }
 
     pub fn notify(mut self, value: Notify) -> Self {
@@ -492,7 +476,7 @@ impl<CS: ChainIndex> ChainBuilder<CS> {
 
     pub fn build(self) -> Result<Chain<CS>, Error> {
         let notify = self.notify.unwrap_or_else(Notify::new);
-        Chain::init(self.store, self.config, notify)
+        Chain::init(self.store, self.consensus, notify)
     }
 }
 
@@ -509,7 +493,7 @@ pub mod test {
         parent_header: IndexedHeader,
         nonce: u64,
         difficulty: U256,
-        number: u64,
+        number: BlockNumber,
     ) -> IndexedBlock {
         let time = now_ms();
         let header = Header {

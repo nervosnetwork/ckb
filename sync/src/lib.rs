@@ -5,17 +5,17 @@ extern crate fnv;
 #[macro_use]
 extern crate log;
 extern crate byteorder;
+extern crate ckb_chain;
+extern crate ckb_core as core;
+extern crate ckb_network as network;
+extern crate ckb_notify;
+extern crate ckb_pool as pool;
+extern crate ckb_protocol;
+extern crate ckb_time;
 extern crate hash;
-extern crate nervos_chain;
-extern crate nervos_core as core;
-extern crate nervos_network as network;
-extern crate nervos_notify;
-extern crate nervos_pool as pool;
-extern crate nervos_protocol;
-extern crate nervos_time;
 #[macro_use]
-extern crate nervos_util as util;
-extern crate nervos_verification;
+extern crate ckb_util as util;
+extern crate ckb_verification;
 extern crate protobuf;
 extern crate rand;
 extern crate siphasher;
@@ -27,8 +27,9 @@ extern crate tokio;
 #[macro_use]
 extern crate serde_derive;
 #[cfg(test)]
-extern crate nervos_db as db;
+extern crate ckb_db as db;
 
+pub mod block_fetcher;
 pub mod block_pool;
 pub mod block_process;
 pub mod compact_block;
@@ -55,6 +56,16 @@ pub const MAX_TIP_AGE: u64 = 60 * 60 * 1000;
 pub const STALE_RELAY_AGE_LIMIT: u64 = 30 * 24 * 60 * 60 * 1000;
 pub const BLOCK_DOWNLOAD_WINDOW: u64 = 1024;
 pub const PER_FETCH_BLOCK_LIMIT: usize = 128;
-pub type BlockNumber = u64;
 pub const SYNC_PROTOCOL_ID: ProtocolId = *b"syn";
 pub const RELAY_PROTOCOL_ID: ProtocolId = *b"rel";
+
+//  Timeout = base + per_header * (expected number of headers)
+pub const HEADERS_DOWNLOAD_TIMEOUT_BASE: u64 = 15 * 60 * 1000; // 15 minutes
+pub const HEADERS_DOWNLOAD_TIMEOUT_PER_HEADER: u64 = 1; //1ms/header
+pub const POW_SPACE: u64 = 10_000; //10s
+
+// Protect at least this many outbound peers from disconnection due to slow
+// behind headers chain.
+pub const MAX_OUTBOUND_PEERS_TO_PROTECT_FROM_DISCONNECT: usize = 4;
+pub const CHAIN_SYNC_TIMEOUT: u64 = 20 * 60 * 1000; // 20 minutes
+pub const EVICTION_TEST_RESPONSE_TIME: u64 = 120 * 1000; // 2 minutes

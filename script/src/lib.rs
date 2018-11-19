@@ -1,8 +1,14 @@
+extern crate ckb_core as core;
 extern crate crypto;
-extern crate nervos_core as core;
 #[macro_use]
 extern crate serde_derive;
+extern crate bigint;
+extern crate bincode;
+extern crate byteorder;
+extern crate hash;
 
-pub mod sign;
-pub mod verify;
-// pub mod opcode;
+mod sign;
+mod verify;
+
+pub use sign::TransactionInputSigner;
+pub use verify::{SignatureVerifier, TransactionSignatureVerifier};

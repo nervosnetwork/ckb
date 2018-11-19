@@ -1,17 +1,20 @@
 extern crate bigint;
-extern crate crossbeam_channel;
-extern crate nervos_chain;
-extern crate nervos_core as core;
+extern crate ckb_chain;
+extern crate ckb_core as core;
 #[cfg(test)]
-extern crate nervos_db;
-extern crate nervos_notify;
-extern crate nervos_time as time;
-extern crate nervos_util as util;
-extern crate nervos_verification;
+extern crate ckb_db;
+extern crate ckb_notify;
+extern crate ckb_time as time;
+extern crate ckb_util as util;
+extern crate ckb_verification;
+extern crate crossbeam_channel;
 #[macro_use]
 extern crate serde_derive;
 #[cfg(test)]
 extern crate ethash;
+extern crate fnv;
+#[cfg(test)]
+extern crate hash;
 
 mod tests;
 pub mod txs_pool;
@@ -20,8 +23,8 @@ use bigint::H256;
 use core::block::IndexedBlock;
 // use core::cell::{CellProvider, CellState};
 // use core::transaction::{OutPoint, Transaction};
+use fnv::FnvHashSet;
 use std::collections::BTreeMap;
-use std::collections::HashSet;
 use util::{RwLock, RwLockUpgradableReadGuard};
 
 pub use txs_pool::*;
@@ -29,14 +32,17 @@ pub use txs_pool::*;
 #[derive(Default)]
 pub struct PendingBlockPool {
     pool: RwLock<BTreeMap<u64, IndexedBlock>>,
-    hashes: RwLock<HashSet<H256>>,
+    hashes: RwLock<FnvHashSet<H256>>,
 }
 
 impl PendingBlockPool {
     pub fn with_capacity(capacity: usize) -> Self {
         PendingBlockPool {
             pool: RwLock::new(BTreeMap::new()),
-            hashes: RwLock::new(HashSet::with_capacity(capacity)),
+            hashes: RwLock::new(FnvHashSet::with_capacity_and_hasher(
+                capacity,
+                Default::default(),
+            )),
         }
     }
 

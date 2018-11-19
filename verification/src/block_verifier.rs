@@ -2,6 +2,7 @@ use super::{TransactionVerifier, Verifier};
 use chain::chain::ChainProvider;
 use core::block::IndexedBlock;
 use core::cell::ResolvedTransaction;
+use core::transaction::{Capacity, CellInput};
 use error::{Error, TransactionError};
 use merkle_root::merkle_root;
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
@@ -124,13 +125,17 @@ where
         }
 
         let cellbase_transaction = &self.block.transactions[0];
+        if cellbase_transaction.inputs[0] != CellInput::new_cellbase_input(self.block.header.number)
+        {
+            return Err(Error::InvalidCellbaseInput);
+        }
         let block_reward = self.chain.block_reward(self.block.header.raw.number);
         let mut fee = 0;
         for transaction in self.block.transactions.iter().skip(1) {
             fee += self.chain.calculate_transaction_fee(transaction)?;
         }
         let total_reward = block_reward + fee;
-        let output_capacity: u32 = cellbase_transaction
+        let output_capacity: Capacity = cellbase_transaction
             .outputs
             .iter()
             .map(|output| output.capacity)

@@ -1,9 +1,10 @@
+#![feature(int_to_from_bytes)]
 extern crate bigint;
 extern crate bincode;
+extern crate ckb_protocol;
 extern crate crypto;
 extern crate hash;
 extern crate merkle_root;
-extern crate nervos_protocol;
 #[macro_use]
 extern crate serde_derive;
 extern crate bit_vec;
@@ -25,3 +26,5 @@ pub mod transaction_meta;
 pub use error::Error;
 
 pub type PublicKey = bigint::H512;
+pub type BlockNumber = u64;
+pub type Capacity = u64;

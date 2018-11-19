@@ -1,11 +1,11 @@
+[ckb]
+chain = "dev"
+
 [logger]
 filter = "info,sub-libp2p=debug,libp2p=debug,libp2p_kad=info,chain=warn,sync=debug,rpc=debug"
 
 [rpc]
 listen_addr = "0.0.0.0:3030"
-
-[chain]
-verification_level = "NoVerification"
 
 [network]
 boot_nodes = [

@@ -1,6 +1,6 @@
 extern crate bincode;
+extern crate ckb_util as util;
 extern crate fnv;
-extern crate nervos_util as util;
 extern crate rocksdb;
 
 pub mod batch;

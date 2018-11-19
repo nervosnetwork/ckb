@@ -163,13 +163,12 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
 
             if len != 0 {
                 let hash = outputs[0].hash;
-                let meta = TransactionMeta::new(0, len);
+                let meta = TransactionMeta::new(len);
                 match avl.insert(hash, meta).expect("tree operation error") {
                     None => {}
-                    Some(mut old) => {
-                        if !old.is_fully_spent() {
-                            return None;
-                        }
+                    Some(_) => {
+                        // txid must be unique in chain
+                        return None;
                     }
                 }
             }
@@ -215,8 +214,9 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
 
 #[cfg(test)]
 mod tests {
-    use super::super::{Config, COLUMNS};
+    use super::super::COLUMNS;
     use super::*;
+    use consensus::Consensus;
     use db::diskdb::RocksDB;
     use rand;
     use tempdir::TempDir;
@@ -241,14 +241,15 @@ mod tests {
         let tmp_dir = TempDir::new("save_and_get_block").unwrap();
         let db = RocksDB::open(tmp_dir, COLUMNS);
         let store = ChainKVStore { db: db };
-        let block = Config::default().genesis_block();
+        let consensus = Consensus::default();
+        let block = consensus.genesis_block();
 
         let hash = block.hash();
 
         store.save_with_batch(|batch| {
             store.insert_block(batch, &block);
         });
-        assert_eq!(block, store.get_block(&hash).unwrap());
+        assert_eq!(block, &store.get_block(&hash).unwrap());
     }
 
     #[test]
@@ -256,7 +257,8 @@ mod tests {
         let tmp_dir = TempDir::new("save_and_get_block_with_transaction").unwrap();
         let db = RocksDB::open(tmp_dir, COLUMNS);
         let store = ChainKVStore { db: db };
-        let mut block = Config::default().genesis_block();
+        let consensus = Consensus::default();
+        let mut block = consensus.genesis_block().clone();
         block.transactions.push(create_dummy_transaction());
         block.transactions.push(create_dummy_transaction());
         block.transactions.push(create_dummy_transaction());
@@ -274,7 +276,8 @@ mod tests {
         let tmp_dir = TempDir::new("save_and_get_block_ext").unwrap();
         let db = RocksDB::open(tmp_dir, COLUMNS);
         let store = ChainKVStore { db: db };
-        let block = Config::default().genesis_block();
+        let consensus = Consensus::default();
+        let block = consensus.genesis_block();
 
         let ext = BlockExt {
             received_at: block.header.timestamp,

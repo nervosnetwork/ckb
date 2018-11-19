@@ -1,13 +1,14 @@
 extern crate bigint;
+extern crate ckb_chain as chain;
+extern crate ckb_core as core;
+#[cfg(test)]
+extern crate ckb_db as db;
+#[cfg(test)]
+extern crate ckb_notify as notify;
+extern crate ckb_script as script;
+extern crate ckb_time as time;
 extern crate ethash;
 extern crate merkle_root;
-extern crate nervos_chain as chain;
-extern crate nervos_core as core;
-#[cfg(test)]
-extern crate nervos_db as db;
-#[cfg(test)]
-extern crate nervos_notify as notify;
-extern crate nervos_time as time;
 extern crate rayon;
 
 mod block_verifier;
