@@ -541,6 +541,7 @@ impl Network {
             match swarm_controller.listen_on(addr.clone()) {
                 Ok(listen_address) => {
                     info!(
+                        target: "network",
                         "Listen on address: {}",
                         network.to_external_url(&listen_address)
                     );

@@ -27,7 +27,7 @@ use config::Config;
 use core::block::Block;
 use core::header::{BlockNumber, Header};
 use flatbuffers::{get_root, FlatBufferBuilder};
-use network::PeerIndex;
+use network::{CKBProtocolContext, CKBProtocolHandler, PeerIndex, Severity, TimerToken};
 use std::cmp;
 use std::collections::HashMap;
 use std::sync::atomic::AtomicUsize;
@@ -677,6 +677,9 @@ where
                 }
                 BLOCK_FETCH_TOKEN => {
                     self.find_blocks_to_fetch(nc.as_ref());
+                }
+                TIMEOUT_EVICTION_TOKEN => {
+                    self.eviction(nc.as_ref());
                 }
                 _ => unreachable!(),
             }
