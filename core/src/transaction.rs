@@ -1,5 +1,5 @@
 //! Transaction using Cell.
-//! It is similar to Bitcoin Tx https://en.bitcoin.it/wiki/Protocol_documentation#tx
+//! It is similar to Bitcoin Tx <https://en.bitcoin.it/wiki/Protocol_documentation#tx/>
 use bigint::H256;
 use bincode::serialize;
 use hash::sha3_256;

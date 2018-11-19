@@ -38,6 +38,7 @@ members = [
     "util/hash",
     "util/kvdb-rocksdb",
     "util/merkle-root",
+    "util/crypto",
     "network",
     "core",
     "chain",

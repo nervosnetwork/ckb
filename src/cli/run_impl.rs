@@ -35,13 +35,7 @@ pub fn run(config_path: &str) {
 
     let net_adapter = NetToChainAndPoolAdapter::new(kg, &chain, tx_pool.clone());
 
-    let network = Arc::new(
-        Network::init(
-            net_adapter,
-            include_bytes!("../test-private-key.pk8").to_vec(),
-            include_bytes!("../test-public-key.der").to_vec(),
-        ).unwrap(),
-    );
+    let network = Arc::new(Network::init(net_adapter, config.network).unwrap());
 
     chain_adapter.init(&network);
 
