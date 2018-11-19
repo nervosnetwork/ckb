@@ -1,7 +1,4 @@
 extern crate bigint;
-extern crate env_logger;
-#[cfg(test)]
-extern crate futures;
 extern crate ckb_chain as chain;
 extern crate ckb_core as core;
 extern crate ckb_db as db;
@@ -11,6 +8,9 @@ extern crate ckb_protocol;
 extern crate ckb_sync as sync;
 extern crate ckb_time as time;
 extern crate ckb_verification as verification;
+extern crate env_logger;
+#[cfg(test)]
+extern crate futures;
 extern crate tempdir;
 
 use bigint::H256;
@@ -18,12 +18,12 @@ use chain::chain::{Chain, ChainBuilder, ChainProvider};
 use chain::store::ChainKVStore;
 use chain::Config;
 use chain::COLUMNS;
+use ckb_protocol::Payload;
 use core::block::IndexedBlock;
 use core::difficulty::cal_difficulty;
 use core::header::{Header, RawHeader, Seal};
 use core::transaction::{CellInput, CellOutput, OutPoint, Transaction};
 use db::memorydb::MemoryKeyValueDB;
-use ckb_protocol::Payload;
 use network::*;
 use notify::Notify;
 use std::collections::HashMap;
@@ -238,7 +238,7 @@ fn setup_node(height: u64) -> (TestNode, Arc<Chain<ChainKVStore<MemoryKeyValueDB
             header: header.into(),
             transactions,
         };
-        chain.process_block(&block).unwrap();
+        chain.process_block(&block, false).unwrap();
     }
 
     let synchronizer = Synchronizer::new(&chain, notify.clone(), None, SyncConfig::default());

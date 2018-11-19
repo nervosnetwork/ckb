@@ -39,6 +39,8 @@ pub struct Genesis {
     pub timestamp: u64,
     pub txs_commit: H256,
     pub difficulty: U256,
+    pub cellbase_id: H256,
+    pub uncles_hash: H256,
 }
 
 impl ChainSpec {
@@ -61,6 +63,8 @@ impl ChainSpec {
             .txs_commit(self.genesis.txs_commit)
             .difficulty(self.genesis.difficulty)
             .seal(self.genesis.seal.nonce, self.genesis.seal.mix_hash)
+            .cellbase_id(self.genesis.cellbase_id)
+            .uncles_hash(self.genesis.uncles_hash)
             .build();
 
         Consensus {

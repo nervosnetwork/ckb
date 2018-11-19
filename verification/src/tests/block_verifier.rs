@@ -1,4 +1,8 @@
-use super::super::block_verifier::CellbaseTransactionsVerifier;
+use super::super::block_verifier::{
+    BlockVerifier, CellbaseTransactionsVerifier, EmptyTransactionsVerifier,
+};
+use super::super::error::Error as VerifyError;
+use super::super::pow_verifier::EthashVerifier;
 use super::dummy::DummyChainClient;
 use super::utils::{create_dummy_block, create_dummy_transaction};
 use bigint::H256;
@@ -7,6 +11,7 @@ use core::transaction::{CellInput, CellOutput, OutPoint, Transaction};
 use core::{BlockNumber, Capacity};
 use std::collections::HashMap;
 use std::sync::Arc;
+use Verifier;
 
 fn create_cellbase_transaction_with_capacity(
     block_number: BlockNumber,
@@ -248,6 +253,23 @@ pub fn test_cellbase_with_two_outputs_and_more_rewards_than_maximum() {
 
     let verifier = CellbaseTransactionsVerifier::new(&block, chain);
     assert!(verifier.verify().is_err());
+}
+
+#[test]
+pub fn test_empty_transactions() {
+    let block = create_dummy_block();
+    let transaction_fees = HashMap::<H256, Result<Capacity, Error>>::new();
+
+    let chain = Arc::new(DummyChainClient {
+        block_reward: 150,
+        transaction_fees: transaction_fees,
+    });
+
+    let verifier = EmptyTransactionsVerifier::new(&block);
+    let full_verifier = BlockVerifier::new(&block, &chain, None as Option<EthashVerifier>);
+    assert_eq!(verifier.verify(), Err(VerifyError::EmptyTransactions));
+    // short-circuit, Empty check first
+    assert_eq!(full_verifier.verify(), Err(VerifyError::EmptyTransactions));
 }
 
 fn dummy_chain() -> Arc<impl ChainProvider> {

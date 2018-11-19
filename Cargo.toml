@@ -30,6 +30,9 @@ ckb-sync = { path = "sync"}
 serde_yaml = "0.7"
 config = "0.9"
 ckb-verification = { path = "verification" }
+reqwest = { git = "https://github.com/seanmonstar/reqwest" }
+serde_json = "1.0"
+crypto = {path = "util/crypto"}
 
 [dev-dependencies]
 tempdir = "0.3"

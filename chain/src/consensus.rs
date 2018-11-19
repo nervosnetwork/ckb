@@ -5,6 +5,8 @@ use core::header::{Header, RawHeader, Seal};
 use core::transaction::Capacity;
 
 pub const DEFAULT_BLOCK_REWARD: Capacity = 5_000;
+pub const MAX_UNCLE_LEN: usize = 2;
+pub const MAX_UNCLE_AGE: usize = 6;
 
 #[derive(Clone, Eq, PartialEq, Debug)]
 pub struct Consensus {
@@ -31,6 +33,14 @@ impl Consensus {
         &self.genesis_block
     }
 
+    pub fn max_uncles_len(&self) -> usize {
+        MAX_UNCLE_LEN
+    }
+
+    pub fn max_uncles_age(&self) -> usize {
+        MAX_UNCLE_AGE
+    }
+
     pub fn initial_block_reward(&self) -> Capacity {
         self.initial_block_reward
     }
@@ -44,6 +54,8 @@ pub struct GenesisBuilder {
     txs_commit: H256,
     difficulty: U256,
     seal: Seal,
+    uncles_hash: H256,
+    cellbase_id: H256,
 }
 
 impl GenesisBuilder {
@@ -81,6 +93,16 @@ impl GenesisBuilder {
         self
     }
 
+    pub fn cellbase_id(mut self, cellbase_id: H256) -> Self {
+        self.cellbase_id = cellbase_id;
+        self
+    }
+
+    pub fn uncles_hash(mut self, uncles_hash: H256) -> Self {
+        self.uncles_hash = uncles_hash;
+        self
+    }
+
     // verify?
     pub fn build(self) -> IndexedBlock {
         let header = Header {
@@ -90,6 +112,8 @@ impl GenesisBuilder {
                 timestamp: self.timestamp,
                 txs_commit: self.txs_commit,
                 difficulty: self.difficulty,
+                uncles_hash: self.uncles_hash,
+                cellbase_id: self.cellbase_id,
                 number: 0,
             },
             seal: self.seal,
@@ -98,6 +122,7 @@ impl GenesisBuilder {
         IndexedBlock {
             header: header.into(),
             transactions: vec![],
+            uncles: vec![],
         }
     }
 }

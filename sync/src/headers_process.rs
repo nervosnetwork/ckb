@@ -6,7 +6,6 @@ use core::header::IndexedHeader;
 use log;
 use network::NetworkContextExt;
 use network::{NetworkContext, PeerId};
-use protobuf::RepeatedField;
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 use synchronizer::{BlockStatus, Synchronizer};
 use MAX_HEADERS_LEN;
@@ -66,7 +65,7 @@ where
         let mut getheaders = ckb_protocol::GetHeaders::new();
         let locator_hash = locator_hash.iter().map(|hash| hash.to_vec()).collect();
         getheaders.set_version(0);
-        getheaders.set_block_locator_hashes(RepeatedField::from_vec(locator_hash));
+        getheaders.set_block_locator_hashes(locator_hash);
         getheaders.set_hash_stop(H256::default().to_vec());
         payload.set_getheaders(getheaders);
         let _ = self.nc.send_payload(self.peer, payload);
@@ -112,10 +111,8 @@ where
                 self.synchronizer
                     .peers
                     .misbehavior(&self.peer, result.misbehavior);
-                self.synchronizer
-                    .insert_block_status(headers[0].hash(), BlockStatus::FAILED_MASK)
             }
-            debug!(target: "sync", "\n\nHeadersProcess accept_first is_valid {:?} headers = {:#?}\n\n", result, headers);
+            debug!(target: "sync", "\n\nHeadersProcess accept_first is_valid {:?} headers = {:#?}\n\n", result, headers[0]);
             return ();
         }
 
@@ -133,9 +130,6 @@ where
                             .peers
                             .misbehavior(&self.peer, result.misbehavior);
                     }
-
-                    self.synchronizer
-                        .insert_block_status(header.hash(), BlockStatus::FAILED_MASK);
                     debug!(target: "sync", "HeadersProcess accept is invalid {:?}", result);
                     return ();
                 }
@@ -237,15 +231,19 @@ where
     pub fn non_contextual_check(&self, state: &mut ValidationResult) -> Result<(), ()> {
         self.verifier.verify().map_err(|error| match error {
             VerifyError::Pow(e) => {
+                debug!(target: "sync", "HeadersProcess accept {:?} pow", self.header.number);
                 state.dos(Some(ValidationError::Verify(VerifyError::Pow(e))), 100);
             }
             VerifyError::Difficulty(e) => {
+                debug!(target: "sync", "HeadersProcess accept {:?} difficulty", self.header.number);
                 state.dos(
                     Some(ValidationError::Verify(VerifyError::Difficulty(e))),
                     50,
                 );
             }
-            _ => (),
+            error => {
+                debug!(target: "sync", "HeadersProcess accept {:?} {:?}", self.header.number, error);
+            }
         })
     }
 
@@ -261,24 +259,35 @@ where
     pub fn accept(&self) -> ValidationResult {
         let mut result = ValidationResult::default();
         if self.duplicate_check(&mut result).is_err() {
+            debug!(target: "sync", "HeadersProcess accept {:?} duplicate", self.header.number);
             return result;
         }
 
         if self.prev_block_check(&mut result).is_err() {
+            debug!(target: "sync", "HeadersProcess accept {:?} prev_block", self.header.number);
+            self.synchronizer
+                .insert_block_status(self.header.hash(), BlockStatus::FAILED_MASK);
             return result;
         }
 
         if self.non_contextual_check(&mut result).is_err() {
+            debug!(target: "sync", "HeadersProcess accept {:?} non_contextual", self.header.number);
+            self.synchronizer
+                .insert_block_status(self.header.hash(), BlockStatus::FAILED_MASK);
             return result;
         }
 
         if self.version_check(&mut result).is_err() {
+            debug!(target: "sync", "HeadersProcess accept {:?} version", self.header.number);
+            self.synchronizer
+                .insert_block_status(self.header.hash(), BlockStatus::FAILED_MASK);
             return result;
         }
 
         self.synchronizer
             .insert_header_view(&self.header, &self.peer);
-
+        self.synchronizer
+            .insert_block_status(self.header.hash(), BlockStatus::VALID_MASK);
         result
     }
 }

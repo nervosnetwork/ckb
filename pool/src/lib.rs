@@ -15,6 +15,8 @@ extern crate ethash;
 extern crate fnv;
 #[cfg(test)]
 extern crate hash;
+#[macro_use]
+extern crate log;
 
 mod tests;
 pub mod txs_pool;

@@ -10,6 +10,8 @@ extern crate serde_derive;
 extern crate bit_vec;
 #[macro_use]
 extern crate log;
+#[cfg(test)]
+extern crate protobuf;
 
 pub mod block;
 pub mod cell;
@@ -22,6 +24,7 @@ pub mod header;
 pub mod script;
 pub mod transaction;
 pub mod transaction_meta;
+pub mod uncle;
 
 pub use error::Error;
 

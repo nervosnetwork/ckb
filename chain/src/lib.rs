@@ -28,13 +28,15 @@ pub mod store;
 
 use db::batch::Col;
 
-pub const COLUMNS: u32 = 9;
+// REMEMBER to update the const defined in util/avl/src/lib.rs as well
+pub const COLUMNS: u32 = 10;
 pub const COLUMN_INDEX: Col = Some(0);
 pub const COLUMN_BLOCK_HEADER: Col = Some(1);
 pub const COLUMN_BLOCK_BODY: Col = Some(2);
-pub const COLUMN_META: Col = Some(3);
-pub const COLUMN_TRANSACTION_ADDR: Col = Some(4);
-pub const COLUMN_TRANSACTION_META: Col = Some(5);
-pub const COLUMN_EXT: Col = Some(6);
-pub const COLUMN_OUTPUT_ROOT: Col = Some(7);
-pub const COLUMN_BLOCK_TRANSACTION_ADDRESSES: Col = Some(8);
+pub const COLUMN_BLOCK_UNCLE: Col = Some(3);
+pub const COLUMN_META: Col = Some(4);
+pub const COLUMN_TRANSACTION_ADDR: Col = Some(5);
+pub const COLUMN_TRANSACTION_META: Col = Some(6);
+pub const COLUMN_EXT: Col = Some(7);
+pub const COLUMN_OUTPUT_ROOT: Col = Some(8);
+pub const COLUMN_BLOCK_TRANSACTION_ADDRESSES: Col = Some(9);

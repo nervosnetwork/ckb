@@ -106,8 +106,8 @@ pub mod test {
     fn test_chain_spec() -> &'static str {
         r#"
         name: "ckb_test_custom"
-        genesis: 
-            seal: 
+        genesis:
+            seal:
                 nonce: 233
                 mix_hash: "0x0000000000000000000000000000000000000000000000000000000000000233"
             version: 0
@@ -115,7 +115,9 @@ pub mod test {
             timestamp: 0
             txs_commit: "0x0000000000000000000000000000000000000000000000000000000000000233"
             difficulty: "0x233"
-        params: 
+            cellbase_id: "0x0000000000000000000000000000000000000000000000000000000000000000"
+            uncles_hash: "0x0000000000000000000000000000000000000000000000000000000000000000"
+        params:
             initial_block_reward: 233
             min_difficulty: "0x233"
         "#
@@ -125,27 +127,27 @@ pub mod test {
     fn test_data_dir() {
         let tmp_dir = TempDir::new("test_data_dir").unwrap();
         let data_path = tmp_dir.path().to_str().unwrap();
-        let arg_vec = vec!["ckb", "--data-dir", data_path];
+        let arg_vec = vec!["ckb", "run", "--data-dir", data_path];
         let yaml = load_yaml!("cli/app.yml");
         let matches = clap::App::from_yaml(yaml).get_matches_from(arg_vec);
-        let setup = Setup::new(&matches);
+        let setup = Setup::new(&matches.subcommand_matches("run").unwrap());
         assert!(setup.is_ok());
         assert_eq!(setup.unwrap().dirs.base, tmp_dir.path());
     }
 
     #[test]
     fn test_load_config() {
-        let tmp_dir = TempDir::new("test_specify_config").unwrap();
+        let tmp_dir = TempDir::new("test_load_config").unwrap();
         let data_path = tmp_dir.path().to_str().unwrap();
 
         let test_conifg = r#"[network]
                              listen_address = "1.1.1.1:1""#;
         let config_path = tmp_dir.path().join("config.toml");
         write_file(config_path, test_conifg);
-        let arg_vec = vec!["ckb", "--data-dir", data_path];
+        let arg_vec = vec!["ckb", "run", "--data-dir", data_path];
         let yaml = load_yaml!("cli/app.yml");
         let matches = clap::App::from_yaml(yaml).get_matches_from(arg_vec);
-        let setup = Setup::new(&matches);
+        let setup = Setup::new(&matches.subcommand_matches("run").unwrap());
         assert!(setup.is_ok());
         assert_eq!(
             setup.unwrap().configs.network.listen_address,
@@ -164,6 +166,7 @@ pub mod test {
         write_file(&config_path, test_conifg);
         let arg_vec = vec![
             "ckb",
+            "run",
             "--data-dir",
             data_path,
             "--config",
@@ -171,7 +174,7 @@ pub mod test {
         ];
         let yaml = load_yaml!("cli/app.yml");
         let matches = clap::App::from_yaml(yaml).get_matches_from(arg_vec);
-        let setup = Setup::new(&matches);
+        let setup = Setup::new(&matches.subcommand_matches("run").unwrap());
         assert!(setup.is_ok());
         assert_eq!(
             setup.unwrap().configs.network.listen_address,
@@ -181,9 +184,9 @@ pub mod test {
 
     #[test]
     fn test_custom_chain_spec_with_config() {
-        let tmp_dir = TempDir::new("test_custom_chain_spec").unwrap();
+        let tmp_dir = TempDir::new("test_custom_chain_spec_with_config").unwrap();
         let data_path = tmp_dir.path().to_str().unwrap();
-        let arg_vec = vec!["ckb", "--data-dir", data_path];
+        let arg_vec = vec!["ckb", "run", "--data-dir", data_path];
         let yaml = load_yaml!("cli/app.yml");
 
         let chain_spec_path = tmp_dir.path().join("ckb_test_custom.toml");
@@ -193,19 +196,20 @@ pub mod test {
         write_file(&chain_spec_path, test_chain_spec());
 
         let matches = clap::App::from_yaml(yaml).get_matches_from(arg_vec);
-        let setup = Setup::new(&matches);
+        let setup = Setup::new(&matches.subcommand_matches("run").unwrap());
         assert!(setup.is_ok());
         assert_eq!(setup.unwrap().chain_spec.name, "ckb_test_custom");
     }
 
     #[test]
     fn test_custom_chain_spec_with_arg() {
-        let tmp_dir = TempDir::new("test_custom_chain_spec").unwrap();
+        let tmp_dir = TempDir::new("test_custom_chain_spec_with_arg").unwrap();
         let data_path = tmp_dir.path().to_str().unwrap();
 
         let chain_spec_path = tmp_dir.path().join("ckb_test_custom.toml");
         let arg_vec = vec![
             "ckb",
+            "run",
             "--data-dir",
             data_path,
             "--chain",
@@ -215,7 +219,7 @@ pub mod test {
 
         let yaml = load_yaml!("cli/app.yml");
         let matches = clap::App::from_yaml(yaml).get_matches_from(arg_vec);
-        let setup = Setup::new(&matches);
+        let setup = Setup::new(&matches.subcommand_matches("run").unwrap());
         assert!(setup.is_ok());
         assert_eq!(setup.unwrap().chain_spec.name, "ckb_test_custom");
     }

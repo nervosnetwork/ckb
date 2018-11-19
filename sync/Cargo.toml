@@ -20,7 +20,6 @@ ckb-protocol = { path = "../network/protocol" }
 ckb-util = { path = "../util" }
 ckb-pool = { path = "../pool" }
 ckb-time = { path = "../util/time" }
-ckb-notify = { path = "../notify" }
 lazy_static = "1.0"
 bitflags = "1.0"
 ckb-verification = { path = "../verification" }
@@ -31,7 +30,10 @@ serde_derive = "1.0"
 rayon = "1.0.1"
 
 [dev-dependencies]
+ckb-notify = { path = "../notify" }
 ckb-db = { path = "../db" }
 ckb-time = { path = "../util/time" }
 env_logger = "0.5"
 tempdir = "0.3"
+crossbeam-channel = "0.2"
+merkle-root = {path = "../util/merkle-root"}

@@ -13,8 +13,8 @@
       </li>
     </ul>
 
-    <router-view 
-      :blocks="blocks" 
+    <router-view
+      :blocks="blocks"
       :transactions="transactions"
       :block="block"
       :transaction="transaction"

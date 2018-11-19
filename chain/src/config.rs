@@ -7,7 +7,6 @@ pub struct Config {
     // genesis data
     pub version: u32,
     pub parent_hash: H256,
-    pub hash: H256,
     pub timestamp: u64,
     pub txs_commit: H256,
     pub difficulty: U256,
@@ -23,7 +22,6 @@ impl Config {
         Config {
             version: 0,
             parent_hash: H256::from(0),
-            hash: H256::from("0x1d3c78fcf6a6c98b53aed1bfebe53d5d7a1a0b8dced33576e3806915ce51aa00"),
             timestamp: 0,
             txs_commit: H256::from(0),
             difficulty: U256::from(0),

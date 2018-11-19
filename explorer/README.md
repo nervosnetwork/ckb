@@ -21,7 +21,12 @@ start node with development config file:
 ```
 cp src/config/development.toml /tmp/node1/config.toml
 
-cargo run -- --data-dir=/tmp/node1
+cargo run -- run --data-dir=/tmp/node1
 ```
 
 visit http://localhost:8080/ , click `SEND TRANSACTION` tab, edit previous_output hash and outputs lock, click `SEND`
+
+or running cli rpc command:
+```
+cargo run -- cli rpc -m=send_transaction -p='[{"version": 1, "deps": [], "inputs": [], "outputs": []}]'
+```

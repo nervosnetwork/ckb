@@ -415,12 +415,21 @@ fn apply_transactions(
     chain: &Arc<impl ChainProvider>,
 ) -> IndexedBlock {
     let time = now_ms();
+
+    let cellbase_id = if let Some(cellbase) = transactions.first() {
+        cellbase.hash()
+    } else {
+        H256::zero()
+    };
+
     let header = Header {
         raw: RawHeader::new(
             &chain.tip_header().read().header,
             transactions.iter(),
             time,
             cal_difficulty(&chain.tip_header().read().header, time),
+            cellbase_id,
+            H256::zero(),
         ),
         seal: Seal {
             nonce: 0,
@@ -431,8 +440,9 @@ fn apply_transactions(
     let block = IndexedBlock {
         header: header.into(),
         transactions,
+        uncles: vec![],
     };
-    chain.process_block(&block).unwrap();
+    chain.process_block(&block, false).unwrap();
     block
 }
 

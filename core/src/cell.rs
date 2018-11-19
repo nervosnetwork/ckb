@@ -1,4 +1,5 @@
 use bigint::H256;
+use std::collections::HashSet;
 use std::iter::Chain;
 use std::slice;
 use transaction::{CellOutput, OutPoint, Transaction};
@@ -31,12 +32,30 @@ pub trait CellProvider {
     fn cell_at(&self, out_point: &OutPoint, parent: &H256) -> CellState;
 
     fn resolve_transaction<'a>(&self, transaction: &'a Transaction) -> ResolvedTransaction<'a> {
+        let mut seen_outpoints = HashSet::new();
+
         let input_cells = transaction
             .inputs
             .iter()
-            .map(|input| self.cell(&input.previous_output))
+            .map(|input| {
+                if seen_outpoints.insert(input.previous_output.clone()) {
+                    self.cell(&input.previous_output)
+                } else {
+                    CellState::Tail
+                }
+            })
             .collect();
-        let dep_cells = transaction.deps.iter().map(|dep| self.cell(dep)).collect();
+        let dep_cells = transaction
+            .deps
+            .iter()
+            .map(|dep| {
+                if seen_outpoints.insert(dep.clone()) {
+                    self.cell(dep)
+                } else {
+                    CellState::Tail
+                }
+            })
+            .collect();
 
         ResolvedTransaction {
             transaction,

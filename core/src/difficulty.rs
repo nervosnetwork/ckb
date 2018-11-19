@@ -65,6 +65,8 @@ mod tests {
                 txs_commit: H256::from(0),
                 difficulty: U256::from(difficulty),
                 number: 3500000,
+                cellbase_id: H256::from(0),
+                uncles_hash: H256::from(0),
             },
             seal: Seal {
                 nonce: 0,

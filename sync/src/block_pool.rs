@@ -47,12 +47,14 @@ impl OrphanBlockPool {
                     let Block {
                         header,
                         transactions,
+                        uncles,
                     } = b;
                     let header = IndexedHeader::new(header, h);
 
                     IndexedBlock {
                         header,
                         transactions,
+                        uncles,
                     }
                 }));
             }
@@ -89,8 +91,10 @@ mod tests {
                 version: 0,
                 parent_hash: parent_header.hash(),
                 timestamp: time,
-                txs_commit: H256::from(0),
-                difficulty: U256::from(0),
+                txs_commit: H256::zero(),
+                difficulty: U256::zero(),
+                cellbase_id: H256::zero(),
+                uncles_hash: H256::zero(),
             },
             seal: Seal {
                 nonce,
@@ -101,6 +105,7 @@ mod tests {
         IndexedBlock {
             header: header.into(),
             transactions: vec![],
+            uncles: vec![],
         }
     }
 

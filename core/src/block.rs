@@ -1,19 +1,32 @@
 use super::header::{Header, IndexedHeader};
 use super::transaction::Transaction;
-use super::Error;
 use bigint::H256;
 use ckb_protocol;
-use merkle_root::*;
+use uncle::{uncles_hash, UncleBlock};
+use BlockNumber;
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Default, Debug)]
 pub struct Block {
     pub header: Header,
     pub transactions: Vec<Transaction>,
+    pub uncles: Vec<UncleBlock>,
 }
 
 impl Block {
+    pub fn new(header: Header, transactions: Vec<Transaction>, uncles: Vec<UncleBlock>) -> Block {
+        Block {
+            header,
+            transactions,
+            uncles,
+        }
+    }
+
     pub fn header(&self) -> &Header {
         &self.header
+    }
+
+    pub fn number(&self) -> BlockNumber {
+        self.header.number
     }
 
     pub fn hash(&self) -> H256 {
@@ -24,30 +37,12 @@ impl Block {
         self.header.is_genesis()
     }
 
-    //TODO: move to verification
-    pub fn validate(&self) -> Result<(), Error> {
-        Ok(())
+    pub fn uncles(&self) -> &[UncleBlock] {
+        &self.uncles
     }
 
-    //TODO: move to verification
-    pub fn check_txs_root(&self) -> Result<(), Error> {
-        let txs_hash: Vec<H256> = self.transactions.iter().map(|t| t.hash()).collect();
-        let txs_root = merkle_root(txs_hash.as_slice());
-        if txs_root == self.header.txs_commit {
-            Ok(())
-        } else {
-            Err(Error::InvalidTransactionsRoot(
-                self.header.txs_commit,
-                txs_root,
-            ))
-        }
-    }
-
-    pub fn new(header: Header, transactions: Vec<Transaction>) -> Block {
-        Block {
-            header,
-            transactions,
-        }
+    pub fn cal_uncles_hash(&self) -> H256 {
+        uncles_hash(&self.uncles)
     }
 }
 
@@ -55,6 +50,7 @@ impl Block {
 pub struct IndexedBlock {
     pub header: IndexedHeader,
     pub transactions: Vec<Transaction>,
+    pub uncles: Vec<UncleBlock>,
 }
 
 impl PartialEq for IndexedBlock {
@@ -78,12 +74,28 @@ impl IndexedBlock {
         self.header.hash()
     }
 
+    pub fn number(&self) -> BlockNumber {
+        self.header.number
+    }
+
     pub fn header(&self) -> &IndexedHeader {
         &self.header
     }
 
     pub fn is_genesis(&self) -> bool {
         self.header.is_genesis()
+    }
+
+    pub fn uncles(&self) -> &Vec<UncleBlock> {
+        &self.uncles
+    }
+
+    pub fn cal_uncles_hash(&self) -> H256 {
+        uncles_hash(&self.uncles)
+    }
+
+    pub fn finalize_dirty(&mut self) {
+        self.header.finalize_dirty()
     }
 }
 
@@ -92,10 +104,12 @@ impl From<Block> for IndexedBlock {
         let Block {
             header,
             transactions,
+            uncles,
         } = block;
         IndexedBlock {
             transactions,
             header: header.into(),
+            uncles,
         }
     }
 }
@@ -105,10 +119,12 @@ impl From<IndexedBlock> for Block {
         let IndexedBlock {
             header,
             transactions,
+            uncles,
         } = block;
         Block {
             transactions,
             header: header.header,
+            uncles,
         }
     }
 }
@@ -118,6 +134,7 @@ impl<'a> From<&'a ckb_protocol::Block> for Block {
         Block {
             header: b.get_header().into(),
             transactions: b.get_transactions().iter().map(|t| t.into()).collect(),
+            uncles: b.get_uncles().iter().map(|t| t.into()).collect(),
         }
     }
 }
@@ -135,6 +152,8 @@ impl<'a> From<&'a Block> for ckb_protocol::Block {
         block.set_header(b.header().into());
         let transactions = b.transactions.iter().map(|t| t.into()).collect();
         block.set_transactions(transactions);
+        let uncles = b.uncles.iter().map(|t| t.into()).collect();
+        block.set_uncles(uncles);
         block
     }
 }
@@ -145,6 +164,85 @@ impl<'a> From<&'a IndexedBlock> for ckb_protocol::Block {
         block.set_header((&b.header).into());
         let transactions = b.transactions.iter().map(|t| t.into()).collect();
         block.set_transactions(transactions);
+        let uncles = b.uncles.iter().map(|t| t.into()).collect();
+        block.set_uncles(uncles);
         block
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bigint::U256;
+    use header::{RawHeader, Seal};
+    use protobuf;
+    use protobuf::Message;
+
+    fn dummy_block() -> IndexedBlock {
+        let cellbase = dummy_cellbase();
+        let uncles = vec![dummy_uncle(), dummy_uncle()];
+        let header = Header {
+            raw: RawHeader {
+                number: 0,
+                version: 0,
+                parent_hash: H256::zero(),
+                timestamp: 10,
+                txs_commit: H256::zero(),
+                difficulty: U256::zero(),
+                cellbase_id: cellbase.hash(),
+                uncles_hash: H256::zero(),
+            },
+            seal: Seal {
+                nonce: 0,
+                mix_hash: H256::zero(),
+            },
+        };
+
+        IndexedBlock {
+            header: header.into(),
+            transactions: vec![cellbase],
+            uncles,
+        }
+    }
+
+    fn dummy_cellbase() -> Transaction {
+        use transaction::{CellInput, CellOutput, VERSION};
+
+        let inputs = vec![CellInput::new_cellbase_input(0)];
+        let outputs = vec![CellOutput::new(0, vec![], H256::from(0))];
+        Transaction::new(VERSION, vec![], inputs, outputs)
+    }
+
+    fn dummy_uncle() -> UncleBlock {
+        let cellbase = dummy_cellbase();
+        let header = Header {
+            raw: RawHeader {
+                number: 0,
+                version: 0,
+                parent_hash: H256::zero(),
+                timestamp: 10,
+                txs_commit: H256::zero(),
+                difficulty: U256::zero(),
+                cellbase_id: cellbase.hash(),
+                uncles_hash: H256::zero(),
+            },
+            seal: Seal {
+                nonce: 0,
+                mix_hash: H256::zero(),
+            },
+        };
+        UncleBlock { header, cellbase }
+    }
+
+    #[test]
+    fn test_proto_convert() {
+        let block = dummy_block();
+        let proto_block: ckb_protocol::Block = (&block).into();
+        let message = proto_block.write_to_bytes().unwrap();
+        let decoded_proto_block =
+            protobuf::parse_from_bytes::<ckb_protocol::Block>(&message).unwrap();
+        assert_eq!(proto_block, decoded_proto_block);
+        let decoded_block: IndexedBlock = (&decoded_proto_block).into();
+        assert_eq!(block, decoded_block);
     }
 }

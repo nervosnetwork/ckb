@@ -1,11 +1,15 @@
 use super::super::helper::wait_for_exit;
 use super::super::Setup;
+use bigint::H256;
 use chain::cachedb::CacheDB;
 use chain::chain::ChainProvider;
 use chain::chain::{Chain, ChainBuilder};
 use chain::store::ChainKVStore;
 use ckb_notify::Notify;
 use ckb_verification::EthashVerifier;
+use clap::ArgMatches;
+use core::transaction::Transaction;
+use crypto::secp::{Generator, Privkey};
 use db::diskdb::RocksDB;
 use ethash::Ethash;
 use logger;
@@ -13,7 +17,12 @@ use miner::miner::Miner;
 use network::NetworkConfiguration;
 use network::NetworkService;
 use pool::{PoolConfig, TransactionPool};
+use reqwest::header::{HeaderMap, HeaderValue, CONTENT_TYPE};
+use reqwest::Client;
 use rpc::RpcServer;
+use script::TransactionInputSigner;
+use serde_json::{self, Value};
+use std::str::FromStr;
 use std::sync::Arc;
 use std::thread;
 use sync::protocol::{RelayProtocol, SyncProtocol};
@@ -45,7 +54,6 @@ pub fn run(setup: Setup) {
 
     let synchronizer = Synchronizer::new(
         &chain,
-        notify.clone(),
         ethash.clone().map(|e| EthashVerifier::new(&e)),
         setup.configs.sync,
     );
@@ -106,4 +114,49 @@ pub fn run(setup: Setup) {
 
     // network.flush();
     logger::flush();
+}
+
+pub fn rpc(matches: &ArgMatches) {
+    let uri = matches.value_of("uri").unwrap_or("http://localhost:3030");
+    let method = matches.value_of("method").unwrap_or("get_tip_header");
+    let params = matches.value_of("params").unwrap_or("null");
+    let body = format!(
+        r#"{{"id": 1, "jsonrpc": "2.0", "method": "{}", "params": {}}}"#,
+        method, params
+    );
+
+    let mut headers = HeaderMap::new();
+    headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+
+    let result: Value = Client::new()
+        .post(uri)
+        .headers(headers)
+        .body(body)
+        .send()
+        .unwrap()
+        .json()
+        .unwrap();
+
+    println!("{}", result)
+}
+
+pub fn sign(matches: &ArgMatches) {
+    let privkey: Privkey = H256::from_str(matches.value_of("private-key").unwrap())
+        .unwrap()
+        .into();
+    let json = matches.value_of("unsigned-transaction").unwrap();
+    let transaction: Transaction = serde_json::from_str(json).unwrap();
+    let mut result = transaction.clone();
+    let mut inputs = Vec::new();
+    let signer: TransactionInputSigner = transaction.into();
+    for index in 0..result.inputs.len() {
+        inputs.push(signer.signed_input(&privkey, index));
+    }
+    result.inputs = inputs;
+    println!("{}", serde_json::to_string(&result).unwrap())
+}
+
+pub fn keygen() {
+    let result: H256 = Generator::new().random_privkey().into();
+    println!("{:?}", result)
 }

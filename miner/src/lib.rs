@@ -14,6 +14,8 @@ extern crate ckb_time as time;
 extern crate rand;
 #[macro_use]
 extern crate serde_derive;
+extern crate ckb_util as util;
+extern crate fnv;
 
 use bigint::H256;
 

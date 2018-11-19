@@ -1,3 +1,3 @@
 mod run_impl;
 
-pub use self::run_impl::run;
+pub use self::run_impl::{keygen, rpc, run, sign};

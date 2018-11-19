@@ -1,7 +1,7 @@
 //! Top-level Pool type, methods, and tests
 use bigint::H256;
 use ckb_chain::chain::ChainProvider;
-use ckb_notify::Notify;
+use ckb_notify::{Event, ForkTxs, Notify, TXS_POOL_SUBSCRIBER};
 use ckb_verification::TransactionVerifier;
 use core::block::IndexedBlock;
 use core::cell::{CellProvider, CellState};
@@ -9,7 +9,7 @@ use core::transaction::{OutPoint, Transaction};
 use crossbeam_channel;
 use std::sync::Arc;
 use std::thread;
-use txs_pool::types::*;
+use txs_pool::types::{InsertionResult, OrphanPool, Parent, Pool, PoolConfig, PoolError};
 use util::RwLock;
 
 /// The pool itself.
@@ -30,9 +30,7 @@ where
     T: ChainProvider,
 {
     fn cell(&self, o: &OutPoint) -> CellState {
-        if self.pool.read().parent(o) == Parent::AlreadySpent
-            || self.orphan.read().parent(o) == Parent::AlreadySpent
-        {
+        if self.pool.read().parent(o) == Parent::AlreadySpent {
             CellState::Tail
         } else if let Some(output) = self.pool.read().get_output(o) {
             CellState::Pool(output)
@@ -43,18 +41,8 @@ where
         }
     }
 
-    fn cell_at(&self, o: &OutPoint, parent: &H256) -> CellState {
-        if self.pool.read().parent(o) == Parent::AlreadySpent
-            || self.orphan.read().parent(o) == Parent::AlreadySpent
-        {
-            CellState::Tail
-        } else if let Some(output) = self.pool.read().get_output(o) {
-            CellState::Pool(output)
-        } else if let Some(output) = self.orphan.read().get_output(o) {
-            CellState::Orphan(output)
-        } else {
-            self.chain.cell_at(o, parent)
-        }
+    fn cell_at(&self, _o: &OutPoint, _parent: &H256) -> CellState {
+        unreachable!()
     }
 }
 
@@ -72,36 +60,47 @@ where
             notify,
         });
 
-        let (tx1, rx1) = crossbeam_channel::unbounded();
-        pool.notify.register_canon_subscribers("pool", tx1);
-        let pool1 = Arc::<TransactionPool<T>>::clone(&pool);
-        thread::spawn(move || {
-            while let Some(b) = rx1.recv() {
-                pool1.reconcile_block(&b);
-            }
-        });
-
-        let (tx2, rx2) = crossbeam_channel::unbounded();
-        pool.notify.register_fork_subscribers("pool", tx2);
-        let pool2 = Arc::<TransactionPool<T>>::clone(&pool);
-        thread::spawn(move || {
-            while let Some(t) = rx2.recv() {
-                pool2.switch_fork(t);
+        let (tx, rx) = crossbeam_channel::unbounded();
+        pool.notify
+            .register_tip_subscriber(TXS_POOL_SUBSCRIBER, tx.clone());
+        pool.notify
+            .register_fork_subscriber(TXS_POOL_SUBSCRIBER, tx);
+        let pool_cloned = Arc::<TransactionPool<T>>::clone(&pool);
+        thread::spawn(move || loop {
+            match rx.recv() {
+                Some(Event::NewTip(b)) => {
+                    pool_cloned.reconcile_block(&b);
+                }
+                Some(Event::SwitchFork(txs)) => {
+                    pool_cloned.switch_fork(&txs);
+                }
+                None => {
+                    info!(target: "txs_pool", "sub channel closed");
+                    break;
+                }
+                event => {
+                    warn!(target: "txs_pool", "Unexpected sub message {:?}", event);
+                }
             }
         });
 
         pool
     }
 
-    pub fn switch_fork(&self, txs: (Vec<Transaction>, Vec<Transaction>)) {
-        let (old, mut new) = txs;
-        for tx in old {
+    pub fn switch_fork(&self, txs: &ForkTxs) {
+        for tx in txs.old_txs() {
+            if tx.is_cellbase() {
+                continue;
+            }
+
             self.pool.write().readd_transaction(&tx);
         }
 
-        new.reverse();
+        for tx in txs.new_txs().iter().rev() {
+            if tx.is_cellbase() {
+                continue;
+            }
 
-        for tx in new {
             let in_pool = { self.pool.write().commit_transaction(&tx) };
             if !in_pool {
                 {
@@ -133,6 +132,10 @@ where
         // Do we have the capacity to accept this transaction?
         self.is_acceptable()?;
 
+        if tx.is_cellbase() {
+            return Err(PoolError::CellBase);
+        }
+
         self.check_duplicate(&tx)?;
 
         let inputs = tx.input_pts();
@@ -140,11 +143,16 @@ where
 
         let mut is_orphan = false;
         let mut unknowns = Vec::new();
+        let mut conflict = false;
 
         {
             let rtx = self.resolve_transaction(&tx);
 
             for (i, cs) in rtx.input_cells.iter().enumerate() {
+                if !conflict && self.orphan.read().parent(&inputs[i]) == Parent::AlreadySpent {
+                    conflict = true;
+                }
+
                 match cs {
                     CellState::Orphan(_) => is_orphan = true,
                     CellState::Unknown => {
@@ -153,9 +161,17 @@ where
                     }
                     _ => {}
                 }
+
+                if is_orphan && conflict {
+                    return Err(PoolError::ConflictOrphan);
+                }
             }
 
             for (i, cs) in rtx.dep_cells.iter().enumerate() {
+                if self.orphan.read().parent(&deps[i]) == Parent::AlreadySpent {
+                    return Err(PoolError::ConflictOrphan);
+                }
+
                 match cs {
                     CellState::Orphan(_) => is_orphan = true,
                     CellState::Unknown => {
@@ -177,6 +193,10 @@ where
             self.orphan.write().add_transaction(tx, unknowns);
             return Ok(InsertionResult::Orphan);
         } else {
+            if conflict {
+                self.orphan.write().resolve_conflict(&tx);
+            }
+
             let txs = {
                 let mut orphan = self.orphan.write();
                 orphan.commit_transaction(&tx);
@@ -191,7 +211,7 @@ where
                 let _ = self.add_to_memory_pool(tx);
             }
 
-            self.notify.notify_new_transaction();
+            self.notify.notify_new_transaction::<fn(&str) -> bool>(None);
         }
 
         Ok(InsertionResult::Normal)
@@ -202,6 +222,10 @@ where
         let txs = &b.transactions;
 
         for tx in txs {
+            if tx.is_cellbase() {
+                continue;
+            }
+
             let in_pool = { self.pool.write().commit_transaction(tx) };
             if !in_pool {
                 {
@@ -214,6 +238,10 @@ where
     }
 
     pub fn resolve_conflict(&self, tx: &Transaction) {
+        if tx.is_cellbase() {
+            return;
+        }
+
         self.pool.write().resolve_conflict(tx);
         self.orphan.write().resolve_conflict(tx);
     }

@@ -24,10 +24,10 @@ export default {
 
   created () {
     this.get_transaction(this.$route.params.id)
-  }, 
+  },
 
   beforeRouteUpdate (to, from, next) {
     this.get_transaction(to.params.id)
-  }, 
+  },
 }
 </script>

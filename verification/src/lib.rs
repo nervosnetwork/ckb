@@ -8,6 +8,7 @@ extern crate ckb_notify as notify;
 extern crate ckb_script as script;
 extern crate ckb_time as time;
 extern crate ethash;
+extern crate fnv;
 extern crate merkle_root;
 extern crate rayon;
 

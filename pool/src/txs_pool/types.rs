@@ -8,7 +8,6 @@ use std::iter::Iterator;
 
 use bigint::H256;
 use ckb_verification::TransactionError;
-use core::header::Header;
 use core::transaction::{CellOutput, OutPoint, Transaction};
 
 use time;
@@ -60,15 +59,10 @@ pub enum PoolError {
     OverCapacity,
     /// A duplicate output
     DuplicateOutput,
-}
-
-/// Interface that the pool requires from a blockchain implementation.
-pub trait BlockChain {
-    /// Check the output is not spent
-    fn is_spent(&self, output_ref: &OutPoint) -> Option<Parent>;
-
-    /// Get the tip block header
-    fn tip_header(&self) -> Option<Header>;
+    ///ConflictOrphan
+    ConflictOrphan,
+    /// Coinbase transaction
+    CellBase,
 }
 
 pub struct Pool {
@@ -469,7 +463,6 @@ impl DirectedGraph {
 
     fn resolve_conflict(&mut self, tx: &Transaction) {
         let inputs = tx.input_pts();
-        let deps = tx.dep_pts();
 
         for i in inputs {
             if let Some(h) = self.remove_out_edge(&i) {
@@ -483,11 +476,7 @@ impl DirectedGraph {
             }
         }
 
-        for d in deps {
-            if let Some(h) = self.remove_out_edge(&d) {
-                self.remove_vertex(&h);
-            }
-        }
+        //we don't need resolve deps becasue tx is executed first.
     }
 
     /// when the transaction's input is used by other transaction, we remove it.

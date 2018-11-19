@@ -3,6 +3,7 @@ use core::block::Block;
 use core::difficulty::cal_difficulty;
 use core::difficulty::difficulty_to_boundary;
 use core::header::{BlockNumber, RawHeader};
+use core::uncle::uncles_hash;
 use ethash::Ethash;
 use miner::Work;
 use rand::{thread_rng, Rng};
@@ -60,12 +61,25 @@ impl Sealer {
         let Work {
             time,
             tip,
-            transactions,
+            cellbase,
+            mut transactions,
             signal,
+            uncles,
         } = work;
-        let difficulty = cal_difficulty(&tip, time);
 
-        let raw_header = RawHeader::new(&tip, transactions.iter(), time, difficulty);
+        let difficulty = cal_difficulty(&tip, time);
+        let uncles_hash = uncles_hash(&uncles);
+        let cellbase_id = cellbase.hash();
+        transactions.insert(0, cellbase);
+
+        let raw_header = RawHeader::new(
+            &tip,
+            transactions.iter(),
+            time,
+            difficulty,
+            cellbase_id,
+            uncles_hash,
+        );
         let pow_hash = raw_header.pow_hash();
         let number = raw_header.number;
 
@@ -77,6 +91,7 @@ impl Sealer {
                 Some(Block {
                     header,
                     transactions,
+                    uncles,
                 })
             }
             self::Message::Abort => None,

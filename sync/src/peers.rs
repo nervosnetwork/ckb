@@ -2,6 +2,7 @@ use bigint::H256;
 use ckb_chain::chain::TipHeader;
 use ckb_time::now_ms;
 use core::block::IndexedBlock;
+use core::header::IndexedHeader;
 use fnv::{FnvHashMap, FnvHashSet};
 use header_view::HeaderView;
 use network::PeerId;
@@ -65,6 +66,7 @@ pub struct Peers {
     pub misbehavior: RwLock<FnvHashMap<PeerId, u32>>,
     pub blocks_inflight: RwLock<FnvHashMap<PeerId, BlocksInflight>>,
     pub best_known_headers: RwLock<FnvHashMap<PeerId, HeaderView>>,
+    pub last_common_headers: RwLock<FnvHashMap<PeerId, IndexedHeader>>,
 }
 
 #[derive(Debug, Clone)]
@@ -83,15 +85,6 @@ impl Default for BlocksInflight {
 }
 
 impl BlocksInflight {
-    pub fn new(blocks_hash: &H256) -> Self {
-        let mut blocks = FnvHashSet::default();
-        blocks.insert(*blocks_hash);
-        BlocksInflight {
-            blocks,
-            timestamp: now_ms(),
-        }
-    }
-
     pub fn len(&self) -> usize {
         self.blocks.len()
     }
@@ -193,8 +186,17 @@ impl Peers {
 
     pub fn block_received(&self, peer: PeerId, block: &IndexedBlock) {
         let mut blocks_inflight = self.blocks_inflight.write();
+        debug!(target: "sync", "block_received from peer {} {} {:?}", peer, block.number(), block.hash());
         blocks_inflight.entry(peer).and_modify(|inflight| {
             inflight.remove(&block.hash());
         });
+    }
+
+    pub fn set_last_common_header(&self, peer: PeerId, header: &IndexedHeader) {
+        let mut last_common_headers = self.last_common_headers.write();
+        last_common_headers
+            .entry(peer)
+            .and_modify(|last_common_header| *last_common_header = header.clone())
+            .or_insert_with(|| header.clone());
     }
 }

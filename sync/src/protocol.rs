@@ -20,13 +20,13 @@ use network::NetworkContextExt;
 use network::{NetworkContext, NetworkProtocolHandler, PeerId, Severity, TimerToken};
 use pool::txs_pool::TransactionPool;
 use protobuf;
-use protobuf::RepeatedField;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
 use synchronizer::Synchronizer;
 use tokio;
-use tokio::prelude::*;
+// use tokio::prelude::*;
+use tokio::prelude::Stream;
 use util::Mutex;
 
 use {
@@ -157,8 +157,18 @@ impl<C: ChainProvider + 'static> SyncProtocol<C> {
     }
 
     pub fn find_blocks_to_fetch(synchronizer: Synchronizer<C>, nc: Box<NetworkContext>) {
-        let peers: Vec<PeerId> = { synchronizer.peers.state.read().keys().cloned().collect() };
-        info!(target: "sync", "poll find_blocks_to_fetch select peers");
+        let peers: Vec<PeerId> = {
+            synchronizer
+                .peers
+                .state
+                .read()
+                .iter()
+                .filter(|(_, state)| state.sync_started)
+                .map(|(peer_id, _)| peer_id)
+                .cloned()
+                .collect()
+        };
+        debug!(target: "sync", "poll find_blocks_to_fetch select peers");
         for peer in peers {
             let ret = synchronizer.get_blocks_to_fetch(peer);
             if let Some(v_fetch) = ret {
@@ -179,7 +189,7 @@ impl<C: ChainProvider + 'static> SyncProtocol<C> {
                 inventory
             })
             .collect();
-        getdata.set_inventory(RepeatedField::from_vec(inventory));
+        getdata.set_inventory(inventory);
         payload.set_getdata(getdata);
 
         let _ = nc.send_payload(peer, payload);
@@ -190,7 +200,7 @@ impl<C: ChainProvider + 'static> SyncProtocol<C> {
         let tip = synchronizer.tip_header();
         let timeout = synchronizer.get_headers_sync_timeout(&tip);
 
-        let protect_outbound = is_outbound(nc, peer).expect("session exist")
+        let protect_outbound = is_outbound(nc, peer).unwrap_or_else(|| false)
             && synchronizer
                 .outbound_peers_with_protect
                 .load(Ordering::Acquire)
@@ -277,7 +287,17 @@ impl<C: ChainProvider + 'static> SyncProtocol<C> {
     }
 
     fn send_getheaders_to_all(synchronizer: Synchronizer<C>, nc: Box<NetworkContext>) {
-        let peers: Vec<PeerId> = { synchronizer.peers.state.read().keys().cloned().collect() };
+        let peers: Vec<PeerId> = {
+            synchronizer
+                .peers
+                .state
+                .read()
+                .iter()
+                .filter(|(_, state)| state.sync_started)
+                .map(|(peer_id, _)| peer_id)
+                .cloned()
+                .collect()
+        };
         debug!(target: "sync", "send_getheaders to peers= {:?}", &peers);
         let tip = synchronizer.tip_header();
         for peer in peers {
@@ -296,7 +316,7 @@ impl<C: ChainProvider + 'static> SyncProtocol<C> {
         let mut getheaders = ckb_protocol::GetHeaders::new();
         let locator_hash = locator_hash.into_iter().map(|hash| hash.to_vec()).collect();
         getheaders.set_version(0);
-        getheaders.set_block_locator_hashes(RepeatedField::from_vec(locator_hash));
+        getheaders.set_block_locator_hashes(locator_hash);
         getheaders.set_hash_stop(H256::zero().to_vec());
         payload.set_getheaders(getheaders);
         let _ = nc.send_payload(peer, payload);
@@ -304,16 +324,12 @@ impl<C: ChainProvider + 'static> SyncProtocol<C> {
     }
 
     fn dispatch_getheaders(&self, nc: Box<NetworkContext>) {
-        if self.synchronizer.n_sync.load(Ordering::Acquire) == 0
-            || !self.synchronizer.is_initial_block_download()
-        {
-            debug!(target: "sync", "dispatch_getheaders");
-            let mut sender = self.sender.clone();
-            let ret = sender.try_send(Task::SendGetHeadersToAll(nc));
+        debug!(target: "sync", "dispatch_getheaders");
+        let mut sender = self.sender.clone();
+        let ret = sender.try_send(Task::SendGetHeadersToAll(nc));
 
-            if ret.is_err() {
-                error!(target: "sync", "dispatch_getheaders peer error {:?}", ret);
-            }
+        if ret.is_err() {
+            error!(target: "sync", "dispatch_getheaders peer error {:?}", ret);
         }
     }
 
@@ -464,7 +480,11 @@ impl<C: ChainProvider + 'static> RelayProtocol<C> {
         }
 
         if missing_indexes.is_empty() {
-            let block = Block::new(compact_block.header.clone(), block_transactions);
+            let block = Block::new(
+                compact_block.header.clone(),
+                block_transactions,
+                compact_block.uncles.clone(),
+            );
 
             (Some(block.into()), None)
         } else {
@@ -526,13 +546,13 @@ impl<C: ChainProvider + 'static> RelayProtocol<C> {
                 let mut payload = ckb_protocol::Payload::new();
                 let mut bt = ckb_protocol::BlockTransactions::new();
                 bt.set_hash(hash.to_vec());
-                bt.set_transactions(RepeatedField::from_vec(
+                bt.set_transactions(
                     indexes
                         .iter()
                         .filter_map(|i| block.transactions.get(*i as usize))
                         .map(Into::into)
                         .collect(),
-                ));
+                );
                 let _ = nc.respond_payload(payload);
             }
         } else if payload.has_block_transactions() {
@@ -696,7 +716,7 @@ mod tests {
         let config = Consensus::default();
         let chain = Arc::new(gen_chain(&config));
 
-        let synchronizer = Synchronizer::new(&chain, Notify::default(), None, Config::default());
+        let synchronizer = Synchronizer::new(&chain, None, Config::default());
 
         let network_context = mock_network_context(5);
 
@@ -728,7 +748,7 @@ mod tests {
 
         assert_eq!(chain.tip_header().read().total_difficulty, U256::from(2));
 
-        let synchronizer = Synchronizer::new(&chain, Notify::default(), None, Config::default());
+        let synchronizer = Synchronizer::new(&chain, None, Config::default());
 
         let network_context = mock_network_context(6);
 

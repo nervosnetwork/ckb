@@ -1,7 +1,7 @@
 use super::{COLUMNS, COLUMN_BLOCK_HEADER};
 use bigint::{H256, U256};
 use cachedb::CacheDB;
-use ckb_notify::Notify;
+use ckb_notify::{ForkTxs, Notify, MINER_SUBSCRIBER};
 use consensus::Consensus;
 use core::block::IndexedBlock;
 use core::cell::{CellProvider, CellState};
@@ -41,8 +41,18 @@ pub struct Chain<CS> {
     notify: Notify,
 }
 
+#[derive(Debug, Clone)]
+pub struct BlockInsertionResult {
+    pub fork_txs: ForkTxs,
+    pub new_best_block: bool,
+}
+
+pub fn exclude_miner_sub(name: &str) -> bool {
+    name != MINER_SUBSCRIBER
+}
+
 pub trait ChainProvider: Sync + Send + CellProvider {
-    fn process_block(&self, b: &IndexedBlock) -> Result<(), Error>;
+    fn process_block(&self, b: &IndexedBlock, local: bool) -> Result<(), Error>;
 
     fn block_header(&self, hash: &H256) -> Option<IndexedHeader>;
 
@@ -59,6 +69,8 @@ pub trait ChainProvider: Sync + Send + CellProvider {
     fn block(&self, hash: &H256) -> Option<IndexedBlock>;
 
     fn genesis_hash(&self) -> H256;
+
+    fn consensus(&self) -> &Consensus;
 
     //FIXME: This is bad idea
     fn tip_header(&self) -> &RwLock<TipHeader>;
@@ -178,7 +190,7 @@ impl<CS: ChainIndex> Chain<CS> {
             .ok_or(Error::InvalidOutput)
     }
 
-    fn insert_block(&self, b: &IndexedBlock, root: H256) {
+    fn insert_block(&self, b: &IndexedBlock, root: H256) -> BlockInsertionResult {
         let mut new_best_block = false;
         let mut old_cumulative_txs = Vec::new();
         let mut new_cumulative_txs = Vec::new();
@@ -202,7 +214,7 @@ impl<CS: ChainIndex> Chain<CS> {
                 debug!(target: "chain", "acquire lock");
                 let mut tip_header = self.tip_header.write();
                 let current_total_difficulty = tip_header.total_difficulty;
-                info!(
+                debug!(
                     "difficulty diff = {}; current = {}, cannon = {}",
                     cannon_total_difficulty.low_u64() as i64
                         - current_total_difficulty.low_u64() as i64,
@@ -214,7 +226,7 @@ impl<CS: ChainIndex> Chain<CS> {
                     || (current_total_difficulty == cannon_total_difficulty
                         && b.hash() < tip_header.header.hash())
                 {
-                    info!(target: "chain", "new best block found: {} => {}", b.header().number, b.hash());
+                    debug!(target: "chain", "new best block found: {} => {}", b.header().number, b.hash());
                     new_best_block = true;
                     let new_tip_header = TipHeader {
                         header: b.header.clone(),
@@ -228,15 +240,37 @@ impl<CS: ChainIndex> Chain<CS> {
                 debug!(target: "chain", "lock release");
             }
         });
-        if !old_cumulative_txs.is_empty() || !new_cumulative_txs.is_empty() {
-            self.notify
-                .notify_switch_fork((old_cumulative_txs, new_cumulative_txs));
+
+        BlockInsertionResult {
+            new_best_block,
+            fork_txs: ForkTxs(old_cumulative_txs, new_cumulative_txs),
         }
+    }
+
+    pub fn notify_insert_result(
+        &self,
+        b: &IndexedBlock,
+        result: BlockInsertionResult,
+        local: bool,
+    ) {
+        let BlockInsertionResult {
+            new_best_block,
+            fork_txs,
+        } = result;
+        if !fork_txs.old_txs().is_empty() || !fork_txs.new_txs().is_empty() {
+            self.notify
+                .notify_switch_fork::<fn(&str) -> bool>(fork_txs, None);
+        }
+
+        let filter = if local { Some(exclude_miner_sub) } else { None };
+
         if new_best_block {
-            self.notify.notify_canon_block(b.clone());
+            self.notify.notify_new_tip(b, filter);
             if log_enabled!(target: "chain", log::Level::Debug) {
                 self.print_chain(10);
             }
+        } else {
+            self.notify.notify_side_chain_block(b, filter);
         }
     }
 
@@ -313,16 +347,29 @@ impl<CS: ChainIndex> Chain<CS> {
             debug!(target: "chain", "   {} => {:?}", transaction.hash(), transaction);
         }
         debug!(target: "chain", "}}");
+
+        debug!(target: "chain", "Uncle block {{");
+        for (index, uncle) in self
+            .block_hash(tip)
+            .and_then(|hash| self.store.get_block_uncles(&hash))
+            .expect("invalid block number")
+            .iter()
+            .enumerate()
+        {
+            debug!(target: "chain", "   {} => {:#?}", index, uncle);
+        }
+        debug!(target: "chain", "}}");
     }
 }
 
 impl<CS: ChainIndex> ChainProvider for Chain<CS> {
-    fn process_block(&self, b: &IndexedBlock) -> Result<(), Error> {
-        info!(target: "chain", "begin processing block: {}", b.hash());
-        // self.check_header(&b.header)?;
+    fn process_block(&self, b: &IndexedBlock, local: bool) -> Result<(), Error> {
+        debug!(target: "chain", "begin processing block: {}", b.hash());
+
         let root = self.check_transactions(b)?;
-        self.insert_block(b, root);
-        info!(target: "chain", "finish processing block");
+        let insert_result = self.insert_block(b, root);
+        self.notify_insert_result(b, insert_result, local);
+        debug!(target: "chain", "finish processing block");
         Ok(())
     }
 
@@ -348,6 +395,10 @@ impl<CS: ChainIndex> ChainProvider for Chain<CS> {
 
     fn genesis_hash(&self) -> H256 {
         self.consensus.genesis_block().hash()
+    }
+
+    fn consensus(&self) -> &Consensus {
+        &self.consensus
     }
 
     fn block_header(&self, hash: &H256) -> Option<IndexedHeader> {
@@ -487,7 +538,6 @@ pub mod test {
     use core::header::{Header, RawHeader, Seal};
     use db::memorydb::MemoryKeyValueDB;
     use store::ChainKVStore;
-    use tempdir::TempDir;
 
     fn gen_block(
         parent_header: IndexedHeader,
@@ -502,8 +552,10 @@ pub mod test {
                 version: 0,
                 parent_hash: parent_header.hash(),
                 timestamp: time,
-                txs_commit: H256::from(0),
+                txs_commit: H256::zero(),
                 difficulty: difficulty,
+                cellbase_id: H256::zero(),
+                uncles_hash: H256::zero(),
             },
             seal: Seal {
                 nonce,
@@ -514,12 +566,12 @@ pub mod test {
         IndexedBlock {
             header: header.into(),
             transactions: vec![],
+            uncles: vec![],
         }
     }
 
     #[test]
     fn test_chain_fork_by_total_difficulty() {
-        let _tmp_dir = TempDir::new("test_chain_fork_by_total_difficulty").unwrap();
         let chain = ChainBuilder::<ChainKVStore<MemoryKeyValueDB>>::new_memory()
             .build()
             .unwrap();
@@ -546,18 +598,21 @@ pub mod test {
         }
 
         for block in &chain1 {
-            chain.process_block(&block).expect("process block ok");
+            chain
+                .process_block(&block, false)
+                .expect("process block ok");
         }
 
         for block in &chain2 {
-            chain.process_block(&block).expect("process block ok");
+            chain
+                .process_block(&block, false)
+                .expect("process block ok");
         }
         assert_eq!(chain.block_hash(8), chain2.get(7).map(|b| b.hash()));
     }
 
     #[test]
     fn test_chain_fork_by_hash() {
-        let _tmp_dir = TempDir::new("test_chain_fork_by_hash").unwrap();
         let chain = ChainBuilder::<ChainKVStore<MemoryKeyValueDB>>::new_memory()
             .build()
             .unwrap();
@@ -583,11 +638,15 @@ pub mod test {
         }
 
         for block in &chain1 {
-            chain.process_block(&block).expect("process block ok");
+            chain
+                .process_block(&block, false)
+                .expect("process block ok");
         }
 
         for block in &chain2 {
-            chain.process_block(&block).expect("process block ok");
+            chain
+                .process_block(&block, false)
+                .expect("process block ok");
         }
 
         //if total_difficulty equal, we chose block which have smaller hash as best
