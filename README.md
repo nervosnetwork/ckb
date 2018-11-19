@@ -23,7 +23,7 @@ This project is still in development, it's NOT in production ready status.
 
 The `master` branch is regularly built and tested, but is not guaranteed to be completely stable. The `develop` branch is the work branch to merge new features, it's not stable.
 
-The contribution workflow is described in [CONTRIBUTING.md], and security policy is described in [SECURITY.md]. To propose new protocol or standard for Nervos, see [Nervos RFC](https://github.com/nervosnetwork/rfcs).
+The contribution workflow is described in [CONTRIBUTING.md](CONTRIBUTING.md), and security policy is described in [SECURITY.md](SECURITY.md). To propose new protocol or standard for Nervos, see [Nervos RFC](https://github.com/nervosnetwork/rfcs).
 
 ---
 

@@ -2,12 +2,12 @@
 
 This project is still under development, the primary goal at this stage is to implement features but we also take security very seriously. This document defines the policy on how to report vulnerabilities and receive updates when patches to those are released.
 
-[Join Nervos Security Team!](mailto: careers@nervos.org)
+[Join Nervos Security Team!](mailto:careers@nervos.org)
 
 
 ## Reporting a vulnerability
 
-All security bugs should be reported by sending email to [Nervos Security Team](mailto: security@nervos.org). This will deliver a message to Nervos Security Team who handle security issues. Your report will be acknowledged within 24 hours, and you'll receive a more detailed response to your email within 72 hours indicating the next steps in handling your report.
+All security bugs should be reported by sending email to [Nervos Security Team](mailto:security@nervos.org). This will deliver a message to Nervos Security Team who handle security issues. Your report will be acknowledged within 24 hours, and you'll receive a more detailed response to your email within 72 hours indicating the next steps in handling your report.
 
 After the initial reply to your report the security team will endeavor to keep you informed of the progress being made towards a fix and full announcement.
 
