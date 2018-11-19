@@ -8,7 +8,7 @@
 
 extern crate bigint;
 extern crate ckb_core as core;
-extern crate serde_yaml;
+extern crate serde_json;
 #[macro_use]
 extern crate serde_derive;
 extern crate ckb_pow;
@@ -91,12 +91,12 @@ fn build_system_cell_transaction(cells: &[SystemCell]) -> Result<Transaction, Bo
 impl ChainSpec {
     pub fn read_from_file<P: AsRef<Path>>(path: P) -> Result<ChainSpec, Box<Error>> {
         let file = File::open(path)?;
-        let spec = serde_yaml::from_reader(file)?;
+        let spec = serde_json::from_reader(file)?;
         Ok(spec)
     }
 
     pub fn new_dev() -> Result<ChainSpec, Box<Error>> {
-        let mut spec: ChainSpec = serde_yaml::from_str(include_str!("../res/dev.yaml"))?;
+        let mut spec: ChainSpec = serde_json::from_str(include_str!("../res/dev.json"))?;
         let system_cell_path = Path::new(file!()).parent().unwrap().join("../res/cells");
         for cell in &mut spec.system_cells {
             let path = system_cell_path.join(&cell.path);

@@ -5,7 +5,7 @@ license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 
 [dependencies]
-serde_yaml = "0.7"
+serde_json = "1.0"
 bigint = { git = "https://github.com/nervosnetwork/bigint" }
 ckb-core = { path = "../core" }
 serde_derive = "1.0"

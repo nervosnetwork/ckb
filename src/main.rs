@@ -37,8 +37,8 @@ mod helper;
 mod setup;
 
 use setup::Setup;
-pub const DEFAULT_CONFIG_FILENAME: &str = "config.toml";
-pub const DEFAULT_CONFIG: &str = include_str!("config/default.toml");
+pub const DEFAULT_CONFIG_FILENAME: &str = "config.json";
+pub const DEFAULT_CONFIG: &str = include_str!("config/default.json");
 use build_info::Version;
 
 fn main() {

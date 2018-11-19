@@ -43,7 +43,7 @@ impl Setup {
         let dirs = Directories::new(&data_path);
 
         let mut config_tool = ConfigTool::new();
-        config_tool.merge(File::from_str(DEFAULT_CONFIG, FileFormat::Toml))?;
+        config_tool.merge(File::from_str(DEFAULT_CONFIG, FileFormat::Json))?;
 
         // if config arg is present, open and load it as required,
         // otherwise load the default config from data-dir
@@ -99,27 +99,36 @@ pub mod test {
 
     fn test_chain_spec() -> &'static str {
         r#"
-        name: "ckb_test_custom"
-        genesis:
-            seal:
-                nonce: 233
-                proof: [2, 3, 3]
-            version: 0
-            parent_hash: "0x0000000000000000000000000000000000000000000000000000000000000233"
-            timestamp: 0
-            txs_commit: "0x0000000000000000000000000000000000000000000000000000000000000233"
-            txs_proposal: "0x0000000000000000000000000000000000000000000000000000000000000233"
-            difficulty: "0x233"
-            cellbase_id: "0x0000000000000000000000000000000000000000000000000000000000000000"
-            uncles_hash: "0x0000000000000000000000000000000000000000000000000000000000000000"
-        params:
-            initial_block_reward: 233
-            min_difficulty: "0x233"
-        system_cells: []
-        pow:
-            Cuckoo:
-                edge_bits: 29
-                cycle_length: 42
+        {
+            "name": "ckb_test_custom",
+            "genesis": {
+                "seal": {
+                    "nonce": 233,
+                    "proof": [2, 3, 3]
+                },
+                "version": 0,
+                "parent_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                "timestamp": 0,
+                "txs_commit": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                "txs_proposal": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                "difficulty": "0x233",
+                "cellbase_id": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                "uncles_hash": "0x0000000000000000000000000000000000000000000000000000000000000000"
+            },
+            "params": {
+                "initial_block_reward": 233
+            },
+            "system_cells": [
+                {"path": "verify"},
+                {"path": "always_success"}
+            ],
+            "pow": {
+                "Cuckoo": {
+                    "edge_bits": 29,
+                    "cycle_length": 42
+                }
+            }
+        }
         "#
     }
 
@@ -147,9 +156,12 @@ pub mod test {
 
         let data_path = tmp_dir.path().to_str().unwrap();
 
-        let test_conifg = r#"[network]
-                             listen_addresses = ["/ip4/1.1.1.1/tcp/1"]"#;
-        let config_path = tmp_dir.path().join("config.toml");
+        let test_conifg = r#"{
+            "network": {
+                "listen_addresses": ["/ip4/1.1.1.1/tcp/1"]
+            }
+        }"#;
+        let config_path = tmp_dir.path().join("config.json");
         write_file(config_path, test_conifg);
         let arg_vec = vec!["ckb", "run", "--data-dir", data_path];
         let yaml = load_yaml!("cli/app.yml");
@@ -170,9 +182,12 @@ pub mod test {
             .unwrap();
         let data_path = tmp_dir.path().to_str().unwrap();
 
-        let test_conifg = r#"[network]
-                             listen_addresses = ["/ip4/1.1.1.1/tcp/1"]"#;
-        let config_path = tmp_dir.path().join("specify.toml");
+        let test_conifg = r#"{
+            "network": {
+                "listen_addresses": ["/ip4/1.1.1.1/tcp/1"]
+            }
+        }"#;
+        let config_path = tmp_dir.path().join("specify.json");
         write_file(&config_path, test_conifg);
         let arg_vec = vec![
             "ckb",
@@ -203,9 +218,19 @@ pub mod test {
         let arg_vec = vec!["ckb", "run", "--data-dir", data_path];
         let yaml = load_yaml!("cli/app.yml");
 
-        let chain_spec_path = tmp_dir.path().join("ckb_test_custom.toml");
-        let test_conifg = format!("[ckb]\nchain = \"{}\"", chain_spec_path.to_str().unwrap());
-        let config_path = tmp_dir.path().join("config.toml");
+        let chain_spec_path = tmp_dir.path().join("ckb_test_custom.json");
+        let test_conifg = format!(
+            r#"
+        {{
+            "ckb": {{
+                "chain": "{}"
+            }}
+        }}"#,
+            chain_spec_path.to_str().unwrap()
+        );
+
+        println!("{:?}", test_conifg);
+        let config_path = tmp_dir.path().join("config.json");
         write_file(&config_path, &test_conifg);
         write_file(&chain_spec_path, test_chain_spec());
 
@@ -224,7 +249,7 @@ pub mod test {
 
         let data_path = tmp_dir.path().to_str().unwrap();
 
-        let chain_spec_path = tmp_dir.path().join("ckb_test_custom.toml");
+        let chain_spec_path = tmp_dir.path().join("ckb_test_custom.json");
         let arg_vec = vec![
             "ckb",
             "run",

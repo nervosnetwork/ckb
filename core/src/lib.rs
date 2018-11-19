@@ -20,7 +20,6 @@ pub mod chain;
 pub mod difficulty;
 pub mod error;
 pub mod extras;
-pub mod global;
 pub mod header;
 pub mod script;
 pub mod service;

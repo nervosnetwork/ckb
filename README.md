@@ -101,5 +101,5 @@ $ cargo run -- run --data-dir=/tmp/node2
 
 Modify development config file
 ```shell
-cp src/config/development.toml /tmp/node1/config.toml
+cp src/config/default.json /tmp/node1/config.json
 ```
