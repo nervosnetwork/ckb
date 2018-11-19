@@ -17,7 +17,6 @@ use self::get_block_transactions_process::GetBlockTransactionsProcess;
 use self::transaction_process::TransactionProcess;
 use bigint::H256;
 use ckb_chain::chain::ChainController;
-use ckb_chain::error::ProcessBlockError;
 use ckb_protocol::{short_transaction_id, short_transaction_id_keys, RelayMessage, RelayPayload};
 use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::{ChainProvider, Shared};
@@ -27,9 +26,10 @@ use flatbuffers::{get_root, FlatBufferBuilder};
 use fnv::{FnvHashMap, FnvHashSet};
 use network::{CKBProtocolContext, CKBProtocolHandler, PeerIndex, TimerToken};
 use pool::txs_pool::TransactionPoolController;
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Duration;
-use util::Mutex;
+use util::{Mutex, RwLock};
 
 pub const TX_PROPOSAL_TOKEN: TimerToken = 0;
 
@@ -90,6 +90,7 @@ where
                 &message.payload_as_block_transactions().unwrap(),
                 self,
                 peer,
+                nc,
             ).execute(),
             RelayPayload::GetBlockProposal => GetBlockProposalProcess::new(
                 &message.payload_as_get_block_proposal().unwrap(),
@@ -132,15 +133,25 @@ where
         let _ = nc.send(peer, fbb.finished_data().to_vec());
     }
 
-    pub fn accept_block(&self, _peer: PeerIndex, block: Block) -> Result<(), ProcessBlockError> {
-        self.chain.process_block(Arc::new(block))
+    pub fn accept_block(&self, nc: &CKBProtocolContext, peer: PeerIndex, block: &Arc<Block>) {
+        if self.chain.process_block(Arc::clone(&block)).is_ok() {
+            let fbb = &mut FlatBufferBuilder::new();
+            let message = RelayMessage::build_compact_block(fbb, block, &HashSet::new());
+            fbb.finish(message, None);
+
+            for peer_id in nc.connected_peers() {
+                if peer_id != peer {
+                    let _ = nc.send(peer_id, fbb.finished_data().to_vec());
+                }
+            }
+        }
     }
 
     pub fn reconstruct_block(
         &self,
         compact_block: &CompactBlock,
         transactions: Vec<Transaction>,
-    ) -> (Option<Block>, Option<Vec<usize>>) {
+    ) -> (Option<Block>, Vec<usize>) {
         let (key0, key1) =
             short_transaction_id_keys(compact_block.header.nonce(), compact_block.nonce);
 
@@ -187,9 +198,9 @@ where
                 .proposal_transactions(compact_block.proposal_transactions.clone())
                 .build();
 
-            (Some(block), None)
+            (Some(block), missing_indexes)
         } else {
-            (None, Some(missing_indexes))
+            (None, missing_indexes)
         }
     }
 
@@ -264,10 +275,7 @@ where
 
 #[derive(Default)]
 pub struct RelayState {
-    // TODO add size limit or use bloom filter
-    pub received_blocks: Mutex<FnvHashSet<H256>>,
-    pub received_transactions: Mutex<FnvHashSet<H256>>,
-    pub pending_compact_blocks: Mutex<FnvHashMap<H256, CompactBlock>>,
+    pub pending_compact_blocks: RwLock<FnvHashMap<H256, CompactBlock>>,
     pub inflight_proposals: Mutex<FnvHashSet<ProposalShortId>>,
     pub pending_proposals_request: Mutex<FnvHashMap<ProposalShortId, FnvHashSet<PeerIndex>>>,
 }

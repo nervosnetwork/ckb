@@ -32,15 +32,15 @@ where
 
     pub fn execute(self) {
         let tx: Transaction = (*self.message).into();
-        let _ = self.relayer.tx_pool.add_transaction(tx.clone());
+        if self.relayer.tx_pool.add_transaction(tx.clone()).is_ok() {
+            let fbb = &mut FlatBufferBuilder::new();
+            let message = RelayMessage::build_transaction(fbb, &tx);
+            fbb.finish(message, None);
 
-        let fbb = &mut FlatBufferBuilder::new();
-        let message = RelayMessage::build_transaction(fbb, &tx);
-        fbb.finish(message, None);
-
-        for peer_id in self.nc.connected_peers() {
-            if peer_id != self.peer {
-                let _ = self.nc.send(peer_id, fbb.finished_data().to_vec());
+            for peer_id in self.nc.connected_peers() {
+                if peer_id != self.peer {
+                    let _ = self.nc.send(peer_id, fbb.finished_data().to_vec());
+                }
             }
         }
     }
