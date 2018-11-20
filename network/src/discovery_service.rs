@@ -235,6 +235,8 @@ impl DiscoveryService {
         //};
 
         let handling_future = Box::new(
+            // why use loop_fn?????????????
+            // does client disconnect after discovery?
             future::loop_fn(kademlia_stream, {
                 let peer_id = peer_id.clone();
                 let kad_system = Arc::clone(&self.kad_system);

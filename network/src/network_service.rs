@@ -14,7 +14,7 @@ use std::boxed::Box;
 use std::io::{Error as IoError, ErrorKind as IoErrorKind};
 use std::sync::Arc;
 use std::thread;
-use tokio::runtime::current_thread;
+use tokio::runtime;
 
 pub struct NetworkService {
     network: Arc<Network>,
@@ -82,7 +82,9 @@ impl NetworkService {
                 let network_future =
                     Network::build_network_future(network, &config, close_rx).unwrap();
                 init_tx.send(()).unwrap();
-                match current_thread::block_on_all(network_future) {
+                // here we use default config
+                let network_runtime = runtime::Runtime::new().unwrap();
+                match network_runtime.block_on_all(network_future) {
                     Ok(_) => info!(target: "network", "network service exit"),
                     Err(err) => panic!("network service exit unexpected {}", err),
                 }
