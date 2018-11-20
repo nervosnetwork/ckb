@@ -94,13 +94,12 @@ fn test_uncle_verifier() {
 
     let verifier = UnclesVerifier::new(shared.clone());
 
-    let mut block = BlockBuilder::default()
+    let block = BlockBuilder::default()
         .block(chain1.last().cloned().unwrap())
         .uncle(chain2.last().cloned().unwrap().into())
         .build();
 
-    *block.mut_header().mut_raw().mut_uncles_count() = 0;
-    // Uncles not match uncles_hash
+    // Uncles not match uncles_count
     assert_eq!(
         verifier.verify(&block),
         Err(Error::Uncles(UnclesError::MissMatchCount {
@@ -113,6 +112,7 @@ fn test_uncle_verifier() {
 
     let block = BlockBuilder::default()
         .block(chain1.last().cloned().unwrap())
+        .header(HeaderBuilder::default().uncles_count(1).build())
         .uncle(chain2.last().cloned().unwrap().into())
         .build();
     // Uncles not match uncles_hash

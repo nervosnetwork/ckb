@@ -138,16 +138,8 @@ impl Header {
         self.raw.uncles_hash
     }
 
-    pub fn raw(&self) -> &RawHeader {
-        &self.raw
-    }
-
     pub fn into_raw(self) -> RawHeader {
         self.raw
-    }
-
-    pub fn mut_raw(&mut self) -> &mut RawHeader {
-        &mut self.raw
     }
 
     pub fn uncles_count(&self) -> u32 {
