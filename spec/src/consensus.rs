@@ -1,9 +1,9 @@
 use bigint::U256;
+use ckb_core::block::{Block, BlockBuilder};
+use ckb_core::header::HeaderBuilder;
+use ckb_core::transaction::Capacity;
+use ckb_core::BlockNumber;
 use ckb_pow::{Pow, PowEngine};
-use core::block::{Block, BlockBuilder};
-use core::header::HeaderBuilder;
-use core::transaction::Capacity;
-use core::BlockNumber;
 use std::sync::Arc;
 
 pub const DEFAULT_BLOCK_REWARD: Capacity = 5_000;

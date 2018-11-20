@@ -1,7 +1,7 @@
-use core::cell::ResolvedTransaction;
-use core::transaction::{Capacity, Transaction};
+use ckb_core::cell::ResolvedTransaction;
+use ckb_core::transaction::{Capacity, Transaction};
+use ckb_script::TransactionScriptsVerifier;
 use error::TransactionError;
-use script::TransactionScriptsVerifier;
 use std::collections::HashSet;
 
 pub struct TransactionVerifier<'a> {

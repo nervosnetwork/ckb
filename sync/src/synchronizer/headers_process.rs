@@ -1,11 +1,11 @@
 use bigint::U256;
+use ckb_core::header::Header;
+use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::{FlatbuffersVectorIterator, Headers};
 use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::ChainProvider;
 use ckb_verification::{Error as VerifyError, HeaderResolver, HeaderVerifier, Verifier};
-use core::header::Header;
 use log;
-use network::{CKBProtocolContext, PeerIndex};
 use std::sync::Arc;
 use synchronizer::{BlockStatus, Synchronizer};
 use MAX_HEADERS_LEN;

@@ -1,5 +1,6 @@
 use super::{Error, ErrorKind, PeerId, PeerIndex, ProtocolId};
 use bytes::Bytes;
+use ckb_util::{Mutex, RwLock};
 use fnv::FnvHashMap;
 use futures::sync::mpsc::UnboundedSender;
 use libp2p::core::{Endpoint, Multiaddr, UniqueConnec};
@@ -9,7 +10,6 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use std::time::Instant;
-use util::{Mutex, RwLock};
 
 struct PeerConnections {
     id_allocator: AtomicUsize,

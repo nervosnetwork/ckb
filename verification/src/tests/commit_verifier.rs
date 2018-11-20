@@ -1,19 +1,19 @@
 use super::super::block_verifier::CommitVerifier;
 use super::super::error::{CommitError, Error};
 use bigint::{H256, U256};
-use chain::chain::{ChainBuilder, ChainController};
-use chain_spec::consensus::Consensus;
-use ckb_shared::shared::{ChainProvider, Shared, SharedBuilder};
-use ckb_shared::store::ChainKVStore;
-use core::block::{Block, BlockBuilder};
-use core::header::{Header, HeaderBuilder};
-use core::script::Script;
-use core::transaction::{
+use ckb_chain::chain::{ChainBuilder, ChainController};
+use ckb_chain_spec::consensus::Consensus;
+use ckb_core::block::{Block, BlockBuilder};
+use ckb_core::header::{Header, HeaderBuilder};
+use ckb_core::script::Script;
+use ckb_core::transaction::{
     CellInput, CellOutput, OutPoint, ProposalShortId, Transaction, TransactionBuilder,
 };
-use core::uncle::UncleBlock;
-use core::BlockNumber;
-use db::memorydb::MemoryKeyValueDB;
+use ckb_core::uncle::UncleBlock;
+use ckb_core::BlockNumber;
+use ckb_db::memorydb::MemoryKeyValueDB;
+use ckb_shared::shared::{ChainProvider, Shared, SharedBuilder};
+use ckb_shared::store::ChainKVStore;
 use fnv::FnvHashMap;
 use std::fs::File;
 use std::io::Read;

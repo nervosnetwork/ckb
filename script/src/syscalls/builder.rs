@@ -1,8 +1,8 @@
+use ckb_core::transaction::{CellInput, CellOutput, Transaction};
 use ckb_protocol::{
     Bytes as FbsBytes, CellInput as FbsCellInput, CellInputBuilder, CellOutput as FbsCellOutput,
     CellOutputBuilder, OutPoint as FbsOutPoint, Transaction as FbsTransaction, TransactionBuilder,
 };
-use core::transaction::{CellInput, CellOutput, Transaction};
 use flatbuffers::{FlatBufferBuilder, WIPOffset};
 
 pub fn build_tx<'b>(

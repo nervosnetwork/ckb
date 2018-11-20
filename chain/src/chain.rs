@@ -1,22 +1,22 @@
 use bigint::{H256, U256};
-use chain_spec::consensus::Consensus;
 use channel::{self, Receiver, Sender};
+use ckb_chain_spec::consensus::Consensus;
+use ckb_core::block::Block;
+use ckb_core::extras::BlockExt;
+use ckb_core::header::BlockNumber;
+use ckb_core::service::{Request, DEFAULT_CHANNEL_SIZE};
+use ckb_db::batch::Batch;
 use ckb_notify::{ForkBlocks, NotifyController, NotifyService};
-use core::block::Block;
-use core::extras::BlockExt;
-use core::header::BlockNumber;
-use core::service::{Request, DEFAULT_CHANNEL_SIZE};
-use db::batch::Batch;
+use ckb_shared::error::SharedError;
+use ckb_shared::index::ChainIndex;
+use ckb_shared::shared::{ChainProvider, Shared, TipHeader};
+use ckb_time::now_ms;
+use ckb_verification::{BlockVerifier, Verifier};
 use error::ProcessBlockError;
 use log;
-use shared::error::SharedError;
-use shared::index::ChainIndex;
-use shared::shared::{ChainProvider, Shared, TipHeader};
 use std::cmp;
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
-use time::now_ms;
-use verification::{BlockVerifier, Verifier};
 
 pub struct ChainService<CI> {
     shared: Shared<CI>,
@@ -380,16 +380,16 @@ impl<CI: ChainIndex + 'static> ChainBuilder<CI> {
 pub mod test {
     use super::*;
     use bigint::U256;
-    use core::block::BlockBuilder;
-    use core::cell::CellProvider;
-    use core::header::{Header, HeaderBuilder};
-    use core::transaction::{
+    use ckb_core::block::BlockBuilder;
+    use ckb_core::cell::CellProvider;
+    use ckb_core::header::{Header, HeaderBuilder};
+    use ckb_core::transaction::{
         CellInput, CellOutput, OutPoint, ProposalShortId, Transaction, TransactionBuilder,
     };
-    use core::uncle::UncleBlock;
-    use db::memorydb::MemoryKeyValueDB;
-    use shared::shared::SharedBuilder;
-    use shared::store::ChainKVStore;
+    use ckb_core::uncle::UncleBlock;
+    use ckb_db::memorydb::MemoryKeyValueDB;
+    use ckb_shared::shared::SharedBuilder;
+    use ckb_shared::store::ChainKVStore;
 
     fn start_chain(
         consensus: Option<Consensus>,

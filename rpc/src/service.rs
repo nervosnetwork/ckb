@@ -1,17 +1,19 @@
 use bigint::H256;
 use channel::{self, Receiver, Sender};
+use ckb_core::block::{Block, BlockBuilder};
+use ckb_core::header::{Header, HeaderBuilder, RawHeader};
+use ckb_core::service::{Request, DEFAULT_CHANNEL_SIZE};
+use ckb_core::transaction::{
+    CellInput, CellOutput, ProposalShortId, Transaction, TransactionBuilder,
+};
+use ckb_core::uncle::UncleBlock;
+use ckb_notify::{NotifyController, RPC_SUBSCRIBER};
+use ckb_pool::txs_pool::TransactionPoolController;
+use ckb_shared::error::SharedError;
+use ckb_shared::index::ChainIndex;
+use ckb_shared::shared::{ChainProvider, Shared};
 use ckb_time::now_ms;
-use core::block::{Block, BlockBuilder};
-use core::header::{Header, HeaderBuilder, RawHeader};
-use core::service::{Request, DEFAULT_CHANNEL_SIZE};
-use core::transaction::{CellInput, CellOutput, ProposalShortId, Transaction, TransactionBuilder};
-use core::uncle::UncleBlock;
 use fnv::{FnvHashMap, FnvHashSet};
-use notify::{NotifyController, RPC_SUBSCRIBER};
-use pool::txs_pool::TransactionPoolController;
-use shared::error::SharedError;
-use shared::index::ChainIndex;
-use shared::shared::{ChainProvider, Shared};
 use std::cmp;
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
@@ -293,13 +295,13 @@ impl<CI: ChainIndex + 'static> RpcService<CI> {
 pub mod test {
     use super::*;
     use bigint::H256;
-    use core::block::BlockBuilder;
-    use db::memorydb::MemoryKeyValueDB;
-    use notify::NotifyService;
-    use pool::txs_pool::{PoolConfig, TransactionPoolController, TransactionPoolService};
-    use shared::shared::SharedBuilder;
-    use shared::store::ChainKVStore;
-    use verification::{BlockVerifier, HeaderResolverWrapper, HeaderVerifier, Verifier};
+    use ckb_core::block::BlockBuilder;
+    use ckb_db::memorydb::MemoryKeyValueDB;
+    use ckb_notify::NotifyService;
+    use ckb_pool::txs_pool::{PoolConfig, TransactionPoolController, TransactionPoolService};
+    use ckb_shared::shared::SharedBuilder;
+    use ckb_shared::store::ChainKVStore;
+    use ckb_verification::{BlockVerifier, HeaderResolverWrapper, HeaderVerifier, Verifier};
 
     #[test]
     fn test_block_template() {

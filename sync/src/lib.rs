@@ -8,28 +8,25 @@ extern crate fnv;
 #[macro_use]
 extern crate log;
 extern crate ckb_chain;
-extern crate ckb_core as core;
-extern crate ckb_network as network;
-extern crate ckb_pool as pool;
+extern crate ckb_core;
+extern crate ckb_network;
+extern crate ckb_pool;
 extern crate ckb_protocol;
 extern crate ckb_shared;
 extern crate ckb_time;
 extern crate flatbuffers;
 #[macro_use]
-extern crate ckb_util as util;
+extern crate ckb_util;
 extern crate ckb_verification;
 #[macro_use]
 extern crate bitflags;
 #[macro_use]
 extern crate serde_derive;
-extern crate ckb_chain_spec as chain_spec;
-
+extern crate ckb_chain_spec;
 #[cfg(test)]
-extern crate ckb_db as db;
+extern crate ckb_db;
 #[cfg(test)]
 extern crate ckb_notify;
-#[cfg(test)]
-extern crate ckb_pool;
 #[cfg(test)]
 extern crate crossbeam_channel;
 
@@ -44,7 +41,7 @@ pub use config::Config;
 pub use relayer::Relayer;
 pub use synchronizer::Synchronizer;
 
-use network::ProtocolId;
+use ckb_network::ProtocolId;
 
 pub const MAX_HEADERS_LEN: usize = 2_000;
 pub const MAX_INVENTORY_LEN: usize = 50_000;

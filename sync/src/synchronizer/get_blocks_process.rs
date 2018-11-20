@@ -1,8 +1,8 @@
 use bigint::H256;
+use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::{FlatbuffersVectorIterator, GetBlocks, SyncMessage};
 use ckb_shared::index::ChainIndex;
 use flatbuffers::FlatBufferBuilder;
-use network::{CKBProtocolContext, PeerIndex};
 use synchronizer::Synchronizer;
 
 pub struct GetBlocksProcess<'a, CI: ChainIndex + 'a> {

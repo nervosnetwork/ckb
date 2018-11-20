@@ -10,7 +10,7 @@ pub use self::fetch_script_hash::FetchScriptHash;
 pub use self::mmap_cell::MmapCell;
 pub use self::mmap_tx::MmapTx;
 
-use vm::Error;
+use ckb_vm::Error;
 
 pub const SUCCESS: u8 = 0;
 pub const OVERRIDE_LEN: u8 = 1;
@@ -73,14 +73,14 @@ impl Source {
 mod tests {
     use super::*;
     use bigint::H256;
-    use core::script::Script;
-    use core::transaction::{CellInput, CellOutput, OutPoint};
-    use proptest::collection::size_range;
-    use proptest::prelude::any_with;
-    use vm::machine::DefaultCoreMachine;
-    use vm::{
+    use ckb_core::script::Script;
+    use ckb_core::transaction::{CellInput, CellOutput, OutPoint};
+    use ckb_vm::machine::DefaultCoreMachine;
+    use ckb_vm::{
         CoreMachine, Error as VMError, Memory, SparseMemory, Syscalls, A0, A1, A2, A3, A4, A5, A7,
     };
+    use proptest::collection::size_range;
+    use proptest::prelude::any_with;
 
     fn _test_mmap_tx_all(tx: &Vec<u8>) {
         let mut machine = DefaultCoreMachine::<u64, SparseMemory>::default();

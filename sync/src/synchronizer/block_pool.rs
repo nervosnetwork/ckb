@@ -1,9 +1,9 @@
 use bigint::H256;
-use core::block::Block;
+use ckb_core::block::Block;
+use ckb_util::RwLock;
 use fnv::{FnvHashMap, FnvHashSet};
 use std::collections::hash_map::Entry;
 use std::collections::VecDeque;
-use util::RwLock;
 
 pub type ParentHash = H256;
 
@@ -59,10 +59,10 @@ impl OrphanBlockPool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chain_spec::consensus::Consensus;
+    use ckb_chain_spec::consensus::Consensus;
+    use ckb_core::block::BlockBuilder;
+    use ckb_core::header::{Header, HeaderBuilder};
     use ckb_time::now_ms;
-    use core::block::BlockBuilder;
-    use core::header::{Header, HeaderBuilder};
     use std::collections::HashSet;
     use std::iter::FromIterator;
 

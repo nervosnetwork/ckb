@@ -1,6 +1,6 @@
+use ckb_util::{Condvar, Mutex};
 use ctrlc;
 use std::sync::Arc;
-use util::{Condvar, Mutex};
 
 pub fn wait_for_exit() {
     let exit = Arc::new((Mutex::new(()), Condvar::new()));

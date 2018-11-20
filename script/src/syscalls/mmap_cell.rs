@@ -1,9 +1,11 @@
-use core::transaction::CellOutput;
+use ckb_core::transaction::CellOutput;
+use ckb_vm::memory::PROT_READ;
+use ckb_vm::{
+    CoreMachine, Error as VMError, Memory, Register, Syscalls, A0, A1, A2, A3, A4, A5, A7,
+};
 use std::cmp;
 use std::rc::Rc;
 use syscalls::{Mode, Source, MMAP_CELL_SYSCALL_NUMBER, OVERRIDE_LEN, SUCCESS};
-use vm::memory::PROT_READ;
-use vm::{CoreMachine, Error as VMError, Memory, Register, Syscalls, A0, A1, A2, A3, A4, A5, A7};
 
 #[derive(Debug)]
 pub struct MmapCell<'a> {

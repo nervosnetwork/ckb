@@ -1,7 +1,7 @@
 extern crate bigint;
-extern crate ckb_core as core;
+extern crate ckb_core;
 extern crate ckb_protocol;
-extern crate ckb_vm as vm;
+extern crate ckb_vm;
 #[cfg(test)]
 extern crate crypto;
 #[cfg(test)]
@@ -19,7 +19,7 @@ extern crate proptest;
 mod syscalls;
 mod verify;
 
-use vm::Error as VMInternalError;
+use ckb_vm::Error as VMInternalError;
 
 pub use verify::TransactionScriptsVerifier;
 

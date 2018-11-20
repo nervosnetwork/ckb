@@ -1,12 +1,12 @@
 use super::ScriptError;
 use bigint::H256;
-use core::cell::ResolvedTransaction;
-use core::script::Script;
-use core::transaction::{CellInput, CellOutput};
+use ckb_core::cell::ResolvedTransaction;
+use ckb_core::script::Script;
+use ckb_core::transaction::{CellInput, CellOutput};
+use ckb_vm::{DefaultMachine, SparseMemory};
 use flatbuffers::FlatBufferBuilder;
 use fnv::FnvHashMap;
 use syscalls::{build_tx, Debugger, FetchScriptHash, MmapCell, MmapTx};
-use vm::{DefaultMachine, SparseMemory};
 
 // This struct leverages CKB VM to verify transaction inputs.
 // FlatBufferBuilder owned Vec<u8> that grows as needed, in the
@@ -134,10 +134,10 @@ impl<'a> TransactionScriptsVerifier<'a> {
 mod tests {
     use super::*;
     use bigint::H256;
-    use core::cell::CellStatus;
-    use core::script::Script;
-    use core::transaction::{CellInput, CellOutput, OutPoint, TransactionBuilder};
-    use core::Capacity;
+    use ckb_core::cell::CellStatus;
+    use ckb_core::script::Script;
+    use ckb_core::transaction::{CellInput, CellOutput, OutPoint, TransactionBuilder};
+    use ckb_core::Capacity;
     use crypto::secp::Generator;
     use faster_hex::hex_to;
     use fnv::FnvHashMap;

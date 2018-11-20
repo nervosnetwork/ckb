@@ -17,19 +17,19 @@ use self::get_block_transactions_process::GetBlockTransactionsProcess;
 use self::transaction_process::TransactionProcess;
 use bigint::H256;
 use ckb_chain::chain::ChainController;
+use ckb_core::block::{Block, BlockBuilder};
+use ckb_core::transaction::{ProposalShortId, Transaction};
+use ckb_network::{CKBProtocolContext, CKBProtocolHandler, PeerIndex, TimerToken};
+use ckb_pool::txs_pool::TransactionPoolController;
 use ckb_protocol::{short_transaction_id, short_transaction_id_keys, RelayMessage, RelayPayload};
 use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::{ChainProvider, Shared};
-use core::block::{Block, BlockBuilder};
-use core::transaction::{ProposalShortId, Transaction};
+use ckb_util::{Mutex, RwLock};
 use flatbuffers::{get_root, FlatBufferBuilder};
 use fnv::{FnvHashMap, FnvHashSet};
-use network::{CKBProtocolContext, CKBProtocolHandler, PeerIndex, TimerToken};
-use pool::txs_pool::TransactionPoolController;
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Duration;
-use util::{Mutex, RwLock};
 
 pub const TX_PROPOSAL_TOKEN: TimerToken = 0;
 

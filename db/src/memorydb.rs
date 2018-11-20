@@ -1,8 +1,8 @@
 use batch::{Batch, Col, Operation};
+use ckb_util::RwLock;
 use fnv::FnvHashMap;
 use kvdb::{ErrorKind, KeyValueDB, Result};
 use std::ops::Range;
-use util::RwLock;
 
 pub type MemoryKey = Vec<u8>;
 pub type MemoryValue = Vec<u8>;

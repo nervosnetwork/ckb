@@ -7,19 +7,19 @@
 //! There are a few named presets that can be selected from or a custom yaml spec file can be supplied.
 
 extern crate bigint;
-extern crate ckb_core as core;
+extern crate ckb_core;
 extern crate serde_json;
 #[macro_use]
 extern crate serde_derive;
 extern crate ckb_pow;
 
 use bigint::{H256, U256};
+use ckb_core::block::BlockBuilder;
+use ckb_core::header::HeaderBuilder;
+use ckb_core::transaction::{CellOutput, Transaction, TransactionBuilder};
+use ckb_core::Capacity;
 use ckb_pow::{Pow, PowEngine};
 use consensus::Consensus;
-use core::block::BlockBuilder;
-use core::header::HeaderBuilder;
-use core::transaction::{CellOutput, Transaction, TransactionBuilder};
-use core::Capacity;
 use std::error::Error;
 use std::fs::File;
 use std::io::Read;

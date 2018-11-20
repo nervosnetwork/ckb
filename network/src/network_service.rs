@@ -3,6 +3,7 @@ use super::{Error, ErrorKind, ProtocolId};
 use ckb_protocol::CKBProtocol;
 use ckb_protocol_handler::CKBProtocolHandler;
 use ckb_protocol_handler::{CKBProtocolContext, DefaultCKBProtocolContext};
+use ckb_util::RwLock;
 use futures::future::Future;
 use futures::sync::oneshot;
 use libp2p::core::PeerId;
@@ -14,7 +15,6 @@ use std::io::{Error as IoError, ErrorKind as IoErrorKind};
 use std::sync::Arc;
 use std::thread;
 use tokio::runtime::current_thread;
-use util::RwLock;
 
 pub struct NetworkService {
     network: Arc<Network>,

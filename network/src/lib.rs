@@ -11,7 +11,7 @@ extern crate log;
 extern crate fnv;
 #[macro_use]
 extern crate serde_derive;
-extern crate ckb_util as util;
+extern crate ckb_util;
 
 mod ckb_protocol;
 mod ckb_protocol_handler;

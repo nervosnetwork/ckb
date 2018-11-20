@@ -16,25 +16,25 @@ use self::header_view::HeaderView;
 use self::headers_process::HeadersProcess;
 use self::peers::Peers;
 use bigint::H256;
-use chain_spec::consensus::Consensus;
 use ckb_chain::chain::ChainController;
 use ckb_chain::error::ProcessBlockError;
+use ckb_chain_spec::consensus::Consensus;
+use ckb_core::block::Block;
+use ckb_core::header::{BlockNumber, Header};
+use ckb_network::{CKBProtocolContext, CKBProtocolHandler, PeerIndex, Severity, TimerToken};
 use ckb_protocol::{SyncMessage, SyncPayload};
 use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::{ChainProvider, Shared};
 use ckb_time::now_ms;
+use ckb_util::{RwLock, RwLockUpgradableReadGuard};
 use config::Config;
-use core::block::Block;
-use core::header::{BlockNumber, Header};
 use flatbuffers::{get_root, FlatBufferBuilder};
-use network::{CKBProtocolContext, CKBProtocolHandler, PeerIndex, Severity, TimerToken};
 use std::cmp;
 use std::collections::HashMap;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
-use util::{RwLock, RwLockUpgradableReadGuard};
 use {
     CHAIN_SYNC_TIMEOUT, EVICTION_HEADERS_RESPONSE_TIME, HEADERS_DOWNLOAD_TIMEOUT_BASE,
     HEADERS_DOWNLOAD_TIMEOUT_PER_HEADER, MAX_HEADERS_LEN,
@@ -697,27 +697,27 @@ mod tests {
     use self::headers_process::HeadersProcess;
     use super::*;
     use bigint::U256;
-    use chain_spec::consensus::Consensus;
     use ckb_chain::chain::ChainBuilder;
+    use ckb_chain_spec::consensus::Consensus;
+    use ckb_core::block::BlockBuilder;
+    use ckb_core::header::{Header, HeaderBuilder};
+    use ckb_core::transaction::{CellInput, CellOutput, Transaction, TransactionBuilder};
+    use ckb_db::memorydb::MemoryKeyValueDB;
+    use ckb_network::{
+        random_peer_id, CKBProtocolContext, Endpoint, Error as NetworkError, PeerIndex, PeerInfo,
+        ProtocolId, SessionInfo, Severity, TimerToken,
+    };
     use ckb_notify::{NotifyController, NotifyService, MINER_SUBSCRIBER};
     use ckb_protocol::{Block as FbsBlock, Headers as FbsHeaders};
     use ckb_shared::index::ChainIndex;
     use ckb_shared::shared::SharedBuilder;
     use ckb_shared::store::ChainKVStore;
     use ckb_time::set_mock_timer;
-    use core::block::BlockBuilder;
-    use core::header::{Header, HeaderBuilder};
-    use core::transaction::{CellInput, CellOutput, Transaction, TransactionBuilder};
-    use db::memorydb::MemoryKeyValueDB;
+    use ckb_util::Mutex;
     use flatbuffers::FlatBufferBuilder;
     use fnv::{FnvHashMap, FnvHashSet};
-    use network::{
-        random_peer_id, CKBProtocolContext, Endpoint, Error as NetworkError, PeerIndex, PeerInfo,
-        ProtocolId, SessionInfo, Severity, TimerToken,
-    };
     use std::ops::Deref;
     use std::time::Duration;
-    use util::Mutex;
 
     fn start_chain(
         consensus: Option<Consensus>,

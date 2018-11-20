@@ -2,10 +2,10 @@ use super::super::block_verifier::{BlockVerifier, CellbaseVerifier, EmptyVerifie
 use super::super::error::{CellbaseError, Error as VerifyError};
 use super::dummy::DummyChainProvider;
 use bigint::H256;
+use ckb_core::block::BlockBuilder;
+use ckb_core::transaction::{CellInput, CellOutput, OutPoint, Transaction, TransactionBuilder};
+use ckb_core::Capacity;
 use ckb_shared::error::SharedError;
-use core::block::BlockBuilder;
-use core::transaction::{CellInput, CellOutput, OutPoint, Transaction, TransactionBuilder};
-use core::Capacity;
 use std::collections::HashMap;
 use Verifier;
 

@@ -1,9 +1,9 @@
 use bigint::H256;
+use ckb_core::transaction::Transaction;
+use ckb_network::CKBProtocolContext;
+use ckb_network::PeerIndex;
 use ckb_protocol::{BlockTransactions, FlatbuffersVectorIterator};
 use ckb_shared::index::ChainIndex;
-use core::transaction::Transaction;
-use network::CKBProtocolContext;
-use network::PeerIndex;
 use relayer::Relayer;
 use std::sync::Arc;
 

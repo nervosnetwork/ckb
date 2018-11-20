@@ -1,10 +1,10 @@
 use super::Result;
 use bigint::H256;
-use core::transaction_meta::TransactionMeta;
+use ckb_core::transaction_meta::TransactionMeta;
 use node::{get, insert, DBNode};
 
-use db::batch::{Batch, Col};
-use db::kvdb::KeyValueDB;
+use ckb_db::batch::{Batch, Col};
+use ckb_db::kvdb::KeyValueDB;
 
 use std::sync::Arc;
 
@@ -475,7 +475,7 @@ impl AvlTree {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use db::memorydb::MemoryKeyValueDB;
+    use ckb_db::memorydb::MemoryKeyValueDB;
 
     const TEST_COL: Col = Some(0);
 

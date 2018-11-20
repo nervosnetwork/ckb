@@ -1,12 +1,12 @@
 use super::Verifier;
 use bigint::U256;
-use core::header::Header;
+use ckb_core::header::Header;
+use ckb_pow::PowEngine;
+use ckb_time::now_ms;
 use error::{DifficultyError, Error, NumberError, PowError, TimestampError};
-use pow::PowEngine;
 use shared::ALLOWED_FUTURE_BLOCKTIME;
 use std::marker::PhantomData;
 use std::sync::Arc;
-use time::now_ms;
 
 pub trait HeaderResolver {
     fn header(&self) -> &Header;

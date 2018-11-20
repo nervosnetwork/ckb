@@ -2,9 +2,9 @@ use super::super::transaction_verifier::{
     CapacityVerifier, DuplicateInputsVerifier, EmptyVerifier, NullVerifier,
 };
 use bigint::H256;
-use core::cell::CellStatus;
-use core::cell::ResolvedTransaction;
-use core::transaction::{CellInput, CellOutput, OutPoint, TransactionBuilder};
+use ckb_core::cell::CellStatus;
+use ckb_core::cell::ResolvedTransaction;
+use ckb_core::transaction::{CellInput, CellOutput, OutPoint, TransactionBuilder};
 use error::TransactionError;
 
 #[test]

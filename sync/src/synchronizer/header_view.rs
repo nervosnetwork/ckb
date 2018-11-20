@@ -1,5 +1,5 @@
 use bigint::{H256, U256};
-use core::header::{BlockNumber, Header};
+use ckb_core::header::{BlockNumber, Header};
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct HeaderView {

@@ -1,4 +1,4 @@
-use db::kvdb::Error as DBError;
+use ckb_db::kvdb::Error as DBError;
 
 #[derive(Debug, PartialEq, Clone, Eq)]
 pub enum SharedError {

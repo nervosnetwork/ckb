@@ -1,6 +1,7 @@
 #![cfg_attr(feature = "cargo-clippy", allow(needless_pass_by_value))]
 
 use super::Network;
+use ckb_util::Mutex;
 use fnv::FnvHashMap;
 use futures::future::{self, Future};
 use futures::Stream;
@@ -24,7 +25,6 @@ use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::timer::Interval;
 use tokio::timer::Timeout;
 use transport::TransportOutput;
-use util::Mutex;
 
 pub struct DiscoveryService {
     timeout: Duration,
