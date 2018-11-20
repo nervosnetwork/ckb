@@ -36,7 +36,7 @@ use timer_service::TimerService;
 use tokio::io::{AsyncRead, AsyncWrite};
 use transport::{new_transport, TransportOutput};
 
-const WAIT_LOCK_TIMEOUT: u64 = 3;
+// const WAIT_LOCK_TIMEOUT: u64 = 3;
 const KBUCKETS_TIMEOUT: u64 = 600;
 const DIAL_BOOTNODE_TIMEOUT: u64 = 20;
 
@@ -146,10 +146,7 @@ impl Network {
         endpoint: Endpoint,
         addresses: Option<Vec<Multiaddr>>,
     ) -> Result<UniqueConnec<(UnboundedSender<Bytes>, u8)>, Error> {
-        let mut peers_registry = self
-            .peers_registry()
-            .try_write_for(Duration::from_secs(WAIT_LOCK_TIMEOUT))
-            .expect("get ckb protocol connec");
+        let mut peers_registry = self.peers_registry().write();
         // get peer protocol_connection
         match peers_registry.new_peer(peer_id.clone(), endpoint) {
             Ok(_) => {
