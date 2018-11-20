@@ -16,7 +16,9 @@ Please note we have a code of conduct, please follow it in all your interactions
 
 * If possible, use the relevant bug report templates to create the issue.
 
-### Fix Bug
+### Send PR
+
+* See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
 * Open a new GitHub pull request with the patch.
 
