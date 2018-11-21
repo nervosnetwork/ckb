@@ -31,6 +31,27 @@ impl Directories {
     }
 }
 
+/// This method tries to look for a file with optional relative directories.
+/// Specifically, it searches in the following order:
+/// * First it tries +path+ as an absolute path
+/// * If it doesn't work, it tries appending each relative dir here with path,
+/// and returns the first file that exists.
+pub fn resolve_path_with_relative_dirs<P: AsRef<Path>>(
+    path: P,
+    relative_dirs: &[PathBuf],
+) -> Option<PathBuf> {
+    if path.as_ref().is_file() {
+        return Some(path.as_ref().to_path_buf());
+    }
+    for dir in relative_dirs {
+        let full_path = Path::new(dir).join(&path);
+        if full_path.is_file() {
+            return Some(full_path);
+        }
+    }
+    None
+}
+
 /// Default data path
 pub fn default_base_path() -> PathBuf {
     dirs::data_dir()

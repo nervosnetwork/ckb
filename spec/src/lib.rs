@@ -8,6 +8,7 @@
 
 extern crate bigint;
 extern crate ckb_core;
+extern crate dir;
 extern crate serde_json;
 #[macro_use]
 extern crate serde_derive;
@@ -22,9 +23,10 @@ use ckb_core::transaction::{CellOutput, Transaction, TransactionBuilder};
 use ckb_core::Capacity;
 use ckb_pow::{Pow, PowEngine};
 use consensus::Consensus;
+use dir::resolve_path_with_relative_dirs;
 use std::error::Error;
 use std::fs::File;
-use std::io::{ErrorKind, Read, Result as IOResult};
+use std::io::{Error as IOError, ErrorKind, Read};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -90,56 +92,30 @@ fn build_system_cell_transaction(cells: &[SystemCell]) -> Result<Transaction, Bo
     Ok(TransactionBuilder::default().outputs(outputs).build())
 }
 
-fn update_system_cell_paths<P: AsRef<Path>>(spec_path: P, spec: &mut ChainSpec) {
-    for cell in &mut spec.system_cells {
-        {
-            let path = Path::new(&cell.path);
-            if path.is_file() {
-                // system cell file already exists, no processing needed
-                continue;
-            }
-        }
-        // try path relative from the directory that spec file lives in
-        let path2 = spec_path.as_ref().parent().unwrap().join(&cell.path);
-        if path2.is_file() {
-            let path2_str = path2.to_str().unwrap();
-            cell.path = path2_str.to_string();
-        }
-    }
-}
-
-// This method looks for a spec file to use, it looks in the following order:
-// * First it tries using path as absolute path
-// * Then it tries appending each relative directory with path
-// As soon as it finds a file that exists, it would return that path.
-fn open_spec_file<P: AsRef<Path>>(path: P, relative_dirs: &[PathBuf]) -> IOResult<(File, PathBuf)> {
-    if let Ok(file) = File::open(&path) {
-        return Ok((file, path.as_ref().to_path_buf()));
-    }
-    for dir in relative_dirs {
-        let full_path = Path::new(dir).join(&path);
-        if let Ok(file) = File::open(&full_path) {
-            return Ok((file, full_path));
-        }
-    }
-    Err(ErrorKind::NotFound.into())
-}
-
 impl ChainSpec {
     pub fn read_from_file<P: AsRef<Path>>(
         path: P,
         relative_dirs: &[PathBuf],
     ) -> Result<ChainSpec, Box<Error>> {
-        let (file, path) = open_spec_file(&path, relative_dirs)?;
-        let mut spec = serde_json::from_reader(file)?;
-        update_system_cell_paths(path, &mut spec);
-        Ok(spec)
+        if let Some(path) = resolve_path_with_relative_dirs(&path, relative_dirs) {
+            let file = File::open(&path)?;
+            let mut spec: ChainSpec = serde_json::from_reader(file)?;
+            let mut dirs = vec![path.parent().unwrap().to_path_buf()];
+            dirs.extend_from_slice(relative_dirs);
+            spec.update_system_cell_paths(&dirs);
+            return Ok(spec);
+        }
+        Err(Box::new(IOError::new(
+            ErrorKind::NotFound,
+            "spec not found!",
+        )))
     }
 
     pub fn new_dev() -> Result<ChainSpec, Box<Error>> {
         let mut spec: ChainSpec = serde_json::from_str(include_str!("../res/dev.json"))?;
         let spec_path = Path::new(file!()).parent().unwrap().join("../res/dev.json");
-        update_system_cell_paths(&spec_path, &mut spec);
+        let dirs = vec![spec_path.parent().unwrap().to_path_buf()];
+        spec.update_system_cell_paths(&dirs);
         Ok(spec)
     }
 
@@ -173,6 +149,14 @@ impl ChainSpec {
             .set_pow(self.pow.clone());
 
         Ok(consensus)
+    }
+
+    fn update_system_cell_paths(&mut self, relative_dirs: &[PathBuf]) {
+        for cell in &mut self.system_cells {
+            if let Some(path) = resolve_path_with_relative_dirs(&cell.path, relative_dirs) {
+                cell.path = path.to_str().unwrap().to_string();
+            }
+        }
     }
 }
 

@@ -11,6 +11,7 @@ ckb-core = { path = "../core" }
 serde_derive = "1.0"
 serde = "1.0"
 ckb-pow = { path = "../pow" }
+dir = { path = "../util/dir" }
 
 [dev-dependencies]
 tempfile = "3.0"
