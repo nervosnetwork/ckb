@@ -125,8 +125,8 @@ curl -d '{"id": 2, "jsonrpc": "2.0", "method":"send_transaction","params": [{"ve
 Run multiple nodes in different `data-dir`:
 
 ```shell
-target/release/ckb --data-dir=/tmp/node1
-target/release/ckb --data-dir=/tmp/node2
+target/release/ckb run --data-dir=/tmp/node1
+target/release/ckb run --data-dir=/tmp/node2
 ```
 
 The file `config.json` in `data-dir` overrides default configurations. Start with the default one:
