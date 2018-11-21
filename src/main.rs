@@ -68,7 +68,7 @@ fn main() {
         },
         ("run", Some(run_matches)) => match Setup::new(&run_matches) {
             Ok(setup) => cli::run(setup),
-            Err(e) => println!("Failed to setup, cause err {:?}", e),
+            Err(e) => println!("Failed to setup, cause err {}", e.description()),
         },
         ("export", Some(export_matches)) => cli::export(&export_matches),
         ("import", Some(import_matches)) => cli::import(&import_matches),
