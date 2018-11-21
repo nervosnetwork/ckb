@@ -4,7 +4,6 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 const APP_NANE: &str = "ckb";
-const APP_AUTHOR: &str = "NervosDev";
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct Directories {
@@ -33,10 +32,7 @@ impl Directories {
 
 /// Default data path
 pub fn default_base_path() -> PathBuf {
-    dirs::data_dir()
-        .unwrap_or_else(home_dir)
-        .join(APP_AUTHOR)
-        .join(APP_NANE)
+    dirs::data_dir().unwrap_or_else(home_dir).join(APP_NANE)
 }
 
 /// Get home directory.
