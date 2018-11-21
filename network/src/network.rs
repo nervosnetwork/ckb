@@ -8,7 +8,7 @@ use ckb_protocol_handler::CKBProtocolHandler;
 use ckb_protocol_handler::DefaultCKBProtocolContext;
 use ckb_service::CKBService;
 use ckb_util::{Mutex, RwLock};
-use discovery_service::DiscoveryService;
+use discovery_service::{DiscoveryQueryService, DiscoveryService, KadManage};
 use futures::future::{self, select_all, Future};
 use futures::sync::mpsc::UnboundedSender;
 use futures::sync::oneshot;
@@ -152,7 +152,6 @@ impl Network {
             Ok(_) => {
                 let mut peer = peers_registry.get_mut(&peer_id).unwrap();
                 if let Some(addresses) = addresses {
-                    // consider store all addresses in peerstore?
                     peer.append_addresses(addresses.clone());
                 }
                 if let Some(protocol_connec) = peer
@@ -429,30 +428,37 @@ impl Network {
                 ),
             ));
         }
+        let kad_upgrade = kad::KadConnecConfig::new();
+        let kad_manage = Arc::new(Mutex::new(KadManage::new(
+            Arc::clone(&network),
+            kad_upgrade.clone(),
+        )));
+        let kad_system = {
+            let peer_store = network.peer_store().read();
+            let known_initial_peers: Box<Iterator<Item = PeerId>> = Box::new(
+                peer_store
+                    .bootnodes()
+                    .map(|(peer_id, _)| peer_id.to_owned())
+                    .take(100)
+                    .collect::<Vec<_>>()
+                    .into_iter(),
+            ) as Box<_>;
+            Arc::new(kad::KadSystem::without_init(kad::KadSystemConfig {
+                parallelism: 1,
+                local_peer_id: local_peer_id.clone(),
+                kbuckets_timeout: Duration::from_secs(KBUCKETS_TIMEOUT),
+                request_timeout: config.discovery_timeout,
+                known_initial_peers,
+            }))
+        };
 
         let ping_service = Arc::new(PingService::new(config.ping_interval, config.ping_timeout));
         let discovery_service = Arc::new(DiscoveryService::new(
             config.discovery_timeout,
             config.discovery_response_count,
             config.discovery_interval,
-            {
-                let peer_store = network.peer_store().read();
-                let known_initial_peers: Box<Iterator<Item = PeerId>> = Box::new(
-                    peer_store
-                        .bootnodes()
-                        .map(|(peer_id, _)| peer_id.to_owned())
-                        .take(100)
-                        .collect::<Vec<_>>()
-                        .into_iter(),
-                ) as Box<_>;
-                kad::KadSystemConfig {
-                    parallelism: 5,
-                    local_peer_id: local_peer_id.clone(),
-                    kbuckets_timeout: Duration::from_secs(KBUCKETS_TIMEOUT),
-                    request_timeout: config.discovery_timeout,
-                    known_initial_peers,
-                }
-            },
+            Arc::clone(&kad_manage),
+            Arc::clone(&kad_system),
         ));
         let identify_service = Arc::new(IdentifyService {
             client_version,
@@ -462,7 +468,7 @@ impl Network {
         });
 
         let ckb_protocol_service = Arc::new(CKBService {
-            kad_system: Arc::clone(&discovery_service.kad_system),
+            kad_system: Arc::clone(&kad_system),
         });
         let timer_service = Arc::new(TimerService {
             timer_registry: Arc::clone(&timer_registry),
@@ -476,7 +482,7 @@ impl Network {
             let transport = basic_transport.clone();
             transport.and_then({
                 let network = Arc::clone(&network);
-                let kad_upgrade = discovery_service.kad_upgrade.clone();
+                let kad_upgrade = kad_upgrade.clone();
                 move |out, endpoint, fut| {
                     let peer_id = Arc::new(out.peer_id);
                     let original_addr = out.original_addr;
@@ -587,19 +593,30 @@ impl Network {
             }
         }
 
+        let discovery_query_service = DiscoveryQueryService::new(
+            Arc::clone(&network),
+            swarm_controller.clone(),
+            basic_transport.clone(),
+            config.discovery_interval,
+            Arc::clone(&kad_system),
+            Arc::clone(&kad_manage),
+            kad_upgrade.clone(),
+        );
+
         // prepare services futures
         let futures: Vec<Box<Future<Item = (), Error = IoError> + Send>> = vec![
             Box::new(swarm_events.for_each(|_| Ok(()))),
+            Box::new(
+                discovery_query_service
+                    .into_future()
+                    .map(|_| ())
+                    .map_err(|(err, _)| err),
+            ) as Box<Future<Item = (), Error = IoError> + Send>,
             ping_service.start_protocol(
                 Arc::clone(&network),
                 swarm_controller.clone(),
                 basic_transport.clone(),
             ),
-            // discovery_service.start_protocol(
-            //     Arc::clone(&network),
-            //     swarm_controller.clone(),
-            //     basic_transport.clone(),
-            // ),
             identify_service.start_protocol(
                 Arc::clone(&network),
                 swarm_controller.clone(),

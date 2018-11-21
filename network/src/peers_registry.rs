@@ -189,6 +189,9 @@ impl PeersRegistry {
 
     // registry a new peer
     pub fn new_peer(&mut self, peer_id: PeerId, endpoint: Endpoint) -> Result<(), Error> {
+        if let Some(_) = self.peer_connections.get(&peer_id) {
+            return Ok(());
+        }
         let is_reserved = self.peer_store.read().is_reserved(&peer_id);
 
         if !is_reserved {
@@ -224,7 +227,8 @@ impl PeersRegistry {
             }
         }
         let peer = PeerConnection::new(endpoint);
-        self.add_peer(peer_id, peer);
+        let peer_index = self.add_peer(peer_id.clone(), peer);
+        debug!(target: "network", "allocate peer_index {} to peer {:?}", peer_index,peer_id);
         Ok(())
     }
 
@@ -288,10 +292,12 @@ impl PeersRegistry {
 
     #[inline]
     pub fn drop_all(&mut self) {
+        debug!(target: "network", "drop_all");
         self.peer_connections = Default::default();
     }
 
     pub(crate) fn ban_peer(&mut self, peer_id: PeerId, timeout: Duration) {
+        debug!(target: "network", "ban_peer: {:?}", peer_id);
         self.drop_peer(&peer_id);
         self.deny_list.ban_peer(peer_id, timeout);
     }

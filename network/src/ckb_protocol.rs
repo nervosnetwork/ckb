@@ -109,7 +109,10 @@ where
                 Err(err) => {
                     return {
                         error!(target: "network", "failed to upgrade ckb_protocol");
-                        future::err(IoError::new(IoErrorKind::Other, err))
+                        future::err(IoError::new(
+                            IoErrorKind::Other,
+                            format!("faild to upgrade ckb_protocol, error: {}", err),
+                        ))
                     }
                 }
             };
@@ -214,7 +217,7 @@ impl<T> CKBProtocol<T> {
                                         }
                                 }}
                                 Err(e) => {
-                                    future::Either::A(future::err(e))
+                                    future::Either::A(future::err(IoError::new(IoErrorKind::Other, format!("error when receive data: {}", e))))
                                 }
                             }
                         }

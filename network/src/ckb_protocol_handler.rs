@@ -98,6 +98,7 @@ impl CKBProtocolContext for DefaultCKBProtocolContext {
     }
     // disconnect from peer
     fn disconnect(&self, peer_index: PeerIndex) {
+        debug!(target: "network", "disconnect peer {}", peer_index);
         let mut peers_registry = self.network.peers_registry().write();
         if let Some(peer_id) = peers_registry
             .get_peer_id(peer_index)

@@ -164,7 +164,7 @@ impl Default for NetworkConfig {
             ping_timeout: Duration::from_secs(30),
             discovery_timeout: Duration::from_secs(20),
             discovery_response_count: 20,
-            discovery_interval: Duration::from_secs(30),
+            discovery_interval: Duration::from_secs(15),
             identify_timeout: Duration::from_secs(30),
             identify_interval: Duration::from_secs(15),
             outgoing_timeout: Duration::from_secs(30),

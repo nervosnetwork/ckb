@@ -131,7 +131,10 @@ impl<T: Send> ProtocolService<T> for PingService {
                                         let peer_id = peer_id.clone();
                                         move |mut pinger| {
                                             pinger.ping().map(|_| peer_id).map_err(|err| {
-                                                IoError::new(IoErrorKind::Other, err)
+                                                IoError::new(
+                                                    IoErrorKind::Other,
+                                                    format!("pinger error {}", err),
+                                                )
                                             })
                                         }
                                     });
