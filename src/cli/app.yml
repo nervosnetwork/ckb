@@ -2,6 +2,8 @@ name: ckb
 author: Nervos Core Dev <dev@nervos.org>
 about: Nervos CKB - The Common Knowledge Base
 
+settings:
+    - ArgRequiredElseHelp
 subcommands:
     - run:
         about: Running ckb node
@@ -78,6 +80,8 @@ subcommands:
                 required: true
     - cli:
         about: Running ckb cli
+        settings:
+            - ArgRequiredElseHelp
         subcommands:
             - sign:
                 about: Sign transaction using sha3-secp256k1 defined in system cell

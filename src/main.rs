@@ -36,10 +36,11 @@ mod cli;
 mod helper;
 mod setup;
 
+use build_info::Version;
 use setup::Setup;
+
 pub const DEFAULT_CONFIG_FILENAME: &str = "config.json";
 pub const DEFAULT_CONFIG: &str = include_str!("config/default.json");
-use build_info::Version;
 
 fn main() {
     // Always print backtrace on panic.
@@ -63,7 +64,7 @@ fn main() {
                 Err(e) => println!("Failed to setup, cause err {}", e.description()),
             },
             ("keygen", _) => cli::keygen(),
-            _ => println!("Invalid client subcommand"),
+            _ => unreachable!(),
         },
         ("run", Some(run_matches)) => match Setup::new(&run_matches) {
             Ok(setup) => cli::run(setup),
@@ -71,6 +72,6 @@ fn main() {
         },
         ("export", Some(export_matches)) => cli::export(&export_matches),
         ("import", Some(import_matches)) => cli::import(&import_matches),
-        _ => println!("Invalid subcommand"),
+        _ => unreachable!(),
     }
 }
