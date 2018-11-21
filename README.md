@@ -29,7 +29,7 @@ The contribution workflow is described in [CONTRIBUTING.md](CONTRIBUTING.md), an
 
 ## Build dependencies
 
-Nervos is currently tested mainly with `stabe-1.29.2`.
+Nervos is currently tested mainly with `stable-1.29.2`.
 
 We recommend installing Rust through [rustup](https://www.rustup.rs/)
 
@@ -57,6 +57,17 @@ sudo ln -s /usr/lib/gcc/x86_64-linux-gnu/7/include/stdarg.h /usr/include/stdarg.
 sudo ln -s /usr/lib/gcc/x86_64-linux-gnu/7/include/stddef.h /usr/include/stddef.h
 ```
 
+* Archlinux
+
+```shell
+sudo pacman -Sy git autoconf flex bison texinfo libtool pkg-config openssl-1.0 clang
+```
+
+If you get openssl related errors in compiling, try the following environment variables to specify openssl-1.0:
+
+```shell
+OPENSSL_INCLUDE_DIR=/usr/include/openssl-1.0 OPENSSL_LIB_DIR=/usr/lib/openssl-1.0 cargo build --release
+```
 
 * OSX:
 
@@ -69,9 +80,13 @@ brew install autoconf libtool
 ## Build from source & testing
 
 ```bash
-# download Nervos
+# get ckb source code
 git clone https://github.com/nervosnetwork/ckb.git
 cd ckb
+
+# get ckb-vm submodule
+git submodule init
+git submodule update
 
 # build in release mode
 cargo build --release
