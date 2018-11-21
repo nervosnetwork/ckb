@@ -9,6 +9,7 @@ use config_tool::{Config as ConfigTool, File, FileFormat};
 use dir::{default_base_path, Directories};
 use logger::Config as LogConfig;
 use std::error::Error;
+use std::path::Path;
 use {DEFAULT_CONFIG, DEFAULT_CONFIG_FILENAME};
 
 #[derive(Clone, Debug)]
@@ -36,11 +37,13 @@ pub struct Configs {
 
 impl Setup {
     pub fn new(matches: &clap::ArgMatches) -> Result<Self, Box<Error>> {
+        let mut search_dirs = vec![];
         let data_path = matches
             .value_of("data-dir")
             .map(Into::into)
             .unwrap_or_else(default_base_path);
         let dirs = Directories::new(&data_path);
+        search_dirs.push(data_path.clone());
 
         let mut config_tool = ConfigTool::new();
         config_tool.merge(File::from_str(DEFAULT_CONFIG, FileFormat::Json))?;
@@ -49,6 +52,7 @@ impl Setup {
         // otherwise load the default config from data-dir
         if let Some(config_path) = matches.value_of("config") {
             config_tool.merge(File::with_name(config_path).required(true))?;
+            search_dirs.push(Path::new(config_path).parent().unwrap().to_path_buf());
         } else {
             config_tool.merge(
                 File::with_name(data_path.join(DEFAULT_CONFIG_FILENAME).to_str().unwrap())
@@ -73,7 +77,7 @@ impl Setup {
             .unwrap_or_else(|| &configs.ckb.chain)
             .parse()?;
 
-        let chain_spec = spec_type.load_spec()?;
+        let chain_spec = spec_type.load_spec::<String>(&search_dirs)?;
 
         Ok(Setup {
             configs,

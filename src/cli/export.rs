@@ -9,15 +9,18 @@ use clap::ArgMatches;
 use config_tool::{Config as ConfigTool, File, FileFormat};
 use dir::default_base_path;
 use dir::Directories;
+use std::path::Path;
 use {DEFAULT_CONFIG, DEFAULT_CONFIG_FILENAME};
 
 pub fn export(matches: &ArgMatches) {
     let format = value_t!(matches.value_of("format"), Format).unwrap_or_else(|e| e.exit());
+    let mut search_dirs = vec![];
 
     let data_path = matches
         .value_of("data-dir")
         .map(Into::into)
         .unwrap_or_else(default_base_path);
+    search_dirs.push(data_path.clone());
 
     let mut config_tool = ConfigTool::new();
     config_tool
@@ -28,6 +31,7 @@ pub fn export(matches: &ArgMatches) {
         config_tool
             .merge(File::with_name(config_path).required(true))
             .unwrap_or_else(|e| panic!("Config load error {:?} ", e));
+        search_dirs.push(Path::new(config_path).parent().unwrap().to_path_buf());
     } else {
         config_tool
             .merge(
@@ -52,7 +56,7 @@ pub fn export(matches: &ArgMatches) {
         .parse()
         .unwrap_or_else(|e| panic!("parse spec error {:?} ", e));
     let spec = spec_type
-        .load_spec()
+        .load_spec::<String>(&search_dirs)
         .unwrap_or_else(|e| panic!("load spec error {:?} ", e));
 
     let shared = SharedBuilder::<ChainKVStore<CacheDB<RocksDB>>>::new_rocks(&db_path)

@@ -24,8 +24,8 @@ use ckb_pow::{Pow, PowEngine};
 use consensus::Consensus;
 use std::error::Error;
 use std::fs::File;
-use std::io::Read;
-use std::path::Path;
+use std::io::{ErrorKind, Read, Result as IOResult};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 pub mod consensus;
@@ -108,9 +108,29 @@ fn update_system_cell_paths<P: AsRef<Path>>(spec_path: P, spec: &mut ChainSpec) 
     }
 }
 
+// This method looks for a spec file to use, it looks in the following order:
+// * First it tries using path as absolute path
+// * Then it tries appending each relative directory with path
+// As soon as it finds a file that exists, it would return that path.
+fn open_spec_file<P: AsRef<Path>>(path: P, relative_dirs: &[PathBuf]) -> IOResult<(File, PathBuf)> {
+    if let Ok(file) = File::open(&path) {
+        return Ok((file, path.as_ref().to_path_buf()));
+    }
+    for dir in relative_dirs {
+        let full_path = Path::new(dir).join(&path);
+        if let Ok(file) = File::open(&full_path) {
+            return Ok((file, full_path));
+        }
+    }
+    Err(ErrorKind::NotFound.into())
+}
+
 impl ChainSpec {
-    pub fn read_from_file<P: AsRef<Path>>(path: P) -> Result<ChainSpec, Box<Error>> {
-        let file = File::open(&path)?;
+    pub fn read_from_file<P: AsRef<Path>>(
+        path: P,
+        relative_dirs: &[PathBuf],
+    ) -> Result<ChainSpec, Box<Error>> {
+        let (file, path) = open_spec_file(&path, relative_dirs)?;
         let mut spec = serde_json::from_reader(file)?;
         update_system_cell_paths(path, &mut spec);
         Ok(spec)
@@ -168,10 +188,13 @@ impl ::std::str::FromStr for SpecType {
 }
 
 impl SpecType {
-    pub fn load_spec(self) -> Result<ChainSpec, Box<Error>> {
+    pub fn load_spec<P: AsRef<Path>>(
+        self,
+        relative_dirs: &[PathBuf],
+    ) -> Result<ChainSpec, Box<Error>> {
         match self {
             SpecType::Dev => ChainSpec::new_dev(),
-            SpecType::Custom(ref filename) => ChainSpec::read_from_file(filename),
+            SpecType::Custom(ref filename) => ChainSpec::read_from_file(filename, relative_dirs),
         }
     }
 }
@@ -247,11 +270,61 @@ pub mod test {
         let cell2_path = tmp_dir.path().join("cell2");
         write_file(&cell2_path, "cell2");
 
-        let result = ChainSpec::read_from_file(chain_spec_path);
+        let result = ChainSpec::read_from_file(chain_spec_path, &vec![]);
         assert!(result.is_ok());
 
         let spec = result.unwrap();
-        assert_eq!(spec.system_cells[0].path, cell1_path.to_str().unwrap().to_string());
-        assert_eq!(spec.system_cells[1].path, cell2_path.to_str().unwrap().to_string());
+        assert_eq!(
+            spec.system_cells[0].path,
+            cell1_path.to_str().unwrap().to_string()
+        );
+        assert_eq!(
+            spec.system_cells[1].path,
+            cell2_path.to_str().unwrap().to_string()
+        );
+    }
+
+    #[test]
+    fn test_chain_spec_load_from_relative_dirs() {
+        let tmp_dir = tempfile::Builder::new()
+            .prefix("test_chain_spec_load_from_relative_dirs")
+            .tempdir()
+            .unwrap();
+
+        let test_spec = r#"
+        {
+            "name": "ckb_test_chain_spec",
+            "genesis": {
+                "seal": {
+                    "nonce": 233,
+                    "proof": [2, 3, 3]
+                },
+                "version": 0,
+                "parent_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                "timestamp": 0,
+                "txs_commit": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                "txs_proposal": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                "difficulty": "0x233",
+                "cellbase_id": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                "uncles_hash": "0x0000000000000000000000000000000000000000000000000000000000000000"
+            },
+            "params": {
+                "initial_block_reward": 233
+            },
+            "system_cells": [],
+            "pow": {
+                "Cuckoo": {
+                    "edge_bits": 29,
+                    "cycle_length": 42
+                }
+            }
+        }
+        "#;
+        let chain_spec_path = tmp_dir.path().join("ckb_test_custom.json");
+        write_file(&chain_spec_path, test_spec);
+
+        let result =
+            ChainSpec::read_from_file("ckb_test_custom.json", &vec![tmp_dir.path().to_path_buf()]);
+        assert!(result.is_ok());
     }
 }
