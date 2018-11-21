@@ -3,7 +3,7 @@ require 'json'
 require 'net/http'
 require 'uri'
 
-URL      = ARGV[0] || "http://localhost:3030"
+URL      = ARGV[0] || "http://localhost:8114"
 CKB_BIN  = ARGV[1] || "./target/debug/ckb"
 ACCOUNTS = [
     {

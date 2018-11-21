@@ -9,14 +9,10 @@
     },
     "network": {
         "listen_addresses": [
-            "/ip4/0.0.0.0/tcp/0"
+            "/ip4/0.0.0.0/tcp/8115"
         ],
-        "boot_nodes": [
-            "/ip4/127.0.0.1/tcp/12345/p2p/QmVMJYDCL2vDnk4PmRGNdDRTWRnfeboUsriYA9CixJsBRf"
-        ],
-        "reserved_nodes": [
-            "/ip4/127.0.0.1/tcp/12345/p2p/QmVMJYDCL2vDnk4PmRGNdDRTWRnfeboUsriYA9CixJsBRf"
-        ],
+        "boot_nodes": [],
+        "reserved_nodes": [],
         "only_reserved_peers": false,
         "min_peers": 4,
         "max_peers": 8,
@@ -24,7 +20,7 @@
         "nodes_file": "nodes.json"
     },
     "rpc": {
-        "listen_addr": "0.0.0.0:0"
+        "listen_addr": "0.0.0.0:8114"
     },
     "sync": {
         "verification_level": "Full",
