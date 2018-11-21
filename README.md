@@ -135,6 +135,6 @@ The file `config.json` in `data-dir` overrides default configurations. Start wit
 cp src/config/default.json /tmp/node1/config.json
 ```
 
-The option `ckb.chain` configures the chain spec. It accepts a pre-defined spec or the path to a customized spec JSON file. The directory `spec/res` has all the pre-defined specs. **Please attention that**, nodes with different chan specs may hard fork.
+The option `ckb.chain` configures the chain spec. It accepts a pre-defined spec or the path to a customized spec JSON file. The directory `spec/res` has all the pre-defined specs. Please note that nodes with different chain specs may fail to connect with each other.
 
 The chain spec can switch between different PoW engines. Wiki has the [instructions](https://github.com/nervosnetwork/ckb/wiki/PoW-Engines) about how to configure it.
