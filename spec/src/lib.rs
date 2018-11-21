@@ -12,6 +12,8 @@ extern crate serde_json;
 #[macro_use]
 extern crate serde_derive;
 extern crate ckb_pow;
+#[cfg(test)]
+extern crate tempfile;
 
 use bigint::{H256, U256};
 use ckb_core::block::BlockBuilder;
@@ -88,21 +90,36 @@ fn build_system_cell_transaction(cells: &[SystemCell]) -> Result<Transaction, Bo
     Ok(TransactionBuilder::default().outputs(outputs).build())
 }
 
+fn update_system_cell_paths<P: AsRef<Path>>(spec_path: P, spec: &mut ChainSpec) {
+    for cell in &mut spec.system_cells {
+        {
+            let path = Path::new(&cell.path);
+            if path.is_file() {
+                // system cell file already exists, no processing needed
+                continue;
+            }
+        }
+        // try path relative from the directory that spec file lives in
+        let path2 = spec_path.as_ref().parent().unwrap().join(&cell.path);
+        if path2.is_file() {
+            let path2_str = path2.to_str().unwrap();
+            cell.path = path2_str.to_string();
+        }
+    }
+}
+
 impl ChainSpec {
     pub fn read_from_file<P: AsRef<Path>>(path: P) -> Result<ChainSpec, Box<Error>> {
-        let file = File::open(path)?;
-        let spec = serde_json::from_reader(file)?;
+        let file = File::open(&path)?;
+        let mut spec = serde_json::from_reader(file)?;
+        update_system_cell_paths(path, &mut spec);
         Ok(spec)
     }
 
     pub fn new_dev() -> Result<ChainSpec, Box<Error>> {
         let mut spec: ChainSpec = serde_json::from_str(include_str!("../res/dev.json"))?;
-        let system_cell_path = Path::new(file!()).parent().unwrap().join("../res/cells");
-        for cell in &mut spec.system_cells {
-            let path = system_cell_path.join(&cell.path);
-            let path_str = path.to_str().ok_or("invalid cell path")?;
-            cell.path = path_str.to_string();
-        }
+        let spec_path = Path::new(file!()).parent().unwrap().join("../res/dev.json");
+        update_system_cell_paths(&spec_path, &mut spec);
         Ok(spec)
     }
 
@@ -162,6 +179,10 @@ impl SpecType {
 #[cfg(test)]
 pub mod test {
     use super::*;
+    use std::fs::File;
+    use std::io::Write;
+    use std::path::Path;
+    use tempfile;
 
     #[test]
     fn test_spec_type_parse() {
@@ -172,5 +193,65 @@ pub mod test {
     fn test_chain_spec_load() {
         let dev = ChainSpec::new_dev();
         assert!(dev.is_ok());
+    }
+
+    fn write_file<P: AsRef<Path>>(file: P, content: &str) {
+        let mut file = File::create(file).expect("test dir clean");
+        file.write_all(content.as_bytes())
+            .expect("write test content");;
+    }
+
+    #[test]
+    fn test_chain_spec_load_adjust_system_cell_paths() {
+        let tmp_dir = tempfile::Builder::new()
+            .prefix("test_chain_spec_load_adjust_system_cell_paths")
+            .tempdir()
+            .unwrap();
+
+        let test_spec = r#"
+        {
+            "name": "ckb_test_chain_spec",
+            "genesis": {
+                "seal": {
+                    "nonce": 233,
+                    "proof": [2, 3, 3]
+                },
+                "version": 0,
+                "parent_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                "timestamp": 0,
+                "txs_commit": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                "txs_proposal": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                "difficulty": "0x233",
+                "cellbase_id": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                "uncles_hash": "0x0000000000000000000000000000000000000000000000000000000000000000"
+            },
+            "params": {
+                "initial_block_reward": 233
+            },
+            "system_cells": [
+                {"path": "cell1"},
+                {"path": "cell2"}
+            ],
+            "pow": {
+                "Cuckoo": {
+                    "edge_bits": 29,
+                    "cycle_length": 42
+                }
+            }
+        }
+        "#;
+        let chain_spec_path = tmp_dir.path().join("ckb_test_custom.json");
+        write_file(&chain_spec_path, test_spec);
+        let cell1_path = tmp_dir.path().join("cell1");
+        write_file(&cell1_path, "cell1");
+        let cell2_path = tmp_dir.path().join("cell2");
+        write_file(&cell2_path, "cell2");
+
+        let result = ChainSpec::read_from_file(chain_spec_path);
+        assert!(result.is_ok());
+
+        let spec = result.unwrap();
+        assert_eq!(spec.system_cells[0].path, cell1_path.to_str().unwrap().to_string());
+        assert_eq!(spec.system_cells[1].path, cell2_path.to_str().unwrap().to_string());
     }
 }

@@ -1,9 +1,9 @@
 {
     "__comments__": {
         "system_cells": [
-            "When loading dev.yaml, we will modify the path here to simplify loading,",
-            "but if you are copying this file elsewhere, you will need to provide full path ",
-            "or relative path to where ckb is executing."
+            "You can either specify absolute path of system cells,",
+            "or you can specify system cell pathes relative to the directory",
+            "that this spec file lives in."
         ],
 
         "edge_bits": [
@@ -36,8 +36,8 @@
         "initial_block_reward": 50000
     },
     "system_cells": [
-        {"path": "verify"},
-        {"path": "always_success"}
+        {"path": "cells/verify"},
+        {"path": "cells/always_success"}
     ],
     "pow": {
         "Cuckoo": {
