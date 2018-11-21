@@ -1,6 +1,6 @@
 <img src="https://raw.githubusercontent.com/poshboytl/tuchuang/master/nervos-logo-dark.png" width="256">
 
-# [Nervos CKB](http://nervos.org) - The Common Knowledge Base
+# [Nervos CKB](https://www.nervos.org/) - The Common Knowledge Base
 
 [![TravisCI](https://travis-ci.com/nervosnetwork/ckb.svg?token=y9uR6ygmT3geQaMJ4jpJ&branch=develop)](https://travis-ci.com/nervosnetwork/ckb)
 [![Telegram Group](https://cdn.rawgit.com/Patrolavia/telegram-badge/8fe3382b/chat.svg)](https://t.me/nervos_ckb_dev)
@@ -37,6 +37,7 @@ We recommend installing Rust through [rustup](https://www.rustup.rs/)
 # Get rustup from rustup.rs, then in your `ckb` folder:
 rustup override set 1.29.2
 rustup component add rustfmt-preview
+rustup component add clippy-preview
 ```
 
 Report new breakage is welcome.
@@ -69,19 +70,20 @@ brew install autoconf libtool
 
 ```bash
 # download Nervos
-$ git clone https://github.com/nervosnetwork/ckb.git
-$ cd ckb
+git clone https://github.com/nervosnetwork/ckb.git
+cd ckb
 
 # build in release mode
-$ cargo build --release
+cargo build --release
 ```
 
 You can run the full test suite, or just run a specific package test:
+
 ```bash
 # Run the full suite
-make test
+cargo test --all
 # Run a specific package test
-cargo test --package ckb-chain
+cargo test -p ckb-chain
 ```
 
 ---
@@ -91,7 +93,7 @@ cargo test --package ckb-chain
 ### Start Node
 
 ```shell
-target/release/ckb
+target/release/ckb run
 ```
 
 ### Send Transaction via RPC
@@ -99,20 +101,25 @@ target/release/ckb
 Find RPC port in the log output, the following command assumes 3030 is used:
 
 ```shell
-curl -d '{"id": 2, "jsonrpc": "2.0", "method":"send_transaction","params": [{"version":2, "inputs":[], "outputs":[], "groupings":[]}]}' \
+curl -d '{"id": 2, "jsonrpc": "2.0", "method":"send_transaction","params": [{"version":2, "inputs":[], "outputs":[], "deps":[]}]}' \
   -H 'content-type:application/json' 'http://localhost:3030'
 ```
 
-### Development running
+### Advanced
 
-Run multiple nodes:
+Run multiple nodes in different `data-dir`:
 
 ```shell
-$ cargo run -- run --data-dir=/tmp/node1
-$ cargo run -- run --data-dir=/tmp/node2
+target/release/ckb --data-dir=/tmp/node1
+target/release/ckb --data-dir=/tmp/node2
 ```
 
-Modify development config file
+The file `config.json` in `data-dir` overrides default configurations. Start with the default one:
+
 ```shell
 cp src/config/default.json /tmp/node1/config.json
 ```
+
+The option `ckb.chain` configures the chain spec. It accepts a pre-defined spec or the path to a customized spec JSON file. The directory `spec/res` has all the pre-defined specs. **Please attention that**, nodes with different chan specs may hard fork.
+
+The chain spec can switch between different PoW engines. Wiki has the [instructions](https://github.com/nervosnetwork/ckb/wiki/PoW-Engines) about how to configure it.
