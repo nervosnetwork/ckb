@@ -20,6 +20,7 @@ Nervos CKB is released under the terms of the MIT license. See [COPYING](COPYING
 ## Development Process
 
 This project is still in development, and it's NOT in production-ready status.
+The wiki also lists some [known issues](https://github.com/nervosnetwork/ckb/wiki/Known-Issues) that we are currently working on.
 
 The `master` branch is regularly built and tested, however, it is not guaranteed to be completely stable; The `develop` branch is the work branch to merge new features, and it's not stable.
 
