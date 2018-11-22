@@ -1,15 +1,17 @@
-use ckb_chain_spec::{ChainSpec, SpecType};
+use ckb_chain_spec::ChainSpec;
 use ckb_miner::Config as MinerConfig;
 use ckb_network::Config as NetworkConfig;
 use ckb_pool::txs_pool::PoolConfig;
 use ckb_rpc::Config as RpcConfig;
 use ckb_sync::Config as SyncConfig;
-use clap;
-use config_tool::{Config as ConfigTool, File, FileFormat};
-use dir::{default_base_path, Directories};
+use clap::ArgMatches;
+use config_tool::{Config as ConfigTool, File};
+use dir::Directories;
 use logger::Config as LogConfig;
 use std::error::Error;
-use {DEFAULT_CONFIG, DEFAULT_CONFIG_FILENAME};
+use std::path::{Path, PathBuf};
+
+const DEFAULT_CONFIG_PATHS: &[&str] = &["ckb.json", "nodes/default.json"];
 
 #[derive(Clone, Debug)]
 pub struct Setup {
@@ -20,11 +22,12 @@ pub struct Setup {
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct CKB {
-    pub chain: String,
+    pub chain: PathBuf,
 }
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct Configs {
+    pub data_dir: PathBuf,
     pub ckb: CKB,
     pub logger: LogConfig,
     pub network: NetworkConfig,
@@ -34,29 +37,23 @@ pub struct Configs {
     pub pool: PoolConfig,
 }
 
+pub fn get_config_path(matches: &ArgMatches) -> PathBuf {
+    to_absolute_path(
+        matches
+            .value_of("config")
+            .map_or_else(find_default_config_path, |v| {
+                require_path_exists(PathBuf::from(v))
+            }).unwrap_or_else(|| {
+                eprintln!("No config file found!");
+                ::std::process::exit(1);
+            }),
+    )
+}
+
 impl Setup {
-    pub fn new(matches: &clap::ArgMatches) -> Result<Self, Box<Error>> {
-        let data_path = matches
-            .value_of("data-dir")
-            .map(Into::into)
-            .unwrap_or_else(default_base_path);
-        let dirs = Directories::new(&data_path);
+    pub(crate) fn with_configs(mut configs: Configs) -> Result<Self, Box<Error>> {
+        let dirs = Directories::new(&configs.data_dir);
 
-        let mut config_tool = ConfigTool::new();
-        config_tool.merge(File::from_str(DEFAULT_CONFIG, FileFormat::Json))?;
-
-        // if config arg is present, open and load it as required,
-        // otherwise load the default config from data-dir
-        if let Some(config_path) = matches.value_of("config") {
-            config_tool.merge(File::with_name(config_path).required(true))?;
-        } else {
-            config_tool.merge(
-                File::with_name(data_path.join(DEFAULT_CONFIG_FILENAME).to_str().unwrap())
-                    .required(false),
-            )?;
-        }
-
-        let mut configs: Configs = config_tool.try_into()?;
         if let Some(file) = configs.logger.file {
             let mut path = dirs.join("logs");
             path.push(file);
@@ -67,13 +64,7 @@ impl Setup {
                 Some(dirs.join("network").to_string_lossy().to_string());
         }
 
-        //run with the --chain option or with a config file specifying chain = "path" under [ckb]
-        let spec_type: SpecType = matches
-            .value_of("chain")
-            .unwrap_or_else(|| &configs.ckb.chain)
-            .parse()?;
-
-        let chain_spec = spec_type.load_spec()?;
+        let chain_spec = ChainSpec::read_from_file(&configs.ckb.chain)?;
 
         Ok(Setup {
             configs,
@@ -81,15 +72,76 @@ impl Setup {
             dirs,
         })
     }
+
+    pub fn setup<T: AsRef<Path>>(config_path: T) -> Result<Self, Box<Error>> {
+        let mut config_tool = ConfigTool::new();
+
+        config_tool.merge(File::from(config_path.as_ref()))?;
+
+        let mut configs: Configs = config_tool.try_into()?;
+        configs.resolve_paths(config_path.as_ref().parent().unwrap());
+
+        Self::with_configs(configs)
+    }
+}
+
+impl Configs {
+    fn resolve_paths(&mut self, base: &Path) {
+        if self.data_dir.is_relative() {
+            self.data_dir = base.join(&self.data_dir);
+        }
+        if self.ckb.chain.is_relative() {
+            self.ckb.chain = base.join(&self.ckb.chain);
+        }
+    }
+}
+
+fn find_default_config_path() -> Option<PathBuf> {
+    DEFAULT_CONFIG_PATHS
+        .iter()
+        .map(PathBuf::from)
+        .find(|p| p.exists())
+}
+
+fn require_path_exists(path: PathBuf) -> Option<PathBuf> {
+    if path.exists() {
+        Some(path)
+    } else {
+        None
+    }
+}
+
+fn to_absolute_path(path: PathBuf) -> PathBuf {
+    if path.is_absolute() {
+        path
+    } else {
+        let mut absulute_path = ::std::env::current_dir().expect("get current_dir");
+        absulute_path.push(path);
+        absulute_path
+    }
 }
 
 #[cfg(test)]
 pub mod test {
     use super::*;
+    use config_tool::File as ConfigFile;
     use std::fs::File;
     use std::io::Write;
     use std::path::Path;
     use tempfile;
+
+    fn override_default_config_file<T: AsRef<Path>>(config_path: &T) -> Result<Setup, Box<Error>> {
+        let mut config_tool = ConfigTool::new();
+        let default_config_path =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("nodes/default.example.json");
+        config_tool.merge(ConfigFile::from(default_config_path.as_path()))?;
+        config_tool.merge(ConfigFile::from(config_path.as_ref()))?;
+
+        let mut configs: Configs = config_tool.try_into()?;
+        configs.resolve_paths(default_config_path.parent().unwrap());
+
+        Setup::with_configs(configs)
+    }
 
     fn write_file<P: AsRef<Path>>(file: P, content: &str) {
         let mut file = File::create(file).expect("test dir clean");
@@ -133,28 +185,11 @@ pub mod test {
     }
 
     #[test]
-    fn test_data_dir() {
-        let tmp_dir = tempfile::Builder::new()
-            .prefix("test_data_dir")
-            .tempdir()
-            .unwrap();
-        let data_path = tmp_dir.path().to_str().unwrap();
-        let arg_vec = vec!["ckb", "run", "--data-dir", data_path];
-        let yaml = load_yaml!("cli/app.yml");
-        let matches = clap::App::from_yaml(yaml).get_matches_from(arg_vec);
-        let setup = Setup::new(&matches.subcommand_matches("run").unwrap());
-        assert!(setup.is_ok());
-        assert_eq!(setup.unwrap().dirs.base, tmp_dir.path());
-    }
-
-    #[test]
     fn test_load_config() {
         let tmp_dir = tempfile::Builder::new()
             .prefix("test_load_config")
             .tempdir()
             .unwrap();
-
-        let data_path = tmp_dir.path().to_str().unwrap();
 
         let test_conifg = r#"{
             "network": {
@@ -162,44 +197,8 @@ pub mod test {
             }
         }"#;
         let config_path = tmp_dir.path().join("config.json");
-        write_file(config_path, test_conifg);
-        let arg_vec = vec!["ckb", "run", "--data-dir", data_path];
-        let yaml = load_yaml!("cli/app.yml");
-        let matches = clap::App::from_yaml(yaml).get_matches_from(arg_vec);
-        let setup = Setup::new(&matches.subcommand_matches("run").unwrap());
-        assert!(setup.is_ok());
-        assert_eq!(
-            setup.unwrap().configs.network.listen_addresses,
-            vec!["/ip4/1.1.1.1/tcp/1".parse().unwrap()]
-        );
-    }
-
-    #[test]
-    fn test_specify_config() {
-        let tmp_dir = tempfile::Builder::new()
-            .prefix("test_specify_config")
-            .tempdir()
-            .unwrap();
-        let data_path = tmp_dir.path().to_str().unwrap();
-
-        let test_conifg = r#"{
-            "network": {
-                "listen_addresses": ["/ip4/1.1.1.1/tcp/1"]
-            }
-        }"#;
-        let config_path = tmp_dir.path().join("specify.json");
         write_file(&config_path, test_conifg);
-        let arg_vec = vec![
-            "ckb",
-            "run",
-            "--data-dir",
-            data_path,
-            "--config",
-            config_path.to_str().unwrap(),
-        ];
-        let yaml = load_yaml!("cli/app.yml");
-        let matches = clap::App::from_yaml(yaml).get_matches_from(arg_vec);
-        let setup = Setup::new(&matches.subcommand_matches("run").unwrap());
+        let setup = override_default_config_file(&config_path);
         assert!(setup.is_ok());
         assert_eq!(
             setup.unwrap().configs.network.listen_addresses,
@@ -214,10 +213,6 @@ pub mod test {
             .tempdir()
             .unwrap();
 
-        let data_path = tmp_dir.path().to_str().unwrap();
-        let arg_vec = vec!["ckb", "run", "--data-dir", data_path];
-        let yaml = load_yaml!("cli/app.yml");
-
         let chain_spec_path = tmp_dir.path().join("ckb_test_custom.json");
         let test_conifg = format!(
             r#"
@@ -229,40 +224,11 @@ pub mod test {
             chain_spec_path.to_str().unwrap()
         );
 
-        println!("{:?}", test_conifg);
         let config_path = tmp_dir.path().join("config.json");
         write_file(&config_path, &test_conifg);
         write_file(&chain_spec_path, test_chain_spec());
 
-        let matches = clap::App::from_yaml(yaml).get_matches_from(arg_vec);
-        let setup = Setup::new(&matches.subcommand_matches("run").unwrap());
-        assert!(setup.is_ok());
-        assert_eq!(setup.unwrap().chain_spec.name, "ckb_test_custom");
-    }
-
-    #[test]
-    fn test_custom_chain_spec_with_arg() {
-        let tmp_dir = tempfile::Builder::new()
-            .prefix("test_custom_chain_spec_with_arg")
-            .tempdir()
-            .unwrap();
-
-        let data_path = tmp_dir.path().to_str().unwrap();
-
-        let chain_spec_path = tmp_dir.path().join("ckb_test_custom.json");
-        let arg_vec = vec![
-            "ckb",
-            "run",
-            "--data-dir",
-            data_path,
-            "--chain",
-            chain_spec_path.to_str().unwrap(),
-        ];
-        write_file(&chain_spec_path, test_chain_spec());
-
-        let yaml = load_yaml!("cli/app.yml");
-        let matches = clap::App::from_yaml(yaml).get_matches_from(arg_vec);
-        let setup = Setup::new(&matches.subcommand_matches("run").unwrap());
+        let setup = override_default_config_file(&config_path);
         assert!(setup.is_ok());
         assert_eq!(setup.unwrap().chain_spec.name, "ckb_test_custom");
     }

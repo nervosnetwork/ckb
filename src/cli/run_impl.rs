@@ -22,16 +22,12 @@ use clap::ArgMatches;
 use crypto::secp::{Generator, Privkey};
 use faster_hex::{hex_string, hex_to};
 use hash::sha3_256;
-use logger;
 use serde_json;
 use std::io::Write;
 use std::sync::Arc;
 use std::thread;
 
 pub fn run(setup: Setup) {
-    logger::init(setup.configs.logger.clone()).expect("Init Logger");
-    info!(target: "main", "Value for setup: {:?}", setup);
-
     let consensus = setup.chain_spec.to_consensus().unwrap();
     let pow_engine = setup.chain_spec.pow_engine();
     let db_path = setup.dirs.join("db");
@@ -119,8 +115,6 @@ pub fn run(setup: Setup) {
     wait_for_exit();
 
     info!(target: "main", "Finishing work, please wait...");
-
-    logger::flush();
 }
 
 #[cfg(feature = "integration_test")]

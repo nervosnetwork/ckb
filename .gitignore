@@ -36,5 +36,7 @@ tags
 # vagrant file
 .vagrant
 
-# nervos runtime folder
-.nervos
+# runtime folder
+/nodes/*
+!/nodes/spec/
+!/nodes/default.example.json
