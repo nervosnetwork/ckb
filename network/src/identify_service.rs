@@ -40,21 +40,21 @@ impl IdentifyService {
         trace!("process identify for peer_id {:?} with {:?}", peer_id, info);
         // set identify info to peer
         {
-            let mut peers_registry = network.peers_registry().write();
-            match peers_registry.get_mut(&peer_id) {
-                Some(peer) => {
-                    peer.identify_info = Some(PeerIdentifyInfo {
-                        client_version: info.agent_version.clone(),
-                        protocol_version: info.protocol_version.clone(),
-                        supported_protocols: info.protocols.clone(),
-                        count_of_known_listen_addrs: info.listen_addrs.len(),
-                    })
-                }
-                None => error!(
+            let identify_info = PeerIdentifyInfo {
+                client_version: info.agent_version.clone(),
+                protocol_version: info.protocol_version.clone(),
+                supported_protocols: info.protocols.clone(),
+                count_of_known_listen_addrs: info.listen_addrs.len(),
+            };
+            if network
+                .set_peer_identify_info(&peer_id, identify_info)
+                .is_err()
+            {
+                error!(
                     target: "network",
                     "can't find peer_id {:?} during process identify info",
                     peer_id
-                ),
+                )
             }
         }
 
@@ -194,21 +194,20 @@ where
             let _identify_timeout = self.identify_timeout;
             let network = Arc::clone(&network);
             move |_| {
-                let peers_registry = network.peers_registry().read();
-                for (peer_id, peer) in peers_registry.peers_iter() {
-                    if let Some(ref identify_info) = peer.identify_info {
+                for peer_id in network.peers() {
+                    if let Some(ref identify_info) = network.get_peer_identify_info(&peer_id) {
                         if identify_info.count_of_known_listen_addrs > 0 {
                             continue;
                         }
                     }
-                    trace!(
-                        target: "network",
-                        "request identify to peer {:?} {:?}",
-                        peer_id,
-                        peer.remote_addresses
-                    );
                     // TODO should we try all addresses?
-                    if let Some(addr) = peer.remote_addresses.get(0) {
+                    if let Some(addr) = network.get_peer_remote_addresses(&peer_id).get(0) {
+                        trace!(
+                            target: "network",
+                            "request identify to peer {:?} {:?}",
+                            peer_id,
+                            addr
+                            );
                         // dial identify
                         let _ = swarm_controller.dial(addr.clone(), transport.clone());
                     } else {
@@ -216,7 +215,7 @@ where
                             target: "network",
                             "error when prepare identify : can't find addresses for peer {:?}",
                             peer_id
-                        );
+                            );
                     }
                 }
                 Ok(())

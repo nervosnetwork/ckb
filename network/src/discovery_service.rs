@@ -4,6 +4,7 @@ use super::Network;
 use ckb_util::Mutex;
 use fnv::FnvHashMap;
 use futures::future::{self, Future};
+use futures::sync::{mpsc, oneshot};
 use futures::Stream;
 use libp2p::core::{upgrade, MuxedTransport, PeerId};
 use libp2p::core::{Endpoint, Multiaddr, UniqueConnec};
@@ -22,16 +23,15 @@ use std::time::Duration;
 use std::time::Instant;
 use std::usize;
 use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::prelude::{task, Async, Poll};
 use tokio::timer::Interval;
 use tokio::timer::Timeout;
 use transport::TransportOutput;
 
-pub struct DiscoveryService {
+pub(crate) struct DiscoveryService {
     timeout: Duration,
-    discovery_interval: Duration,
     pub(crate) kad_system: Arc<kad::KadSystem>,
     default_response_neighbour_count: usize,
-    pub(crate) kad_upgrade: kad::KadConnecConfig,
     kad_manage: Arc<Mutex<KadManage>>,
 }
 
@@ -75,141 +75,19 @@ impl<T: Send> ProtocolService<T> for DiscoveryService {
             Box::new(future::ok(())) as Box<Future<Item = _, Error = _> + Send>
         }
     }
-
-    // start discovery peers
-    fn start_protocol<SwarmTran, Tran, TranOut>(
-        &self,
-        network: Arc<Network>,
-        swarm_controller: SwarmController<
-            SwarmTran,
-            Box<Future<Item = (), Error = IoError> + Send>,
-        >,
-        transport: Tran,
-    ) -> Box<Future<Item = (), Error = IoError> + Send>
-    where
-        SwarmTran: MuxedTransport<Output = Protocol<T>> + Clone + Send + 'static,
-        SwarmTran::MultiaddrFuture: Send + 'static,
-        SwarmTran::Dial: Send,
-        SwarmTran::Listener: Send,
-        SwarmTran::ListenerUpgrade: Send,
-        SwarmTran::Incoming: Send,
-        SwarmTran::IncomingUpgrade: Send,
-        Tran: MuxedTransport<Output = TransportOutput<TranOut>> + Clone + Send + 'static,
-        Tran::MultiaddrFuture: Send + 'static,
-        Tran::Dial: Send,
-        Tran::Listener: Send,
-        Tran::ListenerUpgrade: Send,
-        Tran::Incoming: Send,
-        Tran::IncomingUpgrade: Send,
-        TranOut: AsyncRead + AsyncWrite + Send + 'static,
-    {
-        let kad_initialize_future = self.kad_system.perform_initialization({
-            let network = Arc::clone(&network);
-            let transport = transport.clone();
-            let swarm_controller = swarm_controller.clone();
-            let kad_manage = Arc::clone(&self.kad_manage);
-            let kad_upgrade = self.kad_upgrade.clone();
-            // dial kad peer
-            move |peer_id| {
-                debug!(target: "network", "Initialize kad search peers from peer {:?}", peer_id);
-                Self::dial_kad_peer(
-                    Arc::clone(&kad_manage),
-                    kad_upgrade.clone(),
-                    Arc::clone(&network),
-                    peer_id.clone(),
-                    transport.clone(),
-                    swarm_controller.clone(),
-                )
-            }
-        });
-
-        let search_peers_future = Interval::new(
-            Instant::now() + Duration::from_secs(5),
-            self.discovery_interval,
-        ).map_err(|err| IoError::new(IoErrorKind::Other, err))
-        .for_each({
-            let network = Arc::clone(&network);
-            let transport = transport.clone();
-            let swarm_controller = swarm_controller.clone();
-            let kad_system = Arc::clone(&self.kad_system);
-            let kad_manage = Arc::clone(&self.kad_manage);
-            let kad_upgrade = self.kad_upgrade.clone();
-            move |_| {
-                // Use random key to search,
-                // NOTICE, this can't prevent "Eclipse Attack" because attacker can still compute
-                // our neighbours before they respond our query, but use the random key can make
-                // attacker harder to apply attacking.
-                let random_key =
-                    PublicKey::Ed25519((0..32).map(|_| rand::random::<u8>()).collect());
-                let random_peer_id = random_key.into_peer_id();
-                let search_future = kad_system
-                    .find_node(random_peer_id, {
-                        let network = Arc::clone(&network);
-                        let transport = transport.clone();
-                        let swarm_controller = swarm_controller.clone();
-                        let kad_manage = Arc::clone(&kad_manage);
-                        let kad_upgrade = kad_upgrade.clone();
-                        move |peer_id| {
-                            debug!("kad search peers from peer {:?}", peer_id);
-                            Self::dial_kad_peer(
-                                Arc::clone(&kad_manage),
-                                kad_upgrade.clone(),
-                                Arc::clone(&network),
-                                peer_id.clone(),
-                                transport.clone(),
-                                swarm_controller.clone(),
-                            )
-                        }
-                    }).filter_map({
-                        let network = Arc::clone(&network);
-                        move |event| {
-                            match event {
-                                kad::KadQueryEvent::PeersReported(kad_peers) => {
-                                    let mut peer_store = network.peer_store().write();
-                                    for peer in kad_peers {
-                                        // store peer info in peerstore
-                                        let _ = peer_store.add_discovered_addresses(
-                                            &peer.node_id,
-                                            peer.multiaddrs,
-                                        );
-                                    }
-                                    None
-                                }
-                                kad::KadQueryEvent::Finished(_) => Some(()),
-                            }
-                        }
-                    }).into_future()
-                    .map_err(|(err, _)| err)
-                    .map(|_| ());
-                Box::new(search_future) as Box<Future<Item = _, Error = _> + Send>
-            }
-        });
-        let discovery_service_future = kad_initialize_future
-            .select(search_peers_future)
-            .map_err(|(err, _)| err)
-            .and_then(|(_, stream)| stream);
-        Box::new(discovery_service_future) as Box<Future<Item = _, Error = _> + Send>
-    }
 }
 
 impl DiscoveryService {
-    pub fn new<T>(
+    pub fn new(
         timeout: Duration,
         default_response_neighbour_count: usize,
-        discovery_interval: Duration,
-        kad_config: kad::KadSystemConfig<T>,
-    ) -> Self
-    where
-        T: Iterator<Item = PeerId>,
-    {
-        let kad_system = Arc::new(kad::KadSystem::without_init(kad_config));
-        let kad_manage = Arc::new(Mutex::new(KadManage::new()));
+        kad_manage: Arc<Mutex<KadManage>>,
+        kad_system: Arc<kad::KadSystem>,
+    ) -> Self {
         DiscoveryService {
             timeout,
             kad_system,
-            kad_upgrade: kad::KadConnecConfig::new(),
             default_response_neighbour_count,
-            discovery_interval,
             kad_manage,
         }
     }
@@ -218,22 +96,11 @@ impl DiscoveryService {
         &self,
         network: Arc<Network>,
         peer_id: PeerId,
-        client_addr: Multiaddr,
+        _client_addr: Multiaddr,
         kad_connection_controller: kad::KadConnecController,
         _endpoint: Endpoint,
         kademlia_stream: Box<Stream<Item = kad::KadIncomingRequest, Error = IoError> + Send>,
     ) -> Result<Box<Future<Item = (), Error = IoError> + Send>, IoError> {
-        debug!(target: "network", "client_addr is {:?}", client_addr);
-        //let peer_id = match convert_addr_into_peer_id(client_addr) {
-        //    Some(peer_id) => peer_id,
-        //    None => {
-        //        return Err(IoError::new(
-        //            IoErrorKind::Other,
-        //            "failed to extract peer_id from client addr",
-        //        ))
-        //    }
-        //};
-
         let handling_future = Box::new(
             // why use loop_fn?????????????
             // does client disconnect after discovery?
@@ -242,14 +109,19 @@ impl DiscoveryService {
                 let kad_system = Arc::clone(&self.kad_system);
                 let timeout = self.timeout;
                 let respond_peers_count = self.default_response_neighbour_count;
+                let kad_manage = Arc::clone(&self.kad_manage);
                 move |kademlia_stream| {
                     let network = Arc::clone(&network);
                     let peer_id = peer_id.clone();
-                    let next_future = kademlia_stream.into_future().map_err(|(err, _)| err);
+                    let next_future = kademlia_stream.into_future().map_err(|(err, _)| {
+                        debug!(target: "discovery","kad stream error: {}", err);
+                        err
+                    });
+                    let kad_manage = Arc::clone(&kad_manage);
                     Timeout::new(next_future, timeout)
                         .map_err({
                             move |err| {
-                                info!(target: "network", "kad timeout error {:?}", err.description());
+                                info!(target: "discovery", "kad timeout error {:?}", err.description());
                                 IoError::new(
                                     IoErrorKind::Other,
                                     format!("discovery request timeout {:?}", err.description()),
@@ -257,20 +129,32 @@ impl DiscoveryService {
                             }
                         }).and_then({
                             let kad_system = Arc::clone(&kad_system);
+                            let kad_manage = Arc::clone(&kad_manage);
                             move |(req, next_stream)| {
-                                kad_system.update_kbuckets(peer_id);
+                                kad_system.update_kbuckets(peer_id.clone());
                                 match req {
                                     Some(kad::KadIncomingRequest::FindNode {
                                         searched,
                                         responder,
-                                    }) => responder.respond(Self::build_kademlia_response(
-                                        kad_system,
-                                        Arc::clone(&network),
-                                        &searched,
-                                        respond_peers_count,
-                                    )),
+                                    }) => {
+                                        let kad_peers = Self::build_kademlia_response(
+                                            kad_system,
+                                            Arc::clone(&network),
+                                            &searched,
+                                            respond_peers_count,
+                                            );
+                                        debug!(target:"network", "kad respond nodes count: {}", kad_peers.len());
+                                        responder.respond(kad_peers);
+                                    },
                                     Some(kad::KadIncomingRequest::PingPong) => (),
-                                    None => return Ok(future::Loop::Break(())),
+                                    None => {
+                                        debug!(target: "discovery","finish kad stream");
+                                        return Ok(future::Loop::Break(()))
+                                    }
+                                }
+                                let mut kad_manage = kad_manage.lock();
+                                if let Some(to_notify) = kad_manage.to_notify.take() {
+                                    to_notify.notify();
                                 }
                                 Ok(future::Loop::Continue(next_stream))
                             }
@@ -279,8 +163,8 @@ impl DiscoveryService {
             }).then({
                 let peer_id = peer_id.clone();
                 move |val| {
-                    trace!(
-                        target: "network",
+                    debug!(
+                        target: "discovery",
                         "Kad connection closed when handling peer {:?} reason: {:?}",
                         peer_id,
                         val
@@ -289,15 +173,28 @@ impl DiscoveryService {
                 }
             }),
         ) as Box<Future<Item = _, Error = _> + Send>;
-        let kad_connection = self.kad_manage.lock().obtain_connection(peer_id.clone());
+
+        let kad_unique_connec = {
+            let mut kad_manage = self.kad_manage.lock();
+            if let Some(to_notify) = kad_manage.to_notify.take() {
+                to_notify.notify();
+            }
+            kad_manage.new_kad_connection(peer_id.clone(), kad_connection_controller.clone());
+            kad_manage.fetch_unique_connec(peer_id.clone())
+        };
         Ok(Box::new(
-            kad_connection
+            kad_unique_connec
                 .tie_or_passthrough(kad_connection_controller, handling_future)
                 .then({
                     let kad_manage = Arc::clone(&self.kad_manage);
                     // drop kad connection
                     move |val| {
-                        kad_manage.lock().drop_connection(&peer_id);
+                        info!("kad exit because {:?}", val);
+                        //kad_manage.lock().drop_connection(&peer_id);
+                        let mut kad_manage = kad_manage.lock();
+                        if let Some(to_notify) = kad_manage.to_notify.take() {
+                            to_notify.notify();
+                        }
                         val
                     }
                 }),
@@ -310,7 +207,7 @@ impl DiscoveryService {
         searched_peer_id: &PeerId,
         respond_peers_count: usize,
     ) -> Vec<kad::KadPeer> {
-        kad_system
+        let mut kad_peers = kad_system
             .known_closest_peers(searched_peer_id)
             .map({
                 let kad_system = Arc::clone(&kad_system);
@@ -318,7 +215,7 @@ impl DiscoveryService {
                 move |peer_id| {
                     if peer_id == *kad_system.local_peer_id() {
                         debug!(
-                            target: "network",
+                            target: "discovery",
                             "response self address to kad {:?}",
                             network.listened_addresses.read().clone()
                         );
@@ -341,7 +238,7 @@ impl DiscoveryService {
                             _ => kad::KadConnectionType::NotConnected,
                         };
                         debug!(
-                            target: "network",
+                            target: "discovery",
                             "response other address to kad {:?} {:?}",
                             peer_id,
                             multiaddrs.clone()
@@ -356,18 +253,307 @@ impl DiscoveryService {
             }).filter(|kad_peer| {
                 kad_peer.node_id == *kad_system.local_peer_id() || !kad_peer.multiaddrs.is_empty()
             }).take(respond_peers_count)
-            .collect::<Vec<_>>()
+            .collect::<Vec<_>>();
+        // Here we must return at least 1 KadPeer, otherwise kad stream will close
+        if kad_peers.is_empty() {
+            kad_peers.push(kad::KadPeer {
+                node_id: kad_system.local_peer_id().to_owned(),
+                multiaddrs: network.listened_addresses.read().clone(),
+                connection_ty: kad::KadConnectionType::Connected,
+            });
+        }
+        kad_peers
+    }
+}
+
+pub(crate) struct DiscoveryQueryService<SwarmTran, Tran, TranOut, T>
+where
+    SwarmTran: MuxedTransport<Output = Protocol<T>> + Clone + Send + 'static,
+    SwarmTran::MultiaddrFuture: Send + 'static,
+    SwarmTran::Dial: Send,
+    SwarmTran::Listener: Send,
+    SwarmTran::ListenerUpgrade: Send,
+    SwarmTran::Incoming: Send,
+    SwarmTran::IncomingUpgrade: Send,
+    Tran: MuxedTransport<Output = TransportOutput<TranOut>> + Clone + Send + 'static,
+    Tran::MultiaddrFuture: Send + 'static,
+    Tran::Dial: Send,
+    Tran::Listener: Send,
+    Tran::ListenerUpgrade: Send,
+    Tran::Incoming: Send,
+    Tran::IncomingUpgrade: Send,
+    TranOut: AsyncRead + AsyncWrite + Send + 'static,
+{
+    network: Arc<Network>,
+    swarm_controller: SwarmController<SwarmTran, Box<Future<Item = (), Error = IoError> + Send>>,
+    transport: Tran,
+    query_interval: Interval,
+    kad_controller_request_sender: mpsc::UnboundedSender<PeerId>,
+    kad_controller_request_receiver: mpsc::UnboundedReceiver<PeerId>,
+    kad_query_events:
+        Vec<Box<Stream<Item = kad::KadQueryEvent<Vec<PeerId>>, Error = IoError> + Send>>,
+    kad_system: Arc<kad::KadSystem>,
+    kad_manage: Arc<Mutex<KadManage>>,
+}
+
+impl<SwarmTran, Tran, TranOut, T> DiscoveryQueryService<SwarmTran, Tran, TranOut, T>
+where
+    SwarmTran: MuxedTransport<Output = Protocol<T>> + Clone + Send + 'static,
+    SwarmTran::MultiaddrFuture: Send + 'static,
+    SwarmTran::Dial: Send,
+    SwarmTran::Listener: Send,
+    SwarmTran::ListenerUpgrade: Send,
+    SwarmTran::Incoming: Send,
+    SwarmTran::IncomingUpgrade: Send,
+    Tran: MuxedTransport<Output = TransportOutput<TranOut>> + Clone + Send + 'static,
+    Tran::MultiaddrFuture: Send + 'static,
+    Tran::Dial: Send,
+    Tran::Listener: Send,
+    Tran::ListenerUpgrade: Send,
+    Tran::Incoming: Send,
+    Tran::IncomingUpgrade: Send,
+    TranOut: AsyncRead + AsyncWrite + Send + 'static,
+    T: Send,
+{
+    pub fn new(
+        network: Arc<Network>,
+        swarm_controller: SwarmController<
+            SwarmTran,
+            Box<Future<Item = (), Error = IoError> + Send>,
+        >,
+        transport: Tran,
+        discovery_interval: Duration,
+        kad_system: Arc<kad::KadSystem>,
+        kad_manage: Arc<Mutex<KadManage>>,
+    ) -> Self {
+        let (kad_controller_request_sender, kad_controller_request_receiver) = mpsc::unbounded();
+        DiscoveryQueryService {
+            network,
+            swarm_controller,
+            transport,
+            query_interval: Interval::new(
+                Instant::now() + Duration::from_secs(5),
+                discovery_interval,
+            ),
+            kad_query_events: Vec::with_capacity(10),
+            kad_system,
+            kad_manage,
+            kad_controller_request_sender,
+            kad_controller_request_receiver,
+        }
+    }
+
+    // start discovery peers
+    fn perform_random_query(&mut self) {
+        // Use random key to search,
+        // NOTICE, this can't prevent "Eclipse Attack" because attacker can still compute
+        // our neighbours before they respond our query, but use the random key can make
+        // attacker harder to apply attacking.
+        let random_key = PublicKey::Ed25519((0..32).map(|_| rand::random::<u8>()).collect());
+        let random_peer_id = random_key.into_peer_id();
+        let query = self.kad_system.find_node(random_peer_id, {
+            let kad_manage = Arc::clone(&self.kad_manage);
+            let kad_controller_request_sender = self.kad_controller_request_sender.clone();
+            move |peer_id| {
+                let (tx, rx) = oneshot::channel();
+                let mut kad_manage = kad_manage.lock();
+                kad_manage
+                    .kad_pending_dials
+                    .entry(peer_id.clone())
+                    .or_insert_with(Vec::new)
+                    .push(tx);
+                debug!(target: "discovery", "find node from {:?} pending: {}", peer_id, kad_manage.kad_pending_dials[&peer_id].len());
+                kad_controller_request_sender.unbounded_send(peer_id.clone()).expect("send kad controller request");
+                rx.map_err(|err| {
+                    IoError::new(
+                        IoErrorKind::Other,
+                        format!("Fetch kad controller failed {}", err),
+                    )
+                })
+            }
+        });
+        self.kad_query_events.push(Box::new(query));
+    }
+
+    fn handle_kad_controller_request(&self, peer_id: PeerId) {
+        let mut kad_manage = self.kad_manage.lock();
+        let peer_store = self.network.peer_store().read();
+        if let Some(addrs) = peer_store.peer_addrs(&peer_id) {
+            for addr in addrs {
+                // dial by kad_manage
+                if kad_manage
+                    .ensure_connection(
+                        peer_id.clone(),
+                        addr,
+                        self.transport.clone(),
+                        &self.swarm_controller,
+                    ).is_ok()
+                {
+                    return;
+                }
+            }
+        }
+        debug!(
+            target: "discovery",
+            "can't open kad stream for {:?}, because no address usable",
+            peer_id
+        );
+        kad_manage.kad_pending_dials.remove(&peer_id);
+    }
+}
+
+impl<SwarmTran, Tran, TranOut, T> Stream for DiscoveryQueryService<SwarmTran, Tran, TranOut, T>
+where
+    SwarmTran: MuxedTransport<Output = Protocol<T>> + Clone + Send + 'static,
+    SwarmTran::MultiaddrFuture: Send + 'static,
+    SwarmTran::Dial: Send,
+    SwarmTran::Listener: Send,
+    SwarmTran::ListenerUpgrade: Send,
+    SwarmTran::Incoming: Send,
+    SwarmTran::IncomingUpgrade: Send,
+    Tran: MuxedTransport<Output = TransportOutput<TranOut>> + Clone + Send + 'static,
+    Tran::MultiaddrFuture: Send + 'static,
+    Tran::Dial: Send,
+    Tran::Listener: Send,
+    Tran::ListenerUpgrade: Send,
+    Tran::Incoming: Send,
+    Tran::IncomingUpgrade: Send,
+    TranOut: AsyncRead + AsyncWrite + Send + 'static,
+    T: Send,
+{
+    type Item = ();
+    type Error = IoError;
+
+    fn poll(&mut self) -> Poll<Option<()>, IoError> {
+        // 1. handle kad queries response: response, finish...
+        for n in (0..self.kad_query_events.len()).rev() {
+            let mut query = self.kad_query_events.swap_remove(n);
+            loop {
+                match query.poll() {
+                    Ok(Async::Ready(Some(kad::KadQueryEvent::PeersReported(kad_peers)))) => {
+                        let mut peer_store = self.network.peer_store().write();
+                        debug!(target:"network", "discovery new nodes count: {}", kad_peers.len());
+                        for peer in kad_peers {
+                            debug!(target:"network", "discovery new node {:?}", peer);
+                            // store peer info in peerstore
+                            let _ =
+                                peer_store.add_discovered_addresses(&peer.node_id, peer.multiaddrs);
+                        }
+                    }
+                    Ok(Async::Ready(Some(kad::KadQueryEvent::Finished(out)))) => {
+                        debug!(target: "discovery", "Kad query finished and respond {} result", out.len());
+                        break;
+                    }
+                    Ok(Async::Ready(None)) => {
+                        error!(target: "discovery", "Kad query None result");
+                        break;
+                    }
+                    Ok(Async::NotReady) => {
+                        // put back
+                        self.kad_query_events.push(query);
+                        break;
+                    }
+                    Err(err) => {
+                        error!(target: "discovery", "Kad query error: {}", err);
+                        break;
+                    }
+                }
+            }
+        }
+
+        // 2. handle dial requests
+        loop {
+            match self.kad_controller_request_receiver.poll() {
+                Ok(Async::NotReady) => break,
+                Ok(Async::Ready(Some(peer_id))) => self.handle_kad_controller_request(peer_id),
+                Ok(Async::Ready(None)) => {
+                    error!("kad_controller_request_receiver closed unexpected!");
+                    return Ok(Async::Ready(None));
+                }
+                Err(err) => {
+                    error!("kad_controller_request_receiver error unexpected!");
+                    return Err(IoError::new(
+                        IoErrorKind::Other,
+                        format!(
+                            "discovery service kad_controller_request_receiver error: {:?}",
+                            err
+                        ),
+                    ));
+                }
+            }
+        }
+        // 3. handle periodic queries
+        loop {
+            match self.query_interval.poll() {
+                Ok(Async::NotReady) => break,
+                Ok(Async::Ready(Some(_))) => self.perform_random_query(),
+                Ok(Async::Ready(None)) => {
+                    error!("query task timer closed unexpected!");
+                    return Ok(Async::Ready(None));
+                }
+                Err(err) => {
+                    error!("query task timer error: {:?}", err);
+                    return Err(IoError::new(
+                        IoErrorKind::Other,
+                        format!("discovery service timer error: {:?}", err),
+                    ));
+                }
+            }
+        }
+
+        let mut kad_manage = self.kad_manage.lock();
+        kad_manage.to_notify = Some(task::current());
+        trace!(target: "discovery", "handling discovery loop");
+        Ok(Async::NotReady)
+    }
+}
+
+pub(crate) struct KadManage {
+    connected_kad_peers: FnvHashMap<PeerId, UniqueConnec<kad::KadConnecController>>,
+    kad_pending_dials: FnvHashMap<PeerId, Vec<oneshot::Sender<kad::KadConnecController>>>,
+    kad_upgrade: kad::KadConnecConfig,
+    pub(crate) to_notify: Option<task::Task>,
+}
+
+impl KadManage {
+    pub fn new(_network: Arc<Network>, kad_upgrade: kad::KadConnecConfig) -> Self {
+        KadManage {
+            connected_kad_peers: FnvHashMap::with_capacity_and_hasher(10, Default::default()),
+            kad_pending_dials: FnvHashMap::with_capacity_and_hasher(10, Default::default()),
+            kad_upgrade,
+            to_notify: None,
+        }
+    }
+
+    fn new_kad_connection(
+        &mut self,
+        peer_id: PeerId,
+        kad_connection_controller: kad::KadConnecController,
+    ) {
+        debug!(target: "discovery", "incoming new kad connection for {:?}", peer_id);
+        if let Some(txs) = self.kad_pending_dials.remove(&peer_id) {
+            debug!(target: "discovery", "incoming new kad connection send to waiting queries {:?}", txs.len());
+            for tx in txs {
+                let _ = tx.send(kad_connection_controller.clone());
+            }
+        }
+    }
+
+    fn fetch_unique_connec(&mut self, peer_id: PeerId) -> UniqueConnec<kad::KadConnecController> {
+        self.connected_kad_peers
+            .entry(peer_id)
+            .or_insert_with(UniqueConnec::empty)
+            .to_owned()
     }
 
     #[cfg_attr(feature = "cargo-clippy", allow(let_and_return))]
-    fn dial_kad_peer<Tran, To, St, T: Send>(
-        kad_manage: Arc<Mutex<KadManage>>,
-        kad_upgrade: kad::KadConnecConfig,
-        network: Arc<Network>,
+    fn ensure_connection<Tran, To, St, T: Send>(
+        &mut self,
         peer_id: PeerId,
+        addr: &Multiaddr,
         transport: Tran,
-        swarm_controller: SwarmController<St, Box<Future<Item = (), Error = IoError> + Send>>,
-    ) -> Box<Future<Item = kad::KadConnecController, Error = IoError> + Send>
+        swarm_controller: &SwarmController<St, Box<Future<Item = (), Error = IoError> + Send>>,
+    ) -> Result<UniqueConnec<kad::KadConnecController>, IoError>
     where
         Tran: MuxedTransport<Output = TransportOutput<To>> + Clone + Send + 'static,
         Tran::MultiaddrFuture: Send + 'static,
@@ -385,63 +571,39 @@ impl DiscoveryService {
         St::Incoming: Send,
         St::IncomingUpgrade: Send,
     {
-        let mut kad_manage = kad_manage.lock();
+        debug!(target: "discovery", "dial kad connection to {:?} {:?}", peer_id, addr);
+        let kad_connection = self.fetch_unique_connec(peer_id.clone());
+        if kad_connection.is_alive() {
+            return Ok(kad_connection);
+        }
+        let kad_upgrade = self.kad_upgrade.clone();
         let transport = transport
-                    .and_then(move |out, endpoint, client_addr|
-                              upgrade::apply(out.socket, kad_upgrade.clone(), endpoint, client_addr)
-                             ).and_then({
-                        let peer_id = peer_id.clone();
-                        move |output, _, client_addr|
-                            // wrap kad output into our own protocol
-                            client_addr.map(|client_addr| {
-                                let out = Self::convert_to_protocol(Arc::new(peer_id), &client_addr.clone(), output);
-                                (out, future::ok(client_addr))
-                            })
-                    });
-
-        // TODO optimiz here
-        let addr: Multiaddr = {
-            let peer_store = network.peer_store().read();
-            let addr = match peer_store
-                .peer_addrs(&peer_id)
-                .map(move |mut addrs| addrs.next())
-            {
-                Some(Some(addr)) => addr.to_owned(),
-                _ => {
-                    debug!(
-                        target: "network",
-                        "dial kad error, can't find dial address for peer_id {:?}",
-                        peer_id
-                    );
-                    return Box::new(future::err(IoError::new(
-                        IoErrorKind::Other,
-                        format!("can't find dial address for peer_id {:?}", peer_id),
-                    )));
+            .and_then(move |out, endpoint, client_addr| {
+                upgrade::apply(out.socket, kad_upgrade.clone(), endpoint, client_addr)
+            }).and_then({
+                let peer_id = peer_id.clone();
+                move |(kad_connection_controller, kad_stream), _, client_addr| {
+                    debug!(target: "discovery", "upgraded kad connection!!!!!! {:?}",  peer_id);
+                    // wrap kad output into our own protocol
+                    client_addr.map(move |client_addr| {
+                        let out = Protocol::Kad(
+                            kad_connection_controller,
+                            kad_stream,
+                            peer_id.clone(),
+                            client_addr.clone(),
+                        );
+                        (out, future::ok(client_addr))
+                    })
                 }
-            };
-            addr
-        };
-        let kad_connection = kad_manage.obtain_connection(peer_id.clone());
-        let dial_future = kad_connection.dial(&swarm_controller, &addr, transport);
-        Box::new(dial_future) as Box<Future<Item = _, Error = _> + Send>
-    }
-}
+            });
 
-struct KadManage(FnvHashMap<PeerId, UniqueConnec<kad::KadConnecController>>);
-
-impl KadManage {
-    fn new() -> Self {
-        KadManage(FnvHashMap::with_capacity_and_hasher(10, Default::default()))
+        let _ = kad_connection.dial(swarm_controller, addr, transport);
+        Ok(kad_connection)
     }
 
-    fn obtain_connection(&mut self, peer_id: PeerId) -> UniqueConnec<kad::KadConnecController> {
-        self.0
-            .entry(peer_id)
-            .or_insert_with(UniqueConnec::empty)
-            .to_owned()
-    }
-
+    #[allow(dead_code)]
     fn drop_connection(&mut self, peer_id: &PeerId) {
-        self.0.remove(peer_id);
+        debug!(target: "discovery","disconnect kad connection from {:?}", peer_id);
+        self.connected_kad_peers.remove(peer_id);
     }
 }

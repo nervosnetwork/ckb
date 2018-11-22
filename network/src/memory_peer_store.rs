@@ -96,9 +96,12 @@ impl PeerStore for MemoryPeerStore {
     }
 
     fn bootnodes<'a>(&'a self) -> Box<Iterator<Item = (&'a PeerId, &'a Multiaddr)> + 'a> {
-        let iter = self
+        let mut bootnodes = self
             .peers_to_attempt()
-            .chain(self.bootnodes.iter().map(|(peer_id, addr)| (peer_id, addr)));
+            .chain(self.bootnodes.iter().map(|(peer_id, addr)| (peer_id, addr)))
+            .collect::<Vec<_>>();
+        bootnodes.dedup();
+        let iter = bootnodes.into_iter();
         Box::new(iter) as Box<_>
     }
     fn peer_addrs<'a>(

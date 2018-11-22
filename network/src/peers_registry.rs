@@ -150,7 +150,7 @@ pub struct ConnectionStatus {
     pub max_outgoing: u32,
 }
 
-pub struct PeersRegistry {
+pub(crate) struct PeersRegistry {
     // store all known peers
     peer_store: Arc<RwLock<Box<PeerStore>>>,
     peer_connections: PeerConnections,
@@ -188,7 +188,11 @@ impl PeersRegistry {
     }
 
     // registry a new peer
+    #[cfg_attr(feature = "cargo-clippy", allow(needless_pass_by_value))]
     pub fn new_peer(&mut self, peer_id: PeerId, endpoint: Endpoint) -> Result<(), Error> {
+        if self.peer_connections.get(&peer_id).is_some() {
+            return Ok(());
+        }
         let is_reserved = self.peer_store.read().is_reserved(&peer_id);
 
         if !is_reserved {
@@ -224,7 +228,8 @@ impl PeersRegistry {
             }
         }
         let peer = PeerConnection::new(endpoint);
-        self.add_peer(peer_id, peer);
+        let peer_index = self.add_peer(peer_id.clone(), peer);
+        debug!(target: "network", "allocate peer_index {} to peer {:?}", peer_index, peer_id);
         Ok(())
     }
 
@@ -288,10 +293,12 @@ impl PeersRegistry {
 
     #[inline]
     pub fn drop_all(&mut self) {
+        debug!(target: "network", "drop_all");
         self.peer_connections = Default::default();
     }
 
     pub(crate) fn ban_peer(&mut self, peer_id: PeerId, timeout: Duration) {
+        debug!(target: "network", "ban_peer: {:?}", peer_id);
         self.drop_peer(&peer_id);
         self.deny_list.ban_peer(peer_id, timeout);
     }

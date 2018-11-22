@@ -55,16 +55,13 @@ impl CKBService {
             return Box::new(future::ok(())) as Box<_>;
         }
 
-        let peer_index = {
-            let peers_registry = network.peers_registry().read();
-            match peers_registry.get(&peer_id) {
-                Some(peer) => peer.peer_index.unwrap(),
-                None => {
-                    return Box::new(future::err(IoError::new(
-                        IoErrorKind::Other,
-                        format!("can't find peer {:?}", peer_id),
-                    )))
-                }
+        let peer_index = match network.get_peer_index(&peer_id) {
+            Some(peer_index) => peer_index,
+            None => {
+                return Box::new(future::err(IoError::new(
+                    IoErrorKind::Other,
+                    format!("can't find peer {:?}", peer_id),
+                )))
             }
         };
 
@@ -118,8 +115,7 @@ impl CKBService {
                             )),
                             peer_index,
                         );
-                        let mut peers_registry = network.peers_registry().write();
-                        peers_registry.drop_peer(&peer_id);
+                        network.drop_peer(&peer_id);
                         val
                     }
                 })
