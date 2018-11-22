@@ -30,7 +30,7 @@ The contribution workflow is described in [CONTRIBUTING.md](CONTRIBUTING.md), an
 
 ## Build dependencies
 
-Nervos is currently tested mainly with `stable-1.29.2`.
+CKB is currently tested mainly with `stable-1.29.2` on Linux and Mac OSX.
 
 We recommend installing Rust through [rustup](https://www.rustup.rs/)
 
@@ -111,6 +111,13 @@ cargo test -p ckb-chain
 ```shell
 target/release/ckb run
 ```
+
+blockchain data is located in
+
+Platform | Value | Example
+-------- | ------|---------
+Linux | $XDG_DATA_HOME/ckb or $HOME/.local/share/ckb | /home/alice/.local/share/ckb
+macOS	| $HOME/Library/Application Support/ckb | /Users/Alice/Library/Application Support/ckb
 
 ### Send Transaction via RPC
 
