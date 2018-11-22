@@ -79,10 +79,7 @@ impl<T: Send + 'static> ProtocolService<T> for OutgoingService {
             let transport = transport.clone();
             let timeout = self.timeout;
             move |_| {
-                let connection_status = {
-                    let peers_registry = network.peers_registry().read();
-                    peers_registry.connection_status()
-                };
+                let connection_status = network.connection_status();
                 let new_outgoing = (connection_status.max_outgoing
                     - connection_status.unreserved_outgoing)
                     as usize;

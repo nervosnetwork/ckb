@@ -150,7 +150,7 @@ pub struct ConnectionStatus {
     pub max_outgoing: u32,
 }
 
-pub struct PeersRegistry {
+pub(crate) struct PeersRegistry {
     // store all known peers
     peer_store: Arc<RwLock<Box<PeerStore>>>,
     peer_connections: PeerConnections,
@@ -188,8 +188,9 @@ impl PeersRegistry {
     }
 
     // registry a new peer
+    #[cfg_attr(feature = "cargo-clippy", allow(needless_pass_by_value))]
     pub fn new_peer(&mut self, peer_id: PeerId, endpoint: Endpoint) -> Result<(), Error> {
-        if let Some(_) = self.peer_connections.get(&peer_id) {
+        if self.peer_connections.get(&peer_id).is_some() {
             return Ok(());
         }
         let is_reserved = self.peer_store.read().is_reserved(&peer_id);
@@ -228,7 +229,7 @@ impl PeersRegistry {
         }
         let peer = PeerConnection::new(endpoint);
         let peer_index = self.add_peer(peer_id.clone(), peer);
-        debug!(target: "network", "allocate peer_index {} to peer {:?}", peer_index,peer_id);
+        debug!(target: "network", "allocate peer_index {} to peer {:?}", peer_index, peer_id);
         Ok(())
     }
 

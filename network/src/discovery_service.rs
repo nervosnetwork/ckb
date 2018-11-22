@@ -30,10 +30,8 @@ use transport::TransportOutput;
 
 pub(crate) struct DiscoveryService {
     timeout: Duration,
-    discovery_interval: Duration,
     pub(crate) kad_system: Arc<kad::KadSystem>,
     default_response_neighbour_count: usize,
-    pub(crate) kad_upgrade: kad::KadConnecConfig,
     kad_manage: Arc<Mutex<KadManage>>,
 }
 
@@ -83,16 +81,13 @@ impl DiscoveryService {
     pub fn new(
         timeout: Duration,
         default_response_neighbour_count: usize,
-        discovery_interval: Duration,
         kad_manage: Arc<Mutex<KadManage>>,
         kad_system: Arc<kad::KadSystem>,
     ) -> Self {
         DiscoveryService {
             timeout,
             kad_system,
-            kad_upgrade: kad::KadConnecConfig::new(),
             default_response_neighbour_count,
-            discovery_interval,
             kad_manage,
         }
     }
@@ -101,7 +96,7 @@ impl DiscoveryService {
         &self,
         network: Arc<Network>,
         peer_id: PeerId,
-        client_addr: Multiaddr,
+        _client_addr: Multiaddr,
         kad_connection_controller: kad::KadConnecController,
         _endpoint: Endpoint,
         kademlia_stream: Box<Stream<Item = kad::KadIncomingRequest, Error = IoError> + Send>,
@@ -299,7 +294,6 @@ where
         Vec<Box<Stream<Item = kad::KadQueryEvent<Vec<PeerId>>, Error = IoError> + Send>>,
     kad_system: Arc<kad::KadSystem>,
     kad_manage: Arc<Mutex<KadManage>>,
-    kad_upgrade: kad::KadConnecConfig,
 }
 
 impl<SwarmTran, Tran, TranOut, T> DiscoveryQueryService<SwarmTran, Tran, TranOut, T>
@@ -331,7 +325,6 @@ where
         discovery_interval: Duration,
         kad_system: Arc<kad::KadSystem>,
         kad_manage: Arc<Mutex<KadManage>>,
-        kad_upgrade: kad::KadConnecConfig,
     ) -> Self {
         let (kad_controller_request_sender, kad_controller_request_receiver) = mpsc::unbounded();
         DiscoveryQueryService {
@@ -345,7 +338,6 @@ where
             kad_query_events: Vec::with_capacity(10),
             kad_system,
             kad_manage,
-            kad_upgrade,
             kad_controller_request_sender,
             kad_controller_request_receiver,
         }
@@ -362,17 +354,16 @@ where
         let query = self.kad_system.find_node(random_peer_id, {
             let kad_manage = Arc::clone(&self.kad_manage);
             let kad_controller_request_sender = self.kad_controller_request_sender.clone();
-            let kad_upgrade = self.kad_upgrade.clone();
             move |peer_id| {
                 let (tx, rx) = oneshot::channel();
                 let mut kad_manage = kad_manage.lock();
                 kad_manage
                     .kad_pending_dials
                     .entry(peer_id.clone())
-                    .or_insert(Vec::new())
+                    .or_insert_with(Vec::new)
                     .push(tx);
-                debug!(target: "discovery", "find node from {:?} pending: {}", peer_id, kad_manage.kad_pending_dials.get(&peer_id).unwrap().len());
-                kad_controller_request_sender.unbounded_send(peer_id.clone());
+                debug!(target: "discovery", "find node from {:?} pending: {}", peer_id, kad_manage.kad_pending_dials[&peer_id].len());
+                kad_controller_request_sender.unbounded_send(peer_id.clone()).expect("send kad controller request");
                 rx.map_err(|err| {
                     IoError::new(
                         IoErrorKind::Other,
@@ -521,16 +512,14 @@ pub(crate) struct KadManage {
     connected_kad_peers: FnvHashMap<PeerId, UniqueConnec<kad::KadConnecController>>,
     kad_pending_dials: FnvHashMap<PeerId, Vec<oneshot::Sender<kad::KadConnecController>>>,
     kad_upgrade: kad::KadConnecConfig,
-    network: Arc<Network>,
     pub(crate) to_notify: Option<task::Task>,
 }
 
 impl KadManage {
-    pub fn new(network: Arc<Network>, kad_upgrade: kad::KadConnecConfig) -> Self {
+    pub fn new(_network: Arc<Network>, kad_upgrade: kad::KadConnecConfig) -> Self {
         KadManage {
             connected_kad_peers: FnvHashMap::with_capacity_and_hasher(10, Default::default()),
             kad_pending_dials: FnvHashMap::with_capacity_and_hasher(10, Default::default()),
-            network,
             kad_upgrade,
             to_notify: None,
         }
@@ -608,10 +597,11 @@ impl KadManage {
                 }
             });
 
-        let dial_future = kad_connection.dial(swarm_controller, addr, transport);
+        let _ = kad_connection.dial(swarm_controller, addr, transport);
         Ok(kad_connection)
     }
 
+    #[allow(dead_code)]
     fn drop_connection(&mut self, peer_id: &PeerId) {
         debug!(target: "discovery","disconnect kad connection from {:?}", peer_id);
         self.connected_kad_peers.remove(peer_id);

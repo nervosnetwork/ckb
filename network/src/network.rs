@@ -1,7 +1,7 @@
 #![cfg_attr(feature = "cargo-clippy", allow(needless_pass_by_value))]
 
 use super::NetworkConfig;
-use super::{Error, ErrorKind, ProtocolId};
+use super::{Error, ErrorKind, PeerIndex, ProtocolId};
 use bytes::Bytes;
 use ckb_protocol::{CKBProtocol, CKBProtocols};
 use ckb_protocol_handler::CKBProtocolHandler;
@@ -17,12 +17,11 @@ use identify_service::IdentifyService;
 use libp2p::core::{upgrade, MuxedTransport, PeerId};
 use libp2p::core::{Endpoint, Multiaddr, UniqueConnec};
 use libp2p::core::{PublicKey, SwarmController};
-use libp2p::{self, identify, kad, secio, Transport, TransportTimeout};
+use libp2p::{self, identify, kad, ping, secio, Transport, TransportTimeout};
 use memory_peer_store::MemoryPeerStore;
 use outgoing_service::OutgoingService;
 use peer_store::{Behaviour, PeerStore};
-use peers_registry::PeerIdentifyInfo;
-use peers_registry::PeersRegistry;
+use peers_registry::{ConnectionStatus, PeerConnection, PeerIdentifyInfo, PeersRegistry};
 use ping_service::PingService;
 use protocol::Protocol;
 use protocol_service::ProtocolService;
@@ -77,10 +76,91 @@ pub struct Network {
 }
 
 impl Network {
-    // keep peers_registry function crate available, to avoiding lock race condition from outside.
+    pub fn drop_peer(&self, peer_id: &PeerId) {
+        self.peers_registry.write().drop_peer(&peer_id);
+    }
+
+    pub(crate) fn add_peer(&self, peer_id: PeerId, peer: PeerConnection) {
+        let mut peers_registry = self.peers_registry.write();
+        peers_registry.add_peer(peer_id, peer);
+    }
+
+    pub(crate) fn get_peer_index(&self, peer_id: &PeerId) -> Option<PeerIndex> {
+        let peers_registry = self.peers_registry.read();
+        peers_registry
+            .get(&peer_id)
+            .and_then(|peer| peer.peer_index)
+    }
+
+    pub(crate) fn get_peer_id(&self, peer_index: PeerIndex) -> Option<PeerId> {
+        let peers_registry = self.peers_registry.read();
+        peers_registry
+            .get_peer_id(peer_index)
+            .map(|peer_id| peer_id.to_owned())
+    }
+
+    pub(crate) fn connection_status(&self) -> ConnectionStatus {
+        let peers_registry = self.peers_registry.read();
+        peers_registry.connection_status()
+    }
+
+    pub(crate) fn get_peer_identify_info(&self, peer_id: &PeerId) -> Option<PeerIdentifyInfo> {
+        let peers_registry = self.peers_registry.read();
+        peers_registry
+            .get(peer_id)
+            .and_then(|peer| peer.identify_info.clone())
+    }
+
+    pub(crate) fn set_peer_identify_info(
+        &self,
+        peer_id: &PeerId,
+        identify_info: PeerIdentifyInfo,
+    ) -> Result<(), ()> {
+        let mut peers_registry = self.peers_registry.write();
+        match peers_registry.get_mut(peer_id) {
+            Some(peer) => {
+                peer.identify_info = Some(identify_info);
+                Ok(())
+            }
+            None => Err(()),
+        }
+    }
+
+    pub(crate) fn get_peer_pinger(&self, peer_id: &PeerId) -> Option<UniqueConnec<ping::Pinger>> {
+        let peers_registry = self.peers_registry.read();
+        peers_registry
+            .get(peer_id)
+            .map(|peer| peer.pinger_loader.clone())
+    }
+
+    pub(crate) fn get_peer_remote_addresses(&self, peer_id: &PeerId) -> Vec<Multiaddr> {
+        let peers_registry = self.peers_registry.read();
+        if let Some(peer) = peers_registry.get(peer_id) {
+            peer.remote_addresses.clone()
+        } else {
+            Vec::new()
+        }
+    }
+
+    pub(crate) fn peers(&self) -> impl Iterator<Item = PeerId> {
+        let peers_registry = self.peers_registry.read();
+        let peers = peers_registry
+            .peers_iter()
+            .map(|(peer_id, _peer)| peer_id.to_owned())
+            .collect::<Vec<_>>();
+        peers.into_iter()
+    }
+
+    pub(crate) fn peers_indexes(&self) -> Vec<PeerIndex> {
+        let peers_registry = self.peers_registry.read();
+        let iter = peers_registry.connected_peers_indexes();
+        iter.collect::<Vec<_>>()
+    }
+
     #[inline]
-    pub(crate) fn peers_registry<'a>(&'a self) -> &'a RwLock<PeersRegistry> {
-        &self.peers_registry
+    pub(crate) fn ban_peer(&self, peer_id: PeerId, timeout: Duration) {
+        let mut peers_registry = self.peers_registry.write();
+        peers_registry.ban_peer(peer_id, timeout);
     }
 
     #[inline]
@@ -146,7 +226,7 @@ impl Network {
         endpoint: Endpoint,
         addresses: Option<Vec<Multiaddr>>,
     ) -> Result<UniqueConnec<(UnboundedSender<Bytes>, u8)>, Error> {
-        let mut peers_registry = self.peers_registry().write();
+        let mut peers_registry = self.peers_registry.write();
         // get peer protocol_connection
         match peers_registry.new_peer(peer_id.clone(), endpoint) {
             Ok(_) => {
@@ -456,7 +536,6 @@ impl Network {
         let discovery_service = Arc::new(DiscoveryService::new(
             config.discovery_timeout,
             config.discovery_response_count,
-            config.discovery_interval,
             Arc::clone(&kad_manage),
             Arc::clone(&kad_system),
         ));
@@ -600,7 +679,6 @@ impl Network {
             config.discovery_interval,
             Arc::clone(&kad_system),
             Arc::clone(&kad_manage),
-            kad_upgrade.clone(),
         );
 
         // prepare services futures
@@ -638,7 +716,7 @@ impl Network {
             .and_then({
                 let network = Arc::clone(&network);
                 move |_| {
-                    let mut peers_registry = network.peers_registry().write();
+                    let mut peers_registry = network.peers_registry.write();
                     debug!(target: "network", "drop all connections...");
                     peers_registry.drop_all();
                     Ok(())

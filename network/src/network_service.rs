@@ -9,7 +9,7 @@ use futures::sync::oneshot;
 use libp2p::core::PeerId;
 use network::Network;
 use peer_store::PeerStore;
-use peers_registry::{PeerConnection, PeersRegistry};
+use peers_registry::PeerConnection;
 use std::boxed::Box;
 use std::io::{Error as IoError, ErrorKind as IoErrorKind};
 use std::sync::Arc;
@@ -34,20 +34,15 @@ impl NetworkService {
         self.network.external_url()
     }
 
-    #[inline]
-    pub(crate) fn peers_registry<'a>(&'a self) -> &'a RwLock<PeersRegistry> {
-        &self.network.peers_registry()
-    }
-
     #[allow(dead_code)]
     #[inline]
     pub(crate) fn peer_store<'a>(&'a self) -> &'a RwLock<Box<PeerStore>> {
         &self.network.peer_store()
     }
 
+    #[inline]
     pub fn add_peer(&self, peer_id: PeerId, peer: PeerConnection) {
-        let mut peers_registry = self.peers_registry().write();
-        peers_registry.add_peer(peer_id, peer);
+        self.network.add_peer(peer_id, peer);
     }
 
     pub fn with_protocol_context<F, T>(&self, protocol_id: ProtocolId, f: F) -> Option<T>
