@@ -40,7 +40,7 @@ pub fn resolve_path_with_relative_dirs<P: AsRef<Path>>(
     path: P,
     relative_dirs: &[PathBuf],
 ) -> Option<PathBuf> {
-    if path.as_ref().is_file() {
+    if path.as_ref().is_absolute() && path.as_ref().is_file() {
         return Some(path.as_ref().to_path_buf());
     }
     for dir in relative_dirs {

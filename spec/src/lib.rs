@@ -112,11 +112,8 @@ impl ChainSpec {
     }
 
     pub fn new_dev() -> Result<ChainSpec, Box<Error>> {
-        let mut spec: ChainSpec = serde_json::from_str(include_str!("../res/dev.json"))?;
-        let spec_path = Path::new(file!()).parent().unwrap().join("../res/dev.json");
-        let dirs = vec![spec_path.parent().unwrap().to_path_buf()];
-        spec.update_system_cell_paths(&dirs);
-        Ok(spec)
+        let bundled_spec_path = Path::new(file!()).parent().unwrap().join("../res/dev.json");
+        Self::read_from_file(bundled_spec_path, &[])
     }
 
     pub fn pow_engine(&self) -> Arc<dyn PowEngine> {
