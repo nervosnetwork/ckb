@@ -652,7 +652,6 @@ impl KadManage {
         Ok(())
     }
 
-    #[allow(dead_code)]
     fn drop_connection(&mut self, peer_id: &PeerId) {
         debug!(target: "discovery","disconnect kad connection from {:?}", peer_id);
         self.kad_connections.remove(peer_id);
