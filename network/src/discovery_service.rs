@@ -24,6 +24,7 @@ use std::time::Instant;
 use std::usize;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::prelude::{task, Async, Poll};
+use tokio::spawn;
 use tokio::timer::Interval;
 use tokio::timer::Timeout;
 use transport::TransportOutput;
@@ -375,6 +376,14 @@ where
 
     fn handle_kad_controller_request(&self, peer_id: PeerId) {
         let mut kad_manage = self.kad_manage.lock();
+        if &peer_id == self.network.local_peer_id() {
+            debug!(
+                target: "discovery",
+                "ignore kad dial to self"
+                );
+            kad_manage.kad_pending_dials.remove(&peer_id);
+            return;
+        }
         let peer_store = self.network.peer_store().read();
         if let Some(addrs) = peer_store.peer_addrs(&peer_id) {
             for addr in addrs {
@@ -648,12 +657,16 @@ impl KadManage {
                 }
             });
 
-        let _ = kad_connection.dial(swarm_controller, addr, transport);
+        let dial_future = kad_connection.dial(swarm_controller, addr, transport);
+        spawn(dial_future.then(|err| {
+            debug!(target: "discovery", "dialing result {:?}", err);
+            future::ok(())
+        }));
         Ok(())
     }
 
     fn drop_connection(&mut self, peer_id: &PeerId) {
-        debug!(target: "discovery","disconnect kad connection from {:?}", peer_id);
+        debug!(target: "discovery","drop kad connection from {:?}", peer_id);
         self.kad_connections.remove(peer_id);
     }
 }
