@@ -137,8 +137,14 @@ pub mod test {
 
     #[test]
     fn test_chain_spec_load() {
+        println!(
+            "{:?}",
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../nodes_template/spec/dev.json")
+                .display()
+        );
         let dev = ChainSpec::read_from_file(
-            Path::new(env!("CARGO_MANIFEST_DIR")).join("../nodes/spec/dev.json"),
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../nodes_template/spec/dev.json"),
         );
         assert!(dev.is_ok(), format!("{:?}", dev));
         for cell in &dev.unwrap().system_cells {

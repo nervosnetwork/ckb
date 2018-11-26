@@ -108,10 +108,10 @@ cargo test -p ckb-chain
 
 ### Start Node
 
-Create the defualt config file
+Create the defualt runtime directory:
 
 ```shell
-cp nodes/default.example.json nodes/default.json
+cp -r nodes_template/ nodes
 ```
 
 Use the config file to start the node
@@ -142,7 +142,7 @@ Run multiple nodes in different data directories.
 Create the config file for new nodes, for example:
 
 ```shell
-cp nodes/default.example.json nodes/node2.json
+cp nodes/default.json nodes/node2.json
 ```
 
 Update `data_dir` configuration in config file to a different directory.
@@ -157,6 +157,6 @@ Then start the new node using the new config file
 target/release/ckb -c nodes/node2.json run
 ```
 
-The option `ckb.chain` configures the chain spec. It accepts a path to the spec JSON file. The directory `nodes/spec` has all the pre-defined specs. Please note that nodes with different chain specs may fail to connect with each other.
+The option `ckb.chain` configures the chain spec. It accepts a path to the spec JSON file. The directory `nodes_template/spec` has all the pre-defined specs. Please note that nodes with different chain specs may fail to connect with each other.
 
 The chain spec can switch between different PoW engines. Wiki has the [instructions](https://github.com/nervosnetwork/ckb/wiki/PoW-Engines) about how to configure it.

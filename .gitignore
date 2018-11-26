@@ -37,6 +37,4 @@ tags
 .vagrant
 
 # runtime folder
-/nodes/*
-!/nodes/spec/
-!/nodes/default.example.json
+/nodes/

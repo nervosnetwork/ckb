@@ -48,7 +48,7 @@ fn gen_block(
 
 fn get_script() -> Script {
     let mut file = File::open(
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../nodes/spec/cells/always_success"),
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../nodes_template/spec/cells/always_success"),
     ).unwrap();
     let mut buffer = Vec::new();
     file.read_to_end(&mut buffer).unwrap();

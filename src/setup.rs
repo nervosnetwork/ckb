@@ -11,7 +11,7 @@ use logger::Config as LogConfig;
 use std::error::Error;
 use std::path::{Path, PathBuf};
 
-const DEFAULT_CONFIG_PATHS: &[&str] = &["ckb.json", "nodes/default.json"];
+const DEFAULT_CONFIG_PATHS: &[&str] = &["ckb.json", "nodes_template/default.json"];
 
 #[derive(Clone, Debug)]
 pub struct Setup {
@@ -133,7 +133,7 @@ pub mod test {
     fn override_default_config_file<T: AsRef<Path>>(config_path: &T) -> Result<Setup, Box<Error>> {
         let mut config_tool = ConfigTool::new();
         let default_config_path =
-            Path::new(env!("CARGO_MANIFEST_DIR")).join("nodes/default.example.json");
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("nodes_template/default.json");
         config_tool.merge(ConfigFile::from(default_config_path.as_path()))?;
         config_tool.merge(ConfigFile::from(config_path.as_ref()))?;
 
