@@ -51,7 +51,7 @@ It has also introduced a newly designed transaction pool.
 * Feature: Add a PoW engine which produces new blocks using RPC.  @zhangsoledad
 * Feature: Enhance the integration test framework. @zhangsoledad
 * Feature: Add network integration test framework. @TheWaWaR
-* Feature: Redesign the pool for the new consensus rules, such as transactions proposal.  @knwang
+* Feature: Redesign the pool for the new consensus rules, such as transactions proposal.  @kilb
 * Feature: Integrate and use VM to verify signatures. @xxuejie
 * Feature: Verify uncles PoW. @zhangsoledad
 * Feature: Experiment flatbuffer.  @quake
@@ -69,7 +69,7 @@ PoW is refactored to ease switching between different implementations.
 ckb:
 
 - Feature: Implement a consensus rule that requires proposing transactions before committing into a block. @zhangsoledad
-- Feature: UTXO index cache @knwang
+- Feature: UTXO index cache @kilb
 - Feature: Adapter layer for different PoW engines @quake
 - Feature: Cuckoo builtin miner @quake
 - Test: Network integration test @TheWaWaR
