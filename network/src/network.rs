@@ -392,10 +392,10 @@ impl Network {
             let expected_peer_id = expected_peer_id.clone();
             move |(peer_id, protocol), _, client_addr| {
                 if peer_id == expected_peer_id {
-                    trace!("dial success to {:?}", peer_id);
+                    debug!(target: "network", "success connect to {:?}", peer_id);
                     future::ok((protocol, client_addr))
                 } else {
-                    trace!("dial peer id mismatch {:?}", peer_id);
+                    debug!(target: "network", "connected peer id mismatch {:?}, disconnect!", peer_id);
                     //Because multiaddrs is responsed by a third-part node, the mismatched
                     //peer itself should not seems as a misbehaviour peer.
                     //So we do not report this behaviour
