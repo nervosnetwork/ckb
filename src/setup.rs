@@ -11,7 +11,7 @@ use logger::Config as LogConfig;
 use std::error::Error;
 use std::path::{Path, PathBuf};
 
-const DEFAULT_CONFIG_PATHS: &[&str] = &["ckb.json", "nodes_template/default.json"];
+const DEFAULT_CONFIG_PATHS: &[&str] = &["ckb.json", "nodes/default.json"];
 
 #[derive(Clone, Debug)]
 pub struct Setup {
