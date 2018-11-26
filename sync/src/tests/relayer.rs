@@ -18,6 +18,7 @@ use relayer::TX_PROPOSAL_TOKEN;
 use std::collections::HashSet;
 use std::fs::File;
 use std::io::Read;
+use std::path::Path;
 use std::sync::mpsc::channel;
 use std::sync::{Arc, Barrier};
 use std::{thread, time};
@@ -343,7 +344,9 @@ fn setup_node(
 // This helper is copied from pool test
 // TODO should provide some helper or add validation option to pool / chain for testing
 fn create_valid_script() -> Script {
-    let mut file = File::open("../spec/res/cells/always_success").unwrap();
+    let mut file = File::open(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../nodes/spec/cells/always_success"),
+    ).unwrap();
     let mut buffer = Vec::new();
     file.read_to_end(&mut buffer).unwrap();
 

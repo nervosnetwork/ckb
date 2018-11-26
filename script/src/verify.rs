@@ -144,10 +144,20 @@ mod tests {
     use hash::sha3_256;
     use std::fs::File;
     use std::io::{Read, Write};
+    use std::path::Path;
+
+    fn open_cell_verify() -> File {
+        File::open(Path::new(env!("CARGO_MANIFEST_DIR")).join("../nodes/spec/cells/verify"))
+            .unwrap()
+    }
+    fn open_cell_always_success() -> File {
+        File::open(Path::new(env!("CARGO_MANIFEST_DIR")).join("../nodes/spec/cells/always_success"))
+            .unwrap()
+    }
 
     #[test]
     fn check_signature() {
-        let mut file = File::open("../spec/res/cells/verify").unwrap();
+        let mut file = open_cell_verify();
         let mut buffer = Vec::new();
         file.read_to_end(&mut buffer).unwrap();
 
@@ -190,7 +200,7 @@ mod tests {
 
     #[test]
     fn check_invalid_signature() {
-        let mut file = File::open("../spec/res/cells/verify").unwrap();
+        let mut file = open_cell_verify();
         let mut buffer = Vec::new();
         file.read_to_end(&mut buffer).unwrap();
 
@@ -235,7 +245,7 @@ mod tests {
 
     #[test]
     fn check_valid_dep_reference() {
-        let mut file = File::open("../spec/res/cells/verify").unwrap();
+        let mut file = open_cell_verify();
         let mut buffer = Vec::new();
         file.read_to_end(&mut buffer).unwrap();
 
@@ -285,7 +295,7 @@ mod tests {
 
     #[test]
     fn check_invalid_dep_reference() {
-        let mut file = File::open("../spec/res/cells/verify").unwrap();
+        let mut file = open_cell_verify();
         let mut buffer = Vec::new();
         file.read_to_end(&mut buffer).unwrap();
 
@@ -331,7 +341,7 @@ mod tests {
     }
 
     fn create_always_success_script() -> Script {
-        let mut file = File::open("../spec/res/cells/always_success").unwrap();
+        let mut file = open_cell_always_success();
         let mut buffer = Vec::new();
         file.read_to_end(&mut buffer).unwrap();
 
@@ -340,7 +350,7 @@ mod tests {
 
     #[test]
     fn check_output_contract() {
-        let mut file = File::open("../spec/res/cells/verify").unwrap();
+        let mut file = open_cell_verify();
         let mut buffer = Vec::new();
         file.read_to_end(&mut buffer).unwrap();
 
@@ -387,7 +397,7 @@ mod tests {
 
     #[test]
     fn check_invalid_output_contract() {
-        let mut file = File::open("../spec/res/cells/verify").unwrap();
+        let mut file = open_cell_verify();
         let mut buffer = Vec::new();
         file.read_to_end(&mut buffer).unwrap();
 
