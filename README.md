@@ -108,16 +108,23 @@ cargo test -p ckb-chain
 
 ### Start Node
 
+Create the defualt runtime directory:
+
+```shell
+cp -r nodes_template/ nodes
+```
+
+Use the config file to start the node
+
 ```shell
 target/release/ckb run
 ```
 
-blockchain data is located in
+It searches config file `ckb.json`, `nodes/default.json` in the shell
+working directory in that order. Alternatively, the argument `-c` can specify
+the config file used to start the node.
 
-Platform | Value | Example
--------- | ------|---------
-Linux | $XDG_DATA_HOME/ckb or $HOME/.local/share/ckb | /home/alice/.local/share/ckb
-macOS	| $HOME/Library/Application Support/ckb | /Users/Alice/Library/Application Support/ckb
+The default config file saves data in `nodes/default/`.
 
 ### Send Transaction via RPC
 
@@ -130,19 +137,26 @@ curl -d '{"id": 2, "jsonrpc": "2.0", "method":"send_transaction","params": [{"ve
 
 ### Advanced
 
-Run multiple nodes in different `data-dir`:
+Run multiple nodes in different data directories.
+
+Create the config file for new nodes, for example:
 
 ```shell
-target/release/ckb run --data-dir=/tmp/node1
-target/release/ckb run --data-dir=/tmp/node2
+cp nodes/default.json nodes/node2.json
 ```
 
-The file `config.json` in `data-dir` overrides default configurations. Start with the default one:
+Update `data_dir` configuration in config file to a different directory.
+
+```
+"data_dir": "node2"
+```
+
+Then start the new node using the new config file
 
 ```shell
-cp src/config/default.json /tmp/node1/config.json
+target/release/ckb -c nodes/node2.json run
 ```
 
-The option `ckb.chain` configures the chain spec. It accepts a pre-defined spec or the path to a customized spec JSON file. The directory `spec/res` has all the pre-defined specs. Please note that nodes with different chain specs may fail to connect with each other.
+The option `ckb.chain` configures the chain spec. It accepts a path to the spec JSON file. The directory `nodes_template/spec` has all the pre-defined specs. Please note that nodes with different chain specs may fail to connect with each other.
 
 The chain spec can switch between different PoW engines. Wiki has the [instructions](https://github.com/nervosnetwork/ckb/wiki/PoW-Engines) about how to configure it.

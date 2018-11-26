@@ -15,6 +15,7 @@ use ckb_shared::store::ChainKVStore;
 use ckb_time::now_ms;
 use std::fs::File;
 use std::io::Read;
+use std::path::Path;
 use std::sync::Arc;
 use std::time;
 use txs_pool::pool::TransactionPoolService;
@@ -596,7 +597,9 @@ fn test_transaction_with_capacity(
 // Since the main point here is to test pool functionality, not scripting
 // behavior, we use a dummy script here that always passes in testing
 fn create_valid_script() -> Script {
-    let mut file = File::open("../spec/res/cells/always_success").unwrap();
+    let mut file = File::open(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../nodes_template/spec/cells/always_success"),
+    ).unwrap();
     let mut buffer = Vec::new();
     file.read_to_end(&mut buffer).unwrap();
 

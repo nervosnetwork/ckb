@@ -37,10 +37,7 @@ mod helper;
 mod setup;
 
 use build_info::Version;
-use setup::Setup;
-
-pub const DEFAULT_CONFIG_FILENAME: &str = "config.json";
-pub const DEFAULT_CONFIG: &str = include_str!("config/default.json");
+use setup::{get_config_path, Setup};
 
 fn main() {
     // Always print backtrace on panic.
@@ -53,25 +50,37 @@ fn main() {
         .long_version(version.long().as_str())
         .get_matches();
 
+    let config_path = get_config_path(&matches);
+    let setup = match Setup::setup(&config_path) {
+        Ok(setup) => {
+            logger::init(setup.configs.logger.clone()).expect("Init Logger");
+            setup
+        }
+        Err(e) => {
+            eprintln!(
+                "Failed to setup with config {}, cause err: {}",
+                config_path.display(),
+                e.description()
+            );
+            ::std::process::exit(1);
+        }
+    };
+
     match matches.subcommand() {
-        ("cli", Some(client_matches)) => match client_matches.subcommand() {
-            ("sign", Some(sign_matches)) => match Setup::new(&sign_matches) {
-                Ok(setup) => cli::sign(&setup, sign_matches),
-                Err(e) => println!("Failed to setup, cause err {}", e.description()),
-            },
-            ("type_hash", Some(matches)) => match Setup::new(&matches) {
-                Ok(setup) => cli::type_hash(&setup, matches),
-                Err(e) => println!("Failed to setup, cause err {}", e.description()),
-            },
+        ("cli", Some(cli_matches)) => match cli_matches.subcommand() {
+            ("sign", Some(sign_matches)) => cli::sign(&setup, sign_matches),
+            ("type_hash", Some(type_hash_matches)) => cli::type_hash(&setup, type_hash_matches),
             ("keygen", _) => cli::keygen(),
             _ => unreachable!(),
         },
-        ("run", Some(run_matches)) => match Setup::new(&run_matches) {
-            Ok(setup) => cli::run(setup),
-            Err(e) => println!("Failed to setup, cause err {}", e.description()),
-        },
-        ("export", Some(export_matches)) => cli::export(&export_matches),
-        ("import", Some(import_matches)) => cli::import(&import_matches),
+        ("run", Some(_)) => {
+            info!(target: "main", "Start with config {}", config_path.display());
+            cli::run(setup);
+        }
+        ("export", Some(export_matches)) => cli::export(&setup, export_matches),
+        ("import", Some(import_matches)) => cli::import(&setup, import_matches),
         _ => unreachable!(),
     }
+
+    logger::flush();
 }

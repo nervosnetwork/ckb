@@ -23,16 +23,10 @@ use consensus::Consensus;
 use std::error::Error;
 use std::fs::File;
 use std::io::Read;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 pub mod consensus;
-
-#[derive(Debug, PartialEq, Eq)]
-pub enum SpecType {
-    Dev,
-    Custom(String),
-}
 
 #[derive(Clone, PartialEq, Eq, Debug, Deserialize)]
 pub struct ChainSpec {
@@ -69,7 +63,7 @@ pub struct Genesis {
 
 #[derive(Clone, PartialEq, Eq, Debug, Deserialize)]
 pub struct SystemCell {
-    pub path: String,
+    pub path: PathBuf,
 }
 
 fn build_system_cell_transaction(cells: &[SystemCell]) -> Result<Transaction, Box<Error>> {
@@ -90,19 +84,9 @@ fn build_system_cell_transaction(cells: &[SystemCell]) -> Result<Transaction, Bo
 
 impl ChainSpec {
     pub fn read_from_file<P: AsRef<Path>>(path: P) -> Result<ChainSpec, Box<Error>> {
-        let file = File::open(path)?;
-        let spec = serde_json::from_reader(file)?;
-        Ok(spec)
-    }
-
-    pub fn new_dev() -> Result<ChainSpec, Box<Error>> {
-        let mut spec: ChainSpec = serde_json::from_str(include_str!("../res/dev.json"))?;
-        let system_cell_path = Path::new(file!()).parent().unwrap().join("../res/cells");
-        for cell in &mut spec.system_cells {
-            let path = system_cell_path.join(&cell.path);
-            let path_str = path.to_str().ok_or("invalid cell path")?;
-            cell.path = path_str.to_string();
-        }
+        let file = File::open(path.as_ref())?;
+        let mut spec: Self = serde_json::from_reader(file)?;
+        spec.resolve_paths(path.as_ref().parent().unwrap());
         Ok(spec)
     }
 
@@ -137,24 +121,12 @@ impl ChainSpec {
 
         Ok(consensus)
     }
-}
 
-impl ::std::str::FromStr for SpecType {
-    type Err = String;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let spec_type = match s {
-            "dev" => SpecType::Dev,
-            other => SpecType::Custom(other.into()),
-        };
-        Ok(spec_type)
-    }
-}
-
-impl SpecType {
-    pub fn load_spec(self) -> Result<ChainSpec, Box<Error>> {
-        match self {
-            SpecType::Dev => ChainSpec::new_dev(),
-            SpecType::Custom(ref filename) => ChainSpec::read_from_file(filename),
+    fn resolve_paths(&mut self, base: &Path) {
+        for mut cell in &mut self.system_cells {
+            if cell.path.is_relative() {
+                cell.path = base.join(&cell.path);
+            }
         }
     }
 }
@@ -164,13 +136,19 @@ pub mod test {
     use super::*;
 
     #[test]
-    fn test_spec_type_parse() {
-        assert_eq!(SpecType::Dev, "dev".parse().unwrap());
-    }
-
-    #[test]
     fn test_chain_spec_load() {
-        let dev = ChainSpec::new_dev();
-        assert!(dev.is_ok());
+        println!(
+            "{:?}",
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../nodes_template/spec/dev.json")
+                .display()
+        );
+        let dev = ChainSpec::read_from_file(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../nodes_template/spec/dev.json"),
+        );
+        assert!(dev.is_ok(), format!("{:?}", dev));
+        for cell in &dev.unwrap().system_cells {
+            assert!(cell.path.exists());
+        }
     }
 }

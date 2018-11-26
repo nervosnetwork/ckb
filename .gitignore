@@ -36,5 +36,5 @@ tags
 # vagrant file
 .vagrant
 
-# nervos runtime folder
-.nervos
+# runtime folder
+/nodes/
