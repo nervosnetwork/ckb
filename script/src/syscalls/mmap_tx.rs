@@ -1,8 +1,8 @@
+use ckb_vm::memory::PROT_READ;
+use ckb_vm::{CoreMachine, Error as VMError, Memory, Register, Syscalls, A0, A1, A2, A3, A7};
 use std::cmp;
 use std::rc::Rc;
 use syscalls::{Mode, MMAP_TX_SYSCALL_NUMBER, OVERRIDE_LEN, SUCCESS};
-use vm::memory::PROT_READ;
-use vm::{CoreMachine, Error as VMError, Memory, Register, Syscalls, A0, A1, A2, A3, A7};
 
 pub struct MmapTx<'a> {
     tx: &'a [u8],

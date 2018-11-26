@@ -1,13 +1,13 @@
 use super::flat_serializer::serialized_addresses;
 use bigint::H256;
 use bincode::{deserialize, serialize};
-use core::block::Block;
-use core::extras::{BlockExt, TransactionAddress};
-use core::header::{BlockNumber, Header};
-use core::transaction::{Transaction, TransactionBuilder};
-use db::batch::Batch;
-use db::kvdb::KeyValueDB;
-use error::Error;
+use ckb_core::block::Block;
+use ckb_core::extras::{BlockExt, TransactionAddress};
+use ckb_core::header::{BlockNumber, Header};
+use ckb_core::transaction::{Transaction, TransactionBuilder};
+use ckb_db::batch::Batch;
+use ckb_db::kvdb::KeyValueDB;
+use error::SharedError;
 use store::{ChainKVStore, ChainStore};
 use {COLUMN_BLOCK_BODY, COLUMN_INDEX, COLUMN_META, COLUMN_TRANSACTION_ADDR};
 
@@ -56,7 +56,7 @@ impl<T: 'static + KeyValueDB> ChainIndex for ChainKVStore<T> {
 
             let output_root = self
                 .update_transaction_meta(batch, H256::zero(), cells)
-                .ok_or(Error::InvalidOutput)?;
+                .ok_or(SharedError::InvalidOutput)?;
             self.insert_block(batch, genesis);
             self.insert_block_ext(batch, &genesis_hash, &ext);
             self.insert_tip_header(batch, &genesis.header());
@@ -156,8 +156,8 @@ impl<T: 'static + KeyValueDB> ChainIndex for ChainKVStore<T> {
 mod tests {
     use super::super::COLUMNS;
     use super::*;
-    use consensus::Consensus;
-    use db::diskdb::RocksDB;
+    use ckb_chain_spec::consensus::Consensus;
+    use ckb_db::diskdb::RocksDB;
     use tempfile;
 
     #[test]

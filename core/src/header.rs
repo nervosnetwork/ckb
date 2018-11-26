@@ -35,6 +35,8 @@ pub struct RawHeader {
     cellbase_id: H256,
     /// Hash of the uncles
     uncles_hash: H256,
+    /// Hash of the uncles
+    uncles_count: u32,
 }
 
 impl RawHeader {
@@ -59,6 +61,14 @@ impl RawHeader {
 
     pub fn difficulty(&self) -> U256 {
         self.difficulty
+    }
+
+    pub fn uncles_count(&self) -> u32 {
+        self.uncles_count
+    }
+
+    pub fn mut_uncles_count(&mut self) -> &mut u32 {
+        &mut self.uncles_count
     }
 }
 
@@ -128,8 +138,12 @@ impl Header {
         self.raw.uncles_hash
     }
 
-    pub fn raw(self) -> RawHeader {
+    pub fn into_raw(self) -> RawHeader {
         self.raw
+    }
+
+    pub fn uncles_count(&self) -> u32 {
+        self.raw.uncles_count
     }
 }
 
@@ -202,6 +216,11 @@ impl HeaderBuilder {
 
     pub fn uncles_hash(mut self, hash: &H256) -> Self {
         self.inner.raw.uncles_hash = *hash;
+        self
+    }
+
+    pub fn uncles_count(mut self, uncles_count: u32) -> Self {
+        self.inner.raw.uncles_count = uncles_count;
         self
     }
 

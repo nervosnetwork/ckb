@@ -1,10 +1,10 @@
 use super::{Error, ErrorKind, PeerId, PeerIndex, ProtocolId};
 use bytes::Bytes;
+use ckb_util::{Mutex, RwLock};
 use fnv::FnvHashMap;
 use futures::sync::mpsc::UnboundedSender;
 use libp2p::core::{Endpoint, Multiaddr, UniqueConnec};
 use libp2p::ping;
-use parking_lot::{Mutex, RwLock};
 use peer_store::PeerStore;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -80,6 +80,7 @@ pub struct PeerIdentifyInfo {
     pub client_version: String,
     pub protocol_version: String,
     pub supported_protocols: Vec<String>,
+    pub count_of_known_listen_addrs: usize,
 }
 
 type ProtocolConnec = (ProtocolId, UniqueConnec<(UnboundedSender<Bytes>, u8)>);
@@ -149,7 +150,7 @@ pub struct ConnectionStatus {
     pub max_outgoing: u32,
 }
 
-pub struct PeersRegistry {
+pub(crate) struct PeersRegistry {
     // store all known peers
     peer_store: Arc<RwLock<Box<PeerStore>>>,
     peer_connections: PeerConnections,
@@ -187,7 +188,11 @@ impl PeersRegistry {
     }
 
     // registry a new peer
+    #[cfg_attr(feature = "cargo-clippy", allow(needless_pass_by_value))]
     pub fn new_peer(&mut self, peer_id: PeerId, endpoint: Endpoint) -> Result<(), Error> {
+        if self.peer_connections.get(&peer_id).is_some() {
+            return Ok(());
+        }
         let is_reserved = self.peer_store.read().is_reserved(&peer_id);
 
         if !is_reserved {
@@ -223,7 +228,8 @@ impl PeersRegistry {
             }
         }
         let peer = PeerConnection::new(endpoint);
-        self.add_peer(peer_id, peer);
+        let peer_index = self.add_peer(peer_id.clone(), peer);
+        debug!(target: "network", "allocate peer_index {} to peer {:?}", peer_index, peer_id);
         Ok(())
     }
 
@@ -271,11 +277,6 @@ impl PeersRegistry {
     }
 
     #[inline]
-    pub fn connected_peers<'a>(&'a self) -> impl Iterator<Item = &'a PeerId> + 'a {
-        Box::new(self.peer_connections.iter().map(|(k, _v)| k))
-    }
-
-    #[inline]
     pub fn connected_peers_indexes<'a>(&'a self) -> impl Iterator<Item = PeerIndex> + 'a {
         Box::new(
             self.peer_connections
@@ -292,10 +293,12 @@ impl PeersRegistry {
 
     #[inline]
     pub fn drop_all(&mut self) {
+        debug!(target: "network", "drop_all");
         self.peer_connections = Default::default();
     }
 
     pub(crate) fn ban_peer(&mut self, peer_id: PeerId, timeout: Duration) {
+        debug!(target: "network", "ban_peer: {:?}", peer_id);
         self.drop_peer(&peer_id);
         self.deny_list.ban_peer(peer_id, timeout);
     }

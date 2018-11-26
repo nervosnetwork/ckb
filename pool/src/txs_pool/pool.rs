@@ -1,49 +1,129 @@
 //! Top-level Pool type, methods, and tests
+use super::types::{
+    InsertionResult, Orphan, PendingQueue, Pool, PoolConfig, PoolError, ProposedQueue, TxStage,
+    TxoStatus,
+};
 use bigint::H256;
-use ckb_chain::chain::ChainProvider;
-use ckb_notify::{Event, ForkBlocks, Notify, TXS_POOL_SUBSCRIBER};
+use channel::{self, Receiver, Sender};
+use ckb_core::block::Block;
+use ckb_core::cell::{CellProvider, CellStatus};
+use ckb_core::service::{Request, DEFAULT_CHANNEL_SIZE};
+use ckb_core::transaction::{OutPoint, ProposalShortId, Transaction};
+use ckb_notify::{ForkBlocks, MsgNewTip, MsgSwitchFork, NotifyController, TXS_POOL_SUBSCRIBER};
+use ckb_shared::index::ChainIndex;
+use ckb_shared::shared::{ChainProvider, Shared};
 use ckb_verification::{TransactionError, TransactionVerifier};
-use core::block::Block;
-use core::cell::{CellProvider, CellStatus};
-use core::transaction::{OutPoint, ProposalShortId, Transaction};
-use core::BlockNumber;
-use crossbeam_channel;
 use lru_cache::LruCache;
-use std::sync::Arc;
-use std::thread;
-use txs_pool::types::*;
-use util::{Mutex, RwLock};
+use std::thread::{self, JoinHandle};
 
-/// The pool itself.
-pub struct TransactionPool<T> {
-    pub config: PoolConfig,
-    /// The short id that has not been proposed
-    pub pending: RwLock<PendingQueue>,
-    /// The short id that has been proposed
-    pub proposed: RwLock<ProposedQueue>,
-    /// The  pool
-    pub pool: RwLock<Pool>,
-    /// Orphans in the pool
-    pub orphan: RwLock<Orphan>,
-    /// cache for conflict transaction
-    pub cache: RwLock<LruCache<ProposalShortId, Transaction>>,
-    /// chain will offer to the pool
-    pub chain: Arc<T>,
+#[cfg(test)]
+use ckb_core::BlockNumber;
 
-    pub notify: Notify,
+pub type TxsArgs = (usize, usize);
+pub type TxsReturn = (Vec<ProposalShortId>, Vec<Transaction>);
 
-    lock: Arc<Mutex<usize>>,
+#[derive(Clone)]
+pub struct TransactionPoolController {
+    get_proposal_commit_transactions_sender: Sender<Request<TxsArgs, TxsReturn>>,
+    get_potential_transactions_sender: Sender<Request<(), Vec<Transaction>>>,
+    contains_key_sender: Sender<Request<ProposalShortId, bool>>,
+    get_transaction_sender: Sender<Request<ProposalShortId, Option<Transaction>>>,
+    add_transaction_sender: Sender<Request<Transaction, Result<InsertionResult, PoolError>>>,
 }
 
-impl<T> CellProvider for TransactionPool<T>
+pub struct TransactionPoolReceivers {
+    get_proposal_commit_transactions_receiver: Receiver<Request<TxsArgs, TxsReturn>>,
+    get_potential_transactions_receiver: Receiver<Request<(), Vec<Transaction>>>,
+    contains_key_receiver: Receiver<Request<ProposalShortId, bool>>,
+    get_transaction_receiver: Receiver<Request<ProposalShortId, Option<Transaction>>>,
+    add_transaction_receiver: Receiver<Request<Transaction, Result<InsertionResult, PoolError>>>,
+}
+
+impl TransactionPoolController {
+    pub fn new() -> (TransactionPoolController, TransactionPoolReceivers) {
+        let (get_proposal_commit_transactions_sender, get_proposal_commit_transactions_receiver) =
+            channel::bounded(DEFAULT_CHANNEL_SIZE);
+        let (get_potential_transactions_sender, get_potential_transactions_receiver) =
+            channel::bounded(DEFAULT_CHANNEL_SIZE);
+        let (contains_key_sender, contains_key_receiver) = channel::bounded(DEFAULT_CHANNEL_SIZE);
+        let (get_transaction_sender, get_transaction_receiver) =
+            channel::bounded(DEFAULT_CHANNEL_SIZE);
+        let (add_transaction_sender, add_transaction_receiver) =
+            channel::bounded(DEFAULT_CHANNEL_SIZE);
+        (
+            TransactionPoolController {
+                get_proposal_commit_transactions_sender,
+                get_potential_transactions_sender,
+                contains_key_sender,
+                get_transaction_sender,
+                add_transaction_sender,
+            },
+            TransactionPoolReceivers {
+                get_proposal_commit_transactions_receiver,
+                get_potential_transactions_receiver,
+                contains_key_receiver,
+                get_transaction_receiver,
+                add_transaction_receiver,
+            },
+        )
+    }
+
+    pub fn get_proposal_commit_transactions(
+        &self,
+        max_prop: usize,
+        max_tx: usize,
+    ) -> (Vec<ProposalShortId>, Vec<Transaction>) {
+        Request::call(
+            &self.get_proposal_commit_transactions_sender,
+            (max_prop, max_tx),
+        ).expect("get_proposal_commit_transactions() failed")
+    }
+
+    pub fn get_potential_transactions(&self) -> Vec<Transaction> {
+        Request::call(&self.get_potential_transactions_sender, ())
+            .expect("get_potential_transactions() failed")
+    }
+
+    pub fn contains_key(&self, id: ProposalShortId) -> bool {
+        Request::call(&self.contains_key_sender, id).expect("contains_key() failed")
+    }
+
+    pub fn get_transaction(&self, id: ProposalShortId) -> Option<Transaction> {
+        Request::call(&self.get_transaction_sender, id).expect("get_transaction() failed")
+    }
+
+    pub fn add_transaction(&self, tx: Transaction) -> Result<InsertionResult, PoolError> {
+        Request::call(&self.add_transaction_sender, tx).expect("add_transaction() failed")
+    }
+}
+
+/// The pool itself.
+pub struct TransactionPoolService<CI> {
+    config: PoolConfig,
+    /// The short id that has not been proposed
+    pending: PendingQueue,
+    /// The short id that has been proposed
+    proposed: ProposedQueue,
+    /// The  pool
+    pool: Pool,
+    /// Orphans in the pool
+    orphan: Orphan,
+    /// cache for conflict transaction
+    cache: LruCache<ProposalShortId, Transaction>,
+
+    shared: Shared<CI>,
+    notify: NotifyController,
+}
+
+impl<CI> CellProvider for TransactionPoolService<CI>
 where
-    T: ChainProvider,
+    CI: ChainIndex,
 {
     fn cell(&self, o: &OutPoint) -> CellStatus {
-        match { self.pool.read().txo_status(o) } {
+        match { self.pool.txo_status(o) } {
             TxoStatus::Spent => CellStatus::Old,
-            TxoStatus::InPool => CellStatus::Current(self.pool.read().get_output(o).unwrap()),
-            TxoStatus::Unknown => self.chain.cell(o),
+            TxoStatus::InPool => CellStatus::Current(self.pool.get_output(o).unwrap()),
+            TxoStatus::Unknown => self.shared.cell(o),
         }
     }
 
@@ -52,214 +132,298 @@ where
     }
 }
 
-impl<T> TransactionPool<T>
+impl<CI> TransactionPoolService<CI>
 where
-    T: ChainProvider + 'static,
+    CI: ChainIndex + 'static,
 {
     /// Create a new transaction pool
-    pub fn new(config: PoolConfig, chain: Arc<T>, notify: Notify) -> Arc<TransactionPool<T>> {
-        let n = { chain.tip_header().read().number() };
+    pub fn new(
+        config: PoolConfig,
+        shared: Shared<CI>,
+        notify: NotifyController,
+    ) -> TransactionPoolService<CI> {
+        let n = shared.tip_header().read().number();
         let cache_size = config.max_cache_size;
         let prop_cap = ProposedQueue::cap();
-        let ids = chain.union_proposal_ids_n(n, prop_cap);
+        let ids = shared.union_proposal_ids_n(n, prop_cap);
 
-        let pool = Arc::new(TransactionPool {
+        TransactionPoolService {
             config,
-            pending: RwLock::new(PendingQueue::new()),
-            proposed: RwLock::new(ProposedQueue::new(n, ids)),
-            pool: RwLock::new(Pool::new()),
-            orphan: RwLock::new(Orphan::new()),
-            cache: RwLock::new(LruCache::new(cache_size, false)),
-            chain,
+            pending: PendingQueue::new(),
+            proposed: ProposedQueue::new(n, ids),
+            pool: Pool::new(),
+            orphan: Orphan::new(),
+            cache: LruCache::new(cache_size, false),
+            shared,
             notify,
-            lock: Arc::new(Mutex::new(0_usize)),
-        });
-
-        let (tx, rx) = crossbeam_channel::unbounded();
-        pool.notify
-            .register_tip_subscriber(TXS_POOL_SUBSCRIBER, tx.clone());
-        pool.notify
-            .register_fork_subscriber(TXS_POOL_SUBSCRIBER, tx);
-        let pool_cloned = Arc::<TransactionPool<T>>::clone(&pool);
-        thread::spawn(move || loop {
-            match rx.recv() {
-                Some(Event::NewTip(b)) => {
-                    pool_cloned.reconcile_block(&b);
-                }
-                Some(Event::SwitchFork(blks)) => {
-                    pool_cloned.switch_fork(&blks);
-                }
-                None => {
-                    info!(target: "txs_pool", "sub channel closed");
-                    break;
-                }
-                event => {
-                    warn!(target: "txs_pool", "Unexpected sub message {:?}", event);
-                }
-            }
-        });
-
-        pool
+        }
     }
 
-    pub fn switch_fork(&self, blks: &ForkBlocks) {
-        let _guard = self.lock.lock();
-        {
-            let mut pending = self.pending.write();
-            let mut proposed = self.proposed.write();
-            let mut orphan = self.orphan.write();
-            let mut pool = self.pool.write();
-            let mut cache = self.cache.write();
-
-            for b in blks.old_blks() {
-                let bn = b.header().number();
-                let mut txs = b.commit_transactions().to_vec();
-                txs.reverse();
-
-                //remove proposed id, txs can be already in pool
-                if let Some(rm_txs) = proposed.remove(bn) {
-                    for (id, x) in rm_txs {
-                        if let Some(tx) = x {
-                            pending.insert(id, tx);
-                        } else if let Some(txs) = pool.remove(&id) {
-                            pending.insert(id, txs[0].clone());
-
-                            for tx in txs.iter().skip(1) {
-                                cache.insert(tx.proposal_short_id(), tx.clone());
-                            }
-                        } else if let Some(tx) = cache.remove(&id) {
-                            pending.insert(id, tx);
-                        } else if let Some(tx) = orphan.remove(&id) {
-                            pending.insert(id, tx);
-                        }
-                    }
-                }
-
-                //readd txs in proposedqueue
-                if let Some(frt_ids) = proposed.front().cloned() {
-                    for id in frt_ids {
-                        if let Some(txs) = pool.remove(&id) {
-                            proposed.insert_without_check(id, txs[0].clone());
-                            for tx in txs.iter().skip(1) {
-                                cache.insert(tx.proposal_short_id(), tx.clone());
-                            }
-                        } else if let Some(tx) = cache.remove(&id) {
-                            proposed.insert_without_check(id, tx);
-                        } else if let Some(tx) = orphan.remove(&id) {
-                            proposed.insert_without_check(id, tx);
-                        }
-                    }
-                }
-
-                //readd txs
-                for tx in txs {
-                    if tx.is_cellbase() {
-                        continue;
-                    }
-                    pool.add_transaction(tx.clone());
-                }
-            }
-            // We may not need readd timeout transactions in pool, because new main chain is mostly longer
+    pub fn start<S: ToString>(
+        mut self,
+        thread_name: Option<S>,
+        receivers: TransactionPoolReceivers,
+    ) -> JoinHandle<()> {
+        let mut thread_builder = thread::Builder::new();
+        // Mainly for test: give a empty thread_name
+        if let Some(name) = thread_name {
+            thread_builder = thread_builder.name(name.to_string());
         }
 
+        let new_tip_receiver = self.notify.subscribe_new_tip(TXS_POOL_SUBSCRIBER);
+        let switch_fork_receiver = self.notify.subscribe_switch_fork(TXS_POOL_SUBSCRIBER);
+        thread_builder
+            .spawn(move || loop {
+                let failed = select!{
+                    recv(new_tip_receiver, msg) => self.handle_new_tip(msg),
+                    recv(switch_fork_receiver, msg) => self.handle_switch_fork(msg),
+
+                    recv(receivers.get_proposal_commit_transactions_receiver, msg) => {
+                        self.handle_get_proposal_commit_transactions(msg)
+                    }
+                    recv(receivers.get_potential_transactions_receiver, msg) => match msg {
+                        Some(Request { responsor, ..}) => {
+                            responsor.send(self.get_potential_transactions());
+                            false
+                        }
+                        None => {
+                            error!(target: "txs_pool", "channel get_potential_transactions_receiver closed");
+                            true
+                        }
+                    }
+                    recv(receivers.contains_key_receiver, msg) => match msg {
+                        Some(Request { responsor, arguments: id }) => {
+                            responsor.send(self.contains_key(&id));
+                            false
+                        }
+                        None => {
+                            error!(target: "txs_pool", "channel contains_key_receiver closed");
+                            true
+                        }
+                    }
+                    recv(receivers.get_transaction_receiver, msg) => match msg {
+                        Some(Request { responsor, arguments: id }) => {
+                            responsor.send(self.get(&id));
+                            false
+                        }
+                        None => {
+                            error!(target: "txs_pool", "channel get_transaction_receiver closed");
+                            true
+                        }
+                    }
+                    recv(receivers.add_transaction_receiver, msg) => match msg {
+                        Some(Request { responsor, arguments: tx }) => {
+                            responsor.send(self.add_transaction(tx));
+                            false
+                        }
+                        None => {
+                            error!(target: "txs_pool", "channel add_transaction_receiver closed");
+                            true
+                        }
+                    }
+                };
+                if failed {
+                    break;
+                }
+            }).expect("Start TransactionPoolService failed!")
+    }
+
+    fn handle_new_tip(&mut self, msg: Option<MsgNewTip>) -> bool {
+        match msg {
+            Some(block) => self.reconcile_block(&block),
+            None => {
+                error!(target: "txs_pool", "channel new_tip_receiver closed");
+                return true;
+            }
+        }
+        false
+    }
+
+    fn handle_switch_fork(&mut self, msg: Option<MsgSwitchFork>) -> bool {
+        match msg {
+            Some(blocks) => self.switch_fork(&blocks),
+            None => {
+                error!(target: "txs_pool", "channel switch_fork_receiver closed");
+                return true;
+            }
+        }
+        false
+    }
+
+    fn handle_get_proposal_commit_transactions(
+        &self,
+        msg: Option<Request<TxsArgs, TxsReturn>>,
+    ) -> bool {
+        match msg {
+            Some(Request {
+                responsor,
+                arguments: (max_prop, max_tx),
+            }) => {
+                let proposal_transactions = self.prepare_proposal(max_prop);
+                let commit_transactions = self.get_mineable_transactions(max_tx);
+                responsor.send((proposal_transactions, commit_transactions));
+                false
+            }
+            None => {
+                error!(target: "txs_pool", "channel get_proposal_commit_transactions_receiver closed");
+                true
+            }
+        }
+    }
+
+    pub(crate) fn switch_fork(&mut self, blks: &ForkBlocks) {
+        for b in blks.old_blks() {
+            let bn = b.header().number();
+            let mut txs = b.commit_transactions().to_vec();
+            txs.reverse();
+
+            //remove proposed id, txs can be already in pool
+            if let Some(rm_txs) = self.proposed.remove(bn) {
+                for (id, x) in rm_txs {
+                    if let Some(tx) = x {
+                        self.pending.insert(id, tx);
+                    } else if let Some(txs) = self.pool.remove(&id) {
+                        self.pending.insert(id, txs[0].clone());
+
+                        for tx in txs.iter().skip(1) {
+                            self.cache.insert(tx.proposal_short_id(), tx.clone());
+                        }
+                    } else if let Some(tx) = self.cache.remove(&id) {
+                        self.pending.insert(id, tx);
+                    } else if let Some(tx) = self.orphan.remove(&id) {
+                        self.pending.insert(id, tx);
+                    }
+                }
+            }
+
+            //readd txs in proposedqueue
+            if let Some(frt_ids) = self.proposed.front().cloned() {
+                for id in frt_ids {
+                    if let Some(txs) = self.pool.remove(&id) {
+                        self.proposed.insert_without_check(id, txs[0].clone());
+                        for tx in txs.iter().skip(1) {
+                            self.cache.insert(tx.proposal_short_id(), tx.clone());
+                        }
+                    } else if let Some(tx) = self.cache.remove(&id) {
+                        self.proposed.insert_without_check(id, tx);
+                    } else if let Some(tx) = self.orphan.remove(&id) {
+                        self.proposed.insert_without_check(id, tx);
+                    }
+                }
+            }
+
+            //readd txs
+            for tx in txs {
+                if tx.is_cellbase() {
+                    continue;
+                }
+                self.pool.add_transaction(tx.clone());
+            }
+        }
+
+        // We may not need readd timeout transactions in pool, because new main chain is mostly longer
         for blk in blks.new_blks() {
             self.reconcile_block(&blk);
         }
     }
 
-    pub fn contains_key(&self, id: &ProposalShortId) -> bool {
-        self.pending.read().contains_key(id)
-            || self.cache.read().contains_key(id)
-            || self.pool.read().contains_key(id)
-            || self.orphan.read().contains_key(id)
-            || self.proposed.read().contains_key(id)
+    fn contains_key(&self, id: &ProposalShortId) -> bool {
+        self.pending.contains_key(id)
+            || self.cache.contains_key(id)
+            || self.pool.contains_key(id)
+            || self.orphan.contains_key(id)
+            || self.proposed.contains_key(id)
     }
 
-    pub fn get(&self, id: &ProposalShortId) -> Option<Transaction> {
+    fn get(&self, id: &ProposalShortId) -> Option<Transaction> {
         self.pending
-            .read()
             .get(id)
             .cloned()
-            .or_else(|| self.proposed.read().get(id).cloned())
-            .or_else(|| self.pool.read().get(id).cloned())
-            .or_else(|| self.orphan.read().get(id).cloned())
-            .or_else(|| self.cache.read().get(id).cloned())
+            .or_else(|| self.proposed.get(id).cloned())
+            .or_else(|| self.pool.get(id).cloned())
+            .or_else(|| self.orphan.get(id).cloned())
+            .or_else(|| self.cache.get(id).cloned())
     }
 
     /// Get the size of transactions in the pool
-    pub fn pool_size(&self) -> usize {
-        self.pool.read().size()
+    pub(crate) fn pool_size(&self) -> usize {
+        self.pool.size()
     }
 
     /// Get the size of orphans in the pool
-    pub fn orphan_size(&self) -> usize {
-        self.orphan.read().size()
+    pub(crate) fn orphan_size(&self) -> usize {
+        self.orphan.size()
     }
 
     /// Get the size of pending
-    pub fn pending_size(&self) -> usize {
-        self.pending.read().size()
+    /// NOTE: may remove this method later
+    #[cfg(test)]
+    pub(crate) fn pending_size(&self) -> usize {
+        self.pending.size()
     }
 
     /// Get the size of proposed
-    pub fn proposed_size(&self) -> usize {
-        self.proposed.read().size()
+    /// NOTE: may remove this method later
+    #[cfg(test)]
+    pub(crate) fn proposed_size(&self) -> usize {
+        self.proposed.size()
     }
 
     /// Get the size of cache
-    pub fn cache_size(&self) -> usize {
-        self.cache.read().len()
+    /// NOTE: may remove this method later
+    #[cfg(test)]
+    pub(crate) fn cache_size(&self) -> usize {
+        self.cache.len()
     }
 
     /// Get the total size (transactions + orphans) of the pool
-    pub fn total_size(&self) -> usize {
+    pub(crate) fn total_size(&self) -> usize {
         self.pool_size() + self.orphan_size()
     }
 
-    pub fn add_transaction(&self, tx: Transaction) -> Result<InsertionResult, PoolError> {
-        let _guard = self.lock.lock();
-        match { self.proposed.write().insert(tx) } {
+    pub(crate) fn add_transaction(
+        &mut self,
+        tx: Transaction,
+    ) -> Result<InsertionResult, PoolError> {
+        match { self.proposed.insert(tx) } {
             TxStage::Mineable(x) => self.add_to_pool(x),
             TxStage::Unknown(x) => {
-                self.pending.write().insert(x.proposal_short_id(), x);
+                self.pending.insert(x.proposal_short_id(), x);
                 Ok(InsertionResult::Unknown)
             }
             _ => Ok(InsertionResult::Proposed),
         }
     }
 
-    pub fn prepare_proposal(&self, n: usize) -> Vec<ProposalShortId> {
-        let _guard = self.lock.lock();
-        self.pending.read().fetch(n)
+    pub(crate) fn prepare_proposal(&self, n: usize) -> Vec<ProposalShortId> {
+        self.pending.fetch(n)
     }
 
-    pub fn propose_transaction(&self, bn: BlockNumber, tx: Transaction) {
-        let _guard = self.lock.lock();
-        match { self.proposed.write().insert_with_n(bn, tx) } {
+    /// NOTE: may remove this method later
+    #[cfg(test)]
+    pub(crate) fn propose_transaction(&mut self, bn: BlockNumber, tx: Transaction) {
+        match self.proposed.insert_with_n(bn, tx) {
             TxStage::Mineable(x) => {
                 let _ = self.add_to_pool(x);
             }
             TxStage::TimeOut(x) | TxStage::Fork(x) => {
-                self.pending.write().insert(x.proposal_short_id(), x);
+                self.pending.insert(x.proposal_short_id(), x);
             }
             _ => {}
         };
     }
 
-    pub fn get_mineable_transactions(&self, max: usize) -> Vec<Transaction> {
-        let _guard = self.lock.lock();
-        self.pool.read().get_mineable_transactions(max)
+    pub(crate) fn get_mineable_transactions(&self, max: usize) -> Vec<Transaction> {
+        self.pool.get_mineable_transactions(max)
     }
 
     // Get all transactions that can be in next block, cache should added
-    pub fn get_potential_transactions(&self) -> Vec<Transaction> {
-        let _guard = self.lock.lock();
-        let pool = self.pool.read();
-        pool.get_mineable_transactions(pool.size())
+    fn get_potential_transactions(&self) -> Vec<Transaction> {
+        self.pool.get_mineable_transactions(self.pool.size())
     }
 
     /// Attempts to add a transaction to the memory pool.
-    pub fn add_to_pool(&self, tx: Transaction) -> Result<InsertionResult, PoolError> {
+    pub(crate) fn add_to_pool(&mut self, tx: Transaction) -> Result<InsertionResult, PoolError> {
         // Do we have the capacity to accept this transaction?
         self.is_acceptable()?;
 
@@ -283,7 +447,7 @@ where
                         unknowns.push(inputs[i]);
                     }
                     CellStatus::Old => {
-                        self.cache.write().insert(tx.proposal_short_id(), tx);
+                        self.cache.insert(tx.proposal_short_id(), tx);
                         return Err(PoolError::DoubleSpent);
                     }
                     _ => {}
@@ -296,7 +460,7 @@ where
                         unknowns.push(deps[i]);
                     }
                     CellStatus::Old => {
-                        self.cache.write().insert(tx.proposal_short_id(), tx);
+                        self.cache.insert(tx.proposal_short_id(), tx);
                         return Err(PoolError::DoubleSpent);
                     }
                     _ => {}
@@ -312,14 +476,10 @@ where
         }
 
         if !unknowns.is_empty() {
-            self.orphan
-                .write()
-                .add_transaction(tx, unknowns.into_iter());
+            self.orphan.add_transaction(tx, unknowns.into_iter());
             return Ok(InsertionResult::Orphan);
         } else {
-            {
-                self.pool.write().add_transaction(tx.clone());
-            }
+            self.pool.add_transaction(tx.clone());
 
             self.reconcile_orphan(&tx);
 
@@ -330,23 +490,23 @@ where
     }
 
     /// Updates the pool and orphan pool with new transactions.
-    pub fn reconcile_orphan(&self, tx: &Transaction) {
-        let txs = { self.orphan.write().reconcile_transaction(tx) };
+    pub(crate) fn reconcile_orphan(&mut self, tx: &Transaction) {
+        let txs = self.orphan.reconcile_transaction(tx);
 
         for tx in txs {
             let rtx = self.resolve_transaction(&tx);
             let rs = TransactionVerifier::new(&rtx).verify();
             if rs.is_ok() {
-                self.pool.write().add_transaction(tx);
+                self.pool.add_transaction(tx);
             } else if rs == Err(TransactionError::DoubleSpent) {
-                self.cache.write().insert(tx.proposal_short_id(), tx);
+                self.cache.insert(tx.proposal_short_id(), tx);
             }
         }
     }
 
     /// Updates the pool with the details of a new block.
     // TODO: call it in order
-    pub fn reconcile_block(&self, b: &Block) {
+    pub(crate) fn reconcile_block(&mut self, b: &Block) {
         let txs = b.commit_transactions();
         let bn = b.header().number();
         let ids = b.union_proposal_ids();
@@ -364,63 +524,58 @@ where
 
         // must do this secondly
         {
-            let mut pool = self.pool.write();
-
             for tx in txs {
                 if tx.is_cellbase() {
                     continue;
                 }
 
-                pool.commit_transaction(tx);
+                self.pool.commit_transaction(tx);
             }
         }
 
         {
-            let mut pending = self.pending.write();
-            let mut orphan = self.orphan.write();
-            let mut pool = self.pool.write();
-
-            if let Some(time_out_ids) = self.proposed.read().mineable_front() {
+            if let Some(time_out_ids) = self.proposed.mineable_front() {
                 for id in time_out_ids {
-                    if let Some(txs) = pool.remove(id) {
+                    if let Some(txs) = self.pool.remove(id) {
                         for tx in txs {
-                            pending.insert(tx.proposal_short_id(), tx);
+                            self.pending.insert(tx.proposal_short_id(), tx);
                         }
-                    } else if let Some(tx) = orphan.remove(id) {
-                        pending.insert(tx.proposal_short_id(), tx);
+                    } else if let Some(tx) = self.orphan.remove(id) {
+                        self.pending.insert(tx.proposal_short_id(), tx);
                     }
                 }
             }
         }
 
         let new_txs = {
-            let mut pending = self.pending.write();
-            let mut proposed = self.proposed.write();
-            let mut cache = self.cache.write();
-
             for id in &ids {
-                if let Some(tx) = pending.remove(id).or_else(|| cache.remove(id)) {
-                    proposed.insert_without_check(id.clone(), tx);
+                if let Some(tx) = self.pending.remove(id).or_else(|| self.cache.remove(id)) {
+                    self.proposed.insert_without_check(id.clone(), tx);
                 }
             }
 
-            proposed.reconcile(bn, ids).unwrap()
+            self.proposed.reconcile(bn, ids).unwrap_or_else(|error| {
+                error!(target: "txs_pool", "Failed to proposed reconcile {:?}", error);
+                vec![]
+            })
         };
 
         // We can sort it by some rules
         for tx in new_txs {
             let tx_hash = tx.hash();
             if let Err(error) = self.add_to_pool(tx) {
-                info!(target: "txs_pool", "Failed to add proposed tx {:} to pool, reason: {:?}", tx_hash, error);
+                error!(target: "txs_pool", "Failed to add proposed tx {:} to pool, reason: {:?}", tx_hash, error);
             }
         }
     }
 
-    pub fn resolve_conflict(&self, tx: &Transaction) {
+    /// NOTE: may remove this method later (currently unused!!!)
+    #[cfg(test)]
+    pub(crate) fn _resolve_conflict(&mut self, tx: &Transaction) {
         if tx.is_cellbase() {
             return;
         }
-        self.pool.write().resolve_conflict(tx);
+        self.pool.resolve_conflict(tx);
     }
 
     /// Whether the pool is full
@@ -437,12 +592,12 @@ where
         let h = tx.hash();
 
         {
-            if self.pool.read().contains(tx) || self.orphan.read().contains(tx) {
+            if self.pool.contains(tx) || self.orphan.contains(tx) {
                 return Err(PoolError::AlreadyInPool);
             }
         }
 
-        if self.chain.contain_transaction(&h) {
+        if self.shared.contain_transaction(&h) {
             return Err(PoolError::DuplicateOutput);
         }
 

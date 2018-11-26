@@ -1,8 +1,8 @@
 use bigint::H48;
+use ckb_core::header::Header;
+use ckb_core::transaction::{ProposalShortId, Transaction};
+use ckb_core::uncle::UncleBlock;
 use ckb_protocol::{self, FlatbuffersVectorIterator};
-use core::header::Header;
-use core::transaction::{ProposalShortId, Transaction};
-use core::uncle::UncleBlock;
 
 pub type ShortTransactionID = H48;
 

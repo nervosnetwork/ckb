@@ -1,24 +1,24 @@
 use bigint::H256;
-use ckb_chain::chain::ChainProvider;
+use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::{GetBlockTransactions, RelayMessage};
+use ckb_shared::index::ChainIndex;
 use flatbuffers::FlatBufferBuilder;
-use network::{CKBProtocolContext, PeerIndex};
 use relayer::Relayer;
 
-pub struct GetBlockTransactionsProcess<'a, C: 'a> {
+pub struct GetBlockTransactionsProcess<'a, CI: ChainIndex + 'a> {
     message: &'a GetBlockTransactions<'a>,
-    relayer: &'a Relayer<C>,
+    relayer: &'a Relayer<CI>,
     peer: PeerIndex,
     nc: &'a CKBProtocolContext,
 }
 
-impl<'a, C> GetBlockTransactionsProcess<'a, C>
+impl<'a, CI> GetBlockTransactionsProcess<'a, CI>
 where
-    C: ChainProvider + 'static,
+    CI: ChainIndex + 'static,
 {
     pub fn new(
         message: &'a GetBlockTransactions,
-        relayer: &'a Relayer<C>,
+        relayer: &'a Relayer<CI>,
         peer: PeerIndex,
         nc: &'a CKBProtocolContext,
     ) -> Self {

@@ -1,24 +1,24 @@
 use bigint::H256;
-use ckb_chain::chain::ChainProvider;
+use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::{FlatbuffersVectorIterator, GetBlocks, SyncMessage};
+use ckb_shared::index::ChainIndex;
 use flatbuffers::FlatBufferBuilder;
-use network::{CKBProtocolContext, PeerIndex};
 use synchronizer::Synchronizer;
 
-pub struct GetBlocksProcess<'a, C: 'a> {
+pub struct GetBlocksProcess<'a, CI: ChainIndex + 'a> {
     message: &'a GetBlocks<'a>,
-    synchronizer: &'a Synchronizer<C>,
+    synchronizer: &'a Synchronizer<CI>,
     nc: &'a CKBProtocolContext,
     peer: PeerIndex,
 }
 
-impl<'a, C> GetBlocksProcess<'a, C>
+impl<'a, CI> GetBlocksProcess<'a, CI>
 where
-    C: ChainProvider + 'a,
+    CI: ChainIndex + 'a,
 {
     pub fn new(
         message: &'a GetBlocks,
-        synchronizer: &'a Synchronizer<C>,
+        synchronizer: &'a Synchronizer<CI>,
         peer: PeerIndex,
         nc: &'a CKBProtocolContext,
     ) -> Self {

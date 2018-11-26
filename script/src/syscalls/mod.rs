@@ -1,18 +1,25 @@
 mod builder;
+mod debugger;
+mod fetch_script_hash;
 mod mmap_cell;
 mod mmap_tx;
 
 pub use self::builder::build_tx;
+pub use self::debugger::Debugger;
+pub use self::fetch_script_hash::FetchScriptHash;
 pub use self::mmap_cell::MmapCell;
 pub use self::mmap_tx::MmapTx;
 
-use vm::Error;
+use ckb_vm::Error;
 
 pub const SUCCESS: u8 = 0;
 pub const OVERRIDE_LEN: u8 = 1;
+pub const ITEM_MISSING: u8 = 2;
 
 pub const MMAP_TX_SYSCALL_NUMBER: u64 = 2049;
 pub const MMAP_CELL_SYSCALL_NUMBER: u64 = 2050;
+pub const FETCH_SCRIPT_HASH_SYSCALL_NUMBER: u64 = 2051;
+pub const DEBUG_PRINT_SYSCALL_NUMBER: u64 = 2177;
 
 #[derive(Debug, PartialEq, Clone, Copy, Eq)]
 pub enum Mode {
@@ -30,17 +37,50 @@ impl Mode {
     }
 }
 
+#[derive(Debug, PartialEq, Clone, Copy, Eq)]
+pub enum Category {
+    LOCK,
+    CONTRACT,
+}
+
+impl Category {
+    pub fn parse_from_u64(i: u64) -> Result<Category, Error> {
+        match i {
+            0 => Ok(Category::LOCK),
+            1 => Ok(Category::CONTRACT),
+            _ => Err(Error::ParseError),
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Clone, Copy, Eq)]
+enum Source {
+    INPUT,
+    OUTPUT,
+}
+
+impl Source {
+    fn parse_from_u64(i: u64) -> Result<Source, Error> {
+        match i {
+            0 => Ok(Source::INPUT),
+            1 => Ok(Source::OUTPUT),
+            _ => Err(Error::ParseError),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use bigint::H256;
-    use core::transaction::CellOutput;
-    use proptest::collection::size_range;
-    use proptest::prelude::any_with;
-    use vm::machine::DefaultCoreMachine;
-    use vm::{
+    use ckb_core::script::Script;
+    use ckb_core::transaction::{CellInput, CellOutput, OutPoint};
+    use ckb_vm::machine::DefaultCoreMachine;
+    use ckb_vm::{
         CoreMachine, Error as VMError, Memory, SparseMemory, Syscalls, A0, A1, A2, A3, A4, A5, A7,
     };
+    use proptest::collection::size_range;
+    use proptest::prelude::any_with;
 
     fn _test_mmap_tx_all(tx: &Vec<u8>) {
         let mut machine = DefaultCoreMachine::<u64, SparseMemory>::default();
@@ -159,8 +199,13 @@ mod tests {
                 .is_ok()
         );
 
-        let output = CellOutput::new(100, data.clone(), H256::zero());
-        let input_cell = CellOutput::new(100, data.iter().rev().cloned().collect(), H256::zero());
+        let output = CellOutput::new(100, data.clone(), H256::zero(), None);
+        let input_cell = CellOutput::new(
+            100,
+            data.iter().rev().cloned().collect(),
+            H256::zero(),
+            None,
+        );
         let outputs = vec![&output];
         let input_cells = vec![&input_cell];
         let mut mmap_cell = MmapCell::new(&outputs, &input_cells);
@@ -194,8 +239,13 @@ mod tests {
                 .is_ok()
         );
 
-        let output = CellOutput::new(100, data.clone(), H256::zero());
-        let input_cell = CellOutput::new(100, data.iter().rev().cloned().collect(), H256::zero());
+        let output = CellOutput::new(100, data.clone(), H256::zero(), None);
+        let input_cell = CellOutput::new(
+            100,
+            data.iter().rev().cloned().collect(),
+            H256::zero(),
+            None,
+        );
         let outputs = vec![&output];
         let input_cells = vec![&input_cell];
         let mut mmap_cell = MmapCell::new(&outputs, &input_cells);
@@ -269,8 +319,13 @@ mod tests {
                 .is_ok()
         );
 
-        let output = CellOutput::new(100, data.clone(), H256::zero());
-        let input_cell = CellOutput::new(100, data.iter().rev().cloned().collect(), H256::zero());
+        let output = CellOutput::new(100, data.clone(), H256::zero(), None);
+        let input_cell = CellOutput::new(
+            100,
+            data.iter().rev().cloned().collect(),
+            H256::zero(),
+            None,
+        );
         let outputs = vec![&output];
         let input_cells = vec![&input_cell];
         let mut mmap_cell = MmapCell::new(&outputs, &input_cells);
@@ -291,5 +346,179 @@ mod tests {
         fn test_mmap_cell_partial(data in any_with::<Vec<u8>>(size_range(1000).lift())) {
             _test_mmap_cell_partial(data);
         }
+    }
+
+    fn _test_fetch_script_hash_input_lock(data: Vec<u8>) {
+        let mut machine = DefaultCoreMachine::<u64, SparseMemory>::default();
+        let size_addr = 0;
+        let addr = 100;
+
+        machine.registers_mut()[A0] = addr; // addr
+        machine.registers_mut()[A1] = size_addr; // size_addr
+        machine.registers_mut()[A2] = 0; // index
+        machine.registers_mut()[A3] = 0; // source: 0 input
+        machine.registers_mut()[A4] = 0; // category: 0 lock
+        machine.registers_mut()[A7] = FETCH_SCRIPT_HASH_SYSCALL_NUMBER; // syscall number
+
+        assert!(machine.memory_mut().store64(size_addr as usize, 32).is_ok());
+
+        let script = Script::new(0, Vec::new(), None, Some(data), Vec::new());
+        let input = CellInput::new(OutPoint::default(), script.clone());
+        let inputs = vec![&input];
+        let input_cells = Vec::new();
+        let outputs = Vec::new();
+
+        let mut fetch_script_hash = FetchScriptHash::new(&outputs, &inputs, &input_cells);
+
+        assert!(fetch_script_hash.ecall(&mut machine).is_ok());
+        assert_eq!(machine.registers()[A0], SUCCESS as u64);
+
+        let hash = &script.type_hash();
+        for (i, addr) in (addr as usize..addr as usize + hash.len()).enumerate() {
+            assert_eq!(machine.memory_mut().load8(addr), Ok(hash[i]))
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn test_fetch_script_hash_input_lock(data in any_with::<Vec<u8>>(size_range(1000).lift())) {
+            _test_fetch_script_hash_input_lock(data);
+        }
+    }
+
+    fn _test_fetch_script_hash_input_contract(data: Vec<u8>) {
+        let mut machine = DefaultCoreMachine::<u64, SparseMemory>::default();
+        let size_addr = 0;
+        let addr = 100;
+
+        machine.registers_mut()[A0] = addr; // addr
+        machine.registers_mut()[A1] = size_addr; // size_addr
+        machine.registers_mut()[A2] = 0; // index
+        machine.registers_mut()[A3] = 0; // source: 0 input
+        machine.registers_mut()[A4] = 1; // category: 1 contract
+        machine.registers_mut()[A7] = FETCH_SCRIPT_HASH_SYSCALL_NUMBER; // syscall number
+
+        assert!(machine.memory_mut().store64(size_addr as usize, 32).is_ok());
+
+        let script = Script::new(0, Vec::new(), None, Some(data), Vec::new());
+        let output = CellOutput::new(0, Vec::new(), H256::from(0), Some(script.clone()));
+        let inputs = Vec::new();
+        let input_cells = vec![&output];
+        let outputs = Vec::new();
+
+        let mut fetch_script_hash = FetchScriptHash::new(&outputs, &inputs, &input_cells);
+
+        assert!(fetch_script_hash.ecall(&mut machine).is_ok());
+        assert_eq!(machine.registers()[A0], SUCCESS as u64);
+
+        let hash = &script.type_hash();
+        for (i, addr) in (addr as usize..addr as usize + hash.len()).enumerate() {
+            assert_eq!(machine.memory_mut().load8(addr), Ok(hash[i]))
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn test_fetch_script_hash_input_contract(data in any_with::<Vec<u8>>(size_range(1000).lift())) {
+            _test_fetch_script_hash_input_contract(data);
+        }
+    }
+
+    fn _test_fetch_script_hash_output_contract(data: Vec<u8>) {
+        let mut machine = DefaultCoreMachine::<u64, SparseMemory>::default();
+        let size_addr = 0;
+        let addr = 100;
+
+        machine.registers_mut()[A0] = addr; // addr
+        machine.registers_mut()[A1] = size_addr; // size_addr
+        machine.registers_mut()[A2] = 0; // index
+        machine.registers_mut()[A3] = 1; // source: 1 output
+        machine.registers_mut()[A4] = 1; // category: 1 contract
+        machine.registers_mut()[A7] = FETCH_SCRIPT_HASH_SYSCALL_NUMBER; // syscall number
+
+        assert!(machine.memory_mut().store64(size_addr as usize, 32).is_ok());
+
+        let script = Script::new(0, Vec::new(), None, Some(data), Vec::new());
+        let output = CellOutput::new(0, Vec::new(), H256::from(0), Some(script.clone()));
+        let inputs = Vec::new();
+        let input_cells = Vec::new();
+        let outputs = vec![&output];
+
+        let mut fetch_script_hash = FetchScriptHash::new(&outputs, &inputs, &input_cells);
+
+        assert!(fetch_script_hash.ecall(&mut machine).is_ok());
+        assert_eq!(machine.registers()[A0], SUCCESS as u64);
+
+        let hash = &script.type_hash();
+        for (i, addr) in (addr as usize..addr as usize + hash.len()).enumerate() {
+            assert_eq!(machine.memory_mut().load8(addr), Ok(hash[i]))
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn test_fetch_script_hash_output_contract(data in any_with::<Vec<u8>>(size_range(1000).lift())) {
+            _test_fetch_script_hash_output_contract(data);
+        }
+    }
+
+    fn _test_fetch_script_hash_not_enough_space(data: Vec<u8>) {
+        let mut machine = DefaultCoreMachine::<u64, SparseMemory>::default();
+        let size_addr = 0;
+        let addr = 100;
+
+        machine.registers_mut()[A0] = addr; // addr
+        machine.registers_mut()[A1] = size_addr; // size_addr
+        machine.registers_mut()[A2] = 0; // index
+        machine.registers_mut()[A3] = 1; // source: 1 output
+        machine.registers_mut()[A4] = 1; // category: 1 contract
+        machine.registers_mut()[A7] = FETCH_SCRIPT_HASH_SYSCALL_NUMBER; // syscall number
+
+        assert!(machine.memory_mut().store64(size_addr as usize, 16).is_ok());
+
+        let script = Script::new(0, Vec::new(), None, Some(data), Vec::new());
+        let output = CellOutput::new(0, Vec::new(), H256::from(0), Some(script.clone()));
+        let inputs = Vec::new();
+        let input_cells = Vec::new();
+        let outputs = vec![&output];
+
+        let mut fetch_script_hash = FetchScriptHash::new(&outputs, &inputs, &input_cells);
+
+        assert!(fetch_script_hash.ecall(&mut machine).is_ok());
+        assert_eq!(machine.registers()[A0], OVERRIDE_LEN as u64);
+
+        assert_eq!(machine.memory_mut().load64(size_addr as usize), Ok(32));
+    }
+
+    proptest! {
+        #[test]
+        fn test_fetch_script_hash_not_enough_space(data in any_with::<Vec<u8>>(size_range(1000).lift())) {
+            _test_fetch_script_hash_not_enough_space(data);
+        }
+    }
+
+    #[test]
+    fn test_fetch_script_hash_missing_item() {
+        let mut machine = DefaultCoreMachine::<u64, SparseMemory>::default();
+        let size_addr = 0;
+        let addr = 100;
+
+        machine.registers_mut()[A0] = addr; // addr
+        machine.registers_mut()[A1] = size_addr; // size_addr
+        machine.registers_mut()[A2] = 0; // index
+        machine.registers_mut()[A3] = 1; // source: 1 output
+        machine.registers_mut()[A4] = 1; // category: 1 contract
+        machine.registers_mut()[A7] = FETCH_SCRIPT_HASH_SYSCALL_NUMBER; // syscall number
+
+        assert!(machine.memory_mut().store64(size_addr as usize, 16).is_ok());
+
+        let inputs = Vec::new();
+        let input_cells = Vec::new();
+        let outputs = Vec::new();
+
+        let mut fetch_script_hash = FetchScriptHash::new(&outputs, &inputs, &input_cells);
+
+        assert!(fetch_script_hash.ecall(&mut machine).is_ok());
+        assert_eq!(machine.registers()[A0], ITEM_MISSING as u64);
     }
 }

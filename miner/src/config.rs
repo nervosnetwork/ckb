@@ -8,5 +8,5 @@ pub struct Config {
     pub max_prop: usize,
     pub new_transactions_threshold: u16,
     pub ethash_path: Option<String>,
-    pub redeem_script_hash: H256,
+    pub type_hash: H256,
 }

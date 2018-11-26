@@ -1,14 +1,8 @@
-use db::kvdb::Error as DBError;
+use ckb_shared::error::SharedError;
+use ckb_verification::Error as VerifyError;
 
 #[derive(Debug, PartialEq, Clone, Eq)]
-pub enum Error {
-    InvalidInput,
-    InvalidOutput,
-    DB(DBError),
-}
-
-impl From<DBError> for Error {
-    fn from(err: DBError) -> Self {
-        Error::DB(err)
-    }
+pub enum ProcessBlockError {
+    Shared(SharedError),
+    Verification(VerifyError),
 }

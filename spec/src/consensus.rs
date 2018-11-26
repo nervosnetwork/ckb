@@ -1,8 +1,10 @@
 use bigint::U256;
-use core::block::{Block, BlockBuilder};
-use core::header::HeaderBuilder;
-use core::transaction::Capacity;
-use core::BlockNumber;
+use ckb_core::block::{Block, BlockBuilder};
+use ckb_core::header::HeaderBuilder;
+use ckb_core::transaction::Capacity;
+use ckb_core::BlockNumber;
+use ckb_pow::{Pow, PowEngine};
+use std::sync::Arc;
 
 pub const DEFAULT_BLOCK_REWARD: Capacity = 5_000;
 pub const MAX_UNCLE_LEN: usize = 2;
@@ -27,6 +29,8 @@ pub struct Consensus {
     pub pow_spacing: u64,
     pub transaction_propagation_time: BlockNumber,
     pub transaction_propagation_timeout: BlockNumber,
+    pub pow: Pow,
+    pub verification: bool,
 }
 
 // genesis difficulty should not be zero
@@ -46,6 +50,8 @@ impl Default for Consensus {
             pow_spacing: POW_SPACING,
             transaction_propagation_time: TRANSACTION_PROPAGATION_TIME,
             transaction_propagation_timeout: TRANSACTION_PROPAGATION_TIMEOUT,
+            pow: Pow::Dummy,
+            verification: true,
         }
     }
 }
@@ -63,6 +69,16 @@ impl Consensus {
 
     pub fn set_initial_block_reward(mut self, initial_block_reward: Capacity) -> Self {
         self.initial_block_reward = initial_block_reward;
+        self
+    }
+
+    pub fn set_pow(mut self, pow: Pow) -> Self {
+        self.pow = pow;
+        self
+    }
+
+    pub fn set_verification(mut self, verification: bool) -> Self {
+        self.verification = verification;
         self
     }
 
@@ -92,5 +108,9 @@ impl Consensus {
 
     pub fn orphan_rate_target(&self) -> f32 {
         self.orphan_rate_target
+    }
+
+    pub fn pow_engine(&self) -> Arc<dyn PowEngine> {
+        self.pow.engine()
     }
 }

@@ -15,6 +15,7 @@ use protocol_service::ProtocolService;
 use std::boxed::Box;
 use std::io::{Error as IoError, ErrorKind as IoErrorKind};
 use std::sync::Arc;
+use tokio;
 
 pub struct CKBService {
     // used to update kbuckets
@@ -39,28 +40,28 @@ impl CKBService {
             match network.ckb_protocol_connec(&peer_id, protocol_id, endpoint, addresses.clone()) {
                 Ok(protocol_connec) => protocol_connec,
                 Err(err) => {
-                    return Box::new(future::err(IoError::new(IoErrorKind::Other, err)))
-                        as Box<Future<Item = (), Error = IoError> + Send>
+                    return Box::new(future::err(IoError::new(
+                        IoErrorKind::Other,
+                        format!("handle ckb_protocol connection error: {}", err),
+                    ))) as Box<Future<Item = (), Error = IoError> + Send>
                 }
             };
         if protocol_connec.state() == UniqueConnecState::Full {
             error!(
+                target: "network",
                 "we already connected peer {:?} with {:?}, stop handling",
                 peer_id, protocol_id
             );
             return Box::new(future::ok(())) as Box<_>;
         }
 
-        let peer_index = {
-            let peers_registry = network.peers_registry().read();
-            match peers_registry.get(&peer_id) {
-                Some(peer) => peer.peer_index.unwrap(),
-                None => {
-                    return Box::new(future::err(IoError::new(
-                        IoErrorKind::Other,
-                        format!("can't find peer {:?}", peer_id),
-                    )))
-                }
+        let peer_index = match network.get_peer_index(&peer_id) {
+            Some(peer_index) => peer_index,
+            None => {
+                return Box::new(future::err(IoError::new(
+                    IoErrorKind::Other,
+                    format!("can't find peer {:?}", peer_id),
+                )))
             }
         };
 
@@ -73,14 +74,17 @@ impl CKBService {
                 move |data| {
                     // update kad_system when we received data
                     kad_system.update_kbuckets(peer_id.clone());
-                    protocol_handler.received(
-                        Box::new(DefaultCKBProtocolContext::new(
-                            Arc::clone(&network),
-                            protocol_id,
-                        )),
-                        peer_index,
-                        &data,
-                    );
+                    let protocol_handler = Arc::clone(&protocol_handler);
+                    let network = Arc::clone(&network);
+                    let handle_received = future::lazy(move || {
+                        protocol_handler.received(
+                            Box::new(DefaultCKBProtocolContext::new(network, protocol_id)),
+                            peer_index,
+                            &data,
+                        );
+                        Ok(())
+                    });
+                    tokio::spawn(handle_received);
                     Ok(())
                 }
             });
@@ -95,6 +99,7 @@ impl CKBService {
                     let protocol_id = protocol_id;
                     move |val| {
                         info!(
+                            target: "network",
                             "Disconnect! peer {:?} protocol_id {:?} reason {:?}",
                             peer_id, protocol_id, val
                         );
@@ -110,14 +115,14 @@ impl CKBService {
                             )),
                             peer_index,
                         );
-                        let mut peers_registry = network.peers_registry().write();
-                        peers_registry.drop_peer(&peer_id);
+                        network.drop_peer(&peer_id);
                         val
                     }
                 })
         };
 
         info!(
+            target: "network",
             "Connected to peer {:?} with protocol_id {:?} version {}",
             peer_id, protocol_id, protocol_version
         );
@@ -126,13 +131,19 @@ impl CKBService {
             peer_store.report(&peer_id, Behaviour::Connect);
             peer_store.report_status(&peer_id, Status::Connected);
         }
-        protocol_handler.connected(
-            Box::new(DefaultCKBProtocolContext::new(
-                Arc::clone(&network),
-                protocol_id,
-            )),
-            peer_index,
-        );
+        {
+            let handle_connected = future::lazy(move || {
+                protocol_handler.connected(
+                    Box::new(DefaultCKBProtocolContext::new(
+                        Arc::clone(&network),
+                        protocol_id,
+                    )),
+                    peer_index,
+                );
+                Ok(())
+            });
+            tokio::spawn(handle_connected);
+        }
         Box::new(protocol_future) as Box<_>
     }
 }

@@ -68,7 +68,7 @@ mod tests {
     #[test]
     fn merkle_root_test() {
         assert_eq!(
-            merkle_root(&vec![
+            merkle_root(&[
                 H256::from_str("8e827ab731f2416f6057b9c7f241b1841e345ffeabb4274e35995a45f4d42a1a")
                     .unwrap(),
                 H256::from_str("768dfb4ca3311fa3bf4d696dde334e30edf3542e8ea114a4f9d18fb34365f1d1")

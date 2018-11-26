@@ -1,11 +1,12 @@
 use super::Verifier;
 use bigint::U256;
-use core::header::Header;
+use ckb_core::header::Header;
+use ckb_pow::PowEngine;
+use ckb_time::now_ms;
 use error::{DifficultyError, Error, NumberError, PowError, TimestampError};
-use pow::PowEngine;
 use shared::ALLOWED_FUTURE_BLOCKTIME;
+use std::marker::PhantomData;
 use std::sync::Arc;
-use time::now_ms;
 
 pub trait HeaderResolver {
     fn header(&self) -> &Header;
@@ -15,39 +16,33 @@ pub trait HeaderResolver {
     fn calculate_difficulty(&self) -> Option<U256>;
 }
 
-pub struct HeaderVerifier<R> {
-    pub resolver: R,
+pub struct HeaderVerifier<T> {
     pub pow: Arc<dyn PowEngine>,
+    _phantom: PhantomData<T>,
 }
 
-impl<R> HeaderVerifier<R>
-where
-    R: HeaderResolver,
-{
-    pub fn new(resolver: R, pow: &Arc<dyn PowEngine>) -> Self {
+impl<T> HeaderVerifier<T> {
+    pub fn new(pow: Arc<dyn PowEngine>) -> Self {
         HeaderVerifier {
-            resolver,
-            pow: Arc::clone(pow),
+            pow,
+            _phantom: PhantomData,
         }
     }
 }
 
-impl<R> Verifier for HeaderVerifier<R>
-where
-    R: HeaderResolver,
-{
-    fn verify(&self) -> Result<(), Error> {
-        let header = self.resolver.header();
+impl<T: HeaderResolver> Verifier for HeaderVerifier<T> {
+    type Target = T;
+    fn verify(&self, target: &T) -> Result<(), Error> {
+        let header = target.header();
 
         // POW check first
         PowVerifier::new(header, &self.pow).verify()?;
-        let parent = self
-            .resolver
+        let parent = target
             .parent()
             .ok_or_else(|| Error::UnknownParent(header.parent_hash()))?;
         NumberVerifier::new(parent, header).verify()?;
         TimestampVerifier::new(parent, header).verify()?;
-        DifficultyVerifier::new(&self.resolver).verify()?;
+        DifficultyVerifier::verify(target)?;
         Ok(())
     }
 }
@@ -107,24 +102,16 @@ impl<'a> NumberVerifier<'a> {
     }
 }
 
-pub struct DifficultyVerifier<'a, R: 'a> {
-    resolver: &'a R,
+pub struct DifficultyVerifier<T> {
+    phantom: PhantomData<T>,
 }
 
-impl<'a, R> DifficultyVerifier<'a, R>
-where
-    R: HeaderResolver,
-{
-    pub fn new(resolver: &'a R) -> Self {
-        DifficultyVerifier { resolver }
-    }
-
-    pub fn verify(&self) -> Result<(), Error> {
-        let expected = self
-            .resolver
+impl<T: HeaderResolver> DifficultyVerifier<T> {
+    pub fn verify(resolver: &T) -> Result<(), Error> {
+        let expected = resolver
             .calculate_difficulty()
             .ok_or_else(|| Error::Difficulty(DifficultyError::AncestorNotFound))?;
-        let actual = self.resolver.header().difficulty();
+        let actual = resolver.header().difficulty();
         if expected != actual {
             return Err(Error::Difficulty(DifficultyError::MixMismatch {
                 expected,

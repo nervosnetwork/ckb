@@ -1,27 +1,25 @@
 [package]
 name = "ckb-miner"
 version = "0.1.0"
+license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 
 [dependencies]
 log = "0.4"
-bigint = { git = "https://github.com/NervosFoundation/bigint" }
+bigint = { git = "https://github.com/nervosnetwork/bigint" }
 ckb-time = { path = "../util/time" }
 ckb-core = { path = "../core" }
-ckb-pool = { path = "../pool" }
 ckb-chain = { path = "../chain" }
+ckb-shared = { path = "../shared" }
 ckb-protocol = { path = "../protocol" }
 ckb-network = { path = "../network" }
 ckb-sync = { path = "../sync" }
+ckb-pow = { path = "../pow" }
+ckb-notify = { path = "../notify" }
+ckb-rpc = { path = "../rpc" }
 flatbuffers = "0.5.0"
 rand = "0.5.0"
-ckb-notify = { path = "../notify" }
 serde = "1.0"
 serde_derive = "1.0"
 crossbeam-channel = "0.2"
 fnv = "1.0.3"
-ckb-pow = { path = "../pow" }
-
-[dev-dependencies]
-ckb-db = { path = "../db" }
-ckb-verification = { path = "../verification" }

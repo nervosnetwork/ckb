@@ -51,6 +51,7 @@ impl<'a> FbsHeader<'a> {
         builder.add_proof(proof);
         builder.add_cellbase_id(cellbase_id);
         builder.add_uncles_hash(uncles_hash);
+        builder.add_uncles_count(header.uncles_count());
         builder.finish()
     }
 }
@@ -122,39 +123,33 @@ impl<'a> FbsCellInput<'a> {
 impl<'a> FbsScript<'a> {
     pub fn build<'b>(fbb: &mut FlatBufferBuilder<'b>, script: &Script) -> WIPOffset<FbsScript<'b>> {
         let vec = script
-            .arguments
+            .args
             .iter()
             .map(|argument| FbsBytes::build(fbb, argument))
             .collect::<Vec<_>>();
-        let arguments = fbb.create_vector(&vec);
+        let args = fbb.create_vector(&vec);
 
-        let redeem_script = script
-            .redeem_script
-            .as_ref()
-            .map(|s| FbsBytes::build(fbb, s));
+        let binary = script.binary.as_ref().map(|s| FbsBytes::build(fbb, s));
 
-        let redeem_reference = script
-            .redeem_reference
-            .as_ref()
-            .map(|out_point| FbsOutPoint::build(fbb, out_point));
+        let reference = script.reference.as_ref().map(|b| FbsBytes::build(fbb, b));
 
         let vec = script
-            .redeem_arguments
+            .signed_args
             .iter()
             .map(|argument| FbsBytes::build(fbb, argument))
             .collect::<Vec<_>>();
-        let redeem_arguments = fbb.create_vector(&vec);
+        let signed_args = fbb.create_vector(&vec);
 
         let mut builder = ScriptBuilder::new(fbb);
         builder.add_version(script.version);
-        builder.add_arguments(arguments);
-        if let Some(s) = redeem_script {
-            builder.add_redeem_script(s);
+        builder.add_args(args);
+        if let Some(s) = binary {
+            builder.add_binary(s);
         }
-        if let Some(r) = redeem_reference {
-            builder.add_redeem_reference(r);
+        if let Some(r) = reference {
+            builder.add_reference(r);
         }
-        builder.add_redeem_arguments(redeem_arguments);
+        builder.add_signed_args(signed_args);
         builder.finish()
     }
 }
@@ -166,10 +161,17 @@ impl<'a> FbsCellOutput<'a> {
     ) -> WIPOffset<FbsCellOutput<'b>> {
         let data = FbsBytes::build(fbb, &cell_output.data);
         let lock = FbsBytes::build(fbb, &cell_output.lock);
+        let contract = cell_output
+            .contract
+            .as_ref()
+            .map(|s| FbsScript::build(fbb, s));
         let mut builder = CellOutputBuilder::new(fbb);
         builder.add_capacity(cell_output.capacity);
         builder.add_data(data);
         builder.add_lock(lock);
+        if let Some(s) = contract {
+            builder.add_contract(s);
+        }
         builder.finish()
     }
 }
@@ -336,10 +338,14 @@ impl<'a> CompactBlock<'a> {
         prefilled_transactions_indexes: &HashSet<usize>,
     ) -> WIPOffset<CompactBlock<'b>> {
         let nonce: u64 = thread_rng().gen();
-
+        // always prefill cellbase
         let prefilled_transactions_len = prefilled_transactions_indexes.len() + 1;
-        let mut short_ids: Vec<_> =
-            Vec::with_capacity(block.commit_transactions().len() - prefilled_transactions_len);
+        let mut short_ids: Vec<_> = Vec::with_capacity(
+            block
+                .commit_transactions()
+                .len()
+                .saturating_sub(prefilled_transactions_len),
+        );
         let mut prefilled_transactions = Vec::with_capacity(prefilled_transactions_len);
 
         let (key0, key1) = short_transaction_id_keys(block.header().nonce(), nonce);
@@ -506,6 +512,7 @@ mod tests {
     use super::*;
     use ckb_core::block::BlockBuilder;
     use ckb_core::header::HeaderBuilder;
+    use ckb_core::transaction::TransactionBuilder;
     use flatbuffers::get_root;
 
     #[test]
@@ -530,5 +537,22 @@ mod tests {
 
         let fbs_block = get_root::<FbsBlock>(builder.finished_data());
         assert_eq!(block, fbs_block.into());
+    }
+
+    #[test]
+    fn build_compcat_block_prefilled_transactions_indexes_overflow() {
+        let block = BlockBuilder::default()
+            .header(HeaderBuilder::default().build())
+            .commit_transaction(TransactionBuilder::default().build())
+            .build();
+        let builder = &mut FlatBufferBuilder::new();
+        let mut prefilled_transactions_indexes = HashSet::new();
+        prefilled_transactions_indexes.insert(0);
+        prefilled_transactions_indexes.insert(2);
+        let b = CompactBlock::build(builder, &block, &prefilled_transactions_indexes);
+        builder.finish(b, None);
+
+        let fbs_compact_block = get_root::<CompactBlock>(builder.finished_data());
+        assert_eq!(1, fbs_compact_block.prefilled_transactions().unwrap().len());
     }
 }

@@ -78,15 +78,21 @@ pub struct CellOutput {
     pub capacity: Capacity,
     pub data: Vec<u8>,
     pub lock: H256,
+    pub contract: Option<Script>,
 }
 
 impl CellOutput {
-    pub fn new(capacity: Capacity, data: Vec<u8>, lock: H256) -> Self {
+    pub fn new(capacity: Capacity, data: Vec<u8>, lock: H256, contract: Option<Script>) -> Self {
         CellOutput {
             capacity,
             data,
             lock,
+            contract,
         }
+    }
+
+    pub fn data_hash(&self) -> H256 {
+        sha3_256(&self.data).into()
     }
 }
 
@@ -102,7 +108,7 @@ pub struct Transaction {
 
 impl CellOutput {
     pub fn bytes_len(&self) -> usize {
-        8 + self.data.len() + self.lock.len()
+        8 + self.data.len() + self.lock.len() + self.contract.as_ref().map_or(0, |s| s.bytes_len())
     }
 }
 

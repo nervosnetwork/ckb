@@ -1,12 +1,12 @@
 use super::header_view::HeaderView;
 use bigint::H256;
-use ckb_chain::chain::TipHeader;
+use ckb_core::block::Block;
+use ckb_core::header::Header;
+use ckb_network::PeerIndex;
+use ckb_shared::shared::TipHeader;
 use ckb_time::now_ms;
-use core::block::Block;
-use core::header::Header;
+use ckb_util::RwLock;
 use fnv::{FnvHashMap, FnvHashSet};
-use network::PeerIndex;
-use util::RwLock;
 
 // const BANSCORE: u32 = 100;
 
@@ -104,6 +104,10 @@ impl BlocksInflight {
     pub fn update_timestamp(&mut self) {
         self.timestamp = now_ms();
     }
+
+    pub fn clear(&mut self) {
+        self.blocks.clear();
+    }
 }
 
 impl Peers {
@@ -177,6 +181,7 @@ impl Peers {
         self.best_known_headers.write().remove(&peer);
         // self.misbehavior.write().remove(peer);
         self.blocks_inflight.write().remove(&peer);
+        self.last_common_headers.write().remove(&peer);
     }
 
     pub fn block_received(&self, peer: PeerIndex, block: &Block) {
@@ -184,6 +189,7 @@ impl Peers {
         debug!(target: "sync", "block_received from peer {} {} {:?}", peer, block.header().number(), block.header().hash());
         blocks_inflight.entry(peer).and_modify(|inflight| {
             inflight.remove(&block.header().hash());
+            inflight.update_timestamp();
         });
     }
 

@@ -1,18 +1,21 @@
 [package]
 name = "ckb-rpc"
 version = "0.1.0"
+license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 
 [dependencies]
-bigint = { git = "https://github.com/NervosFoundation/bigint" }
+bigint = { git = "https://github.com/nervosnetwork/bigint" }
 ckb-core = { path = "../core" }
 ckb-network = { path = "../network" }
-ckb-chain = { path = "../chain" }
+ckb-shared = { path = "../shared" }
+ckb-notify = { path = "../notify" }
 ckb-db = { path = "../db" }
 ckb-sync = { path = "../sync" }
 ckb-pool = { path = "../pool" }
-ckb-miner = { path = "../miner" }
 ckb-protocol = { path = "../protocol" }
+ckb-pow = { path = "../pow", optional = true }
+ckb-time = { path = "../util/time" }
 jsonrpc-core = "8.0"
 jsonrpc-macros = "8.0"
 jsonrpc-http-server = "8.0"
@@ -21,7 +24,13 @@ serde = "1.0"
 serde_derive = "1.0"
 serde_json = "1.0"
 log = "0.4"
-ckb-pow = { path = "../pow", optional = true }
+crossbeam-channel = "0.2"
+fnv = "1.0.3"
+flatbuffers = "0.5.0"
+
+[dev-dependencies]
+ckb-db = { path = "../db" }
+ckb-verification = { path = "../verification" }
 
 [features]
 integration_test = ["ckb-pow"]

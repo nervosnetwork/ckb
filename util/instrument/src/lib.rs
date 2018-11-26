@@ -9,6 +9,7 @@
 
 extern crate ckb_chain;
 extern crate ckb_core;
+extern crate ckb_shared;
 #[cfg(feature = "progress_bar")]
 extern crate indicatif;
 extern crate serde_json;

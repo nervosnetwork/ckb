@@ -1,53 +1,71 @@
 use super::super::helper::wait_for_exit;
 use super::super::Setup;
 use bigint::H256;
-use chain::cachedb::CacheDB;
-use chain::chain::{ChainBuilder, ChainProvider};
-use chain::store::ChainKVStore;
-use ckb_notify::Notify;
+use ckb_chain::chain::{ChainBuilder, ChainController};
+use ckb_core::script::Script;
+use ckb_core::transaction::{CellInput, OutPoint, Transaction, TransactionBuilder};
+use ckb_db::diskdb::RocksDB;
+use ckb_miner::MinerService;
+use ckb_network::CKBProtocol;
+use ckb_network::NetworkConfig;
+use ckb_network::NetworkService;
+use ckb_notify::NotifyService;
+use ckb_pool::txs_pool::{TransactionPoolController, TransactionPoolService};
 use ckb_pow::PowEngine;
+use ckb_rpc::{RpcController, RpcServer, RpcService};
+use ckb_shared::cachedb::CacheDB;
+use ckb_shared::index::ChainIndex;
+use ckb_shared::shared::{ChainProvider, Shared, SharedBuilder};
+use ckb_shared::store::ChainKVStore;
+use ckb_sync::{Relayer, Synchronizer, RELAY_PROTOCOL_ID, SYNC_PROTOCOL_ID};
 use clap::ArgMatches;
-use core::script::Script;
-use core::transaction::{CellInput, OutPoint, Transaction, TransactionBuilder};
 use crypto::secp::{Generator, Privkey};
-use db::diskdb::RocksDB;
 use faster_hex::{hex_string, hex_to};
 use hash::sha3_256;
-use logger;
-use miner::Miner;
-use network::CKBProtocol;
-use network::NetworkConfig;
-use network::NetworkService;
-use pool::TransactionPool;
-use rpc::RpcServer;
 use serde_json;
 use std::io::Write;
 use std::sync::Arc;
 use std::thread;
-use sync::{Relayer, Synchronizer, RELAY_PROTOCOL_ID, SYNC_PROTOCOL_ID};
 
 pub fn run(setup: Setup) {
-    logger::init(setup.configs.logger.clone()).expect("Init Logger");
-    info!(target: "main", "Value for setup: {:?}", setup);
-
     let consensus = setup.chain_spec.to_consensus().unwrap();
-    let db_path = setup.dirs.join("db");
-    let notify = Notify::new();
-
-    let chain = {
-        let mut builder = ChainBuilder::<ChainKVStore<CacheDB<RocksDB>>>::new_rocks(&db_path)
-            .consensus(consensus.clone())
-            .notify(notify.clone());
-        Arc::new(builder.build().unwrap())
-    };
-
-    info!(target: "main", "chain genesis hash: {:?}", chain.genesis_hash());
-
     let pow_engine = setup.chain_spec.pow_engine();
-    let synchronizer = Arc::new(Synchronizer::new(&chain, &pow_engine, setup.configs.sync));
+    let db_path = setup.dirs.join("db");
 
-    let tx_pool = TransactionPool::new(setup.configs.pool, Arc::clone(&chain), notify.clone());
-    let relayer = Arc::new(Relayer::new(&chain, &pow_engine, &tx_pool));
+    let shared = SharedBuilder::<ChainKVStore<CacheDB<RocksDB>>>::new_rocks(&db_path)
+        .consensus(consensus)
+        .build();
+
+    let (_handle, notify) = NotifyService::default().start(Some("notify"));
+    let (chain_controller, chain_receivers) = ChainController::new();
+    let (tx_pool_controller, tx_pool_receivers) = TransactionPoolController::new();
+    let (rpc_controller, rpc_receivers) = RpcController::new();
+
+    let chain_service = ChainBuilder::new(shared.clone())
+        .notify(notify.clone())
+        .build();
+    let _handle = chain_service.start(Some("ChainService"), chain_receivers);
+
+    info!(target: "main", "chain genesis hash: {:?}", shared.genesis_hash());
+
+    let tx_pool_service =
+        TransactionPoolService::new(setup.configs.pool, shared.clone(), notify.clone());
+    let _handle = tx_pool_service.start(Some("TransactionPoolService"), tx_pool_receivers);
+
+    let rpc_service = RpcService::new(shared.clone(), tx_pool_controller.clone());
+    let _handle = rpc_service.start(Some("RpcService"), rpc_receivers, &notify);
+
+    let synchronizer = Arc::new(Synchronizer::new(
+        chain_controller.clone(),
+        shared.clone(),
+        setup.configs.sync,
+    ));
+
+    let relayer = Arc::new(Relayer::new(
+        chain_controller.clone(),
+        shared.clone(),
+        tx_pool_controller.clone(),
+    ));
 
     let network_config = NetworkConfig::from(setup.configs.network);
     let protocol_base_name = "ckb";
@@ -70,49 +88,45 @@ pub fn run(setup: Setup) {
             .expect("Create and start network"),
     );
 
-    let _ = thread::Builder::new().name("miner".to_string()).spawn({
-        let miner_clone = Arc::clone(&chain);
-
-        let mut miner = Miner::new(
-            setup.configs.miner,
-            miner_clone,
-            &pow_engine,
-            &tx_pool,
-            &network,
-            &notify,
-        );
-
-        move || {
-            miner.start();
-        }
-    });
+    let miner_service = MinerService::new(
+        setup.configs.miner,
+        Arc::clone(&pow_engine),
+        &shared,
+        chain_controller.clone(),
+        rpc_controller.clone(),
+        Arc::clone(&network),
+        &notify,
+    );
+    let _handle = miner_service.start(Some("MinerService"));
 
     let rpc_server = RpcServer {
         config: setup.configs.rpc,
     };
 
-    setup_rpc(rpc_server, &pow_engine, &network, &chain, &tx_pool);
+    setup_rpc(
+        rpc_server,
+        rpc_controller,
+        Arc::clone(&pow_engine),
+        Arc::clone(&network),
+        shared,
+        tx_pool_controller,
+    );
 
     wait_for_exit();
 
     info!(target: "main", "Finishing work, please wait...");
-
-    logger::flush();
 }
 
 #[cfg(feature = "integration_test")]
-fn setup_rpc<C: ChainProvider + 'static>(
+fn setup_rpc<CI: ChainIndex + 'static>(
     server: RpcServer,
-    pow: &Arc<dyn PowEngine>,
-    network: &Arc<NetworkService>,
-    chain: &Arc<C>,
-    tx_pool: &Arc<TransactionPool<C>>,
+    rpc: RpcController,
+    pow: Arc<dyn PowEngine>,
+    network: Arc<NetworkService>,
+    shared: Shared<CI>,
+    tx_pool: TransactionPoolController,
 ) {
     use ckb_pow::Clicker;
-
-    let network = Arc::clone(network);
-    let chain = Arc::clone(chain);
-    let tx_pool = Arc::clone(tx_pool);
 
     let pow = pow.as_ref().as_any();
 
@@ -123,33 +137,33 @@ fn setup_rpc<C: ChainProvider + 'static>(
 
     let _ = thread::Builder::new().name("rpc".to_string()).spawn({
         move || {
-            server.start(network, chain, tx_pool, pow);
+            server.start(network, shared, tx_pool, rpc, pow);
         }
     });
 }
 
 #[cfg(not(feature = "integration_test"))]
 #[cfg_attr(feature = "cargo-clippy", allow(needless_pass_by_value))]
-fn setup_rpc<C: ChainProvider + 'static>(
+fn setup_rpc<CI: ChainIndex + 'static>(
     server: RpcServer,
-    _pow: &Arc<dyn PowEngine>,
-    network: &Arc<NetworkService>,
-    chain: &Arc<C>,
-    tx_pool: &Arc<TransactionPool<C>>,
+    rpc: RpcController,
+    _pow: Arc<dyn PowEngine>,
+    network: Arc<NetworkService>,
+    shared: Shared<CI>,
+    tx_pool: TransactionPoolController,
 ) {
-    let network = Arc::clone(network);
-    let chain = Arc::clone(chain);
-    let tx_pool = Arc::clone(tx_pool);
     let _ = thread::Builder::new().name("rpc".to_string()).spawn({
         move || {
-            server.start(network, chain, tx_pool);
+            server.start(network, shared, tx_pool, rpc);
         }
     });
 }
 
 pub fn sign(setup: &Setup, matches: &ArgMatches) {
     let consensus = setup.chain_spec.to_consensus().unwrap();
-    let system_cell_tx_hash = consensus.genesis_block().commit_transactions()[0].hash();
+    let system_cell_tx = &consensus.genesis_block().commit_transactions()[0];
+    let system_cell_data_hash = system_cell_tx.outputs()[0].data_hash();
+    let system_cell_tx_hash = system_cell_tx.hash();
     let system_cell_outpoint = OutPoint::new(system_cell_tx_hash, 0);
 
     let privkey: Privkey = value_t!(matches.value_of("private-key"), H256)
@@ -162,7 +176,7 @@ pub fn sign(setup: &Setup, matches: &ArgMatches) {
     let mut inputs = Vec::new();
     for unsigned_input in transaction.inputs() {
         let mut bytes = vec![];
-        for argument in &unsigned_input.unlock.arguments {
+        for argument in &unsigned_input.unlock.args {
             bytes.write_all(argument).unwrap();
         }
         let hash1 = sha3_256(&bytes);
@@ -172,16 +186,16 @@ pub fn sign(setup: &Setup, matches: &ArgMatches) {
         let mut hex_signature = vec![0; signature_der.len() * 2];
         hex_to(&signature_der, &mut hex_signature).expect("hex signature");
 
-        let mut new_arguments = vec![hex_signature];
-        new_arguments.extend_from_slice(&unsigned_input.unlock.arguments);
+        let mut new_args = vec![hex_signature];
+        new_args.extend_from_slice(&unsigned_input.unlock.args);
 
         let pubkey_ser = pubkey.serialize();
         let mut hex_pubkey = vec![0; pubkey_ser.len() * 2];
         hex_to(&pubkey_ser, &mut hex_pubkey).expect("hex pubkey");
         let script = Script::new(
             0,
-            new_arguments,
-            Some(system_cell_outpoint),
+            new_args,
+            Some(system_cell_data_hash),
             None,
             vec![hex_pubkey],
         );
@@ -200,10 +214,10 @@ pub fn sign(setup: &Setup, matches: &ArgMatches) {
     println!("{}", serde_json::to_string(&result).unwrap());
 }
 
-pub fn redeem_script_hash(setup: &Setup, matches: &ArgMatches) {
+pub fn type_hash(setup: &Setup, matches: &ArgMatches) {
     let consensus = setup.chain_spec.to_consensus().unwrap();
-    let system_cell_tx_hash = consensus.genesis_block().commit_transactions()[0].hash();
-    let system_cell_outpoint = OutPoint::new(system_cell_tx_hash, 0);
+    let system_cell_tx = &consensus.genesis_block().commit_transactions()[0];
+    let system_cell_data_hash = system_cell_tx.outputs()[0].data_hash();
 
     let privkey: Privkey = value_t!(matches.value_of("private-key"), H256)
         .unwrap_or_else(|e| e.exit())
@@ -217,14 +231,11 @@ pub fn redeem_script_hash(setup: &Setup, matches: &ArgMatches) {
     let script = Script::new(
         0,
         Vec::new(),
-        Some(system_cell_outpoint),
+        Some(system_cell_data_hash),
         None,
         vec![hex_pubkey],
     );
-    println!(
-        "{}",
-        hex_string(&script.redeem_script_hash()).expect("hex string")
-    );
+    println!("{}", hex_string(&script.type_hash()).expect("hex string"));
 }
 
 pub fn keygen() {

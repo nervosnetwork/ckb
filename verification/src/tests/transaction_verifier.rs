@@ -1,11 +1,11 @@
-use super::super::error::TransactionError;
 use super::super::transaction_verifier::{
     CapacityVerifier, DuplicateInputsVerifier, EmptyVerifier, NullVerifier,
 };
 use bigint::H256;
-use core::cell::CellStatus;
-use core::cell::ResolvedTransaction;
-use core::transaction::{CellInput, CellOutput, OutPoint, TransactionBuilder};
+use ckb_core::cell::CellStatus;
+use ckb_core::cell::ResolvedTransaction;
+use ckb_core::transaction::{CellInput, CellOutput, OutPoint, TransactionBuilder};
+use error::TransactionError;
 
 #[test]
 pub fn test_null() {
@@ -29,7 +29,7 @@ pub fn test_empty() {
 #[test]
 pub fn test_capacity_outofbound() {
     let transaction = TransactionBuilder::default()
-        .output(CellOutput::new(50, vec![1; 51], H256::from(0)))
+        .output(CellOutput::new(50, vec![1; 51], H256::from(0), None))
         .build();
 
     let rtx = ResolvedTransaction {
@@ -39,6 +39,7 @@ pub fn test_capacity_outofbound() {
             50,
             Vec::new(),
             H256::from(0),
+            None,
         ))],
     };
     let verifier = CapacityVerifier::new(&rtx);
@@ -50,16 +51,16 @@ pub fn test_capacity_outofbound() {
 pub fn test_capacity_invalid() {
     let transaction = TransactionBuilder::default()
         .outputs(vec![
-            CellOutput::new(50, Vec::new(), H256::from(0)),
-            CellOutput::new(100, Vec::new(), H256::from(0)),
+            CellOutput::new(50, Vec::new(), H256::from(0), None),
+            CellOutput::new(100, Vec::new(), H256::from(0), None),
         ]).build();
 
     let rtx = ResolvedTransaction {
         transaction,
         dep_cells: Vec::new(),
         input_cells: vec![
-            CellStatus::Current(CellOutput::new(49, Vec::new(), H256::from(0))),
-            CellStatus::Current(CellOutput::new(100, Vec::new(), H256::from(0))),
+            CellStatus::Current(CellOutput::new(49, Vec::new(), H256::from(0), None)),
+            CellStatus::Current(CellOutput::new(100, Vec::new(), H256::from(0), None)),
         ],
     };
     let verifier = CapacityVerifier::new(&rtx);

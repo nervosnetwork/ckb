@@ -1,6 +1,7 @@
 use super::format::Format;
 use super::iter::ChainIterator;
-use ckb_chain::chain::ChainProvider;
+use ckb_shared::index::ChainIndex;
+use ckb_shared::shared::{ChainProvider, Shared};
 #[cfg(feature = "progress_bar")]
 use indicatif::{ProgressBar, ProgressStyle};
 use serde_json;
@@ -11,31 +12,31 @@ use std::io::Write;
 use std::path::PathBuf;
 
 /// Export block from datbase to specify file.
-pub struct Export<'a, P: 'a> {
+pub struct Export<CI> {
     /// export target path
     pub target: PathBuf,
-    pub provider: &'a P,
+    pub shared: Shared<CI>,
     /// which format be used to export
     pub format: Format,
 }
 
-impl<'a, P: ChainProvider> Export<'a, P> {
-    pub fn new(provider: &'a P, format: Format, target: PathBuf) -> Self {
+impl<CI: ChainIndex> Export<CI> {
+    pub fn new(shared: Shared<CI>, format: Format, target: PathBuf) -> Self {
         Export {
-            provider,
+            shared,
             format,
             target,
         }
     }
 
     /// Returning ChainIterator dealing with blocks iterate.
-    pub fn iter(&self) -> ChainIterator<P> {
-        ChainIterator::new(&self.provider)
+    pub fn iter(&self) -> ChainIterator<CI> {
+        ChainIterator::new(self.shared.clone())
     }
 
     /// export file name
     fn file_name(&self) -> String {
-        format!("{}.{}", self.provider.consensus().id, self.format)
+        format!("{}.{}", self.shared.consensus().id, self.format)
     }
 
     pub fn execute(self) -> Result<(), Box<Error>> {

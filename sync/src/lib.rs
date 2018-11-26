@@ -1,31 +1,30 @@
 //! # The Sync module
 //!
 //! Sync module implement ckb sync protocol as specified here:
-//! https://github.com/NervosFoundation/rfcs/tree/master/rfcs/0000-block-sync-protocol
+//! https://github.com/nervosnetwork/rfcs/tree/master/rfcs/0000-block-sync-protocol
 
 extern crate bigint;
 extern crate fnv;
 #[macro_use]
 extern crate log;
 extern crate ckb_chain;
-extern crate ckb_core as core;
-extern crate ckb_network as network;
-extern crate ckb_pool as pool;
-extern crate ckb_pow;
+extern crate ckb_core;
+extern crate ckb_network;
+extern crate ckb_pool;
 extern crate ckb_protocol;
+extern crate ckb_shared;
 extern crate ckb_time;
 extern crate flatbuffers;
 #[macro_use]
-extern crate ckb_util as util;
+extern crate ckb_util;
 extern crate ckb_verification;
 #[macro_use]
 extern crate bitflags;
-extern crate futures;
-extern crate tokio;
 #[macro_use]
 extern crate serde_derive;
+extern crate ckb_chain_spec;
 #[cfg(test)]
-extern crate ckb_db as db;
+extern crate ckb_db;
 #[cfg(test)]
 extern crate ckb_notify;
 #[cfg(test)]
@@ -35,11 +34,14 @@ mod config;
 mod relayer;
 mod synchronizer;
 
+#[cfg(test)]
+mod tests;
+
 pub use config::Config;
 pub use relayer::Relayer;
 pub use synchronizer::Synchronizer;
 
-use network::ProtocolId;
+use ckb_network::ProtocolId;
 
 pub const MAX_HEADERS_LEN: usize = 2_000;
 pub const MAX_INVENTORY_LEN: usize = 50_000;
@@ -63,22 +65,9 @@ pub const POW_SPACE: u64 = 10_000; //10s
 // behind headers chain.
 pub const MAX_OUTBOUND_PEERS_TO_PROTECT_FROM_DISCONNECT: usize = 4;
 pub const CHAIN_SYNC_TIMEOUT: u64 = 20 * 60 * 1000; // 20 minutes
-pub const EVICTION_TEST_RESPONSE_TIME: u64 = 120 * 1000; // 2 minutes
+pub const EVICTION_HEADERS_RESPONSE_TIME: u64 = 120 * 1000; // 2 minutes
 
-#[derive(Debug, PartialEq, Clone, Eq)]
-pub enum AcceptBlockError {
-    Chain(ckb_chain::error::Error),
-    Verification(ckb_verification::Error),
-}
+//The maximum number of entries in a locator
+pub const MAX_LOCATOR_SIZE: usize = 101;
 
-impl From<ckb_chain::error::Error> for AcceptBlockError {
-    fn from(error: ckb_chain::error::Error) -> Self {
-        AcceptBlockError::Chain(error)
-    }
-}
-
-impl From<ckb_verification::Error> for AcceptBlockError {
-    fn from(error: ckb_verification::Error) -> Self {
-        AcceptBlockError::Verification(error)
-    }
-}
+pub const BLOCK_DOWNLOAD_TIMEOUT: u64 = 30 * 1000; // 30s

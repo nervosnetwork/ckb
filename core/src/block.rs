@@ -156,6 +156,7 @@ impl BlockBuilder {
             .txs_commit(&txs_commit)
             .txs_proposal(&txs_proposal)
             .uncles_hash(&uncles_hash)
+            .uncles_count(self.inner.uncles.len() as u32)
             .build();
         self.inner
     }

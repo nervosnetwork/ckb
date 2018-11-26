@@ -1,22 +1,22 @@
-use ckb_chain::chain::ChainProvider;
-use ckb_protocol::Block;
-use network::{CKBProtocolContext, PeerIndex};
+use ckb_core::block::Block;
+use ckb_network::{CKBProtocolContext, PeerIndex};
+use ckb_protocol::Block as PBlock;
+use ckb_shared::index::ChainIndex;
 use synchronizer::Synchronizer;
 
-pub struct BlockProcess<'a, C: 'a> {
-    message: &'a Block<'a>,
-    synchronizer: &'a Synchronizer<C>,
+pub struct BlockProcess<'a, CI: ChainIndex + 'a> {
+    message: &'a PBlock<'a>,
+    synchronizer: &'a Synchronizer<CI>,
     peer: PeerIndex,
-    // nc: &'a CKBProtocolContext,
 }
 
-impl<'a, C> BlockProcess<'a, C>
+impl<'a, CI> BlockProcess<'a, CI>
 where
-    C: ChainProvider + 'a,
+    CI: ChainIndex + 'a,
 {
     pub fn new(
-        message: &'a Block,
-        synchronizer: &'a Synchronizer<C>,
+        message: &'a PBlock,
+        synchronizer: &'a Synchronizer<CI>,
         peer: PeerIndex,
         _nc: &'a CKBProtocolContext,
     ) -> Self {
@@ -28,7 +28,8 @@ where
     }
 
     pub fn execute(self) {
-        let block = (*self.message).into();
+        let block: Block = (*self.message).into();
+        debug!(target: "sync", "BlockProcess received block {} {:?}", block.header().number(), block.header().hash());
 
         self.synchronizer.peers.block_received(self.peer, &block);
         self.synchronizer.process_new_block(self.peer, block);

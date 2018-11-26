@@ -65,6 +65,7 @@ impl<'a> From<ckb_protocol::Header<'a>> for ckb_core::header::Header {
                 header.uncles_hash().and_then(|b| b.seq()).unwrap(),
             )).nonce(header.nonce())
             .proof(header.proof().and_then(|b| b.seq()).unwrap())
+            .uncles_count(header.uncles_count())
             .build()
     }
 }
@@ -101,32 +102,37 @@ impl<'a> From<ckb_protocol::OutPoint<'a>> for ckb_core::transaction::OutPoint {
     }
 }
 
+impl<'a> From<ckb_protocol::Script<'a>> for ckb_core::script::Script {
+    fn from(script: ckb_protocol::Script<'a>) -> Self {
+        let args = FlatbuffersVectorIterator::new(script.args().unwrap())
+            .map(|argument| argument.seq().unwrap().to_vec())
+            .collect();
+
+        let signed_args = FlatbuffersVectorIterator::new(script.signed_args().unwrap())
+            .map(|argument| argument.seq().unwrap().to_vec())
+            .collect();
+
+        ckb_core::script::Script {
+            version: script.version(),
+            args,
+            binary: script.binary().and_then(|s| s.seq()).map(|s| s.to_vec()),
+            signed_args,
+            reference: script
+                .reference()
+                .and_then(|s| s.seq())
+                .map(|s| H256::from_slice(s)),
+        }
+    }
+}
+
 impl<'a> From<ckb_protocol::CellInput<'a>> for ckb_core::transaction::CellInput {
     fn from(cell_input: ckb_protocol::CellInput<'a>) -> Self {
-        let script = cell_input.unlock().unwrap();
-        let arguments = FlatbuffersVectorIterator::new(script.arguments().unwrap())
-            .map(|argument| argument.seq().unwrap().to_vec())
-            .collect();
-
-        let redeem_arguments = FlatbuffersVectorIterator::new(script.redeem_arguments().unwrap())
-            .map(|argument| argument.seq().unwrap().to_vec())
-            .collect();
-
         ckb_core::transaction::CellInput {
             previous_output: ckb_core::transaction::OutPoint {
                 hash: H256::from_slice(cell_input.hash().and_then(|b| b.seq()).unwrap()),
                 index: cell_input.index(),
             },
-            unlock: ckb_core::script::Script {
-                version: script.version(),
-                arguments,
-                redeem_script: script
-                    .redeem_script()
-                    .and_then(|s| s.seq())
-                    .map(|s| s.to_vec()),
-                redeem_arguments,
-                redeem_reference: script.redeem_reference().map(Into::into),
-            },
+            unlock: cell_input.unlock().unwrap().into(),
         }
     }
 }
@@ -137,6 +143,7 @@ impl<'a> From<ckb_protocol::CellOutput<'a>> for ckb_core::transaction::CellOutpu
             capacity: cell_output.capacity(),
             data: cell_output.data().and_then(|b| b.seq()).unwrap().to_vec(),
             lock: H256::from_slice(cell_output.lock().and_then(|b| b.seq()).unwrap()),
+            contract: cell_output.contract().map(Into::into),
         }
     }
 }

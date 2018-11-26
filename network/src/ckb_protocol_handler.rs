@@ -1,7 +1,7 @@
 use super::errors::{Error, ErrorKind};
 use super::{Network, SessionInfo, Timer};
 use super::{PeerIndex, ProtocolId, TimerToken};
-use parking_lot::Mutex;
+use ckb_util::Mutex;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -36,6 +36,7 @@ pub trait CKBProtocolContext: Send {
                     .and_then(|session| Some((*peer_index, session)))
             }).collect()
     }
+    fn connected_peers(&self) -> Vec<PeerIndex>;
 }
 
 pub(crate) struct DefaultCKBProtocolContext {
@@ -72,9 +73,8 @@ impl CKBProtocolContext for DefaultCKBProtocolContext {
         protocol_id: ProtocolId,
         data: Vec<u8>,
     ) -> Result<(), Error> {
-        let peers_registry = self.network.peers_registry().read();
-        if let Some(peer_id) = peers_registry.get_peer_id(peer_index) {
-            self.network.send(peer_id, protocol_id, data.into())
+        if let Some(peer_id) = self.network.get_peer_id(peer_index) {
+            self.network.send(&peer_id, protocol_id, data.into())
         } else {
             Err(ErrorKind::PeerNotFound.into())
         }
@@ -82,27 +82,20 @@ impl CKBProtocolContext for DefaultCKBProtocolContext {
     // report peer behaviour
     fn report_peer(&self, peer_index: PeerIndex, reason: Severity) {
         // TODO combinate this interface with peer score
-        info!("report peer {} reason: {:?}", peer_index, reason);
+        info!(target: "network", "report peer {} reason: {:?}", peer_index, reason);
         self.disconnect(peer_index);
     }
     // ban peer
     fn ban_peer(&self, peer_index: PeerIndex, timeout: Duration) {
-        let mut peers_registry = self.network.peers_registry().write();
-        if let Some(peer_id) = peers_registry
-            .get_peer_id(peer_index)
-            .map(|peer_id| peer_id.to_owned())
-        {
-            peers_registry.ban_peer(peer_id, timeout)
+        if let Some(peer_id) = self.network.get_peer_id(peer_index) {
+            self.network.ban_peer(peer_id, timeout)
         }
     }
     // disconnect from peer
     fn disconnect(&self, peer_index: PeerIndex) {
-        let mut peers_registry = self.network.peers_registry().write();
-        if let Some(peer_id) = peers_registry
-            .get_peer_id(peer_index)
-            .map(|peer_id| peer_id.to_owned())
-        {
-            peers_registry.drop_peer(&peer_id)
+        debug!(target: "network", "disconnect peer {}", peer_index);
+        if let Some(peer_id) = self.network.get_peer_id(peer_index) {
+            self.network.drop_peer(&peer_id)
         }
     }
     fn register_timer(&self, token: TimerToken, duration: Duration) -> Result<(), Error> {
@@ -122,10 +115,10 @@ impl CKBProtocolContext for DefaultCKBProtocolContext {
         Ok(())
     }
     fn session_info(&self, peer_index: PeerIndex) -> Option<SessionInfo> {
-        let peers_registry = self.network.peers_registry().read();
-        if let Some(session) = peers_registry
+        if let Some(session) = self
+            .network
             .get_peer_id(peer_index)
-            .map(|peer_id| self.network.session_info(peer_id, self.protocol_id))
+            .map(|peer_id| self.network.session_info(&peer_id, self.protocol_id))
         {
             session
         } else {
@@ -133,10 +126,10 @@ impl CKBProtocolContext for DefaultCKBProtocolContext {
         }
     }
     fn protocol_version(&self, peer_index: PeerIndex, protocol_id: ProtocolId) -> Option<u8> {
-        let peers_registry = self.network.peers_registry().read();
-        if let Some(protocol_version) = peers_registry
+        if let Some(protocol_version) = self
+            .network
             .get_peer_id(peer_index)
-            .map(|peer_id| self.network.peer_protocol_version(peer_id, protocol_id))
+            .map(|peer_id| self.network.peer_protocol_version(&peer_id, protocol_id))
         {
             protocol_version
         } else {
@@ -146,6 +139,10 @@ impl CKBProtocolContext for DefaultCKBProtocolContext {
 
     fn protocol_id(&self) -> ProtocolId {
         self.protocol_id
+    }
+
+    fn connected_peers(&self) -> Vec<PeerIndex> {
+        self.network.peers_indexes()
     }
 }
 

@@ -1,9 +1,11 @@
 [package]
 name = "ckb-script"
 version = "0.1.0"
+license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 
 [dependencies]
+bigint = { git = "https://github.com/nervosnetwork/bigint" }
 crypto = {path = "../util/crypto"}
 ckb-core = { path = "../core" }
 serde = "1.0"
@@ -13,9 +15,9 @@ ckb-vm = { path = "../vm" }
 faster-hex = "0.1"
 fnv = "1.0.3"
 flatbuffers = "0.5.0"
+log = "0.4"
 ckb-protocol = { path = "../protocol" }
 
 
 [dev-dependencies]
-bigint = { git = "https://github.com/NervosFoundation/bigint" }
 proptest = "0.8"

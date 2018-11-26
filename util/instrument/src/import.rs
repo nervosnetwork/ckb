@@ -1,5 +1,5 @@
 use super::format::Format;
-use ckb_chain::chain::ChainProvider;
+use ckb_chain::chain::ChainController;
 use ckb_core::block::Block;
 #[cfg(feature = "progress_bar")]
 use indicatif::{ProgressBar, ProgressStyle};
@@ -9,21 +9,22 @@ use std::fs;
 use std::io;
 use std::io::BufRead;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 /// Export block date from file to database.
-pub struct Import<'a, P: 'a> {
+pub struct Import {
     /// source file contains block data
-    pub source: PathBuf,
-    pub provider: &'a P,
+    source: PathBuf,
+    chain: ChainController,
     /// source file format
-    pub format: Format,
+    format: Format,
 }
 
-impl<'a, P: ChainProvider> Import<'a, P> {
-    pub fn new(provider: &'a P, format: Format, source: PathBuf) -> Self {
+impl Import {
+    pub fn new(chain: ChainController, format: Format, source: PathBuf) -> Self {
         Import {
             format,
-            provider,
+            chain,
             source,
         }
     }
@@ -42,11 +43,10 @@ impl<'a, P: ChainProvider> Import<'a, P> {
 
         for line in reader.lines() {
             let s = line?;
-            let encoded: Block = serde_json::from_str(&s)?;
-            let block: Block = encoded.into();
+            let block: Arc<Block> = Arc::new(serde_json::from_str(&s)?);
             if !block.is_genesis() {
-                self.provider
-                    .process_block(&block)
+                self.chain
+                    .process_block(block)
                     .expect("import occur malformation data");
             }
         }
@@ -66,10 +66,10 @@ impl<'a, P: ChainProvider> Import<'a, P> {
         );
         for line in reader.lines() {
             let s = line?;
-            let block: Block = serde_json::from_str(&s)?;
+            let block: Arc<Block> = Arc::new(serde_json::from_str(&s)?);
             if !block.is_genesis() {
-                self.provider
-                    .process_block(&block)
+                self.chain
+                    .process_block(block)
                     .expect("import occur malformation data");
             }
             progress_bar.inc(s.as_bytes().len() as u64);

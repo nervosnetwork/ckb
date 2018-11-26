@@ -33,7 +33,7 @@ import JsonRPC from "simple-jsonrpc-js"
 export default {
   data: function() {
     return {
-      addr: 'http://localhost:3030/',
+      addr: 'http://localhost:8114/',
       blocks: [],
       transactions: [],
       block: {},

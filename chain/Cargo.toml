@@ -1,6 +1,7 @@
 [package]
 name = "ckb-chain"
 version = "0.1.0"
+license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 
 [dependencies]
@@ -9,14 +10,17 @@ serde_derive = "1.0"
 bincode = "1.0"
 log = "0.4"
 ckb-core = { path = "../core" }
-ckb-util = { path = "../util" }
+ckb-shared = { path = "../shared" }
+ckb-chain-spec = { path = "../spec" }
 ckb-db = { path = "../db" }
-avl-merkle = { path = "../util/avl" }
-bigint = { git = "https://github.com/NervosFoundation/bigint" }
-lru-cache = { git = "https://github.com/NervosFoundation/lru-cache" }
-fnv = "1.0.3"
 ckb-time = { path = "../util/time" }
 ckb-notify = { path = "../notify" }
+ckb-verification = { path = "../verification" }
+avl-merkle = { path = "../util/avl" }
+bigint = { git = "https://github.com/nervosnetwork/bigint" }
+lru-cache = { git = "https://github.com/nervosnetwork/lru-cache" }
+fnv = "1.0.3"
+crossbeam-channel = "0.2"
 
 [dev-dependencies]
 env_logger = "0.4"

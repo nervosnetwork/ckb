@@ -1,17 +1,27 @@
 #![cfg_attr(feature = "cargo-clippy", allow(needless_pass_by_value))]
 
-extern crate ckb_core as core;
-extern crate ckb_util as util;
-extern crate crossbeam_channel;
+extern crate ckb_core;
+#[macro_use]
+extern crate crossbeam_channel as channel;
 extern crate fnv;
+#[macro_use]
+extern crate log;
 
-use core::block::Block;
-use fnv::FnvHashMap;
 use std::sync::Arc;
-use util::RwLock;
+use std::thread;
+use std::thread::JoinHandle;
+
+use channel::{Receiver, Sender};
+use ckb_core::block::Block;
+use ckb_core::service::Request;
+use fnv::FnvHashMap;
 
 pub const MINER_SUBSCRIBER: &str = "miner";
 pub const TXS_POOL_SUBSCRIBER: &str = "txs_pool";
+pub const RPC_SUBSCRIBER: &str = "rpc";
+
+pub const REGISTER_CHANNEL_SIZE: usize = 2;
+pub const NOTIFY_CHANNEL_SIZE: usize = 128;
 
 #[derive(Clone, PartialEq, Debug, Default)]
 pub struct ForkBlocks {
@@ -37,60 +47,275 @@ impl ForkBlocks {
     }
 }
 
-#[derive(Clone, PartialEq, Debug)]
-pub enum Event {
-    NewTransaction,
-    NewTip(Arc<Block>),
-    SwitchFork(Arc<ForkBlocks>),
+type StopSignal = ();
+pub type MsgNewTransaction = ();
+pub type MsgNewTip = Arc<Block>;
+pub type MsgNewUncle = Arc<Block>;
+pub type MsgSwitchFork = Arc<ForkBlocks>;
+pub type NotifyRegister<M> = Sender<Request<(String, usize), Receiver<M>>>;
+
+#[derive(Default)]
+pub struct NotifyService {}
+
+#[derive(Clone)]
+pub struct NotifyController {
+    signal: Sender<StopSignal>,
+    new_transaction_register: NotifyRegister<MsgNewTransaction>,
+    new_tip_register: NotifyRegister<MsgNewTip>,
+    new_uncle_register: NotifyRegister<MsgNewUncle>,
+    switch_fork_register: NotifyRegister<MsgSwitchFork>,
+    new_transaction_notifier: Sender<MsgNewTransaction>,
+    new_tip_notifier: Sender<MsgNewTip>,
+    new_uncle_notifier: Sender<MsgNewUncle>,
+    switch_fork_notifier: Sender<MsgSwitchFork>,
 }
 
-pub type Subscriber = crossbeam_channel::Sender<Event>;
-pub type Subscribers = FnvHashMap<String, Subscriber>;
+impl NotifyService {
+    pub fn start<S: ToString>(self, thread_name: Option<S>) -> (JoinHandle<()>, NotifyController) {
+        let (signal_sender, signal_receiver) = channel::bounded::<()>(REGISTER_CHANNEL_SIZE);
+        let (new_transaction_register, new_transaction_register_receiver) =
+            channel::bounded(REGISTER_CHANNEL_SIZE);
+        let (new_tip_register, new_tip_register_receiver) = channel::bounded(REGISTER_CHANNEL_SIZE);
+        let (new_uncle_register, new_uncle_register_receiver) =
+            channel::bounded(REGISTER_CHANNEL_SIZE);
+        let (switch_fork_register, switch_fork_register_receiver) =
+            channel::bounded(REGISTER_CHANNEL_SIZE);
 
-#[derive(Clone, Default, Debug)]
-pub struct Notify {
-    pub tip_subscribers: Arc<RwLock<Subscribers>>,
-    pub transaction_subscribers: Arc<RwLock<Subscribers>>,
-    pub fork_subscribers: Arc<RwLock<Subscribers>>,
-}
+        let (new_transaction_sender, new_transaction_receiver) =
+            channel::bounded::<MsgNewTransaction>(NOTIFY_CHANNEL_SIZE);
+        let (new_tip_sender, new_tip_receiver) = channel::bounded::<MsgNewTip>(NOTIFY_CHANNEL_SIZE);
+        let (new_uncle_sender, new_uncle_receiver) =
+            channel::bounded::<MsgNewUncle>(NOTIFY_CHANNEL_SIZE);
+        let (switch_fork_sender, switch_fork_receiver) =
+            channel::bounded::<MsgSwitchFork>(NOTIFY_CHANNEL_SIZE);
 
-impl Notify {
-    pub fn new() -> Self {
-        Self::default()
-    }
+        let mut new_transaction_subscribers = FnvHashMap::default();
+        let mut new_tip_subscribers = FnvHashMap::default();
+        let mut new_uncle_subscribers = FnvHashMap::default();
+        let mut switch_fork_subscribers = FnvHashMap::default();
 
-    pub fn register_transaction_subscriber<S: ToString>(&self, name: S, sub: Subscriber) {
-        self.transaction_subscribers
-            .write()
-            .insert(name.to_string(), sub);
-    }
-
-    pub fn register_tip_subscriber<S: ToString>(&self, name: S, sub: Subscriber) {
-        self.tip_subscribers.write().insert(name.to_string(), sub);
-    }
-
-    pub fn register_fork_subscriber<S: ToString>(&self, name: S, sub: Subscriber) {
-        self.fork_subscribers.write().insert(name.to_string(), sub);
-    }
-
-    pub fn notify_new_tip(&self, block: &Block) {
-        let block = Arc::new(block.clone());
-        for sub in self.tip_subscribers.read().values() {
-            sub.send(Event::NewTip(Arc::clone(&block)));
+        let mut thread_builder = thread::Builder::new();
+        // Mainly for test: give a empty thread_name
+        if let Some(name) = thread_name {
+            thread_builder = thread_builder.name(name.to_string());
         }
+        let join_handle = thread_builder
+            .spawn(move || loop {
+                select! {
+                    recv(signal_receiver, _) => {
+                        break;
+                    }
+
+                    recv(new_transaction_register_receiver, msg) => Self::handle_register_new_transaction(
+                        &mut new_transaction_subscribers, msg
+                    ),
+                    recv(new_tip_register_receiver, msg) => Self::handle_register_new_tip(
+                        &mut new_tip_subscribers, msg
+                    ),
+                    recv(new_uncle_register_receiver, msg) => Self::handle_register_new_uncle(
+                        &mut new_uncle_subscribers, msg
+                    ),
+                    recv(switch_fork_register_receiver, msg) => Self::handle_register_switch_fork(
+                        &mut switch_fork_subscribers, msg
+                    ),
+
+                    recv(new_transaction_receiver, msg) => Self::handle_notify_new_transaction(
+                        &new_transaction_subscribers, msg
+                    ),
+                    recv(new_tip_receiver, msg) => Self::handle_notify_new_tip(
+                        &new_tip_subscribers, msg
+                    ),
+                    recv(new_uncle_receiver, msg) => Self::handle_notify_new_uncle(
+                        &new_uncle_subscribers, msg
+                    ),
+                    recv(switch_fork_receiver, msg) => Self::handle_notify_switch_fork(
+                        &switch_fork_subscribers, msg
+                    )
+                }
+            }).expect("Start notify service failed");
+
+        (
+            join_handle,
+            NotifyController {
+                new_transaction_register,
+                new_tip_register,
+                new_uncle_register,
+                switch_fork_register,
+                new_transaction_notifier: new_transaction_sender,
+                new_tip_notifier: new_tip_sender,
+                new_uncle_notifier: new_uncle_sender,
+                switch_fork_notifier: switch_fork_sender,
+                signal: signal_sender,
+            },
+        )
+    }
+
+    fn handle_register_new_transaction(
+        subscribers: &mut FnvHashMap<String, Sender<MsgNewTransaction>>,
+        msg: Option<Request<(String, usize), Receiver<MsgNewTransaction>>>,
+    ) {
+        match msg {
+            Some(Request {
+                responsor,
+                arguments: (name, capacity),
+            }) => {
+                debug!(target: "notify", "Register new_transaction {:?}", name);
+                let (sender, receiver) = channel::bounded::<MsgNewTransaction>(capacity);
+                subscribers.insert(name, sender);
+                responsor.send(receiver);
+            }
+            None => warn!(target: "notify", "Register new_transaction channel is closed"),
+        }
+    }
+
+    fn handle_register_new_tip(
+        subscribers: &mut FnvHashMap<String, Sender<MsgNewTip>>,
+        msg: Option<Request<(String, usize), Receiver<MsgNewTip>>>,
+    ) {
+        match msg {
+            Some(Request {
+                responsor,
+                arguments: (name, capacity),
+            }) => {
+                debug!(target: "notify", "Register new_tip {:?}", name);
+                let (sender, receiver) = channel::bounded::<MsgNewTip>(capacity);
+                subscribers.insert(name, sender);
+                responsor.send(receiver);
+            }
+            None => warn!(target: "notify", "Register new_tip channel is closed"),
+        }
+    }
+
+    fn handle_register_new_uncle(
+        subscribers: &mut FnvHashMap<String, Sender<MsgNewUncle>>,
+        msg: Option<Request<(String, usize), Receiver<MsgNewUncle>>>,
+    ) {
+        match msg {
+            Some(Request {
+                responsor,
+                arguments: (name, capacity),
+            }) => {
+                debug!(target: "notify", "Register new_uncle {:?}", name);
+                let (sender, receiver) = channel::bounded::<MsgNewUncle>(capacity);
+                subscribers.insert(name, sender);
+                responsor.send(receiver);
+            }
+            None => warn!(target: "notify", "Register new_uncle channel is closed"),
+        }
+    }
+
+    fn handle_register_switch_fork(
+        subscribers: &mut FnvHashMap<String, Sender<MsgSwitchFork>>,
+        msg: Option<Request<(String, usize), Receiver<MsgSwitchFork>>>,
+    ) {
+        match msg {
+            Some(Request {
+                responsor,
+                arguments: (name, capacity),
+            }) => {
+                debug!(target: "notify", "Register switch_fork {:?}", name);
+                let (sender, receiver) = channel::bounded::<MsgSwitchFork>(capacity);
+                subscribers.insert(name, sender);
+                responsor.send(receiver);
+            }
+            None => warn!(target: "notify", "Register switch_fork channel is closed"),
+        }
+    }
+
+    fn handle_notify_new_transaction(
+        subscribers: &FnvHashMap<String, Sender<MsgNewTransaction>>,
+        msg: Option<MsgNewTransaction>,
+    ) {
+        match msg {
+            Some(()) => {
+                trace!(target: "notify", "event new transaction {:?}", msg);
+                for subscriber in subscribers.values() {
+                    subscriber.send(());
+                }
+            }
+            None => warn!(target: "notify", "new transaction channel is closed"),
+        }
+    }
+
+    fn handle_notify_new_tip(
+        subscribers: &FnvHashMap<String, Sender<MsgNewTip>>,
+        msg: Option<MsgNewTip>,
+    ) {
+        match msg {
+            Some(msg) => {
+                trace!(target: "notify", "event new tip {:?}", msg);
+                for subscriber in subscribers.values() {
+                    subscriber.send(Arc::clone(&msg));
+                }
+            }
+            None => warn!(target: "notify", "new tip channel is closed"),
+        }
+    }
+
+    fn handle_notify_new_uncle(
+        subscribers: &FnvHashMap<String, Sender<MsgNewUncle>>,
+        msg: Option<MsgNewUncle>,
+    ) {
+        match msg {
+            Some(msg) => {
+                trace!(target: "notify", "event new uncle {:?}", msg);
+                for subscriber in subscribers.values() {
+                    subscriber.send(Arc::clone(&msg));
+                }
+            }
+            None => warn!(target: "notify", "new uncle channel is closed"),
+        }
+    }
+
+    fn handle_notify_switch_fork(
+        subscribers: &FnvHashMap<String, Sender<MsgSwitchFork>>,
+        msg: Option<MsgSwitchFork>,
+    ) {
+        match msg {
+            Some(msg) => {
+                trace!(target: "notify", "event switch fork {:?}", msg);
+                for subscriber in subscribers.values() {
+                    subscriber.send(Arc::clone(&msg));
+                }
+            }
+            None => warn!(target: "notify", "event 3 channel is closed"),
+        }
+    }
+}
+
+impl NotifyController {
+    pub fn stop(self) {
+        self.signal.send(());
+    }
+
+    pub fn subscribe_new_transaction<S: ToString>(&self, name: S) -> Receiver<MsgNewTransaction> {
+        Request::call(&self.new_transaction_register, (name.to_string(), 128))
+            .expect("Subscribe new transaction failed")
+    }
+    pub fn subscribe_new_tip<S: ToString>(&self, name: S) -> Receiver<MsgNewTip> {
+        Request::call(&self.new_tip_register, (name.to_string(), 128))
+            .expect("Subscribe new tip failed")
+    }
+    pub fn subscribe_new_uncle<S: ToString>(&self, name: S) -> Receiver<MsgNewUncle> {
+        Request::call(&self.new_uncle_register, (name.to_string(), 128))
+            .expect("Subscribe new uncle failed")
+    }
+    pub fn subscribe_switch_fork<S: ToString>(&self, name: S) -> Receiver<MsgSwitchFork> {
+        Request::call(&self.switch_fork_register, (name.to_string(), 128))
+            .expect("Subscribe switch fork failed")
     }
 
     pub fn notify_new_transaction(&self) {
-        for sub in self.transaction_subscribers.read().values() {
-            sub.send(Event::NewTransaction);
-        }
+        self.new_transaction_notifier.send(());
     }
-
-    pub fn notify_switch_fork(&self, txs: ForkBlocks) {
-        let txs = Arc::new(txs);
-        for sub in self.fork_subscribers.read().values() {
-            sub.send(Event::SwitchFork(Arc::clone(&txs)));
-        }
+    pub fn notify_new_tip(&self, block: MsgNewTip) {
+        self.new_tip_notifier.send(block);
+    }
+    pub fn notify_new_uncle(&self, block: MsgNewUncle) {
+        self.new_uncle_notifier.send(block);
+    }
+    pub fn notify_switch_fork(&self, txs: MsgSwitchFork) {
+        self.switch_fork_notifier.send(txs);
     }
 }
 
@@ -99,36 +324,42 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_transaction() {
-        let notify = Notify::default();
-        let (tx, rx) = crossbeam_channel::unbounded();
-        notify.register_transaction_subscriber(MINER_SUBSCRIBER, tx.clone());
+    fn test_new_transaction() {
+        let (handle, notify) = NotifyService::default().start::<&str>(None);
+        let receiver1 = notify.subscribe_new_transaction("miner1");
+        let receiver2 = notify.subscribe_new_transaction("miner2");
         notify.notify_new_transaction();
-        assert_eq!(rx.try_recv(), Some(Event::NewTransaction));
+        assert_eq!(receiver1.recv(), Some(()));
+        assert_eq!(receiver2.recv(), Some(()));
+        notify.stop();
+        handle.join().expect("join failed");
     }
 
     #[test]
     fn test_new_tip() {
-        let notify = Notify::default();
-        let (tx, rx) = crossbeam_channel::unbounded();
         let tip = Arc::new(Block::default());
 
-        notify.register_tip_subscriber(MINER_SUBSCRIBER, tx.clone());
-        notify.notify_new_tip(&tip);
-        assert_eq!(rx.try_recv(), Some(Event::NewTip(Arc::clone(&tip))));
+        let (handle, notify) = NotifyService::default().start::<&str>(None);
+        let receiver1 = notify.subscribe_new_tip("miner1");
+        let receiver2 = notify.subscribe_new_tip("miner2");
+        notify.notify_new_tip(Arc::clone(&tip));
+        assert_eq!(receiver1.recv(), Some(Arc::clone(&tip)));
+        assert_eq!(receiver2.recv(), Some(tip));
+        notify.stop();
+        handle.join().expect("join failed");
     }
 
     #[test]
     fn test_switch_fork() {
-        let notify = Notify::default();
-        let (tx, rx) = crossbeam_channel::unbounded();
-        let blks = ForkBlocks::default();
+        let blks = Arc::new(ForkBlocks::default());
 
-        notify.register_fork_subscriber(MINER_SUBSCRIBER, tx.clone());
-        notify.notify_switch_fork(blks.clone());
-        assert_eq!(
-            rx.try_recv(),
-            Some(Event::SwitchFork(Arc::new(blks.clone())))
-        );
+        let (handle, notify) = NotifyService::default().start::<&str>(None);
+        let receiver1 = notify.subscribe_switch_fork("miner1");
+        let receiver2 = notify.subscribe_switch_fork("miner2");
+        notify.notify_switch_fork(Arc::clone(&blks));
+        assert_eq!(receiver1.recv(), Some(Arc::clone(&blks)));
+        assert_eq!(receiver2.recv(), Some(blks));
+        notify.stop();
+        handle.join().expect("join failed");
     }
 }

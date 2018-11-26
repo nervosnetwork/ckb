@@ -7,31 +7,26 @@
 //! There are a few named presets that can be selected from or a custom yaml spec file can be supplied.
 
 extern crate bigint;
-extern crate ckb_chain as chain;
-extern crate ckb_core as core;
-extern crate serde_yaml;
+extern crate ckb_core;
+extern crate serde_json;
 #[macro_use]
 extern crate serde_derive;
 extern crate ckb_pow;
 
 use bigint::{H256, U256};
-use chain::consensus::Consensus;
+use ckb_core::block::BlockBuilder;
+use ckb_core::header::HeaderBuilder;
+use ckb_core::transaction::{CellOutput, Transaction, TransactionBuilder};
+use ckb_core::Capacity;
 use ckb_pow::{Pow, PowEngine};
-use core::block::BlockBuilder;
-use core::header::HeaderBuilder;
-use core::transaction::{CellOutput, Transaction, TransactionBuilder};
-use core::Capacity;
+use consensus::Consensus;
 use std::error::Error;
 use std::fs::File;
 use std::io::Read;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-#[derive(Debug, PartialEq, Eq)]
-pub enum SpecType {
-    Dev,
-    Custom(String),
-}
+pub mod consensus;
 
 #[derive(Clone, PartialEq, Eq, Debug, Deserialize)]
 pub struct ChainSpec {
@@ -68,7 +63,7 @@ pub struct Genesis {
 
 #[derive(Clone, PartialEq, Eq, Debug, Deserialize)]
 pub struct SystemCell {
-    pub path: String,
+    pub path: PathBuf,
 }
 
 fn build_system_cell_transaction(cells: &[SystemCell]) -> Result<Transaction, Box<Error>> {
@@ -78,9 +73,9 @@ fn build_system_cell_transaction(cells: &[SystemCell]) -> Result<Transaction, Bo
         let mut data = Vec::new();
         file.read_to_end(&mut data)?;
 
-        // TODO: we should either provide a valid redeem script hash so we can
+        // TODO: we should either provide a valid type hash so we can
         // update system cell, or we can update this when P2SH is moved into VM.
-        let output = CellOutput::new(data.len() as Capacity, data, H256::default());
+        let output = CellOutput::new(data.len() as Capacity, data, H256::default(), None);
         outputs.push(output);
     }
 
@@ -89,19 +84,9 @@ fn build_system_cell_transaction(cells: &[SystemCell]) -> Result<Transaction, Bo
 
 impl ChainSpec {
     pub fn read_from_file<P: AsRef<Path>>(path: P) -> Result<ChainSpec, Box<Error>> {
-        let file = File::open(path)?;
-        let spec = serde_yaml::from_reader(file)?;
-        Ok(spec)
-    }
-
-    pub fn new_dev() -> Result<ChainSpec, Box<Error>> {
-        let mut spec: ChainSpec = serde_yaml::from_str(include_str!("../res/dev.yaml"))?;
-        let system_cell_path = Path::new(file!()).parent().unwrap().join("../res/cells");
-        for cell in &mut spec.system_cells {
-            let path = system_cell_path.join(&cell.path);
-            let path_str = path.to_str().ok_or("invalid cell path")?;
-            cell.path = path_str.to_string();
-        }
+        let file = File::open(path.as_ref())?;
+        let mut spec: Self = serde_json::from_reader(file)?;
+        spec.resolve_paths(path.as_ref().parent().unwrap());
         Ok(spec)
     }
 
@@ -131,28 +116,17 @@ impl ChainSpec {
         let consensus = Consensus::default()
             .set_id(self.name.clone())
             .set_genesis_block(genesis_block)
-            .set_initial_block_reward(self.params.initial_block_reward);
+            .set_initial_block_reward(self.params.initial_block_reward)
+            .set_pow(self.pow.clone());
 
         Ok(consensus)
     }
-}
 
-impl ::std::str::FromStr for SpecType {
-    type Err = String;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let spec_type = match s {
-            "dev" => SpecType::Dev,
-            other => SpecType::Custom(other.into()),
-        };
-        Ok(spec_type)
-    }
-}
-
-impl SpecType {
-    pub fn load_spec(self) -> Result<ChainSpec, Box<Error>> {
-        match self {
-            SpecType::Dev => ChainSpec::new_dev(),
-            SpecType::Custom(ref filename) => ChainSpec::read_from_file(filename),
+    fn resolve_paths(&mut self, base: &Path) {
+        for mut cell in &mut self.system_cells {
+            if cell.path.is_relative() {
+                cell.path = base.join(&cell.path);
+            }
         }
     }
 }
@@ -162,13 +136,19 @@ pub mod test {
     use super::*;
 
     #[test]
-    fn test_spec_type_parse() {
-        assert_eq!(SpecType::Dev, "dev".parse().unwrap());
-    }
-
-    #[test]
     fn test_chain_spec_load() {
-        let dev = ChainSpec::new_dev();
-        assert!(dev.is_ok());
+        println!(
+            "{:?}",
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../nodes_template/spec/dev.json")
+                .display()
+        );
+        let dev = ChainSpec::read_from_file(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../nodes_template/spec/dev.json"),
+        );
+        assert!(dev.is_ok(), format!("{:?}", dev));
+        for cell in &dev.unwrap().system_cells {
+            assert!(cell.path.exists());
+        }
     }
 }

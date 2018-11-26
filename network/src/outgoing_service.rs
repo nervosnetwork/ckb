@@ -79,10 +79,7 @@ impl<T: Send + 'static> ProtocolService<T> for OutgoingService {
             let transport = transport.clone();
             let timeout = self.timeout;
             move |_| {
-                let connection_status = {
-                    let peers_registry = network.peers_registry().read();
-                    peers_registry.connection_status()
-                };
+                let connection_status = network.connection_status();
                 let new_outgoing = (connection_status.max_outgoing
                     - connection_status.unreserved_outgoing)
                     as usize;
@@ -106,7 +103,7 @@ impl<T: Send + 'static> ProtocolService<T> for OutgoingService {
                 Box::new(lazy(|| future::ok(()))) as Box<Future<Item = _, Error = _> + Send>
             }
         }).then(|err| {
-            warn!("Outgoing service stopped, reason: {:?}", err);
+            warn!(target: "network", "Outgoing service stopped, reason: {:?}", err);
             err
         });
         Box::new(outgoing_future) as Box<Future<Item = _, Error = _> + Send>

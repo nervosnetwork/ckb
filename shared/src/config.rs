@@ -1,6 +1,6 @@
 use bigint::{H256, U256};
-use core::block::Block;
-use core::header::{BlockNumber, Header, RawHeader, Seal};
+use ckb_core::block::Block;
+use ckb_core::header::{BlockNumber, Header, RawHeader, Seal};
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct Config {

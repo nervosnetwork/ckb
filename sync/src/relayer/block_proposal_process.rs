@@ -1,17 +1,17 @@
-use ckb_chain::chain::ChainProvider;
 use ckb_protocol::{BlockProposal, FlatbuffersVectorIterator};
+use ckb_shared::index::ChainIndex;
 use relayer::Relayer;
 
-pub struct BlockProposalProcess<'a, C: 'a> {
+pub struct BlockProposalProcess<'a, CI: ChainIndex + 'a> {
     message: &'a BlockProposal<'a>,
-    relayer: &'a Relayer<C>,
+    relayer: &'a Relayer<CI>,
 }
 
-impl<'a, C> BlockProposalProcess<'a, C>
+impl<'a, CI> BlockProposalProcess<'a, CI>
 where
-    C: ChainProvider + 'static,
+    CI: ChainIndex + 'static,
 {
-    pub fn new(message: &'a BlockProposal, relayer: &'a Relayer<C>) -> Self {
+    pub fn new(message: &'a BlockProposal, relayer: &'a Relayer<CI>) -> Self {
         BlockProposalProcess { message, relayer }
     }
 

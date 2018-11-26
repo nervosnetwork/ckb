@@ -1,17 +1,19 @@
 [package]
 name = "ckb"
 version = "0.1.0"
+license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
+build = "build.rs"
 
 [dependencies]
 clap = { version = "2", features = ["yaml"] }
-toml = "0.4"
 serde = "1.0"
 serde_derive = "1.0"
 log = "0.4"
 ckb-util = { path = "util" }
 ckb-core = { path = "core" }
 ckb-chain = { path = "chain" }
+ckb-shared = { path = "shared" }
 ckb-chain-spec = {path = "spec"}
 ckb-notify = { path = "notify"}
 ckb-miner = { path = "miner" }
@@ -20,10 +22,11 @@ ckb-pow = { path = "pow" }
 ckb-network = { path = "network"}
 ckb-pool = { path = "pool"}
 ckb-rpc = { path = "rpc"}
+ckb-verification = { path = "verification"}
 ckb-time = { path = "util/time"}
 ckb-script= { path = "script"}
 logger = { path = "util/logger" }
-bigint = { git = "https://github.com/NervosFoundation/bigint" }
+bigint = { git = "https://github.com/nervosnetwork/bigint" }
 dir = { path = "util/dir" }
 ctrlc = { version = "3.1", features = ["termination"] }
 lazy_static = "1.0"
@@ -34,12 +37,16 @@ crypto = { path = "util/crypto"}
 ckb-instrument = { path = "util/instrument", features = ["progress_bar"] }
 hash = { path = "util/hash"}
 faster-hex = "0.1"
+build-info = { path = "util/build-info" }
 
 [features]
 integration_test = ["ckb-rpc/integration_test"]
 
 [dev-dependencies]
 tempfile = "3.0"
+
+[build-dependencies]
+build-info = { path = "util/build-info" }
 
 [workspace]
 members = [
@@ -50,10 +57,12 @@ members = [
     "util/crypto",
     "util/dir",
     "util/instrument",
+    "util/build-info",
     "network",
     "protocol",
     "sync",
     "core",
+    "shared",
     "chain",
     "miner",
     "db",

@@ -3,18 +3,18 @@ use avl::node::search;
 use avl::tree::AvlTree;
 use bigint::H256;
 use bincode::{deserialize, serialize};
-use core::block::{Block, BlockBuilder};
-use core::extras::BlockExt;
-use core::header::{Header, HeaderBuilder};
-use core::transaction::{OutPoint, ProposalShortId, Transaction, TransactionBuilder};
-use core::transaction_meta::TransactionMeta;
-use core::uncle::UncleBlock;
-use db::batch::{Batch, Col};
-use db::kvdb::KeyValueDB;
-use error::Error;
+use ckb_core::block::{Block, BlockBuilder};
+use ckb_core::extras::BlockExt;
+use ckb_core::header::{Header, HeaderBuilder};
+use ckb_core::transaction::{OutPoint, ProposalShortId, Transaction, TransactionBuilder};
+use ckb_core::transaction_meta::TransactionMeta;
+use ckb_core::uncle::UncleBlock;
+use ckb_db::batch::{Batch, Col};
+use ckb_db::kvdb::KeyValueDB;
+use ckb_util::RwLock;
+use error::SharedError;
 use std::ops::Range;
 use std::sync::Arc;
-use util::RwLock;
 use {
     COLUMN_BLOCK_BODY, COLUMN_BLOCK_HEADER, COLUMN_BLOCK_PROPOSAL_IDS,
     COLUMN_BLOCK_TRANSACTION_ADDRESSES, COLUMN_BLOCK_TRANSACTION_IDS, COLUMN_BLOCK_UNCLE,
@@ -77,10 +77,10 @@ pub trait ChainStore: Sync + Send {
     fn insert_block(&self, batch: &mut Batch, b: &Block);
     fn insert_block_ext(&self, batch: &mut Batch, block_hash: &H256, ext: &BlockExt);
     fn insert_output_root(&self, batch: &mut Batch, block_hash: H256, r: H256);
-    fn save_with_batch<F: FnOnce(&mut Batch) -> Result<(), Error>>(
+    fn save_with_batch<F: FnOnce(&mut Batch) -> Result<(), SharedError>>(
         &self,
         f: F,
-    ) -> Result<(), Error>;
+    ) -> Result<(), SharedError>;
 
     /// Visits block headers backward to genesis.
     fn headers_iter<'a>(&'a self, head: Header) -> ChainStoreHeaderIterator<'a, Self>
@@ -257,10 +257,10 @@ impl<T: 'static + KeyValueDB> ChainStore for ChainKVStore<T> {
         tree.reconstruct(r);
     }
 
-    fn save_with_batch<F: FnOnce(&mut Batch) -> Result<(), Error>>(
+    fn save_with_batch<F: FnOnce(&mut Batch) -> Result<(), SharedError>>(
         &self,
         f: F,
-    ) -> Result<(), Error> {
+    ) -> Result<(), SharedError> {
         let mut batch = Batch::new();
         f(&mut batch)?;
         self.db.write(batch)?;
@@ -317,8 +317,8 @@ impl<T: 'static + KeyValueDB> ChainStore for ChainKVStore<T> {
 mod tests {
     use super::super::COLUMNS;
     use super::*;
-    use consensus::Consensus;
-    use db::diskdb::RocksDB;
+    use ckb_chain_spec::consensus::Consensus;
+    use ckb_db::diskdb::RocksDB;
     use tempfile;
 
     #[test]

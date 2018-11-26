@@ -4,13 +4,13 @@
 
 extern crate bigint;
 extern crate bincode;
-extern crate byteorder;
 extern crate ckb_util;
 extern crate crypto;
 extern crate hash;
 #[macro_use]
 extern crate serde_derive;
 extern crate bit_vec;
+extern crate crossbeam_channel as channel;
 extern crate fnv;
 extern crate merkle_root;
 
@@ -20,9 +20,9 @@ pub mod chain;
 pub mod difficulty;
 pub mod error;
 pub mod extras;
-pub mod global;
 pub mod header;
 pub mod script;
+pub mod service;
 pub mod transaction;
 pub mod transaction_meta;
 pub mod uncle;

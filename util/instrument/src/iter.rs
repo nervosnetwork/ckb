@@ -1,20 +1,23 @@
-use ckb_chain::chain::ChainProvider;
 use ckb_core::block::Block;
 use ckb_core::BlockNumber;
+use ckb_shared::index::ChainIndex;
+use ckb_shared::shared::{ChainProvider, Shared};
 
 // An iterator over the entries of a `Chain`.
-pub struct ChainIterator<'a, P: 'a> {
-    chain: &'a P,
+pub struct ChainIterator<CI> {
+    shared: Shared<CI>,
     current: Option<Block>,
     tip: BlockNumber,
 }
 
-impl<'a, P: ChainProvider> ChainIterator<'a, P> {
-    pub fn new(chain: &'a P) -> Self {
+impl<CI: ChainIndex> ChainIterator<CI> {
+    pub fn new(shared: Shared<CI>) -> Self {
+        let current = shared.block_hash(0).and_then(|h| shared.block(&h));
+        let tip = shared.tip_header().read().number();
         ChainIterator {
-            chain,
-            current: chain.block_hash(0).and_then(|h| chain.block(&h)),
-            tip: chain.tip_header().read().number(),
+            shared,
+            current,
+            tip,
         }
     }
 
@@ -23,7 +26,7 @@ impl<'a, P: ChainProvider> ChainIterator<'a, P> {
     }
 }
 
-impl<'a, P: ChainProvider> Iterator for ChainIterator<'a, P> {
+impl<CI: ChainIndex> Iterator for ChainIterator<CI> {
     type Item = Block;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -31,8 +34,8 @@ impl<'a, P: ChainProvider> Iterator for ChainIterator<'a, P> {
 
         self.current = match current {
             Some(ref b) => {
-                if let Some(block_hash) = self.chain.block_hash(b.header().number() + 1) {
-                    self.chain.block(&block_hash)
+                if let Some(block_hash) = self.shared.block_hash(b.header().number() + 1) {
+                    self.shared.block(&block_hash)
                 } else {
                     None
                 }

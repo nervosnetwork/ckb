@@ -1,14 +1,15 @@
 [package]
 name = "ckb-db"
 version = "0.1.0"
+license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 
 [dependencies]
 bincode = "1.0"
 ckb-util = { path = "../util" }
 ckb-core = { path = "../core" }
-bigint = { git = "https://github.com/NervosFoundation/bigint" }
-rocksdb = { git = "https://github.com/NervosFoundation/rust-rocksdb" }
+bigint = { git = "https://github.com/nervosnetwork/bigint" }
+rocksdb = { git = "https://github.com/nervosnetwork/rust-rocksdb" }
 fnv = "1.0.3"
 
 [dev-dependencies]
