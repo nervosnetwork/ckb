@@ -58,9 +58,9 @@ fn main() {
         }
         Err(e) => {
             eprintln!(
-                "Failed to setup with config {}, cause err: {}",
+                "Failed to setup with config {}, cause err: {:?}",
                 config_path.display(),
-                e.description()
+                e
             );
             ::std::process::exit(1);
         }
