@@ -29,8 +29,9 @@ extern crate fnv;
 
 use bigint::H256;
 use ckb_core::block::Block;
+use ckb_core::cell::CellStatus;
 use ckb_core::header::Header;
-use ckb_core::transaction::{Capacity, OutPoint, Transaction};
+use ckb_core::transaction::{Capacity, CellOutput, OutPoint, Transaction};
 
 mod service;
 
@@ -90,6 +91,26 @@ pub struct CellOutputWithOutPoint {
     pub outpoint: OutPoint,
     pub capacity: Capacity,
     pub lock: H256,
+}
+
+#[derive(Serialize)]
+pub struct CellWithStatus {
+    pub cell: Option<CellOutput>,
+    pub status: String,
+}
+
+impl From<CellStatus> for CellWithStatus {
+    fn from(status: CellStatus) -> Self {
+        let (cell, status) = match status {
+            CellStatus::Current(cell) => (Some(cell), "current"),
+            CellStatus::Old => (None, "old"),
+            CellStatus::Unknown => (None, "unknown"),
+        };
+        Self {
+            cell,
+            status: status.to_string(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]

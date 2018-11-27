@@ -54,6 +54,10 @@ build_rpc_trait! {
         #[rpc(name = "get_cells_by_type_hash")]
         fn get_cells_by_type_hash(&self, H256, u64, u64) -> Result<Vec<CellOutputWithOutPoint>>;
 
+        // curl -d '{"id": 2, "jsonrpc": "2.0", "method":"get_current_cell","params": [{"hash": "0x1b1c832d02fdb4339f9868c8a8636c3d9dd10bd53ac7ce99595825bd6beeffb3", "index": 1}]}' -H 'content-type:application/json' 'http://localhost:3030'
+        #[rpc(name = "get_current_cell")]
+        fn get_current_cell(&self, OutPoint) -> Result<CellWithStatus>;
+
         #[rpc(name = "local_node_id")]
         fn local_node_id(&self) -> Result<Option<String>>;
 
@@ -149,6 +153,10 @@ impl<CI: ChainIndex + 'static> IntegrationTestRpc for RpcImpl<CI> {
             }
         }
         Ok(result)
+    }
+
+    fn get_current_cell(&self, out_point: OutPoint) -> Result<CellWithStatus> {
+        Ok(self.shared.cell(&out_point).into())
     }
 
     fn local_node_id(&self) -> Result<Option<String>> {
