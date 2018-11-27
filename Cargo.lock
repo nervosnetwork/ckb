@@ -1847,6 +1847,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "merkle-tree"
+version = "0.1.0"
+dependencies = [
+ "bigint 0.2.3 (git+https://github.com/nervosnetwork/bigint)",
+ "hash 0.1.0",
+ "rand 0.5.5 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
 name = "mime"
 version = "0.2.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"

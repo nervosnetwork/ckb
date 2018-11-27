@@ -54,6 +54,7 @@ members = [
     "util/logger",
     "util/hash",
     "util/merkle-root",
+    "util/merkle-tree",
     "util/crypto",
     "util/dir",
     "util/instrument",
