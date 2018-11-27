@@ -73,11 +73,16 @@ pub struct Network {
     pub(crate) original_listened_addresses: RwLock<Vec<Multiaddr>>,
     pub(crate) ckb_protocols: CKBProtocols<Arc<CKBProtocolHandler>>,
     local_private_key: secio::SecioKeyPair,
+    local_peer_id: PeerId,
 }
 
 impl Network {
     pub fn drop_peer(&self, peer_id: &PeerId) {
         self.peers_registry.write().drop_peer(&peer_id);
+    }
+
+    pub fn local_peer_id(&self) -> &PeerId {
+        &self.local_peer_id
     }
 
     pub(crate) fn add_peer(&self, peer_id: PeerId, peer: PeerConnection) {
@@ -314,6 +319,11 @@ impl Network {
         St::IncomingUpgrade: Send,
         C: Send + 'static,
     {
+        if expected_peer_id == self.local_peer_id() {
+            debug!(target: "network", "ignore dial to self");
+            return;
+        }
+        debug!(target: "network", "dial to peer {:?} address {:?}", expected_peer_id, addr);
         for protocol in &self.ckb_protocols.0 {
             self.dial_to_peer_protocol(
                 transport.clone(),
@@ -450,6 +460,7 @@ impl Network {
             original_listened_addresses: RwLock::new(Vec::new()),
             ckb_protocols: CKBProtocols(ckb_protocols),
             local_private_key: local_private_key.clone(),
+            local_peer_id: local_private_key.to_peer_id(),
         });
         Ok(network)
     }
@@ -481,9 +492,9 @@ impl Network {
                 let local_peer_id = local_peer_id.clone();
                 move |(peer_id, stream), _endpoint, remote_addr_fut| {
                     remote_addr_fut.and_then(move |remote_addr| {
-                        trace!(target: "network", "connection from {:?}", remote_addr);
+                        debug!(target: "network", "connection from {:?} peer_id: {:?}", remote_addr, peer_id);
                         if peer_id == local_peer_id {
-                            trace!(target: "network", "connect to self, disconnect");
+                            debug!(target: "network", "connect to self, disconnect");
                             return Err(IoErrorKind::ConnectionRefused.into());
                         }
                         let out = TransportOutput {

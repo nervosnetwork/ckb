@@ -78,6 +78,7 @@ impl<T: Send + 'static> ProtocolService<T> for OutgoingService {
         }).for_each({
             let transport = transport.clone();
             let timeout = self.timeout;
+            let network = Arc::clone(&network);
             move |_| {
                 let connection_status = network.connection_status();
                 let new_outgoing = (connection_status.max_outgoing
@@ -88,8 +89,13 @@ impl<T: Send + 'static> ProtocolService<T> for OutgoingService {
                     for (peer_id, addr) in peer_store
                         .peers_to_attempt()
                         .take(new_outgoing)
-                        .map(|(addr, peer_id)| (addr.clone(), peer_id.clone()))
-                    {
+                        .filter_map(|(peer_id, addr)| {
+                            if network.local_peer_id() != peer_id {
+                                Some((peer_id.clone(), addr.clone()))
+                            } else {
+                                None
+                            }
+                        }) {
                         network.dial_to_peer(
                             transport.clone(),
                             &addr,
