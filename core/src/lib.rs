@@ -12,7 +12,7 @@ extern crate serde_derive;
 extern crate bit_vec;
 extern crate crossbeam_channel as channel;
 extern crate fnv;
-extern crate merkle_root;
+extern crate merkle_tree;
 
 pub mod block;
 pub mod cell;

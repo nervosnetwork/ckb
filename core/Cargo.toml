@@ -17,4 +17,4 @@ crossbeam-channel = "0.2"
 rayon = "1.0"
 ckb-util = { path = "../util" }
 fnv = "1.0.3"
-merkle-root = {path = "../util/merkle-root"}
+merkle-tree = {path = "../util/merkle-tree"}

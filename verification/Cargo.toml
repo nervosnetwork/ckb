@@ -12,7 +12,7 @@ ckb-shared = { path = "../shared" }
 ckb-util = { path = "../util" }
 ckb-script = { path = "../script" }
 ckb-pow = { path = "../pow" }
-merkle-root = {path = "../util/merkle-root"}
+merkle-tree = {path = "../util/merkle-tree"}
 bigint = { git = "https://github.com/nervosnetwork/bigint" }
 rayon = "1.0"
 fnv = "1.0.3"

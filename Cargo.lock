@@ -415,7 +415,7 @@ dependencies = [
  "crypto 0.1.0",
  "fnv 1.0.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "hash 0.1.0",
- "merkle-root 0.1.0",
+ "merkle-tree 0.1.0",
  "rayon 1.0.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.80 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.80 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -683,7 +683,7 @@ dependencies = [
  "fnv 1.0.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "hash 0.1.0",
  "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
- "merkle-root 0.1.0",
+ "merkle-tree 0.1.0",
  "rayon 1.0.2 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
@@ -1837,14 +1837,6 @@ dependencies = [
 name = "memoffset"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-
-[[package]]
-name = "merkle-root"
-version = "0.1.0"
-dependencies = [
- "bigint 0.2.3 (git+https://github.com/nervosnetwork/bigint)",
- "hash 0.1.0",
-]
 
 [[package]]
 name = "merkle-tree"

@@ -1,7 +1,7 @@
 use bigint::H256;
 use fnv::FnvHashSet;
 use header::{Header, HeaderBuilder};
-use merkle_root::merkle_root;
+use merkle_tree::merkle_root;
 use transaction::{ProposalShortId, Transaction};
 use uncle::{uncles_hash, UncleBlock};
 

@@ -5,7 +5,7 @@ extern crate ckb_script;
 extern crate ckb_shared;
 extern crate ckb_time;
 extern crate fnv;
-extern crate merkle_root;
+extern crate merkle_tree;
 extern crate rayon;
 
 #[cfg(test)]

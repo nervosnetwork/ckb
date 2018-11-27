@@ -9,7 +9,7 @@ use ckb_shared::shared::ChainProvider;
 use error::TransactionError;
 use error::{CellbaseError, CommitError, Error, UnclesError};
 use fnv::{FnvHashMap, FnvHashSet};
-use merkle_root::merkle_root;
+use merkle_tree::merkle_root;
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use std::collections::HashSet;
 
