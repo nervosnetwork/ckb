@@ -1,8 +1,9 @@
 use super::{
-    BlockTemplate, BlockWithHash, CellOutputWithOutPoint, Config, RpcController,
+    BlockTemplate, BlockWithHash, CellOutputWithOutPoint, CellWithStatus, Config, RpcController,
     TransactionWithHash,
 };
 use bigint::H256;
+use ckb_core::cell::CellProvider;
 use ckb_core::header::{BlockNumber, Header};
 use ckb_core::transaction::{OutPoint, Transaction};
 use ckb_network::NetworkService;
