@@ -1,4 +1,3 @@
-use bigint::H256;
 use ckb_chain::chain::ChainController;
 use ckb_core::block::Block;
 use ckb_core::cell::CellProvider;
@@ -16,6 +15,7 @@ use jsonrpc_core::{Error, IoHandler, Result};
 use jsonrpc_http_server::ServerBuilder;
 use jsonrpc_server_utils::cors::AccessControlAllowOrigin;
 use jsonrpc_server_utils::hosts::DomainsValidation;
+use numext_fixed_hash::H256;
 use std::collections::HashSet;
 use std::sync::Arc;
 use types::{BlockWithHash, CellOutputWithOutPoint, CellWithStatus, Config, TransactionWithHash};
@@ -92,9 +92,9 @@ impl<CI: ChainIndex + 'static> ChainRpc for ChainRpcImpl<CI> {
                     for (i, output) in transaction.outputs().iter().enumerate() {
                         if output.lock == type_hash && (!transaction_meta.is_spent(i)) {
                             result.push(CellOutputWithOutPoint {
-                                outpoint: OutPoint::new(transaction.hash(), i as u32),
+                                outpoint: OutPoint::new(transaction.hash().clone(), i as u32),
                                 capacity: output.capacity,
-                                lock: output.lock,
+                                lock: output.lock.clone(),
                             });
                         }
                     }
@@ -124,7 +124,7 @@ pub struct PoolRpcImpl {
 
 impl PoolRpc for PoolRpcImpl {
     fn send_transaction(&self, tx: Transaction) -> Result<H256> {
-        let tx_hash = tx.hash();
+        let tx_hash = tx.hash().clone();
         let pool_result = self.tx_pool.add_transaction(tx.clone());
         debug!(target: "rpc", "send_transaction add to pool result: {:?}", pool_result);
 
@@ -185,7 +185,7 @@ impl<CI: ChainIndex + 'static> MinerRpc for MinerRpcImpl<CI> {
                     let _ = nc.send(peer, fbb.finished_data().to_vec());
                 }
             });
-            Ok(block.header().hash())
+            Ok(block.header().hash().clone())
         } else {
             Err(Error::internal_error())
         }
@@ -211,13 +211,15 @@ impl RpcServer {
         io.extend_with(
             ChainRpcImpl {
                 shared: shared.clone(),
-            }.to_delegate(),
+            }
+            .to_delegate(),
         );
         io.extend_with(
             PoolRpcImpl {
                 network: Arc::clone(&network),
                 tx_pool,
-            }.to_delegate(),
+            }
+            .to_delegate(),
         );
         io.extend_with(
             MinerRpcImpl {
@@ -225,14 +227,16 @@ impl RpcServer {
                 shared,
                 agent,
                 chain,
-            }.to_delegate(),
+            }
+            .to_delegate(),
         );
 
         let server = ServerBuilder::new(io)
             .cors(DomainsValidation::AllowOnly(vec![
                 AccessControlAllowOrigin::Null,
                 AccessControlAllowOrigin::Any,
-            ])).start_http(&self.config.listen_addr.parse().unwrap())
+            ]))
+            .start_http(&self.config.listen_addr.parse().unwrap())
             .unwrap();
 
         info!(target: "rpc", "Now listening on {:?}", server.address());

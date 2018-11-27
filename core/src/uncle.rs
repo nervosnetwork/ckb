@@ -1,8 +1,8 @@
-use bigint::H256;
 use bincode::serialize;
 use block::Block;
 use hash::sha3_256;
 use header::Header;
+use numext_fixed_hash::H256;
 use transaction::{ProposalShortId, Transaction};
 use BlockNumber;
 

@@ -8,7 +8,8 @@ authors = ["Nervos Core Dev <dev@nervos.org>"]
 serde = "1.0"
 serde_derive = "1.0"
 bincode = "1.0"
-bigint = { git = "https://github.com/nervosnetwork/bigint" }
+numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
+numext-fixed-uint = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 hash = {path = "../util/hash"}
 crypto = {path = "../util/crypto"}
 ckb-time = { path = "../util/time" }

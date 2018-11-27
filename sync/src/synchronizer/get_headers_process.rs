@@ -1,9 +1,9 @@
-use bigint::H256;
 use ckb_core::header::Header;
 use ckb_network::{CKBProtocolContext, PeerIndex, Severity};
 use ckb_protocol::{FlatbuffersVectorIterator, GetHeaders, SyncMessage};
 use ckb_shared::index::ChainIndex;
 use flatbuffers::FlatBufferBuilder;
+use numext_fixed_hash::H256;
 use synchronizer::Synchronizer;
 use MAX_LOCATOR_SIZE;
 
@@ -48,7 +48,7 @@ where
 
             let hash_stop = H256::zero(); // TODO PENDING self.message.hash_stop().unwrap().into();
             let block_locator_hashes = FlatbuffersVectorIterator::new(locator)
-                .map(|bytes| H256::from_slice(bytes.seq().unwrap()))
+                .map(|bytes| H256::from_slice(bytes.seq().unwrap()).unwrap())
                 .collect::<Vec<_>>();
 
             if let Some(block_number) = self

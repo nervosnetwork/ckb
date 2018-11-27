@@ -1,5 +1,5 @@
-use bigint::H256;
 use hash::sha3_256;
+use numext_fixed_hash::H256;
 use std::io::Write;
 
 // TODO: when flatbuffer work is done, remove Serialize/Deserialize here and
@@ -77,8 +77,8 @@ impl Script {
                 let mut bytes = vec![];
                 // TODO: switch to flatbuffer serialization once we
                 // can do stable serialization using flatbuffer.
-                if let Some(data) = self.reference {
-                    bytes.write_all(&data).unwrap();
+                if let Some(ref data) = self.reference {
+                    bytes.write_all(data.as_bytes()).unwrap();
                 }
                 // A separator is used here to prevent the rare case
                 // that some binary might contain the exactly
@@ -96,7 +96,7 @@ impl Script {
                 }
                 sha3_256(bytes).into()
             }
-            _ => H256::from(0),
+            _ => H256::zero(),
         }
     }
 }

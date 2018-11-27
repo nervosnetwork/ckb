@@ -44,7 +44,8 @@ where
                             .insert(self.peer);
                         None
                     })
-                }).map(Into::into)
+                })
+                .map(Into::into)
                 .collect::<Vec<_>>()
         };
 

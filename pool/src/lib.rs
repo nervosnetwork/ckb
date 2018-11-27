@@ -1,9 +1,9 @@
-extern crate bigint;
 extern crate ckb_chain_spec;
 extern crate ckb_core;
 extern crate ckb_notify;
 extern crate ckb_shared;
 extern crate ckb_verification;
+extern crate numext_fixed_hash;
 #[macro_use]
 extern crate crossbeam_channel as channel;
 #[macro_use]

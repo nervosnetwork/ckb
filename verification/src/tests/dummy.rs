@@ -1,4 +1,3 @@
-use bigint::{H256, U256};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::Block;
 use ckb_core::cell::{CellProvider, CellStatus};
@@ -9,6 +8,8 @@ use ckb_core::transaction_meta::TransactionMeta;
 use ckb_core::uncle::UncleBlock;
 use ckb_shared::error::SharedError;
 use ckb_shared::shared::ChainProvider;
+use numext_fixed_hash::H256;
+use numext_fixed_uint::U256;
 use std::collections::HashMap;
 
 #[derive(Default, Clone)]
@@ -37,7 +38,7 @@ impl ChainProvider for DummyChainProvider {
         panic!("Not implemented!");
     }
 
-    fn genesis_hash(&self) -> H256 {
+    fn genesis_hash(&self) -> &H256 {
         panic!("Not implemented!");
     }
 

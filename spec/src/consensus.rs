@@ -1,9 +1,9 @@
-use bigint::U256;
 use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::header::HeaderBuilder;
 use ckb_core::transaction::Capacity;
 use ckb_core::BlockNumber;
 use ckb_pow::{Pow, PowEngine};
+use numext_fixed_uint::U256;
 use std::sync::Arc;
 
 pub const DEFAULT_BLOCK_REWARD: Capacity = 5_000;
@@ -37,7 +37,7 @@ pub struct Consensus {
 impl Default for Consensus {
     fn default() -> Self {
         let genesis_block = BlockBuilder::default()
-            .with_header_builder(HeaderBuilder::default().difficulty(&U256::one()));
+            .with_header_builder(HeaderBuilder::default().difficulty(U256::one()));
 
         Consensus {
             genesis_block,
@@ -94,7 +94,7 @@ impl Consensus {
         self.max_uncles_age
     }
 
-    pub fn min_difficulty(&self) -> U256 {
+    pub fn min_difficulty(&self) -> &U256 {
         self.genesis_block.header().difficulty()
     }
 

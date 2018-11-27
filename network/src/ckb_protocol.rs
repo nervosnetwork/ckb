@@ -90,7 +90,8 @@ where
                 let mut name = self.base_name.clone();
                 name.extend_from_slice(num.as_bytes());
                 (name, *version)
-            }).collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>()
             .into_iter()
     }
 
@@ -184,17 +185,16 @@ impl<T> CKBProtocol<T> {
                                 return future::Either::A(f);
                             }
                             // decompress data
-                            let mut decompresser = snap::Reader::new(compressed_data.freeze().into_buf().reader());
+                            let mut decompresser =
+                                snap::Reader::new(compressed_data.freeze().into_buf().reader());
                             let mut data = vec![].writer();
                             match io::copy(&mut decompresser, &mut data) {
                                 Ok(_) => {
-                                let out = Some(data.into_inner().into());
-                                let f = future::ok((out, (sink, stream, false)));
-                                future::Either::A(f)
-                                },
-                                Err(e) => {
-                                    future::Either::A(future::err(e))
+                                    let out = Some(data.into_inner().into());
+                                    let f = future::ok((out, (sink, stream, false)));
+                                    future::Either::A(f)
                                 }
+                                Err(e) => future::Either::A(future::err(e)),
                             }
                         }
 
@@ -203,22 +203,24 @@ impl<T> CKBProtocol<T> {
                             let mut compresser = snap::Writer::new(compressed_data);
                             let mut data_buf = data.into_buf();
                             match io::copy(&mut data_buf.reader(), &mut compresser) {
-                                Ok(_) => {
-                                    match compresser.into_inner() {
-                                        Ok(compressed_data) => {
-                                            let compressed_data : Bytes = compressed_data.into_inner().into();
-                                            let fut = sink
-                                                .send(compressed_data)
-                                                .map(move |sink| (None, (sink, stream, false)));
-                                            future::Either::B(fut)
-                                        },
-                                                Err(e) => {
-                                    future::Either::A(future::err(IoError::new(IoErrorKind::Other, format!("compressed data error {}", e.to_string()))))
-                                        }
-                                }}
-                                Err(e) => {
-                                    future::Either::A(future::err(IoError::new(IoErrorKind::Other, format!("error when receive data: {}", e))))
-                                }
+                                Ok(_) => match compresser.into_inner() {
+                                    Ok(compressed_data) => {
+                                        let compressed_data: Bytes =
+                                            compressed_data.into_inner().into();
+                                        let fut = sink
+                                            .send(compressed_data)
+                                            .map(move |sink| (None, (sink, stream, false)));
+                                        future::Either::B(fut)
+                                    }
+                                    Err(e) => future::Either::A(future::err(IoError::new(
+                                        IoErrorKind::Other,
+                                        format!("compressed data error {}", e.to_string()),
+                                    ))),
+                                },
+                                Err(e) => future::Either::A(future::err(IoError::new(
+                                    IoErrorKind::Other,
+                                    format!("error when receive data: {}", e),
+                                ))),
                             }
                         }
 
@@ -228,7 +230,8 @@ impl<T> CKBProtocol<T> {
                         }
                     },
                 ))
-            }).filter_map(|v| v), // filter will remove non Recv events
+            })
+            .filter_map(|v| v), // filter will remove non Recv events
         ) as Box<Stream<Item = Bytes, Error = IoError> + Send>;
         Ok((incoming, msg_tx))
     }
@@ -271,7 +274,8 @@ where
             .flat_map(|(n, proto)| {
                 ConnectionUpgrade::<C, Maf>::protocol_names(proto)
                     .map(move |(name, id)| (name, (n, id)))
-            }).collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>()
             .into_iter()
     }
 

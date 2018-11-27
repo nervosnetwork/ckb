@@ -1,13 +1,13 @@
 #[macro_use]
 extern crate serde_derive;
 
-extern crate bigint;
 extern crate bincode;
 extern crate ckb_core;
 extern crate ckb_db;
 extern crate hash;
+extern crate numext_fixed_hash;
 
-use bigint::H256;
+use numext_fixed_hash::H256;
 use std::fmt;
 
 pub mod node;

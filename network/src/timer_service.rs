@@ -105,7 +105,8 @@ impl<T: Send> ProtocolService<T> for TimerService {
                                     tokio::spawn(handle_timer);
                                     Ok(())
                                 }
-                            }).map_err(|err| IoError::new(IoErrorKind::Other, err)),
+                            })
+                            .map_err(|err| IoError::new(IoErrorKind::Other, err)),
                     );
                     timer_futures.push(timer_future);
                 }

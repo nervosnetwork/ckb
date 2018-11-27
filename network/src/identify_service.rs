@@ -183,13 +183,15 @@ where
         let periodic_identify_future = Interval::new(
             Instant::now() + Duration::from_secs(5),
             self.identify_interval,
-        ).map_err(|err| {
+        )
+        .map_err(|err| {
             debug!(target: "network", "identify periodic error {:?}", err);
             IoError::new(
                 IoErrorKind::Other,
                 format!("identify periodic error {:?}", err),
             )
-        }).for_each({
+        })
+        .for_each({
             let transport = transport.clone();
             let _identify_timeout = self.identify_timeout;
             let network = Arc::clone(&network);
@@ -203,24 +205,25 @@ where
                     // TODO should we try all addresses?
                     if let Some(addr) = network.get_peer_remote_addresses(&peer_id).get(0) {
                         trace!(
-                            target: "network",
-                            "request identify to peer {:?} {:?}",
-                            peer_id,
-                            addr
-                            );
+                        target: "network",
+                        "request identify to peer {:?} {:?}",
+                        peer_id,
+                        addr
+                        );
                         // dial identify
                         let _ = swarm_controller.dial(addr.clone(), transport.clone());
                     } else {
                         error!(
-                            target: "network",
-                            "error when prepare identify : can't find addresses for peer {:?}",
-                            peer_id
-                            );
+                        target: "network",
+                        "error when prepare identify : can't find addresses for peer {:?}",
+                        peer_id
+                        );
                     }
                 }
                 Ok(())
             }
-        }).then(|err| {
+        })
+        .then(|err| {
             warn!(target: "network", "Identify service stopped, reason: {:?}", err);
             err
         });

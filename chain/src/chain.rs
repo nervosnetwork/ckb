@@ -1,4 +1,3 @@
-use bigint::{H256, U256};
 use channel::{self, Receiver, Sender};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::Block;
@@ -14,6 +13,8 @@ use ckb_time::now_ms;
 use ckb_verification::{BlockVerifier, Verifier};
 use error::ProcessBlockError;
 use log;
+use numext_fixed_hash::H256;
+use numext_fixed_uint::U256;
 use std::cmp;
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
@@ -84,7 +85,8 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
                         },
                     }
                 }
-            }).expect("Start ChainService failed")
+            })
+            .expect("Start ChainService failed")
     }
 
     fn process_block(&mut self, block: Arc<Block>) -> Result<(), ProcessBlockError> {
@@ -148,25 +150,24 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
 
             let ext = BlockExt {
                 received_at: now_ms(),
-                total_difficulty: cannon_total_difficulty,
+                total_difficulty: cannon_total_difficulty.clone(),
                 total_uncles_count: parent_ext.total_uncles_count + block.uncles().len() as u64,
             };
 
             self.shared.store().insert_block(batch, block);
-            self.shared.store().insert_output_root(batch, block.header().hash(), root);
+            self.shared.store().insert_output_root(batch, block.header().hash(), &root);
             self.shared.store().insert_block_ext(batch, &block.header().hash(), &ext);
 
             let current_total_difficulty = tip_header.total_difficulty();
             debug!(
                 "difficulty diff = {}; current = {}, cannon = {}",
-                cannon_total_difficulty.low_u64() as i64
-                    - current_total_difficulty.low_u64() as i64,
+                &cannon_total_difficulty - current_total_difficulty,
                 current_total_difficulty,
                 cannon_total_difficulty,
             );
 
-            if cannon_total_difficulty > current_total_difficulty
-                || (current_total_difficulty == cannon_total_difficulty
+            if &cannon_total_difficulty > current_total_difficulty
+                || (current_total_difficulty == &cannon_total_difficulty
                     && block.header().hash() < tip_header.hash())
             {
                 debug!(target: "chain", "new best block found: {} => {}", block.header().number(), block.header().hash());
@@ -192,7 +193,9 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
                 self.shared
                     .store()
                     .insert_tip_header(batch, &block.header());
-                self.shared.store().rebuild_tree(output_root);
+                self.shared
+                    .store()
+                    .rebuild_tree(new_tip_header.output_root());
                 Ok(())
             })?;
             *tip_header = new_tip_header;
@@ -266,7 +269,7 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
             );
         }
 
-        let mut hash = block.header().parent_hash();
+        let mut hash = block.header().parent_hash().clone();
         number -= 1;
         loop {
             if let Some(old_hash) = self.shared.block_hash(number) {
@@ -295,7 +298,7 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
                 &new_block.commit_transactions(),
             );
 
-            hash = new_block.header().parent_hash();
+            hash = new_block.header().parent_hash().clone();
             number -= 1;
 
             new_cumulative_blks.push(new_block);
@@ -379,7 +382,6 @@ impl<CI: ChainIndex + 'static> ChainBuilder<CI> {
 #[cfg(test)]
 pub mod test {
     use super::*;
-    use bigint::U256;
     use ckb_core::block::BlockBuilder;
     use ckb_core::cell::CellProvider;
     use ckb_core::header::{Header, HeaderBuilder};
@@ -390,6 +392,7 @@ pub mod test {
     use ckb_db::memorydb::MemoryKeyValueDB;
     use ckb_shared::shared::SharedBuilder;
     use ckb_shared::store::ChainKVStore;
+    use numext_fixed_uint::U256;
 
     fn start_chain(
         consensus: Option<Consensus>,
@@ -408,7 +411,7 @@ pub mod test {
     fn create_cellbase(number: BlockNumber) -> Transaction {
         TransactionBuilder::default()
             .input(CellInput::new_cellbase_input(number))
-            .output(CellOutput::new(0, vec![], H256::from(0), None))
+            .output(CellOutput::new(0, vec![], H256::zero(), None))
             .build()
     }
 
@@ -422,10 +425,10 @@ pub mod test {
         let number = parent_header.number() + 1;
         let cellbase = create_cellbase(number);
         let header = HeaderBuilder::default()
-            .parent_hash(&parent_header.hash())
+            .parent_hash(parent_header.hash().clone())
             .timestamp(now_ms())
             .number(number)
-            .difficulty(&difficulty)
+            .difficulty(difficulty)
             .nonce(nonce)
             .build();
 
@@ -461,13 +464,14 @@ pub mod test {
                     None
                 );
                 100
-            ]).build();
+            ])
+            .build();
 
-        let mut root_hash = tx.hash();
+        let mut root_hash = tx.hash().clone();
 
         let genesis_block = BlockBuilder::default()
             .commit_transaction(tx)
-            .with_header_builder(HeaderBuilder::default().difficulty(&U256::from(1000)));
+            .with_header_builder(HeaderBuilder::default().difficulty(U256::from(1000u64)));
 
         let consensus = Consensus::default()
             .set_genesis_block(genesis_block)
@@ -479,20 +483,18 @@ pub mod test {
         let mut blocks1: Vec<Block> = vec![];
         let mut parent = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
         for i in 1..end {
-            let difficulty = parent.difficulty();
+            let difficulty = parent.difficulty().clone();
             let tx = create_transaction(root_hash);
-            root_hash = tx.hash();
-            let new_block = gen_block(parent, i, difficulty + U256::from(1), vec![tx], vec![]);
+            root_hash = tx.hash().clone();
+            let new_block = gen_block(parent, i, difficulty + U256::from(1u64), vec![tx], vec![]);
             blocks1.push(new_block.clone());
             parent = new_block.header().clone();
         }
 
         for block in &blocks1[0..10] {
-            assert!(
-                chain_controller
-                    .process_block(Arc::new(block.clone()))
-                    .is_ok()
-            );
+            assert!(chain_controller
+                .process_block(Arc::new(block.clone()))
+                .is_ok());
         }
     }
 
@@ -508,13 +510,14 @@ pub mod test {
                     None
                 );
                 100
-            ]).build();
+            ])
+            .build();
 
-        let root_hash = tx.hash();
+        let root_hash = tx.hash().clone();
 
         let genesis_block = BlockBuilder::default()
             .commit_transaction(tx)
-            .with_header_builder(HeaderBuilder::default().difficulty(&U256::from(1000)));
+            .with_header_builder(HeaderBuilder::default().difficulty(U256::from(1000u64)));
 
         let consensus = Consensus::default()
             .set_genesis_block(genesis_block)
@@ -536,17 +539,23 @@ pub mod test {
 
         let mut parent = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
         for i in 1..final_number {
-            let difficulty = parent.difficulty();
-            let new_block = gen_block(parent, i, difficulty + U256::from(100), vec![], vec![]);
+            let difficulty = parent.difficulty().clone();
+            let new_block = gen_block(parent, i, difficulty + U256::from(100u64), vec![], vec![]);
             chain1.push(new_block.clone());
             parent = new_block.header().clone();
         }
 
         parent = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
         for i in 1..final_number {
-            let difficulty = parent.difficulty();
+            let difficulty = parent.difficulty().clone();
             let j = if i > 10 { 110 } else { 99 };
-            let new_block = gen_block(parent, i + 1000, difficulty + U256::from(j), vec![], vec![]);
+            let new_block = gen_block(
+                parent,
+                i + 1000,
+                difficulty + U256::from(j as u32),
+                vec![],
+                vec![],
+            );
             chain2.push(new_block.clone());
             parent = new_block.header().clone();
         }
@@ -563,7 +572,7 @@ pub mod test {
                 .expect("process block ok");
         }
         assert_eq!(
-            shared.block_hash(8),
+            shared.block_hash(8).as_ref(),
             chain2.get(7).map(|b| b.header().hash())
         );
     }
@@ -578,19 +587,19 @@ pub mod test {
 
         let mut parent = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
         for i in 1..final_number {
-            let difficulty = parent.difficulty();
-            let new_block = gen_block(parent, i, difficulty + U256::from(100), vec![], vec![]);
+            let difficulty = parent.difficulty().clone();
+            let new_block = gen_block(parent, i, difficulty + U256::from(100u64), vec![], vec![]);
             chain1.push(new_block.clone());
             parent = new_block.header().clone();
         }
 
         parent = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
         for i in 1..final_number {
-            let difficulty = parent.difficulty();
+            let difficulty = parent.difficulty().clone();
             let new_block = gen_block(
                 parent,
                 i + 1000,
-                difficulty + U256::from(100),
+                difficulty + U256::from(100u64),
                 vec![],
                 vec![],
             );
@@ -611,12 +620,10 @@ pub mod test {
         }
 
         //if total_difficulty equal, we chose block which have smaller hash as best
-        assert!(
-            chain1
-                .iter()
-                .zip(chain2.iter())
-                .all(|(a, b)| a.header().difficulty() == b.header().difficulty())
-        );
+        assert!(chain1
+            .iter()
+            .zip(chain2.iter())
+            .all(|(a, b)| a.header().difficulty() == b.header().difficulty()));
 
         let best = if chain1[(final_number - 2) as usize].header().hash()
             < chain2[(final_number - 2) as usize].header().hash()
@@ -625,9 +632,12 @@ pub mod test {
         } else {
             chain2
         };
-        assert_eq!(shared.block_hash(8), best.get(7).map(|b| b.header().hash()));
         assert_eq!(
-            shared.block_hash(19),
+            shared.block_hash(8).as_ref(),
+            best.get(7).map(|b| b.header().hash())
+        );
+        assert_eq!(
+            shared.block_hash(19).as_ref(),
             best.get(18).map(|b| b.header().hash())
         );
     }
@@ -642,19 +652,19 @@ pub mod test {
 
         let mut parent = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
         for i in 1..final_number {
-            let difficulty = parent.difficulty();
-            let new_block = gen_block(parent, i, difficulty + U256::from(100), vec![], vec![]);
+            let difficulty = parent.difficulty().clone();
+            let new_block = gen_block(parent, i, difficulty + U256::from(100u64), vec![], vec![]);
             chain1.push(new_block.clone());
             parent = new_block.header().clone();
         }
 
         parent = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
         for i in 1..final_number {
-            let difficulty = parent.difficulty();
+            let difficulty = parent.difficulty().clone();
             let new_block = gen_block(
                 parent,
                 i + 1000,
-                difficulty + U256::from(100),
+                difficulty + U256::from(100u64),
                 vec![],
                 vec![],
             );
@@ -692,7 +702,7 @@ pub mod test {
     #[test]
     fn test_calculate_difficulty() {
         let genesis_block = BlockBuilder::default()
-            .with_header_builder(HeaderBuilder::default().difficulty(&U256::from(1000)));
+            .with_header_builder(HeaderBuilder::default().difficulty(U256::from(1000u64)));
         let mut consensus = Consensus::default()
             .set_genesis_block(genesis_block)
             .set_verification(false);
@@ -736,7 +746,7 @@ pub mod test {
         let difficulty = shared.calculate_difficulty(&tip).unwrap();
 
         // 25 * 10 * 1000 / 200
-        assert_eq!(difficulty, U256::from(1250));
+        assert_eq!(difficulty, U256::from(1250u64));
 
         let (chain_controller, shared) = start_chain(Some(consensus.clone()));
         let mut chain2: Vec<Block> = Vec::new();
@@ -766,7 +776,7 @@ pub mod test {
         let difficulty = shared.calculate_difficulty(&tip).unwrap();
 
         // min[10 * 10 * 1000 / 200, 1000]
-        assert_eq!(difficulty, U256::from(1000));
+        assert_eq!(difficulty, U256::from(1000u64));
 
         let (chain_controller, shared) = start_chain(Some(consensus.clone()));
         let mut chain2: Vec<Block> = Vec::new();
@@ -796,6 +806,6 @@ pub mod test {
         let difficulty = shared.calculate_difficulty(&tip).unwrap();
 
         // max[150 * 10 * 1000 / 200, 2 * 1000]
-        assert_eq!(difficulty, U256::from(2000));
+        assert_eq!(difficulty, U256::from(2000u64));
     }
 }

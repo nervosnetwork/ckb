@@ -3,8 +3,9 @@
 //! Sync module implement ckb sync protocol as specified here:
 //! https://github.com/nervosnetwork/rfcs/tree/master/rfcs/0000-block-sync-protocol
 
-extern crate bigint;
 extern crate fnv;
+extern crate numext_fixed_hash;
+extern crate numext_fixed_uint;
 #[macro_use]
 extern crate log;
 extern crate ckb_chain;

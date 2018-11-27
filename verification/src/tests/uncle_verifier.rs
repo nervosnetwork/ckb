@@ -1,6 +1,5 @@
 use super::super::block_verifier::UnclesVerifier;
 use super::super::error::{Error, UnclesError};
-use bigint::{H256, U256};
 use ckb_chain::chain::{ChainBuilder, ChainController};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::{Block, BlockBuilder};
@@ -13,6 +12,8 @@ use ckb_db::memorydb::MemoryKeyValueDB;
 use ckb_shared::shared::{ChainProvider, Shared, SharedBuilder};
 use ckb_shared::store::ChainKVStore;
 use ckb_time::set_mock_timer;
+use numext_fixed_hash::H256;
+use numext_fixed_uint::U256;
 use std::sync::Arc;
 
 fn gen_block(parent_header: Header, nonce: u64, difficulty: U256) -> Block {
@@ -20,11 +21,11 @@ fn gen_block(parent_header: Header, nonce: u64, difficulty: U256) -> Block {
     let number = parent_header.number() + 1;
     let cellbase = create_cellbase(number);
     let header_builder = HeaderBuilder::default()
-        .parent_hash(&parent_header.hash())
+        .parent_hash(parent_header.hash().clone())
         .timestamp(now)
         .number(number)
-        .difficulty(&difficulty)
-        .cellbase_id(&cellbase.hash())
+        .difficulty(difficulty)
+        .cellbase_id(cellbase.hash().clone())
         .nonce(nonce);
 
     BlockBuilder::default()
@@ -51,7 +52,7 @@ fn start_chain(
 fn create_cellbase(number: BlockNumber) -> Transaction {
     TransactionBuilder::default()
         .input(CellInput::new_cellbase_input(number))
-        .output(CellOutput::new(0, vec![], H256::from(0), None))
+        .output(CellOutput::new(0, vec![], H256::zero(), None))
         .build()
 }
 
@@ -148,7 +149,7 @@ fn test_uncle_verifier() {
         .with_header_builder(
             HeaderBuilder::default()
                 .header(chain1.get(8).unwrap().header().clone())
-                .difficulty(&U256::from(2)),
+                .difficulty(U256::from(2u64)),
         );
     assert_eq!(
         verifier.verify(&block),
@@ -288,7 +289,7 @@ fn test_uncle_verifier() {
     assert_eq!(
         verifier.verify(&block),
         Err(Error::Uncles(UnclesError::Duplicate(
-            block.uncles()[1].header().hash()
+            block.uncles()[1].header().hash().clone()
         )))
     );
 

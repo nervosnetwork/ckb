@@ -4,10 +4,6 @@ extern crate build_info;
 extern crate clap;
 #[macro_use]
 extern crate log;
-#[macro_use]
-extern crate serde_derive;
-
-extern crate bigint;
 extern crate ckb_chain;
 extern crate ckb_chain_spec;
 extern crate ckb_core;
@@ -22,6 +18,9 @@ extern crate ckb_rpc;
 extern crate ckb_shared;
 extern crate ckb_sync;
 extern crate ckb_util;
+extern crate numext_fixed_hash;
+#[macro_use]
+extern crate serde_derive;
 extern crate config as config_tool;
 extern crate crossbeam_channel as channel;
 extern crate crypto;

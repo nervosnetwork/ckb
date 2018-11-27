@@ -249,9 +249,11 @@ impl DiscoveryService {
                         }
                     }
                 }
-            }).filter(|kad_peer| {
+            })
+            .filter(|kad_peer| {
                 kad_peer.node_id == *kad_system.local_peer_id() || !kad_peer.multiaddrs.is_empty()
-            }).take(respond_peers_count)
+            })
+            .take(respond_peers_count)
             .collect::<Vec<_>>();
         // Here we must return at least 1 KadPeer, otherwise kad stream will close
         if kad_peers.is_empty() {
@@ -380,9 +382,9 @@ where
         let mut kad_manage = self.kad_manage.lock();
         if &peer_id == self.network.local_peer_id() {
             debug!(
-                target: "discovery",
-                "ignore kad dial to self"
-                );
+            target: "discovery",
+            "ignore kad dial to self"
+            );
             kad_manage.kad_pending_dials.remove(&peer_id);
             return;
         }
@@ -396,7 +398,8 @@ where
                         addr,
                         self.transport.clone(),
                         &self.swarm_controller,
-                    ).is_ok()
+                    )
+                    .is_ok()
                 {
                     return;
                 }
@@ -627,7 +630,7 @@ impl KadManage {
             .get(&peer_id)
             .map(|unique_connec| unique_connec.is_alive())
             .unwrap_or(false);
-        let count_of_connected_peers = self.connected_peers().collect::<Vec<_>>().len();
+        let count_of_connected_peers = self.connected_peers().count();
         if is_connected || count_of_connected_peers >= MAX_CONNECTING_COUNT {
             debug!(target: "discovery", "we are already connected to {:?} {:?}", peer_id, addr);
             // should return a error?
@@ -642,7 +645,8 @@ impl KadManage {
         let transport = transport
             .and_then(move |out, endpoint, client_addr| {
                 upgrade::apply(out.socket, kad_upgrade.clone(), endpoint, client_addr)
-            }).and_then({
+            })
+            .and_then({
                 let peer_id = peer_id.clone();
                 move |(kad_connection_controller, kad_stream), _, client_addr| {
                     debug!(target: "discovery", "upgraded kad connection!!!!!! {:?}",  peer_id);

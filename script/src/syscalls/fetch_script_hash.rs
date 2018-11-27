@@ -1,6 +1,6 @@
-use bigint::H256;
 use ckb_core::transaction::{CellInput, CellOutput};
 use ckb_vm::{CoreMachine, Error as VMError, Memory, Register, Syscalls, A0, A1, A2, A3, A4, A7};
+use numext_fixed_hash::H256;
 use syscalls::{
     Category, Source, FETCH_CURRENT_SCRIPT_HASH_SYSCALL_NUMBER, FETCH_SCRIPT_HASH_SYSCALL_NUMBER,
     ITEM_MISSING, OVERRIDE_LEN, SUCCESS,
@@ -42,7 +42,9 @@ impl<'a> FetchScriptHash<'a> {
                         .map(|contract| contract.type_hash())
                 })
             }
-            (Source::OUTPUT, Category::LOCK) => self.outputs.get(index).map(|output| output.lock),
+            (Source::OUTPUT, Category::LOCK) => {
+                self.outputs.get(index).map(|output| output.lock.clone())
+            }
             (Source::OUTPUT, Category::CONTRACT) => self.outputs.get(index).and_then(|output| {
                 output
                     .contract
@@ -76,12 +78,12 @@ impl<'a, R: Register, M: Memory> Syscalls<R, M> for FetchScriptHash<'a> {
             let category = Category::parse_from_u64(machine.registers()[A4].to_u64())?;
             self.fetch_hash(source, category, index)
         } else {
-            Some(self.current_script_hash)
+            Some(self.current_script_hash.clone())
         };
 
         match hash {
             Some(hash) => {
-                let hash: &[u8] = &hash;
+                let hash: &[u8] = hash.as_bytes();
                 machine.memory_mut().store64(size_addr, hash.len() as u64)?;
                 if size >= hash.len() {
                     machine.memory_mut().store_bytes(addr, hash)?;

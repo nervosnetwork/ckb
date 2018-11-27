@@ -38,8 +38,8 @@ where
         let compact_block: CompactBlock = (*self.message).into();
         let block_hash = compact_block.header.hash();
         let pending_compact_blocks = self.relayer.state.pending_compact_blocks.upgradable_read();
-        if pending_compact_blocks.get(&block_hash).is_none()
-            && self.relayer.get_block(&block_hash).is_none()
+        if pending_compact_blocks.get(block_hash).is_none()
+            && self.relayer.get_block(block_hash).is_none()
         {
             let resolver =
                 HeaderResolverWrapper::new(&compact_block.header, self.relayer.shared.clone());
@@ -59,7 +59,7 @@ where
                         {
                             let mut write_guard =
                                 RwLockUpgradableReadGuard::upgrade(pending_compact_blocks);
-                            write_guard.insert(block_hash, compact_block.clone());
+                            write_guard.insert(block_hash.clone(), compact_block.clone());
                         }
 
                         let fbb = &mut FlatBufferBuilder::new();

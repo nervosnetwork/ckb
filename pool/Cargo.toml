@@ -12,7 +12,7 @@ ckb-util = { path = "../util" }
 ckb-time = { path = "../util/time" }
 ckb-notify = { path = "../notify" }
 ckb-verification = { path = "../verification" }
-bigint = { git = "https://github.com/nervosnetwork/bigint" }
+numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 lru-cache = { git = "https://github.com/nervosnetwork/lru-cache" }
 linked-hash-map = { git = "https://github.com/nervosnetwork/linked-hash-map", rev = "df27f21" }
 serde = "1.0"

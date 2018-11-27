@@ -6,7 +6,8 @@ authors = ["Nervos Core Dev <dev@nervos.org>"]
 
 [dependencies]
 serde_json = "1.0"
-bigint = { git = "https://github.com/nervosnetwork/bigint" }
+numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
+numext-fixed-uint = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 ckb-core = { path = "../core" }
 serde_derive = "1.0"
 serde = "1.0"

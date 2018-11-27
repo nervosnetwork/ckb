@@ -200,7 +200,8 @@ impl PeersRegistry {
                 return Err(ErrorKind::InvalidNewPeer(format!(
                     "We are in reserved_only mode, rejected non-reserved peer {:?}",
                     peer_id
-                )).into());
+                ))
+                .into());
             }
             if self.deny_list.is_denied(&peer_id) {
                 return Err(
@@ -216,13 +217,15 @@ impl PeersRegistry {
                     return Err(ErrorKind::InvalidNewPeer(format!(
                         "reach max incoming peers limitation, reject peer {:?}",
                         peer_id
-                    )).into())
+                    ))
+                    .into())
                 }
                 Endpoint::Dialer if connection_status.unreserved_outgoing >= self.max_outgoing => {
                     return Err(ErrorKind::InvalidNewPeer(format!(
                         "reach max outgoing peers limitation, reject peer {:?}",
                         peer_id
-                    )).into())
+                    ))
+                    .into())
                 }
                 _ => (),
             }

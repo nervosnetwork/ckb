@@ -42,7 +42,7 @@ fn build_output<'b>(
     fbb: &mut FlatBufferBuilder<'b>,
     output: &CellOutput,
 ) -> WIPOffset<FbsCellOutput<'b>> {
-    let lock = FbsBytes::build(fbb, &output.lock);
+    let lock = FbsBytes::build(fbb, output.lock.as_bytes());
     let mut builder = CellOutputBuilder::new(fbb);
     builder.add_capacity(output.capacity);
     builder.add_lock(lock);
@@ -53,7 +53,7 @@ fn build_input<'b>(
     fbb: &mut FlatBufferBuilder<'b>,
     input: &CellInput,
 ) -> WIPOffset<FbsCellInput<'b>> {
-    let hash = FbsBytes::build(fbb, &input.previous_output.hash);
+    let hash = FbsBytes::build(fbb, input.previous_output.hash.as_bytes());
     let mut builder = CellInputBuilder::new(fbb);
     builder.add_hash(hash);
     builder.add_index(input.previous_output.index);

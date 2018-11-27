@@ -92,7 +92,8 @@ impl CKBService {
                 .tie_or_stop(
                     (protocol_output.outgoing_msg_channel, protocol_version),
                     handling_future,
-                ).then({
+                )
+                .then({
                     let network = Arc::clone(&network);
                     let peer_id = peer_id.clone();
                     let protocol_handler = Arc::clone(&protocol_handler);

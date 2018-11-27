@@ -15,7 +15,6 @@ use self::get_headers_process::GetHeadersProcess;
 use self::header_view::HeaderView;
 use self::headers_process::HeadersProcess;
 use self::peers::Peers;
-use bigint::H256;
 use ckb_chain::chain::ChainController;
 use ckb_chain::error::ProcessBlockError;
 use ckb_chain_spec::consensus::Consensus;
@@ -29,6 +28,7 @@ use ckb_time::now_ms;
 use ckb_util::{RwLock, RwLockUpgradableReadGuard};
 use config::Config;
 use flatbuffers::{get_root, FlatBufferBuilder};
+use numext_fixed_hash::H256;
 use std::cmp;
 use std::collections::HashMap;
 use std::sync::atomic::AtomicUsize;
@@ -111,7 +111,7 @@ impl<CI: ChainIndex> Synchronizer<CI> {
                 .block_ext(&tip_header.hash())
                 .expect("tip block_ext must exist");
             (
-                tip_header.total_difficulty(),
+                tip_header.total_difficulty().clone(),
                 tip_header.inner().clone(),
                 block_ext.total_uncles_count,
             )
@@ -158,13 +158,15 @@ impl<CI: ChainIndex> Synchronizer<CI> {
         let guard = self.status_map.upgradable_read();
         match guard.get(hash).cloned() {
             Some(s) => s,
-            None => if self.shared.block_header(hash).is_some() {
-                let mut write_guard = RwLockUpgradableReadGuard::upgrade(guard);
-                write_guard.insert(*hash, BlockStatus::BLOCK_HAVE_MASK);
-                BlockStatus::BLOCK_HAVE_MASK
-            } else {
-                BlockStatus::UNKNOWN
-            },
+            None => {
+                if self.shared.block_header(hash).is_some() {
+                    let mut write_guard = RwLockUpgradableReadGuard::upgrade(guard);
+                    write_guard.insert(hash.clone(), BlockStatus::BLOCK_HAVE_MASK);
+                    BlockStatus::BLOCK_HAVE_MASK
+                } else {
+                    BlockStatus::UNKNOWN
+                }
+            }
         }
     }
 
@@ -211,7 +213,7 @@ impl<CI: ChainIndex> Synchronizer<CI> {
             let header = self
                 .get_ancestor(&base, index)
                 .expect("index calculated in get_locator");
-            locator.push(header.hash());
+            locator.push(header.hash().clone());
 
             if locator.len() >= 10 {
                 step <<= 1;
@@ -220,7 +222,7 @@ impl<CI: ChainIndex> Synchronizer<CI> {
             if index < step {
                 // always include genesis hash
                 if index != 0 {
-                    locator.push(self.shared.genesis_hash());
+                    locator.push(self.shared.genesis_hash().clone());
                 }
                 break;
             }
@@ -238,7 +240,7 @@ impl<CI: ChainIndex> Synchronizer<CI> {
             return None;
         }
 
-        if locator.last().expect("empty checked") != &self.shared.genesis_hash() {
+        if locator.last().expect("empty checked") != self.shared.genesis_hash() {
             return None;
         }
 
@@ -258,7 +260,7 @@ impl<CI: ChainIndex> Synchronizer<CI> {
             .get(index - 1)
             .and_then(|hash| self.shared.block_header(hash))
         {
-            let mut block_hash = header.parent_hash();
+            let mut block_hash = header.parent_hash().clone();
             loop {
                 let block_header = match self.shared.block_header(&block_hash) {
                     None => break latest_common,
@@ -269,7 +271,7 @@ impl<CI: ChainIndex> Synchronizer<CI> {
                     return Some(block_number);
                 }
 
-                block_hash = block_header.parent_hash();
+                block_hash = block_header.parent_hash().clone();
             }
         } else {
             latest_common
@@ -347,16 +349,14 @@ impl<CI: ChainIndex> Synchronizer<CI> {
             let total_uncles_count =
                 parent_view.total_uncles_count() + u64::from(header.uncles_count());
             let header_view = {
-                let best_known_header = self.best_known_header.upgradable_read();
+                let mut best_known_header = self.best_known_header.write();
                 let header_view =
-                    HeaderView::new(header.clone(), total_difficulty, total_uncles_count);
+                    HeaderView::new(header.clone(), total_difficulty.clone(), total_uncles_count);
 
-                if total_difficulty > best_known_header.total_difficulty()
-                    || (total_difficulty == best_known_header.total_difficulty()
+                if &total_difficulty > best_known_header.total_difficulty()
+                    || (&total_difficulty == best_known_header.total_difficulty()
                         && header.hash() < best_known_header.hash())
                 {
-                    let mut best_known_header =
-                        RwLockUpgradableReadGuard::upgrade(best_known_header);
                     *best_known_header = header_view.clone();
                 }
                 header_view
@@ -365,7 +365,7 @@ impl<CI: ChainIndex> Synchronizer<CI> {
             self.peers.new_header_received(peer, &header_view);
 
             let mut header_map = self.header_map.write();
-            header_map.insert(header.hash(), header_view);
+            header_map.insert(header.hash().clone(), header_view);
         }
     }
 
@@ -410,7 +410,7 @@ impl<CI: ChainIndex> Synchronizer<CI> {
 
     fn accept_block(&self, peer: PeerIndex, block: &Arc<Block>) -> Result<(), ProcessBlockError> {
         self.chain.process_block(Arc::clone(&block))?;
-        self.mark_block_stored(block.header().hash());
+        self.mark_block_stored(block.header().hash().clone());
         self.peers.set_last_common_header(peer, &block.header());
         Ok(())
     }
@@ -542,11 +542,12 @@ impl<CI: ChainIndex> Synchronizer<CI> {
                         }
                     } else if state.chain_sync.timeout == 0
                         || (best_known_header.is_some()
-                            && best_known_header.map(|h| h.total_difficulty()) >= state
-                                .chain_sync
-                                .work_header
-                                .as_ref()
-                                .map(|h| h.total_difficulty()))
+                            && best_known_header.map(|h| h.total_difficulty())
+                                >= state
+                                    .chain_sync
+                                    .work_header
+                                    .as_ref()
+                                    .map(|h| h.total_difficulty()))
                     {
                         // Our best block known by this peer is behind our tip, and we're either noticing
                         // that for the first time, OR this peer was able to catch up to some earlier point
@@ -706,7 +707,6 @@ mod tests {
     use self::block_process::BlockProcess;
     use self::headers_process::HeadersProcess;
     use super::*;
-    use bigint::U256;
     use ckb_chain::chain::ChainBuilder;
     use ckb_chain_spec::consensus::Consensus;
     use ckb_core::block::BlockBuilder;
@@ -726,6 +726,7 @@ mod tests {
     use ckb_util::Mutex;
     use flatbuffers::FlatBufferBuilder;
     use fnv::{FnvHashMap, FnvHashSet};
+    use numext_fixed_uint::U256;
     use std::ops::Deref;
     use std::time::Duration;
 
@@ -770,7 +771,7 @@ mod tests {
     fn create_cellbase(number: BlockNumber) -> Transaction {
         TransactionBuilder::default()
             .input(CellInput::new_cellbase_input(number))
-            .output(CellOutput::new(0, vec![], H256::from(0), None))
+            .output(CellOutput::new(0, vec![], H256::zero(), None))
             .build()
     }
 
@@ -779,11 +780,11 @@ mod tests {
         let number = parent_header.number() + 1;
         let cellbase = create_cellbase(number);
         let header_builder = HeaderBuilder::default()
-            .parent_hash(&parent_header.hash())
+            .parent_hash(parent_header.hash().clone())
             .timestamp(now)
             .number(number)
-            .difficulty(&difficulty)
-            .cellbase_id(&cellbase.hash())
+            .difficulty(difficulty)
+            .cellbase_id(cellbase.hash().clone())
             .nonce(nonce);
 
         BlockBuilder::default()
@@ -831,7 +832,7 @@ mod tests {
             expect.push(shared.block_hash(*i).unwrap());
         }
         //genesis_hash must be the last one
-        expect.push(shared.genesis_hash());
+        expect.push(shared.genesis_hash().clone());
 
         assert_eq!(expect, locator);
     }
@@ -1136,11 +1137,24 @@ mod tests {
 
         assert_eq!(
             headers.first().unwrap().hash(),
-            shared2.block_hash(193).unwrap()
+            &shared2.block_hash(193).unwrap()
         );
         assert_eq!(
             headers.last().unwrap().hash(),
-            shared2.block_hash(200).unwrap()
+            &shared2.block_hash(200).unwrap()
+        );
+
+        println!(
+            "headers\n {:#?}",
+            headers
+                .iter()
+                .map(|h| format!(
+                    "{} hash({}) parent({})",
+                    h.number(),
+                    h.hash(),
+                    h.parent_hash()
+                ))
+                .collect::<Vec<_>>()
         );
 
         let fbb = &mut FlatBufferBuilder::new();
@@ -1183,7 +1197,7 @@ mod tests {
         }
 
         assert_eq!(
-            &synchronizer1
+            synchronizer1
                 .peers
                 .last_common_headers
                 .read()
@@ -1224,13 +1238,18 @@ mod tests {
         use std::iter::FromIterator;
 
         let consensus = Consensus::default();
-        let header = HeaderBuilder::default().difficulty(&U256::from(2)).build();
+        let header = HeaderBuilder::default()
+            .difficulty(U256::from(2u64))
+            .build();
         let block = BlockBuilder::default().header(header).build();
         let consensus = consensus.set_genesis_block(block);
 
         let (chain_controller, shared, _notify) = start_chain(Some(consensus), None);
 
-        assert_eq!(shared.tip_header().read().total_difficulty(), U256::from(2));
+        assert_eq!(
+            shared.tip_header().read().total_difficulty(),
+            &U256::from(2u64)
+        );
 
         let synchronizer = gen_synchronizer(chain_controller.clone(), shared.clone());
 

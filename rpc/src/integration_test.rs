@@ -68,18 +68,21 @@ impl RpcServer {
             IntegrationTestRpcImpl {
                 network: Arc::clone(&network),
                 pow,
-            }.to_delegate(),
+            }
+            .to_delegate(),
         );
         io.extend_with(
             ChainRpcImpl {
                 shared: shared.clone(),
-            }.to_delegate(),
+            }
+            .to_delegate(),
         );
         io.extend_with(
             PoolRpcImpl {
                 network: Arc::clone(&network),
                 tx_pool,
-            }.to_delegate(),
+            }
+            .to_delegate(),
         );
         io.extend_with(
             MinerRpcImpl {
@@ -87,14 +90,16 @@ impl RpcServer {
                 shared,
                 agent,
                 chain,
-            }.to_delegate(),
+            }
+            .to_delegate(),
         );
 
         let server = ServerBuilder::new(io)
             .cors(DomainsValidation::AllowOnly(vec![
                 AccessControlAllowOrigin::Null,
                 AccessControlAllowOrigin::Any,
-            ])).start_http(&self.config.listen_addr.parse().unwrap())
+            ]))
+            .start_http(&self.config.listen_addr.parse().unwrap())
             .unwrap();
 
         info!(target: "rpc", "Now listening on {:?}", server.address());

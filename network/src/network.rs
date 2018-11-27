@@ -218,7 +218,8 @@ impl Network {
                 Err(ErrorKind::Other(format!(
                     "can't find protocol: {:?} for peer {:?}",
                     protocol_id, peer_id
-                )).into())
+                ))
+                .into())
             }
         } else {
             Err(ErrorKind::PeerNotFound.into())
@@ -732,7 +733,8 @@ impl Network {
                     peers_registry.drop_all();
                     Ok(())
                 }
-            }).map_err(|(err, _, _)| {
+            })
+            .map_err(|(err, _, _)| {
                 debug!(target: "network", "network exit, error {:?}", err);
                 err
             });

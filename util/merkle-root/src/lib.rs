@@ -1,8 +1,8 @@
-extern crate bigint;
 extern crate hash;
+extern crate numext_fixed_hash;
 
-use bigint::H256;
 use hash::Sha3;
+use numext_fixed_hash::H256;
 
 fn lowest_children_len(amount: usize) -> usize {
     let mut n: usize = 1;
@@ -33,7 +33,7 @@ pub fn merkle_root(input: &[H256]) -> H256 {
     }
 
     for h in input.iter().skip(i) {
-        nodes.push(*h);
+        nodes.push(h.clone());
     }
 
     let nlen = nodes.len();
@@ -47,14 +47,14 @@ pub fn merkle_root(input: &[H256]) -> H256 {
         d <<= 1;
     }
 
-    nodes[0]
+    nodes[0].clone()
 }
 
 fn merge(left: &H256, right: &H256) -> H256 {
     let mut hash = [0u8; 32];
     let mut sha3 = Sha3::new_sha3_256();
-    sha3.update(left);
-    sha3.update(right);
+    sha3.update(left.as_bytes());
+    sha3.update(right.as_bytes());
     sha3.finalize(&mut hash);
     hash.into()
 }
@@ -62,7 +62,7 @@ fn merge(left: &H256, right: &H256) -> H256 {
 #[cfg(test)]
 mod tests {
     use super::merkle_root;
-    use bigint::H256;
+    use numext_fixed_hash::H256;
     use std::str::FromStr;
 
     #[test]

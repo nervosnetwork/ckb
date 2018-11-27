@@ -5,8 +5,8 @@ use super::secp256k1::Message as SecpMessage;
 use super::secp256k1::{RecoverableSignature, RecoveryId};
 use super::Message;
 use super::SECP256K1;
-use bigint::{H256, H512, H520};
 use faster_hex::hex_string;
+use numext_fixed_hash::{H256, H520};
 use std::fmt;
 use std::str::FromStr;
 
@@ -21,6 +21,10 @@ const HALF_N: H256 = H256([
 const N: H256 = H256([
     255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 254, 186, 174, 220,
     230, 175, 72, 160, 59, 191, 210, 94, 140, 208, 54, 65, 65,
+]);
+
+const ONE: H256 = H256([
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
 ]);
 
 impl Signature {
@@ -60,24 +64,37 @@ impl Signature {
     /// Create a signature object from the sig.
     pub fn from_rsv(r: &H256, s: &H256, v: u8) -> Self {
         let mut sig = [0u8; 65];
-        sig[0..32].copy_from_slice(r);
-        sig[32..64].copy_from_slice(s);
+        sig[0..32].copy_from_slice(r.as_bytes());
+        sig[32..64].copy_from_slice(s.as_bytes());
         sig[64] = v;
         Signature(sig)
     }
 
     /// Check if this is a "low" signature.
     pub fn is_low_s(&self) -> bool {
-        H256::from_slice(self.s()) <= HALF_N
+        if let Ok(h_s) = H256::from_slice(self.s()) {
+            h_s <= HALF_N
+        } else {
+            false
+        }
     }
 
     /// Check if each component of the signature is in range.
     pub fn is_valid(&self) -> bool {
-        self.v() <= 1
-            && H256::from_slice(self.r()) < N
-            && H256::from_slice(self.r()) >= 1.into()
-            && H256::from_slice(self.s()) < N
-            && H256::from_slice(self.s()) >= 1.into()
+        let h_r = match H256::from_slice(self.r()) {
+            Ok(h_r) => h_r,
+            Err(_) => {
+                return false;
+            }
+        };
+
+        let h_s = match H256::from_slice(self.s()) {
+            Ok(h_s) => h_s,
+            Err(_) => {
+                return false;
+            }
+        };
+        self.v() <= 1 && h_r < N && h_r >= ONE && h_s < N && h_s >= ONE
     }
 
     /// Converts compact signature to a recoverable signature
@@ -95,11 +112,11 @@ impl Signature {
     pub fn recover(&self, message: &Message) -> Result<Pubkey, Error> {
         let context = &SECP256K1;
         let recoverable_signature = self.to_recoverable()?;
-        let message = SecpMessage::from_slice(&message[..])?;
+        let message = SecpMessage::from_slice(message.as_bytes())?;
         let pubkey = context.recover(&message, &recoverable_signature)?;
         let serialized = pubkey.serialize_uncompressed();
 
-        let mut pubkey = H512::default();
+        let mut pubkey = [0u8; 64];
         pubkey.copy_from_slice(&serialized[1..65]);
         Ok(pubkey.into())
     }
@@ -111,7 +128,7 @@ impl Signature {
         let pubkey = context.recover_schnorr(&message, &schnorr_signature)?;
         let serialized = pubkey.serialize_uncompressed();
 
-        let mut pubkey = H512::default();
+        let mut pubkey = [0u8; 64];
         pubkey.copy_from_slice(&serialized[1..65]);
         Ok(pubkey.into())
     }
@@ -174,8 +191,12 @@ mod tests {
     use super::*;
     #[test]
     fn test_n() {
-        let half: H256 = "7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF5D576E7357A4501DDFE92F46681B20A0".into();
-        let n: H256 = "fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141".into();
+        let half: H256 =
+            H256::from_hex_str("7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF5D576E7357A4501DDFE92F46681B20A0")
+                .unwrap();
+        let n: H256 =
+            H256::from_hex_str("fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141")
+                .unwrap();
         assert_eq!(half, HALF_N);
         assert_eq!(n, N);
     }

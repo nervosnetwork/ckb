@@ -1,5 +1,4 @@
 use super::flat_serializer::serialized_addresses;
-use bigint::H256;
 use bincode::{deserialize, serialize};
 use ckb_core::block::Block;
 use ckb_core::extras::{BlockExt, TransactionAddress};
@@ -8,6 +7,7 @@ use ckb_core::transaction::{Transaction, TransactionBuilder};
 use ckb_db::batch::Batch;
 use ckb_db::kvdb::KeyValueDB;
 use error::SharedError;
+use numext_fixed_hash::H256;
 use store::{ChainKVStore, ChainStore};
 use {COLUMN_BLOCK_BODY, COLUMN_INDEX, COLUMN_META, COLUMN_TRANSACTION_ADDR};
 
@@ -37,7 +37,7 @@ impl<T: 'static + KeyValueDB> ChainIndex for ChainKVStore<T> {
             let genesis_hash = genesis.header().hash();
             let ext = BlockExt {
                 received_at: genesis.header().timestamp(),
-                total_difficulty: genesis.header().difficulty(),
+                total_difficulty: genesis.header().difficulty().clone(),
                 total_uncles_count: 0,
             };
 
@@ -60,27 +60,29 @@ impl<T: 'static + KeyValueDB> ChainIndex for ChainKVStore<T> {
             self.insert_block(batch, genesis);
             self.insert_block_ext(batch, &genesis_hash, &ext);
             self.insert_tip_header(batch, &genesis.header());
-            self.insert_output_root(batch, genesis_hash, output_root);
+            self.insert_output_root(batch, &genesis_hash, &output_root);
             self.insert_block_hash(batch, 0, &genesis_hash);
             self.insert_block_number(batch, &genesis_hash, 0);
             self.insert_transaction_address(batch, &genesis_hash, genesis.commit_transactions());
             Ok(())
-        }).expect("genesis init");
+        })
+        .expect("genesis init");
     }
 
     fn get_block_hash(&self, number: BlockNumber) -> Option<H256> {
         let key = serialize(&number).unwrap();
-        self.get(COLUMN_INDEX, &key).map(|raw| H256::from(&raw[..]))
+        self.get(COLUMN_INDEX, &key)
+            .map(|raw| H256::from_slice(&raw[..]).expect("db safe access"))
     }
 
     fn get_block_number(&self, hash: &H256) -> Option<BlockNumber> {
-        self.get(COLUMN_INDEX, &hash)
+        self.get(COLUMN_INDEX, hash.as_bytes())
             .map(|raw| deserialize(&raw[..]).unwrap())
     }
 
     fn get_tip_header(&self) -> Option<Header> {
         self.get(COLUMN_META, META_TIP_HEADER_KEY)
-            .and_then(|raw| self.get_header(&H256::from(&raw[..])))
+            .and_then(|raw| self.get_header(&H256::from_slice(&raw[..]).expect("db safe access")))
             .map(Into::into)
     }
 
@@ -89,16 +91,17 @@ impl<T: 'static + KeyValueDB> ChainIndex for ChainKVStore<T> {
             .and_then(|d| {
                 self.partial_get(
                     COLUMN_BLOCK_BODY,
-                    &d.block_hash,
+                    d.block_hash.as_bytes(),
                     &(d.offset..(d.offset + d.length)),
                 )
-            }).map(|ref serialized_transaction| {
-                TransactionBuilder::new(serialized_transaction).with_hash(h)
+            })
+            .map(|ref serialized_transaction| {
+                TransactionBuilder::new(serialized_transaction).with_hash(h.clone())
             })
     }
 
     fn get_transaction_address(&self, h: &H256) -> Option<TransactionAddress> {
-        self.get(COLUMN_TRANSACTION_ADDR, &h)
+        self.get(COLUMN_TRANSACTION_ADDR, h.as_bytes())
             .map(|raw| deserialize(&raw[..]).unwrap())
     }
 
@@ -124,7 +127,7 @@ impl<T: 'static + KeyValueDB> ChainIndex for ChainKVStore<T> {
         let addresses = serialized_addresses(txs.iter()).unwrap();
         for (id, tx) in txs.iter().enumerate() {
             let address = TransactionAddress {
-                block_hash: *block_hash,
+                block_hash: block_hash.clone(),
                 offset: addresses[id].offset,
                 length: addresses[id].length,
             };
@@ -172,11 +175,11 @@ mod tests {
         let block = consensus.genesis_block();
         let hash = block.header().hash();
         store.init(&block);
-        assert_eq!(hash, store.get_block_hash(0).unwrap());
+        assert_eq!(hash, &store.get_block_hash(0).unwrap());
 
         assert_eq!(
             block.header().difficulty(),
-            store.get_block_ext(&hash).unwrap().total_difficulty
+            &store.get_block_ext(&hash).unwrap().total_difficulty
         );
 
         assert_eq!(
@@ -184,6 +187,6 @@ mod tests {
             store.get_block_number(&hash).unwrap()
         );
 
-        assert_eq!(*block.header(), store.get_tip_header().unwrap());
+        assert_eq!(block.header(), &store.get_tip_header().unwrap());
     }
 }

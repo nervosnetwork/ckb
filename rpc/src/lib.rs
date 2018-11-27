@@ -1,6 +1,6 @@
-extern crate bigint;
 extern crate flatbuffers;
 extern crate jsonrpc_core;
+extern crate numext_fixed_hash;
 #[macro_use]
 extern crate jsonrpc_macros;
 extern crate jsonrpc_http_server;

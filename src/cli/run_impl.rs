@@ -1,6 +1,5 @@
 use super::super::helper::wait_for_exit;
 use super::super::Setup;
-use bigint::H256;
 use ckb_chain::chain::{ChainBuilder, ChainController};
 use ckb_core::script::Script;
 use ckb_core::transaction::{CellInput, OutPoint, Transaction, TransactionBuilder};
@@ -22,6 +21,8 @@ use clap::ArgMatches;
 use crypto::secp::{Generator, Privkey};
 use faster_hex::{hex_string, hex_to};
 use hash::sha3_256;
+
+use numext_fixed_hash::H256;
 use serde_json;
 use std::io::Write;
 use std::sync::Arc;
@@ -156,7 +157,7 @@ pub fn sign(setup: &Setup, matches: &ArgMatches) {
     let system_cell_tx = &consensus.genesis_block().commit_transactions()[0];
     let system_cell_data_hash = system_cell_tx.outputs()[0].data_hash();
     let system_cell_tx_hash = system_cell_tx.hash();
-    let system_cell_outpoint = OutPoint::new(system_cell_tx_hash, 0);
+    let system_cell_outpoint = OutPoint::new(system_cell_tx_hash.clone(), 0);
 
     let privkey: Privkey = value_t!(matches.value_of("private-key"), H256)
         .unwrap_or_else(|e| e.exit())
@@ -187,11 +188,11 @@ pub fn sign(setup: &Setup, matches: &ArgMatches) {
         let script = Script::new(
             0,
             new_args,
-            Some(system_cell_data_hash),
+            Some(system_cell_data_hash.clone()),
             None,
             vec![hex_pubkey],
         );
-        let signed_input = CellInput::new(unsigned_input.previous_output, script);
+        let signed_input = CellInput::new(unsigned_input.previous_output.clone(), script);
         inputs.push(signed_input);
     }
     // First, add verify system cell as a dep
@@ -227,7 +228,10 @@ pub fn type_hash(setup: &Setup, matches: &ArgMatches) {
         None,
         vec![hex_pubkey],
     );
-    println!("{}", hex_string(&script.type_hash()).expect("hex string"));
+    println!(
+        "{}",
+        hex_string(script.type_hash().as_bytes()).expect("hex string")
+    );
 }
 
 pub fn keygen() {

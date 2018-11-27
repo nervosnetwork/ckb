@@ -1,10 +1,12 @@
+#![cfg_attr(feature = "cargo-clippy", allow(op_ref))]
+
 use super::{AVLError, Result};
-use bigint::H256;
 use bincode::{deserialize, serialize};
 use ckb_core::transaction_meta::TransactionMeta;
 use ckb_db::batch::{Batch, Col};
 use ckb_db::kvdb::KeyValueDB;
 use hash::sha3_256;
+use numext_fixed_hash::H256;
 
 // DB node in the avl
 #[derive(Eq, PartialEq, Debug, Serialize, Deserialize, Clone)]
@@ -15,44 +17,44 @@ pub enum DBNode {
     Branch(u32, H256, [H256; 2]),
 }
 
-pub fn get(db: &KeyValueDB, col: Col, h: H256) -> Result<DBNode> {
-    if let Some(v) = db.read(col, &h).expect("DB Error!") {
+pub fn get(db: &KeyValueDB, col: Col, h: &H256) -> Result<DBNode> {
+    if let Some(v) = db.read(col, h.as_bytes()).expect("DB Error!") {
         return Ok(deserialize(&v).unwrap());
     } else {
-        return Err(Box::new(AVLError::DatabaseError(h)));
+        return Err(Box::new(AVLError::DatabaseError(h.clone())));
     }
 }
 
 pub fn insert(col: Col, batch: &mut Batch, node: &DBNode) -> H256 {
     let raw = serialize(node).unwrap();
 
-    let h: H256 = sha3_256(&raw).into();
+    let h = sha3_256(&raw);
 
     batch.insert(col, h.to_vec(), raw);
 
-    h
+    h.into()
 }
 
 pub fn search(
     db: &KeyValueDB,
     col: Col,
     mut hash: H256,
-    key: H256,
+    key: &H256,
 ) -> Result<Option<TransactionMeta>> {
     loop {
-        let node = get(db, col, hash)?;
+        let node = get(db, col, &hash)?;
 
         match node {
             DBNode::Leaf(k, value) => {
-                if k == key {
+                if &k == key {
                     return Ok(Some(value));
                 } else {
                     return Ok(None);
                 }
             }
             DBNode::Branch(_, k, children) => {
-                let idx = if key < k { 0 } else { 1 };
-                hash = children[idx as usize];
+                let idx = if key < &k { 0 } else { 1 };
+                hash = children[idx as usize].clone();
             }
         }
     }
@@ -61,6 +63,10 @@ pub fn search(
 #[cfg(test)]
 mod tests {
     const TEST_COL: Col = Some(0);
+    const H_123: H256 = H256([
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 123,
+    ]);
     use super::*;
     use ckb_db::memorydb::MemoryKeyValueDB;
 
@@ -104,15 +110,25 @@ mod tests {
 
         let mut batch = Batch::new();
 
-        let left_key = H256::from(1);
+        let left_key = H256([
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 1,
+        ]);
         let left = DBNode::Leaf(left_key.clone(), left_meta);
-        let right_key = H256::from(2);
+        let right_key = H256([
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 2,
+        ]);
         let right = DBNode::Leaf(right_key.clone(), right_meta);
 
         let left_hash = insert(TEST_COL, &mut batch, &left);
         let right_hash = insert(TEST_COL, &mut batch, &right);
 
-        let root = DBNode::Branch(0, right_key, [left_hash, right_hash]);
+        let root = DBNode::Branch(
+            0,
+            right_key.clone(),
+            [left_hash.clone(), right_hash.clone()],
+        );
         let root_hash = insert(TEST_COL, &mut batch, &root);
         db.write(batch).expect("db.write(batch)");
 
@@ -132,10 +148,10 @@ mod tests {
     #[test]
     fn test_get() {
         let context = build_context();
-        let left_found = get(&context.db, TEST_COL, context.left_hash);
-        let right_found = get(&context.db, TEST_COL, context.right_hash);
-        let root_found = get(&context.db, TEST_COL, context.root_hash);
-        let not_found = get(&context.db, TEST_COL, H256::from(123));
+        let left_found = get(&context.db, TEST_COL, &context.left_hash);
+        let right_found = get(&context.db, TEST_COL, &context.right_hash);
+        let root_found = get(&context.db, TEST_COL, &context.root_hash);
+        let not_found = get(&context.db, TEST_COL, &H_123);
 
         assert!(left_found.is_ok());
         assert!(leaf_eq(&context.left, &left_found.unwrap()));
@@ -149,10 +165,20 @@ mod tests {
     #[test]
     fn test_search() {
         let context = build_context();
-        let left_found = search(&context.db, TEST_COL, context.root_hash, context.left_key);
-        let right_found = search(&context.db, TEST_COL, context.root_hash, context.right_key);
-        let branch_not_found = search(&context.db, TEST_COL, H256::from(123), context.left_key);
-        let leaf_not_found = search(&context.db, TEST_COL, context.root_hash, H256::from(123));
+        let left_found = search(
+            &context.db,
+            TEST_COL,
+            context.root_hash.clone(),
+            &context.left_key,
+        );
+        let right_found = search(
+            &context.db,
+            TEST_COL,
+            context.root_hash.clone(),
+            &context.right_key,
+        );
+        let branch_not_found = search(&context.db, TEST_COL, H_123, &context.left_key);
+        let leaf_not_found = search(&context.db, TEST_COL, context.root_hash, &H_123);
 
         assert!(meta_eq(
             &left_found.unwrap().unwrap(),

@@ -1,4 +1,3 @@
-use bigint::U256;
 use ckb_chain::chain::{ChainBuilder, ChainController};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::BlockBuilder;
@@ -11,6 +10,7 @@ use ckb_shared::shared::{ChainProvider, Shared, SharedBuilder};
 use ckb_shared::store::ChainKVStore;
 use ckb_time::now_ms;
 use flatbuffers::get_root;
+use numext_fixed_uint::U256;
 use std::sync::mpsc::channel;
 use std::sync::Arc;
 use std::thread;
@@ -55,7 +55,7 @@ fn setup_node(height: u64) -> (TestNode, Shared<ChainKVStore<MemoryKeyValueDB>>)
     let mut block = BlockBuilder::default().with_header_builder(
         HeaderBuilder::default()
             .timestamp(now_ms())
-            .difficulty(&U256::from(1000)),
+            .difficulty(U256::from(1000u64)),
     );
 
     let consensus = Consensus::default().set_genesis_block(block.clone());
@@ -80,11 +80,11 @@ fn setup_node(height: u64) -> (TestNode, Shared<ChainKVStore<MemoryKeyValueDB>>)
             .build();
 
         let header_builder = HeaderBuilder::default()
-            .parent_hash(&block.header().hash())
+            .parent_hash(block.header().hash().clone())
             .number(number)
             .timestamp(timestamp)
-            .difficulty(&difficulty)
-            .cellbase_id(&cellbase.hash());
+            .difficulty(difficulty)
+            .cellbase_id(cellbase.hash().clone());
 
         block = BlockBuilder::default()
             .commit_transaction(cellbase)

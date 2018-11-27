@@ -80,7 +80,8 @@ impl Logger {
                         }
                     }
                 }
-            }).unwrap();
+            })
+            .unwrap();
 
         Logger {
             sender,

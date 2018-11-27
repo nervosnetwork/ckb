@@ -142,11 +142,9 @@ impl NetworkConfig {
 impl Default for NetworkConfig {
     fn default() -> Self {
         NetworkConfig {
-            listen_addresses: vec![
-                iter::once(AddrComponent::IP4(Ipv4Addr::new(0, 0, 0, 0)))
-                    .chain(iter::once(AddrComponent::TCP(30333)))
-                    .collect(),
-            ],
+            listen_addresses: vec![iter::once(AddrComponent::IP4(Ipv4Addr::new(0, 0, 0, 0)))
+                .chain(iter::once(AddrComponent::TCP(30333)))
+                .collect()],
             public_addresses: Vec::new(),
             client_version: "ckb<unknown>".to_owned(),
             protocol_version: "ckb".to_owned(),

@@ -4,7 +4,7 @@ use super::secp256k1::Message as SecpMessage;
 use super::signature::Signature;
 use super::Message;
 use super::SECP256K1;
-use bigint::H512;
+use numext_fixed_hash::H512;
 use std::{fmt, ops};
 
 #[derive(Debug, Eq, PartialEq)]
@@ -21,7 +21,7 @@ impl Pubkey {
         // non-compressed key prefix 4
         let prefix_key: [u8; 65] = {
             let mut temp = [4u8; 65];
-            temp[1..65].copy_from_slice(self);
+            temp[1..65].copy_from_slice(self.inner.as_bytes());
             temp
         };
 
@@ -29,7 +29,7 @@ impl Pubkey {
         let recoverable_signature = signature.to_recoverable()?;
         let signature = recoverable_signature.to_standard(context);
 
-        let message = SecpMessage::from_slice(message)?;
+        let message = SecpMessage::from_slice(message.as_bytes())?;
         context.verify(&message, &signature, &pubkey)?;
         Ok(())
     }
@@ -40,14 +40,14 @@ impl Pubkey {
         // non-compressed key prefix 4
         let prefix_key: [u8; 65] = {
             let mut temp = [4u8; 65];
-            temp[1..65].copy_from_slice(self);
+            temp[1..65].copy_from_slice(self.inner.as_bytes());
             temp
         };
 
         let pubkey = key::PublicKey::from_slice(context, &prefix_key)?;
         let schnorr_signature = signature.to_schnorr();
 
-        let message = SecpMessage::from_slice(message)?;
+        let message = SecpMessage::from_slice(message.as_bytes())?;
         context.verify_schnorr(&message, &schnorr_signature, &pubkey)?;
         Ok(())
     }
@@ -58,11 +58,17 @@ impl Pubkey {
         // non-compressed key prefix 4
         let prefix_key: [u8; 65] = {
             let mut temp = [4u8; 65];
-            temp[1..65].copy_from_slice(self);
+            temp[1..65].copy_from_slice(self.inner.as_bytes());
             temp
         };
         let pubkey = key::PublicKey::from_slice(context, &prefix_key).unwrap();
         Vec::from(&pubkey.serialize()[..])
+    }
+}
+
+impl From<[u8; 64]> for Pubkey {
+    fn from(key: [u8; 64]) -> Self {
+        Pubkey { inner: key.into() }
     }
 }
 
@@ -89,9 +95,11 @@ impl ops::Deref for Pubkey {
 impl From<key::PublicKey> for Pubkey {
     fn from(key: key::PublicKey) -> Self {
         let serialized = key.serialize_uncompressed();
-        let mut pubkey = H512::default();
+        let mut pubkey = [0u8; 64];
         pubkey.copy_from_slice(&serialized[1..65]);
-        pubkey.into()
+        Pubkey {
+            inner: pubkey.into(),
+        }
     }
 }
 

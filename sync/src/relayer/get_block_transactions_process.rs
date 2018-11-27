@@ -1,8 +1,8 @@
-use bigint::H256;
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::{GetBlockTransactions, RelayMessage};
 use ckb_shared::index::ChainIndex;
 use flatbuffers::FlatBufferBuilder;
+use numext_fixed_hash::H256;
 use relayer::Relayer;
 
 pub struct GetBlockTransactionsProcess<'a, CI: ChainIndex + 'a> {
@@ -31,7 +31,8 @@ where
     }
 
     pub fn execute(self) {
-        let hash = H256::from_slice(self.message.hash().and_then(|bytes| bytes.seq()).unwrap());
+        let hash =
+            H256::from_slice(self.message.hash().and_then(|bytes| bytes.seq()).unwrap()).unwrap();
         debug!(target: "relay", "get_block_transactions {:?}", hash);
 
         if let Some(block) = self.relayer.get_block(&hash) {
