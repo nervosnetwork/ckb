@@ -1,6 +1,7 @@
 use super::service::{BlockTemplate, RpcController};
-use super::{BlockWithHash, CellOutputWithOutPoint, Config, TransactionWithHash};
+use super::{BlockWithHash, CellOutputWithOutPoint, CellWithStatus, Config, TransactionWithHash};
 use bigint::H256;
+use ckb_core::cell::CellProvider;
 use ckb_core::header::{BlockNumber, Header};
 use ckb_core::transaction::{OutPoint, Transaction};
 use ckb_network::NetworkService;
@@ -45,6 +46,10 @@ build_rpc_trait! {
         // curl -d '{"id": 2, "jsonrpc": "2.0", "method":"get_cells_by_type_hash","params": ["0x1b1c832d02fdb4339f9868c8a8636c3d9dd10bd53ac7ce99595825bd6beeffb3", 1, 10]}' -H 'content-type:application/json' 'http://localhost:8114'
         #[rpc(name = "get_cells_by_type_hash")]
         fn get_cells_by_type_hash(&self, H256, u64, u64) -> Result<Vec<CellOutputWithOutPoint>>;
+
+        // curl -d '{"id": 2, "jsonrpc": "2.0", "method":"get_current_cell","params": [{"hash": "0x1b1c832d02fdb4339f9868c8a8636c3d9dd10bd53ac7ce99595825bd6beeffb3", "index": 1}]}' -H 'content-type:application/json' 'http://localhost:3030'
+        #[rpc(name = "get_current_cell")]
+        fn get_current_cell(&self, OutPoint) -> Result<CellWithStatus>;
     }
 }
 
@@ -130,6 +135,10 @@ impl<CI: ChainIndex + 'static> Rpc for RpcImpl<CI> {
         self.controller
             .get_block_template(H256::from(0), 20000, 20000)
             .map_err(|_| Error::internal_error())
+    }
+
+    fn get_current_cell(&self, out_point: OutPoint) -> Result<CellWithStatus> {
+        Ok(self.shared.cell(&out_point).into())
     }
 }
 
