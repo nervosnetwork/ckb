@@ -116,8 +116,8 @@ impl<CI: ChainIndex + 'static> RpcService<CI> {
                         }
                     }
                     recv(receivers.get_block_template_receiver, msg) => match msg {
-                        Some(Request { responsor, arguments: (type_hash, max_tx, max_prop) }) => {
-                            responsor.send(self.get_block_template(type_hash, max_tx, max_prop));
+                        Some(Request { responder, arguments: (type_hash, max_tx, max_prop) }) => {
+                            responder.send(self.get_block_template(type_hash, max_tx, max_prop));
                         },
                         None => {
                             error!(target: "chain", "get_block_template_receiver closed");
