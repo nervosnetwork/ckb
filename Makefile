@@ -38,6 +38,12 @@ stats:
 	@cargo count --version || cargo +nightly install --git https://github.com/kbknapp/cargo-count
 	@cargo count --separator , --unsafe-statistics
 
+# Use cargo-audit to audit Cargo.lock for crates with security vulnerabilities
+# expecting to see "Success No vulnerable packages found"
+security-audit:
+	@cargo audit --version || cargo install cargo-audit
+	@cargo audit
+
 .PHONY: build build-integration-test
 .PHONY: fmt test clippy proto doc doc-deps check stats
-.PHONY: ci ci-quick info
+.PHONY: ci ci-quick info security-audit
