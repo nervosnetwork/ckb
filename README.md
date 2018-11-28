@@ -108,7 +108,7 @@ cargo test -p ckb-chain
 
 ### Start Node
 
-Create the defualt runtime directory:
+Create the default runtime directory:
 
 ```shell
 cp -r nodes_template/ nodes
