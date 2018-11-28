@@ -85,10 +85,6 @@ brew install autoconf libtool
 git clone https://github.com/nervosnetwork/ckb.git
 cd ckb
 
-# get ckb-vm submodule
-git submodule init
-git submodule update
-
 # build in release mode
 cargo build --release
 ```
