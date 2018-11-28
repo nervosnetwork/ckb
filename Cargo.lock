@@ -136,14 +136,14 @@ dependencies = [
 [[package]]
 name = "bigint"
 version = "0.2.3"
-source = "git+https://github.com/nervosnetwork/bigint#604d76957a768bc8a620288ebf0a9448fdcd5190"
+source = "git+https://github.com/nervosnetwork/bigint#8ba1894cb7633ae2c34516914d4dafadcd365993"
 dependencies = [
  "crunchy 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "ethereum-types-serialize 0.2.1 (git+https://github.com/NervosFoundation/primitives)",
- "fixed-hash 0.2.1 (git+https://github.com/NervosFoundation/primitives)",
+ "ethereum-types-serialize 0.2.1 (git+https://github.com/nervosnetwork/primitives)",
+ "fixed-hash 0.2.1 (git+https://github.com/nervosnetwork/primitives)",
  "rustc_version 0.2.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.80 (registry+https://github.com/rust-lang/crates.io-index)",
- "uint 0.2.0 (git+https://github.com/NervosFoundation/primitives)",
+ "uint 0.2.0 (git+https://github.com/nervosnetwork/primitives)",
 ]
 
 [[package]]
@@ -1036,7 +1036,7 @@ dependencies = [
 [[package]]
 name = "ethereum-types-serialize"
 version = "0.2.1"
-source = "git+https://github.com/NervosFoundation/primitives#dfb17048cba127e086d9105e5ef9ecea240575c2"
+source = "git+https://github.com/nervosnetwork/primitives#dfb17048cba127e086d9105e5ef9ecea240575c2"
 dependencies = [
  "serde 1.0.80 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
@@ -1079,7 +1079,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 [[package]]
 name = "fixed-hash"
 version = "0.2.1"
-source = "git+https://github.com/NervosFoundation/primitives#dfb17048cba127e086d9105e5ef9ecea240575c2"
+source = "git+https://github.com/nervosnetwork/primitives#dfb17048cba127e086d9105e5ef9ecea240575c2"
 dependencies = [
  "heapsize 0.4.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "libc 0.2.43 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -3159,7 +3159,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 [[package]]
 name = "uint"
 version = "0.2.0"
-source = "git+https://github.com/NervosFoundation/primitives#dfb17048cba127e086d9105e5ef9ecea240575c2"
+source = "git+https://github.com/nervosnetwork/primitives#dfb17048cba127e086d9105e5ef9ecea240575c2"
 dependencies = [
  "byteorder 1.2.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "heapsize 0.4.2 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -3479,13 +3479,13 @@ dependencies = [
 "checksum env_logger 0.4.3 (registry+https://github.com/rust-lang/crates.io-index)" = "3ddf21e73e016298f5cb37d6ef8e8da8e39f91f9ec8b0df44b7deb16a9f8cd5b"
 "checksum env_logger 0.5.13 (registry+https://github.com/rust-lang/crates.io-index)" = "15b0a4d2e39f8420210be8b27eeda28029729e2fd4291019455016c348240c38"
 "checksum eth-secp256k1 0.5.7 (git+https://github.com/paritytech/rust-secp256k1)" = "<none>"
-"checksum ethereum-types-serialize 0.2.1 (git+https://github.com/NervosFoundation/primitives)" = "<none>"
+"checksum ethereum-types-serialize 0.2.1 (git+https://github.com/nervosnetwork/primitives)" = "<none>"
 "checksum etrace 1.1.1 (registry+https://github.com/rust-lang/crates.io-index)" = "f17311e68ea07046ee809b8513f6c259518bc10173681d98c21f8c3926f56f40"
 "checksum failure 0.1.3 (registry+https://github.com/rust-lang/crates.io-index)" = "6dd377bcc1b1b7ce911967e3ec24fa19c3224394ec05b54aa7b083d498341ac7"
 "checksum failure_derive 0.1.3 (registry+https://github.com/rust-lang/crates.io-index)" = "64c2d913fe8ed3b6c6518eedf4538255b989945c14c2a7d5cbff62a5e2120596"
 "checksum fake-simd 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)" = "e88a8acf291dafb59c2d96e8f59828f3838bb1a70398823ade51a84de6a6deed"
 "checksum faster-hex 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)" = "600afa3b4a53606b7be1af199925d98cf75a4b575b6fd6838fe94e07bc35796f"
-"checksum fixed-hash 0.2.1 (git+https://github.com/NervosFoundation/primitives)" = "<none>"
+"checksum fixed-hash 0.2.1 (git+https://github.com/nervosnetwork/primitives)" = "<none>"
 "checksum flatbuffers 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)" = "ea0c34f669be9911826facafe996adfda978aeee67285a13556869e2d8b8331f"
 "checksum fnv 1.0.6 (registry+https://github.com/rust-lang/crates.io-index)" = "2fad85553e09a6f881f739c29f0b00b0f01357c743266d478b68951ce23285f3"
 "checksum foreign-types 0.3.2 (registry+https://github.com/rust-lang/crates.io-index)" = "f6f339eb8adc052cd2ca78910fda869aefa38d22d5cb648e6485e4d3fc06f3b1"
@@ -3703,7 +3703,7 @@ dependencies = [
 "checksum typeable 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)" = "1410f6f91f21d1612654e7cc69193b0334f909dcf2c790c4826254fbb86f8887"
 "checksum typenum 1.10.0 (registry+https://github.com/rust-lang/crates.io-index)" = "612d636f949607bdf9b123b4a6f6d966dedf3ff669f7f045890d3a4a73948169"
 "checksum ucd-util 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)" = "fd2be2d6639d0f8fe6cdda291ad456e23629558d466e2789d2c3e9892bda285d"
-"checksum uint 0.2.0 (git+https://github.com/NervosFoundation/primitives)" = "<none>"
+"checksum uint 0.2.0 (git+https://github.com/nervosnetwork/primitives)" = "<none>"
 "checksum unicase 1.4.2 (registry+https://github.com/rust-lang/crates.io-index)" = "7f4765f83163b74f957c797ad9253caf97f103fb064d3999aea9568d09fc8a33"
 "checksum unicase 2.1.0 (registry+https://github.com/rust-lang/crates.io-index)" = "284b6d3db520d67fbe88fd778c21510d1b0ba4a551e5d0fbb023d33405f6de8a"
 "checksum unicode-bidi 0.3.4 (registry+https://github.com/rust-lang/crates.io-index)" = "49f2bd0c6468a8230e1db229cff8029217cf623c767ea5d60bfbd42729ea54d5"
