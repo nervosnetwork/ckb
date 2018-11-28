@@ -33,6 +33,11 @@ info:
 	pwd
 	env
 
+# For counting lines of code
+stats:
+	@cargo count --version || cargo +nightly install --git https://github.com/kbknapp/cargo-count
+	@cargo count --separator , --unsafe-statistics
+
 .PHONY: build build-integration-test
-.PHONY: fmt test clippy proto doc doc-deps check
+.PHONY: fmt test clippy proto doc doc-deps check stats
 .PHONY: ci ci-quick info
