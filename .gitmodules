@@ -1,3 +1,0 @@
-[submodule "vm"]
-	path = vm
-	url = ssh://git@github.com/nervosnetwork/ckb-vm.git
