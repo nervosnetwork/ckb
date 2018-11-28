@@ -156,13 +156,13 @@ impl NotifyService {
     ) {
         match msg {
             Some(Request {
-                responsor,
+                responder,
                 arguments: (name, capacity),
             }) => {
                 debug!(target: "notify", "Register new_transaction {:?}", name);
                 let (sender, receiver) = channel::bounded::<MsgNewTransaction>(capacity);
                 subscribers.insert(name, sender);
-                responsor.send(receiver);
+                responder.send(receiver);
             }
             None => warn!(target: "notify", "Register new_transaction channel is closed"),
         }
@@ -174,13 +174,13 @@ impl NotifyService {
     ) {
         match msg {
             Some(Request {
-                responsor,
+                responder,
                 arguments: (name, capacity),
             }) => {
                 debug!(target: "notify", "Register new_tip {:?}", name);
                 let (sender, receiver) = channel::bounded::<MsgNewTip>(capacity);
                 subscribers.insert(name, sender);
-                responsor.send(receiver);
+                responder.send(receiver);
             }
             None => warn!(target: "notify", "Register new_tip channel is closed"),
         }
@@ -192,13 +192,13 @@ impl NotifyService {
     ) {
         match msg {
             Some(Request {
-                responsor,
+                responder,
                 arguments: (name, capacity),
             }) => {
                 debug!(target: "notify", "Register new_uncle {:?}", name);
                 let (sender, receiver) = channel::bounded::<MsgNewUncle>(capacity);
                 subscribers.insert(name, sender);
-                responsor.send(receiver);
+                responder.send(receiver);
             }
             None => warn!(target: "notify", "Register new_uncle channel is closed"),
         }
@@ -210,13 +210,13 @@ impl NotifyService {
     ) {
         match msg {
             Some(Request {
-                responsor,
+                responder,
                 arguments: (name, capacity),
             }) => {
                 debug!(target: "notify", "Register switch_fork {:?}", name);
                 let (sender, receiver) = channel::bounded::<MsgSwitchFork>(capacity);
                 subscribers.insert(name, sender);
-                responsor.send(receiver);
+                responder.send(receiver);
             }
             None => warn!(target: "notify", "Register switch_fork channel is closed"),
         }

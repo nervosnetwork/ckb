@@ -182,8 +182,8 @@ where
                         self.handle_get_proposal_commit_transactions(msg)
                     }
                     recv(receivers.get_potential_transactions_receiver, msg) => match msg {
-                        Some(Request { responsor, ..}) => {
-                            responsor.send(self.get_potential_transactions());
+                        Some(Request { responder, ..}) => {
+                            responder.send(self.get_potential_transactions());
                             false
                         }
                         None => {
@@ -192,8 +192,8 @@ where
                         }
                     }
                     recv(receivers.contains_key_receiver, msg) => match msg {
-                        Some(Request { responsor, arguments: id }) => {
-                            responsor.send(self.contains_key(&id));
+                        Some(Request { responder, arguments: id }) => {
+                            responder.send(self.contains_key(&id));
                             false
                         }
                         None => {
@@ -202,8 +202,8 @@ where
                         }
                     }
                     recv(receivers.get_transaction_receiver, msg) => match msg {
-                        Some(Request { responsor, arguments: id }) => {
-                            responsor.send(self.get(&id));
+                        Some(Request { responder, arguments: id }) => {
+                            responder.send(self.get(&id));
                             false
                         }
                         None => {
@@ -212,8 +212,8 @@ where
                         }
                     }
                     recv(receivers.add_transaction_receiver, msg) => match msg {
-                        Some(Request { responsor, arguments: tx }) => {
-                            responsor.send(self.add_transaction(tx));
+                        Some(Request { responder, arguments: tx }) => {
+                            responder.send(self.add_transaction(tx));
                             false
                         }
                         None => {
@@ -256,12 +256,12 @@ where
     ) -> bool {
         match msg {
             Some(Request {
-                responsor,
+                responder,
                 arguments: (max_prop, max_tx),
             }) => {
                 let proposal_transactions = self.prepare_proposal(max_prop);
                 let commit_transactions = self.get_mineable_transactions(max_tx);
-                responsor.send((proposal_transactions, commit_transactions));
+                responder.send((proposal_transactions, commit_transactions));
                 false
             }
             None => {

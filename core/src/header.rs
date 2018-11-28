@@ -35,7 +35,7 @@ pub struct RawHeader {
     cellbase_id: H256,
     /// Hash of the uncles
     uncles_hash: H256,
-    /// Hash of the uncles
+    /// Number of the uncles
     uncles_count: u32,
 }
 
