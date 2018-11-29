@@ -66,8 +66,13 @@ impl<'a> TransactionScriptsVerifier<'a> {
         MmapCell::new(&self.outputs, &self.input_cells)
     }
 
-    fn build_fetch_script_hash(&self) -> FetchScriptHash {
-        FetchScriptHash::new(&self.outputs, &self.inputs, &self.input_cells)
+    fn build_fetch_script_hash(&self, current_script_hash: H256) -> FetchScriptHash {
+        FetchScriptHash::new(
+            &self.outputs,
+            &self.inputs,
+            &self.input_cells,
+            current_script_hash,
+        )
     }
 
     // Script struct might contain references to external cells, this
@@ -94,7 +99,7 @@ impl<'a> TransactionScriptsVerifier<'a> {
             let mut machine = DefaultMachine::<u64, SparseMemory>::default();
             machine.add_syscall_module(Box::new(self.build_mmap_tx()));
             machine.add_syscall_module(Box::new(self.build_mmap_cell()));
-            machine.add_syscall_module(Box::new(self.build_fetch_script_hash()));
+            machine.add_syscall_module(Box::new(self.build_fetch_script_hash(script.type_hash())));
             machine.add_syscall_module(Box::new(Debugger::new(prefix)));
             machine
                 .run(script_binary, &args)
