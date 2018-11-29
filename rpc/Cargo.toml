@@ -16,10 +16,10 @@ ckb-pool = { path = "../pool" }
 ckb-protocol = { path = "../protocol" }
 ckb-pow = { path = "../pow", optional = true }
 ckb-time = { path = "../util/time" }
-jsonrpc-core = "8.0"
-jsonrpc-macros = "8.0"
-jsonrpc-http-server = "8.0"
-jsonrpc-server-utils = "8.0"
+jsonrpc-core = "9.0"
+jsonrpc-macros = "9.0"
+jsonrpc-http-server = "9.0"
+jsonrpc-server-utils = "9.0"
 serde = "1.0"
 serde_derive = "1.0"
 serde_json = "1.0"
