@@ -4,6 +4,7 @@ branches:
   only:
     - master
     - develop
+    - /^v\d+\.\d+(\.\d+)?(-\S*)?$/
 cache:
   timeout: 1024
   directories:
@@ -39,3 +40,21 @@ script:
 
 before_cache:
 - rm -rf $HOME/.cargo/registry
+
+after_success: |
+  [ $TRAVIS_BRANCH = master ] &&
+  [ $TRAVIS_PULL_REQUEST = false ] &&
+  [ $SUITE = ci ] &&
+  [ x$TRAVIS_TAG != x ] &&
+  cargo doc &&
+  echo "<meta http-equiv=refresh content=0;url=`echo $TRAVIS_REPO_SLUG | cut -d '/' -f 2`/index.html>" > target/doc/index.html
+
+deploy:
+  provider: pages
+  skip-cleanup: true
+  github-token: $GITHUB_TOKEN
+  keep-history: true
+  on:
+    tags: true
+    branch: master
+    condition: "$SUITE = ci"
