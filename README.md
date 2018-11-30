@@ -122,12 +122,12 @@ the config file used to start the node.
 
 The default config file saves data in `nodes/default/`.
 
-### Send Transaction via RPC
+### Send RPC verification request
 
 Find RPC port in the log output, the following command assumes 8114 is used:
 
 ```shell
-curl -d '{"id": 2, "jsonrpc": "2.0", "method":"send_transaction","params": [{"version":2, "inputs":[], "outputs":[], "deps":[]}]}' \
+curl -d '{"id": 1, "jsonrpc": "2.0", "method":"get_tip_header","params": []}' \
   -H 'content-type:application/json' 'http://localhost:8114'
 ```
 
