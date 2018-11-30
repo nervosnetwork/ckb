@@ -42,7 +42,7 @@ impl<'a> FetchScriptHash<'a> {
                         .map(|contract| contract.type_hash())
                 })
             }
-            (Source::OUTPUT, Category::LOCK) => None,
+            (Source::OUTPUT, Category::LOCK) => self.outputs.get(index).map(|output| output.lock),
             (Source::OUTPUT, Category::CONTRACT) => self.outputs.get(index).and_then(|output| {
                 output
                     .contract
