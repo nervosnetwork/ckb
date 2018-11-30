@@ -1,6 +1,5 @@
-use super::service::{BlockTemplate, RpcController};
-use super::{BlockWithHash, CellOutputWithOutPoint, CellWithStatus, Config, TransactionWithHash};
 use bigint::H256;
+use ckb_core::block::Block;
 use ckb_core::cell::CellProvider;
 use ckb_core::header::{BlockNumber, Header};
 use ckb_core::transaction::{OutPoint, Transaction};
@@ -15,14 +14,15 @@ use jsonrpc_core::{Error, IoHandler, Result};
 use jsonrpc_http_server::ServerBuilder;
 use jsonrpc_server_utils::cors::AccessControlAllowOrigin;
 use jsonrpc_server_utils::hosts::DomainsValidation;
+use service::RpcController;
 use std::sync::Arc;
+use types::{
+    BlockTemplate, BlockWithHash, CellOutputWithOutPoint, CellWithStatus, Config,
+    TransactionWithHash,
+};
 
 build_rpc_trait! {
-    pub trait Rpc {
-        // curl -d '{"id": 2, "jsonrpc": "2.0", "method":"send_transaction","params": [{"version":2, "deps":[], "inputs":[], "outputs":[]}]}' -H 'content-type:application/json' 'http://localhost:8114'
-        #[rpc(name = "send_transaction")]
-        fn send_transaction(&self, Transaction) -> Result<H256>;
-
+    pub trait ChainRpc {
         // curl -d '{"id": 2, "jsonrpc": "2.0", "method":"get_block","params": ["0x0f9da6db98d0acd1ae0cf7ae3ee0b2b5ad2855d93c18d27c0961f985a62a93c3"]}' -H 'content-type:application/json' 'http://localhost:8114'
         #[rpc(name = "get_block")]
         fn get_block(&self, H256) -> Result<Option<BlockWithHash>>;
@@ -39,10 +39,6 @@ build_rpc_trait! {
         #[rpc(name = "get_tip_header")]
         fn get_tip_header(&self) -> Result<Header>;
 
-        // curl -d '{"id": 2, "jsonrpc": "2.0", "method":"get_block_template","params": []}' -H 'content-type:application/json' 'http://localhost:8114'
-        #[rpc(name = "get_block_template")]
-        fn get_block_template(&self) -> Result<BlockTemplate>;
-
         // curl -d '{"id": 2, "jsonrpc": "2.0", "method":"get_cells_by_type_hash","params": ["0x1b1c832d02fdb4339f9868c8a8636c3d9dd10bd53ac7ce99595825bd6beeffb3", 1, 10]}' -H 'content-type:application/json' 'http://localhost:8114'
         #[rpc(name = "get_cells_by_type_hash")]
         fn get_cells_by_type_hash(&self, H256, u64, u64) -> Result<Vec<CellOutputWithOutPoint>>;
@@ -53,32 +49,11 @@ build_rpc_trait! {
     }
 }
 
-struct RpcImpl<CI> {
-    network: Arc<NetworkService>,
-    shared: Shared<CI>,
-    tx_pool: TransactionPoolController,
-    controller: RpcController,
+pub struct ChainRpcImpl<CI> {
+    pub shared: Shared<CI>,
 }
 
-impl<CI: ChainIndex + 'static> Rpc for RpcImpl<CI> {
-    fn send_transaction(&self, tx: Transaction) -> Result<H256> {
-        let tx_hash = tx.hash();
-        let pool_result = self.tx_pool.add_transaction(tx.clone());
-        debug!(target: "rpc", "send_transaction add to pool result: {:?}", pool_result);
-
-        let fbb = &mut FlatBufferBuilder::new();
-        let message = RelayMessage::build_transaction(fbb, &tx);
-        fbb.finish(message, None);
-
-        self.network.with_protocol_context(RELAY_PROTOCOL_ID, |nc| {
-            for peer in nc.connected_peers() {
-                debug!(target: "rpc", "relay transaction {} to peer#{}", tx_hash, peer);
-                let _ = nc.send(peer, fbb.finished_data().to_vec());
-            }
-        });
-        Ok(tx_hash)
-    }
-
+impl<CI: ChainIndex + 'static> ChainRpc for ChainRpcImpl<CI> {
     fn get_block(&self, hash: H256) -> Result<Option<BlockWithHash>> {
         Ok(self.shared.block(&hash).map(Into::into))
     }
@@ -130,6 +105,61 @@ impl<CI: ChainIndex + 'static> Rpc for RpcImpl<CI> {
         Ok(result)
     }
 
+    fn get_current_cell(&self, out_point: OutPoint) -> Result<CellWithStatus> {
+        Ok(self.shared.cell(&out_point).into())
+    }
+}
+
+build_rpc_trait! {
+    pub trait PoolRpc {
+        // curl -d '{"id": 2, "jsonrpc": "2.0", "method":"send_transaction","params": [{"version":2, "deps":[], "inputs":[], "outputs":[]}]}' -H 'content-type:application/json' 'http://localhost:8114'
+        #[rpc(name = "send_transaction")]
+        fn send_transaction(&self, Transaction) -> Result<H256>;
+    }
+}
+
+pub struct PoolRpcImpl {
+    pub network: Arc<NetworkService>,
+    pub tx_pool: TransactionPoolController,
+}
+
+impl PoolRpc for PoolRpcImpl {
+    fn send_transaction(&self, tx: Transaction) -> Result<H256> {
+        let tx_hash = tx.hash();
+        let pool_result = self.tx_pool.add_transaction(tx.clone());
+        debug!(target: "rpc", "send_transaction add to pool result: {:?}", pool_result);
+
+        let fbb = &mut FlatBufferBuilder::new();
+        let message = RelayMessage::build_transaction(fbb, &tx);
+        fbb.finish(message, None);
+
+        self.network.with_protocol_context(RELAY_PROTOCOL_ID, |nc| {
+            for peer in nc.connected_peers() {
+                debug!(target: "rpc", "relay transaction {} to peer#{}", tx_hash, peer);
+                let _ = nc.send(peer, fbb.finished_data().to_vec());
+            }
+        });
+        Ok(tx_hash)
+    }
+}
+
+build_rpc_trait! {
+    pub trait MinerRpc {
+        // curl -d '{"id": 2, "jsonrpc": "2.0", "method":"get_block_template","params": []}' -H 'content-type:application/json' 'http://localhost:8114'
+        #[rpc(name = "get_block_template")]
+        fn get_block_template(&self) -> Result<BlockTemplate>;
+
+        // curl -d '{"id": 2, "jsonrpc": "2.0", "method":"submit_block","params": [{"header":{}, "uncles":[], "commit_transactions":[], "proposal_transactions":[]}]}' -H 'content-type:application/json' 'http://localhost:8114'
+        #[rpc(name = "submit_block")]
+        fn submit_block(&self, Block) -> Result<H256>;
+    }
+}
+
+pub struct MinerRpcImpl {
+    pub controller: RpcController,
+}
+
+impl MinerRpc for MinerRpcImpl {
     // TODO: the max size
     fn get_block_template(&self) -> Result<BlockTemplate> {
         self.controller
@@ -137,8 +167,8 @@ impl<CI: ChainIndex + 'static> Rpc for RpcImpl<CI> {
             .map_err(|_| Error::internal_error())
     }
 
-    fn get_current_cell(&self, out_point: OutPoint) -> Result<CellWithStatus> {
-        Ok(self.shared.cell(&out_point).into())
+    fn submit_block(&self, block: Block) -> Result<H256> {
+        unimplemented!()
     }
 }
 
@@ -157,14 +187,9 @@ impl RpcServer {
         CI: ChainIndex,
     {
         let mut io = IoHandler::new();
-        io.extend_with(
-            RpcImpl {
-                network,
-                shared,
-                tx_pool,
-                controller,
-            }.to_delegate(),
-        );
+        io.extend_with(ChainRpcImpl { shared }.to_delegate());
+        io.extend_with(PoolRpcImpl { network, tx_pool }.to_delegate());
+        io.extend_with(MinerRpcImpl { controller }.to_delegate());
 
         let server = ServerBuilder::new(io)
             .cors(DomainsValidation::AllowOnly(vec![

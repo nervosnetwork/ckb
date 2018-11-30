@@ -17,17 +17,7 @@ use fnv::{FnvHashMap, FnvHashSet};
 use std::cmp;
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
-
-#[derive(Serialize, Debug)]
-pub struct BlockTemplate {
-    pub raw_header: RawHeader,
-    pub uncles: Vec<UncleBlock>,
-    pub commit_transactions: Vec<Transaction>,
-    pub proposal_transactions: Vec<ProposalShortId>,
-}
-
-type BlockTemplateArgs = (H256, usize, usize);
-type BlockTemplateReturn = Result<BlockTemplate, SharedError>;
+use types::{BlockTemplate, BlockTemplateArgs, BlockTemplateReturn};
 
 #[derive(Clone)]
 pub struct RpcController {
