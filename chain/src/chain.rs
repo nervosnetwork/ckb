@@ -34,7 +34,7 @@ pub struct ChainReceivers {
 }
 
 impl ChainController {
-    pub fn new() -> (ChainController, ChainReceivers) {
+    pub fn build() -> (ChainController, ChainReceivers) {
         let (process_block_sender, process_block_receiver) = channel::bounded(DEFAULT_CHANNEL_SIZE);
         (
             ChainController {
@@ -128,7 +128,7 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
             .update_transaction_meta(batch, root, cells)
             .ok_or(SharedError::InvalidOutput)
     }
-
+    #[allow(clippy::op_ref)]
     fn insert_block(&self, block: &Block) -> Result<BlockInsertionResult, SharedError> {
         let mut new_best_block = false;
         let mut output_root = H256::zero();
@@ -313,7 +313,7 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
         let tip = self.shared.tip_header().read().number();
         let bottom = tip - cmp::min(tip, len);
 
-        for number in (bottom..tip + 1).rev() {
+        for number in (bottom..=tip).rev() {
             let hash = self.shared.block_hash(number).unwrap_or_else(|| {
                 panic!(format!("invaild block number({}), tip={}", number, tip))
             });
@@ -402,7 +402,7 @@ pub mod test {
             .consensus(consensus.unwrap_or(Consensus::default().set_verification(false)))
             .build();
 
-        let (chain_controller, chain_receivers) = ChainController::new();
+        let (chain_controller, chain_receivers) = ChainController::build();
         let chain_service = ChainBuilder::new(shared.clone()).build();
         let _handle = chain_service.start::<&str>(None, chain_receivers);
         (chain_controller, shared)

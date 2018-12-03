@@ -1,4 +1,4 @@
-#![cfg_attr(feature = "cargo-clippy", allow(needless_pass_by_value))]
+#![allow(clippy::needless_pass_by_value)]
 
 use super::NetworkConfig;
 use super::{Error, ErrorKind, PeerIndex, ProtocolId};
@@ -428,7 +428,7 @@ impl Network {
         let _ = unique_connec.dial(swarm_controller, addr, transport);
     }
 
-    pub(crate) fn build(
+    pub(crate) fn inner_build(
         config: &NetworkConfig,
         ckb_protocols: Vec<CKBProtocol<Arc<CKBProtocolHandler>>>,
     ) -> Result<Arc<Self>, Error> {
@@ -743,8 +743,8 @@ impl Network {
         Ok(service_futures)
     }
 
-    #[cfg_attr(feature = "cargo-clippy", allow(type_complexity))]
-    pub fn new(
+    #[allow(clippy::type_complexity)]
+    pub fn build(
         config: &NetworkConfig,
         ckb_protocols: Vec<CKBProtocol<Arc<CKBProtocolHandler>>>,
     ) -> Result<
@@ -755,7 +755,7 @@ impl Network {
         ),
         Error,
     > {
-        let network = Self::build(config, ckb_protocols)?;
+        let network = Self::inner_build(config, ckb_protocols)?;
         let (close_tx, close_rx) = oneshot::channel();
         let network_future = Self::build_network_future(Arc::clone(&network), &config, close_rx)?;
         Ok((network, close_tx, network_future))

@@ -42,7 +42,7 @@ pub struct TransactionPoolReceivers {
 }
 
 impl TransactionPoolController {
-    pub fn new() -> (TransactionPoolController, TransactionPoolReceivers) {
+    pub fn build() -> (TransactionPoolController, TransactionPoolReceivers) {
         let (get_proposal_commit_transactions_sender, get_proposal_commit_transactions_receiver) =
             channel::bounded(DEFAULT_CHANNEL_SIZE);
         let (get_potential_transactions_sender, get_potential_transactions_receiver) =

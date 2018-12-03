@@ -1,4 +1,4 @@
-#![cfg_attr(feature = "cargo-clippy", allow(op_ref))]
+#![allow(clippy::op_ref)]
 
 use super::Result;
 use ckb_core::transaction_meta::TransactionMeta;

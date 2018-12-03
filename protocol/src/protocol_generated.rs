@@ -2317,3 +2317,4 @@ pub fn finish_size_prefixed_sync_message_buffer<'a, 'b>(fbb: &'b mut flatbuffers
 }
 }  // pub mod Protocol
 }  // pub mod Ckb
+

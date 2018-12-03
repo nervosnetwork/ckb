@@ -40,7 +40,7 @@ impl<T: Send + 'static> ProtocolService<T> for OutgoingService {
     }
 
     // Periodicly connect to new peers
-    #[cfg_attr(feature = "cargo-clippy", allow(let_and_return))]
+    #[allow(clippy::let_and_return)]
     fn start_protocol<SwarmTran, Tran, TranOut>(
         &self,
         network: Arc<Network>,

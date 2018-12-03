@@ -1,4 +1,4 @@
-#![cfg_attr(feature = "cargo-clippy", allow(op_ref))]
+#![allow(clippy::op_ref)]
 
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;

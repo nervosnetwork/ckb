@@ -356,7 +356,7 @@ mod tests {
         let outputs = Vec::new();
 
         let mut fetch_script_hash =
-            FetchScriptHash::new(&outputs, &inputs, &input_cells, H256::from(0));
+            FetchScriptHash::new(&outputs, &inputs, &input_cells, H256::zero());
 
         assert!(fetch_script_hash.ecall(&mut machine).is_ok());
         assert_eq!(machine.registers()[A0], SUCCESS as u64);
@@ -395,7 +395,7 @@ mod tests {
         let outputs = Vec::new();
 
         let mut fetch_script_hash =
-            FetchScriptHash::new(&outputs, &inputs, &input_cells, H256::from(0));
+            FetchScriptHash::new(&outputs, &inputs, &input_cells, H256::zero());
 
         assert!(fetch_script_hash.ecall(&mut machine).is_ok());
         assert_eq!(machine.registers()[A0], SUCCESS as u64);
@@ -434,14 +434,14 @@ mod tests {
         let outputs = vec![&output];
 
         let mut fetch_script_hash =
-            FetchScriptHash::new(&outputs, &inputs, &input_cells, H256::from(0));
+            FetchScriptHash::new(&outputs, &inputs, &input_cells, H256::zero());
 
         assert!(fetch_script_hash.ecall(&mut machine).is_ok());
         assert_eq!(machine.registers()[A0], SUCCESS as u64);
 
         let hash = &script.type_hash();
-        for (i, addr) in (addr as usize..addr as usize + hash.len()).enumerate() {
-            assert_eq!(machine.memory_mut().load8(addr), Ok(hash[i]))
+        for (i, addr) in (addr as usize..addr as usize + hash.as_bytes().len()).enumerate() {
+            assert_eq!(machine.memory_mut().load8(addr), Ok(hash.as_bytes()[i]))
         }
     }
 
@@ -473,7 +473,7 @@ mod tests {
         let outputs = vec![&output];
 
         let mut fetch_script_hash =
-            FetchScriptHash::new(&outputs, &inputs, &input_cells, H256::from(0));
+            FetchScriptHash::new(&outputs, &inputs, &input_cells, H256::zero());
 
         assert!(fetch_script_hash.ecall(&mut machine).is_ok());
         assert_eq!(machine.registers()[A0], SUCCESS as u64);
@@ -512,7 +512,7 @@ mod tests {
         let outputs = vec![&output];
 
         let mut fetch_script_hash =
-            FetchScriptHash::new(&outputs, &inputs, &input_cells, H256::from(0));
+            FetchScriptHash::new(&outputs, &inputs, &input_cells, H256::zero());
 
         assert!(fetch_script_hash.ecall(&mut machine).is_ok());
         assert_eq!(machine.registers()[A0], OVERRIDE_LEN as u64);
@@ -547,7 +547,7 @@ mod tests {
         let outputs = Vec::new();
 
         let mut fetch_script_hash =
-            FetchScriptHash::new(&outputs, &inputs, &input_cells, H256::from(0));
+            FetchScriptHash::new(&outputs, &inputs, &input_cells, H256::zero());
 
         assert!(fetch_script_hash.ecall(&mut machine).is_ok());
         assert_eq!(machine.registers()[A0], ITEM_MISSING as u64);
@@ -576,8 +576,8 @@ mod tests {
         assert_eq!(machine.registers()[A0], SUCCESS as u64);
 
         let hash = &script.type_hash();
-        for (i, addr) in (addr as usize..addr as usize + hash.len()).enumerate() {
-            assert_eq!(machine.memory_mut().load8(addr), Ok(hash[i]))
+        for (i, addr) in (addr as usize..addr as usize + hash.as_bytes().len()).enumerate() {
+            assert_eq!(machine.memory_mut().load8(addr), Ok(hash.as_bytes()[i]))
         }
     }
 

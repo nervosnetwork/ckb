@@ -379,7 +379,7 @@ impl<CI: ChainIndex> ChainProvider for Shared<CI> {
     // T_interval = L / C_m
     // HR_m = HR_last/ (1 + o)
     // Diff= HR_m * T_interval / H = Diff_last * o_last / o
-    #[cfg_attr(feature = "cargo-clippy", allow(op_ref))]
+    #[allow(clippy::op_ref)]
     fn calculate_difficulty(&self, last: &Header) -> Option<U256> {
         let last_hash = last.hash();
         let last_number = last.number();

@@ -292,8 +292,8 @@ fn setup_node(
     let shared = SharedBuilder::<ChainKVStore<MemoryKeyValueDB>>::new_memory()
         .consensus(consensus)
         .build();
-    let (chain_controller, chain_receivers) = ChainController::new();
-    let (tx_pool_controller, tx_pool_receivers) = TransactionPoolController::new();
+    let (chain_controller, chain_receivers) = ChainController::build();
+    let (tx_pool_controller, tx_pool_receivers) = TransactionPoolController::build();
 
     let (_handle, notify) = NotifyService::default().start::<&str>(None);
 

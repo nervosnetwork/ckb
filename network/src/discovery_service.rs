@@ -1,4 +1,4 @@
-#![cfg_attr(feature = "cargo-clippy", allow(needless_pass_by_value))]
+#![allow(clippy::needless_pass_by_value)]
 
 use super::Network;
 use ckb_util::Mutex;
@@ -585,7 +585,7 @@ impl KadManage {
             .to_owned()
     }
 
-    #[cfg_attr(feature = "cargo-clippy", allow(let_and_return))]
+    #[allow(clippy::let_and_return)]
     fn ensure_connection<Tran, To, St, T: Send>(
         &mut self,
         peer_id: PeerId,

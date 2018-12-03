@@ -43,7 +43,7 @@ fn start_chain(
     }
     let shared = builder.build();
 
-    let (chain_controller, chain_receivers) = ChainController::new();
+    let (chain_controller, chain_receivers) = ChainController::build();
     let chain_service = ChainBuilder::new(shared.clone()).build();
     let _handle = chain_service.start::<&str>(None, chain_receivers);
     (chain_controller, shared)

@@ -62,7 +62,7 @@ impl NetworkService {
         config: &NetworkConfig,
         ckb_protocols: Vec<CKBProtocol<Arc<CKBProtocolHandler>>>,
     ) -> Result<NetworkService, Error> {
-        let network = Network::build(config, ckb_protocols)?;
+        let network = Network::inner_build(config, ckb_protocols)?;
         let (close_tx, close_rx) = oneshot::channel();
         let (init_tx, init_rx) = oneshot::channel();
         let join_handle = thread::spawn({

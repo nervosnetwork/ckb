@@ -38,7 +38,7 @@ pub struct AgentReceivers {
 }
 
 impl AgentController {
-    pub fn new() -> (AgentController, AgentReceivers) {
+    pub fn build() -> (AgentController, AgentReceivers) {
         let (get_block_template_sender, get_block_template_receiver) =
             channel::bounded(DEFAULT_CHANNEL_SIZE);
         (

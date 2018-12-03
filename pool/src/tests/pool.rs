@@ -485,7 +485,7 @@ impl<CI: ChainIndex + 'static> TestPool<CI> {
             .consensus(Consensus::default().set_verification(false))
             .build();
 
-        let (chain_controller, chain_receivers) = ChainController::new();
+        let (chain_controller, chain_receivers) = ChainController::build();
         let chain_service = ChainBuilder::new(shared.clone())
             .notify(notify.clone())
             .build();

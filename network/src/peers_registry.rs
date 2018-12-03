@@ -23,7 +23,7 @@ impl PeerConnections {
         self.peers.get(peer_id)
     }
 
-    #[cfg_attr(feature = "cargo-clippy", allow(needless_lifetimes))]
+    #[allow(clippy::needless_lifetimes)]
     #[inline]
     fn get_peer_id<'a>(&'a self, peer_index: PeerIndex) -> Option<&'a PeerId> {
         self.peer_id_by_index.get(&peer_index)
@@ -43,7 +43,7 @@ impl PeerConnections {
         None
     }
 
-    #[cfg_attr(feature = "cargo-clippy", allow(needless_lifetimes))]
+    #[allow(clippy::needless_lifetimes)]
     #[inline]
     fn iter<'a>(&'a self) -> impl Iterator<Item = (&'a PeerId, &'a PeerConnection)> {
         self.peers.iter()
@@ -181,14 +181,14 @@ impl PeersRegistry {
         }
     }
 
-    #[cfg_attr(feature = "cargo-clippy", allow(needless_lifetimes))]
+    #[allow(clippy::needless_lifetimes)]
     #[inline]
     pub fn get_peer_id<'a>(&'a self, peer_index: PeerIndex) -> Option<&'a PeerId> {
         self.peer_connections.get_peer_id(peer_index)
     }
 
     // registry a new peer
-    #[cfg_attr(feature = "cargo-clippy", allow(needless_pass_by_value))]
+    #[allow(clippy::needless_pass_by_value)]
     pub fn new_peer(&mut self, peer_id: PeerId, endpoint: Endpoint) -> Result<(), Error> {
         if self.peer_connections.get(&peer_id).is_some() {
             return Ok(());
@@ -242,7 +242,7 @@ impl PeersRegistry {
         self.peer_connections.or_insert(peer_id, peer_connection)
     }
 
-    #[cfg_attr(feature = "cargo-clippy", allow(needless_lifetimes))]
+    #[allow(clippy::needless_lifetimes)]
     #[inline]
     pub fn peers_iter<'a>(&'a self) -> impl Iterator<Item = (&'a PeerId, &'a PeerConnection)> {
         self.peer_connections.iter()

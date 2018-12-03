@@ -46,6 +46,7 @@ impl<'a, CI: ChainIndex> HeaderResolver for VerifierResolver<'a, CI> {
         self.parent
     }
 
+    #[allow(clippy::op_ref)]
     fn calculate_difficulty(&self) -> Option<U256> {
         self.parent().and_then(|parent| {
             let parent_hash = parent.hash();
@@ -174,12 +175,12 @@ where
         if self.is_oversize() {
             self.synchronizer.peers.misbehavior(self.peer, 20);
             debug!(target: "sync", "HeadersProcess is_oversize");
-            return ();
+            return;
         }
 
         if self.is_empty() {
             debug!(target: "sync", "HeadersProcess is_empty");
-            return ();
+            return;
         }
 
         let headers = FlatbuffersVectorIterator::new(self.message.headers().unwrap())
@@ -189,7 +190,7 @@ where
         if !self.is_continuous(&headers) {
             self.synchronizer.peers.misbehavior(self.peer, 20);
             debug!(target: "sync", "HeadersProcess is not continuous");
-            return ();
+            return;
         }
 
         let result = self.accept_first(&headers[0]);
@@ -200,7 +201,7 @@ where
                     .misbehavior(self.peer, result.misbehavior);
             }
             debug!(target: "sync", "\n\nHeadersProcess accept_first is_valid {:?} headers = {:#?}\n\n", result, headers[0]);
-            return ();
+            return;
         }
 
         for window in headers.windows(2) {
@@ -220,7 +221,7 @@ where
                             .misbehavior(self.peer, result.misbehavior);
                     }
                     debug!(target: "sync", "HeadersProcess accept is invalid {:?}", result);
-                    return ();
+                    return;
                 }
             }
         }

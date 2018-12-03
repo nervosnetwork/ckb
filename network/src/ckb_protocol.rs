@@ -1,4 +1,4 @@
-#![cfg_attr(feature = "cargo-clippy", allow(needless_pass_by_value))]
+#![allow(clippy::needless_pass_by_value)]
 
 use super::{Error, ProtocolId};
 use bytes::BufMut;
@@ -133,7 +133,7 @@ where
 }
 
 impl<T> CKBProtocol<T> {
-    #[cfg_attr(feature = "cargo-clippy", allow(type_complexity))]
+    #[allow(clippy::type_complexity)]
     fn build_handling_stream_from_socket<C>(
         &self,
         socket: C,

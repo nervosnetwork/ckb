@@ -62,7 +62,7 @@ fn setup_node(height: u64) -> (TestNode, Shared<ChainKVStore<MemoryKeyValueDB>>)
     let shared = SharedBuilder::<ChainKVStore<MemoryKeyValueDB>>::new_memory()
         .consensus(consensus)
         .build();
-    let (chain_controller, chain_receivers) = ChainController::new();
+    let (chain_controller, chain_receivers) = ChainController::build();
     let (_handle, notify) = NotifyService::default().start::<&str>(None);
 
     let chain_service = ChainBuilder::new(shared.clone())

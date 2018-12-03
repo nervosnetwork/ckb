@@ -38,9 +38,9 @@ pub fn run(setup: Setup) {
         .build();
 
     let (_handle, notify) = NotifyService::default().start(Some("notify"));
-    let (chain_controller, chain_receivers) = ChainController::new();
-    let (tx_pool_controller, tx_pool_receivers) = TransactionPoolController::new();
-    let (miner_agent_controller, miner_agent_receivers) = AgentController::new();
+    let (chain_controller, chain_receivers) = ChainController::build();
+    let (tx_pool_controller, tx_pool_receivers) = TransactionPoolController::build();
+    let (miner_agent_controller, miner_agent_receivers) = AgentController::build();
 
     let chain_service = ChainBuilder::new(shared.clone())
         .notify(notify.clone())
@@ -135,7 +135,7 @@ fn setup_rpc<CI: ChainIndex + 'static>(
 }
 
 #[cfg(not(feature = "integration_test"))]
-#[cfg_attr(feature = "cargo-clippy", allow(needless_pass_by_value))]
+#[allow(clippy::needless_pass_by_value)]
 fn setup_rpc<CI: ChainIndex + 'static>(
     server: RpcServer,
     _pow: Arc<dyn PowEngine>,

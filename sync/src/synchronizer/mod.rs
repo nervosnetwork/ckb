@@ -343,6 +343,7 @@ impl<CI: ChainIndex> Synchronizer<CI> {
             .collect()
     }
 
+    #[allow(clippy::op_ref)]
     pub fn insert_header_view(&self, header: &Header, peer: PeerIndex) {
         if let Some(parent_view) = self.get_header_view(&header.parent_hash()) {
             let total_difficulty = parent_view.total_difficulty() + header.difficulty();
@@ -396,7 +397,7 @@ impl<CI: ChainIndex> Synchronizer<CI> {
     }
 
     //TODO: process block which we don't request
-    #[cfg_attr(feature = "cargo-clippy", allow(single_match))]
+    #[allow(clippy::single_match)]
     pub fn process_new_block(&self, peer: PeerIndex, block: Block) {
         match self.get_block_status(&block.header().hash()) {
             BlockStatus::VALID_MASK => {
@@ -745,7 +746,7 @@ mod tests {
         let shared = builder.build();
 
         let notify = notify.unwrap_or_else(|| NotifyService::default().start::<&str>(None).1);
-        let (chain_controller, chain_receivers) = ChainController::new();
+        let (chain_controller, chain_receivers) = ChainController::build();
         let chain_service = ChainBuilder::new(shared.clone())
             .notify(notify.clone())
             .build();
