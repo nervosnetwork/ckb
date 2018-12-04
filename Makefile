@@ -44,6 +44,9 @@ security-audit:
 	@cargo audit --version || cargo install cargo-audit
 	@cargo audit
 
-.PHONY: build build-integration-test
+docker: build
+	docker build  -f docker/hub/Dockerfile -t ckb:latest .
+
+.PHONY: build build-integration-test docker
 .PHONY: fmt test clippy proto doc doc-deps check stats
 .PHONY: ci ci-quick info security-audit
