@@ -1,9 +1,5 @@
 language: rust
 sudo: true
-branches:
-  only:
-    - master
-    - develop
 cache:
   timeout: 1024
   directories:
