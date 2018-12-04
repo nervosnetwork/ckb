@@ -7,11 +7,12 @@ extern crate jsonrpc_http_server;
 extern crate jsonrpc_server_utils;
 #[macro_use]
 extern crate log;
+extern crate ckb_chain;
 extern crate ckb_core;
 #[cfg(test)]
 extern crate ckb_db;
+extern crate ckb_miner;
 extern crate ckb_network;
-extern crate ckb_notify;
 extern crate ckb_pool;
 extern crate ckb_protocol;
 extern crate ckb_shared;
@@ -23,16 +24,11 @@ extern crate ckb_verification;
 extern crate serde_derive;
 #[cfg(feature = "integration_test")]
 extern crate ckb_pow;
-#[macro_use]
-extern crate crossbeam_channel as channel;
-extern crate fnv;
 
 mod server;
-mod service;
 mod types;
 
-pub use service::{RpcController, RpcReceivers, RpcService};
-pub use types::{BlockTemplate, Config};
+pub use types::Config;
 
 #[cfg(feature = "integration_test")]
 mod integration_test;

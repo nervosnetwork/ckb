@@ -1,11 +1,8 @@
 use bigint::H256;
 use ckb_core::block::Block;
 use ckb_core::cell::CellStatus;
-use ckb_core::header::{Header, RawHeader};
-use ckb_core::transaction::ProposalShortId;
+use ckb_core::header::Header;
 use ckb_core::transaction::{Capacity, CellOutput, OutPoint, Transaction};
-use ckb_core::uncle::UncleBlock;
-use ckb_shared::error::SharedError;
 
 #[derive(Serialize)]
 pub struct TransactionWithHash {
@@ -77,14 +74,3 @@ impl From<CellStatus> for CellWithStatus {
 pub struct Config {
     pub listen_addr: String,
 }
-
-#[derive(Serialize, Debug)]
-pub struct BlockTemplate {
-    pub raw_header: RawHeader,
-    pub uncles: Vec<UncleBlock>,
-    pub commit_transactions: Vec<Transaction>,
-    pub proposal_transactions: Vec<ProposalShortId>,
-}
-
-pub type BlockTemplateArgs = (H256, usize, usize);
-pub type BlockTemplateReturn = Result<BlockTemplate, SharedError>;

@@ -1,25 +1,26 @@
 use bigint::H256;
-use ckb_core::block::Block;
+use ckb_chain::chain::ChainController;
+use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::cell::CellProvider;
-use ckb_core::header::{BlockNumber, Header};
-use ckb_core::transaction::{OutPoint, Transaction};
+use ckb_core::header::{BlockNumber, Header, HeaderBuilder};
+use ckb_core::transaction::{CellInput, CellOutput, OutPoint, Transaction, TransactionBuilder};
+use ckb_miner::BlockTemplate;
 use ckb_network::NetworkService;
 use ckb_pool::txs_pool::TransactionPoolController;
 use ckb_protocol::RelayMessage;
 use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::{ChainProvider, Shared};
 use ckb_sync::RELAY_PROTOCOL_ID;
+use ckb_time::now_ms;
 use flatbuffers::FlatBufferBuilder;
 use jsonrpc_core::{Error, IoHandler, Result};
 use jsonrpc_http_server::ServerBuilder;
 use jsonrpc_server_utils::cors::AccessControlAllowOrigin;
 use jsonrpc_server_utils::hosts::DomainsValidation;
-use service::RpcController;
+use std::cmp;
+use std::collections::HashSet;
 use std::sync::Arc;
-use types::{
-    BlockTemplate, BlockWithHash, CellOutputWithOutPoint, CellWithStatus, Config,
-    TransactionWithHash,
-};
+use types::{BlockWithHash, CellOutputWithOutPoint, CellWithStatus, Config, TransactionWithHash};
 
 build_rpc_trait! {
     pub trait ChainRpc {
@@ -145,9 +146,9 @@ impl PoolRpc for PoolRpcImpl {
 
 build_rpc_trait! {
     pub trait MinerRpc {
-        // curl -d '{"id": 2, "jsonrpc": "2.0", "method":"get_block_template","params": []}' -H 'content-type:application/json' 'http://localhost:8114'
+        // curl -d '{"id": 2, "jsonrpc": "2.0", "method":"get_block_template","params": ["0x1b1c832d02fdb4339f9868c8a8636c3d9dd10bd53ac7ce99595825bd6beeffb3"]}' -H 'content-type:application/json' 'http://localhost:8114'
         #[rpc(name = "get_block_template")]
-        fn get_block_template(&self) -> Result<BlockTemplate>;
+        fn get_block_template(&self, H256) -> Result<BlockTemplate>;
 
         // curl -d '{"id": 2, "jsonrpc": "2.0", "method":"submit_block","params": [{"header":{}, "uncles":[], "commit_transactions":[], "proposal_transactions":[]}]}' -H 'content-type:application/json' 'http://localhost:8114'
         #[rpc(name = "submit_block")]
@@ -155,20 +156,89 @@ build_rpc_trait! {
     }
 }
 
-pub struct MinerRpcImpl {
-    pub controller: RpcController,
+pub struct MinerRpcImpl<CI> {
+    pub network: Arc<NetworkService>,
+    pub shared: Shared<CI>,
+    pub tx_pool: TransactionPoolController,
+    pub chain: ChainController,
 }
 
-impl MinerRpc for MinerRpcImpl {
-    // TODO: the max size
-    fn get_block_template(&self) -> Result<BlockTemplate> {
-        self.controller
-            .get_block_template(H256::from(0), 20000, 20000)
-            .map_err(|_| Error::internal_error())
+impl<CI: ChainIndex + 'static> MinerRpc for MinerRpcImpl<CI> {
+    fn get_block_template(&self, type_hash: H256) -> Result<BlockTemplate> {
+        let (cellbase, commit_transactions, proposal_transactions, header_builder) = {
+            let tip_header = self.shared.tip_header().read();
+            let header = tip_header.inner();
+            let now = cmp::max(now_ms(), header.timestamp() + 1);
+            let difficulty = self
+                .shared
+                .calculate_difficulty(header)
+                .expect("get difficulty");
+
+            let (proposal_transactions, commit_transactions) =
+                self.tx_pool.get_proposal_commit_transactions(1000, 1000);
+
+            // NOTE: To generate different cellbase txid, we put header number in the input script
+            let input = CellInput::new_cellbase_input(header.number() + 1);
+            let block_reward = self.shared.block_reward(header.number() + 1);
+            let mut fee = 0;
+            for transaction in &commit_transactions {
+                fee += self
+                    .shared
+                    .calculate_transaction_fee(transaction)
+                    .map_err(|_| Error::internal_error())?
+            }
+            let output = CellOutput::new(block_reward + fee, Vec::new(), type_hash, None);
+
+            let cellbase = TransactionBuilder::default()
+                .input(input)
+                .output(output)
+                .build();
+
+            let header_builder = HeaderBuilder::default()
+                .parent_hash(&header.hash())
+                .timestamp(now)
+                .number(header.number() + 1)
+                .difficulty(&difficulty)
+                .cellbase_id(&cellbase.hash());
+            (
+                cellbase,
+                commit_transactions,
+                proposal_transactions,
+                header_builder,
+            )
+        };
+
+        let block = BlockBuilder::default()
+            .commit_transaction(cellbase)
+            .commit_transactions(commit_transactions)
+            .proposal_transactions(proposal_transactions)
+            .uncles(self.shared.get_tip_uncles())
+            .with_header_builder(header_builder);
+
+        Ok(BlockTemplate {
+            raw_header: block.header().clone().into_raw(),
+            uncles: block.uncles().to_vec(),
+            commit_transactions: block.commit_transactions().to_vec(),
+            proposal_transactions: block.proposal_transactions().to_vec(),
+        })
     }
 
     fn submit_block(&self, block: Block) -> Result<H256> {
-        unimplemented!()
+        let block = Arc::new(block);
+        if self.chain.process_block(Arc::clone(&block)).is_ok() {
+            // announce new block
+            self.network.with_protocol_context(RELAY_PROTOCOL_ID, |nc| {
+                let fbb = &mut FlatBufferBuilder::new();
+                let message = RelayMessage::build_compact_block(fbb, &block, &HashSet::new());
+                fbb.finish(message, None);
+                for peer in nc.connected_peers() {
+                    let _ = nc.send(peer, fbb.finished_data().to_vec());
+                }
+            });
+            Ok(block.header().hash())
+        } else {
+            Err(Error::internal_error())
+        }
     }
 }
 
@@ -182,14 +252,30 @@ impl RpcServer {
         network: Arc<NetworkService>,
         shared: Shared<CI>,
         tx_pool: TransactionPoolController,
-        controller: RpcController,
+        chain: ChainController,
     ) where
         CI: ChainIndex,
     {
         let mut io = IoHandler::new();
-        io.extend_with(ChainRpcImpl { shared }.to_delegate());
-        io.extend_with(PoolRpcImpl { network, tx_pool }.to_delegate());
-        io.extend_with(MinerRpcImpl { controller }.to_delegate());
+        io.extend_with(
+            ChainRpcImpl {
+                shared: shared.clone(),
+            }.to_delegate(),
+        );
+        io.extend_with(
+            PoolRpcImpl {
+                network: Arc::clone(&network),
+                tx_pool: tx_pool.clone(),
+            }.to_delegate(),
+        );
+        io.extend_with(
+            MinerRpcImpl {
+                network,
+                shared,
+                tx_pool,
+                chain,
+            }.to_delegate(),
+        );
 
         let server = ServerBuilder::new(io)
             .cors(DomainsValidation::AllowOnly(vec![

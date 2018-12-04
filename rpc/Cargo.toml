@@ -9,10 +9,11 @@ bigint = { git = "https://github.com/nervosnetwork/bigint" }
 ckb-core = { path = "../core" }
 ckb-network = { path = "../network" }
 ckb-shared = { path = "../shared" }
-ckb-notify = { path = "../notify" }
 ckb-db = { path = "../db" }
 ckb-sync = { path = "../sync" }
 ckb-pool = { path = "../pool" }
+ckb-chain = { path = "../chain" }
+ckb-miner = { path = "../miner" }
 ckb-protocol = { path = "../protocol" }
 ckb-pow = { path = "../pow", optional = true }
 ckb-time = { path = "../util/time" }
@@ -24,8 +25,6 @@ serde = "1.0"
 serde_derive = "1.0"
 serde_json = "1.0"
 log = "0.4"
-crossbeam-channel = "0.2"
-fnv = "1.0.3"
 flatbuffers = "0.5.0"
 
 [dev-dependencies]

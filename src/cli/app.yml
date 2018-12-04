@@ -1,0 +1,85 @@
+name: ckb
+author: Nervos Core Dev <dev@nervos.org>
+about: Nervos CKB - The Common Knowledge Base
+
+settings:
+    - ArgRequiredElseHelp
+
+args:
+    - config:
+        short: c
+        long: config
+        value_name: CONFIG
+        help: "Specify the configuration file PATH. Tries ckb.json, nodes/default.json in working directory when omitted."
+        takes_value: true
+
+subcommands:
+    - run:
+        about: Running ckb node
+    - miner:
+        about: Running ckb miner
+    - export:
+        about: Export ckb data
+        args:
+            - format:
+                short: f
+                long: format
+                value_name: FORMAT
+                help: Specify the format.
+                required: true
+                takes_value: true
+            - target:
+                short: t
+                long: target
+                value_name: TARGET
+                help: Specify the export target path.
+                required: true
+                index: 1
+
+    - import:
+        about: Import ckb data
+        args:
+            - format:
+                short: f
+                long: format
+                value_name: FORMAT
+                help: Specify the format.
+                required: true
+                takes_value: true
+            - source:
+                value_name: SOURCE
+                required: true
+    - cli:
+        about: Running ckb cli
+        settings:
+            - ArgRequiredElseHelp
+        subcommands:
+            - sign:
+                about: Sign transaction using sha3-secp256k1 defined in system cell
+                args:
+                    - private-key:
+                        short: p
+                        long: private-key
+                        value_name: H256
+                        help: Specify the private key
+                        takes_value: true
+                        required: true
+                    - unsigned-transaction:
+                        short: u
+                        long: unsigned-transaction
+                        value_name: TX JSON STRING
+                        help: Specify the unsigned transaction json string
+                        takes_value: true
+                        required: true
+            - type_hash:
+                about: Generate script type hash using sha3-secp256k1 defined in system cell
+                args:
+                    - private-key:
+                        short: p
+                        long: private-key
+                        value_name: H256
+                        help: Specify the private key
+                        takes_value: true
+                        required: true
+            - keygen:
+                about: Generate new key

@@ -123,6 +123,11 @@ impl<CI: ChainIndex> Shared<CI> {
     pub fn store(&self) -> &Arc<CI> {
         &self.store
     }
+
+    pub fn get_tip_uncles(&self) -> Vec<UncleBlock> {
+        // TODO Q implement this
+        Vec::new()
+    }
 }
 
 impl<CI: ChainIndex> CellProvider for Shared<CI> {

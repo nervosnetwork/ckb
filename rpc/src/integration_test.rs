@@ -15,7 +15,6 @@ use jsonrpc_http_server::ServerBuilder;
 use jsonrpc_server_utils::cors::AccessControlAllowOrigin;
 use jsonrpc_server_utils::hosts::DomainsValidation;
 use server::{ChainRpc, ChainRpcImpl, MinerRpc, MinerRpcImpl, PoolRpc, PoolRpcImpl};
-use service::RpcController;
 use std::sync::Arc;
 use types::Config;
 
@@ -63,7 +62,6 @@ impl RpcServer {
         network: Arc<NetworkService>,
         shared: Shared<CI>,
         tx_pool: TransactionPoolController,
-        controller: RpcController,
         pow: Arc<Clicker>,
     ) where
         CI: ChainIndex + 'static,
@@ -77,7 +75,7 @@ impl RpcServer {
         );
         io.extend_with(ChainRpcImpl { shared }.to_delegate());
         io.extend_with(PoolRpcImpl { network, tx_pool }.to_delegate());
-        io.extend_with(MinerRpcImpl { controller }.to_delegate());
+        io.extend_with(MinerRpcImpl {}.to_delegate());
 
         let server = ServerBuilder::new(io)
             .cors(DomainsValidation::AllowOnly(vec![
