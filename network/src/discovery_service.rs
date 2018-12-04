@@ -13,7 +13,7 @@ use libp2p::{kad, Transport};
 use peer_store::Status;
 use protocol::Protocol;
 use protocol_service::ProtocolService;
-use rand;
+use rand::{self, Rng};
 use std::boxed::Box;
 use std::error::Error;
 use std::io::{Error as IoError, ErrorKind as IoErrorKind};
@@ -348,7 +348,9 @@ where
         // NOTICE, this can't prevent "Eclipse Attack" because attacker can still compute
         // our neighbours before they respond our query, but use the random key can make
         // attacker harder to apply attacking.
-        let random_key = PublicKey::Ed25519((0..32).map(|_| rand::random::<u8>()).collect());
+        let mut key = vec![0u8; 32];
+        rand::thread_rng().fill(&mut key[..]);
+        let random_key = PublicKey::Ed25519(key);
         let random_peer_id = random_key.into_peer_id();
         let query = self.kad_system.find_node(random_peer_id, {
             let kad_manage = Arc::clone(&self.kad_manage);

@@ -65,7 +65,7 @@ impl NetworkConfig {
     pub fn generate_random_key(&mut self) -> Result<secio::SecioKeyPair, IoError> {
         info!(target: "network", "Generate random key");
         let mut key: [u8; 32] = [0; 32];
-        rand::rngs::EntropyRng::new().fill(&mut key);
+        rand::thread_rng().fill(&mut key);
         self.secret_key = Some(Bytes::from(key.to_vec()));
         secio::SecioKeyPair::secp256k1_raw_key(&key).map_err(|err| {
             IoError::new(

@@ -115,7 +115,7 @@ impl From<Config> for NetworkConfig {
 
 pub fn random_peer_id() -> Result<PeerId, Error> {
     let mut key: [u8; 32] = [0; 32];
-    rand::rngs::EntropyRng::new().fill(&mut key);
+    rand::thread_rng().fill(&mut key);
     let local_private_key = secio::SecioKeyPair::secp256k1_raw_key(&key)
         .map_err(|err| ErrorKind::Other(err.description().to_string()))?;
     Ok(local_private_key.to_peer_id())
