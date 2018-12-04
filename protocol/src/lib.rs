@@ -8,6 +8,11 @@ extern crate siphasher;
 
 mod builder;
 mod convert;
+#[cfg_attr(rustfmt, rustfmt_skip)]
+#[cfg_attr(
+    feature = "cargo-clippy",
+    allow(clippy, unused_extern_crates)
+)]
 mod protocol_generated;
 
 pub use protocol_generated::ckb::protocol::*;
