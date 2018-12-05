@@ -22,19 +22,8 @@ extern crate ckb_rpc;
 extern crate ckb_shared;
 extern crate ckb_sync;
 extern crate ckb_util;
-<<<<<<< HEAD
-=======
-extern crate crossbeam_channel as channel;
-extern crate hash;
-extern crate logger;
-#[macro_use]
-extern crate serde_derive;
-#[macro_use]
-extern crate build_info;
-extern crate ckb_instrument;
-extern crate ckb_pow;
->>>>>>> refactor: miner
 extern crate config as config_tool;
+extern crate crossbeam_channel as channel;
 extern crate crypto;
 extern crate ctrlc;
 extern crate dir;

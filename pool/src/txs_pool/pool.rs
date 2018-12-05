@@ -482,8 +482,6 @@ where
             self.pool.add_transaction(tx.clone());
 
             self.reconcile_orphan(&tx);
-
-            self.notify.notify_new_transaction();
         }
 
         Ok(InsertionResult::Normal)

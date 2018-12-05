@@ -1,16 +1,10 @@
-use bigint::H256;
-use ckb_core::cell::CellProvider;
-use ckb_core::header::{BlockNumber, Header};
-use ckb_core::transaction::{OutPoint, Transaction};
+use ckb_chain::chain::ChainController;
 use ckb_network::NetworkService;
 use ckb_pool::txs_pool::TransactionPoolController;
 use ckb_pow::Clicker;
-use ckb_protocol::RelayMessage;
 use ckb_shared::index::ChainIndex;
-use ckb_shared::shared::{ChainProvider, Shared};
-use ckb_sync::RELAY_PROTOCOL_ID;
-use flatbuffers::FlatBufferBuilder;
-use jsonrpc_core::{Error, IoHandler, Result};
+use ckb_shared::shared::Shared;
+use jsonrpc_core::{IoHandler, Result};
 use jsonrpc_http_server::ServerBuilder;
 use jsonrpc_server_utils::cors::AccessControlAllowOrigin;
 use jsonrpc_server_utils::hosts::DomainsValidation;
@@ -63,6 +57,7 @@ impl RpcServer {
         shared: Shared<CI>,
         tx_pool: TransactionPoolController,
         pow: Arc<Clicker>,
+        chain: ChainController,
     ) where
         CI: ChainIndex + 'static,
     {
@@ -73,9 +68,25 @@ impl RpcServer {
                 pow,
             }.to_delegate(),
         );
-        io.extend_with(ChainRpcImpl { shared }.to_delegate());
-        io.extend_with(PoolRpcImpl { network, tx_pool }.to_delegate());
-        io.extend_with(MinerRpcImpl {}.to_delegate());
+        io.extend_with(
+            ChainRpcImpl {
+                shared: shared.clone(),
+            }.to_delegate(),
+        );
+        io.extend_with(
+            PoolRpcImpl {
+                network: Arc::clone(&network),
+                tx_pool: tx_pool.clone(),
+            }.to_delegate(),
+        );
+        io.extend_with(
+            MinerRpcImpl {
+                network,
+                shared,
+                tx_pool,
+                chain,
+            }.to_delegate(),
+        );
 
         let server = ServerBuilder::new(io)
             .cors(DomainsValidation::AllowOnly(vec![

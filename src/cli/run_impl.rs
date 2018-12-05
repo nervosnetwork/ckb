@@ -108,6 +108,7 @@ fn setup_rpc<CI: ChainIndex + 'static>(
     network: Arc<NetworkService>,
     shared: Shared<CI>,
     tx_pool: TransactionPoolController,
+    chain: ChainController,
 ) {
     use ckb_pow::Clicker;
 
@@ -120,7 +121,7 @@ fn setup_rpc<CI: ChainIndex + 'static>(
 
     let _ = thread::Builder::new().name("rpc".to_string()).spawn({
         move || {
-            server.start(network, shared, tx_pool, pow);
+            server.start(network, shared, tx_pool, pow, chain);
         }
     });
 }
