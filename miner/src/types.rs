@@ -10,6 +10,7 @@ pub struct Config {
     pub new_transactions_threshold: u16,
     pub type_hash: H256,
     pub rpc_url: String,
+    pub poll_interval: u64,
 }
 
 #[derive(Clone, Deserialize, Serialize, Debug)]

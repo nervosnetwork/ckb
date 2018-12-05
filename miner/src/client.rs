@@ -38,7 +38,7 @@ impl Client {
                                     + self.config.new_transactions_threshold as usize
                     };
                     let inner = self.shared.inner.upgradable_read();
-                    if inner.clone().map_or(true, |old| is_new_job(&new, &old)) {
+                    if inner.as_ref().map_or(true, |old| is_new_job(&new, &old)) {
                         let mut write_guard = RwLockUpgradableReadGuard::upgrade(inner);
                         *write_guard = Some(new);
                         self.new_job_tx.send(());
@@ -48,7 +48,7 @@ impl Client {
                     error!(target: "miner", "rpc call get_block_template error: {:?}", e);
                 }
             }
-            thread::sleep(time::Duration::from_secs(5));
+            thread::sleep(time::Duration::from_secs(self.config.poll_interval));
         }
     }
 

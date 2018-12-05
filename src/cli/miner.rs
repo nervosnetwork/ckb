@@ -27,6 +27,7 @@ pub fn miner(setup: Setup) {
     let thread_builder = Builder::new();
 
     thread_builder
+        .name("client".to_string())
         .spawn(move || client.run())
         .expect("Start client failed!");
 
