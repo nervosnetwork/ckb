@@ -30,4 +30,4 @@ ckb-notify = { path = "../notify" }
 ckb-db = { path = "../db" }
 ckb-time = { path = "../util/time", features = ["mock_timer"] }
 env_logger = "0.6"
-crossbeam-channel = "0.2"
+crossbeam-channel = "0.3"

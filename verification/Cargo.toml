@@ -16,7 +16,7 @@ merkle-root = {path = "../util/merkle-root"}
 bigint = { git = "https://github.com/nervosnetwork/bigint" }
 rayon = "1.0"
 fnv = "1.0.3"
-crossbeam-channel = "0.2"
+crossbeam-channel = "0.3"
 
 [dev-dependencies]
 ckb-db = { path = "../db" }

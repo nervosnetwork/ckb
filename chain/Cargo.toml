@@ -20,7 +20,7 @@ avl-merkle = { path = "../util/avl" }
 bigint = { git = "https://github.com/nervosnetwork/bigint" }
 lru-cache = { git = "https://github.com/nervosnetwork/lru-cache" }
 fnv = "1.0.3"
-crossbeam-channel = "0.2"
+crossbeam-channel = "0.3"
 
 [dev-dependencies]
 env_logger = "0.6"
