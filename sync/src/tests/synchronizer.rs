@@ -14,7 +14,7 @@ use flatbuffers::get_root;
 use std::sync::mpsc::channel;
 use std::sync::Arc;
 use std::thread;
-use synchronizer::BLOCK_FETCH_TOKEN;
+use synchronizer::{BLOCK_FETCH_TOKEN, SEND_GET_HEADERS_TOKEN, TIMEOUT_EVICTION_TOKEN};
 use tests::TestNode;
 use {Config, Synchronizer, SYNC_PROTOCOL_ID};
 
@@ -100,7 +100,11 @@ fn setup_node(height: u64) -> (TestNode, Shared<ChainKVStore<MemoryKeyValueDB>>)
     node.add_protocol(
         SYNC_PROTOCOL_ID,
         Arc::new(synchronizer),
-        vec![BLOCK_FETCH_TOKEN],
+        vec![
+            SEND_GET_HEADERS_TOKEN,
+            BLOCK_FETCH_TOKEN,
+            TIMEOUT_EVICTION_TOKEN,
+        ],
     );
     (node, shared)
 }
