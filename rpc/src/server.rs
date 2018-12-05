@@ -174,6 +174,7 @@ impl<CI: ChainIndex + 'static> MinerRpc for MinerRpcImpl<CI> {
                 .calculate_difficulty(header)
                 .expect("get difficulty");
 
+            // TODO move hardcoded values to config or pool internal?
             let (proposal_transactions, commit_transactions) =
                 self.tx_pool.get_proposal_commit_transactions(1000, 1000);
 
