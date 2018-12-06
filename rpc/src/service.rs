@@ -38,8 +38,8 @@ pub struct RpcReceivers {
     get_block_template_receiver: Receiver<Request<BlockTemplateArgs, BlockTemplateReturn>>,
 }
 
-// TODO: MinerService should dependent on RpcService
-// To do this, we need to add follow api:
+// TODO: MinerService should depend on RpcService.
+// To do this, we need to add the following apis:
 //   * get_block
 //   * get_block_hash
 //   * get_transaction
