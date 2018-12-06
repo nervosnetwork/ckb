@@ -489,8 +489,6 @@ impl<CI: ChainIndex> Synchronizer<CI> {
         }
 
         self.peers.on_connected(peer, timeout, protect_outbound);
-        self.n_sync.fetch_add(1, Ordering::Release);
-        self.send_getheaders_to_peer(nc, peer, &tip);
     }
 
     pub fn send_getheaders_to_peer(
@@ -583,17 +581,19 @@ impl<CI: ChainIndex> Synchronizer<CI> {
         }
     }
 
-    fn send_getheaders_to_all(&self, nc: &CKBProtocolContext) {
+    fn start_sync_headers(&self, nc: &CKBProtocolContext) {
         let peers: Vec<PeerIndex> = self
             .peers
             .state
             .read()
             .iter()
-            .filter(|(_, state)| state.sync_started)
+            .filter(|(_, state)| !state.sync_started)
             .map(|(peer_id, _)| peer_id)
             .cloned()
             .collect();
-        debug!(target: "sync", "send_getheaders to peers= {:?}", &peers);
+        if !peers.is_empty() {
+            debug!(target: "sync", "start sync peers= {:?}", &peers);
+        }
         let tip = {
             let local = { self.shared.tip_header().read().clone() };
             let best_known = self.best_known_header();
@@ -607,6 +607,18 @@ impl<CI: ChainIndex> Synchronizer<CI> {
             }
         };
         for peer in peers {
+            // Only sync with 1 peer if we're in IBD
+            if self.is_initial_block_download() && !self.n_sync.load(Ordering::Acquire) == 0 {
+                return;
+            }
+            {
+                let mut state = self.peers.state.write();
+                if let Some(mut peer_state) = state.get_mut(&peer) {
+                    peer_state.sync_started = true;
+                }
+            }
+            self.n_sync.fetch_add(1, Ordering::Release);
+
             self.send_getheaders_to_peer(nc, peer, &tip);
         }
     }
@@ -658,10 +670,8 @@ where
     }
 
     fn connected(&self, nc: Box<CKBProtocolContext>, peer: PeerIndex) {
-        if self.n_sync.load(Ordering::Acquire) == 0 || !self.is_initial_block_download() {
-            debug!(target: "sync", "init_getheaders peer={:?} connected", peer);
-            self.on_connected(nc.as_ref(), peer);
-        }
+        debug!(target: "sync", "init_getheaders peer={:?} connected", peer);
+        self.on_connected(nc.as_ref(), peer);
     }
 
     fn disconnected(&self, _nc: Box<CKBProtocolContext>, peer: PeerIndex) {
@@ -673,7 +683,7 @@ where
         if !self.peers.state.read().is_empty() {
             match token as usize {
                 SEND_GET_HEADERS_TOKEN => {
-                    self.send_getheaders_to_all(nc.as_ref());
+                    self.start_sync_headers(nc.as_ref());
                 }
                 BLOCK_FETCH_TOKEN => {
                     self.find_blocks_to_fetch(nc.as_ref());
