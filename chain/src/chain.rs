@@ -76,7 +76,7 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
                 select! {
                     recv(receivers.process_block_receiver, msg) => match msg {
                         Some(Request { responder, arguments: block }) => {
-                            responder.send(self.process_block(&block));
+                            responder.send(self.process_block(block));
                         },
                         None => {
                             error!(target: "chain", "process_block_receiver closed");
@@ -87,15 +87,17 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
             }).expect("Start ChainService failed")
     }
 
-    fn process_block(&mut self, block: &Arc<Block>) -> Result<(), ProcessBlockError> {
+    fn process_block(&mut self, block: Arc<Block>) -> Result<(), ProcessBlockError> {
         debug!(target: "chain", "begin processing block: {}", block.header().hash());
         if self.shared.consensus().verification {
             BlockVerifier::new(self.shared.clone())
                 .verify(&block)
                 .map_err(ProcessBlockError::Verification)?
         }
-        self.insert_block(&block)
+        let insert_result = self
+            .insert_block(&block)
             .map_err(ProcessBlockError::Shared)?;
+        self.post_insert_result(block, insert_result);
         debug!(target: "chain", "finish processing block");
         Ok(())
     }
@@ -125,10 +127,13 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
             .ok_or(SharedError::InvalidOutput)
     }
 
-    fn insert_block(&self, block: &Block) -> Result<(), SharedError> {
+    fn insert_block(&self, block: &Block) -> Result<BlockInsertionResult, SharedError> {
         let mut new_best_block = false;
         let mut output_root = H256::zero();
         let mut total_difficulty = U256::zero();
+
+        let mut old_cumulative_blks = Vec::new();
+        let mut new_cumulative_blks = Vec::new();
 
         let mut tip_header = self.shared.tip_header().write();
         let tip_number = tip_header.number();
@@ -174,8 +179,6 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
 
         if new_best_block {
             debug!(target: "chain", "update index");
-            let mut old_cumulative_blks = Vec::new();
-            let mut new_cumulative_blks = Vec::new();
             let new_tip_header =
                 TipHeader::new(block.header().clone(), total_difficulty, output_root);
             self.shared.store().save_with_batch(|batch| {
@@ -194,23 +197,32 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
             })?;
             *tip_header = new_tip_header;
             debug!(target: "chain", "update index release");
-            // notify new tip
-            // TODO refactor to one notify message: TipUpdate(old_blocks, new_blocks)
-            if !old_cumulative_blks.is_empty() {
-                let mut fork_blks = ForkBlocks::new(old_cumulative_blks, new_cumulative_blks);
-                fork_blks.push_new(block.clone());
-                self.notify.notify_switch_fork(Arc::new(fork_blks.clone()));
-            }
-            self.notify.notify_new_tip(Arc::new(block.clone()));
+        }
+
+        Ok(BlockInsertionResult {
+            new_best_block,
+            fork_blks: ForkBlocks::new(old_cumulative_blks, new_cumulative_blks),
+        })
+    }
+
+    fn post_insert_result(&mut self, block: Arc<Block>, result: BlockInsertionResult) {
+        let BlockInsertionResult {
+            new_best_block,
+            mut fork_blks,
+        } = result;
+        if !fork_blks.old_blks().is_empty() {
+            fork_blks.push_new(Block::clone(&block));
+            self.notify.notify_switch_fork(Arc::new(fork_blks.clone()));
+        }
+
+        if new_best_block {
+            self.notify.notify_new_tip(block);
             if log_enabled!(target: "chain", log::Level::Debug) {
                 self.print_chain(10);
             }
         } else {
-            self.shared
-                .store()
-                .insert_candidate_uncle(&block.header().hash())?
+            self.notify.notify_new_uncle(block);
         }
-        Ok(())
     }
 
     // we found new best_block total_difficulty > old_chain.total_difficulty
