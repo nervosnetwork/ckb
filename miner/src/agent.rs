@@ -236,8 +236,8 @@ impl<CI: ChainIndex + 'static> Agent<CI> {
                 block.header().number() / self.shared.consensus().difficulty_adjustment_interval();
 
             // uncle must be same difficulty epoch with tip
-            if !block.header().difficulty() == header.difficulty()
-                || !block_difficulty_epoch == tip_difficulty_epoch
+            if block.header().difficulty() != header.difficulty()
+                || block_difficulty_epoch != tip_difficulty_epoch
             {
                 bad_uncles.push(*hash);
                 continue;
