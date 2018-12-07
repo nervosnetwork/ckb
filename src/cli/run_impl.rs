@@ -5,6 +5,7 @@ use ckb_chain::chain::{ChainBuilder, ChainController};
 use ckb_core::script::Script;
 use ckb_core::transaction::{CellInput, OutPoint, Transaction, TransactionBuilder};
 use ckb_db::diskdb::RocksDB;
+use ckb_miner::{Agent, AgentController};
 use ckb_network::CKBProtocol;
 use ckb_network::NetworkConfig;
 use ckb_network::NetworkService;
@@ -38,6 +39,7 @@ pub fn run(setup: Setup) {
     let (_handle, notify) = NotifyService::default().start(Some("notify"));
     let (chain_controller, chain_receivers) = ChainController::new();
     let (tx_pool_controller, tx_pool_receivers) = TransactionPoolController::new();
+    let (miner_agent_controller, miner_agent_receivers) = AgentController::new();
 
     let chain_service = ChainBuilder::new(shared.clone())
         .notify(notify.clone())
@@ -49,6 +51,9 @@ pub fn run(setup: Setup) {
     let tx_pool_service =
         TransactionPoolService::new(setup.configs.pool, shared.clone(), notify.clone());
     let _handle = tx_pool_service.start(Some("TransactionPoolService"), tx_pool_receivers);
+
+    let miner_agent = Agent::new(shared.clone(), tx_pool_controller.clone());
+    let _handle = miner_agent.start(Some("MinerAgent"), miner_agent_receivers, &notify);
 
     let synchronizer = Arc::new(Synchronizer::new(
         chain_controller.clone(),
@@ -94,6 +99,7 @@ pub fn run(setup: Setup) {
         shared,
         tx_pool_controller,
         chain_controller,
+        miner_agent_controller,
     );
 
     wait_for_exit();
@@ -109,6 +115,7 @@ fn setup_rpc<CI: ChainIndex + 'static>(
     shared: Shared<CI>,
     tx_pool: TransactionPoolController,
     chain: ChainController,
+    agent: AgentController,
 ) {
     use ckb_pow::Clicker;
 
@@ -121,7 +128,7 @@ fn setup_rpc<CI: ChainIndex + 'static>(
 
     let _ = thread::Builder::new().name("rpc".to_string()).spawn({
         move || {
-            server.start(network, shared, tx_pool, pow, chain);
+            server.start(network, shared, tx_pool, pow, chain, agent);
         }
     });
 }
@@ -135,10 +142,11 @@ fn setup_rpc<CI: ChainIndex + 'static>(
     shared: Shared<CI>,
     tx_pool: TransactionPoolController,
     chain: ChainController,
+    agent: AgentController,
 ) {
     let _ = thread::Builder::new().name("rpc".to_string()).spawn({
         move || {
-            server.start(network, shared, tx_pool, chain);
+            server.start(network, shared, tx_pool, chain, agent);
         }
     });
 }

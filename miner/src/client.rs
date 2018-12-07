@@ -21,7 +21,11 @@ impl Client {
     fn poll_block_template(&self) {
         let client = JsonRpcClient::new(self.config.rpc_url.to_owned(), None, None);
         let method = "get_block_template";
-        let params = [json!(self.config.type_hash)];
+        let params = [
+            json!(self.config.type_hash),
+            json!(self.config.max_transactions),
+            json!(self.config.max_proposals),
+        ];
         let request = client.build_request(method, &params);
 
         loop {

@@ -1,4 +1,5 @@
 use ckb_chain::chain::ChainController;
+use ckb_miner::AgentController;
 use ckb_network::NetworkService;
 use ckb_pool::txs_pool::TransactionPoolController;
 use ckb_pow::Clicker;
@@ -58,6 +59,7 @@ impl RpcServer {
         tx_pool: TransactionPoolController,
         pow: Arc<Clicker>,
         chain: ChainController,
+        agent: AgentController,
     ) where
         CI: ChainIndex + 'static,
     {
@@ -76,14 +78,14 @@ impl RpcServer {
         io.extend_with(
             PoolRpcImpl {
                 network: Arc::clone(&network),
-                tx_pool: tx_pool.clone(),
+                tx_pool,
             }.to_delegate(),
         );
         io.extend_with(
             MinerRpcImpl {
                 network,
                 shared,
-                tx_pool,
+                agent,
                 chain,
             }.to_delegate(),
         );

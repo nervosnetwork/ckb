@@ -16,7 +16,6 @@ ckb-chain = { path = "../chain" }
 ckb-miner = { path = "../miner" }
 ckb-protocol = { path = "../protocol" }
 ckb-pow = { path = "../pow", optional = true }
-ckb-time = { path = "../util/time" }
 jsonrpc-core = "9.0"
 jsonrpc-macros = "9.0"
 jsonrpc-http-server = "9.0"

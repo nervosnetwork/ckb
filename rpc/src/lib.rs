@@ -17,7 +17,6 @@ extern crate ckb_pool;
 extern crate ckb_protocol;
 extern crate ckb_shared;
 extern crate ckb_sync;
-extern crate ckb_time;
 #[cfg(test)]
 extern crate ckb_verification;
 #[macro_use]

@@ -11,6 +11,8 @@ pub struct Config {
     pub type_hash: H256,
     pub rpc_url: String,
     pub poll_interval: u64,
+    pub max_transactions: usize,
+    pub max_proposals: usize,
 }
 
 #[derive(Clone, Deserialize, Serialize, Debug)]
