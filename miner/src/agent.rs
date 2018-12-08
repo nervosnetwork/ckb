@@ -89,21 +89,21 @@ impl<CI: ChainIndex + 'static> Agent<CI> {
         thread_builder
             .spawn(move || loop {
                 select! {
-                    recv(new_uncle_receiver, msg) => match msg {
-                        Some(uncle_block) => {
+                    recv(new_uncle_receiver) -> msg => match msg {
+                        Ok(uncle_block) => {
                             let hash = uncle_block.header().hash();
                             self.candidate_uncles.insert(hash, uncle_block);
                         }
-                        None => {
+                        _ => {
                             error!(target: "miner", "new_uncle_receiver closed");
                             break;
                         }
-                    }
-                    recv(receivers.get_block_template_receiver, msg) => match msg {
-                        Some(Request { responder, arguments: (type_hash, max_tx, max_prop) }) => {
+                    },
+                    recv(receivers.get_block_template_receiver) -> msg => match msg {
+                        Ok(Request { responder, arguments: (type_hash, max_tx, max_prop) }) => {
                             responder.send(self.get_block_template(type_hash, max_tx, max_prop));
                         },
-                        None => {
+                        _ => {
                             error!(target: "miner", "get_block_template_receiver closed");
                             break;
                         },

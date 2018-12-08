@@ -47,7 +47,7 @@ impl Miner {
     fn mine_loop(&self, header: &RawHeader) -> Option<Seal> {
         let mut nonce: u64 = thread_rng().gen();
         loop {
-            if self.new_job_rx.try_recv().is_some() {
+            if self.new_job_rx.try_recv().is_ok() {
                 break None;
             }
             debug!(target: "miner", "mining header #{} with nonce {}", header.number(), nonce);

@@ -517,21 +517,21 @@ impl<CI: ChainIndex + 'static> TestPool<CI> {
     fn handle_notify_messages(&mut self) {
         loop {
             select! {
-                recv(self.new_tip_receiver, msg) => match msg {
-                    Some(block) => self.service.reconcile_block(&block),
-                    None => {
+                recv(self.new_tip_receiver) -> msg => match msg {
+                    Ok(block) => self.service.reconcile_block(&block),
+                    _ => {
                         error!(target: "txs_pool", "channel new_tip_receiver closed");
                         break;
                     }
-                }
-                recv(self.switch_fork_receiver, msg) => match msg {
-                    Some(blocks) => self.service.switch_fork(&blocks),
-                    None => {
+                },
+                recv(self.switch_fork_receiver) -> msg => match msg {
+                    Ok(blocks) => self.service.switch_fork(&blocks),
+                    _ => {
                         error!(target: "txs_pool", "channel switch_fork_receiver closed");
                         break;
                     }
-                }
-                recv(channel::after(time::Duration::from_millis(100))) => {
+                },
+                recv(channel::after(time::Duration::from_millis(100))) -> _ => {
                     break;
                 }
             }

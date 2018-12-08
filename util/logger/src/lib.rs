@@ -62,7 +62,7 @@ impl Logger {
 
                 loop {
                     match receiver.recv() {
-                        Some(Message::Record(record)) => {
+                        Ok(Message::Record(record)) => {
                             let removed_color = sanitize_color(record.as_ref());
                             let output = if enable_color {
                                 record
@@ -75,7 +75,7 @@ impl Logger {
                             };
                             println!("{}", output);
                         }
-                        Some(Message::Terminate) | None => {
+                        Ok(Message::Terminate) | Err(_) => {
                             break;
                         }
                     }

@@ -1193,7 +1193,7 @@ mod tests {
             blocks_to_fetch.last().unwrap()
         );
 
-        assert!(new_tip_receiver.recv().is_some());
+        assert!(new_tip_receiver.recv().is_ok());
     }
 
     #[test]

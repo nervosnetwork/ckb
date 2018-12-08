@@ -176,99 +176,82 @@ where
         let switch_fork_receiver = self.notify.subscribe_switch_fork(TXS_POOL_SUBSCRIBER);
         thread_builder
             .spawn(move || loop {
-                let failed = select!{
-                    recv(new_tip_receiver, msg) => self.handle_new_tip(msg),
-                    recv(switch_fork_receiver, msg) => self.handle_switch_fork(msg),
+                select!{
+                    recv(new_tip_receiver) -> msg => self.handle_new_tip(msg),
+                    recv(switch_fork_receiver) -> msg => self.handle_switch_fork(msg),
 
-                    recv(receivers.get_proposal_commit_transactions_receiver, msg) => {
+                    recv(receivers.get_proposal_commit_transactions_receiver) -> msg => {
                         self.handle_get_proposal_commit_transactions(msg)
-                    }
-                    recv(receivers.get_potential_transactions_receiver, msg) => match msg {
-                        Some(Request { responder, ..}) => {
+                    },
+                    recv(receivers.get_potential_transactions_receiver) -> msg => match msg {
+                        Ok(Request { responder, ..}) => {
                             responder.send(self.get_potential_transactions());
-                            false
                         }
-                        None => {
+                        _ => {
                             error!(target: "txs_pool", "channel get_potential_transactions_receiver closed");
-                            true
                         }
-                    }
-                    recv(receivers.contains_key_receiver, msg) => match msg {
-                        Some(Request { responder, arguments: id }) => {
+                    },
+                    recv(receivers.contains_key_receiver) -> msg => match msg {
+                        Ok(Request { responder, arguments: id }) => {
                             responder.send(self.contains_key(&id));
-                            false
                         }
-                        None => {
+                        _ => {
                             error!(target: "txs_pool", "channel contains_key_receiver closed");
-                            true
                         }
-                    }
-                    recv(receivers.get_transaction_receiver, msg) => match msg {
-                        Some(Request { responder, arguments: id }) => {
+                    },
+                    recv(receivers.get_transaction_receiver) -> msg => match msg {
+                        Ok(Request { responder, arguments: id }) => {
                             responder.send(self.get(&id));
-                            false
                         }
-                        None => {
+                        _ => {
                             error!(target: "txs_pool", "channel get_transaction_receiver closed");
-                            true
                         }
-                    }
-                    recv(receivers.add_transaction_receiver, msg) => match msg {
-                        Some(Request { responder, arguments: tx }) => {
+                    },
+                    recv(receivers.add_transaction_receiver) -> msg => match msg {
+                        Ok(Request { responder, arguments: tx }) => {
                             responder.send(self.add_transaction(tx));
-                            false
                         }
-                        None => {
+                        _ => {
                             error!(target: "txs_pool", "channel add_transaction_receiver closed");
-                            true
                         }
                     }
-                };
-                if failed {
-                    break;
                 }
             }).expect("Start TransactionPoolService failed!")
     }
 
-    fn handle_new_tip(&mut self, msg: Option<MsgNewTip>) -> bool {
+    fn handle_new_tip(&mut self, msg: Result<MsgNewTip, channel::RecvError>) {
         match msg {
-            Some(block) => self.reconcile_block(&block),
-            None => {
+            Ok(block) => self.reconcile_block(&block),
+            _ => {
                 error!(target: "txs_pool", "channel new_tip_receiver closed");
-                return true;
             }
         }
-        false
     }
 
-    fn handle_switch_fork(&mut self, msg: Option<MsgSwitchFork>) -> bool {
+    fn handle_switch_fork(&mut self, msg: Result<MsgSwitchFork, channel::RecvError>) {
         match msg {
-            Some(blocks) => self.switch_fork(&blocks),
-            None => {
+            Ok(blocks) => self.switch_fork(&blocks),
+            _ => {
                 error!(target: "txs_pool", "channel switch_fork_receiver closed");
-                return true;
             }
         }
-        false
     }
 
     fn handle_get_proposal_commit_transactions(
         &self,
-        msg: Option<Request<TxsArgs, TxsReturn>>,
-    ) -> bool {
+        msg: Result<Request<TxsArgs, TxsReturn>, channel::RecvError>,
+    ) {
         match msg {
-            Some(Request {
+            Ok(Request {
                 responder,
                 arguments: (max_prop, max_tx),
             }) => {
                 let proposal_transactions = self.prepare_proposal(max_prop);
                 let commit_transactions = self.get_mineable_transactions(max_tx);
                 responder.send((proposal_transactions, commit_transactions));
-                false
             }
-            None => {
+            _ => {
                 error!(target: "txs_pool", "channel get_proposal_commit_transactions_receiver closed");
-                true
             }
         }
     }
