@@ -125,7 +125,7 @@ impl<T: Send> ProtocolService<T> for PingService {
                 for peer_id in network.peers() {
                     let peer_id = peer_id.clone();
                     // only ping first address?
-                    if let Some(addr) = network.get_peer_remote_addresses(&peer_id).get(0) {
+                    if let Some(addr) = network.get_peer_addresses(&peer_id).get(0) {
                         if let Some(pinger_loader) = network.get_peer_pinger(&peer_id) {
                             let ping_future = pinger_loader
                                 .dial(&swarm_controller, &addr, transport.clone())

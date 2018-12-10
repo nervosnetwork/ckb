@@ -716,7 +716,7 @@ mod tests {
     use ckb_db::memorydb::MemoryKeyValueDB;
     use ckb_network::{
         random_peer_id, CKBProtocolContext, Endpoint, Error as NetworkError, PeerIndex, PeerInfo,
-        ProtocolId, SessionInfo, Severity, TimerToken,
+        ProtocolId, SessionInfo, Severity, TimerToken, ToMultiaddr,
     };
     use ckb_notify::{NotifyController, NotifyService};
     use ckb_protocol::{Block as FbsBlock, Headers as FbsHeaders};
@@ -1034,7 +1034,7 @@ mod tests {
                 peer_id: random_peer_id().unwrap(),
                 endpoint_role: Endpoint::Dialer,
                 last_ping_time: None,
-                remote_addresses: vec![],
+                connected_addr: "/ip4/127.0.0.1".to_multiaddr().unwrap(),
                 identify_info: None,
             },
             protocol_version: None,

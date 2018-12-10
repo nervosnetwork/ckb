@@ -147,7 +147,7 @@ impl Network {
                 .map(|addr| addr.to_owned())
                 .collect::<Vec<_>>()
         });
-        addrs.unwrap_or(Vec::new())
+        addrs.unwrap_or_default()
     }
 
     pub(crate) fn peers(&self) -> impl Iterator<Item = PeerId> {

@@ -1,3 +1,4 @@
+use crate::network_group::{Group, NetworkGroup};
 use crate::peer_store::PeerStore;
 use crate::{Error, ErrorKind, PeerId, PeerIndex, ProtocolId};
 use bytes::Bytes;
@@ -102,7 +103,7 @@ impl PeerConnection {
     pub fn new(connected_addr: Multiaddr, endpoint_role: Endpoint) -> Self {
         PeerConnection {
             endpoint_role,
-            connected_addr: connected_addr,
+            connected_addr,
             pinger_loader: UniqueConnec::empty(),
             identify_info: None,
             ckb_protocols: Vec::with_capacity(1),
@@ -120,6 +121,12 @@ impl PeerConnection {
     #[inline]
     pub fn is_incoming(&self) -> bool {
         !self.is_outgoing()
+    }
+
+    #[allow(dead_code)]
+    #[inline]
+    fn network_group(&self) -> Group {
+        self.connected_addr.network_group()
     }
 }
 

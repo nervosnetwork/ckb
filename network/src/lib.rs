@@ -9,6 +9,7 @@ mod identify_service;
 mod memory_peer_store;
 mod network;
 mod network_config;
+mod network_group;
 mod network_service;
 mod outgoing_service;
 mod peer_store;
@@ -25,7 +26,9 @@ pub use crate::errors::{Error, ErrorKind};
 pub use crate::network::{Network, PeerInfo, SessionInfo};
 pub use crate::network_config::NetworkConfig;
 pub use crate::network_service::NetworkService;
-pub use libp2p::{core::Endpoint, multiaddr::AddrComponent, Multiaddr, PeerId};
+pub use libp2p::{
+    core::Endpoint, multiaddr::AddrComponent, multiaddr::ToMultiaddr, Multiaddr, PeerId,
+};
 
 pub type TimerToken = usize;
 pub type ProtocolId = [u8; 3];
