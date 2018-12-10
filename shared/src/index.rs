@@ -12,7 +12,6 @@ use store::{ChainKVStore, ChainStore};
 use {COLUMN_BLOCK_BODY, COLUMN_INDEX, COLUMN_META, COLUMN_TRANSACTION_ADDR};
 
 const META_TIP_HEADER_KEY: &[u8] = b"TIP_HEADER";
-const META_CANDIDATE_UNCLES_KEY: &[u8] = b"CANDIDATE_UNCLES";
 
 // maintain chain index, extend chainstore
 pub trait ChainIndex: ChainStore {
@@ -30,9 +29,6 @@ pub trait ChainIndex: ChainStore {
     fn insert_tip_header(&self, batch: &mut Batch, h: &Header);
     fn insert_transaction_address(&self, batch: &mut Batch, block_hash: &H256, txs: &[Transaction]);
     fn delete_transaction_address(&self, batch: &mut Batch, txs: &[Transaction]);
-
-    fn get_candidate_uncles(&self) -> Vec<H256>;
-    fn insert_candidate_uncle(&self, hash: &H256) -> Result<(), SharedError>;
 }
 
 impl<T: 'static + KeyValueDB> ChainIndex for ChainKVStore<T> {
@@ -153,25 +149,6 @@ impl<T: 'static + KeyValueDB> ChainIndex for ChainKVStore<T> {
 
     fn delete_block_number(&self, batch: &mut Batch, hash: &H256) {
         batch.delete(COLUMN_INDEX, hash.to_vec());
-    }
-
-    fn get_candidate_uncles(&self) -> Vec<H256> {
-        self.get(COLUMN_META, META_CANDIDATE_UNCLES_KEY)
-            .map(|raw| deserialize(&raw[..]).unwrap())
-            .unwrap_or_else(Vec::new)
-    }
-
-    fn insert_candidate_uncle(&self, hash: &H256) -> Result<(), SharedError> {
-        let mut uncles = self.get_candidate_uncles();
-        uncles.push(*hash);
-        self.save_with_batch(|batch| {
-            batch.insert(
-                COLUMN_META,
-                META_CANDIDATE_UNCLES_KEY.to_vec(),
-                serialize(&uncles).unwrap(),
-            );
-            Ok(())
-        })
     }
 }
 
