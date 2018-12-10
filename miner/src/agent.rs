@@ -101,7 +101,7 @@ impl<CI: ChainIndex + 'static> Agent<CI> {
                     },
                     recv(receivers.get_block_template_receiver) -> msg => match msg {
                         Ok(Request { responder, arguments: (type_hash, max_tx, max_prop) }) => {
-                            responder.send(self.get_block_template(type_hash, max_tx, max_prop));
+                            let _ = responder.send(self.get_block_template(type_hash, max_tx, max_prop));
                         },
                         _ => {
                             error!(target: "miner", "get_block_template_receiver closed");

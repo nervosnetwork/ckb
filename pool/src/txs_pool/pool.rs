@@ -185,7 +185,7 @@ where
                     },
                     recv(receivers.get_potential_transactions_receiver) -> msg => match msg {
                         Ok(Request { responder, ..}) => {
-                            responder.send(self.get_potential_transactions());
+                            let _ = responder.send(self.get_potential_transactions());
                         }
                         _ => {
                             error!(target: "txs_pool", "channel get_potential_transactions_receiver closed");
@@ -193,7 +193,7 @@ where
                     },
                     recv(receivers.contains_key_receiver) -> msg => match msg {
                         Ok(Request { responder, arguments: id }) => {
-                            responder.send(self.contains_key(&id));
+                            let _ = responder.send(self.contains_key(&id));
                         }
                         _ => {
                             error!(target: "txs_pool", "channel contains_key_receiver closed");
@@ -201,7 +201,7 @@ where
                     },
                     recv(receivers.get_transaction_receiver) -> msg => match msg {
                         Ok(Request { responder, arguments: id }) => {
-                            responder.send(self.get(&id));
+                            let _ = responder.send(self.get(&id));
                         }
                         _ => {
                             error!(target: "txs_pool", "channel get_transaction_receiver closed");
@@ -209,7 +209,7 @@ where
                     },
                     recv(receivers.add_transaction_receiver) -> msg => match msg {
                         Ok(Request { responder, arguments: tx }) => {
-                            responder.send(self.add_transaction(tx));
+                            let _ = responder.send(self.add_transaction(tx));
                         }
                         _ => {
                             error!(target: "txs_pool", "channel add_transaction_receiver closed");
@@ -248,7 +248,7 @@ where
             }) => {
                 let proposal_transactions = self.prepare_proposal(max_prop);
                 let commit_transactions = self.get_mineable_transactions(max_tx);
-                responder.send((proposal_transactions, commit_transactions));
+                let _ = responder.send((proposal_transactions, commit_transactions));
             }
             _ => {
                 error!(target: "txs_pool", "channel get_proposal_commit_transactions_receiver closed");
