@@ -1,17 +1,17 @@
 //! Transaction using Cell.
 //! It is similar to Bitcoin Tx <https://en.bitcoin.it/wiki/Protocol_documentation#tx/>
+use crate::script::Script;
+use crate::BlockNumber;
+pub use crate::Capacity;
 use bincode::{deserialize, serialize};
 use ckb_util::u64_to_bytes;
 use hash::sha3_256;
-use header::BlockNumber;
 use numext_fixed_hash::H256;
-use script::Script;
+use serde_derive::{Deserialize, Serialize};
 use std::mem;
 use std::ops::{Deref, DerefMut};
 
 pub const VERSION: u32 = 0;
-
-pub use Capacity;
 
 #[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Hash, Debug)]
 pub struct OutPoint {

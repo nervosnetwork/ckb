@@ -1,23 +1,13 @@
-extern crate ansi_term;
-extern crate chrono;
-extern crate crossbeam_channel;
-extern crate env_logger;
-#[macro_use]
-extern crate lazy_static;
-extern crate log;
-extern crate parking_lot;
-extern crate regex;
-#[macro_use]
-extern crate serde_derive;
-
 use ansi_term::Colour;
 use chrono::prelude::{DateTime, Local};
 use crossbeam_channel::unbounded;
 use env_logger::filter::{Builder, Filter};
+use lazy_static::lazy_static;
 use log::{LevelFilter, SetLoggerError};
 use log::{Log, Metadata, Record};
 use parking_lot::Mutex;
 use regex::Regex;
+use serde_derive::{Deserialize, Serialize};
 use std::io::Write;
 use std::{fs, thread};
 

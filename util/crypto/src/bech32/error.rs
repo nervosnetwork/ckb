@@ -1,5 +1,7 @@
+use failure::Fail;
 use std::error::Error as StdError;
 use std::string::FromUtf8Error;
+
 /// Error types for Bech32 encoding / decoding
 #[derive(Debug, PartialEq, Eq, Fail)]
 pub enum Error {

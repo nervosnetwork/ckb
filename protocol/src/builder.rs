@@ -1,12 +1,4 @@
-use ckb_core::block::Block;
-use ckb_core::header::{BlockNumber, Header};
-use ckb_core::script::Script;
-use ckb_core::transaction::{CellInput, CellOutput, OutPoint, ProposalShortId, Transaction};
-use ckb_core::uncle::UncleBlock;
-use flatbuffers::{FlatBufferBuilder, WIPOffset};
-use numext_fixed_hash::H256;
-use numext_fixed_uint::U256;
-use protocol_generated::ckb::protocol::{
+use crate::protocol_generated::ckb::protocol::{
     Block as FbsBlock, BlockBuilder, BlockProposalBuilder, BlockTransactionsBuilder,
     Bytes as FbsBytes, BytesBuilder, CellInput as FbsCellInput, CellInputBuilder,
     CellOutput as FbsCellOutput, CellOutputBuilder, CompactBlock, CompactBlockBuilder,
@@ -18,9 +10,17 @@ use protocol_generated::ckb::protocol::{
     Transaction as FbsTransaction, TransactionBuilder, UncleBlock as FbsUncleBlock,
     UncleBlockBuilder,
 };
+use crate::{short_transaction_id, short_transaction_id_keys};
+use ckb_core::block::Block;
+use ckb_core::header::{BlockNumber, Header};
+use ckb_core::script::Script;
+use ckb_core::transaction::{CellInput, CellOutput, OutPoint, ProposalShortId, Transaction};
+use ckb_core::uncle::UncleBlock;
+use flatbuffers::{FlatBufferBuilder, WIPOffset};
+use numext_fixed_hash::H256;
+use numext_fixed_uint::U256;
 use rand::{thread_rng, Rng};
 use std::collections::HashSet;
-use {short_transaction_id, short_transaction_id_keys};
 
 fn uint_to_bytes(uint: &U256) -> [u8; 32] {
     let mut bytes = [0u8; 32];

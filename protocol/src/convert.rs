@@ -1,8 +1,8 @@
+use crate::protocol_generated::ckb::protocol as ckb_protocol;
+use crate::FlatbuffersVectorIterator;
 use ckb_core;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
-use protocol_generated::ckb::protocol as ckb_protocol;
-use FlatbuffersVectorIterator;
 
 impl<'a> From<ckb_protocol::Block<'a>> for ckb_core::block::Block {
     fn from(block: ckb_protocol::Block<'a>) -> Self {

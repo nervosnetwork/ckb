@@ -1,17 +1,18 @@
 #![allow(clippy::needless_pass_by_value)]
 
-use super::CKBProtocolHandler;
-use super::Network;
-use super::PeerId;
-use ckb_protocol::CKBProtocolOutput;
-use ckb_protocol_handler::DefaultCKBProtocolContext;
+use crate::ckb_protocol::CKBProtocolOutput;
+use crate::ckb_protocol_handler::DefaultCKBProtocolContext;
+use crate::peer_store::{Behaviour, Status};
+use crate::protocol::Protocol;
+use crate::protocol_service::ProtocolService;
+use crate::CKBProtocolHandler;
+use crate::Network;
+use crate::PeerId;
 use futures::future::{self, Future};
 use futures::Stream;
 use libp2p::core::{Multiaddr, UniqueConnecState};
 use libp2p::kad;
-use peer_store::{Behaviour, Status};
-use protocol::Protocol;
-use protocol_service::ProtocolService;
+use log::{error, info};
 use std::boxed::Box;
 use std::io::{Error as IoError, ErrorKind as IoErrorKind};
 use std::sync::Arc;

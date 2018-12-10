@@ -1,4 +1,10 @@
-use super::flat_serializer::{serialize as flat_serialize, Address};
+use crate::error::SharedError;
+use crate::flat_serializer::{serialize as flat_serialize, Address};
+use crate::{
+    COLUMN_BLOCK_BODY, COLUMN_BLOCK_HEADER, COLUMN_BLOCK_PROPOSAL_IDS,
+    COLUMN_BLOCK_TRANSACTION_ADDRESSES, COLUMN_BLOCK_TRANSACTION_IDS, COLUMN_BLOCK_UNCLE,
+    COLUMN_EXT, COLUMN_OUTPUT_ROOT, COLUMN_TRANSACTION_META,
+};
 use avl::node::search;
 use avl::tree::AvlTree;
 use bincode::{deserialize, serialize};
@@ -11,15 +17,9 @@ use ckb_core::uncle::UncleBlock;
 use ckb_db::batch::{Batch, Col};
 use ckb_db::kvdb::KeyValueDB;
 use ckb_util::RwLock;
-use error::SharedError;
 use numext_fixed_hash::H256;
 use std::ops::Range;
 use std::sync::Arc;
-use {
-    COLUMN_BLOCK_BODY, COLUMN_BLOCK_HEADER, COLUMN_BLOCK_PROPOSAL_IDS,
-    COLUMN_BLOCK_TRANSACTION_ADDRESSES, COLUMN_BLOCK_TRANSACTION_IDS, COLUMN_BLOCK_UNCLE,
-    COLUMN_EXT, COLUMN_OUTPUT_ROOT, COLUMN_TRANSACTION_META,
-};
 
 pub struct ChainKVStore<T: KeyValueDB> {
     pub db: Arc<T>,

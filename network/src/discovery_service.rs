@@ -1,6 +1,10 @@
 #![allow(clippy::needless_pass_by_value)]
 
-use super::Network;
+use crate::peer_store::Status;
+use crate::protocol::Protocol;
+use crate::protocol_service::ProtocolService;
+use crate::transport::TransportOutput;
+use crate::Network;
 use ckb_util::Mutex;
 use fnv::FnvHashMap;
 use futures::future::{self, Future};
@@ -10,9 +14,7 @@ use libp2p::core::{upgrade, MuxedTransport, PeerId};
 use libp2p::core::{Endpoint, Multiaddr, UniqueConnec};
 use libp2p::core::{PublicKey, SwarmController};
 use libp2p::{kad, Transport};
-use peer_store::Status;
-use protocol::Protocol;
-use protocol_service::ProtocolService;
+use log::{debug, error, info};
 use rand::{self, Rng};
 use std::boxed::Box;
 use std::error::Error;
@@ -27,7 +29,6 @@ use tokio::prelude::{task, Async, Poll};
 use tokio::spawn;
 use tokio::timer::Interval;
 use tokio::timer::Timeout;
-use transport::TransportOutput;
 
 pub(crate) struct DiscoveryService {
     timeout: Duration,

@@ -1,17 +1,4 @@
 #![type_length_limit = "2097152"]
-extern crate bytes;
-extern crate futures;
-extern crate libp2p;
-extern crate rand;
-extern crate snap;
-extern crate tokio;
-extern crate unsigned_varint;
-#[macro_use]
-extern crate log;
-extern crate fnv;
-#[macro_use]
-extern crate serde_derive;
-extern crate ckb_util;
 
 mod ckb_protocol;
 mod ckb_protocol_handler;
@@ -32,12 +19,12 @@ mod protocol_service;
 mod timer_service;
 mod transport;
 
-pub use self::errors::{Error, ErrorKind};
-pub use self::network::{Network, PeerInfo, SessionInfo};
-pub use self::network_config::NetworkConfig;
-pub use self::network_service::NetworkService;
-pub use ckb_protocol::{CKBProtocol, CKBProtocols};
-pub use ckb_protocol_handler::{CKBProtocolContext, CKBProtocolHandler, Severity};
+pub use crate::ckb_protocol::{CKBProtocol, CKBProtocols};
+pub use crate::ckb_protocol_handler::{CKBProtocolContext, CKBProtocolHandler, Severity};
+pub use crate::errors::{Error, ErrorKind};
+pub use crate::network::{Network, PeerInfo, SessionInfo};
+pub use crate::network_config::NetworkConfig;
+pub use crate::network_service::NetworkService;
 pub use libp2p::{core::Endpoint, multiaddr::AddrComponent, Multiaddr, PeerId};
 
 pub type TimerToken = usize;
@@ -45,6 +32,7 @@ pub type ProtocolId = [u8; 3];
 
 use libp2p::secio;
 use rand::Rng;
+use serde_derive::Deserialize;
 use std::sync::Arc;
 use std::time::Duration;
 

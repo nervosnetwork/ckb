@@ -1,31 +1,19 @@
-extern crate byteorder;
-extern crate ckb_core;
-extern crate crossbeam_channel;
-extern crate hash;
-extern crate numext_fixed_hash;
-extern crate rand;
-#[macro_use]
-extern crate serde_derive;
-#[cfg(test)]
-#[macro_use]
-extern crate proptest;
-
 use byteorder::{ByteOrder, LittleEndian};
 use ckb_core::difficulty::{boundary_to_difficulty, difficulty_to_boundary};
 use ckb_core::header::{BlockNumber, Header, RawHeader, Seal};
 use hash::blake2b;
 use numext_fixed_hash::H256;
-use std::sync::Arc;
-
+use serde_derive::Deserialize;
 use std::any::Any;
+use std::sync::Arc;
 
 mod clicker;
 mod cuckoo;
 mod dummy;
 
-pub use self::clicker::Clicker;
-pub use self::cuckoo::{Cuckoo, CuckooEngine, CuckooParams};
-pub use self::dummy::DummyPowEngine;
+pub use crate::clicker::Clicker;
+pub use crate::cuckoo::{Cuckoo, CuckooEngine, CuckooParams};
+pub use crate::dummy::DummyPowEngine;
 
 #[derive(Clone, Deserialize, Eq, PartialEq, Hash, Debug)]
 pub enum Pow {

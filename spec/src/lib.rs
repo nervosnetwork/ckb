@@ -6,22 +6,15 @@
 //! with a config file specifying chain = "path" under [ckb].
 //! There are a few named presets that can be selected from or a custom yaml spec file can be supplied.
 
-extern crate ckb_core;
-extern crate numext_fixed_hash;
-extern crate numext_fixed_uint;
-extern crate serde_json;
-#[macro_use]
-extern crate serde_derive;
-extern crate ckb_pow;
-
+use crate::consensus::Consensus;
 use ckb_core::block::BlockBuilder;
 use ckb_core::header::HeaderBuilder;
 use ckb_core::transaction::{CellOutput, Transaction, TransactionBuilder};
 use ckb_core::Capacity;
 use ckb_pow::{Pow, PowEngine};
-use consensus::Consensus;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
+use serde_derive::Deserialize;
 use std::error::Error;
 use std::fs::File;
 use std::io::Read;

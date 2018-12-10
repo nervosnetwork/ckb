@@ -1,9 +1,10 @@
+use crate::synchronizer::Synchronizer;
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::{FlatbuffersVectorIterator, GetBlocks, SyncMessage};
 use ckb_shared::index::ChainIndex;
 use flatbuffers::FlatBufferBuilder;
+use log::debug;
 use numext_fixed_hash::H256;
-use synchronizer::Synchronizer;
 
 pub struct GetBlocksProcess<'a, CI: ChainIndex + 'a> {
     message: &'a GetBlocks<'a>,

@@ -1,9 +1,10 @@
+use crate::relayer::Relayer;
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::{GetBlockTransactions, RelayMessage};
 use ckb_shared::index::ChainIndex;
 use flatbuffers::FlatBufferBuilder;
+use log::debug;
 use numext_fixed_hash::H256;
-use relayer::Relayer;
 
 pub struct GetBlockTransactionsProcess<'a, CI: ChainIndex + 'a> {
     message: &'a GetBlockTransactions<'a>,

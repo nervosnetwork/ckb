@@ -3,6 +3,7 @@ use ckb_core::transaction::{ProposalShortId, Transaction};
 use ckb_core::uncle::UncleBlock;
 use ckb_util::RwLock;
 use numext_fixed_hash::H256;
+use serde_derive::{Deserialize, Serialize};
 use std::sync::Arc;
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]

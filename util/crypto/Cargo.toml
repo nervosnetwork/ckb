@@ -3,6 +3,7 @@ name = "crypto"
 version = "0.1.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
+edition = "2018"
 
 [dependencies]
 secp256k1 = { git = "https://github.com/nervosnetwork/rust-secp256k1", optional = true, features = ["rand"] }
@@ -12,10 +13,10 @@ failure_derive = "0.1.1"
 rand = "0.6"
 numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 faster-hex = "0.1"
-crunchy = "0.2"
+crunchy =  { version = "0.2", optional= true }
 
 [features]
 default = ["secp"]
 secp = ["secp256k1"]
-bech32 = []
+bech32 = ["crunchy"]
 dev = ["secp", "bech32"]

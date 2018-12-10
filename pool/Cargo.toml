@@ -3,6 +3,7 @@ name = "ckb-pool"
 version = "0.1.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
+edition = "2018"
 
 [dependencies]
 ckb-core = { path = "../core" }
@@ -21,7 +22,7 @@ bincode = "1.0"
 rand = "0.6"
 log = "0.4"
 fnv = "1.0.3"
-crossbeam-channel = "0.3"
+channel = { package= "crossbeam-channel", version = "0.3" }
 
 [dev-dependencies]
 env_logger = "0.6"

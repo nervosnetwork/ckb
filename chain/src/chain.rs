@@ -1,4 +1,5 @@
-use channel::{self, Receiver, Sender};
+use crate::error::ProcessBlockError;
+use channel::{self, select, Receiver, Sender};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::Block;
 use ckb_core::extras::BlockExt;
@@ -11,8 +12,7 @@ use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::{ChainProvider, Shared, TipHeader};
 use ckb_time::now_ms;
 use ckb_verification::{BlockVerifier, Verifier};
-use error::ProcessBlockError;
-use log;
+use log::{self, debug, error, log_enabled};
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 use std::cmp;

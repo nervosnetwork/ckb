@@ -80,8 +80,7 @@ mod tests {
         CoreMachine, Error as VMError, Memory, SparseMemory, Syscalls, A0, A1, A2, A3, A4, A5, A7,
     };
     use numext_fixed_hash::H256;
-    use proptest::collection::size_range;
-    use proptest::prelude::any_with;
+    use proptest::{collection::size_range, prelude::any_with, proptest, proptest_helper};
 
     fn _test_mmap_tx_all(tx: &Vec<u8>) {
         let mut machine = DefaultCoreMachine::<u64, SparseMemory>::default();

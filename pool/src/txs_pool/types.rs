@@ -7,6 +7,7 @@ use ckb_core::BlockNumber;
 use ckb_verification::TransactionError;
 use fnv::{FnvHashMap, FnvHashSet};
 use linked_hash_map::LinkedHashMap;
+use serde_derive::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use std::hash::Hash;
 use std::iter::Iterator;

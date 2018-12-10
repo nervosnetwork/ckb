@@ -1,6 +1,3 @@
-extern crate hash;
-extern crate numext_fixed_hash;
-
 use hash::Sha3;
 use numext_fixed_hash::H256;
 

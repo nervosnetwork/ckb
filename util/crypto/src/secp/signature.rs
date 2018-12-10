@@ -1,12 +1,12 @@
 use super::error::Error;
 use super::pubkey::Pubkey;
-use super::secp256k1::schnorr::Signature as SchnorrSignature;
-use super::secp256k1::Message as SecpMessage;
-use super::secp256k1::{RecoverableSignature, RecoveryId};
 use super::Message;
 use super::SECP256K1;
 use faster_hex::hex_string;
 use numext_fixed_hash::{H256, H520};
+use secp256k1::schnorr::Signature as SchnorrSignature;
+use secp256k1::Message as SecpMessage;
+use secp256k1::{RecoverableSignature, RecoveryId};
 use std::fmt;
 use std::str::FromStr;
 

@@ -1,11 +1,12 @@
-use super::{Error, ErrorKind, PeerId, PeerIndex, ProtocolId};
+use crate::peer_store::PeerStore;
+use crate::{Error, ErrorKind, PeerId, PeerIndex, ProtocolId};
 use bytes::Bytes;
 use ckb_util::{Mutex, RwLock};
 use fnv::FnvHashMap;
 use futures::sync::mpsc::UnboundedSender;
 use libp2p::core::{Endpoint, Multiaddr, UniqueConnec};
 use libp2p::ping;
-use peer_store::PeerStore;
+use log::debug;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;

@@ -1,12 +1,13 @@
 #![allow(clippy::needless_pass_by_value)]
 
-use super::{Error, ProtocolId};
+use crate::{Error, ProtocolId};
 use bytes::BufMut;
 use bytes::{Buf, IntoBuf};
 use bytes::{Bytes, BytesMut};
 use futures::sync::mpsc;
 use futures::{future, stream, Future, Sink, Stream};
 use libp2p::core::{ConnectionUpgrade, Endpoint, Multiaddr};
+use log::{debug, error, trace};
 use snap;
 use std::io;
 use std::io::{Error as IoError, ErrorKind as IoErrorKind};
@@ -199,9 +200,9 @@ impl<T> CKBProtocol<T> {
                         }
 
                         Some(Message::SendData(data)) => {
-                            let mut compressed_data = vec![].writer();
+                            let compressed_data = vec![].writer();
                             let mut compresser = snap::Writer::new(compressed_data);
-                            let mut data_buf = data.into_buf();
+                            let data_buf = data.into_buf();
                             match io::copy(&mut data_buf.reader(), &mut compresser) {
                                 Ok(_) => match compresser.into_inner() {
                                     Ok(compressed_data) => {

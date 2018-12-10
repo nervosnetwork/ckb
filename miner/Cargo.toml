@@ -3,6 +3,7 @@ name = "ckb-miner"
 version = "0.1.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
+edition = "2018"
 
 [dependencies]
 log = "0.4"
@@ -18,7 +19,7 @@ flatbuffers = "0.5.0"
 rand = "0.6"
 serde = "1.0"
 serde_derive = "1.0"
-crossbeam-channel = "0.3"
+channel = { package= "crossbeam-channel", version = "0.3" }
 fnv = "1.0.3"
 jsonrpc = { git = "https://github.com/quake/rust-jsonrpc" }
 serde_json = "1.0"

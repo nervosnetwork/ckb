@@ -1,5 +1,5 @@
-use super::format::Format;
-use super::iter::ChainIterator;
+use crate::format::Format;
+use crate::iter::ChainIterator;
 use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::{ChainProvider, Shared};
 #[cfg(feature = "progress_bar")]

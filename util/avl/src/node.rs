@@ -1,12 +1,13 @@
 #![allow(clippy::op_ref)]
 
-use super::{AVLError, Result};
+use crate::{AVLError, Result};
 use bincode::{deserialize, serialize};
 use ckb_core::transaction_meta::TransactionMeta;
 use ckb_db::batch::{Batch, Col};
 use ckb_db::kvdb::KeyValueDB;
 use hash::sha3_256;
 use numext_fixed_hash::H256;
+use serde_derive::{Deserialize, Serialize};
 
 // DB node in the avl
 #[derive(Eq, PartialEq, Debug, Serialize, Deserialize, Clone)]

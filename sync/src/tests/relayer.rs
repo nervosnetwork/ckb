@@ -1,3 +1,6 @@
+use crate::relayer::TX_PROPOSAL_TOKEN;
+use crate::tests::TestNode;
+use crate::{Relayer, RELAY_PROTOCOL_ID};
 use ckb_chain::chain::{ChainBuilder, ChainController};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::BlockBuilder;
@@ -15,7 +18,6 @@ use flatbuffers::get_root;
 use flatbuffers::FlatBufferBuilder;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
-use relayer::TX_PROPOSAL_TOKEN;
 use std::collections::HashSet;
 use std::fs::File;
 use std::io::Read;
@@ -23,8 +25,6 @@ use std::path::Path;
 use std::sync::mpsc::channel;
 use std::sync::{Arc, Barrier};
 use std::{thread, time};
-use tests::TestNode;
-use {Relayer, RELAY_PROTOCOL_ID};
 
 #[test]
 fn relay_compact_block_with_one_tx() {

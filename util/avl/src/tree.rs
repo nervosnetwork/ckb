@@ -1,13 +1,11 @@
 #![allow(clippy::op_ref)]
 
-use super::Result;
+use crate::node::{get, insert, DBNode};
+use crate::Result;
 use ckb_core::transaction_meta::TransactionMeta;
-use node::{get, insert, DBNode};
-use numext_fixed_hash::H256;
-
 use ckb_db::batch::{Batch, Col};
 use ckb_db::kvdb::KeyValueDB;
-
+use numext_fixed_hash::H256;
 use std::sync::Arc;
 
 #[derive(Debug)]

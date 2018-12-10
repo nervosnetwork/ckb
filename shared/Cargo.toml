@@ -2,6 +2,7 @@
 name = "ckb-shared"
 version = "0.1.0"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
+edition = "2018"
 
 [dependencies]
 serde = "1.0"
@@ -13,7 +14,7 @@ ckb-chain-spec = { path = "../spec" }
 ckb-util = { path = "../util" }
 ckb-db = { path = "../db" }
 ckb-time = { path = "../util/time" }
-avl-merkle = { path = "../util/avl" }
+avl = { package = "avl-merkle", path = "../util/avl" }
 numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 numext-fixed-uint = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 lru-cache = { git = "https://github.com/nervosnetwork/lru-cache" }

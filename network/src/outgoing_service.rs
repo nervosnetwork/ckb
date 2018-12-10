@@ -1,12 +1,14 @@
-use super::Network;
-use super::PeerId;
+use crate::protocol::Protocol;
+use crate::protocol_service::ProtocolService;
+use crate::transport::TransportOutput;
+use crate::Network;
+use crate::PeerId;
 use futures::future::{self, lazy, Future};
 use futures::Stream;
 use libp2p::core::Multiaddr;
 use libp2p::core::MuxedTransport;
 use libp2p::core::SwarmController;
-use protocol::Protocol;
-use protocol_service::ProtocolService;
+use log::warn;
 use std::boxed::Box;
 use std::io::{Error as IoError, ErrorKind as IoErrorKind};
 use std::sync::Arc;
@@ -15,7 +17,6 @@ use std::time::Instant;
 use std::usize;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::timer::Interval;
-use transport::TransportOutput;
 
 pub struct OutgoingService {
     pub outgoing_interval: Duration,

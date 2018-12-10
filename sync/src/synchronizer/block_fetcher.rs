@@ -1,17 +1,18 @@
 use super::header_view::HeaderView;
+use crate::synchronizer::{BlockStatus, Synchronizer};
+use crate::{
+    BLOCK_DOWNLOAD_TIMEOUT, BLOCK_DOWNLOAD_WINDOW, MAX_BLOCKS_IN_TRANSIT_PER_PEER,
+    PER_FETCH_BLOCK_LIMIT,
+};
 use ckb_core::header::Header;
 use ckb_network::PeerIndex;
 use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::{ChainProvider, TipHeader};
 use ckb_time::now_ms;
-use ckb_util::RwLockUpgradableReadGuard;
+use ckb_util::{try_option, RwLockUpgradableReadGuard};
+use log::debug;
 use numext_fixed_hash::H256;
 use std::cmp;
-use synchronizer::{BlockStatus, Synchronizer};
-use {
-    BLOCK_DOWNLOAD_TIMEOUT, BLOCK_DOWNLOAD_WINDOW, MAX_BLOCKS_IN_TRANSIT_PER_PEER,
-    PER_FETCH_BLOCK_LIMIT,
-};
 
 pub struct BlockFetcher<CI: ChainIndex> {
     synchronizer: Synchronizer<CI>,

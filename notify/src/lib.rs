@@ -1,20 +1,14 @@
 #![allow(clippy::needless_pass_by_value)]
 
-extern crate ckb_core;
-#[macro_use]
-extern crate crossbeam_channel as channel;
-extern crate fnv;
-#[macro_use]
-extern crate log;
-
 use std::sync::Arc;
 use std::thread;
 use std::thread::JoinHandle;
 
-use channel::{Receiver, Sender};
+use channel::{select, Receiver, Sender};
 use ckb_core::block::Block;
 use ckb_core::service::Request;
 use fnv::FnvHashMap;
+use log::{debug, trace, warn};
 
 pub const REGISTER_CHANNEL_SIZE: usize = 2;
 pub const NOTIFY_CHANNEL_SIZE: usize = 128;

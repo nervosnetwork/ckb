@@ -1,10 +1,10 @@
 use super::super::transaction_verifier::{
     CapacityVerifier, DuplicateInputsVerifier, EmptyVerifier, NullVerifier,
 };
+use crate::error::TransactionError;
 use ckb_core::cell::CellStatus;
 use ckb_core::cell::ResolvedTransaction;
 use ckb_core::transaction::{CellInput, CellOutput, OutPoint, TransactionBuilder};
-use error::TransactionError;
 use numext_fixed_hash::H256;
 
 #[test]

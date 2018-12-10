@@ -1,7 +1,6 @@
 #![allow(dead_code)]
 
-extern crate secp256k1;
-
+use lazy_static::lazy_static;
 use numext_fixed_hash::H256;
 
 pub type Message = H256;

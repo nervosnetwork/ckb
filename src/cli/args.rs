@@ -1,7 +1,6 @@
 // use build_info::Version;
+use build_info::{get_version, Version};
 use clap::{App, AppSettings, Arg, ArgMatches, SubCommand};
-
-use build_info::Version;
 
 pub fn get_matches() -> ArgMatches<'static> {
     let version = get_version!();

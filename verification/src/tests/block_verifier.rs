@@ -1,13 +1,13 @@
 use super::super::block_verifier::{BlockVerifier, CellbaseVerifier, EmptyVerifier};
 use super::super::error::{CellbaseError, Error as VerifyError};
 use super::dummy::DummyChainProvider;
+use crate::Verifier;
 use ckb_core::block::BlockBuilder;
 use ckb_core::transaction::{CellInput, CellOutput, OutPoint, Transaction, TransactionBuilder};
 use ckb_core::Capacity;
 use ckb_shared::error::SharedError;
 use numext_fixed_hash::H256;
 use std::collections::HashMap;
-use Verifier;
 
 fn create_cellbase_transaction_with_capacity(capacity: Capacity) -> Transaction {
     TransactionBuilder::default()
