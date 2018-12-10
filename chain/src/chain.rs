@@ -74,11 +74,11 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
         thread_builder
             .spawn(move || loop {
                 select! {
-                    recv(receivers.process_block_receiver, msg) => match msg {
-                        Some(Request { responder, arguments: block }) => {
-                            responder.send(self.process_block(block));
+                    recv(receivers.process_block_receiver) -> msg => match msg {
+                        Ok(Request { responder, arguments: block }) => {
+                            let _ = responder.send(self.process_block(block));
                         },
-                        None => {
+                        _ => {
                             error!(target: "chain", "process_block_receiver closed");
                             break;
                         },

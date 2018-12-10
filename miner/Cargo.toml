@@ -18,7 +18,7 @@ flatbuffers = "0.5.0"
 rand = "0.6"
 serde = "1.0"
 serde_derive = "1.0"
-crossbeam-channel = "0.2"
+crossbeam-channel = "0.3"
 fnv = "1.0.3"
 jsonrpc = { git = "https://github.com/quake/rust-jsonrpc" }
 serde_json = "1.0"

@@ -62,7 +62,7 @@ impl Logger {
 
                 loop {
                     match receiver.recv() {
-                        Some(Message::Record(record)) => {
+                        Ok(Message::Record(record)) => {
                             let removed_color = sanitize_color(record.as_ref());
                             let output = if enable_color {
                                 record
@@ -75,7 +75,7 @@ impl Logger {
                             };
                             println!("{}", output);
                         }
-                        Some(Message::Terminate) | None => {
+                        Ok(Message::Terminate) | Err(_) => {
                             break;
                         }
                     }
@@ -135,13 +135,13 @@ impl Log for Logger {
                     record.args()
                 )
             };
-            self.sender.send(Message::Record(with_color));
+            let _ = self.sender.send(Message::Record(with_color));
         }
     }
 
     fn flush(&self) {
         let handle = self.handle.lock().take().unwrap();
-        self.sender.send(Message::Terminate);
+        let _ = self.sender.send(Message::Terminate);
         let _ = handle.join();
     }
 }

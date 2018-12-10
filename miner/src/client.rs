@@ -45,7 +45,7 @@ impl Client {
                     if inner.as_ref().map_or(true, |old| is_new_job(&new, &old)) {
                         let mut write_guard = RwLockUpgradableReadGuard::upgrade(inner);
                         *write_guard = Some(new);
-                        self.new_job_tx.send(());
+                        let _ = self.new_job_tx.send(());
                     }
                 }
                 Err(e) => {

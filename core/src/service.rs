@@ -11,10 +11,10 @@ pub struct Request<A, R> {
 impl<A, R> Request<A, R> {
     pub fn call(sender: &Sender<Request<A, R>>, arguments: A) -> Option<R> {
         let (responder, response) = channel::bounded(ONESHOT_CHANNEL_SIZE);
-        sender.send(Request {
+        let _ = sender.send(Request {
             responder,
             arguments,
         });
-        response.recv()
+        response.recv().ok()
     }
 }
