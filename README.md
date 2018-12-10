@@ -132,6 +132,14 @@ curl -d '{"id": 1, "jsonrpc": "2.0", "method":"get_tip_header","params": []}' \
   -H 'content-type:application/json' 'http://localhost:8114'
 ```
 
+### Run Miner
+
+Run miner, gets a block template to mine.
+
+```shell
+target/release/ckb miner
+```
+
 ### Advanced
 
 Run multiple nodes in different data directories.

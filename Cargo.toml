@@ -10,6 +10,7 @@ clap = { version = "2" }
 serde = "1.0"
 serde_derive = "1.0"
 log = "0.4"
+crossbeam-channel = "0.2"
 ckb-util = { path = "util" }
 ckb-core = { path = "core" }
 ckb-chain = { path = "chain" }

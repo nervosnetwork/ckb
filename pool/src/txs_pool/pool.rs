@@ -9,7 +9,7 @@ use ckb_core::block::Block;
 use ckb_core::cell::{CellProvider, CellStatus};
 use ckb_core::service::{Request, DEFAULT_CHANNEL_SIZE};
 use ckb_core::transaction::{OutPoint, ProposalShortId, Transaction};
-use ckb_notify::{ForkBlocks, MsgNewTip, MsgSwitchFork, NotifyController, TXS_POOL_SUBSCRIBER};
+use ckb_notify::{ForkBlocks, MsgNewTip, MsgSwitchFork, NotifyController};
 use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::{ChainProvider, Shared};
 use ckb_verification::{TransactionError, TransactionVerifier};
@@ -18,6 +18,8 @@ use std::thread::{self, JoinHandle};
 
 #[cfg(test)]
 use ckb_core::BlockNumber;
+
+const TXS_POOL_SUBSCRIBER: &str = "txs_pool";
 
 pub type TxsArgs = (usize, usize);
 pub type TxsReturn = (Vec<ProposalShortId>, Vec<Transaction>);
@@ -482,8 +484,6 @@ where
             self.pool.add_transaction(tx.clone());
 
             self.reconcile_orphan(&tx);
-
-            self.notify.notify_new_transaction();
         }
 
         Ok(InsertionResult::Normal)

@@ -21,6 +21,7 @@ pub fn get_matches() -> ArgMatches<'static> {
             .help("Specify the configuration file PATH. Tries ckb.json, nodes/default.json in working directory when omitted.")
         )
         .subcommand(run())
+        .subcommand(miner())
         .subcommand(export())
         .subcommand(import())
         .subcommand(cli())
@@ -29,6 +30,10 @@ pub fn get_matches() -> ArgMatches<'static> {
 
 fn run() -> App<'static, 'static> {
     SubCommand::with_name("run").about("Running ckb node")
+}
+
+fn miner() -> App<'static, 'static> {
+    SubCommand::with_name("miner").about("Running ckb miner")
 }
 
 fn arg_format() -> Arg<'static, 'static> {

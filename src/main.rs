@@ -23,6 +23,7 @@ extern crate ckb_shared;
 extern crate ckb_sync;
 extern crate ckb_util;
 extern crate config as config_tool;
+extern crate crossbeam_channel as channel;
 extern crate crypto;
 extern crate ctrlc;
 extern crate dir;
@@ -71,6 +72,7 @@ fn main() {
             info!(target: "main", "Start with config {}", config_path.display());
             cli::run(setup);
         }
+        ("miner", Some(_)) => cli::miner(setup),
         ("export", Some(export_matches)) => cli::export(&setup, export_matches),
         ("import", Some(import_matches)) => cli::import(&setup, import_matches),
         _ => unreachable!(),

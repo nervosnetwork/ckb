@@ -33,10 +33,11 @@
         "max_pending_size": 10000
     },
     "miner": {
-        "max_tx": 1024,
-        "max_prop": 1024,
         "new_transactions_threshold": 8,
-        "type_hash":
-            "0x321c1ca2887fb8eddaaa7e917399f71e63e03a1c83ff75ed12099a01115ea2ff"
+        "type_hash": "0x321c1ca2887fb8eddaaa7e917399f71e63e03a1c83ff75ed12099a01115ea2ff",
+        "rpc_url": "http://127.0.0.01:8114/",
+        "poll_interval": 5,
+        "max_transactions": 10000,
+        "max_proposals": 10000
     }
 }

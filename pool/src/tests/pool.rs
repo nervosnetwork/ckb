@@ -8,7 +8,7 @@ use ckb_core::header::HeaderBuilder;
 use ckb_core::script::Script;
 use ckb_core::transaction::*;
 use ckb_db::memorydb::MemoryKeyValueDB;
-use ckb_notify::{ForkBlocks, MsgNewTip, MsgSwitchFork, NotifyService, TXS_POOL_SUBSCRIBER};
+use ckb_notify::{ForkBlocks, MsgNewTip, MsgSwitchFork, NotifyService};
 use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::{ChainProvider, Shared, SharedBuilder};
 use ckb_shared::store::ChainKVStore;
@@ -464,8 +464,8 @@ struct TestPool<CI> {
 impl<CI: ChainIndex + 'static> TestPool<CI> {
     fn simple() -> TestPool<ChainKVStore<MemoryKeyValueDB>> {
         let (_handle, notify) = NotifyService::default().start::<&str>(None);
-        let new_tip_receiver = notify.subscribe_new_tip(TXS_POOL_SUBSCRIBER);
-        let switch_fork_receiver = notify.subscribe_switch_fork(TXS_POOL_SUBSCRIBER);
+        let new_tip_receiver = notify.subscribe_new_tip("txs_pool");
+        let switch_fork_receiver = notify.subscribe_switch_fork("txs_pool");
         let shared = SharedBuilder::<ChainKVStore<MemoryKeyValueDB>>::new_memory()
             .consensus(Consensus::default().set_verification(false))
             .build();

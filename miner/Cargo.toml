@@ -7,19 +7,18 @@ authors = ["Nervos Core Dev <dev@nervos.org>"]
 [dependencies]
 log = "0.4"
 bigint = { git = "https://github.com/nervosnetwork/bigint" }
-ckb-time = { path = "../util/time" }
 ckb-core = { path = "../core" }
-ckb-chain = { path = "../chain" }
 ckb-shared = { path = "../shared" }
-ckb-protocol = { path = "../protocol" }
-ckb-network = { path = "../network" }
-ckb-sync = { path = "../sync" }
 ckb-pow = { path = "../pow" }
+ckb-util = { path = "../util" }
 ckb-notify = { path = "../notify" }
-ckb-rpc = { path = "../rpc" }
+ckb-pool = { path = "../pool" }
+ckb-time = { path = "../util/time" }
 flatbuffers = "0.5.0"
 rand = "0.6"
 serde = "1.0"
 serde_derive = "1.0"
 crossbeam-channel = "0.2"
 fnv = "1.0.3"
+jsonrpc = { git = "https://github.com/quake/rust-jsonrpc" }
+serde_json = "1.0"

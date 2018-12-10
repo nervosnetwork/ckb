@@ -5,14 +5,14 @@ use ckb_chain::chain::{ChainBuilder, ChainController};
 use ckb_core::script::Script;
 use ckb_core::transaction::{CellInput, OutPoint, Transaction, TransactionBuilder};
 use ckb_db::diskdb::RocksDB;
-use ckb_miner::MinerService;
+use ckb_miner::{Agent, AgentController};
 use ckb_network::CKBProtocol;
 use ckb_network::NetworkConfig;
 use ckb_network::NetworkService;
 use ckb_notify::NotifyService;
 use ckb_pool::txs_pool::{TransactionPoolController, TransactionPoolService};
 use ckb_pow::PowEngine;
-use ckb_rpc::{RpcController, RpcServer, RpcService};
+use ckb_rpc::RpcServer;
 use ckb_shared::cachedb::CacheDB;
 use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::{ChainProvider, Shared, SharedBuilder};
@@ -39,7 +39,7 @@ pub fn run(setup: Setup) {
     let (_handle, notify) = NotifyService::default().start(Some("notify"));
     let (chain_controller, chain_receivers) = ChainController::new();
     let (tx_pool_controller, tx_pool_receivers) = TransactionPoolController::new();
-    let (rpc_controller, rpc_receivers) = RpcController::new();
+    let (miner_agent_controller, miner_agent_receivers) = AgentController::new();
 
     let chain_service = ChainBuilder::new(shared.clone())
         .notify(notify.clone())
@@ -52,8 +52,8 @@ pub fn run(setup: Setup) {
         TransactionPoolService::new(setup.configs.pool, shared.clone(), notify.clone());
     let _handle = tx_pool_service.start(Some("TransactionPoolService"), tx_pool_receivers);
 
-    let rpc_service = RpcService::new(shared.clone(), tx_pool_controller.clone());
-    let _handle = rpc_service.start(Some("RpcService"), rpc_receivers, &notify);
+    let miner_agent = Agent::new(shared.clone(), tx_pool_controller.clone());
+    let _handle = miner_agent.start(Some("MinerAgent"), miner_agent_receivers, &notify);
 
     let synchronizer = Arc::new(Synchronizer::new(
         chain_controller.clone(),
@@ -88,28 +88,18 @@ pub fn run(setup: Setup) {
             .expect("Create and start network"),
     );
 
-    let miner_service = MinerService::new(
-        setup.configs.miner,
-        Arc::clone(&pow_engine),
-        &shared,
-        chain_controller.clone(),
-        rpc_controller.clone(),
-        Arc::clone(&network),
-        &notify,
-    );
-    let _handle = miner_service.start(Some("MinerService"));
-
     let rpc_server = RpcServer {
         config: setup.configs.rpc,
     };
 
     setup_rpc(
         rpc_server,
-        rpc_controller,
         Arc::clone(&pow_engine),
         Arc::clone(&network),
         shared,
         tx_pool_controller,
+        chain_controller,
+        miner_agent_controller,
     );
 
     wait_for_exit();
@@ -120,11 +110,12 @@ pub fn run(setup: Setup) {
 #[cfg(feature = "integration_test")]
 fn setup_rpc<CI: ChainIndex + 'static>(
     server: RpcServer,
-    rpc: RpcController,
     pow: Arc<dyn PowEngine>,
     network: Arc<NetworkService>,
     shared: Shared<CI>,
     tx_pool: TransactionPoolController,
+    chain: ChainController,
+    agent: AgentController,
 ) {
     use ckb_pow::Clicker;
 
@@ -137,7 +128,7 @@ fn setup_rpc<CI: ChainIndex + 'static>(
 
     let _ = thread::Builder::new().name("rpc".to_string()).spawn({
         move || {
-            server.start(network, shared, tx_pool, rpc, pow);
+            server.start(network, shared, tx_pool, pow, chain, agent);
         }
     });
 }
@@ -146,15 +137,16 @@ fn setup_rpc<CI: ChainIndex + 'static>(
 #[cfg_attr(feature = "cargo-clippy", allow(needless_pass_by_value))]
 fn setup_rpc<CI: ChainIndex + 'static>(
     server: RpcServer,
-    rpc: RpcController,
     _pow: Arc<dyn PowEngine>,
     network: Arc<NetworkService>,
     shared: Shared<CI>,
     tx_pool: TransactionPoolController,
+    chain: ChainController,
+    agent: AgentController,
 ) {
     let _ = thread::Builder::new().name("rpc".to_string()).spawn({
         move || {
-            server.start(network, shared, tx_pool, rpc);
+            server.start(network, shared, tx_pool, chain, agent);
         }
     });
 }

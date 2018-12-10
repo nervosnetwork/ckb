@@ -717,7 +717,7 @@ mod tests {
         random_peer_id, CKBProtocolContext, Endpoint, Error as NetworkError, PeerIndex, PeerInfo,
         ProtocolId, SessionInfo, Severity, TimerToken,
     };
-    use ckb_notify::{NotifyController, NotifyService, MINER_SUBSCRIBER};
+    use ckb_notify::{NotifyController, NotifyService};
     use ckb_protocol::{Block as FbsBlock, Headers as FbsHeaders};
     use ckb_shared::index::ChainIndex;
     use ckb_shared::shared::SharedBuilder;
@@ -1171,7 +1171,7 @@ mod tests {
             fetched_blocks.push(shared2.block(block_hash).unwrap());
         }
 
-        let new_tip_receiver = notify.subscribe_new_tip(MINER_SUBSCRIBER);
+        let new_tip_receiver = notify.subscribe_new_tip("new_tip_receiver");
 
         for block in &fetched_blocks {
             let fbb = &mut FlatBufferBuilder::new();

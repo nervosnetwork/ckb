@@ -1,13 +1,11 @@
 use bigint::H256;
 use channel::{self, Receiver, Sender};
 use ckb_core::block::{Block, BlockBuilder};
-use ckb_core::header::{Header, HeaderBuilder, RawHeader};
+use ckb_core::header::{Header, HeaderBuilder};
 use ckb_core::service::{Request, DEFAULT_CHANNEL_SIZE};
-use ckb_core::transaction::{
-    CellInput, CellOutput, ProposalShortId, Transaction, TransactionBuilder,
-};
+use ckb_core::transaction::{CellInput, CellOutput, Transaction, TransactionBuilder};
 use ckb_core::uncle::UncleBlock;
-use ckb_notify::{NotifyController, RPC_SUBSCRIBER};
+use ckb_notify::NotifyController;
 use ckb_pool::txs_pool::TransactionPoolController;
 use ckb_shared::error::SharedError;
 use ckb_shared::index::ChainIndex;
@@ -17,45 +15,37 @@ use fnv::{FnvHashMap, FnvHashSet};
 use std::cmp;
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
+use types::BlockTemplate;
 
-#[derive(Serialize, Debug)]
-pub struct BlockTemplate {
-    pub raw_header: RawHeader,
-    pub uncles: Vec<UncleBlock>,
-    pub commit_transactions: Vec<Transaction>,
-    pub proposal_transactions: Vec<ProposalShortId>,
+const MINER_AGENT_SUBSCRIBER: &str = "miner_agent";
+
+pub struct Agent<CI> {
+    shared: Shared<CI>,
+    tx_pool: TransactionPoolController,
+    candidate_uncles: FnvHashMap<H256, Arc<Block>>,
 }
 
 type BlockTemplateArgs = (H256, usize, usize);
 type BlockTemplateReturn = Result<BlockTemplate, SharedError>;
 
 #[derive(Clone)]
-pub struct RpcController {
+pub struct AgentController {
     get_block_template_sender: Sender<Request<BlockTemplateArgs, BlockTemplateReturn>>,
 }
 
-pub struct RpcReceivers {
+pub struct AgentReceivers {
     get_block_template_receiver: Receiver<Request<BlockTemplateArgs, BlockTemplateReturn>>,
 }
 
-// TODO: MinerService should depend on RpcService.
-// To do this, we need to add the following apis:
-//   * get_block
-//   * get_block_hash
-//   * get_transaction
-//   * send_transaction
-//   * get_cells_by_type_hash
-//   * submit_block
-//   * receive notify
-impl RpcController {
-    pub fn new() -> (RpcController, RpcReceivers) {
+impl AgentController {
+    pub fn new() -> (AgentController, AgentReceivers) {
         let (get_block_template_sender, get_block_template_receiver) =
             channel::bounded(DEFAULT_CHANNEL_SIZE);
         (
-            RpcController {
+            AgentController {
                 get_block_template_sender,
             },
-            RpcReceivers {
+            AgentReceivers {
                 get_block_template_receiver,
             },
         )
@@ -74,15 +64,9 @@ impl RpcController {
     }
 }
 
-pub struct RpcService<CI> {
-    shared: Shared<CI>,
-    tx_pool: TransactionPoolController,
-    candidate_uncles: FnvHashMap<H256, Arc<Block>>,
-}
-
-impl<CI: ChainIndex + 'static> RpcService<CI> {
-    pub fn new(shared: Shared<CI>, tx_pool: TransactionPoolController) -> RpcService<CI> {
-        RpcService {
+impl<CI: ChainIndex + 'static> Agent<CI> {
+    pub fn new(shared: Shared<CI>, tx_pool: TransactionPoolController) -> Self {
+        Self {
             shared,
             tx_pool,
             candidate_uncles: FnvHashMap::default(),
@@ -92,7 +76,7 @@ impl<CI: ChainIndex + 'static> RpcService<CI> {
     pub fn start<S: ToString>(
         mut self,
         thread_name: Option<S>,
-        receivers: RpcReceivers,
+        receivers: AgentReceivers,
         notify: &NotifyController,
     ) -> JoinHandle<()> {
         let mut thread_builder = thread::Builder::new();
@@ -101,7 +85,7 @@ impl<CI: ChainIndex + 'static> RpcService<CI> {
             thread_builder = thread_builder.name(name.to_string());
         }
 
-        let new_uncle_receiver = notify.subscribe_new_uncle(RPC_SUBSCRIBER);
+        let new_uncle_receiver = notify.subscribe_new_uncle(MINER_AGENT_SUBSCRIBER);
         thread_builder
             .spawn(move || loop {
                 select! {
@@ -111,7 +95,7 @@ impl<CI: ChainIndex + 'static> RpcService<CI> {
                             self.candidate_uncles.insert(hash, uncle_block);
                         }
                         None => {
-                            error!(target: "chain", "new_uncle_receiver closed");
+                            error!(target: "miner", "new_uncle_receiver closed");
                             break;
                         }
                     }
@@ -120,22 +104,20 @@ impl<CI: ChainIndex + 'static> RpcService<CI> {
                             responder.send(self.get_block_template(type_hash, max_tx, max_prop));
                         },
                         None => {
-                            error!(target: "chain", "get_block_template_receiver closed");
+                            error!(target: "miner", "get_block_template_receiver closed");
                             break;
                         },
                     }
-
                 }
-            }).expect("Start ChainService failed")
+            }).expect("Start MinerAgent failed")
     }
 
-    // TODO: the max size
     fn get_block_template(
         &mut self,
         type_hash: H256,
         max_tx: usize,
         max_prop: usize,
-    ) -> BlockTemplateReturn {
+    ) -> Result<BlockTemplate, SharedError> {
         let (cellbase, commit_transactions, proposal_transactions, header_builder) = {
             let tip_header = self.shared.tip_header().read();
             let header = tip_header.inner();
@@ -254,8 +236,8 @@ impl<CI: ChainIndex + 'static> RpcService<CI> {
                 block.header().number() / self.shared.consensus().difficulty_adjustment_interval();
 
             // uncle must be same difficulty epoch with tip
-            if !block.header().difficulty() == header.difficulty()
-                || !block_difficulty_epoch == tip_difficulty_epoch
+            if block.header().difficulty() != header.difficulty()
+                || block_difficulty_epoch != tip_difficulty_epoch
             {
                 bad_uncles.push(*hash);
                 continue;
@@ -288,62 +270,5 @@ impl<CI: ChainIndex + 'static> RpcService<CI> {
         }
 
         uncles
-    }
-}
-
-#[cfg(test)]
-pub mod test {
-    use super::*;
-    use bigint::H256;
-    use ckb_core::block::BlockBuilder;
-    use ckb_db::memorydb::MemoryKeyValueDB;
-    use ckb_notify::NotifyService;
-    use ckb_pool::txs_pool::{PoolConfig, TransactionPoolController, TransactionPoolService};
-    use ckb_shared::shared::SharedBuilder;
-    use ckb_shared::store::ChainKVStore;
-    use ckb_verification::{BlockVerifier, HeaderResolverWrapper, HeaderVerifier, Verifier};
-
-    #[test]
-    fn test_block_template() {
-        let (_handle, notify) = NotifyService::default().start::<&str>(None);
-        let (tx_pool_controller, tx_pool_receivers) = TransactionPoolController::new();
-        let (rpc_controller, rpc_receivers) = RpcController::new();
-
-        let shared = SharedBuilder::<ChainKVStore<MemoryKeyValueDB>>::new_memory().build();
-        let tx_pool_service =
-            TransactionPoolService::new(PoolConfig::default(), shared.clone(), notify.clone());
-        let _handle = tx_pool_service.start::<&str>(None, tx_pool_receivers);
-
-        let rpc_service = RpcService::new(shared.clone(), tx_pool_controller.clone());
-        let _handle = rpc_service.start(Some("RpcService"), rpc_receivers, &notify);
-
-        let block_template = rpc_controller
-            .get_block_template(H256::from(0), 1000, 1000)
-            .unwrap();
-
-        let BlockTemplate {
-            raw_header,
-            uncles,
-            commit_transactions,
-            proposal_transactions,
-        } = block_template;
-
-        //do not verfiy pow here
-        let header = raw_header.with_seal(Default::default());
-
-        let block = BlockBuilder::default()
-            .header(header)
-            .uncles(uncles)
-            .commit_transactions(commit_transactions)
-            .proposal_transactions(proposal_transactions)
-            .build();
-
-        let resolver = HeaderResolverWrapper::new(block.header(), shared.clone());
-        let header_verifier = HeaderVerifier::new(Arc::clone(&shared.consensus().pow_engine()));
-
-        assert!(header_verifier.verify(&resolver).is_ok());
-
-        let block_verfier = BlockVerifier::new(shared.clone());
-        assert!(block_verfier.verify(&block).is_ok());
     }
 }

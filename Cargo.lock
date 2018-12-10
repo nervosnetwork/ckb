@@ -343,6 +343,7 @@ dependencies = [
  "ckb-verification 0.1.0",
  "clap 2.32.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "config 0.9.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "crossbeam-channel 0.2.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "crypto 0.1.0",
  "ctrlc 3.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "dir 0.1.0",
@@ -450,23 +451,22 @@ name = "ckb-miner"
 version = "0.1.0"
 dependencies = [
  "bigint 0.2.3 (git+https://github.com/nervosnetwork/bigint)",
- "ckb-chain 0.1.0",
  "ckb-core 0.1.0",
- "ckb-network 0.1.0",
  "ckb-notify 0.1.0",
+ "ckb-pool 0.1.0",
  "ckb-pow 0.1.0",
- "ckb-protocol 0.1.0",
- "ckb-rpc 0.1.0",
  "ckb-shared 0.1.0",
- "ckb-sync 0.1.0",
  "ckb-time 0.1.0",
+ "ckb-util 0.1.0",
  "crossbeam-channel 0.2.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "flatbuffers 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "fnv 1.0.6 (registry+https://github.com/rust-lang/crates.io-index)",
+ "jsonrpc 0.10.2 (git+https://github.com/quake/rust-jsonrpc)",
  "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "rand 0.6.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.80 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.80 (registry+https://github.com/rust-lang/crates.io-index)",
+ "serde_json 1.0.33 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -558,20 +558,18 @@ name = "ckb-rpc"
 version = "0.1.0"
 dependencies = [
  "bigint 0.2.3 (git+https://github.com/nervosnetwork/bigint)",
+ "ckb-chain 0.1.0",
  "ckb-core 0.1.0",
  "ckb-db 0.1.0",
+ "ckb-miner 0.1.0",
  "ckb-network 0.1.0",
- "ckb-notify 0.1.0",
  "ckb-pool 0.1.0",
  "ckb-pow 0.1.0",
  "ckb-protocol 0.1.0",
  "ckb-shared 0.1.0",
  "ckb-sync 0.1.0",
- "ckb-time 0.1.0",
  "ckb-verification 0.1.0",
- "crossbeam-channel 0.2.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "flatbuffers 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "fnv 1.0.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "jsonrpc-core 9.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "jsonrpc-http-server 9.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "jsonrpc-macros 9.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1352,6 +1350,17 @@ dependencies = [
 name = "itoa"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
+
+[[package]]
+name = "jsonrpc"
+version = "0.10.2"
+source = "git+https://github.com/quake/rust-jsonrpc#2ada29a270a2242df01c1bece375989311e33fe0"
+dependencies = [
+ "hyper 0.10.15 (registry+https://github.com/rust-lang/crates.io-index)",
+ "serde 1.0.80 (registry+https://github.com/rust-lang/crates.io-index)",
+ "serde_derive 1.0.80 (registry+https://github.com/rust-lang/crates.io-index)",
+ "serde_json 1.0.33 (registry+https://github.com/rust-lang/crates.io-index)",
+]
 
 [[package]]
 name = "jsonrpc-core"
@@ -3594,6 +3603,7 @@ dependencies = [
 "checksum itertools 0.7.11 (registry+https://github.com/rust-lang/crates.io-index)" = "0d47946d458e94a1b7bcabbf6521ea7c037062c81f534615abcad76e84d4970d"
 "checksum itertools-num 0.1.3 (registry+https://github.com/rust-lang/crates.io-index)" = "a872a22f9e6f7521ca557660adb96dd830e54f0f490fa115bb55dd69d38b27e7"
 "checksum itoa 0.4.3 (registry+https://github.com/rust-lang/crates.io-index)" = "1306f3464951f30e30d12373d31c79fbd52d236e5e896fd92f96ec7babbbe60b"
+"checksum jsonrpc 0.10.2 (git+https://github.com/quake/rust-jsonrpc)" = "<none>"
 "checksum jsonrpc-core 9.0.0 (registry+https://github.com/rust-lang/crates.io-index)" = "4e9cbeda300803d381390fb65e8158437728c39e6987ed23bee82728b73511a7"
 "checksum jsonrpc-http-server 9.0.0 (registry+https://github.com/rust-lang/crates.io-index)" = "385c2da14e89d4eae5fc48f75f4f1c260546356cfc29dd2d0e3a7a4f7684240e"
 "checksum jsonrpc-macros 9.0.0 (registry+https://github.com/rust-lang/crates.io-index)" = "8c9d25aa2af560453ffa9194e83bfc84b71dc9b1a1df6d2d2ba2a5167ce08077"

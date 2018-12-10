@@ -16,10 +16,6 @@ use ckb_core::block::Block;
 use ckb_core::service::Request;
 use fnv::FnvHashMap;
 
-pub const MINER_SUBSCRIBER: &str = "miner";
-pub const TXS_POOL_SUBSCRIBER: &str = "txs_pool";
-pub const RPC_SUBSCRIBER: &str = "rpc";
-
 pub const REGISTER_CHANNEL_SIZE: usize = 2;
 pub const NOTIFY_CHANNEL_SIZE: usize = 128;
 
