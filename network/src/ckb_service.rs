@@ -29,16 +29,15 @@ impl CKBService {
         peer_id: PeerId,
         protocol_output: CKBProtocolOutput<Arc<CKBProtocolHandler>>,
         kad_system: Arc<kad::KadSystem>,
-        addr: Option<Multiaddr>,
+        addr: Multiaddr,
     ) -> Box<Future<Item = (), Error = IoError> + Send> {
         let protocol_id = protocol_output.protocol_id;
         let protocol_handler = protocol_output.protocol_handler;
         let protocol_version = protocol_output.protocol_version;
         let endpoint = protocol_output.endpoint;
-        let addresses = addr.map(|addr| vec![addr]);
         // get peer protocol_connection
         let protocol_connec =
-            match network.ckb_protocol_connec(&peer_id, protocol_id, endpoint, addresses.clone()) {
+            match network.ckb_protocol_connec(&peer_id, protocol_id, endpoint, addr) {
                 Ok(protocol_connec) => protocol_connec,
                 Err(err) => {
                     return Box::new(future::err(IoError::new(
@@ -157,7 +156,7 @@ impl<T: Send> ProtocolService<T> for CKBService {
         addr: &Multiaddr,
         output: Self::Output,
     ) -> Protocol<T> {
-        Protocol::CKBProtocol(output, PeerId::clone(&peer_id), Some(addr.to_owned()))
+        Protocol::CKBProtocol(output, PeerId::clone(&peer_id), addr.to_owned())
     }
     fn handle(
         &self,

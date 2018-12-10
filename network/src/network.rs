@@ -39,6 +39,7 @@ use tokio::io::{AsyncRead, AsyncWrite};
 // const WAIT_LOCK_TIMEOUT: u64 = 3;
 const KBUCKETS_TIMEOUT: u64 = 600;
 const DIAL_BOOTNODE_TIMEOUT: u64 = 20;
+const PEER_ADDRS_COUNT: usize = 5;
 
 #[derive(Debug, Clone)]
 pub struct SessionInfo {
@@ -51,7 +52,7 @@ pub struct PeerInfo {
     pub peer_id: PeerId,
     pub endpoint_role: Endpoint,
     pub last_ping_time: Option<Instant>,
-    pub remote_addresses: Vec<Multiaddr>,
+    pub connected_addr: Multiaddr,
     pub identify_info: Option<PeerIdentifyInfo>,
 }
 
@@ -139,13 +140,14 @@ impl Network {
             .map(|peer| peer.pinger_loader.clone())
     }
 
-    pub(crate) fn get_peer_remote_addresses(&self, peer_id: &PeerId) -> Vec<Multiaddr> {
-        let peers_registry = self.peers_registry.read();
-        if let Some(peer) = peers_registry.get(peer_id) {
-            peer.remote_addresses.clone()
-        } else {
-            Vec::new()
-        }
+    pub(crate) fn get_peer_addresses(&self, peer_id: &PeerId) -> Vec<Multiaddr> {
+        let peer_store = self.peer_store.read();
+        let addrs = peer_store.peer_addrs(&peer_id).map(|i| {
+            i.take(PEER_ADDRS_COUNT)
+                .map(|addr| addr.to_owned())
+                .collect::<Vec<_>>()
+        });
+        addrs.unwrap_or(Vec::new())
     }
 
     pub(crate) fn peers(&self) -> impl Iterator<Item = PeerId> {
@@ -231,16 +233,17 @@ impl Network {
         peer_id: &PeerId,
         protocol_id: ProtocolId,
         endpoint: Endpoint,
-        addresses: Option<Vec<Multiaddr>>,
+        connected_addr: Multiaddr,
     ) -> Result<UniqueConnec<(UnboundedSender<Bytes>, u8)>, Error> {
         let mut peers_registry = self.peers_registry.write();
         // get peer protocol_connection
-        match peers_registry.new_peer(peer_id.clone(), endpoint) {
+        match peers_registry.new_peer(peer_id.clone(), connected_addr.clone(), endpoint) {
             Ok(_) => {
-                let peer = peers_registry.get_mut(&peer_id).unwrap();
-                if let Some(addresses) = addresses {
-                    peer.append_addresses(addresses.clone());
-                }
+                let _ = self
+                    .peer_store()
+                    .write()
+                    .add_discovered_addresses(peer_id, vec![connected_addr]);
+                let mut peer = peers_registry.get_mut(&peer_id).unwrap();
                 if let Some(protocol_connec) = peer
                     .ckb_protocols
                     .iter()
@@ -285,7 +288,7 @@ impl Network {
                         peer_id: peer_id.to_owned(),
                         endpoint_role: peer.endpoint_role,
                         last_ping_time: peer.last_ping_time,
-                        remote_addresses: peer.remote_addresses.clone(),
+                        connected_addr: peer.connected_addr.clone(),
                         identify_info: peer.identify_info.clone(),
                     },
                     protocol_version,
@@ -372,29 +375,30 @@ impl Network {
         );
 
         let protocol_id = protocol.id();
-        let transport = transport
-            .clone()
-            .and_then(move |out, endpoint, client_addr| {
+        let transport = transport.clone().and_then({
+            let addr = addr.clone();
+            move |out, endpoint, client_addr| {
                 let peer_id = out.peer_id;
                 upgrade::apply(out.socket, protocol, endpoint, client_addr).map(
                     move |(output, client_addr)| {
                         (
                             (
                                 peer_id.clone(),
-                                Protocol::CKBProtocol(output, peer_id, None),
+                                Protocol::CKBProtocol(output, peer_id, addr),
                             ),
                             client_addr,
                         )
                     },
                 )
-            });
+            }
+        });
 
         let transport = TransportTimeout::new(transport, timeout);
         let unique_connec = match self.ckb_protocol_connec(
             expected_peer_id,
             protocol_id,
             Endpoint::Dialer,
-            Some(vec![addr.to_owned()]),
+            addr.to_owned(),
         ) {
             Ok(unique_connec) => unique_connec,
             Err(_) => return,

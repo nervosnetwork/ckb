@@ -88,7 +88,7 @@ type ProtocolConnec = (ProtocolId, UniqueConnec<(UnboundedSender<Bytes>, u8)>);
 
 pub struct PeerConnection {
     pub(crate) peer_index: Option<PeerIndex>,
-    pub remote_addresses: Vec<Multiaddr>,
+    pub connected_addr: Multiaddr,
     // Dialer or Listener
     pub endpoint_role: Endpoint,
     // Used for send ping to peer
@@ -99,24 +99,15 @@ pub struct PeerConnection {
 }
 
 impl PeerConnection {
-    pub fn new(endpoint_role: Endpoint) -> Self {
+    pub fn new(connected_addr: Multiaddr, endpoint_role: Endpoint) -> Self {
         PeerConnection {
             endpoint_role,
-            // at least should have 1 remote address
-            remote_addresses: Vec::with_capacity(1),
+            connected_addr: connected_addr,
             pinger_loader: UniqueConnec::empty(),
             identify_info: None,
             ckb_protocols: Vec::with_capacity(1),
             last_ping_time: None,
             peer_index: None,
-        }
-    }
-
-    pub fn append_addresses(&mut self, addresses: Vec<Multiaddr>) {
-        for addr in addresses {
-            if !self.remote_addresses.contains(&addr) {
-                self.remote_addresses.push(addr);
-            }
         }
     }
 
@@ -129,17 +120,6 @@ impl PeerConnection {
     #[inline]
     pub fn is_incoming(&self) -> bool {
         !self.is_outgoing()
-    }
-
-    #[allow(dead_code)]
-    pub fn add_remote_address(&mut self, remote_address: Multiaddr) {
-        if self
-            .remote_addresses
-            .iter()
-            .all(|addr| addr != &remote_address)
-        {
-            self.remote_addresses.push(remote_address);
-        }
     }
 }
 
@@ -190,7 +170,12 @@ impl PeersRegistry {
 
     // registry a new peer
     #[allow(clippy::needless_pass_by_value)]
-    pub fn new_peer(&mut self, peer_id: PeerId, endpoint: Endpoint) -> Result<(), Error> {
+    pub fn new_peer(
+        &mut self,
+        peer_id: PeerId,
+        connected_addr: Multiaddr,
+        endpoint: Endpoint,
+    ) -> Result<(), Error> {
         if self.peer_connections.get(&peer_id).is_some() {
             return Ok(());
         }
@@ -231,7 +216,7 @@ impl PeersRegistry {
                 _ => (),
             }
         }
-        let peer = PeerConnection::new(endpoint);
+        let peer = PeerConnection::new(connected_addr, endpoint);
         let peer_index = self.add_peer(peer_id.clone(), peer);
         debug!(target: "network", "allocate peer_index {} to peer {:?}", peer_index, peer_id);
         Ok(())
