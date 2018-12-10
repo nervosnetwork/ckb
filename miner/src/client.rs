@@ -1,8 +1,8 @@
-use bigint::H256;
 use channel::Sender;
 use ckb_core::block::Block;
 use ckb_util::RwLockUpgradableReadGuard;
 use jsonrpc::client::Client as JsonRpcClient;
+use numext_fixed_hash::H256;
 use std::{thread, time};
 use types::{BlockTemplate, Config, Shared};
 

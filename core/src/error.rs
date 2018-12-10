@@ -1,5 +1,6 @@
-use bigint::{H256, H512, U256};
 use crypto::secp::Error as CrypError;
+use numext_fixed_hash::{H256, H512};
+use numext_fixed_uint::U256;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Error {

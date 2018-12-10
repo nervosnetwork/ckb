@@ -1,7 +1,7 @@
-use bigint::H256;
 use fnv::FnvHashSet;
 use header::{Header, HeaderBuilder};
 use merkle_root::merkle_root;
+use numext_fixed_hash::H256;
 use transaction::{ProposalShortId, Transaction};
 use uncle::{uncles_hash, UncleBlock};
 
@@ -55,9 +55,9 @@ impl Block {
     pub fn union_proposal_ids(&self) -> Vec<ProposalShortId> {
         let mut ids = FnvHashSet::default();
 
-        ids.extend(self.proposal_transactions.clone());
+        ids.extend(self.proposal_transactions());
 
-        for uc in self.uncles.clone() {
+        for uc in &self.uncles {
             ids.extend(uc.proposal_transactions());
         }
 
@@ -70,7 +70,7 @@ impl ::std::hash::Hash for Block {
     where
         H: ::std::hash::Hasher,
     {
-        state.write(&self.header.hash());
+        state.write(&self.header.hash().as_bytes());
         state.finish();
     }
 }
@@ -138,6 +138,7 @@ impl BlockBuilder {
                 .commit_transactions
                 .iter()
                 .map(|t| t.hash())
+                .cloned()
                 .collect::<Vec<_>>(),
         );
 
@@ -153,9 +154,9 @@ impl BlockBuilder {
         let uncles_hash = uncles_hash(&self.inner.uncles);
 
         self.inner.header = header_builder
-            .txs_commit(&txs_commit)
-            .txs_proposal(&txs_proposal)
-            .uncles_hash(&uncles_hash)
+            .txs_commit(txs_commit)
+            .txs_proposal(txs_proposal)
+            .uncles_hash(uncles_hash)
             .uncles_count(self.inner.uncles.len() as u32)
             .build();
         self.inner

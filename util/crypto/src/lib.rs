@@ -2,7 +2,7 @@
 #[cfg(all(test, feature = "dev"))]
 extern crate test;
 
-extern crate bigint;
+extern crate numext_fixed_hash;
 #[cfg(feature = "bech32")]
 #[macro_use]
 extern crate crunchy;

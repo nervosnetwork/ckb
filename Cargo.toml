@@ -27,7 +27,8 @@ ckb-verification = { path = "verification"}
 ckb-time = { path = "util/time"}
 ckb-script= { path = "script"}
 logger = { path = "util/logger" }
-bigint = { git = "https://github.com/nervosnetwork/bigint" }
+numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
+numext-fixed-uint = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 dir = { path = "util/dir" }
 ctrlc = { version = "3.1", features = ["termination"] }
 lazy_static = "1.0"

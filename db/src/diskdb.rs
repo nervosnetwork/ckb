@@ -68,7 +68,8 @@ impl KeyValueDB for RocksDB {
         match self.cf_handle(col)? {
             Some(cf) => self.inner.db.get_cf(cf, &key),
             None => self.inner.db.get(&key),
-        }.map(|v| v.map(|vi| vi.to_vec()))
+        }
+        .map(|v| v.map(|vi| vi.to_vec()))
         .map_err(Into::into)
     }
 
@@ -76,7 +77,8 @@ impl KeyValueDB for RocksDB {
         match self.cf_handle(col)? {
             Some(cf) => self.inner.db.get_pinned_cf(cf, &key),
             None => self.inner.db.get_pinned(&key),
-        }.map(|v| v.map(|vi| vi.len()))
+        }
+        .map(|v| v.map(|vi| vi.len()))
         .map_err(Into::into)
     }
 
@@ -84,7 +86,8 @@ impl KeyValueDB for RocksDB {
         match self.cf_handle(col)? {
             Some(cf) => self.inner.db.get_pinned_cf(cf, &key),
             None => self.inner.db.get_pinned(&key),
-        }.map(|v| v.and_then(|vi| vi.get(range.start..range.end).map(|slice| slice.to_vec())))
+        }
+        .map(|v| v.and_then(|vi| vi.get(range.start..range.end).map(|slice| slice.to_vec())))
         .map_err(Into::into)
     }
 }

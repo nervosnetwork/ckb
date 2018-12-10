@@ -1,8 +1,8 @@
-use bigint::H256;
 use ckb_core::block::Block;
 use ckb_core::cell::CellStatus;
 use ckb_core::header::Header;
 use ckb_core::transaction::{Capacity, CellOutput, OutPoint, Transaction};
+use numext_fixed_hash::H256;
 
 #[derive(Serialize)]
 pub struct TransactionWithHash {
@@ -13,7 +13,7 @@ pub struct TransactionWithHash {
 impl From<Transaction> for TransactionWithHash {
     fn from(transaction: Transaction) -> Self {
         Self {
-            hash: transaction.hash(),
+            hash: transaction.hash().clone(),
             transaction,
         }
     }
@@ -35,7 +35,7 @@ impl From<Block> for BlockWithHash {
                 .iter()
                 .map(|tx| tx.clone().into())
                 .collect(),
-            hash: block.header().hash(),
+            hash: block.header().hash().clone(),
         }
     }
 }

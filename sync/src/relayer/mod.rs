@@ -1,4 +1,4 @@
-#![cfg_attr(feature = "cargo-clippy", allow(needless_pass_by_value))]
+#![allow(clippy::needless_pass_by_value)]
 
 mod block_proposal_process;
 mod block_transactions_process;
@@ -15,7 +15,6 @@ use self::compact_block_process::CompactBlockProcess;
 use self::get_block_proposal_process::GetBlockProposalProcess;
 use self::get_block_transactions_process::GetBlockTransactionsProcess;
 use self::transaction_process::TransactionProcess;
-use bigint::H256;
 use ckb_chain::chain::ChainController;
 use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::transaction::{ProposalShortId, Transaction};
@@ -27,6 +26,7 @@ use ckb_shared::shared::{ChainProvider, Shared};
 use ckb_util::{Mutex, RwLock};
 use flatbuffers::{get_root, FlatBufferBuilder};
 use fnv::{FnvHashMap, FnvHashSet};
+use numext_fixed_hash::H256;
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Duration;
@@ -75,7 +75,8 @@ where
                 self,
                 peer,
                 nc,
-            ).execute(),
+            )
+            .execute(),
             RelayPayload::Transaction => {
                 TransactionProcess::new(&message.payload_as_transaction().unwrap(), self, peer, nc)
                     .execute()
@@ -85,19 +86,22 @@ where
                 self,
                 peer,
                 nc,
-            ).execute(),
+            )
+            .execute(),
             RelayPayload::BlockTransactions => BlockTransactionsProcess::new(
                 &message.payload_as_block_transactions().unwrap(),
                 self,
                 peer,
                 nc,
-            ).execute(),
+            )
+            .execute(),
             RelayPayload::GetBlockProposal => GetBlockProposalProcess::new(
                 &message.payload_as_get_block_proposal().unwrap(),
                 self,
                 peer,
                 nc,
-            ).execute(),
+            )
+            .execute(),
             RelayPayload::BlockProposal => {
                 BlockProposalProcess::new(&message.payload_as_block_proposal().unwrap(), self)
                     .execute()
@@ -121,7 +125,8 @@ where
                     .uncles
                     .iter()
                     .flat_map(|uncle| uncle.proposal_transactions()),
-            ).filter(|x| !self.tx_pool.contains_key(**x) && inflight.insert(**x))
+            )
+            .filter(|x| !self.tx_pool.contains_key(**x) && inflight.insert(**x))
             .cloned()
             .collect::<Vec<_>>();
 

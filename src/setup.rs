@@ -43,7 +43,8 @@ pub fn get_config_path(matches: &ArgMatches) -> PathBuf {
             .value_of("config")
             .map_or_else(find_default_config_path, |v| {
                 require_path_exists(PathBuf::from(v))
-            }).unwrap_or_else(|| {
+            })
+            .unwrap_or_else(|| {
                 eprintln!("No config file found!");
                 ::std::process::exit(1);
             }),

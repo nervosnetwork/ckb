@@ -1,7 +1,8 @@
-use bigint::{H256, U256};
 use ckb_core::BlockNumber;
 use ckb_script::ScriptError;
 use ckb_shared::error::SharedError;
+use numext_fixed_hash::H256;
+use numext_fixed_uint::U256;
 
 /// Block verification error
 #[derive(Debug, PartialEq, Clone, Eq)]
@@ -57,7 +58,7 @@ pub enum CellbaseError {
     InvalidPosition,
 }
 
-#[derive(Debug, PartialEq, Clone, Copy, Eq)]
+#[derive(Debug, PartialEq, Clone, Eq)]
 pub enum UnclesError {
     OverCount {
         max: usize,
@@ -86,7 +87,7 @@ pub enum UnclesError {
     InvalidCellbase,
 }
 
-#[derive(Debug, PartialEq, Clone, Copy, Eq)]
+#[derive(Debug, PartialEq, Clone, Eq)]
 pub enum PowError {
     Boundary { expected: U256, actual: U256 },
     InvalidProof,
@@ -104,7 +105,7 @@ pub struct NumberError {
     pub actual: u64,
 }
 
-#[derive(Debug, PartialEq, Clone, Copy, Eq)]
+#[derive(Debug, PartialEq, Clone, Eq)]
 pub enum DifficultyError {
     MixMismatch { expected: U256, actual: U256 },
     AncestorNotFound,

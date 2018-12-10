@@ -1,11 +1,11 @@
 use super::super::block_verifier::{BlockVerifier, CellbaseVerifier, EmptyVerifier};
 use super::super::error::{CellbaseError, Error as VerifyError};
 use super::dummy::DummyChainProvider;
-use bigint::H256;
 use ckb_core::block::BlockBuilder;
 use ckb_core::transaction::{CellInput, CellOutput, OutPoint, Transaction, TransactionBuilder};
 use ckb_core::Capacity;
 use ckb_shared::error::SharedError;
+use numext_fixed_hash::H256;
 use std::collections::HashMap;
 use Verifier;
 
@@ -23,9 +23,10 @@ fn create_cellbase_transaction() -> Transaction {
 fn create_normal_transaction() -> Transaction {
     TransactionBuilder::default()
         .input(CellInput::new(
-            OutPoint::new(H256::from(1), 0),
+            OutPoint::new(H256::from_trimmed_hex_str("1").unwrap(), 0),
             Default::default(),
-        )).output(CellOutput::new(100, Vec::new(), H256::default(), None))
+        ))
+        .output(CellOutput::new(100, Vec::new(), H256::default(), None))
         .build()
 }
 
@@ -45,7 +46,7 @@ pub fn test_block_without_cellbase() {
 pub fn test_block_with_one_cellbase_at_first() {
     let mut transaction_fees = HashMap::<H256, Result<Capacity, SharedError>>::new();
     let transaction = create_normal_transaction();
-    transaction_fees.insert(transaction.hash(), Ok(0));
+    transaction_fees.insert(transaction.hash().clone(), Ok(0));
 
     let block = BlockBuilder::default()
         .commit_transaction(create_cellbase_transaction())
@@ -93,7 +94,7 @@ pub fn test_block_with_two_cellbases() {
 pub fn test_cellbase_with_less_reward() {
     let mut transaction_fees = HashMap::<H256, Result<Capacity, SharedError>>::new();
     let transaction = create_normal_transaction();
-    transaction_fees.insert(transaction.hash(), Ok(0));
+    transaction_fees.insert(transaction.hash().clone(), Ok(0));
 
     let block = BlockBuilder::default()
         .commit_transaction(create_cellbase_transaction_with_capacity(50))
@@ -113,7 +114,7 @@ pub fn test_cellbase_with_less_reward() {
 pub fn test_cellbase_with_fee() {
     let mut transaction_fees = HashMap::<H256, Result<Capacity, SharedError>>::new();
     let transaction = create_normal_transaction();
-    transaction_fees.insert(transaction.hash(), Ok(10));
+    transaction_fees.insert(transaction.hash().clone(), Ok(10));
 
     let block = BlockBuilder::default()
         .commit_transaction(create_cellbase_transaction_with_capacity(110))
@@ -133,7 +134,7 @@ pub fn test_cellbase_with_fee() {
 pub fn test_cellbase_with_more_reward_than_available() {
     let mut transaction_fees = HashMap::<H256, Result<Capacity, SharedError>>::new();
     let transaction = create_normal_transaction();
-    transaction_fees.insert(transaction.hash(), Ok(10));
+    transaction_fees.insert(transaction.hash().clone(), Ok(10));
 
     let block = BlockBuilder::default()
         .commit_transaction(create_cellbase_transaction_with_capacity(130))
@@ -156,7 +157,7 @@ pub fn test_cellbase_with_more_reward_than_available() {
 pub fn test_cellbase_with_invalid_transaction() {
     let mut transaction_fees = HashMap::<H256, Result<Capacity, SharedError>>::new();
     let transaction = create_normal_transaction();
-    transaction_fees.insert(transaction.hash(), Err(SharedError::InvalidOutput));
+    transaction_fees.insert(transaction.hash().clone(), Err(SharedError::InvalidOutput));
 
     let block = BlockBuilder::default()
         .commit_transaction(create_cellbase_transaction_with_capacity(100))
@@ -179,7 +180,7 @@ pub fn test_cellbase_with_invalid_transaction() {
 pub fn test_cellbase_with_two_outputs() {
     let mut transaction_fees = HashMap::<H256, Result<Capacity, SharedError>>::new();
     let transaction = create_normal_transaction();
-    transaction_fees.insert(transaction.hash(), Ok(0));
+    transaction_fees.insert(transaction.hash().clone(), Ok(0));
 
     let cellbase_transaction = TransactionBuilder::default()
         .input(CellInput::new_cellbase_input(0))
@@ -205,7 +206,7 @@ pub fn test_cellbase_with_two_outputs() {
 pub fn test_cellbase_with_two_outputs_and_more_rewards_than_maximum() {
     let mut transaction_fees = HashMap::<H256, Result<Capacity, SharedError>>::new();
     let transaction = create_normal_transaction();
-    transaction_fees.insert(transaction.hash(), Ok(0));
+    transaction_fees.insert(transaction.hash().clone(), Ok(0));
 
     let cellbase_transaction = TransactionBuilder::default()
         .input(CellInput::new_cellbase_input(0))

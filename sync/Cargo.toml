@@ -8,7 +8,8 @@ authors = ["Nervos Core Dev <dev@nervos.org>"]
 ckb-chain = { path = "../chain" }
 ckb-shared = { path = "../shared" }
 ckb-core = { path = "../core" }
-bigint = { git = "https://github.com/nervosnetwork/bigint" }
+numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
+numext-fixed-uint = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 multiaddr = "0.3"
 ckb-network = { path = "../network" }
 log = "0.4"

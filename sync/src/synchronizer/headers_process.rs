@@ -1,4 +1,3 @@
-use bigint::U256;
 use ckb_core::header::Header;
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::{FlatbuffersVectorIterator, Headers};
@@ -6,6 +5,7 @@ use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::ChainProvider;
 use ckb_verification::{Error as VerifyError, HeaderResolver, HeaderVerifier, Verifier};
 use log;
+use numext_fixed_uint::U256;
 use std::sync::Arc;
 use synchronizer::{BlockStatus, Synchronizer};
 use MAX_HEADERS_LEN;
@@ -46,6 +46,7 @@ impl<'a, CI: ChainIndex> HeaderResolver for VerifierResolver<'a, CI> {
         self.parent
     }
 
+    #[allow(clippy::op_ref)]
     fn calculate_difficulty(&self) -> Option<U256> {
         self.parent().and_then(|parent| {
             let parent_hash = parent.hash();
@@ -58,7 +59,7 @@ impl<'a, CI: ChainIndex> HeaderResolver for VerifierResolver<'a, CI> {
                 .difficulty_adjustment_interval();
 
             if self.header().number() % interval != 0 {
-                return Some(last_difficulty);
+                return Some(last_difficulty.clone());
             }
 
             let start = parent_number.saturating_sub(interval);
@@ -82,13 +83,13 @@ impl<'a, CI: ChainIndex> HeaderResolver for VerifierResolver<'a, CI> {
                     / U256::from(interval);
 
                 let min_difficulty = self.synchronizer.consensus().min_difficulty();
-                let max_difficulty = last_difficulty * 2;
+                let max_difficulty = last_difficulty * 2u32;
                 if difficulty > max_difficulty {
                     return Some(max_difficulty);
                 }
 
-                if difficulty < min_difficulty {
-                    return Some(min_difficulty);
+                if &difficulty < min_difficulty {
+                    return Some(min_difficulty.clone());
                 }
                 return Some(difficulty);
             }
@@ -124,9 +125,27 @@ where
     }
 
     fn is_continuous(&self, headers: &[Header]) -> bool {
+        debug!(
+            target: "sync",
+            "headers\n {:#?}",
+            headers
+                .iter()
+                .map(|h| format!(
+                    "{} hash({}) parent({})",
+                    h.number(),
+                    h.hash(),
+                    h.parent_hash()
+                )).collect::<Vec<_>>()
+        );
         for window in headers.windows(2) {
             if let [parent, header] = &window {
                 if header.parent_hash() != parent.hash() {
+                    debug!(
+                        target: "sync",
+                        "header.parent_hash {:?} parent.hash {:?}",
+                        header.parent_hash(),
+                        parent.hash()
+                    );
                     return false;
                 }
             }
@@ -156,12 +175,12 @@ where
         if self.is_oversize() {
             self.synchronizer.peers.misbehavior(self.peer, 20);
             debug!(target: "sync", "HeadersProcess is_oversize");
-            return ();
+            return;
         }
 
         if self.is_empty() {
             debug!(target: "sync", "HeadersProcess is_empty");
-            return ();
+            return;
         }
 
         let headers = FlatbuffersVectorIterator::new(self.message.headers().unwrap())
@@ -171,7 +190,7 @@ where
         if !self.is_continuous(&headers) {
             self.synchronizer.peers.misbehavior(self.peer, 20);
             debug!(target: "sync", "HeadersProcess is not continuous");
-            return ();
+            return;
         }
 
         let result = self.accept_first(&headers[0]);
@@ -182,7 +201,7 @@ where
                     .misbehavior(self.peer, result.misbehavior);
             }
             debug!(target: "sync", "\n\nHeadersProcess accept_first is_valid {:?} headers = {:#?}\n\n", result, headers[0]);
-            return ();
+            return;
         }
 
         for window in headers.windows(2) {
@@ -202,7 +221,7 @@ where
                             .misbehavior(self.peer, result.misbehavior);
                     }
                     debug!(target: "sync", "HeadersProcess accept is invalid {:?}", result);
-                    return ();
+                    return;
                 }
             }
         }
@@ -339,28 +358,28 @@ where
         if self.prev_block_check(&mut result).is_err() {
             debug!(target: "sync", "HeadersProcess accept {:?} prev_block", self.header.number());
             self.synchronizer
-                .insert_block_status(self.header.hash(), BlockStatus::FAILED_MASK);
+                .insert_block_status(self.header.hash().clone(), BlockStatus::FAILED_MASK);
             return result;
         }
 
         if self.non_contextual_check(&mut result).is_err() {
             debug!(target: "sync", "HeadersProcess accept {:?} non_contextual", self.header.number());
             self.synchronizer
-                .insert_block_status(self.header.hash(), BlockStatus::FAILED_MASK);
+                .insert_block_status(self.header.hash().clone(), BlockStatus::FAILED_MASK);
             return result;
         }
 
         if self.version_check(&mut result).is_err() {
             debug!(target: "sync", "HeadersProcess accept {:?} version", self.header.number());
             self.synchronizer
-                .insert_block_status(self.header.hash(), BlockStatus::FAILED_MASK);
+                .insert_block_status(self.header.hash().clone(), BlockStatus::FAILED_MASK);
             return result;
         }
 
         self.synchronizer
             .insert_header_view(&self.header, self.peer);
         self.synchronizer
-            .insert_block_status(self.header.hash(), BlockStatus::VALID_MASK);
+            .insert_block_status(self.header.hash().clone(), BlockStatus::VALID_MASK);
         result
     }
 }

@@ -1,4 +1,3 @@
-use bigint::H256;
 use channel::{self, Receiver, Sender};
 use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::header::{Header, HeaderBuilder};
@@ -12,6 +11,7 @@ use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::{ChainProvider, Shared};
 use ckb_time::now_ms;
 use fnv::{FnvHashMap, FnvHashSet};
+use numext_fixed_hash::H256;
 use std::cmp;
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
@@ -38,7 +38,7 @@ pub struct AgentReceivers {
 }
 
 impl AgentController {
-    pub fn new() -> (AgentController, AgentReceivers) {
+    pub fn build() -> (AgentController, AgentReceivers) {
         let (get_block_template_sender, get_block_template_receiver) =
             channel::bounded(DEFAULT_CHANNEL_SIZE);
         (
@@ -60,7 +60,8 @@ impl AgentController {
         Request::call(
             &self.get_block_template_sender,
             (type_hash, max_tx, max_prop),
-        ).expect("get_block_template() failed")
+        )
+        .expect("get_block_template() failed")
     }
 }
 
@@ -91,7 +92,7 @@ impl<CI: ChainIndex + 'static> Agent<CI> {
                 select! {
                     recv(new_uncle_receiver) -> msg => match msg {
                         Ok(uncle_block) => {
-                            let hash = uncle_block.header().hash();
+                            let hash = uncle_block.header().hash().clone();
                             self.candidate_uncles.insert(hash, uncle_block);
                         }
                         _ => {
@@ -135,11 +136,11 @@ impl<CI: ChainIndex + 'static> Agent<CI> {
                 self.create_cellbase_transaction(header, &commit_transactions, type_hash)?;
 
             let header_builder = HeaderBuilder::default()
-                .parent_hash(&header.hash())
+                .parent_hash(header.hash().clone())
                 .timestamp(now)
                 .number(header.number() + 1)
-                .difficulty(&difficulty)
-                .cellbase_id(&cellbase.hash());
+                .difficulty(difficulty)
+                .cellbase_id(cellbase.hash().clone());
             (
                 cellbase,
                 commit_transactions,
@@ -204,16 +205,16 @@ impl<CI: ChainIndex + 'static> Agent<CI> {
         // tip.p^4  -----------/  6
         // tip.p^5  -------------/
         // tip.p^6
-        let mut block_hash = header.hash();
-        excluded.insert(block_hash);
+        let mut block_hash = header.hash().clone();
+        excluded.insert(block_hash.clone());
         for _depth in 0..max_uncles_age {
             if let Some(block) = self.shared.block(&block_hash) {
-                excluded.insert(block.header().parent_hash());
+                excluded.insert(block.header().parent_hash().clone());
                 for uncle in block.uncles() {
-                    excluded.insert(uncle.header.hash());
+                    excluded.insert(uncle.header.hash().clone());
                 }
 
-                block_hash = block.header().parent_hash();
+                block_hash = block.header().parent_hash().clone();
             } else {
                 break;
             }
@@ -239,7 +240,7 @@ impl<CI: ChainIndex + 'static> Agent<CI> {
             if block.header().difficulty() != header.difficulty()
                 || block_difficulty_epoch != tip_difficulty_epoch
             {
-                bad_uncles.push(*hash);
+                bad_uncles.push(hash.clone());
                 continue;
             }
 
@@ -249,7 +250,7 @@ impl<CI: ChainIndex + 'static> Agent<CI> {
                 || included.contains(hash)
                 || excluded.contains(hash)
             {
-                bad_uncles.push(*hash);
+                bad_uncles.push(hash.clone());
             } else if let Some(cellbase) = block.commit_transactions().first() {
                 let uncle = UncleBlock {
                     header: block.header().clone(),
@@ -257,9 +258,9 @@ impl<CI: ChainIndex + 'static> Agent<CI> {
                     proposal_transactions: block.proposal_transactions().to_vec(),
                 };
                 uncles.push(uncle);
-                included.insert(*hash);
+                included.insert(hash.clone());
             } else {
-                bad_uncles.push(*hash);
+                bad_uncles.push(hash.clone());
             }
         }
 

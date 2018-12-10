@@ -3,7 +3,7 @@ use super::secp256k1::key;
 use super::secp256k1::Message as SecpMessage;
 use super::signature::Signature;
 use super::{Message, Pubkey, SECP256K1};
-use bigint::H256;
+use numext_fixed_hash::H256;
 use std::str::FromStr;
 use std::{fmt, ops};
 
@@ -18,7 +18,7 @@ impl Privkey {
     pub fn sign_recoverable(&self, message: &Message) -> Result<Signature, Error> {
         let context = &SECP256K1;
         let message = message.as_ref();
-        let privkey = key::SecretKey::from_slice(context, &self.inner)?;
+        let privkey = key::SecretKey::from_slice(context, &self.inner.as_bytes())?;
         let message = SecpMessage::from_slice(message)?;
         let data = context.sign_recoverable(&message, &privkey)?;
         let (rec_id, data) = data.serialize_compact(context);
@@ -28,7 +28,7 @@ impl Privkey {
     pub fn sign_schnorr(&self, message: &Message) -> Result<Signature, Error> {
         let context = &SECP256K1;
         let message = message.as_ref();
-        let privkey = key::SecretKey::from_slice(context, &self.inner)?;
+        let privkey = key::SecretKey::from_slice(context, &self.inner.as_bytes())?;
         let message = SecpMessage::from_slice(message)?;
         let data = context.sign_schnorr(&message, &privkey)?;
         Ok(Signature::from_schnorr(data))
@@ -36,7 +36,7 @@ impl Privkey {
 
     pub fn pubkey(&self) -> Result<Pubkey, Error> {
         let context = &SECP256K1;
-        let privkey = key::SecretKey::from_slice(context, &self.inner)?;
+        let privkey = key::SecretKey::from_slice(context, &self.inner.as_bytes())?;
         let pubkey = key::PublicKey::from_secret_key(context, &privkey)?;
         Ok(Pubkey::from(pubkey))
     }
@@ -44,9 +44,9 @@ impl Privkey {
     pub fn from_slice(key: &[u8]) -> Self {
         assert_eq!(32, key.len(), "should provide 32-byte length slice");
 
-        let mut h = H256::default();
+        let mut h = [0u8; 32];
         h.copy_from_slice(&key[0..32]);
-        Privkey { inner: h }
+        Privkey { inner: h.into() }
     }
 }
 
@@ -82,9 +82,9 @@ impl ops::Deref for Privkey {
 
 impl From<key::SecretKey> for Privkey {
     fn from(key: key::SecretKey) -> Self {
-        let mut h = H256::default();
+        let mut h = [0u8; 32];
         h.copy_from_slice(&key[0..32]);
-        Privkey { inner: h }
+        Privkey { inner: h.into() }
     }
 }
 

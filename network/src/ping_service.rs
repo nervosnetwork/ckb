@@ -109,87 +109,87 @@ impl<T: Send> ProtocolService<T> for PingService {
                 .map(move |(out, addr)| (Self::ping_to_protocol(peer_id, out), addr))
         });
 
-        let periodic_ping_future =
-            Interval::new(Instant::now() + Duration::from_secs(5), self.ping_interval)
-                .map_err(|err| IoError::new(IoErrorKind::Other, err))
-                .for_each({
-                    let network = Arc::clone(&network);
-                    let transport = transport.clone();
-                    let ping_timeout = self.ping_timeout;
-                    move |_| {
-                        let mut ping_futures = FuturesUnordered::new();
-                        // build ping future for each peer
-                        for peer_id in network.peers() {
-                            let peer_id = peer_id.clone();
-                            // only ping first address?
-                            if let Some(addr) = network.get_peer_remote_addresses(&peer_id).get(0) {
-                                if let Some(pinger_loader) = network.get_peer_pinger(&peer_id) {
-                                    let ping_future = pinger_loader
-                                        .dial(&swarm_controller, &addr, transport.clone())
-                                        .and_then({
-                                            let peer_id = peer_id.clone();
-                                            move |mut pinger| {
-                                                pinger.ping().map(|_| peer_id).map_err(|err| {
-                                                    IoError::new(
-                                                        IoErrorKind::Other,
-                                                        format!("pinger error {}", err),
-                                                    )
-                                                })
-                                            }
-                                        });
-                                    let ping_start_time = Instant::now();
-                                    let ping_future =
-                                        Future::then(Timeout::new(ping_future, ping_timeout), {
-                                            let network = Arc::clone(&network);
-                                            move |result| -> Result<(), IoError> {
-                                                let mut peer_store = network.peer_store().write();
-                                                match result {
-                                                    Ok(peer_id) => {
-                                                        let received_during =
-                                                            ping_start_time.elapsed();
-                                                        peer_store
-                                                            .report(&peer_id, Behaviour::Ping);
-                                                        trace!(
+        let periodic_ping_future = Interval::new(
+            Instant::now() + Duration::from_secs(5),
+            self.ping_interval,
+        )
+        .map_err(|err| IoError::new(IoErrorKind::Other, err))
+        .for_each({
+            let network = Arc::clone(&network);
+            let transport = transport.clone();
+            let ping_timeout = self.ping_timeout;
+            move |_| {
+                let mut ping_futures = FuturesUnordered::new();
+                // build ping future for each peer
+                for peer_id in network.peers() {
+                    let peer_id = peer_id.clone();
+                    // only ping first address?
+                    if let Some(addr) = network.get_peer_remote_addresses(&peer_id).get(0) {
+                        if let Some(pinger_loader) = network.get_peer_pinger(&peer_id) {
+                            let ping_future = pinger_loader
+                                .dial(&swarm_controller, &addr, transport.clone())
+                                .and_then({
+                                    let peer_id = peer_id.clone();
+                                    move |mut pinger| {
+                                        pinger.ping().map(|_| peer_id).map_err(|err| {
+                                            IoError::new(
+                                                IoErrorKind::Other,
+                                                format!("pinger error {}", err),
+                                            )
+                                        })
+                                    }
+                                });
+                            let ping_start_time = Instant::now();
+                            let ping_future =
+                                Future::then(Timeout::new(ping_future, ping_timeout), {
+                                    let network = Arc::clone(&network);
+                                    move |result| -> Result<(), IoError> {
+                                        let mut peer_store = network.peer_store().write();
+                                        match result {
+                                            Ok(peer_id) => {
+                                                let received_during = ping_start_time.elapsed();
+                                                peer_store.report(&peer_id, Behaviour::Ping);
+                                                trace!(
                                                     target: "network",
                                                     "received pong from {:?} in {:?}",
                                                     peer_id,
                                                     received_during
                                                 );
-                                                        Ok(())
-                                                    }
-                                                    Err(err) => {
-                                                        peer_store.report(
-                                                            &peer_id,
-                                                            Behaviour::FailedToPing,
-                                                        );
-                                                        network.drop_peer(&peer_id);
-                                                        trace!(
+                                                Ok(())
+                                            }
+                                            Err(err) => {
+                                                peer_store
+                                                    .report(&peer_id, Behaviour::FailedToPing);
+                                                network.drop_peer(&peer_id);
+                                                trace!(
                                                     target: "network",
                                                     "error when send ping to {:?}, error: {:?}",
                                                     peer_id,
                                                     err
                                                 );
-                                                        Ok(())
-                                                    }
-                                                }
+                                                Ok(())
                                             }
-                                        });
-                                    ping_futures.push(Box::new(ping_future)
-                                        as Box<Future<Item = _, Error = _> + Send>);
-                                }
-                            }
-                        }
-                        Box::new(
+                                        }
+                                    }
+                                });
                             ping_futures
-                                .into_future()
-                                .map(|_| ())
-                                .map_err(|(err, _)| err),
-                        ) as Box<Future<Item = _, Error = _> + Send>
+                                .push(Box::new(ping_future)
+                                    as Box<Future<Item = _, Error = _> + Send>);
+                        }
                     }
-                }).then(|err| {
-                    warn!(target: "network", "Ping service stopped, reason: {:?}", err);
-                    err
-                });
+                }
+                Box::new(
+                    ping_futures
+                        .into_future()
+                        .map(|_| ())
+                        .map_err(|(err, _)| err),
+                ) as Box<Future<Item = _, Error = _> + Send>
+            }
+        })
+        .then(|err| {
+            warn!(target: "network", "Ping service stopped, reason: {:?}", err);
+            err
+        });
         Box::new(periodic_ping_future) as Box<Future<Item = _, Error = _> + Send>
     }
 }

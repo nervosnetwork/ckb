@@ -1,19 +1,20 @@
 use super::super::transaction_verifier::{
     CapacityVerifier, DuplicateInputsVerifier, EmptyVerifier, NullVerifier,
 };
-use bigint::H256;
 use ckb_core::cell::CellStatus;
 use ckb_core::cell::ResolvedTransaction;
 use ckb_core::transaction::{CellInput, CellOutput, OutPoint, TransactionBuilder};
 use error::TransactionError;
+use numext_fixed_hash::H256;
 
 #[test]
 pub fn test_null() {
     let transaction = TransactionBuilder::default()
         .input(CellInput::new(
-            OutPoint::new(H256::from(0), u32::max_value()),
+            OutPoint::new(H256::zero(), u32::max_value()),
             Default::default(),
-        )).build();
+        ))
+        .build();
     let verifier = NullVerifier::new(&transaction);
     assert_eq!(verifier.verify().err(), Some(TransactionError::NullInput));
 }
@@ -29,7 +30,7 @@ pub fn test_empty() {
 #[test]
 pub fn test_capacity_outofbound() {
     let transaction = TransactionBuilder::default()
-        .output(CellOutput::new(50, vec![1; 51], H256::from(0), None))
+        .output(CellOutput::new(50, vec![1; 51], H256::zero(), None))
         .build();
 
     let rtx = ResolvedTransaction {
@@ -38,7 +39,7 @@ pub fn test_capacity_outofbound() {
         input_cells: vec![CellStatus::Current(CellOutput::new(
             50,
             Vec::new(),
-            H256::from(0),
+            H256::zero(),
             None,
         ))],
     };
@@ -51,16 +52,17 @@ pub fn test_capacity_outofbound() {
 pub fn test_capacity_invalid() {
     let transaction = TransactionBuilder::default()
         .outputs(vec![
-            CellOutput::new(50, Vec::new(), H256::from(0), None),
-            CellOutput::new(100, Vec::new(), H256::from(0), None),
-        ]).build();
+            CellOutput::new(50, Vec::new(), H256::zero(), None),
+            CellOutput::new(100, Vec::new(), H256::zero(), None),
+        ])
+        .build();
 
     let rtx = ResolvedTransaction {
         transaction,
         dep_cells: Vec::new(),
         input_cells: vec![
-            CellStatus::Current(CellOutput::new(49, Vec::new(), H256::from(0), None)),
-            CellStatus::Current(CellOutput::new(100, Vec::new(), H256::from(0), None)),
+            CellStatus::Current(CellOutput::new(49, Vec::new(), H256::zero(), None)),
+            CellStatus::Current(CellOutput::new(100, Vec::new(), H256::zero(), None)),
         ],
     };
     let verifier = CapacityVerifier::new(&rtx);
@@ -75,9 +77,16 @@ pub fn test_capacity_invalid() {
 pub fn test_duplicate_inputs() {
     let transaction = TransactionBuilder::default()
         .inputs(vec![
-            CellInput::new(OutPoint::new(H256::from(1), 0), Default::default()),
-            CellInput::new(OutPoint::new(H256::from(1), 0), Default::default()),
-        ]).build();
+            CellInput::new(
+                OutPoint::new(H256::from_trimmed_hex_str("1").unwrap(), 0),
+                Default::default(),
+            ),
+            CellInput::new(
+                OutPoint::new(H256::from_trimmed_hex_str("1").unwrap(), 0),
+                Default::default(),
+            ),
+        ])
+        .build();
 
     let verifier = DuplicateInputsVerifier::new(&transaction);
 

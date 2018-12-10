@@ -31,15 +31,15 @@ The contribution workflow is described in [CONTRIBUTING.md](CONTRIBUTING.md), an
 
 ## Build dependencies
 
-CKB is currently tested mainly with `stable-1.29.2` on Linux and Mac OSX.
+CKB is currently tested mainly with `stable-1.31.0` on Linux and Mac OSX.
 
 We recommend installing Rust through [rustup](https://www.rustup.rs/)
 
 ```bash
 # Get rustup from rustup.rs, then in your `ckb` folder:
-rustup override set 1.29.2
-rustup component add rustfmt-preview
-rustup component add clippy-preview
+rustup override set 1.31.0
+rustup component add rustfmt
+rustup component add clippy
 ```
 
 Report new breakage is welcome.

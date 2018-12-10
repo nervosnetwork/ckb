@@ -1,18 +1,19 @@
 //! Transaction using Cell.
 //! It is similar to Bitcoin Tx <https://en.bitcoin.it/wiki/Protocol_documentation#tx/>
-use bigint::H256;
 use bincode::{deserialize, serialize};
 use ckb_util::u64_to_bytes;
 use hash::sha3_256;
 use header::BlockNumber;
+use numext_fixed_hash::H256;
 use script::Script;
+use std::mem;
 use std::ops::{Deref, DerefMut};
 
 pub const VERSION: u32 = 0;
 
 pub use Capacity;
 
-#[derive(Clone, Copy, Serialize, Deserialize, Eq, PartialEq, Hash, Debug)]
+#[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Hash, Debug)]
 pub struct OutPoint {
     // Hash of Transaction
     pub hash: H256,
@@ -108,7 +109,10 @@ pub struct Transaction {
 
 impl CellOutput {
     pub fn bytes_len(&self) -> usize {
-        8 + self.data.len() + self.lock.len() + self.contract.as_ref().map_or(0, |s| s.bytes_len())
+        mem::size_of::<Capacity>()
+            + self.data.len()
+            + self.lock.as_bytes().len()
+            + self.contract.as_ref().map_or(0, |s| s.bytes_len())
     }
 }
 
@@ -177,8 +181,8 @@ impl Transaction {
         self.inputs.len() == 1 && self.inputs[0].previous_output.is_null()
     }
 
-    pub fn hash(&self) -> H256 {
-        sha3_256(serialize(self).unwrap()).into()
+    pub fn hash(&self) -> &H256 {
+        &self.hash
     }
 
     pub fn check_lock(&self, unlock: &[u8], lock: &[u8]) -> bool {
@@ -197,12 +201,15 @@ impl Transaction {
     pub fn output_pts(&self) -> Vec<OutPoint> {
         let h = self.hash();
         (0..self.outputs.len())
-            .map(|x| OutPoint::new(h, x as u32))
+            .map(|x| OutPoint::new(h.clone(), x as u32))
             .collect()
     }
 
     pub fn input_pts(&self) -> Vec<OutPoint> {
-        self.inputs.iter().map(|x| x.previous_output).collect()
+        self.inputs
+            .iter()
+            .map(|x| x.previous_output.clone())
+            .collect()
     }
 
     pub fn dep_pts(&self) -> Vec<OutPoint> {
@@ -280,13 +287,13 @@ impl TransactionBuilder {
     }
 
     pub fn build(self) -> Transaction {
-        let hash = H256::from_slice(&sha3_256(serialize(&self.inner).unwrap()));
-        self.with_hash(&hash)
+        let hash: H256 = sha3_256(serialize(&self.inner).unwrap()).into();
+        self.with_hash(hash)
     }
 
-    pub fn with_hash(self, hash: &H256) -> Transaction {
+    pub fn with_hash(self, hash: H256) -> Transaction {
         let mut transaction = self.inner;
-        transaction.hash = *hash;
+        transaction.hash = hash;
         transaction
     }
 }

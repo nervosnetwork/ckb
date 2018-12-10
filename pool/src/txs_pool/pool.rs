@@ -3,7 +3,6 @@ use super::types::{
     InsertionResult, Orphan, PendingQueue, Pool, PoolConfig, PoolError, ProposedQueue, TxStage,
     TxoStatus,
 };
-use bigint::H256;
 use channel::{self, Receiver, Sender};
 use ckb_core::block::Block;
 use ckb_core::cell::{CellProvider, CellStatus};
@@ -14,6 +13,7 @@ use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::{ChainProvider, Shared};
 use ckb_verification::{TransactionError, TransactionVerifier};
 use lru_cache::LruCache;
+use numext_fixed_hash::H256;
 use std::thread::{self, JoinHandle};
 
 #[cfg(test)]
@@ -42,7 +42,7 @@ pub struct TransactionPoolReceivers {
 }
 
 impl TransactionPoolController {
-    pub fn new() -> (TransactionPoolController, TransactionPoolReceivers) {
+    pub fn build() -> (TransactionPoolController, TransactionPoolReceivers) {
         let (get_proposal_commit_transactions_sender, get_proposal_commit_transactions_receiver) =
             channel::bounded(DEFAULT_CHANNEL_SIZE);
         let (get_potential_transactions_sender, get_potential_transactions_receiver) =
@@ -78,7 +78,8 @@ impl TransactionPoolController {
         Request::call(
             &self.get_proposal_commit_transactions_sender,
             (max_prop, max_tx),
-        ).expect("get_proposal_commit_transactions() failed")
+        )
+        .expect("get_proposal_commit_transactions() failed")
     }
 
     pub fn get_potential_transactions(&self) -> Vec<Transaction> {
@@ -429,7 +430,7 @@ where
             for (i, cs) in rtx.input_cells.iter().enumerate() {
                 match cs {
                     CellStatus::Unknown => {
-                        unknowns.push(inputs[i]);
+                        unknowns.push(inputs[i].clone());
                     }
                     CellStatus::Old => {
                         self.cache.insert(tx.proposal_short_id(), tx);
@@ -442,7 +443,7 @@ where
             for (i, cs) in rtx.dep_cells.iter().enumerate() {
                 match cs {
                     CellStatus::Unknown => {
-                        unknowns.push(deps[i]);
+                        unknowns.push(deps[i].clone());
                     }
                     CellStatus::Old => {
                         self.cache.insert(tx.proposal_short_id(), tx);
@@ -545,7 +546,7 @@ where
 
         // We can sort it by some rules
         for tx in new_txs {
-            let tx_hash = tx.hash();
+            let tx_hash = tx.hash().clone();
             if let Err(error) = self.add_to_pool(tx) {
                 error!(target: "txs_pool", "Failed to add proposed tx {:} to pool, reason: {:?}", tx_hash, error);
             }

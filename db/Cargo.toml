@@ -8,7 +8,7 @@ authors = ["Nervos Core Dev <dev@nervos.org>"]
 bincode = "1.0"
 ckb-util = { path = "../util" }
 ckb-core = { path = "../core" }
-bigint = { git = "https://github.com/nervosnetwork/bigint" }
+numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 rocksdb = { git = "https://github.com/nervosnetwork/rust-rocksdb" }
 fnv = "1.0.3"
 

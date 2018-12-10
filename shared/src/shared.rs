@@ -1,5 +1,4 @@
 use super::{COLUMNS, COLUMN_BLOCK_HEADER};
-use bigint::{H256, U256};
 use cachedb::CacheDB;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::Block;
@@ -16,6 +15,8 @@ use ckb_util::RwLock;
 use error::SharedError;
 use fnv::FnvHashSet;
 use index::ChainIndex;
+use numext_fixed_hash::H256;
+use numext_fixed_uint::U256;
 use std::path::Path;
 use std::sync::Arc;
 use store::ChainKVStore;
@@ -40,12 +41,12 @@ impl TipHeader {
         self.inner.number()
     }
 
-    pub fn hash(&self) -> H256 {
+    pub fn hash(&self) -> &H256 {
         self.inner.hash()
     }
 
-    pub fn total_difficulty(&self) -> U256 {
-        self.total_difficulty
+    pub fn total_difficulty(&self) -> &U256 {
+        &self.total_difficulty
     }
 
     pub fn inner(&self) -> &Header {
@@ -56,8 +57,8 @@ impl TipHeader {
         self.inner
     }
 
-    pub fn output_root(&self) -> H256 {
-        self.output_root
+    pub fn output_root(&self) -> &H256 {
+        &self.output_root
     }
 }
 
@@ -191,7 +192,7 @@ pub trait ChainProvider: Sync + Send {
 
     fn block(&self, hash: &H256) -> Option<Block>;
 
-    fn genesis_hash(&self) -> H256;
+    fn genesis_hash(&self) -> &H256;
 
     fn get_transaction(&self, hash: &H256) -> Option<Transaction>;
 
@@ -249,7 +250,7 @@ impl<CI: ChainIndex> ChainProvider for Shared<CI> {
         self.store.get_block_number(hash)
     }
 
-    fn genesis_hash(&self) -> H256 {
+    fn genesis_hash(&self) -> &H256 {
         self.consensus.genesis_block().header().hash()
     }
 
@@ -266,12 +267,12 @@ impl<CI: ChainIndex> ChainProvider for Shared<CI> {
     }
 
     fn get_transaction_meta(&self, output_root: &H256, hash: &H256) -> Option<TransactionMeta> {
-        self.store.get_transaction_meta(*output_root, *hash)
+        self.store.get_transaction_meta(output_root, hash)
     }
 
     fn get_transaction_meta_at(&self, hash: &H256, parent: &H256) -> Option<TransactionMeta> {
         self.output_root(parent)
-            .and_then(|root| self.store.get_transaction_meta(root, *hash))
+            .and_then(|ref root| self.store.get_transaction_meta(root, hash))
     }
 
     fn block_reward(&self, _block_number: BlockNumber) -> Capacity {
@@ -335,7 +336,7 @@ impl<CI: ChainIndex> ChainProvider for Shared<CI> {
                 let ids_vec: Vec<ProposalShortId> = ids_set.into_iter().collect();
                 ret.push(ids_vec);
 
-                hash = self.block_header(&hash).unwrap().parent_hash();
+                hash = self.block_header(&hash).unwrap().parent_hash().clone();
             }
         }
 
@@ -378,6 +379,7 @@ impl<CI: ChainIndex> ChainProvider for Shared<CI> {
     // T_interval = L / C_m
     // HR_m = HR_last/ (1 + o)
     // Diff= HR_m * T_interval / H = Diff_last * o_last / o
+    #[allow(clippy::op_ref)]
     fn calculate_difficulty(&self, last: &Header) -> Option<U256> {
         let last_hash = last.hash();
         let last_number = last.number();
@@ -386,7 +388,7 @@ impl<CI: ChainIndex> ChainProvider for Shared<CI> {
         let interval = self.consensus.difficulty_adjustment_interval();
 
         if (last_number + 1) % interval != 0 {
-            return Some(last_difficulty);
+            return Some(last_difficulty.clone());
         }
 
         let start = last_number.saturating_sub(interval);
@@ -407,13 +409,13 @@ impl<CI: ChainIndex> ChainProvider for Shared<CI> {
                 / U256::from(interval);
 
             let min_difficulty = self.consensus.min_difficulty();
-            let max_difficulty = last_difficulty * 2;
-            if difficulty > max_difficulty {
+            let max_difficulty = last_difficulty * 2u32;
+            if &difficulty > &max_difficulty {
                 return Some(max_difficulty);
             }
 
-            if difficulty < min_difficulty {
-                return Some(min_difficulty);
+            if &difficulty < min_difficulty {
+                return Some(min_difficulty.clone());
             }
             return Some(difficulty);
         }

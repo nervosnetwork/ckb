@@ -16,7 +16,7 @@ pub fn import(setup: &Setup, matches: &ArgMatches) {
     let shared = SharedBuilder::<ChainKVStore<CacheDB<RocksDB>>>::new_rocks(&db_path)
         .consensus(setup.chain_spec.to_consensus().unwrap())
         .build();
-    let (chain_controller, chain_receivers) = ChainController::new();
+    let (chain_controller, chain_receivers) = ChainController::build();
     let chain_service = ChainBuilder::new(shared).build();
     let _handle = chain_service.start(Some("ImportChainService"), chain_receivers);
 

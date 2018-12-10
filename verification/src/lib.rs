@@ -1,4 +1,3 @@
-extern crate bigint;
 extern crate ckb_core;
 extern crate ckb_pow;
 extern crate ckb_script;
@@ -6,6 +5,8 @@ extern crate ckb_shared;
 extern crate ckb_time;
 extern crate fnv;
 extern crate merkle_root;
+extern crate numext_fixed_hash;
+extern crate numext_fixed_uint;
 extern crate rayon;
 
 #[cfg(test)]

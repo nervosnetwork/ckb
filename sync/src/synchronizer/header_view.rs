@@ -1,5 +1,6 @@
-use bigint::{H256, U256};
 use ckb_core::header::{BlockNumber, Header};
+use numext_fixed_hash::H256;
+use numext_fixed_uint::U256;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct HeaderView {
@@ -21,7 +22,7 @@ impl HeaderView {
         self.inner.number()
     }
 
-    pub fn hash(&self) -> H256 {
+    pub fn hash(&self) -> &H256 {
         self.inner.hash()
     }
 
@@ -29,8 +30,8 @@ impl HeaderView {
         self.total_uncles_count
     }
 
-    pub fn total_difficulty(&self) -> U256 {
-        self.total_difficulty
+    pub fn total_difficulty(&self) -> &U256 {
+        &self.total_difficulty
     }
 
     pub fn inner(&self) -> &Header {

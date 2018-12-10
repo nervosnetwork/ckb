@@ -13,7 +13,8 @@ ckb-util = { path = "../util" }
 ckb-script = { path = "../script" }
 ckb-pow = { path = "../pow" }
 merkle-root = {path = "../util/merkle-root"}
-bigint = { git = "https://github.com/nervosnetwork/bigint" }
+numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
+numext-fixed-uint = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 rayon = "1.0"
 fnv = "1.0.3"
 crossbeam-channel = "0.3"

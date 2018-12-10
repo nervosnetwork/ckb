@@ -5,7 +5,7 @@ license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 
 [dependencies]
-bigint = { git = "https://github.com/nervosnetwork/bigint" }
+numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 ckb-core = { path = "../core" }
 ckb-network = { path = "../network" }
 ckb-shared = { path = "../shared" }

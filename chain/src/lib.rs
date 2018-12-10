@@ -7,7 +7,6 @@
 //! - [Chain](chain::chain::Chain) represent a struct which
 //!   implement `ChainProvider`
 
-extern crate bigint;
 extern crate ckb_chain_spec;
 extern crate ckb_core;
 extern crate ckb_db;
@@ -15,6 +14,8 @@ extern crate ckb_notify;
 extern crate ckb_shared;
 extern crate ckb_time;
 extern crate ckb_verification;
+extern crate numext_fixed_hash;
+extern crate numext_fixed_uint;
 #[macro_use]
 extern crate log;
 #[macro_use]

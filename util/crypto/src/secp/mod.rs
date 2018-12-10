@@ -2,7 +2,7 @@
 
 extern crate secp256k1;
 
-use bigint::H256;
+use numext_fixed_hash::H256;
 
 pub type Message = H256;
 

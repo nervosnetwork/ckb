@@ -1,4 +1,3 @@
-extern crate bigint;
 extern crate ckb_core;
 extern crate ckb_protocol;
 extern crate ckb_vm;
@@ -10,6 +9,7 @@ extern crate flatbuffers;
 extern crate fnv;
 #[cfg(test)]
 extern crate hash;
+extern crate numext_fixed_hash;
 #[macro_use]
 extern crate log;
 #[cfg(test)]

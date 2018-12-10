@@ -34,7 +34,8 @@ pub trait CKBProtocolContext: Send {
             .filter_map(|peer_index| {
                 self.session_info(*peer_index)
                     .and_then(|session| Some((*peer_index, session)))
-            }).collect()
+            })
+            .collect()
     }
     fn connected_peers(&self) -> Vec<PeerIndex>;
 }

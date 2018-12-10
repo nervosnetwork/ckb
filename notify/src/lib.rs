@@ -1,4 +1,4 @@
-#![cfg_attr(feature = "cargo-clippy", allow(needless_pass_by_value))]
+#![allow(clippy::needless_pass_by_value)]
 
 extern crate ckb_core;
 #[macro_use]

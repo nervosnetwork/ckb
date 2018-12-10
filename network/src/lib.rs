@@ -73,9 +73,10 @@ pub struct Config {
 
 impl Config {
     fn max_outgoing_peers(&self) -> u32 {
-        self.max_peers / self
-            .outgoing_peers_ratio
-            .unwrap_or_else(|| DEFAULT_OUTGOING_PEERS_RATIO)
+        self.max_peers
+            / self
+                .outgoing_peers_ratio
+                .unwrap_or_else(|| DEFAULT_OUTGOING_PEERS_RATIO)
     }
     fn max_incoming_peers(&self) -> u32 {
         self.max_peers - self.max_outgoing_peers()

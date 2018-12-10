@@ -1,11 +1,11 @@
 use super::ScriptError;
-use bigint::H256;
 use ckb_core::cell::ResolvedTransaction;
 use ckb_core::script::Script;
 use ckb_core::transaction::{CellInput, CellOutput};
 use ckb_vm::{DefaultMachine, SparseMemory};
 use flatbuffers::FlatBufferBuilder;
 use fnv::FnvHashMap;
+use numext_fixed_hash::H256;
 use syscalls::{build_tx, Debugger, FetchScriptHash, MmapCell, MmapTx};
 
 // This struct leverages CKB VM to verify transaction inputs.
@@ -31,7 +31,8 @@ impl<'a> TransactionScriptsVerifier<'a> {
                     .expect("already verifies that all dep cells are valid");
                 let hash = output.data_hash();
                 (hash, output)
-            }).collect();
+            })
+            .collect();
 
         let inputs = rtx.transaction.inputs().iter().collect();
         let outputs = rtx.transaction.outputs().iter().collect();
@@ -42,7 +43,8 @@ impl<'a> TransactionScriptsVerifier<'a> {
             .map(|cell| {
                 cell.get_current()
                     .expect("already verifies that all input cells are valid")
-            }).collect();
+            })
+            .collect();
 
         let mut tx_builder = FlatBufferBuilder::new();
         let tx_offset = build_tx(&mut tx_builder, &rtx.transaction);
@@ -54,7 +56,7 @@ impl<'a> TransactionScriptsVerifier<'a> {
             tx_builder,
             outputs,
             input_cells,
-            hash: rtx.transaction.hash(),
+            hash: rtx.transaction.hash().clone(),
         }
     }
 
@@ -81,8 +83,8 @@ impl<'a> TransactionScriptsVerifier<'a> {
         if let Some(ref data) = script.binary {
             return Ok(data);
         }
-        if let Some(hash) = script.reference {
-            return match self.dep_cells.get(&hash) {
+        if let Some(ref hash) = script.reference {
+            return match self.dep_cells.get(hash) {
                 Some(ref cell_output) => Ok(&cell_output.data),
                 None => Err(ScriptError::InvalidReferenceIndex),
             };
@@ -138,7 +140,6 @@ impl<'a> TransactionScriptsVerifier<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bigint::H256;
     use ckb_core::cell::CellStatus;
     use ckb_core::script::Script;
     use ckb_core::transaction::{CellInput, CellOutput, OutPoint, TransactionBuilder};
@@ -147,6 +148,7 @@ mod tests {
     use faster_hex::hex_to;
     use fnv::FnvHashMap;
     use hash::sha3_256;
+    use numext_fixed_hash::H256;
     use std::fs::File;
     use std::io::{Read, Write};
     use std::path::Path;
@@ -154,13 +156,15 @@ mod tests {
     fn open_cell_verify() -> File {
         File::open(
             Path::new(env!("CARGO_MANIFEST_DIR")).join("../nodes_template/spec/cells/verify"),
-        ).unwrap()
+        )
+        .unwrap()
     }
     fn open_cell_always_success() -> File {
         File::open(
             Path::new(env!("CARGO_MANIFEST_DIR"))
                 .join("../nodes_template/spec/cells/always_success"),
-        ).unwrap()
+        )
+        .unwrap()
     }
 
     #[test]
@@ -273,8 +277,8 @@ mod tests {
         hex_to(&signature_der, &mut hex_signature).expect("hex privkey");
         args.insert(0, hex_signature);
 
-        let dep_outpoint = OutPoint::new(H256::from(123), 8);
-        let dep_cell = CellOutput::new(buffer.len() as Capacity, buffer, H256::from(0), None);
+        let dep_outpoint = OutPoint::new(H256::from_trimmed_hex_str("123").unwrap(), 8);
+        let dep_cell = CellOutput::new(buffer.len() as Capacity, buffer, H256::zero(), None);
         let mut dep_cells = FnvHashMap::default();
         dep_cells.insert(&dep_outpoint, &dep_cell);
 
@@ -287,7 +291,7 @@ mod tests {
 
         let transaction = TransactionBuilder::default()
             .input(input.clone())
-            .dep(dep_outpoint)
+            .dep(dep_outpoint.clone())
             .build();
 
         let rtx = ResolvedTransaction {
@@ -323,12 +327,18 @@ mod tests {
         hex_to(&signature_der, &mut hex_signature).expect("hex privkey");
         args.insert(0, hex_signature);
 
-        let dep_outpoint = OutPoint::new(H256::from(123), 8);
+        let dep_outpoint = OutPoint::new(H256::from_trimmed_hex_str("123").unwrap(), 8);
 
         let privkey = privkey.pubkey().unwrap().serialize();
         let mut hex_privkey = vec![0; privkey.len() * 2];
         hex_to(&privkey, &mut hex_privkey).expect("hex privkey");
-        let script = Script::new(0, args, Some(H256::from(234)), None, vec![hex_privkey]);
+        let script = Script::new(
+            0,
+            args,
+            Some(H256::from_trimmed_hex_str("234").unwrap()),
+            None,
+            vec![hex_privkey],
+        );
 
         let input = CellInput::new(OutPoint::null(), script);
 
@@ -385,7 +395,7 @@ mod tests {
 
         let script = Script::new(0, args, None, Some(buffer), vec![hex_privkey]);
         let input = CellInput::new(OutPoint::null(), create_always_success_script());
-        let output = CellOutput::new(0, Vec::new(), H256::from(0), Some(script));
+        let output = CellOutput::new(0, Vec::new(), H256::zero(), Some(script));
 
         let transaction = TransactionBuilder::default()
             .input(input.clone())
@@ -434,7 +444,7 @@ mod tests {
 
         let script = Script::new(0, args, None, Some(buffer), vec![hex_privkey]);
         let input = CellInput::new(OutPoint::null(), create_always_success_script());
-        let output = CellOutput::new(0, Vec::new(), H256::from(0), Some(script));
+        let output = CellOutput::new(0, Vec::new(), H256::zero(), Some(script));
 
         let transaction = TransactionBuilder::default()
             .input(input.clone())

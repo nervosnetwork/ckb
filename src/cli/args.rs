@@ -103,9 +103,11 @@ fn cli() -> App<'static, 'static> {
                         .takes_value(true)
                         .required(true),
                 ),
-        ).subcommand(
+        )
+        .subcommand(
             SubCommand::with_name("type_hash")
                 .about("Generate script type hash using sha3-secp256k1 defined in system cell")
                 .arg(arg_private_key()),
-        ).subcommand(SubCommand::with_name("keygen").about("Generate new key"))
+        )
+        .subcommand(SubCommand::with_name("keygen").about("Generate new key"))
 }

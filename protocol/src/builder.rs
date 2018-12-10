@@ -1,10 +1,11 @@
-use bigint::H256;
 use ckb_core::block::Block;
 use ckb_core::header::{BlockNumber, Header};
 use ckb_core::script::Script;
 use ckb_core::transaction::{CellInput, CellOutput, OutPoint, ProposalShortId, Transaction};
 use ckb_core::uncle::UncleBlock;
 use flatbuffers::{FlatBufferBuilder, WIPOffset};
+use numext_fixed_hash::H256;
+use numext_fixed_uint::U256;
 use protocol_generated::ckb::protocol::{
     Block as FbsBlock, BlockBuilder, BlockProposalBuilder, BlockTransactionsBuilder,
     Bytes as FbsBytes, BytesBuilder, CellInput as FbsCellInput, CellInputBuilder,
@@ -21,6 +22,13 @@ use rand::{thread_rng, Rng};
 use std::collections::HashSet;
 use {short_transaction_id, short_transaction_id_keys};
 
+fn uint_to_bytes(uint: &U256) -> [u8; 32] {
+    let mut bytes = [0u8; 32];
+    uint.into_little_endian(&mut bytes)
+        .expect("uint into_little_endian");
+    bytes
+}
+
 impl<'a> FbsBytes<'a> {
     pub fn build<'b>(fbb: &mut FlatBufferBuilder<'b>, seq: &[u8]) -> WIPOffset<FbsBytes<'b>> {
         let seq = fbb.create_vector(seq);
@@ -32,13 +40,13 @@ impl<'a> FbsBytes<'a> {
 
 impl<'a> FbsHeader<'a> {
     pub fn build<'b>(fbb: &mut FlatBufferBuilder<'b>, header: &Header) -> WIPOffset<FbsHeader<'b>> {
-        let parent_hash = FbsBytes::build(fbb, &header.parent_hash());
-        let txs_commit = FbsBytes::build(fbb, &header.txs_commit());
-        let txs_proposal = FbsBytes::build(fbb, &header.txs_proposal());
-        let difficulty = FbsBytes::build(fbb, &<[u8; 32]>::from(header.difficulty()));
+        let parent_hash = FbsBytes::build(fbb, header.parent_hash().as_bytes());
+        let txs_commit = FbsBytes::build(fbb, header.txs_commit().as_bytes());
+        let txs_proposal = FbsBytes::build(fbb, header.txs_proposal().as_bytes());
+        let difficulty = FbsBytes::build(fbb, &uint_to_bytes(header.difficulty()));
         let proof = FbsBytes::build(fbb, &header.proof());
-        let cellbase_id = FbsBytes::build(fbb, &header.cellbase_id());
-        let uncles_hash = FbsBytes::build(fbb, &header.uncles_hash());
+        let cellbase_id = FbsBytes::build(fbb, header.cellbase_id().as_bytes());
+        let uncles_hash = FbsBytes::build(fbb, header.uncles_hash().as_bytes());
         let mut builder = HeaderBuilder::new(fbb);
         builder.add_version(header.version());
         builder.add_parent_hash(parent_hash);
@@ -96,7 +104,7 @@ impl<'a> FbsOutPoint<'a> {
         fbb: &mut FlatBufferBuilder<'b>,
         out_point: &OutPoint,
     ) -> WIPOffset<FbsOutPoint<'b>> {
-        let hash = FbsBytes::build(fbb, &out_point.hash);
+        let hash = FbsBytes::build(fbb, out_point.hash.as_bytes());
         let mut builder = OutPointBuilder::new(fbb);
         builder.add_hash(hash);
         builder.add_index(out_point.index);
@@ -109,7 +117,7 @@ impl<'a> FbsCellInput<'a> {
         fbb: &mut FlatBufferBuilder<'b>,
         cell_input: &CellInput,
     ) -> WIPOffset<FbsCellInput<'b>> {
-        let hash = FbsBytes::build(fbb, &cell_input.previous_output.hash);
+        let hash = FbsBytes::build(fbb, cell_input.previous_output.hash.as_bytes());
         let unlock = FbsScript::build(fbb, &cell_input.unlock);
 
         let mut builder = CellInputBuilder::new(fbb);
@@ -131,7 +139,10 @@ impl<'a> FbsScript<'a> {
 
         let binary = script.binary.as_ref().map(|s| FbsBytes::build(fbb, s));
 
-        let reference = script.reference.as_ref().map(|b| FbsBytes::build(fbb, b));
+        let reference = script
+            .reference
+            .as_ref()
+            .map(|b| FbsBytes::build(fbb, b.as_bytes()));
 
         let vec = script
             .signed_args
@@ -160,7 +171,7 @@ impl<'a> FbsCellOutput<'a> {
         cell_output: &CellOutput,
     ) -> WIPOffset<FbsCellOutput<'b>> {
         let data = FbsBytes::build(fbb, &cell_output.data);
-        let lock = FbsBytes::build(fbb, &cell_output.lock);
+        let lock = FbsBytes::build(fbb, &cell_output.lock.as_bytes());
         let contract = cell_output
             .contract
             .as_ref()
@@ -256,7 +267,7 @@ impl<'a> FbsGetHeaders<'a> {
     ) -> WIPOffset<FbsGetHeaders<'b>> {
         let vec = block_locator_hashes
             .iter()
-            .map(|hash| FbsBytes::build(fbb, &hash))
+            .map(|hash| FbsBytes::build(fbb, hash.as_bytes()))
             .collect::<Vec<_>>();
         let block_locator_hashes = fbb.create_vector(&vec);
         let mut builder = GetHeadersBuilder::new(fbb);
@@ -276,7 +287,7 @@ impl<'a> FbsGetBlocks<'a> {
     ) -> WIPOffset<FbsGetBlocks<'b>> {
         let vec = block_hashes
             .iter()
-            .map(|hash| FbsBytes::build(fbb, &hash))
+            .map(|hash| FbsBytes::build(fbb, hash.as_bytes()))
             .collect::<Vec<_>>();
         let block_hashes = fbb.create_vector(&vec);
         let mut builder = GetBlocksBuilder::new(fbb);
@@ -423,7 +434,7 @@ impl<'a> RelayMessage<'a> {
         indexes: &[u32],
     ) -> WIPOffset<RelayMessage<'b>> {
         let get_block_transactions = {
-            let hash = FbsBytes::build(fbb, hash);
+            let hash = FbsBytes::build(fbb, hash.as_bytes());
             let indexes = fbb.create_vector(indexes);
             let mut builder = GetBlockTransactionsBuilder::new(fbb);
             builder.add_hash(hash);
@@ -443,7 +454,7 @@ impl<'a> RelayMessage<'a> {
         transactions: &[Transaction],
     ) -> WIPOffset<RelayMessage<'b>> {
         let block_transactions = {
-            let hash = FbsBytes::build(fbb, hash);;
+            let hash = FbsBytes::build(fbb, hash.as_bytes());;
             let vec = transactions
                 .iter()
                 .map(|transaction| FbsTransaction::build(fbb, transaction))

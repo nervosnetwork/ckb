@@ -73,13 +73,13 @@ impl Source {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bigint::H256;
     use ckb_core::script::Script;
     use ckb_core::transaction::{CellInput, CellOutput, OutPoint};
     use ckb_vm::machine::DefaultCoreMachine;
     use ckb_vm::{
         CoreMachine, Error as VMError, Memory, SparseMemory, Syscalls, A0, A1, A2, A3, A4, A5, A7,
     };
+    use numext_fixed_hash::H256;
     use proptest::collection::size_range;
     use proptest::prelude::any_with;
 
@@ -93,12 +93,10 @@ mod tests {
         machine.registers_mut()[A2] = 0; // mode: all
         machine.registers_mut()[A7] = MMAP_TX_SYSCALL_NUMBER; // syscall number
 
-        assert!(
-            machine
-                .memory_mut()
-                .store64(size_addr as usize, tx.len() as u64)
-                .is_ok()
-        );
+        assert!(machine
+            .memory_mut()
+            .store64(size_addr as usize, tx.len() as u64)
+            .is_ok());
 
         let mut mmap_tx = MmapTx::new(tx);
         assert!(mmap_tx.ecall(&mut machine).is_ok());
@@ -117,12 +115,10 @@ mod tests {
         let len = tx.len() as u64 - 100;
 
         // write len - 100
-        assert!(
-            machine
-                .memory_mut()
-                .store64(size_addr as usize, len)
-                .is_ok()
-        );
+        assert!(machine
+            .memory_mut()
+            .store64(size_addr as usize, len)
+            .is_ok());
 
         assert!(mmap_tx.ecall(&mut machine).is_ok());
         assert_eq!(machine.registers()[A0], OVERRIDE_LEN as u64);
@@ -154,12 +150,10 @@ mod tests {
         machine.registers_mut()[A3] = offset as u64; // offset
         machine.registers_mut()[A7] = MMAP_TX_SYSCALL_NUMBER; // syscall number
 
-        assert!(
-            machine
-                .memory_mut()
-                .store64(size_addr as usize, tx.len() as u64)
-                .is_ok()
-        );
+        assert!(machine
+            .memory_mut()
+            .store64(size_addr as usize, tx.len() as u64)
+            .is_ok());
 
         let mut mmap_tx = MmapTx::new(tx);
         assert!(mmap_tx.ecall(&mut machine).is_ok());
@@ -193,12 +187,10 @@ mod tests {
         machine.registers_mut()[A5] = 0; //source: 0 input
         machine.registers_mut()[A7] = MMAP_CELL_SYSCALL_NUMBER; // syscall number
 
-        assert!(
-            machine
-                .memory_mut()
-                .store64(size_addr as usize, data.len() as u64)
-                .is_ok()
-        );
+        assert!(machine
+            .memory_mut()
+            .store64(size_addr as usize, data.len() as u64)
+            .is_ok());
 
         let output = CellOutput::new(100, data.clone(), H256::zero(), None);
         let input_cell = CellOutput::new(
@@ -233,12 +225,10 @@ mod tests {
         machine.registers_mut()[A5] = 0; //source: 0 input
         machine.registers_mut()[A7] = MMAP_CELL_SYSCALL_NUMBER; // syscall number
 
-        assert!(
-            machine
-                .memory_mut()
-                .store64(size_addr as usize, data.len() as u64)
-                .is_ok()
-        );
+        assert!(machine
+            .memory_mut()
+            .store64(size_addr as usize, data.len() as u64)
+            .is_ok());
 
         let output = CellOutput::new(100, data.clone(), H256::zero(), None);
         let input_cell = CellOutput::new(
@@ -278,12 +268,10 @@ mod tests {
         assert!(machine.memory_mut().munmap(0, 1100).is_ok());
         machine.registers_mut()[A0] = addr; // addr
         let len = data.len() as u64 - 100;
-        assert!(
-            machine
-                .memory_mut()
-                .store64(size_addr as usize, len)
-                .is_ok()
-        );
+        assert!(machine
+            .memory_mut()
+            .store64(size_addr as usize, len)
+            .is_ok());
         assert!(mmap_cell.ecall(&mut machine).is_ok());
         assert_eq!(
             machine.memory_mut().load64(size_addr as usize),
@@ -313,12 +301,10 @@ mod tests {
         machine.registers_mut()[A5] = 0; // source: 0 input
         machine.registers_mut()[A7] = MMAP_CELL_SYSCALL_NUMBER; // syscall number
 
-        assert!(
-            machine
-                .memory_mut()
-                .store64(size_addr as usize, data.len() as u64)
-                .is_ok()
-        );
+        assert!(machine
+            .memory_mut()
+            .store64(size_addr as usize, data.len() as u64)
+            .is_ok());
 
         let output = CellOutput::new(100, data.clone(), H256::zero(), None);
         let input_cell = CellOutput::new(
@@ -370,14 +356,14 @@ mod tests {
         let outputs = Vec::new();
 
         let mut fetch_script_hash =
-            FetchScriptHash::new(&outputs, &inputs, &input_cells, H256::from(0));
+            FetchScriptHash::new(&outputs, &inputs, &input_cells, H256::zero());
 
         assert!(fetch_script_hash.ecall(&mut machine).is_ok());
         assert_eq!(machine.registers()[A0], SUCCESS as u64);
 
         let hash = &script.type_hash();
-        for (i, addr) in (addr as usize..addr as usize + hash.len()).enumerate() {
-            assert_eq!(machine.memory_mut().load8(addr), Ok(hash[i]))
+        for (i, addr) in (addr as usize..addr as usize + hash.as_bytes().len()).enumerate() {
+            assert_eq!(machine.memory_mut().load8(addr), Ok(hash.as_bytes()[i]))
         }
     }
 
@@ -403,20 +389,20 @@ mod tests {
         assert!(machine.memory_mut().store64(size_addr as usize, 32).is_ok());
 
         let script = Script::new(0, Vec::new(), None, Some(data), Vec::new());
-        let output = CellOutput::new(0, Vec::new(), H256::from(0), Some(script.clone()));
+        let output = CellOutput::new(0, Vec::new(), H256::zero(), Some(script.clone()));
         let inputs = Vec::new();
         let input_cells = vec![&output];
         let outputs = Vec::new();
 
         let mut fetch_script_hash =
-            FetchScriptHash::new(&outputs, &inputs, &input_cells, H256::from(0));
+            FetchScriptHash::new(&outputs, &inputs, &input_cells, H256::zero());
 
         assert!(fetch_script_hash.ecall(&mut machine).is_ok());
         assert_eq!(machine.registers()[A0], SUCCESS as u64);
 
         let hash = &script.type_hash();
-        for (i, addr) in (addr as usize..addr as usize + hash.len()).enumerate() {
-            assert_eq!(machine.memory_mut().load8(addr), Ok(hash[i]))
+        for (i, addr) in (addr as usize..addr as usize + hash.as_bytes().len()).enumerate() {
+            assert_eq!(machine.memory_mut().load8(addr), Ok(hash.as_bytes()[i]))
         }
     }
 
@@ -448,14 +434,14 @@ mod tests {
         let outputs = vec![&output];
 
         let mut fetch_script_hash =
-            FetchScriptHash::new(&outputs, &inputs, &input_cells, H256::from(0));
+            FetchScriptHash::new(&outputs, &inputs, &input_cells, H256::zero());
 
         assert!(fetch_script_hash.ecall(&mut machine).is_ok());
         assert_eq!(machine.registers()[A0], SUCCESS as u64);
 
         let hash = &script.type_hash();
-        for (i, addr) in (addr as usize..addr as usize + hash.len()).enumerate() {
-            assert_eq!(machine.memory_mut().load8(addr), Ok(hash[i]))
+        for (i, addr) in (addr as usize..addr as usize + hash.as_bytes().len()).enumerate() {
+            assert_eq!(machine.memory_mut().load8(addr), Ok(hash.as_bytes()[i]))
         }
     }
 
@@ -481,20 +467,20 @@ mod tests {
         assert!(machine.memory_mut().store64(size_addr as usize, 32).is_ok());
 
         let script = Script::new(0, Vec::new(), None, Some(data), Vec::new());
-        let output = CellOutput::new(0, Vec::new(), H256::from(0), Some(script.clone()));
+        let output = CellOutput::new(0, Vec::new(), H256::zero(), Some(script.clone()));
         let inputs = Vec::new();
         let input_cells = Vec::new();
         let outputs = vec![&output];
 
         let mut fetch_script_hash =
-            FetchScriptHash::new(&outputs, &inputs, &input_cells, H256::from(0));
+            FetchScriptHash::new(&outputs, &inputs, &input_cells, H256::zero());
 
         assert!(fetch_script_hash.ecall(&mut machine).is_ok());
         assert_eq!(machine.registers()[A0], SUCCESS as u64);
 
         let hash = &script.type_hash();
-        for (i, addr) in (addr as usize..addr as usize + hash.len()).enumerate() {
-            assert_eq!(machine.memory_mut().load8(addr), Ok(hash[i]))
+        for (i, addr) in (addr as usize..addr as usize + hash.as_bytes().len()).enumerate() {
+            assert_eq!(machine.memory_mut().load8(addr), Ok(hash.as_bytes()[i]))
         }
     }
 
@@ -520,13 +506,13 @@ mod tests {
         assert!(machine.memory_mut().store64(size_addr as usize, 16).is_ok());
 
         let script = Script::new(0, Vec::new(), None, Some(data), Vec::new());
-        let output = CellOutput::new(0, Vec::new(), H256::from(0), Some(script.clone()));
+        let output = CellOutput::new(0, Vec::new(), H256::zero(), Some(script.clone()));
         let inputs = Vec::new();
         let input_cells = Vec::new();
         let outputs = vec![&output];
 
         let mut fetch_script_hash =
-            FetchScriptHash::new(&outputs, &inputs, &input_cells, H256::from(0));
+            FetchScriptHash::new(&outputs, &inputs, &input_cells, H256::zero());
 
         assert!(fetch_script_hash.ecall(&mut machine).is_ok());
         assert_eq!(machine.registers()[A0], OVERRIDE_LEN as u64);
@@ -561,7 +547,7 @@ mod tests {
         let outputs = Vec::new();
 
         let mut fetch_script_hash =
-            FetchScriptHash::new(&outputs, &inputs, &input_cells, H256::from(0));
+            FetchScriptHash::new(&outputs, &inputs, &input_cells, H256::zero());
 
         assert!(fetch_script_hash.ecall(&mut machine).is_ok());
         assert_eq!(machine.registers()[A0], ITEM_MISSING as u64);
@@ -590,8 +576,8 @@ mod tests {
         assert_eq!(machine.registers()[A0], SUCCESS as u64);
 
         let hash = &script.type_hash();
-        for (i, addr) in (addr as usize..addr as usize + hash.len()).enumerate() {
-            assert_eq!(machine.memory_mut().load8(addr), Ok(hash[i]))
+        for (i, addr) in (addr as usize..addr as usize + hash.as_bytes().len()).enumerate() {
+            assert_eq!(machine.memory_mut().load8(addr), Ok(hash.as_bytes()[i]))
         }
     }
 

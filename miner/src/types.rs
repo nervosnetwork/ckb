@@ -1,8 +1,8 @@
-use bigint::H256;
 use ckb_core::header::RawHeader;
 use ckb_core::transaction::{ProposalShortId, Transaction};
 use ckb_core::uncle::UncleBlock;
 use ckb_util::RwLock;
+use numext_fixed_hash::H256;
 use std::sync::Arc;
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
