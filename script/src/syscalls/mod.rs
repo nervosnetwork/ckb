@@ -1,54 +1,62 @@
 mod builder;
 mod debugger;
-mod fetch_script_hash;
-mod mmap_cell;
-mod mmap_tx;
+mod load_cell;
+mod load_cell_by_field;
+mod load_input_by_field;
+mod load_tx;
+mod utils;
 
 pub use self::builder::build_tx;
 pub use self::debugger::Debugger;
-pub use self::fetch_script_hash::FetchScriptHash;
-pub use self::mmap_cell::MmapCell;
-pub use self::mmap_tx::MmapTx;
+pub use self::load_cell::LoadCell;
+pub use self::load_cell_by_field::LoadCellByField;
+pub use self::load_input_by_field::LoadInputByField;
+pub use self::load_tx::LoadTx;
 
 use ckb_vm::Error;
 
 pub const SUCCESS: u8 = 0;
-pub const OVERRIDE_LEN: u8 = 1;
 pub const ITEM_MISSING: u8 = 2;
 
-pub const MMAP_TX_SYSCALL_NUMBER: u64 = 2049;
-pub const MMAP_CELL_SYSCALL_NUMBER: u64 = 2050;
-pub const FETCH_SCRIPT_HASH_SYSCALL_NUMBER: u64 = 2051;
-pub const FETCH_CURRENT_SCRIPT_HASH_SYSCALL_NUMBER: u64 = 2052;
+pub const LOAD_TX_SYSCALL_NUMBER: u64 = 2049;
+pub const LOAD_CELL_SYSCALL_NUMBER: u64 = 2053;
+pub const LOAD_CELL_BY_FIELD_SYSCALL_NUMBER: u64 = 2054;
+pub const LOAD_INPUT_BY_FIELD_SYSCALL_NUMBER: u64 = 2054;
 pub const DEBUG_PRINT_SYSCALL_NUMBER: u64 = 2177;
 
 #[derive(Debug, PartialEq, Clone, Copy, Eq)]
-pub enum Mode {
-    ALL,
-    PARTIAL,
+enum CellField {
+    Capacity,
+    Data,
+    LockHash,
+    Contract,
+    ContractHash,
 }
 
-impl Mode {
-    pub fn parse_from_flag(flag: u64) -> Result<Mode, Error> {
-        match flag {
-            0 => Ok(Mode::ALL),
-            1 => Ok(Mode::PARTIAL),
+impl CellField {
+    fn parse_from_u64(i: u64) -> Result<CellField, Error> {
+        match i {
+            0 => Ok(CellField::Capacity),
+            1 => Ok(CellField::Data),
+            2 => Ok(CellField::LockHash),
+            3 => Ok(CellField::Contract),
+            4 => Ok(CellField::ContractHash),
             _ => Err(Error::ParseError),
         }
     }
 }
 
 #[derive(Debug, PartialEq, Clone, Copy, Eq)]
-pub enum Category {
-    LOCK,
-    CONTRACT,
+enum InputField {
+    Unlock,
+    OutPoint,
 }
 
-impl Category {
-    pub fn parse_from_u64(i: u64) -> Result<Category, Error> {
+impl InputField {
+    fn parse_from_u64(i: u64) -> Result<InputField, Error> {
         match i {
-            0 => Ok(Category::LOCK),
-            1 => Ok(Category::CONTRACT),
+            0 => Ok(InputField::Unlock),
+            1 => Ok(InputField::OutPoint),
             _ => Err(Error::ParseError),
         }
     }
@@ -56,15 +64,17 @@ impl Category {
 
 #[derive(Debug, PartialEq, Clone, Copy, Eq)]
 enum Source {
-    INPUT,
-    OUTPUT,
+    Input,
+    Output,
+    Current,
 }
 
 impl Source {
     fn parse_from_u64(i: u64) -> Result<Source, Error> {
         match i {
-            0 => Ok(Source::INPUT),
-            1 => Ok(Source::OUTPUT),
+            0 => Ok(Source::Input),
+            1 => Ok(Source::Output),
+            2 => Ok(Source::Current),
             _ => Err(Error::ParseError),
         }
     }
@@ -73,71 +83,51 @@ impl Source {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use byteorder::{LittleEndian, WriteBytesExt};
     use ckb_core::script::Script;
     use ckb_core::transaction::{CellInput, CellOutput, OutPoint};
+    use ckb_protocol::{CellOutput as FbsCellOutput, OutPoint as FbsOutPoint, Script as FbsScript};
     use ckb_vm::machine::DefaultCoreMachine;
-    use ckb_vm::{
-        CoreMachine, Error as VMError, Memory, SparseMemory, Syscalls, A0, A1, A2, A3, A4, A5, A7,
-    };
+    use ckb_vm::{CoreMachine, Memory, SparseMemory, Syscalls, A0, A1, A2, A3, A4, A5, A7};
+    use flatbuffers::FlatBufferBuilder;
+    use hash::sha3_256;
     use numext_fixed_hash::H256;
-    use proptest::{collection::size_range, prelude::any_with, proptest, proptest_helper};
+    use proptest::{
+        collection::size_range, prelude::any, prelude::any_with, proptest, proptest_helper,
+    };
 
-    fn _test_mmap_tx_all(tx: &Vec<u8>) {
+    fn _test_load_tx_all(tx: &Vec<u8>) {
         let mut machine = DefaultCoreMachine::<u64, SparseMemory>::default();
         let size_addr = 0;
         let addr = 100;
 
         machine.registers_mut()[A0] = addr; // addr
         machine.registers_mut()[A1] = size_addr; // size_addr
-        machine.registers_mut()[A2] = 0; // mode: all
-        machine.registers_mut()[A7] = MMAP_TX_SYSCALL_NUMBER; // syscall number
+        machine.registers_mut()[A2] = 0; // offset
+        machine.registers_mut()[A7] = LOAD_TX_SYSCALL_NUMBER; // syscall number
 
         assert!(machine
             .memory_mut()
             .store64(size_addr as usize, tx.len() as u64)
             .is_ok());
 
-        let mut mmap_tx = MmapTx::new(tx);
-        assert!(mmap_tx.ecall(&mut machine).is_ok());
+        let mut load_tx = LoadTx::new(tx);
+        assert!(load_tx.ecall(&mut machine).is_ok());
 
         assert_eq!(machine.registers()[A0], SUCCESS as u64);
         for (i, addr) in (addr as usize..addr as usize + tx.len()).enumerate() {
-            assert_eq!(machine.memory_mut().load8(addr), Ok(tx[i]))
-        }
-
-        // clean memory
-        assert!(machine.memory_mut().munmap(0, 1100).is_ok());
-
-        // test all mode execute with wrong len
-        // reset register A0
-        machine.registers_mut()[A0] = addr; // addr
-        let len = tx.len() as u64 - 100;
-
-        // write len - 100
-        assert!(machine
-            .memory_mut()
-            .store64(size_addr as usize, len)
-            .is_ok());
-
-        assert!(mmap_tx.ecall(&mut machine).is_ok());
-        assert_eq!(machine.registers()[A0], OVERRIDE_LEN as u64);
-        assert_eq!(
-            machine.memory_mut().load64(size_addr as usize),
-            Ok(tx.len() as u64)
-        );
-        for (i, addr) in (addr as usize..addr as usize + tx.len()).enumerate() {
-            assert_eq!(machine.memory_mut().load8(addr), Ok(tx[i]))
+            assert_eq!(machine.memory_mut().load8(addr), Ok(tx[i]));
         }
     }
 
     proptest! {
         #[test]
-        fn test_mmap_tx_all(ref tx in any_with::<Vec<u8>>(size_range(1000).lift())) {
-            _test_mmap_tx_all(tx);
+        fn test_load_tx_all(ref tx in any_with::<Vec<u8>>(size_range(1000).lift())) {
+            _test_load_tx_all(tx);
         }
     }
 
-    fn _test_mmap_tx_partial(tx: &Vec<u8>) {
+    fn _test_load_tx_partial(tx: &Vec<u8>) {
         let mut machine = DefaultCoreMachine::<u64, SparseMemory>::default();
         let size_addr = 0;
         let addr = 100;
@@ -145,17 +135,16 @@ mod tests {
 
         machine.registers_mut()[A0] = addr; // addr
         machine.registers_mut()[A1] = size_addr; // size_addr
-        machine.registers_mut()[A2] = 1; // mode: partial
-        machine.registers_mut()[A3] = offset as u64; // offset
-        machine.registers_mut()[A7] = MMAP_TX_SYSCALL_NUMBER; // syscall number
+        machine.registers_mut()[A2] = offset as u64; // offset
+        machine.registers_mut()[A7] = LOAD_TX_SYSCALL_NUMBER; // syscall number
 
         assert!(machine
             .memory_mut()
             .store64(size_addr as usize, tx.len() as u64)
             .is_ok());
 
-        let mut mmap_tx = MmapTx::new(tx);
-        assert!(mmap_tx.ecall(&mut machine).is_ok());
+        let mut load_tx = LoadTx::new(tx);
+        assert!(load_tx.ecall(&mut machine).is_ok());
 
         assert_eq!(machine.registers()[A0], SUCCESS as u64);
         assert_eq!(
@@ -163,28 +152,28 @@ mod tests {
             Ok((tx.len() - offset) as u64)
         );
         for (i, addr) in (addr as usize..addr as usize + tx.len() - offset).enumerate() {
-            assert_eq!(machine.memory_mut().load8(addr), Ok(tx[i + offset]))
+            assert_eq!(machine.memory_mut().load8(addr), Ok(tx[i + offset]));
         }
     }
 
     proptest! {
         #[test]
-        fn test_mmap_tx_partial(ref tx in any_with::<Vec<u8>>(size_range(1000).lift())) {
-            _test_mmap_tx_partial(tx);
+        fn test_load_tx_partial(ref tx in any_with::<Vec<u8>>(size_range(1000).lift())) {
+            _test_load_tx_partial(tx);
         }
     }
 
-    fn _test_mmap_cell_out_of_bound(data: Vec<u8>) {
+    fn _test_load_cell_item_missing(data: Vec<u8>) {
         let mut machine = DefaultCoreMachine::<u64, SparseMemory>::default();
         let size_addr = 0;
         let addr = 100;
 
         machine.registers_mut()[A0] = addr; // addr
         machine.registers_mut()[A1] = size_addr; // size_addr
-        machine.registers_mut()[A2] = 0; // mode: all
-        machine.registers_mut()[A4] = 1; //index
-        machine.registers_mut()[A5] = 0; //source: 0 input
-        machine.registers_mut()[A7] = MMAP_CELL_SYSCALL_NUMBER; // syscall number
+        machine.registers_mut()[A2] = 0; // offset
+        machine.registers_mut()[A3] = 1; //index
+        machine.registers_mut()[A4] = 0; //source: 0 input
+        machine.registers_mut()[A7] = LOAD_CELL_SYSCALL_NUMBER; // syscall number
 
         assert!(machine
             .memory_mut()
@@ -200,34 +189,30 @@ mod tests {
         );
         let outputs = vec![&output];
         let input_cells = vec![&input_cell];
-        let mut mmap_cell = MmapCell::new(&outputs, &input_cells);
+        let mut load_cell = LoadCell::new(&outputs, &input_cells, &input_cell);
 
-        assert_eq!(mmap_cell.ecall(&mut machine), Err(VMError::ParseError)); // index out of bounds
+        assert!(load_cell.ecall(&mut machine).is_ok());
+        assert_eq!(machine.registers()[A0], ITEM_MISSING as u64);
     }
 
     proptest! {
         #[test]
-        fn test_mmap_cell_out_of_bound(data in any_with::<Vec<u8>>(size_range(1000).lift())) {
-            _test_mmap_cell_out_of_bound(data);
+        fn test_load_cell_item_missing(data in any_with::<Vec<u8>>(size_range(1000).lift())) {
+            _test_load_cell_item_missing(data);
         }
     }
 
-    fn _test_mmap_cell_all(data: Vec<u8>) {
+    fn _test_load_cell_all(data: Vec<u8>) {
         let mut machine = DefaultCoreMachine::<u64, SparseMemory>::default();
         let size_addr = 0;
         let addr = 100;
 
         machine.registers_mut()[A0] = addr; // addr
         machine.registers_mut()[A1] = size_addr; // size_addr
-        machine.registers_mut()[A2] = 0; // mode: all
-        machine.registers_mut()[A4] = 0; //index
-        machine.registers_mut()[A5] = 0; //source: 0 input
-        machine.registers_mut()[A7] = MMAP_CELL_SYSCALL_NUMBER; // syscall number
-
-        assert!(machine
-            .memory_mut()
-            .store64(size_addr as usize, data.len() as u64)
-            .is_ok());
+        machine.registers_mut()[A2] = 0; // offset
+        machine.registers_mut()[A3] = 0; //index
+        machine.registers_mut()[A4] = 0; //source: 0 input
+        machine.registers_mut()[A7] = LOAD_CELL_SYSCALL_NUMBER; // syscall number
 
         let output = CellOutput::new(100, data.clone(), H256::zero(), None);
         let input_cell = CellOutput::new(
@@ -238,55 +223,69 @@ mod tests {
         );
         let outputs = vec![&output];
         let input_cells = vec![&input_cell];
-        let mut mmap_cell = MmapCell::new(&outputs, &input_cells);
+        let mut load_cell = LoadCell::new(&outputs, &input_cells, &input_cell);
+
+        let mut builder = FlatBufferBuilder::new();
+        let fbs_offset = FbsCellOutput::build(&mut builder, &input_cell);
+        builder.finish(fbs_offset, None);
+        let input_correct_data = builder.finished_data();
+
+        let mut builder = FlatBufferBuilder::new();
+        let fbs_offset = FbsCellOutput::build(&mut builder, &output);
+        builder.finish(fbs_offset, None);
+        let output_correct_data = builder.finished_data();
 
         // test input
-        assert!(mmap_cell.ecall(&mut machine).is_ok());
+        assert!(machine
+            .memory_mut()
+            .store64(size_addr as usize, input_correct_data.len() as u64)
+            .is_ok());
+
+        assert!(load_cell.ecall(&mut machine).is_ok());
         assert_eq!(machine.registers()[A0], SUCCESS as u64);
 
-        for (i, addr) in (addr as usize..addr as usize + data.len()).enumerate() {
-            assert_eq!(machine.memory_mut().load8(addr), Ok(input_cell.data[i]))
+        assert_eq!(
+            machine.memory_mut().load64(size_addr as usize),
+            Ok(input_correct_data.len() as u64)
+        );
+
+        for (i, addr) in (addr as usize..addr as usize + input_correct_data.len()).enumerate() {
+            assert_eq!(machine.memory_mut().load8(addr), Ok(input_correct_data[i]));
         }
 
         // clean memory
-        assert!(machine.memory_mut().munmap(0, 1100).is_ok());
+        assert!(machine.memory_mut().store_byte(0, 1100, 0).is_ok());
 
         // test output
         machine.registers_mut()[A0] = addr; // addr
-        machine.registers_mut()[A5] = 1; //source: 1 output
-        assert!(mmap_cell.ecall(&mut machine).is_ok());
-        assert_eq!(machine.registers()[A0], SUCCESS as u64);
-
-        for (i, addr) in (addr as usize..addr as usize + data.len()).enumerate() {
-            assert_eq!(machine.memory_mut().load8(addr), Ok(output.data[i]))
-        }
-
-        // clean memory
-        // test all mode execute with wrong len
-        // write len - 100
-        assert!(machine.memory_mut().munmap(0, 1100).is_ok());
-        machine.registers_mut()[A0] = addr; // addr
-        let len = data.len() as u64 - 100;
+        machine.registers_mut()[A1] = size_addr; // size_addr
+        machine.registers_mut()[A4] = 1; //source: 1 output
         assert!(machine
             .memory_mut()
-            .store64(size_addr as usize, len)
+            .store64(size_addr as usize, output_correct_data.len() as u64 + 10)
             .is_ok());
-        assert!(mmap_cell.ecall(&mut machine).is_ok());
+
+        assert!(load_cell.ecall(&mut machine).is_ok());
+        assert_eq!(machine.registers()[A0], SUCCESS as u64);
+
         assert_eq!(
             machine.memory_mut().load64(size_addr as usize),
-            Ok((data.len()) as u64)
+            Ok(output_correct_data.len() as u64)
         );
-        assert_eq!(machine.registers()[A0], OVERRIDE_LEN as u64);
+
+        for (i, addr) in (addr as usize..addr as usize + output_correct_data.len()).enumerate() {
+            assert_eq!(machine.memory_mut().load8(addr), Ok(output_correct_data[i]));
+        }
     }
 
     proptest! {
         #[test]
-        fn test_mmap_cell_all(tx in any_with::<Vec<u8>>(size_range(1000).lift())) {
-            _test_mmap_cell_all(tx);
+        fn test_load_cell_all(tx in any_with::<Vec<u8>>(size_range(1000).lift())) {
+            _test_load_cell_all(tx);
         }
     }
 
-    fn _test_mmap_cell_partial(data: Vec<u8>) {
+    fn _test_load_cell_partial(data: Vec<u8>) {
         let mut machine = DefaultCoreMachine::<u64, SparseMemory>::default();
         let size_addr = 0;
         let addr = 100;
@@ -294,16 +293,10 @@ mod tests {
 
         machine.registers_mut()[A0] = addr; // addr
         machine.registers_mut()[A1] = size_addr; // size_addr
-        machine.registers_mut()[A2] = 1; // mode: partial
-        machine.registers_mut()[A3] = offset as u64; // offset
-        machine.registers_mut()[A4] = 0; // index
-        machine.registers_mut()[A5] = 0; // source: 0 input
-        machine.registers_mut()[A7] = MMAP_CELL_SYSCALL_NUMBER; // syscall number
-
-        assert!(machine
-            .memory_mut()
-            .store64(size_addr as usize, data.len() as u64)
-            .is_ok());
+        machine.registers_mut()[A2] = offset as u64; // offset
+        machine.registers_mut()[A3] = 0; // index
+        machine.registers_mut()[A4] = 0; // source: 0 input
+        machine.registers_mut()[A7] = LOAD_CELL_SYSCALL_NUMBER; // syscall number
 
         let output = CellOutput::new(100, data.clone(), H256::zero(), None);
         let input_cell = CellOutput::new(
@@ -314,311 +307,378 @@ mod tests {
         );
         let outputs = vec![&output];
         let input_cells = vec![&input_cell];
-        let mut mmap_cell = MmapCell::new(&outputs, &input_cells);
+        let mut load_cell = LoadCell::new(&outputs, &input_cells, &input_cell);
 
-        assert!(mmap_cell.ecall(&mut machine).is_ok());
+        let mut builder = FlatBufferBuilder::new();
+        let fbs_offset = FbsCellOutput::build(&mut builder, &input_cell);
+        builder.finish(fbs_offset, None);
+        let input_correct_data = builder.finished_data();
+
+        assert!(machine
+            .memory_mut()
+            .store64(size_addr as usize, input_correct_data.len() as u64)
+            .is_ok());
+
+        assert!(load_cell.ecall(&mut machine).is_ok());
         assert_eq!(machine.registers()[A0], SUCCESS as u64);
 
-        for (i, addr) in (addr as usize..addr as usize + data.len() - offset).enumerate() {
+        for (i, addr) in
+            (addr as usize..addr as usize + input_correct_data.len() - offset).enumerate()
+        {
             assert_eq!(
                 machine.memory_mut().load8(addr),
-                Ok(input_cell.data[i + offset])
-            )
+                Ok(input_correct_data[i + offset])
+            );
         }
     }
 
     proptest! {
         #[test]
-        fn test_mmap_cell_partial(data in any_with::<Vec<u8>>(size_range(1000).lift())) {
-            _test_mmap_cell_partial(data);
+        fn test_load_cell_partial(data in any_with::<Vec<u8>>(size_range(1000).lift())) {
+            _test_load_cell_partial(data);
         }
     }
 
-    fn _test_fetch_script_hash_input_lock(data: Vec<u8>) {
+    fn _test_load_current_cell(data: Vec<u8>) {
         let mut machine = DefaultCoreMachine::<u64, SparseMemory>::default();
         let size_addr = 0;
         let addr = 100;
 
         machine.registers_mut()[A0] = addr; // addr
         machine.registers_mut()[A1] = size_addr; // size_addr
-        machine.registers_mut()[A2] = 0; // index
-        machine.registers_mut()[A3] = 0; // source: 0 input
-        machine.registers_mut()[A4] = 0; // category: 0 lock
-        machine.registers_mut()[A7] = FETCH_SCRIPT_HASH_SYSCALL_NUMBER; // syscall number
+        machine.registers_mut()[A2] = 0; // offset
+        machine.registers_mut()[A3] = 1000; //index
+        machine.registers_mut()[A4] = 2; //source: 2 self
+        machine.registers_mut()[A7] = LOAD_CELL_SYSCALL_NUMBER; // syscall number
 
-        assert!(machine.memory_mut().store64(size_addr as usize, 32).is_ok());
+        let input_cell = CellOutput::new(
+            100,
+            data.iter().rev().cloned().collect(),
+            H256::zero(),
+            None,
+        );
+        let outputs = vec![];
+        let input_cells = vec![];
+        let mut load_cell = LoadCell::new(&outputs, &input_cells, &input_cell);
 
-        let script = Script::new(0, Vec::new(), None, Some(data), Vec::new());
-        let input = CellInput::new(OutPoint::default(), script.clone());
-        let inputs = vec![&input];
-        let input_cells = Vec::new();
-        let outputs = Vec::new();
+        let mut builder = FlatBufferBuilder::new();
+        let fbs_offset = FbsCellOutput::build(&mut builder, &input_cell);
+        builder.finish(fbs_offset, None);
+        let input_correct_data = builder.finished_data();
 
-        let mut fetch_script_hash =
-            FetchScriptHash::new(&outputs, &inputs, &input_cells, H256::zero());
+        // test input
+        assert!(machine
+            .memory_mut()
+            .store64(size_addr as usize, input_correct_data.len() as u64 + 5)
+            .is_ok());
 
-        assert!(fetch_script_hash.ecall(&mut machine).is_ok());
+        assert!(load_cell.ecall(&mut machine).is_ok());
         assert_eq!(machine.registers()[A0], SUCCESS as u64);
 
-        let hash = &script.type_hash();
-        for (i, addr) in (addr as usize..addr as usize + hash.as_bytes().len()).enumerate() {
-            assert_eq!(machine.memory_mut().load8(addr), Ok(hash.as_bytes()[i]))
+        assert_eq!(
+            machine.memory_mut().load64(size_addr as usize),
+            Ok(input_correct_data.len() as u64)
+        );
+
+        for (i, addr) in (addr as usize..addr as usize + input_correct_data.len()).enumerate() {
+            assert_eq!(machine.memory_mut().load8(addr), Ok(input_correct_data[i]));
         }
     }
 
     proptest! {
         #[test]
-        fn test_fetch_script_hash_input_lock(data in any_with::<Vec<u8>>(size_range(1000).lift())) {
-            _test_fetch_script_hash_input_lock(data);
+        fn test_load_current_cell(tx in any_with::<Vec<u8>>(size_range(1000).lift())) {
+            _test_load_current_cell(tx);
         }
     }
 
-    fn _test_fetch_script_hash_input_contract(data: Vec<u8>) {
+    fn _test_load_cell_capacity(capacity: u64) {
         let mut machine = DefaultCoreMachine::<u64, SparseMemory>::default();
         let size_addr = 0;
         let addr = 100;
 
         machine.registers_mut()[A0] = addr; // addr
         machine.registers_mut()[A1] = size_addr; // size_addr
-        machine.registers_mut()[A2] = 0; // index
-        machine.registers_mut()[A3] = 0; // source: 0 input
-        machine.registers_mut()[A4] = 1; // category: 1 contract
-        machine.registers_mut()[A7] = FETCH_SCRIPT_HASH_SYSCALL_NUMBER; // syscall number
+        machine.registers_mut()[A2] = 0; // offset
+        machine.registers_mut()[A3] = 0; //index
+        machine.registers_mut()[A4] = 0; //source: 0 input
+        machine.registers_mut()[A5] = 0; //field: 0 capacity
+        machine.registers_mut()[A7] = LOAD_CELL_BY_FIELD_SYSCALL_NUMBER; // syscall number
 
-        assert!(machine.memory_mut().store64(size_addr as usize, 32).is_ok());
-
-        let script = Script::new(0, Vec::new(), None, Some(data), Vec::new());
-        let output = CellOutput::new(0, Vec::new(), H256::zero(), Some(script.clone()));
-        let inputs = Vec::new();
-        let input_cells = vec![&output];
-        let outputs = Vec::new();
-
-        let mut fetch_script_hash =
-            FetchScriptHash::new(&outputs, &inputs, &input_cells, H256::zero());
-
-        assert!(fetch_script_hash.ecall(&mut machine).is_ok());
-        assert_eq!(machine.registers()[A0], SUCCESS as u64);
-
-        let hash = &script.type_hash();
-        for (i, addr) in (addr as usize..addr as usize + hash.as_bytes().len()).enumerate() {
-            assert_eq!(machine.memory_mut().load8(addr), Ok(hash.as_bytes()[i]))
-        }
-    }
-
-    proptest! {
-        #[test]
-        fn test_fetch_script_hash_input_contract(data in any_with::<Vec<u8>>(size_range(1000).lift())) {
-            _test_fetch_script_hash_input_contract(data);
-        }
-    }
-
-    fn _test_fetch_script_hash_output_lock(data: Vec<u8>) {
-        let mut machine = DefaultCoreMachine::<u64, SparseMemory>::default();
-        let size_addr = 0;
-        let addr = 100;
-
-        machine.registers_mut()[A0] = addr; // addr
-        machine.registers_mut()[A1] = size_addr; // size_addr
-        machine.registers_mut()[A2] = 0; // index
-        machine.registers_mut()[A3] = 1; // source: 1 output
-        machine.registers_mut()[A4] = 0; // category: 0 lock
-        machine.registers_mut()[A7] = FETCH_SCRIPT_HASH_SYSCALL_NUMBER; // syscall number
-
-        assert!(machine.memory_mut().store64(size_addr as usize, 32).is_ok());
-
-        let script = Script::new(0, Vec::new(), None, Some(data), Vec::new());
-        let output = CellOutput::new(0, Vec::new(), script.type_hash(), None);
-        let inputs = Vec::new();
-        let input_cells = Vec::new();
-        let outputs = vec![&output];
-
-        let mut fetch_script_hash =
-            FetchScriptHash::new(&outputs, &inputs, &input_cells, H256::zero());
-
-        assert!(fetch_script_hash.ecall(&mut machine).is_ok());
-        assert_eq!(machine.registers()[A0], SUCCESS as u64);
-
-        let hash = &script.type_hash();
-        for (i, addr) in (addr as usize..addr as usize + hash.as_bytes().len()).enumerate() {
-            assert_eq!(machine.memory_mut().load8(addr), Ok(hash.as_bytes()[i]))
-        }
-    }
-
-    proptest! {
-        #[test]
-        fn test_fetch_script_hash_output_lock(data in any_with::<Vec<u8>>(size_range(1000).lift())) {
-            _test_fetch_script_hash_output_lock(data);
-        }
-    }
-
-    fn _test_fetch_script_hash_output_contract(data: Vec<u8>) {
-        let mut machine = DefaultCoreMachine::<u64, SparseMemory>::default();
-        let size_addr = 0;
-        let addr = 100;
-
-        machine.registers_mut()[A0] = addr; // addr
-        machine.registers_mut()[A1] = size_addr; // size_addr
-        machine.registers_mut()[A2] = 0; // index
-        machine.registers_mut()[A3] = 1; // source: 1 output
-        machine.registers_mut()[A4] = 1; // category: 1 contract
-        machine.registers_mut()[A7] = FETCH_SCRIPT_HASH_SYSCALL_NUMBER; // syscall number
-
-        assert!(machine.memory_mut().store64(size_addr as usize, 32).is_ok());
-
-        let script = Script::new(0, Vec::new(), None, Some(data), Vec::new());
-        let output = CellOutput::new(0, Vec::new(), H256::zero(), Some(script.clone()));
-        let inputs = Vec::new();
-        let input_cells = Vec::new();
-        let outputs = vec![&output];
-
-        let mut fetch_script_hash =
-            FetchScriptHash::new(&outputs, &inputs, &input_cells, H256::zero());
-
-        assert!(fetch_script_hash.ecall(&mut machine).is_ok());
-        assert_eq!(machine.registers()[A0], SUCCESS as u64);
-
-        let hash = &script.type_hash();
-        for (i, addr) in (addr as usize..addr as usize + hash.as_bytes().len()).enumerate() {
-            assert_eq!(machine.memory_mut().load8(addr), Ok(hash.as_bytes()[i]))
-        }
-    }
-
-    proptest! {
-        #[test]
-        fn test_fetch_script_hash_output_contract(data in any_with::<Vec<u8>>(size_range(1000).lift())) {
-            _test_fetch_script_hash_output_contract(data);
-        }
-    }
-
-    fn _test_fetch_script_hash_not_enough_space(data: Vec<u8>) {
-        let mut machine = DefaultCoreMachine::<u64, SparseMemory>::default();
-        let size_addr = 0;
-        let addr = 100;
-
-        machine.registers_mut()[A0] = addr; // addr
-        machine.registers_mut()[A1] = size_addr; // size_addr
-        machine.registers_mut()[A2] = 0; // index
-        machine.registers_mut()[A3] = 1; // source: 1 output
-        machine.registers_mut()[A4] = 1; // category: 1 contract
-        machine.registers_mut()[A7] = FETCH_SCRIPT_HASH_SYSCALL_NUMBER; // syscall number
+        let input_cell = CellOutput::new(capacity, vec![], H256::zero(), None);
+        let outputs = vec![];
+        let input_cells = vec![&input_cell];
+        let mut load_cell = LoadCellByField::new(&outputs, &input_cells, &input_cell);
 
         assert!(machine.memory_mut().store64(size_addr as usize, 16).is_ok());
 
-        let script = Script::new(0, Vec::new(), None, Some(data), Vec::new());
-        let output = CellOutput::new(0, Vec::new(), H256::zero(), Some(script.clone()));
-        let inputs = Vec::new();
-        let input_cells = Vec::new();
-        let outputs = vec![&output];
+        assert!(load_cell.ecall(&mut machine).is_ok());
+        assert_eq!(machine.registers()[A0], SUCCESS as u64);
 
-        let mut fetch_script_hash =
-            FetchScriptHash::new(&outputs, &inputs, &input_cells, H256::zero());
+        assert_eq!(machine.memory_mut().load64(size_addr as usize), Ok(8));
 
-        assert!(fetch_script_hash.ecall(&mut machine).is_ok());
-        assert_eq!(machine.registers()[A0], OVERRIDE_LEN as u64);
+        let mut buffer = vec![];
+        buffer.write_u64::<LittleEndian>(capacity).unwrap();
 
-        assert_eq!(machine.memory_mut().load64(size_addr as usize), Ok(32));
+        for (i, addr) in (addr as usize..addr as usize + buffer.len() as usize).enumerate() {
+            assert_eq!(machine.memory_mut().load8(addr), Ok(buffer[i]));
+        }
     }
 
     proptest! {
         #[test]
-        fn test_fetch_script_hash_not_enough_space(data in any_with::<Vec<u8>>(size_range(1000).lift())) {
-            _test_fetch_script_hash_not_enough_space(data);
+        fn test_load_cell_capacity(capacity in any::<u64>()) {
+            _test_load_cell_capacity(capacity);
+        }
+    }
+
+    fn _test_load_self_lock_hash(data: Vec<u8>) {
+        let mut machine = DefaultCoreMachine::<u64, SparseMemory>::default();
+        let size_addr = 0;
+        let addr = 100;
+
+        machine.registers_mut()[A0] = addr; // addr
+        machine.registers_mut()[A1] = size_addr; // size_addr
+        machine.registers_mut()[A2] = 0; // offset
+        machine.registers_mut()[A3] = 0; //index
+        machine.registers_mut()[A4] = 2; //source: 2 self
+        machine.registers_mut()[A5] = 2; //field: 2 lock hash
+        machine.registers_mut()[A7] = LOAD_CELL_BY_FIELD_SYSCALL_NUMBER; // syscall number
+
+        let sha3_data = sha3_256(data);
+        let input_cell = CellOutput::new(100, vec![], H256::from_slice(&sha3_data).unwrap(), None);
+        let outputs = vec![];
+        let input_cells = vec![];
+        let mut load_cell = LoadCellByField::new(&outputs, &input_cells, &input_cell);
+
+        assert!(machine.memory_mut().store64(size_addr as usize, 64).is_ok());
+
+        assert!(load_cell.ecall(&mut machine).is_ok());
+        assert_eq!(machine.registers()[A0], SUCCESS as u64);
+
+        assert_eq!(
+            machine.memory_mut().load64(size_addr as usize),
+            Ok(sha3_data.len() as u64)
+        );
+
+        for (i, addr) in (addr as usize..addr as usize + sha3_data.len() as usize).enumerate() {
+            assert_eq!(machine.memory_mut().load8(addr), Ok(sha3_data[i]));
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn test_load_self_lock_hash(data in any_with::<Vec<u8>>(size_range(1000).lift())) {
+            _test_load_self_lock_hash(data);
         }
     }
 
     #[test]
-    fn test_fetch_script_hash_missing_item() {
+    fn test_load_missing_contract() {
         let mut machine = DefaultCoreMachine::<u64, SparseMemory>::default();
         let size_addr = 0;
         let addr = 100;
 
         machine.registers_mut()[A0] = addr; // addr
         machine.registers_mut()[A1] = size_addr; // size_addr
-        machine.registers_mut()[A2] = 0; // index
-        machine.registers_mut()[A3] = 1; // source: 1 output
-        machine.registers_mut()[A4] = 1; // category: 1 contract
-        machine.registers_mut()[A7] = FETCH_SCRIPT_HASH_SYSCALL_NUMBER; // syscall number
+        machine.registers_mut()[A2] = 0; // offset
+        machine.registers_mut()[A3] = 0; //index
+        machine.registers_mut()[A4] = 1; //source: 1 output
+        machine.registers_mut()[A5] = 3; //field: 3 contract
+        machine.registers_mut()[A7] = LOAD_CELL_BY_FIELD_SYSCALL_NUMBER; // syscall number
 
-        assert!(machine.memory_mut().store64(size_addr as usize, 16).is_ok());
+        let output_cell = CellOutput::new(100, vec![], H256::default(), None);
+        let outputs = vec![&output_cell];
+        let input_cells = vec![];
+        let mut load_cell = LoadCellByField::new(&outputs, &input_cells, &output_cell);
 
-        let inputs = Vec::new();
-        let input_cells = Vec::new();
-        let outputs = Vec::new();
+        assert!(machine
+            .memory_mut()
+            .store64(size_addr as usize, 100)
+            .is_ok());
 
-        let mut fetch_script_hash =
-            FetchScriptHash::new(&outputs, &inputs, &input_cells, H256::zero());
-
-        assert!(fetch_script_hash.ecall(&mut machine).is_ok());
+        assert!(load_cell.ecall(&mut machine).is_ok());
         assert_eq!(machine.registers()[A0], ITEM_MISSING as u64);
+
+        assert_eq!(machine.memory_mut().load64(size_addr as usize), Ok(100));
+
+        for addr in addr as usize..addr as usize + 100 {
+            assert_eq!(machine.memory_mut().load8(addr), Ok(0));
+        }
     }
 
-    fn _test_fetch_current_script_hash(data: Vec<u8>) {
+    fn _test_load_input_unlock_script(data: Vec<u8>) {
         let mut machine = DefaultCoreMachine::<u64, SparseMemory>::default();
         let size_addr = 0;
         let addr = 100;
 
         machine.registers_mut()[A0] = addr; // addr
         machine.registers_mut()[A1] = size_addr; // size_addr
-        machine.registers_mut()[A7] = FETCH_CURRENT_SCRIPT_HASH_SYSCALL_NUMBER; // syscall number
+        machine.registers_mut()[A2] = 0; // offset
+        machine.registers_mut()[A3] = 0; //index
+        machine.registers_mut()[A4] = 0; //source: 0 input
+        machine.registers_mut()[A5] = 0; //field: 0 unlock
+        machine.registers_mut()[A7] = LOAD_INPUT_BY_FIELD_SYSCALL_NUMBER; // syscall number
 
-        assert!(machine.memory_mut().store64(size_addr as usize, 32).is_ok());
+        let unlock = Script::new(0, vec![], None, Some(data), vec![]);
+        let mut builder = FlatBufferBuilder::new();
+        let fbs_offset = FbsScript::build(&mut builder, &unlock);
+        builder.finish(fbs_offset, None);
+        let unlock_data = builder.finished_data();
 
-        let script = Script::new(0, Vec::new(), None, Some(data), Vec::new());
-        let inputs = Vec::new();
-        let input_cells = Vec::new();
-        let outputs = Vec::new();
+        let input = CellInput::new(OutPoint::default(), unlock);
+        let inputs = vec![&input];
+        let mut load_input = LoadInputByField::new(&inputs, Some(&input));
 
-        let mut fetch_script_hash =
-            FetchScriptHash::new(&outputs, &inputs, &input_cells, script.type_hash());
+        assert!(machine
+            .memory_mut()
+            .store64(size_addr as usize, unlock_data.len() as u64)
+            .is_ok());
 
-        assert!(fetch_script_hash.ecall(&mut machine).is_ok());
+        assert!(load_input.ecall(&mut machine).is_ok());
         assert_eq!(machine.registers()[A0], SUCCESS as u64);
 
-        let hash = &script.type_hash();
-        for (i, addr) in (addr as usize..addr as usize + hash.as_bytes().len()).enumerate() {
-            assert_eq!(machine.memory_mut().load8(addr), Ok(hash.as_bytes()[i]))
+        assert_eq!(
+            machine.memory_mut().load64(size_addr as usize),
+            Ok(unlock_data.len() as u64)
+        );
+
+        for (i, addr) in (addr as usize..addr as usize + unlock_data.len() as usize).enumerate() {
+            assert_eq!(machine.memory_mut().load8(addr), Ok(unlock_data[i]));
         }
     }
 
     proptest! {
         #[test]
-        fn test_fetch_current_script_hash(data in any_with::<Vec<u8>>(size_range(1000).lift())) {
-            _test_fetch_current_script_hash(data);
+        fn test_load_input_unlock_script(data in any_with::<Vec<u8>>(size_range(1000).lift())) {
+            _test_load_input_unlock_script(data);
         }
     }
 
-    fn _test_fetch_current_script_hash_not_enough_space(data: Vec<u8>) {
+    fn _test_load_missing_output_unlock_script(data: Vec<u8>) {
         let mut machine = DefaultCoreMachine::<u64, SparseMemory>::default();
         let size_addr = 0;
         let addr = 100;
 
         machine.registers_mut()[A0] = addr; // addr
         machine.registers_mut()[A1] = size_addr; // size_addr
-        machine.registers_mut()[A2] = 0; // index
-        machine.registers_mut()[A3] = 1; // source: 1 output
-        machine.registers_mut()[A4] = 1; // category: 1 contract
-        machine.registers_mut()[A7] = FETCH_CURRENT_SCRIPT_HASH_SYSCALL_NUMBER; // syscall number
+        machine.registers_mut()[A2] = 0; // offset
+        machine.registers_mut()[A3] = 0; //index
+        machine.registers_mut()[A4] = 1; //source: 1 output
+        machine.registers_mut()[A5] = 0; //field: 0 unlock
+        machine.registers_mut()[A7] = LOAD_INPUT_BY_FIELD_SYSCALL_NUMBER; // syscall number
 
-        assert!(machine.memory_mut().store64(size_addr as usize, 16).is_ok());
+        let unlock = Script::new(0, vec![], None, Some(data), vec![]);
+        let mut builder = FlatBufferBuilder::new();
+        let fbs_offset = FbsScript::build(&mut builder, &unlock);
+        builder.finish(fbs_offset, None);
+        let unlock_data = builder.finished_data();
 
-        let script = Script::new(0, Vec::new(), None, Some(data), Vec::new());
-        let inputs = Vec::new();
-        let input_cells = Vec::new();
-        let outputs = Vec::new();
+        let input = CellInput::new(OutPoint::default(), unlock);
+        let inputs = vec![&input];
+        let mut load_input = LoadInputByField::new(&inputs, Some(&input));
 
-        let mut fetch_script_hash =
-            FetchScriptHash::new(&outputs, &inputs, &input_cells, script.type_hash());
+        assert!(machine
+            .memory_mut()
+            .store64(size_addr as usize, unlock_data.len() as u64 + 10)
+            .is_ok());
 
-        assert!(fetch_script_hash.ecall(&mut machine).is_ok());
-        assert_eq!(machine.registers()[A0], OVERRIDE_LEN as u64);
+        assert!(load_input.ecall(&mut machine).is_ok());
+        assert_eq!(machine.registers()[A0], ITEM_MISSING as u64);
 
-        assert_eq!(machine.memory_mut().load64(size_addr as usize), Ok(32));
+        assert_eq!(
+            machine.memory_mut().load64(size_addr as usize),
+            Ok(unlock_data.len() as u64 + 10)
+        );
+
+        for addr in addr as usize..addr as usize + unlock_data.len() as usize {
+            assert_eq!(machine.memory_mut().load8(addr), Ok(0));
+        }
     }
 
     proptest! {
         #[test]
-        fn test_fetch_current_script_hash_not_enough_space(data in any_with::<Vec<u8>>(size_range(1000).lift())) {
-            _test_fetch_current_script_hash_not_enough_space(data);
+        fn test_load_missing_output_unlock_script(data in any_with::<Vec<u8>>(size_range(1000).lift())) {
+            _test_load_missing_output_unlock_script(data);
+        }
+    }
+
+    fn _test_load_self_input_outpoint(data: Vec<u8>) {
+        let mut machine = DefaultCoreMachine::<u64, SparseMemory>::default();
+        let size_addr = 0;
+        let addr = 100;
+
+        machine.registers_mut()[A0] = addr; // addr
+        machine.registers_mut()[A1] = size_addr; // size_addr
+        machine.registers_mut()[A2] = 0; // offset
+        machine.registers_mut()[A3] = 0; //index
+        machine.registers_mut()[A4] = 2; //source: 2 self
+        machine.registers_mut()[A5] = 1; //field: 1 outpoint
+        machine.registers_mut()[A7] = LOAD_INPUT_BY_FIELD_SYSCALL_NUMBER; // syscall number
+
+        let unlock = Script::new(0, vec![], None, Some(vec![]), vec![]);
+        let sha3_data = sha3_256(data);
+        let outpoint = OutPoint::new(H256::from_slice(&sha3_data).unwrap(), 3);
+        let mut builder = FlatBufferBuilder::new();
+        let fbs_offset = FbsOutPoint::build(&mut builder, &outpoint);
+        builder.finish(fbs_offset, None);
+        let outpoint_data = builder.finished_data();
+
+        let input = CellInput::new(outpoint, unlock);
+        let inputs = vec![];
+        let mut load_input = LoadInputByField::new(&inputs, Some(&input));
+
+        assert!(machine
+            .memory_mut()
+            .store64(size_addr as usize, outpoint_data.len() as u64 + 5)
+            .is_ok());
+
+        assert!(load_input.ecall(&mut machine).is_ok());
+        assert_eq!(machine.registers()[A0], SUCCESS as u64);
+
+        assert_eq!(
+            machine.memory_mut().load64(size_addr as usize),
+            Ok(outpoint_data.len() as u64)
+        );
+
+        for (i, addr) in (addr as usize..addr as usize + outpoint_data.len() as usize).enumerate() {
+            assert_eq!(machine.memory_mut().load8(addr), Ok(outpoint_data[i]));
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn test_load_self_input_outpoint(data in any_with::<Vec<u8>>(size_range(1000).lift())) {
+            _test_load_self_input_outpoint(data);
+        }
+    }
+
+    #[test]
+    fn test_load_missing_self_output_outpoint() {
+        let mut machine = DefaultCoreMachine::<u64, SparseMemory>::default();
+        let size_addr = 0;
+        let addr = 100;
+
+        machine.registers_mut()[A0] = addr; // addr
+        machine.registers_mut()[A1] = size_addr; // size_addr
+        machine.registers_mut()[A2] = 0; // offset
+        machine.registers_mut()[A3] = 0; //index
+        machine.registers_mut()[A4] = 2; //source: 2 self
+        machine.registers_mut()[A5] = 1; //field: 1 outpoint
+        machine.registers_mut()[A7] = LOAD_INPUT_BY_FIELD_SYSCALL_NUMBER; // syscall number
+
+        let inputs = vec![];
+        let mut load_input = LoadInputByField::new(&inputs, None);
+
+        assert!(machine.memory_mut().store64(size_addr as usize, 5).is_ok());
+
+        assert!(load_input.ecall(&mut machine).is_ok());
+        assert_eq!(machine.registers()[A0], ITEM_MISSING as u64);
+
+        assert_eq!(machine.memory_mut().load64(size_addr as usize), Ok(5));
+
+        for addr in addr as usize..addr as usize + 5 {
+            assert_eq!(machine.memory_mut().load8(addr), Ok(0));
         }
     }
 }
