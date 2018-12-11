@@ -1,4 +1,5 @@
 use super::compact_block::CompactBlock;
+use crate::relayer::Relayer;
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::{CompactBlock as FbsCompactBlock, RelayMessage};
 use ckb_shared::index::ChainIndex;
@@ -6,7 +7,6 @@ use ckb_shared::shared::ChainProvider;
 use ckb_util::RwLockUpgradableReadGuard;
 use ckb_verification::{HeaderResolverWrapper, HeaderVerifier, Verifier};
 use flatbuffers::FlatBufferBuilder;
-use relayer::Relayer;
 use std::sync::Arc;
 
 pub struct CompactBlockProcess<'a, CI: ChainIndex + 'a> {

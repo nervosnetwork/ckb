@@ -1,12 +1,12 @@
-use super::header_verifier::HeaderResolver;
-use super::{TransactionVerifier, Verifier};
+use crate::error::TransactionError;
+use crate::error::{CellbaseError, CommitError, Error, UnclesError};
+use crate::header_verifier::HeaderResolver;
+use crate::{TransactionVerifier, Verifier};
 use ckb_core::block::Block;
 use ckb_core::cell::{CellProvider, CellStatus};
 use ckb_core::header::Header;
 use ckb_core::transaction::{Capacity, CellInput, OutPoint};
 use ckb_shared::shared::ChainProvider;
-use error::TransactionError;
-use error::{CellbaseError, CommitError, Error, UnclesError};
 use fnv::{FnvHashMap, FnvHashSet};
 use merkle_root::merkle_root;
 use numext_fixed_hash::H256;

@@ -1,5 +1,6 @@
 use hash::sha3_256;
 use numext_fixed_hash::H256;
+use serde_derive::{Deserialize, Serialize};
 use std::io::Write;
 
 // TODO: when flatbuffer work is done, remove Serialize/Deserialize here and

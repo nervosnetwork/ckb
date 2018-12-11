@@ -1,8 +1,8 @@
+use crate::transaction::{CellOutput, OutPoint, Transaction};
 use numext_fixed_hash::H256;
 use std::collections::HashSet;
 use std::iter::Chain;
 use std::slice;
-use transaction::{CellOutput, OutPoint, Transaction};
 
 #[derive(Clone, PartialEq, Debug)]
 pub enum CellStatus {

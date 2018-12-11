@@ -1,5 +1,8 @@
-use super::{COLUMNS, COLUMN_BLOCK_HEADER};
-use cachedb::CacheDB;
+use crate::cachedb::CacheDB;
+use crate::error::SharedError;
+use crate::index::ChainIndex;
+use crate::store::ChainKVStore;
+use crate::{COLUMNS, COLUMN_BLOCK_HEADER};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::Block;
 use ckb_core::cell::{CellProvider, CellStatus};
@@ -12,14 +15,11 @@ use ckb_db::diskdb::RocksDB;
 use ckb_db::kvdb::KeyValueDB;
 use ckb_db::memorydb::MemoryKeyValueDB;
 use ckb_util::RwLock;
-use error::SharedError;
 use fnv::FnvHashSet;
-use index::ChainIndex;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 use std::path::Path;
 use std::sync::Arc;
-use store::ChainKVStore;
 
 #[derive(Default, Debug, PartialEq, Clone, Eq)]
 pub struct TipHeader {
@@ -133,7 +133,7 @@ impl<CI: ChainIndex> CellProvider for Shared<CI> {
         if let Some(meta) = self.get_transaction_meta(&tip_header.output_root, &out_point.hash) {
             if index < meta.len() {
                 if !meta.is_spent(index) {
-                    let mut transaction = self
+                    let transaction = self
                         .store
                         .get_transaction(&out_point.hash)
                         .expect("transaction must exist");
@@ -154,7 +154,7 @@ impl<CI: ChainIndex> CellProvider for Shared<CI> {
         if let Some(meta) = self.get_transaction_meta_at(&out_point.hash, parent) {
             if index < meta.len() {
                 if !meta.is_spent(index) {
-                    let mut transaction = self
+                    let transaction = self
                         .store
                         .get_transaction(&out_point.hash)
                         .expect("transaction must exist");

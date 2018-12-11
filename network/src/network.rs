@@ -1,39 +1,40 @@
 #![allow(clippy::needless_pass_by_value)]
 
-use super::NetworkConfig;
-use super::{Error, ErrorKind, PeerIndex, ProtocolId};
+use crate::ckb_protocol::{CKBProtocol, CKBProtocols};
+use crate::ckb_protocol_handler::CKBProtocolHandler;
+use crate::ckb_protocol_handler::DefaultCKBProtocolContext;
+use crate::ckb_service::CKBService;
+use crate::discovery_service::{DiscoveryQueryService, DiscoveryService, KadManage};
+use crate::identify_service::IdentifyService;
+use crate::memory_peer_store::MemoryPeerStore;
+use crate::outgoing_service::OutgoingService;
+use crate::peer_store::{Behaviour, PeerStore};
+use crate::peers_registry::{ConnectionStatus, PeerConnection, PeerIdentifyInfo, PeersRegistry};
+use crate::ping_service::PingService;
+use crate::protocol::Protocol;
+use crate::protocol_service::ProtocolService;
+use crate::timer_service::TimerService;
+use crate::transport::{new_transport, TransportOutput};
+use crate::NetworkConfig;
+use crate::{Error, ErrorKind, PeerIndex, ProtocolId};
 use bytes::Bytes;
-use ckb_protocol::{CKBProtocol, CKBProtocols};
-use ckb_protocol_handler::CKBProtocolHandler;
-use ckb_protocol_handler::DefaultCKBProtocolContext;
-use ckb_service::CKBService;
 use ckb_util::{Mutex, RwLock};
-use discovery_service::{DiscoveryQueryService, DiscoveryService, KadManage};
 use futures::future::{self, select_all, Future};
 use futures::sync::mpsc::UnboundedSender;
 use futures::sync::oneshot;
 use futures::Stream;
-use identify_service::IdentifyService;
 use libp2p::core::{upgrade, MuxedTransport, PeerId};
 use libp2p::core::{Endpoint, Multiaddr, UniqueConnec};
 use libp2p::core::{PublicKey, SwarmController};
 use libp2p::{self, identify, kad, ping, secio, Transport, TransportTimeout};
-use memory_peer_store::MemoryPeerStore;
-use outgoing_service::OutgoingService;
-use peer_store::{Behaviour, PeerStore};
-use peers_registry::{ConnectionStatus, PeerConnection, PeerIdentifyInfo, PeersRegistry};
-use ping_service::PingService;
-use protocol::Protocol;
-use protocol_service::ProtocolService;
+use log::{debug, info, trace, warn};
 use std::boxed::Box;
 use std::io::{Error as IoError, ErrorKind as IoErrorKind};
 use std::sync::Arc;
 use std::time::Duration;
 use std::time::Instant;
 use std::usize;
-use timer_service::TimerService;
 use tokio::io::{AsyncRead, AsyncWrite};
-use transport::{new_transport, TransportOutput};
 
 // const WAIT_LOCK_TIMEOUT: u64 = 3;
 const KBUCKETS_TIMEOUT: u64 = 600;
@@ -236,7 +237,7 @@ impl Network {
         // get peer protocol_connection
         match peers_registry.new_peer(peer_id.clone(), endpoint) {
             Ok(_) => {
-                let mut peer = peers_registry.get_mut(&peer_id).unwrap();
+                let peer = peers_registry.get_mut(&peer_id).unwrap();
                 if let Some(addresses) = addresses {
                     peer.append_addresses(addresses.clone());
                 }

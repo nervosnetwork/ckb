@@ -1,10 +1,10 @@
-use ckb_core::transaction::{CellInput, CellOutput};
-use ckb_vm::{CoreMachine, Error as VMError, Memory, Register, Syscalls, A0, A1, A2, A3, A4, A7};
-use numext_fixed_hash::H256;
-use syscalls::{
+use crate::syscalls::{
     Category, Source, FETCH_CURRENT_SCRIPT_HASH_SYSCALL_NUMBER, FETCH_SCRIPT_HASH_SYSCALL_NUMBER,
     ITEM_MISSING, OVERRIDE_LEN, SUCCESS,
 };
+use ckb_core::transaction::{CellInput, CellOutput};
+use ckb_vm::{CoreMachine, Error as VMError, Memory, Register, Syscalls, A0, A1, A2, A3, A4, A7};
+use numext_fixed_hash::H256;
 
 #[derive(Debug)]
 pub struct FetchScriptHash<'a> {

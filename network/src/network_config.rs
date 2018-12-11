@@ -1,9 +1,10 @@
-use super::PeerId;
-use super::{Error, ErrorKind};
+use crate::PeerId;
+use crate::{Error, ErrorKind};
 use bytes::Bytes;
 use libp2p::core::{AddrComponent, Multiaddr};
 use libp2p::multiaddr::ToMultiaddr;
 use libp2p::secio;
+use log::info;
 use rand;
 use rand::Rng;
 use std::fs;

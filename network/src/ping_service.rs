@@ -1,5 +1,9 @@
-use super::Network;
-use super::PeerId;
+use crate::peer_store::Behaviour;
+use crate::protocol::Protocol;
+use crate::protocol_service::ProtocolService;
+use crate::transport::TransportOutput;
+use crate::Network;
+use crate::PeerId;
 use futures::future::{self, Future};
 use futures::stream::FuturesUnordered;
 use futures::Stream;
@@ -7,9 +11,7 @@ use libp2p::core::Multiaddr;
 use libp2p::core::SwarmController;
 use libp2p::core::{upgrade, MuxedTransport};
 use libp2p::{self, ping};
-use peer_store::Behaviour;
-use protocol::Protocol;
-use protocol_service::ProtocolService;
+use log::{trace, warn};
 use std::boxed::Box;
 use std::io::{Error as IoError, ErrorKind as IoErrorKind};
 use std::sync::Arc;
@@ -17,7 +19,6 @@ use std::time::Duration;
 use std::time::Instant;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::timer::{Interval, Timeout};
-use transport::TransportOutput;
 
 pub struct PingService {
     ping_interval: Duration,

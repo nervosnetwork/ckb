@@ -1,9 +1,9 @@
 use super::error::Error;
-use super::secp256k1::key;
-use super::secp256k1::Message as SecpMessage;
 use super::signature::Signature;
 use super::{Message, Pubkey, SECP256K1};
 use numext_fixed_hash::H256;
+use secp256k1::key;
+use secp256k1::Message as SecpMessage;
 use std::str::FromStr;
 use std::{fmt, ops};
 

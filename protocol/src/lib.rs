@@ -1,24 +1,14 @@
-extern crate byteorder;
-extern crate ckb_core;
-extern crate ckb_util;
-extern crate flatbuffers;
-extern crate hash;
-extern crate numext_fixed_hash;
-extern crate numext_fixed_uint;
-extern crate rand;
-extern crate siphasher;
-
 mod builder;
 mod convert;
 #[rustfmt::skip]
 #[allow(clippy::all)]
 mod protocol_generated;
 
+pub use crate::protocol_generated::ckb::protocol::*;
 use byteorder::{ByteOrder, LittleEndian, WriteBytesExt};
 use ckb_util::u64_to_bytes;
 use hash::sha3_256;
 use numext_fixed_hash::H256;
-pub use protocol_generated::ckb::protocol::*;
 use siphasher::sip::SipHasher;
 use std::hash::Hasher;
 

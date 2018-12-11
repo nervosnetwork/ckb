@@ -1,12 +1,3 @@
-#[macro_use]
-extern crate serde_derive;
-
-extern crate bincode;
-extern crate ckb_core;
-extern crate ckb_db;
-extern crate hash;
-extern crate numext_fixed_hash;
-
 use numext_fixed_hash::H256;
 use std::fmt;
 

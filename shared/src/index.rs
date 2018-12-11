@@ -1,4 +1,7 @@
-use super::flat_serializer::serialized_addresses;
+use crate::error::SharedError;
+use crate::flat_serializer::serialized_addresses;
+use crate::store::{ChainKVStore, ChainStore};
+use crate::{COLUMN_BLOCK_BODY, COLUMN_INDEX, COLUMN_META, COLUMN_TRANSACTION_ADDR};
 use bincode::{deserialize, serialize};
 use ckb_core::block::Block;
 use ckb_core::extras::{BlockExt, TransactionAddress};
@@ -6,10 +9,7 @@ use ckb_core::header::{BlockNumber, Header};
 use ckb_core::transaction::{Transaction, TransactionBuilder};
 use ckb_db::batch::Batch;
 use ckb_db::kvdb::KeyValueDB;
-use error::SharedError;
 use numext_fixed_hash::H256;
-use store::{ChainKVStore, ChainStore};
-use {COLUMN_BLOCK_BODY, COLUMN_INDEX, COLUMN_META, COLUMN_TRANSACTION_ADDR};
 
 const META_TIP_HEADER_KEY: &[u8] = b"TIP_HEADER";
 

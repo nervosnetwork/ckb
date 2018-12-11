@@ -1,5 +1,5 @@
-use super::super::helper::wait_for_exit;
-use super::super::Setup;
+use crate::helper::wait_for_exit;
+use crate::Setup;
 use ckb_chain::chain::{ChainBuilder, ChainController};
 use ckb_core::script::Script;
 use ckb_core::transaction::{CellInput, OutPoint, Transaction, TransactionBuilder};
@@ -17,11 +17,11 @@ use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::{ChainProvider, Shared, SharedBuilder};
 use ckb_shared::store::ChainKVStore;
 use ckb_sync::{Relayer, Synchronizer, RELAY_PROTOCOL_ID, SYNC_PROTOCOL_ID};
-use clap::ArgMatches;
+use clap::{value_t, ArgMatches};
 use crypto::secp::{Generator, Privkey};
 use faster_hex::{hex_string, hex_to};
 use hash::sha3_256;
-
+use log::info;
 use numext_fixed_hash::H256;
 use serde_json;
 use std::io::Write;

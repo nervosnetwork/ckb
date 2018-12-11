@@ -1,9 +1,5 @@
-#[macro_use]
-extern crate criterion;
-extern crate ckb_pow;
-
 use ckb_pow::Cuckoo;
-use criterion::Criterion;
+use criterion::{criterion_group, criterion_main, Criterion};
 
 const TESTSET: [([u8; 80], [u32; 6]); 3] = [
     (

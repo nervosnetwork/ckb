@@ -2,6 +2,10 @@
 
 use super::Network;
 use super::PeerId;
+use crate::peers_registry::PeerIdentifyInfo;
+use crate::protocol::Protocol;
+use crate::protocol_service::ProtocolService;
+use crate::transport::TransportOutput;
 use futures::future::{self, Future};
 use futures::Stream;
 use libp2p::core::Multiaddr;
@@ -10,9 +14,7 @@ use libp2p::core::{upgrade, MuxedTransport};
 use libp2p::identify::IdentifyProtocolConfig;
 use libp2p::identify::{IdentifyInfo, IdentifyOutput};
 use libp2p::{self, Transport};
-use peers_registry::PeerIdentifyInfo;
-use protocol::Protocol;
-use protocol_service::ProtocolService;
+use log::{debug, error, trace, warn};
 use std::boxed::Box;
 use std::io::{Error as IoError, ErrorKind as IoErrorKind};
 use std::sync::Arc;
@@ -20,7 +22,6 @@ use std::time::Duration;
 use std::time::Instant;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::timer::Interval;
-use transport::TransportOutput;
 
 pub struct IdentifyService {
     pub client_version: String,
@@ -68,7 +69,7 @@ impl IdentifyService {
                 observed_addr
             );
             // get an external addrs for our node
-            if let Some(mut ext_addr) = transport.nat_traversal(original_address, &observed_addr) {
+            if let Some(ext_addr) = transport.nat_traversal(original_address, &observed_addr) {
                 debug!(target: "network", "get new external address {:?}", ext_addr);
                 let mut listened_addresses = network.listened_addresses.write();
                 if !listened_addresses.iter().any(|a| a == &ext_addr) {

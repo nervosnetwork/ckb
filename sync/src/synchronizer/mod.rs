@@ -15,6 +15,13 @@ use self::get_headers_process::GetHeadersProcess;
 use self::header_view::HeaderView;
 use self::headers_process::HeadersProcess;
 use self::peers::Peers;
+use crate::config::Config;
+use crate::{
+    CHAIN_SYNC_TIMEOUT, EVICTION_HEADERS_RESPONSE_TIME, HEADERS_DOWNLOAD_TIMEOUT_BASE,
+    HEADERS_DOWNLOAD_TIMEOUT_PER_HEADER, MAX_HEADERS_LEN,
+    MAX_OUTBOUND_PEERS_TO_PROTECT_FROM_DISCONNECT, MAX_TIP_AGE, POW_SPACE,
+};
+use bitflags::bitflags;
 use ckb_chain::chain::ChainController;
 use ckb_chain::error::ProcessBlockError;
 use ckb_chain_spec::consensus::Consensus;
@@ -25,9 +32,9 @@ use ckb_protocol::{SyncMessage, SyncPayload};
 use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::{ChainProvider, Shared};
 use ckb_time::now_ms;
-use ckb_util::{RwLock, RwLockUpgradableReadGuard};
-use config::Config;
+use ckb_util::{try_option, RwLock, RwLockUpgradableReadGuard};
 use flatbuffers::{get_root, FlatBufferBuilder};
+use log::{debug, info, warn};
 use numext_fixed_hash::H256;
 use std::cmp;
 use std::collections::HashMap;
@@ -35,11 +42,6 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
-use {
-    CHAIN_SYNC_TIMEOUT, EVICTION_HEADERS_RESPONSE_TIME, HEADERS_DOWNLOAD_TIMEOUT_BASE,
-    HEADERS_DOWNLOAD_TIMEOUT_PER_HEADER, MAX_HEADERS_LEN,
-    MAX_OUTBOUND_PEERS_TO_PROTECT_FROM_DISCONNECT, MAX_TIP_AGE, POW_SPACE,
-};
 
 pub const SEND_GET_HEADERS_TOKEN: TimerToken = 0;
 pub const BLOCK_FETCH_TOKEN: TimerToken = 1;
@@ -703,8 +705,6 @@ where
 
 #[cfg(test)]
 mod tests {
-    extern crate env_logger;
-
     use self::block_process::BlockProcess;
     use self::headers_process::HeadersProcess;
     use super::*;

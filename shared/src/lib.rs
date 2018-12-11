@@ -7,27 +7,7 @@
 //! - [Chain](chain::chain::Chain) represent a struct which
 //!   implement `ChainProvider`
 
-extern crate avl_merkle as avl;
-extern crate bincode;
-extern crate ckb_chain_spec;
-extern crate ckb_core;
-extern crate ckb_db;
-extern crate ckb_util;
-extern crate fnv;
-extern crate lru_cache;
-extern crate numext_fixed_hash;
-extern crate numext_fixed_uint;
-extern crate serde;
-#[macro_use]
-extern crate serde_derive;
-
-#[cfg(test)]
-extern crate rand;
-#[cfg(test)]
-extern crate tempfile;
-
 pub mod cachedb;
-// mod config;
 pub mod error;
 mod flat_serializer;
 pub mod index;

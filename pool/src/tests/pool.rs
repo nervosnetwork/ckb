@@ -1,3 +1,6 @@
+use crate::txs_pool::pool::TransactionPoolService;
+use crate::txs_pool::types::*;
+use channel::select;
 use channel::{self, Receiver};
 use ckb_chain::chain::{ChainBuilder, ChainController};
 use ckb_chain_spec::consensus::Consensus;
@@ -12,14 +15,13 @@ use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::{ChainProvider, Shared, SharedBuilder};
 use ckb_shared::store::ChainKVStore;
 use ckb_time::now_ms;
+use log::error;
 use numext_fixed_hash::H256;
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;
 use std::sync::Arc;
 use std::time;
-use txs_pool::pool::TransactionPoolService;
-use txs_pool::types::*;
 
 macro_rules! expect_output_parent {
     ($pool:expr, $expected:pat, $( $output:expr ),+ ) => {

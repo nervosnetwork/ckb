@@ -1,4 +1,4 @@
-use batch::{Batch, Col};
+use crate::batch::{Batch, Col};
 use bincode::Error as BcError;
 use rocksdb::Error as RdbError;
 use std::error::Error as StdError;

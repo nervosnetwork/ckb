@@ -8,6 +8,7 @@ use clap::ArgMatches;
 use config_tool::{Config as ConfigTool, File};
 use dir::Directories;
 use logger::Config as LogConfig;
+use serde_derive::Deserialize;
 use std::error::Error;
 use std::path::{Path, PathBuf};
 

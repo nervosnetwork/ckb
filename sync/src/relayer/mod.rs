@@ -26,6 +26,7 @@ use ckb_shared::shared::{ChainProvider, Shared};
 use ckb_util::{Mutex, RwLock};
 use flatbuffers::{get_root, FlatBufferBuilder};
 use fnv::{FnvHashMap, FnvHashSet};
+use log::{debug, info};
 use numext_fixed_hash::H256;
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -217,7 +218,7 @@ where
         for (id, peers) in pending_proposals_request.iter() {
             if let Some(tx) = self.tx_pool.get_transaction(*id) {
                 for peer in peers {
-                    let mut tx_set = peer_txs.entry(*peer).or_insert_with(Vec::new);
+                    let tx_set = peer_txs.entry(*peer).or_insert_with(Vec::new);
                     tx_set.push(tx.clone());
                 }
             }

@@ -1,10 +1,10 @@
 use super::Verifier;
+use crate::error::{DifficultyError, Error, NumberError, PowError, TimestampError};
+use crate::shared::ALLOWED_FUTURE_BLOCKTIME;
 use ckb_core::header::Header;
 use ckb_pow::PowEngine;
 use ckb_time::now_ms;
-use error::{DifficultyError, Error, NumberError, PowError, TimestampError};
 use numext_fixed_uint::U256;
-use shared::ALLOWED_FUTURE_BLOCKTIME;
 use std::marker::PhantomData;
 use std::sync::Arc;
 

@@ -1,3 +1,4 @@
+use crate::syscalls::{Mode, Source, MMAP_CELL_SYSCALL_NUMBER, OVERRIDE_LEN, SUCCESS};
 use ckb_core::transaction::CellOutput;
 use ckb_vm::memory::PROT_READ;
 use ckb_vm::{
@@ -5,7 +6,6 @@ use ckb_vm::{
 };
 use std::cmp;
 use std::rc::Rc;
-use syscalls::{Mode, Source, MMAP_CELL_SYSCALL_NUMBER, OVERRIDE_LEN, SUCCESS};
 
 #[derive(Debug)]
 pub struct MmapCell<'a> {

@@ -1,11 +1,12 @@
+use crate::client::Client;
+use crate::types::{BlockTemplate, Shared};
 use channel::Receiver;
 use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::header::{RawHeader, Seal};
 use ckb_pow::PowEngine;
-use client::Client;
+use log::{debug, info};
 use rand::{thread_rng, Rng};
 use std::sync::Arc;
-use types::{BlockTemplate, Shared};
 
 pub struct Miner {
     pub pow: Arc<dyn PowEngine>,

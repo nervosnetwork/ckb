@@ -1,5 +1,3 @@
-extern crate build_info;
-
 fn main() {
     // Don't rebuild even if nothing changed
     println!("cargo:rerun-if-changed=build.rs");

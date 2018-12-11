@@ -1,4 +1,5 @@
-use channel::{self, Receiver, Sender};
+use crate::types::BlockTemplate;
+use channel::{self, select, Receiver, Sender};
 use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::header::{Header, HeaderBuilder};
 use ckb_core::service::{Request, DEFAULT_CHANNEL_SIZE};
@@ -11,11 +12,11 @@ use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::{ChainProvider, Shared};
 use ckb_time::now_ms;
 use fnv::{FnvHashMap, FnvHashSet};
+use log::error;
 use numext_fixed_hash::H256;
 use std::cmp;
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
-use types::BlockTemplate;
 
 const MINER_AGENT_SUBSCRIBER: &str = "miner_agent";
 

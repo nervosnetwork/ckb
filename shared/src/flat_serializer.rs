@@ -2,8 +2,9 @@ use bincode::{
     deserialize as bincode_deserialize, serialize as bincode_serialize,
     serialized_size as bincode_serialized_size, ErrorKind, Result,
 };
-use serde::de::Deserialize;
-use serde::ser::Serialize;
+use serde::de::Deserialize as DeserializeTrait;
+use serde::ser::Serialize as SerializeTrait;
+use serde_derive::{Deserialize, Serialize};
 
 /// This module leverages bincode to build a new serializer with flat structure.
 ///
@@ -24,7 +25,7 @@ pub struct Address {
     pub length: usize,
 }
 
-pub fn serialize<'a, T: Serialize + 'a>(
+pub fn serialize<'a, T: SerializeTrait + 'a>(
     values: impl Iterator<Item = &'a T>,
 ) -> Result<(Vec<u8>, Vec<Address>)> {
     values
@@ -42,7 +43,7 @@ pub fn serialize<'a, T: Serialize + 'a>(
         })
 }
 
-pub fn serialized_addresses<'a, T: Serialize + 'a>(
+pub fn serialized_addresses<'a, T: SerializeTrait + 'a>(
     values: impl Iterator<Item = &'a T>,
 ) -> Result<Vec<Address>> {
     values
@@ -52,7 +53,7 @@ pub fn serialized_addresses<'a, T: Serialize + 'a>(
 }
 
 #[allow(dead_code)]
-pub fn deserialize<'a, T: Deserialize<'a>>(
+pub fn deserialize<'a, T: DeserializeTrait<'a>>(
     bytes: &'a [u8],
     addresses: &'a [Address],
 ) -> Result<Vec<T>> {

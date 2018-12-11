@@ -3,6 +3,7 @@ name = "ckb-core"
 version = "0.1.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
+edition = "2018"
 
 [dependencies]
 serde = "1.0"
@@ -14,7 +15,7 @@ hash = {path = "../util/hash"}
 crypto = {path = "../util/crypto"}
 ckb-time = { path = "../util/time" }
 bit-vec = "0.5.0"
-crossbeam-channel = "0.3"
+channel = { package= "crossbeam-channel", version = "0.3" }
 rayon = "1.0"
 ckb-util = { path = "../util" }
 fnv = "1.0.3"

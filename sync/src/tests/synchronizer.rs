@@ -1,3 +1,6 @@
+use crate::synchronizer::{BLOCK_FETCH_TOKEN, SEND_GET_HEADERS_TOKEN, TIMEOUT_EVICTION_TOKEN};
+use crate::tests::TestNode;
+use crate::{Config, Synchronizer, SYNC_PROTOCOL_ID};
 use ckb_chain::chain::{ChainBuilder, ChainController};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::BlockBuilder;
@@ -14,9 +17,6 @@ use numext_fixed_uint::U256;
 use std::sync::mpsc::channel;
 use std::sync::Arc;
 use std::thread;
-use synchronizer::{BLOCK_FETCH_TOKEN, SEND_GET_HEADERS_TOKEN, TIMEOUT_EVICTION_TOKEN};
-use tests::TestNode;
-use {Config, Synchronizer, SYNC_PROTOCOL_ID};
 
 #[test]
 fn basic_sync() {

@@ -3,7 +3,7 @@ use super::types::{
     InsertionResult, Orphan, PendingQueue, Pool, PoolConfig, PoolError, ProposedQueue, TxStage,
     TxoStatus,
 };
-use channel::{self, Receiver, Sender};
+use channel::{self, select, Receiver, Sender};
 use ckb_core::block::Block;
 use ckb_core::cell::{CellProvider, CellStatus};
 use ckb_core::service::{Request, DEFAULT_CHANNEL_SIZE};
@@ -12,6 +12,7 @@ use ckb_notify::{ForkBlocks, MsgNewTip, MsgSwitchFork, NotifyController};
 use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::{ChainProvider, Shared};
 use ckb_verification::{TransactionError, TransactionVerifier};
+use log::error;
 use lru_cache::LruCache;
 use numext_fixed_hash::H256;
 use std::thread::{self, JoinHandle};

@@ -1,10 +1,12 @@
+use crate::types::{BlockTemplate, Config, Shared};
 use channel::Sender;
 use ckb_core::block::Block;
 use ckb_util::RwLockUpgradableReadGuard;
 use jsonrpc::client::Client as JsonRpcClient;
+use log::{debug, error, info};
 use numext_fixed_hash::H256;
+use serde_json::json;
 use std::{thread, time};
-use types::{BlockTemplate, Config, Shared};
 
 #[derive(Clone)]
 pub struct Client {

@@ -1,8 +1,9 @@
+use crate::synchronizer::Synchronizer;
 use ckb_core::block::Block;
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::Block as PBlock;
 use ckb_shared::index::ChainIndex;
-use synchronizer::Synchronizer;
+use log::debug;
 
 pub struct BlockProcess<'a, CI: ChainIndex + 'a> {
     message: &'a PBlock<'a>,

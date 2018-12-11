@@ -1,3 +1,5 @@
+use crate::synchronizer::{BlockStatus, Synchronizer};
+use crate::MAX_HEADERS_LEN;
 use ckb_core::header::Header;
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::{FlatbuffersVectorIterator, Headers};
@@ -5,10 +7,9 @@ use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::ChainProvider;
 use ckb_verification::{Error as VerifyError, HeaderResolver, HeaderVerifier, Verifier};
 use log;
+use log::{debug, log_enabled};
 use numext_fixed_uint::U256;
 use std::sync::Arc;
-use synchronizer::{BlockStatus, Synchronizer};
-use MAX_HEADERS_LEN;
 
 pub struct HeadersProcess<'a, CI: ChainIndex + 'a> {
     message: &'a Headers<'a>,

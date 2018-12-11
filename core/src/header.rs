@@ -2,8 +2,9 @@ use bincode::{deserialize, serialize};
 use hash::sha3_256;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
+use serde_derive::{Deserialize, Serialize};
 
-pub use BlockNumber;
+pub use crate::BlockNumber;
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug, Default)]
 pub struct Seal {

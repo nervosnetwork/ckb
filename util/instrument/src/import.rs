@@ -1,4 +1,4 @@
-use super::format::Format;
+use crate::format::Format;
 use ckb_chain::chain::ChainController;
 use ckb_core::block::Block;
 #[cfg(feature = "progress_bar")]

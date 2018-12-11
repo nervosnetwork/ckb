@@ -1,11 +1,12 @@
+use crate::synchronizer::Synchronizer;
+use crate::MAX_LOCATOR_SIZE;
 use ckb_core::header::Header;
 use ckb_network::{CKBProtocolContext, PeerIndex, Severity};
 use ckb_protocol::{FlatbuffersVectorIterator, GetHeaders, SyncMessage};
 use ckb_shared::index::ChainIndex;
 use flatbuffers::FlatBufferBuilder;
+use log::{debug, info, warn};
 use numext_fixed_hash::H256;
-use synchronizer::Synchronizer;
-use MAX_LOCATOR_SIZE;
 
 pub struct GetHeadersProcess<'a, CI: ChainIndex + 'a> {
     message: &'a GetHeaders<'a>,

@@ -1,15 +1,17 @@
-use super::Network;
-use super::PeerId;
-use super::{CKBProtocolHandler, ProtocolId, TimerToken};
-use ckb_protocol_handler::DefaultCKBProtocolContext;
+use crate::ckb_protocol_handler::DefaultCKBProtocolContext;
+use crate::protocol::Protocol;
+use crate::protocol_service::ProtocolService;
+use crate::transport::TransportOutput;
+use crate::Network;
+use crate::PeerId;
+use crate::{CKBProtocolHandler, ProtocolId, TimerToken};
 use ckb_util::Mutex;
 use futures::future::{self, Future};
 use futures::stream::FuturesUnordered;
 use futures::Stream;
 use libp2p::core::Multiaddr;
 use libp2p::core::{MuxedTransport, SwarmController};
-use protocol::Protocol;
-use protocol_service::ProtocolService;
+use log::trace;
 use std::boxed::Box;
 use std::io::{Error as IoError, ErrorKind as IoErrorKind};
 use std::sync::Arc;
@@ -17,7 +19,6 @@ use std::time::Duration;
 use tokio;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::timer::Interval;
-use transport::TransportOutput;
 
 pub(crate) type Timer = (Arc<CKBProtocolHandler>, ProtocolId, TimerToken, Duration);
 

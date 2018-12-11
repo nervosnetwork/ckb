@@ -1,12 +1,13 @@
-use super::ScriptError;
+use crate::syscalls::{build_tx, Debugger, FetchScriptHash, MmapCell, MmapTx};
+use crate::ScriptError;
 use ckb_core::cell::ResolvedTransaction;
 use ckb_core::script::Script;
 use ckb_core::transaction::{CellInput, CellOutput};
 use ckb_vm::{DefaultMachine, SparseMemory};
 use flatbuffers::FlatBufferBuilder;
 use fnv::FnvHashMap;
+use log::info;
 use numext_fixed_hash::H256;
-use syscalls::{build_tx, Debugger, FetchScriptHash, MmapCell, MmapTx};
 
 // This struct leverages CKB VM to verify transaction inputs.
 // FlatBufferBuilder owned Vec<u8> that grows as needed, in the

@@ -3,6 +3,7 @@ name = "ckb-sync"
 version = "0.1.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
+edition = "2018"
 
 [dependencies]
 ckb-chain = { path = "../chain" }

@@ -1,10 +1,10 @@
+use crate::relayer::Relayer;
 use ckb_core::transaction::Transaction;
 use ckb_network::CKBProtocolContext;
 use ckb_network::PeerIndex;
 use ckb_protocol::{BlockTransactions, FlatbuffersVectorIterator};
 use ckb_shared::index::ChainIndex;
 use numext_fixed_hash::H256;
-use relayer::Relayer;
 use std::sync::Arc;
 
 pub struct BlockTransactionsProcess<'a, CI: ChainIndex + 'a> {

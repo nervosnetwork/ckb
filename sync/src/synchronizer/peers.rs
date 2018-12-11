@@ -6,6 +6,7 @@ use ckb_shared::shared::TipHeader;
 use ckb_time::now_ms;
 use ckb_util::RwLock;
 use fnv::{FnvHashMap, FnvHashSet};
+use log::debug;
 use numext_fixed_hash::H256;
 
 // const BANSCORE: u32 = 100;
