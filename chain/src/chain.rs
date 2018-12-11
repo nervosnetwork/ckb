@@ -94,7 +94,7 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
         if self.shared.consensus().verification {
             BlockVerifier::new(self.shared.clone())
                 .verify(&block)
-                .map_err(ProcessBlockError::Verification)?
+                .map_err(ProcessBlockError::Verification)?;
         }
         let insert_result = self
             .insert_block(&block)
@@ -128,6 +128,7 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
             .update_transaction_meta(batch, root, cells)
             .ok_or(SharedError::InvalidOutput)
     }
+
     #[allow(clippy::op_ref)]
     fn insert_block(&self, block: &Block) -> Result<BlockInsertionResult, SharedError> {
         let mut new_best_block = false;
@@ -160,6 +161,7 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
 
             let current_total_difficulty = tip_header.total_difficulty();
             debug!(
+                target: "chain",
                 "difficulty diff = {}; current = {}, cannon = {}",
                 &cannon_total_difficulty - current_total_difficulty,
                 current_total_difficulty,
@@ -343,7 +345,7 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
             .iter()
             .enumerate()
         {
-            debug!(target: "chain", "   {} => {:#?}", index, uncle);
+            debug!(target: "chain", "   {} => {:?}", index, uncle);
         }
         debug!(target: "chain", "}}");
     }

@@ -1,8 +1,8 @@
 use ckb_chain::chain::ChainController;
 use ckb_core::block::Block;
 use ckb_core::cell::CellProvider;
-use ckb_core::header::{BlockNumber, Header};
-use ckb_core::transaction::{OutPoint, Transaction};
+use ckb_core::header::{BlockNumber, Header, HeaderBuilder};
+use ckb_core::transaction::{OutPoint, Transaction, TransactionBuilder};
 use ckb_miner::{AgentController, BlockTemplate};
 use ckb_network::NetworkService;
 use ckb_pool::txs_pool::TransactionPoolController;
@@ -124,6 +124,7 @@ pub struct PoolRpcImpl {
 
 impl PoolRpc for PoolRpcImpl {
     fn send_transaction(&self, tx: Transaction) -> Result<H256> {
+        let tx = TransactionBuilder::default().transaction(tx).build();
         let tx_hash = tx.hash().clone();
         let pool_result = self.tx_pool.add_transaction(tx.clone());
         debug!(target: "rpc", "send_transaction add to pool result: {:?}", pool_result);
@@ -174,6 +175,30 @@ impl<CI: ChainIndex + 'static> MinerRpc for MinerRpcImpl<CI> {
     }
 
     fn submit_block(&self, block: Block) -> Result<H256> {
+        let txs = block
+            .commit_transactions()
+            .iter()
+            .map(|tx| {
+                TransactionBuilder::default()
+                    .transaction(tx.clone())
+                    .build()
+            })
+            .collect();
+        let header = HeaderBuilder::default()
+            .header(block.header().clone())
+            .build();
+
+        let mut uncles = block.uncles().to_vec();
+        for uncle in uncles.iter_mut() {
+            uncle.header = HeaderBuilder::default()
+                .header(uncle.header.clone())
+                .build();
+            uncle.cellbase = TransactionBuilder::default()
+                .transaction(uncle.cellbase.clone())
+                .build();
+        }
+
+        let block = Block::new(header, uncles, txs, block.proposal_transactions().to_vec());
         let block = Arc::new(block);
         if self.chain.process_block(Arc::clone(&block)).is_ok() {
             // announce new block
