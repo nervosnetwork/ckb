@@ -21,7 +21,7 @@ pub const ITEM_MISSING: u8 = 2;
 pub const LOAD_TX_SYSCALL_NUMBER: u64 = 2049;
 pub const LOAD_CELL_SYSCALL_NUMBER: u64 = 2053;
 pub const LOAD_CELL_BY_FIELD_SYSCALL_NUMBER: u64 = 2054;
-pub const LOAD_INPUT_BY_FIELD_SYSCALL_NUMBER: u64 = 2054;
+pub const LOAD_INPUT_BY_FIELD_SYSCALL_NUMBER: u64 = 2055;
 pub const DEBUG_PRINT_SYSCALL_NUMBER: u64 = 2177;
 
 #[derive(Debug, PartialEq, Clone, Copy, Eq)]
