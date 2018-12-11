@@ -10,7 +10,7 @@ use crate::Network;
 use crate::PeerId;
 use futures::future::{self, Future};
 use futures::Stream;
-use libp2p::core::{Multiaddr, UniqueConnecState};
+use libp2p::core::{Endpoint, Multiaddr, UniqueConnecState};
 use libp2p::kad;
 use log::{error, info};
 use std::boxed::Box;
@@ -36,16 +36,23 @@ impl CKBService {
         let protocol_version = protocol_output.protocol_version;
         let endpoint = protocol_output.endpoint;
         // get peer protocol_connection
-        let protocol_connec =
-            match network.ckb_protocol_connec(&peer_id, protocol_id, endpoint, addr) {
-                Ok(protocol_connec) => protocol_connec,
-                Err(err) => {
-                    return Box::new(future::err(IoError::new(
-                        IoErrorKind::Other,
-                        format!("handle ckb_protocol connection error: {}", err),
-                    ))) as Box<Future<Item = (), Error = IoError> + Send>
+        let protocol_connec = {
+            let result = match endpoint {
+                Endpoint::Dialer => {
+                    network.try_outbound_ckb_protocol_connec(&peer_id, protocol_id, addr)
+                }
+                Endpoint::Listener => {
+                    network.try_inbound_ckb_protocol_connec(&peer_id, protocol_id, addr)
                 }
             };
+            if let Err(err) = result {
+                return Box::new(future::err(IoError::new(
+                    IoErrorKind::Other,
+                    format!("handle ckb_protocol connection error: {}", err),
+                ))) as Box<Future<Item = (), Error = IoError> + Send>;
+            }
+            result.unwrap()
+        };
         if protocol_connec.state() == UniqueConnecState::Full {
             error!(
                 target: "network",
@@ -107,7 +114,7 @@ impl CKBService {
                         {
                             let mut peer_store = network.peer_store().write();
                             peer_store.report(&peer_id, Behaviour::UnexpectedDisconnect);
-                            peer_store.report_status(&peer_id, Status::Disconnected);
+                            peer_store.update_status(&peer_id, Status::Disconnected);
                         }
                         protocol_handler.disconnected(
                             Box::new(DefaultCKBProtocolContext::new(
@@ -130,7 +137,7 @@ impl CKBService {
         {
             let mut peer_store = network.peer_store().write();
             peer_store.report(&peer_id, Behaviour::Connect);
-            peer_store.report_status(&peer_id, Status::Connected);
+            peer_store.update_status(&peer_id, Status::Connected);
         }
         {
             let handle_connected = future::lazy(move || {

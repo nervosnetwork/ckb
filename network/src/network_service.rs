@@ -41,11 +41,6 @@ impl NetworkService {
         &self.network.peer_store()
     }
 
-    #[inline]
-    pub fn add_peer(&self, peer_id: PeerId, peer: PeerConnection) {
-        self.network.add_peer(peer_id, peer);
-    }
-
     pub fn with_protocol_context<F, T>(&self, protocol_id: ProtocolId, f: F) -> Option<T>
     where
         F: FnOnce(&CKBProtocolContext) -> T,

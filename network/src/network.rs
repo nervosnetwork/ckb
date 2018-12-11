@@ -87,11 +87,6 @@ impl Network {
         &self.local_peer_id
     }
 
-    pub(crate) fn add_peer(&self, peer_id: PeerId, peer: PeerConnection) {
-        let mut peers_registry = self.peers_registry.write();
-        peers_registry.add_peer(peer_id, peer);
-    }
-
     pub(crate) fn get_peer_index(&self, peer_id: &PeerId) -> Option<PeerIndex> {
         let peers_registry = self.peers_registry.read();
         peers_registry
@@ -228,35 +223,60 @@ impl Network {
             Err(ErrorKind::PeerNotFound.into())
         }
     }
-    pub(crate) fn ckb_protocol_connec(
+
+    fn ckb_protocol_connec(
+        &self,
+        peer: &mut PeerConnection,
+        protocol_id: ProtocolId,
+    ) -> UniqueConnec<(UnboundedSender<Bytes>, u8)> {
+        peer.ckb_protocols
+            .iter()
+            .find(|&(id, _)| id == &protocol_id)
+            .map(|(_, ref protocol_connec)| protocol_connec.clone())
+            .unwrap_or_else(|| {
+                let protocol_connec = UniqueConnec::empty();
+                peer.ckb_protocols
+                    .push((protocol_id, protocol_connec.clone()));
+                protocol_connec
+            })
+    }
+    pub(crate) fn try_outbound_ckb_protocol_connec(
         &self,
         peer_id: &PeerId,
         protocol_id: ProtocolId,
-        endpoint: Endpoint,
         connected_addr: Multiaddr,
     ) -> Result<UniqueConnec<(UnboundedSender<Bytes>, u8)>, Error> {
         let mut peers_registry = self.peers_registry.write();
         // get peer protocol_connection
-        match peers_registry.new_peer(peer_id.clone(), connected_addr.clone(), endpoint) {
+        match peers_registry.try_outbound_peer(peer_id.clone(), connected_addr.clone()) {
             Ok(_) => {
                 let _ = self
                     .peer_store()
                     .write()
-                    .add_discovered_addresses(peer_id, vec![connected_addr]);
+                    .add_discovered_address(peer_id, connected_addr);
                 let mut peer = peers_registry.get_mut(&peer_id).unwrap();
-                if let Some(protocol_connec) = peer
-                    .ckb_protocols
-                    .iter()
-                    .find(|&(id, _)| id == &protocol_id)
-                    .map(|(_, ref protocol_connec)| protocol_connec.clone())
-                {
-                    Ok(protocol_connec)
-                } else {
-                    let protocol_connec = UniqueConnec::empty();
-                    peer.ckb_protocols
-                        .push((protocol_id, protocol_connec.clone()));
-                    Ok(protocol_connec)
-                }
+                Ok(self.ckb_protocol_connec(peer, protocol_id))
+            }
+            Err(err) => Err(err),
+        }
+    }
+
+    pub(crate) fn try_inbound_ckb_protocol_connec(
+        &self,
+        peer_id: &PeerId,
+        protocol_id: ProtocolId,
+        connected_addr: Multiaddr,
+    ) -> Result<UniqueConnec<(UnboundedSender<Bytes>, u8)>, Error> {
+        let mut peers_registry = self.peers_registry.write();
+        // get peer protocol_connection
+        match peers_registry.accept_inbound_peer(peer_id.clone(), connected_addr.clone()) {
+            Ok(_) => {
+                let _ = self
+                    .peer_store()
+                    .write()
+                    .add_discovered_address(peer_id, connected_addr);
+                let mut peer = peers_registry.get_mut(&peer_id).unwrap();
+                Ok(self.ckb_protocol_connec(peer, protocol_id))
             }
             Err(err) => Err(err),
         }
@@ -368,10 +388,10 @@ impl Network {
         C: Send + 'static,
     {
         trace!(
-            target: "network",
-            "prepare open protocol {:?} to {:?}",
-            protocol.base_name(),
-            addr
+        target: "network",
+        "prepare open protocol {:?} to {:?}",
+        protocol.base_name(),
+        addr
         );
 
         let protocol_id = protocol.id();
@@ -394,10 +414,9 @@ impl Network {
         });
 
         let transport = TransportTimeout::new(transport, timeout);
-        let unique_connec = match self.ckb_protocol_connec(
+        let unique_connec = match self.try_outbound_ckb_protocol_connec(
             expected_peer_id,
             protocol_id,
-            Endpoint::Dialer,
             addr.to_owned(),
         ) {
             Ok(unique_connec) => unique_connec,
@@ -405,30 +424,30 @@ impl Network {
         };
 
         let transport = transport.and_then({
-            let expected_peer_id = expected_peer_id.clone();
-            move |(peer_id, protocol), _, client_addr| {
-                if peer_id == expected_peer_id {
-                    debug!(target: "network", "success connect to {:?}", peer_id);
-                    future::ok((protocol, client_addr))
-                } else {
-                    debug!(target: "network", "connected peer id mismatch {:?}, disconnect!", peer_id);
-                    //Because multiaddrs is responsed by a third-part node, the mismatched
-                    //peer itself should not seems as a misbehaviour peer.
-                    //So we do not report this behaviour
-                    future::err(IoError::new(
-                        IoErrorKind::ConnectionRefused,
-                        "Peer id mismatch",
-                    ))
+                let expected_peer_id = expected_peer_id.clone();
+                move |(peer_id, protocol), _, client_addr| {
+                    if peer_id == expected_peer_id {
+                        debug!(target: "network", "success connect to {:?}", peer_id);
+                        future::ok((protocol, client_addr))
+                    } else {
+                        debug!(target: "network", "connected peer id mismatch {:?}, disconnect!", peer_id);
+                        //Because multiaddrs is responsed by a third-part node, the mismatched
+                        //peer itself should not seems as a misbehaviour peer.
+                        //So we do not report this behaviour
+                        future::err(IoError::new(
+                                IoErrorKind::ConnectionRefused,
+                                "Peer id mismatch",
+                                ))
+                    }
                 }
-            }
-        });
+            });
 
         trace!(
-            target: "network",
-            "Opening connection to {:?} addr {} with protocol {:?}",
-            expected_peer_id,
-            addr,
-            protocol_id
+        target: "network",
+        "Opening connection to {:?} addr {} with protocol {:?}",
+        expected_peer_id,
+        addr,
+        protocol_id
         );
         let _ = unique_connec.dial(swarm_controller, addr, transport);
     }
@@ -445,19 +464,17 @@ impl Network {
         let peer_store: Arc<RwLock<Box<PeerStore>>> = Arc::new(RwLock::new(Box::new(
             MemoryPeerStore::new(config.bootnodes()?),
         ) as Box<_>));
-        let reserved_peers = config.reserved_peers()?;
-        {
-            let mut peer_store = peer_store.write();
-            // put reserved_peers into peer_store
-            for (peer_id, addr) in reserved_peers.clone() {
-                peer_store.add_reserved_node(peer_id, vec![addr]);
-            }
-        }
+        let reserved_peers = config
+            .reserved_peers()?
+            .iter()
+            .map(|(peer_id, _)| peer_id.to_owned())
+            .collect::<Vec<_>>();
         let peers_registry = PeersRegistry::new(
             Arc::clone(&peer_store),
             config.max_incoming_peers,
             config.max_outgoing_peers,
             config.reserved_only,
+            reserved_peers,
         );
         let network: Arc<Network> = Arc::new(Network {
             peers_registry: RwLock::new(peers_registry),
@@ -485,10 +502,7 @@ impl Network {
         let basic_transport = {
             let basic_transport = new_transport(local_private_key, basic_transport_timeout)
                 .map_err_dial({
-                    let network = Arc::clone(&network);
                     move |err, addr| {
-                        let mut peer_store = network.peer_store().write();
-                        peer_store.report_address(&addr, Behaviour::FailedToConnect);
                         trace!(target: "network", "Failed to connect to peer {}, error: {:?}", addr, err);
                         err
                     }
@@ -640,9 +654,9 @@ impl Network {
             match swarm_controller.listen_on(addr.clone()) {
                 Ok(listen_address) => {
                     info!(
-                        target: "network",
-                        "Listen on address: {}",
-                        network.to_external_url(&listen_address)
+                    target: "network",
+                    "Listen on address: {}",
+                    network.to_external_url(&listen_address)
                     );
                     network
                         .original_listened_addresses
@@ -651,10 +665,10 @@ impl Network {
                 }
                 Err(err) => {
                     warn!(
-                        target: "network",
-                        "listen on address {} failed, due to error: {}",
-                        addr.clone(),
-                        err
+                    target: "network",
+                    "listen on address {} failed, due to error: {}",
+                    addr.clone(),
+                    err
                     );
                     return Err(ErrorKind::Other(format!("listen address error: {:?}", err)).into());
                 }
@@ -665,17 +679,18 @@ impl Network {
         {
             let network = Arc::clone(&network);
             let dial_timeout = Duration::from_secs(DIAL_BOOTNODE_TIMEOUT);
-            let peer_store = network.peer_store().read();
             // dial reserved_nodes
-            for (peer_id, addr) in peer_store.reserved_nodes() {
+            for (peer_id, addr) in config.reserved_peers()? {
                 network.dial_to_peer(
                     basic_transport.clone(),
-                    addr,
-                    peer_id,
+                    &addr,
+                    &peer_id,
                     &swarm_controller,
                     dial_timeout,
                 );
             }
+
+            let peer_store = network.peer_store().read();
             // dial bootnodes
             for (peer_id, addr) in peer_store.bootnodes().take(max_outgoing) {
                 debug!(target: "network", "dial bootnode {:?} {:?}", peer_id, addr);

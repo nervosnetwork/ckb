@@ -1,4 +1,4 @@
-use crate::peer_store::{Behaviour, PeerStore, Status};
+use crate::peer_store::{Behaviour, PeerStore, Score, Status};
 use crate::PeerId;
 use fnv::FnvHashMap;
 use libp2p::core::Multiaddr;
@@ -23,7 +23,6 @@ struct PeerInfo {
 pub struct MemoryPeerStore {
     bootnodes: Vec<(PeerId, Multiaddr)>,
     peers: FnvHashMap<PeerId, PeerInfo>,
-    reserved_nodes: FnvHashMap<PeerId, Vec<Multiaddr>>,
 }
 
 impl MemoryPeerStore {
@@ -31,7 +30,6 @@ impl MemoryPeerStore {
         let mut peer_store = MemoryPeerStore {
             bootnodes: bootnodes.clone(),
             peers: Default::default(),
-            reserved_nodes: Default::default(),
         };
         for (peer_id, addr) in bootnodes {
             peer_store.add_peer(peer_id, vec![addr]);
@@ -56,6 +54,11 @@ impl MemoryPeerStore {
 }
 
 impl PeerStore for MemoryPeerStore {
+    fn add_discovered_address(&mut self, peer_id: &PeerId, address: Multiaddr) -> Result<(), ()> {
+        self.add_discovered_addresses(peer_id, vec![address])
+            .map(|_| ())
+    }
+
     fn add_discovered_addresses(
         &mut self,
         peer_id: &PeerId,
@@ -78,10 +81,7 @@ impl PeerStore for MemoryPeerStore {
     }
     // TODO
     fn report(&mut self, _peer_id: &PeerId, _behaviour: Behaviour) {}
-    // TODO
-    fn report_address(&mut self, _address: &Multiaddr, _behaviour: Behaviour) {}
-    // TODO
-    fn report_status(&mut self, peer_id: &PeerId, status: Status) {
+    fn update_status(&mut self, peer_id: &PeerId, status: Status) {
         if let Some(peer) = self.peers.get_mut(&peer_id) {
             let now = Instant::now();
             peer.last_updated_at = now;
@@ -94,6 +94,10 @@ impl PeerStore for MemoryPeerStore {
             Some(peer) => peer.status,
             None => Status::Unknown,
         }
+    }
+    //TODO
+    fn peer_score(&self, _peer_id: &PeerId) -> Score {
+        0
     }
 
     fn bootnodes<'a>(&'a self) -> Box<Iterator<Item = (&'a PeerId, &'a Multiaddr)> + 'a> {
@@ -129,29 +133,5 @@ impl PeerStore for MemoryPeerStore {
             }
         });
         Box::new(peers) as Box<_>
-    }
-
-    fn reserved_nodes<'a>(&'a self) -> Box<Iterator<Item = (&'a PeerId, &'a Multiaddr)> + 'a> {
-        let iter =
-            self.reserved_nodes
-                .iter()
-                .filter_map(move |(peer_id, addresses)| match addresses.get(0) {
-                    Some(address) => Some((peer_id, address)),
-                    None => None,
-                });
-        Box::new(iter) as Box<_>
-    }
-    fn is_reserved(&self, peer_id: &PeerId) -> bool {
-        self.reserved_nodes.contains_key(peer_id)
-    }
-    fn add_reserved_node(
-        &mut self,
-        peer_id: PeerId,
-        addresses: Vec<Multiaddr>,
-    ) -> Option<Vec<Multiaddr>> {
-        self.reserved_nodes.insert(peer_id, addresses)
-    }
-    fn remove_reserved_node(&mut self, peer_id: &PeerId) -> Option<Vec<Multiaddr>> {
-        self.reserved_nodes.remove(peer_id)
     }
 }
