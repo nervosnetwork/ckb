@@ -529,7 +529,10 @@ mod tests {
         let inputs = vec![&input];
         let mut load_input = LoadInputByField::new(&inputs, Some(&input));
 
-        assert!(machine.memory_mut().store64(size_addr as usize, unlock_data.len() as u64).is_ok());
+        assert!(machine
+            .memory_mut()
+            .store64(size_addr as usize, unlock_data.len() as u64)
+            .is_ok());
 
         assert!(load_input.ecall(&mut machine).is_ok());
         assert_eq!(machine.registers()[A0], SUCCESS as u64);
@@ -574,7 +577,10 @@ mod tests {
         let inputs = vec![&input];
         let mut load_input = LoadInputByField::new(&inputs, Some(&input));
 
-        assert!(machine.memory_mut().store64(size_addr as usize, unlock_data.len() as u64 + 10).is_ok());
+        assert!(machine
+            .memory_mut()
+            .store64(size_addr as usize, unlock_data.len() as u64 + 10)
+            .is_ok());
 
         assert!(load_input.ecall(&mut machine).is_ok());
         assert_eq!(machine.registers()[A0], ITEM_MISSING as u64);
@@ -621,7 +627,10 @@ mod tests {
         let inputs = vec![];
         let mut load_input = LoadInputByField::new(&inputs, Some(&input));
 
-        assert!(machine.memory_mut().store64(size_addr as usize, outpoint_data.len() as u64 + 5).is_ok());
+        assert!(machine
+            .memory_mut()
+            .store64(size_addr as usize, outpoint_data.len() as u64 + 5)
+            .is_ok());
 
         assert!(load_input.ecall(&mut machine).is_ok());
         assert_eq!(machine.registers()[A0], SUCCESS as u64);
@@ -665,10 +674,7 @@ mod tests {
         assert!(load_input.ecall(&mut machine).is_ok());
         assert_eq!(machine.registers()[A0], ITEM_MISSING as u64);
 
-        assert_eq!(
-            machine.memory_mut().load64(size_addr as usize),
-            Ok(5)
-        );
+        assert_eq!(machine.memory_mut().load64(size_addr as usize), Ok(5));
 
         for addr in addr as usize..addr as usize + 5 {
             assert_eq!(machine.memory_mut().load8(addr), Ok(0));
