@@ -1,10 +1,10 @@
+use crate::syscalls::{
+    utils::store_data, CellField, Source, ITEM_MISSING, LOAD_CELL_BY_FIELD_SYSCALL_NUMBER, SUCCESS,
+};
 use byteorder::{LittleEndian, WriteBytesExt};
 use ckb_core::transaction::CellOutput;
 use ckb_protocol::Script as FbsScript;
-use crate::syscalls::{CellField, Source, ITEM_MISSING, LOAD_CELL_BY_FIELD_SYSCALL_NUMBER, SUCCESS, utils::store_data};
-use ckb_vm::{
-    CoreMachine, Error as VMError, Memory, Register, Syscalls, A0, A1, A2, A3, A4, A5, A7,
-};
+use ckb_vm::{CoreMachine, Error as VMError, Memory, Register, Syscalls, A0, A3, A4, A5, A7};
 use flatbuffers::FlatBufferBuilder;
 
 #[derive(Debug)]

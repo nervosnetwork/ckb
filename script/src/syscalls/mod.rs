@@ -92,7 +92,9 @@ mod tests {
     use flatbuffers::FlatBufferBuilder;
     use hash::sha3_256;
     use numext_fixed_hash::H256;
-    use proptest::{collection::size_range, prelude::any, prelude::any_with, proptest, proptest_helper};
+    use proptest::{
+        collection::size_range, prelude::any, prelude::any_with, proptest, proptest_helper,
+    };
 
     fn _test_load_tx_all(tx: &Vec<u8>) {
         let mut machine = DefaultCoreMachine::<u64, SparseMemory>::default();

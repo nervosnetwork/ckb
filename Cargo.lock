@@ -577,6 +577,7 @@ dependencies = [
 name = "ckb-script"
 version = "0.1.0"
 dependencies = [
+ "byteorder 1.2.7 (registry+https://github.com/rust-lang/crates.io-index)",
  "ckb-core 0.1.0",
  "ckb-protocol 0.1.0",
  "ckb-vm 0.1.0 (git+https://github.com/nervosnetwork/ckb-vm?rev=1622ba0)",

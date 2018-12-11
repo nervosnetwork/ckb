@@ -1,9 +1,11 @@
+use crate::syscalls::{
+    utils::store_data, InputField, Source, ITEM_MISSING, LOAD_INPUT_BY_FIELD_SYSCALL_NUMBER,
+    SUCCESS,
+};
 use ckb_core::transaction::CellInput;
 use ckb_protocol::{OutPoint as FbsOutPoint, Script as FbsScript};
 use ckb_vm::{CoreMachine, Error as VMError, Memory, Register, Syscalls, A0, A3, A4, A5, A7};
 use flatbuffers::FlatBufferBuilder;
-use syscalls::utils::store_data;
-use syscalls::{InputField, Source, ITEM_MISSING, LOAD_INPUT_BY_FIELD_SYSCALL_NUMBER, SUCCESS};
 
 #[derive(Debug)]
 pub struct LoadInputByField<'a> {
