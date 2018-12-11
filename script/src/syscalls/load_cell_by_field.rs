@@ -1,12 +1,11 @@
 use byteorder::{LittleEndian, WriteBytesExt};
 use ckb_core::transaction::CellOutput;
 use ckb_protocol::Script as FbsScript;
-use crate::syscalls::{Field, Source, ITEM_MISSING, LOAD_CELL_BY_FIELD_SYSCALL_NUMBER, SUCCESS};
+use crate::syscalls::{CellField, Source, ITEM_MISSING, LOAD_CELL_BY_FIELD_SYSCALL_NUMBER, SUCCESS, utils::store_data};
 use ckb_vm::{
     CoreMachine, Error as VMError, Memory, Register, Syscalls, A0, A1, A2, A3, A4, A5, A7,
 };
 use flatbuffers::FlatBufferBuilder;
-use std::cmp;
 
 #[derive(Debug)]
 pub struct LoadCellByField<'a> {
@@ -37,23 +36,6 @@ impl<'a> LoadCellByField<'a> {
     }
 }
 
-fn store_data<R: Register, M: Memory>(
-    machine: &mut CoreMachine<R, M>,
-    data: &[u8],
-) -> Result<(), VMError> {
-    let addr = machine.registers()[A0].to_usize();
-    let size_addr = machine.registers()[A1].to_usize();
-    let offset = machine.registers()[A2].to_usize();
-
-    let size = machine.memory_mut().load64(size_addr)? as usize;
-    let real_size = cmp::min(size, data.len() - offset);
-    machine.memory_mut().store64(size_addr, real_size as u64)?;
-    machine
-        .memory_mut()
-        .store_bytes(addr, &data[offset..offset + real_size])?;
-    Ok(())
-}
-
 impl<'a, R: Register, M: Memory> Syscalls<R, M> for LoadCellByField<'a> {
     fn initialize(&mut self, _machine: &mut CoreMachine<R, M>) -> Result<(), VMError> {
         Ok(())
@@ -66,28 +48,28 @@ impl<'a, R: Register, M: Memory> Syscalls<R, M> for LoadCellByField<'a> {
 
         let index = machine.registers()[A3].to_usize();
         let source = Source::parse_from_u64(machine.registers()[A4].to_u64())?;
-        let field = Field::parse_from_u64(machine.registers()[A5].to_u64())?;
+        let field = CellField::parse_from_u64(machine.registers()[A5].to_u64())?;
 
         let cell = self
             .fetch_cell(source, index)
             .ok_or_else(|| VMError::OutOfBound)?;
 
         let return_code = match field {
-            Field::Capacity => {
+            CellField::Capacity => {
                 let mut buffer = vec![];
                 buffer.write_u64::<LittleEndian>(cell.capacity)?;
                 store_data(machine, &buffer)?;
                 SUCCESS
             }
-            Field::Data => {
+            CellField::Data => {
                 store_data(machine, &cell.data)?;
                 SUCCESS
             }
-            Field::LockHash => {
+            CellField::LockHash => {
                 store_data(machine, &cell.lock.as_bytes())?;
                 SUCCESS
             }
-            Field::Contract => match cell.contract {
+            CellField::Contract => match cell.contract {
                 Some(ref contract) => {
                     let mut builder = FlatBufferBuilder::new();
                     let offset = FbsScript::build(&mut builder, &contract);
@@ -98,7 +80,7 @@ impl<'a, R: Register, M: Memory> Syscalls<R, M> for LoadCellByField<'a> {
                 }
                 None => ITEM_MISSING,
             },
-            Field::ContractHash => match cell.contract {
+            CellField::ContractHash => match cell.contract {
                 Some(ref contract) => {
                     store_data(machine, &contract.type_hash().as_bytes())?;
                     SUCCESS

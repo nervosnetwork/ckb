@@ -2,12 +2,15 @@ mod builder;
 mod debugger;
 mod load_cell;
 mod load_cell_by_field;
+mod load_input_by_field;
 mod load_tx;
+mod utils;
 
 pub use self::builder::build_tx;
 pub use self::debugger::Debugger;
 pub use self::load_cell::LoadCell;
 pub use self::load_cell_by_field::LoadCellByField;
+pub use self::load_input_by_field::LoadInputByField;
 pub use self::load_tx::LoadTx;
 
 use ckb_vm::Error;
@@ -18,10 +21,11 @@ pub const ITEM_MISSING: u8 = 2;
 pub const LOAD_TX_SYSCALL_NUMBER: u64 = 2049;
 pub const LOAD_CELL_SYSCALL_NUMBER: u64 = 2053;
 pub const LOAD_CELL_BY_FIELD_SYSCALL_NUMBER: u64 = 2054;
+pub const LOAD_INPUT_BY_FIELD_SYSCALL_NUMBER: u64 = 2054;
 pub const DEBUG_PRINT_SYSCALL_NUMBER: u64 = 2177;
 
 #[derive(Debug, PartialEq, Clone, Copy, Eq)]
-enum Field {
+enum CellField {
     Capacity,
     Data,
     LockHash,
@@ -29,14 +33,30 @@ enum Field {
     ContractHash,
 }
 
-impl Field {
-    fn parse_from_u64(i: u64) -> Result<Field, Error> {
+impl CellField {
+    fn parse_from_u64(i: u64) -> Result<CellField, Error> {
         match i {
-            0 => Ok(Field::Capacity),
-            1 => Ok(Field::Data),
-            2 => Ok(Field::LockHash),
-            3 => Ok(Field::Contract),
-            4 => Ok(Field::ContractHash),
+            0 => Ok(CellField::Capacity),
+            1 => Ok(CellField::Data),
+            2 => Ok(CellField::LockHash),
+            3 => Ok(CellField::Contract),
+            4 => Ok(CellField::ContractHash),
+            _ => Err(Error::ParseError),
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Clone, Copy, Eq)]
+enum InputField {
+    Unlock,
+    OutPoint,
+}
+
+impl InputField {
+    fn parse_from_u64(i: u64) -> Result<InputField, Error> {
+        match i {
+            0 => Ok(InputField::Unlock),
+            1 => Ok(InputField::OutPoint),
             _ => Err(Error::ParseError),
         }
     }
@@ -64,8 +84,9 @@ impl Source {
 mod tests {
     use super::*;
     use byteorder::{LittleEndian, WriteBytesExt};
-    use ckb_core::transaction::CellOutput;
-    use ckb_protocol::CellOutput as FbsCellOutput;
+    use ckb_core::script::Script;
+    use ckb_core::transaction::{CellInput, CellOutput, OutPoint};
+    use ckb_protocol::{CellOutput as FbsCellOutput, OutPoint as FbsOutPoint, Script as FbsScript};
     use ckb_vm::machine::DefaultCoreMachine;
     use ckb_vm::{
         CoreMachine, Error as VMError, Memory, SparseMemory, Syscalls, A0, A1, A2, A3, A4, A5, A7,
@@ -95,7 +116,7 @@ mod tests {
 
         assert_eq!(machine.registers()[A0], SUCCESS as u64);
         for (i, addr) in (addr as usize..addr as usize + tx.len()).enumerate() {
-            assert_eq!(machine.memory_mut().load8(addr), Ok(tx[i]))
+            assert_eq!(machine.memory_mut().load8(addr), Ok(tx[i]));
         }
     }
 
@@ -131,7 +152,7 @@ mod tests {
             Ok((tx.len() - offset) as u64)
         );
         for (i, addr) in (addr as usize..addr as usize + tx.len() - offset).enumerate() {
-            assert_eq!(machine.memory_mut().load8(addr), Ok(tx[i + offset]))
+            assert_eq!(machine.memory_mut().load8(addr), Ok(tx[i + offset]));
         }
     }
 
@@ -228,7 +249,7 @@ mod tests {
         );
 
         for (i, addr) in (addr as usize..addr as usize + input_correct_data.len()).enumerate() {
-            assert_eq!(machine.memory_mut().load8(addr), Ok(input_correct_data[i]))
+            assert_eq!(machine.memory_mut().load8(addr), Ok(input_correct_data[i]));
         }
 
         // clean memory
@@ -252,7 +273,7 @@ mod tests {
         );
 
         for (i, addr) in (addr as usize..addr as usize + output_correct_data.len()).enumerate() {
-            assert_eq!(machine.memory_mut().load8(addr), Ok(output_correct_data[i]))
+            assert_eq!(machine.memory_mut().load8(addr), Ok(output_correct_data[i]));
         }
     }
 
@@ -306,7 +327,7 @@ mod tests {
             assert_eq!(
                 machine.memory_mut().load8(addr),
                 Ok(input_correct_data[i + offset])
-            )
+            );
         }
     }
 
@@ -359,7 +380,7 @@ mod tests {
         );
 
         for (i, addr) in (addr as usize..addr as usize + input_correct_data.len()).enumerate() {
-            assert_eq!(machine.memory_mut().load8(addr), Ok(input_correct_data[i]))
+            assert_eq!(machine.memory_mut().load8(addr), Ok(input_correct_data[i]));
         }
     }
 
@@ -399,7 +420,7 @@ mod tests {
         buffer.write_u64::<LittleEndian>(capacity).unwrap();
 
         for (i, addr) in (addr as usize..addr as usize + buffer.len() as usize).enumerate() {
-            assert_eq!(machine.memory_mut().load8(addr), Ok(buffer[i]))
+            assert_eq!(machine.memory_mut().load8(addr), Ok(buffer[i]));
         }
     }
 
@@ -440,7 +461,7 @@ mod tests {
         );
 
         for (i, addr) in (addr as usize..addr as usize + sha3_data.len() as usize).enumerate() {
-            assert_eq!(machine.memory_mut().load8(addr), Ok(sha3_data[i]))
+            assert_eq!(machine.memory_mut().load8(addr), Ok(sha3_data[i]));
         }
     }
 
@@ -481,7 +502,176 @@ mod tests {
         assert_eq!(machine.memory_mut().load64(size_addr as usize), Ok(100));
 
         for addr in addr as usize..addr as usize + 100 {
-            assert_eq!(machine.memory_mut().load8(addr), Ok(0))
+            assert_eq!(machine.memory_mut().load8(addr), Ok(0));
+        }
+    }
+
+    fn _test_load_input_unlock_script(data: Vec<u8>) {
+        let mut machine = DefaultCoreMachine::<u64, SparseMemory>::default();
+        let size_addr = 0;
+        let addr = 100;
+
+        machine.registers_mut()[A0] = addr; // addr
+        machine.registers_mut()[A1] = size_addr; // size_addr
+        machine.registers_mut()[A2] = 0; // offset
+        machine.registers_mut()[A3] = 0; //index
+        machine.registers_mut()[A4] = 0; //source: 0 input
+        machine.registers_mut()[A5] = 0; //field: 0 unlock
+        machine.registers_mut()[A7] = LOAD_INPUT_BY_FIELD_SYSCALL_NUMBER; // syscall number
+
+        let unlock = Script::new(0, vec![], None, Some(data), vec![]);
+        let mut builder = FlatBufferBuilder::new();
+        let fbs_offset = FbsScript::build(&mut builder, &unlock);
+        builder.finish(fbs_offset, None);
+        let unlock_data = builder.finished_data();
+
+        let input = CellInput::new(OutPoint::default(), unlock);
+        let inputs = vec![&input];
+        let mut load_input = LoadInputByField::new(&inputs, Some(&input));
+
+        assert!(machine.memory_mut().store64(size_addr as usize, unlock_data.len() as u64).is_ok());
+
+        assert!(load_input.ecall(&mut machine).is_ok());
+        assert_eq!(machine.registers()[A0], SUCCESS as u64);
+
+        assert_eq!(
+            machine.memory_mut().load64(size_addr as usize),
+            Ok(unlock_data.len() as u64)
+        );
+
+        for (i, addr) in (addr as usize..addr as usize + unlock_data.len() as usize).enumerate() {
+            assert_eq!(machine.memory_mut().load8(addr), Ok(unlock_data[i]));
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn test_load_input_unlock_script(data in any_with::<Vec<u8>>(size_range(1000).lift())) {
+            _test_load_input_unlock_script(data);
+        }
+    }
+
+    fn _test_load_missing_output_unlock_script(data: Vec<u8>) {
+        let mut machine = DefaultCoreMachine::<u64, SparseMemory>::default();
+        let size_addr = 0;
+        let addr = 100;
+
+        machine.registers_mut()[A0] = addr; // addr
+        machine.registers_mut()[A1] = size_addr; // size_addr
+        machine.registers_mut()[A2] = 0; // offset
+        machine.registers_mut()[A3] = 0; //index
+        machine.registers_mut()[A4] = 1; //source: 1 output
+        machine.registers_mut()[A5] = 0; //field: 0 unlock
+        machine.registers_mut()[A7] = LOAD_INPUT_BY_FIELD_SYSCALL_NUMBER; // syscall number
+
+        let unlock = Script::new(0, vec![], None, Some(data), vec![]);
+        let mut builder = FlatBufferBuilder::new();
+        let fbs_offset = FbsScript::build(&mut builder, &unlock);
+        builder.finish(fbs_offset, None);
+        let unlock_data = builder.finished_data();
+
+        let input = CellInput::new(OutPoint::default(), unlock);
+        let inputs = vec![&input];
+        let mut load_input = LoadInputByField::new(&inputs, Some(&input));
+
+        assert!(machine.memory_mut().store64(size_addr as usize, unlock_data.len() as u64 + 10).is_ok());
+
+        assert!(load_input.ecall(&mut machine).is_ok());
+        assert_eq!(machine.registers()[A0], ITEM_MISSING as u64);
+
+        assert_eq!(
+            machine.memory_mut().load64(size_addr as usize),
+            Ok(unlock_data.len() as u64 + 10)
+        );
+
+        for addr in addr as usize..addr as usize + unlock_data.len() as usize {
+            assert_eq!(machine.memory_mut().load8(addr), Ok(0));
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn test_load_missing_output_unlock_script(data in any_with::<Vec<u8>>(size_range(1000).lift())) {
+            _test_load_missing_output_unlock_script(data);
+        }
+    }
+
+    fn _test_load_self_input_outpoint(data: Vec<u8>) {
+        let mut machine = DefaultCoreMachine::<u64, SparseMemory>::default();
+        let size_addr = 0;
+        let addr = 100;
+
+        machine.registers_mut()[A0] = addr; // addr
+        machine.registers_mut()[A1] = size_addr; // size_addr
+        machine.registers_mut()[A2] = 0; // offset
+        machine.registers_mut()[A3] = 0; //index
+        machine.registers_mut()[A4] = 2; //source: 2 self
+        machine.registers_mut()[A5] = 1; //field: 1 outpoint
+        machine.registers_mut()[A7] = LOAD_INPUT_BY_FIELD_SYSCALL_NUMBER; // syscall number
+
+        let unlock = Script::new(0, vec![], None, Some(vec![]), vec![]);
+        let sha3_data = sha3_256(data);
+        let outpoint = OutPoint::new(H256::from_slice(&sha3_data).unwrap(), 3);
+        let mut builder = FlatBufferBuilder::new();
+        let fbs_offset = FbsOutPoint::build(&mut builder, &outpoint);
+        builder.finish(fbs_offset, None);
+        let outpoint_data = builder.finished_data();
+
+        let input = CellInput::new(outpoint, unlock);
+        let inputs = vec![];
+        let mut load_input = LoadInputByField::new(&inputs, Some(&input));
+
+        assert!(machine.memory_mut().store64(size_addr as usize, outpoint_data.len() as u64 + 5).is_ok());
+
+        assert!(load_input.ecall(&mut machine).is_ok());
+        assert_eq!(machine.registers()[A0], SUCCESS as u64);
+
+        assert_eq!(
+            machine.memory_mut().load64(size_addr as usize),
+            Ok(outpoint_data.len() as u64)
+        );
+
+        for (i, addr) in (addr as usize..addr as usize + outpoint_data.len() as usize).enumerate() {
+            assert_eq!(machine.memory_mut().load8(addr), Ok(outpoint_data[i]));
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn test_load_self_input_outpoint(data in any_with::<Vec<u8>>(size_range(1000).lift())) {
+            _test_load_self_input_outpoint(data);
+        }
+    }
+
+    #[test]
+    fn test_load_missing_self_output_outpoint() {
+        let mut machine = DefaultCoreMachine::<u64, SparseMemory>::default();
+        let size_addr = 0;
+        let addr = 100;
+
+        machine.registers_mut()[A0] = addr; // addr
+        machine.registers_mut()[A1] = size_addr; // size_addr
+        machine.registers_mut()[A2] = 0; // offset
+        machine.registers_mut()[A3] = 0; //index
+        machine.registers_mut()[A4] = 2; //source: 2 self
+        machine.registers_mut()[A5] = 1; //field: 1 outpoint
+        machine.registers_mut()[A7] = LOAD_INPUT_BY_FIELD_SYSCALL_NUMBER; // syscall number
+
+        let inputs = vec![];
+        let mut load_input = LoadInputByField::new(&inputs, None);
+
+        assert!(machine.memory_mut().store64(size_addr as usize, 5).is_ok());
+
+        assert!(load_input.ecall(&mut machine).is_ok());
+        assert_eq!(machine.registers()[A0], ITEM_MISSING as u64);
+
+        assert_eq!(
+            machine.memory_mut().load64(size_addr as usize),
+            Ok(5)
+        );
+
+        for addr in addr as usize..addr as usize + 5 {
+            assert_eq!(machine.memory_mut().load8(addr), Ok(0));
         }
     }
 }

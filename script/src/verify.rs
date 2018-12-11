@@ -8,7 +8,7 @@ use flatbuffers::FlatBufferBuilder;
 use fnv::FnvHashMap;
 use log::info;
 use numext_fixed_hash::H256;
-use syscalls::{build_tx, Debugger, LoadCell, LoadCellByField, LoadTx};
+use syscalls::{build_tx, Debugger, LoadCell, LoadCellByField, LoadInputByField, LoadTx};
 
 // This struct leverages CKB VM to verify transaction inputs.
 // FlatBufferBuilder owned Vec<u8> that grows as needed, in the
@@ -74,6 +74,10 @@ impl<'a> TransactionScriptsVerifier<'a> {
         LoadCellByField::new(&self.outputs, &self.input_cells, current_cell)
     }
 
+    fn build_load_input_by_field(&self, current_input: Option<&'a CellInput>) -> LoadInputByField {
+        LoadInputByField::new(&self.inputs, current_input)
+    }
+
     // Script struct might contain references to external cells, this
     // method exacts the real script from Stript struct.
     fn extract_script(&self, script: &'a Script) -> Result<&'a [u8], ScriptError> {
@@ -94,6 +98,7 @@ impl<'a> TransactionScriptsVerifier<'a> {
         script: &Script,
         prefix: &str,
         current_cell: &'a CellOutput,
+        current_input: Option<&'a CellInput>,
     ) -> Result<(), ScriptError> {
         self.extract_script(script).and_then(|script_binary| {
             let mut args = vec![b"verify".to_vec()];
@@ -104,6 +109,7 @@ impl<'a> TransactionScriptsVerifier<'a> {
             machine.add_syscall_module(Box::new(self.build_load_tx()));
             machine.add_syscall_module(Box::new(self.build_load_cell(current_cell)));
             machine.add_syscall_module(Box::new(self.build_load_cell_by_field(current_cell)));
+            machine.add_syscall_module(Box::new(self.build_load_input_by_field(current_input)));
             machine.add_syscall_module(Box::new(Debugger::new(prefix)));
             machine
                 .run(script_binary, &args)
@@ -121,7 +127,7 @@ impl<'a> TransactionScriptsVerifier<'a> {
     pub fn verify(&self) -> Result<(), ScriptError> {
         for (i, input) in self.inputs.iter().enumerate() {
             let prefix = format!("Transaction {}, input {}", self.hash, i);
-            self.verify_script(&input.unlock, &prefix, self.input_cells[i]).map_err(|e| {
+            self.verify_script(&input.unlock, &prefix, self.input_cells[i], Some(input)).map_err(|e| {
                 info!(target: "script", "Error validating input {} of transaction {}: {:?}", i, self.hash, e);
                 e
             })?;
@@ -129,7 +135,7 @@ impl<'a> TransactionScriptsVerifier<'a> {
         for (i, output) in self.outputs.iter().enumerate() {
             if let Some(ref contract) = output.contract {
                 let prefix = format!("Transaction {}, output {}", self.hash, i);
-                self.verify_script(contract, &prefix, output).map_err(|e| {
+                self.verify_script(contract, &prefix, output, None).map_err(|e| {
                     info!(target: "script", "Error validating output {} of transaction {}: {:?}", i, self.hash, e);
                     e
                 })?;
