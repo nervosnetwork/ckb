@@ -1,4 +1,4 @@
-use crate::syscalls::{Source, LOAD_CELL_SYSCALL_NUMBER, SUCCESS};
+use crate::syscalls::{Source, ITEM_MISSING, LOAD_CELL_SYSCALL_NUMBER, SUCCESS};
 use ckb_core::transaction::CellOutput;
 use ckb_protocol::CellOutput as FbsCellOutput;
 use ckb_vm::{CoreMachine, Error as VMError, Memory, Register, Syscalls, A0, A1, A2, A3, A4, A7};
@@ -51,9 +51,12 @@ impl<'a, R: Register, M: Memory> Syscalls<R, M> for LoadCell<'a> {
         let index = machine.registers()[A3].to_usize();
         let source = Source::parse_from_u64(machine.registers()[A4].to_u64())?;
 
-        let cell = self
-            .fetch_cell(source, index)
-            .ok_or_else(|| VMError::OutOfBound)?;
+        let cell = self.fetch_cell(source, index);
+        if cell.is_none() {
+            machine.registers_mut()[A0] = R::from_u8(ITEM_MISSING);
+            return Ok(true);
+        }
+        let cell = cell.unwrap();
 
         // NOTE: this is a very expensive operation here since we need to copy
         // everything in a cell to a flatbuffer object, serialize the object

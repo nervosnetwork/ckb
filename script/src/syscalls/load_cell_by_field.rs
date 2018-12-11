@@ -50,9 +50,12 @@ impl<'a, R: Register, M: Memory> Syscalls<R, M> for LoadCellByField<'a> {
         let source = Source::parse_from_u64(machine.registers()[A4].to_u64())?;
         let field = CellField::parse_from_u64(machine.registers()[A5].to_u64())?;
 
-        let cell = self
-            .fetch_cell(source, index)
-            .ok_or_else(|| VMError::OutOfBound)?;
+        let cell = self.fetch_cell(source, index);
+        if cell.is_none() {
+            machine.registers_mut()[A0] = R::from_u8(ITEM_MISSING);
+            return Ok(true);
+        }
+        let cell = cell.unwrap();
 
         let return_code = match field {
             CellField::Capacity => {

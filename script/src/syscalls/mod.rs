@@ -88,9 +88,7 @@ mod tests {
     use ckb_core::transaction::{CellInput, CellOutput, OutPoint};
     use ckb_protocol::{CellOutput as FbsCellOutput, OutPoint as FbsOutPoint, Script as FbsScript};
     use ckb_vm::machine::DefaultCoreMachine;
-    use ckb_vm::{
-        CoreMachine, Error as VMError, Memory, SparseMemory, Syscalls, A0, A1, A2, A3, A4, A5, A7,
-    };
+    use ckb_vm::{CoreMachine, Memory, SparseMemory, Syscalls, A0, A1, A2, A3, A4, A5, A7};
     use flatbuffers::FlatBufferBuilder;
     use hash::sha3_256;
     use numext_fixed_hash::H256;
@@ -163,7 +161,7 @@ mod tests {
         }
     }
 
-    fn _test_load_cell_out_of_bound(data: Vec<u8>) {
+    fn _test_load_cell_item_missing(data: Vec<u8>) {
         let mut machine = DefaultCoreMachine::<u64, SparseMemory>::default();
         let size_addr = 0;
         let addr = 100;
@@ -191,13 +189,14 @@ mod tests {
         let input_cells = vec![&input_cell];
         let mut load_cell = LoadCell::new(&outputs, &input_cells, &input_cell);
 
-        assert_eq!(load_cell.ecall(&mut machine), Err(VMError::OutOfBound)); // index out of bounds
+        assert!(load_cell.ecall(&mut machine).is_ok());
+        assert_eq!(machine.registers()[A0], ITEM_MISSING as u64);
     }
 
     proptest! {
         #[test]
-        fn test_load_cell_out_of_bound(data in any_with::<Vec<u8>>(size_range(1000).lift())) {
-            _test_load_cell_out_of_bound(data);
+        fn test_load_cell_item_missing(data in any_with::<Vec<u8>>(size_range(1000).lift())) {
+            _test_load_cell_item_missing(data);
         }
     }
 
