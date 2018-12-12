@@ -632,10 +632,7 @@ pub mod test {
         } else {
             chain2
         };
-        assert_eq!(
-            shared.block_hash(8),
-            best.get(7).map(|b| b.header().hash())
-        );
+        assert_eq!(shared.block_hash(8), best.get(7).map(|b| b.header().hash()));
         assert_eq!(
             shared.block_hash(19),
             best.get(18).map(|b| b.header().hash())
