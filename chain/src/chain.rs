@@ -155,13 +155,17 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
             };
 
             self.shared.store().insert_block(batch, block);
-            self.shared.store().insert_output_root(batch, &block.header().hash(), &root);
-            self.shared.store().insert_block_ext(batch, &block.header().hash(), &ext);
+            self.shared
+                .store()
+                .insert_output_root(batch, &block.header().hash(), &root);
+            self.shared
+                .store()
+                .insert_block_ext(batch, &block.header().hash(), &ext);
 
             let current_total_difficulty = tip_header.total_difficulty();
             debug!(
-                "difficulty diff = {}; current = {}, cannon = {}",
-                &cannon_total_difficulty - current_total_difficulty,
+                target: "chain",
+                "difficulty current = {}, cannon = {}",
                 current_total_difficulty,
                 cannon_total_difficulty,
             );
@@ -170,7 +174,12 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
                 || (current_total_difficulty == &cannon_total_difficulty
                     && block.header().hash() < tip_header.hash())
             {
-                debug!(target: "chain", "new best block found: {} => {}", block.header().number(), block.header().hash());
+                debug!(
+                    target: "chain",
+                    "new best block found: {} => {}, difficulty diff = {}",
+                    block.header().number(), block.header().hash(),
+                    &cannon_total_difficulty - current_total_difficulty
+                );
                 new_best_block = true;
                 output_root = root;
                 total_difficulty = cannon_total_difficulty;
@@ -343,7 +352,7 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
             .iter()
             .enumerate()
         {
-            debug!(target: "chain", "   {} => {:#?}", index, uncle);
+            debug!(target: "chain", "   {} => {:?}", index, uncle);
         }
         debug!(target: "chain", "}}");
     }
