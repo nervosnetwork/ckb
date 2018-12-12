@@ -155,7 +155,7 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
             };
 
             self.shared.store().insert_block(batch, block);
-            self.shared.store().insert_output_root(batch, block.header().hash(), &root);
+            self.shared.store().insert_output_root(batch, &block.header().hash(), &root);
             self.shared.store().insert_block_ext(batch, &block.header().hash(), &ext);
 
             let current_total_difficulty = tip_header.total_difficulty();
@@ -572,7 +572,7 @@ pub mod test {
                 .expect("process block ok");
         }
         assert_eq!(
-            shared.block_hash(8).as_ref(),
+            shared.block_hash(8),
             chain2.get(7).map(|b| b.header().hash())
         );
     }
@@ -633,11 +633,11 @@ pub mod test {
             chain2
         };
         assert_eq!(
-            shared.block_hash(8).as_ref(),
+            shared.block_hash(8),
             best.get(7).map(|b| b.header().hash())
         );
         assert_eq!(
-            shared.block_hash(19).as_ref(),
+            shared.block_hash(19),
             best.get(18).map(|b| b.header().hash())
         );
     }

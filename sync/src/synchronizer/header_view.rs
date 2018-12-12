@@ -22,7 +22,7 @@ impl HeaderView {
         self.inner.number()
     }
 
-    pub fn hash(&self) -> &H256 {
+    pub fn hash(&self) -> H256 {
         self.inner.hash()
     }
 

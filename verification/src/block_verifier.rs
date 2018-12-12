@@ -194,7 +194,6 @@ impl MerkleRootVerifier {
             .commit_transactions()
             .iter()
             .map(|tx| tx.hash())
-            .cloned()
             .collect::<Vec<_>>();
 
         if block.header().txs_commit() != &merkle_root(&commits[..]) {
@@ -362,7 +361,7 @@ impl<CP: ChainProvider + Clone> UnclesVerifier<CP> {
                 return Err(Error::Uncles(UnclesError::InvalidDifficultyEpoch));
             }
 
-            if uncle.header().cellbase_id() != uncle.cellbase().hash() {
+            if uncle.header().cellbase_id() != &uncle.cellbase().hash() {
                 return Err(Error::Uncles(UnclesError::InvalidCellbase));
             }
 
@@ -427,7 +426,7 @@ impl<P: ChainProvider + CellProvider + Clone> ::std::clone::Clone for Transactio
 struct TransactionsVerifierWrapper<'a, P: CellProvider + 'a> {
     verifier: &'a TransactionsVerifier<P>,
     block: &'a Block,
-    output_indexs: FnvHashMap<&'a H256, usize>,
+    output_indexs: FnvHashMap<H256, usize>,
 }
 
 impl<'a, P: CellProvider> CellProvider for TransactionsVerifierWrapper<'a, P> {

@@ -242,7 +242,7 @@ impl<CI: ChainIndex> Synchronizer<CI> {
             return None;
         }
 
-        if locator.last().expect("empty checked") != self.shared.genesis_hash() {
+        if locator.last().expect("empty checked") != &self.shared.genesis_hash() {
             return None;
         }
 
@@ -1017,7 +1017,7 @@ mod tests {
 
         for window in headers.windows(2) {
             if let [parent, header] = &window {
-                assert_eq!(header.parent_hash(), parent.hash());
+                assert_eq!(header.parent_hash(), &parent.hash());
             }
         }
     }
@@ -1138,11 +1138,11 @@ mod tests {
 
         assert_eq!(
             headers.first().unwrap().hash(),
-            &shared2.block_hash(193).unwrap()
+            shared2.block_hash(193).unwrap()
         );
         assert_eq!(
             headers.last().unwrap().hash(),
-            &shared2.block_hash(200).unwrap()
+            shared2.block_hash(200).unwrap()
         );
 
         println!(
@@ -1198,7 +1198,7 @@ mod tests {
         }
 
         assert_eq!(
-            synchronizer1
+            &synchronizer1
                 .peers
                 .last_common_headers
                 .read()

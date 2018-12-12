@@ -96,7 +96,7 @@ impl<T: 'static + KeyValueDB> ChainIndex for ChainKVStore<T> {
                 )
             })
             .map(|ref serialized_transaction| {
-                TransactionBuilder::new(serialized_transaction).with_hash(h.clone())
+                TransactionBuilder::new(serialized_transaction).build()
             })
     }
 
@@ -175,7 +175,7 @@ mod tests {
         let block = consensus.genesis_block();
         let hash = block.header().hash();
         store.init(&block);
-        assert_eq!(hash, &store.get_block_hash(0).unwrap());
+        assert_eq!(&hash, &store.get_block_hash(0).unwrap());
 
         assert_eq!(
             block.header().difficulty(),
