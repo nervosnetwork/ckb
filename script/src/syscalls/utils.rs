@@ -10,8 +10,9 @@ pub fn store_data<R: Register, M: Memory>(
     let offset = machine.registers()[A2].to_usize();
 
     let size = machine.memory_mut().load64(size_addr)? as usize;
-    let real_size = cmp::min(size, data.len() - offset);
-    machine.memory_mut().store64(size_addr, real_size as u64)?;
+    let full_size = data.len() - offset;
+    let real_size = cmp::min(size, full_size);
+    machine.memory_mut().store64(size_addr, full_size as u64)?;
     machine
         .memory_mut()
         .store_bytes(addr, &data[offset..offset + real_size])?;

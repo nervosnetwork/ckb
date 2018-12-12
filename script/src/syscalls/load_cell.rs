@@ -73,8 +73,9 @@ impl<'a, R: Register, M: Memory> Syscalls<R, M> for LoadCell<'a> {
         let data = builder.finished_data();
 
         let offset = machine.registers()[A2].to_usize();
-        let real_size = cmp::min(size, data.len() - offset);
-        machine.memory_mut().store64(size_addr, real_size as u64)?;
+        let full_size = data.len() - offset;
+        let real_size = cmp::min(size, full_size);
+        machine.memory_mut().store64(size_addr, full_size as u64)?;
         machine
             .memory_mut()
             .store_bytes(addr, &data[offset..offset + real_size])?;

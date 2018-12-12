@@ -127,6 +127,48 @@ mod tests {
         }
     }
 
+    fn _test_load_tx_length(tx: &Vec<u8>) {
+        let mut machine = DefaultCoreMachine::<u64, SparseMemory>::default();
+        let size_addr = 0;
+        let addr = 100;
+
+        machine.registers_mut()[A0] = addr; // addr
+        machine.registers_mut()[A1] = size_addr; // size_addr
+        machine.registers_mut()[A2] = 0; // offset
+        machine.registers_mut()[A7] = LOAD_TX_SYSCALL_NUMBER; // syscall number
+
+        assert!(machine.memory_mut().store64(size_addr as usize, 0).is_ok());
+
+        let mut load_tx = LoadTx::new(tx);
+        assert!(load_tx.ecall(&mut machine).is_ok());
+
+        assert_eq!(machine.registers()[A0], SUCCESS as u64);
+        assert_eq!(
+            machine.memory_mut().load64(size_addr as usize),
+            Ok(tx.len() as u64)
+        );
+
+        machine.registers_mut()[A0] = addr; // addr
+        machine.registers_mut()[A2] = 100; // offset
+
+        assert!(machine.memory_mut().store64(size_addr as usize, 0).is_ok());
+
+        assert!(load_tx.ecall(&mut machine).is_ok());
+
+        assert_eq!(machine.registers()[A0], SUCCESS as u64);
+        assert_eq!(
+            machine.memory_mut().load64(size_addr as usize),
+            Ok(tx.len() as u64 - 100)
+        );
+    }
+
+    proptest! {
+        #[test]
+        fn test_load_tx_length(ref tx in any_with::<Vec<u8>>(size_range(1000).lift())) {
+            _test_load_tx_length(tx);
+        }
+    }
+
     fn _test_load_tx_partial(tx: &Vec<u8>) {
         let mut machine = DefaultCoreMachine::<u64, SparseMemory>::default();
         let size_addr = 0;
@@ -282,6 +324,52 @@ mod tests {
         #[test]
         fn test_load_cell_all(tx in any_with::<Vec<u8>>(size_range(1000).lift())) {
             _test_load_cell_all(tx);
+        }
+    }
+
+    fn _test_load_cell_length(data: Vec<u8>) {
+        let mut machine = DefaultCoreMachine::<u64, SparseMemory>::default();
+        let size_addr = 0;
+        let addr = 100;
+
+        machine.registers_mut()[A0] = addr; // addr
+        machine.registers_mut()[A1] = size_addr; // size_addr
+        machine.registers_mut()[A2] = 0; // offset
+        machine.registers_mut()[A3] = 0; //index
+        machine.registers_mut()[A4] = 0; //source: 0 input
+        machine.registers_mut()[A7] = LOAD_CELL_SYSCALL_NUMBER; // syscall number
+
+        let output = CellOutput::new(100, data.clone(), H256::zero(), None);
+        let input_cell = CellOutput::new(
+            100,
+            data.iter().rev().cloned().collect(),
+            H256::zero(),
+            None,
+        );
+        let outputs = vec![&output];
+        let input_cells = vec![&input_cell];
+        let mut load_cell = LoadCell::new(&outputs, &input_cells, &input_cell);
+
+        let mut builder = FlatBufferBuilder::new();
+        let fbs_offset = FbsCellOutput::build(&mut builder, &input_cell);
+        builder.finish(fbs_offset, None);
+        let input_correct_data = builder.finished_data();
+
+        assert!(machine.memory_mut().store64(size_addr as usize, 0).is_ok());
+
+        assert!(load_cell.ecall(&mut machine).is_ok());
+        assert_eq!(machine.registers()[A0], SUCCESS as u64);
+
+        assert_eq!(
+            machine.memory_mut().load64(size_addr as usize),
+            Ok(input_correct_data.len() as u64)
+        );
+    }
+
+    proptest! {
+        #[test]
+        fn test_load_cell_length(tx in any_with::<Vec<u8>>(size_range(1000).lift())) {
+            _test_load_cell_length(tx);
         }
     }
 
@@ -464,6 +552,17 @@ mod tests {
         for (i, addr) in (addr as usize..addr as usize + sha3_data.len() as usize).enumerate() {
             assert_eq!(machine.memory_mut().load8(addr), Ok(sha3_data[i]));
         }
+
+        machine.registers_mut()[A0] = addr; // addr
+        assert!(machine.memory_mut().store64(size_addr as usize, 0).is_ok());
+
+        assert!(load_cell.ecall(&mut machine).is_ok());
+        assert_eq!(machine.registers()[A0], SUCCESS as u64);
+
+        assert_eq!(
+            machine.memory_mut().load64(size_addr as usize),
+            Ok(sha3_data.len() as u64)
+        );
     }
 
     proptest! {
