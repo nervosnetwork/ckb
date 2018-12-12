@@ -85,24 +85,3 @@ pub fn get_commit_date() -> Option<String> {
         .ok()
         .and_then(|r| String::from_utf8(r.stdout).ok())
 }
-
-#[cfg(test)]
-mod test {
-    use super::*;
-
-    #[test]
-    fn test_struct_local() {
-        // hard to make positive tests for `commit_describe` and `commit_date` since they will always change
-        let vi = get_version!();
-        assert_eq!(vi.major, 0);
-        assert_eq!(vi.minor, 1);
-        assert_eq!(vi.patch, 0);
-    }
-
-    #[test]
-    fn test_display_local() {
-        let vi = get_version!();
-        assert_eq!(vi.short(), "0.1.0".to_string());
-        assert!(vi.long().starts_with("0.1.0"));
-    }
-}
