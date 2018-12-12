@@ -45,7 +45,7 @@ security-audit:
 	@cargo audit
 
 docker: build
-	docker build  -f docker/hub/Dockerfile -t ckb:latest .
+	docker build -f docker/hub/Dockerfile -t nervos/ckb:latest .
 
 .PHONY: build build-integration-test docker
 .PHONY: fmt test clippy proto doc doc-deps check stats
