@@ -3,19 +3,14 @@ use crate::PeerId;
 use fnv::FnvHashMap;
 use libp2p::core::Multiaddr;
 use log::trace;
-use std::time::Instant;
-
-// peer_id -> addresses,
-// sort by score
-// addr -> peer_id
-// last report or updated_time
-const INITIALIZED_SCORE: u32 = 0;
+use peer_store::{Behaviour, PeerStore, ReportResult, Score, ScoringSchema, Status};
+use std::time::{Duration, Instant};
 
 #[derive(Debug)]
 struct PeerInfo {
     addresses: Vec<Multiaddr>,
     last_updated_at: Instant,
-    score: u32,
+    score: Score,
     status: Status,
 }
 
@@ -23,18 +18,18 @@ struct PeerInfo {
 pub struct MemoryPeerStore {
     bootnodes: Vec<(PeerId, Multiaddr)>,
     peers: FnvHashMap<PeerId, PeerInfo>,
+    ban_list: FnvHashMap<PeerId, Instant>,
+    schema: ScoringSchema,
 }
 
 impl MemoryPeerStore {
-    pub fn new(bootnodes: Vec<(PeerId, Multiaddr)>) -> Self {
-        let mut peer_store = MemoryPeerStore {
-            bootnodes: bootnodes.clone(),
+    pub fn new(scoring_schema: ScoringSchema) -> Self {
+        MemoryPeerStore {
+            bootnodes: Default::default(),
             peers: Default::default(),
-        };
-        for (peer_id, addr) in bootnodes {
-            peer_store.add_peer(peer_id, vec![addr]);
+            ban_list: Default::default(),
+            schema: scoring_schema,
         }
-        peer_store
     }
 
     fn add_peer(&mut self, peer_id: PeerId, addresses: Vec<Multiaddr>) -> bool {
@@ -45,7 +40,7 @@ impl MemoryPeerStore {
         let peer = PeerInfo {
             addresses,
             last_updated_at: now,
-            score: INITIALIZED_SCORE,
+            score: self.schema.peer_init_score(),
             status: Status::Unknown,
         };
         self.peers.insert(peer_id, peer);
@@ -79,8 +74,34 @@ impl PeerStore for MemoryPeerStore {
         self.add_peer(peer_id.to_owned(), addresses);
         Ok(len)
     }
-    // TODO
-    fn report(&mut self, _peer_id: &PeerId, _behaviour: Behaviour) {}
+
+    fn report(&mut self, peer_id: &PeerId, behaviour: Behaviour) -> ReportResult {
+        if self.is_banned(peer_id) {
+            return ReportResult::Banned;
+        }
+        let behaviour_score = self.schema.get_score(behaviour);
+        if behaviour_score.is_none() {
+            debug!(target: "network", "behaviour {:?} is undefined", behaviour);
+            return ReportResult::Normal;
+        }
+        let behaviour_score = behaviour_score.unwrap();
+        // apply reported score
+        let score = match self.peers.get_mut(peer_id) {
+            Some(peer) => {
+                peer.score = peer.score.saturating_add(behaviour_score);
+                peer.score
+            }
+            None => return ReportResult::Normal,
+        };
+        // ban peer is score is lower than ban_score
+        if score < self.schema.ban_score() {
+            let default_ban_timeout = self.schema.default_ban_timeout();
+            self.ban_peer(peer_id.to_owned(), default_ban_timeout);
+            return ReportResult::Banned;
+        }
+        ReportResult::Normal
+    }
+
     fn update_status(&mut self, peer_id: &PeerId, status: Status) {
         if let Some(peer) = self.peers.get_mut(&peer_id) {
             let now = Instant::now();
@@ -95,9 +116,14 @@ impl PeerStore for MemoryPeerStore {
             None => Status::Unknown,
         }
     }
-    //TODO
-    fn peer_score(&self, _peer_id: &PeerId) -> Score {
-        0
+
+    fn peer_score(&self, peer_id: &PeerId) -> Option<Score> {
+        self.peers.get(peer_id).map(|peer| peer.score)
+    }
+
+    fn add_bootnode(&mut self, peer_id: PeerId, addr: Multiaddr) {
+        self.bootnodes.push((peer_id.clone(), addr.clone()));
+        self.add_peer(peer_id, vec![addr]);
     }
 
     fn bootnodes<'a>(&'a self) -> Box<Iterator<Item = (&'a PeerId, &'a Multiaddr)> + 'a> {
@@ -109,6 +135,7 @@ impl PeerStore for MemoryPeerStore {
         let iter = bootnodes.into_iter();
         Box::new(iter) as Box<_>
     }
+
     fn peer_addrs<'a>(
         &'a self,
         peer_id: &'a PeerId,
@@ -119,11 +146,12 @@ impl PeerStore for MemoryPeerStore {
         };
         Some(Box::new(iter) as Box<_>)
     }
+
     fn peers_to_attempt<'a>(&'a self) -> Box<Iterator<Item = (&'a PeerId, &'a Multiaddr)> + 'a> {
         trace!(
-            target: "network",
-            "try fetch attempt peers from {:?}",
-            self.peers.iter().collect::<Vec<_>>()
+        target: "network",
+        "try fetch attempt peers from {:?}",
+        self.peers.iter().collect::<Vec<_>>()
         );
         let peers = self.peers.iter().filter_map(move |(peer_id, peer_info)| {
             if peer_info.status == Status::Connected || peer_info.addresses.is_empty() {
@@ -133,5 +161,18 @@ impl PeerStore for MemoryPeerStore {
             }
         });
         Box::new(peers) as Box<_>
+    }
+
+    fn ban_peer(&mut self, peer_id: PeerId, timeout: Duration) {
+        let now = Instant::now();
+        let timeout_at = now + timeout;
+        self.ban_list.insert(peer_id, timeout_at);
+    }
+
+    fn is_banned(&self, peer_id: &PeerId) -> bool {
+        if let Some(timeout_at) = self.ban_list.get(peer_id) {
+            return timeout_at > &Instant::now();
+        }
+        false
     }
 }

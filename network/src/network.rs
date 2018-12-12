@@ -163,7 +163,8 @@ impl Network {
     #[inline]
     pub(crate) fn ban_peer(&self, peer_id: PeerId, timeout: Duration) {
         let mut peers_registry = self.peers_registry.write();
-        peers_registry.ban_peer(peer_id, timeout);
+        peers_registry.drop_peer(&peer_id);
+        self.peer_store.write().ban_peer(peer_id, timeout);
     }
 
     #[inline]
@@ -461,9 +462,14 @@ impl Network {
             None => return Err(ErrorKind::Other("secret_key not set".to_owned()).into()),
         };
         let listened_addresses = config.public_addresses.clone();
-        let peer_store: Arc<RwLock<Box<PeerStore>>> = Arc::new(RwLock::new(Box::new(
-            MemoryPeerStore::new(config.bootnodes()?),
-        ) as Box<_>));
+        let peer_store: Arc<RwLock<Box<PeerStore>>> = {
+            let mut peer_store = MemoryPeerStore::new(Default::default());
+            let bootnodes = config.bootnodes()?;
+            for (peer_id, addr) in bootnodes {
+                peer_store.add_bootnode(peer_id, addr);
+            }
+            Arc::new(RwLock::new(Box::new(peer_store)))
+        };
         let reserved_peers = config
             .reserved_peers()?
             .iter()
