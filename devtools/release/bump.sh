@@ -12,6 +12,7 @@ main() {
   local v="$1"
   find . -name 'Cargo.toml' -print0 | xargs -0 sed -i .bak 's/^version = .*/version = "'"$v"'"/'
   find . -name 'Cargo.toml.bak' -exec rm -f {} \;
+  cargo check
 }
 
 main "$@"
