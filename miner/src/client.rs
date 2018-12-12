@@ -75,5 +75,9 @@ impl Client {
                 error!(target: "miner", "rpc call submit_block error: {:?}", e);
             }
         }
+
+        info!(target: "miner", "clear shared data and waiting for the next poll");
+        let mut inner = self.shared.inner.write();
+        *inner = None;
     }
 }
