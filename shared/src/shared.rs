@@ -41,7 +41,7 @@ impl TipHeader {
         self.inner.number()
     }
 
-    pub fn hash(&self) -> &H256 {
+    pub fn hash(&self) -> H256 {
         self.inner.hash()
     }
 
@@ -192,7 +192,7 @@ pub trait ChainProvider: Sync + Send {
 
     fn block(&self, hash: &H256) -> Option<Block>;
 
-    fn genesis_hash(&self) -> &H256;
+    fn genesis_hash(&self) -> H256;
 
     fn get_transaction(&self, hash: &H256) -> Option<Transaction>;
 
@@ -250,7 +250,7 @@ impl<CI: ChainIndex> ChainProvider for Shared<CI> {
         self.store.get_block_number(hash)
     }
 
-    fn genesis_hash(&self) -> &H256 {
+    fn genesis_hash(&self) -> H256 {
         self.consensus.genesis_block().header().hash()
     }
 

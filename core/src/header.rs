@@ -48,11 +48,7 @@ impl RawHeader {
 
     pub fn with_seal(self, seal: Seal) -> Header {
         let builder = HeaderBuilder {
-            inner: Header {
-                raw: self,
-                seal,
-                hash: H256::zero(),
-            },
+            inner: Header { raw: self, seal },
         };
         builder.build()
     }
@@ -79,8 +75,6 @@ pub struct Header {
     raw: RawHeader,
     /// proof seal
     seal: Seal,
-    #[serde(skip)]
-    hash: H256,
 }
 
 impl Header {
@@ -108,8 +102,8 @@ impl Header {
         self.seal.nonce
     }
 
-    pub fn hash(&self) -> &H256 {
-        &self.hash
+    pub fn hash(&self) -> H256 {
+        sha3_256(serialize(&self).unwrap()).into()
     }
 
     pub fn pow_hash(&self) -> H256 {
@@ -233,13 +227,6 @@ impl HeaderBuilder {
     }
 
     pub fn build(self) -> Header {
-        let hash: H256 = sha3_256(serialize(&self.inner).unwrap()).into();
-        self.with_hash(hash)
-    }
-
-    pub fn with_hash(self, hash: H256) -> Header {
-        let mut header = self.inner;
-        header.hash = hash;
-        header
+        self.inner
     }
 }

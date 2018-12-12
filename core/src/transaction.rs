@@ -103,8 +103,6 @@ pub struct Transaction {
     deps: Vec<OutPoint>,
     inputs: Vec<CellInput>,
     outputs: Vec<CellOutput>,
-    #[serde(skip)]
-    hash: H256,
 }
 
 impl CellOutput {
@@ -181,8 +179,8 @@ impl Transaction {
         self.inputs.len() == 1 && self.inputs[0].previous_output.is_null()
     }
 
-    pub fn hash(&self) -> &H256 {
-        &self.hash
+    pub fn hash(&self) -> H256 {
+        sha3_256(serialize(&self).unwrap()).into()
     }
 
     pub fn check_lock(&self, unlock: &[u8], lock: &[u8]) -> bool {
@@ -287,13 +285,6 @@ impl TransactionBuilder {
     }
 
     pub fn build(self) -> Transaction {
-        let hash: H256 = sha3_256(serialize(&self.inner).unwrap()).into();
-        self.with_hash(hash)
-    }
-
-    pub fn with_hash(self, hash: H256) -> Transaction {
-        let mut transaction = self.inner;
-        transaction.hash = hash;
-        transaction
+        self.inner
     }
 }

@@ -147,7 +147,7 @@ impl<T: 'static + KeyValueDB> ChainStore for ChainKVStore<T> {
 
     fn get_header(&self, h: &H256) -> Option<Header> {
         self.get(COLUMN_BLOCK_HEADER, h.as_bytes())
-            .map(|ref raw| HeaderBuilder::new(raw).with_hash(h.clone()))
+            .map(|ref raw| HeaderBuilder::new(raw).build())
     }
 
     fn get_block_uncles(&self, h: &H256) -> Option<Vec<UncleBlock>> {
@@ -166,7 +166,7 @@ impl<T: 'static + KeyValueDB> ChainStore for ChainKVStore<T> {
             .and_then(|serialized_addresses| {
                 let addresses: Vec<Address> = deserialize(&serialized_addresses).unwrap();
                 self.get(COLUMN_BLOCK_BODY, h.as_bytes())
-                    .and_then(|serialized_body| {
+                    .map(|serialized_body| {
                         let txs: Vec<TransactionBuilder> = addresses
                             .iter()
                             .filter_map(|address| {
@@ -176,17 +176,10 @@ impl<T: 'static + KeyValueDB> ChainStore for ChainKVStore<T> {
                             })
                             .collect();
 
-                        self.get(COLUMN_BLOCK_TRANSACTION_IDS, h.as_bytes())
-                            .map(|serialized_ids| (txs, serialized_ids))
+                        txs
                     })
             })
-            .map(|(txs, serialized_ids)| {
-                let txs_ids: Vec<H256> = deserialize(&serialized_ids[..]).unwrap();
-                txs.into_iter()
-                    .zip(txs_ids.into_iter())
-                    .map(|(tx, id)| tx.with_hash(id))
-                    .collect()
-            })
+            .map(|txs| txs.into_iter().map(|tx| tx.build()).collect())
     }
 
     fn get_block_ext(&self, block_hash: &H256) -> Option<BlockExt> {
@@ -281,7 +274,6 @@ impl<T: 'static + KeyValueDB> ChainStore for ChainKVStore<T> {
             .commit_transactions()
             .iter()
             .map(|tx| tx.hash())
-            .cloned()
             .collect::<Vec<H256>>();
         batch.insert(
             COLUMN_BLOCK_HEADER,

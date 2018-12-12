@@ -139,7 +139,6 @@ impl BlockBuilder {
                 .commit_transactions
                 .iter()
                 .map(|t| t.hash())
-                .cloned()
                 .collect::<Vec<_>>(),
         );
 

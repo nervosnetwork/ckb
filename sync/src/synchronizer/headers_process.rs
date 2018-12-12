@@ -140,7 +140,7 @@ where
         );
         for window in headers.windows(2) {
             if let [parent, header] = &window {
-                if header.parent_hash() != parent.hash() {
+                if header.parent_hash() != &parent.hash() {
                     debug!(
                         target: "sync",
                         "header.parent_hash {:?} parent.hash {:?}",
