@@ -33,5 +33,5 @@ RUN chown -R ckb:ckb $DATADIR/nodes
 #switch use
 USER ckb
 
-EXPOSE 8114/tcp 8115/udp
+EXPOSE 8114 8115
 ENTRYPOINT ["./entrypoint.sh"]
