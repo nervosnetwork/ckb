@@ -685,7 +685,7 @@ impl Network {
             }
         }
 
-        let discovery_query_service = DiscoveryQueryService::new(
+        let _discovery_query_service = DiscoveryQueryService::new(
             Arc::clone(&network),
             swarm_controller.clone(),
             basic_transport.clone(),
@@ -697,12 +697,12 @@ impl Network {
         // prepare services futures
         let futures: Vec<Box<Future<Item = (), Error = IoError> + Send>> = vec![
             Box::new(swarm_events.for_each(|_| Ok(()))),
-            Box::new(
-                discovery_query_service
-                    .into_future()
-                    .map(|_| ())
-                    .map_err(|(err, _)| err),
-            ) as Box<Future<Item = (), Error = IoError> + Send>,
+            // Box::new(
+            //     discovery_query_service
+            //         .into_future()
+            //         .map(|_| ())
+            //         .map_err(|(err, _)| err),
+            // ) as Box<Future<Item = (), Error = IoError> + Send>,
             ping_service.start_protocol(
                 Arc::clone(&network),
                 swarm_controller.clone(),

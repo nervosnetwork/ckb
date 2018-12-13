@@ -441,14 +441,14 @@ impl<CI: ChainIndex> Synchronizer<CI> {
                         let ret = self.accept_block(peer, &block);
                         if ret.is_err() {
                             debug!(
-                                target: "sync", "[Synchronizer] accept_block {:#?} error {:?}",
+                                target: "sync", "[Synchronizer] accept_block {:?} error {:?}",
                                 block,
                                 ret.unwrap_err()
                             );
                         }
                     } else {
                         debug!(
-                            target: "sync", "[Synchronizer] insert_orphan_block {:#?}------------{:?}",
+                            target: "sync", "[Synchronizer] insert_orphan_block {:?}------------{:?}",
                             block.header().number(),
                             block.header().hash()
                         );
@@ -457,14 +457,14 @@ impl<CI: ChainIndex> Synchronizer<CI> {
                 }
             } else {
                 debug!(
-                    target: "sync", "[Synchronizer] accept_block {:#?} error {:?}",
+                    target: "sync", "[Synchronizer] accept_block {:?} error {:?}",
                     block,
                     accept_ret.unwrap_err()
                 )
             }
         } else {
             debug!(
-                target: "sync", "[Synchronizer] insert_orphan_block {:#?}------------{:?}",
+                target: "sync", "[Synchronizer] insert_orphan_block {:?}------------{:?}",
                 block.header().number(),
                 block.header().hash()
             );

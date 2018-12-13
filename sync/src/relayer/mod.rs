@@ -140,7 +140,8 @@ where
     }
 
     pub fn accept_block(&self, nc: &CKBProtocolContext, peer: PeerIndex, block: &Arc<Block>) {
-        if self.chain.process_block(Arc::clone(&block)).is_ok() {
+        let ret = self.chain.process_block(Arc::clone(&block));
+        if ret.is_ok() {
             let fbb = &mut FlatBufferBuilder::new();
             let message = RelayMessage::build_compact_block(fbb, block, &HashSet::new());
             fbb.finish(message, None);
@@ -150,6 +151,8 @@ where
                     let _ = nc.send(peer_id, fbb.finished_data().to_vec());
                 }
             }
+        } else {
+            debug!(target: "relay", "accept_block verify error {:?}", ret);
         }
     }
 
@@ -262,12 +265,12 @@ where
     }
 
     fn connected(&self, _nc: Box<CKBProtocolContext>, peer: PeerIndex) {
-        info!(target: "sync", "peer={} RelayProtocol.connected", peer);
+        info!(target: "relay", "peer={} RelayProtocol.connected", peer);
         // do nothing
     }
 
     fn disconnected(&self, _nc: Box<CKBProtocolContext>, peer: PeerIndex) {
-        info!(target: "sync", "peer={} RelayProtocol.disconnected", peer);
+        info!(target: "relay", "peer={} RelayProtocol.disconnected", peer);
         // TODO
     }
 

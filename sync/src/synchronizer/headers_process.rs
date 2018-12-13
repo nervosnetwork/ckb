@@ -128,7 +128,7 @@ where
     fn is_continuous(&self, headers: &[Header]) -> bool {
         debug!(
             target: "sync",
-            "headers\n {:#?}",
+            "headers\n {:?}",
             headers
                 .iter()
                 .map(|h| format!(
@@ -201,7 +201,7 @@ where
                     .peers
                     .misbehavior(self.peer, result.misbehavior);
             }
-            debug!(target: "sync", "\n\nHeadersProcess accept_first is_valid {:?} headers = {:#?}\n\n", result, headers[0]);
+            debug!(target: "sync", "\n\nHeadersProcess accept_first is_valid {:?} headers = {:?}\n\n", result, headers[0]);
             return;
         }
 
