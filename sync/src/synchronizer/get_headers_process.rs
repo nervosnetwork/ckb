@@ -71,7 +71,7 @@ where
                 fbb.finish(message, None);
                 let _ = self.nc.send(self.peer, fbb.finished_data().to_vec());
             } else {
-                warn!(target: "sync", "\n\nunknown block headers from peer {} {:#?}\n\n", self.peer, block_locator_hashes);
+                warn!(target: "sync", "\n\nunknown block headers from peer {} {:?}\n\n", self.peer, block_locator_hashes);
                 // Got 'headers' message without known blocks
                 // ban or close peers
                 self.nc
