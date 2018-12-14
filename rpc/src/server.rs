@@ -40,7 +40,7 @@ build_rpc_trait! {
 
         // curl -d '{"id": 2, "jsonrpc": "2.0", "method":"get_cells_by_type_hash","params": ["0x1b1c832d02fdb4339f9868c8a8636c3d9dd10bd53ac7ce99595825bd6beeffb3", 1, 10]}' -H 'content-type:application/json' 'http://localhost:8114'
         #[rpc(name = "get_cells_by_type_hash")]
-        fn get_cells_by_type_hash(&self, H256, u64, u64) -> Result<Vec<CellOutputWithOutPoint>>;
+        fn get_cells_by_type_hash(&self, H256, BlockNumber, BlockNumber) -> Result<Vec<CellOutputWithOutPoint>>;
 
         // curl -d '{"id": 2, "jsonrpc": "2.0", "method":"get_current_cell","params": [{"hash": "0x1b1c832d02fdb4339f9868c8a8636c3d9dd10bd53ac7ce99595825bd6beeffb3", "index": 1}]}' -H 'content-type:application/json' 'http://localhost:3030'
         #[rpc(name = "get_current_cell")]
@@ -73,8 +73,8 @@ impl<CI: ChainIndex + 'static> ChainRpc for ChainRpcImpl<CI> {
     fn get_cells_by_type_hash(
         &self,
         type_hash: H256,
-        from: u64,
-        to: u64,
+        from: BlockNumber,
+        to: BlockNumber,
     ) -> Result<Vec<CellOutputWithOutPoint>> {
         let mut result = Vec::new();
         for block_number in from..=to {
