@@ -5,6 +5,8 @@ cache:
   directories:
     - $HOME/.cargo
 
+if: 'branch IN (master, develop) OR type != push OR fork = true OR tag =~ ^v'
+
 env:
   global:
     - RUST_BACKTRACE=full
