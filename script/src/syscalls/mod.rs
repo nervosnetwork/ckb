@@ -740,7 +740,8 @@ mod tests {
             Ok(out_point_data.len() as u64)
         );
 
-        for (i, addr) in (addr as usize..addr as usize + out_point_data.len() as usize).enumerate() {
+        for (i, addr) in (addr as usize..addr as usize + out_point_data.len() as usize).enumerate()
+        {
             assert_eq!(machine.memory_mut().load8(addr), Ok(out_point_data[i]));
         }
     }
