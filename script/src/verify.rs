@@ -288,10 +288,10 @@ mod tests {
         hex_to(&signature_der, &mut hex_signature).expect("hex privkey");
         args.insert(0, hex_signature);
 
-        let dep_outpoint = OutPoint::new(H256::from_trimmed_hex_str("123").unwrap(), 8);
+        let dep_out_point = OutPoint::new(H256::from_trimmed_hex_str("123").unwrap(), 8);
         let dep_cell = CellOutput::new(buffer.len() as Capacity, buffer, H256::zero(), None);
         let mut dep_cells = FnvHashMap::default();
-        dep_cells.insert(&dep_outpoint, &dep_cell);
+        dep_cells.insert(&dep_out_point, &dep_cell);
 
         let privkey = privkey.pubkey().unwrap().serialize();
         let mut hex_privkey = vec![0; privkey.len() * 2];
@@ -302,7 +302,7 @@ mod tests {
 
         let transaction = TransactionBuilder::default()
             .input(input.clone())
-            .dep(dep_outpoint.clone())
+            .dep(dep_out_point.clone())
             .build();
 
         let dummy_cell = CellOutput::new(100, vec![], H256::default(), None);
@@ -340,7 +340,7 @@ mod tests {
         hex_to(&signature_der, &mut hex_signature).expect("hex privkey");
         args.insert(0, hex_signature);
 
-        let dep_outpoint = OutPoint::new(H256::from_trimmed_hex_str("123").unwrap(), 8);
+        let dep_out_point = OutPoint::new(H256::from_trimmed_hex_str("123").unwrap(), 8);
 
         let privkey = privkey.pubkey().unwrap().serialize();
         let mut hex_privkey = vec![0; privkey.len() * 2];
@@ -357,7 +357,7 @@ mod tests {
 
         let transaction = TransactionBuilder::default()
             .input(input.clone())
-            .dep(dep_outpoint)
+            .dep(dep_out_point)
             .build();
 
         let dummy_cell = CellOutput::new(100, vec![], H256::default(), None);

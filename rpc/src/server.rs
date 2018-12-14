@@ -92,7 +92,7 @@ impl<CI: ChainIndex + 'static> ChainRpc for ChainRpcImpl<CI> {
                     for (i, output) in transaction.outputs().iter().enumerate() {
                         if output.lock == type_hash && (!transaction_meta.is_spent(i)) {
                             result.push(CellOutputWithOutPoint {
-                                outpoint: OutPoint::new(transaction.hash().clone(), i as u32),
+                                out_point: OutPoint::new(transaction.hash().clone(), i as u32),
                                 capacity: output.capacity,
                                 lock: output.lock.clone(),
                             });

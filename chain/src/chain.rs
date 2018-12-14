@@ -533,8 +533,8 @@ pub mod test {
             .set_verification(false);
         let (_chain_controller, shared) = start_chain(Some(consensus));
 
-        let outpoint = OutPoint::new(root_hash, 0);
-        let state = shared.cell(&outpoint);
+        let out_point = OutPoint::new(root_hash, 0);
+        let state = shared.cell(&out_point);
         assert!(state.is_current());
     }
 

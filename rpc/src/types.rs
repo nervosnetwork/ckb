@@ -45,7 +45,7 @@ impl From<Block> for BlockWithHash {
 // cell's own data such as lock and capacity
 #[derive(Serialize)]
 pub struct CellOutputWithOutPoint {
-    pub outpoint: OutPoint,
+    pub out_point: OutPoint,
     pub capacity: Capacity,
     pub lock: H256,
 }
