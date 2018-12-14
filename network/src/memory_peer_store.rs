@@ -171,7 +171,7 @@ impl PeerStore for MemoryPeerStore {
 
     fn is_banned(&self, peer_id: &PeerId) -> bool {
         if let Some(timeout_at) = self.ban_list.get(peer_id) {
-            return timeout_at > &Instant::now();
+            return *timeout_at > Instant::now();
         }
         false
     }

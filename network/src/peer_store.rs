@@ -27,8 +27,8 @@ pub enum ReportResult {
 
 impl ReportResult {
     #[allow(dead_code)]
-    pub fn is_banned(&self) -> bool {
-        self == &ReportResult::Banned
+    pub fn is_banned(self) -> bool {
+        self == ReportResult::Banned
     }
 }
 
@@ -70,7 +70,7 @@ impl ScoringSchema {
     }
 
     pub fn get_score(&self, behaviour: Behaviour) -> Option<Score> {
-        self.schema.get(&behaviour).map(|s| *s)
+        self.schema.get(&behaviour).cloned()
     }
 
     pub fn default_ban_timeout(&self) -> Duration {

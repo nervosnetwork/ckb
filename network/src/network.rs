@@ -7,7 +7,7 @@ use crate::ckb_service::CKBService;
 use crate::discovery_service::{DiscoveryQueryService, DiscoveryService, KadManage};
 use crate::identify_service::IdentifyService;
 use crate::memory_peer_store::MemoryPeerStore;
-use crate::outgoing_service::OutgoingService;
+use crate::outbound_peer_service::OutboundPeerService;
 use crate::peer_store::{Behaviour, PeerStore};
 use crate::peers_registry::{ConnectionStatus, PeerConnection, PeerIdentifyInfo, PeersRegistry};
 use crate::ping_service::PingService;
@@ -58,13 +58,13 @@ pub struct PeerInfo {
 
 impl PeerInfo {
     #[inline]
-    pub fn is_outgoing(&self) -> bool {
+    pub fn is_outbound(&self) -> bool {
         self.endpoint_role == Endpoint::Dialer
     }
 
     #[inline]
     pub fn is_incoming(&self) -> bool {
-        !self.is_outgoing()
+        !self.is_outbound()
     }
 }
 
@@ -477,8 +477,8 @@ impl Network {
             .collect::<Vec<_>>();
         let peers_registry = PeersRegistry::new(
             Arc::clone(&peer_store),
-            config.max_incoming_peers,
-            config.max_outgoing_peers,
+            config.max_inbound_peers,
+            config.max_outbound_peers,
             config.reserved_only,
             reserved_peers,
         );
@@ -504,7 +504,7 @@ impl Network {
         let basic_transport_timeout = config.transport_timeout;
         let client_version = config.client_version.clone();
         let protocol_version = config.protocol_version.clone();
-        let max_outgoing = config.max_outgoing_peers as usize;
+        let max_outbound = config.max_outbound_peers as usize;
         let basic_transport = {
             let basic_transport = new_transport(local_private_key, basic_transport_timeout)
                 .map_err_dial({
@@ -589,9 +589,9 @@ impl Network {
         let timer_service = Arc::new(TimerService {
             timer_registry: Arc::clone(&timer_registry),
         });
-        let outgoing_service = Arc::new(OutgoingService {
-            outgoing_interval: config.outgoing_interval,
-            timeout: config.outgoing_timeout,
+        let outbound_peer_service = Arc::new(OutboundPeerService {
+            try_connect_interval: config.try_outbound_connect_interval,
+            timeout: config.try_outbound_connect_timeout,
         });
         // Transport used to handling received connections
         let handling_transport = {
@@ -698,7 +698,7 @@ impl Network {
 
             let peer_store = network.peer_store().read();
             // dial bootnodes
-            for (peer_id, addr) in peer_store.bootnodes().take(max_outgoing) {
+            for (peer_id, addr) in peer_store.bootnodes().take(max_outbound) {
                 debug!(target: "network", "dial bootnode {:?} {:?}", peer_id, addr);
                 network.dial_to_peer(
                     basic_transport.clone(),
@@ -743,7 +743,7 @@ impl Network {
                 swarm_controller.clone(),
                 basic_transport.clone(),
             ),
-            outgoing_service.start_protocol(
+            outbound_peer_service.start_protocol(
                 Arc::clone(&network),
                 swarm_controller.clone(),
                 basic_transport.clone(),

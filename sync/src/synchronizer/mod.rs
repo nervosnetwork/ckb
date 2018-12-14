@@ -102,7 +102,7 @@ impl<CI: ChainIndex> ::std::clone::Clone for Synchronizer<CI> {
 
 fn is_outbound(nc: &CKBProtocolContext, peer: PeerIndex) -> Option<bool> {
     nc.session_info(peer)
-        .map(|session_info| session_info.peer.is_outgoing())
+        .map(|session_info| session_info.peer.is_outbound())
 }
 
 impl<CI: ChainIndex> Synchronizer<CI> {

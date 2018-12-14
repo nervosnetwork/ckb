@@ -114,14 +114,14 @@ impl PeerConnection {
     }
 
     #[inline]
-    pub fn is_outgoing(&self) -> bool {
+    pub fn is_outbound(&self) -> bool {
         self.endpoint_role == Endpoint::Dialer
     }
 
     #[allow(dead_code)]
     #[inline]
-    pub fn is_incoming(&self) -> bool {
-        !self.is_outgoing()
+    pub fn is_inbound(&self) -> bool {
+        !self.is_outbound()
     }
 
     #[allow(dead_code)]
@@ -133,20 +133,20 @@ impl PeerConnection {
 
 pub struct ConnectionStatus {
     pub total: u32,
-    pub unreserved_incoming: u32,
-    pub unreserved_outgoing: u32,
-    pub max_incoming: u32,
-    pub max_outgoing: u32,
+    pub unreserved_inbound: u32,
+    pub unreserved_outbound: u32,
+    pub max_inbound: u32,
+    pub max_outbound: u32,
 }
 
 pub(crate) struct PeersRegistry {
     // store all known peers
     peer_store: Arc<RwLock<Box<PeerStore>>>,
     peers: PeerConnections,
-    // max incoming limitation
-    max_incoming: u32,
-    // max outgoing limitation
-    max_outgoing: u32,
+    // max inbound limitation
+    max_inbound: u32,
+    // max outbound limitation
+    max_outbound: u32,
     // Only reserved peers or allow all peers.
     reserved_only: bool,
     reserved_peers: FnvHashSet<PeerId>,
@@ -174,8 +174,8 @@ fn find_most_peers_in_same_network_group<'a>(
 impl PeersRegistry {
     pub fn new(
         peer_store: Arc<RwLock<Box<PeerStore>>>,
-        max_incoming: u32,
-        max_outgoing: u32,
+        max_inbound: u32,
+        max_outbound: u32,
         reserved_only: bool,
         reserved_peers: Vec<PeerId>,
     ) -> Self {
@@ -188,8 +188,8 @@ impl PeersRegistry {
             peer_store,
             peers: Default::default(),
             reserved_peers: reserved_peers_set,
-            max_incoming,
-            max_outgoing,
+            max_inbound,
+            max_outbound,
             reserved_only,
         }
     }
@@ -220,7 +220,7 @@ impl PeersRegistry {
             }
             let connection_status = self.connection_status();
             // check peers connection limitation
-            if connection_status.unreserved_incoming >= self.max_incoming
+            if connection_status.unreserved_inbound >= self.max_inbound
                 && !self.try_evict_inbound_peer()
             {
                 return Err(ErrorKind::InvalidNewPeer(format!(
@@ -236,7 +236,7 @@ impl PeersRegistry {
 
     fn try_evict_inbound_peer(&mut self) -> bool {
         let peer_id: PeerId = {
-            let inbound_peers = self.peers.iter().filter(|(_, peer)| peer.is_incoming());
+            let inbound_peers = self.peers.iter().filter(|(_, peer)| peer.is_inbound());
             let candidate_peers = find_most_peers_in_same_network_group(inbound_peers);
             let peer_store = self.peer_store.read();
 
@@ -292,7 +292,7 @@ impl PeersRegistry {
             let connection_status = self.connection_status();
             // check peers connection limitation
             // TODO: implement extra outbound peer logic
-            if connection_status.unreserved_outgoing >= self.max_outgoing {
+            if connection_status.unreserved_outbound >= self.max_outbound {
                 return Err(ErrorKind::InvalidNewPeer(format!(
                     "reach max outbound peers limitation, reject peer {:?}",
                     peer_id
@@ -336,22 +336,22 @@ impl PeersRegistry {
 
     pub fn connection_status(&self) -> ConnectionStatus {
         let mut total: u32 = 0;
-        let mut unreserved_incoming: u32 = 0;
-        let mut unreserved_outgoing: u32 = 0;
+        let mut unreserved_inbound: u32 = 0;
+        let mut unreserved_outbound: u32 = 0;
         for (_, peer_connection) in self.peers.iter() {
             total += 1;
-            if peer_connection.is_outgoing() {
-                unreserved_outgoing += 1;
+            if peer_connection.is_outbound() {
+                unreserved_outbound += 1;
             } else {
-                unreserved_incoming += 1;
+                unreserved_inbound += 1;
             }
         }
         ConnectionStatus {
             total,
-            unreserved_incoming,
-            unreserved_outgoing,
-            max_incoming: self.max_incoming,
-            max_outgoing: self.max_outgoing,
+            unreserved_inbound,
+            unreserved_outbound,
+            max_inbound: self.max_inbound,
+            max_outbound: self.max_outbound,
         }
     }
 
