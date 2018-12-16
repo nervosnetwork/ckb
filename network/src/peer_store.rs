@@ -85,13 +85,14 @@ impl Default for ScoringSchema {
 }
 
 pub trait PeerStore: Send + Sync {
-    // update peer addresses, return numbers of new inserted line
-    // return Err if peer not exists
+    // initial or update peer_info in peer_store
+    fn new_connected_peer(&mut self, peer_id: &PeerId, address: Multiaddr);
+    // add peer discovered addresses, return numbers of new inserted line, return Err if peer not exists
     fn add_discovered_address(&mut self, peer_id: &PeerId, address: Multiaddr) -> Result<(), ()>;
     fn add_discovered_addresses(
         &mut self,
         peer_id: &PeerId,
-        addresses: Vec<Multiaddr>,
+        address: Vec<Multiaddr>,
     ) -> Result<usize, ()>;
     fn report(&mut self, peer_id: &PeerId, behaviour: Behaviour) -> ReportResult;
     fn update_status(&mut self, peer_id: &PeerId, status: Status);
@@ -107,4 +108,9 @@ pub trait PeerStore: Send + Sync {
     fn peers_to_attempt<'a>(&'a self) -> Box<Iterator<Item = (&'a PeerId, &'a Multiaddr)> + 'a>;
     fn ban_peer(&mut self, peer_id: PeerId, timeout: Duration);
     fn is_banned(&self, peer_id: &PeerId) -> bool;
+    fn scoring_schema(&self) -> &ScoringSchema;
+    fn peer_score_or_default(&self, peer_id: &PeerId) -> Score {
+        self.peer_score(peer_id)
+            .unwrap_or_else(|| self.scoring_schema().peer_init_score())
+    }
 }

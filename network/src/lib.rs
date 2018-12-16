@@ -17,6 +17,8 @@ mod peers_registry;
 mod ping_service;
 mod protocol;
 mod protocol_service;
+#[cfg(test)]
+mod tests;
 mod timer_service;
 mod transport;
 

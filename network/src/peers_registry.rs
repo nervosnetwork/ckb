@@ -1,5 +1,5 @@
 use crate::network_group::{Group, NetworkGroup};
-use crate::peer_store::PeerStore;
+use crate::peer_store::{PeerStore, Score};
 use crate::{Error, ErrorKind, PeerId, PeerIndex, ProtocolId};
 use bytes::Bytes;
 use ckb_util::RwLock;
@@ -154,17 +154,18 @@ pub(crate) struct PeersRegistry {
 
 fn find_most_peers_in_same_network_group<'a>(
     peers: impl Iterator<Item = (&'a PeerId, &'a PeerConnection)>,
-) -> Vec<(&'a PeerId, &'a PeerConnection)> {
-    let mut groups: FnvHashMap<Group, Vec<(&'a PeerId, &'a PeerConnection)>> =
+) -> Vec<&'a PeerId> {
+    let mut groups: FnvHashMap<Group, Vec<&'a PeerId>> =
         FnvHashMap::with_capacity_and_hasher(16, Default::default());
-    let largest_group_len = 0;
+    let mut largest_group_len = 0;
     let mut largest_group: Group = Default::default();
 
     for (peer_id, peer) in peers {
         let group_name = peer.network_group();
-        let mut group = groups.entry(group_name.clone()).or_insert_with(Vec::new);
-        group.push((peer_id, peer));
+        let group = groups.entry(group_name.clone()).or_insert_with(Vec::new);
+        group.push(peer_id);
         if group.len() > largest_group_len {
+            largest_group_len = group.len();
             largest_group = group_name;
         }
     }
@@ -200,12 +201,15 @@ impl PeersRegistry {
         self.peers.get_peer_id(peer_index)
     }
 
+    pub fn is_reserved(&self, peer_id: &PeerId) -> bool {
+        self.reserved_peers.contains(&peer_id)
+    }
+
     pub fn accept_inbound_peer(&mut self, peer_id: PeerId, addr: Multiaddr) -> Result<(), Error> {
         if self.peers.get(&peer_id).is_some() {
             return Ok(());
         }
-        let is_reserved = self.reserved_peers.contains(&peer_id);
-        if !is_reserved {
+        if !self.is_reserved(&peer_id) {
             if self.reserved_only {
                 return Err(ErrorKind::InvalidNewPeer(format!(
                     "We are in reserved_only mode, rejected non-reserved peer {:?}",
@@ -213,15 +217,19 @@ impl PeersRegistry {
                 ))
                 .into());
             }
-            if self.peer_store.read().is_banned(&peer_id) {
-                return Err(
-                    ErrorKind::InvalidNewPeer(format!("peer {:?} is denied", peer_id)).into(),
-                );
-            }
+            let candidate_score = {
+                let peer_store = self.peer_store.read();
+                if peer_store.is_banned(&peer_id) {
+                    return Err(
+                        ErrorKind::InvalidNewPeer(format!("peer {:?} is denied", peer_id)).into(),
+                    );
+                }
+                peer_store.peer_score_or_default(&peer_id)
+            };
             let connection_status = self.connection_status();
             // check peers connection limitation
             if connection_status.unreserved_inbound >= self.max_inbound
-                && !self.try_evict_inbound_peer()
+                && !self.try_evict_inbound_peer(candidate_score)
             {
                 return Err(ErrorKind::InvalidNewPeer(format!(
                     "reach max inbound peers limitation, reject peer {:?}",
@@ -234,15 +242,18 @@ impl PeersRegistry {
         Ok(())
     }
 
-    fn try_evict_inbound_peer(&mut self) -> bool {
-        let peer_id: PeerId = {
-            let inbound_peers = self.peers.iter().filter(|(_, peer)| peer.is_inbound());
+    fn try_evict_inbound_peer(&mut self, candidate_score: Score) -> bool {
+        let (peer_id, score) = {
+            let inbound_peers = self
+                .peers
+                .iter()
+                .filter(|(peer_id, peer)| peer.is_inbound() && !self.is_reserved(peer_id));
             let candidate_peers = find_most_peers_in_same_network_group(inbound_peers);
             let peer_store = self.peer_store.read();
 
             let mut lowest_score = std::i32::MAX;
             let mut low_score_peers = Vec::new();
-            for (peer_id, _peer) in candidate_peers {
+            for peer_id in candidate_peers {
                 if let Some(score) = peer_store.peer_score(peer_id) {
                     if score > lowest_score {
                         continue;
@@ -251,7 +262,6 @@ impl PeersRegistry {
                         lowest_score = score;
                         low_score_peers.clear();
                     }
-
                     low_score_peers.push(peer_id);
                 }
             }
@@ -260,23 +270,29 @@ impl PeersRegistry {
                 return false;
             }
             let mut rng = thread_rng();
-            low_score_peers[..]
-                .choose(&mut rng)
-                .unwrap()
-                .to_owned()
-                .to_owned()
+            (
+                low_score_peers[..]
+                    .choose(&mut rng)
+                    .unwrap()
+                    .to_owned()
+                    .to_owned(),
+                lowest_score,
+            )
         };
-        debug!("evict inbound peer {:?}", peer_id);
-        self.drop_peer(&peer_id);
-        true
+        if score < candidate_score {
+            debug!("evict inbound peer {:?}", peer_id);
+            self.drop_peer(&peer_id);
+            true
+        } else {
+            false
+        }
     }
 
     pub fn try_outbound_peer(&mut self, peer_id: PeerId, addr: Multiaddr) -> Result<(), Error> {
         if self.peers.get(&peer_id).is_some() {
             return Ok(());
         }
-        let is_reserved = self.reserved_peers.contains(&peer_id);
-        if !is_reserved {
+        if !self.is_reserved(&peer_id) {
             if self.reserved_only {
                 return Err(ErrorKind::InvalidNewPeer(format!(
                     "We are in reserved_only mode, rejected non-reserved peer {:?}",
@@ -312,6 +328,9 @@ impl PeersRegistry {
         connected_addr: Multiaddr,
         endpoint: Endpoint,
     ) -> PeerIndex {
+        self.peer_store
+            .write()
+            .new_connected_peer(&peer_id, connected_addr.clone());
         let peer = PeerConnection::new(connected_addr, endpoint);
         let peer_index = self.peers.or_insert(peer_id.clone(), peer);
         debug!(target: "network", "allocate peer_index {} to peer {:?}", peer_index, peer_id);
@@ -338,8 +357,11 @@ impl PeersRegistry {
         let mut total: u32 = 0;
         let mut unreserved_inbound: u32 = 0;
         let mut unreserved_outbound: u32 = 0;
-        for (_, peer_connection) in self.peers.iter() {
+        for (peer_id, peer_connection) in self.peers.iter() {
             total += 1;
+            if self.is_reserved(peer_id) {
+                continue;
+            }
             if peer_connection.is_outbound() {
                 unreserved_outbound += 1;
             } else {

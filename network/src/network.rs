@@ -8,7 +8,7 @@ use crate::discovery_service::{DiscoveryQueryService, DiscoveryService, KadManag
 use crate::identify_service::IdentifyService;
 use crate::memory_peer_store::MemoryPeerStore;
 use crate::outbound_peer_service::OutboundPeerService;
-use crate::peer_store::{Behaviour, PeerStore};
+use crate::peer_store::PeerStore;
 use crate::peers_registry::{ConnectionStatus, PeerConnection, PeerIdentifyInfo, PeersRegistry};
 use crate::ping_service::PingService;
 use crate::protocol::Protocol;
@@ -255,7 +255,7 @@ impl Network {
                     .peer_store()
                     .write()
                     .add_discovered_address(peer_id, connected_addr);
-                let mut peer = peers_registry.get_mut(&peer_id).unwrap();
+                let peer = peers_registry.get_mut(&peer_id).unwrap();
                 Ok(self.ckb_protocol_connec(peer, protocol_id))
             }
             Err(err) => Err(err),
@@ -276,7 +276,7 @@ impl Network {
                     .peer_store()
                     .write()
                     .add_discovered_address(peer_id, connected_addr);
-                let mut peer = peers_registry.get_mut(&peer_id).unwrap();
+                let peer = peers_registry.get_mut(&peer_id).unwrap();
                 Ok(self.ckb_protocol_connec(peer, protocol_id))
             }
             Err(err) => Err(err),

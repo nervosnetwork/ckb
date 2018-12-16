@@ -1,9 +1,8 @@
-use crate::peer_store::{Behaviour, PeerStore, Score, Status};
+use crate::peer_store::{Behaviour, PeerStore, ReportResult, Score, ScoringSchema, Status};
 use crate::PeerId;
 use fnv::FnvHashMap;
 use libp2p::core::Multiaddr;
-use log::trace;
-use peer_store::{Behaviour, PeerStore, ReportResult, Score, ScoringSchema, Status};
+use log::{debug, trace};
 use std::time::{Duration, Instant};
 
 #[derive(Debug)]
@@ -49,6 +48,14 @@ impl MemoryPeerStore {
 }
 
 impl PeerStore for MemoryPeerStore {
+    fn new_connected_peer(&mut self, peer_id: &PeerId, address: Multiaddr) {
+        self.add_discovered_address(peer_id, address).unwrap();
+    }
+
+    fn scoring_schema(&self) -> &ScoringSchema {
+        &self.schema
+    }
+
     fn add_discovered_address(&mut self, peer_id: &PeerId, address: Multiaddr) -> Result<(), ()> {
         self.add_discovered_addresses(peer_id, vec![address])
             .map(|_| ())
