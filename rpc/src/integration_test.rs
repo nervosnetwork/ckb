@@ -19,9 +19,6 @@ build_rpc_trait! {
         #[rpc(name = "submit_pow_solution")]
         fn submit_pow_solution(&self, u64) -> Result<()>;
 
-        #[rpc(name = "local_node_id")]
-        fn local_node_id(&self) -> Result<Option<String>>;
-
         #[rpc(name = "add_node")]
         fn add_node(&self, String) -> Result<()>;
     }
@@ -36,10 +33,6 @@ impl IntegrationTestRpc for IntegrationTestRpcImpl {
     fn submit_pow_solution(&self, nonce: u64) -> Result<()> {
         self.pow.submit(nonce);
         Ok(())
-    }
-
-    fn local_node_id(&self) -> Result<Option<String>> {
-        Ok(self.network.external_url())
     }
 
     fn add_node(&self, _node_id: String) -> Result<()> {

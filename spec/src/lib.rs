@@ -2,9 +2,8 @@
 //!
 //! By default, when simply running CKB, CKB will connect to the official public Nervos network.
 //!
-//! In order to run a chain different to the official public one, CKB provide the --chain option or
+//! In order to run a chain different to the official public one,
 //! with a config file specifying chain = "path" under [ckb].
-//! There are a few named presets that can be selected from or a custom yaml spec file can be supplied.
 
 use crate::consensus::Consensus;
 use ckb_core::block::BlockBuilder;
