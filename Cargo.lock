@@ -329,7 +329,7 @@ dependencies = [
  "ckb-verification 0.3.0-pre",
  "clap 2.32.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "config 0.9.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "crossbeam-channel 0.3.3 (registry+https://github.com/rust-lang/crates.io-index)",
+ "crossbeam-channel 0.3.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "crypto 0.3.0-pre",
  "ctrlc 3.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "dir 0.3.0-pre",
@@ -367,7 +367,7 @@ dependencies = [
  "ckb-shared 0.3.0-pre",
  "ckb-time 0.3.0-pre",
  "ckb-verification 0.3.0-pre",
- "crossbeam-channel 0.3.3 (registry+https://github.com/rust-lang/crates.io-index)",
+ "crossbeam-channel 0.3.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "env_logger 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "fnv 1.0.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -401,7 +401,7 @@ dependencies = [
  "bit-vec 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "ckb-time 0.3.0-pre",
  "ckb-util 0.3.0-pre",
- "crossbeam-channel 0.3.3 (registry+https://github.com/rust-lang/crates.io-index)",
+ "crossbeam-channel 0.3.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "crypto 0.3.0-pre",
  "fnv 1.0.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "hash 0.3.0-pre",
@@ -448,7 +448,7 @@ dependencies = [
  "ckb-shared 0.3.0-pre",
  "ckb-time 0.3.0-pre",
  "ckb-util 0.3.0-pre",
- "crossbeam-channel 0.3.3 (registry+https://github.com/rust-lang/crates.io-index)",
+ "crossbeam-channel 0.3.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "flatbuffers 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "fnv 1.0.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "jsonrpc 0.10.2 (git+https://github.com/quake/rust-jsonrpc)",
@@ -484,7 +484,7 @@ version = "0.3.0-pre"
 dependencies = [
  "ckb-core 0.3.0-pre",
  "ckb-util 0.3.0-pre",
- "crossbeam-channel 0.3.3 (registry+https://github.com/rust-lang/crates.io-index)",
+ "crossbeam-channel 0.3.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "fnv 1.0.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
@@ -503,7 +503,7 @@ dependencies = [
  "ckb-time 0.3.0-pre",
  "ckb-util 0.3.0-pre",
  "ckb-verification 0.3.0-pre",
- "crossbeam-channel 0.3.3 (registry+https://github.com/rust-lang/crates.io-index)",
+ "crossbeam-channel 0.3.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "env_logger 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "fnv 1.0.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "hash 0.3.0-pre",
@@ -522,7 +522,7 @@ version = "0.3.0-pre"
 dependencies = [
  "byteorder 1.2.7 (registry+https://github.com/rust-lang/crates.io-index)",
  "ckb-core 0.3.0-pre",
- "crossbeam-channel 0.3.3 (registry+https://github.com/rust-lang/crates.io-index)",
+ "crossbeam-channel 0.3.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "hash 0.3.0-pre",
  "numext-fixed-hash 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "proptest 0.8.7 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -604,7 +604,7 @@ dependencies = [
  "ckb-db 0.3.0-pre",
  "ckb-time 0.3.0-pre",
  "ckb-util 0.3.0-pre",
- "crossbeam-channel 0.3.3 (registry+https://github.com/rust-lang/crates.io-index)",
+ "crossbeam-channel 0.3.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "env_logger 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "fnv 1.0.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -634,7 +634,7 @@ dependencies = [
  "ckb-time 0.3.0-pre",
  "ckb-util 0.3.0-pre",
  "ckb-verification 0.3.0-pre",
- "crossbeam-channel 0.3.3 (registry+https://github.com/rust-lang/crates.io-index)",
+ "crossbeam-channel 0.3.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "env_logger 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "flatbuffers 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "fnv 1.0.6 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -672,7 +672,7 @@ dependencies = [
  "ckb-shared 0.3.0-pre",
  "ckb-time 0.3.0-pre",
  "ckb-util 0.3.0-pre",
- "crossbeam-channel 0.3.3 (registry+https://github.com/rust-lang/crates.io-index)",
+ "crossbeam-channel 0.3.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "fnv 1.0.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "hash 0.3.0-pre",
  "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -759,7 +759,7 @@ dependencies = [
  "clicolors-control 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "lazy_static 1.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "libc 0.2.44 (registry+https://github.com/rust-lang/crates.io-index)",
- "parking_lot 0.7.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "parking_lot 0.5.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "regex 1.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "termios 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "unicode-width 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -835,10 +835,10 @@ dependencies = [
 
 [[package]]
 name = "crossbeam-channel"
-version = "0.3.3"
+version = "0.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
- "crossbeam-epoch 0.6.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "crossbeam-epoch 0.7.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "crossbeam-utils 0.6.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "parking_lot 0.7.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "rand 0.6.1 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -880,6 +880,19 @@ dependencies = [
 [[package]]
 name = "crossbeam-epoch"
 version = "0.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+dependencies = [
+ "arrayvec 0.4.8 (registry+https://github.com/rust-lang/crates.io-index)",
+ "cfg-if 0.1.6 (registry+https://github.com/rust-lang/crates.io-index)",
+ "crossbeam-utils 0.6.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "lazy_static 1.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "memoffset 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "scopeguard 0.3.3 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
+name = "crossbeam-epoch"
+version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "arrayvec 0.4.8 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1285,7 +1298,7 @@ dependencies = [
  "console 0.7.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "lazy_static 1.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "number_prefix 0.2.8 (registry+https://github.com/rust-lang/crates.io-index)",
- "parking_lot 0.7.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "parking_lot 0.5.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "regex 1.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
@@ -1797,7 +1810,7 @@ version = "0.3.0-pre"
 dependencies = [
  "ansi_term 0.11.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "chrono 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
- "crossbeam-channel 0.3.3 (registry+https://github.com/rust-lang/crates.io-index)",
+ "crossbeam-channel 0.3.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "env_logger 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "lazy_static 1.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -2374,7 +2387,7 @@ name = "rand_chacha"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
- "rand_core 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "rand_core 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "rustc_version 0.2.3 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
@@ -2396,7 +2409,7 @@ name = "rand_hc"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
- "rand_core 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "rand_core 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -2421,7 +2434,7 @@ name = "rand_xorshift"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
- "rand_core 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "rand_core 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -3540,11 +3553,12 @@ dependencies = [
 "checksum criterion 0.2.5 (registry+https://github.com/rust-lang/crates.io-index)" = "c47d2b548c5647e1a436dc0cb78d4ebf51b6bf7ab101ed76662828bdd4d3a24a"
 "checksum criterion-plot 0.2.5 (registry+https://github.com/rust-lang/crates.io-index)" = "6e649d6aacdbbdb94ec659561a309a71336fc5655ed408f3afd28df2fc0c4f4f"
 "checksum criterion-stats 0.2.5 (registry+https://github.com/rust-lang/crates.io-index)" = "ff43cac80562f91ead0b617c1be74edf350adfaa195809d355de98dfc8f9237d"
-"checksum crossbeam-channel 0.3.3 (registry+https://github.com/rust-lang/crates.io-index)" = "8b7d034925ce9668a9a19539a82a2ae75660fa65c1a3a5ddbfce333aafcceb55"
+"checksum crossbeam-channel 0.3.4 (registry+https://github.com/rust-lang/crates.io-index)" = "5b2a9ea8f77c7f9efd317a8a5645f515d903a2d86ee14d2337a5facd1bd52c12"
 "checksum crossbeam-deque 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)" = "f739f8c5363aca78cfb059edf753d8f0d36908c348f3d8d1503f03d8b75d9cf3"
 "checksum crossbeam-deque 0.6.2 (registry+https://github.com/rust-lang/crates.io-index)" = "4fe1b6f945f824c7a25afe44f62e25d714c0cc523f8e99d8db5cd1026e1269d3"
 "checksum crossbeam-epoch 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)" = "927121f5407de9956180ff5e936fe3cf4324279280001cd56b669d28ee7e9150"
 "checksum crossbeam-epoch 0.6.1 (registry+https://github.com/rust-lang/crates.io-index)" = "2449aaa4ec7ef96e5fb24db16024b935df718e9ae1cec0a1e68feeca2efca7b8"
+"checksum crossbeam-epoch 0.7.0 (registry+https://github.com/rust-lang/crates.io-index)" = "f10a4f8f409aaac4b16a5474fb233624238fcdeefb9ba50d5ea059aab63ba31c"
 "checksum crossbeam-utils 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)" = "2760899e32a1d58d5abb31129f8fae5de75220bc2176e77ff7c627ae45c918d9"
 "checksum crossbeam-utils 0.6.1 (registry+https://github.com/rust-lang/crates.io-index)" = "c55913cc2799171a550e307918c0a360e8c16004820291bf3b638969b4a01816"
 "checksum crunchy 0.1.6 (registry+https://github.com/rust-lang/crates.io-index)" = "a2f4a431c5c9f662e1200b7c7f02c34e91361150e382089a8f2dec3ba680cbda"
