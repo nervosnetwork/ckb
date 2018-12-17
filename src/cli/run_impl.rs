@@ -1,27 +1,28 @@
-use super::super::helper::wait_for_exit;
-use super::super::Setup;
-use bigint::H256;
+use crate::helper::wait_for_exit;
+use crate::Setup;
 use ckb_chain::chain::{ChainBuilder, ChainController};
 use ckb_core::script::Script;
 use ckb_core::transaction::{CellInput, OutPoint, Transaction, TransactionBuilder};
 use ckb_db::diskdb::RocksDB;
-use ckb_miner::MinerService;
+use ckb_miner::{Agent, AgentController};
 use ckb_network::CKBProtocol;
 use ckb_network::NetworkConfig;
 use ckb_network::NetworkService;
 use ckb_notify::NotifyService;
 use ckb_pool::txs_pool::{TransactionPoolController, TransactionPoolService};
 use ckb_pow::PowEngine;
-use ckb_rpc::{RpcController, RpcServer, RpcService};
+use ckb_rpc::RpcServer;
 use ckb_shared::cachedb::CacheDB;
 use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::{ChainProvider, Shared, SharedBuilder};
 use ckb_shared::store::ChainKVStore;
 use ckb_sync::{Relayer, Synchronizer, RELAY_PROTOCOL_ID, SYNC_PROTOCOL_ID};
-use clap::ArgMatches;
+use clap::{value_t, ArgMatches};
 use crypto::secp::{Generator, Privkey};
 use faster_hex::{hex_string, hex_to};
 use hash::sha3_256;
+use log::info;
+use numext_fixed_hash::H256;
 use serde_json;
 use std::io::Write;
 use std::sync::Arc;
@@ -37,9 +38,9 @@ pub fn run(setup: Setup) {
         .build();
 
     let (_handle, notify) = NotifyService::default().start(Some("notify"));
-    let (chain_controller, chain_receivers) = ChainController::new();
-    let (tx_pool_controller, tx_pool_receivers) = TransactionPoolController::new();
-    let (rpc_controller, rpc_receivers) = RpcController::new();
+    let (chain_controller, chain_receivers) = ChainController::build();
+    let (tx_pool_controller, tx_pool_receivers) = TransactionPoolController::build();
+    let (miner_agent_controller, miner_agent_receivers) = AgentController::build();
 
     let chain_service = ChainBuilder::new(shared.clone())
         .notify(notify.clone())
@@ -52,8 +53,8 @@ pub fn run(setup: Setup) {
         TransactionPoolService::new(setup.configs.pool, shared.clone(), notify.clone());
     let _handle = tx_pool_service.start(Some("TransactionPoolService"), tx_pool_receivers);
 
-    let rpc_service = RpcService::new(shared.clone(), tx_pool_controller.clone());
-    let _handle = rpc_service.start(Some("RpcService"), rpc_receivers, &notify);
+    let miner_agent = Agent::new(shared.clone(), tx_pool_controller.clone());
+    let _handle = miner_agent.start(Some("MinerAgent"), miner_agent_receivers, &notify);
 
     let synchronizer = Arc::new(Synchronizer::new(
         chain_controller.clone(),
@@ -88,28 +89,18 @@ pub fn run(setup: Setup) {
             .expect("Create and start network"),
     );
 
-    let miner_service = MinerService::new(
-        setup.configs.miner,
-        Arc::clone(&pow_engine),
-        &shared,
-        chain_controller.clone(),
-        rpc_controller.clone(),
-        Arc::clone(&network),
-        &notify,
-    );
-    let _handle = miner_service.start(Some("MinerService"));
-
     let rpc_server = RpcServer {
         config: setup.configs.rpc,
     };
 
     setup_rpc(
         rpc_server,
-        rpc_controller,
         Arc::clone(&pow_engine),
         Arc::clone(&network),
         shared,
         tx_pool_controller,
+        chain_controller,
+        miner_agent_controller,
     );
 
     wait_for_exit();
@@ -120,11 +111,12 @@ pub fn run(setup: Setup) {
 #[cfg(feature = "integration_test")]
 fn setup_rpc<CI: ChainIndex + 'static>(
     server: RpcServer,
-    rpc: RpcController,
     pow: Arc<dyn PowEngine>,
     network: Arc<NetworkService>,
     shared: Shared<CI>,
     tx_pool: TransactionPoolController,
+    chain: ChainController,
+    agent: AgentController,
 ) {
     use ckb_pow::Clicker;
 
@@ -137,24 +129,25 @@ fn setup_rpc<CI: ChainIndex + 'static>(
 
     let _ = thread::Builder::new().name("rpc".to_string()).spawn({
         move || {
-            server.start(network, shared, tx_pool, rpc, pow);
+            server.start(network, shared, tx_pool, pow, chain, agent);
         }
     });
 }
 
 #[cfg(not(feature = "integration_test"))]
-#[cfg_attr(feature = "cargo-clippy", allow(needless_pass_by_value))]
+#[allow(clippy::needless_pass_by_value)]
 fn setup_rpc<CI: ChainIndex + 'static>(
     server: RpcServer,
-    rpc: RpcController,
     _pow: Arc<dyn PowEngine>,
     network: Arc<NetworkService>,
     shared: Shared<CI>,
     tx_pool: TransactionPoolController,
+    chain: ChainController,
+    agent: AgentController,
 ) {
     let _ = thread::Builder::new().name("rpc".to_string()).spawn({
         move || {
-            server.start(network, shared, tx_pool, rpc);
+            server.start(network, shared, tx_pool, chain, agent);
         }
     });
 }
@@ -164,7 +157,7 @@ pub fn sign(setup: &Setup, matches: &ArgMatches) {
     let system_cell_tx = &consensus.genesis_block().commit_transactions()[0];
     let system_cell_data_hash = system_cell_tx.outputs()[0].data_hash();
     let system_cell_tx_hash = system_cell_tx.hash();
-    let system_cell_outpoint = OutPoint::new(system_cell_tx_hash, 0);
+    let system_cell_outpoint = OutPoint::new(system_cell_tx_hash.clone(), 0);
 
     let privkey: Privkey = value_t!(matches.value_of("private-key"), H256)
         .unwrap_or_else(|e| e.exit())
@@ -195,11 +188,11 @@ pub fn sign(setup: &Setup, matches: &ArgMatches) {
         let script = Script::new(
             0,
             new_args,
-            Some(system_cell_data_hash),
+            Some(system_cell_data_hash.clone()),
             None,
             vec![hex_pubkey],
         );
-        let signed_input = CellInput::new(unsigned_input.previous_output, script);
+        let signed_input = CellInput::new(unsigned_input.previous_output.clone(), script);
         inputs.push(signed_input);
     }
     // First, add verify system cell as a dep
@@ -235,7 +228,10 @@ pub fn type_hash(setup: &Setup, matches: &ArgMatches) {
         None,
         vec![hex_pubkey],
     );
-    println!("{}", hex_string(&script.type_hash()).expect("hex string"));
+    println!(
+        "{}",
+        hex_string(script.type_hash().as_bytes()).expect("hex string")
+    );
 }
 
 pub fn keygen() {

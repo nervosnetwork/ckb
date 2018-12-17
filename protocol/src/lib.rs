@@ -1,20 +1,14 @@
-extern crate bigint;
-extern crate byteorder;
-extern crate ckb_core;
-extern crate flatbuffers;
-extern crate hash;
-extern crate rand;
-extern crate siphasher;
-
 mod builder;
 mod convert;
+#[rustfmt::skip]
+#[allow(clippy::all)]
 mod protocol_generated;
 
-pub use protocol_generated::ckb::protocol::*;
-
-use bigint::{H256, H48};
+pub use crate::protocol_generated::ckb::protocol::*;
 use byteorder::{ByteOrder, LittleEndian, WriteBytesExt};
+use ckb_util::u64_to_bytes;
 use hash::sha3_256;
+use numext_fixed_hash::H256;
 use siphasher::sip::SipHasher;
 use std::hash::Hasher;
 
@@ -43,7 +37,7 @@ impl<'a, T: flatbuffers::Follow<'a> + 'a> Iterator for FlatbuffersVectorIterator
     }
 }
 
-pub type ShortTransactionID = H48;
+pub type ShortTransactionID = [u8; 6];
 
 pub fn short_transaction_id_keys(header_nonce: u64, random_nonce: u64) -> (u64, u64) {
     // sha3-256(header nonce + random nonce) in little-endian
@@ -60,14 +54,14 @@ pub fn short_transaction_id_keys(header_nonce: u64, random_nonce: u64) -> (u64, 
 
 pub fn short_transaction_id(key0: u64, key1: u64, transaction_hash: &H256) -> ShortTransactionID {
     let mut hasher = SipHasher::new_with_keys(key0, key1);
-    hasher.write(transaction_hash);
+    hasher.write(transaction_hash.as_bytes());
     let siphash_transaction_hash = hasher.finish();
 
-    let mut siphash_transaction_hash_bytes = [0u8; 8];
-    LittleEndian::write_u64(
-        &mut siphash_transaction_hash_bytes,
-        siphash_transaction_hash,
-    );
+    let siphash_transaction_hash_bytes = u64_to_bytes(siphash_transaction_hash.to_le());
 
-    siphash_transaction_hash_bytes[0..6].into()
+    let mut short_transaction_id = [0u8; 6];
+
+    short_transaction_id.copy_from_slice(&siphash_transaction_hash_bytes[..6]);
+
+    short_transaction_id
 }

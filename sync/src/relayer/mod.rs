@@ -1,4 +1,4 @@
-#![cfg_attr(feature = "cargo-clippy", allow(needless_pass_by_value))]
+#![allow(clippy::needless_pass_by_value)]
 
 mod block_proposal_process;
 mod block_transactions_process;
@@ -15,7 +15,6 @@ use self::compact_block_process::CompactBlockProcess;
 use self::get_block_proposal_process::GetBlockProposalProcess;
 use self::get_block_transactions_process::GetBlockTransactionsProcess;
 use self::transaction_process::TransactionProcess;
-use bigint::H256;
 use ckb_chain::chain::ChainController;
 use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::transaction::{ProposalShortId, Transaction};
@@ -27,6 +26,8 @@ use ckb_shared::shared::{ChainProvider, Shared};
 use ckb_util::{Mutex, RwLock};
 use flatbuffers::{get_root, FlatBufferBuilder};
 use fnv::{FnvHashMap, FnvHashSet};
+use log::{debug, info};
+use numext_fixed_hash::H256;
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Duration;
@@ -75,7 +76,8 @@ where
                 self,
                 peer,
                 nc,
-            ).execute(),
+            )
+            .execute(),
             RelayPayload::Transaction => {
                 TransactionProcess::new(&message.payload_as_transaction().unwrap(), self, peer, nc)
                     .execute()
@@ -85,19 +87,22 @@ where
                 self,
                 peer,
                 nc,
-            ).execute(),
+            )
+            .execute(),
             RelayPayload::BlockTransactions => BlockTransactionsProcess::new(
                 &message.payload_as_block_transactions().unwrap(),
                 self,
                 peer,
                 nc,
-            ).execute(),
+            )
+            .execute(),
             RelayPayload::GetBlockProposal => GetBlockProposalProcess::new(
                 &message.payload_as_get_block_proposal().unwrap(),
                 self,
                 peer,
                 nc,
-            ).execute(),
+            )
+            .execute(),
             RelayPayload::BlockProposal => {
                 BlockProposalProcess::new(&message.payload_as_block_proposal().unwrap(), self)
                     .execute()
@@ -121,7 +126,8 @@ where
                     .uncles
                     .iter()
                     .flat_map(|uncle| uncle.proposal_transactions()),
-            ).filter(|x| !self.tx_pool.contains_key(**x) && inflight.insert(**x))
+            )
+            .filter(|x| !self.tx_pool.contains_key(**x) && inflight.insert(**x))
             .cloned()
             .collect::<Vec<_>>();
 
@@ -134,7 +140,8 @@ where
     }
 
     pub fn accept_block(&self, nc: &CKBProtocolContext, peer: PeerIndex, block: &Arc<Block>) {
-        if self.chain.process_block(Arc::clone(&block)).is_ok() {
+        let ret = self.chain.process_block(Arc::clone(&block));
+        if ret.is_ok() {
             let fbb = &mut FlatBufferBuilder::new();
             let message = RelayMessage::build_compact_block(fbb, block, &HashSet::new());
             fbb.finish(message, None);
@@ -144,6 +151,8 @@ where
                     let _ = nc.send(peer_id, fbb.finished_data().to_vec());
                 }
             }
+        } else {
+            debug!(target: "relay", "accept_block verify error {:?}", ret);
         }
     }
 
@@ -212,7 +221,7 @@ where
         for (id, peers) in pending_proposals_request.iter() {
             if let Some(tx) = self.tx_pool.get_transaction(*id) {
                 for peer in peers {
-                    let mut tx_set = peer_txs.entry(*peer).or_insert_with(Vec::new);
+                    let tx_set = peer_txs.entry(*peer).or_insert_with(Vec::new);
                     tx_set.push(tx.clone());
                 }
             }
@@ -256,12 +265,12 @@ where
     }
 
     fn connected(&self, _nc: Box<CKBProtocolContext>, peer: PeerIndex) {
-        info!(target: "sync", "peer={} RelayProtocol.connected", peer);
+        info!(target: "relay", "peer={} RelayProtocol.connected", peer);
         // do nothing
     }
 
     fn disconnected(&self, _nc: Box<CKBProtocolContext>, peer: PeerIndex) {
-        info!(target: "sync", "peer={} RelayProtocol.disconnected", peer);
+        info!(target: "relay", "peer={} RelayProtocol.disconnected", peer);
         // TODO
     }
 

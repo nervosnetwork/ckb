@@ -1,5 +1,6 @@
+use crate::syscalls::DEBUG_PRINT_SYSCALL_NUMBER;
 use ckb_vm::{CoreMachine, Error as VMError, Memory, Register, Syscalls, A0, A7};
-use syscalls::DEBUG_PRINT_SYSCALL_NUMBER;
+use log::debug;
 
 pub struct Debugger<'a> {
     prefix: &'a str,

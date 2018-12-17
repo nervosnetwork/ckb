@@ -1,3 +1,5 @@
+use serde_derive::Deserialize;
+
 #[derive(Clone, Debug, Deserialize)]
 pub struct Config {
     pub orphan_block_limit: usize,

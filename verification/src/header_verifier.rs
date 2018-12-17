@@ -1,10 +1,10 @@
 use super::Verifier;
-use bigint::U256;
+use crate::error::{DifficultyError, Error, NumberError, PowError, TimestampError};
+use crate::shared::ALLOWED_FUTURE_BLOCKTIME;
 use ckb_core::header::Header;
 use ckb_pow::PowEngine;
 use ckb_time::now_ms;
-use error::{DifficultyError, Error, NumberError, PowError, TimestampError};
-use shared::ALLOWED_FUTURE_BLOCKTIME;
+use numext_fixed_uint::U256;
 use std::marker::PhantomData;
 use std::sync::Arc;
 
@@ -39,7 +39,7 @@ impl<T: HeaderResolver> Verifier for HeaderVerifier<T> {
         PowVerifier::new(header, &self.pow).verify()?;
         let parent = target
             .parent()
-            .ok_or_else(|| Error::UnknownParent(header.parent_hash()))?;
+            .ok_or_else(|| Error::UnknownParent(header.parent_hash().clone()))?;
         NumberVerifier::new(parent, header).verify()?;
         TimestampVerifier::new(parent, header).verify()?;
         DifficultyVerifier::verify(target)?;
@@ -112,10 +112,10 @@ impl<T: HeaderResolver> DifficultyVerifier<T> {
             .calculate_difficulty()
             .ok_or_else(|| Error::Difficulty(DifficultyError::AncestorNotFound))?;
         let actual = resolver.header().difficulty();
-        if expected != actual {
+        if &expected != actual {
             return Err(Error::Difficulty(DifficultyError::MixMismatch {
                 expected,
-                actual,
+                actual: actual.clone(),
             }));
         }
         Ok(())

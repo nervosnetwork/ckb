@@ -1,8 +1,8 @@
-use bigint::H256;
+use crate::transaction::{CellOutput, OutPoint, Transaction};
+use numext_fixed_hash::H256;
 use std::collections::HashSet;
 use std::iter::Chain;
 use std::slice;
-use transaction::{CellOutput, OutPoint, Transaction};
 
 #[derive(Clone, PartialEq, Debug)]
 pub enum CellStatus {
@@ -65,23 +65,25 @@ pub trait CellProvider {
             .input_pts()
             .iter()
             .map(|input| {
-                if seen_inputs.insert(*input) {
+                if seen_inputs.insert(input.clone()) {
                     self.cell(input)
                 } else {
                     CellStatus::Old
                 }
-            }).collect();
+            })
+            .collect();
 
         let dep_cells = transaction
             .dep_pts()
             .iter()
             .map(|dep| {
-                if seen_inputs.insert(*dep) {
+                if seen_inputs.insert(dep.clone()) {
                     self.cell(dep)
                 } else {
                     CellStatus::Old
                 }
-            }).collect();
+            })
+            .collect();
 
         ResolvedTransaction {
             transaction: transaction.clone(),
@@ -101,23 +103,25 @@ pub trait CellProvider {
             .input_pts()
             .iter()
             .map(|input| {
-                if seen_inputs.insert(*input) {
+                if seen_inputs.insert(input.clone()) {
                     self.cell_at(input, parent)
                 } else {
                     CellStatus::Old
                 }
-            }).collect();
+            })
+            .collect();
 
         let dep_cells = transaction
             .dep_pts()
             .iter()
             .map(|dep| {
-                if seen_inputs.insert(*dep) {
+                if seen_inputs.insert(dep.clone()) {
                     self.cell_at(dep, parent)
                 } else {
                     CellStatus::Old
                 }
-            }).collect();
+            })
+            .collect();
 
         ResolvedTransaction {
             transaction: transaction.clone(),
@@ -167,7 +171,7 @@ impl ResolvedTransaction {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bigint::H256;
+    use numext_fixed_hash::H256;
     use std::collections::HashMap;
 
     struct CellMemoryDb {
@@ -198,15 +202,15 @@ mod tests {
         };
 
         let p1 = OutPoint {
-            hash: 0.into(),
+            hash: H256::zero(),
             index: 1,
         };
         let p2 = OutPoint {
-            hash: 0.into(),
+            hash: H256::zero(),
             index: 2,
         };
         let p3 = OutPoint {
-            hash: 0.into(),
+            hash: H256::zero(),
             index: 3,
         };
         let o = CellOutput {

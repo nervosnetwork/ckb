@@ -20,7 +20,7 @@ fmt:
 	cargo fmt --all -- --check
 
 clippy:
-	cargo clippy --all -- -D warnings -D clone_on_ref_ptr -D unused_extern_crates -D enum_glob_use
+	cargo clippy --all -- -D warnings -D clippy::clone_on_ref_ptr -D clippy::enum_glob_use
 
 ci: fmt clippy test build-integration-test
 	git diff --exit-code Cargo.lock
@@ -33,6 +33,20 @@ info:
 	pwd
 	env
 
-.PHONY: build build-integration-test
-.PHONY: fmt test clippy proto doc doc-deps check
-.PHONY: ci ci-quick info
+# For counting lines of code
+stats:
+	@cargo count --version || cargo +nightly install --git https://github.com/kbknapp/cargo-count
+	@cargo count --separator , --unsafe-statistics
+
+# Use cargo-audit to audit Cargo.lock for crates with security vulnerabilities
+# expecting to see "Success No vulnerable packages found"
+security-audit:
+	@cargo audit --version || cargo install cargo-audit
+	@cargo audit
+
+docker: build
+	docker build -f docker/hub/Dockerfile -t nervos/ckb:latest .
+
+.PHONY: build build-integration-test docker
+.PHONY: fmt test clippy proto doc doc-deps check stats
+.PHONY: ci ci-quick info security-audit

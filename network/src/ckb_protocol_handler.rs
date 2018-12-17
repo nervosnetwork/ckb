@@ -1,7 +1,9 @@
-use super::errors::{Error, ErrorKind};
-use super::{Network, SessionInfo, Timer};
-use super::{PeerIndex, ProtocolId, TimerToken};
+use crate::errors::{Error, ErrorKind};
+use crate::{Network, SessionInfo, Timer};
+use crate::{PeerIndex, ProtocolId, TimerToken};
 use ckb_util::Mutex;
+use log::debug;
+use log::info;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -34,7 +36,8 @@ pub trait CKBProtocolContext: Send {
             .filter_map(|peer_index| {
                 self.session_info(*peer_index)
                     .and_then(|session| Some((*peer_index, session)))
-            }).collect()
+            })
+            .collect()
     }
     fn connected_peers(&self) -> Vec<PeerIndex>;
 }
@@ -147,9 +150,9 @@ impl CKBProtocolContext for DefaultCKBProtocolContext {
 }
 
 pub trait CKBProtocolHandler: Sync + Send {
-    fn initialize(&self, Box<CKBProtocolContext>);
-    fn received(&self, Box<CKBProtocolContext>, PeerIndex, data: &[u8]);
-    fn connected(&self, Box<CKBProtocolContext>, PeerIndex);
-    fn disconnected(&self, Box<CKBProtocolContext>, PeerIndex);
-    fn timer_triggered(&self, Box<CKBProtocolContext>, TimerToken) {}
+    fn initialize(&self, _nc: Box<dyn CKBProtocolContext>);
+    fn received(&self, _nc: Box<dyn CKBProtocolContext>, _peer: PeerIndex, _data: &[u8]);
+    fn connected(&self, _nc: Box<dyn CKBProtocolContext>, _peer: PeerIndex);
+    fn disconnected(&self, _nc: Box<dyn CKBProtocolContext>, _peer: PeerIndex);
+    fn timer_triggered(&self, _nc: Box<dyn CKBProtocolContext>, _timer: TimerToken) {}
 }

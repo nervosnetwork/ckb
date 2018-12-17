@@ -1,4 +1,6 @@
-use bigint::{H256, U256};
+use numext_fixed_hash::H256;
+use numext_fixed_uint::U256;
+use serde_derive::{Deserialize, Serialize};
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Default, Debug)]
 pub struct BlockExt {

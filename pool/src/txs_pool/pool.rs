@@ -3,21 +3,24 @@ use super::types::{
     InsertionResult, Orphan, PendingQueue, Pool, PoolConfig, PoolError, ProposedQueue, TxStage,
     TxoStatus,
 };
-use bigint::H256;
-use channel::{self, Receiver, Sender};
+use channel::{self, select, Receiver, Sender};
 use ckb_core::block::Block;
 use ckb_core::cell::{CellProvider, CellStatus};
 use ckb_core::service::{Request, DEFAULT_CHANNEL_SIZE};
 use ckb_core::transaction::{OutPoint, ProposalShortId, Transaction};
-use ckb_notify::{ForkBlocks, MsgNewTip, MsgSwitchFork, NotifyController, TXS_POOL_SUBSCRIBER};
+use ckb_notify::{ForkBlocks, MsgNewTip, MsgSwitchFork, NotifyController};
 use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::{ChainProvider, Shared};
 use ckb_verification::{TransactionError, TransactionVerifier};
+use log::error;
 use lru_cache::LruCache;
+use numext_fixed_hash::H256;
 use std::thread::{self, JoinHandle};
 
 #[cfg(test)]
 use ckb_core::BlockNumber;
+
+const TXS_POOL_SUBSCRIBER: &str = "txs_pool";
 
 pub type TxsArgs = (usize, usize);
 pub type TxsReturn = (Vec<ProposalShortId>, Vec<Transaction>);
@@ -40,7 +43,7 @@ pub struct TransactionPoolReceivers {
 }
 
 impl TransactionPoolController {
-    pub fn new() -> (TransactionPoolController, TransactionPoolReceivers) {
+    pub fn build() -> (TransactionPoolController, TransactionPoolReceivers) {
         let (get_proposal_commit_transactions_sender, get_proposal_commit_transactions_receiver) =
             channel::bounded(DEFAULT_CHANNEL_SIZE);
         let (get_potential_transactions_sender, get_potential_transactions_receiver) =
@@ -76,7 +79,8 @@ impl TransactionPoolController {
         Request::call(
             &self.get_proposal_commit_transactions_sender,
             (max_prop, max_tx),
-        ).expect("get_proposal_commit_transactions() failed")
+        )
+        .expect("get_proposal_commit_transactions() failed")
     }
 
     pub fn get_potential_transactions(&self) -> Vec<Transaction> {
@@ -174,99 +178,82 @@ where
         let switch_fork_receiver = self.notify.subscribe_switch_fork(TXS_POOL_SUBSCRIBER);
         thread_builder
             .spawn(move || loop {
-                let failed = select!{
-                    recv(new_tip_receiver, msg) => self.handle_new_tip(msg),
-                    recv(switch_fork_receiver, msg) => self.handle_switch_fork(msg),
+                select!{
+                    recv(new_tip_receiver) -> msg => self.handle_new_tip(msg),
+                    recv(switch_fork_receiver) -> msg => self.handle_switch_fork(msg),
 
-                    recv(receivers.get_proposal_commit_transactions_receiver, msg) => {
+                    recv(receivers.get_proposal_commit_transactions_receiver) -> msg => {
                         self.handle_get_proposal_commit_transactions(msg)
-                    }
-                    recv(receivers.get_potential_transactions_receiver, msg) => match msg {
-                        Some(Request { responsor, ..}) => {
-                            responsor.send(self.get_potential_transactions());
-                            false
+                    },
+                    recv(receivers.get_potential_transactions_receiver) -> msg => match msg {
+                        Ok(Request { responder, ..}) => {
+                            let _ = responder.send(self.get_potential_transactions());
                         }
-                        None => {
+                        _ => {
                             error!(target: "txs_pool", "channel get_potential_transactions_receiver closed");
-                            true
                         }
-                    }
-                    recv(receivers.contains_key_receiver, msg) => match msg {
-                        Some(Request { responsor, arguments: id }) => {
-                            responsor.send(self.contains_key(&id));
-                            false
+                    },
+                    recv(receivers.contains_key_receiver) -> msg => match msg {
+                        Ok(Request { responder, arguments: id }) => {
+                            let _ = responder.send(self.contains_key(&id));
                         }
-                        None => {
+                        _ => {
                             error!(target: "txs_pool", "channel contains_key_receiver closed");
-                            true
                         }
-                    }
-                    recv(receivers.get_transaction_receiver, msg) => match msg {
-                        Some(Request { responsor, arguments: id }) => {
-                            responsor.send(self.get(&id));
-                            false
+                    },
+                    recv(receivers.get_transaction_receiver) -> msg => match msg {
+                        Ok(Request { responder, arguments: id }) => {
+                            let _ = responder.send(self.get(&id));
                         }
-                        None => {
+                        _ => {
                             error!(target: "txs_pool", "channel get_transaction_receiver closed");
-                            true
                         }
-                    }
-                    recv(receivers.add_transaction_receiver, msg) => match msg {
-                        Some(Request { responsor, arguments: tx }) => {
-                            responsor.send(self.add_transaction(tx));
-                            false
+                    },
+                    recv(receivers.add_transaction_receiver) -> msg => match msg {
+                        Ok(Request { responder, arguments: tx }) => {
+                            let _ = responder.send(self.add_transaction(tx));
                         }
-                        None => {
+                        _ => {
                             error!(target: "txs_pool", "channel add_transaction_receiver closed");
-                            true
                         }
                     }
-                };
-                if failed {
-                    break;
                 }
             }).expect("Start TransactionPoolService failed!")
     }
 
-    fn handle_new_tip(&mut self, msg: Option<MsgNewTip>) -> bool {
+    fn handle_new_tip(&mut self, msg: Result<MsgNewTip, channel::RecvError>) {
         match msg {
-            Some(block) => self.reconcile_block(&block),
-            None => {
+            Ok(block) => self.reconcile_block(&block),
+            _ => {
                 error!(target: "txs_pool", "channel new_tip_receiver closed");
-                return true;
             }
         }
-        false
     }
 
-    fn handle_switch_fork(&mut self, msg: Option<MsgSwitchFork>) -> bool {
+    fn handle_switch_fork(&mut self, msg: Result<MsgSwitchFork, channel::RecvError>) {
         match msg {
-            Some(blocks) => self.switch_fork(&blocks),
-            None => {
+            Ok(blocks) => self.switch_fork(&blocks),
+            _ => {
                 error!(target: "txs_pool", "channel switch_fork_receiver closed");
-                return true;
             }
         }
-        false
     }
 
     fn handle_get_proposal_commit_transactions(
         &self,
-        msg: Option<Request<TxsArgs, TxsReturn>>,
-    ) -> bool {
+        msg: Result<Request<TxsArgs, TxsReturn>, channel::RecvError>,
+    ) {
         match msg {
-            Some(Request {
-                responsor,
+            Ok(Request {
+                responder,
                 arguments: (max_prop, max_tx),
             }) => {
                 let proposal_transactions = self.prepare_proposal(max_prop);
                 let commit_transactions = self.get_mineable_transactions(max_tx);
-                responsor.send((proposal_transactions, commit_transactions));
-                false
+                let _ = responder.send((proposal_transactions, commit_transactions));
             }
-            None => {
+            _ => {
                 error!(target: "txs_pool", "channel get_proposal_commit_transactions_receiver closed");
-                true
             }
         }
     }
@@ -444,7 +431,7 @@ where
             for (i, cs) in rtx.input_cells.iter().enumerate() {
                 match cs {
                     CellStatus::Unknown => {
-                        unknowns.push(inputs[i]);
+                        unknowns.push(inputs[i].clone());
                     }
                     CellStatus::Old => {
                         self.cache.insert(tx.proposal_short_id(), tx);
@@ -457,7 +444,7 @@ where
             for (i, cs) in rtx.dep_cells.iter().enumerate() {
                 match cs {
                     CellStatus::Unknown => {
-                        unknowns.push(deps[i]);
+                        unknowns.push(deps[i].clone());
                     }
                     CellStatus::Old => {
                         self.cache.insert(tx.proposal_short_id(), tx);
@@ -482,8 +469,6 @@ where
             self.pool.add_transaction(tx.clone());
 
             self.reconcile_orphan(&tx);
-
-            self.notify.notify_new_transaction();
         }
 
         Ok(InsertionResult::Normal)
@@ -562,7 +547,7 @@ where
 
         // We can sort it by some rules
         for tx in new_txs {
-            let tx_hash = tx.hash();
+            let tx_hash = tx.hash().clone();
             if let Err(error) = self.add_to_pool(tx) {
                 error!(target: "txs_pool", "Failed to add proposed tx {:} to pool, reason: {:?}", tx_hash, error);
             }

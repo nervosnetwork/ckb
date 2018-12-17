@@ -1,10 +1,10 @@
-use bigint::H256;
+use crate::relayer::Relayer;
 use ckb_core::transaction::Transaction;
 use ckb_network::CKBProtocolContext;
 use ckb_network::PeerIndex;
 use ckb_protocol::{BlockTransactions, FlatbuffersVectorIterator};
 use ckb_shared::index::ChainIndex;
-use relayer::Relayer;
+use numext_fixed_hash::H256;
 use std::sync::Arc;
 
 pub struct BlockTransactionsProcess<'a, CI: ChainIndex + 'a> {
@@ -33,7 +33,7 @@ where
     }
 
     pub fn execute(self) {
-        let hash = H256::from_slice(self.message.hash().and_then(|b| b.seq()).unwrap());
+        let hash = H256::from_slice(self.message.hash().and_then(|b| b.seq()).unwrap()).unwrap();
         if let Some(compact_block) = self
             .relayer
             .state

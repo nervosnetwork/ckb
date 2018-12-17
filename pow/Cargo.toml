@@ -1,16 +1,17 @@
 [package]
 name = "ckb-pow"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
+edition = "2018"
 
 
 [dependencies]
-bigint = { git = "https://github.com/nervosnetwork/bigint" }
+numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 byteorder = "1.2.2"
 ckb-core = { path = "../core" }
 hash = { path = "../util/hash"}
-rand = "0.5.0"
-crossbeam-channel = "0.2"
+rand = "0.6"
+crossbeam-channel = "0.3"
 serde = "1.0"
 serde_derive = "1.0"
 

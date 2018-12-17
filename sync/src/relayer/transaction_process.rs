@@ -1,9 +1,9 @@
+use crate::relayer::Relayer;
 use ckb_core::transaction::Transaction;
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::{RelayMessage, Transaction as FbsTransaction};
 use ckb_shared::index::ChainIndex;
 use flatbuffers::FlatBufferBuilder;
-use relayer::Relayer;
 
 pub struct TransactionProcess<'a, CI: ChainIndex + 'a> {
     message: &'a FbsTransaction<'a>,

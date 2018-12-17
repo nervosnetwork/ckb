@@ -6,20 +6,15 @@
 //! with a config file specifying chain = "path" under [ckb].
 //! There are a few named presets that can be selected from or a custom yaml spec file can be supplied.
 
-extern crate bigint;
-extern crate ckb_core;
-extern crate serde_json;
-#[macro_use]
-extern crate serde_derive;
-extern crate ckb_pow;
-
-use bigint::{H256, U256};
+use crate::consensus::Consensus;
 use ckb_core::block::BlockBuilder;
 use ckb_core::header::HeaderBuilder;
 use ckb_core::transaction::{CellOutput, Transaction, TransactionBuilder};
 use ckb_core::Capacity;
 use ckb_pow::{Pow, PowEngine};
-use consensus::Consensus;
+use numext_fixed_hash::H256;
+use numext_fixed_uint::U256;
+use serde_derive::Deserialize;
 use std::error::Error;
 use std::fs::File;
 use std::io::Read;
@@ -97,15 +92,15 @@ impl ChainSpec {
     pub fn to_consensus(&self) -> Result<Consensus, Box<Error>> {
         let header = HeaderBuilder::default()
             .version(self.genesis.version)
-            .parent_hash(&self.genesis.parent_hash)
+            .parent_hash(self.genesis.parent_hash.clone())
             .timestamp(self.genesis.timestamp)
-            .txs_commit(&self.genesis.txs_commit)
-            .txs_proposal(&self.genesis.txs_proposal)
-            .difficulty(&self.genesis.difficulty)
+            .txs_commit(self.genesis.txs_commit.clone())
+            .txs_proposal(self.genesis.txs_proposal.clone())
+            .difficulty(self.genesis.difficulty.clone())
             .nonce(self.genesis.seal.nonce)
-            .proof(&self.genesis.seal.proof)
-            .cellbase_id(&self.genesis.cellbase_id)
-            .uncles_hash(&self.genesis.uncles_hash)
+            .proof(self.genesis.seal.proof.to_vec())
+            .cellbase_id(self.genesis.cellbase_id.clone())
+            .uncles_hash(self.genesis.uncles_hash.clone())
             .build();
 
         let genesis_block = BlockBuilder::default()

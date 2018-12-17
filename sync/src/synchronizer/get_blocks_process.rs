@@ -1,9 +1,10 @@
-use bigint::H256;
+use crate::synchronizer::Synchronizer;
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::{FlatbuffersVectorIterator, GetBlocks, SyncMessage};
 use ckb_shared::index::ChainIndex;
 use flatbuffers::FlatBufferBuilder;
-use synchronizer::Synchronizer;
+use log::debug;
+use numext_fixed_hash::H256;
 
 pub struct GetBlocksProcess<'a, CI: ChainIndex + 'a> {
     message: &'a GetBlocks<'a>,
@@ -32,7 +33,7 @@ where
 
     pub fn execute(self) {
         FlatbuffersVectorIterator::new(self.message.block_hashes().unwrap()).for_each(|bytes| {
-            let block_hash = H256::from_slice(bytes.seq().unwrap());
+            let block_hash = H256::from_slice(bytes.seq().unwrap()).unwrap();
             debug!(target: "sync", "get_blocks {:?}", block_hash);
             if let Some(block) = self.synchronizer.get_block(&block_hash) {
                 debug!(target: "sync", "respond_block {} {:?}", block.header().number(), block.header().hash());

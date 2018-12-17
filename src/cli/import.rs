@@ -5,7 +5,7 @@ use ckb_instrument::{Format, Import};
 use ckb_shared::cachedb::CacheDB;
 use ckb_shared::shared::SharedBuilder;
 use ckb_shared::store::ChainKVStore;
-use clap::ArgMatches;
+use clap::{value_t, ArgMatches};
 
 pub fn import(setup: &Setup, matches: &ArgMatches) {
     let format = value_t!(matches.value_of("format"), Format).unwrap_or_else(|e| e.exit());
@@ -16,7 +16,7 @@ pub fn import(setup: &Setup, matches: &ArgMatches) {
     let shared = SharedBuilder::<ChainKVStore<CacheDB<RocksDB>>>::new_rocks(&db_path)
         .consensus(setup.chain_spec.to_consensus().unwrap())
         .build();
-    let (chain_controller, chain_receivers) = ChainController::new();
+    let (chain_controller, chain_receivers) = ChainController::build();
     let chain_service = ChainBuilder::new(shared).build();
     let _handle = chain_service.start(Some("ImportChainService"), chain_receivers);
 

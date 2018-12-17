@@ -7,6 +7,7 @@ use ckb_core::BlockNumber;
 use ckb_verification::TransactionError;
 use fnv::{FnvHashMap, FnvHashSet};
 use linked_hash_map::LinkedHashMap;
+use serde_derive::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use std::hash::Hash;
 use std::iter::Iterator;
@@ -355,9 +356,9 @@ impl Pool {
         for o in outputs {
             if let Some(id) = self.edges.remove_outer(&o) {
                 self.inc_ref(&id);
-                self.edges.insert_inner(o, id);
+                self.edges.insert_inner(o.clone(), id);
             } else {
-                self.edges.mark_inpool(o);
+                self.edges.mark_inpool(o.clone());
             }
 
             if let Some(cids) = { self.edges.get_deps(&o).cloned() } {
@@ -379,7 +380,7 @@ impl Pool {
             for o in outputs {
                 if let Some(cid) = self.edges.remove_inner(&o) {
                     self.dec_ref(&cid);
-                    self.edges.insert_outer(o, cid);
+                    self.edges.insert_outer(o.clone(), cid);
                 }
 
                 if let Some(x) = { self.edges.get_deps(&o).cloned() } {
@@ -622,7 +623,8 @@ impl ProposedQueue {
                         numbers.insert(id, cur);
                     }
                     id
-                }).collect();
+                })
+                .collect();
 
             cur -= 1;
             queue.push_front(id_set);
@@ -714,7 +716,8 @@ impl ProposedQueue {
             .map(|id| {
                 self.numbers.insert(id, self.tip + 1);
                 id
-            }).collect();
+            })
+            .collect();
 
         if TRANSACTION_PROPAGATION_TIMEOUT <= self.tip + 1 {
             let tail = self.tip + 1 - TRANSACTION_PROPAGATION_TIMEOUT;
@@ -831,8 +834,8 @@ impl ProposedQueue {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bigint::H256;
     use ckb_core::transaction::{CellInput, CellOutput, Transaction, TransactionBuilder};
+    use numext_fixed_hash::H256;
 
     fn build_tx(inputs: Vec<(H256, u32)>, outputs_len: usize) -> Transaction {
         TransactionBuilder::default()
@@ -841,18 +844,21 @@ mod tests {
                     .into_iter()
                     .map(|(txid, index)| {
                         CellInput::new(OutPoint::new(txid, index), Default::default())
-                    }).collect(),
-            ).outputs(
-                (0..outputs_len)
-                    .map(|i| CellOutput::new((i + 1) as u64, Vec::new(), H256::from(0), None))
+                    })
                     .collect(),
-            ).build()
+            )
+            .outputs(
+                (0..outputs_len)
+                    .map(|i| CellOutput::new((i + 1) as u64, Vec::new(), H256::zero(), None))
+                    .collect(),
+            )
+            .build()
     }
 
     #[test]
     fn test_proposed_queue() {
         let tx1 = build_tx(vec![(H256::zero(), 1), (H256::zero(), 2)], 1);
-        let tx1_hash = tx1.hash();
+        let tx1_hash = tx1.hash().clone();
         let tx2 = build_tx(vec![(tx1_hash, 0)], 1);
         let tx3 = build_tx(vec![(H256::zero(), 1)], 2);
 
@@ -892,7 +898,7 @@ mod tests {
     #[test]
     fn test_add_entry() {
         let tx1 = build_tx(vec![(H256::zero(), 1), (H256::zero(), 2)], 1);
-        let tx1_hash = tx1.hash();
+        let tx1_hash = tx1.hash().clone();
         let tx2 = build_tx(vec![(tx1_hash, 0)], 1);
 
         let mut pool = Pool::new();
@@ -919,7 +925,13 @@ mod tests {
     #[test]
     fn test_add_roots() {
         let tx1 = build_tx(vec![(H256::zero(), 1), (H256::zero(), 2)], 1);
-        let tx2 = build_tx(vec![(H256::from(2), 1), (H256::from(3), 2)], 3);
+        let tx2 = build_tx(
+            vec![
+                (H256::from_trimmed_hex_str("2").unwrap(), 1),
+                (H256::from_trimmed_hex_str("3").unwrap(), 2),
+            ],
+            3,
+        );
 
         let mut pool = Pool::new();
 
@@ -972,14 +984,14 @@ mod tests {
     fn test_add_no_roots() {
         let tx1 = build_tx(vec![(H256::zero(), 1)], 3);
         let tx2 = build_tx(vec![], 4);
-        let tx1_hash = tx1.hash();
-        let tx2_hash = tx2.hash();
+        let tx1_hash = tx1.hash().clone();
+        let tx2_hash = tx2.hash().clone();
 
-        let tx3 = build_tx(vec![(tx1_hash, 0), (H256::zero(), 2)], 2);
-        let tx4 = build_tx(vec![(tx1_hash, 1), (tx2_hash, 0)], 2);
+        let tx3 = build_tx(vec![(tx1_hash.clone(), 0), (H256::zero(), 2)], 2);
+        let tx4 = build_tx(vec![(tx1_hash.clone(), 1), (tx2_hash.clone(), 0)], 2);
 
-        let tx3_hash = tx3.hash();
-        let tx5 = build_tx(vec![(tx1_hash, 2), (tx3_hash, 0)], 2);
+        let tx3_hash = tx3.hash().clone();
+        let tx5 = build_tx(vec![(tx1_hash.clone(), 2), (tx3_hash.clone(), 0)], 2);
 
         let id1 = tx1.proposal_short_id();
         let id3 = tx3.proposal_short_id();

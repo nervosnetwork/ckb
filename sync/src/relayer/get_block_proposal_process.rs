@@ -1,9 +1,9 @@
+use crate::relayer::Relayer;
 use ckb_core::transaction::ProposalShortId;
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::{FlatbuffersVectorIterator, GetBlockProposal, RelayMessage};
 use ckb_shared::index::ChainIndex;
 use flatbuffers::FlatBufferBuilder;
-use relayer::Relayer;
 
 pub struct GetBlockProposalProcess<'a, CI: ChainIndex + 'a> {
     message: &'a GetBlockProposal<'a>,
@@ -44,7 +44,8 @@ where
                             .insert(self.peer);
                         None
                     })
-                }).map(Into::into)
+                })
+                .map(Into::into)
                 .collect::<Vec<_>>()
         };
 

@@ -73,6 +73,17 @@ impl TestNode {
                 local_index,
             )
         }
+
+        if let Some(handler) = remote.protocols.get(&protocol) {
+            handler.connected(
+                Box::new(TestNetworkContext {
+                    protocol,
+                    msg_senders: remote.msg_senders.clone(),
+                    timer_senders: remote.timer_senders.clone(),
+                }),
+                local_index,
+            )
+        }
     }
 
     pub fn start<F: Fn(&[u8]) -> bool>(&self, signal: Sender<()>, pred: F) {

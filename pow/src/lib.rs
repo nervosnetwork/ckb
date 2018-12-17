@@ -1,31 +1,19 @@
-extern crate bigint;
-extern crate byteorder;
-extern crate ckb_core;
-extern crate crossbeam_channel;
-extern crate hash;
-extern crate rand;
-#[macro_use]
-extern crate serde_derive;
-#[cfg(test)]
-#[macro_use]
-extern crate proptest;
-
-use bigint::H256;
 use byteorder::{ByteOrder, LittleEndian};
 use ckb_core::difficulty::{boundary_to_difficulty, difficulty_to_boundary};
 use ckb_core::header::{BlockNumber, Header, RawHeader, Seal};
 use hash::blake2b;
-use std::sync::Arc;
-
+use numext_fixed_hash::H256;
+use serde_derive::Deserialize;
 use std::any::Any;
+use std::sync::Arc;
 
 mod clicker;
 mod cuckoo;
 mod dummy;
 
-pub use self::clicker::Clicker;
-pub use self::cuckoo::{Cuckoo, CuckooEngine, CuckooParams};
-pub use self::dummy::DummyPowEngine;
+pub use crate::clicker::Clicker;
+pub use crate::cuckoo::{Cuckoo, CuckooEngine, CuckooParams};
+pub use crate::dummy::DummyPowEngine;
 
 #[derive(Clone, Deserialize, Eq, PartialEq, Hash, Debug)]
 pub enum Pow {
@@ -54,9 +42,10 @@ fn pow_message(pow_hash: &[u8], nonce: u64) -> [u8; 40] {
 pub trait PowEngine: Send + Sync {
     fn init(&self, number: BlockNumber);
 
+    #[allow(clippy::op_ref)]
     fn verify_header(&self, header: &Header) -> bool {
         let proof_hash: H256 = blake2b(&header.proof()).into();
-        if boundary_to_difficulty(&proof_hash) < header.difficulty() {
+        if &boundary_to_difficulty(&proof_hash) < header.difficulty() {
             return false;
         }
 
@@ -92,7 +81,7 @@ mod test {
     fn test_pow_message() {
         let zero_hash: H256 = blake2b(&[]).into();
         let nonce = u64::max_value();
-        let message = pow_message(&zero_hash, nonce);
+        let message = pow_message(zero_hash.as_bytes(), nonce);
         assert_eq!(
             message.to_vec(),
             [
@@ -100,7 +89,7 @@ mod test {
                 171, 46, 176, 96, 153, 218, 161, 209, 229, 223, 71, 119, 143, 119, 135, 250, 171,
                 69, 205, 241, 47, 227, 168
             ]
-                .to_vec()
+            .to_vec()
         );
     }
 }

@@ -1,11 +1,12 @@
-use bigint::H256;
+use crate::synchronizer::Synchronizer;
+use crate::MAX_LOCATOR_SIZE;
 use ckb_core::header::Header;
 use ckb_network::{CKBProtocolContext, PeerIndex, Severity};
 use ckb_protocol::{FlatbuffersVectorIterator, GetHeaders, SyncMessage};
 use ckb_shared::index::ChainIndex;
 use flatbuffers::FlatBufferBuilder;
-use synchronizer::Synchronizer;
-use MAX_LOCATOR_SIZE;
+use log::{debug, info, warn};
+use numext_fixed_hash::H256;
 
 pub struct GetHeadersProcess<'a, CI: ChainIndex + 'a> {
     message: &'a GetHeaders<'a>,
@@ -48,7 +49,7 @@ where
 
             let hash_stop = H256::zero(); // TODO PENDING self.message.hash_stop().unwrap().into();
             let block_locator_hashes = FlatbuffersVectorIterator::new(locator)
-                .map(|bytes| H256::from_slice(bytes.seq().unwrap()))
+                .map(|bytes| H256::from_slice(bytes.seq().unwrap()).unwrap())
                 .collect::<Vec<_>>();
 
             if let Some(block_number) = self
@@ -70,7 +71,7 @@ where
                 fbb.finish(message, None);
                 let _ = self.nc.send(self.peer, fbb.finished_data().to_vec());
             } else {
-                warn!(target: "sync", "\n\nunknown block headers from peer {} {:#?}\n\n", self.peer, block_locator_hashes);
+                warn!(target: "sync", "\n\nunknown block headers from peer {} {:?}\n\n", self.peer, block_locator_hashes);
                 // Got 'headers' message without known blocks
                 // ban or close peers
                 self.nc

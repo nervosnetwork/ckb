@@ -1,6 +1,5 @@
 use super::super::block_verifier::CommitVerifier;
 use super::super::error::{CommitError, Error};
-use bigint::{H256, U256};
 use ckb_chain::chain::{ChainBuilder, ChainController};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::{Block, BlockBuilder};
@@ -15,6 +14,8 @@ use ckb_db::memorydb::MemoryKeyValueDB;
 use ckb_shared::shared::{ChainProvider, Shared, SharedBuilder};
 use ckb_shared::store::ChainKVStore;
 use fnv::FnvHashMap;
+use numext_fixed_hash::H256;
+use numext_fixed_uint::U256;
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;
@@ -29,13 +30,13 @@ fn gen_block(
     let now = 1 + parent_header.timestamp();
     let number = parent_header.number() + 1;
     let nonce = parent_header.nonce() + 1;
-    let difficulty = parent_header.difficulty() + U256::from(1);
+    let difficulty = parent_header.difficulty() + U256::from(1u64);
     let cellbase = create_cellbase(number);
     let header_builder = HeaderBuilder::default()
-        .parent_hash(&parent_header.hash())
+        .parent_hash(parent_header.hash().clone())
         .timestamp(now)
         .number(number)
-        .difficulty(&difficulty)
+        .difficulty(difficulty)
         .nonce(nonce);
 
     BlockBuilder::default()
@@ -49,7 +50,8 @@ fn gen_block(
 fn get_script() -> Script {
     let mut file = File::open(
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../nodes_template/spec/cells/always_success"),
-    ).unwrap();
+    )
+    .unwrap();
     let mut buffer = Vec::new();
     file.read_to_end(&mut buffer).unwrap();
 
@@ -66,7 +68,7 @@ fn create_transaction(parent: H256) -> Transaction {
         Some(script.clone()),
     );
     let inputs: Vec<CellInput> = (0..100)
-        .map(|index| CellInput::new(OutPoint::new(parent, index), script.clone()))
+        .map(|index| CellInput::new(OutPoint::new(parent.clone(), index), script.clone()))
         .collect();
 
     TransactionBuilder::default()
@@ -84,7 +86,7 @@ fn start_chain(
     }
     let shared = builder.build();
 
-    let (chain_controller, chain_receivers) = ChainController::new();
+    let (chain_controller, chain_receivers) = ChainController::build();
     let chain_service = ChainBuilder::new(shared.clone()).build();
     let _handle = chain_service.start::<&str>(None, chain_receivers);
     (chain_controller, shared)
@@ -93,7 +95,7 @@ fn start_chain(
 fn create_cellbase(number: BlockNumber) -> Transaction {
     TransactionBuilder::default()
         .input(CellInput::new_cellbase_input(number))
-        .outputs(vec![CellOutput::new(0, vec![], H256::from(0), None)])
+        .outputs(vec![CellOutput::new(0, vec![], H256::zero(), None)])
         .build()
 }
 
@@ -110,8 +112,9 @@ fn test_blank_proposal() {
                 Some(script),
             );
             100
-        ]).build();
-    let mut root_hash = tx.hash();
+        ])
+        .build();
+    let mut root_hash = tx.hash().clone();
     let genesis_block = BlockBuilder::default().commit_transaction(tx).build();
     let consensus = Consensus::default().set_genesis_block(genesis_block);
     let (chain_controller, shared) = start_chain(Some(consensus));
@@ -124,7 +127,7 @@ fn test_blank_proposal() {
     for i in 1..6 {
         txs.insert(i, Vec::new());
         let tx = create_transaction(root_hash);
-        root_hash = tx.hash();
+        root_hash = tx.hash().clone();
         txs.get_mut(&i).unwrap().push(tx.clone());
         let next_proposal_ids = vec![tx.proposal_short_id()];
         let new_block = gen_block(parent, prev_txs, next_proposal_ids, vec![]);
@@ -175,8 +178,9 @@ fn test_uncle_proposal() {
                 Some(script),
             );
             100
-        ]).build();
-    let mut root_hash = tx.hash();
+        ])
+        .build();
+    let mut root_hash = tx.hash().clone();
     let genesis_block = BlockBuilder::default().commit_transaction(tx).build();
     let consensus = Consensus::default()
         .set_genesis_block(genesis_block)
@@ -190,7 +194,7 @@ fn test_uncle_proposal() {
     for _ in 0..20 {
         let tx = create_transaction(root_hash);
         txs.push(tx.clone());
-        root_hash = tx.hash();
+        root_hash = tx.hash().clone();
     }
 
     let proposal_ids: Vec<_> = txs.iter().map(|tx| tx.proposal_short_id()).collect();
@@ -246,8 +250,9 @@ fn test_block_proposal() {
                 None,
             );
             100
-        ]).build();
-    let mut root_hash = tx.hash();
+        ])
+        .build();
+    let mut root_hash = tx.hash().clone();
     let genesis_block = BlockBuilder::default().commit_transaction(tx).build();
     let consensus = Consensus::default().set_genesis_block(genesis_block);
     let (chain_controller, shared) = start_chain(Some(consensus));
@@ -259,17 +264,15 @@ fn test_block_proposal() {
     for _ in 0..20 {
         let tx = create_transaction(root_hash);
         txs.push(tx.clone());
-        root_hash = tx.hash();
+        root_hash = tx.hash().clone();
     }
 
     let proposal_ids: Vec<_> = txs.iter().map(|tx| tx.proposal_short_id()).collect();
     let block = gen_block(parent.clone(), vec![], proposal_ids, vec![]);
 
-    assert!(
-        chain_controller
-            .process_block(Arc::new(block.clone()))
-            .is_ok()
-    );
+    assert!(chain_controller
+        .process_block(Arc::new(block.clone()))
+        .is_ok());
 
     parent = block.header().clone();
 
@@ -290,8 +293,9 @@ fn test_proposal_timeout() {
                 None,
             );
             100
-        ]).build();
-    let mut root_hash = tx.hash();
+        ])
+        .build();
+    let mut root_hash = tx.hash().clone();
     let genesis_block = BlockBuilder::default().commit_transaction(tx).build();
     let consensus = Consensus::default().set_genesis_block(genesis_block);
     let (chain_controller, shared) = start_chain(Some(consensus));
@@ -303,27 +307,23 @@ fn test_proposal_timeout() {
     for _ in 0..20 {
         let tx = create_transaction(root_hash);
         txs.push(tx.clone());
-        root_hash = tx.hash();
+        root_hash = tx.hash().clone();
     }
 
     let proposal_ids: Vec<_> = txs.iter().map(|tx| tx.proposal_short_id()).collect();
     let block = gen_block(parent.clone(), vec![], proposal_ids, vec![]);
-    assert!(
-        chain_controller
-            .process_block(Arc::new(block.clone()))
-            .is_ok()
-    );
+    assert!(chain_controller
+        .process_block(Arc::new(block.clone()))
+        .is_ok());
     parent = block.header().clone();
 
     let timeout = shared.consensus().transaction_propagation_timeout;
 
     for _ in 0..timeout - 1 {
         let block = gen_block(parent, vec![], vec![], vec![]);
-        assert!(
-            chain_controller
-                .process_block(Arc::new(block.clone()))
-                .is_ok()
-        );
+        assert!(chain_controller
+            .process_block(Arc::new(block.clone()))
+            .is_ok());
         parent = block.header().clone();
     }
 
@@ -333,11 +333,9 @@ fn test_proposal_timeout() {
     assert_eq!(verifier.verify(&new_block), Ok(()));
 
     let block = gen_block(parent, vec![], vec![], vec![]);
-    assert!(
-        chain_controller
-            .process_block(Arc::new(block.clone()))
-            .is_ok()
-    );
+    assert!(chain_controller
+        .process_block(Arc::new(block.clone()))
+        .is_ok());
     parent = block.header().clone();
 
     let new_block = gen_block(parent, txs, vec![], vec![]);

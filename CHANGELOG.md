@@ -1,6 +1,58 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+
+# [v0.2.0](https://github.com/nervosnetwork/ckb/compare/v0.1.0...v0.2.0) (2018-12-17)
+
+In this release, we have upgraded to Rust 2018. We also did 2 important refactoring:
+
+- The miner now runs as a separate process.
+- We have revised the VM syscalls according to VM contracts design experiments.
+
+### Bug Fixes
+
+* fix IBD sync process ([8c8382a](https://github.com/nervosnetwork/ckb/commit/8c8382a))
+* fix missing output lock hash ([#46](https://github.com/nervosnetwork/ckb/issues/46)) ([51b1675](https://github.com/nervosnetwork/ckb/commit/51b1675))
+* fix network unexpected connections to self ([#21](https://github.com/nervosnetwork/ckb/issues/21)) ([f4644b8](https://github.com/nervosnetwork/ckb/commit/f4644b8))
+* fix syscall number ([c21f5de](https://github.com/nervosnetwork/ckb/commit/c21f5de))
+* fix syscall length calculation ([#82](https://github.com/nervosnetwork/ckb/issues/82)) ([fb23f33](https://github.com/nervosnetwork/ckb/commit/fb23f33))
+* in case of missing cell, return `ITEM_MISSING` error instead of halting ([707d661](https://github.com/nervosnetwork/ckb/commit/707d661))
+* remove hash caches to avoid JSON deserialization bug ([#84](https://github.com/nervosnetwork/ckb/issues/84)) ([1274b03](https://github.com/nervosnetwork/ckb/commit/1274b03))
+* fix `rpc_url` ([62e784f](https://github.com/nervosnetwork/ckb/commit/62e784f))
+* resolve mining old block issue ([#87](https://github.com/nervosnetwork/ckb/issues/87)) ([01e02e2](https://github.com/nervosnetwork/ckb/commit/01e02e2))
+* uncheck subtract overflow ([#88](https://github.com/nervosnetwork/ckb/issues/88)) ([2b0976f](https://github.com/nervosnetwork/ckb/commit/2b0976f))
+
+
+### Features
+
+* refactor: embrace Rust 2018 (#75) ([313b2ea](https://github.com/nervosnetwork/ckb/commit/313b2ea))
+* refactor: replace ethereum-types with numext ([2cb8aca](https://github.com/nervosnetwork/ckb/commit/2cb8aca))
+* refactor: rpc and miner (#52) ([7fef14d](https://github.com/nervosnetwork/ckb/commit/7fef14d))
+* refactor: VM syscall refactoring ([9573905](https://github.com/nervosnetwork/ckb/commit/9573905))
+* add `get_current_cell` rpc for fetching unspent cells ([781d5f5](https://github.com/nervosnetwork/ckb/commit/781d5f5))
+* add `LOAD_INPUT_BY_FIELD` syscall ([c9364f2](https://github.com/nervosnetwork/ckb/commit/c9364f2))
+* add new syscall to fetch current script hash ([#42](https://github.com/nervosnetwork/ckb/issues/42)) ([d4ca022](https://github.com/nervosnetwork/ckb/commit/d4ca022))
+* dockerfile for hub ([#48](https://github.com/nervosnetwork/ckb/issues/48)) ([f93e1da](https://github.com/nervosnetwork/ckb/commit/f93e1da))
+* print full config error instead of just description ([#23](https://github.com/nervosnetwork/ckb/issues/23)) ([b7d092c](https://github.com/nervosnetwork/ckb/commit/b7d092c))
+
+
+### BREAKING CHANGES
+
+* Miner is a separate process now, which must be started to produce new
+  blocks.
+* The project now uses Rust 2018 edition, and the stable toolchain has to be
+  reinstalled:
+
+    ```
+    rustup self update
+    rustup toolchain uninstall stable
+    rustup toolchain install stable
+    ```
+
+  If you still cannot compile the project, try to reinstall `rustup`.
+
+
+
 # [v0.1.0](https://github.com/nervosnetwork/ckb/compare/v0.1.0-pre10...v0.1.0) (2018-11-26)
 
 
@@ -42,6 +94,8 @@ See [Conventional Commits](https://conventionalcommits.org) for commit guideline
 * **config:** Command line arguments and some config options and chan spec options have been
 changed. It may break scripts and integration tests that depends on the
 command line interface.
+
+
 
 # [v0.1.0-pre10](https://github.com/nervosnetwork/ckb/compare/v0.1.0-pre09...v0.1.0-pre10) (2018-11-01)
 

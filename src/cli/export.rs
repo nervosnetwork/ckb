@@ -4,7 +4,7 @@ use ckb_instrument::{Export, Format};
 use ckb_shared::cachedb::CacheDB;
 use ckb_shared::shared::SharedBuilder;
 use ckb_shared::store::ChainKVStore;
-use clap::ArgMatches;
+use clap::{value_t, ArgMatches};
 
 pub fn export(setup: &Setup, matches: &ArgMatches) {
     let format = value_t!(matches.value_of("format"), Format).unwrap_or_else(|e| e.exit());

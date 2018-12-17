@@ -1,4 +1,5 @@
-use bigint::{H256, U256};
+use numext_fixed_hash::H256;
+use numext_fixed_uint::U256;
 use ckb_core::block::Block;
 use ckb_core::header::{BlockNumber, Header, RawHeader, Seal};
 
@@ -21,10 +22,10 @@ impl Config {
     pub fn default() -> Self {
         Config {
             version: 0,
-            parent_hash: H256::from(0),
+            parent_hash: H256::zero(),
             timestamp: 0,
-            txs_commit: H256::from(0),
-            difficulty: U256::from(0),
+            txs_commit: H256::zero(),
+            difficulty: U256::zero(),
             number: 0,
             nonce: 0,
             proof: Vec::new(),

@@ -1,4 +1,6 @@
-use bigint::{H256, U256};
+use crate::relayer::TX_PROPOSAL_TOKEN;
+use crate::tests::TestNode;
+use crate::{Relayer, RELAY_PROTOCOL_ID};
 use ckb_chain::chain::{ChainBuilder, ChainController};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::BlockBuilder;
@@ -14,7 +16,8 @@ use ckb_shared::store::ChainKVStore;
 use ckb_time::now_ms;
 use flatbuffers::get_root;
 use flatbuffers::FlatBufferBuilder;
-use relayer::TX_PROPOSAL_TOKEN;
+use numext_fixed_hash::H256;
+use numext_fixed_uint::U256;
 use std::collections::HashSet;
 use std::fs::File;
 use std::io::Read;
@@ -22,8 +25,6 @@ use std::path::Path;
 use std::sync::mpsc::channel;
 use std::sync::{Arc, Barrier};
 use std::{thread, time};
-use tests::TestNode;
-use {Relayer, RELAY_PROTOCOL_ID};
 
 #[test]
 fn relay_compact_block_with_one_tx() {
@@ -42,9 +43,10 @@ fn relay_compact_block_with_one_tx() {
         // building tx and broadcast it
         let tx = TransactionBuilder::default()
             .input(CellInput::new(
-                OutPoint::new(last_cellbase.hash(), 0),
+                OutPoint::new(last_cellbase.hash().clone(), 0),
                 create_valid_script(),
-            )).output(CellOutput::new(50, Vec::new(), H256::zero(), None))
+            ))
+            .output(CellOutput::new(50, Vec::new(), H256::zero(), None))
             .build();
 
         {
@@ -65,11 +67,11 @@ fn relay_compact_block_with_one_tx() {
                 .build();
 
             let header_builder = HeaderBuilder::default()
-                .parent_hash(&last_block.header().hash())
+                .parent_hash(last_block.header().hash().clone())
                 .number(number)
                 .timestamp(timestamp)
-                .difficulty(&difficulty)
-                .cellbase_id(&cellbase.hash());
+                .difficulty(difficulty)
+                .cellbase_id(cellbase.hash().clone());
 
             BlockBuilder::default()
                 .commit_transaction(cellbase)
@@ -101,11 +103,11 @@ fn relay_compact_block_with_one_tx() {
                 .build();
 
             let header_builder = HeaderBuilder::default()
-                .parent_hash(&last_block.header().hash())
+                .parent_hash(last_block.header().hash().clone())
                 .number(number)
                 .timestamp(timestamp)
-                .difficulty(&difficulty)
-                .cellbase_id(&cellbase.hash());
+                .difficulty(difficulty)
+                .cellbase_id(cellbase.hash().clone());
 
             BlockBuilder::default()
                 .commit_transaction(cellbase)
@@ -168,11 +170,13 @@ fn relay_compact_block_with_missing_indexs() {
             .map(|i| {
                 TransactionBuilder::default()
                     .input(CellInput::new(
-                        OutPoint::new(last_cellbase.hash(), i as u32),
+                        OutPoint::new(last_cellbase.hash().clone(), i as u32),
                         create_valid_script(),
-                    )).output(CellOutput::new(50, vec![i], H256::zero(), None))
+                    ))
+                    .output(CellOutput::new(50, vec![i], H256::zero(), None))
                     .build()
-            }).collect::<Vec<_>>();
+            })
+            .collect::<Vec<_>>();
 
         [3, 5].iter().for_each(|i| {
             let fbb = &mut FlatBufferBuilder::new();
@@ -192,11 +196,11 @@ fn relay_compact_block_with_missing_indexs() {
                 .build();
 
             let header_builder = HeaderBuilder::default()
-                .parent_hash(&last_block.header().hash())
+                .parent_hash(last_block.header().hash().clone())
                 .number(number)
                 .timestamp(timestamp)
-                .difficulty(&difficulty)
-                .cellbase_id(&cellbase.hash());
+                .difficulty(difficulty)
+                .cellbase_id(cellbase.hash().clone());
 
             BlockBuilder::default()
                 .commit_transaction(cellbase)
@@ -228,11 +232,11 @@ fn relay_compact_block_with_missing_indexs() {
                 .build();
 
             let header_builder = HeaderBuilder::default()
-                .parent_hash(&last_block.header().hash())
+                .parent_hash(last_block.header().hash().clone())
                 .number(number)
                 .timestamp(timestamp)
-                .difficulty(&difficulty)
-                .cellbase_id(&cellbase.hash());
+                .difficulty(difficulty)
+                .cellbase_id(cellbase.hash().clone());
 
             BlockBuilder::default()
                 .commit_transaction(cellbase)
@@ -281,15 +285,15 @@ fn setup_node(
     let mut block = BlockBuilder::default().with_header_builder(
         HeaderBuilder::default()
             .timestamp(now_ms())
-            .difficulty(&U256::from(1000)),
+            .difficulty(U256::from(1000u64)),
     );
     let consensus = Consensus::default().set_genesis_block(block.clone());
 
     let shared = SharedBuilder::<ChainKVStore<MemoryKeyValueDB>>::new_memory()
         .consensus(consensus)
         .build();
-    let (chain_controller, chain_receivers) = ChainController::new();
-    let (tx_pool_controller, tx_pool_receivers) = TransactionPoolController::new();
+    let (chain_controller, chain_receivers) = ChainController::build();
+    let (tx_pool_controller, tx_pool_receivers) = TransactionPoolController::build();
 
     let (_handle, notify) = NotifyService::default().start::<&str>(None);
 
@@ -315,11 +319,11 @@ fn setup_node(
             .build();
 
         let header_builder = HeaderBuilder::default()
-            .parent_hash(&block.header().hash())
+            .parent_hash(block.header().hash().clone())
             .number(number)
             .timestamp(timestamp)
-            .difficulty(&difficulty)
-            .cellbase_id(&cellbase.hash());
+            .difficulty(difficulty)
+            .cellbase_id(cellbase.hash().clone());
 
         block = BlockBuilder::default()
             .commit_transaction(cellbase)
@@ -346,7 +350,8 @@ fn setup_node(
 fn create_valid_script() -> Script {
     let mut file = File::open(
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../nodes_template/spec/cells/always_success"),
-    ).unwrap();
+    )
+    .unwrap();
     let mut buffer = Vec::new();
     file.read_to_end(&mut buffer).unwrap();
 

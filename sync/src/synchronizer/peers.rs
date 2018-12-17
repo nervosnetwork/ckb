@@ -1,5 +1,4 @@
 use super::header_view::HeaderView;
-use bigint::H256;
 use ckb_core::block::Block;
 use ckb_core::header::Header;
 use ckb_network::PeerIndex;
@@ -7,6 +6,8 @@ use ckb_shared::shared::TipHeader;
 use ckb_time::now_ms;
 use ckb_util::RwLock;
 use fnv::{FnvHashMap, FnvHashSet};
+use log::debug;
+use numext_fixed_hash::H256;
 
 // const BANSCORE: u32 = 100;
 
@@ -129,12 +130,13 @@ impl Peers {
             .and_modify(|state| {
                 state.headers_sync_timeout = Some(headers_sync_timeout);
                 state.chain_sync.protect = protect;
-            }).or_insert_with(|| {
+            })
+            .or_insert_with(|| {
                 let mut chain_sync = ChainSyncState::default();
                 chain_sync.protect = protect;
                 PeerState {
                     negotiate: Negotiate::default(),
-                    sync_started: true,
+                    sync_started: false,
                     last_block_announcement: None,
                     headers_sync_timeout: Some(headers_sync_timeout),
                     disconnect: false,
@@ -158,22 +160,12 @@ impl Peers {
                 {
                     *hv = header_view.clone();
                 }
-            }).or_insert_with(|| header_view.clone());
+            })
+            .or_insert_with(|| header_view.clone());
     }
 
     pub fn getheaders_received(&self, _peer: PeerIndex) {
         // TODO:
-    }
-
-    pub fn connected(&self, peer: PeerIndex) {
-        self.state.write().entry(peer).or_insert_with(|| PeerState {
-            negotiate: Negotiate::default(),
-            sync_started: true,
-            last_block_announcement: None,
-            headers_sync_timeout: None,
-            disconnect: false,
-            chain_sync: ChainSyncState::default(),
-        });
     }
 
     pub fn disconnected(&self, peer: PeerIndex) {

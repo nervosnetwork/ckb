@@ -1,7 +1,11 @@
-#![cfg_attr(feature = "cargo-clippy", allow(needless_pass_by_value))]
+#![allow(clippy::needless_pass_by_value)]
 
 use super::Network;
 use super::PeerId;
+use crate::peers_registry::PeerIdentifyInfo;
+use crate::protocol::Protocol;
+use crate::protocol_service::ProtocolService;
+use crate::transport::TransportOutput;
 use futures::future::{self, Future};
 use futures::Stream;
 use libp2p::core::Multiaddr;
@@ -10,9 +14,7 @@ use libp2p::core::{upgrade, MuxedTransport};
 use libp2p::identify::IdentifyProtocolConfig;
 use libp2p::identify::{IdentifyInfo, IdentifyOutput};
 use libp2p::{self, Transport};
-use peers_registry::PeerIdentifyInfo;
-use protocol::Protocol;
-use protocol_service::ProtocolService;
+use log::{debug, error, trace, warn};
 use std::boxed::Box;
 use std::io::{Error as IoError, ErrorKind as IoErrorKind};
 use std::sync::Arc;
@@ -20,7 +22,6 @@ use std::time::Duration;
 use std::time::Instant;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::timer::Interval;
-use transport::TransportOutput;
 
 pub struct IdentifyService {
     pub client_version: String,
@@ -68,7 +69,7 @@ impl IdentifyService {
                 observed_addr
             );
             // get an external addrs for our node
-            if let Some(mut ext_addr) = transport.nat_traversal(original_address, &observed_addr) {
+            if let Some(ext_addr) = transport.nat_traversal(original_address, &observed_addr) {
                 debug!(target: "network", "get new external address {:?}", ext_addr);
                 let mut listened_addresses = network.listened_addresses.write();
                 if !listened_addresses.iter().any(|a| a == &ext_addr) {
@@ -183,13 +184,15 @@ where
         let periodic_identify_future = Interval::new(
             Instant::now() + Duration::from_secs(5),
             self.identify_interval,
-        ).map_err(|err| {
+        )
+        .map_err(|err| {
             debug!(target: "network", "identify periodic error {:?}", err);
             IoError::new(
                 IoErrorKind::Other,
                 format!("identify periodic error {:?}", err),
             )
-        }).for_each({
+        })
+        .for_each({
             let transport = transport.clone();
             let _identify_timeout = self.identify_timeout;
             let network = Arc::clone(&network);
@@ -203,24 +206,25 @@ where
                     // TODO should we try all addresses?
                     if let Some(addr) = network.get_peer_remote_addresses(&peer_id).get(0) {
                         trace!(
-                            target: "network",
-                            "request identify to peer {:?} {:?}",
-                            peer_id,
-                            addr
-                            );
+                        target: "network",
+                        "request identify to peer {:?} {:?}",
+                        peer_id,
+                        addr
+                        );
                         // dial identify
                         let _ = swarm_controller.dial(addr.clone(), transport.clone());
                     } else {
                         error!(
-                            target: "network",
-                            "error when prepare identify : can't find addresses for peer {:?}",
-                            peer_id
-                            );
+                        target: "network",
+                        "error when prepare identify : can't find addresses for peer {:?}",
+                        peer_id
+                        );
                     }
                 }
                 Ok(())
             }
-        }).then(|err| {
+        })
+        .then(|err| {
             warn!(target: "network", "Identify service stopped, reason: {:?}", err);
             err
         });

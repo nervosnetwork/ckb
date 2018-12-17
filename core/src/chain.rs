@@ -1,4 +1,4 @@
-use bigint::H256;
+use numext_fixed_hash::H256;
 
 #[derive(Debug, Default)]
 /// How to move current head to the specific head.

@@ -1,25 +1,25 @@
 [package]
 name = "ckb-miner"
-version = "0.1.0"
+version = "0.2.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
+edition = "2018"
 
 [dependencies]
 log = "0.4"
-bigint = { git = "https://github.com/nervosnetwork/bigint" }
-ckb-time = { path = "../util/time" }
+numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 ckb-core = { path = "../core" }
-ckb-chain = { path = "../chain" }
 ckb-shared = { path = "../shared" }
-ckb-protocol = { path = "../protocol" }
-ckb-network = { path = "../network" }
-ckb-sync = { path = "../sync" }
 ckb-pow = { path = "../pow" }
+ckb-util = { path = "../util" }
 ckb-notify = { path = "../notify" }
-ckb-rpc = { path = "../rpc" }
+ckb-pool = { path = "../pool" }
+ckb-time = { path = "../util/time" }
 flatbuffers = "0.5.0"
-rand = "0.5.0"
+rand = "0.6"
 serde = "1.0"
 serde_derive = "1.0"
-crossbeam-channel = "0.2"
+channel = { package= "crossbeam-channel", version = "0.3" }
 fnv = "1.0.3"
+jsonrpc = { git = "https://github.com/quake/rust-jsonrpc" }
+serde_json = "1.0"

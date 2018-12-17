@@ -8,6 +8,7 @@ use clap::ArgMatches;
 use config_tool::{Config as ConfigTool, File};
 use dir::Directories;
 use logger::Config as LogConfig;
+use serde_derive::Deserialize;
 use std::error::Error;
 use std::path::{Path, PathBuf};
 
@@ -43,7 +44,8 @@ pub fn get_config_path(matches: &ArgMatches) -> PathBuf {
             .value_of("config")
             .map_or_else(find_default_config_path, |v| {
                 require_path_exists(PathBuf::from(v))
-            }).unwrap_or_else(|| {
+            })
+            .unwrap_or_else(|| {
                 eprintln!("No config file found!");
                 ::std::process::exit(1);
             }),
