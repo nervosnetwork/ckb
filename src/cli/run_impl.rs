@@ -157,7 +157,7 @@ pub fn sign(setup: &Setup, matches: &ArgMatches) {
     let system_cell_tx = &consensus.genesis_block().commit_transactions()[0];
     let system_cell_data_hash = system_cell_tx.outputs()[0].data_hash();
     let system_cell_tx_hash = system_cell_tx.hash();
-    let system_cell_outpoint = OutPoint::new(system_cell_tx_hash.clone(), 0);
+    let system_cell_out_point = OutPoint::new(system_cell_tx_hash.clone(), 0);
 
     let privkey: Privkey = value_t!(matches.value_of("private-key"), H256)
         .unwrap_or_else(|e| e.exit())
@@ -199,7 +199,7 @@ pub fn sign(setup: &Setup, matches: &ArgMatches) {
     // Then, sign each input
     let result = TransactionBuilder::default()
         .transaction(transaction)
-        .dep(system_cell_outpoint)
+        .dep(system_cell_out_point)
         .inputs_clear()
         .inputs(inputs)
         .build();

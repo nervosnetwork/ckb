@@ -702,7 +702,7 @@ mod tests {
         }
     }
 
-    fn _test_load_self_input_outpoint(data: Vec<u8>) {
+    fn _test_load_self_input_out_point(data: Vec<u8>) {
         let mut machine = DefaultCoreMachine::<u64, SparseMemory>::default();
         let size_addr = 0;
         let addr = 100;
@@ -712,24 +712,24 @@ mod tests {
         machine.registers_mut()[A2] = 0; // offset
         machine.registers_mut()[A3] = 0; //index
         machine.registers_mut()[A4] = 2; //source: 2 self
-        machine.registers_mut()[A5] = 1; //field: 1 outpoint
+        machine.registers_mut()[A5] = 1; //field: 1 out_point
         machine.registers_mut()[A7] = LOAD_INPUT_BY_FIELD_SYSCALL_NUMBER; // syscall number
 
         let unlock = Script::new(0, vec![], None, Some(vec![]), vec![]);
         let sha3_data = sha3_256(data);
-        let outpoint = OutPoint::new(H256::from_slice(&sha3_data).unwrap(), 3);
+        let out_point = OutPoint::new(H256::from_slice(&sha3_data).unwrap(), 3);
         let mut builder = FlatBufferBuilder::new();
-        let fbs_offset = FbsOutPoint::build(&mut builder, &outpoint);
+        let fbs_offset = FbsOutPoint::build(&mut builder, &out_point);
         builder.finish(fbs_offset, None);
-        let outpoint_data = builder.finished_data();
+        let out_point_data = builder.finished_data();
 
-        let input = CellInput::new(outpoint, unlock);
+        let input = CellInput::new(out_point, unlock);
         let inputs = vec![];
         let mut load_input = LoadInputByField::new(&inputs, Some(&input));
 
         assert!(machine
             .memory_mut()
-            .store64(size_addr as usize, outpoint_data.len() as u64 + 5)
+            .store64(size_addr as usize, out_point_data.len() as u64 + 5)
             .is_ok());
 
         assert!(load_input.ecall(&mut machine).is_ok());
@@ -737,23 +737,24 @@ mod tests {
 
         assert_eq!(
             machine.memory_mut().load64(size_addr as usize),
-            Ok(outpoint_data.len() as u64)
+            Ok(out_point_data.len() as u64)
         );
 
-        for (i, addr) in (addr as usize..addr as usize + outpoint_data.len() as usize).enumerate() {
-            assert_eq!(machine.memory_mut().load8(addr), Ok(outpoint_data[i]));
+        for (i, addr) in (addr as usize..addr as usize + out_point_data.len() as usize).enumerate()
+        {
+            assert_eq!(machine.memory_mut().load8(addr), Ok(out_point_data[i]));
         }
     }
 
     proptest! {
         #[test]
-        fn test_load_self_input_outpoint(data in any_with::<Vec<u8>>(size_range(1000).lift())) {
-            _test_load_self_input_outpoint(data);
+        fn test_load_self_input_out_point(data in any_with::<Vec<u8>>(size_range(1000).lift())) {
+            _test_load_self_input_out_point(data);
         }
     }
 
     #[test]
-    fn test_load_missing_self_output_outpoint() {
+    fn test_load_missing_self_output_out_point() {
         let mut machine = DefaultCoreMachine::<u64, SparseMemory>::default();
         let size_addr = 0;
         let addr = 100;
@@ -763,7 +764,7 @@ mod tests {
         machine.registers_mut()[A2] = 0; // offset
         machine.registers_mut()[A3] = 0; //index
         machine.registers_mut()[A4] = 2; //source: 2 self
-        machine.registers_mut()[A5] = 1; //field: 1 outpoint
+        machine.registers_mut()[A5] = 1; //field: 1 out_point
         machine.registers_mut()[A7] = LOAD_INPUT_BY_FIELD_SYSCALL_NUMBER; // syscall number
 
         let inputs = vec![];
