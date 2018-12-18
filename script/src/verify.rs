@@ -3,8 +3,9 @@ use crate::ScriptError;
 use ckb_core::cell::ResolvedTransaction;
 use ckb_core::script::Script;
 use ckb_core::transaction::{CellInput, CellOutput};
+use ckb_protocol::{FlatbuffersVectorIterator, Script as FbsScript};
 use ckb_vm::{DefaultMachine, SparseMemory};
-use flatbuffers::FlatBufferBuilder;
+use flatbuffers::{get_root, FlatBufferBuilder};
 use fnv::FnvHashMap;
 use log::info;
 use numext_fixed_hash::H256;
@@ -94,14 +95,40 @@ impl<'a> TransactionScriptsVerifier<'a> {
     }
 
     // Script struct might contain references to external cells, this
-    // method exacts the real script from Stript struct.
-    fn extract_script(&self, script: &'a Script) -> Result<&'a [u8], ScriptError> {
+    // method exacts the referenced script if any. It also fills signed args
+    // so we don't need to do a second time of memory copy
+    fn extract_script(
+        &self,
+        script: &'a Script,
+        signed_args: &mut Vec<Vec<u8>>,
+    ) -> Result<&'a [u8], ScriptError> {
         if let Some(ref data) = script.binary {
+            signed_args.extend_from_slice(&script.signed_args);
             return Ok(data);
         }
         if let Some(ref hash) = script.reference {
             return match self.dep_cell_index.get(hash) {
-                Some(ref cell_output) => Ok(&cell_output.data),
+                Some(ref cell_output) => {
+                    let fbs_script = get_root::<FbsScript>(&cell_output.data);
+                    // This way we can avoid copying the actual script binary one more
+                    // time, which could be a lot of data.
+                    let binary = fbs_script
+                        .binary()
+                        .and_then(|s| s.seq())
+                        .ok_or(ScriptError::NoScript)?;
+                    // When the reference script has signed arguments, we will concat
+                    // signed arguments from the reference script with the signed
+                    // arguments from the main script together.
+                    if let Some(args) = fbs_script.signed_args() {
+                        let args: Option<Vec<Vec<u8>>> = FlatbuffersVectorIterator::new(args)
+                            .map(|arg| arg.seq().map(|s| s.to_vec()))
+                            .collect();
+                        let args = args.ok_or(ScriptError::ArgumentError)?;
+                        signed_args.extend_from_slice(&args);
+                        signed_args.extend_from_slice(&script.signed_args);
+                    }
+                    Ok(binary)
+                }
                 None => Err(ScriptError::InvalidReferenceIndex),
             };
         }
@@ -115,28 +142,28 @@ impl<'a> TransactionScriptsVerifier<'a> {
         current_cell: &'a CellOutput,
         current_input: Option<&'a CellInput>,
     ) -> Result<(), ScriptError> {
-        self.extract_script(script).and_then(|script_binary| {
-            let mut args = vec![b"verify".to_vec()];
-            args.extend_from_slice(&script.signed_args.as_slice());
-            args.extend_from_slice(&script.args.as_slice());
+        let mut args = vec![b"verify".to_vec()];
+        self.extract_script(script, &mut args)
+            .and_then(|script_binary| {
+                args.extend_from_slice(&script.args.as_slice());
 
-            let mut machine = DefaultMachine::<u64, SparseMemory>::default();
-            machine.add_syscall_module(Box::new(self.build_load_tx()));
-            machine.add_syscall_module(Box::new(self.build_load_cell(current_cell)));
-            machine.add_syscall_module(Box::new(self.build_load_cell_by_field(current_cell)));
-            machine.add_syscall_module(Box::new(self.build_load_input_by_field(current_input)));
-            machine.add_syscall_module(Box::new(Debugger::new(prefix)));
-            machine
-                .run(script_binary, &args)
-                .map_err(ScriptError::VMError)
-                .and_then(|code| {
-                    if code == 0 {
-                        Ok(())
-                    } else {
-                        Err(ScriptError::ValidationFailure(code))
-                    }
-                })
-        })
+                let mut machine = DefaultMachine::<u64, SparseMemory>::default();
+                machine.add_syscall_module(Box::new(self.build_load_tx()));
+                machine.add_syscall_module(Box::new(self.build_load_cell(current_cell)));
+                machine.add_syscall_module(Box::new(self.build_load_cell_by_field(current_cell)));
+                machine.add_syscall_module(Box::new(self.build_load_input_by_field(current_input)));
+                machine.add_syscall_module(Box::new(Debugger::new(prefix)));
+                machine
+                    .run(script_binary, &args)
+                    .map_err(ScriptError::VMError)
+                    .and_then(|code| {
+                        if code == 0 {
+                            Ok(())
+                        } else {
+                            Err(ScriptError::ValidationFailure(code))
+                        }
+                    })
+            })
     }
 
     pub fn verify(&self) -> Result<(), ScriptError> {
@@ -287,6 +314,12 @@ mod tests {
         let mut buffer = Vec::new();
         file.read_to_end(&mut buffer).unwrap();
 
+        let script = Script::new(0, vec![], None, Some(buffer), vec![]);
+        let mut builder = FlatBufferBuilder::new();
+        let offset = FbsScript::build(&mut builder, &script);
+        builder.finish(offset, None);
+        let buffer = builder.finished_data().to_vec();
+
         let gen = Generator::new();
         let privkey = gen.random_privkey();
         let mut args = vec![b"foo".to_vec(), b"bar".to_vec()];
@@ -332,10 +365,6 @@ mod tests {
 
     #[test]
     fn check_invalid_dep_reference() {
-        let mut file = open_cell_verify();
-        let mut buffer = Vec::new();
-        file.read_to_end(&mut buffer).unwrap();
-
         let gen = Generator::new();
         let privkey = gen.random_privkey();
         let mut args = vec![b"foo".to_vec(), b"bar".to_vec()];

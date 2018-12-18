@@ -386,6 +386,8 @@ version = "0.3.0-pre"
 dependencies = [
  "ckb-core 0.3.0-pre",
  "ckb-pow 0.3.0-pre",
+ "ckb-protocol 0.3.0-pre",
+ "flatbuffers 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "numext-fixed-hash 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "numext-fixed-uint 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.82 (registry+https://github.com/rust-lang/crates.io-index)",
