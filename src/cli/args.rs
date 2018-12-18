@@ -10,7 +10,7 @@ pub fn get_matches() -> ArgMatches<'static> {
         .about("Nervos CKB - The Common Knowledge Base")
         .version(version.short().as_str())
         .long_version(version.long().as_str())
-        .setting(AppSettings::ArgRequiredElseHelp)
+        .setting(AppSettings::SubcommandRequiredElseHelp)
         .arg(
             Arg::with_name("config")
             .short("c")
