@@ -28,6 +28,7 @@ pub const DEBUG_PRINT_SYSCALL_NUMBER: u64 = 2177;
 enum CellField {
     Capacity,
     Data,
+    DataHash,
     LockHash,
     Contract,
     ContractHash,
@@ -41,6 +42,7 @@ impl CellField {
             2 => Ok(CellField::LockHash),
             3 => Ok(CellField::Contract),
             4 => Ok(CellField::ContractHash),
+            5 => Ok(CellField::DataHash),
             _ => Err(Error::ParseError),
         }
     }
@@ -812,12 +814,18 @@ mod tests {
         let dep_cells = vec![&dep_cell];
         let mut load_cell = LoadCellByField::new(&outputs, &input_cells, &input_cell, &dep_cells);
 
-        assert!(machine.memory_mut().store64(size_addr as usize, data.len() as u64 + 20).is_ok());
+        assert!(machine
+            .memory_mut()
+            .store64(size_addr as usize, data.len() as u64 + 20)
+            .is_ok());
 
         assert!(load_cell.ecall(&mut machine).is_ok());
         assert_eq!(machine.registers()[A0], SUCCESS as u64);
 
-        assert_eq!(machine.memory_mut().load64(size_addr as usize), Ok(data.len() as u64));
+        assert_eq!(
+            machine.memory_mut().load64(size_addr as usize),
+            Ok(data.len() as u64)
+        );
 
         for (i, addr) in (addr as usize..addr as usize + data.len() as usize).enumerate() {
             assert_eq!(machine.memory_mut().load8(addr), Ok(data[i]));
@@ -828,6 +836,53 @@ mod tests {
         #[test]
         fn test_load_dep_cell_data(data in any_with::<Vec<u8>>(size_range(1000).lift())) {
             _test_load_dep_cell_data(data);
+        }
+    }
+
+    fn _test_load_dep_cell_data_hash(data: Vec<u8>) {
+        let mut machine = DefaultCoreMachine::<u64, SparseMemory>::default();
+        let size_addr = 0;
+        let addr = 100;
+
+        machine.registers_mut()[A0] = addr; // addr
+        machine.registers_mut()[A1] = size_addr; // size_addr
+        machine.registers_mut()[A2] = 0; // offset
+        machine.registers_mut()[A3] = 0; //index
+        machine.registers_mut()[A4] = 3; //source: 3 dep
+        machine.registers_mut()[A5] = 5; //field: 5 data hash
+        machine.registers_mut()[A7] = LOAD_CELL_BY_FIELD_SYSCALL_NUMBER; // syscall number
+
+        let input_cell = CellOutput::new(1000, vec![], H256::zero(), None);
+        let dep_cell = CellOutput::new(1000, data.clone(), H256::zero(), None);
+        let outputs = vec![];
+        let input_cells = vec![&input_cell];
+        let dep_cells = vec![&dep_cell];
+        let mut load_cell = LoadCellByField::new(&outputs, &input_cells, &input_cell, &dep_cells);
+
+        let data_hash = sha3_256(&data);
+
+        assert!(machine
+            .memory_mut()
+            .store64(size_addr as usize, data_hash.len() as u64 + 20)
+            .is_ok());
+
+        assert!(load_cell.ecall(&mut machine).is_ok());
+        assert_eq!(machine.registers()[A0], SUCCESS as u64);
+
+        assert_eq!(
+            machine.memory_mut().load64(size_addr as usize),
+            Ok(data_hash.len() as u64)
+        );
+
+        for (i, addr) in (addr as usize..addr as usize + data_hash.len() as usize).enumerate() {
+            assert_eq!(machine.memory_mut().load8(addr), Ok(data_hash[i]));
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn test_load_dep_cell_data_hash(data in any_with::<Vec<u8>>(size_range(1000).lift())) {
+            _test_load_dep_cell_data_hash(data);
         }
     }
 }

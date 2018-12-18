@@ -72,6 +72,10 @@ impl<'a, R: Register, M: Memory> Syscalls<R, M> for LoadCellByField<'a> {
                 store_data(machine, &cell.data)?;
                 SUCCESS
             }
+            CellField::DataHash => {
+                store_data(machine, &cell.data_hash().as_bytes())?;
+                SUCCESS
+            }
             CellField::LockHash => {
                 store_data(machine, &cell.lock.as_bytes())?;
                 SUCCESS
