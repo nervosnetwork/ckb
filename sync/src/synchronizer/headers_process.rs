@@ -126,18 +126,6 @@ where
     }
 
     fn is_continuous(&self, headers: &[Header]) -> bool {
-        debug!(
-            target: "sync",
-            "headers\n {:?}",
-            headers
-                .iter()
-                .map(|h| format!(
-                    "{} hash({}) parent({})",
-                    h.number(),
-                    h.hash(),
-                    h.parent_hash()
-                )).collect::<Vec<_>>()
-        );
         for window in headers.windows(2) {
             if let [parent, header] = &window {
                 if header.parent_hash() != &parent.hash() {
@@ -336,6 +324,7 @@ where
             }
             error => {
                 debug!(target: "sync", "HeadersProcess accept {:?} {:?}", self.header.number(), error);
+                state.invalid(Some(ValidationError::Verify(error)));
             }
         })
     }
