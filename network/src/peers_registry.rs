@@ -155,21 +155,21 @@ pub(crate) struct PeersRegistry {
 fn find_most_peers_in_same_network_group<'a>(
     peers: impl Iterator<Item = (&'a PeerId, &'a PeerConnection)>,
 ) -> Vec<&'a PeerId> {
-    let mut groups: FnvHashMap<Group, Vec<&'a PeerId>> =
-        FnvHashMap::with_capacity_and_hasher(16, Default::default());
-    let mut largest_group_len = 0;
-    let mut largest_group: Group = Default::default();
-
-    for (peer_id, peer) in peers {
-        let group_name = peer.network_group();
-        let group = groups.entry(group_name.clone()).or_insert_with(Vec::new);
-        group.push(peer_id);
-        if group.len() > largest_group_len {
-            largest_group_len = group.len();
-            largest_group = group_name;
-        }
-    }
-    groups[&largest_group].clone()
+    peers
+        .fold(
+            FnvHashMap::with_capacity_and_hasher(16, Default::default()),
+            |mut groups, (peer_id, peer)| {
+                groups
+                    .entry(peer.network_group())
+                    .or_insert_with(Vec::new)
+                    .push(peer_id);
+                groups
+            },
+        )
+        .values()
+        .max_by_key(|group| group.len())
+        .cloned()
+        .unwrap_or_else(Vec::new)
 }
 
 impl PeersRegistry {
@@ -243,7 +243,7 @@ impl PeersRegistry {
     }
 
     fn try_evict_inbound_peer(&mut self, candidate_score: Score) -> bool {
-        let (peer_id, score) = {
+        let peer_id = {
             let inbound_peers = self
                 .peers
                 .iter()
@@ -251,7 +251,8 @@ impl PeersRegistry {
             let candidate_peers = find_most_peers_in_same_network_group(inbound_peers);
             let peer_store = self.peer_store.read();
 
-            let mut lowest_score = std::i32::MAX;
+            // must have less score than candidate_score
+            let mut lowest_score = candidate_score - 1;
             let mut low_score_peers = Vec::new();
             for peer_id in candidate_peers {
                 if let Some(score) = peer_store.peer_score(peer_id) {
@@ -270,22 +271,15 @@ impl PeersRegistry {
                 return false;
             }
             let mut rng = thread_rng();
-            (
-                low_score_peers[..]
-                    .choose(&mut rng)
-                    .unwrap()
-                    .to_owned()
-                    .to_owned(),
-                lowest_score,
-            )
+            low_score_peers[..]
+                .choose(&mut rng)
+                .unwrap()
+                .to_owned()
+                .to_owned()
         };
-        if score < candidate_score {
-            debug!("evict inbound peer {:?}", peer_id);
-            self.drop_peer(&peer_id);
-            true
-        } else {
-            false
-        }
+        debug!("evict inbound peer {:?}", peer_id);
+        self.drop_peer(&peer_id);
+        true
     }
 
     pub fn try_outbound_peer(&mut self, peer_id: PeerId, addr: Multiaddr) -> Result<(), Error> {

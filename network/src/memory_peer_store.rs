@@ -86,12 +86,13 @@ impl PeerStore for MemoryPeerStore {
         if self.is_banned(peer_id) {
             return ReportResult::Banned;
         }
-        let behaviour_score = self.schema.get_score(behaviour);
-        if behaviour_score.is_none() {
-            debug!(target: "network", "behaviour {:?} is undefined", behaviour);
-            return ReportResult::Normal;
-        }
-        let behaviour_score = behaviour_score.unwrap();
+        let behaviour_score = match self.schema.get_score(behaviour) {
+            Some(score) => score,
+            None => {
+                debug!(target: "network", "behaviour {:?} is undefined", behaviour);
+                return ReportResult::Normal;
+            }
+        };
         // apply reported score
         let score = match self.peers.get_mut(peer_id) {
             Some(peer) => {

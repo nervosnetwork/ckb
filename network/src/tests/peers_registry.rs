@@ -8,22 +8,6 @@ use ckb_util::RwLock;
 use std::default::Default;
 use std::sync::Arc;
 
-fn new_peers_registry(
-    peer_store: Arc<RwLock<Box<PeerStore>>>,
-    max_inbound: u32,
-    max_outbound: u32,
-    reserved_only: bool,
-    reserved_peers: Vec<PeerId>,
-) -> PeersRegistry {
-    PeersRegistry::new(
-        peer_store,
-        max_inbound,
-        max_outbound,
-        reserved_only,
-        reserved_peers,
-    )
-}
-
 #[test]
 fn test_accept_inbound_peer_in_reserve_only_mode() {
     let peer_store: Arc<RwLock<Box<PeerStore>>> = Arc::new(RwLock::new(Box::new(
@@ -33,7 +17,7 @@ fn test_accept_inbound_peer_in_reserve_only_mode() {
     let addr = "/ip4/127.0.0.1".to_multiaddr().unwrap();
 
     // reserved_only mode: only accept reserved_peer
-    let mut peers_registry = new_peers_registry(
+    let mut peers_registry = PeersRegistry::new(
         Arc::clone(&peer_store),
         3,
         3,
@@ -56,7 +40,7 @@ fn test_accept_inbound_peer_until_full() {
     let reserved_peer = random_peer_id().unwrap();
     let addr = "/ip4/127.0.0.1".to_multiaddr().unwrap();
     // accept node until inbound connections is full
-    let mut peers_registry = new_peers_registry(
+    let mut peers_registry = PeersRegistry::new(
         Arc::clone(&peer_store),
         3,
         3,
@@ -99,7 +83,7 @@ fn test_accept_inbound_peer_eviction() {
     let lowest_score_peer = random_peer_id().unwrap();
     let addr1 = "/ip4/127.0.0.1".to_multiaddr().unwrap();
     let addr2 = "/ip4/192.168.0.1".to_multiaddr().unwrap();
-    let mut peers_registry = new_peers_registry(
+    let mut peers_registry = PeersRegistry::new(
         Arc::clone(&peer_store),
         5,
         3,
