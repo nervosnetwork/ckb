@@ -2,6 +2,7 @@ use hash::sha3_256;
 use numext_fixed_hash::H256;
 use serde_derive::{Deserialize, Serialize};
 use std::io::Write;
+use std::mem;
 
 // TODO: when flatbuffer work is done, remove Serialize/Deserialize here and
 // implement proper From trait
@@ -66,8 +67,9 @@ impl Script {
     }
 
     pub fn bytes_len(&self) -> usize {
-        1 + self.args.iter().map(|a| a.len()).sum::<usize>()
-            + self.reference.as_ref().map_or(0, |_| 32)
+        mem::size_of::<u8>()
+            + self.args.iter().map(|a| a.len()).sum::<usize>()
+            + self.reference.as_ref().map_or(0, |_| H256::size_of())
             + self.binary.as_ref().map_or(0, |script| script.len())
             + self.signed_args.iter().map(|a| a.len()).sum::<usize>()
     }

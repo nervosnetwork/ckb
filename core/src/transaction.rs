@@ -109,7 +109,7 @@ impl CellOutput {
     pub fn bytes_len(&self) -> usize {
         mem::size_of::<Capacity>()
             + self.data.len()
-            + self.lock.as_bytes().len()
+            + H256::size_of()
             + self.contract.as_ref().map_or(0, |s| s.bytes_len())
     }
 }
