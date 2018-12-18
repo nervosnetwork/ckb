@@ -47,7 +47,7 @@ pub fn run(setup: Setup) {
         .build();
     let _handle = chain_service.start(Some("ChainService"), chain_receivers);
 
-    info!(target: "main", "chain genesis hash: {:?}", shared.genesis_hash());
+    info!(target: "main", "chain genesis hash: {:#x}", shared.genesis_hash());
 
     let tx_pool_service =
         TransactionPoolService::new(setup.configs.pool, shared.clone(), notify.clone());
