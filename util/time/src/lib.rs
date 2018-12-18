@@ -1,46 +1,48 @@
-#[cfg(feature = "mock_timer")]
-use std::cell::Cell;
-use std::time::Duration;
+pub mod system;
+
+mod ext;
+
 #[cfg(not(feature = "mock_timer"))]
-use std::time::{SystemTime, UNIX_EPOCH};
+pub use crate::system::now;
 
 #[cfg(feature = "mock_timer")]
-thread_local! {
-    pub static MOCK_TIMER: Cell<Duration> = Cell::new(Duration::from_millis(0));
-}
-
+mod mock;
 #[cfg(feature = "mock_timer")]
-pub fn now() -> Duration {
-    MOCK_TIMER.with(|t| t.get())
+pub use crate::mock::now;
+#[doc(hidden)]
+#[cfg(feature = "mock_timer")]
+pub use crate::mock::{mock_time, TimeMock};
+
+pub use crate::ext::DurationExt;
+
+pub fn now_ms() -> u64 {
+    now().as_millis_u64()
 }
 
 #[cfg(feature = "mock_timer")]
 pub fn set_mock_timer(ms: u64) {
-    MOCK_TIMER.with(|t| {
-        t.replace(Duration::from_millis(ms));
-    });
+    mock_time(TimeMock::constant(ms as i64)).persist();
 }
 
-#[cfg(not(feature = "mock_timer"))]
-pub fn now() -> Duration {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("Time went backwards")
-}
-
-pub fn now_ms() -> u64 {
-    let duration = now();
-    duration.as_secs() * 1000 + u64::from(duration.subsec_millis())
+pub mod prelude {
+    pub use super::DurationExt;
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    #[cfg(not(feature = "mock_timer"))]
     #[test]
-    fn test_mock_timer() {
-        assert_eq!(now_ms(), 0);
-        set_mock_timer(100);
-        assert_eq!(now_ms(), 100);
+    fn test_system_time() {
+        let system_now_ms = system::now().as_millis_u64();
+        assert!(now().as_millis_u64() - system_now_ms < 60000);
+    }
+
+    #[cfg(feature = "mock_timer")]
+    #[test]
+    fn test_mock_constant_time() {
+        let _time_guard = mock_time(TimeMock::constant(100));
+        assert_eq!(now().as_millis_u64(), 100);
     }
 }
