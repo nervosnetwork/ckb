@@ -13,25 +13,30 @@ use numext_fixed_hash::H256;
 // FlatBufferBuilder owned Vec<u8> that grows as needed, in the
 // future, we might refactor this to share buffer to achive zero-copy
 pub struct TransactionScriptsVerifier<'a> {
-    dep_cells: FnvHashMap<H256, &'a CellOutput>,
+    dep_cell_index: FnvHashMap<H256, &'a CellOutput>,
     inputs: Vec<&'a CellInput>,
     outputs: Vec<&'a CellOutput>,
     tx_builder: FlatBufferBuilder<'a>,
     input_cells: Vec<&'a CellOutput>,
+    dep_cells: Vec<&'a CellOutput>,
     hash: H256,
 }
 
 impl<'a> TransactionScriptsVerifier<'a> {
     pub fn new(rtx: &'a ResolvedTransaction) -> TransactionScriptsVerifier<'a> {
-        let dep_cells: FnvHashMap<H256, &'a CellOutput> = rtx
+        let dep_cells: Vec<&'a CellOutput> = rtx
             .dep_cells
             .iter()
             .map(|cell| {
-                let output = cell
-                    .get_current()
-                    .expect("already verifies that all dep cells are valid");
-                let hash = output.data_hash();
-                (hash, output)
+                cell.get_current()
+                    .expect("already verifies that all dep cells are valid")
+            })
+            .collect();
+        let dep_cell_index: FnvHashMap<H256, &'a CellOutput> = dep_cells
+            .iter()
+            .map(|cell| {
+                let hash = cell.data_hash();
+                (hash, *cell)
             })
             .collect();
 
@@ -52,11 +57,12 @@ impl<'a> TransactionScriptsVerifier<'a> {
         tx_builder.finish(tx_offset, None);
 
         TransactionScriptsVerifier {
-            dep_cells,
+            dep_cell_index,
             inputs,
             tx_builder,
             outputs,
             input_cells,
+            dep_cells,
             hash: rtx.transaction.hash().clone(),
         }
     }
@@ -66,11 +72,21 @@ impl<'a> TransactionScriptsVerifier<'a> {
     }
 
     fn build_load_cell(&self, current_cell: &'a CellOutput) -> LoadCell {
-        LoadCell::new(&self.outputs, &self.input_cells, current_cell)
+        LoadCell::new(
+            &self.outputs,
+            &self.input_cells,
+            current_cell,
+            &self.dep_cells,
+        )
     }
 
     fn build_load_cell_by_field(&self, current_cell: &'a CellOutput) -> LoadCellByField {
-        LoadCellByField::new(&self.outputs, &self.input_cells, current_cell)
+        LoadCellByField::new(
+            &self.outputs,
+            &self.input_cells,
+            current_cell,
+            &self.dep_cells,
+        )
     }
 
     fn build_load_input_by_field(&self, current_input: Option<&'a CellInput>) -> LoadInputByField {
@@ -84,7 +100,7 @@ impl<'a> TransactionScriptsVerifier<'a> {
             return Ok(data);
         }
         if let Some(ref hash) = script.reference {
-            return match self.dep_cells.get(hash) {
+            return match self.dep_cell_index.get(hash) {
                 Some(ref cell_output) => Ok(&cell_output.data),
                 None => Err(ScriptError::InvalidReferenceIndex),
             };
@@ -153,7 +169,6 @@ mod tests {
     use ckb_core::Capacity;
     use crypto::secp::Generator;
     use faster_hex::hex_to;
-    use fnv::FnvHashMap;
     use hash::sha3_256;
     use numext_fixed_hash::H256;
     use std::fs::File;
@@ -290,9 +305,6 @@ mod tests {
 
         let dep_out_point = OutPoint::new(H256::from_trimmed_hex_str("123").unwrap(), 8);
         let dep_cell = CellOutput::new(buffer.len() as Capacity, buffer, H256::zero(), None);
-        let mut dep_cells = FnvHashMap::default();
-        dep_cells.insert(&dep_out_point, &dep_cell);
-
         let privkey = privkey.pubkey().unwrap().serialize();
         let mut hex_privkey = vec![0; privkey.len() * 2];
         hex_to(&privkey, &mut hex_privkey).expect("hex privkey");

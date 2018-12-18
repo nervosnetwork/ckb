@@ -12,6 +12,7 @@ pub struct LoadCellByField<'a> {
     outputs: &'a [&'a CellOutput],
     input_cells: &'a [&'a CellOutput],
     current: &'a CellOutput,
+    dep_cells: &'a [&'a CellOutput],
 }
 
 impl<'a> LoadCellByField<'a> {
@@ -19,11 +20,13 @@ impl<'a> LoadCellByField<'a> {
         outputs: &'a [&'a CellOutput],
         input_cells: &'a [&'a CellOutput],
         current: &'a CellOutput,
+        dep_cells: &'a [&'a CellOutput],
     ) -> LoadCellByField<'a> {
         LoadCellByField {
             outputs,
             input_cells,
             current,
+            dep_cells,
         }
     }
 
@@ -32,6 +35,7 @@ impl<'a> LoadCellByField<'a> {
             Source::Input => self.input_cells.get(index).cloned(),
             Source::Output => self.outputs.get(index).cloned(),
             Source::Current => Some(self.current),
+            Source::Dep => self.dep_cells.get(index).cloned(),
         }
     }
 }
