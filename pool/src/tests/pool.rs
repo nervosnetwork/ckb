@@ -14,7 +14,7 @@ use ckb_notify::{ForkBlocks, MsgNewTip, MsgSwitchFork, NotifyService};
 use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::{ChainProvider, Shared, SharedBuilder};
 use ckb_shared::store::ChainKVStore;
-use ckb_time::now_ms;
+use faketime::unix_time_as_millis;
 use log::error;
 use numext_fixed_hash::H256;
 use std::fs::File;
@@ -573,7 +573,7 @@ fn apply_transactions<CI: ChainIndex + 'static>(
     let header_builder = HeaderBuilder::default()
         .parent_hash(parent.hash().clone())
         .number(parent.number() + 1)
-        .timestamp(now_ms())
+        .timestamp(unix_time_as_millis())
         .cellbase_id(cellbase_id)
         .difficulty(pool.shared.calculate_difficulty(&parent).unwrap());
 

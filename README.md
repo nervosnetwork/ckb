@@ -87,7 +87,7 @@ git clone https://github.com/nervosnetwork/ckb.git
 cd ckb
 
 # build in release mode
-cargo build --release
+make build
 ```
 
 You can run the full test suite, or just run a specific package test:

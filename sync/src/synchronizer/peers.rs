@@ -3,8 +3,8 @@ use ckb_core::block::Block;
 use ckb_core::header::Header;
 use ckb_network::PeerIndex;
 use ckb_shared::shared::TipHeader;
-use ckb_time::now_ms;
 use ckb_util::RwLock;
+use faketime::unix_time_as_millis;
 use fnv::{FnvHashMap, FnvHashSet};
 use log::debug;
 use numext_fixed_hash::H256;
@@ -80,7 +80,7 @@ impl Default for BlocksInflight {
     fn default() -> Self {
         BlocksInflight {
             blocks: FnvHashSet::default(),
-            timestamp: now_ms(),
+            timestamp: unix_time_as_millis(),
         }
     }
 }
@@ -103,7 +103,7 @@ impl BlocksInflight {
     }
 
     pub fn update_timestamp(&mut self) {
-        self.timestamp = now_ms();
+        self.timestamp = unix_time_as_millis();
     }
 
     pub fn clear(&mut self) {

@@ -4,7 +4,7 @@ use crate::protocol_service::ProtocolService;
 use crate::transport::TransportOutput;
 use crate::Network;
 use crate::PeerId;
-use ckb_time::now_ms;
+use faketime::unix_time_as_millis;
 use futures::future::{self, Future};
 use futures::stream::FuturesUnordered;
 use futures::Stream;
@@ -141,7 +141,7 @@ impl<T: Send> ProtocolService<T> for PingService {
                                         })
                                     }
                                 });
-                            let ping_start_time = now_ms();
+                            let ping_start_time = unix_time_as_millis();
                             let ping_future =
                                 Future::then(Timeout::new(ping_future, ping_timeout), {
                                     let network = Arc::clone(&network);
@@ -149,7 +149,7 @@ impl<T: Send> ProtocolService<T> for PingService {
                                         let mut peer_store = network.peer_store().write();
                                         match result {
                                             Ok(peer_id) => {
-                                                let now = now_ms();
+                                                let now = unix_time_as_millis();
                                                 let ping = now - ping_start_time;
                                                 network.modify_peer(&peer_id, |peer| {
                                                     peer.ping = Some(ping);

@@ -2,8 +2,8 @@ use crate::network_group::{Group, NetworkGroup};
 use crate::peer_store::PeerStore;
 use crate::{Error, ErrorKind, PeerId, PeerIndex, ProtocolId};
 use bytes::Bytes;
-use ckb_time::now_ms;
 use ckb_util::RwLock;
+use faketime::unix_time_as_millis;
 use fnv::{FnvHashMap, FnvHashSet};
 use futures::sync::mpsc::UnboundedSender;
 use libp2p::core::{Endpoint, Multiaddr, UniqueConnec};
@@ -380,7 +380,7 @@ impl PeersRegistry {
             .write()
             .new_connected_peer(&peer_id, connected_addr.clone());
         let mut peer = PeerConnection::new(connected_addr, endpoint);
-        peer.connected_time = Some(now_ms());
+        peer.connected_time = Some(unix_time_as_millis());
         let peer_index = self.peers.or_insert(peer_id.clone(), peer);
         debug!(target: "network", "allocate peer_index {} to peer {:?}", peer_index, peer_id);
         peer_index

@@ -62,14 +62,14 @@ mod tests {
     use ckb_chain_spec::consensus::Consensus;
     use ckb_core::block::BlockBuilder;
     use ckb_core::header::{Header, HeaderBuilder};
-    use ckb_time::now_ms;
+    use faketime::unix_time_as_millis;
     use std::collections::HashSet;
     use std::iter::FromIterator;
 
     fn gen_block(parent_header: Header) -> Block {
         let header = HeaderBuilder::default()
             .parent_hash(parent_header.hash().clone())
-            .timestamp(now_ms())
+            .timestamp(unix_time_as_millis())
             .number(parent_header.number() + 1)
             .nonce(parent_header.nonce() + 1)
             .build();
