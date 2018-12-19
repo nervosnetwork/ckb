@@ -75,7 +75,7 @@ dependencies = [
  "ckb-core 0.3.0-pre",
  "ckb-db 0.3.0-pre",
  "hash 0.3.0-pre",
- "numext-fixed-hash 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "numext-fixed-hash 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.82 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.82 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
@@ -338,8 +338,8 @@ dependencies = [
  "lazy_static 1.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "logger 0.3.0-pre",
- "numext-fixed-hash 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "numext-fixed-uint 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "numext-fixed-hash 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "numext-fixed-uint 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.82 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.82 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_json 1.0.33 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -372,8 +372,8 @@ dependencies = [
  "fnv 1.0.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "lru-cache 0.1.0 (git+https://github.com/nervosnetwork/lru-cache)",
- "numext-fixed-hash 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "numext-fixed-uint 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "numext-fixed-hash 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "numext-fixed-uint 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "rand 0.6.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.82 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.82 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -388,8 +388,8 @@ dependencies = [
  "ckb-pow 0.3.0-pre",
  "ckb-protocol 0.3.0-pre",
  "flatbuffers 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "numext-fixed-hash 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "numext-fixed-uint 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "numext-fixed-hash 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "numext-fixed-uint 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.82 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.82 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_json 1.0.33 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -408,8 +408,8 @@ dependencies = [
  "fnv 1.0.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "hash 0.3.0-pre",
  "merkle-root 0.3.0-pre",
- "numext-fixed-hash 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "numext-fixed-uint 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "numext-fixed-hash 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "numext-fixed-uint 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "rayon 1.0.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.82 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.82 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -423,7 +423,7 @@ dependencies = [
  "ckb-core 0.3.0-pre",
  "ckb-util 0.3.0-pre",
  "fnv 1.0.6 (registry+https://github.com/rust-lang/crates.io-index)",
- "numext-fixed-hash 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "numext-fixed-hash 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "rocksdb 0.10.0 (git+https://github.com/nervosnetwork/rust-rocksdb)",
  "tempfile 3.0.5 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
@@ -455,7 +455,7 @@ dependencies = [
  "fnv 1.0.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "jsonrpc 0.10.2 (git+https://github.com/quake/rust-jsonrpc)",
  "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
- "numext-fixed-hash 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "numext-fixed-hash 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "rand 0.6.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.82 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.82 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -512,7 +512,7 @@ dependencies = [
  "linked-hash-map 0.5.1 (git+https://github.com/nervosnetwork/linked-hash-map?rev=df27f21)",
  "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "lru-cache 0.1.0 (git+https://github.com/nervosnetwork/lru-cache)",
- "numext-fixed-hash 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "numext-fixed-hash 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "rand 0.6.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.82 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.82 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -526,7 +526,7 @@ dependencies = [
  "ckb-core 0.3.0-pre",
  "crossbeam-channel 0.3.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "hash 0.3.0-pre",
- "numext-fixed-hash 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "numext-fixed-hash 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "proptest 0.8.7 (registry+https://github.com/rust-lang/crates.io-index)",
  "rand 0.6.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.82 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -542,8 +542,8 @@ dependencies = [
  "ckb-util 0.3.0-pre",
  "flatbuffers 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "hash 0.3.0-pre",
- "numext-fixed-hash 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "numext-fixed-uint 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "numext-fixed-hash 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "numext-fixed-uint 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "rand 0.6.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "siphasher 0.2.3 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
@@ -569,7 +569,7 @@ dependencies = [
  "jsonrpc-macros 9.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "jsonrpc-server-utils 9.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
- "numext-fixed-hash 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "numext-fixed-hash 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.82 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.82 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_json 1.0.33 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -589,7 +589,7 @@ dependencies = [
  "fnv 1.0.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "hash 0.3.0-pre",
  "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
- "numext-fixed-hash 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "numext-fixed-hash 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "proptest 0.8.7 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.82 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.82 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -611,8 +611,8 @@ dependencies = [
  "fnv 1.0.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "lru-cache 0.1.0 (git+https://github.com/nervosnetwork/lru-cache)",
- "numext-fixed-hash 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "numext-fixed-uint 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "numext-fixed-hash 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "numext-fixed-uint 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "rand 0.6.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.82 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.82 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -643,8 +643,8 @@ dependencies = [
  "lazy_static 1.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "multiaddr 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "numext-fixed-hash 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "numext-fixed-uint 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "numext-fixed-hash 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "numext-fixed-uint 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.82 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.82 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
@@ -679,8 +679,8 @@ dependencies = [
  "hash 0.3.0-pre",
  "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "merkle-root 0.3.0-pre",
- "numext-fixed-hash 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "numext-fixed-uint 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "numext-fixed-hash 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "numext-fixed-uint 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "rayon 1.0.3 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
@@ -940,7 +940,7 @@ dependencies = [
  "failure_derive 0.1.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "faster-hex 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "lazy_static 1.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "numext-fixed-hash 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "numext-fixed-hash 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "rand 0.6.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "secp256k1 0.9.1 (git+https://github.com/nervosnetwork/rust-secp256k1)",
 ]
@@ -1869,7 +1869,7 @@ name = "merkle-root"
 version = "0.3.0-pre"
 dependencies = [
  "hash 0.3.0-pre",
- "numext-fixed-hash 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "numext-fixed-hash 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -2082,7 +2082,7 @@ dependencies = [
 
 [[package]]
 name = "numext-constructor"
-version = "0.1.0"
+version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "proc-macro2 0.4.24 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -2092,26 +2092,26 @@ dependencies = [
 
 [[package]]
 name = "numext-fixed-hash"
-version = "0.1.0"
+version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "failure 0.1.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "faster-hex 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "heapsize 0.4.2 (registry+https://github.com/rust-lang/crates.io-index)",
- "numext-constructor 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "numext-fixed-uint 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "numext-constructor 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "numext-fixed-uint 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "rand 0.5.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.82 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
 name = "numext-fixed-uint"
-version = "0.1.0"
+version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "failure 0.1.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "heapsize 0.4.2 (registry+https://github.com/rust-lang/crates.io-index)",
- "numext-constructor 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "numext-constructor 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "rand 0.5.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.82 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
@@ -3673,9 +3673,9 @@ dependencies = [
 "checksum num-traits 0.2.6 (registry+https://github.com/rust-lang/crates.io-index)" = "0b3a5d7cc97d6d30d8b9bc8fa19bf45349ffe46241e8816f50f62f6d6aaabee1"
 "checksum num_cpus 1.8.0 (registry+https://github.com/rust-lang/crates.io-index)" = "c51a3322e4bca9d212ad9a158a02abc6934d005490c054a2778df73a70aa0a30"
 "checksum number_prefix 0.2.8 (registry+https://github.com/rust-lang/crates.io-index)" = "dbf9993e59c894e3c08aa1c2712914e9e6bf1fcbfc6bef283e2183df345a4fee"
-"checksum numext-constructor 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)" = "df99f0e1cefc5d336ccb29b369a318559964065747c687441e157c87ca62a79b"
-"checksum numext-fixed-hash 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)" = "2c74c14999a7b325611200c3303dc580392d4815908a0922af479d475778be1e"
-"checksum numext-fixed-uint 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)" = "4527605a7cc2e5db26b836ba306f4f9915f04db7ee1ead60af50b5e43ec03ee1"
+"checksum numext-constructor 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)" = "0e938dadad7c0412ac4e2277846ba3b7241fae69c66e9b0389ea0fafa4be8e23"
+"checksum numext-fixed-hash 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)" = "b58badd890ecf25ccef71682442c89ec2139772c5174782a0e9301a045648a3e"
+"checksum numext-fixed-uint 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)" = "5dc24e4bed29ec6706d11ebe8ee5a77eb99de62b60e3af22ec704aae3f548c0d"
 "checksum openssl 0.9.24 (registry+https://github.com/rust-lang/crates.io-index)" = "a3605c298474a3aa69de92d21139fb5e2a81688d308262359d85cdd0d12a7985"
 "checksum openssl-sys 0.9.39 (registry+https://github.com/rust-lang/crates.io-index)" = "278c1ad40a89aa1e741a1eed089a2f60b18fab8089c3139b542140fc7d674106"
 "checksum owning_ref 0.3.3 (registry+https://github.com/rust-lang/crates.io-index)" = "cdf84f41639e037b484f93433aa3897863b561ed65c6e59c7073d7c561710f37"
