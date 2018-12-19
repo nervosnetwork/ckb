@@ -188,10 +188,11 @@ impl<CI: ChainIndex> Synchronizer<CI> {
         now_ms().saturating_sub(self.shared.tip_header().read().inner().timestamp()) > MAX_TIP_AGE
     }
 
-    pub fn get_headers_sync_timeout(&self, header: &Header) -> u64 {
-        HEADERS_DOWNLOAD_TIMEOUT_BASE
+    pub fn predict_headers_sync_time(&self, header: &Header) -> u64 {
+        let now = now_ms();
+        now + HEADERS_DOWNLOAD_TIMEOUT_BASE
             + HEADERS_DOWNLOAD_TIMEOUT_PER_HEADER
-                * (now_ms().saturating_sub(header.timestamp()) / POW_SPACE)
+                * (now.saturating_sub(header.timestamp()) / POW_SPACE)
     }
 
     pub fn mark_block_stored(&self, hash: H256) {
@@ -480,7 +481,7 @@ impl<CI: ChainIndex> Synchronizer<CI> {
 
     fn on_connected(&self, nc: &CKBProtocolContext, peer: PeerIndex) {
         let tip = self.tip_header();
-        let timeout = self.get_headers_sync_timeout(&tip);
+        let predicted_headers_sync_time = self.predict_headers_sync_time(&tip);
 
         let protect_outbound = is_outbound(nc, peer).unwrap_or_else(|| false)
             && self.outbound_peers_with_protect.load(Ordering::Acquire)
@@ -491,7 +492,8 @@ impl<CI: ChainIndex> Synchronizer<CI> {
                 .fetch_add(1, Ordering::Release);
         }
 
-        self.peers.on_connected(peer, timeout, protect_outbound);
+        self.peers
+            .on_connected(peer, predicted_headers_sync_time, protect_outbound);
     }
 
     pub fn send_getheaders_to_peer(
