@@ -123,12 +123,12 @@ impl Peers {
             .or_insert_with(|| score);
     }
 
-    pub fn on_connected(&self, peer: PeerIndex, headers_sync_timeout: u64, protect: bool) {
+    pub fn on_connected(&self, peer: PeerIndex, predicted_headers_sync_time: u64, protect: bool) {
         self.state
             .write()
             .entry(peer)
             .and_modify(|state| {
-                state.headers_sync_timeout = Some(headers_sync_timeout);
+                state.headers_sync_timeout = Some(predicted_headers_sync_time);
                 state.chain_sync.protect = protect;
             })
             .or_insert_with(|| {
@@ -138,7 +138,7 @@ impl Peers {
                     negotiate: Negotiate::default(),
                     sync_started: false,
                     last_block_announcement: None,
-                    headers_sync_timeout: Some(headers_sync_timeout),
+                    headers_sync_timeout: Some(predicted_headers_sync_time),
                     disconnect: false,
                     chain_sync,
                 }
