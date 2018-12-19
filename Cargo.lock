@@ -465,6 +465,7 @@ name = "ckb-network"
 version = "0.3.0-pre"
 dependencies = [
  "bytes 0.4.11 (registry+https://github.com/rust-lang/crates.io-index)",
+ "ckb-time 0.3.0-pre",
  "ckb-util 0.3.0-pre",
  "fnv 1.0.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "futures 0.1.25 (registry+https://github.com/rust-lang/crates.io-index)",

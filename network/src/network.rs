@@ -32,7 +32,6 @@ use std::boxed::Box;
 use std::io::{Error as IoError, ErrorKind as IoErrorKind};
 use std::sync::Arc;
 use std::time::Duration;
-use std::time::Instant;
 use std::usize;
 use tokio::io::{AsyncRead, AsyncWrite};
 
@@ -51,7 +50,7 @@ pub struct SessionInfo {
 pub struct PeerInfo {
     pub peer_id: PeerId,
     pub endpoint_role: Endpoint,
-    pub last_ping_time: Option<Instant>,
+    pub last_ping_time: Option<u64>,
     pub connected_addr: Multiaddr,
     pub identify_info: Option<PeerIdentifyInfo>,
 }
@@ -104,6 +103,20 @@ impl Network {
     pub(crate) fn connection_status(&self) -> ConnectionStatus {
         let peers_registry = self.peers_registry.read();
         peers_registry.connection_status()
+    }
+
+    pub(crate) fn modify_peer<F>(&self, peer_id: &PeerId, mut f: F) -> bool
+    where
+        F: FnMut(&mut PeerConnection) -> (),
+    {
+        let mut peers_registry = self.peers_registry.write();
+        match peers_registry.get_mut(peer_id) {
+            Some(peer) => {
+                f(peer);
+                true
+            }
+            None => false,
+        }
     }
 
     pub(crate) fn get_peer_identify_info(&self, peer_id: &PeerId) -> Option<PeerIdentifyInfo> {

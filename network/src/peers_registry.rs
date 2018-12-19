@@ -1,7 +1,8 @@
 use crate::network_group::{Group, NetworkGroup};
-use crate::peer_store::{PeerStore, Score};
+use crate::peer_store::PeerStore;
 use crate::{Error, ErrorKind, PeerId, PeerIndex, ProtocolId};
 use bytes::Bytes;
+use ckb_time::now_ms;
 use ckb_util::RwLock;
 use fnv::{FnvHashMap, FnvHashSet};
 use futures::sync::mpsc::UnboundedSender;
@@ -12,7 +13,8 @@ use rand::seq::SliceRandom;
 use rand::thread_rng;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-use std::time::Instant;
+
+pub(crate) const EVICTION_PROTECT_PEERS: usize = 8;
 
 struct PeerConnections {
     id_allocator: AtomicUsize,
@@ -97,7 +99,10 @@ pub struct PeerConnection {
     pub(crate) pinger_loader: UniqueConnec<ping::Pinger>,
     pub identify_info: Option<PeerIdentifyInfo>,
     pub(crate) ckb_protocols: Vec<ProtocolConnec>,
-    pub last_ping_time: Option<Instant>,
+    pub last_ping_time: Option<u64>,
+    pub last_message_time: Option<u64>,
+    pub ping: Option<u64>,
+    pub connected_time: Option<u64>,
 }
 
 impl PeerConnection {
@@ -108,7 +113,10 @@ impl PeerConnection {
             pinger_loader: UniqueConnec::empty(),
             identify_info: None,
             ckb_protocols: Vec::with_capacity(1),
+            ping: None,
             last_ping_time: None,
+            last_message_time: None,
+            connected_time: None,
             peer_index: None,
         }
     }
@@ -172,6 +180,14 @@ fn find_most_peers_in_same_network_group<'a>(
         .unwrap_or_else(Vec::new)
 }
 
+fn sort_then_drop_last_n_elements<T, F>(list: &mut Vec<T>, n: usize, compare: F)
+where
+    F: FnMut(&T, &T) -> std::cmp::Ordering,
+{
+    list.sort_by(compare);
+    list.truncate(list.len().saturating_sub(n));
+}
+
 impl PeersRegistry {
     pub fn new(
         peer_store: Arc<RwLock<Box<PeerStore>>>,
@@ -217,19 +233,16 @@ impl PeersRegistry {
                 ))
                 .into());
             }
-            let candidate_score = {
-                let peer_store = self.peer_store.read();
-                if peer_store.is_banned(&peer_id) {
-                    return Err(
-                        ErrorKind::InvalidNewPeer(format!("peer {:?} is denied", peer_id)).into(),
-                    );
-                }
-                peer_store.peer_score_or_default(&peer_id)
-            };
+            if self.peer_store.read().is_banned(&peer_id) {
+                return Err(
+                    ErrorKind::InvalidNewPeer(format!("peer {:?} is denied", peer_id)).into(),
+                );
+            }
+
             let connection_status = self.connection_status();
             // check peers connection limitation
             if connection_status.unreserved_inbound >= self.max_inbound
-                && !self.try_evict_inbound_peer(candidate_score)
+                && !self.try_evict_inbound_peer()
             {
                 return Err(ErrorKind::InvalidNewPeer(format!(
                     "reach max inbound peers limitation, reject peer {:?}",
@@ -242,42 +255,80 @@ impl PeersRegistry {
         Ok(())
     }
 
-    fn try_evict_inbound_peer(&mut self, candidate_score: Score) -> bool {
-        let peer_id = {
-            let inbound_peers = self
+    fn try_evict_inbound_peer(&mut self) -> bool {
+        let peer_id: PeerId = {
+            let mut candidate_peers = self
                 .peers
                 .iter()
-                .filter(|(peer_id, peer)| peer.is_inbound() && !self.is_reserved(peer_id));
-            let candidate_peers = find_most_peers_in_same_network_group(inbound_peers);
+                .filter(|(peer_id, peer)| peer.is_inbound() && !self.is_reserved(peer_id))
+                .collect::<Vec<_>>();
             let peer_store = self.peer_store.read();
+            // Protect peers based on characteristics that an attacker hard to simulate or manipulate
+            // Protect peers which has the highest score
+            sort_then_drop_last_n_elements(
+                &mut candidate_peers,
+                EVICTION_PROTECT_PEERS,
+                |(peer_id1, _), (peer_id2, _)| {
+                    let peer1_score = peer_store.peer_score(peer_id1).unwrap_or_default();
+                    let peer2_score = peer_store.peer_score(peer_id2).unwrap_or_default();
+                    peer1_score.cmp(&peer2_score)
+                },
+            );
 
-            // must have less score than candidate_score
-            let mut lowest_score = candidate_score - 1;
-            let mut low_score_peers = Vec::new();
-            for peer_id in candidate_peers {
-                if let Some(score) = peer_store.peer_score(peer_id) {
-                    if score > lowest_score {
-                        continue;
-                    }
-                    if score < lowest_score {
-                        lowest_score = score;
-                        low_score_peers.clear();
-                    }
-                    low_score_peers.push(peer_id);
-                }
-            }
-            // failed to evict
-            if low_score_peers.is_empty() {
-                return false;
-            }
+            // Protect peers which has the lowest ping
+            sort_then_drop_last_n_elements(
+                &mut candidate_peers,
+                EVICTION_PROTECT_PEERS,
+                |(_, peer1), (_, peer2)| {
+                    let peer1_ping = peer1.ping.unwrap_or_else(|| std::u64::MAX);
+                    let peer2_ping = peer2.ping.unwrap_or_else(|| std::u64::MAX);
+                    peer2_ping.cmp(&peer1_ping)
+                },
+            );
+
+            // Protect peers which most recently sent messages
+            sort_then_drop_last_n_elements(
+                &mut candidate_peers,
+                EVICTION_PROTECT_PEERS,
+                |(_, peer1), (_, peer2)| {
+                    let peer1_last_message_time = peer1.last_message_time.unwrap_or_default();
+                    let peer2_last_message_time = peer2.last_message_time.unwrap_or_default();
+                    peer1_last_message_time.cmp(&peer2_last_message_time)
+                },
+            );
+            candidate_peers.sort_by(|(_, peer1), (_, peer2)| {
+                let peer1_last_connected_at = peer1.connected_time.unwrap_or_else(|| std::u64::MAX);
+                let peer2_last_connected_at = peer2.connected_time.unwrap_or_else(|| std::u64::MAX);
+                peer2_last_connected_at.cmp(&peer1_last_connected_at)
+            });
+            // Protect half peers which have the longest connection time
+            let protect_peers = candidate_peers.len() / 2;
+            sort_then_drop_last_n_elements(
+                &mut candidate_peers,
+                protect_peers,
+                |(_, peer1), (_, peer2)| {
+                    let peer1_last_connected_at =
+                        peer1.connected_time.unwrap_or_else(|| std::u64::MAX);
+                    let peer2_last_connected_at =
+                        peer2.connected_time.unwrap_or_else(|| std::u64::MAX);
+                    peer2_last_connected_at.cmp(&peer1_last_connected_at)
+                },
+            );
+
+            let mut evict_group =
+                find_most_peers_in_same_network_group(candidate_peers.into_iter());
             let mut rng = thread_rng();
-            low_score_peers[..]
-                .choose(&mut rng)
-                .unwrap()
-                .to_owned()
-                .to_owned()
+            evict_group.shuffle(&mut rng);
+            // randomly evict a lowest scored peer
+            match evict_group
+                .iter()
+                .min_by_key(|peer_id| peer_store.peer_score(peer_id).unwrap_or_default())
+            {
+                Some(peer_id) => peer_id.to_owned().to_owned(),
+                None => return false,
+            }
         };
-        debug!("evict inbound peer {:?}", peer_id);
+        debug!(target: "network", "evict inbound peer {:?}", peer_id);
         self.drop_peer(&peer_id);
         true
     }
@@ -325,7 +376,8 @@ impl PeersRegistry {
         self.peer_store
             .write()
             .new_connected_peer(&peer_id, connected_addr.clone());
-        let peer = PeerConnection::new(connected_addr, endpoint);
+        let mut peer = PeerConnection::new(connected_addr, endpoint);
+        peer.connected_time = Some(now_ms());
         let peer_index = self.peers.or_insert(peer_id.clone(), peer);
         debug!(target: "network", "allocate peer_index {} to peer {:?}", peer_index, peer_id);
         peer_index

@@ -8,6 +8,7 @@ use crate::protocol_service::ProtocolService;
 use crate::CKBProtocolHandler;
 use crate::Network;
 use crate::PeerId;
+use ckb_time::now_ms;
 use futures::future::{self, Future};
 use futures::Stream;
 use libp2p::core::{Endpoint, Multiaddr, UniqueConnecState};
@@ -81,6 +82,7 @@ impl CKBService {
                 move |data| {
                     // update kad_system when we received data
                     kad_system.update_kbuckets(peer_id.clone());
+                    network.modify_peer(&peer_id, |peer| peer.last_message_time = Some(now_ms()));
                     let protocol_handler = Arc::clone(&protocol_handler);
                     let network = Arc::clone(&network);
                     let handle_received = future::lazy(move || {
