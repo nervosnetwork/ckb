@@ -9,6 +9,7 @@ pub use crate::verify::TransactionScriptsVerifier;
 pub enum ScriptError {
     NoScript,
     InvalidReferenceIndex,
+    ArgumentError,
     ValidationFailure(u8),
     VMError(VMInternalError),
 }
