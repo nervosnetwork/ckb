@@ -8,18 +8,15 @@ edition = "2018"
 serde = "1.0"
 serde_derive = "1.0"
 bincode = "1.0"
-log = "0.4"
 ckb-core = { path = "../core" }
 ckb-chain-spec = { path = "../spec" }
 ckb-util = { path = "../util" }
 ckb-db = { path = "../db" }
-ckb-time = { path = "../util/time" }
 avl = { package = "avl-merkle", path = "../util/avl" }
 numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 numext-fixed-uint = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 lru-cache = { git = "https://github.com/nervosnetwork/lru-cache" }
 fnv = "1.0.3"
-crossbeam-channel = "0.3"
 
 [dev-dependencies]
 env_logger = "0.6"

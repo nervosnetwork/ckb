@@ -6,11 +6,9 @@ authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
 
 [dependencies]
-log = "0.4"
 ckb-core = { path = "../core" }
 ckb-time = { path = "../util/time" }
 ckb-shared = { path = "../shared" }
-ckb-util = { path = "../util" }
 ckb-script = { path = "../script" }
 ckb-pow = { path = "../pow" }
 merkle-root = {path = "../util/merkle-root"}
@@ -18,7 +16,6 @@ numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heap
 numext-fixed-uint = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 rayon = "1.0"
 fnv = "1.0.3"
-crossbeam-channel = "0.3"
 
 [dev-dependencies]
 ckb-db = { path = "../db" }

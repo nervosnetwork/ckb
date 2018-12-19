@@ -13,10 +13,8 @@ numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heap
 numext-fixed-uint = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 hash = {path = "../util/hash"}
 crypto = {path = "../util/crypto"}
-ckb-time = { path = "../util/time" }
 bit-vec = "0.5.0"
 channel = { package= "crossbeam-channel", version = "0.3" }
-rayon = "1.0"
 ckb-util = { path = "../util" }
 fnv = "1.0.3"
 merkle-root = {path = "../util/merkle-root"}
