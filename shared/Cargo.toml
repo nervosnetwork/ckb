@@ -13,7 +13,6 @@ ckb-core = { path = "../core" }
 ckb-chain-spec = { path = "../spec" }
 ckb-util = { path = "../util" }
 ckb-db = { path = "../db" }
-ckb-time = { path = "../util/time" }
 avl = { package = "avl-merkle", path = "../util/avl" }
 numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 numext-fixed-uint = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }

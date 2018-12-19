@@ -26,7 +26,6 @@ ckb-network = { path = "network"}
 ckb-pool = { path = "pool"}
 ckb-rpc = { path = "rpc"}
 ckb-verification = { path = "verification"}
-ckb-time = { path = "util/time"}
 ckb-script= { path = "script"}
 logger = { path = "util/logger" }
 numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }

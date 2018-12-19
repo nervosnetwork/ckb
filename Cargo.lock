@@ -324,7 +324,6 @@ dependencies = [
  "ckb-script 0.3.0-pre",
  "ckb-shared 0.3.0-pre",
  "ckb-sync 0.3.0-pre",
- "ckb-time 0.3.0-pre",
  "ckb-util 0.3.0-pre",
  "ckb-verification 0.3.0-pre",
  "clap 2.32.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -401,7 +400,6 @@ version = "0.3.0-pre"
 dependencies = [
  "bincode 1.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "bit-vec 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "ckb-time 0.3.0-pre",
  "ckb-util 0.3.0-pre",
  "crossbeam-channel 0.3.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "crypto 0.3.0-pre",
@@ -604,7 +602,6 @@ dependencies = [
  "ckb-chain-spec 0.3.0-pre",
  "ckb-core 0.3.0-pre",
  "ckb-db 0.3.0-pre",
- "ckb-time 0.3.0-pre",
  "ckb-util 0.3.0-pre",
  "crossbeam-channel 0.3.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "env_logger 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
