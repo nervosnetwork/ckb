@@ -10,8 +10,6 @@ numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heap
 byteorder = "1.2.2"
 crypto = {path = "../util/crypto"}
 ckb-core = { path = "../core" }
-serde = "1.0"
-serde_derive = "1.0"
 hash = {path = "../util/hash"}
 ckb-vm = { git = "https://github.com/nervosnetwork/ckb-vm", rev = "1622ba0" }
 faster-hex = "0.1"

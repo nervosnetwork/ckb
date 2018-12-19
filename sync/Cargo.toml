@@ -11,7 +11,6 @@ ckb-shared = { path = "../shared" }
 ckb-core = { path = "../core" }
 numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 numext-fixed-uint = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
-multiaddr = "0.3"
 ckb-network = { path = "../network" }
 log = "0.4"
 fnv = "1.0"
@@ -19,7 +18,6 @@ ckb-protocol = { path = "../protocol" }
 ckb-util = { path = "../util" }
 ckb-pool = { path = "../pool" }
 ckb-time = { path = "../util/time" }
-lazy_static = "1.0"
 bitflags = "1.0"
 ckb-verification = { path = "../verification" }
 serde = "1.0"

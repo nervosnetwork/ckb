@@ -9,7 +9,6 @@ edition = "2018"
 secp256k1 = { git = "https://github.com/nervosnetwork/rust-secp256k1", optional = true, features = ["rand"] }
 lazy_static = "1.0"
 failure = "0.1.1"
-failure_derive = "0.1.1"
 rand = "0.6"
 numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 faster-hex = "0.1"

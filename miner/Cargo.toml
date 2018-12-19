@@ -15,7 +15,6 @@ ckb-util = { path = "../util" }
 ckb-notify = { path = "../notify" }
 ckb-pool = { path = "../pool" }
 ckb-time = { path = "../util/time" }
-flatbuffers = "0.5.0"
 rand = "0.6"
 serde = "1.0"
 serde_derive = "1.0"

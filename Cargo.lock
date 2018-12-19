@@ -102,11 +102,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "base-x"
-version = "0.2.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-
-[[package]]
 name = "base64"
 version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -296,16 +291,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "cid"
-version = "0.2.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-dependencies = [
- "integer-encoding 1.0.5 (registry+https://github.com/rust-lang/crates.io-index)",
- "multibase 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "multihash 0.7.0 (registry+https://github.com/rust-lang/crates.io-index)",
-]
-
-[[package]]
 name = "ckb"
 version = "0.3.0-pre"
 dependencies = [
@@ -357,8 +342,6 @@ dependencies = [
 name = "ckb-chain"
 version = "0.3.0-pre"
 dependencies = [
- "avl-merkle 0.3.0-pre",
- "bincode 1.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "ckb-chain-spec 0.3.0-pre",
  "ckb-core 0.3.0-pre",
  "ckb-db 0.3.0-pre",
@@ -368,14 +351,16 @@ dependencies = [
  "ckb-verification 0.3.0-pre",
  "crossbeam-channel 0.3.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "env_logger 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "fnv 1.0.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
+<<<<<<< HEAD
  "lru-cache 0.1.0 (git+https://github.com/nervosnetwork/lru-cache)",
  "numext-fixed-hash 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "numext-fixed-uint 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
+=======
+ "numext-fixed-hash 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "numext-fixed-uint 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+>>>>>>> chore: remove more unused dependencies in Cargo.toml
  "rand 0.6.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "serde 1.0.82 (registry+https://github.com/rust-lang/crates.io-index)",
- "serde_derive 1.0.82 (registry+https://github.com/rust-lang/crates.io-index)",
  "tempfile 3.0.5 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
@@ -406,9 +391,14 @@ dependencies = [
  "fnv 1.0.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "hash 0.3.0-pre",
  "merkle-root 0.3.0-pre",
+<<<<<<< HEAD
  "numext-fixed-hash 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "numext-fixed-uint 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "rayon 1.0.3 (registry+https://github.com/rust-lang/crates.io-index)",
+=======
+ "numext-fixed-hash 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "numext-fixed-uint 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+>>>>>>> chore: remove more unused dependencies in Cargo.toml
  "serde 1.0.82 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.82 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
@@ -418,10 +408,12 @@ name = "ckb-db"
 version = "0.3.0-pre"
 dependencies = [
  "bincode 1.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "ckb-core 0.3.0-pre",
  "ckb-util 0.3.0-pre",
  "fnv 1.0.6 (registry+https://github.com/rust-lang/crates.io-index)",
+<<<<<<< HEAD
  "numext-fixed-hash 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
+=======
+>>>>>>> chore: remove more unused dependencies in Cargo.toml
  "rocksdb 0.10.0 (git+https://github.com/nervosnetwork/rust-rocksdb)",
  "tempfile 3.0.5 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
@@ -449,7 +441,6 @@ dependencies = [
  "ckb-time 0.3.0-pre",
  "ckb-util 0.3.0-pre",
  "crossbeam-channel 0.3.4 (registry+https://github.com/rust-lang/crates.io-index)",
- "flatbuffers 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "fnv 1.0.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "jsonrpc 0.10.2 (git+https://github.com/quake/rust-jsonrpc)",
  "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -483,7 +474,6 @@ name = "ckb-notify"
 version = "0.3.0-pre"
 dependencies = [
  "ckb-core 0.3.0-pre",
- "ckb-util 0.3.0-pre",
  "crossbeam-channel 0.3.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "fnv 1.0.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -493,7 +483,6 @@ dependencies = [
 name = "ckb-pool"
 version = "0.3.0-pre"
 dependencies = [
- "bincode 1.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "ckb-chain 0.3.0-pre",
  "ckb-chain-spec 0.3.0-pre",
  "ckb-core 0.3.0-pre",
@@ -501,7 +490,6 @@ dependencies = [
  "ckb-notify 0.3.0-pre",
  "ckb-shared 0.3.0-pre",
  "ckb-time 0.3.0-pre",
- "ckb-util 0.3.0-pre",
  "ckb-verification 0.3.0-pre",
  "crossbeam-channel 0.3.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "env_logger 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -510,8 +498,12 @@ dependencies = [
  "linked-hash-map 0.5.1 (git+https://github.com/nervosnetwork/linked-hash-map?rev=df27f21)",
  "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "lru-cache 0.1.0 (git+https://github.com/nervosnetwork/lru-cache)",
+<<<<<<< HEAD
  "numext-fixed-hash 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "rand 0.6.1 (registry+https://github.com/rust-lang/crates.io-index)",
+=======
+ "numext-fixed-hash 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+>>>>>>> chore: remove more unused dependencies in Cargo.toml
  "serde 1.0.82 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.82 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
@@ -589,8 +581,6 @@ dependencies = [
  "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "numext-fixed-hash 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "proptest 0.8.7 (registry+https://github.com/rust-lang/crates.io-index)",
- "serde 1.0.82 (registry+https://github.com/rust-lang/crates.io-index)",
- "serde_derive 1.0.82 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -603,10 +593,8 @@ dependencies = [
  "ckb-core 0.3.0-pre",
  "ckb-db 0.3.0-pre",
  "ckb-util 0.3.0-pre",
- "crossbeam-channel 0.3.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "env_logger 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "fnv 1.0.6 (registry+https://github.com/rust-lang/crates.io-index)",
- "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "lru-cache 0.1.0 (git+https://github.com/nervosnetwork/lru-cache)",
  "numext-fixed-hash 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "numext-fixed-uint 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -637,11 +625,15 @@ dependencies = [
  "env_logger 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "flatbuffers 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "fnv 1.0.6 (registry+https://github.com/rust-lang/crates.io-index)",
- "lazy_static 1.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
+<<<<<<< HEAD
  "multiaddr 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "numext-fixed-hash 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "numext-fixed-uint 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
+=======
+ "numext-fixed-hash 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "numext-fixed-uint 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+>>>>>>> chore: remove more unused dependencies in Cargo.toml
  "serde 1.0.82 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.82 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
@@ -670,11 +662,8 @@ dependencies = [
  "ckb-script 0.3.0-pre",
  "ckb-shared 0.3.0-pre",
  "ckb-time 0.3.0-pre",
- "ckb-util 0.3.0-pre",
- "crossbeam-channel 0.3.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "fnv 1.0.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "hash 0.3.0-pre",
- "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "merkle-root 0.3.0-pre",
  "numext-fixed-hash 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "numext-fixed-uint 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -934,7 +923,6 @@ version = "0.3.0-pre"
 dependencies = [
  "crunchy 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "failure 0.1.3 (registry+https://github.com/rust-lang/crates.io-index)",
- "failure_derive 0.1.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "faster-hex 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "lazy_static 1.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "numext-fixed-hash 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1926,33 +1914,6 @@ dependencies = [
  "integer-encoding 1.0.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "multihash 0.8.1-pre (git+https://github.com/libp2p/rust-libp2p?rev=cfdfca1a06fb2deb9ebcc15a63d715ebddb23bd0)",
  "serde 1.0.82 (registry+https://github.com/rust-lang/crates.io-index)",
-]
-
-[[package]]
-name = "multiaddr"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-dependencies = [
- "byteorder 0.4.2 (registry+https://github.com/rust-lang/crates.io-index)",
- "cid 0.2.3 (registry+https://github.com/rust-lang/crates.io-index)",
- "integer-encoding 1.0.5 (registry+https://github.com/rust-lang/crates.io-index)",
-]
-
-[[package]]
-name = "multibase"
-version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-dependencies = [
- "base-x 0.2.3 (registry+https://github.com/rust-lang/crates.io-index)",
-]
-
-[[package]]
-name = "multihash"
-version = "0.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-dependencies = [
- "ring 0.12.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "tiny-keccak 1.4.2 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -3513,7 +3474,6 @@ dependencies = [
 "checksum atty 0.2.11 (registry+https://github.com/rust-lang/crates.io-index)" = "9a7d5b8723950951411ee34d271d99dddcc2035a16ab25310ea2c8cfd4369652"
 "checksum backtrace 0.3.9 (registry+https://github.com/rust-lang/crates.io-index)" = "89a47830402e9981c5c41223151efcced65a0510c13097c769cede7efb34782a"
 "checksum backtrace-sys 0.1.24 (registry+https://github.com/rust-lang/crates.io-index)" = "c66d56ac8dabd07f6aacdaf633f4b8262f5b3601a810a0dcddffd5c22c69daa0"
-"checksum base-x 0.2.3 (registry+https://github.com/rust-lang/crates.io-index)" = "5cda5d0f5584d129112ad8bf4775b9fd2b9f1e30738c7b1a25314ba2244d6a51"
 "checksum base64 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)" = "96434f987501f0ed4eb336a411e0631ecd1afa11574fe148587adc4ff96143c9"
 "checksum base64 0.7.0 (registry+https://github.com/rust-lang/crates.io-index)" = "5032d51da2741729bfdaeb2664d9b8c6d9fd1e2b90715c660b6def36628499c2"
 "checksum base64 0.9.3 (registry+https://github.com/rust-lang/crates.io-index)" = "489d6c0ed21b11d038c31b6ceccca973e65d73ba3bd8ecb9a2babf5546164643"
@@ -3538,7 +3498,6 @@ dependencies = [
 "checksum cfg-if 0.1.6 (registry+https://github.com/rust-lang/crates.io-index)" = "082bb9b28e00d3c9d39cc03e64ce4cea0f1bb9b3fde493f0cbc008472d22bdf4"
 "checksum chashmap 2.2.1 (git+https://github.com/redox-os/tfs)" = "<none>"
 "checksum chrono 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)" = "45912881121cb26fad7c38c17ba7daa18764771836b34fab7d3fbd93ed633878"
-"checksum cid 0.2.3 (registry+https://github.com/rust-lang/crates.io-index)" = "d85ee025368e69063c420cbb2ed9f852cb03a5e69b73be021e65726ce03585b6"
 "checksum ckb-vm 0.1.0 (git+https://github.com/nervosnetwork/ckb-vm?rev=1622ba0)" = "<none>"
 "checksum clang-sys 0.21.2 (registry+https://github.com/rust-lang/crates.io-index)" = "e414af9726e1d11660801e73ccc7fb81803fb5f49e5903a25b348b2b3b480d2e"
 "checksum clap 2.32.0 (registry+https://github.com/rust-lang/crates.io-index)" = "b957d88f4b6a63b9d70d5f454ac8011819c6efa7727858f458ab71c756ce2d3e"
@@ -3653,9 +3612,6 @@ dependencies = [
 "checksum mio-uds 0.6.7 (registry+https://github.com/rust-lang/crates.io-index)" = "966257a94e196b11bb43aca423754d87429960a768de9414f3691d6957abf125"
 "checksum miow 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)" = "8c1f2f3b1cf331de6896aabf6e9d55dca90356cc9960cca7eaaf408a355ae919"
 "checksum multiaddr 0.3.0 (git+https://github.com/libp2p/rust-libp2p?rev=cfdfca1a06fb2deb9ebcc15a63d715ebddb23bd0)" = "<none>"
-"checksum multiaddr 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)" = "b97d4088dff9e0a93617a3f00213c6c1e338342c45de23cf317e613eb8e04e36"
-"checksum multibase 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)" = "b9c35dac080fd6e16a99924c8dfdef0af89d797dd851adab25feaffacf7850d6"
-"checksum multihash 0.7.0 (registry+https://github.com/rust-lang/crates.io-index)" = "7d49add5f49eb08bfc4d01ff286b84a48f53d45314f165c2d6efe477222d24f3"
 "checksum multihash 0.8.1-pre (git+https://github.com/libp2p/rust-libp2p?rev=cfdfca1a06fb2deb9ebcc15a63d715ebddb23bd0)" = "<none>"
 "checksum multistream-select 0.1.0 (git+https://github.com/libp2p/rust-libp2p?rev=cfdfca1a06fb2deb9ebcc15a63d715ebddb23bd0)" = "<none>"
 "checksum native-tls 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)" = "f74dbadc8b43df7864539cedb7bc91345e532fdd913cfdc23ad94f4d2d40fbc0"
