@@ -90,7 +90,7 @@ impl PeerStore for MemoryPeerStore {
             Some(score) => score,
             None => {
                 debug!(target: "network", "behaviour {:?} is undefined", behaviour);
-                return ReportResult::Normal;
+                return ReportResult::Ok;
             }
         };
         // apply reported score
@@ -99,7 +99,7 @@ impl PeerStore for MemoryPeerStore {
                 peer.score = peer.score.saturating_add(behaviour_score);
                 peer.score
             }
-            None => return ReportResult::Normal,
+            None => return ReportResult::Ok,
         };
         // ban peer is score is lower than ban_score
         if score < self.schema.ban_score() {
@@ -107,7 +107,7 @@ impl PeerStore for MemoryPeerStore {
             self.ban_peer(peer_id.to_owned(), default_ban_timeout);
             return ReportResult::Banned;
         }
-        ReportResult::Normal
+        ReportResult::Ok
     }
 
     fn update_status(&mut self, peer_id: &PeerId, status: Status) {

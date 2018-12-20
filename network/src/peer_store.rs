@@ -21,7 +21,7 @@ pub enum Status {
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum ReportResult {
-    Normal,
+    Ok,
     Banned,
 }
 

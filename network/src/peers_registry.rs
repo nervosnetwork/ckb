@@ -24,18 +24,17 @@ struct PeerConnections {
 
 impl PeerConnections {
     #[inline]
-    fn get<'a>(&'a self, peer_id: &PeerId) -> Option<&'a PeerConnection> {
+    fn get(&self, peer_id: &PeerId) -> Option<&PeerConnection> {
         self.peers.get(peer_id)
     }
 
-    #[allow(clippy::needless_lifetimes)]
     #[inline]
-    fn get_peer_id<'a>(&'a self, peer_index: PeerIndex) -> Option<&'a PeerId> {
+    fn get_peer_id(&self, peer_index: PeerIndex) -> Option<&PeerId> {
         self.peer_id_by_index.get(&peer_index)
     }
 
     #[inline]
-    fn get_mut<'a>(&'a mut self, peer_id: &PeerId) -> Option<&'a mut PeerConnection> {
+    fn get_mut(&mut self, peer_id: &PeerId) -> Option<&mut PeerConnection> {
         self.peers.get_mut(peer_id)
     }
 
@@ -48,9 +47,8 @@ impl PeerConnections {
         None
     }
 
-    #[allow(clippy::needless_lifetimes)]
     #[inline]
-    fn iter<'a>(&'a self) -> impl Iterator<Item = (&'a PeerId, &'a PeerConnection)> {
+    fn iter(&self) -> impl Iterator<Item = (&PeerId, &PeerConnection)> {
         self.peers.iter()
     }
     #[inline]
@@ -67,6 +65,12 @@ impl PeerConnections {
         self.peers.entry(peer_id.clone()).or_insert(peer);
         self.peer_id_by_index.entry(peer_index).or_insert(peer_id);
         peer_index
+    }
+
+    fn clear(&mut self) {
+        self.peers.clear();
+        self.peer_id_by_index.clear();
+        self.id_allocator.store(0, Ordering::Relaxed)
     }
 }
 
@@ -211,9 +215,8 @@ impl PeersRegistry {
         }
     }
 
-    #[allow(clippy::needless_lifetimes)]
     #[inline]
-    pub fn get_peer_id<'a>(&'a self, peer_index: PeerIndex) -> Option<&'a PeerId> {
+    pub fn get_peer_id(&self, peer_index: PeerIndex) -> Option<&PeerId> {
         self.peers.get_peer_id(peer_index)
     }
 
@@ -383,19 +386,18 @@ impl PeersRegistry {
         peer_index
     }
 
-    #[allow(clippy::needless_lifetimes)]
     #[inline]
-    pub fn peers_iter<'a>(&'a self) -> impl Iterator<Item = (&'a PeerId, &'a PeerConnection)> {
+    pub fn peers_iter(&self) -> impl Iterator<Item = (&PeerId, &PeerConnection)> {
         self.peers.iter()
     }
 
     #[inline]
-    pub fn get<'a>(&'a self, peer_id: &PeerId) -> Option<&'a PeerConnection> {
+    pub fn get(&self, peer_id: &PeerId) -> Option<&PeerConnection> {
         self.peers.get(peer_id)
     }
 
     #[inline]
-    pub fn get_mut<'a>(&'a mut self, peer_id: &PeerId) -> Option<&'a mut PeerConnection> {
+    pub fn get_mut(&mut self, peer_id: &PeerId) -> Option<&mut PeerConnection> {
         self.peers.get_mut(peer_id)
     }
 
@@ -424,8 +426,8 @@ impl PeersRegistry {
     }
 
     #[inline]
-    pub fn connected_peers_indexes<'a>(&'a self) -> impl Iterator<Item = PeerIndex> + 'a {
-        Box::new(self.peers.peer_id_by_index.iter().map(|(k, _v)| *k))
+    pub fn connected_peers_indexes(&self) -> impl Iterator<Item = PeerIndex> + '_ {
+        self.peers.peer_id_by_index.iter().map(|(k, _v)| *k)
     }
 
     #[inline]
@@ -436,6 +438,6 @@ impl PeersRegistry {
     #[inline]
     pub fn drop_all(&mut self) {
         debug!(target: "network", "drop_all");
-        self.peers = Default::default();
+        self.peers.clear()
     }
 }

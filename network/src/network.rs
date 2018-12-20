@@ -62,7 +62,7 @@ impl PeerInfo {
     }
 
     #[inline]
-    pub fn is_incoming(&self) -> bool {
+    pub fn is_inbound(&self) -> bool {
         !self.is_outbound()
     }
 }
