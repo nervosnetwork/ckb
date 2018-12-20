@@ -69,7 +69,7 @@ impl PeerInfo {
 
 pub struct Network {
     peers_registry: RwLock<PeersRegistry>,
-    peer_store: Arc<RwLock<Box<PeerStore>>>,
+    peer_store: Arc<RwLock<dyn PeerStore>>,
     pub(crate) listened_addresses: RwLock<Vec<Multiaddr>>,
     pub(crate) original_listened_addresses: RwLock<Vec<Multiaddr>>,
     pub(crate) ckb_protocols: CKBProtocols<Arc<CKBProtocolHandler>>,
@@ -181,7 +181,7 @@ impl Network {
     }
 
     #[inline]
-    pub(crate) fn peer_store<'a>(&'a self) -> &'a RwLock<Box<PeerStore>> {
+    pub(crate) fn peer_store(&self) -> &RwLock<dyn PeerStore> {
         &self.peer_store
     }
 
@@ -475,13 +475,13 @@ impl Network {
             None => return Err(ErrorKind::Other("secret_key not set".to_owned()).into()),
         };
         let listened_addresses = config.public_addresses.clone();
-        let peer_store: Arc<RwLock<Box<PeerStore>>> = {
+        let peer_store: Arc<RwLock<dyn PeerStore>> = {
             let mut peer_store = MemoryPeerStore::new(Default::default());
             let bootnodes = config.bootnodes()?;
             for (peer_id, addr) in bootnodes {
                 peer_store.add_bootnode(peer_id, addr);
             }
-            Arc::new(RwLock::new(Box::new(peer_store)))
+            Arc::new(RwLock::new(peer_store))
         };
         let reserved_peers = config
             .reserved_peers()?

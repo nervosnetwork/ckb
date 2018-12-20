@@ -100,12 +100,13 @@ pub trait PeerStore: Send + Sync {
     fn peer_score(&self, peer_id: &PeerId) -> Option<Score>;
     fn add_bootnode(&mut self, peer_id: PeerId, addr: Multiaddr);
     // should return high scored nodes if possible, otherwise, return boostrap nodes
-    fn bootnodes<'a>(&'a self) -> Box<Iterator<Item = (&'a PeerId, &'a Multiaddr)> + 'a>;
+    fn bootnodes<'a>(&'a self) -> Box<dyn Iterator<Item = (&'a PeerId, &'a Multiaddr)> + 'a>;
     fn peer_addrs<'a>(
         &'a self,
         peer_id: &'a PeerId,
-    ) -> Option<Box<Iterator<Item = &'a Multiaddr> + 'a>>;
-    fn peers_to_attempt<'a>(&'a self) -> Box<Iterator<Item = (&'a PeerId, &'a Multiaddr)> + 'a>;
+    ) -> Option<Box<dyn Iterator<Item = &'a Multiaddr> + 'a>>;
+    fn peers_to_attempt<'a>(&'a self)
+        -> Box<dyn Iterator<Item = (&'a PeerId, &'a Multiaddr)> + 'a>;
     fn ban_peer(&mut self, peer_id: PeerId, timeout: Duration);
     fn is_banned(&self, peer_id: &PeerId) -> bool;
     fn scoring_schema(&self) -> &ScoringSchema;
