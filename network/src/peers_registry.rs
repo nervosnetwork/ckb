@@ -153,7 +153,7 @@ pub struct ConnectionStatus {
 
 pub(crate) struct PeersRegistry {
     // store all known peers
-    peer_store: Arc<RwLock<Box<PeerStore>>>,
+    peer_store: Arc<RwLock<dyn PeerStore>>,
     peers: PeerConnections,
     // max inbound limitation
     max_inbound: u32,
@@ -194,7 +194,7 @@ where
 
 impl PeersRegistry {
     pub fn new(
-        peer_store: Arc<RwLock<Box<PeerStore>>>,
+        peer_store: Arc<RwLock<dyn PeerStore>>,
         max_inbound: u32,
         max_outbound: u32,
         reserved_only: bool,

@@ -134,7 +134,7 @@ impl PeerStore for MemoryPeerStore {
         self.add_peer(peer_id, vec![addr]);
     }
 
-    fn bootnodes<'a>(&'a self) -> Box<Iterator<Item = (&'a PeerId, &'a Multiaddr)> + 'a> {
+    fn bootnodes<'a>(&'a self) -> Box<dyn Iterator<Item = (&'a PeerId, &'a Multiaddr)> + 'a> {
         let mut bootnodes = self
             .peers_to_attempt()
             .chain(self.bootnodes.iter().map(|(peer_id, addr)| (peer_id, addr)))
@@ -147,7 +147,7 @@ impl PeerStore for MemoryPeerStore {
     fn peer_addrs<'a>(
         &'a self,
         peer_id: &'a PeerId,
-    ) -> Option<Box<Iterator<Item = &'a Multiaddr> + 'a>> {
+    ) -> Option<Box<dyn Iterator<Item = &'a Multiaddr> + 'a>> {
         let iter = match self.peers.get(peer_id) {
             Some(peer) => peer.addresses.iter(),
             None => return None,
@@ -155,7 +155,9 @@ impl PeerStore for MemoryPeerStore {
         Some(Box::new(iter) as Box<_>)
     }
 
-    fn peers_to_attempt<'a>(&'a self) -> Box<Iterator<Item = (&'a PeerId, &'a Multiaddr)> + 'a> {
+    fn peers_to_attempt<'a>(
+        &'a self,
+    ) -> Box<dyn Iterator<Item = (&'a PeerId, &'a Multiaddr)> + 'a> {
         trace!(
         target: "network",
         "try fetch attempt peers from {:?}",

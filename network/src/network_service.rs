@@ -9,7 +9,6 @@ use ckb_util::RwLock;
 use futures::future::Future;
 use futures::sync::oneshot;
 use log::{debug, info};
-use std::boxed::Box;
 use std::io::{Error as IoError, ErrorKind as IoErrorKind};
 use std::sync::Arc;
 use std::thread;
@@ -35,7 +34,7 @@ impl NetworkService {
 
     #[allow(dead_code)]
     #[inline]
-    pub(crate) fn peer_store<'a>(&'a self) -> &'a RwLock<Box<PeerStore>> {
+    pub(crate) fn peer_store(&self) -> &RwLock<dyn PeerStore> {
         &self.network.peer_store()
     }
 

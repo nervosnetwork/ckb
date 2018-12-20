@@ -41,7 +41,6 @@ impl<T: Send + 'static> ProtocolService<T> for OutboundPeerService {
     }
 
     // Periodicly connect to new peers
-    #[allow(clippy::let_and_return)]
     fn start_protocol<SwarmTran, Tran, TranOut>(
         &self,
         network: Arc<Network>,

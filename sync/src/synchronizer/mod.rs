@@ -1034,7 +1034,7 @@ mod tests {
                 peer_id: random_peer_id().unwrap(),
                 endpoint_role: Endpoint::Dialer,
                 last_ping_time: None,
-                connected_addr: "/ip4/127.0.0.1".to_multiaddr().except("parse multiaddr"),
+                connected_addr: "/ip4/127.0.0.1".to_multiaddr().expect("parse multiaddr"),
                 identify_info: None,
             },
             protocol_version: None,
