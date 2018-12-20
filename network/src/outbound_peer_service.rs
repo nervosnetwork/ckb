@@ -18,12 +18,12 @@ use std::usize;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::timer::Interval;
 
-pub struct OutgoingService {
-    pub outgoing_interval: Duration,
+pub struct OutboundPeerService {
+    pub try_connect_interval: Duration,
     pub timeout: Duration,
 }
 
-impl<T: Send + 'static> ProtocolService<T> for OutgoingService {
+impl<T: Send + 'static> ProtocolService<T> for OutboundPeerService {
     type Output = ();
     fn convert_to_protocol(
         _peer_id: Arc<PeerId>,
@@ -41,7 +41,6 @@ impl<T: Send + 'static> ProtocolService<T> for OutgoingService {
     }
 
     // Periodicly connect to new peers
-    #[allow(clippy::let_and_return)]
     fn start_protocol<SwarmTran, Tran, TranOut>(
         &self,
         network: Arc<Network>,
@@ -68,14 +67,14 @@ impl<T: Send + 'static> ProtocolService<T> for OutgoingService {
         Tran::IncomingUpgrade: Send,
         TranOut: AsyncRead + AsyncWrite + Send + 'static,
     {
-        let outgoing_future = Interval::new(
+        let outbound_future = Interval::new(
             Instant::now() + Duration::from_secs(5),
-            self.outgoing_interval,
+            self.try_connect_interval,
         )
         .map_err(|err| {
             IoError::new(
                 IoErrorKind::Other,
-                format!("outgoing service error {:?}", err),
+                format!("outbound peer service error {:?}", err),
             )
         })
         .for_each({
@@ -84,14 +83,14 @@ impl<T: Send + 'static> ProtocolService<T> for OutgoingService {
             let network = Arc::clone(&network);
             move |_| {
                 let connection_status = network.connection_status();
-                let new_outgoing = (connection_status.max_outgoing
-                    - connection_status.unreserved_outgoing)
+                let new_outbound = (connection_status.max_outbound
+                    - connection_status.unreserved_outbound)
                     as usize;
-                if new_outgoing > 0 {
+                if new_outbound > 0 {
                     let peer_store = network.peer_store().read();
                     for (peer_id, addr) in peer_store
                         .peers_to_attempt()
-                        .take(new_outgoing)
+                        .take(new_outbound)
                         .filter_map(|(peer_id, addr)| {
                             if network.local_peer_id() != peer_id {
                                 Some((peer_id.clone(), addr.clone()))
@@ -114,9 +113,9 @@ impl<T: Send + 'static> ProtocolService<T> for OutgoingService {
             }
         })
         .then(|err| {
-            warn!(target: "network", "Outgoing service stopped, reason: {:?}", err);
+            warn!(target: "network", "Outbound peer service stopped, reason: {:?}", err);
             err
         });
-        Box::new(outgoing_future) as Box<Future<Item = _, Error = _> + Send>
+        Box::new(outbound_future) as Box<Future<Item = _, Error = _> + Send>
     }
 }

@@ -3,15 +3,12 @@ use crate::ckb_protocol_handler::CKBProtocolHandler;
 use crate::ckb_protocol_handler::{CKBProtocolContext, DefaultCKBProtocolContext};
 use crate::network::Network;
 use crate::peer_store::PeerStore;
-use crate::peers_registry::PeerConnection;
 use crate::NetworkConfig;
 use crate::{Error, ErrorKind, ProtocolId};
 use ckb_util::RwLock;
 use futures::future::Future;
 use futures::sync::oneshot;
-use libp2p::core::PeerId;
 use log::{debug, info};
-use std::boxed::Box;
 use std::io::{Error as IoError, ErrorKind as IoErrorKind};
 use std::sync::Arc;
 use std::thread;
@@ -37,13 +34,8 @@ impl NetworkService {
 
     #[allow(dead_code)]
     #[inline]
-    pub(crate) fn peer_store<'a>(&'a self) -> &'a RwLock<Box<PeerStore>> {
+    pub(crate) fn peer_store(&self) -> &RwLock<dyn PeerStore> {
         &self.network.peer_store()
-    }
-
-    #[inline]
-    pub fn add_peer(&self, peer_id: PeerId, peer: PeerConnection) {
-        self.network.add_peer(peer_id, peer);
     }
 
     pub fn with_protocol_context<F, T>(&self, protocol_id: ProtocolId, f: F) -> Option<T>
