@@ -537,9 +537,10 @@ dependencies = [
  "flatbuffers 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "jsonrpc-core 9.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "jsonrpc-http-server 9.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "jsonrpc-macros 9.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "jsonrpc-macros 9.0.0 (git+https://github.com/nervosnetwork/jsonrpc.git?branch=2018-edition)",
  "jsonrpc-server-utils 9.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
+ "num_cpus 1.9.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "numext-fixed-hash 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.82 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.82 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1325,7 +1326,7 @@ dependencies = [
 [[package]]
 name = "jsonrpc-macros"
 version = "9.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
+source = "git+https://github.com/nervosnetwork/jsonrpc.git?branch=2018-edition#e1a57c96219d72c1ba4e6a81d5b40981f728c0e1"
 dependencies = [
  "jsonrpc-core 9.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "jsonrpc-pubsub 9.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -3529,7 +3530,7 @@ dependencies = [
 "checksum jsonrpc 0.10.2 (git+https://github.com/quake/rust-jsonrpc)" = "<none>"
 "checksum jsonrpc-core 9.0.0 (registry+https://github.com/rust-lang/crates.io-index)" = "4e9cbeda300803d381390fb65e8158437728c39e6987ed23bee82728b73511a7"
 "checksum jsonrpc-http-server 9.0.0 (registry+https://github.com/rust-lang/crates.io-index)" = "385c2da14e89d4eae5fc48f75f4f1c260546356cfc29dd2d0e3a7a4f7684240e"
-"checksum jsonrpc-macros 9.0.0 (registry+https://github.com/rust-lang/crates.io-index)" = "8c9d25aa2af560453ffa9194e83bfc84b71dc9b1a1df6d2d2ba2a5167ce08077"
+"checksum jsonrpc-macros 9.0.0 (git+https://github.com/nervosnetwork/jsonrpc.git?branch=2018-edition)" = "<none>"
 "checksum jsonrpc-pubsub 9.0.0 (registry+https://github.com/rust-lang/crates.io-index)" = "37f809dddaf749229508c97efc8dcd7f3375a883ecbaedd6a9563eaff8b0e6d9"
 "checksum jsonrpc-server-utils 9.0.0 (registry+https://github.com/rust-lang/crates.io-index)" = "af60edf0926da92ddc453f55fcd02f461ea6efaa1d7ceb7334424ff261e379a7"
 "checksum kernel32-sys 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)" = "7507624b29483431c0ba2d82aece8ca6cdba9382bff4ddd0f7490560c056098d"

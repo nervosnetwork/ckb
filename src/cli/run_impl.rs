@@ -95,7 +95,7 @@ pub fn run(setup: Setup) {
 
     setup_rpc(
         rpc_server,
-        Arc::clone(&pow_engine),
+        &pow_engine,
         Arc::clone(&network),
         shared,
         tx_pool_controller,
@@ -108,10 +108,9 @@ pub fn run(setup: Setup) {
     info!(target: "main", "Finishing work, please wait...");
 }
 
-#[cfg(feature = "integration_test")]
 fn setup_rpc<CI: ChainIndex + 'static>(
     server: RpcServer,
-    pow: Arc<dyn PowEngine>,
+    pow: &Arc<dyn PowEngine>,
     network: Arc<NetworkService>,
     shared: Shared<CI>,
     tx_pool: TransactionPoolController,
@@ -120,34 +119,15 @@ fn setup_rpc<CI: ChainIndex + 'static>(
 ) {
     use ckb_pow::Clicker;
 
-    let pow = pow.as_ref().as_any();
-
-    let pow = match pow.downcast_ref::<Clicker>() {
-        Some(pow) => Arc::new(pow.clone()),
-        None => panic!("pow isn't a Clicker!"),
-    };
+    let pow = pow
+        .as_ref()
+        .as_any()
+        .downcast_ref::<Clicker>()
+        .map(|pow| Arc::new(pow.clone()));
 
     let _ = thread::Builder::new().name("rpc".to_string()).spawn({
         move || {
-            server.start(network, shared, tx_pool, pow, chain, agent);
-        }
-    });
-}
-
-#[cfg(not(feature = "integration_test"))]
-#[allow(clippy::needless_pass_by_value)]
-fn setup_rpc<CI: ChainIndex + 'static>(
-    server: RpcServer,
-    _pow: Arc<dyn PowEngine>,
-    network: Arc<NetworkService>,
-    shared: Shared<CI>,
-    tx_pool: TransactionPoolController,
-    chain: ChainController,
-    agent: AgentController,
-) {
-    let _ = thread::Builder::new().name("rpc".to_string()).spawn({
-        move || {
-            server.start(network, shared, tx_pool, chain, agent);
+            server.start(network, shared, tx_pool, chain, agent, pow);
         }
     });
 }
