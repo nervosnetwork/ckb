@@ -26,12 +26,12 @@ pub const DEBUG_PRINT_SYSCALL_NUMBER: u64 = 2177;
 
 #[derive(Debug, PartialEq, Clone, Copy, Eq)]
 enum CellField {
-    Capacity,
-    Data,
-    DataHash,
-    LockHash,
-    Contract,
-    ContractHash,
+    Capacity = 0,
+    Data = 1,
+    DataHash = 2,
+    LockHash = 3,
+    Contract = 4,
+    ContractHash = 5,
 }
 
 impl CellField {
@@ -50,8 +50,8 @@ impl CellField {
 
 #[derive(Debug, PartialEq, Clone, Copy, Eq)]
 enum InputField {
-    Unlock,
-    OutPoint,
+    Unlock = 0,
+    OutPoint = 1,
 }
 
 impl InputField {
@@ -66,10 +66,10 @@ impl InputField {
 
 #[derive(Debug, PartialEq, Clone, Copy, Eq)]
 enum Source {
-    Input,
-    Output,
-    Current,
-    Dep,
+    Current = 0,
+    Input = 1,
+    Output = 2,
+    Dep = 3,
 }
 
 impl Source {
@@ -218,7 +218,7 @@ mod tests {
         machine.registers_mut()[A1] = size_addr; // size_addr
         machine.registers_mut()[A2] = 0; // offset
         machine.registers_mut()[A3] = 1; //index
-        machine.registers_mut()[A4] = 1; //source: 1 input
+        machine.registers_mut()[A4] = Source::Input as u64; //source: 1 input
         machine.registers_mut()[A7] = LOAD_CELL_SYSCALL_NUMBER; // syscall number
 
         assert!(machine
@@ -258,7 +258,7 @@ mod tests {
         machine.registers_mut()[A1] = size_addr; // size_addr
         machine.registers_mut()[A2] = 0; // offset
         machine.registers_mut()[A3] = 0; //index
-        machine.registers_mut()[A4] = 1; //source: 1 input
+        machine.registers_mut()[A4] = Source::Input as u64; //source: 1 input
         machine.registers_mut()[A7] = LOAD_CELL_SYSCALL_NUMBER; // syscall number
 
         let output = CellOutput::new(100, data.clone(), H256::zero(), None);
@@ -307,7 +307,7 @@ mod tests {
         // test output
         machine.registers_mut()[A0] = addr; // addr
         machine.registers_mut()[A1] = size_addr; // size_addr
-        machine.registers_mut()[A4] = 2; //source: 2 output
+        machine.registers_mut()[A4] = Source::Output as u64; //source: 2 output
         assert!(machine
             .memory_mut()
             .store64(size_addr as usize, output_correct_data.len() as u64 + 10)
@@ -342,7 +342,7 @@ mod tests {
         machine.registers_mut()[A1] = size_addr; // size_addr
         machine.registers_mut()[A2] = 0; // offset
         machine.registers_mut()[A3] = 0; //index
-        machine.registers_mut()[A4] = 1; //source: 1 input
+        machine.registers_mut()[A4] = Source::Input as u64; //source: 1 input
         machine.registers_mut()[A7] = LOAD_CELL_SYSCALL_NUMBER; // syscall number
 
         let output = CellOutput::new(100, data.clone(), H256::zero(), None);
@@ -390,7 +390,7 @@ mod tests {
         machine.registers_mut()[A1] = size_addr; // size_addr
         machine.registers_mut()[A2] = offset as u64; // offset
         machine.registers_mut()[A3] = 0; // index
-        machine.registers_mut()[A4] = 1; // source: 1 input
+        machine.registers_mut()[A4] = Source::Input as u64; // source: 1 input
         machine.registers_mut()[A7] = LOAD_CELL_SYSCALL_NUMBER; // syscall number
 
         let output = CellOutput::new(100, data.clone(), H256::zero(), None);
@@ -444,7 +444,7 @@ mod tests {
         machine.registers_mut()[A1] = size_addr; // size_addr
         machine.registers_mut()[A2] = 0; // offset
         machine.registers_mut()[A3] = 1000; //index
-        machine.registers_mut()[A4] = 0; //source: 0 current
+        machine.registers_mut()[A4] = Source::Current as u64; //source: 0 current
         machine.registers_mut()[A7] = LOAD_CELL_SYSCALL_NUMBER; // syscall number
 
         let input_cell = CellOutput::new(
@@ -498,8 +498,8 @@ mod tests {
         machine.registers_mut()[A1] = size_addr; // size_addr
         machine.registers_mut()[A2] = 0; // offset
         machine.registers_mut()[A3] = 0; //index
-        machine.registers_mut()[A4] = 1; //source: 1 input
-        machine.registers_mut()[A5] = 0; //field: 0 capacity
+        machine.registers_mut()[A4] = Source::Input as u64; //source: 1 input
+        machine.registers_mut()[A5] = CellField::Capacity as u64; //field: 0 capacity
         machine.registers_mut()[A7] = LOAD_CELL_BY_FIELD_SYSCALL_NUMBER; // syscall number
 
         let input_cell = CellOutput::new(capacity, vec![], H256::zero(), None);
@@ -539,8 +539,8 @@ mod tests {
         machine.registers_mut()[A1] = size_addr; // size_addr
         machine.registers_mut()[A2] = 0; // offset
         machine.registers_mut()[A3] = 0; //index
-        machine.registers_mut()[A4] = 0; //source: 0 current
-        machine.registers_mut()[A5] = 3; //field: 3 lock hash
+        machine.registers_mut()[A4] = Source::Current as u64; //source: 0 current
+        machine.registers_mut()[A5] = CellField::LockHash as u64; //field: 3 lock hash
         machine.registers_mut()[A7] = LOAD_CELL_BY_FIELD_SYSCALL_NUMBER; // syscall number
 
         let sha3_data = sha3_256(data);
@@ -593,8 +593,8 @@ mod tests {
         machine.registers_mut()[A1] = size_addr; // size_addr
         machine.registers_mut()[A2] = 0; // offset
         machine.registers_mut()[A3] = 0; //index
-        machine.registers_mut()[A4] = 2; //source: 2 output
-        machine.registers_mut()[A5] = 4; //field: 4 contract
+        machine.registers_mut()[A4] = Source::Output as u64; //source: 2 output
+        machine.registers_mut()[A5] = CellField::Contract as u64; //field: 4 contract
         machine.registers_mut()[A7] = LOAD_CELL_BY_FIELD_SYSCALL_NUMBER; // syscall number
 
         let output_cell = CellOutput::new(100, vec![], H256::default(), None);
@@ -627,8 +627,8 @@ mod tests {
         machine.registers_mut()[A1] = size_addr; // size_addr
         machine.registers_mut()[A2] = 0; // offset
         machine.registers_mut()[A3] = 0; //index
-        machine.registers_mut()[A4] = 1; //source: 1 input
-        machine.registers_mut()[A5] = 0; //field: 0 unlock
+        machine.registers_mut()[A4] = Source::Input as u64; //source: 1 input
+        machine.registers_mut()[A5] = InputField::Unlock as u64; //field: 0 unlock
         machine.registers_mut()[A7] = LOAD_INPUT_BY_FIELD_SYSCALL_NUMBER; // syscall number
 
         let unlock = Script::new(0, vec![], None, Some(data), vec![]);
@@ -675,8 +675,8 @@ mod tests {
         machine.registers_mut()[A1] = size_addr; // size_addr
         machine.registers_mut()[A2] = 0; // offset
         machine.registers_mut()[A3] = 0; //index
-        machine.registers_mut()[A4] = 2; //source: 2 output
-        machine.registers_mut()[A5] = 0; //field: 0 unlock
+        machine.registers_mut()[A4] = Source::Output as u64; //source: 2 output
+        machine.registers_mut()[A5] = InputField::Unlock as u64; //field: 0 unlock
         machine.registers_mut()[A7] = LOAD_INPUT_BY_FIELD_SYSCALL_NUMBER; // syscall number
 
         let unlock = Script::new(0, vec![], None, Some(data), vec![]);
@@ -723,8 +723,8 @@ mod tests {
         machine.registers_mut()[A1] = size_addr; // size_addr
         machine.registers_mut()[A2] = 0; // offset
         machine.registers_mut()[A3] = 0; //index
-        machine.registers_mut()[A4] = 0; //source: 0 current
-        machine.registers_mut()[A5] = 1; //field: 1 out_point
+        machine.registers_mut()[A4] = Source::Current as u64; //source: 0 current
+        machine.registers_mut()[A5] = InputField::OutPoint as u64; //field: 1 out_point
         machine.registers_mut()[A7] = LOAD_INPUT_BY_FIELD_SYSCALL_NUMBER; // syscall number
 
         let unlock = Script::new(0, vec![], None, Some(vec![]), vec![]);
@@ -775,8 +775,8 @@ mod tests {
         machine.registers_mut()[A1] = size_addr; // size_addr
         machine.registers_mut()[A2] = 0; // offset
         machine.registers_mut()[A3] = 0; //index
-        machine.registers_mut()[A4] = 0; //source: 0 current
-        machine.registers_mut()[A5] = 1; //field: 1 out_point
+        machine.registers_mut()[A4] = Source::Current as u64; //source: 0 current
+        machine.registers_mut()[A5] = InputField::OutPoint as u64; //field: 1 out_point
         machine.registers_mut()[A7] = LOAD_INPUT_BY_FIELD_SYSCALL_NUMBER; // syscall number
 
         let inputs = vec![];
@@ -803,8 +803,8 @@ mod tests {
         machine.registers_mut()[A1] = size_addr; // size_addr
         machine.registers_mut()[A2] = 0; // offset
         machine.registers_mut()[A3] = 0; //index
-        machine.registers_mut()[A4] = 3; //source: 3 dep
-        machine.registers_mut()[A5] = 1; //field: 1 data
+        machine.registers_mut()[A4] = Source::Dep as u64; //source: 3 dep
+        machine.registers_mut()[A5] = CellField::Data as u64; //field: 1 data
         machine.registers_mut()[A7] = LOAD_CELL_BY_FIELD_SYSCALL_NUMBER; // syscall number
 
         let input_cell = CellOutput::new(1000, vec![], H256::zero(), None);
@@ -848,8 +848,8 @@ mod tests {
         machine.registers_mut()[A1] = size_addr; // size_addr
         machine.registers_mut()[A2] = 0; // offset
         machine.registers_mut()[A3] = 0; //index
-        machine.registers_mut()[A4] = 3; //source: 3 dep
-        machine.registers_mut()[A5] = 2; //field: 2 data hash
+        machine.registers_mut()[A4] = Source::Dep as u64; //source: 3 dep
+        machine.registers_mut()[A5] = CellField::DataHash as u64; //field: 2 data hash
         machine.registers_mut()[A7] = LOAD_CELL_BY_FIELD_SYSCALL_NUMBER; // syscall number
 
         let input_cell = CellOutput::new(1000, vec![], H256::zero(), None);
