@@ -1,6 +1,6 @@
 # get_block
 
-Returns information about a block by hash.
+Returns the information about a block by hash.
 
 ## Parameters
 
@@ -126,11 +126,11 @@ curl -d '{"id": 2, "jsonrpc": "2.0", "method":"get_transaction","params": ["0xbd
 
 # get_block_hash
 
-Returns hash of block in best-block-chain at <index>; index 0 is the genesis block.
+Returns the hash of a block in the best-block-chain by block number; Block of No. 0 is the genesis block.
 
 ## Parameters
 
-    BlockNumber - number of a block.
+    BlockNumber - Number of a block.
 
 ## Examples
 
@@ -148,7 +148,7 @@ curl -d '{"id": 2, "jsonrpc": "2.0", "method":"get_block_hash","params": [1]}' -
 
 # get_tip_header
 
-Returns the information about the longest block chain tip header.
+Returns the information about the tip header of the longest.
 
 ## Examples
 
@@ -181,17 +181,15 @@ curl -d '{"id": 2, "jsonrpc": "2.0", "method":"get_tip_header","params": []}' -H
 }
 ```
 
-
-
 # get_cells_by_type_hash
 
 Returns the information about cells collection by type_hash.
 
 ## Parameters
 
-    type_hash - cell type_hash.
-    from - start BlockNumber.
-    to - end BlockNumber.
+    Type_hash - Cell type_hash.
+    From - Start BlockNumber.
+    To - End BlockNumber.
 
 ## Examples
 
@@ -251,7 +249,7 @@ curl -d '{"id": 2, "jsonrpc": "2.0", "method":"get_cells_by_type_hash","params":
 
 # get_current_cell
 
-Returns the information about cell by out_point.
+Returns the information about a cell by out_point.
 
 ## Parameters
 
@@ -281,7 +279,7 @@ curl -d '{"id": 2, "jsonrpc": "2.0", "method":"get_current_cell","params": [{"ha
 
 # get_tip_block_number
 
-Returns the number of blocks in the longest block chain.
+Returns the number of blocks in the longest blockchain.
 
 ## Examples
 
@@ -299,26 +297,7 @@ curl -d '{"id": 2, "jsonrpc": "2.0", "method":"get_tip_block_number","params": [
 
 # local_node_id
 
-Returns local node id.
-
-## Examples
-
-```shell
-curl -d '{"id": 2, "jsonrpc": "2.0", "method":"local_node_id","params": []}' -H 'content-type:application/json' 'http://localhost:8114'
-```
-
-```json
-{
-    "jsonrpc": "2.0",
-    "result": "/ip4/0.0.0.0/tcp/8115/p2p/QmdSxB6iTcbhj6gbZNthvJrwRkJrwnsohNpVixY4FtcZwv",
-    "id": 2
-}
-```
-
-
-# local_node_id
-
-Returns local node id.
+Returns the local node id.
 
 ## Examples
 
@@ -341,10 +320,11 @@ Creates new transaction.
 ## Parameters
 
 Transaction - The transaction object.
-    version - transaction version.
-    deps - dependent cell
-    inputs - transaction inputs.
-    outputs - transaction outputs.
+
+    Version - Transaction version.
+    Deps - Dependent cells.
+    Inputs - Transaction inputs.
+    Outputs - Transaction outputs.
 
 ## Examples
 
