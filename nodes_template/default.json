@@ -17,7 +17,7 @@
     },
     "network": {
         "listen_addresses": ["/ip4/0.0.0.0/tcp/8115"],
-        "boot_nodes": [],
+        "bootnodes": [],
         "reserved_nodes": [],
         "only_reserved_peers": false,
         "min_peers": 4,

@@ -91,7 +91,7 @@ impl RpcServer {
                 AccessControlAllowOrigin::Null,
                 AccessControlAllowOrigin::Any,
             ]))
-            .threads(self.config.threads.unwrap_or_else(|| num_cpus::get()))
+            .threads(self.config.threads.unwrap_or_else(num_cpus::get))
             .start_http(&self.config.listen_address.parse().unwrap())
             .unwrap();
 

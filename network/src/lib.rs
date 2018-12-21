@@ -48,7 +48,7 @@ pub struct Config {
     pub secret_file: Option<String>,
     pub nodes_file: Option<String>,
     /// List of initial node addresses
-    pub boot_nodes: Vec<String>,
+    pub bootnodes: Vec<String>,
     /// List of reserved node addresses.
     pub reserved_nodes: Vec<String>,
     /// The non-reserved peer mode.
@@ -77,7 +77,7 @@ impl From<Config> for NetworkConfig {
         cfg.max_outgoing_peers = config.max_outgoing_peers();
         cfg.max_incoming_peers = config.max_incoming_peers();
         cfg.listen_addresses = config.listen_addresses;
-        cfg.bootnodes = config.boot_nodes;
+        cfg.bootnodes = config.bootnodes;
         cfg.reserved_peers = config.reserved_nodes;
         if let Some(value) = config.non_reserved_mode {
             cfg.reserved_only = match value.as_str() {
