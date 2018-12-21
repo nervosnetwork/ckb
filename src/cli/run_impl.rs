@@ -17,7 +17,6 @@ use ckb_shared::shared::{ChainProvider, Shared, SharedBuilder};
 use ckb_shared::store::ChainKVStore;
 use ckb_sync::{Relayer, Synchronizer, RELAY_PROTOCOL_ID, SYNC_PROTOCOL_ID};
 use crypto::secp::Generator;
-use faster_hex::hex_string;
 use log::info;
 use numext_fixed_hash::H256;
 use serde_json;
@@ -154,13 +153,10 @@ pub fn type_hash(setup: &Setup) {
     let system_cell_data_hash = system_cell_tx.outputs()[0].data_hash();
 
     let script = Script::new(0, vec![], Some(system_cell_data_hash), None, vec![]);
-    println!(
-        "0x{}",
-        hex_string(script.type_hash().as_bytes()).expect("hex string")
-    );
+    println!("{:#x}", script.type_hash());
 }
 
 pub fn keygen() {
     let result: H256 = Generator::new().random_privkey().into();
-    println!("0x{}", hex_string(result.as_bytes()).expect("hex string"));
+    println!("{:#x}", result);
 }
