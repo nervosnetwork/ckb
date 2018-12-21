@@ -2,7 +2,6 @@ use crate::helper::wait_for_exit;
 use crate::Setup;
 use ckb_chain::chain::{ChainBuilder, ChainController};
 use ckb_core::script::Script;
-use ckb_core::transaction::{CellInput, OutPoint, Transaction, TransactionBuilder};
 use ckb_db::diskdb::RocksDB;
 use ckb_miner::{Agent, AgentController};
 use ckb_network::CKBProtocol;
@@ -17,14 +16,11 @@ use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::{ChainProvider, Shared, SharedBuilder};
 use ckb_shared::store::ChainKVStore;
 use ckb_sync::{Relayer, Synchronizer, RELAY_PROTOCOL_ID, SYNC_PROTOCOL_ID};
-use clap::{value_t, ArgMatches};
-use crypto::secp::{Generator, Privkey};
-use faster_hex::{hex_string, hex_to};
-use hash::sha3_256;
+use crypto::secp::Generator;
+use faster_hex::hex_string;
 use log::info;
 use numext_fixed_hash::H256;
 use serde_json;
-use std::io::Write;
 use std::sync::Arc;
 use std::thread;
 
@@ -152,89 +148,19 @@ fn setup_rpc<CI: ChainIndex + 'static>(
     });
 }
 
-pub fn sign(setup: &Setup, matches: &ArgMatches) {
-    let consensus = setup.chain_spec.to_consensus().unwrap();
-    let system_cell_tx = &consensus.genesis_block().commit_transactions()[0];
-    let system_cell_data_hash = system_cell_tx.outputs()[0].data_hash();
-    let system_cell_tx_hash = system_cell_tx.hash();
-    let system_cell_out_point = OutPoint::new(system_cell_tx_hash.clone(), 0);
-
-    let privkey: Privkey = value_t!(matches.value_of("private-key"), H256)
-        .unwrap_or_else(|e| e.exit())
-        .into();
-    let pubkey = privkey.pubkey().unwrap();
-    let json =
-        value_t!(matches.value_of("unsigned-transaction"), String).unwrap_or_else(|e| e.exit());
-    let transaction: Transaction = serde_json::from_str(&json).unwrap();
-    let mut inputs = Vec::new();
-    for unsigned_input in transaction.inputs() {
-        let mut bytes = vec![];
-        for argument in &unsigned_input.unlock.args {
-            bytes.write_all(argument).unwrap();
-        }
-        let hash1 = sha3_256(&bytes);
-        let hash2 = sha3_256(hash1);
-        let signature = privkey.sign_recoverable(&hash2.into()).unwrap();
-        let signature_der = signature.serialize_der();
-        let mut hex_signature = vec![0; signature_der.len() * 2];
-        hex_to(&signature_der, &mut hex_signature).expect("hex signature");
-
-        let mut new_args = vec![hex_signature];
-        new_args.extend_from_slice(&unsigned_input.unlock.args);
-
-        let pubkey_ser = pubkey.serialize();
-        let mut hex_pubkey = vec![0; pubkey_ser.len() * 2];
-        hex_to(&pubkey_ser, &mut hex_pubkey).expect("hex pubkey");
-        let script = Script::new(
-            0,
-            new_args,
-            Some(system_cell_data_hash.clone()),
-            None,
-            vec![hex_pubkey],
-        );
-        let signed_input = CellInput::new(unsigned_input.previous_output.clone(), script);
-        inputs.push(signed_input);
-    }
-    // First, add verify system cell as a dep
-    // Then, sign each input
-    let result = TransactionBuilder::default()
-        .transaction(transaction)
-        .dep(system_cell_out_point)
-        .inputs_clear()
-        .inputs(inputs)
-        .build();
-
-    println!("{}", serde_json::to_string(&result).unwrap());
-}
-
-pub fn type_hash(setup: &Setup, matches: &ArgMatches) {
+pub fn type_hash(setup: &Setup) {
     let consensus = setup.chain_spec.to_consensus().unwrap();
     let system_cell_tx = &consensus.genesis_block().commit_transactions()[0];
     let system_cell_data_hash = system_cell_tx.outputs()[0].data_hash();
 
-    let privkey: Privkey = value_t!(matches.value_of("private-key"), H256)
-        .unwrap_or_else(|e| e.exit())
-        .into();
-    let pubkey = privkey.pubkey().unwrap();
-
-    let pubkey_ser = pubkey.serialize();
-    let mut hex_pubkey = vec![0; pubkey_ser.len() * 2];
-    hex_to(&pubkey_ser, &mut hex_pubkey).expect("hex pubkey");
-
-    let script = Script::new(
-        0,
-        Vec::new(),
-        Some(system_cell_data_hash),
-        None,
-        vec![hex_pubkey],
-    );
+    let script = Script::new(0, vec![], Some(system_cell_data_hash), None, vec![]);
     println!(
-        "{}",
+        "0x{}",
         hex_string(script.type_hash().as_bytes()).expect("hex string")
     );
 }
 
 pub fn keygen() {
     let result: H256 = Generator::new().random_privkey().into();
-    println!("{:?}", result)
+    println!("0x{}", hex_string(result.as_bytes()).expect("hex string"));
 }

@@ -34,7 +34,7 @@
     },
     "miner": {
         "new_transactions_threshold": 8,
-        "type_hash": "0x321c1ca2887fb8eddaaa7e917399f71e63e03a1c83ff75ed12099a01115ea2ff",
+        "type_hash": "0x0da2fe99fe549e082d4ed483c2e968a89ea8d11aabf5d79e5cbf06522de6e674",
         "rpc_url": "http://127.0.0.1:8114/",
         "poll_interval": 5,
         "max_transactions": 10000,

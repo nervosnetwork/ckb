@@ -28,8 +28,7 @@ fn main() {
 
     match matches.subcommand() {
         ("cli", Some(cli_matches)) => match cli_matches.subcommand() {
-            ("sign", Some(sign_matches)) => cli::sign(&setup, sign_matches),
-            ("type_hash", Some(type_hash_matches)) => cli::type_hash(&setup, type_hash_matches),
+            ("type_hash", _) => cli::type_hash(&setup),
             ("keygen", _) => cli::keygen(),
             _ => unreachable!(),
         },

@@ -35,7 +35,6 @@
         "initial_block_reward": 50000
     },
     "system_cells": [
-        {"path": "cells/verify"},
         {"path": "cells/always_success"}
     ],
     "pow": {

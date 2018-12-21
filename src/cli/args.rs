@@ -75,38 +75,13 @@ fn import() -> App<'static, 'static> {
         )
 }
 
-fn arg_private_key() -> Arg<'static, 'static> {
-    Arg::with_name("private-key")
-        .short("p")
-        .long("private-key")
-        .value_name("H256")
-        .help("Specify the private key")
-        .takes_value(true)
-        .required(true)
-}
-
 fn cli() -> App<'static, 'static> {
     SubCommand::with_name("cli")
         .about("Running ckb cli")
         .setting(AppSettings::ArgRequiredElseHelp)
         .subcommand(
-            SubCommand::with_name("sign")
-                .about("Sign transaction using sha3-secp256k1 defined in system cell")
-                .arg(arg_private_key())
-                .arg(
-                    Arg::with_name("unsigned-transaction")
-                        .short("u")
-                        .long("unsigned-transaction")
-                        .value_name("JSON")
-                        .help("Specify the unsigned transaction json string")
-                        .takes_value(true)
-                        .required(true),
-                ),
-        )
-        .subcommand(
             SubCommand::with_name("type_hash")
-                .about("Generate script type hash using sha3-secp256k1 defined in system cell")
-                .arg(arg_private_key()),
+                .about("Generate lock script type hash using the first system cell, which by default is always_success"),
         )
         .subcommand(SubCommand::with_name("keygen").about("Generate new key"))
 }
