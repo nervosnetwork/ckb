@@ -13,20 +13,26 @@ pub trait NetworkGroup {
     fn network_group(&self) -> Group;
 }
 
-fn extract_ip_addr(addr: &Multiaddr) -> Option<IpAddr> {
-    for addr_component in addr {
-        match addr_component {
-            AddrComponent::IP4(ipv4) => return Some(IpAddr::V4(ipv4)),
-            AddrComponent::IP6(ipv6) => return Some(IpAddr::V6(ipv6)),
-            _ => (),
+pub trait MultiaddrExt {
+    fn extract_ip_addr(&self) -> Option<IpAddr>;
+}
+
+impl MultiaddrExt for Multiaddr {
+    fn extract_ip_addr(&self) -> Option<IpAddr> {
+        for addr_component in self {
+            match addr_component {
+                AddrComponent::IP4(ipv4) => return Some(IpAddr::V4(ipv4)),
+                AddrComponent::IP6(ipv6) => return Some(IpAddr::V6(ipv6)),
+                _ => (),
+            }
         }
+        None
     }
-    None
 }
 
 impl NetworkGroup for Multiaddr {
     fn network_group(&self) -> Group {
-        if let Some(ip_addr) = extract_ip_addr(self) {
+        if let Some(ip_addr) = self.extract_ip_addr() {
             if ip_addr.is_loopback() {
                 return Group::LocalNetwork;
             }

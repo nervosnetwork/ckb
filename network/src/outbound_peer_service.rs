@@ -89,8 +89,8 @@ impl<T: Send + 'static> ProtocolService<T> for OutboundPeerService {
                 if new_outbound > 0 {
                     let peer_store = network.peer_store().read();
                     for (peer_id, addr) in peer_store
-                        .peers_to_attempt()
-                        .take(new_outbound)
+                        .peers_to_attempt(new_outbound)
+                        .iter()
                         .filter_map(|(peer_id, addr)| {
                             if network.local_peer_id() != peer_id {
                                 Some((peer_id.clone(), addr.clone()))

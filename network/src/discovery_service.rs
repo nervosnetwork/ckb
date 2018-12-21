@@ -30,6 +30,8 @@ use tokio::spawn;
 use tokio::timer::Interval;
 use tokio::timer::Timeout;
 
+const TRY_ADDRS_COUNT: usize = 3;
+
 pub(crate) struct DiscoveryService {
     timeout: Duration,
     pub(crate) kad_system: Arc<kad::KadSystem>,
@@ -226,10 +228,7 @@ impl DiscoveryService {
                         }
                     } else {
                         let peer_store = network.peer_store().read();
-                        let multiaddrs = match peer_store
-                            .peer_addrs(&peer_id)
-                            .map(|i| i.take(10).map(|addr| addr.to_owned()).collect::<Vec<_>>())
-                        {
+                        let multiaddrs = match peer_store.peer_addrs(&peer_id, TRY_ADDRS_COUNT) {
                             Some(addrs) => addrs,
                             None => Vec::new(),
                         };
@@ -390,13 +389,13 @@ where
             return;
         }
         let peer_store = self.network.peer_store().read();
-        if let Some(addrs) = peer_store.peer_addrs(&peer_id) {
+        if let Some(addrs) = peer_store.peer_addrs(&peer_id, TRY_ADDRS_COUNT) {
             for addr in addrs {
                 // dial by kad_manage
                 if kad_manage
                     .ensure_connection(
                         peer_id.clone(),
-                        addr,
+                        &addr,
                         self.transport.clone(),
                         &self.swarm_controller,
                     )

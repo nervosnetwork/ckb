@@ -1,6 +1,5 @@
 use crate::{
-    memory_peer_store::MemoryPeerStore,
-    peer_store::{Behaviour, PeerStore},
+    peer_store::{Behaviour, PeerStore, SqlitePeerStore},
     peers_registry::{PeersRegistry, EVICTION_PROTECT_PEERS},
     random_peer_id, ToMultiaddr,
 };
@@ -9,10 +8,13 @@ use faketime::unix_time_as_millis;
 use std::default::Default;
 use std::sync::Arc;
 
+fn new_peer_store() -> impl PeerStore {
+    SqlitePeerStore::default()
+}
+
 #[test]
 fn test_accept_inbound_peer_in_reserve_only_mode() {
-    let peer_store: Arc<RwLock<dyn PeerStore>> =
-        Arc::new(RwLock::new(MemoryPeerStore::new(Default::default())));
+    let peer_store: Arc<RwLock<dyn PeerStore>> = Arc::new(RwLock::new(new_peer_store()));
     let reserved_peer = random_peer_id().unwrap();
     let addr = "/ip4/127.0.0.1".to_multiaddr().unwrap();
 
@@ -34,8 +36,7 @@ fn test_accept_inbound_peer_in_reserve_only_mode() {
 
 #[test]
 fn test_accept_inbound_peer_until_full() {
-    let peer_store: Arc<RwLock<dyn PeerStore>> =
-        Arc::new(RwLock::new(MemoryPeerStore::new(Default::default())));
+    let peer_store: Arc<RwLock<dyn PeerStore>> = Arc::new(RwLock::new(new_peer_store()));
     let reserved_peer = random_peer_id().unwrap();
     let addr = "/ip4/127.0.0.1".to_multiaddr().unwrap();
     // accept node until inbound connections is full
@@ -74,8 +75,7 @@ fn test_accept_inbound_peer_eviction() {
     // 1. should evict from largest network groups
     // 2. should never evict reserved peer
     // 3. should evict lowest scored peer
-    let peer_store: Arc<RwLock<dyn PeerStore>> =
-        Arc::new(RwLock::new(MemoryPeerStore::new(Default::default())));
+    let peer_store: Arc<RwLock<dyn PeerStore>> = Arc::new(RwLock::new(new_peer_store()));
     let reserved_peer = random_peer_id().unwrap();
     let evict_target = random_peer_id().unwrap();
     let lowest_score_peer = random_peer_id().unwrap();

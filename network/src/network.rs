@@ -6,9 +6,9 @@ use crate::ckb_protocol_handler::DefaultCKBProtocolContext;
 use crate::ckb_service::CKBService;
 use crate::discovery_service::{DiscoveryQueryService, DiscoveryService, KadManage};
 use crate::identify_service::IdentifyService;
-use crate::memory_peer_store::MemoryPeerStore;
 use crate::outbound_peer_service::OutboundPeerService;
 use crate::peer_store::PeerStore;
+use crate::peer_store::SqlitePeerStore;
 use crate::peers_registry::{ConnectionStatus, PeerConnection, PeerIdentifyInfo, PeersRegistry};
 use crate::ping_service::PingService;
 use crate::protocol::Protocol;
@@ -150,11 +150,7 @@ impl Network {
 
     pub(crate) fn get_peer_addresses(&self, peer_id: &PeerId) -> Vec<Multiaddr> {
         let peer_store = self.peer_store.read();
-        let addrs = peer_store.peer_addrs(&peer_id).map(|i| {
-            i.take(PEER_ADDRS_COUNT)
-                .map(|addr| addr.to_owned())
-                .collect::<Vec<_>>()
-        });
+        let addrs = peer_store.peer_addrs(&peer_id, PEER_ADDRS_COUNT);
         addrs.unwrap_or_default()
     }
 
@@ -174,9 +170,9 @@ impl Network {
     }
 
     #[inline]
-    pub(crate) fn ban_peer(&self, peer_id: PeerId, timeout: Duration) {
+    pub(crate) fn ban_peer(&self, peer_id: &PeerId, timeout: Duration) {
         let mut peers_registry = self.peers_registry.write();
-        peers_registry.drop_peer(&peer_id);
+        peers_registry.drop_peer(peer_id);
         self.peer_store.write().ban_peer(peer_id, timeout);
     }
 
@@ -476,7 +472,7 @@ impl Network {
         };
         let listened_addresses = config.public_addresses.clone();
         let peer_store: Arc<RwLock<dyn PeerStore>> = {
-            let mut peer_store = MemoryPeerStore::new(Default::default());
+            let mut peer_store = SqlitePeerStore::default();
             let bootnodes = config.bootnodes()?;
             for (peer_id, addr) in bootnodes {
                 peer_store.add_bootnode(peer_id, addr);
@@ -567,9 +563,9 @@ impl Network {
             let peer_store = network.peer_store().read();
             let known_initial_peers: Box<Iterator<Item = PeerId>> = Box::new(
                 peer_store
-                    .bootnodes()
+                    .bootnodes(100)
+                    .iter()
                     .map(|(peer_id, _)| peer_id.to_owned())
-                    .take(100)
                     .collect::<Vec<_>>()
                     .into_iter(),
             ) as Box<_>;
@@ -710,13 +706,13 @@ impl Network {
             }
 
             let peer_store = network.peer_store().read();
-            // dial bootnodes
-            for (peer_id, addr) in peer_store.bootnodes().take(max_outbound) {
+            // dial half bootnodes
+            for (peer_id, addr) in peer_store.bootnodes(max_outbound / 2) {
                 debug!(target: "network", "dial bootnode {:?} {:?}", peer_id, addr);
                 network.dial_to_peer(
                     basic_transport.clone(),
-                    addr,
-                    peer_id,
+                    &addr,
+                    &peer_id,
                     &swarm_controller,
                     dial_timeout,
                 );

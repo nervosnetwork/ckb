@@ -6,7 +6,6 @@ mod ckb_service;
 mod discovery_service;
 mod errors;
 mod identify_service;
-mod memory_peer_store;
 mod network;
 mod network_config;
 mod network_group;

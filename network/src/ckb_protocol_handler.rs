@@ -91,7 +91,7 @@ impl CKBProtocolContext for DefaultCKBProtocolContext {
     // ban peer
     fn ban_peer(&self, peer_index: PeerIndex, timeout: Duration) {
         if let Some(peer_id) = self.network.get_peer_id(peer_index) {
-            self.network.ban_peer(peer_id, timeout)
+            self.network.ban_peer(&peer_id, timeout)
         }
     }
     // disconnect from peer
