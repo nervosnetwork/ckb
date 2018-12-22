@@ -156,6 +156,12 @@ Update `data_dir` configuration in config file to a different directory.
 "data_dir": "node2"
 ```
 
+or using a simple shell command to modify the config file:
+
+```shell
+ex -sc '%s/"data_dir": "default"/"data_dir": "node2"/|x' nodes/node2.json
+```
+
 Then start the new node using the new config file
 
 ```shell
