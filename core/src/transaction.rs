@@ -106,6 +106,12 @@ pub struct Transaction {
     outputs: Vec<CellOutput>,
 }
 
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct IndexTransaction {
+    pub index: usize,
+    pub transaction: Transaction,
+}
+
 impl CellOutput {
     pub fn bytes_len(&self) -> usize {
         mem::size_of::<Capacity>()

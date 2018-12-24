@@ -6,6 +6,7 @@
 mod config;
 mod relayer;
 mod synchronizer;
+mod types;
 
 #[cfg(test)]
 mod tests;

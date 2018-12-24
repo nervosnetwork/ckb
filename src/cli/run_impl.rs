@@ -61,6 +61,7 @@ pub fn run(setup: Setup) {
         chain_controller.clone(),
         shared.clone(),
         tx_pool_controller.clone(),
+        synchronizer.peers(),
     ));
 
     let network_config = NetworkConfig::from(setup.configs.network);

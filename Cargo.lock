@@ -218,6 +218,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "bloom-filters"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+dependencies = [
+ "rand 0.6.1 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
 name = "bs58"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -591,6 +599,7 @@ name = "ckb-sync"
 version = "0.3.0-pre"
 dependencies = [
  "bitflags 1.0.4 (registry+https://github.com/rust-lang/crates.io-index)",
+ "bloom-filters 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "ckb-chain 0.3.0-pre",
  "ckb-chain-spec 0.3.0-pre",
  "ckb-core 0.3.0-pre",
@@ -3455,6 +3464,7 @@ dependencies = [
 "checksum bitflags 1.0.4 (registry+https://github.com/rust-lang/crates.io-index)" = "228047a76f468627ca71776ecdebd732a3423081fcf5125585bcd7c49886ce12"
 "checksum blake2-rfc 0.2.18 (registry+https://github.com/rust-lang/crates.io-index)" = "5d6d530bdd2d52966a6d03b7a964add7ae1a288d25214066fd4b600f0f796400"
 "checksum block-buffer 0.3.3 (registry+https://github.com/rust-lang/crates.io-index)" = "a076c298b9ecdb530ed9d967e74a6027d6a7478924520acddcddc24c1c8ab3ab"
+"checksum bloom-filters 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)" = "b233192e97c6e528c071bd83180c5d4f35846b9aff4670ea8e05e3ba0daa5e30"
 "checksum bs58 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)" = "0de79cfb98e7aa9988188784d8664b4b5dad6eaaa0863b91d9a4ed871d4f7a42"
 "checksum byte-tools 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)" = "560c32574a12a89ecd91f5e742165893f86e3ab98d21f8ea548658eb9eef5f40"
 "checksum byteorder 0.4.2 (registry+https://github.com/rust-lang/crates.io-index)" = "96c8b41881888cc08af32d47ac4edd52bc7fa27fef774be47a92443756451304"

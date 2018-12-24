@@ -38,7 +38,15 @@ where
             fbb.finish(message, None);
 
             for peer_id in self.nc.connected_peers() {
-                if peer_id != self.peer {
+                if peer_id != self.peer
+                    && self
+                        .relayer
+                        .peers()
+                        .transaction_filters
+                        .read()
+                        .get(&self.peer)
+                        .map_or(true, |filter| filter.contains(&tx))
+                {
                     let _ = self.nc.send(peer_id, fbb.finished_data().to_vec());
                 }
             }

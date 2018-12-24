@@ -1,6 +1,9 @@
-use super::header_view::HeaderView;
+use bloom_filters::{
+    BloomFilter, ClassicBloomFilter, DefaultBuildHashKernels, UpdatableBloomFilter,
+};
 use ckb_core::block::Block;
-use ckb_core::header::Header;
+use ckb_core::header::{BlockNumber, Header};
+use ckb_core::transaction::Transaction;
 use ckb_network::PeerIndex;
 use ckb_shared::shared::TipHeader;
 use ckb_util::RwLock;
@@ -8,15 +11,8 @@ use faketime::unix_time_as_millis;
 use fnv::{FnvHashMap, FnvHashSet};
 use log::debug;
 use numext_fixed_hash::H256;
-
-// const BANSCORE: u32 = 100;
-
-#[derive(Clone, Copy, Debug, PartialEq, Default)]
-pub struct Negotiate {
-    pub prefer_headers: bool,
-    //     pub want_cmpct: bool,
-    //     pub have_witness: bool,
-}
+use numext_fixed_uint::U256;
+use std::hash::{BuildHasher, Hasher};
 
 // State used to enforce CHAIN_SYNC_TIMEOUT
 // Only in effect for outbound, non-manual connections, with
@@ -53,7 +49,6 @@ impl Default for ChainSyncState {
 
 #[derive(Clone, Default, Debug, PartialEq)]
 pub struct PeerState {
-    pub negotiate: Negotiate,
     pub sync_started: bool,
     pub last_block_announcement: Option<u64>, //ms
     pub headers_sync_timeout: Option<u64>,
@@ -61,13 +56,14 @@ pub struct PeerState {
     pub chain_sync: ChainSyncState,
 }
 
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct Peers {
     pub state: RwLock<FnvHashMap<PeerIndex, PeerState>>,
     pub misbehavior: RwLock<FnvHashMap<PeerIndex, u32>>,
     pub blocks_inflight: RwLock<FnvHashMap<PeerIndex, BlocksInflight>>,
     pub best_known_headers: RwLock<FnvHashMap<PeerIndex, HeaderView>>,
     pub last_common_headers: RwLock<FnvHashMap<PeerIndex, Header>>,
+    pub transaction_filters: RwLock<FnvHashMap<PeerIndex, TransactionFilter>>,
 }
 
 #[derive(Debug, Clone)]
@@ -135,7 +131,6 @@ impl Peers {
                 let mut chain_sync = ChainSyncState::default();
                 chain_sync.protect = protect;
                 PeerState {
-                    negotiate: Negotiate::default(),
                     sync_started: false,
                     last_block_announcement: None,
                     headers_sync_timeout: Some(predicted_headers_sync_time),
@@ -191,5 +186,115 @@ impl Peers {
             .entry(peer)
             .and_modify(|last_common_header| *last_common_header = header.clone())
             .or_insert_with(|| header.clone());
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct HeaderView {
+    inner: Header,
+    total_difficulty: U256,
+    total_uncles_count: u64,
+}
+
+impl HeaderView {
+    pub fn new(inner: Header, total_difficulty: U256, total_uncles_count: u64) -> Self {
+        HeaderView {
+            inner,
+            total_difficulty,
+            total_uncles_count,
+        }
+    }
+
+    pub fn number(&self) -> BlockNumber {
+        self.inner.number()
+    }
+
+    pub fn hash(&self) -> H256 {
+        self.inner.hash()
+    }
+
+    pub fn total_uncles_count(&self) -> u64 {
+        self.total_uncles_count
+    }
+
+    pub fn total_difficulty(&self) -> &U256 {
+        &self.total_difficulty
+    }
+
+    pub fn inner(&self) -> &Header {
+        &self.inner
+    }
+
+    pub fn into_inner(self) -> Header {
+        self.inner
+    }
+}
+
+pub struct TransactionFilter {
+    filter: ClassicBloomFilter<DefaultBuildHashKernels<HighLowBytesBuildHasher>>,
+}
+
+impl TransactionFilter {
+    pub fn new(raw_data: &[u8], k: usize, hash_seed: usize) -> Self {
+        Self {
+            filter: ClassicBloomFilter::with_raw_data(
+                raw_data,
+                k,
+                DefaultBuildHashKernels::new(hash_seed, HighLowBytesBuildHasher),
+            ),
+        }
+    }
+
+    pub fn update(&mut self, raw_data: &[u8]) {
+        self.filter.update(raw_data)
+    }
+
+    pub fn insert(&mut self, hash: &H256) {
+        self.filter.insert(hash);
+    }
+
+    pub fn contains(&self, transaction: &Transaction) -> bool {
+        self.filter.contains(&transaction.hash())
+            || transaction.inputs().iter().any(|input| {
+                self.filter.contains(&input.previous_output.hash)
+                    || self.filter.contains(&input.unlock.type_hash())
+            })
+            || transaction
+                .outputs()
+                .iter()
+                .any(|output| self.filter.contains(&output.lock))
+    }
+}
+
+struct HighLowBytesBuildHasher;
+
+impl BuildHasher for HighLowBytesBuildHasher {
+    type Hasher = HighLowBytesHasher;
+
+    fn build_hasher(&self) -> Self::Hasher {
+        HighLowBytesHasher(0)
+    }
+}
+
+/// a hasher which only accepts H256 bytes and use high / low bytes as hash value
+struct HighLowBytesHasher(u64);
+
+impl Hasher for HighLowBytesHasher {
+    fn write(&mut self, bytes: &[u8]) {
+        if bytes.len() == 32 {
+            self.0 = (u64::from(bytes[0]) << 56)
+                + (u64::from(bytes[1]) << 48)
+                + (u64::from(bytes[2]) << 40)
+                + (u64::from(bytes[3]) << 32)
+                + (u64::from(bytes[28]) << 24)
+                + (u64::from(bytes[29]) << 16)
+                + (u64::from(bytes[30]) << 8)
+                + u64::from(bytes[31]);
+        }
+    }
+
+    fn finish(&self) -> u64 {
+        println!("finish {:?}", self.0);
+        self.0
     }
 }

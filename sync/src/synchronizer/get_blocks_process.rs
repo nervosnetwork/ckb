@@ -37,10 +37,21 @@ where
             debug!(target: "sync", "get_blocks {:?}", block_hash);
             if let Some(block) = self.synchronizer.get_block(&block_hash) {
                 debug!(target: "sync", "respond_block {} {:?}", block.header().number(), block.header().hash());
-                let fbb = &mut FlatBufferBuilder::new();
-                let message = SyncMessage::build_block(fbb, &block);
-                fbb.finish(message, None);
-                let _ = self.nc.send(self.peer, fbb.finished_data().to_vec());
+                if let Some(filter) = self.synchronizer.peers.transaction_filters.read().get(&self.peer) {
+                    let transactions_index = block.commit_transactions().iter().enumerate().filter(|(_index, tx)|
+                        filter.contains(tx)
+                    ).map(|ti| ti.0).collect::<Vec<_>>();
+
+                    let fbb = &mut FlatBufferBuilder::new();
+                    let message = SyncMessage::build_filtered_block(fbb, &block, &transactions_index);
+                    fbb.finish(message, None);
+                    let _ = self.nc.send(self.peer, fbb.finished_data().to_vec());
+                } else {
+                    let fbb = &mut FlatBufferBuilder::new();
+                    let message = SyncMessage::build_block(fbb, &block);
+                    fbb.finish(message, None);
+                    let _ = self.nc.send(self.peer, fbb.finished_data().to_vec());
+                }
             } else {
                 // TODO response not found
                 // TODO add timeout check in synchronizer
