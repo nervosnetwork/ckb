@@ -3,7 +3,6 @@
 # [Nervos CKB](https://www.nervos.org/) - The Common Knowledge Base
 
 [![TravisCI](https://travis-ci.com/nervosnetwork/ckb.svg?token=y9uR6ygmT3geQaMJ4jpJ&branch=develop)](https://travis-ci.com/nervosnetwork/ckb)
-[![dependency status](https://deps.rs/repo/github/nervosnetwork/ckb/status.svg)](https://deps.rs/repo/github/nervosnetwork/ckb)
 [![Telegram Group](https://cdn.rawgit.com/Patrolavia/telegram-badge/8fe3382b/chat.svg)](https://t.me/nervos_ckb_dev)
 
 ---
