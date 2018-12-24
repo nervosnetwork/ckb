@@ -167,3 +167,12 @@ impl<'a> From<ckb_protocol::IndexTransaction<'a>> for ckb_core::transaction::Ind
         }
     }
 }
+
+impl<'a> From<ckb_protocol::IndexTransaction<'a>> for ckb_core::transaction::IndexTransaction {
+    fn from(it: ckb_protocol::IndexTransaction<'a>) -> Self {
+        ckb_core::transaction::IndexTransaction {
+            index: it.index() as usize,
+            transaction: it.transaction().unwrap().into(),
+        }
+    }
+}
