@@ -60,8 +60,8 @@ pub struct CellWithStatus {
 impl From<CellStatus> for CellWithStatus {
     fn from(status: CellStatus) -> Self {
         let (cell, status) = match status {
-            CellStatus::Current(cell) => (Some(cell), "current"),
-            CellStatus::Old => (None, "old"),
+            CellStatus::Live(cell) => (Some(cell), "live"),
+            CellStatus::Dead => (None, "dead"),
             CellStatus::Unknown => (None, "unknown"),
         };
         Self {

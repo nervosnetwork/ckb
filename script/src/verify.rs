@@ -29,7 +29,7 @@ impl<'a> TransactionScriptsVerifier<'a> {
             .dep_cells
             .iter()
             .map(|cell| {
-                cell.get_current()
+                cell.get_live()
                     .expect("already verifies that all dep cells are valid")
             })
             .collect();
@@ -48,7 +48,7 @@ impl<'a> TransactionScriptsVerifier<'a> {
             .input_cells
             .iter()
             .map(|cell| {
-                cell.get_current()
+                cell.get_live()
                     .expect("already verifies that all input cells are valid")
             })
             .collect();
@@ -250,7 +250,7 @@ mod tests {
         let rtx = ResolvedTransaction {
             transaction,
             dep_cells: vec![],
-            input_cells: vec![CellStatus::Current(dummy_cell)],
+            input_cells: vec![CellStatus::Live(dummy_cell)],
         };
 
         let verifier = TransactionScriptsVerifier::new(&rtx);
@@ -297,7 +297,7 @@ mod tests {
         let rtx = ResolvedTransaction {
             transaction,
             dep_cells: vec![],
-            input_cells: vec![CellStatus::Current(dummy_cell)],
+            input_cells: vec![CellStatus::Live(dummy_cell)],
         };
 
         let verifier = TransactionScriptsVerifier::new(&rtx);
@@ -351,8 +351,8 @@ mod tests {
 
         let rtx = ResolvedTransaction {
             transaction,
-            dep_cells: vec![CellStatus::Current(dep_cell.clone())],
-            input_cells: vec![CellStatus::Current(dummy_cell)],
+            dep_cells: vec![CellStatus::Live(dep_cell.clone())],
+            input_cells: vec![CellStatus::Live(dummy_cell)],
         };
 
         let verifier = TransactionScriptsVerifier::new(&rtx);
@@ -403,7 +403,7 @@ mod tests {
         let rtx = ResolvedTransaction {
             transaction,
             dep_cells: vec![],
-            input_cells: vec![CellStatus::Current(dummy_cell)],
+            input_cells: vec![CellStatus::Live(dummy_cell)],
         };
 
         let verifier = TransactionScriptsVerifier::new(&rtx);
@@ -460,7 +460,7 @@ mod tests {
         let rtx = ResolvedTransaction {
             transaction,
             dep_cells: vec![],
-            input_cells: vec![CellStatus::Current(dummy_cell)],
+            input_cells: vec![CellStatus::Live(dummy_cell)],
         };
 
         let verifier = TransactionScriptsVerifier::new(&rtx);
@@ -511,7 +511,7 @@ mod tests {
         let rtx = ResolvedTransaction {
             transaction,
             dep_cells: vec![],
-            input_cells: vec![CellStatus::Current(dummy_cell)],
+            input_cells: vec![CellStatus::Live(dummy_cell)],
         };
 
         let verifier = TransactionScriptsVerifier::new(&rtx);

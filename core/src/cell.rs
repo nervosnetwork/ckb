@@ -7,39 +7,39 @@ use std::slice;
 #[derive(Clone, PartialEq, Debug)]
 pub enum CellStatus {
     /// Cell exists and has not been spent.
-    Current(CellOutput),
+    Live(CellOutput),
     /// Cell exists and has been spent.
-    Old,
+    Dead,
     /// Cell does not exist.
     Unknown,
 }
 
 impl CellStatus {
-    pub fn is_current(&self) -> bool {
+    pub fn is_live(&self) -> bool {
         match *self {
-            CellStatus::Current(_) => true,
+            CellStatus::Live(_) => true,
             _ => false,
         }
     }
 
-    pub fn is_old(&self) -> bool {
-        self == &CellStatus::Old
+    pub fn is_dead(&self) -> bool {
+        self == &CellStatus::Dead
     }
 
     pub fn is_unknown(&self) -> bool {
         self == &CellStatus::Unknown
     }
 
-    pub fn get_current(&self) -> Option<&CellOutput> {
+    pub fn get_live(&self) -> Option<&CellOutput> {
         match *self {
-            CellStatus::Current(ref output) => Some(output),
+            CellStatus::Live(ref output) => Some(output),
             _ => None,
         }
     }
 
-    pub fn take_current(self) -> Option<CellOutput> {
+    pub fn take_live(self) -> Option<CellOutput> {
         match self {
-            CellStatus::Current(output) => Some(output),
+            CellStatus::Live(output) => Some(output),
             _ => None,
         }
     }
@@ -68,7 +68,7 @@ pub trait CellProvider {
                 if seen_inputs.insert(input.clone()) {
                     self.cell(input)
                 } else {
-                    CellStatus::Old
+                    CellStatus::Dead
                 }
             })
             .collect();
@@ -80,7 +80,7 @@ pub trait CellProvider {
                 if seen_inputs.insert(dep.clone()) {
                     self.cell(dep)
                 } else {
-                    CellStatus::Old
+                    CellStatus::Dead
                 }
             })
             .collect();
@@ -106,7 +106,7 @@ pub trait CellProvider {
                 if seen_inputs.insert(input.clone()) {
                     self.cell_at(input, parent)
                 } else {
-                    CellStatus::Old
+                    CellStatus::Dead
                 }
             })
             .collect();
@@ -118,7 +118,7 @@ pub trait CellProvider {
                 if seen_inputs.insert(dep.clone()) {
                     self.cell_at(dep, parent)
                 } else {
-                    CellStatus::Old
+                    CellStatus::Dead
                 }
             })
             .collect();
@@ -156,7 +156,7 @@ impl ResolvedTransaction {
     }
 
     pub fn is_double_spend(&self) -> bool {
-        self.cells_iter().any(|state| state.is_old())
+        self.cells_iter().any(|state| state.is_dead())
     }
 
     pub fn is_orphan(&self) -> bool {
@@ -164,7 +164,7 @@ impl ResolvedTransaction {
     }
 
     pub fn is_fully_resolved(&self) -> bool {
-        self.cells_iter().all(|state| state.is_current())
+        self.cells_iter().all(|state| state.is_live())
     }
 }
 
@@ -180,16 +180,16 @@ mod tests {
     impl CellProvider for CellMemoryDb {
         fn cell(&self, o: &OutPoint) -> CellStatus {
             match self.cells.get(o) {
-                Some(&Some(ref cell_output)) => CellStatus::Current(cell_output.clone()),
-                Some(&None) => CellStatus::Old,
+                Some(&Some(ref cell_output)) => CellStatus::Live(cell_output.clone()),
+                Some(&None) => CellStatus::Dead,
                 None => CellStatus::Unknown,
             }
         }
 
         fn cell_at(&self, o: &OutPoint, _: &H256) -> CellStatus {
             match self.cells.get(o) {
-                Some(&Some(ref cell_output)) => CellStatus::Current(cell_output.clone()),
-                Some(&None) => CellStatus::Old,
+                Some(&Some(ref cell_output)) => CellStatus::Live(cell_output.clone()),
+                Some(&None) => CellStatus::Dead,
                 None => CellStatus::Unknown,
             }
         }
@@ -223,8 +223,8 @@ mod tests {
         db.cells.insert(p1.clone(), Some(o.clone()));
         db.cells.insert(p2.clone(), None);
 
-        assert_eq!(CellStatus::Current(o), db.cell(&p1));
-        assert_eq!(CellStatus::Old, db.cell(&p2));
+        assert_eq!(CellStatus::Live(o), db.cell(&p1));
+        assert_eq!(CellStatus::Dead, db.cell(&p2));
         assert_eq!(CellStatus::Unknown, db.cell(&p3));
     }
 }

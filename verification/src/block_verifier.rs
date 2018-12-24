@@ -413,15 +413,15 @@ impl<'a, P: CellProvider> CellProvider for TransactionsVerifierWrapper<'a, P> {
                 .outputs()
                 .get(o.index as usize)
             {
-                Some(x) => CellStatus::Current(x.clone()),
+                Some(x) => CellStatus::Live(x.clone()),
                 None => CellStatus::Unknown,
             }
         } else {
             let chain_cell_state = self.verifier.provider.cell_at(o, parent);
-            if chain_cell_state.is_current() {
-                CellStatus::Current(chain_cell_state.take_current().expect("state checked"))
-            } else if chain_cell_state.is_old() {
-                CellStatus::Old
+            if chain_cell_state.is_live() {
+                CellStatus::Live(chain_cell_state.take_live().expect("state checked"))
+            } else if chain_cell_state.is_dead() {
+                CellStatus::Dead
             } else {
                 CellStatus::Unknown
             }

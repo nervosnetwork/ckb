@@ -58,7 +58,7 @@ curl -d '{"id": 2, "jsonrpc": "2.0", "method":"get_block","params": ["0x7643567c
                     "outputs": [
                         {
                             "capacity": 50000,
-                            "type_": null,
+                            "type": null,
                             "data": [],
                             "lock": "0x321c1ca2887fb8eddaaa7e917399f71e63e03a1c83ff75ed12099a01115ea2ff"
                         }
@@ -111,7 +111,7 @@ curl -d '{"id": 2, "jsonrpc": "2.0", "method":"get_transaction","params": ["0xbd
             "outputs": [
                 {
                     "capacity": 50000,
-                    "type_": null,
+                    "type": null,
                     "data": [],
                     "lock": "0x321c1ca2887fb8eddaaa7e917399f71e63e03a1c83ff75ed12099a01115ea2ff"
                 }
@@ -247,7 +247,7 @@ curl -d '{"id": 2, "jsonrpc": "2.0", "method":"get_cells_by_type_hash","params":
 ```
 
 
-# get_current_cell
+# get_live_cell
 
 Returns the information about a cell by out_point.
 
@@ -258,7 +258,7 @@ Returns the information about a cell by out_point.
 ## Examples
 
 ```shell
-curl -d '{"id": 2, "jsonrpc": "2.0", "method":"get_current_cell","params": [{"hash": "0xbddb7c2559c2c3cdfc8f3cae2697ca75489521c352265cc9e60b4b2416ad5929", "index": 0}]}' -H 'content-type:application/json' 'http://localhost:8114'
+curl -d '{"id": 2, "jsonrpc": "2.0", "method":"get_live_cell","params": [{"hash": "0xbddb7c2559c2c3cdfc8f3cae2697ca75489521c352265cc9e60b4b2416ad5929", "index": 0}]}' -H 'content-type:application/json' 'http://localhost:8114'
 ```
 
 ```json
@@ -267,7 +267,7 @@ curl -d '{"id": 2, "jsonrpc": "2.0", "method":"get_current_cell","params": [{"ha
     "result": {
         "cell": {
             "capacity": 50000,
-            "type_": null,
+            "type": null,
             "data": [],
             "lock": "0x321c1ca2887fb8eddaaa7e917399f71e63e03a1c83ff75ed12099a01115ea2ff"
         },

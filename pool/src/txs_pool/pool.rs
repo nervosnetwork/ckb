@@ -125,8 +125,8 @@ where
 {
     fn cell(&self, o: &OutPoint) -> CellStatus {
         match { self.pool.txo_status(o) } {
-            TxoStatus::Spent => CellStatus::Old,
-            TxoStatus::InPool => CellStatus::Current(self.pool.get_output(o).unwrap()),
+            TxoStatus::Spent => CellStatus::Dead,
+            TxoStatus::InPool => CellStatus::Live(self.pool.get_output(o).unwrap()),
             TxoStatus::Unknown => self.shared.cell(o),
         }
     }
@@ -433,7 +433,7 @@ where
                     CellStatus::Unknown => {
                         unknowns.push(inputs[i].clone());
                     }
-                    CellStatus::Old => {
+                    CellStatus::Dead => {
                         self.cache.insert(tx.proposal_short_id(), tx);
                         return Err(PoolError::DoubleSpent);
                     }
@@ -446,7 +446,7 @@ where
                     CellStatus::Unknown => {
                         unknowns.push(deps[i].clone());
                     }
-                    CellStatus::Old => {
+                    CellStatus::Dead => {
                         self.cache.insert(tx.proposal_short_id(), tx);
                         return Err(PoolError::DoubleSpent);
                     }
