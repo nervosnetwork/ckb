@@ -7,10 +7,10 @@ edition = "2018"
 
 [dependencies]
 ckb-core = { path = "../core" }
-ckb-time = { path = "../util/time" }
 ckb-shared = { path = "../shared" }
 ckb-script = { path = "../script" }
 ckb-pow = { path = "../pow" }
+faketime = "0.2.0"
 merkle-root = {path = "../util/merkle-root"}
 numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 numext-fixed-uint = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
@@ -20,7 +20,6 @@ fnv = "1.0.3"
 [dev-dependencies]
 ckb-db = { path = "../db" }
 ckb-notify = { path = "../notify" }
-ckb-time = { path = "../util/time", features = ["mock_timer"] }
 ckb-chain = { path = "../chain" }
 ckb-chain-spec = { path = "../spec" }
 hash = {path = "../util/hash"}

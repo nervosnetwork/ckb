@@ -8,8 +8,8 @@ use ckb_core::header::Header;
 use ckb_network::PeerIndex;
 use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::{ChainProvider, TipHeader};
-use ckb_time::now_ms;
 use ckb_util::{try_option, RwLockUpgradableReadGuard};
+use faketime::unix_time_as_millis;
 use log::debug;
 use numext_fixed_hash::H256;
 use std::cmp;
@@ -38,7 +38,7 @@ where
             .entry(self.peer)
             .or_insert_with(Default::default);
 
-        if inflight.timestamp < now_ms().saturating_sub(BLOCK_DOWNLOAD_TIMEOUT) {
+        if inflight.timestamp < unix_time_as_millis().saturating_sub(BLOCK_DOWNLOAD_TIMEOUT) {
             debug!(target: "sync", "[block downloader] inflight block download timeout");
             inflight.clear();
         }

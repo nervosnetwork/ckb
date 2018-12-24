@@ -11,9 +11,9 @@ ckb-core = { path = "../core" }
 ckb-shared = { path = "../shared" }
 ckb-chain-spec = { path = "../spec" }
 ckb-db = { path = "../db" }
-ckb-time = { path = "../util/time" }
 ckb-notify = { path = "../notify" }
 ckb-verification = { path = "../verification" }
+faketime = "0.2.0"
 numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 numext-fixed-uint = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 channel = { package= "crossbeam-channel", version = "0.3" }

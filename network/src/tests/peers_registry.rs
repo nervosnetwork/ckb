@@ -4,8 +4,8 @@ use crate::{
     peers_registry::{PeersRegistry, EVICTION_PROTECT_PEERS},
     random_peer_id, ToMultiaddr,
 };
-use ckb_time::now_ms;
 use ckb_util::RwLock;
+use faketime::unix_time_as_millis;
 use std::default::Default;
 use std::sync::Arc;
 
@@ -117,7 +117,7 @@ fn test_accept_inbound_peer_eviction() {
         peer.ping = Some(0);
     }
     // peers which most recently sent messages
-    let now = now_ms();
+    let now = unix_time_as_millis();
     for _ in 0..EVICTION_PROTECT_PEERS {
         let peer_id = peers_iter.next().unwrap();
         let mut peer = peers_registry.get_mut(&peer_id).unwrap();

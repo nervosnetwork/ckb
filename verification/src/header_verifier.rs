@@ -3,7 +3,7 @@ use crate::error::{DifficultyError, Error, NumberError, PowError, TimestampError
 use crate::shared::ALLOWED_FUTURE_BLOCKTIME;
 use ckb_core::header::Header;
 use ckb_pow::PowEngine;
-use ckb_time::now_ms;
+use faketime::unix_time_as_millis;
 use numext_fixed_uint::U256;
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -58,7 +58,7 @@ impl<'a> TimestampVerifier<'a> {
         TimestampVerifier {
             parent,
             header,
-            now: now_ms(),
+            now: unix_time_as_millis(),
         }
     }
 
