@@ -88,7 +88,7 @@ fn arg_private_key() -> Arg<'static, 'static> {
 fn cli() -> App<'static, 'static> {
     SubCommand::with_name("cli")
         .about("Running ckb cli")
-        .setting(AppSettings::ArgRequiredElseHelp)
+        .setting(AppSettings::SubcommandRequiredElseHelp)
         .subcommand(
             SubCommand::with_name("sign")
                 .about("Sign transaction using sha3-secp256k1 defined in system cell")

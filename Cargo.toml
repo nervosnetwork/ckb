@@ -38,9 +38,6 @@ hash = { path = "util/hash"}
 faster-hex = "0.1"
 build-info = { path = "util/build-info" }
 
-[features]
-integration_test = ["ckb-rpc/integration_test"]
-
 [dev-dependencies]
 tempfile = "3.0"
 
