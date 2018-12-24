@@ -11,7 +11,7 @@ use ckb_notify::NotifyService;
 use ckb_protocol::SyncMessage;
 use ckb_shared::shared::{ChainProvider, Shared, SharedBuilder};
 use ckb_shared::store::ChainKVStore;
-use ckb_time::now_ms;
+use faketime::{self, unix_time_as_millis};
 use flatbuffers::get_root;
 use numext_fixed_uint::U256;
 use std::sync::mpsc::channel;
@@ -20,26 +20,36 @@ use std::thread;
 
 #[test]
 fn basic_sync() {
-    let (mut node1, shared1) = setup_node(1);
-    let (mut node2, shared2) = setup_node(3);
+    let faketime_file = faketime::millis_tempfile(0).expect("create faketime file");
+    faketime::enable(&faketime_file);
+    let thread_name = format!("FAKETIME={}", faketime_file.display());
+
+    let (mut node1, shared1) = setup_node(&thread_name, 1);
+    let (mut node2, shared2) = setup_node(&thread_name, 3);
 
     node1.connect(&mut node2, SYNC_PROTOCOL_ID);
 
     let (signal_tx1, signal_rx1) = channel();
-    thread::spawn(move || {
-        node1.start(signal_tx1, |data| {
-            let msg = get_root::<SyncMessage>(data);
-            // terminate thread after 3 blocks
-            msg.payload_as_block()
-                .map(|block| block.header().unwrap().number() == 3)
-                .unwrap_or(false)
-        });
-    });
+    thread::Builder::new()
+        .name(thread_name.clone())
+        .spawn(move || {
+            node1.start(signal_tx1, |data| {
+                let msg = get_root::<SyncMessage>(data);
+                // terminate thread after 3 blocks
+                msg.payload_as_block()
+                    .map(|block| block.header().unwrap().number() == 3)
+                    .unwrap_or(false)
+            });
+        })
+        .expect("thread spawn");
 
     let (signal_tx2, _) = channel();
-    thread::spawn(move || {
-        node2.start(signal_tx2, |_| false);
-    });
+    thread::Builder::new()
+        .name(thread_name)
+        .spawn(move || {
+            node2.start(signal_tx2, |_| false);
+        })
+        .expect("thread spawn");
 
     // Wait node1 receive block from node2
     let _ = signal_rx1.recv();
@@ -51,10 +61,13 @@ fn basic_sync() {
     );
 }
 
-fn setup_node(height: u64) -> (TestNode, Shared<ChainKVStore<MemoryKeyValueDB>>) {
+fn setup_node(
+    thread_name: &str,
+    height: u64,
+) -> (TestNode, Shared<ChainKVStore<MemoryKeyValueDB>>) {
     let mut block = BlockBuilder::default().with_header_builder(
         HeaderBuilder::default()
-            .timestamp(now_ms())
+            .timestamp(unix_time_as_millis())
             .difficulty(U256::from(1000u64)),
     );
 
@@ -63,12 +76,12 @@ fn setup_node(height: u64) -> (TestNode, Shared<ChainKVStore<MemoryKeyValueDB>>)
         .consensus(consensus)
         .build();
     let (chain_controller, chain_receivers) = ChainController::build();
-    let (_handle, notify) = NotifyService::default().start::<&str>(None);
+    let (_handle, notify) = NotifyService::default().start(Some(thread_name));
 
     let chain_service = ChainBuilder::new(shared.clone())
         .notify(notify.clone())
         .build();
-    let _handle = chain_service.start::<&str>(None, chain_receivers);
+    let _handle = chain_service.start(Some(thread_name), chain_receivers);
 
     for _i in 0..height {
         let number = block.header().number() + 1;

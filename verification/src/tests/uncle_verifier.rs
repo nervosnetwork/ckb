@@ -11,7 +11,8 @@ use ckb_core::BlockNumber;
 use ckb_db::memorydb::MemoryKeyValueDB;
 use ckb_shared::shared::{ChainProvider, Shared, SharedBuilder};
 use ckb_shared::store::ChainKVStore;
-use ckb_time::set_mock_timer;
+#[cfg(not(disable_faketime))]
+use faketime;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 use std::sync::Arc;
@@ -56,8 +57,12 @@ fn create_cellbase(number: BlockNumber) -> Transaction {
         .build()
 }
 
+#[cfg(not(disable_faketime))]
 #[test]
 fn test_uncle_verifier() {
+    let faketime_file = faketime::millis_tempfile(0).expect("create faketime file");
+    faketime::enable(&faketime_file);
+
     let mut consensus = Consensus::default();
     consensus.pow_time_span = 10;
     consensus.pow_spacing = 1;
@@ -69,7 +74,7 @@ fn test_uncle_verifier() {
     let mut chain1: Vec<Block> = Vec::new();
     let mut chain2: Vec<Block> = Vec::new();
 
-    set_mock_timer(10);
+    faketime::write_millis(&faketime_file, 10).expect("write millis");
 
     let mut parent = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
     for i in 1..number {

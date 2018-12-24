@@ -13,6 +13,12 @@ check:
 build:
 	cargo build --release
 
+prod:
+	RUSTFLAGS="--cfg disable_faketime" cargo build --release
+
+prod-test:
+	RUSTFLAGS="--cfg disable_faketime" RUSTDOCFLAGS="--cfg disable_faketime" cargo test --all -- --nocapture
+
 fmt:
 	cargo fmt --all -- --check
 
@@ -44,6 +50,6 @@ security-audit:
 docker: build
 	docker build -f docker/hub/Dockerfile -t nervos/ckb:latest .
 
-.PHONY: build docker
+.PHONY: build prod prod-test docker
 .PHONY: fmt test clippy proto doc doc-deps check stats
 .PHONY: ci ci-quick info security-audit

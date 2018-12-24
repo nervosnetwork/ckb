@@ -31,8 +31,8 @@ use ckb_network::{CKBProtocolContext, CKBProtocolHandler, PeerIndex, Severity, T
 use ckb_protocol::{SyncMessage, SyncPayload};
 use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::{ChainProvider, Shared};
-use ckb_time::now_ms;
 use ckb_util::{try_option, RwLock, RwLockUpgradableReadGuard};
+use faketime::unix_time_as_millis;
 use flatbuffers::{get_root, FlatBufferBuilder};
 use log::{debug, info, warn};
 use numext_fixed_hash::H256;
@@ -102,7 +102,7 @@ impl<CI: ChainIndex> ::std::clone::Clone for Synchronizer<CI> {
 
 fn is_outbound(nc: &CKBProtocolContext, peer: PeerIndex) -> Option<bool> {
     nc.session_info(peer)
-        .map(|session_info| session_info.peer.is_outgoing())
+        .map(|session_info| session_info.peer.is_outbound())
 }
 
 impl<CI: ChainIndex> Synchronizer<CI> {
@@ -185,11 +185,12 @@ impl<CI: ChainIndex> Synchronizer<CI> {
     }
 
     pub fn is_initial_block_download(&self) -> bool {
-        now_ms().saturating_sub(self.shared.tip_header().read().inner().timestamp()) > MAX_TIP_AGE
+        unix_time_as_millis().saturating_sub(self.shared.tip_header().read().inner().timestamp())
+            > MAX_TIP_AGE
     }
 
     pub fn predict_headers_sync_time(&self, header: &Header) -> u64 {
-        let now = now_ms();
+        let now = unix_time_as_millis();
         now + HEADERS_DOWNLOAD_TIMEOUT_BASE
             + HEADERS_DOWNLOAD_TIMEOUT_PER_HEADER
                 * (now.saturating_sub(header.timestamp()) / POW_SPACE)
@@ -523,7 +524,7 @@ impl<CI: ChainIndex> Synchronizer<CI> {
         let is_initial_block_download = self.is_initial_block_download();
         let mut eviction = Vec::new();
         for (peer, state) in peer_state.iter_mut() {
-            let now = now_ms();
+            let now = unix_time_as_millis();
             // headers_sync_timeout
             if let Some(timeout) = state.headers_sync_timeout {
                 if now > timeout && is_initial_block_download && !state.disconnect {
@@ -718,15 +719,16 @@ mod tests {
     use ckb_db::memorydb::MemoryKeyValueDB;
     use ckb_network::{
         random_peer_id, CKBProtocolContext, Endpoint, Error as NetworkError, PeerIndex, PeerInfo,
-        ProtocolId, SessionInfo, Severity, TimerToken,
+        ProtocolId, SessionInfo, Severity, TimerToken, ToMultiaddr,
     };
     use ckb_notify::{NotifyController, NotifyService};
     use ckb_protocol::{Block as FbsBlock, Headers as FbsHeaders};
     use ckb_shared::index::ChainIndex;
     use ckb_shared::shared::SharedBuilder;
     use ckb_shared::store::ChainKVStore;
-    use ckb_time::set_mock_timer;
     use ckb_util::Mutex;
+    #[cfg(not(disable_faketime))]
+    use faketime;
     use flatbuffers::FlatBufferBuilder;
     use fnv::{FnvHashMap, FnvHashSet};
     use numext_fixed_uint::U256;
@@ -1036,7 +1038,7 @@ mod tests {
                 peer_id: random_peer_id().unwrap(),
                 endpoint_role: Endpoint::Dialer,
                 last_ping_time: None,
-                remote_addresses: vec![],
+                connected_addr: "/ip4/127.0.0.1".to_multiaddr().expect("parse multiaddr"),
                 identify_info: None,
             },
             protocol_version: None,
@@ -1213,16 +1215,19 @@ mod tests {
         assert!(new_tip_receiver.recv().is_ok());
     }
 
+    #[cfg(not(disable_faketime))]
     #[test]
     fn test_header_sync_timeout() {
         use std::iter::FromIterator;
+        let faketime_file = faketime::millis_tempfile(0).expect("create faketime file");
+        faketime::enable(&faketime_file);
 
         let (chain_controller, shared, _notify) = start_chain(None, None);
 
         let synchronizer = gen_synchronizer(chain_controller.clone(), shared.clone());
 
         let network_context = mock_network_context(5);
-        set_mock_timer(MAX_TIP_AGE * 2);
+        faketime::write_millis(&faketime_file, MAX_TIP_AGE * 2).expect("write millis");
         assert!(synchronizer.is_initial_block_download());
         let peers = synchronizer.peers();
         // protect should not effect headers_timeout
@@ -1236,9 +1241,13 @@ mod tests {
             &FnvHashSet::from_iter(vec![0, 1].into_iter())
         )
     }
+
+    #[cfg(not(disable_faketime))]
     #[test]
     fn test_chain_sync_timeout() {
         use std::iter::FromIterator;
+        let faketime_file = faketime::millis_tempfile(0).expect("create faketime file");
+        faketime::enable(&faketime_file);
 
         let consensus = Consensus::default();
         let header = HeaderBuilder::default()
@@ -1303,7 +1312,7 @@ mod tests {
                 CHAIN_SYNC_TIMEOUT
             );
         }
-        set_mock_timer(CHAIN_SYNC_TIMEOUT + 1);
+        faketime::write_millis(&faketime_file, CHAIN_SYNC_TIMEOUT + 1).expect("write millis");
         synchronizer.eviction(&network_context);
         {
             let peer_state = peers.state.read();
@@ -1313,14 +1322,18 @@ mod tests {
             assert!({ network_context.disconnected.lock().is_empty() });
             assert_eq!(
                 peer_state.get(&3).unwrap().chain_sync.timeout,
-                now_ms() + EVICTION_HEADERS_RESPONSE_TIME
+                unix_time_as_millis() + EVICTION_HEADERS_RESPONSE_TIME
             );
             assert_eq!(
                 peer_state.get(&4).unwrap().chain_sync.timeout,
-                now_ms() + EVICTION_HEADERS_RESPONSE_TIME
+                unix_time_as_millis() + EVICTION_HEADERS_RESPONSE_TIME
             );
         }
-        set_mock_timer(now_ms() + EVICTION_HEADERS_RESPONSE_TIME + 1);
+        faketime::write_millis(
+            &faketime_file,
+            unix_time_as_millis() + EVICTION_HEADERS_RESPONSE_TIME + 1,
+        )
+        .expect("write millis");
         synchronizer.eviction(&network_context);
         {
             // Peer(3,4) run out of time to catch up!

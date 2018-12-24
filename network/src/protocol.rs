@@ -25,6 +25,6 @@ pub enum Protocol<T> {
     CKBProtocol(
         CKBProtocolOutput<Arc<CKBProtocolHandler>>,
         PeerId,
-        Option<Multiaddr>,
+        Multiaddr,
     ),
 }
