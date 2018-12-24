@@ -1376,7 +1376,7 @@ impl<'a> CellOutput<'a> {
         args: &'args CellOutputArgs<'args>) -> flatbuffers::WIPOffset<CellOutput<'bldr>> {
       let mut builder = CellOutputBuilder::new(_fbb);
       builder.add_capacity(args.capacity);
-      if let Some(x) = args.contract { builder.add_contract(x); }
+      if let Some(x) = args.type_ { builder.add_type_(x); }
       if let Some(x) = args.lock { builder.add_lock(x); }
       if let Some(x) = args.data { builder.add_data(x); }
       builder.finish()
@@ -1385,7 +1385,7 @@ impl<'a> CellOutput<'a> {
     pub const VT_CAPACITY: flatbuffers::VOffsetT = 4;
     pub const VT_DATA: flatbuffers::VOffsetT = 6;
     pub const VT_LOCK: flatbuffers::VOffsetT = 8;
-    pub const VT_CONTRACT: flatbuffers::VOffsetT = 10;
+    pub const VT_TYPE_: flatbuffers::VOffsetT = 10;
 
   #[inline]
   pub fn capacity(&self) -> u64 {
@@ -1400,8 +1400,8 @@ impl<'a> CellOutput<'a> {
     self._tab.get::<flatbuffers::ForwardsUOffset<Bytes<'a>>>(CellOutput::VT_LOCK, None)
   }
   #[inline]
-  pub fn contract(&self) -> Option<Script<'a>> {
-    self._tab.get::<flatbuffers::ForwardsUOffset<Script<'a>>>(CellOutput::VT_CONTRACT, None)
+  pub fn type_(&self) -> Option<Script<'a>> {
+    self._tab.get::<flatbuffers::ForwardsUOffset<Script<'a>>>(CellOutput::VT_TYPE_, None)
   }
 }
 
@@ -1409,7 +1409,7 @@ pub struct CellOutputArgs<'a> {
     pub capacity: u64,
     pub data: Option<flatbuffers::WIPOffset<Bytes<'a >>>,
     pub lock: Option<flatbuffers::WIPOffset<Bytes<'a >>>,
-    pub contract: Option<flatbuffers::WIPOffset<Script<'a >>>,
+    pub type_: Option<flatbuffers::WIPOffset<Script<'a >>>,
 }
 impl<'a> Default for CellOutputArgs<'a> {
     #[inline]
@@ -1418,7 +1418,7 @@ impl<'a> Default for CellOutputArgs<'a> {
             capacity: 0,
             data: None,
             lock: None,
-            contract: None,
+            type_: None,
         }
     }
 }
@@ -1440,8 +1440,8 @@ impl<'a: 'b, 'b> CellOutputBuilder<'a, 'b> {
     self.fbb_.push_slot_always::<flatbuffers::WIPOffset<Bytes>>(CellOutput::VT_LOCK, lock);
   }
   #[inline]
-  pub fn add_contract(&mut self, contract: flatbuffers::WIPOffset<Script<'b >>) {
-    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<Script>>(CellOutput::VT_CONTRACT, contract);
+  pub fn add_type_(&mut self, type_: flatbuffers::WIPOffset<Script<'b >>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<Script>>(CellOutput::VT_TYPE_, type_);
   }
   #[inline]
   pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>) -> CellOutputBuilder<'a, 'b> {

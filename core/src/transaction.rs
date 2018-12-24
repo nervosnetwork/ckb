@@ -79,16 +79,17 @@ pub struct CellOutput {
     pub capacity: Capacity,
     pub data: Vec<u8>,
     pub lock: H256,
-    pub contract: Option<Script>,
+    #[serde(rename = "type")]
+    pub type_: Option<Script>,
 }
 
 impl CellOutput {
-    pub fn new(capacity: Capacity, data: Vec<u8>, lock: H256, contract: Option<Script>) -> Self {
+    pub fn new(capacity: Capacity, data: Vec<u8>, lock: H256, type_: Option<Script>) -> Self {
         CellOutput {
             capacity,
             data,
             lock,
-            contract,
+            type_,
         }
     }
 
@@ -110,7 +111,7 @@ impl CellOutput {
         mem::size_of::<Capacity>()
             + self.data.len()
             + H256::size_of()
-            + self.contract.as_ref().map_or(0, |s| s.bytes_len())
+            + self.type_.as_ref().map_or(0, |s| s.bytes_len())
     }
 }
 

@@ -37,9 +37,9 @@ impl<'a> FetchScriptHash<'a> {
             (Source::INPUT, Category::CONTRACT) => {
                 self.input_cells.get(index).and_then(|input_cell| {
                     input_cell
-                        .contract
+                        .type_
                         .as_ref()
-                        .map(|contract| contract.type_hash())
+                        .map(|type_| type_.type_hash())
                 })
             }
             (Source::OUTPUT, Category::LOCK) => {
@@ -47,9 +47,9 @@ impl<'a> FetchScriptHash<'a> {
             }
             (Source::OUTPUT, Category::CONTRACT) => self.outputs.get(index).and_then(|output| {
                 output
-                    .contract
+                    .type_
                     .as_ref()
-                    .map(|contract| contract.type_hash())
+                    .map(|type_| type_.type_hash())
             }),
         }
     }

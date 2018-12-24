@@ -58,7 +58,7 @@ curl -d '{"id": 2, "jsonrpc": "2.0", "method":"get_block","params": ["0x7643567c
                     "outputs": [
                         {
                             "capacity": 50000,
-                            "contract": null,
+                            "type_": null,
                             "data": [],
                             "lock": "0x321c1ca2887fb8eddaaa7e917399f71e63e03a1c83ff75ed12099a01115ea2ff"
                         }
@@ -111,7 +111,7 @@ curl -d '{"id": 2, "jsonrpc": "2.0", "method":"get_transaction","params": ["0xbd
             "outputs": [
                 {
                     "capacity": 50000,
-                    "contract": null,
+                    "type_": null,
                     "data": [],
                     "lock": "0x321c1ca2887fb8eddaaa7e917399f71e63e03a1c83ff75ed12099a01115ea2ff"
                 }
@@ -267,7 +267,7 @@ curl -d '{"id": 2, "jsonrpc": "2.0", "method":"get_current_cell","params": [{"ha
     "result": {
         "cell": {
             "capacity": 50000,
-            "contract": null,
+            "type_": null,
             "data": [],
             "lock": "0x321c1ca2887fb8eddaaa7e917399f71e63e03a1c83ff75ed12099a01115ea2ff"
         },

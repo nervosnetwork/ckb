@@ -154,7 +154,7 @@ impl<'a> From<ckb_protocol::CellOutput<'a>> for ckb_core::transaction::CellOutpu
             capacity: cell_output.capacity(),
             data: cell_output.data().and_then(|b| b.seq()).unwrap().to_vec(),
             lock: H256::from_slice(cell_output.lock().and_then(|b| b.seq()).unwrap()).unwrap(),
-            contract: cell_output.contract().map(Into::into),
+            type_: cell_output.type_().map(Into::into),
         }
     }
 }

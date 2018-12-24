@@ -30,8 +30,8 @@ enum CellField {
     Data = 1,
     DataHash = 2,
     LockHash = 3,
-    Contract = 4,
-    ContractHash = 5,
+    Type = 4,
+    TypeHash = 5,
 }
 
 impl CellField {
@@ -41,8 +41,8 @@ impl CellField {
             1 => Ok(CellField::Data),
             2 => Ok(CellField::DataHash),
             3 => Ok(CellField::LockHash),
-            4 => Ok(CellField::Contract),
-            5 => Ok(CellField::ContractHash),
+            4 => Ok(CellField::Type),
+            5 => Ok(CellField::TypeHash),
             _ => Err(Error::ParseError),
         }
     }
@@ -594,7 +594,7 @@ mod tests {
         machine.registers_mut()[A2] = 0; // offset
         machine.registers_mut()[A3] = 0; //index
         machine.registers_mut()[A4] = Source::Output as u64; //source: 2 output
-        machine.registers_mut()[A5] = CellField::Contract as u64; //field: 4 contract
+        machine.registers_mut()[A5] = CellField::Type as u64; //field: 4 type
         machine.registers_mut()[A7] = LOAD_CELL_BY_FIELD_SYSCALL_NUMBER; // syscall number
 
         let output_cell = CellOutput::new(100, vec![], H256::default(), None);

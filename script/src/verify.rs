@@ -175,9 +175,9 @@ impl<'a> TransactionScriptsVerifier<'a> {
             })?;
         }
         for (i, output) in self.outputs.iter().enumerate() {
-            if let Some(ref contract) = output.contract {
+            if let Some(ref type_) = output.type_ {
                 let prefix = format!("Transaction {}, output {}", self.hash, i);
-                self.verify_script(contract, &prefix, output, None).map_err(|e| {
+                self.verify_script(type_, &prefix, output, None).map_err(|e| {
                     info!(target: "script", "Error validating output {} of transaction {}: {:?}", i, self.hash, e);
                     e
                 })?;

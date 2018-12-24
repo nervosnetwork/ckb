@@ -79,7 +79,7 @@ table CellOutput {
     capacity:       uint64;
     data:           Bytes;
     lock:           Bytes;
-    contract:       Script;
+    type:           Script;
 }
 
 table Script {

@@ -80,10 +80,10 @@ impl<'a, R: Register, M: Memory> Syscalls<R, M> for LoadCellByField<'a> {
                 store_data(machine, &cell.lock.as_bytes())?;
                 SUCCESS
             }
-            CellField::Contract => match cell.contract {
-                Some(ref contract) => {
+            CellField::Type => match cell.type_ {
+                Some(ref type_) => {
                     let mut builder = FlatBufferBuilder::new();
-                    let offset = FbsScript::build(&mut builder, &contract);
+                    let offset = FbsScript::build(&mut builder, &type_);
                     builder.finish(offset, None);
                     let data = builder.finished_data();
                     store_data(machine, data)?;
@@ -91,9 +91,9 @@ impl<'a, R: Register, M: Memory> Syscalls<R, M> for LoadCellByField<'a> {
                 }
                 None => ITEM_MISSING,
             },
-            CellField::ContractHash => match cell.contract {
-                Some(ref contract) => {
-                    store_data(machine, &contract.type_hash().as_bytes())?;
+            CellField::TypeHash => match cell.type_ {
+                Some(ref type_) => {
+                    store_data(machine, &type_.type_hash().as_bytes())?;
                     SUCCESS
                 }
                 None => ITEM_MISSING,

@@ -172,16 +172,13 @@ impl<'a> FbsCellOutput<'a> {
     ) -> WIPOffset<FbsCellOutput<'b>> {
         let data = FbsBytes::build(fbb, &cell_output.data);
         let lock = FbsBytes::build(fbb, &cell_output.lock.as_bytes());
-        let contract = cell_output
-            .contract
-            .as_ref()
-            .map(|s| FbsScript::build(fbb, s));
+        let type_ = cell_output.type_.as_ref().map(|s| FbsScript::build(fbb, s));
         let mut builder = CellOutputBuilder::new(fbb);
         builder.add_capacity(cell_output.capacity);
         builder.add_data(data);
         builder.add_lock(lock);
-        if let Some(s) = contract {
-            builder.add_contract(s);
+        if let Some(s) = type_ {
+            builder.add_type_(s);
         }
         builder.finish()
     }
