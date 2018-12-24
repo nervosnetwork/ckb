@@ -11,6 +11,7 @@ pub const MAX_UNCLE_LEN: usize = 2;
 pub const MAX_UNCLE_AGE: usize = 6;
 pub const TRANSACTION_PROPAGATION_TIME: BlockNumber = 1;
 pub const TRANSACTION_PROPAGATION_TIMEOUT: BlockNumber = 10;
+pub const CELLBASE_MATURITY: usize = 100;
 
 //TODO：find best ORPHAN_RATE_TARGET
 pub const ORPHAN_RATE_TARGET: f32 = 0.1;
@@ -31,6 +32,10 @@ pub struct Consensus {
     pub transaction_propagation_timeout: BlockNumber,
     pub pow: Pow,
     pub verification: bool,
+    // For each input, if the referenced output transaction is cellbase,
+    // it must have at least `cellbase_maturity` confirmations;
+    // else reject this transaction.
+    pub cellbase_maturity: usize,
 }
 
 // genesis difficulty should not be zero
@@ -52,6 +57,7 @@ impl Default for Consensus {
             transaction_propagation_timeout: TRANSACTION_PROPAGATION_TIMEOUT,
             pow: Pow::Dummy,
             verification: true,
+            cellbase_maturity: CELLBASE_MATURITY,
         }
     }
 }
@@ -112,5 +118,9 @@ impl Consensus {
 
     pub fn pow_engine(&self) -> Arc<dyn PowEngine> {
         self.pow.engine()
+    }
+
+    pub fn cellbase_maturity(&self) -> usize {
+        self.cellbase_maturity
     }
 }
