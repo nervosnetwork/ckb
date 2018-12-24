@@ -21,7 +21,7 @@ impl From<CrypError> for Error {
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum TxError {
-    OutofBound,
+    OutOfBound,
     NotMatch,
     EmptyGroup,
     WrongFormat,

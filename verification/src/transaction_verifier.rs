@@ -192,7 +192,7 @@ impl<'a> CapacityVerifier<'a> {
             .iter()
             .any(|output| output.bytes_len() as Capacity > output.capacity)
         {
-            Err(TransactionError::OutofBound)
+            Err(TransactionError::OutOfBound)
         } else {
             Ok(())
         }

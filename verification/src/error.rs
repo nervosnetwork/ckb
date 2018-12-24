@@ -114,7 +114,7 @@ pub enum DifficultyError {
 #[derive(Debug, PartialEq, Clone, Copy, Eq)]
 pub enum TransactionError {
     NullInput,
-    OutofBound,
+    OutOfBound,
     DuplicateInputs,
     Empty,
     InvalidCapacity,

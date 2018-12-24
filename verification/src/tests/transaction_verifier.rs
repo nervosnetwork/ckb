@@ -45,7 +45,7 @@ pub fn test_capacity_outofbound() {
     };
     let verifier = CapacityVerifier::new(&rtx);
 
-    assert_eq!(verifier.verify().err(), Some(TransactionError::OutofBound));
+    assert_eq!(verifier.verify().err(), Some(TransactionError::OutOfBound));
 }
 
 #[test]
