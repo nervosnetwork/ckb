@@ -3,7 +3,8 @@
         "rpc modules": [
             "List of API modules",
             ["Net", "Pool", "Miner", "Chain"]
-        ]
+        ],
+        "rpc max_request_body_size": "Default is 10MiB = 10 * 1024 * 1024"
     },
 
     "data_dir": "default",
@@ -27,7 +28,8 @@
     },
     "rpc": {
         "listen_address": "0.0.0.0:8114",
-        "modules": ["Net", "Pool", "Miner", "Chain"]
+        "modules": ["Net", "Pool", "Miner", "Chain"],
+        "max_request_body_size": 10485760
     },
     "sync": {
         "verification_level": "Full",
