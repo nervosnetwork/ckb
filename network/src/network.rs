@@ -4,7 +4,6 @@ use crate::ckb_protocol::{CKBProtocol, CKBProtocols};
 use crate::ckb_protocol_handler::CKBProtocolHandler;
 use crate::ckb_protocol_handler::DefaultCKBProtocolContext;
 use crate::ckb_service::CKBService;
-use crate::discovery_service::{DiscoveryQueryService, DiscoveryService, KadManage};
 use crate::identify_service::IdentifyService;
 use crate::outbound_peer_service::OutboundPeerService;
 use crate::peer_store::{Behaviour, PeerStore, SqlitePeerStore};
@@ -25,7 +24,7 @@ use futures::Stream;
 use libp2p::core::{upgrade, MuxedTransport, PeerId};
 use libp2p::core::{Endpoint, Multiaddr, UniqueConnec};
 use libp2p::core::{PublicKey, SwarmController};
-use libp2p::{self, identify, kad, ping, secio, Transport, TransportTimeout};
+use libp2p::{self, identify, ping, secio, Transport, TransportTimeout};
 use log::{debug, info, trace, warn};
 use std::boxed::Box;
 use std::io::{Error as IoError, ErrorKind as IoErrorKind};
@@ -34,8 +33,6 @@ use std::time::Duration;
 use std::usize;
 use tokio::io::{AsyncRead, AsyncWrite};
 
-// const WAIT_LOCK_TIMEOUT: u64 = 3;
-const KBUCKETS_TIMEOUT: u64 = 600;
 const DIAL_BOOTNODE_TIMEOUT: u64 = 20;
 const PEER_ADDRS_COUNT: u32 = 5;
 
@@ -557,37 +554,7 @@ impl Network {
                 ),
             ));
         }
-        let kad_upgrade = kad::KadConnecConfig::new();
-        let kad_manage = Arc::new(Mutex::new(KadManage::new(
-            Arc::clone(&network),
-            kad_upgrade.clone(),
-        )));
-        let kad_system = {
-            let peer_store = network.peer_store().lock();
-            let known_initial_peers: Box<Iterator<Item = PeerId>> = Box::new(
-                peer_store
-                    .bootnodes(100)
-                    .iter()
-                    .map(|(peer_id, _)| peer_id.to_owned())
-                    .collect::<Vec<_>>()
-                    .into_iter(),
-            ) as Box<_>;
-            Arc::new(kad::KadSystem::without_init(kad::KadSystemConfig {
-                parallelism: 1,
-                local_peer_id: local_peer_id.clone(),
-                kbuckets_timeout: Duration::from_secs(KBUCKETS_TIMEOUT),
-                request_timeout: config.discovery_timeout,
-                known_initial_peers,
-            }))
-        };
-
         let ping_service = Arc::new(PingService::new(config.ping_interval, config.ping_timeout));
-        let discovery_service = Arc::new(DiscoveryService::new(
-            config.discovery_timeout,
-            config.discovery_response_count,
-            Arc::clone(&kad_manage),
-            Arc::clone(&kad_system),
-        ));
         let identify_service = Arc::new(IdentifyService {
             client_version,
             protocol_version,
@@ -595,9 +562,7 @@ impl Network {
             identify_interval: config.identify_interval,
         });
 
-        let ckb_protocol_service = Arc::new(CKBService {
-            kad_system: Arc::clone(&kad_system),
-        });
+        let ckb_protocol_service = Arc::new(CKBService {});
         let timer_service = Arc::new(TimerService {
             timer_registry: Arc::clone(&timer_registry),
         });
@@ -610,7 +575,6 @@ impl Network {
             let transport = basic_transport.clone();
             transport.and_then({
                 let network = Arc::clone(&network);
-                let kad_upgrade = kad_upgrade.clone();
                 move |out, endpoint, fut| {
                     let peer_id = Arc::new(out.peer_id);
                     let original_addr = out.original_addr;
@@ -618,10 +582,6 @@ impl Network {
                     let ping_upgrade = upgrade::map_with_addr(libp2p::ping::Ping, {
                         let peer_id = Arc::clone(&peer_id);
                         move |out, addr| PingService::convert_to_protocol(peer_id, addr, out)
-                    });
-                    let discovery_upgrade = upgrade::map_with_addr(kad_upgrade, {
-                        let peer_id = Arc::clone(&peer_id);
-                        move |out, addr| DiscoveryService::convert_to_protocol(peer_id, addr, out)
                     });
                     let identify_upgrade =
                         upgrade::map_with_addr(identify::IdentifyProtocolConfig, {
@@ -638,10 +598,7 @@ impl Network {
                         });
                     let all_upgrade = upgrade::or(
                         ckb_protocols_upgrade,
-                        upgrade::or(
-                            identify_upgrade,
-                            upgrade::or(ping_upgrade, discovery_upgrade),
-                        ),
+                        upgrade::or(identify_upgrade, ping_upgrade),
                     );
                     upgrade::apply(out.socket, all_upgrade, endpoint, fut)
                 }
@@ -649,7 +606,6 @@ impl Network {
         };
         let (swarm_controller, swarm_events) = libp2p::core::swarm(handling_transport, {
             let ping_service = Arc::clone(&ping_service);
-            let discovery_service = Arc::clone(&discovery_service);
             let identify_service = Arc::clone(&identify_service);
             let ckb_protocol_service = Arc::clone(&ckb_protocol_service);
             let network = Arc::clone(&network);
@@ -657,7 +613,6 @@ impl Network {
                 Protocol::Ping(..) | Protocol::Pong(..) => ping_service
                     .handle(Arc::clone(&network), protocol)
                     as Box<Future<Item = (), Error = IoError> + Send>,
-                Protocol::Kad(..) => discovery_service.handle(Arc::clone(&network), protocol),
                 Protocol::IdentifyRequest(..) | Protocol::IdentifyResponse(..) => {
                     identify_service.handle(Arc::clone(&network), protocol)
                 }
@@ -725,15 +680,6 @@ impl Network {
                 );
             }
         }
-
-        let _discovery_query_service = DiscoveryQueryService::new(
-            Arc::clone(&network),
-            swarm_controller.clone(),
-            basic_transport.clone(),
-            config.discovery_interval,
-            Arc::clone(&kad_system),
-            Arc::clone(&kad_manage),
-        );
 
         // prepare services futures
         let futures: Vec<Box<Future<Item = (), Error = IoError> + Send>> = vec![

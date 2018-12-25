@@ -12,24 +12,19 @@ use faketime::unix_time_as_millis;
 use futures::future::{self, Future};
 use futures::Stream;
 use libp2p::core::{Endpoint, Multiaddr, UniqueConnecState};
-use libp2p::kad;
 use log::{error, info};
 use std::boxed::Box;
 use std::io::{Error as IoError, ErrorKind as IoErrorKind};
 use std::sync::Arc;
 use tokio;
 
-pub struct CKBService {
-    // used to update kbuckets
-    pub kad_system: Arc<kad::KadSystem>,
-}
+pub struct CKBService;
 
 impl CKBService {
     fn handle_protocol_connection(
         network: Arc<Network>,
         peer_id: PeerId,
         protocol_output: CKBProtocolOutput<Arc<CKBProtocolHandler>>,
-        kad_system: Arc<kad::KadSystem>,
         addr: Multiaddr,
     ) -> Box<Future<Item = (), Error = IoError> + Send> {
         let protocol_id = protocol_output.protocol_id;
@@ -78,10 +73,7 @@ impl CKBService {
                 let network = Arc::clone(&network);
                 let protocol_handler = Arc::clone(&protocol_handler);
                 let peer_id = peer_id.clone();
-                let kad_system = Arc::clone(&kad_system);
                 move |data| {
-                    // update kad_system when we received data
-                    kad_system.update_kbuckets(peer_id.clone());
                     network.modify_peer(&peer_id, |peer| {
                         peer.last_message_time = Some(unix_time_as_millis())
                     });
@@ -176,13 +168,8 @@ impl<T: Send> ProtocolService<T> for CKBService {
     ) -> Box<Future<Item = (), Error = IoError> + Send> {
         match protocol {
             Protocol::CKBProtocol(output, peer_id, addr) => {
-                let handling_future = Self::handle_protocol_connection(
-                    network,
-                    peer_id,
-                    output,
-                    Arc::clone(&self.kad_system),
-                    addr,
-                );
+                let handling_future =
+                    Self::handle_protocol_connection(network, peer_id, output, addr);
                 Box::new(handling_future) as Box<Future<Item = _, Error = _> + Send>
             }
             _ => Box::new(future::ok(())) as Box<Future<Item = _, Error = _> + Send>,

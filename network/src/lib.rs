@@ -3,7 +3,6 @@
 mod ckb_protocol;
 mod ckb_protocol_handler;
 mod ckb_service;
-mod discovery_service;
 mod errors;
 mod identify_service;
 mod network;
