@@ -21,7 +21,7 @@ pub fn create_tables(conn: &Connection) {
     let sql = r#"
     CREATE TABLE IF NOT EXISTS peer_info (
     id INTEGER PRIMARY KEY NOT NULL,
-    peer_id BINARY NOT NULL,
+    peer_id BINARY UNIQUE NOT NULL,
     connected_addr BINARY NOT NULL,
     network_group BINARY NOT NULL,
     score INTEGER NOT NULL,
@@ -29,7 +29,7 @@ pub fn create_tables(conn: &Connection) {
     endpoint INTEGER NOT NULL,
     ban_time INTEGER NOT NULL,
     connected_time INTEGER NOT NULL
-    )
+    );
     "#;
     conn.execute_batch(sql).expect("crate peer_info table");
     let sql = r#"
