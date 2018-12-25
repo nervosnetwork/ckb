@@ -1,6 +1,7 @@
 mod db;
-mod sqlite_peer_store;
 pub use crate::peer_store::sqlite_peer_store::{SqlitePeerStore, StorePath};
+pub mod db_trace;
+pub(crate) mod sqlite_peer_store;
 
 use crate::PeerId;
 use fnv::FnvHashMap;
@@ -29,10 +30,14 @@ pub enum ReportResult {
     Banned,
 }
 
+#[allow(dead_code)]
 impl ReportResult {
-    #[allow(dead_code)]
     pub fn is_banned(self) -> bool {
         self == ReportResult::Banned
+    }
+
+    pub fn is_ok(self) -> bool {
+        self == ReportResult::Ok
     }
 }
 
@@ -104,9 +109,9 @@ pub trait PeerStore: Send + Sync {
     fn peer_score(&self, peer_id: &PeerId) -> Option<Score>;
     fn add_bootnode(&mut self, peer_id: PeerId, addr: Multiaddr);
     // should return high scored nodes if possible, otherwise, return boostrap nodes
-    fn bootnodes(&self, count: usize) -> Vec<(PeerId, Multiaddr)>;
-    fn peer_addrs(&self, peer_id: &PeerId, count: usize) -> Option<Vec<Multiaddr>>;
-    fn peers_to_attempt(&self, count: usize) -> Vec<(PeerId, Multiaddr)>;
+    fn bootnodes(&self, count: u32) -> Vec<(PeerId, Multiaddr)>;
+    fn peer_addrs(&self, peer_id: &PeerId, count: u32) -> Option<Vec<Multiaddr>>;
+    fn peers_to_attempt(&self, count: u32) -> Vec<(PeerId, Multiaddr)>;
     fn ban_peer(&mut self, peer_id: &PeerId, timeout: Duration);
     fn is_banned(&self, peer_id: &PeerId) -> bool;
     fn scoring_schema(&self) -> &ScoringSchema;

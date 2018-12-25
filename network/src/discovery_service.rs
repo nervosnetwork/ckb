@@ -30,7 +30,7 @@ use tokio::spawn;
 use tokio::timer::Interval;
 use tokio::timer::Timeout;
 
-const TRY_ADDRS_COUNT: usize = 3;
+const TRY_ADDRS_COUNT: u32 = 3;
 
 pub(crate) struct DiscoveryService {
     timeout: Duration,
@@ -227,7 +227,7 @@ impl DiscoveryService {
                             connection_ty: kad::KadConnectionType::Connected,
                         }
                     } else {
-                        let peer_store = network.peer_store().read();
+                        let peer_store = network.peer_store().lock();
                         let multiaddrs = match peer_store.peer_addrs(&peer_id, TRY_ADDRS_COUNT) {
                             Some(addrs) => addrs,
                             None => Vec::new(),
@@ -388,7 +388,7 @@ where
             kad_manage.kad_pending_dials.remove(&peer_id);
             return;
         }
-        let peer_store = self.network.peer_store().read();
+        let peer_store = self.network.peer_store().lock();
         if let Some(addrs) = peer_store.peer_addrs(&peer_id, TRY_ADDRS_COUNT) {
             for addr in addrs {
                 // dial by kad_manage
@@ -443,7 +443,7 @@ where
             loop {
                 match query.poll() {
                     Ok(Async::Ready(Some(kad::KadQueryEvent::PeersReported(kad_peers)))) => {
-                        let mut peer_store = self.network.peer_store().write();
+                        let mut peer_store = self.network.peer_store().lock();
                         debug!(target:"network", "discovery new nodes count: {}", kad_peers.len());
                         for peer in kad_peers {
                             debug!(target:"network", "discovery new node {:?}", peer);

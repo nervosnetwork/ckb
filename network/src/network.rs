@@ -7,8 +7,7 @@ use crate::ckb_service::CKBService;
 use crate::discovery_service::{DiscoveryQueryService, DiscoveryService, KadManage};
 use crate::identify_service::IdentifyService;
 use crate::outbound_peer_service::OutboundPeerService;
-use crate::peer_store::PeerStore;
-use crate::peer_store::SqlitePeerStore;
+use crate::peer_store::{Behaviour, PeerStore, SqlitePeerStore};
 use crate::peers_registry::{ConnectionStatus, PeerConnection, PeerIdentifyInfo, PeersRegistry};
 use crate::ping_service::PingService;
 use crate::protocol::Protocol;
@@ -38,7 +37,7 @@ use tokio::io::{AsyncRead, AsyncWrite};
 // const WAIT_LOCK_TIMEOUT: u64 = 3;
 const KBUCKETS_TIMEOUT: u64 = 600;
 const DIAL_BOOTNODE_TIMEOUT: u64 = 20;
-const PEER_ADDRS_COUNT: usize = 5;
+const PEER_ADDRS_COUNT: u32 = 5;
 
 #[derive(Debug, Clone)]
 pub struct SessionInfo {
@@ -69,7 +68,7 @@ impl PeerInfo {
 
 pub struct Network {
     peers_registry: RwLock<PeersRegistry>,
-    peer_store: Arc<RwLock<dyn PeerStore>>,
+    peer_store: Arc<Mutex<dyn PeerStore>>,
     pub(crate) listened_addresses: RwLock<Vec<Multiaddr>>,
     pub(crate) original_listened_addresses: RwLock<Vec<Multiaddr>>,
     pub(crate) ckb_protocols: CKBProtocols<Arc<CKBProtocolHandler>>,
@@ -78,6 +77,10 @@ pub struct Network {
 }
 
 impl Network {
+    pub fn report(&self, peer_id: &PeerId, behaviour: Behaviour) {
+        self.peer_store.lock().report(peer_id, behaviour);
+    }
+
     pub fn drop_peer(&self, peer_id: &PeerId) {
         self.peers_registry.write().drop_peer(&peer_id);
     }
@@ -149,7 +152,7 @@ impl Network {
     }
 
     pub(crate) fn get_peer_addresses(&self, peer_id: &PeerId) -> Vec<Multiaddr> {
-        let peer_store = self.peer_store.read();
+        let peer_store = self.peer_store.lock();
         let addrs = peer_store.peer_addrs(&peer_id, PEER_ADDRS_COUNT);
         addrs.unwrap_or_default()
     }
@@ -173,11 +176,11 @@ impl Network {
     pub(crate) fn ban_peer(&self, peer_id: &PeerId, timeout: Duration) {
         let mut peers_registry = self.peers_registry.write();
         peers_registry.drop_peer(peer_id);
-        self.peer_store.write().ban_peer(peer_id, timeout);
+        self.peer_store.lock().ban_peer(peer_id, timeout);
     }
 
     #[inline]
-    pub(crate) fn peer_store(&self) -> &RwLock<dyn PeerStore> {
+    pub(crate) fn peer_store(&self) -> &Mutex<dyn PeerStore> {
         &self.peer_store
     }
 
@@ -262,7 +265,7 @@ impl Network {
             Ok(_) => {
                 let _ = self
                     .peer_store()
-                    .write()
+                    .lock()
                     .add_discovered_address(peer_id, connected_addr);
                 let peer = peers_registry.get_mut(&peer_id).unwrap();
                 Ok(self.ckb_protocol_connec(peer, protocol_id))
@@ -283,7 +286,7 @@ impl Network {
             Ok(_) => {
                 let _ = self
                     .peer_store()
-                    .write()
+                    .lock()
                     .add_discovered_address(peer_id, connected_addr);
                 let peer = peers_registry.get_mut(&peer_id).unwrap();
                 Ok(self.ckb_protocol_connec(peer, protocol_id))
@@ -471,13 +474,13 @@ impl Network {
             None => return Err(ErrorKind::Other("secret_key not set".to_owned()).into()),
         };
         let listened_addresses = config.public_addresses.clone();
-        let peer_store: Arc<RwLock<dyn PeerStore>> = {
+        let peer_store: Arc<Mutex<dyn PeerStore>> = {
             let mut peer_store = SqlitePeerStore::default();
             let bootnodes = config.bootnodes()?;
             for (peer_id, addr) in bootnodes {
                 peer_store.add_bootnode(peer_id, addr);
             }
-            Arc::new(RwLock::new(peer_store))
+            Arc::new(Mutex::new(peer_store))
         };
         let reserved_peers = config
             .reserved_peers()?
@@ -560,7 +563,7 @@ impl Network {
             kad_upgrade.clone(),
         )));
         let kad_system = {
-            let peer_store = network.peer_store().read();
+            let peer_store = network.peer_store().lock();
             let known_initial_peers: Box<Iterator<Item = PeerId>> = Box::new(
                 peer_store
                     .bootnodes(100)
@@ -705,9 +708,13 @@ impl Network {
                 );
             }
 
-            let peer_store = network.peer_store().read();
+            let bootnodes = network
+                .peer_store()
+                .lock()
+                .bootnodes((max_outbound / 2) as u32)
+                .clone();
             // dial half bootnodes
-            for (peer_id, addr) in peer_store.bootnodes(max_outbound / 2) {
+            for (peer_id, addr) in bootnodes {
                 debug!(target: "network", "dial bootnode {:?} {:?}", peer_id, addr);
                 network.dial_to_peer(
                     basic_transport.clone(),

@@ -87,18 +87,17 @@ impl<T: Send + 'static> ProtocolService<T> for OutboundPeerService {
                     - connection_status.unreserved_outbound)
                     as usize;
                 if new_outbound > 0 {
-                    let peer_store = network.peer_store().read();
-                    for (peer_id, addr) in peer_store
-                        .peers_to_attempt(new_outbound)
-                        .iter()
-                        .filter_map(|(peer_id, addr)| {
-                            if network.local_peer_id() != peer_id {
-                                Some((peer_id.clone(), addr.clone()))
-                            } else {
-                                None
-                            }
-                        })
-                    {
+                    let attempt_peers = network
+                        .peer_store()
+                        .lock()
+                        .peers_to_attempt(new_outbound as u32);
+                    for (peer_id, addr) in attempt_peers.iter().filter_map(|(peer_id, addr)| {
+                        if network.local_peer_id() != peer_id {
+                            Some((peer_id.clone(), addr.clone()))
+                        } else {
+                            None
+                        }
+                    }) {
                         network.dial_to_peer(
                             transport.clone(),
                             &addr,

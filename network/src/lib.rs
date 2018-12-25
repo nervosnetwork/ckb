@@ -34,7 +34,7 @@ pub use libp2p::{
 pub type TimerToken = usize;
 pub type ProtocolId = [u8; 3];
 
-use libp2p::secio;
+use multihash::{encode, Hash};
 use rand::Rng;
 use serde_derive::Deserialize;
 use std::sync::Arc;
@@ -107,9 +107,11 @@ impl From<Config> for NetworkConfig {
 }
 
 pub fn random_peer_id() -> Result<PeerId, Error> {
-    let mut key: [u8; 32] = [0; 32];
-    rand::thread_rng().fill(&mut key);
-    let local_private_key = secio::SecioKeyPair::secp256k1_raw_key(&key)
-        .map_err(|err| ErrorKind::Other(err.description().to_string()))?;
-    Ok(local_private_key.to_peer_id())
+    let mut seed: [u8; 32] = [0; 32];
+    rand::thread_rng().fill(&mut seed);
+    let random_key = encode(Hash::SHA2256, &seed)
+        .expect("sha2256 encode")
+        .into_bytes();
+    let peer_id = PeerId::from_bytes(random_key).expect("convert key to peer_id");
+    Ok(peer_id)
 }
