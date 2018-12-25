@@ -320,7 +320,6 @@ dependencies = [
  "crypto 0.3.0-pre",
  "ctrlc 3.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "dir 0.3.0-pre",
- "faster-hex 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "hash 0.3.0-pre",
  "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "logger 0.3.0-pre",

@@ -35,7 +35,6 @@ serde_json = "1.0"
 crypto = { path = "util/crypto"}
 ckb-instrument = { path = "util/instrument", features = ["progress_bar"] }
 hash = { path = "util/hash"}
-faster-hex = "0.1"
 build-info = { path = "util/build-info" }
 
 [dev-dependencies]

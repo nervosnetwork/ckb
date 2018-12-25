@@ -203,10 +203,7 @@ mod tests {
     use std::path::Path;
 
     fn open_cell_verify() -> File {
-        File::open(
-            Path::new(env!("CARGO_MANIFEST_DIR")).join("../nodes_template/spec/cells/verify"),
-        )
-        .unwrap()
+        File::open(Path::new(env!("CARGO_MANIFEST_DIR")).join("../script/testdata/verify")).unwrap()
     }
     fn open_cell_always_success() -> File {
         File::open(
