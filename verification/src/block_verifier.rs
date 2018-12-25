@@ -15,6 +15,7 @@ use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIter
 use std::collections::HashSet;
 
 //TODO: cellbase, witness
+#[derive(Clone)]
 pub struct BlockVerifier<P> {
     // Verify if the committed transactions is empty
     empty: EmptyVerifier,
@@ -30,20 +31,6 @@ pub struct BlockVerifier<P> {
     commit: CommitVerifier<P>,
     // Verify all the committed transactions through TransactionVerifier
     transactions: TransactionsVerifier<P>,
-}
-
-impl<P: ChainProvider + CellProvider + Clone> ::std::clone::Clone for BlockVerifier<P> {
-    fn clone(&self) -> Self {
-        BlockVerifier {
-            empty: self.empty.clone(),
-            duplicate: self.duplicate.clone(),
-            cellbase: self.cellbase.clone(),
-            merkle_root: self.merkle_root.clone(),
-            uncles: self.uncles.clone(),
-            commit: self.commit.clone(),
-            transactions: self.transactions.clone(),
-        }
-    }
 }
 
 impl<P> BlockVerifier<P>
@@ -247,16 +234,9 @@ impl<'a, CP: ChainProvider> HeaderResolver for HeaderResolverWrapper<'a, CP> {
 }
 
 // TODO redo uncle verifier, check uncle proposal duplicate
+#[derive(Clone)]
 pub struct UnclesVerifier<CP> {
     provider: CP,
-}
-
-impl<CP: ChainProvider + Clone> ::std::clone::Clone for UnclesVerifier<CP> {
-    fn clone(&self) -> Self {
-        UnclesVerifier {
-            provider: self.provider.clone(),
-        }
-    }
 }
 
 impl<CP: ChainProvider + Clone> UnclesVerifier<CP> {
@@ -411,16 +391,9 @@ impl<CP: ChainProvider + Clone> UnclesVerifier<CP> {
     }
 }
 
+#[derive(Clone)]
 pub struct TransactionsVerifier<P> {
     provider: P,
-}
-
-impl<P: ChainProvider + CellProvider + Clone> ::std::clone::Clone for TransactionsVerifier<P> {
-    fn clone(&self) -> Self {
-        TransactionsVerifier {
-            provider: self.provider.clone(),
-        }
-    }
 }
 
 struct TransactionsVerifierWrapper<'a, P: CellProvider + 'a> {
