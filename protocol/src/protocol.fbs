@@ -40,9 +40,9 @@ table Header {
     number:         uint64;
     txs_commit:     H256;
     txs_proposal:   H256;
-    difficulty:     Bytes;
+    difficulty:     [ubyte];
     nonce:          uint64;
-    proof:          Bytes;
+    proof:          [ubyte];
     cellbase_id:    H256;
     uncles_hash:    H256;
     uncles_count:   uint32;
@@ -81,15 +81,21 @@ table CellInput {
 
 table CellOutput {
     capacity:       uint64;
+<<<<<<< HEAD
     data:           Bytes;
     lock:           Bytes;
     type:           Script;
+=======
+    data:           [ubyte];
+    lock:           H256;
+    contract:       Script;
+>>>>>>> refactor: replace flatten Bytes with [ubyte]
 }
 
 table Script {
     version:        uint8;
     args:           [Bytes];
-    binary:         Bytes;
+    binary:         [ubyte];
     reference:      H256;
     signed_args:    [Bytes];
 }

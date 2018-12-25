@@ -43,8 +43,8 @@ impl<'a> FbsHeader<'a> {
         let parent_hash = header.parent_hash().into();
         let txs_commit = header.txs_commit().into();
         let txs_proposal = header.txs_proposal().into();
-        let difficulty = FbsBytes::build(fbb, &uint_to_bytes(header.difficulty()));
-        let proof = FbsBytes::build(fbb, &header.proof());
+        let difficulty = fbb.create_vector_direct(&uint_to_bytes(header.difficulty()));
+        let proof = fbb.create_vector_direct(&header.proof());
         let cellbase_id = header.cellbase_id().into();
         let uncles_hash = header.uncles_hash().into();
         let mut builder = HeaderBuilder::new(fbb);
@@ -137,7 +137,7 @@ impl<'a> FbsScript<'a> {
             .collect::<Vec<_>>();
         let args = fbb.create_vector(&vec);
 
-        let binary = script.binary.as_ref().map(|s| FbsBytes::build(fbb, s));
+        let binary = script.binary.as_ref().map(|s| fbb.create_vector_direct(s));
 
         let reference = script.reference.as_ref().map(Into::into);
 
@@ -167,9 +167,18 @@ impl<'a> FbsCellOutput<'a> {
         fbb: &mut FlatBufferBuilder<'b>,
         cell_output: &CellOutput,
     ) -> WIPOffset<FbsCellOutput<'b>> {
+<<<<<<< HEAD
         let data = FbsBytes::build(fbb, &cell_output.data);
         let lock = FbsBytes::build(fbb, &cell_output.lock.as_bytes());
         let type_ = cell_output.type_.as_ref().map(|s| FbsScript::build(fbb, s));
+=======
+        let data = fbb.create_vector_direct(&cell_output.data);
+        let lock = (&cell_output.lock).into();
+        let contract = cell_output
+            .contract
+            .as_ref()
+            .map(|s| FbsScript::build(fbb, s));
+>>>>>>> refactor: replace flatten Bytes with [ubyte]
         let mut builder = CellOutputBuilder::new(fbb);
         builder.add_capacity(cell_output.capacity);
         builder.add_data(data);

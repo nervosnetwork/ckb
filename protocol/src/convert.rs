@@ -110,14 +110,11 @@ impl<'a> From<ckb_protocol::Header<'a>> for ckb_core::header::Header {
             .number(header.number())
             .txs_commit(header.txs_commit().unwrap().into())
             .txs_proposal(header.txs_proposal().unwrap().into())
-            .difficulty(
-                U256::from_little_endian(header.difficulty().and_then(|b| b.seq()).unwrap())
-                    .unwrap(),
-            )
+            .difficulty(U256::from_little_endian(header.difficulty().unwrap()).unwrap())
             .cellbase_id(header.cellbase_id().unwrap().into())
             .uncles_hash(header.uncles_hash().unwrap().into())
             .nonce(header.nonce())
-            .proof(header.proof().and_then(|b| b.seq()).unwrap().to_vec())
+            .proof(header.proof().unwrap().to_vec())
             .uncles_count(header.uncles_count())
             .build()
     }
@@ -168,7 +165,7 @@ impl<'a> From<ckb_protocol::Script<'a>> for ckb_core::script::Script {
         ckb_core::script::Script {
             version: script.version(),
             args,
-            binary: script.binary().and_then(|s| s.seq()).map(|s| s.to_vec()),
+            binary: script.binary().map(Into::into),
             signed_args,
             reference: script.reference().map(Into::into),
         }
@@ -191,6 +188,7 @@ impl<'a> From<ckb_protocol::CellOutput<'a>> for ckb_core::transaction::CellOutpu
     fn from(cell_output: ckb_protocol::CellOutput<'a>) -> Self {
         ckb_core::transaction::CellOutput {
             capacity: cell_output.capacity(),
+<<<<<<< HEAD
             data: cell_output.data().and_then(|b| b.seq()).unwrap().to_vec(),
             lock: H256::from_slice(cell_output.lock().and_then(|b| b.seq()).unwrap()).unwrap(),
             type_: cell_output.type_().map(Into::into),
@@ -203,6 +201,11 @@ impl<'a> From<ckb_protocol::IndexTransaction<'a>> for ckb_core::transaction::Ind
         ckb_core::transaction::IndexTransaction {
             index: it.index() as usize,
             transaction: it.transaction().unwrap().into(),
+=======
+            data: cell_output.data().unwrap().into(),
+            lock: cell_output.lock().unwrap().into(),
+            contract: cell_output.contract().map(Into::into),
+>>>>>>> refactor: replace flatten Bytes with [ubyte]
         }
     }
 }
