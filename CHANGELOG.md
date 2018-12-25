@@ -2,6 +2,42 @@ All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
 
+# [v0.3.0](https://github.com/nervosnetwork/ckb/compare/v0.2.0...v0.3.0) (2019-01-02)
+
+
+### Bug Fixes
+
+* **config:** boot\_nodes -> bootnodes ([aad811c](https://github.com/nervosnetwork/ckb/commit/aad811c))
+* add `tests/peers_registry` ([9616a18](https://github.com/nervosnetwork/ckb/commit/9616a18))
+* assign numeric numbers for syscall parameters ([3af9535](https://github.com/nervosnetwork/ckb/commit/3af9535))
+* cli panic ([c55e076](https://github.com/nervosnetwork/ckb/commit/c55e076))
+* cli subcommand setting ([bdf323f](https://github.com/nervosnetwork/ckb/commit/bdf323f))
+* fix calculation of headers sync timeout ([06a5e29](https://github.com/nervosnetwork/ckb/commit/06a5e29))
+* regulate parameters used in syscalls ([09e7cc7](https://github.com/nervosnetwork/ckb/commit/09e7cc7))
+* resolve mining old block issue ([#87](https://github.com/nervosnetwork/ckb/issues/87)) ([e5da1ae](https://github.com/nervosnetwork/ckb/commit/e5da1ae))
+* sync header verify ([366f077](https://github.com/nervosnetwork/ckb/commit/366f077))
+* uncheck subtract overflow ([#88](https://github.com/nervosnetwork/ckb/issues/88)) ([36b541f](https://github.com/nervosnetwork/ckb/commit/36b541f))
+* use new strategy to evict inbound peer ([95451e7](https://github.com/nervosnetwork/ckb/commit/95451e7))
+
+
+### Features
+
+* add `DATA_HASH` field type in Load Cell By Field ([2d0a378](https://github.com/nervosnetwork/ckb/commit/2d0a378))
+* add dep cell loading support in syscalls ([cae937f](https://github.com/nervosnetwork/ckb/commit/cae937f))
+* impl NetworkGroup for peer and multiaddr ([e1e5750](https://github.com/nervosnetwork/ckb/commit/e1e5750))
+* jsonrpc API modules ([f87d9a1](https://github.com/nervosnetwork/ckb/commit/f87d9a1))
+* try evict inbound peers when inbound slots is full ([d0db77e](https://github.com/nervosnetwork/ckb/commit/d0db77e))
+* use crate faketime to fake time ([#111](https://github.com/nervosnetwork/ckb/issues/111)) ([5adfd82](https://github.com/nervosnetwork/ckb/commit/5adfd82))
+* peerStore implement scoring interface ([d160d1e](https://github.com/nervosnetwork/ckb/commit/d160d1e))
+* rename outpoint to out\_point as its type is OutPoint (#93) ([3abf2b1](https://github.com/nervosnetwork/ckb/commit/3abf2b1)))
+* use serialized flatbuffer format in referenced cell ([49fc513](https://github.com/nervosnetwork/ckb/commit/49fc513))
+
+
+### BREAKING CHANGES
+
+* In P2P and RPC, field `outpoint` is renamed to `out_point`.
+
+
 # [v0.2.0](https://github.com/nervosnetwork/ckb/compare/v0.1.0...v0.2.0) (2018-12-17)
 
 In this release, we have upgraded to Rust 2018. We also did 2 important refactoring:
