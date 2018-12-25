@@ -4,7 +4,6 @@ use ckb_protocol::{GetBlockTransactions, RelayMessage};
 use ckb_shared::index::ChainIndex;
 use flatbuffers::FlatBufferBuilder;
 use log::debug;
-use numext_fixed_hash::H256;
 
 pub struct GetBlockTransactionsProcess<'a, CI: ChainIndex + 'a> {
     message: &'a GetBlockTransactions<'a>,
@@ -32,8 +31,7 @@ where
     }
 
     pub fn execute(self) {
-        let hash =
-            H256::from_slice(self.message.hash().and_then(|bytes| bytes.seq()).unwrap()).unwrap();
+        let hash = self.message.hash().unwrap().into();
         debug!(target: "relay", "get_block_transactions {:?}", hash);
 
         if let Some(block) = self.relayer.get_block(&hash) {

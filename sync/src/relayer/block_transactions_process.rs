@@ -4,7 +4,6 @@ use ckb_network::CKBProtocolContext;
 use ckb_network::PeerIndex;
 use ckb_protocol::{BlockTransactions, FlatbuffersVectorIterator};
 use ckb_shared::index::ChainIndex;
-use numext_fixed_hash::H256;
 use std::sync::Arc;
 
 pub struct BlockTransactionsProcess<'a, CI: ChainIndex + 'a> {
@@ -33,7 +32,7 @@ where
     }
 
     pub fn execute(self) {
-        let hash = H256::from_slice(self.message.hash().and_then(|b| b.seq()).unwrap()).unwrap();
+        let hash = self.message.hash().unwrap().into();
         if let Some(compact_block) = self
             .relayer
             .state

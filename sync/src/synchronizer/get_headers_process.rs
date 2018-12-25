@@ -2,7 +2,7 @@ use crate::synchronizer::Synchronizer;
 use crate::MAX_LOCATOR_SIZE;
 use ckb_core::header::Header;
 use ckb_network::{CKBProtocolContext, PeerIndex, Severity};
-use ckb_protocol::{FlatbuffersVectorIterator, GetHeaders, SyncMessage};
+use ckb_protocol::{GetHeaders, SyncMessage};
 use ckb_shared::index::ChainIndex;
 use flatbuffers::FlatBufferBuilder;
 use log::{debug, info, warn};
@@ -48,9 +48,7 @@ where
             }
 
             let hash_stop = H256::zero(); // TODO PENDING self.message.hash_stop().unwrap().into();
-            let block_locator_hashes = FlatbuffersVectorIterator::new(locator)
-                .map(|bytes| H256::from_slice(bytes.seq().unwrap()).unwrap())
-                .collect::<Vec<_>>();
+            let block_locator_hashes = locator.iter().map(Into::into).collect::<Vec<_>>();
 
             if let Some(block_number) = self
                 .synchronizer

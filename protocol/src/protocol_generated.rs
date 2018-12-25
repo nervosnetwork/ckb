@@ -681,19 +681,19 @@ impl<'a> GetHeaders<'a> {
     self._tab.get::<u32>(GetHeaders::VT_VERSION, Some(0)).unwrap()
   }
   #[inline]
-  pub fn block_locator_hashes(&self) -> Option<flatbuffers::Vector<flatbuffers::ForwardsUOffset<Bytes<'a>>>> {
-    self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<flatbuffers::ForwardsUOffset<Bytes<'a>>>>>(GetHeaders::VT_BLOCK_LOCATOR_HASHES, None)
+  pub fn block_locator_hashes(&self) -> Option<&'a [H256]> {
+    self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<H256>>>(GetHeaders::VT_BLOCK_LOCATOR_HASHES, None).map(|v| v.safe_slice() )
   }
   #[inline]
-  pub fn hash_stop(&self) -> Option<Bytes<'a>> {
-    self._tab.get::<flatbuffers::ForwardsUOffset<Bytes<'a>>>(GetHeaders::VT_HASH_STOP, None)
+  pub fn hash_stop(&self) -> Option<&'a H256> {
+    self._tab.get::<H256>(GetHeaders::VT_HASH_STOP, None)
   }
 }
 
 pub struct GetHeadersArgs<'a> {
     pub version: u32,
-    pub block_locator_hashes: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a , flatbuffers::ForwardsUOffset<Bytes<'a >>>>>,
-    pub hash_stop: Option<flatbuffers::WIPOffset<Bytes<'a >>>,
+    pub block_locator_hashes: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a , H256>>>,
+    pub hash_stop: Option<&'a  H256>,
 }
 impl<'a> Default for GetHeadersArgs<'a> {
     #[inline]
@@ -715,12 +715,12 @@ impl<'a: 'b, 'b> GetHeadersBuilder<'a, 'b> {
     self.fbb_.push_slot::<u32>(GetHeaders::VT_VERSION, version, 0);
   }
   #[inline]
-  pub fn add_block_locator_hashes(&mut self, block_locator_hashes: flatbuffers::WIPOffset<flatbuffers::Vector<'b , flatbuffers::ForwardsUOffset<Bytes<'b >>>>) {
+  pub fn add_block_locator_hashes(&mut self, block_locator_hashes: flatbuffers::WIPOffset<flatbuffers::Vector<'b , H256>>) {
     self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(GetHeaders::VT_BLOCK_LOCATOR_HASHES, block_locator_hashes);
   }
   #[inline]
-  pub fn add_hash_stop(&mut self, hash_stop: flatbuffers::WIPOffset<Bytes<'b >>) {
-    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<Bytes>>(GetHeaders::VT_HASH_STOP, hash_stop);
+  pub fn add_hash_stop(&mut self, hash_stop: &'b  H256) {
+    self.fbb_.push_slot_always::<&H256>(GetHeaders::VT_HASH_STOP, hash_stop);
   }
   #[inline]
   pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>) -> GetHeadersBuilder<'a, 'b> {
@@ -773,13 +773,13 @@ impl<'a> GetBlocks<'a> {
     pub const VT_BLOCK_HASHES: flatbuffers::VOffsetT = 4;
 
   #[inline]
-  pub fn block_hashes(&self) -> Option<flatbuffers::Vector<flatbuffers::ForwardsUOffset<Bytes<'a>>>> {
-    self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<flatbuffers::ForwardsUOffset<Bytes<'a>>>>>(GetBlocks::VT_BLOCK_HASHES, None)
+  pub fn block_hashes(&self) -> Option<&'a [H256]> {
+    self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<H256>>>(GetBlocks::VT_BLOCK_HASHES, None).map(|v| v.safe_slice() )
   }
 }
 
 pub struct GetBlocksArgs<'a> {
-    pub block_hashes: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a , flatbuffers::ForwardsUOffset<Bytes<'a >>>>>,
+    pub block_hashes: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a , H256>>>,
 }
 impl<'a> Default for GetBlocksArgs<'a> {
     #[inline]
@@ -795,7 +795,7 @@ pub struct GetBlocksBuilder<'a: 'b, 'b> {
 }
 impl<'a: 'b, 'b> GetBlocksBuilder<'a, 'b> {
   #[inline]
-  pub fn add_block_hashes(&mut self, block_hashes: flatbuffers::WIPOffset<flatbuffers::Vector<'b , flatbuffers::ForwardsUOffset<Bytes<'b >>>>) {
+  pub fn add_block_hashes(&mut self, block_hashes: flatbuffers::WIPOffset<flatbuffers::Vector<'b , H256>>) {
     self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(GetBlocks::VT_BLOCK_HASHES, block_hashes);
   }
   #[inline]
@@ -951,8 +951,8 @@ impl<'a> Header<'a> {
     self._tab.get::<u32>(Header::VT_VERSION, Some(0)).unwrap()
   }
   #[inline]
-  pub fn parent_hash(&self) -> Option<Bytes<'a>> {
-    self._tab.get::<flatbuffers::ForwardsUOffset<Bytes<'a>>>(Header::VT_PARENT_HASH, None)
+  pub fn parent_hash(&self) -> Option<&'a H256> {
+    self._tab.get::<H256>(Header::VT_PARENT_HASH, None)
   }
   #[inline]
   pub fn timestamp(&self) -> u64 {
@@ -963,12 +963,12 @@ impl<'a> Header<'a> {
     self._tab.get::<u64>(Header::VT_NUMBER, Some(0)).unwrap()
   }
   #[inline]
-  pub fn txs_commit(&self) -> Option<Bytes<'a>> {
-    self._tab.get::<flatbuffers::ForwardsUOffset<Bytes<'a>>>(Header::VT_TXS_COMMIT, None)
+  pub fn txs_commit(&self) -> Option<&'a H256> {
+    self._tab.get::<H256>(Header::VT_TXS_COMMIT, None)
   }
   #[inline]
-  pub fn txs_proposal(&self) -> Option<Bytes<'a>> {
-    self._tab.get::<flatbuffers::ForwardsUOffset<Bytes<'a>>>(Header::VT_TXS_PROPOSAL, None)
+  pub fn txs_proposal(&self) -> Option<&'a H256> {
+    self._tab.get::<H256>(Header::VT_TXS_PROPOSAL, None)
   }
   #[inline]
   pub fn difficulty(&self) -> Option<Bytes<'a>> {
@@ -983,12 +983,12 @@ impl<'a> Header<'a> {
     self._tab.get::<flatbuffers::ForwardsUOffset<Bytes<'a>>>(Header::VT_PROOF, None)
   }
   #[inline]
-  pub fn cellbase_id(&self) -> Option<Bytes<'a>> {
-    self._tab.get::<flatbuffers::ForwardsUOffset<Bytes<'a>>>(Header::VT_CELLBASE_ID, None)
+  pub fn cellbase_id(&self) -> Option<&'a H256> {
+    self._tab.get::<H256>(Header::VT_CELLBASE_ID, None)
   }
   #[inline]
-  pub fn uncles_hash(&self) -> Option<Bytes<'a>> {
-    self._tab.get::<flatbuffers::ForwardsUOffset<Bytes<'a>>>(Header::VT_UNCLES_HASH, None)
+  pub fn uncles_hash(&self) -> Option<&'a H256> {
+    self._tab.get::<H256>(Header::VT_UNCLES_HASH, None)
   }
   #[inline]
   pub fn uncles_count(&self) -> u32 {
@@ -998,16 +998,16 @@ impl<'a> Header<'a> {
 
 pub struct HeaderArgs<'a> {
     pub version: u32,
-    pub parent_hash: Option<flatbuffers::WIPOffset<Bytes<'a >>>,
+    pub parent_hash: Option<&'a  H256>,
     pub timestamp: u64,
     pub number: u64,
-    pub txs_commit: Option<flatbuffers::WIPOffset<Bytes<'a >>>,
-    pub txs_proposal: Option<flatbuffers::WIPOffset<Bytes<'a >>>,
+    pub txs_commit: Option<&'a  H256>,
+    pub txs_proposal: Option<&'a  H256>,
     pub difficulty: Option<flatbuffers::WIPOffset<Bytes<'a >>>,
     pub nonce: u64,
     pub proof: Option<flatbuffers::WIPOffset<Bytes<'a >>>,
-    pub cellbase_id: Option<flatbuffers::WIPOffset<Bytes<'a >>>,
-    pub uncles_hash: Option<flatbuffers::WIPOffset<Bytes<'a >>>,
+    pub cellbase_id: Option<&'a  H256>,
+    pub uncles_hash: Option<&'a  H256>,
     pub uncles_count: u32,
 }
 impl<'a> Default for HeaderArgs<'a> {
@@ -1039,8 +1039,8 @@ impl<'a: 'b, 'b> HeaderBuilder<'a, 'b> {
     self.fbb_.push_slot::<u32>(Header::VT_VERSION, version, 0);
   }
   #[inline]
-  pub fn add_parent_hash(&mut self, parent_hash: flatbuffers::WIPOffset<Bytes<'b >>) {
-    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<Bytes>>(Header::VT_PARENT_HASH, parent_hash);
+  pub fn add_parent_hash(&mut self, parent_hash: &'b  H256) {
+    self.fbb_.push_slot_always::<&H256>(Header::VT_PARENT_HASH, parent_hash);
   }
   #[inline]
   pub fn add_timestamp(&mut self, timestamp: u64) {
@@ -1051,12 +1051,12 @@ impl<'a: 'b, 'b> HeaderBuilder<'a, 'b> {
     self.fbb_.push_slot::<u64>(Header::VT_NUMBER, number, 0);
   }
   #[inline]
-  pub fn add_txs_commit(&mut self, txs_commit: flatbuffers::WIPOffset<Bytes<'b >>) {
-    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<Bytes>>(Header::VT_TXS_COMMIT, txs_commit);
+  pub fn add_txs_commit(&mut self, txs_commit: &'b  H256) {
+    self.fbb_.push_slot_always::<&H256>(Header::VT_TXS_COMMIT, txs_commit);
   }
   #[inline]
-  pub fn add_txs_proposal(&mut self, txs_proposal: flatbuffers::WIPOffset<Bytes<'b >>) {
-    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<Bytes>>(Header::VT_TXS_PROPOSAL, txs_proposal);
+  pub fn add_txs_proposal(&mut self, txs_proposal: &'b  H256) {
+    self.fbb_.push_slot_always::<&H256>(Header::VT_TXS_PROPOSAL, txs_proposal);
   }
   #[inline]
   pub fn add_difficulty(&mut self, difficulty: flatbuffers::WIPOffset<Bytes<'b >>) {
@@ -1071,12 +1071,12 @@ impl<'a: 'b, 'b> HeaderBuilder<'a, 'b> {
     self.fbb_.push_slot_always::<flatbuffers::WIPOffset<Bytes>>(Header::VT_PROOF, proof);
   }
   #[inline]
-  pub fn add_cellbase_id(&mut self, cellbase_id: flatbuffers::WIPOffset<Bytes<'b >>) {
-    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<Bytes>>(Header::VT_CELLBASE_ID, cellbase_id);
+  pub fn add_cellbase_id(&mut self, cellbase_id: &'b  H256) {
+    self.fbb_.push_slot_always::<&H256>(Header::VT_CELLBASE_ID, cellbase_id);
   }
   #[inline]
-  pub fn add_uncles_hash(&mut self, uncles_hash: flatbuffers::WIPOffset<Bytes<'b >>) {
-    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<Bytes>>(Header::VT_UNCLES_HASH, uncles_hash);
+  pub fn add_uncles_hash(&mut self, uncles_hash: &'b  H256) {
+    self.fbb_.push_slot_always::<&H256>(Header::VT_UNCLES_HASH, uncles_hash);
   }
   #[inline]
   pub fn add_uncles_count(&mut self, uncles_count: u32) {
@@ -1459,8 +1459,8 @@ impl<'a> OutPoint<'a> {
     pub const VT_INDEX: flatbuffers::VOffsetT = 6;
 
   #[inline]
-  pub fn hash(&self) -> Option<Bytes<'a>> {
-    self._tab.get::<flatbuffers::ForwardsUOffset<Bytes<'a>>>(OutPoint::VT_HASH, None)
+  pub fn hash(&self) -> Option<&'a H256> {
+    self._tab.get::<H256>(OutPoint::VT_HASH, None)
   }
   #[inline]
   pub fn index(&self) -> u32 {
@@ -1469,7 +1469,7 @@ impl<'a> OutPoint<'a> {
 }
 
 pub struct OutPointArgs<'a> {
-    pub hash: Option<flatbuffers::WIPOffset<Bytes<'a >>>,
+    pub hash: Option<&'a  H256>,
     pub index: u32,
 }
 impl<'a> Default for OutPointArgs<'a> {
@@ -1487,8 +1487,8 @@ pub struct OutPointBuilder<'a: 'b, 'b> {
 }
 impl<'a: 'b, 'b> OutPointBuilder<'a, 'b> {
   #[inline]
-  pub fn add_hash(&mut self, hash: flatbuffers::WIPOffset<Bytes<'b >>) {
-    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<Bytes>>(OutPoint::VT_HASH, hash);
+  pub fn add_hash(&mut self, hash: &'b  H256) {
+    self.fbb_.push_slot_always::<&H256>(OutPoint::VT_HASH, hash);
   }
   #[inline]
   pub fn add_index(&mut self, index: u32) {
@@ -1549,8 +1549,8 @@ impl<'a> CellInput<'a> {
     pub const VT_UNLOCK: flatbuffers::VOffsetT = 8;
 
   #[inline]
-  pub fn hash(&self) -> Option<Bytes<'a>> {
-    self._tab.get::<flatbuffers::ForwardsUOffset<Bytes<'a>>>(CellInput::VT_HASH, None)
+  pub fn hash(&self) -> Option<&'a H256> {
+    self._tab.get::<H256>(CellInput::VT_HASH, None)
   }
   #[inline]
   pub fn index(&self) -> u32 {
@@ -1563,7 +1563,7 @@ impl<'a> CellInput<'a> {
 }
 
 pub struct CellInputArgs<'a> {
-    pub hash: Option<flatbuffers::WIPOffset<Bytes<'a >>>,
+    pub hash: Option<&'a  H256>,
     pub index: u32,
     pub unlock: Option<flatbuffers::WIPOffset<Script<'a >>>,
 }
@@ -1583,8 +1583,8 @@ pub struct CellInputBuilder<'a: 'b, 'b> {
 }
 impl<'a: 'b, 'b> CellInputBuilder<'a, 'b> {
   #[inline]
-  pub fn add_hash(&mut self, hash: flatbuffers::WIPOffset<Bytes<'b >>) {
-    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<Bytes>>(CellInput::VT_HASH, hash);
+  pub fn add_hash(&mut self, hash: &'b  H256) {
+    self.fbb_.push_slot_always::<&H256>(CellInput::VT_HASH, hash);
   }
   #[inline]
   pub fn add_index(&mut self, index: u32) {
@@ -1659,8 +1659,8 @@ impl<'a> CellOutput<'a> {
     self._tab.get::<flatbuffers::ForwardsUOffset<Bytes<'a>>>(CellOutput::VT_DATA, None)
   }
   #[inline]
-  pub fn lock(&self) -> Option<Bytes<'a>> {
-    self._tab.get::<flatbuffers::ForwardsUOffset<Bytes<'a>>>(CellOutput::VT_LOCK, None)
+  pub fn lock(&self) -> Option<&'a H256> {
+    self._tab.get::<H256>(CellOutput::VT_LOCK, None)
   }
   #[inline]
   pub fn type_(&self) -> Option<Script<'a>> {
@@ -1699,8 +1699,8 @@ impl<'a: 'b, 'b> CellOutputBuilder<'a, 'b> {
     self.fbb_.push_slot_always::<flatbuffers::WIPOffset<Bytes>>(CellOutput::VT_DATA, data);
   }
   #[inline]
-  pub fn add_lock(&mut self, lock: flatbuffers::WIPOffset<Bytes<'b >>) {
-    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<Bytes>>(CellOutput::VT_LOCK, lock);
+  pub fn add_lock(&mut self, lock: &'b  H256) {
+    self.fbb_.push_slot_always::<&H256>(CellOutput::VT_LOCK, lock);
   }
   #[inline]
   pub fn add_type_(&mut self, type_: flatbuffers::WIPOffset<Script<'b >>) {
@@ -1777,8 +1777,8 @@ impl<'a> Script<'a> {
     self._tab.get::<flatbuffers::ForwardsUOffset<Bytes<'a>>>(Script::VT_BINARY, None)
   }
   #[inline]
-  pub fn reference(&self) -> Option<Bytes<'a>> {
-    self._tab.get::<flatbuffers::ForwardsUOffset<Bytes<'a>>>(Script::VT_REFERENCE, None)
+  pub fn reference(&self) -> Option<&'a H256> {
+    self._tab.get::<H256>(Script::VT_REFERENCE, None)
   }
   #[inline]
   pub fn signed_args(&self) -> Option<flatbuffers::Vector<flatbuffers::ForwardsUOffset<Bytes<'a>>>> {
@@ -1790,7 +1790,7 @@ pub struct ScriptArgs<'a> {
     pub version: u8,
     pub args: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a , flatbuffers::ForwardsUOffset<Bytes<'a >>>>>,
     pub binary: Option<flatbuffers::WIPOffset<Bytes<'a >>>,
-    pub reference: Option<flatbuffers::WIPOffset<Bytes<'a >>>,
+    pub reference: Option<&'a  H256>,
     pub signed_args: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a , flatbuffers::ForwardsUOffset<Bytes<'a >>>>>,
 }
 impl<'a> Default for ScriptArgs<'a> {
@@ -1823,8 +1823,8 @@ impl<'a: 'b, 'b> ScriptBuilder<'a, 'b> {
     self.fbb_.push_slot_always::<flatbuffers::WIPOffset<Bytes>>(Script::VT_BINARY, binary);
   }
   #[inline]
-  pub fn add_reference(&mut self, reference: flatbuffers::WIPOffset<Bytes<'b >>) {
-    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<Bytes>>(Script::VT_REFERENCE, reference);
+  pub fn add_reference(&mut self, reference: &'b  H256) {
+    self.fbb_.push_slot_always::<&H256>(Script::VT_REFERENCE, reference);
   }
   #[inline]
   pub fn add_signed_args(&mut self, signed_args: flatbuffers::WIPOffset<flatbuffers::Vector<'b , flatbuffers::ForwardsUOffset<Bytes<'b >>>>) {
@@ -2255,8 +2255,8 @@ impl<'a> GetBlockTransactions<'a> {
     pub const VT_INDEXES: flatbuffers::VOffsetT = 6;
 
   #[inline]
-  pub fn hash(&self) -> Option<Bytes<'a>> {
-    self._tab.get::<flatbuffers::ForwardsUOffset<Bytes<'a>>>(GetBlockTransactions::VT_HASH, None)
+  pub fn hash(&self) -> Option<&'a H256> {
+    self._tab.get::<H256>(GetBlockTransactions::VT_HASH, None)
   }
   #[inline]
   pub fn indexes(&self) -> Option<flatbuffers::Vector<'a, u32>> {
@@ -2265,7 +2265,7 @@ impl<'a> GetBlockTransactions<'a> {
 }
 
 pub struct GetBlockTransactionsArgs<'a> {
-    pub hash: Option<flatbuffers::WIPOffset<Bytes<'a >>>,
+    pub hash: Option<&'a  H256>,
     pub indexes: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a ,  u32>>>,
 }
 impl<'a> Default for GetBlockTransactionsArgs<'a> {
@@ -2283,8 +2283,8 @@ pub struct GetBlockTransactionsBuilder<'a: 'b, 'b> {
 }
 impl<'a: 'b, 'b> GetBlockTransactionsBuilder<'a, 'b> {
   #[inline]
-  pub fn add_hash(&mut self, hash: flatbuffers::WIPOffset<Bytes<'b >>) {
-    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<Bytes>>(GetBlockTransactions::VT_HASH, hash);
+  pub fn add_hash(&mut self, hash: &'b  H256) {
+    self.fbb_.push_slot_always::<&H256>(GetBlockTransactions::VT_HASH, hash);
   }
   #[inline]
   pub fn add_indexes(&mut self, indexes: flatbuffers::WIPOffset<flatbuffers::Vector<'b , u32>>) {
@@ -2343,8 +2343,8 @@ impl<'a> BlockTransactions<'a> {
     pub const VT_TRANSACTIONS: flatbuffers::VOffsetT = 6;
 
   #[inline]
-  pub fn hash(&self) -> Option<Bytes<'a>> {
-    self._tab.get::<flatbuffers::ForwardsUOffset<Bytes<'a>>>(BlockTransactions::VT_HASH, None)
+  pub fn hash(&self) -> Option<&'a H256> {
+    self._tab.get::<H256>(BlockTransactions::VT_HASH, None)
   }
   #[inline]
   pub fn transactions(&self) -> Option<flatbuffers::Vector<flatbuffers::ForwardsUOffset<Transaction<'a>>>> {
@@ -2353,7 +2353,7 @@ impl<'a> BlockTransactions<'a> {
 }
 
 pub struct BlockTransactionsArgs<'a> {
-    pub hash: Option<flatbuffers::WIPOffset<Bytes<'a >>>,
+    pub hash: Option<&'a  H256>,
     pub transactions: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a , flatbuffers::ForwardsUOffset<Transaction<'a >>>>>,
 }
 impl<'a> Default for BlockTransactionsArgs<'a> {
@@ -2371,8 +2371,8 @@ pub struct BlockTransactionsBuilder<'a: 'b, 'b> {
 }
 impl<'a: 'b, 'b> BlockTransactionsBuilder<'a, 'b> {
   #[inline]
-  pub fn add_hash(&mut self, hash: flatbuffers::WIPOffset<Bytes<'b >>) {
-    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<Bytes>>(BlockTransactions::VT_HASH, hash);
+  pub fn add_hash(&mut self, hash: &'b  H256) {
+    self.fbb_.push_slot_always::<&H256>(BlockTransactions::VT_HASH, hash);
   }
   #[inline]
   pub fn add_transactions(&mut self, transactions: flatbuffers::WIPOffset<flatbuffers::Vector<'b , flatbuffers::ForwardsUOffset<Transaction<'b >>>>) {

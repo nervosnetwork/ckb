@@ -4,6 +4,58 @@ use ckb_core;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 
+impl From<&H256> for ckb_protocol::H256 {
+    fn from(h256: &H256) -> Self {
+        let bytes = h256.as_fixed_bytes();
+        Self::new(
+            bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
+            bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15],
+            bytes[16], bytes[17], bytes[18], bytes[19], bytes[20], bytes[21], bytes[22], bytes[23],
+            bytes[24], bytes[25], bytes[26], bytes[27], bytes[28], bytes[29], bytes[30], bytes[31],
+        )
+    }
+}
+
+impl From<&ckb_protocol::H256> for H256 {
+    fn from(h256: &ckb_protocol::H256) -> Self {
+        H256::from_slice(&[
+            h256.u0(),
+            h256.u1(),
+            h256.u2(),
+            h256.u3(),
+            h256.u4(),
+            h256.u5(),
+            h256.u6(),
+            h256.u7(),
+            h256.u8_(),
+            h256.u9(),
+            h256.u10(),
+            h256.u11(),
+            h256.u12(),
+            h256.u13(),
+            h256.u14(),
+            h256.u15(),
+            h256.u16_(),
+            h256.u17(),
+            h256.u18(),
+            h256.u19(),
+            h256.u20(),
+            h256.u21(),
+            h256.u22(),
+            h256.u23(),
+            h256.u24(),
+            h256.u25(),
+            h256.u26(),
+            h256.u27(),
+            h256.u28(),
+            h256.u29(),
+            h256.u30(),
+            h256.u31(),
+        ])
+        .unwrap()
+    }
+}
+
 impl<'a> From<ckb_protocol::Block<'a>> for ckb_core::block::Block {
     fn from(block: ckb_protocol::Block<'a>) -> Self {
         let commit_transactions =
@@ -53,27 +105,17 @@ impl<'a> From<ckb_protocol::Header<'a>> for ckb_core::header::Header {
     fn from(header: ckb_protocol::Header<'a>) -> Self {
         ckb_core::header::HeaderBuilder::default()
             .version(header.version())
-            .parent_hash(
-                H256::from_slice(header.parent_hash().and_then(|b| b.seq()).unwrap()).unwrap(),
-            )
+            .parent_hash(header.parent_hash().unwrap().into())
             .timestamp(header.timestamp())
             .number(header.number())
-            .txs_commit(
-                H256::from_slice(header.txs_commit().and_then(|b| b.seq()).unwrap()).unwrap(),
-            )
-            .txs_proposal(
-                H256::from_slice(header.txs_proposal().and_then(|b| b.seq()).unwrap()).unwrap(),
-            )
+            .txs_commit(header.txs_commit().unwrap().into())
+            .txs_proposal(header.txs_proposal().unwrap().into())
             .difficulty(
                 U256::from_little_endian(header.difficulty().and_then(|b| b.seq()).unwrap())
                     .unwrap(),
             )
-            .cellbase_id(
-                H256::from_slice(header.cellbase_id().and_then(|b| b.seq()).unwrap()).unwrap(),
-            )
-            .uncles_hash(
-                H256::from_slice(header.uncles_hash().and_then(|b| b.seq()).unwrap()).unwrap(),
-            )
+            .cellbase_id(header.cellbase_id().unwrap().into())
+            .uncles_hash(header.uncles_hash().unwrap().into())
             .nonce(header.nonce())
             .proof(header.proof().and_then(|b| b.seq()).unwrap().to_vec())
             .uncles_count(header.uncles_count())
@@ -107,7 +149,7 @@ impl<'a> From<ckb_protocol::Transaction<'a>> for ckb_core::transaction::Transact
 impl<'a> From<ckb_protocol::OutPoint<'a>> for ckb_core::transaction::OutPoint {
     fn from(out_point: ckb_protocol::OutPoint<'a>) -> Self {
         ckb_core::transaction::OutPoint {
-            hash: H256::from_slice(out_point.hash().and_then(|b| b.seq()).unwrap()).unwrap(),
+            hash: out_point.hash().unwrap().into(),
             index: out_point.index(),
         }
     }
@@ -128,10 +170,7 @@ impl<'a> From<ckb_protocol::Script<'a>> for ckb_core::script::Script {
             args,
             binary: script.binary().and_then(|s| s.seq()).map(|s| s.to_vec()),
             signed_args,
-            reference: script
-                .reference()
-                .and_then(|s| s.seq())
-                .map(|s| H256::from_slice(s).unwrap()),
+            reference: script.reference().map(Into::into),
         }
     }
 }
@@ -140,7 +179,7 @@ impl<'a> From<ckb_protocol::CellInput<'a>> for ckb_core::transaction::CellInput 
     fn from(cell_input: ckb_protocol::CellInput<'a>) -> Self {
         ckb_core::transaction::CellInput {
             previous_output: ckb_core::transaction::OutPoint {
-                hash: H256::from_slice(cell_input.hash().and_then(|b| b.seq()).unwrap()).unwrap(),
+                hash: cell_input.hash().unwrap().into(),
                 index: cell_input.index(),
             },
             unlock: cell_input.unlock().unwrap().into(),
