@@ -10,6 +10,7 @@ pub struct Config {
     pub listen_address: String,
     pub threads: Option<usize>,
     pub modules: Vec<String>,
+    pub max_request_body_size: usize,
 }
 
 impl Config {
