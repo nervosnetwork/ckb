@@ -415,7 +415,7 @@ where
         self.is_acceptable()?;
 
         if tx.is_cellbase() {
-            return Err(PoolError::CellBase);
+            return Err(PoolError::Cellbase);
         }
 
         self.check_duplicate(&tx)?;
