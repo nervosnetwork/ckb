@@ -89,7 +89,7 @@ impl<T: Send + 'static> ProtocolService<T> for OutboundPeerService {
                 if new_outbound > 0 {
                     let attempt_peers = network
                         .peer_store()
-                        .lock()
+                        .read()
                         .peers_to_attempt(new_outbound as u32);
                     for (peer_id, addr) in attempt_peers.iter().filter_map(|(peer_id, addr)| {
                         if network.local_peer_id() != peer_id {

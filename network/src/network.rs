@@ -65,7 +65,7 @@ impl PeerInfo {
 
 pub struct Network {
     peers_registry: RwLock<PeersRegistry>,
-    peer_store: Arc<Mutex<dyn PeerStore>>,
+    peer_store: Arc<RwLock<dyn PeerStore>>,
     pub(crate) listened_addresses: RwLock<Vec<Multiaddr>>,
     pub(crate) original_listened_addresses: RwLock<Vec<Multiaddr>>,
     pub(crate) ckb_protocols: CKBProtocols<Arc<CKBProtocolHandler>>,
@@ -75,7 +75,7 @@ pub struct Network {
 
 impl Network {
     pub fn report(&self, peer_id: &PeerId, behaviour: Behaviour) {
-        self.peer_store.lock().report(peer_id, behaviour);
+        self.peer_store.write().report(peer_id, behaviour);
     }
 
     pub fn drop_peer(&self, peer_id: &PeerId) {
@@ -149,7 +149,7 @@ impl Network {
     }
 
     pub(crate) fn get_peer_addresses(&self, peer_id: &PeerId) -> Vec<Multiaddr> {
-        let peer_store = self.peer_store.lock();
+        let peer_store = self.peer_store.read();
         let addrs = peer_store.peer_addrs(&peer_id, PEER_ADDRS_COUNT);
         addrs.unwrap_or_default()
     }
@@ -173,11 +173,11 @@ impl Network {
     pub(crate) fn ban_peer(&self, peer_id: &PeerId, timeout: Duration) {
         let mut peers_registry = self.peers_registry.write();
         peers_registry.drop_peer(peer_id);
-        self.peer_store.lock().ban_peer(peer_id, timeout);
+        self.peer_store.write().ban_peer(peer_id, timeout);
     }
 
     #[inline]
-    pub(crate) fn peer_store(&self) -> &Mutex<dyn PeerStore> {
+    pub(crate) fn peer_store(&self) -> &RwLock<dyn PeerStore> {
         &self.peer_store
     }
 
@@ -262,7 +262,7 @@ impl Network {
             Ok(_) => {
                 let _ = self
                     .peer_store()
-                    .lock()
+                    .write()
                     .add_discovered_address(peer_id, connected_addr);
                 let peer = peers_registry.get_mut(&peer_id).unwrap();
                 Ok(self.ckb_protocol_connec(peer, protocol_id))
@@ -283,7 +283,7 @@ impl Network {
             Ok(_) => {
                 let _ = self
                     .peer_store()
-                    .lock()
+                    .write()
                     .add_discovered_address(peer_id, connected_addr);
                 let peer = peers_registry.get_mut(&peer_id).unwrap();
                 Ok(self.ckb_protocol_connec(peer, protocol_id))
@@ -471,13 +471,13 @@ impl Network {
             None => return Err(ErrorKind::Other("secret_key not set".to_owned()).into()),
         };
         let listened_addresses = config.public_addresses.clone();
-        let peer_store: Arc<Mutex<dyn PeerStore>> = {
+        let peer_store: Arc<RwLock<dyn PeerStore>> = {
             let mut peer_store = SqlitePeerStore::default();
             let bootnodes = config.bootnodes()?;
             for (peer_id, addr) in bootnodes {
                 peer_store.add_bootnode(peer_id, addr);
             }
-            Arc::new(Mutex::new(peer_store))
+            Arc::new(RwLock::new(peer_store))
         };
         let reserved_peers = config
             .reserved_peers()?
@@ -665,7 +665,7 @@ impl Network {
 
             let bootnodes = network
                 .peer_store()
-                .lock()
+                .read()
                 .bootnodes((max_outbound / 2) as u32)
                 .clone();
             // dial half bootnodes

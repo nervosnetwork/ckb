@@ -1,5 +1,7 @@
 mod db;
-pub use crate::peer_store::sqlite_peer_store::{SqlitePeerStore, StorePath};
+mod sqlite;
+pub use crate::peer_store::sqlite::StorePath;
+pub use crate::peer_store::sqlite_peer_store::SqlitePeerStore;
 pub mod db_trace;
 pub(crate) mod sqlite_peer_store;
 
@@ -19,9 +21,20 @@ pub enum Behaviour {
 }
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum Status {
-    Connected,
-    Disconnected,
-    Unknown,
+    Connected = 0,
+    Disconnected = 1,
+    Unknown = 2,
+}
+
+impl From<u8> for Status {
+    fn from(i: u8) -> Self {
+        match i {
+            0 => Status::Connected,
+            1 => Status::Disconnected,
+            2 => Status::Unknown,
+            _ => Status::Unknown,
+        }
+    }
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]

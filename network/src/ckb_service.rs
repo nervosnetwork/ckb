@@ -108,7 +108,7 @@ impl CKBService {
                             peer_id, protocol_id, val
                         );
                         {
-                            let mut peer_store = network.peer_store().lock();
+                            let mut peer_store = network.peer_store().write();
                             peer_store.report(&peer_id, Behaviour::UnexpectedDisconnect);
                             peer_store.update_status(&peer_id, Status::Disconnected);
                         }
@@ -131,7 +131,7 @@ impl CKBService {
             peer_id, protocol_id, protocol_version
         );
         {
-            let mut peer_store = network.peer_store().lock();
+            let mut peer_store = network.peer_store().write();
             peer_store.report(&peer_id, Behaviour::Connect);
             peer_store.update_status(&peer_id, Status::Connected);
         }

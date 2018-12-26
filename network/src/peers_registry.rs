@@ -2,7 +2,7 @@ use crate::network_group::{Group, NetworkGroup};
 use crate::peer_store::PeerStore;
 use crate::{Error, ErrorKind, PeerId, PeerIndex, ProtocolId};
 use bytes::Bytes;
-use ckb_util::Mutex;
+use ckb_util::RwLock;
 use faketime::unix_time_as_millis;
 use fnv::{FnvHashMap, FnvHashSet};
 use futures::sync::mpsc::UnboundedSender;
@@ -153,7 +153,7 @@ pub struct ConnectionStatus {
 
 pub(crate) struct PeersRegistry {
     // store all known peers
-    peer_store: Arc<Mutex<dyn PeerStore>>,
+    peer_store: Arc<RwLock<dyn PeerStore>>,
     peers: PeerConnections,
     // max inbound limitation
     max_inbound: u32,
@@ -194,7 +194,7 @@ where
 
 impl PeersRegistry {
     pub fn new(
-        peer_store: Arc<Mutex<dyn PeerStore>>,
+        peer_store: Arc<RwLock<dyn PeerStore>>,
         max_inbound: u32,
         max_outbound: u32,
         reserved_only: bool,
@@ -236,7 +236,7 @@ impl PeersRegistry {
                 ))
                 .into());
             }
-            if self.peer_store.lock().is_banned(&peer_id) {
+            if self.peer_store.read().is_banned(&peer_id) {
                 return Err(
                     ErrorKind::InvalidNewPeer(format!("peer {:?} is denied", peer_id)).into(),
                 );
@@ -265,7 +265,7 @@ impl PeersRegistry {
                 .iter()
                 .filter(|(peer_id, peer)| peer.is_inbound() && !self.is_reserved(peer_id))
                 .collect::<Vec<_>>();
-            let peer_store = self.peer_store.lock();
+            let peer_store = self.peer_store.read();
             // Protect peers based on characteristics that an attacker hard to simulate or manipulate
             // Protect peers which has the highest score
             sort_then_drop_last_n_elements(
@@ -348,7 +348,7 @@ impl PeersRegistry {
                 ))
                 .into());
             }
-            if self.peer_store.lock().is_banned(&peer_id) {
+            if self.peer_store.read().is_banned(&peer_id) {
                 return Err(
                     ErrorKind::InvalidNewPeer(format!("peer {:?} is denied", peer_id)).into(),
                 );
@@ -377,7 +377,7 @@ impl PeersRegistry {
         endpoint: Endpoint,
     ) -> PeerIndex {
         self.peer_store
-            .lock()
+            .write()
             .new_connected_peer(&peer_id, connected_addr.clone(), endpoint);
         let mut peer = PeerConnection::new(connected_addr, endpoint);
         peer.connected_time = Some(unix_time_as_millis());

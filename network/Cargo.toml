@@ -22,3 +22,5 @@ faketime = "0.2.0"
 rusqlite = {version = "0.16.0", features = ["trace"]}
 lazy_static = "1.2.0"
 multihash = { git = "https://github.com/libp2p/rust-libp2p", rev="cfdfca1a06fb2deb9ebcc15a63d715ebddb23bd0" }
+r2d2 = "0.8.3"
+r2d2_sqlite = {git = "https://github.com/jjyr/r2d2-sqlite", rev="8ade92077977c4860562b1337b95ec8ed2000711"}
