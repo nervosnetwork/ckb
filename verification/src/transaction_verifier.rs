@@ -184,7 +184,7 @@ impl<'a> CapacityVerifier<'a> {
             .fold(0, |acc, output| acc + output.capacity);
 
         if inputs_total < outputs_total {
-            Err(TransactionError::InvalidCapacity)
+            Err(TransactionError::OutputsSumOverflow)
         } else if self
             .resolved_transaction
             .transaction
@@ -192,7 +192,7 @@ impl<'a> CapacityVerifier<'a> {
             .iter()
             .any(|output| output.bytes_len() as Capacity > output.capacity)
         {
-            Err(TransactionError::OutOfBound)
+            Err(TransactionError::CapacityOverflow)
         } else {
             Ok(())
         }
