@@ -83,6 +83,7 @@ pub struct Synchronizer<CI: ChainIndex> {
     pub outbound_peers_with_protect: Arc<AtomicUsize>,
 }
 
+// https://github.com/rust-lang/rust/issues/40754
 impl<CI: ChainIndex> ::std::clone::Clone for Synchronizer<CI> {
     fn clone(&self) -> Self {
         Synchronizer {
@@ -477,7 +478,7 @@ impl<CI: ChainIndex> Synchronizer<CI> {
     }
 
     pub fn get_blocks_to_fetch(&self, peer: PeerIndex) -> Option<Vec<H256>> {
-        BlockFetcher::new(&self, peer).fetch()
+        BlockFetcher::new(self.clone(), peer).fetch()
     }
 
     fn on_connected(&self, nc: &CKBProtocolContext, peer: PeerIndex) {

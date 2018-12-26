@@ -68,6 +68,7 @@ pub struct Shared<CI> {
     consensus: Consensus,
 }
 
+// https://github.com/rust-lang/rust/issues/40754
 impl<CI: ChainIndex> ::std::clone::Clone for Shared<CI> {
     fn clone(&self) -> Self {
         Shared {

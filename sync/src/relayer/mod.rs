@@ -34,22 +34,12 @@ use std::time::Duration;
 
 pub const TX_PROPOSAL_TOKEN: TimerToken = 0;
 
+#[derive(Clone)]
 pub struct Relayer<CI: ChainIndex> {
     chain: ChainController,
     shared: Shared<CI>,
     tx_pool: TransactionPoolController,
     state: Arc<RelayState>,
-}
-
-impl<CI: ChainIndex> ::std::clone::Clone for Relayer<CI> {
-    fn clone(&self) -> Self {
-        Relayer {
-            chain: self.chain.clone(),
-            shared: self.shared.clone(),
-            tx_pool: self.tx_pool.clone(),
-            state: Arc::clone(&self.state),
-        }
-    }
 }
 
 impl<CI> Relayer<CI>
