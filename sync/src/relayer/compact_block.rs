@@ -37,11 +37,12 @@ impl<'a> From<ckb_protocol::CompactBlock<'a>> for CompactBlock {
                 .map(Into::into)
                 .collect(),
 
-            proposal_transactions: FlatbuffersVectorIterator::new(
-                b.proposal_transactions().unwrap(),
-            )
-            .filter_map(|bytes| ProposalShortId::from_slice(bytes.seq().unwrap()))
-            .collect(),
+            proposal_transactions: b
+                .proposal_transactions()
+                .unwrap()
+                .iter()
+                .map(Into::into)
+                .collect(),
         }
     }
 }

@@ -5,10 +5,11 @@ use crate::protocol_generated::ckb::protocol::{
     FilteredBlock, FilteredBlockBuilder, GetBlockProposalBuilder, GetBlockTransactionsBuilder,
     GetBlocks as FbsGetBlocks, GetBlocksBuilder, GetHeaders as FbsGetHeaders, GetHeadersBuilder,
     Header as FbsHeader, HeaderBuilder, Headers as FbsHeaders, HeadersBuilder,
-    IndexTransactionBuilder, OutPoint as FbsOutPoint, OutPointBuilder, RelayMessage,
-    RelayMessageBuilder, RelayPayload, Script as FbsScript, ScriptBuilder, SyncMessage,
-    SyncMessageBuilder, SyncPayload, Transaction as FbsTransaction, TransactionBuilder,
-    UncleBlock as FbsUncleBlock, UncleBlockBuilder, H256 as FbsH256,
+    IndexTransactionBuilder, OutPoint as FbsOutPoint, OutPointBuilder,
+    ProposalShortId as FbsProposalShortId, RelayMessage, RelayMessageBuilder, RelayPayload,
+    Script as FbsScript, ScriptBuilder, SyncMessage, SyncMessageBuilder, SyncPayload,
+    Transaction as FbsTransaction, TransactionBuilder, UncleBlock as FbsUncleBlock,
+    UncleBlockBuilder, H256 as FbsH256,
 };
 use crate::{short_transaction_id, short_transaction_id_keys};
 use ckb_core::block::Block;
@@ -215,8 +216,8 @@ impl<'a> FbsBlock<'a> {
         let vec = block
             .proposal_transactions()
             .iter()
-            .map(|id| FbsBytes::build(fbb, &id[..]))
-            .collect::<Vec<_>>();
+            .map(Into::into)
+            .collect::<Vec<FbsProposalShortId>>();
         let proposal_transactions = fbb.create_vector(&vec);
 
         let mut builder = BlockBuilder::new(fbb);
@@ -239,8 +240,8 @@ impl<'a> FbsUncleBlock<'a> {
         let vec = uncle_block
             .proposal_transactions
             .iter()
-            .map(|id| FbsBytes::build(fbb, &id[..]))
-            .collect::<Vec<_>>();
+            .map(Into::into)
+            .collect::<Vec<FbsProposalShortId>>();
         let proposal_transactions = fbb.create_vector(&vec);
 
         let mut builder = UncleBlockBuilder::new(fbb);
@@ -437,8 +438,8 @@ impl<'a> CompactBlock<'a> {
         let vec = block
             .proposal_transactions()
             .iter()
-            .map(|id| FbsBytes::build(fbb, &id[..]))
-            .collect::<Vec<_>>();
+            .map(Into::into)
+            .collect::<Vec<FbsProposalShortId>>();
         let proposal_transactions = fbb.create_vector(&vec);
 
         let mut builder = CompactBlockBuilder::new(fbb);
@@ -529,8 +530,8 @@ impl<'a> RelayMessage<'a> {
         let get_block_proposal = {
             let vec = proposal_transactions
                 .iter()
-                .map(|id| FbsBytes::build(fbb, &id[..]))
-                .collect::<Vec<_>>();
+                .map(Into::into)
+                .collect::<Vec<FbsProposalShortId>>();
             let proposal_transactions = fbb.create_vector(&vec);
             let mut builder = GetBlockProposalBuilder::new(fbb);
             builder.add_block_number(block_number);

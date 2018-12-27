@@ -52,13 +52,13 @@ table Block {
     header:                 Header;
     uncles:                 [UncleBlock];
     commit_transactions:    [Transaction];
-    proposal_transactions:  [Bytes];
+    proposal_transactions:  [ProposalShortId];
 }
 
 table UncleBlock {
     header:                 Header;
     cellbase:               Transaction;
-    proposal_transactions:  [Bytes];
+    proposal_transactions:  [ProposalShortId];
 }
 
 table Transaction {
@@ -125,7 +125,7 @@ table CompactBlock {
     short_ids:                  [Bytes];
     prefilled_transactions:     [IndexTransaction];
     uncles:                     [UncleBlock];
-    proposal_transactions:      [Bytes];
+    proposal_transactions:      [ProposalShortId];
 }
 
 table IndexTransaction {
@@ -145,11 +145,24 @@ table BlockTransactions {
 
 table GetBlockProposal {
     block_number:              uint64;
-    proposal_transactions:     [Bytes];
+    proposal_transactions:     [ProposalShortId];
 }
 
 table BlockProposal {
     transactions:              [Transaction];
+}
+
+struct ProposalShortId {
+    u0: uint8;
+    u1: uint8;
+    u2: uint8;
+    u3: uint8;
+    u4: uint8;
+    u5: uint8;
+    u6: uint8;
+    u7: uint8;
+    u8: uint8;
+    u9: uint8;
 }
 
 struct H256 {

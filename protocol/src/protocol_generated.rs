@@ -182,6 +182,107 @@ pub fn enum_name_relay_payload(e: RelayPayload) -> &'static str {
 }
 
 pub struct RelayPayloadUnionTableOffset {}
+// struct ProposalShortId, aligned to 1
+#[repr(C, align(1))]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ProposalShortId {
+  u0_: u8,
+  u1_: u8,
+  u2_: u8,
+  u3_: u8,
+  u4_: u8,
+  u5_: u8,
+  u6_: u8,
+  u7_: u8,
+  u8__: u8,
+  u9_: u8,
+} // pub struct ProposalShortId
+impl flatbuffers::SafeSliceAccess for ProposalShortId {}
+impl<'a> flatbuffers::Follow<'a> for ProposalShortId {
+  type Inner = &'a ProposalShortId;
+  #[inline]
+  fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    <&'a ProposalShortId>::follow(buf, loc)
+  }
+}
+impl<'a> flatbuffers::Follow<'a> for &'a ProposalShortId {
+  type Inner = &'a ProposalShortId;
+  #[inline]
+  fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    flatbuffers::follow_cast_ref::<ProposalShortId>(buf, loc)
+  }
+}
+impl<'b> flatbuffers::Push for ProposalShortId {
+    type Output = ProposalShortId;
+    #[inline]
+    fn push(&self, dst: &mut [u8], _rest: &[u8]) {
+        let src = unsafe {
+            ::std::slice::from_raw_parts(self as *const ProposalShortId as *const u8, Self::size())
+        };
+        dst.copy_from_slice(src);
+    }
+}
+impl<'b> flatbuffers::Push for &'b ProposalShortId {
+    type Output = ProposalShortId;
+
+    #[inline]
+    fn push(&self, dst: &mut [u8], _rest: &[u8]) {
+        let src = unsafe {
+            ::std::slice::from_raw_parts(*self as *const ProposalShortId as *const u8, Self::size())
+        };
+        dst.copy_from_slice(src);
+    }
+}
+
+
+impl ProposalShortId {
+  pub fn new<'a>(_u0: u8, _u1: u8, _u2: u8, _u3: u8, _u4: u8, _u5: u8, _u6: u8, _u7: u8, _u8_: u8, _u9: u8) -> Self {
+    ProposalShortId {
+      u0_: _u0.to_little_endian(),
+      u1_: _u1.to_little_endian(),
+      u2_: _u2.to_little_endian(),
+      u3_: _u3.to_little_endian(),
+      u4_: _u4.to_little_endian(),
+      u5_: _u5.to_little_endian(),
+      u6_: _u6.to_little_endian(),
+      u7_: _u7.to_little_endian(),
+      u8__: _u8_.to_little_endian(),
+      u9_: _u9.to_little_endian(),
+
+    }
+  }
+  pub fn u0<'a>(&'a self) -> u8 {
+    self.u0_.from_little_endian()
+  }
+  pub fn u1<'a>(&'a self) -> u8 {
+    self.u1_.from_little_endian()
+  }
+  pub fn u2<'a>(&'a self) -> u8 {
+    self.u2_.from_little_endian()
+  }
+  pub fn u3<'a>(&'a self) -> u8 {
+    self.u3_.from_little_endian()
+  }
+  pub fn u4<'a>(&'a self) -> u8 {
+    self.u4_.from_little_endian()
+  }
+  pub fn u5<'a>(&'a self) -> u8 {
+    self.u5_.from_little_endian()
+  }
+  pub fn u6<'a>(&'a self) -> u8 {
+    self.u6_.from_little_endian()
+  }
+  pub fn u7<'a>(&'a self) -> u8 {
+    self.u7_.from_little_endian()
+  }
+  pub fn u8_<'a>(&'a self) -> u8 {
+    self.u8__.from_little_endian()
+  }
+  pub fn u9<'a>(&'a self) -> u8 {
+    self.u9_.from_little_endian()
+  }
+}
+
 // struct H256, aligned to 1
 #[repr(C, align(1))]
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -1151,8 +1252,8 @@ impl<'a> Block<'a> {
     self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<flatbuffers::ForwardsUOffset<Transaction<'a>>>>>(Block::VT_COMMIT_TRANSACTIONS, None)
   }
   #[inline]
-  pub fn proposal_transactions(&self) -> Option<flatbuffers::Vector<flatbuffers::ForwardsUOffset<Bytes<'a>>>> {
-    self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<flatbuffers::ForwardsUOffset<Bytes<'a>>>>>(Block::VT_PROPOSAL_TRANSACTIONS, None)
+  pub fn proposal_transactions(&self) -> Option<&'a [ProposalShortId]> {
+    self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<ProposalShortId>>>(Block::VT_PROPOSAL_TRANSACTIONS, None).map(|v| v.safe_slice() )
   }
 }
 
@@ -1160,7 +1261,7 @@ pub struct BlockArgs<'a> {
     pub header: Option<flatbuffers::WIPOffset<Header<'a >>>,
     pub uncles: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a , flatbuffers::ForwardsUOffset<UncleBlock<'a >>>>>,
     pub commit_transactions: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a , flatbuffers::ForwardsUOffset<Transaction<'a >>>>>,
-    pub proposal_transactions: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a , flatbuffers::ForwardsUOffset<Bytes<'a >>>>>,
+    pub proposal_transactions: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a , ProposalShortId>>>,
 }
 impl<'a> Default for BlockArgs<'a> {
     #[inline]
@@ -1191,7 +1292,7 @@ impl<'a: 'b, 'b> BlockBuilder<'a, 'b> {
     self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(Block::VT_COMMIT_TRANSACTIONS, commit_transactions);
   }
   #[inline]
-  pub fn add_proposal_transactions(&mut self, proposal_transactions: flatbuffers::WIPOffset<flatbuffers::Vector<'b , flatbuffers::ForwardsUOffset<Bytes<'b >>>>) {
+  pub fn add_proposal_transactions(&mut self, proposal_transactions: flatbuffers::WIPOffset<flatbuffers::Vector<'b , ProposalShortId>>) {
     self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(Block::VT_PROPOSAL_TRANSACTIONS, proposal_transactions);
   }
   #[inline]
@@ -1257,15 +1358,15 @@ impl<'a> UncleBlock<'a> {
     self._tab.get::<flatbuffers::ForwardsUOffset<Transaction<'a>>>(UncleBlock::VT_CELLBASE, None)
   }
   #[inline]
-  pub fn proposal_transactions(&self) -> Option<flatbuffers::Vector<flatbuffers::ForwardsUOffset<Bytes<'a>>>> {
-    self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<flatbuffers::ForwardsUOffset<Bytes<'a>>>>>(UncleBlock::VT_PROPOSAL_TRANSACTIONS, None)
+  pub fn proposal_transactions(&self) -> Option<&'a [ProposalShortId]> {
+    self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<ProposalShortId>>>(UncleBlock::VT_PROPOSAL_TRANSACTIONS, None).map(|v| v.safe_slice() )
   }
 }
 
 pub struct UncleBlockArgs<'a> {
     pub header: Option<flatbuffers::WIPOffset<Header<'a >>>,
     pub cellbase: Option<flatbuffers::WIPOffset<Transaction<'a >>>,
-    pub proposal_transactions: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a , flatbuffers::ForwardsUOffset<Bytes<'a >>>>>,
+    pub proposal_transactions: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a , ProposalShortId>>>,
 }
 impl<'a> Default for UncleBlockArgs<'a> {
     #[inline]
@@ -1291,7 +1392,7 @@ impl<'a: 'b, 'b> UncleBlockBuilder<'a, 'b> {
     self.fbb_.push_slot_always::<flatbuffers::WIPOffset<Transaction>>(UncleBlock::VT_CELLBASE, cellbase);
   }
   #[inline]
-  pub fn add_proposal_transactions(&mut self, proposal_transactions: flatbuffers::WIPOffset<flatbuffers::Vector<'b , flatbuffers::ForwardsUOffset<Bytes<'b >>>>) {
+  pub fn add_proposal_transactions(&mut self, proposal_transactions: flatbuffers::WIPOffset<flatbuffers::Vector<'b , ProposalShortId>>) {
     self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(UncleBlock::VT_PROPOSAL_TRANSACTIONS, proposal_transactions);
   }
   #[inline]
@@ -2059,8 +2160,8 @@ impl<'a> CompactBlock<'a> {
     self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<flatbuffers::ForwardsUOffset<UncleBlock<'a>>>>>(CompactBlock::VT_UNCLES, None)
   }
   #[inline]
-  pub fn proposal_transactions(&self) -> Option<flatbuffers::Vector<flatbuffers::ForwardsUOffset<Bytes<'a>>>> {
-    self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<flatbuffers::ForwardsUOffset<Bytes<'a>>>>>(CompactBlock::VT_PROPOSAL_TRANSACTIONS, None)
+  pub fn proposal_transactions(&self) -> Option<&'a [ProposalShortId]> {
+    self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<ProposalShortId>>>(CompactBlock::VT_PROPOSAL_TRANSACTIONS, None).map(|v| v.safe_slice() )
   }
 }
 
@@ -2070,7 +2171,7 @@ pub struct CompactBlockArgs<'a> {
     pub short_ids: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a , flatbuffers::ForwardsUOffset<Bytes<'a >>>>>,
     pub prefilled_transactions: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a , flatbuffers::ForwardsUOffset<IndexTransaction<'a >>>>>,
     pub uncles: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a , flatbuffers::ForwardsUOffset<UncleBlock<'a >>>>>,
-    pub proposal_transactions: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a , flatbuffers::ForwardsUOffset<Bytes<'a >>>>>,
+    pub proposal_transactions: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a , ProposalShortId>>>,
 }
 impl<'a> Default for CompactBlockArgs<'a> {
     #[inline]
@@ -2111,7 +2212,7 @@ impl<'a: 'b, 'b> CompactBlockBuilder<'a, 'b> {
     self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(CompactBlock::VT_UNCLES, uncles);
   }
   #[inline]
-  pub fn add_proposal_transactions(&mut self, proposal_transactions: flatbuffers::WIPOffset<flatbuffers::Vector<'b , flatbuffers::ForwardsUOffset<Bytes<'b >>>>) {
+  pub fn add_proposal_transactions(&mut self, proposal_transactions: flatbuffers::WIPOffset<flatbuffers::Vector<'b , ProposalShortId>>) {
     self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(CompactBlock::VT_PROPOSAL_TRANSACTIONS, proposal_transactions);
   }
   #[inline]
@@ -2435,14 +2536,14 @@ impl<'a> GetBlockProposal<'a> {
     self._tab.get::<u64>(GetBlockProposal::VT_BLOCK_NUMBER, Some(0)).unwrap()
   }
   #[inline]
-  pub fn proposal_transactions(&self) -> Option<flatbuffers::Vector<flatbuffers::ForwardsUOffset<Bytes<'a>>>> {
-    self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<flatbuffers::ForwardsUOffset<Bytes<'a>>>>>(GetBlockProposal::VT_PROPOSAL_TRANSACTIONS, None)
+  pub fn proposal_transactions(&self) -> Option<&'a [ProposalShortId]> {
+    self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<ProposalShortId>>>(GetBlockProposal::VT_PROPOSAL_TRANSACTIONS, None).map(|v| v.safe_slice() )
   }
 }
 
 pub struct GetBlockProposalArgs<'a> {
     pub block_number: u64,
-    pub proposal_transactions: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a , flatbuffers::ForwardsUOffset<Bytes<'a >>>>>,
+    pub proposal_transactions: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a , ProposalShortId>>>,
 }
 impl<'a> Default for GetBlockProposalArgs<'a> {
     #[inline]
@@ -2463,7 +2564,7 @@ impl<'a: 'b, 'b> GetBlockProposalBuilder<'a, 'b> {
     self.fbb_.push_slot::<u64>(GetBlockProposal::VT_BLOCK_NUMBER, block_number, 0);
   }
   #[inline]
-  pub fn add_proposal_transactions(&mut self, proposal_transactions: flatbuffers::WIPOffset<flatbuffers::Vector<'b , flatbuffers::ForwardsUOffset<Bytes<'b >>>>) {
+  pub fn add_proposal_transactions(&mut self, proposal_transactions: flatbuffers::WIPOffset<flatbuffers::Vector<'b , ProposalShortId>>) {
     self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(GetBlockProposal::VT_PROPOSAL_TRANSACTIONS, proposal_transactions);
   }
   #[inline]

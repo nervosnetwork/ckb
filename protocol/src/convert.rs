@@ -56,6 +56,34 @@ impl From<&ckb_protocol::H256> for H256 {
     }
 }
 
+impl From<&ckb_core::transaction::ProposalShortId> for ckb_protocol::ProposalShortId {
+    fn from(short_id: &ckb_core::transaction::ProposalShortId) -> Self {
+        let bytes = *short_id;
+        Self::new(
+            bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
+            bytes[8], bytes[9],
+        )
+    }
+}
+
+impl From<&ckb_protocol::ProposalShortId> for ckb_core::transaction::ProposalShortId {
+    fn from(short_id: &ckb_protocol::ProposalShortId) -> Self {
+        Self::from_slice(&[
+            short_id.u0(),
+            short_id.u1(),
+            short_id.u2(),
+            short_id.u3(),
+            short_id.u4(),
+            short_id.u5(),
+            short_id.u6(),
+            short_id.u7(),
+            short_id.u8_(),
+            short_id.u9(),
+        ])
+        .unwrap()
+    }
+}
+
 impl<'a> From<ckb_protocol::Block<'a>> for ckb_core::block::Block {
     fn from(block: ckb_protocol::Block<'a>) -> Self {
         let commit_transactions =
@@ -67,13 +95,12 @@ impl<'a> From<ckb_protocol::Block<'a>> for ckb_core::block::Block {
             .map(Into::into)
             .collect();
 
-        let proposal_transactions =
-            FlatbuffersVectorIterator::new(block.proposal_transactions().unwrap())
-                .filter_map(|s| {
-                    s.seq()
-                        .and_then(ckb_core::transaction::ProposalShortId::from_slice)
-                })
-                .collect();
+        let proposal_transactions = block
+            .proposal_transactions()
+            .unwrap()
+            .iter()
+            .map(Into::into)
+            .collect();
 
         ckb_core::block::BlockBuilder::default()
             .header(block.header().unwrap().into())
@@ -89,14 +116,12 @@ impl<'a> From<ckb_protocol::UncleBlock<'a>> for ckb_core::uncle::UncleBlock {
         ckb_core::uncle::UncleBlock {
             header: uncle_block.header().unwrap().into(),
             cellbase: uncle_block.cellbase().unwrap().into(),
-            proposal_transactions: FlatbuffersVectorIterator::new(
-                uncle_block.proposal_transactions().unwrap(),
-            )
-            .filter_map(|s| {
-                s.seq()
-                    .and_then(ckb_core::transaction::ProposalShortId::from_slice)
-            })
-            .collect(),
+            proposal_transactions: uncle_block
+                .proposal_transactions()
+                .unwrap()
+                .iter()
+                .map(Into::into)
+                .collect(),
         }
     }
 }
