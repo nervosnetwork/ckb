@@ -554,7 +554,7 @@ dependencies = [
  "byteorder 1.2.7 (registry+https://github.com/rust-lang/crates.io-index)",
  "ckb-core 0.3.0-pre",
  "ckb-protocol 0.3.0-pre",
- "ckb-vm 0.1.0 (git+https://github.com/nervosnetwork/ckb-vm?rev=1622ba0)",
+ "ckb-vm 0.1.0 (git+https://github.com/nervosnetwork/ckb-vm?rev=f32bdcb)",
  "crypto 0.3.0-pre",
  "faster-hex 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "flatbuffers 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -645,11 +645,11 @@ dependencies = [
 [[package]]
 name = "ckb-vm"
 version = "0.1.0"
-source = "git+https://github.com/nervosnetwork/ckb-vm?rev=1622ba0#1622ba042e573b21868f44b4909ae34632a7674d"
+source = "git+https://github.com/nervosnetwork/ckb-vm?rev=f32bdcb#f32bdcbed6067cbb3d88933126f65db50adfb29b"
 dependencies = [
  "byteorder 1.2.7 (registry+https://github.com/rust-lang/crates.io-index)",
  "fnv 1.0.6 (registry+https://github.com/rust-lang/crates.io-index)",
- "goblin 0.0.17 (registry+https://github.com/rust-lang/crates.io-index)",
+ "goblin 0.0.19 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -1106,7 +1106,7 @@ dependencies = [
 
 [[package]]
 name = "goblin"
-version = "0.0.17"
+version = "0.0.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -3466,7 +3466,7 @@ dependencies = [
 "checksum cfg-if 0.1.6 (registry+https://github.com/rust-lang/crates.io-index)" = "082bb9b28e00d3c9d39cc03e64ce4cea0f1bb9b3fde493f0cbc008472d22bdf4"
 "checksum chashmap 2.2.1 (git+https://github.com/redox-os/tfs)" = "<none>"
 "checksum chrono 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)" = "45912881121cb26fad7c38c17ba7daa18764771836b34fab7d3fbd93ed633878"
-"checksum ckb-vm 0.1.0 (git+https://github.com/nervosnetwork/ckb-vm?rev=1622ba0)" = "<none>"
+"checksum ckb-vm 0.1.0 (git+https://github.com/nervosnetwork/ckb-vm?rev=f32bdcb)" = "<none>"
 "checksum clang-sys 0.21.2 (registry+https://github.com/rust-lang/crates.io-index)" = "e414af9726e1d11660801e73ccc7fb81803fb5f49e5903a25b348b2b3b480d2e"
 "checksum clap 2.32.0 (registry+https://github.com/rust-lang/crates.io-index)" = "b957d88f4b6a63b9d70d5f454ac8011819c6efa7727858f458ab71c756ce2d3e"
 "checksum clicolors-control 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)" = "51872be694bb3bcbd1ea95c6dd467c2c46c6c64d287e1c9084ace7c3116ae9c0"
@@ -3515,7 +3515,7 @@ dependencies = [
 "checksum generic-array 0.9.0 (registry+https://github.com/rust-lang/crates.io-index)" = "ef25c5683767570c2bbd7deba372926a55eaae9982d7726ee2a1050239d45b9d"
 "checksum glob 0.2.11 (registry+https://github.com/rust-lang/crates.io-index)" = "8be18de09a56b60ed0edf84bc9df007e30040691af7acd1c41874faac5895bfb"
 "checksum globset 0.4.2 (registry+https://github.com/rust-lang/crates.io-index)" = "4743617a7464bbda3c8aec8558ff2f9429047e025771037df561d383337ff865"
-"checksum goblin 0.0.17 (registry+https://github.com/rust-lang/crates.io-index)" = "5911d7df7b8f65ab676c5327b50acea29d3c6a1a4ad05e444cf5dce321b26db2"
+"checksum goblin 0.0.19 (registry+https://github.com/rust-lang/crates.io-index)" = "c65cd533b33e3d04c6e393225fa8919ddfcf5862ca8919c7f9a167c312ef41c2"
 "checksum h2 0.1.14 (registry+https://github.com/rust-lang/crates.io-index)" = "1ac030ae20dee464c5d0f36544d8b914a6bc606da44a57e052d2b0f5dae129e0"
 "checksum handlebars 0.32.4 (registry+https://github.com/rust-lang/crates.io-index)" = "d89ec99d1594f285d4590fc32bac5f75cdab383f1123d504d27862c644a807dd"
 "checksum heapsize 0.4.2 (registry+https://github.com/rust-lang/crates.io-index)" = "1679e6ea370dee694f91f1dc469bf94cf8f52051d147aec3e1f9497c6fc22461"
