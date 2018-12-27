@@ -96,15 +96,10 @@ impl PeerInfo {
             .expect("update");
     }
 
-    pub fn delete(conn: &mut Connection, id: u32) {
-        let tx = conn.transaction().expect("start db transaction");
-        tx.execute("DELETE FROM peer_info WHERE id=?1", &[id])
-            .expect("prepare");
-        tx.execute("DELETE FROM peer_addr WHERE peer_info_id=?1", &[id])
-            .expect("prepare");
-        tx.commit().expect("commit");
+    pub fn delete(conn: &Connection, id: u32) {
+        conn.execute("DELETE FROM peer_info WHERE id=?1", &[id])
+            .expect("delete");
     }
-
     pub fn get_by_peer_id(conn: &Connection, peer_id: &PeerId) -> Option<PeerInfo> {
         let mut stmt = conn.prepare("SELECT id, peer_id, connected_addr, score, status, endpoint, ban_time, connected_time FROM peer_info WHERE peer_id=:peer_id LIMIT 1").expect("prepare");
         let mut rows = stmt
@@ -191,6 +186,11 @@ impl PeerAddr {
             .expect("query");
         rows.map(|row| row.expect("extra value from query result"))
             .collect()
+    }
+
+    pub fn delete_by_peer_id(conn: &Connection, id: u32) {
+        conn.execute("DELETE FROM peer_addr WHERE peer_info_id=?1", &[id])
+            .expect("prepare");
     }
 }
 

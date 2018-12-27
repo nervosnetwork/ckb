@@ -10,7 +10,7 @@ mod network_config;
 mod network_group;
 mod network_service;
 mod outbound_peer_service;
-mod peer_store;
+pub mod peer_store;
 mod peers_registry;
 mod ping_service;
 mod protocol;

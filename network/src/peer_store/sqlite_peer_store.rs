@@ -30,7 +30,13 @@ pub struct SqlitePeerStore {
 
 impl Default for SqlitePeerStore {
     fn default() -> Self {
-        let pool = sqlite::open_pool(StorePath::Memory, DEFAULT_POOL_SIZE);
+        SqlitePeerStore::new(StorePath::Memory, DEFAULT_POOL_SIZE)
+    }
+}
+
+impl SqlitePeerStore {
+    pub fn new(store_path: StorePath, max_connection: u32) -> Self {
+        let pool = sqlite::open_pool(store_path, max_connection);
         let mut peer_store = SqlitePeerStore {
             bootnodes: Vec::new(),
             schema: Default::default(),
@@ -40,9 +46,7 @@ impl Default for SqlitePeerStore {
         peer_store.prepare();
         peer_store
     }
-}
 
-impl SqlitePeerStore {
     pub(crate) fn connection(&self) -> Connection {
         self.pool.get().expect("fetch connection")
     }
@@ -108,26 +112,27 @@ impl SqlitePeerStore {
     // check and try to delete peer_info if peer_infos reach limit
     fn check_and_allow_new_record(&mut self) -> bool {
         let mut conn = self.connection();
-        if db::PeerInfo::count(&conn) >= PEER_STORE_LIMIT {
-            let peers = db::PeerInfo::largest_network_group(&conn);
-            let not_seen_timeout =
-                unix_time() - Duration::from_secs(PEER_NOT_SEEN_TIMEOUT_SECS.into());
-            let recently_not_touched_peers = peers
-                .iter()
-                .filter(|peer| peer.connected_time < not_seen_timeout);
-            let candidate_peer = match recently_not_touched_peers.min_by_key(|peer| peer.score) {
-                Some(peer) => peer,
-                None => return false,
-            };
+        if db::PeerInfo::count(&conn) < PEER_STORE_LIMIT {
+            return true;
+        }
+        let peers = db::PeerInfo::largest_network_group(&conn);
+        let not_seen_timeout = unix_time() - Duration::from_secs(PEER_NOT_SEEN_TIMEOUT_SECS.into());
+        let recently_not_touched_peers = peers
+            .iter()
+            .filter(|peer| peer.connected_time < not_seen_timeout);
+        let candidate_peer = match recently_not_touched_peers.min_by_key(|peer| peer.score) {
+            Some(peer) => peer,
+            None => return false,
+        };
 
-            if candidate_peer.score < self.schema.peer_init_score() {
-                db::PeerInfo::delete(&mut conn, candidate_peer.id);
-                true
-            } else {
-                false
-            }
-        } else {
+        if candidate_peer.score < self.schema.peer_init_score() {
+            let tx = conn.transaction().expect("db tx");
+            db::PeerInfo::delete(&tx, candidate_peer.id);
+            db::PeerAddr::delete_by_peer_id(&tx, candidate_peer.id);
+            tx.commit().expect("commit");
             true
+        } else {
+            false
         }
     }
 
