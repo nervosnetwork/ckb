@@ -2,7 +2,7 @@ use crate::header::{Header, HeaderBuilder};
 use crate::transaction::{ProposalShortId, Transaction};
 use crate::uncle::{uncles_hash, UncleBlock};
 use fnv::FnvHashSet;
-use merkle_root::merkle_root;
+use merkle_tree::merkle_root;
 use numext_fixed_hash::H256;
 use serde_derive::{Deserialize, Serialize};
 

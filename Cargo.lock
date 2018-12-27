@@ -385,7 +385,7 @@ dependencies = [
  "crypto 0.3.0-pre",
  "fnv 1.0.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "hash 0.3.0-pre",
- "merkle-root 0.3.0-pre",
+ "merkle-tree 0.3.0-pre",
  "numext-fixed-hash 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "numext-fixed-uint 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.82 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -636,7 +636,7 @@ dependencies = [
  "faketime 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "fnv 1.0.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "hash 0.3.0-pre",
- "merkle-root 0.3.0-pre",
+ "merkle-tree 0.3.0-pre",
  "numext-fixed-hash 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "numext-fixed-uint 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "rayon 1.0.3 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1817,11 +1817,13 @@ version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
-name = "merkle-root"
+name = "merkle-tree"
 version = "0.3.0-pre"
 dependencies = [
  "hash 0.3.0-pre",
  "numext-fixed-hash 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "serde 1.0.82 (registry+https://github.com/rust-lang/crates.io-index)",
+ "serde_derive 1.0.82 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]

@@ -8,7 +8,7 @@ use ckb_core::header::Header;
 use ckb_core::transaction::{Capacity, CellInput, OutPoint};
 use ckb_shared::shared::ChainProvider;
 use fnv::{FnvHashMap, FnvHashSet};
-use merkle_root::merkle_root;
+use merkle_tree::merkle_root;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
