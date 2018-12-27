@@ -971,16 +971,16 @@ impl<'a> Header<'a> {
     self._tab.get::<H256>(Header::VT_TXS_PROPOSAL, None)
   }
   #[inline]
-  pub fn difficulty(&self) -> Option<&'a [u8]> {
-    self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, u8>>>(Header::VT_DIFFICULTY, None).map(|v| v.safe_slice())
+  pub fn difficulty(&self) -> Option<Bytes<'a>> {
+    self._tab.get::<flatbuffers::ForwardsUOffset<Bytes<'a>>>(Header::VT_DIFFICULTY, None)
   }
   #[inline]
   pub fn nonce(&self) -> u64 {
     self._tab.get::<u64>(Header::VT_NONCE, Some(0)).unwrap()
   }
   #[inline]
-  pub fn proof(&self) -> Option<&'a [u8]> {
-    self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, u8>>>(Header::VT_PROOF, None).map(|v| v.safe_slice())
+  pub fn proof(&self) -> Option<Bytes<'a>> {
+    self._tab.get::<flatbuffers::ForwardsUOffset<Bytes<'a>>>(Header::VT_PROOF, None)
   }
   #[inline]
   pub fn cellbase_id(&self) -> Option<&'a H256> {
@@ -1003,9 +1003,9 @@ pub struct HeaderArgs<'a> {
     pub number: u64,
     pub txs_commit: Option<&'a  H256>,
     pub txs_proposal: Option<&'a  H256>,
-    pub difficulty: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a ,  u8>>>,
+    pub difficulty: Option<flatbuffers::WIPOffset<Bytes<'a >>>,
     pub nonce: u64,
-    pub proof: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a ,  u8>>>,
+    pub proof: Option<flatbuffers::WIPOffset<Bytes<'a >>>,
     pub cellbase_id: Option<&'a  H256>,
     pub uncles_hash: Option<&'a  H256>,
     pub uncles_count: u32,
@@ -1059,16 +1059,16 @@ impl<'a: 'b, 'b> HeaderBuilder<'a, 'b> {
     self.fbb_.push_slot_always::<&H256>(Header::VT_TXS_PROPOSAL, txs_proposal);
   }
   #[inline]
-  pub fn add_difficulty(&mut self, difficulty: flatbuffers::WIPOffset<flatbuffers::Vector<'b , u8>>) {
-    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(Header::VT_DIFFICULTY, difficulty);
+  pub fn add_difficulty(&mut self, difficulty: flatbuffers::WIPOffset<Bytes<'b >>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<Bytes>>(Header::VT_DIFFICULTY, difficulty);
   }
   #[inline]
   pub fn add_nonce(&mut self, nonce: u64) {
     self.fbb_.push_slot::<u64>(Header::VT_NONCE, nonce, 0);
   }
   #[inline]
-  pub fn add_proof(&mut self, proof: flatbuffers::WIPOffset<flatbuffers::Vector<'b , u8>>) {
-    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(Header::VT_PROOF, proof);
+  pub fn add_proof(&mut self, proof: flatbuffers::WIPOffset<Bytes<'b >>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<Bytes>>(Header::VT_PROOF, proof);
   }
   #[inline]
   pub fn add_cellbase_id(&mut self, cellbase_id: &'b  H256) {
@@ -1655,8 +1655,8 @@ impl<'a> CellOutput<'a> {
     self._tab.get::<u64>(CellOutput::VT_CAPACITY, Some(0)).unwrap()
   }
   #[inline]
-  pub fn data(&self) -> Option<&'a [u8]> {
-    self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, u8>>>(CellOutput::VT_DATA, None).map(|v| v.safe_slice())
+  pub fn data(&self) -> Option<Bytes<'a>> {
+    self._tab.get::<flatbuffers::ForwardsUOffset<Bytes<'a>>>(CellOutput::VT_DATA, None)
   }
   #[inline]
   pub fn lock(&self) -> Option<&'a H256> {
@@ -1695,8 +1695,8 @@ impl<'a: 'b, 'b> CellOutputBuilder<'a, 'b> {
     self.fbb_.push_slot::<u64>(CellOutput::VT_CAPACITY, capacity, 0);
   }
   #[inline]
-  pub fn add_data(&mut self, data: flatbuffers::WIPOffset<flatbuffers::Vector<'b , u8>>) {
-    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(CellOutput::VT_DATA, data);
+  pub fn add_data(&mut self, data: flatbuffers::WIPOffset<Bytes<'b >>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<Bytes>>(CellOutput::VT_DATA, data);
   }
   #[inline]
   pub fn add_lock(&mut self, lock: &'b  H256) {
@@ -1773,8 +1773,8 @@ impl<'a> Script<'a> {
     self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<flatbuffers::ForwardsUOffset<Bytes<'a>>>>>(Script::VT_ARGS, None)
   }
   #[inline]
-  pub fn binary(&self) -> Option<&'a [u8]> {
-    self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, u8>>>(Script::VT_BINARY, None).map(|v| v.safe_slice())
+  pub fn binary(&self) -> Option<Bytes<'a>> {
+    self._tab.get::<flatbuffers::ForwardsUOffset<Bytes<'a>>>(Script::VT_BINARY, None)
   }
   #[inline]
   pub fn reference(&self) -> Option<&'a H256> {
@@ -1789,7 +1789,7 @@ impl<'a> Script<'a> {
 pub struct ScriptArgs<'a> {
     pub version: u8,
     pub args: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a , flatbuffers::ForwardsUOffset<Bytes<'a >>>>>,
-    pub binary: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a ,  u8>>>,
+    pub binary: Option<flatbuffers::WIPOffset<Bytes<'a >>>,
     pub reference: Option<&'a  H256>,
     pub signed_args: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a , flatbuffers::ForwardsUOffset<Bytes<'a >>>>>,
 }
@@ -1819,8 +1819,8 @@ impl<'a: 'b, 'b> ScriptBuilder<'a, 'b> {
     self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(Script::VT_ARGS, args);
   }
   #[inline]
-  pub fn add_binary(&mut self, binary: flatbuffers::WIPOffset<flatbuffers::Vector<'b , u8>>) {
-    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(Script::VT_BINARY, binary);
+  pub fn add_binary(&mut self, binary: flatbuffers::WIPOffset<Bytes<'b >>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<Bytes>>(Script::VT_BINARY, binary);
   }
   #[inline]
   pub fn add_reference(&mut self, reference: &'b  H256) {

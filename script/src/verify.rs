@@ -112,7 +112,10 @@ impl<'a> TransactionScriptsVerifier<'a> {
                     let fbs_script = get_root::<FbsScript>(&cell_output.data);
                     // This way we can avoid copying the actual script binary one more
                     // time, which could be a lot of data.
-                    let binary = fbs_script.binary().ok_or(ScriptError::NoScript)?;
+                    let binary = fbs_script
+                        .binary()
+                        .and_then(|s| s.seq())
+                        .ok_or(ScriptError::NoScript)?;
                     // When the reference script has signed arguments, we will concat
                     // signed arguments from the reference script with the signed
                     // arguments from the main script together.
