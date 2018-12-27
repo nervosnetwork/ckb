@@ -535,7 +535,7 @@ pub mod test {
 
         let out_point = OutPoint::new(root_hash, 0);
         let state = shared.cell(&out_point);
-        assert!(state.is_current());
+        assert!(state.is_live());
     }
 
     #[test]

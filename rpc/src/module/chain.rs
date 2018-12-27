@@ -32,8 +32,8 @@ build_rpc_trait! {
             _to: BlockNumber
         ) -> Result<Vec<CellOutputWithOutPoint>>;
 
-        #[rpc(name = "get_current_cell")]
-        fn get_current_cell(&self, _out_point: OutPoint) -> Result<CellWithStatus>;
+        #[rpc(name = "get_live_cell")]
+        fn get_live_cell(&self, _out_point: OutPoint) -> Result<CellWithStatus>;
 
         #[rpc(name = "get_tip_block_number")]
         fn get_tip_block_number(&self) -> Result<BlockNumber>;
@@ -96,7 +96,7 @@ impl<CI: ChainIndex + 'static> ChainRpc for ChainRpcImpl<CI> {
         Ok(result)
     }
 
-    fn get_current_cell(&self, out_point: OutPoint) -> Result<CellWithStatus> {
+    fn get_live_cell(&self, out_point: OutPoint) -> Result<CellWithStatus> {
         Ok(self.shared.cell(&out_point).into())
     }
 

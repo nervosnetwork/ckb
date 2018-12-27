@@ -114,10 +114,12 @@ pub enum DifficultyError {
 #[derive(Debug, PartialEq, Clone, Copy, Eq)]
 pub enum TransactionError {
     NullInput,
-    OutofBound,
+    /// Occur output's bytes_len exceed capacity
+    CapacityOverflow,
     DuplicateInputs,
     Empty,
-    InvalidCapacity,
+    /// Sum of all outputs capacity exceed sum of all inputs in the transaction
+    OutputsSumOverflow,
     InvalidScript,
     ScriptFailure(ScriptError),
     InvalidSignature,

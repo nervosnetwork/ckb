@@ -150,18 +150,18 @@ fn test_add_pool() {
     assert_eq!(pool.service.total_size(), 2);
     expect_output_parent!(
         pool.service,
-        CellStatus::Current(_),
+        CellStatus::Live(_),
         OutPoint::new(child_tx_hash.clone(), 0)
     );
     expect_output_parent!(
         pool.service,
-        CellStatus::Old,
+        CellStatus::Dead,
         OutPoint::new(parent_tx_hash.clone(), 0),
         OutPoint::new(parent_tx_hash.clone(), 1)
     );
     expect_output_parent!(
         pool.service,
-        CellStatus::Current(_),
+        CellStatus::Live(_),
         OutPoint::new(pool.tx_hash.clone(), 8)
     );
     expect_output_parent!(

@@ -138,9 +138,9 @@ impl<CI: ChainIndex> CellProvider for Shared<CI> {
                         .store
                         .get_transaction(&out_point.hash)
                         .expect("transaction must exist");
-                    CellStatus::Current(transaction.outputs()[index].clone())
+                    CellStatus::Live(transaction.outputs()[index].clone())
                 } else {
-                    CellStatus::Old
+                    CellStatus::Dead
                 }
             } else {
                 CellStatus::Unknown
@@ -159,9 +159,9 @@ impl<CI: ChainIndex> CellProvider for Shared<CI> {
                         .store
                         .get_transaction(&out_point.hash)
                         .expect("transaction must exist");
-                    CellStatus::Current(transaction.outputs()[index].clone())
+                    CellStatus::Live(transaction.outputs()[index].clone())
                 } else {
-                    CellStatus::Old
+                    CellStatus::Dead
                 }
             } else {
                 CellStatus::Unknown
