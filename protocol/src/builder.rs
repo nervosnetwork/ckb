@@ -168,26 +168,13 @@ impl<'a> FbsCellOutput<'a> {
         fbb: &mut FlatBufferBuilder<'b>,
         cell_output: &CellOutput,
     ) -> WIPOffset<FbsCellOutput<'b>> {
-<<<<<<< HEAD
-<<<<<<< HEAD
         let data = FbsBytes::build(fbb, &cell_output.data);
-        let lock = FbsBytes::build(fbb, &cell_output.lock.as_bytes());
-        let type_ = cell_output.type_.as_ref().map(|s| FbsScript::build(fbb, s));
-=======
-        let data = fbb.create_vector_direct(&cell_output.data);
-=======
-        let data = FbsBytes::build(fbb, &cell_output.data);
->>>>>>> Revert "refactor: replace flatten Bytes with [ubyte]"
         let lock = (&cell_output.lock).into();
-        let contract = cell_output
-            .contract
-            .as_ref()
-            .map(|s| FbsScript::build(fbb, s));
->>>>>>> refactor: replace flatten Bytes with [ubyte]
+        let type_ = cell_output.type_.as_ref().map(|s| FbsScript::build(fbb, s));
         let mut builder = CellOutputBuilder::new(fbb);
         builder.add_capacity(cell_output.capacity);
         builder.add_data(data);
-        builder.add_lock(lock);
+        builder.add_lock(&lock);
         if let Some(s) = type_ {
             builder.add_type_(s);
         }

@@ -81,19 +81,9 @@ table CellInput {
 
 table CellOutput {
     capacity:       uint64;
-<<<<<<< HEAD
-<<<<<<< HEAD
     data:           Bytes;
-    lock:           Bytes;
-    type:           Script;
-=======
-    data:           [ubyte];
-=======
-    data:           Bytes;
->>>>>>> Revert "refactor: replace flatten Bytes with [ubyte]"
     lock:           H256;
-    contract:       Script;
->>>>>>> refactor: replace flatten Bytes with [ubyte]
+    type:           Script;
 }
 
 table Script {

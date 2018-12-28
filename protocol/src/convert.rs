@@ -216,28 +216,9 @@ impl<'a> From<ckb_protocol::CellOutput<'a>> for ckb_core::transaction::CellOutpu
     fn from(cell_output: ckb_protocol::CellOutput<'a>) -> Self {
         ckb_core::transaction::CellOutput {
             capacity: cell_output.capacity(),
-<<<<<<< HEAD
-<<<<<<< HEAD
             data: cell_output.data().and_then(|b| b.seq()).unwrap().to_vec(),
-            lock: H256::from_slice(cell_output.lock().and_then(|b| b.seq()).unwrap()).unwrap(),
-            type_: cell_output.type_().map(Into::into),
-        }
-    }
-}
-
-impl<'a> From<ckb_protocol::IndexTransaction<'a>> for ckb_core::transaction::IndexTransaction {
-    fn from(it: ckb_protocol::IndexTransaction<'a>) -> Self {
-        ckb_core::transaction::IndexTransaction {
-            index: it.index() as usize,
-            transaction: it.transaction().unwrap().into(),
-=======
-            data: cell_output.data().unwrap().into(),
-=======
-            data: cell_output.data().and_then(|b| b.seq()).unwrap().to_vec(),
->>>>>>> Revert "refactor: replace flatten Bytes with [ubyte]"
             lock: cell_output.lock().unwrap().into(),
-            contract: cell_output.contract().map(Into::into),
->>>>>>> refactor: replace flatten Bytes with [ubyte]
+            type_: cell_output.type_().map(Into::into),
         }
     }
 }

@@ -1772,7 +1772,7 @@ impl<'a> CellOutput<'a> {
 pub struct CellOutputArgs<'a> {
     pub capacity: u64,
     pub data: Option<flatbuffers::WIPOffset<Bytes<'a >>>,
-    pub lock: Option<flatbuffers::WIPOffset<Bytes<'a >>>,
+    pub lock: Option<&'a  H256>,
     pub type_: Option<flatbuffers::WIPOffset<Script<'a >>>,
 }
 impl<'a> Default for CellOutputArgs<'a> {
