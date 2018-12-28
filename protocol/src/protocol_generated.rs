@@ -33,11 +33,15 @@ pub enum SyncPayload {
   Headers = 2,
   GetBlocks = 3,
   Block = 4,
+  SetFilter = 5,
+  AddFilter = 6,
+  ClearFilter = 7,
+  FilteredBlock = 8,
 
 }
 
 const ENUM_MIN_SYNC_PAYLOAD: u8 = 0;
-const ENUM_MAX_SYNC_PAYLOAD: u8 = 4;
+const ENUM_MAX_SYNC_PAYLOAD: u8 = 8;
 
 impl<'a> flatbuffers::Follow<'a> for SyncPayload {
   type Inner = Self;
@@ -71,21 +75,29 @@ impl flatbuffers::Push for SyncPayload {
 }
 
 #[allow(non_camel_case_types)]
-const ENUM_VALUES_SYNC_PAYLOAD:[SyncPayload; 5] = [
+const ENUM_VALUES_SYNC_PAYLOAD:[SyncPayload; 9] = [
   SyncPayload::NONE,
   SyncPayload::GetHeaders,
   SyncPayload::Headers,
   SyncPayload::GetBlocks,
-  SyncPayload::Block
+  SyncPayload::Block,
+  SyncPayload::SetFilter,
+  SyncPayload::AddFilter,
+  SyncPayload::ClearFilter,
+  SyncPayload::FilteredBlock
 ];
 
 #[allow(non_camel_case_types)]
-const ENUM_NAMES_SYNC_PAYLOAD:[&'static str; 5] = [
+const ENUM_NAMES_SYNC_PAYLOAD:[&'static str; 9] = [
     "NONE",
     "GetHeaders",
     "Headers",
     "GetBlocks",
-    "Block"
+    "Block",
+    "SetFilter",
+    "AddFilter",
+    "ClearFilter",
+    "FilteredBlock"
 ];
 
 pub fn enum_name_sync_payload(e: SyncPayload) -> &'static str {
@@ -170,6 +182,217 @@ pub fn enum_name_relay_payload(e: RelayPayload) -> &'static str {
 }
 
 pub struct RelayPayloadUnionTableOffset {}
+// struct H256, aligned to 1
+#[repr(C, align(1))]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct H256 {
+  u0_: u8,
+  u1_: u8,
+  u2_: u8,
+  u3_: u8,
+  u4_: u8,
+  u5_: u8,
+  u6_: u8,
+  u7_: u8,
+  u8__: u8,
+  u9_: u8,
+  u10_: u8,
+  u11_: u8,
+  u12_: u8,
+  u13_: u8,
+  u14_: u8,
+  u15_: u8,
+  u16__: u8,
+  u17_: u8,
+  u18_: u8,
+  u19_: u8,
+  u20_: u8,
+  u21_: u8,
+  u22_: u8,
+  u23_: u8,
+  u24_: u8,
+  u25_: u8,
+  u26_: u8,
+  u27_: u8,
+  u28_: u8,
+  u29_: u8,
+  u30_: u8,
+  u31_: u8,
+} // pub struct H256
+impl flatbuffers::SafeSliceAccess for H256 {}
+impl<'a> flatbuffers::Follow<'a> for H256 {
+  type Inner = &'a H256;
+  #[inline]
+  fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    <&'a H256>::follow(buf, loc)
+  }
+}
+impl<'a> flatbuffers::Follow<'a> for &'a H256 {
+  type Inner = &'a H256;
+  #[inline]
+  fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    flatbuffers::follow_cast_ref::<H256>(buf, loc)
+  }
+}
+impl<'b> flatbuffers::Push for H256 {
+    type Output = H256;
+    #[inline]
+    fn push(&self, dst: &mut [u8], _rest: &[u8]) {
+        let src = unsafe {
+            ::std::slice::from_raw_parts(self as *const H256 as *const u8, Self::size())
+        };
+        dst.copy_from_slice(src);
+    }
+}
+impl<'b> flatbuffers::Push for &'b H256 {
+    type Output = H256;
+
+    #[inline]
+    fn push(&self, dst: &mut [u8], _rest: &[u8]) {
+        let src = unsafe {
+            ::std::slice::from_raw_parts(*self as *const H256 as *const u8, Self::size())
+        };
+        dst.copy_from_slice(src);
+    }
+}
+
+
+impl H256 {
+  pub fn new<'a>(_u0: u8, _u1: u8, _u2: u8, _u3: u8, _u4: u8, _u5: u8, _u6: u8, _u7: u8, _u8_: u8, _u9: u8, _u10: u8, _u11: u8, _u12: u8, _u13: u8, _u14: u8, _u15: u8, _u16_: u8, _u17: u8, _u18: u8, _u19: u8, _u20: u8, _u21: u8, _u22: u8, _u23: u8, _u24: u8, _u25: u8, _u26: u8, _u27: u8, _u28: u8, _u29: u8, _u30: u8, _u31: u8) -> Self {
+    H256 {
+      u0_: _u0.to_little_endian(),
+      u1_: _u1.to_little_endian(),
+      u2_: _u2.to_little_endian(),
+      u3_: _u3.to_little_endian(),
+      u4_: _u4.to_little_endian(),
+      u5_: _u5.to_little_endian(),
+      u6_: _u6.to_little_endian(),
+      u7_: _u7.to_little_endian(),
+      u8__: _u8_.to_little_endian(),
+      u9_: _u9.to_little_endian(),
+      u10_: _u10.to_little_endian(),
+      u11_: _u11.to_little_endian(),
+      u12_: _u12.to_little_endian(),
+      u13_: _u13.to_little_endian(),
+      u14_: _u14.to_little_endian(),
+      u15_: _u15.to_little_endian(),
+      u16__: _u16_.to_little_endian(),
+      u17_: _u17.to_little_endian(),
+      u18_: _u18.to_little_endian(),
+      u19_: _u19.to_little_endian(),
+      u20_: _u20.to_little_endian(),
+      u21_: _u21.to_little_endian(),
+      u22_: _u22.to_little_endian(),
+      u23_: _u23.to_little_endian(),
+      u24_: _u24.to_little_endian(),
+      u25_: _u25.to_little_endian(),
+      u26_: _u26.to_little_endian(),
+      u27_: _u27.to_little_endian(),
+      u28_: _u28.to_little_endian(),
+      u29_: _u29.to_little_endian(),
+      u30_: _u30.to_little_endian(),
+      u31_: _u31.to_little_endian(),
+
+    }
+  }
+  pub fn u0<'a>(&'a self) -> u8 {
+    self.u0_.from_little_endian()
+  }
+  pub fn u1<'a>(&'a self) -> u8 {
+    self.u1_.from_little_endian()
+  }
+  pub fn u2<'a>(&'a self) -> u8 {
+    self.u2_.from_little_endian()
+  }
+  pub fn u3<'a>(&'a self) -> u8 {
+    self.u3_.from_little_endian()
+  }
+  pub fn u4<'a>(&'a self) -> u8 {
+    self.u4_.from_little_endian()
+  }
+  pub fn u5<'a>(&'a self) -> u8 {
+    self.u5_.from_little_endian()
+  }
+  pub fn u6<'a>(&'a self) -> u8 {
+    self.u6_.from_little_endian()
+  }
+  pub fn u7<'a>(&'a self) -> u8 {
+    self.u7_.from_little_endian()
+  }
+  pub fn u8_<'a>(&'a self) -> u8 {
+    self.u8__.from_little_endian()
+  }
+  pub fn u9<'a>(&'a self) -> u8 {
+    self.u9_.from_little_endian()
+  }
+  pub fn u10<'a>(&'a self) -> u8 {
+    self.u10_.from_little_endian()
+  }
+  pub fn u11<'a>(&'a self) -> u8 {
+    self.u11_.from_little_endian()
+  }
+  pub fn u12<'a>(&'a self) -> u8 {
+    self.u12_.from_little_endian()
+  }
+  pub fn u13<'a>(&'a self) -> u8 {
+    self.u13_.from_little_endian()
+  }
+  pub fn u14<'a>(&'a self) -> u8 {
+    self.u14_.from_little_endian()
+  }
+  pub fn u15<'a>(&'a self) -> u8 {
+    self.u15_.from_little_endian()
+  }
+  pub fn u16_<'a>(&'a self) -> u8 {
+    self.u16__.from_little_endian()
+  }
+  pub fn u17<'a>(&'a self) -> u8 {
+    self.u17_.from_little_endian()
+  }
+  pub fn u18<'a>(&'a self) -> u8 {
+    self.u18_.from_little_endian()
+  }
+  pub fn u19<'a>(&'a self) -> u8 {
+    self.u19_.from_little_endian()
+  }
+  pub fn u20<'a>(&'a self) -> u8 {
+    self.u20_.from_little_endian()
+  }
+  pub fn u21<'a>(&'a self) -> u8 {
+    self.u21_.from_little_endian()
+  }
+  pub fn u22<'a>(&'a self) -> u8 {
+    self.u22_.from_little_endian()
+  }
+  pub fn u23<'a>(&'a self) -> u8 {
+    self.u23_.from_little_endian()
+  }
+  pub fn u24<'a>(&'a self) -> u8 {
+    self.u24_.from_little_endian()
+  }
+  pub fn u25<'a>(&'a self) -> u8 {
+    self.u25_.from_little_endian()
+  }
+  pub fn u26<'a>(&'a self) -> u8 {
+    self.u26_.from_little_endian()
+  }
+  pub fn u27<'a>(&'a self) -> u8 {
+    self.u27_.from_little_endian()
+  }
+  pub fn u28<'a>(&'a self) -> u8 {
+    self.u28_.from_little_endian()
+  }
+  pub fn u29<'a>(&'a self) -> u8 {
+    self.u29_.from_little_endian()
+  }
+  pub fn u30<'a>(&'a self) -> u8 {
+    self.u30_.from_little_endian()
+  }
+  pub fn u31<'a>(&'a self) -> u8 {
+    self.u31_.from_little_endian()
+  }
+}
+
 pub enum SyncMessageOffset {}
 #[derive(Copy, Clone, Debug, PartialEq)]
 
@@ -250,6 +473,46 @@ impl<'a> SyncMessage<'a> {
   pub fn payload_as_block(&'a self) -> Option<Block> {
     if self.payload_type() == SyncPayload::Block {
       self.payload().map(|u| Block::init_from_table(u))
+    } else {
+      None
+    }
+  }
+
+  #[inline]
+  #[allow(non_snake_case)]
+  pub fn payload_as_set_filter(&'a self) -> Option<SetFilter> {
+    if self.payload_type() == SyncPayload::SetFilter {
+      self.payload().map(|u| SetFilter::init_from_table(u))
+    } else {
+      None
+    }
+  }
+
+  #[inline]
+  #[allow(non_snake_case)]
+  pub fn payload_as_add_filter(&'a self) -> Option<AddFilter> {
+    if self.payload_type() == SyncPayload::AddFilter {
+      self.payload().map(|u| AddFilter::init_from_table(u))
+    } else {
+      None
+    }
+  }
+
+  #[inline]
+  #[allow(non_snake_case)]
+  pub fn payload_as_clear_filter(&'a self) -> Option<ClearFilter> {
+    if self.payload_type() == SyncPayload::ClearFilter {
+      self.payload().map(|u| ClearFilter::init_from_table(u))
+    } else {
+      None
+    }
+  }
+
+  #[inline]
+  #[allow(non_snake_case)]
+  pub fn payload_as_filtered_block(&'a self) -> Option<FilteredBlock> {
+    if self.payload_type() == SyncPayload::FilteredBlock {
+      self.payload().map(|u| FilteredBlock::init_from_table(u))
     } else {
       None
     }
@@ -1788,8 +2051,8 @@ impl<'a> CompactBlock<'a> {
     self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<flatbuffers::ForwardsUOffset<Bytes<'a>>>>>(CompactBlock::VT_SHORT_IDS, None)
   }
   #[inline]
-  pub fn prefilled_transactions(&self) -> Option<flatbuffers::Vector<flatbuffers::ForwardsUOffset<PrefilledTransaction<'a>>>> {
-    self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<flatbuffers::ForwardsUOffset<PrefilledTransaction<'a>>>>>(CompactBlock::VT_PREFILLED_TRANSACTIONS, None)
+  pub fn prefilled_transactions(&self) -> Option<flatbuffers::Vector<flatbuffers::ForwardsUOffset<IndexTransaction<'a>>>> {
+    self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<flatbuffers::ForwardsUOffset<IndexTransaction<'a>>>>>(CompactBlock::VT_PREFILLED_TRANSACTIONS, None)
   }
   #[inline]
   pub fn uncles(&self) -> Option<flatbuffers::Vector<flatbuffers::ForwardsUOffset<UncleBlock<'a>>>> {
@@ -1805,7 +2068,7 @@ pub struct CompactBlockArgs<'a> {
     pub header: Option<flatbuffers::WIPOffset<Header<'a >>>,
     pub nonce: u64,
     pub short_ids: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a , flatbuffers::ForwardsUOffset<Bytes<'a >>>>>,
-    pub prefilled_transactions: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a , flatbuffers::ForwardsUOffset<PrefilledTransaction<'a >>>>>,
+    pub prefilled_transactions: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a , flatbuffers::ForwardsUOffset<IndexTransaction<'a >>>>>,
     pub uncles: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a , flatbuffers::ForwardsUOffset<UncleBlock<'a >>>>>,
     pub proposal_transactions: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a , flatbuffers::ForwardsUOffset<Bytes<'a >>>>>,
 }
@@ -1840,7 +2103,7 @@ impl<'a: 'b, 'b> CompactBlockBuilder<'a, 'b> {
     self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(CompactBlock::VT_SHORT_IDS, short_ids);
   }
   #[inline]
-  pub fn add_prefilled_transactions(&mut self, prefilled_transactions: flatbuffers::WIPOffset<flatbuffers::Vector<'b , flatbuffers::ForwardsUOffset<PrefilledTransaction<'b >>>>) {
+  pub fn add_prefilled_transactions(&mut self, prefilled_transactions: flatbuffers::WIPOffset<flatbuffers::Vector<'b , flatbuffers::ForwardsUOffset<IndexTransaction<'b >>>>) {
     self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(CompactBlock::VT_PREFILLED_TRANSACTIONS, prefilled_transactions);
   }
   #[inline]
@@ -1866,15 +2129,15 @@ impl<'a: 'b, 'b> CompactBlockBuilder<'a, 'b> {
   }
 }
 
-pub enum PrefilledTransactionOffset {}
+pub enum IndexTransactionOffset {}
 #[derive(Copy, Clone, Debug, PartialEq)]
 
-pub struct PrefilledTransaction<'a> {
+pub struct IndexTransaction<'a> {
   pub _tab: flatbuffers::Table<'a>,
 }
 
-impl<'a> flatbuffers::Follow<'a> for PrefilledTransaction<'a> {
-    type Inner = PrefilledTransaction<'a>;
+impl<'a> flatbuffers::Follow<'a> for IndexTransaction<'a> {
+    type Inner = IndexTransaction<'a>;
     #[inline]
     fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
         Self {
@@ -1883,18 +2146,18 @@ impl<'a> flatbuffers::Follow<'a> for PrefilledTransaction<'a> {
     }
 }
 
-impl<'a> PrefilledTransaction<'a> {
+impl<'a> IndexTransaction<'a> {
     #[inline]
     pub fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
-        PrefilledTransaction {
+        IndexTransaction {
             _tab: table,
         }
     }
     #[allow(unused_mut)]
     pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr>(
         _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr>,
-        args: &'args PrefilledTransactionArgs<'args>) -> flatbuffers::WIPOffset<PrefilledTransaction<'bldr>> {
-      let mut builder = PrefilledTransactionBuilder::new(_fbb);
+        args: &'args IndexTransactionArgs<'args>) -> flatbuffers::WIPOffset<IndexTransaction<'bldr>> {
+      let mut builder = IndexTransactionBuilder::new(_fbb);
       if let Some(x) = args.transaction { builder.add_transaction(x); }
       builder.add_index(args.index);
       builder.finish()
@@ -1905,50 +2168,50 @@ impl<'a> PrefilledTransaction<'a> {
 
   #[inline]
   pub fn index(&self) -> u32 {
-    self._tab.get::<u32>(PrefilledTransaction::VT_INDEX, Some(0)).unwrap()
+    self._tab.get::<u32>(IndexTransaction::VT_INDEX, Some(0)).unwrap()
   }
   #[inline]
   pub fn transaction(&self) -> Option<Transaction<'a>> {
-    self._tab.get::<flatbuffers::ForwardsUOffset<Transaction<'a>>>(PrefilledTransaction::VT_TRANSACTION, None)
+    self._tab.get::<flatbuffers::ForwardsUOffset<Transaction<'a>>>(IndexTransaction::VT_TRANSACTION, None)
   }
 }
 
-pub struct PrefilledTransactionArgs<'a> {
+pub struct IndexTransactionArgs<'a> {
     pub index: u32,
     pub transaction: Option<flatbuffers::WIPOffset<Transaction<'a >>>,
 }
-impl<'a> Default for PrefilledTransactionArgs<'a> {
+impl<'a> Default for IndexTransactionArgs<'a> {
     #[inline]
     fn default() -> Self {
-        PrefilledTransactionArgs {
+        IndexTransactionArgs {
             index: 0,
             transaction: None,
         }
     }
 }
-pub struct PrefilledTransactionBuilder<'a: 'b, 'b> {
+pub struct IndexTransactionBuilder<'a: 'b, 'b> {
   fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a>,
   start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
 }
-impl<'a: 'b, 'b> PrefilledTransactionBuilder<'a, 'b> {
+impl<'a: 'b, 'b> IndexTransactionBuilder<'a, 'b> {
   #[inline]
   pub fn add_index(&mut self, index: u32) {
-    self.fbb_.push_slot::<u32>(PrefilledTransaction::VT_INDEX, index, 0);
+    self.fbb_.push_slot::<u32>(IndexTransaction::VT_INDEX, index, 0);
   }
   #[inline]
   pub fn add_transaction(&mut self, transaction: flatbuffers::WIPOffset<Transaction<'b >>) {
-    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<Transaction>>(PrefilledTransaction::VT_TRANSACTION, transaction);
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<Transaction>>(IndexTransaction::VT_TRANSACTION, transaction);
   }
   #[inline]
-  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>) -> PrefilledTransactionBuilder<'a, 'b> {
+  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>) -> IndexTransactionBuilder<'a, 'b> {
     let start = _fbb.start_table();
-    PrefilledTransactionBuilder {
+    IndexTransactionBuilder {
       fbb_: _fbb,
       start_: start,
     }
   }
   #[inline]
-  pub fn finish(self) -> flatbuffers::WIPOffset<PrefilledTransaction<'a>> {
+  pub fn finish(self) -> flatbuffers::WIPOffset<IndexTransaction<'a>> {
     let o = self.fbb_.end_table(self.start_);
     flatbuffers::WIPOffset::new(o.value())
   }
@@ -2289,6 +2552,345 @@ impl<'a: 'b, 'b> BlockProposalBuilder<'a, 'b> {
   }
   #[inline]
   pub fn finish(self) -> flatbuffers::WIPOffset<BlockProposal<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+pub enum SetFilterOffset {}
+#[derive(Copy, Clone, Debug, PartialEq)]
+
+pub struct SetFilter<'a> {
+  pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for SetFilter<'a> {
+    type Inner = SetFilter<'a>;
+    #[inline]
+    fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        Self {
+            _tab: flatbuffers::Table { buf: buf, loc: loc },
+        }
+    }
+}
+
+impl<'a> SetFilter<'a> {
+    #[inline]
+    pub fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+        SetFilter {
+            _tab: table,
+        }
+    }
+    #[allow(unused_mut)]
+    pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr>(
+        _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr>,
+        args: &'args SetFilterArgs<'args>) -> flatbuffers::WIPOffset<SetFilter<'bldr>> {
+      let mut builder = SetFilterBuilder::new(_fbb);
+      builder.add_hash_seed(args.hash_seed);
+      if let Some(x) = args.filter { builder.add_filter(x); }
+      builder.add_num_hashes(args.num_hashes);
+      builder.finish()
+    }
+
+    pub const VT_FILTER: flatbuffers::VOffsetT = 4;
+    pub const VT_NUM_HASHES: flatbuffers::VOffsetT = 6;
+    pub const VT_HASH_SEED: flatbuffers::VOffsetT = 8;
+
+  #[inline]
+  pub fn filter(&self) -> Option<&'a [u8]> {
+    self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, u8>>>(SetFilter::VT_FILTER, None).map(|v| v.safe_slice())
+  }
+  #[inline]
+  pub fn num_hashes(&self) -> u8 {
+    self._tab.get::<u8>(SetFilter::VT_NUM_HASHES, Some(0)).unwrap()
+  }
+  #[inline]
+  pub fn hash_seed(&self) -> u32 {
+    self._tab.get::<u32>(SetFilter::VT_HASH_SEED, Some(0)).unwrap()
+  }
+}
+
+pub struct SetFilterArgs<'a> {
+    pub filter: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a ,  u8>>>,
+    pub num_hashes: u8,
+    pub hash_seed: u32,
+}
+impl<'a> Default for SetFilterArgs<'a> {
+    #[inline]
+    fn default() -> Self {
+        SetFilterArgs {
+            filter: None,
+            num_hashes: 0,
+            hash_seed: 0,
+        }
+    }
+}
+pub struct SetFilterBuilder<'a: 'b, 'b> {
+  fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a>,
+  start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b> SetFilterBuilder<'a, 'b> {
+  #[inline]
+  pub fn add_filter(&mut self, filter: flatbuffers::WIPOffset<flatbuffers::Vector<'b , u8>>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(SetFilter::VT_FILTER, filter);
+  }
+  #[inline]
+  pub fn add_num_hashes(&mut self, num_hashes: u8) {
+    self.fbb_.push_slot::<u8>(SetFilter::VT_NUM_HASHES, num_hashes, 0);
+  }
+  #[inline]
+  pub fn add_hash_seed(&mut self, hash_seed: u32) {
+    self.fbb_.push_slot::<u32>(SetFilter::VT_HASH_SEED, hash_seed, 0);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>) -> SetFilterBuilder<'a, 'b> {
+    let start = _fbb.start_table();
+    SetFilterBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> flatbuffers::WIPOffset<SetFilter<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+pub enum AddFilterOffset {}
+#[derive(Copy, Clone, Debug, PartialEq)]
+
+pub struct AddFilter<'a> {
+  pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for AddFilter<'a> {
+    type Inner = AddFilter<'a>;
+    #[inline]
+    fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        Self {
+            _tab: flatbuffers::Table { buf: buf, loc: loc },
+        }
+    }
+}
+
+impl<'a> AddFilter<'a> {
+    #[inline]
+    pub fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+        AddFilter {
+            _tab: table,
+        }
+    }
+    #[allow(unused_mut)]
+    pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr>(
+        _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr>,
+        args: &'args AddFilterArgs<'args>) -> flatbuffers::WIPOffset<AddFilter<'bldr>> {
+      let mut builder = AddFilterBuilder::new(_fbb);
+      if let Some(x) = args.filter { builder.add_filter(x); }
+      builder.finish()
+    }
+
+    pub const VT_FILTER: flatbuffers::VOffsetT = 4;
+
+  #[inline]
+  pub fn filter(&self) -> Option<&'a [u8]> {
+    self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, u8>>>(AddFilter::VT_FILTER, None).map(|v| v.safe_slice())
+  }
+}
+
+pub struct AddFilterArgs<'a> {
+    pub filter: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a ,  u8>>>,
+}
+impl<'a> Default for AddFilterArgs<'a> {
+    #[inline]
+    fn default() -> Self {
+        AddFilterArgs {
+            filter: None,
+        }
+    }
+}
+pub struct AddFilterBuilder<'a: 'b, 'b> {
+  fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a>,
+  start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b> AddFilterBuilder<'a, 'b> {
+  #[inline]
+  pub fn add_filter(&mut self, filter: flatbuffers::WIPOffset<flatbuffers::Vector<'b , u8>>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(AddFilter::VT_FILTER, filter);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>) -> AddFilterBuilder<'a, 'b> {
+    let start = _fbb.start_table();
+    AddFilterBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> flatbuffers::WIPOffset<AddFilter<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+pub enum ClearFilterOffset {}
+#[derive(Copy, Clone, Debug, PartialEq)]
+
+pub struct ClearFilter<'a> {
+  pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for ClearFilter<'a> {
+    type Inner = ClearFilter<'a>;
+    #[inline]
+    fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        Self {
+            _tab: flatbuffers::Table { buf: buf, loc: loc },
+        }
+    }
+}
+
+impl<'a> ClearFilter<'a> {
+    #[inline]
+    pub fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+        ClearFilter {
+            _tab: table,
+        }
+    }
+    #[allow(unused_mut)]
+    pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr>(
+        _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr>,
+        _args: &'args ClearFilterArgs) -> flatbuffers::WIPOffset<ClearFilter<'bldr>> {
+      let mut builder = ClearFilterBuilder::new(_fbb);
+      builder.finish()
+    }
+
+}
+
+pub struct ClearFilterArgs {
+}
+impl<'a> Default for ClearFilterArgs {
+    #[inline]
+    fn default() -> Self {
+        ClearFilterArgs {
+        }
+    }
+}
+pub struct ClearFilterBuilder<'a: 'b, 'b> {
+  fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a>,
+  start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b> ClearFilterBuilder<'a, 'b> {
+  #[inline]
+  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>) -> ClearFilterBuilder<'a, 'b> {
+    let start = _fbb.start_table();
+    ClearFilterBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> flatbuffers::WIPOffset<ClearFilter<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+pub enum FilteredBlockOffset {}
+#[derive(Copy, Clone, Debug, PartialEq)]
+
+pub struct FilteredBlock<'a> {
+  pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for FilteredBlock<'a> {
+    type Inner = FilteredBlock<'a>;
+    #[inline]
+    fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        Self {
+            _tab: flatbuffers::Table { buf: buf, loc: loc },
+        }
+    }
+}
+
+impl<'a> FilteredBlock<'a> {
+    #[inline]
+    pub fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+        FilteredBlock {
+            _tab: table,
+        }
+    }
+    #[allow(unused_mut)]
+    pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr>(
+        _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr>,
+        args: &'args FilteredBlockArgs<'args>) -> flatbuffers::WIPOffset<FilteredBlock<'bldr>> {
+      let mut builder = FilteredBlockBuilder::new(_fbb);
+      if let Some(x) = args.hashes { builder.add_hashes(x); }
+      if let Some(x) = args.transactions { builder.add_transactions(x); }
+      if let Some(x) = args.header { builder.add_header(x); }
+      builder.finish()
+    }
+
+    pub const VT_HEADER: flatbuffers::VOffsetT = 4;
+    pub const VT_TRANSACTIONS: flatbuffers::VOffsetT = 6;
+    pub const VT_HASHES: flatbuffers::VOffsetT = 8;
+
+  #[inline]
+  pub fn header(&self) -> Option<Header<'a>> {
+    self._tab.get::<flatbuffers::ForwardsUOffset<Header<'a>>>(FilteredBlock::VT_HEADER, None)
+  }
+  #[inline]
+  pub fn transactions(&self) -> Option<flatbuffers::Vector<flatbuffers::ForwardsUOffset<IndexTransaction<'a>>>> {
+    self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<flatbuffers::ForwardsUOffset<IndexTransaction<'a>>>>>(FilteredBlock::VT_TRANSACTIONS, None)
+  }
+  #[inline]
+  pub fn hashes(&self) -> Option<&'a [H256]> {
+    self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<H256>>>(FilteredBlock::VT_HASHES, None).map(|v| v.safe_slice() )
+  }
+}
+
+pub struct FilteredBlockArgs<'a> {
+    pub header: Option<flatbuffers::WIPOffset<Header<'a >>>,
+    pub transactions: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a , flatbuffers::ForwardsUOffset<IndexTransaction<'a >>>>>,
+    pub hashes: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a , H256>>>,
+}
+impl<'a> Default for FilteredBlockArgs<'a> {
+    #[inline]
+    fn default() -> Self {
+        FilteredBlockArgs {
+            header: None,
+            transactions: None,
+            hashes: None,
+        }
+    }
+}
+pub struct FilteredBlockBuilder<'a: 'b, 'b> {
+  fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a>,
+  start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b> FilteredBlockBuilder<'a, 'b> {
+  #[inline]
+  pub fn add_header(&mut self, header: flatbuffers::WIPOffset<Header<'b >>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<Header>>(FilteredBlock::VT_HEADER, header);
+  }
+  #[inline]
+  pub fn add_transactions(&mut self, transactions: flatbuffers::WIPOffset<flatbuffers::Vector<'b , flatbuffers::ForwardsUOffset<IndexTransaction<'b >>>>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(FilteredBlock::VT_TRANSACTIONS, transactions);
+  }
+  #[inline]
+  pub fn add_hashes(&mut self, hashes: flatbuffers::WIPOffset<flatbuffers::Vector<'b , H256>>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(FilteredBlock::VT_HASHES, hashes);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>) -> FilteredBlockBuilder<'a, 'b> {
+    let start = _fbb.start_table();
+    FilteredBlockBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> flatbuffers::WIPOffset<FilteredBlock<'a>> {
     let o = self.fbb_.end_table(self.start_);
     flatbuffers::WIPOffset::new(o.value())
   }

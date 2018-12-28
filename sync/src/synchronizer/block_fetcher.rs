@@ -1,5 +1,5 @@
-use super::header_view::HeaderView;
 use crate::synchronizer::{BlockStatus, Synchronizer};
+use crate::types::HeaderView;
 use crate::{
     BLOCK_DOWNLOAD_TIMEOUT, BLOCK_DOWNLOAD_WINDOW, MAX_BLOCKS_IN_TRANSIT_PER_PEER,
     PER_FETCH_BLOCK_LIMIT,

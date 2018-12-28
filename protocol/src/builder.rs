@@ -2,13 +2,13 @@ use crate::protocol_generated::ckb::protocol::{
     Block as FbsBlock, BlockBuilder, BlockProposalBuilder, BlockTransactionsBuilder,
     Bytes as FbsBytes, BytesBuilder, CellInput as FbsCellInput, CellInputBuilder,
     CellOutput as FbsCellOutput, CellOutputBuilder, CompactBlock, CompactBlockBuilder,
-    GetBlockProposalBuilder, GetBlockTransactionsBuilder, GetBlocks as FbsGetBlocks,
-    GetBlocksBuilder, GetHeaders as FbsGetHeaders, GetHeadersBuilder, Header as FbsHeader,
-    HeaderBuilder, Headers as FbsHeaders, HeadersBuilder, OutPoint as FbsOutPoint, OutPointBuilder,
-    PrefilledTransactionBuilder, RelayMessage, RelayMessageBuilder, RelayPayload,
-    Script as FbsScript, ScriptBuilder, SyncMessage, SyncMessageBuilder, SyncPayload,
-    Transaction as FbsTransaction, TransactionBuilder, UncleBlock as FbsUncleBlock,
-    UncleBlockBuilder,
+    FilteredBlock, FilteredBlockBuilder, GetBlockProposalBuilder, GetBlockTransactionsBuilder,
+    GetBlocks as FbsGetBlocks, GetBlocksBuilder, GetHeaders as FbsGetHeaders, GetHeadersBuilder,
+    Header as FbsHeader, HeaderBuilder, Headers as FbsHeaders, HeadersBuilder,
+    IndexTransactionBuilder, OutPoint as FbsOutPoint, OutPointBuilder, RelayMessage,
+    RelayMessageBuilder, RelayPayload, Script as FbsScript, ScriptBuilder, SyncMessage,
+    SyncMessageBuilder, SyncPayload, Transaction as FbsTransaction, TransactionBuilder,
+    UncleBlock as FbsUncleBlock, UncleBlockBuilder,
 };
 use crate::{short_transaction_id, short_transaction_id_keys};
 use ckb_core::block::Block;
@@ -337,6 +337,47 @@ impl<'a> SyncMessage<'a> {
         builder.add_payload(fbs_block.as_union_value());
         builder.finish()
     }
+
+    pub fn build_filtered_block<'b>(
+        fbb: &mut FlatBufferBuilder<'b>,
+        block: &Block,
+        transactions_index: &[usize],
+    ) -> WIPOffset<SyncMessage<'b>> {
+        let filtered_block = FilteredBlock::build(fbb, &block, transactions_index);
+        let mut builder = SyncMessageBuilder::new(fbb);
+        builder.add_payload_type(SyncPayload::FilteredBlock);
+        builder.add_payload(filtered_block.as_union_value());
+        builder.finish()
+    }
+}
+
+impl<'a> FilteredBlock<'a> {
+    pub fn build<'b>(
+        fbb: &mut FlatBufferBuilder<'b>,
+        block: &Block,
+        transactions_index: &[usize],
+    ) -> WIPOffset<FilteredBlock<'b>> {
+        let transactions = transactions_index
+            .iter()
+            .map(|ti| {
+                let fbs_transaction = FbsTransaction::build(fbb, &block.commit_transactions()[*ti]);
+                let mut builder = IndexTransactionBuilder::new(fbb);
+                builder.add_index(*ti as u32);
+                builder.add_transaction(fbs_transaction);
+                builder.finish()
+            })
+            .collect::<Vec<_>>();
+
+        let header = FbsHeader::build(fbb, &block.header());
+        let fbs_transactions = fbb.create_vector(&transactions);
+
+        let mut builder = FilteredBlockBuilder::new(fbb);
+        builder.add_header(header);
+        builder.add_transactions(fbs_transactions);
+        // TODO waiting for merkle tree proof generation function
+        // builder.add_hashes(...);
+        builder.finish()
+    }
 }
 
 impl<'a> CompactBlock<'a> {
@@ -362,7 +403,7 @@ impl<'a> CompactBlock<'a> {
                 || transaction.is_cellbase()
             {
                 let fbs_transaction = FbsTransaction::build(fbb, transaction);
-                let mut builder = PrefilledTransactionBuilder::new(fbb);
+                let mut builder = IndexTransactionBuilder::new(fbb);
                 builder.add_index(transaction_index as u32);
                 builder.add_transaction(fbs_transaction);
                 prefilled_transactions.push(builder.finish());
