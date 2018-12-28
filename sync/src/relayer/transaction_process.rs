@@ -44,7 +44,7 @@ where
                         .peers()
                         .transaction_filters
                         .read()
-                        .get(&self.peer)
+                        .get(&peer_id)
                         .map_or(true, |filter| filter.contains(&tx))
                 {
                     let _ = self.nc.send(peer_id, fbb.finished_data().to_vec());
