@@ -33,3 +33,4 @@ faster-hex = "0.3"
 [dev-dependencies]
 ckb-db = { path = "../db" }
 ckb-verification = { path = "../verification" }
+proptest = "0.8"

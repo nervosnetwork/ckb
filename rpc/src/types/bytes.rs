@@ -34,9 +34,12 @@ impl<'b> serde::de::Visitor<'b> for BytesVisitor {
         if v.len() < 2 || &v[0..2] != "0x" || v.len() & 1 != 0 {
             return Err(E::invalid_value(serde::de::Unexpected::Str(v), &self));
         }
-        let mut buffer = vec![0; v.len() / 2]; // we checked length
-        hex_decode(&v.as_bytes()[2..], &mut buffer)
-            .map_err(|e| E::custom(format_args!("{:?}", e)))?;
+        let bytes = &v.as_bytes()[2..];
+        if bytes.is_empty() {
+            return Ok(Bytes::new(vec![]));
+        }
+        let mut buffer = vec![0; bytes.len() / 2]; // we checked length
+        hex_decode(bytes, &mut buffer).map_err(|e| E::custom(format_args!("{:?}", e)))?;
         Ok(Bytes::new(buffer))
     }
 

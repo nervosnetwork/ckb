@@ -346,3 +346,110 @@ impl From<Block> for CoreBlock {
             .build()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ckb_core::transaction::ProposalShortId as CoreProposalShortId;
+    use proptest::{collection::size_range, prelude::any_with, proptest, proptest_helper};
+
+    fn mock_script(arg: Vec<u8>, binary: Vec<u8>, signed_arg: Vec<u8>) -> CoreScript {
+        CoreScript::new(
+            0,
+            vec![arg],
+            Some(H256::default()),
+            Some(binary),
+            vec![signed_arg],
+        )
+    }
+
+    fn mock_cell_output(
+        data: Vec<u8>,
+        arg: Vec<u8>,
+        binary: Vec<u8>,
+        signed_arg: Vec<u8>,
+    ) -> CoreCellOutput {
+        CoreCellOutput::new(
+            0,
+            data,
+            H256::default(),
+            Some(mock_script(arg, binary, signed_arg)),
+        )
+    }
+
+    fn mock_cell_input(arg: Vec<u8>, binary: Vec<u8>, signed_arg: Vec<u8>) -> CoreCellInput {
+        CoreCellInput::new(
+            CoreOutPoint::default(),
+            mock_script(arg, binary, signed_arg),
+        )
+    }
+
+    fn mock_full_tx(
+        data: Vec<u8>,
+        arg: Vec<u8>,
+        binary: Vec<u8>,
+        signed_arg: Vec<u8>,
+    ) -> CoreTransaction {
+        TransactionBuilder::default()
+            .deps(vec![CoreOutPoint::default()])
+            .inputs(vec![mock_cell_input(
+                arg.clone(),
+                binary.clone(),
+                signed_arg.clone(),
+            )])
+            .outputs(vec![mock_cell_output(data, arg, binary, signed_arg)])
+            .build()
+    }
+
+    fn mock_uncle(
+        data: Vec<u8>,
+        arg: Vec<u8>,
+        binary: Vec<u8>,
+        signed_arg: Vec<u8>,
+    ) -> CoreUncleBlock {
+        CoreUncleBlock::new(
+            HeaderBuilder::default().build(),
+            mock_full_tx(data, arg, binary, signed_arg),
+            vec![CoreProposalShortId::default()],
+        )
+    }
+
+    fn mock_full_block(
+        data: Vec<u8>,
+        arg: Vec<u8>,
+        binary: Vec<u8>,
+        signed_arg: Vec<u8>,
+    ) -> CoreBlock {
+        BlockBuilder::default()
+            .uncles(vec![mock_uncle(
+                data.clone(),
+                arg.clone(),
+                binary.clone(),
+                signed_arg.clone(),
+            )])
+            .commit_transactions(vec![mock_full_tx(data, arg, binary, signed_arg)])
+            .proposal_transactions(vec![CoreProposalShortId::default()])
+            .build()
+    }
+
+    fn _test_block_convert(data: Vec<u8>, arg: Vec<u8>, binary: Vec<u8>, signed_arg: Vec<u8>) {
+        let block = mock_full_block(data, arg, binary, signed_arg);
+        let json_block: Block = (&block).into();
+        let encoded = serde_json::to_string(&json_block).unwrap();
+        let decode: Block = serde_json::from_str(&encoded).unwrap();
+        let decode_block: CoreBlock = decode.into();
+        assert_eq!(decode_block, block);
+    }
+
+    proptest! {
+        #[test]
+        fn test_block_convert(
+            data in any_with::<Vec<u8>>(size_range(80).lift()),
+            arg in any_with::<Vec<u8>>(size_range(80).lift()),
+            binary in any_with::<Vec<u8>>(size_range(80).lift()),
+            signed_arg in any_with::<Vec<u8>>(size_range(80).lift())
+        ) {
+            _test_block_convert(data, arg, binary, signed_arg)
+        }
+    }
+}
