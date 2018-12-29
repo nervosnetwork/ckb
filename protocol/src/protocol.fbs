@@ -21,12 +21,12 @@ table Bytes {
 
 table GetHeaders {
     version:                uint32;
-    block_locator_hashes:   [Bytes];
-    hash_stop:              Bytes;
+    block_locator_hashes:   [H256];
+    hash_stop:              H256;
 }
 
 table GetBlocks {
-    block_hashes:           [Bytes];
+    block_hashes:           [H256];
 }
 
 table Headers {
@@ -35,16 +35,16 @@ table Headers {
 
 table Header {
     version:        uint32;
-    parent_hash:    Bytes;
+    parent_hash:    H256;
     timestamp:      uint64;
     number:         uint64;
-    txs_commit:     Bytes;
-    txs_proposal:   Bytes;
+    txs_commit:     H256;
+    txs_proposal:   H256;
     difficulty:     Bytes;
     nonce:          uint64;
     proof:          Bytes;
-    cellbase_id:    Bytes;
-    uncles_hash:    Bytes;
+    cellbase_id:    H256;
+    uncles_hash:    H256;
     uncles_count:   uint32;
 }
 
@@ -52,13 +52,13 @@ table Block {
     header:                 Header;
     uncles:                 [UncleBlock];
     commit_transactions:    [Transaction];
-    proposal_transactions:  [Bytes];
+    proposal_transactions:  [ProposalShortId];
 }
 
 table UncleBlock {
     header:                 Header;
     cellbase:               Transaction;
-    proposal_transactions:  [Bytes];
+    proposal_transactions:  [ProposalShortId];
 }
 
 table Transaction {
@@ -69,12 +69,12 @@ table Transaction {
 }
 
 table OutPoint {
-    hash:           Bytes;
+    hash:           H256;
     index:          uint32;
 }
 
 table CellInput {
-    hash:           Bytes;
+    hash:           H256;
     index:          uint32;
     unlock:         Script;
 }
@@ -82,7 +82,7 @@ table CellInput {
 table CellOutput {
     capacity:       uint64;
     data:           Bytes;
-    lock:           Bytes;
+    lock:           H256;
     type:           Script;
 }
 
@@ -90,7 +90,7 @@ table Script {
     version:        uint8;
     args:           [Bytes];
     binary:         Bytes;
-    reference:      Bytes;
+    reference:      H256;
     signed_args:    [Bytes];
 }
 
@@ -115,7 +115,7 @@ table CompactBlock {
     short_ids:                  [Bytes];
     prefilled_transactions:     [IndexTransaction];
     uncles:                     [UncleBlock];
-    proposal_transactions:      [Bytes];
+    proposal_transactions:      [ProposalShortId];
 }
 
 table IndexTransaction {
@@ -124,22 +124,35 @@ table IndexTransaction {
 }
 
 table GetBlockTransactions {
-    hash:                      Bytes;
+    hash:                      H256;
     indexes:                   [uint32];
 }
 
 table BlockTransactions {
-    hash:                      Bytes;
+    hash:                      H256;
     transactions:              [Transaction];
 }
 
 table GetBlockProposal {
     block_number:              uint64;
-    proposal_transactions:     [Bytes];
+    proposal_transactions:     [ProposalShortId];
 }
 
 table BlockProposal {
     transactions:              [Transaction];
+}
+
+struct ProposalShortId {
+    u0: uint8;
+    u1: uint8;
+    u2: uint8;
+    u3: uint8;
+    u4: uint8;
+    u5: uint8;
+    u6: uint8;
+    u7: uint8;
+    u8: uint8;
+    u9: uint8;
 }
 
 struct H256 {
