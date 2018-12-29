@@ -150,9 +150,10 @@ where
     pub fn accept_first(&self, first: &Header) -> ValidationResult {
         let parent = self.synchronizer.get_header(&first.parent_hash());
         let resolver = VerifierResolver::new(parent.as_ref(), &first, &self.synchronizer);
-        let verifier = HeaderVerifier::new(Arc::clone(
-            &self.synchronizer.shared.consensus().pow_engine(),
-        ));
+        let verifier = HeaderVerifier::new(
+            self.synchronizer.shared.clone(),
+            Arc::clone(&self.synchronizer.shared.consensus().pow_engine()),
+        );
         let acceptor =
             HeaderAcceptor::new(first, self.peer, &self.synchronizer, resolver, verifier);
         acceptor.accept()
@@ -196,9 +197,10 @@ where
         for window in headers.windows(2) {
             if let [parent, header] = &window {
                 let resolver = VerifierResolver::new(Some(&parent), &header, &self.synchronizer);
-                let verifier = HeaderVerifier::new(Arc::clone(
-                    &self.synchronizer.shared.consensus().pow_engine(),
-                ));
+                let verifier = HeaderVerifier::new(
+                    self.synchronizer.shared.clone(),
+                    Arc::clone(&self.synchronizer.shared.consensus().pow_engine()),
+                );
                 let acceptor =
                     HeaderAcceptor::new(&header, self.peer, &self.synchronizer, resolver, verifier);
                 let result = acceptor.accept();

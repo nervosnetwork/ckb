@@ -203,6 +203,8 @@ pub trait ChainProvider: Sync + Send {
 
     fn get_transaction_meta_at(&self, hash: &H256, parent: &H256) -> Option<TransactionMeta>;
 
+    fn block_median_time(&self, hash: &H256) -> Option<u64>;
+
     fn block_reward(&self, block_number: BlockNumber) -> Capacity;
 
     fn get_ancestor(&self, base: &H256, number: BlockNumber) -> Option<Header>;
@@ -274,6 +276,25 @@ impl<CI: ChainIndex> ChainProvider for Shared<CI> {
     fn get_transaction_meta_at(&self, hash: &H256, parent: &H256) -> Option<TransactionMeta> {
         self.output_root(parent)
             .and_then(|ref root| self.store.get_transaction_meta(root, hash))
+    }
+
+    // get block median time from this hash
+    fn block_median_time(&self, hash: &H256) -> Option<u64> {
+        let count = self.consensus.median_time_block_count();
+        let mut block_times = Vec::with_capacity(count);
+        let mut current_header = self.block_header(hash);
+        for _ in 0..count {
+            let header = match current_header {
+                Some(ref header) => header,
+                None => break,
+            };
+            block_times.push(header.timestamp());
+            if block_times.len() < count {
+                current_header = self.block_header(header.parent_hash());
+            }
+        }
+        block_times.sort_by(|a, b| b.cmp(a));
+        block_times.get(block_times.len() / 2).cloned()
     }
 
     fn block_reward(&self, _block_number: BlockNumber) -> Capacity {

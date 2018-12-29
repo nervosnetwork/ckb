@@ -13,6 +13,8 @@ mod flat_serializer;
 pub mod index;
 pub mod shared;
 pub mod store;
+#[cfg(test)]
+mod tests;
 
 use ckb_db::batch::Col;
 

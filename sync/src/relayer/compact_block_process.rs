@@ -43,8 +43,10 @@ where
         {
             let resolver =
                 HeaderResolverWrapper::new(&compact_block.header, self.relayer.shared.clone());
-            let header_verifier =
-                HeaderVerifier::new(Arc::clone(&self.relayer.shared.consensus().pow_engine()));
+            let header_verifier = HeaderVerifier::new(
+                self.relayer.shared.clone(),
+                Arc::clone(&self.relayer.shared.consensus().pow_engine()),
+            );
 
             if header_verifier.verify(&resolver).is_ok() {
                 self.relayer
