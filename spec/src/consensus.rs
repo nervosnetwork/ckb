@@ -12,7 +12,7 @@ pub const MAX_UNCLE_AGE: usize = 6;
 pub const TRANSACTION_PROPAGATION_TIME: BlockNumber = 1;
 pub const TRANSACTION_PROPAGATION_TIMEOUT: BlockNumber = 10;
 pub const CELLBASE_MATURITY: usize = 100;
-// TODO: should consider with block time
+// TODO: should adjust this value based on CKB average block time
 pub const MEDIAN_TIME_BLOCK_COUNT: usize = 11;
 
 //TODO：find best ORPHAN_RATE_TARGET
@@ -38,6 +38,7 @@ pub struct Consensus {
     // it must have at least `cellbase_maturity` confirmations;
     // else reject this transaction.
     pub cellbase_maturity: usize,
+    // This parameter indicates the count of past blocks used in the median time calculation
     pub median_time_block_count: usize,
 }
 

@@ -1,5 +1,6 @@
 use crate::{
-    shared::{ChainProvider, Shared, SharedBuilder},
+    block_median_time_context::BlockMedianTimeContext,
+    shared::{Shared, SharedBuilder},
     store::{ChainKVStore, ChainStore},
 };
 use ckb_core::{block::BlockBuilder, header::HeaderBuilder};

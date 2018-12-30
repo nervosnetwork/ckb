@@ -3,7 +3,7 @@ use crate::error::{DifficultyError, Error, NumberError, PowError, TimestampError
 use crate::shared::ALLOWED_FUTURE_BLOCKTIME;
 use ckb_core::header::Header;
 use ckb_pow::PowEngine;
-use ckb_shared::shared::ChainProvider;
+use ckb_shared::block_median_time_context::BlockMedianTimeContext;
 use faketime::unix_time_as_millis;
 use numext_fixed_uint::U256;
 use std::marker::PhantomData;
@@ -17,23 +17,23 @@ pub trait HeaderResolver {
     fn calculate_difficulty(&self) -> Option<U256>;
 }
 
-pub struct HeaderVerifier<T, P> {
+pub struct HeaderVerifier<T, M> {
     pub pow: Arc<dyn PowEngine>,
-    chain_provider: P,
+    block_median_time_context: M,
     _phantom: PhantomData<T>,
 }
 
-impl<T, P: ChainProvider + Clone> HeaderVerifier<T, P> {
-    pub fn new(chain_provider: P, pow: Arc<dyn PowEngine>) -> Self {
+impl<T, M: BlockMedianTimeContext + Clone> HeaderVerifier<T, M> {
+    pub fn new(block_median_time_context: M, pow: Arc<dyn PowEngine>) -> Self {
         HeaderVerifier {
             pow,
-            chain_provider,
+            block_median_time_context,
             _phantom: PhantomData,
         }
     }
 }
 
-impl<T: HeaderResolver, P: ChainProvider + Clone> Verifier for HeaderVerifier<T, P> {
+impl<T: HeaderResolver, M: BlockMedianTimeContext + Clone> Verifier for HeaderVerifier<T, M> {
     type Target = T;
     fn verify(&self, target: &T) -> Result<(), Error> {
         let header = target.header();
@@ -44,37 +44,41 @@ impl<T: HeaderResolver, P: ChainProvider + Clone> Verifier for HeaderVerifier<T,
             .parent()
             .ok_or_else(|| Error::UnknownParent(header.parent_hash().clone()))?;
         NumberVerifier::new(parent, header).verify()?;
-        TimestampVerifier::new(self.chain_provider.clone(), header).verify()?;
+        TimestampVerifier::new(self.block_median_time_context.clone(), header).verify()?;
         DifficultyVerifier::verify(target)?;
         Ok(())
     }
 }
 
-pub struct TimestampVerifier<'a, P> {
+pub struct TimestampVerifier<'a, M> {
     header: &'a Header,
-    chain_provider: P,
+    block_median_time_context: M,
     now: u64,
 }
 
-impl<'a, P: ChainProvider> TimestampVerifier<'a, P> {
-    pub fn new(chain_provider: P, header: &'a Header) -> Self {
+impl<'a, M: BlockMedianTimeContext> TimestampVerifier<'a, M> {
+    pub fn new(block_median_time_context: M, header: &'a Header) -> Self {
         TimestampVerifier {
-            chain_provider,
+            block_median_time_context,
             header,
             now: unix_time_as_millis(),
         }
     }
 
     pub fn verify(&self) -> Result<(), Error> {
+        // skip genesis block
+        if self.header.is_genesis() {
+            return Ok(());
+        }
         let min = match self
-            .chain_provider
+            .block_median_time_context
             .block_median_time(self.header.parent_hash())
         {
             Some(time) => time,
             None => return Err(Error::UnknownParent(self.header.parent_hash().clone())),
         };
         if self.header.timestamp() <= min {
-            return Err(Error::Timestamp(TimestampError::BlockTimeTooEarly {
+            return Err(Error::Timestamp(TimestampError::BlockTimeTooOld {
                 min,
                 found: self.header.timestamp(),
             }));

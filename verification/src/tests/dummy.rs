@@ -94,10 +94,6 @@ impl ChainProvider for DummyChainProvider {
         panic!("Not implemented!");
     }
 
-    fn block_median_time(&self, _hash: &H256) -> Option<u64> {
-        panic!("Not implemented!");
-    }
-
     fn calculate_difficulty(&self, _last: &Header) -> Option<U256> {
         panic!("Not implemented!");
     }

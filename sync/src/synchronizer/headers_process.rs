@@ -3,11 +3,13 @@ use crate::MAX_HEADERS_LEN;
 use ckb_core::header::Header;
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::{FlatbuffersVectorIterator, Headers};
+use ckb_shared::block_median_time_context::BlockMedianTimeContext;
 use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::ChainProvider;
 use ckb_verification::{Error as VerifyError, HeaderResolver, HeaderVerifier, Verifier};
 use log;
 use log::{debug, log_enabled};
+use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 use std::sync::Arc;
 
@@ -35,6 +37,51 @@ impl<'a, CI: ChainIndex + 'a> VerifierResolver<'a, CI> {
             header,
             synchronizer,
         }
+    }
+}
+
+impl<'a, CI: ChainIndex> ::std::clone::Clone for VerifierResolver<'a, CI> {
+    fn clone(&self) -> Self {
+        VerifierResolver {
+            parent: self.parent,
+            header: self.header,
+            synchronizer: self.synchronizer,
+        }
+    }
+}
+
+impl<'a, CI: ChainIndex + 'a> BlockMedianTimeContext for VerifierResolver<'a, CI> {
+    fn block_count(&self) -> u32 {
+        self.synchronizer
+            .shared
+            .consensus()
+            .median_time_block_count() as u32
+    }
+    fn timestamp(&self, hash: &H256) -> Option<u64> {
+        self.synchronizer
+            .header_map
+            .read()
+            .get(hash)
+            .map(|h| h.inner().timestamp())
+            .or_else(|| {
+                self.synchronizer
+                    .shared
+                    .block_header(hash)
+                    .map(|header| header.timestamp())
+            })
+    }
+    fn parent_hash(&self, hash: &H256) -> Option<H256> {
+        self.synchronizer
+            .header_map
+            .read()
+            .get(hash)
+            .map(|h| h.inner().parent_hash().to_owned())
+            .or_else(|| {
+                self.synchronizer
+                    .shared
+                    .block_header(hash)
+                    .map(|header| header.parent_hash().to_owned())
+            })
     }
 }
 
@@ -151,7 +198,7 @@ where
         let parent = self.synchronizer.get_header(&first.parent_hash());
         let resolver = VerifierResolver::new(parent.as_ref(), &first, &self.synchronizer);
         let verifier = HeaderVerifier::new(
-            self.synchronizer.shared.clone(),
+            resolver.clone(),
             Arc::clone(&self.synchronizer.shared.consensus().pow_engine()),
         );
         let acceptor =
@@ -198,7 +245,7 @@ where
             if let [parent, header] = &window {
                 let resolver = VerifierResolver::new(Some(&parent), &header, &self.synchronizer);
                 let verifier = HeaderVerifier::new(
-                    self.synchronizer.shared.clone(),
+                    resolver.clone(),
                     Arc::clone(&self.synchronizer.shared.consensus().pow_engine()),
                 );
                 let acceptor =
