@@ -5,7 +5,7 @@ extern crate ckb_util;
 extern crate tempfile;
 
 use ckb_network::{
-    peer_store::{PeerStore, SqlitePeerStore, StorePath},
+    peer_store::{sqlite, PeerStore, SqlitePeerStore},
     random_peer_id, Endpoint, ToMultiaddr,
 };
 use ckb_util::Mutex;
@@ -51,7 +51,8 @@ fn insert_peer_info_benchmark(c: &mut Criterion) {
         b.iter({
             let file_path = file_path.clone();
             let _ = fs::remove_file(file_path.clone());
-            let mut peer_store = SqlitePeerStore::new(StorePath::File(file_path), 8);
+            let mut peer_store =
+                SqlitePeerStore::new(sqlite::open_pool(sqlite::StorePath::File(file_path), 8));
             let peer_ids = (0..100)
                 .map(|_| random_peer_id().unwrap())
                 .collect::<Vec<_>>();
@@ -120,7 +121,8 @@ fn random_order_benchmark(c: &mut Criterion) {
             b.iter({
                 let file_path = file_path.clone();
                 let _ = fs::remove_file(file_path.clone());
-                let mut peer_store = SqlitePeerStore::new(StorePath::File(file_path), 8);
+                let mut peer_store =
+                    SqlitePeerStore::new(sqlite::open_pool(sqlite::StorePath::File(file_path), 8));
                 let addr = "/ip4/127.0.0.1".to_multiaddr().unwrap();
                 for _ in 0..8000 {
                     let peer_id = random_peer_id().unwrap();

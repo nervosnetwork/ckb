@@ -1,9 +1,9 @@
 #![allow(dead_code)]
 use lazy_static::lazy_static;
-use r2d2::Pool;
+use r2d2::{Error as PoolError, Pool};
 use r2d2_sqlite::SqliteConnectionManager;
 use rusqlite::OpenFlags;
-pub use rusqlite::{Connection, Error};
+pub use rusqlite::{Connection, Error as SqliteError};
 
 pub type ConnectionPool = Pool<SqliteConnectionManager>;
 pub type PooledConnection = r2d2::PooledConnection<SqliteConnectionManager>;
@@ -42,7 +42,46 @@ pub fn open_pool(store_path: StorePath, max_size: u32) -> ConnectionPool {
 
 pub fn open(store_path: StorePath) -> Result<Connection, Error> {
     match store_path {
-        StorePath::Memory => Connection::open_in_memory_with_flags(*MEMORY_OPEN_FLAGS),
-        StorePath::File(file_path) => Connection::open_with_flags(file_path, *FILE_OPEN_FLAGS),
+        StorePath::Memory => {
+            Connection::open_in_memory_with_flags(*MEMORY_OPEN_FLAGS).map_err(|err| err.into())
+        }
+        StorePath::File(file_path) => {
+            Connection::open_with_flags(file_path, *FILE_OPEN_FLAGS).map_err(|err| err.into())
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum Error {
+    Pool(PoolError),
+    Sqlite(SqliteError),
+}
+
+impl From<PoolError> for Error {
+    fn from(err: PoolError) -> Self {
+        Error::Pool(err)
+    }
+}
+
+impl From<SqliteError> for Error {
+    fn from(err: SqliteError) -> Self {
+        Error::Sqlite(err)
+    }
+}
+
+pub trait ConnectionPoolExt {
+    fn fetch<I, F: FnMut(&mut PooledConnection) -> Result<I, Error>>(
+        &self,
+        f: F,
+    ) -> Result<I, Error>;
+}
+
+impl ConnectionPoolExt for ConnectionPool {
+    fn fetch<I, F: FnMut(&mut PooledConnection) -> Result<I, Error>>(
+        &self,
+        mut f: F,
+    ) -> Result<I, Error> {
+        let mut connection = self.get()?;
+        f(&mut connection)
     }
 }

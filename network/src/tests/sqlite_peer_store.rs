@@ -1,6 +1,5 @@
 use crate::{
     peer_store::{
-        db_trace,
         sqlite_peer_store::{PEER_NOT_SEEN_TIMEOUT_SECS, PEER_STORE_LIMIT},
         Behaviour, PeerStore, SqlitePeerStore, Status,
     },
@@ -116,10 +115,6 @@ fn test_delete_peer_info() {
     let mut peer_store = SqlitePeerStore::default();
     let addr1 = "/ip4/127.0.0.1".to_multiaddr().unwrap();
     let addr2 = "/ip4/192.163.1.1".to_multiaddr().unwrap();
-    {
-        let mut conn = peer_store.connection();
-        db_trace::start_profile(&mut conn);
-    }
     for _ in 0..(PEER_STORE_LIMIT - 2) {
         peer_store.new_connected_peer(
             &random_peer_id().unwrap(),
@@ -149,12 +144,6 @@ fn test_delete_peer_info() {
     );
     // should evict evict_target and accept this
     peer_store.new_connected_peer(&random_peer_id().unwrap(), addr1, Endpoint::Listener);
-    {
-        let mut conn = peer_store.connection();
-        db_trace::stop_profile(&mut conn);
-    }
-    let profile_result = db_trace::PROFILE_INFORMATION.lock().clone();
-    println!("profile result: {:?}", profile_result);
     // evict_target is evicted in previous step
     assert_eq!(
         peer_store.peer_score_or_default(&evict_target),
