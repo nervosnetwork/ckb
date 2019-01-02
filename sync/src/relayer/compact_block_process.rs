@@ -2,11 +2,13 @@ use super::compact_block::CompactBlock;
 use crate::relayer::Relayer;
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::{CompactBlock as FbsCompactBlock, RelayMessage};
+use ckb_shared::block_median_time_context::BlockMedianTimeContext;
 use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::ChainProvider;
 use ckb_util::RwLockUpgradableReadGuard;
 use ckb_verification::{HeaderResolverWrapper, HeaderVerifier, Verifier};
 use flatbuffers::FlatBufferBuilder;
+use numext_fixed_hash::H256;
 use std::sync::Arc;
 
 pub struct CompactBlockProcess<'a, CI: ChainIndex + 'a> {
@@ -43,8 +45,12 @@ where
         {
             let resolver =
                 HeaderResolverWrapper::new(&compact_block.header, self.relayer.shared.clone());
-            let header_verifier =
-                HeaderVerifier::new(Arc::clone(&self.relayer.shared.consensus().pow_engine()));
+            let header_verifier = HeaderVerifier::new(
+                CompactBlockMedianTimeView {
+                    relayer: self.relayer,
+                },
+                Arc::clone(&self.relayer.shared.consensus().pow_engine()),
+            );
 
             if header_verifier.verify(&resolver).is_ok() {
                 self.relayer
@@ -77,5 +83,60 @@ where
                 }
             }
         }
+    }
+}
+
+struct CompactBlockMedianTimeView<'a, CI>
+where
+    CI: ChainIndex + 'static,
+{
+    relayer: &'a Relayer<CI>,
+}
+
+impl<'a, CI> ::std::clone::Clone for CompactBlockMedianTimeView<'a, CI>
+where
+    CI: ChainIndex + 'static,
+{
+    fn clone(&self) -> Self {
+        CompactBlockMedianTimeView {
+            relayer: self.relayer,
+        }
+    }
+}
+
+impl<'a, CI> BlockMedianTimeContext for CompactBlockMedianTimeView<'a, CI>
+where
+    CI: ChainIndex + 'static,
+{
+    fn block_count(&self) -> u32 {
+        self.relayer.shared.consensus().median_time_block_count() as u32
+    }
+    fn timestamp(&self, hash: &H256) -> Option<u64> {
+        self.relayer
+            .state
+            .pending_compact_blocks
+            .read()
+            .get(hash)
+            .map(|cb| cb.header.timestamp())
+            .or_else(|| {
+                self.relayer
+                    .shared
+                    .block_header(hash)
+                    .map(|header| header.timestamp())
+            })
+    }
+    fn parent_hash(&self, hash: &H256) -> Option<H256> {
+        self.relayer
+            .state
+            .pending_compact_blocks
+            .read()
+            .get(hash)
+            .map(|cb| cb.header.parent_hash().to_owned())
+            .or_else(|| {
+                self.relayer
+                    .shared
+                    .block_header(hash)
+                    .map(|header| header.parent_hash().to_owned())
+            })
     }
 }

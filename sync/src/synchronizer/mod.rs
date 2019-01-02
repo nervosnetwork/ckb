@@ -1164,10 +1164,11 @@ mod tests {
             headers
                 .iter()
                 .map(|h| format!(
-                    "{} hash({}) parent({})",
+                    "{} hash({}) timestamp({}) parent({})",
                     h.number(),
                     h.hash(),
-                    h.parent_hash()
+                    h.timestamp(),
+                    h.parent_hash(),
                 ))
                 .collect::<Vec<_>>()
         );
