@@ -1,5 +1,8 @@
-use crate::syscalls::{build_tx, Debugger, LoadCell, LoadCellByField, LoadInputByField, LoadTx};
 use crate::ScriptError;
+use crate::{
+    cost_model::instruction_cycles,
+    syscalls::{build_tx, Debugger, LoadCell, LoadCellByField, LoadInputByField, LoadTx},
+};
 use ckb_core::cell::ResolvedTransaction;
 use ckb_core::script::Script;
 use ckb_core::transaction::{CellInput, CellOutput};
@@ -147,7 +150,10 @@ impl<'a> TransactionScriptsVerifier<'a> {
             .and_then(|script_binary| {
                 args.extend_from_slice(&script.args.as_slice());
 
-                let mut machine = DefaultMachine::<u64, SparseMemory>::default();
+                let mut machine = DefaultMachine::<u64, SparseMemory>::new_with_cost_model(
+                    Box::new(instruction_cycles),
+                    script.cycles,
+                );
                 machine.add_syscall_module(Box::new(self.build_load_tx()));
                 machine.add_syscall_module(Box::new(self.build_load_cell(current_cell)));
                 machine.add_syscall_module(Box::new(self.build_load_cell_by_field(current_cell)));
@@ -194,13 +200,14 @@ mod tests {
     use ckb_core::script::Script;
     use ckb_core::transaction::{CellInput, CellOutput, OutPoint, TransactionBuilder};
     use ckb_core::Capacity;
-    use crypto::secp::Generator;
+    use crypto::secp::Privkey;
     use faster_hex::hex_to;
     use hash::sha3_256;
     use numext_fixed_hash::H256;
     use std::fs::File;
     use std::io::{Read, Write};
     use std::path::Path;
+    use std::str::FromStr;
 
     fn open_cell_verify() -> File {
         File::open(Path::new(env!("CARGO_MANIFEST_DIR")).join("../script/testdata/verify")).unwrap()
@@ -219,8 +226,9 @@ mod tests {
         let mut buffer = Vec::new();
         file.read_to_end(&mut buffer).unwrap();
 
-        let gen = Generator::new();
-        let privkey = gen.random_privkey();
+        let privkey =
+            Privkey::from_str("72bec923356442046d5ccbd65cb0ad4150cbe8ea94a483a8a557d1d6d6ef24c1")
+                .unwrap();
         let mut args = vec![b"foo".to_vec(), b"bar".to_vec()];
 
         let mut bytes = vec![];
@@ -240,7 +248,7 @@ mod tests {
         let mut hex_privkey = vec![0; privkey.len() * 2];
         hex_to(&privkey, &mut hex_privkey).expect("hex privkey");
 
-        let script = Script::new(0, args, None, Some(buffer), vec![hex_privkey]);
+        let script = Script::new(0, args, None, Some(buffer), vec![hex_privkey], 1360879);
         let input = CellInput::new(OutPoint::null(), script);
 
         let transaction = TransactionBuilder::default().input(input.clone()).build();
@@ -264,8 +272,9 @@ mod tests {
         let mut buffer = Vec::new();
         file.read_to_end(&mut buffer).unwrap();
 
-        let gen = Generator::new();
-        let privkey = gen.random_privkey();
+        let privkey =
+            Privkey::from_str("72bec923356442046d5ccbd65cb0ad4150cbe8ea94a483a8a557d1d6d6ef24c1")
+                .unwrap();
         let mut args = vec![b"foo".to_vec(), b"bar".to_vec()];
 
         let mut bytes = vec![];
@@ -287,7 +296,7 @@ mod tests {
         let mut hex_privkey = vec![0; privkey.len() * 2];
         hex_to(&privkey, &mut hex_privkey).expect("hex privkey");
 
-        let script = Script::new(0, args, None, Some(buffer), vec![hex_privkey]);
+        let script = Script::new(0, args, None, Some(buffer), vec![hex_privkey], 1368481);
         let input = CellInput::new(OutPoint::null(), script);
 
         let transaction = TransactionBuilder::default().input(input.clone()).build();
@@ -301,8 +310,10 @@ mod tests {
         };
 
         let verifier = TransactionScriptsVerifier::new(&rtx);
+        let result = verifier.verify();
 
-        assert!(verifier.verify().is_err());
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), ScriptError::ValidationFailure(2));
     }
 
     #[test]
@@ -311,14 +322,15 @@ mod tests {
         let mut buffer = Vec::new();
         file.read_to_end(&mut buffer).unwrap();
 
-        let script = Script::new(0, vec![], None, Some(buffer), vec![]);
+        let script = Script::new(0, vec![], None, Some(buffer), vec![], 0);
         let mut builder = FlatBufferBuilder::new();
         let offset = FbsScript::build(&mut builder, &script);
         builder.finish(offset, None);
         let buffer = builder.finished_data().to_vec();
 
-        let gen = Generator::new();
-        let privkey = gen.random_privkey();
+        let privkey =
+            Privkey::from_str("72bec923356442046d5ccbd65cb0ad4150cbe8ea94a483a8a557d1d6d6ef24c1")
+                .unwrap();
         let mut args = vec![b"foo".to_vec(), b"bar".to_vec()];
 
         let mut bytes = vec![];
@@ -339,7 +351,14 @@ mod tests {
         let mut hex_privkey = vec![0; privkey.len() * 2];
         hex_to(&privkey, &mut hex_privkey).expect("hex privkey");
 
-        let script = Script::new(0, args, Some(dep_cell.data_hash()), None, vec![hex_privkey]);
+        let script = Script::new(
+            0,
+            args,
+            Some(dep_cell.data_hash()),
+            None,
+            vec![hex_privkey],
+            1360879,
+        );
         let input = CellInput::new(OutPoint::null(), script);
 
         let transaction = TransactionBuilder::default()
@@ -362,8 +381,9 @@ mod tests {
 
     #[test]
     fn check_invalid_dep_reference() {
-        let gen = Generator::new();
-        let privkey = gen.random_privkey();
+        let privkey =
+            Privkey::from_str("72bec923356442046d5ccbd65cb0ad4150cbe8ea94a483a8a557d1d6d6ef24c1")
+                .unwrap();
         let mut args = vec![b"foo".to_vec(), b"bar".to_vec()];
 
         let mut bytes = vec![];
@@ -389,6 +409,7 @@ mod tests {
             Some(H256::from_trimmed_hex_str("234").unwrap()),
             None,
             vec![hex_privkey],
+            0,
         );
 
         let input = CellInput::new(OutPoint::null(), script);
@@ -407,8 +428,10 @@ mod tests {
         };
 
         let verifier = TransactionScriptsVerifier::new(&rtx);
+        let result = verifier.verify();
 
-        assert!(verifier.verify().is_err());
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), ScriptError::InvalidReferenceIndex);
     }
 
     fn create_always_success_script() -> Script {
@@ -416,7 +439,7 @@ mod tests {
         let mut buffer = Vec::new();
         file.read_to_end(&mut buffer).unwrap();
 
-        Script::new(0, Vec::new(), None, Some(buffer), Vec::new())
+        Script::new(0, Vec::new(), None, Some(buffer), Vec::new(), 2)
     }
 
     #[test]
@@ -425,8 +448,9 @@ mod tests {
         let mut buffer = Vec::new();
         file.read_to_end(&mut buffer).unwrap();
 
-        let gen = Generator::new();
-        let privkey = gen.random_privkey();
+        let privkey =
+            Privkey::from_str("72bec923356442046d5ccbd65cb0ad4150cbe8ea94a483a8a557d1d6d6ef24c1")
+                .unwrap();
         let mut args = vec![b"foo".to_vec(), b"bar".to_vec()];
 
         let mut bytes = vec![];
@@ -446,7 +470,7 @@ mod tests {
         let mut hex_privkey = vec![0; privkey.len() * 2];
         hex_to(&privkey, &mut hex_privkey).expect("hex privkey");
 
-        let script = Script::new(0, args, None, Some(buffer), vec![hex_privkey]);
+        let script = Script::new(0, args, None, Some(buffer), vec![hex_privkey], 1360879);
         let input = CellInput::new(OutPoint::null(), create_always_success_script());
         let output = CellOutput::new(0, Vec::new(), H256::zero(), Some(script));
 
@@ -474,8 +498,9 @@ mod tests {
         let mut buffer = Vec::new();
         file.read_to_end(&mut buffer).unwrap();
 
-        let gen = Generator::new();
-        let privkey = gen.random_privkey();
+        let privkey =
+            Privkey::from_str("72bec923356442046d5ccbd65cb0ad4150cbe8ea94a483a8a557d1d6d6ef24c1")
+                .unwrap();
         let mut args = vec![b"foo".to_vec(), b"bar".to_vec()];
 
         let mut bytes = vec![];
@@ -497,7 +522,7 @@ mod tests {
         let mut hex_privkey = vec![0; privkey.len() * 2];
         hex_to(&privkey, &mut hex_privkey).expect("hex privkey");
 
-        let script = Script::new(0, args, None, Some(buffer), vec![hex_privkey]);
+        let script = Script::new(0, args, None, Some(buffer), vec![hex_privkey], 1368481);
         let input = CellInput::new(OutPoint::null(), create_always_success_script());
         let output = CellOutput::new(0, Vec::new(), H256::zero(), Some(script));
 
@@ -515,7 +540,9 @@ mod tests {
         };
 
         let verifier = TransactionScriptsVerifier::new(&rtx);
+        let result = verifier.verify();
 
-        assert!(verifier.verify().is_err());
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), ScriptError::ValidationFailure(2));
     }
 }

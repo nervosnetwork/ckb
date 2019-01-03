@@ -52,13 +52,14 @@ impl<'a, R: Register, M: Memory> Syscalls<R, M> for LoadInputByField<'a> {
         }
         let input = input.unwrap();
 
-        match field {
+        let data_length = match field {
             InputField::Unlock => {
                 let mut builder = FlatBufferBuilder::new();
                 let offset = FbsScript::build(&mut builder, &input.unlock);
                 builder.finish(offset, None);
                 let data = builder.finished_data();
                 store_data(machine, data)?;
+                data.len()
             }
             InputField::OutPoint => {
                 let mut builder = FlatBufferBuilder::new();
@@ -66,9 +67,11 @@ impl<'a, R: Register, M: Memory> Syscalls<R, M> for LoadInputByField<'a> {
                 builder.finish(offset, None);
                 let data = builder.finished_data();
                 store_data(machine, data)?;
+                data.len()
             }
         };
         machine.registers_mut()[A0] = R::from_u8(SUCCESS);
+        machine.add_cycles((data_length as u64 + 1) * 10);
         Ok(true)
     }
 }

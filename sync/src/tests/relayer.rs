@@ -381,5 +381,5 @@ fn create_valid_script() -> Script {
     let mut buffer = Vec::new();
     file.read_to_end(&mut buffer).unwrap();
 
-    Script::new(0, Vec::new(), None, Some(buffer), Vec::new())
+    Script::new(0, Vec::new(), None, Some(buffer), Vec::new(), 2)
 }

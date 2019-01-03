@@ -196,6 +196,7 @@ impl<'a> From<ckb_protocol::Script<'a>> for ckb_core::script::Script {
             binary: script.binary().and_then(|s| s.seq()).map(|s| s.to_vec()),
             signed_args,
             reference: script.reference().map(Into::into),
+            cycles: script.cycles(),
         }
     }
 }

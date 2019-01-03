@@ -69,6 +69,7 @@ impl CellInput {
                 None,
                 Some(u64_to_bytes(block_number.to_le()).to_vec()),
                 Vec::new(),
+                0,
             ),
         }
     }

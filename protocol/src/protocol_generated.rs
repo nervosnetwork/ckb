@@ -1851,6 +1851,7 @@ impl<'a> Script<'a> {
         _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr>,
         args: &'args ScriptArgs<'args>) -> flatbuffers::WIPOffset<Script<'bldr>> {
       let mut builder = ScriptBuilder::new(_fbb);
+      builder.add_cycles(args.cycles);
       if let Some(x) = args.signed_args { builder.add_signed_args(x); }
       if let Some(x) = args.reference { builder.add_reference(x); }
       if let Some(x) = args.binary { builder.add_binary(x); }
@@ -1864,6 +1865,7 @@ impl<'a> Script<'a> {
     pub const VT_BINARY: flatbuffers::VOffsetT = 8;
     pub const VT_REFERENCE: flatbuffers::VOffsetT = 10;
     pub const VT_SIGNED_ARGS: flatbuffers::VOffsetT = 12;
+    pub const VT_CYCLES: flatbuffers::VOffsetT = 14;
 
   #[inline]
   pub fn version(&self) -> u8 {
@@ -1885,6 +1887,10 @@ impl<'a> Script<'a> {
   pub fn signed_args(&self) -> Option<flatbuffers::Vector<flatbuffers::ForwardsUOffset<Bytes<'a>>>> {
     self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<flatbuffers::ForwardsUOffset<Bytes<'a>>>>>(Script::VT_SIGNED_ARGS, None)
   }
+  #[inline]
+  pub fn cycles(&self) -> u64 {
+    self._tab.get::<u64>(Script::VT_CYCLES, Some(0)).unwrap()
+  }
 }
 
 pub struct ScriptArgs<'a> {
@@ -1893,6 +1899,7 @@ pub struct ScriptArgs<'a> {
     pub binary: Option<flatbuffers::WIPOffset<Bytes<'a >>>,
     pub reference: Option<&'a  H256>,
     pub signed_args: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a , flatbuffers::ForwardsUOffset<Bytes<'a >>>>>,
+    pub cycles: u64,
 }
 impl<'a> Default for ScriptArgs<'a> {
     #[inline]
@@ -1903,6 +1910,7 @@ impl<'a> Default for ScriptArgs<'a> {
             binary: None,
             reference: None,
             signed_args: None,
+            cycles: 0,
         }
     }
 }
@@ -1930,6 +1938,10 @@ impl<'a: 'b, 'b> ScriptBuilder<'a, 'b> {
   #[inline]
   pub fn add_signed_args(&mut self, signed_args: flatbuffers::WIPOffset<flatbuffers::Vector<'b , flatbuffers::ForwardsUOffset<Bytes<'b >>>>) {
     self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(Script::VT_SIGNED_ARGS, signed_args);
+  }
+  #[inline]
+  pub fn add_cycles(&mut self, cycles: u64) {
+    self.fbb_.push_slot::<u64>(Script::VT_CYCLES, cycles, 0);
   }
   #[inline]
   pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>) -> ScriptBuilder<'a, 'b> {

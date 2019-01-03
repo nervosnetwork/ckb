@@ -133,7 +133,7 @@ pub fn type_hash(setup: &Setup) {
     let system_cell_tx = &consensus.genesis_block().commit_transactions()[0];
     let system_cell_data_hash = system_cell_tx.outputs()[0].data_hash();
 
-    let script = Script::new(0, vec![], Some(system_cell_data_hash), None, vec![]);
+    let script = Script::new(0, vec![], Some(system_cell_data_hash), None, vec![], 0);
     println!("{:#x}", script.type_hash());
 }
 

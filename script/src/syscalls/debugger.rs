@@ -35,6 +35,7 @@ impl<'a, R: Register, M: Memory> Syscalls<R, M> for Debugger<'a> {
             addr += 1;
         }
 
+        machine.add_cycles((buffer.len() as u64 + 1) * 10);
         let s = String::from_utf8(buffer).map_err(|_| VMError::ParseError)?;
         debug!(target: "script", "{} DEBUG OUTPUT: {}", self.prefix, s);
         Ok(true)

@@ -631,7 +631,7 @@ mod tests {
         machine.registers_mut()[A5] = InputField::Unlock as u64; //field: 0 unlock
         machine.registers_mut()[A7] = LOAD_INPUT_BY_FIELD_SYSCALL_NUMBER; // syscall number
 
-        let unlock = Script::new(0, vec![], None, Some(data), vec![]);
+        let unlock = Script::new(0, vec![], None, Some(data), vec![], 0);
         let mut builder = FlatBufferBuilder::new();
         let fbs_offset = FbsScript::build(&mut builder, &unlock);
         builder.finish(fbs_offset, None);
@@ -679,7 +679,7 @@ mod tests {
         machine.registers_mut()[A5] = InputField::Unlock as u64; //field: 0 unlock
         machine.registers_mut()[A7] = LOAD_INPUT_BY_FIELD_SYSCALL_NUMBER; // syscall number
 
-        let unlock = Script::new(0, vec![], None, Some(data), vec![]);
+        let unlock = Script::new(0, vec![], None, Some(data), vec![], 0);
         let mut builder = FlatBufferBuilder::new();
         let fbs_offset = FbsScript::build(&mut builder, &unlock);
         builder.finish(fbs_offset, None);
@@ -727,7 +727,7 @@ mod tests {
         machine.registers_mut()[A5] = InputField::OutPoint as u64; //field: 1 out_point
         machine.registers_mut()[A7] = LOAD_INPUT_BY_FIELD_SYSCALL_NUMBER; // syscall number
 
-        let unlock = Script::new(0, vec![], None, Some(vec![]), vec![]);
+        let unlock = Script::new(0, vec![], None, Some(vec![]), vec![], 0);
         let sha3_data = sha3_256(data);
         let out_point = OutPoint::new(H256::from_slice(&sha3_data).unwrap(), 3);
         let mut builder = FlatBufferBuilder::new();

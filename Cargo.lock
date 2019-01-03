@@ -562,7 +562,7 @@ dependencies = [
  "byteorder 1.2.7 (registry+https://github.com/rust-lang/crates.io-index)",
  "ckb-core 0.3.0-pre",
  "ckb-protocol 0.3.0-pre",
- "ckb-vm 0.1.0 (git+https://github.com/nervosnetwork/ckb-vm?rev=f32bdcb)",
+ "ckb-vm 0.1.0 (git+https://github.com/nervosnetwork/ckb-vm?rev=9b03148)",
  "crypto 0.3.0-pre",
  "faster-hex 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "flatbuffers 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -654,7 +654,7 @@ dependencies = [
 [[package]]
 name = "ckb-vm"
 version = "0.1.0"
-source = "git+https://github.com/nervosnetwork/ckb-vm?rev=f32bdcb#f32bdcbed6067cbb3d88933126f65db50adfb29b"
+source = "git+https://github.com/nervosnetwork/ckb-vm?rev=9b03148#9b031482da9f003b555ea90b37c845ba39773b3e"
 dependencies = [
  "byteorder 1.2.7 (registry+https://github.com/rust-lang/crates.io-index)",
  "fnv 1.0.6 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -3461,7 +3461,7 @@ dependencies = [
 "checksum cfg-if 0.1.6 (registry+https://github.com/rust-lang/crates.io-index)" = "082bb9b28e00d3c9d39cc03e64ce4cea0f1bb9b3fde493f0cbc008472d22bdf4"
 "checksum chashmap 2.2.1 (git+https://github.com/redox-os/tfs)" = "<none>"
 "checksum chrono 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)" = "45912881121cb26fad7c38c17ba7daa18764771836b34fab7d3fbd93ed633878"
-"checksum ckb-vm 0.1.0 (git+https://github.com/nervosnetwork/ckb-vm?rev=f32bdcb)" = "<none>"
+"checksum ckb-vm 0.1.0 (git+https://github.com/nervosnetwork/ckb-vm?rev=9b03148)" = "<none>"
 "checksum clang-sys 0.21.2 (registry+https://github.com/rust-lang/crates.io-index)" = "e414af9726e1d11660801e73ccc7fb81803fb5f49e5903a25b348b2b3b480d2e"
 "checksum clap 2.32.0 (registry+https://github.com/rust-lang/crates.io-index)" = "b957d88f4b6a63b9d70d5f454ac8011819c6efa7727858f458ab71c756ce2d3e"
 "checksum clicolors-control 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)" = "51872be694bb3bcbd1ea95c6dd467c2c46c6c64d287e1c9084ace7c3116ae9c0"

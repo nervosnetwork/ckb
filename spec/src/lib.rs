@@ -70,7 +70,7 @@ fn build_system_cell_transaction(cells: &[SystemCell]) -> Result<Transaction, Bo
         let mut data = Vec::new();
         file.read_to_end(&mut data)?;
 
-        let script = Script::new(0, vec![], None, Some(data), vec![]);
+        let script = Script::new(0, vec![], None, Some(data), vec![], 0);
         let mut builder = FlatBufferBuilder::new();
         let offset = FbsScript::build(&mut builder, &script);
         builder.finish(offset, None);

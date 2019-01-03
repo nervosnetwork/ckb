@@ -47,6 +47,7 @@ pub struct Script {
     // and any additional parameters needed by cell validator, while
     // signed_args will contain pubkey used in the signing part.
     pub signed_args: Vec<Vec<u8>>,
+    pub cycles: u64,
 }
 
 impl Script {
@@ -56,6 +57,7 @@ impl Script {
         reference: Option<H256>,
         binary: Option<Vec<u8>>,
         signed_args: Vec<Vec<u8>>,
+        cycles: u64,
     ) -> Self {
         Script {
             version,
@@ -63,6 +65,7 @@ impl Script {
             reference,
             binary,
             signed_args,
+            cycles,
         }
     }
 
@@ -72,6 +75,7 @@ impl Script {
             + self.reference.as_ref().map_or(0, |_| H256::size_of())
             + self.binary.as_ref().map_or(0, |script| script.len())
             + self.signed_args.iter().map(|a| a.len()).sum::<usize>()
+            + mem::size_of::<u64>()
     }
 
     pub fn type_hash(&self) -> H256 {

@@ -55,7 +55,7 @@ fn get_script() -> Script {
     let mut buffer = Vec::new();
     file.read_to_end(&mut buffer).unwrap();
 
-    Script::new(0, Vec::new(), None, Some(buffer), Vec::new())
+    Script::new(0, Vec::new(), None, Some(buffer), Vec::new(), 0)
 }
 
 fn create_transaction(parent: H256) -> Transaction {

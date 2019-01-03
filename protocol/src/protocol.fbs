@@ -92,6 +92,7 @@ table Script {
     binary:         Bytes;
     reference:      H256;
     signed_args:    [Bytes];
+    cycles:         uint64;
 }
 
 root_type SyncMessage;

@@ -61,24 +61,27 @@ impl<'a, R: Register, M: Memory> Syscalls<R, M> for LoadCellByField<'a> {
         }
         let cell = cell.unwrap();
 
-        let return_code = match field {
+        let (return_code, data_length) = match field {
             CellField::Capacity => {
                 let mut buffer = vec![];
                 buffer.write_u64::<LittleEndian>(cell.capacity)?;
                 store_data(machine, &buffer)?;
-                SUCCESS
+                (SUCCESS, buffer.len())
             }
             CellField::Data => {
                 store_data(machine, &cell.data)?;
-                SUCCESS
+                (SUCCESS, cell.data.len())
             }
             CellField::DataHash => {
-                store_data(machine, &cell.data_hash().as_bytes())?;
-                SUCCESS
+                let hash = cell.data_hash();
+                let bytes = hash.as_bytes();
+                store_data(machine, &bytes)?;
+                (SUCCESS, bytes.len())
             }
             CellField::LockHash => {
-                store_data(machine, &cell.lock.as_bytes())?;
-                SUCCESS
+                let bytes = cell.lock.as_bytes();
+                store_data(machine, &bytes)?;
+                (SUCCESS, bytes.len())
             }
             CellField::Type => match cell.type_ {
                 Some(ref type_) => {
@@ -87,19 +90,22 @@ impl<'a, R: Register, M: Memory> Syscalls<R, M> for LoadCellByField<'a> {
                     builder.finish(offset, None);
                     let data = builder.finished_data();
                     store_data(machine, data)?;
-                    SUCCESS
+                    (SUCCESS, data.len())
                 }
-                None => ITEM_MISSING,
+                None => (ITEM_MISSING, 0),
             },
             CellField::TypeHash => match cell.type_ {
                 Some(ref type_) => {
-                    store_data(machine, &type_.type_hash().as_bytes())?;
-                    SUCCESS
+                    let hash = type_.type_hash();
+                    let bytes = hash.as_bytes();
+                    store_data(machine, &bytes)?;
+                    (SUCCESS, bytes.len())
                 }
-                None => ITEM_MISSING,
+                None => (ITEM_MISSING, 0),
             },
         };
         machine.registers_mut()[A0] = R::from_u8(return_code);
+        machine.add_cycles((data_length as u64 + 1) * 10);
         Ok(true)
     }
 }
