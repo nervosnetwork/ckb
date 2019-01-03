@@ -1,6 +1,7 @@
 mod db;
 pub mod sqlite;
 pub use crate::peer_store::sqlite_peer_store::SqlitePeerStore;
+#[cfg(db_trace)]
 pub mod db_trace;
 pub(crate) mod sqlite_peer_store;
 
