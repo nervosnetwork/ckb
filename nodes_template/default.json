@@ -1,4 +1,11 @@
 {
+    "__comments__": {
+        "rpc modules": [
+            "List of API modules",
+            ["Net", "Pool", "Miner", "Chain"]
+        ]
+    },
+
     "data_dir": "default",
     "ckb": {
         "chain": "spec/dev.json"
@@ -10,7 +17,7 @@
     },
     "network": {
         "listen_addresses": ["/ip4/0.0.0.0/tcp/8115"],
-        "boot_nodes": [],
+        "bootnodes": [],
         "reserved_nodes": [],
         "only_reserved_peers": false,
         "min_peers": 4,
@@ -19,7 +26,8 @@
         "nodes_file": "nodes.json"
     },
     "rpc": {
-        "listen_addr": "0.0.0.0:8114"
+        "listen_address": "0.0.0.0:8114",
+        "modules": ["Net", "Pool", "Miner", "Chain"]
     },
     "sync": {
         "verification_level": "Full",

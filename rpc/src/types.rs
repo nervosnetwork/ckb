@@ -3,6 +3,7 @@ use ckb_core::cell::CellStatus;
 use ckb_core::header::Header;
 use ckb_core::transaction::{Capacity, CellOutput, OutPoint, Transaction};
 use numext_fixed_hash::H256;
+use serde_derive::Serialize;
 
 #[derive(Serialize)]
 pub struct TransactionWithHash {
@@ -45,7 +46,7 @@ impl From<Block> for BlockWithHash {
 // cell's own data such as lock and capacity
 #[derive(Serialize)]
 pub struct CellOutputWithOutPoint {
-    pub outpoint: OutPoint,
+    pub out_point: OutPoint,
     pub capacity: Capacity,
     pub lock: H256,
 }
@@ -68,9 +69,4 @@ impl From<CellStatus> for CellWithStatus {
             status: status.to_string(),
         }
     }
-}
-
-#[derive(Clone, Debug, PartialEq, Deserialize)]
-pub struct Config {
-    pub listen_addr: String,
 }

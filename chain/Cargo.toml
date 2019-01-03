@@ -1,27 +1,21 @@
 [package]
 name = "ckb-chain"
-version = "0.2.0"
+version = "0.3.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
 
 [dependencies]
-serde = "1.0"
-serde_derive = "1.0"
-bincode = "1.0"
 log = "0.4"
 ckb-core = { path = "../core" }
 ckb-shared = { path = "../shared" }
 ckb-chain-spec = { path = "../spec" }
 ckb-db = { path = "../db" }
-ckb-time = { path = "../util/time" }
 ckb-notify = { path = "../notify" }
 ckb-verification = { path = "../verification" }
-avl-merkle = { path = "../util/avl" }
+faketime = "0.2.0"
 numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 numext-fixed-uint = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
-lru-cache = { git = "https://github.com/nervosnetwork/lru-cache" }
-fnv = "1.0.3"
 channel = { package= "crossbeam-channel", version = "0.3" }
 
 

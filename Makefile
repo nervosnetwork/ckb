@@ -1,9 +1,6 @@
 test:
 	cargo test --all -- --nocapture
 
-build-integration-test:
-	cargo build --all --features integration_test --no-default-features
-
 doc:
 	cargo doc --all --no-deps
 
@@ -16,16 +13,22 @@ check:
 build:
 	cargo build --release
 
+prod:
+	RUSTFLAGS="--cfg disable_faketime" cargo build --release
+
+prod-test:
+	RUSTFLAGS="--cfg disable_faketime" RUSTDOCFLAGS="--cfg disable_faketime" cargo test --all -- --nocapture
+
 fmt:
 	cargo fmt --all -- --check
 
 clippy:
 	cargo clippy --all -- -D warnings -D clippy::clone_on_ref_ptr -D clippy::enum_glob_use
 
-ci: fmt clippy test build-integration-test
+ci: fmt clippy test
 	git diff --exit-code Cargo.lock
 
-ci-quick: test build-integration-test
+ci-quick: test
 	git diff --exit-code Cargo.lock
 
 info:
@@ -47,6 +50,6 @@ security-audit:
 docker: build
 	docker build -f docker/hub/Dockerfile -t nervos/ckb:latest .
 
-.PHONY: build build-integration-test docker
+.PHONY: build prod prod-test docker
 .PHONY: fmt test clippy proto doc doc-deps check stats
 .PHONY: ci ci-quick info security-audit

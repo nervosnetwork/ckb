@@ -10,7 +10,7 @@ use ckb_pool::txs_pool::TransactionPoolController;
 use ckb_shared::error::SharedError;
 use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::{ChainProvider, Shared};
-use ckb_time::now_ms;
+use faketime::unix_time_as_millis;
 use fnv::{FnvHashMap, FnvHashSet};
 use log::error;
 use numext_fixed_hash::H256;
@@ -123,7 +123,7 @@ impl<CI: ChainIndex + 'static> Agent<CI> {
         let (cellbase, commit_transactions, proposal_transactions, header_builder) = {
             let tip_header = self.shared.tip_header().read();
             let header = tip_header.inner();
-            let now = cmp::max(now_ms(), header.timestamp() + 1);
+            let now = cmp::max(unix_time_as_millis(), header.timestamp() + 1);
             let difficulty = self
                 .shared
                 .calculate_difficulty(header)

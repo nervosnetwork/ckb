@@ -3,7 +3,6 @@
 # [Nervos CKB](https://www.nervos.org/) - The Common Knowledge Base
 
 [![TravisCI](https://travis-ci.com/nervosnetwork/ckb.svg?token=y9uR6ygmT3geQaMJ4jpJ&branch=develop)](https://travis-ci.com/nervosnetwork/ckb)
-[![dependency status](https://deps.rs/repo/github/nervosnetwork/ckb/status.svg)](https://deps.rs/repo/github/nervosnetwork/ckb)
 [![Telegram Group](https://cdn.rawgit.com/Patrolavia/telegram-badge/8fe3382b/chat.svg)](https://t.me/nervos_ckb_dev)
 
 ---
@@ -87,7 +86,7 @@ git clone https://github.com/nervosnetwork/ckb.git
 cd ckb
 
 # build in release mode
-cargo build --release
+make build
 ```
 
 You can run the full test suite, or just run a specific package test:
@@ -154,6 +153,12 @@ Update `data_dir` configuration in config file to a different directory.
 
 ```
 "data_dir": "node2"
+```
+
+or using a simple shell command to modify the config file:
+
+```shell
+ex -sc '%s/"data_dir": "default"/"data_dir": "node2"/|x' nodes/node2.json
 ```
 
 Then start the new node using the new config file

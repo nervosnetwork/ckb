@@ -10,7 +10,7 @@ pub fn get_matches() -> ArgMatches<'static> {
         .about("Nervos CKB - The Common Knowledge Base")
         .version(version.short().as_str())
         .long_version(version.long().as_str())
-        .setting(AppSettings::ArgRequiredElseHelp)
+        .setting(AppSettings::SubcommandRequiredElseHelp)
         .arg(
             Arg::with_name("config")
             .short("c")
@@ -88,7 +88,7 @@ fn arg_private_key() -> Arg<'static, 'static> {
 fn cli() -> App<'static, 'static> {
     SubCommand::with_name("cli")
         .about("Running ckb cli")
-        .setting(AppSettings::ArgRequiredElseHelp)
+        .setting(AppSettings::SubcommandRequiredElseHelp)
         .subcommand(
             SubCommand::with_name("sign")
                 .about("Sign transaction using sha3-secp256k1 defined in system cell")

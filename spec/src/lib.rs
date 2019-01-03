@@ -2,16 +2,18 @@
 //!
 //! By default, when simply running CKB, CKB will connect to the official public Nervos network.
 //!
-//! In order to run a chain different to the official public one, CKB provide the --chain option or
+//! In order to run a chain different to the official public one,
 //! with a config file specifying chain = "path" under [ckb].
-//! There are a few named presets that can be selected from or a custom yaml spec file can be supplied.
 
 use crate::consensus::Consensus;
 use ckb_core::block::BlockBuilder;
 use ckb_core::header::HeaderBuilder;
+use ckb_core::script::Script;
 use ckb_core::transaction::{CellOutput, Transaction, TransactionBuilder};
 use ckb_core::Capacity;
 use ckb_pow::{Pow, PowEngine};
+use ckb_protocol::Script as FbsScript;
+use flatbuffers::FlatBufferBuilder;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 use serde_derive::Deserialize;
@@ -68,9 +70,20 @@ fn build_system_cell_transaction(cells: &[SystemCell]) -> Result<Transaction, Bo
         let mut data = Vec::new();
         file.read_to_end(&mut data)?;
 
+        let script = Script::new(0, vec![], None, Some(data), vec![]);
+        let mut builder = FlatBufferBuilder::new();
+        let offset = FbsScript::build(&mut builder, &script);
+        builder.finish(offset, None);
+        let script_data = builder.finished_data().to_vec();
+
         // TODO: we should either provide a valid type hash so we can
         // update system cell, or we can update this when P2SH is moved into VM.
-        let output = CellOutput::new(data.len() as Capacity, data, H256::default(), None);
+        let output = CellOutput::new(
+            script_data.len() as Capacity,
+            script_data,
+            H256::default(),
+            None,
+        );
         outputs.push(output);
     }
 

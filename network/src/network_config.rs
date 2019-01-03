@@ -23,8 +23,8 @@ pub struct NetworkConfig {
     pub protocol_version: String,
     pub transport_timeout: Duration,
     pub reserved_only: bool,
-    pub max_incoming_peers: u32,
-    pub max_outgoing_peers: u32,
+    pub max_inbound_peers: u32,
+    pub max_outbound_peers: u32,
     pub reserved_peers: Vec<String>,
     pub secret_key: Option<Bytes>,
     pub secret_key_path: Option<String>,
@@ -38,8 +38,8 @@ pub struct NetworkConfig {
     pub discovery_interval: Duration,
     pub identify_timeout: Duration,
     pub identify_interval: Duration,
-    pub outgoing_timeout: Duration,
-    pub outgoing_interval: Duration,
+    pub try_outbound_connect_timeout: Duration,
+    pub try_outbound_connect_interval: Duration,
 }
 
 impl NetworkConfig {
@@ -151,8 +151,8 @@ impl Default for NetworkConfig {
             protocol_version: "ckb".to_owned(),
             transport_timeout: Duration::from_secs(20),
             reserved_only: false,
-            max_outgoing_peers: 15,
-            max_incoming_peers: 10,
+            max_outbound_peers: 15,
+            max_inbound_peers: 10,
             reserved_peers: vec![],
             secret_key: None,
             secret_key_path: None,
@@ -166,8 +166,8 @@ impl Default for NetworkConfig {
             discovery_interval: Duration::from_secs(15),
             identify_timeout: Duration::from_secs(30),
             identify_interval: Duration::from_secs(15),
-            outgoing_timeout: Duration::from_secs(30),
-            outgoing_interval: Duration::from_secs(15),
+            try_outbound_connect_timeout: Duration::from_secs(30),
+            try_outbound_connect_interval: Duration::from_secs(15),
         }
     }
 }

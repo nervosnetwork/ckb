@@ -1,12 +1,12 @@
 [package]
 name = "ckb-network"
-version = "0.2.0"
+version = "0.3.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
 
 [dependencies]
-rand = "0.5"
+rand = "0.6"
 fnv = "1.0"
 serde = "1.0"
 serde_derive = "1.0"
@@ -18,3 +18,4 @@ tokio = "0.1.8"
 futures = { version = "0.1.19", features = ["use_std"] }
 snap = "0.2"
 libp2p = { git = "https://github.com/libp2p/rust-libp2p", rev="cfdfca1a06fb2deb9ebcc15a63d715ebddb23bd0", default-features = false, features = ["libp2p-secio", "libp2p-secio-secp256k1"] }
+faketime = "0.2.0"

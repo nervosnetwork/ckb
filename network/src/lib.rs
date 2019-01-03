@@ -9,13 +9,16 @@ mod identify_service;
 mod memory_peer_store;
 mod network;
 mod network_config;
+mod network_group;
 mod network_service;
-mod outgoing_service;
+mod outbound_peer_service;
 mod peer_store;
 mod peers_registry;
 mod ping_service;
 mod protocol;
 mod protocol_service;
+#[cfg(test)]
+mod tests;
 mod timer_service;
 mod transport;
 
@@ -25,7 +28,9 @@ pub use crate::errors::{Error, ErrorKind};
 pub use crate::network::{Network, PeerInfo, SessionInfo};
 pub use crate::network_config::NetworkConfig;
 pub use crate::network_service::NetworkService;
-pub use libp2p::{core::Endpoint, multiaddr::AddrComponent, Multiaddr, PeerId};
+pub use libp2p::{
+    core::Endpoint, multiaddr::AddrComponent, multiaddr::ToMultiaddr, Multiaddr, PeerId,
+};
 
 pub type TimerToken = usize;
 pub type ProtocolId = [u8; 3];
@@ -48,36 +53,36 @@ pub struct Config {
     pub secret_file: Option<String>,
     pub nodes_file: Option<String>,
     /// List of initial node addresses
-    pub boot_nodes: Vec<String>,
+    pub bootnodes: Vec<String>,
     /// List of reserved node addresses.
     pub reserved_nodes: Vec<String>,
     /// The non-reserved peer mode.
     pub non_reserved_mode: Option<String>,
     /// Minimum number of connected peers to maintain
     pub max_peers: u32,
-    pub outgoing_peers_ratio: Option<u32>,
+    pub outbound_peers_ratio: Option<u32>,
     pub config_dir_path: Option<String>,
 }
 
 impl Config {
-    fn max_outgoing_peers(&self) -> u32 {
+    fn max_outbound_peers(&self) -> u32 {
         self.max_peers
             / self
-                .outgoing_peers_ratio
+                .outbound_peers_ratio
                 .unwrap_or_else(|| DEFAULT_OUTGOING_PEERS_RATIO)
     }
-    fn max_incoming_peers(&self) -> u32 {
-        self.max_peers - self.max_outgoing_peers()
+    fn max_inbound_peers(&self) -> u32 {
+        self.max_peers - self.max_outbound_peers()
     }
 }
 
 impl From<Config> for NetworkConfig {
     fn from(config: Config) -> Self {
         let mut cfg = NetworkConfig::default();
-        cfg.max_outgoing_peers = config.max_outgoing_peers();
-        cfg.max_incoming_peers = config.max_incoming_peers();
+        cfg.max_outbound_peers = config.max_outbound_peers();
+        cfg.max_inbound_peers = config.max_inbound_peers();
         cfg.listen_addresses = config.listen_addresses;
-        cfg.bootnodes = config.boot_nodes;
+        cfg.bootnodes = config.bootnodes;
         cfg.reserved_peers = config.reserved_nodes;
         if let Some(value) = config.non_reserved_mode {
             cfg.reserved_only = match value.as_str() {

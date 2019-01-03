@@ -1,6 +1,6 @@
 [package]
 name = "ckb-chain-spec"
-version = "0.2.0"
+version = "0.3.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -13,3 +13,5 @@ ckb-core = { path = "../core" }
 serde_derive = "1.0"
 serde = "1.0"
 ckb-pow = { path = "../pow" }
+ckb-protocol = { path = "../protocol" }
+flatbuffers = "0.5.0"

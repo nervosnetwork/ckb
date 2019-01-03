@@ -3,8 +3,8 @@ use ckb_core::block::Block;
 use ckb_core::header::Header;
 use ckb_network::PeerIndex;
 use ckb_shared::shared::TipHeader;
-use ckb_time::now_ms;
 use ckb_util::RwLock;
+use faketime::unix_time_as_millis;
 use fnv::{FnvHashMap, FnvHashSet};
 use log::debug;
 use numext_fixed_hash::H256;
@@ -80,7 +80,7 @@ impl Default for BlocksInflight {
     fn default() -> Self {
         BlocksInflight {
             blocks: FnvHashSet::default(),
-            timestamp: now_ms(),
+            timestamp: unix_time_as_millis(),
         }
     }
 }
@@ -103,7 +103,7 @@ impl BlocksInflight {
     }
 
     pub fn update_timestamp(&mut self) {
-        self.timestamp = now_ms();
+        self.timestamp = unix_time_as_millis();
     }
 
     pub fn clear(&mut self) {
@@ -123,12 +123,12 @@ impl Peers {
             .or_insert_with(|| score);
     }
 
-    pub fn on_connected(&self, peer: PeerIndex, headers_sync_timeout: u64, protect: bool) {
+    pub fn on_connected(&self, peer: PeerIndex, predicted_headers_sync_time: u64, protect: bool) {
         self.state
             .write()
             .entry(peer)
             .and_modify(|state| {
-                state.headers_sync_timeout = Some(headers_sync_timeout);
+                state.headers_sync_timeout = Some(predicted_headers_sync_time);
                 state.chain_sync.protect = protect;
             })
             .or_insert_with(|| {
@@ -138,7 +138,7 @@ impl Peers {
                     negotiate: Negotiate::default(),
                     sync_started: false,
                     last_block_announcement: None,
-                    headers_sync_timeout: Some(headers_sync_timeout),
+                    headers_sync_timeout: Some(predicted_headers_sync_time),
                     disconnect: false,
                     chain_sync,
                 }

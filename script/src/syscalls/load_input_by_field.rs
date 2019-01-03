@@ -26,6 +26,7 @@ impl<'a> LoadInputByField<'a> {
             Source::Input => self.inputs.get(index).cloned(),
             Source::Output => None,
             Source::Current => self.current,
+            Source::Dep => None,
         }
     }
 }

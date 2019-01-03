@@ -10,8 +10,8 @@ use ckb_notify::{ForkBlocks, NotifyController, NotifyService};
 use ckb_shared::error::SharedError;
 use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::{ChainProvider, Shared, TipHeader};
-use ckb_time::now_ms;
 use ckb_verification::{BlockVerifier, Verifier};
+use faketime::unix_time_as_millis;
 use log::{self, debug, error, log_enabled};
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
@@ -149,7 +149,7 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
             let cannon_total_difficulty = parent_ext.total_difficulty + block.header().difficulty();
 
             let ext = BlockExt {
-                received_at: now_ms(),
+                received_at: unix_time_as_millis(),
                 total_difficulty: cannon_total_difficulty.clone(),
                 total_uncles_count: parent_ext.total_uncles_count + block.uncles().len() as u64,
             };
@@ -435,7 +435,7 @@ pub mod test {
         let cellbase = create_cellbase(number);
         let header = HeaderBuilder::default()
             .parent_hash(parent_header.hash().clone())
-            .timestamp(now_ms())
+            .timestamp(unix_time_as_millis())
             .number(number)
             .difficulty(difficulty)
             .nonce(nonce)
@@ -533,8 +533,8 @@ pub mod test {
             .set_verification(false);
         let (_chain_controller, shared) = start_chain(Some(consensus));
 
-        let outpoint = OutPoint::new(root_hash, 0);
-        let state = shared.cell(&outpoint);
+        let out_point = OutPoint::new(root_hash, 0);
+        let state = shared.cell(&out_point);
         assert!(state.is_current());
     }
 

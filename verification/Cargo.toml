@@ -1,29 +1,25 @@
 [package]
 name = "ckb-verification"
-version = "0.2.0"
+version = "0.3.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
 
 [dependencies]
-log = "0.4"
 ckb-core = { path = "../core" }
-ckb-time = { path = "../util/time" }
 ckb-shared = { path = "../shared" }
-ckb-util = { path = "../util" }
 ckb-script = { path = "../script" }
 ckb-pow = { path = "../pow" }
+faketime = "0.2.0"
 merkle-root = {path = "../util/merkle-root"}
 numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 numext-fixed-uint = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 rayon = "1.0"
 fnv = "1.0.3"
-crossbeam-channel = "0.3"
 
 [dev-dependencies]
 ckb-db = { path = "../db" }
 ckb-notify = { path = "../notify" }
-ckb-time = { path = "../util/time", features = ["mock_timer"] }
 ckb-chain = { path = "../chain" }
 ckb-chain-spec = { path = "../spec" }
 hash = {path = "../util/hash"}

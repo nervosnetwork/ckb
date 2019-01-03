@@ -204,7 +204,7 @@ where
                         }
                     }
                     // TODO should we try all addresses?
-                    if let Some(addr) = network.get_peer_remote_addresses(&peer_id).get(0) {
+                    if let Some(addr) = network.get_peer_addresses(&peer_id).get(0) {
                         trace!(
                         target: "network",
                         "request identify to peer {:?} {:?}",
