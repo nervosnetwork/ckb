@@ -2,10 +2,8 @@ use crate::ckb_protocol::CKBProtocol;
 use crate::ckb_protocol_handler::CKBProtocolHandler;
 use crate::ckb_protocol_handler::{CKBProtocolContext, DefaultCKBProtocolContext};
 use crate::network::Network;
-use crate::peer_store::PeerStore;
 use crate::NetworkConfig;
 use crate::{Error, ErrorKind, ProtocolId};
-use ckb_util::RwLock;
 use futures::future::Future;
 use futures::sync::oneshot;
 use log::{debug, info};
@@ -30,12 +28,6 @@ impl NetworkService {
     #[inline]
     pub fn external_url(&self) -> Option<String> {
         self.network.external_url()
-    }
-
-    #[allow(dead_code)]
-    #[inline]
-    pub(crate) fn peer_store(&self) -> &RwLock<dyn PeerStore> {
-        &self.network.peer_store()
     }
 
     pub fn with_protocol_context<F, T>(&self, protocol_id: ProtocolId, f: F) -> Option<T>

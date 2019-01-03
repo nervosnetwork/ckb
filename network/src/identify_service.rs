@@ -79,8 +79,8 @@ impl IdentifyService {
         }
 
         // update peer addrs in peerstore
-        let peer_store = network.peer_store();
-        let _ = peer_store
+        let _ = network
+            .peer_store()
             .write()
             .add_discovered_addresses(peer_id, info.listen_addrs.clone());
         Ok(())

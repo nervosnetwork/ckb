@@ -378,7 +378,7 @@ impl PeersRegistry {
     ) -> PeerIndex {
         self.peer_store
             .write()
-            .new_connected_peer(&peer_id, connected_addr.clone());
+            .new_connected_peer(&peer_id, connected_addr.clone(), endpoint);
         let mut peer = PeerConnection::new(connected_addr, endpoint);
         peer.connected_time = Some(unix_time_as_millis());
         let peer_index = self.peers.or_insert(peer_id.clone(), peer);
