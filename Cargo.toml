@@ -48,6 +48,7 @@ members = [
     "util/avl",
     "util/logger",
     "util/hash",
+    "util/merkle-tree",
     "util/merkle-root",
     "util/crypto",
     "util/dir",

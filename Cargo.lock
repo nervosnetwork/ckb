@@ -533,6 +533,8 @@ dependencies = [
  "ckb-util 0.4.0-pre",
  "flatbuffers 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "hash 0.4.0-pre",
+ "merkle-root 0.3.0-pre",
+ "merkle-tree 0.1.0",
  "numext-fixed-hash 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "numext-fixed-uint 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "rand 0.6.1 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1875,7 +1877,15 @@ name = "merkle-root"
 version = "0.4.0-pre"
 dependencies = [
  "hash 0.4.0-pre",
+ "merkle-tree 0.1.0",
  "numext-fixed-hash 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
+name = "merkle-tree"
+version = "0.1.0"
+dependencies = [
+ "rand 0.6.1 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
