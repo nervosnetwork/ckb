@@ -542,6 +542,7 @@ dependencies = [
  "ckb-shared 0.4.0-pre",
  "ckb-sync 0.4.0-pre",
  "ckb-verification 0.4.0-pre",
+ "faster-hex 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "flatbuffers 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "jsonrpc-core 9.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "jsonrpc-http-server 9.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -550,6 +551,8 @@ dependencies = [
  "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "num_cpus 1.9.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "numext-fixed-hash 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "numext-fixed-uint 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "proptest 0.8.7 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.83 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.83 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_json 1.0.33 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -564,7 +567,7 @@ dependencies = [
  "ckb-protocol 0.4.0-pre",
  "ckb-vm 0.1.0 (git+https://github.com/nervosnetwork/ckb-vm?rev=f32bdcb)",
  "crypto 0.4.0-pre",
- "faster-hex 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "faster-hex 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "flatbuffers 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "fnv 1.0.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "hash 0.4.0-pre",
@@ -892,7 +895,7 @@ version = "0.4.0-pre"
 dependencies = [
  "crunchy 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "failure 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)",
- "faster-hex 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "faster-hex 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "lazy_static 1.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "numext-fixed-hash 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "rand 0.6.1 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1028,6 +1031,11 @@ dependencies = [
 [[package]]
 name = "faster-hex"
 version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+
+[[package]]
+name = "faster-hex"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
@@ -3499,6 +3507,7 @@ dependencies = [
 "checksum fake-simd 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)" = "e88a8acf291dafb59c2d96e8f59828f3838bb1a70398823ade51a84de6a6deed"
 "checksum faketime 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)" = "17087bd8c5a4a3e8bd40ecd9d3bda587459abcf67ca94211df09ec8451404cf8"
 "checksum faster-hex 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)" = "2ea2e4ecc921ec2cbb8b10f0d400fe448554779d2ac5e0bfbb065836d9d8483a"
+"checksum faster-hex 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)" = "47f8b8e3249896f1acb065d02f2c94ca2e9a697a2f28131f1e88377eb2aeb2f0"
 "checksum flatbuffers 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)" = "ea0c34f669be9911826facafe996adfda978aeee67285a13556869e2d8b8331f"
 "checksum fnv 1.0.6 (registry+https://github.com/rust-lang/crates.io-index)" = "2fad85553e09a6f881f739c29f0b00b0f01357c743266d478b68951ce23285f3"
 "checksum foreign-types 0.3.2 (registry+https://github.com/rust-lang/crates.io-index)" = "f6f339eb8adc052cd2ca78910fda869aefa38d22d5cb648e6485e4d3fc06f3b1"
