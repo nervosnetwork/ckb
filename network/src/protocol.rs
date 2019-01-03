@@ -1,5 +1,5 @@
-use super::CKBProtocolHandler;
-use ckb_protocol::CKBProtocolOutput;
+use crate::ckb_protocol::CKBProtocolOutput;
+use crate::CKBProtocolHandler;
 use futures::{Future, Stream};
 use libp2p::core::{Multiaddr, PeerId};
 use libp2p::identify::{IdentifyInfo, IdentifySender};

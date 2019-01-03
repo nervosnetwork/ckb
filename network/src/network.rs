@@ -1,39 +1,40 @@
-#![cfg_attr(feature = "cargo-clippy", allow(needless_pass_by_value))]
+#![allow(clippy::needless_pass_by_value)]
 
-use super::NetworkConfig;
-use super::{Error, ErrorKind, PeerIndex, ProtocolId};
+use crate::ckb_protocol::{CKBProtocol, CKBProtocols};
+use crate::ckb_protocol_handler::CKBProtocolHandler;
+use crate::ckb_protocol_handler::DefaultCKBProtocolContext;
+use crate::ckb_service::CKBService;
+use crate::discovery_service::{DiscoveryQueryService, DiscoveryService, KadManage};
+use crate::identify_service::IdentifyService;
+use crate::memory_peer_store::MemoryPeerStore;
+use crate::outgoing_service::OutgoingService;
+use crate::peer_store::{Behaviour, PeerStore};
+use crate::peers_registry::{ConnectionStatus, PeerConnection, PeerIdentifyInfo, PeersRegistry};
+use crate::ping_service::PingService;
+use crate::protocol::Protocol;
+use crate::protocol_service::ProtocolService;
+use crate::timer_service::TimerService;
+use crate::transport::{new_transport, TransportOutput};
+use crate::NetworkConfig;
+use crate::{Error, ErrorKind, PeerIndex, ProtocolId};
 use bytes::Bytes;
-use ckb_protocol::{CKBProtocol, CKBProtocols};
-use ckb_protocol_handler::CKBProtocolHandler;
-use ckb_protocol_handler::DefaultCKBProtocolContext;
-use ckb_service::CKBService;
 use ckb_util::{Mutex, RwLock};
-use discovery_service::{DiscoveryQueryService, DiscoveryService, KadManage};
 use futures::future::{self, select_all, Future};
 use futures::sync::mpsc::UnboundedSender;
 use futures::sync::oneshot;
 use futures::Stream;
-use identify_service::IdentifyService;
 use libp2p::core::{upgrade, MuxedTransport, PeerId};
 use libp2p::core::{Endpoint, Multiaddr, UniqueConnec};
 use libp2p::core::{PublicKey, SwarmController};
 use libp2p::{self, identify, kad, ping, secio, Transport, TransportTimeout};
-use memory_peer_store::MemoryPeerStore;
-use outgoing_service::OutgoingService;
-use peer_store::{Behaviour, PeerStore};
-use peers_registry::{ConnectionStatus, PeerConnection, PeerIdentifyInfo, PeersRegistry};
-use ping_service::PingService;
-use protocol::Protocol;
-use protocol_service::ProtocolService;
+use log::{debug, info, trace, warn};
 use std::boxed::Box;
 use std::io::{Error as IoError, ErrorKind as IoErrorKind};
 use std::sync::Arc;
 use std::time::Duration;
 use std::time::Instant;
 use std::usize;
-use timer_service::TimerService;
 use tokio::io::{AsyncRead, AsyncWrite};
-use transport::{new_transport, TransportOutput};
 
 // const WAIT_LOCK_TIMEOUT: u64 = 3;
 const KBUCKETS_TIMEOUT: u64 = 600;
@@ -218,7 +219,8 @@ impl Network {
                 Err(ErrorKind::Other(format!(
                     "can't find protocol: {:?} for peer {:?}",
                     protocol_id, peer_id
-                )).into())
+                ))
+                .into())
             }
         } else {
             Err(ErrorKind::PeerNotFound.into())
@@ -235,7 +237,7 @@ impl Network {
         // get peer protocol_connection
         match peers_registry.new_peer(peer_id.clone(), endpoint) {
             Ok(_) => {
-                let mut peer = peers_registry.get_mut(&peer_id).unwrap();
+                let peer = peers_registry.get_mut(&peer_id).unwrap();
                 if let Some(addresses) = addresses {
                     peer.append_addresses(addresses.clone());
                 }
@@ -427,7 +429,7 @@ impl Network {
         let _ = unique_connec.dial(swarm_controller, addr, transport);
     }
 
-    pub(crate) fn build(
+    pub(crate) fn inner_build(
         config: &NetworkConfig,
         ckb_protocols: Vec<CKBProtocol<Arc<CKBProtocolHandler>>>,
     ) -> Result<Arc<Self>, Error> {
@@ -683,7 +685,7 @@ impl Network {
             }
         }
 
-        let discovery_query_service = DiscoveryQueryService::new(
+        let _discovery_query_service = DiscoveryQueryService::new(
             Arc::clone(&network),
             swarm_controller.clone(),
             basic_transport.clone(),
@@ -695,12 +697,12 @@ impl Network {
         // prepare services futures
         let futures: Vec<Box<Future<Item = (), Error = IoError> + Send>> = vec![
             Box::new(swarm_events.for_each(|_| Ok(()))),
-            Box::new(
-                discovery_query_service
-                    .into_future()
-                    .map(|_| ())
-                    .map_err(|(err, _)| err),
-            ) as Box<Future<Item = (), Error = IoError> + Send>,
+            // Box::new(
+            //     discovery_query_service
+            //         .into_future()
+            //         .map(|_| ())
+            //         .map_err(|(err, _)| err),
+            // ) as Box<Future<Item = (), Error = IoError> + Send>,
             ping_service.start_protocol(
                 Arc::clone(&network),
                 swarm_controller.clone(),
@@ -732,7 +734,8 @@ impl Network {
                     peers_registry.drop_all();
                     Ok(())
                 }
-            }).map_err(|(err, _, _)| {
+            })
+            .map_err(|(err, _, _)| {
                 debug!(target: "network", "network exit, error {:?}", err);
                 err
             });
@@ -741,8 +744,8 @@ impl Network {
         Ok(service_futures)
     }
 
-    #[cfg_attr(feature = "cargo-clippy", allow(type_complexity))]
-    pub fn new(
+    #[allow(clippy::type_complexity)]
+    pub fn build(
         config: &NetworkConfig,
         ckb_protocols: Vec<CKBProtocol<Arc<CKBProtocolHandler>>>,
     ) -> Result<
@@ -753,7 +756,7 @@ impl Network {
         ),
         Error,
     > {
-        let network = Self::build(config, ckb_protocols)?;
+        let network = Self::inner_build(config, ckb_protocols)?;
         let (close_tx, close_rx) = oneshot::channel();
         let network_future = Self::build_network_future(Arc::clone(&network), &config, close_rx)?;
         Ok((network, close_tx, network_future))

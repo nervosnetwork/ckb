@@ -1,4 +1,4 @@
-use super::PeerId;
+use crate::PeerId;
 use libp2p::core::Multiaddr;
 // TODO
 // 1. maintain peer and addresses

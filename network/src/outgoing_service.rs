@@ -1,12 +1,14 @@
-use super::Network;
-use super::PeerId;
+use crate::protocol::Protocol;
+use crate::protocol_service::ProtocolService;
+use crate::transport::TransportOutput;
+use crate::Network;
+use crate::PeerId;
 use futures::future::{self, lazy, Future};
 use futures::Stream;
 use libp2p::core::Multiaddr;
 use libp2p::core::MuxedTransport;
 use libp2p::core::SwarmController;
-use protocol::Protocol;
-use protocol_service::ProtocolService;
+use log::warn;
 use std::boxed::Box;
 use std::io::{Error as IoError, ErrorKind as IoErrorKind};
 use std::sync::Arc;
@@ -15,7 +17,6 @@ use std::time::Instant;
 use std::usize;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::timer::Interval;
-use transport::TransportOutput;
 
 pub struct OutgoingService {
     pub outgoing_interval: Duration,
@@ -40,7 +41,7 @@ impl<T: Send + 'static> ProtocolService<T> for OutgoingService {
     }
 
     // Periodicly connect to new peers
-    #[cfg_attr(feature = "cargo-clippy", allow(let_and_return))]
+    #[allow(clippy::let_and_return)]
     fn start_protocol<SwarmTran, Tran, TranOut>(
         &self,
         network: Arc<Network>,
@@ -70,12 +71,14 @@ impl<T: Send + 'static> ProtocolService<T> for OutgoingService {
         let outgoing_future = Interval::new(
             Instant::now() + Duration::from_secs(5),
             self.outgoing_interval,
-        ).map_err(|err| {
+        )
+        .map_err(|err| {
             IoError::new(
                 IoErrorKind::Other,
                 format!("outgoing service error {:?}", err),
             )
-        }).for_each({
+        })
+        .for_each({
             let transport = transport.clone();
             let timeout = self.timeout;
             let network = Arc::clone(&network);
@@ -95,7 +98,8 @@ impl<T: Send + 'static> ProtocolService<T> for OutgoingService {
                             } else {
                                 None
                             }
-                        }) {
+                        })
+                    {
                         network.dial_to_peer(
                             transport.clone(),
                             &addr,
@@ -108,7 +112,8 @@ impl<T: Send + 'static> ProtocolService<T> for OutgoingService {
 
                 Box::new(lazy(|| future::ok(()))) as Box<Future<Item = _, Error = _> + Send>
             }
-        }).then(|err| {
+        })
+        .then(|err| {
             warn!(target: "network", "Outgoing service stopped, reason: {:?}", err);
             err
         });

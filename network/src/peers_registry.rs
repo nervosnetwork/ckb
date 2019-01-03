@@ -1,11 +1,12 @@
-use super::{Error, ErrorKind, PeerId, PeerIndex, ProtocolId};
+use crate::peer_store::PeerStore;
+use crate::{Error, ErrorKind, PeerId, PeerIndex, ProtocolId};
 use bytes::Bytes;
 use ckb_util::{Mutex, RwLock};
 use fnv::FnvHashMap;
 use futures::sync::mpsc::UnboundedSender;
 use libp2p::core::{Endpoint, Multiaddr, UniqueConnec};
 use libp2p::ping;
-use peer_store::PeerStore;
+use log::debug;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -23,7 +24,7 @@ impl PeerConnections {
         self.peers.get(peer_id)
     }
 
-    #[cfg_attr(feature = "cargo-clippy", allow(needless_lifetimes))]
+    #[allow(clippy::needless_lifetimes)]
     #[inline]
     fn get_peer_id<'a>(&'a self, peer_index: PeerIndex) -> Option<&'a PeerId> {
         self.peer_id_by_index.get(&peer_index)
@@ -43,7 +44,7 @@ impl PeerConnections {
         None
     }
 
-    #[cfg_attr(feature = "cargo-clippy", allow(needless_lifetimes))]
+    #[allow(clippy::needless_lifetimes)]
     #[inline]
     fn iter<'a>(&'a self) -> impl Iterator<Item = (&'a PeerId, &'a PeerConnection)> {
         self.peers.iter()
@@ -181,14 +182,14 @@ impl PeersRegistry {
         }
     }
 
-    #[cfg_attr(feature = "cargo-clippy", allow(needless_lifetimes))]
+    #[allow(clippy::needless_lifetimes)]
     #[inline]
     pub fn get_peer_id<'a>(&'a self, peer_index: PeerIndex) -> Option<&'a PeerId> {
         self.peer_connections.get_peer_id(peer_index)
     }
 
     // registry a new peer
-    #[cfg_attr(feature = "cargo-clippy", allow(needless_pass_by_value))]
+    #[allow(clippy::needless_pass_by_value)]
     pub fn new_peer(&mut self, peer_id: PeerId, endpoint: Endpoint) -> Result<(), Error> {
         if self.peer_connections.get(&peer_id).is_some() {
             return Ok(());
@@ -200,7 +201,8 @@ impl PeersRegistry {
                 return Err(ErrorKind::InvalidNewPeer(format!(
                     "We are in reserved_only mode, rejected non-reserved peer {:?}",
                     peer_id
-                )).into());
+                ))
+                .into());
             }
             if self.deny_list.is_denied(&peer_id) {
                 return Err(
@@ -216,13 +218,15 @@ impl PeersRegistry {
                     return Err(ErrorKind::InvalidNewPeer(format!(
                         "reach max incoming peers limitation, reject peer {:?}",
                         peer_id
-                    )).into())
+                    ))
+                    .into())
                 }
                 Endpoint::Dialer if connection_status.unreserved_outgoing >= self.max_outgoing => {
                     return Err(ErrorKind::InvalidNewPeer(format!(
                         "reach max outgoing peers limitation, reject peer {:?}",
                         peer_id
-                    )).into())
+                    ))
+                    .into())
                 }
                 _ => (),
             }
@@ -239,7 +243,7 @@ impl PeersRegistry {
         self.peer_connections.or_insert(peer_id, peer_connection)
     }
 
-    #[cfg_attr(feature = "cargo-clippy", allow(needless_lifetimes))]
+    #[allow(clippy::needless_lifetimes)]
     #[inline]
     pub fn peers_iter<'a>(&'a self) -> impl Iterator<Item = (&'a PeerId, &'a PeerConnection)> {
         self.peer_connections.iter()

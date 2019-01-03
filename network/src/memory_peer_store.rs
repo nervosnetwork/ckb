@@ -1,7 +1,8 @@
-use super::PeerId;
+use crate::peer_store::{Behaviour, PeerStore, Status};
+use crate::PeerId;
 use fnv::FnvHashMap;
 use libp2p::core::Multiaddr;
-use peer_store::{Behaviour, PeerStore, Status};
+use log::trace;
 use std::time::Instant;
 
 // peer_id -> addresses,

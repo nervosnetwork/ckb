@@ -1,12 +1,13 @@
-use super::ScriptError;
-use bigint::H256;
+use crate::syscalls::{build_tx, Debugger, LoadCell, LoadCellByField, LoadInputByField, LoadTx};
+use crate::ScriptError;
 use ckb_core::cell::ResolvedTransaction;
 use ckb_core::script::Script;
 use ckb_core::transaction::{CellInput, CellOutput};
 use ckb_vm::{DefaultMachine, SparseMemory};
 use flatbuffers::FlatBufferBuilder;
 use fnv::FnvHashMap;
-use syscalls::{build_tx, Debugger, FetchScriptHash, MmapCell, MmapTx};
+use log::info;
+use numext_fixed_hash::H256;
 
 // This struct leverages CKB VM to verify transaction inputs.
 // FlatBufferBuilder owned Vec<u8> that grows as needed, in the
@@ -31,7 +32,8 @@ impl<'a> TransactionScriptsVerifier<'a> {
                     .expect("already verifies that all dep cells are valid");
                 let hash = output.data_hash();
                 (hash, output)
-            }).collect();
+            })
+            .collect();
 
         let inputs = rtx.transaction.inputs().iter().collect();
         let outputs = rtx.transaction.outputs().iter().collect();
@@ -42,7 +44,8 @@ impl<'a> TransactionScriptsVerifier<'a> {
             .map(|cell| {
                 cell.get_current()
                     .expect("already verifies that all input cells are valid")
-            }).collect();
+            })
+            .collect();
 
         let mut tx_builder = FlatBufferBuilder::new();
         let tx_offset = build_tx(&mut tx_builder, &rtx.transaction);
@@ -54,20 +57,24 @@ impl<'a> TransactionScriptsVerifier<'a> {
             tx_builder,
             outputs,
             input_cells,
-            hash: rtx.transaction.hash(),
+            hash: rtx.transaction.hash().clone(),
         }
     }
 
-    fn build_mmap_tx(&self) -> MmapTx {
-        MmapTx::new(self.tx_builder.finished_data())
+    fn build_load_tx(&self) -> LoadTx {
+        LoadTx::new(self.tx_builder.finished_data())
     }
 
-    fn build_mmap_cell(&self) -> MmapCell {
-        MmapCell::new(&self.outputs, &self.input_cells)
+    fn build_load_cell(&self, current_cell: &'a CellOutput) -> LoadCell {
+        LoadCell::new(&self.outputs, &self.input_cells, current_cell)
     }
 
-    fn build_fetch_script_hash(&self) -> FetchScriptHash {
-        FetchScriptHash::new(&self.outputs, &self.inputs, &self.input_cells)
+    fn build_load_cell_by_field(&self, current_cell: &'a CellOutput) -> LoadCellByField {
+        LoadCellByField::new(&self.outputs, &self.input_cells, current_cell)
+    }
+
+    fn build_load_input_by_field(&self, current_input: Option<&'a CellInput>) -> LoadInputByField {
+        LoadInputByField::new(&self.inputs, current_input)
     }
 
     // Script struct might contain references to external cells, this
@@ -76,8 +83,8 @@ impl<'a> TransactionScriptsVerifier<'a> {
         if let Some(ref data) = script.binary {
             return Ok(data);
         }
-        if let Some(hash) = script.reference {
-            return match self.dep_cells.get(&hash) {
+        if let Some(ref hash) = script.reference {
+            return match self.dep_cells.get(hash) {
                 Some(ref cell_output) => Ok(&cell_output.data),
                 None => Err(ScriptError::InvalidReferenceIndex),
             };
@@ -85,16 +92,23 @@ impl<'a> TransactionScriptsVerifier<'a> {
         Err(ScriptError::NoScript)
     }
 
-    pub fn verify_script(&self, script: &Script, prefix: &str) -> Result<(), ScriptError> {
+    pub fn verify_script(
+        &self,
+        script: &Script,
+        prefix: &str,
+        current_cell: &'a CellOutput,
+        current_input: Option<&'a CellInput>,
+    ) -> Result<(), ScriptError> {
         self.extract_script(script).and_then(|script_binary| {
             let mut args = vec![b"verify".to_vec()];
             args.extend_from_slice(&script.signed_args.as_slice());
             args.extend_from_slice(&script.args.as_slice());
 
             let mut machine = DefaultMachine::<u64, SparseMemory>::default();
-            machine.add_syscall_module(Box::new(self.build_mmap_tx()));
-            machine.add_syscall_module(Box::new(self.build_mmap_cell()));
-            machine.add_syscall_module(Box::new(self.build_fetch_script_hash()));
+            machine.add_syscall_module(Box::new(self.build_load_tx()));
+            machine.add_syscall_module(Box::new(self.build_load_cell(current_cell)));
+            machine.add_syscall_module(Box::new(self.build_load_cell_by_field(current_cell)));
+            machine.add_syscall_module(Box::new(self.build_load_input_by_field(current_input)));
             machine.add_syscall_module(Box::new(Debugger::new(prefix)));
             machine
                 .run(script_binary, &args)
@@ -112,7 +126,7 @@ impl<'a> TransactionScriptsVerifier<'a> {
     pub fn verify(&self) -> Result<(), ScriptError> {
         for (i, input) in self.inputs.iter().enumerate() {
             let prefix = format!("Transaction {}, input {}", self.hash, i);
-            self.verify_script(&input.unlock, &prefix).map_err(|e| {
+            self.verify_script(&input.unlock, &prefix, self.input_cells[i], Some(input)).map_err(|e| {
                 info!(target: "script", "Error validating input {} of transaction {}: {:?}", i, self.hash, e);
                 e
             })?;
@@ -120,7 +134,7 @@ impl<'a> TransactionScriptsVerifier<'a> {
         for (i, output) in self.outputs.iter().enumerate() {
             if let Some(ref contract) = output.contract {
                 let prefix = format!("Transaction {}, output {}", self.hash, i);
-                self.verify_script(contract, &prefix).map_err(|e| {
+                self.verify_script(contract, &prefix, output, None).map_err(|e| {
                     info!(target: "script", "Error validating output {} of transaction {}: {:?}", i, self.hash, e);
                     e
                 })?;
@@ -133,7 +147,6 @@ impl<'a> TransactionScriptsVerifier<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bigint::H256;
     use ckb_core::cell::CellStatus;
     use ckb_core::script::Script;
     use ckb_core::transaction::{CellInput, CellOutput, OutPoint, TransactionBuilder};
@@ -142,6 +155,7 @@ mod tests {
     use faster_hex::hex_to;
     use fnv::FnvHashMap;
     use hash::sha3_256;
+    use numext_fixed_hash::H256;
     use std::fs::File;
     use std::io::{Read, Write};
     use std::path::Path;
@@ -149,13 +163,15 @@ mod tests {
     fn open_cell_verify() -> File {
         File::open(
             Path::new(env!("CARGO_MANIFEST_DIR")).join("../nodes_template/spec/cells/verify"),
-        ).unwrap()
+        )
+        .unwrap()
     }
     fn open_cell_always_success() -> File {
         File::open(
             Path::new(env!("CARGO_MANIFEST_DIR"))
                 .join("../nodes_template/spec/cells/always_success"),
-        ).unwrap()
+        )
+        .unwrap()
     }
 
     #[test]
@@ -190,10 +206,12 @@ mod tests {
 
         let transaction = TransactionBuilder::default().input(input.clone()).build();
 
+        let dummy_cell = CellOutput::new(100, vec![], H256::default(), None);
+
         let rtx = ResolvedTransaction {
             transaction,
             dep_cells: vec![],
-            input_cells: vec![],
+            input_cells: vec![CellStatus::Current(dummy_cell)],
         };
 
         let verifier = TransactionScriptsVerifier::new(&rtx);
@@ -235,10 +253,12 @@ mod tests {
 
         let transaction = TransactionBuilder::default().input(input.clone()).build();
 
+        let dummy_cell = CellOutput::new(100, vec![], H256::default(), None);
+
         let rtx = ResolvedTransaction {
             transaction,
             dep_cells: vec![],
-            input_cells: vec![],
+            input_cells: vec![CellStatus::Current(dummy_cell)],
         };
 
         let verifier = TransactionScriptsVerifier::new(&rtx);
@@ -268,8 +288,8 @@ mod tests {
         hex_to(&signature_der, &mut hex_signature).expect("hex privkey");
         args.insert(0, hex_signature);
 
-        let dep_outpoint = OutPoint::new(H256::from(123), 8);
-        let dep_cell = CellOutput::new(buffer.len() as Capacity, buffer, H256::from(0), None);
+        let dep_outpoint = OutPoint::new(H256::from_trimmed_hex_str("123").unwrap(), 8);
+        let dep_cell = CellOutput::new(buffer.len() as Capacity, buffer, H256::zero(), None);
         let mut dep_cells = FnvHashMap::default();
         dep_cells.insert(&dep_outpoint, &dep_cell);
 
@@ -282,13 +302,15 @@ mod tests {
 
         let transaction = TransactionBuilder::default()
             .input(input.clone())
-            .dep(dep_outpoint)
+            .dep(dep_outpoint.clone())
             .build();
+
+        let dummy_cell = CellOutput::new(100, vec![], H256::default(), None);
 
         let rtx = ResolvedTransaction {
             transaction,
             dep_cells: vec![CellStatus::Current(dep_cell.clone())],
-            input_cells: vec![],
+            input_cells: vec![CellStatus::Current(dummy_cell)],
         };
 
         let verifier = TransactionScriptsVerifier::new(&rtx);
@@ -318,12 +340,18 @@ mod tests {
         hex_to(&signature_der, &mut hex_signature).expect("hex privkey");
         args.insert(0, hex_signature);
 
-        let dep_outpoint = OutPoint::new(H256::from(123), 8);
+        let dep_outpoint = OutPoint::new(H256::from_trimmed_hex_str("123").unwrap(), 8);
 
         let privkey = privkey.pubkey().unwrap().serialize();
         let mut hex_privkey = vec![0; privkey.len() * 2];
         hex_to(&privkey, &mut hex_privkey).expect("hex privkey");
-        let script = Script::new(0, args, Some(H256::from(234)), None, vec![hex_privkey]);
+        let script = Script::new(
+            0,
+            args,
+            Some(H256::from_trimmed_hex_str("234").unwrap()),
+            None,
+            vec![hex_privkey],
+        );
 
         let input = CellInput::new(OutPoint::null(), script);
 
@@ -332,10 +360,12 @@ mod tests {
             .dep(dep_outpoint)
             .build();
 
+        let dummy_cell = CellOutput::new(100, vec![], H256::default(), None);
+
         let rtx = ResolvedTransaction {
             transaction,
             dep_cells: vec![],
-            input_cells: vec![],
+            input_cells: vec![CellStatus::Current(dummy_cell)],
         };
 
         let verifier = TransactionScriptsVerifier::new(&rtx);
@@ -380,17 +410,19 @@ mod tests {
 
         let script = Script::new(0, args, None, Some(buffer), vec![hex_privkey]);
         let input = CellInput::new(OutPoint::null(), create_always_success_script());
-        let output = CellOutput::new(0, Vec::new(), H256::from(0), Some(script));
+        let output = CellOutput::new(0, Vec::new(), H256::zero(), Some(script));
 
         let transaction = TransactionBuilder::default()
             .input(input.clone())
             .output(output.clone())
             .build();
 
+        let dummy_cell = CellOutput::new(100, vec![], H256::default(), None);
+
         let rtx = ResolvedTransaction {
             transaction,
             dep_cells: vec![],
-            input_cells: vec![],
+            input_cells: vec![CellStatus::Current(dummy_cell)],
         };
 
         let verifier = TransactionScriptsVerifier::new(&rtx);
@@ -429,17 +461,19 @@ mod tests {
 
         let script = Script::new(0, args, None, Some(buffer), vec![hex_privkey]);
         let input = CellInput::new(OutPoint::null(), create_always_success_script());
-        let output = CellOutput::new(0, Vec::new(), H256::from(0), Some(script));
+        let output = CellOutput::new(0, Vec::new(), H256::zero(), Some(script));
 
         let transaction = TransactionBuilder::default()
             .input(input.clone())
             .output(output.clone())
             .build();
 
+        let dummy_cell = CellOutput::new(100, vec![], H256::default(), None);
+
         let rtx = ResolvedTransaction {
             transaction,
             dep_cells: vec![],
-            input_cells: vec![],
+            input_cells: vec![CellStatus::Current(dummy_cell)],
         };
 
         let verifier = TransactionScriptsVerifier::new(&rtx);

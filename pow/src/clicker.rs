@@ -26,7 +26,7 @@ impl Clicker {
     }
 
     pub fn submit(&self, nonce: u64) {
-        self.tx.send(nonce)
+        let _ = self.tx.send(nonce);
     }
 }
 
@@ -38,7 +38,7 @@ impl PowEngine for Clicker {
     }
 
     fn solve_header(&self, _header: &RawHeader, _nonce: u64) -> Option<Seal> {
-        self.rx.recv().map(|nonce| Seal::new(nonce, vec![]))
+        self.rx.recv().ok().map(|nonce| Seal::new(nonce, vec![]))
     }
 
     fn solve(&self, _number: BlockNumber, _message: &[u8]) -> Option<Vec<u8>> {

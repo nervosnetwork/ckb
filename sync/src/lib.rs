@@ -3,33 +3,6 @@
 //! Sync module implement ckb sync protocol as specified here:
 //! https://github.com/nervosnetwork/rfcs/tree/master/rfcs/0000-block-sync-protocol
 
-extern crate bigint;
-extern crate fnv;
-#[macro_use]
-extern crate log;
-extern crate ckb_chain;
-extern crate ckb_core;
-extern crate ckb_network;
-extern crate ckb_pool;
-extern crate ckb_protocol;
-extern crate ckb_shared;
-extern crate ckb_time;
-extern crate flatbuffers;
-#[macro_use]
-extern crate ckb_util;
-extern crate ckb_verification;
-#[macro_use]
-extern crate bitflags;
-#[macro_use]
-extern crate serde_derive;
-extern crate ckb_chain_spec;
-#[cfg(test)]
-extern crate ckb_db;
-#[cfg(test)]
-extern crate ckb_notify;
-#[cfg(test)]
-extern crate crossbeam_channel;
-
 mod config;
 mod relayer;
 mod synchronizer;
@@ -37,9 +10,9 @@ mod synchronizer;
 #[cfg(test)]
 mod tests;
 
-pub use config::Config;
-pub use relayer::Relayer;
-pub use synchronizer::Synchronizer;
+pub use crate::config::Config;
+pub use crate::relayer::Relayer;
+pub use crate::synchronizer::Synchronizer;
 
 use ckb_network::ProtocolId;
 

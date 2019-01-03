@@ -1,23 +1,13 @@
-extern crate ansi_term;
-extern crate chrono;
-extern crate crossbeam_channel;
-extern crate env_logger;
-#[macro_use]
-extern crate lazy_static;
-extern crate log;
-extern crate parking_lot;
-extern crate regex;
-#[macro_use]
-extern crate serde_derive;
-
 use ansi_term::Colour;
 use chrono::prelude::{DateTime, Local};
 use crossbeam_channel::unbounded;
 use env_logger::filter::{Builder, Filter};
+use lazy_static::lazy_static;
 use log::{LevelFilter, SetLoggerError};
 use log::{Log, Metadata, Record};
 use parking_lot::Mutex;
 use regex::Regex;
+use serde_derive::{Deserialize, Serialize};
 use std::io::Write;
 use std::{fs, thread};
 
@@ -62,7 +52,7 @@ impl Logger {
 
                 loop {
                     match receiver.recv() {
-                        Some(Message::Record(record)) => {
+                        Ok(Message::Record(record)) => {
                             let removed_color = sanitize_color(record.as_ref());
                             let output = if enable_color {
                                 record
@@ -75,12 +65,13 @@ impl Logger {
                             };
                             println!("{}", output);
                         }
-                        Some(Message::Terminate) | None => {
+                        Ok(Message::Terminate) | Err(_) => {
                             break;
                         }
                     }
                 }
-            }).unwrap();
+            })
+            .unwrap();
 
         Logger {
             sender,
@@ -135,13 +126,13 @@ impl Log for Logger {
                     record.args()
                 )
             };
-            self.sender.send(Message::Record(with_color));
+            let _ = self.sender.send(Message::Record(with_color));
         }
     }
 
     fn flush(&self) {
         let handle = self.handle.lock().take().unwrap();
-        self.sender.send(Message::Terminate);
+        let _ = self.sender.send(Message::Terminate);
         let _ = handle.join();
     }
 }

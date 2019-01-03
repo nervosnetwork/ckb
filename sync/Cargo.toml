@@ -1,14 +1,16 @@
 [package]
 name = "ckb-sync"
-version = "0.1.0"
+version = "0.2.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
+edition = "2018"
 
 [dependencies]
 ckb-chain = { path = "../chain" }
 ckb-shared = { path = "../shared" }
 ckb-core = { path = "../core" }
-bigint = { git = "https://github.com/nervosnetwork/bigint" }
+numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
+numext-fixed-uint = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 multiaddr = "0.3"
 ckb-network = { path = "../network" }
 log = "0.4"
@@ -29,5 +31,5 @@ ckb-chain-spec = { path = "../spec" }
 ckb-notify = { path = "../notify" }
 ckb-db = { path = "../db" }
 ckb-time = { path = "../util/time", features = ["mock_timer"] }
-env_logger = "0.5"
-crossbeam-channel = "0.2"
+env_logger = "0.6"
+crossbeam-channel = "0.3"

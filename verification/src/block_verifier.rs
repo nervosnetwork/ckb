@@ -1,15 +1,16 @@
-use super::header_verifier::HeaderResolver;
-use super::{TransactionVerifier, Verifier};
-use bigint::{H256, U256};
+use crate::error::TransactionError;
+use crate::error::{CellbaseError, CommitError, Error, UnclesError};
+use crate::header_verifier::HeaderResolver;
+use crate::{TransactionVerifier, Verifier};
 use ckb_core::block::Block;
 use ckb_core::cell::{CellProvider, CellStatus};
 use ckb_core::header::Header;
 use ckb_core::transaction::{Capacity, CellInput, OutPoint};
 use ckb_shared::shared::ChainProvider;
-use error::TransactionError;
-use error::{CellbaseError, CommitError, Error, UnclesError};
 use fnv::{FnvHashMap, FnvHashSet};
 use merkle_root::merkle_root;
+use numext_fixed_hash::H256;
+use numext_fixed_uint::U256;
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use std::collections::HashSet;
 
@@ -195,7 +196,7 @@ impl MerkleRootVerifier {
             .map(|tx| tx.hash())
             .collect::<Vec<_>>();
 
-        if block.header().txs_commit() != merkle_root(&commits[..]) {
+        if block.header().txs_commit() != &merkle_root(&commits[..]) {
             return Err(Error::CommitTransactionsRoot);
         }
 
@@ -205,7 +206,7 @@ impl MerkleRootVerifier {
             .map(|id| id.hash())
             .collect::<Vec<_>>();
 
-        if block.header().txs_proposal() != merkle_root(&proposals[..]) {
+        if block.header().txs_proposal() != &merkle_root(&proposals[..]) {
             return Err(Error::ProposalTransactionsRoot);
         }
 
@@ -281,9 +282,9 @@ impl<CP: ChainProvider + Clone> UnclesVerifier<CP> {
 
         // verify uncles_hash
         let actual_uncles_hash = block.cal_uncles_hash();
-        if actual_uncles_hash != block.header().uncles_hash() {
+        if &actual_uncles_hash != block.header().uncles_hash() {
             return Err(Error::Uncles(UnclesError::InvalidHash {
-                expected: block.header().uncles_hash(),
+                expected: block.header().uncles_hash().clone(),
                 actual: actual_uncles_hash,
             }));
         }
@@ -329,17 +330,17 @@ impl<CP: ChainProvider + Clone> UnclesVerifier<CP> {
         // TODO: cache context
         let mut excluded = FnvHashSet::default();
         let mut included = FnvHashSet::default();
-        excluded.insert(block.header().hash());
-        let mut block_hash = block.header().parent_hash();
-        excluded.insert(block_hash);
+        excluded.insert(block.header().hash().clone());
+        let mut block_hash = block.header().parent_hash().clone();
+        excluded.insert(block_hash.clone());
         for _ in 0..max_uncles_age {
             if let Some(block) = self.provider.block(&block_hash) {
-                excluded.insert(block.header().parent_hash());
+                excluded.insert(block.header().parent_hash().clone());
                 for uncle in block.uncles() {
-                    excluded.insert(uncle.header.hash());
+                    excluded.insert(uncle.header.hash().clone());
                 }
 
-                block_hash = block.header().parent_hash();
+                block_hash = block.header().parent_hash().clone();
             } else {
                 break;
             }
@@ -349,9 +350,8 @@ impl<CP: ChainProvider + Clone> UnclesVerifier<CP> {
             block.header().number() / self.provider.consensus().difficulty_adjustment_interval();
 
         for uncle in block.uncles() {
-            let uncle_difficulty_epoch =
-                uncle.header().number()
-                    / self.provider.consensus().difficulty_adjustment_interval();
+            let uncle_difficulty_epoch = uncle.header().number()
+                / self.provider.consensus().difficulty_adjustment_interval();
 
             if uncle.header().difficulty() != block.header().difficulty() {
                 return Err(Error::Uncles(UnclesError::InvalidDifficulty));
@@ -361,13 +361,13 @@ impl<CP: ChainProvider + Clone> UnclesVerifier<CP> {
                 return Err(Error::Uncles(UnclesError::InvalidDifficultyEpoch));
             }
 
-            if uncle.header().cellbase_id() != uncle.cellbase().hash() {
+            if uncle.header().cellbase_id() != &uncle.cellbase().hash() {
                 return Err(Error::Uncles(UnclesError::InvalidCellbase));
             }
 
             let uncle_header = uncle.header.clone();
 
-            let uncle_hash = uncle_header.hash();
+            let uncle_hash = uncle_header.hash().clone();
             if included.contains(&uncle_hash) {
                 return Err(Error::Uncles(UnclesError::Duplicate(uncle_hash)));
             }
@@ -382,7 +382,7 @@ impl<CP: ChainProvider + Clone> UnclesVerifier<CP> {
                 .map(|id| id.hash())
                 .collect::<Vec<_>>();
 
-            if uncle_header.txs_proposal() != merkle_root(&proposals[..]) {
+            if uncle_header.txs_proposal() != &merkle_root(&proposals[..]) {
                 return Err(Error::Uncles(UnclesError::ProposalTransactionsRoot));
             }
 
@@ -487,7 +487,8 @@ impl<P: ChainProvider + CellProvider> TransactionsVerifier<P> {
                     .verify()
                     .err()
                     .map(|e| (index, e))
-            }).collect();
+            })
+            .collect();
         if err.is_empty() {
             Ok(())
         } else {
@@ -516,7 +517,7 @@ impl<CP: ChainProvider + Clone> CommitVerifier<CP> {
             return Ok(());
         }
 
-        let mut block_hash = block.header().parent_hash();
+        let mut block_hash = block.header().parent_hash().clone();
         let mut proposal_txs_ids = FnvHashSet::default();
 
         while walk > 0 {
@@ -528,15 +529,16 @@ impl<CP: ChainProvider + Clone> CommitVerifier<CP> {
                 break;
             }
             proposal_txs_ids.extend(
-                block.proposal_transactions().iter().chain(
+                block.proposal_transactions().iter().cloned().chain(
                     block
                         .uncles()
                         .iter()
-                        .flat_map(|uncle| uncle.proposal_transactions()),
+                        .flat_map(|uncle| uncle.proposal_transactions())
+                        .cloned(),
                 ),
             );
 
-            block_hash = block.header().parent_hash();
+            block_hash = block.header().parent_hash().clone();
             walk -= 1;
         }
 

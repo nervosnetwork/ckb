@@ -1,6 +1,10 @@
-#![cfg_attr(feature = "cargo-clippy", allow(needless_pass_by_value))]
+#![allow(clippy::needless_pass_by_value)]
 
-use super::Network;
+use crate::peer_store::Status;
+use crate::protocol::Protocol;
+use crate::protocol_service::ProtocolService;
+use crate::transport::TransportOutput;
+use crate::Network;
 use ckb_util::Mutex;
 use fnv::FnvHashMap;
 use futures::future::{self, Future};
@@ -10,10 +14,8 @@ use libp2p::core::{upgrade, MuxedTransport, PeerId};
 use libp2p::core::{Endpoint, Multiaddr, UniqueConnec};
 use libp2p::core::{PublicKey, SwarmController};
 use libp2p::{kad, Transport};
-use peer_store::Status;
-use protocol::Protocol;
-use protocol_service::ProtocolService;
-use rand;
+use log::{debug, error, info};
+use rand::{self, Rng};
 use std::boxed::Box;
 use std::error::Error;
 use std::io::{Error as IoError, ErrorKind as IoErrorKind};
@@ -27,7 +29,6 @@ use tokio::prelude::{task, Async, Poll};
 use tokio::spawn;
 use tokio::timer::Interval;
 use tokio::timer::Timeout;
-use transport::TransportOutput;
 
 pub(crate) struct DiscoveryService {
     timeout: Duration,
@@ -249,9 +250,11 @@ impl DiscoveryService {
                         }
                     }
                 }
-            }).filter(|kad_peer| {
+            })
+            .filter(|kad_peer| {
                 kad_peer.node_id == *kad_system.local_peer_id() || !kad_peer.multiaddrs.is_empty()
-            }).take(respond_peers_count)
+            })
+            .take(respond_peers_count)
             .collect::<Vec<_>>();
         // Here we must return at least 1 KadPeer, otherwise kad stream will close
         if kad_peers.is_empty() {
@@ -348,7 +351,9 @@ where
         // NOTICE, this can't prevent "Eclipse Attack" because attacker can still compute
         // our neighbours before they respond our query, but use the random key can make
         // attacker harder to apply attacking.
-        let random_key = PublicKey::Ed25519((0..32).map(|_| rand::random::<u8>()).collect());
+        let mut key = vec![0u8; 32];
+        rand::thread_rng().fill(&mut key[..]);
+        let random_key = PublicKey::Ed25519(key);
         let random_peer_id = random_key.into_peer_id();
         let query = self.kad_system.find_node(random_peer_id, {
             let kad_manage = Arc::clone(&self.kad_manage);
@@ -378,9 +383,9 @@ where
         let mut kad_manage = self.kad_manage.lock();
         if &peer_id == self.network.local_peer_id() {
             debug!(
-                target: "discovery",
-                "ignore kad dial to self"
-                );
+            target: "discovery",
+            "ignore kad dial to self"
+            );
             kad_manage.kad_pending_dials.remove(&peer_id);
             return;
         }
@@ -394,7 +399,8 @@ where
                         addr,
                         self.transport.clone(),
                         &self.swarm_controller,
-                    ).is_ok()
+                    )
+                    .is_ok()
                 {
                     return;
                 }
@@ -580,7 +586,7 @@ impl KadManage {
             .to_owned()
     }
 
-    #[cfg_attr(feature = "cargo-clippy", allow(let_and_return))]
+    #[allow(clippy::let_and_return)]
     fn ensure_connection<Tran, To, St, T: Send>(
         &mut self,
         peer_id: PeerId,
@@ -625,7 +631,7 @@ impl KadManage {
             .get(&peer_id)
             .map(|unique_connec| unique_connec.is_alive())
             .unwrap_or(false);
-        let count_of_connected_peers = self.connected_peers().collect::<Vec<_>>().len();
+        let count_of_connected_peers = self.connected_peers().count();
         if is_connected || count_of_connected_peers >= MAX_CONNECTING_COUNT {
             debug!(target: "discovery", "we are already connected to {:?} {:?}", peer_id, addr);
             // should return a error?
@@ -640,7 +646,8 @@ impl KadManage {
         let transport = transport
             .and_then(move |out, endpoint, client_addr| {
                 upgrade::apply(out.socket, kad_upgrade.clone(), endpoint, client_addr)
-            }).and_then({
+            })
+            .and_then({
                 let peer_id = peer_id.clone();
                 move |(kad_connection_controller, kad_stream), _, client_addr| {
                     debug!(target: "discovery", "upgraded kad connection!!!!!! {:?}",  peer_id);

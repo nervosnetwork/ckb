@@ -1,9 +1,5 @@
 language: rust
 sudo: true
-branches:
-  only:
-    - master
-    - develop
 cache:
   timeout: 1024
   directories:
@@ -16,12 +12,12 @@ env:
 matrix:
   include:
     - os: osx
-      rust: 1.29.2
+      rust: 1.31.0
       install:
-        - cargo fmt --version || rustup component add rustfmt-preview
-        - cargo clippy --version || rustup component add clippy-preview
+        - cargo fmt --version || rustup component add rustfmt
+        - cargo clippy --version || rustup component add clippy
       env: SUITE=ci
-    - rust: 1.29.2
+    - rust: 1.31.0
       addons:
         apt:
           packages:

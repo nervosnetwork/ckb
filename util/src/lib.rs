@@ -1,12 +1,10 @@
-extern crate parking_lot;
-
 mod unstable;
 
+pub use crate::unstable::int_to_from_bytes::u64_to_bytes;
 pub use parking_lot::{
     Condvar, Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockUpgradableReadGuard,
     RwLockWriteGuard,
 };
-pub use unstable::int_to_from_bytes::u64_to_bytes;
 
 /// Helper macro for reducing boilerplate code for matching `Option` together
 /// with early return.
@@ -15,7 +13,7 @@ pub use unstable::int_to_from_bytes::u64_to_bytes;
 ///
 
 /// ```
-/// # #[macro_use] extern crate ckb_util;
+/// # use ckb_util::try_option;
 /// # fn foo() -> Option<u64> {
 ///     let a = try_option!(Some(4));
 ///     let b = try_option!(Some(3));

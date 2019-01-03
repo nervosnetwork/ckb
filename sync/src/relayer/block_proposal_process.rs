@@ -1,6 +1,6 @@
+use crate::relayer::Relayer;
 use ckb_protocol::{BlockProposal, FlatbuffersVectorIterator};
 use ckb_shared::index::ChainIndex;
-use relayer::Relayer;
 
 pub struct BlockProposalProcess<'a, CI: ChainIndex + 'a> {
     message: &'a BlockProposal<'a>,

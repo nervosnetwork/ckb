@@ -1,7 +1,7 @@
-use batch::{Batch, Col, Operation};
+use crate::batch::{Batch, Col, Operation};
+use crate::kvdb::{ErrorKind, KeyValueDB, Result};
 use ckb_util::RwLock;
 use fnv::FnvHashMap;
-use kvdb::{ErrorKind, KeyValueDB, Result};
 use std::ops::Range;
 
 pub type MemoryKey = Vec<u8>;

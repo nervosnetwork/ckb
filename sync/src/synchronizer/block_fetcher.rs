@@ -1,17 +1,18 @@
 use super::header_view::HeaderView;
-use bigint::H256;
+use crate::synchronizer::{BlockStatus, Synchronizer};
+use crate::{
+    BLOCK_DOWNLOAD_TIMEOUT, BLOCK_DOWNLOAD_WINDOW, MAX_BLOCKS_IN_TRANSIT_PER_PEER,
+    PER_FETCH_BLOCK_LIMIT,
+};
 use ckb_core::header::Header;
 use ckb_network::PeerIndex;
 use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::{ChainProvider, TipHeader};
 use ckb_time::now_ms;
-use ckb_util::RwLockUpgradableReadGuard;
+use ckb_util::{try_option, RwLockUpgradableReadGuard};
+use log::debug;
+use numext_fixed_hash::H256;
 use std::cmp;
-use synchronizer::{BlockStatus, Synchronizer};
-use {
-    BLOCK_DOWNLOAD_TIMEOUT, BLOCK_DOWNLOAD_WINDOW, MAX_BLOCKS_IN_TRANSIT_PER_PEER,
-    PER_FETCH_BLOCK_LIMIT,
-};
 
 pub struct BlockFetcher<CI: ChainIndex> {
     synchronizer: Synchronizer<CI>,
@@ -90,7 +91,8 @@ where
                 .entry(self.peer)
                 .and_modify(|last_common_header| {
                     *last_common_header = fixed_last_common_header.clone()
-                }).or_insert_with(|| fixed_last_common_header.clone());
+                })
+                .or_insert_with(|| fixed_last_common_header.clone());
         }
 
         Some(fixed_last_common_header)
@@ -177,20 +179,21 @@ where
 
             while n_height < max_height && v_fetch.len() < PER_FETCH_BLOCK_LIMIT {
                 n_height += 1;
-                let to_fetch = try_option!(
-                    self.synchronizer
-                        .get_ancestor(&best_known_header.hash(), n_height)
-                );
+                let to_fetch = try_option!(self
+                    .synchronizer
+                    .get_ancestor(&best_known_header.hash(), n_height));
                 let to_fetch_hash = to_fetch.hash();
 
                 let block_status = self.synchronizer.get_block_status(&to_fetch_hash);
-                if block_status == BlockStatus::VALID_MASK && inflight.insert(to_fetch_hash) {
+                if block_status == BlockStatus::VALID_MASK
+                    && inflight.insert(to_fetch_hash.clone().clone())
+                {
                     debug!(
-                        target: "sync", "[Synchronizer] inflight insert {:#?}------------{:?}",
+                        target: "sync", "[Synchronizer] inflight insert {:?}------------{:?}",
                         to_fetch.number(),
                         to_fetch_hash
                     );
-                    v_fetch.push(to_fetch_hash);
+                    v_fetch.push(to_fetch_hash.clone());
                 }
             }
         }

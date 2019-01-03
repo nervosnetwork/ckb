@@ -1,4 +1,6 @@
-use bigint::U256;
+use crate::synchronizer::{BLOCK_FETCH_TOKEN, SEND_GET_HEADERS_TOKEN, TIMEOUT_EVICTION_TOKEN};
+use crate::tests::TestNode;
+use crate::{Config, Synchronizer, SYNC_PROTOCOL_ID};
 use ckb_chain::chain::{ChainBuilder, ChainController};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::BlockBuilder;
@@ -11,12 +13,10 @@ use ckb_shared::shared::{ChainProvider, Shared, SharedBuilder};
 use ckb_shared::store::ChainKVStore;
 use ckb_time::now_ms;
 use flatbuffers::get_root;
+use numext_fixed_uint::U256;
 use std::sync::mpsc::channel;
 use std::sync::Arc;
 use std::thread;
-use synchronizer::BLOCK_FETCH_TOKEN;
-use tests::TestNode;
-use {Config, Synchronizer, SYNC_PROTOCOL_ID};
 
 #[test]
 fn basic_sync() {
@@ -55,14 +55,14 @@ fn setup_node(height: u64) -> (TestNode, Shared<ChainKVStore<MemoryKeyValueDB>>)
     let mut block = BlockBuilder::default().with_header_builder(
         HeaderBuilder::default()
             .timestamp(now_ms())
-            .difficulty(&U256::from(1000)),
+            .difficulty(U256::from(1000u64)),
     );
 
     let consensus = Consensus::default().set_genesis_block(block.clone());
     let shared = SharedBuilder::<ChainKVStore<MemoryKeyValueDB>>::new_memory()
         .consensus(consensus)
         .build();
-    let (chain_controller, chain_receivers) = ChainController::new();
+    let (chain_controller, chain_receivers) = ChainController::build();
     let (_handle, notify) = NotifyService::default().start::<&str>(None);
 
     let chain_service = ChainBuilder::new(shared.clone())
@@ -80,11 +80,11 @@ fn setup_node(height: u64) -> (TestNode, Shared<ChainKVStore<MemoryKeyValueDB>>)
             .build();
 
         let header_builder = HeaderBuilder::default()
-            .parent_hash(&block.header().hash())
+            .parent_hash(block.header().hash().clone())
             .number(number)
             .timestamp(timestamp)
-            .difficulty(&difficulty)
-            .cellbase_id(&cellbase.hash());
+            .difficulty(difficulty)
+            .cellbase_id(cellbase.hash().clone());
 
         block = BlockBuilder::default()
             .commit_transaction(cellbase)
@@ -100,7 +100,11 @@ fn setup_node(height: u64) -> (TestNode, Shared<ChainKVStore<MemoryKeyValueDB>>)
     node.add_protocol(
         SYNC_PROTOCOL_ID,
         Arc::new(synchronizer),
-        vec![BLOCK_FETCH_TOKEN],
+        vec![
+            SEND_GET_HEADERS_TOKEN,
+            BLOCK_FETCH_TOKEN,
+            TIMEOUT_EVICTION_TOKEN,
+        ],
     );
     (node, shared)
 }

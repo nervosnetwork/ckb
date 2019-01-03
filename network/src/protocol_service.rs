@@ -1,24 +1,37 @@
 use super::Network;
+use crate::protocol::Protocol;
+use crate::transport::TransportOutput;
 use futures::future::{empty as empty_future, Future};
 use libp2p::core::Multiaddr;
 use libp2p::core::SwarmController;
 use libp2p::core::{MuxedTransport, PeerId};
-use protocol::Protocol;
 use std::boxed::Box;
 use std::io::Error as IoError;
 use std::sync::Arc;
 use tokio::io::{AsyncRead, AsyncWrite};
-use transport::TransportOutput;
 
 pub trait ProtocolService<T> {
     type Output;
-    fn convert_to_protocol(Arc<PeerId>, &Multiaddr, Self::Output) -> Protocol<T>;
-    fn handle(&self, Arc<Network>, Protocol<T>) -> Box<Future<Item = (), Error = IoError> + Send>;
+    fn convert_to_protocol(
+        peer_id: Arc<PeerId>,
+        addr: &Multiaddr,
+        output: Self::Output,
+    ) -> Protocol<T>;
+
+    fn handle(
+        &self,
+        _network: Arc<Network>,
+        protocol: Protocol<T>,
+    ) -> Box<Future<Item = (), Error = IoError> + Send>;
+
     fn start_protocol<SwarmTran, Tran, TranOut>(
         &self,
-        Arc<Network>,
-        SwarmController<SwarmTran, Box<Future<Item = (), Error = IoError> + Send>>,
-        Tran,
+        _network: Arc<Network>,
+        _swarm_controller: SwarmController<
+            SwarmTran,
+            Box<Future<Item = (), Error = IoError> + Send>,
+        >,
+        _transport: Tran,
     ) -> Box<Future<Item = (), Error = IoError> + Send>
     where
         SwarmTran: MuxedTransport<Output = Protocol<T>> + Clone + Send + 'static,

@@ -1,4 +1,5 @@
 use bit_vec::BitVec;
+use serde_derive::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize)]
 #[serde(remote = "BitVec")]

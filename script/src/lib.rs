@@ -1,27 +1,9 @@
-extern crate bigint;
-extern crate ckb_core;
-extern crate ckb_protocol;
-extern crate ckb_vm;
-#[cfg(test)]
-extern crate crypto;
-#[cfg(test)]
-extern crate faster_hex;
-extern crate flatbuffers;
-extern crate fnv;
-#[cfg(test)]
-extern crate hash;
-#[macro_use]
-extern crate log;
-#[cfg(test)]
-#[macro_use]
-extern crate proptest;
-
 mod syscalls;
 mod verify;
 
 use ckb_vm::Error as VMInternalError;
 
-pub use verify::TransactionScriptsVerifier;
+pub use crate::verify::TransactionScriptsVerifier;
 
 #[derive(Debug, PartialEq, Clone, Copy, Eq)]
 pub enum ScriptError {

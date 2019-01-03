@@ -9,7 +9,6 @@
 /// # Examples
 ///
 /// ```
-/// extern crate ckb_util;
 /// let bytes = ckb_util::u64_to_bytes(1u64.to_le());
 /// assert_eq!(bytes, [1, 0, 0, 0, 0, 0, 0, 0]);
 /// ```

@@ -1,15 +1,16 @@
-use super::NetworkConfig;
-use super::{Error, ErrorKind, ProtocolId};
-use ckb_protocol::CKBProtocol;
-use ckb_protocol_handler::CKBProtocolHandler;
-use ckb_protocol_handler::{CKBProtocolContext, DefaultCKBProtocolContext};
+use crate::ckb_protocol::CKBProtocol;
+use crate::ckb_protocol_handler::CKBProtocolHandler;
+use crate::ckb_protocol_handler::{CKBProtocolContext, DefaultCKBProtocolContext};
+use crate::network::Network;
+use crate::peer_store::PeerStore;
+use crate::peers_registry::PeerConnection;
+use crate::NetworkConfig;
+use crate::{Error, ErrorKind, ProtocolId};
 use ckb_util::RwLock;
 use futures::future::Future;
 use futures::sync::oneshot;
 use libp2p::core::PeerId;
-use network::Network;
-use peer_store::PeerStore;
-use peers_registry::PeerConnection;
+use log::{debug, info};
 use std::boxed::Box;
 use std::io::{Error as IoError, ErrorKind as IoErrorKind};
 use std::sync::Arc;
@@ -62,7 +63,7 @@ impl NetworkService {
         config: &NetworkConfig,
         ckb_protocols: Vec<CKBProtocol<Arc<CKBProtocolHandler>>>,
     ) -> Result<NetworkService, Error> {
-        let network = Network::build(config, ckb_protocols)?;
+        let network = Network::inner_build(config, ckb_protocols)?;
         let (close_tx, close_rx) = oneshot::channel();
         let (init_tx, init_rx) = oneshot::channel();
         let join_handle = thread::spawn({

@@ -2,6 +2,7 @@ use super::PowEngine;
 use byteorder::{ByteOrder, LittleEndian};
 use ckb_core::header::BlockNumber;
 use hash::blake2b;
+use serde_derive::Deserialize;
 use std::any::Any;
 use std::collections::HashMap;
 
@@ -286,8 +287,8 @@ impl Cuckoo {
 #[cfg(test)]
 mod test {
     use super::Cuckoo;
-    use proptest::collection::size_range;
-    use proptest::prelude::any_with;
+
+    use proptest::{collection::size_range, prelude::any_with, proptest, proptest_helper};
 
     fn _cuckoo_solve(message: &[u8]) -> bool {
         let cuckoo = Cuckoo::new(3, 6);
