@@ -1,10 +1,10 @@
 use hash::Sha3;
-use merkle_tree::{HashKernels, Tree};
+use merkle_tree::{Merge, Tree};
 use numext_fixed_hash::H256;
 
 pub struct H256Sha3;
 
-impl HashKernels for H256Sha3 {
+impl Merge for H256Sha3 {
     type Item = H256;
 
     fn merge(left: &Self::Item, right: &Self::Item) -> Self::Item {

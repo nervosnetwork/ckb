@@ -1,4 +1,4 @@
-use crate::hash::HashKernels;
+use crate::hash::Merge;
 use std::collections::VecDeque;
 
 /// Merkle tree is a tree in which every leaf node is labelled with the hash of a data block and
@@ -28,25 +28,25 @@ use std::collections::VecDeque;
 /// the two trees above can be represented as:
 /// [B0, B1, B2, B3, B4, T0, T1, T2, T3, T4, T5]
 /// [B0, B1, B2, B3, B4, B5, T0, T1, T2, T3, T4, T5, T6]
-pub struct Tree<H>
+pub struct Tree<M>
 where
-    H: HashKernels,
+    M: Merge,
 {
-    pub(crate) nodes: Vec<H::Item>,
+    pub(crate) nodes: Vec<M::Item>,
 }
 
-impl<H> Tree<H>
+impl<M> Tree<M>
 where
-    H: HashKernels,
-    <H as HashKernels>::Item: Clone + Default,
+    M: Merge,
+    <M as Merge>::Item: Clone + Default,
 {
     /// Create a merkle tree with leaves
     /// # Examples
     /// ```
-    /// use merkle_tree::{HashKernels, Tree};
+    /// use merkle_tree::{Merge, Tree};
     /// struct DummyHash;
     ///
-    /// impl HashKernels for DummyHash {
+    /// impl Merge for DummyHash {
     ///     type Item = i32;
     ///
     ///     fn merge(left: &Self::Item, right: &Self::Item) -> Self::Item {
@@ -59,15 +59,15 @@ where
     /// assert_eq!(vec![1, 0, 1, 2, 2, 2, 3, 5, 7, 11, 13], tree.nodes());
     /// assert_eq!(Some(1), tree.root());
     /// ```
-    pub fn new(leaves: &[H::Item]) -> Self {
+    pub fn new(leaves: &[M::Item]) -> Self {
         let len = leaves.len();
         if len > 0 {
-            let mut vec = vec![H::Item::default(); len - 1];
+            let mut vec = vec![M::Item::default(); len - 1];
             vec.extend(leaves.to_vec());
 
             (0..len - 1)
                 .rev()
-                .for_each(|i| vec[i] = H::merge(&vec[(i << 1) + 1], &vec[(i << 1) + 2]));
+                .for_each(|i| vec[i] = M::merge(&vec[(i << 1) + 1], &vec[(i << 1) + 2]));
 
             Self { nodes: vec }
         } else {
@@ -76,17 +76,17 @@ where
     }
 
     /// Returns all nodes of the tree
-    pub fn nodes(&self) -> &[H::Item] {
+    pub fn nodes(&self) -> &[M::Item] {
         &self.nodes
     }
 
     /// Returns the root of the tree, or None if it is empty.
-    pub fn root(&self) -> Option<H::Item> {
+    pub fn root(&self) -> Option<M::Item> {
         self.nodes.first().cloned()
     }
 
     /// Build merkle root directly without tree initialization
-    pub fn build_root(leaves: &[H::Item]) -> Option<H::Item> {
+    pub fn build_root(leaves: &[M::Item]) -> Option<M::Item> {
         if leaves.is_empty() {
             return None;
         }
@@ -95,7 +95,7 @@ where
 
         let mut iter = leaves.rchunks_exact(2);
         while let Some([leaf1, leaf2]) = iter.next() {
-            queue.push_back(H::merge(leaf1, leaf2))
+            queue.push_back(M::merge(leaf1, leaf2))
         }
         if let [leaf] = iter.remainder() {
             queue.push_front(leaf.clone())
@@ -104,7 +104,7 @@ where
         while queue.len() > 1 {
             let right = queue.pop_front().unwrap();
             let left = queue.pop_front().unwrap();
-            queue.push_back(H::merge(&left, &right));
+            queue.push_back(M::merge(&left, &right));
         }
 
         queue.pop_front()
@@ -119,7 +119,7 @@ mod tests {
 
     struct DummyHash;
 
-    impl HashKernels for DummyHash {
+    impl Merge for DummyHash {
         type Item = i32;
 
         fn merge(left: &Self::Item, right: &Self::Item) -> Self::Item {

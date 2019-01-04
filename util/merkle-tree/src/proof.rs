@@ -1,4 +1,4 @@
-use crate::hash::HashKernels;
+use crate::hash::Merge;
 use crate::tree::Tree;
 use std::collections::VecDeque;
 
@@ -12,25 +12,25 @@ use std::collections::VecDeque;
 /// `leaves`: [(0, T0), (5, T5)]
 /// `lemmas`: [T4, T1, B3]
 /// `leaves_count`: 6
-pub struct Proof<H>
+pub struct Proof<M>
 where
-    H: HashKernels,
+    M: Merge,
 {
     /// a partial leaves collection keeps the items sorted based on index
-    pub leaves: Vec<(usize, H::Item)>,
+    pub leaves: Vec<(usize, M::Item)>,
     /// non-calculable nodes, stored in descending order
-    pub lemmas: Vec<H::Item>,
+    pub lemmas: Vec<M::Item>,
     /// total leaves count
     pub leaves_count: usize,
 }
 
-impl<H> Proof<H>
+impl<M> Proof<M>
 where
-    H: HashKernels,
-    <H as HashKernels>::Item: Clone + Default,
+    M: Merge,
+    <M as Merge>::Item: Clone + Default,
 {
     /// Returns the root of the proof, or None if it is empty or lemmas are invalid
-    pub fn root(&self) -> Option<H::Item> {
+    pub fn root(&self) -> Option<M::Item> {
         if self.leaves_count == 0 {
             return None;
         }
@@ -61,9 +61,9 @@ where
                 _ => lemmas_iter.next().cloned(),
             } {
                 let parent_node = if index.is_left() {
-                    H::merge(&node, &sibling)
+                    M::merge(&node, &sibling)
                 } else {
-                    H::merge(&sibling, &node)
+                    M::merge(&sibling, &node)
                 };
                 queue.push_back((index.parent(), parent_node));
             }
@@ -73,14 +73,14 @@ where
     }
 }
 
-impl<H> Tree<H>
+impl<M> Tree<M>
 where
-    H: HashKernels,
-    <H as HashKernels>::Item: Clone + Default,
+    M: Merge,
+    <M as Merge>::Item: Clone + Default,
 {
     /// Returns the proof of the tree, or None if it is empty.
     /// Assumes that the `leaf_indexes` is sorted.
-    pub fn get_proof(&self, leaf_indexes: &[usize]) -> Option<Proof<H>> {
+    pub fn get_proof(&self, leaf_indexes: &[usize]) -> Option<Proof<M>> {
         let leaves_count = (self.nodes.len() >> 1) + 1;
 
         if self.nodes.is_empty()
@@ -156,7 +156,7 @@ mod tests {
     use rand::{thread_rng, Rng};
     struct DummyHash;
 
-    impl HashKernels for DummyHash {
+    impl Merge for DummyHash {
         type Item = i32;
 
         fn merge(left: &Self::Item, right: &Self::Item) -> Self::Item {
