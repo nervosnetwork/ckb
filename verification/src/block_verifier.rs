@@ -6,6 +6,7 @@ use ckb_core::block::Block;
 use ckb_core::cell::{CellProvider, CellStatus};
 use ckb_core::header::Header;
 use ckb_core::transaction::{Capacity, CellInput, OutPoint};
+use ckb_core::Cycle;
 use ckb_shared::shared::ChainProvider;
 use fnv::{FnvHashMap, FnvHashSet};
 use merkle_root::merkle_root;
@@ -447,26 +448,30 @@ impl<P: ChainProvider + CellProvider> TransactionsVerifier<P> {
         };
 
         let parent_hash = block.header().parent_hash();
+        let max_cycles = self.provider.consensus().max_block_cycles();
         // make verifiers orthogonal
         // skip first tx, assume the first is cellbase, other verifier will verify cellbase
-        let err: Vec<(usize, TransactionError)> = block
+        let results: Vec<Result<Cycle, TransactionError>> = block
             .commit_transactions()
             .par_iter()
             .skip(1)
             .map(|x| wrapper.resolve_transaction_at(x, &parent_hash))
-            .enumerate()
-            .filter_map(|(index, tx)| {
-                TransactionVerifier::new(&tx)
-                    .verify()
-                    .err()
-                    .map(|e| (index, e))
-            })
+            .map(|tx| TransactionVerifier::new(&tx).verify(max_cycles))
             .collect();
-        if err.is_empty() {
-            Ok(())
-        } else {
-            Err(Error::Transactions(err))
+        let err: Vec<(usize, TransactionError)> = results
+            .iter()
+            .enumerate()
+            .filter_map(|(index, result)| result.err().map(|e| (index, e)))
+            .collect();
+        if !err.is_empty() {
+            return Err(Error::Transactions(err));
         }
+        // Verify that sum of actual transaction cycles do not exceed max_cycles
+        let cycles: Cycle = results.iter().map(|result| result.unwrap_or(0)).sum();
+        if cycles > max_cycles {
+            return Err(Error::ExceededMaximumCycles);
+        }
+        Ok(())
     }
 }
 

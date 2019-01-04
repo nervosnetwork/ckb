@@ -1,7 +1,7 @@
 use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::header::HeaderBuilder;
 use ckb_core::transaction::Capacity;
-use ckb_core::BlockNumber;
+use ckb_core::{BlockNumber, Cycle};
 use ckb_pow::{Pow, PowEngine};
 use numext_fixed_uint::U256;
 use std::sync::Arc;
@@ -19,6 +19,8 @@ pub const MEDIAN_TIME_BLOCK_COUNT: usize = 11;
 pub const ORPHAN_RATE_TARGET: f32 = 0.1;
 pub const POW_TIME_SPAN: u64 = 12 * 60 * 60 * 1000; // 12 hours
 pub const POW_SPACING: u64 = 15 * 1000; //15s
+
+pub const MAX_BLOCK_CYCLES: Cycle = 100000000;
 
 #[derive(Clone, PartialEq, Debug)]
 pub struct Consensus {
@@ -40,6 +42,8 @@ pub struct Consensus {
     pub cellbase_maturity: usize,
     // This parameter indicates the count of past blocks used in the median time calculation
     pub median_time_block_count: usize,
+    // Maximum cycles that all the scripts in all the commit transactions can take
+    pub max_block_cycles: Cycle,
 }
 
 // genesis difficulty should not be zero
@@ -63,6 +67,7 @@ impl Default for Consensus {
             verification: true,
             cellbase_maturity: CELLBASE_MATURITY,
             median_time_block_count: MEDIAN_TIME_BLOCK_COUNT,
+            max_block_cycles: MAX_BLOCK_CYCLES,
         }
     }
 }
@@ -90,6 +95,11 @@ impl Consensus {
 
     pub fn set_verification(mut self, verification: bool) -> Self {
         self.verification = verification;
+        self
+    }
+
+    pub fn set_max_block_cycles(mut self, max_block_cycles: Cycle) -> Self {
+        self.max_block_cycles = max_block_cycles;
         self
     }
 
@@ -131,5 +141,9 @@ impl Consensus {
 
     pub fn median_time_block_count(&self) -> usize {
         self.median_time_block_count
+    }
+
+    pub fn max_block_cycles(&self) -> Cycle {
+        self.max_block_cycles
     }
 }

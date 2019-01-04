@@ -1,6 +1,7 @@
 use crate::error::TransactionError;
 use ckb_core::cell::ResolvedTransaction;
 use ckb_core::transaction::{Capacity, Transaction};
+use ckb_core::Cycle;
 use ckb_script::TransactionScriptsVerifier;
 use std::collections::HashSet;
 
@@ -25,15 +26,15 @@ impl<'a> TransactionVerifier<'a> {
         }
     }
 
-    pub fn verify(&self) -> Result<(), TransactionError> {
+    pub fn verify(&self, max_cycles: Cycle) -> Result<Cycle, TransactionError> {
         self.empty.verify()?;
         self.null.verify()?;
         self.capacity.verify()?;
         self.duplicate_inputs.verify()?;
         // InputVerifier should be executed before ScriptVerifier
         self.inputs.verify()?;
-        self.script.verify()?;
-        Ok(())
+        let cycles = self.script.verify(max_cycles)?;
+        Ok(cycles)
     }
 }
 
@@ -88,9 +89,9 @@ impl<'a> ScriptVerifier<'a> {
         }
     }
 
-    pub fn verify(&self) -> Result<(), TransactionError> {
+    pub fn verify(&self, max_cycles: Cycle) -> Result<Cycle, TransactionError> {
         TransactionScriptsVerifier::new(&self.resolved_transaction)
-            .verify()
+            .verify(max_cycles)
             .map_err(TransactionError::ScriptFailure)
     }
 }

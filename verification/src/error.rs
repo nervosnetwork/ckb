@@ -40,6 +40,9 @@ pub enum Error {
     /// This error is returned when the committed transactions does not meet the 2-phases
     /// propose-then-commit consensus rule.
     Commit(CommitError),
+    /// Cycles consumed by all scripts in all commit transactions of the block exceed
+    /// the maximum allowed cycles in consensus rules
+    ExceededMaximumCycles,
 }
 
 #[derive(Debug, PartialEq, Clone, Eq)]

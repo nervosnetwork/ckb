@@ -10,7 +10,7 @@ use ckb_core::block::BlockBuilder;
 use ckb_core::header::HeaderBuilder;
 use ckb_core::script::Script;
 use ckb_core::transaction::{CellOutput, Transaction, TransactionBuilder};
-use ckb_core::Capacity;
+use ckb_core::{Capacity, Cycle};
 use ckb_pow::{Pow, PowEngine};
 use ckb_protocol::Script as FbsScript;
 use flatbuffers::FlatBufferBuilder;
@@ -37,6 +37,7 @@ pub struct ChainSpec {
 #[derive(Clone, PartialEq, Eq, Debug, Deserialize)]
 pub struct Params {
     pub initial_block_reward: Capacity,
+    pub max_block_cycles: Cycle,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug, Deserialize)]
@@ -125,6 +126,7 @@ impl ChainSpec {
             .set_id(self.name.clone())
             .set_genesis_block(genesis_block)
             .set_initial_block_reward(self.params.initial_block_reward)
+            .set_max_block_cycles(self.params.max_block_cycles)
             .set_pow(self.pow.clone());
 
         Ok(consensus)

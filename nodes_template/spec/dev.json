@@ -32,7 +32,8 @@
         "uncles_hash": "0x0000000000000000000000000000000000000000000000000000000000000000"
     },
     "params": {
-        "initial_block_reward": 50000
+        "initial_block_reward": 50000,
+        "max_block_cycles": 100000000
     },
     "system_cells": [
         {"path": "cells/always_success"}
