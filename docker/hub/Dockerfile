@@ -12,7 +12,7 @@ RUN groupadd -g 1000 ckb && useradd -m -u 1000 -g ckb -s /bin/sh ckb
 WORKDIR ${DATADIR}
 
 #apt
-RUN apt update && apt install -y --no-install-recommends openssl1.0 libssl1.0 sqlite3
+RUN apt update && apt install -y --no-install-recommends openssl1.0 libssl1.0
 
 #cleanup
 RUN apt autoremove -y

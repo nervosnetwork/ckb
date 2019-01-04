@@ -5,6 +5,9 @@ license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
 
+[features]
+db-trace = ["rusqlite/trace"]
+
 [dependencies]
 rand = "0.6"
 fnv = "1.0"
@@ -19,7 +22,7 @@ futures = { version = "0.1.19", features = ["use_std"] }
 snap = "0.2"
 libp2p = { git = "https://github.com/libp2p/rust-libp2p", rev="cfdfca1a06fb2deb9ebcc15a63d715ebddb23bd0", default-features = false, features = ["libp2p-secio", "libp2p-secio-secp256k1"] }
 faketime = "0.2.0"
-rusqlite = {version = "0.16.0", features = ["trace"]}
+rusqlite = {version = "0.16.0", features = ["bundled"]}
 lazy_static = "1.2.0"
 multihash = { git = "https://github.com/libp2p/rust-libp2p", rev="cfdfca1a06fb2deb9ebcc15a63d715ebddb23bd0" }
 r2d2 = "0.8.3"
