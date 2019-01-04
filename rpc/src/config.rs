@@ -1,32 +1,35 @@
 use serde_derive::Deserialize;
 
-const NET: &str = "Net";
-const CHAIN: &str = "Chain";
-const MINER: &str = "Miner";
-const POOL: &str = "Pool";
+#[derive(Clone, Debug, Copy, Eq, PartialEq, Deserialize)]
+pub enum Module {
+    Net,
+    Chain,
+    Miner,
+    Pool,
+}
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct Config {
     pub listen_address: String,
     pub threads: Option<usize>,
-    pub modules: Vec<String>,
+    pub modules: Vec<Module>,
     pub max_request_body_size: usize,
 }
 
 impl Config {
     pub(crate) fn net_enable(&self) -> bool {
-        self.modules.iter().any(|m| m == NET)
+        self.modules.contains(&Module::Net)
     }
 
     pub(crate) fn chain_enable(&self) -> bool {
-        self.modules.iter().any(|m| m == CHAIN)
+        self.modules.contains(&Module::Chain)
     }
 
     pub(crate) fn miner_enable(&self) -> bool {
-        self.modules.iter().any(|m| m == MINER)
+        self.modules.contains(&Module::Miner)
     }
 
     pub(crate) fn pool_enable(&self) -> bool {
-        self.modules.iter().any(|m| m == POOL)
+        self.modules.contains(&Module::Pool)
     }
 }
