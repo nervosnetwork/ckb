@@ -15,10 +15,10 @@ pub enum Error {
     Number(NumberError),
     /// The field difficulty in block header is invalid.
     Difficulty(DifficultyError),
-    /// Committed transactions verification error. It contains errors for all the transactions that
-    /// fail the verification. The errors are stored as a Vec of tuple, where the first item is the
+    /// Committed transactions verification error. It contains error for the first transaction that
+    /// fails the verification. The errors are stored as a tuple, where the first item is the
     /// transaction index in the block and the second item is the transaction verification error.
-    Transactions(Vec<(usize, TransactionError)>),
+    Transactions((usize, TransactionError)),
     /// This is a wrapper of error encountered when invoking chain API.
     Chain(SharedError),
     /// The committed transactions list is empty.

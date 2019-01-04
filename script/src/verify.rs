@@ -178,18 +178,32 @@ impl<'a> TransactionScriptsVerifier<'a> {
         let mut cycles = 0;
         for (i, input) in self.inputs.iter().enumerate() {
             let prefix = format!("Transaction {}, input {}", self.hash, i);
-            cycles += self.verify_script(&input.unlock, &prefix, self.input_cells[i], Some(input), max_cycles - cycles).map_err(|e| {
+            let cycle = self.verify_script(&input.unlock, &prefix, self.input_cells[i], Some(input), max_cycles - cycles).map_err(|e| {
                 info!(target: "script", "Error validating input {} of transaction {}: {:?}", i, self.hash, e);
                 e
             })?;
+            let current_cycles = cycles
+                .checked_add(cycle)
+                .ok_or(ScriptError::ExceededMaximumCycles)?;
+            if current_cycles > max_cycles {
+                return Err(ScriptError::ExceededMaximumCycles);
+            }
+            cycles = current_cycles;
         }
         for (i, output) in self.outputs.iter().enumerate() {
             if let Some(ref type_) = output.type_ {
                 let prefix = format!("Transaction {}, output {}", self.hash, i);
-                cycles += self.verify_script(type_, &prefix, output, None, max_cycles - cycles).map_err(|e| {
+                let cycle = self.verify_script(type_, &prefix, output, None, max_cycles - cycles).map_err(|e| {
                     info!(target: "script", "Error validating output {} of transaction {}: {:?}", i, self.hash, e);
                     e
                 })?;
+                let current_cycles = cycles
+                    .checked_add(cycle)
+                    .ok_or(ScriptError::ExceededMaximumCycles)?;
+                if current_cycles > max_cycles {
+                    return Err(ScriptError::ExceededMaximumCycles);
+                }
+                cycles = current_cycles;
             }
         }
         Ok(cycles)

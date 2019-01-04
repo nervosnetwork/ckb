@@ -1,4 +1,3 @@
-use crate::error::TransactionError;
 use crate::error::{CellbaseError, CommitError, Error, UnclesError};
 use crate::header_verifier::HeaderResolver;
 use crate::{TransactionVerifier, Verifier};
@@ -451,27 +450,47 @@ impl<P: ChainProvider + CellProvider> TransactionsVerifier<P> {
         let max_cycles = self.provider.consensus().max_block_cycles();
         // make verifiers orthogonal
         // skip first tx, assume the first is cellbase, other verifier will verify cellbase
-        let results: Vec<Result<Cycle, TransactionError>> = block
+        block
             .commit_transactions()
             .par_iter()
             .skip(1)
             .map(|x| wrapper.resolve_transaction_at(x, &parent_hash))
-            .map(|tx| TransactionVerifier::new(&tx).verify(max_cycles))
-            .collect();
-        let err: Vec<(usize, TransactionError)> = results
-            .iter()
             .enumerate()
-            .filter_map(|(index, result)| result.err().map(|e| (index, e)))
-            .collect();
-        if !err.is_empty() {
-            return Err(Error::Transactions(err));
-        }
-        // Verify that sum of actual transaction cycles do not exceed max_cycles
-        let cycles: Cycle = results.iter().map(|result| result.unwrap_or(0)).sum();
-        if cycles > max_cycles {
-            return Err(Error::ExceededMaximumCycles);
-        }
-        Ok(())
+            .try_fold(
+                || 0,
+                |cycles: Cycle, (index, tx)| {
+                    TransactionVerifier::new(&tx)
+                        .verify(max_cycles)
+                        .map_err(|e| Error::Transactions((index, e)))
+                        .and_then(|current_cycles| {
+                            cycles
+                                .checked_add(current_cycles)
+                                .ok_or(Error::ExceededMaximumCycles)
+                                .and_then(|new_cycles| {
+                                    if new_cycles > max_cycles {
+                                        Err(Error::ExceededMaximumCycles)
+                                    } else {
+                                        Ok(new_cycles)
+                                    }
+                                })
+                        })
+                },
+            )
+            .try_reduce(
+                || 0,
+                |a, b| {
+                    a.checked_add(b)
+                        .ok_or(Error::ExceededMaximumCycles)
+                        .and_then(|cycles| {
+                            if cycles > max_cycles {
+                                Err(Error::ExceededMaximumCycles)
+                            } else {
+                                Ok(cycles)
+                            }
+                        })
+                },
+            )
+            .map(|_| ())
     }
 }
 

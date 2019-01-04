@@ -13,4 +13,5 @@ pub enum ScriptError {
     ArgumentError,
     ValidationFailure(u8),
     VMError(VMInternalError),
+    ExceededMaximumCycles,
 }
