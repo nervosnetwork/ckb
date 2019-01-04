@@ -40,6 +40,7 @@ impl<'a, R: Register, M: Memory> Syscalls<R, M> for LoadInputByField<'a> {
         if machine.registers()[A7].to_u64() != LOAD_INPUT_BY_FIELD_SYSCALL_NUMBER {
             return Ok(false);
         }
+        machine.add_cycles(10);
 
         let index = machine.registers()[A3].to_usize();
         let source = Source::parse_from_u64(machine.registers()[A4].to_u64())?;
@@ -52,13 +53,14 @@ impl<'a, R: Register, M: Memory> Syscalls<R, M> for LoadInputByField<'a> {
         }
         let input = input.unwrap();
 
-        match field {
+        let data_length = match field {
             InputField::Unlock => {
                 let mut builder = FlatBufferBuilder::new();
                 let offset = FbsScript::build(&mut builder, &input.unlock);
                 builder.finish(offset, None);
                 let data = builder.finished_data();
                 store_data(machine, data)?;
+                data.len()
             }
             InputField::OutPoint => {
                 let mut builder = FlatBufferBuilder::new();
@@ -66,9 +68,11 @@ impl<'a, R: Register, M: Memory> Syscalls<R, M> for LoadInputByField<'a> {
                 builder.finish(offset, None);
                 let data = builder.finished_data();
                 store_data(machine, data)?;
+                data.len()
             }
         };
         machine.registers_mut()[A0] = R::from_u8(SUCCESS);
+        machine.add_cycles(data_length as u64 * 10);
         Ok(true)
     }
 }
