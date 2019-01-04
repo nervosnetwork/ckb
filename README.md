@@ -50,7 +50,7 @@ You also need to get the following packages：
 * Ubuntu and Debian:
 
 ```shell
-sudo apt-get install git autoconf flex bison texinfo libtool pkg-config libssl-dev libclang-dev
+sudo apt-get install git autoconf flex bison texinfo libtool pkg-config libssl-dev libclang-dev sqlite3
 ```
 
 If you are on Ubuntu 18.04, you might run into `'stdarg.h' file not found` error, this is because `librocksdb-sys` fails to find the correct include path. A temporary fix until `librocksdb-sys` fixes this problem is as follows:
@@ -63,7 +63,7 @@ sudo ln -s /usr/lib/gcc/x86_64-linux-gnu/7/include/stddef.h /usr/include/stddef.
 * Archlinux
 
 ```shell
-sudo pacman -Sy git autoconf flex bison texinfo libtool pkg-config openssl-1.0 clang
+sudo pacman -Sy git autoconf flex bison texinfo libtool pkg-config openssl-1.0 clang sqlite3
 ```
 
 If you get openssl related errors in compiling, try the following environment variables to specify openssl-1.0:
