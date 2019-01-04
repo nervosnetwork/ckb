@@ -20,7 +20,7 @@ pub const ORPHAN_RATE_TARGET: f32 = 0.1;
 pub const POW_TIME_SPAN: u64 = 12 * 60 * 60 * 1000; // 12 hours
 pub const POW_SPACING: u64 = 15 * 1000; //15s
 
-pub const MAX_BLOCK_CYCLES: Cycle = 100000000;
+pub const MAX_BLOCK_CYCLES: Cycle = 100_000_000;
 
 #[derive(Clone, PartialEq, Debug)]
 pub struct Consensus {
