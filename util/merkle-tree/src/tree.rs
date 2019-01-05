@@ -114,8 +114,9 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rand::distributions::Standard;
-    use rand::{thread_rng, Rng};
+    use proptest::collection::vec;
+    use proptest::num::i32;
+    use proptest::{proptest, proptest_helper};
 
     struct DummyHash;
 
@@ -162,11 +163,15 @@ mod tests {
         assert_eq!(Some(4), Tree::<DummyHash>::build_root(&leaves));
     }
 
-    #[test]
-    fn random() {
-        let total: usize = thread_rng().gen_range(500, 1000);
-        let leaves: Vec<i32> = thread_rng().sample_iter(&Standard).take(total).collect();
-        let tree = Tree::<DummyHash>::new(&leaves);
-        assert_eq!(Tree::<DummyHash>::build_root(&leaves), tree.root());
+    fn _build_root_is_same_as_tree_root(leaves: &[i32]) {
+        let tree = Tree::<DummyHash>::new(leaves);
+        assert_eq!(Tree::<DummyHash>::build_root(leaves), tree.root());
+    }
+
+    proptest! {
+        #[test]
+        fn build_root_is_same_as_tree_root(ref leaves in vec(i32::ANY,  0..1000)) {
+            _build_root_is_same_as_tree_root(leaves);
+        }
     }
 }

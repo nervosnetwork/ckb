@@ -152,8 +152,11 @@ impl NodeIndex for usize {
 mod tests {
     use super::*;
     use crate::tree::Tree;
-    use rand::distributions::Standard;
-    use rand::{thread_rng, Rng};
+    use proptest::collection::vec;
+    use proptest::num::i32;
+    use proptest::prelude::*;
+    use proptest::sample::subsequence;
+    use proptest::{proptest, proptest_helper};
     struct DummyHash;
 
     impl Merge for DummyHash {
@@ -235,18 +238,18 @@ mod tests {
         assert_eq!(Some(1), proof.root());
     }
 
-    #[test]
-    fn random() {
-        let total: usize = thread_rng().gen_range(500, 1000);
-        let leaves: Vec<i32> = thread_rng().sample_iter(&Standard).take(total).collect();
-        let tree = Tree::<DummyHash>::new(&leaves);
-        let mut partial = (0..thread_rng().gen_range(50, total))
-            .map(|_| thread_rng().gen_range(0, total))
-            .collect::<Vec<_>>();
-        partial.sort_unstable();
-        partial.dedup();
+    fn _tree_root_same_as_proof_root(leaves: &[i32], indexes: &[usize]) {
+        let tree = Tree::<DummyHash>::new(leaves);
+        let proof = tree.get_proof(indexes).unwrap();
+        assert_eq!(Tree::<DummyHash>::build_root(leaves), proof.root());
+    }
 
-        let proof = tree.get_proof(&partial).unwrap();
-        assert_eq!(Tree::<DummyHash>::build_root(&leaves), proof.root());
+    proptest! {
+        #[test]
+        fn tree_root_same_as_proof_root(input in vec(i32::ANY,  1..1000)
+            .prop_flat_map(|leaves| (Just(leaves.clone()), subsequence((0..leaves.len()).collect::<Vec<usize>>(), 1..leaves.len())))
+        ) {
+            _tree_root_same_as_proof_root(&input.0, &input.1);
+        }
     }
 }

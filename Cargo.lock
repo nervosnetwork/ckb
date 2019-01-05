@@ -1885,7 +1885,7 @@ dependencies = [
 name = "merkle-tree"
 version = "0.1.0"
 dependencies = [
- "rand 0.6.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "proptest 0.8.7 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
