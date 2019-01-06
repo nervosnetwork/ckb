@@ -39,6 +39,7 @@ impl<T: 'static + KeyValueDB> ChainIndex for ChainKVStore<T> {
                 received_at: genesis.header().timestamp(),
                 total_difficulty: genesis.header().difficulty().clone(),
                 total_uncles_count: 0,
+                valid: Some(true),
             };
 
             let mut cells = Vec::with_capacity(genesis.commit_transactions().len());

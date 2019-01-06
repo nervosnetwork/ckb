@@ -121,8 +121,8 @@ impl<CI: ChainIndex + 'static> Agent<CI> {
         max_prop: usize,
     ) -> Result<BlockTemplate, SharedError> {
         let (cellbase, commit_transactions, proposal_transactions, header_builder) = {
-            let tip_header = self.shared.tip_header().read();
-            let header = tip_header.inner();
+            let chain_state = self.shared.chain_state().read();
+            let header = chain_state.tip_header();
             let now = cmp::max(unix_time_as_millis(), header.timestamp() + 1);
             let difficulty = self
                 .shared
@@ -193,8 +193,8 @@ impl<CI: ChainIndex + 'static> Agent<CI> {
 
     fn get_tip_uncles(&mut self) -> Vec<UncleBlock> {
         let max_uncles_age = self.shared.consensus().max_uncles_age();
-        let tip_header = self.shared.tip_header().read();
-        let header = tip_header.inner();
+        let chain_state = self.shared.chain_state().read();
+        let header = chain_state.tip_header();
         let mut excluded = FnvHashSet::default();
 
         // cB
@@ -228,7 +228,7 @@ impl<CI: ChainIndex + 'static> Agent<CI> {
         let mut included = FnvHashSet::default();
         let mut uncles = Vec::with_capacity(max_uncles_len);
         let mut bad_uncles = Vec::new();
-        let current_number = tip_header.number() + 1;
+        let current_number = header.number() + 1;
         for (hash, block) in &self.candidate_uncles {
             if uncles.len() == max_uncles_len {
                 break;

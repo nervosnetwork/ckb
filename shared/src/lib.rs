@@ -13,6 +13,7 @@ mod flat_serializer;
 pub mod index;
 pub mod shared;
 pub mod store;
+pub mod txo_set;
 
 use ckb_db::batch::Col;
 

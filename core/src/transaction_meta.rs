@@ -44,7 +44,7 @@ impl TransactionMeta {
     }
 
     pub fn is_spent(&self, index: usize) -> bool {
-        self.output_spent.get(index).unwrap_or(false)
+        self.output_spent.get(index).unwrap_or(true)
     }
 
     pub fn set_spent(&mut self, index: usize) {

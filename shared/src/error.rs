@@ -4,6 +4,7 @@ use ckb_db::kvdb::Error as DBError;
 pub enum SharedError {
     InvalidInput,
     InvalidOutput,
+    InvalidTransaction,
     DB(DBError),
 }
 

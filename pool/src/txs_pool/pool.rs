@@ -14,7 +14,6 @@ use ckb_shared::shared::{ChainProvider, Shared};
 use ckb_verification::{TransactionError, TransactionVerifier};
 use log::error;
 use lru_cache::LruCache;
-use numext_fixed_hash::H256;
 use std::thread::{self, JoinHandle};
 
 #[cfg(test)]
@@ -131,7 +130,11 @@ where
         }
     }
 
-    fn cell_at(&self, _o: &OutPoint, _parent: &H256) -> CellStatus {
+    fn cell_at<F: Fn(&OutPoint) -> Option<bool>>(
+        &self,
+        _out_point: &OutPoint,
+        _is_spent: F,
+    ) -> CellStatus {
         unreachable!()
     }
 }
@@ -146,7 +149,7 @@ where
         shared: Shared<CI>,
         notify: NotifyController,
     ) -> TransactionPoolService<CI> {
-        let n = shared.tip_header().read().number();
+        let n = shared.chain_state().read().tip_number();
         let cache_size = config.max_cache_size;
         let prop_cap = ProposedQueue::cap();
         let ids = shared.union_proposal_ids_n(n, prop_cap);

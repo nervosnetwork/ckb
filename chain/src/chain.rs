@@ -2,16 +2,20 @@ use crate::error::ProcessBlockError;
 use channel::{self, select, Receiver, Sender};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::Block;
+use ckb_core::cell::CellProvider;
 use ckb_core::extras::BlockExt;
 use ckb_core::header::BlockNumber;
 use ckb_core::service::{Request, DEFAULT_CHANNEL_SIZE};
+use ckb_core::transaction::OutPoint;
 use ckb_db::batch::Batch;
 use ckb_notify::{ForkBlocks, NotifyController, NotifyService};
 use ckb_shared::error::SharedError;
 use ckb_shared::index::ChainIndex;
-use ckb_shared::shared::{ChainProvider, Shared, TipHeader};
-use ckb_verification::{BlockVerifier, Verifier};
+use ckb_shared::shared::{ChainProvider, ChainState, Shared};
+use ckb_shared::txo_set::TxoSetDiff;
+use ckb_verification::{verify_transactions, BlockVerifier, Verifier};
 use faketime::unix_time_as_millis;
+use fnv::{FnvHashMap, FnvHashSet};
 use log::{self, debug, error, log_enabled};
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
@@ -104,75 +108,47 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
         Ok(())
     }
 
-    fn check_transactions(&self, batch: &mut Batch, b: &Block) -> Result<H256, SharedError> {
-        let mut cells = Vec::with_capacity(b.commit_transactions().len());
-
-        for tx in b.commit_transactions() {
-            let ins = if tx.is_cellbase() {
-                Vec::new()
-            } else {
-                tx.input_pts()
-            };
-            let outs = tx.output_pts();
-
-            cells.push((ins, outs));
-        }
-
-        let root = self
-            .shared
-            .output_root(&b.header().parent_hash())
-            .ok_or(SharedError::InvalidOutput)?;
-
-        self.shared
-            .store()
-            .update_transaction_meta(batch, root, cells)
-            .ok_or(SharedError::InvalidOutput)
-    }
     #[allow(clippy::op_ref)]
     fn insert_block(&self, block: &Block) -> Result<BlockInsertionResult, SharedError> {
         let mut new_best_block = false;
-        let mut output_root = H256::zero();
         let mut total_difficulty = U256::zero();
 
         let mut old_cumulative_blks = Vec::new();
         let mut new_cumulative_blks = Vec::new();
 
-        let mut tip_header = self.shared.tip_header().write();
-        let tip_number = tip_header.number();
+        let mut txo_set_diff = TxoSetDiff::default();
+
+        let mut chain_state = self.shared.chain_state().write();
+        let tip_number = chain_state.tip_number();
+        let parent_ext = self
+            .shared
+            .store()
+            .get_block_ext(&block.header().parent_hash())
+            .expect("parent already store");
+
+        let cannon_total_difficulty = parent_ext.total_difficulty + block.header().difficulty();
+        let current_total_difficulty = chain_state.total_difficulty();
+
+        debug!(
+            target: "chain",
+            "difficulty current = {}, cannon = {}",
+            current_total_difficulty,
+            cannon_total_difficulty,
+        );
+
+        let ext = BlockExt {
+            received_at: unix_time_as_millis(),
+            total_difficulty: cannon_total_difficulty.clone(),
+            total_uncles_count: parent_ext.total_uncles_count + block.uncles().len() as u64,
+            valid: None,
+        };
+
         self.shared.store().save_with_batch(|batch| {
-            let root = self.check_transactions(batch, block)?;
-            let parent_ext = self
-                .shared
-                .store()
-                .get_block_ext(&block.header().parent_hash())
-                .expect("parent already store");
-            let cannon_total_difficulty = parent_ext.total_difficulty + block.header().difficulty();
-
-            let ext = BlockExt {
-                received_at: unix_time_as_millis(),
-                total_difficulty: cannon_total_difficulty.clone(),
-                total_uncles_count: parent_ext.total_uncles_count + block.uncles().len() as u64,
-            };
-
             self.shared.store().insert_block(batch, block);
-            self.shared
-                .store()
-                .insert_output_root(batch, &block.header().hash(), &root);
-            self.shared
-                .store()
-                .insert_block_ext(batch, &block.header().hash(), &ext);
-
-            let current_total_difficulty = tip_header.total_difficulty();
-            debug!(
-                target: "chain",
-                "difficulty current = {}, cannon = {}",
-                current_total_difficulty,
-                cannon_total_difficulty,
-            );
 
             if &cannon_total_difficulty > current_total_difficulty
                 || (current_total_difficulty == &cannon_total_difficulty
-                    && block.header().hash() < tip_header.hash())
+                    && block.header().hash() < chain_state.tip_hash())
             {
                 debug!(
                     target: "chain",
@@ -180,34 +156,39 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
                     block.header().number(), block.header().hash(),
                     &cannon_total_difficulty - current_total_difficulty
                 );
+
+                txo_set_diff = self.reconcile_main_chain(
+                    batch,
+                    tip_number,
+                    block,
+                    &mut old_cumulative_blks,
+                    &mut new_cumulative_blks,
+                    ext,
+                    &*chain_state,
+                )?;
+
+                self.shared
+                    .store()
+                    .insert_tip_header(batch, &block.header());
+
                 new_best_block = true;
-                output_root = root;
+
                 total_difficulty = cannon_total_difficulty;
+            } else {
+                self.shared
+                    .store()
+                    .insert_block_ext(batch, &block.header().hash(), &ext);
             }
             Ok(())
         })?;
 
         if new_best_block {
             debug!(target: "chain", "update index");
-            let new_tip_header =
-                TipHeader::new(block.header().clone(), total_difficulty, output_root);
-            self.shared.store().save_with_batch(|batch| {
-                self.update_index(
-                    batch,
-                    tip_number,
-                    block,
-                    &mut old_cumulative_blks,
-                    &mut new_cumulative_blks,
-                );
-                self.shared
-                    .store()
-                    .insert_tip_header(batch, &block.header());
-                self.shared
-                    .store()
-                    .rebuild_tree(new_tip_header.output_root());
-                Ok(())
-            })?;
-            *tip_header = new_tip_header;
+
+            chain_state.update_header(block.header().clone());
+            chain_state.update_difficulty(total_difficulty);
+            chain_state.update_txo_set(txo_set_diff);
+
             debug!(target: "chain", "update index release");
         }
 
@@ -237,34 +218,24 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
         }
     }
 
-    // we found new best_block total_difficulty > old_chain.total_difficulty
-    fn update_index(
-        &self,
-        batch: &mut Batch,
-        tip_number: BlockNumber,
-        block: &Block,
-        old_cumulative_blks: &mut Vec<Block>,
-        new_cumulative_blks: &mut Vec<Block>,
-    ) {
-        let mut number = block.header().number();
+    fn update_index(&self, batch: &mut Batch, old_blocks: &[Block], new_blocks: &[Block]) {
+        let old_number = match old_blocks.get(0) {
+            Some(b) => b.header().number(),
+            None => 0,
+        };
 
-        // The old fork may longer than new fork
-        if tip_number >= number {
-            for n in number..=tip_number {
-                let hash = self.shared.block_hash(n).unwrap();
-                let old_block = self.shared.block(&hash).unwrap();
-                self.shared.store().delete_block_hash(batch, n);
-                self.shared.store().delete_block_number(batch, &hash);
-                self.shared
-                    .store()
-                    .delete_transaction_address(batch, &old_block.commit_transactions());
+        let new_number = new_blocks[0].header().number();
 
-                old_cumulative_blks.push(old_block);
-            }
+        for block in old_blocks {
+            self.shared
+                .store()
+                .delete_block_number(batch, &block.header().hash());
+            self.shared
+                .store()
+                .delete_transaction_address(batch, block.commit_transactions());
         }
 
-        // The best block should always be insert
-        {
+        for block in new_blocks {
             let number = block.header().number();
             let hash = block.header().hash();
             self.shared.store().insert_block_hash(batch, number, &hash);
@@ -274,52 +245,215 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
             self.shared.store().insert_transaction_address(
                 batch,
                 &hash,
-                &block.commit_transactions(),
+                block.commit_transactions(),
             );
         }
 
-        let mut hash = block.header().parent_hash().clone();
-        number -= 1;
+        for n in new_number..old_number {
+            self.shared.store().delete_block_hash(batch, n + 1);
+        }
+    }
+
+    pub fn get_forks(
+        &self,
+        tip_number: BlockNumber,
+        block: &Block,
+        old_blocks: &mut Vec<Block>,
+        new_blocks: &mut Vec<Block>,
+        exts: &mut Vec<(H256, BlockExt)>,
+        ext: BlockExt,
+    ) -> bool {
+        let mut number = block.header().number() - 1;
+
+        // The old fork may longer than new fork
+        if number < tip_number {
+            for n in number..tip_number + 1 {
+                let hash = self.shared.block_hash(n).unwrap();
+                let old_block = self.shared.block(&hash).unwrap();
+
+                old_blocks.push(old_block);
+            }
+        }
+
+        let mut verified = ext.valid.is_some();
+        let mut hash = block.header().hash();
+
+        if !verified {
+            exts.push((hash, ext));
+        }
+
+        //TODO: remove this clone
+        new_blocks.push(block.clone());
+
+        hash = block.header().parent_hash().clone();
+
         loop {
             if let Some(old_hash) = self.shared.block_hash(number) {
                 if old_hash == hash {
+                    verified = true;
                     break;
                 }
+
                 let old_block = self.shared.block(&old_hash).unwrap();
 
-                self.shared.store().delete_block_hash(batch, number);
-                self.shared.store().delete_block_number(batch, &old_hash);
-                self.shared
-                    .store()
-                    .delete_transaction_address(batch, &old_block.commit_transactions());
-                old_cumulative_blks.push(old_block);
+                old_blocks.push(old_block);
+            }
+
+            if !verified {
+                let ext = self.shared.block_ext(&hash).unwrap();
+                if let Some(x) = ext.valid {
+                    if x {
+                        verified = true;
+                    } else {
+                        break;
+                    }
+                } else {
+                    exts.push((hash.clone(), ext));
+                }
             }
 
             let new_block = self.shared.block(&hash).unwrap();
 
-            self.shared.store().insert_block_hash(batch, number, &hash);
-            self.shared
-                .store()
-                .insert_block_number(batch, &hash, number);
-            self.shared.store().insert_transaction_address(
-                batch,
-                &hash,
-                &new_block.commit_transactions(),
-            );
-
             hash = new_block.header().parent_hash().clone();
             number -= 1;
 
-            new_cumulative_blks.push(new_block);
+            new_blocks.push(new_block);
         }
 
-        new_cumulative_blks.reverse();
+        verified
+    }
+
+    // we found new best_block total_difficulty > old_chain.total_difficulty
+    pub fn reconcile_main_chain(
+        &self,
+        batch: &mut Batch,
+        tip_number: BlockNumber,
+        block: &Block,
+        old_blocks: &mut Vec<Block>,
+        new_blocks: &mut Vec<Block>,
+        ext: BlockExt,
+        chain_state: &ChainState,
+    ) -> Result<TxoSetDiff, SharedError> {
+        let mut exts = Vec::new();
+        let mut verified =
+            self.get_forks(tip_number, block, old_blocks, new_blocks, &mut exts, ext);
+
+        //new valid block len
+        let mut new_len = 0;
+
+        let mut old_inputs = FnvHashSet::default();
+        let mut old_outputs = FnvHashSet::default();
+        let mut new_inputs = FnvHashSet::default();
+        let mut new_outputs = FnvHashMap::default();
+
+        if verified {
+            let new_blocks_iter = new_blocks.iter().rev();
+            let old_blocks_iter = old_blocks.iter().rev();
+            let new_blocks_len = new_blocks.len();
+
+            let verified_len = new_blocks_len - exts.len();
+
+            for b in old_blocks_iter.skip(verified_len) {
+                for tx in b.commit_transactions() {
+                    let input_pts = tx.input_pts();
+                    let tx_hash = tx.hash();
+
+                    for pt in input_pts {
+                        old_inputs.insert(pt);
+                    }
+
+                    old_outputs.insert(tx_hash);
+                }
+            }
+
+            for b in new_blocks_iter.clone().take(verified_len) {
+                for tx in b.commit_transactions() {
+                    let input_pts = tx.input_pts();
+                    let tx_hash = tx.hash();
+                    let output_len = tx.outputs().len();
+                    for pt in input_pts {
+                        new_inputs.insert(pt);
+                    }
+
+                    new_outputs.insert(tx_hash, output_len);
+                }
+            }
+
+            for b in new_blocks_iter.clone().skip(verified_len) {
+                if verify_transactions(b, |op| {
+                    self.shared.cell_at(op, |op| {
+                        if new_inputs.contains(op) {
+                            Some(true)
+                        } else if let Some(x) = new_outputs.get(&op.hash) {
+                            if op.index < (*x as u32) {
+                                Some(false)
+                            } else {
+                                Some(true)
+                            }
+                        } else if old_outputs.contains(&op.hash) {
+                            None
+                        } else {
+                            chain_state
+                                .is_spent(op)
+                                .map(|x| x && !old_inputs.contains(op))
+                        }
+                    })
+                })
+                .is_ok()
+                {
+                    for tx in b.commit_transactions() {
+                        let input_pts = tx.input_pts();
+                        let tx_hash = tx.hash();
+                        let output_len = tx.outputs().len();
+                        for pt in input_pts {
+                            new_inputs.insert(pt);
+                        }
+
+                        new_outputs.insert(tx_hash, output_len);
+                    }
+                    new_len += 1;
+                } else {
+                    verified = false;
+                    break;
+                }
+            }
+        }
+
+        for (hash, ext) in exts.iter_mut().rev().take(new_len) {
+            ext.valid = Some(true);
+            self.shared.store().insert_block_ext(batch, hash, ext);
+        }
+
+        for (hash, ext) in exts.iter_mut().rev().skip(new_len) {
+            ext.valid = Some(false);
+            self.shared.store().insert_block_ext(batch, hash, ext);
+        }
+
+        if !verified {
+            return Err(SharedError::InvalidTransaction);
+        }
+
+        self.update_index(batch, old_blocks, new_blocks);
+
+        new_blocks.reverse();
+
+        let old_inputs: Vec<OutPoint> = old_inputs.into_iter().collect();
+        let old_outputs: Vec<H256> = old_outputs.into_iter().collect();
+        let new_inputs: Vec<OutPoint> = new_inputs.into_iter().collect();
+        let new_outputs: Vec<(H256, usize)> = new_outputs.into_iter().collect();
+
+        Ok(TxoSetDiff {
+            old_inputs,
+            old_outputs,
+            new_inputs,
+            new_outputs,
+        })
     }
 
     fn print_chain(&self, len: u64) {
         debug!(target: "chain", "Chain {{");
 
-        let tip = self.shared.tip_header().read().number();
+        let tip = self.shared.chain_state().read().tip_number();
         let bottom = tip - cmp::min(tip, len);
 
         for number in (bottom..=tip).rev() {
