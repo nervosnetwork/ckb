@@ -96,7 +96,8 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
     fn process_block(&mut self, block: Arc<Block>) -> Result<(), ProcessBlockError> {
         debug!(target: "chain", "begin processing block: {}", block.header().hash());
         if self.shared.consensus().verification {
-            BlockVerifier::new(self.shared.clone())
+            let block_verifier = BlockVerifier::new(self.shared.clone());
+            block_verifier
                 .verify(&block)
                 .map_err(ProcessBlockError::Verification)?
         }

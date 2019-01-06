@@ -49,6 +49,14 @@ pub struct Script {
     pub signed_args: Vec<Vec<u8>>,
 }
 
+type ScriptTuple = (
+    u8,
+    Vec<Vec<u8>>,
+    Option<H256>,
+    Option<Vec<u8>>,
+    Vec<Vec<u8>>,
+);
+
 impl Script {
     pub fn new(
         version: u8,
@@ -64,6 +72,17 @@ impl Script {
             binary,
             signed_args,
         }
+    }
+
+    pub fn destruct(self) -> ScriptTuple {
+        let Script {
+            version,
+            args,
+            reference,
+            binary,
+            signed_args,
+        } = self;
+        (version, args, reference, binary, signed_args)
     }
 
     pub fn bytes_len(&self) -> usize {

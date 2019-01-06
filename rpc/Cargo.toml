@@ -1,12 +1,13 @@
 [package]
 name = "ckb-rpc"
-version = "0.3.0-pre"
+version = "0.4.0-pre"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
 
 [dependencies]
 numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
+numext-fixed-uint = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 ckb-core = { path = "../core" }
 ckb-network = { path = "../network" }
 ckb-shared = { path = "../shared" }
@@ -27,7 +28,9 @@ serde_json = "1.0"
 log = "0.4"
 flatbuffers = "0.5.0"
 num_cpus = "1.0"
+faster-hex = "0.3"
 
 [dev-dependencies]
 ckb-db = { path = "../db" }
 ckb-verification = { path = "../verification" }
+proptest = "0.8"

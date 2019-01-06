@@ -1,3 +1,4 @@
+use crate::block_median_time_context::BlockMedianTimeContext;
 use crate::cachedb::CacheDB;
 use crate::error::SharedError;
 use crate::index::ChainIndex;
@@ -427,6 +428,19 @@ impl<CI: ChainIndex> ChainProvider for Shared<CI> {
 
     fn consensus(&self) -> &Consensus {
         &*self.consensus
+    }
+}
+
+impl<CI: ChainIndex> BlockMedianTimeContext for Shared<CI> {
+    fn block_count(&self) -> u32 {
+        self.consensus.median_time_block_count() as u32
+    }
+    fn timestamp(&self, hash: &H256) -> Option<u64> {
+        self.block_header(hash).map(|header| header.timestamp())
+    }
+    fn parent_hash(&self, hash: &H256) -> Option<H256> {
+        self.block_header(hash)
+            .map(|header| header.parent_hash().to_owned())
     }
 }
 

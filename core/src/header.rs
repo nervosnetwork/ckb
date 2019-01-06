@@ -16,6 +16,11 @@ impl Seal {
     pub fn new(nonce: u64, proof: Vec<u8>) -> Self {
         Seal { nonce, proof }
     }
+
+    pub fn destruct(self) -> (u64, Vec<u8>) {
+        let Seal { nonce, proof } = self;
+        (nonce, proof)
+    }
 }
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug, Default)]
@@ -80,6 +85,10 @@ pub struct Header {
 impl Header {
     pub fn version(&self) -> u32 {
         self.raw.version
+    }
+
+    pub fn seal(&self) -> &Seal {
+        &self.seal
     }
 
     pub fn number(&self) -> BlockNumber {
@@ -163,6 +172,11 @@ impl HeaderBuilder {
 
     pub fn header(mut self, header: Header) -> Self {
         self.inner = header;
+        self
+    }
+
+    pub fn seal(mut self, seal: Seal) -> Self {
+        self.inner.seal = seal;
         self
     }
 

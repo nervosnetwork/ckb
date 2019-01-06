@@ -1,6 +1,6 @@
 [package]
 name = "ckb-script"
-version = "0.3.0-pre"
+version = "0.4.0-pre"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -12,7 +12,7 @@ crypto = {path = "../util/crypto"}
 ckb-core = { path = "../core" }
 hash = {path = "../util/hash"}
 ckb-vm = { git = "https://github.com/nervosnetwork/ckb-vm", rev = "f32bdcb" }
-faster-hex = "0.1"
+faster-hex = "0.3"
 fnv = "1.0.3"
 flatbuffers = "0.5.0"
 log = "0.4"

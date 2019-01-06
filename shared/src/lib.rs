@@ -7,12 +7,15 @@
 //! - [Chain](chain::chain::Chain) represent a struct which
 //!   implement `ChainProvider`
 
+pub mod block_median_time_context;
 pub mod cachedb;
 pub mod error;
 mod flat_serializer;
 pub mod index;
 pub mod shared;
 pub mod store;
+#[cfg(test)]
+mod tests;
 pub mod txo_set;
 
 use ckb_db::batch::Col;

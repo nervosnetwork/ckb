@@ -1,9 +1,12 @@
 [package]
 name = "ckb-network"
-version = "0.3.0-pre"
+version = "0.4.0-pre"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
+
+[features]
+db-trace = ["rusqlite/trace"]
 
 [dependencies]
 rand = "0.6"
@@ -19,3 +22,18 @@ futures = { version = "0.1.19", features = ["use_std"] }
 snap = "0.2"
 libp2p = { git = "https://github.com/libp2p/rust-libp2p", rev="cfdfca1a06fb2deb9ebcc15a63d715ebddb23bd0", default-features = false, features = ["libp2p-secio", "libp2p-secio-secp256k1"] }
 faketime = "0.2.0"
+rusqlite = {version = "0.16.0", features = ["bundled"]}
+lazy_static = "1.2.0"
+multihash = { git = "https://github.com/libp2p/rust-libp2p", rev="cfdfca1a06fb2deb9ebcc15a63d715ebddb23bd0" }
+r2d2 = "0.8.3"
+r2d2_sqlite = {git = "https://github.com/jjyr/r2d2-sqlite", rev="8ade92077977c4860562b1337b95ec8ed2000711"}
+
+[dev-dependencies]
+criterion = "0.2"
+tempfile = "3.0.5"
+
+[[bench]]
+name = "sqlite_peer_store"
+harness = false
+path = "src/benches/sqlite_peer_store.rs"
+

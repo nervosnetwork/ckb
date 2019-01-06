@@ -95,8 +95,8 @@ pub enum PowError {
 
 #[derive(Debug, PartialEq, Clone, Copy, Eq)]
 pub enum TimestampError {
-    ZeroBlockTime { min: u64, found: u64 },
-    FutureBlockTime { max: u64, found: u64 },
+    BlockTimeTooOld { min: u64, found: u64 },
+    BlockTimeTooNew { max: u64, found: u64 },
 }
 
 #[derive(Debug, PartialEq, Clone, Copy, Eq)]

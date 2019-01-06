@@ -4,7 +4,6 @@ use crate::module::{
     NetworkRpc, NetworkRpcImpl, PoolRpc, PoolRpcImpl,
 };
 use ckb_chain::chain::ChainController;
-
 use ckb_miner::AgentController;
 use ckb_network::NetworkService;
 use ckb_pool::txs_pool::TransactionPoolController;

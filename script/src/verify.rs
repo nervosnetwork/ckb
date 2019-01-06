@@ -195,7 +195,7 @@ mod tests {
     use ckb_core::transaction::{CellInput, CellOutput, OutPoint, TransactionBuilder};
     use ckb_core::Capacity;
     use crypto::secp::Generator;
-    use faster_hex::hex_to;
+    use faster_hex::hex_encode;
     use hash::sha3_256;
     use numext_fixed_hash::H256;
     use std::fs::File;
@@ -233,12 +233,12 @@ mod tests {
 
         let signature_der = signature.serialize_der();
         let mut hex_signature = vec![0; signature_der.len() * 2];
-        hex_to(&signature_der, &mut hex_signature).expect("hex privkey");
+        hex_encode(&signature_der, &mut hex_signature).expect("hex privkey");
         args.insert(0, hex_signature);
 
         let privkey = privkey.pubkey().unwrap().serialize();
         let mut hex_privkey = vec![0; privkey.len() * 2];
-        hex_to(&privkey, &mut hex_privkey).expect("hex privkey");
+        hex_encode(&privkey, &mut hex_privkey).expect("hex privkey");
 
         let script = Script::new(0, args, None, Some(buffer), vec![hex_privkey]);
         let input = CellInput::new(OutPoint::null(), script);
@@ -278,14 +278,14 @@ mod tests {
 
         let signature_der = signature.serialize_der();
         let mut hex_signature = vec![0; signature_der.len() * 2];
-        hex_to(&signature_der, &mut hex_signature).expect("hex privkey");
+        hex_encode(&signature_der, &mut hex_signature).expect("hex privkey");
         args.insert(0, hex_signature);
         // This line makes the verification invalid
         args.push(b"extrastring".to_vec());
 
         let privkey = privkey.pubkey().unwrap().serialize();
         let mut hex_privkey = vec![0; privkey.len() * 2];
-        hex_to(&privkey, &mut hex_privkey).expect("hex privkey");
+        hex_encode(&privkey, &mut hex_privkey).expect("hex privkey");
 
         let script = Script::new(0, args, None, Some(buffer), vec![hex_privkey]);
         let input = CellInput::new(OutPoint::null(), script);
@@ -330,14 +330,14 @@ mod tests {
         let signature = privkey.sign_recoverable(&hash2.into()).unwrap();
         let signature_der = signature.serialize_der();
         let mut hex_signature = vec![0; signature_der.len() * 2];
-        hex_to(&signature_der, &mut hex_signature).expect("hex privkey");
+        hex_encode(&signature_der, &mut hex_signature).expect("hex privkey");
         args.insert(0, hex_signature);
 
         let dep_out_point = OutPoint::new(H256::from_trimmed_hex_str("123").unwrap(), 8);
         let dep_cell = CellOutput::new(buffer.len() as Capacity, buffer, H256::zero(), None);
         let privkey = privkey.pubkey().unwrap().serialize();
         let mut hex_privkey = vec![0; privkey.len() * 2];
-        hex_to(&privkey, &mut hex_privkey).expect("hex privkey");
+        hex_encode(&privkey, &mut hex_privkey).expect("hex privkey");
 
         let script = Script::new(0, args, Some(dep_cell.data_hash()), None, vec![hex_privkey]);
         let input = CellInput::new(OutPoint::null(), script);
@@ -375,14 +375,14 @@ mod tests {
         let signature = privkey.sign_recoverable(&hash2.into()).unwrap();
         let signature_der = signature.serialize_der();
         let mut hex_signature = vec![0; signature_der.len() * 2];
-        hex_to(&signature_der, &mut hex_signature).expect("hex privkey");
+        hex_encode(&signature_der, &mut hex_signature).expect("hex privkey");
         args.insert(0, hex_signature);
 
         let dep_out_point = OutPoint::new(H256::from_trimmed_hex_str("123").unwrap(), 8);
 
         let privkey = privkey.pubkey().unwrap().serialize();
         let mut hex_privkey = vec![0; privkey.len() * 2];
-        hex_to(&privkey, &mut hex_privkey).expect("hex privkey");
+        hex_encode(&privkey, &mut hex_privkey).expect("hex privkey");
         let script = Script::new(
             0,
             args,
@@ -439,12 +439,12 @@ mod tests {
 
         let signature_der = signature.serialize_der();
         let mut hex_signature = vec![0; signature_der.len() * 2];
-        hex_to(&signature_der, &mut hex_signature).expect("hex privkey");
+        hex_encode(&signature_der, &mut hex_signature).expect("hex privkey");
         args.insert(0, hex_signature);
 
         let privkey = privkey.pubkey().unwrap().serialize();
         let mut hex_privkey = vec![0; privkey.len() * 2];
-        hex_to(&privkey, &mut hex_privkey).expect("hex privkey");
+        hex_encode(&privkey, &mut hex_privkey).expect("hex privkey");
 
         let script = Script::new(0, args, None, Some(buffer), vec![hex_privkey]);
         let input = CellInput::new(OutPoint::null(), create_always_success_script());
@@ -488,14 +488,14 @@ mod tests {
 
         let signature_der = signature.serialize_der();
         let mut hex_signature = vec![0; signature_der.len() * 2];
-        hex_to(&signature_der, &mut hex_signature).expect("hex privkey");
+        hex_encode(&signature_der, &mut hex_signature).expect("hex privkey");
         args.insert(0, hex_signature);
         // This line makes the verification invalid
         args.push(b"extrastring".to_vec());
 
         let privkey = privkey.pubkey().unwrap().serialize();
         let mut hex_privkey = vec![0; privkey.len() * 2];
-        hex_to(&privkey, &mut hex_privkey).expect("hex privkey");
+        hex_encode(&privkey, &mut hex_privkey).expect("hex privkey");
 
         let script = Script::new(0, args, None, Some(buffer), vec![hex_privkey]);
         let input = CellInput::new(OutPoint::null(), create_always_success_script());
