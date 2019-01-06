@@ -55,13 +55,9 @@ impl<T: 'static + KeyValueDB> ChainIndex for ChainKVStore<T> {
                 cells.push((ins, outs));
             }
 
-            let output_root = self
-                .update_transaction_meta(batch, H256::zero(), cells)
-                .ok_or(SharedError::InvalidOutput)?;
             self.insert_block(batch, genesis);
             self.insert_block_ext(batch, &genesis_hash, &ext);
             self.insert_tip_header(batch, &genesis.header());
-            self.insert_output_root(batch, &genesis_hash, &output_root);
             self.insert_block_hash(batch, 0, &genesis_hash);
             self.insert_block_number(batch, &genesis_hash, 0);
             self.insert_transaction_address(batch, &genesis_hash, genesis.commit_transactions());
