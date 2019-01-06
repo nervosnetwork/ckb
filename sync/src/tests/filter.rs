@@ -1,6 +1,5 @@
 use crate::types::TransactionFilter;
-use ckb_core::transaction::{CellInput, CellOutput, OutPoint, Transaction, TransactionBuilder};
-use numext_fixed_hash::H256;
+use ckb_core::transaction::TransactionBuilder;
 
 #[test]
 fn transaction_filter() {

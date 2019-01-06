@@ -176,7 +176,7 @@ mod tests {
             }
         }
 
-        fn cell_at(&self, o: &OutPoint, _: &H256) -> CellStatus {
+        fn cell_at<F: Fn(&OutPoint) -> Option<bool>>(&self, o: &OutPoint, _: F) -> CellStatus {
             match self.cells.get(o) {
                 Some(&Some(ref cell_output)) => CellStatus::Live(cell_output.clone()),
                 Some(&None) => CellStatus::Dead,
