@@ -57,7 +57,7 @@ impl<CI: ChainIndex + 'static> ChainRpc for ChainRpcImpl<CI> {
     }
 
     fn get_tip_header(&self) -> Result<Header> {
-        Ok(self.shared.tip_header().read().inner().into())
+        Ok(self.shared.chain_state().read().tip_header().clone())
     }
 
     // TODO: we need to build a proper index instead of scanning every time
@@ -74,11 +74,11 @@ impl<CI: ChainIndex + 'static> ChainRpc for ChainRpcImpl<CI> {
                     .shared
                     .block(&block_hash)
                     .ok_or_else(Error::internal_error)?;
-                let tip_header = self.shared.tip_header().read();
+                let chain_state = self.shared.chain_state().read();
                 for transaction in block.commit_transactions() {
-                    let transaction_meta = self
-                        .shared
-                        .get_transaction_meta(&tip_header.output_root(), &transaction.hash())
+                    let transaction_meta = chain_state
+                        .txo_set()
+                        .get(&transaction.hash())
                         .ok_or_else(Error::internal_error)?;
                     for (i, output) in transaction.outputs().iter().enumerate() {
                         if output.lock == type_hash && (!transaction_meta.is_spent(i)) {
@@ -103,6 +103,6 @@ impl<CI: ChainIndex + 'static> ChainRpc for ChainRpcImpl<CI> {
     }
 
     fn get_tip_block_number(&self) -> Result<BlockNumber> {
-        Ok(self.shared.tip_header().read().number())
+        Ok(self.shared.chain_state().read().tip_number())
     }
 }

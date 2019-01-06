@@ -2,14 +2,13 @@ use crate::error::{CellbaseError, CommitError, Error, UnclesError};
 use crate::header_verifier::HeaderResolver;
 use crate::{TransactionVerifier, Verifier};
 use ckb_core::block::Block;
-use ckb_core::cell::{CellProvider, CellStatus};
+use ckb_core::cell::{resolve_transaction, CellProvider, CellStatus, ResolvedTransaction};
 use ckb_core::header::Header;
 use ckb_core::transaction::{Capacity, CellInput, OutPoint};
 use ckb_core::Cycle;
 use ckb_shared::shared::ChainProvider;
 use fnv::{FnvHashMap, FnvHashSet};
 use merkle_root::merkle_root;
-use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use std::collections::HashSet;
@@ -29,8 +28,6 @@ pub struct BlockVerifier<P> {
     uncles: UnclesVerifier<P>,
     // Verify the the propose-then-commit consensus rule
     commit: CommitVerifier<P>,
-    // Verify all the committed transactions through TransactionVerifier
-    transactions: TransactionsVerifier<P>,
 }
 
 impl<P> BlockVerifier<P>
@@ -46,7 +43,6 @@ where
             merkle_root: MerkleRootVerifier::new(),
             uncles: UnclesVerifier::new(provider.clone()),
             commit: CommitVerifier::new(provider.clone()),
-            transactions: TransactionsVerifier::new(provider),
         }
     }
 }
@@ -62,8 +58,7 @@ impl<P: ChainProvider + CellProvider + Clone> Verifier for BlockVerifier<P> {
         self.cellbase.verify(target)?;
         self.merkle_root.verify(target)?;
         self.commit.verify(target)?;
-        self.uncles.verify(target)?;
-        self.transactions.verify(target)
+        self.uncles.verify(target)
     }
 }
 
@@ -391,47 +386,15 @@ impl<CP: ChainProvider + Clone> UnclesVerifier<CP> {
     }
 }
 
-#[derive(Clone)]
-pub struct TransactionsVerifier<P> {
-    provider: P,
-}
+pub fn verify_transactions<F: Fn(&OutPoint) -> CellStatus>(
+    block: &Block,
+    cell: F,
+) -> Result<(), Error> {
+    let mut output_indexs = FnvHashMap::default();
+    let mut seen_inputs = FnvHashSet::default();
 
-struct TransactionsVerifierWrapper<'a, P: CellProvider + 'a> {
-    verifier: &'a TransactionsVerifier<P>,
-    block: &'a Block,
-    output_indexs: FnvHashMap<H256, usize>,
-}
-
-impl<'a, P: CellProvider> CellProvider for TransactionsVerifierWrapper<'a, P> {
-    fn cell(&self, _o: &OutPoint) -> CellStatus {
-        unreachable!()
-    }
-
-    fn cell_at(&self, o: &OutPoint, parent: &H256) -> CellStatus {
-        if let Some(i) = self.output_indexs.get(&o.hash) {
-            match self.block.commit_transactions()[*i]
-                .outputs()
-                .get(o.index as usize)
-            {
-                Some(x) => CellStatus::Live(x.clone()),
-                None => CellStatus::Unknown,
-            }
-        } else {
-            let chain_cell_state = self.verifier.provider.cell_at(o, parent);
-            if chain_cell_state.is_live() {
-                CellStatus::Live(chain_cell_state.take_live().expect("state checked"))
-            } else if chain_cell_state.is_dead() {
-                CellStatus::Dead
-            } else {
-                CellStatus::Unknown
-            }
-        }
-    }
-}
-
-impl<P: ChainProvider + CellProvider> TransactionsVerifier<P> {
-    pub fn new(provider: P) -> Self {
-        TransactionsVerifier { provider }
+    for (i, tx) in block.commit_transactions().iter().enumerate() {
+        output_indexs.insert(tx.hash(), i);
     }
 
     pub fn verify(&self, block: &Block) -> Result<(), Error> {

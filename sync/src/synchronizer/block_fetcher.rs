@@ -7,17 +7,19 @@ use crate::{
 use ckb_core::header::Header;
 use ckb_network::PeerIndex;
 use ckb_shared::index::ChainIndex;
-use ckb_shared::shared::{ChainProvider, TipHeader};
+use ckb_shared::shared::ChainProvider;
 use ckb_util::{try_option, RwLockUpgradableReadGuard};
 use faketime::unix_time_as_millis;
 use log::debug;
 use numext_fixed_hash::H256;
+use numext_fixed_uint::U256;
 use std::cmp;
 
 pub struct BlockFetcher<CI: ChainIndex> {
     synchronizer: Synchronizer<CI>,
     peer: PeerIndex,
-    tip_header: TipHeader,
+    tip_header: Header,
+    total_difficulty: U256,
 }
 
 impl<CI> BlockFetcher<CI>
@@ -25,11 +27,18 @@ where
     CI: ChainIndex,
 {
     pub fn new(synchronizer: Synchronizer<CI>, peer: PeerIndex) -> Self {
-        let tip_header = synchronizer.shared.tip_header().read().clone();
+        let (tip_header, total_difficulty) = {
+            let chain_state = synchronizer.shared.chain_state().read();
+            (
+                chain_state.tip_header().clone(),
+                chain_state.total_difficulty().clone(),
+            )
+        };
         BlockFetcher {
-            tip_header,
             peer,
             synchronizer,
+            tip_header,
+            total_difficulty,
         }
     }
     pub fn initial_and_check_inflight(&self) -> bool {
@@ -53,7 +62,7 @@ where
     }
 
     pub fn is_better_chain(&self, header: &HeaderView) -> bool {
-        header.total_difficulty() >= self.tip_header.total_difficulty()
+        header.total_difficulty() >= &self.total_difficulty
     }
 
     pub fn peer_best_known_header(&self) -> Option<HeaderView> {
@@ -77,7 +86,7 @@ where
                 let last_common_hash = self.synchronizer.shared.block_hash(best.number())?;
                 self.synchronizer.shared.block_header(&last_common_hash)
             } else {
-                Some(self.tip_header.inner().clone())
+                Some(self.tip_header.clone())
             }
         }));
 
@@ -140,7 +149,7 @@ where
                 target: "sync",
                 "[block downloader] best_known_header {} chain {}",
                 best_known_header.total_difficulty(),
-                self.tip_header.total_difficulty()
+                self.total_difficulty
             );
             return None;
         }
