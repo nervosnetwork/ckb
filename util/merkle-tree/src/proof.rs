@@ -238,7 +238,7 @@ mod tests {
         assert_eq!(Some(1), proof.root());
     }
 
-    fn _tree_root_same_as_proof_root(leaves: &[i32], indexes: &[usize]) {
+    fn _tree_root_is_same_as_proof_root(leaves: &[i32], indexes: &[usize]) {
         let tree = Tree::<DummyHash>::new(leaves);
         let proof = tree.get_proof(indexes).unwrap();
         assert_eq!(Tree::<DummyHash>::build_root(leaves), proof.root());
@@ -246,10 +246,10 @@ mod tests {
 
     proptest! {
         #[test]
-        fn tree_root_same_as_proof_root(input in vec(i32::ANY,  1..1000)
+        fn tree_root_is_same_as_proof_root(input in vec(i32::ANY,  2..1000)
             .prop_flat_map(|leaves| (Just(leaves.clone()), subsequence((0..leaves.len()).collect::<Vec<usize>>(), 1..leaves.len())))
         ) {
-            _tree_root_same_as_proof_root(&input.0, &input.1);
+            _tree_root_is_same_as_proof_root(&input.0, &input.1);
         }
     }
 }
