@@ -210,8 +210,6 @@ pub trait ChainProvider: Sync + Send {
 
     fn block_ext(&self, hash: &H256) -> Option<BlockExt>;
 
-    fn output_root(&self, hash: &H256) -> Option<H256>;
-
     fn block_number(&self, hash: &H256) -> Option<BlockNumber>;
 
     fn block(&self, hash: &H256) -> Option<Block>;
@@ -221,10 +219,6 @@ pub trait ChainProvider: Sync + Send {
     fn get_transaction(&self, hash: &H256) -> Option<Transaction>;
 
     fn contain_transaction(&self, hash: &H256) -> bool;
-
-    fn get_transaction_meta(&self, output_root: &H256, hash: &H256) -> Option<TransactionMeta>;
-
-    fn get_transaction_meta_at(&self, hash: &H256, parent: &H256) -> Option<TransactionMeta>;
 
     fn block_reward(&self, block_number: BlockNumber) -> Capacity;
 
@@ -278,25 +272,12 @@ impl<CI: ChainIndex> ChainProvider for Shared<CI> {
         self.consensus.genesis_block().header().hash()
     }
 
-    fn output_root(&self, hash: &H256) -> Option<H256> {
-        self.store.get_output_root(hash)
-    }
-
     fn get_transaction(&self, hash: &H256) -> Option<Transaction> {
         self.store.get_transaction(hash)
     }
 
     fn contain_transaction(&self, hash: &H256) -> bool {
         self.store.get_transaction_address(hash).is_some()
-    }
-
-    fn get_transaction_meta(&self, output_root: &H256, hash: &H256) -> Option<TransactionMeta> {
-        self.store.get_transaction_meta(output_root, hash)
-    }
-
-    fn get_transaction_meta_at(&self, hash: &H256, parent: &H256) -> Option<TransactionMeta> {
-        self.output_root(parent)
-            .and_then(|ref root| self.store.get_transaction_meta(root, hash))
     }
 
     fn block_reward(&self, _block_number: BlockNumber) -> Capacity {

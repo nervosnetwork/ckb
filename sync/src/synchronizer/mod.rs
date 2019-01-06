@@ -436,7 +436,7 @@ impl<CI: ChainIndex> Synchronizer<CI> {
         let block = Arc::new(block);
         if self
             .shared
-            .output_root(&block.header().parent_hash())
+            .block_header(&block.header().parent_hash())
             .is_some()
         {
             let accept_ret = self.accept_block(peer, &block);
@@ -448,7 +448,7 @@ impl<CI: ChainIndex> Synchronizer<CI> {
                     let block = Arc::new(block);
                     if self
                         .shared
-                        .output_root(&block.header().parent_hash())
+                        .block_header(&block.header().parent_hash())
                         .is_some()
                     {
                         let ret = self.accept_block(peer, &block);

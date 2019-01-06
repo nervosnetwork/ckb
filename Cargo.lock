@@ -77,6 +77,7 @@ version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
+<<<<<<< HEAD
 name = "avl-merkle"
 version = "0.5.0-pre"
 dependencies = [
@@ -90,6 +91,8 @@ dependencies = [
 ]
 
 [[package]]
+=======
+>>>>>>> remove avl
 name = "backtrace"
 version = "0.3.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -605,7 +608,6 @@ dependencies = [
 name = "ckb-shared"
 version = "0.5.0-pre"
 dependencies = [
- "avl-merkle 0.5.0-pre",
  "bincode 1.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "ckb-chain-spec 0.5.0-pre",
  "ckb-core 0.5.0-pre",

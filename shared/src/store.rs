@@ -3,39 +3,28 @@ use crate::flat_serializer::{serialize as flat_serialize, Address};
 use crate::{
     COLUMN_BLOCK_BODY, COLUMN_BLOCK_HEADER, COLUMN_BLOCK_PROPOSAL_IDS,
     COLUMN_BLOCK_TRANSACTION_ADDRESSES, COLUMN_BLOCK_TRANSACTION_IDS, COLUMN_BLOCK_UNCLE,
-    COLUMN_EXT, COLUMN_OUTPUT_ROOT, COLUMN_TRANSACTION_META,
+    COLUMN_EXT,
 };
-use avl::node::search;
-use avl::tree::AvlTree;
 use bincode::{deserialize, serialize};
 use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::extras::BlockExt;
 use ckb_core::header::{Header, HeaderBuilder};
-use ckb_core::transaction::{OutPoint, ProposalShortId, Transaction, TransactionBuilder};
-use ckb_core::transaction_meta::TransactionMeta;
+use ckb_core::transaction::{ProposalShortId, Transaction, TransactionBuilder};
 use ckb_core::uncle::UncleBlock;
 use ckb_db::batch::{Batch, Col};
 use ckb_db::kvdb::KeyValueDB;
-use ckb_util::RwLock;
 use numext_fixed_hash::H256;
 use std::ops::Range;
 use std::sync::Arc;
 
 pub struct ChainKVStore<T: KeyValueDB> {
     pub db: Arc<T>,
-    tree: RwLock<AvlTree>,
 }
 
 impl<T: 'static + KeyValueDB> ChainKVStore<T> {
     pub fn new(db: T) -> Self {
         let db = Arc::new(db);
-        let tree = RwLock::new(AvlTree::new(
-            Arc::<T>::clone(&db),
-            COLUMN_TRANSACTION_META,
-            H256::zero(),
-        ));
-
-        ChainKVStore { db, tree }
+        ChainKVStore { db }
     }
 
     pub fn get(&self, col: Col, key: &[u8]) -> Option<Vec<u8>> {
@@ -60,23 +49,12 @@ where
 pub trait ChainStore: Sync + Send {
     fn get_block(&self, block_hash: &H256) -> Option<Block>;
     fn get_header(&self, block_hash: &H256) -> Option<Header>;
-    fn get_output_root(&self, block_hash: &H256) -> Option<H256>;
     fn get_block_body(&self, block_hash: &H256) -> Option<Vec<Transaction>>;
     fn get_block_proposal_txs_ids(&self, h: &H256) -> Option<Vec<ProposalShortId>>;
     fn get_block_uncles(&self, block_hash: &H256) -> Option<Vec<UncleBlock>>;
-    fn get_transaction_meta(&self, root: &H256, key: &H256) -> Option<TransactionMeta>;
     fn get_block_ext(&self, block_hash: &H256) -> Option<BlockExt>;
-
-    fn update_transaction_meta(
-        &self,
-        batch: &mut Batch,
-        root: H256,
-        cells: Vec<(Vec<OutPoint>, Vec<OutPoint>)>,
-    ) -> Option<H256>;
-
     fn insert_block(&self, batch: &mut Batch, b: &Block);
     fn insert_block_ext(&self, batch: &mut Batch, block_hash: &H256, ext: &BlockExt);
-    fn insert_output_root(&self, batch: &mut Batch, block_hash: &H256, r: &H256);
     fn save_with_batch<F: FnOnce(&mut Batch) -> Result<(), SharedError>>(
         &self,
         f: F,
@@ -92,9 +70,6 @@ pub trait ChainStore: Sync + Send {
             head: Some(head),
         }
     }
-
-    ///  Rebuild output tree
-    fn rebuild_tree(&self, r: &H256);
 }
 
 impl<'a, T: ChainStore> Iterator for ChainStoreHeaderIterator<'a, T> {
@@ -187,77 +162,6 @@ impl<T: 'static + KeyValueDB> ChainStore for ChainKVStore<T> {
             .map(|raw| deserialize(&raw[..]).unwrap())
     }
 
-    fn get_transaction_meta(&self, root: &H256, key: &H256) -> Option<TransactionMeta> {
-        {
-            let mut tree = self.tree.write();
-            if tree.root_hash().as_ref() == Some(root) {
-                return tree.get(key).unwrap_or(None);
-            }
-        }
-        search(&*self.db, COLUMN_TRANSACTION_META, root.clone(), &key)
-            .expect("tree operation error")
-    }
-
-    fn get_output_root(&self, block_hash: &H256) -> Option<H256> {
-        self.get(COLUMN_OUTPUT_ROOT, block_hash.as_bytes())
-            .map(|raw| H256::from_slice(&raw[..]).expect("db operation should be ok"))
-    }
-
-    fn update_transaction_meta(
-        &self,
-        batch: &mut Batch,
-        root: H256,
-        cells: Vec<(Vec<OutPoint>, Vec<OutPoint>)>,
-    ) -> Option<H256> {
-        //is mut reference to self.tree will end?
-        let mut tree = self.tree.write();
-        let mut new = AvlTree::new(
-            Arc::<T>::clone(&self.db),
-            COLUMN_TRANSACTION_META,
-            root.clone(),
-        );
-        let avl = {
-            if tree.root_hash() == Some(root) {
-                &mut *tree
-            } else {
-                drop(tree);
-                &mut new
-            }
-        };
-
-        for (inputs, outputs) in cells {
-            for input in inputs {
-                if !avl
-                    .update(input.hash, input.index as usize)
-                    .expect("tree operation error")
-                {
-                    return None;
-                }
-            }
-
-            let len = outputs.len();
-
-            if len != 0 {
-                let hash = outputs[0].hash.clone();
-                let meta = TransactionMeta::new(len);
-                match avl.insert(hash, meta).expect("tree operation error") {
-                    None => {}
-                    Some(_) => {
-                        // txid must be unique in chain
-                        return None;
-                    }
-                }
-            }
-        }
-
-        Some(avl.commit(batch))
-    }
-
-    fn rebuild_tree(&self, r: &H256) {
-        let mut tree = self.tree.write();
-        tree.reconstruct(r);
-    }
-
     fn save_with_batch<F: FnOnce(&mut Batch) -> Result<(), SharedError>>(
         &self,
         f: F,
@@ -308,10 +212,6 @@ impl<T: 'static + KeyValueDB> ChainStore for ChainKVStore<T> {
     fn insert_block_ext(&self, batch: &mut Batch, block_hash: &H256, ext: &BlockExt) {
         batch.insert(COLUMN_EXT, block_hash.to_vec(), serialize(&ext).unwrap());
     }
-
-    fn insert_output_root(&self, batch: &mut Batch, block_hash: &H256, r: &H256) {
-        batch.insert(COLUMN_OUTPUT_ROOT, block_hash.to_vec(), r.to_vec());
-    }
 }
 
 #[cfg(test)]
@@ -323,6 +223,7 @@ mod tests {
     use tempfile;
 
     #[test]
+<<<<<<< HEAD
     fn save_and_get_output_root() {
         let tmp_dir = tempfile::Builder::new()
             .prefix("save_and_get_output_root")
@@ -349,6 +250,8 @@ mod tests {
     }
 
     #[test]
+=======
+>>>>>>> remove avl
     fn save_and_get_block() {
         let tmp_dir = tempfile::Builder::new()
             .prefix("save_and_get_block")
