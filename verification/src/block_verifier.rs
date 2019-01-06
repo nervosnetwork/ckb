@@ -42,7 +42,7 @@ where
             cellbase: CellbaseVerifier::new(provider.clone()),
             merkle_root: MerkleRootVerifier::new(),
             uncles: UnclesVerifier::new(provider.clone()),
-            commit: CommitVerifier::new(provider.clone()),
+            commit: CommitVerifier::new(provider),
         }
     }
 }

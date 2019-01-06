@@ -624,7 +624,7 @@ impl<CI: ChainIndex> Synchronizer<CI> {
                 )
             };
             let best_known = self.best_known_header();
-            if &total_difficulty > best_known.total_difficulty()
+            if total_difficulty > *best_known.total_difficulty()
                 || (&total_difficulty == best_known.total_difficulty()
                     && header.hash() < best_known.hash())
             {
