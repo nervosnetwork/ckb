@@ -77,7 +77,7 @@ impl ChainState {
 pub struct Shared<CI> {
     store: Arc<CI>,
     chain_state: Arc<RwLock<ChainState>>,
-    consensus: Consensus,
+    consensus: Arc<Consensus>,
 }
 
 // https://github.com/rust-lang/rust/issues/40754
@@ -86,7 +86,7 @@ impl<CI: ChainIndex> ::std::clone::Clone for Shared<CI> {
         Shared {
             store: Arc::clone(&self.store),
             chain_state: Arc::clone(&self.chain_state),
-            consensus: self.consensus.clone(),
+            consensus: Arc::clone(&self.consensus),
         }
     }
 }
@@ -123,7 +123,7 @@ impl<CI: ChainIndex> Shared<CI> {
         Shared {
             store: Arc::new(store),
             chain_state,
-            consensus,
+            consensus: Arc::new(consensus),
         }
     }
 
@@ -426,7 +426,7 @@ impl<CI: ChainIndex> ChainProvider for Shared<CI> {
     }
 
     fn consensus(&self) -> &Consensus {
-        &self.consensus
+        &*self.consensus
     }
 }
 
