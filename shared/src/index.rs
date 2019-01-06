@@ -1,4 +1,3 @@
-use crate::error::SharedError;
 use crate::flat_serializer::serialized_addresses;
 use crate::store::{ChainKVStore, ChainStore};
 use crate::{COLUMN_BLOCK_BODY, COLUMN_INDEX, COLUMN_META, COLUMN_TRANSACTION_ADDR};

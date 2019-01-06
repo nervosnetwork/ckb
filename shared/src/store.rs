@@ -309,6 +309,7 @@ mod tests {
             received_at: block.header().timestamp(),
             total_difficulty: block.header().difficulty().clone(),
             total_uncles_count: block.uncles().len() as u64,
+            valid: Some(true),
         };
 
         let hash = block.header().hash();

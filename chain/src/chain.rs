@@ -340,6 +340,7 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
         ext: BlockExt,
         chain_state: &ChainState,
     ) -> Result<TxoSetDiff, SharedError> {
+        let skip_verify = !self.shared.consensus().verification;
         let mut exts = Vec::new();
         let mut verified =
             self.get_forks(tip_number, block, old_blocks, new_blocks, &mut exts, ext);
@@ -386,26 +387,27 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
             }
 
             for b in new_blocks_iter.clone().skip(verified_len) {
-                if verify_transactions(b, |op| {
-                    self.shared.cell_at(op, |op| {
-                        if new_inputs.contains(op) {
-                            Some(true)
-                        } else if let Some(x) = new_outputs.get(&op.hash) {
-                            if op.index < (*x as u32) {
-                                Some(false)
-                            } else {
+                if skip_verify
+                    || verify_transactions(b, |op| {
+                        self.shared.cell_at(op, |op| {
+                            if new_inputs.contains(op) {
                                 Some(true)
+                            } else if let Some(x) = new_outputs.get(&op.hash) {
+                                if op.index < (*x as u32) {
+                                    Some(false)
+                                } else {
+                                    Some(true)
+                                }
+                            } else if old_outputs.contains(&op.hash) {
+                                None
+                            } else {
+                                chain_state
+                                    .is_spent(op)
+                                    .map(|x| x && !old_inputs.contains(op))
                             }
-                        } else if old_outputs.contains(&op.hash) {
-                            None
-                        } else {
-                            chain_state
-                                .is_spent(op)
-                                .map(|x| x && !old_inputs.contains(op))
-                        }
+                        })
                     })
-                })
-                .is_ok()
+                    .is_ok()
                 {
                     for tx in b.commit_transactions() {
                         let input_pts = tx.input_pts();
@@ -886,7 +888,7 @@ pub mod test {
             chain2.push(new_block.clone());
             parent = new_block.header().clone();
         }
-        let tip = shared.tip_header().read().inner().clone();
+        let tip = shared.chain_state().read().tip_header().clone();
         let total_uncles_count = shared.block_ext(&tip.hash()).unwrap().total_uncles_count;
         assert_eq!(total_uncles_count, 25);
         let difficulty = shared.calculate_difficulty(&tip).unwrap();
@@ -916,7 +918,7 @@ pub mod test {
             chain2.push(new_block.clone());
             parent = new_block.header().clone();
         }
-        let tip = shared.tip_header().read().inner().clone();
+        let tip = shared.chain_state().read().tip_header().clone();
         let total_uncles_count = shared.block_ext(&tip.hash()).unwrap().total_uncles_count;
         assert_eq!(total_uncles_count, 10);
         let difficulty = shared.calculate_difficulty(&tip).unwrap();
@@ -946,7 +948,7 @@ pub mod test {
             chain2.push(new_block.clone());
             parent = new_block.header().clone();
         }
-        let tip = shared.tip_header().read().inner().clone();
+        let tip = shared.chain_state().read().tip_header().clone();
         let total_uncles_count = shared.block_ext(&tip.hash()).unwrap().total_uncles_count;
         assert_eq!(total_uncles_count, 150);
         let difficulty = shared.calculate_difficulty(&tip).unwrap();

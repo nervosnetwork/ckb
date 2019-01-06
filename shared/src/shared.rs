@@ -11,7 +11,6 @@ use ckb_core::cell::{CellProvider, CellStatus};
 use ckb_core::extras::BlockExt;
 use ckb_core::header::{BlockNumber, Header};
 use ckb_core::transaction::{Capacity, OutPoint, ProposalShortId, Transaction};
-use ckb_core::transaction_meta::TransactionMeta;
 use ckb_core::uncle::UncleBlock;
 use ckb_db::diskdb::RocksDB;
 use ckb_db::kvdb::KeyValueDB;

@@ -4,7 +4,6 @@ use ckb_core::cell::{CellProvider, CellStatus};
 use ckb_core::extras::BlockExt;
 use ckb_core::header::{BlockNumber, Header};
 use ckb_core::transaction::{Capacity, OutPoint, ProposalShortId, Transaction};
-use ckb_core::transaction_meta::TransactionMeta;
 use ckb_core::uncle::UncleBlock;
 use ckb_shared::error::SharedError;
 use ckb_shared::shared::ChainProvider;
@@ -62,10 +61,6 @@ impl ChainProvider for DummyChainProvider {
         panic!("Not implemented!");
     }
 
-    fn output_root(&self, _hash: &H256) -> Option<H256> {
-        panic!("Not implemented!");
-    }
-
     fn block_number(&self, _hash: &H256) -> Option<BlockNumber> {
         panic!("Not implemented!");
     }
@@ -86,14 +81,6 @@ impl ChainProvider for DummyChainProvider {
         panic!("Not implemented!");
     }
 
-    fn get_transaction_meta(&self, _output_root: &H256, _hash: &H256) -> Option<TransactionMeta> {
-        panic!("Not implemented!");
-    }
-
-    fn get_transaction_meta_at(&self, _hash: &H256, _parent: &H256) -> Option<TransactionMeta> {
-        panic!("Not implemented!");
-    }
-
     fn calculate_difficulty(&self, _last: &Header) -> Option<U256> {
         panic!("Not implemented!");
     }
@@ -108,7 +95,7 @@ impl CellProvider for DummyChainProvider {
         panic!("Not implemented!");
     }
 
-    fn cell_at(&self, _out_point: &OutPoint, _parent: &H256) -> CellStatus {
+    fn cell_at<F: Fn(&OutPoint) -> Option<bool>>(&self, _o: &OutPoint, _: F) -> CellStatus {
         panic!("Not implemented!");
     }
 }
