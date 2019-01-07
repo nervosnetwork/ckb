@@ -2,6 +2,51 @@ All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
 
+# [v0.4.0](https://github.com/nervosnetwork/ckb/compare/v0.3.0...v0.4.0) (2019-01-14)
+
+
+### Bug Fixes
+
+* unnecessary shared data clone ([4bf9555](https://github.com/nervosnetwork/ckb/commit/4bf9555))
+
+### Features
+
+* upgrade to Rust 1.31.1
+* **cell model**: rename CellBase to Cellbase ([71dec8b](https://github.com/nervosnetwork/ckb/commit/71dec8b))
+* **cell model**: rename CellStatus old -> dead, current -> live ([ede5108](https://github.com/nervosnetwork/ckb/commit/ede5108))
+* **cell model**: rename OutofBound -> OutOfBound ([f348821](https://github.com/nervosnetwork/ckb/commit/f348821))
+* **cell model**: rename `CellOutput#contract` to `CellOutput#_type` ([6e128c1](https://github.com/nervosnetwork/ckb/commit/6e128c1))
+* **consensus**: add block level script cycle limit ([22adb37](https://github.com/nervosnetwork/ckb/commit/22adb37))
+* **consensus**: past blocks median time based header timestamp verification ([c63d64b](https://github.com/nervosnetwork/ckb/commit/c63d64b))
+* **infrastructure**: new merkle tree implementation ([#143](https://github.com/nervosnetwork/ckb/issues/143)) ([bb83898](https://github.com/nervosnetwork/ckb/commit/bb83898))
+* **infrastructure**: upgrade `config-rs` and use enum in config parsing ([#156](https://github.com/nervosnetwork/ckb/issues/156)) ([aebeb7f](https://github.com/nervosnetwork/ckb/commit/aebeb7f))
+* **p2p framework**: remove broken kad discovery protocol ([f2d86ba](https://github.com/nervosnetwork/ckb/commit/f2d86ba))
+* **p2p framework**: use SQLite implement PeerStore to replace current MemoryPeerStore ([#127](https://github.com/nervosnetwork/ckb/pull/127))
+* **p2p protocol**: add transaction filter ([6717b1f](https://github.com/nervosnetwork/ckb/commit/6717b1f))
+* **p2p protocol**: unify h256 and ProposalShortId serialization (#125) ([62f57c0](https://github.com/nervosnetwork/ckb/commit/62f57c0)), closes [#125](https://github.com/nervosnetwork/ckb/issues/125)
+* **peripheral**: add RPC `max_request_body_size` config ([4ecf813](https://github.com/nervosnetwork/ckb/commit/4ecf813))
+* **peripheral**: add cycle costs to CKB syscalls ([6e10311](https://github.com/nervosnetwork/ckb/commit/6e10311))
+* **peripheral**: jsonrpc types wrappers: use hex in JSON for binary fields ([dd1ed0b](https://github.com/nervosnetwork/ckb/commit/dd1ed0b))
+* **scripting**: remove obsolete secp256k1 script in CKB ([abf6b5b](https://github.com/nervosnetwork/ckb/commit/abf6b5b))
+* refactor: rename ambiguous tx error ([58cb857](https://github.com/nervosnetwork/ckb/commit/58cb857))
+
+
+### BREAKING CHANGES
+
+* JSONRPC changes, see the diff of [rpc/doc.md](https://github.com/nervosnetwork/ckb/pull/167/files#diff-4f42fac509e2d1b81953e419e628555c)
+    * Binary fields encoded as integer array are now all in 0x-prefix hex string.
+    * Rename transaction output `contract` to `type`
+    * Rename CellStatus old -> dead, current -> live
+* P2P message schema changes, see the diff of
+  [protocol/src/protocol.fbs](https://github.com/nervosnetwork/ckb/pull/167/files#diff-bc09df1e2436ea8b2e4fa1e9b2086977)
+    * Add struct `H256` for all H256 fields.
+    * Add struct `ProposalShortId`
+* Config changes, see the diff of
+  [nodes\_template/default.json](https://github.com/nervosnetwork/ckb/pull/167/files#diff-315cb39dece2d25661200bb13db8458c)
+    * Add a new option `max_request_body_size` in section `rpc`.
+    * Changed the default miner `type_hash`
+
+
 # [v0.3.0](https://github.com/nervosnetwork/ckb/compare/v0.2.0...v0.3.0) (2019-01-02)
 
 
