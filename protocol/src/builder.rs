@@ -18,6 +18,8 @@ use ckb_core::script::Script;
 use ckb_core::transaction::{CellInput, CellOutput, OutPoint, ProposalShortId, Transaction};
 use ckb_core::uncle::UncleBlock;
 use flatbuffers::{FlatBufferBuilder, WIPOffset};
+use merkle_root::H256Sha3;
+use merkle_tree::Tree;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 use rand::{thread_rng, Rng};
@@ -355,26 +357,49 @@ impl<'a> FilteredBlock<'a> {
         block: &Block,
         transactions_index: &[usize],
     ) -> WIPOffset<FilteredBlock<'b>> {
-        let transactions = transactions_index
-            .iter()
-            .map(|ti| {
-                let fbs_transaction = FbsTransaction::build(fbb, &block.commit_transactions()[*ti]);
-                let mut builder = IndexTransactionBuilder::new(fbb);
-                builder.add_index(*ti as u32);
-                builder.add_transaction(fbs_transaction);
-                builder.finish()
-            })
-            .collect::<Vec<_>>();
+        if transactions_index.is_empty() {
+            // create an empty FilteredBlock
+            let header = FbsHeader::build(fbb, &block.header());
 
-        let header = FbsHeader::build(fbb, &block.header());
-        let fbs_transactions = fbb.create_vector(&transactions);
+            let mut builder = FilteredBlockBuilder::new(fbb);
+            builder.add_header(header);
+            builder.finish()
+        } else {
+            let transactions = transactions_index
+                .iter()
+                .map(|ti| {
+                    let fbs_transaction =
+                        FbsTransaction::build(fbb, &block.commit_transactions()[*ti]);
+                    let mut builder = IndexTransactionBuilder::new(fbb);
+                    builder.add_index(*ti as u32);
+                    builder.add_transaction(fbs_transaction);
+                    builder.finish()
+                })
+                .collect::<Vec<_>>();
 
-        let mut builder = FilteredBlockBuilder::new(fbb);
-        builder.add_header(header);
-        builder.add_transactions(fbs_transactions);
-        // TODO waiting for merkle tree proof generation function
-        // builder.add_hashes(...);
-        builder.finish()
+            let tree = Tree::<H256Sha3>::new(
+                &block
+                    .commit_transactions()
+                    .iter()
+                    .map(|tx| tx.hash())
+                    .collect::<Vec<_>>(),
+            );
+            let lemmas = tree
+                .get_proof(transactions_index)
+                .map(|proof| proof.lemmas)
+                .unwrap_or_else(Vec::new);
+
+            let header = FbsHeader::build(fbb, &block.header());
+            let fbs_transactions = fbb.create_vector(&transactions);
+            let fbs_hashes =
+                fbb.create_vector(&lemmas.iter().map(Into::into).collect::<Vec<FbsH256>>());
+
+            let mut builder = FilteredBlockBuilder::new(fbb);
+            builder.add_header(header);
+            builder.add_transactions(fbs_transactions);
+            builder.add_hashes(fbs_hashes);
+            builder.finish()
+        }
     }
 }
 
