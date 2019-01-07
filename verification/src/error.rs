@@ -15,10 +15,10 @@ pub enum Error {
     Number(NumberError),
     /// The field difficulty in block header is invalid.
     Difficulty(DifficultyError),
-    /// Committed transactions verification error. It contains errors for all the transactions that
-    /// fail the verification. The errors are stored as a Vec of tuple, where the first item is the
+    /// Committed transactions verification error. It contains error for the first transaction that
+    /// fails the verification. The errors are stored as a tuple, where the first item is the
     /// transaction index in the block and the second item is the transaction verification error.
-    Transactions(Vec<(usize, TransactionError)>),
+    Transactions((usize, TransactionError)),
     /// This is a wrapper of error encountered when invoking chain API.
     Chain(SharedError),
     /// The committed transactions list is empty.
@@ -40,6 +40,9 @@ pub enum Error {
     /// This error is returned when the committed transactions does not meet the 2-phases
     /// propose-then-commit consensus rule.
     Commit(CommitError),
+    /// Cycles consumed by all scripts in all commit transactions of the block exceed
+    /// the maximum allowed cycles in consensus rules
+    ExceededMaximumCycles,
 }
 
 #[derive(Debug, PartialEq, Clone, Eq)]

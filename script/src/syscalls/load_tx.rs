@@ -36,6 +36,7 @@ impl<'a, R: Register, M: Memory> Syscalls<R, M> for LoadTx<'a> {
             .memory_mut()
             .store_bytes(addr, &data[offset..offset + real_size])?;
         machine.registers_mut()[A0] = R::from_u8(SUCCESS);
+        machine.add_cycles((data.len() as u64 + 1) * 10);
         Ok(true)
     }
 }

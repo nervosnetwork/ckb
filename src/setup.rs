@@ -170,7 +170,8 @@ pub mod test {
                 "uncles_hash": "0x0000000000000000000000000000000000000000000000000000000000000000"
             },
             "params": {
-                "initial_block_reward": 233
+                "initial_block_reward": 233,
+                "max_block_cycles": 100000000
             },
             "system_cells": [
                 {"path": "verify"},

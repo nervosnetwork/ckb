@@ -1,3 +1,4 @@
+mod cost_model;
 mod syscalls;
 mod verify;
 
@@ -12,4 +13,5 @@ pub enum ScriptError {
     ArgumentError,
     ValidationFailure(u8),
     VMError(VMInternalError),
+    ExceededMaximumCycles,
 }
