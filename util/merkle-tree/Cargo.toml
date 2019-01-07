@@ -1,0 +1,9 @@
+[package]
+name = "merkle-tree"
+version = "0.1.0"
+license = "MIT"
+authors = ["Nervos Core Dev <dev@nervos.org>"]
+edition = "2018"
+
+[dev-dependencies]
+proptest = "0.8"

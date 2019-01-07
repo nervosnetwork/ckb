@@ -47,6 +47,7 @@ impl<'a, R: Register, M: Memory> Syscalls<R, M> for LoadCell<'a> {
         if machine.registers()[A7].to_u64() != LOAD_CELL_SYSCALL_NUMBER {
             return Ok(false);
         }
+        machine.add_cycles(100);
 
         let addr = machine.registers()[A0].to_usize();
         let size_addr = machine.registers()[A1].to_usize();
@@ -84,6 +85,7 @@ impl<'a, R: Register, M: Memory> Syscalls<R, M> for LoadCell<'a> {
             .memory_mut()
             .store_bytes(addr, &data[offset..offset + real_size])?;
         machine.registers_mut()[A0] = R::from_u8(SUCCESS);
+        machine.add_cycles(data.len() as u64 * 100);
         Ok(true)
     }
 }

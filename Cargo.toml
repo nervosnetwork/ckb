@@ -47,6 +47,7 @@ build-info = { path = "util/build-info" }
 members = [
     "util/logger",
     "util/hash",
+    "util/merkle-tree",
     "util/merkle-root",
     "util/crypto",
     "util/dir",

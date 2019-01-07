@@ -382,11 +382,13 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
                 push_new(b, &mut new_inputs, &mut new_outputs);
             }
 
+            let max_cycles = self.shared.consensus().max_block_cycles();
+
             let verify = |b,
                           new_inputs: &FnvHashSet<OutPoint>,
                           new_outputs: &FnvHashMap<H256, usize>|
              -> bool {
-                verify_transactions(b, |op| {
+                verify_transactions(b, max_cycles, |op| {
                     self.shared.cell_at(op, |op| {
                         if new_inputs.contains(op) {
                             Some(true)

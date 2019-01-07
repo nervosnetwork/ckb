@@ -11,7 +11,7 @@ byteorder = "1.2.2"
 crypto = {path = "../util/crypto"}
 ckb-core = { path = "../core" }
 hash = {path = "../util/hash"}
-ckb-vm = { git = "https://github.com/nervosnetwork/ckb-vm", rev = "f32bdcb" }
+ckb-vm = { git = "https://github.com/nervosnetwork/ckb-vm", rev = "dd90ed1" }
 faster-hex = "0.3"
 fnv = "1.0.3"
 flatbuffers = "0.5.0"
