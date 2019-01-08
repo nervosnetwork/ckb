@@ -9,7 +9,7 @@ use std::default::Default;
 use std::sync::Arc;
 
 fn new_peer_store() -> impl PeerStore {
-    SqlitePeerStore::default()
+    SqlitePeerStore::temp()
 }
 
 #[test]

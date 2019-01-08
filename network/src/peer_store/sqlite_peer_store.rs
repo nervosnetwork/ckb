@@ -30,8 +30,7 @@ pub struct SqlitePeerStore {
 
 impl Default for SqlitePeerStore {
     fn default() -> Self {
-        let pool = sqlite::open_pool(sqlite::StorePath::Memory, DEFAULT_POOL_SIZE);
-        SqlitePeerStore::new(pool)
+        SqlitePeerStore::memory()
     }
 }
 
@@ -45,6 +44,17 @@ impl SqlitePeerStore {
         };
         peer_store.prepare().expect("prepare tables");
         peer_store
+    }
+
+    fn memory() -> Self {
+        let pool = sqlite::open_pool(sqlite::StorePath::Memory, DEFAULT_POOL_SIZE);
+        SqlitePeerStore::new(pool)
+    }
+
+    #[allow(dead_code)]
+    pub fn temp() -> Self {
+        let pool = sqlite::open_pool(sqlite::StorePath::File("".into()), DEFAULT_POOL_SIZE);
+        SqlitePeerStore::new(pool)
     }
 
     fn prepare(&mut self) -> Result<(), sqlite::Error> {
