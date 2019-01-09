@@ -28,7 +28,7 @@ where
 
     if value & 1 == 1 {
         Err(de::Error::invalid_value(
-            de::Unexpected::Unsigned(value as u64),
+            de::Unexpected::Unsigned(value.into()),
             &"cycle_length must be even",
         ))
     } else {
