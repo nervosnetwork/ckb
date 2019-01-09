@@ -2,6 +2,7 @@ use super::PowEngine;
 use byteorder::{ByteOrder, LittleEndian};
 use ckb_core::header::BlockNumber;
 use hash::blake2b;
+use serde::{de, Deserialize};
 use serde_derive::Deserialize;
 use std::any::Any;
 use std::collections::HashMap;
@@ -15,7 +16,24 @@ pub struct CuckooParams {
     edge_bits: u8,
     // the next most important parameter is the (even) length
     // of the cycle to be found. a minimum of 12 is recommended
+    #[serde(deserialize_with = "validate_cycle_length")]
     cycle_length: u32,
+}
+
+fn validate_cycle_length<'de, D>(d: D) -> Result<u32, D::Error>
+where
+    D: de::Deserializer<'de>,
+{
+    let value = u32::deserialize(d)?;
+
+    if value & 1 == 1 {
+        Err(de::Error::invalid_value(
+            de::Unexpected::Unsigned(value as u64),
+            &"cycle_length must be even",
+        ))
+    } else {
+        Ok(value)
+    }
 }
 
 pub struct CuckooEngine {
