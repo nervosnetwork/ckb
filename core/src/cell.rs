@@ -65,21 +65,6 @@ pub trait CellProvider {
         let mut seen_inputs = FnvHashSet::default();
         resolve_transaction(transaction, &mut seen_inputs, |x| self.cell(x))
     }
-
-    fn resolve_transaction_at<F: Fn(&OutPoint) -> Option<bool>>(
-        &self,
-        transaction: &Transaction,
-        is_spent: F,
-    ) -> ResolvedTransaction {
-        let mut seen_inputs = FnvHashSet::default();
-        resolve_transaction(transaction, &mut seen_inputs, |x| {
-            self.cell_at(x, |o| is_spent(o))
-        })
-    }
-
-    fn resolve_transaction_unknown_inputs(&self, resolved_transaction: &mut ResolvedTransaction) {
-        resolve_transaction_unknown_inputs(resolved_transaction, |x| self.cell(x))
-    }
 }
 
 pub fn resolve_transaction<F: Fn(&OutPoint) -> CellStatus>(
@@ -115,22 +100,6 @@ pub fn resolve_transaction<F: Fn(&OutPoint) -> CellStatus>(
         transaction: transaction.clone(),
         input_cells,
         dep_cells,
-    }
-}
-
-pub fn resolve_transaction_unknown_inputs<F: Fn(&OutPoint) -> CellStatus>(
-    resolved_transaction: &mut ResolvedTransaction,
-    cell: F,
-) {
-    for (out_point, state) in resolved_transaction.transaction.out_points_iter().zip(
-        resolved_transaction
-            .dep_cells
-            .iter_mut()
-            .chain(&mut resolved_transaction.input_cells),
-    ) {
-        if *state == CellStatus::Unknown {
-            *state = cell(out_point);
-        }
     }
 }
 
