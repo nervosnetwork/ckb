@@ -5,11 +5,12 @@ use crate::BlockNumber;
 pub use crate::Capacity;
 use bincode::{deserialize, serialize};
 use ckb_util::u64_to_bytes;
+use faster_hex::hex_string;
 use hash::sha3_256;
 use numext_fixed_hash::H256;
 use serde_derive::{Deserialize, Serialize};
-use std::mem;
 use std::ops::{Deref, DerefMut};
+use std::{fmt, mem};
 
 pub const VERSION: u32 = 0;
 
@@ -144,7 +145,7 @@ impl CellOutput {
     }
 }
 
-#[derive(Serialize, Deserialize, Copy, Clone, Debug, PartialEq, Eq, Default, Hash)]
+#[derive(Serialize, Deserialize, Copy, Clone, PartialEq, Eq, Default, Hash)]
 pub struct ProposalShortId([u8; 10]);
 
 impl Deref for ProposalShortId {
@@ -152,6 +153,16 @@ impl Deref for ProposalShortId {
 
     fn deref(&self) -> &Self::Target {
         &self.0
+    }
+}
+
+impl fmt::Debug for ProposalShortId {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "ProposalShortId(0x{})",
+            hex_string(&self.0).expect("hex proposal short id")
+        )
     }
 }
 

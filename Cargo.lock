@@ -396,6 +396,7 @@ dependencies = [
  "ckb-util 0.5.0-pre",
  "crossbeam-channel 0.3.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "crypto 0.5.0-pre",
+ "faster-hex 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "fnv 1.0.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "hash 0.5.0-pre",
  "merkle-root 0.5.0-pre",
@@ -1825,7 +1826,7 @@ dependencies = [
 [[package]]
 name = "lru-cache"
 version = "0.1.0"
-source = "git+https://github.com/nervosnetwork/lru-cache#d6bc2f0e293a4f275f2b183440fd726bd6106913"
+source = "git+https://github.com/nervosnetwork/lru-cache#6e852fc0ac52523979630d5b35dea25bb158564b"
 dependencies = [
  "fnv 1.0.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "linked-hash-map 0.5.1 (registry+https://github.com/rust-lang/crates.io-index)",

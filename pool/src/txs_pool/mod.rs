@@ -1,6 +1,7 @@
 //! The transaction pool, keeping a view of currently-valid transactions that
 
 pub mod pool;
+pub mod trace;
 pub mod types;
 
 pub use self::pool::{TransactionPoolController, TransactionPoolService};

@@ -469,6 +469,69 @@ fn test_switch_fork() {
     assert_eq!(mtxs, vec![txs[3].clone(), txs[6].clone(), txs[5].clone()]);
 }
 
+#[cfg(not(disable_faketime))]
+#[test]
+fn test_tx_trace() {
+    let mut pool = TestPool::<ChainKVStore<MemoryKeyValueDB>>::simple();
+
+    let faketime_file = faketime::millis_tempfile(8102).expect("create faketime file");
+    faketime::enable(&faketime_file);
+
+    let tx = test_transaction(vec![OutPoint::new(pool.tx_hash.clone(), 0)], 2);
+
+    let block_number = { pool.shared.tip_header().read().number() };
+
+    let tx_hash = tx.hash();
+
+    pool.service.trace_transaction(tx.clone()).unwrap();
+    let prop_ids = pool.service.prepare_proposal(10);
+
+    assert_eq!(1, prop_ids.len());
+    assert_eq!(prop_ids[0], tx.proposal_short_id());
+
+    let header = HeaderBuilder::default().number(block_number + 1).build();
+    let block = BlockBuilder::default()
+        .header(header)
+        .proposal_transactions(vec![tx.proposal_short_id()])
+        .build();
+
+    faketime::write_millis(&faketime_file, 9102).expect("write millis");
+
+    pool.service.reconcile_block(&block);
+
+    let trace = pool.service.get_transaction_traces(&tx_hash);
+
+    assert_eq!(
+        format!("{:?}", trace),
+        concat!(
+            "Some([",
+            "Trace { action: AddPending, info: unknown tx, add to pending, time: 8102 }, ",
+            "Trace { action: Proposed, info: ProposalShortId(0xda495f694cac79513d00) proposed in block number(2)-hash(0xb42c5305777987f80112e862a3e722c1d0e68c671f1d8920d16ebfc6783a6467), time: 9102 }, ",
+            "Trace { action: AddCommit, info: add to commit pool, time: 9102 }",
+            "])"
+        ),
+    );
+
+    faketime::write_millis(&faketime_file, 9103).expect("write millis");
+
+    let block = apply_transactions(vec![tx.clone()], vec![], &mut pool);
+
+    let trace = pool.service.get_transaction_traces(&tx_hash);
+    assert_eq!(
+        format!("{:?}", trace),
+        format!(
+            "{}{}{}{}Trace {{ action: Committed, info: committed in block number({:?})-hash({:#x}), time: 9103 }}{}",
+            "Some([",
+            "Trace { action: AddPending, info: unknown tx, add to pending, time: 8102 }, ",
+            "Trace { action: Proposed, info: ProposalShortId(0xda495f694cac79513d00) proposed in block number(2)-hash(0xb42c5305777987f80112e862a3e722c1d0e68c671f1d8920d16ebfc6783a6467), time: 9102 }, ",
+            "Trace { action: AddCommit, info: add to commit pool, time: 9102 }, ",
+            block.header().number(),
+            block.header().hash(),
+            "])"
+        ),
+    );
+}
+
 struct TestPool<CI> {
     service: TransactionPoolService<CI>,
     chain: ChainController,
@@ -500,6 +563,7 @@ impl<CI: ChainIndex + 'static> TestPool<CI> {
                 max_proposal_size: 1000,
                 max_cache_size: 1000,
                 max_pending_size: 1000,
+                trace: Some(100),
             },
             shared.clone(),
             notify.clone(),
