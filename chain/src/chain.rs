@@ -257,7 +257,7 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
         }
     }
 
-    pub fn get_forks(
+    fn get_forks(
         &self,
         tip_number: BlockNumber,
         block: &Block,
@@ -327,7 +327,7 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
     }
 
     // we found new best_block total_difficulty > old_chain.total_difficulty
-    pub fn reconcile_main_chain(
+    fn reconcile_main_chain(
         &self,
         batch: &mut Batch,
         tip_number: BlockNumber,
