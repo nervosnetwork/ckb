@@ -1,3 +1,1 @@
-**/*.rs
 target/
-!target/release/ckb
