@@ -32,13 +32,13 @@ The contribution workflow is described in [CONTRIBUTING.md](CONTRIBUTING.md), an
 
 ## Build dependencies
 
-CKB is currently tested mainly with `stable-1.31.0` on Linux and Mac OSX.
+CKB is currently tested mainly with `stable-1.31.1` on Linux and Mac OSX.
 
 We recommend installing Rust through [rustup](https://www.rustup.rs/)
 
 ```bash
 # Get rustup from rustup.rs, then in your `ckb` folder:
-rustup override set 1.31.0
+rustup override set 1.31.1
 rustup component add rustfmt
 rustup component add clippy
 ```
@@ -50,20 +50,13 @@ You also need to get the following packages：
 * Ubuntu and Debian:
 
 ```shell
-sudo apt-get install git autoconf flex bison texinfo libtool pkg-config libssl-dev libclang-dev
-```
-
-If you are on Ubuntu 18.04, you might run into `'stdarg.h' file not found` error, this is because `librocksdb-sys` fails to find the correct include path. A temporary fix until `librocksdb-sys` fixes this problem is as follows:
-
-```shell
-sudo ln -s /usr/lib/gcc/x86_64-linux-gnu/7/include/stdarg.h /usr/include/stdarg.h
-sudo ln -s /usr/lib/gcc/x86_64-linux-gnu/7/include/stddef.h /usr/include/stddef.h
+sudo apt-get install git gcc libc6-dev pkg-config libssl-dev libclang-dev clang
 ```
 
 * Archlinux
 
 ```shell
-sudo pacman -Sy git autoconf flex bison texinfo libtool pkg-config openssl-1.0 clang
+sudo pacman -Sy git gcc pkgconf openssl-1.0 clang
 ```
 
 If you get openssl related errors in compiling, try the following environment variables to specify openssl-1.0:
