@@ -5,6 +5,7 @@ pub mod trace;
 pub mod types;
 
 pub use self::pool::{TransactionPoolController, TransactionPoolService};
+pub use self::trace::TxTrace;
 pub use self::types::{
     Orphan, PendingQueue, Pool, PoolConfig, PoolError, ProposedQueue, TxStage, TxoStatus,
 };

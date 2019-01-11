@@ -1,7 +1,7 @@
 use crate::config::Config;
 use crate::module::{
     ChainRpc, ChainRpcImpl, IntegrationTestRpc, IntegrationTestRpcImpl, MinerRpc, MinerRpcImpl,
-    NetworkRpc, NetworkRpcImpl, PoolRpc, PoolRpcImpl,
+    NetworkRpc, NetworkRpcImpl, PoolRpc, PoolRpcImpl, TraceRpc, TraceRpcImpl,
 };
 use ckb_chain::chain::ChainController;
 use ckb_miner::AgentController;
@@ -48,7 +48,7 @@ impl RpcServer {
             io.extend_with(
                 PoolRpcImpl {
                     network: Arc::clone(&network),
-                    tx_pool,
+                    tx_pool: tx_pool.clone(),
                 }
                 .to_delegate(),
             );
@@ -70,6 +70,16 @@ impl RpcServer {
             io.extend_with(
                 NetworkRpcImpl {
                     network: Arc::clone(&network),
+                }
+                .to_delegate(),
+            );
+        }
+
+        if self.config.trace_enable() {
+            io.extend_with(
+                TraceRpcImpl {
+                    network: Arc::clone(&network),
+                    tx_pool,
                 }
                 .to_delegate(),
             );

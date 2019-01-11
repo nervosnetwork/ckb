@@ -1,5 +1,5 @@
 //! Top-level Pool type, methods, and tests
-use super::trace::{Trace, TraceMap};
+use super::trace::{TxTrace, TxTraceMap};
 use super::types::{
     InsertionResult, Orphan, PendingQueue, Pool, PoolConfig, PoolError, ProposedQueue, TxStage,
     TxoStatus,
@@ -33,6 +33,8 @@ pub struct TransactionPoolController {
     contains_key_sender: Sender<Request<ProposalShortId, bool>>,
     get_transaction_sender: Sender<Request<ProposalShortId, Option<Transaction>>>,
     add_transaction_sender: Sender<Request<Transaction, Result<InsertionResult, PoolError>>>,
+    reg_trace_sender: Sender<Request<Transaction, Result<InsertionResult, PoolError>>>,
+    get_trace_sender: Sender<Request<H256, Option<Vec<TxTrace>>>>,
 }
 
 pub struct TransactionPoolReceivers {
@@ -41,6 +43,8 @@ pub struct TransactionPoolReceivers {
     contains_key_receiver: Receiver<Request<ProposalShortId, bool>>,
     get_transaction_receiver: Receiver<Request<ProposalShortId, Option<Transaction>>>,
     add_transaction_receiver: Receiver<Request<Transaction, Result<InsertionResult, PoolError>>>,
+    reg_trace_receiver: Receiver<Request<Transaction, Result<InsertionResult, PoolError>>>,
+    get_trace_receiver: Receiver<Request<H256, Option<Vec<TxTrace>>>>,
 }
 
 impl TransactionPoolController {
@@ -54,6 +58,8 @@ impl TransactionPoolController {
             channel::bounded(DEFAULT_CHANNEL_SIZE);
         let (add_transaction_sender, add_transaction_receiver) =
             channel::bounded(DEFAULT_CHANNEL_SIZE);
+        let (reg_trace_sender, reg_trace_receiver) = channel::bounded(DEFAULT_CHANNEL_SIZE);
+        let (get_trace_sender, get_trace_receiver) = channel::bounded(DEFAULT_CHANNEL_SIZE);
         (
             TransactionPoolController {
                 get_proposal_commit_transactions_sender,
@@ -61,6 +67,8 @@ impl TransactionPoolController {
                 contains_key_sender,
                 get_transaction_sender,
                 add_transaction_sender,
+                reg_trace_sender,
+                get_trace_sender,
             },
             TransactionPoolReceivers {
                 get_proposal_commit_transactions_receiver,
@@ -68,6 +76,8 @@ impl TransactionPoolController {
                 contains_key_receiver,
                 get_transaction_receiver,
                 add_transaction_receiver,
+                reg_trace_receiver,
+                get_trace_receiver,
             },
         )
     }
@@ -100,6 +110,14 @@ impl TransactionPoolController {
     pub fn add_transaction(&self, tx: Transaction) -> Result<InsertionResult, PoolError> {
         Request::call(&self.add_transaction_sender, tx).expect("add_transaction() failed")
     }
+
+    pub fn trace_transaction(&self, tx: Transaction) -> Result<InsertionResult, PoolError> {
+        Request::call(&self.reg_trace_sender, tx).expect("trace_transaction() failed")
+    }
+
+    pub fn get_transaction_trace(&self, hash: H256) -> Option<Vec<TxTrace>> {
+        Request::call(&self.get_trace_sender, hash).expect("trace_transaction() failed")
+    }
 }
 
 /// The pool itself.
@@ -119,7 +137,7 @@ pub struct TransactionPoolService<CI> {
     shared: Shared<CI>,
     notify: NotifyController,
 
-    trace: TraceMap,
+    trace: TxTraceMap,
 }
 
 impl<CI> CellProvider for TransactionPoolService<CI>
@@ -164,7 +182,7 @@ where
             cache: LruCache::new(cache_size),
             shared,
             notify,
-            trace: TraceMap::new(trace_size),
+            trace: TxTraceMap::new(trace_size),
         }
     }
 
@@ -220,6 +238,22 @@ where
                         }
                         _ => {
                             error!(target: "txs_pool", "channel add_transaction_receiver closed");
+                        }
+                    },
+                    recv(receivers.reg_trace_receiver) -> msg => match msg {
+                        Ok(Request { responder, arguments: tx }) => {
+                            let _ = responder.send(self.trace_transaction(tx));
+                        }
+                        _ => {
+                            error!(target: "txs_pool", "channel reg_trace_receiver closed");
+                        }
+                    },
+                    recv(receivers.get_trace_receiver) -> msg => match msg {
+                        Ok(Request { responder, arguments: hash }) => {
+                            let _ = responder.send(self.get_transaction_traces(&hash).cloned());
+                        }
+                        _ => {
+                            error!(target: "txs_pool", "channel get_trace_receiver closed");
                         }
                     }
                 }
@@ -406,7 +440,7 @@ where
         }
     }
 
-    pub(crate) fn get_transaction_traces(&self, hash: &H256) -> Option<&Vec<Trace>> {
+    pub(crate) fn get_transaction_traces(&self, hash: &H256) -> Option<&Vec<TxTrace>> {
         self.trace.get(hash)
     }
 
@@ -500,7 +534,7 @@ where
         } else {
             if self.config.trace_enable() {
                 self.trace
-                    .add_commit(&tx.hash(), format!("add to commit pool"));
+                    .add_commit(&tx.hash(), "add to commit pool".to_string());
             }
             self.pool.add_transaction(tx.clone());
             self.reconcile_orphan(&tx);

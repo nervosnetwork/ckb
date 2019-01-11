@@ -1,4 +1,5 @@
 use crate::txs_pool::pool::TransactionPoolService;
+use crate::txs_pool::trace::{Action, TxTrace};
 use crate::txs_pool::types::*;
 use channel::select;
 use channel::{self, Receiver};
@@ -22,6 +23,7 @@ use std::io::Read;
 use std::path::Path;
 use std::sync::Arc;
 use std::time;
+use tempfile::TempPath;
 
 macro_rules! expect_output_parent {
     ($pool:expr, $expected:pat, $( $output:expr ),+ ) => {
@@ -469,19 +471,13 @@ fn test_switch_fork() {
     assert_eq!(mtxs, vec![txs[3].clone(), txs[6].clone(), txs[5].clone()]);
 }
 
-#[cfg(not(disable_faketime))]
-#[test]
-fn test_tx_trace() {
-    let mut pool = TestPool::<ChainKVStore<MemoryKeyValueDB>>::simple();
-
-    let faketime_file = faketime::millis_tempfile(8102).expect("create faketime file");
-    faketime::enable(&faketime_file);
-
+fn prepare_trace(
+    pool: &mut TestPool<ChainKVStore<MemoryKeyValueDB>>,
+    faketime_file: &TempPath,
+) -> Transaction {
     let tx = test_transaction(vec![OutPoint::new(pool.tx_hash.clone(), 0)], 2);
 
     let block_number = { pool.shared.tip_header().read().number() };
-
-    let tx_hash = tx.hash();
 
     pool.service.trace_transaction(tx.clone()).unwrap();
     let prop_ids = pool.service.prepare_proposal(10);
@@ -495,41 +491,78 @@ fn test_tx_trace() {
         .proposal_transactions(vec![tx.proposal_short_id()])
         .build();
 
-    faketime::write_millis(&faketime_file, 9102).expect("write millis");
+    faketime::write_millis(faketime_file, 9102).expect("write millis");
 
     pool.service.reconcile_block(&block);
+    tx
+}
+
+#[cfg(not(disable_faketime))]
+#[test]
+fn test_get_transaction_traces() {
+    let mut pool = TestPool::<ChainKVStore<MemoryKeyValueDB>>::simple();
+    let faketime_file = faketime::millis_tempfile(8102).expect("create faketime file");
+    faketime::enable(&faketime_file);
+
+    let tx = prepare_trace(&mut pool, &faketime_file);
+    let tx_hash = tx.hash();
 
     let trace = pool.service.get_transaction_traces(&tx_hash);
-
-    assert_eq!(
-        format!("{:?}", trace),
-        concat!(
-            "Some([",
-            "Trace { action: AddPending, info: unknown tx, add to pending, time: 8102 }, ",
-            "Trace { action: Proposed, info: ProposalShortId(0xda495f694cac79513d00) proposed in block number(2)-hash(0xb42c5305777987f80112e862a3e722c1d0e68c671f1d8920d16ebfc6783a6467), time: 9102 }, ",
-            "Trace { action: AddCommit, info: add to commit pool, time: 9102 }",
-            "])"
+    match trace.map(|t| t.as_slice()) {
+        Some(
+            [TxTrace {
+                action: Action::AddPending,
+                info: _,
+                time: 8102,
+            }, TxTrace {
+                action: Action::Proposed,
+                info: proposal_info,
+                time: 9102,
+            }, TxTrace {
+                action: Action::AddCommit,
+                info: _,
+                time: 9102,
+            }],
+        ) => assert_eq!(
+            proposal_info,
+            concat!("ProposalShortId(0xda495f694cac79513d00) proposed ",
+            "in block number(2)-hash(0xb42c5305777987f80112e862a3e722c1d0e68c671f1d8920d16ebfc6783a6467)")
         ),
-    );
+        _ => assert!(false),
+    }
 
     faketime::write_millis(&faketime_file, 9103).expect("write millis");
-
     let block = apply_transactions(vec![tx.clone()], vec![], &mut pool);
-
     let trace = pool.service.get_transaction_traces(&tx_hash);
-    assert_eq!(
-        format!("{:?}", trace),
-        format!(
-            "{}{}{}{}Trace {{ action: Committed, info: committed in block number({:?})-hash({:#x}), time: 9103 }}{}",
-            "Some([",
-            "Trace { action: AddPending, info: unknown tx, add to pending, time: 8102 }, ",
-            "Trace { action: Proposed, info: ProposalShortId(0xda495f694cac79513d00) proposed in block number(2)-hash(0xb42c5305777987f80112e862a3e722c1d0e68c671f1d8920d16ebfc6783a6467), time: 9102 }, ",
-            "Trace { action: AddCommit, info: add to commit pool, time: 9102 }, ",
-            block.header().number(),
-            block.header().hash(),
-            "])"
+    match trace.map(|t| t.as_slice()) {
+        Some(
+            [TxTrace {
+                action: Action::AddPending,
+                info: _,
+                time: 8102,
+            }, TxTrace {
+                action: Action::Proposed,
+                info: _,
+                time: 9102,
+            }, TxTrace {
+                action: Action::AddCommit,
+                info: _,
+                time: 9102,
+            }, TxTrace {
+                action: Action::Committed,
+                info: committed_info,
+                time: 9103,
+            }],
+        ) => assert_eq!(
+            committed_info,
+            &format!(
+                "committed in block number({:?})-hash({:#x})",
+                block.header().number(),
+                block.header().hash()
+            )
         ),
-    );
+        _ => assert!(false),
+    }
 }
 
 struct TestPool<CI> {

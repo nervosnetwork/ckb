@@ -26,3 +26,4 @@ env_logger = "0.6"
 ckb-db = { path = "../db" }
 hash = {path = "../util/hash"}
 ckb-chain = { path = "../chain" }
+tempfile = "3.0"
