@@ -8,8 +8,8 @@ use crate::protocol_generated::ckb::protocol::{
     IndexTransactionBuilder, OutPoint as FbsOutPoint, OutPointBuilder,
     ProposalShortId as FbsProposalShortId, RelayMessage, RelayMessageBuilder, RelayPayload,
     Script as FbsScript, ScriptBuilder, SyncMessage, SyncMessageBuilder, SyncPayload,
-    Transaction as FbsTransaction, TransactionBuilder, UncleBlock as FbsUncleBlock,
-    UncleBlockBuilder, H256 as FbsH256,
+    Time as FbsTime, TimeBuilder, TimeMessage, TimeMessageBuilder, Transaction as FbsTransaction,
+    TransactionBuilder, UncleBlock as FbsUncleBlock, UncleBlockBuilder, H256 as FbsH256,
 };
 use crate::{short_transaction_id, short_transaction_id_keys};
 use ckb_core::block::Block;
@@ -289,6 +289,14 @@ impl<'a> FbsGetBlocks<'a> {
         let block_hashes = fbb.create_vector(&vec);
         let mut builder = GetBlocksBuilder::new(fbb);
         builder.add_block_hashes(block_hashes);
+        builder.finish()
+    }
+}
+
+impl<'a> FbsTime<'a> {
+    pub fn build<'b>(fbb: &mut FlatBufferBuilder<'b>, timestamp: u64) -> WIPOffset<FbsTime<'b>> {
+        let mut builder = TimeBuilder::new(fbb);
+        builder.add_timestamp(timestamp);
         builder.finish()
     }
 }
@@ -579,6 +587,19 @@ impl<'a> RelayMessage<'a> {
         builder.finish()
     }
 }
+
+impl<'a> TimeMessage<'a> {
+    pub fn build_time<'b>(
+        fbb: &mut FlatBufferBuilder<'b>,
+        timestamp: u64,
+    ) -> WIPOffset<TimeMessage<'b>> {
+        let fbs_time = FbsTime::build(fbb, timestamp);
+        let mut builder = TimeMessageBuilder::new(fbb);
+        builder.add_payload(fbs_time);
+        builder.finish()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
