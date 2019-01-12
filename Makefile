@@ -1,5 +1,7 @@
+VERBOSE := $(if ${CI},--verbose,)
+
 test:
-	cargo test --all -- --nocapture
+	cargo test ${VERBOSE} --all -- --nocapture
 
 doc:
 	cargo doc --all --no-deps
@@ -8,27 +10,24 @@ doc-deps:
 	cargo doc --all
 
 check:
-	cargo check --all
+	cargo check ${VERBOSE} --all
 
 build:
-	cargo build --release
+	cargo build ${VERBOSE} --release
 
 prod:
-	RUSTFLAGS="--cfg disable_faketime" cargo build --release
+	RUSTFLAGS="--cfg disable_faketime" cargo build ${VERBOSE} --release
 
 prod-test:
-	RUSTFLAGS="--cfg disable_faketime" RUSTDOCFLAGS="--cfg disable_faketime" cargo test --all -- --nocapture
+	RUSTFLAGS="--cfg disable_faketime" RUSTDOCFLAGS="--cfg disable_faketime" cargo test ${VERBOSE} --all -- --nocapture
 
 fmt:
-	cargo fmt --all -- --check
+	cargo fmt ${VERBOSE} --all -- --check
 
 clippy:
-	cargo clippy --all -- -D warnings -D clippy::clone_on_ref_ptr -D clippy::enum_glob_use
+	cargo clippy ${VERBOSE} --all -- -D warnings -D clippy::clone_on_ref_ptr -D clippy::enum_glob_use
 
 ci: fmt clippy test
-	git diff --exit-code Cargo.lock
-
-ci-quick: test
 	git diff --exit-code Cargo.lock
 
 info:
@@ -52,4 +51,4 @@ docker:
 
 .PHONY: build prod prod-test docker
 .PHONY: fmt test clippy proto doc doc-deps check stats
-.PHONY: ci ci-quick info security-audit
+.PHONY: ci info security-audit

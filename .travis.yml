@@ -4,8 +4,11 @@ cache:
   timeout: 1024
   directories:
     - $HOME/.cargo
+git:
+  depth: 2
+  submodules: false
 
-if: 'branch IN (master, develop) OR type != push OR fork = true OR tag =~ ^v'
+if: 'branch IN (master, develop, staging, trying) OR type != push OR fork = true OR tag =~ ^v'
 
 env:
   global:
@@ -13,27 +16,39 @@ env:
 
 matrix:
   include:
-    - os: osx
-      rust: 1.31.1
-      install:
-        - cargo fmt --version || rustup component add rustfmt
-        - cargo clippy --version || rustup component add clippy
-      env: SUITE=ci
     - rust: 1.31.1
-      addons:
-        apt:
-          packages:
-            - git
-            - autoconf
-            - flex
-            - bison
-            - texinfo
-            - libtool
-      env: SUITE=ci-quick
+      os: osx
+      env: FMT=true
+      if: type = pull_request
+    - rust: 1.31.1
+      os: osx
+      env: FMT=true CHECK=true TEST=true
+      if: type != pull_request
+    - rust: 1.31.1
+      os: linux
+      env: TEST=true
+      if: type != pull_request
+
+addons:
+  apt:
+    packages:
+      - git
+      - autoconf
+      - flex
+      - bison
+      - texinfo
+      - libtool
+
+install:
+- if [ "$FMT" = true ]; then cargo fmt --version || rustup component add rustfmt; fi
+- if [ "$CHECK" = true ]; then cargo clippy --version || rustup component add clippy; fi
 
 script:
-- make info
-- make "$SUITE"
+- if [ "$FMT" = true ]; then make fmt; fi
+- if [ "$CHECK" = true ]; then make check; fi
+- if [ "$CHECK" = true ]; then make clippy; fi
+- if [ "$TEST" = true ]; then make test; fi
+- git diff --exit-code Cargo.lock
 
 before_cache:
 - rm -rf $HOME/.cargo/registry
