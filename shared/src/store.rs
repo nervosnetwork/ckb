@@ -3,28 +3,56 @@ use crate::flat_serializer::{serialize as flat_serialize, Address};
 use crate::{
     COLUMN_BLOCK_BODY, COLUMN_BLOCK_HEADER, COLUMN_BLOCK_PROPOSAL_IDS,
     COLUMN_BLOCK_TRANSACTION_ADDRESSES, COLUMN_BLOCK_TRANSACTION_IDS, COLUMN_BLOCK_UNCLE,
-    COLUMN_EXT,
+    COLUMN_EXT, COLUMN_META,
 };
 use bincode::{deserialize, serialize};
 use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::extras::BlockExt;
-use ckb_core::header::{Header, HeaderBuilder};
+use ckb_core::header::{BlockNumber, Header, HeaderBuilder};
 use ckb_core::transaction::{ProposalShortId, Transaction, TransactionBuilder};
 use ckb_core::uncle::UncleBlock;
 use ckb_db::batch::{Batch, Col};
 use ckb_db::kvdb::KeyValueDB;
+use ckb_util::RwLock;
 use numext_fixed_hash::H256;
 use std::ops::Range;
 use std::sync::Arc;
 
+const META_TIP_HASH_KEY: &[u8] = b"TIP_HASH";
+const META_TIP_NUMBER_KEY: &[u8] = b"TIP_NUMBER";
+
+#[derive(Default)]
+pub struct ChainTip {
+    pub(crate) number: BlockNumber,
+    pub(crate) hash: H256,
+}
+
 pub struct ChainKVStore<T: KeyValueDB> {
-    pub db: Arc<T>,
+    pub(crate) tip: RwLock<ChainTip>,
+    db: Arc<T>,
 }
 
 impl<T: 'static + KeyValueDB> ChainKVStore<T> {
     pub fn new(db: T) -> Self {
-        let db = Arc::new(db);
-        ChainKVStore { db }
+        let tip_number = db
+            .read(COLUMN_META, META_TIP_NUMBER_KEY)
+            .expect("new db")
+            .map(|raw| deserialize(&raw[..]).expect("invalid tip number"));
+        let tip_hash = db
+            .read(COLUMN_META, META_TIP_HASH_KEY)
+            .expect("new db")
+            .map(|raw| H256::from_slice(&raw[..]).expect("invalid tip hash"));
+
+        let tip = if let (Some(number), Some(hash)) = (tip_number, tip_hash) {
+            ChainTip { number, hash }
+        } else {
+            Default::default()
+        };
+
+        ChainKVStore {
+            tip: RwLock::new(tip),
+            db: Arc::new(db),
+        }
     }
 
     pub fn get(&self, col: Col, key: &[u8]) -> Option<Vec<u8>> {

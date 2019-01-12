@@ -1,5 +1,5 @@
 use crate::flat_serializer::serialized_addresses;
-use crate::store::{ChainKVStore, ChainStore};
+use crate::store::{ChainKVStore, ChainStore, ChainTip};
 use crate::{COLUMN_BLOCK_BODY, COLUMN_INDEX, COLUMN_META, COLUMN_TRANSACTION_ADDR};
 use bincode::{deserialize, serialize};
 use ckb_core::block::Block;
@@ -148,6 +148,45 @@ impl<T: 'static + KeyValueDB> ChainIndex for ChainKVStore<T> {
 
     fn delete_block_number(&self, batch: &mut Batch, hash: &H256) {
         batch.delete(COLUMN_INDEX, hash.to_vec());
+    }
+}
+
+impl<T: 'static + KeyValueDB> ChainKVStore<T> {
+    /// Rollback current tip.
+    fn rollback(&self) {
+        let mut chain_tip = self.tip.write();
+        let header = self.get_header(&chain_tip.hash).expect("inconsistent store");
+
+        let new_tip = ChainTip {
+			number: header.number() - 1,
+            hash: header.parent_hash().clone()
+		};
+
+        self.save_with_batch(|batch| {
+            batch.delete(COLUMN_INDEX, serialize(&chain_tip.number).unwrap());
+            batch.delete(COLUMN_INDEX, chain_tip.hash.to_vec());
+            // TODO
+            // update tip
+            // delete_transaction_address(batch, block.commit_transactions());
+            Ok(())
+        });
+
+        *chain_tip = new_tip;
+    }
+
+    /// Forward to a new tip, assumes that parent block is current tip.
+    fn forward(&self, hash: &H256) {
+        let mut chain_tip = self.tip.write();
+        let new_tip = ChainTip {
+            number: chain_tip.number + 1,
+            hash: hash.clone()
+        };
+
+        self.save_with_batch(|batch| {
+            Ok(())
+        });
+
+        *chain_tip = new_tip;
     }
 }
 
