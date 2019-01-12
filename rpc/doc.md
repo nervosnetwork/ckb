@@ -181,9 +181,9 @@ Returns the information about cells collection by type_hash.
 
 ## Parameters
 
-    type_hash - Cell type_hash.
-    from - Start block_number.
-    to - End block_number.
+    type_hash - Cell type hash.
+    from - Start block number.
+    to - End block number.
 
 ## Examples
 
