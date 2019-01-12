@@ -4,7 +4,7 @@ Returns the information about a block by hash.
 
 ## Parameters
 
-    Hash - Hash of a block.
+    hash - Hash of a block.
 
 ## Examples
 
@@ -76,7 +76,7 @@ Returns the information about a transaction requested by transaction hash.
 
 ## Parameters
 
-    Hash - Hash of a transaction.
+    hash - Hash of a transaction.
 
 ## Examples
 
@@ -119,14 +119,13 @@ curl -d '{"id": 2, "jsonrpc": "2.0", "method":"get_transaction","params": ["0x3a
 }
 ```
 
-
 # get_block_hash
 
-Returns the hash of a block in the best-block-chain by block number; Block of No. 0 is the genesis block.
+Returns the hash of a block in the best-block-chain by block number; block of No.0 is the genesis block.
 
 ## Parameters
 
-    BlockNumber - Number of a block.
+    block_number - Number of a block.
 
 ## Examples
 
@@ -182,9 +181,9 @@ Returns the information about cells collection by type_hash.
 
 ## Parameters
 
-    Type_hash - Cell type_hash.
-    From - Start BlockNumber.
-    To - End BlockNumber.
+    type_hash - Cell type hash.
+    from - Start block number.
+    to - End block number.
 
 ## Examples
 
@@ -241,14 +240,13 @@ curl -d '{"id": 2, "jsonrpc": "2.0", "method":"get_cells_by_type_hash","params":
 }
 ```
 
-
 # get_live_cell
 
 Returns the information about a cell by out_point.
 
 ## Parameters
 
-    OutPoint - OutPoint Object {"hash": <hash>, "index": <index>}.
+    out_point - OutPoint object {"hash": <hash>, "index": <index>}.
 
 ## Examples
 
@@ -316,10 +314,10 @@ Creates new transaction.
 
 Transaction - The transaction object.
 
-    Version - Transaction version.
-    Deps - Dependent cells.
-    Inputs - Transaction inputs.
-    Outputs - Transaction outputs.
+    version - Transaction version.
+    deps - Dependent cells.
+    inputs - Transaction inputs.
+    outputs - Transaction outputs.
 
 ## Examples
 
