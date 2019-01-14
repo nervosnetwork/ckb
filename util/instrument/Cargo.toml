@@ -10,7 +10,7 @@ ckb-core = { path = "../../core" }
 ckb-chain = { path = "../../chain" }
 ckb-shared = { path = "../../shared" }
 serde_json = "1.0"
-indicatif = { version = "0.10", optional = true }
+indicatif = { version = "0.11", optional = true }
 
 [features]
 progress_bar = ["indicatif"]
