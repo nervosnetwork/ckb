@@ -11,7 +11,7 @@ numext-fixed-uint = { version = "0.1", features = ["support_rand", "support_heap
 byteorder = "1.2.2"
 ckb-core = { path = "../core" }
 hash = { path = "../util/hash"}
-siphasher = "0.2.2"
+siphasher = "0.3.0"
 rand = "0.6"
 ckb-util = { path = "../util" }
 merkle-tree = { path = "../util/merkle-tree"}
