@@ -414,7 +414,7 @@ pub mod test {
     ) -> (ChainController, Shared<ChainKVStore<MemoryKeyValueDB>>) {
         let builder = SharedBuilder::<ChainKVStore<MemoryKeyValueDB>>::new_memory();
         let shared = builder
-            .consensus(consensus.unwrap_or(Consensus::default().set_verification(false)))
+            .consensus(consensus.unwrap_or_else(|| Consensus::default().set_verification(false)))
             .build();
 
         let (chain_controller, chain_receivers) = ChainController::build();
@@ -431,7 +431,7 @@ pub mod test {
     }
 
     fn gen_block(
-        parent_header: Header,
+        parent_header: &Header,
         nonce: u64,
         difficulty: U256,
         commit_transactions: Vec<Transaction>,
@@ -501,7 +501,7 @@ pub mod test {
             let difficulty = parent.difficulty().clone();
             let tx = create_transaction(root_hash);
             root_hash = tx.hash().clone();
-            let new_block = gen_block(parent, i, difficulty + U256::from(1u64), vec![tx], vec![]);
+            let new_block = gen_block(&parent, i, difficulty + U256::from(1u64), vec![tx], vec![]);
             blocks1.push(new_block.clone());
             parent = new_block.header().clone();
         }
@@ -555,7 +555,7 @@ pub mod test {
         let mut parent = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
         for i in 1..final_number {
             let difficulty = parent.difficulty().clone();
-            let new_block = gen_block(parent, i, difficulty + U256::from(100u64), vec![], vec![]);
+            let new_block = gen_block(&parent, i, difficulty + U256::from(100u64), vec![], vec![]);
             chain1.push(new_block.clone());
             parent = new_block.header().clone();
         }
@@ -565,7 +565,7 @@ pub mod test {
             let difficulty = parent.difficulty().clone();
             let j = if i > 10 { 110 } else { 99 };
             let new_block = gen_block(
-                parent,
+                &parent,
                 i + 1000,
                 difficulty + U256::from(j as u32),
                 vec![],
@@ -603,7 +603,7 @@ pub mod test {
         let mut parent = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
         for i in 1..final_number {
             let difficulty = parent.difficulty().clone();
-            let new_block = gen_block(parent, i, difficulty + U256::from(100u64), vec![], vec![]);
+            let new_block = gen_block(&parent, i, difficulty + U256::from(100u64), vec![], vec![]);
             chain1.push(new_block.clone());
             parent = new_block.header().clone();
         }
@@ -612,7 +612,7 @@ pub mod test {
         for i in 1..final_number {
             let difficulty = parent.difficulty().clone();
             let new_block = gen_block(
-                parent,
+                &parent,
                 i + 1000,
                 difficulty + U256::from(100u64),
                 vec![],
@@ -665,7 +665,7 @@ pub mod test {
         let mut parent = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
         for i in 1..final_number {
             let difficulty = parent.difficulty().clone();
-            let new_block = gen_block(parent, i, difficulty + U256::from(100u64), vec![], vec![]);
+            let new_block = gen_block(&parent, i, difficulty + U256::from(100u64), vec![], vec![]);
             chain1.push(new_block.clone());
             parent = new_block.header().clone();
         }
@@ -674,7 +674,7 @@ pub mod test {
         for i in 1..final_number {
             let difficulty = parent.difficulty().clone();
             let new_block = gen_block(
-                parent,
+                &parent,
                 i + 1000,
                 difficulty + U256::from(100u64),
                 vec![],
@@ -730,7 +730,7 @@ pub mod test {
         let mut parent = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
         for i in 1..final_number - 1 {
             let difficulty = shared.calculate_difficulty(&parent).unwrap();
-            let new_block = gen_block(parent, i, difficulty, vec![], vec![]);
+            let new_block = gen_block(&parent, i, difficulty, vec![], vec![]);
             chain_controller
                 .process_block(Arc::new(new_block.clone()))
                 .expect("process block ok");
@@ -745,7 +745,7 @@ pub mod test {
             if i < 26 {
                 uncles.push(chain1[i as usize].clone().into());
             }
-            let new_block = gen_block(parent, i + 100, difficulty, vec![], uncles);
+            let new_block = gen_block(&parent, i + 100, difficulty, vec![], uncles);
             chain_controller
                 .process_block(Arc::new(new_block.clone()))
                 .expect("process block ok");
@@ -775,7 +775,7 @@ pub mod test {
             if i < 11 {
                 uncles.push(chain1[i as usize].clone().into());
             }
-            let new_block = gen_block(parent, i + 100, difficulty, vec![], uncles);
+            let new_block = gen_block(&parent, i + 100, difficulty, vec![], uncles);
             chain_controller
                 .process_block(Arc::new(new_block.clone()))
                 .expect("process block ok");
@@ -805,7 +805,7 @@ pub mod test {
             if i < 151 {
                 uncles.push(chain1[i as usize].clone().into());
             }
-            let new_block = gen_block(parent, i + 100, difficulty, vec![], uncles);
+            let new_block = gen_block(&parent, i + 100, difficulty, vec![], uncles);
             chain_controller
                 .process_block(Arc::new(new_block.clone()))
                 .expect("process block ok");

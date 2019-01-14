@@ -43,7 +43,7 @@ fn test_block_median_time() {
     let shared = new_shared();
     assert!(shared.block_median_time(&H256::zero()).is_none());
     let now = faketime::unix_time_as_millis();
-    let block_hashes = insert_block_timestamps(shared.store(), &vec![now]);
+    let block_hashes = insert_block_timestamps(shared.store(), &[now]);
     assert_eq!(
         shared
             .block_median_time(&block_hashes[0])

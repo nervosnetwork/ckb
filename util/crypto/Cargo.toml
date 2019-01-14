@@ -18,4 +18,3 @@ crunchy =  { version = "0.2", optional= true }
 default = ["secp"]
 secp = ["secp256k1"]
 bech32 = ["crunchy"]
-dev = ["secp", "bech32"]

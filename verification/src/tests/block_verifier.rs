@@ -17,7 +17,7 @@ fn create_cellbase_transaction_with_capacity(capacity: Capacity) -> Transaction 
 }
 
 fn create_cellbase_transaction() -> Transaction {
-    create_cellbase_transaction_with_capacity(100).into()
+    create_cellbase_transaction_with_capacity(100)
 }
 
 fn create_normal_transaction() -> Transaction {
@@ -55,7 +55,7 @@ pub fn test_block_with_one_cellbase_at_first() {
 
     let provider = DummyChainProvider {
         block_reward: 100,
-        transaction_fees: transaction_fees,
+        transaction_fees,
     };
 
     let verifier = CellbaseVerifier::new(provider);
@@ -103,7 +103,7 @@ pub fn test_cellbase_with_less_reward() {
 
     let provider = DummyChainProvider {
         block_reward: 100,
-        transaction_fees: transaction_fees,
+        transaction_fees,
     };
 
     let verifier = CellbaseVerifier::new(provider);
@@ -123,7 +123,7 @@ pub fn test_cellbase_with_fee() {
 
     let provider = DummyChainProvider {
         block_reward: 100,
-        transaction_fees: transaction_fees,
+        transaction_fees,
     };
 
     let verifier = CellbaseVerifier::new(provider);
@@ -143,7 +143,7 @@ pub fn test_cellbase_with_more_reward_than_available() {
 
     let provider = DummyChainProvider {
         block_reward: 100,
-        transaction_fees: transaction_fees,
+        transaction_fees,
     };
 
     let verifier = CellbaseVerifier::new(provider);
@@ -166,7 +166,7 @@ pub fn test_cellbase_with_invalid_transaction() {
 
     let provider = DummyChainProvider {
         block_reward: 100,
-        transaction_fees: transaction_fees,
+        transaction_fees,
     };
 
     let verifier = CellbaseVerifier::new(provider);
@@ -195,7 +195,7 @@ pub fn test_cellbase_with_two_outputs() {
 
     let provider = DummyChainProvider {
         block_reward: 150,
-        transaction_fees: transaction_fees,
+        transaction_fees,
     };
 
     let verifier = CellbaseVerifier::new(provider);
@@ -221,7 +221,7 @@ pub fn test_cellbase_with_two_outputs_and_more_rewards_than_maximum() {
 
     let provider = DummyChainProvider {
         block_reward: 100,
-        transaction_fees: transaction_fees,
+        transaction_fees,
     };
 
     let verifier = CellbaseVerifier::new(provider);
@@ -238,7 +238,7 @@ pub fn test_empty_transactions() {
 
     let provider = DummyChainProvider {
         block_reward: 150,
-        transaction_fees: transaction_fees,
+        transaction_fees,
     };
 
     let verifier = EmptyVerifier::new();

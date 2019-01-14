@@ -318,6 +318,7 @@ mod test {
 
     proptest! {
         #[test]
+        #[allow(clippy::unnecessary_operation)]
         fn cuckoo_solve(ref message in any_with::<Vec<u8>>(size_range(80).lift())) {
             _cuckoo_solve(message)
         }

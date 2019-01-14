@@ -52,7 +52,7 @@ fn test_proposal_pool() {
 
     for _ in 0..200 {
         let tx = test_transaction(
-            vec![
+            &[
                 OutPoint::new(pool.tx_hash.clone(), 0),
                 OutPoint::new(pool.tx_hash.clone(), 1),
             ],
@@ -112,7 +112,7 @@ fn test_add_pool() {
     assert_eq!(pool.service.total_size(), 0);
 
     let parent_transaction = test_transaction(
-        vec![
+        &[
             OutPoint::new(pool.tx_hash.clone(), 5),
             OutPoint::new(pool.tx_hash.clone(), 6),
             OutPoint::new(pool.tx_hash.clone(), 7),
@@ -124,7 +124,7 @@ fn test_add_pool() {
 
     // Prepare a second transaction, connected to the first.
     let child_transaction = test_transaction(
-        vec![
+        &[
             OutPoint::new(parent_tx_hash.clone(), 0),
             OutPoint::new(parent_tx_hash.clone(), 1),
         ],
@@ -196,7 +196,7 @@ pub fn test_cellbase_spent() {
         .output(CellOutput::new(50000, Vec::new(), H256::default(), None))
         .build();
 
-    match pool.service.add_to_pool(valid_tx.into()) {
+    match pool.service.add_to_pool(valid_tx) {
         Ok(_) => {}
         Err(err) => panic!(
             "Unexpected error while adding a valid transaction: {:?}",
@@ -214,7 +214,7 @@ pub fn test_add_pool_error() {
     // To test DoubleSpend and AlreadyInPool conditions, we need to add
     // a valid transaction.
     let valid_transaction = test_transaction(
-        vec![
+        &[
             OutPoint::new(pool.tx_hash.clone(), 5),
             OutPoint::new(pool.tx_hash.clone(), 6),
         ],
@@ -223,10 +223,10 @@ pub fn test_add_pool_error() {
 
     match pool.service.add_to_pool(valid_transaction.clone()) {
         Ok(_) => {}
-        Err(_) => panic!("Unexpected error while adding a valid transaction"),
+        Err(_all) => panic!("Unexpected error while adding a valid transaction"),
     };
 
-    let double_spent_transaction = test_transaction(vec![OutPoint::new(pool.tx_hash, 6)], 2);
+    let double_spent_transaction = test_transaction(&[OutPoint::new(pool.tx_hash, 6)], 2);
 
     match pool.service.add_to_pool(double_spent_transaction) {
         Ok(_) => panic!("Expected error when adding DoubleSpent tx, got Ok"),
@@ -262,7 +262,7 @@ fn test_get_mineable_transactions() {
     let mut pool = TestPool::<ChainKVStore<MemoryKeyValueDB>>::simple();
 
     let tx1 = test_transaction_with_capacity(
-        vec![
+        &[
             OutPoint::new(pool.tx_hash.clone(), 0),
             OutPoint::new(pool.tx_hash.clone(), 1),
             OutPoint::new(pool.tx_hash.clone(), 2),
@@ -270,11 +270,11 @@ fn test_get_mineable_transactions() {
             OutPoint::new(pool.tx_hash.clone(), 4),
         ],
         5,
-        1000_000,
+        1_000_000,
     );
     let tx1_hash = tx1.hash().clone();
     let tx2 = test_transaction(
-        vec![
+        &[
             OutPoint::new(tx1_hash.clone(), 3),
             OutPoint::new(tx1_hash.clone(), 4),
         ],
@@ -282,7 +282,7 @@ fn test_get_mineable_transactions() {
     );
     let tx2_hash = tx2.hash().clone();
     let tx3 = test_transaction(
-        vec![
+        &[
             OutPoint::new(tx1_hash.clone(), 2),
             OutPoint::new(tx2_hash.clone(), 1),
         ],
@@ -290,7 +290,7 @@ fn test_get_mineable_transactions() {
     );
     let tx3_hash = tx3.hash().clone();
     let tx4 = test_transaction(
-        vec![
+        &[
             OutPoint::new(tx1_hash.clone(), 1),
             OutPoint::new(tx2_hash.clone(), 0),
             OutPoint::new(tx3_hash.clone(), 1),
@@ -317,21 +317,21 @@ fn test_get_mineable_transactions() {
 fn test_block_reconciliation() {
     let mut pool = TestPool::<ChainKVStore<MemoryKeyValueDB>>::simple();
 
-    let tx0 = test_transaction(vec![OutPoint::new(pool.tx_hash.clone(), 0)], 2);
+    let tx0 = test_transaction(&[OutPoint::new(pool.tx_hash.clone(), 0)], 2);
     // tx1 is conflict
     let tx1 = test_transaction_with_capacity(
-        vec![
+        &[
             OutPoint::new(pool.tx_hash.clone(), 1),
             OutPoint::new(pool.tx_hash.clone(), 2),
             OutPoint::new(pool.tx_hash.clone(), 3),
             OutPoint::new(pool.tx_hash.clone(), 4),
         ],
         5,
-        1000_000,
+        1_000_000,
     );
     let tx1_hash = tx1.hash().clone();
     let tx2 = test_transaction(
-        vec![
+        &[
             OutPoint::new(tx1_hash.clone(), 3),
             OutPoint::new(tx1_hash.clone(), 4),
         ],
@@ -339,7 +339,7 @@ fn test_block_reconciliation() {
     );
     let tx2_hash = tx2.hash().clone();
     let tx3 = test_transaction(
-        vec![
+        &[
             OutPoint::new(tx1_hash.clone(), 2),
             OutPoint::new(tx2_hash.clone(), 1),
         ],
@@ -347,7 +347,7 @@ fn test_block_reconciliation() {
     );
     let tx3_hash = tx3.hash().clone();
     let tx4 = test_transaction(
-        vec![
+        &[
             OutPoint::new(tx1_hash.clone(), 1),
             OutPoint::new(tx2_hash.clone(), 0),
             OutPoint::new(tx3_hash.clone(), 1),
@@ -357,16 +357,16 @@ fn test_block_reconciliation() {
 
     let block_tx0 = tx0.clone();
     let block_tx1 = test_transaction(
-        vec![
+        &[
             OutPoint::new(pool.tx_hash.clone(), 1),
             OutPoint::new(pool.tx_hash.clone(), 2),
         ],
         2,
     );
-    let block_tx5 = test_transaction(vec![OutPoint::new(pool.tx_hash.clone(), 5)], 1);
+    let block_tx5 = test_transaction(&[OutPoint::new(pool.tx_hash.clone(), 5)], 1);
     let block_tx5_hash = block_tx5.hash().clone();
     let block_tx6 = test_transaction(
-        vec![
+        &[
             OutPoint::new(block_tx5_hash.clone(), 0),
             OutPoint::new(pool.tx_hash.clone(), 6),
         ],
@@ -374,10 +374,10 @@ fn test_block_reconciliation() {
     );
 
     //tx5 is conflict, in orphan
-    let tx5 = test_transaction(vec![OutPoint::new(block_tx5_hash.clone(), 0)], 2);
+    let tx5 = test_transaction(&[OutPoint::new(block_tx5_hash.clone(), 0)], 2);
 
     //next block: tx6 is conflict, in pool
-    let tx6 = test_transaction(vec![OutPoint::new(pool.tx_hash.clone(), 6)], 2);
+    let tx6 = test_transaction(&[OutPoint::new(pool.tx_hash.clone(), 6)], 2);
 
     pool.service.add_to_pool(tx5.clone()).unwrap();
     pool.service.add_to_pool(tx4.clone()).unwrap();
@@ -418,7 +418,7 @@ fn test_switch_fork() {
 
     for i in 0..20 {
         let tx = test_transaction(
-            vec![
+            &[
                 OutPoint::new(pool.tx_hash.clone(), i),
                 OutPoint::new(pool.tx_hash.clone(), i + 20),
             ],
@@ -587,12 +587,12 @@ fn apply_transactions<CI: ChainIndex + 'static>(
     block
 }
 
-fn test_transaction(input_values: Vec<OutPoint>, output_num: usize) -> Transaction {
+fn test_transaction(input_values: &[OutPoint], output_num: usize) -> Transaction {
     test_transaction_with_capacity(input_values, output_num, 100_000)
 }
 
 fn test_transaction_with_capacity(
-    input_values: Vec<OutPoint>,
+    input_values: &[OutPoint],
     output_num: usize,
     capacity: u64,
 ) -> Transaction {

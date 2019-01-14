@@ -100,7 +100,7 @@ mod tests {
         collection::size_range, prelude::any, prelude::any_with, proptest, proptest_helper,
     };
 
-    fn _test_load_tx_all(tx: &Vec<u8>) {
+    fn _test_load_tx_all(tx: &[u8]) {
         let mut machine = DefaultCoreMachine::<u64, SparseMemory>::default();
         let size_addr = 0;
         let addr = 100;
@@ -118,7 +118,7 @@ mod tests {
         let mut load_tx = LoadTx::new(tx);
         assert!(load_tx.ecall(&mut machine).is_ok());
 
-        assert_eq!(machine.registers()[A0], SUCCESS as u64);
+        assert_eq!(machine.registers()[A0], u64::from(SUCCESS));
         for (i, addr) in (addr as usize..addr as usize + tx.len()).enumerate() {
             assert_eq!(machine.memory_mut().load8(addr), Ok(tx[i]));
         }
@@ -131,7 +131,7 @@ mod tests {
         }
     }
 
-    fn _test_load_tx_length(tx: &Vec<u8>) {
+    fn _test_load_tx_length(tx: &[u8]) {
         let mut machine = DefaultCoreMachine::<u64, SparseMemory>::default();
         let size_addr = 0;
         let addr = 100;
@@ -146,7 +146,7 @@ mod tests {
         let mut load_tx = LoadTx::new(tx);
         assert!(load_tx.ecall(&mut machine).is_ok());
 
-        assert_eq!(machine.registers()[A0], SUCCESS as u64);
+        assert_eq!(machine.registers()[A0], u64::from(SUCCESS));
         assert_eq!(
             machine.memory_mut().load64(size_addr as usize),
             Ok(tx.len() as u64)
@@ -159,7 +159,7 @@ mod tests {
 
         assert!(load_tx.ecall(&mut machine).is_ok());
 
-        assert_eq!(machine.registers()[A0], SUCCESS as u64);
+        assert_eq!(machine.registers()[A0], u64::from(SUCCESS));
         assert_eq!(
             machine.memory_mut().load64(size_addr as usize),
             Ok(tx.len() as u64 - 100)
@@ -173,7 +173,7 @@ mod tests {
         }
     }
 
-    fn _test_load_tx_partial(tx: &Vec<u8>) {
+    fn _test_load_tx_partial(tx: &[u8]) {
         let mut machine = DefaultCoreMachine::<u64, SparseMemory>::default();
         let size_addr = 0;
         let addr = 100;
@@ -192,7 +192,7 @@ mod tests {
         let mut load_tx = LoadTx::new(tx);
         assert!(load_tx.ecall(&mut machine).is_ok());
 
-        assert_eq!(machine.registers()[A0], SUCCESS as u64);
+        assert_eq!(machine.registers()[A0], u64::from(SUCCESS));
         assert_eq!(
             machine.memory_mut().load64(size_addr as usize),
             Ok((tx.len() - offset) as u64)
@@ -209,7 +209,7 @@ mod tests {
         }
     }
 
-    fn _test_load_cell_item_missing(data: Vec<u8>) {
+    fn _test_load_cell_item_missing(data: &[u8]) {
         let mut machine = DefaultCoreMachine::<u64, SparseMemory>::default();
         let size_addr = 0;
         let addr = 100;
@@ -226,7 +226,7 @@ mod tests {
             .store64(size_addr as usize, data.len() as u64)
             .is_ok());
 
-        let output = CellOutput::new(100, data.clone(), H256::zero(), None);
+        let output = CellOutput::new(100, data.to_vec(), H256::zero(), None);
         let input_cell = CellOutput::new(
             100,
             data.iter().rev().cloned().collect(),
@@ -239,17 +239,17 @@ mod tests {
         let mut load_cell = LoadCell::new(&outputs, &input_cells, &input_cell, &dep_cells);
 
         assert!(load_cell.ecall(&mut machine).is_ok());
-        assert_eq!(machine.registers()[A0], ITEM_MISSING as u64);
+        assert_eq!(machine.registers()[A0], u64::from(ITEM_MISSING));
     }
 
     proptest! {
         #[test]
-        fn test_load_cell_item_missing(data in any_with::<Vec<u8>>(size_range(1000).lift())) {
+        fn test_load_cell_item_missing(ref data in any_with::<Vec<u8>>(size_range(1000).lift())) {
             _test_load_cell_item_missing(data);
         }
     }
 
-    fn _test_load_cell_all(data: Vec<u8>) {
+    fn _test_load_cell_all(data: &[u8]) {
         let mut machine = DefaultCoreMachine::<u64, SparseMemory>::default();
         let size_addr = 0;
         let addr = 100;
@@ -261,7 +261,7 @@ mod tests {
         machine.registers_mut()[A4] = Source::Input as u64; //source: 1 input
         machine.registers_mut()[A7] = LOAD_CELL_SYSCALL_NUMBER; // syscall number
 
-        let output = CellOutput::new(100, data.clone(), H256::zero(), None);
+        let output = CellOutput::new(100, data.to_vec(), H256::zero(), None);
         let input_cell = CellOutput::new(
             100,
             data.iter().rev().cloned().collect(),
@@ -290,7 +290,7 @@ mod tests {
             .is_ok());
 
         assert!(load_cell.ecall(&mut machine).is_ok());
-        assert_eq!(machine.registers()[A0], SUCCESS as u64);
+        assert_eq!(machine.registers()[A0], u64::from(SUCCESS));
 
         assert_eq!(
             machine.memory_mut().load64(size_addr as usize),
@@ -314,7 +314,7 @@ mod tests {
             .is_ok());
 
         assert!(load_cell.ecall(&mut machine).is_ok());
-        assert_eq!(machine.registers()[A0], SUCCESS as u64);
+        assert_eq!(machine.registers()[A0], u64::from(SUCCESS));
 
         assert_eq!(
             machine.memory_mut().load64(size_addr as usize),
@@ -328,12 +328,12 @@ mod tests {
 
     proptest! {
         #[test]
-        fn test_load_cell_all(tx in any_with::<Vec<u8>>(size_range(1000).lift())) {
+        fn test_load_cell_all(ref tx in any_with::<Vec<u8>>(size_range(1000).lift())) {
             _test_load_cell_all(tx);
         }
     }
 
-    fn _test_load_cell_length(data: Vec<u8>) {
+    fn _test_load_cell_length(data: &[u8]) {
         let mut machine = DefaultCoreMachine::<u64, SparseMemory>::default();
         let size_addr = 0;
         let addr = 100;
@@ -345,7 +345,7 @@ mod tests {
         machine.registers_mut()[A4] = Source::Input as u64; //source: 1 input
         machine.registers_mut()[A7] = LOAD_CELL_SYSCALL_NUMBER; // syscall number
 
-        let output = CellOutput::new(100, data.clone(), H256::zero(), None);
+        let output = CellOutput::new(100, data.to_vec(), H256::zero(), None);
         let input_cell = CellOutput::new(
             100,
             data.iter().rev().cloned().collect(),
@@ -365,7 +365,7 @@ mod tests {
         assert!(machine.memory_mut().store64(size_addr as usize, 0).is_ok());
 
         assert!(load_cell.ecall(&mut machine).is_ok());
-        assert_eq!(machine.registers()[A0], SUCCESS as u64);
+        assert_eq!(machine.registers()[A0], u64::from(SUCCESS));
 
         assert_eq!(
             machine.memory_mut().load64(size_addr as usize),
@@ -375,12 +375,12 @@ mod tests {
 
     proptest! {
         #[test]
-        fn test_load_cell_length(tx in any_with::<Vec<u8>>(size_range(1000).lift())) {
+        fn test_load_cell_length(ref tx in any_with::<Vec<u8>>(size_range(1000).lift())) {
             _test_load_cell_length(tx);
         }
     }
 
-    fn _test_load_cell_partial(data: Vec<u8>) {
+    fn _test_load_cell_partial(data: &[u8]) {
         let mut machine = DefaultCoreMachine::<u64, SparseMemory>::default();
         let size_addr = 0;
         let addr = 100;
@@ -393,7 +393,7 @@ mod tests {
         machine.registers_mut()[A4] = Source::Input as u64; // source: 1 input
         machine.registers_mut()[A7] = LOAD_CELL_SYSCALL_NUMBER; // syscall number
 
-        let output = CellOutput::new(100, data.clone(), H256::zero(), None);
+        let output = CellOutput::new(100, data.to_vec(), H256::zero(), None);
         let input_cell = CellOutput::new(
             100,
             data.iter().rev().cloned().collect(),
@@ -416,7 +416,7 @@ mod tests {
             .is_ok());
 
         assert!(load_cell.ecall(&mut machine).is_ok());
-        assert_eq!(machine.registers()[A0], SUCCESS as u64);
+        assert_eq!(machine.registers()[A0], u64::from(SUCCESS));
 
         for (i, addr) in
             (addr as usize..addr as usize + input_correct_data.len() - offset).enumerate()
@@ -430,12 +430,12 @@ mod tests {
 
     proptest! {
         #[test]
-        fn test_load_cell_partial(data in any_with::<Vec<u8>>(size_range(1000).lift())) {
+        fn test_load_cell_partial(ref data in any_with::<Vec<u8>>(size_range(1000).lift())) {
             _test_load_cell_partial(data);
         }
     }
 
-    fn _test_load_current_cell(data: Vec<u8>) {
+    fn _test_load_current_cell(data: &[u8]) {
         let mut machine = DefaultCoreMachine::<u64, SparseMemory>::default();
         let size_addr = 0;
         let addr = 100;
@@ -470,7 +470,7 @@ mod tests {
             .is_ok());
 
         assert!(load_cell.ecall(&mut machine).is_ok());
-        assert_eq!(machine.registers()[A0], SUCCESS as u64);
+        assert_eq!(machine.registers()[A0], u64::from(SUCCESS));
 
         assert_eq!(
             machine.memory_mut().load64(size_addr as usize),
@@ -484,7 +484,7 @@ mod tests {
 
     proptest! {
         #[test]
-        fn test_load_current_cell(tx in any_with::<Vec<u8>>(size_range(1000).lift())) {
+        fn test_load_current_cell(ref tx in any_with::<Vec<u8>>(size_range(1000).lift())) {
             _test_load_current_cell(tx);
         }
     }
@@ -511,7 +511,7 @@ mod tests {
         assert!(machine.memory_mut().store64(size_addr as usize, 16).is_ok());
 
         assert!(load_cell.ecall(&mut machine).is_ok());
-        assert_eq!(machine.registers()[A0], SUCCESS as u64);
+        assert_eq!(machine.registers()[A0], u64::from(SUCCESS));
 
         assert_eq!(machine.memory_mut().load64(size_addr as usize), Ok(8));
 
@@ -530,7 +530,7 @@ mod tests {
         }
     }
 
-    fn _test_load_self_lock_hash(data: Vec<u8>) {
+    fn _test_load_self_lock_hash(data: &[u8]) {
         let mut machine = DefaultCoreMachine::<u64, SparseMemory>::default();
         let size_addr = 0;
         let addr = 100;
@@ -553,7 +553,7 @@ mod tests {
         assert!(machine.memory_mut().store64(size_addr as usize, 64).is_ok());
 
         assert!(load_cell.ecall(&mut machine).is_ok());
-        assert_eq!(machine.registers()[A0], SUCCESS as u64);
+        assert_eq!(machine.registers()[A0], u64::from(SUCCESS));
 
         assert_eq!(
             machine.memory_mut().load64(size_addr as usize),
@@ -568,7 +568,7 @@ mod tests {
         assert!(machine.memory_mut().store64(size_addr as usize, 0).is_ok());
 
         assert!(load_cell.ecall(&mut machine).is_ok());
-        assert_eq!(machine.registers()[A0], SUCCESS as u64);
+        assert_eq!(machine.registers()[A0], u64::from(SUCCESS));
 
         assert_eq!(
             machine.memory_mut().load64(size_addr as usize),
@@ -578,7 +578,7 @@ mod tests {
 
     proptest! {
         #[test]
-        fn test_load_self_lock_hash(data in any_with::<Vec<u8>>(size_range(1000).lift())) {
+        fn test_load_self_lock_hash(ref data in any_with::<Vec<u8>>(size_range(1000).lift())) {
             _test_load_self_lock_hash(data);
         }
     }
@@ -609,7 +609,7 @@ mod tests {
             .is_ok());
 
         assert!(load_cell.ecall(&mut machine).is_ok());
-        assert_eq!(machine.registers()[A0], ITEM_MISSING as u64);
+        assert_eq!(machine.registers()[A0], u64::from(ITEM_MISSING));
 
         assert_eq!(machine.memory_mut().load64(size_addr as usize), Ok(100));
 
@@ -647,7 +647,7 @@ mod tests {
             .is_ok());
 
         assert!(load_input.ecall(&mut machine).is_ok());
-        assert_eq!(machine.registers()[A0], SUCCESS as u64);
+        assert_eq!(machine.registers()[A0], u64::from(SUCCESS));
 
         assert_eq!(
             machine.memory_mut().load64(size_addr as usize),
@@ -695,7 +695,7 @@ mod tests {
             .is_ok());
 
         assert!(load_input.ecall(&mut machine).is_ok());
-        assert_eq!(machine.registers()[A0], ITEM_MISSING as u64);
+        assert_eq!(machine.registers()[A0], u64::from(ITEM_MISSING));
 
         assert_eq!(
             machine.memory_mut().load64(size_addr as usize),
@@ -714,7 +714,7 @@ mod tests {
         }
     }
 
-    fn _test_load_self_input_out_point(data: Vec<u8>) {
+    fn _test_load_self_input_out_point(data: &[u8]) {
         let mut machine = DefaultCoreMachine::<u64, SparseMemory>::default();
         let size_addr = 0;
         let addr = 100;
@@ -745,7 +745,7 @@ mod tests {
             .is_ok());
 
         assert!(load_input.ecall(&mut machine).is_ok());
-        assert_eq!(machine.registers()[A0], SUCCESS as u64);
+        assert_eq!(machine.registers()[A0], u64::from(SUCCESS));
 
         assert_eq!(
             machine.memory_mut().load64(size_addr as usize),
@@ -760,7 +760,7 @@ mod tests {
 
     proptest! {
         #[test]
-        fn test_load_self_input_out_point(data in any_with::<Vec<u8>>(size_range(1000).lift())) {
+        fn test_load_self_input_out_point(ref data in any_with::<Vec<u8>>(size_range(1000).lift())) {
             _test_load_self_input_out_point(data);
         }
     }
@@ -785,7 +785,7 @@ mod tests {
         assert!(machine.memory_mut().store64(size_addr as usize, 5).is_ok());
 
         assert!(load_input.ecall(&mut machine).is_ok());
-        assert_eq!(machine.registers()[A0], ITEM_MISSING as u64);
+        assert_eq!(machine.registers()[A0], u64::from(ITEM_MISSING));
 
         assert_eq!(machine.memory_mut().load64(size_addr as usize), Ok(5));
 
@@ -794,7 +794,7 @@ mod tests {
         }
     }
 
-    fn _test_load_dep_cell_data(data: Vec<u8>) {
+    fn _test_load_dep_cell_data(data: &[u8]) {
         let mut machine = DefaultCoreMachine::<u64, SparseMemory>::default();
         let size_addr = 0;
         let addr = 100;
@@ -808,7 +808,7 @@ mod tests {
         machine.registers_mut()[A7] = LOAD_CELL_BY_FIELD_SYSCALL_NUMBER; // syscall number
 
         let input_cell = CellOutput::new(1000, vec![], H256::zero(), None);
-        let dep_cell = CellOutput::new(1000, data.clone(), H256::zero(), None);
+        let dep_cell = CellOutput::new(1000, data.to_vec(), H256::zero(), None);
         let outputs = vec![];
         let input_cells = vec![&input_cell];
         let dep_cells = vec![&dep_cell];
@@ -820,7 +820,7 @@ mod tests {
             .is_ok());
 
         assert!(load_cell.ecall(&mut machine).is_ok());
-        assert_eq!(machine.registers()[A0], SUCCESS as u64);
+        assert_eq!(machine.registers()[A0], u64::from(SUCCESS));
 
         assert_eq!(
             machine.memory_mut().load64(size_addr as usize),
@@ -834,12 +834,12 @@ mod tests {
 
     proptest! {
         #[test]
-        fn test_load_dep_cell_data(data in any_with::<Vec<u8>>(size_range(1000).lift())) {
+        fn test_load_dep_cell_data(ref data in any_with::<Vec<u8>>(size_range(1000).lift())) {
             _test_load_dep_cell_data(data);
         }
     }
 
-    fn _test_load_dep_cell_data_hash(data: Vec<u8>) {
+    fn _test_load_dep_cell_data_hash(data: &[u8]) {
         let mut machine = DefaultCoreMachine::<u64, SparseMemory>::default();
         let size_addr = 0;
         let addr = 100;
@@ -853,7 +853,7 @@ mod tests {
         machine.registers_mut()[A7] = LOAD_CELL_BY_FIELD_SYSCALL_NUMBER; // syscall number
 
         let input_cell = CellOutput::new(1000, vec![], H256::zero(), None);
-        let dep_cell = CellOutput::new(1000, data.clone(), H256::zero(), None);
+        let dep_cell = CellOutput::new(1000, data.to_vec(), H256::zero(), None);
         let outputs = vec![];
         let input_cells = vec![&input_cell];
         let dep_cells = vec![&dep_cell];
@@ -867,7 +867,7 @@ mod tests {
             .is_ok());
 
         assert!(load_cell.ecall(&mut machine).is_ok());
-        assert_eq!(machine.registers()[A0], SUCCESS as u64);
+        assert_eq!(machine.registers()[A0], u64::from(SUCCESS));
 
         assert_eq!(
             machine.memory_mut().load64(size_addr as usize),
@@ -881,7 +881,7 @@ mod tests {
 
     proptest! {
         #[test]
-        fn test_load_dep_cell_data_hash(data in any_with::<Vec<u8>>(size_range(1000).lift())) {
+        fn test_load_dep_cell_data_hash(ref data in any_with::<Vec<u8>>(size_range(1000).lift())) {
             _test_load_dep_cell_data_hash(data);
         }
     }
