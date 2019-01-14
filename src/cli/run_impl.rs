@@ -3,7 +3,7 @@ use crate::Setup;
 use ckb_chain::chain::{ChainBuilder, ChainController};
 use ckb_core::script::Script;
 use ckb_db::diskdb::RocksDB;
-use ckb_miner::{Agent, AgentController};
+use ckb_miner::{BlockAssembler, BlockAssemblerController};
 use ckb_network::CKBProtocol;
 use ckb_network::NetworkConfig;
 use ckb_network::NetworkService;
@@ -36,7 +36,7 @@ pub fn run(setup: Setup) {
     let (_handle, notify) = NotifyService::default().start(Some("notify"));
     let (chain_controller, chain_receivers) = ChainController::build();
     let (tx_pool_controller, tx_pool_receivers) = TransactionPoolController::build();
-    let (miner_agent_controller, miner_agent_receivers) = AgentController::build();
+    let (block_assembler_controller, block_assembler_receivers) = BlockAssemblerController::build();
 
     let chain_service = ChainBuilder::new(shared.clone())
         .notify(notify.clone())
@@ -49,8 +49,9 @@ pub fn run(setup: Setup) {
         TransactionPoolService::new(setup.configs.pool, shared.clone(), notify.clone());
     let _handle = tx_pool_service.start(Some("TransactionPoolService"), tx_pool_receivers);
 
-    let miner_agent = Agent::new(shared.clone(), tx_pool_controller.clone());
-    let _handle = miner_agent.start(Some("MinerAgent"), miner_agent_receivers, &notify);
+    let block_assembler =
+        BlockAssembler::new(shared.clone(), tx_pool_controller.clone(), H256::zero());
+    let _handle = block_assembler.start(Some("MinerAgent"), block_assembler_receivers, &notify);
 
     let synchronizer = Arc::new(Synchronizer::new(
         chain_controller.clone(),
@@ -105,7 +106,7 @@ pub fn run(setup: Setup) {
         shared,
         tx_pool_controller,
         chain_controller,
-        miner_agent_controller,
+        block_assembler_controller,
     );
 
     wait_for_exit();
@@ -120,7 +121,7 @@ fn setup_rpc<CI: ChainIndex + 'static>(
     shared: Shared<CI>,
     tx_pool: TransactionPoolController,
     chain: ChainController,
-    agent: AgentController,
+    agent: BlockAssemblerController,
 ) {
     use ckb_pow::Clicker;
 

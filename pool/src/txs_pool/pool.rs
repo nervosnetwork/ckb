@@ -4,7 +4,6 @@ use super::types::{
     InsertionResult, Orphan, PendingQueue, Pool, PoolConfig, PoolError, ProposedQueue, TxStage,
     TxoStatus,
 };
-use channel::{self, select, Receiver, Sender};
 use ckb_core::block::Block;
 use ckb_core::cell::{CellProvider, CellStatus};
 use ckb_core::service::{Request, DEFAULT_CHANNEL_SIZE};
@@ -13,6 +12,7 @@ use ckb_notify::{ForkBlocks, MsgNewTip, MsgSwitchFork, NotifyController};
 use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::{ChainProvider, Shared};
 use ckb_verification::{TransactionError, TransactionVerifier};
+use crossbeam_channel::{self, select, Receiver, Sender};
 use log::error;
 use lru_cache::LruCache;
 use numext_fixed_hash::H256;
@@ -50,16 +50,20 @@ pub struct TransactionPoolReceivers {
 impl TransactionPoolController {
     pub fn build() -> (TransactionPoolController, TransactionPoolReceivers) {
         let (get_proposal_commit_transactions_sender, get_proposal_commit_transactions_receiver) =
-            channel::bounded(DEFAULT_CHANNEL_SIZE);
+            crossbeam_channel::bounded(DEFAULT_CHANNEL_SIZE);
         let (get_potential_transactions_sender, get_potential_transactions_receiver) =
-            channel::bounded(DEFAULT_CHANNEL_SIZE);
-        let (contains_key_sender, contains_key_receiver) = channel::bounded(DEFAULT_CHANNEL_SIZE);
+            crossbeam_channel::bounded(DEFAULT_CHANNEL_SIZE);
+        let (contains_key_sender, contains_key_receiver) =
+            crossbeam_channel::bounded(DEFAULT_CHANNEL_SIZE);
         let (get_transaction_sender, get_transaction_receiver) =
-            channel::bounded(DEFAULT_CHANNEL_SIZE);
+            crossbeam_channel::bounded(DEFAULT_CHANNEL_SIZE);
         let (add_transaction_sender, add_transaction_receiver) =
-            channel::bounded(DEFAULT_CHANNEL_SIZE);
-        let (reg_trace_sender, reg_trace_receiver) = channel::bounded(DEFAULT_CHANNEL_SIZE);
-        let (get_trace_sender, get_trace_receiver) = channel::bounded(DEFAULT_CHANNEL_SIZE);
+            crossbeam_channel::bounded(DEFAULT_CHANNEL_SIZE);
+        let (reg_trace_sender, reg_trace_receiver) =
+            crossbeam_channel::bounded(DEFAULT_CHANNEL_SIZE);
+        let (get_trace_sender, get_trace_receiver) =
+            crossbeam_channel::bounded(DEFAULT_CHANNEL_SIZE);
+
         (
             TransactionPoolController {
                 get_proposal_commit_transactions_sender,
@@ -260,7 +264,7 @@ where
             }).expect("Start TransactionPoolService failed!")
     }
 
-    fn handle_new_tip(&mut self, msg: Result<MsgNewTip, channel::RecvError>) {
+    fn handle_new_tip(&mut self, msg: Result<MsgNewTip, crossbeam_channel::RecvError>) {
         match msg {
             Ok(block) => self.reconcile_block(&block),
             _ => {
@@ -269,7 +273,7 @@ where
         }
     }
 
-    fn handle_switch_fork(&mut self, msg: Result<MsgSwitchFork, channel::RecvError>) {
+    fn handle_switch_fork(&mut self, msg: Result<MsgSwitchFork, crossbeam_channel::RecvError>) {
         match msg {
             Ok(blocks) => self.switch_fork(&blocks),
             _ => {
@@ -280,7 +284,7 @@ where
 
     fn handle_get_proposal_commit_transactions(
         &self,
-        msg: Result<Request<TxsArgs, TxsReturn>, channel::RecvError>,
+        msg: Result<Request<TxsArgs, TxsReturn>, crossbeam_channel::RecvError>,
     ) {
         match msg {
             Ok(Request {

@@ -4,7 +4,7 @@ use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 use serde_derive::{Deserialize, Serialize};
 
-pub use crate::BlockNumber;
+pub use crate::{BlockNumber, Version};
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug, Default)]
 pub struct Seal {
@@ -25,7 +25,7 @@ impl Seal {
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug, Default)]
 pub struct RawHeader {
-    version: u32,
+    version: Version,
     /// Parent hash.
     parent_hash: H256,
     /// Block timestamp(ms).
@@ -141,6 +141,10 @@ impl Header {
 
     pub fn uncles_hash(&self) -> &H256 {
         &self.raw.uncles_hash
+    }
+
+    pub fn raw(&self) -> &RawHeader {
+        &self.raw
     }
 
     pub fn into_raw(self) -> RawHeader {

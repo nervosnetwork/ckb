@@ -1,8 +1,8 @@
 //! Transaction using Cell.
 //! It is similar to Bitcoin Tx <https://en.bitcoin.it/wiki/Protocol_documentation#tx/>
 use crate::script::Script;
-use crate::BlockNumber;
 pub use crate::Capacity;
+use crate::{BlockNumber, Version};
 use bincode::{deserialize, serialize};
 use faster_hex::hex_string;
 use hash::sha3_256;
@@ -10,8 +10,6 @@ use numext_fixed_hash::H256;
 use serde_derive::{Deserialize, Serialize};
 use std::ops::{Deref, DerefMut};
 use std::{fmt, mem};
-
-pub const VERSION: u32 = 0;
 
 #[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Hash, Debug)]
 pub struct OutPoint {
@@ -123,7 +121,7 @@ impl CellOutput {
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug, Default)]
 pub struct Transaction {
-    version: u32,
+    version: Version,
     deps: Vec<OutPoint>,
     inputs: Vec<CellInput>,
     outputs: Vec<CellOutput>,

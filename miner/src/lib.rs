@@ -1,9 +1,14 @@
-mod agent;
+mod block_assembler;
 mod client;
+mod config;
 mod miner;
-mod types;
 
-pub use crate::agent::{Agent, AgentController, AgentReceivers};
+pub use crate::block_assembler::{BlockAssembler, BlockAssemblerController};
 pub use crate::client::Client;
+pub use crate::config::Config;
 pub use crate::miner::Miner;
-pub use crate::types::{BlockTemplate, Config, Shared};
+use ckb_util::RwLock;
+use jsonrpc_types::BlockTemplate;
+use std::sync::Arc;
+
+pub type Work = Arc<RwLock<Option<BlockTemplate>>>;

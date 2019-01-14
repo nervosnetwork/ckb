@@ -1,32 +1,25 @@
 use super::super::setup::Setup;
-use channel::unbounded;
-use ckb_miner::{Client, Miner, Shared};
+use ckb_miner::{Client, Miner};
 use ckb_util::RwLock;
+use crossbeam_channel::unbounded;
 use std::sync::Arc;
-use std::thread::Builder;
+use std::thread;
 
 pub fn miner(setup: Setup) {
-    let (new_job_tx, new_job_rx) = unbounded();
-    let shared = Shared {
-        inner: Arc::new(RwLock::new(None)),
-    };
+    let (new_work_tx, new_work_rx) = unbounded();
 
-    let client = Client {
-        shared: shared.clone(),
-        new_job_tx,
-        config: setup.configs.miner,
-    };
+    let work = Arc::new(RwLock::new(None));
 
-    let miner = Miner {
-        pow: setup.chain_spec.pow_engine(),
-        new_job_rx,
-        shared,
-        client: client.clone(),
-    };
+    let client = Client::new(Arc::clone(&work), new_work_tx, setup.configs.miner);
 
-    let thread_builder = Builder::new();
+    let miner = Miner::new(
+        work,
+        setup.chain_spec.pow_engine(),
+        new_work_rx,
+        client.clone(),
+    );
 
-    thread_builder
+    thread::Builder::new()
         .name("client".to_string())
         .spawn(move || client.run())
         .expect("Start client failed!");

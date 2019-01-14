@@ -4,7 +4,7 @@ use crate::module::{
     NetworkRpc, NetworkRpcImpl, PoolRpc, PoolRpcImpl, TraceRpc, TraceRpcImpl,
 };
 use ckb_chain::chain::ChainController;
-use ckb_miner::AgentController;
+use ckb_miner::BlockAssemblerController;
 use ckb_network::NetworkService;
 use ckb_pool::txs_pool::TransactionPoolController;
 use ckb_pow::Clicker;
@@ -28,7 +28,7 @@ impl RpcServer {
         shared: Shared<CI>,
         tx_pool: TransactionPoolController,
         chain: ChainController,
-        agent: AgentController,
+        block_assembler: BlockAssemblerController,
         test_engine: Option<Arc<Clicker>>,
     ) where
         CI: ChainIndex,
@@ -58,7 +58,7 @@ impl RpcServer {
             io.extend_with(
                 MinerRpcImpl {
                     shared,
-                    agent,
+                    block_assembler,
                     chain,
                     network: Arc::clone(&network),
                 }

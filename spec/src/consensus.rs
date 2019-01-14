@@ -1,7 +1,7 @@
 use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::header::HeaderBuilder;
 use ckb_core::transaction::Capacity;
-use ckb_core::{BlockNumber, Cycle};
+use ckb_core::{BlockNumber, Cycle, Version};
 use ckb_pow::{Pow, PowEngine};
 use numext_fixed_uint::U256;
 use std::sync::Arc;
@@ -21,6 +21,8 @@ pub const POW_TIME_SPAN: u64 = 12 * 60 * 60 * 1000; // 12 hours
 pub const POW_SPACING: u64 = 15 * 1000; //15s
 
 pub const MAX_BLOCK_CYCLES: Cycle = 100_000_000;
+pub const MAX_BLOCK_BYTES: u64 = 10_000_000; // 10mb
+pub const BLOCK_VERSION: u32 = 0;
 
 #[derive(Clone, PartialEq, Debug)]
 pub struct Consensus {
@@ -44,6 +46,10 @@ pub struct Consensus {
     pub median_time_block_count: usize,
     // Maximum cycles that all the scripts in all the commit transactions can take
     pub max_block_cycles: Cycle,
+    // Maximum number of bytes to use for the entire block
+    pub max_block_bytes: u64,
+    // block version number supported
+    pub block_version: Version,
 }
 
 // genesis difficulty should not be zero
@@ -68,6 +74,8 @@ impl Default for Consensus {
             cellbase_maturity: CELLBASE_MATURITY,
             median_time_block_count: MEDIAN_TIME_BLOCK_COUNT,
             max_block_cycles: MAX_BLOCK_CYCLES,
+            max_block_bytes: MAX_BLOCK_BYTES,
+            block_version: BLOCK_VERSION,
         }
     }
 }
@@ -145,5 +153,13 @@ impl Consensus {
 
     pub fn max_block_cycles(&self) -> Cycle {
         self.max_block_cycles
+    }
+
+    pub fn max_block_bytes(&self) -> u64 {
+        self.max_block_bytes
+    }
+
+    pub fn block_version(&self) -> Version {
+        self.block_version
     }
 }
