@@ -1,7 +1,6 @@
-use crate::types::{BlockWithHash, CellOutputWithOutPoint, CellWithStatus, TransactionWithHash};
+use crate::types::{Block, CellOutputWithOutPoint, CellWithStatus, Header, OutPoint, Transaction};
 use ckb_core::cell::CellProvider;
-use ckb_core::header::{BlockNumber, Header};
-use ckb_core::transaction::OutPoint;
+use ckb_core::BlockNumber;
 use ckb_shared::{
     index::ChainIndex,
     shared::{ChainProvider, Shared},
@@ -13,10 +12,10 @@ use numext_fixed_hash::H256;
 build_rpc_trait! {
     pub trait ChainRpc {
         #[rpc(name = "get_block")]
-        fn get_block(&self, _hash: H256) -> Result<Option<BlockWithHash>>;
+        fn get_block(&self, _hash: H256) -> Result<Option<Block>>;
 
         #[rpc(name = "get_transaction")]
-        fn get_transaction(&self, _hash: H256) -> Result<Option<TransactionWithHash>>;
+        fn get_transaction(&self, _hash: H256) -> Result<Option<Transaction>>;
 
         #[rpc(name = "get_block_hash")]
         fn get_block_hash(&self, _number: u64) -> Result<Option<H256>>;
@@ -32,8 +31,8 @@ build_rpc_trait! {
             _to: BlockNumber
         ) -> Result<Vec<CellOutputWithOutPoint>>;
 
-        #[rpc(name = "get_current_cell")]
-        fn get_current_cell(&self, _out_point: OutPoint) -> Result<CellWithStatus>;
+        #[rpc(name = "get_live_cell")]
+        fn get_live_cell(&self, _out_point: OutPoint) -> Result<CellWithStatus>;
 
         #[rpc(name = "get_tip_block_number")]
         fn get_tip_block_number(&self) -> Result<BlockNumber>;
@@ -45,12 +44,12 @@ pub(crate) struct ChainRpcImpl<CI> {
 }
 
 impl<CI: ChainIndex + 'static> ChainRpc for ChainRpcImpl<CI> {
-    fn get_block(&self, hash: H256) -> Result<Option<BlockWithHash>> {
-        Ok(self.shared.block(&hash).map(Into::into))
+    fn get_block(&self, hash: H256) -> Result<Option<Block>> {
+        Ok(self.shared.block(&hash).as_ref().map(Into::into))
     }
 
-    fn get_transaction(&self, hash: H256) -> Result<Option<TransactionWithHash>> {
-        Ok(self.shared.get_transaction(&hash).map(Into::into))
+    fn get_transaction(&self, hash: H256) -> Result<Option<Transaction>> {
+        Ok(self.shared.get_transaction(&hash).as_ref().map(Into::into))
     }
 
     fn get_block_hash(&self, number: BlockNumber) -> Result<Option<H256>> {
@@ -58,7 +57,7 @@ impl<CI: ChainIndex + 'static> ChainRpc for ChainRpcImpl<CI> {
     }
 
     fn get_tip_header(&self) -> Result<Header> {
-        Ok(self.shared.tip_header().read().inner().clone())
+        Ok(self.shared.tip_header().read().inner().into())
     }
 
     // TODO: we need to build a proper index instead of scanning every time
@@ -84,7 +83,10 @@ impl<CI: ChainIndex + 'static> ChainRpc for ChainRpcImpl<CI> {
                     for (i, output) in transaction.outputs().iter().enumerate() {
                         if output.lock == type_hash && (!transaction_meta.is_spent(i)) {
                             result.push(CellOutputWithOutPoint {
-                                out_point: OutPoint::new(transaction.hash().clone(), i as u32),
+                                out_point: OutPoint {
+                                    hash: transaction.hash().clone(),
+                                    index: i as u32,
+                                },
                                 capacity: output.capacity,
                                 lock: output.lock.clone(),
                             });
@@ -96,8 +98,8 @@ impl<CI: ChainIndex + 'static> ChainRpc for ChainRpcImpl<CI> {
         Ok(result)
     }
 
-    fn get_current_cell(&self, out_point: OutPoint) -> Result<CellWithStatus> {
-        Ok(self.shared.cell(&out_point).into())
+    fn get_live_cell(&self, out_point: OutPoint) -> Result<CellWithStatus> {
+        Ok(self.shared.cell(&(out_point.into())).into())
     }
 
     fn get_tip_block_number(&self) -> Result<BlockNumber> {

@@ -42,6 +42,11 @@ impl OutPoint {
     pub fn is_null(&self) -> bool {
         self.hash.is_zero() && self.index == u32::max_value()
     }
+
+    pub fn destruct(self) -> (H256, u32) {
+        let OutPoint { hash, index } = self;
+        (hash, index)
+    }
 }
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
@@ -72,6 +77,14 @@ impl CellInput {
             ),
         }
     }
+
+    pub fn destruct(self) -> (OutPoint, Script) {
+        let CellInput {
+            previous_output,
+            unlock,
+        } = self;
+        (previous_output, unlock)
+    }
 }
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
@@ -79,21 +92,32 @@ pub struct CellOutput {
     pub capacity: Capacity,
     pub data: Vec<u8>,
     pub lock: H256,
-    pub contract: Option<Script>,
+    #[serde(rename = "type")]
+    pub type_: Option<Script>,
 }
 
 impl CellOutput {
-    pub fn new(capacity: Capacity, data: Vec<u8>, lock: H256, contract: Option<Script>) -> Self {
+    pub fn new(capacity: Capacity, data: Vec<u8>, lock: H256, type_: Option<Script>) -> Self {
         CellOutput {
             capacity,
             data,
             lock,
-            contract,
+            type_,
         }
     }
 
     pub fn data_hash(&self) -> H256 {
         sha3_256(&self.data).into()
+    }
+
+    pub fn destruct(self) -> (Capacity, Vec<u8>, H256, Option<Script>) {
+        let CellOutput {
+            capacity,
+            data,
+            lock,
+            type_,
+        } = self;
+        (capacity, data, lock, type_)
     }
 }
 
@@ -105,12 +129,18 @@ pub struct Transaction {
     outputs: Vec<CellOutput>,
 }
 
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct IndexTransaction {
+    pub index: usize,
+    pub transaction: Transaction,
+}
+
 impl CellOutput {
     pub fn bytes_len(&self) -> usize {
         mem::size_of::<Capacity>()
             + self.data.len()
             + H256::size_of()
-            + self.contract.as_ref().map_or(0, |s| s.bytes_len())
+            + self.type_.as_ref().map_or(0, |s| s.bytes_len())
     }
 }
 
@@ -132,6 +162,10 @@ impl DerefMut for ProposalShortId {
 }
 
 impl ProposalShortId {
+    pub fn new(inner: [u8; 10]) -> Self {
+        ProposalShortId(inner)
+    }
+
     pub fn from_slice(slice: &[u8]) -> Option<Self> {
         if slice.len() == 10usize {
             let mut id = [0u8; 10];
@@ -155,6 +189,10 @@ impl ProposalShortId {
 
     pub fn zero() -> Self {
         ProposalShortId([0; 10])
+    }
+
+    pub fn into_inner(self) -> [u8; 10] {
+        self.0
     }
 }
 
@@ -259,6 +297,11 @@ impl TransactionBuilder {
         self
     }
 
+    pub fn deps_clear(mut self) -> Self {
+        self.inner.deps.clear();
+        self
+    }
+
     pub fn input(mut self, input: CellInput) -> Self {
         self.inner.inputs.push(input);
         self
@@ -281,6 +324,11 @@ impl TransactionBuilder {
 
     pub fn outputs(mut self, outputs: Vec<CellOutput>) -> Self {
         self.inner.outputs.extend(outputs);
+        self
+    }
+
+    pub fn outputs_clear(mut self) -> Self {
+        self.inner.outputs.clear();
         self
     }
 

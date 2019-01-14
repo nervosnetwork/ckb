@@ -1,6 +1,13 @@
+mod db;
+pub mod sqlite;
+pub use crate::peer_store::sqlite_peer_store::SqlitePeerStore;
+#[cfg(db_trace)]
+pub mod db_trace;
+pub(crate) mod sqlite_peer_store;
+
 use crate::PeerId;
 use fnv::FnvHashMap;
-use libp2p::core::Multiaddr;
+use libp2p::core::{Endpoint, Multiaddr};
 use std::time::Duration;
 
 #[allow(dead_code)]
@@ -14,9 +21,20 @@ pub enum Behaviour {
 }
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum Status {
-    Connected,
-    Disconnected,
-    Unknown,
+    Connected = 0,
+    Disconnected = 1,
+    Unknown = 2,
+}
+
+impl From<u8> for Status {
+    fn from(i: u8) -> Self {
+        match i {
+            0 => Status::Connected,
+            1 => Status::Disconnected,
+            2 => Status::Unknown,
+            _ => Status::Unknown,
+        }
+    }
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -25,10 +43,14 @@ pub enum ReportResult {
     Banned,
 }
 
+#[allow(dead_code)]
 impl ReportResult {
-    #[allow(dead_code)]
     pub fn is_banned(self) -> bool {
         self == ReportResult::Banned
+    }
+
+    pub fn is_ok(self) -> bool {
+        self == ReportResult::Ok
     }
 }
 
@@ -86,7 +108,7 @@ impl Default for ScoringSchema {
 
 pub trait PeerStore: Send + Sync {
     // initial or update peer_info in peer_store
-    fn new_connected_peer(&mut self, peer_id: &PeerId, address: Multiaddr);
+    fn new_connected_peer(&mut self, peer_id: &PeerId, address: Multiaddr, endpoint: Endpoint);
     // add peer discovered addresses, return numbers of new inserted line, return Err if peer not exists
     fn add_discovered_address(&mut self, peer_id: &PeerId, address: Multiaddr) -> Result<(), ()>;
     fn add_discovered_addresses(
@@ -100,14 +122,10 @@ pub trait PeerStore: Send + Sync {
     fn peer_score(&self, peer_id: &PeerId) -> Option<Score>;
     fn add_bootnode(&mut self, peer_id: PeerId, addr: Multiaddr);
     // should return high scored nodes if possible, otherwise, return boostrap nodes
-    fn bootnodes<'a>(&'a self) -> Box<dyn Iterator<Item = (&'a PeerId, &'a Multiaddr)> + 'a>;
-    fn peer_addrs<'a>(
-        &'a self,
-        peer_id: &'a PeerId,
-    ) -> Option<Box<dyn Iterator<Item = &'a Multiaddr> + 'a>>;
-    fn peers_to_attempt<'a>(&'a self)
-        -> Box<dyn Iterator<Item = (&'a PeerId, &'a Multiaddr)> + 'a>;
-    fn ban_peer(&mut self, peer_id: PeerId, timeout: Duration);
+    fn bootnodes(&self, count: u32) -> Vec<(PeerId, Multiaddr)>;
+    fn peer_addrs(&self, peer_id: &PeerId, count: u32) -> Option<Vec<Multiaddr>>;
+    fn peers_to_attempt(&self, count: u32) -> Vec<(PeerId, Multiaddr)>;
+    fn ban_peer(&mut self, peer_id: &PeerId, timeout: Duration);
     fn is_banned(&self, peer_id: &PeerId) -> bool;
     fn scoring_schema(&self) -> &ScoringSchema;
     fn peer_score_or_default(&self, peer_id: &PeerId) -> Score {

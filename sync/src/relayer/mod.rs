@@ -15,6 +15,7 @@ use self::compact_block_process::CompactBlockProcess;
 use self::get_block_proposal_process::GetBlockProposalProcess;
 use self::get_block_transactions_process::GetBlockTransactionsProcess;
 use self::transaction_process::TransactionProcess;
+use crate::types::Peers;
 use ckb_chain::chain::ChainController;
 use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::transaction::{ProposalShortId, Transaction};
@@ -34,22 +35,14 @@ use std::time::Duration;
 
 pub const TX_PROPOSAL_TOKEN: TimerToken = 0;
 
+#[derive(Clone)]
 pub struct Relayer<CI: ChainIndex> {
     chain: ChainController,
     shared: Shared<CI>,
     tx_pool: TransactionPoolController,
     state: Arc<RelayState>,
-}
-
-impl<CI: ChainIndex> ::std::clone::Clone for Relayer<CI> {
-    fn clone(&self) -> Self {
-        Relayer {
-            chain: self.chain.clone(),
-            shared: self.shared.clone(),
-            tx_pool: self.tx_pool.clone(),
-            state: Arc::clone(&self.state),
-        }
-    }
+    // TODO refactor shared Peers struct with Synchronizer
+    peers: Arc<Peers>,
 }
 
 impl<CI> Relayer<CI>
@@ -60,12 +53,14 @@ where
         chain: ChainController,
         shared: Shared<CI>,
         tx_pool: TransactionPoolController,
+        peers: Arc<Peers>,
     ) -> Self {
         Relayer {
             chain,
             shared,
             tx_pool,
             state: Arc::new(RelayState::default()),
+            peers,
         }
     }
 
@@ -246,6 +241,10 @@ where
 
     pub fn get_block(&self, hash: &H256) -> Option<Block> {
         self.shared.block(hash)
+    }
+
+    pub fn peers(&self) -> Arc<Peers> {
+        Arc::clone(&self.peers)
     }
 }
 

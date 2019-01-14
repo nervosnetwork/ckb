@@ -1,10 +1,14 @@
-use crate::syscalls::{build_tx, Debugger, LoadCell, LoadCellByField, LoadInputByField, LoadTx};
-use crate::ScriptError;
+use crate::{
+    cost_model::instruction_cycles,
+    syscalls::{build_tx, Debugger, LoadCell, LoadCellByField, LoadInputByField, LoadTx},
+    ScriptError,
+};
 use ckb_core::cell::ResolvedTransaction;
 use ckb_core::script::Script;
 use ckb_core::transaction::{CellInput, CellOutput};
+use ckb_core::Cycle;
 use ckb_protocol::{FlatbuffersVectorIterator, Script as FbsScript};
-use ckb_vm::{DefaultMachine, SparseMemory};
+use ckb_vm::{CoreMachine, DefaultMachine, SparseMemory};
 use flatbuffers::{get_root, FlatBufferBuilder};
 use fnv::FnvHashMap;
 use log::info;
@@ -29,7 +33,7 @@ impl<'a> TransactionScriptsVerifier<'a> {
             .dep_cells
             .iter()
             .map(|cell| {
-                cell.get_current()
+                cell.get_live()
                     .expect("already verifies that all dep cells are valid")
             })
             .collect();
@@ -48,7 +52,7 @@ impl<'a> TransactionScriptsVerifier<'a> {
             .input_cells
             .iter()
             .map(|cell| {
-                cell.get_current()
+                cell.get_live()
                     .expect("already verifies that all input cells are valid")
             })
             .collect();
@@ -141,13 +145,17 @@ impl<'a> TransactionScriptsVerifier<'a> {
         prefix: &str,
         current_cell: &'a CellOutput,
         current_input: Option<&'a CellInput>,
-    ) -> Result<(), ScriptError> {
+        max_cycles: Cycle,
+    ) -> Result<Cycle, ScriptError> {
         let mut args = vec![b"verify".to_vec()];
         self.extract_script(script, &mut args)
             .and_then(|script_binary| {
                 args.extend_from_slice(&script.args.as_slice());
 
-                let mut machine = DefaultMachine::<u64, SparseMemory>::default();
+                let mut machine = DefaultMachine::<u64, SparseMemory>::new_with_cost_model(
+                    Box::new(instruction_cycles),
+                    max_cycles,
+                );
                 machine.add_syscall_module(Box::new(self.build_load_tx()));
                 machine.add_syscall_module(Box::new(self.build_load_cell(current_cell)));
                 machine.add_syscall_module(Box::new(self.build_load_cell_by_field(current_cell)));
@@ -158,7 +166,7 @@ impl<'a> TransactionScriptsVerifier<'a> {
                     .map_err(ScriptError::VMError)
                     .and_then(|code| {
                         if code == 0 {
-                            Ok(())
+                            Ok(machine.cycles())
                         } else {
                             Err(ScriptError::ValidationFailure(code))
                         }
@@ -166,24 +174,39 @@ impl<'a> TransactionScriptsVerifier<'a> {
             })
     }
 
-    pub fn verify(&self) -> Result<(), ScriptError> {
+    pub fn verify(&self, max_cycles: Cycle) -> Result<Cycle, ScriptError> {
+        let mut cycles = 0;
         for (i, input) in self.inputs.iter().enumerate() {
             let prefix = format!("Transaction {}, input {}", self.hash, i);
-            self.verify_script(&input.unlock, &prefix, self.input_cells[i], Some(input)).map_err(|e| {
+            let cycle = self.verify_script(&input.unlock, &prefix, self.input_cells[i], Some(input), max_cycles - cycles).map_err(|e| {
                 info!(target: "script", "Error validating input {} of transaction {}: {:?}", i, self.hash, e);
                 e
             })?;
+            let current_cycles = cycles
+                .checked_add(cycle)
+                .ok_or(ScriptError::ExceededMaximumCycles)?;
+            if current_cycles > max_cycles {
+                return Err(ScriptError::ExceededMaximumCycles);
+            }
+            cycles = current_cycles;
         }
         for (i, output) in self.outputs.iter().enumerate() {
-            if let Some(ref contract) = output.contract {
+            if let Some(ref type_) = output.type_ {
                 let prefix = format!("Transaction {}, output {}", self.hash, i);
-                self.verify_script(contract, &prefix, output, None).map_err(|e| {
+                let cycle = self.verify_script(type_, &prefix, output, None, max_cycles - cycles).map_err(|e| {
                     info!(target: "script", "Error validating output {} of transaction {}: {:?}", i, self.hash, e);
                     e
                 })?;
+                let current_cycles = cycles
+                    .checked_add(cycle)
+                    .ok_or(ScriptError::ExceededMaximumCycles)?;
+                if current_cycles > max_cycles {
+                    return Err(ScriptError::ExceededMaximumCycles);
+                }
+                cycles = current_cycles;
             }
         }
-        Ok(())
+        Ok(cycles)
     }
 }
 
@@ -195,7 +218,7 @@ mod tests {
     use ckb_core::transaction::{CellInput, CellOutput, OutPoint, TransactionBuilder};
     use ckb_core::Capacity;
     use crypto::secp::Generator;
-    use faster_hex::hex_to;
+    use faster_hex::hex_encode;
     use hash::sha3_256;
     use numext_fixed_hash::H256;
     use std::fs::File;
@@ -203,10 +226,7 @@ mod tests {
     use std::path::Path;
 
     fn open_cell_verify() -> File {
-        File::open(
-            Path::new(env!("CARGO_MANIFEST_DIR")).join("../nodes_template/spec/cells/verify"),
-        )
-        .unwrap()
+        File::open(Path::new(env!("CARGO_MANIFEST_DIR")).join("../script/testdata/verify")).unwrap()
     }
     fn open_cell_always_success() -> File {
         File::open(
@@ -236,12 +256,12 @@ mod tests {
 
         let signature_der = signature.serialize_der();
         let mut hex_signature = vec![0; signature_der.len() * 2];
-        hex_to(&signature_der, &mut hex_signature).expect("hex privkey");
+        hex_encode(&signature_der, &mut hex_signature).expect("hex privkey");
         args.insert(0, hex_signature);
 
         let privkey = privkey.pubkey().unwrap().serialize();
         let mut hex_privkey = vec![0; privkey.len() * 2];
-        hex_to(&privkey, &mut hex_privkey).expect("hex privkey");
+        hex_encode(&privkey, &mut hex_privkey).expect("hex privkey");
 
         let script = Script::new(0, args, None, Some(buffer), vec![hex_privkey]);
         let input = CellInput::new(OutPoint::null(), script);
@@ -253,12 +273,57 @@ mod tests {
         let rtx = ResolvedTransaction {
             transaction,
             dep_cells: vec![],
-            input_cells: vec![CellStatus::Current(dummy_cell)],
+            input_cells: vec![CellStatus::Live(dummy_cell)],
         };
 
         let verifier = TransactionScriptsVerifier::new(&rtx);
 
-        assert!(verifier.verify().is_ok());
+        assert!(verifier.verify(100000000).is_ok());
+    }
+
+    #[test]
+    fn check_signature_with_not_enough_cycles() {
+        let mut file = open_cell_verify();
+        let mut buffer = Vec::new();
+        file.read_to_end(&mut buffer).unwrap();
+
+        let gen = Generator::new();
+        let privkey = gen.random_privkey();
+        let mut args = vec![b"foo".to_vec(), b"bar".to_vec()];
+
+        let mut bytes = vec![];
+        for argument in &args {
+            bytes.write(argument).unwrap();
+        }
+        let hash1 = sha3_256(&bytes);
+        let hash2 = sha3_256(hash1);
+        let signature = privkey.sign_recoverable(&hash2.into()).unwrap();
+
+        let signature_der = signature.serialize_der();
+        let mut hex_signature = vec![0; signature_der.len() * 2];
+        hex_encode(&signature_der, &mut hex_signature).expect("hex privkey");
+        args.insert(0, hex_signature);
+
+        let privkey = privkey.pubkey().unwrap().serialize();
+        let mut hex_privkey = vec![0; privkey.len() * 2];
+        hex_encode(&privkey, &mut hex_privkey).expect("hex privkey");
+
+        let script = Script::new(0, args, None, Some(buffer), vec![hex_privkey]);
+        let input = CellInput::new(OutPoint::null(), script);
+
+        let transaction = TransactionBuilder::default().input(input.clone()).build();
+
+        let dummy_cell = CellOutput::new(100, vec![], H256::default(), None);
+
+        let rtx = ResolvedTransaction {
+            transaction,
+            dep_cells: vec![],
+            input_cells: vec![CellStatus::Live(dummy_cell)],
+        };
+
+        let verifier = TransactionScriptsVerifier::new(&rtx);
+
+        assert!(verifier.verify(100).is_err());
     }
 
     #[test]
@@ -281,14 +346,14 @@ mod tests {
 
         let signature_der = signature.serialize_der();
         let mut hex_signature = vec![0; signature_der.len() * 2];
-        hex_to(&signature_der, &mut hex_signature).expect("hex privkey");
+        hex_encode(&signature_der, &mut hex_signature).expect("hex privkey");
         args.insert(0, hex_signature);
         // This line makes the verification invalid
         args.push(b"extrastring".to_vec());
 
         let privkey = privkey.pubkey().unwrap().serialize();
         let mut hex_privkey = vec![0; privkey.len() * 2];
-        hex_to(&privkey, &mut hex_privkey).expect("hex privkey");
+        hex_encode(&privkey, &mut hex_privkey).expect("hex privkey");
 
         let script = Script::new(0, args, None, Some(buffer), vec![hex_privkey]);
         let input = CellInput::new(OutPoint::null(), script);
@@ -300,12 +365,12 @@ mod tests {
         let rtx = ResolvedTransaction {
             transaction,
             dep_cells: vec![],
-            input_cells: vec![CellStatus::Current(dummy_cell)],
+            input_cells: vec![CellStatus::Live(dummy_cell)],
         };
 
         let verifier = TransactionScriptsVerifier::new(&rtx);
 
-        assert!(verifier.verify().is_err());
+        assert!(verifier.verify(100000000).is_err());
     }
 
     #[test]
@@ -333,14 +398,14 @@ mod tests {
         let signature = privkey.sign_recoverable(&hash2.into()).unwrap();
         let signature_der = signature.serialize_der();
         let mut hex_signature = vec![0; signature_der.len() * 2];
-        hex_to(&signature_der, &mut hex_signature).expect("hex privkey");
+        hex_encode(&signature_der, &mut hex_signature).expect("hex privkey");
         args.insert(0, hex_signature);
 
         let dep_out_point = OutPoint::new(H256::from_trimmed_hex_str("123").unwrap(), 8);
         let dep_cell = CellOutput::new(buffer.len() as Capacity, buffer, H256::zero(), None);
         let privkey = privkey.pubkey().unwrap().serialize();
         let mut hex_privkey = vec![0; privkey.len() * 2];
-        hex_to(&privkey, &mut hex_privkey).expect("hex privkey");
+        hex_encode(&privkey, &mut hex_privkey).expect("hex privkey");
 
         let script = Script::new(0, args, Some(dep_cell.data_hash()), None, vec![hex_privkey]);
         let input = CellInput::new(OutPoint::null(), script);
@@ -354,13 +419,13 @@ mod tests {
 
         let rtx = ResolvedTransaction {
             transaction,
-            dep_cells: vec![CellStatus::Current(dep_cell.clone())],
-            input_cells: vec![CellStatus::Current(dummy_cell)],
+            dep_cells: vec![CellStatus::Live(dep_cell.clone())],
+            input_cells: vec![CellStatus::Live(dummy_cell)],
         };
 
         let verifier = TransactionScriptsVerifier::new(&rtx);
 
-        assert!(verifier.verify().is_ok());
+        assert!(verifier.verify(100000000).is_ok());
     }
 
     #[test]
@@ -378,14 +443,14 @@ mod tests {
         let signature = privkey.sign_recoverable(&hash2.into()).unwrap();
         let signature_der = signature.serialize_der();
         let mut hex_signature = vec![0; signature_der.len() * 2];
-        hex_to(&signature_der, &mut hex_signature).expect("hex privkey");
+        hex_encode(&signature_der, &mut hex_signature).expect("hex privkey");
         args.insert(0, hex_signature);
 
         let dep_out_point = OutPoint::new(H256::from_trimmed_hex_str("123").unwrap(), 8);
 
         let privkey = privkey.pubkey().unwrap().serialize();
         let mut hex_privkey = vec![0; privkey.len() * 2];
-        hex_to(&privkey, &mut hex_privkey).expect("hex privkey");
+        hex_encode(&privkey, &mut hex_privkey).expect("hex privkey");
         let script = Script::new(
             0,
             args,
@@ -406,12 +471,12 @@ mod tests {
         let rtx = ResolvedTransaction {
             transaction,
             dep_cells: vec![],
-            input_cells: vec![CellStatus::Current(dummy_cell)],
+            input_cells: vec![CellStatus::Live(dummy_cell)],
         };
 
         let verifier = TransactionScriptsVerifier::new(&rtx);
 
-        assert!(verifier.verify().is_err());
+        assert!(verifier.verify(100000000).is_err());
     }
 
     fn create_always_success_script() -> Script {
@@ -442,12 +507,12 @@ mod tests {
 
         let signature_der = signature.serialize_der();
         let mut hex_signature = vec![0; signature_der.len() * 2];
-        hex_to(&signature_der, &mut hex_signature).expect("hex privkey");
+        hex_encode(&signature_der, &mut hex_signature).expect("hex privkey");
         args.insert(0, hex_signature);
 
         let privkey = privkey.pubkey().unwrap().serialize();
         let mut hex_privkey = vec![0; privkey.len() * 2];
-        hex_to(&privkey, &mut hex_privkey).expect("hex privkey");
+        hex_encode(&privkey, &mut hex_privkey).expect("hex privkey");
 
         let script = Script::new(0, args, None, Some(buffer), vec![hex_privkey]);
         let input = CellInput::new(OutPoint::null(), create_always_success_script());
@@ -463,12 +528,12 @@ mod tests {
         let rtx = ResolvedTransaction {
             transaction,
             dep_cells: vec![],
-            input_cells: vec![CellStatus::Current(dummy_cell)],
+            input_cells: vec![CellStatus::Live(dummy_cell)],
         };
 
         let verifier = TransactionScriptsVerifier::new(&rtx);
 
-        assert!(verifier.verify().is_ok());
+        assert!(verifier.verify(100000000).is_ok());
     }
 
     #[test]
@@ -491,14 +556,14 @@ mod tests {
 
         let signature_der = signature.serialize_der();
         let mut hex_signature = vec![0; signature_der.len() * 2];
-        hex_to(&signature_der, &mut hex_signature).expect("hex privkey");
+        hex_encode(&signature_der, &mut hex_signature).expect("hex privkey");
         args.insert(0, hex_signature);
         // This line makes the verification invalid
         args.push(b"extrastring".to_vec());
 
         let privkey = privkey.pubkey().unwrap().serialize();
         let mut hex_privkey = vec![0; privkey.len() * 2];
-        hex_to(&privkey, &mut hex_privkey).expect("hex privkey");
+        hex_encode(&privkey, &mut hex_privkey).expect("hex privkey");
 
         let script = Script::new(0, args, None, Some(buffer), vec![hex_privkey]);
         let input = CellInput::new(OutPoint::null(), create_always_success_script());
@@ -514,11 +579,11 @@ mod tests {
         let rtx = ResolvedTransaction {
             transaction,
             dep_cells: vec![],
-            input_cells: vec![CellStatus::Current(dummy_cell)],
+            input_cells: vec![CellStatus::Live(dummy_cell)],
         };
 
         let verifier = TransactionScriptsVerifier::new(&rtx);
 
-        assert!(verifier.verify().is_err());
+        assert!(verifier.verify(100000000).is_err());
     }
 }

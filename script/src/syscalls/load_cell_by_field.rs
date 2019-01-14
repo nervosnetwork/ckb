@@ -49,6 +49,7 @@ impl<'a, R: Register, M: Memory> Syscalls<R, M> for LoadCellByField<'a> {
         if machine.registers()[A7].to_u64() != LOAD_CELL_BY_FIELD_SYSCALL_NUMBER {
             return Ok(false);
         }
+        machine.add_cycles(10);
 
         let index = machine.registers()[A3].to_usize();
         let source = Source::parse_from_u64(machine.registers()[A4].to_u64())?;
@@ -61,45 +62,51 @@ impl<'a, R: Register, M: Memory> Syscalls<R, M> for LoadCellByField<'a> {
         }
         let cell = cell.unwrap();
 
-        let return_code = match field {
+        let (return_code, data_length) = match field {
             CellField::Capacity => {
                 let mut buffer = vec![];
                 buffer.write_u64::<LittleEndian>(cell.capacity)?;
                 store_data(machine, &buffer)?;
-                SUCCESS
+                (SUCCESS, buffer.len())
             }
             CellField::Data => {
                 store_data(machine, &cell.data)?;
-                SUCCESS
+                (SUCCESS, cell.data.len())
             }
             CellField::DataHash => {
-                store_data(machine, &cell.data_hash().as_bytes())?;
-                SUCCESS
+                let hash = cell.data_hash();
+                let bytes = hash.as_bytes();
+                store_data(machine, &bytes)?;
+                (SUCCESS, bytes.len())
             }
             CellField::LockHash => {
-                store_data(machine, &cell.lock.as_bytes())?;
-                SUCCESS
+                let bytes = cell.lock.as_bytes();
+                store_data(machine, &bytes)?;
+                (SUCCESS, bytes.len())
             }
-            CellField::Contract => match cell.contract {
-                Some(ref contract) => {
+            CellField::Type => match cell.type_ {
+                Some(ref type_) => {
                     let mut builder = FlatBufferBuilder::new();
-                    let offset = FbsScript::build(&mut builder, &contract);
+                    let offset = FbsScript::build(&mut builder, &type_);
                     builder.finish(offset, None);
                     let data = builder.finished_data();
                     store_data(machine, data)?;
-                    SUCCESS
+                    (SUCCESS, data.len())
                 }
-                None => ITEM_MISSING,
+                None => (ITEM_MISSING, 0),
             },
-            CellField::ContractHash => match cell.contract {
-                Some(ref contract) => {
-                    store_data(machine, &contract.type_hash().as_bytes())?;
-                    SUCCESS
+            CellField::TypeHash => match cell.type_ {
+                Some(ref type_) => {
+                    let hash = type_.type_hash();
+                    let bytes = hash.as_bytes();
+                    store_data(machine, &bytes)?;
+                    (SUCCESS, bytes.len())
                 }
-                None => ITEM_MISSING,
+                None => (ITEM_MISSING, 0),
             },
         };
         machine.registers_mut()[A0] = R::from_u8(return_code);
+        machine.add_cycles(data_length as u64 * 10);
         Ok(true)
     }
 }

@@ -1,7 +1,6 @@
 use crate::relayer::Relayer;
-use ckb_core::transaction::ProposalShortId;
 use ckb_network::{CKBProtocolContext, PeerIndex};
-use ckb_protocol::{FlatbuffersVectorIterator, GetBlockProposal, RelayMessage};
+use ckb_protocol::{GetBlockProposal, RelayMessage};
 use ckb_shared::index::ChainIndex;
 use flatbuffers::FlatBufferBuilder;
 
@@ -34,8 +33,11 @@ where
         let mut pending_proposals_request = self.relayer.state.pending_proposals_request.lock();
 
         let transactions = {
-            FlatbuffersVectorIterator::new(self.message.proposal_transactions().unwrap())
-                .filter_map(|bytes| ProposalShortId::from_slice(bytes.seq().unwrap()))
+            self.message
+                .proposal_transactions()
+                .unwrap()
+                .iter()
+                .map(Into::into)
                 .filter_map(|short_id| {
                     self.relayer.tx_pool.get_transaction(short_id).or({
                         pending_proposals_request

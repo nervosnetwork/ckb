@@ -125,8 +125,8 @@ where
 {
     fn cell(&self, o: &OutPoint) -> CellStatus {
         match { self.pool.txo_status(o) } {
-            TxoStatus::Spent => CellStatus::Old,
-            TxoStatus::InPool => CellStatus::Current(self.pool.get_output(o).unwrap()),
+            TxoStatus::Spent => CellStatus::Dead,
+            TxoStatus::InPool => CellStatus::Live(self.pool.get_output(o).unwrap()),
             TxoStatus::Unknown => self.shared.cell(o),
         }
     }
@@ -415,7 +415,7 @@ where
         self.is_acceptable()?;
 
         if tx.is_cellbase() {
-            return Err(PoolError::CellBase);
+            return Err(PoolError::Cellbase);
         }
 
         self.check_duplicate(&tx)?;
@@ -433,7 +433,7 @@ where
                     CellStatus::Unknown => {
                         unknowns.push(inputs[i].clone());
                     }
-                    CellStatus::Old => {
+                    CellStatus::Dead => {
                         self.cache.insert(tx.proposal_short_id(), tx);
                         return Err(PoolError::DoubleSpent);
                     }
@@ -446,7 +446,7 @@ where
                     CellStatus::Unknown => {
                         unknowns.push(deps[i].clone());
                     }
-                    CellStatus::Old => {
+                    CellStatus::Dead => {
                         self.cache.insert(tx.proposal_short_id(), tx);
                         return Err(PoolError::DoubleSpent);
                     }
@@ -457,7 +457,7 @@ where
             if unknowns.is_empty() {
                 // TODO: Parallel
                 TransactionVerifier::new(&rtx)
-                    .verify()
+                    .verify(self.shared.consensus().max_block_cycles())
                     .map_err(PoolError::InvalidTx)?;
             }
         }
@@ -480,7 +480,8 @@ where
 
         for tx in txs {
             let rtx = self.resolve_transaction(&tx);
-            let rs = TransactionVerifier::new(&rtx).verify();
+            let rs =
+                TransactionVerifier::new(&rtx).verify(self.shared.consensus().max_block_cycles());
             if rs.is_ok() {
                 self.pool.add_transaction(tx);
             } else if rs == Err(TransactionError::DoubleSpent) {

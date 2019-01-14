@@ -6,7 +6,7 @@ use std::any::Any;
 /// Clicker meant to serve as a pow engine Stub
 ///
 /// - submit fake pow solution
-/// - verify consistent return ture
+/// - verify consistent return true
 #[derive(Clone, Debug)]
 pub struct Clicker {
     rx: crossbeam_channel::Receiver<u64>,

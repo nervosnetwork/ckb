@@ -115,7 +115,7 @@ mod tests {
         assert_eq!(None, db.read(Some(1), &vec![0, 0]).unwrap());
         assert_eq!(Some(vec![1, 1, 1]), db.read(Some(1), &vec![1, 1]).unwrap());
 
-        //return err when col doesn't exist
+        // return err when col doesn't exist
         assert!(db.read(Some(2), &vec![0, 0]).is_err());
     }
 
@@ -168,7 +168,7 @@ mod tests {
             None,
             db.partial_read(Some(1), &vec![1, 1], &(3..0)).unwrap()
         );
-        //return err when col doesn't exist
+        // return err when col doesn't exist
         assert!(db.partial_read(Some(2), &vec![0, 0], &(0..1)).is_err());
 
         assert_eq!(

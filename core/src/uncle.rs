@@ -29,6 +29,18 @@ impl From<Block> for UncleBlock {
 }
 
 impl UncleBlock {
+    pub fn new(
+        header: Header,
+        cellbase: Transaction,
+        proposal_transactions: Vec<ProposalShortId>,
+    ) -> UncleBlock {
+        UncleBlock {
+            header,
+            cellbase,
+            proposal_transactions,
+        }
+    }
+
     pub fn header(&self) -> &Header {
         &self.header
     }

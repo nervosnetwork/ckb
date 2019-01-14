@@ -22,6 +22,7 @@ use std::thread::{self, JoinHandle};
 pub struct ChainService<CI> {
     shared: Shared<CI>,
     notify: NotifyController,
+    block_verifier: BlockVerifier<Shared<CI>>,
 }
 
 #[derive(Clone)]
@@ -59,7 +60,12 @@ pub struct BlockInsertionResult {
 
 impl<CI: ChainIndex + 'static> ChainService<CI> {
     pub fn new(shared: Shared<CI>, notify: NotifyController) -> ChainService<CI> {
-        ChainService { shared, notify }
+        let block_verifier = BlockVerifier::new(shared.clone());
+        ChainService {
+            shared,
+            notify,
+            block_verifier,
+        }
     }
 
     pub fn start<S: ToString>(
@@ -92,7 +98,7 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
     fn process_block(&mut self, block: Arc<Block>) -> Result<(), ProcessBlockError> {
         debug!(target: "chain", "begin processing block: {}", block.header().hash());
         if self.shared.consensus().verification {
-            BlockVerifier::new(self.shared.clone())
+            self.block_verifier
                 .verify(&block)
                 .map_err(ProcessBlockError::Verification)?
         }
@@ -535,7 +541,7 @@ pub mod test {
 
         let out_point = OutPoint::new(root_hash, 0);
         let state = shared.cell(&out_point);
-        assert!(state.is_current());
+        assert!(state.is_live());
     }
 
     #[test]

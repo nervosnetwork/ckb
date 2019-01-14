@@ -76,8 +76,8 @@ pub enum PoolError {
     OverCapacity,
     /// A duplicate output
     DuplicateOutput,
-    /// Coinbase transaction
-    CellBase,
+    /// tx_pool don't accept cellbase-like tx
+    Cellbase,
     /// TimeOut
     TimeOut,
     /// Blocknumber is not right

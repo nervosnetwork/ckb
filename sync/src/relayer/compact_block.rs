@@ -1,5 +1,5 @@
 use ckb_core::header::Header;
-use ckb_core::transaction::{ProposalShortId, Transaction};
+use ckb_core::transaction::{IndexTransaction, ProposalShortId};
 use ckb_core::uncle::UncleBlock;
 use ckb_protocol::{self, FlatbuffersVectorIterator};
 
@@ -11,14 +11,8 @@ pub struct CompactBlock {
     pub uncles: Vec<UncleBlock>,
     pub nonce: u64,
     pub short_ids: Vec<ShortTransactionID>,
-    pub prefilled_transactions: Vec<PrefilledTransaction>,
+    pub prefilled_transactions: Vec<IndexTransaction>,
     pub proposal_transactions: Vec<ProposalShortId>,
-}
-
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub struct PrefilledTransaction {
-    pub index: usize,
-    pub transaction: Transaction,
 }
 
 impl<'a> From<ckb_protocol::CompactBlock<'a>> for CompactBlock {
@@ -43,20 +37,12 @@ impl<'a> From<ckb_protocol::CompactBlock<'a>> for CompactBlock {
                 .map(Into::into)
                 .collect(),
 
-            proposal_transactions: FlatbuffersVectorIterator::new(
-                b.proposal_transactions().unwrap(),
-            )
-            .filter_map(|bytes| ProposalShortId::from_slice(bytes.seq().unwrap()))
-            .collect(),
-        }
-    }
-}
-
-impl<'a> From<ckb_protocol::PrefilledTransaction<'a>> for PrefilledTransaction {
-    fn from(pt: ckb_protocol::PrefilledTransaction<'a>) -> Self {
-        PrefilledTransaction {
-            index: pt.index() as usize,
-            transaction: pt.transaction().unwrap().into(),
+            proposal_transactions: b
+                .proposal_transactions()
+                .unwrap()
+                .iter()
+                .map(Into::into)
+                .collect(),
         }
     }
 }

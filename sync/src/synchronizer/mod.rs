@@ -1,21 +1,20 @@
 mod block_fetcher;
 mod block_pool;
 mod block_process;
+mod filter_process;
 mod get_blocks_process;
 mod get_headers_process;
-mod header_view;
 mod headers_process;
-mod peers;
 
 use self::block_fetcher::BlockFetcher;
 use self::block_pool::OrphanBlockPool;
 use self::block_process::BlockProcess;
+use self::filter_process::{AddFilterProcess, ClearFilterProcess, SetFilterProcess};
 use self::get_blocks_process::GetBlocksProcess;
 use self::get_headers_process::GetHeadersProcess;
-use self::header_view::HeaderView;
 use self::headers_process::HeadersProcess;
-use self::peers::Peers;
 use crate::config::Config;
+use crate::types::{HeaderView, Peers};
 use crate::{
     CHAIN_SYNC_TIMEOUT, EVICTION_HEADERS_RESPONSE_TIME, HEADERS_DOWNLOAD_TIMEOUT_BASE,
     HEADERS_DOWNLOAD_TIMEOUT_PER_HEADER, MAX_HEADERS_LEN,
@@ -83,6 +82,7 @@ pub struct Synchronizer<CI: ChainIndex> {
     pub outbound_peers_with_protect: Arc<AtomicUsize>,
 }
 
+// https://github.com/rust-lang/rust/issues/40754
 impl<CI: ChainIndex> ::std::clone::Clone for Synchronizer<CI> {
     fn clone(&self) -> Self {
         Synchronizer {
@@ -152,6 +152,16 @@ impl<CI: ChainIndex> Synchronizer<CI> {
             SyncPayload::Block => {
                 BlockProcess::new(&message.payload_as_block().unwrap(), self, peer, nc).execute()
             }
+            SyncPayload::SetFilter => {
+                SetFilterProcess::new(&message.payload_as_set_filter().unwrap(), self, peer)
+                    .execute()
+            }
+            SyncPayload::AddFilter => {
+                AddFilterProcess::new(&message.payload_as_add_filter().unwrap(), self, peer)
+                    .execute()
+            }
+            SyncPayload::ClearFilter => ClearFilterProcess::new(self, peer).execute(),
+            SyncPayload::FilteredBlock => {} // ignore, should not receive FilteredBlock in full node mode
             SyncPayload::NONE => {}
         }
     }
@@ -477,7 +487,7 @@ impl<CI: ChainIndex> Synchronizer<CI> {
     }
 
     pub fn get_blocks_to_fetch(&self, peer: PeerIndex) -> Option<Vec<H256>> {
-        BlockFetcher::new(&self, peer).fetch()
+        BlockFetcher::new(self.clone(), peer).fetch()
     }
 
     fn on_connected(&self, nc: &CKBProtocolContext, peer: PeerIndex) {
@@ -1154,10 +1164,11 @@ mod tests {
             headers
                 .iter()
                 .map(|h| format!(
-                    "{} hash({}) parent({})",
+                    "{} hash({}) timestamp({}) parent({})",
                     h.number(),
                     h.hash(),
-                    h.parent_hash()
+                    h.timestamp(),
+                    h.parent_hash(),
                 ))
                 .collect::<Vec<_>>()
         );

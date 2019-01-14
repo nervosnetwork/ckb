@@ -36,7 +36,7 @@ pub fn test_capacity_outofbound() {
     let rtx = ResolvedTransaction {
         transaction,
         dep_cells: Vec::new(),
-        input_cells: vec![CellStatus::Current(CellOutput::new(
+        input_cells: vec![CellStatus::Live(CellOutput::new(
             50,
             Vec::new(),
             H256::zero(),
@@ -45,7 +45,10 @@ pub fn test_capacity_outofbound() {
     };
     let verifier = CapacityVerifier::new(&rtx);
 
-    assert_eq!(verifier.verify().err(), Some(TransactionError::OutofBound));
+    assert_eq!(
+        verifier.verify().err(),
+        Some(TransactionError::CapacityOverflow)
+    );
 }
 
 #[test]
@@ -61,15 +64,15 @@ pub fn test_capacity_invalid() {
         transaction,
         dep_cells: Vec::new(),
         input_cells: vec![
-            CellStatus::Current(CellOutput::new(49, Vec::new(), H256::zero(), None)),
-            CellStatus::Current(CellOutput::new(100, Vec::new(), H256::zero(), None)),
+            CellStatus::Live(CellOutput::new(49, Vec::new(), H256::zero(), None)),
+            CellStatus::Live(CellOutput::new(100, Vec::new(), H256::zero(), None)),
         ],
     };
     let verifier = CapacityVerifier::new(&rtx);
 
     assert_eq!(
         verifier.verify().err(),
-        Some(TransactionError::InvalidCapacity)
+        Some(TransactionError::OutputsSumOverflow)
     );
 }
 

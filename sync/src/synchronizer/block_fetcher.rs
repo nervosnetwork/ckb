@@ -1,5 +1,5 @@
-use super::header_view::HeaderView;
 use crate::synchronizer::{BlockStatus, Synchronizer};
+use crate::types::HeaderView;
 use crate::{
     BLOCK_DOWNLOAD_TIMEOUT, BLOCK_DOWNLOAD_WINDOW, MAX_BLOCKS_IN_TRANSIT_PER_PEER,
     PER_FETCH_BLOCK_LIMIT,
@@ -24,12 +24,12 @@ impl<CI> BlockFetcher<CI>
 where
     CI: ChainIndex,
 {
-    pub fn new(synchronizer: &Synchronizer<CI>, peer: PeerIndex) -> Self {
+    pub fn new(synchronizer: Synchronizer<CI>, peer: PeerIndex) -> Self {
         let tip_header = synchronizer.shared.tip_header().read().clone();
         BlockFetcher {
             tip_header,
             peer,
-            synchronizer: synchronizer.clone(),
+            synchronizer,
         }
     }
     pub fn initial_and_check_inflight(&self) -> bool {

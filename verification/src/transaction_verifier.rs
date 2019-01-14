@@ -1,6 +1,7 @@
 use crate::error::TransactionError;
 use ckb_core::cell::ResolvedTransaction;
 use ckb_core::transaction::{Capacity, Transaction};
+use ckb_core::Cycle;
 use ckb_script::TransactionScriptsVerifier;
 use std::collections::HashSet;
 
@@ -25,15 +26,15 @@ impl<'a> TransactionVerifier<'a> {
         }
     }
 
-    pub fn verify(&self) -> Result<(), TransactionError> {
+    pub fn verify(&self, max_cycles: Cycle) -> Result<Cycle, TransactionError> {
         self.empty.verify()?;
         self.null.verify()?;
         self.capacity.verify()?;
         self.duplicate_inputs.verify()?;
         // InputVerifier should be executed before ScriptVerifier
         self.inputs.verify()?;
-        self.script.verify()?;
-        Ok(())
+        let cycles = self.script.verify(max_cycles)?;
+        Ok(cycles)
     }
 }
 
@@ -51,15 +52,15 @@ impl<'a> InputVerifier<'a> {
     pub fn verify(&self) -> Result<(), TransactionError> {
         let mut inputs = self.resolved_transaction.transaction.inputs().iter();
         for cs in &self.resolved_transaction.input_cells {
-            if cs.is_current() {
-                if let Some(ref input) = cs.get_current() {
+            if cs.is_live() {
+                if let Some(ref input) = cs.get_live() {
                     // TODO: remove this once VM mmap is in place so we can
                     // do P2SH within the VM.
                     if input.lock != inputs.next().unwrap().unlock.type_hash() {
                         return Err(TransactionError::InvalidScript);
                     }
                 }
-            } else if cs.is_old() {
+            } else if cs.is_dead() {
                 return Err(TransactionError::DoubleSpent);
             } else if cs.is_unknown() {
                 return Err(TransactionError::UnknownInput);
@@ -67,7 +68,7 @@ impl<'a> InputVerifier<'a> {
         }
 
         for cs in &self.resolved_transaction.dep_cells {
-            if cs.is_old() {
+            if cs.is_dead() {
                 return Err(TransactionError::DoubleSpent);
             } else if cs.is_unknown() {
                 return Err(TransactionError::UnknownInput);
@@ -88,9 +89,9 @@ impl<'a> ScriptVerifier<'a> {
         }
     }
 
-    pub fn verify(&self) -> Result<(), TransactionError> {
+    pub fn verify(&self, max_cycles: Cycle) -> Result<Cycle, TransactionError> {
         TransactionScriptsVerifier::new(&self.resolved_transaction)
-            .verify()
+            .verify(max_cycles)
             .map_err(TransactionError::ScriptFailure)
     }
 }
@@ -173,7 +174,7 @@ impl<'a> CapacityVerifier<'a> {
             .resolved_transaction
             .input_cells
             .iter()
-            .filter_map(|state| state.get_current())
+            .filter_map(|state| state.get_live())
             .fold(0, |acc, output| acc + output.capacity);
 
         let outputs_total = self
@@ -184,7 +185,7 @@ impl<'a> CapacityVerifier<'a> {
             .fold(0, |acc, output| acc + output.capacity);
 
         if inputs_total < outputs_total {
-            Err(TransactionError::InvalidCapacity)
+            Err(TransactionError::OutputsSumOverflow)
         } else if self
             .resolved_transaction
             .transaction
@@ -192,7 +193,7 @@ impl<'a> CapacityVerifier<'a> {
             .iter()
             .any(|output| output.bytes_len() as Capacity > output.capacity)
         {
-            Err(TransactionError::OutofBound)
+            Err(TransactionError::CapacityOverflow)
         } else {
             Ok(())
         }

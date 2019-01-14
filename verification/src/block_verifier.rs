@@ -1,4 +1,3 @@
-use crate::error::TransactionError;
 use crate::error::{CellbaseError, CommitError, Error, UnclesError};
 use crate::header_verifier::HeaderResolver;
 use crate::{TransactionVerifier, Verifier};
@@ -6,6 +5,7 @@ use ckb_core::block::Block;
 use ckb_core::cell::{CellProvider, CellStatus};
 use ckb_core::header::Header;
 use ckb_core::transaction::{Capacity, CellInput, OutPoint};
+use ckb_core::Cycle;
 use ckb_shared::shared::ChainProvider;
 use fnv::{FnvHashMap, FnvHashSet};
 use merkle_root::merkle_root;
@@ -15,6 +15,7 @@ use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIter
 use std::collections::HashSet;
 
 //TODO: cellbase, witness
+#[derive(Clone)]
 pub struct BlockVerifier<P> {
     // Verify if the committed transactions is empty
     empty: EmptyVerifier,
@@ -30,20 +31,6 @@ pub struct BlockVerifier<P> {
     commit: CommitVerifier<P>,
     // Verify all the committed transactions through TransactionVerifier
     transactions: TransactionsVerifier<P>,
-}
-
-impl<P: ChainProvider + CellProvider + Clone> ::std::clone::Clone for BlockVerifier<P> {
-    fn clone(&self) -> Self {
-        BlockVerifier {
-            empty: self.empty.clone(),
-            duplicate: self.duplicate.clone(),
-            cellbase: self.cellbase.clone(),
-            merkle_root: self.merkle_root.clone(),
-            uncles: self.uncles.clone(),
-            commit: self.commit.clone(),
-            transactions: self.transactions.clone(),
-        }
-    }
 }
 
 impl<P> BlockVerifier<P>
@@ -247,16 +234,9 @@ impl<'a, CP: ChainProvider> HeaderResolver for HeaderResolverWrapper<'a, CP> {
 }
 
 // TODO redo uncle verifier, check uncle proposal duplicate
+#[derive(Clone)]
 pub struct UnclesVerifier<CP> {
     provider: CP,
-}
-
-impl<CP: ChainProvider + Clone> ::std::clone::Clone for UnclesVerifier<CP> {
-    fn clone(&self) -> Self {
-        UnclesVerifier {
-            provider: self.provider.clone(),
-        }
-    }
 }
 
 impl<CP: ChainProvider + Clone> UnclesVerifier<CP> {
@@ -411,16 +391,9 @@ impl<CP: ChainProvider + Clone> UnclesVerifier<CP> {
     }
 }
 
+#[derive(Clone)]
 pub struct TransactionsVerifier<P> {
     provider: P,
-}
-
-impl<P: ChainProvider + CellProvider + Clone> ::std::clone::Clone for TransactionsVerifier<P> {
-    fn clone(&self) -> Self {
-        TransactionsVerifier {
-            provider: self.provider.clone(),
-        }
-    }
 }
 
 struct TransactionsVerifierWrapper<'a, P: CellProvider + 'a> {
@@ -440,15 +413,15 @@ impl<'a, P: CellProvider> CellProvider for TransactionsVerifierWrapper<'a, P> {
                 .outputs()
                 .get(o.index as usize)
             {
-                Some(x) => CellStatus::Current(x.clone()),
+                Some(x) => CellStatus::Live(x.clone()),
                 None => CellStatus::Unknown,
             }
         } else {
             let chain_cell_state = self.verifier.provider.cell_at(o, parent);
-            if chain_cell_state.is_current() {
-                CellStatus::Current(chain_cell_state.take_current().expect("state checked"))
-            } else if chain_cell_state.is_old() {
-                CellStatus::Old
+            if chain_cell_state.is_live() {
+                CellStatus::Live(chain_cell_state.take_live().expect("state checked"))
+            } else if chain_cell_state.is_dead() {
+                CellStatus::Dead
             } else {
                 CellStatus::Unknown
             }
@@ -474,26 +447,50 @@ impl<P: ChainProvider + CellProvider> TransactionsVerifier<P> {
         };
 
         let parent_hash = block.header().parent_hash();
+        let max_cycles = self.provider.consensus().max_block_cycles();
         // make verifiers orthogonal
         // skip first tx, assume the first is cellbase, other verifier will verify cellbase
-        let err: Vec<(usize, TransactionError)> = block
+        block
             .commit_transactions()
             .par_iter()
             .skip(1)
             .map(|x| wrapper.resolve_transaction_at(x, &parent_hash))
             .enumerate()
-            .filter_map(|(index, tx)| {
-                TransactionVerifier::new(&tx)
-                    .verify()
-                    .err()
-                    .map(|e| (index, e))
-            })
-            .collect();
-        if err.is_empty() {
-            Ok(())
-        } else {
-            Err(Error::Transactions(err))
-        }
+            .try_fold(
+                || 0,
+                |cycles: Cycle, (index, tx)| {
+                    TransactionVerifier::new(&tx)
+                        .verify(max_cycles)
+                        .map_err(|e| Error::Transactions((index, e)))
+                        .and_then(|current_cycles| {
+                            cycles
+                                .checked_add(current_cycles)
+                                .ok_or(Error::ExceededMaximumCycles)
+                                .and_then(|new_cycles| {
+                                    if new_cycles > max_cycles {
+                                        Err(Error::ExceededMaximumCycles)
+                                    } else {
+                                        Ok(new_cycles)
+                                    }
+                                })
+                        })
+                },
+            )
+            .try_reduce(
+                || 0,
+                |a, b| {
+                    a.checked_add(b)
+                        .ok_or(Error::ExceededMaximumCycles)
+                        .and_then(|cycles| {
+                            if cycles > max_cycles {
+                                Err(Error::ExceededMaximumCycles)
+                            } else {
+                                Ok(cycles)
+                            }
+                        })
+                },
+            )
+            .map(|_| ())
     }
 }
 

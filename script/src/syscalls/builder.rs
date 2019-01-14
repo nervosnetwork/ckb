@@ -1,7 +1,7 @@
 use ckb_core::transaction::{CellInput, CellOutput, Transaction};
 use ckb_protocol::{
-    Bytes as FbsBytes, CellInput as FbsCellInput, CellInputBuilder, CellOutput as FbsCellOutput,
-    CellOutputBuilder, OutPoint as FbsOutPoint, Transaction as FbsTransaction, TransactionBuilder,
+    CellInput as FbsCellInput, CellInputBuilder, CellOutput as FbsCellOutput, CellOutputBuilder,
+    OutPoint as FbsOutPoint, Transaction as FbsTransaction, TransactionBuilder,
 };
 use flatbuffers::{FlatBufferBuilder, WIPOffset};
 
@@ -42,10 +42,10 @@ fn build_output<'b>(
     fbb: &mut FlatBufferBuilder<'b>,
     output: &CellOutput,
 ) -> WIPOffset<FbsCellOutput<'b>> {
-    let lock = FbsBytes::build(fbb, output.lock.as_bytes());
+    let lock = (&output.lock).into();
     let mut builder = CellOutputBuilder::new(fbb);
     builder.add_capacity(output.capacity);
-    builder.add_lock(lock);
+    builder.add_lock(&lock);
     builder.finish()
 }
 
@@ -53,9 +53,9 @@ fn build_input<'b>(
     fbb: &mut FlatBufferBuilder<'b>,
     input: &CellInput,
 ) -> WIPOffset<FbsCellInput<'b>> {
-    let hash = FbsBytes::build(fbb, input.previous_output.hash.as_bytes());
+    let hash = (&input.previous_output.hash).into();
     let mut builder = CellInputBuilder::new(fbb);
-    builder.add_hash(hash);
+    builder.add_hash(&hash);
     builder.add_index(input.previous_output.index);
     builder.finish()
 }

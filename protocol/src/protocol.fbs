@@ -5,6 +5,10 @@ union SyncPayload {
     Headers,
     GetBlocks,
     Block,
+    SetFilter,
+    AddFilter,
+    ClearFilter,
+    FilteredBlock,
 }
 
 table SyncMessage {
@@ -17,12 +21,12 @@ table Bytes {
 
 table GetHeaders {
     version:                uint32;
-    block_locator_hashes:   [Bytes];
-    hash_stop:              Bytes;
+    block_locator_hashes:   [H256];
+    hash_stop:              H256;
 }
 
 table GetBlocks {
-    block_hashes:           [Bytes];
+    block_hashes:           [H256];
 }
 
 table Headers {
@@ -31,16 +35,16 @@ table Headers {
 
 table Header {
     version:        uint32;
-    parent_hash:    Bytes;
+    parent_hash:    H256;
     timestamp:      uint64;
     number:         uint64;
-    txs_commit:     Bytes;
-    txs_proposal:   Bytes;
+    txs_commit:     H256;
+    txs_proposal:   H256;
     difficulty:     Bytes;
     nonce:          uint64;
     proof:          Bytes;
-    cellbase_id:    Bytes;
-    uncles_hash:    Bytes;
+    cellbase_id:    H256;
+    uncles_hash:    H256;
     uncles_count:   uint32;
 }
 
@@ -48,13 +52,13 @@ table Block {
     header:                 Header;
     uncles:                 [UncleBlock];
     commit_transactions:    [Transaction];
-    proposal_transactions:  [Bytes];
+    proposal_transactions:  [ProposalShortId];
 }
 
 table UncleBlock {
     header:                 Header;
     cellbase:               Transaction;
-    proposal_transactions:  [Bytes];
+    proposal_transactions:  [ProposalShortId];
 }
 
 table Transaction {
@@ -65,12 +69,12 @@ table Transaction {
 }
 
 table OutPoint {
-    hash:           Bytes;
+    hash:           H256;
     index:          uint32;
 }
 
 table CellInput {
-    hash:           Bytes;
+    hash:           H256;
     index:          uint32;
     unlock:         Script;
 }
@@ -78,15 +82,15 @@ table CellInput {
 table CellOutput {
     capacity:       uint64;
     data:           Bytes;
-    lock:           Bytes;
-    contract:       Script;
+    lock:           H256;
+    type:           Script;
 }
 
 table Script {
     version:        uint8;
     args:           [Bytes];
     binary:         Bytes;
-    reference:      Bytes;
+    reference:      H256;
     signed_args:    [Bytes];
 }
 
@@ -109,31 +113,98 @@ table CompactBlock {
     header:                     Header;
     nonce:                      uint64;
     short_ids:                  [Bytes];
-    prefilled_transactions:     [PrefilledTransaction];
+    prefilled_transactions:     [IndexTransaction];
     uncles:                     [UncleBlock];
-    proposal_transactions:      [Bytes];
+    proposal_transactions:      [ProposalShortId];
 }
 
-table PrefilledTransaction {
+table IndexTransaction {
     index:                      uint32;
     transaction:                Transaction;
 }
 
 table GetBlockTransactions {
-    hash:                      Bytes;
+    hash:                      H256;
     indexes:                   [uint32];
 }
 
 table BlockTransactions {
-    hash:                      Bytes;
+    hash:                      H256;
     transactions:              [Transaction];
 }
 
 table GetBlockProposal {
     block_number:              uint64;
-    proposal_transactions:     [Bytes];
+    proposal_transactions:     [ProposalShortId];
 }
 
 table BlockProposal {
     transactions:              [Transaction];
+}
+
+struct ProposalShortId {
+    u0: uint8;
+    u1: uint8;
+    u2: uint8;
+    u3: uint8;
+    u4: uint8;
+    u5: uint8;
+    u6: uint8;
+    u7: uint8;
+    u8: uint8;
+    u9: uint8;
+}
+
+struct H256 {
+    u0: uint8;
+    u1: uint8;
+    u2: uint8;
+    u3: uint8;
+    u4: uint8;
+    u5: uint8;
+    u6: uint8;
+    u7: uint8;
+    u8: uint8;
+    u9: uint8;
+    u10: uint8;
+    u11: uint8;
+    u12: uint8;
+    u13: uint8;
+    u14: uint8;
+    u15: uint8;
+    u16: uint8;
+    u17: uint8;
+    u18: uint8;
+    u19: uint8;
+    u20: uint8;
+    u21: uint8;
+    u22: uint8;
+    u23: uint8;
+    u24: uint8;
+    u25: uint8;
+    u26: uint8;
+    u27: uint8;
+    u28: uint8;
+    u29: uint8;
+    u30: uint8;
+    u31: uint8;
+}
+
+table SetFilter {
+    filter: [uint8];
+    num_hashes: uint8;
+    hash_seed: uint32;
+}
+
+table AddFilter {
+    filter: [uint8];
+}
+
+table ClearFilter {
+}
+
+table FilteredBlock {
+    header: Header;
+    transactions: [IndexTransaction];
+    hashes: [H256];
 }

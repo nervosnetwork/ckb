@@ -355,7 +355,12 @@ fn setup_node(
             .expect("process block should be OK");
     }
 
-    let relayer = Relayer::new(chain_controller.clone(), shared.clone(), tx_pool_controller);
+    let relayer = Relayer::new(
+        chain_controller.clone(),
+        shared.clone(),
+        tx_pool_controller,
+        Arc::new(Default::default()),
+    );
 
     let mut node = TestNode::default();
     node.add_protocol(

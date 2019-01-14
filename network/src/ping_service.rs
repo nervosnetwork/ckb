@@ -146,7 +146,6 @@ impl<T: Send> ProtocolService<T> for PingService {
                                 Future::then(Timeout::new(ping_future, ping_timeout), {
                                     let network = Arc::clone(&network);
                                     move |result| -> Result<(), IoError> {
-                                        let mut peer_store = network.peer_store().write();
                                         match result {
                                             Ok(peer_id) => {
                                                 let now = unix_time_as_millis();
@@ -155,7 +154,7 @@ impl<T: Send> ProtocolService<T> for PingService {
                                                     peer.ping = Some(ping);
                                                     peer.last_ping_time = Some(now);
                                                 });
-                                                peer_store.report(&peer_id, Behaviour::Ping);
+                                                network.report(&peer_id, Behaviour::Ping);
                                                 trace!(
                                                     target: "network",
                                                     "received pong from {:?} in {:?}",
@@ -165,8 +164,7 @@ impl<T: Send> ProtocolService<T> for PingService {
                                                 Ok(())
                                             }
                                             Err(err) => {
-                                                peer_store
-                                                    .report(&peer_id, Behaviour::FailedToPing);
+                                                network.report(&peer_id, Behaviour::FailedToPing);
                                                 network.drop_peer(&peer_id);
                                                 trace!(
                                                     target: "network",

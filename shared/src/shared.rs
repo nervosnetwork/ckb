@@ -1,3 +1,4 @@
+use crate::block_median_time_context::BlockMedianTimeContext;
 use crate::cachedb::CacheDB;
 use crate::error::SharedError;
 use crate::index::ChainIndex;
@@ -68,6 +69,7 @@ pub struct Shared<CI> {
     consensus: Consensus,
 }
 
+// https://github.com/rust-lang/rust/issues/40754
 impl<CI: ChainIndex> ::std::clone::Clone for Shared<CI> {
     fn clone(&self) -> Self {
         Shared {
@@ -137,9 +139,9 @@ impl<CI: ChainIndex> CellProvider for Shared<CI> {
                         .store
                         .get_transaction(&out_point.hash)
                         .expect("transaction must exist");
-                    CellStatus::Current(transaction.outputs()[index].clone())
+                    CellStatus::Live(transaction.outputs()[index].clone())
                 } else {
-                    CellStatus::Old
+                    CellStatus::Dead
                 }
             } else {
                 CellStatus::Unknown
@@ -158,9 +160,9 @@ impl<CI: ChainIndex> CellProvider for Shared<CI> {
                         .store
                         .get_transaction(&out_point.hash)
                         .expect("transaction must exist");
-                    CellStatus::Current(transaction.outputs()[index].clone())
+                    CellStatus::Live(transaction.outputs()[index].clone())
                 } else {
-                    CellStatus::Old
+                    CellStatus::Dead
                 }
             } else {
                 CellStatus::Unknown
@@ -424,6 +426,19 @@ impl<CI: ChainIndex> ChainProvider for Shared<CI> {
 
     fn consensus(&self) -> &Consensus {
         &self.consensus
+    }
+}
+
+impl<CI: ChainIndex> BlockMedianTimeContext for Shared<CI> {
+    fn block_count(&self) -> u32 {
+        self.consensus.median_time_block_count() as u32
+    }
+    fn timestamp(&self, hash: &H256) -> Option<u64> {
+        self.block_header(hash).map(|header| header.timestamp())
+    }
+    fn parent_hash(&self, hash: &H256) -> Option<H256> {
+        self.block_header(hash)
+            .map(|header| header.parent_hash().to_owned())
     }
 }
 

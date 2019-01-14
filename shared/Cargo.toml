@@ -1,6 +1,6 @@
 [package]
 name = "ckb-shared"
-version = "0.3.0"
+version = "0.4.0"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
 
@@ -22,3 +22,4 @@ fnv = "1.0.3"
 env_logger = "0.6"
 tempfile = "3.0"
 rand = "0.6"
+faketime = "0.2"

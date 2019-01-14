@@ -1,4 +1,5 @@
-use ckb_core::transaction::Transaction;
+use crate::types::Transaction;
+use ckb_core::transaction::Transaction as CoreTransaction;
 use ckb_network::NetworkService;
 use ckb_pool::txs_pool::TransactionPoolController;
 use ckb_protocol::RelayMessage;
@@ -25,6 +26,7 @@ pub(crate) struct PoolRpcImpl {
 
 impl PoolRpc for PoolRpcImpl {
     fn send_transaction(&self, tx: Transaction) -> Result<H256> {
+        let tx: CoreTransaction = tx.into();
         let tx_hash = tx.hash().clone();
         let pool_result = self.tx_pool.add_transaction(tx.clone());
         debug!(target: "rpc", "send_transaction add to pool result: {:?}", pool_result);

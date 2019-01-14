@@ -1,6 +1,6 @@
 [package]
 name = "merkle-root"
-version = "0.3.0"
+version = "0.4.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -8,3 +8,4 @@ edition = "2018"
 [dependencies]
 numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 hash = {path = "../hash"}
+merkle-tree = {path = "../merkle-tree"}
