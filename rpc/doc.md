@@ -312,7 +312,7 @@ Creates new transaction.
 
 ## Parameters
 
-Transaction - The transaction object.
+transaction - The transaction object.
 
     version - Transaction version.
     deps - Dependent cells.
@@ -329,6 +329,75 @@ curl -d '{"id": 2, "jsonrpc": "2.0", "method":"send_transaction","params": [{"ve
 {
     "jsonrpc": "2.0",
     "result": "0xd91110fe20b7137c884d5c515f591ceda89a177bf06c1a3eb99c8a970dda2cf5",
+    "id": 2
+}
+```
+
+# trace_transaction
+
+Creates new transaction.
+
+## Parameters
+
+transaction - The transaction object.
+
+    version - Transaction version.
+    deps - Dependent cells.
+    inputs - Transaction inputs.
+    outputs - Transaction outputs.
+
+## Examples
+
+```shell
+curl -d '{"id": 2, "jsonrpc": "2.0", "method":"trace_transaction","params": [{"version":2, "deps":[], "inputs":[], "outputs":[]}]}' -H 'content-type:application/json' 'http://localhost:8114'
+```
+
+```json
+{
+    "jsonrpc": "2.0",
+    "result": "0xd91110fe20b7137c884d5c515f591ceda89a177bf06c1a3eb99c8a970dda2cf5",
+    "id": 2
+}
+```
+
+# get_transaction_trace
+
+Creates new transaction.
+
+## Parameters
+
+    hash - Hash of a transaction.
+
+## Examples
+
+```shell
+curl -d '{"id": 2, "jsonrpc": "2.0", "method":"get_transaction_trace","params": ["0xd91110fe20b7137c884d5c515f591ceda89a177bf06c1a3eb99c8a970dda2cf5"]}' -H 'content-type:application/json' 'http://localhost:8114'
+```
+
+```json
+{
+    "jsonrpc": "2.0",
+    "result": [
+    {
+        "action": "AddPending",
+        "info": "unknown tx, add to pending",
+        "time": 1545994242503
+    },
+    {
+        "action": "Proposed",
+        "info": "ProposalShortId(0xda495f694cac79513d00) proposed in block number(2)-hash(0xb42c5305777987f80112e862a3e722c1d0e68c671f1d8920d16ebfc6783a6467)",
+        "time": 1545994242503
+    },
+    {
+        "action": "AddCommit",
+        "info": "add to commit pool",
+        "time": 1545994242503
+    },
+    {
+        "action": "Committed",
+        "info": "committed in block number(3)-hash(0xdb27c32e0c368a3a4ed278e260f130e842d994d1f36204f44e468d016101947b)",
+        "time": 1545994242503
+    }],
     "id": 2
 }
 ```

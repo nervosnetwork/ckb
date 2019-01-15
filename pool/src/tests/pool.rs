@@ -475,7 +475,7 @@ fn prepare_trace(
     pool: &mut TestPool<ChainKVStore<MemoryKeyValueDB>>,
     faketime_file: &TempPath,
 ) -> Transaction {
-    let tx = test_transaction(vec![OutPoint::new(pool.tx_hash.clone(), 0)], 2);
+    let tx = test_transaction(&[OutPoint::new(pool.tx_hash.clone(), 0)], 2);
 
     let block_number = { pool.shared.tip_header().read().number() };
 
@@ -512,16 +512,16 @@ fn test_get_transaction_traces() {
         Some(
             [TxTrace {
                 action: Action::AddPending,
-                info: _,
                 time: 8102,
+                ..
             }, TxTrace {
                 action: Action::Proposed,
                 info: proposal_info,
                 time: 9102,
             }, TxTrace {
                 action: Action::AddCommit,
-                info: _,
                 time: 9102,
+                ..
             }],
         ) => assert_eq!(
             proposal_info,
@@ -538,16 +538,16 @@ fn test_get_transaction_traces() {
         Some(
             [TxTrace {
                 action: Action::AddPending,
-                info: _,
                 time: 8102,
+                ..
             }, TxTrace {
                 action: Action::Proposed,
-                info: _,
                 time: 9102,
+                ..
             }, TxTrace {
                 action: Action::AddCommit,
-                info: _,
                 time: 9102,
+                ..
             }, TxTrace {
                 action: Action::Committed,
                 info: committed_info,
