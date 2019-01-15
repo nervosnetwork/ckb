@@ -2,8 +2,7 @@ use crate::block_median_time_context::BlockMedianTimeContext;
 use crate::cachedb::CacheDB;
 use crate::error::SharedError;
 use crate::index::ChainIndex;
-use crate::store::ChainKVStore;
-use crate::txo_set::{TxoSet, TxoSetDiff};
+use crate::store::{ChainKVStore, ChainTip};
 use crate::{COLUMNS, COLUMN_BLOCK_HEADER};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::Block;
@@ -22,62 +21,8 @@ use numext_fixed_uint::U256;
 use std::path::Path;
 use std::sync::Arc;
 
-#[derive(Default, Debug, PartialEq, Clone, Eq)]
-pub struct ChainState {
-    tip_header: Header,
-    total_difficulty: U256,
-    txo_set: TxoSet,
-}
-
-impl ChainState {
-    pub fn new(tip_header: Header, total_difficulty: U256, txo_set: TxoSet) -> Self {
-        ChainState {
-            tip_header,
-            total_difficulty,
-            txo_set,
-        }
-    }
-
-    pub fn tip_number(&self) -> BlockNumber {
-        self.tip_header.number()
-    }
-
-    pub fn tip_hash(&self) -> H256 {
-        self.tip_header.hash()
-    }
-
-    pub fn total_difficulty(&self) -> &U256 {
-        &self.total_difficulty
-    }
-
-    pub fn tip_header(&self) -> &Header {
-        &self.tip_header
-    }
-
-    pub fn txo_set(&self) -> &TxoSet {
-        &self.txo_set
-    }
-
-    pub fn is_spent(&self, o: &OutPoint) -> Option<bool> {
-        self.txo_set.is_spent(o)
-    }
-
-    pub fn update_header(&mut self, header: Header) {
-        self.tip_header = header;
-    }
-
-    pub fn update_difficulty(&mut self, difficulty: U256) {
-        self.total_difficulty = difficulty;
-    }
-
-    pub fn update_txo_set(&mut self, diff: TxoSetDiff) {
-        self.txo_set.update(diff);
-    }
-}
-
 pub struct Shared<CI> {
     store: Arc<CI>,
-    chain_state: Arc<RwLock<ChainState>>,
     consensus: Arc<Consensus>,
 }
 
@@ -86,7 +31,6 @@ impl<CI: ChainIndex> ::std::clone::Clone for Shared<CI> {
     fn clone(&self) -> Self {
         Shared {
             store: Arc::clone(&self.store),
-            chain_state: Arc::clone(&self.chain_state),
             consensus: Arc::clone(&self.consensus),
         }
     }
@@ -94,82 +38,44 @@ impl<CI: ChainIndex> ::std::clone::Clone for Shared<CI> {
 
 impl<CI: ChainIndex> Shared<CI> {
     pub fn new(store: CI, consensus: Consensus) -> Self {
-        let chain_state = {
-            // check head in store or save the genesis block as head
-            let header = {
-                let genesis = consensus.genesis_block();
-                match store.get_tip_header() {
-                    Some(h) => h,
-                    None => {
-                        store.init(&genesis);
-                        genesis.header().clone()
-                    }
-                }
-            };
-
-            let txo_set = Self::init_txo_set(&store, header.hash());
-
-            let total_difficulty = store
-                .get_block_ext(&header.hash())
-                .expect("block_ext stored")
-                .total_difficulty;
-
-            Arc::new(RwLock::new(ChainState::new(
-                header,
-                total_difficulty,
-                txo_set,
-            )))
+        // check head in store or save the genesis block as head
+        if store.get_tip_header().is_none() {
+            store.init(&consensus.genesis_block());
         };
 
         Shared {
             store: Arc::new(store),
-            chain_state,
             consensus: Arc::new(consensus),
         }
-    }
-
-    pub fn chain_state(&self) -> &RwLock<ChainState> {
-        &self.chain_state
     }
 
     pub fn store(&self) -> &Arc<CI> {
         &self.store
     }
-
-    pub fn init_txo_set(store: &CI, mut hash: H256) -> TxoSet {
-        let mut txo_set = TxoSet::new();
-        let mut blocks = Vec::new();
-        while let Some(block) = store.get_block(&hash) {
-            let number = block.header().number();
-            hash = block.header().parent_hash().clone();
-            blocks.push(block);
-
-            if number == 0 {
-                break;
-            }
-        }
-
-        for b in blocks.iter().rev() {
-            for tx in b.commit_transactions() {
-                let inputs = tx.input_pts();
-                let tx_hash = tx.hash();
-                let output_len = tx.outputs().len();
-
-                for o in inputs {
-                    txo_set.mark_spent(&o);
-                }
-
-                txo_set.insert(tx_hash, output_len);
-            }
-        }
-
-        txo_set
-    }
 }
 
 impl<CI: ChainIndex> CellProvider for Shared<CI> {
     fn cell(&self, out_point: &OutPoint) -> CellStatus {
-        self.cell_at(out_point, |op| self.chain_state.read().is_spent(op))
+        unimplemented!()
+        // let index = out_point.index as usize;
+        // let tip_header = self.tip_header().read();
+        // if let Some(meta) = self.get_transaction_meta(&tip_header.output_root, &out_point.hash) {
+        //     if index < meta.len() {
+        //         if !meta.is_spent(index) {
+        //             let transaction = self
+        //                 .store
+        //                 .get_transaction(&out_point.hash)
+        //                 .expect("transaction must exist");
+        //             CellStatus::Live(transaction.outputs()[index].clone())
+        //         } else {
+        //             CellStatus::Dead
+        //         }
+        //     } else {
+        //         CellStatus::Unknown
+        //     }
+        // } else {
+        //     CellStatus::Unknown
+        // }
     }
 
     fn cell_at<F: Fn(&OutPoint) -> Option<bool>>(
@@ -195,6 +101,10 @@ impl<CI: ChainIndex> CellProvider for Shared<CI> {
 }
 
 pub trait ChainProvider: Sync + Send {
+    fn tip(&self) -> ChainTip;
+
+    fn tip_header(&self) -> Header;
+
     fn block_body(&self, hash: &H256) -> Option<Vec<Transaction>>;
 
     fn block_header(&self, hash: &H256) -> Option<Header>;
@@ -235,6 +145,16 @@ pub trait ChainProvider: Sync + Send {
 }
 
 impl<CI: ChainIndex> ChainProvider for Shared<CI> {
+    fn tip(&self) -> ChainTip {
+        self.store.get_tip().read().clone()
+    }
+
+    fn tip_header(&self) -> Header {
+        self.store
+            .get_header(&self.store.get_tip().read().hash)
+            .expect("inconsistent store")
+    }
+
     fn block(&self, hash: &H256) -> Option<Block> {
         self.store.get_block(hash)
     }

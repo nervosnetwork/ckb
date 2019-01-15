@@ -2,7 +2,7 @@ use bloom_filters::{
     BloomFilter, ClassicBloomFilter, DefaultBuildHashKernels, UpdatableBloomFilter,
 };
 use ckb_core::block::Block;
-use ckb_core::header::{BlockNumber, Header, RichHeader};
+use ckb_core::header::{BlockNumber, Header};
 use ckb_core::transaction::Transaction;
 use ckb_network::PeerIndex;
 use ckb_util::RwLock;
@@ -30,7 +30,7 @@ use std::hash::{BuildHasher, Hasher};
 #[derive(Clone, Debug, PartialEq)]
 pub struct ChainSyncState {
     pub timeout: u64,
-    pub work_header: Option<RichHeader>,
+    pub work_header: Option<(Header, U256)>,
     pub sent_getheaders: bool,
     pub protect: bool,
 }

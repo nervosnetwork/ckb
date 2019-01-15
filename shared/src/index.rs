@@ -1,5 +1,5 @@
 use crate::flat_serializer::serialized_addresses;
-use crate::store::{ChainKVStore, ChainStore, ChainTip};
+use crate::store::{ChainKVStore, ChainStore, ChainTip, META_TIP_HASH_KEY};
 use crate::{COLUMN_BLOCK_BODY, COLUMN_INDEX, COLUMN_META, COLUMN_TRANSACTION_ADDR};
 use bincode::{deserialize, serialize};
 use ckb_core::block::Block;
@@ -10,59 +10,41 @@ use ckb_db::batch::Batch;
 use ckb_db::kvdb::KeyValueDB;
 use numext_fixed_hash::H256;
 
-const META_TIP_HEADER_KEY: &[u8] = b"TIP_HEADER";
-
 // maintain chain index, extend chainstore
 pub trait ChainIndex: ChainStore {
     fn init(&self, genesis: &Block);
+
     fn get_block_hash(&self, number: BlockNumber) -> Option<H256>;
     fn get_block_number(&self, hash: &H256) -> Option<BlockNumber>;
     fn get_tip_header(&self) -> Option<Header>;
     fn get_transaction(&self, h: &H256) -> Option<Transaction>;
     fn get_transaction_address(&self, hash: &H256) -> Option<TransactionAddress>;
 
-    fn insert_block_hash(&self, batch: &mut Batch, number: BlockNumber, hash: &H256);
-    fn delete_block_hash(&self, batch: &mut Batch, number: BlockNumber);
-    fn insert_block_number(&self, batch: &mut Batch, hash: &H256, number: BlockNumber);
-    fn delete_block_number(&self, batch: &mut Batch, hash: &H256);
-    fn insert_tip_header(&self, batch: &mut Batch, h: &Header);
-    fn insert_transaction_address(&self, batch: &mut Batch, block_hash: &H256, txs: &[Transaction]);
-    fn delete_transaction_address(&self, batch: &mut Batch, txs: &[Transaction]);
+    fn rollback(&self);
+    fn forward(&self, hash: &H256);
 }
 
 impl<T: 'static + KeyValueDB> ChainIndex for ChainKVStore<T> {
     fn init(&self, genesis: &Block) {
+        let genesis_hash = genesis.header().hash();
+        let block_ext = BlockExt {
+            received_at: genesis.header().timestamp(),
+            total_difficulty: genesis.header().difficulty().clone(),
+            total_uncles_count: 0,
+        };
         self.save_with_batch(|batch| {
-            let genesis_hash = genesis.header().hash();
-            let ext = BlockExt {
-                received_at: genesis.header().timestamp(),
-                total_difficulty: genesis.header().difficulty().clone(),
-                total_uncles_count: 0,
-                valid: Some(true),
-            };
-
-            let mut cells = Vec::with_capacity(genesis.commit_transactions().len());
-
-            for tx in genesis.commit_transactions() {
-                let ins = if tx.is_cellbase() {
-                    Vec::new()
-                } else {
-                    tx.input_pts()
-                };
-                let outs = tx.output_pts();
-
-                cells.push((ins, outs));
-            }
-
             self.insert_block(batch, genesis);
-            self.insert_block_ext(batch, &genesis_hash, &ext);
-            self.insert_tip_header(batch, &genesis.header());
-            self.insert_block_hash(batch, 0, &genesis_hash);
-            self.insert_block_number(batch, &genesis_hash, 0);
-            self.insert_transaction_address(batch, &genesis_hash, genesis.commit_transactions());
+            self.insert_block_ext(batch, &genesis_hash, &block_ext);
             Ok(())
         })
         .expect("genesis init");
+
+        let new_tip = ChainTip {
+            number: 0,
+            hash: genesis_hash,
+            total_difficulty: block_ext.total_difficulty,
+        };
+        self.update_tip(new_tip);
     }
 
     fn get_block_hash(&self, number: BlockNumber) -> Option<H256> {
@@ -77,9 +59,7 @@ impl<T: 'static + KeyValueDB> ChainIndex for ChainKVStore<T> {
     }
 
     fn get_tip_header(&self) -> Option<Header> {
-        self.get(COLUMN_META, META_TIP_HEADER_KEY)
-            .and_then(|raw| self.get_header(&H256::from_slice(&raw[..]).expect("db safe access")))
-            .map(Into::into)
+        self.get_header(&self.get_tip().read().hash)
     }
 
     fn get_transaction(&self, h: &H256) -> Option<Transaction> {
@@ -101,73 +81,33 @@ impl<T: 'static + KeyValueDB> ChainIndex for ChainKVStore<T> {
             .map(|raw| deserialize(&raw[..]).unwrap())
     }
 
-    fn insert_tip_header(&self, batch: &mut Batch, h: &Header) {
-        batch.insert(COLUMN_META, META_TIP_HEADER_KEY.to_vec(), h.hash().to_vec());
-    }
-
-    fn insert_block_hash(&self, batch: &mut Batch, number: BlockNumber, hash: &H256) {
-        let key = serialize(&number).unwrap();
-        batch.insert(COLUMN_INDEX, key, hash.to_vec());
-    }
-
-    fn insert_block_number(&self, batch: &mut Batch, hash: &H256, number: BlockNumber) {
-        batch.insert(COLUMN_INDEX, hash.to_vec(), serialize(&number).unwrap());
-    }
-
-    fn insert_transaction_address(
-        &self,
-        batch: &mut Batch,
-        block_hash: &H256,
-        txs: &[Transaction],
-    ) {
-        let addresses = serialized_addresses(txs.iter()).unwrap();
-        for (id, tx) in txs.iter().enumerate() {
-            let address = TransactionAddress {
-                block_hash: block_hash.clone(),
-                offset: addresses[id].offset,
-                length: addresses[id].length,
-            };
-            batch.insert(
-                COLUMN_TRANSACTION_ADDR,
-                tx.hash().to_vec(),
-                serialize(&address).unwrap(),
-            );
-        }
-    }
-
-    fn delete_transaction_address(&self, batch: &mut Batch, txs: &[Transaction]) {
-        for tx in txs {
-            batch.delete(COLUMN_TRANSACTION_ADDR, tx.hash().to_vec());
-        }
-    }
-
-    fn delete_block_hash(&self, batch: &mut Batch, number: BlockNumber) {
-        let key = serialize(&number).unwrap();
-        batch.delete(COLUMN_INDEX, key);
-    }
-
-    fn delete_block_number(&self, batch: &mut Batch, hash: &H256) {
-        batch.delete(COLUMN_INDEX, hash.to_vec());
-    }
-}
-
-impl<T: 'static + KeyValueDB> ChainKVStore<T> {
     /// Rollback current tip.
     fn rollback(&self) {
         let mut chain_tip = self.tip.write();
-        let header = self.get_header(&chain_tip.hash).expect("inconsistent store");
+        let header = self
+            .get_header(&chain_tip.hash)
+            .expect("inconsistent store");
+        let transactions = self
+            .get_block_body(&chain_tip.hash)
+            .expect("inconsistent store");;
 
         let new_tip = ChainTip {
-			number: header.number() - 1,
-            hash: header.parent_hash().clone()
-		};
+            hash: header.parent_hash().clone(),
+            number: header.number() - 1,
+            total_difficulty: chain_tip.total_difficulty.clone() - header.difficulty(),
+        };
 
         self.save_with_batch(|batch| {
             batch.delete(COLUMN_INDEX, serialize(&chain_tip.number).unwrap());
             batch.delete(COLUMN_INDEX, chain_tip.hash.to_vec());
-            // TODO
-            // update tip
-            // delete_transaction_address(batch, block.commit_transactions());
+            transactions
+                .iter()
+                .for_each(|tx| batch.delete(COLUMN_TRANSACTION_ADDR, tx.hash().to_vec()));
+            batch.insert(
+                COLUMN_META,
+                META_TIP_HASH_KEY.to_vec(),
+                new_tip.hash.to_vec(),
+            );
             Ok(())
         });
 
@@ -176,13 +116,51 @@ impl<T: 'static + KeyValueDB> ChainKVStore<T> {
 
     /// Forward to a new tip, assumes that parent block is current tip.
     fn forward(&self, hash: &H256) {
-        let mut chain_tip = self.tip.write();
+        let block_ext = self.get_block_ext(hash).expect("inconsistent store");
         let new_tip = ChainTip {
-            number: chain_tip.number + 1,
-            hash: hash.clone()
+            number: self.tip.read().number + 1,
+            hash: hash.clone(),
+            total_difficulty: block_ext.total_difficulty,
         };
+        self.update_tip(new_tip);
+    }
+}
+
+impl<T: 'static + KeyValueDB> ChainKVStore<T> {
+    fn update_tip(&self, new_tip: ChainTip) {
+        let transactions = self
+            .get_block_body(&new_tip.hash)
+            .expect("inconsistent store");
+
+        let mut chain_tip = self.tip.write();
 
         self.save_with_batch(|batch| {
+            batch.insert(
+                COLUMN_INDEX,
+                serialize(&new_tip.number).unwrap(),
+                new_tip.hash.to_vec(),
+            );
+            batch.insert(
+                COLUMN_INDEX,
+                new_tip.hash.to_vec(),
+                serialize(&new_tip.number).unwrap(),
+            );
+            let addresses = serialized_addresses(transactions.iter()).unwrap();
+            transactions.iter().enumerate().for_each(|(index, tx)| {
+                let address = TransactionAddress {
+                    block_hash: new_tip.hash.clone(),
+                    offset: addresses[index].offset,
+                    length: addresses[index].length,
+                };
+                batch.insert(
+                    COLUMN_TRANSACTION_ADDR,
+                    tx.hash().to_vec(),
+                    serialize(&address).unwrap(),
+                );
+            });
+
+            // let mut transaction_metas = HashMap::new();
+            // TODO update transaction metas
             Ok(())
         });
 

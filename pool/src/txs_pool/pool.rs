@@ -189,7 +189,7 @@ where
         notify: NotifyController,
         last_txs_updated_at: Arc<AtomicUsize>,
     ) -> TransactionPoolService<CI> {
-        let n = shared.chain_state().read().tip_number();
+        let n = shared.tip().number;
         let cache_size = config.max_cache_size;
         let prop_cap = ProposedQueue::cap();
         let ids = shared.union_proposal_ids_n(n, prop_cap);

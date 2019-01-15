@@ -7,6 +7,7 @@ use ckb_core::transaction::{Capacity, OutPoint, ProposalShortId, Transaction};
 use ckb_core::uncle::UncleBlock;
 use ckb_shared::error::SharedError;
 use ckb_shared::shared::ChainProvider;
+use ckb_shared::store::ChainTip;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 use std::collections::HashMap;
@@ -18,6 +19,14 @@ pub struct DummyChainProvider {
 }
 
 impl ChainProvider for DummyChainProvider {
+    fn tip(&self) -> ChainTip {
+        unimplemented!()
+    }
+
+    fn tip_header(&self) -> Header {
+        unimplemented!()
+    }
+
     fn block_reward(&self, _block_number: BlockNumber) -> Capacity {
         self.block_reward
     }

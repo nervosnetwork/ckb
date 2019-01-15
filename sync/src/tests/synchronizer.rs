@@ -54,11 +54,8 @@ fn basic_sync() {
     // Wait node1 receive block from node2
     let _ = signal_rx1.recv();
 
-    assert_eq!(shared1.chain_state().read().tip_number(), 3);
-    assert_eq!(
-        shared1.chain_state().read().tip_number(),
-        shared2.chain_state().read().tip_number()
-    );
+    assert_eq!(shared1.tip().number, 3);
+    assert_eq!(shared1.tip().number, shared2.tip().number);
 }
 
 fn setup_node(

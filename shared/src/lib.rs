@@ -27,6 +27,7 @@ pub const COLUMN_BLOCK_BODY: Col = Some(2);
 pub const COLUMN_BLOCK_UNCLE: Col = Some(3);
 pub const COLUMN_META: Col = Some(4);
 pub const COLUMN_TRANSACTION_ADDR: Col = Some(5);
+pub const COLUMN_TRANSACTION_META: Col = Some(6);
 pub const COLUMN_EXT: Col = Some(7);
 pub const COLUMN_BLOCK_TRANSACTION_ADDRESSES: Col = Some(9);
 pub const COLUMN_BLOCK_TRANSACTION_IDS: Col = Some(10);

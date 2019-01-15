@@ -248,26 +248,3 @@ impl HeaderBuilder {
         self.inner
     }
 }
-
-#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug, Default)]
-pub struct RichHeader {
-    inner: Header,
-    total_difficulty: U256,
-}
-
-impl RichHeader {
-    pub fn new(inner: Header, total_difficulty: U256) -> Self {
-        RichHeader {
-            inner,
-            total_difficulty,
-        }
-    }
-
-    pub fn total_difficulty(&self) -> &U256 {
-        &self.total_difficulty
-    }
-
-    pub fn header(&self) -> &Header {
-        &self.inner
-    }
-}

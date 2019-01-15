@@ -121,12 +121,11 @@ impl<CI: ChainIndex + 'static> Agent<CI> {
         max_prop: usize,
     ) -> Result<BlockTemplate, SharedError> {
         let (cellbase, commit_transactions, proposal_transactions, header_builder) = {
-            let chain_state = self.shared.chain_state().read();
-            let header = chain_state.tip_header();
+            let header = self.shared.tip_header();
             let now = cmp::max(unix_time_as_millis(), header.timestamp() + 1);
             let difficulty = self
                 .shared
-                .calculate_difficulty(header)
+                .calculate_difficulty(&header)
                 .expect("get difficulty");
 
             let (proposal_transactions, commit_transactions) = self
@@ -134,7 +133,7 @@ impl<CI: ChainIndex + 'static> Agent<CI> {
                 .get_proposal_commit_transactions(max_prop, max_tx);
 
             let cellbase =
-                self.create_cellbase_transaction(header, &commit_transactions, type_hash)?;
+                self.create_cellbase_transaction(&header, &commit_transactions, type_hash)?;
 
             let header_builder = HeaderBuilder::default()
                 .parent_hash(header.hash().clone())
@@ -193,8 +192,7 @@ impl<CI: ChainIndex + 'static> Agent<CI> {
 
     fn get_tip_uncles(&mut self) -> Vec<UncleBlock> {
         let max_uncles_age = self.shared.consensus().max_uncles_age();
-        let chain_state = self.shared.chain_state().read();
-        let header = chain_state.tip_header();
+        let header = self.shared.tip_header();
         let mut excluded = FnvHashSet::default();
 
         // cB

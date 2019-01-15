@@ -266,7 +266,7 @@ where
 
         if log_enabled!(target: "sync", log::Level::Debug) {
             let own = { self.synchronizer.best_known_header.read().clone() };
-            let chain_state = self.synchronizer.shared.chain_state().read();
+            let tip = self.synchronizer.shared.tip();
             let peer_state = self.synchronizer.peers.best_known_header(self.peer);
             debug!(
                 target: "sync",
@@ -275,8 +275,8 @@ where
                     "number={}; best_known_header = {}; total_difficulty = {};\n",
                     "peers={} number={:?}; best_known_header = {:?}; total_difficulty = {:?}\n",
                 ),
-                chain_state.total_difficulty(),
-                chain_state.tip_number(),
+                tip.total_difficulty,
+                tip.number,
                 own.number(),
                 own.hash(),
                 own.total_difficulty(),

@@ -15,42 +15,52 @@ use ckb_db::batch::{Batch, Col};
 use ckb_db::kvdb::KeyValueDB;
 use ckb_util::RwLock;
 use numext_fixed_hash::H256;
+use numext_fixed_uint::U256;
 use std::ops::Range;
 use std::sync::Arc;
 
-const META_TIP_HASH_KEY: &[u8] = b"TIP_HASH";
-const META_TIP_NUMBER_KEY: &[u8] = b"TIP_NUMBER";
+pub(crate) const META_TIP_HASH_KEY: &[u8] = b"TIP_HASH";
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct ChainTip {
-    pub(crate) number: BlockNumber,
-    pub(crate) hash: H256,
+    pub hash: H256,
+    pub number: BlockNumber,
+    pub total_difficulty: U256,
 }
 
 pub struct ChainKVStore<T: KeyValueDB> {
-    pub(crate) tip: RwLock<ChainTip>,
+    pub(crate) tip: Arc<RwLock<ChainTip>>,
     db: Arc<T>,
 }
 
 impl<T: 'static + KeyValueDB> ChainKVStore<T> {
     pub fn new(db: T) -> Self {
-        let tip_number = db
-            .read(COLUMN_META, META_TIP_NUMBER_KEY)
-            .expect("new db")
-            .map(|raw| deserialize(&raw[..]).expect("invalid tip number"));
-        let tip_hash = db
+        let tip = db
             .read(COLUMN_META, META_TIP_HASH_KEY)
             .expect("new db")
-            .map(|raw| H256::from_slice(&raw[..]).expect("invalid tip hash"));
+            .map(|hash| {
+                let header = db
+                    .read(COLUMN_BLOCK_HEADER, hash.as_ref())
+                    .expect("new_db")
+                    .map(|ref raw| HeaderBuilder::new(raw).build())
+                    .expect("inconsistent db");
 
-        let tip = if let (Some(number), Some(hash)) = (tip_number, tip_hash) {
-            ChainTip { number, hash }
-        } else {
-            Default::default()
-        };
+                let block_ext: BlockExt = db
+                    .read(COLUMN_EXT, hash.as_ref())
+                    .expect("new_db")
+                    .map(|raw| deserialize(&raw[..]).unwrap())
+                    .expect("inconsistent db");
+
+                ChainTip {
+                    hash: header.hash().clone(),
+                    number: header.number(),
+                    total_difficulty: block_ext.total_difficulty,
+                }
+            })
+            .unwrap_or_default();
 
         ChainKVStore {
-            tip: RwLock::new(tip),
+            tip: Arc::new(RwLock::new(tip)),
             db: Arc::new(db),
         }
     }
@@ -75,6 +85,7 @@ where
 }
 
 pub trait ChainStore: Sync + Send {
+    fn get_tip(&self) -> &RwLock<ChainTip>;
     fn get_block(&self, block_hash: &H256) -> Option<Block>;
     fn get_header(&self, block_hash: &H256) -> Option<Header>;
     fn get_block_body(&self, block_hash: &H256) -> Option<Vec<Transaction>>;
@@ -127,6 +138,10 @@ impl<'a, T: ChainStore> Iterator for ChainStoreHeaderIterator<'a, T> {
 }
 
 impl<T: 'static + KeyValueDB> ChainStore for ChainKVStore<T> {
+    fn get_tip(&self) -> &RwLock<ChainTip> {
+        &self.tip
+    }
+
     // TODO error log
     fn get_block(&self, h: &H256) -> Option<Block> {
         self.get_header(h).map(|header| {
@@ -337,7 +352,6 @@ mod tests {
             received_at: block.header().timestamp(),
             total_difficulty: block.header().difficulty().clone(),
             total_uncles_count: block.uncles().len() as u64,
-            valid: Some(true),
         };
 
         let hash = block.header().hash();

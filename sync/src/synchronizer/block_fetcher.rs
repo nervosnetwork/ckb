@@ -4,7 +4,7 @@ use crate::{
     BLOCK_DOWNLOAD_TIMEOUT, BLOCK_DOWNLOAD_WINDOW, MAX_BLOCKS_IN_TRANSIT_PER_PEER,
     PER_FETCH_BLOCK_LIMIT,
 };
-use ckb_core::header::Header;
+use ckb_core::header::{BlockNumber, Header};
 use ckb_network::PeerIndex;
 use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::ChainProvider;
@@ -27,13 +27,11 @@ where
     CI: ChainIndex,
 {
     pub fn new(synchronizer: Synchronizer<CI>, peer: PeerIndex) -> Self {
-        let (tip_header, total_difficulty) = {
-            let chain_state = synchronizer.shared.chain_state().read();
-            (
-                chain_state.tip_header().clone(),
-                chain_state.total_difficulty().clone(),
-            )
-        };
+        let (tip_header, total_difficulty) = (
+            synchronizer.shared.tip_header(),
+            synchronizer.shared.tip().total_difficulty,
+        );
+
         BlockFetcher {
             peer,
             synchronizer,
