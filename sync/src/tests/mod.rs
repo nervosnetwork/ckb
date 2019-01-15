@@ -28,10 +28,10 @@ impl TestNode {
     pub fn add_protocol(
         &mut self,
         protocol: ProtocolId,
-        handler: Arc<CKBProtocolHandler + Send + Sync>,
-        timers: Vec<TimerToken>,
+        handler: &Arc<CKBProtocolHandler + Send + Sync>,
+        timers: &[TimerToken],
     ) {
-        self.protocols.insert(protocol, Arc::clone(&handler));
+        self.protocols.insert(protocol, Arc::clone(handler));
         timers.iter().for_each(|timer| {
             let (timer_sender, timer_receiver) = channel();
             self.timer_senders.insert((protocol, *timer), timer_sender);
@@ -89,7 +89,7 @@ impl TestNode {
         }
     }
 
-    pub fn start<F: Fn(&[u8]) -> bool>(&self, signal: Sender<()>, pred: F) {
+    pub fn start<F: Fn(&[u8]) -> bool>(&self, signal: &Sender<()>, pred: F) {
         loop {
             for ((protocol, peer), receiver) in &self.msg_receivers {
                 let _ = receiver.try_recv().map(|payload| {
@@ -128,12 +128,12 @@ impl TestNode {
         }
     }
 
-    pub fn broadcast(&self, protocol: ProtocolId, msg: Vec<u8>) {
+    pub fn broadcast(&self, protocol: ProtocolId, msg: &[u8]) {
         self.msg_senders
             .iter()
             .for_each(|((protocol_id, _), sender)| {
                 if *protocol_id == protocol {
-                    let _ = sender.send(msg.clone());
+                    let _ = sender.send(msg.to_vec());
                 }
             })
     }

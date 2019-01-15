@@ -19,6 +19,7 @@
 mod error;
 
 pub use self::error::Error;
+use crunchy::unroll;
 
 // Generator coefficients
 const GEN: [u32; 5] = [
@@ -64,7 +65,7 @@ impl Bech32 {
     }
 
     pub fn encode(&self) -> Result<String, Error> {
-        if self.hrp.len() < 1 {
+        if self.hrp.is_empty() {
             return Err(Error::InvalidLength);
         }
         let hrp_bytes: &[u8] = self.hrp.as_bytes();
@@ -96,7 +97,7 @@ impl Bech32 {
         let parts: Vec<&str> = s.rsplitn(2, SEP).collect();
         let raw_hrp = parts[1];
         let raw_data = parts[0];
-        if raw_hrp.len() < 1 || raw_data.len() < 6 {
+        if raw_hrp.is_empty() || raw_data.len() < 6 {
             return Err(Error::InvalidLength);
         }
 
@@ -217,13 +218,11 @@ fn create_checksum(hrp: &[u8], data: &[u8]) -> Vec<u8> {
     values.extend_from_slice(&[0u8; 6]);
     let plm: u32 = polymod(&values[..]) ^ 1;
 
-    (0..6)
-        .into_iter()
-        .fold(Vec::with_capacity(6), |mut acc, x| {
-            let i = ((plm >> (5 * (5 - x))) & 0x1f) as u8;
-            acc.push(i);
-            acc
-        })
+    (0..6).fold(Vec::with_capacity(6), |mut acc, x| {
+        let i = ((plm >> (5 * (5 - x))) & 0x1f) as u8;
+        acc.push(i);
+        acc
+    })
 }
 
 #[cfg(test)]
@@ -281,42 +280,5 @@ mod tests {
             }
             assert_eq!(dec_result.unwrap_err(), expected_error);
         }
-    }
-}
-
-#[cfg(all(test, feature = "dev"))]
-mod benches {
-    use super::{create_checksum, hrp_expand, polymod};
-    use test::{black_box, Bencher};
-
-    #[bench]
-    fn bench_polymod(bh: &mut Bencher) {
-        let values = [0u8; 1000];
-
-        bh.iter(|| {
-            let ret = polymod(&values[..]);
-            black_box(ret);
-        });
-    }
-
-    #[bench]
-    fn bench_hrp_expand(bh: &mut Bencher) {
-        let values = [0u8; 1000];
-
-        bh.iter(|| {
-            let ret = hrp_expand(&values[..]);
-            black_box(ret);
-        });
-    }
-
-    #[bench]
-    fn bench_create_checksum(bh: &mut Bencher) {
-        let hrp = [0u8; 100];
-        let data = [0u8; 1000];
-
-        bh.iter(|| {
-            let ret = create_checksum(&hrp[..], &data[..]);
-            black_box(ret);
-        });
     }
 }

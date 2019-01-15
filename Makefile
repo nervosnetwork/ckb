@@ -25,7 +25,8 @@ fmt:
 	cargo fmt ${VERBOSE} --all -- --check
 
 clippy:
-	cargo clippy ${VERBOSE} --all -- -D warnings -D clippy::clone_on_ref_ptr -D clippy::enum_glob_use
+	cargo clippy ${VERBOSE} --all --all-targets --all-features -- -D warnings -D clippy::clone_on_ref_ptr -D clippy::enum_glob_use
+
 
 ci: fmt clippy test
 	git diff --exit-code Cargo.lock

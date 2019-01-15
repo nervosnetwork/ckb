@@ -5,7 +5,6 @@ use crate::{
 };
 use ckb_util::RwLock;
 use faketime::unix_time_as_millis;
-use std::default::Default;
 use std::sync::Arc;
 
 fn new_peer_store() -> impl PeerStore {
@@ -130,7 +129,6 @@ fn test_accept_inbound_peer_eviction() {
         peer.connected_time = Some(now.saturating_sub(10000));
     }
     let mut new_peer_ids = (0..3)
-        .into_iter()
         .map(|_| random_peer_id().unwrap())
         .collect::<Vec<_>>();
     // setup 3 node and 1 reserved node from addr1

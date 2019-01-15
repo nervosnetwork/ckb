@@ -866,7 +866,7 @@ mod tests {
         let id2 = tx2.proposal_short_id();
         let id3 = tx3.proposal_short_id();
 
-        let mut queue = ProposedQueue::new(1000, vec![vec![id2.clone()], vec![id1.clone()]]);
+        let mut queue = ProposedQueue::new(1000, vec![vec![id2], vec![id1]]);
 
         let set1 = queue.get_ids(1000).unwrap().clone();
         let set2 = queue.get_ids(999).unwrap().clone();
@@ -879,7 +879,7 @@ mod tests {
         assert!(set1.contains(&id2));
         assert!(set2.contains(&id1));
 
-        queue.insert_without_check(id3.clone(), tx3.clone());
+        queue.insert_without_check(id3, tx3.clone());
 
         let txs = queue.reconcile(1001, vec![id3]).unwrap();
 
@@ -981,6 +981,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::cyclomatic_complexity)]
     fn test_add_no_roots() {
         let tx1 = build_tx(vec![(H256::zero(), 1)], 3);
         let tx2 = build_tx(vec![], 4);

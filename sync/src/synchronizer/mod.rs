@@ -790,7 +790,7 @@ mod tests {
             .build()
     }
 
-    fn gen_block(parent_header: Header, difficulty: U256, nonce: u64) -> Block {
+    fn gen_block(parent_header: &Header, difficulty: U256, nonce: u64) -> Block {
         let now = 1 + parent_header.timestamp();
         let number = parent_header.number() + 1;
         let cellbase = create_cellbase(number);
@@ -817,7 +817,7 @@ mod tests {
             .block_header(&shared.block_hash(number - 1).unwrap())
             .unwrap();
         let difficulty = shared.calculate_difficulty(&parent).unwrap();
-        let block = gen_block(parent, difficulty, nonce);
+        let block = gen_block(&parent, difficulty, nonce);
 
         chain_controller
             .process_block(Arc::new(block))
@@ -901,7 +901,7 @@ mod tests {
         let mut parent = consensus.genesis_block().header().clone();
         for i in 1..block_number {
             let difficulty = shared1.calculate_difficulty(&parent).unwrap();
-            let new_block = gen_block(parent, difficulty, i);
+            let new_block = gen_block(&parent, difficulty, i);
             blocks.push(new_block.clone());
 
             chain_controller1
@@ -915,9 +915,9 @@ mod tests {
 
         parent = blocks[150].header().clone();
         let fork = parent.number();
-        for i in 1..block_number + 1 {
+        for i in 1..=block_number {
             let difficulty = shared2.calculate_difficulty(&parent).unwrap();
-            let new_block = gen_block(parent, difficulty, i + 100);
+            let new_block = gen_block(&parent, difficulty, i + 100);
             chain_controller2
                 .process_block(Arc::new(new_block.clone()))
                 .expect("process block ok");
@@ -984,7 +984,7 @@ mod tests {
             .unwrap();
         for i in 1..block_number {
             let difficulty = shared1.calculate_difficulty(&parent).unwrap();
-            let new_block = gen_block(parent, difficulty, i + 100);
+            let new_block = gen_block(&parent, difficulty, i + 100);
             chain_controller1
                 .process_block(Arc::new(new_block.clone()))
                 .expect("process block ok");
@@ -1012,9 +1012,9 @@ mod tests {
 
         let mut blocks: Vec<Block> = Vec::new();
         let mut parent = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
-        for i in 1..block_number + 1 {
+        for i in 1..=block_number {
             let difficulty = shared.calculate_difficulty(&parent).unwrap();
-            let new_block = gen_block(parent, difficulty, i + 100);
+            let new_block = gen_block(&parent, difficulty, i + 100);
             blocks.push(new_block.clone());
             chain_controller
                 .process_block(Arc::new(new_block.clone()))
@@ -1139,7 +1139,7 @@ mod tests {
 
         let locator1 = synchronizer1.get_locator(&shared1.tip_header().read().inner());
 
-        for i in 1..num + 1 {
+        for i in 1..=num {
             let j = if i > 192 { i + 1 } else { i };
             insert_block(&chain_controller2, &shared2, j, i);
         }
