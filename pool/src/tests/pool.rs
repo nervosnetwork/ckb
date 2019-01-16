@@ -1,4 +1,5 @@
 use crate::txs_pool::pool::TransactionPoolService;
+use crate::txs_pool::trace::{Action, TxTrace};
 use crate::txs_pool::types::*;
 use channel::select;
 use channel::{self, Receiver};
@@ -22,6 +23,7 @@ use std::io::Read;
 use std::path::Path;
 use std::sync::Arc;
 use std::time;
+use tempfile::TempPath;
 
 macro_rules! expect_output_parent {
     ($pool:expr, $expected:pat, $( $output:expr ),+ ) => {
@@ -469,6 +471,100 @@ fn test_switch_fork() {
     assert_eq!(mtxs, vec![txs[3].clone(), txs[6].clone(), txs[5].clone()]);
 }
 
+fn prepare_trace(
+    pool: &mut TestPool<ChainKVStore<MemoryKeyValueDB>>,
+    faketime_file: &TempPath,
+) -> Transaction {
+    let tx = test_transaction(&[OutPoint::new(pool.tx_hash.clone(), 0)], 2);
+
+    let block_number = { pool.shared.tip_header().read().number() };
+
+    pool.service.trace_transaction(tx.clone()).unwrap();
+    let prop_ids = pool.service.prepare_proposal(10);
+
+    assert_eq!(1, prop_ids.len());
+    assert_eq!(prop_ids[0], tx.proposal_short_id());
+
+    let header = HeaderBuilder::default().number(block_number + 1).build();
+    let block = BlockBuilder::default()
+        .header(header)
+        .proposal_transactions(vec![tx.proposal_short_id()])
+        .build();
+
+    faketime::write_millis(faketime_file, 9102).expect("write millis");
+
+    pool.service.reconcile_block(&block);
+    tx
+}
+
+#[cfg(not(disable_faketime))]
+#[test]
+fn test_get_transaction_traces() {
+    let mut pool = TestPool::<ChainKVStore<MemoryKeyValueDB>>::simple();
+    let faketime_file = faketime::millis_tempfile(8102).expect("create faketime file");
+    faketime::enable(&faketime_file);
+
+    let tx = prepare_trace(&mut pool, &faketime_file);
+    let tx_hash = tx.hash();
+
+    let trace = pool.service.get_transaction_traces(&tx_hash);
+    match trace.map(|t| t.as_slice()) {
+        Some(
+            [TxTrace {
+                action: Action::AddPending,
+                time: 8102,
+                ..
+            }, TxTrace {
+                action: Action::Proposed,
+                info: proposal_info,
+                time: 9102,
+            }, TxTrace {
+                action: Action::AddCommit,
+                time: 9102,
+                ..
+            }],
+        ) => assert_eq!(
+            proposal_info,
+            concat!("ProposalShortId(0xda495f694cac79513d00) proposed ",
+            "in block number(2)-hash(0xb42c5305777987f80112e862a3e722c1d0e68c671f1d8920d16ebfc6783a6467)")
+        ),
+        _ => assert!(false),
+    }
+
+    faketime::write_millis(&faketime_file, 9103).expect("write millis");
+    let block = apply_transactions(vec![tx.clone()], vec![], &mut pool);
+    let trace = pool.service.get_transaction_traces(&tx_hash);
+    match trace.map(|t| t.as_slice()) {
+        Some(
+            [TxTrace {
+                action: Action::AddPending,
+                time: 8102,
+                ..
+            }, TxTrace {
+                action: Action::Proposed,
+                time: 9102,
+                ..
+            }, TxTrace {
+                action: Action::AddCommit,
+                time: 9102,
+                ..
+            }, TxTrace {
+                action: Action::Committed,
+                info: committed_info,
+                time: 9103,
+            }],
+        ) => assert_eq!(
+            committed_info,
+            &format!(
+                "committed in block number({:?})-hash({:#x})",
+                block.header().number(),
+                block.header().hash()
+            )
+        ),
+        _ => assert!(false),
+    }
+}
+
 struct TestPool<CI> {
     service: TransactionPoolService<CI>,
     chain: ChainController,
@@ -500,6 +596,7 @@ impl<CI: ChainIndex + 'static> TestPool<CI> {
                 max_proposal_size: 1000,
                 max_cache_size: 1000,
                 max_pending_size: 1000,
+                trace: Some(100),
             },
             shared.clone(),
             notify.clone(),

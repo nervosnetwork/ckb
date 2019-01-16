@@ -6,6 +6,7 @@ pub enum Module {
     Chain,
     Miner,
     Pool,
+    Trace,
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
@@ -31,5 +32,9 @@ impl Config {
 
     pub(crate) fn pool_enable(&self) -> bool {
         self.modules.contains(&Module::Pool)
+    }
+
+    pub(crate) fn trace_enable(&self) -> bool {
+        self.modules.contains(&Module::Trace)
     }
 }

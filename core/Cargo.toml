@@ -18,3 +18,4 @@ channel = { package= "crossbeam-channel", version = "0.3" }
 ckb-util = { path = "../util" }
 fnv = "1.0.3"
 merkle-root = {path = "../util/merkle-root"}
+faster-hex = "0.3"

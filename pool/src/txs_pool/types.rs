@@ -23,6 +23,7 @@ pub struct PoolConfig {
     pub max_proposal_size: usize,
     pub max_cache_size: usize,
     pub max_pending_size: usize,
+    pub trace: Option<usize>,
 }
 
 impl Default for PoolConfig {
@@ -33,7 +34,14 @@ impl Default for PoolConfig {
             max_proposal_size: 10000,
             max_cache_size: 1000,
             max_pending_size: 10000,
+            trace: Some(100),
         }
+    }
+}
+
+impl PoolConfig {
+    pub fn trace_enable(&self) -> bool {
+        self.trace.is_some()
     }
 }
 
@@ -80,7 +88,7 @@ pub enum PoolError {
     Cellbase,
     /// TimeOut
     TimeOut,
-    /// Blocknumber is not right
+    /// BlockNumber is not right
     InvalidBlockNumber,
 }
 
