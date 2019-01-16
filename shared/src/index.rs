@@ -1,14 +1,19 @@
 use crate::flat_serializer::serialized_addresses;
 use crate::store::{ChainKVStore, ChainStore, ChainTip, META_TIP_HASH_KEY};
-use crate::{COLUMN_BLOCK_BODY, COLUMN_INDEX, COLUMN_META, COLUMN_TRANSACTION_ADDR};
+use crate::{
+    COLUMN_BLOCK_BODY, COLUMN_INDEX, COLUMN_META, COLUMN_TRANSACTION_ADDR, COLUMN_TRANSACTION_META,
+};
 use bincode::{deserialize, serialize};
 use ckb_core::block::Block;
 use ckb_core::extras::{BlockExt, TransactionAddress};
 use ckb_core::header::{BlockNumber, Header};
 use ckb_core::transaction::{Transaction, TransactionBuilder};
+use ckb_core::transaction_meta::TransactionMeta;
 use ckb_db::batch::Batch;
 use ckb_db::kvdb::KeyValueDB;
 use numext_fixed_hash::H256;
+use std::collections::hash_map::Entry;
+use std::collections::HashMap;
 
 // maintain chain index, extend chainstore
 pub trait ChainIndex: ChainStore {
@@ -44,7 +49,7 @@ impl<T: 'static + KeyValueDB> ChainIndex for ChainKVStore<T> {
             hash: genesis_hash,
             total_difficulty: block_ext.total_difficulty,
         };
-        self.update_tip(new_tip);
+        self.forward_tip(new_tip);
     }
 
     fn get_block_hash(&self, number: BlockNumber) -> Option<H256> {
@@ -98,11 +103,43 @@ impl<T: 'static + KeyValueDB> ChainIndex for ChainKVStore<T> {
         };
 
         self.save_with_batch(|batch| {
+            // delete hash and number index
             batch.delete(COLUMN_INDEX, serialize(&chain_tip.number).unwrap());
             batch.delete(COLUMN_INDEX, chain_tip.hash.to_vec());
+
+            // delete transaction address
             transactions
                 .iter()
                 .for_each(|tx| batch.delete(COLUMN_TRANSACTION_ADDR, tx.hash().to_vec()));
+
+            // unset related transaction metas
+            let mut transaction_metas: HashMap<H256, TransactionMeta> = HashMap::new();
+            transactions.iter().skip(1).for_each(|tx| {
+                tx.inputs().iter().for_each(|input| {
+                    match transaction_metas.entry(input.previous_output.hash.clone()) {
+                        Entry::Occupied(mut entry) => {
+                            let meta = entry.get_mut();
+                            meta.unset_spent(input.previous_output.index as usize);
+                        }
+                        Entry::Vacant(entry) => {
+                            let mut meta = self
+                                .get_transaction_meta(&input.previous_output.hash)
+                                .expect("transaction meta must be stored");
+                            meta.unset_spent(input.previous_output.index as usize);
+                            entry.insert(meta);
+                        }
+                    }
+                })
+            });
+            transaction_metas.iter().for_each(|(hash, meta)| {
+                batch.insert(
+                    COLUMN_TRANSACTION_META,
+                    hash.to_vec(),
+                    serialize(meta).unwrap(),
+                )
+            });
+
+            // update tip hash
             batch.insert(
                 COLUMN_META,
                 META_TIP_HASH_KEY.to_vec(),
@@ -122,12 +159,12 @@ impl<T: 'static + KeyValueDB> ChainIndex for ChainKVStore<T> {
             hash: hash.clone(),
             total_difficulty: block_ext.total_difficulty,
         };
-        self.update_tip(new_tip);
+        self.forward_tip(new_tip);
     }
 }
 
 impl<T: 'static + KeyValueDB> ChainKVStore<T> {
-    fn update_tip(&self, new_tip: ChainTip) {
+    fn forward_tip(&self, new_tip: ChainTip) {
         let transactions = self
             .get_block_body(&new_tip.hash)
             .expect("inconsistent store");
@@ -135,6 +172,7 @@ impl<T: 'static + KeyValueDB> ChainKVStore<T> {
         let mut chain_tip = self.tip.write();
 
         self.save_with_batch(|batch| {
+            // update hash and number index
             batch.insert(
                 COLUMN_INDEX,
                 serialize(&new_tip.number).unwrap(),
@@ -145,8 +183,13 @@ impl<T: 'static + KeyValueDB> ChainKVStore<T> {
                 new_tip.hash.to_vec(),
                 serialize(&new_tip.number).unwrap(),
             );
+
+            // update transaction address and set related transaction metas
             let addresses = serialized_addresses(transactions.iter()).unwrap();
+            let mut transaction_metas = HashMap::new();
             transactions.iter().enumerate().for_each(|(index, tx)| {
+                let tx_hash = tx.hash();
+
                 let address = TransactionAddress {
                     block_hash: new_tip.hash.clone(),
                     offset: addresses[index].offset,
@@ -154,13 +197,46 @@ impl<T: 'static + KeyValueDB> ChainKVStore<T> {
                 };
                 batch.insert(
                     COLUMN_TRANSACTION_ADDR,
-                    tx.hash().to_vec(),
+                    tx_hash.to_vec(),
                     serialize(&address).unwrap(),
                 );
+
+                transaction_metas.insert(tx_hash, TransactionMeta::new(tx.outputs().len()));
+
+                // skip cellbase inputs
+                if index > 0 {
+                    tx.inputs().iter().for_each(|input| {
+                        match transaction_metas.entry(input.previous_output.hash.clone()) {
+                            Entry::Occupied(mut entry) => {
+                                let meta = entry.get_mut();
+                                meta.set_spent(input.previous_output.index as usize);
+                            }
+                            Entry::Vacant(entry) => {
+                                let mut meta = self
+                                    .get_transaction_meta(&input.previous_output.hash)
+                                    .expect("transaction meta must be stored");
+                                meta.set_spent(input.previous_output.index as usize);
+                                entry.insert(meta);
+                            }
+                        }
+                    })
+                }
+            });
+            transaction_metas.iter().for_each(|(hash, meta)| {
+                batch.insert(
+                    COLUMN_TRANSACTION_META,
+                    hash.to_vec(),
+                    serialize(meta).unwrap(),
+                )
             });
 
-            // let mut transaction_metas = HashMap::new();
-            // TODO update transaction metas
+            // update tip hash
+            batch.insert(
+                COLUMN_META,
+                META_TIP_HASH_KEY.to_vec(),
+                new_tip.hash.to_vec(),
+            );
+
             Ok(())
         });
 

@@ -103,8 +103,4 @@ impl CellProvider for DummyChainProvider {
     fn cell(&self, _o: &OutPoint) -> CellStatus {
         panic!("Not implemented!");
     }
-
-    fn cell_at<F: Fn(&OutPoint) -> Option<bool>>(&self, _o: &OutPoint, _: F) -> CellStatus {
-        panic!("Not implemented!");
-    }
 }

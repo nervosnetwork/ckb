@@ -55,12 +55,6 @@ pub struct ResolvedTransaction {
 pub trait CellProvider {
     fn cell(&self, out_point: &OutPoint) -> CellStatus;
 
-    fn cell_at<F: Fn(&OutPoint) -> Option<bool>>(
-        &self,
-        out_point: &OutPoint,
-        is_spent: F,
-    ) -> CellStatus;
-
     fn resolve_transaction(&self, transaction: &Transaction) -> ResolvedTransaction {
         let mut seen_inputs = FnvHashSet::default();
         resolve_transaction(transaction, &mut seen_inputs, |x| self.cell(x))
@@ -138,14 +132,6 @@ mod tests {
     }
     impl CellProvider for CellMemoryDb {
         fn cell(&self, o: &OutPoint) -> CellStatus {
-            match self.cells.get(o) {
-                Some(&Some(ref cell_output)) => CellStatus::Live(cell_output.clone()),
-                Some(&None) => CellStatus::Dead,
-                None => CellStatus::Unknown,
-            }
-        }
-
-        fn cell_at<F: Fn(&OutPoint) -> Option<bool>>(&self, o: &OutPoint, _: F) -> CellStatus {
             match self.cells.get(o) {
                 Some(&Some(ref cell_output)) => CellStatus::Live(cell_output.clone()),
                 Some(&None) => CellStatus::Dead,

@@ -56,43 +56,19 @@ impl<CI: ChainIndex> Shared<CI> {
 
 impl<CI: ChainIndex> CellProvider for Shared<CI> {
     fn cell(&self, out_point: &OutPoint) -> CellStatus {
-        unimplemented!()
-        // let index = out_point.index as usize;
-        // let tip_header = self.tip_header().read();
-        // if let Some(meta) = self.get_transaction_meta(&tip_header.output_root, &out_point.hash) {
-        //     if index < meta.len() {
-        //         if !meta.is_spent(index) {
-        //             let transaction = self
-        //                 .store
-        //                 .get_transaction(&out_point.hash)
-        //                 .expect("transaction must exist");
-        //             CellStatus::Live(transaction.outputs()[index].clone())
-        //         } else {
-        //             CellStatus::Dead
-        //         }
-        //     } else {
-        //         CellStatus::Unknown
-        //     }
-        // } else {
-        //     CellStatus::Unknown
-        // }
-    }
-
-    fn cell_at<F: Fn(&OutPoint) -> Option<bool>>(
-        &self,
-        out_point: &OutPoint,
-        is_spent: F,
-    ) -> CellStatus {
         let index = out_point.index as usize;
-        if let Some(f) = is_spent(out_point) {
-            if f {
-                CellStatus::Dead
+        if let Some(meta) = self.store.get_transaction_meta(&out_point.hash) {
+            if index < meta.len() {
+                if !meta.is_spent(index) {
+                    let transaction = self
+                        .get_transaction(&out_point.hash)
+                        .expect("transaction must exist");
+                    CellStatus::Live(transaction.outputs()[index].clone())
+                } else {
+                    CellStatus::Dead
+                }
             } else {
-                let transaction = self
-                    .store
-                    .get_transaction(&out_point.hash)
-                    .expect("transaction must exist");
-                CellStatus::Live(transaction.outputs()[index].clone())
+                CellStatus::Unknown
             }
         } else {
             CellStatus::Unknown

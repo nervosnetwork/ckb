@@ -74,6 +74,7 @@ impl<CI: ChainIndex + 'static> ChainRpc for ChainRpcImpl<CI> {
                     .shared
                     .block(&block_hash)
                     .ok_or_else(Error::internal_error)?;
+                // TODO Q
                 // let chain_state = self.shared.chain_state().read();
                 // for transaction in block.commit_transactions() {
                 //     let transaction_meta = chain_state

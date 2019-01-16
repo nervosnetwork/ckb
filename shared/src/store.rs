@@ -3,13 +3,14 @@ use crate::flat_serializer::{serialize as flat_serialize, Address};
 use crate::{
     COLUMN_BLOCK_BODY, COLUMN_BLOCK_HEADER, COLUMN_BLOCK_PROPOSAL_IDS,
     COLUMN_BLOCK_TRANSACTION_ADDRESSES, COLUMN_BLOCK_TRANSACTION_IDS, COLUMN_BLOCK_UNCLE,
-    COLUMN_EXT, COLUMN_META,
+    COLUMN_EXT, COLUMN_META, COLUMN_TRANSACTION_META,
 };
 use bincode::{deserialize, serialize};
 use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::extras::BlockExt;
 use ckb_core::header::{BlockNumber, Header, HeaderBuilder};
 use ckb_core::transaction::{ProposalShortId, Transaction, TransactionBuilder};
+use ckb_core::transaction_meta::TransactionMeta;
 use ckb_core::uncle::UncleBlock;
 use ckb_db::batch::{Batch, Col};
 use ckb_db::kvdb::KeyValueDB;
@@ -92,6 +93,7 @@ pub trait ChainStore: Sync + Send {
     fn get_block_proposal_txs_ids(&self, h: &H256) -> Option<Vec<ProposalShortId>>;
     fn get_block_uncles(&self, block_hash: &H256) -> Option<Vec<UncleBlock>>;
     fn get_block_ext(&self, block_hash: &H256) -> Option<BlockExt>;
+    fn get_transaction_meta(&self, transaction_hash: &H256) -> Option<TransactionMeta>;
     fn insert_block(&self, batch: &mut Batch, b: &Block);
     fn insert_block_ext(&self, batch: &mut Batch, block_hash: &H256, ext: &BlockExt);
     fn save_with_batch<F: FnOnce(&mut Batch) -> Result<(), SharedError>>(
@@ -202,6 +204,11 @@ impl<T: 'static + KeyValueDB> ChainStore for ChainKVStore<T> {
 
     fn get_block_ext(&self, block_hash: &H256) -> Option<BlockExt> {
         self.get(COLUMN_EXT, block_hash.as_bytes())
+            .map(|raw| deserialize(&raw[..]).unwrap())
+    }
+
+    fn get_transaction_meta(&self, transaction_hash: &H256) -> Option<TransactionMeta> {
+        self.get(COLUMN_TRANSACTION_META, transaction_hash.as_bytes())
             .map(|raw| deserialize(&raw[..]).unwrap())
     }
 

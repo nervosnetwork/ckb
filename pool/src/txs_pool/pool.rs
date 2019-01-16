@@ -168,14 +168,6 @@ where
             TxoStatus::Unknown => self.shared.cell(o),
         }
     }
-
-    fn cell_at<F: Fn(&OutPoint) -> Option<bool>>(
-        &self,
-        _out_point: &OutPoint,
-        _is_spent: F,
-    ) -> CellStatus {
-        unreachable!()
-    }
 }
 
 impl<CI> TransactionPoolService<CI>
