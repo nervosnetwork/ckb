@@ -2,6 +2,17 @@ All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
 
+# [v0.4.1](https://github.com/nervosnetwork/ckb/compare/v0.4.0...v0.4.1) (2019-01-17)
+
+This is a bug fixing release to fix SQLite issues.
+
+### Bug Fixes
+
+* turn on shared option for SqlitePeerStore memory mode ([eae426c](https://github.com/nervosnetwork/ckb/commit/eae426c))
+* use temp sqlite db for SqlitePeerStore in tests to avoid database lock ([2e51864](https://github.com/nervosnetwork/ckb/commit/2e51864))
+
+
+
 # [v0.4.0](https://github.com/nervosnetwork/ckb/compare/v0.3.0...v0.4.0) (2019-01-14)
 
 
