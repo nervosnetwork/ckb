@@ -47,7 +47,7 @@ security-audit:
 	@cargo audit --version || cargo install cargo-audit
 	@cargo audit
 
-docker: build
+docker:
 	docker build -f docker/hub/Dockerfile -t nervos/ckb:latest .
 
 .PHONY: build prod prod-test docker
