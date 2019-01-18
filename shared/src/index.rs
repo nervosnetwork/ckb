@@ -28,7 +28,7 @@ pub trait ChainIndex: ChainStore {
     fn get_transaction_address(&self, hash: &H256) -> Option<TransactionAddress>;
 
     fn rollback(&self) -> IndexUpdateResult;
-    fn forward<F: Fn(&[Transaction]) -> Option<SharedError>>(
+    fn forward<F: Fn(&[Transaction]) -> bool>(
         &self,
         hash: &H256,
         txs_verify_fn: F,
@@ -42,6 +42,7 @@ impl<T: 'static + KeyValueDB> ChainIndex for ChainKVStore<T> {
             received_at: genesis.header().timestamp(),
             total_difficulty: genesis.header().difficulty().clone(),
             total_uncles_count: 0,
+            commit_transactions_validated: Some(true),
         };
         self.save_with_batch(|batch| {
             self.insert_block(batch, genesis);
@@ -50,13 +51,8 @@ impl<T: 'static + KeyValueDB> ChainIndex for ChainKVStore<T> {
         })
         .expect("genesis init");
 
-        let new_tip = ChainTip {
-            number: 0,
-            hash: genesis_hash,
-            total_difficulty: block_ext.total_difficulty,
-        };
         // skip genesis block transactions verification
-        let _ = self.forward_tip(new_tip, |_| None);
+        let _ = self.forward_tip(0, &genesis_hash, block_ext, |_| true);
     }
 
     fn get_block_hash(&self, number: BlockNumber) -> Option<H256> {
@@ -160,34 +156,41 @@ impl<T: 'static + KeyValueDB> ChainIndex for ChainKVStore<T> {
     }
 
     /// Forward to a new tip, assumes that parent block is current tip and verify block transactions
-    fn forward<F: Fn(&[Transaction]) -> Option<SharedError>>(
+    fn forward<F: Fn(&[Transaction]) -> bool>(
         &self,
         hash: &H256,
         txs_verify_fn: F,
     ) -> IndexUpdateResult {
         let block_ext = self.get_block_ext(hash).expect("inconsistent store");
-        let new_tip = ChainTip {
-            number: self.tip.read().number + 1,
-            hash: hash.clone(),
-            total_difficulty: block_ext.total_difficulty,
-        };
-        self.forward_tip(new_tip, txs_verify_fn)
+        let block_number = self.tip.read().number + 1;
+        self.forward_tip(block_number, hash, block_ext, txs_verify_fn)
     }
 }
 
 impl<T: 'static + KeyValueDB> ChainKVStore<T> {
-    fn forward_tip<F: Fn(&[Transaction]) -> Option<SharedError>>(
+    fn forward_tip<F: Fn(&[Transaction]) -> bool>(
         &self,
-        new_tip: ChainTip,
+        block_number: BlockNumber,
+        block_hash: &H256,
+        mut block_ext: BlockExt,
         txs_verify_fn: F,
     ) -> IndexUpdateResult {
         let transactions = self
-            .get_block_body(&new_tip.hash)
+            .get_block_body(&block_hash)
             .expect("inconsistent store");
 
-        if let Some(verify_error) = txs_verify_fn(&transactions) {
-            return Err(verify_error);
-        };
+        block_ext
+            .commit_transactions_validated
+            .get_or_insert_with(|| txs_verify_fn(&transactions));
+
+        self.save_with_batch(|batch| {
+            self.insert_block_ext(batch, block_hash, &block_ext);
+            Ok(())
+        })?;
+
+        if !block_ext.commit_transactions_validated.unwrap() {
+            return Err(SharedError::InvalidTransaction);
+        }
 
         let mut chain_tip = self.tip.write();
 
@@ -195,13 +198,13 @@ impl<T: 'static + KeyValueDB> ChainKVStore<T> {
             // update hash and number index
             batch.insert(
                 COLUMN_INDEX,
-                serialize(&new_tip.number).unwrap(),
-                new_tip.hash.to_vec(),
+                serialize(&block_number).unwrap(),
+                block_hash.to_vec(),
             );
             batch.insert(
                 COLUMN_INDEX,
-                new_tip.hash.to_vec(),
-                serialize(&new_tip.number).unwrap(),
+                block_hash.to_vec(),
+                serialize(&block_number).unwrap(),
             );
 
             // update transaction address and set related transaction metas
@@ -211,7 +214,7 @@ impl<T: 'static + KeyValueDB> ChainKVStore<T> {
                 let tx_hash = tx.hash();
 
                 let address = TransactionAddress {
-                    block_hash: new_tip.hash.clone(),
+                    block_hash: block_hash.clone(),
                     offset: addresses[index].offset,
                     length: addresses[index].length,
                 };
@@ -251,16 +254,16 @@ impl<T: 'static + KeyValueDB> ChainKVStore<T> {
             });
 
             // update tip hash
-            batch.insert(
-                COLUMN_META,
-                META_TIP_HASH_KEY.to_vec(),
-                new_tip.hash.to_vec(),
-            );
+            batch.insert(COLUMN_META, META_TIP_HASH_KEY.to_vec(), block_hash.to_vec());
 
             Ok(())
         })?;
 
-        *chain_tip = new_tip;
+        *chain_tip = ChainTip {
+            number: block_number,
+            hash: block_hash.clone(),
+            total_difficulty: block_ext.total_difficulty,
+        };
         Ok(())
     }
 }

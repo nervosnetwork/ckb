@@ -116,6 +116,7 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
             received_at: unix_time_as_millis(),
             total_difficulty: parent_ext.total_difficulty + block.header().difficulty(),
             total_uncles_count: parent_ext.total_uncles_count + block.uncles().len() as u64,
+            commit_transactions_validated: None,
         };
 
         // save block and block_ext
@@ -132,19 +133,15 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
         let txs_verify_fn = |transactions: &[Transaction]| {
             if self.shared.consensus().verification {
                 let transactions_verifier = TransactionsVerifier::new(self.shared.clone());
-                transactions_verifier
-                    .verify(transactions)
-                    .map_err(|_| SharedError::InvalidTransaction)
-                    .err()
+                transactions_verifier.verify(transactions).is_ok()
             } else {
-                None
+                true
             }
         };
 
         // block is being added to main branch, forward it.
         if &tip.hash == block.header().parent_hash() {
-            // TODO return error?
-            let _ = self.shared.store().forward(&block_hash, txs_verify_fn);
+            self.shared.store().forward(&block_hash, txs_verify_fn)?;
             return Ok(BlockCategory::MainBranch(block_hash));
         }
 
