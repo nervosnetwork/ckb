@@ -27,3 +27,4 @@ ckb-db = { path = "../db" }
 hash = {path = "../util/hash"}
 ckb-chain = { path = "../chain" }
 tempfile = "3.0"
+numext-fixed-uint = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }

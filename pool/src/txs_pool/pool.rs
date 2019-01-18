@@ -595,11 +595,19 @@ where
             .iter()
             .skip(1)
             .for_each(|tx| self.reconcile_orphan(tx));
-        block
-            .commit_transactions()
-            .iter()
-            .skip(1)
-            .for_each(|tx| self.pool.commit_transaction(tx));
+        block.commit_transactions().iter().skip(1).for_each(|tx| {
+            if self.config.trace_enable() {
+                self.trace.committed(
+                    &tx.hash(),
+                    format!(
+                        "committed in block number({:?})-hash({:#x})",
+                        block.header().number(),
+                        block.header().hash()
+                    ),
+                );
+            }
+            self.pool.commit_transaction(tx)
+        });
 
         {
             if let Some(time_out_ids) = self.proposed.mineable_front() {
@@ -638,8 +646,8 @@ where
                             format!(
                                 "{:?} proposed in block number({:?})-hash({:#x})",
                                 id,
-                                b.header().number(),
-                                b.header().hash()
+                                block.header().number(),
+                                block.header().hash()
                             ),
                         );
                     }

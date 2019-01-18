@@ -274,35 +274,6 @@ mod tests {
     use tempfile;
 
     #[test]
-<<<<<<< HEAD
-    fn save_and_get_output_root() {
-        let tmp_dir = tempfile::Builder::new()
-            .prefix("save_and_get_output_root")
-            .tempdir()
-            .unwrap();
-        let db = RocksDB::open(tmp_dir, COLUMNS);
-        let store = ChainKVStore::new(db);
-
-        let ret = store.save_with_batch(|batch| {
-            store.insert_output_root(
-                batch,
-                &H256::from_trimmed_hex_str("10").unwrap(),
-                &H256::from_trimmed_hex_str("20").unwrap(),
-            );
-            Ok(())
-        });
-        assert!(ret.is_ok());
-        assert_eq!(
-            H256::from_trimmed_hex_str("20").unwrap(),
-            store
-                .get_output_root(&H256::from_trimmed_hex_str("10").unwrap())
-                .unwrap()
-        );
-    }
-
-    #[test]
-=======
->>>>>>> remove avl
     fn save_and_get_block() {
         let tmp_dir = tempfile::Builder::new()
             .prefix("save_and_get_block")
