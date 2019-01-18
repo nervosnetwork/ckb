@@ -42,10 +42,10 @@ addons:
 install:
 - if [ "$FMT" = true ]; then cargo fmt --version || rustup component add rustfmt; fi
 - if [ "$CHECK" = true ]; then cargo clippy --version || rustup component add clippy; fi
-- cargo sweep --version || cargo install cargo-sweep
+- cargo sweep --version || cargo install --git https://github.com/holmgr/cargo-sweep --rev 4770deda37a2203c783e301b8c0c895964e8971e
 
 script:
-- cargo sweep -s ./target
+- cargo sweep -s
 - if [ "$FMT" = true ]; then make fmt; fi
 - if [ "$CHECK" = true ]; then make check; fi
 - if [ "$CHECK" = true ]; then make clippy; fi
@@ -53,4 +53,4 @@ script:
 - git diff --exit-code Cargo.lock
 
 before_cache:
-- cargo sweep -f ./target
+- cargo sweep -f
