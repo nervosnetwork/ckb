@@ -4,6 +4,7 @@ cache:
   timeout: 1024
   directories:
     - $HOME/.cargo
+    - $HOME/.rustup
 git:
   depth: 2
   submodules: false
