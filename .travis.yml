@@ -45,7 +45,7 @@ install:
 - cargo sweep --version || cargo install cargo-sweep
 
 script:
-- cargo sweep -s
+- cargo sweep -s ./target
 - if [ "$FMT" = true ]; then make fmt; fi
 - if [ "$CHECK" = true ]; then make check; fi
 - if [ "$CHECK" = true ]; then make clippy; fi
@@ -53,4 +53,4 @@ script:
 - git diff --exit-code Cargo.lock
 
 before_cache:
-- cargo sweep -f
+- cargo sweep -f ./target
