@@ -115,7 +115,7 @@ where
                             IoErrorKind::Other,
                             format!("faild to upgrade ckb_protocol, error: {}", err),
                         ))
-                    }
+                    };
                 }
             };
 

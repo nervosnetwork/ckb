@@ -1,6 +1,5 @@
 mod unstable;
 
-pub use crate::unstable::int_to_from_bytes::u64_to_bytes;
 pub use parking_lot::{
     Condvar, Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockUpgradableReadGuard,
     RwLockWriteGuard,

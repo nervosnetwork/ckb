@@ -21,7 +21,6 @@ use ckb_sync::{
 use crypto::secp::Generator;
 use log::info;
 use numext_fixed_hash::H256;
-use serde_json;
 use std::sync::Arc;
 use std::thread;
 
