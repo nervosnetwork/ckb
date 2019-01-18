@@ -64,7 +64,7 @@ impl CKBService {
                 return Box::new(future::err(IoError::new(
                     IoErrorKind::Other,
                     format!("can't find peer {:?}", peer_id),
-                )))
+                )));
             }
         };
 

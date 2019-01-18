@@ -16,15 +16,15 @@ env:
 
 matrix:
   include:
-    - rust: 1.31.1
+    - rust: 1.32.0
       os: osx
       env: FMT=true CHECK=true TEST=true
       if: type = pull_request
-    - rust: 1.31.1
+    - rust: 1.32.0
       os: osx
       env: FMT=true CHECK=true TEST=true
       if: type != pull_request
-    - rust: 1.31.1
+    - rust: 1.32.0
       os: linux
       env: TEST=true
       if: type != pull_request

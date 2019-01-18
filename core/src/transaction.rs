@@ -4,7 +4,6 @@ use crate::script::Script;
 use crate::BlockNumber;
 pub use crate::Capacity;
 use bincode::{deserialize, serialize};
-use ckb_util::u64_to_bytes;
 use faster_hex::hex_string;
 use hash::sha3_256;
 use numext_fixed_hash::H256;
@@ -73,7 +72,7 @@ impl CellInput {
                 0,
                 Vec::new(),
                 None,
-                Some(u64_to_bytes(block_number.to_le()).to_vec()),
+                Some(block_number.to_le_bytes().to_vec()),
                 Vec::new(),
             ),
         }
