@@ -1,21 +1,20 @@
 use crate::types::BlockTemplate;
 use channel::{self, select, Receiver, Sender};
-use ckb_core::block::{Block, BlockBuilder};
+use ckb_core::block::BlockBuilder;
 use ckb_core::header::{Header, HeaderBuilder};
 use ckb_core::service::{Request, DEFAULT_CHANNEL_SIZE};
 use ckb_core::transaction::{CellInput, CellOutput, Transaction, TransactionBuilder};
 use ckb_core::uncle::UncleBlock;
-use ckb_notify::NotifyController;
+use ckb_notify::{BlockCategory, NotifyController};
 use ckb_pool::txs_pool::TransactionPoolController;
 use ckb_shared::error::SharedError;
 use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::{ChainProvider, Shared};
 use faketime::unix_time_as_millis;
-use fnv::{FnvHashMap, FnvHashSet};
+use fnv::FnvHashSet;
 use log::error;
 use numext_fixed_hash::H256;
 use std::cmp;
-use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 
 const MINER_AGENT_SUBSCRIBER: &str = "miner_agent";
@@ -23,7 +22,7 @@ const MINER_AGENT_SUBSCRIBER: &str = "miner_agent";
 pub struct Agent<CI> {
     shared: Shared<CI>,
     tx_pool: TransactionPoolController,
-    candidate_uncles: FnvHashMap<H256, Arc<Block>>,
+    candidate_uncles: FnvHashSet<H256>,
 }
 
 type BlockTemplateArgs = (H256, usize, usize);
@@ -71,7 +70,7 @@ impl<CI: ChainIndex + 'static> Agent<CI> {
         Self {
             shared,
             tx_pool,
-            candidate_uncles: FnvHashMap::default(),
+            candidate_uncles: FnvHashSet::default(),
         }
     }
 
@@ -87,15 +86,18 @@ impl<CI: ChainIndex + 'static> Agent<CI> {
             thread_builder = thread_builder.name(name.to_string());
         }
 
-        let new_uncle_receiver = notify.subscribe_new_uncle(MINER_AGENT_SUBSCRIBER);
+        let new_block_receiver = notify.subscribe_new_block(&MINER_AGENT_SUBSCRIBER);
         thread_builder
             .spawn(move || loop {
                 select! {
-                    recv(new_uncle_receiver) -> msg => match msg {
-                        Ok(uncle_block) => {
-                            let hash = uncle_block.header().hash().clone();
-                            self.candidate_uncles.insert(hash, uncle_block);
-                        }
+                    recv(new_block_receiver) -> msg => match msg {
+                        Ok(block_category) => match *block_category {
+                            BlockCategory::MainBranch(_) => {},
+                            BlockCategory::SideBranch(ref hash) => {
+                                self.candidate_uncles.insert(hash.clone());
+                            },
+                            BlockCategory::SideSwitchToMain(_) => {}
+                        },
                         _ => {
                             error!(target: "miner", "new_uncle_receiver closed");
                             break;
@@ -227,11 +229,11 @@ impl<CI: ChainIndex + 'static> Agent<CI> {
         let mut uncles = Vec::with_capacity(max_uncles_len);
         let mut bad_uncles = Vec::new();
         let current_number = header.number() + 1;
-        for (hash, block) in &self.candidate_uncles {
+        for hash in &self.candidate_uncles {
             if uncles.len() == max_uncles_len {
                 break;
             }
-
+            let block = self.shared.block(hash).expect("block must be stored");
             let block_difficulty_epoch =
                 block.header().number() / self.shared.consensus().difficulty_adjustment_interval();
 

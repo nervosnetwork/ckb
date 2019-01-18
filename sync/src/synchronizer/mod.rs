@@ -1195,7 +1195,7 @@ mod tests {
             fetched_blocks.push(shared2.block(block_hash).unwrap());
         }
 
-        let new_tip_receiver = notify.subscribe_new_tip("new_tip_receiver");
+        let new_block_receiver = notify.subscribe_new_block(&"new_block_receiver");
 
         for block in &fetched_blocks {
             let fbb = &mut FlatBufferBuilder::new();
@@ -1217,7 +1217,7 @@ mod tests {
             blocks_to_fetch.last().unwrap()
         );
 
-        assert!(new_tip_receiver.recv().is_ok());
+        assert!(new_block_receiver.recv().is_ok());
     }
 
     #[cfg(not(disable_faketime))]

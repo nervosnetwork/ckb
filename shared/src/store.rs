@@ -94,6 +94,7 @@ pub trait ChainStore: Sync + Send {
     fn get_block_uncles(&self, block_hash: &H256) -> Option<Vec<UncleBlock>>;
     fn get_block_ext(&self, block_hash: &H256) -> Option<BlockExt>;
     fn get_transaction_meta(&self, transaction_hash: &H256) -> Option<TransactionMeta>;
+    // TODO optiomization remove these two fn, replace it with insert_block_and_ext
     fn insert_block(&self, batch: &mut Batch, b: &Block);
     fn insert_block_ext(&self, batch: &mut Batch, block_hash: &H256, ext: &BlockExt);
     fn save_with_batch<F: FnOnce(&mut Batch) -> Result<(), SharedError>>(

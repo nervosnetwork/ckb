@@ -8,7 +8,7 @@ use ckb_core::block::Block;
 use ckb_core::cell::{CellProvider, CellStatus};
 use ckb_core::service::{Request, DEFAULT_CHANNEL_SIZE};
 use ckb_core::transaction::{OutPoint, ProposalShortId, Transaction};
-use ckb_notify::{ForkBlocks, MsgNewTip, MsgSwitchFork, NotifyController};
+use ckb_notify::{BlockCategory, Forks, MsgNewBlock, NotifyController};
 use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::{ChainProvider, Shared};
 use ckb_verification::{TransactionError, TransactionVerifier};
@@ -212,13 +212,11 @@ where
             thread_builder = thread_builder.name(name.to_string());
         }
 
-        let new_tip_receiver = self.notify.subscribe_new_tip(TXS_POOL_SUBSCRIBER);
-        let switch_fork_receiver = self.notify.subscribe_switch_fork(TXS_POOL_SUBSCRIBER);
+        let new_block_receiver = self.notify.subscribe_new_block(&TXS_POOL_SUBSCRIBER);
         thread_builder
             .spawn(move || loop {
                 select!{
-                    recv(new_tip_receiver) -> msg => self.handle_new_tip(msg),
-                    recv(switch_fork_receiver) -> msg => self.handle_switch_fork(msg),
+                    recv(new_block_receiver) -> msg => self.handle_new_block(msg),
 
                     recv(receivers.get_proposal_commit_transactions_receiver) -> msg => {
                         self.handle_get_proposal_commit_transactions(msg)
@@ -288,7 +286,7 @@ where
         match msg {
             Ok(blocks) => self.switch_fork(&blocks),
             _ => {
-                error!(target: "txs_pool", "channel switch_fork_receiver closed");
+                error!(target: "txs_pool", "channel new_block_receiver closed");
             }
         }
     }
@@ -312,10 +310,12 @@ where
         }
     }
 
-    pub(crate) fn switch_fork(&mut self, blks: &ForkBlocks) {
-        for b in blks.old_blks() {
-            let bn = b.header().number();
-            let mut txs = b.commit_transactions().to_vec();
+    pub(crate) fn switch_fork(&mut self, forks: &Forks) {
+        forks.main_blocks.iter().rev().for_each(|hash| {
+            // TODO optiomization: fetch number and txs from store only.
+            let block = self.shared.block(hash).expect("block must be stored");
+            let bn = block.header().number();
+            let mut txs = block.commit_transactions().to_vec();
             txs.reverse();
 
             //remove proposed id, txs can be already in pool
@@ -360,12 +360,12 @@ where
                 }
                 self.pool.add_transaction(tx.clone());
             }
-        }
+        });
 
         // We may not need readd timeout transactions in pool, because new main chain is mostly longer
-        for blk in blks.new_blks() {
-            self.reconcile_block(&blk);
-        }
+        forks.side_blocks.iter().for_each(|hash| {
+            self.reconcile_block(hash);
+        });
     }
 
     fn contains_key(&self, id: &ProposalShortId) -> bool {
@@ -588,42 +588,18 @@ where
     }
 
     /// Updates the pool with the details of a new block.
-    // TODO: call it in order
-    pub(crate) fn reconcile_block(&mut self, b: &Block) {
-        let txs = b.commit_transactions();
-        let bn = b.header().number();
-        let ids = b.union_proposal_ids();
-
-        // must do this first
-        {
-            for tx in txs {
-                if tx.is_cellbase() {
-                    continue;
-                }
-
-                self.reconcile_orphan(tx);
-            }
-        }
-
-        // must do this secondly
-        {
-            for tx in txs {
-                if tx.is_cellbase() {
-                    continue;
-                }
-                if self.config.trace_enable() {
-                    self.trace.committed(
-                        &tx.hash(),
-                        format!(
-                            "committed in block number({:?})-hash({:#x})",
-                            b.header().number(),
-                            b.header().hash()
-                        ),
-                    );
-                }
-                self.pool.commit_transaction(tx);
-            }
-        }
+    pub(crate) fn reconcile_block(&mut self, hash: &H256) {
+        let block = self.shared.block(hash).expect("block must be stored");
+        block
+            .commit_transactions()
+            .iter()
+            .skip(1)
+            .for_each(|tx| self.reconcile_orphan(tx));
+        block
+            .commit_transactions()
+            .iter()
+            .skip(1)
+            .for_each(|tx| self.pool.commit_transaction(tx));
 
         {
             if let Some(time_out_ids) = self.proposed.mineable_front() {
@@ -651,6 +627,8 @@ where
             }
         }
 
+        let ids = block.union_proposal_ids();
+
         let new_txs = {
             for id in &ids {
                 if let Some(tx) = self.pending.remove(id).or_else(|| self.cache.remove(id)) {
@@ -669,10 +647,12 @@ where
                 }
             }
 
-            self.proposed.reconcile(bn, ids).unwrap_or_else(|error| {
-                error!(target: "txs_pool", "Failed to proposed reconcile {:?}", error);
-                vec![]
-            })
+            self.proposed
+                .reconcile(block.header().number(), ids)
+                .unwrap_or_else(|error| {
+                    error!(target: "txs_pool", "Failed to proposed reconcile {:?}", error);
+                    vec![]
+                })
         };
 
         // We can sort it by some rules

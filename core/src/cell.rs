@@ -1,5 +1,5 @@
 use crate::transaction::{CellOutput, OutPoint, Transaction};
-use fnv::FnvHashSet;
+use std::collections::HashSet;
 use std::iter::Chain;
 use std::slice;
 
@@ -56,44 +56,37 @@ pub trait CellProvider {
     fn cell(&self, out_point: &OutPoint) -> CellStatus;
 
     fn resolve_transaction(&self, transaction: &Transaction) -> ResolvedTransaction {
-        let mut seen_inputs = FnvHashSet::default();
-        resolve_transaction(transaction, &mut seen_inputs, |x| self.cell(x))
-    }
-}
+        let mut seen_inputs = HashSet::new();
 
-pub fn resolve_transaction<F: Fn(&OutPoint) -> CellStatus>(
-    transaction: &Transaction,
-    seen_inputs: &mut FnvHashSet<OutPoint>,
-    cell: F,
-) -> ResolvedTransaction {
-    let input_cells = transaction
-        .input_pts()
-        .iter()
-        .map(|input| {
-            if seen_inputs.insert(input.clone()) {
-                cell(input)
-            } else {
-                CellStatus::Dead
-            }
-        })
-        .collect();
+        let input_cells = transaction
+            .input_pts()
+            .iter()
+            .map(|input| {
+                if seen_inputs.insert(input.clone()) {
+                    self.cell(input)
+                } else {
+                    CellStatus::Dead
+                }
+            })
+            .collect();
 
-    let dep_cells = transaction
-        .dep_pts()
-        .iter()
-        .map(|dep| {
-            if seen_inputs.insert(dep.clone()) {
-                cell(dep)
-            } else {
-                CellStatus::Dead
-            }
-        })
-        .collect();
+        let dep_cells = transaction
+            .dep_pts()
+            .iter()
+            .map(|dep| {
+                if seen_inputs.insert(dep.clone()) {
+                    self.cell(dep)
+                } else {
+                    CellStatus::Dead
+                }
+            })
+            .collect();
 
-    ResolvedTransaction {
-        transaction: transaction.clone(),
-        input_cells,
-        dep_cells,
+        ResolvedTransaction {
+            transaction: transaction.clone(),
+            input_cells,
+            dep_cells,
+        }
     }
 }
 

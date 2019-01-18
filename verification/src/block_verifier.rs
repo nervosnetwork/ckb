@@ -2,13 +2,15 @@ use crate::error::{CellbaseError, CommitError, Error, UnclesError};
 use crate::header_verifier::HeaderResolver;
 use crate::{TransactionVerifier, Verifier};
 use ckb_core::block::Block;
-use ckb_core::cell::{resolve_transaction, CellProvider, CellStatus, ResolvedTransaction};
+use ckb_core::cell::{CellProvider, CellStatus};
 use ckb_core::header::Header;
+use ckb_core::transaction::Transaction;
 use ckb_core::transaction::{Capacity, CellInput, OutPoint};
 use ckb_core::Cycle;
 use ckb_shared::shared::ChainProvider;
 use fnv::{FnvHashMap, FnvHashSet};
 use merkle_root::merkle_root;
+use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use std::collections::HashSet;
@@ -386,38 +388,54 @@ impl<CP: ChainProvider + Clone> UnclesVerifier<CP> {
     }
 }
 
-pub fn verify_transactions<F: Fn(&OutPoint) -> CellStatus>(
-    block: &Block,
-    cell: F,
-) -> Result<(), Error> {
-    let mut output_indexs = FnvHashMap::default();
-    let mut seen_inputs = FnvHashSet::default();
+#[derive(Clone)]
+pub struct TransactionsVerifier<P> {
+    provider: P,
+}
 
-    for (i, tx) in block.commit_transactions().iter().enumerate() {
-        output_indexs.insert(tx.hash(), i);
+struct TransactionsVerifierWrapper<'a, P: CellProvider + 'a> {
+    verifier: &'a TransactionsVerifier<P>,
+    transactions: &'a [Transaction],
+    output_indexs: FnvHashMap<H256, usize>,
+}
+
+impl<'a, P: CellProvider> CellProvider for TransactionsVerifierWrapper<'a, P> {
+    fn cell(&self, o: &OutPoint) -> CellStatus {
+        if let Some(i) = self.output_indexs.get(&o.hash) {
+            match self.transactions[*i].outputs().get(o.index as usize) {
+                Some(x) => CellStatus::Live(x.clone()),
+                None => CellStatus::Unknown,
+            }
+        } else {
+            self.verifier.provider.cell(o)
+        }
+    }
+}
+
+impl<P: ChainProvider + CellProvider> TransactionsVerifier<P> {
+    pub fn new(provider: P) -> Self {
+        TransactionsVerifier { provider }
     }
 
-    pub fn verify(&self, block: &Block) -> Result<(), Error> {
+    pub fn verify(&self, transactions: &[Transaction]) -> Result<(), Error> {
         let mut output_indexs = FnvHashMap::default();
 
-        for (i, tx) in block.commit_transactions().iter().enumerate() {
+        for (i, tx) in transactions.iter().enumerate() {
             output_indexs.insert(tx.hash(), i);
         }
         let wrapper = TransactionsVerifierWrapper {
             verifier: &self,
-            block,
+            transactions,
             output_indexs,
         };
 
-        let parent_hash = block.header().parent_hash();
         let max_cycles = self.provider.consensus().max_block_cycles();
         // make verifiers orthogonal
         // skip first tx, assume the first is cellbase, other verifier will verify cellbase
-        block
-            .commit_transactions()
+        transactions
             .par_iter()
             .skip(1)
-            .map(|x| wrapper.resolve_transaction_at(x, &parent_hash))
+            .map(|x| wrapper.resolve_transaction(x))
             .enumerate()
             .try_fold(
                 || 0,

@@ -1,29 +1,18 @@
 use crate::error::ProcessBlockError;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::Block;
-use ckb_core::cell::CellProvider;
 use ckb_core::extras::BlockExt;
-use ckb_core::header::BlockNumber;
 use ckb_core::service::{Request, DEFAULT_CHANNEL_SIZE};
-use ckb_core::transaction::OutPoint;
-use ckb_db::batch::Batch;
-use ckb_notify::{ForkBlocks, NotifyController, NotifyService};
+use ckb_core::transaction::Transaction;
+use ckb_notify::{BlockCategory, Forks, NotifyController, NotifyService};
 use ckb_shared::error::SharedError;
 use ckb_shared::index::ChainIndex;
-<<<<<<< HEAD
 use ckb_shared::shared::{ChainProvider, Shared, TipHeader};
-use ckb_verification::{BlockVerifier, Verifier};
+use ckb_verification::{BlockVerifier, TransactionsVerifier, Verifier};
 use crossbeam_channel::{self, select, Receiver, Sender};
-=======
-use ckb_shared::shared::{ChainProvider, Shared};
-use ckb_verification::{verify_transactions, BlockVerifier, Verifier};
->>>>>>> refactor: ChainIndexStore
 use faketime::unix_time_as_millis;
-use fnv::{FnvHashMap, FnvHashSet};
-use log::{self, debug, error, log_enabled};
+use log::{self, debug, error};
 use numext_fixed_hash::H256;
-use numext_fixed_uint::U256;
-use std::cmp;
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 
@@ -61,23 +50,6 @@ impl ChainController {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct Forks {
-    /// Ancestor block's number in main branch
-    pub ancestor: BlockNumber,
-    /// Side branch block hashes, from ancestor to side branch tip
-    pub side_blocks: Vec<H256>,
-    /// Main branch block hashes, from ancestor to main branch tip
-    pub main_blocks: Vec<H256>,
-}
-
-#[derive(Debug, Clone)]
-pub enum BlockInsertionResult {
-    MainBranch,
-    SideBranch,
-    SideSwitchToMain(Forks),
-}
-
 impl<CI: ChainIndex + 'static> ChainService<CI> {
     pub fn new(shared: Shared<CI>, notify: NotifyController) -> ChainService<CI> {
         let block_verifier = BlockVerifier::new(shared.clone());
@@ -103,7 +75,7 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
                 select! {
                     recv(receivers.process_block_receiver) -> msg => match msg {
                         Ok(Request { responder, arguments: block }) => {
-                            let _ = responder.send(self.process_block(block));
+                            let _ = responder.send(self.process_block(&block));
                         },
                         _ => {
                             error!(target: "chain", "process_block_receiver closed");
@@ -115,22 +87,25 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
             .expect("Start ChainService failed")
     }
 
-    fn process_block(&mut self, block: Arc<Block>) -> Result<(), ProcessBlockError> {
+    fn process_block(&mut self, block: &Block) -> Result<(), ProcessBlockError> {
         debug!(target: "chain", "begin processing block: {}", block.header().hash());
         if self.shared.consensus().verification {
             self.block_verifier
                 .verify(&block)
                 .map_err(ProcessBlockError::Verification)?
         }
-        let insert_result = self
+
+        let block_category = self
             .insert_block(&block)
             .map_err(ProcessBlockError::Shared)?;
-        self.post_insert_result(block, insert_result);
+
+        self.notify.notify_new_block(block_category);
         debug!(target: "chain", "finish processing block");
         Ok(())
     }
 
-    fn insert_block(&self, block: &Block) -> Result<BlockInsertionResult, SharedError> {
+    fn insert_block(&self, block: &Block) -> Result<BlockCategory, SharedError> {
+        let block_hash = block.header().hash();
         let parent_ext = self
             .shared
             .store()
@@ -148,39 +123,53 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
             self.shared.store().insert_block(batch, block);
             self.shared
                 .store()
-                .insert_block_ext(batch, &block.header().hash(), &block_ext);
+                .insert_block_ext(batch, &block_hash, &block_ext);
             Ok(())
-        });
+        })?;
 
         let tip = self.shared.tip();
 
+        let txs_verify_fn = |transactions: &[Transaction]| {
+            if self.shared.consensus().verification {
+                let transactions_verifier = TransactionsVerifier::new(self.shared.clone());
+                transactions_verifier
+                    .verify(transactions)
+                    .map_err(|_| SharedError::InvalidTransaction)
+                    .err()
+            } else {
+                None
+            }
+        };
+
         // block is being added to main branch, forward it.
         if &tip.hash == block.header().parent_hash() {
-            self.shared.store().forward(&block.header().hash());
-            return Ok(BlockInsertionResult::MainBranch);
+            // TODO return error?
+            let _ = self.shared.store().forward(&block_hash, txs_verify_fn);
+            return Ok(BlockCategory::MainBranch(block_hash));
         }
 
         // block is being added to side branch, do nothing.
         if tip.total_difficulty > block_ext.total_difficulty
-            || (tip.total_difficulty == block_ext.total_difficulty
-                && block.header().hash() >= tip.hash)
+            || (tip.total_difficulty == block_ext.total_difficulty && block_hash >= tip.hash)
         {
-            return Ok(BlockInsertionResult::SideBranch);
+            return Ok(BlockCategory::SideBranch(block_hash));
         }
 
         // block is being added to side branch and switched to main branch.
-        let forks = self.get_forks(&block.header().hash());
+        let forks = self.get_forks(&block_hash);
 
-        (forks.ancestor..tip.number).for_each(|_| self.shared.store().rollback());
+        (forks.ancestor..tip.number)
+            .map(|_| self.shared.store().rollback())
+            .collect::<Result<Vec<_>, _>>()?;
+
         forks
             .side_blocks
             .iter()
-            .for_each(|hash| self.shared.store().forward(hash));
+            .map(|hash| self.shared.store().forward(hash, txs_verify_fn))
+            .collect::<Result<Vec<_>, _>>()?;
 
-        Ok(BlockInsertionResult::SideSwitchToMain(forks))
+        Ok(BlockCategory::SideSwitchToMain(forks))
     }
-
-    fn post_insert_result(&mut self, block: Arc<Block>, result: BlockInsertionResult) {}
 
     fn get_forks(&self, hash: &H256) -> Forks {
         let mut side_blocks = Vec::new();
@@ -193,8 +182,7 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
                     return Forks {
                         ancestor: number,
                         side_blocks,
-                        main_blocks: (number..tip.number)
-                            .into_iter()
+                        main_blocks: (number + 1..=tip.number)
                             .map(|n| {
                                 self.shared
                                     .store()
@@ -254,7 +242,7 @@ pub mod test {
     use super::*;
     use ckb_core::block::BlockBuilder;
     use ckb_core::cell::CellProvider;
-    use ckb_core::header::{Header, HeaderBuilder};
+    use ckb_core::header::{BlockNumber, Header, HeaderBuilder};
     use ckb_core::transaction::{
         CellInput, CellOutput, OutPoint, ProposalShortId, Transaction, TransactionBuilder,
     };
@@ -368,8 +356,7 @@ pub mod test {
         }
     }
 
-    // TODO Q
-    // #[test]
+    #[test]
     fn test_genesis_transaction_fetch() {
         let tx = TransactionBuilder::default()
             .input(CellInput::new(OutPoint::null(), Default::default()))

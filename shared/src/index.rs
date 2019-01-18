@@ -1,3 +1,4 @@
+use crate::error::SharedError;
 use crate::flat_serializer::serialized_addresses;
 use crate::store::{ChainKVStore, ChainStore, ChainTip, META_TIP_HASH_KEY};
 use crate::{
@@ -9,11 +10,12 @@ use ckb_core::extras::{BlockExt, TransactionAddress};
 use ckb_core::header::{BlockNumber, Header};
 use ckb_core::transaction::{Transaction, TransactionBuilder};
 use ckb_core::transaction_meta::TransactionMeta;
-use ckb_db::batch::Batch;
 use ckb_db::kvdb::KeyValueDB;
 use numext_fixed_hash::H256;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
+
+type IndexUpdateResult = Result<(), SharedError>;
 
 // maintain chain index, extend chainstore
 pub trait ChainIndex: ChainStore {
@@ -25,8 +27,12 @@ pub trait ChainIndex: ChainStore {
     fn get_transaction(&self, h: &H256) -> Option<Transaction>;
     fn get_transaction_address(&self, hash: &H256) -> Option<TransactionAddress>;
 
-    fn rollback(&self);
-    fn forward(&self, hash: &H256);
+    fn rollback(&self) -> IndexUpdateResult;
+    fn forward<F: Fn(&[Transaction]) -> Option<SharedError>>(
+        &self,
+        hash: &H256,
+        txs_verify_fn: F,
+    ) -> IndexUpdateResult;
 }
 
 impl<T: 'static + KeyValueDB> ChainIndex for ChainKVStore<T> {
@@ -49,7 +55,8 @@ impl<T: 'static + KeyValueDB> ChainIndex for ChainKVStore<T> {
             hash: genesis_hash,
             total_difficulty: block_ext.total_difficulty,
         };
-        self.forward_tip(new_tip);
+        // skip genesis block transactions verification
+        let _ = self.forward_tip(new_tip, |_| None);
     }
 
     fn get_block_hash(&self, number: BlockNumber) -> Option<H256> {
@@ -87,7 +94,7 @@ impl<T: 'static + KeyValueDB> ChainIndex for ChainKVStore<T> {
     }
 
     /// Rollback current tip.
-    fn rollback(&self) {
+    fn rollback(&self) -> IndexUpdateResult {
         let mut chain_tip = self.tip.write();
         let header = self
             .get_header(&chain_tip.hash)
@@ -146,28 +153,41 @@ impl<T: 'static + KeyValueDB> ChainIndex for ChainKVStore<T> {
                 new_tip.hash.to_vec(),
             );
             Ok(())
-        });
+        })?;
 
         *chain_tip = new_tip;
+        Ok(())
     }
 
-    /// Forward to a new tip, assumes that parent block is current tip.
-    fn forward(&self, hash: &H256) {
+    /// Forward to a new tip, assumes that parent block is current tip and verify block transactions
+    fn forward<F: Fn(&[Transaction]) -> Option<SharedError>>(
+        &self,
+        hash: &H256,
+        txs_verify_fn: F,
+    ) -> IndexUpdateResult {
         let block_ext = self.get_block_ext(hash).expect("inconsistent store");
         let new_tip = ChainTip {
             number: self.tip.read().number + 1,
             hash: hash.clone(),
             total_difficulty: block_ext.total_difficulty,
         };
-        self.forward_tip(new_tip);
+        self.forward_tip(new_tip, txs_verify_fn)
     }
 }
 
 impl<T: 'static + KeyValueDB> ChainKVStore<T> {
-    fn forward_tip(&self, new_tip: ChainTip) {
+    fn forward_tip<F: Fn(&[Transaction]) -> Option<SharedError>>(
+        &self,
+        new_tip: ChainTip,
+        txs_verify_fn: F,
+    ) -> IndexUpdateResult {
         let transactions = self
             .get_block_body(&new_tip.hash)
             .expect("inconsistent store");
+
+        if let Some(verify_error) = txs_verify_fn(&transactions) {
+            return Err(verify_error);
+        };
 
         let mut chain_tip = self.tip.write();
 
@@ -238,9 +258,10 @@ impl<T: 'static + KeyValueDB> ChainKVStore<T> {
             );
 
             Ok(())
-        });
+        })?;
 
         *chain_tip = new_tip;
+        Ok(())
     }
 }
 

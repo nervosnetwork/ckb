@@ -74,26 +74,26 @@ impl<CI: ChainIndex + 'static> ChainRpc for ChainRpcImpl<CI> {
                     .shared
                     .block(&block_hash)
                     .ok_or_else(Error::internal_error)?;
-                // TODO Q
-                // let chain_state = self.shared.chain_state().read();
-                // for transaction in block.commit_transactions() {
-                //     let transaction_meta = chain_state
-                //         .txo_set()
-                //         .get(&transaction.hash())
-                //         .ok_or_else(Error::internal_error)?;
-                //     for (i, output) in transaction.outputs().iter().enumerate() {
-                //         if output.lock == type_hash && (!transaction_meta.is_spent(i)) {
-                //             result.push(CellOutputWithOutPoint {
-                //                 out_point: OutPoint {
-                //                     hash: transaction.hash().clone(),
-                //                     index: i as u32,
-                //                 },
-                //                 capacity: output.capacity,
-                //                 lock: output.lock.clone(),
-                //             });
-                //         }
-                //     }
-                // }
+
+                for transaction in block.commit_transactions() {
+                    let transaction_meta = self
+                        .shared
+                        .store()
+                        .get_transaction_meta(&transaction.hash())
+                        .ok_or_else(Error::internal_error)?;
+                    for (i, output) in transaction.outputs().iter().enumerate() {
+                        if output.lock == type_hash && (!transaction_meta.is_spent(i)) {
+                            result.push(CellOutputWithOutPoint {
+                                out_point: OutPoint {
+                                    hash: transaction.hash().clone(),
+                                    index: i as u32,
+                                },
+                                capacity: output.capacity,
+                                lock: output.lock.clone(),
+                            });
+                        }
+                    }
+                }
             }
         }
         Ok(result)

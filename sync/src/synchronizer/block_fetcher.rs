@@ -4,7 +4,7 @@ use crate::{
     BLOCK_DOWNLOAD_TIMEOUT, BLOCK_DOWNLOAD_WINDOW, MAX_BLOCKS_IN_TRANSIT_PER_PEER,
     PER_FETCH_BLOCK_LIMIT,
 };
-use ckb_core::header::{BlockNumber, Header};
+use ckb_core::header::Header;
 use ckb_network::PeerIndex;
 use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::ChainProvider;

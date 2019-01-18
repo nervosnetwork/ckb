@@ -14,7 +14,6 @@ use ckb_core::uncle::UncleBlock;
 use ckb_db::diskdb::RocksDB;
 use ckb_db::kvdb::KeyValueDB;
 use ckb_db::memorydb::MemoryKeyValueDB;
-use ckb_util::RwLock;
 use fnv::FnvHashSet;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
