@@ -1,10 +1,9 @@
 language: rust
 sudo: true
 cache:
+  cargo: true
   timeout: 1024
-  directories:
-    - $HOME/.cargo
-    - $HOME/.rustup
+
 git:
   depth: 2
   submodules: false
@@ -19,15 +18,15 @@ matrix:
   include:
     - rust: 1.31.1
       os: osx
-      env: FMT=true CHECK=true TEST=true CACHE_NAME=osx-rust-1.31.1-pr
+      env: FMT=true CHECK=true TEST=true
       if: type = pull_request
     - rust: 1.31.1
       os: osx
-      env: FMT=true CHECK=true TEST=true CACHE_NAME=osx-rust-1.31.1-not-pr
+      env: FMT=true CHECK=true TEST=true
       if: type != pull_request
     - rust: 1.31.1
       os: linux
-      env: TEST=true CACHE_NAME=osx-linux-1.31.1-not-pr
+      env: TEST=true
       if: type != pull_request
 
 addons:
@@ -43,8 +42,10 @@ addons:
 install:
 - if [ "$FMT" = true ]; then cargo fmt --version || rustup component add rustfmt; fi
 - if [ "$CHECK" = true ]; then cargo clippy --version || rustup component add clippy; fi
+- cargo sweep --version || cargo install cargo-sweep
 
 script:
+- cargo sweep -s
 - if [ "$FMT" = true ]; then make fmt; fi
 - if [ "$CHECK" = true ]; then make check; fi
 - if [ "$CHECK" = true ]; then make clippy; fi
@@ -52,4 +53,4 @@ script:
 - git diff --exit-code Cargo.lock
 
 before_cache:
-- rm -rf $HOME/.cargo/registry
+- cargo sweep -f
