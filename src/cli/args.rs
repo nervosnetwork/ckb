@@ -2,6 +2,9 @@
 use build_info::{get_version, Version};
 use clap::{App, AppSettings, Arg, ArgMatches, SubCommand};
 
+const CKB_CONFIG_HELP: &str = "Specify the configuration file PATH. Tries ckb.json, nodes/default.json in working directory when omitted.";
+const MINER_CONFIG_HELP: &str = "Specify the configuration file PATH. Tries miner.json, nodes/miner.json in working directory when omitted.";
+
 pub fn get_matches() -> ArgMatches<'static> {
     let version = get_version!();
 
@@ -11,14 +14,6 @@ pub fn get_matches() -> ArgMatches<'static> {
         .version(version.short().as_str())
         .long_version(version.long().as_str())
         .setting(AppSettings::SubcommandRequiredElseHelp)
-        .arg(
-            Arg::with_name("config")
-            .short("c")
-            .long("config")
-            .value_name("CONFIG")
-            .takes_value(true)
-            .help("Specify the configuration file PATH. Tries ckb.json, nodes/default.json in working directory when omitted.")
-        )
         .subcommand(run())
         .subcommand(miner())
         .subcommand(export())
@@ -28,11 +23,24 @@ pub fn get_matches() -> ArgMatches<'static> {
 }
 
 fn run() -> App<'static, 'static> {
-    SubCommand::with_name("run").about("Running ckb node")
+    SubCommand::with_name("run")
+        .arg(arg_config_with_help(CKB_CONFIG_HELP))
+        .about("Running ckb node")
 }
 
 fn miner() -> App<'static, 'static> {
-    SubCommand::with_name("miner").about("Running ckb miner")
+    SubCommand::with_name("miner")
+        .arg(arg_config_with_help(MINER_CONFIG_HELP))
+        .about("Running ckb miner")
+}
+
+fn arg_config_with_help(help: &'static str) -> Arg<'static, 'static> {
+    Arg::with_name("config")
+        .short("c")
+        .long("config")
+        .value_name("CONFIG")
+        .takes_value(true)
+        .help(help)
 }
 
 fn arg_format() -> Arg<'static, 'static> {
@@ -49,6 +57,7 @@ fn export() -> App<'static, 'static> {
     SubCommand::with_name("export")
         .about("Export ckb data")
         .arg(arg_format())
+        .arg(arg_config_with_help(CKB_CONFIG_HELP))
         .arg(
             Arg::with_name("target")
                 .short("t")
@@ -63,6 +72,7 @@ fn export() -> App<'static, 'static> {
 fn import() -> App<'static, 'static> {
     SubCommand::with_name("import")
         .about("Import ckb data")
+        .arg(arg_config_with_help(CKB_CONFIG_HELP))
         .arg(arg_format())
         .arg(
             Arg::with_name("source")
@@ -81,6 +91,7 @@ fn cli() -> App<'static, 'static> {
         .setting(AppSettings::SubcommandRequiredElseHelp)
         .subcommand(
             SubCommand::with_name("type_hash")
+                .arg(arg_config_with_help(CKB_CONFIG_HELP))
                 .about("Generate lock script type hash using the first system cell, which by default is always_success"),
         )
         .subcommand(SubCommand::with_name("keygen").about("Generate new key"))

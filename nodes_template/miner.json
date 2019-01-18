@@ -1,0 +1,13 @@
+{
+    "logger": {
+        "file": "logs/miner.log",
+        "filter": "info",
+        "color": true
+    },
+    "chain": "spec/dev.json",
+    "rpc_url": "http://127.0.0.1:8114/",
+    "poll_interval": 5,
+    "cycles_limit": 100000000,
+    "bytes_limit": 10000000,
+    "max_version": 0
+}

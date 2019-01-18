@@ -129,13 +129,13 @@ impl<CI: ChainIndex + 'static> BlockAssembler<CI> {
     ) -> (Cycle, u64, Version) {
         let consensus = self.shared.consensus();
         let cycles_limit = cycles_limit
-            .map(|cycles| cmp::min(cycles, consensus.max_block_cycles()))
+            .min(Some(consensus.max_block_cycles()))
             .unwrap_or_else(|| consensus.max_block_cycles());
         let bytes_limit = bytes_limit
-            .map(|bytes| cmp::min(bytes, consensus.max_block_bytes()))
+            .min(Some(consensus.max_block_bytes()))
             .unwrap_or_else(|| consensus.max_block_bytes());
         let version = max_version
-            .map(|version| cmp::min(version, consensus.block_version()))
+            .min(Some(consensus.block_version()))
             .unwrap_or_else(|| consensus.block_version());
 
         (cycles_limit, bytes_limit, version)

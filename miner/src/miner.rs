@@ -1,10 +1,10 @@
 use crate::client::Client;
 use crate::Work;
-use ckb_core::block::{BlockBuilder, Block};
-use ckb_core::header::{Seal, RawHeader, HeaderBuilder};
+use ckb_core::block::{Block, BlockBuilder};
+use ckb_core::header::{HeaderBuilder, RawHeader, Seal};
 use ckb_pow::PowEngine;
 use crossbeam_channel::Receiver;
-use jsonrpc_types::BlockTemplate;
+use jsonrpc_types::{BlockTemplate, CellbaseTemplate};
 use log::{debug, info};
 use rand::{thread_rng, Rng};
 use std::sync::Arc;
@@ -57,7 +57,14 @@ impl Miner {
                 // uncles_count_limit,
             } = template;
 
-            let cellbase_id = cellbase.hash;
+            let (cellbase_id, cellbase) = {
+                let CellbaseTemplate {
+                    hash,
+                    data,
+                    ..
+                } = cellbase;
+                (hash, data)
+            };
 
             let header_builder = HeaderBuilder::default()
                 .version(version)
@@ -67,22 +74,23 @@ impl Miner {
                 .parent_hash(parent_hash)
                 .cellbase_id(cellbase_id);
 
-
             let block = BlockBuilder::default()
                 .uncles(uncles.into_iter().map(Into::into).collect())
+                .commit_transaction(cellbase.into())
                 .commit_transactions(commit_transactions.into_iter().map(Into::into).collect())
                 .proposal_transactions(proposal_transactions.into_iter().map(Into::into).collect())
                 .with_header_builder(header_builder);
 
             let raw_header = block.header().raw().clone();
 
-
-            self.mine_loop(&raw_header).map(|seal| {
-                BlockBuilder::default()
-                    .block(block)
-                    .header(raw_header.with_seal(seal))
-                    .build()
-            }).map(|block| (work_id, block))
+            self.mine_loop(&raw_header)
+                .map(|seal| {
+                    BlockBuilder::default()
+                        .block(block)
+                        .header(raw_header.with_seal(seal))
+                        .build()
+                })
+                .map(|block| (work_id, block))
         } else {
             None
         }

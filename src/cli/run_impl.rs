@@ -49,8 +49,11 @@ pub fn run(setup: Setup) {
         TransactionPoolService::new(setup.configs.pool, shared.clone(), notify.clone());
     let _handle = tx_pool_service.start(Some("TransactionPoolService"), tx_pool_receivers);
 
-    let block_assembler =
-        BlockAssembler::new(shared.clone(), tx_pool_controller.clone(), H256::zero());
+    let block_assembler = BlockAssembler::new(
+        shared.clone(),
+        tx_pool_controller.clone(),
+        setup.configs.block_assembler.type_hash,
+    );
     let _handle = block_assembler.start(Some("MinerAgent"), block_assembler_receivers, &notify);
 
     let synchronizer = Arc::new(Synchronizer::new(

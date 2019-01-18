@@ -9,6 +9,7 @@ use parking_lot::Mutex;
 use regex::Regex;
 use serde_derive::{Deserialize, Serialize};
 use std::io::Write;
+use std::path::PathBuf;
 use std::{fs, thread};
 
 enum Message {
@@ -46,8 +47,10 @@ impl Logger {
                     fs::OpenOptions::new()
                         .append(true)
                         .create(true)
-                        .open(file.clone())
-                        .unwrap_or_else(|_| panic!("Cannot write to log file given: {}", file))
+                        .open(&file)
+                        .unwrap_or_else(|_| {
+                            panic!("Cannot write to log file given: {:?}", file.as_os_str())
+                        })
                 });
 
                 loop {
@@ -89,7 +92,7 @@ impl Logger {
 pub struct Config {
     pub filter: Option<String>,
     pub color: bool,
-    pub file: Option<String>,
+    pub file: Option<PathBuf>,
 }
 
 impl Default for Config {

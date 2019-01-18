@@ -1,4 +1,5 @@
-use crate::{Config, Work};
+use crate::{MinerConfig, Work};
+use ckb_core::block::Block;
 use ckb_util::{Mutex, RwLockUpgradableReadGuard};
 use crossbeam_channel::Sender;
 use futures::sync::{mpsc, oneshot};
@@ -6,9 +7,11 @@ use hyper::error::Error as HyperError;
 use hyper::header::{HeaderValue, CONTENT_TYPE};
 use hyper::rt::{self, Future, Stream};
 use hyper::Uri;
-use hyper::{Body, Chunk, Client as HttpClinet, Method, Request};
+use hyper::{Body, Chunk, Client as HttpClient, Method, Request};
 use jsonrpc_types::BlockTemplate;
-use jsonrpc_types::{id::Id, params::Params, request::MethodCall, version::Version, Block as JsonBlock};
+use jsonrpc_types::{
+    id::Id, params::Params, request::MethodCall, version::Version, Block as JsonBlock,
+};
 use log::debug;
 use log::error;
 use serde_json::error::Error as JsonError;
@@ -16,7 +19,6 @@ use serde_json::{self, json, Value};
 use std::sync::Arc;
 use std::thread;
 use std::time;
-use ckb_core::block::Block;
 
 type RpcRequest = (oneshot::Sender<Result<Chunk, RpcError>>, MethodCall);
 
@@ -61,7 +63,7 @@ impl Rpc {
         let (stop, stop_rx) = oneshot::channel::<()>();
 
         let thread = thread::spawn(move || {
-            let client = HttpClinet::builder().keep_alive(true).build_http();
+            let client = HttpClient::builder().keep_alive(true).build_http();
 
             let stream = receiver.for_each(move |(sender, call): RpcRequest| {
                 let req_url = url.clone();
@@ -127,12 +129,12 @@ impl Drop for Rpc {
 pub struct Client {
     pub current_work: Work,
     pub new_work: Sender<()>,
-    pub config: Config,
+    pub config: MinerConfig,
     pub rpc: Rpc,
 }
 
 impl Client {
-    pub fn new(current_work: Work, new_work: Sender<()>, config: Config) -> Client {
+    pub fn new(current_work: Work, new_work: Sender<()>, config: MinerConfig) -> Client {
         let uri: Uri = config.rpc_url.parse().expect("valid rpc url");
 
         Client {

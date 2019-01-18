@@ -5,9 +5,7 @@ use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 use serde_derive::{Deserialize, Serialize};
 
-use ckb_core::transaction::{
-    Transaction as CoreTransaction
-};
+use ckb_core::transaction::Transaction as CoreTransaction;
 use ckb_core::uncle::UncleBlock as CoreUncleBlock;
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
@@ -48,8 +46,7 @@ impl From<UncleTemplate> for CoreUncleBlock {
         CoreUncleBlock {
             header: header.into(),
             cellbase: cellbase.into(),
-            proposal_transactions:
-                proposal_transactions
+            proposal_transactions: proposal_transactions
                 .iter()
                 .cloned()
                 .map(Into::into)
@@ -67,11 +64,7 @@ pub struct CellbaseTemplate {
 
 impl From<CellbaseTemplate> for CoreTransaction {
     fn from(template: CellbaseTemplate) -> CoreTransaction {
-        let CellbaseTemplate {
-            data,
-            ..
-        } = template;
-
+        let CellbaseTemplate { data, .. } = template;
         data.into()
     }
 }
@@ -85,14 +78,9 @@ pub struct TransactionTemplate {
     pub data: Transaction, // temporary
 }
 
-
 impl From<TransactionTemplate> for CoreTransaction {
     fn from(template: TransactionTemplate) -> CoreTransaction {
-        let TransactionTemplate {
-            data,
-            ..
-        } = template;
-
+        let TransactionTemplate { data, .. } = template;
         data.into()
     }
 }
