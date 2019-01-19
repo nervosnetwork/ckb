@@ -21,5 +21,3 @@ pub type PublicKey = numext_fixed_hash::H512;
 pub type BlockNumber = u64;
 pub type Capacity = u64;
 pub type Cycle = u64;
-
-pub type TriggerForCi = u64;
