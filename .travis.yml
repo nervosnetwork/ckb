@@ -53,4 +53,5 @@ script:
 - git diff --exit-code Cargo.lock
 
 before_cache:
+- rm -rf ./target/debug/incremental/
 - cargo sweep -f
