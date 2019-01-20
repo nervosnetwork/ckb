@@ -1,9 +1,10 @@
 {
     "logger": {
-        "file": "logs/miner.log",
+        "file": "miner.log",
         "filter": "info",
         "color": true
     },
+    "data_dir": "default",
     "chain": "spec/dev.json",
     "rpc_url": "http://127.0.0.1:8114/",
     "poll_interval": 5,

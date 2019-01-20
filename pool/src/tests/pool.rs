@@ -21,6 +21,7 @@ use numext_fixed_hash::H256;
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;
+use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 use std::time;
 use tempfile::TempPath;
@@ -600,6 +601,7 @@ impl<CI: ChainIndex + 'static> TestPool<CI> {
             },
             shared.clone(),
             notify.clone(),
+            Arc::new(AtomicUsize::new(0)),
         );
 
         let default_script_hash = create_valid_script().type_hash();

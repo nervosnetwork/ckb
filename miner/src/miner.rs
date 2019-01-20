@@ -58,11 +58,7 @@ impl Miner {
             } = template;
 
             let (cellbase_id, cellbase) = {
-                let CellbaseTemplate {
-                    hash,
-                    data,
-                    ..
-                } = cellbase;
+                let CellbaseTemplate { hash, data, .. } = cellbase;
                 (hash, data)
             };
 

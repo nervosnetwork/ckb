@@ -63,6 +63,12 @@ fn find_default_config_path() -> Option<PathBuf> {
 impl Setup {
     pub(crate) fn with_configs(mut configs: Configs) -> Result<Self, Box<Error>> {
         let dirs = Directories::new(&configs.data_dir);
+
+        if let Some(file) = configs.logger.file {
+            let path = dirs.join("logs");
+            configs.logger.file = Some(path.join(file));
+        }
+
         if configs.network.config_dir_path.is_none() {
             configs.network.config_dir_path =
                 Some(dirs.join("network").to_string_lossy().to_string());
@@ -96,16 +102,6 @@ impl Configs {
         }
         if self.ckb.chain.is_relative() {
             self.ckb.chain = base.join(&self.ckb.chain);
-        }
-
-        if self
-            .logger
-            .file
-            .as_ref()
-            .map(|f| f.is_relative())
-            .unwrap_or(false)
-        {
-            self.logger.file = self.logger.file.as_ref().map(|f| base.join(f));
         }
     }
 }

@@ -10,10 +10,10 @@ use hyper::Uri;
 use hyper::{Body, Chunk, Client as HttpClient, Method, Request};
 use jsonrpc_types::BlockTemplate;
 use jsonrpc_types::{
-    id::Id, params::Params, request::MethodCall, version::Version, Block as JsonBlock,
+    error::Error as RpcFail, id::Id, params::Params, request::MethodCall, response::Output,
+    version::Version, Block as JsonBlock,
 };
-use log::debug;
-use log::error;
+use log::{debug, error};
 use serde_json::error::Error as JsonError;
 use serde_json::{self, json, Value};
 use std::sync::Arc;
@@ -27,6 +27,7 @@ pub enum RpcError {
     Http(HyperError),
     Canceled, //oneshot canceled
     Json(JsonError),
+    Fail(RpcFail),
 }
 
 #[derive(Debug)]
@@ -68,6 +69,7 @@ impl Rpc {
             let stream = receiver.for_each(move |(sender, call): RpcRequest| {
                 let req_url = url.clone();
                 let request_json = serde_json::to_vec(&call).expect("valid rpc call");
+
                 let mut req = Request::new(Body::from(request_json));
                 *req.method_mut() = Method::POST;
                 *req.uri_mut() = req_url;
@@ -78,9 +80,7 @@ impl Rpc {
                     .request(req)
                     .and_then(|res| res.into_body().concat2())
                     .then(|res| sender.send(res.map_err(RpcError::Http)))
-                    .map_err(|err| {
-                        error!(target: "miner", "rpc request error {:?}", err);
-                    });
+                    .map_err(|_| ());
 
                 rt::spawn(request);
                 Ok(())
@@ -101,7 +101,7 @@ impl Rpc {
         &self,
         method: String,
         params: Vec<Value>,
-    ) -> impl Future<Item = Chunk, Error = RpcError> {
+    ) -> impl Future<Item = Output, Error = RpcError> {
         let (tx, rev) = oneshot::channel();
 
         let call = MethodCall {
@@ -114,7 +114,9 @@ impl Rpc {
         let req = (tx, call);
         let mut sender = self.inner.sender.clone();
         let _ = sender.try_send(req);
-        rev.map_err(|_| RpcError::Canceled).flatten()
+        rev.map_err(|_| RpcError::Canceled)
+            .flatten()
+            .and_then(|chunk| serde_json::from_slice(&chunk).map_err(RpcError::Json))
     }
 }
 
@@ -153,10 +155,10 @@ impl Client {
         &self,
         work_id: &str,
         block: &Block,
-    ) -> impl Future<Item = Chunk, Error = RpcError> {
+    ) -> impl Future<Item = Output, Error = RpcError> {
         let block: JsonBlock = block.into();
         let method = "submit_block".to_owned();
-        let params = vec![json!(block), json!(work_id)];
+        let params = vec![json!(work_id), json!(block)];
 
         self.rpc.request(method, params)
     }
@@ -189,8 +191,15 @@ impl Client {
             json!(self.config.max_version),
         ];
 
-        self.rpc
-            .request(method, params)
-            .and_then(|body| serde_json::from_slice(&body).map_err(RpcError::Json))
+        self.rpc.request(method, params).and_then(parse_response)
+    }
+}
+
+fn parse_response<T: serde::de::DeserializeOwned>(output: Output) -> Result<T, RpcError> {
+    match output {
+        Output::Success(success) => {
+            serde_json::from_value::<T>(success.result).map_err(RpcError::Json)
+        }
+        Output::Failure(failure) => Err(RpcError::Fail(failure.error)),
     }
 }

@@ -4,6 +4,7 @@ use ckb_miner::{Client, Miner, MinerConfig};
 use ckb_util::RwLock;
 use clap::ArgMatches;
 use crossbeam_channel::unbounded;
+use dir::Directories;
 use logger::{self, Config as LogConfig};
 use serde_derive::Deserialize;
 use std::error::Error;
@@ -20,21 +21,23 @@ struct Config {
     #[serde(flatten)]
     pub miner: MinerConfig,
     pub chain: PathBuf,
+    pub data_dir: PathBuf,
 }
 
 impl Config {
     fn resolve_paths(&mut self, base: &Path) {
-        if self
-            .logger
-            .file
-            .as_ref()
-            .map(|f| f.is_relative())
-            .unwrap_or(false)
-        {
-            self.logger.file = self.logger.file.as_ref().map(|f| base.join(f));
-        }
         if self.chain.is_relative() {
             self.chain = base.join(&self.chain);
+        }
+
+        if self.data_dir.is_relative() {
+            self.data_dir = base.join(&self.data_dir);
+        }
+
+        let dirs = Directories::new(&self.data_dir);
+        if let Some(ref file) = self.logger.file {
+            let path = dirs.join("logs");
+            self.logger.file = Some(path.join(file));
         }
     }
 

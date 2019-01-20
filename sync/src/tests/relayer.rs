@@ -22,6 +22,7 @@ use std::collections::HashSet;
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;
+use std::sync::atomic::AtomicUsize;
 use std::sync::mpsc::channel;
 use std::sync::{Arc, Barrier};
 use std::{thread, time};
@@ -314,12 +315,19 @@ fn setup_node(
         .consensus(consensus)
         .build();
     let (chain_controller, chain_receivers) = ChainController::build();
-    let (tx_pool_controller, tx_pool_receivers) = TransactionPoolController::build();
+
+    let last_tx_updated_at = Arc::new(AtomicUsize::new(0));
+    let (tx_pool_controller, tx_pool_receivers) =
+        TransactionPoolController::build(Arc::clone(&last_tx_updated_at));
 
     let (_handle, notify) = NotifyService::default().start(Some(thread_name));
 
-    let tx_pool_service =
-        TransactionPoolService::new(PoolConfig::default(), shared.clone(), notify.clone());
+    let tx_pool_service = TransactionPoolService::new(
+        PoolConfig::default(),
+        shared.clone(),
+        notify.clone(),
+        last_tx_updated_at,
+    );
     let _handle = tx_pool_service.start(Some(thread_name), tx_pool_receivers);
 
     let chain_service = ChainBuilder::new(shared.clone())

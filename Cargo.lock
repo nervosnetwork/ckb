@@ -432,12 +432,16 @@ dependencies = [
 name = "ckb-miner"
 version = "0.5.0-pre"
 dependencies = [
+ "ckb-chain 0.5.0-pre",
+ "ckb-chain-spec 0.5.0-pre",
  "ckb-core 0.5.0-pre",
+ "ckb-db 0.5.0-pre",
  "ckb-notify 0.5.0-pre",
  "ckb-pool 0.5.0-pre",
  "ckb-pow 0.5.0-pre",
  "ckb-shared 0.5.0-pre",
  "ckb-util 0.5.0-pre",
+ "ckb-verification 0.5.0-pre",
  "crossbeam-channel 0.3.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "faketime 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "fnv 1.0.6 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -447,6 +451,8 @@ dependencies = [
  "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "lru-cache 0.1.0 (git+https://github.com/nervosnetwork/lru-cache)",
  "numext-fixed-hash 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "numext-fixed-uint 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "proptest 0.8.7 (registry+https://github.com/rust-lang/crates.io-index)",
  "rand 0.6.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.85 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.85 (registry+https://github.com/rust-lang/crates.io-index)",

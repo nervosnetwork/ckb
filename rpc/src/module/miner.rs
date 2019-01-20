@@ -1,5 +1,5 @@
 use ckb_chain::chain::ChainController;
-use ckb_core::block::Block;
+use ckb_core::block::Block as CoreBlock;
 use ckb_miner::BlockAssemblerController;
 use ckb_network::NetworkService;
 use ckb_protocol::RelayMessage;
@@ -8,7 +8,7 @@ use ckb_sync::RELAY_PROTOCOL_ID;
 use flatbuffers::FlatBufferBuilder;
 use jsonrpc_core::{Error, Result};
 use jsonrpc_macros::build_rpc_trait;
-use jsonrpc_types::BlockTemplate;
+use jsonrpc_types::{Block, BlockTemplate};
 use log::debug;
 use numext_fixed_hash::H256;
 use std::collections::HashSet;
@@ -46,7 +46,7 @@ impl<CI: ChainIndex + 'static> MinerRpc for MinerRpcImpl<CI> {
     }
 
     fn submit_block(&self, _work_id: String, data: Block) -> Result<H256> {
-        let block = Arc::new(data);
+        let block: Arc<CoreBlock> = Arc::new(data.into());
         let ret = self.chain.process_block(Arc::clone(&block));
         if ret.is_ok() {
             // announce new block

@@ -7,8 +7,8 @@ use ckb_miner::{BlockAssembler, BlockAssemblerController};
 use ckb_network::CKBProtocol;
 use ckb_network::NetworkConfig;
 use ckb_network::NetworkService;
-use ckb_notify::NotifyService;
-use ckb_pool::txs_pool::{TransactionPoolController, TransactionPoolService};
+use ckb_notify::{NotifyController, NotifyService};
+use ckb_pool::txs_pool::{PoolConfig, TransactionPoolController, TransactionPoolService};
 use ckb_pow::PowEngine;
 use ckb_rpc::RpcServer;
 use ckb_shared::cachedb::CacheDB;
@@ -21,7 +21,7 @@ use ckb_sync::{
 use crypto::secp::Generator;
 use log::info;
 use numext_fixed_hash::H256;
-use std::sync::Arc;
+use std::sync::{atomic::AtomicUsize, Arc};
 use std::thread;
 
 pub fn run(setup: Setup) {
@@ -35,7 +35,6 @@ pub fn run(setup: Setup) {
 
     let (_handle, notify) = NotifyService::default().start(Some("notify"));
     let (chain_controller, chain_receivers) = ChainController::build();
-    let (tx_pool_controller, tx_pool_receivers) = TransactionPoolController::build();
     let (block_assembler_controller, block_assembler_receivers) = BlockAssemblerController::build();
 
     let chain_service = ChainBuilder::new(shared.clone())
@@ -45,9 +44,7 @@ pub fn run(setup: Setup) {
 
     info!(target: "main", "chain genesis hash: {:#x}", shared.genesis_hash());
 
-    let tx_pool_service =
-        TransactionPoolService::new(setup.configs.pool, shared.clone(), notify.clone());
-    let _handle = tx_pool_service.start(Some("TransactionPoolService"), tx_pool_receivers);
+    let tx_pool_controller = setup_tx_pool(setup.configs.pool, shared.clone(), notify.clone());
 
     let block_assembler = BlockAssembler::new(
         shared.clone(),
@@ -115,6 +112,19 @@ pub fn run(setup: Setup) {
     wait_for_exit();
 
     info!(target: "main", "Finishing work, please wait...");
+}
+
+fn setup_tx_pool<CI: ChainIndex + 'static>(
+    config: PoolConfig,
+    shared: Shared<CI>,
+    notify: NotifyController,
+) -> TransactionPoolController {
+    let last_txs_updated_at = Arc::new(AtomicUsize::new(0));
+    let (tx_pool_controller, tx_pool_receivers) =
+        TransactionPoolController::build(Arc::clone(&last_txs_updated_at));
+    let tx_pool_service = TransactionPoolService::new(config, shared, notify, last_txs_updated_at);
+    let _handle = tx_pool_service.start(Some("TransactionPoolService"), tx_pool_receivers);
+    tx_pool_controller
 }
 
 fn setup_rpc<CI: ChainIndex + 'static>(
