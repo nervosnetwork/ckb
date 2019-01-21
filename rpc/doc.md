@@ -335,7 +335,7 @@ curl -d '{"id": 2, "jsonrpc": "2.0", "method":"send_transaction","params": [{"ve
 
 # trace_transaction
 
-Creates new transaction.
+Registers a transaction trace, returning the transaction hash.
 
 ## Parameters
 
@@ -362,7 +362,7 @@ curl -d '{"id": 2, "jsonrpc": "2.0", "method":"trace_transaction","params": [{"v
 
 # get_transaction_trace
 
-Creates new transaction.
+Returns the traces of the transaction submitted by `trace_transaction`.
 
 ## Parameters
 
