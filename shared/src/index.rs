@@ -11,11 +11,29 @@ use ckb_core::header::{BlockNumber, Header};
 use ckb_core::transaction::{Transaction, TransactionBuilder};
 use ckb_core::transaction_meta::TransactionMeta;
 use ckb_db::kvdb::KeyValueDB;
+use faketime::unix_time_as_millis;
 use numext_fixed_hash::H256;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 
 type IndexUpdateResult = Result<(), SharedError>;
+
+#[derive(Debug)]
+pub struct Forks {
+    /// Ancestor block's number in main branch
+    pub ancestor: BlockNumber,
+    /// Side branch block hashes, from ancestor to side branch tip
+    pub side_blocks: Vec<H256>,
+    /// Main branch block hashes, from ancestor to main branch tip
+    pub main_blocks: Vec<H256>,
+}
+
+#[derive(Debug)]
+pub enum BlockCategory {
+    MainBranch(H256),
+    SideBranch(H256),
+    SideSwitchToMain(Forks),
+}
 
 // maintain chain index, extend chainstore
 pub trait ChainIndex: ChainStore {
@@ -27,12 +45,11 @@ pub trait ChainIndex: ChainStore {
     fn get_transaction(&self, h: &H256) -> Option<Transaction>;
     fn get_transaction_address(&self, hash: &H256) -> Option<TransactionAddress>;
 
-    fn rollback(&self) -> IndexUpdateResult;
-    fn forward<F: Fn(&[Transaction]) -> bool>(
+    fn insert_block_and_update_tip<F: Fn(&[Transaction]) -> bool>(
         &self,
-        hash: &H256,
-        txs_verify_fn: F,
-    ) -> IndexUpdateResult;
+        block: &Block,
+        txs_verify_fn: &F,
+    ) -> Result<BlockCategory, SharedError>;
 }
 
 impl<T: 'static + KeyValueDB> ChainIndex for ChainKVStore<T> {
@@ -52,7 +69,13 @@ impl<T: 'static + KeyValueDB> ChainIndex for ChainKVStore<T> {
         .expect("genesis init");
 
         // skip genesis block transactions verification
-        let _ = self.forward_tip(0, &genesis_hash, block_ext, |_| true);
+        let mut tip = self.tip.write();
+        let _ = self.forward(
+            genesis.header(),
+            genesis.commit_transactions(),
+            &mut tip,
+            |_| true,
+        );
     }
 
     fn get_block_hash(&self, number: BlockNumber) -> Option<H256> {
@@ -89,110 +112,95 @@ impl<T: 'static + KeyValueDB> ChainIndex for ChainKVStore<T> {
             .map(|raw| deserialize(&raw[..]).unwrap())
     }
 
-    /// Rollback current tip.
-    fn rollback(&self) -> IndexUpdateResult {
-        let mut chain_tip = self.tip.write();
-        let header = self
-            .get_header(&chain_tip.hash)
-            .expect("inconsistent store");
-        let transactions = self
-            .get_block_body(&chain_tip.hash)
-            .expect("inconsistent store");;
+    fn insert_block_and_update_tip<F: Fn(&[Transaction]) -> bool>(
+        &self,
+        block: &Block,
+        txs_verify_fn: &F,
+    ) -> Result<BlockCategory, SharedError> {
+        let block_hash = block.header().hash();
+        let parent_ext = self
+            .get_block_ext(&block.header().parent_hash())
+            .expect("parent already store");
 
-        let new_tip = ChainTip {
-            hash: header.parent_hash().clone(),
-            number: header.number() - 1,
-            total_difficulty: chain_tip.total_difficulty.clone() - header.difficulty(),
+        let block_ext = BlockExt {
+            received_at: unix_time_as_millis(),
+            total_difficulty: parent_ext.total_difficulty + block.header().difficulty(),
+            total_uncles_count: parent_ext.total_uncles_count + block.uncles().len() as u64,
+            commit_transactions_validated: None,
         };
 
+        // save block and block_ext
         self.save_with_batch(|batch| {
-            // delete hash and number index
-            batch.delete(COLUMN_INDEX, serialize(&chain_tip.number).unwrap());
-            batch.delete(COLUMN_INDEX, chain_tip.hash.to_vec());
-
-            // delete transaction address
-            transactions
-                .iter()
-                .for_each(|tx| batch.delete(COLUMN_TRANSACTION_ADDR, tx.hash().to_vec()));
-
-            // unset related transaction metas
-            let mut transaction_metas: HashMap<H256, TransactionMeta> = HashMap::new();
-            transactions.iter().skip(1).for_each(|tx| {
-                tx.inputs().iter().for_each(|input| {
-                    match transaction_metas.entry(input.previous_output.hash.clone()) {
-                        Entry::Occupied(mut entry) => {
-                            let meta = entry.get_mut();
-                            meta.unset_spent(input.previous_output.index as usize);
-                        }
-                        Entry::Vacant(entry) => {
-                            let mut meta = self
-                                .get_transaction_meta(&input.previous_output.hash)
-                                .expect("transaction meta must be stored");
-                            meta.unset_spent(input.previous_output.index as usize);
-                            entry.insert(meta);
-                        }
-                    }
-                })
-            });
-            transaction_metas.iter().for_each(|(hash, meta)| {
-                batch.insert(
-                    COLUMN_TRANSACTION_META,
-                    hash.to_vec(),
-                    serialize(meta).unwrap(),
-                )
-            });
-
-            // update tip hash
-            batch.insert(
-                COLUMN_META,
-                META_TIP_HASH_KEY.to_vec(),
-                new_tip.hash.to_vec(),
-            );
+            self.insert_block(batch, block);
+            self.insert_block_ext(batch, &block_hash, &block_ext);
             Ok(())
         })?;
 
-        *chain_tip = new_tip;
-        Ok(())
-    }
+        let mut tip = self.tip.write();
 
-    /// Forward to a new tip, assumes that parent block is current tip and verify block transactions
-    fn forward<F: Fn(&[Transaction]) -> bool>(
-        &self,
-        hash: &H256,
-        txs_verify_fn: F,
-    ) -> IndexUpdateResult {
-        let block_ext = self.get_block_ext(hash).expect("inconsistent store");
-        let block_number = self.tip.read().number + 1;
-        self.forward_tip(block_number, hash, block_ext, txs_verify_fn)
+        // block is being added to main branch, forward it.
+        if &tip.hash == block.header().parent_hash() {
+            self.forward(
+                block.header(),
+                block.commit_transactions(),
+                &mut tip,
+                txs_verify_fn,
+            )?;
+            return Ok(BlockCategory::MainBranch(block_hash));
+        }
+
+        // block is being added to side branch, do nothing.
+        if tip.total_difficulty > block_ext.total_difficulty
+            || (tip.total_difficulty == block_ext.total_difficulty && block_hash >= tip.hash)
+        {
+            return Ok(BlockCategory::SideBranch(block_hash));
+        }
+
+        // block is being added to side branch and switched to main branch.
+        let forks = self.get_forks(&block_hash, tip.number);
+
+        (forks.ancestor..tip.number)
+            .map(|_| self.rollback(&mut tip))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        forks
+            .side_blocks
+            .iter()
+            .map(|hash| {
+                let header = self.get_header(hash).expect("inconsistent store");
+                let transactions = self.get_block_body(hash).expect("inconsistent store");
+                self.forward(&header, &transactions, &mut tip, txs_verify_fn)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(BlockCategory::SideSwitchToMain(forks))
     }
 }
 
 impl<T: 'static + KeyValueDB> ChainKVStore<T> {
-    fn forward_tip<F: Fn(&[Transaction]) -> bool>(
+    // Forward tip to block header and verify block transactions
+    fn forward<F: Fn(&[Transaction]) -> bool>(
         &self,
-        block_number: BlockNumber,
-        block_hash: &H256,
-        mut block_ext: BlockExt,
+        header: &Header,
+        transactions: &[Transaction],
+        chain_tip: &mut ChainTip,
         txs_verify_fn: F,
     ) -> IndexUpdateResult {
-        let transactions = self
-            .get_block_body(&block_hash)
-            .expect("inconsistent store");
+        let (block_hash, block_number) = (header.hash(), header.number());
+        let mut block_ext = self.get_block_ext(&block_hash).expect("inconsistent store");
 
         block_ext
             .commit_transactions_validated
             .get_or_insert_with(|| txs_verify_fn(&transactions));
 
         self.save_with_batch(|batch| {
-            self.insert_block_ext(batch, block_hash, &block_ext);
+            self.insert_block_ext(batch, &block_hash, &block_ext);
             Ok(())
         })?;
 
         if !block_ext.commit_transactions_validated.unwrap() {
             return Err(SharedError::InvalidTransaction);
         }
-
-        let mut chain_tip = self.tip.write();
 
         self.save_with_batch(|batch| {
             // update hash and number index
@@ -261,10 +269,102 @@ impl<T: 'static + KeyValueDB> ChainKVStore<T> {
 
         *chain_tip = ChainTip {
             number: block_number,
-            hash: block_hash.clone(),
+            hash: block_hash,
             total_difficulty: block_ext.total_difficulty,
         };
         Ok(())
+    }
+
+    /// Rollback current tip.
+    fn rollback(&self, chain_tip: &mut ChainTip) -> IndexUpdateResult {
+        let header = self
+            .get_header(&chain_tip.hash)
+            .expect("inconsistent store");
+        let transactions = self
+            .get_block_body(&chain_tip.hash)
+            .expect("inconsistent store");;
+
+        let new_tip = ChainTip {
+            hash: header.parent_hash().clone(),
+            number: header.number() - 1,
+            total_difficulty: chain_tip.total_difficulty.clone() - header.difficulty(),
+        };
+
+        self.save_with_batch(|batch| {
+            // delete hash and number index
+            batch.delete(COLUMN_INDEX, serialize(&chain_tip.number).unwrap());
+            batch.delete(COLUMN_INDEX, chain_tip.hash.to_vec());
+
+            // delete transaction address
+            transactions
+                .iter()
+                .for_each(|tx| batch.delete(COLUMN_TRANSACTION_ADDR, tx.hash().to_vec()));
+
+            // unset related transaction metas
+            let mut transaction_metas: HashMap<H256, TransactionMeta> = HashMap::new();
+            transactions.iter().skip(1).for_each(|tx| {
+                tx.inputs().iter().for_each(|input| {
+                    match transaction_metas.entry(input.previous_output.hash.clone()) {
+                        Entry::Occupied(mut entry) => {
+                            let meta = entry.get_mut();
+                            meta.unset_spent(input.previous_output.index as usize);
+                        }
+                        Entry::Vacant(entry) => {
+                            let mut meta = self
+                                .get_transaction_meta(&input.previous_output.hash)
+                                .expect("transaction meta must be stored");
+                            meta.unset_spent(input.previous_output.index as usize);
+                            entry.insert(meta);
+                        }
+                    }
+                })
+            });
+            transaction_metas.iter().for_each(|(hash, meta)| {
+                batch.insert(
+                    COLUMN_TRANSACTION_META,
+                    hash.to_vec(),
+                    serialize(meta).unwrap(),
+                )
+            });
+
+            // update tip hash
+            batch.insert(
+                COLUMN_META,
+                META_TIP_HASH_KEY.to_vec(),
+                new_tip.hash.to_vec(),
+            );
+            Ok(())
+        })?;
+
+        *chain_tip = new_tip;
+        Ok(())
+    }
+
+    fn get_forks(&self, hash: &H256, tip_number: BlockNumber) -> Forks {
+        let mut side_blocks = Vec::new();
+        let mut hash = hash.clone();
+        loop {
+            match self.get_block_number(&hash) {
+                Some(number) => {
+                    side_blocks.reverse();
+                    return Forks {
+                        ancestor: number,
+                        side_blocks,
+                        main_blocks: (number + 1..=tip_number)
+                            .map(|n| self.get_block_hash(n).expect("block already store"))
+                            .collect(),
+                    };
+                }
+                None => {
+                    side_blocks.push(hash.clone());
+                    hash = self
+                        .get_header(&hash)
+                        .expect("parent already store")
+                        .parent_hash()
+                        .clone();
+                }
+            }
+        }
     }
 }
 

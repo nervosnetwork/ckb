@@ -15,10 +15,10 @@ ckb-db = { path = "../db" }
 numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 numext-fixed-uint = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 lru-cache = { git = "https://github.com/nervosnetwork/lru-cache" }
+faketime = "0.2"
 fnv = "1.0.3"
 
 [dev-dependencies]
 env_logger = "0.6"
 tempfile = "3.0"
 rand = "0.6"
-faketime = "0.2"

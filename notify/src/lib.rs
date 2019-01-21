@@ -1,5 +1,3 @@
-use ckb_core::header::BlockNumber;
-use numext_fixed_hash::H256;
 use std::sync::Arc;
 use std::thread;
 use std::thread::JoinHandle;
@@ -12,23 +10,6 @@ use log::{debug, trace, warn};
 
 pub const REGISTER_CHANNEL_SIZE: usize = 2;
 pub const NOTIFY_CHANNEL_SIZE: usize = 128;
-
-#[derive(Debug, Clone)]
-pub struct Forks {
-    /// Ancestor block's number in main branch
-    pub ancestor: BlockNumber,
-    /// Side branch block hashes, from ancestor to side branch tip
-    pub side_blocks: Vec<H256>,
-    /// Main branch block hashes, from ancestor to main branch tip
-    pub main_blocks: Vec<H256>,
-}
-
-#[derive(Debug, Clone)]
-pub enum BlockCategory {
-    MainBranch(H256),
-    SideBranch(H256),
-    SideSwitchToMain(Forks),
-}
 
 type StopSignal = ();
 pub type MsgNewTransaction = ();
@@ -51,34 +32,16 @@ impl NotifyService {
     pub fn start<S: ToString>(self, thread_name: Option<S>) -> (JoinHandle<()>, NotifyController) {
         let (signal_sender, signal_receiver) =
             crossbeam_channel::bounded::<()>(REGISTER_CHANNEL_SIZE);
+
         let (new_transaction_register, new_transaction_register_receiver) =
-<<<<<<< HEAD
             crossbeam_channel::bounded(REGISTER_CHANNEL_SIZE);
-        let (new_tip_register, new_tip_register_receiver) =
-            crossbeam_channel::bounded(REGISTER_CHANNEL_SIZE);
-        let (new_uncle_register, new_uncle_register_receiver) =
-            crossbeam_channel::bounded(REGISTER_CHANNEL_SIZE);
-        let (switch_fork_register, switch_fork_register_receiver) =
+        let (new_block_register, new_block_register_receiver) =
             crossbeam_channel::bounded(REGISTER_CHANNEL_SIZE);
 
         let (new_transaction_sender, new_transaction_receiver) =
             crossbeam_channel::bounded::<MsgNewTransaction>(NOTIFY_CHANNEL_SIZE);
-        let (new_tip_sender, new_tip_receiver) =
-            crossbeam_channel::bounded::<MsgNewTip>(NOTIFY_CHANNEL_SIZE);
-        let (new_uncle_sender, new_uncle_receiver) =
-            crossbeam_channel::bounded::<MsgNewUncle>(NOTIFY_CHANNEL_SIZE);
-        let (switch_fork_sender, switch_fork_receiver) =
-            crossbeam_channel::bounded::<MsgSwitchFork>(NOTIFY_CHANNEL_SIZE);
-=======
-            channel::bounded(REGISTER_CHANNEL_SIZE);
-        let (new_block_register, new_block_register_receiver) =
-            channel::bounded(REGISTER_CHANNEL_SIZE);
-
-        let (new_transaction_sender, new_transaction_receiver) =
-            channel::bounded::<MsgNewTransaction>(NOTIFY_CHANNEL_SIZE);
         let (new_block_sender, new_block_receiver) =
-            channel::bounded::<MsgNewBlock>(NOTIFY_CHANNEL_SIZE);
->>>>>>> refactor: Notify and ChainIndex update
+            crossbeam_channel::bounded::<MsgNewBlock>(NOTIFY_CHANNEL_SIZE);
 
         let mut new_transaction_subscribers = FnvHashMap::default();
         let mut new_block_subscribers = FnvHashMap::default();
@@ -143,75 +106,21 @@ impl NotifyService {
         }
     }
 
-<<<<<<< HEAD
-    fn handle_register_new_tip(
-        subscribers: &mut FnvHashMap<String, Sender<MsgNewTip>>,
-        msg: Result<Request<(String, usize), Receiver<MsgNewTip>>, crossbeam_channel::RecvError>,
-    ) {
-        match msg {
-            Ok(Request {
-                responder,
-                arguments: (name, capacity),
-            }) => {
-                debug!(target: "notify", "Register new_tip {:?}", name);
-                let (sender, receiver) = crossbeam_channel::bounded::<MsgNewTip>(capacity);
-                subscribers.insert(name, sender);
-                let _ = responder.send(receiver);
-            }
-            _ => warn!(target: "notify", "Register new_tip channel is closed"),
-        }
-    }
-
-    fn handle_register_new_uncle(
-        subscribers: &mut FnvHashMap<String, Sender<MsgNewUncle>>,
-        msg: Result<Request<(String, usize), Receiver<MsgNewUncle>>, crossbeam_channel::RecvError>,
-=======
     fn handle_register_new_block(
         subscribers: &mut FnvHashMap<String, Sender<MsgNewBlock>>,
         msg: Result<Request<(String, usize), Receiver<MsgNewBlock>>, channel::RecvError>,
->>>>>>> refactor: Notify and ChainIndex update
     ) {
         match msg {
             Ok(Request {
                 responder,
                 arguments: (name, capacity),
             }) => {
-<<<<<<< HEAD
-                debug!(target: "notify", "Register new_uncle {:?}", name);
-                let (sender, receiver) = crossbeam_channel::bounded::<MsgNewUncle>(capacity);
-                subscribers.insert(name, sender);
-                let _ = responder.send(receiver);
-            }
-            _ => warn!(target: "notify", "Register new_uncle channel is closed"),
-        }
-    }
-
-    fn handle_register_switch_fork(
-        subscribers: &mut FnvHashMap<String, Sender<MsgSwitchFork>>,
-        msg: Result<
-            Request<(String, usize), Receiver<MsgSwitchFork>>,
-            crossbeam_channel::RecvError,
-        >,
-    ) {
-        match msg {
-            Ok(Request {
-                responder,
-                arguments: (name, capacity),
-            }) => {
-                debug!(target: "notify", "Register switch_fork {:?}", name);
-                let (sender, receiver) = crossbeam_channel::bounded::<MsgSwitchFork>(capacity);
-                subscribers.insert(name, sender);
-                let _ = responder.send(receiver);
-            }
-            _ => warn!(target: "notify", "Register switch_fork channel is closed"),
-=======
                 debug!(target: "notify", "Register new_block {:?}", name);
                 let (sender, receiver) = channel::bounded::<MsgNewBlock>(capacity);
                 subscribers.insert(name, sender);
                 let _ = responder.send(receiver);
             }
             _ => warn!(target: "notify", "Register new_block channel is closed"),
->>>>>>> refactor: Notify and ChainIndex update
         }
     }
 
@@ -230,45 +139,9 @@ impl NotifyService {
         }
     }
 
-<<<<<<< HEAD
-    fn handle_notify_new_tip(
-        subscribers: &FnvHashMap<String, Sender<MsgNewTip>>,
-        msg: Result<MsgNewTip, crossbeam_channel::RecvError>,
-    ) {
-        match msg {
-            Ok(msg) => {
-                trace!(target: "notify", "event new tip {:?}", msg);
-                for subscriber in subscribers.values() {
-                    let _ = subscriber.send(Arc::clone(&msg));
-                }
-            }
-            _ => warn!(target: "notify", "new tip channel is closed"),
-        }
-    }
-
-    fn handle_notify_new_uncle(
-        subscribers: &FnvHashMap<String, Sender<MsgNewUncle>>,
-        msg: Result<MsgNewUncle, crossbeam_channel::RecvError>,
-    ) {
-        match msg {
-            Ok(msg) => {
-                trace!(target: "notify", "event new uncle {:?}", msg);
-                for subscriber in subscribers.values() {
-                    let _ = subscriber.send(Arc::clone(&msg));
-                }
-            }
-            _ => warn!(target: "notify", "new uncle channel is closed"),
-        }
-    }
-
-    fn handle_notify_switch_fork(
-        subscribers: &FnvHashMap<String, Sender<MsgSwitchFork>>,
-        msg: Result<MsgSwitchFork, crossbeam_channel::RecvError>,
-=======
     fn handle_notify_new_block(
         subscribers: &FnvHashMap<String, Sender<MsgNewBlock>>,
         msg: Result<MsgNewBlock, channel::RecvError>,
->>>>>>> refactor: Notify and ChainIndex update
     ) {
         match msg {
             Ok(msg) => {

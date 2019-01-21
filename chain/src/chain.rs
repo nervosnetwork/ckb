@@ -1,18 +1,14 @@
 use crate::error::ProcessBlockError;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::Block;
-use ckb_core::extras::BlockExt;
 use ckb_core::service::{Request, DEFAULT_CHANNEL_SIZE};
 use ckb_core::transaction::Transaction;
-use ckb_notify::{BlockCategory, Forks, NotifyController, NotifyService};
-use ckb_shared::error::SharedError;
+use ckb_notify::{NotifyController, NotifyService};
 use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::{ChainProvider, Shared, TipHeader};
 use ckb_verification::{BlockVerifier, TransactionsVerifier, Verifier};
 use crossbeam_channel::{self, select, Receiver, Sender};
-use faketime::unix_time_as_millis;
 use log::{self, debug, error};
-use numext_fixed_hash::H256;
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 
@@ -95,41 +91,6 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
                 .map_err(ProcessBlockError::Verification)?
         }
 
-        let block_category = self
-            .insert_block(&block)
-            .map_err(ProcessBlockError::Shared)?;
-
-        self.notify.notify_new_block(block_category);
-        debug!(target: "chain", "finish processing block");
-        Ok(())
-    }
-
-    fn insert_block(&self, block: &Block) -> Result<BlockCategory, SharedError> {
-        let block_hash = block.header().hash();
-        let parent_ext = self
-            .shared
-            .store()
-            .get_block_ext(&block.header().parent_hash())
-            .expect("parent already store");
-
-        let block_ext = BlockExt {
-            received_at: unix_time_as_millis(),
-            total_difficulty: parent_ext.total_difficulty + block.header().difficulty(),
-            total_uncles_count: parent_ext.total_uncles_count + block.uncles().len() as u64,
-            commit_transactions_validated: None,
-        };
-
-        // save block and block_ext
-        self.shared.store().save_with_batch(|batch| {
-            self.shared.store().insert_block(batch, block);
-            self.shared
-                .store()
-                .insert_block_ext(batch, &block_hash, &block_ext);
-            Ok(())
-        })?;
-
-        let tip = self.shared.tip();
-
         let txs_verify_fn = |transactions: &[Transaction]| {
             if self.shared.consensus().verification {
                 let transactions_verifier = TransactionsVerifier::new(self.shared.clone());
@@ -139,68 +100,15 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
             }
         };
 
-        // block is being added to main branch, forward it.
-        if &tip.hash == block.header().parent_hash() {
-            self.shared.store().forward(&block_hash, txs_verify_fn)?;
-            return Ok(BlockCategory::MainBranch(block_hash));
-        }
+        let block_category = self
+            .shared
+            .store()
+            .insert_block_and_update_tip(&block, &txs_verify_fn)
+            .map_err(ProcessBlockError::Shared)?;
 
-        // block is being added to side branch, do nothing.
-        if tip.total_difficulty > block_ext.total_difficulty
-            || (tip.total_difficulty == block_ext.total_difficulty && block_hash >= tip.hash)
-        {
-            return Ok(BlockCategory::SideBranch(block_hash));
-        }
-
-        // block is being added to side branch and switched to main branch.
-        let forks = self.get_forks(&block_hash);
-
-        (forks.ancestor..tip.number)
-            .map(|_| self.shared.store().rollback())
-            .collect::<Result<Vec<_>, _>>()?;
-
-        forks
-            .side_blocks
-            .iter()
-            .map(|hash| self.shared.store().forward(hash, txs_verify_fn))
-            .collect::<Result<Vec<_>, _>>()?;
-
-        Ok(BlockCategory::SideSwitchToMain(forks))
-    }
-
-    fn get_forks(&self, hash: &H256) -> Forks {
-        let mut side_blocks = Vec::new();
-        let mut hash = hash.clone();
-        loop {
-            match self.shared.store().get_block_number(&hash) {
-                Some(number) => {
-                    side_blocks.reverse();
-                    let tip = self.shared.store().get_tip().read();
-                    return Forks {
-                        ancestor: number,
-                        side_blocks,
-                        main_blocks: (number + 1..=tip.number)
-                            .map(|n| {
-                                self.shared
-                                    .store()
-                                    .get_block_hash(n)
-                                    .expect("block already store")
-                            })
-                            .collect(),
-                    };
-                }
-                None => {
-                    side_blocks.push(hash.clone());
-                    hash = self
-                        .shared
-                        .store()
-                        .get_header(&hash)
-                        .expect("parent already store")
-                        .parent_hash()
-                        .clone();
-                }
-            }
-        }
+        self.notify.notify_new_block(block_category);
+        debug!(target: "chain", "finish processing block");
+        Ok(())
     }
 }
 
@@ -247,6 +155,8 @@ pub mod test {
     use ckb_db::memorydb::MemoryKeyValueDB;
     use ckb_shared::shared::SharedBuilder;
     use ckb_shared::store::{ChainKVStore, ChainStore};
+    use faketime::unix_time_as_millis;
+    use numext_fixed_hash::H256;
     use numext_fixed_uint::U256;
 
     fn start_chain(

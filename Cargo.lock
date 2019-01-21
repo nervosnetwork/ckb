@@ -490,10 +490,10 @@ name = "ckb-notify"
 version = "0.5.0-pre"
 dependencies = [
  "ckb-core 0.5.0-pre",
+ "ckb-shared 0.5.0-pre",
  "crossbeam-channel 0.3.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "fnv 1.0.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
- "numext-fixed-hash 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
