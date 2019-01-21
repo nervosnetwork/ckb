@@ -2,7 +2,7 @@
     "__comments__": {
         "rpc modules": [
             "List of API modules",
-            ["Net", "Pool", "Miner", "Chain"]
+            ["Net", "Pool", "Miner", "Chain", "Trace"]
         ],
         "rpc max_request_body_size": "Default is 10MiB = 10 * 1024 * 1024"
     },
@@ -43,12 +43,7 @@
         "max_pending_size": 10000,
         "trace": 100
     },
-    "miner": {
-        "new_transactions_threshold": 8,
-        "type_hash": "0x0da2fe99fe549e082d4ed483c2e968a89ea8d11aabf5d79e5cbf06522de6e674",
-        "rpc_url": "http://127.0.0.1:8114/",
-        "poll_interval": 5,
-        "max_transactions": 10000,
-        "max_proposals": 10000
+    "block_assembler": {
+        "type_hash": "0x0da2fe99fe549e082d4ed483c2e968a89ea8d11aabf5d79e5cbf06522de6e674"
     }
 }

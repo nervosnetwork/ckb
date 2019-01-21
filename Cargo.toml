@@ -11,7 +11,7 @@ clap = { version = "2" }
 serde = "1.0"
 serde_derive = "1.0"
 log = "0.4"
-channel = { package= "crossbeam-channel", version = "0.3" }
+crossbeam-channel = "0.3"
 config-tool = { package= "config", version = "0.9" }
 ckb-util = { path = "util" }
 ckb-core = { path = "core" }
@@ -50,6 +50,7 @@ members = [
     "util/hash",
     "util/merkle-tree",
     "util/merkle-root",
+    "util/jsonrpc-types",
     "util/crypto",
     "util/dir",
     "util/instrument",

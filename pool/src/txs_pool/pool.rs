@@ -4,7 +4,6 @@ use super::types::{
     InsertionResult, Orphan, PendingQueue, Pool, PoolConfig, PoolError, ProposedQueue, TxStage,
     TxoStatus,
 };
-use channel::{self, select, Receiver, Sender};
 use ckb_core::block::Block;
 use ckb_core::cell::{CellProvider, CellStatus};
 use ckb_core::service::{Request, DEFAULT_CHANNEL_SIZE};
@@ -13,9 +12,13 @@ use ckb_notify::{ForkBlocks, MsgNewTip, MsgSwitchFork, NotifyController};
 use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::{ChainProvider, Shared};
 use ckb_verification::{TransactionError, TransactionVerifier};
+use crossbeam_channel::{self, select, Receiver, Sender};
+use faketime::unix_time_as_millis;
 use log::error;
 use lru_cache::LruCache;
 use numext_fixed_hash::H256;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 
 #[cfg(test)]
@@ -35,6 +38,7 @@ pub struct TransactionPoolController {
     add_transaction_sender: Sender<Request<Transaction, Result<InsertionResult, PoolError>>>,
     reg_trace_sender: Sender<Request<Transaction, Result<InsertionResult, PoolError>>>,
     get_trace_sender: Sender<Request<H256, Option<Vec<TxTrace>>>>,
+    last_txs_updated_at: Arc<AtomicUsize>,
 }
 
 pub struct TransactionPoolReceivers {
@@ -48,18 +52,24 @@ pub struct TransactionPoolReceivers {
 }
 
 impl TransactionPoolController {
-    pub fn build() -> (TransactionPoolController, TransactionPoolReceivers) {
+    pub fn build(
+        last_txs_updated_at: Arc<AtomicUsize>,
+    ) -> (TransactionPoolController, TransactionPoolReceivers) {
         let (get_proposal_commit_transactions_sender, get_proposal_commit_transactions_receiver) =
-            channel::bounded(DEFAULT_CHANNEL_SIZE);
+            crossbeam_channel::bounded(DEFAULT_CHANNEL_SIZE);
         let (get_potential_transactions_sender, get_potential_transactions_receiver) =
-            channel::bounded(DEFAULT_CHANNEL_SIZE);
-        let (contains_key_sender, contains_key_receiver) = channel::bounded(DEFAULT_CHANNEL_SIZE);
+            crossbeam_channel::bounded(DEFAULT_CHANNEL_SIZE);
+        let (contains_key_sender, contains_key_receiver) =
+            crossbeam_channel::bounded(DEFAULT_CHANNEL_SIZE);
         let (get_transaction_sender, get_transaction_receiver) =
-            channel::bounded(DEFAULT_CHANNEL_SIZE);
+            crossbeam_channel::bounded(DEFAULT_CHANNEL_SIZE);
         let (add_transaction_sender, add_transaction_receiver) =
-            channel::bounded(DEFAULT_CHANNEL_SIZE);
-        let (reg_trace_sender, reg_trace_receiver) = channel::bounded(DEFAULT_CHANNEL_SIZE);
-        let (get_trace_sender, get_trace_receiver) = channel::bounded(DEFAULT_CHANNEL_SIZE);
+            crossbeam_channel::bounded(DEFAULT_CHANNEL_SIZE);
+        let (reg_trace_sender, reg_trace_receiver) =
+            crossbeam_channel::bounded(DEFAULT_CHANNEL_SIZE);
+        let (get_trace_sender, get_trace_receiver) =
+            crossbeam_channel::bounded(DEFAULT_CHANNEL_SIZE);
+
         (
             TransactionPoolController {
                 get_proposal_commit_transactions_sender,
@@ -69,6 +79,7 @@ impl TransactionPoolController {
                 add_transaction_sender,
                 reg_trace_sender,
                 get_trace_sender,
+                last_txs_updated_at,
             },
             TransactionPoolReceivers {
                 get_proposal_commit_transactions_receiver,
@@ -118,6 +129,10 @@ impl TransactionPoolController {
     pub fn get_transaction_trace(&self, hash: H256) -> Option<Vec<TxTrace>> {
         Request::call(&self.get_trace_sender, hash).expect("trace_transaction() failed")
     }
+
+    pub fn get_last_txs_updated_at(&self) -> u64 {
+        self.last_txs_updated_at.load(Ordering::SeqCst) as u64
+    }
 }
 
 /// The pool itself.
@@ -138,6 +153,8 @@ pub struct TransactionPoolService<CI> {
     notify: NotifyController,
 
     trace: TxTraceMap,
+
+    last_txs_updated_at: Arc<AtomicUsize>,
 }
 
 impl<CI> CellProvider for TransactionPoolService<CI>
@@ -166,6 +183,7 @@ where
         config: PoolConfig,
         shared: Shared<CI>,
         notify: NotifyController,
+        last_txs_updated_at: Arc<AtomicUsize>,
     ) -> TransactionPoolService<CI> {
         let n = shared.tip_header().read().number();
         let cache_size = config.max_cache_size;
@@ -182,6 +200,7 @@ where
             cache: LruCache::new(cache_size),
             shared,
             notify,
+            last_txs_updated_at,
             trace: TxTraceMap::new(trace_size),
         }
     }
@@ -260,7 +279,7 @@ where
             }).expect("Start TransactionPoolService failed!")
     }
 
-    fn handle_new_tip(&mut self, msg: Result<MsgNewTip, channel::RecvError>) {
+    fn handle_new_tip(&mut self, msg: Result<MsgNewTip, crossbeam_channel::RecvError>) {
         match msg {
             Ok(block) => self.reconcile_block(&block),
             _ => {
@@ -269,7 +288,7 @@ where
         }
     }
 
-    fn handle_switch_fork(&mut self, msg: Result<MsgSwitchFork, channel::RecvError>) {
+    fn handle_switch_fork(&mut self, msg: Result<MsgSwitchFork, crossbeam_channel::RecvError>) {
         match msg {
             Ok(blocks) => self.switch_fork(&blocks),
             _ => {
@@ -280,7 +299,7 @@ where
 
     fn handle_get_proposal_commit_transactions(
         &self,
-        msg: Result<Request<TxsArgs, TxsReturn>, channel::RecvError>,
+        msg: Result<Request<TxsArgs, TxsReturn>, crossbeam_channel::RecvError>,
     ) {
         match msg {
             Ok(Request {
@@ -536,6 +555,8 @@ where
                 self.trace
                     .add_commit(&tx.hash(), "add to commit pool".to_string());
             }
+            self.last_txs_updated_at
+                .store(unix_time_as_millis() as usize, Ordering::SeqCst);
             self.pool.add_transaction(tx.clone());
             self.reconcile_orphan(&tx);
         }
@@ -561,6 +582,8 @@ where
                 );
             }
             if rs.is_ok() {
+                self.last_txs_updated_at
+                    .store(unix_time_as_millis() as usize, Ordering::SeqCst);
                 self.pool.add_transaction(tx);
             } else if rs == Err(TransactionError::DoubleSpent) {
                 self.cache.insert(tx.proposal_short_id(), tx);

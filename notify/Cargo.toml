@@ -8,5 +8,5 @@ edition = "2018"
 [dependencies]
 fnv = "1.0"
 ckb-core = { path = "../core" }
-channel = { package= "crossbeam-channel", version = "0.3" }
+crossbeam-channel = "0.3"
 log = "0.4"

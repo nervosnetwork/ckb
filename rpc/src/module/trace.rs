@@ -1,4 +1,3 @@
-use crate::types::Transaction;
 use ckb_core::transaction::Transaction as CoreTransaction;
 use ckb_network::NetworkService;
 use ckb_pool::txs_pool::{TransactionPoolController, TxTrace};
@@ -7,6 +6,7 @@ use ckb_sync::RELAY_PROTOCOL_ID;
 use flatbuffers::FlatBufferBuilder;
 use jsonrpc_core::Result;
 use jsonrpc_macros::build_rpc_trait;
+use jsonrpc_types::Transaction;
 use log::debug;
 use numext_fixed_hash::H256;
 use std::sync::Arc;

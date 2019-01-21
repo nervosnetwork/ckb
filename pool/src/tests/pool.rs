@@ -1,8 +1,6 @@
 use crate::txs_pool::pool::TransactionPoolService;
 use crate::txs_pool::trace::{Action, TxTrace};
 use crate::txs_pool::types::*;
-use channel::select;
-use channel::{self, Receiver};
 use ckb_chain::chain::{ChainBuilder, ChainController};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::{Block, BlockBuilder};
@@ -15,12 +13,15 @@ use ckb_notify::{ForkBlocks, MsgNewTip, MsgSwitchFork, NotifyService};
 use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::{ChainProvider, Shared, SharedBuilder};
 use ckb_shared::store::ChainKVStore;
+use crossbeam_channel::select;
+use crossbeam_channel::{self, Receiver};
 use faketime::unix_time_as_millis;
 use log::error;
 use numext_fixed_hash::H256;
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;
+use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 use std::time;
 use tempfile::TempPath;
@@ -600,6 +601,7 @@ impl<CI: ChainIndex + 'static> TestPool<CI> {
             },
             shared.clone(),
             notify.clone(),
+            Arc::new(AtomicUsize::new(0)),
         );
 
         let default_script_hash = create_valid_script().type_hash();
@@ -646,7 +648,7 @@ impl<CI: ChainIndex + 'static> TestPool<CI> {
                         break;
                     }
                 },
-                recv(channel::after(time::Duration::from_millis(100))) -> _ => {
+                recv(crossbeam_channel::after(time::Duration::from_millis(100))) -> _ => {
                     break;
                 }
             }

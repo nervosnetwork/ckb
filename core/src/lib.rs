@@ -4,7 +4,6 @@
 
 pub mod block;
 pub mod cell;
-pub mod chain;
 pub mod difficulty;
 pub mod error;
 pub mod extras;
@@ -21,3 +20,4 @@ pub type PublicKey = numext_fixed_hash::H512;
 pub type BlockNumber = u64;
 pub type Capacity = u64;
 pub type Cycle = u64;
+pub type Version = u32;

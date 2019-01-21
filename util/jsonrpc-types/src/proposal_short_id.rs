@@ -3,7 +3,7 @@ use faster_hex::{hex_decode, hex_encode};
 use std::fmt;
 
 #[derive(Clone, Default, PartialEq, Eq, Hash, Debug)]
-pub struct ProposalShortId(pub(crate) [u8; 10]);
+pub struct ProposalShortId(pub [u8; 10]);
 
 impl ProposalShortId {
     pub fn new(inner: [u8; 10]) -> ProposalShortId {

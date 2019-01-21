@@ -1,5 +1,4 @@
 use crate::error::ProcessBlockError;
-use channel::{self, select, Receiver, Sender};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::Block;
 use ckb_core::extras::BlockExt;
@@ -11,6 +10,7 @@ use ckb_shared::error::SharedError;
 use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::{ChainProvider, Shared, TipHeader};
 use ckb_verification::{BlockVerifier, Verifier};
+use crossbeam_channel::{self, select, Receiver, Sender};
 use faketime::unix_time_as_millis;
 use log::{self, debug, error, log_enabled};
 use numext_fixed_hash::H256;
@@ -36,7 +36,8 @@ pub struct ChainReceivers {
 
 impl ChainController {
     pub fn build() -> (ChainController, ChainReceivers) {
-        let (process_block_sender, process_block_receiver) = channel::bounded(DEFAULT_CHANNEL_SIZE);
+        let (process_block_sender, process_block_receiver) =
+            crossbeam_channel::bounded(DEFAULT_CHANNEL_SIZE);
         (
             ChainController {
                 process_block_sender,

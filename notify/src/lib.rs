@@ -4,9 +4,9 @@ use std::sync::Arc;
 use std::thread;
 use std::thread::JoinHandle;
 
-use channel::{select, Receiver, Sender};
 use ckb_core::block::Block;
 use ckb_core::service::Request;
+use crossbeam_channel::{select, Receiver, Sender};
 use fnv::FnvHashMap;
 use log::{debug, trace, warn};
 
@@ -62,22 +62,25 @@ pub struct NotifyController {
 
 impl NotifyService {
     pub fn start<S: ToString>(self, thread_name: Option<S>) -> (JoinHandle<()>, NotifyController) {
-        let (signal_sender, signal_receiver) = channel::bounded::<()>(REGISTER_CHANNEL_SIZE);
+        let (signal_sender, signal_receiver) =
+            crossbeam_channel::bounded::<()>(REGISTER_CHANNEL_SIZE);
         let (new_transaction_register, new_transaction_register_receiver) =
-            channel::bounded(REGISTER_CHANNEL_SIZE);
-        let (new_tip_register, new_tip_register_receiver) = channel::bounded(REGISTER_CHANNEL_SIZE);
+            crossbeam_channel::bounded(REGISTER_CHANNEL_SIZE);
+        let (new_tip_register, new_tip_register_receiver) =
+            crossbeam_channel::bounded(REGISTER_CHANNEL_SIZE);
         let (new_uncle_register, new_uncle_register_receiver) =
-            channel::bounded(REGISTER_CHANNEL_SIZE);
+            crossbeam_channel::bounded(REGISTER_CHANNEL_SIZE);
         let (switch_fork_register, switch_fork_register_receiver) =
-            channel::bounded(REGISTER_CHANNEL_SIZE);
+            crossbeam_channel::bounded(REGISTER_CHANNEL_SIZE);
 
         let (new_transaction_sender, new_transaction_receiver) =
-            channel::bounded::<MsgNewTransaction>(NOTIFY_CHANNEL_SIZE);
-        let (new_tip_sender, new_tip_receiver) = channel::bounded::<MsgNewTip>(NOTIFY_CHANNEL_SIZE);
+            crossbeam_channel::bounded::<MsgNewTransaction>(NOTIFY_CHANNEL_SIZE);
+        let (new_tip_sender, new_tip_receiver) =
+            crossbeam_channel::bounded::<MsgNewTip>(NOTIFY_CHANNEL_SIZE);
         let (new_uncle_sender, new_uncle_receiver) =
-            channel::bounded::<MsgNewUncle>(NOTIFY_CHANNEL_SIZE);
+            crossbeam_channel::bounded::<MsgNewUncle>(NOTIFY_CHANNEL_SIZE);
         let (switch_fork_sender, switch_fork_receiver) =
-            channel::bounded::<MsgSwitchFork>(NOTIFY_CHANNEL_SIZE);
+            crossbeam_channel::bounded::<MsgSwitchFork>(NOTIFY_CHANNEL_SIZE);
 
         let mut new_transaction_subscribers = FnvHashMap::default();
         let mut new_tip_subscribers = FnvHashMap::default();
@@ -142,7 +145,10 @@ impl NotifyService {
 
     fn handle_register_new_transaction(
         subscribers: &mut FnvHashMap<String, Sender<MsgNewTransaction>>,
-        msg: Result<Request<(String, usize), Receiver<MsgNewTransaction>>, channel::RecvError>,
+        msg: Result<
+            Request<(String, usize), Receiver<MsgNewTransaction>>,
+            crossbeam_channel::RecvError,
+        >,
     ) {
         match msg {
             Ok(Request {
@@ -150,7 +156,7 @@ impl NotifyService {
                 arguments: (name, capacity),
             }) => {
                 debug!(target: "notify", "Register new_transaction {:?}", name);
-                let (sender, receiver) = channel::bounded::<MsgNewTransaction>(capacity);
+                let (sender, receiver) = crossbeam_channel::bounded::<MsgNewTransaction>(capacity);
                 subscribers.insert(name, sender);
                 let _ = responder.send(receiver);
             }
@@ -160,7 +166,7 @@ impl NotifyService {
 
     fn handle_register_new_tip(
         subscribers: &mut FnvHashMap<String, Sender<MsgNewTip>>,
-        msg: Result<Request<(String, usize), Receiver<MsgNewTip>>, channel::RecvError>,
+        msg: Result<Request<(String, usize), Receiver<MsgNewTip>>, crossbeam_channel::RecvError>,
     ) {
         match msg {
             Ok(Request {
@@ -168,7 +174,7 @@ impl NotifyService {
                 arguments: (name, capacity),
             }) => {
                 debug!(target: "notify", "Register new_tip {:?}", name);
-                let (sender, receiver) = channel::bounded::<MsgNewTip>(capacity);
+                let (sender, receiver) = crossbeam_channel::bounded::<MsgNewTip>(capacity);
                 subscribers.insert(name, sender);
                 let _ = responder.send(receiver);
             }
@@ -178,7 +184,7 @@ impl NotifyService {
 
     fn handle_register_new_uncle(
         subscribers: &mut FnvHashMap<String, Sender<MsgNewUncle>>,
-        msg: Result<Request<(String, usize), Receiver<MsgNewUncle>>, channel::RecvError>,
+        msg: Result<Request<(String, usize), Receiver<MsgNewUncle>>, crossbeam_channel::RecvError>,
     ) {
         match msg {
             Ok(Request {
@@ -186,7 +192,7 @@ impl NotifyService {
                 arguments: (name, capacity),
             }) => {
                 debug!(target: "notify", "Register new_uncle {:?}", name);
-                let (sender, receiver) = channel::bounded::<MsgNewUncle>(capacity);
+                let (sender, receiver) = crossbeam_channel::bounded::<MsgNewUncle>(capacity);
                 subscribers.insert(name, sender);
                 let _ = responder.send(receiver);
             }
@@ -196,7 +202,10 @@ impl NotifyService {
 
     fn handle_register_switch_fork(
         subscribers: &mut FnvHashMap<String, Sender<MsgSwitchFork>>,
-        msg: Result<Request<(String, usize), Receiver<MsgSwitchFork>>, channel::RecvError>,
+        msg: Result<
+            Request<(String, usize), Receiver<MsgSwitchFork>>,
+            crossbeam_channel::RecvError,
+        >,
     ) {
         match msg {
             Ok(Request {
@@ -204,7 +213,7 @@ impl NotifyService {
                 arguments: (name, capacity),
             }) => {
                 debug!(target: "notify", "Register switch_fork {:?}", name);
-                let (sender, receiver) = channel::bounded::<MsgSwitchFork>(capacity);
+                let (sender, receiver) = crossbeam_channel::bounded::<MsgSwitchFork>(capacity);
                 subscribers.insert(name, sender);
                 let _ = responder.send(receiver);
             }
@@ -214,7 +223,7 @@ impl NotifyService {
 
     fn handle_notify_new_transaction(
         subscribers: &FnvHashMap<String, Sender<MsgNewTransaction>>,
-        msg: Result<MsgNewTransaction, channel::RecvError>,
+        msg: Result<MsgNewTransaction, crossbeam_channel::RecvError>,
     ) {
         match msg {
             Ok(()) => {
@@ -229,7 +238,7 @@ impl NotifyService {
 
     fn handle_notify_new_tip(
         subscribers: &FnvHashMap<String, Sender<MsgNewTip>>,
-        msg: Result<MsgNewTip, channel::RecvError>,
+        msg: Result<MsgNewTip, crossbeam_channel::RecvError>,
     ) {
         match msg {
             Ok(msg) => {
@@ -244,7 +253,7 @@ impl NotifyService {
 
     fn handle_notify_new_uncle(
         subscribers: &FnvHashMap<String, Sender<MsgNewUncle>>,
-        msg: Result<MsgNewUncle, channel::RecvError>,
+        msg: Result<MsgNewUncle, crossbeam_channel::RecvError>,
     ) {
         match msg {
             Ok(msg) => {
@@ -259,7 +268,7 @@ impl NotifyService {
 
     fn handle_notify_switch_fork(
         subscribers: &FnvHashMap<String, Sender<MsgSwitchFork>>,
-        msg: Result<MsgSwitchFork, channel::RecvError>,
+        msg: Result<MsgSwitchFork, crossbeam_channel::RecvError>,
     ) {
         match msg {
             Ok(msg) => {

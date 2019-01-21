@@ -2,7 +2,7 @@ use faster_hex::{hex_decode, hex_encode};
 use std::fmt;
 
 #[derive(Clone, Default, PartialEq, Eq, Hash, Debug)]
-pub struct Bytes(pub(crate) Vec<u8>);
+pub struct Bytes(pub Vec<u8>);
 
 impl Bytes {
     pub fn new(bytes: Vec<u8>) -> Bytes {
@@ -15,6 +15,10 @@ impl Bytes {
 
     pub fn len(&self) -> usize {
         self.0.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        0 == self.len()
     }
 }
 
