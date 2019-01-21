@@ -32,6 +32,8 @@ admintool/example/
 .DS_Store
 # ctags
 tags
+# project env
+.env
 
 # vagrant file
 .vagrant
