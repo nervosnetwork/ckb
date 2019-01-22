@@ -2,8 +2,8 @@ use std::sync::Arc;
 use std::thread;
 use std::thread::JoinHandle;
 
-use ckb_core::block::Block;
 use ckb_core::service::Request;
+use ckb_shared::index::BlockCategory;
 use crossbeam_channel::{select, Receiver, Sender};
 use fnv::FnvHashMap;
 use log::{debug, trace, warn};
@@ -108,7 +108,7 @@ impl NotifyService {
 
     fn handle_register_new_block(
         subscribers: &mut FnvHashMap<String, Sender<MsgNewBlock>>,
-        msg: Result<Request<(String, usize), Receiver<MsgNewBlock>>, channel::RecvError>,
+        msg: Result<Request<(String, usize), Receiver<MsgNewBlock>>, crossbeam_channel::RecvError>,
     ) {
         match msg {
             Ok(Request {
@@ -116,7 +116,7 @@ impl NotifyService {
                 arguments: (name, capacity),
             }) => {
                 debug!(target: "notify", "Register new_block {:?}", name);
-                let (sender, receiver) = channel::bounded::<MsgNewBlock>(capacity);
+                let (sender, receiver) = crossbeam_channel::bounded::<MsgNewBlock>(capacity);
                 subscribers.insert(name, sender);
                 let _ = responder.send(receiver);
             }
@@ -141,7 +141,7 @@ impl NotifyService {
 
     fn handle_notify_new_block(
         subscribers: &FnvHashMap<String, Sender<MsgNewBlock>>,
-        msg: Result<MsgNewBlock, channel::RecvError>,
+        msg: Result<MsgNewBlock, crossbeam_channel::RecvError>,
     ) {
         match msg {
             Ok(msg) => {

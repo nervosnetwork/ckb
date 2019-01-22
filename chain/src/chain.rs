@@ -5,7 +5,7 @@ use ckb_core::service::{Request, DEFAULT_CHANNEL_SIZE};
 use ckb_core::transaction::Transaction;
 use ckb_notify::{NotifyController, NotifyService};
 use ckb_shared::index::ChainIndex;
-use ckb_shared::shared::{ChainProvider, Shared, TipHeader};
+use ckb_shared::shared::{ChainProvider, Shared};
 use ckb_verification::{BlockVerifier, TransactionsVerifier, Verifier};
 use crossbeam_channel::{self, select, Receiver, Sender};
 use log::{self, debug, error};

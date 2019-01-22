@@ -4,7 +4,6 @@ use super::types::{
     InsertionResult, Orphan, PendingQueue, Pool, PoolConfig, PoolError, ProposedQueue, TxStage,
     TxoStatus,
 };
-use ckb_core::block::Block;
 use ckb_core::cell::{CellProvider, CellStatus};
 use ckb_core::service::{Request, DEFAULT_CHANNEL_SIZE};
 use ckb_core::transaction::{OutPoint, ProposalShortId, Transaction};
@@ -273,18 +272,13 @@ where
             }).expect("Start TransactionPoolService failed!")
     }
 
-    fn handle_new_tip(&mut self, msg: Result<MsgNewTip, crossbeam_channel::RecvError>) {
+    fn handle_new_block(&mut self, msg: Result<MsgNewBlock, crossbeam_channel::RecvError>) {
         match msg {
-            Ok(block) => self.reconcile_block(&block),
-            _ => {
-                error!(target: "txs_pool", "channel new_tip_receiver closed");
-            }
-        }
-    }
-
-    fn handle_switch_fork(&mut self, msg: Result<MsgSwitchFork, crossbeam_channel::RecvError>) {
-        match msg {
-            Ok(blocks) => self.switch_fork(&blocks),
+            Ok(block_category) => match *block_category {
+                BlockCategory::MainBranch(ref hash) => self.reconcile_block(hash),
+                BlockCategory::SideSwitchToMain(ref forks) => self.switch_fork(forks),
+                BlockCategory::SideBranch(_) => {}
+            },
             _ => {
                 error!(target: "txs_pool", "channel new_block_receiver closed");
             }

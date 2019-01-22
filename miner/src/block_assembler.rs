@@ -1,4 +1,3 @@
-use ckb_core::block::Block;
 use ckb_core::header::Header;
 use ckb_core::service::{Request, DEFAULT_CHANNEL_SIZE};
 use ckb_core::transaction::{CellInput, CellOutput, Transaction, TransactionBuilder};
@@ -8,7 +7,7 @@ use ckb_core::{Cycle, Version};
 use ckb_notify::NotifyController;
 use ckb_pool::txs_pool::TransactionPoolController;
 use ckb_shared::error::SharedError;
-use ckb_shared::index::ChainIndex;
+use ckb_shared::index::{BlockCategory, ChainIndex};
 use ckb_shared::shared::{ChainProvider, Shared};
 use ckb_util::Mutex;
 use crossbeam_channel::{self, select, Receiver, Sender};
@@ -16,10 +15,10 @@ use faketime::unix_time_as_millis;
 use fnv::FnvHashSet;
 use jsonrpc_types::{BlockTemplate, CellbaseTemplate, TransactionTemplate, UncleTemplate};
 use log::error;
-use lru_cache::LruCache;
 use numext_fixed_hash::H256;
 use std::cmp;
-use std::sync::{atomic::AtomicUsize, atomic::Ordering, Arc};
+use std::collections::VecDeque;
+use std::sync::{atomic::AtomicUsize, atomic::Ordering};
 use std::thread::{self, JoinHandle};
 
 const MAX_CANDIDATE_UNCLES: usize = 42;
@@ -54,7 +53,7 @@ impl TemplateCache {
 pub struct BlockAssembler<CI> {
     shared: Shared<CI>,
     tx_pool: TransactionPoolController,
-    candidate_uncles: LruCache<H256, Arc<Block>>,
+    candidate_uncles: VecDeque<H256>,
     type_hash: H256,
     work_id: AtomicUsize,
     last_uncles_updated_at: AtomicUsize,
@@ -104,7 +103,7 @@ impl<CI: ChainIndex + 'static> BlockAssembler<CI> {
             shared,
             tx_pool,
             type_hash,
-            candidate_uncles: LruCache::new(MAX_CANDIDATE_UNCLES),
+            candidate_uncles: VecDeque::new(),
             work_id: AtomicUsize::new(0),
             last_uncles_updated_at: AtomicUsize::new(0),
             template_caches: Mutex::new(LruCache::new(TEMPLATE_CACHE_SIZE)),
@@ -123,19 +122,22 @@ impl<CI: ChainIndex + 'static> BlockAssembler<CI> {
             thread_builder = thread_builder.name(name.to_string());
         }
 
-        let new_uncle_receiver = notify.subscribe_new_uncle(BLOCK_ASSEMBLER_SUBSCRIBER);
+        let new_block_receiver = notify.subscribe_new_block(&BLOCK_ASSEMBLER_SUBSCRIBER);
         thread_builder
             .spawn(move || loop {
                 select! {
-                    recv(new_uncle_receiver) -> msg => match msg {
-                        Ok(uncle_block) => {
-                            let hash = uncle_block.header().hash().clone();
-                            self.candidate_uncles.insert(hash, uncle_block);
-                            self.last_uncles_updated_at
-                                .store(unix_time_as_millis() as usize, Ordering::SeqCst);
-                        }
+                    recv(new_block_receiver) -> msg => match msg {
+                        Ok(block_category) => match *block_category {
+                            BlockCategory::MainBranch(_) => {},
+                            BlockCategory::SideBranch(ref hash) => {
+                                self.last_uncles_updated_at.store(unix_time_as_millis() as usize, Ordering::SeqCst);
+                                self.candidate_uncles.push_front(hash.clone());
+                                self.candidate_uncles.truncate(MAX_CANDIDATE_UNCLES);
+                            },
+                            BlockCategory::SideSwitchToMain(_) => {}
+                        },
                         _ => {
-                            error!(target: "miner", "new_uncle_receiver closed");
+                            error!(target: "miner", "new_block_receiver closed");
                             break;
                         }
                     },
@@ -224,9 +226,8 @@ impl<CI: ChainIndex + 'static> BlockAssembler<CI> {
         let last_uncles_updated_at = self.last_uncles_updated_at.load(Ordering::SeqCst) as u64;
         let last_txs_updated_at = self.tx_pool.get_last_txs_updated_at();
 
-        let tip_header = self.shared.tip_header().read();
-        let header = tip_header.inner();
-        let number = tip_header.number() + 1;
+        let header = self.shared.tip_header();
+        let number = header.number() + 1;
         let current_time = cmp::max(unix_time_as_millis(), header.timestamp() + 1);
 
         let mut template_caches = self.template_caches.lock();
@@ -244,29 +245,30 @@ impl<CI: ChainIndex + 'static> BlockAssembler<CI> {
 
         let difficulty = self
             .shared
-            .calculate_difficulty(header)
+            .calculate_difficulty(&header)
             .expect("get difficulty");
 
         let (proposal_transactions, commit_transactions) =
             self.tx_pool.get_proposal_commit_transactions(10000, 10000);
 
         let (uncles, bad_uncles) = self.prepare_uncles(&header);
-        if !bad_uncles.is_empty() {
-            for bad in bad_uncles {
-                self.candidate_uncles.remove(&bad);
-            }
+        for bad in bad_uncles {
+            self.candidate_uncles.remove(bad);
         }
 
         // dummy cellbase
-        let cellbase =
-            self.create_cellbase_transaction(header, &commit_transactions, self.type_hash.clone())?;
+        let cellbase = self.create_cellbase_transaction(
+            &header,
+            &commit_transactions,
+            self.type_hash.clone(),
+        )?;
 
         let template = BlockTemplate {
             version,
             difficulty,
             current_time,
             number,
-            parent_hash: tip_header.hash(),
+            parent_hash: header.hash(),
             cycles_limit,
             bytes_limit,
             uncles_count_limit,
@@ -319,7 +321,7 @@ impl<CI: ChainIndex + 'static> BlockAssembler<CI> {
             .build())
     }
 
-    fn prepare_uncles(&self, tip: &Header) -> (Vec<UncleBlock>, Vec<H256>) {
+    fn prepare_uncles(&self, tip: &Header) -> (Vec<UncleBlock>, Vec<usize>) {
         let max_uncles_age = self.shared.consensus().max_uncles_age();
         let mut excluded = FnvHashSet::default();
 
@@ -355,11 +357,12 @@ impl<CI: ChainIndex + 'static> BlockAssembler<CI> {
         let mut uncles = Vec::with_capacity(max_uncles_len);
         let mut bad_uncles = Vec::new();
         let current_number = tip.number() + 1;
-        for (hash, block) in self.candidate_uncles.iter() {
+        for (index, hash) in self.candidate_uncles.iter().enumerate() {
             if uncles.len() == max_uncles_len {
                 break;
             }
 
+            let block = self.shared.block(hash).expect("block must be stored");
             let block_difficulty_epoch =
                 block.header().number() / self.shared.consensus().difficulty_adjustment_interval();
 
@@ -367,7 +370,7 @@ impl<CI: ChainIndex + 'static> BlockAssembler<CI> {
             if block.header().difficulty() != tip.difficulty()
                 || block_difficulty_epoch != tip_difficulty_epoch
             {
-                bad_uncles.push(hash.clone());
+                bad_uncles.push(index);
                 continue;
             }
 
@@ -377,7 +380,7 @@ impl<CI: ChainIndex + 'static> BlockAssembler<CI> {
                 || included.contains(hash)
                 || excluded.contains(hash)
             {
-                bad_uncles.push(hash.clone());
+                bad_uncles.push(index);
             } else if let Some(cellbase) = block.commit_transactions().first() {
                 let uncle = UncleBlock {
                     header: block.header().clone(),
@@ -387,7 +390,7 @@ impl<CI: ChainIndex + 'static> BlockAssembler<CI> {
                 uncles.push(uncle);
                 included.insert(hash.clone());
             } else {
-                bad_uncles.push(hash.clone());
+                bad_uncles.push(index);
             }
         }
         (uncles, bad_uncles)
