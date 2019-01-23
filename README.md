@@ -159,7 +159,7 @@ ex -sc '%s/"data_dir": "default"/"data_dir": "node2"/|x' nodes/node2.json
 Then start the new node using the new config file
 
 ```shell
-target/release/ckb -c nodes/node2.json run
+target/release/ckb run -c nodes/node2.json
 ```
 
 The option `ckb.chain` configures the chain spec. It accepts a path to the spec JSON file. The directory `nodes_template/spec` has all the pre-defined specs. Please note that nodes with different chain specs may fail to connect with each other.
