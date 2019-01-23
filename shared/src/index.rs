@@ -11,6 +11,7 @@ use ckb_core::header::{BlockNumber, Header};
 use ckb_core::transaction::{Transaction, TransactionBuilder};
 use ckb_core::transaction_meta::TransactionMeta;
 use ckb_db::kvdb::KeyValueDB;
+use ckb_util::RwLock;
 use faketime::unix_time_as_millis;
 use numext_fixed_hash::H256;
 use std::collections::hash_map::Entry;
@@ -39,6 +40,7 @@ pub enum BlockCategory {
 pub trait ChainIndex: ChainStore {
     fn init(&self, genesis: &Block);
 
+    fn get_tip(&self) -> &RwLock<ChainTip>;
     fn get_block_hash(&self, number: BlockNumber) -> Option<H256>;
     fn get_block_number(&self, hash: &H256) -> Option<BlockNumber>;
     fn get_tip_header(&self) -> Option<Header>;
@@ -76,6 +78,10 @@ impl<T: 'static + KeyValueDB> ChainIndex for ChainKVStore<T> {
             &mut tip,
             |_| true,
         );
+    }
+
+    fn get_tip(&self) -> &RwLock<ChainTip> {
+        &self.tip
     }
 
     fn get_block_hash(&self, number: BlockNumber) -> Option<H256> {

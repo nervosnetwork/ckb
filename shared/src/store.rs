@@ -86,7 +86,6 @@ where
 }
 
 pub trait ChainStore: Sync + Send {
-    fn get_tip(&self) -> &RwLock<ChainTip>;
     fn get_block(&self, block_hash: &H256) -> Option<Block>;
     fn get_header(&self, block_hash: &H256) -> Option<Header>;
     fn get_block_body(&self, block_hash: &H256) -> Option<Vec<Transaction>>;
@@ -141,10 +140,6 @@ impl<'a, T: ChainStore> Iterator for ChainStoreHeaderIterator<'a, T> {
 }
 
 impl<T: 'static + KeyValueDB> ChainStore for ChainKVStore<T> {
-    fn get_tip(&self) -> &RwLock<ChainTip> {
-        &self.tip
-    }
-
     // TODO error log
     fn get_block(&self, h: &H256) -> Option<Block> {
         self.get_header(h).map(|header| {
