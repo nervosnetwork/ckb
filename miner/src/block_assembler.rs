@@ -27,15 +27,16 @@ type BlockTemplateParams = (Option<Cycle>, Option<u64>, Option<Version>);
 type BlockTemplateResult = Result<BlockTemplate, SharedError>;
 const BLOCK_ASSEMBLER_SUBSCRIBER: &str = "block_assembler";
 const BLOCK_TEMPLATE_TIMEOUT: u64 = 3000;
+const TEMPLATE_CACHE_SIZE: usize = 10;
 
-struct CurrentTemplate {
+struct TemplateCache {
     pub time: u64,
     pub uncles_updated_at: u64,
     pub txs_updated_at: u64,
     pub template: BlockTemplate,
 }
 
-impl CurrentTemplate {
+impl TemplateCache {
     fn is_outdate(
         &self,
         last_uncles_updated_at: u64,
@@ -57,7 +58,7 @@ pub struct BlockAssembler<CI> {
     type_hash: H256,
     work_id: AtomicUsize,
     last_uncles_updated_at: AtomicUsize,
-    current_template: Mutex<Option<CurrentTemplate>>,
+    template_caches: Mutex<LruCache<(Cycle, u64, Version), TemplateCache>>,
 }
 
 #[derive(Clone)]
@@ -106,7 +107,7 @@ impl<CI: ChainIndex + 'static> BlockAssembler<CI> {
             candidate_uncles: LruCache::new(MAX_CANDIDATE_UNCLES),
             work_id: AtomicUsize::new(0),
             last_uncles_updated_at: AtomicUsize::new(0),
-            current_template: Mutex::new(None),
+            template_caches: Mutex::new(LruCache::new(TEMPLATE_CACHE_SIZE)),
         }
     }
 
@@ -228,15 +229,16 @@ impl<CI: ChainIndex + 'static> BlockAssembler<CI> {
         let number = tip_header.number() + 1;
         let current_time = cmp::max(unix_time_as_millis(), header.timestamp() + 1);
 
-        let mut current_template = self.current_template.lock();
-        if let Some(ref current_template) = *current_template {
-            if !current_template.is_outdate(
+        let mut template_caches = self.template_caches.lock();
+
+        if let Some(template_cache) = template_caches.get(&(cycles_limit, bytes_limit, version)) {
+            if !template_cache.is_outdate(
                 last_uncles_updated_at,
                 last_txs_updated_at,
                 current_time,
                 number,
             ) {
-                return Ok(current_template.template.clone());
+                return Ok(template_cache.template.clone());
             }
         }
 
@@ -278,12 +280,15 @@ impl<CI: ChainIndex + 'static> BlockAssembler<CI> {
             work_id: format!("{}", self.work_id.fetch_add(1, Ordering::SeqCst)),
         };
 
-        *current_template = Some(CurrentTemplate {
-            time: current_time,
-            uncles_updated_at: last_uncles_updated_at,
-            txs_updated_at: last_txs_updated_at,
-            template: template.clone(),
-        });
+        template_caches.insert(
+            (cycles_limit, bytes_limit, version),
+            TemplateCache {
+                time: current_time,
+                uncles_updated_at: last_uncles_updated_at,
+                txs_updated_at: last_txs_updated_at,
+                template: template.clone(),
+            },
+        );
 
         Ok(template)
     }
