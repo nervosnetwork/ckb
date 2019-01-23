@@ -15,6 +15,7 @@ use faketime::unix_time_as_millis;
 use fnv::FnvHashSet;
 use jsonrpc_types::{BlockTemplate, CellbaseTemplate, TransactionTemplate, UncleTemplate};
 use log::error;
+use lru_cache::LruCache;
 use numext_fixed_hash::H256;
 use std::cmp;
 use std::collections::VecDeque;
