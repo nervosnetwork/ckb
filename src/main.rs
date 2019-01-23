@@ -14,16 +14,16 @@ fn main() {
 
     match matches.subcommand() {
         ("cli", Some(cli_matches)) => match cli_matches.subcommand() {
-            ("type_hash", _) => cli::type_hash(&setup(&matches)),
+            ("type_hash", _) => cli::type_hash(&setup(&cli_matches)),
             ("keygen", _) => cli::keygen(),
             _ => unreachable!(),
         },
-        ("run", Some(_)) => {
-            cli::run(setup(&matches));
+        ("run", Some(run_matches)) => {
+            cli::run(setup(&run_matches));
         }
-        ("miner", Some(_)) => cli::miner(&matches),
-        ("export", Some(export_matches)) => cli::export(&setup(&matches), export_matches),
-        ("import", Some(import_matches)) => cli::import(&setup(&matches), import_matches),
+        ("miner", Some(miner_matches)) => cli::miner(&miner_matches),
+        ("export", Some(export_matches)) => cli::export(&setup(&export_matches), export_matches),
+        ("import", Some(import_matches)) => cli::import(&setup(&import_matches), import_matches),
         _ => unreachable!(),
     }
 
