@@ -6,4 +6,4 @@ authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
 
 [dependencies]
-merkle-tree = { git = "https://github.com/nervosnetwork/merkle-tree", rev="99754b6", features = ["sha3"] }
+merkle-tree = { git = "https://github.com/nervosnetwork/merkle-tree", rev="22eb482", features = ["sha3"] }

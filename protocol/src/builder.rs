@@ -390,7 +390,7 @@ impl<'a> FilteredBlock<'a> {
                     .iter()
                     .map(|tx| tx.hash())
                     .collect::<Vec<_>>(),
-                transactions_index.to_vec(),
+                transactions_index,
             );
             let lemmas = proof
                 .map(|proof| proof.lemmas().to_vec())
