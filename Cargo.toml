@@ -49,7 +49,6 @@ members = [
     "util/logger",
     "util/hash",
     "util/merkle-tree",
-    "util/merkle-root",
     "util/jsonrpc-types",
     "util/crypto",
     "util/dir",

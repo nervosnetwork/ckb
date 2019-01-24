@@ -11,7 +11,7 @@ ckb-shared = { path = "../shared" }
 ckb-script = { path = "../script" }
 ckb-pow = { path = "../pow" }
 faketime = "0.2.0"
-merkle-root = {path = "../util/merkle-root"}
+ckb-merkle-tree = {path = "../util/merkle-tree"}
 numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 numext-fixed-uint = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 rayon = "1.0"
