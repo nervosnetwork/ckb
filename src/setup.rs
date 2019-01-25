@@ -1,4 +1,5 @@
 use crate::helper::{require_path_exists, to_absolute_path};
+use ckb_db::{DBConfig};
 use ckb_chain_spec::ChainSpec;
 use ckb_miner::BlockAssemblerConfig;
 use ckb_network::Config as NetworkConfig;
@@ -30,6 +31,7 @@ pub struct ChainConfig {
 #[derive(Clone, Debug, Deserialize)]
 pub struct Configs {
     pub data_dir: PathBuf,
+    pub db: DBConfig,
     pub chain: ChainConfig,
     pub logger: LogConfig,
     pub network: NetworkConfig,
@@ -102,6 +104,11 @@ impl Configs {
         }
         if self.chain.spec.is_relative() {
             self.chain.spec = base.join(&self.chain.spec);
+        }
+        if let Some(rocksdb) = self.db.rocksdb.as_mut() {
+            if rocksdb.path.is_relative() {
+                rocksdb.path = base.join(&rocksdb.path);
+            }
         }
     }
 }
@@ -190,6 +197,27 @@ pub mod test {
             setup.unwrap().configs.network.listen_addresses,
             vec!["/ip4/1.1.1.1/tcp/1".parse().unwrap()]
         );
+    }
+
+    #[test]
+    fn test_load_db_config() {
+        let tmp_dir = tempfile::Builder::new()
+            .prefix("test_load_db_config")
+            .tempdir()
+            .unwrap();
+
+        let test_conifg = r#"{
+            "db": {
+                "rocksdb": {
+                    "create_if_missing": true
+                }
+            }
+        }"#;
+        let config_path = tmp_dir.path().join("config.json");
+        write_file(&config_path, test_conifg);
+        let setup = override_default_config_file(&config_path).unwrap();
+        assert_eq!(setup.configs.db.backend, "rocksdb");
+        assert_eq!(setup.configs.db.rocksdb.unwrap().create_if_missing, Some(true));
     }
 
     #[test]

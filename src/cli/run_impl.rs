@@ -27,9 +27,8 @@ use std::thread;
 pub fn run(setup: Setup) {
     let consensus = setup.chain_spec.to_consensus().unwrap();
     let pow_engine = setup.chain_spec.pow_engine();
-    let db_path = setup.dirs.join("db");
 
-    let shared = SharedBuilder::<ChainKVStore<CacheDB<RocksDB>>>::new_rocks(&db_path)
+    let shared = SharedBuilder::<ChainKVStore<CacheDB<RocksDB>>>::new_rocks(&setup.configs.db)
         .consensus(consensus)
         .build();
 
