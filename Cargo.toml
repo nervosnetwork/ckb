@@ -55,6 +55,7 @@ members = [
     "util/dir",
     "util/instrument",
     "util/build-info",
+    "util/occupied-capacity",
     "network",
     "protocol",
     "sync",
