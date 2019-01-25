@@ -1,5 +1,4 @@
 use std::path::PathBuf;
-use crate::kvdb::KeyValueDB;
 use serde_derive::Deserialize;
 use rocksdb::Options;
 
@@ -16,13 +15,28 @@ pub struct DBConfig {
 pub struct RocksDBConfig {
     pub path: PathBuf,
     pub create_if_missing: Option<bool>,
+    pub create_missing_column_families: Option<bool>,
+}
+
+impl Default for RocksDBConfig {
+    fn default() -> Self {
+        RocksDBConfig {
+            path: Default::default(),
+            create_if_missing: None,
+            create_missing_column_families: None,
+        }
+    }
 }
 
 impl RocksDBConfig {
-    pub fn to_options(&self) -> Options {
+    pub fn to_db_options(&self) -> Options {
         let mut opts = Options::default();
-        opts.create_if_missing(true);
-        opts.create_missing_column_families(true);
+
+        opts.create_if_missing(
+            self.create_if_missing.unwrap_or(true));
+        opts.create_missing_column_families(
+            self.create_missing_column_families.unwrap_or(true));
+
         opts
     }
 }
