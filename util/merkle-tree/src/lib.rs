@@ -1,4 +1,4 @@
-use merkle_tree::{CBMT, MerkleProof, MerkleTree, H256};
+use merkle_tree::{MerkleProof, MerkleTree, CBMT, H256};
 
 pub fn merkle_root(leaves: &[H256]) -> H256 {
     CBMT::build_merkle_root(leaves)
