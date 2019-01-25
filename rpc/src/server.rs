@@ -1,10 +1,10 @@
 use crate::config::Config;
 use crate::module::{
     ChainRpc, ChainRpcImpl, IntegrationTestRpc, IntegrationTestRpcImpl, MinerRpc, MinerRpcImpl,
-    NetworkRpc, NetworkRpcImpl, PoolRpc, PoolRpcImpl,
+    NetworkRpc, NetworkRpcImpl, PoolRpc, PoolRpcImpl, TraceRpc, TraceRpcImpl,
 };
 use ckb_chain::chain::ChainController;
-use ckb_miner::AgentController;
+use ckb_miner::BlockAssemblerController;
 use ckb_network::NetworkService;
 use ckb_pool::txs_pool::TransactionPoolController;
 use ckb_pow::Clicker;
@@ -28,7 +28,7 @@ impl RpcServer {
         shared: Shared<CI>,
         tx_pool: TransactionPoolController,
         chain: ChainController,
-        agent: AgentController,
+        block_assembler: BlockAssemblerController,
         test_engine: Option<Arc<Clicker>>,
     ) where
         CI: ChainIndex,
@@ -48,7 +48,7 @@ impl RpcServer {
             io.extend_with(
                 PoolRpcImpl {
                     network: Arc::clone(&network),
-                    tx_pool,
+                    tx_pool: tx_pool.clone(),
                 }
                 .to_delegate(),
             );
@@ -58,7 +58,7 @@ impl RpcServer {
             io.extend_with(
                 MinerRpcImpl {
                     shared,
-                    agent,
+                    block_assembler,
                     chain,
                     network: Arc::clone(&network),
                 }
@@ -70,6 +70,16 @@ impl RpcServer {
             io.extend_with(
                 NetworkRpcImpl {
                     network: Arc::clone(&network),
+                }
+                .to_delegate(),
+            );
+        }
+
+        if self.config.trace_enable() {
+            io.extend_with(
+                TraceRpcImpl {
+                    network: Arc::clone(&network),
+                    tx_pool,
                 }
                 .to_delegate(),
             );

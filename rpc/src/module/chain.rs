@@ -1,4 +1,3 @@
-use crate::types::{Block, CellOutputWithOutPoint, CellWithStatus, Header, OutPoint, Transaction};
 use ckb_core::cell::CellProvider;
 use ckb_core::BlockNumber;
 use ckb_shared::{
@@ -7,6 +6,7 @@ use ckb_shared::{
 };
 use jsonrpc_core::{Error, Result};
 use jsonrpc_macros::build_rpc_trait;
+use jsonrpc_types::{Block, CellOutputWithOutPoint, CellWithStatus, Header, OutPoint, Transaction};
 use numext_fixed_hash::H256;
 
 build_rpc_trait! {

@@ -1,6 +1,6 @@
 [package]
 name = "ckb-network"
-version = "0.4.0-pre"
+version = "0.5.0-pre"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -17,14 +17,14 @@ ckb-util = { path = "../util" }
 unsigned-varint = {git = "https://github.com/paritytech/unsigned-varint", features = ["codec"]}
 log = "0.4.5"
 bytes = "0.4.9"
-tokio = "0.1.8"
+tokio = "0.1.14"
 futures = { version = "0.1.19", features = ["use_std"] }
 snap = "0.2"
-libp2p = { git = "https://github.com/libp2p/rust-libp2p", rev="cfdfca1a06fb2deb9ebcc15a63d715ebddb23bd0", default-features = false, features = ["libp2p-secio", "libp2p-secio-secp256k1"] }
+libp2p = { git = "https://github.com/nervosnetwork/rust-libp2p", branch = "ring_patch",  default-features = false, features = ["libp2p-secio", "libp2p-secio-secp256k1"] }
 faketime = "0.2.0"
 rusqlite = {version = "0.16.0", features = ["bundled"]}
 lazy_static = "1.2.0"
-multihash = { git = "https://github.com/libp2p/rust-libp2p", rev="cfdfca1a06fb2deb9ebcc15a63d715ebddb23bd0" }
+multihash = { git = "https://github.com/nervosnetwork/rust-libp2p", branch = "ring_patch" }
 r2d2 = "0.8.3"
 r2d2_sqlite = {git = "https://github.com/jjyr/r2d2-sqlite", rev="8ade92077977c4860562b1337b95ec8ed2000711"}
 
@@ -36,4 +36,3 @@ tempfile = "3.0.5"
 name = "sqlite_peer_store"
 harness = false
 path = "src/benches/sqlite_peer_store.rs"
-

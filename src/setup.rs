@@ -1,5 +1,6 @@
+use crate::helper::{require_path_exists, to_absolute_path};
 use ckb_chain_spec::ChainSpec;
-use ckb_miner::Config as MinerConfig;
+use ckb_miner::BlockAssemblerConfig;
 use ckb_network::Config as NetworkConfig;
 use ckb_pool::txs_pool::PoolConfig;
 use ckb_rpc::Config as RpcConfig;
@@ -33,7 +34,7 @@ pub struct Configs {
     pub logger: LogConfig,
     pub network: NetworkConfig,
     pub rpc: RpcConfig,
-    pub miner: MinerConfig,
+    pub block_assembler: BlockAssemblerConfig,
     pub sync: SyncConfig,
     pub pool: PoolConfig,
 }
@@ -52,15 +53,22 @@ pub fn get_config_path(matches: &ArgMatches) -> PathBuf {
     )
 }
 
+fn find_default_config_path() -> Option<PathBuf> {
+    DEFAULT_CONFIG_PATHS
+        .iter()
+        .map(PathBuf::from)
+        .find(|p| p.exists())
+}
+
 impl Setup {
     pub(crate) fn with_configs(mut configs: Configs) -> Result<Self, Box<Error>> {
         let dirs = Directories::new(&configs.data_dir);
 
         if let Some(file) = configs.logger.file {
-            let mut path = dirs.join("logs");
-            path.push(file);
-            configs.logger.file = Some(path.to_str().unwrap().to_string());
+            let path = dirs.join("logs");
+            configs.logger.file = Some(path.join(file));
         }
+
         if configs.network.config_dir_path.is_none() {
             configs.network.config_dir_path =
                 Some(dirs.join("network").to_string_lossy().to_string());
@@ -95,31 +103,6 @@ impl Configs {
         if self.ckb.chain.is_relative() {
             self.ckb.chain = base.join(&self.ckb.chain);
         }
-    }
-}
-
-fn find_default_config_path() -> Option<PathBuf> {
-    DEFAULT_CONFIG_PATHS
-        .iter()
-        .map(PathBuf::from)
-        .find(|p| p.exists())
-}
-
-fn require_path_exists(path: PathBuf) -> Option<PathBuf> {
-    if path.exists() {
-        Some(path)
-    } else {
-        None
-    }
-}
-
-fn to_absolute_path(path: PathBuf) -> PathBuf {
-    if path.is_absolute() {
-        path
-    } else {
-        let mut absulute_path = ::std::env::current_dir().expect("get current_dir");
-        absulute_path.push(path);
-        absulute_path
     }
 }
 

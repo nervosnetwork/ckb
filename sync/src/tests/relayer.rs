@@ -22,6 +22,7 @@ use std::collections::HashSet;
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;
+use std::sync::atomic::AtomicUsize;
 use std::sync::mpsc::channel;
 use std::sync::{Arc, Barrier};
 use std::{thread, time};
@@ -64,7 +65,7 @@ fn relay_compact_block_with_one_tx() {
                 let fbb = &mut FlatBufferBuilder::new();
                 let message = RelayMessage::build_transaction(fbb, &tx);
                 fbb.finish(message, None);
-                node1.broadcast(RELAY_PROTOCOL_ID, fbb.finished_data().to_vec());
+                node1.broadcast(RELAY_PROTOCOL_ID, &fbb.finished_data().to_vec());
             }
 
             // building 1st compact block with tx proposal and broadcast it
@@ -98,7 +99,7 @@ fn relay_compact_block_with_one_tx() {
                 let fbb = &mut FlatBufferBuilder::new();
                 let message = RelayMessage::build_compact_block(fbb, &block, &HashSet::new());
                 fbb.finish(message, None);
-                node1.broadcast(RELAY_PROTOCOL_ID, fbb.finished_data().to_vec());
+                node1.broadcast(RELAY_PROTOCOL_ID, &fbb.finished_data().to_vec());
             }
 
             // building 2nd compact block with tx and broadcast it
@@ -134,10 +135,10 @@ fn relay_compact_block_with_one_tx() {
                 let fbb = &mut FlatBufferBuilder::new();
                 let message = RelayMessage::build_compact_block(fbb, &block, &HashSet::new());
                 fbb.finish(message, None);
-                node1.broadcast(RELAY_PROTOCOL_ID, fbb.finished_data().to_vec());
+                node1.broadcast(RELAY_PROTOCOL_ID, &fbb.finished_data().to_vec());
             }
 
-            node1.start(signal_tx1, |_| false);
+            node1.start(&signal_tx1, |_| false);
             barrier1.wait();
         })
         .expect("thread spawn");
@@ -145,7 +146,7 @@ fn relay_compact_block_with_one_tx() {
     let barrier2 = Arc::clone(&barrier);
     let (signal_tx2, signal_rx2) = channel();
     thread::spawn(move || {
-        node2.start(signal_tx2, |data| {
+        node2.start(&signal_tx2, |data| {
             let msg = get_root::<RelayMessage>(data);
             // terminate thread 2 compact block
             msg.payload_as_compact_block()
@@ -193,7 +194,7 @@ fn relay_compact_block_with_missing_indexs() {
                 .map(|i| {
                     TransactionBuilder::default()
                         .input(CellInput::new(
-                            OutPoint::new(last_cellbase.hash().clone(), i as u32),
+                            OutPoint::new(last_cellbase.hash().clone(), u32::from(i)),
                             create_valid_script(),
                         ))
                         .output(CellOutput::new(50, vec![i], H256::zero(), None))
@@ -203,9 +204,9 @@ fn relay_compact_block_with_missing_indexs() {
 
             [3, 5].iter().for_each(|i| {
                 let fbb = &mut FlatBufferBuilder::new();
-                let message = RelayMessage::build_transaction(fbb, txs.get(*i).unwrap());
+                let message = RelayMessage::build_transaction(fbb, &txs[*i]);
                 fbb.finish(message, None);
-                node1.broadcast(RELAY_PROTOCOL_ID, fbb.finished_data().to_vec());
+                node1.broadcast(RELAY_PROTOCOL_ID, &fbb.finished_data().to_vec());
             });
 
             // building 1st compact block with tx proposal and broadcast it
@@ -239,7 +240,7 @@ fn relay_compact_block_with_missing_indexs() {
                 let fbb = &mut FlatBufferBuilder::new();
                 let message = RelayMessage::build_compact_block(fbb, &block, &HashSet::new());
                 fbb.finish(message, None);
-                node1.broadcast(RELAY_PROTOCOL_ID, fbb.finished_data().to_vec());
+                node1.broadcast(RELAY_PROTOCOL_ID, &fbb.finished_data().to_vec());
             }
 
             // building 2nd compact block with txs and broadcast it
@@ -275,16 +276,16 @@ fn relay_compact_block_with_missing_indexs() {
                 let fbb = &mut FlatBufferBuilder::new();
                 let message = RelayMessage::build_compact_block(fbb, &block, &HashSet::new());
                 fbb.finish(message, None);
-                node1.broadcast(RELAY_PROTOCOL_ID, fbb.finished_data().to_vec());
+                node1.broadcast(RELAY_PROTOCOL_ID, &fbb.finished_data().to_vec());
             }
 
-            node1.start(signal_tx1, |_| false);
+            node1.start(&signal_tx1, |_| false);
         })
         .expect("thread spawn");
 
     let (signal_tx2, signal_rx2) = channel();
     thread::spawn(move || {
-        node2.start(signal_tx2, |data| {
+        node2.start(&signal_tx2, |data| {
             let msg = get_root::<RelayMessage>(data);
             // terminate thread after processing block transactions
             msg.payload_as_block_transactions()
@@ -318,12 +319,19 @@ fn setup_node(
         .consensus(consensus)
         .build();
     let (chain_controller, chain_receivers) = ChainController::build();
-    let (tx_pool_controller, tx_pool_receivers) = TransactionPoolController::build();
+
+    let last_tx_updated_at = Arc::new(AtomicUsize::new(0));
+    let (tx_pool_controller, tx_pool_receivers) =
+        TransactionPoolController::build(Arc::clone(&last_tx_updated_at));
 
     let (_handle, notify) = NotifyService::default().start(Some(thread_name));
 
-    let tx_pool_service =
-        TransactionPoolService::new(PoolConfig::default(), shared.clone(), notify.clone());
+    let tx_pool_service = TransactionPoolService::new(
+        PoolConfig::default(),
+        shared.clone(),
+        notify.clone(),
+        last_tx_updated_at,
+    );
     let _handle = tx_pool_service.start(Some(thread_name), tx_pool_receivers);
 
     let chain_service = ChainBuilder::new(shared.clone())
@@ -367,11 +375,8 @@ fn setup_node(
     );
 
     let mut node = TestNode::default();
-    node.add_protocol(
-        RELAY_PROTOCOL_ID,
-        Arc::new(relayer),
-        vec![TX_PROPOSAL_TOKEN],
-    );
+    let protocol = Arc::new(relayer) as Arc<_>;
+    node.add_protocol(RELAY_PROTOCOL_ID, &protocol, &[TX_PROPOSAL_TOKEN]);
     (node, shared, chain_controller)
 }
 

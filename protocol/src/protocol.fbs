@@ -208,3 +208,12 @@ table FilteredBlock {
     transactions: [IndexTransaction];
     hashes: [H256];
 }
+
+table TimeMessage {
+    payload:        Time;
+}
+
+table Time {
+    timestamp: uint64;
+}
+

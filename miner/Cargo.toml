@@ -1,6 +1,6 @@
 [package]
 name = "ckb-miner"
-version = "0.4.0-pre"
+version = "0.5.0-pre"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -18,7 +18,20 @@ faketime = "0.2.0"
 rand = "0.6"
 serde = "1.0"
 serde_derive = "1.0"
-channel = { package= "crossbeam-channel", version = "0.3" }
+crossbeam-channel = "0.3"
 fnv = "1.0.3"
-jsonrpc = { git = "https://github.com/quake/rust-jsonrpc" }
 serde_json = "1.0"
+jsonrpc-types = { path = "../util/jsonrpc-types" }
+hyper = "0.12"
+futures = "0.1"
+lru-cache = { git = "https://github.com/nervosnetwork/lru-cache" }
+
+[dev-dependencies]
+proptest = "0.8"
+ckb-chain = { path = "../chain" }
+ckb-chain-spec = { path = "../spec" }
+numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
+numext-fixed-uint = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
+ckb-db = { path = "../db" }
+ckb-verification = { path = "../verification" }
+ckb-pow = { path = "../pow" }

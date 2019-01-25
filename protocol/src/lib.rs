@@ -6,7 +6,6 @@ mod protocol_generated;
 
 pub use crate::protocol_generated::ckb::protocol::*;
 use byteorder::{ByteOrder, LittleEndian, WriteBytesExt};
-use ckb_util::u64_to_bytes;
 use hash::sha3_256;
 use numext_fixed_hash::H256;
 use siphasher::sip::SipHasher;
@@ -57,7 +56,7 @@ pub fn short_transaction_id(key0: u64, key1: u64, transaction_hash: &H256) -> Sh
     hasher.write(transaction_hash.as_bytes());
     let siphash_transaction_hash = hasher.finish();
 
-    let siphash_transaction_hash_bytes = u64_to_bytes(siphash_transaction_hash.to_le());
+    let siphash_transaction_hash_bytes = siphash_transaction_hash.to_le_bytes();
 
     let mut short_transaction_id = [0u8; 6];
 

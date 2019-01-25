@@ -1,4 +1,4 @@
-use crate::types::blockchain::{CellOutput, OutPoint};
+use crate::blockchain::{CellOutput, OutPoint};
 use ckb_core::cell::CellStatus;
 use ckb_core::Capacity;
 use numext_fixed_hash::H256;
@@ -9,15 +9,15 @@ use serde_derive::Serialize;
 // cell's own data such as lock and capacity
 #[derive(Serialize)]
 pub struct CellOutputWithOutPoint {
-    pub(crate) out_point: OutPoint,
-    pub(crate) capacity: Capacity,
-    pub(crate) lock: H256,
+    pub out_point: OutPoint,
+    pub capacity: Capacity,
+    pub lock: H256,
 }
 
 #[derive(Serialize)]
 pub struct CellWithStatus {
-    pub(crate) cell: Option<CellOutput>,
-    pub(crate) status: String,
+    pub cell: Option<CellOutput>,
+    pub status: String,
 }
 
 impl From<CellStatus> for CellWithStatus {

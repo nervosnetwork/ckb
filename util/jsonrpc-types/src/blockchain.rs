@@ -1,5 +1,5 @@
-use crate::types::proposal_short_id::ProposalShortId;
-use crate::types::Bytes;
+use crate::proposal_short_id::ProposalShortId;
+use crate::Bytes;
 use ckb_core::block::{Block as CoreBlock, BlockBuilder};
 use ckb_core::header::{Header as CoreHeader, HeaderBuilder, Seal as CoreSeal};
 use ckb_core::script::Script as CoreScript;
@@ -15,11 +15,11 @@ use serde_derive::{Deserialize, Serialize};
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct Script {
-    pub(crate) version: u8,
-    pub(crate) args: Vec<Bytes>,
-    pub(crate) reference: Option<H256>,
-    pub(crate) binary: Option<Bytes>,
-    pub(crate) signed_args: Vec<Bytes>,
+    pub version: u8,
+    pub args: Vec<Bytes>,
+    pub reference: Option<H256>,
+    pub binary: Option<Bytes>,
+    pub signed_args: Vec<Bytes>,
 }
 
 impl From<Script> for CoreScript {
@@ -56,11 +56,11 @@ impl From<CoreScript> for Script {
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct CellOutput {
-    pub(crate) capacity: Capacity,
-    pub(crate) data: Bytes,
-    pub(crate) lock: H256,
+    pub capacity: Capacity,
+    pub data: Bytes,
+    pub lock: H256,
     #[serde(rename = "type")]
-    pub(crate) type_: Option<Script>,
+    pub type_: Option<Script>,
 }
 
 impl From<CoreCellOutput> for CellOutput {
@@ -89,8 +89,8 @@ impl From<CellOutput> for CoreCellOutput {
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct OutPoint {
-    pub(crate) hash: H256,
-    pub(crate) index: u32,
+    pub hash: H256,
+    pub index: u32,
 }
 
 impl From<CoreOutPoint> for OutPoint {
@@ -109,8 +109,8 @@ impl From<OutPoint> for CoreOutPoint {
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct CellInput {
-    pub(crate) previous_output: OutPoint,
-    pub(crate) unlock: Script,
+    pub previous_output: OutPoint,
+    pub unlock: Script,
 }
 
 impl From<CoreCellInput> for CellInput {
@@ -135,12 +135,12 @@ impl From<CellInput> for CoreCellInput {
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct Transaction {
-    pub(crate) version: u32,
-    pub(crate) deps: Vec<OutPoint>,
-    pub(crate) inputs: Vec<CellInput>,
-    pub(crate) outputs: Vec<CellOutput>,
+    pub version: u32,
+    pub deps: Vec<OutPoint>,
+    pub inputs: Vec<CellInput>,
+    pub outputs: Vec<CellOutput>,
     #[serde(skip_deserializing)]
-    pub(crate) hash: H256,
+    pub hash: H256,
 }
 
 impl<'a> From<&'a CoreTransaction> for Transaction {
@@ -178,8 +178,8 @@ impl From<Transaction> for CoreTransaction {
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct Seal {
-    pub(crate) nonce: u64,
-    pub(crate) proof: Bytes,
+    pub nonce: u64,
+    pub proof: Bytes,
 }
 
 impl From<CoreSeal> for Seal {
@@ -201,19 +201,19 @@ impl From<Seal> for CoreSeal {
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct Header {
-    pub(crate) version: u32,
-    pub(crate) parent_hash: H256,
-    pub(crate) timestamp: u64,
-    pub(crate) number: BlockNumber,
-    pub(crate) txs_commit: H256,
-    pub(crate) txs_proposal: H256,
-    pub(crate) difficulty: U256,
-    pub(crate) cellbase_id: H256,
-    pub(crate) uncles_hash: H256,
-    pub(crate) uncles_count: u32,
-    pub(crate) seal: Seal,
+    pub version: u32,
+    pub parent_hash: H256,
+    pub timestamp: u64,
+    pub number: BlockNumber,
+    pub txs_commit: H256,
+    pub txs_proposal: H256,
+    pub difficulty: U256,
+    pub cellbase_id: H256,
+    pub uncles_hash: H256,
+    pub uncles_count: u32,
+    pub seal: Seal,
     #[serde(skip_deserializing)]
-    pub(crate) hash: H256,
+    pub hash: H256,
 }
 
 impl<'a> From<&'a CoreHeader> for Header {
@@ -270,9 +270,9 @@ impl From<Header> for CoreHeader {
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct UncleBlock {
-    pub(crate) header: Header,
-    pub(crate) cellbase: Transaction,
-    pub(crate) proposal_transactions: Vec<ProposalShortId>,
+    pub header: Header,
+    pub cellbase: Transaction,
+    pub proposal_transactions: Vec<ProposalShortId>,
 }
 
 impl<'a> From<&'a CoreUncleBlock> for UncleBlock {
@@ -307,10 +307,10 @@ impl From<UncleBlock> for CoreUncleBlock {
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct Block {
-    pub(crate) header: Header,
-    pub(crate) uncles: Vec<UncleBlock>,
-    pub(crate) commit_transactions: Vec<Transaction>,
-    pub(crate) proposal_transactions: Vec<ProposalShortId>,
+    pub header: Header,
+    pub uncles: Vec<UncleBlock>,
+    pub commit_transactions: Vec<Transaction>,
+    pub proposal_transactions: Vec<ProposalShortId>,
 }
 
 impl<'a> From<&'a CoreBlock> for Block {
@@ -443,6 +443,7 @@ mod tests {
 
     proptest! {
         #[test]
+        #[allow(clippy::unnecessary_operation)]
         fn test_block_convert(
             data in any_with::<Vec<u8>>(size_range(80).lift()),
             arg in any_with::<Vec<u8>>(size_range(80).lift()),

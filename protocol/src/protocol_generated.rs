@@ -2997,6 +2997,158 @@ impl<'a: 'b, 'b> FilteredBlockBuilder<'a, 'b> {
   }
 }
 
+pub enum TimeMessageOffset {}
+#[derive(Copy, Clone, Debug, PartialEq)]
+
+pub struct TimeMessage<'a> {
+  pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for TimeMessage<'a> {
+    type Inner = TimeMessage<'a>;
+    #[inline]
+    fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        Self {
+            _tab: flatbuffers::Table { buf: buf, loc: loc },
+        }
+    }
+}
+
+impl<'a> TimeMessage<'a> {
+    #[inline]
+    pub fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+        TimeMessage {
+            _tab: table,
+        }
+    }
+    #[allow(unused_mut)]
+    pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr>(
+        _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr>,
+        args: &'args TimeMessageArgs<'args>) -> flatbuffers::WIPOffset<TimeMessage<'bldr>> {
+      let mut builder = TimeMessageBuilder::new(_fbb);
+      if let Some(x) = args.payload { builder.add_payload(x); }
+      builder.finish()
+    }
+
+    pub const VT_PAYLOAD: flatbuffers::VOffsetT = 4;
+
+  #[inline]
+  pub fn payload(&self) -> Option<Time<'a>> {
+    self._tab.get::<flatbuffers::ForwardsUOffset<Time<'a>>>(TimeMessage::VT_PAYLOAD, None)
+  }
+}
+
+pub struct TimeMessageArgs<'a> {
+    pub payload: Option<flatbuffers::WIPOffset<Time<'a >>>,
+}
+impl<'a> Default for TimeMessageArgs<'a> {
+    #[inline]
+    fn default() -> Self {
+        TimeMessageArgs {
+            payload: None,
+        }
+    }
+}
+pub struct TimeMessageBuilder<'a: 'b, 'b> {
+  fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a>,
+  start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b> TimeMessageBuilder<'a, 'b> {
+  #[inline]
+  pub fn add_payload(&mut self, payload: flatbuffers::WIPOffset<Time<'b >>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<Time>>(TimeMessage::VT_PAYLOAD, payload);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>) -> TimeMessageBuilder<'a, 'b> {
+    let start = _fbb.start_table();
+    TimeMessageBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> flatbuffers::WIPOffset<TimeMessage<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+pub enum TimeOffset {}
+#[derive(Copy, Clone, Debug, PartialEq)]
+
+pub struct Time<'a> {
+  pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for Time<'a> {
+    type Inner = Time<'a>;
+    #[inline]
+    fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        Self {
+            _tab: flatbuffers::Table { buf: buf, loc: loc },
+        }
+    }
+}
+
+impl<'a> Time<'a> {
+    #[inline]
+    pub fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+        Time {
+            _tab: table,
+        }
+    }
+    #[allow(unused_mut)]
+    pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr>(
+        _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr>,
+        args: &'args TimeArgs) -> flatbuffers::WIPOffset<Time<'bldr>> {
+      let mut builder = TimeBuilder::new(_fbb);
+      builder.add_timestamp(args.timestamp);
+      builder.finish()
+    }
+
+    pub const VT_TIMESTAMP: flatbuffers::VOffsetT = 4;
+
+  #[inline]
+  pub fn timestamp(&self) -> u64 {
+    self._tab.get::<u64>(Time::VT_TIMESTAMP, Some(0)).unwrap()
+  }
+}
+
+pub struct TimeArgs {
+    pub timestamp: u64,
+}
+impl<'a> Default for TimeArgs {
+    #[inline]
+    fn default() -> Self {
+        TimeArgs {
+            timestamp: 0,
+        }
+    }
+}
+pub struct TimeBuilder<'a: 'b, 'b> {
+  fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a>,
+  start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b> TimeBuilder<'a, 'b> {
+  #[inline]
+  pub fn add_timestamp(&mut self, timestamp: u64) {
+    self.fbb_.push_slot::<u64>(Time::VT_TIMESTAMP, timestamp, 0);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>) -> TimeBuilder<'a, 'b> {
+    let start = _fbb.start_table();
+    TimeBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> flatbuffers::WIPOffset<Time<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
 #[inline]
 pub fn get_root_as_sync_message<'a>(buf: &'a [u8]) -> SyncMessage<'a> {
   flatbuffers::get_root::<SyncMessage<'a>>(buf)

@@ -33,7 +33,7 @@ fn basic_sync() {
     thread::Builder::new()
         .name(thread_name.clone())
         .spawn(move || {
-            node1.start(signal_tx1, |data| {
+            node1.start(&signal_tx1, |data| {
                 let msg = get_root::<SyncMessage>(data);
                 // terminate thread after 3 blocks
                 msg.payload_as_block()
@@ -47,7 +47,7 @@ fn basic_sync() {
     thread::Builder::new()
         .name(thread_name)
         .spawn(move || {
-            node2.start(signal_tx2, |_| false);
+            node2.start(&signal_tx2, |_| false);
         })
         .expect("thread spawn");
 
@@ -110,10 +110,11 @@ fn setup_node(
 
     let synchronizer = Synchronizer::new(chain_controller, shared.clone(), Config::default());
     let mut node = TestNode::default();
+    let protocol = Arc::new(synchronizer) as Arc<_>;
     node.add_protocol(
         SYNC_PROTOCOL_ID,
-        Arc::new(synchronizer),
-        vec![
+        &protocol,
+        &[
             SEND_GET_HEADERS_TOKEN,
             BLOCK_FETCH_TOKEN,
             TIMEOUT_EVICTION_TOKEN,

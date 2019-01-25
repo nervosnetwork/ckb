@@ -1,11 +1,14 @@
 language: rust
 sudo: true
 cache:
+  cargo: true
   timeout: 1024
-  directories:
-    - $HOME/.cargo
 
-if: 'branch IN (master, develop) OR type != push OR fork = true OR tag =~ ^v'
+git:
+  depth: 2
+  submodules: false
+
+if: 'branch IN (master, develop, staging, trying) OR type != push OR fork = true OR tag =~ ^v'
 
 env:
   global:
@@ -13,27 +16,42 @@ env:
 
 matrix:
   include:
-    - os: osx
-      rust: 1.31.0
-      install:
-        - cargo fmt --version || rustup component add rustfmt
-        - cargo clippy --version || rustup component add clippy
-      env: SUITE=ci
-    - rust: 1.31.0
-      addons:
-        apt:
-          packages:
-            - git
-            - autoconf
-            - flex
-            - bison
-            - texinfo
-            - libtool
-      env: SUITE=ci-quick
+    - rust: 1.32.0
+      os: osx
+      env: FMT=true CHECK=true TEST=true
+      if: type = pull_request
+    - rust: 1.32.0
+      os: osx
+      env: FMT=true CHECK=true TEST=true
+      if: type != pull_request
+    - rust: 1.32.0
+      os: linux
+      env: TEST=true
+      if: type != pull_request
+
+addons:
+  apt:
+    packages:
+      - git
+      - autoconf
+      - flex
+      - bison
+      - texinfo
+      - libtool
+
+install:
+- if [ "$FMT" = true ]; then cargo fmt --version || rustup component add rustfmt; fi
+- if [ "$CHECK" = true ]; then cargo clippy --version || rustup component add clippy; fi
+- cargo sweep --version || cargo install --git https://github.com/holmgr/cargo-sweep --rev 4770deda37a2203c783e301b8c0c895964e8971e
 
 script:
-- make info
-- make "$SUITE"
+- cargo sweep -s
+- if [ "$FMT" = true ]; then make fmt; fi
+- if [ "$CHECK" = true ]; then make check; fi
+- if [ "$CHECK" = true ]; then make clippy; fi
+- if [ "$TEST" = true ]; then make test; fi
+- git diff --exit-code Cargo.lock
 
 before_cache:
-- rm -rf $HOME/.cargo/registry
+- rm -rf ./target/debug/incremental/
+- cargo sweep -f

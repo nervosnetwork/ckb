@@ -109,14 +109,14 @@ mod tests {
         batch.insert(Some(1), vec![1, 1], vec![1, 1, 1]);
         db.write(batch).unwrap();
 
-        assert_eq!(Some(vec![0, 0, 0]), db.read(None, &vec![0, 0]).unwrap());
-        assert_eq!(None, db.read(None, &vec![1, 1]).unwrap());
+        assert_eq!(Some(vec![0, 0, 0]), db.read(None, &[0, 0]).unwrap());
+        assert_eq!(None, db.read(None, &[1, 1]).unwrap());
 
-        assert_eq!(None, db.read(Some(1), &vec![0, 0]).unwrap());
-        assert_eq!(Some(vec![1, 1, 1]), db.read(Some(1), &vec![1, 1]).unwrap());
+        assert_eq!(None, db.read(Some(1), &[0, 0]).unwrap());
+        assert_eq!(Some(vec![1, 1, 1]), db.read(Some(1), &[1, 1]).unwrap());
 
         // return err when col doesn't exist
-        assert!(db.read(Some(2), &vec![0, 0]).is_err());
+        assert!(db.read(Some(2), &[0, 0]).is_err());
     }
 
     #[test]
@@ -131,11 +131,11 @@ mod tests {
         batch.insert(Some(1), vec![1, 1], vec![1, 2, 3, 4, 5]);
         db.write(batch).unwrap();
 
-        assert_eq!(Some(4), db.len(None, &vec![0, 0]).unwrap());
+        assert_eq!(Some(4), db.len(None, &[0, 0]).unwrap());
 
-        assert_eq!(Some(5), db.len(Some(1), &vec![1, 1]).unwrap());
-        assert_eq!(None, db.len(Some(1), &vec![2, 2]).unwrap());
-        assert!(db.len(Some(2), &vec![1, 1]).is_err());
+        assert_eq!(Some(5), db.len(Some(1), &[1, 1]).unwrap());
+        assert_eq!(None, db.len(Some(1), &[2, 2]).unwrap());
+        assert!(db.len(Some(2), &[1, 1]).is_err());
     }
 
     #[test]
@@ -152,28 +152,19 @@ mod tests {
 
         assert_eq!(
             Some(vec![2, 3, 4]),
-            db.partial_read(Some(1), &vec![1, 1], &(1..4)).unwrap()
+            db.partial_read(Some(1), &[1, 1], &(1..4)).unwrap()
         );
-        assert_eq!(
-            None,
-            db.partial_read(Some(1), &vec![0, 0], &(1..4)).unwrap()
-        );
+        assert_eq!(None, db.partial_read(Some(1), &[0, 0], &(1..4)).unwrap());
         // return None when invalid range is passed
-        assert_eq!(
-            None,
-            db.partial_read(Some(1), &vec![1, 1], &(2..8)).unwrap()
-        );
+        assert_eq!(None, db.partial_read(Some(1), &[1, 1], &(2..8)).unwrap());
         // range must be increasing
-        assert_eq!(
-            None,
-            db.partial_read(Some(1), &vec![1, 1], &(3..0)).unwrap()
-        );
+        assert_eq!(None, db.partial_read(Some(1), &[1, 1], &(3..0)).unwrap());
         // return err when col doesn't exist
-        assert!(db.partial_read(Some(2), &vec![0, 0], &(0..1)).is_err());
+        assert!(db.partial_read(Some(2), &[0, 0], &(0..1)).is_err());
 
         assert_eq!(
             Some(vec![4, 3, 2]),
-            db.partial_read(None, &vec![0, 0], &(1..4)).unwrap()
+            db.partial_read(None, &[0, 0], &(1..4)).unwrap()
         );
     }
 }
