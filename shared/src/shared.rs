@@ -12,10 +12,9 @@ use ckb_core::header::{BlockNumber, Header};
 use ckb_core::transaction::{Capacity, OutPoint, ProposalShortId, Transaction};
 use ckb_core::transaction_meta::TransactionMeta;
 use ckb_core::uncle::UncleBlock;
-use ckb_db::diskdb::RocksDB;
-use ckb_db::kvdb::KeyValueDB;
-use ckb_db::memorydb::MemoryKeyValueDB;
+use ckb_db::{KeyValueDB, MemoryKeyValueDB, RocksDB, DBConfig};
 use ckb_util::RwLock;
+use dir::Directories;
 use fnv::FnvHashSet;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
@@ -453,9 +452,10 @@ impl<CI: ChainIndex> SharedBuilder<CI> {
         SharedBuilder::<ChainKVStore<MemoryKeyValueDB>>::new_simple(db)
     }
 
-    pub fn new_rocks<P: AsRef<Path>>(path: P) -> SharedBuilder<ChainKVStore<CacheDB<RocksDB>>> {
+    pub fn new_rocks(db: &DBConfig) -> SharedBuilder<ChainKVStore<CacheDB<RocksDB>>> {
+        let rocksdb = db.rocksdb.as_ref().expect("db.rocksdb must be configured.");
         let db = CacheDB::new(
-            RocksDB::open(path, COLUMNS),
+            RocksDB::open(&rocksdb.path, COLUMNS),
             &[(COLUMN_BLOCK_HEADER.unwrap(), 4096)],
         );
         SharedBuilder::<ChainKVStore<CacheDB<RocksDB>>>::new_simple(db)
