@@ -432,7 +432,7 @@ dependencies = [
 name = "ckb-merkle-tree"
 version = "0.5.0-pre"
 dependencies = [
- "merkle-tree 0.1.0-pre (git+https://github.com/nervosnetwork/merkle-tree?rev=8449231)",
+ "merkle-tree 0.1.0-pre (git+https://github.com/nervosnetwork/merkle-tree?rev=79a00ed)",
 ]
 
 [[package]]
@@ -1860,7 +1860,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 [[package]]
 name = "merkle-tree"
 version = "0.1.0-pre"
-source = "git+https://github.com/nervosnetwork/merkle-tree?rev=8449231#8449231ad0074e49f46ea9cf0987935acd75766a"
+source = "git+https://github.com/nervosnetwork/merkle-tree?rev=79a00ed#79a00edae004555e5155d1f27aff19d1525af92e"
 dependencies = [
  "blake2-rfc 0.2.18 (registry+https://github.com/rust-lang/crates.io-index)",
  "numext-fixed-hash 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -3618,7 +3618,7 @@ dependencies = [
 "checksum memchr 1.0.2 (registry+https://github.com/rust-lang/crates.io-index)" = "148fab2e51b4f1cfc66da2a7c32981d1d3c083a803978268bb11fe4b86925e7a"
 "checksum memchr 2.1.2 (registry+https://github.com/rust-lang/crates.io-index)" = "db4c41318937f6e76648f42826b1d9ade5c09cafb5aef7e351240a70f39206e9"
 "checksum memoffset 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)" = "0f9dc261e2b62d7a622bf416ea3c5245cdd5d9a7fcc428c0d06804dfce1775b3"
-"checksum merkle-tree 0.1.0-pre (git+https://github.com/nervosnetwork/merkle-tree?rev=8449231)" = "<none>"
+"checksum merkle-tree 0.1.0-pre (git+https://github.com/nervosnetwork/merkle-tree?rev=79a00ed)" = "<none>"
 "checksum mime 0.2.6 (registry+https://github.com/rust-lang/crates.io-index)" = "ba626b8a6de5da682e1caa06bdb42a335aee5a84db8e5046a3e8ab17ba0a3ae0"
 "checksum mio 0.6.16 (registry+https://github.com/rust-lang/crates.io-index)" = "71646331f2619b1026cc302f87a2b8b648d5c6dd6937846a16cc8ce0f347f432"
 "checksum mio-uds 0.6.7 (registry+https://github.com/rust-lang/crates.io-index)" = "966257a94e196b11bb43aca423754d87429960a768de9414f3691d6957abf125"
