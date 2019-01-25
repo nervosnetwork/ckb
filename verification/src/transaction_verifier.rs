@@ -1,8 +1,8 @@
 use crate::error::TransactionError;
-use ckb_core::cell::ResolvedTransaction;
 use ckb_core::transaction::{Capacity, Transaction};
-use ckb_core::Cycle;
+use ckb_core::{cell::ResolvedTransaction, Cycle};
 use ckb_script::TransactionScriptsVerifier;
+use occupied_capacity::OccupiedCapacity;
 use std::collections::HashSet;
 
 pub struct TransactionVerifier<'a> {
@@ -191,7 +191,7 @@ impl<'a> CapacityVerifier<'a> {
             .transaction
             .outputs()
             .iter()
-            .any(|output| output.bytes_len() as Capacity > output.capacity)
+            .any(|output| output.occupied_capacity() as Capacity > output.capacity)
         {
             Err(TransactionError::CapacityOverflow)
         } else {

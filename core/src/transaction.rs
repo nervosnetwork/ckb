@@ -7,11 +7,12 @@ use bincode::{deserialize, serialize};
 use faster_hex::hex_string;
 use hash::sha3_256;
 use numext_fixed_hash::H256;
+use occupied_capacity::OccupiedCapacity;
 use serde_derive::{Deserialize, Serialize};
+use std::fmt;
 use std::ops::{Deref, DerefMut};
-use std::{fmt, mem};
 
-#[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Hash, Debug)]
+#[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Hash, Debug, OccupiedCapacity)]
 pub struct OutPoint {
     // Hash of Transaction
     pub hash: H256,
@@ -47,7 +48,7 @@ impl OutPoint {
     }
 }
 
-#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug, OccupiedCapacity)]
 pub struct CellInput {
     pub previous_output: OutPoint,
     // Depends on whether the operation is Transform or Destroy, this is the proof to transform
@@ -85,7 +86,7 @@ impl CellInput {
     }
 }
 
-#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug, OccupiedCapacity)]
 pub struct CellOutput {
     pub capacity: Capacity,
     pub data: Vec<u8>,
@@ -119,7 +120,7 @@ impl CellOutput {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug, Default)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug, Default, OccupiedCapacity)]
 pub struct Transaction {
     version: Version,
     deps: Vec<OutPoint>,
@@ -131,15 +132,6 @@ pub struct Transaction {
 pub struct IndexTransaction {
     pub index: usize,
     pub transaction: Transaction,
-}
-
-impl CellOutput {
-    pub fn bytes_len(&self) -> usize {
-        mem::size_of::<Capacity>()
-            + self.data.len()
-            + H256::size_of()
-            + self.type_.as_ref().map_or(0, |s| s.bytes_len())
-    }
 }
 
 #[derive(Serialize, Deserialize, Copy, Clone, PartialEq, Eq, Default, Hash)]

@@ -20,6 +20,7 @@ serde_derive = "1.0"
 log = "0.4"
 fnv = "1.0.3"
 crossbeam-channel = "0.3"
+occupied-capacity = { path = "../util/occupied-capacity" }
 
 [dev-dependencies]
 env_logger = "0.6"
