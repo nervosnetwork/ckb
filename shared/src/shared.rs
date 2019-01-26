@@ -12,7 +12,7 @@ use ckb_core::header::{BlockNumber, Header};
 use ckb_core::transaction::{Capacity, OutPoint, ProposalShortId, Transaction};
 use ckb_core::transaction_meta::TransactionMeta;
 use ckb_core::uncle::UncleBlock;
-use ckb_db::{KeyValueDB, MemoryKeyValueDB, RocksDB, DBConfig};
+use ckb_db::{DBConfig, KeyValueDB, MemoryKeyValueDB, RocksDB};
 use ckb_util::RwLock;
 use fnv::FnvHashSet;
 use numext_fixed_hash::H256;

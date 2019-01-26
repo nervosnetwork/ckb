@@ -323,8 +323,7 @@ mod tests {
     use tempfile;
 
     fn setup_db(prefix: &str, columns: u32) -> RocksDB {
-        let tmp_dir = tempfile::Builder::new()
-            .prefix(prefix).tempdir().unwrap();
+        let tmp_dir = tempfile::Builder::new().prefix(prefix).tempdir().unwrap();
         let config = RocksDBConfig {
             path: tmp_dir.as_ref().to_path_buf(),
             ..Default::default()

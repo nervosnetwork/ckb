@@ -1,6 +1,6 @@
-use std::path::PathBuf;
-use serde_derive::Deserialize;
 use rocksdb::Options;
+use serde_derive::Deserialize;
+use std::path::PathBuf;
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct DBConfig {
@@ -87,44 +87,44 @@ impl RocksDBConfig {
     pub fn to_db_options(&self) -> Options {
         let mut opts = Options::default();
 
-        opts.create_if_missing(
-            self.create_if_missing.unwrap_or(true));
-        opts.create_missing_column_families(
-            self.create_missing_column_families.unwrap_or(true));
+        opts.create_if_missing(self.create_if_missing.unwrap_or(true));
+        opts.create_missing_column_families(self.create_missing_column_families.unwrap_or(true));
 
         if let Some(_) = self.enable_statistics {
             opts.enable_statistics();
         }
 
-        set_rocksdb_options!(self, opts,
-                             increase_parallelism,
-                             optimize_level_style_compaction,
-                             optimize_for_point_lookup,
-                             set_max_open_files,
-                             set_use_fsync,
-                             set_bytes_per_sync,
-                             set_allow_concurrent_memtable_write,
-                             set_use_direct_reads,
-                             set_use_direct_io_for_flush_and_compaction,
-                             set_table_cache_num_shard_bits,
-                             set_min_write_buffer_number,
-                             set_max_write_buffer_number,
-                             set_write_buffer_size,
-                             set_max_bytes_for_level_base,
-                             set_max_bytes_for_level_multiplier,
-                             set_max_manifest_file_size,
-                             set_target_file_size_base,
-                             set_min_write_buffer_number_to_merge,
-                             set_level_zero_file_num_compaction_trigger,
-                             set_level_zero_slowdown_writes_trigger,
-                             set_level_zero_stop_writes_trigger,
-                             set_max_background_compactions,
-                             set_max_background_flushes,
-                             set_disable_auto_compactions,
-                             set_report_bg_io_stats,
-                             set_stats_dump_period_sec,
-                             set_advise_random_on_open,
-                             set_num_levels
+        set_rocksdb_options!(
+            self,
+            opts,
+            increase_parallelism,
+            optimize_level_style_compaction,
+            optimize_for_point_lookup,
+            set_max_open_files,
+            set_use_fsync,
+            set_bytes_per_sync,
+            set_allow_concurrent_memtable_write,
+            set_use_direct_reads,
+            set_use_direct_io_for_flush_and_compaction,
+            set_table_cache_num_shard_bits,
+            set_min_write_buffer_number,
+            set_max_write_buffer_number,
+            set_write_buffer_size,
+            set_max_bytes_for_level_base,
+            set_max_bytes_for_level_multiplier,
+            set_max_manifest_file_size,
+            set_target_file_size_base,
+            set_min_write_buffer_number_to_merge,
+            set_level_zero_file_num_compaction_trigger,
+            set_level_zero_slowdown_writes_trigger,
+            set_level_zero_stop_writes_trigger,
+            set_max_background_compactions,
+            set_max_background_flushes,
+            set_disable_auto_compactions,
+            set_report_bg_io_stats,
+            set_stats_dump_period_sec,
+            set_advise_random_on_open,
+            set_num_levels
         );
         opts
     }

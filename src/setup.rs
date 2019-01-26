@@ -1,6 +1,6 @@
 use crate::helper::{require_path_exists, to_absolute_path};
-use ckb_db::{DBConfig};
 use ckb_chain_spec::ChainSpec;
+use ckb_db::DBConfig;
 use ckb_miner::BlockAssemblerConfig;
 use ckb_network::Config as NetworkConfig;
 use ckb_pool::txs_pool::PoolConfig;

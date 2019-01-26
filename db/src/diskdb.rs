@@ -1,5 +1,5 @@
-use crate::config::RocksDBConfig;
 use crate::batch::{Batch, Col, Operation};
+use crate::config::RocksDBConfig;
 use crate::kvdb::{ErrorKind, KeyValueDB, Result};
 use rocksdb::{ColumnFamily, WriteBatch, DB};
 use std::ops::Range;
@@ -96,8 +96,7 @@ mod tests {
     use tempfile;
 
     fn setup_db(prefix: &str, columns: u32) -> RocksDB {
-        let tmp_dir = tempfile::Builder::new()
-            .prefix(prefix).tempdir().unwrap();
+        let tmp_dir = tempfile::Builder::new().prefix(prefix).tempdir().unwrap();
         let config = RocksDBConfig {
             path: tmp_dir.as_ref().to_path_buf(),
             ..Default::default()
@@ -110,7 +109,9 @@ mod tests {
     #[should_panic]
     fn test_panic_if_missing() {
         let tmp_dir = tempfile::Builder::new()
-            .prefix("test_panic_if_missing").tempdir().unwrap();
+            .prefix("test_panic_if_missing")
+            .tempdir()
+            .unwrap();
         let config = RocksDBConfig {
             path: tmp_dir.as_ref().to_path_buf(),
             create_if_missing: Some(false),
@@ -125,7 +126,9 @@ mod tests {
         assert!(opts.get_statistics().is_none());
 
         let tmp_dir = tempfile::Builder::new()
-            .prefix("test_enable_statistics").tempdir().unwrap();
+            .prefix("test_enable_statistics")
+            .tempdir()
+            .unwrap();
         let config = RocksDBConfig {
             path: tmp_dir.as_ref().to_path_buf(),
             enable_statistics: Some("".to_owned()),
