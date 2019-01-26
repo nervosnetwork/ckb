@@ -2926,7 +2926,7 @@ impl<'a> FilteredBlock<'a> {
         _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr>,
         args: &'args FilteredBlockArgs<'args>) -> flatbuffers::WIPOffset<FilteredBlock<'bldr>> {
       let mut builder = FilteredBlockBuilder::new(_fbb);
-      if let Some(x) = args.hashes { builder.add_hashes(x); }
+      if let Some(x) = args.proof { builder.add_proof(x); }
       if let Some(x) = args.transactions { builder.add_transactions(x); }
       if let Some(x) = args.header { builder.add_header(x); }
       builder.finish()
@@ -2934,26 +2934,26 @@ impl<'a> FilteredBlock<'a> {
 
     pub const VT_HEADER: flatbuffers::VOffsetT = 4;
     pub const VT_TRANSACTIONS: flatbuffers::VOffsetT = 6;
-    pub const VT_HASHES: flatbuffers::VOffsetT = 8;
+    pub const VT_PROOF: flatbuffers::VOffsetT = 8;
 
   #[inline]
   pub fn header(&self) -> Option<Header<'a>> {
     self._tab.get::<flatbuffers::ForwardsUOffset<Header<'a>>>(FilteredBlock::VT_HEADER, None)
   }
   #[inline]
-  pub fn transactions(&self) -> Option<flatbuffers::Vector<flatbuffers::ForwardsUOffset<IndexTransaction<'a>>>> {
-    self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<flatbuffers::ForwardsUOffset<IndexTransaction<'a>>>>>(FilteredBlock::VT_TRANSACTIONS, None)
+  pub fn transactions(&self) -> Option<flatbuffers::Vector<flatbuffers::ForwardsUOffset<Transaction<'a>>>> {
+    self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<flatbuffers::ForwardsUOffset<Transaction<'a>>>>>(FilteredBlock::VT_TRANSACTIONS, None)
   }
   #[inline]
-  pub fn hashes(&self) -> Option<&'a [H256]> {
-    self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<H256>>>(FilteredBlock::VT_HASHES, None).map(|v| v.safe_slice() )
+  pub fn proof(&self) -> Option<MerkleProof<'a>> {
+    self._tab.get::<flatbuffers::ForwardsUOffset<MerkleProof<'a>>>(FilteredBlock::VT_PROOF, None)
   }
 }
 
 pub struct FilteredBlockArgs<'a> {
     pub header: Option<flatbuffers::WIPOffset<Header<'a >>>,
-    pub transactions: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a , flatbuffers::ForwardsUOffset<IndexTransaction<'a >>>>>,
-    pub hashes: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a , H256>>>,
+    pub transactions: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a , flatbuffers::ForwardsUOffset<Transaction<'a >>>>>,
+    pub proof: Option<flatbuffers::WIPOffset<MerkleProof<'a >>>,
 }
 impl<'a> Default for FilteredBlockArgs<'a> {
     #[inline]
@@ -2961,7 +2961,7 @@ impl<'a> Default for FilteredBlockArgs<'a> {
         FilteredBlockArgs {
             header: None,
             transactions: None,
-            hashes: None,
+            proof: None,
         }
     }
 }
@@ -2975,12 +2975,12 @@ impl<'a: 'b, 'b> FilteredBlockBuilder<'a, 'b> {
     self.fbb_.push_slot_always::<flatbuffers::WIPOffset<Header>>(FilteredBlock::VT_HEADER, header);
   }
   #[inline]
-  pub fn add_transactions(&mut self, transactions: flatbuffers::WIPOffset<flatbuffers::Vector<'b , flatbuffers::ForwardsUOffset<IndexTransaction<'b >>>>) {
+  pub fn add_transactions(&mut self, transactions: flatbuffers::WIPOffset<flatbuffers::Vector<'b , flatbuffers::ForwardsUOffset<Transaction<'b >>>>) {
     self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(FilteredBlock::VT_TRANSACTIONS, transactions);
   }
   #[inline]
-  pub fn add_hashes(&mut self, hashes: flatbuffers::WIPOffset<flatbuffers::Vector<'b , H256>>) {
-    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(FilteredBlock::VT_HASHES, hashes);
+  pub fn add_proof(&mut self, proof: flatbuffers::WIPOffset<MerkleProof<'b >>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<MerkleProof>>(FilteredBlock::VT_PROOF, proof);
   }
   #[inline]
   pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>) -> FilteredBlockBuilder<'a, 'b> {
@@ -2992,6 +2992,94 @@ impl<'a: 'b, 'b> FilteredBlockBuilder<'a, 'b> {
   }
   #[inline]
   pub fn finish(self) -> flatbuffers::WIPOffset<FilteredBlock<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+pub enum MerkleProofOffset {}
+#[derive(Copy, Clone, Debug, PartialEq)]
+
+pub struct MerkleProof<'a> {
+  pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for MerkleProof<'a> {
+    type Inner = MerkleProof<'a>;
+    #[inline]
+    fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        Self {
+            _tab: flatbuffers::Table { buf: buf, loc: loc },
+        }
+    }
+}
+
+impl<'a> MerkleProof<'a> {
+    #[inline]
+    pub fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+        MerkleProof {
+            _tab: table,
+        }
+    }
+    #[allow(unused_mut)]
+    pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr>(
+        _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr>,
+        args: &'args MerkleProofArgs<'args>) -> flatbuffers::WIPOffset<MerkleProof<'bldr>> {
+      let mut builder = MerkleProofBuilder::new(_fbb);
+      if let Some(x) = args.lemmas { builder.add_lemmas(x); }
+      if let Some(x) = args.indices { builder.add_indices(x); }
+      builder.finish()
+    }
+
+    pub const VT_INDICES: flatbuffers::VOffsetT = 4;
+    pub const VT_LEMMAS: flatbuffers::VOffsetT = 6;
+
+  #[inline]
+  pub fn indices(&self) -> Option<flatbuffers::Vector<'a, u32>> {
+    self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, u32>>>(MerkleProof::VT_INDICES, None)
+  }
+  #[inline]
+  pub fn lemmas(&self) -> Option<&'a [H256]> {
+    self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<H256>>>(MerkleProof::VT_LEMMAS, None).map(|v| v.safe_slice() )
+  }
+}
+
+pub struct MerkleProofArgs<'a> {
+    pub indices: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a ,  u32>>>,
+    pub lemmas: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a , H256>>>,
+}
+impl<'a> Default for MerkleProofArgs<'a> {
+    #[inline]
+    fn default() -> Self {
+        MerkleProofArgs {
+            indices: None,
+            lemmas: None,
+        }
+    }
+}
+pub struct MerkleProofBuilder<'a: 'b, 'b> {
+  fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a>,
+  start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b> MerkleProofBuilder<'a, 'b> {
+  #[inline]
+  pub fn add_indices(&mut self, indices: flatbuffers::WIPOffset<flatbuffers::Vector<'b , u32>>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(MerkleProof::VT_INDICES, indices);
+  }
+  #[inline]
+  pub fn add_lemmas(&mut self, lemmas: flatbuffers::WIPOffset<flatbuffers::Vector<'b , H256>>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(MerkleProof::VT_LEMMAS, lemmas);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>) -> MerkleProofBuilder<'a, 'b> {
+    let start = _fbb.start_table();
+    MerkleProofBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> flatbuffers::WIPOffset<MerkleProof<'a>> {
     let o = self.fbb_.end_table(self.start_);
     flatbuffers::WIPOffset::new(o.value())
   }

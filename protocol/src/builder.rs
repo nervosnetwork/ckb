@@ -5,7 +5,7 @@ use crate::protocol_generated::ckb::protocol::{
     FilteredBlock, FilteredBlockBuilder, GetBlockProposalBuilder, GetBlockTransactionsBuilder,
     GetBlocks as FbsGetBlocks, GetBlocksBuilder, GetHeaders as FbsGetHeaders, GetHeadersBuilder,
     Header as FbsHeader, HeaderBuilder, Headers as FbsHeaders, HeadersBuilder,
-    IndexTransactionBuilder, OutPoint as FbsOutPoint, OutPointBuilder,
+    IndexTransactionBuilder, MerkleProofBuilder, OutPoint as FbsOutPoint, OutPointBuilder,
     ProposalShortId as FbsProposalShortId, RelayMessage, RelayMessageBuilder, RelayPayload,
     Script as FbsScript, ScriptBuilder, SyncMessage, SyncMessageBuilder, SyncPayload,
     Time as FbsTime, TimeBuilder, TimeMessage, TimeMessageBuilder, Transaction as FbsTransaction,
@@ -374,14 +374,7 @@ impl<'a> FilteredBlock<'a> {
         } else {
             let transactions = transactions_index
                 .iter()
-                .map(|ti| {
-                    let fbs_transaction =
-                        FbsTransaction::build(fbb, &block.commit_transactions()[*ti]);
-                    let mut builder = IndexTransactionBuilder::new(fbb);
-                    builder.add_index(*ti as u32);
-                    builder.add_transaction(fbs_transaction);
-                    builder.finish()
-                })
+                .map(|ti| FbsTransaction::build(fbb, &block.commit_transactions()[*ti]))
                 .collect::<Vec<_>>();
 
             let proof = build_merkle_proof(
@@ -392,19 +385,26 @@ impl<'a> FilteredBlock<'a> {
                     .collect::<Vec<_>>(),
                 transactions_index,
             );
-            let lemmas = proof
-                .map(|proof| proof.lemmas().to_vec())
-                .unwrap_or_else(Vec::new);
+
+            let proof = proof.map(|p| {
+                let lemmas =
+                    fbb.create_vector(&p.lemmas().iter().map(Into::into).collect::<Vec<FbsH256>>());
+                let indices = fbb.create_vector(p.indices());
+                let mut builder = MerkleProofBuilder::new(fbb);
+                builder.add_lemmas(lemmas);
+                builder.add_indices(indices);
+                builder.finish()
+            });
 
             let header = FbsHeader::build(fbb, &block.header());
             let fbs_transactions = fbb.create_vector(&transactions);
-            let fbs_hashes =
-                fbb.create_vector(&lemmas.iter().map(Into::into).collect::<Vec<FbsH256>>());
 
             let mut builder = FilteredBlockBuilder::new(fbb);
             builder.add_header(header);
             builder.add_transactions(fbs_transactions);
-            builder.add_hashes(fbs_hashes);
+            if let Some(p) = proof {
+                builder.add_proof(p);
+            }
             builder.finish()
         }
     }
