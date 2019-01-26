@@ -8,6 +8,12 @@
     },
 
     "data_dir": "default",
+    "db": {
+        "backend": "rocksdb",
+        "rocksdb": {
+            "path": "db"
+        }
+    },
     "chain": {
         "spec": "spec/dev.json"
     },

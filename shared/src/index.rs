@@ -160,7 +160,7 @@ mod tests {
     use super::super::COLUMNS;
     use super::*;
     use ckb_chain_spec::consensus::Consensus;
-    use ckb_db::diskdb::RocksDB;
+    use ckb_db::{RocksDB, RocksDBConfig};
     use tempfile;
 
     #[test]
@@ -169,7 +169,11 @@ mod tests {
             .prefix("index_init")
             .tempdir()
             .unwrap();
-        let db = RocksDB::open(tmp_dir, COLUMNS);
+        let config = RocksDBConfig {
+            path: tmp_dir.as_ref().to_path_buf(),
+            ..Default::default()
+        };
+        let db = RocksDB::open(&config, COLUMNS);
         let store = ChainKVStore::new(db);
         let consensus = Consensus::default();
         let block = consensus.genesis_block();
