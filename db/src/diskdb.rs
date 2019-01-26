@@ -108,15 +108,32 @@ mod tests {
 
     #[test]
     #[should_panic]
-    fn panic_if_missing() {
+    fn test_panic_if_missing() {
         let tmp_dir = tempfile::Builder::new()
-            .prefix("panic_if_missing").tempdir().unwrap();
+            .prefix("test_panic_if_missing").tempdir().unwrap();
         let config = RocksDBConfig {
             path: tmp_dir.as_ref().to_path_buf(),
             create_if_missing: Some(false),
             ..Default::default()
         };
         RocksDB::open(&config, 2); // panic
+    }
+
+    #[test]
+    fn test_enable_statistics() {
+        let opts = RocksDBConfig::default().to_db_options();
+        assert!(opts.get_statistics().is_none());
+
+        let tmp_dir = tempfile::Builder::new()
+            .prefix("test_enable_statistics").tempdir().unwrap();
+        let config = RocksDBConfig {
+            path: tmp_dir.as_ref().to_path_buf(),
+            enable_statistics: Some("".to_owned()),
+            set_stats_dump_period_sec: Some(60),
+            ..Default::default()
+        };
+        let opts = config.to_db_options();
+        assert!(opts.get_statistics().is_some());
     }
 
     #[test]

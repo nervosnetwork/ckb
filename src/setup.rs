@@ -209,7 +209,8 @@ pub mod test {
         let test_conifg = r#"{
             "db": {
                 "rocksdb": {
-                    "create_if_missing": true
+                    "create_if_missing": true,
+                    "enable_statistics": ""
                 }
             }
         }"#;
@@ -217,7 +218,9 @@ pub mod test {
         write_file(&config_path, test_conifg);
         let setup = override_default_config_file(&config_path).unwrap();
         assert_eq!(setup.configs.db.backend, "rocksdb");
-        assert_eq!(setup.configs.db.rocksdb.unwrap().create_if_missing, Some(true));
+        let rocksdb_config = setup.configs.db.rocksdb.unwrap();
+        assert_eq!(rocksdb_config.create_if_missing, Some(true));
+        assert_eq!(rocksdb_config.enable_statistics, Some("".to_owned()));
     }
 
     #[test]

@@ -14,11 +14,9 @@ use ckb_core::transaction_meta::TransactionMeta;
 use ckb_core::uncle::UncleBlock;
 use ckb_db::{KeyValueDB, MemoryKeyValueDB, RocksDB, DBConfig};
 use ckb_util::RwLock;
-use dir::Directories;
 use fnv::FnvHashSet;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
-use std::path::Path;
 use std::sync::Arc;
 
 #[derive(Default, Debug, PartialEq, Clone, Eq)]
