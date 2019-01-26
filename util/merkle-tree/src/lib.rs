@@ -1,7 +1,13 @@
-mod hash;
-mod proof;
-mod tree;
+use merkle_cbt::{MerkleProof, MerkleTree, CBMT, H256};
 
-pub use crate::hash::Merge;
-pub use crate::proof::Proof;
-pub use crate::tree::Tree;
+pub fn merkle_root(leaves: &[H256]) -> H256 {
+    CBMT::build_merkle_root(leaves)
+}
+
+pub fn build_merkle_tree(leaves: Vec<H256>) -> MerkleTree<H256> {
+    CBMT::build_merkle_tree(leaves)
+}
+
+pub fn build_merkle_proof(leaves: &[H256], indices: &[usize]) -> Option<MerkleProof<H256>> {
+    CBMT::build_merkle_proof(leaves, indices)
+}

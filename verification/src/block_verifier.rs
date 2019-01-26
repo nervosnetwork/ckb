@@ -6,9 +6,9 @@ use ckb_core::cell::{resolve_transaction, CellProvider, CellStatus, ResolvedTran
 use ckb_core::header::Header;
 use ckb_core::transaction::{Capacity, CellInput, OutPoint};
 use ckb_core::Cycle;
+use ckb_merkle_tree::merkle_root;
 use ckb_shared::shared::ChainProvider;
 use fnv::{FnvHashMap, FnvHashSet};
-use merkle_root::merkle_root;
 use numext_fixed_uint::U256;
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use std::collections::HashSet;

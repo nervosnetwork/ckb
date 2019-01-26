@@ -17,9 +17,8 @@ use ckb_core::header::{BlockNumber, Header};
 use ckb_core::script::Script;
 use ckb_core::transaction::{CellInput, CellOutput, OutPoint, ProposalShortId, Transaction};
 use ckb_core::uncle::UncleBlock;
+use ckb_merkle_tree::build_merkle_proof;
 use flatbuffers::{FlatBufferBuilder, WIPOffset};
-use merkle_root::H256Sha3;
-use merkle_tree::Tree;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 use rand::{thread_rng, Rng};
@@ -385,16 +384,16 @@ impl<'a> FilteredBlock<'a> {
                 })
                 .collect::<Vec<_>>();
 
-            let tree = Tree::<H256Sha3>::new(
+            let proof = build_merkle_proof(
                 &block
                     .commit_transactions()
                     .iter()
                     .map(|tx| tx.hash())
                     .collect::<Vec<_>>(),
+                transactions_index,
             );
-            let lemmas = tree
-                .get_proof(transactions_index)
-                .map(|proof| proof.lemmas)
+            let lemmas = proof
+                .map(|proof| proof.lemmas().to_vec())
                 .unwrap_or_else(Vec::new);
 
             let header = FbsHeader::build(fbb, &block.header());

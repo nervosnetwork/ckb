@@ -18,5 +18,5 @@ bit-vec = "0.5.0"
 crossbeam-channel = "0.3"
 ckb-util = { path = "../util" }
 fnv = "1.0.3"
-merkle-root = {path = "../util/merkle-root"}
+ckb-merkle-tree = {path = "../util/merkle-tree"}
 faster-hex = "0.3"
