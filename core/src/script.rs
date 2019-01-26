@@ -1,5 +1,6 @@
 use hash::sha3_256;
 use numext_fixed_hash::H256;
+use occupied_capacity::OccupiedCapacity;
 use serde_derive::{Deserialize, Serialize};
 use std::io::Write;
 use std::mem;
@@ -85,14 +86,6 @@ impl Script {
         (version, args, reference, binary, signed_args)
     }
 
-    pub fn bytes_len(&self) -> usize {
-        mem::size_of::<u8>()
-            + self.args.iter().map(|a| a.len()).sum::<usize>()
-            + self.reference.as_ref().map_or(0, |_| H256::size_of())
-            + self.binary.as_ref().map_or(0, |script| script.len())
-            + self.signed_args.iter().map(|a| a.len()).sum::<usize>()
-    }
-
     pub fn type_hash(&self) -> H256 {
         match self.version {
             0 => {
@@ -123,26 +116,12 @@ impl Script {
     }
 }
 
-// impl From<&'static str> for Script {
-// 	fn from(s: &'static str) -> Self {
-// 		Script::new(s.into())
-// 	}
-// }
-
-// impl From<Bytes> for Script {
-// 	fn from(s: Bytes) -> Self {
-// 		Script::new(s)
-// 	}
-// }
-
-// impl From<Vec<u8>> for Script {
-// 	fn from(v: Vec<u8>) -> Self {
-// 		Script::new(v.into())
-// 	}
-// }
-
-// impl From<Script> for Bytes {
-// 	fn from(script: Script) -> Self {
-// 		script.data
-// 	}
-// }
+impl OccupiedCapacity for Script {
+    fn occupied_capacity(&self) -> usize {
+        mem::size_of::<u8>()
+            + self.args.occupied_capacity()
+            + self.reference.occupied_capacity()
+            + self.binary.occupied_capacity()
+            + self.signed_args.occupied_capacity()
+    }
+}

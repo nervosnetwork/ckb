@@ -7,6 +7,7 @@ use ckb_core::BlockNumber;
 use ckb_verification::TransactionError;
 use fnv::{FnvHashMap, FnvHashSet};
 use linked_hash_map::LinkedHashMap;
+use occupied_capacity::OccupiedCapacity;
 use serde_derive::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use std::hash::Hash;
@@ -99,24 +100,19 @@ pub struct PoolEntry {
     pub transaction: Transaction,
     /// refs count
     pub refs_count: usize,
-    /// Size estimate
-    pub size_estimate: usize,
+    /// Bytes size
+    pub bytes_size: usize,
 }
 
 impl PoolEntry {
     /// Create new transaction pool entry
     pub fn new(tx: Transaction, count: usize) -> PoolEntry {
         PoolEntry {
-            size_estimate: estimate_transaction_size(&tx),
+            bytes_size: tx.occupied_capacity(),
             transaction: tx,
             refs_count: count,
         }
     }
-}
-
-/// TODO guessing this needs implementing
-fn estimate_transaction_size(_tx: &Transaction) -> usize {
-    0
 }
 
 #[derive(Default, Debug)]

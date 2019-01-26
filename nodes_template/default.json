@@ -8,8 +8,8 @@
     },
 
     "data_dir": "default",
-    "ckb": {
-        "chain": "spec/dev.json"
+    "chain": {
+        "spec": "spec/dev.json"
     },
     "logger": {
         "file": "ckb.log",

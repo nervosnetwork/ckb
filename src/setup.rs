@@ -23,14 +23,14 @@ pub struct Setup {
 }
 
 #[derive(Clone, Debug, Deserialize)]
-pub struct CKB {
-    pub chain: PathBuf,
+pub struct ChainConfig {
+    pub spec: PathBuf,
 }
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct Configs {
     pub data_dir: PathBuf,
-    pub ckb: CKB,
+    pub chain: ChainConfig,
     pub logger: LogConfig,
     pub network: NetworkConfig,
     pub rpc: RpcConfig,
@@ -74,7 +74,7 @@ impl Setup {
                 Some(dirs.join("network").to_string_lossy().to_string());
         }
 
-        let chain_spec = ChainSpec::read_from_file(&configs.ckb.chain)?;
+        let chain_spec = ChainSpec::read_from_file(&configs.chain.spec)?;
 
         Ok(Setup {
             configs,
@@ -100,8 +100,8 @@ impl Configs {
         if self.data_dir.is_relative() {
             self.data_dir = base.join(&self.data_dir);
         }
-        if self.ckb.chain.is_relative() {
-            self.ckb.chain = base.join(&self.ckb.chain);
+        if self.chain.spec.is_relative() {
+            self.chain.spec = base.join(&self.chain.spec);
         }
     }
 }
@@ -203,8 +203,8 @@ pub mod test {
         let test_conifg = format!(
             r#"
         {{
-            "ckb": {{
-                "chain": "{}"
+            "chain": {{
+                "spec": "{}"
             }}
         }}"#,
             chain_spec_path.to_str().unwrap()
