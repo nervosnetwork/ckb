@@ -138,19 +138,14 @@ impl<CI: ChainIndex> Shared<CI> {
 
     pub fn init_txo_set(store: &CI, mut hash: H256) -> TxoSet {
         let mut txo_set = TxoSet::new();
-        let mut blocks = Vec::new();
-        while let Some(block) = store.get_block(&hash) {
-            let number = block.header().number();
-            hash = block.header().parent_hash().clone();
-            blocks.push(block);
-
-            if number == 0 {
-                break;
-            }
+        let mut hashes = Vec::new();
+        while let Some(header) = store.get_header(&hash) {
+            hashes.push(hash);
+            hash = header.parent_hash().clone();
         }
 
-        for b in blocks.iter().rev() {
-            for tx in b.commit_transactions() {
+        for h in hashes.iter().rev() {
+            for tx in store.get_block_body(h).unwrap() {
                 let inputs = tx.input_pts();
                 let tx_hash = tx.hash();
                 let output_len = tx.outputs().len();
