@@ -310,8 +310,8 @@ curl -d '{"id": 2, "jsonrpc": "2.0", "method":"local_node_info","params": []}' -
         ],
         "node_id": "QmWRU2NSro4wKgVbFX6y8SPFkcJ1tE2X5xzk9msMhdRmdS",
         "version": "0.5.0"
-    }
-    "id": 2,
+    },
+    "id": 2
 }
 ```
 

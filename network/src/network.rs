@@ -206,23 +206,16 @@ impl Network {
     }
 
     pub fn external_urls(&self, max_urls: usize) -> Vec<(String, u8)> {
-        let mut urls = Vec::with_capacity(max_urls);
         let original_listened_addresses = self.original_listened_addresses.read();
-
-        urls.append(
-            &mut self
-                .listened_addresses(max_urls.saturating_sub(original_listened_addresses.len()))
-                .into_iter()
-                .map(|(addr, score)| (self.to_external_url(&addr), score))
-                .collect(),
-        );
-        urls.append(
-            &mut original_listened_addresses
-                .iter()
-                .map(|addr| (self.to_external_url(addr), 1))
-                .collect(),
-        );
-        urls
+        self.listened_addresses(max_urls.saturating_sub(original_listened_addresses.len()))
+            .into_iter()
+            .chain(
+                original_listened_addresses
+                    .iter()
+                    .map(|addr| (addr.to_owned(), 1)),
+            )
+            .map(|(addr, score)| (self.to_external_url(&addr), score))
+            .collect()
     }
     pub fn node_id(&self) -> String {
         self.local_private_key.to_peer_id().to_base58()
@@ -498,17 +491,12 @@ impl Network {
             Some(private_key) => private_key?,
             None => return Err(ErrorKind::Other("secret_key not set".to_owned()).into()),
         };
-        let listened_addresses = {
-            let mut listened_addresses = FnvHashMap::with_capacity_and_hasher(
-                config.public_addresses.len(),
-                Default::default(),
-            );
-            // set max score to public addresses
-            for addr in &config.public_addresses {
-                listened_addresses.insert(addr.to_owned(), std::u8::MAX);
-            }
-            listened_addresses
-        };
+        // set max score to public addresses
+        let listened_addresses: FnvHashMap<Multiaddr, u8> = config
+            .public_addresses
+            .iter()
+            .map(|addr| (addr.to_owned(), std::u8::MAX))
+            .collect();
         let peer_store: Arc<RwLock<dyn PeerStore>> = {
             let mut peer_store = SqlitePeerStore::default();
             let bootnodes = config.bootnodes()?;

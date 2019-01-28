@@ -23,7 +23,7 @@ use std::time::Instant;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::timer::Interval;
 
-const MAX_LISTEND_ADDRS: usize = 10;
+const MAX_LISTENED_ADDRS: usize = 10;
 
 pub struct IdentifyService {
     pub client_version: String,
@@ -127,7 +127,7 @@ where
                         protocol_version: format!("ckb/{}", self.protocol_version).to_owned(),
                         agent_version: format!("ckb/{}", self.client_version).to_owned(),
                         listen_addrs: network
-                            .listened_addresses(MAX_LISTEND_ADDRS)
+                            .listened_addresses(MAX_LISTENED_ADDRS)
                             .into_iter()
                             .map(|(addr, _)| addr)
                             .collect(),
