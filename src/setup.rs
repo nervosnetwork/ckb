@@ -105,10 +105,8 @@ impl Configs {
         if self.chain.spec.is_relative() {
             self.chain.spec = base.join(&self.chain.spec);
         }
-        if let Some(rocksdb) = self.db.rocksdb.as_mut() {
-            if rocksdb.path.is_relative() {
-                rocksdb.path = base.join(&rocksdb.path);
-            }
+        if self.db.path.is_relative() {
+            self.db.path = base.join(&self.db.path);
         }
     }
 }
@@ -209,18 +207,31 @@ pub mod test {
         let test_conifg = r#"{
             "db": {
                 "rocksdb": {
-                    "create_if_missing": true,
-                    "enable_statistics": ""
+                    "disable_auto_compactions": "true",
+                    "paranoid_file_checks": "true"
                 }
             }
         }"#;
         let config_path = tmp_dir.path().join("config.json");
         write_file(&config_path, test_conifg);
         let setup = override_default_config_file(&config_path).unwrap();
-        assert_eq!(setup.configs.db.backend, "rocksdb");
-        let rocksdb_config = setup.configs.db.rocksdb.unwrap();
-        assert_eq!(rocksdb_config.create_if_missing, Some(true));
-        assert_eq!(rocksdb_config.enable_statistics, Some("".to_owned()));
+        let rocksdb_options: Vec<(&str, &str)> = setup
+            .configs
+            .db
+            .rocksdb
+            .as_ref()
+            .unwrap()
+            .iter()
+            .map(|(k, v)| (k.as_str(), v.as_str()))
+            .collect();
+        assert_eq!(
+            rocksdb_options.contains(&("disable_auto_compactions", "true")),
+            true
+        );
+        assert_eq!(
+            rocksdb_options.contains(&("paranoid_file_checks", "true")),
+            true
+        );
     }
 
     #[test]

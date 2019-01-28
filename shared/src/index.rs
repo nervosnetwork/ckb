@@ -160,7 +160,7 @@ mod tests {
     use super::super::COLUMNS;
     use super::*;
     use ckb_chain_spec::consensus::Consensus;
-    use ckb_db::{RocksDB, RocksDBConfig};
+    use ckb_db::{DBConfig, RocksDB};
     use tempfile;
 
     #[test]
@@ -169,7 +169,7 @@ mod tests {
             .prefix("index_init")
             .tempdir()
             .unwrap();
-        let config = RocksDBConfig {
+        let config = DBConfig {
             path: tmp_dir.as_ref().to_path_buf(),
             ..Default::default()
         };

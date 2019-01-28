@@ -451,9 +451,8 @@ impl<CI: ChainIndex> SharedBuilder<CI> {
     }
 
     pub fn new_rocks(db: &DBConfig) -> SharedBuilder<ChainKVStore<CacheDB<RocksDB>>> {
-        let rocksdb = db.rocksdb.as_ref().expect("db.rocksdb must be configured.");
         let db = CacheDB::new(
-            RocksDB::open(rocksdb, COLUMNS),
+            RocksDB::open(db, COLUMNS),
             &[(COLUMN_BLOCK_HEADER.unwrap(), 4096)],
         );
         SharedBuilder::<ChainKVStore<CacheDB<RocksDB>>>::new_simple(db)

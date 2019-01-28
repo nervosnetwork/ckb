@@ -1,7 +1,7 @@
 use crate::batch::{Batch, Col, Operation};
-use crate::config::RocksDBConfig;
+use crate::config::DBConfig;
 use crate::kvdb::{ErrorKind, KeyValueDB, Result};
-use rocksdb::{ColumnFamily, WriteBatch, DB};
+use rocksdb::{ColumnFamily, Options, WriteBatch, DB};
 use std::ops::Range;
 
 struct Inner {
@@ -14,11 +14,27 @@ pub struct RocksDB {
 }
 
 impl RocksDB {
-    pub fn open(config: &RocksDBConfig, columns: u32) -> Self {
-        let opts = config.to_db_options();
+    pub fn open(config: &DBConfig, columns: u32) -> Self {
+        let mut opts = Options::default();
+        opts.create_if_missing(true);
+        opts.create_missing_column_families(true);
+
         let cfnames: Vec<_> = (0..columns).map(|c| format!("c{}", c)).collect();
         let cf_options: Vec<&str> = cfnames.iter().map(|n| n as &str).collect();
-        let db = DB::open_cf(&opts, &config.path, &cf_options).expect("rocksdb open");
+        let db = DB::open_cf(&opts, &config.path, &cf_options).expect("Failed to open rocksdb");
+
+        if config.rocksdb.is_some() {
+            let rocksdb_options: Vec<(&str, &str)> = config
+                .rocksdb
+                .as_ref()
+                .unwrap()
+                .iter()
+                .map(|(k, v)| (k.as_str(), v.as_str()))
+                .collect();
+            db.set_options(&rocksdb_options)
+                .expect("Failed to set rocksdb option");
+        }
+
         let inner = Inner {
             db,
             cfnames: cfnames.clone(),
@@ -93,11 +109,12 @@ impl KeyValueDB for RocksDB {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
     use tempfile;
 
     fn setup_db(prefix: &str, columns: u32) -> RocksDB {
         let tmp_dir = tempfile::Builder::new().prefix(prefix).tempdir().unwrap();
-        let config = RocksDBConfig {
+        let config = DBConfig {
             path: tmp_dir.as_ref().to_path_buf(),
             ..Default::default()
         };
@@ -106,37 +123,40 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
-    fn test_panic_if_missing() {
+    fn test_set_rocksdb_options() {
         let tmp_dir = tempfile::Builder::new()
-            .prefix("test_panic_if_missing")
+            .prefix("test_set_rocksdb_options")
             .tempdir()
             .unwrap();
-        let config = RocksDBConfig {
+        let config = DBConfig {
+            backend: "rocksdb".to_owned(),
             path: tmp_dir.as_ref().to_path_buf(),
-            create_if_missing: Some(false),
-            ..Default::default()
+            rocksdb: Some({
+                let mut opts = HashMap::new();
+                opts.insert("disable_auto_compactions".to_owned(), "true".to_owned());
+                opts
+            }),
         };
-        RocksDB::open(&config, 2); // panic
+        RocksDB::open(&config, 2); // no panic
     }
 
     #[test]
-    fn test_enable_statistics() {
-        let opts = RocksDBConfig::default().to_db_options();
-        assert!(opts.get_statistics().is_none());
-
+    #[should_panic]
+    fn test_panic_on_invalid_rocksdb_options() {
         let tmp_dir = tempfile::Builder::new()
-            .prefix("test_enable_statistics")
+            .prefix("test_panic_on_invalid_rocksdb_options")
             .tempdir()
             .unwrap();
-        let config = RocksDBConfig {
+        let config = DBConfig {
+            backend: "rocksdb".to_owned(),
             path: tmp_dir.as_ref().to_path_buf(),
-            enable_statistics: Some("".to_owned()),
-            set_stats_dump_period_sec: Some(60),
-            ..Default::default()
+            rocksdb: Some({
+                let mut opts = HashMap::new();
+                opts.insert("letsrock".to_owned(), "true".to_owned());
+                opts
+            }),
         };
-        let opts = config.to_db_options();
-        assert!(opts.get_statistics().is_some());
+        RocksDB::open(&config, 2); // panic
     }
 
     #[test]

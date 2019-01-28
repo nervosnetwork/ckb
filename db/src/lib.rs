@@ -9,7 +9,7 @@ pub mod diskdb;
 pub mod kvdb;
 pub mod memorydb;
 
-pub use crate::config::{DBConfig, RocksDBConfig};
+pub use crate::config::DBConfig;
 pub use crate::diskdb::RocksDB;
 pub use crate::kvdb::KeyValueDB;
 pub use crate::memorydb::MemoryKeyValueDB;

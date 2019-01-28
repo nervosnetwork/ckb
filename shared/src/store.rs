@@ -319,12 +319,12 @@ mod tests {
     use super::super::COLUMNS;
     use super::*;
     use ckb_chain_spec::consensus::Consensus;
-    use ckb_db::{RocksDB, RocksDBConfig};
+    use ckb_db::{DBConfig, RocksDB};
     use tempfile;
 
     fn setup_db(prefix: &str, columns: u32) -> RocksDB {
         let tmp_dir = tempfile::Builder::new().prefix(prefix).tempdir().unwrap();
-        let config = RocksDBConfig {
+        let config = DBConfig {
             path: tmp_dir.as_ref().to_path_buf(),
             ..Default::default()
         };
