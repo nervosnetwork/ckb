@@ -295,7 +295,6 @@ impl Hasher for HighLowBytesHasher {
     }
 
     fn finish(&self) -> u64 {
-        println!("finish {:?}", self.0);
         self.0
     }
 }

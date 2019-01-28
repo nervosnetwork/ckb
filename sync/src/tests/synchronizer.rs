@@ -76,7 +76,7 @@ fn setup_node(
         .consensus(consensus)
         .build();
     let (chain_controller, chain_receivers) = ChainController::build();
-    let (_handle, notify) = NotifyService::default().start(Some(thread_name));
+    let notify = NotifyService::default().start(Some(thread_name));
 
     let chain_service = ChainBuilder::new(shared.clone())
         .notify(notify.clone())

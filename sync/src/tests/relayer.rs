@@ -324,7 +324,7 @@ fn setup_node(
     let (tx_pool_controller, tx_pool_receivers) =
         TransactionPoolController::build(Arc::clone(&last_tx_updated_at));
 
-    let (_handle, notify) = NotifyService::default().start(Some(thread_name));
+    let notify = NotifyService::default().start(Some(thread_name));
 
     let tx_pool_service = TransactionPoolService::new(
         PoolConfig::default(),

@@ -577,7 +577,7 @@ struct TestPool<CI> {
 
 impl<CI: ChainIndex + 'static> TestPool<CI> {
     fn simple() -> TestPool<ChainKVStore<MemoryKeyValueDB>> {
-        let (_handle, notify) = NotifyService::default().start::<&str>(None);
+        let notify = NotifyService::default().start::<&str>(None);
         let new_tip_receiver = notify.subscribe_new_tip("txs_pool");
         let switch_fork_receiver = notify.subscribe_switch_fork("txs_pool");
         let shared = SharedBuilder::<ChainKVStore<MemoryKeyValueDB>>::new_memory()

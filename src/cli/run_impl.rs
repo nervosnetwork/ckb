@@ -33,7 +33,7 @@ pub fn run(setup: Setup) {
         .consensus(consensus)
         .build();
 
-    let (_handle, notify) = NotifyService::default().start(Some("notify"));
+    let notify = NotifyService::default().start(Some("notify"));
     let (chain_controller, chain_receivers) = ChainController::build();
     let (block_assembler_controller, block_assembler_receivers) = BlockAssemblerController::build();
 

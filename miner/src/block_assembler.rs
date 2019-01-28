@@ -429,7 +429,7 @@ mod tests {
         }
         let shared = builder.build();
 
-        let notify = notify.unwrap_or_else(|| NotifyService::default().start::<&str>(None).1);
+        let notify = notify.unwrap_or_else(|| NotifyService::default().start::<&str>(None));
         let (chain_controller, chain_receivers) = ChainController::build();
         let chain_service = ChainBuilder::new(shared.clone())
             .notify(notify.clone())

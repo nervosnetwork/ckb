@@ -554,8 +554,7 @@ impl<CI: ChainIndex + 'static> ChainBuilder<CI> {
     pub fn build(mut self) -> ChainService<CI> {
         let notify = self.notify.take().unwrap_or_else(|| {
             // FIXME: notify should not be optional
-            let (_handle, notify) = NotifyService::default().start::<&str>(None);
-            notify
+            NotifyService::default().start::<&str>(None)
         });
         ChainService::new(self.shared, notify)
     }
