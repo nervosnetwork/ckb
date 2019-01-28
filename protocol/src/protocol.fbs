@@ -205,8 +205,13 @@ table ClearFilter {
 
 table FilteredBlock {
     header: Header;
-    transactions: [IndexTransaction];
-    hashes: [H256];
+    transactions: [Transaction];
+    proof: MerkleProof;
+}
+
+table MerkleProof {
+    indices: [uint32];
+    lemmas: [H256];
 }
 
 table TimeMessage {
