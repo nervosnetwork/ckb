@@ -107,7 +107,7 @@ impl<CI: ChainIndex> Shared<CI> {
                 }
             };
 
-            let txo_set = Self::init_txo_set(&store, header.hash());
+            let txo_set = Self::init_txo_set(&store, header.number());
 
             let total_difficulty = store
                 .get_block_ext(&header.hash())
@@ -136,16 +136,12 @@ impl<CI: ChainIndex> Shared<CI> {
         &self.store
     }
 
-    pub fn init_txo_set(store: &CI, mut hash: H256) -> TxoSet {
+    pub fn init_txo_set(store: &CI, number: u64) -> TxoSet {
         let mut txo_set = TxoSet::new();
-        let mut hashes = Vec::new();
-        while let Some(header) = store.get_header(&hash) {
-            hashes.push(hash);
-            hash = header.parent_hash().clone();
-        }
 
-        for h in hashes.iter().rev() {
-            for tx in store.get_block_body(h).unwrap() {
+        for n in 0..=number {
+            let hash = store.get_block_hash(n).unwrap();
+            for tx in store.get_block_body(&hash).unwrap() {
                 let inputs = tx.input_pts();
                 let tx_hash = tx.hash();
                 let output_len = tx.outputs().len();
