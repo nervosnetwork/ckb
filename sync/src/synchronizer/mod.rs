@@ -25,7 +25,7 @@ use ckb_chain::chain::ChainController;
 use ckb_chain::error::ProcessBlockError;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::Block;
-use ckb_core::header::{BlockNumber, Header, RichHeader};
+use ckb_core::header::{BlockNumber, Header};
 use ckb_network::{CKBProtocolContext, CKBProtocolHandler, PeerIndex, Severity, TimerToken};
 use ckb_protocol::{SyncMessage, SyncPayload};
 use ckb_shared::index::ChainIndex;
@@ -555,26 +555,22 @@ impl<CI: ChainIndex> Synchronizer<CI> {
                         if state.chain_sync.timeout != 0 {
                             state.chain_sync.timeout = 0;
                             state.chain_sync.work_header = None;
+                            state.chain_sync.total_difficulty = None;
                             state.chain_sync.sent_getheaders = false;
                         }
                     } else if state.chain_sync.timeout == 0
                         || (best_known_header.is_some()
                             && best_known_header.map(|h| h.total_difficulty())
-                                >= state
-                                    .chain_sync
-                                    .work_header
-                                    .as_ref()
-                                    .map(|h| h.total_difficulty()))
+                                >= state.chain_sync.total_difficulty.as_ref())
                     {
                         // Our best block known by this peer is behind our tip, and we're either noticing
                         // that for the first time, OR this peer was able to catch up to some earlier point
                         // where we checked against our tip.
                         // Either way, set a new timeout based on current tip.
                         state.chain_sync.timeout = now + CHAIN_SYNC_TIMEOUT;
-                        state.chain_sync.work_header = Some(RichHeader::new(
-                            chain_state.tip_header().clone(),
-                            chain_state.total_difficulty().clone(),
-                        ));
+                        state.chain_sync.work_header = Some(chain_state.tip_header().clone());
+                        state.chain_sync.total_difficulty =
+                            Some(chain_state.total_difficulty().clone());
                         state.chain_sync.sent_getheaders = false;
                     } else if state.chain_sync.timeout > 0 && now > state.chain_sync.timeout {
                         // No evidence yet that our peer has synced to a chain with work equal to that
@@ -589,7 +585,7 @@ impl<CI: ChainIndex> Synchronizer<CI> {
                             self.send_getheaders_to_peer(
                                 nc,
                                 *peer,
-                                state.chain_sync.work_header.clone().unwrap().header(),
+                                &state.chain_sync.work_header.clone().unwrap(),
                             );
                         }
                     }
@@ -1318,19 +1314,27 @@ mod tests {
             // that for the first time, OR this peer was able to catch up to some earlier point
             // where we checked against our tip.
             // Either way, set a new timeout based on current tip.
-            let tip = {
+            let (tip, total_difficulty) = {
                 let chain_state = shared.chain_state().read();
                 let header = chain_state.tip_header().clone();
                 let total_difficulty = chain_state.total_difficulty().clone();
-                RichHeader::new(header, total_difficulty)
+                (header, total_difficulty)
             };
             assert_eq!(
                 peer_state.get(&3).unwrap().chain_sync.work_header,
                 Some(tip.clone())
             );
             assert_eq!(
+                peer_state.get(&3).unwrap().chain_sync.total_difficulty,
+                Some(total_difficulty.clone())
+            );
+            assert_eq!(
                 peer_state.get(&4).unwrap().chain_sync.work_header,
                 Some(tip)
+            );
+            assert_eq!(
+                peer_state.get(&4).unwrap().chain_sync.total_difficulty,
+                Some(total_difficulty)
             );
             assert_eq!(
                 peer_state.get(&3).unwrap().chain_sync.timeout,
