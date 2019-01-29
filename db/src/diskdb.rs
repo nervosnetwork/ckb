@@ -129,7 +129,6 @@ mod tests {
             .tempdir()
             .unwrap();
         let config = DBConfig {
-            backend: "rocksdb".to_owned(),
             path: tmp_dir.as_ref().to_path_buf(),
             rocksdb: Some({
                 let mut opts = HashMap::new();
@@ -148,7 +147,6 @@ mod tests {
             .tempdir()
             .unwrap();
         let config = DBConfig {
-            backend: "rocksdb".to_owned(),
             path: tmp_dir.as_ref().to_path_buf(),
             rocksdb: Some({
                 let mut opts = HashMap::new();
