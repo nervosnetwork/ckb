@@ -10,7 +10,7 @@ use ckb_network::NetworkService;
 use ckb_notify::{NotifyController, NotifyService};
 use ckb_pool::txs_pool::{PoolConfig, TransactionPoolController, TransactionPoolService};
 use ckb_pow::PowEngine;
-use ckb_rpc::RpcServer;
+use ckb_rpc::{Config as RpcConfig, RpcServer};
 use ckb_shared::cachedb::CacheDB;
 use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::{ChainProvider, Shared, SharedBuilder};
@@ -22,7 +22,6 @@ use crypto::secp::Generator;
 use log::info;
 use numext_fixed_hash::H256;
 use std::sync::{atomic::AtomicUsize, Arc};
-use std::thread;
 
 pub fn run(setup: Setup) {
     let consensus = setup.chain_spec.to_consensus().unwrap();
@@ -95,12 +94,8 @@ pub fn run(setup: Setup) {
             .expect("Create and start network"),
     );
 
-    let rpc_server = RpcServer {
-        config: setup.configs.rpc,
-    };
-
-    setup_rpc(
-        rpc_server,
+    let rpc_server = setup_rpc(
+        setup.configs.rpc,
         &pow_engine,
         Arc::clone(&network),
         shared,
@@ -112,6 +107,12 @@ pub fn run(setup: Setup) {
     wait_for_exit();
 
     info!(target: "main", "Finishing work, please wait...");
+
+    rpc_server.close();
+    info!(target: "main", "Jsonrpc shutdown");
+
+    network.close();
+    info!(target: "main", "Network shutdown");
 }
 
 fn setup_tx_pool<CI: ChainIndex + 'static>(
@@ -128,14 +129,14 @@ fn setup_tx_pool<CI: ChainIndex + 'static>(
 }
 
 fn setup_rpc<CI: ChainIndex + 'static>(
-    server: RpcServer,
+    config: RpcConfig,
     pow: &Arc<dyn PowEngine>,
     network: Arc<NetworkService>,
     shared: Shared<CI>,
     tx_pool: TransactionPoolController,
     chain: ChainController,
     agent: BlockAssemblerController,
-) {
+) -> RpcServer {
     use ckb_pow::Clicker;
 
     let pow = pow
@@ -144,11 +145,9 @@ fn setup_rpc<CI: ChainIndex + 'static>(
         .downcast_ref::<Clicker>()
         .map(|pow| Arc::new(pow.clone()));
 
-    let _ = thread::Builder::new().name("rpc".to_string()).spawn({
-        move || {
-            server.start(network, shared, tx_pool, chain, agent, pow);
-        }
-    });
+    let mut server = RpcServer::new(config, network, shared, tx_pool, chain, agent, pow);
+    server.start();
+    server
 }
 
 pub fn type_hash(setup: &Setup) {

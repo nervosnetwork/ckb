@@ -10,32 +10,37 @@ use ckb_pool::txs_pool::TransactionPoolController;
 use ckb_pow::Clicker;
 use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::Shared;
+use futures::sync::oneshot;
 use jsonrpc_core::IoHandler;
-use jsonrpc_http_server::ServerBuilder;
+use jsonrpc_http_server::{Server, ServerBuilder};
 use jsonrpc_server_utils::cors::AccessControlAllowOrigin;
 use jsonrpc_server_utils::hosts::DomainsValidation;
-use log::info;
+use log::{error, info};
 use std::sync::Arc;
+use std::thread::{self, JoinHandle};
 
 pub struct RpcServer {
-    pub config: Config,
+    server: Option<Server>,
+    thread: Option<JoinHandle<()>>,
+    closes: Option<Vec<oneshot::Sender<()>>>,
 }
 
 impl RpcServer {
-    pub fn start<CI: ChainIndex + 'static>(
-        &self,
+    pub fn new<CI: ChainIndex + 'static>(
+        config: Config,
         network: Arc<NetworkService>,
         shared: Shared<CI>,
         tx_pool: TransactionPoolController,
         chain: ChainController,
         block_assembler: BlockAssemblerController,
         test_engine: Option<Arc<Clicker>>,
-    ) where
+    ) -> RpcServer
+    where
         CI: ChainIndex,
     {
         let mut io = IoHandler::new();
 
-        if self.config.chain_enable() {
+        if config.chain_enable() {
             io.extend_with(
                 ChainRpcImpl {
                     shared: shared.clone(),
@@ -44,7 +49,7 @@ impl RpcServer {
             );
         }
 
-        if self.config.pool_enable() {
+        if config.pool_enable() {
             io.extend_with(
                 PoolRpcImpl {
                     network: Arc::clone(&network),
@@ -54,7 +59,7 @@ impl RpcServer {
             );
         }
 
-        if self.config.miner_enable() {
+        if config.miner_enable() {
             io.extend_with(
                 MinerRpcImpl {
                     shared,
@@ -66,7 +71,7 @@ impl RpcServer {
             );
         }
 
-        if self.config.net_enable() {
+        if config.net_enable() {
             io.extend_with(
                 NetworkRpcImpl {
                     network: Arc::clone(&network),
@@ -75,7 +80,7 @@ impl RpcServer {
             );
         }
 
-        if self.config.trace_enable() {
+        if config.trace_enable() {
             io.extend_with(
                 TraceRpcImpl {
                     network: Arc::clone(&network),
@@ -95,17 +100,53 @@ impl RpcServer {
             );
         }
 
-        let server = ServerBuilder::new(io)
+        let mut server = ServerBuilder::new(io)
             .cors(DomainsValidation::AllowOnly(vec![
                 AccessControlAllowOrigin::Null,
                 AccessControlAllowOrigin::Any,
             ]))
-            .threads(self.config.threads.unwrap_or_else(num_cpus::get))
-            .max_request_body_size(self.config.max_request_body_size)
-            .start_http(&self.config.listen_address.parse().unwrap())
-            .unwrap();
+            .threads(config.threads.unwrap_or_else(num_cpus::get))
+            .max_request_body_size(config.max_request_body_size)
+            .start_http(&config.listen_address.parse().unwrap())
+            .expect("Jsonrpc initialize");
 
-        info!(target: "rpc", "Now listening on {:?}", server.address());
-        server.wait();
+        let closes = server.take_close();
+
+        assert!(closes.is_some());
+        RpcServer {
+            server: Some(server),
+            closes,
+            thread: None,
+        }
+    }
+
+    pub fn start(&mut self) {
+        let server = self.server.take().expect("Jsonrpc start only once");
+
+        let thread = thread::Builder::new()
+            .name("rpc".to_string())
+            .spawn({
+                move || {
+                    info!(target: "rpc", "Now listening on {:?}", server.address());
+                    server.wait();
+                }
+            })
+            .expect("Jsonrpc started");
+
+        self.thread = Some(thread);
+    }
+
+    pub fn close(mut self) {
+        if let Some(thread) = self.thread.take() {
+            let closes = self.closes.take().expect("jsonrpc only close once");
+
+            for close in closes {
+                let _ = close.send(());
+            }
+
+            let _ = thread.join();
+        } else {
+            error!(target: "rpc", "close failed, jsonrpc not running");
+        }
     }
 }
