@@ -753,7 +753,7 @@ mod tests {
         Shared<ChainKVStore<MemoryKeyValueDB>>,
         NotifyController,
     ) {
-        let mut builder = SharedBuilder::<ChainKVStore<MemoryKeyValueDB>>::new_memory();
+        let mut builder = SharedBuilder::<MemoryKeyValueDB>::new();
         if let Some(consensus) = consensus {
             builder = builder.consensus(consensus);
         }

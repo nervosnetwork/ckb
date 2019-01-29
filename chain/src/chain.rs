@@ -413,7 +413,7 @@ pub mod test {
     fn start_chain(
         consensus: Option<Consensus>,
     ) -> (ChainController, Shared<ChainKVStore<MemoryKeyValueDB>>) {
-        let builder = SharedBuilder::<ChainKVStore<MemoryKeyValueDB>>::new_memory();
+        let builder = SharedBuilder::<MemoryKeyValueDB>::new();
         let shared = builder
             .consensus(consensus.unwrap_or_else(|| Consensus::default().set_verification(false)))
             .build();

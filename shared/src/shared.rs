@@ -439,41 +439,52 @@ impl<CI: ChainIndex> BlockMedianTimeContext for Shared<CI> {
     }
 }
 
-pub struct SharedBuilder<CI> {
-    store: CI,
+pub struct SharedBuilder<DB: KeyValueDB> {
+    db: Option<DB>,
     consensus: Option<Consensus>,
 }
 
-impl<CI: ChainIndex> SharedBuilder<CI> {
-    pub fn new_memory() -> SharedBuilder<ChainKVStore<MemoryKeyValueDB>> {
-        let db = MemoryKeyValueDB::open(COLUMNS as usize);
-        SharedBuilder::<ChainKVStore<MemoryKeyValueDB>>::new_simple(db)
-    }
-
-    pub fn new_rocks(db: &DBConfig) -> SharedBuilder<ChainKVStore<CacheDB<RocksDB>>> {
-        let db = CacheDB::new(
-            RocksDB::open(db, COLUMNS),
-            &[(COLUMN_BLOCK_HEADER.unwrap(), 4096)],
-        );
-        SharedBuilder::<ChainKVStore<CacheDB<RocksDB>>>::new_simple(db)
-    }
-
-    pub fn new_simple<T: 'static + KeyValueDB>(db: T) -> SharedBuilder<ChainKVStore<T>> {
-        let mut consensus = Consensus::default();
-        consensus.initial_block_reward = 50;
+impl<DB: KeyValueDB> Default for SharedBuilder<DB> {
+    fn default() -> Self {
         SharedBuilder {
-            store: ChainKVStore::new(db),
-            consensus: Some(consensus),
+            db: None,
+            consensus: None,
         }
     }
+}
 
+impl SharedBuilder<MemoryKeyValueDB> {
+    pub fn new() -> Self {
+        SharedBuilder {
+            db: Some(MemoryKeyValueDB::open(COLUMNS as usize)),
+            consensus: None,
+        }
+    }
+}
+
+impl SharedBuilder<CacheDB<RocksDB>> {
+    pub fn new() -> Self {
+        Default::default()
+    }
+
+    pub fn db(mut self, config: &DBConfig) -> Self {
+        self.db = Some(CacheDB::new(
+            RocksDB::open(config, COLUMNS),
+            &[(COLUMN_BLOCK_HEADER.unwrap(), 4096)],
+        ));
+        self
+    }
+}
+
+impl<DB: 'static + KeyValueDB> SharedBuilder<DB> {
     pub fn consensus(mut self, value: Consensus) -> Self {
         self.consensus = Some(value);
         self
     }
 
-    pub fn build(self) -> Shared<CI> {
+    pub fn build(self) -> Shared<ChainKVStore<DB>> {
+        let store = ChainKVStore::new(self.db.unwrap());
         let consensus = self.consensus.unwrap_or_else(Consensus::default);
-        Shared::new(self.store, consensus)
+        Shared::new(store, consensus)
     }
 }

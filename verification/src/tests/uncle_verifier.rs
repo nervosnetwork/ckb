@@ -38,7 +38,7 @@ fn gen_block(parent_header: &Header, nonce: u64, difficulty: U256) -> Block {
 fn start_chain(
     consensus: Option<Consensus>,
 ) -> (ChainController, Shared<ChainKVStore<MemoryKeyValueDB>>) {
-    let mut builder = SharedBuilder::<ChainKVStore<MemoryKeyValueDB>>::new_memory();
+    let mut builder = SharedBuilder::<MemoryKeyValueDB>::new();
     if let Some(consensus) = consensus {
         builder = builder.consensus(consensus);
     }

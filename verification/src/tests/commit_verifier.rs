@@ -80,7 +80,7 @@ fn create_transaction(parent: &H256) -> Transaction {
 fn start_chain(
     consensus: Option<Consensus>,
 ) -> (ChainController, Shared<ChainKVStore<MemoryKeyValueDB>>) {
-    let mut builder = SharedBuilder::<ChainKVStore<MemoryKeyValueDB>>::new_memory();
+    let mut builder = SharedBuilder::<MemoryKeyValueDB>::new();
     if let Some(consensus) = consensus {
         builder = builder.consensus(consensus);
     }
