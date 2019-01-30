@@ -9,6 +9,7 @@ use std::sync::Arc;
 use std::thread;
 use stop_handler::{SignalSender, StopHandler};
 
+pub const SIGNAL_CHANNEL_SIZE: usize = 1;
 pub const REGISTER_CHANNEL_SIZE: usize = 2;
 pub const NOTIFY_CHANNEL_SIZE: usize = 128;
 
@@ -58,10 +59,16 @@ pub struct NotifyController {
     switch_fork_notifier: Sender<MsgSwitchFork>,
 }
 
+impl Drop for NotifyController {
+    fn drop(&mut self) {
+        self.stop.try_send();
+    }
+}
+
 impl NotifyService {
     pub fn start<S: ToString>(self, thread_name: Option<S>) -> NotifyController {
         let (signal_sender, signal_receiver) =
-            crossbeam_channel::bounded::<()>(REGISTER_CHANNEL_SIZE);
+            crossbeam_channel::bounded::<()>(SIGNAL_CHANNEL_SIZE);
         let (new_transaction_register, new_transaction_register_receiver) =
             crossbeam_channel::bounded(REGISTER_CHANNEL_SIZE);
         let (new_tip_register, new_tip_register_receiver) =
@@ -306,12 +313,6 @@ impl NotifyController {
     }
     pub fn notify_switch_fork(&self, txs: MsgSwitchFork) {
         let _ = self.switch_fork_notifier.send(txs);
-    }
-}
-
-impl Drop for NotifyController {
-    fn drop(&mut self) {
-        self.stop.try_send();
     }
 }
 

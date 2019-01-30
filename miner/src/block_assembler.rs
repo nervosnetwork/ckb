@@ -1,6 +1,6 @@
 use ckb_core::block::Block;
 use ckb_core::header::Header;
-use ckb_core::service::{Request, DEFAULT_CHANNEL_SIZE};
+use ckb_core::service::{Request, DEFAULT_CHANNEL_SIZE, SIGNAL_CHANNEL_SIZE};
 use ckb_core::transaction::{CellInput, CellOutput, Transaction, TransactionBuilder};
 use ckb_core::uncle::UncleBlock;
 use ckb_core::BlockNumber;
@@ -20,7 +20,8 @@ use lru_cache::LruCache;
 use numext_fixed_hash::H256;
 use std::cmp;
 use std::sync::{atomic::AtomicUsize, atomic::Ordering, Arc};
-use std::thread::{self, JoinHandle};
+use std::thread;
+use stop_handler::{SignalSender, StopHandler};
 
 const MAX_CANDIDATE_UNCLES: usize = 42;
 type BlockTemplateParams = (Option<Cycle>, Option<u64>, Option<Version>);
@@ -51,39 +52,23 @@ impl TemplateCache {
     }
 }
 
-pub struct BlockAssembler<CI> {
-    shared: Shared<CI>,
-    tx_pool: TransactionPoolController,
-    candidate_uncles: LruCache<H256, Arc<Block>>,
-    type_hash: H256,
-    work_id: AtomicUsize,
-    last_uncles_updated_at: AtomicUsize,
-    template_caches: Mutex<LruCache<(Cycle, u64, Version), TemplateCache>>,
-}
-
 #[derive(Clone)]
 pub struct BlockAssemblerController {
     get_block_template_sender: Sender<Request<BlockTemplateParams, BlockTemplateResult>>,
+    stop: StopHandler<()>,
 }
 
-pub struct BlockAssemblerReceivers {
+impl Drop for BlockAssemblerController {
+    fn drop(&mut self) {
+        self.stop.try_send();
+    }
+}
+
+struct BlockAssemblerReceivers {
     get_block_template_receiver: Receiver<Request<BlockTemplateParams, BlockTemplateResult>>,
 }
 
 impl BlockAssemblerController {
-    pub fn build() -> (BlockAssemblerController, BlockAssemblerReceivers) {
-        let (get_block_template_sender, get_block_template_receiver) =
-            crossbeam_channel::bounded(DEFAULT_CHANNEL_SIZE);
-        (
-            BlockAssemblerController {
-                get_block_template_sender,
-            },
-            BlockAssemblerReceivers {
-                get_block_template_receiver,
-            },
-        )
-    }
-
     pub fn get_block_template(
         &self,
         cycles_limit: Option<Cycle>,
@@ -96,6 +81,16 @@ impl BlockAssemblerController {
         )
         .expect("get_block_template() failed")
     }
+}
+
+pub struct BlockAssembler<CI> {
+    shared: Shared<CI>,
+    tx_pool: TransactionPoolController,
+    candidate_uncles: LruCache<H256, Arc<Block>>,
+    type_hash: H256,
+    work_id: AtomicUsize,
+    last_uncles_updated_at: AtomicUsize,
+    template_caches: Mutex<LruCache<(Cycle, u64, Version), TemplateCache>>,
 }
 
 impl<CI: ChainIndex + 'static> BlockAssembler<CI> {
@@ -114,19 +109,30 @@ impl<CI: ChainIndex + 'static> BlockAssembler<CI> {
     pub fn start<S: ToString>(
         mut self,
         thread_name: Option<S>,
-        receivers: BlockAssemblerReceivers,
         notify: &NotifyController,
-    ) -> JoinHandle<()> {
+    ) -> BlockAssemblerController {
+        let (signal_sender, signal_receiver) =
+            crossbeam_channel::bounded::<()>(SIGNAL_CHANNEL_SIZE);
+        let (get_block_template_sender, get_block_template_receiver) =
+            crossbeam_channel::bounded(DEFAULT_CHANNEL_SIZE);
+
         let mut thread_builder = thread::Builder::new();
         // Mainly for test: give a empty thread_name
         if let Some(name) = thread_name {
             thread_builder = thread_builder.name(name.to_string());
         }
 
+        let receivers = BlockAssemblerReceivers {
+            get_block_template_receiver,
+        };
+
         let new_uncle_receiver = notify.subscribe_new_uncle(BLOCK_ASSEMBLER_SUBSCRIBER);
-        thread_builder
+        let thread = thread_builder
             .spawn(move || loop {
                 select! {
+                    recv(signal_receiver) -> _ => {
+                        break;
+                    }
                     recv(new_uncle_receiver) -> msg => match msg {
                         Ok(uncle_block) => {
                             let hash = uncle_block.header().hash().clone();
@@ -149,7 +155,13 @@ impl<CI: ChainIndex + 'static> BlockAssembler<CI> {
                         },
                     }
                 }
-            }).expect("Start MinerAgent failed")
+            }).expect("Start MinerAgent failed");
+        let stop = StopHandler::new(SignalSender::Crossbeam(signal_sender), thread);
+
+        BlockAssemblerController {
+            get_block_template_sender,
+            stop,
+        }
     }
 
     fn transform_params(
@@ -413,7 +425,6 @@ mod tests {
     use ckb_verification::{BlockVerifier, HeaderResolverWrapper, HeaderVerifier, Verifier};
     use jsonrpc_types::{BlockTemplate, CellbaseTemplate};
     use numext_fixed_hash::H256;
-    use std::sync::{atomic::AtomicUsize, Arc};
 
     fn start_chain(
         consensus: Option<Consensus>,
@@ -430,11 +441,8 @@ mod tests {
         let shared = builder.build();
 
         let notify = notify.unwrap_or_else(|| NotifyService::default().start::<&str>(None));
-        let (chain_controller, chain_receivers) = ChainController::build();
-        let chain_service = ChainBuilder::new(shared.clone())
-            .notify(notify.clone())
-            .build();
-        let _handle = chain_service.start::<&str>(None, chain_receivers);
+        let chain_service = ChainBuilder::new(shared.clone(), notify.clone()).build();
+        let chain_controller = chain_service.start::<&str>(None);
         (chain_controller, shared, notify)
     }
 
@@ -450,13 +458,8 @@ mod tests {
             max_pending_size: 1000,
             trace: Some(100),
         };
-        let last_txs_updated_at = Arc::new(AtomicUsize::new(0));
-        let (tx_pool_controller, tx_pool_receivers) =
-            TransactionPoolController::build(Arc::clone(&last_txs_updated_at));
-        let tx_pool_service =
-            TransactionPoolService::new(config, shared, notify, last_txs_updated_at);
-        let _handle = tx_pool_service.start(Some("TransactionPoolService"), tx_pool_receivers);
-        tx_pool_controller
+        let tx_pool_service = TransactionPoolService::new(config, shared, notify);
+        tx_pool_service.start(Some("TransactionPoolService"))
     }
 
     fn setup_block_assembler<CI: ChainIndex + 'static>(

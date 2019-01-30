@@ -34,6 +34,8 @@ struct Handler<T> {
     thread: JoinHandle<T>,
 }
 
+//the outer Option take ownership for `Arc::try_unwrap`
+//the inner Option take ownership for `JoinHandle` or `oneshot::Sender`
 #[derive(Clone, Debug)]
 pub struct StopHandler<T> {
     inner: Option<Arc<Mutex<Option<Handler<T>>>>>,
