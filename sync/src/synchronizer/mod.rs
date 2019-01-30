@@ -108,13 +108,13 @@ fn is_outbound(nc: &CKBProtocolContext, peer: PeerIndex) -> Option<bool> {
 impl<CI: ChainIndex> Synchronizer<CI> {
     pub fn new(chain: ChainController, shared: Shared<CI>, config: Config) -> Synchronizer<CI> {
         let (total_difficulty, header, total_uncles_count) = {
-            let tip_header = shared.tip_header().read();
+            let chain_state = shared.chain_state().read();
             let block_ext = shared
-                .block_ext(&tip_header.hash())
+                .block_ext(&chain_state.tip_hash())
                 .expect("tip block_ext must exist");
             (
-                tip_header.total_difficulty().clone(),
-                tip_header.inner().clone(),
+                chain_state.total_difficulty().clone(),
+                chain_state.tip_header().clone(),
                 block_ext.total_uncles_count,
             )
         };
@@ -195,7 +195,8 @@ impl<CI: ChainIndex> Synchronizer<CI> {
     }
 
     pub fn is_initial_block_download(&self) -> bool {
-        unix_time_as_millis().saturating_sub(self.shared.tip_header().read().inner().timestamp())
+        unix_time_as_millis()
+            .saturating_sub(self.shared.chain_state().read().tip_header().timestamp())
             > MAX_TIP_AGE
     }
 
@@ -215,7 +216,7 @@ impl<CI: ChainIndex> Synchronizer<CI> {
     }
 
     pub fn tip_header(&self) -> Header {
-        self.shared.tip_header().read().inner().clone()
+        self.shared.chain_state().read().tip_header().clone()
     }
 
     pub fn get_locator(&self, start: &Header) -> Vec<H256> {
@@ -435,7 +436,7 @@ impl<CI: ChainIndex> Synchronizer<CI> {
         let block = Arc::new(block);
         if self
             .shared
-            .output_root(&block.header().parent_hash())
+            .block_header(&block.header().parent_hash())
             .is_some()
         {
             let accept_ret = self.accept_block(peer, &block);
@@ -447,7 +448,7 @@ impl<CI: ChainIndex> Synchronizer<CI> {
                     let block = Arc::new(block);
                     if self
                         .shared
-                        .output_root(&block.header().parent_hash())
+                        .block_header(&block.header().parent_hash())
                         .is_some()
                     {
                         let ret = self.accept_block(peer, &block);
@@ -547,30 +548,29 @@ impl<CI: ChainIndex> Synchronizer<CI> {
                 if !state.chain_sync.protect && is_outbound {
                     let best_known_header = best_known_headers.get(peer);
 
-                    let chain_tip = self.shared.tip_header().read();
+                    let chain_state = self.shared.chain_state().read();
                     if best_known_header.map(|h| h.total_difficulty())
-                        >= Some(chain_tip.total_difficulty())
+                        >= Some(chain_state.total_difficulty())
                     {
                         if state.chain_sync.timeout != 0 {
                             state.chain_sync.timeout = 0;
                             state.chain_sync.work_header = None;
+                            state.chain_sync.total_difficulty = None;
                             state.chain_sync.sent_getheaders = false;
                         }
                     } else if state.chain_sync.timeout == 0
                         || (best_known_header.is_some()
                             && best_known_header.map(|h| h.total_difficulty())
-                                >= state
-                                    .chain_sync
-                                    .work_header
-                                    .as_ref()
-                                    .map(|h| h.total_difficulty()))
+                                >= state.chain_sync.total_difficulty.as_ref())
                     {
                         // Our best block known by this peer is behind our tip, and we're either noticing
                         // that for the first time, OR this peer was able to catch up to some earlier point
                         // where we checked against our tip.
                         // Either way, set a new timeout based on current tip.
                         state.chain_sync.timeout = now + CHAIN_SYNC_TIMEOUT;
-                        state.chain_sync.work_header = Some(chain_tip.clone());
+                        state.chain_sync.work_header = Some(chain_state.tip_header().clone());
+                        state.chain_sync.total_difficulty =
+                            Some(chain_state.total_difficulty().clone());
                         state.chain_sync.sent_getheaders = false;
                     } else if state.chain_sync.timeout > 0 && now > state.chain_sync.timeout {
                         // No evidence yet that our peer has synced to a chain with work equal to that
@@ -585,7 +585,7 @@ impl<CI: ChainIndex> Synchronizer<CI> {
                             self.send_getheaders_to_peer(
                                 nc,
                                 *peer,
-                                state.chain_sync.work_header.clone().unwrap().inner(),
+                                &state.chain_sync.work_header.clone().unwrap(),
                             );
                         }
                     }
@@ -612,13 +612,19 @@ impl<CI: ChainIndex> Synchronizer<CI> {
             debug!(target: "sync", "start sync peers= {:?}", &peers);
         }
         let tip = {
-            let local = { self.shared.tip_header().read().clone() };
+            let (header, total_difficulty) = {
+                let chain_state = self.shared.chain_state().read();
+                (
+                    chain_state.tip_header().clone(),
+                    chain_state.total_difficulty().clone(),
+                )
+            };
             let best_known = self.best_known_header();
-            if local.total_difficulty() > best_known.total_difficulty()
-                || (local.total_difficulty() == best_known.total_difficulty()
-                    && local.hash() < best_known.hash())
+            if total_difficulty > *best_known.total_difficulty()
+                || (&total_difficulty == best_known.total_difficulty()
+                    && header.hash() < best_known.hash())
             {
-                local.into_inner()
+                header
             } else {
                 best_known.into_inner()
             }
@@ -839,7 +845,7 @@ mod tests {
 
         let synchronizer = gen_synchronizer(chain_controller.clone(), shared.clone());
 
-        let locator = synchronizer.get_locator(&shared.tip_header().read().inner());
+        let locator = synchronizer.get_locator(shared.chain_state().read().tip_header());
 
         let mut expect = Vec::new();
 
@@ -871,7 +877,7 @@ mod tests {
 
         let synchronizer2 = gen_synchronizer(chain_controller2.clone(), shared2.clone());
 
-        let locator1 = synchronizer1.get_locator(&shared1.tip_header().read().inner());
+        let locator1 = synchronizer1.get_locator(shared1.chain_state().read().tip_header());
 
         let latest_common = synchronizer2.locate_latest_common_block(&H256::zero(), &locator1[..]);
 
@@ -926,7 +932,7 @@ mod tests {
 
         let synchronizer1 = gen_synchronizer(chain_controller1.clone(), shared1.clone());
         let synchronizer2 = gen_synchronizer(chain_controller2.clone(), shared2.clone());
-        let locator1 = synchronizer1.get_locator(&shared1.tip_header().read().inner());
+        let locator1 = synchronizer1.get_locator(shared1.chain_state().read().tip_header());
 
         let latest_common = synchronizer2
             .locate_latest_common_block(&H256::zero(), &locator1[..])
@@ -955,13 +961,16 @@ mod tests {
 
         let synchronizer = gen_synchronizer(chain_controller.clone(), shared.clone());
 
-        let header = synchronizer.get_ancestor(&shared.tip_header().read().hash(), 100);
-        let tip = synchronizer.get_ancestor(&shared.tip_header().read().hash(), 199);
-        let noop = synchronizer.get_ancestor(&shared.tip_header().read().hash(), 200);
+        let header = synchronizer.get_ancestor(&shared.chain_state().read().tip_hash(), 100);
+        let tip = synchronizer.get_ancestor(&shared.chain_state().read().tip_hash(), 199);
+        let noop = synchronizer.get_ancestor(&shared.chain_state().read().tip_hash(), 200);
         assert!(tip.is_some());
         assert!(header.is_some());
         assert!(noop.is_none());
-        assert_eq!(tip.unwrap(), shared.tip_header().read().inner().clone());
+        assert_eq!(
+            tip.unwrap(),
+            shared.chain_state().read().tip_header().clone()
+        );
         assert_eq!(
             header.unwrap(),
             shared
@@ -1000,7 +1009,7 @@ mod tests {
 
         assert_eq!(
             blocks.last().unwrap().header(),
-            shared2.tip_header().read().inner()
+            shared2.chain_state().read().tip_header()
         );
     }
 
@@ -1137,7 +1146,7 @@ mod tests {
 
         let synchronizer1 = gen_synchronizer(chain_controller1.clone(), shared1.clone());
 
-        let locator1 = synchronizer1.get_locator(&shared1.tip_header().read().inner());
+        let locator1 = synchronizer1.get_locator(&shared1.chain_state().read().tip_header());
 
         for i in 1..=num {
             let j = if i > 192 { i + 1 } else { i };
@@ -1270,7 +1279,7 @@ mod tests {
         let (chain_controller, shared, _notify) = start_chain(Some(consensus), None);
 
         assert_eq!(
-            shared.tip_header().read().total_difficulty(),
+            shared.chain_state().read().total_difficulty(),
             &U256::from(2u64)
         );
 
@@ -1305,14 +1314,27 @@ mod tests {
             // that for the first time, OR this peer was able to catch up to some earlier point
             // where we checked against our tip.
             // Either way, set a new timeout based on current tip.
-            let tip = { shared.tip_header().read().clone() };
+            let (tip, total_difficulty) = {
+                let chain_state = shared.chain_state().read();
+                let header = chain_state.tip_header().clone();
+                let total_difficulty = chain_state.total_difficulty().clone();
+                (header, total_difficulty)
+            };
             assert_eq!(
                 peer_state.get(&3).unwrap().chain_sync.work_header,
                 Some(tip.clone())
             );
             assert_eq!(
+                peer_state.get(&3).unwrap().chain_sync.total_difficulty,
+                Some(total_difficulty.clone())
+            );
+            assert_eq!(
                 peer_state.get(&4).unwrap().chain_sync.work_header,
                 Some(tip)
+            );
+            assert_eq!(
+                peer_state.get(&4).unwrap().chain_sync.total_difficulty,
+                Some(total_difficulty)
             );
             assert_eq!(
                 peer_state.get(&3).unwrap().chain_sync.timeout,

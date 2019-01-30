@@ -49,7 +49,7 @@ fn test_proposal_pool() {
 
     assert_eq!(pool.service.total_size(), 0);
 
-    let block_number = { pool.shared.tip_header().read().number() };
+    let block_number = { pool.shared.chain_state().read().tip_number() };
 
     let mut txs = vec![];
 
@@ -169,7 +169,7 @@ fn test_add_pool() {
     );
     expect_output_parent!(
         pool.service,
-        CellStatus::Unknown,
+        CellStatus::Dead,
         OutPoint::new(pool.tx_hash.clone(), 200)
     );
 }
@@ -179,7 +179,7 @@ pub fn test_cellbase_spent() {
     let mut pool = TestPool::<ChainKVStore<MemoryKeyValueDB>>::simple();
     let cellbase_tx: Transaction = TransactionBuilder::default()
         .input(CellInput::new_cellbase_input(
-            pool.shared.tip_header().read().number() + 1,
+            pool.shared.chain_state().read().tip_number() + 1,
         ))
         .output(CellOutput::new(
             50000,
@@ -415,7 +415,7 @@ fn test_switch_fork() {
 
     assert_eq!(pool.service.total_size(), 0);
 
-    let block_number = { pool.shared.tip_header().read().number() };
+    let block_number = { pool.shared.chain_state().read().tip_number() };
 
     let mut txs = vec![];
 
@@ -478,7 +478,7 @@ fn prepare_trace(
 ) -> Transaction {
     let tx = test_transaction(&[OutPoint::new(pool.tx_hash.clone(), 0)], 2);
 
-    let block_number = { pool.shared.tip_header().read().number() };
+    let block_number = { pool.shared.chain_state().read().tip_number() };
 
     pool.service.trace_transaction(tx.clone()).unwrap();
     let prop_ids = pool.service.prepare_proposal(10);
@@ -667,7 +667,7 @@ fn apply_transactions<CI: ChainIndex + 'static>(
         H256::zero()
     };
 
-    let parent = pool.shared.tip_header().read().inner().clone();
+    let parent = pool.shared.chain_state().read().tip_header().clone();
 
     let header_builder = HeaderBuilder::default()
         .parent_hash(parent.hash().clone())

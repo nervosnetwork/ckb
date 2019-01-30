@@ -77,19 +77,6 @@ version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
-name = "avl-merkle"
-version = "0.5.0-pre"
-dependencies = [
- "bincode 1.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "ckb-core 0.5.0-pre",
- "ckb-db 0.5.0-pre",
- "hash 0.5.0-pre",
- "numext-fixed-hash 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
- "serde 1.0.85 (registry+https://github.com/rust-lang/crates.io-index)",
- "serde_derive 1.0.85 (registry+https://github.com/rust-lang/crates.io-index)",
-]
-
-[[package]]
 name = "backtrace"
 version = "0.3.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -365,6 +352,7 @@ dependencies = [
  "crossbeam-channel 0.3.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "env_logger 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "faketime 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "fnv 1.0.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "numext-fixed-hash 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "numext-fixed-uint 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -614,7 +602,6 @@ dependencies = [
 name = "ckb-shared"
 version = "0.5.0-pre"
 dependencies = [
- "avl-merkle 0.5.0-pre",
  "bincode 1.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "ckb-chain-spec 0.5.0-pre",
  "ckb-core 0.5.0-pre",

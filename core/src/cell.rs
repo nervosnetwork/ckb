@@ -1,6 +1,5 @@
 use crate::transaction::{CellOutput, OutPoint, Transaction};
-use numext_fixed_hash::H256;
-use std::collections::HashSet;
+use fnv::FnvHashSet;
 use std::iter::Chain;
 use std::slice;
 
@@ -56,91 +55,51 @@ pub struct ResolvedTransaction {
 pub trait CellProvider {
     fn cell(&self, out_point: &OutPoint) -> CellStatus;
 
-    fn cell_at(&self, out_point: &OutPoint, parent: &H256) -> CellStatus;
+    fn cell_at<F: Fn(&OutPoint) -> Option<bool>>(
+        &self,
+        out_point: &OutPoint,
+        is_spent: F,
+    ) -> CellStatus;
 
     fn resolve_transaction(&self, transaction: &Transaction) -> ResolvedTransaction {
-        let mut seen_inputs = HashSet::new();
-
-        let input_cells = transaction
-            .input_pts()
-            .iter()
-            .map(|input| {
-                if seen_inputs.insert(input.clone()) {
-                    self.cell(input)
-                } else {
-                    CellStatus::Dead
-                }
-            })
-            .collect();
-
-        let dep_cells = transaction
-            .dep_pts()
-            .iter()
-            .map(|dep| {
-                if seen_inputs.insert(dep.clone()) {
-                    self.cell(dep)
-                } else {
-                    CellStatus::Dead
-                }
-            })
-            .collect();
-
-        ResolvedTransaction {
-            transaction: transaction.clone(),
-            input_cells,
-            dep_cells,
-        }
+        let mut seen_inputs = FnvHashSet::default();
+        resolve_transaction(transaction, &mut seen_inputs, |x| self.cell(x))
     }
+}
 
-    fn resolve_transaction_at(
-        &self,
-        transaction: &Transaction,
-        parent: &H256,
-    ) -> ResolvedTransaction {
-        let mut seen_inputs = HashSet::new();
-
-        let input_cells = transaction
-            .input_pts()
-            .iter()
-            .map(|input| {
-                if seen_inputs.insert(input.clone()) {
-                    self.cell_at(input, parent)
-                } else {
-                    CellStatus::Dead
-                }
-            })
-            .collect();
-
-        let dep_cells = transaction
-            .dep_pts()
-            .iter()
-            .map(|dep| {
-                if seen_inputs.insert(dep.clone()) {
-                    self.cell_at(dep, parent)
-                } else {
-                    CellStatus::Dead
-                }
-            })
-            .collect();
-
-        ResolvedTransaction {
-            transaction: transaction.clone(),
-            input_cells,
-            dep_cells,
-        }
-    }
-
-    fn resolve_transaction_unknown_inputs(&self, resolved_transaction: &mut ResolvedTransaction) {
-        for (out_point, state) in resolved_transaction.transaction.out_points_iter().zip(
-            resolved_transaction
-                .dep_cells
-                .iter_mut()
-                .chain(&mut resolved_transaction.input_cells),
-        ) {
-            if *state == CellStatus::Unknown {
-                *state = self.cell(out_point);
+pub fn resolve_transaction<F: Fn(&OutPoint) -> CellStatus>(
+    transaction: &Transaction,
+    seen_inputs: &mut FnvHashSet<OutPoint>,
+    cell: F,
+) -> ResolvedTransaction {
+    let input_cells = transaction
+        .input_pts()
+        .iter()
+        .map(|input| {
+            if seen_inputs.insert(input.clone()) {
+                cell(input)
+            } else {
+                CellStatus::Dead
             }
-        }
+        })
+        .collect();
+
+    let dep_cells = transaction
+        .dep_pts()
+        .iter()
+        .map(|dep| {
+            if seen_inputs.insert(dep.clone()) {
+                cell(dep)
+            } else {
+                CellStatus::Dead
+            }
+        })
+        .collect();
+
+    ResolvedTransaction {
+        transaction: transaction.clone(),
+        input_cells,
+        dep_cells,
     }
 }
 
@@ -186,7 +145,7 @@ mod tests {
             }
         }
 
-        fn cell_at(&self, o: &OutPoint, _: &H256) -> CellStatus {
+        fn cell_at<F: Fn(&OutPoint) -> Option<bool>>(&self, o: &OutPoint, _: F) -> CellStatus {
             match self.cells.get(o) {
                 Some(&Some(ref cell_output)) => CellStatus::Live(cell_output.clone()),
                 Some(&None) => CellStatus::Dead,
