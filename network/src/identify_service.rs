@@ -23,6 +23,8 @@ use std::time::Instant;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::timer::Interval;
 
+const MAX_LISTENED_ADDRS: usize = 10;
+
 pub struct IdentifyService {
     pub client_version: String,
     pub protocol_version: String,
@@ -71,10 +73,7 @@ impl IdentifyService {
             // get an external addrs for our node
             if let Some(ext_addr) = transport.nat_traversal(original_address, &observed_addr) {
                 debug!(target: "network", "get new external address {:?}", ext_addr);
-                let mut listened_addresses = network.listened_addresses.write();
-                if !listened_addresses.iter().any(|a| a == &ext_addr) {
-                    listened_addresses.push(ext_addr.clone());
-                }
+                network.discovery_listened_address(ext_addr.to_owned());
             }
         }
 
@@ -127,7 +126,11 @@ where
                         public_key: network.local_public_key().clone(),
                         protocol_version: format!("ckb/{}", self.protocol_version).to_owned(),
                         agent_version: format!("ckb/{}", self.client_version).to_owned(),
-                        listen_addrs: network.listened_addresses.read().clone(),
+                        listen_addrs: network
+                            .listened_addresses(MAX_LISTENED_ADDRS)
+                            .into_iter()
+                            .map(|(addr, _)| addr)
+                            .collect(),
                         protocols: vec![], // TODO FIXME: report local protocols
                     },
                     &addr,

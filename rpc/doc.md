@@ -288,20 +288,29 @@ curl -d '{"id": 2, "jsonrpc": "2.0", "method":"get_tip_block_number","params": [
 }
 ```
 
-# local_node_id
+# local_node_info
 
-Returns the local node id.
+Returns the local node information.
 
 ## Examples
 
 ```shell
-curl -d '{"id": 2, "jsonrpc": "2.0", "method":"local_node_id","params": []}' -H 'content-type:application/json' 'http://localhost:8114'
+curl -d '{"id": 2, "jsonrpc": "2.0", "method":"local_node_info","params": []}' -H 'content-type:application/json' 'http://localhost:8114'
 ```
 
 ```json
 {
     "jsonrpc": "2.0",
-    "result": "/ip4/0.0.0.0/tcp/8115/p2p/QmdSxB6iTcbhj6gbZNthvJrwRkJrwnsohNpVixY4FtcZwv",
+    "result": {
+        "addresses": [
+            {
+                "address": "/ip4/0.0.0.0/tcp/12344/p2p/QmWRU2NSro4wKgVbFX6y8SPFkcJ1tE2X5xzk9msMhdRmdS",
+                "score": 1
+            }
+        ],
+        "node_id": "QmWRU2NSro4wKgVbFX6y8SPFkcJ1tE2X5xzk9msMhdRmdS",
+        "version": "0.5.0"
+    },
     "id": 2
 }
 ```

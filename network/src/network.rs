@@ -17,6 +17,7 @@ use crate::NetworkConfig;
 use crate::{Error, ErrorKind, PeerIndex, ProtocolId};
 use bytes::Bytes;
 use ckb_util::{Mutex, RwLock};
+use fnv::FnvHashMap;
 use futures::future::{self, select_all, Future};
 use futures::sync::mpsc::UnboundedSender;
 use futures::sync::oneshot;
@@ -66,7 +67,7 @@ impl PeerInfo {
 pub struct Network {
     peers_registry: RwLock<PeersRegistry>,
     peer_store: Arc<RwLock<dyn PeerStore>>,
-    pub(crate) listened_addresses: RwLock<Vec<Multiaddr>>,
+    listened_addresses: RwLock<FnvHashMap<Multiaddr, u8>>,
     pub(crate) original_listened_addresses: RwLock<Vec<Multiaddr>>,
     pub(crate) ckb_protocols: CKBProtocols<Arc<CKBProtocolHandler>>,
     local_private_key: secio::SecioKeyPair,
@@ -84,6 +85,21 @@ impl Network {
 
     pub fn local_peer_id(&self) -> &PeerId {
         &self.local_peer_id
+    }
+
+    pub(crate) fn discovery_listened_address(&self, addr: Multiaddr) {
+        let mut listened_addresses = self.listened_addresses.write();
+        let score = listened_addresses.entry(addr).or_insert(0);
+        *score = score.saturating_add(1);
+    }
+
+    pub(crate) fn listened_addresses(&self, count: usize) -> Vec<(Multiaddr, u8)> {
+        let listened_addresses = self.listened_addresses.read();
+        listened_addresses
+            .iter()
+            .take(count)
+            .map(|(addr, score)| (addr.to_owned(), *score))
+            .collect()
     }
 
     pub(crate) fn get_peer_index(&self, peer_id: &PeerId) -> Option<PeerIndex> {
@@ -189,19 +205,24 @@ impl Network {
         self.local_private_key.to_public_key()
     }
 
-    pub fn external_url(&self) -> Option<String> {
-        self.original_listened_addresses
-            .read()
-            .get(0)
-            .map(|addr| self.to_external_url(addr))
+    pub fn external_urls(&self, max_urls: usize) -> Vec<(String, u8)> {
+        let original_listened_addresses = self.original_listened_addresses.read();
+        self.listened_addresses(max_urls.saturating_sub(original_listened_addresses.len()))
+            .into_iter()
+            .chain(
+                original_listened_addresses
+                    .iter()
+                    .map(|addr| (addr.to_owned(), 1)),
+            )
+            .map(|(addr, score)| (self.to_external_url(&addr), score))
+            .collect()
+    }
+    pub fn node_id(&self) -> String {
+        self.local_private_key.to_peer_id().to_base58()
     }
 
     fn to_external_url(&self, addr: &Multiaddr) -> String {
-        format!(
-            "{}/p2p/{}",
-            addr,
-            self.local_private_key.to_peer_id().to_base58()
-        )
+        format!("{}/p2p/{}", addr, self.node_id())
     }
 
     pub(crate) fn send(
@@ -470,7 +491,12 @@ impl Network {
             Some(private_key) => private_key?,
             None => return Err(ErrorKind::Other("secret_key not set".to_owned()).into()),
         };
-        let listened_addresses = config.public_addresses.clone();
+        // set max score to public addresses
+        let listened_addresses: FnvHashMap<Multiaddr, u8> = config
+            .public_addresses
+            .iter()
+            .map(|addr| (addr.to_owned(), std::u8::MAX))
+            .collect();
         let peer_store: Arc<RwLock<dyn PeerStore>> = {
             let mut peer_store = SqlitePeerStore::default();
             let bootnodes = config.bootnodes()?;
