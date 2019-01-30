@@ -4,24 +4,36 @@ use crate::ckb_protocol_handler::{CKBProtocolContext, DefaultCKBProtocolContext}
 use crate::network::Network;
 use crate::NetworkConfig;
 use crate::{Error, ErrorKind, ProtocolId};
+use ckb_util::Mutex;
 use futures::future::Future;
 use futures::sync::oneshot;
 use log::{debug, info};
-use std::io::{Error as IoError, ErrorKind as IoErrorKind};
 use std::sync::Arc;
 use std::thread;
 use tokio::runtime;
 
-pub struct NetworkService {
-    network: Arc<Network>,
-    close_tx: Option<oneshot::Sender<()>>,
-    join_handle: Option<thread::JoinHandle<()>>,
+pub struct StopHandler {
+    signal: oneshot::Sender<()>,
+    thread: thread::JoinHandle<()>,
 }
 
-impl Drop for NetworkService {
-    fn drop(&mut self) {
-        self.shutdown().expect("shutdown CKB network service");
+impl StopHandler {
+    pub fn new(signal: oneshot::Sender<()>, thread: thread::JoinHandle<()>) -> StopHandler {
+        StopHandler { signal, thread }
     }
+
+    pub fn close(self) {
+        let StopHandler { signal, thread } = self;
+        if let Err(e) = signal.send(()) {
+            debug!(target: "network", "send shutdown signal error, ignoring error: {:?}", e)
+        };
+        thread.join().expect("join network_service thread");
+    }
+}
+
+pub struct NetworkService {
+    network: Arc<Network>,
+    stop_handler: Mutex<Option<StopHandler>>,
 }
 
 impl NetworkService {
@@ -82,26 +94,19 @@ impl NetworkService {
         })?;
         Ok(NetworkService {
             network,
-            join_handle: Some(join_handle),
-            close_tx: Some(close_tx),
+            stop_handler: Mutex::new(Some(StopHandler::new(close_tx, join_handle))),
         })
     }
 
     // Send shutdown signal to server
     // This method will not wait for the server stopped, you should use server_future or
     // thread_handle to achieve that.
-    fn shutdown(&mut self) -> Result<(), IoError> {
-        debug!(target: "network", "shutdown network service self: {:?}", self.external_urls(1).get(0).map(|(addr, _)|addr.to_owned()));
-        if let Some(close_tx) = self.close_tx.take() {
-            let _ = close_tx
-                .send(())
-                .map_err(|err| debug!(target: "network", "send shutdown signal error, ignoring error: {:?}", err));
-        };
-        if let Some(join_handle) = self.join_handle.take() {
-            join_handle.join().map_err(|_| {
-                IoError::new(IoErrorKind::Other, "can't join network_service thread")
-            })?
-        }
-        Ok(())
+    pub fn close(&self) {
+        let handler = self
+            .stop_handler
+            .lock()
+            .take()
+            .expect("network_service can only close once");
+        handler.close();
     }
 }

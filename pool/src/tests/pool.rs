@@ -25,7 +25,6 @@ use numext_fixed_uint::U256;
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;
-use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 use std::time;
 use tempfile::TempPath;
@@ -653,17 +652,15 @@ struct TestPool<CI> {
 
 impl<CI: ChainIndex + 'static> TestPool<CI> {
     fn simple() -> TestPool<ChainKVStore<MemoryKeyValueDB>> {
-        let (_handle, notify) = NotifyService::default().start::<&str>(None);
+        let notify = NotifyService::default().start::<&str>(None);
         let switch_fork_receiver = notify.subscribe_switch_fork("txs_pool");
         let shared = SharedBuilder::<ChainKVStore<MemoryKeyValueDB>>::new_memory()
-            .consensus(Consensus::default().set_verification(false))
+            .consensus(Consensus::default())
             .build();
-
-        let (chain_controller, chain_receivers) = ChainController::build();
-        let chain_service = ChainBuilder::new(shared.clone())
-            .notify(notify.clone())
+        let chain_service = ChainBuilder::new(shared.clone(), notify.clone())
+            .verification(false)
             .build();
-        let _handle = chain_service.start::<&str>(None, chain_receivers);
+        let chain_controller = chain_service.start::<&str>(None);
 
         let tx_pool_service = TransactionPoolService::new(
             PoolConfig {
@@ -676,7 +673,6 @@ impl<CI: ChainIndex + 'static> TestPool<CI> {
             },
             shared.clone(),
             notify.clone(),
-            Arc::new(AtomicUsize::new(0)),
         );
 
         let default_script_hash = create_valid_script().type_hash();

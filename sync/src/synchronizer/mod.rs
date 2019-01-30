@@ -769,12 +769,10 @@ mod tests {
         }
         let shared = builder.build();
 
-        let notify = notify.unwrap_or_else(|| NotifyService::default().start::<&str>(None).1);
-        let (chain_controller, chain_receivers) = ChainController::build();
-        let chain_service = ChainBuilder::new(shared.clone())
-            .notify(notify.clone())
-            .build();
-        let _handle = chain_service.start::<&str>(None, chain_receivers);
+        let notify = notify.unwrap_or_else(|| NotifyService::default().start::<&str>(None));
+        let chain_service = ChainBuilder::new(shared.clone(), notify.clone()).build();
+        let chain_controller = chain_service.start::<&str>(None);
+
         (chain_controller, shared, notify)
     }
 
@@ -1142,7 +1140,7 @@ mod tests {
     fn test_sync_process() {
         let _ = env_logger::try_init();
         let consensus = Consensus::default();
-        let (_handle, notify) = NotifyService::default().start::<&str>(None);
+        let notify = NotifyService::default().start::<&str>(None);
         let (chain_controller1, shared1, _) =
             start_chain(Some(consensus.clone()), Some(notify.clone()));
         let (chain_controller2, shared2, _) =

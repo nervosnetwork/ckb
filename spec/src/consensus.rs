@@ -37,7 +37,6 @@ pub struct Consensus {
     pub transaction_propagation_time: BlockNumber,
     pub transaction_propagation_timeout: BlockNumber,
     pub pow: Pow,
-    pub verification: bool,
     // For each input, if the referenced output transaction is cellbase,
     // it must have at least `cellbase_maturity` confirmations;
     // else reject this transaction.
@@ -70,7 +69,6 @@ impl Default for Consensus {
             transaction_propagation_time: TRANSACTION_PROPAGATION_TIME,
             transaction_propagation_timeout: TRANSACTION_PROPAGATION_TIMEOUT,
             pow: Pow::Dummy,
-            verification: true,
             cellbase_maturity: CELLBASE_MATURITY,
             median_time_block_count: MEDIAN_TIME_BLOCK_COUNT,
             max_block_cycles: MAX_BLOCK_CYCLES,
@@ -98,11 +96,6 @@ impl Consensus {
 
     pub fn set_pow(mut self, pow: Pow) -> Self {
         self.pow = pow;
-        self
-    }
-
-    pub fn set_verification(mut self, verification: bool) -> Self {
-        self.verification = verification;
         self
     }
 

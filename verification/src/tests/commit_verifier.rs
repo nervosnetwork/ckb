@@ -11,6 +11,7 @@ use ckb_core::transaction::{
 use ckb_core::uncle::UncleBlock;
 use ckb_core::{BlockNumber, Cycle};
 use ckb_db::memorydb::MemoryKeyValueDB;
+use ckb_notify::NotifyService;
 use ckb_shared::shared::{ChainProvider, Shared, SharedBuilder};
 use ckb_shared::store::ChainKVStore;
 use fnv::FnvHashMap;
@@ -86,9 +87,11 @@ fn start_chain(
     }
     let shared = builder.build();
 
-    let (chain_controller, chain_receivers) = ChainController::build();
-    let chain_service = ChainBuilder::new(shared.clone()).build();
-    let _handle = chain_service.start::<&str>(None, chain_receivers);
+    let notify = NotifyService::default().start::<&str>(None);
+    let chain_service = ChainBuilder::new(shared.clone(), notify)
+        .verification(false)
+        .build();
+    let chain_controller = chain_service.start::<&str>(None);
     (chain_controller, shared)
 }
 
@@ -188,9 +191,7 @@ fn test_uncle_proposal() {
         .build();
     let mut root_hash = tx.hash().clone();
     let genesis_block = BlockBuilder::default().commit_transaction(tx).build();
-    let consensus = Consensus::default()
-        .set_genesis_block(genesis_block)
-        .set_verification(false);
+    let consensus = Consensus::default().set_genesis_block(genesis_block);
     let (chain_controller, shared) = start_chain(Some(consensus));
 
     let mut txs = Vec::new();

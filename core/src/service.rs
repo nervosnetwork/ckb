@@ -1,6 +1,7 @@
 use crossbeam_channel::{self, Sender};
 
 const ONESHOT_CHANNEL_SIZE: usize = 1;
+pub const SIGNAL_CHANNEL_SIZE: usize = 1;
 pub const DEFAULT_CHANNEL_SIZE: usize = 32;
 
 pub struct Request<A, R> {

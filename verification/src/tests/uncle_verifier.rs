@@ -9,6 +9,7 @@ use ckb_core::transaction::{
 };
 use ckb_core::{BlockNumber, Cycle};
 use ckb_db::memorydb::MemoryKeyValueDB;
+use ckb_notify::NotifyService;
 use ckb_shared::shared::{ChainProvider, Shared, SharedBuilder};
 use ckb_shared::store::ChainKVStore;
 #[cfg(not(disable_faketime))]
@@ -44,9 +45,11 @@ fn start_chain(
     }
     let shared = builder.build();
 
-    let (chain_controller, chain_receivers) = ChainController::build();
-    let chain_service = ChainBuilder::new(shared.clone()).build();
-    let _handle = chain_service.start::<&str>(None, chain_receivers);
+    let notify = NotifyService::default().start::<&str>(None);
+    let chain_service = ChainBuilder::new(shared.clone(), notify)
+        .verification(false)
+        .build();
+    let chain_controller = chain_service.start::<&str>(None);
     (chain_controller, shared)
 }
 

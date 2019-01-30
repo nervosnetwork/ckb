@@ -18,7 +18,7 @@ numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heap
 numext-fixed-uint = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 fnv = "1.0"
 crossbeam-channel = "0.3"
-bit-vec = "0.5.0"
+stop-handler = { path = "../util/stop-handler" }
 
 [dev-dependencies]
 env_logger = "0.6"

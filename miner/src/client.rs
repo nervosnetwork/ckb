@@ -1,6 +1,6 @@
 use crate::{MinerConfig, Work};
 use ckb_core::block::Block;
-use ckb_util::{Mutex, RwLockUpgradableReadGuard};
+use ckb_util::RwLockUpgradableReadGuard;
 use crossbeam_channel::Sender;
 use futures::sync::{mpsc, oneshot};
 use hyper::error::Error as HyperError;
@@ -16,9 +16,9 @@ use jsonrpc_types::{
 use log::{debug, error};
 use serde_json::error::Error as JsonError;
 use serde_json::{self, json, Value};
-use std::sync::Arc;
 use std::thread;
 use std::time;
+use stop_handler::{SignalSender, StopHandler};
 
 type RpcRequest = (oneshot::Sender<Result<Chunk, RpcError>>, MethodCall);
 
@@ -30,32 +30,10 @@ pub enum RpcError {
     Fail(RpcFail),
 }
 
-#[derive(Debug)]
-pub(crate) struct Stop {
-    tx: oneshot::Sender<()>,
-    thread: thread::JoinHandle<()>,
-}
-
-impl Stop {
-    pub fn new(tx: oneshot::Sender<()>, thread: thread::JoinHandle<()>) -> Stop {
-        Stop { tx, thread }
-    }
-
-    pub fn send(self) {
-        self.tx.send(()).expect("rpc stop channel");;
-        self.thread.join().expect("rpc thread join");
-    }
-}
-
-#[derive(Debug)]
-pub(crate) struct RpcInner {
-    sender: mpsc::Sender<RpcRequest>,
-    stop: Mutex<Option<Stop>>,
-}
-
 #[derive(Debug, Clone)]
 pub struct Rpc {
-    inner: Arc<RpcInner>,
+    sender: mpsc::Sender<RpcRequest>,
+    stop: StopHandler<()>,
 }
 
 impl Rpc {
@@ -90,10 +68,8 @@ impl Rpc {
         });
 
         Rpc {
-            inner: Arc::new(RpcInner {
-                sender,
-                stop: Mutex::new(Some(Stop::new(stop, thread))),
-            }),
+            sender,
+            stop: StopHandler::new(SignalSender::Future(stop), thread),
         }
     }
 
@@ -112,7 +88,7 @@ impl Rpc {
         };
 
         let req = (tx, call);
-        let mut sender = self.inner.sender.clone();
+        let mut sender = self.sender.clone();
         let _ = sender.try_send(req);
         rev.map_err(|_| RpcError::Canceled)
             .flatten()
@@ -122,8 +98,7 @@ impl Rpc {
 
 impl Drop for Rpc {
     fn drop(&mut self) {
-        let stop = self.inner.stop.lock().take().expect("rpc close only once");
-        stop.send();
+        self.stop.try_send();
     }
 }
 

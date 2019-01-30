@@ -1,0 +1,11 @@
+[package]
+name = "stop-handler"
+version = "0.1.0"
+authors = ["Nervos Core Dev <dev@nervos.org>"]
+edition = "2018"
+
+[dependencies]
+parking_lot = "0.7"
+crossbeam-channel = "0.3"
+log = "0.4"
+futures = "0.1"

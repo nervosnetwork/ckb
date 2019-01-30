@@ -6,7 +6,7 @@ use super::types::{
 };
 use ckb_core::block::Block;
 use ckb_core::cell::{CellProvider, CellStatus};
-use ckb_core::service::{Request, DEFAULT_CHANNEL_SIZE};
+use ckb_core::service::{Request, DEFAULT_CHANNEL_SIZE, SIGNAL_CHANNEL_SIZE};
 use ckb_core::transaction::{OutPoint, ProposalShortId, Transaction};
 use ckb_core::Cycle;
 use ckb_notify::{ForkBlocks, MsgSwitchFork, NotifyController};
@@ -20,7 +20,8 @@ use lru_cache::LruCache;
 use numext_fixed_hash::H256;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-use std::thread::{self, JoinHandle};
+use std::thread;
+use stop_handler::{SignalSender, StopHandler};
 
 #[cfg(test)]
 use ckb_core::BlockNumber;
@@ -40,9 +41,16 @@ pub struct TransactionPoolController {
     reg_trace_sender: Sender<Request<Transaction, Result<InsertionResult, PoolError>>>,
     get_trace_sender: Sender<Request<H256, Option<Vec<TxTrace>>>>,
     last_txs_updated_at: Arc<AtomicUsize>,
+    stop: StopHandler<()>,
 }
 
-pub struct TransactionPoolReceivers {
+impl Drop for TransactionPoolController {
+    fn drop(&mut self) {
+        self.stop.try_send();
+    }
+}
+
+struct TransactionPoolReceivers {
     get_proposal_commit_transactions_receiver: Receiver<Request<TxsArgs, TxsReturn>>,
     get_potential_transactions_receiver: Receiver<Request<(), Vec<PoolEntry>>>,
     contains_key_receiver: Receiver<Request<ProposalShortId, bool>>,
@@ -53,47 +61,6 @@ pub struct TransactionPoolReceivers {
 }
 
 impl TransactionPoolController {
-    pub fn build(
-        last_txs_updated_at: Arc<AtomicUsize>,
-    ) -> (TransactionPoolController, TransactionPoolReceivers) {
-        let (get_proposal_commit_transactions_sender, get_proposal_commit_transactions_receiver) =
-            crossbeam_channel::bounded(DEFAULT_CHANNEL_SIZE);
-        let (get_potential_transactions_sender, get_potential_transactions_receiver) =
-            crossbeam_channel::bounded(DEFAULT_CHANNEL_SIZE);
-        let (contains_key_sender, contains_key_receiver) =
-            crossbeam_channel::bounded(DEFAULT_CHANNEL_SIZE);
-        let (get_transaction_sender, get_transaction_receiver) =
-            crossbeam_channel::bounded(DEFAULT_CHANNEL_SIZE);
-        let (add_transaction_sender, add_transaction_receiver) =
-            crossbeam_channel::bounded(DEFAULT_CHANNEL_SIZE);
-        let (reg_trace_sender, reg_trace_receiver) =
-            crossbeam_channel::bounded(DEFAULT_CHANNEL_SIZE);
-        let (get_trace_sender, get_trace_receiver) =
-            crossbeam_channel::bounded(DEFAULT_CHANNEL_SIZE);
-
-        (
-            TransactionPoolController {
-                get_proposal_commit_transactions_sender,
-                get_potential_transactions_sender,
-                contains_key_sender,
-                get_transaction_sender,
-                add_transaction_sender,
-                reg_trace_sender,
-                get_trace_sender,
-                last_txs_updated_at,
-            },
-            TransactionPoolReceivers {
-                get_proposal_commit_transactions_receiver,
-                get_potential_transactions_receiver,
-                contains_key_receiver,
-                get_transaction_receiver,
-                add_transaction_receiver,
-                reg_trace_receiver,
-                get_trace_receiver,
-            },
-        )
-    }
-
     pub fn get_proposal_commit_transactions(
         &self,
         max_prop: usize,
@@ -188,13 +155,13 @@ where
         config: PoolConfig,
         shared: Shared<CI>,
         notify: NotifyController,
-        last_txs_updated_at: Arc<AtomicUsize>,
     ) -> TransactionPoolService<CI> {
         let n = shared.chain_state().read().tip_number();
         let cache_size = config.max_cache_size;
         let prop_cap = ProposedQueue::cap();
         let ids = shared.union_proposal_ids_n(n, prop_cap);
         let trace_size = config.trace.unwrap_or(0);
+        let last_txs_updated_at = Arc::new(AtomicUsize::new(0));
 
         TransactionPoolService {
             config,
@@ -210,11 +177,34 @@ where
         }
     }
 
-    pub fn start<S: ToString>(
-        mut self,
-        thread_name: Option<S>,
-        receivers: TransactionPoolReceivers,
-    ) -> JoinHandle<()> {
+    pub fn start<S: ToString>(mut self, thread_name: Option<S>) -> TransactionPoolController {
+        let (signal_sender, signal_receiver) =
+            crossbeam_channel::bounded::<()>(SIGNAL_CHANNEL_SIZE);
+        let (get_proposal_commit_transactions_sender, get_proposal_commit_transactions_receiver) =
+            crossbeam_channel::bounded(DEFAULT_CHANNEL_SIZE);
+        let (get_potential_transactions_sender, get_potential_transactions_receiver) =
+            crossbeam_channel::bounded(DEFAULT_CHANNEL_SIZE);
+        let (contains_key_sender, contains_key_receiver) =
+            crossbeam_channel::bounded(DEFAULT_CHANNEL_SIZE);
+        let (get_transaction_sender, get_transaction_receiver) =
+            crossbeam_channel::bounded(DEFAULT_CHANNEL_SIZE);
+        let (add_transaction_sender, add_transaction_receiver) =
+            crossbeam_channel::bounded(DEFAULT_CHANNEL_SIZE);
+        let (reg_trace_sender, reg_trace_receiver) =
+            crossbeam_channel::bounded(DEFAULT_CHANNEL_SIZE);
+        let (get_trace_sender, get_trace_receiver) =
+            crossbeam_channel::bounded(DEFAULT_CHANNEL_SIZE);
+
+        let receivers = TransactionPoolReceivers {
+            get_proposal_commit_transactions_receiver,
+            get_potential_transactions_receiver,
+            contains_key_receiver,
+            get_transaction_receiver,
+            add_transaction_receiver,
+            reg_trace_receiver,
+            get_trace_receiver,
+        };
+
         let mut thread_builder = thread::Builder::new();
         // Mainly for test: give a empty thread_name
         if let Some(name) = thread_name {
@@ -222,9 +212,15 @@ where
         }
 
         let switch_fork_receiver = self.notify.subscribe_switch_fork(TXS_POOL_SUBSCRIBER);
-        thread_builder
+
+        let last_txs_updated_at = Arc::clone(&self.last_txs_updated_at);
+        let thread = thread_builder
             .spawn(move || loop {
                 select!{
+                    recv(signal_receiver) -> _ => {
+                        break;
+                    },
+
                     recv(switch_fork_receiver) -> msg => self.handle_switch_fork(msg),
 
                     recv(receivers.get_proposal_commit_transactions_receiver) -> msg => {
@@ -279,7 +275,21 @@ where
                         }
                     }
                 }
-            }).expect("Start TransactionPoolService failed!")
+            }).expect("Start TransactionPoolService failed!");
+
+        let stop = StopHandler::new(SignalSender::Crossbeam(signal_sender), thread);
+
+        TransactionPoolController {
+            get_proposal_commit_transactions_sender,
+            get_potential_transactions_sender,
+            contains_key_sender,
+            get_transaction_sender,
+            add_transaction_sender,
+            reg_trace_sender,
+            get_trace_sender,
+            last_txs_updated_at,
+            stop,
+        }
     }
 
     fn handle_switch_fork(&mut self, msg: Result<MsgSwitchFork, crossbeam_channel::RecvError>) {

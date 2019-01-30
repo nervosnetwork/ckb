@@ -1,15 +1,15 @@
 #![allow(clippy::needless_pass_by_value)]
 
-use std::sync::Arc;
-use std::thread;
-use std::thread::JoinHandle;
-
 use ckb_core::block::Block;
 use ckb_core::service::Request;
 use crossbeam_channel::{select, Receiver, Sender};
 use fnv::FnvHashMap;
 use log::{debug, trace, warn};
+use std::sync::Arc;
+use std::thread;
+use stop_handler::{SignalSender, StopHandler};
 
+pub const SIGNAL_CHANNEL_SIZE: usize = 1;
 pub const REGISTER_CHANNEL_SIZE: usize = 2;
 pub const NOTIFY_CHANNEL_SIZE: usize = 128;
 
@@ -37,7 +37,6 @@ impl ForkBlocks {
     }
 }
 
-type StopSignal = ();
 pub type MsgNewTransaction = ();
 pub type MsgNewTip = Arc<Block>;
 pub type MsgNewUncle = Arc<Block>;
@@ -49,7 +48,7 @@ pub struct NotifyService {}
 
 #[derive(Clone)]
 pub struct NotifyController {
-    signal: Sender<StopSignal>,
+    stop: StopHandler<()>,
     new_transaction_register: NotifyRegister<MsgNewTransaction>,
     new_tip_register: NotifyRegister<MsgNewTip>,
     new_uncle_register: NotifyRegister<MsgNewUncle>,
@@ -60,10 +59,16 @@ pub struct NotifyController {
     switch_fork_notifier: Sender<MsgSwitchFork>,
 }
 
+impl Drop for NotifyController {
+    fn drop(&mut self) {
+        self.stop.try_send();
+    }
+}
+
 impl NotifyService {
-    pub fn start<S: ToString>(self, thread_name: Option<S>) -> (JoinHandle<()>, NotifyController) {
+    pub fn start<S: ToString>(self, thread_name: Option<S>) -> NotifyController {
         let (signal_sender, signal_receiver) =
-            crossbeam_channel::bounded::<()>(REGISTER_CHANNEL_SIZE);
+            crossbeam_channel::bounded::<()>(SIGNAL_CHANNEL_SIZE);
         let (new_transaction_register, new_transaction_register_receiver) =
             crossbeam_channel::bounded(REGISTER_CHANNEL_SIZE);
         let (new_tip_register, new_tip_register_receiver) =
@@ -127,20 +132,17 @@ impl NotifyService {
                 }
             }).expect("Start notify service failed");
 
-        (
-            join_handle,
-            NotifyController {
-                new_transaction_register,
-                new_tip_register,
-                new_uncle_register,
-                switch_fork_register,
-                new_transaction_notifier: new_transaction_sender,
-                new_tip_notifier: new_tip_sender,
-                new_uncle_notifier: new_uncle_sender,
-                switch_fork_notifier: switch_fork_sender,
-                signal: signal_sender,
-            },
-        )
+        NotifyController {
+            new_transaction_register,
+            new_tip_register,
+            new_uncle_register,
+            switch_fork_register,
+            new_transaction_notifier: new_transaction_sender,
+            new_tip_notifier: new_tip_sender,
+            new_uncle_notifier: new_uncle_sender,
+            switch_fork_notifier: switch_fork_sender,
+            stop: StopHandler::new(SignalSender::Crossbeam(signal_sender), join_handle),
+        }
     }
 
     fn handle_register_new_transaction(
@@ -283,10 +285,6 @@ impl NotifyService {
 }
 
 impl NotifyController {
-    pub fn stop(self) {
-        let _ = self.signal.send(());
-    }
-
     pub fn subscribe_new_transaction<S: ToString>(&self, name: S) -> Receiver<MsgNewTransaction> {
         Request::call(&self.new_transaction_register, (name.to_string(), 128))
             .expect("Subscribe new transaction failed")
@@ -324,41 +322,33 @@ mod tests {
 
     #[test]
     fn test_new_transaction() {
-        let (handle, notify) = NotifyService::default().start::<&str>(None);
+        let notify = NotifyService::default().start::<&str>(None);
         let receiver1 = notify.subscribe_new_transaction("miner1");
         let receiver2 = notify.subscribe_new_transaction("miner2");
         notify.notify_new_transaction();
         assert_eq!(receiver1.recv(), Ok(()));
         assert_eq!(receiver2.recv(), Ok(()));
-        notify.stop();
-        handle.join().expect("join failed");
     }
 
     #[test]
     fn test_new_tip() {
         let tip = Arc::new(Block::default());
-
-        let (handle, notify) = NotifyService::default().start::<&str>(None);
+        let notify = NotifyService::default().start::<&str>(None);
         let receiver1 = notify.subscribe_new_tip("miner1");
         let receiver2 = notify.subscribe_new_tip("miner2");
         notify.notify_new_tip(Arc::clone(&tip));
         assert_eq!(receiver1.recv(), Ok(Arc::clone(&tip)));
         assert_eq!(receiver2.recv(), Ok(tip));
-        notify.stop();
-        handle.join().expect("join failed");
     }
 
     #[test]
     fn test_switch_fork() {
         let blks = Arc::new(ForkBlocks::default());
-
-        let (handle, notify) = NotifyService::default().start::<&str>(None);
+        let notify = NotifyService::default().start::<&str>(None);
         let receiver1 = notify.subscribe_switch_fork("miner1");
         let receiver2 = notify.subscribe_switch_fork("miner2");
         notify.notify_switch_fork(Arc::clone(&blks));
         assert_eq!(receiver1.recv(), Ok(Arc::clone(&blks)));
         assert_eq!(receiver2.recv(), Ok(blks));
-        notify.stop();
-        handle.join().expect("join failed");
     }
 }
