@@ -10,3 +10,4 @@ fnv = "1.0"
 ckb-core = { path = "../core" }
 crossbeam-channel = "0.3"
 log = "0.4"
+stop-handler = { path = "../util/stop-handler" }

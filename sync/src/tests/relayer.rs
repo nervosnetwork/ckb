@@ -9,7 +9,7 @@ use ckb_core::script::Script;
 use ckb_core::transaction::{CellInput, CellOutput, OutPoint, TransactionBuilder};
 use ckb_db::memorydb::MemoryKeyValueDB;
 use ckb_notify::NotifyService;
-use ckb_pool::txs_pool::{PoolConfig, TransactionPoolController, TransactionPoolService};
+use ckb_pool::txs_pool::{PoolConfig, TransactionPoolService};
 use ckb_protocol::RelayMessage;
 use ckb_shared::shared::{ChainProvider, Shared, SharedBuilder};
 use ckb_shared::store::ChainKVStore;
@@ -22,7 +22,6 @@ use std::collections::HashSet;
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;
-use std::sync::atomic::AtomicUsize;
 use std::sync::mpsc::channel;
 use std::sync::{Arc, Barrier};
 use std::{thread, time};
@@ -318,26 +317,14 @@ fn setup_node(
     let shared = SharedBuilder::<ChainKVStore<MemoryKeyValueDB>>::new_memory()
         .consensus(consensus)
         .build();
-    let (chain_controller, chain_receivers) = ChainController::build();
 
-    let last_tx_updated_at = Arc::new(AtomicUsize::new(0));
-    let (tx_pool_controller, tx_pool_receivers) =
-        TransactionPoolController::build(Arc::clone(&last_tx_updated_at));
+    let notify = NotifyService::default().start(Some(thread_name));
+    let tx_pool_service =
+        TransactionPoolService::new(PoolConfig::default(), shared.clone(), notify.clone());
+    let tx_pool_controller = tx_pool_service.start(Some(thread_name));
 
-    let (_handle, notify) = NotifyService::default().start(Some(thread_name));
-
-    let tx_pool_service = TransactionPoolService::new(
-        PoolConfig::default(),
-        shared.clone(),
-        notify.clone(),
-        last_tx_updated_at,
-    );
-    let _handle = tx_pool_service.start(Some(thread_name), tx_pool_receivers);
-
-    let chain_service = ChainBuilder::new(shared.clone())
-        .notify(notify.clone())
-        .build();
-    let _handle = chain_service.start(Some(thread_name), chain_receivers);
+    let chain_service = ChainBuilder::new(shared.clone(), notify).build();
+    let chain_controller = chain_service.start::<&str>(None);
 
     for _i in 0..height {
         let number = block.header().number() + 1;

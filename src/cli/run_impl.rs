@@ -10,7 +10,7 @@ use ckb_network::NetworkService;
 use ckb_notify::{NotifyController, NotifyService};
 use ckb_pool::txs_pool::{PoolConfig, TransactionPoolController, TransactionPoolService};
 use ckb_pow::PowEngine;
-use ckb_rpc::RpcServer;
+use ckb_rpc::{Config as RpcConfig, RpcServer};
 use ckb_shared::cachedb::CacheDB;
 use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::{ChainProvider, Shared, SharedBuilder};
@@ -21,8 +21,7 @@ use ckb_sync::{
 use crypto::secp::Generator;
 use log::info;
 use numext_fixed_hash::H256;
-use std::sync::{atomic::AtomicUsize, Arc};
-use std::thread;
+use std::sync::Arc;
 
 pub fn run(setup: Setup) {
     let consensus = setup.chain_spec.to_consensus().unwrap();
@@ -33,17 +32,10 @@ pub fn run(setup: Setup) {
         .consensus(consensus)
         .build();
 
-    let (_handle, notify) = NotifyService::default().start(Some("notify"));
-    let (chain_controller, chain_receivers) = ChainController::build();
-    let (block_assembler_controller, block_assembler_receivers) = BlockAssemblerController::build();
+    let notify = NotifyService::default().start(Some("notify"));
 
-    let chain_service = ChainBuilder::new(shared.clone())
-        .notify(notify.clone())
-        .build();
-    let _handle = chain_service.start(Some("ChainService"), chain_receivers);
-
+    let chain_controller = setup_chain(shared.clone(), notify.clone());
     info!(target: "main", "chain genesis hash: {:#x}", shared.genesis_hash());
-
     let tx_pool_controller = setup_tx_pool(setup.configs.pool, shared.clone(), notify.clone());
 
     let block_assembler = BlockAssembler::new(
@@ -51,7 +43,7 @@ pub fn run(setup: Setup) {
         tx_pool_controller.clone(),
         setup.configs.block_assembler.type_hash,
     );
-    let _handle = block_assembler.start(Some("MinerAgent"), block_assembler_receivers, &notify);
+    let block_assembler_controller = block_assembler.start(Some("MinerAgent"), &notify);
 
     let synchronizer = Arc::new(Synchronizer::new(
         chain_controller.clone(),
@@ -95,12 +87,8 @@ pub fn run(setup: Setup) {
             .expect("Create and start network"),
     );
 
-    let rpc_server = RpcServer {
-        config: setup.configs.rpc,
-    };
-
-    setup_rpc(
-        rpc_server,
+    let rpc_server = setup_rpc(
+        setup.configs.rpc,
         &pow_engine,
         Arc::clone(&network),
         shared,
@@ -112,6 +100,20 @@ pub fn run(setup: Setup) {
     wait_for_exit();
 
     info!(target: "main", "Finishing work, please wait...");
+
+    rpc_server.close();
+    info!(target: "main", "Jsonrpc shutdown");
+
+    network.close();
+    info!(target: "main", "Network shutdown");
+}
+
+fn setup_chain<CI: ChainIndex + 'static>(
+    shared: Shared<CI>,
+    notify: NotifyController,
+) -> ChainController {
+    let chain_service = ChainBuilder::new(shared, notify).build();
+    chain_service.start(Some("ChainService"))
 }
 
 fn setup_tx_pool<CI: ChainIndex + 'static>(
@@ -119,23 +121,19 @@ fn setup_tx_pool<CI: ChainIndex + 'static>(
     shared: Shared<CI>,
     notify: NotifyController,
 ) -> TransactionPoolController {
-    let last_txs_updated_at = Arc::new(AtomicUsize::new(0));
-    let (tx_pool_controller, tx_pool_receivers) =
-        TransactionPoolController::build(Arc::clone(&last_txs_updated_at));
-    let tx_pool_service = TransactionPoolService::new(config, shared, notify, last_txs_updated_at);
-    let _handle = tx_pool_service.start(Some("TransactionPoolService"), tx_pool_receivers);
-    tx_pool_controller
+    let tx_pool_service = TransactionPoolService::new(config, shared, notify);
+    tx_pool_service.start(Some("TransactionPoolService"))
 }
 
 fn setup_rpc<CI: ChainIndex + 'static>(
-    server: RpcServer,
+    config: RpcConfig,
     pow: &Arc<dyn PowEngine>,
     network: Arc<NetworkService>,
     shared: Shared<CI>,
     tx_pool: TransactionPoolController,
     chain: ChainController,
     agent: BlockAssemblerController,
-) {
+) -> RpcServer {
     use ckb_pow::Clicker;
 
     let pow = pow
@@ -144,11 +142,9 @@ fn setup_rpc<CI: ChainIndex + 'static>(
         .downcast_ref::<Clicker>()
         .map(|pow| Arc::new(pow.clone()));
 
-    let _ = thread::Builder::new().name("rpc".to_string()).spawn({
-        move || {
-            server.start(network, shared, tx_pool, chain, agent, pow);
-        }
-    });
+    let mut server = RpcServer::new(config, network, shared, tx_pool, chain, agent, pow);
+    server.start();
+    server
 }
 
 pub fn type_hash(setup: &Setup) {

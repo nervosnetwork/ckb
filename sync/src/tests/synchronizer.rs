@@ -1,7 +1,7 @@
 use crate::synchronizer::{BLOCK_FETCH_TOKEN, SEND_GET_HEADERS_TOKEN, TIMEOUT_EVICTION_TOKEN};
 use crate::tests::TestNode;
 use crate::{Config, Synchronizer, SYNC_PROTOCOL_ID};
-use ckb_chain::chain::{ChainBuilder, ChainController};
+use ckb_chain::chain::ChainBuilder;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::BlockBuilder;
 use ckb_core::header::HeaderBuilder;
@@ -75,13 +75,10 @@ fn setup_node(
     let shared = SharedBuilder::<ChainKVStore<MemoryKeyValueDB>>::new_memory()
         .consensus(consensus)
         .build();
-    let (chain_controller, chain_receivers) = ChainController::build();
-    let (_handle, notify) = NotifyService::default().start(Some(thread_name));
+    let notify = NotifyService::default().start(Some(thread_name));
 
-    let chain_service = ChainBuilder::new(shared.clone())
-        .notify(notify.clone())
-        .build();
-    let _handle = chain_service.start(Some(thread_name), chain_receivers);
+    let chain_service = ChainBuilder::new(shared.clone(), notify).build();
+    let chain_controller = chain_service.start::<&str>(None);
 
     for _i in 0..height {
         let number = block.header().number() + 1;
