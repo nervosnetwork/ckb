@@ -6,6 +6,7 @@ use ckb_core::extras::BlockExt;
 use ckb_core::header::BlockNumber;
 use ckb_core::service::{Request, DEFAULT_CHANNEL_SIZE};
 use ckb_core::transaction::OutPoint;
+use ckb_core::Cycle;
 use ckb_db::batch::Batch;
 use ckb_notify::{ForkBlocks, NotifyController, NotifyService};
 use ckb_shared::error::SharedError;
@@ -28,13 +29,15 @@ pub struct ChainService<CI> {
     notify: NotifyController,
 }
 
+type BlockWithCycle = (Arc<Block>, Vec<Cycle>);
+
 #[derive(Clone)]
 pub struct ChainController {
-    process_block_sender: Sender<Request<Arc<Block>, Result<(), ProcessBlockError>>>,
+    process_block_sender: Sender<Request<BlockWithCycle, Result<(), ProcessBlockError>>>,
 }
 
 pub struct ChainReceivers {
-    process_block_receiver: Receiver<Request<Arc<Block>, Result<(), ProcessBlockError>>>,
+    process_block_receiver: Receiver<Request<BlockWithCycle, Result<(), ProcessBlockError>>>,
 }
 
 impl ChainController {
@@ -51,8 +54,13 @@ impl ChainController {
         )
     }
 
-    pub fn process_block(&self, block: Arc<Block>) -> Result<(), ProcessBlockError> {
-        Request::call(&self.process_block_sender, block).expect("process_block() failed")
+    pub fn process_block(
+        &self,
+        block: Arc<Block>,
+        cycles_set: Vec<Cycle>,
+    ) -> Result<(), ProcessBlockError> {
+        Request::call(&self.process_block_sender, (block, cycles_set))
+            .expect("process_block() failed")
     }
 }
 
@@ -62,6 +70,7 @@ pub struct BlockInsertionResult {
     pub new_best_block: bool,
 }
 
+#[derive(Debug, Clone, Default)]
 struct Fork {
     new_blocks: Vec<Block>,
     old_blocks: Vec<Block>,
@@ -87,8 +96,8 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
             .spawn(move || loop {
                 select! {
                     recv(receivers.process_block_receiver) -> msg => match msg {
-                        Ok(Request { responder, arguments: block }) => {
-                            let _ = responder.send(self.process_block(block));
+                        Ok(Request { responder, arguments: (block, cycles_set) }) => {
+                            let _ = responder.send(self.process_block(block, cycles_set));
                         },
                         _ => {
                             error!(target: "chain", "process_block_receiver closed");
@@ -100,7 +109,11 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
             .expect("Start ChainService failed")
     }
 
-    fn process_block(&mut self, block: Arc<Block>) -> Result<(), ProcessBlockError> {
+    fn process_block(
+        &mut self,
+        block: Arc<Block>,
+        cycles_set: Vec<Cycle>,
+    ) -> Result<(), ProcessBlockError> {
         debug!(target: "chain", "begin processing block: {}", block.header().hash());
         if self.shared.consensus().verification {
             let block_verifier = BlockVerifier::new(self.shared.clone());
@@ -109,7 +122,7 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
                 .map_err(ProcessBlockError::Verification)?
         }
         let insert_result = self
-            .insert_block(&block)
+            .insert_block(&block, cycles_set)
             .map_err(ProcessBlockError::Shared)?;
         self.post_insert_result(block, insert_result);
         debug!(target: "chain", "finish processing block");
@@ -117,21 +130,22 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
     }
 
     #[allow(clippy::op_ref)]
-    fn insert_block(&self, block: &Block) -> Result<BlockInsertionResult, SharedError> {
+    fn insert_block(
+        &self,
+        block: &Block,
+        cycles_set: Vec<Cycle>,
+    ) -> Result<BlockInsertionResult, SharedError> {
         let mut new_best_block = false;
         let mut total_difficulty = U256::zero();
 
-        let mut old_blocks = Vec::new();
-        let mut new_blocks = Vec::new();
-
         let mut txo_set_diff = TxoSetDiff::default();
+        let mut fork = Fork::default();
 
         let mut chain_state = self.shared.chain_state().write();
         let tip_number = chain_state.tip_number();
         let parent_ext = self
             .shared
-            .store()
-            .get_block_ext(&block.header().parent_hash())
+            .block_ext(&block.header().parent_hash())
             .expect("parent already store");
 
         let cannon_total_difficulty = parent_ext.total_difficulty + block.header().difficulty();
@@ -153,6 +167,7 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
             } else {
                 None
             },
+            cycles_set,
         };
 
         self.shared.store().save_with_batch(|batch| {
@@ -169,12 +184,11 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
                     &cannon_total_difficulty - current_total_difficulty
                 );
 
-                let (diff, old, new) =
+                let (di, fo) =
                     self.reconcile_main_chain(batch, tip_number, block, ext, &*chain_state)?;
 
-                txo_set_diff = diff;
-                old_blocks = old;
-                new_blocks = new;
+                txo_set_diff = di;
+                fork = fo;
 
                 self.shared
                     .store()
@@ -203,22 +217,18 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
 
         Ok(BlockInsertionResult {
             new_best_block,
-            fork_blks: ForkBlocks::new(old_blocks, new_blocks),
+            fork_blks: ForkBlocks::new(fork.old_blocks, fork.new_blocks),
         })
     }
 
     fn post_insert_result(&mut self, block: Arc<Block>, result: BlockInsertionResult) {
         let BlockInsertionResult {
             new_best_block,
-            mut fork_blks,
+            fork_blks,
         } = result;
-        if !fork_blks.old_blks().is_empty() {
-            fork_blks.push_new(Block::clone(&block));
-            self.notify.notify_switch_fork(Arc::new(fork_blks.clone()));
-        }
 
         if new_best_block {
-            self.notify.notify_new_tip(block);
+            self.notify.notify_switch_fork(Arc::new(fork_blks));
             if log_enabled!(target: "chain", log::Level::Debug) {
                 self.print_chain(10);
             }
@@ -281,8 +291,6 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
             return None;
         }
 
-        let mut is_open = true;
-
         // The old fork may longer than new fork
         if number < current_tip_number {
             for n in number..=current_tip_number {
@@ -297,7 +305,7 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
         new_blocks.push(new_tip_block.clone());
 
         let mut hash = new_tip_block.header().parent_hash().clone();
-
+        let mut is_open = true;
         loop {
             if number <= current_tip_number {
                 let old_hash = self.shared.block_hash(number).unwrap();
@@ -348,7 +356,7 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
         block: &Block,
         ext: BlockExt,
         chain_state: &ChainState,
-    ) -> Result<(TxoSetDiff, Vec<Block>, Vec<Block>), SharedError> {
+    ) -> Result<(TxoSetDiff, Fork), SharedError> {
         let skip_verify = !self.shared.consensus().verification;
 
         let mut fork = self
@@ -380,8 +388,6 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
 
         let new_blocks_len = fork.new_blocks.len();
         let verified_len = new_blocks_len - fork.open_exts.len();
-        //new valid block len
-        let mut new_len = 0;
 
         for b in old_blocks_iter {
             for tx in b.commit_transactions() {
@@ -402,75 +408,60 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
 
         let max_cycles = self.shared.consensus().max_block_cycles();
         // The verify function
-        let verify =
-            |b, new_inputs: &FnvHashSet<OutPoint>, new_outputs: &FnvHashMap<H256, usize>| -> bool {
-                verify_transactions(b, max_cycles, |op| {
-                    self.shared.cell_at(op, |op| {
-                        if new_inputs.contains(op) {
-                            Some(true)
-                        } else if let Some(x) = new_outputs.get(&op.hash) {
-                            if op.index < (*x as u32) {
-                                Some(false)
-                            } else {
-                                Some(true)
-                            }
-                        } else if old_outputs.contains(&op.hash) {
-                            None
+        let verify = |b,
+                      new_inputs: &FnvHashSet<OutPoint>,
+                      new_outputs: &FnvHashMap<H256, usize>,
+                      cycles_set: &mut Vec<Cycle>|
+         -> bool {
+            verify_transactions(b, max_cycles, cycles_set, |op| {
+                self.shared.cell_at(op, |op| {
+                    if new_inputs.contains(op) {
+                        Some(true)
+                    } else if let Some(x) = new_outputs.get(&op.hash) {
+                        if op.index < (*x as u32) {
+                            Some(false)
                         } else {
-                            chain_state
-                                .is_spent(op)
-                                .map(|x| x && !old_inputs.contains(op))
+                            Some(true)
                         }
-                    })
+                    } else if old_outputs.contains(&op.hash) {
+                        None
+                    } else {
+                        chain_state
+                            .is_spent(op)
+                            .map(|x| x && !old_inputs.contains(op))
+                    }
                 })
-                .is_ok()
-            };
+            })
+            .is_ok()
+        };
 
+        let mut found_error = false;
         // verify transaction
-        for b in new_blocks_iter.clone().skip(verified_len) {
-            if skip_verify || verify(b, &new_inputs, &new_outputs) {
+        for (ext, b) in fork.open_exts.iter_mut().zip(fork.new_blocks.iter()).rev() {
+            if !found_error
+                || skip_verify
+                || verify(b, &new_inputs, &new_outputs, &mut ext.cycles_set)
+            {
                 push_new(b, &mut new_inputs, &mut new_outputs);
-                new_len += 1;
+                ext.valid = Some(true);
             } else {
-                break;
+                found_error = true;
+                ext.valid = Some(false);
             }
         }
 
         // update exts
-        for (ext, b) in fork
-            .open_exts
-            .iter_mut()
-            .zip(fork.new_blocks.iter())
-            .rev()
-            .take(new_len)
-        {
-            ext.valid = Some(true);
+        for (ext, b) in fork.open_exts.iter().zip(fork.new_blocks.iter()).rev() {
             self.shared
                 .store()
                 .insert_block_ext(batch, &b.header().hash(), ext);
         }
 
-        // update exts
-        for (ext, b) in fork
-            .open_exts
-            .iter_mut()
-            .zip(fork.new_blocks.iter())
-            .rev()
-            .skip(new_len)
-        {
-            ext.valid = Some(false);
-            self.shared
-                .store()
-                .insert_block_ext(batch, &b.header().hash(), ext);
-        }
-
-        if fork.open_exts.len() != new_len {
+        if found_error {
             return Err(SharedError::InvalidTransaction);
         }
 
         self.update_index(batch, &fork.old_blocks, &fork.new_blocks);
-
-        fork.new_blocks.reverse();
 
         let old_inputs: Vec<OutPoint> = old_inputs.into_iter().collect();
         let old_outputs: Vec<H256> = old_outputs.into_iter().collect();
@@ -484,8 +475,7 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
                 new_inputs,
                 new_outputs,
             },
-            fork.old_blocks,
-            fork.new_blocks,
+            fork,
         ))
     }
 
@@ -674,8 +664,9 @@ pub mod test {
         }
 
         for block in &blocks1[0..10] {
+            let txs_len = block.commit_transactions().len();
             assert!(chain_controller
-                .process_block(Arc::new(block.clone()))
+                .process_block(Arc::new(block.clone()), vec![Cycle::default(); txs_len])
                 .is_ok());
         }
     }
@@ -743,14 +734,16 @@ pub mod test {
         }
 
         for block in &chain1 {
+            let txs_len = block.commit_transactions().len();
             chain_controller
-                .process_block(Arc::new(block.clone()))
+                .process_block(Arc::new(block.clone()), vec![Cycle::default(); txs_len])
                 .expect("process block ok");
         }
 
         for block in &chain2 {
+            let txs_len = block.commit_transactions().len();
             chain_controller
-                .process_block(Arc::new(block.clone()))
+                .process_block(Arc::new(block.clone()), vec![Cycle::default(); txs_len])
                 .expect("process block ok");
         }
         assert_eq!(
@@ -790,14 +783,16 @@ pub mod test {
         }
 
         for block in &chain1 {
+            let txs_len = block.commit_transactions().len();
             chain_controller
-                .process_block(Arc::new(block.clone()))
+                .process_block(Arc::new(block.clone()), vec![Cycle::default(); txs_len])
                 .expect("process block ok");
         }
 
         for block in &chain2 {
+            let txs_len = block.commit_transactions().len();
             chain_controller
-                .process_block(Arc::new(block.clone()))
+                .process_block(Arc::new(block.clone()), vec![Cycle::default(); txs_len])
                 .expect("process block ok");
         }
 
@@ -852,14 +847,16 @@ pub mod test {
         }
 
         for block in &chain1 {
+            let txs_len = block.commit_transactions().len();
             chain_controller
-                .process_block(Arc::new(block.clone()))
+                .process_block(Arc::new(block.clone()), vec![Cycle::default(); txs_len])
                 .expect("process block ok");
         }
 
         for block in &chain2 {
+            let txs_len = block.commit_transactions().len();
             chain_controller
-                .process_block(Arc::new(block.clone()))
+                .process_block(Arc::new(block.clone()), vec![Cycle::default(); txs_len])
                 .expect("process block ok");
         }
 
@@ -898,8 +895,9 @@ pub mod test {
         for i in 1..final_number - 1 {
             let difficulty = shared.calculate_difficulty(&parent).unwrap();
             let new_block = gen_block(&parent, i, difficulty, vec![], vec![]);
+            let txs_len = new_block.commit_transactions().len();
             chain_controller
-                .process_block(Arc::new(new_block.clone()))
+                .process_block(Arc::new(new_block.clone()), vec![Cycle::default(); txs_len])
                 .expect("process block ok");
             chain1.push(new_block.clone());
             parent = new_block.header().clone();
@@ -913,8 +911,9 @@ pub mod test {
                 uncles.push(chain1[i as usize].clone().into());
             }
             let new_block = gen_block(&parent, i + 100, difficulty, vec![], uncles);
+            let txs_len = new_block.commit_transactions().len();
             chain_controller
-                .process_block(Arc::new(new_block.clone()))
+                .process_block(Arc::new(new_block.clone()), vec![Cycle::default(); txs_len])
                 .expect("process block ok");
             chain2.push(new_block.clone());
             parent = new_block.header().clone();
@@ -930,8 +929,12 @@ pub mod test {
         let (chain_controller, shared) = start_chain(Some(consensus.clone()));
         let mut chain2: Vec<Block> = Vec::new();
         for i in 1..final_number - 1 {
+            let txs_len = chain1[(i - 1) as usize].commit_transactions().len();
             chain_controller
-                .process_block(Arc::new(chain1[(i - 1) as usize].clone()))
+                .process_block(
+                    Arc::new(chain1[(i - 1) as usize].clone()),
+                    vec![Cycle::default(); txs_len],
+                )
                 .expect("process block ok");
         }
 
@@ -943,8 +946,9 @@ pub mod test {
                 uncles.push(chain1[i as usize].clone().into());
             }
             let new_block = gen_block(&parent, i + 100, difficulty, vec![], uncles);
+            let txs_len = new_block.commit_transactions().len();
             chain_controller
-                .process_block(Arc::new(new_block.clone()))
+                .process_block(Arc::new(new_block.clone()), vec![Cycle::default(); txs_len])
                 .expect("process block ok");
             chain2.push(new_block.clone());
             parent = new_block.header().clone();
@@ -960,8 +964,12 @@ pub mod test {
         let (chain_controller, shared) = start_chain(Some(consensus.clone()));
         let mut chain2: Vec<Block> = Vec::new();
         for i in 1..final_number - 1 {
+            let txs_len = chain1[(i - 1) as usize].commit_transactions().len();
             chain_controller
-                .process_block(Arc::new(chain1[(i - 1) as usize].clone()))
+                .process_block(
+                    Arc::new(chain1[(i - 1) as usize].clone()),
+                    vec![Cycle::default(); txs_len],
+                )
                 .expect("process block ok");
         }
 
@@ -973,8 +981,9 @@ pub mod test {
                 uncles.push(chain1[i as usize].clone().into());
             }
             let new_block = gen_block(&parent, i + 100, difficulty, vec![], uncles);
+            let txs_len = new_block.commit_transactions().len();
             chain_controller
-                .process_block(Arc::new(new_block.clone()))
+                .process_block(Arc::new(new_block.clone()), vec![Cycle::default(); txs_len])
                 .expect("process block ok");
             chain2.push(new_block.clone());
             parent = new_block.header().clone();

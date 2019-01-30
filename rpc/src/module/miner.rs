@@ -1,5 +1,6 @@
 use ckb_chain::chain::ChainController;
 use ckb_core::block::Block as CoreBlock;
+use ckb_core::Cycle;
 use ckb_miner::BlockAssemblerController;
 use ckb_network::NetworkService;
 use ckb_protocol::RelayMessage;
@@ -47,7 +48,10 @@ impl<CI: ChainIndex + 'static> MinerRpc for MinerRpcImpl<CI> {
 
     fn submit_block(&self, _work_id: String, data: Block) -> Result<H256> {
         let block: Arc<CoreBlock> = Arc::new(data.into());
-        let ret = self.chain.process_block(Arc::clone(&block));
+        let txs_len = block.commit_transactions().len();
+        let ret = self
+            .chain
+            .process_block(Arc::clone(&block), vec![Cycle::default(); txs_len]);
         if ret.is_ok() {
             // announce new block
             self.network.with_protocol_context(RELAY_PROTOCOL_ID, |nc| {

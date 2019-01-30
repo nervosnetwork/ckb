@@ -7,6 +7,7 @@ use ckb_core::BlockNumber;
 use ckb_core::{Cycle, Version};
 use ckb_notify::NotifyController;
 use ckb_pool::txs_pool::TransactionPoolController;
+use ckb_pool::PoolEntry;
 use ckb_shared::error::SharedError;
 use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::{ChainProvider, Shared};
@@ -197,17 +198,16 @@ impl<CI: ChainIndex + 'static> BlockAssembler<CI> {
     }
 
     fn transform_tx(
-        tx: &Transaction,
+        tx: &PoolEntry,
         required: bool,
-        cycles: Option<Cycle>,
         depends: Option<Vec<u32>>,
     ) -> TransactionTemplate {
         TransactionTemplate {
-            hash: tx.hash(),
+            hash: tx.transaction.hash(),
             required,
-            cycles,
+            cycles: Some(tx.cycles),
             depends,
-            data: tx.into(),
+            data: (&tx.transaction).into(),
         }
     }
 
@@ -273,7 +273,7 @@ impl<CI: ChainIndex + 'static> BlockAssembler<CI> {
             uncles: uncles.into_iter().map(Self::transform_uncle).collect(),
             commit_transactions: commit_transactions
                 .iter()
-                .map(|tx| Self::transform_tx(tx, false, None, None))
+                .map(|tx| Self::transform_tx(tx, false, None))
                 .collect(),
             proposal_transactions: proposal_transactions.into_iter().map(Into::into).collect(),
             cellbase: Self::transform_cellbase(&cellbase, None),
@@ -296,7 +296,7 @@ impl<CI: ChainIndex + 'static> BlockAssembler<CI> {
     fn create_cellbase_transaction(
         &self,
         header: &Header,
-        transactions: &[Transaction],
+        pes: &[PoolEntry],
         type_hash: H256,
     ) -> Result<Transaction, SharedError> {
         // NOTE: To generate different cellbase txid, we put header number in the input script
@@ -307,8 +307,8 @@ impl<CI: ChainIndex + 'static> BlockAssembler<CI> {
         // bytes, they really serve the same purpose at the moment
         let block_reward = self.shared.block_reward(header.number() + 1);
         let mut fee = 0;
-        for transaction in transactions {
-            fee += self.shared.calculate_transaction_fee(transaction)?;
+        for pe in pes {
+            fee += self.shared.calculate_transaction_fee(&pe.transaction)?;
         }
 
         let output = CellOutput::new(block_reward + fee, Vec::new(), type_hash, None);

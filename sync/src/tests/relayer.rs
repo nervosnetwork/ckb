@@ -7,6 +7,7 @@ use ckb_core::block::BlockBuilder;
 use ckb_core::header::HeaderBuilder;
 use ckb_core::script::Script;
 use ckb_core::transaction::{CellInput, CellOutput, OutPoint, TransactionBuilder};
+use ckb_core::Cycle;
 use ckb_db::memorydb::MemoryKeyValueDB;
 use ckb_notify::NotifyService;
 use ckb_pool::txs_pool::{PoolConfig, TransactionPoolController, TransactionPoolService};
@@ -92,8 +93,9 @@ fn relay_compact_block_with_one_tx() {
             };
 
             {
+                let txs_len = block.commit_transactions().len();
                 chain_controller1
-                    .process_block(Arc::new(block.clone()))
+                    .process_block(Arc::new(block.clone()), vec![Cycle::default(); txs_len])
                     .expect("process block should be OK");
 
                 let fbb = &mut FlatBufferBuilder::new();
@@ -128,8 +130,9 @@ fn relay_compact_block_with_one_tx() {
             };
 
             {
+                let txs_len = block.commit_transactions().len();
                 chain_controller1
-                    .process_block(Arc::new(block.clone()))
+                    .process_block(Arc::new(block.clone()), vec![Cycle::default(); txs_len])
                     .expect("process block should be OK");
 
                 let fbb = &mut FlatBufferBuilder::new();
@@ -233,8 +236,9 @@ fn relay_compact_block_with_missing_indexs() {
             };
 
             {
+                let txs_len = block.commit_transactions().len();
                 chain_controller1
-                    .process_block(Arc::new(block.clone()))
+                    .process_block(Arc::new(block.clone()), vec![Cycle::default(); txs_len])
                     .expect("process block should be OK");
 
                 let fbb = &mut FlatBufferBuilder::new();
@@ -269,8 +273,9 @@ fn relay_compact_block_with_missing_indexs() {
             };
 
             {
+                let txs_len = block.commit_transactions().len();
                 chain_controller1
-                    .process_block(Arc::new(block.clone()))
+                    .process_block(Arc::new(block.clone()), vec![Cycle::default(); txs_len])
                     .expect("process block should be OK");
 
                 let fbb = &mut FlatBufferBuilder::new();
@@ -362,8 +367,9 @@ fn setup_node(
             .commit_transaction(cellbase)
             .with_header_builder(header_builder);
 
+        let txs_len = block.commit_transactions().len();
         chain_controller
-            .process_block(Arc::new(block.clone()))
+            .process_block(Arc::new(block.clone()), vec![Cycle::default(); txs_len])
             .expect("process block should be OK");
     }
 

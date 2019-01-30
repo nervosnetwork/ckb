@@ -6,6 +6,7 @@ use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::BlockBuilder;
 use ckb_core::header::HeaderBuilder;
 use ckb_core::transaction::{CellInput, CellOutput, TransactionBuilder};
+use ckb_core::Cycle;
 use ckb_db::memorydb::MemoryKeyValueDB;
 use ckb_notify::NotifyService;
 use ckb_protocol::SyncMessage;
@@ -103,8 +104,9 @@ fn setup_node(
             .commit_transaction(cellbase)
             .with_header_builder(header_builder);
 
+        let txs_len = block.commit_transactions().len();
         chain_controller
-            .process_block(Arc::new(block.clone()))
+            .process_block(Arc::new(block.clone()), vec![Cycle::default(); txs_len])
             .expect("process block should be OK");
     }
 

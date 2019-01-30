@@ -26,6 +26,7 @@ use ckb_chain::error::ProcessBlockError;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::Block;
 use ckb_core::header::{BlockNumber, Header};
+use ckb_core::Cycle;
 use ckb_network::{CKBProtocolContext, CKBProtocolHandler, PeerIndex, Severity, TimerToken};
 use ckb_protocol::{SyncMessage, SyncPayload};
 use ckb_shared::index::ChainIndex;
@@ -425,7 +426,10 @@ impl<CI: ChainIndex> Synchronizer<CI> {
     }
 
     fn accept_block(&self, peer: PeerIndex, block: &Arc<Block>) -> Result<(), ProcessBlockError> {
-        self.chain.process_block(Arc::clone(&block))?;
+        let txs_len = block.commit_transactions().len();
+        // TODO: some transactions' verification can be skiped.
+        self.chain
+            .process_block(Arc::clone(&block), vec![Cycle::default(); txs_len])?;
         self.mark_block_stored(block.header().hash().clone());
         self.peers.set_last_common_header(peer, &block.header());
         Ok(())
@@ -825,8 +829,9 @@ mod tests {
         let difficulty = shared.calculate_difficulty(&parent).unwrap();
         let block = gen_block(&parent, difficulty, nonce);
 
+        let txs_len = block.commit_transactions().len();
         chain_controller
-            .process_block(Arc::new(block))
+            .process_block(Arc::new(block), vec![Cycle::default(); txs_len])
             .expect("process block ok");
     }
 
@@ -910,11 +915,12 @@ mod tests {
             let new_block = gen_block(&parent, difficulty, i);
             blocks.push(new_block.clone());
 
+            let txs_len = new_block.commit_transactions().len();
             chain_controller1
-                .process_block(Arc::new(new_block.clone()))
+                .process_block(Arc::new(new_block.clone()), vec![Cycle::default(); txs_len])
                 .expect("process block ok");
             chain_controller2
-                .process_block(Arc::new(new_block.clone()))
+                .process_block(Arc::new(new_block.clone()), vec![Cycle::default(); txs_len])
                 .expect("process block ok");
             parent = new_block.header().clone();
         }
@@ -924,8 +930,9 @@ mod tests {
         for i in 1..=block_number {
             let difficulty = shared2.calculate_difficulty(&parent).unwrap();
             let new_block = gen_block(&parent, difficulty, i + 100);
+            let txs_len = new_block.commit_transactions().len();
             chain_controller2
-                .process_block(Arc::new(new_block.clone()))
+                .process_block(Arc::new(new_block.clone()), vec![Cycle::default(); txs_len])
                 .expect("process block ok");
             parent = new_block.header().clone();
         }
@@ -994,8 +1001,9 @@ mod tests {
         for i in 1..block_number {
             let difficulty = shared1.calculate_difficulty(&parent).unwrap();
             let new_block = gen_block(&parent, difficulty, i + 100);
+            let txs_len = new_block.commit_transactions().len();
             chain_controller1
-                .process_block(Arc::new(new_block.clone()))
+                .process_block(Arc::new(new_block.clone()), vec![Cycle::default(); txs_len])
                 .expect("process block ok");
             blocks.push(new_block.clone());
             parent = new_block.header().clone();
@@ -1025,8 +1033,9 @@ mod tests {
             let difficulty = shared.calculate_difficulty(&parent).unwrap();
             let new_block = gen_block(&parent, difficulty, i + 100);
             blocks.push(new_block.clone());
+            let txs_len = new_block.commit_transactions().len();
             chain_controller
-                .process_block(Arc::new(new_block.clone()))
+                .process_block(Arc::new(new_block.clone()), vec![Cycle::default(); txs_len])
                 .expect("process block ok");
             parent = new_block.header().clone();
         }
@@ -1210,7 +1219,7 @@ mod tests {
             fetched_blocks.push(shared2.block(block_hash).unwrap());
         }
 
-        let new_tip_receiver = notify.subscribe_new_tip("new_tip_receiver");
+        let fork_receiver = notify.subscribe_switch_fork("for_receiver");
 
         for block in &fetched_blocks {
             let fbb = &mut FlatBufferBuilder::new();
@@ -1232,7 +1241,7 @@ mod tests {
             blocks_to_fetch.last().unwrap()
         );
 
-        assert!(new_tip_receiver.recv().is_ok());
+        assert!(fork_receiver.recv().is_ok());
     }
 
     #[cfg(not(disable_faketime))]

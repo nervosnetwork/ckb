@@ -47,7 +47,7 @@ where
                         None
                     })
                 })
-                .map(Into::into)
+                .map(|x| x.transaction)
                 .collect::<Vec<_>>()
         };
 

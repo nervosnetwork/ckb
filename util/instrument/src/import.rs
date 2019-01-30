@@ -1,6 +1,7 @@
 use crate::format::Format;
 use ckb_chain::chain::ChainController;
 use ckb_core::block::Block;
+use ckb_core::Cycle;
 #[cfg(feature = "progress_bar")]
 use indicatif::{ProgressBar, ProgressStyle};
 use serde_json;
@@ -68,8 +69,9 @@ impl Import {
             let s = line?;
             let block: Arc<Block> = Arc::new(serde_json::from_str(&s)?);
             if !block.is_genesis() {
+                let txs_len = block.commit_transactions().len();
                 self.chain
-                    .process_block(block)
+                    .process_block(block, vec![Cycle::default(); txs_len])
                     .expect("import occur malformation data");
             }
             progress_bar.inc(s.as_bytes().len() as u64);

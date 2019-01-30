@@ -7,7 +7,7 @@ use ckb_core::header::{Header, HeaderBuilder};
 use ckb_core::transaction::{
     CellInput, CellOutput, ProposalShortId, Transaction, TransactionBuilder,
 };
-use ckb_core::BlockNumber;
+use ckb_core::{BlockNumber, Cycle};
 use ckb_db::memorydb::MemoryKeyValueDB;
 use ckb_shared::shared::{ChainProvider, Shared, SharedBuilder};
 use ckb_shared::store::ChainKVStore;
@@ -80,8 +80,9 @@ fn test_uncle_verifier() {
     for i in 1..number {
         let difficulty = shared.calculate_difficulty(&parent).unwrap();
         let new_block = gen_block(&parent, i, difficulty);
+        let txs_len = new_block.commit_transactions().len();
         chain_controller
-            .process_block(Arc::new(new_block.clone()))
+            .process_block(Arc::new(new_block.clone()), vec![Cycle::default(); txs_len])
             .expect("process block ok");
         chain1.push(new_block.clone());
         parent = new_block.header().clone();
@@ -93,8 +94,9 @@ fn test_uncle_verifier() {
     for i in 1..number {
         let difficulty = shared.calculate_difficulty(&parent).unwrap();
         let new_block = gen_block(&parent, i + 1000, difficulty);
+        let txs_len = new_block.commit_transactions().len();
         chain_controller
-            .process_block(Arc::new(new_block.clone()))
+            .process_block(Arc::new(new_block.clone()), vec![Cycle::default(); txs_len])
             .expect("process block ok");
         chain2.push(new_block.clone());
         parent = new_block.header().clone();

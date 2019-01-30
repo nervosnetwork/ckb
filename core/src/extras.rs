@@ -1,3 +1,4 @@
+use crate::Cycle;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 use serde_derive::{Deserialize, Serialize};
@@ -8,6 +9,7 @@ pub struct BlockExt {
     pub total_difficulty: U256,
     pub total_uncles_count: u64,
     pub valid: Option<bool>,
+    pub cycles_set: Vec<Cycle>,
 }
 
 #[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Debug)]

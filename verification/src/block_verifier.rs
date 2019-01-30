@@ -1,6 +1,6 @@
 use crate::error::{CellbaseError, CommitError, Error, UnclesError};
 use crate::header_verifier::HeaderResolver;
-use crate::{TransactionVerifier, Verifier};
+use crate::{InputVerifier, TransactionVerifier, Verifier};
 use ckb_core::block::Block;
 use ckb_core::cell::{resolve_transaction, CellProvider, CellStatus, ResolvedTransaction};
 use ckb_core::header::Header;
@@ -389,6 +389,7 @@ impl<CP: ChainProvider + Clone> UnclesVerifier<CP> {
 pub fn verify_transactions<F: Fn(&OutPoint) -> CellStatus>(
     block: &Block,
     max_cycles: Cycle,
+    cycles_set: &mut Vec<Cycle>,
     cell: F,
 ) -> Result<(), Error> {
     let mut output_indexs = FnvHashMap::default();
@@ -421,44 +422,29 @@ pub fn verify_transactions<F: Fn(&OutPoint) -> CellStatus>(
         .collect();
 
     // make verifiers orthogonal
-    resolved
+    *cycles_set = resolved
         .par_iter()
         .enumerate()
-        .try_fold(
-            || 0,
-            |cycles: Cycle, (index, tx)| {
+        .map(|(index, tx)| {
+            if cycles_set[index] == Cycle::default() {
                 TransactionVerifier::new(&tx)
                     .verify(max_cycles)
                     .map_err(|e| Error::Transactions((index, e)))
-                    .and_then(|current_cycles| {
-                        cycles
-                            .checked_add(current_cycles)
-                            .ok_or(Error::ExceededMaximumCycles)
-                            .and_then(|new_cycles| {
-                                if new_cycles > max_cycles {
-                                    Err(Error::ExceededMaximumCycles)
-                                } else {
-                                    Ok(new_cycles)
-                                }
-                            })
-                    })
-            },
-        )
-        .try_reduce(
-            || 0,
-            |a, b| {
-                a.checked_add(b)
-                    .ok_or(Error::ExceededMaximumCycles)
-                    .and_then(|cycles| {
-                        if cycles > max_cycles {
-                            Err(Error::ExceededMaximumCycles)
-                        } else {
-                            Ok(cycles)
-                        }
-                    })
-            },
-        )
-        .map(|_| ())
+            } else {
+                InputVerifier::new(&tx)
+                    .verify()
+                    .map_err(|e| Error::Transactions((index, e)))
+                    .map(|_| cycles_set[index])
+            }
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let sum: Cycle = cycles_set.iter().sum();
+    if sum > max_cycles {
+        Err(Error::ExceededMaximumCycles)
+    } else {
+        Ok(())
+    }
 }
 
 #[derive(Clone)]
