@@ -1,9 +1,9 @@
 [package]
-name = "merkle-tree"
+name = "ckb-merkle-tree"
 version = "0.5.0-pre"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
 
-[dev-dependencies]
-proptest = "0.8"
+[dependencies]
+merkle-cbt = { version="0.1", features = ["sha3"] }

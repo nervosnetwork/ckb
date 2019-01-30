@@ -26,7 +26,7 @@ rusqlite = {version = "0.16.0", features = ["bundled"]}
 lazy_static = "1.2.0"
 multihash = { git = "https://github.com/nervosnetwork/rust-libp2p", branch = "ring_patch" }
 r2d2 = "0.8.3"
-r2d2_sqlite = {git = "https://github.com/jjyr/r2d2-sqlite", rev="8ade92077977c4860562b1337b95ec8ed2000711"}
+r2d2_sqlite = "0.8.0"
 
 [dev-dependencies]
 criterion = "0.2"

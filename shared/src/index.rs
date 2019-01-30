@@ -1,4 +1,3 @@
-use crate::error::SharedError;
 use crate::flat_serializer::serialized_addresses;
 use crate::store::{ChainKVStore, ChainStore};
 use crate::{COLUMN_BLOCK_BODY, COLUMN_INDEX, COLUMN_META, COLUMN_TRANSACTION_ADDR};
@@ -39,6 +38,7 @@ impl<T: 'static + KeyValueDB> ChainIndex for ChainKVStore<T> {
                 received_at: genesis.header().timestamp(),
                 total_difficulty: genesis.header().difficulty().clone(),
                 total_uncles_count: 0,
+                valid: Some(true),
             };
 
             let mut cells = Vec::with_capacity(genesis.commit_transactions().len());
@@ -54,13 +54,9 @@ impl<T: 'static + KeyValueDB> ChainIndex for ChainKVStore<T> {
                 cells.push((ins, outs));
             }
 
-            let output_root = self
-                .update_transaction_meta(batch, H256::zero(), cells)
-                .ok_or(SharedError::InvalidOutput)?;
             self.insert_block(batch, genesis);
             self.insert_block_ext(batch, &genesis_hash, &ext);
             self.insert_tip_header(batch, &genesis.header());
-            self.insert_output_root(batch, &genesis_hash, &output_root);
             self.insert_block_hash(batch, 0, &genesis_hash);
             self.insert_block_number(batch, &genesis_hash, 0);
             self.insert_transaction_address(batch, &genesis_hash, genesis.commit_transactions());

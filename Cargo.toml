@@ -45,11 +45,9 @@ build-info = { path = "util/build-info" }
 
 [workspace]
 members = [
-    "util/avl",
     "util/logger",
     "util/hash",
     "util/merkle-tree",
-    "util/merkle-root",
     "util/jsonrpc-types",
     "util/crypto",
     "util/dir",

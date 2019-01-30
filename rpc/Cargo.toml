@@ -30,6 +30,7 @@ flatbuffers = "0.5.0"
 num_cpus = "1.0"
 faster-hex = "0.3"
 jsonrpc-types = { path = "../util/jsonrpc-types" }
+build-info = { path = "../util/build-info" }
 
 [dev-dependencies]
 ckb-db = { path = "../db" }

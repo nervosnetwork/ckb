@@ -16,8 +16,8 @@ ckb-verification = { path = "../verification" }
 faketime = "0.2.0"
 numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 numext-fixed-uint = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
+fnv = "1.0"
 crossbeam-channel = "0.3"
-
 
 [dev-dependencies]
 env_logger = "0.6"

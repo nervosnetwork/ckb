@@ -26,8 +26,13 @@ impl Drop for NetworkService {
 
 impl NetworkService {
     #[inline]
-    pub fn external_url(&self) -> Option<String> {
-        self.network.external_url()
+    pub fn external_urls(&self, max_urls: usize) -> Vec<(String, u8)> {
+        self.network.external_urls(max_urls)
+    }
+
+    #[inline]
+    pub fn node_id(&self) -> String {
+        self.network.node_id()
     }
 
     pub fn with_protocol_context<F, T>(&self, protocol_id: ProtocolId, f: F) -> Option<T>
@@ -86,7 +91,7 @@ impl NetworkService {
     // This method will not wait for the server stopped, you should use server_future or
     // thread_handle to achieve that.
     fn shutdown(&mut self) -> Result<(), IoError> {
-        debug!(target: "network", "shutdown network service self: {:?}", self.external_url());
+        debug!(target: "network", "shutdown network service self: {:?}", self.external_urls(1).get(0).map(|(addr, _)|addr.to_owned()));
         if let Some(close_tx) = self.close_tx.take() {
             let _ = close_tx
                 .send(())

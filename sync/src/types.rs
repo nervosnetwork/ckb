@@ -5,7 +5,6 @@ use ckb_core::block::Block;
 use ckb_core::header::{BlockNumber, Header};
 use ckb_core::transaction::Transaction;
 use ckb_network::PeerIndex;
-use ckb_shared::shared::TipHeader;
 use ckb_util::RwLock;
 use faketime::unix_time_as_millis;
 use fnv::{FnvHashMap, FnvHashSet};
@@ -31,7 +30,8 @@ use std::hash::{BuildHasher, Hasher};
 #[derive(Clone, Debug, PartialEq)]
 pub struct ChainSyncState {
     pub timeout: u64,
-    pub work_header: Option<TipHeader>,
+    pub work_header: Option<Header>,
+    pub total_difficulty: Option<U256>,
     pub sent_getheaders: bool,
     pub protect: bool,
 }
@@ -41,6 +41,7 @@ impl Default for ChainSyncState {
         ChainSyncState {
             timeout: 0,
             work_header: None,
+            total_difficulty: None,
             sent_getheaders: false,
             protect: false,
         }

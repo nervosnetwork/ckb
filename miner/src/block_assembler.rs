@@ -224,9 +224,9 @@ impl<CI: ChainIndex + 'static> BlockAssembler<CI> {
         let last_uncles_updated_at = self.last_uncles_updated_at.load(Ordering::SeqCst) as u64;
         let last_txs_updated_at = self.tx_pool.get_last_txs_updated_at();
 
-        let tip_header = self.shared.tip_header().read();
-        let header = tip_header.inner();
-        let number = tip_header.number() + 1;
+        let chain_state = self.shared.chain_state().read();
+        let header = chain_state.tip_header();
+        let number = chain_state.tip_number() + 1;
         let current_time = cmp::max(unix_time_as_millis(), header.timestamp() + 1);
 
         let mut template_caches = self.template_caches.lock();
@@ -266,7 +266,7 @@ impl<CI: ChainIndex + 'static> BlockAssembler<CI> {
             difficulty,
             current_time,
             number,
-            parent_hash: tip_header.hash(),
+            parent_hash: header.hash(),
             cycles_limit,
             bytes_limit,
             uncles_count_limit,

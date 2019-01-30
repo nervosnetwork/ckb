@@ -14,5 +14,4 @@ hash = { path = "../util/hash"}
 siphasher = "0.3.0"
 rand = "0.6"
 ckb-util = { path = "../util" }
-merkle-tree = { path = "../util/merkle-tree"}
-merkle-root = { path = "../util/merkle-root"}
+ckb-merkle-tree = { path = "../util/merkle-tree"}

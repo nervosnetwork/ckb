@@ -3,6 +3,7 @@ use crate::cachedb::CacheDB;
 use crate::error::SharedError;
 use crate::index::ChainIndex;
 use crate::store::ChainKVStore;
+use crate::txo_set::{TxoSet, TxoSetDiff};
 use crate::{COLUMNS, COLUMN_BLOCK_HEADER};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::Block;
@@ -10,7 +11,6 @@ use ckb_core::cell::{CellProvider, CellStatus};
 use ckb_core::extras::BlockExt;
 use ckb_core::header::{BlockNumber, Header};
 use ckb_core::transaction::{Capacity, OutPoint, ProposalShortId, Transaction};
-use ckb_core::transaction_meta::TransactionMeta;
 use ckb_core::uncle::UncleBlock;
 use ckb_db::{DBConfig, KeyValueDB, MemoryKeyValueDB, RocksDB};
 use ckb_util::RwLock;
@@ -20,50 +20,62 @@ use numext_fixed_uint::U256;
 use std::sync::Arc;
 
 #[derive(Default, Debug, PartialEq, Clone, Eq)]
-pub struct TipHeader {
-    inner: Header,
+pub struct ChainState {
+    tip_header: Header,
     total_difficulty: U256,
-    output_root: H256,
+    txo_set: TxoSet,
 }
 
-impl TipHeader {
-    pub fn new(header: Header, total_difficulty: U256, output_root: H256) -> TipHeader {
-        TipHeader {
-            inner: header,
+impl ChainState {
+    pub fn new(tip_header: Header, total_difficulty: U256, txo_set: TxoSet) -> Self {
+        ChainState {
+            tip_header,
             total_difficulty,
-            output_root,
+            txo_set,
         }
     }
 
-    pub fn number(&self) -> BlockNumber {
-        self.inner.number()
+    pub fn tip_number(&self) -> BlockNumber {
+        self.tip_header.number()
     }
 
-    pub fn hash(&self) -> H256 {
-        self.inner.hash()
+    pub fn tip_hash(&self) -> H256 {
+        self.tip_header.hash()
     }
 
     pub fn total_difficulty(&self) -> &U256 {
         &self.total_difficulty
     }
 
-    pub fn inner(&self) -> &Header {
-        &self.inner
+    pub fn tip_header(&self) -> &Header {
+        &self.tip_header
     }
 
-    pub fn into_inner(self) -> Header {
-        self.inner
+    pub fn txo_set(&self) -> &TxoSet {
+        &self.txo_set
     }
 
-    pub fn output_root(&self) -> &H256 {
-        &self.output_root
+    pub fn is_spent(&self, o: &OutPoint) -> Option<bool> {
+        self.txo_set.is_spent(o)
+    }
+
+    pub fn update_header(&mut self, header: Header) {
+        self.tip_header = header;
+    }
+
+    pub fn update_difficulty(&mut self, difficulty: U256) {
+        self.total_difficulty = difficulty;
+    }
+
+    pub fn update_txo_set(&mut self, diff: TxoSetDiff) {
+        self.txo_set.update(diff);
     }
 }
 
 pub struct Shared<CI> {
     store: Arc<CI>,
-    tip_header: Arc<RwLock<TipHeader>>,
-    consensus: Consensus,
+    chain_state: Arc<RwLock<ChainState>>,
+    consensus: Arc<Consensus>,
 }
 
 // https://github.com/rust-lang/rust/issues/40754
@@ -71,15 +83,15 @@ impl<CI: ChainIndex> ::std::clone::Clone for Shared<CI> {
     fn clone(&self) -> Self {
         Shared {
             store: Arc::clone(&self.store),
-            tip_header: Arc::clone(&self.tip_header),
-            consensus: self.consensus.clone(),
+            chain_state: Arc::clone(&self.chain_state),
+            consensus: Arc::clone(&self.consensus),
         }
     }
 }
 
 impl<CI: ChainIndex> Shared<CI> {
     pub fn new(store: CI, consensus: Consensus) -> Self {
-        let tip_header = {
+        let chain_state = {
             // check head in store or save the genesis block as head
             let header = {
                 let genesis = consensus.genesis_block();
@@ -92,77 +104,77 @@ impl<CI: ChainIndex> Shared<CI> {
                 }
             };
 
-            let output_root = match store.get_output_root(&header.hash()) {
-                Some(h) => h,
-                None => H256::zero(),
-            };
+            let txo_set = Self::init_txo_set(&store, header.number());
 
             let total_difficulty = store
                 .get_block_ext(&header.hash())
                 .expect("block_ext stored")
                 .total_difficulty;
 
-            Arc::new(RwLock::new(TipHeader::new(
+            Arc::new(RwLock::new(ChainState::new(
                 header,
                 total_difficulty,
-                output_root,
+                txo_set,
             )))
         };
 
         Shared {
             store: Arc::new(store),
-            tip_header,
-            consensus,
+            chain_state,
+            consensus: Arc::new(consensus),
         }
     }
 
-    pub fn tip_header(&self) -> &RwLock<TipHeader> {
-        &self.tip_header
+    pub fn chain_state(&self) -> &RwLock<ChainState> {
+        &self.chain_state
     }
 
     pub fn store(&self) -> &Arc<CI> {
         &self.store
     }
+
+    pub fn init_txo_set(store: &CI, number: u64) -> TxoSet {
+        let mut txo_set = TxoSet::new();
+
+        for n in 0..=number {
+            let hash = store.get_block_hash(n).unwrap();
+            for tx in store.get_block_body(&hash).unwrap() {
+                let inputs = tx.input_pts();
+                let tx_hash = tx.hash();
+                let output_len = tx.outputs().len();
+
+                for o in inputs {
+                    txo_set.mark_spent(&o);
+                }
+
+                txo_set.insert(tx_hash, output_len);
+            }
+        }
+
+        txo_set
+    }
 }
 
 impl<CI: ChainIndex> CellProvider for Shared<CI> {
     fn cell(&self, out_point: &OutPoint) -> CellStatus {
-        let index = out_point.index as usize;
-        let tip_header = self.tip_header().read();
-        if let Some(meta) = self.get_transaction_meta(&tip_header.output_root, &out_point.hash) {
-            if index < meta.len() {
-                if !meta.is_spent(index) {
-                    let transaction = self
-                        .store
-                        .get_transaction(&out_point.hash)
-                        .expect("transaction must exist");
-                    CellStatus::Live(transaction.outputs()[index].clone())
-                } else {
-                    CellStatus::Dead
-                }
-            } else {
-                CellStatus::Unknown
-            }
-        } else {
-            CellStatus::Unknown
-        }
+        self.cell_at(out_point, |op| self.chain_state.read().is_spent(op))
     }
 
-    fn cell_at(&self, out_point: &OutPoint, parent: &H256) -> CellStatus {
+    fn cell_at<F: Fn(&OutPoint) -> Option<bool>>(
+        &self,
+        out_point: &OutPoint,
+        is_spent: F,
+    ) -> CellStatus {
         let index = out_point.index as usize;
-        if let Some(meta) = self.get_transaction_meta_at(&out_point.hash, parent) {
-            if index < meta.len() {
-                if !meta.is_spent(index) {
-                    let transaction = self
-                        .store
-                        .get_transaction(&out_point.hash)
-                        .expect("transaction must exist");
-                    CellStatus::Live(transaction.outputs()[index].clone())
-                } else {
-                    CellStatus::Dead
-                }
+        if let Some(f) = is_spent(out_point) {
+            if f {
+                CellStatus::Dead
             } else {
-                CellStatus::Unknown
+                let transaction = self
+                    .store
+                    .get_transaction(&out_point.hash)
+                    .expect("transaction must exist");
+                CellStatus::Live(transaction.outputs()[index].clone())
             }
         } else {
             CellStatus::Unknown
@@ -185,8 +197,6 @@ pub trait ChainProvider: Sync + Send {
 
     fn block_ext(&self, hash: &H256) -> Option<BlockExt>;
 
-    fn output_root(&self, hash: &H256) -> Option<H256>;
-
     fn block_number(&self, hash: &H256) -> Option<BlockNumber>;
 
     fn block(&self, hash: &H256) -> Option<Block>;
@@ -196,10 +206,6 @@ pub trait ChainProvider: Sync + Send {
     fn get_transaction(&self, hash: &H256) -> Option<Transaction>;
 
     fn contain_transaction(&self, hash: &H256) -> bool;
-
-    fn get_transaction_meta(&self, output_root: &H256, hash: &H256) -> Option<TransactionMeta>;
-
-    fn get_transaction_meta_at(&self, hash: &H256, parent: &H256) -> Option<TransactionMeta>;
 
     fn block_reward(&self, block_number: BlockNumber) -> Capacity;
 
@@ -253,25 +259,12 @@ impl<CI: ChainIndex> ChainProvider for Shared<CI> {
         self.consensus.genesis_block().header().hash()
     }
 
-    fn output_root(&self, hash: &H256) -> Option<H256> {
-        self.store.get_output_root(hash)
-    }
-
     fn get_transaction(&self, hash: &H256) -> Option<Transaction> {
         self.store.get_transaction(hash)
     }
 
     fn contain_transaction(&self, hash: &H256) -> bool {
         self.store.get_transaction_address(hash).is_some()
-    }
-
-    fn get_transaction_meta(&self, output_root: &H256, hash: &H256) -> Option<TransactionMeta> {
-        self.store.get_transaction_meta(output_root, hash)
-    }
-
-    fn get_transaction_meta_at(&self, hash: &H256, parent: &H256) -> Option<TransactionMeta> {
-        self.output_root(parent)
-            .and_then(|ref root| self.store.get_transaction_meta(root, hash))
     }
 
     fn block_reward(&self, _block_number: BlockNumber) -> Capacity {
@@ -422,7 +415,7 @@ impl<CI: ChainIndex> ChainProvider for Shared<CI> {
     }
 
     fn consensus(&self) -> &Consensus {
-        &self.consensus
+        &*self.consensus
     }
 }
 
