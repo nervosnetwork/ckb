@@ -25,11 +25,11 @@ impl Generator {
     }
 
     pub fn random_keypair(self) -> Result<(Privkey, Pubkey), Error> {
-        let random_slice: [u8; secp256k1::constants::SECRET_KEY_SIZE] = rand::random();
-        let sec = SecretKey::from_slice(&random_slice)?;
+        let privkey = self.random_privkey();
+        let sec = SecretKey::from_slice(privkey.as_bytes())?;
         let publ = PublicKey::from_secret_key(&SECP256K1, &sec);
 
-        Ok((sec.into(), publ.into()))
+        Ok((privkey, publ.into()))
     }
 }
 
