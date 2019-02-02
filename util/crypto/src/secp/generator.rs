@@ -13,10 +13,15 @@ impl Generator {
     }
 
     pub fn random_privkey(&self) -> Privkey {
-        let random_slice: [u8; secp256k1::constants::SECRET_KEY_SIZE] = rand::random();
-        SecretKey::from_slice(&random_slice)
-            .expect("slice has the right size")
-            .into()
+        let mut random_slice: [u8; secp256k1::constants::SECRET_KEY_SIZE] = rand::random();
+        loop {
+            match SecretKey::from_slice(&random_slice) {
+                Ok(sec) => return sec.into(),
+                Err(_) => {
+                    random_slice = rand::random();
+                }
+            }
+        }
     }
 
     pub fn random_keypair(self) -> Result<(Privkey, Pubkey), Error> {
