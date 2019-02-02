@@ -21,7 +21,8 @@ pub const POW_TIME_SPAN: u64 = 12 * 60 * 60 * 1000; // 12 hours
 pub const POW_SPACING: u64 = 15 * 1000; //15s
 
 pub const MAX_BLOCK_CYCLES: Cycle = 100_000_000;
-pub const MAX_BLOCK_BYTES: u64 = 10_000_000; // 10mb
+pub const MAX_BLOCK_BYTES: u64 = 10_000_000; // 10MB
+pub const MAX_INCREMENT_OCCUPIED_CAPACITY: u64 = 2_000_000; // 2MB
 pub const BLOCK_VERSION: u32 = 0;
 
 #[derive(Clone, PartialEq, Debug)]
@@ -47,6 +48,8 @@ pub struct Consensus {
     pub max_block_cycles: Cycle,
     // Maximum number of bytes to use for the entire block
     pub max_block_bytes: u64,
+    // Maximum number of increment occupied capacity for each blocks
+    pub max_increment_occupied_capacity: u64,
     // block version number supported
     pub block_version: Version,
 }
@@ -73,6 +76,7 @@ impl Default for Consensus {
             median_time_block_count: MEDIAN_TIME_BLOCK_COUNT,
             max_block_cycles: MAX_BLOCK_CYCLES,
             max_block_bytes: MAX_BLOCK_BYTES,
+            max_increment_occupied_capacity: MAX_INCREMENT_OCCUPIED_CAPACITY,
             block_version: BLOCK_VERSION,
         }
     }
@@ -150,6 +154,10 @@ impl Consensus {
 
     pub fn max_block_bytes(&self) -> u64 {
         self.max_block_bytes
+    }
+
+    pub fn max_increment_occupied_capacity(&self) -> u64 {
+        self.max_increment_occupied_capacity
     }
 
     pub fn block_version(&self) -> Version {

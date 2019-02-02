@@ -15,6 +15,8 @@ use std::collections::HashMap;
 pub struct DummyChainProvider {
     pub transaction_fees: HashMap<H256, Result<Capacity, SharedError>>,
     pub block_reward: Capacity,
+    pub consensus: Consensus,
+    pub cells_status: HashMap<OutPoint, CellStatus>,
 }
 
 impl ChainProvider for DummyChainProvider {
@@ -86,13 +88,13 @@ impl ChainProvider for DummyChainProvider {
     }
 
     fn consensus(&self) -> &Consensus {
-        panic!("Not implemented!");
+        &self.consensus
     }
 }
 
 impl CellProvider for DummyChainProvider {
-    fn cell(&self, _o: &OutPoint) -> CellStatus {
-        panic!("Not implemented!");
+    fn cell(&self, o: &OutPoint) -> CellStatus {
+        self.cells_status[o].clone()
     }
 
     fn cell_at<F: Fn(&OutPoint) -> Option<bool>>(&self, _o: &OutPoint, _: F) -> CellStatus {

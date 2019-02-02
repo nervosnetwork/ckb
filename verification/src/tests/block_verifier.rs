@@ -1,8 +1,11 @@
-use super::super::block_verifier::{BlockVerifier, CellbaseVerifier, EmptyVerifier};
+use super::super::block_verifier::{
+    BlockVerifier, CellbaseVerifier, EmptyVerifier, IncrementOccupiedCapacityVerifier,
+};
 use super::super::error::{CellbaseError, Error as VerifyError};
 use super::dummy::DummyChainProvider;
 use crate::Verifier;
 use ckb_core::block::BlockBuilder;
+use ckb_core::cell::CellStatus;
 use ckb_core::transaction::{CellInput, CellOutput, OutPoint, Transaction, TransactionBuilder};
 use ckb_core::Capacity;
 use ckb_shared::error::SharedError;
@@ -56,6 +59,7 @@ pub fn test_block_with_one_cellbase_at_first() {
     let provider = DummyChainProvider {
         block_reward: 100,
         transaction_fees,
+        ..Default::default()
     };
 
     let verifier = CellbaseVerifier::new(provider);
@@ -104,6 +108,7 @@ pub fn test_cellbase_with_less_reward() {
     let provider = DummyChainProvider {
         block_reward: 100,
         transaction_fees,
+        ..Default::default()
     };
 
     let verifier = CellbaseVerifier::new(provider);
@@ -124,6 +129,7 @@ pub fn test_cellbase_with_fee() {
     let provider = DummyChainProvider {
         block_reward: 100,
         transaction_fees,
+        ..Default::default()
     };
 
     let verifier = CellbaseVerifier::new(provider);
@@ -144,6 +150,7 @@ pub fn test_cellbase_with_more_reward_than_available() {
     let provider = DummyChainProvider {
         block_reward: 100,
         transaction_fees,
+        ..Default::default()
     };
 
     let verifier = CellbaseVerifier::new(provider);
@@ -167,6 +174,7 @@ pub fn test_cellbase_with_invalid_transaction() {
     let provider = DummyChainProvider {
         block_reward: 100,
         transaction_fees,
+        ..Default::default()
     };
 
     let verifier = CellbaseVerifier::new(provider);
@@ -196,6 +204,7 @@ pub fn test_cellbase_with_two_outputs() {
     let provider = DummyChainProvider {
         block_reward: 150,
         transaction_fees,
+        ..Default::default()
     };
 
     let verifier = CellbaseVerifier::new(provider);
@@ -222,6 +231,7 @@ pub fn test_cellbase_with_two_outputs_and_more_rewards_than_maximum() {
     let provider = DummyChainProvider {
         block_reward: 100,
         transaction_fees,
+        ..Default::default()
     };
 
     let verifier = CellbaseVerifier::new(provider);
@@ -239,6 +249,7 @@ pub fn test_empty_transactions() {
     let provider = DummyChainProvider {
         block_reward: 150,
         transaction_fees,
+        ..Default::default()
     };
 
     let verifier = EmptyVerifier::new();
@@ -251,5 +262,43 @@ pub fn test_empty_transactions() {
     assert_eq!(
         full_verifier.verify(&block),
         Err(VerifyError::CommitTransactionsEmpty)
+    );
+}
+
+#[test]
+pub fn test_increment_occupied_capacity() {
+    let transaction_fees = HashMap::<H256, Result<Capacity, SharedError>>::new();
+    let mut cells_status = HashMap::<OutPoint, CellStatus>::new();
+
+    let input = CellInput::new_cellbase_input(0);
+    cells_status.insert(
+        input.previous_output.clone(),
+        CellStatus::Live(CellOutput::new(0, Vec::new(), H256::zero(), None)),
+    );
+
+    let provider = DummyChainProvider {
+        block_reward: 2_000_001,
+        transaction_fees,
+        cells_status,
+        ..Default::default()
+    };
+
+    let cellbase_transaction = TransactionBuilder::default()
+        .input(input)
+        .output(CellOutput::new(
+            2_000_001,
+            vec![0; 2_000_001],
+            H256::default(),
+            None,
+        ))
+        .build();
+
+    let block = BlockBuilder::default()
+        .commit_transaction(cellbase_transaction)
+        .build();
+    let verifier = IncrementOccupiedCapacityVerifier::new(provider);
+    assert_eq!(
+        verifier.verify(&block),
+        Err(VerifyError::ExceededMaximumIncrementOccupiedCapacity)
     );
 }

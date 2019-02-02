@@ -43,6 +43,8 @@ pub enum Error {
     /// Cycles consumed by all scripts in all commit transactions of the block exceed
     /// the maximum allowed cycles in consensus rules
     ExceededMaximumCycles,
+    /// the maximum allowed increment occupied capacity in a block.
+    ExceededMaximumIncrementOccupiedCapacity,
 }
 
 #[derive(Debug, PartialEq, Clone, Eq)]

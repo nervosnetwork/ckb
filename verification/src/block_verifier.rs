@@ -10,6 +10,7 @@ use ckb_merkle_tree::merkle_root;
 use ckb_shared::shared::ChainProvider;
 use fnv::{FnvHashMap, FnvHashSet};
 use numext_fixed_uint::U256;
+use occupied_capacity::OccupiedCapacity;
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use std::collections::HashSet;
 
@@ -28,6 +29,8 @@ pub struct BlockVerifier<P> {
     uncles: UnclesVerifier<P>,
     // Verify the the propose-then-commit consensus rule
     commit: CommitVerifier<P>,
+    // Verify the increment occupied capacity in a block
+    increment_occupied_capacity: IncrementOccupiedCapacityVerifier<P>,
 }
 
 impl<P> BlockVerifier<P>
@@ -42,7 +45,8 @@ where
             cellbase: CellbaseVerifier::new(provider.clone()),
             merkle_root: MerkleRootVerifier::new(),
             uncles: UnclesVerifier::new(provider.clone()),
-            commit: CommitVerifier::new(provider),
+            commit: CommitVerifier::new(provider.clone()),
+            increment_occupied_capacity: IncrementOccupiedCapacityVerifier::new(provider),
         }
     }
 }
@@ -58,7 +62,8 @@ impl<P: ChainProvider + CellProvider + Clone> Verifier for BlockVerifier<P> {
         self.cellbase.verify(target)?;
         self.merkle_root.verify(target)?;
         self.commit.verify(target)?;
-        self.uncles.verify(target)
+        self.uncles.verify(target)?;
+        self.increment_occupied_capacity.verify(target)
     }
 }
 
@@ -519,5 +524,68 @@ impl<CP: ChainProvider + Clone> CommitVerifier<CP> {
             return Err(Error::Commit(CommitError::Invalid));
         }
         Ok(())
+    }
+}
+
+#[derive(Clone)]
+pub struct IncrementOccupiedCapacityVerifier<CP> {
+    provider: CP,
+}
+
+impl<CP: ChainProvider + CellProvider + Clone> IncrementOccupiedCapacityVerifier<CP> {
+    pub fn new(provider: CP) -> Self {
+        IncrementOccupiedCapacityVerifier { provider }
+    }
+
+    pub fn verify(&self, block: &Block) -> Result<(), Error> {
+        if let Some(increment_occupied_capacity) = self.calculate_increment_occupied_capacity(block)
+        {
+            if increment_occupied_capacity
+                > self.provider.consensus().max_increment_occupied_capacity()
+            {
+                return Err(Error::ExceededMaximumIncrementOccupiedCapacity);
+            }
+        }
+        Ok(())
+    }
+
+    // NOTICE this function will return 0 if the increment occupied capacity is nagetive
+    fn calculate_increment_occupied_capacity(&self, block: &Block) -> Option<Capacity> {
+        block
+            .commit_transactions()
+            .iter()
+            .try_fold(
+                (0, 0),
+                |(consumed_occupied, generated_occupied): (Capacity, Capacity), tx| {
+                    if let Some(tx_inputs_occupied) =
+                        tx.inputs().iter().try_fold(0, |acc: Capacity, input| {
+                            self.provider
+                                .cell(&input.previous_output)
+                                .get_live()
+                                .map(|output| {
+                                    acc.saturating_add(output.occupied_capacity() as Capacity)
+                                })
+                        })
+                    {
+                        let tx_outputs_occupied = tx
+                            .outputs()
+                            .iter()
+                            .map(|output| output.occupied_capacity() as Capacity)
+                            .sum::<Capacity>();
+                        Some((
+                            consumed_occupied.saturating_add(tx_inputs_occupied),
+                            generated_occupied.saturating_add(tx_outputs_occupied),
+                        ))
+                    } else {
+                        // Failed to resolve tx inputs
+                        None
+                    }
+                },
+            )
+            .map(
+                |(consumed_occupied, generated_occupied): (Capacity, Capacity)| {
+                    generated_occupied.saturating_sub(consumed_occupied)
+                },
+            )
     }
 }
