@@ -28,7 +28,7 @@ mod tests {
     #[test]
     fn test_sign_verify() {
         let gen = Generator::new();
-        let (privkey, pubkey) = gen.random_keypair().unwrap();
+        let (privkey, pubkey) = gen.random_keypair();
         let data: [u8; 32] = rand::random();
         let message = Message::from_slice(&data).unwrap();
         let signature = privkey.sign_recoverable(&message).unwrap();
@@ -38,7 +38,7 @@ mod tests {
     #[test]
     fn test_recover() {
         let gen = Generator::new();
-        let (privkey, pubkey) = gen.random_keypair().unwrap();
+        let (privkey, pubkey) = gen.random_keypair();
         let data: [u8; 32] = rand::random();
         let message = Message::from_slice(&data).unwrap();
         let signature = privkey.sign_recoverable(&message).unwrap();
