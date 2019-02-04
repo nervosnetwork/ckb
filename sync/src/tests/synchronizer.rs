@@ -77,7 +77,9 @@ fn setup_node(
         .build();
     let notify = NotifyService::default().start(Some(thread_name));
 
-    let chain_service = ChainBuilder::new(shared.clone(), notify).build();
+    let chain_service = ChainBuilder::new(shared.clone(), notify)
+        .verification(false)
+        .build();
     let chain_controller = chain_service.start::<&str>(None);
 
     for _i in 0..height {

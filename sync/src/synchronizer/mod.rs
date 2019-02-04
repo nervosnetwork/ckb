@@ -766,7 +766,9 @@ mod tests {
         let shared = builder.build();
 
         let notify = notify.unwrap_or_else(|| NotifyService::default().start::<&str>(None));
-        let chain_service = ChainBuilder::new(shared.clone(), notify.clone()).build();
+        let chain_service = ChainBuilder::new(shared.clone(), notify.clone())
+            .verification(false)
+            .build();
         let chain_controller = chain_service.start::<&str>(None);
 
         (chain_controller, shared, notify)
@@ -995,18 +997,16 @@ mod tests {
             chain_controller1
                 .process_block(Arc::new(new_block.clone()))
                 .expect("process block ok");
-            blocks.push(new_block.clone());
             parent = new_block.header().clone();
+            blocks.push(new_block);
         }
-
         let synchronizer = gen_synchronizer(chain_controller2.clone(), shared2.clone());
-
-        blocks.clone().into_iter().for_each(|block| {
+        let chain1_last_block = blocks.last().cloned().unwrap();
+        blocks.into_iter().for_each(|block| {
             synchronizer.insert_new_block(peer, block);
         });
-
         assert_eq!(
-            blocks.last().unwrap().header(),
+            chain1_last_block.header(),
             shared2.chain_state().read().tip_header()
         );
     }
