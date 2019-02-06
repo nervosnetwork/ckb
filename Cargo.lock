@@ -335,8 +335,18 @@ dependencies = [
 name = "ckb-benches"
 version = "0.5.0-pre"
 dependencies = [
+ "ckb-chain 0.5.0-pre",
+ "ckb-chain-spec 0.5.0-pre",
+ "ckb-core 0.5.0-pre",
+ "ckb-db 0.5.0-pre",
+ "ckb-notify 0.5.0-pre",
  "ckb-pow 0.5.0-pre",
+ "ckb-shared 0.5.0-pre",
  "criterion 0.2.9 (registry+https://github.com/rust-lang/crates.io-index)",
+ "numext-fixed-hash 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "numext-fixed-uint 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "rand 0.6.4 (registry+https://github.com/rust-lang/crates.io-index)",
+ "tempfile 3.0.5 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
