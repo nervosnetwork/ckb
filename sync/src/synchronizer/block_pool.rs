@@ -66,7 +66,7 @@ mod tests {
     use std::collections::HashSet;
     use std::iter::FromIterator;
 
-    fn gen_block(parent_header: Header) -> Block {
+    fn gen_block(parent_header: &Header) -> Block {
         let header = HeaderBuilder::default()
             .parent_hash(parent_header.hash().clone())
             .timestamp(unix_time_as_millis())
@@ -85,7 +85,7 @@ mod tests {
         let mut parent = consensus.genesis_block().header().clone();
         let pool = OrphanBlockPool::with_capacity(200);
         for _ in 1..block_number {
-            let new_block = gen_block(parent);
+            let new_block = gen_block(&parent);
             blocks.push(new_block.clone());
             pool.insert(new_block.clone());
             parent = new_block.header().clone();

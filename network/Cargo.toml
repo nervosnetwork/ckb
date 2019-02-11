@@ -1,6 +1,6 @@
 [package]
 name = "ckb-network"
-version = "0.4.1"
+version = "0.5.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -17,7 +17,7 @@ ckb-util = { path = "../util" }
 unsigned-varint = {git = "https://github.com/paritytech/unsigned-varint", features = ["codec"]}
 log = "0.4.5"
 bytes = "0.4.9"
-tokio = "0.1.8"
+tokio = "0.1.14"
 futures = { version = "0.1.19", features = ["use_std"] }
 snap = "0.2"
 libp2p = { git = "https://github.com/nervosnetwork/rust-libp2p", branch = "ring_patch",  default-features = false, features = ["libp2p-secio", "libp2p-secio-secp256k1"] }

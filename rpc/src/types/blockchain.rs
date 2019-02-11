@@ -443,6 +443,7 @@ mod tests {
 
     proptest! {
         #[test]
+        #[allow(clippy::unnecessary_operation)]
         fn test_block_convert(
             data in any_with::<Vec<u8>>(size_range(80).lift()),
             arg in any_with::<Vec<u8>>(size_range(80).lift()),

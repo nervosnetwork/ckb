@@ -331,16 +331,15 @@ mod tests {
         let db = RocksDB::open(tmp_dir, COLUMNS);
         let store = ChainKVStore::new(db);
 
-        assert!(store
-            .save_with_batch(|batch| {
-                store.insert_output_root(
-                    batch,
-                    &H256::from_trimmed_hex_str("10").unwrap(),
-                    &H256::from_trimmed_hex_str("20").unwrap(),
-                );
-                Ok(())
-            })
-            .is_ok());
+        let ret = store.save_with_batch(|batch| {
+            store.insert_output_root(
+                batch,
+                &H256::from_trimmed_hex_str("10").unwrap(),
+                &H256::from_trimmed_hex_str("20").unwrap(),
+            );
+            Ok(())
+        });
+        assert!(ret.is_ok());
         assert_eq!(
             H256::from_trimmed_hex_str("20").unwrap(),
             store
@@ -361,12 +360,11 @@ mod tests {
         let block = consensus.genesis_block();
 
         let hash = block.header().hash();
-        assert!(store
-            .save_with_batch(|batch| {
-                store.insert_block(batch, &block);
-                Ok(())
-            })
-            .is_ok());
+        let ret = store.save_with_batch(|batch| {
+            store.insert_block(batch, &block);
+            Ok(())
+        });
+        assert!(ret.is_ok());
         assert_eq!(block, &store.get_block(&hash).unwrap());
     }
 
@@ -385,12 +383,11 @@ mod tests {
             .build();
 
         let hash = block.header().hash();
-        assert!(store
-            .save_with_batch(|batch| {
-                store.insert_block(batch, &block);
-                Ok(())
-            })
-            .is_ok());
+        let ret = store.save_with_batch(|batch| {
+            store.insert_block(batch, &block);
+            Ok(())
+        });
+        assert!(ret.is_ok());
         assert_eq!(block, store.get_block(&hash).unwrap());
     }
 
@@ -412,13 +409,12 @@ mod tests {
         };
 
         let hash = block.header().hash();
+        let ret = store.save_with_batch(|batch| {
+            store.insert_block_ext(batch, &hash, &ext);
+            Ok(())
+        });
 
-        assert!(store
-            .save_with_batch(|batch| {
-                store.insert_block_ext(batch, &hash, &ext);
-                Ok(())
-            })
-            .is_ok());
+        assert!(ret.is_ok());
         assert_eq!(ext, store.get_block_ext(&hash).unwrap());
     }
 }

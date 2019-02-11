@@ -248,7 +248,7 @@ mod tests {
 
         let mut bytes = vec![];
         for argument in &args {
-            bytes.write(argument).unwrap();
+            bytes.write_all(argument).unwrap();
         }
         let hash1 = sha3_256(&bytes);
         let hash2 = sha3_256(hash1);
@@ -278,7 +278,7 @@ mod tests {
 
         let verifier = TransactionScriptsVerifier::new(&rtx);
 
-        assert!(verifier.verify(100000000).is_ok());
+        assert!(verifier.verify(100_000_000).is_ok());
     }
 
     #[test]
@@ -293,7 +293,7 @@ mod tests {
 
         let mut bytes = vec![];
         for argument in &args {
-            bytes.write(argument).unwrap();
+            bytes.write_all(argument).unwrap();
         }
         let hash1 = sha3_256(&bytes);
         let hash2 = sha3_256(hash1);
@@ -338,7 +338,7 @@ mod tests {
 
         let mut bytes = vec![];
         for argument in &args {
-            bytes.write(argument).unwrap();
+            bytes.write_all(argument).unwrap();
         }
         let hash1 = sha3_256(&bytes);
         let hash2 = sha3_256(hash1);
@@ -370,7 +370,7 @@ mod tests {
 
         let verifier = TransactionScriptsVerifier::new(&rtx);
 
-        assert!(verifier.verify(100000000).is_err());
+        assert!(verifier.verify(100_000_000).is_err());
     }
 
     #[test]
@@ -391,7 +391,7 @@ mod tests {
 
         let mut bytes = vec![];
         for argument in &args {
-            bytes.write(argument).unwrap();
+            bytes.write_all(argument).unwrap();
         }
         let hash1 = sha3_256(&bytes);
         let hash2 = sha3_256(hash1);
@@ -425,7 +425,7 @@ mod tests {
 
         let verifier = TransactionScriptsVerifier::new(&rtx);
 
-        assert!(verifier.verify(100000000).is_ok());
+        assert!(verifier.verify(100_000_000).is_ok());
     }
 
     #[test]
@@ -436,7 +436,7 @@ mod tests {
 
         let mut bytes = vec![];
         for argument in &args {
-            bytes.write(argument).unwrap();
+            bytes.write_all(argument).unwrap();
         }
         let hash1 = sha3_256(&bytes);
         let hash2 = sha3_256(hash1);
@@ -476,7 +476,7 @@ mod tests {
 
         let verifier = TransactionScriptsVerifier::new(&rtx);
 
-        assert!(verifier.verify(100000000).is_err());
+        assert!(verifier.verify(100_000_000).is_err());
     }
 
     fn create_always_success_script() -> Script {
@@ -499,7 +499,7 @@ mod tests {
 
         let mut bytes = vec![];
         for argument in &args {
-            bytes.write(argument).unwrap();
+            bytes.write_all(argument).unwrap();
         }
         let hash1 = sha3_256(&bytes);
         let hash2 = sha3_256(hash1);
@@ -533,7 +533,7 @@ mod tests {
 
         let verifier = TransactionScriptsVerifier::new(&rtx);
 
-        assert!(verifier.verify(100000000).is_ok());
+        assert!(verifier.verify(100_000_000).is_ok());
     }
 
     #[test]
@@ -548,7 +548,7 @@ mod tests {
 
         let mut bytes = vec![];
         for argument in &args {
-            bytes.write(argument).unwrap();
+            bytes.write_all(argument).unwrap();
         }
         let hash1 = sha3_256(&bytes);
         let hash2 = sha3_256(hash1);
@@ -584,6 +584,6 @@ mod tests {
 
         let verifier = TransactionScriptsVerifier::new(&rtx);
 
-        assert!(verifier.verify(100000000).is_err());
+        assert!(verifier.verify(100_000_000).is_err());
     }
 }

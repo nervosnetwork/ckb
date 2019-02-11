@@ -1,4 +1,5 @@
 //! Top-level Pool type, methods, and tests
+use super::trace::{TxTrace, TxTraceMap};
 use super::types::{
     InsertionResult, Orphan, PendingQueue, Pool, PoolConfig, PoolError, ProposedQueue, TxStage,
     TxoStatus,
@@ -32,6 +33,8 @@ pub struct TransactionPoolController {
     contains_key_sender: Sender<Request<ProposalShortId, bool>>,
     get_transaction_sender: Sender<Request<ProposalShortId, Option<Transaction>>>,
     add_transaction_sender: Sender<Request<Transaction, Result<InsertionResult, PoolError>>>,
+    reg_trace_sender: Sender<Request<Transaction, Result<InsertionResult, PoolError>>>,
+    get_trace_sender: Sender<Request<H256, Option<Vec<TxTrace>>>>,
 }
 
 pub struct TransactionPoolReceivers {
@@ -40,6 +43,8 @@ pub struct TransactionPoolReceivers {
     contains_key_receiver: Receiver<Request<ProposalShortId, bool>>,
     get_transaction_receiver: Receiver<Request<ProposalShortId, Option<Transaction>>>,
     add_transaction_receiver: Receiver<Request<Transaction, Result<InsertionResult, PoolError>>>,
+    reg_trace_receiver: Receiver<Request<Transaction, Result<InsertionResult, PoolError>>>,
+    get_trace_receiver: Receiver<Request<H256, Option<Vec<TxTrace>>>>,
 }
 
 impl TransactionPoolController {
@@ -53,6 +58,8 @@ impl TransactionPoolController {
             channel::bounded(DEFAULT_CHANNEL_SIZE);
         let (add_transaction_sender, add_transaction_receiver) =
             channel::bounded(DEFAULT_CHANNEL_SIZE);
+        let (reg_trace_sender, reg_trace_receiver) = channel::bounded(DEFAULT_CHANNEL_SIZE);
+        let (get_trace_sender, get_trace_receiver) = channel::bounded(DEFAULT_CHANNEL_SIZE);
         (
             TransactionPoolController {
                 get_proposal_commit_transactions_sender,
@@ -60,6 +67,8 @@ impl TransactionPoolController {
                 contains_key_sender,
                 get_transaction_sender,
                 add_transaction_sender,
+                reg_trace_sender,
+                get_trace_sender,
             },
             TransactionPoolReceivers {
                 get_proposal_commit_transactions_receiver,
@@ -67,6 +76,8 @@ impl TransactionPoolController {
                 contains_key_receiver,
                 get_transaction_receiver,
                 add_transaction_receiver,
+                reg_trace_receiver,
+                get_trace_receiver,
             },
         )
     }
@@ -99,6 +110,14 @@ impl TransactionPoolController {
     pub fn add_transaction(&self, tx: Transaction) -> Result<InsertionResult, PoolError> {
         Request::call(&self.add_transaction_sender, tx).expect("add_transaction() failed")
     }
+
+    pub fn trace_transaction(&self, tx: Transaction) -> Result<InsertionResult, PoolError> {
+        Request::call(&self.reg_trace_sender, tx).expect("trace_transaction() failed")
+    }
+
+    pub fn get_transaction_trace(&self, hash: H256) -> Option<Vec<TxTrace>> {
+        Request::call(&self.get_trace_sender, hash).expect("trace_transaction() failed")
+    }
 }
 
 /// The pool itself.
@@ -117,6 +136,8 @@ pub struct TransactionPoolService<CI> {
 
     shared: Shared<CI>,
     notify: NotifyController,
+
+    trace: TxTraceMap,
 }
 
 impl<CI> CellProvider for TransactionPoolService<CI>
@@ -150,6 +171,7 @@ where
         let cache_size = config.max_cache_size;
         let prop_cap = ProposedQueue::cap();
         let ids = shared.union_proposal_ids_n(n, prop_cap);
+        let trace_size = config.trace.unwrap_or(0);
 
         TransactionPoolService {
             config,
@@ -157,9 +179,10 @@ where
             proposed: ProposedQueue::new(n, ids),
             pool: Pool::new(),
             orphan: Orphan::new(),
-            cache: LruCache::new(cache_size, false),
+            cache: LruCache::new(cache_size),
             shared,
             notify,
+            trace: TxTraceMap::new(trace_size),
         }
     }
 
@@ -215,6 +238,22 @@ where
                         }
                         _ => {
                             error!(target: "txs_pool", "channel add_transaction_receiver closed");
+                        }
+                    },
+                    recv(receivers.reg_trace_receiver) -> msg => match msg {
+                        Ok(Request { responder, arguments: tx }) => {
+                            let _ = responder.send(self.trace_transaction(tx));
+                        }
+                        _ => {
+                            error!(target: "txs_pool", "channel reg_trace_receiver closed");
+                        }
+                    },
+                    recv(receivers.get_trace_receiver) -> msg => match msg {
+                        Ok(Request { responder, arguments: hash }) => {
+                            let _ = responder.send(self.get_transaction_traces(&hash).cloned());
+                        }
+                        _ => {
+                            error!(target: "txs_pool", "channel get_trace_receiver closed");
                         }
                     }
                 }
@@ -283,7 +322,7 @@ where
                 }
             }
 
-            //readd txs in proposedqueue
+            //readd txs in proposed queue
             if let Some(frt_ids) = self.proposed.front().cloned() {
                 for id in frt_ids {
                     if let Some(txs) = self.pool.remove(&id) {
@@ -382,6 +421,29 @@ where
         }
     }
 
+    pub(crate) fn trace_transaction(
+        &mut self,
+        tx: Transaction,
+    ) -> Result<InsertionResult, PoolError> {
+        let tx_hash = tx.hash();
+        match { self.proposed.insert(tx) } {
+            TxStage::Mineable(x) => self.add_to_pool(x),
+            TxStage::Unknown(x) => {
+                if self.config.trace_enable() {
+                    self.trace
+                        .add_pending(&tx_hash, "unknown tx, add to pending");
+                }
+                self.pending.insert(x.proposal_short_id(), x);
+                Ok(InsertionResult::Unknown)
+            }
+            _ => Ok(InsertionResult::Proposed),
+        }
+    }
+
+    pub(crate) fn get_transaction_traces(&self, hash: &H256) -> Option<&Vec<TxTrace>> {
+        self.trace.get(hash)
+    }
+
     pub(crate) fn prepare_proposal(&self, n: usize) -> Vec<ProposalShortId> {
         self.pending.fetch(n)
     }
@@ -463,11 +525,18 @@ where
         }
 
         if !unknowns.is_empty() {
+            if self.config.trace_enable() {
+                self.trace
+                    .add_orphan(&tx.hash(), format!("unknowns {:?}", unknowns));
+            }
             self.orphan.add_transaction(tx, unknowns.into_iter());
             return Ok(InsertionResult::Orphan);
         } else {
+            if self.config.trace_enable() {
+                self.trace
+                    .add_commit(&tx.hash(), "add to commit pool".to_string());
+            }
             self.pool.add_transaction(tx.clone());
-
             self.reconcile_orphan(&tx);
         }
 
@@ -482,6 +551,15 @@ where
             let rtx = self.resolve_transaction(&tx);
             let rs =
                 TransactionVerifier::new(&rtx).verify(self.shared.consensus().max_block_cycles());
+            if self.config.trace_enable() {
+                self.trace.add_commit(
+                    &tx.hash(),
+                    format!(
+                        "removed from orphan, prepare add to commit, verify result {:?}",
+                        rs
+                    ),
+                );
+            }
             if rs.is_ok() {
                 self.pool.add_transaction(tx);
             } else if rs == Err(TransactionError::DoubleSpent) {
@@ -514,7 +592,16 @@ where
                 if tx.is_cellbase() {
                     continue;
                 }
-
+                if self.config.trace_enable() {
+                    self.trace.committed(
+                        &tx.hash(),
+                        format!(
+                            "committed in block number({:?})-hash({:#x})",
+                            b.header().number(),
+                            b.header().hash()
+                        ),
+                    );
+                }
                 self.pool.commit_transaction(tx);
             }
         }
@@ -524,9 +611,21 @@ where
                 for id in time_out_ids {
                     if let Some(txs) = self.pool.remove(id) {
                         for tx in txs {
+                            if self.config.trace_enable() {
+                                self.trace.timeout(
+                                    &tx.hash(),
+                                    "tx proposal timeout, removed from pool, readd to pending",
+                                );
+                            }
                             self.pending.insert(tx.proposal_short_id(), tx);
                         }
                     } else if let Some(tx) = self.orphan.remove(id) {
+                        if self.config.trace_enable() {
+                            self.trace.timeout(
+                                &tx.hash(),
+                                "tx proposal timeout, removed from orphan, readd to pending",
+                            );
+                        }
                         self.pending.insert(tx.proposal_short_id(), tx);
                     }
                 }
@@ -536,6 +635,17 @@ where
         let new_txs = {
             for id in &ids {
                 if let Some(tx) = self.pending.remove(id).or_else(|| self.cache.remove(id)) {
+                    if self.config.trace_enable() {
+                        self.trace.proposed(
+                            &tx.hash(),
+                            format!(
+                                "{:?} proposed in block number({:?})-hash({:#x})",
+                                id,
+                                b.header().number(),
+                                b.header().hash()
+                            ),
+                        );
+                    }
                     self.proposed.insert_without_check(id.clone(), tx);
                 }
             }
@@ -548,7 +658,7 @@ where
 
         // We can sort it by some rules
         for tx in new_txs {
-            let tx_hash = tx.hash().clone();
+            let tx_hash = tx.hash();
             if let Err(error) = self.add_to_pool(tx) {
                 error!(target: "txs_pool", "Failed to add proposed tx {:} to pool, reason: {:?}", tx_hash, error);
             }

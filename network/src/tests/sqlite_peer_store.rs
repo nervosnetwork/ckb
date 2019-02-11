@@ -127,7 +127,7 @@ fn test_delete_peer_info() {
     {
         // make sure these 2 peers become candidate in eviction
         let recent_not_seen_time =
-            faketime::unix_time() - Duration::from_secs((PEER_NOT_SEEN_TIMEOUT_SECS + 1) as u64);
+            faketime::unix_time() - Duration::from_secs(u64::from(PEER_NOT_SEEN_TIMEOUT_SECS + 1));
         let faketime_file = faketime::millis_tempfile(recent_not_seen_time.as_secs() * 1000)
             .expect("create faketime file");
         faketime::enable(&faketime_file);

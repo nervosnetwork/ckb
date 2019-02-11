@@ -1,6 +1,6 @@
 [package]
 name = "ckb-instrument"
-version = "0.4.1"
+version = "0.5.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -10,7 +10,7 @@ ckb-core = { path = "../../core" }
 ckb-chain = { path = "../../chain" }
 ckb-shared = { path = "../../shared" }
 serde_json = "1.0"
-indicatif = { version = "0.10", optional = true }
+indicatif = { version = "0.11", optional = true }
 
 [features]
 progress_bar = ["indicatif"]

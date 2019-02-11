@@ -545,7 +545,9 @@ mod tests {
 
         let db = Arc::new(open_db());
 
-        let root_hash = build_and_commit_tree(db.clone()).root_hash().unwrap();
+        let root_hash = build_and_commit_tree(Arc::<MemoryKeyValueDB>::clone(&db))
+            .root_hash()
+            .unwrap();
 
         let mut t = AvlTree::new(db, TEST_COL, root_hash);
         // after serialization, the bitvec is aligned to bytes
@@ -562,7 +564,7 @@ mod tests {
         let db = Arc::new(open_db());
 
         let root_hash = {
-            let mut t = build_tree(db.clone());
+            let mut t = build_tree(Arc::<MemoryKeyValueDB>::clone(&db));
             assert_eq!(Ok(false), t.update(k5.clone(), 0));
             assert_eq!(Ok(true), t.update(k4.clone(), 0));
             assert_eq!(Ok(true), t.update(k4.clone(), 2));
@@ -602,10 +604,12 @@ mod tests {
 
         let db = Arc::new(open_db());
 
-        let mut root_hash = build_and_commit_tree(db.clone()).root_hash().unwrap();
+        let mut root_hash = build_and_commit_tree(Arc::<MemoryKeyValueDB>::clone(&db))
+            .root_hash()
+            .unwrap();
 
         root_hash = {
-            let mut tree = AvlTree::new(db.clone(), TEST_COL, root_hash);
+            let mut tree = AvlTree::new(Arc::<MemoryKeyValueDB>::clone(&db), TEST_COL, root_hash);
             tree.update(k4.clone(), 2).unwrap();
             tree.update(k3.clone(), 2).unwrap();
             tree.insert(k5.clone(), TransactionMeta::new(5)).unwrap();
@@ -616,7 +620,7 @@ mod tests {
         };
 
         root_hash = {
-            let mut tree = AvlTree::new(db.clone(), TEST_COL, root_hash);
+            let mut tree = AvlTree::new(Arc::<MemoryKeyValueDB>::clone(&db), TEST_COL, root_hash);
             tree.update(k2.clone(), 1).unwrap();
             tree.update(k5.clone(), 0).unwrap();
             tree.update(k5.clone(), 2).unwrap();
@@ -629,7 +633,7 @@ mod tests {
         };
 
         root_hash = {
-            let mut tree = AvlTree::new(db.clone(), TEST_COL, root_hash);
+            let mut tree = AvlTree::new(Arc::<MemoryKeyValueDB>::clone(&db), TEST_COL, root_hash);
             tree.update(k6.clone(), 3).unwrap();
             tree.update(k3.clone(), 0).unwrap();
             tree.update(k3.clone(), 1).unwrap();

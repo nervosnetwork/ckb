@@ -15,7 +15,9 @@ use ckb_shared::cachedb::CacheDB;
 use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::{ChainProvider, Shared, SharedBuilder};
 use ckb_shared::store::ChainKVStore;
-use ckb_sync::{Relayer, Synchronizer, RELAY_PROTOCOL_ID, SYNC_PROTOCOL_ID};
+use ckb_sync::{
+    NetTimeProtocol, Relayer, Synchronizer, RELAY_PROTOCOL_ID, SYNC_PROTOCOL_ID, TIME_PROTOCOL_ID,
+};
 use crypto::secp::Generator;
 use log::info;
 use numext_fixed_hash::H256;
@@ -64,6 +66,8 @@ pub fn run(setup: Setup) {
         synchronizer.peers(),
     ));
 
+    let net_time_checker = Arc::new(NetTimeProtocol::default());
+
     let network_config = NetworkConfig::from(setup.configs.network);
     let protocol_base_name = "ckb";
     let protocols = vec![
@@ -77,6 +81,12 @@ pub fn run(setup: Setup) {
             protocol_base_name.to_string(),
             relayer as Arc<_>,
             RELAY_PROTOCOL_ID,
+            &[1][..],
+        ),
+        CKBProtocol::new(
+            protocol_base_name.to_string(),
+            net_time_checker as Arc<_>,
+            TIME_PROTOCOL_ID,
             &[1][..],
         ),
     ];

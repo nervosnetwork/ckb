@@ -40,7 +40,8 @@
         "max_orphan_size": 10000,
         "max_proposal_size": 10000,
         "max_cache_size": 1000,
-        "max_pending_size": 10000
+        "max_pending_size": 10000,
+        "trace": 100
     },
     "miner": {
         "new_transactions_threshold": 8,
