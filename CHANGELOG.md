@@ -2,6 +2,20 @@ All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
 
+# [v0.5.0](https://github.com/nervosnetwork/ckb/compare/v0.4.1...v0.5.0) (2019-02-11)
+
+### Features
+
+* collect clock time offset from network peers ([413d02b](https://github.com/nervosnetwork/ckb/commit/413d02b))
+* add tx trace api ([#181](https://github.com/nervosnetwork/ckb/issues/181)) ([e759128](https://github.com/nervosnetwork/ckb/commit/e759128))
+* upgrade to rust 1.31.1 ([4e9f202](https://github.com/nervosnetwork/ckb/commit/4e9f202))
+* add validation for `cycle_length` ([#178](https://github.com/nervosnetwork/ckb/issues/178))
+
+### BREAKING CHANGES
+
+* config: new option `pool.trace`
+
+
 # [v0.4.0](https://github.com/nervosnetwork/ckb/compare/v0.3.0...v0.4.0) (2019-01-14)
 
 
