@@ -306,21 +306,20 @@ impl Cuckoo {
 mod test {
     use super::Cuckoo;
 
-    use proptest::{collection::size_range, prelude::any_with, proptest, proptest_helper};
+    use proptest::{collection::size_range, prelude::*};
 
-    fn _cuckoo_solve(message: &[u8]) -> bool {
+    fn _cuckoo_solve(message: &[u8]) -> Result<(), TestCaseError> {
         let cuckoo = Cuckoo::new(3, 6);
         if let Some(proof) = cuckoo.solve(message) {
-            assert!(cuckoo.verify(message, &proof));
+            prop_assert!(cuckoo.verify(message, &proof));
         }
-        true
+        Ok(())
     }
 
     proptest! {
         #[test]
-        #[allow(clippy::unnecessary_operation)]
         fn cuckoo_solve(ref message in any_with::<Vec<u8>>(size_range(80).lift())) {
-            _cuckoo_solve(message)
+            _cuckoo_solve(message)?;
         }
     }
 
