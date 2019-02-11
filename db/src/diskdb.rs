@@ -1,8 +1,8 @@
 use crate::batch::{Batch, Col, Operation};
+use crate::config::DBConfig;
 use crate::kvdb::{ErrorKind, KeyValueDB, Result};
 use rocksdb::{ColumnFamily, Options, WriteBatch, DB};
 use std::ops::Range;
-use std::path::Path;
 
 struct Inner {
     db: DB,
@@ -14,13 +14,27 @@ pub struct RocksDB {
 }
 
 impl RocksDB {
-    pub fn open<P: AsRef<Path>>(path: P, columns: u32) -> Self {
+    pub fn open(config: &DBConfig, columns: u32) -> Self {
         let mut opts = Options::default();
         opts.create_if_missing(true);
         opts.create_missing_column_families(true);
+
         let cfnames: Vec<_> = (0..columns).map(|c| format!("c{}", c)).collect();
         let cf_options: Vec<&str> = cfnames.iter().map(|n| n as &str).collect();
-        let db = DB::open_cf(&opts, path, &cf_options).expect("rocksdb open");
+        let db = DB::open_cf(&opts, &config.path, &cf_options).expect("Failed to open rocksdb");
+
+        if config.rocksdb.is_some() {
+            let rocksdb_options: Vec<(&str, &str)> = config
+                .rocksdb
+                .as_ref()
+                .unwrap()
+                .iter()
+                .map(|(k, v)| (k.as_str(), v.as_str()))
+                .collect();
+            db.set_options(&rocksdb_options)
+                .expect("Failed to set rocksdb option");
+        }
+
         let inner = Inner {
             db,
             cfnames: cfnames.clone(),
@@ -95,15 +109,58 @@ impl KeyValueDB for RocksDB {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
     use tempfile;
+
+    fn setup_db(prefix: &str, columns: u32) -> RocksDB {
+        let tmp_dir = tempfile::Builder::new().prefix(prefix).tempdir().unwrap();
+        let config = DBConfig {
+            path: tmp_dir.as_ref().to_path_buf(),
+            ..Default::default()
+        };
+
+        RocksDB::open(&config, columns)
+    }
+
+    #[test]
+    fn test_set_rocksdb_options() {
+        let tmp_dir = tempfile::Builder::new()
+            .prefix("test_set_rocksdb_options")
+            .tempdir()
+            .unwrap();
+        let config = DBConfig {
+            path: tmp_dir.as_ref().to_path_buf(),
+            rocksdb: Some({
+                let mut opts = HashMap::new();
+                opts.insert("disable_auto_compactions".to_owned(), "true".to_owned());
+                opts
+            }),
+        };
+        RocksDB::open(&config, 2); // no panic
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_panic_on_invalid_rocksdb_options() {
+        let tmp_dir = tempfile::Builder::new()
+            .prefix("test_panic_on_invalid_rocksdb_options")
+            .tempdir()
+            .unwrap();
+        let config = DBConfig {
+            path: tmp_dir.as_ref().to_path_buf(),
+            rocksdb: Some({
+                let mut opts = HashMap::new();
+                opts.insert("letsrock".to_owned(), "true".to_owned());
+                opts
+            }),
+        };
+        RocksDB::open(&config, 2); // panic
+    }
 
     #[test]
     fn write_and_read() {
-        let tmp_dir = tempfile::Builder::new()
-            .prefix("write_and_read")
-            .tempdir()
-            .unwrap();
-        let db = RocksDB::open(tmp_dir, 2);
+        let db = setup_db("write_and_read", 2);
+
         let mut batch = Batch::default();
         batch.insert(None, vec![0, 0], vec![0, 0, 0]);
         batch.insert(Some(1), vec![1, 1], vec![1, 1, 1]);
@@ -121,11 +178,8 @@ mod tests {
 
     #[test]
     fn write_and_len() {
-        let tmp_dir = tempfile::Builder::new()
-            .prefix("write_and_len")
-            .tempdir()
-            .unwrap();
-        let db = RocksDB::open(tmp_dir, 2);
+        let db = setup_db("write_and_len", 2);
+
         let mut batch = Batch::default();
         batch.insert(None, vec![0, 0], vec![5, 4, 3, 2]);
         batch.insert(Some(1), vec![1, 1], vec![1, 2, 3, 4, 5]);
@@ -140,11 +194,8 @@ mod tests {
 
     #[test]
     fn write_and_partial_read() {
-        let tmp_dir = tempfile::Builder::new()
-            .prefix("write_and_partial_read")
-            .tempdir()
-            .unwrap();
-        let db = RocksDB::open(tmp_dir, 2);
+        let db = setup_db("write_and_partial_read", 2);
+
         let mut batch = Batch::default();
         batch.insert(None, vec![0, 0], vec![5, 4, 3, 2]);
         batch.insert(Some(1), vec![1, 1], vec![1, 2, 3, 4, 5]);

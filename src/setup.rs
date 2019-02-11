@@ -1,5 +1,6 @@
 use crate::helper::{require_path_exists, to_absolute_path};
 use ckb_chain_spec::ChainSpec;
+use ckb_db::DBConfig;
 use ckb_miner::BlockAssemblerConfig;
 use ckb_network::Config as NetworkConfig;
 use ckb_pool::txs_pool::PoolConfig;
@@ -30,6 +31,7 @@ pub struct ChainConfig {
 #[derive(Clone, Debug, Deserialize)]
 pub struct Configs {
     pub data_dir: PathBuf,
+    pub db: DBConfig,
     pub chain: ChainConfig,
     pub logger: LogConfig,
     pub network: NetworkConfig,
@@ -102,6 +104,9 @@ impl Configs {
         }
         if self.chain.spec.is_relative() {
             self.chain.spec = base.join(&self.chain.spec);
+        }
+        if self.db.path.is_relative() {
+            self.db.path = base.join(&self.db.path);
         }
     }
 }
@@ -189,6 +194,43 @@ pub mod test {
         assert_eq!(
             setup.unwrap().configs.network.listen_addresses,
             vec!["/ip4/1.1.1.1/tcp/1".parse().unwrap()]
+        );
+    }
+
+    #[test]
+    fn test_load_db_config() {
+        let tmp_dir = tempfile::Builder::new()
+            .prefix("test_load_db_config")
+            .tempdir()
+            .unwrap();
+
+        let test_conifg = r#"{
+            "db": {
+                "rocksdb": {
+                    "disable_auto_compactions": "true",
+                    "paranoid_file_checks": "true"
+                }
+            }
+        }"#;
+        let config_path = tmp_dir.path().join("config.json");
+        write_file(&config_path, test_conifg);
+        let setup = override_default_config_file(&config_path).unwrap();
+        let rocksdb_options: Vec<(&str, &str)> = setup
+            .configs
+            .db
+            .rocksdb
+            .as_ref()
+            .unwrap()
+            .iter()
+            .map(|(k, v)| (k.as_str(), v.as_str()))
+            .collect();
+        assert_eq!(
+            rocksdb_options.contains(&("disable_auto_compactions", "true")),
+            true
+        );
+        assert_eq!(
+            rocksdb_options.contains(&("paranoid_file_checks", "true")),
+            true
         );
     }
 

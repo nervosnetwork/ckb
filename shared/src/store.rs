@@ -219,16 +219,22 @@ mod tests {
     use super::super::COLUMNS;
     use super::*;
     use ckb_chain_spec::consensus::Consensus;
-    use ckb_db::diskdb::RocksDB;
+    use ckb_db::{DBConfig, RocksDB};
     use tempfile;
+
+    fn setup_db(prefix: &str, columns: u32) -> RocksDB {
+        let tmp_dir = tempfile::Builder::new().prefix(prefix).tempdir().unwrap();
+        let config = DBConfig {
+            path: tmp_dir.as_ref().to_path_buf(),
+            ..Default::default()
+        };
+
+        RocksDB::open(&config, columns)
+    }
 
     #[test]
     fn save_and_get_block() {
-        let tmp_dir = tempfile::Builder::new()
-            .prefix("save_and_get_block")
-            .tempdir()
-            .unwrap();
-        let db = RocksDB::open(tmp_dir, COLUMNS);
+        let db = setup_db("save_and_get_block", COLUMNS);
         let store = ChainKVStore::new(db);
         let consensus = Consensus::default();
         let block = consensus.genesis_block();
@@ -244,11 +250,7 @@ mod tests {
 
     #[test]
     fn save_and_get_block_with_transactions() {
-        let tmp_dir = tempfile::Builder::new()
-            .prefix("save_and_get_block_with_transaction")
-            .tempdir()
-            .unwrap();
-        let db = RocksDB::open(tmp_dir, COLUMNS);
+        let db = setup_db("save_and_get_block_with_transactions", COLUMNS);
         let store = ChainKVStore::new(db);
         let block = BlockBuilder::default()
             .commit_transaction(TransactionBuilder::default().build())
@@ -267,11 +269,7 @@ mod tests {
 
     #[test]
     fn save_and_get_block_ext() {
-        let tmp_dir = tempfile::Builder::new()
-            .prefix("save_and_get_block_ext")
-            .tempdir()
-            .unwrap();
-        let db = RocksDB::open(tmp_dir, COLUMNS);
+        let db = setup_db("save_and_get_block_ext", COLUMNS);
         let store = ChainKVStore::new(db);
         let consensus = Consensus::default();
         let block = consensus.genesis_block();

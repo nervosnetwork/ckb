@@ -6,7 +6,7 @@ use ckb_core::script::Script;
 use ckb_core::transaction::{
     CellInput, CellOutput, OutPoint, ProposalShortId, Transaction, TransactionBuilder,
 };
-use ckb_db::diskdb::RocksDB;
+use ckb_db::{diskdb::RocksDB, DBConfig};
 use ckb_notify::NotifyService;
 use ckb_shared::cachedb::CacheDB;
 use ckb_shared::shared::{ChainProvider, Shared, SharedBuilder};
@@ -19,7 +19,7 @@ use std::fs::File;
 use std::io::Read;
 use std::path::Path;
 use std::sync::Arc;
-use tempfile::tempdir;
+use tempfile::{tempdir, TempDir};
 
 fn bench(c: &mut Criterion) {
     // benchmark processing 5 blocks on main branch
@@ -27,15 +27,15 @@ fn bench(c: &mut Criterion) {
     c.bench_function("main_branch", |b| {
         b.iter_with_setup(
             || {
-                let (chain, shared) = new_chain();
+                let (chain, shared, dir) = new_chain();
                 let mut blocks = vec![shared.block(&shared.genesis_hash()).unwrap()];
                 (0..5).for_each(|_| {
                     let parent_index = blocks.len() - 1;
                     gen_block(&mut blocks, parent_index);
                 });
-                (chain, blocks)
+                (chain, blocks, dir)
             },
-            |(chain, blocks)| {
+            |(chain, blocks, _dir)| {
                 blocks.into_iter().skip(1).for_each(|block| {
                     chain
                         .process_block(Arc::new(block))
@@ -52,7 +52,7 @@ fn bench(c: &mut Criterion) {
     c.bench_function("side_branch", |b| {
         b.iter_with_setup(
             || {
-                let (chain, shared) = new_chain();
+                let (chain, shared, dir) = new_chain();
                 let mut blocks = vec![shared.block(&shared.genesis_hash()).unwrap()];
                 (0..5).for_each(|_| {
                     let parent_index = blocks.len() - 1;
@@ -72,9 +72,9 @@ fn bench(c: &mut Criterion) {
                             .process_block(Arc::new(block))
                             .expect("process block OK")
                     });
-                (chain, blocks)
+                (chain, blocks, dir)
             },
-            |(chain, blocks)| {
+            |(chain, blocks, _dir)| {
                 blocks.into_iter().skip(6).for_each(|block| {
                     chain
                         .process_block(Arc::new(block))
@@ -91,7 +91,7 @@ fn bench(c: &mut Criterion) {
     c.bench_function("switch_fork", |b| {
         b.iter_with_setup(
             || {
-                let (chain, shared) = new_chain();
+                let (chain, shared, dir) = new_chain();
                 let mut blocks = vec![shared.block(&shared.genesis_hash()).unwrap()];
                 (0..5).for_each(|_| {
                     let parent_index = blocks.len() - 1;
@@ -111,9 +111,9 @@ fn bench(c: &mut Criterion) {
                             .process_block(Arc::new(block))
                             .expect("process block OK")
                     });
-                (chain, blocks)
+                (chain, blocks, dir)
             },
-            |(chain, blocks)| {
+            |(chain, blocks, _dir)| {
                 blocks.into_iter().skip(8).for_each(|block| {
                     chain
                         .process_block(Arc::new(block))
@@ -131,7 +131,11 @@ criterion_group!(
 );
 criterion_main!(benches);
 
-fn new_chain() -> (ChainController, Shared<ChainKVStore<CacheDB<RocksDB>>>) {
+fn new_chain() -> (
+    ChainController,
+    Shared<ChainKVStore<CacheDB<RocksDB>>>,
+    TempDir,
+) {
     let cellbase = TransactionBuilder::default()
         .input(CellInput::new_cellbase_input(0))
         .output(CellOutput::new(0, vec![], H256::zero(), None))
@@ -156,13 +160,17 @@ fn new_chain() -> (ChainController, Shared<ChainKVStore<CacheDB<RocksDB>>>) {
 
     let consensus = Consensus::default().set_genesis_block(genesis_block);
 
-    let db_path = tempdir().unwrap();
-    let shared = SharedBuilder::<ChainKVStore<CacheDB<RocksDB>>>::new_rocks(&db_path)
+    let db_dir = tempdir().unwrap();
+    let shared = SharedBuilder::<CacheDB<RocksDB>>::default()
+        .db(&DBConfig {
+            path: db_dir.path().to_owned(),
+            rocksdb: None,
+        })
         .consensus(consensus)
         .build();
     let notify = NotifyService::default().start::<&str>(None);
     let chain_service = ChainBuilder::new(shared.clone(), notify).build();
-    (chain_service.start::<&str>(None), shared)
+    (chain_service.start::<&str>(None), shared, db_dir)
 }
 
 fn gen_block(blocks: &mut Vec<Block>, parent_index: usize) {

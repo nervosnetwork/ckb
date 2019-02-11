@@ -72,7 +72,7 @@ fn setup_node(
     );
 
     let consensus = Consensus::default().set_genesis_block(block.clone());
-    let shared = SharedBuilder::<ChainKVStore<MemoryKeyValueDB>>::new_memory()
+    let shared = SharedBuilder::<MemoryKeyValueDB>::new()
         .consensus(consensus)
         .build();
     let notify = NotifyService::default().start(Some(thread_name));
