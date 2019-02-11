@@ -6,7 +6,7 @@ authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
 
 [dependencies]
-secp256k1 = { version = "0.12.2", optional = true }
+secp256k1 = { git = "https://github.com/nervosnetwork/rust-secp256k1", optional = true, features = ["rand"] }
 lazy_static = "1.0"
 failure = "0.1.5"
 rand = "0.6"

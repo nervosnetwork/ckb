@@ -4,6 +4,7 @@ use super::Message;
 use super::SECP256K1;
 use faster_hex::hex_string;
 use numext_fixed_hash::{H256, H520};
+use secp256k1::schnorr::Signature as SchnorrSignature;
 use secp256k1::Message as SecpMessage;
 use secp256k1::{RecoverableSignature, RecoveryId};
 use std::fmt;
@@ -49,6 +50,17 @@ impl Signature {
         Signature(data)
     }
 
+    pub fn from_schnorr(sig: SchnorrSignature) -> Self {
+        let mut data = [0; 65];
+        data[0..64].copy_from_slice(&sig.serialize());
+        data[64] = 0u8;
+        Signature(data)
+    }
+
+    pub fn to_schnorr(&self) -> SchnorrSignature {
+        SchnorrSignature::deserialize(&self.0[0..64])
+    }
+
     /// Create a signature object from the sig.
     pub fn from_rsv(r: &H256, s: &H256, v: u8) -> Self {
         let mut sig = [0u8; 65];
@@ -87,8 +99,10 @@ impl Signature {
 
     /// Converts compact signature to a recoverable signature
     pub fn to_recoverable(&self) -> Result<RecoverableSignature, Error> {
+        let context = &SECP256K1;
         let recovery_id = RecoveryId::from_i32(i32::from(self.0[64]))?;
         Ok(RecoverableSignature::from_compact(
+            context,
             &self.0[0..64],
             recovery_id,
         )?)
@@ -107,12 +121,28 @@ impl Signature {
         Ok(pubkey.into())
     }
 
+    pub fn recover_schnorr(&self, message: &Message) -> Result<Pubkey, Error> {
+        let context = &SECP256K1;
+        let schnorr_signature = self.to_schnorr();
+        let message = SecpMessage::from_slice(&message[..])?;
+        let pubkey = context.recover_schnorr(&message, &schnorr_signature)?;
+        let serialized = pubkey.serialize_uncompressed();
+
+        let mut pubkey = [0u8; 64];
+        pubkey.copy_from_slice(&serialized[1..65]);
+        Ok(pubkey.into())
+    }
+
     pub fn serialize(&self) -> Vec<u8> {
         Vec::from(&self.0[..])
     }
 
     pub fn serialize_der(&self) -> Vec<u8> {
-        self.to_recoverable().unwrap().to_standard().serialize_der()
+        let context = &SECP256K1;
+        self.to_recoverable()
+            .unwrap()
+            .to_standard(context)
+            .serialize_der(context)
     }
 }
 
