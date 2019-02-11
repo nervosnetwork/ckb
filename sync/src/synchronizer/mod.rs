@@ -765,12 +765,12 @@ mod tests {
         }
         let shared = builder.build();
 
-        let notify = notify.unwrap_or_else(|| NotifyService::default().start::<&str>(None).1);
-        let (chain_controller, chain_receivers) = ChainController::build();
-        let chain_service = ChainBuilder::new(shared.clone())
-            .notify(notify.clone())
+        let notify = notify.unwrap_or_else(|| NotifyService::default().start::<&str>(None));
+        let chain_service = ChainBuilder::new(shared.clone(), notify.clone())
+            .verification(false)
             .build();
-        let _handle = chain_service.start::<&str>(None, chain_receivers);
+        let chain_controller = chain_service.start::<&str>(None);
+
         (chain_controller, shared, notify)
     }
 
@@ -997,18 +997,16 @@ mod tests {
             chain_controller1
                 .process_block(Arc::new(new_block.clone()))
                 .expect("process block ok");
-            blocks.push(new_block.clone());
             parent = new_block.header().clone();
+            blocks.push(new_block);
         }
-
         let synchronizer = gen_synchronizer(chain_controller2.clone(), shared2.clone());
-
-        blocks.clone().into_iter().for_each(|block| {
+        let chain1_last_block = blocks.last().cloned().unwrap();
+        blocks.into_iter().for_each(|block| {
             synchronizer.insert_new_block(peer, block);
         });
-
         assert_eq!(
-            blocks.last().unwrap().header(),
+            chain1_last_block.header(),
             shared2.chain_state().read().tip_header()
         );
     }
@@ -1133,7 +1131,7 @@ mod tests {
     fn test_sync_process() {
         let _ = env_logger::try_init();
         let consensus = Consensus::default();
-        let (_handle, notify) = NotifyService::default().start::<&str>(None);
+        let notify = NotifyService::default().start::<&str>(None);
         let (chain_controller1, shared1, _) =
             start_chain(Some(consensus.clone()), Some(notify.clone()));
         let (chain_controller2, shared2, _) =

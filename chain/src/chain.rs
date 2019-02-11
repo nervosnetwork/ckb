@@ -1,13 +1,12 @@
 use crate::error::ProcessBlockError;
-use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::Block;
 use ckb_core::cell::CellProvider;
 use ckb_core::extras::BlockExt;
 use ckb_core::header::BlockNumber;
-use ckb_core::service::{Request, DEFAULT_CHANNEL_SIZE};
+use ckb_core::service::{Request, DEFAULT_CHANNEL_SIZE, SIGNAL_CHANNEL_SIZE};
 use ckb_core::transaction::OutPoint;
 use ckb_db::batch::Batch;
-use ckb_notify::{ForkBlocks, NotifyController, NotifyService};
+use ckb_notify::{ForkBlocks, NotifyController};
 use ckb_shared::error::SharedError;
 use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::{ChainProvider, ChainState, Shared};
@@ -21,39 +20,29 @@ use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 use std::cmp;
 use std::sync::Arc;
-use std::thread::{self, JoinHandle};
-
-pub struct ChainService<CI> {
-    shared: Shared<CI>,
-    notify: NotifyController,
-}
+use std::thread;
+use stop_handler::{SignalSender, StopHandler};
 
 #[derive(Clone)]
 pub struct ChainController {
     process_block_sender: Sender<Request<Arc<Block>, Result<(), ProcessBlockError>>>,
+    stop: StopHandler<()>,
 }
 
-pub struct ChainReceivers {
-    process_block_receiver: Receiver<Request<Arc<Block>, Result<(), ProcessBlockError>>>,
+impl Drop for ChainController {
+    fn drop(&mut self) {
+        self.stop.try_send();
+    }
 }
 
 impl ChainController {
-    pub fn build() -> (ChainController, ChainReceivers) {
-        let (process_block_sender, process_block_receiver) =
-            crossbeam_channel::bounded(DEFAULT_CHANNEL_SIZE);
-        (
-            ChainController {
-                process_block_sender,
-            },
-            ChainReceivers {
-                process_block_receiver,
-            },
-        )
-    }
-
     pub fn process_block(&self, block: Arc<Block>) -> Result<(), ProcessBlockError> {
         Request::call(&self.process_block_sender, block).expect("process_block() failed")
     }
+}
+
+struct ChainReceivers {
+    process_block_receiver: Receiver<Request<Arc<Block>, Result<(), ProcessBlockError>>>,
 }
 
 #[derive(Debug, Clone)]
@@ -68,24 +57,46 @@ struct Fork {
     open_exts: Vec<BlockExt>,
 }
 
+pub struct ChainService<CI> {
+    shared: Shared<CI>,
+    notify: NotifyController,
+    verification: bool,
+}
+
 impl<CI: ChainIndex + 'static> ChainService<CI> {
-    pub fn new(shared: Shared<CI>, notify: NotifyController) -> ChainService<CI> {
-        ChainService { shared, notify }
+    pub fn new(
+        shared: Shared<CI>,
+        notify: NotifyController,
+        verification: bool,
+    ) -> ChainService<CI> {
+        ChainService {
+            shared,
+            notify,
+            verification,
+        }
     }
 
-    pub fn start<S: ToString>(
-        mut self,
-        thread_name: Option<S>,
-        receivers: ChainReceivers,
-    ) -> JoinHandle<()> {
-        let mut thread_builder = thread::Builder::new();
+    pub fn start<S: ToString>(mut self, thread_name: Option<S>) -> ChainController {
+        let (signal_sender, signal_receiver) =
+            crossbeam_channel::bounded::<()>(SIGNAL_CHANNEL_SIZE);
+        let (process_block_sender, process_block_receiver) =
+            crossbeam_channel::bounded(DEFAULT_CHANNEL_SIZE);
+
         // Mainly for test: give a empty thread_name
+        let mut thread_builder = thread::Builder::new();
         if let Some(name) = thread_name {
             thread_builder = thread_builder.name(name.to_string());
         }
-        thread_builder
+
+        let receivers = ChainReceivers {
+            process_block_receiver,
+        };
+        let thread = thread_builder
             .spawn(move || loop {
                 select! {
+                    recv(signal_receiver) -> _ => {
+                        break;
+                    },
                     recv(receivers.process_block_receiver) -> msg => match msg {
                         Ok(Request { responder, arguments: block }) => {
                             let _ = responder.send(self.process_block(block));
@@ -97,12 +108,18 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
                     }
                 }
             })
-            .expect("Start ChainService failed")
+            .expect("Start ChainService failed");
+        let stop = StopHandler::new(SignalSender::Crossbeam(signal_sender), thread);
+
+        ChainController {
+            process_block_sender,
+            stop,
+        }
     }
 
     fn process_block(&mut self, block: Arc<Block>) -> Result<(), ProcessBlockError> {
         debug!(target: "chain", "begin processing block: {}", block.header().hash());
-        if self.shared.consensus().verification {
+        if self.verification {
             let block_verifier = BlockVerifier::new(self.shared.clone());
             block_verifier
                 .verify(&block)
@@ -349,7 +366,7 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
         ext: BlockExt,
         chain_state: &ChainState,
     ) -> Result<(TxoSetDiff, Vec<Block>, Vec<Block>), SharedError> {
-        let skip_verify = !self.shared.consensus().verification;
+        let skip_verify = !self.verification;
 
         let mut fork = self
             .get_forks(tip_number, block, ext)
@@ -533,37 +550,38 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
 
 pub struct ChainBuilder<CI> {
     shared: Shared<CI>,
-    notify: Option<NotifyController>,
+    notify: NotifyController,
+    verification: bool,
 }
 
 impl<CI: ChainIndex + 'static> ChainBuilder<CI> {
-    pub fn new(shared: Shared<CI>) -> ChainBuilder<CI> {
-        let mut consensus = Consensus::default();
-        consensus.initial_block_reward = 50;
+    pub fn new(shared: Shared<CI>, notify: NotifyController) -> ChainBuilder<CI> {
         ChainBuilder {
             shared,
-            notify: None,
+            notify,
+            verification: true,
         }
     }
 
     pub fn notify(mut self, value: NotifyController) -> Self {
-        self.notify = Some(value);
+        self.notify = value;
         self
     }
 
-    pub fn build(mut self) -> ChainService<CI> {
-        let notify = self.notify.take().unwrap_or_else(|| {
-            // FIXME: notify should not be optional
-            let (_handle, notify) = NotifyService::default().start::<&str>(None);
-            notify
-        });
-        ChainService::new(self.shared, notify)
+    pub fn verification(mut self, verification: bool) -> Self {
+        self.verification = verification;
+        self
+    }
+
+    pub fn build(self) -> ChainService<CI> {
+        ChainService::new(self.shared, self.notify, self.verification)
     }
 }
 
 #[cfg(test)]
 pub mod test {
     use super::*;
+    use ckb_chain_spec::consensus::Consensus;
     use ckb_core::block::BlockBuilder;
     use ckb_core::cell::CellProvider;
     use ckb_core::header::{Header, HeaderBuilder};
@@ -572,6 +590,7 @@ pub mod test {
     };
     use ckb_core::uncle::UncleBlock;
     use ckb_db::memorydb::MemoryKeyValueDB;
+    use ckb_notify::NotifyService;
     use ckb_shared::shared::SharedBuilder;
     use ckb_shared::store::ChainKVStore;
     use numext_fixed_uint::U256;
@@ -581,12 +600,14 @@ pub mod test {
     ) -> (ChainController, Shared<ChainKVStore<MemoryKeyValueDB>>) {
         let builder = SharedBuilder::<MemoryKeyValueDB>::new();
         let shared = builder
-            .consensus(consensus.unwrap_or_else(|| Consensus::default().set_verification(false)))
+            .consensus(consensus.unwrap_or_else(Default::default))
             .build();
 
-        let (chain_controller, chain_receivers) = ChainController::build();
-        let chain_service = ChainBuilder::new(shared.clone()).build();
-        let _handle = chain_service.start::<&str>(None, chain_receivers);
+        let notify = NotifyService::default().start::<&str>(None);
+        let chain_service = ChainBuilder::new(shared.clone(), notify)
+            .verification(false)
+            .build();
+        let chain_controller = chain_service.start::<&str>(None);
         (chain_controller, shared)
     }
 
@@ -655,9 +676,7 @@ pub mod test {
             .commit_transaction(tx)
             .with_header_builder(HeaderBuilder::default().difficulty(U256::from(1000u64)));
 
-        let consensus = Consensus::default()
-            .set_genesis_block(genesis_block)
-            .set_verification(false);
+        let consensus = Consensus::default().set_genesis_block(genesis_block);
         let (chain_controller, shared) = start_chain(Some(consensus));
 
         let end = 21;
@@ -701,9 +720,7 @@ pub mod test {
             .commit_transaction(tx)
             .with_header_builder(HeaderBuilder::default().difficulty(U256::from(1000u64)));
 
-        let consensus = Consensus::default()
-            .set_genesis_block(genesis_block)
-            .set_verification(false);
+        let consensus = Consensus::default().set_genesis_block(genesis_block);
         let (_chain_controller, shared) = start_chain(Some(consensus));
 
         let out_point = OutPoint::new(root_hash, 0);
@@ -882,9 +899,7 @@ pub mod test {
     fn test_calculate_difficulty() {
         let genesis_block = BlockBuilder::default()
             .with_header_builder(HeaderBuilder::default().difficulty(U256::from(1000u64)));
-        let mut consensus = Consensus::default()
-            .set_genesis_block(genesis_block)
-            .set_verification(false);
+        let mut consensus = Consensus::default().set_genesis_block(genesis_block);
         consensus.pow_time_span = 200;
         consensus.pow_spacing = 1;
 
