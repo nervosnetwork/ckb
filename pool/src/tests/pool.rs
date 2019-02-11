@@ -22,7 +22,6 @@ use std::fs::File;
 use std::io::Read;
 use std::path::Path;
 use std::sync::Arc;
-use std::time;
 use tempfile::TempPath;
 
 macro_rules! expect_output_parent {
@@ -628,26 +627,20 @@ impl<CI: ChainIndex + 'static> TestPool<CI> {
     }
 
     fn handle_notify_messages(&mut self) {
-        loop {
-            select! {
-                recv(self.new_tip_receiver) -> msg => match msg {
-                    Ok(block) => self.service.reconcile_block(&block),
-                    _ => {
-                        error!(target: "txs_pool", "channel new_tip_receiver closed");
-                        break;
-                    }
-                },
-                recv(self.switch_fork_receiver) -> msg => match msg {
-                    Ok(blocks) => self.service.switch_fork(&blocks),
-                    _ => {
-                        error!(target: "txs_pool", "channel switch_fork_receiver closed");
-                        break;
-                    }
-                },
-                recv(crossbeam_channel::after(time::Duration::from_millis(100))) -> _ => {
-                    break;
+        select! {
+            recv(self.new_tip_receiver) -> msg => match msg {
+                Ok(block) => self.service.reconcile_block(&block),
+                _ => {
+                    error!(target: "txs_pool", "channel new_tip_receiver closed");
                 }
-            }
+            },
+            recv(self.switch_fork_receiver) -> msg => match msg {
+                Ok(blocks) => self.service.switch_fork(&blocks),
+                _ => {
+                    error!(target: "txs_pool", "channel switch_fork_receiver closed");
+                }
+            },
+            recv(crossbeam_channel::never::<()>()) -> _ => {},
         }
     }
 }

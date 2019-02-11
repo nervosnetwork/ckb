@@ -105,7 +105,8 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
                             error!(target: "chain", "process_block_receiver closed");
                             break;
                         },
-                    }
+                    },
+                    recv(crossbeam_channel::never::<()>()) -> _ => {},
                 }
             })
             .expect("Start ChainService failed");

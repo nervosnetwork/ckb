@@ -153,7 +153,8 @@ impl<CI: ChainIndex + 'static> BlockAssembler<CI> {
                             error!(target: "miner", "get_block_template_receiver closed");
                             break;
                         },
-                    }
+                    },
+                    recv(crossbeam_channel::never::<()>()) -> _ => {},
                 }
             }).expect("Start MinerAgent failed");
         let stop = StopHandler::new(SignalSender::Crossbeam(signal_sender), thread);

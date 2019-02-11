@@ -274,7 +274,8 @@ where
                         _ => {
                             error!(target: "txs_pool", "channel get_trace_receiver closed");
                         }
-                    }
+                    },
+                    recv(crossbeam_channel::never::<()>()) -> _ => {},
                 }
             }).expect("Start TransactionPoolService failed!");
 

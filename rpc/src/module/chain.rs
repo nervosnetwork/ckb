@@ -68,13 +68,13 @@ impl<CI: ChainIndex + 'static> ChainRpc for ChainRpcImpl<CI> {
         to: BlockNumber,
     ) -> Result<Vec<CellOutputWithOutPoint>> {
         let mut result = Vec::new();
+        let chain_state = self.shared.chain_state().read();
         for block_number in from..=to {
             if let Some(block_hash) = self.shared.block_hash(block_number) {
                 let block = self
                     .shared
                     .block(&block_hash)
                     .ok_or_else(Error::internal_error)?;
-                let chain_state = self.shared.chain_state().read();
                 for transaction in block.commit_transactions() {
                     let transaction_meta = chain_state
                         .txo_set()

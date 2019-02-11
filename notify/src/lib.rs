@@ -103,7 +103,6 @@ impl NotifyService {
                     recv(signal_receiver) -> _ => {
                         break;
                     }
-
                     recv(new_transaction_register_receiver) -> msg => Self::handle_register_new_transaction(
                         &mut new_transaction_subscribers, msg
                     ),
@@ -128,7 +127,8 @@ impl NotifyService {
                     ),
                     recv(switch_fork_receiver) -> msg => Self::handle_notify_switch_fork(
                         &switch_fork_subscribers, msg
-                    )
+                    ),
+                    recv(crossbeam_channel::never::<()>()) -> _ => {},
                 }
             }).expect("Start notify service failed");
 
