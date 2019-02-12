@@ -141,9 +141,7 @@ fn setup_rpc<CI: ChainIndex + 'static>(
         .downcast_ref::<Clicker>()
         .map(|pow| Arc::new(pow.clone()));
 
-    let mut server = RpcServer::new(config, network, shared, tx_pool, chain, agent, pow);
-    server.start();
-    server
+    RpcServer::new(config, network, shared, tx_pool, chain, agent, pow)
 }
 
 pub fn type_hash(setup: &Setup) {
