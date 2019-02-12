@@ -8,6 +8,9 @@
     },
 
     "data_dir": "default",
+    "db": {
+        "path": "db"
+    },
     "chain": {
         "spec": "spec/dev.json"
     },

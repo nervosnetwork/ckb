@@ -1,6 +1,6 @@
 [package]
 name = "ckb-benches"
-version = "0.5.0-pre"
+version = "0.6.0-pre"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -11,7 +11,21 @@ edition = "2018"
 [dev-dependencies]
 criterion = "0.2"
 ckb-pow = { path = "../pow" }
+ckb-chain = { path = "../chain" }
+ckb-core = { path = "../core" }
+ckb-shared = { path = "../shared" }
+ckb-chain-spec = { path = "../spec" }
+ckb-db = { path = "../db" }
+ckb-notify = { path = "../notify" }
+numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
+numext-fixed-uint = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
+rand = "0.6"
+tempfile = "3.0"
 
 [[bench]]
 name = "cuckoo"
+harness = false
+
+[[bench]]
+name = "process_block"
 harness = false

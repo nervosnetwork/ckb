@@ -8,7 +8,7 @@ use ckb_db::{kvdb::KeyValueDB, memorydb::MemoryKeyValueDB};
 use numext_fixed_hash::H256;
 
 fn new_shared() -> Shared<ChainKVStore<MemoryKeyValueDB>> {
-    SharedBuilder::<ChainKVStore<MemoryKeyValueDB>>::new_memory().build()
+    SharedBuilder::<MemoryKeyValueDB>::new().build()
 }
 
 fn insert_block_timestamps<T>(store: &ChainKVStore<T>, timestamps: &[u64]) -> Vec<H256>

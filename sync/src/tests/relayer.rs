@@ -319,7 +319,7 @@ fn setup_node(
     );
     let consensus = Consensus::default().set_genesis_block(block.clone());
 
-    let shared = SharedBuilder::<ChainKVStore<MemoryKeyValueDB>>::new_memory()
+    let shared = SharedBuilder::<MemoryKeyValueDB>::new()
         .consensus(consensus)
         .build();
 
@@ -328,7 +328,9 @@ fn setup_node(
         TransactionPoolService::new(PoolConfig::default(), shared.clone(), notify.clone());
     let tx_pool_controller = tx_pool_service.start(Some(thread_name));
 
-    let chain_service = ChainBuilder::new(shared.clone(), notify).build();
+    let chain_service = ChainBuilder::new(shared.clone(), notify)
+        .verification(false)
+        .build();
     let chain_controller = chain_service.start::<&str>(None);
 
     for _i in 0..height {
