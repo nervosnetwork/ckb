@@ -117,6 +117,8 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
         }
     }
 
+    // process_block will do block verify
+    // but invoker should guarantee block header be verified
     fn process_block(&mut self, block: Arc<Block>) -> Result<(), ProcessBlockError> {
         debug!(target: "chain", "begin processing block: {}", block.header().hash());
         if self.verification {
@@ -165,6 +167,7 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
             received_at: unix_time_as_millis(),
             total_difficulty: cannon_total_difficulty.clone(),
             total_uncles_count: parent_ext.total_uncles_count + block.uncles().len() as u64,
+            // if txs in parent is invalid, txs in block is also invalid
             valid: if parent_ext.valid == Some(false) {
                 Some(false)
             } else {
@@ -286,7 +289,7 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
         new_tip_block: &Block,
         new_tip_ext: BlockExt,
     ) -> Option<Fork> {
-        let mut number = new_tip_block.header().number() - 1;
+        let new_tip_number = new_tip_block.header().number();
         let mut old_blocks = Vec::new();
         let mut new_blocks = Vec::new();
         let mut open_exts = Vec::new();
@@ -294,60 +297,72 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
         if new_tip_ext.valid.is_none() {
             open_exts.push(new_tip_ext);
         } else {
-            // must be Some(false)
+            // txs in block are invalid
             return None;
         }
 
-        let mut is_open = true;
+        let mut is_new_record = true;
 
-        // The old fork may longer than new fork
-        if number < current_tip_number {
-            for n in number..=current_tip_number {
-                let hash = self.shared.block_hash(n).unwrap();
+        // new_blocks = forks[latest_common + 1 .. new_tip]
+        // old_blocks = chain[latest_common + 1 .. old_tip]
+        new_blocks.push(new_tip_block.clone());
+        let mut index = new_tip_number - 1;
+        let mut index_hash = new_tip_block.header().parent_hash().clone();
+
+        // if new_tip_number <= current_tip_number
+        // then old_blocks.extend(chain[new_tip_number .. =current_tip_number])
+        // if new_tip_number > current_tip_number
+        // then new_blocks.extend(forks[current_tip_number + 1 .. =new_tip_number])
+        if new_tip_number <= current_tip_number {
+            for bn in new_tip_number..=current_tip_number {
+                let hash = self.shared.block_hash(bn).unwrap();
                 let old_block = self.shared.block(&hash).unwrap();
-
                 old_blocks.push(old_block);
+            }
+        } else {
+            while index > current_tip_number {
+                let new_block = self.shared.block(&index_hash).unwrap();
+
+                if is_new_record {
+                    let ext = self.shared.block_ext(&index_hash).unwrap();
+                    if ext.valid.is_none() {
+                        open_exts.push(ext)
+                    } else {
+                        is_new_record = false;
+                    }
+                }
+
+                index_hash = new_block.header().parent_hash().clone();
+                new_blocks.push(new_block);
+                index -= 1;
             }
         }
 
-        //TODO: remove this clone
-        new_blocks.push(new_tip_block.clone());
-
-        let mut hash = new_tip_block.header().parent_hash().clone();
-
+        // find latest common ancestor
         loop {
-            if number <= current_tip_number {
-                let old_hash = self.shared.block_hash(number).unwrap();
-
-                if old_hash == hash {
-                    break;
-                }
-
-                let old_block = self.shared.block(&old_hash).unwrap();
-                old_blocks.push(old_block);
+            if index == 0 {
+                break;
             }
+            let old_hash = self.shared.block_hash(index).unwrap();
+            if old_hash == index_hash {
+                break;
+            }
+            let old_block = self.shared.block(&old_hash).unwrap();
+            old_blocks.push(old_block);
 
-            if is_open {
-                let ext = self.shared.block_ext(&hash).unwrap();
+            let new_block = self.shared.block(&index_hash).unwrap();
+            index_hash = new_block.header().parent_hash().clone();
+            new_blocks.push(new_block);
+
+            if is_new_record {
+                let ext = self.shared.block_ext(&index_hash).unwrap();
                 if ext.valid.is_none() {
                     open_exts.push(ext)
                 } else {
-                    is_open = false;
+                    is_new_record = false;
                 }
             }
-
-            let new_block = self.shared.block(&hash).unwrap();
-
-            hash = new_block.header().parent_hash().clone();
-
-            new_blocks.push(new_block);
-
-            // If the genesis block is different?
-            if number == 0 {
-                break;
-            } else {
-                number -= 1;
-            }
+            index -= 1;
         }
 
         Some(Fork {
