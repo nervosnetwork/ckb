@@ -10,19 +10,14 @@ use ckb_pool::txs_pool::TransactionPoolController;
 use ckb_pow::Clicker;
 use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::Shared;
-use futures::sync::oneshot;
 use jsonrpc_core::IoHandler;
 use jsonrpc_http_server::{Server, ServerBuilder};
 use jsonrpc_server_utils::cors::AccessControlAllowOrigin;
 use jsonrpc_server_utils::hosts::DomainsValidation;
-use log::{error, info};
 use std::sync::Arc;
-use std::thread::{self, JoinHandle};
 
 pub struct RpcServer {
-    server: Option<Server>,
-    thread: Option<JoinHandle<()>>,
-    closes: Option<Vec<oneshot::Sender<()>>>,
+    server: Server,
 }
 
 impl RpcServer {
@@ -100,7 +95,7 @@ impl RpcServer {
             );
         }
 
-        let mut server = ServerBuilder::new(io)
+        let server = ServerBuilder::new(io)
             .cors(DomainsValidation::AllowOnly(vec![
                 AccessControlAllowOrigin::Null,
                 AccessControlAllowOrigin::Any,
@@ -110,43 +105,10 @@ impl RpcServer {
             .start_http(&config.listen_address.parse().unwrap())
             .expect("Jsonrpc initialize");
 
-        let closes = server.take_close();
-
-        assert!(closes.is_some());
-        RpcServer {
-            server: Some(server),
-            closes,
-            thread: None,
-        }
+        RpcServer { server }
     }
 
-    pub fn start(&mut self) {
-        let server = self.server.take().expect("Jsonrpc start only once");
-
-        let thread = thread::Builder::new()
-            .name("rpc".to_string())
-            .spawn({
-                move || {
-                    info!(target: "rpc", "Now listening on {:?}", server.address());
-                    server.wait();
-                }
-            })
-            .expect("Jsonrpc started");
-
-        self.thread = Some(thread);
-    }
-
-    pub fn close(mut self) {
-        if let Some(thread) = self.thread.take() {
-            let closes = self.closes.take().expect("jsonrpc only close once");
-
-            for close in closes {
-                let _ = close.send(());
-            }
-
-            let _ = thread.join();
-        } else {
-            error!(target: "rpc", "close failed, jsonrpc not running");
-        }
+    pub fn close(self) {
+        self.server.close()
     }
 }

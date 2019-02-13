@@ -5,38 +5,37 @@ use ckb_shared::{
     shared::{ChainProvider, Shared},
 };
 use jsonrpc_core::{Error, Result};
-use jsonrpc_macros::build_rpc_trait;
+use jsonrpc_derive::rpc;
 use jsonrpc_types::{Block, CellOutputWithOutPoint, CellWithStatus, Header, OutPoint, Transaction};
 use numext_fixed_hash::H256;
 
-build_rpc_trait! {
-    pub trait ChainRpc {
-        #[rpc(name = "get_block")]
-        fn get_block(&self, _hash: H256) -> Result<Option<Block>>;
+#[rpc]
+pub trait ChainRpc {
+    #[rpc(name = "get_block")]
+    fn get_block(&self, _hash: H256) -> Result<Option<Block>>;
 
-        #[rpc(name = "get_transaction")]
-        fn get_transaction(&self, _hash: H256) -> Result<Option<Transaction>>;
+    #[rpc(name = "get_transaction")]
+    fn get_transaction(&self, _hash: H256) -> Result<Option<Transaction>>;
 
-        #[rpc(name = "get_block_hash")]
-        fn get_block_hash(&self, _number: u64) -> Result<Option<H256>>;
+    #[rpc(name = "get_block_hash")]
+    fn get_block_hash(&self, _number: u64) -> Result<Option<H256>>;
 
-        #[rpc(name = "get_tip_header")]
-        fn get_tip_header(&self) -> Result<Header>;
+    #[rpc(name = "get_tip_header")]
+    fn get_tip_header(&self) -> Result<Header>;
 
-        #[rpc(name = "get_cells_by_type_hash")]
-        fn get_cells_by_type_hash(
-            &self,
-            _type_hash: H256,
-            _from: BlockNumber,
-            _to: BlockNumber
-        ) -> Result<Vec<CellOutputWithOutPoint>>;
+    #[rpc(name = "get_cells_by_type_hash")]
+    fn get_cells_by_type_hash(
+        &self,
+        _type_hash: H256,
+        _from: BlockNumber,
+        _to: BlockNumber,
+    ) -> Result<Vec<CellOutputWithOutPoint>>;
 
-        #[rpc(name = "get_live_cell")]
-        fn get_live_cell(&self, _out_point: OutPoint) -> Result<CellWithStatus>;
+    #[rpc(name = "get_live_cell")]
+    fn get_live_cell(&self, _out_point: OutPoint) -> Result<CellWithStatus>;
 
-        #[rpc(name = "get_tip_block_number")]
-        fn get_tip_block_number(&self) -> Result<BlockNumber>;
-    }
+    #[rpc(name = "get_tip_block_number")]
+    fn get_tip_block_number(&self) -> Result<BlockNumber>;
 }
 
 pub(crate) struct ChainRpcImpl<CI> {
