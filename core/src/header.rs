@@ -1,15 +1,29 @@
 use bincode::{deserialize, serialize};
+use faster_hex::hex_string;
 use hash::sha3_256;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 use serde_derive::{Deserialize, Serialize};
+use std::fmt;
 
 pub use crate::{BlockNumber, Version};
 
-#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug, Default)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct Seal {
     nonce: u64,
     proof: Vec<u8>,
+}
+
+impl fmt::Debug for Seal {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("Seal")
+            .field("nonce", &self.nonce)
+            .field(
+                "proof",
+                &format_args!("0x{}", &hex_string(&self.proof).expect("hex proof")),
+            )
+            .finish()
+    }
 }
 
 impl Seal {
@@ -75,11 +89,33 @@ impl RawHeader {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug, Default, Eq)]
+#[derive(Clone, Serialize, Deserialize, Default, Eq)]
 pub struct Header {
     raw: RawHeader,
     /// proof seal
     seal: Seal,
+}
+
+impl fmt::Debug for Header {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("Header")
+            .field("hash", &format_args!("{:#x}", &self.hash()))
+            .field("version", &self.raw.version)
+            .field("parent_hash", &format_args!("{:#x}", self.raw.parent_hash))
+            .field("timestamp", &self.raw.timestamp)
+            .field("number", &self.raw.number)
+            .field("txs_commit", &format_args!("{:#x}", self.raw.txs_commit))
+            .field(
+                "txs_proposal",
+                &format_args!("{:#x}", self.raw.txs_proposal),
+            )
+            .field("difficulty", &format_args!("{:#x}", self.raw.difficulty))
+            .field("cellbase_id", &format_args!("{:#x}", self.raw.cellbase_id))
+            .field("uncles_hash", &format_args!("{:#x}", self.raw.uncles_hash))
+            .field("uncles_count", &self.raw.uncles_count)
+            .field("seal", &self.seal)
+            .finish()
+    }
 }
 
 impl Header {
