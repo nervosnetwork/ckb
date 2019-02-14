@@ -140,9 +140,7 @@ fn test_blank_proposal() {
     }
 
     for block in &blocks[0..5] {
-        let txs_len = block.commit_transactions().len();
-        let result = chain_controller
-            .process_block(Arc::new(block.clone()), vec![Cycle::default(); txs_len]);
+        let result = chain_controller.process_block(Arc::new(block.clone()));
         if result.is_err() {
             println!("number: {}, result: {:?}", block.header().number(), result);
         }
@@ -151,11 +149,7 @@ fn test_blank_proposal() {
 
     let blank_proposal_block = gen_block(&parent, prev_txs, Vec::new(), Vec::new());
     parent = blank_proposal_block.header().clone();
-    let txs_len = blank_proposal_block.commit_transactions().len();
-    let result = chain_controller.process_block(
-        Arc::new(blank_proposal_block.clone()),
-        vec![Cycle::default(); txs_len],
-    );
+    let result = chain_controller.process_block(Arc::new(blank_proposal_block.clone()));
     if result.is_err() {
         println!(
             "[blank proposal] number: {}, result: {:?}",
@@ -206,9 +200,7 @@ fn test_uncle_proposal() {
 
     let proposal_ids: Vec<_> = txs.iter().map(|tx| tx.proposal_short_id()).collect();
     let uncle: Block = gen_block(&parent, vec![], proposal_ids, vec![]);
-    let txs_len = uncle.commit_transactions().len();
-    let result =
-        chain_controller.process_block(Arc::new(uncle.clone()), vec![Cycle::default(); txs_len]);
+    let result = chain_controller.process_block(Arc::new(uncle.clone()));
     if result.is_err() {
         println!(
             "[uncle] number: {}, result: {:?}",
@@ -220,9 +212,7 @@ fn test_uncle_proposal() {
 
     let block1 = gen_block(&parent, vec![], vec![], vec![]);
     parent = block1.header().clone();
-    let txs_len = block1.commit_transactions().len();
-    let result =
-        chain_controller.process_block(Arc::new(block1.clone()), vec![Cycle::default(); txs_len]);
+    let result = chain_controller.process_block(Arc::new(block1.clone()));
     if result.is_err() {
         println!(
             "[block1] number: {}, result: {:?}",
@@ -233,9 +223,7 @@ fn test_uncle_proposal() {
     assert!(result.is_ok());
 
     let block2 = gen_block(&parent, vec![], vec![], vec![uncle.into()]);
-    let txs_len = block2.commit_transactions().len();
-    let result =
-        chain_controller.process_block(Arc::new(block2.clone()), vec![Cycle::default(); txs_len]);
+    let result = chain_controller.process_block(Arc::new(block2.clone()));
     if result.is_err() {
         println!(
             "[block2] number: {}, result: {:?}",
@@ -282,9 +270,8 @@ fn test_block_proposal() {
 
     let proposal_ids: Vec<_> = txs.iter().map(|tx| tx.proposal_short_id()).collect();
     let block = gen_block(&parent, vec![], proposal_ids, vec![]);
-    let txs_len = block.commit_transactions().len();
     assert!(chain_controller
-        .process_block(Arc::new(block.clone()), vec![Cycle::default(); txs_len])
+        .process_block(Arc::new(block.clone()))
         .is_ok());
 
     parent = block.header().clone();
@@ -325,9 +312,8 @@ fn test_proposal_timeout() {
 
     let proposal_ids: Vec<_> = txs.iter().map(|tx| tx.proposal_short_id()).collect();
     let block = gen_block(&parent, vec![], proposal_ids, vec![]);
-    let txs_len = block.commit_transactions().len();
     assert!(chain_controller
-        .process_block(Arc::new(block.clone()), vec![Cycle::default(); txs_len])
+        .process_block(Arc::new(block.clone()))
         .is_ok());
     parent = block.header().clone();
 
@@ -335,9 +321,8 @@ fn test_proposal_timeout() {
 
     for _ in 0..timeout - 1 {
         let block = gen_block(&parent, vec![], vec![], vec![]);
-        let txs_len = block.commit_transactions().len();
         assert!(chain_controller
-            .process_block(Arc::new(block.clone()), vec![Cycle::default(); txs_len])
+            .process_block(Arc::new(block.clone()))
             .is_ok());
         parent = block.header().clone();
     }
@@ -348,9 +333,8 @@ fn test_proposal_timeout() {
     assert_eq!(verifier.verify(&new_block), Ok(()));
 
     let block = gen_block(&parent, vec![], vec![], vec![]);
-    let txs_len = block.commit_transactions().len();
     assert!(chain_controller
-        .process_block(Arc::new(block.clone()), vec![Cycle::default(); txs_len])
+        .process_block(Arc::new(block.clone()))
         .is_ok());
     parent = block.header().clone();
 

@@ -502,21 +502,15 @@ fn test_switch_fork() {
         .save_with_batch(|batch| {
             let hash1 = block01.header().hash();
             let hash2 = block02.header().hash();
-            let txs_len2 = block02.commit_transactions().len();
-            let txs_len1 = block01.commit_transactions().len();
-            let cycles_set2 = vec![Cycle::default(); txs_len2];
-            let cycles_set1 = vec![Cycle::default(); txs_len1];
 
-            let mut ext = BlockExt {
+            let ext = BlockExt {
                 received_at: 0,
                 total_difficulty: U256::default(),
                 total_uncles_count: 0,
                 valid: None,
-                cycles_set: cycles_set1,
             };
 
             pool.shared.store().insert_block_ext(batch, &hash1, &ext);
-            ext.cycles_set = cycles_set2;
             pool.shared.store().insert_block_ext(batch, &hash2, &ext);
             Ok(())
         })
@@ -744,10 +738,7 @@ fn apply_transactions<CI: ChainIndex + 'static>(
         .proposal_transactions(prop_ids)
         .with_header_builder(header_builder);
 
-    let txs_len = block.commit_transactions().len();
-    pool.chain
-        .process_block(Arc::new(block.clone()), vec![Cycle::default(); txs_len])
-        .unwrap();
+    pool.chain.process_block(Arc::new(block.clone())).unwrap();
     pool.handle_notify_messages();
     block
 }

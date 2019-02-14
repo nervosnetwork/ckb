@@ -12,9 +12,11 @@ use ckb_core::extras::BlockExt;
 use ckb_core::header::{BlockNumber, Header};
 use ckb_core::transaction::{Capacity, OutPoint, ProposalShortId, Transaction};
 use ckb_core::uncle::UncleBlock;
+use ckb_core::Cycle;
 use ckb_db::{DBConfig, KeyValueDB, MemoryKeyValueDB, RocksDB};
 use ckb_util::RwLock;
 use fnv::FnvHashSet;
+use lru_cache::LruCache;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 use std::sync::Arc;
@@ -75,6 +77,7 @@ impl ChainState {
 pub struct Shared<CI> {
     store: Arc<CI>,
     chain_state: Arc<RwLock<ChainState>>,
+    txs_cycles: Arc<RwLock<LruCache<H256, Cycle>>>,
     consensus: Arc<Consensus>,
 }
 
@@ -84,13 +87,14 @@ impl<CI: ChainIndex> ::std::clone::Clone for Shared<CI> {
         Shared {
             store: Arc::clone(&self.store),
             chain_state: Arc::clone(&self.chain_state),
+            txs_cycles: Arc::clone(&self.txs_cycles),
             consensus: Arc::clone(&self.consensus),
         }
     }
 }
 
 impl<CI: ChainIndex> Shared<CI> {
-    pub fn new(store: CI, consensus: Consensus) -> Self {
+    pub fn new(store: CI, consensus: Consensus, cache_size: usize) -> Self {
         let chain_state = {
             // check head in store or save the genesis block as head
             let header = {
@@ -118,9 +122,12 @@ impl<CI: ChainIndex> Shared<CI> {
             )))
         };
 
+        let txs_cycles = Arc::new(RwLock::new(LruCache::new(cache_size)));
+
         Shared {
             store: Arc::new(store),
             chain_state,
+            txs_cycles,
             consensus: Arc::new(consensus),
         }
     }
@@ -131,6 +138,10 @@ impl<CI: ChainIndex> Shared<CI> {
 
     pub fn store(&self) -> &Arc<CI> {
         &self.store
+    }
+
+    pub fn txs_cycles(&self) -> &RwLock<LruCache<H256, Cycle>> {
+        &self.txs_cycles
     }
 
     pub fn init_txo_set(store: &CI, number: u64) -> TxoSet {
@@ -435,6 +446,7 @@ impl<CI: ChainIndex> BlockMedianTimeContext for Shared<CI> {
 pub struct SharedBuilder<DB: KeyValueDB> {
     db: Option<DB>,
     consensus: Option<Consensus>,
+    cycles_cache_size: usize,
 }
 
 impl<DB: KeyValueDB> Default for SharedBuilder<DB> {
@@ -442,6 +454,7 @@ impl<DB: KeyValueDB> Default for SharedBuilder<DB> {
         SharedBuilder {
             db: None,
             consensus: None,
+            cycles_cache_size: 100_000,
         }
     }
 }
@@ -451,6 +464,7 @@ impl SharedBuilder<MemoryKeyValueDB> {
         SharedBuilder {
             db: Some(MemoryKeyValueDB::open(COLUMNS as usize)),
             consensus: None,
+            cycles_cache_size: 100_000,
         }
     }
 }
@@ -475,9 +489,14 @@ impl<DB: 'static + KeyValueDB> SharedBuilder<DB> {
         self
     }
 
+    pub fn cycles_cache_size(mut self, value: usize) -> Self {
+        self.cycles_cache_size = value;
+        self
+    }
+
     pub fn build(self) -> Shared<ChainKVStore<DB>> {
         let store = ChainKVStore::new(self.db.unwrap());
         let consensus = self.consensus.unwrap_or_else(Consensus::default);
-        Shared::new(store, consensus)
+        Shared::new(store, consensus, self.cycles_cache_size)
     }
 }

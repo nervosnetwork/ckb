@@ -57,10 +57,9 @@ where
                     .request_proposal_txs(self.nc, self.peer, &compact_block);
 
                 match self.relayer.reconstruct_block(&compact_block, Vec::new()) {
-                    Ok((block, cycles_set)) => {
-                        self.relayer
-                            .accept_block(self.nc, self.peer, &Arc::new(block), cycles_set)
-                    }
+                    Ok(block) => self
+                        .relayer
+                        .accept_block(self.nc, self.peer, &Arc::new(block)),
                     Err(missing_indexes) => {
                         {
                             let mut write_guard =

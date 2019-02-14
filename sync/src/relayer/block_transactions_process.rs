@@ -45,11 +45,9 @@ where
                     .map(Into::into)
                     .collect();
 
-            if let Ok((block, cycles_set)) =
-                self.relayer.reconstruct_block(&compact_block, transactions)
-            {
+            if let Ok(block) = self.relayer.reconstruct_block(&compact_block, transactions) {
                 self.relayer
-                    .accept_block(self.nc, self.peer, &Arc::new(block), cycles_set);
+                    .accept_block(self.nc, self.peer, &Arc::new(block));
             }
         }
     }

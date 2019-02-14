@@ -6,7 +6,6 @@ use ckb_core::block::Block;
 use ckb_core::extras::{BlockExt, TransactionAddress};
 use ckb_core::header::{BlockNumber, Header};
 use ckb_core::transaction::{Transaction, TransactionBuilder};
-use ckb_core::Cycle;
 use ckb_db::batch::Batch;
 use ckb_db::kvdb::KeyValueDB;
 use numext_fixed_hash::H256;
@@ -40,7 +39,6 @@ impl<T: 'static + KeyValueDB> ChainIndex for ChainKVStore<T> {
                 total_difficulty: genesis.header().difficulty().clone(),
                 total_uncles_count: 0,
                 valid: Some(true),
-                cycles_set: vec![Cycle::default(); genesis.commit_transactions().len()],
             };
 
             let mut cells = Vec::with_capacity(genesis.commit_transactions().len());

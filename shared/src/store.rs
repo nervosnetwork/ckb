@@ -219,7 +219,6 @@ mod tests {
     use super::super::COLUMNS;
     use super::*;
     use ckb_chain_spec::consensus::Consensus;
-    use ckb_core::Cycle;
     use ckb_db::{DBConfig, RocksDB};
     use tempfile;
 
@@ -281,7 +280,6 @@ mod tests {
             total_difficulty: block.header().difficulty().clone(),
             total_uncles_count: block.uncles().len() as u64,
             valid: Some(true),
-            cycles_set: vec![Cycle::default(); txs_len],
         };
 
         let hash = block.header().hash();

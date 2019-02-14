@@ -5,7 +5,7 @@ use super::types::{
     TxStage, TxoStatus,
 };
 use ckb_core::block::Block;
-use ckb_core::cell::{CellProvider, CellStatus};
+use ckb_core::cell::{CellProvider, CellStatus, ResolvedTransaction};
 use ckb_core::service::{Request, DEFAULT_CHANNEL_SIZE, SIGNAL_CHANNEL_SIZE};
 use ckb_core::transaction::{OutPoint, ProposalShortId, Transaction};
 use ckb_core::Cycle;
@@ -323,8 +323,6 @@ where
     pub(crate) fn switch_fork(&mut self, blks: &ForkBlocks) {
         for b in blks.old_blks() {
             let bn = b.header().number();
-            let hash = b.header().hash();
-            let cycles_set = self.shared.block_ext(&hash).unwrap().cycles_set;
             //remove proposed id, txs can be already in pool
             if let Some(rm_txs) = self.proposed.remove(bn) {
                 for (id, x) in rm_txs {
@@ -363,15 +361,25 @@ where
             }
 
             //readd txs
-            for (tx, cycles) in b
-                .commit_transactions()
-                .iter()
-                .rev()
-                .zip(cycles_set.into_iter())
-            {
+            let mut txs_cycles = self.shared.txs_cycles().write();
+            for tx in b.commit_transactions().iter().rev() {
                 if tx.is_cellbase() {
                     continue;
                 }
+                let tx_hash = tx.hash();
+                let cycles = match txs_cycles.get(&tx_hash).cloned() {
+                    Some(cycles) => cycles,
+                    None => {
+                        let rtx = self.resolve_transaction(&tx);
+                        // TODO: remove unwrap, remove transactions that depend on it.
+                        let cycles = TransactionVerifier::new(&rtx)
+                            .verify(self.shared.consensus().max_block_cycles())
+                            .map_err(PoolError::InvalidTx)
+                            .unwrap();
+                        txs_cycles.insert(tx_hash, cycles);
+                        cycles
+                    }
+                };
                 self.pool.readd_transaction(tx, cycles);
             }
         }
@@ -502,6 +510,20 @@ where
         self.pool.get_mineable_transactions(self.pool.size())
     }
 
+    fn verify_transaction(&self, rtx: &ResolvedTransaction) -> Result<Cycle, TransactionError> {
+        let mut txs_cycles = self.shared.txs_cycles().write();
+        let tx_hash = rtx.transaction.hash();
+        match txs_cycles.get(&tx_hash).cloned() {
+            Some(cycles) => Ok(cycles),
+            None => {
+                let cycles = TransactionVerifier::new(&rtx)
+                    .verify(self.shared.consensus().max_block_cycles())?;
+                txs_cycles.insert(tx_hash, cycles);
+                Ok(cycles)
+            }
+        }
+    }
+
     /// Attempts to add a transaction to the memory pool.
     pub(crate) fn add_to_pool(&mut self, mut pe: PoolEntry) -> Result<InsertionResult, PoolError> {
         // Do we have the capacity to accept this transaction?
@@ -550,9 +572,10 @@ where
 
             if unknowns.is_empty() && pe.cycles != Cycle::default() {
                 // TODO: Parallel
-                pe.cycles = TransactionVerifier::new(&rtx)
-                    .verify(self.shared.consensus().max_block_cycles())
+                let cycles = self
+                    .verify_transaction(&rtx)
                     .map_err(PoolError::InvalidTx)?;
+                pe.cycles = cycles;
             }
         }
 
@@ -584,7 +607,7 @@ where
         for mut pe in pes {
             let rs = if pe.cycles == Cycle::default() {
                 let rtx = self.resolve_transaction(&pe.transaction);
-                TransactionVerifier::new(&rtx).verify(self.shared.consensus().max_block_cycles())
+                self.verify_transaction(&rtx)
             } else {
                 Ok(pe.cycles)
             };

@@ -26,7 +26,6 @@ use ckb_chain::error::ProcessBlockError;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::Block;
 use ckb_core::header::{BlockNumber, Header};
-use ckb_core::Cycle;
 use ckb_network::{CKBProtocolContext, CKBProtocolHandler, PeerIndex, Severity, TimerToken};
 use ckb_protocol::{SyncMessage, SyncPayload};
 use ckb_shared::index::ChainIndex;
@@ -426,10 +425,8 @@ impl<CI: ChainIndex> Synchronizer<CI> {
     }
 
     fn accept_block(&self, peer: PeerIndex, block: &Arc<Block>) -> Result<(), ProcessBlockError> {
-        let txs_len = block.commit_transactions().len();
         // TODO: some transactions' verification can be skiped.
-        self.chain
-            .process_block(Arc::clone(&block), vec![Cycle::default(); txs_len])?;
+        self.chain.process_block(Arc::clone(&block))?;
         self.mark_block_stored(block.header().hash().clone());
         self.peers.set_last_common_header(peer, &block.header());
         Ok(())
@@ -829,9 +826,8 @@ mod tests {
         let difficulty = shared.calculate_difficulty(&parent).unwrap();
         let block = gen_block(&parent, difficulty, nonce);
 
-        let txs_len = block.commit_transactions().len();
         chain_controller
-            .process_block(Arc::new(block), vec![Cycle::default(); txs_len])
+            .process_block(Arc::new(block))
             .expect("process block ok");
     }
 
@@ -915,12 +911,11 @@ mod tests {
             let new_block = gen_block(&parent, difficulty, i);
             blocks.push(new_block.clone());
 
-            let txs_len = new_block.commit_transactions().len();
             chain_controller1
-                .process_block(Arc::new(new_block.clone()), vec![Cycle::default(); txs_len])
+                .process_block(Arc::new(new_block.clone()))
                 .expect("process block ok");
             chain_controller2
-                .process_block(Arc::new(new_block.clone()), vec![Cycle::default(); txs_len])
+                .process_block(Arc::new(new_block.clone()))
                 .expect("process block ok");
             parent = new_block.header().clone();
         }
@@ -930,9 +925,9 @@ mod tests {
         for i in 1..=block_number {
             let difficulty = shared2.calculate_difficulty(&parent).unwrap();
             let new_block = gen_block(&parent, difficulty, i + 100);
-            let txs_len = new_block.commit_transactions().len();
+
             chain_controller2
-                .process_block(Arc::new(new_block.clone()), vec![Cycle::default(); txs_len])
+                .process_block(Arc::new(new_block.clone()))
                 .expect("process block ok");
             parent = new_block.header().clone();
         }
@@ -1001,9 +996,9 @@ mod tests {
         for i in 1..block_number {
             let difficulty = shared1.calculate_difficulty(&parent).unwrap();
             let new_block = gen_block(&parent, difficulty, i + 100);
-            let txs_len = new_block.commit_transactions().len();
+
             chain_controller1
-                .process_block(Arc::new(new_block.clone()), vec![Cycle::default(); txs_len])
+                .process_block(Arc::new(new_block.clone()))
                 .expect("process block ok");
             parent = new_block.header().clone();
             blocks.push(new_block);
@@ -1031,9 +1026,9 @@ mod tests {
             let difficulty = shared.calculate_difficulty(&parent).unwrap();
             let new_block = gen_block(&parent, difficulty, i + 100);
             blocks.push(new_block.clone());
-            let txs_len = new_block.commit_transactions().len();
+
             chain_controller
-                .process_block(Arc::new(new_block.clone()), vec![Cycle::default(); txs_len])
+                .process_block(Arc::new(new_block.clone()))
                 .expect("process block ok");
             parent = new_block.header().clone();
         }

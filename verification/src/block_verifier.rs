@@ -9,6 +9,8 @@ use ckb_core::Cycle;
 use ckb_merkle_tree::merkle_root;
 use ckb_shared::shared::ChainProvider;
 use fnv::{FnvHashMap, FnvHashSet};
+use lru_cache::LruCache;
+use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use std::collections::HashSet;
@@ -389,7 +391,7 @@ impl<CP: ChainProvider + Clone> UnclesVerifier<CP> {
 pub fn verify_transactions<F: Fn(&OutPoint) -> CellStatus>(
     block: &Block,
     max_cycles: Cycle,
-    cycles_set: &mut Vec<Cycle>,
+    txs_cycles: &mut LruCache<H256, Cycle>,
     cell: F,
 ) -> Result<(), Error> {
     let mut output_indexs = FnvHashMap::default();
@@ -422,24 +424,32 @@ pub fn verify_transactions<F: Fn(&OutPoint) -> CellStatus>(
         .collect();
 
     // make verifiers orthogonal
-    *cycles_set = resolved
+    let cycles_set = resolved
         .par_iter()
         .enumerate()
         .map(|(index, tx)| {
-            if cycles_set[index] == Cycle::default() {
-                TransactionVerifier::new(&tx)
-                    .verify(max_cycles)
-                    .map_err(|e| Error::Transactions((index, e)))
-            } else {
+            if let Some(cycles) = txs_cycles.get(&tx.transaction.hash()) {
                 InputVerifier::new(&tx)
                     .verify()
                     .map_err(|e| Error::Transactions((index, e)))
-                    .map(|_| cycles_set[index])
+                    .map(|_| (None, *cycles))
+            } else {
+                TransactionVerifier::new(&tx)
+                    .verify(max_cycles)
+                    .map_err(|e| Error::Transactions((index, e)))
+                    .map(|cycles| (Some(tx.transaction.hash()), cycles))
             }
         })
         .collect::<Result<Vec<_>, _>>()?;
 
-    let sum: Cycle = cycles_set.iter().sum();
+    let sum: Cycle = cycles_set.iter().map(|(_, cycles)| cycles).sum();
+
+    for (hash, cycles) in cycles_set {
+        if let Some(h) = hash {
+            txs_cycles.insert(h, cycles);
+        }
+    }
+
     if sum > max_cycles {
         Err(Error::ExceededMaximumCycles)
     } else {
