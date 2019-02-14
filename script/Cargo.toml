@@ -20,4 +20,4 @@ ckb-protocol = { path = "../protocol" }
 
 
 [dev-dependencies]
-proptest = "0.8"
+proptest = "0.9"
