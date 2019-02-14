@@ -5,18 +5,17 @@ use ckb_protocol::RelayMessage;
 use ckb_sync::RELAY_PROTOCOL_ID;
 use flatbuffers::FlatBufferBuilder;
 use jsonrpc_core::Result;
-use jsonrpc_macros::build_rpc_trait;
+use jsonrpc_derive::rpc;
 use jsonrpc_types::Transaction;
 use log::debug;
 use numext_fixed_hash::H256;
 use std::sync::Arc;
 
-build_rpc_trait! {
-    pub trait PoolRpc {
-        // curl -d '{"id": 2, "jsonrpc": "2.0", "method":"send_transaction","params": [{"version":2, "deps":[], "inputs":[], "outputs":[]}]}' -H 'content-type:application/json' 'http://localhost:8114'
-        #[rpc(name = "send_transaction")]
-        fn send_transaction(&self, _tx: Transaction) -> Result<H256>;
-    }
+#[rpc]
+pub trait PoolRpc {
+    // curl -d '{"id": 2, "jsonrpc": "2.0", "method":"send_transaction","params": [{"version":2, "deps":[], "inputs":[], "outputs":[]}]}' -H 'content-type:application/json' 'http://localhost:8114'
+    #[rpc(name = "send_transaction")]
+    fn send_transaction(&self, _tx: Transaction) -> Result<H256>;
 }
 
 pub(crate) struct PoolRpcImpl {
