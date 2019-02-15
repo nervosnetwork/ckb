@@ -14,7 +14,7 @@ use ckb_shared::shared::{ChainProvider, Shared};
 use ckb_verification::{TransactionError, TransactionVerifier};
 use crossbeam_channel::{self, select, Receiver, Sender};
 use faketime::unix_time_as_millis;
-use log::error;
+use log::{debug, error};
 use lru_cache::LruCache;
 use numext_fixed_hash::H256;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -688,7 +688,7 @@ where
             }
 
             self.proposed.reconcile(bn, ids).unwrap_or_else(|error| {
-                error!(target: "txs_pool", "Failed to proposed reconcile {:?}", error);
+                debug!(target: "txs_pool", "Failed to proposed reconcile {:?}", error);
                 vec![]
             })
         };

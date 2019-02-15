@@ -12,12 +12,21 @@ use serde_derive::{Deserialize, Serialize};
 use std::fmt;
 use std::ops::{Deref, DerefMut};
 
-#[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Hash, Debug, OccupiedCapacity)]
+#[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Hash, OccupiedCapacity)]
 pub struct OutPoint {
     // Hash of Transaction
     pub hash: H256,
     // Index of output
     pub index: u32,
+}
+
+impl fmt::Debug for OutPoint {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("OutPoint")
+            .field("hash", &format_args!("{:#x}", self.hash))
+            .field("index", &self.index)
+            .finish()
+    }
 }
 
 impl Default for OutPoint {
@@ -86,13 +95,27 @@ impl CellInput {
     }
 }
 
-#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug, OccupiedCapacity)]
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, OccupiedCapacity)]
 pub struct CellOutput {
     pub capacity: Capacity,
     pub data: Vec<u8>,
     pub lock: H256,
     #[serde(rename = "type")]
     pub type_: Option<Script>,
+}
+
+impl fmt::Debug for CellOutput {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("CellOutput")
+            .field("capacity", &self.capacity)
+            .field(
+                "data",
+                &format_args!("0x{}", &hex_string(&self.data).expect("hex data")),
+            )
+            .field("lock", &format_args!("{:#x}", self.lock))
+            .field("type", &self.type_)
+            .finish()
+    }
 }
 
 impl CellOutput {

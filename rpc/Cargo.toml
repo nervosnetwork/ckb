@@ -33,7 +33,7 @@ faster-hex = "0.3"
 jsonrpc-types = { path = "../util/jsonrpc-types" }
 build-info = { path = "../util/build-info" }
 futures = "0.1"
+ckb-verification = { path = "../verification" }
 
 [dev-dependencies]
 ckb-db = { path = "../db" }
-ckb-verification = { path = "../verification" }
