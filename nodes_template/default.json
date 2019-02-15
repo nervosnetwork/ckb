@@ -9,7 +9,7 @@
 
     "data_dir": "default",
     "db": {
-        "path": "db"
+        "path": "default/db"
     },
     "chain": {
         "spec": "spec/dev.json"
