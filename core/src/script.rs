@@ -1,13 +1,15 @@
+use faster_hex::hex_encode;
 use hash::sha3_256;
 use numext_fixed_hash::H256;
 use occupied_capacity::OccupiedCapacity;
 use serde_derive::{Deserialize, Serialize};
+use std::fmt;
 use std::io::Write;
 use std::mem;
 
 // TODO: when flatbuffer work is done, remove Serialize/Deserialize here and
 // implement proper From trait
-#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct Script {
     pub version: u8,
     pub args: Vec<Vec<u8>>,
@@ -48,6 +50,62 @@ pub struct Script {
     // and any additional parameters needed by cell validator, while
     // signed_args will contain pubkey used in the signing part.
     pub signed_args: Vec<Vec<u8>>,
+}
+
+struct OptionDisplay<T>(Option<T>);
+
+impl<T: fmt::Display> fmt::Display for OptionDisplay<T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self.0 {
+            Some(ref v) => write!(f, "Some({})", v),
+            None => write!(f, "None"),
+        }
+    }
+}
+
+fn prefix_hex(bytes: &[u8]) -> String {
+    let mut dst = vec![0u8; bytes.len() * 2 + 2];
+    dst[0] = b'0';
+    dst[1] = b'x';
+    let _ = hex_encode(bytes, &mut dst[2..]);
+    unsafe { String::from_utf8_unchecked(dst) }
+}
+
+impl fmt::Debug for Script {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "Script {{ version: {}, args: ", self.version,)?;
+        f.debug_list()
+            .entries(self.args.iter().map(|arg| prefix_hex(arg)))
+            .finish()?;
+
+        write!(
+            f,
+            ", reference: {}",
+            OptionDisplay(
+                self.reference
+                    .as_ref()
+                    .map(|reference| format!("{:#x}", reference))
+            )
+        )?;
+
+        write!(
+            f,
+            ", binary: {}",
+            OptionDisplay(self.binary.as_ref().map(|binary| prefix_hex(binary)))
+        )?;
+
+        write!(f, " , signed_args: ")?;
+
+        f.debug_list()
+            .entries(
+                self.signed_args
+                    .iter()
+                    .map(|signed_arg| prefix_hex(signed_arg)),
+            )
+            .finish()?;
+
+        write!(f, " }}")
+    }
 }
 
 type ScriptTuple = (

@@ -351,7 +351,7 @@ impl From<Block> for CoreBlock {
 mod tests {
     use super::*;
     use ckb_core::transaction::ProposalShortId as CoreProposalShortId;
-    use proptest::{collection::size_range, prelude::any_with, proptest, proptest_helper};
+    use proptest::{collection::size_range, prelude::*};
 
     fn mock_script(arg: Vec<u8>, binary: Vec<u8>, signed_arg: Vec<u8>) -> CoreScript {
         CoreScript::new(
@@ -432,25 +432,30 @@ mod tests {
             .build()
     }
 
-    fn _test_block_convert(data: Vec<u8>, arg: Vec<u8>, binary: Vec<u8>, signed_arg: Vec<u8>) {
+    fn _test_block_convert(
+        data: Vec<u8>,
+        arg: Vec<u8>,
+        binary: Vec<u8>,
+        signed_arg: Vec<u8>,
+    ) -> Result<(), TestCaseError> {
         let block = mock_full_block(data, arg, binary, signed_arg);
         let json_block: Block = (&block).into();
         let encoded = serde_json::to_string(&json_block).unwrap();
         let decode: Block = serde_json::from_str(&encoded).unwrap();
         let decode_block: CoreBlock = decode.into();
-        assert_eq!(decode_block, block);
+        prop_assert_eq!(decode_block, block);
+        Ok(())
     }
 
     proptest! {
         #[test]
-        #[allow(clippy::unnecessary_operation)]
         fn test_block_convert(
             data in any_with::<Vec<u8>>(size_range(80).lift()),
             arg in any_with::<Vec<u8>>(size_range(80).lift()),
             binary in any_with::<Vec<u8>>(size_range(80).lift()),
             signed_arg in any_with::<Vec<u8>>(size_range(80).lift())
         ) {
-            _test_block_convert(data, arg, binary, signed_arg)
+            _test_block_convert(data, arg, binary, signed_arg)?;
         }
     }
 }

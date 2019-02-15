@@ -7,7 +7,7 @@ use ckb_core::header::{Header, HeaderBuilder};
 use ckb_core::transaction::{
     CellInput, CellOutput, ProposalShortId, Transaction, TransactionBuilder,
 };
-use ckb_core::{BlockNumber, Cycle};
+use ckb_core::BlockNumber;
 use ckb_db::memorydb::MemoryKeyValueDB;
 use ckb_notify::NotifyService;
 use ckb_shared::shared::{ChainProvider, Shared, SharedBuilder};

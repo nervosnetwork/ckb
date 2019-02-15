@@ -3,8 +3,10 @@ use ckb_core::block::Block as CoreBlock;
 use ckb_miner::BlockAssemblerController;
 use ckb_network::NetworkService;
 use ckb_protocol::RelayMessage;
+use ckb_shared::shared::ChainProvider;
 use ckb_shared::{index::ChainIndex, shared::Shared};
 use ckb_sync::RELAY_PROTOCOL_ID;
+use ckb_verification::{HeaderResolverWrapper, HeaderVerifier, Verifier};
 use flatbuffers::FlatBufferBuilder;
 use jsonrpc_core::{Error, Result};
 use jsonrpc_derive::rpc;
@@ -27,7 +29,7 @@ pub trait MinerRpc {
 
     // curl -d '{"id": 2, "jsonrpc": "2.0", "method":"submit_block","params": [{"header":{}, "uncles":[], "commit_transactions":[], "proposal_transactions":[]}]}' -H 'content-type:application/json' 'http://localhost:8114'
     #[rpc(name = "submit_block")]
-    fn submit_block(&self, _work_id: String, _data: Block) -> Result<H256>;
+    fn submit_block(&self, _work_id: String, _data: Block) -> Result<Option<H256>>;
 }
 
 pub(crate) struct MinerRpcImpl<CI> {
@@ -49,23 +51,35 @@ impl<CI: ChainIndex + 'static> MinerRpc for MinerRpcImpl<CI> {
             .map_err(|_| Error::internal_error())
     }
 
-    fn submit_block(&self, _work_id: String, data: Block) -> Result<H256> {
+    fn submit_block(&self, _work_id: String, data: Block) -> Result<Option<H256>> {
         let block: Arc<CoreBlock> = Arc::new(data.into());
-        let ret = self.chain.process_block(Arc::clone(&block));
-        if ret.is_ok() {
-            // announce new block
-            self.network.with_protocol_context(RELAY_PROTOCOL_ID, |nc| {
-                let fbb = &mut FlatBufferBuilder::new();
-                let message = RelayMessage::build_compact_block(fbb, &block, &HashSet::new());
-                fbb.finish(message, None);
-                for peer in nc.connected_peers() {
-                    let _ = nc.send(peer, fbb.finished_data().to_vec());
-                }
-            });
-            Ok(block.header().hash().clone())
+        let resolver = HeaderResolverWrapper::new(block.header(), self.shared.clone());
+        let header_verifier = HeaderVerifier::new(
+            self.shared.clone(),
+            Arc::clone(&self.shared.consensus().pow_engine()),
+        );
+
+        let header_verify_ret = header_verifier.verify(&resolver);
+        if header_verify_ret.is_ok() {
+            let ret = self.chain.process_block(Arc::clone(&block));
+            if ret.is_ok() {
+                // announce new block
+                self.network.with_protocol_context(RELAY_PROTOCOL_ID, |nc| {
+                    let fbb = &mut FlatBufferBuilder::new();
+                    let message = RelayMessage::build_compact_block(fbb, &block, &HashSet::new());
+                    fbb.finish(message, None);
+                    for peer in nc.connected_peers() {
+                        let _ = nc.send(peer, fbb.finished_data().to_vec());
+                    }
+                });
+                Ok(Some(block.header().hash().clone()))
+            } else {
+                debug!(target: "rpc", "submit_block process_block {:?}", ret);
+                Ok(None)
+            }
         } else {
-            debug!(target: "rpc", "submit_block process_block {:?}", ret);
-            Err(Error::internal_error())
+            debug!(target: "rpc", "submit_block header verifier {:?}", header_verify_ret);
+            Ok(None)
         }
     }
 }

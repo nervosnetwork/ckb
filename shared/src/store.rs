@@ -273,7 +273,6 @@ mod tests {
         let store = ChainKVStore::new(db);
         let consensus = Consensus::default();
         let block = consensus.genesis_block();
-        let txs_len = block.commit_transactions().len();
 
         let ext = BlockExt {
             received_at: block.header().timestamp(),
