@@ -21,7 +21,7 @@ ckb-pow = { path = "../pow"}
 jsonrpc-core = "10.0"
 jsonrpc-derive = "10.0"
 jsonrpc-http-server = { git = "https://github.com/nervosnetwork/jsonrpc", branch = "http_remake" }
-jsonrpc-server-utils = "10.0"
+jsonrpc-server-utils = "10.1"
 jsonrpc-pubsub = "10.0"
 serde = "1.0"
 serde_derive = "1.0"
