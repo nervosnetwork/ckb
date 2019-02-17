@@ -22,7 +22,7 @@ jsonrpc-core = "10.0"
 jsonrpc-derive = "10.0"
 jsonrpc-http-server = { git = "https://github.com/nervosnetwork/jsonrpc", branch = "http_remake" }
 jsonrpc-server-utils = "10.0"
-jsonrpc-pubsub = "10.0"
+jsonrpc-pubsub = "10.1"
 serde = "1.0"
 serde_derive = "1.0"
 serde_json = "1.0"
