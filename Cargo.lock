@@ -3283,7 +3283,7 @@ dependencies = [
 [[package]]
 name = "unsigned-varint"
 version = "0.2.2"
-source = "git+https://github.com/paritytech/unsigned-varint#2fe0e98b708b1a95bbba7698c091e3fc91e4ab5d"
+source = "git+https://github.com/paritytech/unsigned-varint#881f02dc92e1f3dfad3af9abcc7fa3211bdebf5d"
 dependencies = [
  "bytes 0.4.11 (registry+https://github.com/rust-lang/crates.io-index)",
  "tokio-codec 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
