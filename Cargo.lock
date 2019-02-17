@@ -128,7 +128,7 @@ dependencies = [
 
 [[package]]
 name = "bincode"
-version = "1.1.1"
+version = "1.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "autocfg 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -378,7 +378,7 @@ dependencies = [
 name = "ckb-core"
 version = "0.6.0-pre"
 dependencies = [
- "bincode 1.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "bincode 1.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "bit-vec 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "ckb-merkle-tree 0.6.0-pre",
  "ckb-util 0.6.0-pre",
@@ -398,7 +398,7 @@ dependencies = [
 name = "ckb-db"
 version = "0.6.0-pre"
 dependencies = [
- "bincode 1.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "bincode 1.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "ckb-util 0.6.0-pre",
  "fnv 1.0.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "rocksdb 0.11.0 (git+https://github.com/nervosnetwork/rust-rocksdb?branch=pinnable-v0.11.0)",
@@ -609,7 +609,7 @@ dependencies = [
 name = "ckb-shared"
 version = "0.6.0-pre"
 dependencies = [
- "bincode 1.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "bincode 1.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "ckb-chain-spec 0.6.0-pre",
  "ckb-core 0.6.0-pre",
  "ckb-db 0.6.0-pre",
@@ -3490,7 +3490,7 @@ dependencies = [
 "checksum base64 0.7.0 (registry+https://github.com/rust-lang/crates.io-index)" = "5032d51da2741729bfdaeb2664d9b8c6d9fd1e2b90715c660b6def36628499c2"
 "checksum base64 0.9.3 (registry+https://github.com/rust-lang/crates.io-index)" = "489d6c0ed21b11d038c31b6ceccca973e65d73ba3bd8ecb9a2babf5546164643"
 "checksum bigint 4.4.1 (registry+https://github.com/rust-lang/crates.io-index)" = "ebecac13b3c745150d7b6c3ea7572d372f09d627c2077e893bf26c5c7f70d282"
-"checksum bincode 1.1.1 (registry+https://github.com/rust-lang/crates.io-index)" = "58470ad6460f0b0e89b0df5f17b8bd77ebae26af69dca0bd9ddc8b9e38abb2ff"
+"checksum bincode 1.1.2 (registry+https://github.com/rust-lang/crates.io-index)" = "3efe0b4c8eaeed8600549c29f538a6a11bf422858d0ed435b1d70ec4ab101190"
 "checksum bindgen 0.43.2 (registry+https://github.com/rust-lang/crates.io-index)" = "6d52d263eacd15d26cbcf215d254b410bd58212aaa2d3c453a04b2d3b3adcf41"
 "checksum bit-set 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)" = "6f1efcc46c18245a69c38fcc5cc650f16d3a59d034f3106e9ed63748f695730a"
 "checksum bit-vec 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)" = "4440d5cb623bb7390ae27fec0bb6c61111969860f8e3ae198bfa0663645e67cf"

@@ -6,7 +6,7 @@ authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
 
 [dependencies]
-bincode = "1.0"
+bincode = "1.1"
 ckb-util = { path = "../util" }
 rocksdb = { git = "https://github.com/nervosnetwork/rust-rocksdb", branch = "pinnable-v0.11.0" }
 fnv = "1.0.3"
