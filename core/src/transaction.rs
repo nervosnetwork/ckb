@@ -98,6 +98,7 @@ impl CellInput {
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, OccupiedCapacity)]
 pub struct CellOutput {
     pub capacity: Capacity,
+    #[serde(with = "serde_bytes")]
     pub data: Vec<u8>,
     pub lock: H256,
     #[serde(rename = "type")]

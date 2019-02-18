@@ -242,7 +242,7 @@ impl<CP: ChainProvider + Clone> UnclesVerifier<CP> {
     }
 
     // -  uncles_hash
-    // -  uncles_len
+    // -  uncles_num
     // -  depth
     // -  uncle cellbase_id
     // -  uncle not in main chain
@@ -270,13 +270,13 @@ impl<CP: ChainProvider + Clone> UnclesVerifier<CP> {
             return Ok(());
         }
 
-        // verify uncles lenght =< max_uncles_len
-        let uncles_len = block.uncles().len();
-        let max_uncles_len = self.provider.consensus().max_uncles_len();
-        if uncles_len > max_uncles_len {
+        // verify uncles lenght =< max_uncles_num
+        let uncles_num = block.uncles().len();
+        let max_uncles_num = self.provider.consensus().max_uncles_num();
+        if uncles_num > max_uncles_num {
             return Err(Error::Uncles(UnclesError::OverCount {
-                max: max_uncles_len,
-                actual: uncles_len,
+                max: max_uncles_num,
+                actual: uncles_num,
             }));
         }
 
@@ -485,19 +485,24 @@ impl<CP: ChainProvider + Clone> CommitVerifier<CP> {
     }
 
     pub fn verify(&self, block: &Block) -> Result<(), Error> {
-        let block_number = block.header().number();
-        let t_prop = self.provider.consensus().transaction_propagation_time;
-        let mut walk = self.provider.consensus().transaction_propagation_timeout;
-        let start = block_number.saturating_sub(t_prop);
-
-        if start < 1 {
+        if block.is_genesis() {
             return Ok(());
         }
+        let block_number = block.header().number();
+        let (proposal_window_start, proposal_window_end) =
+            self.provider.consensus().tx_proposal_window;
+        let proposal_start = block_number.saturating_sub(proposal_window_end);
+        let mut proposal_end = block_number.saturating_sub(proposal_window_start);
 
-        let mut block_hash = block.header().parent_hash().clone();
+        let mut block_hash = self
+            .provider
+            .get_ancestor(&block.header().parent_hash(), proposal_end)
+            .map(|h| h.hash())
+            .ok_or_else(|| Error::Commit(CommitError::AncestorNotFound))?;
+
         let mut proposal_txs_ids = FnvHashSet::default();
 
-        while walk > 0 {
+        while proposal_end >= proposal_start {
             let block = self
                 .provider
                 .block(&block_hash)
@@ -516,7 +521,7 @@ impl<CP: ChainProvider + Clone> CommitVerifier<CP> {
             );
 
             block_hash = block.header().parent_hash().clone();
-            walk -= 1;
+            proposal_end -= 1;
         }
 
         let commited_ids: FnvHashSet<_> = block

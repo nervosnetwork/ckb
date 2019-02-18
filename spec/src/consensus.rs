@@ -6,23 +6,21 @@ use ckb_pow::{Pow, PowEngine};
 use numext_fixed_uint::U256;
 use std::sync::Arc;
 
-pub const DEFAULT_BLOCK_REWARD: Capacity = 5_000;
-pub const MAX_UNCLE_LEN: usize = 2;
-pub const MAX_UNCLE_AGE: usize = 6;
-pub const TRANSACTION_PROPAGATION_TIME: BlockNumber = 1;
-pub const TRANSACTION_PROPAGATION_TIMEOUT: BlockNumber = 10;
-pub const CELLBASE_MATURITY: usize = 100;
-// TODO: should adjust this value based on CKB average block time
-pub const MEDIAN_TIME_BLOCK_COUNT: usize = 11;
+pub(crate) const DEFAULT_BLOCK_REWARD: Capacity = 5_000;
+pub(crate) const MAX_UNCLE_NUM: usize = 2;
+pub(crate) const MAX_UNCLE_AGE: usize = 6;
+pub(crate) const TX_PROPOSAL_WINDOW: (BlockNumber, BlockNumber) = (2, 10);
+pub(crate) const CELLBASE_MATURITY: usize = 100;
+pub(crate) const MEDIAN_TIME_BLOCK_COUNT: usize = 11;
 
 //TODO：find best ORPHAN_RATE_TARGET
-pub const ORPHAN_RATE_TARGET: f32 = 0.1;
-pub const POW_TIME_SPAN: u64 = 12 * 60 * 60 * 1000; // 12 hours
-pub const POW_SPACING: u64 = 15 * 1000; //15s
+pub(crate) const ORPHAN_RATE_TARGET: f32 = 0.1;
+pub(crate) const POW_TIME_SPAN: u64 = 12 * 60 * 60 * 1000; // 12 hours
+pub(crate) const POW_SPACING: u64 = 15 * 1000; //15s
 
-pub const MAX_BLOCK_CYCLES: Cycle = 100_000_000;
-pub const MAX_BLOCK_BYTES: u64 = 10_000_000; // 10mb
-pub const BLOCK_VERSION: u32 = 0;
+pub(crate) const MAX_BLOCK_CYCLES: Cycle = 100_000_000;
+pub(crate) const MAX_BLOCK_BYTES: u64 = 10_000_000; // 10mb
+pub(crate) const BLOCK_VERSION: u32 = 0;
 
 #[derive(Clone, PartialEq, Debug)]
 pub struct Consensus {
@@ -30,12 +28,11 @@ pub struct Consensus {
     pub genesis_block: Block,
     pub initial_block_reward: Capacity,
     pub max_uncles_age: usize,
-    pub max_uncles_len: usize,
+    pub max_uncles_num: usize,
     pub orphan_rate_target: f32,
     pub pow_time_span: u64,
     pub pow_spacing: u64,
-    pub transaction_propagation_time: BlockNumber,
-    pub transaction_propagation_timeout: BlockNumber,
+    pub tx_proposal_window: (BlockNumber, BlockNumber),
     pub pow: Pow,
     // For each input, if the referenced output transaction is cellbase,
     // it must have at least `cellbase_maturity` confirmations;
@@ -61,13 +58,12 @@ impl Default for Consensus {
             genesis_block,
             id: "main".to_owned(),
             max_uncles_age: MAX_UNCLE_AGE,
-            max_uncles_len: MAX_UNCLE_LEN,
+            max_uncles_num: MAX_UNCLE_NUM,
             initial_block_reward: DEFAULT_BLOCK_REWARD,
             orphan_rate_target: ORPHAN_RATE_TARGET,
             pow_time_span: POW_TIME_SPAN,
             pow_spacing: POW_SPACING,
-            transaction_propagation_time: TRANSACTION_PROPAGATION_TIME,
-            transaction_propagation_timeout: TRANSACTION_PROPAGATION_TIMEOUT,
+            tx_proposal_window: TX_PROPOSAL_WINDOW,
             pow: Pow::Dummy,
             cellbase_maturity: CELLBASE_MATURITY,
             median_time_block_count: MEDIAN_TIME_BLOCK_COUNT,
@@ -108,8 +104,8 @@ impl Consensus {
         &self.genesis_block
     }
 
-    pub fn max_uncles_len(&self) -> usize {
-        self.max_uncles_len
+    pub fn max_uncles_num(&self) -> usize {
+        self.max_uncles_num
     }
 
     pub fn max_uncles_age(&self) -> usize {
