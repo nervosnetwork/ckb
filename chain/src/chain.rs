@@ -462,28 +462,29 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
         let mut found_error = false;
         // verify transaction
         for (ext, b) in fork.open_exts.iter_mut().zip(fork.new_blocks.iter()).rev() {
+            let cell_resolver = |op: &OutPoint| {
+                self.shared.cell_at(op, |op| {
+                    if new_inputs.contains(op) {
+                        Some(true)
+                    } else if let Some(x) = new_outputs.get(&op.hash) {
+                        if op.index < (*x as u32) {
+                            Some(false)
+                        } else {
+                            Some(true)
+                        }
+                    } else if old_outputs.contains(&op.hash) {
+                        None
+                    } else {
+                        chain_state
+                            .is_spent(op)
+                            .map(|x| x && !old_inputs.contains(op))
+                    }
+                })
+            };
             if !found_error
                 || skip_verify
                 || txs_verifier
-                    .verify(&mut *txs_cache, b, |op: &OutPoint| {
-                        self.shared.cell_at(op, |op| {
-                            if new_inputs.contains(op) {
-                                Some(true)
-                            } else if let Some(x) = new_outputs.get(&op.hash) {
-                                if op.index < (*x as u32) {
-                                    Some(false)
-                                } else {
-                                    Some(true)
-                                }
-                            } else if old_outputs.contains(&op.hash) {
-                                None
-                            } else {
-                                chain_state
-                                    .is_spent(op)
-                                    .map(|x| x && !old_inputs.contains(op))
-                            }
-                        })
-                    })
+                    .verify(&mut *txs_cache, b, cell_resolver)
                     .is_ok()
             {
                 push_new(b, &mut new_inputs, &mut new_outputs);
