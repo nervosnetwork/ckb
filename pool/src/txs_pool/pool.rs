@@ -361,13 +361,16 @@ where
             }
 
             //readd txs
-            let mut txs_cycles = self.shared.txs_cycles().write();
+            let mut txs_verify_cache = self.shared.txs_verify_cache().write();
             for tx in b.commit_transactions().iter().rev() {
                 if tx.is_cellbase() {
                     continue;
                 }
                 let tx_hash = tx.hash();
-                let cycles = match txs_cycles.get(&tx_hash).cloned() {
+                let cycles = match txs_verify_cache
+                    .as_ref()
+                    .and_then(|cache| cache.get(&tx_hash).cloned())
+                {
                     Some(cycles) => cycles,
                     None => {
                         let rtx = self.resolve_transaction(&tx);
@@ -376,7 +379,10 @@ where
                             .verify(self.shared.consensus().max_block_cycles())
                             .map_err(PoolError::InvalidTx)
                             .unwrap();
-                        txs_cycles.insert(tx_hash, cycles);
+                        // write cache
+                        txs_verify_cache
+                            .as_mut()
+                            .and_then(|cache| cache.insert(tx_hash, cycles));
                         cycles
                     }
                 };
@@ -511,14 +517,20 @@ where
     }
 
     fn verify_transaction(&self, rtx: &ResolvedTransaction) -> Result<Cycle, TransactionError> {
-        let mut txs_cycles = self.shared.txs_cycles().write();
+        let mut txs_cache = self.shared.txs_verify_cache().write();
         let tx_hash = rtx.transaction.hash();
-        match txs_cycles.get(&tx_hash).cloned() {
+        match txs_cache
+            .as_ref()
+            .and_then(|cache| cache.get(&tx_hash).cloned())
+        {
             Some(cycles) => Ok(cycles),
             None => {
                 let cycles = TransactionVerifier::new(&rtx)
                     .verify(self.shared.consensus().max_block_cycles())?;
-                txs_cycles.insert(tx_hash, cycles);
+                // write cache
+                txs_cache
+                    .as_mut()
+                    .and_then(|cache| cache.insert(tx_hash, cycles));
                 Ok(cycles)
             }
         }

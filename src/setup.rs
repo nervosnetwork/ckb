@@ -39,7 +39,7 @@ pub struct Configs {
     pub block_assembler: BlockAssemblerConfig,
     pub sync: SyncConfig,
     pub pool: PoolConfig,
-    pub cycles_cache_size: usize,
+    pub txs_verify_cache_size: usize,
 }
 
 pub fn get_config_path(matches: &ArgMatches) -> PathBuf {
