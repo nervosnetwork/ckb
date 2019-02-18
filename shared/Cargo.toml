@@ -7,7 +7,7 @@ edition = "2018"
 [dependencies]
 serde = "1.0"
 serde_derive = "1.0"
-bincode = "1.0"
+bincode = "1.1"
 ckb-core = { path = "../core" }
 ckb-chain-spec = { path = "../spec" }
 ckb-util = { path = "../util" }
