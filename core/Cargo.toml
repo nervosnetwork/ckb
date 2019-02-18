@@ -20,3 +20,4 @@ ckb-util = { path = "../util" }
 fnv = "1.0.3"
 ckb-merkle-tree = {path = "../util/merkle-tree"}
 faster-hex = "0.3"
+serde_bytes = "0.10.4"

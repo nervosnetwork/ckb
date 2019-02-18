@@ -232,7 +232,7 @@ impl<CI: ChainIndex + 'static> BlockAssembler<CI> {
     ) -> Result<BlockTemplate, SharedError> {
         let (cycles_limit, bytes_limit, version) =
             self.transform_params(cycles_limit, bytes_limit, max_version);
-        let uncles_count_limit = self.shared.consensus().max_uncles_len() as u32;
+        let uncles_count_limit = self.shared.consensus().max_uncles_num() as u32;
 
         let last_uncles_updated_at = self.last_uncles_updated_at.load(Ordering::SeqCst) as u64;
         let last_txs_updated_at = self.tx_pool.get_last_txs_updated_at();
@@ -368,13 +368,13 @@ impl<CI: ChainIndex + 'static> BlockAssembler<CI> {
         let current_difficulty_epoch =
             current_number / self.shared.consensus().difficulty_adjustment_interval();
 
-        let max_uncles_len = self.shared.consensus().max_uncles_len();
+        let max_uncles_num = self.shared.consensus().max_uncles_num();
         let mut included = FnvHashSet::default();
-        let mut uncles = Vec::with_capacity(max_uncles_len);
+        let mut uncles = Vec::with_capacity(max_uncles_num);
         let mut bad_uncles = Vec::new();
 
         for (hash, block) in self.candidate_uncles.iter() {
-            if uncles.len() == max_uncles_len {
+            if uncles.len() == max_uncles_num {
                 break;
             }
 
