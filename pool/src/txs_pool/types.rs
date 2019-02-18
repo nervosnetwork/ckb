@@ -103,12 +103,12 @@ pub struct PoolEntry {
     /// Bytes size
     pub bytes_size: usize,
     /// Cycles
-    pub cycles: Cycle,
+    pub cycles: Option<Cycle>,
 }
 
 impl PoolEntry {
     /// Create new transaction pool entry
-    pub fn new(tx: Transaction, count: usize, cycles: Cycle) -> PoolEntry {
+    pub fn new(tx: Transaction, count: usize, cycles: Option<Cycle>) -> PoolEntry {
         PoolEntry {
             bytes_size: tx.occupied_capacity(),
             transaction: tx,
@@ -353,7 +353,7 @@ impl Pool {
 
         self.vertices.insert_front(
             tx.proposal_short_id(),
-            PoolEntry::new(tx.clone(), 0, cycles),
+            PoolEntry::new(tx.clone(), 0, Some(cycles)),
         );
 
         for i in inputs {
@@ -863,7 +863,7 @@ mod tests {
             )
             .build();
 
-        PoolEntry::new(tx, 0, Cycle::default())
+        PoolEntry::new(tx, 0, None)
     }
 
     #[test]

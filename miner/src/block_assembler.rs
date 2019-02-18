@@ -217,7 +217,7 @@ impl<CI: ChainIndex + 'static> BlockAssembler<CI> {
         TransactionTemplate {
             hash: tx.transaction.hash(),
             required,
-            cycles: Some(tx.cycles),
+            cycles: tx.cycles,
             depends,
             data: (&tx.transaction).into(),
         }

@@ -454,7 +454,7 @@ where
         &mut self,
         tx: Transaction,
     ) -> Result<InsertionResult, PoolError> {
-        let tx = PoolEntry::new(tx, 0, Cycle::default());
+        let tx = PoolEntry::new(tx, 0, None);
         match { self.proposed.insert(tx) } {
             TxStage::Mineable(x) => self.add_to_pool(x),
             TxStage::Unknown(x) => {
@@ -470,7 +470,7 @@ where
         tx: Transaction,
     ) -> Result<InsertionResult, PoolError> {
         let tx_hash = tx.hash();
-        let tx = PoolEntry::new(tx, 0, Cycle::default());
+        let tx = PoolEntry::new(tx, 0, None);
         match { self.proposed.insert(tx) } {
             TxStage::Mineable(x) => self.add_to_pool(x),
             TxStage::Unknown(x) => {
@@ -582,12 +582,12 @@ where
                 }
             }
 
-            if unknowns.is_empty() && pe.cycles != Cycle::default() {
+            if unknowns.is_empty() && pe.cycles.is_none() {
                 // TODO: Parallel
                 let cycles = self
                     .verify_transaction(&rtx)
                     .map_err(PoolError::InvalidTx)?;
-                pe.cycles = cycles;
+                pe.cycles = Some(cycles);
             }
         }
 
@@ -617,11 +617,12 @@ where
         let pes = self.orphan.reconcile_transaction(tx);
 
         for mut pe in pes {
-            let rs = if pe.cycles == Cycle::default() {
-                let rtx = self.resolve_transaction(&pe.transaction);
-                self.verify_transaction(&rtx)
-            } else {
-                Ok(pe.cycles)
+            let verify_result = match pe.cycles {
+                Some(cycles) => Ok(cycles),
+                None => {
+                    let rtx = self.resolve_transaction(&pe.transaction);
+                    self.verify_transaction(&rtx)
+                }
             };
 
             if self.config.trace_enable() {
@@ -629,18 +630,22 @@ where
                     &tx.hash(),
                     format!(
                         "removed from orphan, prepare add to commit, verify result {:?}",
-                        rs
+                        verify_result
                     ),
                 );
             }
 
-            if let Ok(cycles) = rs {
-                pe.cycles = cycles;
-                self.last_txs_updated_at
-                    .store(unix_time_as_millis() as usize, Ordering::SeqCst);
-                self.pool.add_transaction(pe);
-            } else if rs == Err(TransactionError::DoubleSpent) {
-                self.cache.insert(pe.transaction.proposal_short_id(), pe);
+            match verify_result {
+                Ok(cycles) => {
+                    pe.cycles = Some(cycles);
+                    self.last_txs_updated_at
+                        .store(unix_time_as_millis() as usize, Ordering::SeqCst);
+                    self.pool.add_transaction(pe);
+                }
+                Err(TransactionError::DoubleSpent) => {
+                    self.cache.insert(pe.transaction.proposal_short_id(), pe);
+                }
+                _ => (),
             }
         }
     }
