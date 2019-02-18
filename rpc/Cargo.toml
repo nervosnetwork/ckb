@@ -18,7 +18,7 @@ ckb-chain = { path = "../chain" }
 ckb-miner = { path = "../miner" }
 ckb-protocol = { path = "../protocol" }
 ckb-pow = { path = "../pow"}
-jsonrpc-core = "10.0"
+jsonrpc-core = "10.1"
 jsonrpc-derive = "10.0"
 jsonrpc-http-server = { git = "https://github.com/nervosnetwork/jsonrpc", branch = "http_remake" }
 jsonrpc-server-utils = "10.0"
