@@ -157,7 +157,7 @@ pub struct IndexTransaction {
     pub transaction: Transaction,
 }
 
-#[derive(Serialize, Deserialize, Copy, Clone, PartialEq, Eq, Default, Hash)]
+#[derive(Serialize, Deserialize, Copy, Clone, PartialEq, Eq, Default)]
 pub struct ProposalShortId([u8; 10]);
 
 impl Deref for ProposalShortId {
@@ -165,6 +165,12 @@ impl Deref for ProposalShortId {
 
     fn deref(&self) -> &Self::Target {
         &self.0
+    }
+}
+
+impl ::std::hash::Hash for ProposalShortId {
+    fn hash<H: ::std::hash::Hasher>(&self, state: &mut H) {
+        state.write(&self.0)
     }
 }
 

@@ -2,7 +2,7 @@ use ckb_core::transaction::ProposalShortId as CoreProposalShortId;
 use faster_hex::{hex_decode, hex_encode};
 use std::fmt;
 
-#[derive(Clone, Default, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Default, PartialEq, Eq, Debug)]
 pub struct ProposalShortId(pub [u8; 10]);
 
 impl ProposalShortId {
@@ -12,6 +12,12 @@ impl ProposalShortId {
 
     pub fn into_inner(self) -> [u8; 10] {
         self.0
+    }
+}
+
+impl ::std::hash::Hash for ProposalShortId {
+    fn hash<H: ::std::hash::Hasher>(&self, state: &mut H) {
+        state.write(&self.0)
     }
 }
 
