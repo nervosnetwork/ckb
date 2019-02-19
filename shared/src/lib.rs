@@ -32,4 +32,3 @@ pub const COLUMN_EXT: Col = Some(7);
 pub const COLUMN_BLOCK_TRANSACTION_ADDRESSES: Col = Some(9);
 pub const COLUMN_BLOCK_TRANSACTION_IDS: Col = Some(10);
 pub const COLUMN_BLOCK_PROPOSAL_IDS: Col = Some(11);
-pub const COLUMN_TRANSACTION_CYCLES: Col = Some(12);

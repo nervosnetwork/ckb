@@ -1212,7 +1212,7 @@ mod tests {
             fetched_blocks.push(shared2.block(block_hash).unwrap());
         }
 
-        let fork_receiver = notify.subscribe_switch_fork("for_receiver");
+        let fork_receiver = notify.subscribe_switch_fork("fork_receiver");
 
         for block in &fetched_blocks {
             let fbb = &mut FlatBufferBuilder::new();
