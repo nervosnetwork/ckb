@@ -361,31 +361,17 @@ where
             }
 
             //readd txs
-            let mut txs_verify_cache = self.shared.txs_verify_cache().write();
+            let mut txs_cache = self.shared.txs_verify_cache().write();
             for tx in b.commit_transactions().iter().rev() {
                 if tx.is_cellbase() {
                     continue;
                 }
-                let tx_hash = tx.hash();
-                let cycles = match txs_verify_cache
-                    .as_ref()
-                    .and_then(|cache| cache.get(&tx_hash).cloned())
-                {
-                    Some(cycles) => cycles,
-                    None => {
-                        let rtx = self.resolve_transaction(&tx);
-                        // TODO: remove unwrap, remove transactions that depend on it.
-                        let cycles = TransactionVerifier::new(&rtx)
-                            .verify(self.shared.consensus().max_block_cycles())
-                            .map_err(PoolError::InvalidTx)
-                            .unwrap();
-                        // write cache
-                        txs_verify_cache
-                            .as_mut()
-                            .and_then(|cache| cache.insert(tx_hash, cycles));
-                        cycles
-                    }
-                };
+                let rtx = self.resolve_transaction(&tx);
+                // TODO: remove unwrap, remove transactions that depend on it.
+                let cycles = self
+                    .verify_transaction(&rtx, &mut txs_cache)
+                    .map_err(PoolError::InvalidTx)
+                    .unwrap();
                 self.pool.readd_transaction(tx, cycles);
             }
         }
@@ -516,8 +502,11 @@ where
         self.pool.get_mineable_transactions(self.pool.size())
     }
 
-    fn verify_transaction(&self, rtx: &ResolvedTransaction) -> Result<Cycle, TransactionError> {
-        let mut txs_cache = self.shared.txs_verify_cache().write();
+    fn verify_transaction(
+        &self,
+        rtx: &ResolvedTransaction,
+        txs_cache: &mut Option<LruCache<H256, Cycle>>,
+    ) -> Result<Cycle, TransactionError> {
         let tx_hash = rtx.transaction.hash();
         match txs_cache
             .as_ref()
@@ -584,8 +573,10 @@ where
 
             if unknowns.is_empty() && pe.cycles.is_none() {
                 // TODO: Parallel
+
+                let mut txs_cache = self.shared.txs_verify_cache().write();
                 let cycles = self
-                    .verify_transaction(&rtx)
+                    .verify_transaction(&rtx, &mut txs_cache)
                     .map_err(PoolError::InvalidTx)?;
                 pe.cycles = Some(cycles);
             }
@@ -616,12 +607,13 @@ where
     pub(crate) fn reconcile_orphan(&mut self, tx: &Transaction) {
         let pes = self.orphan.reconcile_transaction(tx);
 
+        let mut txs_cache = self.shared.txs_verify_cache().write();
         for mut pe in pes {
             let verify_result = match pe.cycles {
                 Some(cycles) => Ok(cycles),
                 None => {
                     let rtx = self.resolve_transaction(&pe.transaction);
-                    self.verify_transaction(&rtx)
+                    self.verify_transaction(&rtx, &mut txs_cache)
                 }
             };
 
