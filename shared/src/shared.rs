@@ -448,7 +448,7 @@ impl<CI: ChainIndex> BlockMedianTimeContext for Shared<CI> {
 pub struct SharedBuilder<DB: KeyValueDB> {
     db: Option<DB>,
     consensus: Option<Consensus>,
-    txs_verify_cache_size: usize,
+    txs_verify_cache_size: Option<usize>,
 }
 
 impl<DB: KeyValueDB> Default for SharedBuilder<DB> {
@@ -456,7 +456,7 @@ impl<DB: KeyValueDB> Default for SharedBuilder<DB> {
         SharedBuilder {
             db: None,
             consensus: None,
-            txs_verify_cache_size: 100_000,
+            txs_verify_cache_size: None,
         }
     }
 }
@@ -466,7 +466,7 @@ impl SharedBuilder<MemoryKeyValueDB> {
         SharedBuilder {
             db: Some(MemoryKeyValueDB::open(COLUMNS as usize)),
             consensus: None,
-            txs_verify_cache_size: 100_000,
+            txs_verify_cache_size: None,
         }
     }
 }
@@ -492,7 +492,7 @@ impl<DB: 'static + KeyValueDB> SharedBuilder<DB> {
     }
 
     pub fn txs_verify_cache_size(mut self, value: usize) -> Self {
-        self.txs_verify_cache_size = value;
+        self.txs_verify_cache_size = Some(value);
         self
     }
 
@@ -502,7 +502,7 @@ impl<DB: 'static + KeyValueDB> SharedBuilder<DB> {
         Shared::new(
             store,
             consensus,
-            Arc::new(RwLock::new(Some(LruCache::new(self.txs_verify_cache_size)))),
+            Arc::new(RwLock::new(self.txs_verify_cache_size.map(LruCache::new))),
         )
     }
 }
