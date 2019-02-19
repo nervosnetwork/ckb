@@ -425,6 +425,7 @@ impl<CI: ChainIndex> Synchronizer<CI> {
     }
 
     fn accept_block(&self, peer: PeerIndex, block: &Arc<Block>) -> Result<(), ProcessBlockError> {
+        // TODO: some transactions' verification can be skiped.
         self.chain.process_block(Arc::clone(&block))?;
         self.mark_block_stored(block.header().hash().clone());
         self.peers.set_last_common_header(peer, &block.header());
@@ -924,6 +925,7 @@ mod tests {
         for i in 1..=block_number {
             let difficulty = shared2.calculate_difficulty(&parent).unwrap();
             let new_block = gen_block(&parent, difficulty, i + 100);
+
             chain_controller2
                 .process_block(Arc::new(new_block.clone()))
                 .expect("process block ok");
@@ -994,6 +996,7 @@ mod tests {
         for i in 1..block_number {
             let difficulty = shared1.calculate_difficulty(&parent).unwrap();
             let new_block = gen_block(&parent, difficulty, i + 100);
+
             chain_controller1
                 .process_block(Arc::new(new_block.clone()))
                 .expect("process block ok");
@@ -1023,6 +1026,7 @@ mod tests {
             let difficulty = shared.calculate_difficulty(&parent).unwrap();
             let new_block = gen_block(&parent, difficulty, i + 100);
             blocks.push(new_block.clone());
+
             chain_controller
                 .process_block(Arc::new(new_block.clone()))
                 .expect("process block ok");
@@ -1208,7 +1212,7 @@ mod tests {
             fetched_blocks.push(shared2.block(block_hash).unwrap());
         }
 
-        let new_tip_receiver = notify.subscribe_new_tip("new_tip_receiver");
+        let fork_receiver = notify.subscribe_switch_fork("fork_receiver");
 
         for block in &fetched_blocks {
             let fbb = &mut FlatBufferBuilder::new();
@@ -1230,7 +1234,7 @@ mod tests {
             blocks_to_fetch.last().unwrap()
         );
 
-        assert!(new_tip_receiver.recv().is_ok());
+        assert!(fork_receiver.recv().is_ok());
     }
 
     #[cfg(not(disable_faketime))]

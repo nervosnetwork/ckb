@@ -270,7 +270,6 @@ fn test_block_proposal() {
 
     let proposal_ids: Vec<_> = txs.iter().map(|tx| tx.proposal_short_id()).collect();
     let block = gen_block(&parent, vec![], proposal_ids, vec![]);
-
     assert!(chain_controller
         .process_block(Arc::new(block.clone()))
         .is_ok());

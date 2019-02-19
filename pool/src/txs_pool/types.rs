@@ -3,7 +3,7 @@
 
 use ckb_chain_spec::consensus::{TRANSACTION_PROPAGATION_TIME, TRANSACTION_PROPAGATION_TIMEOUT};
 use ckb_core::transaction::{CellOutput, OutPoint, ProposalShortId, Transaction};
-use ckb_core::BlockNumber;
+use ckb_core::{BlockNumber, Cycle};
 use ckb_verification::TransactionError;
 use fnv::{FnvHashMap, FnvHashSet};
 use linked_hash_map::LinkedHashMap;
@@ -64,10 +64,10 @@ pub enum InsertionResult {
 
 #[derive(PartialEq, Clone, Debug)]
 pub enum TxStage {
-    Unknown(Transaction),
-    Fork(Transaction),
-    Mineable(Transaction),
-    TimeOut(Transaction),
+    Unknown(PoolEntry),
+    Fork(PoolEntry),
+    Mineable(PoolEntry),
+    TimeOut(PoolEntry),
     Proposed,
 }
 
@@ -102,15 +102,18 @@ pub struct PoolEntry {
     pub refs_count: usize,
     /// Bytes size
     pub bytes_size: usize,
+    /// Cycles
+    pub cycles: Option<Cycle>,
 }
 
 impl PoolEntry {
     /// Create new transaction pool entry
-    pub fn new(tx: Transaction, count: usize) -> PoolEntry {
+    pub fn new(tx: Transaction, count: usize, cycles: Option<Cycle>) -> PoolEntry {
         PoolEntry {
             bytes_size: tx.occupied_capacity(),
             transaction: tx,
             refs_count: count,
+            cycles,
         }
     }
 }
@@ -240,8 +243,8 @@ impl Pool {
         self.vertices.get(id)
     }
 
-    pub fn get(&self, id: &ProposalShortId) -> Option<&Transaction> {
-        self.vertices.get(id).map(|x| &x.transaction)
+    pub fn get(&self, id: &ProposalShortId) -> Option<&PoolEntry> {
+        self.vertices.get(id)
     }
 
     pub fn get_transaction(&self, id: &ProposalShortId) -> Option<&Transaction> {
@@ -254,14 +257,14 @@ impl Pool {
             .and_then(|x| x.transaction.get_output(o.index as usize))
     }
 
-    pub fn remove_vertex(&mut self, id: &ProposalShortId, rtxs: &mut Vec<Transaction>) {
+    pub fn remove_vertex(&mut self, id: &ProposalShortId, rtxs: &mut Vec<PoolEntry>) {
         if let Some(x) = self.vertices.remove(id) {
-            let tx = x.transaction;
+            let tx = &x.transaction;
             let inputs = tx.input_pts();
             let outputs = tx.output_pts();
             let deps = tx.dep_pts();
 
-            rtxs.push(tx);
+            rtxs.push(x);
 
             for i in inputs {
                 if let Some(x) = self.edges.inner.get_mut(&i) {
@@ -289,7 +292,7 @@ impl Pool {
         }
     }
 
-    pub fn remove(&mut self, id: &ProposalShortId) -> Option<Vec<Transaction>> {
+    pub fn remove(&mut self, id: &ProposalShortId) -> Option<Vec<PoolEntry>> {
         let mut rtxs = Vec::new();
 
         self.remove_vertex(id, &mut rtxs);
@@ -302,7 +305,8 @@ impl Pool {
     }
 
     /// Add a verified transaction.
-    pub fn add_transaction(&mut self, tx: Transaction) {
+    pub fn add_transaction(&mut self, mut pe: PoolEntry) {
+        let tx = &pe.transaction;
         let inputs = tx.input_pts();
         let outputs = tx.output_pts();
         let deps = tx.dep_pts();
@@ -335,19 +339,22 @@ impl Pool {
             self.edges.mark_inpool(o);
         }
 
-        self.vertices.insert(id, PoolEntry::new(tx, count));
+        pe.refs_count = count;
+        self.vertices.insert(id, pe);
     }
 
     /// Readd a verified transaction which is rolled back from chain. Since the rolled back
     /// transaction should depend on any transaction in the pool, it is safe to skip some checking.
-    pub fn readd_transaction(&mut self, tx: &Transaction) {
+    pub fn readd_transaction(&mut self, tx: &Transaction, cycles: Cycle) {
         let inputs = tx.input_pts();
         let outputs = tx.output_pts();
         let deps = tx.dep_pts();
         let id = tx.proposal_short_id();
 
-        self.vertices
-            .insert_front(tx.proposal_short_id(), PoolEntry::new(tx.clone(), 0));
+        self.vertices.insert_front(
+            tx.proposal_short_id(),
+            PoolEntry::new(tx.clone(), 0, Some(cycles)),
+        );
 
         for i in inputs {
             self.edges.insert_outer(i, id);
@@ -423,11 +430,11 @@ impl Pool {
     }
 
     /// Get n transactions in topology
-    pub fn get_mineable_transactions(&self, n: usize) -> Vec<Transaction> {
+    pub fn get_mineable_transactions(&self, n: usize) -> Vec<PoolEntry> {
         self.vertices
             .front_n(n)
-            .into_iter()
-            .map(|x| x.1.transaction.clone())
+            .iter()
+            .map(|x| x.1.clone())
             .collect()
     }
 
@@ -461,8 +468,8 @@ impl Orphan {
         self.vertices.len()
     }
 
-    pub fn get(&self, id: &ProposalShortId) -> Option<&Transaction> {
-        self.vertices.get(id).map(|x| &x.transaction)
+    pub fn get(&self, id: &ProposalShortId) -> Option<&PoolEntry> {
+        self.vertices.get(id)
     }
 
     pub fn contains(&self, tx: &Transaction) -> bool {
@@ -474,8 +481,8 @@ impl Orphan {
     }
 
     /// add orphan transaction
-    pub fn add_transaction(&mut self, tx: Transaction, unknown: impl Iterator<Item = OutPoint>) {
-        let id = tx.proposal_short_id();
+    pub fn add_transaction(&mut self, mut pe: PoolEntry, unknown: impl Iterator<Item = OutPoint>) {
+        let id = pe.transaction.proposal_short_id();
 
         let mut count: usize = 0;
 
@@ -484,14 +491,12 @@ impl Orphan {
             e.push(id);
             count += 1;
         }
-
-        self.vertices.insert(id, PoolEntry::new(tx, count));
+        pe.refs_count = count;
+        self.vertices.insert(id, pe);
     }
 
-    pub fn remove(&mut self, id: &ProposalShortId) -> Option<Transaction> {
+    pub fn remove(&mut self, id: &ProposalShortId) -> Option<PoolEntry> {
         if let Some(x) = self.vertices.remove(id) {
-            let tx = x.transaction;
-
             // should remove its children?
             // for o in tx.output_pts() {
             //     if let Some(ids) = self.edges.remove(&o) {
@@ -501,13 +506,13 @@ impl Orphan {
             //     }
             // }
 
-            Some(tx)
+            Some(x)
         } else {
             None
         }
     }
 
-    pub fn reconcile_transaction(&mut self, tx: &Transaction) -> Vec<Transaction> {
+    pub fn reconcile_transaction(&mut self, tx: &Transaction) -> Vec<PoolEntry> {
         let mut txs = Vec::new();
         let mut q = VecDeque::new();
 
@@ -522,7 +527,7 @@ impl Orphan {
                             x.refs_count -= 1;
                             if x.refs_count == 0 {
                                 q.push_back(x.transaction.output_pts());
-                                txs.push(x.transaction);
+                                txs.push(x);
                             } else {
                                 self.vertices.insert(cid, x);
                             }
@@ -550,7 +555,7 @@ impl Orphan {
 
 #[derive(Default, Debug)]
 pub struct PendingQueue {
-    inner: FnvHashMap<ProposalShortId, Transaction>,
+    inner: FnvHashMap<ProposalShortId, PoolEntry>,
 }
 
 impl PendingQueue {
@@ -564,7 +569,7 @@ impl PendingQueue {
         self.inner.len()
     }
 
-    pub fn insert(&mut self, id: ProposalShortId, tx: Transaction) -> Option<Transaction> {
+    pub fn insert(&mut self, id: ProposalShortId, tx: PoolEntry) -> Option<PoolEntry> {
         self.inner.insert(id, tx)
     }
 
@@ -572,11 +577,11 @@ impl PendingQueue {
         self.inner.contains_key(id)
     }
 
-    pub fn get(&self, id: &ProposalShortId) -> Option<&Transaction> {
+    pub fn get(&self, id: &ProposalShortId) -> Option<&PoolEntry> {
         self.inner.get(id)
     }
 
-    pub fn remove(&mut self, id: &ProposalShortId) -> Option<Transaction> {
+    pub fn remove(&mut self, id: &ProposalShortId) -> Option<PoolEntry> {
         self.inner.remove(id)
     }
 
@@ -584,7 +589,7 @@ impl PendingQueue {
         self.inner
             .values()
             .take(n)
-            .map(|x| x.proposal_short_id())
+            .map(|x| x.transaction.proposal_short_id())
             .collect()
     }
 }
@@ -595,7 +600,7 @@ pub struct ProposedQueue {
     tip: BlockNumber,
     queue: VecDeque<FnvHashSet<ProposalShortId>>,
     numbers: FnvHashMap<ProposalShortId, BlockNumber>,
-    buff: FnvHashMap<ProposalShortId, Transaction>,
+    buff: FnvHashMap<ProposalShortId, PoolEntry>,
 }
 
 impl ProposedQueue {
@@ -666,8 +671,8 @@ impl ProposedQueue {
         self.queue.get(id)
     }
 
-    pub fn insert(&mut self, tx: Transaction) -> TxStage {
-        let id = tx.proposal_short_id();
+    pub fn insert(&mut self, tx: PoolEntry) -> TxStage {
+        let id = tx.transaction.proposal_short_id();
         if let Some(bn) = self.numbers.get(&id) {
             if bn + TRANSACTION_PROPAGATION_TIME > self.tip + 1 {
                 self.buff.insert(id, tx);
@@ -680,13 +685,13 @@ impl ProposedQueue {
         }
     }
 
-    pub fn insert_with_n(&mut self, bn: BlockNumber, tx: Transaction) -> TxStage {
+    pub fn insert_with_n(&mut self, bn: BlockNumber, tx: PoolEntry) -> TxStage {
         if bn <= self.tip {
             if bn + TRANSACTION_PROPAGATION_TIMEOUT <= self.tip {
                 TxStage::TimeOut(tx)
             } else {
                 let mut is_in = false;
-                let id = tx.proposal_short_id();
+                let id = tx.transaction.proposal_short_id();
 
                 if let Some(ids) = self.get_ids(bn) {
                     if ids.contains(&id) {
@@ -710,7 +715,7 @@ impl ProposedQueue {
         }
     }
 
-    pub fn insert_without_check(&mut self, id: ProposalShortId, tx: Transaction) {
+    pub fn insert_without_check(&mut self, id: ProposalShortId, tx: PoolEntry) {
         self.buff.insert(id, tx);
     }
 
@@ -768,7 +773,7 @@ impl ProposedQueue {
         &mut self,
         bn: BlockNumber,
         ids: Vec<ProposalShortId>,
-    ) -> Result<Vec<Transaction>, PoolError> {
+    ) -> Result<Vec<PoolEntry>, PoolError> {
         if bn < TRANSACTION_PROPAGATION_TIME {
             self.push_back(ids);
             return Ok(Vec::new());
@@ -782,21 +787,21 @@ impl ProposedQueue {
         self.push_back(ids);
 
         if let Some(x) = self.get_ids(m).cloned() {
-            let r: Vec<Transaction> = x.iter().filter_map(|i| self.buff.remove(i)).collect();
+            let r: Vec<PoolEntry> = x.iter().filter_map(|i| self.buff.remove(i)).collect();
             Ok(r)
         } else {
             Ok(Vec::new())
         }
     }
 
-    pub fn get(&self, id: &ProposalShortId) -> Option<&Transaction> {
+    pub fn get(&self, id: &ProposalShortId) -> Option<&PoolEntry> {
         self.buff.get(id)
     }
 
     pub fn remove(
         &mut self,
         bn: BlockNumber,
-    ) -> Option<FnvHashMap<ProposalShortId, Option<Transaction>>> {
+    ) -> Option<FnvHashMap<ProposalShortId, Option<PoolEntry>>> {
         if self.tip < bn {
             return None;
         }
@@ -841,8 +846,8 @@ mod tests {
     use ckb_core::transaction::{CellInput, CellOutput, Transaction, TransactionBuilder};
     use numext_fixed_hash::H256;
 
-    fn build_tx(inputs: Vec<(H256, u32)>, outputs_len: usize) -> Transaction {
-        TransactionBuilder::default()
+    fn build_tx(inputs: Vec<(H256, u32)>, outputs_len: usize) -> PoolEntry {
+        let tx = TransactionBuilder::default()
             .inputs(
                 inputs
                     .into_iter()
@@ -856,19 +861,21 @@ mod tests {
                     .map(|i| CellOutput::new((i + 1) as u64, Vec::new(), H256::zero(), None))
                     .collect(),
             )
-            .build()
+            .build();
+
+        PoolEntry::new(tx, 0, None)
     }
 
     #[test]
     fn test_proposed_queue() {
         let tx1 = build_tx(vec![(H256::zero(), 1), (H256::zero(), 2)], 1);
-        let tx1_hash = tx1.hash().clone();
+        let tx1_hash = tx1.transaction.hash().clone();
         let tx2 = build_tx(vec![(tx1_hash, 0)], 1);
         let tx3 = build_tx(vec![(H256::zero(), 1)], 2);
 
-        let id1 = tx1.proposal_short_id();
-        let id2 = tx2.proposal_short_id();
-        let id3 = tx3.proposal_short_id();
+        let id1 = tx1.transaction.proposal_short_id();
+        let id2 = tx2.transaction.proposal_short_id();
+        let id3 = tx3.transaction.proposal_short_id();
 
         let mut queue = ProposedQueue::new(1000, vec![vec![id2], vec![id1]]);
 
@@ -902,12 +909,12 @@ mod tests {
     #[test]
     fn test_add_entry() {
         let tx1 = build_tx(vec![(H256::zero(), 1), (H256::zero(), 2)], 1);
-        let tx1_hash = tx1.hash().clone();
+        let tx1_hash = tx1.transaction.hash().clone();
         let tx2 = build_tx(vec![(tx1_hash, 0)], 1);
 
         let mut pool = Pool::new();
-        let id1 = tx1.proposal_short_id();
-        let id2 = tx2.proposal_short_id();
+        let id1 = tx1.transaction.proposal_short_id();
+        let id2 = tx2.transaction.proposal_short_id();
 
         pool.add_transaction(tx1.clone());
         pool.add_transaction(tx2.clone());
@@ -919,7 +926,7 @@ mod tests {
         assert_eq!(pool.get_entry(&id1).unwrap().refs_count, 0);
         assert_eq!(pool.get_entry(&id2).unwrap().refs_count, 1);
 
-        pool.commit_transaction(&tx1);
+        pool.commit_transaction(&tx1.transaction);
         assert_eq!(pool.edges.inner_len(), 1);
         assert_eq!(pool.edges.outer_len(), 1);
 
@@ -939,8 +946,8 @@ mod tests {
 
         let mut pool = Pool::new();
 
-        let id1 = tx1.proposal_short_id();
-        let id2 = tx2.proposal_short_id();
+        let id1 = tx1.transaction.proposal_short_id();
+        let id2 = tx2.transaction.proposal_short_id();
 
         pool.add_transaction(tx1.clone());
         pool.add_transaction(tx2.clone());
@@ -965,7 +972,7 @@ mod tests {
         assert_eq!(2, mineable.len());
         assert!(mineable.contains(&tx1) && mineable.contains(&tx2));
 
-        pool.commit_transaction(&tx1);
+        pool.commit_transaction(&tx1.transaction);
 
         assert_eq!(pool.edges.inner_len(), 3);
         assert_eq!(pool.edges.outer_len(), 2);
@@ -978,7 +985,7 @@ mod tests {
         for i in 0..20 {
             let tx = build_tx(vec![(H256::zero(), i), (H256::zero(), i + 20)], 2);
 
-            pending.insert(tx.proposal_short_id(), tx);
+            pending.insert(tx.transaction.proposal_short_id(), tx);
         }
 
         assert_eq!(pending.size(), 20);
@@ -989,18 +996,18 @@ mod tests {
     fn test_add_no_roots() {
         let tx1 = build_tx(vec![(H256::zero(), 1)], 3);
         let tx2 = build_tx(vec![], 4);
-        let tx1_hash = tx1.hash().clone();
-        let tx2_hash = tx2.hash().clone();
+        let tx1_hash = tx1.transaction.hash().clone();
+        let tx2_hash = tx2.transaction.hash().clone();
 
         let tx3 = build_tx(vec![(tx1_hash.clone(), 0), (H256::zero(), 2)], 2);
         let tx4 = build_tx(vec![(tx1_hash.clone(), 1), (tx2_hash.clone(), 0)], 2);
 
-        let tx3_hash = tx3.hash().clone();
+        let tx3_hash = tx3.transaction.hash().clone();
         let tx5 = build_tx(vec![(tx1_hash.clone(), 2), (tx3_hash.clone(), 0)], 2);
 
-        let id1 = tx1.proposal_short_id();
-        let id3 = tx3.proposal_short_id();
-        let id5 = tx5.proposal_short_id();
+        let id1 = tx1.transaction.proposal_short_id();
+        let id3 = tx3.transaction.proposal_short_id();
+        let id5 = tx5.transaction.proposal_short_id();
 
         let mut pool = Pool::new();
 
@@ -1016,64 +1023,117 @@ mod tests {
         assert_eq!(pool.edges.inner_len(), 13);
         assert_eq!(pool.edges.outer_len(), 2);
 
-        let mut mineable = pool.get_mineable_transactions(0);
+        let mut mineable: Vec<Transaction> = pool
+            .get_mineable_transactions(0)
+            .into_iter()
+            .map(|x| x.transaction)
+            .collect();
         assert_eq!(0, mineable.len());
 
-        mineable = pool.get_mineable_transactions(1);
+        mineable = pool
+            .get_mineable_transactions(1)
+            .into_iter()
+            .map(|x| x.transaction)
+            .collect();
         assert_eq!(1, mineable.len());
-        assert!(mineable.contains(&tx1));
+        assert!(mineable.contains(&tx1.transaction));
 
-        mineable = pool.get_mineable_transactions(2);
+        mineable = pool
+            .get_mineable_transactions(2)
+            .into_iter()
+            .map(|x| x.transaction)
+            .collect();
         assert_eq!(2, mineable.len());
-        assert!(mineable.contains(&tx1) && mineable.contains(&tx2));
+        assert!(mineable.contains(&tx1.transaction) && mineable.contains(&tx2.transaction));
 
-        mineable = pool.get_mineable_transactions(3);
+        mineable = pool
+            .get_mineable_transactions(3)
+            .into_iter()
+            .map(|x| x.transaction)
+            .collect();
         assert_eq!(3, mineable.len());
-        assert!(mineable.contains(&tx1) && mineable.contains(&tx2) && mineable.contains(&tx3));
 
-        mineable = pool.get_mineable_transactions(4);
+        assert!(
+            mineable.contains(&tx1.transaction)
+                && mineable.contains(&tx2.transaction)
+                && mineable.contains(&tx3.transaction)
+        );
+
+        mineable = pool
+            .get_mineable_transactions(4)
+            .into_iter()
+            .map(|x| x.transaction)
+            .collect();
         assert_eq!(4, mineable.len());
-        assert!(mineable.contains(&tx1) && mineable.contains(&tx2));
-        assert!(mineable.contains(&tx3) && mineable.contains(&tx4));
+        assert!(mineable.contains(&tx1.transaction) && mineable.contains(&tx2.transaction));
+        assert!(mineable.contains(&tx3.transaction) && mineable.contains(&tx4.transaction));
 
-        mineable = pool.get_mineable_transactions(5);
+        mineable = pool
+            .get_mineable_transactions(5)
+            .into_iter()
+            .map(|x| x.transaction)
+            .collect();
         assert_eq!(5, mineable.len());
-        assert!(mineable.contains(&tx1) && mineable.contains(&tx2));
-        assert!(mineable.contains(&tx3) && mineable.contains(&tx4));
-        assert!(mineable.contains(&tx5));
+        assert!(mineable.contains(&tx1.transaction) && mineable.contains(&tx2.transaction));
+        assert!(mineable.contains(&tx3.transaction) && mineable.contains(&tx4.transaction));
+        assert!(mineable.contains(&tx5.transaction));
 
-        mineable = pool.get_mineable_transactions(6);
+        mineable = pool
+            .get_mineable_transactions(6)
+            .into_iter()
+            .map(|x| x.transaction)
+            .collect();
         assert_eq!(5, mineable.len());
-        assert!(mineable.contains(&tx1) && mineable.contains(&tx2));
-        assert!(mineable.contains(&tx3) && mineable.contains(&tx4));
-        assert!(mineable.contains(&tx5));
+        assert!(mineable.contains(&tx1.transaction) && mineable.contains(&tx2.transaction));
+        assert!(mineable.contains(&tx3.transaction) && mineable.contains(&tx4.transaction));
+        assert!(mineable.contains(&tx5.transaction));
 
-        pool.commit_transaction(&tx1);
+        pool.commit_transaction(&tx1.transaction);
 
         assert_eq!(pool.get_entry(&id3).unwrap().refs_count, 0);
         assert_eq!(pool.get_entry(&id5).unwrap().refs_count, 1);
         assert_eq!(pool.edges.inner_len(), 10);
         assert_eq!(pool.edges.outer_len(), 4);
 
-        mineable = pool.get_mineable_transactions(1);
+        mineable = pool
+            .get_mineable_transactions(1)
+            .into_iter()
+            .map(|x| x.transaction)
+            .collect();
         assert_eq!(1, mineable.len());
-        assert!(mineable.contains(&tx2));
+        assert!(mineable.contains(&tx2.transaction));
 
-        mineable = pool.get_mineable_transactions(2);
+        mineable = pool
+            .get_mineable_transactions(2)
+            .into_iter()
+            .map(|x| x.transaction)
+            .collect();
         assert_eq!(2, mineable.len());
-        assert!(mineable.contains(&tx2) && mineable.contains(&tx3));
+        assert!(mineable.contains(&tx2.transaction) && mineable.contains(&tx3.transaction));
 
-        mineable = pool.get_mineable_transactions(3);
+        mineable = pool
+            .get_mineable_transactions(3)
+            .into_iter()
+            .map(|x| x.transaction)
+            .collect();
         assert_eq!(3, mineable.len());
-        assert!(mineable.contains(&tx2) && mineable.contains(&tx3));
-        assert!(mineable.contains(&tx4));
+        assert!(mineable.contains(&tx2.transaction) && mineable.contains(&tx3.transaction));
+        assert!(mineable.contains(&tx4.transaction));
 
-        mineable = pool.get_mineable_transactions(4);
+        mineable = pool
+            .get_mineable_transactions(4)
+            .into_iter()
+            .map(|x| x.transaction)
+            .collect();
         assert_eq!(4, mineable.len());
-        assert!(mineable.contains(&tx2) && mineable.contains(&tx3));
-        assert!(mineable.contains(&tx4) && mineable.contains(&tx5));
+        assert!(mineable.contains(&tx2.transaction) && mineable.contains(&tx3.transaction));
+        assert!(mineable.contains(&tx4.transaction) && mineable.contains(&tx5.transaction));
 
-        mineable = pool.get_mineable_transactions(5);
+        mineable = pool
+            .get_mineable_transactions(5)
+            .into_iter()
+            .map(|x| x.transaction)
+            .collect();
         assert_eq!(4, mineable.len());
     }
 }

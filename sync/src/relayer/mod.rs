@@ -155,24 +155,29 @@ where
         &self,
         compact_block: &CompactBlock,
         transactions: Vec<Transaction>,
-    ) -> (Option<Block>, Vec<usize>) {
+    ) -> Result<Block, Vec<usize>> {
         let (key0, key1) =
             short_transaction_id_keys(compact_block.header.nonce(), compact_block.nonce);
 
-        let mut txs = transactions;
-        txs.extend(self.tx_pool.get_potential_transactions());
+        // TODO: use reference
+        let pool_entrys = self.tx_pool.get_potential_transactions();
 
         let mut txs_map = FnvHashMap::default();
-        for tx in txs {
+        for tx in transactions {
+            let short_id = short_transaction_id(key0, key1, &tx.hash());
+            txs_map.insert(short_id, tx);
+        }
+
+        for e in pool_entrys {
+            let tx = e.transaction;
             let short_id = short_transaction_id(key0, key1, &tx.hash());
             txs_map.insert(short_id, tx);
         }
 
         let short_ids_iter = &mut compact_block.short_ids.iter();
-        let mut block_transactions = Vec::with_capacity(
-            compact_block.prefilled_transactions.len() + compact_block.short_ids.len(),
-        );
+        let txs_len = compact_block.prefilled_transactions.len() + compact_block.short_ids.len();
 
+        let mut block_transactions = Vec::with_capacity(txs_len);
         // fill transactions gap
         compact_block.prefilled_transactions.iter().for_each(|pt| {
             let gap = pt.index - block_transactions.len();
@@ -188,6 +193,7 @@ where
         short_ids_iter.for_each(|short_id| block_transactions.push(txs_map.remove(short_id)));
 
         let mut missing_indexes = Vec::new();
+
         for (i, t) in block_transactions.iter().enumerate() {
             if t.is_none() {
                 missing_indexes.push(i);
@@ -202,9 +208,9 @@ where
                 .proposal_transactions(compact_block.proposal_transactions.clone())
                 .build();
 
-            (Some(block), missing_indexes)
+            Ok(block)
         } else {
-            (None, missing_indexes)
+            Err(missing_indexes)
         }
     }
 
@@ -231,7 +237,7 @@ where
             let fbb = &mut FlatBufferBuilder::new();
             let message = RelayMessage::build_block_proposal(
                 fbb,
-                &txs.into_iter().map(Into::into).collect::<Vec<_>>(),
+                &txs.into_iter().map(|x| x.transaction).collect::<Vec<_>>(),
             );
             fbb.finish(message, None);
 

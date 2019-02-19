@@ -29,6 +29,7 @@ pub fn run(setup: Setup) {
     let shared = SharedBuilder::<CacheDB<RocksDB>>::default()
         .consensus(consensus)
         .db(&setup.configs.db)
+        .txs_verify_cache_size(setup.configs.txs_verify_cache_size)
         .build();
 
     let notify = NotifyService::default().start(Some("notify"));

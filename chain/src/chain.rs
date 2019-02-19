@@ -11,7 +11,7 @@ use ckb_shared::error::SharedError;
 use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::{ChainProvider, ChainState, Shared};
 use ckb_shared::txo_set::TxoSetDiff;
-use ckb_verification::{verify_transactions, BlockVerifier, Verifier};
+use ckb_verification::{BlockVerifier, TransactionsVerifier, Verifier};
 use crossbeam_channel::{self, select, Receiver, Sender};
 use faketime::unix_time_as_millis;
 use fnv::{FnvHashMap, FnvHashSet};
@@ -162,17 +162,14 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
         let mut new_best_block = false;
         let mut total_difficulty = U256::zero();
 
-        let mut old_blocks = Vec::new();
-        let mut new_blocks = Vec::new();
-
         let mut txo_set_diff = TxoSetDiff::default();
+        let mut fork = Fork::default();
 
         let mut chain_state = self.shared.chain_state().write();
         let tip_number = chain_state.tip_number();
         let parent_ext = self
             .shared
-            .store()
-            .get_block_ext(&block.header().parent_hash())
+            .block_ext(&block.header().parent_hash())
             .expect("parent already store");
 
         let cannon_total_difficulty = parent_ext.total_difficulty + block.header().difficulty();
@@ -211,12 +208,11 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
                     &cannon_total_difficulty - current_total_difficulty
                 );
 
-                let (diff, old, new) =
+                let (di, fo) =
                     self.reconcile_main_chain(batch, tip_number, block, ext, &*chain_state)?;
 
-                txo_set_diff = diff;
-                old_blocks = old;
-                new_blocks = new;
+                txo_set_diff = di;
+                fork = fo;
 
                 self.shared
                     .store()
@@ -245,22 +241,18 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
 
         Ok(BlockInsertionResult {
             new_best_block,
-            fork_blks: ForkBlocks::new(old_blocks, new_blocks),
+            fork_blks: ForkBlocks::new(fork.old_blocks, fork.new_blocks),
         })
     }
 
     pub(crate) fn post_insert_result(&mut self, block: Arc<Block>, result: BlockInsertionResult) {
         let BlockInsertionResult {
             new_best_block,
-            mut fork_blks,
+            fork_blks,
         } = result;
-        if !fork_blks.old_blks().is_empty() {
-            fork_blks.push_new(Block::clone(&block));
-            self.notify.notify_switch_fork(Arc::new(fork_blks.clone()));
-        }
 
         if new_best_block {
-            self.notify.notify_new_tip(block);
+            self.notify.notify_switch_fork(Arc::new(fork_blks));
             if log_enabled!(target: "chain", log::Level::Debug) {
                 self.print_chain(10);
             }
@@ -413,7 +405,7 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
         block: &Block,
         ext: BlockExt,
         chain_state: &ChainState,
-    ) -> Result<(TxoSetDiff, Vec<Block>, Vec<Block>), SharedError> {
+    ) -> Result<(TxoSetDiff, Fork), SharedError> {
         let skip_verify = !self.verification;
 
         let mut fork = self
@@ -445,8 +437,6 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
 
         let new_blocks_len = fork.new_blocks.len();
         let verified_len = new_blocks_len - fork.open_exts.len();
-        //new valid block len
-        let mut new_len = 0;
 
         for b in old_blocks_iter {
             for tx in b.commit_transactions() {
@@ -465,77 +455,58 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
             push_new(b, &mut new_inputs, &mut new_outputs);
         }
 
-        let max_cycles = self.shared.consensus().max_block_cycles();
+        let mut txs_cache = self.shared.txs_verify_cache().write();
         // The verify function
-        let verify =
-            |b, new_inputs: &FnvHashSet<OutPoint>, new_outputs: &FnvHashMap<H256, usize>| -> bool {
-                verify_transactions(b, max_cycles, |op| {
-                    self.shared.cell_at(op, |op| {
-                        if new_inputs.contains(op) {
-                            Some(true)
-                        } else if let Some(x) = new_outputs.get(&op.hash) {
-                            if op.index < (*x as u32) {
-                                Some(false)
-                            } else {
-                                Some(true)
-                            }
-                        } else if old_outputs.contains(&op.hash) {
-                            None
-                        } else {
-                            chain_state
-                                .is_spent(op)
-                                .map(|x| x && !old_inputs.contains(op))
-                        }
-                    })
-                })
-                .is_ok()
-            };
+        let txs_verifier = TransactionsVerifier::new(self.shared.consensus().max_block_cycles());
 
+        let mut found_error = false;
         // verify transaction
-        for b in new_blocks_iter.clone().skip(verified_len) {
-            if skip_verify || verify(b, &new_inputs, &new_outputs) {
+        for (ext, b) in fork.open_exts.iter_mut().zip(fork.new_blocks.iter()).rev() {
+            let cell_resolver = |op: &OutPoint| {
+                self.shared.cell_at(op, |op| {
+                    if new_inputs.contains(op) {
+                        Some(true)
+                    } else if let Some(x) = new_outputs.get(&op.hash) {
+                        if op.index < (*x as u32) {
+                            Some(false)
+                        } else {
+                            Some(true)
+                        }
+                    } else if old_outputs.contains(&op.hash) {
+                        None
+                    } else {
+                        chain_state
+                            .is_spent(op)
+                            .map(|x| x && !old_inputs.contains(op))
+                    }
+                })
+            };
+            if !found_error
+                || skip_verify
+                || txs_verifier
+                    .verify(&mut *txs_cache, b, cell_resolver)
+                    .is_ok()
+            {
                 push_new(b, &mut new_inputs, &mut new_outputs);
-                new_len += 1;
+                ext.valid = Some(true);
             } else {
-                break;
+                found_error = true;
+                ext.valid = Some(false);
             }
         }
 
         // update exts
-        for (ext, b) in fork
-            .open_exts
-            .iter_mut()
-            .zip(fork.new_blocks.iter())
-            .rev()
-            .take(new_len)
-        {
-            ext.valid = Some(true);
+        for (ext, b) in fork.open_exts.iter().zip(fork.new_blocks.iter()).rev() {
             self.shared
                 .store()
                 .insert_block_ext(batch, &b.header().hash(), ext);
         }
 
-        // update exts
-        for (ext, b) in fork
-            .open_exts
-            .iter_mut()
-            .zip(fork.new_blocks.iter())
-            .rev()
-            .skip(new_len)
-        {
-            ext.valid = Some(false);
-            self.shared
-                .store()
-                .insert_block_ext(batch, &b.header().hash(), ext);
-        }
-
-        if fork.open_exts.len() != new_len {
+        if found_error {
             return Err(SharedError::InvalidTransaction);
         }
 
         self.update_index(batch, &fork.old_blocks, &fork.new_blocks);
-
-        fork.new_blocks.reverse();
 
         let old_inputs: Vec<OutPoint> = old_inputs.into_iter().collect();
         let old_outputs: Vec<H256> = old_outputs.into_iter().collect();
@@ -549,8 +520,7 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
                 new_inputs,
                 new_outputs,
             },
-            fork.old_blocks,
-            fork.new_blocks,
+            fork,
         ))
     }
 

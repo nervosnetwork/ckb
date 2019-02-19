@@ -48,5 +48,6 @@
     },
     "block_assembler": {
         "type_hash": "0x0da2fe99fe549e082d4ed483c2e968a89ea8d11aabf5d79e5cbf06522de6e674"
-    }
+    },
+    "txs_verify_cache_size": 100000
 }

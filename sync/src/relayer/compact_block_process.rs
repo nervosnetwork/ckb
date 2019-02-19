@@ -57,11 +57,10 @@ where
                     .request_proposal_txs(self.nc, self.peer, &compact_block);
 
                 match self.relayer.reconstruct_block(&compact_block, Vec::new()) {
-                    (Some(block), _) => {
-                        self.relayer
-                            .accept_block(self.nc, self.peer, &Arc::new(block))
-                    }
-                    (None, missing_indexes) => {
+                    Ok(block) => self
+                        .relayer
+                        .accept_block(self.nc, self.peer, &Arc::new(block)),
+                    Err(missing_indexes) => {
                         {
                             let mut write_guard =
                                 RwLockUpgradableReadGuard::upgrade(pending_compact_blocks);

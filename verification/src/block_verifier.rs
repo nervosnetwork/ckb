@@ -1,6 +1,6 @@
 use crate::error::{CellbaseError, CommitError, Error, UnclesError};
 use crate::header_verifier::HeaderResolver;
-use crate::{TransactionVerifier, Verifier};
+use crate::{InputVerifier, TransactionVerifier, Verifier};
 use ckb_core::block::Block;
 use ckb_core::cell::{resolve_transaction, CellProvider, CellStatus, ResolvedTransaction};
 use ckb_core::header::Header;
@@ -9,6 +9,8 @@ use ckb_core::Cycle;
 use ckb_merkle_tree::merkle_root;
 use ckb_shared::shared::ChainProvider;
 use fnv::{FnvHashMap, FnvHashSet};
+use lru_cache::LruCache;
+use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use std::collections::HashSet;
@@ -386,79 +388,90 @@ impl<CP: ChainProvider + Clone> UnclesVerifier<CP> {
     }
 }
 
-pub fn verify_transactions<F: Fn(&OutPoint) -> CellStatus>(
-    block: &Block,
+#[derive(Clone)]
+pub struct TransactionsVerifier {
     max_cycles: Cycle,
-    cell: F,
-) -> Result<(), Error> {
-    let mut output_indexs = FnvHashMap::default();
-    let mut seen_inputs = FnvHashSet::default();
+}
 
-    for (i, tx) in block.commit_transactions().iter().enumerate() {
-        output_indexs.insert(tx.hash(), i);
+impl TransactionsVerifier {
+    pub fn new(max_cycles: Cycle) -> Self {
+        TransactionsVerifier { max_cycles }
     }
 
-    // skip first tx, assume the first is cellbase, other verifier will verify cellbase
-    let resolved: Vec<ResolvedTransaction> = block
-        .commit_transactions()
-        .iter()
-        .skip(1)
-        .map(|x| {
-            resolve_transaction(x, &mut seen_inputs, |o| {
-                if let Some(i) = output_indexs.get(&o.hash) {
-                    match block.commit_transactions()[*i]
-                        .outputs()
-                        .get(o.index as usize)
-                    {
-                        Some(x) => CellStatus::Live(x.clone()),
-                        None => CellStatus::Unknown,
+    pub fn verify<F: Fn(&OutPoint) -> CellStatus>(
+        &self,
+        txs_verify_cache: &mut Option<LruCache<H256, Cycle>>,
+        block: &Block,
+        cell_resolver: F,
+    ) -> Result<(), Error> {
+        let mut output_indexs = FnvHashMap::default();
+        let mut seen_inputs = FnvHashSet::default();
+
+        for (i, tx) in block.commit_transactions().iter().enumerate() {
+            output_indexs.insert(tx.hash(), i);
+        }
+
+        // skip first tx, assume the first is cellbase, other verifier will verify cellbase
+        let resolved: Vec<ResolvedTransaction> = block
+            .commit_transactions()
+            .iter()
+            .skip(1)
+            .map(|x| {
+                resolve_transaction(x, &mut seen_inputs, |o| {
+                    if let Some(i) = output_indexs.get(&o.hash) {
+                        match block.commit_transactions()[*i]
+                            .outputs()
+                            .get(o.index as usize)
+                        {
+                            Some(x) => CellStatus::Live(x.clone()),
+                            None => CellStatus::Unknown,
+                        }
+                    } else {
+                        (cell_resolver)(o)
                     }
+                })
+            })
+            .collect();
+
+        // make verifiers orthogonal
+        //
+        let cycles_set = resolved
+            .par_iter()
+            .enumerate()
+            .map(|(index, tx)| {
+                if let Some(cycles) = txs_verify_cache
+                    .as_ref()
+                    .and_then(|cache| cache.get(&tx.transaction.hash()))
+                {
+                    InputVerifier::new(&tx)
+                        .verify()
+                        .map_err(|e| Error::Transactions((index, e)))
+                        .map(|_| (None, *cycles))
                 } else {
-                    cell(o)
+                    TransactionVerifier::new(&tx)
+                        .verify(self.max_cycles)
+                        .map_err(|e| Error::Transactions((index, e)))
+                        .map(|cycles| (Some(tx.transaction.hash()), cycles))
                 }
             })
-        })
-        .collect();
+            .collect::<Result<Vec<_>, _>>()?;
 
-    // make verifiers orthogonal
-    resolved
-        .par_iter()
-        .enumerate()
-        .try_fold(
-            || 0,
-            |cycles: Cycle, (index, tx)| {
-                TransactionVerifier::new(&tx)
-                    .verify(max_cycles)
-                    .map_err(|e| Error::Transactions((index, e)))
-                    .and_then(|current_cycles| {
-                        cycles
-                            .checked_add(current_cycles)
-                            .ok_or(Error::ExceededMaximumCycles)
-                            .and_then(|new_cycles| {
-                                if new_cycles > max_cycles {
-                                    Err(Error::ExceededMaximumCycles)
-                                } else {
-                                    Ok(new_cycles)
-                                }
-                            })
-                    })
-            },
-        )
-        .try_reduce(
-            || 0,
-            |a, b| {
-                a.checked_add(b)
-                    .ok_or(Error::ExceededMaximumCycles)
-                    .and_then(|cycles| {
-                        if cycles > max_cycles {
-                            Err(Error::ExceededMaximumCycles)
-                        } else {
-                            Ok(cycles)
-                        }
-                    })
-            },
-        )
-        .map(|_| ())
+        let sum: Cycle = cycles_set.iter().map(|(_, cycles)| cycles).sum();
+
+        for (hash, cycles) in cycles_set {
+            if let Some(h) = hash {
+                txs_verify_cache
+                    .as_mut()
+                    .map(|cache| cache.insert(h, cycles));
+            }
+        }
+
+        if sum > self.max_cycles {
+            Err(Error::ExceededMaximumCycles)
+        } else {
+            Ok(())
+        }
+    }
 }
 
 #[derive(Clone)]

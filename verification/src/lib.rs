@@ -7,10 +7,10 @@ mod transaction_verifier;
 #[cfg(test)]
 mod tests;
 
-pub use crate::block_verifier::{verify_transactions, BlockVerifier, HeaderResolverWrapper};
+pub use crate::block_verifier::{BlockVerifier, HeaderResolverWrapper, TransactionsVerifier};
 pub use crate::error::{Error, TransactionError};
 pub use crate::header_verifier::{HeaderResolver, HeaderVerifier};
-pub use crate::transaction_verifier::TransactionVerifier;
+pub use crate::transaction_verifier::{InputVerifier, TransactionVerifier};
 
 pub trait Verifier {
     type Target;
