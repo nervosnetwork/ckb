@@ -361,25 +361,17 @@ where
             }
 
             //readd txs
-            let mut txs_cycles = self.shared.txs_cycles().write();
+            let mut txs_cache = self.shared.txs_verify_cache().write();
             for tx in b.commit_transactions().iter().rev() {
                 if tx.is_cellbase() {
                     continue;
                 }
-                let tx_hash = tx.hash();
-                let cycles = match txs_cycles.get(&tx_hash).cloned() {
-                    Some(cycles) => cycles,
-                    None => {
-                        let rtx = self.resolve_transaction(&tx);
-                        // TODO: remove unwrap, remove transactions that depend on it.
-                        let cycles = TransactionVerifier::new(&rtx)
-                            .verify(self.shared.consensus().max_block_cycles())
-                            .map_err(PoolError::InvalidTx)
-                            .unwrap();
-                        txs_cycles.insert(tx_hash, cycles);
-                        cycles
-                    }
-                };
+                let rtx = self.resolve_transaction(&tx);
+                // TODO: remove unwrap, remove transactions that depend on it.
+                let cycles = self
+                    .verify_transaction(&rtx, &mut txs_cache)
+                    .map_err(PoolError::InvalidTx)
+                    .unwrap();
                 self.pool.readd_transaction(tx, cycles);
             }
         }
@@ -448,7 +440,7 @@ where
         &mut self,
         tx: Transaction,
     ) -> Result<InsertionResult, PoolError> {
-        let tx = PoolEntry::new(tx, 0, Cycle::default());
+        let tx = PoolEntry::new(tx, 0, None);
         match { self.proposed.insert(tx) } {
             TxStage::Mineable(x) => self.add_to_pool(x),
             TxStage::Unknown(x) => {
@@ -464,7 +456,7 @@ where
         tx: Transaction,
     ) -> Result<InsertionResult, PoolError> {
         let tx_hash = tx.hash();
-        let tx = PoolEntry::new(tx, 0, Cycle::default());
+        let tx = PoolEntry::new(tx, 0, None);
         match { self.proposed.insert(tx) } {
             TxStage::Mineable(x) => self.add_to_pool(x),
             TxStage::Unknown(x) => {
@@ -510,15 +502,24 @@ where
         self.pool.get_mineable_transactions(self.pool.size())
     }
 
-    fn verify_transaction(&self, rtx: &ResolvedTransaction) -> Result<Cycle, TransactionError> {
-        let mut txs_cycles = self.shared.txs_cycles().write();
+    fn verify_transaction(
+        &self,
+        rtx: &ResolvedTransaction,
+        txs_cache: &mut Option<LruCache<H256, Cycle>>,
+    ) -> Result<Cycle, TransactionError> {
         let tx_hash = rtx.transaction.hash();
-        match txs_cycles.get(&tx_hash).cloned() {
+        match txs_cache
+            .as_ref()
+            .and_then(|cache| cache.get(&tx_hash).cloned())
+        {
             Some(cycles) => Ok(cycles),
             None => {
                 let cycles = TransactionVerifier::new(&rtx)
                     .verify(self.shared.consensus().max_block_cycles())?;
-                txs_cycles.insert(tx_hash, cycles);
+                // write cache
+                txs_cache
+                    .as_mut()
+                    .and_then(|cache| cache.insert(tx_hash, cycles));
                 Ok(cycles)
             }
         }
@@ -570,12 +571,14 @@ where
                 }
             }
 
-            if unknowns.is_empty() && pe.cycles != Cycle::default() {
+            if unknowns.is_empty() && pe.cycles.is_none() {
                 // TODO: Parallel
+
+                let mut txs_cache = self.shared.txs_verify_cache().write();
                 let cycles = self
-                    .verify_transaction(&rtx)
+                    .verify_transaction(&rtx, &mut txs_cache)
                     .map_err(PoolError::InvalidTx)?;
-                pe.cycles = cycles;
+                pe.cycles = Some(cycles);
             }
         }
 
@@ -604,12 +607,14 @@ where
     pub(crate) fn reconcile_orphan(&mut self, tx: &Transaction) {
         let pes = self.orphan.reconcile_transaction(tx);
 
+        let mut txs_cache = self.shared.txs_verify_cache().write();
         for mut pe in pes {
-            let rs = if pe.cycles == Cycle::default() {
-                let rtx = self.resolve_transaction(&pe.transaction);
-                self.verify_transaction(&rtx)
-            } else {
-                Ok(pe.cycles)
+            let verify_result = match pe.cycles {
+                Some(cycles) => Ok(cycles),
+                None => {
+                    let rtx = self.resolve_transaction(&pe.transaction);
+                    self.verify_transaction(&rtx, &mut txs_cache)
+                }
             };
 
             if self.config.trace_enable() {
@@ -617,18 +622,22 @@ where
                     &tx.hash(),
                     format!(
                         "removed from orphan, prepare add to commit, verify result {:?}",
-                        rs
+                        verify_result
                     ),
                 );
             }
 
-            if let Ok(cycles) = rs {
-                pe.cycles = cycles;
-                self.last_txs_updated_at
-                    .store(unix_time_as_millis() as usize, Ordering::SeqCst);
-                self.pool.add_transaction(pe);
-            } else if rs == Err(TransactionError::DoubleSpent) {
-                self.cache.insert(pe.transaction.proposal_short_id(), pe);
+            match verify_result {
+                Ok(cycles) => {
+                    pe.cycles = Some(cycles);
+                    self.last_txs_updated_at
+                        .store(unix_time_as_millis() as usize, Ordering::SeqCst);
+                    self.pool.add_transaction(pe);
+                }
+                Err(TransactionError::DoubleSpent) => {
+                    self.cache.insert(pe.transaction.proposal_short_id(), pe);
+                }
+                _ => (),
             }
         }
     }

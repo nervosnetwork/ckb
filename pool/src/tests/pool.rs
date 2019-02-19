@@ -9,7 +9,6 @@ use ckb_core::extras::BlockExt;
 use ckb_core::header::HeaderBuilder;
 use ckb_core::script::Script;
 use ckb_core::transaction::*;
-use ckb_core::Cycle;
 use ckb_db::memorydb::MemoryKeyValueDB;
 use ckb_notify::{ForkBlocks, MsgSwitchFork, NotifyService};
 use ckb_shared::index::ChainIndex;
@@ -208,10 +207,7 @@ pub fn test_cellbase_spent() {
         .output(CellOutput::new(50000, Vec::new(), H256::default(), None))
         .build();
 
-    match pool
-        .service
-        .add_to_pool(PoolEntry::new(valid_tx, 0, Cycle::default()))
-    {
+    match pool.service.add_to_pool(PoolEntry::new(valid_tx, 0, None)) {
         Ok(_) => {}
         Err(err) => panic!(
             "Unexpected error while adding a valid transaction: {:?}",
@@ -767,7 +763,7 @@ fn test_transaction_with_capacity(
         .outputs(outputs)
         .build();
 
-    PoolEntry::new(tx, 0, Cycle::default())
+    PoolEntry::new(tx, 0, None)
 }
 
 // Since the main point here is to test pool functionality, not scripting

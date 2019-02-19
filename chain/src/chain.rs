@@ -11,7 +11,7 @@ use ckb_shared::error::SharedError;
 use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::{ChainProvider, ChainState, Shared};
 use ckb_shared::txo_set::TxoSetDiff;
-use ckb_verification::{verify_transactions, BlockVerifier, Verifier};
+use ckb_verification::{BlockVerifier, TransactionsVerifier, Verifier};
 use crossbeam_channel::{self, select, Receiver, Sender};
 use faketime::unix_time_as_millis;
 use fnv::{FnvHashMap, FnvHashSet};
@@ -455,37 +455,38 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
             push_new(b, &mut new_inputs, &mut new_outputs);
         }
 
-        let max_cycles = self.shared.consensus().max_block_cycles();
-        let mut txs_cycles = self.shared.txs_cycles().write();
+        let mut txs_cache = self.shared.txs_verify_cache().write();
         // The verify function
-        let mut verify =
-            |b, new_inputs: &FnvHashSet<OutPoint>, new_outputs: &FnvHashMap<H256, usize>| -> bool {
-                verify_transactions(b, max_cycles, &mut *txs_cycles, |op| {
-                    self.shared.cell_at(op, |op| {
-                        if new_inputs.contains(op) {
-                            Some(true)
-                        } else if let Some(x) = new_outputs.get(&op.hash) {
-                            if op.index < (*x as u32) {
-                                Some(false)
-                            } else {
-                                Some(true)
-                            }
-                        } else if old_outputs.contains(&op.hash) {
-                            None
-                        } else {
-                            chain_state
-                                .is_spent(op)
-                                .map(|x| x && !old_inputs.contains(op))
-                        }
-                    })
-                })
-                .is_ok()
-            };
+        let txs_verifier = TransactionsVerifier::new(self.shared.consensus().max_block_cycles());
 
         let mut found_error = false;
         // verify transaction
         for (ext, b) in fork.open_exts.iter_mut().zip(fork.new_blocks.iter()).rev() {
-            if !found_error || skip_verify || verify(b, &new_inputs, &new_outputs) {
+            let cell_resolver = |op: &OutPoint| {
+                self.shared.cell_at(op, |op| {
+                    if new_inputs.contains(op) {
+                        Some(true)
+                    } else if let Some(x) = new_outputs.get(&op.hash) {
+                        if op.index < (*x as u32) {
+                            Some(false)
+                        } else {
+                            Some(true)
+                        }
+                    } else if old_outputs.contains(&op.hash) {
+                        None
+                    } else {
+                        chain_state
+                            .is_spent(op)
+                            .map(|x| x && !old_inputs.contains(op))
+                    }
+                })
+            };
+            if !found_error
+                || skip_verify
+                || txs_verifier
+                    .verify(&mut *txs_cache, b, cell_resolver)
+                    .is_ok()
+            {
                 push_new(b, &mut new_inputs, &mut new_outputs);
                 ext.valid = Some(true);
             } else {
