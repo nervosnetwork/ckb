@@ -14,7 +14,7 @@ fn main() {
 
     match matches.subcommand() {
         ("cli", Some(cli_matches)) => match cli_matches.subcommand() {
-            ("type_hash", _) => cli::type_hash(&setup(&cli_matches)),
+            ("type_hash", Some(type_hash_matches)) => cli::type_hash(&setup(&type_hash_matches)),
             ("keygen", _) => cli::keygen(),
             _ => unreachable!(),
         },
