@@ -229,10 +229,7 @@ pub mod test {
             options.contains(&("disable_auto_compactions", "true")),
             true
         );
-        assert_eq!(
-            options.contains(&("paranoid_file_checks", "true")),
-            true
-        );
+        assert_eq!(options.contains(&("paranoid_file_checks", "true")), true);
     }
 
     #[test]
