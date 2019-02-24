@@ -207,7 +207,7 @@ pub mod test {
 
         let test_conifg = r#"{
             "db": {
-                "rocksdb": {
+                "options": {
                     "disable_auto_compactions": "true",
                     "paranoid_file_checks": "true"
                 }
@@ -216,21 +216,21 @@ pub mod test {
         let config_path = tmp_dir.path().join("config.json");
         write_file(&config_path, test_conifg);
         let setup = override_default_config_file(&config_path).unwrap();
-        let rocksdb_options: Vec<(&str, &str)> = setup
+        let options: Vec<(&str, &str)> = setup
             .configs
             .db
-            .rocksdb
+            .options
             .as_ref()
             .unwrap()
             .iter()
             .map(|(k, v)| (k.as_str(), v.as_str()))
             .collect();
         assert_eq!(
-            rocksdb_options.contains(&("disable_auto_compactions", "true")),
+            options.contains(&("disable_auto_compactions", "true")),
             true
         );
         assert_eq!(
-            rocksdb_options.contains(&("paranoid_file_checks", "true")),
+            options.contains(&("paranoid_file_checks", "true")),
             true
         );
     }

@@ -23,9 +23,9 @@ impl RocksDB {
         let cf_options: Vec<&str> = cfnames.iter().map(|n| n as &str).collect();
         let db = DB::open_cf(&opts, &config.path, &cf_options).expect("Failed to open rocksdb");
 
-        if config.rocksdb.is_some() {
+        if config.options.is_some() {
             let rocksdb_options: Vec<(&str, &str)> = config
-                .rocksdb
+                .options
                 .as_ref()
                 .unwrap()
                 .iter()
@@ -117,7 +117,7 @@ mod tests {
             .unwrap();
         let config = DBConfig {
             path: tmp_dir.as_ref().to_path_buf(),
-            rocksdb: Some({
+            options: Some({
                 let mut opts = HashMap::new();
                 opts.insert("disable_auto_compactions".to_owned(), "true".to_owned());
                 opts
@@ -135,7 +135,7 @@ mod tests {
             .unwrap();
         let config = DBConfig {
             path: tmp_dir.as_ref().to_path_buf(),
-            rocksdb: Some({
+            options: Some({
                 let mut opts = HashMap::new();
                 opts.insert("letsrock".to_owned(), "true".to_owned());
                 opts

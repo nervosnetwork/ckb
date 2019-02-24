@@ -164,7 +164,7 @@ fn new_chain() -> (
     let shared = SharedBuilder::<CacheDB<RocksDB>>::default()
         .db(&DBConfig {
             path: db_dir.path().to_owned(),
-            rocksdb: None,
+            options: None,
         })
         .consensus(consensus)
         .build();
