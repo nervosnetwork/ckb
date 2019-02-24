@@ -36,10 +36,6 @@ impl<T> KeyValueDB for CacheDB<T>
 where
     T: KeyValueDB,
 {
-    fn cols(&self) -> u32 {
-        self.db.cols()
-    }
-
     fn write(&self, batch: Batch) -> Result<()> {
         let mut cache_guard = self.cache.write();
         batch.operations.iter().for_each(|op| match op {
@@ -67,14 +63,6 @@ where
             return Ok(Some(value));
         }
         self.db.read(col, key)
-    }
-
-    fn len(&self, col: Col, key: &[u8]) -> Result<Option<usize>> {
-        let cache_guard = self.cache.read();
-        if let Some(value) = cache_guard.get(&col).and_then(|cache| cache.get(key)) {
-            return Ok(Some(value.len()));
-        }
-        self.db.len(col, key)
     }
 
     fn partial_read(&self, col: Col, key: &[u8], range: &Range<usize>) -> Result<Option<Vec<u8>>> {

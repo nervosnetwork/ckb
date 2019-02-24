@@ -56,10 +56,6 @@ impl RocksDB {
 }
 
 impl KeyValueDB for RocksDB {
-    fn cols(&self) -> u32 {
-        self.inner.cfnames.len() as u32
-    }
-
     fn write(&self, batch: Batch) -> Result<()> {
         let mut wb = WriteBatch::default();
         for op in batch.operations {
@@ -84,15 +80,6 @@ impl KeyValueDB for RocksDB {
             None => self.inner.db.get(&key),
         }
         .map(|v| v.map(|vi| vi.to_vec()))
-        .map_err(Into::into)
-    }
-
-    fn len(&self, col: Col, key: &[u8]) -> Result<Option<usize>> {
-        match self.cf_handle(col)? {
-            Some(cf) => self.inner.db.get_pinned_cf(cf, &key),
-            None => self.inner.db.get_pinned(&key),
-        }
-        .map(|v| v.map(|vi| vi.len()))
         .map_err(Into::into)
     }
 
@@ -174,22 +161,6 @@ mod tests {
 
         // return err when col doesn't exist
         assert!(db.read(Some(2), &[0, 0]).is_err());
-    }
-
-    #[test]
-    fn write_and_len() {
-        let db = setup_db("write_and_len", 2);
-
-        let mut batch = Batch::default();
-        batch.insert(None, vec![0, 0], vec![5, 4, 3, 2]);
-        batch.insert(Some(1), vec![1, 1], vec![1, 2, 3, 4, 5]);
-        db.write(batch).unwrap();
-
-        assert_eq!(Some(4), db.len(None, &[0, 0]).unwrap());
-
-        assert_eq!(Some(5), db.len(Some(1), &[1, 1]).unwrap());
-        assert_eq!(None, db.len(Some(1), &[2, 2]).unwrap());
-        assert!(db.len(Some(2), &[1, 1]).is_err());
     }
 
     #[test]
