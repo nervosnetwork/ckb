@@ -2,6 +2,54 @@ All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
 
+# [v0.6.0](https://github.com/nervosnetwork/ckb/compare/v0.5.0...v0.6.0) (2019-02-25)
+
+### Bug Fixes
+
+* amend trace api doc ([#218](https://github.com/nervosnetwork/ckb/issues/218)) ([f106ee8](https://github.com/nervosnetwork/ckb/commit/f106ee8))
+* cli arg matches ([36902c3](https://github.com/nervosnetwork/ckb/commit/36902c3))
+* db type should not be configurable ([6f51e93](https://github.com/nervosnetwork/ckb/commit/6f51e93))
+
+
+### Features
+
+* add bench for `process_block` ([bda09fc](https://github.com/nervosnetwork/ckb/commit/bda09fc))
+* allow disable `txs_verify_cache` ([cbd80b2](https://github.com/nervosnetwork/ckb/commit/cbd80b2))
+* block template cache ([0c8e273](https://github.com/nervosnetwork/ckb/commit/0c8e273))
+* block template refresh ([9c8340a](https://github.com/nervosnetwork/ckb/commit/9c8340a))
+* delay full block verification to fork switch ([#158](https://github.com/nervosnetwork/ckb/issues/158)) ([07d6a69](https://github.com/nervosnetwork/ckb/commit/07d6a69))
+* impl rfc `get_block_template` ([99b6551](https://github.com/nervosnetwork/ckb/commit/99b6551))
+* make rocksdb configurable via config file ([f46b4fa](https://github.com/nervosnetwork/ckb/commit/f46b4fa))
+* manually shutdown ([32e4ca5](https://github.com/nervosnetwork/ckb/commit/32e4ca5))
+* service stop handler ([e0143eb](https://github.com/nervosnetwork/ckb/commit/e0143eb))
+* measure occupied capacity ([8ce61c1](https://github.com/nervosnetwork/ckb/commit/8ce61c1))
+* refactor chain spec config ([#224](https://github.com/nervosnetwork/ckb/issues/224)) ([4f85163](https://github.com/nervosnetwork/ckb/commit/4f85163))
+* upgrade RPC `local_node_id` to `local_node_info` ([64e41f6](https://github.com/nervosnetwork/ckb/commit/64e41f6))
+* use new merkle proof structure ([#232](https://github.com/nervosnetwork/ckb/issues/232)) ([da97390](https://github.com/nervosnetwork/ckb/commit/da97390))
+* rewrite jsonrpc http server ([6cca12d](https://github.com/nervosnetwork/ckb/commit/6cca12d))
+* transaction verification cache ([1aa6788](https://github.com/nervosnetwork/ckb/commit/1aa6788))
+* refactoring: extract merkle tree as crate (#223) ([a159cdf](https://github.com/nervosnetwork/ckb/commit/a159cdf)), closes [#223](https://github.com/nervosnetwork/ckb/issues/223)
+
+
+### BREAKING CHANGES
+
+* RPC `local_node_id` no longer exists, use new added RPC `local_node_info` to get node addresses.
+* The chain spec path in node's configuration JSON file changed from "ckb.chain" to "chain.spec".
+* Config file must be updated with new DB configurations as below
+
+```diff
+{
++    "db": {
++        "path": "db"
++    }
+}
+```
+
+* RPC `get_block_template` adds a new option `block_assembler` in config file.
+* Miner has its own config file now, the default is `nodes_template/miner.json`
+* The flatbuffers schema adopts the new `MerkleProof` structure.
+
+
 # [v0.5.0](https://github.com/nervosnetwork/ckb/compare/v0.4.1...v0.5.0) (2019-02-11)
 
 ### Features
