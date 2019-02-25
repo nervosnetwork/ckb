@@ -1,15 +1,13 @@
-use crate::ckb_protocol::{CKBProtocol, Event as CKBEvent};
-use crate::ckb_protocol_handler::CKBProtocolHandler;
-use crate::ckb_protocol_handler::DefaultCKBProtocolContext;
-use crate::ckb_service::CKBService;
-//use crate::outbound_peer_service::OutboundPeerService;
 use crate::errors::{ConfigError, Error, PeerError};
 use crate::peer_store::{Behaviour, PeerStore, SqlitePeerStore};
 use crate::peers_registry::{ConnectionStatus, Peer, PeerIdentifyInfo, PeersRegistry};
-//use crate::ping_service::PingService;
-use crate::timer_service::{TimerRegistry, TimerService};
-use crate::NetworkConfig;
-use crate::{PeerIndex, ProtocolId};
+use crate::protocol_handler::{CKBProtocolHandler, DefaultCKBProtocolContext};
+use crate::service::{
+    ckb_service::CKBService,
+    timer_service::{TimerRegistry, TimerService},
+};
+use crate::{CKBEvent, CKBProtocol};
+use crate::{NetworkConfig, PeerIndex, ProtocolId};
 use bytes::Bytes;
 use ckb_util::{Mutex, RwLock};
 use fnv::FnvHashMap;

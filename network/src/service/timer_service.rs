@@ -1,5 +1,5 @@
-use crate::ckb_protocol_handler::DefaultCKBProtocolContext;
 use crate::errors::Error;
+use crate::protocol_handler::DefaultCKBProtocolContext;
 use crate::Network;
 use crate::PeerId;
 use crate::{CKBProtocolHandler, ProtocolId};

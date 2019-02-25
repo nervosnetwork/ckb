@@ -1,6 +1,6 @@
-use crate::ckb_protocol::Version;
 use crate::network_group::{Group, NetworkGroup};
 use crate::peer_store::PeerStore;
+use crate::protocol::Version;
 use crate::{
     errors::{Error, PeerError},
     PeerId, PeerIndex, ProtocolId,

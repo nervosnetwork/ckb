@@ -1,27 +1,26 @@
 #[macro_use]
 extern crate futures;
-mod ckb_protocol;
-mod ckb_protocol_handler;
-mod ckb_service;
 pub mod errors;
 mod network;
 mod network_config;
 mod network_group;
 mod network_service;
+mod protocol;
+mod protocol_handler;
+mod service;
 //mod outbound_peer_service;
 pub mod peer_store;
 mod peers_registry;
 //mod ping_service;
 #[cfg(test)]
 mod tests;
-mod timer_service;
 
-pub use crate::ckb_protocol::CKBProtocol;
-pub use crate::ckb_protocol_handler::{CKBProtocolContext, CKBProtocolHandler, Severity};
 pub use crate::network::{Network, PeerInfo, SessionInfo};
 pub use crate::network_config::NetworkConfig;
 pub use crate::network_service::NetworkService;
-pub use crate::timer_service::{Timer, TimerRegistry, TimerToken};
+pub use crate::protocol::{CKBProtocol, Event as CKBEvent};
+pub use crate::protocol_handler::{CKBProtocolContext, CKBProtocolHandler, Severity};
+pub use crate::service::timer_service::{Timer, TimerRegistry, TimerToken};
 pub use p2p::{multiaddr, PeerId, ProtocolId, SessionType};
 use serde_derive::Deserialize;
 use std::sync::Arc;

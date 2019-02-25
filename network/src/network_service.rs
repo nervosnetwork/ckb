@@ -1,9 +1,7 @@
-use crate::ckb_protocol::{CKBProtocol, Event as CKBEvent};
-use crate::ckb_protocol_handler::CKBProtocolHandler;
-use crate::ckb_protocol_handler::{CKBProtocolContext, DefaultCKBProtocolContext};
 use crate::network::{CKBProtocols, Network};
-use crate::NetworkConfig;
-use crate::{errors::Error, ProtocolId};
+use crate::protocol_handler::CKBProtocolHandler;
+use crate::protocol_handler::{CKBProtocolContext, DefaultCKBProtocolContext};
+use crate::{errors::Error, CKBEvent, CKBProtocol, NetworkConfig, ProtocolId};
 use ckb_util::Mutex;
 use futures::future::Future;
 use futures::sync::mpsc::{Receiver, Sender};

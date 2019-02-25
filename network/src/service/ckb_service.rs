@@ -1,10 +1,6 @@
-use crate::ckb_protocol::CKBProtocol;
-use crate::ckb_protocol::Event;
-use crate::ckb_protocol_handler::DefaultCKBProtocolContext;
 use crate::peer_store::{Behaviour, Status};
-use crate::CKBProtocolHandler;
-use crate::Network;
-use crate::PeerId;
+use crate::protocol_handler::DefaultCKBProtocolContext;
+use crate::{CKBEvent, CKBProtocol, CKBProtocolHandler, Network, PeerId};
 use faketime::unix_time_as_millis;
 use futures::{
     future::{self, Future},
@@ -19,7 +15,7 @@ use std::sync::Arc;
 use tokio;
 
 pub struct CKBService {
-    pub event_receiver: Receiver<Event>,
+    pub event_receiver: Receiver<CKBEvent>,
     pub network: Arc<Network>,
 }
 
@@ -35,7 +31,7 @@ impl Stream for CKBService {
     type Item = ();
     type Error = ();
     fn poll(&mut self) -> Result<Async<Option<Self::Item>>, Self::Error> {
-        use crate::ckb_protocol::Event::*;
+        use crate::CKBEvent::*;
 
         let network = Arc::clone(&self.network);
         match try_ready!(self.event_receiver.poll()) {
