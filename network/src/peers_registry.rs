@@ -404,8 +404,8 @@ impl PeersRegistry {
     }
 
     #[inline]
-    pub fn drop_peer(&mut self, peer_id: &PeerId) {
-        self.peers.remove(peer_id);
+    pub fn drop_peer(&mut self, peer_id: &PeerId) -> Option<Peer> {
+        self.peers.remove(peer_id)
     }
 
     #[inline]

@@ -96,7 +96,24 @@ impl Network {
     }
 
     pub fn drop_peer(&self, peer_id: &PeerId) {
-        self.peers_registry.write().drop_peer(&peer_id);
+        if let Some(peer) = self.peers_registry.write().drop_peer(&peer_id) {
+            let mut p2p_control = self.p2p_control.write();
+            for s in peer.sessions {
+                p2p_control.disconnect(s.id);
+            }
+        }
+    }
+
+    pub fn drop_all(&self) {
+        debug!(target: "network", "drop all connections...");
+        let mut peers_registry = self.peers_registry.write();
+        let mut p2p_control = self.p2p_control.write();
+        for (peer_id, peer) in peers_registry.peers_iter() {
+            for s in &peer.sessions {
+                p2p_control.disconnect(s.id);
+            }
+        }
+        peers_registry.drop_all();
     }
 
     pub fn local_peer_id(&self) -> &PeerId {
@@ -194,8 +211,7 @@ impl Network {
 
     #[inline]
     pub(crate) fn ban_peer(&self, peer_id: &PeerId, timeout: Duration) {
-        let mut peers_registry = self.peers_registry.write();
-        peers_registry.drop_peer(peer_id);
+        self.drop_peer(peer_id);
         self.peer_store.write().ban_peer(peer_id, timeout);
     }
 
@@ -516,8 +532,7 @@ impl Network {
                 let network = Arc::clone(&network);
                 move |_| {
                     let mut peers_registry = network.peers_registry.write();
-                    debug!(target: "network", "drop all connections...");
-                    peers_registry.drop_all();
+                    network.drop_all();
                     Ok(())
                 }
             })
