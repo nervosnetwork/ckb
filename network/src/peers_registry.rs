@@ -1,14 +1,20 @@
+use crate::ckb_protocol::Version;
 use crate::network_group::{Group, NetworkGroup};
 use crate::peer_store::PeerStore;
-use crate::{Error, ErrorKind, PeerId, PeerIndex, ProtocolId};
+use crate::{
+    errors::{Error, PeerError},
+    PeerId, PeerIndex, ProtocolId,
+};
 use bytes::Bytes;
 use ckb_util::RwLock;
 use faketime::unix_time_as_millis;
 use fnv::{FnvHashMap, FnvHashSet};
 use futures::sync::mpsc::UnboundedSender;
-use libp2p::core::{Endpoint, Multiaddr, UniqueConnec};
-use libp2p::ping;
 use log::debug;
+pub use p2p::{
+    multiaddr::{Multiaddr, ToMultiaddr},
+    SessionId, SessionType,
+};
 use rand::seq::SliceRandom;
 use rand::thread_rng;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -16,15 +22,15 @@ use std::sync::Arc;
 
 pub(crate) const EVICTION_PROTECT_PEERS: usize = 8;
 
-struct PeerConnections {
+struct PeerManage {
     id_allocator: AtomicUsize,
-    peers: FnvHashMap<PeerId, PeerConnection>,
+    peers: FnvHashMap<PeerId, Peer>,
     pub(crate) peer_id_by_index: FnvHashMap<PeerIndex, PeerId>,
 }
 
-impl PeerConnections {
+impl PeerManage {
     #[inline]
-    fn get(&self, peer_id: &PeerId) -> Option<&PeerConnection> {
+    fn get(&self, peer_id: &PeerId) -> Option<&Peer> {
         self.peers.get(peer_id)
     }
 
@@ -34,34 +40,43 @@ impl PeerConnections {
     }
 
     #[inline]
-    fn get_mut(&mut self, peer_id: &PeerId) -> Option<&mut PeerConnection> {
+    fn get_mut(&mut self, peer_id: &PeerId) -> Option<&mut Peer> {
         self.peers.get_mut(peer_id)
     }
 
     #[inline]
-    fn remove(&mut self, peer_id: &PeerId) -> Option<PeerConnection> {
+    fn remove(&mut self, peer_id: &PeerId) -> Option<Peer> {
         if let Some(peer) = self.peers.remove(peer_id) {
-            self.peer_id_by_index.remove(&peer.peer_index.unwrap());
+            self.peer_id_by_index.remove(&peer.peer_index);
             return Some(peer);
         }
         None
     }
 
     #[inline]
-    fn iter(&self) -> impl Iterator<Item = (&PeerId, &PeerConnection)> {
+    fn iter(&self) -> impl Iterator<Item = (&PeerId, &Peer)> {
         self.peers.iter()
     }
     #[inline]
-    fn or_insert(&mut self, peer_id: PeerId, peer: PeerConnection) -> PeerIndex {
-        let mut peer = peer;
-        let peer_index = match peer.peer_index {
-            Some(peer_index) => peer_index,
-            None => {
-                let id = self.id_allocator.fetch_add(1, Ordering::Relaxed);
-                peer.peer_index = Some(id);
-                id
-            }
+    fn add_peer(
+        &mut self,
+        peer_id: PeerId,
+        connected_addr: Multiaddr,
+        session_type: SessionType,
+    ) -> PeerIndex {
+        let peer_index = self.id_allocator.fetch_add(1, Ordering::Relaxed);
+        let peer = Peer {
+            session_type,
+            connected_addr,
+            identify_info: None,
+            ping: None,
+            last_ping_time: None,
+            last_message_time: None,
+            connected_time: unix_time_as_millis(),
+            peer_index: peer_index,
+            sessions: Vec::with_capacity(1),
         };
+
         self.peers.entry(peer_id.clone()).or_insert(peer);
         self.peer_id_by_index.entry(peer_index).or_insert(peer_id);
         peer_index
@@ -74,9 +89,9 @@ impl PeerConnections {
     }
 }
 
-impl Default for PeerConnections {
+impl Default for PeerManage {
     fn default() -> Self {
-        PeerConnections {
+        PeerManage {
             id_allocator: AtomicUsize::new(0),
             peers: FnvHashMap::with_capacity_and_hasher(20, Default::default()),
             peer_id_by_index: FnvHashMap::with_capacity_and_hasher(20, Default::default()),
@@ -92,42 +107,29 @@ pub struct PeerIdentifyInfo {
     pub count_of_known_listen_addrs: usize,
 }
 
-type ProtocolConnec = (ProtocolId, UniqueConnec<(UnboundedSender<Bytes>, u8)>);
+pub struct Session {
+    pub id: SessionId,
+    pub protocol_id: ProtocolId,
+    pub protocol_version: Version,
+}
 
-pub struct PeerConnection {
-    pub(crate) peer_index: Option<PeerIndex>,
+pub struct Peer {
+    pub(crate) peer_index: PeerIndex,
     pub connected_addr: Multiaddr,
-    // Dialer or Listener
-    pub endpoint_role: Endpoint,
-    // Used for send ping to peer
-    pub(crate) pinger_loader: UniqueConnec<ping::Pinger>,
+    // Client or Server
+    pub session_type: SessionType,
     pub identify_info: Option<PeerIdentifyInfo>,
-    pub(crate) ckb_protocols: Vec<ProtocolConnec>,
     pub last_ping_time: Option<u64>,
     pub last_message_time: Option<u64>,
     pub ping: Option<u64>,
-    pub connected_time: Option<u64>,
+    pub connected_time: u64,
+    pub sessions: Vec<Session>,
 }
 
-impl PeerConnection {
-    pub fn new(connected_addr: Multiaddr, endpoint_role: Endpoint) -> Self {
-        PeerConnection {
-            endpoint_role,
-            connected_addr,
-            pinger_loader: UniqueConnec::empty(),
-            identify_info: None,
-            ckb_protocols: Vec::with_capacity(1),
-            ping: None,
-            last_ping_time: None,
-            last_message_time: None,
-            connected_time: None,
-            peer_index: None,
-        }
-    }
-
+impl Peer {
     #[inline]
     pub fn is_outbound(&self) -> bool {
-        self.endpoint_role == Endpoint::Dialer
+        self.session_type == SessionType::Client
     }
 
     #[allow(dead_code)]
@@ -154,7 +156,7 @@ pub struct ConnectionStatus {
 pub(crate) struct PeersRegistry {
     // store all known peers
     peer_store: Arc<RwLock<dyn PeerStore>>,
-    peers: PeerConnections,
+    peers: PeerManage,
     // max inbound limitation
     max_inbound: u32,
     // max outbound limitation
@@ -165,7 +167,7 @@ pub(crate) struct PeersRegistry {
 }
 
 fn find_most_peers_in_same_network_group<'a>(
-    peers: impl Iterator<Item = (&'a PeerId, &'a PeerConnection)>,
+    peers: impl Iterator<Item = (&'a PeerId, &'a Peer)>,
 ) -> Vec<&'a PeerId> {
     peers
         .fold(
@@ -224,22 +226,20 @@ impl PeersRegistry {
         self.reserved_peers.contains(&peer_id)
     }
 
-    pub fn accept_inbound_peer(&mut self, peer_id: PeerId, addr: Multiaddr) -> Result<(), Error> {
-        if self.peers.get(&peer_id).is_some() {
-            return Ok(());
+    pub fn accept_inbound_peer(
+        &mut self,
+        peer_id: PeerId,
+        addr: Multiaddr,
+    ) -> Result<PeerIndex, Error> {
+        if let Some(peer) = self.peers.get(&peer_id) {
+            return Ok(peer.peer_index);
         }
         if !self.is_reserved(&peer_id) {
             if self.reserved_only {
-                return Err(ErrorKind::InvalidNewPeer(format!(
-                    "We are in reserved_only mode, rejected non-reserved peer {:?}",
-                    peer_id
-                ))
-                .into());
+                return Err(Error::Peer(PeerError::NonReserved(peer_id)));
             }
             if self.peer_store.read().is_banned(&peer_id) {
-                return Err(
-                    ErrorKind::InvalidNewPeer(format!("peer {:?} is denied", peer_id)).into(),
-                );
+                return Err(Error::Peer(PeerError::Banned(peer_id)));
             }
 
             let connection_status = self.connection_status();
@@ -247,15 +247,10 @@ impl PeersRegistry {
             if connection_status.unreserved_inbound >= self.max_inbound
                 && !self.try_evict_inbound_peer()
             {
-                return Err(ErrorKind::InvalidNewPeer(format!(
-                    "reach max inbound peers limitation, reject peer {:?}",
-                    peer_id
-                ))
-                .into());
+                return Err(Error::Peer(PeerError::ReachMaxInboundLimit(peer_id)));
             }
         }
-        self.new_peer(peer_id, addr, Endpoint::Listener);
-        Ok(())
+        Ok(self.new_peer(peer_id, addr, SessionType::Server))
     }
 
     fn try_evict_inbound_peer(&mut self) -> bool {
@@ -299,23 +294,12 @@ impl PeersRegistry {
                     peer1_last_message_time.cmp(&peer2_last_message_time)
                 },
             );
-            candidate_peers.sort_by(|(_, peer1), (_, peer2)| {
-                let peer1_last_connected_at = peer1.connected_time.unwrap_or_else(|| std::u64::MAX);
-                let peer2_last_connected_at = peer2.connected_time.unwrap_or_else(|| std::u64::MAX);
-                peer2_last_connected_at.cmp(&peer1_last_connected_at)
-            });
             // Protect half peers which have the longest connection time
             let protect_peers = candidate_peers.len() / 2;
             sort_then_drop_last_n_elements(
                 &mut candidate_peers,
                 protect_peers,
-                |(_, peer1), (_, peer2)| {
-                    let peer1_last_connected_at =
-                        peer1.connected_time.unwrap_or_else(|| std::u64::MAX);
-                    let peer2_last_connected_at =
-                        peer2.connected_time.unwrap_or_else(|| std::u64::MAX);
-                    peer2_last_connected_at.cmp(&peer1_last_connected_at)
-                },
+                |(_, peer1), (_, peer2)| peer2.connected_time.cmp(&peer1.connected_time),
             );
 
             let mut evict_group =
@@ -336,68 +320,57 @@ impl PeersRegistry {
         true
     }
 
-    pub fn try_outbound_peer(&mut self, peer_id: PeerId, addr: Multiaddr) -> Result<(), Error> {
-        if self.peers.get(&peer_id).is_some() {
-            return Ok(());
+    pub fn try_outbound_peer(
+        &mut self,
+        peer_id: PeerId,
+        addr: Multiaddr,
+    ) -> Result<PeerIndex, Error> {
+        if let Some(peer) = self.peers.get(&peer_id) {
+            return Ok(peer.peer_index);
         }
         if !self.is_reserved(&peer_id) {
             if self.reserved_only {
-                return Err(ErrorKind::InvalidNewPeer(format!(
-                    "We are in reserved_only mode, rejected non-reserved peer {:?}",
-                    peer_id
-                ))
-                .into());
+                return Err(Error::Peer(PeerError::NonReserved(peer_id)));
             }
             if self.peer_store.read().is_banned(&peer_id) {
-                return Err(
-                    ErrorKind::InvalidNewPeer(format!("peer {:?} is denied", peer_id)).into(),
-                );
+                return Err(Error::Peer(PeerError::Banned(peer_id)));
             }
             let connection_status = self.connection_status();
             // check peers connection limitation
             // TODO: implement extra outbound peer logic
             if connection_status.unreserved_outbound >= self.max_outbound {
-                return Err(ErrorKind::InvalidNewPeer(format!(
-                    "reach max outbound peers limitation, reject peer {:?}",
-                    peer_id
-                ))
-                .into());
+                return Err(Error::Peer(PeerError::ReachMaxOutboundLimit(peer_id)));
             }
         }
-        self.new_peer(peer_id, addr, Endpoint::Dialer);
-        Ok(())
+        Ok(self.new_peer(peer_id, addr, SessionType::Client))
     }
 
     // registry a new peer
-    #[allow(clippy::needless_pass_by_value)]
     fn new_peer(
         &mut self,
         peer_id: PeerId,
         connected_addr: Multiaddr,
-        endpoint: Endpoint,
+        session_type: SessionType,
     ) -> PeerIndex {
         self.peer_store
             .write()
-            .new_connected_peer(&peer_id, connected_addr.clone(), endpoint);
-        let mut peer = PeerConnection::new(connected_addr, endpoint);
-        peer.connected_time = Some(unix_time_as_millis());
-        let peer_index = self.peers.or_insert(peer_id.clone(), peer);
-        debug!(target: "network", "allocate peer_index {} to peer {:?}", peer_index, peer_id);
+            .new_connected_peer(&peer_id, connected_addr.clone(), session_type);
+        let peer_index = self.peers.add_peer(peer_id, connected_addr, session_type);
         peer_index
     }
 
     #[inline]
-    pub fn peers_iter(&self) -> impl Iterator<Item = (&PeerId, &PeerConnection)> {
+    pub fn peers_iter(&self) -> impl Iterator<Item = (&PeerId, &Peer)> {
         self.peers.iter()
     }
 
     #[inline]
-    pub fn get(&self, peer_id: &PeerId) -> Option<&PeerConnection> {
+    pub fn get(&self, peer_id: &PeerId) -> Option<&Peer> {
         self.peers.get(peer_id)
     }
 
     #[inline]
-    pub fn get_mut(&mut self, peer_id: &PeerId) -> Option<&mut PeerConnection> {
+    pub fn get_mut(&mut self, peer_id: &PeerId) -> Option<&mut Peer> {
         self.peers.get_mut(peer_id)
     }
 

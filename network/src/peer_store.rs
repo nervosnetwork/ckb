@@ -7,7 +7,7 @@ pub(crate) mod sqlite_peer_store;
 
 use crate::PeerId;
 use fnv::FnvHashMap;
-use libp2p::core::{Endpoint, Multiaddr};
+use p2p::{multiaddr::Multiaddr, SessionType};
 use std::time::Duration;
 
 #[allow(dead_code)]
@@ -108,7 +108,7 @@ impl Default for ScoringSchema {
 
 pub trait PeerStore: Send + Sync {
     // initial or update peer_info in peer_store
-    fn new_connected_peer(&mut self, peer_id: &PeerId, address: Multiaddr, endpoint: Endpoint);
+    fn new_connected_peer(&mut self, peer_id: &PeerId, address: Multiaddr, endpoint: SessionType);
     // add peer discovered addresses, return numbers of new inserted line, return Err if peer not exists
     fn add_discovered_address(&mut self, peer_id: &PeerId, address: Multiaddr) -> Result<(), ()>;
     fn add_discovered_addresses(

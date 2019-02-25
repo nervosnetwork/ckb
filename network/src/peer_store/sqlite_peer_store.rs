@@ -4,8 +4,8 @@ use crate::peer_store::db;
 use crate::peer_store::sqlite::{self, ConnectionPool, ConnectionPoolExt};
 use faketime::unix_time;
 use fnv::FnvHashMap;
-use libp2p::core::Endpoint;
 use log::debug;
+use p2p::SessionType;
 use std::net::IpAddr;
 use std::time::Duration;
 
@@ -161,7 +161,7 @@ impl SqlitePeerStore {
         &mut self,
         peer_id: &PeerId,
         addr: &Multiaddr,
-        endpoint: Endpoint,
+        endpoint: SessionType,
         connected_time: Duration,
     ) -> db::PeerInfo {
         self.pool
@@ -204,7 +204,7 @@ impl SqlitePeerStore {
                             conn,
                             peer_id,
                             &addr,
-                            Endpoint::Listener,
+                            SessionType::Server,
                             self.scoring_schema().peer_init_score(),
                             now,
                         )?;
@@ -224,7 +224,7 @@ impl SqlitePeerStore {
 }
 
 impl PeerStore for SqlitePeerStore {
-    fn new_connected_peer(&mut self, peer_id: &PeerId, addr: Multiaddr, endpoint: Endpoint) {
+    fn new_connected_peer(&mut self, peer_id: &PeerId, addr: Multiaddr, endpoint: SessionType) {
         if self.check_store_limit().is_err() {
             return;
         }
@@ -311,7 +311,7 @@ impl PeerStore for SqlitePeerStore {
     }
 
     fn add_bootnode(&mut self, peer_id: PeerId, addr: Multiaddr) {
-        self.new_connected_peer(&peer_id, addr.clone(), Endpoint::Dialer);
+        self.new_connected_peer(&peer_id, addr.clone(), SessionType::Client);
         self.bootnodes.push((peer_id, addr));
     }
     // should return high scored nodes if possible, otherwise, return boostrap nodes

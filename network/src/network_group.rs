@@ -1,4 +1,4 @@
-use libp2p::core::{AddrComponent, Multiaddr};
+use p2p::multiaddr::{Multiaddr, Protocol};
 use std::net::IpAddr;
 
 #[derive(Hash, Eq, PartialEq, Debug)]
@@ -21,8 +21,8 @@ impl MultiaddrExt for Multiaddr {
     fn extract_ip_addr(&self) -> Option<IpAddr> {
         for addr_component in self {
             match addr_component {
-                AddrComponent::IP4(ipv4) => return Some(IpAddr::V4(ipv4)),
-                AddrComponent::IP6(ipv6) => return Some(IpAddr::V6(ipv6)),
+                Protocol::Ip4(ipv4) => return Some(IpAddr::V4(ipv4)),
+                Protocol::Ip6(ipv6) => return Some(IpAddr::V6(ipv6)),
                 _ => (),
             }
         }

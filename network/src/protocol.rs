@@ -1,7 +1,7 @@
 use crate::ckb_protocol::CKBProtocolOutput;
 use crate::CKBProtocolHandler;
 use futures::Future;
-use libp2p::core::{Multiaddr, PeerId};
+use p2p::{multiaddr::Multiaddr, PeerId};
 use libp2p::identify::{IdentifyInfo, IdentifySender};
 use libp2p::ping;
 use std::io::Error as IoError;

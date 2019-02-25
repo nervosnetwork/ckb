@@ -1,53 +1,40 @@
-#![type_length_limit = "2097152"]
-
+#[macro_use]
+extern crate futures;
 mod ckb_protocol;
 mod ckb_protocol_handler;
 mod ckb_service;
-mod errors;
-mod identify_service;
+pub mod errors;
 mod network;
 mod network_config;
 mod network_group;
 mod network_service;
-mod outbound_peer_service;
+//mod outbound_peer_service;
 pub mod peer_store;
 mod peers_registry;
-mod ping_service;
-mod protocol;
-mod protocol_service;
+//mod ping_service;
 #[cfg(test)]
 mod tests;
 mod timer_service;
-mod transport;
 
-pub use crate::ckb_protocol::{CKBProtocol, CKBProtocols};
+pub use crate::ckb_protocol::CKBProtocol;
 pub use crate::ckb_protocol_handler::{CKBProtocolContext, CKBProtocolHandler, Severity};
-pub use crate::errors::{Error, ErrorKind};
 pub use crate::network::{Network, PeerInfo, SessionInfo};
 pub use crate::network_config::NetworkConfig;
 pub use crate::network_service::NetworkService;
-pub use libp2p::{
-    core::Endpoint, multiaddr::AddrComponent, multiaddr::ToMultiaddr, Multiaddr, PeerId,
-};
-
-pub type TimerToken = usize;
-pub type ProtocolId = [u8; 3];
-
-use multihash::{encode, Hash};
-use rand::Rng;
+pub use crate::timer_service::{Timer, TimerRegistry, TimerToken};
+pub use p2p::{multiaddr, PeerId, ProtocolId, SessionType};
 use serde_derive::Deserialize;
 use std::sync::Arc;
 use std::time::Duration;
 
 const DEFAULT_OUTGOING_PEERS_RATIO: u32 = 3;
-pub(crate) type Timer = (Arc<CKBProtocolHandler>, ProtocolId, TimerToken, Duration);
 
 // used in CKBProtocolContext
 pub type PeerIndex = usize;
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct Config {
-    pub listen_addresses: Vec<Multiaddr>,
+    pub listen_addresses: Vec<multiaddr::Multiaddr>,
     pub secret_file: Option<String>,
     pub nodes_file: Option<String>,
     /// List of initial node addresses
@@ -105,12 +92,8 @@ impl From<Config> for NetworkConfig {
     }
 }
 
-pub fn random_peer_id() -> Result<PeerId, Error> {
-    let mut seed: [u8; 32] = [0; 32];
-    rand::thread_rng().fill(&mut seed);
-    let random_key = encode(Hash::SHA2256, &seed)
-        .expect("sha2256 encode")
-        .into_bytes();
-    let peer_id = PeerId::from_bytes(random_key).expect("convert key to peer_id");
-    Ok(peer_id)
+pub fn random_peer_id() -> PeerId {
+    use p2p::SecioKeyPair;
+    let pubkey = SecioKeyPair::secp256k1_generated().to_public_key();
+    PeerId::from_public_key(&pubkey)
 }

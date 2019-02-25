@@ -1,7 +1,8 @@
 use crate::{
+    multiaddr::ToMultiaddr,
     peer_store::{Behaviour, PeerStore, SqlitePeerStore},
     peers_registry::{PeersRegistry, EVICTION_PROTECT_PEERS},
-    random_peer_id, ToMultiaddr,
+    random_peer_id,
 };
 use ckb_util::RwLock;
 use faketime::unix_time_as_millis;
@@ -14,7 +15,7 @@ fn new_peer_store() -> impl PeerStore {
 #[test]
 fn test_accept_inbound_peer_in_reserve_only_mode() {
     let peer_store: Arc<RwLock<dyn PeerStore>> = Arc::new(RwLock::new(new_peer_store()));
-    let reserved_peer = random_peer_id().unwrap();
+    let reserved_peer = random_peer_id();
     let addr = "/ip4/127.0.0.1".to_multiaddr().unwrap();
 
     // reserved_only mode: only accept reserved_peer
@@ -26,7 +27,7 @@ fn test_accept_inbound_peer_in_reserve_only_mode() {
         vec![reserved_peer.clone()],
     );
     assert!(peers_registry
-        .accept_inbound_peer(random_peer_id().unwrap(), addr.clone())
+        .accept_inbound_peer(random_peer_id(), addr.clone())
         .is_err());
     peers_registry
         .accept_inbound_peer(reserved_peer.clone(), addr.clone())
@@ -36,7 +37,7 @@ fn test_accept_inbound_peer_in_reserve_only_mode() {
 #[test]
 fn test_accept_inbound_peer_until_full() {
     let peer_store: Arc<RwLock<dyn PeerStore>> = Arc::new(RwLock::new(new_peer_store()));
-    let reserved_peer = random_peer_id().unwrap();
+    let reserved_peer = random_peer_id();
     let addr = "/ip4/127.0.0.1".to_multiaddr().unwrap();
     // accept node until inbound connections is full
     let mut peers_registry = PeersRegistry::new(
@@ -47,16 +48,16 @@ fn test_accept_inbound_peer_until_full() {
         vec![reserved_peer.clone()],
     );
     peers_registry
-        .accept_inbound_peer(random_peer_id().unwrap(), addr.clone())
+        .accept_inbound_peer(random_peer_id(), addr.clone())
         .expect("accept");
     peers_registry
-        .accept_inbound_peer(random_peer_id().unwrap(), addr.clone())
+        .accept_inbound_peer(random_peer_id(), addr.clone())
         .expect("accept");
     peers_registry
-        .accept_inbound_peer(random_peer_id().unwrap(), addr.clone())
+        .accept_inbound_peer(random_peer_id(), addr.clone())
         .expect("accept");
     assert!(peers_registry
-        .accept_inbound_peer(random_peer_id().unwrap(), addr.clone())
+        .accept_inbound_peer(random_peer_id(), addr.clone())
         .is_err(),);
     // should still accept reserved peer
     peers_registry
@@ -64,7 +65,7 @@ fn test_accept_inbound_peer_until_full() {
         .expect("accept");
     // should refuse accept low score peer
     assert!(peers_registry
-        .accept_inbound_peer(random_peer_id().unwrap(), addr.clone())
+        .accept_inbound_peer(random_peer_id(), addr.clone())
         .is_err());
 }
 
@@ -75,9 +76,9 @@ fn test_accept_inbound_peer_eviction() {
     // 2. should never evict reserved peer
     // 3. should evict lowest scored peer
     let peer_store: Arc<RwLock<dyn PeerStore>> = Arc::new(RwLock::new(new_peer_store()));
-    let reserved_peer = random_peer_id().unwrap();
-    let evict_target = random_peer_id().unwrap();
-    let lowest_score_peer = random_peer_id().unwrap();
+    let reserved_peer = random_peer_id();
+    let evict_target = random_peer_id();
+    let lowest_score_peer = random_peer_id();
     let addr1 = "/ip4/127.0.0.1".to_multiaddr().unwrap();
     let addr2 = "/ip4/192.168.0.1".to_multiaddr().unwrap();
     // prepare protected peers
@@ -92,7 +93,7 @@ fn test_accept_inbound_peer_eviction() {
     );
     for _ in 0..protected_peers_count {
         assert!(peers_registry
-            .accept_inbound_peer(random_peer_id().unwrap(), addr2.clone())
+            .accept_inbound_peer(random_peer_id(), addr2.clone())
             .is_ok());
     }
     let mut peers_iter = peers_registry
@@ -126,11 +127,9 @@ fn test_accept_inbound_peer_eviction() {
     for _ in 0..longest_connection_time_peers_count {
         let peer_id = peers_iter.next().unwrap();
         let mut peer = peers_registry.get_mut(&peer_id).unwrap();
-        peer.connected_time = Some(now.saturating_sub(10000));
+        peer.connected_time = now.saturating_sub(10000);
     }
-    let mut new_peer_ids = (0..3)
-        .map(|_| random_peer_id().unwrap())
-        .collect::<Vec<_>>();
+    let mut new_peer_ids = (0..3).map(|_| random_peer_id()).collect::<Vec<_>>();
     // setup 3 node and 1 reserved node from addr1
     peers_registry
         .accept_inbound_peer(reserved_peer.clone(), addr1.clone())
@@ -170,12 +169,12 @@ fn test_accept_inbound_peer_eviction() {
     for peer_id in new_peer_ids {
         let mut peer = peers_registry.get_mut(&peer_id).unwrap();
         // push the connected_time to make sure peer is unprotect
-        peer.connected_time = Some(now + 10000);
+        peer.connected_time = now + 10000;
     }
     // should evict evict target
     assert!(peers_registry.get(&evict_target).is_some());
     peers_registry
-        .accept_inbound_peer(random_peer_id().unwrap(), addr1.clone())
+        .accept_inbound_peer(random_peer_id(), addr1.clone())
         .expect("accept");
     assert!(peers_registry.get(&evict_target).is_none());
 }

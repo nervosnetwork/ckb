@@ -1,178 +1,133 @@
-#![allow(clippy::needless_pass_by_value)]
-
-use crate::ckb_protocol::CKBProtocolOutput;
+use crate::ckb_protocol::CKBProtocol;
+use crate::ckb_protocol::Event;
 use crate::ckb_protocol_handler::DefaultCKBProtocolContext;
 use crate::peer_store::{Behaviour, Status};
-use crate::protocol::Protocol;
-use crate::protocol_service::ProtocolService;
 use crate::CKBProtocolHandler;
 use crate::Network;
 use crate::PeerId;
 use faketime::unix_time_as_millis;
-use futures::future::{self, Future};
-use futures::Stream;
-use libp2p::core::{Endpoint, Multiaddr, UniqueConnecState};
-use log::{error, info};
+use futures::{
+    future::{self, Future},
+    sync::mpsc::Receiver,
+    Async, Stream,
+};
+use log::{debug, error, info, trace, warn};
+use p2p::{context::ServiceControl, multiaddr::Multiaddr, ProtocolId, SessionType};
 use std::boxed::Box;
 use std::io::{Error as IoError, ErrorKind as IoErrorKind};
 use std::sync::Arc;
 use tokio;
 
-pub struct CKBService;
+pub struct CKBService {
+    pub event_receiver: Receiver<Event>,
+    pub network: Arc<Network>,
+}
 
 impl CKBService {
-    fn handle_protocol_connection(
-        network: Arc<Network>,
-        peer_id: PeerId,
-        protocol_output: CKBProtocolOutput<Arc<CKBProtocolHandler>>,
-        addr: Multiaddr,
-    ) -> Box<Future<Item = (), Error = IoError> + Send> {
-        let protocol_id = protocol_output.protocol_id;
-        let protocol_handler = protocol_output.protocol_handler;
-        let protocol_version = protocol_output.protocol_version;
-        let endpoint = protocol_output.endpoint;
-        // get peer protocol_connection
-        let protocol_connec = {
-            let result = match endpoint {
-                Endpoint::Dialer => {
-                    network.try_outbound_ckb_protocol_connec(&peer_id, protocol_id, addr)
-                }
-                Endpoint::Listener => {
-                    network.try_inbound_ckb_protocol_connec(&peer_id, protocol_id, addr)
-                }
-            };
-            if let Err(err) = result {
-                return Box::new(future::err(IoError::new(
-                    IoErrorKind::Other,
-                    format!("handle ckb_protocol connection error: {}", err),
-                ))) as Box<Future<Item = (), Error = IoError> + Send>;
-            }
-            result.unwrap()
-        };
-        if protocol_connec.state() == UniqueConnecState::Full {
-            error!(
-                target: "network",
-                "we already connected peer {:?} with {:?}, stop handling",
-                peer_id, protocol_id
-            );
-            return Box::new(future::ok(())) as Box<_>;
-        }
+    fn find_handler(&self, protocol_id: ProtocolId) -> Option<Arc<dyn CKBProtocolHandler>> {
+        self.network
+            .find_protocol(protocol_id)
+            .map(|(_, handler)| handler)
+    }
+}
 
-        let peer_index = match network.get_peer_index(&peer_id) {
-            Some(peer_index) => peer_index,
-            None => {
-                return Box::new(future::err(IoError::new(
-                    IoErrorKind::Other,
-                    format!("can't find peer {:?}", peer_id),
-                )));
-            }
-        };
+impl Stream for CKBService {
+    type Item = ();
+    type Error = ();
+    fn poll(&mut self) -> Result<Async<Option<Self::Item>>, Self::Error> {
+        use crate::ckb_protocol::Event::*;
 
-        let protocol_future = {
-            let handling_future = protocol_output.incoming_stream.for_each({
-                let network = Arc::clone(&network);
-                let protocol_handler = Arc::clone(&protocol_handler);
-                let peer_id = peer_id.clone();
-                move |data| {
-                    network.modify_peer(&peer_id, |peer| {
-                        peer.last_message_time = Some(unix_time_as_millis())
-                    });
-                    let protocol_handler = Arc::clone(&protocol_handler);
-                    let network = Arc::clone(&network);
-                    let handle_received = future::lazy(move || {
-                        protocol_handler.received(
-                            Box::new(DefaultCKBProtocolContext::new(network, protocol_id)),
-                            peer_index,
-                            &data,
-                        );
-                        Ok(())
-                    });
-                    tokio::spawn(handle_received);
-                    Ok(())
-                }
-            });
-            protocol_connec
-                .tie_or_stop(
-                    (protocol_output.outgoing_msg_channel, protocol_version),
-                    handling_future,
-                )
-                .then({
-                    let network = Arc::clone(&network);
-                    let peer_id = peer_id.clone();
-                    let protocol_handler = Arc::clone(&protocol_handler);
-                    let protocol_id = protocol_id;
-                    move |val| {
-                        info!(
-                            target: "network",
-                            "Disconnect! peer {:?} protocol_id {:?} reason {:?}",
-                            peer_id, protocol_id, val
-                        );
+        let network = Arc::clone(&self.network);
+        match try_ready!(self.event_receiver.poll()) {
+            Some(Connected(peer_id, addr, protocol_id, session_type, version)) => {
+                let connect_result = match session_type {
+                    SessionType::Client => {
+                        network.new_outbound_connection(peer_id.clone(), addr.clone())
+                    }
+                    SessionType::Server => {
+                        network.new_inbound_connection(peer_id.clone(), addr.clone())
+                    }
+                };
+
+                match connect_result {
+                    Ok(peer_index) => {
+                        // update status in peer_store
                         {
                             let mut peer_store = network.peer_store().write();
-                            peer_store.report(&peer_id, Behaviour::UnexpectedDisconnect);
-                            peer_store.update_status(&peer_id, Status::Disconnected);
+                            peer_store.report(&peer_id, Behaviour::Connect);
+                            peer_store.update_status(&peer_id, Status::Connected);
+                            peer_store.add_discovered_address(&peer_id, addr);
                         }
-                        protocol_handler.disconnected(
+                        // call handler
+                        match self.find_handler(protocol_id) {
+                            Some(handler) => handler.connected(
+                                Box::new(DefaultCKBProtocolContext::new(
+                                    Arc::clone(&network),
+                                    protocol_id,
+                                )),
+                                peer_index,
+                            ),
+                            None => {
+                                error!(target: "network", "can't find protocol handler for {}", protocol_id)
+                            }
+                        }
+                    }
+                    Err(err) => {
+                        info!(target: "network", "reject connection from {} {}, because {}", peer_id.to_base58(), addr, err)
+                    }
+                }
+            }
+            Some(ConnectedError(addr)) => {
+                error!(target: "network", "ckb protocol connected error, addr: {}", addr);
+            }
+            Some(Disconnected(peer_id, protocol_id)) => {
+                // update disconnect in peer_store
+                {
+                    let mut peer_store = network.peer_store().write();
+                    peer_store.report(&peer_id, Behaviour::UnexpectedDisconnect);
+                    peer_store.update_status(&peer_id, Status::Disconnected);
+                }
+                if let Some(peer_index) = network.get_peer_index(&peer_id) {
+                    // call handler
+                    match self.find_handler(protocol_id) {
+                        Some(handler) => handler.disconnected(
                             Box::new(DefaultCKBProtocolContext::new(
                                 Arc::clone(&network),
                                 protocol_id,
                             )),
                             peer_index,
-                        );
-                        network.drop_peer(&peer_id);
-                        val
+                        ),
+                        None => {
+                            error!(target: "network", "can't find protocol handler for {}", protocol_id)
+                        }
                     }
-                })
-        };
-
-        info!(
-            target: "network",
-            "Connected to peer {:?} with protocol_id {:?} version {}",
-            peer_id, protocol_id, protocol_version
-        );
-        {
-            let mut peer_store = network.peer_store().write();
-            peer_store.report(&peer_id, Behaviour::Connect);
-            peer_store.update_status(&peer_id, Status::Connected);
-        }
-        {
-            let handle_connected = future::lazy(move || {
-                protocol_handler.connected(
-                    Box::new(DefaultCKBProtocolContext::new(
-                        Arc::clone(&network),
-                        protocol_id,
-                    )),
-                    peer_index,
-                );
-                Ok(())
-            });
-            tokio::spawn(handle_connected);
-        }
-        Box::new(protocol_future) as Box<_>
-    }
-}
-
-impl<T: Send> ProtocolService<T> for CKBService {
-    type Output = CKBProtocolOutput<Arc<CKBProtocolHandler>>;
-    fn convert_to_protocol(
-        peer_id: Arc<PeerId>,
-        addr: &Multiaddr,
-        output: Self::Output,
-    ) -> Protocol<T> {
-        Protocol::CKBProtocol(output, PeerId::clone(&peer_id), addr.to_owned())
-    }
-    fn handle(
-        &self,
-        network: Arc<Network>,
-        protocol: Protocol<T>,
-    ) -> Box<Future<Item = (), Error = IoError> + Send> {
-        match protocol {
-            Protocol::CKBProtocol(output, peer_id, addr) => {
-                let handling_future =
-                    Self::handle_protocol_connection(network, peer_id, output, addr);
-                Box::new(handling_future) as Box<Future<Item = _, Error = _> + Send>
+                }
+                // disconnect
+                network.drop_peer(&peer_id);
             }
-            _ => Box::new(future::ok(())) as Box<Future<Item = _, Error = _> + Send>,
+            Some(Received(peer_id, protocol_id, data)) => {
+                network.modify_peer(&peer_id, |peer| {
+                    peer.last_message_time = Some(unix_time_as_millis())
+                });
+                let peer_index = network.get_peer_index(&peer_id).expect("peer_index");
+                match self.find_handler(protocol_id) {
+                    Some(handler) => handler.received(
+                        Box::new(DefaultCKBProtocolContext::new(network, protocol_id)),
+                        peer_index,
+                        data,
+                    ),
+                    None => {
+                        error!(target: "network", "can't find protocol handler for {}", protocol_id)
+                    }
+                }
+            }
+            Some(Notify(protocol_id, token)) => {
+                debug!(target: "network", "receive ckb timer notify, protocol_id: {} token: {}", protocol_id, token);
+            }
+            None => {
+                error!(target: "network", "ckb service should not stop");
+            }
         }
+        Ok(Async::Ready(Some(())))
     }
 }

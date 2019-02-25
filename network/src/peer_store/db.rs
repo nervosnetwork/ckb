@@ -1,7 +1,7 @@
 use super::{Multiaddr, PeerId, Score, Status};
 use crate::network_group::{Group, NetworkGroup};
 use crate::peer_store::sqlite::Error as SqliteError;
-use libp2p::core::Endpoint;
+use p2p::SessionType;
 use rusqlite::types::ToSql;
 use rusqlite::OptionalExtension;
 use rusqlite::{Connection, NO_PARAMS};
@@ -51,7 +51,7 @@ pub struct PeerInfo {
     pub connected_addr: Multiaddr,
     pub score: Score,
     pub status: Status,
-    pub endpoint: Endpoint,
+    pub endpoint: SessionType,
     pub ban_time: Duration,
     pub connected_time: Duration,
 }
@@ -61,7 +61,7 @@ impl PeerInfo {
         conn: &Connection,
         peer_id: &PeerId,
         connected_addr: &Multiaddr,
-        endpoint: Endpoint,
+        endpoint: SessionType,
         score: Score,
         connected_time: Duration,
     ) -> DBResult<usize> {
@@ -83,7 +83,7 @@ impl PeerInfo {
         conn: &Connection,
         id: u32,
         connected_addr: &Multiaddr,
-        endpoint: Endpoint,
+        endpoint: SessionType,
         connected_time: Duration,
     ) -> DBResult<usize> {
         let mut stmt = conn
@@ -257,15 +257,15 @@ fn duration_to_secs(duration: Duration) -> u32 {
     duration.as_secs() as u32
 }
 
-fn endpoint_to_bool(endpoint: Endpoint) -> bool {
-    endpoint == Endpoint::Listener
+fn endpoint_to_bool(endpoint: SessionType) -> bool {
+    endpoint == SessionType::Server
 }
 
-fn bool_to_endpoint(is_inbound: bool) -> Endpoint {
+fn bool_to_endpoint(is_inbound: bool) -> SessionType {
     if is_inbound {
-        Endpoint::Listener
+        SessionType::Server
     } else {
-        Endpoint::Dialer
+        SessionType::Client
     }
 }
 
