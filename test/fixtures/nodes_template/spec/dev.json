@@ -1,0 +1,47 @@
+{
+    "__comments__": {
+        "system_cells": [
+            "path to cells files",
+            "which is absolute or relative to the directory containing this config file."
+        ],
+
+        "edge_bits": [
+            "the 2-log of the graph size",
+            "which is the size in bits of the node identifiers"
+        ],
+
+        "cycle_length": [
+            "length of the cycle to be found, must be an even number",
+            "a minimum of 12 is recommended"
+        ]
+    },
+
+    "name": "ckb",
+    "genesis": {
+        "seal": {
+            "nonce": 0,
+            "proof": [0]
+        },
+        "version": 0,
+        "parent_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+        "timestamp": 0,
+        "txs_commit": "0x0000000000000000000000000000000000000000000000000000000000000000",
+        "txs_proposal": "0x0000000000000000000000000000000000000000000000000000000000000000",
+        "difficulty": "0x100",
+        "cellbase_id": "0x0000000000000000000000000000000000000000000000000000000000000000",
+        "uncles_hash": "0x0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    "params": {
+        "initial_block_reward": 50000,
+        "max_block_cycles": 100000000
+    },
+    "system_cells": [
+        {"path": "cells/always_success"}
+    ],
+    "pow": {
+        "Cuckoo": {
+            "edge_bits": 15,
+            "cycle_length": 12
+        }
+    }
+}

@@ -1,0 +1,12 @@
+[package]
+name = "ckb-test"
+version = "0.7.0-pre"
+license = "MIT"
+authors = ["Nervos Core Dev <dev@nervos.org>"]
+edition = "2018"
+
+[dependencies]
+fs_extra = "1.1"
+tempfile = "3.0"
+
+[dev-dependencies]

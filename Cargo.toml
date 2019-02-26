@@ -70,5 +70,6 @@ members = [
     "verification",
     "script",
     "pow",
-    "benches"
+    "benches",
+    "test"
 ]
