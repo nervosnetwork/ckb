@@ -20,7 +20,6 @@ pub struct NetworkConfig {
     pub public_addresses: Vec<Multiaddr>,
     pub client_version: String,
     pub protocol_version: String,
-    pub transport_timeout: Duration,
     pub reserved_only: bool,
     pub max_inbound_peers: u32,
     pub max_outbound_peers: u32,
@@ -31,13 +30,9 @@ pub struct NetworkConfig {
     pub config_dir_path: Option<String>,
     pub bootnodes: Vec<String>,
     pub ping_interval: Duration,
-    pub ping_timeout: Duration,
     pub discovery_timeout: Duration,
     pub discovery_response_count: usize,
     pub discovery_interval: Duration,
-    pub identify_timeout: Duration,
-    pub identify_interval: Duration,
-    pub try_outbound_connect_timeout: Duration,
     pub try_outbound_connect_interval: Duration,
 }
 
@@ -139,7 +134,6 @@ impl Default for NetworkConfig {
             public_addresses: Vec::new(),
             client_version: "ckb<unknown>".to_owned(),
             protocol_version: "ckb".to_owned(),
-            transport_timeout: Duration::from_secs(20),
             reserved_only: false,
             max_outbound_peers: 15,
             max_inbound_peers: 10,
@@ -150,13 +144,9 @@ impl Default for NetworkConfig {
             config_dir_path: None,
             // protocol services config
             ping_interval: Duration::from_secs(30),
-            ping_timeout: Duration::from_secs(30),
             discovery_timeout: Duration::from_secs(20),
             discovery_response_count: 20,
             discovery_interval: Duration::from_secs(15),
-            identify_timeout: Duration::from_secs(30),
-            identify_interval: Duration::from_secs(15),
-            try_outbound_connect_timeout: Duration::from_secs(30),
             try_outbound_connect_interval: Duration::from_secs(15),
         }
     }

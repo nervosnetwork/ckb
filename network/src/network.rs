@@ -4,6 +4,7 @@ use crate::peers_registry::{ConnectionStatus, Peer, PeerIdentifyInfo, PeersRegis
 use crate::protocol_handler::{CKBProtocolHandler, DefaultCKBProtocolContext};
 use crate::service::{
     ckb_service::CKBService,
+    outbound_peer_service::OutboundPeerService,
     timer_service::{TimerRegistry, TimerService},
 };
 use crate::{CKBEvent, CKBProtocol};
@@ -468,7 +469,6 @@ impl Network {
     ) -> Result<Box<Future<Item = (), Error = Error> + Send>, Error> {
         let local_private_key = network.local_private_key().to_owned();
         let local_peer_id: PeerId = local_private_key.to_peer_id();
-        let basic_transport_timeout = config.transport_timeout;
         let client_version = config.client_version.clone();
         let protocol_version = config.protocol_version.clone();
         let max_outbound = config.max_outbound_peers as usize;
@@ -487,10 +487,8 @@ impl Network {
             network: Arc::clone(&network),
         };
         let timer_service = TimerService::new(timer_registry, Arc::clone(&network));
-        //let outbound_peer_service = Arc::new(OutboundPeerService {
-        //    try_connect_interval: config.try_outbound_connect_interval,
-        //    timeout: config.try_outbound_connect_timeout,
-        //});
+        let outbound_peer_service =
+            OutboundPeerService::new(Arc::clone(&network), config.try_outbound_connect_interval);
         // prepare services futures
         let futures: Vec<Box<Future<Item = (), Error = Error> + Send>> = vec![
             Box::new(
@@ -520,11 +518,11 @@ impl Network {
             //    basic_transport.clone(),
             //),
             Box::new(timer_service.timer_futures.for_each(|_| Ok(()))),
-            //outbound_peer_service.start_protocol(
-            //    Arc::clone(&network),
-            //    swarm_controller.clone(),
-            //    basic_transport.clone(),
-            //),
+            Box::new(
+                outbound_peer_service
+                    .for_each(|_| Ok(()))
+                    .map_err(|_| Error::Shutdown),
+            ),
             Box::new(close_rx.map_err(|err| Error::Shutdown)),
         ];
         let service_futures = select_all(futures)

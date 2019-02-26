@@ -122,6 +122,7 @@ impl Stream for CKBService {
             }
             None => {
                 error!(target: "network", "ckb service should not stop");
+                return Ok(Async::Ready(None));
             }
         }
         Ok(Async::Ready(Some(())))
