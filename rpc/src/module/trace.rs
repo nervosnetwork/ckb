@@ -1,10 +1,10 @@
 use ckb_core::transaction::Transaction as CoreTransaction;
-use ckb_network::NetworkService;
-use ckb_protocol::RelayMessage;
 use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::Shared;
-use ckb_shared::tx_pool::TxTrace;
-use ckb_sync::RELAY_PROTOCOL_ID;
+use ckb_network::{NetworkService, ProtocolId};
+use ckb_pool::txs_pool::{TransactionPoolController, TxTrace};
+use ckb_protocol::RelayMessage;
+use ckb_sync::NetworkProtocol;
 use flatbuffers::FlatBufferBuilder;
 use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
@@ -39,12 +39,13 @@ impl<CI: ChainIndex + 'static> TraceRpc for TraceRpcImpl<CI> {
         let message = RelayMessage::build_transaction(fbb, &tx);
         fbb.finish(message, None);
 
-        self.network.with_protocol_context(RELAY_PROTOCOL_ID, |nc| {
-            for peer in nc.connected_peers() {
-                debug!(target: "rpc", "relay transaction {} to peer#{}", tx_hash, peer);
-                let _ = nc.send(peer, fbb.finished_data().to_vec());
-            }
-        });
+        self.network
+            .with_protocol_context(NetworkProtocol::RELAY as ProtocolId, |nc| {
+                for peer in nc.connected_peers() {
+                    debug!(target: "rpc", "relay transaction {} to peer#{}", tx_hash, peer);
+                    let _ = nc.send(peer, fbb.finished_data().to_vec());
+                }
+            });
         Ok(tx_hash)
     }
 

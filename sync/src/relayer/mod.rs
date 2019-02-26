@@ -264,9 +264,9 @@ where
         let _ = nc.register_timer(TX_PROPOSAL_TOKEN, Duration::from_millis(100));
     }
 
-    fn received(&self, nc: Box<CKBProtocolContext>, peer: PeerIndex, data: &[u8]) {
+    fn received(&self, nc: Box<CKBProtocolContext>, peer: PeerIndex, data: Vec<u8>) {
         // TODO use flatbuffers verifier
-        let msg = get_root::<RelayMessage>(data);
+        let msg = get_root::<RelayMessage>(&data);
         debug!(target: "relay", "msg {:?}", msg.payload_type());
         self.process(nc.as_ref(), peer, msg);
     }

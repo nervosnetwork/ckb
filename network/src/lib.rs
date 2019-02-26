@@ -1,5 +1,5 @@
 #[macro_use]
-extern crate futures;
+pub extern crate futures;
 pub mod errors;
 mod network;
 mod network_config;

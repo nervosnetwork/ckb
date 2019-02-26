@@ -2,7 +2,7 @@ use crate::errors::{Error, ProtocolError};
 use bytes::BufMut;
 use bytes::{Buf, IntoBuf};
 use bytes::{Bytes, BytesMut};
-use futures::sync::mpsc;
+use futures::sync::mpsc::{self, Sender};
 use futures::{future, stream, Future, Sink, Stream};
 use log::{debug, error, trace};
 use p2p::{
@@ -17,7 +17,6 @@ use std::vec::IntoIter as VecIntoIter;
 use tokio::codec::Decoder;
 use tokio::codec::LengthDelimitedCodec;
 use tokio::io::{AsyncRead, AsyncWrite};
-use tokio::sync::mpsc::Sender;
 
 pub type Version = u8;
 

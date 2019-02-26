@@ -1,11 +1,11 @@
 use ckb_chain::chain::ChainController;
 use ckb_core::block::Block as CoreBlock;
 use ckb_miner::BlockAssemblerController;
-use ckb_network::NetworkService;
+use ckb_network::{NetworkService, ProtocolId};
 use ckb_protocol::RelayMessage;
 use ckb_shared::{index::ChainIndex, shared::Shared};
-use ckb_sync::RELAY_PROTOCOL_ID;
 use ckb_traits::ChainProvider;
+use ckb_sync::NetworkProtocol;
 use ckb_verification::{HeaderResolverWrapper, HeaderVerifier, Verifier};
 use flatbuffers::FlatBufferBuilder;
 use jsonrpc_core::{Error, Result};
@@ -64,14 +64,16 @@ impl<CI: ChainIndex + 'static> MinerRpc for MinerRpcImpl<CI> {
             let ret = self.chain.process_block(Arc::clone(&block));
             if ret.is_ok() {
                 // announce new block
-                self.network.with_protocol_context(RELAY_PROTOCOL_ID, |nc| {
-                    let fbb = &mut FlatBufferBuilder::new();
-                    let message = RelayMessage::build_compact_block(fbb, &block, &HashSet::new());
-                    fbb.finish(message, None);
-                    for peer in nc.connected_peers() {
-                        let _ = nc.send(peer, fbb.finished_data().to_vec());
-                    }
-                });
+                self.network
+                    .with_protocol_context(NetworkProtocol::RELAY as ProtocolId, |nc| {
+                        let fbb = &mut FlatBufferBuilder::new();
+                        let message =
+                            RelayMessage::build_compact_block(fbb, &block, &HashSet::new());
+                        fbb.finish(message, None);
+                        for peer in nc.connected_peers() {
+                            let _ = nc.send(peer, fbb.finished_data().to_vec());
+                        }
+                    });
                 Ok(Some(block.header().hash().clone()))
             } else {
                 debug!(target: "rpc", "submit_block process_block {:?}", ret);

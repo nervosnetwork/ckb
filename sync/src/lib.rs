@@ -17,8 +17,6 @@ pub use crate::net_time_checker::NetTimeProtocol;
 pub use crate::relayer::Relayer;
 pub use crate::synchronizer::Synchronizer;
 
-use ckb_network::ProtocolId;
-
 pub const MAX_HEADERS_LEN: usize = 2_000;
 pub const MAX_INVENTORY_LEN: usize = 50_000;
 pub const MAX_SCHEDULED_LEN: usize = 4 * 1024;
@@ -29,9 +27,12 @@ pub const MAX_TIP_AGE: u64 = 60 * 60 * 1000;
 pub const STALE_RELAY_AGE_LIMIT: u64 = 30 * 24 * 60 * 60 * 1000;
 pub const BLOCK_DOWNLOAD_WINDOW: u64 = 1024;
 pub const PER_FETCH_BLOCK_LIMIT: usize = 128;
-pub const SYNC_PROTOCOL_ID: ProtocolId = *b"syn";
-pub const RELAY_PROTOCOL_ID: ProtocolId = *b"rel";
-pub const TIME_PROTOCOL_ID: ProtocolId = *b"tim";
+
+pub enum NetworkProtocol {
+    SYNC = 0,
+    RELAY = 1,
+    TIME = 2,
+}
 
 //  Timeout = base + per_header * (expected number of headers)
 pub const HEADERS_DOWNLOAD_TIMEOUT_BASE: u64 = 15 * 60 * 1000; // 15 minutes

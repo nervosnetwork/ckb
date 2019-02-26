@@ -686,7 +686,7 @@ where
         let _ = nc.register_timer(TIMEOUT_EVICTION_TOKEN, Duration::from_millis(1000));
     }
 
-    fn received(&self, nc: Box<CKBProtocolContext>, peer: PeerIndex, data: &[u8]) {
+    fn received(&self, nc: Box<CKBProtocolContext>, peer: PeerIndex, data: Vec<u8>) {
         // TODO use flatbuffers verifier
         let msg = get_root::<SyncMessage>(&data);
         debug!(target: "sync", "msg {:?}", msg.payload_type());
@@ -735,8 +735,8 @@ mod tests {
     use ckb_core::transaction::{CellInput, CellOutput, Transaction, TransactionBuilder};
     use ckb_db::memorydb::MemoryKeyValueDB;
     use ckb_network::{
-        random_peer_id, CKBProtocolContext, Endpoint, Error as NetworkError, PeerIndex, PeerInfo,
-        ProtocolId, SessionInfo, Severity, TimerToken, ToMultiaddr,
+        errors::Error as NetworkError, multiaddr::ToMultiaddr, random_peer_id, CKBProtocolContext,
+        PeerIndex, PeerInfo, ProtocolId, SessionInfo, SessionType, Severity, TimerToken,
     };
     use ckb_notify::{NotifyController, NotifyService};
     use ckb_protocol::{Block as FbsBlock, Headers as FbsHeaders};
@@ -1056,8 +1056,8 @@ mod tests {
     fn mock_session_info() -> SessionInfo {
         SessionInfo {
             peer: PeerInfo {
-                peer_id: random_peer_id().unwrap(),
-                endpoint_role: Endpoint::Dialer,
+                peer_id: random_peer_id(),
+                session_type: SessionType::Client,
                 last_ping_time: None,
                 connected_addr: "/ip4/127.0.0.1".to_multiaddr().expect("parse multiaddr"),
                 identify_info: None,

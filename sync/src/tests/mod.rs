@@ -1,5 +1,5 @@
 use ckb_network::{
-    CKBProtocolContext, CKBProtocolHandler, Error as NetworkError, PeerIndex, ProtocolId,
+    errors::Error as NetworkError, CKBProtocolContext, CKBProtocolHandler, PeerIndex, ProtocolId,
     SessionInfo, Severity, TimerToken,
 };
 use std::collections::HashMap;
@@ -101,7 +101,7 @@ impl TestNode {
                                 timer_senders: self.timer_senders.clone(),
                             }),
                             *peer,
-                            &payload,
+                            payload.clone(),
                         )
                     };
 
