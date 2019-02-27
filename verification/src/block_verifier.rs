@@ -7,7 +7,7 @@ use ckb_core::header::Header;
 use ckb_core::transaction::{Capacity, CellInput, OutPoint};
 use ckb_core::Cycle;
 use ckb_merkle_tree::merkle_root;
-use ckb_shared::shared::ChainProvider;
+use ckb_traits::ChainProvider;
 use fnv::{FnvHashMap, FnvHashSet};
 use lru_cache::LruCache;
 use numext_fixed_hash::H256;
@@ -102,7 +102,10 @@ impl<CP: ChainProvider + Clone> CellbaseVerifier<CP> {
         let block_reward = self.provider.block_reward(block.header().number());
         let mut fee = 0;
         for transaction in block.commit_transactions().iter().skip(1) {
-            fee += self.provider.calculate_transaction_fee(transaction)?;
+            fee += self
+                .provider
+                .calculate_transaction_fee(transaction)
+                .map_err(|e| Error::Chain(format!("{}", e)))?;
         }
         let total_reward = block_reward + fee;
         let output_capacity: Capacity = cellbase_transaction
@@ -490,7 +493,7 @@ impl<CP: ChainProvider + Clone> CommitVerifier<CP> {
         }
         let block_number = block.header().number();
         let (proposal_window_start, proposal_window_end) =
-            self.provider.consensus().tx_proposal_window;
+            self.provider.consensus().tx_proposal_window();
         let proposal_start = block_number.saturating_sub(proposal_window_end);
         let mut proposal_end = block_number.saturating_sub(proposal_window_start);
 
@@ -510,28 +513,20 @@ impl<CP: ChainProvider + Clone> CommitVerifier<CP> {
             if block.is_genesis() {
                 break;
             }
-            proposal_txs_ids.extend(
-                block.proposal_transactions().iter().cloned().chain(
-                    block
-                        .uncles()
-                        .iter()
-                        .flat_map(|uncle| uncle.proposal_transactions())
-                        .cloned(),
-                ),
-            );
+            proposal_txs_ids.extend(block.union_proposal_ids());
 
             block_hash = block.header().parent_hash().clone();
             proposal_end -= 1;
         }
 
-        let commited_ids: FnvHashSet<_> = block
+        let committed_ids: FnvHashSet<_> = block
             .commit_transactions()
             .par_iter()
             .skip(1)
             .map(|tx| tx.proposal_short_id())
             .collect();
 
-        let difference: Vec<_> = commited_ids.difference(&proposal_txs_ids).collect();
+        let difference: Vec<_> = committed_ids.difference(&proposal_txs_ids).collect();
 
         if !difference.is_empty() {
             return Err(Error::Commit(CommitError::Invalid));

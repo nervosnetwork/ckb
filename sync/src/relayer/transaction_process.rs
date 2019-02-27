@@ -32,7 +32,7 @@ where
 
     pub fn execute(self) {
         let tx: Transaction = (*self.message).into();
-        if self.relayer.tx_pool.add_transaction(tx.clone()).is_ok() {
+        if self.relayer.shared.add_tx_to_pool(tx.clone()).is_ok() {
             let fbb = &mut FlatBufferBuilder::new();
             let message = RelayMessage::build_transaction(fbb, &tx);
             fbb.finish(message, None);

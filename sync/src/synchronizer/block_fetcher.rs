@@ -7,7 +7,7 @@ use crate::{
 use ckb_core::header::Header;
 use ckb_network::PeerIndex;
 use ckb_shared::index::ChainIndex;
-use ckb_shared::shared::ChainProvider;
+use ckb_traits::ChainProvider;
 use ckb_util::{try_option, RwLockUpgradableReadGuard};
 use faketime::unix_time_as_millis;
 use log::debug;

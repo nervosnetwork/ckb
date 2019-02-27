@@ -14,9 +14,11 @@ mod flat_serializer;
 pub mod index;
 pub mod shared;
 pub mod store;
+pub mod tx_pool;
+pub mod txo_set;
+
 #[cfg(test)]
 mod tests;
-pub mod txo_set;
 
 use ckb_db::batch::Col;
 

@@ -1,7 +1,8 @@
 use ckb_core::transaction::Transaction as CoreTransaction;
 use ckb_network::NetworkService;
-use ckb_pool::txs_pool::TransactionPoolController;
 use ckb_protocol::RelayMessage;
+use ckb_shared::index::ChainIndex;
+use ckb_shared::shared::Shared;
 use ckb_sync::RELAY_PROTOCOL_ID;
 use flatbuffers::FlatBufferBuilder;
 use jsonrpc_core::Result;
@@ -18,17 +19,16 @@ pub trait PoolRpc {
     fn send_transaction(&self, _tx: Transaction) -> Result<H256>;
 }
 
-pub(crate) struct PoolRpcImpl {
+pub(crate) struct PoolRpcImpl<CI> {
     pub network: Arc<NetworkService>,
-    pub tx_pool: TransactionPoolController,
+    pub shared: Shared<CI>,
 }
 
-impl PoolRpc for PoolRpcImpl {
+impl<CI: ChainIndex + 'static> PoolRpc for PoolRpcImpl<CI> {
     fn send_transaction(&self, tx: Transaction) -> Result<H256> {
         let tx: CoreTransaction = tx.into();
         let tx_hash = tx.hash().clone();
-        let pool_result = self.tx_pool.add_transaction(tx.clone());
-        debug!(target: "rpc", "send_transaction add to pool result: {:?}", pool_result);
+        self.shared.tx_pool().write().enqueue_tx(tx.clone());
 
         let fbb = &mut FlatBufferBuilder::new();
         let message = RelayMessage::build_transaction(fbb, &tx);

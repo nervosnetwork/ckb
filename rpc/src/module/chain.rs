@@ -1,9 +1,7 @@
 use ckb_core::cell::CellProvider;
 use ckb_core::BlockNumber;
-use ckb_shared::{
-    index::ChainIndex,
-    shared::{ChainProvider, Shared},
-};
+use ckb_shared::{index::ChainIndex, shared::Shared};
+use ckb_traits::ChainProvider;
 use jsonrpc_core::{Error, Result};
 use jsonrpc_derive::rpc;
 use jsonrpc_types::{Block, CellOutputWithOutPoint, CellWithStatus, Header, OutPoint, Transaction};

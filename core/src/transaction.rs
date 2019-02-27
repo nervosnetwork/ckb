@@ -10,6 +10,7 @@ use numext_fixed_hash::H256;
 use occupied_capacity::OccupiedCapacity;
 use serde_derive::{Deserialize, Serialize};
 use std::fmt;
+use std::hash::{Hash, Hasher};
 use std::ops::{Deref, DerefMut};
 
 #[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Hash, OccupiedCapacity)]
@@ -144,12 +145,24 @@ impl CellOutput {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug, Default, OccupiedCapacity)]
+#[derive(Clone, Serialize, Deserialize, Eq, Debug, Default, OccupiedCapacity)]
 pub struct Transaction {
     version: Version,
     deps: Vec<OutPoint>,
     inputs: Vec<CellInput>,
     outputs: Vec<CellOutput>,
+}
+
+impl Hash for Transaction {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        state.write(self.hash().as_fixed_bytes())
+    }
+}
+
+impl PartialEq for Transaction {
+    fn eq(&self, other: &Transaction) -> bool {
+        self.hash() == other.hash()
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]

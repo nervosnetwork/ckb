@@ -3,9 +3,8 @@ use crate::MAX_HEADERS_LEN;
 use ckb_core::header::Header;
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::{FlatbuffersVectorIterator, Headers};
-use ckb_shared::block_median_time_context::BlockMedianTimeContext;
 use ckb_shared::index::ChainIndex;
-use ckb_shared::shared::ChainProvider;
+use ckb_traits::{BlockMedianTimeContext, ChainProvider};
 use ckb_verification::{Error as VerifyError, HeaderResolver, HeaderVerifier, Verifier};
 use log;
 use log::{debug, log_enabled};
@@ -435,7 +434,7 @@ impl Default for ValidationState {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum ValidationError {
     Verify(VerifyError),
     FailedMask,
@@ -443,7 +442,7 @@ pub enum ValidationError {
     InvalidParent,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Default)]
 pub struct ValidationResult {
     pub error: Option<ValidationError>,
     pub misbehavior: u32,

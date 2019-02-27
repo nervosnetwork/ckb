@@ -12,8 +12,9 @@ use ckb_core::uncle::UncleBlock;
 use ckb_core::BlockNumber;
 use ckb_db::memorydb::MemoryKeyValueDB;
 use ckb_notify::NotifyService;
-use ckb_shared::shared::{ChainProvider, Shared, SharedBuilder};
+use ckb_shared::shared::{Shared, SharedBuilder};
 use ckb_shared::store::ChainKVStore;
+use ckb_traits::ChainProvider;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 use std::fs::File;
@@ -137,7 +138,7 @@ fn test_proposal() {
         prev_tx_hash = tx.hash().clone();
     }
 
-    let (proposal_start, proposal_end) = shared.consensus().tx_proposal_window;
+    let (proposal_start, proposal_end) = shared.consensus().tx_proposal_window();
 
     let mut parent = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
 
@@ -198,7 +199,7 @@ fn test_uncle_proposal() {
         prev_tx_hash = tx.hash().clone();
     }
 
-    let (proposal_start, proposal_end) = shared.consensus().tx_proposal_window;
+    let (proposal_start, proposal_end) = shared.consensus().tx_proposal_window();
 
     let mut parent = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
 

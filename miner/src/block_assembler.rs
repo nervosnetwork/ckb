@@ -6,13 +6,11 @@ use ckb_core::uncle::UncleBlock;
 use ckb_core::BlockNumber;
 use ckb_core::{Cycle, Version};
 use ckb_notify::NotifyController;
-use ckb_pool::txs_pool::TransactionPoolController;
-use ckb_pool::PoolEntry;
-use ckb_shared::error::SharedError;
-use ckb_shared::index::ChainIndex;
-use ckb_shared::shared::{ChainProvider, Shared};
+use ckb_shared::{index::ChainIndex, shared::Shared, tx_pool::PoolEntry};
+use ckb_traits::ChainProvider;
 use ckb_util::Mutex;
 use crossbeam_channel::{self, select, Receiver, Sender};
+use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
 use fnv::FnvHashSet;
 use jsonrpc_types::{BlockTemplate, CellbaseTemplate, TransactionTemplate, UncleTemplate};
@@ -27,7 +25,7 @@ use stop_handler::{SignalSender, StopHandler};
 
 const MAX_CANDIDATE_UNCLES: usize = 42;
 type BlockTemplateParams = (Option<Cycle>, Option<u64>, Option<Version>);
-type BlockTemplateResult = Result<BlockTemplate, SharedError>;
+type BlockTemplateResult = Result<BlockTemplate, FailureError>;
 const BLOCK_ASSEMBLER_SUBSCRIBER: &str = "block_assembler";
 const BLOCK_TEMPLATE_TIMEOUT: u64 = 3000;
 const TEMPLATE_CACHE_SIZE: usize = 10;
@@ -87,7 +85,6 @@ impl BlockAssemblerController {
 
 pub struct BlockAssembler<CI> {
     shared: Shared<CI>,
-    tx_pool: TransactionPoolController,
     candidate_uncles: LruCache<H256, Arc<Block>>,
     type_hash: H256,
     work_id: AtomicUsize,
@@ -96,10 +93,9 @@ pub struct BlockAssembler<CI> {
 }
 
 impl<CI: ChainIndex + 'static> BlockAssembler<CI> {
-    pub fn new(shared: Shared<CI>, tx_pool: TransactionPoolController, type_hash: H256) -> Self {
+    pub fn new(shared: Shared<CI>, type_hash: H256) -> Self {
         Self {
             shared,
-            tx_pool,
             type_hash,
             candidate_uncles: LruCache::new(MAX_CANDIDATE_UNCLES),
             work_id: AtomicUsize::new(0),
@@ -229,13 +225,13 @@ impl<CI: ChainIndex + 'static> BlockAssembler<CI> {
         cycles_limit: Option<Cycle>,
         bytes_limit: Option<u64>,
         max_version: Option<Version>,
-    ) -> Result<BlockTemplate, SharedError> {
+    ) -> Result<BlockTemplate, FailureError> {
         let (cycles_limit, bytes_limit, version) =
             self.transform_params(cycles_limit, bytes_limit, max_version);
         let uncles_count_limit = self.shared.consensus().max_uncles_num() as u32;
 
         let last_uncles_updated_at = self.last_uncles_updated_at.load(Ordering::SeqCst) as u64;
-        let last_txs_updated_at = self.tx_pool.get_last_txs_updated_at();
+        let last_txs_updated_at = self.shared.get_last_txs_updated_at();
 
         let chain_state = self.shared.chain_state().read();
         let header = chain_state.tip_header();
@@ -261,7 +257,7 @@ impl<CI: ChainIndex + 'static> BlockAssembler<CI> {
             .expect("get difficulty");
 
         let (proposal_transactions, commit_transactions) =
-            self.tx_pool.get_proposal_commit_transactions(10000, 10000);
+            self.shared.get_proposal_commit_txs(10000, 10000);
 
         let (uncles, bad_uncles) = self.prepare_uncles(&header, &difficulty);
         if !bad_uncles.is_empty() {
@@ -311,7 +307,7 @@ impl<CI: ChainIndex + 'static> BlockAssembler<CI> {
         header: &Header,
         pes: &[PoolEntry],
         type_hash: H256,
-    ) -> Result<Transaction, SharedError> {
+    ) -> Result<Transaction, FailureError> {
         // NOTE: To generate different cellbase txid, we put header number in the input script
         let input = CellInput::new_cellbase_input(header.number() + 1);
         // NOTE: We could've just used byteorder to serialize u64 and hex string into bytes,
@@ -427,13 +423,12 @@ mod tests {
     use ckb_core::BlockNumber;
     use ckb_db::memorydb::MemoryKeyValueDB;
     use ckb_notify::{NotifyController, NotifyService};
-    use ckb_pool::txs_pool::{PoolConfig, TransactionPoolController, TransactionPoolService};
     use ckb_pow::Pow;
     use ckb_shared::index::ChainIndex;
-    use ckb_shared::shared::ChainProvider;
     use ckb_shared::shared::Shared;
     use ckb_shared::shared::SharedBuilder;
     use ckb_shared::store::ChainKVStore;
+    use ckb_traits::ChainProvider;
     use ckb_verification::{BlockVerifier, HeaderResolverWrapper, HeaderVerifier, Verifier};
     use jsonrpc_types::{BlockTemplate, CellbaseTemplate};
     use numext_fixed_hash::H256;
@@ -462,36 +457,17 @@ mod tests {
         (chain_controller, shared, notify)
     }
 
-    fn setup_tx_pool<CI: ChainIndex + 'static>(
-        shared: Shared<CI>,
-        notify: NotifyController,
-    ) -> TransactionPoolController {
-        let config = PoolConfig {
-            max_pool_size: 1000,
-            max_orphan_size: 1000,
-            max_proposal_size: 1000,
-            max_cache_size: 1000,
-            max_pending_size: 1000,
-            trace: Some(100),
-        };
-        let tx_pool_service = TransactionPoolService::new(config, shared, notify);
-        tx_pool_service.start(Some("TransactionPoolService"))
-    }
-
     fn setup_block_assembler<CI: ChainIndex + 'static>(
-        tx_pool: TransactionPoolController,
         shared: Shared<CI>,
         type_hash: H256,
     ) -> BlockAssembler<CI> {
-        BlockAssembler::new(shared, tx_pool, type_hash)
+        BlockAssembler::new(shared, type_hash)
     }
 
     #[test]
     fn test_get_block_template() {
-        let (_chain_controller, shared, notify) = start_chain(None, None);
-        let tx_pool_controller = setup_tx_pool(shared.clone(), notify.clone());
-        let mut block_assembler =
-            setup_block_assembler(tx_pool_controller, shared.clone(), H256::zero());
+        let (_chain_controller, shared, _notify) = start_chain(None, None);
+        let mut block_assembler = setup_block_assembler(shared.clone(), H256::zero());
 
         let block_template = block_assembler
             .get_block_template(None, None, None)
@@ -573,11 +549,8 @@ mod tests {
         consensus.pow_spacing = 1;
 
         let (chain_controller, shared, notify) = start_chain(Some(consensus), None);
-        let tx_pool_controller = setup_tx_pool(shared.clone(), notify.clone());
-        let block_assembler =
-            setup_block_assembler(tx_pool_controller, shared.clone(), H256::zero());
+        let block_assembler = setup_block_assembler(shared.clone(), H256::zero());
         let new_uncle_receiver = notify.subscribe_new_uncle("test_prepare_uncles");
-        let new_switch_receiver = notify.subscribe_switch_fork("test_prepare_uncles_fork");
         let block_assembler_controller = block_assembler.start(Some("test"), &notify.clone());
 
         let genesis = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
@@ -614,7 +587,7 @@ mod tests {
         chain_controller
             .process_block(Arc::new(block2_1.clone()))
             .unwrap();
-        let _ = new_switch_receiver.recv();
+
         let block_template = block_assembler_controller
             .get_block_template(None, None, None)
             .unwrap();

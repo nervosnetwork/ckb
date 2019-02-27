@@ -22,15 +22,16 @@ use crate::{
 };
 use bitflags::bitflags;
 use ckb_chain::chain::ChainController;
-use ckb_chain::error::ProcessBlockError;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::Block;
 use ckb_core::header::{BlockNumber, Header};
 use ckb_network::{CKBProtocolContext, CKBProtocolHandler, PeerIndex, Severity, TimerToken};
 use ckb_protocol::{SyncMessage, SyncPayload};
 use ckb_shared::index::ChainIndex;
-use ckb_shared::shared::{ChainProvider, Shared};
+use ckb_shared::shared::Shared;
+use ckb_traits::ChainProvider;
 use ckb_util::{try_option, RwLock, RwLockUpgradableReadGuard};
+use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
 use flatbuffers::{get_root, FlatBufferBuilder};
 use log::{debug, info, warn};
@@ -424,7 +425,7 @@ impl<CI: ChainIndex> Synchronizer<CI> {
         }
     }
 
-    fn accept_block(&self, peer: PeerIndex, block: &Arc<Block>) -> Result<(), ProcessBlockError> {
+    fn accept_block(&self, peer: PeerIndex, block: &Arc<Block>) -> Result<(), FailureError> {
         // TODO: some transactions' verification can be skiped.
         self.chain.process_block(Arc::clone(&block))?;
         self.mark_block_stored(block.header().hash().clone());
@@ -1212,8 +1213,6 @@ mod tests {
             fetched_blocks.push(shared2.block(block_hash).unwrap());
         }
 
-        let fork_receiver = notify.subscribe_switch_fork("fork_receiver");
-
         for block in &fetched_blocks {
             let fbb = &mut FlatBufferBuilder::new();
             let fbs_block = FbsBlock::build(fbb, block);
@@ -1233,8 +1232,6 @@ mod tests {
                 .hash(),
             blocks_to_fetch.last().unwrap()
         );
-
-        assert!(fork_receiver.recv().is_ok());
     }
 
     #[cfg(not(disable_faketime))]

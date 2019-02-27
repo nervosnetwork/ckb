@@ -38,7 +38,7 @@
         "verification_level": "Full",
         "orphan_block_limit": 1024
     },
-    "pool": {
+    "tx_pool": {
         "max_pool_size": 10000,
         "max_orphan_size": 10000,
         "max_proposal_size": 10000,
