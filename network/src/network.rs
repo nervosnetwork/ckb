@@ -17,11 +17,12 @@ use futures::sync::mpsc::UnboundedSender;
 use futures::sync::mpsc::{Receiver, Sender};
 use futures::sync::oneshot;
 use futures::Stream;
-use log::{debug, info, trace, warn};
+use log::{debug, error, info, trace, warn};
+use multiaddr::multihash::Multihash;
 use p2p::{
     builder::ServiceBuilder,
     context::{ServiceContext, ServiceControl},
-    multiaddr::Multiaddr,
+    multiaddr::{self, Multiaddr},
     service::{Service, ServiceError, ServiceEvent},
     traits::ServiceHandle,
     PeerId, PublicKey, SessionType,
@@ -338,13 +339,21 @@ impl Network {
         })
     }
 
-    pub fn dial(&self, expected_peer_id: &PeerId, addr: Multiaddr) {
+    pub fn dial(&self, expected_peer_id: &PeerId, mut addr: Multiaddr) {
         if expected_peer_id == self.local_peer_id() {
             debug!(target: "network", "ignore dial to self");
             return;
         }
         debug!(target: "network", "dial to peer {:?} address {:?}", expected_peer_id, addr);
-        self.p2p_control.write().dial(addr);
+        match Multihash::from_bytes(expected_peer_id.as_bytes().to_vec()) {
+            Ok(peer_id_hash) => {
+                addr.append(multiaddr::Protocol::P2p(peer_id_hash));
+                self.p2p_control.write().dial(addr);
+            }
+            Err(err) => {
+                error!(target: "network", "failed to convert peer_id to addr: {}", err);
+            }
+        }
     }
 
     pub(crate) fn inner_build(
@@ -529,8 +538,8 @@ impl Network {
             .and_then({
                 let network = Arc::clone(&network);
                 move |_| {
-                    let mut peers_registry = network.peers_registry.write();
                     network.drop_all();
+                    debug!(target: "network", "network shutdown");
                     Ok(())
                 }
             })
