@@ -172,7 +172,10 @@ pub fn test_cellbase_with_invalid_transaction() {
     let verifier = CellbaseVerifier::new(provider);
     assert_eq!(
         verifier.verify(&block),
-        Err(VerifyError::Chain(SharedError::InvalidOutput))
+        Err(VerifyError::Chain(format!(
+            "{}",
+            SharedError::InvalidOutput
+        )))
     );
 }
 

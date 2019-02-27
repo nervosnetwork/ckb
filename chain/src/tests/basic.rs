@@ -5,7 +5,7 @@ use ckb_core::block::BlockBuilder;
 use ckb_core::cell::CellProvider;
 use ckb_core::header::HeaderBuilder;
 use ckb_core::transaction::{CellInput, CellOutput, OutPoint, TransactionBuilder};
-use ckb_shared::shared::ChainProvider;
+use ckb_traits::ChainProvider;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 use std::sync::Arc;

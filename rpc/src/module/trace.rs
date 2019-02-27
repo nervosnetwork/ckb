@@ -1,7 +1,9 @@
 use ckb_core::transaction::Transaction as CoreTransaction;
 use ckb_network::NetworkService;
-use ckb_pool::txs_pool::{TransactionPoolController, TxTrace};
 use ckb_protocol::RelayMessage;
+use ckb_shared::index::ChainIndex;
+use ckb_shared::shared::Shared;
+use ckb_shared::tx_pool::TxTrace;
 use ckb_sync::RELAY_PROTOCOL_ID;
 use flatbuffers::FlatBufferBuilder;
 use jsonrpc_core::Result;
@@ -20,17 +22,16 @@ pub trait TraceRpc {
     fn get_transaction_trace(&self, _hash: H256) -> Result<Option<Vec<TxTrace>>>;
 }
 
-pub(crate) struct TraceRpcImpl {
+pub(crate) struct TraceRpcImpl<CI> {
     pub network: Arc<NetworkService>,
-    pub tx_pool: TransactionPoolController,
+    pub shared: Shared<CI>,
 }
 
-impl TraceRpc for TraceRpcImpl {
+impl<CI: ChainIndex + 'static> TraceRpc for TraceRpcImpl<CI> {
     fn trace_transaction(&self, tx: Transaction) -> Result<H256> {
         let tx: CoreTransaction = tx.into();
         let tx_hash = tx.hash().clone();
-        let pool_result = self.tx_pool.trace_transaction(tx.clone());
-        debug!(target: "rpc", "send_transaction add to pool result: {:?}", pool_result);
+        self.shared.tx_pool().write().trace_tx(tx.clone());
 
         let fbb = &mut FlatBufferBuilder::new();
         let message = RelayMessage::build_transaction(fbb, &tx);
@@ -46,6 +47,6 @@ impl TraceRpc for TraceRpcImpl {
     }
 
     fn get_transaction_trace(&self, hash: H256) -> Result<Option<Vec<TxTrace>>> {
-        Ok(self.tx_pool.get_transaction_trace(hash))
+        Ok(self.shared.tx_pool().read().get_tx_traces(&hash).cloned())
     }
 }

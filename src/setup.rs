@@ -3,8 +3,8 @@ use ckb_chain_spec::ChainSpec;
 use ckb_db::DBConfig;
 use ckb_miner::BlockAssemblerConfig;
 use ckb_network::Config as NetworkConfig;
-use ckb_pool::txs_pool::PoolConfig;
 use ckb_rpc::Config as RpcConfig;
+use ckb_shared::tx_pool::TxPoolConfig;
 use ckb_sync::Config as SyncConfig;
 use clap::ArgMatches;
 use config_tool::{Config as ConfigTool, ConfigError, File};
@@ -38,7 +38,7 @@ pub struct Configs {
     pub rpc: RpcConfig,
     pub block_assembler: BlockAssemblerConfig,
     pub sync: SyncConfig,
-    pub pool: PoolConfig,
+    pub tx_pool: TxPoolConfig,
     pub txs_verify_cache_size: usize,
 }
 

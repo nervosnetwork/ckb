@@ -17,7 +17,7 @@ where
 
     pub fn execute(self) {
         FlatbuffersVectorIterator::new(self.message.transactions().unwrap()).for_each(|tx| {
-            let _ = self.relayer.tx_pool.add_transaction(tx.into());
+            let _ = self.relayer.shared.add_tx_to_pool(tx.into());
         })
     }
 }

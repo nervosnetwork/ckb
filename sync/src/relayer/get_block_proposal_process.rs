@@ -33,13 +33,14 @@ where
         let mut pending_proposals_request = self.relayer.state.pending_proposals_request.lock();
 
         let transactions = {
+            let tx_pool = self.relayer.shared.tx_pool().read();
             self.message
                 .proposal_transactions()
                 .unwrap()
                 .iter()
                 .map(Into::into)
                 .filter_map(|short_id| {
-                    self.relayer.tx_pool.get_transaction(short_id).or({
+                    tx_pool.get_tx(&short_id).or({
                         pending_proposals_request
                             .entry(short_id)
                             .or_insert_with(Default::default)
@@ -47,7 +48,6 @@ where
                         None
                     })
                 })
-                .map(|x| x.transaction)
                 .collect::<Vec<_>>()
         };
 

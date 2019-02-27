@@ -10,8 +10,9 @@ use ckb_core::transaction::{
 use ckb_core::BlockNumber;
 use ckb_db::memorydb::MemoryKeyValueDB;
 use ckb_notify::NotifyService;
-use ckb_shared::shared::{ChainProvider, Shared, SharedBuilder};
+use ckb_shared::shared::{Shared, SharedBuilder};
 use ckb_shared::store::ChainKVStore;
+use ckb_traits::ChainProvider;
 #[cfg(not(disable_faketime))]
 use faketime;
 use numext_fixed_hash::H256;

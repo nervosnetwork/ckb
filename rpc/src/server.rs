@@ -6,7 +6,6 @@ use crate::module::{
 use ckb_chain::chain::ChainController;
 use ckb_miner::BlockAssemblerController;
 use ckb_network::NetworkService;
-use ckb_pool::txs_pool::TransactionPoolController;
 use ckb_pow::Clicker;
 use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::Shared;
@@ -25,7 +24,6 @@ impl RpcServer {
         config: Config,
         network: Arc<NetworkService>,
         shared: Shared<CI>,
-        tx_pool: TransactionPoolController,
         chain: ChainController,
         block_assembler: BlockAssemblerController,
         test_engine: Option<Arc<Clicker>>,
@@ -48,7 +46,7 @@ impl RpcServer {
             io.extend_with(
                 PoolRpcImpl {
                     network: Arc::clone(&network),
-                    tx_pool: tx_pool.clone(),
+                    shared: shared.clone(),
                 }
                 .to_delegate(),
             );
@@ -57,7 +55,7 @@ impl RpcServer {
         if config.miner_enable() {
             io.extend_with(
                 MinerRpcImpl {
-                    shared,
+                    shared: shared.clone(),
                     block_assembler,
                     chain,
                     network: Arc::clone(&network),
@@ -79,7 +77,7 @@ impl RpcServer {
             io.extend_with(
                 TraceRpcImpl {
                     network: Arc::clone(&network),
-                    tx_pool,
+                    shared,
                 }
                 .to_delegate(),
             );

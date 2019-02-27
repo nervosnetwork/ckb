@@ -19,6 +19,10 @@ numext-fixed-uint = { version = "0.1", features = ["support_rand", "support_heap
 fnv = "1.0"
 crossbeam-channel = "0.3"
 stop-handler = { path = "../util/stop-handler" }
+lru-cache = { git = "https://github.com/nervosnetwork/lru-cache" }
+serde = "1.0"
+ckb-traits = { path = "../traits" }
+failure = "0.1.5"
 
 [dev-dependencies]
 env_logger = "0.6"

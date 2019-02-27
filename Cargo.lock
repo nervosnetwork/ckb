@@ -297,11 +297,11 @@ dependencies = [
  "ckb-miner 0.7.0-pre",
  "ckb-network 0.7.0-pre",
  "ckb-notify 0.7.0-pre",
- "ckb-pool 0.7.0-pre",
  "ckb-pow 0.7.0-pre",
  "ckb-rpc 0.7.0-pre",
  "ckb-shared 0.7.0-pre",
  "ckb-sync 0.7.0-pre",
+ "ckb-traits 0.7.0-pre",
  "ckb-util 0.7.0-pre",
  "clap 2.32.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "config 0.9.2 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -331,6 +331,7 @@ dependencies = [
  "ckb-notify 0.7.0-pre",
  "ckb-pow 0.7.0-pre",
  "ckb-shared 0.7.0-pre",
+ "ckb-traits 0.7.0-pre",
  "criterion 0.2.10 (registry+https://github.com/rust-lang/crates.io-index)",
  "numext-fixed-hash 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "numext-fixed-uint 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -347,15 +348,19 @@ dependencies = [
  "ckb-db 0.7.0-pre",
  "ckb-notify 0.7.0-pre",
  "ckb-shared 0.7.0-pre",
+ "ckb-traits 0.7.0-pre",
  "ckb-verification 0.7.0-pre",
  "crossbeam-channel 0.3.8 (registry+https://github.com/rust-lang/crates.io-index)",
  "env_logger 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "failure 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "faketime 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "fnv 1.0.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
+ "lru-cache 0.1.0 (git+https://github.com/nervosnetwork/lru-cache)",
  "numext-fixed-hash 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "numext-fixed-uint 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "rand 0.6.5 (registry+https://github.com/rust-lang/crates.io-index)",
+ "serde 1.0.89 (registry+https://github.com/rust-lang/crates.io-index)",
  "stop-handler 0.7.0-pre",
  "tempfile 3.0.7 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
@@ -402,6 +407,7 @@ version = "0.7.0-pre"
 dependencies = [
  "bincode 1.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "ckb-util 0.7.0-pre",
+ "failure 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "fnv 1.0.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "rocksdb 0.11.0 (git+https://github.com/rust-rocksdb/rust-rocksdb?rev=1038c71df85a58b7f48894ca4cbf7c9228cb1cdf)",
  "serde 1.0.89 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -417,6 +423,7 @@ dependencies = [
  "ckb-chain 0.7.0-pre",
  "ckb-core 0.7.0-pre",
  "ckb-shared 0.7.0-pre",
+ "ckb-traits 0.7.0-pre",
  "indicatif 0.11.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_json 1.0.39 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
@@ -437,12 +444,13 @@ dependencies = [
  "ckb-core 0.7.0-pre",
  "ckb-db 0.7.0-pre",
  "ckb-notify 0.7.0-pre",
- "ckb-pool 0.7.0-pre",
  "ckb-pow 0.7.0-pre",
  "ckb-shared 0.7.0-pre",
+ "ckb-traits 0.7.0-pre",
  "ckb-util 0.7.0-pre",
  "ckb-verification 0.7.0-pre",
  "crossbeam-channel 0.3.8 (registry+https://github.com/rust-lang/crates.io-index)",
+ "failure 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "faketime 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "fnv 1.0.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "futures 0.1.25 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -498,34 +506,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ckb-pool"
-version = "0.7.0-pre"
-dependencies = [
- "ckb-chain 0.7.0-pre",
- "ckb-chain-spec 0.7.0-pre",
- "ckb-core 0.7.0-pre",
- "ckb-db 0.7.0-pre",
- "ckb-notify 0.7.0-pre",
- "ckb-shared 0.7.0-pre",
- "ckb-verification 0.7.0-pre",
- "crossbeam-channel 0.3.8 (registry+https://github.com/rust-lang/crates.io-index)",
- "env_logger 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "faketime 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "fnv 1.0.6 (registry+https://github.com/rust-lang/crates.io-index)",
- "hash 0.7.0-pre",
- "linked-hash-map 0.5.1 (git+https://github.com/nervosnetwork/linked-hash-map?rev=df27f21)",
- "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
- "lru-cache 0.1.0 (git+https://github.com/nervosnetwork/lru-cache)",
- "numext-fixed-hash 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
- "numext-fixed-uint 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
- "occupied-capacity 0.7.0-pre",
- "serde 1.0.89 (registry+https://github.com/rust-lang/crates.io-index)",
- "serde_derive 1.0.89 (registry+https://github.com/rust-lang/crates.io-index)",
- "stop-handler 0.7.0-pre",
- "tempfile 3.0.7 (registry+https://github.com/rust-lang/crates.io-index)",
-]
-
-[[package]]
 name = "ckb-pow"
 version = "0.7.0-pre"
 dependencies = [
@@ -566,11 +546,11 @@ dependencies = [
  "ckb-db 0.7.0-pre",
  "ckb-miner 0.7.0-pre",
  "ckb-network 0.7.0-pre",
- "ckb-pool 0.7.0-pre",
  "ckb-pow 0.7.0-pre",
  "ckb-protocol 0.7.0-pre",
  "ckb-shared 0.7.0-pre",
  "ckb-sync 0.7.0-pre",
+ "ckb-traits 0.7.0-pre",
  "ckb-verification 0.7.0-pre",
  "faster-hex 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "flatbuffers 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -615,13 +595,19 @@ dependencies = [
  "ckb-chain-spec 0.7.0-pre",
  "ckb-core 0.7.0-pre",
  "ckb-db 0.7.0-pre",
+ "ckb-traits 0.7.0-pre",
  "ckb-util 0.7.0-pre",
+ "ckb-verification 0.7.0-pre",
  "env_logger 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "failure 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "faketime 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "fnv 1.0.6 (registry+https://github.com/rust-lang/crates.io-index)",
+ "linked-hash-map 0.5.1 (git+https://github.com/nervosnetwork/linked-hash-map?rev=df27f21)",
+ "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "lru-cache 0.1.0 (git+https://github.com/nervosnetwork/lru-cache)",
  "numext-fixed-hash 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "numext-fixed-uint 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "occupied-capacity 0.7.0-pre",
  "rand 0.6.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.89 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.89 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -640,13 +626,14 @@ dependencies = [
  "ckb-db 0.7.0-pre",
  "ckb-network 0.7.0-pre",
  "ckb-notify 0.7.0-pre",
- "ckb-pool 0.7.0-pre",
  "ckb-protocol 0.7.0-pre",
  "ckb-shared 0.7.0-pre",
+ "ckb-traits 0.7.0-pre",
  "ckb-util 0.7.0-pre",
  "ckb-verification 0.7.0-pre",
  "crossbeam-channel 0.3.8 (registry+https://github.com/rust-lang/crates.io-index)",
  "env_logger 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "failure 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "faketime 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "flatbuffers 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "fnv 1.0.6 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -655,6 +642,17 @@ dependencies = [
  "numext-fixed-uint 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.89 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.89 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
+name = "ckb-traits"
+version = "0.7.0-pre"
+dependencies = [
+ "ckb-chain-spec 0.7.0-pre",
+ "ckb-core 0.7.0-pre",
+ "failure 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)",
+ "numext-fixed-hash 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "numext-fixed-uint 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -677,6 +675,8 @@ dependencies = [
  "ckb-pow 0.7.0-pre",
  "ckb-script 0.7.0-pre",
  "ckb-shared 0.7.0-pre",
+ "ckb-traits 0.7.0-pre",
+ "failure 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "faketime 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "fnv 1.0.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "hash 0.7.0-pre",

@@ -6,7 +6,8 @@ use ckb_core::header::{BlockNumber, Header};
 use ckb_core::transaction::{Capacity, OutPoint, ProposalShortId, Transaction};
 use ckb_core::uncle::UncleBlock;
 use ckb_shared::error::SharedError;
-use ckb_shared::shared::ChainProvider;
+use ckb_traits::ChainProvider;
+use failure::Error as FailureError;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 use std::collections::HashMap;
@@ -25,12 +26,9 @@ impl ChainProvider for DummyChainProvider {
     fn calculate_transaction_fee(
         &self,
         transaction: &Transaction,
-    ) -> Result<Capacity, SharedError> {
-        self.transaction_fees[&transaction.hash()].clone()
-    }
-
-    fn union_proposal_ids_n(&self, _bn: BlockNumber, _n: usize) -> Vec<Vec<ProposalShortId>> {
-        panic!("Not implemented!");
+    ) -> Result<Capacity, FailureError> {
+        let cap = self.transaction_fees[&transaction.hash()].clone()?;
+        Ok(cap)
     }
 
     fn block_ext(&self, _hash: &H256) -> Option<BlockExt> {

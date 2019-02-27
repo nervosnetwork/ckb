@@ -1,7 +1,8 @@
 use ckb_core::block::Block;
 use ckb_core::BlockNumber;
 use ckb_shared::index::ChainIndex;
-use ckb_shared::shared::{ChainProvider, Shared};
+use ckb_shared::shared::Shared;
+use ckb_traits::ChainProvider;
 
 // An iterator over the entries of a `Chain`.
 pub struct ChainIterator<CI> {

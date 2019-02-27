@@ -57,9 +57,11 @@ pub trait CellProvider {
 
     fn cell_at<F: Fn(&OutPoint) -> Option<bool>>(
         &self,
-        out_point: &OutPoint,
-        is_spent: F,
-    ) -> CellStatus;
+        _out_point: &OutPoint,
+        _is_spent: F,
+    ) -> CellStatus {
+        unreachable!()
+    }
 
     fn resolve_transaction(&self, transaction: &Transaction) -> ResolvedTransaction {
         let mut seen_inputs = FnvHashSet::default();

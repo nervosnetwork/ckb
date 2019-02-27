@@ -7,7 +7,6 @@ edition = "2018"
 
 [dependencies]
 ckb-core = { path = "../core" }
-ckb-shared = { path = "../shared" }
 ckb-script = { path = "../script" }
 ckb-pow = { path = "../pow" }
 faketime = "0.2.0"
@@ -18,6 +17,8 @@ rayon = "1.0"
 fnv = "1.0.3"
 occupied-capacity = { path = "../util/occupied-capacity" }
 lru-cache = { git = "https://github.com/nervosnetwork/lru-cache" }
+ckb-traits = { path = "../traits" }
+failure = "0.1.5"
 
 [dev-dependencies]
 ckb-db = { path = "../db" }
@@ -25,3 +26,4 @@ ckb-notify = { path = "../notify" }
 ckb-chain = { path = "../chain" }
 ckb-chain-spec = { path = "../spec" }
 hash = {path = "../util/hash"}
+ckb-shared = { path = "../shared" }
