@@ -1,7 +1,7 @@
 use super::{Multiaddr, PeerId, Score, Status};
 use crate::network_group::{Group, NetworkGroup};
 use crate::peer_store::sqlite::Error as SqliteError;
-use p2p::SessionType;
+use crate::SessionType;
 use rusqlite::types::ToSql;
 use rusqlite::OptionalExtension;
 use rusqlite::{Connection, NO_PARAMS};

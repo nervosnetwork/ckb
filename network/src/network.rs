@@ -1,14 +1,19 @@
-use crate::errors::{ConfigError, Error, PeerError};
+use crate::errors::{ConfigError, Error, PeerError, ProtocolError};
 use crate::peer_store::{Behaviour, PeerStore, SqlitePeerStore};
-use crate::peers_registry::{ConnectionStatus, Peer, PeerIdentifyInfo, PeersRegistry};
+use crate::peers_registry::{
+    ConnectionStatus, Peer, PeerIdentifyInfo, PeersRegistry, RegisterResult, Session,
+};
+use crate::protocol::Version as ProtocolVersion;
 use crate::protocol_handler::{CKBProtocolHandler, DefaultCKBProtocolContext};
 use crate::service::{
     ckb_service::CKBService,
     outbound_peer_service::OutboundPeerService,
     timer_service::{TimerRegistry, TimerService},
 };
-use crate::{CKBEvent, CKBProtocol};
-use crate::{NetworkConfig, PeerIndex, ProtocolId};
+use crate::{
+    CKBEvent, CKBProtocol, NetworkConfig, PeerIndex, ProtocolId, ServiceContext, ServiceControl,
+    SessionType,
+};
 use bytes::Bytes;
 use ckb_util::{Mutex, RwLock};
 use fnv::FnvHashMap;
@@ -21,11 +26,10 @@ use log::{debug, error, info, trace, warn};
 use multiaddr::multihash::Multihash;
 use p2p::{
     builder::ServiceBuilder,
-    context::{ServiceContext, ServiceControl},
     multiaddr::{self, Multiaddr},
+    secio::{PeerId, PublicKey},
     service::{Service, ServiceError, ServiceEvent},
     traits::ServiceHandle,
-    PeerId, PublicKey, SessionType,
 };
 use secio;
 use std::boxed::Box;
@@ -98,11 +102,10 @@ impl Network {
     }
 
     pub fn drop_peer(&self, peer_id: &PeerId) {
+        debug!(target: "network", "drop peer {:?}", peer_id);
         if let Some(peer) = self.peers_registry.write().drop_peer(&peer_id) {
             let mut p2p_control = self.p2p_control.write();
-            for s in peer.sessions {
-                p2p_control.disconnect(s.id);
-            }
+            p2p_control.disconnect(peer.session.id);
         }
     }
 
@@ -110,10 +113,8 @@ impl Network {
         debug!(target: "network", "drop all connections...");
         let mut peers_registry = self.peers_registry.write();
         let mut p2p_control = self.p2p_control.write();
-        for (peer_id, peer) in peers_registry.peers_iter() {
-            for s in &peer.sessions {
-                p2p_control.disconnect(s.id);
-            }
+        for (_peer_id, peer) in peers_registry.peers_iter() {
+            p2p_control.disconnect(peer.session.id);
         }
         peers_registry.drop_all();
     }
@@ -268,68 +269,71 @@ impl Network {
         self.peers_registry
             .read()
             .get(peer_id)
-            .map(
-                |peer| match peer.sessions.iter().find(|s| s.protocol_id == protocol_id) {
-                    Some(session) => {
-                        self.p2p_control.write().send_message(
-                            Some(vec![session.id]),
-                            session.protocol_id,
-                            data.to_vec(),
-                        );
-                        //sender.unbounded_send(data).map_err(|err| {
-                        //    Error::from(ErrorKind::Other(format!("send to error: {:?}", err)))
-                        //})?;
-                        Ok(())
-                    }
-                    None => {
-                        Err(PeerError::ProtocolNotFound(peer_id.to_owned(), protocol_id).into())
-                    }
-                },
-            )
+            .map(|peer| match peer.protocol_version(protocol_id) {
+                Some(_) => {
+                    self.p2p_control.write().send_message(
+                        peer.session.id,
+                        protocol_id,
+                        data.to_vec(),
+                    );
+                    Ok(())
+                }
+                None => Err(PeerError::ProtocolNotFound(peer_id.to_owned(), protocol_id).into()),
+            })
             .unwrap_or_else(|| Err(PeerError::NotFound(peer_id.to_owned()).into()))
     }
 
-    pub(crate) fn new_outbound_connection(
+    pub(crate) fn accept_connection(
         &self,
         peer_id: PeerId,
         connected_addr: Multiaddr,
-    ) -> Result<PeerIndex, Error> {
-        self.peers_registry
-            .write()
-            .try_outbound_peer(peer_id, connected_addr)
-    }
-
-    pub(crate) fn new_inbound_connection(
-        &self,
-        peer_id: PeerId,
-        connected_addr: Multiaddr,
-    ) -> Result<PeerIndex, Error> {
-        self.peers_registry
-            .write()
-            .accept_inbound_peer(peer_id, connected_addr)
+        session: Session,
+        protocol_id: ProtocolId,
+        protocol_version: ProtocolVersion,
+    ) -> Result<RegisterResult, Error> {
+        let mut peers_registry = self.peers_registry.write();
+        let register_result = match session.session_type {
+            SessionType::Client => {
+                peers_registry.try_outbound_peer(peer_id.clone(), connected_addr, session)
+            }
+            SessionType::Server => {
+                peers_registry.accept_inbound_peer(peer_id.clone(), connected_addr, session)
+            }
+        }?;
+        // add session to peer
+        match peers_registry.get_mut(&peer_id) {
+            Some(peer) => match peer.protocol_version(protocol_id) {
+                Some(_) => return Err(ProtocolError::Duplicate(protocol_id).into()),
+                None => {
+                    peer.protocols.push((protocol_id, protocol_version));
+                }
+            },
+            None => unreachable!("get peer after inserted"),
+        }
+        Ok(register_result)
     }
 
     pub fn peer_protocol_version(&self, peer_id: &PeerId, protocol_id: ProtocolId) -> Option<u8> {
         let peers_registry = self.peers_registry.read();
         peers_registry.get(peer_id).and_then(|peer| {
-            peer.sessions
+            peer.protocols
                 .iter()
-                .find(|s| s.protocol_id == protocol_id)
-                .map(|s| s.protocol_version)
+                .find(|(id, _)| id == &protocol_id)
+                .map(|(_, version)| *version)
         })
     }
     pub fn session_info(&self, peer_id: &PeerId, protocol_id: ProtocolId) -> Option<SessionInfo> {
         let peers_registry = self.peers_registry.read();
         peers_registry.get(peer_id).map(|peer| {
             let protocol_version = peer
-                .sessions
+                .protocols
                 .iter()
-                .find(|s| s.protocol_id == protocol_id)
-                .map(|s| s.protocol_version);
+                .find(|(id, _)| id == &protocol_id)
+                .map(|(_, version)| *version);
             SessionInfo {
                 peer: PeerInfo {
                     peer_id: peer_id.to_owned(),
-                    session_type: peer.session_type,
+                    session_type: peer.session.session_type,
                     last_ping_time: peer.last_ping_time,
                     connected_addr: peer.connected_addr.clone(),
                     identify_info: peer.identify_info.clone(),
@@ -395,7 +399,10 @@ impl Network {
         for (ckb_protocol, _) in &ckb_protocols {
             p2p_service = p2p_service.insert_protocol(ckb_protocol.clone());
         }
-        let mut p2p_service = p2p_service.build(EventHandler {});
+        let mut p2p_service = p2p_service
+            .key_pair(local_private_key.clone())
+            .build(EventHandler {});
+
         let p2p_control = p2p_service.control().clone();
         let network: Arc<Network> = Arc::new(Network {
             peers_registry: RwLock::new(peers_registry),
@@ -419,7 +426,7 @@ impl Network {
         }
         // listen local addresses
         for addr in &config.listen_addresses {
-            match p2p_service.listen(&addr) {
+            match p2p_service.listen(addr.to_owned()) {
                 Ok(listen_address) => {
                     info!(
                     target: "network",
@@ -447,7 +454,7 @@ impl Network {
         // dial reserved nodes and bootnodes
         {
             let network = Arc::clone(&network);
-            let dial_timeout = Duration::from_secs(DIAL_BOOTNODE_TIMEOUT);
+            let _dial_timeout = Duration::from_secs(DIAL_BOOTNODE_TIMEOUT);
             // dial reserved_nodes
             for (peer_id, addr) in config.reserved_peers()? {
                 network.dial(&peer_id, addr);
@@ -477,10 +484,10 @@ impl Network {
         ckb_event_receiver: Receiver<CKBEvent>,
     ) -> Result<Box<Future<Item = (), Error = Error> + Send>, Error> {
         let local_private_key = network.local_private_key().to_owned();
-        let local_peer_id: PeerId = local_private_key.to_peer_id();
-        let client_version = config.client_version.clone();
-        let protocol_version = config.protocol_version.clone();
-        let max_outbound = config.max_outbound_peers as usize;
+        let _local_peer_id: PeerId = local_private_key.to_peer_id();
+        let _client_version = config.client_version.clone();
+        let _protocol_version = config.protocol_version.clone();
+        let _max_outbound = config.max_outbound_peers as usize;
 
         // initialize ckb_protocols
         //let ping_service = Arc::new(PingService::new(config.ping_interval, config.ping_timeout));
@@ -503,12 +510,12 @@ impl Network {
             Box::new(
                 p2p_service
                     .for_each(|_| Ok(()))
-                    .map_err(|err| Error::Shutdown),
+                    .map_err(|_err| Error::Shutdown),
             ),
             Box::new(
                 ckb_service
                     .for_each(|_| Ok(()))
-                    .map_err(|err| Error::Shutdown),
+                    .map_err(|_err| Error::Shutdown),
             ),
             // Box::new(
             //     discovery_query_service
@@ -532,7 +539,7 @@ impl Network {
                     .for_each(|_| Ok(()))
                     .map_err(|_| Error::Shutdown),
             ),
-            Box::new(close_rx.map_err(|err| Error::Shutdown)),
+            Box::new(close_rx.map_err(|_err| Error::Shutdown)),
         ];
         let service_futures = select_all(futures)
             .and_then({
@@ -582,7 +589,7 @@ pub struct EventHandler {}
 
 impl ServiceHandle for EventHandler {
     fn handle_error(&mut self, _env: &mut ServiceContext, error: ServiceError) {
-        trace!(target: "network", "p2p service error: {:?}", error);
+        debug!(target: "network", "p2p service error: {:?}", error);
     }
 
     fn handle_event(&mut self, _env: &mut ServiceContext, event: ServiceEvent) {

@@ -1,5 +1,5 @@
 use crate::{PeerIndex, ProtocolId};
-use p2p::PeerId;
+use p2p::secio::PeerId;
 use std::error;
 use std::fmt;
 use std::fmt::Display;
@@ -35,6 +35,7 @@ pub enum PeerError {
 pub enum ProtocolError {
     NotFound(ProtocolId),
     DisallowRegisterTimer,
+    Duplicate(ProtocolId),
 }
 
 impl From<PeerError> for Error {

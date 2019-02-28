@@ -2,10 +2,10 @@ use super::{Behaviour, Multiaddr, PeerId, PeerStore, ReportResult, Score, Scorin
 use crate::network_group::MultiaddrExt;
 use crate::peer_store::db;
 use crate::peer_store::sqlite::{self, ConnectionPool, ConnectionPoolExt};
+use crate::SessionType;
 use faketime::unix_time;
 use fnv::FnvHashMap;
 use log::debug;
-use p2p::SessionType;
 use std::net::IpAddr;
 use std::time::Duration;
 

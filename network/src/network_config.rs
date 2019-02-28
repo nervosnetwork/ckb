@@ -62,7 +62,7 @@ impl NetworkConfig {
         let mut key: [u8; 32] = [0; 32];
         rand::thread_rng().fill(&mut key);
         self.secret_key = Some(Bytes::from(key.to_vec()));
-        secio::SecioKeyPair::secp256k1_raw_key(&key).map_err(|err| ConfigError::InvalidKey.into())
+        secio::SecioKeyPair::secp256k1_raw_key(&key).map_err(|_err| ConfigError::InvalidKey.into())
     }
 
     pub fn write_secret_key_to_file(&mut self) -> Result<(), IoError> {
@@ -83,7 +83,7 @@ impl NetworkConfig {
         if let Some(secret) = self.read_secret_key() {
             Some(
                 secio::SecioKeyPair::secp256k1_raw_key(&secret)
-                    .map_err(|err| ConfigError::InvalidKey.into()),
+                    .map_err(|_err| ConfigError::InvalidKey.into()),
             )
         } else {
             None

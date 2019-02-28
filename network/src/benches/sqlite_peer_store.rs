@@ -4,8 +4,9 @@ extern crate ckb_network;
 extern crate ckb_util;
 
 use ckb_network::{
+    multiaddr::ToMultiaddr,
     peer_store::{PeerStore, SqlitePeerStore},
-    random_peer_id, Endpoint, ToMultiaddr,
+    random_peer_id, SessionType,
 };
 use ckb_util::Mutex;
 use criterion::Criterion;
@@ -15,13 +16,11 @@ fn insert_peer_info_benchmark(c: &mut Criterion) {
     c.bench_function("insert 100 peer_info", |b| {
         b.iter({
             let mut peer_store = SqlitePeerStore::default();
-            let peer_ids = (0..100)
-                .map(|_| random_peer_id().unwrap())
-                .collect::<Vec<_>>();
+            let peer_ids = (0..100).map(|_| random_peer_id()).collect::<Vec<_>>();
             let addr = "/ip4/127.0.0.1".to_multiaddr().unwrap();
             move || {
                 for peer_id in peer_ids.clone() {
-                    peer_store.new_connected_peer(&peer_id, addr.clone(), Endpoint::Dialer);
+                    peer_store.new_connected_peer(&peer_id, addr.clone(), SessionType::Client);
                 }
             }
         })
@@ -29,13 +28,11 @@ fn insert_peer_info_benchmark(c: &mut Criterion) {
     c.bench_function("insert 1000 peer_info", |b| {
         b.iter({
             let mut peer_store = SqlitePeerStore::default();
-            let peer_ids = (0..1000)
-                .map(|_| random_peer_id().unwrap())
-                .collect::<Vec<_>>();
+            let peer_ids = (0..1000).map(|_| random_peer_id()).collect::<Vec<_>>();
             let addr = "/ip4/127.0.0.1".to_multiaddr().unwrap();
             move || {
                 for peer_id in peer_ids.clone() {
-                    peer_store.new_connected_peer(&peer_id, addr.clone(), Endpoint::Dialer);
+                    peer_store.new_connected_peer(&peer_id, addr.clone(), SessionType::Client);
                 }
             }
         })
@@ -45,13 +42,11 @@ fn insert_peer_info_benchmark(c: &mut Criterion) {
     c.bench_function("insert 100 peer_info on filesystem", move |b| {
         b.iter({
             let mut peer_store = SqlitePeerStore::temp();
-            let peer_ids = (0..100)
-                .map(|_| random_peer_id().unwrap())
-                .collect::<Vec<_>>();
+            let peer_ids = (0..100).map(|_| random_peer_id()).collect::<Vec<_>>();
             let addr = "/ip4/127.0.0.1".to_multiaddr().unwrap();
             move || {
                 for peer_id in peer_ids.clone() {
-                    peer_store.new_connected_peer(&peer_id, addr.clone(), Endpoint::Dialer);
+                    peer_store.new_connected_peer(&peer_id, addr.clone(), SessionType::Client);
                 }
             }
         })
@@ -65,8 +60,8 @@ fn random_order_benchmark(c: &mut Criterion) {
         {
             let mut peer_store = peer_store.lock();
             for _ in 0..8000 {
-                let peer_id = random_peer_id().unwrap();
-                peer_store.new_connected_peer(&peer_id, addr.clone(), Endpoint::Dialer);
+                let peer_id = random_peer_id();
+                peer_store.new_connected_peer(&peer_id, addr.clone(), SessionType::Client);
                 let _ = peer_store.add_discovered_address(&peer_id, addr.clone());
             }
         }
@@ -112,8 +107,8 @@ fn random_order_benchmark(c: &mut Criterion) {
                 let mut peer_store = SqlitePeerStore::temp();
                 let addr = "/ip4/127.0.0.1".to_multiaddr().unwrap();
                 for _ in 0..8000 {
-                    let peer_id = random_peer_id().unwrap();
-                    peer_store.new_connected_peer(&peer_id, addr.clone(), Endpoint::Dialer);
+                    let peer_id = random_peer_id();
+                    peer_store.new_connected_peer(&peer_id, addr.clone(), SessionType::Client);
                     let _ = peer_store.add_discovered_address(&peer_id, addr.clone());
                 }
                 move || {

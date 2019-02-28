@@ -1,6 +1,9 @@
 use crate::peer_store::{Behaviour, Status};
 use crate::protocol_handler::DefaultCKBProtocolContext;
-use crate::{CKBEvent, CKBProtocol, CKBProtocolHandler, Network, PeerId};
+use crate::{
+    peers_registry::RegisterResult, CKBEvent, CKBProtocol, CKBProtocolHandler, Network, PeerId,
+    SessionType,
+};
 use faketime::unix_time_as_millis;
 use futures::{
     future::{self, Future},
@@ -8,7 +11,7 @@ use futures::{
     Async, Stream,
 };
 use log::{debug, error, info, trace, warn};
-use p2p::{context::ServiceControl, multiaddr::Multiaddr, ProtocolId, SessionType};
+use p2p::{multiaddr::Multiaddr, service::ServiceControl, ProtocolId};
 use std::boxed::Box;
 use std::io::{Error as IoError, ErrorKind as IoErrorKind};
 use std::sync::Arc;
@@ -35,20 +38,17 @@ impl Stream for CKBService {
 
         let network = Arc::clone(&self.network);
         match try_ready!(self.event_receiver.poll()) {
-            Some(Connected(peer_id, addr, protocol_id, session_type, version)) => {
-                let connect_result = match session_type {
-                    SessionType::Client => {
-                        network.new_outbound_connection(peer_id.clone(), addr.clone())
-                    }
-                    SessionType::Server => {
-                        network.new_inbound_connection(peer_id.clone(), addr.clone())
-                    }
-                };
-
-                match connect_result {
-                    Ok(peer_index) => {
+            Some(Connected(peer_id, addr, session, protocol_id, protocol_version)) => {
+                match network.accept_connection(
+                    peer_id.clone(),
+                    addr.clone(),
+                    session,
+                    protocol_id,
+                    protocol_version,
+                ) {
+                    Ok(register_result) => {
                         // update status in peer_store
-                        {
+                        if let RegisterResult::New(_) = register_result {
                             let mut peer_store = network.peer_store().write();
                             peer_store.report(&peer_id, Behaviour::Connect);
                             peer_store.update_status(&peer_id, Status::Connected);
@@ -61,20 +61,19 @@ impl Stream for CKBService {
                                     Arc::clone(&network),
                                     protocol_id,
                                 )),
-                                peer_index,
+                                register_result.peer_index(),
                             ),
                             None => {
-                                error!(target: "network", "can't find protocol handler for {}", protocol_id)
+                                network.drop_peer(&peer_id);
+                                error!(target: "network", "can't find protocol handler for {:?}",session)
                             }
                         }
                     }
                     Err(err) => {
+                        network.drop_peer(&peer_id);
                         info!(target: "network", "reject connection from {} {}, because {}", peer_id.to_base58(), addr, err)
                     }
                 }
-            }
-            Some(ConnectedError(addr)) => {
-                error!(target: "network", "ckb protocol connected error, addr: {}", addr);
             }
             Some(Disconnected(peer_id, protocol_id)) => {
                 // update disconnect in peer_store

@@ -1,13 +1,13 @@
 mod db;
 pub mod sqlite;
-pub use crate::peer_store::sqlite_peer_store::SqlitePeerStore;
+pub use crate::{peer_store::sqlite_peer_store::SqlitePeerStore, SessionType};
 #[cfg(db_trace)]
 pub mod db_trace;
 pub(crate) mod sqlite_peer_store;
 
-use crate::PeerId;
+pub(crate) use crate::PeerId;
 use fnv::FnvHashMap;
-use p2p::{multiaddr::Multiaddr, SessionType};
+use p2p::multiaddr::Multiaddr;
 use std::time::Duration;
 
 #[allow(dead_code)]

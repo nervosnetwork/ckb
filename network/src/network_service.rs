@@ -95,7 +95,7 @@ impl NetworkService {
                 }
             }
         });
-        init_rx.wait().map_err(|err| Error::Shutdown)?;
+        init_rx.wait().map_err(|_err| Error::Shutdown)?;
         Ok(NetworkService {
             network,
             stop_handler: Mutex::new(Some(StopHandler::new(close_tx, join_handle))),
