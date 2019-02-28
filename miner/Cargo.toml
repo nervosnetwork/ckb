@@ -8,6 +8,7 @@ edition = "2018"
 [dependencies]
 log = "0.4"
 numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
+numext-fixed-uint = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 ckb-core = { path = "../core" }
 ckb-shared = { path = "../shared" }
 ckb-pow = { path = "../pow" }
@@ -31,8 +32,6 @@ stop-handler = { path = "../util/stop-handler" }
 proptest = "0.9"
 ckb-chain = { path = "../chain" }
 ckb-chain-spec = { path = "../spec" }
-numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
-numext-fixed-uint = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 ckb-db = { path = "../db" }
 ckb-verification = { path = "../verification" }
 ckb-pow = { path = "../pow" }

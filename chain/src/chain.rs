@@ -145,9 +145,10 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
         debug!(target: "chain", "begin processing block: {}", block.header().hash());
         if self.verification {
             let block_verifier = BlockVerifier::new(self.shared.clone());
-            block_verifier
-                .verify(&block)
-                .map_err(ProcessBlockError::Verification)?
+            block_verifier.verify(&block).map_err(|e| {
+                debug!(target: "chain", "[process_block] verification error {:?}", e);
+                ProcessBlockError::Verification(e)
+            })?
         }
         let insert_result = self
             .insert_block(&block)
@@ -250,7 +251,6 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
             new_best_block,
             fork_blks,
         } = result;
-
         if new_best_block {
             self.notify.notify_switch_fork(Arc::new(fork_blks));
             if log_enabled!(target: "chain", log::Level::Debug) {
