@@ -19,6 +19,7 @@ use jsonrpc_types::{BlockTemplate, CellbaseTemplate, TransactionTemplate, UncleT
 use log::error;
 use lru_cache::LruCache;
 use numext_fixed_hash::H256;
+use numext_fixed_uint::U256;
 use std::cmp;
 use std::sync::{atomic::AtomicUsize, atomic::Ordering, Arc};
 use std::thread;
@@ -262,7 +263,7 @@ impl<CI: ChainIndex + 'static> BlockAssembler<CI> {
         let (proposal_transactions, commit_transactions) =
             self.tx_pool.get_proposal_commit_transactions(10000, 10000);
 
-        let (uncles, bad_uncles) = self.prepare_uncles(&header);
+        let (uncles, bad_uncles) = self.prepare_uncles(&header, &difficulty);
         if !bad_uncles.is_empty() {
             for bad in bad_uncles {
                 self.candidate_uncles.remove(&bad);
@@ -331,7 +332,11 @@ impl<CI: ChainIndex + 'static> BlockAssembler<CI> {
             .build())
     }
 
-    fn prepare_uncles(&self, tip: &Header) -> (Vec<UncleBlock>, Vec<H256>) {
+    fn prepare_uncles(
+        &self,
+        tip: &Header,
+        current_difficulty: &U256,
+    ) -> (Vec<UncleBlock>, Vec<H256>) {
         let max_uncles_age = self.shared.consensus().max_uncles_age();
         let mut excluded = FnvHashSet::default();
 
@@ -359,14 +364,15 @@ impl<CI: ChainIndex + 'static> BlockAssembler<CI> {
             }
         }
 
-        let tip_difficulty_epoch =
-            tip.number() / self.shared.consensus().difficulty_adjustment_interval();
+        let current_number = tip.number() + 1;
+        let current_difficulty_epoch =
+            current_number / self.shared.consensus().difficulty_adjustment_interval();
 
         let max_uncles_len = self.shared.consensus().max_uncles_len();
         let mut included = FnvHashSet::default();
         let mut uncles = Vec::with_capacity(max_uncles_len);
         let mut bad_uncles = Vec::new();
-        let current_number = tip.number() + 1;
+
         for (hash, block) in self.candidate_uncles.iter() {
             if uncles.len() == max_uncles_len {
                 break;
@@ -375,9 +381,9 @@ impl<CI: ChainIndex + 'static> BlockAssembler<CI> {
             let block_difficulty_epoch =
                 block.header().number() / self.shared.consensus().difficulty_adjustment_interval();
 
-            // uncle must be same difficulty epoch with tip
-            if block.header().difficulty() != tip.difficulty()
-                || block_difficulty_epoch != tip_difficulty_epoch
+            // uncle must be same difficulty epoch with candidate
+            if block.header().difficulty() != current_difficulty
+                || block_difficulty_epoch != current_difficulty_epoch
             {
                 bad_uncles.push(hash.clone());
                 continue;
@@ -412,19 +418,27 @@ mod tests {
     use ckb_chain::chain::ChainBuilder;
     use ckb_chain::chain::ChainController;
     use ckb_chain_spec::consensus::Consensus;
+    use ckb_core::block::Block;
     use ckb_core::block::BlockBuilder;
-    use ckb_core::header::HeaderBuilder;
+    use ckb_core::header::{Header, HeaderBuilder};
+    use ckb_core::transaction::{
+        CellInput, CellOutput, ProposalShortId, Transaction, TransactionBuilder,
+    };
+    use ckb_core::BlockNumber;
     use ckb_db::memorydb::MemoryKeyValueDB;
     use ckb_notify::{NotifyController, NotifyService};
     use ckb_pool::txs_pool::{PoolConfig, TransactionPoolController, TransactionPoolService};
     use ckb_pow::Pow;
     use ckb_shared::index::ChainIndex;
+    use ckb_shared::shared::ChainProvider;
     use ckb_shared::shared::Shared;
     use ckb_shared::shared::SharedBuilder;
     use ckb_shared::store::ChainKVStore;
     use ckb_verification::{BlockVerifier, HeaderResolverWrapper, HeaderVerifier, Verifier};
     use jsonrpc_types::{BlockTemplate, CellbaseTemplate};
     use numext_fixed_hash::H256;
+    use numext_fixed_uint::U256;
+    use std::sync::Arc;
 
     fn start_chain(
         consensus: Option<Consensus>,
@@ -441,7 +455,9 @@ mod tests {
         let shared = builder.build();
 
         let notify = notify.unwrap_or_else(|| NotifyService::default().start::<&str>(None));
-        let chain_service = ChainBuilder::new(shared.clone(), notify.clone()).build();
+        let chain_service = ChainBuilder::new(shared.clone(), notify.clone())
+            .verification(false)
+            .build();
         let chain_controller = chain_service.start::<&str>(None);
         (chain_controller, shared, notify)
     }
@@ -471,7 +487,7 @@ mod tests {
     }
 
     #[test]
-    fn test_get_get_block_template() {
+    fn test_get_block_template() {
         let (_chain_controller, shared, notify) = start_chain(None, None);
         let tx_pool_controller = setup_tx_pool(shared.clone(), notify.clone());
         let mut block_assembler =
@@ -523,5 +539,86 @@ mod tests {
 
         let block_verify = BlockVerifier::new(shared.clone());
         assert!(block_verify.verify(&block).is_ok());
+    }
+
+    fn gen_block(parent_header: &Header, nonce: u64, difficulty: U256) -> Block {
+        let number = parent_header.number() + 1;
+        let cellbase = create_cellbase(number);
+        let header = HeaderBuilder::default()
+            .parent_hash(parent_header.hash().clone())
+            .timestamp(parent_header.timestamp() + 10)
+            .number(number)
+            .difficulty(difficulty)
+            .nonce(nonce)
+            .build();
+
+        BlockBuilder::default()
+            .header(header)
+            .commit_transaction(cellbase)
+            .proposal_transaction(ProposalShortId::from_slice(&[1; 10]).unwrap())
+            .build()
+    }
+
+    fn create_cellbase(number: BlockNumber) -> Transaction {
+        TransactionBuilder::default()
+            .input(CellInput::new_cellbase_input(number))
+            .output(CellOutput::new(0, vec![], H256::zero(), None))
+            .build()
+    }
+
+    #[test]
+    fn test_prepare_uncles() {
+        let mut consensus = Consensus::default();
+        consensus.pow_time_span = 4;
+        consensus.pow_spacing = 1;
+
+        let (chain_controller, shared, notify) = start_chain(Some(consensus), None);
+        let tx_pool_controller = setup_tx_pool(shared.clone(), notify.clone());
+        let block_assembler =
+            setup_block_assembler(tx_pool_controller, shared.clone(), H256::zero());
+        let new_uncle_receiver = notify.subscribe_new_uncle("test_prepare_uncles");
+        let new_switch_receiver = notify.subscribe_switch_fork("test_prepare_uncles_fork");
+        let block_assembler_controller = block_assembler.start(Some("test"), &notify.clone());
+
+        let genesis = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
+        let block0_0 = gen_block(&genesis, 10, genesis.difficulty().clone());
+        let block0_1 = gen_block(&genesis, 11, genesis.difficulty().clone());
+        let block1_1 = gen_block(
+            block0_1.header(),
+            10,
+            block0_1.header().difficulty().clone(),
+        );
+
+        chain_controller
+            .process_block(Arc::new(block0_1.clone()))
+            .unwrap();
+        chain_controller
+            .process_block(Arc::new(block0_0.clone()))
+            .unwrap();
+        chain_controller
+            .process_block(Arc::new(block1_1.clone()))
+            .unwrap();
+
+        // block number 3, epoch 0
+        let _ = new_uncle_receiver.recv();
+        let block_template = block_assembler_controller
+            .get_block_template(None, None, None)
+            .unwrap();
+        assert_eq!(block_template.uncles[0].hash, block0_0.header().hash());
+
+        let block2_1 = gen_block(
+            block1_1.header(),
+            10,
+            block1_1.header().difficulty().clone(),
+        );
+        chain_controller
+            .process_block(Arc::new(block2_1.clone()))
+            .unwrap();
+        let _ = new_switch_receiver.recv();
+        let block_template = block_assembler_controller
+            .get_block_template(None, None, None)
+            .unwrap();
+        // block number 4, epoch 1, block_template should not include last epoch uncles
+        assert!(block_template.uncles.is_empty());
     }
 }
