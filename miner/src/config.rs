@@ -9,6 +9,7 @@ pub struct MinerConfig {
     pub cycles_limit: Cycle,
     pub bytes_limit: usize,
     pub max_version: Version,
+    pub block_on_submit: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]

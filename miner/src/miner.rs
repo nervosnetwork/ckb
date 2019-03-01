@@ -32,6 +32,7 @@ impl Miner {
     }
     pub fn run(&self) {
         loop {
+            self.client.try_update_block_template();
             if let Some((work_id, block)) = self.mine() {
                 self.client.submit_block(&work_id, &block);
             }

@@ -122,11 +122,7 @@ impl Client {
         }
     }
 
-    pub fn run(&self) {
-        self.poll_block_template();
-    }
-
-    pub fn submit_block(
+    fn send_submit_block_request(
         &self,
         work_id: &str,
         block: &Block,
@@ -138,24 +134,38 @@ impl Client {
         self.rpc.request(method, params)
     }
 
-    fn poll_block_template(&self) {
+    pub fn submit_block(&self, work_id: &str, block: &Block) {
+        let future = self.send_submit_block_request(work_id, block);
+        if self.config.block_on_submit {
+            let _ = future.wait();
+        }
+    }
+
+    pub fn poll_block_template(&self) {
         loop {
             debug!(target: "miner", "poll block template...");
-            match self.get_block_template().wait() {
-                Ok(new) => {
-                    let work = self.current_work.upgradable_read();
-                    if work.as_ref().map_or(true, |old| old.work_id != new.work_id) {
-                        let mut write_guard = RwLockUpgradableReadGuard::upgrade(work);
-                        *write_guard = Some(new);
-                        let _ = self.new_work.send(());
-                    }
-                }
-                Err(e) => {
-                    error!(target: "miner", "rpc call get_block_template error: {:?}", e);
+            self.try_update_block_template();
+            thread::sleep(time::Duration::from_millis(self.config.poll_interval));
+        }
+    }
+
+    pub fn try_update_block_template(&self) -> bool {
+        let mut updated = false;
+        match self.get_block_template().wait() {
+            Ok(new) => {
+                let work = self.current_work.upgradable_read();
+                if work.as_ref().map_or(true, |old| old.work_id != new.work_id) {
+                    let mut write_guard = RwLockUpgradableReadGuard::upgrade(work);
+                    *write_guard = Some(new);
+                    updated = true;
+                    let _ = self.new_work.send(());
                 }
             }
-            thread::sleep(time::Duration::from_secs(self.config.poll_interval));
+            Err(e) => {
+                error!(target: "miner", "rpc call get_block_template error: {:?}", e);
+            }
         }
+        updated
     }
 
     fn get_block_template(&self) -> impl Future<Item = BlockTemplate, Error = RpcError> {
