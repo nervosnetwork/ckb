@@ -6,7 +6,7 @@ use numext_fixed_hash::H256;
 pub type Message = H256;
 
 lazy_static! {
-    pub static ref SECP256K1: secp256k1::Secp256k1 = secp256k1::Secp256k1::new();
+    pub static ref SECP256K1: secp256k1::Secp256k1<secp256k1::All> = secp256k1::Secp256k1::new();
 }
 
 mod error;

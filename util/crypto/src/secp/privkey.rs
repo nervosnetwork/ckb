@@ -18,26 +18,17 @@ impl Privkey {
     pub fn sign_recoverable(&self, message: &Message) -> Result<Signature, Error> {
         let context = &SECP256K1;
         let message = message.as_ref();
-        let privkey = key::SecretKey::from_slice(context, &self.inner.as_bytes())?;
+        let privkey = key::SecretKey::from_slice(&self.inner.as_bytes())?;
         let message = SecpMessage::from_slice(message)?;
-        let data = context.sign_recoverable(&message, &privkey)?;
-        let (rec_id, data) = data.serialize_compact(context);
+        let data = context.sign_recoverable(&message, &privkey);
+        let (rec_id, data) = data.serialize_compact();
         Ok(Signature::from_compact(rec_id, data))
-    }
-
-    pub fn sign_schnorr(&self, message: &Message) -> Result<Signature, Error> {
-        let context = &SECP256K1;
-        let message = message.as_ref();
-        let privkey = key::SecretKey::from_slice(context, &self.inner.as_bytes())?;
-        let message = SecpMessage::from_slice(message)?;
-        let data = context.sign_schnorr(&message, &privkey)?;
-        Ok(Signature::from_schnorr(data))
     }
 
     pub fn pubkey(&self) -> Result<Pubkey, Error> {
         let context = &SECP256K1;
-        let privkey = key::SecretKey::from_slice(context, &self.inner.as_bytes())?;
-        let pubkey = key::PublicKey::from_secret_key(context, &privkey)?;
+        let privkey = key::SecretKey::from_slice(&self.inner.as_bytes())?;
+        let pubkey = key::PublicKey::from_secret_key(context, &privkey);
         Ok(Pubkey::from(pubkey))
     }
 
