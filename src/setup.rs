@@ -77,13 +77,13 @@ impl Setup {
                 Some(dirs.join("network").to_string_lossy().to_string());
         }
 
-        let chain_spec = ChainSpec::read_from_file(&configs.chain.spec)
-            .map_err(|e| Box::new(ConfigError::Message(
-                        format!(
-                            "invalid chain spec {}, {}",
-                            configs.chain.spec.display(), e
-                        )
-            )))?;
+        let chain_spec = ChainSpec::read_from_file(&configs.chain.spec).map_err(|e| {
+            Box::new(ConfigError::Message(format!(
+                "invalid chain spec {}, {}",
+                configs.chain.spec.display(),
+                e
+            )))
+        })?;
 
         Ok(Setup {
             configs,
