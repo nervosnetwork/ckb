@@ -2,8 +2,8 @@
 use build_info::{get_version, Version};
 use clap::{App, AppSettings, Arg, ArgMatches, SubCommand};
 
-const CKB_CONFIG_HELP: &str = "Specify the configuration file PATH. Tries ckb.json, nodes/default.json in working directory when omitted.";
-const MINER_CONFIG_HELP: &str = "Specify the configuration file PATH. Tries miner.json, nodes/miner.json in working directory when omitted.";
+const CKB_CONFIG_HELP: &str = "Specify the configuration file PATH. Tries ckb.toml, nodes/default.toml in working directory when omitted.";
+const MINER_CONFIG_HELP: &str = "Specify the configuration file PATH. Tries miner.toml, nodes/miner.toml in working directory when omitted.";
 
 pub fn get_matches() -> ArgMatches<'static> {
     let version = get_version!();

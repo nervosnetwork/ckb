@@ -150,11 +150,11 @@ pub mod test {
         println!(
             "{:?}",
             Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("../nodes_template/spec/dev.json")
+                .join("../nodes_template/spec/dev.toml")
                 .display()
         );
         let dev = ChainSpec::read_from_file(
-            Path::new(env!("CARGO_MANIFEST_DIR")).join("../nodes_template/spec/dev.json"),
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../nodes_template/spec/dev.toml"),
         );
         assert!(dev.is_ok(), format!("{:?}", dev));
         for cell in &dev.unwrap().system_cells {

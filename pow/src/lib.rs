@@ -16,6 +16,7 @@ pub use crate::cuckoo::{Cuckoo, CuckooEngine, CuckooParams};
 pub use crate::dummy::DummyPowEngine;
 
 #[derive(Clone, Deserialize, Eq, PartialEq, Hash, Debug)]
+#[serde(tag = "func", content = "params")]
 pub enum Pow {
     Dummy,
     Clicker,

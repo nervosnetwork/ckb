@@ -8,12 +8,11 @@ use dir::Directories;
 use logger::{self, Config as LogConfig};
 use serde_derive::Deserialize;
 use std::error::Error;
-use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::thread;
 
-const DEFAULT_CONFIG_PATHS: &[&str] = &["miner.json", "nodes/miner.json"];
+const DEFAULT_CONFIG_PATHS: &[&str] = &["miner.toml", "nodes/miner.toml"];
 
 #[derive(Clone, Debug, Deserialize)]
 struct Config {
