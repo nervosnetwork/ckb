@@ -4,8 +4,10 @@ rpc_url = "http://127.0.0.1:8114/"
 cycles_limit = 100000000
 bytes_limit = 10000000
 max_version = 0
-poll_interval = 1000
 block_on_submit = true
+
+# block template polling interval in milliseconds
+poll_interval = 1000
 
 [logger]
 file = "miner.log"
