@@ -71,7 +71,7 @@ pub fn miner(matches: &ArgMatches) {
 
     thread::Builder::new()
         .name("client".to_string())
-        .spawn(move || client.run())
+        .spawn(move || client.poll_block_template())
         .expect("Start client failed!");
 
     miner.run()
