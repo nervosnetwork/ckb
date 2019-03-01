@@ -25,11 +25,8 @@ pub use p2p::{multiaddr, secio::PeerId, yamux::session::SessionType, ProtocolId}
 pub(crate) use p2p::{
     context::{ServiceContext, SessionContext},
     service::ServiceControl,
-    SessionId,
 };
 use serde_derive::Deserialize;
-use std::sync::Arc;
-use std::time::Duration;
 
 const DEFAULT_OUTGOING_PEERS_RATIO: u32 = 3;
 

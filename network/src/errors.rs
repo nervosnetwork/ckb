@@ -1,5 +1,5 @@
 use crate::{PeerIndex, ProtocolId};
-use p2p::secio::PeerId;
+use p2p::{error::Error as P2PError, secio::PeerId, service::ServiceTask};
 use std::error;
 use std::fmt;
 use std::fmt::Display;
@@ -11,6 +11,7 @@ pub enum Error {
     Config(ConfigError),
     Protocol(ProtocolError),
     Io(IoError),
+    P2P(P2PError<ServiceTask>),
     Shutdown,
 }
 
@@ -59,6 +60,12 @@ impl From<ConfigError> for Error {
 impl From<ProtocolError> for Error {
     fn from(err: ProtocolError) -> Error {
         Error::Protocol(err)
+    }
+}
+
+impl From<P2PError<ServiceTask>> for Error {
+    fn from(err: P2PError<ServiceTask>) -> Error {
+        Error::P2P(err)
     }
 }
 

@@ -1,24 +1,13 @@
-use crate::errors::{Error, ProtocolError};
-use crate::{
-    peers_registry::Session, PeerId, ServiceContext, SessionContext, SessionId, SessionType,
-};
-use bytes::BufMut;
-use bytes::{Buf, IntoBuf};
-use bytes::{Bytes, BytesMut};
-use futures::sync::mpsc::{self, Sender};
-use futures::{future, stream, Future, Sink, Stream};
-use log::{debug, error, info, trace};
+use crate::{peers_registry::Session, PeerId, ServiceContext, SessionContext};
+use bytes::Bytes;
+use futures::sync::mpsc::Sender;
+use log::error;
 use p2p::{
     multiaddr::Multiaddr,
     traits::{ProtocolMeta, ServiceProtocol},
     ProtocolId,
 };
-use std::io::{self, Error as IoError, ErrorKind as IoErrorKind};
-use std::string::ToString;
-use std::vec::IntoIter as VecIntoIter;
-use tokio::codec::Decoder;
 use tokio::codec::LengthDelimitedCodec;
-use tokio::io::{AsyncRead, AsyncWrite};
 
 pub type Version = u8;
 
@@ -86,6 +75,7 @@ impl ProtocolMeta<LengthDelimitedCodec> for CKBProtocol {
     }
 }
 
+#[derive(Debug)]
 pub enum Event {
     Connected(PeerId, Multiaddr, Session, ProtocolId, Version),
     Disconnected(PeerId, ProtocolId),
@@ -96,6 +86,14 @@ pub enum Event {
 struct CKBHandler {
     id: ProtocolId,
     event_sender: Sender<Event>,
+}
+
+impl CKBHandler {
+    fn send_event(&mut self, event: Event) {
+        if let Err(err) = self.event_sender.try_send(event) {
+            error!(target: "network", "ckb protocol send event error : {:?}", err)
+        }
+    }
 }
 
 impl ServiceProtocol for CKBHandler {
@@ -127,7 +125,7 @@ impl ServiceProtocol for CKBHandler {
             self.id,
             version,
         );
-        self.event_sender.try_send(event);
+        self.send_event(event);
     }
 
     fn disconnected(&mut self, _control: &mut ServiceContext, session: &SessionContext) {
@@ -136,8 +134,7 @@ impl ServiceProtocol for CKBHandler {
             .as_ref()
             .map(|pubkey| pubkey.peer_id())
         {
-            self.event_sender
-                .try_send(Event::Disconnected(peer_id, self.id));
+            self.send_event(Event::Disconnected(peer_id, self.id));
         }
     }
 
@@ -147,11 +144,10 @@ impl ServiceProtocol for CKBHandler {
             .as_ref()
             .map(|pubkey| pubkey.peer_id())
         {
-            self.event_sender
-                .try_send(Event::Received(peer_id, self.id, data));
+            self.send_event(Event::Received(peer_id, self.id, data));
         }
     }
     fn notify(&mut self, _control: &mut ServiceContext, token: u64) {
-        self.event_sender.try_send(Event::Notify(self.id, token));
+        self.send_event(Event::Notify(self.id, token));
     }
 }

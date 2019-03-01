@@ -1,5 +1,5 @@
 use crate::errors::{Error, PeerError, ProtocolError};
-use crate::{Network, PeerIndex, ProtocolId, SessionInfo, Timer, TimerRegistry, TimerToken};
+use crate::{Network, PeerIndex, ProtocolId, SessionInfo, TimerRegistry, TimerToken};
 use ckb_util::Mutex;
 use log::debug;
 use log::info;
@@ -97,14 +97,14 @@ impl CKBProtocolContext for DefaultCKBProtocolContext {
     fn disconnect(&self, peer_index: PeerIndex) {
         debug!(target: "network", "disconnect peer {}", peer_index);
         if let Some(peer_id) = self.network.get_peer_id(peer_index) {
-            self.network.drop_peer(&peer_id)
+            self.network.drop_peer(&peer_id);
         }
     }
     fn register_timer(&self, token: TimerToken, duration: Duration) -> Result<(), Error> {
         let (_, handler) = self
             .network
             .find_protocol(self.protocol_id)
-            .ok_or(ProtocolError::NotFound(self.protocol_id))?;
+            .ok_or_else(|| ProtocolError::NotFound(self.protocol_id))?;
         match *self.timer_registry.lock() {
             Some(ref mut timer_registry) => {
                 timer_registry.push((handler, self.protocol_id, token, duration))

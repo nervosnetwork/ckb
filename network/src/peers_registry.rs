@@ -5,11 +5,9 @@ use crate::{
     errors::{Error, PeerError},
     PeerId, PeerIndex, ProtocolId, SessionType,
 };
-use bytes::Bytes;
 use ckb_util::RwLock;
 use faketime::unix_time_as_millis;
 use fnv::{FnvHashMap, FnvHashSet};
-use futures::sync::mpsc::UnboundedSender;
 use log::debug;
 pub use p2p::{
     multiaddr::{Multiaddr, ToMultiaddr},
@@ -91,8 +89,8 @@ impl PeerManage {
                     last_ping_time: None,
                     last_message_time: None,
                     connected_time: unix_time_as_millis(),
-                    peer_index: peer_index,
-                    session: session,
+                    peer_index,
+                    session,
                     protocols: Vec::new(),
                 };
                 entry.insert(peer);

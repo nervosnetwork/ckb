@@ -1,21 +1,12 @@
 use crate::peer_store::{Behaviour, Status};
 use crate::protocol_handler::DefaultCKBProtocolContext;
-use crate::{
-    peers_registry::RegisterResult, CKBEvent, CKBProtocol, CKBProtocolHandler, Network, PeerId,
-    SessionType,
-};
+use crate::{peers_registry::RegisterResult, CKBEvent, CKBProtocolHandler, Network};
 use faketime::unix_time_as_millis;
-use futures::{
-    future::{self, Future},
-    sync::mpsc::Receiver,
-    Async, Stream,
-};
-use log::{debug, error, info, trace, warn};
-use p2p::{multiaddr::Multiaddr, service::ServiceControl, ProtocolId};
+use futures::{sync::mpsc::Receiver, Async, Stream};
+use log::{debug, error, info};
+use p2p::ProtocolId;
 use std::boxed::Box;
-use std::io::{Error as IoError, ErrorKind as IoErrorKind};
 use std::sync::Arc;
-use tokio;
 
 pub struct CKBService {
     pub event_receiver: Receiver<CKBEvent>,
@@ -52,7 +43,7 @@ impl Stream for CKBService {
                             let mut peer_store = network.peer_store().write();
                             peer_store.report(&peer_id, Behaviour::Connect);
                             peer_store.update_status(&peer_id, Status::Connected);
-                            peer_store.add_discovered_address(&peer_id, addr);
+                            let _ = peer_store.add_discovered_address(&peer_id, addr);
                         }
                         // call handler
                         match self.find_handler(protocol_id) {

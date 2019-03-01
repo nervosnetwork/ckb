@@ -670,7 +670,7 @@ impl<CI: ChainIndex> Synchronizer<CI> {
         let fbb = &mut FlatBufferBuilder::new();
         let message = SyncMessage::build_get_blocks(fbb, v_fetch);
         fbb.finish(message, None);
-        let _ = nc.send(peer, fbb.finished_data().to_vec()).unwrap();
+        let _ = nc.send(peer, fbb.finished_data().to_vec());
         debug!(target: "sync", "send_getblocks len={:?} to peer={}", v_fetch.len() , peer);
     }
 }

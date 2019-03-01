@@ -1,19 +1,9 @@
 use crate::Network;
-use crate::PeerId;
-use futures::{
-    future::{self, Future},
-    sync::mpsc::Receiver,
-    Async, Stream,
-};
-use log::{error, warn};
-use p2p::multiaddr::Multiaddr;
-use std::boxed::Box;
-use std::io::{Error as IoError, ErrorKind as IoErrorKind};
+use futures::{Async, Stream};
+use log::error;
 use std::sync::Arc;
 use std::time::Duration;
-use std::time::Instant;
 use std::usize;
-use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::timer::Interval;
 
 pub struct OutboundPeerService {

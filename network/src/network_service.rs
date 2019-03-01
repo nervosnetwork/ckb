@@ -1,10 +1,9 @@
 use crate::network::{CKBProtocols, Network};
-use crate::protocol_handler::CKBProtocolHandler;
 use crate::protocol_handler::{CKBProtocolContext, DefaultCKBProtocolContext};
-use crate::{errors::Error, CKBEvent, CKBProtocol, NetworkConfig, ProtocolId};
+use crate::{errors::Error, CKBEvent, NetworkConfig, ProtocolId};
 use ckb_util::Mutex;
 use futures::future::Future;
-use futures::sync::mpsc::{Receiver, Sender};
+use futures::sync::mpsc::Receiver;
 use futures::sync::oneshot;
 use libp2p::{Multiaddr, PeerId};
 use log::{debug, info};

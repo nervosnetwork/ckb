@@ -1,7 +1,6 @@
 use crate::errors::Error;
 use crate::protocol_handler::DefaultCKBProtocolContext;
 use crate::Network;
-use crate::PeerId;
 use crate::{CKBProtocolHandler, ProtocolId};
 use ckb_util::Mutex;
 use futures::future::{self, Future};
@@ -9,14 +8,12 @@ use futures::stream::FuturesUnordered;
 use futures::IntoFuture;
 use futures::Stream;
 use log::trace;
-use p2p::multiaddr::Multiaddr;
 use std::boxed::Box;
 use std::io::{Error as IoError, ErrorKind as IoErrorKind};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio;
-use tokio::io::{AsyncRead, AsyncWrite};
-use tokio::timer::{Error as TimerError, Interval};
+use tokio::timer::Interval;
 
 pub type TimerToken = usize;
 pub type Timer = (Arc<CKBProtocolHandler>, ProtocolId, TimerToken, Duration);

@@ -17,12 +17,11 @@ use crate::{
 use bytes::Bytes;
 use ckb_util::{Mutex, RwLock};
 use fnv::FnvHashMap;
-use futures::future::{self, select_all, Future};
-use futures::sync::mpsc::UnboundedSender;
-use futures::sync::mpsc::{Receiver, Sender};
+use futures::future::{select_all, Future};
+use futures::sync::mpsc::Receiver;
 use futures::sync::oneshot;
 use futures::Stream;
-use log::{debug, error, info, trace, warn};
+use log::{debug, error, info, warn};
 use multiaddr::multihash::Multihash;
 use p2p::{
     builder::ServiceBuilder,
@@ -34,17 +33,22 @@ use p2p::{
 use secio;
 use std::boxed::Box;
 use std::cmp::max;
-use std::io::{Error as IoError, ErrorKind as IoErrorKind};
 use std::sync::Arc;
 use std::time::Duration;
 use std::usize;
 use tokio::codec::LengthDelimitedCodec;
-use tokio::io::{AsyncRead, AsyncWrite};
 
 const DIAL_BOOTNODE_TIMEOUT: u64 = 20;
-const PEER_ADDRS_COUNT: u32 = 5;
 
 pub type CKBProtocols = Vec<(CKBProtocol, Arc<dyn CKBProtocolHandler>)>;
+type NetworkResult = Result<
+    (
+        Arc<Network>,
+        oneshot::Sender<()>,
+        Box<Future<Item = (), Error = Error> + Send>,
+    ),
+    Error,
+>;
 
 #[derive(Debug, Clone)]
 pub struct SessionInfo {
@@ -105,7 +109,9 @@ impl Network {
         debug!(target: "network", "drop peer {:?}", peer_id);
         if let Some(peer) = self.peers_registry.write().drop_peer(&peer_id) {
             let mut p2p_control = self.p2p_control.write();
-            p2p_control.disconnect(peer.session.id);
+            if let Err(err) = p2p_control.disconnect(peer.session.id) {
+                error!(target: "network", "disconnect peer error {:?}", err);
+            }
         }
     }
 
@@ -114,19 +120,15 @@ impl Network {
         let mut peers_registry = self.peers_registry.write();
         let mut p2p_control = self.p2p_control.write();
         for (_peer_id, peer) in peers_registry.peers_iter() {
-            p2p_control.disconnect(peer.session.id);
+            if let Err(err) = p2p_control.disconnect(peer.session.id) {
+                error!(target: "network", "disconnect peer error {:?}", err);
+            }
         }
         peers_registry.drop_all();
     }
 
     pub fn local_peer_id(&self) -> &PeerId {
         &self.local_peer_id
-    }
-
-    pub(crate) fn discovery_listened_address(&self, addr: Multiaddr) {
-        let mut listened_addresses = self.listened_addresses.write();
-        let score = listened_addresses.entry(addr).or_insert(0);
-        *score = score.saturating_add(1);
     }
 
     pub(crate) fn listened_addresses(&self, count: usize) -> Vec<(Multiaddr, u8)> {
@@ -167,34 +169,6 @@ impl Network {
             }
             None => false,
         }
-    }
-
-    pub(crate) fn get_peer_identify_info(&self, peer_id: &PeerId) -> Option<PeerIdentifyInfo> {
-        let peers_registry = self.peers_registry.read();
-        peers_registry
-            .get(peer_id)
-            .and_then(|peer| peer.identify_info.clone())
-    }
-
-    pub(crate) fn set_peer_identify_info(
-        &self,
-        peer_id: &PeerId,
-        identify_info: PeerIdentifyInfo,
-    ) -> Result<(), ()> {
-        let mut peers_registry = self.peers_registry.write();
-        match peers_registry.get_mut(peer_id) {
-            Some(peer) => {
-                peer.identify_info = Some(identify_info);
-                Ok(())
-            }
-            None => Err(()),
-        }
-    }
-
-    pub(crate) fn get_peer_addresses(&self, peer_id: &PeerId) -> Vec<Multiaddr> {
-        let peer_store = self.peer_store.read();
-        let addrs = peer_store.peer_addrs(&peer_id, PEER_ADDRS_COUNT);
-        addrs.unwrap_or_default()
     }
 
     pub(crate) fn peers(&self) -> impl Iterator<Item = PeerId> {
@@ -270,14 +244,11 @@ impl Network {
             .read()
             .get(peer_id)
             .map(|peer| match peer.protocol_version(protocol_id) {
-                Some(_) => {
-                    self.p2p_control.write().send_message(
-                        peer.session.id,
-                        protocol_id,
-                        data.to_vec(),
-                    );
-                    Ok(())
-                }
+                Some(_) => self
+                    .p2p_control
+                    .write()
+                    .send_message(peer.session.id, protocol_id, data.to_vec())
+                    .map_err(Into::into),
                 None => Err(PeerError::ProtocolNotFound(peer_id.to_owned(), protocol_id).into()),
             })
             .unwrap_or_else(|| Err(PeerError::NotFound(peer_id.to_owned()).into()))
@@ -343,6 +314,12 @@ impl Network {
         })
     }
 
+    pub fn dial_addr(&self, addr: Multiaddr) {
+        if let Err(err) = self.p2p_control.write().dial(addr) {
+            error!(target: "network", "failed to dial: {}", err);
+        }
+    }
+
     pub fn dial(&self, expected_peer_id: &PeerId, mut addr: Multiaddr) {
         if expected_peer_id == self.local_peer_id() {
             debug!(target: "network", "ignore dial to self");
@@ -352,7 +329,7 @@ impl Network {
         match Multihash::from_bytes(expected_peer_id.as_bytes().to_vec()) {
             Ok(peer_id_hash) => {
                 addr.append(multiaddr::Protocol::P2p(peer_id_hash));
-                self.p2p_control.write().dial(addr);
+                self.dial_addr(addr);
             }
             Err(err) => {
                 error!(target: "network", "failed to convert peer_id to addr: {}", err);
@@ -563,14 +540,7 @@ impl Network {
         config: &NetworkConfig,
         ckb_protocols: CKBProtocols,
         ckb_event_receiver: Receiver<CKBEvent>,
-    ) -> Result<
-        (
-            Arc<Self>,
-            oneshot::Sender<()>,
-            Box<Future<Item = (), Error = Error> + Send>,
-        ),
-        Error,
-    > {
+    ) -> NetworkResult {
         let (network, p2p_service, timer_registry) = Self::inner_build(config, ckb_protocols)?;
         let (close_tx, close_rx) = oneshot::channel();
         let network_future = Self::build_network_future(
