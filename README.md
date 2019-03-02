@@ -147,13 +147,7 @@ cp nodes/default.toml nodes/node2.toml
 Update `data_dir` configuration in config file to a different directory.
 
 ```
-"data_dir": "node2"
-```
-
-or using a simple shell command to modify the config file:
-
-```shell
-ex -sc '%s/"data_dir": "default"/"data_dir": "node2"/|x' nodes/node2.toml
+data_dir = "node2"
 ```
 
 Then start the new node using the new config file
@@ -162,6 +156,6 @@ Then start the new node using the new config file
 target/release/ckb run -c nodes/node2.toml
 ```
 
-The option `ckb.chain` configures the chain spec. It accepts a path to the spec JSON file. The directory `nodes_template/spec` has all the pre-defined specs. Please note that nodes with different chain specs may fail to connect with each other.
+The option `ckb.chain` configures the chain spec. It accepts a path to the spec toml file. The directory `nodes_template/spec` has all the pre-defined specs. Please note that nodes with different chain specs may fail to connect with each other.
 
 The chain spec can switch between different PoW engines. Wiki has the [instructions](https://github.com/nervosnetwork/ckb/wiki/PoW-Engines) about how to configure it.
