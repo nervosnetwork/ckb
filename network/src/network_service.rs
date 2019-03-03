@@ -11,6 +11,7 @@ use log::{debug, info};
 use std::sync::Arc;
 use std::thread;
 use tokio::runtime;
+use libp2p::{PeerId, Multiaddr};
 
 pub struct StopHandler {
     signal: oneshot::Sender<()>,
@@ -108,5 +109,9 @@ impl NetworkService {
             .take()
             .expect("network_service can only close once");
         handler.close();
+    }
+
+    pub fn add_node(&self, peer_id: &PeerId, address: Multiaddr) {
+        self.network.add_node(peer_id, address)
     }
 }
