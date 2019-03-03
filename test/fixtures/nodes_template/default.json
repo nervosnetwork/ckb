@@ -16,21 +16,22 @@
     },
     "logger": {
         "file": "ckb.log",
-        "filter": "info",
+        "filter": "info,network=trace,rpc=debug",
         "color": true
     },
     "network": {
-        "listen_addresses": ["/ip4/0.0.0.0/tcp/P2P_PORT"],
+        "listen_addresses": ["/ip4/127.0.0.1/tcp/P2P_PORT"],
         "bootnodes": [],
         "reserved_nodes": [],
         "only_reserved_peers": false,
         "min_peers": 4,
         "max_peers": 8,
         "secret_file": "secret",
-        "nodes_file": "nodes.json"
+        "nodes_file": "nodes.json",
+        "try_outbound_connect_interval": 1
     },
     "rpc": {
-        "listen_address": "0.0.0.0:RPC_PORT",
+        "listen_address": "127.0.0.1:RPC_PORT",
         "modules": ["Net", "Pool", "Miner", "Chain"],
         "max_request_body_size": 10485760
     },
@@ -47,7 +48,7 @@
         "trace": 100
     },
     "block_assembler": {
-        "type_hash": "0x0da2fe99fe549e082d4ed483c2e968a89ea8d11aabf5d79e5cbf06522de6e674"
+        "type_hash": "0x182c0b72876ec3a803992ef46076bfdb122b0d3916e747d7dabaa728affaa0be"
     },
     "txs_verify_cache_size": 100000
 }

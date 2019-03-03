@@ -7,11 +7,11 @@ use crate::{Error, ErrorKind, ProtocolId};
 use ckb_util::Mutex;
 use futures::future::Future;
 use futures::sync::oneshot;
+use libp2p::{Multiaddr, PeerId};
 use log::{debug, info};
 use std::sync::Arc;
 use std::thread;
 use tokio::runtime;
-use libp2p::{PeerId, Multiaddr};
 
 pub struct StopHandler {
     signal: oneshot::Sender<()>,

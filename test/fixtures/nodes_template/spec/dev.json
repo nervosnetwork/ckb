@@ -38,10 +38,5 @@
     "system_cells": [
         {"path": "cells/always_success"}
     ],
-    "pow": {
-        "Cuckoo": {
-            "edge_bits": 15,
-            "cycle_length": 12
-        }
-    }
+    "pow": "Clicker"
 }

@@ -51,6 +51,9 @@ impl<CI: ChainIndex + 'static> PoolRpc for PoolRpcImpl<CI> {
 
     fn get_pool_transaction(&self, hash: H256) -> Result<Option<Transaction>> {
         let id = ProposalShortId::from_h256(&hash);
-        Ok(self.tx_pool.get_transaction(id).map(|entry| (&entry.transaction).into()))
+        Ok(self
+            .tx_pool
+            .get_transaction(id)
+            .map(|entry| (&entry.transaction).into()))
     }
 }
