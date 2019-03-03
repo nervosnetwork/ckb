@@ -126,6 +126,7 @@ impl Node {
         loop {
             if let Ok(result) = client.local_node_info().call() {
                 info!("RPC service ready, {:?}", result);
+                break
             }
             sleep(1);
         }
