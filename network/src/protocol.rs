@@ -10,6 +10,7 @@ use p2p::{
 use tokio::codec::LengthDelimitedCodec;
 
 pub type Version = u8;
+const CKB_PROTOCOL_ID_OFFSET: ProtocolId = 100;
 
 #[derive(Clone)]
 pub struct CKBProtocol {
@@ -43,7 +44,7 @@ impl CKBProtocol {
         }
     }
     pub fn id(&self) -> ProtocolId {
-        self.id
+        self.id + CKB_PROTOCOL_ID_OFFSET
     }
     pub fn base_name(&self) -> Bytes {
         self.base_name.clone()

@@ -6,7 +6,6 @@ use crate::{
     PeerId, PeerIndex, ProtocolId, SessionType,
 };
 use ckb_util::RwLock;
-use faketime::unix_time_as_millis;
 use fnv::{FnvHashMap, FnvHashSet};
 use log::debug;
 pub use p2p::{
@@ -18,6 +17,7 @@ use rand::thread_rng;
 use std::collections::hash_map::Entry;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 pub(crate) const EVICTION_PROTECT_PEERS: usize = 8;
 
@@ -88,7 +88,7 @@ impl PeerManage {
                     ping: None,
                     last_ping_time: None,
                     last_message_time: None,
-                    connected_time: unix_time_as_millis(),
+                    connected_time: Instant::now(),
                     peer_index,
                     session,
                     protocols: Vec::new(),
@@ -136,10 +136,10 @@ pub struct Peer {
     pub connected_addr: Multiaddr,
     // Client or Server
     pub identify_info: Option<PeerIdentifyInfo>,
-    pub last_ping_time: Option<u64>,
-    pub last_message_time: Option<u64>,
-    pub ping: Option<u64>,
-    pub connected_time: u64,
+    pub last_ping_time: Option<Instant>,
+    pub last_message_time: Option<Instant>,
+    pub ping: Option<Duration>,
+    pub connected_time: Instant,
     pub session: Session,
     pub protocols: Vec<(ProtocolId, Version)>,
 }
@@ -331,8 +331,14 @@ impl PeersRegistry {
                 &mut candidate_peers,
                 EVICTION_PROTECT_PEERS,
                 |(_, peer1), (_, peer2)| {
-                    let peer1_ping = peer1.ping.unwrap_or_else(|| std::u64::MAX);
-                    let peer2_ping = peer2.ping.unwrap_or_else(|| std::u64::MAX);
+                    let peer1_ping = peer1
+                        .ping
+                        .map(|p| p.as_secs())
+                        .unwrap_or_else(|| std::u64::MAX);
+                    let peer2_ping = peer2
+                        .ping
+                        .map(|p| p.as_secs())
+                        .unwrap_or_else(|| std::u64::MAX);
                     peer2_ping.cmp(&peer1_ping)
                 },
             );
@@ -342,9 +348,15 @@ impl PeersRegistry {
                 &mut candidate_peers,
                 EVICTION_PROTECT_PEERS,
                 |(_, peer1), (_, peer2)| {
-                    let peer1_last_message_time = peer1.last_message_time.unwrap_or_default();
-                    let peer2_last_message_time = peer2.last_message_time.unwrap_or_default();
-                    peer1_last_message_time.cmp(&peer2_last_message_time)
+                    let peer1_last_message = peer1
+                        .last_message_time
+                        .map(|t| t.elapsed().as_secs())
+                        .unwrap_or_else(|| std::u64::MAX);
+                    let peer2_last_message = peer2
+                        .last_message_time
+                        .map(|t| t.elapsed().as_secs())
+                        .unwrap_or_else(|| std::u64::MAX);
+                    peer2_last_message.cmp(&peer1_last_message)
                 },
             );
             // Protect half peers which have the longest connection time

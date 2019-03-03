@@ -5,8 +5,8 @@ use crate::{
     random_peer_id, SessionType,
 };
 use ckb_util::RwLock;
-use faketime::unix_time_as_millis;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 fn new_peer_store() -> Arc<RwLock<dyn PeerStore>> {
     Arc::new(RwLock::new(SqlitePeerStore::temp()))
@@ -127,20 +127,22 @@ fn test_accept_inbound_peer_eviction() {
     for _ in 0..EVICTION_PROTECT_PEERS {
         let peer_id = peers_iter.next().unwrap();
         let mut peer = peers_registry.get_mut(&peer_id).unwrap();
-        peer.ping = Some(0);
+        peer.ping = Some(Duration::from_secs(0));
     }
+
+    // to prevent time error, we set now to 10000s ago.
+    let now = Instant::now() - Duration::from_secs(10000);
     // peers which most recently sent messages
-    let now = unix_time_as_millis();
     for _ in 0..EVICTION_PROTECT_PEERS {
         let peer_id = peers_iter.next().unwrap();
         let mut peer = peers_registry.get_mut(&peer_id).unwrap();
-        peer.last_message_time = Some(now + 10000);
+        peer.last_message_time = Some(now + Duration::from_secs(10000));
     }
     // protect 5 peers which have the longest connection time
     for _ in 0..longest_connection_time_peers_count {
         let peer_id = peers_iter.next().unwrap();
         let mut peer = peers_registry.get_mut(&peer_id).unwrap();
-        peer.connected_time = now.saturating_sub(10000);
+        peer.connected_time = now - Duration::from_secs(10000);
     }
     let mut new_peer_ids = (0..3).map(|_| random_peer_id()).collect::<Vec<_>>();
     // setup 3 node and 1 reserved node from addr1
@@ -182,7 +184,7 @@ fn test_accept_inbound_peer_eviction() {
     for peer_id in new_peer_ids {
         let mut peer = peers_registry.get_mut(&peer_id).unwrap();
         // push the connected_time to make sure peer is unprotect
-        peer.connected_time = now + 10000;
+        peer.connected_time = now + Duration::from_secs(10000);
     }
     // should evict evict target
     assert!(peers_registry.get(&evict_target).is_some());

@@ -1,12 +1,12 @@
 use crate::peer_store::{Behaviour, Status};
 use crate::protocol_handler::DefaultCKBProtocolContext;
 use crate::{peers_registry::RegisterResult, CKBEvent, CKBProtocolHandler, Network};
-use faketime::unix_time_as_millis;
 use futures::{sync::mpsc::Receiver, Async, Stream};
 use log::{debug, error, info};
 use p2p::ProtocolId;
 use std::boxed::Box;
 use std::sync::Arc;
+use std::time::Instant;
 
 pub struct CKBService {
     pub event_receiver: Receiver<CKBEvent>,
@@ -92,8 +92,9 @@ impl Stream for CKBService {
                 network.drop_peer(&peer_id);
             }
             Some(Received(peer_id, protocol_id, data)) => {
+                let now = Instant::now();
                 network.modify_peer(&peer_id, |peer| {
-                    peer.last_message_time = Some(unix_time_as_millis())
+                    peer.last_message_time = Some(now);
                 });
                 let peer_index = network.get_peer_index(&peer_id).expect("peer_index");
                 match self.find_handler(protocol_id) {
@@ -111,7 +112,7 @@ impl Stream for CKBService {
                 debug!(target: "network", "receive ckb timer notify, protocol_id: {} token: {}", protocol_id, token);
             }
             None => {
-                error!(target: "network", "ckb service should not stop");
+                debug!(target: "network", "ckb service shutdown");
                 return Ok(Async::Ready(None));
             }
         }

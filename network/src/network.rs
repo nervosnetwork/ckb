@@ -8,6 +8,7 @@ use crate::protocol_handler::{CKBProtocolHandler, DefaultCKBProtocolContext};
 use crate::service::{
     ckb_service::CKBService,
     outbound_peer_service::OutboundPeerService,
+    ping_service::PingService,
     timer_service::{TimerRegistry, TimerService},
 };
 use crate::{
@@ -18,6 +19,7 @@ use bytes::Bytes;
 use ckb_util::{Mutex, RwLock};
 use fnv::FnvHashMap;
 use futures::future::{select_all, Future};
+use futures::sync::mpsc::channel;
 use futures::sync::mpsc::Receiver;
 use futures::sync::oneshot;
 use futures::Stream;
@@ -30,15 +32,17 @@ use p2p::{
     service::{Service, ServiceError, ServiceEvent},
     traits::ServiceHandle,
 };
+use p2p_ping::{Event as PingEvent, PingProtocol};
 use secio;
 use std::boxed::Box;
 use std::cmp::max;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use std::usize;
 use tokio::codec::LengthDelimitedCodec;
 
 const DIAL_BOOTNODE_TIMEOUT: u64 = 20;
+const PING_PROTOCOL_ID: ProtocolId = 0;
 
 pub type CKBProtocols = Vec<(CKBProtocol, Arc<dyn CKBProtocolHandler>)>;
 type NetworkResult = Result<
@@ -60,7 +64,7 @@ pub struct SessionInfo {
 pub struct PeerInfo {
     pub peer_id: PeerId,
     pub session_type: SessionType,
-    pub last_ping_time: Option<u64>,
+    pub last_ping_time: Option<Instant>,
     pub connected_addr: Multiaddr,
     pub identify_info: Option<PeerIdentifyInfo>,
 }
@@ -219,7 +223,7 @@ impl Network {
     }
 
     pub fn node_id(&self) -> String {
-        self.local_private_key.to_peer_id().to_base58()
+        self.local_private_key().to_peer_id().to_base58()
     }
 
     // A workaround method for `add_node` rpc call, need to re-write it after new p2p lib integration.
@@ -340,7 +344,7 @@ impl Network {
     pub(crate) fn inner_build(
         config: &NetworkConfig,
         ckb_protocols: CKBProtocols,
-    ) -> Result<(Arc<Self>, P2PService, TimerRegistry), Error> {
+    ) -> Result<(Arc<Self>, P2PService, TimerRegistry, Receiver<PingEvent>), Error> {
         let local_private_key = match config.fetch_private_key() {
             Some(private_key) => private_key?,
             None => return Err(ConfigError::InvalidKey.into()),
@@ -373,6 +377,13 @@ impl Network {
         );
         let mut p2p_service = ServiceBuilder::default().forever(true);
         // register protocols
+        let (ping_sender, ping_receiver) = channel(std::u8::MAX as usize);
+        p2p_service = p2p_service.insert_protocol(PingProtocol::new(
+            PING_PROTOCOL_ID,
+            config.ping_interval,
+            config.ping_timeout,
+            ping_sender,
+        ));
         for (ckb_protocol, _) in &ckb_protocols {
             p2p_service = p2p_service.insert_protocol(ckb_protocol.clone());
         }
@@ -449,7 +460,7 @@ impl Network {
             }
         }
 
-        Ok((network, p2p_service, timer_registry))
+        Ok((network, p2p_service, timer_registry, ping_receiver))
     }
 
     pub(crate) fn build_network_future(
@@ -459,15 +470,13 @@ impl Network {
         p2p_service: P2PService,
         timer_registry: TimerRegistry,
         ckb_event_receiver: Receiver<CKBEvent>,
+        ping_event_receiver: Receiver<PingEvent>,
     ) -> Result<Box<Future<Item = (), Error = Error> + Send>, Error> {
-        let local_private_key = network.local_private_key().to_owned();
-        let _local_peer_id: PeerId = local_private_key.to_peer_id();
-        let _client_version = config.client_version.clone();
-        let _protocol_version = config.protocol_version.clone();
-        let _max_outbound = config.max_outbound_peers as usize;
-
         // initialize ckb_protocols
-        //let ping_service = Arc::new(PingService::new(config.ping_interval, config.ping_timeout));
+        let ping_service = PingService {
+            network: Arc::clone(&network),
+            event_receiver: ping_event_receiver,
+        };
         //let identify_service = Arc::new(IdentifyService {
         //    client_version,
         //    protocol_version,
@@ -494,17 +503,17 @@ impl Network {
                     .for_each(|_| Ok(()))
                     .map_err(|_err| Error::Shutdown),
             ),
+            Box::new(
+                ping_service
+                    .for_each(|_| Ok(()))
+                    .map_err(|_err| Error::Shutdown),
+            ),
             // Box::new(
             //     discovery_query_service
             //         .into_future()
             //         .map(|_| ())
             //         .map_err(|(err, _)| err),
             // ) as Box<Future<Item = (), Error = IoError> + Send>,
-            //ping_service.start_protocol(
-            //    Arc::clone(&network),
-            //    swarm_controller.clone(),
-            //    basic_transport.clone(),
-            //),
             //identify_service.start_protocol(
             //    Arc::clone(&network),
             //    swarm_controller.clone(),
@@ -541,7 +550,8 @@ impl Network {
         ckb_protocols: CKBProtocols,
         ckb_event_receiver: Receiver<CKBEvent>,
     ) -> NetworkResult {
-        let (network, p2p_service, timer_registry) = Self::inner_build(config, ckb_protocols)?;
+        let (network, p2p_service, timer_registry, ping_event_receiver) =
+            Self::inner_build(config, ckb_protocols)?;
         let (close_tx, close_rx) = oneshot::channel();
         let network_future = Self::build_network_future(
             Arc::clone(&network),
@@ -550,6 +560,7 @@ impl Network {
             p2p_service,
             timer_registry,
             ckb_event_receiver,
+            ping_event_receiver,
         )?;
         Ok((network, close_tx, network_future))
     }

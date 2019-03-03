@@ -30,6 +30,7 @@ pub struct NetworkConfig {
     pub config_dir_path: Option<String>,
     pub bootnodes: Vec<String>,
     pub ping_interval: Duration,
+    pub ping_timeout: Duration,
     pub discovery_timeout: Duration,
     pub discovery_response_count: usize,
     pub discovery_interval: Duration,
@@ -143,7 +144,8 @@ impl Default for NetworkConfig {
             bootnodes: vec![],
             config_dir_path: None,
             // protocol services config
-            ping_interval: Duration::from_secs(30),
+            ping_interval: Duration::from_secs(15),
+            ping_timeout: Duration::from_secs(20),
             discovery_timeout: Duration::from_secs(20),
             discovery_response_count: 20,
             discovery_interval: Duration::from_secs(15),
