@@ -30,7 +30,7 @@ use std::sync::Arc;
 pub struct Shared<CI> {
     store: Arc<CI>,
     chain_state: Arc<RwLock<ChainState>>,
-    txs_verify_cache: Arc<RwLock<Option<LruCache<H256, Cycle>>>>,
+    txs_verify_cache: Arc<RwLock<LruCache<H256, Cycle>>>,
     consensus: Arc<Consensus>,
     tx_pool: Arc<RwLock<TxPool>>,
 }
@@ -52,7 +52,7 @@ impl<CI: ChainIndex> Shared<CI> {
     pub fn new(
         store: CI,
         consensus: Consensus,
-        txs_verify_cache: Arc<RwLock<Option<LruCache<H256, Cycle>>>>,
+        txs_verify_cache_size: usize,
         tx_pool_config: TxPoolConfig,
     ) -> Self {
         let chain_state = {
@@ -90,7 +90,7 @@ impl<CI: ChainIndex> Shared<CI> {
         Shared {
             store: Arc::new(store),
             chain_state,
-            txs_verify_cache,
+            txs_verify_cache: Arc::new(RwLock::new(LruCache::new(txs_verify_cache_size))),
             consensus: Arc::new(consensus),
             tx_pool: Arc::new(RwLock::new(TxPool::new(tx_pool_config))),
         }
@@ -104,7 +104,7 @@ impl<CI: ChainIndex> Shared<CI> {
         &self.store
     }
 
-    pub fn txs_verify_cache(&self) -> &RwLock<Option<LruCache<H256, Cycle>>> {
+    pub fn txs_verify_cache(&self) -> &RwLock<LruCache<H256, Cycle>> {
         &self.txs_verify_cache
     }
 
@@ -202,21 +202,16 @@ impl<CI: ChainIndex> Shared<CI> {
     fn verify_rtx(
         &self,
         rtx: &ResolvedTransaction,
-        txs_cache: &mut Option<LruCache<H256, Cycle>>,
+        txs_cache: &mut LruCache<H256, Cycle>,
     ) -> Result<Cycle, TransactionError> {
         let tx_hash = rtx.transaction.hash();
-        match txs_cache
-            .as_ref()
-            .and_then(|cache| cache.get(&tx_hash).cloned())
-        {
-            Some(cycles) => Ok(cycles),
+        match txs_cache.get(&tx_hash) {
+            Some(cycles) => Ok(*cycles),
             None => {
                 let cycles =
                     TransactionVerifier::new(&rtx).verify(self.consensus.max_block_cycles())?;
                 // write cache
-                txs_cache
-                    .as_mut()
-                    .and_then(|cache| cache.insert(tx_hash, cycles));
+                txs_cache.insert(tx_hash, cycles);
                 Ok(cycles)
             }
         }
@@ -251,7 +246,7 @@ impl<CI: ChainIndex> Shared<CI> {
         &self,
         chain_state: &ChainState,
         tx_pool: &mut TxPool,
-        txs_cache: &mut Option<LruCache<H256, Cycle>>,
+        txs_cache: &mut LruCache<H256, Cycle>,
         mut entry: PoolEntry,
     ) -> Result<PromoteTxResult, PoolError> {
         let tx = &entry.transaction;
@@ -330,7 +325,7 @@ impl<CI: ChainIndex> Shared<CI> {
         &self,
         chain_state: &ChainState,
         tx_pool: &mut TxPool,
-        txs_cache: &mut Option<LruCache<H256, Cycle>>,
+        txs_cache: &mut LruCache<H256, Cycle>,
         tx: &Transaction,
     ) {
         let entries = tx_pool.orphan.reconcile_tx(tx);
@@ -692,16 +687,18 @@ impl SharedBuilder<CacheDB<RocksDB>> {
         ));
         self
     }
-
-    pub fn tx_pool_config(mut self, config: TxPoolConfig) -> Self {
-        self.tx_pool_config = Some(config);
-        self
-    }
 }
+
+pub const MIN_TXS_VERIFY_CACHE_SIZE: Option<usize> = Some(100);
 
 impl<DB: 'static + KeyValueDB> SharedBuilder<DB> {
     pub fn consensus(mut self, value: Consensus) -> Self {
         self.consensus = Some(value);
+        self
+    }
+
+    pub fn tx_pool_config(mut self, config: TxPoolConfig) -> Self {
+        self.tx_pool_config = Some(config);
         self
     }
 
@@ -714,11 +711,9 @@ impl<DB: 'static + KeyValueDB> SharedBuilder<DB> {
         let store = ChainKVStore::new(self.db.unwrap());
         let consensus = self.consensus.unwrap_or_else(Consensus::default);
         let tx_pool_config = self.tx_pool_config.unwrap_or_else(Default::default);
-        Shared::new(
-            store,
-            consensus,
-            Arc::new(RwLock::new(self.txs_verify_cache_size.map(LruCache::new))),
-            tx_pool_config,
-        )
+        let txs_verify_cache_size =
+            std::cmp::max(MIN_TXS_VERIFY_CACHE_SIZE, self.txs_verify_cache_size)
+                .expect("txs_verify_cache_size MUST not be none");
+        Shared::new(store, consensus, txs_verify_cache_size, tx_pool_config)
     }
 }
