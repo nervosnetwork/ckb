@@ -403,7 +403,7 @@ impl TransactionsVerifier {
 
     pub fn verify<F: Fn(&OutPoint) -> CellStatus>(
         &self,
-        txs_verify_cache: &mut Option<LruCache<H256, Cycle>>,
+        txs_verify_cache: &mut LruCache<H256, Cycle>,
         block: &Block,
         cell_resolver: F,
     ) -> Result<(), Error> {
@@ -442,10 +442,7 @@ impl TransactionsVerifier {
             .par_iter()
             .enumerate()
             .map(|(index, tx)| {
-                if let Some(cycles) = txs_verify_cache
-                    .as_ref()
-                    .and_then(|cache| cache.get(&tx.transaction.hash()))
-                {
+                if let Some(cycles) = txs_verify_cache.get(&tx.transaction.hash()) {
                     InputVerifier::new(&tx)
                         .verify()
                         .map_err(|e| Error::Transactions((index, e)))
@@ -463,9 +460,7 @@ impl TransactionsVerifier {
 
         for (hash, cycles) in cycles_set {
             if let Some(h) = hash {
-                txs_verify_cache
-                    .as_mut()
-                    .map(|cache| cache.insert(h, cycles));
+                txs_verify_cache.insert(h, cycles);
             }
         }
 
