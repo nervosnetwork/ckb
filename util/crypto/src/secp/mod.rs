@@ -24,12 +24,20 @@ pub use self::signature::Signature;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rand::{self, Rng};
+
+    fn random_message() -> Message {
+        let mut message = Message::default();
+        let mut rng = rand::thread_rng();
+        rng.fill(message.as_mut());
+        message
+    }
 
     #[test]
     fn test_sign_verify() {
         let gen = Generator::new();
         let (privkey, pubkey) = gen.random_keypair().unwrap();
-        let message = Message::default();
+        let message = random_message();
         let signature = privkey.sign_recoverable(&message).unwrap();
         assert!(pubkey.verify(&message, &signature).is_ok());
     }
@@ -38,27 +46,9 @@ mod tests {
     fn test_recover() {
         let gen = Generator::new();
         let (privkey, pubkey) = gen.random_keypair().unwrap();
-        let message = Message::default();
+        let message = random_message();
         let signature = privkey.sign_recoverable(&message).unwrap();
         assert_eq!(pubkey, signature.recover(&message).unwrap());
-    }
-
-    #[test]
-    fn test_schnorr_sign_verify() {
-        let gen = Generator::new();
-        let (privkey, pubkey) = gen.random_keypair().unwrap();
-        let message = Message::default();
-        let signature = privkey.sign_schnorr(&message).unwrap();
-        assert!(pubkey.verify_schnorr(&message, &signature).is_ok());
-    }
-
-    #[test]
-    fn test_schnorr_recover() {
-        let gen = Generator::new();
-        let (privkey, pubkey) = gen.random_keypair().unwrap();
-        let message = Message::default();
-        let signature = privkey.sign_schnorr(&message).unwrap();
-        assert_eq!(pubkey, signature.recover_schnorr(&message).unwrap());
     }
 
 }
