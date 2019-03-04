@@ -6,11 +6,11 @@ use ckb_core::transaction::{OutPoint, ProposalShortId};
 use ckb_core::BlockNumber;
 use ckb_db::batch::Batch;
 use ckb_notify::NotifyController;
+use ckb_shared::cell_set::CellSetDiff;
 use ckb_shared::chain_state::ChainState;
 use ckb_shared::error::SharedError;
 use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::Shared;
-use ckb_shared::txo_set::TxoSetDiff;
 use ckb_traits::ChainProvider;
 use ckb_verification::{BlockVerifier, TransactionsVerifier, Verifier};
 use crossbeam_channel::{self, select, Receiver, Sender};
@@ -175,7 +175,7 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
         let mut new_best_block = false;
         let mut total_difficulty = U256::zero();
 
-        let mut txo_set_diff = TxoSetDiff::default();
+        let mut txo_set_diff = CellSetDiff::default();
         let mut fork = ForkChanges::default();
         let mut chain_state = self.shared.chain_state().write();
         let tip_number = chain_state.tip_number();
@@ -400,7 +400,7 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
         batch: &mut Batch,
         fork: &mut ForkChanges,
         chain_state: &ChainState,
-    ) -> Result<TxoSetDiff, FailureError> {
+    ) -> Result<CellSetDiff, FailureError> {
         let skip_verify = !self.verification;
 
         let mut old_inputs = FnvHashSet::default();
@@ -466,7 +466,7 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
                         None
                     } else {
                         chain_state
-                            .is_spent(op)
+                            .is_dead(op)
                             .map(|x| x && !old_inputs.contains(op))
                     }
                 })
@@ -506,7 +506,7 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
         let new_inputs: Vec<OutPoint> = new_inputs.into_iter().collect();
         let new_outputs: Vec<(H256, usize)> = new_outputs.into_iter().collect();
 
-        Ok(TxoSetDiff {
+        Ok(CellSetDiff {
             old_inputs,
             old_outputs,
             new_inputs,

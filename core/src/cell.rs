@@ -58,7 +58,7 @@ pub trait CellProvider {
     fn cell_at<F: Fn(&OutPoint) -> Option<bool>>(
         &self,
         _out_point: &OutPoint,
-        _is_spent: F,
+        _is_dead: F,
     ) -> CellStatus {
         unreachable!()
     }
@@ -116,7 +116,8 @@ impl ResolvedTransaction {
         self.dep_cells.iter_mut().chain(&mut self.input_cells)
     }
 
-    pub fn is_double_spend(&self) -> bool {
+    // deps or inputs contain dead cell
+    pub fn is_conflict(&self) -> bool {
         self.cells_iter().any(|state| state.is_dead())
     }
 

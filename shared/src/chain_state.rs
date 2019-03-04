@@ -1,5 +1,5 @@
+use crate::cell_set::{CellSet, CellSetDiff};
 use crate::tx_proposal_table::TxProposalTable;
-use crate::txo_set::{TxoSet, TxoSetDiff};
 use ckb_core::block::Block;
 use ckb_core::header::{BlockNumber, Header};
 use ckb_core::transaction::{OutPoint, ProposalShortId};
@@ -10,7 +10,7 @@ use numext_fixed_uint::U256;
 pub struct ChainState {
     tip_header: Header,
     total_difficulty: U256,
-    txo_set: TxoSet,
+    cell_set: CellSet,
     proposal_ids: TxProposalTable,
 }
 
@@ -18,13 +18,13 @@ impl ChainState {
     pub fn new(
         tip_header: Header,
         total_difficulty: U256,
-        txo_set: TxoSet,
+        cell_set: CellSet,
         proposal_ids: TxProposalTable,
     ) -> Self {
         ChainState {
             tip_header,
             total_difficulty,
-            txo_set,
+            cell_set,
             proposal_ids,
         }
     }
@@ -45,12 +45,12 @@ impl ChainState {
         &self.tip_header
     }
 
-    pub fn txo_set(&self) -> &TxoSet {
-        &self.txo_set
+    pub fn cell_set(&self) -> &CellSet {
+        &self.cell_set
     }
 
-    pub fn is_spent(&self, o: &OutPoint) -> Option<bool> {
-        self.txo_set.is_spent(o)
+    pub fn is_dead(&self, o: &OutPoint) -> Option<bool> {
+        self.cell_set.is_dead(o)
     }
 
     pub fn contains_proposal_id(&self, id: &ProposalShortId) -> bool {
@@ -70,9 +70,9 @@ impl ChainState {
         self.proposal_ids.reconstruct(number)
     }
 
-    pub fn update_tip(&mut self, header: Header, total_difficulty: U256, txo_diff: TxoSetDiff) {
+    pub fn update_tip(&mut self, header: Header, total_difficulty: U256, txo_diff: CellSetDiff) {
         self.tip_header = header;
         self.total_difficulty = total_difficulty;
-        self.txo_set.update(txo_diff);
+        self.cell_set.update(txo_diff);
     }
 }
