@@ -33,11 +33,13 @@ impl Spec for MiningBasic {
             .unwrap()
             .into();
 
+        info!("Generated tx should be included in next block's proposal txs");
         assert!(block1
             .proposal_transactions()
             .iter()
             .any(|id| ProposalShortId::from_h256(&transaction_hash).eq(id)));
 
+        info!("Generated tx should be included in next+1 block's commit txs");
         assert!(block2
             .commit_transactions()
             .iter()

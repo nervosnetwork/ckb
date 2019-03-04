@@ -26,15 +26,11 @@ impl Spec for BlockSyncBasic {
         assert_eq!(number0, number1);
     }
 
-    // start 2 nodes
-    fn setup_net(&self, binary: &str, start_port: u16) -> Net {
-        let mut net = Net::new(binary, 2, start_port);
+    fn num_nodes(&self) -> usize {
+        2
+    }
 
-        net.nodes.iter_mut().for_each(|node| {
-            node.start();
-            node.wait_for_rpc_connection();
-        });
-
-        net
+    fn connect_all(&self) -> bool {
+        false
     }
 }

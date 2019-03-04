@@ -21,9 +21,10 @@ fn main() {
 
     let specs: Vec<Box<Spec>> = vec![
         Box::new(BlockRelayBasic {}),
-        Box::new(TransactionRelayBasic {}),
         Box::new(BlockSyncBasic {}),
         Box::new(MiningBasic {}),
+        Box::new(PoolReconcile {}),
+        Box::new(TransactionRelayBasic {}),
     ];
 
     specs.iter().for_each(|spec| {

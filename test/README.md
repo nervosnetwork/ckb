@@ -6,5 +6,5 @@ Before tests can be run locally, CKB binary must be built. See the [build from s
 The following command assumes that CKB binary is built as `../target/release/ckb` and starting node on port 9000:
 
 ```bash
-cargo run ../target/release/ckb 9000
+cargo run
 ```
