@@ -9,12 +9,14 @@
 
 pub mod block_median_time_context;
 pub mod cachedb;
+pub mod chain_state;
 pub mod error;
 mod flat_serializer;
 pub mod index;
 pub mod shared;
 pub mod store;
 pub mod tx_pool;
+mod tx_proposal_table;
 pub mod txo_set;
 
 #[cfg(test)]

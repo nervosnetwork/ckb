@@ -1,9 +1,11 @@
 use crate::cachedb::CacheDB;
+use crate::chain_state::ChainState;
 use crate::error::SharedError;
 use crate::index::ChainIndex;
 use crate::store::ChainKVStore;
 use crate::tx_pool::{PoolEntry, PoolError, PromoteTxResult, TxPool, TxPoolConfig};
-use crate::txo_set::{TxoSet, TxoSetDiff};
+use crate::tx_proposal_table::TxProposalTable;
+use crate::txo_set::TxoSet;
 use crate::{COLUMNS, COLUMN_BLOCK_HEADER};
 use ckb_chain_spec::consensus::{Consensus, ProposalWindow};
 use ckb_core::block::Block;
@@ -20,145 +22,10 @@ use ckb_verification::{TransactionError, TransactionVerifier};
 use failure::Error;
 use fnv::FnvHashSet;
 use log::error;
-use log::trace;
 use lru_cache::LruCache;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
-use std::collections::BTreeMap;
-use std::ops::Bound;
 use std::sync::Arc;
-
-#[derive(Default, Debug, PartialEq, Clone, Eq)]
-pub struct ProposalTable {
-    pub(crate) table: BTreeMap<BlockNumber, FnvHashSet<ProposalShortId>>,
-    pub(crate) set: FnvHashSet<ProposalShortId>,
-    pub(crate) proposal_window: ProposalWindow,
-}
-
-impl ProposalTable {
-    pub fn new(proposal_window: ProposalWindow) -> Self {
-        ProposalTable {
-            proposal_window,
-            set: FnvHashSet::default(),
-            table: BTreeMap::default(),
-        }
-    }
-
-    pub fn update_or_insert(
-        &mut self,
-        number: BlockNumber,
-        ids: impl IntoIterator<Item = ProposalShortId>,
-    ) {
-        self.table
-            .entry(number)
-            .or_insert_with(Default::default)
-            .extend(ids);
-    }
-
-    pub fn get_ids_by_number(&self, number: BlockNumber) -> Option<&FnvHashSet<ProposalShortId>> {
-        self.table.get(&number)
-    }
-
-    pub fn contains(&self, id: &ProposalShortId) -> bool {
-        self.set.contains(id)
-    }
-
-    pub fn get_ids_iter(&self) -> impl Iterator<Item = &ProposalShortId> {
-        self.set.iter()
-    }
-
-    pub fn reconstruct(&mut self, number: BlockNumber) -> Vec<ProposalShortId> {
-        let proposal_start = number.saturating_sub(self.proposal_window.1);
-        let proposal_end = number.saturating_sub(self.proposal_window.0);
-
-        let mut left = self.table.split_off(&proposal_start);
-        ::std::mem::swap(&mut self.table, &mut left);
-        let new_ids = self
-            .table
-            .range((Bound::Unbounded, Bound::Included(&proposal_end)))
-            .map(|pair| pair.1)
-            .cloned()
-            .flatten()
-            .collect();
-
-        let removed_ids: Vec<ProposalShortId> = self.set.difference(&new_ids).cloned().collect();
-        trace!(target: "chain", "[proposal_reconstruct] proposal_start {}----proposal_end {}", proposal_start, proposal_end);
-        trace!(target: "chain", "[proposal_reconstruct] new_ids {:?}----removed_ids {:?}", new_ids, removed_ids);
-        self.set = new_ids;
-        removed_ids
-    }
-}
-
-#[derive(Default, Debug, PartialEq, Clone, Eq)]
-pub struct ChainState {
-    tip_header: Header,
-    total_difficulty: U256,
-    txo_set: TxoSet,
-    proposal_ids: ProposalTable,
-}
-
-impl ChainState {
-    pub fn new(
-        tip_header: Header,
-        total_difficulty: U256,
-        txo_set: TxoSet,
-        proposal_ids: ProposalTable,
-    ) -> Self {
-        ChainState {
-            tip_header,
-            total_difficulty,
-            txo_set,
-            proposal_ids,
-        }
-    }
-
-    pub fn tip_number(&self) -> BlockNumber {
-        self.tip_header.number()
-    }
-
-    pub fn tip_hash(&self) -> H256 {
-        self.tip_header.hash()
-    }
-
-    pub fn total_difficulty(&self) -> &U256 {
-        &self.total_difficulty
-    }
-
-    pub fn tip_header(&self) -> &Header {
-        &self.tip_header
-    }
-
-    pub fn txo_set(&self) -> &TxoSet {
-        &self.txo_set
-    }
-
-    pub fn is_spent(&self, o: &OutPoint) -> Option<bool> {
-        self.txo_set.is_spent(o)
-    }
-
-    pub fn contains_proposal_id(&self, id: &ProposalShortId) -> bool {
-        self.proposal_ids.contains(id)
-    }
-
-    pub fn update_proposal_ids(&mut self, block: &Block) {
-        self.proposal_ids
-            .update_or_insert(block.header().number(), block.union_proposal_ids())
-    }
-
-    pub fn get_proposal_ids_iter(&self) -> impl Iterator<Item = &ProposalShortId> {
-        self.proposal_ids.get_ids_iter()
-    }
-
-    pub fn reconstruct_proposal_ids(&mut self, number: BlockNumber) -> Vec<ProposalShortId> {
-        self.proposal_ids.reconstruct(number)
-    }
-
-    pub fn update_tip(&mut self, header: Header, total_difficulty: U256, txo_diff: TxoSetDiff) {
-        self.tip_header = header;
-        self.total_difficulty = total_difficulty;
-        self.txo_set.update(txo_diff);
-    }
-}
 
 pub struct Shared<CI> {
     store: Arc<CI>,
@@ -245,8 +112,8 @@ impl<CI: ChainIndex> Shared<CI> {
         store: &CI,
         proposal_window: ProposalWindow,
         tip_number: u64,
-    ) -> ProposalTable {
-        let mut proposal_ids = ProposalTable::new(proposal_window);
+    ) -> TxProposalTable {
+        let mut proposal_ids = TxProposalTable::new(proposal_window);
         let proposal_start = tip_number.saturating_sub(proposal_window.1);
         let proposal_end = tip_number.saturating_sub(proposal_window.0);
         for bn in proposal_start..=proposal_end {
