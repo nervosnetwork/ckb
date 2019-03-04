@@ -23,7 +23,7 @@ snap = "0.2"
 libp2p = { git = "https://github.com/nervosnetwork/rust-libp2p", branch = "ring_patch",  default-features = false, features = ["libp2p-secio", "libp2p-secio-secp256k1"] }
 faketime = "0.2.0"
 rusqlite = {version = "0.16.0", features = ["bundled"]}
-lazy_static = "1.2.0"
+lazy_static = "1.3.0"
 multihash = { git = "https://github.com/nervosnetwork/rust-libp2p", branch = "ring_patch" }
 r2d2 = "0.8.3"
 r2d2_sqlite = "0.8.0"
