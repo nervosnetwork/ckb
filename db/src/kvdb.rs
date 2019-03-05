@@ -29,9 +29,7 @@ impl From<RdbError> for Error {
 pub trait KeyValueDB: Sync + Send {
     fn write(&self, batch: Batch) -> Result<()>;
     fn read(&self, col: Col, key: &[u8]) -> Result<Option<Vec<u8>>>;
-    fn len(&self, col: Col, key: &[u8]) -> Result<Option<usize>>;
     fn partial_read(&self, col: Col, key: &[u8], range: &Range<usize>) -> Result<Option<Vec<u8>>>;
-    fn cols(&self) -> u32;
     fn batch(&self) -> Batch {
         Batch::new()
     }
