@@ -2,13 +2,13 @@ use crate::error::{CellbaseError, CommitError, Error, UnclesError};
 use crate::header_verifier::HeaderResolver;
 use crate::{InputVerifier, TransactionVerifier, Verifier};
 use ckb_core::block::Block;
-use ckb_core::cell::{resolve_transaction, CellProvider, CellStatus, ResolvedTransaction};
+use ckb_core::cell::{CellProvider, ResolvedTransaction};
 use ckb_core::header::Header;
-use ckb_core::transaction::{Capacity, CellInput, OutPoint};
+use ckb_core::transaction::{Capacity, CellInput};
 use ckb_core::Cycle;
 use ckb_merkle_tree::merkle_root;
 use ckb_traits::ChainProvider;
-use fnv::{FnvHashMap, FnvHashSet};
+use fnv::FnvHashSet;
 use lru_cache::LruCache;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
@@ -401,43 +401,12 @@ impl TransactionsVerifier {
         TransactionsVerifier { max_cycles }
     }
 
-    pub fn verify<F: Fn(&OutPoint) -> CellStatus>(
+    pub fn verify(
         &self,
         txs_verify_cache: &mut LruCache<H256, Cycle>,
-        block: &Block,
-        cell_resolver: F,
+        resolved: &[ResolvedTransaction],
     ) -> Result<(), Error> {
-        let mut output_indexs = FnvHashMap::default();
-        let mut seen_inputs = FnvHashSet::default();
-
-        for (i, tx) in block.commit_transactions().iter().enumerate() {
-            output_indexs.insert(tx.hash(), i);
-        }
-
-        // skip first tx, assume the first is cellbase, other verifier will verify cellbase
-        let resolved: Vec<ResolvedTransaction> = block
-            .commit_transactions()
-            .iter()
-            .skip(1)
-            .map(|x| {
-                resolve_transaction(x, &mut seen_inputs, |o| {
-                    if let Some(i) = output_indexs.get(&o.hash) {
-                        match block.commit_transactions()[*i]
-                            .outputs()
-                            .get(o.index as usize)
-                        {
-                            Some(x) => CellStatus::Live(x.clone()),
-                            None => CellStatus::Unknown,
-                        }
-                    } else {
-                        (cell_resolver)(o)
-                    }
-                })
-            })
-            .collect();
-
         // make verifiers orthogonal
-        //
         let cycles_set = resolved
             .par_iter()
             .enumerate()

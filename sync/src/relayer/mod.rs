@@ -22,6 +22,7 @@ use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::transaction::{ProposalShortId, Transaction};
 use ckb_network::{CKBProtocolContext, CKBProtocolHandler, PeerIndex, TimerToken};
 use ckb_protocol::{short_transaction_id, short_transaction_id_keys, RelayMessage, RelayPayload};
+use ckb_shared::chain_state::ChainState;
 use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::Shared;
 use ckb_traits::ChainProvider;
@@ -102,12 +103,12 @@ where
 
     pub fn request_proposal_txs(
         &self,
+        chain_state: &ChainState<CI>,
         nc: &CKBProtocolContext,
         peer: PeerIndex,
         block: &CompactBlock,
     ) {
         let mut inflight = self.state.inflight_proposals.lock();
-        let tx_pool = self.shared.tx_pool().read();
         let unknown_ids = block
             .proposal_transactions
             .iter()
@@ -117,7 +118,7 @@ where
                     .iter()
                     .flat_map(|uncle| uncle.proposal_transactions()),
             )
-            .filter(|x| !tx_pool.contains_proposal_id(x) && inflight.insert(**x))
+            .filter(|x| !chain_state.contains_proposal_id(x) && inflight.insert(**x))
             .cloned()
             .collect::<Vec<_>>();
 
@@ -148,6 +149,7 @@ where
 
     pub fn reconstruct_block(
         &self,
+        chain_state: &ChainState<CI>,
         compact_block: &CompactBlock,
         transactions: Vec<Transaction>,
     ) -> Result<Block, Vec<usize>> {
@@ -163,9 +165,8 @@ where
             .collect();
 
         {
-            let tx_pool = self.shared.tx_pool().read();
-            // let pool_entries_iter = tx_pool.minable_entries_iter();
-            let iter = tx_pool.minable_txs_iter().filter_map(|entry| {
+            let tx_pool = chain_state.tx_pool();
+            let iter = tx_pool.staging_txs_iter().filter_map(|entry| {
                 let short_id = short_transaction_id(key0, key1, &entry.transaction.hash());
                 if compact_block.short_ids.contains(&short_id) {
                     Some((short_id, entry.transaction.clone()))
@@ -220,8 +221,8 @@ where
         let mut pending_proposals_request = self.state.pending_proposals_request.lock();
         let mut peer_txs = FnvHashMap::default();
         let mut remove_ids = Vec::new();
-
-        let tx_pool = self.shared.tx_pool().read();
+        let chain_state = self.shared.chain_state().lock();
+        let tx_pool = chain_state.tx_pool();
         for (id, peers) in pending_proposals_request.iter() {
             if let Some(tx) = tx_pool.get_tx(id) {
                 for peer in peers {

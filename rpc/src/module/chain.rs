@@ -54,7 +54,7 @@ impl<CI: ChainIndex + 'static> ChainRpc for ChainRpcImpl<CI> {
     }
 
     fn get_tip_header(&self) -> Result<Header> {
-        Ok(self.shared.chain_state().read().tip_header().into())
+        Ok(self.shared.chain_state().lock().tip_header().into())
     }
 
     // TODO: we need to build a proper index instead of scanning every time
@@ -65,7 +65,7 @@ impl<CI: ChainIndex + 'static> ChainRpc for ChainRpcImpl<CI> {
         to: BlockNumber,
     ) -> Result<Vec<CellOutputWithOutPoint>> {
         let mut result = Vec::new();
-        let chain_state = self.shared.chain_state().read();
+        let chain_state = self.shared.chain_state().lock();
         for block_number in from..=to {
             if let Some(block_hash) = self.shared.block_hash(block_number) {
                 let block = self
@@ -100,6 +100,6 @@ impl<CI: ChainIndex + 'static> ChainRpc for ChainRpcImpl<CI> {
     }
 
     fn get_tip_block_number(&self) -> Result<BlockNumber> {
-        Ok(self.shared.chain_state().read().tip_number())
+        Ok(self.shared.chain_state().lock().tip_number())
     }
 }

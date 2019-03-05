@@ -14,7 +14,7 @@ pub struct ChainIterator<CI> {
 impl<CI: ChainIndex> ChainIterator<CI> {
     pub fn new(shared: Shared<CI>) -> Self {
         let current = shared.block_hash(0).and_then(|h| shared.block(&h));
-        let tip = shared.chain_state().read().tip_number();
+        let tip = shared.chain_state().lock().tip_number();
         ChainIterator {
             shared,
             current,

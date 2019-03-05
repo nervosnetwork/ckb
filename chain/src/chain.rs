@@ -1,5 +1,5 @@
 use ckb_core::block::Block;
-use ckb_core::cell::CellProvider;
+use ckb_core::cell::{resolve_transaction, CellProvider, CellStatus, ResolvedTransaction};
 use ckb_core::extras::BlockExt;
 use ckb_core::service::{Request, DEFAULT_CHANNEL_SIZE, SIGNAL_CHANNEL_SIZE};
 use ckb_core::transaction::{OutPoint, ProposalShortId};
@@ -177,7 +177,7 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
 
         let mut txo_set_diff = TxoSetDiff::default();
         let mut fork = ForkChanges::default();
-        let mut chain_state = self.shared.chain_state().write();
+        let mut chain_state = self.shared.chain_state().lock();
         let tip_number = chain_state.tip_number();
         let tip_hash = chain_state.tip_hash();
         let parent_ext = self
@@ -221,7 +221,7 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
                 );
 
                 self.find_fork(&mut fork, tip_number, &block, ext);
-                txo_set_diff = self.reconcile_main_chain(batch, &mut fork, &chain_state)?;
+                txo_set_diff = self.reconcile_main_chain(batch, &mut fork, &mut chain_state)?;
                 self.update_index(batch, &fork.detached_blocks, &fork.attached_blocks);
                 self.update_proposal_ids(&mut chain_state, &fork);
                 self.shared
@@ -244,11 +244,11 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
             let detached_proposal_id = chain_state.reconstruct_proposal_ids(tip_header.number());
             fork.detached_proposal_id = detached_proposal_id;
             chain_state.update_tip(tip_header, total_difficulty, txo_set_diff);
-            self.shared.reconcile_tx_pool(
-                &chain_state,
+            chain_state.update_tx_pool_for_reorg(
                 fork.detached_blocks(),
                 fork.attached_blocks(),
                 fork.detached_proposal_id(),
+                self.shared.consensus().max_block_cycles(),
             );
             if log_enabled!(target: "chain", log::Level::Debug) {
                 self.print_chain(&chain_state, 10);
@@ -260,7 +260,7 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
         Ok(())
     }
 
-    pub(crate) fn update_proposal_ids(&self, chain_state: &mut ChainState, fork: &ForkChanges) {
+    pub(crate) fn update_proposal_ids(&self, chain_state: &mut ChainState<CI>, fork: &ForkChanges) {
         for blk in fork.attached_blocks() {
             chain_state.update_proposal_ids(&blk);
         }
@@ -399,7 +399,7 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
         &self,
         batch: &mut Batch,
         fork: &mut ForkChanges,
-        chain_state: &ChainState,
+        chain_state: &mut ChainState<CI>,
     ) -> Result<TxoSetDiff, FailureError> {
         let skip_verify = !self.verification;
 
@@ -440,7 +440,6 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
             push_new(b, &mut new_inputs, &mut new_outputs);
         }
 
-        let mut txs_cache = self.shared.txs_verify_cache().write();
         // The verify function
         let txs_verifier = TransactionsVerifier::new(self.shared.consensus().max_block_cycles());
 
@@ -471,10 +470,37 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
                     }
                 })
             };
+
+            let mut output_indexs = FnvHashMap::default();
+            let mut seen_inputs = FnvHashSet::default();
+
+            for (i, tx) in b.commit_transactions().iter().enumerate() {
+                output_indexs.insert(tx.hash(), i);
+            }
+
+            // cellbase verified
+            let resolved: Vec<ResolvedTransaction> = b
+                .commit_transactions()
+                .iter()
+                .skip(1)
+                .map(|x| {
+                    resolve_transaction(x, &mut seen_inputs, |o| {
+                        if let Some(i) = output_indexs.get(&o.hash) {
+                            match b.commit_transactions()[*i].outputs().get(o.index as usize) {
+                                Some(x) => CellStatus::Live(x.clone()),
+                                None => CellStatus::Unknown,
+                            }
+                        } else {
+                            cell_resolver(o)
+                        }
+                    })
+                })
+                .collect();
+
             if !found_error
                 || skip_verify
                 || txs_verifier
-                    .verify(&mut *txs_cache, b, cell_resolver)
+                    .verify(chain_state.mut_txs_verify_cache(), &resolved)
                     .is_ok()
             {
                 push_new(b, &mut new_inputs, &mut new_outputs);
@@ -514,7 +540,7 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
         })
     }
 
-    fn print_chain(&self, chain_state: &ChainState, len: u64) {
+    fn print_chain(&self, chain_state: &ChainState<CI>, len: u64) {
         debug!(target: "chain", "Chain {{");
 
         let tip = chain_state.tip_number();

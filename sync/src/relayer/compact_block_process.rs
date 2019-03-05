@@ -56,9 +56,18 @@ where
                 );
 
                 if header_verifier.verify(&resolver).is_ok() {
-                    self.relayer
-                        .request_proposal_txs(self.nc, self.peer, &compact_block);
-                    match self.relayer.reconstruct_block(&compact_block, Vec::new()) {
+                    let ret = {
+                        let chain_state = self.relayer.shared.chain_state().lock();
+                        self.relayer.request_proposal_txs(
+                            &chain_state,
+                            self.nc,
+                            self.peer,
+                            &compact_block,
+                        );
+                        self.relayer
+                            .reconstruct_block(&chain_state, &compact_block, Vec::new())
+                    };
+                    match ret {
                         Ok(block) => {
                             self.relayer
                                 .accept_block(self.nc, self.peer, &Arc::new(block))

@@ -1,12 +1,13 @@
 //! Top-level Pool type, methods, and tests
 use super::trace::{TxTrace, TxTraceMap};
-use super::types::{OrphanPool, PendingQueue, PoolEntry, PromotePool, TxPoolConfig};
+use super::types::{OrphanPool, PendingQueue, PoolEntry, StagingPool, TxPoolConfig};
 use ckb_core::transaction::{OutPoint, ProposalShortId, Transaction};
 use faketime::unix_time_as_millis;
 use log::trace;
 use lru_cache::LruCache;
 use numext_fixed_hash::H256;
 
+#[derive(Debug, Clone)]
 pub(crate) struct TxFilter {
     map: LruCache<H256, ()>,
 }
@@ -23,14 +24,15 @@ impl TxFilter {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct TxPool {
     pub(crate) config: TxPoolConfig,
     /// Already known transaction filter
     pub(crate) filter: TxFilter,
     /// The short id that has not been proposed
     pub(crate) pending: PendingQueue,
-    /// Promote pool
-    pub(crate) promote: PromotePool,
+    /// Tx pool that finely for commit
+    pub(crate) staging: StagingPool,
     /// Orphans in the pool
     pub(crate) orphan: OrphanPool,
     /// cache for conflict transaction
@@ -51,7 +53,7 @@ impl TxPool {
             config,
             filter: TxFilter::new(1000),
             pending: PendingQueue::new(),
-            promote: PromotePool::new(),
+            staging: StagingPool::new(),
             orphan: OrphanPool::new(),
             conflict: LruCache::new(cache_size),
             last_txs_updated_at,
@@ -103,16 +105,19 @@ impl TxPool {
         self.orphan.add_tx(entry, unknowns.into_iter());
     }
 
-    pub(crate) fn add_promote(&mut self, entry: PoolEntry) {
+    pub(crate) fn add_staging(&mut self, entry: PoolEntry) {
         if self.config.trace_enable() {
             self.trace
-                .promoted(&entry.transaction.hash(), "promoted".to_string());
+                .staged(&entry.transaction.hash(), "staged".to_string());
         }
         self.touch_last_txs_updated_at();
-        self.promote.add_tx(entry);
+        self.staging.add_tx(entry);
     }
 
-    pub(crate) fn reconcile_proposal(&mut self, id: &ProposalShortId) -> Option<PoolEntry> {
+    pub(crate) fn remove_pending_from_proposal(
+        &mut self,
+        id: &ProposalShortId,
+    ) -> Option<PoolEntry> {
         self.pending
             .remove(id)
             .or_else(|| self.conflict.remove(id))
@@ -126,28 +131,28 @@ impl TxPool {
     }
 
     pub(crate) fn capacity(&self) -> usize {
-        self.promote.capacity() + self.orphan.capacity()
+        self.staging.capacity() + self.orphan.capacity()
     }
 
     pub(crate) fn touch_last_txs_updated_at(&mut self) {
         self.last_txs_updated_at = unix_time_as_millis();
     }
 
-    pub fn minable_txs_iter(&self) -> impl Iterator<Item = &PoolEntry> {
-        self.promote.minable_txs_iter()
+    pub fn staging_txs_iter(&self) -> impl Iterator<Item = &PoolEntry> {
+        self.staging.txs_iter()
     }
 
     pub fn contains_proposal_id(&self, id: &ProposalShortId) -> bool {
         self.pending.contains_key(id)
             || self.conflict.contains_key(id)
-            || self.promote.contains_key(id)
+            || self.staging.contains_key(id)
             || self.orphan.contains_key(id)
     }
 
     pub fn get_tx(&self, id: &ProposalShortId) -> Option<Transaction> {
         self.pending
             .get_tx(id)
-            .or_else(|| self.promote.get_tx(id))
+            .or_else(|| self.staging.get_tx(id))
             .or_else(|| self.orphan.get_tx(id))
             .or_else(|| self.conflict.get(id).map(|e| &e.transaction))
             .cloned()
@@ -156,5 +161,22 @@ impl TxPool {
     //FIXME: use memsize
     pub fn is_full(&self) -> bool {
         self.capacity() > self.config.max_pool_size
+    }
+
+    pub fn remove_staged(&mut self, ids: &[ProposalShortId]) {
+        for id in ids {
+            if let Some(txs) = self.staging.remove(id) {
+                self.pending.insert(*id, txs[0].clone());
+
+                for tx in txs.iter().skip(1) {
+                    self.conflict
+                        .insert(tx.transaction.proposal_short_id(), tx.clone());
+                }
+            } else if let Some(tx) = self.conflict.remove(id) {
+                self.pending.insert(*id, tx);
+            } else if let Some(tx) = self.orphan.remove(id) {
+                self.pending.insert(*id, tx);
+            }
+        }
     }
 }

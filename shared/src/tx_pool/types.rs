@@ -47,8 +47,8 @@ impl TxPoolConfig {
     }
 }
 
-#[derive(Clone, Debug)]
-pub enum PromoteTxResult {
+#[derive(Debug, PartialEq, Clone, Eq)]
+pub enum StagingTxResult {
     Normal,
     Orphan,
     Proposed,
@@ -57,7 +57,7 @@ pub enum PromoteTxResult {
 
 // TODO document this enum more accurately
 /// Enum of errors
-#[derive(Debug, Fail)]
+#[derive(Debug, Clone, Fail)]
 pub enum PoolError {
     /// An invalid pool entry caused by underlying tx validation error
     InvalidTx(TransactionError),
@@ -120,7 +120,7 @@ impl PartialEq for PoolEntry {
     }
 }
 
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Clone)]
 pub struct Edges<K: Hash + Eq, V: Copy + Eq + Hash> {
     inner: FnvHashMap<K, Option<V>>,
     outer: FnvHashMap<K, Option<V>>,
@@ -180,7 +180,7 @@ impl<K: Hash + Eq, V: Copy + Eq + Hash> Edges<K, V> {
         self.deps.remove(key)
     }
 
-    pub fn is_in_pool(&self, key: &K) -> bool {
+    pub fn contains_key(&self, key: &K) -> bool {
         self.inner.contains_key(&key)
     }
 
@@ -203,13 +203,13 @@ impl<K: Hash + Eq, V: Copy + Eq + Hash> Edges<K, V> {
     }
 }
 
-#[derive(Default, Debug)]
-pub struct PromotePool {
+#[derive(Default, Debug, Clone)]
+pub struct StagingPool {
     pub vertices: LinkedHashMap<ProposalShortId, PoolEntry>,
     pub edges: Edges<OutPoint, ProposalShortId>,
 }
 
-impl CellProvider for PromotePool {
+impl CellProvider for StagingPool {
     fn cell(&self, o: &OutPoint) -> CellStatus {
         if let Some(x) = self.edges.get_inner(o) {
             if x.is_some() {
@@ -225,9 +225,9 @@ impl CellProvider for PromotePool {
     }
 }
 
-impl PromotePool {
+impl StagingPool {
     pub fn new() -> Self {
-        PromotePool::default()
+        StagingPool::default()
     }
 
     pub fn capacity(&self) -> usize {
@@ -360,7 +360,7 @@ impl PromotePool {
         }
 
         for d in deps {
-            if self.edges.is_in_pool(&d) {
+            if self.edges.contains_key(&d) {
                 count += 1;
             }
             self.edges.insert_deps(d, id);
@@ -423,7 +423,7 @@ impl PromotePool {
     }
 
     /// Get n transactions in topology
-    pub fn get_mineable_txs(&self, n: usize) -> Vec<PoolEntry> {
+    pub fn get_txs(&self, n: usize) -> Vec<PoolEntry> {
         self.vertices
             .front_n(n)
             .iter()
@@ -431,7 +431,7 @@ impl PromotePool {
             .collect()
     }
 
-    pub fn minable_txs_iter(&self) -> impl Iterator<Item = &PoolEntry> {
+    pub fn txs_iter(&self) -> impl Iterator<Item = &PoolEntry> {
         self.vertices.values()
     }
 
@@ -449,7 +449,7 @@ impl PromotePool {
 }
 
 ///not verified, may contain conflict transactions
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Clone)]
 pub struct OrphanPool {
     pub vertices: FnvHashMap<ProposalShortId, PoolEntry>,
     pub edges: FnvHashMap<OutPoint, Vec<ProposalShortId>>,
@@ -524,11 +524,11 @@ impl OrphanPool {
         removed
     }
 
-    pub fn reconcile_tx(&mut self, tx: &Transaction) -> Vec<PoolEntry> {
+    pub fn remove_by_ancestor(&mut self, tx: &Transaction) -> Vec<PoolEntry> {
         let mut txs = Vec::new();
         let mut queue = VecDeque::new();
 
-        self.resolve_conflict(tx);
+        self.remove_conflict(tx);
 
         queue.push_back(tx.output_pts());
         while let Some(outputs) = queue.pop_front() {
@@ -551,7 +551,7 @@ impl OrphanPool {
         txs
     }
 
-    pub fn resolve_conflict(&mut self, tx: &Transaction) {
+    pub fn remove_conflict(&mut self, tx: &Transaction) {
         let inputs = tx.input_pts();
 
         for i in inputs {
@@ -564,7 +564,7 @@ impl OrphanPool {
     }
 }
 
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Clone)]
 pub struct PendingQueue {
     inner: FnvHashMap<ProposalShortId, PoolEntry>,
 }
@@ -637,7 +637,7 @@ mod tests {
         let tx1_hash = tx1.transaction.hash().clone();
         let tx2 = build_tx(vec![(tx1_hash, 0)], 1);
 
-        let mut pool = PromotePool::new();
+        let mut pool = StagingPool::new();
         let id1 = tx1.transaction.proposal_short_id();
         let id2 = tx2.transaction.proposal_short_id();
 
@@ -669,7 +669,7 @@ mod tests {
             3,
         );
 
-        let mut pool = PromotePool::new();
+        let mut pool = StagingPool::new();
 
         let id1 = tx1.transaction.proposal_short_id();
         let id2 = tx2.transaction.proposal_short_id();
@@ -682,18 +682,18 @@ mod tests {
         assert_eq!(pool.edges.inner_len(), 4);
         assert_eq!(pool.edges.outer_len(), 4);
 
-        let mut mineable = pool.get_mineable_txs(0);
+        let mut mineable = pool.get_txs(0);
         assert_eq!(0, mineable.len());
 
-        mineable = pool.get_mineable_txs(1);
+        mineable = pool.get_txs(1);
         assert_eq!(1, mineable.len());
         assert!(mineable.contains(&tx1));
 
-        mineable = pool.get_mineable_txs(2);
+        mineable = pool.get_txs(2);
         assert_eq!(2, mineable.len());
         assert!(mineable.contains(&tx1) && mineable.contains(&tx2));
 
-        mineable = pool.get_mineable_txs(3);
+        mineable = pool.get_txs(3);
         assert_eq!(2, mineable.len());
         assert!(mineable.contains(&tx1) && mineable.contains(&tx2));
 
@@ -734,7 +734,7 @@ mod tests {
         let id3 = tx3.transaction.proposal_short_id();
         let id5 = tx5.transaction.proposal_short_id();
 
-        let mut pool = PromotePool::new();
+        let mut pool = StagingPool::new();
 
         pool.add_tx(tx1.clone());
         pool.add_tx(tx2.clone());
@@ -748,34 +748,19 @@ mod tests {
         assert_eq!(pool.edges.inner_len(), 13);
         assert_eq!(pool.edges.outer_len(), 2);
 
-        let mut mineable: Vec<Transaction> = pool
-            .get_mineable_txs(0)
-            .into_iter()
-            .map(|x| x.transaction)
-            .collect();
+        let mut mineable: Vec<Transaction> =
+            pool.get_txs(0).into_iter().map(|x| x.transaction).collect();
         assert_eq!(0, mineable.len());
 
-        mineable = pool
-            .get_mineable_txs(1)
-            .into_iter()
-            .map(|x| x.transaction)
-            .collect();
+        mineable = pool.get_txs(1).into_iter().map(|x| x.transaction).collect();
         assert_eq!(1, mineable.len());
         assert!(mineable.contains(&tx1.transaction));
 
-        mineable = pool
-            .get_mineable_txs(2)
-            .into_iter()
-            .map(|x| x.transaction)
-            .collect();
+        mineable = pool.get_txs(2).into_iter().map(|x| x.transaction).collect();
         assert_eq!(2, mineable.len());
         assert!(mineable.contains(&tx1.transaction) && mineable.contains(&tx2.transaction));
 
-        mineable = pool
-            .get_mineable_txs(3)
-            .into_iter()
-            .map(|x| x.transaction)
-            .collect();
+        mineable = pool.get_txs(3).into_iter().map(|x| x.transaction).collect();
         assert_eq!(3, mineable.len());
 
         assert!(
@@ -784,30 +769,18 @@ mod tests {
                 && mineable.contains(&tx3.transaction)
         );
 
-        mineable = pool
-            .get_mineable_txs(4)
-            .into_iter()
-            .map(|x| x.transaction)
-            .collect();
+        mineable = pool.get_txs(4).into_iter().map(|x| x.transaction).collect();
         assert_eq!(4, mineable.len());
         assert!(mineable.contains(&tx1.transaction) && mineable.contains(&tx2.transaction));
         assert!(mineable.contains(&tx3.transaction) && mineable.contains(&tx4.transaction));
 
-        mineable = pool
-            .get_mineable_txs(5)
-            .into_iter()
-            .map(|x| x.transaction)
-            .collect();
+        mineable = pool.get_txs(5).into_iter().map(|x| x.transaction).collect();
         assert_eq!(5, mineable.len());
         assert!(mineable.contains(&tx1.transaction) && mineable.contains(&tx2.transaction));
         assert!(mineable.contains(&tx3.transaction) && mineable.contains(&tx4.transaction));
         assert!(mineable.contains(&tx5.transaction));
 
-        mineable = pool
-            .get_mineable_txs(6)
-            .into_iter()
-            .map(|x| x.transaction)
-            .collect();
+        mineable = pool.get_txs(6).into_iter().map(|x| x.transaction).collect();
         assert_eq!(5, mineable.len());
         assert!(mineable.contains(&tx1.transaction) && mineable.contains(&tx2.transaction));
         assert!(mineable.contains(&tx3.transaction) && mineable.contains(&tx4.transaction));
@@ -820,45 +793,25 @@ mod tests {
         assert_eq!(pool.edges.inner_len(), 10);
         assert_eq!(pool.edges.outer_len(), 4);
 
-        mineable = pool
-            .get_mineable_txs(1)
-            .into_iter()
-            .map(|x| x.transaction)
-            .collect();
+        mineable = pool.get_txs(1).into_iter().map(|x| x.transaction).collect();
         assert_eq!(1, mineable.len());
         assert!(mineable.contains(&tx2.transaction));
 
-        mineable = pool
-            .get_mineable_txs(2)
-            .into_iter()
-            .map(|x| x.transaction)
-            .collect();
+        mineable = pool.get_txs(2).into_iter().map(|x| x.transaction).collect();
         assert_eq!(2, mineable.len());
         assert!(mineable.contains(&tx2.transaction) && mineable.contains(&tx3.transaction));
 
-        mineable = pool
-            .get_mineable_txs(3)
-            .into_iter()
-            .map(|x| x.transaction)
-            .collect();
+        mineable = pool.get_txs(3).into_iter().map(|x| x.transaction).collect();
         assert_eq!(3, mineable.len());
         assert!(mineable.contains(&tx2.transaction) && mineable.contains(&tx3.transaction));
         assert!(mineable.contains(&tx4.transaction));
 
-        mineable = pool
-            .get_mineable_txs(4)
-            .into_iter()
-            .map(|x| x.transaction)
-            .collect();
+        mineable = pool.get_txs(4).into_iter().map(|x| x.transaction).collect();
         assert_eq!(4, mineable.len());
         assert!(mineable.contains(&tx2.transaction) && mineable.contains(&tx3.transaction));
         assert!(mineable.contains(&tx4.transaction) && mineable.contains(&tx5.transaction));
 
-        mineable = pool
-            .get_mineable_txs(5)
-            .into_iter()
-            .map(|x| x.transaction)
-            .collect();
+        mineable = pool.get_txs(5).into_iter().map(|x| x.transaction).collect();
         assert_eq!(4, mineable.len());
     }
 }

@@ -53,7 +53,7 @@ fn test_find_fork_case1() {
         chain_service.process_block(Arc::new(blk.clone())).unwrap();
     }
 
-    let tip_number = { shared.chain_state().read().tip_number() };
+    let tip_number = { shared.chain_state().lock().tip_number() };
 
     let new_block = gen_block(&parent, 100, U256::from(200u64), vec![], vec![]);
     fork2.push(new_block.clone());
@@ -122,7 +122,7 @@ fn test_find_fork_case2() {
         chain_service.process_block(Arc::new(blk.clone())).unwrap();
     }
 
-    let tip_number = { shared.chain_state().read().tip_number() };
+    let tip_number = { shared.chain_state().lock().tip_number() };
 
     let difficulty = parent.difficulty().clone();
     let new_block = gen_block(
@@ -198,7 +198,7 @@ fn test_find_fork_case3() {
         chain_service.process_block(Arc::new(blk.clone())).unwrap();
     }
 
-    let tip_number = { shared.chain_state().read().tip_number() };
+    let tip_number = { shared.chain_state().lock().tip_number() };
 
     println!("case3 tip{}", tip_number);
 
@@ -268,7 +268,7 @@ fn test_find_fork_case4() {
         chain_service.process_block(Arc::new(blk.clone())).unwrap();
     }
 
-    let tip_number = { shared.chain_state().read().tip_number() };
+    let tip_number = { shared.chain_state().lock().tip_number() };
 
     println!("case3 tip{}", tip_number);
 

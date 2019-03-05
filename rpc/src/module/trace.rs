@@ -31,7 +31,9 @@ impl<CI: ChainIndex + 'static> TraceRpc for TraceRpcImpl<CI> {
     fn trace_transaction(&self, tx: Transaction) -> Result<H256> {
         let tx: CoreTransaction = tx.into();
         let tx_hash = tx.hash().clone();
-        self.shared.tx_pool().write().trace_tx(tx.clone());
+        let mut chain_state = self.shared.chain_state().lock();
+        let tx_pool = chain_state.mut_tx_pool();
+        tx_pool.trace_tx(tx.clone());
 
         let fbb = &mut FlatBufferBuilder::new();
         let message = RelayMessage::build_transaction(fbb, &tx);
@@ -47,6 +49,8 @@ impl<CI: ChainIndex + 'static> TraceRpc for TraceRpcImpl<CI> {
     }
 
     fn get_transaction_trace(&self, hash: H256) -> Result<Option<Vec<TxTrace>>> {
-        Ok(self.shared.tx_pool().read().get_tx_traces(&hash).cloned())
+        let chain_state = self.shared.chain_state().lock();
+        let tx_pool = chain_state.tx_pool();
+        Ok(tx_pool.get_tx_traces(&hash).cloned())
     }
 }

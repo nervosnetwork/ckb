@@ -33,7 +33,8 @@ where
         let mut pending_proposals_request = self.relayer.state.pending_proposals_request.lock();
 
         let transactions = {
-            let tx_pool = self.relayer.shared.tx_pool().read();
+            let chain_state = self.relayer.shared.chain_state().lock();
+            let tx_pool = chain_state.tx_pool();
             self.message
                 .proposal_transactions()
                 .unwrap()

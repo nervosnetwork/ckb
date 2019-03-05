@@ -231,9 +231,9 @@ impl<CI: ChainIndex + 'static> BlockAssembler<CI> {
         let uncles_count_limit = self.shared.consensus().max_uncles_num() as u32;
 
         let last_uncles_updated_at = self.last_uncles_updated_at.load(Ordering::SeqCst) as u64;
-        let last_txs_updated_at = self.shared.get_last_txs_updated_at();
+        let chain_state = self.shared.chain_state().lock();
+        let last_txs_updated_at = chain_state.get_last_txs_updated_at();
 
-        let chain_state = self.shared.chain_state().read();
         let header = chain_state.tip_header();
         let number = chain_state.tip_number() + 1;
         let current_time = cmp::max(unix_time_as_millis(), header.timestamp() + 1);
@@ -257,7 +257,7 @@ impl<CI: ChainIndex + 'static> BlockAssembler<CI> {
             .expect("get difficulty");
 
         let (proposal_transactions, commit_transactions) =
-            self.shared.get_proposal_commit_txs(10000, 10000);
+            chain_state.get_proposal_and_staging_txs(10000, 10000);
 
         let (uncles, bad_uncles) = self.prepare_uncles(&header, &difficulty);
         if !bad_uncles.is_empty() {

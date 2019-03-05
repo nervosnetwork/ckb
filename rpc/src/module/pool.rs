@@ -28,7 +28,9 @@ impl<CI: ChainIndex + 'static> PoolRpc for PoolRpcImpl<CI> {
     fn send_transaction(&self, tx: Transaction) -> Result<H256> {
         let tx: CoreTransaction = tx.into();
         let tx_hash = tx.hash().clone();
-        self.shared.tx_pool().write().enqueue_tx(tx.clone());
+        let mut chain_state = self.shared.chain_state().lock();
+        let tx_pool = chain_state.mut_tx_pool();
+        tx_pool.enqueue_tx(tx.clone());
 
         let fbb = &mut FlatBufferBuilder::new();
         let message = RelayMessage::build_transaction(fbb, &tx);
