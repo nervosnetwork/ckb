@@ -27,10 +27,6 @@ impl MemoryKeyValueDB {
 }
 
 impl KeyValueDB for MemoryKeyValueDB {
-    fn cols(&self) -> u32 {
-        self.db.read().len() as u32 - 1
-    }
-
     fn write(&self, batch: Batch) -> Result<()> {
         let mut db = self.db.write();
         batch.operations.into_iter().for_each(|op| match op {
@@ -54,15 +50,6 @@ impl KeyValueDB for MemoryKeyValueDB {
         match db.get(&col) {
             None => Err(ErrorKind::DBError(format!("column {:?} not found ", col))),
             Some(map) => Ok(map.get(key).cloned()),
-        }
-    }
-
-    fn len(&self, col: Col, key: &[u8]) -> Result<Option<usize>> {
-        let db = self.db.read();
-
-        match db.get(&col) {
-            None => Err(ErrorKind::DBError(format!("column {:?} not found ", col))),
-            Some(map) => Ok(map.get(key).map(|data| data.len())),
         }
     }
 
@@ -99,21 +86,6 @@ mod tests {
 
         // return err when col doesn't exist
         assert!(db.read(Some(2), &[0, 0]).is_err());
-    }
-
-    #[test]
-    fn write_and_len() {
-        let db = MemoryKeyValueDB::open(2);
-        let mut batch = Batch::default();
-        batch.insert(None, vec![0, 0], vec![5, 4, 3, 2]);
-        batch.insert(Some(1), vec![1, 1], vec![1, 2, 3, 4, 5]);
-        db.write(batch).unwrap();
-
-        assert_eq!(Some(4), db.len(None, &[0, 0]).unwrap());
-
-        assert_eq!(Some(5), db.len(Some(1), &[1, 1]).unwrap());
-        assert_eq!(None, db.len(Some(1), &[2, 2]).unwrap());
-        assert!(db.len(Some(2), &[1, 1]).is_err());
     }
 
     #[test]

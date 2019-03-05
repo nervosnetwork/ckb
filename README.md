@@ -32,13 +32,13 @@ The contribution workflow is described in [CONTRIBUTING.md](CONTRIBUTING.md), an
 
 ## Build dependencies
 
-CKB is currently tested mainly with `stable-1.32.0` on Linux and Mac OSX.
+CKB is currently tested mainly with `stable-1.33.0` on Linux and Mac OSX.
 
 We recommend installing Rust through [rustup](https://www.rustup.rs/)
 
 ```bash
 # Get rustup from rustup.rs, then in your `ckb` folder:
-rustup override set 1.32.0
+rustup override set 1.33.0
 rustup component add rustfmt
 rustup component add clippy
 ```

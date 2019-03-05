@@ -16,10 +16,10 @@ env:
 
 matrix:
   include:
-    - rust: 1.32.0
+    - rust: 1.33.0
       os: osx
       env: FMT=true CHECK=true TEST=true
-    - rust: 1.32.0
+    - rust: 1.33.0
       os: linux
       env: TEST=true
 
