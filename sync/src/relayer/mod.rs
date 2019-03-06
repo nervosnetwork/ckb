@@ -24,7 +24,7 @@ use ckb_pool::txs_pool::TransactionPoolController;
 use ckb_protocol::{short_transaction_id, short_transaction_id_keys, RelayMessage, RelayPayload};
 use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::{ChainProvider, Shared};
-use ckb_util::{Mutex, RwLock};
+use ckb_util::Mutex;
 use flatbuffers::{get_root, FlatBufferBuilder};
 use fnv::{FnvHashMap, FnvHashSet};
 use log::{debug, info};
@@ -289,7 +289,7 @@ where
 
 #[derive(Default)]
 pub struct RelayState {
-    pub pending_compact_blocks: RwLock<FnvHashMap<H256, CompactBlock>>,
+    pub pending_compact_blocks: Mutex<FnvHashMap<H256, CompactBlock>>,
     pub inflight_proposals: Mutex<FnvHashSet<ProposalShortId>>,
     pub pending_proposals_request: Mutex<FnvHashMap<ProposalShortId, FnvHashSet<PeerIndex>>>,
 }

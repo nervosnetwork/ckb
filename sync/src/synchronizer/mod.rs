@@ -30,7 +30,7 @@ use ckb_network::{CKBProtocolContext, CKBProtocolHandler, PeerIndex, Severity, T
 use ckb_protocol::{SyncMessage, SyncPayload};
 use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::{ChainProvider, Shared};
-use ckb_util::{try_option, RwLock, RwLockUpgradableReadGuard};
+use ckb_util::{try_option, Mutex, RwLock};
 use faketime::unix_time_as_millis;
 use flatbuffers::{get_root, FlatBufferBuilder};
 use log::{debug, info, warn};
@@ -66,7 +66,7 @@ bitflags! {
     }
 }
 
-pub type BlockStatusMap = Arc<RwLock<HashMap<H256, BlockStatus>>>;
+pub type BlockStatusMap = Arc<Mutex<HashMap<H256, BlockStatus>>>;
 pub type BlockHeaderMap = Arc<RwLock<HashMap<H256, HeaderView>>>;
 
 pub struct Synchronizer<CI: ChainIndex> {
@@ -128,7 +128,7 @@ impl<CI: ChainIndex> Synchronizer<CI> {
             peers: Arc::new(Peers::default()),
             orphan_block_pool: Arc::new(OrphanBlockPool::with_capacity(orphan_block_limit)),
             best_known_header: Arc::new(RwLock::new(best_known_header)),
-            status_map: Arc::new(RwLock::new(HashMap::new())),
+            status_map: Arc::new(Mutex::new(HashMap::new())),
             header_map: Arc::new(RwLock::new(HashMap::new())),
             n_sync: Arc::new(AtomicUsize::new(0)),
             outbound_peers_with_protect: Arc::new(AtomicUsize::new(0)),
@@ -167,13 +167,12 @@ impl<CI: ChainIndex> Synchronizer<CI> {
     }
 
     pub fn get_block_status(&self, hash: &H256) -> BlockStatus {
-        let guard = self.status_map.upgradable_read();
+        let mut guard = self.status_map.lock();
         match guard.get(hash).cloned() {
             Some(s) => s,
             None => {
                 if self.shared.block_header(hash).is_some() {
-                    let mut write_guard = RwLockUpgradableReadGuard::upgrade(guard);
-                    write_guard.insert(hash.clone(), BlockStatus::BLOCK_HAVE_MASK);
+                    guard.insert(hash.clone(), BlockStatus::BLOCK_HAVE_MASK);
                     BlockStatus::BLOCK_HAVE_MASK
                 } else {
                     BlockStatus::UNKNOWN
@@ -187,7 +186,7 @@ impl<CI: ChainIndex> Synchronizer<CI> {
     }
 
     pub fn insert_block_status(&self, hash: H256, status: BlockStatus) {
-        self.status_map.write().insert(hash, status);
+        self.status_map.lock().insert(hash, status);
     }
 
     pub fn best_known_header(&self) -> HeaderView {
@@ -209,7 +208,7 @@ impl<CI: ChainIndex> Synchronizer<CI> {
 
     pub fn mark_block_stored(&self, hash: H256) {
         self.status_map
-            .write()
+            .lock()
             .entry(hash)
             .and_modify(|status| *status = BlockStatus::BLOCK_HAVE_MASK)
             .or_insert_with(|| BlockStatus::BLOCK_HAVE_MASK);

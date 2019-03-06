@@ -1,9 +1,6 @@
 mod unstable;
 
-pub use parking_lot::{
-    Condvar, Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockUpgradableReadGuard,
-    RwLockWriteGuard,
-};
+pub use parking_lot::{Condvar, Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 /// Helper macro for reducing boilerplate code for matching `Option` together
 /// with early return.

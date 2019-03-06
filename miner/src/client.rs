@@ -1,6 +1,5 @@
 use crate::{MinerConfig, Work};
 use ckb_core::block::Block;
-use ckb_util::RwLockUpgradableReadGuard;
 use crossbeam_channel::Sender;
 use futures::sync::{mpsc, oneshot};
 use hyper::error::Error as HyperError;
@@ -153,10 +152,9 @@ impl Client {
         let mut updated = false;
         match self.get_block_template().wait() {
             Ok(new) => {
-                let work = self.current_work.upgradable_read();
+                let mut work = self.current_work.lock();
                 if work.as_ref().map_or(true, |old| old.work_id != new.work_id) {
-                    let mut write_guard = RwLockUpgradableReadGuard::upgrade(work);
-                    *write_guard = Some(new);
+                    *work = Some(new);
                     updated = true;
                     let _ = self.new_work.send(());
                 }

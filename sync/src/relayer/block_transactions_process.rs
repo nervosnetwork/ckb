@@ -37,7 +37,7 @@ where
             .relayer
             .state
             .pending_compact_blocks
-            .write()
+            .lock()
             .remove(&hash)
         {
             let transactions: Vec<Transaction> =
