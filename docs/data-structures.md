@@ -110,13 +110,30 @@ More information about Script can be [here](https://github.com/nervosnetwork/ckb
 
 ### Description
 
-| Name                     | Type         | Description                                                  |
-| ------------------------ | ------------ | ------------------------------------------------------------ |
-| `version`                | uint32       | **The version of the transaction.** It‘s used to distinguish transactions when there's a fork happened to the blockchain system. |
-| `deps`                   | [`cell`]     | **An array of cells that are dependencies of this transaction.** Only live cells can be listed here. The cells listed are read-only. |
-| `inputs.previous_output` | [`outpoint`] | **An array of cell outpoints that point to the cells used as inputs.** Input cells are in fact the output of previous transactions, hence they are noted as `previous_output` here. These cells are referred through  `outpoint`, which contains the transaction `hash` of the previous transaction, as well as this cell's `index` in its transaction's output list. |
-| `inputs.unlock`          | [`script`]   | **An array of scripts for unlocking their related input cells** (i.e. `previous_output`). See [here](https://github.com/nervosnetwork/ckb-demo-ruby-sdk/blob/develop/docs/how-to-write-contracts.md) for how to program this part. |
-| `outputs`                | [`cell`]     | **An array of cells that are used as outputs**, i.e. the newly generated cells. These are the cells may be used as inputs for other transactions. |
+#### Transaction
+
+| Name              | Type                             | Description                                                  |
+| ----------------- | -------------------------------- | ------------------------------------------------------------ |
+| `version`         | uint32                           | **The version of the transaction.** It‘s used to distinguish transactions when there's a fork happened to the blockchain system. |
+| `deps`            | [`outpoint`]                     | **An array of `outpoint` that point to the cells that are dependencies of this transaction.** Only live cells can be listed here. The cells listed are read-only. |
+| `inputs`          | [{`previsou_output` , `unlock`}] | **An array of {`previsou_output` , `unlock`}.**              |
+| `previous_output` | [`outpoint`]                     | **An array of cell outpoints that point to the cells used as inputs.** Input cells are in fact the output of previous transactions, hence they are noted as `previous_output` here. These cells are referred through  `outpoint`, which contains the transaction `hash` of the previous transaction, as well as this cell's `index` in its transaction's output list. |
+| `unlock`          | [`script`]                       | **An array of scripts for unlocking their related input cells** (i.e. `previous_output`). See [here](https://github.com/nervosnetwork/ckb-demo-ruby-sdk/blob/develop/docs/how-to-write-contracts.md) for how to program this part. |
+| `outputs`         | [`cell`]                         | **An array of cells that are used as outputs**, i.e. the newly generated cells. These are the cells may be used as inputs for other transactions. |
+
+
+
+#### OutPoint
+
+
+
+| Name             | Type               | Description                                                  |
+| ---------------- | ------------------ | ------------------------------------------------------------ |
+| `outpoint`       | {`hash` , `index`} | **An outpoint is pointer to a specific cell.** This is used in a transaction to refer a cell that is generated in a previous transaction. |
+| `outpoint.hash`  | H256(hash)         | **The hash of the transaction that this cell belongs to.**   |
+| `outpoint.index` | uint32             | **The index of the cell in its transaction's output list.**  |
+
+
 
 
 
