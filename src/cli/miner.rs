@@ -1,7 +1,7 @@
 use crate::helper::{require_path_exists, to_absolute_path};
 use ckb_chain_spec::ChainSpec;
 use ckb_miner::{Client, Miner, MinerConfig};
-use ckb_util::RwLock;
+use ckb_util::Mutex;
 use clap::ArgMatches;
 use crossbeam_channel::unbounded;
 use dir::Directories;
@@ -63,7 +63,7 @@ pub fn miner(matches: &ArgMatches) {
 
     let (new_work_tx, new_work_rx) = unbounded();
 
-    let work = Arc::new(RwLock::new(None));
+    let work = Arc::new(Mutex::new(None));
 
     let client = Client::new(Arc::clone(&work), new_work_tx, config.miner);
 

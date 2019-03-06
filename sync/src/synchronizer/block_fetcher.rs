@@ -8,7 +8,7 @@ use ckb_core::header::Header;
 use ckb_network::PeerIndex;
 use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::ChainProvider;
-use ckb_util::{try_option, RwLockUpgradableReadGuard};
+use ckb_util::try_option;
 use faketime::unix_time_as_millis;
 use log::debug;
 use numext_fixed_hash::H256;
@@ -75,11 +75,7 @@ where
     }
 
     pub fn last_common_header(&self, best: &HeaderView) -> Option<Header> {
-        let guard = self
-            .synchronizer
-            .peers
-            .last_common_headers
-            .upgradable_read();
+        let mut guard = self.synchronizer.peers.last_common_headers.write();
 
         let last_common_header = try_option!(guard.get(&self.peer).cloned().or_else(|| {
             if best.number() < self.tip_header.number() {
@@ -95,8 +91,7 @@ where
             .last_common_ancestor(&last_common_header, &best.inner())?;
 
         if fixed_last_common_header != last_common_header {
-            let mut write_guard = RwLockUpgradableReadGuard::upgrade(guard);
-            write_guard
+            guard
                 .entry(self.peer)
                 .and_modify(|last_common_header| {
                     *last_common_header = fixed_last_common_header.clone()
