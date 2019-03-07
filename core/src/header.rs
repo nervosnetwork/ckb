@@ -1,6 +1,6 @@
 use bincode::{deserialize, serialize};
 use faster_hex::hex_string;
-use hash::sha3_256;
+use hash::blake2b_256;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 use serde_derive::{Deserialize, Serialize};
@@ -63,7 +63,7 @@ pub struct RawHeader {
 
 impl RawHeader {
     pub fn pow_hash(&self) -> H256 {
-        sha3_256(serialize(self).unwrap()).into()
+        blake2b_256(serialize(self).unwrap()).into()
     }
 
     pub fn with_seal(self, seal: Seal) -> Header {
@@ -149,7 +149,7 @@ impl Header {
     }
 
     pub fn hash(&self) -> H256 {
-        sha3_256(serialize(&self).unwrap()).into()
+        blake2b_256(serialize(&self).unwrap()).into()
     }
 
     pub fn pow_hash(&self) -> H256 {
