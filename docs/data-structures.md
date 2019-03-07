@@ -26,7 +26,7 @@ This documents list all the basic structures one may need to know in order to de
 
 | Name       | Type       | Description                                                  |
 | :--------- | :--------- | :----------------------------------------------------------- |
-| `capacity` | uint64     | **The size of the cell.** When a new cell is generated (via transaction), one of the verification rule is `capacity = len(capacity)+len(data)+len(type)+len(lock)`. This value also represents the balance of CKB coin, just like the `balance` field in the Bitcoin's UTXO. (E.g. Alice owns 100 CKB coins means she can unlock a group of cells that has 100 amount of `capacity` in total.) |
+| `capacity` | uint64     | **The size of the cell.** When a new cell is generated (via transaction), one of the verification rule is `capacity ≥ len(capacity)+len(data)+len(type)+len(lock)`. This value also represents the balance of CKB coin, just like the `balance` field in the Bitcoin's UTXO. (E.g. Alice owns 100 CKB coins means she can unlock a group of cells that has 100 amount of `capacity` in total.) |
 | `data`     | Bytes      | **Arbitrary data.** This part is for storing states or scripts.  In order to make this cell valid on-chain, the data filled in this field should comply with the logics and rules defined by `type` or `lock`. |
 | `type`     | `Script`   | **A Script that defines the type of the cell.** In a transaction, if an input cell and an output cell has the same `type` field, then the `data` part of these two cells is limited by the `type` script upon the transaction verification. (I.e. `type` is a script that limits how the `data` field of the new cells can be changed from the old cells.) `type` is required to has a data structure of `script`. This field can be empty in a Cell. |
 | `lock`     | H256(hash) | **The hash of a Script that defines the ownership of the cell**, just like the `lock` field in the Bitcoin's UTXO. Whoever can provide an unlock script that has the same hash of a cell's `lock` hash can use this cell as input in an transaction (i.e. has the ownership of this cell). This is similar to the P2SH scheme in Bitcoin. |
@@ -117,8 +117,8 @@ More information about Script can be [here](https://github.com/nervosnetwork/ckb
 | `version`         | uint32                           | **The version of the transaction.** It‘s used to distinguish transactions when there's a fork happened to the blockchain system. |
 | `deps`            | [`outpoint`]                     | **An array of `outpoint` that point to the cells that are dependencies of this transaction.** Only live cells can be listed here. The cells listed are read-only. |
 | `inputs`          | [{`previsou_output` , `unlock`}] | **An array of {`previsou_output` , `unlock`}.**              |
-| `previous_output` | [`outpoint`]                     | **An array of cell outpoints that point to the cells used as inputs.** Input cells are in fact the output of previous transactions, hence they are noted as `previous_output` here. These cells are referred through  `outpoint`, which contains the transaction `hash` of the previous transaction, as well as this cell's `index` in its transaction's output list. |
-| `unlock`          | [`script`]                       | **An array of scripts for unlocking their related input cells** (i.e. `previous_output`). See [here](https://github.com/nervosnetwork/ckb-demo-ruby-sdk/blob/develop/docs/how-to-write-contracts.md) for how to program this part. |
+| `previous_output` | `outpoint`                       | **A cell outpoint that point to the cells used as inputs.** Input cells are in fact the output of previous transactions, hence they are noted as `previous_output` here. These cells are referred through  `outpoint`, which contains the transaction `hash` of the previous transaction, as well as this cell's `index` in its transaction's output list. |
+| `unlock`          | `script`                         | **A script for unlocking the corresponding input cell** (i.e. `previous_output`). See [here](https://github.com/nervosnetwork/ckb-demo-ruby-sdk/blob/develop/docs/how-to-write-contracts.md) for how to program this part. |
 | `outputs`         | [`cell`]                         | **An array of cells that are used as outputs**, i.e. the newly generated cells. These are the cells may be used as inputs for other transactions. |
 
 
@@ -226,7 +226,7 @@ More information about the Transaction of Nervos CKB can be found in [whitepaper
 | -------------- | ------------------- | ------------------------------------------------------------ |
 | `cellbase_id`  | H256(hash)          | **The hash of the Cellbase transaction.** Cellbase transaction is just like the coinable transaction in Bitcoin. It's the transaction added by the miner who mined this block, by which the miner receives block reward for successfully mined the block. |
 | `difficulty`   | Bytes               | **The difficulty of the PoW puzzle.**                        |
-| `hash`         | H256(hash)          | **The block hash.**                                          |
+| `hash`         | H256(hash)          | **The block hash.** Note that although this value is returned by the JSON-RPC API, it is in fact NOT a part of the header. This value is actually calculated from the `Header` data. |
 | `number`       | uint64              | **The block height.**                                        |
 | `parent_hash`  | H256(hash)          | **The hash of the parent block.**                            |
 | `seal`         | `nonce` and `proof` | **The seal of a block.** After finished the block assembling, the miner can start to do the calculation for finding the solution of the PoW puzzle. The "solution" here is called `seal`. |
