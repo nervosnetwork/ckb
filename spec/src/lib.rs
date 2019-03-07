@@ -93,8 +93,8 @@ fn build_system_cell_transaction(cells: &[SystemCell]) -> Result<Transaction, Bo
 
 impl ChainSpec {
     pub fn read_from_file<P: AsRef<Path>>(path: P) -> Result<ChainSpec, Box<Error>> {
-        let file = File::open(path.as_ref())?;
-        let mut spec: Self = serde_json::from_reader(file)?;
+        let config_str = std::fs::read_to_string(path.as_ref())?;
+        let mut spec: Self = toml::from_str(&config_str)?;
         spec.resolve_paths(path.as_ref().parent().unwrap());
         Ok(spec)
     }
@@ -150,11 +150,11 @@ pub mod test {
         println!(
             "{:?}",
             Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("../nodes_template/spec/dev.json")
+                .join("../nodes_template/spec/dev.toml")
                 .display()
         );
         let dev = ChainSpec::read_from_file(
-            Path::new(env!("CARGO_MANIFEST_DIR")).join("../nodes_template/spec/dev.json"),
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../nodes_template/spec/dev.toml"),
         );
         assert!(dev.is_ok(), format!("{:?}", dev));
         for cell in &dev.unwrap().system_cells {

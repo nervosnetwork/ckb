@@ -1,0 +1,36 @@
+name = "ckb"
+
+[genesis]
+version = 0
+parent_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
+timestamp = 0
+txs_commit = "0x0000000000000000000000000000000000000000000000000000000000000000"
+txs_proposal = "0x0000000000000000000000000000000000000000000000000000000000000000"
+difficulty = "0x100"
+cellbase_id = "0x0000000000000000000000000000000000000000000000000000000000000000"
+uncles_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
+
+[genesis.seal]
+nonce = 0
+proof = [0]
+
+[params]
+initial_block_reward = 50000
+max_block_cycles = 100000000
+
+[pow]
+func = "Cuckoo"
+
+[pow.params]
+# the 2-log of the graph size, which is the size in bits of the node
+# identifiers
+edge_bits = 15
+
+# length of the cycle to be found, must be an even number, a minimum of 12 is
+# recommended
+cycle_length = 12
+
+# An array list paths to system cell files, which is absolute or relative to
+# the directory containing this config file.
+[[system_cells]]
+path = "cells/always_success"

@@ -8,12 +8,11 @@ use dir::Directories;
 use logger::{self, Config as LogConfig};
 use serde_derive::Deserialize;
 use std::error::Error;
-use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::thread;
 
-const DEFAULT_CONFIG_PATHS: &[&str] = &["miner.json", "nodes/miner.json"];
+const DEFAULT_CONFIG_PATHS: &[&str] = &["miner.toml", "nodes/miner.toml"];
 
 #[derive(Clone, Debug, Deserialize)]
 struct Config {
@@ -42,8 +41,8 @@ impl Config {
     }
 
     pub fn read_from_file<P: AsRef<Path>>(path: P) -> Result<Config, Box<Error>> {
-        let file = File::open(path.as_ref())?;
-        let mut config: Self = serde_json::from_reader(file)?;
+        let config_str = std::fs::read_to_string(path.as_ref())?;
+        let mut config: Self = toml::from_str(&config_str)?;
         config.resolve_paths(path.as_ref().parent().unwrap());
         Ok(config)
     }
