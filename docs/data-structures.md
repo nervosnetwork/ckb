@@ -224,7 +224,7 @@ More information about the Transaction of Nervos CKB can be found in [whitepaper
 
 | Name           | Type                | Description                                                  |
 | -------------- | ------------------- | ------------------------------------------------------------ |
-| `cellbase_id`  | H256(hash)          | **The hash of the Cellbase transaction.** Cellbase transaction is just like the coinable transaction in Bitcoin. It's the transaction added by the miner who mined this block, by which the miner receives block reward for successfully mined the block. |
+| `cellbase_id`  | H256(hash)          | **The hash of the Cellbase transaction.** Cellbase transaction is just like the coinbase transaction in Bitcoin. It's the transaction added by the miner who mined this block, by which the miner receives block reward for successfully mined the block. |
 | `difficulty`   | Bytes               | **The difficulty of the PoW puzzle.**                        |
 | `hash`         | H256(hash)          | **The block hash.** Note that although this value is returned by the JSON-RPC API, it is in fact NOT a part of the header. This value is actually calculated from the `Header` data. |
 | `number`       | uint64              | **The block height.**                                        |
