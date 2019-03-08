@@ -33,7 +33,7 @@ This documents list all the basic structures one may need to know in order to de
 
 
 
-More information about Cell can be found in the [whitepaper](https://github.com/nervosnetwork/rfcs/blob/afe50463bb620393b179bd8f08c263b78e366ab3/rfcs/0002-ckb/0002-ckb.md#42-cell).
+More information about Cell can be found in the [whitepaper](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0002-ckb/0002-ckb.md#42-cell).
 
 
 
