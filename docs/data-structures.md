@@ -236,7 +236,7 @@ More information about the Transaction of Nervos CKB can be found in [whitepaper
 | `txs_commit`   | H256(hash)          | **The Merkle Root of the Merkle trie with the hash of transactions as leaves.** |
 | `txs_proposal` | H256(hash)          | **The Merkle Root of the Merkle trie with the hash of short transaction IDs as leaves.** |
 | `uncles_count` | uint32              | **The number of uncle blocks.**                              |
-| `uncles_hash`  | H256(hash)          | **The Merkle Root of the Merkle trie with the hash of uncle blocks as leaves.** |
+| `uncles_hash`  | H256(hash)          | **The hash of the serialized uncle blocks data.** This will later be changed to using Merle Trie as well. |
 | `version`      | uint32              | **The version of the block**. This is for solving the compatibility issues might be occurred after a fork. |
 
 #### UncleBlock
