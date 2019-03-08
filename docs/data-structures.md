@@ -28,7 +28,7 @@ This documents list all the basic structures one may need to know in order to de
 | :--------- | :--------- | :----------------------------------------------------------- |
 | `capacity` | uint64     | **The size of the cell.** When a new cell is generated (via transaction), one of the verification rule is `capacity ≥ len(capacity)+len(data)+len(type)+len(lock)`. This value also represents the balance of CKB coin, just like the `balance` field in the Bitcoin's UTXO. (E.g. Alice owns 100 CKB coins means she can unlock a group of cells that has 100 amount of `capacity` in total.) |
 | `data`     | Bytes      | **Arbitrary data.** This part is for storing states or scripts.  In order to make this cell valid on-chain, the data filled in this field should comply with the logics and rules defined by `type` or `lock`. |
-| `type`     | `Script`   | **A Script that defines the type of the cell.** In a transaction, if an input cell and an output cell has the same `type` field, then the `data` part of these two cells is limited by the `type` script upon the transaction verification. (I.e. `type` is a script that limits how the `data` field of the new cells can be changed from the old cells.) `type` is required to has a data structure of `script`. This field can be empty in a Cell. |
+| `type`     | `Script`   | **A Script that defines the type of the cell.** In a transaction, if an input cell and an output cell has the same `type` field, then the `data` part of these two cells is limited by the `type` script upon the transaction verification. (I.e. `type` is a script that limits how the `data` field of the new cells can be changed from the old cells.) `type` is required to has a data structure of `script`. **This field is optional.** |
 | `lock`     | H256(hash) | **The hash of a Script that defines the ownership of the cell**, just like the `lock` field in the Bitcoin's UTXO. Whoever can provide an unlock script that has the same hash of a cell's `lock` hash can use this cell as input in an transaction (i.e. has the ownership of this cell). This is similar to the P2SH scheme in Bitcoin. |
 
 
@@ -63,13 +63,13 @@ More information about Cell can be found in the [whitepaper](https://github.com/
 | :------------ | :------ | :----------------------------------------------------------- |
 | `version`     | uint8   | **The version of the script.** It‘s used to distinguish transactions when there's a fork happened to the blockchain system. |
 | `binary`      | Bytes   | **ELF formatted binary that contains an RISC-V based script.** This part of data is loaded into an CKB-VM instance when they are specified upon the transaction verification. |
-| `reference`   | Bytes   | **The hash of the script that is referred by this script.** It is possible to refer the script in another cell on-chain as the binary code in this script, instead of entering the binary directly into the script. **Notice:** This is part only works when the `binary` field is empty. |
-| `args`        | [Bytes] | **An array of arguments for the script.** The arguments here are imported into the CKB-VM instance as input arguments for the scripts. This part is NOT used when calculating the hash of the script. |
-| `signed_args` | [Bytes] | **An array of signed arguments for the script.** The arguments with signatures. The `signed_args` and the `args` will be connected into a single vector, and imported into the CKB-VM instance as input arguments. |
+| `reference`   | Bytes   | **The `type hash` of the script that is referred by this script.** It is possible to refer the script in another cell on-chain as the binary code in this script, instead of entering the binary directly into the script. **Notice:** This is part only works when the `binary` field is empty. |
+| `args`        | [Bytes] | **An array of arguments as the script input.** The arguments here are imported into the CKB-VM instance as input arguments for the scripts. This part is NOT used when calculating the hash of the script. |
+| `signed_args` | [Bytes] | **An array of arguments that belongs to the script for improving code reuse rate**. Please refer [this document](https://github.com/Mine77/ckb-demo-ruby-sdk/blob/docs/update-docs/docs/how-to-write-contracts.md#script-model) for more explanation about this field. |
 
 
 
-More information about Script can be [here](https://github.com/nervosnetwork/ckb-demo-ruby-sdk/blob/27669cd6b4f56f8977b725fc0e6582b288ab2b82/docs/how-to-write-contracts.md#script-model).
+More information about Script can be [here](https://github.com/nervosnetwork/ckb-demo-ruby-sdk/blob/master/docs/how-to-write-contracts.md#script-model). Also you can find how the `Script` structure is implemented by reading [these codes](https://github.com/nervosnetwork/ckb/blob/master/core/src/script.rs#L13).
 
 
 
@@ -137,7 +137,7 @@ More information about Script can be [here](https://github.com/nervosnetwork/ckb
 
 
 
-More information about the Transaction of Nervos CKB can be found in [whitepaper](https://github.com/nervosnetwork/rfcs/blob/afe50463bb620393b179bd8f08c263b78e366ab3/rfcs/0002-ckb/0002-ckb.md#44-transaction).
+More information about the Transaction of Nervos CKB can be found in [whitepaper](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0002-ckb/0002-ckb.md#44-transaction).
 
 
 
