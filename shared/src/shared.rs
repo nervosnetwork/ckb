@@ -106,8 +106,8 @@ impl<CI: ChainIndex> Shared<CI> {
         tip_number: u64,
     ) -> TxProposalTable {
         let mut proposal_ids = TxProposalTable::new(proposal_window);
-        let proposal_start = tip_number.saturating_sub(proposal_window.1);
-        let proposal_end = tip_number.saturating_sub(proposal_window.0);
+        let proposal_start = tip_number.saturating_sub(proposal_window.start());
+        let proposal_end = tip_number.saturating_sub(proposal_window.end());
         for bn in proposal_start..=proposal_end {
             if let Some(hash) = store.get_block_hash(bn) {
                 let mut ids_set = FnvHashSet::default();
@@ -357,7 +357,6 @@ impl<CI: ChainIndex> BlockMedianTimeContext for Shared<CI> {
 pub struct SharedBuilder<DB: KeyValueDB> {
     db: Option<DB>,
     consensus: Option<Consensus>,
-    txs_verify_cache_size: Option<usize>,
     tx_pool_config: Option<TxPoolConfig>,
 }
 
@@ -366,7 +365,6 @@ impl<DB: KeyValueDB> Default for SharedBuilder<DB> {
         SharedBuilder {
             db: None,
             consensus: None,
-            txs_verify_cache_size: None,
             tx_pool_config: None,
         }
     }
@@ -377,7 +375,6 @@ impl SharedBuilder<MemoryKeyValueDB> {
         SharedBuilder {
             db: Some(MemoryKeyValueDB::open(COLUMNS as usize)),
             consensus: None,
-            txs_verify_cache_size: None,
             tx_pool_config: None,
         }
     }
@@ -411,7 +408,9 @@ impl<DB: 'static + KeyValueDB> SharedBuilder<DB> {
     }
 
     pub fn txs_verify_cache_size(mut self, value: usize) -> Self {
-        self.txs_verify_cache_size = Some(value);
+        if let Some(c) = self.tx_pool_config.as_mut() {
+            c.txs_verify_cache_size = value;
+        };
         self
     }
 
@@ -419,9 +418,11 @@ impl<DB: 'static + KeyValueDB> SharedBuilder<DB> {
         let store = ChainKVStore::new(self.db.unwrap());
         let consensus = self.consensus.unwrap_or_else(Consensus::default);
         let tx_pool_config = self.tx_pool_config.unwrap_or_else(Default::default);
-        let txs_verify_cache_size =
-            std::cmp::max(MIN_TXS_VERIFY_CACHE_SIZE, self.txs_verify_cache_size)
-                .expect("txs_verify_cache_size MUST not be none");
-        Shared::new(store, consensus, txs_verify_cache_size, tx_pool_config)
+        Shared::new(
+            store,
+            consensus,
+            tx_pool_config.txs_verify_cache_size,
+            tx_pool_config,
+        )
     }
 }

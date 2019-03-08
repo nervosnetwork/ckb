@@ -138,7 +138,7 @@ fn test_proposal() {
         prev_tx_hash = tx.hash().clone();
     }
 
-    let (proposal_start, proposal_end) = shared.consensus().tx_proposal_window();
+    let proposal_window = shared.consensus().tx_proposal_window();
 
     let mut parent = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
 
@@ -152,7 +152,7 @@ fn test_proposal() {
     parent = block.header().clone();
 
     //commit in proposal gap is invalid
-    for _ in (proposed + 1)..(proposed + proposal_start) {
+    for _ in (proposed + 1)..(proposed + proposal_window.end()) {
         let block: Block = gen_block(&parent, txs20.clone(), vec![], vec![]);
         let verifier = CommitVerifier::new(shared.clone());
         assert_eq!(
@@ -169,7 +169,7 @@ fn test_proposal() {
     }
 
     //commit in proposal window
-    for _ in 0..(proposal_end - proposal_start) {
+    for _ in 0..(proposal_window.start() - proposal_window.end()) {
         let block: Block = gen_block(&parent, txs20.clone(), vec![], vec![]);
         let verifier = CommitVerifier::new(shared.clone());
         assert_eq!(verifier.verify(&block), Ok(()));
@@ -199,7 +199,7 @@ fn test_uncle_proposal() {
         prev_tx_hash = tx.hash().clone();
     }
 
-    let (proposal_start, proposal_end) = shared.consensus().tx_proposal_window();
+    let proposal_window = shared.consensus().tx_proposal_window();
 
     let mut parent = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
 
@@ -214,7 +214,7 @@ fn test_uncle_proposal() {
     parent = block.header().clone();
 
     //commit in proposal gap is invalid
-    for _ in (proposed + 1)..(proposed + proposal_start) {
+    for _ in (proposed + 1)..(proposed + proposal_window.end()) {
         let block: Block = gen_block(&parent, txs20.clone(), vec![], vec![]);
         let verifier = CommitVerifier::new(shared.clone());
         assert_eq!(
@@ -231,7 +231,7 @@ fn test_uncle_proposal() {
     }
 
     //commit in proposal window
-    for _ in 0..(proposal_end - proposal_start) {
+    for _ in 0..(proposal_window.start() - proposal_window.end()) {
         let block: Block = gen_block(&parent, txs20.clone(), vec![], vec![]);
         let verifier = CommitVerifier::new(shared.clone());
         assert_eq!(verifier.verify(&block), Ok(()));

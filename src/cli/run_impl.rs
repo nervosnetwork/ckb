@@ -30,7 +30,7 @@ pub fn run(setup: Setup) {
         .consensus(consensus)
         .db(&setup.configs.db)
         .tx_pool_config(setup.configs.tx_pool.clone())
-        .txs_verify_cache_size(setup.configs.txs_verify_cache_size)
+        .txs_verify_cache_size(setup.configs.tx_pool.txs_verify_cache_size)
         .build();
 
     let notify = NotifyService::default().start(Some("notify"));

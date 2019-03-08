@@ -16,6 +16,8 @@ use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::iter::ExactSizeIterator;
 
+pub const MIN_TXS_VERIFY_CACHE_SIZE: usize = 100;
+
 /// Transaction pool configuration
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TxPoolConfig {
@@ -26,6 +28,7 @@ pub struct TxPoolConfig {
     pub max_cache_size: usize,
     pub max_pending_size: usize,
     pub trace: Option<usize>,
+    pub txs_verify_cache_size: usize,
 }
 
 impl Default for TxPoolConfig {
@@ -37,6 +40,7 @@ impl Default for TxPoolConfig {
             max_cache_size: 1000,
             max_pending_size: 10000,
             trace: Some(100),
+            txs_verify_cache_size: MIN_TXS_VERIFY_CACHE_SIZE,
         }
     }
 }

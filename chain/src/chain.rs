@@ -209,9 +209,9 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
         self.shared.store().save_with_batch(|batch| {
             self.shared.store().insert_block(batch, &block);
 
-            if &cannon_total_difficulty > &current_total_difficulty
-                || (&current_total_difficulty == &cannon_total_difficulty
-                    && block.header().hash() < tip_hash)
+            if (cannon_total_difficulty > current_total_difficulty)
+                || ((current_total_difficulty == cannon_total_difficulty)
+                    && (block.header().hash() < tip_hash))
             {
                 debug!(
                     target: "chain",

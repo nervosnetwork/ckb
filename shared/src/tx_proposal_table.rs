@@ -46,8 +46,8 @@ impl TxProposalTable {
     }
 
     pub fn reconstruct(&mut self, number: BlockNumber) -> Vec<ProposalShortId> {
-        let proposal_start = number.saturating_sub(self.proposal_window.1);
-        let proposal_end = number.saturating_sub(self.proposal_window.0);
+        let proposal_start = number.saturating_sub(self.proposal_window.start());
+        let proposal_end = number.saturating_sub(self.proposal_window.end());
 
         let mut left = self.table.split_off(&proposal_start);
         ::std::mem::swap(&mut self.table, &mut left);

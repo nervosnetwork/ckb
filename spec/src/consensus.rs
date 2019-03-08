@@ -6,11 +6,10 @@ use ckb_pow::{Pow, PowEngine};
 use numext_fixed_uint::U256;
 use std::sync::Arc;
 
-pub type ProposalWindow = (BlockNumber, BlockNumber);
 pub(crate) const DEFAULT_BLOCK_REWARD: Capacity = 5_000;
 pub(crate) const MAX_UNCLE_NUM: usize = 2;
 pub(crate) const MAX_UNCLE_AGE: usize = 6;
-pub(crate) const TX_PROPOSAL_WINDOW: ProposalWindow = (2, 10);
+pub(crate) const TX_PROPOSAL_WINDOW: ProposalWindow = ProposalWindow(2, 10);
 pub(crate) const CELLBASE_MATURITY: usize = 100;
 // TODO: should adjust this value based on CKB average block time
 pub(crate) const MEDIAN_TIME_BLOCK_COUNT: usize = 11;
@@ -23,6 +22,19 @@ pub(crate) const POW_SPACING: u64 = 15 * 1000; //15s
 pub(crate) const MAX_BLOCK_CYCLES: Cycle = 100_000_000;
 pub(crate) const MAX_BLOCK_BYTES: u64 = 10_000_000; // 10mb
 pub(crate) const BLOCK_VERSION: u32 = 0;
+
+#[derive(Default, Clone, PartialEq, Debug, Eq, Copy)]
+pub struct ProposalWindow(BlockNumber, BlockNumber);
+
+impl ProposalWindow {
+    pub fn end(&self) -> BlockNumber {
+        self.0
+    }
+
+    pub fn start(&self) -> BlockNumber {
+        self.1
+    }
+}
 
 #[derive(Clone, PartialEq, Debug)]
 pub struct Consensus {
