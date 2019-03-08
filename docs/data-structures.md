@@ -71,9 +71,7 @@ More information about Cell can be found in the [whitepaper](https://github.com/
 
 More information about Script can be [here](https://github.com/nervosnetwork/ckb-demo-ruby-sdk/blob/master/docs/how-to-write-contracts.md#script-model). 
 
-Also you can find how the `Script` structure is implemented from these codes:
-
-https://github.com/nervosnetwork/ckb/blob/17b48a0777753a91691146b3817758c02db6f415/core/src/script.rs#L13-L53
+Also you can find how the `Script` structure is implemented from [these codes](https://github.com/nervosnetwork/ckb/blob/17b48a0777753a91691146b3817758c02db6f415/core/src/script.rs#L13-L53)
 
 
 
