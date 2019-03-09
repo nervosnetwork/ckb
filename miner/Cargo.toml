@@ -14,7 +14,6 @@ ckb-shared = { path = "../shared" }
 ckb-pow = { path = "../pow" }
 ckb-util = { path = "../util" }
 ckb-notify = { path = "../notify" }
-ckb-pool = { path = "../pool" }
 faketime = "0.2.0"
 rand = "0.6"
 serde = "1.0"
@@ -27,6 +26,8 @@ hyper = "0.12"
 futures = "0.1"
 lru-cache = { git = "https://github.com/nervosnetwork/lru-cache" }
 stop-handler = { path = "../util/stop-handler" }
+ckb-traits = { path = "../traits" }
+failure = "0.1.5"
 
 [dev-dependencies]
 proptest = "0.9"

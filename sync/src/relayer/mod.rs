@@ -15,15 +15,17 @@ use self::compact_block_process::CompactBlockProcess;
 use self::get_block_proposal_process::GetBlockProposalProcess;
 use self::get_block_transactions_process::GetBlockTransactionsProcess;
 use self::transaction_process::TransactionProcess;
+use crate::relayer::compact_block::ShortTransactionID;
 use crate::types::Peers;
 use ckb_chain::chain::ChainController;
 use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::transaction::{ProposalShortId, Transaction};
 use ckb_network::{CKBProtocolContext, CKBProtocolHandler, PeerIndex, TimerToken};
-use ckb_pool::txs_pool::TransactionPoolController;
 use ckb_protocol::{short_transaction_id, short_transaction_id_keys, RelayMessage, RelayPayload};
+use ckb_shared::chain_state::ChainState;
 use ckb_shared::index::ChainIndex;
-use ckb_shared::shared::{ChainProvider, Shared};
+use ckb_shared::shared::Shared;
+use ckb_traits::ChainProvider;
 use ckb_util::Mutex;
 use flatbuffers::{get_root, FlatBufferBuilder};
 use fnv::{FnvHashMap, FnvHashSet};
@@ -38,8 +40,7 @@ pub const TX_PROPOSAL_TOKEN: TimerToken = 0;
 #[derive(Clone)]
 pub struct Relayer<CI: ChainIndex> {
     chain: ChainController,
-    shared: Shared<CI>,
-    tx_pool: TransactionPoolController,
+    pub(crate) shared: Shared<CI>,
     state: Arc<RelayState>,
     // TODO refactor shared Peers struct with Synchronizer
     peers: Arc<Peers>,
@@ -49,16 +50,10 @@ impl<CI> Relayer<CI>
 where
     CI: ChainIndex + 'static,
 {
-    pub fn new(
-        chain: ChainController,
-        shared: Shared<CI>,
-        tx_pool: TransactionPoolController,
-        peers: Arc<Peers>,
-    ) -> Self {
+    pub fn new(chain: ChainController, shared: Shared<CI>, peers: Arc<Peers>) -> Self {
         Relayer {
             chain,
             shared,
-            tx_pool,
             state: Arc::new(RelayState::default()),
             peers,
         }
@@ -108,6 +103,7 @@ where
 
     pub fn request_proposal_txs(
         &self,
+        chain_state: &ChainState<CI>,
         nc: &CKBProtocolContext,
         peer: PeerIndex,
         block: &CompactBlock,
@@ -122,7 +118,7 @@ where
                     .iter()
                     .flat_map(|uncle| uncle.proposal_transactions()),
             )
-            .filter(|x| !self.tx_pool.contains_key(**x) && inflight.insert(**x))
+            .filter(|x| !chain_state.contains_proposal_id(x) && inflight.insert(**x))
             .cloned()
             .collect::<Vec<_>>();
 
@@ -153,31 +149,38 @@ where
 
     pub fn reconstruct_block(
         &self,
+        chain_state: &ChainState<CI>,
         compact_block: &CompactBlock,
         transactions: Vec<Transaction>,
     ) -> Result<Block, Vec<usize>> {
         let (key0, key1) =
             short_transaction_id_keys(compact_block.header.nonce(), compact_block.nonce);
 
-        // TODO: use reference
-        let pool_entrys = self.tx_pool.get_potential_transactions();
+        let mut txs_map: FnvHashMap<ShortTransactionID, Transaction> = transactions
+            .into_iter()
+            .map(|tx| {
+                let short_id = short_transaction_id(key0, key1, &tx.hash());
+                (short_id, tx)
+            })
+            .collect();
 
-        let mut txs_map = FnvHashMap::default();
-        for tx in transactions {
-            let short_id = short_transaction_id(key0, key1, &tx.hash());
-            txs_map.insert(short_id, tx);
+        {
+            let tx_pool = chain_state.tx_pool();
+            let iter = tx_pool.staging_txs_iter().filter_map(|entry| {
+                let short_id = short_transaction_id(key0, key1, &entry.transaction.hash());
+                if compact_block.short_ids.contains(&short_id) {
+                    Some((short_id, entry.transaction.clone()))
+                } else {
+                    None
+                }
+            });
+            txs_map.extend(iter);
         }
 
-        for e in pool_entrys {
-            let tx = e.transaction;
-            let short_id = short_transaction_id(key0, key1, &tx.hash());
-            txs_map.insert(short_id, tx);
-        }
+        let txs_len = compact_block.prefilled_transactions.len() + compact_block.short_ids.len();
+        let mut block_transactions: Vec<Option<Transaction>> = Vec::with_capacity(txs_len);
 
         let short_ids_iter = &mut compact_block.short_ids.iter();
-        let txs_len = compact_block.prefilled_transactions.len() + compact_block.short_ids.len();
-
-        let mut block_transactions = Vec::with_capacity(txs_len);
         // fill transactions gap
         compact_block.prefilled_transactions.iter().for_each(|pt| {
             let gap = pt.index - block_transactions.len();
@@ -218,9 +221,10 @@ where
         let mut pending_proposals_request = self.state.pending_proposals_request.lock();
         let mut peer_txs = FnvHashMap::default();
         let mut remove_ids = Vec::new();
-
+        let chain_state = self.shared.chain_state().lock();
+        let tx_pool = chain_state.tx_pool();
         for (id, peers) in pending_proposals_request.iter() {
-            if let Some(tx) = self.tx_pool.get_transaction(*id) {
+            if let Some(tx) = tx_pool.get_tx(id) {
                 for peer in peers {
                     let tx_set = peer_txs.entry(*peer).or_insert_with(Vec::new);
                     tx_set.push(tx.clone());
@@ -235,10 +239,8 @@ where
 
         for (peer, txs) in peer_txs {
             let fbb = &mut FlatBufferBuilder::new();
-            let message = RelayMessage::build_block_proposal(
-                fbb,
-                &txs.into_iter().map(|x| x.transaction).collect::<Vec<_>>(),
-            );
+            let message =
+                RelayMessage::build_block_proposal(fbb, &txs.into_iter().collect::<Vec<_>>());
             fbb.finish(message, None);
 
             let _ = nc.send(peer, fbb.finished_data().to_vec());

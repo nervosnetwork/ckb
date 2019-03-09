@@ -8,6 +8,6 @@
 //!   implement `ChainProvider`
 
 pub mod chain;
-pub mod error;
+
 #[cfg(test)]
 mod tests;

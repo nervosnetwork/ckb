@@ -2,10 +2,9 @@ use super::compact_block::CompactBlock;
 use crate::relayer::Relayer;
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::{CompactBlock as FbsCompactBlock, RelayMessage};
-use ckb_shared::block_median_time_context::BlockMedianTimeContext;
 use ckb_shared::index::ChainIndex;
-use ckb_shared::shared::ChainProvider;
 use ckb_shared::shared::Shared;
+use ckb_traits::{BlockMedianTimeContext, ChainProvider};
 use ckb_verification::{HeaderResolverWrapper, HeaderVerifier, Verifier};
 use flatbuffers::FlatBufferBuilder;
 use fnv::FnvHashMap;
@@ -57,9 +56,18 @@ where
                 );
 
                 if header_verifier.verify(&resolver).is_ok() {
-                    self.relayer
-                        .request_proposal_txs(self.nc, self.peer, &compact_block);
-                    match self.relayer.reconstruct_block(&compact_block, Vec::new()) {
+                    let ret = {
+                        let chain_state = self.relayer.shared.chain_state().lock();
+                        self.relayer.request_proposal_txs(
+                            &chain_state,
+                            self.nc,
+                            self.peer,
+                            &compact_block,
+                        );
+                        self.relayer
+                            .reconstruct_block(&chain_state, &compact_block, Vec::new())
+                    };
+                    match ret {
                         Ok(block) => {
                             self.relayer
                                 .accept_block(self.nc, self.peer, &Arc::new(block))

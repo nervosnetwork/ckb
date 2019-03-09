@@ -11,6 +11,7 @@ pub use crate::{BlockNumber, Version};
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct Seal {
     nonce: u64,
+    #[serde(with = "serde_bytes")]
     proof: Vec<u8>,
 }
 

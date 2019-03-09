@@ -8,7 +8,7 @@ use std::fmt;
 pub(crate) enum Action {
     AddPending,
     Proposed,
-    AddCommit,
+    Staged,
     Timeout,
     AddOrphan,
     Committed,
@@ -86,7 +86,7 @@ impl TxTraceMap {
     }
 
     define_method!(proposed, Action::Proposed);
-    define_method!(add_commit, Action::AddCommit);
+    define_method!(staged, Action::Staged);
     define_method!(add_orphan, Action::AddOrphan);
     define_method!(timeout, Action::Timeout);
     define_method!(committed, Action::Committed);
@@ -108,7 +108,7 @@ mod tests {
 
         map.add_pending(&tx_hash, "pending");
         map.proposed(&tx_hash, "proposed");
-        map.add_commit(&tx_hash, "add_commit");
+        map.staged(&tx_hash, "staged");
         map.add_orphan(&tx_hash, "add_orphan");
         map.timeout(&tx_hash, "timeout");
         map.committed(&tx_hash, "committed");
@@ -121,7 +121,7 @@ mod tests {
                 "Some([",
                 "{ action: AddPending, info: pending, time: 9102 }, ",
                 "{ action: Proposed, info: proposed, time: 9102 }, ",
-                "{ action: AddCommit, info: add_commit, time: 9102 }, ",
+                "{ action: Staged, info: staged, time: 9102 }, ",
                 "{ action: AddOrphan, info: add_orphan, time: 9102 }, ",
                 "{ action: Timeout, info: timeout, time: 9102 }, ",
                 "{ action: Committed, info: committed, time: 9102 }",

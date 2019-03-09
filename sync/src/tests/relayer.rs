@@ -9,10 +9,10 @@ use ckb_core::script::Script;
 use ckb_core::transaction::{CellInput, CellOutput, OutPoint, TransactionBuilder};
 use ckb_db::memorydb::MemoryKeyValueDB;
 use ckb_notify::NotifyService;
-use ckb_pool::txs_pool::{PoolConfig, TransactionPoolService};
 use ckb_protocol::RelayMessage;
-use ckb_shared::shared::{ChainProvider, Shared, SharedBuilder};
+use ckb_shared::shared::{Shared, SharedBuilder};
 use ckb_shared::store::ChainKVStore;
+use ckb_traits::ChainProvider;
 use faketime::{self, unix_time_as_millis};
 use flatbuffers::get_root;
 use flatbuffers::FlatBufferBuilder;
@@ -47,7 +47,7 @@ fn relay_compact_block_with_one_tx() {
         .name(thread_name)
         .spawn(move || {
             let last_block = shared1
-                .block(&shared1.chain_state().read().tip_hash())
+                .block(&shared1.chain_state().lock().tip_hash())
                 .unwrap();
             let last_cellbase = last_block.commit_transactions().first().unwrap();
 
@@ -162,7 +162,7 @@ fn relay_compact_block_with_one_tx() {
     // find a solution to remove this line after pool refactoring
     thread::sleep(time::Duration::from_secs(2));
 
-    assert_eq!(shared2.chain_state().read().tip_number(), 5);
+    assert_eq!(shared2.chain_state().lock().tip_number(), 5);
 }
 
 #[test]
@@ -184,7 +184,7 @@ fn relay_compact_block_with_missing_indexs() {
         .name(thread_name)
         .spawn(move || {
             let last_block = shared1
-                .block(&shared1.chain_state().read().tip_hash())
+                .block(&shared1.chain_state().lock().tip_hash())
                 .unwrap();
             let last_cellbase = last_block.commit_transactions().first().unwrap();
 
@@ -296,7 +296,7 @@ fn relay_compact_block_with_missing_indexs() {
     // Wait node2 receive transaction and block from node1
     let _ = signal_rx2.recv();
 
-    assert_eq!(shared2.chain_state().read().tip_number(), 5);
+    assert_eq!(shared2.chain_state().lock().tip_number(), 5);
 }
 
 fn setup_node(
@@ -319,9 +319,6 @@ fn setup_node(
         .build();
 
     let notify = NotifyService::default().start(Some(thread_name));
-    let tx_pool_service =
-        TransactionPoolService::new(PoolConfig::default(), shared.clone(), notify.clone());
-    let tx_pool_controller = tx_pool_service.start(Some(thread_name));
 
     let chain_service = ChainBuilder::new(shared.clone(), notify)
         .verification(false)
@@ -359,7 +356,6 @@ fn setup_node(
     let relayer = Relayer::new(
         chain_controller.clone(),
         shared.clone(),
-        tx_pool_controller,
         Arc::new(Default::default()),
     );
 

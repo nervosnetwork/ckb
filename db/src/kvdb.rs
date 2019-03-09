@@ -1,5 +1,6 @@
 use crate::batch::{Batch, Col};
 use bincode::Error as BcError;
+use failure::Fail;
 use rocksdb::Error as RdbError;
 use std::error::Error as StdError;
 use std::ops::Range;
@@ -8,9 +9,11 @@ use std::result;
 pub type Error = ErrorKind;
 pub type Result<T> = result::Result<T, Error>;
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Fail)]
 pub enum ErrorKind {
+    #[fail(display = "DBError {}", _0)]
     DBError(String),
+    #[fail(display = "SerializationError {}", _0)]
     SerializationError(String),
 }
 

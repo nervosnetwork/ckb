@@ -1,12 +1,12 @@
-use crate::chain::ChainBuilder;
+use crate::chain::{ChainBuilder, ForkChanges};
 use crate::tests::util::gen_block;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::Block;
 use ckb_core::extras::BlockExt;
 use ckb_db::memorydb::MemoryKeyValueDB;
 use ckb_notify::NotifyService;
-use ckb_shared::shared::ChainProvider;
 use ckb_shared::shared::SharedBuilder;
+use ckb_traits::ChainProvider;
 use faketime::unix_time_as_millis;
 use numext_fixed_uint::U256;
 use std::collections::HashSet;
@@ -53,7 +53,7 @@ fn test_find_fork_case1() {
         chain_service.process_block(Arc::new(blk.clone())).unwrap();
     }
 
-    let tip_number = { shared.chain_state().read().tip_number() };
+    let tip_number = { shared.chain_state().lock().tip_number() };
 
     let new_block = gen_block(&parent, 100, U256::from(200u64), vec![], vec![]);
     fork2.push(new_block.clone());
@@ -63,22 +63,22 @@ fn test_find_fork_case1() {
         total_difficulty: U256::zero(),
         total_uncles_count: 0,
         // if txs in parent is invalid, txs in block is also invalid
-        valid: None,
+        txs_verified: None,
     };
 
-    let fork = chain_service
-        .find_fork(tip_number, &new_block, ext)
-        .unwrap();
+    let mut fork = ForkChanges::default();
 
-    let old_blocks: HashSet<Block> = HashSet::from_iter(fork1.into_iter());
-    let new_blocks: HashSet<Block> = HashSet::from_iter(fork2.into_iter());
+    chain_service.find_fork(&mut fork, tip_number, &new_block, ext);
+
+    let detached_blocks: HashSet<Block> = HashSet::from_iter(fork1.into_iter());
+    let attached_blocks: HashSet<Block> = HashSet::from_iter(fork2.into_iter());
     assert_eq!(
-        old_blocks,
-        HashSet::from_iter(fork.old_blocks.iter().cloned())
+        detached_blocks,
+        HashSet::from_iter(fork.detached_blocks.iter().cloned())
     );
     assert_eq!(
-        new_blocks,
-        HashSet::from_iter(fork.new_blocks.iter().cloned())
+        attached_blocks,
+        HashSet::from_iter(fork.attached_blocks.iter().cloned())
     );
 }
 
@@ -122,7 +122,7 @@ fn test_find_fork_case2() {
         chain_service.process_block(Arc::new(blk.clone())).unwrap();
     }
 
-    let tip_number = { shared.chain_state().read().tip_number() };
+    let tip_number = { shared.chain_state().lock().tip_number() };
 
     let difficulty = parent.difficulty().clone();
     let new_block = gen_block(
@@ -139,22 +139,22 @@ fn test_find_fork_case2() {
         total_difficulty: U256::zero(),
         total_uncles_count: 0,
         // if txs in parent is invalid, txs in block is also invalid
-        valid: None,
+        txs_verified: None,
     };
 
-    let fork = chain_service
-        .find_fork(tip_number, &new_block, ext)
-        .unwrap();
+    let mut fork = ForkChanges::default();
 
-    let old_blocks: HashSet<Block> = HashSet::from_iter(fork1[1..].iter().cloned());
-    let new_blocks: HashSet<Block> = HashSet::from_iter(fork2.into_iter());
+    chain_service.find_fork(&mut fork, tip_number, &new_block, ext);
+
+    let detached_blocks: HashSet<Block> = HashSet::from_iter(fork1[1..].iter().cloned());
+    let attached_blocks: HashSet<Block> = HashSet::from_iter(fork2.into_iter());
     assert_eq!(
-        old_blocks,
-        HashSet::from_iter(fork.old_blocks.iter().cloned())
+        detached_blocks,
+        HashSet::from_iter(fork.detached_blocks.iter().cloned())
     );
     assert_eq!(
-        new_blocks,
-        HashSet::from_iter(fork.new_blocks.iter().cloned())
+        attached_blocks,
+        HashSet::from_iter(fork.attached_blocks.iter().cloned())
     );
 }
 
@@ -198,7 +198,7 @@ fn test_find_fork_case3() {
         chain_service.process_block(Arc::new(blk.clone())).unwrap();
     }
 
-    let tip_number = { shared.chain_state().read().tip_number() };
+    let tip_number = { shared.chain_state().lock().tip_number() };
 
     println!("case3 tip{}", tip_number);
 
@@ -210,22 +210,21 @@ fn test_find_fork_case3() {
         total_difficulty: U256::zero(),
         total_uncles_count: 0,
         // if txs in parent is invalid, txs in block is also invalid
-        valid: None,
+        txs_verified: None,
     };
+    let mut fork = ForkChanges::default();
 
-    let fork = chain_service
-        .find_fork(tip_number, &new_block, ext)
-        .unwrap();
+    chain_service.find_fork(&mut fork, tip_number, &new_block, ext);
 
-    let old_blocks: HashSet<Block> = HashSet::from_iter(fork1.into_iter());
-    let new_blocks: HashSet<Block> = HashSet::from_iter(fork2.into_iter());
+    let detached_blocks: HashSet<Block> = HashSet::from_iter(fork1.into_iter());
+    let attached_blocks: HashSet<Block> = HashSet::from_iter(fork2.into_iter());
     assert_eq!(
-        old_blocks,
-        HashSet::from_iter(fork.old_blocks.iter().cloned())
+        detached_blocks,
+        HashSet::from_iter(fork.detached_blocks.iter().cloned())
     );
     assert_eq!(
-        new_blocks,
-        HashSet::from_iter(fork.new_blocks.iter().cloned())
+        attached_blocks,
+        HashSet::from_iter(fork.attached_blocks.iter().cloned())
     );
 }
 
@@ -269,7 +268,7 @@ fn test_find_fork_case4() {
         chain_service.process_block(Arc::new(blk.clone())).unwrap();
     }
 
-    let tip_number = { shared.chain_state().read().tip_number() };
+    let tip_number = { shared.chain_state().lock().tip_number() };
 
     println!("case3 tip{}", tip_number);
 
@@ -281,21 +280,21 @@ fn test_find_fork_case4() {
         total_difficulty: U256::zero(),
         total_uncles_count: 0,
         // if txs in parent is invalid, txs in block is also invalid
-        valid: None,
+        txs_verified: None,
     };
 
-    let fork = chain_service
-        .find_fork(tip_number, &new_block, ext)
-        .unwrap();
+    let mut fork = ForkChanges::default();
 
-    let old_blocks: HashSet<Block> = HashSet::from_iter(fork1.into_iter());
-    let new_blocks: HashSet<Block> = HashSet::from_iter(fork2.into_iter());
+    chain_service.find_fork(&mut fork, tip_number, &new_block, ext);
+
+    let detached_blocks: HashSet<Block> = HashSet::from_iter(fork1.into_iter());
+    let attached_blocks: HashSet<Block> = HashSet::from_iter(fork2.into_iter());
     assert_eq!(
-        old_blocks,
-        HashSet::from_iter(fork.old_blocks.iter().cloned())
+        detached_blocks,
+        HashSet::from_iter(fork.detached_blocks.iter().cloned())
     );
     assert_eq!(
-        new_blocks,
-        HashSet::from_iter(fork.new_blocks.iter().cloned())
+        attached_blocks,
+        HashSet::from_iter(fork.attached_blocks.iter().cloned())
     );
 }

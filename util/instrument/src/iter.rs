@@ -1,7 +1,8 @@
 use ckb_core::block::Block;
 use ckb_core::BlockNumber;
 use ckb_shared::index::ChainIndex;
-use ckb_shared::shared::{ChainProvider, Shared};
+use ckb_shared::shared::Shared;
+use ckb_traits::ChainProvider;
 
 // An iterator over the entries of a `Chain`.
 pub struct ChainIterator<CI> {
@@ -13,7 +14,7 @@ pub struct ChainIterator<CI> {
 impl<CI: ChainIndex> ChainIterator<CI> {
     pub fn new(shared: Shared<CI>) -> Self {
         let current = shared.block_hash(0).and_then(|h| shared.block(&h));
-        let tip = shared.chain_state().read().tip_number();
+        let tip = shared.chain_state().lock().tip_number();
         ChainIterator {
             shared,
             current,

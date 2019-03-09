@@ -45,7 +45,13 @@ where
                     .map(Into::into)
                     .collect();
 
-            if let Ok(block) = self.relayer.reconstruct_block(&compact_block, transactions) {
+            let ret = {
+                let chain_state = self.relayer.shared.chain_state().lock();
+                self.relayer
+                    .reconstruct_block(&chain_state, &compact_block, transactions)
+            };
+
+            if let Ok(block) = ret {
                 self.relayer
                     .accept_block(self.nc, self.peer, &Arc::new(block));
             }

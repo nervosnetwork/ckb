@@ -61,7 +61,7 @@ impl<'a> InputVerifier<'a> {
                     }
                 }
             } else if cs.is_dead() {
-                return Err(TransactionError::DoubleSpent);
+                return Err(TransactionError::Conflict);
             } else if cs.is_unknown() {
                 return Err(TransactionError::UnknownInput);
             }
@@ -69,7 +69,7 @@ impl<'a> InputVerifier<'a> {
 
         for cs in &self.resolved_transaction.dep_cells {
             if cs.is_dead() {
-                return Err(TransactionError::DoubleSpent);
+                return Err(TransactionError::Conflict);
             } else if cs.is_unknown() {
                 return Err(TransactionError::UnknownInput);
             }

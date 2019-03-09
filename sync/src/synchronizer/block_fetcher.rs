@@ -7,7 +7,7 @@ use crate::{
 use ckb_core::header::Header;
 use ckb_network::PeerIndex;
 use ckb_shared::index::ChainIndex;
-use ckb_shared::shared::ChainProvider;
+use ckb_traits::ChainProvider;
 use ckb_util::try_option;
 use faketime::unix_time_as_millis;
 use log::debug;
@@ -28,7 +28,7 @@ where
 {
     pub fn new(synchronizer: Synchronizer<CI>, peer: PeerIndex) -> Self {
         let (tip_header, total_difficulty) = {
-            let chain_state = synchronizer.shared.chain_state().read();
+            let chain_state = synchronizer.shared.chain_state().lock();
             (
                 chain_state.tip_header().clone(),
                 chain_state.total_difficulty().clone(),
