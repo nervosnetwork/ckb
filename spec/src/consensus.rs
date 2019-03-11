@@ -23,8 +23,8 @@ pub(crate) const MAX_BLOCK_CYCLES: Cycle = 100_000_000;
 pub(crate) const MAX_BLOCK_BYTES: u64 = 10_000_000; // 10mb
 pub(crate) const BLOCK_VERSION: u32 = 0;
 
-#[derive(Default, Clone, PartialEq, Debug, Eq, Copy)]
-pub struct ProposalWindow(BlockNumber, BlockNumber);
+#[derive(Clone, PartialEq, Debug, Eq, Copy)]
+pub struct ProposalWindow(pub BlockNumber, pub BlockNumber);
 
 impl ProposalWindow {
     pub fn end(&self) -> BlockNumber {

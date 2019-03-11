@@ -241,7 +241,7 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
 
         if new_best_block {
             let tip_header = block.header().clone();
-            let detached_proposal_id = chain_state.reconstruct_proposal_ids(tip_header.number());
+            let detached_proposal_id = chain_state.proposal_ids_finalize(tip_header.number());
             fork.detached_proposal_id = detached_proposal_id;
             chain_state.update_tip(tip_header, total_difficulty, txo_set_diff);
             chain_state.update_tx_pool_for_reorg(
@@ -540,6 +540,7 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
         })
     }
 
+    // TODO: beatify
     fn print_chain(&self, chain_state: &ChainState<CI>, len: u64) {
         debug!(target: "chain", "Chain {{");
 
@@ -565,6 +566,16 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
         {
             debug!(target: "chain", "   {} => {:?}", transaction.hash(), transaction);
         }
+
+        debug!(target: "chain", "}}");
+
+        debug!(target: "chain", "Proposal in Head Block {{");
+        debug!(target: "chain",  "   {:?}", self
+            .shared
+            .block_hash(tip)
+            .and_then(|hash| self.shared.store().get_block_proposal_txs_ids(&hash))
+            .expect("invalid block number"));
+
         debug!(target: "chain", "}}");
 
         debug!(target: "chain", "Uncle block {{");
