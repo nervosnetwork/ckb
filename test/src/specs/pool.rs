@@ -15,7 +15,8 @@ impl Spec for PoolReconcile {
         info!("Use generated block's cellbase as tx input");
         let hash = node0.generate_transaction();
 
-        info!("Generate 2 blocks on node0");
+        info!("Generate 3 more blocks on node0");
+        node0.generate_block();
         node0.generate_block();
         node0.generate_block();
 
@@ -27,8 +28,8 @@ impl Spec for PoolReconcile {
             .unwrap()
             .is_none());
 
-        info!("Generate 4 blocks on node1");
-        (0..4).for_each(|_| {
+        info!("Generate 5 blocks on node1");
+        (0..5).for_each(|_| {
             node1.generate_block();
         });
 
