@@ -16,7 +16,8 @@ impl Spec for MiningBasic {
         info!("Use generated block's cellbase as tx input");
         let transaction_hash = node.generate_transaction();
         let block1_hash = node.generate_block();
-        let block2_hash = node.generate_block();
+        let _ = node.generate_block(); // skip
+        let block3_hash = node.generate_block();
 
         let block1: Block = node
             .rpc_client()
@@ -25,9 +26,9 @@ impl Spec for MiningBasic {
             .unwrap()
             .unwrap()
             .into();
-        let block2: Block = node
+        let block3: Block = node
             .rpc_client()
-            .get_block(block2_hash)
+            .get_block(block3_hash)
             .call()
             .unwrap()
             .unwrap()
@@ -39,8 +40,8 @@ impl Spec for MiningBasic {
             .iter()
             .any(|id| ProposalShortId::from_h256(&transaction_hash).eq(id)));
 
-        info!("Generated tx should be included in next+1 block's commit txs");
-        assert!(block2
+        info!("Generated tx should be included in next + n block's commit txs, current n = 2");
+        assert!(block3
             .commit_transactions()
             .iter()
             .any(|tx| transaction_hash.eq(&tx.hash())));
