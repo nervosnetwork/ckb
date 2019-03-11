@@ -15,7 +15,7 @@ use std::io::{Error, Read, Write};
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 
-const DEFAULT_CONFIG_FILE: &str = "default.json";
+const DEFAULT_CONFIG_FILE: &str = "default.toml";
 
 pub struct Node {
     pub binary: String,

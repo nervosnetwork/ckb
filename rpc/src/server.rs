@@ -83,14 +83,8 @@ impl RpcServer {
             );
         }
 
-        if test_engine.is_some() {
-            io.extend_with(
-                IntegrationTestRpcImpl {
-                    network,
-                    test_engine: test_engine.expect("pow engine supply"),
-                }
-                .to_delegate(),
-            );
+        if config.integration_test_enable() {
+            io.extend_with(IntegrationTestRpcImpl { network }.to_delegate());
         }
 
         let server = ServerBuilder::new(io)
