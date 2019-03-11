@@ -61,7 +61,7 @@ More information about Cell can be found in the [whitepaper](https://github.com/
 
 | Name          | Type    | Description                                                  |
 | :------------ | :------ | :----------------------------------------------------------- |
-| `version`     | uint8   | **The version of the script.** It‘s used to distinguish transactions when there's a fork happened to the blockchain system. |
+| `version`     | uint8   | **The version of the script.** It‘s used to distinguish transactions when there's a fork happened to the blockchain system. `Version` is always `0` at the moment. |
 | `binary`      | Bytes   | **ELF formatted binary that contains an RISC-V based script.** This part of data is loaded into an CKB-VM instance when they are specified upon the transaction verification. |
 | `reference`   | Bytes   | **The `type hash` of the script that is referred by this script.** It is possible to refer the script in another cell on-chain as the binary code in this script, instead of entering the binary directly into the script. **Notice:** This is part only works when the `binary` field is empty. |
 | `args`        | [Bytes] | **An array of arguments as the script input.** The arguments here are imported into the CKB-VM instance as input arguments for the scripts. This part is NOT used when calculating the hash of the script. |
@@ -116,7 +116,7 @@ Also you can find how the `Script` structure is implemented from [these codes](h
 
 | Name              | Type                             | Description                                                  |
 | ----------------- | -------------------------------- | ------------------------------------------------------------ |
-| `version`         | uint32                           | **The version of the transaction.** It‘s used to distinguish transactions when there's a fork happened to the blockchain system. |
+| `version`         | uint32                           | **The version of the transaction.** It‘s used to distinguish transactions when there's a fork happened to the blockchain system. `Version` is always `0` at the moment. |
 | `deps`            | [`outpoint`]                     | **An array of `outpoint` that point to the cells that are dependencies of this transaction.** Only live cells can be listed here. The cells listed are read-only. |
 | `inputs`          | [{`previsou_output` , `unlock`}] | **An array of {`previsou_output` , `unlock`}.**              |
 | `previous_output` | `outpoint`                       | **A cell outpoint that point to the cells used as inputs.** Input cells are in fact the output of previous transactions, hence they are noted as `previous_output` here. These cells are referred through  `outpoint`, which contains the transaction `hash` of the previous transaction, as well as this cell's `index` in its transaction's output list. |
@@ -239,7 +239,7 @@ More information about the Transaction of Nervos CKB can be found in [whitepaper
 | `txs_proposal` | H256(hash)          | **The Merkle Root of the Merkle trie with the hash of short transaction IDs as leaves.** |
 | `uncles_count` | uint32              | **The number of uncle blocks.**                              |
 | `uncles_hash`  | H256(hash)          | **The hash of the serialized uncle blocks data.** This will later be changed to using [CFB Encoding](https://github.com/nervosnetwork/cfb). |
-| `version`      | uint32              | **The version of the block**. This is for solving the compatibility issues might be occurred after a fork. |
+| `version`      | uint32              | **The version of the block**. This is for solving the compatibility issues might be occurred after a fork. `Version` is always `0` at the moment. |
 
 #### UncleBlock
 
