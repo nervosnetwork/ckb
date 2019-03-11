@@ -9,6 +9,12 @@ pub fn sha3_256<T: AsRef<[u8]>>(s: T) -> [u8; 32] {
     tiny_keccak::sha3_256(s.as_ref())
 }
 
+pub fn new_blake2b() -> Blake2b {
+    Blake2bBuilder::new(32)
+        .personal(CKB_HASH_PERSONALIZATION)
+        .build()
+}
+
 pub fn blake2b_256<T: AsRef<[u8]>>(s: T) -> [u8; 32] {
     let mut result = [0u8; 32];
     let mut blake2b = Blake2bBuilder::new(32)

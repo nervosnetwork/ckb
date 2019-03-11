@@ -6,4 +6,6 @@ authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
 
 [dependencies]
-merkle-cbt = { version="0.1", features = ["sha3"] }
+merkle-cbt = "0.2"
+hash = { path = "../hash"}
+numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
