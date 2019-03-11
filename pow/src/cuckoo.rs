@@ -4,7 +4,6 @@ use ckb_core::header::BlockNumber;
 use hash::blake2b;
 use serde::{de, Deserialize};
 use serde_derive::Deserialize;
-use std::any::Any;
 use std::collections::HashMap;
 
 // Cuckatoo proofs take the form of a length 42 off-by-1-cycle in a bipartite graph with

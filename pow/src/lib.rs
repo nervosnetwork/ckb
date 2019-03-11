@@ -4,7 +4,6 @@ use ckb_core::header::{BlockNumber, Header, RawHeader, Seal};
 use hash::blake2b;
 use numext_fixed_hash::H256;
 use serde_derive::Deserialize;
-use std::any::Any;
 use std::sync::Arc;
 
 mod cuckoo;

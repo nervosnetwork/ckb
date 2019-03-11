@@ -1,7 +1,6 @@
 use super::PowEngine;
 use ckb_core::header::{BlockNumber, Header, RawHeader, Seal};
 use rand::{thread_rng, Rng};
-use std::any::Any;
 use std::{thread, time};
 
 #[derive(Copy, Clone)]
