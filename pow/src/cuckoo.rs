@@ -75,10 +75,6 @@ impl PowEngine for CuckooEngine {
             proof_u8
         })
     }
-
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
 }
 
 pub struct CuckooSip {
