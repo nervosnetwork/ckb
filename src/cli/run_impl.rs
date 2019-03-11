@@ -3,13 +3,12 @@ use crate::Setup;
 use ckb_chain::chain::{ChainBuilder, ChainController};
 use ckb_core::script::Script;
 use ckb_db::diskdb::RocksDB;
-use ckb_miner::{BlockAssembler, BlockAssemblerController};
+use ckb_miner::BlockAssembler;
 use ckb_network::CKBProtocol;
 use ckb_network::NetworkConfig;
 use ckb_network::NetworkService;
 use ckb_notify::{NotifyController, NotifyService};
-use ckb_pow::PowEngine;
-use ckb_rpc::{Config as RpcConfig, RpcServer};
+use ckb_rpc::RpcServer;
 use ckb_shared::cachedb::CacheDB;
 use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::{Shared, SharedBuilder};
@@ -24,7 +23,6 @@ use std::sync::Arc;
 
 pub fn run(setup: Setup) {
     let consensus = setup.chain_spec.to_consensus().unwrap();
-    let pow_engine = setup.chain_spec.pow_engine();
 
     let shared = SharedBuilder::<CacheDB<RocksDB>>::default()
         .consensus(consensus)
@@ -84,9 +82,8 @@ pub fn run(setup: Setup) {
             .expect("Create and start network"),
     );
 
-    let rpc_server = setup_rpc(
+    let rpc_server = RpcServer::new(
         setup.configs.rpc,
-        &pow_engine,
         Arc::clone(&network),
         shared,
         chain_controller,
@@ -120,25 +117,6 @@ fn setup_chain<CI: ChainIndex + 'static>(
 //     let tx_pool_service = TransactionPoolService::new(config, shared, notify);
 //     tx_pool_service.start(Some("TransactionPoolService"))
 // }
-
-fn setup_rpc<CI: ChainIndex + 'static>(
-    config: RpcConfig,
-    pow: &Arc<dyn PowEngine>,
-    network: Arc<NetworkService>,
-    shared: Shared<CI>,
-    chain: ChainController,
-    agent: BlockAssemblerController,
-) -> RpcServer {
-    use ckb_pow::Clicker;
-
-    let pow = pow
-        .as_ref()
-        .as_any()
-        .downcast_ref::<Clicker>()
-        .map(|pow| Arc::new(pow.clone()));
-
-    RpcServer::new(config, network, shared, chain, agent, pow)
-}
 
 pub fn type_hash(setup: &Setup) {
     let consensus = setup.chain_spec.to_consensus().unwrap();

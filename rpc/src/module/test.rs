@@ -1,5 +1,4 @@
 use ckb_network::NetworkService;
-use ckb_pow::Clicker;
 use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
 use std::sync::Arc;

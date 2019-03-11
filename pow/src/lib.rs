@@ -7,11 +7,9 @@ use serde_derive::Deserialize;
 use std::any::Any;
 use std::sync::Arc;
 
-mod clicker;
 mod cuckoo;
 mod dummy;
 
-pub use crate::clicker::Clicker;
 pub use crate::cuckoo::{Cuckoo, CuckooEngine, CuckooParams};
 pub use crate::dummy::DummyPowEngine;
 
@@ -19,7 +17,6 @@ pub use crate::dummy::DummyPowEngine;
 #[serde(tag = "func", content = "params")]
 pub enum Pow {
     Dummy,
-    Clicker,
     Cuckoo(CuckooParams),
 }
 
@@ -27,7 +24,6 @@ impl Pow {
     pub fn engine(&self) -> Arc<dyn PowEngine> {
         match *self {
             Pow::Dummy => Arc::new(DummyPowEngine::new()),
-            Pow::Clicker => Arc::new(Clicker::new()),
             Pow::Cuckoo(params) => Arc::new(CuckooEngine::new(params)),
         }
     }
