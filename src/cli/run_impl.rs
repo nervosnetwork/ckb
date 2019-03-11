@@ -14,9 +14,8 @@ use ckb_rpc::RpcServer;
 use ckb_shared::cachedb::CacheDB;
 use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::{Shared, SharedBuilder};
-use ckb_sync::{
-    NetTimeProtocol, Relayer, Synchronizer, RELAY_PROTOCOL_ID, SYNC_PROTOCOL_ID, TIME_PROTOCOL_ID,
-};
+use ckb_sync::{NetTimeProtocol, NetworkProtocol, Relayer, Synchronizer};
+use ckb_traits::chain_provider::ChainProvider;
 use crypto::secp::Generator;
 use log::info;
 use numext_fixed_hash::H256;

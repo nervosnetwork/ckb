@@ -1,9 +1,9 @@
 use ckb_core::transaction::Transaction as CoreTransaction;
+use ckb_network::{NetworkService, ProtocolId};
+use ckb_protocol::RelayMessage;
 use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::Shared;
-use ckb_network::{NetworkService, ProtocolId};
-use ckb_pool::txs_pool::{TransactionPoolController, TxTrace};
-use ckb_protocol::RelayMessage;
+use ckb_shared::tx_pool::TxTrace;
 use ckb_sync::NetworkProtocol;
 use flatbuffers::FlatBufferBuilder;
 use jsonrpc_core::Result;
