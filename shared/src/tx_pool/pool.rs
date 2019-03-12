@@ -96,6 +96,7 @@ impl TxPool {
     }
 
     pub(crate) fn add_orphan(&mut self, entry: PoolEntry, unknowns: Vec<OutPoint>) {
+        trace!(target: "tx_pool", "add_orphan {:#x}", &entry.transaction.hash());
         if self.config.trace_enable() {
             self.trace.add_orphan(
                 &entry.transaction.hash(),
@@ -106,6 +107,7 @@ impl TxPool {
     }
 
     pub(crate) fn add_staging(&mut self, entry: PoolEntry) {
+        trace!(target: "tx_pool", "add_staging {:#x}", &entry.transaction.hash());
         if self.config.trace_enable() {
             self.trace
                 .staged(&entry.transaction.hash(), "staged".to_string());

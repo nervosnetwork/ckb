@@ -124,7 +124,7 @@ impl<CI: ChainIndex> Shared<CI> {
                 proposal_ids.update_or_insert(bn, ids_set);
             }
         }
-        proposal_ids.reconstruct(tip_number);
+        proposal_ids.finalize(tip_number);
         proposal_ids
     }
 

@@ -6,7 +6,6 @@ use crate::module::{
 use ckb_chain::chain::ChainController;
 use ckb_miner::BlockAssemblerController;
 use ckb_network::NetworkService;
-use ckb_pow::Clicker;
 use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::Shared;
 use jsonrpc_core::IoHandler;
@@ -26,7 +25,6 @@ impl RpcServer {
         shared: Shared<CI>,
         chain: ChainController,
         block_assembler: BlockAssemblerController,
-        test_engine: Option<Arc<Clicker>>,
     ) -> RpcServer
     where
         CI: ChainIndex,
@@ -83,14 +81,8 @@ impl RpcServer {
             );
         }
 
-        if test_engine.is_some() {
-            io.extend_with(
-                IntegrationTestRpcImpl {
-                    network,
-                    test_engine: test_engine.expect("pow engine supply"),
-                }
-                .to_delegate(),
-            );
+        if config.integration_test_enable() {
+            io.extend_with(IntegrationTestRpcImpl { network }.to_delegate());
         }
 
         let server = ServerBuilder::new(io)

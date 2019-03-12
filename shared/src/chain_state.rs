@@ -87,8 +87,8 @@ impl<CI: ChainIndex> ChainState<CI> {
         self.proposal_ids.get_ids_iter()
     }
 
-    pub fn reconstruct_proposal_ids(&mut self, number: BlockNumber) -> Vec<ProposalShortId> {
-        self.proposal_ids.reconstruct(number)
+    pub fn proposal_ids_finalize(&mut self, number: BlockNumber) -> Vec<ProposalShortId> {
+        self.proposal_ids.finalize(number)
     }
 
     pub fn update_tip(&mut self, header: Header, total_difficulty: U256, txo_diff: TxoSetDiff) {

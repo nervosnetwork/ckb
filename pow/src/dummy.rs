@@ -1,7 +1,6 @@
 use super::PowEngine;
 use ckb_core::header::{BlockNumber, Header, RawHeader, Seal};
 use rand::{thread_rng, Rng};
-use std::any::Any;
 use std::{thread, time};
 
 #[derive(Copy, Clone)]
@@ -39,9 +38,5 @@ impl PowEngine for DummyPowEngine {
 
     fn solve(&self, _number: BlockNumber, _message: &[u8]) -> Option<Vec<u8>> {
         Some(Vec::new())
-    }
-
-    fn as_any(&self) -> &dyn Any {
-        self
     }
 }

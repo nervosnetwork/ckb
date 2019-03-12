@@ -217,8 +217,17 @@ impl Network {
             .map(|(addr, score)| (self.to_external_url(&addr), score))
             .collect()
     }
+
     pub fn node_id(&self) -> String {
         self.local_private_key.to_peer_id().to_base58()
+    }
+
+    // A workaround method for `add_node` rpc call, need to re-write it after new p2p lib integration.
+    pub fn add_node(&self, peer_id: &PeerId, address: Multiaddr) {
+        let _ = self
+            .peer_store()
+            .write()
+            .add_discovered_address(peer_id, address);
     }
 
     fn to_external_url(&self, addr: &Multiaddr) -> String {
