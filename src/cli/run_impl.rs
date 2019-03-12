@@ -60,7 +60,7 @@ pub fn run(setup: Setup) {
     let protocols = vec![
         (
             CKBProtocol::new(
-                "ckb/syn".to_string(),
+                "syn".to_string(),
                 NetworkProtocol::SYNC as ProtocolId,
                 &[1][..],
                 sender.clone(),
@@ -69,7 +69,7 @@ pub fn run(setup: Setup) {
         ),
         (
             CKBProtocol::new(
-                "ckb/rel".to_string(),
+                "rel".to_string(),
                 NetworkProtocol::RELAY as ProtocolId,
                 &[1][..],
                 sender.clone(),
@@ -78,7 +78,7 @@ pub fn run(setup: Setup) {
         ),
         (
             CKBProtocol::new(
-                "ckb/tim".to_string(),
+                "tim".to_string(),
                 NetworkProtocol::TIME as ProtocolId,
                 &[1][..],
                 sender.clone(),

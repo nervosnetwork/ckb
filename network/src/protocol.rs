@@ -1,5 +1,4 @@
 use crate::{peers_registry::Session, PeerId, ServiceContext, SessionContext};
-use bytes::Bytes;
 use futures::sync::mpsc::Sender;
 use log::error;
 use p2p::{
@@ -16,7 +15,7 @@ const CKB_PROTOCOL_ID_OFFSET: ProtocolId = 100;
 pub struct CKBProtocol {
     id: ProtocolId,
     // for example: b"/ckb/"
-    base_name: Bytes,
+    protocol_name: String,
     // supported version, used to check protocol version
     supported_versions: Vec<Version>,
     event_sender: Sender<Event>,
@@ -24,16 +23,13 @@ pub struct CKBProtocol {
 
 impl CKBProtocol {
     pub fn new(
-        base_name: String,
+        protocol_name: String,
         id: ProtocolId,
         versions: &[Version],
         event_sender: Sender<Event>,
     ) -> Self {
-        let mut base_name_bytes = Bytes::from(format!("/{}/", base_name));
-        base_name_bytes.extend_from_slice(format!("{}", id).as_bytes());
-        base_name_bytes.extend_from_slice(b"/");
         CKBProtocol {
-            base_name: base_name_bytes,
+            protocol_name: format!("/ckb/{}/", protocol_name).to_string(),
             id,
             supported_versions: {
                 let mut versions: Vec<_> = versions.to_vec();
@@ -46,8 +42,8 @@ impl CKBProtocol {
     pub fn id(&self) -> ProtocolId {
         self.id + CKB_PROTOCOL_ID_OFFSET
     }
-    pub fn base_name(&self) -> Bytes {
-        self.base_name.clone()
+    pub fn protocol_name(&self) -> String {
+        self.protocol_name.clone()
     }
 
     pub fn match_version(&self, version: Version) -> bool {
@@ -56,6 +52,10 @@ impl CKBProtocol {
 }
 
 impl ProtocolMeta<LengthDelimitedCodec> for CKBProtocol {
+    fn name(&self) -> String {
+        self.protocol_name()
+    }
+
     fn id(&self) -> ProtocolId {
         self.id
     }
