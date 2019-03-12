@@ -163,7 +163,7 @@ impl Peer {
     }
 
     pub fn protocol_version(&self, protocol_id: ProtocolId) -> Option<Version> {
-        self.protocols.get(&protocol_id).map(|v| *v)
+        self.protocols.get(&protocol_id).cloned()
     }
 }
 
