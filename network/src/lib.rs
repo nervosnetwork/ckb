@@ -17,7 +17,7 @@ pub use crate::network::{Network, PeerInfo, SessionInfo};
 pub use crate::network_config::NetworkConfig;
 pub use crate::network_service::NetworkService;
 pub use crate::peers_registry::RegisterResult;
-pub use crate::protocol::{CKBProtocol, Event as CKBEvent};
+pub use crate::protocol::{CKBProtocol, Event as CKBEvent, Version as ProtocolVersion};
 pub use crate::protocol_handler::{CKBProtocolContext, CKBProtocolHandler, Severity};
 pub use crate::service::timer_service::{Timer, TimerRegistry, TimerToken};
 pub use p2p::{multiaddr, secio::PeerId, yamux::session::SessionType, ProtocolId};

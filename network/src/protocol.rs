@@ -49,6 +49,10 @@ impl CKBProtocol {
     pub fn base_name(&self) -> Bytes {
         self.base_name.clone()
     }
+
+    pub fn match_version(&self, version: Version) -> bool {
+        self.supported_versions.contains(&version)
+    }
 }
 
 impl ProtocolMeta<LengthDelimitedCodec> for CKBProtocol {

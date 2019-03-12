@@ -1,6 +1,6 @@
 use crate::peer_store::{Behaviour, Status};
 use crate::protocol_handler::DefaultCKBProtocolContext;
-use crate::{peers_registry::RegisterResult, CKBEvent, CKBProtocolHandler, Network};
+use crate::{peers_registry::RegisterResult, CKBEvent, CKBProtocolHandler, Network, PeerId};
 use futures::{sync::mpsc::Receiver, Async, Stream};
 use log::{debug, error, info};
 use p2p::ProtocolId;
@@ -14,10 +14,18 @@ pub struct CKBService {
 }
 
 impl CKBService {
-    fn find_handler(&self, protocol_id: ProtocolId) -> Option<Arc<dyn CKBProtocolHandler>> {
+    fn find_handler(
+        &self,
+        peer_id: &PeerId,
+        protocol_id: ProtocolId,
+    ) -> Option<Arc<dyn CKBProtocolHandler>> {
         self.network
-            .find_protocol(protocol_id)
-            .map(|(_, handler)| handler)
+            .peer_protocol_version(peer_id, protocol_id)
+            .and_then(|version| {
+                self.network
+                    .find_protocol(protocol_id, version)
+                    .map(|(_, handler)| handler)
+            })
     }
 }
 
@@ -46,7 +54,7 @@ impl Stream for CKBService {
                             let _ = peer_store.add_discovered_address(&peer_id, addr);
                         }
                         // call handler
-                        match self.find_handler(protocol_id) {
+                        match self.find_handler(&peer_id, protocol_id) {
                             Some(handler) => handler.connected(
                                 Box::new(DefaultCKBProtocolContext::new(
                                     Arc::clone(&network),
@@ -75,7 +83,7 @@ impl Stream for CKBService {
                 }
                 if let Some(peer_index) = network.get_peer_index(&peer_id) {
                     // call handler
-                    match self.find_handler(protocol_id) {
+                    match self.find_handler(&peer_id, protocol_id) {
                         Some(handler) => handler.disconnected(
                             Box::new(DefaultCKBProtocolContext::new(
                                 Arc::clone(&network),
@@ -97,7 +105,7 @@ impl Stream for CKBService {
                     peer.last_message_time = Some(now);
                 });
                 let peer_index = network.get_peer_index(&peer_id).expect("peer_index");
-                match self.find_handler(protocol_id) {
+                match self.find_handler(&peer_id, protocol_id) {
                     Some(handler) => handler.received(
                         Box::new(DefaultCKBProtocolContext::new(network, protocol_id)),
                         peer_index,

@@ -103,8 +103,9 @@ impl CKBProtocolContext for DefaultCKBProtocolContext {
     fn register_timer(&self, token: TimerToken, duration: Duration) -> Result<(), Error> {
         let (_, handler) = self
             .network
-            .find_protocol(self.protocol_id)
+            .find_protocol_without_version(self.protocol_id)
             .ok_or_else(|| ProtocolError::NotFound(self.protocol_id))?;
+
         match *self.timer_registry.lock() {
             Some(ref mut timer_registry) => {
                 timer_registry.push((handler, self.protocol_id, token, duration))

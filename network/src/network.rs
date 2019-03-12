@@ -98,6 +98,17 @@ impl Network {
     pub fn find_protocol(
         &self,
         id: ProtocolId,
+        version: ProtocolVersion,
+    ) -> Option<(&CKBProtocol, Arc<dyn CKBProtocolHandler>)> {
+        self.ckb_protocols
+            .iter()
+            .find(|(protocol, _)| protocol.id() == id && protocol.match_version(version))
+            .map(|(protocol, handler)| (protocol, Arc::clone(handler)))
+    }
+
+    pub fn find_protocol_without_version(
+        &self,
+        id: ProtocolId,
     ) -> Option<(&CKBProtocol, Arc<dyn CKBProtocolHandler>)> {
         self.ckb_protocols
             .iter()
@@ -173,15 +184,6 @@ impl Network {
             }
             None => false,
         }
-    }
-
-    pub(crate) fn peers(&self) -> impl Iterator<Item = PeerId> {
-        let peers_registry = self.peers_registry.read();
-        let peers = peers_registry
-            .peers_iter()
-            .map(|(peer_id, _peer)| peer_id.to_owned())
-            .collect::<Vec<_>>();
-        peers.into_iter()
     }
 
     pub(crate) fn peers_indexes(&self) -> Vec<PeerIndex> {

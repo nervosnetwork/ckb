@@ -50,7 +50,7 @@ impl NetworkService {
     where
         F: FnOnce(&CKBProtocolContext) -> T,
     {
-        match self.network.find_protocol(protocol_id) {
+        match self.network.find_protocol_without_version(protocol_id) {
             Some(_) => Some(f(&DefaultCKBProtocolContext::new(
                 Arc::clone(&self.network),
                 protocol_id,
