@@ -117,6 +117,7 @@ Also you can find how the `Script` structure is implemented from [these codes](h
 | Name              | Type                             | Description                                                  |
 | ----------------- | -------------------------------- | ------------------------------------------------------------ |
 | `version`         | uint32                           | **The version of the transaction.** It‘s used to distinguish transactions when there's a fork happened to the blockchain system. `Version` is always `0` at the moment. |
+| `hash`            | H256(Hash)                       | **The hash of the transaction.** This also serve as the identifier of the transaction. |
 | `deps`            | [`outpoint`]                     | **An array of `outpoint` that point to the cells that are dependencies of this transaction.** Only live cells can be listed here. The cells listed are read-only. |
 | `inputs`          | [{`previsou_output` , `unlock`}] | **An array of {`previsou_output` , `unlock`}.**              |
 | `previous_output` | `outpoint`                       | **A cell outpoint that point to the cells used as inputs.** Input cells are in fact the output of previous transactions, hence they are noted as `previous_output` here. These cells are referred through  `outpoint`, which contains the transaction `hash` of the previous transaction, as well as this cell's `index` in its transaction's output list. |
