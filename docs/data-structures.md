@@ -122,7 +122,7 @@ Also you can find how the `Script` structure is implemented from [these codes](h
 | `inputs`          | [{`previsou_output` , `unlock`}] | **An array of {`previsou_output` , `unlock`}.**              |
 | `previous_output` | `outpoint`                       | **A cell outpoint that point to the cells used as inputs.** Input cells are in fact the output of previous transactions, hence they are noted as `previous_output` here. These cells are referred through  `outpoint`, which contains the transaction `hash` of the previous transaction, as well as this cell's `index` in its transaction's output list. |
 | `unlock`          | `script`                         | **A script for unlocking the corresponding input cell** (i.e. `previous_output`). See [here](https://github.com/nervosnetwork/ckb-demo-ruby-sdk/blob/develop/docs/how-to-write-contracts.md) for how to program this part. |
-| `outputs`         | [`cell`]                         | **An array of cells that are used as outputs**, i.e. the newly generated cells. These are the cells may be used as inputs for other transactions. |
+| `outputs`         | [`cell`]                         | **An array of cells that are used as outputs**, i.e. the newly generated cells. These are the cells may be used as inputs for other transactions. Each of the Cell has the same structure to [the Cell section](#cell) above. |
 
 
 
@@ -218,12 +218,14 @@ More information about the Transaction of Nervos CKB can be found in [whitepaper
 
 | Name                    | Type            | Description                                                  |
 | ----------------------- | --------------- | ------------------------------------------------------------ |
-| `header`                | `Header`        | **The block header of the block.** This part contains some metadata of the block. |
-| `commit_trasactions`    | [`Transaction`] | **An array of transactions contained in the block.** This is where the miner put the received transactions. |
-| `proposal_transactions` | [string]        | **An array of hex-encoded short transaction ID.**            |
-| `uncles`                | [`UncleBlock`]  | **An array of uncle blocks of the block.**                   |
+| `header`                | `Header`        | **The block header of the block.** This part contains some metadata of the block. See [the Header section](#header) below for the details of this part. |
+| `commit_trasactions`    | [`Transaction`] | **An array of committed transactions contained in the block.** Each element of this array has the same structure as [the Transaction structure](#transaction) above. |
+| `proposal_transactions` | [string]        | **An array of hex-encoded short transaction ID of the proposed transactions.** |
+| `uncles`                | [`UncleBlock`]  | **An array of uncle blocks of the block.** See [the UncleBlock section](#uncleblock) below for the details of this part. |
 
 #### Header
+
+(`header` is a sub-structure of `block` and `UncleBlock`.)
 
 | Name           | Type                | Description                                                  |
 | -------------- | ------------------- | ------------------------------------------------------------ |
@@ -244,9 +246,11 @@ More information about the Transaction of Nervos CKB can be found in [whitepaper
 
 #### UncleBlock
 
+(`UncleBlock` is a sub-structure of `Block`.)
+
 | Name                    | Type          | Description                                                  |
 | ----------------------- | ------------- | ------------------------------------------------------------ |
-| `cellbase`              | `Transaction` | **The cellbase transaction of the uncle block.**             |
-| `header`                | `Header`      | **The block header of the uncle block.**                     |
-| `proposal_transactions` | [`string`]    | **An array of short transaction IDs of the transactions in the uncle block.** |
+| `cellbase`              | `Transaction` | **The cellbase transaction of the uncle block.** The inner structure of this part is same as [the Transaction structure](#transaction) above. |
+| `header`                | `Header`      | **The block header of the uncle block.** The inner structure of this part is same as [the Header structure](#header) above. |
+| `proposal_transactions` | [`string`]    | **An array of short transaction IDs of the proposed transactions in the uncle block.** |
 
