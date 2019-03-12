@@ -41,7 +41,6 @@ use std::time::{Duration, Instant};
 use std::usize;
 use tokio::codec::LengthDelimitedCodec;
 
-const DIAL_BOOTNODE_TIMEOUT: u64 = 20;
 const PING_PROTOCOL_ID: ProtocolId = 0;
 
 pub type CKBProtocols = Vec<(CKBProtocol, Arc<dyn CKBProtocolHandler>)>;
@@ -282,7 +281,7 @@ impl Network {
             Some(peer) => match peer.protocol_version(protocol_id) {
                 Some(_) => return Err(ProtocolError::Duplicate(protocol_id).into()),
                 None => {
-                    peer.protocols.push((protocol_id, protocol_version));
+                    peer.protocols.insert(protocol_id, protocol_version);
                 }
             },
             None => unreachable!("get peer after inserted"),
@@ -292,21 +291,14 @@ impl Network {
 
     pub fn peer_protocol_version(&self, peer_id: &PeerId, protocol_id: ProtocolId) -> Option<u8> {
         let peers_registry = self.peers_registry.read();
-        peers_registry.get(peer_id).and_then(|peer| {
-            peer.protocols
-                .iter()
-                .find(|(id, _)| id == &protocol_id)
-                .map(|(_, version)| *version)
-        })
+        peers_registry
+            .get(peer_id)
+            .and_then(|peer| peer.protocol_version(protocol_id))
     }
     pub fn session_info(&self, peer_id: &PeerId, protocol_id: ProtocolId) -> Option<SessionInfo> {
         let peers_registry = self.peers_registry.read();
         peers_registry.get(peer_id).map(|peer| {
-            let protocol_version = peer
-                .protocols
-                .iter()
-                .find(|(id, _)| id == &protocol_id)
-                .map(|(_, version)| *version);
+            let protocol_version = peer.protocol_version(protocol_id);
             SessionInfo {
                 peer: PeerInfo {
                     peer_id: peer_id.to_owned(),
@@ -444,7 +436,6 @@ impl Network {
         // dial reserved nodes and bootnodes
         {
             let network = Arc::clone(&network);
-            let _dial_timeout = Duration::from_secs(DIAL_BOOTNODE_TIMEOUT);
             // dial reserved_nodes
             for (peer_id, addr) in config.reserved_peers()? {
                 network.dial(&peer_id, addr);

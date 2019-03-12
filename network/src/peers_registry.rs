@@ -91,7 +91,7 @@ impl PeerManage {
                     connected_time: Instant::now(),
                     peer_index,
                     session,
-                    protocols: Vec::new(),
+                    protocols: FnvHashMap::with_capacity_and_hasher(1, Default::default()),
                 };
                 entry.insert(peer);
                 self.peer_id_by_index.insert(peer_index, peer_id);
@@ -141,7 +141,7 @@ pub struct Peer {
     pub ping: Option<Duration>,
     pub connected_time: Instant,
     pub session: Session,
-    pub protocols: Vec<(ProtocolId, Version)>,
+    pub protocols: FnvHashMap<ProtocolId, Version>,
 }
 
 impl Peer {
@@ -163,10 +163,7 @@ impl Peer {
     }
 
     pub fn protocol_version(&self, protocol_id: ProtocolId) -> Option<Version> {
-        self.protocols
-            .iter()
-            .find(|(id, _)| id == &protocol_id)
-            .map(|(_, version)| *version)
+        self.protocols.get(&protocol_id).map(|v| *v)
     }
 }
 
