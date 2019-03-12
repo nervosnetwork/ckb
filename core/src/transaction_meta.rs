@@ -17,42 +17,42 @@ impl From<BitVecSerde> for BitVec {
 #[derive(Default, Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub struct TransactionMeta {
     #[serde(with = "BitVecSerde")]
-    pub output_spent: BitVec,
+    pub dead_cell: BitVec,
 }
 
 impl TransactionMeta {
     pub fn new(outputs_count: usize) -> TransactionMeta {
         TransactionMeta {
-            output_spent: BitVec::from_elem(outputs_count, false),
+            dead_cell: BitVec::from_elem(outputs_count, false),
         }
     }
 
     pub fn len(&self) -> usize {
-        self.output_spent.len()
+        self.dead_cell.len()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.output_spent.is_empty()
+        self.dead_cell.is_empty()
     }
 
     pub fn is_new(&self) -> bool {
-        self.output_spent.none()
+        self.dead_cell.none()
     }
 
-    pub fn is_fully_spent(&self) -> bool {
-        self.output_spent.all()
+    pub fn is_all_dead(&self) -> bool {
+        self.dead_cell.all()
     }
 
-    pub fn is_spent(&self, index: usize) -> bool {
-        self.output_spent.get(index).unwrap_or(true)
+    pub fn is_dead(&self, index: usize) -> bool {
+        self.dead_cell.get(index).unwrap_or(true)
     }
 
-    pub fn set_spent(&mut self, index: usize) {
-        self.output_spent.set(index, true);
+    pub fn set_dead(&mut self, index: usize) {
+        self.dead_cell.set(index, true);
     }
 
-    pub fn unset_spent(&mut self, index: usize) {
-        self.output_spent.set(index, false);
+    pub fn unset_dead(&mut self, index: usize) {
+        self.dead_cell.set(index, false);
     }
 }
 
@@ -64,15 +64,15 @@ mod tests {
     #[test]
     fn transaction_meta_serde() {
         let mut original = TransactionMeta::new(4);
-        original.set_spent(1);
-        original.set_spent(3);
+        original.set_dead(1);
+        original.set_dead(3);
 
         let decoded: TransactionMeta =
             bincode::deserialize(&(bincode::serialize(&original).unwrap())[..]).unwrap();
 
-        assert!(!decoded.is_spent(0));
-        assert!(decoded.is_spent(1));
-        assert!(!decoded.is_spent(2));
-        assert!(decoded.is_spent(3));
+        assert!(!decoded.is_dead(0));
+        assert!(decoded.is_dead(1));
+        assert!(!decoded.is_dead(2));
+        assert!(decoded.is_dead(3));
     }
 }

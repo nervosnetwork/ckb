@@ -74,11 +74,11 @@ impl<CI: ChainIndex + 'static> ChainRpc for ChainRpcImpl<CI> {
                     .ok_or_else(Error::internal_error)?;
                 for transaction in block.commit_transactions() {
                     let transaction_meta = chain_state
-                        .txo_set()
+                        .cell_set()
                         .get(&transaction.hash())
                         .ok_or_else(Error::internal_error)?;
                     for (i, output) in transaction.outputs().iter().enumerate() {
-                        if output.lock == type_hash && (!transaction_meta.is_spent(i)) {
+                        if output.lock == type_hash && (!transaction_meta.is_dead(i)) {
                             result.push(CellOutputWithOutPoint {
                                 out_point: OutPoint {
                                     hash: transaction.hash().clone(),

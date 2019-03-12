@@ -1,8 +1,8 @@
+use crate::cell_set::CellSet;
+use crate::cell_set::CellSetDiff;
 use crate::index::ChainIndex;
 use crate::tx_pool::{PoolEntry, PoolError, StagingTxResult, TxPool};
 use crate::tx_proposal_table::TxProposalTable;
-use crate::txo_set::TxoSet;
-use crate::txo_set::TxoSetDiff;
 use ckb_core::block::Block;
 use ckb_core::cell::{CellProvider, CellStatus, ResolvedTransaction};
 use ckb_core::header::{BlockNumber, Header};
@@ -22,7 +22,7 @@ pub struct ChainState<CI> {
     store: Arc<CI>,
     tip_header: Header,
     total_difficulty: U256,
-    txo_set: TxoSet,
+    cell_set: CellSet,
     proposal_ids: TxProposalTable,
     // interior mutability for immutable borrow proposal_ids
     tx_pool: RefCell<TxPool>,
@@ -34,7 +34,7 @@ impl<CI: ChainIndex> ChainState<CI> {
         store: &Arc<CI>,
         tip_header: Header,
         total_difficulty: U256,
-        txo_set: TxoSet,
+        cell_set: CellSet,
         proposal_ids: TxProposalTable,
         tx_pool: TxPool,
         txs_verify_cache: LruCache<H256, Cycle>,
@@ -43,7 +43,7 @@ impl<CI: ChainIndex> ChainState<CI> {
             store: Arc::clone(store),
             tip_header,
             total_difficulty,
-            txo_set,
+            cell_set,
             proposal_ids,
             tx_pool: RefCell::new(tx_pool),
             txs_verify_cache: RefCell::new(txs_verify_cache),
@@ -66,12 +66,12 @@ impl<CI: ChainIndex> ChainState<CI> {
         &self.tip_header
     }
 
-    pub fn txo_set(&self) -> &TxoSet {
-        &self.txo_set
+    pub fn cell_set(&self) -> &CellSet {
+        &self.cell_set
     }
 
-    pub fn is_spent(&self, o: &OutPoint) -> Option<bool> {
-        self.txo_set.is_spent(o)
+    pub fn is_dead(&self, o: &OutPoint) -> Option<bool> {
+        self.cell_set.is_dead(o)
     }
 
     pub fn contains_proposal_id(&self, id: &ProposalShortId) -> bool {
@@ -91,10 +91,10 @@ impl<CI: ChainIndex> ChainState<CI> {
         self.proposal_ids.finalize(number)
     }
 
-    pub fn update_tip(&mut self, header: Header, total_difficulty: U256, txo_diff: TxoSetDiff) {
+    pub fn update_tip(&mut self, header: Header, total_difficulty: U256, txo_diff: CellSetDiff) {
         self.tip_header = header;
         self.total_difficulty = total_difficulty;
-        self.txo_set.update(txo_diff);
+        self.cell_set.update(txo_diff);
     }
 
     pub fn add_tx_to_pool(&self, tx: Transaction, max_cycles: Cycle) -> Result<(), PoolError> {
@@ -111,7 +111,7 @@ impl<CI: ChainIndex> ChainState<CI> {
 
     fn get_cell_status_from_store(&self, out_point: &OutPoint) -> CellStatus {
         let index = out_point.index as usize;
-        if let Some(f) = self.is_spent(out_point) {
+        if let Some(f) = self.is_dead(out_point) {
             if f {
                 CellStatus::Dead
             } else {
