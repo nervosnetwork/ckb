@@ -8,6 +8,7 @@
 //!   implement `ChainProvider`
 
 pub mod cachedb;
+pub mod cell_set;
 pub mod chain_state;
 pub mod error;
 mod flat_serializer;
@@ -16,7 +17,6 @@ pub mod shared;
 pub mod store;
 pub mod tx_pool;
 mod tx_proposal_table;
-pub mod txo_set;
 
 #[cfg(test)]
 mod tests;

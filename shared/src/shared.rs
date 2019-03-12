@@ -1,11 +1,11 @@
 use crate::cachedb::CacheDB;
+use crate::cell_set::CellSet;
 use crate::chain_state::ChainState;
 use crate::error::SharedError;
 use crate::index::ChainIndex;
 use crate::store::ChainKVStore;
 use crate::tx_pool::{TxPool, TxPoolConfig};
 use crate::tx_proposal_table::TxProposalTable;
-use crate::txo_set::TxoSet;
 use crate::{COLUMNS, COLUMN_BLOCK_HEADER};
 use ckb_chain_spec::consensus::{Consensus, ProposalWindow};
 use ckb_core::block::Block;
@@ -67,7 +67,7 @@ impl<CI: ChainIndex> Shared<CI> {
             let proposal_window = consensus.tx_proposal_window();
             let proposal_ids = Self::init_proposal_ids(&store, proposal_window, tip_number);
 
-            let txo_set = Self::init_txo_set(&store, tip_number);
+            let cell_set = Self::init_cell_set(&store, tip_number);
 
             let total_difficulty = store
                 .get_block_ext(&header.hash())
@@ -78,7 +78,7 @@ impl<CI: ChainIndex> Shared<CI> {
                 &store,
                 header,
                 total_difficulty,
-                txo_set,
+                cell_set,
                 proposal_ids,
                 TxPool::new(tx_pool_config),
                 LruCache::new(txs_verify_cache_size),
@@ -128,8 +128,8 @@ impl<CI: ChainIndex> Shared<CI> {
         proposal_ids
     }
 
-    pub fn init_txo_set(store: &CI, number: u64) -> TxoSet {
-        let mut txo_set = TxoSet::new();
+    pub fn init_cell_set(store: &CI, number: u64) -> CellSet {
+        let mut cell_set = CellSet::new();
 
         for n in 0..=number {
             let hash = store.get_block_hash(n).unwrap();
@@ -139,29 +139,29 @@ impl<CI: ChainIndex> Shared<CI> {
                 let output_len = tx.outputs().len();
 
                 for o in inputs {
-                    txo_set.mark_spent(&o);
+                    cell_set.mark_dead(&o);
                 }
 
-                txo_set.insert(tx_hash, output_len);
+                cell_set.insert(tx_hash, output_len);
             }
         }
 
-        txo_set
+        cell_set
     }
 }
 
 impl<CI: ChainIndex> CellProvider for Shared<CI> {
     fn cell(&self, out_point: &OutPoint) -> CellStatus {
-        self.cell_at(out_point, |op| self.chain_state.lock().is_spent(op))
+        self.cell_at(out_point, |op| self.chain_state.lock().is_dead(op))
     }
 
     fn cell_at<F: Fn(&OutPoint) -> Option<bool>>(
         &self,
         out_point: &OutPoint,
-        is_spent: F,
+        is_dead: F,
     ) -> CellStatus {
         let index = out_point.index as usize;
-        if let Some(f) = is_spent(out_point) {
+        if let Some(f) = is_dead(out_point) {
             if f {
                 CellStatus::Dead
             } else {

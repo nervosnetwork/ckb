@@ -58,7 +58,7 @@ pub trait CellProvider {
     fn cell_at<F: Fn(&OutPoint) -> Option<bool>>(
         &self,
         _out_point: &OutPoint,
-        _is_spent: F,
+        _is_dead: F,
     ) -> CellStatus {
         unreachable!()
     }
