@@ -3,7 +3,7 @@ use crate::Setup;
 use ckb_chain::chain::{ChainBuilder, ChainController};
 use ckb_core::script::Script;
 use ckb_db::diskdb::RocksDB;
-use ckb_miner::{BlockAssembler, BlockAssemblerController};
+use ckb_miner::BlockAssembler;
 use ckb_network::futures::sync::mpsc::channel;
 use ckb_network::CKBProtocol;
 use ckb_network::NetworkConfig;
