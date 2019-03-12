@@ -280,7 +280,7 @@ impl<CI: ChainIndex> ChainState<CI> {
         max_cycles: Cycle,
     ) {
         let mut tx_pool = self.tx_pool.borrow_mut();
-        tx_pool.remove_staged(detached_proposal_id);
+        tx_pool.remove_expired(detached_proposal_id);
 
         let mut detached = FnvHashSet::default();
         let mut attached = FnvHashSet::default();
@@ -308,7 +308,7 @@ impl<CI: ChainIndex> ChainState<CI> {
         }
 
         for tx in &attached {
-            tx_pool.staging.commit_tx(tx);
+            tx_pool.committed(tx);
         }
 
         for id in self.get_proposal_ids_iter() {

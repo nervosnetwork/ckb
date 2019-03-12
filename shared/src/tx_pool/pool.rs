@@ -85,8 +85,10 @@ impl TxPool {
         let entry = PoolEntry::new(tx, 0, None);
 
         if self.config.trace_enable() {
-            self.trace
-                .add_pending(&entry.transaction.hash(), "unknown tx, add to pending");
+            self.trace.add_pending(
+                &entry.transaction.hash(),
+                "unknown tx, insert to pending queue",
+            );
         }
         self.pending.insert(short_id, entry).is_none()
     }
@@ -100,7 +102,7 @@ impl TxPool {
         if self.config.trace_enable() {
             self.trace.add_orphan(
                 &entry.transaction.hash(),
-                format!("unknowns {:?}", unknowns),
+                format!("orphan tx, unknown inputs/deps {:?}", unknowns),
             );
         }
         self.orphan.add_tx(entry, unknowns.into_iter());
@@ -110,10 +112,19 @@ impl TxPool {
         trace!(target: "tx_pool", "add_staging {:#x}", &entry.transaction.hash());
         if self.config.trace_enable() {
             self.trace
-                .staged(&entry.transaction.hash(), "staged".to_string());
+                .staged(&entry.transaction.hash(), "tx staged".to_string());
         }
         self.touch_last_txs_updated_at();
         self.staging.add_tx(entry);
+    }
+
+    pub(crate) fn committed(&mut self, tx: &Transaction) {
+        let hash = tx.hash();
+        trace!(target: "tx_pool", "committed {:#x}", hash);
+        if self.config.trace_enable() {
+            self.trace.committed(&hash, "tx committed".to_string());
+        }
+        self.staging.commit_tx(tx);
     }
 
     pub(crate) fn remove_pending_from_proposal(
@@ -165,19 +176,36 @@ impl TxPool {
         self.capacity() > self.config.max_pool_size
     }
 
-    pub fn remove_staged(&mut self, ids: &[ProposalShortId]) {
+    pub fn remove_expired(&mut self, ids: &[ProposalShortId]) {
         for id in ids {
-            if let Some(txs) = self.staging.remove(id) {
-                self.pending.insert(*id, txs[0].clone());
-
-                for tx in txs.iter().skip(1) {
-                    self.conflict
-                        .insert(tx.transaction.proposal_short_id(), tx.clone());
+            if let Some(entries) = self.staging.remove(id) {
+                let first = entries[0].clone();
+                if self.config.trace_enable() {
+                    self.trace
+                        .expired(&first.transaction.hash(), "tx proposal expired".to_string());
                 }
-            } else if let Some(tx) = self.conflict.remove(id) {
-                self.pending.insert(*id, tx);
-            } else if let Some(tx) = self.orphan.remove(id) {
-                self.pending.insert(*id, tx);
+                self.pending.insert(*id, first);
+
+                for entry in entries.into_iter().skip(1) {
+                    if self.config.trace_enable() {
+                        self.trace
+                            .expired(&entry.transaction.hash(), "tx proposal expired".to_string());
+                    }
+                    self.conflict
+                        .insert(entry.transaction.proposal_short_id(), entry);
+                }
+            } else if let Some(entry) = self.conflict.remove(id) {
+                if self.config.trace_enable() {
+                    self.trace
+                        .expired(&entry.transaction.hash(), "tx proposal expired".to_string());
+                }
+                self.pending.insert(*id, entry);
+            } else if let Some(entry) = self.orphan.remove(id) {
+                if self.config.trace_enable() {
+                    self.trace
+                        .expired(&entry.transaction.hash(), "tx proposal expired".to_string());
+                }
+                self.pending.insert(*id, entry);
             }
         }
     }
