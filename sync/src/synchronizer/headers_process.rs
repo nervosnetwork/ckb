@@ -271,7 +271,7 @@ where
                 target: "sync",
                 concat!(
                     "\n\nchain total_difficulty = {}; number={}\n",
-                    "number={}; best_known_header = {}; total_difficulty = {};\n",
+                    "number={}; best_known_header = {:x}; total_difficulty = {};\n",
                     "peers={} number={:?}; best_known_header = {:?}; total_difficulty = {:?}\n",
                 ),
                 chain_state.total_difficulty(),
@@ -281,8 +281,8 @@ where
                 own.total_difficulty(),
                 self.peer,
                 peer_state.as_ref().map(|state| state.number()),
-                peer_state.as_ref().map(|state| state.hash()),
-                peer_state.as_ref().map(|state| state.total_difficulty()),
+                peer_state.as_ref().map(|state| format!("{:x}", state.hash())),
+                peer_state.as_ref().map(|state| format!("{}", state.total_difficulty())),
             );
         }
 

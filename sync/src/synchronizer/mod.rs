@@ -462,7 +462,7 @@ impl<CI: ChainIndex> Synchronizer<CI> {
                         }
                     } else {
                         debug!(
-                            target: "sync", "[Synchronizer] insert_orphan_block {:?}------------{:?}",
+                            target: "sync", "[Synchronizer] insert_orphan_block {:?}------------{:x}",
                             block.header().number(),
                             block.header().hash()
                         );
@@ -478,7 +478,7 @@ impl<CI: ChainIndex> Synchronizer<CI> {
             }
         } else {
             debug!(
-                target: "sync", "[Synchronizer] insert_orphan_block {:?}------------{:?}",
+                target: "sync", "[Synchronizer] insert_orphan_block {:?}------------{:x}",
                 block.header().number(),
                 block.header().hash()
             );
