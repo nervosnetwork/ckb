@@ -258,11 +258,6 @@ impl Transaction {
         sha3_256(serialize(&self).unwrap()).into()
     }
 
-    pub fn check_lock(&self, unlock: &[u8], lock: &[u8]) -> bool {
-        // TODO: check using pubkey signature
-        unlock.is_empty() || !lock.is_empty()
-    }
-
     pub fn out_points_iter(&self) -> impl Iterator<Item = &OutPoint> {
         self.deps.iter().chain(
             self.inputs
