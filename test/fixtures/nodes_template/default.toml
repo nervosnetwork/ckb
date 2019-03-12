@@ -44,4 +44,4 @@ txs_verify_cache_size = 100000
 
 [block_assembler]
 # type hash for `always_success` script
-type_hash = "0x182c0b72876ec3a803992ef46076bfdb122b0d3916e747d7dabaa728affaa0be"
+type_hash = "0x8954a4ac5e5c33eb7aa8bb91e0a000179708157729859bd8cf7e2278e1e12980"
