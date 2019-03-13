@@ -185,17 +185,17 @@ impl<'a> CapacityVerifier<'a> {
             .fold(0, |acc, output| acc + output.capacity);
 
         if inputs_total < outputs_total {
-            Err(TransactionError::OutputsSumOverflow)
-        } else if self
+            return Err(TransactionError::OutputsSumOverflow);
+        }
+        if self
             .resolved_transaction
             .transaction
             .outputs()
             .iter()
             .any(|output| output.occupied_capacity() as Capacity > output.capacity)
         {
-            Err(TransactionError::CapacityOverflow)
-        } else {
-            Ok(())
+            return Err(TransactionError::CapacityOverflow);
         }
+        Ok(())
     }
 }
