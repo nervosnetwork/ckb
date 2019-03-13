@@ -75,9 +75,6 @@ impl<CP: ChainProvider + Clone> CellbaseVerifier<CP> {
     }
 
     pub fn verify(&self, block: &Block) -> Result<(), Error> {
-        if block.commit_transactions().is_empty() {
-            return Ok(());
-        }
         let cellbase_len = block
             .commit_transactions()
             .iter()
@@ -339,10 +336,6 @@ impl<CP: ChainProvider + Clone> UnclesVerifier<CP> {
 
             if block_difficulty_epoch != uncle_difficulty_epoch {
                 return Err(Error::Uncles(UnclesError::InvalidDifficultyEpoch));
-            }
-
-            if uncle.header().cellbase_id() != &uncle.cellbase().hash() {
-                return Err(Error::Uncles(UnclesError::InvalidCellbase));
             }
 
             let uncle_header = uncle.header.clone();

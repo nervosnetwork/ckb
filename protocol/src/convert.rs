@@ -115,7 +115,6 @@ impl<'a> From<ckb_protocol::UncleBlock<'a>> for ckb_core::uncle::UncleBlock {
     fn from(uncle_block: ckb_protocol::UncleBlock<'a>) -> Self {
         ckb_core::uncle::UncleBlock {
             header: uncle_block.header().unwrap().into(),
-            cellbase: uncle_block.cellbase().unwrap().into(),
             proposal_transactions: uncle_block
                 .proposal_transactions()
                 .unwrap()

@@ -1,6 +1,6 @@
 use crate::block::Block;
 use crate::header::Header;
-use crate::transaction::{ProposalShortId, Transaction};
+use crate::transaction::ProposalShortId;
 use crate::BlockNumber;
 use bincode::serialize;
 use hash::sha3_256;
@@ -10,7 +10,6 @@ use serde_derive::{Deserialize, Serialize};
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Default, Debug)]
 pub struct UncleBlock {
     pub header: Header,
-    pub cellbase: Transaction,
     pub proposal_transactions: Vec<ProposalShortId>,
 }
 
@@ -18,35 +17,21 @@ impl From<Block> for UncleBlock {
     fn from(block: Block) -> Self {
         UncleBlock {
             header: block.header().clone(),
-            cellbase: block
-                .commit_transactions()
-                .first()
-                .expect("transactions shouldn't be empty")
-                .clone(),
             proposal_transactions: block.proposal_transactions().to_vec(),
         }
     }
 }
 
 impl UncleBlock {
-    pub fn new(
-        header: Header,
-        cellbase: Transaction,
-        proposal_transactions: Vec<ProposalShortId>,
-    ) -> UncleBlock {
+    pub fn new(header: Header, proposal_transactions: Vec<ProposalShortId>) -> UncleBlock {
         UncleBlock {
             header,
-            cellbase,
             proposal_transactions,
         }
     }
 
     pub fn header(&self) -> &Header {
         &self.header
-    }
-
-    pub fn cellbase(&self) -> &Transaction {
-        &self.cellbase
     }
 
     pub fn number(&self) -> BlockNumber {

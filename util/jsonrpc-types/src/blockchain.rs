@@ -271,7 +271,6 @@ impl From<Header> for CoreHeader {
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct UncleBlock {
     pub header: Header,
-    pub cellbase: Transaction,
     pub proposal_transactions: Vec<ProposalShortId>,
 }
 
@@ -279,7 +278,6 @@ impl<'a> From<&'a CoreUncleBlock> for UncleBlock {
     fn from(core: &CoreUncleBlock) -> UncleBlock {
         UncleBlock {
             header: core.header().into(),
-            cellbase: core.cellbase().into(),
             proposal_transactions: core
                 .proposal_transactions()
                 .iter()
@@ -294,12 +292,10 @@ impl From<UncleBlock> for CoreUncleBlock {
     fn from(json: UncleBlock) -> CoreUncleBlock {
         let UncleBlock {
             header,
-            cellbase,
             proposal_transactions,
         } = json;
         CoreUncleBlock::new(
             header.into(),
-            cellbase.into(),
             proposal_transactions.into_iter().map(Into::into).collect(),
         )
     }
@@ -409,7 +405,6 @@ mod tests {
     ) -> CoreUncleBlock {
         CoreUncleBlock::new(
             HeaderBuilder::default().build(),
-            mock_full_tx(data, arg, binary, signed_arg),
             vec![CoreProposalShortId::default()],
         )
     }
