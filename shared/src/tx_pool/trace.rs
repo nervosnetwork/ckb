@@ -9,7 +9,7 @@ pub(crate) enum Action {
     AddPending,
     Proposed,
     Staged,
-    Timeout,
+    Expired,
     AddOrphan,
     Committed,
 }
@@ -88,7 +88,7 @@ impl TxTraceMap {
     define_method!(proposed, Action::Proposed);
     define_method!(staged, Action::Staged);
     define_method!(add_orphan, Action::AddOrphan);
-    define_method!(timeout, Action::Timeout);
+    define_method!(expired, Action::Expired);
     define_method!(committed, Action::Committed);
 }
 
@@ -110,7 +110,7 @@ mod tests {
         map.proposed(&tx_hash, "proposed");
         map.staged(&tx_hash, "staged");
         map.add_orphan(&tx_hash, "add_orphan");
-        map.timeout(&tx_hash, "timeout");
+        map.expired(&tx_hash, "expired");
         map.committed(&tx_hash, "committed");
 
         let traces = map.get(&tx_hash);
@@ -123,7 +123,7 @@ mod tests {
                 "{ action: Proposed, info: proposed, time: 9102 }, ",
                 "{ action: Staged, info: staged, time: 9102 }, ",
                 "{ action: AddOrphan, info: add_orphan, time: 9102 }, ",
-                "{ action: Timeout, info: timeout, time: 9102 }, ",
+                "{ action: Expired, info: expired, time: 9102 }, ",
                 "{ action: Committed, info: committed, time: 9102 }",
                 "])"
             ),
