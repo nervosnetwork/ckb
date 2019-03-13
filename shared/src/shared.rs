@@ -269,8 +269,8 @@ impl<CI: ChainIndex> ChainProvider for Shared<CI> {
             match self.get_transaction(&previous_output.hash) {
                 Some(previous_transaction) => {
                     let index = previous_output.index as usize;
-                    if index < previous_transaction.outputs().len() {
-                        fee += previous_transaction.outputs()[index].capacity;
+                    if let Some(output) = previous_transaction.outputs().get(index) {
+                        fee += output.capacity;
                     } else {
                         Err(SharedError::InvalidInput)?;
                     }
