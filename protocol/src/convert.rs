@@ -136,11 +136,9 @@ impl<'a> TryFrom<ckb_protocol::UncleBlock<'a>> for ckb_core::uncle::UncleBlock {
             .map(TryInto::try_into)
             .collect();
         let header = cast!(uncle_block.header())?;
-        let cellbase = cast!(uncle_block.cellbase())?;
 
         Ok(ckb_core::uncle::UncleBlock {
             header: TryInto::try_into(header)?,
-            cellbase: TryInto::try_into(cellbase)?,
             proposal_transactions: proposal_transactions?,
         })
     }

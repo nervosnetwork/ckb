@@ -57,7 +57,6 @@ table Block {
 
 table UncleBlock {
     header:                 Header;
-    cellbase:               Transaction;
     proposal_transactions:  [ProposalShortId];
 }
 
@@ -224,4 +223,3 @@ table TimeMessage {
 table Time {
     timestamp: uint64;
 }
-
