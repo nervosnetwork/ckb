@@ -174,7 +174,7 @@ impl Peers {
 
     pub fn block_received(&self, peer: PeerIndex, block: &Block) {
         let mut blocks_inflight = self.blocks_inflight.write();
-        debug!(target: "sync", "block_received from peer {} {} {:?}", peer, block.header().number(), block.header().hash());
+        debug!(target: "sync", "block_received from peer {} {} {:x}", peer, block.header().number(), block.header().hash());
         blocks_inflight.entry(peer).and_modify(|inflight| {
             inflight.remove(&block.header().hash());
             inflight.update_timestamp();

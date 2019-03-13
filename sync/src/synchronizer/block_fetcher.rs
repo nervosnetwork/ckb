@@ -193,7 +193,7 @@ where
                     && inflight.insert(to_fetch_hash.clone().clone())
                 {
                     debug!(
-                        target: "sync", "[Synchronizer] inflight insert {:?}------------{:?}",
+                        target: "sync", "[Synchronizer] inflight insert {:?}------------{:x}",
                         to_fetch.number(),
                         to_fetch_hash
                     );
