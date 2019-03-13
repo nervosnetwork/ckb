@@ -125,9 +125,9 @@ impl<'a> DuplicateInputsVerifier<'a> {
 
     pub fn verify(&self) -> Result<(), TransactionError> {
         let transaction = self.transaction;
-        let inputs = transaction.inputs().iter().collect::<HashSet<_>>();
+        let mut seen = HashSet::with_capacity(self.transaction.inputs().len());
 
-        if inputs.len() == transaction.inputs().len() {
+        if transaction.inputs().iter().all(|id| seen.insert(id)) {
             Ok(())
         } else {
             Err(TransactionError::DuplicateInputs)
