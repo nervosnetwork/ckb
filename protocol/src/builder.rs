@@ -231,7 +231,6 @@ impl<'a> FbsUncleBlock<'a> {
     ) -> WIPOffset<FbsUncleBlock<'b>> {
         // TODO how to avoid clone here?
         let header = FbsHeader::build(fbb, &uncle_block.header().clone());
-        let cellbase = FbsTransaction::build(fbb, &uncle_block.cellbase);
         let vec = uncle_block
             .proposal_transactions
             .iter()
@@ -241,7 +240,6 @@ impl<'a> FbsUncleBlock<'a> {
 
         let mut builder = UncleBlockBuilder::new(fbb);
         builder.add_header(header);
-        builder.add_cellbase(cellbase);
         builder.add_proposal_transactions(proposal_transactions);
         builder.finish()
     }
