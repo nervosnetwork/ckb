@@ -44,6 +44,7 @@ More information about Cell can be found in the [whitepaper](https://github.com/
 ```json
 {
   "version": 0,
+  "binary": null,
   "reference": "0x12b464bcab8f55822501cdb91ea35ea707d72ec970363972388a0c49b94d377c",
   "signed_args": [
     "024a501efd328e062c8675f2365970728c859c592beeefd6be8ead3d901330bc01"
@@ -63,7 +64,7 @@ More information about Cell can be found in the [whitepaper](https://github.com/
 | :------------ | :------ | :----------------------------------------------------------- |
 | `version`     | uint8   | **The version of the script.** It‘s used to distinguish transactions when there's a fork happened to the blockchain system. |
 | `binary`      | Bytes   | **ELF formatted binary that contains an RISC-V based script.** This part of data is loaded into an CKB-VM instance when they are specified upon the transaction verification. |
-| `reference`   | Bytes   | **The `type hash` of the script that is referred by this script.** It is possible to refer the script in another cell on-chain as the binary code in this script, instead of entering the binary directly into the script. **Notice:** This is part only works when the `binary` field is empty. |
+| `reference`   | Bytes   | **The `type hash` of the script that is referred by this script.** It is possible to refer the script in another cell on-chain as the binary code in this script, instead of entering the binary directly into the script. **Notice:** When loading a script, CKB-VM will first try to load the  `binary` data. If `binary` is `null`, then `reference` would be used. |
 | `args`        | [Bytes] | **An array of arguments as the script input.** The arguments here are imported into the CKB-VM instance as input arguments for the scripts. This part is NOT used when calculating the hash of the script. |
 | `signed_args` | [Bytes] | **An array of arguments that belongs to the script for improving code reuse rate**. Please refer [this document](https://github.com/Mine77/ckb-demo-ruby-sdk/blob/docs/update-docs/docs/how-to-write-contracts.md#script-model) for more explanation about this field. |
 
