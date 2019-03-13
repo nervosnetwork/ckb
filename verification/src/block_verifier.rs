@@ -284,14 +284,14 @@ impl<CP: ChainProvider + Clone> UnclesVerifier<CP> {
         }
 
         // verify uncles age
-        let max_uncles_age = self.provider.consensus().max_uncles_age();
+        let max_uncles_age = self.provider.consensus().max_uncles_age() as u64;
         for uncle in block.uncles() {
             let depth = block.header().number().saturating_sub(uncle.number());
 
-            if depth > max_uncles_age as u64 || depth < 1 {
+            if depth > max_uncles_age || depth < 1 {
                 return Err(Error::Uncles(UnclesError::InvalidDepth {
-                    min: block.header().number() - max_uncles_age as u64,
-                    max: block.header().number() - 1,
+                    min: block.header().number().saturating_sub(max_uncles_age),
+                    max: block.header().number().saturating_sub(1),
                     actual: uncle.number(),
                 }));
             }
