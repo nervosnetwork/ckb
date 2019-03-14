@@ -44,6 +44,7 @@ More information about Cell can be found in the [whitepaper](https://github.com/
 ```json
 {
   "version": 0,
+  "binary": null,
   "reference": "0x12b464bcab8f55822501cdb91ea35ea707d72ec970363972388a0c49b94d377c",
   "signed_args": [
     "024a501efd328e062c8675f2365970728c859c592beeefd6be8ead3d901330bc01"
@@ -63,7 +64,7 @@ More information about Cell can be found in the [whitepaper](https://github.com/
 | :------------ | :------ | :----------------------------------------------------------- |
 | `version`     | uint8   | **The version of the script.** It‘s used to distinguish transactions when there's a fork happened to the blockchain system. |
 | `binary`      | Bytes   | **ELF formatted binary that contains an RISC-V based script.** This part of data is loaded into an CKB-VM instance when they are specified upon the transaction verification. |
-| `reference`   | Bytes   | **The `type hash` of the script that is referred by this script.** It is possible to refer the script in another cell on-chain as the binary code in this script, instead of entering the binary directly into the script. **Notice:** This is part only works when the `binary` field is empty. |
+| `reference`   | Bytes   | **The `type hash` of the script that is referred by this script.** It is possible to refer the script in another cell on-chain as the binary code in this script, instead of entering the binary directly into the script. **Notice:** When loading a script, CKB-VM will first try to load the  `binary` data. If `binary` is `null`, then `reference` would be used. |
 | `args`        | [Bytes] | **An array of arguments as the script input.** The arguments here are imported into the CKB-VM instance as input arguments for the scripts. This part is NOT used when calculating the hash of the script. |
 | `signed_args` | [Bytes] | **An array of arguments that belongs to the script for improving code reuse rate**. Please refer [this document](https://github.com/Mine77/ckb-demo-ruby-sdk/blob/docs/update-docs/docs/how-to-write-contracts.md#script-model) for more explanation about this field. |
 
@@ -117,11 +118,12 @@ Also you can find how the `Script` structure is implemented from [these codes](h
 | Name              | Type                             | Description                                                  |
 | ----------------- | -------------------------------- | ------------------------------------------------------------ |
 | `version`         | uint32                           | **The version of the transaction.** It‘s used to distinguish transactions when there's a fork happened to the blockchain system. |
+| `hash`            | H256(Hash)                       | **The hash of the transaction.** This also serve as the identifier of the transaction. |
 | `deps`            | [`outpoint`]                     | **An array of `outpoint` that point to the cells that are dependencies of this transaction.** Only live cells can be listed here. The cells listed are read-only. |
 | `inputs`          | [{`previsou_output` , `unlock`}] | **An array of {`previsou_output` , `unlock`}.**              |
 | `previous_output` | `outpoint`                       | **A cell outpoint that point to the cells used as inputs.** Input cells are in fact the output of previous transactions, hence they are noted as `previous_output` here. These cells are referred through  `outpoint`, which contains the transaction `hash` of the previous transaction, as well as this cell's `index` in its transaction's output list. |
 | `unlock`          | `script`                         | **A script for unlocking the corresponding input cell** (i.e. `previous_output`). See [here](https://github.com/nervosnetwork/ckb-demo-ruby-sdk/blob/develop/docs/how-to-write-contracts.md) for how to program this part. |
-| `outputs`         | [`cell`]                         | **An array of cells that are used as outputs**, i.e. the newly generated cells. These are the cells may be used as inputs for other transactions. |
+| `outputs`         | [`cell`]                         | **An array of cells that are used as outputs**, i.e. the newly generated cells. These are the cells may be used as inputs for other transactions. Each of the Cell has the same structure to [the Cell section](#cell) above. |
 
 
 
@@ -217,12 +219,14 @@ More information about the Transaction of Nervos CKB can be found in [whitepaper
 
 | Name                    | Type            | Description                                                  |
 | ----------------------- | --------------- | ------------------------------------------------------------ |
-| `header`                | `Header`        | **The block header of the block.** This part contains some metadata of the block. |
-| `commit_trasactions`    | [`Transaction`] | **An array of transactions contained in the block.** This is where the miner put the received transactions. |
-| `proposal_transactions` | [string]        | **An array of hex-encoded short transaction ID.**            |
-| `uncles`                | [`UncleBlock`]  | **An array of uncle blocks of the block.**                   |
+| `header`                | `Header`        | **The block header of the block.** This part contains some metadata of the block. See [the Header section](#header) below for the details of this part. |
+| `commit_trasactions`    | [`Transaction`] | **An array of committed transactions contained in the block.** Each element of this array has the same structure as [the Transaction structure](#transaction) above. |
+| `proposal_transactions` | [string]        | **An array of hex-encoded short transaction ID of the proposed transactions.** |
+| `uncles`                | [`UncleBlock`]  | **An array of uncle blocks of the block.** See [the UncleBlock section](#uncleblock) below for the details of this part. |
 
 #### Header
+
+(`header` is a sub-structure of `block` and `UncleBlock`.)
 
 | Name           | Type                | Description                                                  |
 | -------------- | ------------------- | ------------------------------------------------------------ |
@@ -243,9 +247,11 @@ More information about the Transaction of Nervos CKB can be found in [whitepaper
 
 #### UncleBlock
 
+(`UncleBlock` is a sub-structure of `Block`.)
+
 | Name                    | Type          | Description                                                  |
 | ----------------------- | ------------- | ------------------------------------------------------------ |
-| `cellbase`              | `Transaction` | **The cellbase transaction of the uncle block.**             |
-| `header`                | `Header`      | **The block header of the uncle block.**                     |
-| `proposal_transactions` | [`string`]    | **An array of short transaction IDs of the transactions in the uncle block.** |
+| `cellbase`              | `Transaction` | **The cellbase transaction of the uncle block.** The inner structure of this part is same as [the Transaction structure](#transaction) above. |
+| `header`                | `Header`      | **The block header of the uncle block.** The inner structure of this part is same as [the Header structure](#header) above. |
+| `proposal_transactions` | [`string`]    | **An array of short transaction IDs of the proposed transactions in the uncle block.** |
 
