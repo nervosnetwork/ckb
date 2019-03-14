@@ -64,7 +64,7 @@ impl Stream for CKBService {
                             ),
                             None => {
                                 network.drop_peer(&peer_id);
-                                error!(target: "network", "can't find protocol handler for {:?}",session)
+                                error!(target: "network", "can't find protocol handler for {:?} {}",session, protocol_id)
                             }
                         }
                     }

@@ -1,6 +1,6 @@
 use crate::{peers_registry::Session, PeerId, ServiceContext, SessionContext};
 use futures::sync::mpsc::Sender;
-use log::error;
+use log::{debug, error};
 use p2p::{
     multiaddr::Multiaddr,
     traits::{ProtocolMeta, ServiceProtocol},
@@ -9,7 +9,6 @@ use p2p::{
 use tokio::codec::LengthDelimitedCodec;
 
 pub type Version = u8;
-const CKB_PROTOCOL_ID_OFFSET: ProtocolId = 100;
 
 #[derive(Clone)]
 pub struct CKBProtocol {
@@ -39,9 +38,11 @@ impl CKBProtocol {
             event_sender,
         }
     }
+
     pub fn id(&self) -> ProtocolId {
-        self.id + CKB_PROTOCOL_ID_OFFSET
+        self.id
     }
+
     pub fn protocol_name(&self) -> String {
         self.protocol_name.clone()
     }
@@ -57,7 +58,7 @@ impl ProtocolMeta<LengthDelimitedCodec> for CKBProtocol {
     }
 
     fn id(&self) -> ProtocolId {
-        self.id
+        CKBProtocol::id(&self)
     }
 
     fn codec(&self) -> LengthDelimitedCodec {
@@ -66,7 +67,7 @@ impl ProtocolMeta<LengthDelimitedCodec> for CKBProtocol {
 
     fn service_handle(&self) -> Option<Box<dyn ServiceProtocol + Send + 'static>> {
         let handler = Box::new(CKBHandler {
-            id: self.id,
+            id: self.id(),
             event_sender: self.event_sender.clone(),
         });
         Some(handler)
@@ -107,7 +108,7 @@ impl ServiceProtocol for CKBHandler {
         let (peer_id, version) = {
             let parsed_version = version.parse::<u8>();
             if session.remote_pubkey.is_none() || parsed_version.is_err() {
-                error!(target: "network", "ckb protocol connected error, addr: {}, version: {}", session.address, version);
+                error!(target: "network", "ckb protocol connected error, addr: {}, protocol:{}, version: {}", session.address, self.id, version);
                 control.disconnect(session.id);
                 return;
             }
@@ -120,6 +121,7 @@ impl ServiceProtocol for CKBHandler {
                 parsed_version.unwrap(),
             )
         };
+        debug!(target: "network", "ckb protocol connected, addr: {}, protocol: {}, version: {}, peer_id: {:?}", session.address, self.id, version, &peer_id);
         let event = Event::Connected(
             peer_id,
             session.address.clone(),
@@ -139,6 +141,7 @@ impl ServiceProtocol for CKBHandler {
             .as_ref()
             .map(|pubkey| pubkey.peer_id())
         {
+            debug!(target: "network", "ckb protocol disconnect, addr: {}, protocol: {}, peer_id: {:?}", session.address, self.id, &peer_id);
             self.send_event(Event::Disconnected(peer_id, self.id));
         }
     }
@@ -149,6 +152,7 @@ impl ServiceProtocol for CKBHandler {
             .as_ref()
             .map(|pubkey| pubkey.peer_id())
         {
+            debug!(target: "network", "ckb protocol received, addr: {}, protocol: {}, peer_id: {:?}", session.address, self.id, &peer_id);
             self.send_event(Event::Received(peer_id, self.id, data));
         }
     }

@@ -83,7 +83,7 @@ impl PeerInfo {
 type P2PService = Service<EventHandler, LengthDelimitedCodec>;
 
 pub struct Network {
-    peers_registry: RwLock<PeersRegistry>,
+    pub(crate) peers_registry: RwLock<PeersRegistry>,
     peer_store: Arc<RwLock<dyn PeerStore>>,
     listened_addresses: RwLock<FnvHashMap<Multiaddr, u8>>,
     pub(crate) original_listened_addresses: RwLock<Vec<Multiaddr>>,

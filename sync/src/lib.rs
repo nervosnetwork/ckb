@@ -29,9 +29,9 @@ pub const BLOCK_DOWNLOAD_WINDOW: u64 = 1024;
 pub const PER_FETCH_BLOCK_LIMIT: usize = 128;
 
 pub enum NetworkProtocol {
-    SYNC = 0,
-    RELAY = 1,
-    TIME = 2,
+    SYNC = 100,
+    RELAY = 101,
+    TIME = 102,
 }
 
 //  Timeout = base + per_header * (expected number of headers)

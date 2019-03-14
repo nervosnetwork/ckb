@@ -131,6 +131,7 @@ pub struct Session {
     pub session_type: SessionType,
 }
 
+#[derive(Clone, Debug)]
 pub struct Peer {
     pub(crate) peer_index: PeerIndex,
     pub connected_addr: Multiaddr,
