@@ -1,12 +1,14 @@
 use crate::{peers_registry::Session, PeerId, ServiceContext, SessionContext};
+use bytes::Bytes;
 use futures::sync::mpsc::Sender;
 use log::{debug, error};
 use p2p::{
+    builder::MetaBuilder,
     multiaddr::Multiaddr,
-    traits::{ProtocolMeta, ServiceProtocol},
+    service::{ProtocolHandle, ProtocolMeta},
+    traits::ServiceProtocol,
     ProtocolId,
 };
-use tokio::codec::LengthDelimitedCodec;
 
 pub type Version = u8;
 
@@ -50,34 +52,18 @@ impl CKBProtocol {
     pub fn match_version(&self, version: Version) -> bool {
         self.supported_versions.contains(&version)
     }
-}
 
-impl ProtocolMeta<LengthDelimitedCodec> for CKBProtocol {
-    fn name(&self) -> String {
-        self.protocol_name()
-    }
-
-    fn id(&self) -> ProtocolId {
-        CKBProtocol::id(&self)
-    }
-
-    fn codec(&self) -> LengthDelimitedCodec {
-        LengthDelimitedCodec::new()
-    }
-
-    fn service_handle(&self) -> Option<Box<dyn ServiceProtocol + Send + 'static>> {
-        let handler = Box::new(CKBHandler {
-            id: self.id(),
-            event_sender: self.event_sender.clone(),
-        });
-        Some(handler)
-    }
-
-    fn support_versions(&self) -> Vec<String> {
-        self.supported_versions
-            .iter()
-            .map(|v| format!("{}", v))
-            .collect()
+    pub fn build(&self) -> ProtocolMeta {
+        let event_sender = self.event_sender.clone();
+        MetaBuilder::default()
+            .id(self.id)
+            .service_handle(move || {
+                ProtocolHandle::Callback(Box::new(CKBHandler {
+                    id: self.id,
+                    event_sender,
+                }))
+            })
+            .build()
     }
 }
 
@@ -146,14 +132,14 @@ impl ServiceProtocol for CKBHandler {
         }
     }
 
-    fn received(&mut self, _control: &mut ServiceContext, session: &SessionContext, data: Vec<u8>) {
+    fn received(&mut self, _control: &mut ServiceContext, session: &SessionContext, data: Bytes) {
         if let Some(peer_id) = session
             .remote_pubkey
             .as_ref()
             .map(|pubkey| pubkey.peer_id())
         {
             debug!(target: "network", "ckb protocol received, addr: {}, protocol: {}, peer_id: {:?}", session.address, self.id, &peer_id);
-            self.send_event(Event::Received(peer_id, self.id, data));
+            self.send_event(Event::Received(peer_id, self.id, data.to_vec()));
         }
     }
     fn notify(&mut self, _control: &mut ServiceContext, token: u64) {

@@ -26,20 +26,19 @@ use futures::Stream;
 use log::{debug, error, info, warn};
 use multiaddr::multihash::Multihash;
 use p2p::{
-    builder::ServiceBuilder,
+    builder::{MetaBuilder, ServiceBuilder},
     multiaddr::{self, Multiaddr},
     secio::{PeerId, PublicKey},
-    service::{Service, ServiceError, ServiceEvent},
+    service::{DialProtocol, ProtocolHandle, Service, ServiceError, ServiceEvent},
     traits::ServiceHandle,
 };
-use p2p_ping::{Event as PingEvent, PingProtocol};
+use p2p_ping::{Event as PingEvent, PingHandler};
 use secio;
 use std::boxed::Box;
 use std::cmp::max;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use std::usize;
-use tokio::codec::LengthDelimitedCodec;
 
 const PING_PROTOCOL_ID: ProtocolId = 0;
 
@@ -80,7 +79,7 @@ impl PeerInfo {
     }
 }
 
-type P2PService = Service<EventHandler, LengthDelimitedCodec>;
+type P2PService = Service<EventHandler>;
 
 pub struct Network {
     pub(crate) peers_registry: RwLock<PeersRegistry>,
@@ -313,7 +312,7 @@ impl Network {
     }
 
     pub fn dial_addr(&self, addr: Multiaddr) {
-        if let Err(err) = self.p2p_control.write().dial(addr) {
+        if let Err(err) = self.p2p_control.write().dial(addr, DialProtocol::All) {
             error!(target: "network", "failed to dial: {}", err);
         }
     }
@@ -372,14 +371,20 @@ impl Network {
         let mut p2p_service = ServiceBuilder::default().forever(true);
         // register protocols
         let (ping_sender, ping_receiver) = channel(std::u8::MAX as usize);
-        p2p_service = p2p_service.insert_protocol(PingProtocol::new(
-            PING_PROTOCOL_ID,
-            config.ping_interval,
-            config.ping_timeout,
-            ping_sender,
-        ));
+        let ping_meta = MetaBuilder::default()
+            .id(PING_PROTOCOL_ID)
+            .service_handle(move || {
+                ProtocolHandle::Callback(Box::new(PingHandler::new(
+                    PING_PROTOCOL_ID,
+                    config.ping_interval,
+                    config.ping_timeout,
+                    ping_sender,
+                )))
+            })
+            .build();
+        p2p_service = p2p_service.insert_protocol(ping_meta);
         for (ckb_protocol, _) in &ckb_protocols {
-            p2p_service = p2p_service.insert_protocol(ckb_protocol.clone());
+            p2p_service = p2p_service.insert_protocol(ckb_protocol.build());
         }
         let mut p2p_service = p2p_service
             .key_pair(local_private_key.clone())
