@@ -1,18 +1,19 @@
 use crate::{
+    multiaddr::ToMultiaddr,
     peer_store::{
         sqlite_peer_store::{PEER_NOT_SEEN_TIMEOUT_SECS, PEER_STORE_LIMIT},
         Behaviour, PeerStore, SqlitePeerStore, Status,
     },
-    random_peer_id, Endpoint, ToMultiaddr,
+    random_peer_id, SessionType,
 };
 use std::time::Duration;
 
 #[test]
 fn test_new_connected_peer() {
     let mut peer_store: Box<dyn PeerStore> = Box::new(SqlitePeerStore::temp());
-    let peer_id = random_peer_id().unwrap();
+    let peer_id = random_peer_id();
     let addr = "/ip4/127.0.0.1".to_multiaddr().unwrap();
-    peer_store.new_connected_peer(&peer_id, addr, Endpoint::Dialer);
+    peer_store.new_connected_peer(&peer_id, addr, SessionType::Client);
     assert_eq!(
         peer_store.peer_score(&peer_id).unwrap(),
         peer_store.scoring_schema().peer_init_score()
@@ -23,7 +24,7 @@ fn test_new_connected_peer() {
 #[test]
 fn test_add_discovered_address() {
     let mut peer_store: Box<dyn PeerStore> = Box::new(SqlitePeerStore::temp());
-    let peer_id = random_peer_id().unwrap();
+    let peer_id = random_peer_id();
     peer_store
         .add_discovered_address(&peer_id, "/ip4/127.0.0.1".to_multiaddr().unwrap())
         .expect("add discovered address");
@@ -44,7 +45,7 @@ fn test_add_discovered_address() {
 #[test]
 fn test_report() {
     let mut peer_store: Box<dyn PeerStore> = Box::new(SqlitePeerStore::temp());
-    let peer_id = random_peer_id().unwrap();
+    let peer_id = random_peer_id();
     assert!(peer_store.report(&peer_id, Behaviour::Ping).is_ok());
     assert!(
         peer_store.peer_score_or_default(&peer_id) > peer_store.scoring_schema().peer_init_score()
@@ -54,11 +55,11 @@ fn test_report() {
 #[test]
 fn test_update_status() {
     let mut peer_store: Box<dyn PeerStore> = Box::new(SqlitePeerStore::temp());
-    let peer_id = random_peer_id().unwrap();
+    let peer_id = random_peer_id();
     peer_store.update_status(&peer_id, Status::Connected);
     assert_eq!(peer_store.peer_status(&peer_id), Status::Unknown);
     let addr = "/ip4/127.0.0.1".to_multiaddr().unwrap();
-    peer_store.new_connected_peer(&peer_id, addr, Endpoint::Listener);
+    peer_store.new_connected_peer(&peer_id, addr, SessionType::Server);
     peer_store.update_status(&peer_id, Status::Connected);
     assert_eq!(peer_store.peer_status(&peer_id), Status::Connected);
 }
@@ -66,11 +67,11 @@ fn test_update_status() {
 #[test]
 fn test_ban_peer() {
     let mut peer_store: Box<dyn PeerStore> = Box::new(SqlitePeerStore::temp());
-    let peer_id = random_peer_id().unwrap();
+    let peer_id = random_peer_id();
     peer_store.ban_peer(&peer_id, Duration::from_secs(10));
     assert!(!peer_store.is_banned(&peer_id));
     let addr = "/ip4/127.0.0.1".to_multiaddr().unwrap();
-    peer_store.new_connected_peer(&peer_id, addr, Endpoint::Listener);
+    peer_store.new_connected_peer(&peer_id, addr, SessionType::Server);
     peer_store.ban_peer(&peer_id, Duration::from_secs(10));
     assert!(peer_store.is_banned(&peer_id));
 }
@@ -79,11 +80,11 @@ fn test_ban_peer() {
 fn test_bootnodes() {
     let mut peer_store: Box<dyn PeerStore> = Box::new(SqlitePeerStore::temp());
     assert!(peer_store.bootnodes(1).is_empty());
-    let peer_id = random_peer_id().unwrap();
+    let peer_id = random_peer_id();
     let addr = "/ip4/127.0.0.1".to_multiaddr().unwrap();
     peer_store.add_bootnode(peer_id.clone(), addr.clone());
     assert_eq!(peer_store.bootnodes(2).len(), 1);
-    let peer_id2 = random_peer_id().unwrap();
+    let peer_id2 = random_peer_id();
     peer_store
         .add_discovered_address(&peer_id2, addr.clone())
         .expect("add discovered address");
@@ -97,11 +98,11 @@ fn test_bootnodes() {
 fn test_peers_to_attempt() {
     let mut peer_store: Box<dyn PeerStore> = Box::new(SqlitePeerStore::temp());
     assert!(peer_store.peers_to_attempt(1).is_empty());
-    let peer_id = random_peer_id().unwrap();
+    let peer_id = random_peer_id();
     let addr = "/ip4/127.0.0.1".to_multiaddr().unwrap();
     peer_store.add_bootnode(peer_id.clone(), addr.clone());
     assert!(peer_store.peers_to_attempt(1).is_empty());
-    let peer_id2 = random_peer_id().unwrap();
+    let peer_id2 = random_peer_id();
     peer_store
         .add_discovered_address(&peer_id2, addr.clone())
         .expect("add discovered address");
@@ -116,14 +117,10 @@ fn test_delete_peer_info() {
     let addr1 = "/ip4/127.0.0.1".to_multiaddr().unwrap();
     let addr2 = "/ip4/192.163.1.1".to_multiaddr().unwrap();
     for _ in 0..(PEER_STORE_LIMIT - 2) {
-        peer_store.new_connected_peer(
-            &random_peer_id().unwrap(),
-            addr1.clone(),
-            Endpoint::Listener,
-        );
+        peer_store.new_connected_peer(&random_peer_id(), addr1.clone(), SessionType::Server);
     }
-    let evict_target = random_peer_id().unwrap();
-    let fake_target = random_peer_id().unwrap();
+    let evict_target = random_peer_id();
+    let fake_target = random_peer_id();
     {
         // make sure these 2 peers become candidate in eviction
         let recent_not_seen_time =
@@ -131,8 +128,8 @@ fn test_delete_peer_info() {
         let faketime_file = faketime::millis_tempfile(recent_not_seen_time.as_secs() * 1000)
             .expect("create faketime file");
         faketime::enable(&faketime_file);
-        peer_store.new_connected_peer(&evict_target, addr1.clone(), Endpoint::Listener);
-        peer_store.new_connected_peer(&fake_target, addr2, Endpoint::Listener);
+        peer_store.new_connected_peer(&evict_target, addr1.clone(), SessionType::Server);
+        peer_store.new_connected_peer(&fake_target, addr2, SessionType::Server);
     }
     peer_store.report(&evict_target, Behaviour::FailedToPing);
     peer_store.report(&fake_target, Behaviour::FailedToPing);
@@ -143,7 +140,7 @@ fn test_delete_peer_info() {
             < peer_store.scoring_schema().peer_init_score()
     );
     // should evict evict_target and accept this
-    peer_store.new_connected_peer(&random_peer_id().unwrap(), addr1, Endpoint::Listener);
+    peer_store.new_connected_peer(&random_peer_id(), addr1, SessionType::Server);
     // evict_target is evicted in previous step
     assert_eq!(
         peer_store.peer_score_or_default(&evict_target),

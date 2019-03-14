@@ -19,7 +19,6 @@ only_reserved_peers = false
 min_peers = 4
 max_peers = 8
 secret_file = "secret"
-nodes_file = "nodes.toml"
 
 [rpc]
 listen_address = "0.0.0.0:8114"

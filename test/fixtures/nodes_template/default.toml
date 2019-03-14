@@ -8,7 +8,7 @@ spec = "spec/integration_test.toml"
 
 [logger]
 file = "ckb.log"
-filter = "info,network=trace,rpc=debug"
+filter = "info,network=trace,rpc=debug,sync=debug,relay=debug"
 color = true
 
 [network]
@@ -19,8 +19,7 @@ only_reserved_peers = false
 min_peers = 4
 max_peers = 8
 secret_file = "secret"
-nodes_file = "nodes.toml"
-try_outbound_connect_interval = 1
+try_outbound_connect_secs = 1
 
 [rpc]
 listen_address = "0.0.0.0:RPC_PORT"

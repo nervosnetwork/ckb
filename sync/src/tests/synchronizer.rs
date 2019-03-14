@@ -1,12 +1,13 @@
 use crate::synchronizer::{BLOCK_FETCH_TOKEN, SEND_GET_HEADERS_TOKEN, TIMEOUT_EVICTION_TOKEN};
 use crate::tests::TestNode;
-use crate::{Config, Synchronizer, SYNC_PROTOCOL_ID};
+use crate::{Config, NetworkProtocol, Synchronizer};
 use ckb_chain::chain::ChainBuilder;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::BlockBuilder;
 use ckb_core::header::HeaderBuilder;
 use ckb_core::transaction::{CellInput, CellOutput, TransactionBuilder};
 use ckb_db::memorydb::MemoryKeyValueDB;
+use ckb_network::ProtocolId;
 use ckb_notify::NotifyService;
 use ckb_protocol::SyncMessage;
 use ckb_shared::shared::{Shared, SharedBuilder};
@@ -28,7 +29,7 @@ fn basic_sync() {
     let (mut node1, shared1) = setup_node(&thread_name, 1);
     let (mut node2, shared2) = setup_node(&thread_name, 3);
 
-    node1.connect(&mut node2, SYNC_PROTOCOL_ID);
+    node1.connect(&mut node2, NetworkProtocol::SYNC as ProtocolId);
 
     let (signal_tx1, signal_rx1) = channel();
     thread::Builder::new()
@@ -112,7 +113,7 @@ fn setup_node(
     let mut node = TestNode::default();
     let protocol = Arc::new(synchronizer) as Arc<_>;
     node.add_protocol(
-        SYNC_PROTOCOL_ID,
+        NetworkProtocol::SYNC as ProtocolId,
         &protocol,
         &[
             SEND_GET_HEADERS_TOKEN,

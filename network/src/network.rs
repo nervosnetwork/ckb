@@ -1,41 +1,57 @@
-#![allow(clippy::needless_pass_by_value)]
-
-use crate::ckb_protocol::{CKBProtocol, CKBProtocols};
-use crate::ckb_protocol_handler::CKBProtocolHandler;
-use crate::ckb_protocol_handler::DefaultCKBProtocolContext;
-use crate::ckb_service::CKBService;
-use crate::identify_service::IdentifyService;
-use crate::outbound_peer_service::OutboundPeerService;
+use crate::errors::{ConfigError, Error, PeerError, ProtocolError};
 use crate::peer_store::{Behaviour, PeerStore, SqlitePeerStore};
-use crate::peers_registry::{ConnectionStatus, PeerConnection, PeerIdentifyInfo, PeersRegistry};
-use crate::ping_service::PingService;
-use crate::protocol::Protocol;
-use crate::protocol_service::ProtocolService;
-use crate::timer_service::TimerService;
-use crate::transport::{new_transport, TransportOutput};
-use crate::NetworkConfig;
-use crate::{Error, ErrorKind, PeerIndex, ProtocolId};
+use crate::peers_registry::{
+    ConnectionStatus, Peer, PeerIdentifyInfo, PeersRegistry, RegisterResult, Session,
+};
+use crate::protocol::Version as ProtocolVersion;
+use crate::protocol_handler::{CKBProtocolHandler, DefaultCKBProtocolContext};
+use crate::service::{
+    ckb_service::CKBService,
+    outbound_peer_service::OutboundPeerService,
+    ping_service::PingService,
+    timer_service::{TimerRegistry, TimerService},
+};
+use crate::{
+    CKBEvent, CKBProtocol, NetworkConfig, PeerIndex, ProtocolId, ServiceContext, ServiceControl,
+    SessionType,
+};
 use bytes::Bytes;
 use ckb_util::{Mutex, RwLock};
 use fnv::FnvHashMap;
-use futures::future::{self, select_all, Future};
-use futures::sync::mpsc::UnboundedSender;
+use futures::future::{select_all, Future};
+use futures::sync::mpsc::channel;
+use futures::sync::mpsc::Receiver;
 use futures::sync::oneshot;
 use futures::Stream;
-use libp2p::core::{upgrade, MuxedTransport, PeerId};
-use libp2p::core::{Endpoint, Multiaddr, UniqueConnec};
-use libp2p::core::{PublicKey, SwarmController};
-use libp2p::{self, identify, ping, secio, Transport, TransportTimeout};
-use log::{debug, info, trace, warn};
+use log::{debug, error, info, warn};
+use multiaddr::multihash::Multihash;
+use p2p::{
+    builder::ServiceBuilder,
+    multiaddr::{self, Multiaddr},
+    secio::{PeerId, PublicKey},
+    service::{Service, ServiceError, ServiceEvent},
+    traits::ServiceHandle,
+};
+use p2p_ping::{Event as PingEvent, PingProtocol};
+use secio;
 use std::boxed::Box;
-use std::io::{Error as IoError, ErrorKind as IoErrorKind};
+use std::cmp::max;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use std::usize;
-use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::codec::LengthDelimitedCodec;
 
-const DIAL_BOOTNODE_TIMEOUT: u64 = 20;
-const PEER_ADDRS_COUNT: u32 = 5;
+const PING_PROTOCOL_ID: ProtocolId = 0;
+
+pub type CKBProtocols = Vec<(CKBProtocol, Arc<dyn CKBProtocolHandler>)>;
+type NetworkResult = Result<
+    (
+        Arc<Network>,
+        oneshot::Sender<()>,
+        Box<Future<Item = (), Error = Error> + Send>,
+    ),
+    Error,
+>;
 
 #[derive(Debug, Clone)]
 pub struct SessionInfo {
@@ -46,8 +62,8 @@ pub struct SessionInfo {
 #[derive(Debug, Clone)]
 pub struct PeerInfo {
     pub peer_id: PeerId,
-    pub endpoint_role: Endpoint,
-    pub last_ping_time: Option<u64>,
+    pub session_type: SessionType,
+    pub last_ping_time: Option<Instant>,
     pub connected_addr: Multiaddr,
     pub identify_info: Option<PeerIdentifyInfo>,
 }
@@ -55,7 +71,7 @@ pub struct PeerInfo {
 impl PeerInfo {
     #[inline]
     pub fn is_outbound(&self) -> bool {
-        self.endpoint_role == Endpoint::Dialer
+        self.session_type == SessionType::Client
     }
 
     #[inline]
@@ -64,33 +80,69 @@ impl PeerInfo {
     }
 }
 
+type P2PService = Service<EventHandler, LengthDelimitedCodec>;
+
 pub struct Network {
-    peers_registry: RwLock<PeersRegistry>,
+    pub(crate) peers_registry: RwLock<PeersRegistry>,
     peer_store: Arc<RwLock<dyn PeerStore>>,
     listened_addresses: RwLock<FnvHashMap<Multiaddr, u8>>,
     pub(crate) original_listened_addresses: RwLock<Vec<Multiaddr>>,
-    pub(crate) ckb_protocols: CKBProtocols<Arc<CKBProtocolHandler>>,
+    pub(crate) ckb_protocols: CKBProtocols,
     local_private_key: secio::SecioKeyPair,
     local_peer_id: PeerId,
+    p2p_control: RwLock<ServiceControl>,
 }
 
 impl Network {
+    pub fn find_protocol(
+        &self,
+        id: ProtocolId,
+        version: ProtocolVersion,
+    ) -> Option<(&CKBProtocol, Arc<dyn CKBProtocolHandler>)> {
+        self.ckb_protocols
+            .iter()
+            .find(|(protocol, _)| protocol.id() == id && protocol.match_version(version))
+            .map(|(protocol, handler)| (protocol, Arc::clone(handler)))
+    }
+
+    pub fn find_protocol_without_version(
+        &self,
+        id: ProtocolId,
+    ) -> Option<(&CKBProtocol, Arc<dyn CKBProtocolHandler>)> {
+        self.ckb_protocols
+            .iter()
+            .find(|(protocol, _)| protocol.id() == id)
+            .map(|(protocol, handler)| (protocol, Arc::clone(handler)))
+    }
+
     pub fn report(&self, peer_id: &PeerId, behaviour: Behaviour) {
         self.peer_store.write().report(peer_id, behaviour);
     }
 
     pub fn drop_peer(&self, peer_id: &PeerId) {
-        self.peers_registry.write().drop_peer(&peer_id);
+        debug!(target: "network", "drop peer {:?}", peer_id);
+        if let Some(peer) = self.peers_registry.write().drop_peer(&peer_id) {
+            let mut p2p_control = self.p2p_control.write();
+            if let Err(err) = p2p_control.disconnect(peer.session.id) {
+                error!(target: "network", "disconnect peer error {:?}", err);
+            }
+        }
+    }
+
+    pub fn drop_all(&self) {
+        debug!(target: "network", "drop all connections...");
+        let mut peers_registry = self.peers_registry.write();
+        let mut p2p_control = self.p2p_control.write();
+        for (_peer_id, peer) in peers_registry.peers_iter() {
+            if let Err(err) = p2p_control.disconnect(peer.session.id) {
+                error!(target: "network", "disconnect peer error {:?}", err);
+            }
+        }
+        peers_registry.drop_all();
     }
 
     pub fn local_peer_id(&self) -> &PeerId {
         &self.local_peer_id
-    }
-
-    pub(crate) fn discovery_listened_address(&self, addr: Multiaddr) {
-        let mut listened_addresses = self.listened_addresses.write();
-        let score = listened_addresses.entry(addr).or_insert(0);
-        *score = score.saturating_add(1);
     }
 
     pub(crate) fn listened_addresses(&self, count: usize) -> Vec<(Multiaddr, u8)> {
@@ -104,9 +156,7 @@ impl Network {
 
     pub(crate) fn get_peer_index(&self, peer_id: &PeerId) -> Option<PeerIndex> {
         let peers_registry = self.peers_registry.read();
-        peers_registry
-            .get(&peer_id)
-            .and_then(|peer| peer.peer_index)
+        peers_registry.get(&peer_id).map(|peer| peer.peer_index)
     }
 
     pub(crate) fn get_peer_id(&self, peer_index: PeerIndex) -> Option<PeerId> {
@@ -123,7 +173,7 @@ impl Network {
 
     pub(crate) fn modify_peer<F>(&self, peer_id: &PeerId, mut f: F) -> bool
     where
-        F: FnMut(&mut PeerConnection) -> (),
+        F: FnMut(&mut Peer) -> (),
     {
         let mut peers_registry = self.peers_registry.write();
         match peers_registry.get_mut(peer_id) {
@@ -135,50 +185,6 @@ impl Network {
         }
     }
 
-    pub(crate) fn get_peer_identify_info(&self, peer_id: &PeerId) -> Option<PeerIdentifyInfo> {
-        let peers_registry = self.peers_registry.read();
-        peers_registry
-            .get(peer_id)
-            .and_then(|peer| peer.identify_info.clone())
-    }
-
-    pub(crate) fn set_peer_identify_info(
-        &self,
-        peer_id: &PeerId,
-        identify_info: PeerIdentifyInfo,
-    ) -> Result<(), ()> {
-        let mut peers_registry = self.peers_registry.write();
-        match peers_registry.get_mut(peer_id) {
-            Some(peer) => {
-                peer.identify_info = Some(identify_info);
-                Ok(())
-            }
-            None => Err(()),
-        }
-    }
-
-    pub(crate) fn get_peer_pinger(&self, peer_id: &PeerId) -> Option<UniqueConnec<ping::Pinger>> {
-        let peers_registry = self.peers_registry.read();
-        peers_registry
-            .get(peer_id)
-            .map(|peer| peer.pinger_loader.clone())
-    }
-
-    pub(crate) fn get_peer_addresses(&self, peer_id: &PeerId) -> Vec<Multiaddr> {
-        let peer_store = self.peer_store.read();
-        let addrs = peer_store.peer_addrs(&peer_id, PEER_ADDRS_COUNT);
-        addrs.unwrap_or_default()
-    }
-
-    pub(crate) fn peers(&self) -> impl Iterator<Item = PeerId> {
-        let peers_registry = self.peers_registry.read();
-        let peers = peers_registry
-            .peers_iter()
-            .map(|(peer_id, _peer)| peer_id.to_owned())
-            .collect::<Vec<_>>();
-        peers.into_iter()
-    }
-
     pub(crate) fn peers_indexes(&self) -> Vec<PeerIndex> {
         let peers_registry = self.peers_registry.read();
         let iter = peers_registry.connected_peers_indexes();
@@ -187,8 +193,7 @@ impl Network {
 
     #[inline]
     pub(crate) fn ban_peer(&self, peer_id: &PeerId, timeout: Duration) {
-        let mut peers_registry = self.peers_registry.write();
-        peers_registry.drop_peer(peer_id);
+        self.drop_peer(peer_id);
         self.peer_store.write().ban_peer(peer_id, timeout);
     }
 
@@ -219,7 +224,7 @@ impl Network {
     }
 
     pub fn node_id(&self) -> String {
-        self.local_private_key.to_peer_id().to_base58()
+        self.local_private_key().to_peer_id().to_base58()
     }
 
     // A workaround method for `add_node` rpc call, need to re-write it after new p2p lib integration.
@@ -240,265 +245,103 @@ impl Network {
         protocol_id: ProtocolId,
         data: Bytes,
     ) -> Result<(), Error> {
-        if let Some(peer) = self.peers_registry.read().get(peer_id) {
-            if let Some(sender) = peer
-                .ckb_protocols
-                .iter()
-                .find(|(id, _)| id == &protocol_id)
-                .and_then(|(_, protocol_connec)| protocol_connec.poll())
-                .map(|(sender, _)| sender)
-            {
-                sender.unbounded_send(data).map_err(|err| {
-                    Error::from(ErrorKind::Other(format!("send to error: {:?}", err)))
-                })?;
-                Ok(())
-            } else {
-                Err(ErrorKind::Other(format!(
-                    "can't find protocol: {:?} for peer {:?}",
-                    protocol_id, peer_id
-                ))
-                .into())
-            }
-        } else {
-            Err(ErrorKind::PeerNotFound.into())
-        }
-    }
-
-    fn ckb_protocol_connec(
-        &self,
-        peer: &mut PeerConnection,
-        protocol_id: ProtocolId,
-    ) -> UniqueConnec<(UnboundedSender<Bytes>, u8)> {
-        peer.ckb_protocols
-            .iter()
-            .find(|&(id, _)| id == &protocol_id)
-            .map(|(_, ref protocol_connec)| protocol_connec.clone())
-            .unwrap_or_else(|| {
-                let protocol_connec = UniqueConnec::empty();
-                peer.ckb_protocols
-                    .push((protocol_id, protocol_connec.clone()));
-                protocol_connec
+        self.peers_registry
+            .read()
+            .get(peer_id)
+            .map(|peer| match peer.protocol_version(protocol_id) {
+                Some(_) => self
+                    .p2p_control
+                    .write()
+                    .send_message(peer.session.id, protocol_id, data.to_vec())
+                    .map_err(Into::into),
+                None => Err(PeerError::ProtocolNotFound(peer_id.to_owned(), protocol_id).into()),
             })
-    }
-    pub(crate) fn try_outbound_ckb_protocol_connec(
-        &self,
-        peer_id: &PeerId,
-        protocol_id: ProtocolId,
-        connected_addr: Multiaddr,
-    ) -> Result<UniqueConnec<(UnboundedSender<Bytes>, u8)>, Error> {
-        let mut peers_registry = self.peers_registry.write();
-        // get peer protocol_connection
-        match peers_registry.try_outbound_peer(peer_id.clone(), connected_addr.clone()) {
-            Ok(_) => {
-                let _ = self
-                    .peer_store()
-                    .write()
-                    .add_discovered_address(peer_id, connected_addr);
-                let peer = peers_registry.get_mut(&peer_id).unwrap();
-                Ok(self.ckb_protocol_connec(peer, protocol_id))
-            }
-            Err(err) => Err(err),
-        }
+            .unwrap_or_else(|| Err(PeerError::NotFound(peer_id.to_owned()).into()))
     }
 
-    pub(crate) fn try_inbound_ckb_protocol_connec(
+    pub(crate) fn accept_connection(
         &self,
-        peer_id: &PeerId,
-        protocol_id: ProtocolId,
+        peer_id: PeerId,
         connected_addr: Multiaddr,
-    ) -> Result<UniqueConnec<(UnboundedSender<Bytes>, u8)>, Error> {
+        session: Session,
+        protocol_id: ProtocolId,
+        protocol_version: ProtocolVersion,
+    ) -> Result<RegisterResult, Error> {
         let mut peers_registry = self.peers_registry.write();
-        // get peer protocol_connection
-        match peers_registry.accept_inbound_peer(peer_id.clone(), connected_addr.clone()) {
-            Ok(_) => {
-                let _ = self
-                    .peer_store()
-                    .write()
-                    .add_discovered_address(peer_id, connected_addr);
-                let peer = peers_registry.get_mut(&peer_id).unwrap();
-                Ok(self.ckb_protocol_connec(peer, protocol_id))
+        let register_result = match session.session_type {
+            SessionType::Client => {
+                peers_registry.try_outbound_peer(peer_id.clone(), connected_addr, session)
             }
-            Err(err) => Err(err),
+            SessionType::Server => {
+                peers_registry.accept_inbound_peer(peer_id.clone(), connected_addr, session)
+            }
+        }?;
+        // add session to peer
+        match peers_registry.get_mut(&peer_id) {
+            Some(peer) => match peer.protocol_version(protocol_id) {
+                Some(_) => return Err(ProtocolError::Duplicate(protocol_id).into()),
+                None => {
+                    peer.protocols.insert(protocol_id, protocol_version);
+                }
+            },
+            None => unreachable!("get peer after inserted"),
         }
+        Ok(register_result)
     }
 
     pub fn peer_protocol_version(&self, peer_id: &PeerId, protocol_id: ProtocolId) -> Option<u8> {
         let peers_registry = self.peers_registry.read();
-        match peers_registry.get(peer_id) {
-            Some(peer) => match peer.ckb_protocols.iter().find(|(id, _)| id == &protocol_id) {
-                Some((_, protocol_connec)) => protocol_connec.poll().map(|(_, version)| version),
-                None => None,
-            },
-            None => None,
-        }
+        peers_registry
+            .get(peer_id)
+            .and_then(|peer| peer.protocol_version(protocol_id))
     }
     pub fn session_info(&self, peer_id: &PeerId, protocol_id: ProtocolId) -> Option<SessionInfo> {
         let peers_registry = self.peers_registry.read();
-        match peers_registry.get(peer_id) {
-            Some(peer) => {
-                let protocol_version =
-                    match peer.ckb_protocols.iter().find(|(id, _)| id == &protocol_id) {
-                        Some((_, protocol_connec)) => {
-                            protocol_connec.poll().map(|(_, version)| version)
-                        }
-                        None => None,
-                    };
-                let session = SessionInfo {
-                    peer: PeerInfo {
-                        peer_id: peer_id.to_owned(),
-                        endpoint_role: peer.endpoint_role,
-                        last_ping_time: peer.last_ping_time,
-                        connected_addr: peer.connected_addr.clone(),
-                        identify_info: peer.identify_info.clone(),
-                    },
-                    protocol_version,
-                };
-                Some(session)
+        peers_registry.get(peer_id).map(|peer| {
+            let protocol_version = peer.protocol_version(protocol_id);
+            SessionInfo {
+                peer: PeerInfo {
+                    peer_id: peer_id.to_owned(),
+                    session_type: peer.session.session_type,
+                    last_ping_time: peer.last_ping_time,
+                    connected_addr: peer.connected_addr.clone(),
+                    identify_info: peer.identify_info.clone(),
+                },
+                protocol_version,
             }
-            None => None,
+        })
+    }
+
+    pub fn dial_addr(&self, addr: Multiaddr) {
+        if let Err(err) = self.p2p_control.write().dial(addr) {
+            error!(target: "network", "failed to dial: {}", err);
         }
     }
 
-    pub fn dial_to_peer<Tran, To, St, C>(
-        &self,
-        transport: Tran,
-        addr: &Multiaddr,
-        expected_peer_id: &PeerId,
-        swarm_controller: &SwarmController<St, Box<Future<Item = (), Error = IoError> + Send>>,
-        timeout: Duration,
-    ) where
-        Tran: MuxedTransport<Output = TransportOutput<To>> + Send + Clone + 'static,
-        Tran::MultiaddrFuture: Send + 'static,
-        Tran::Dial: Send,
-        Tran::Listener: Send,
-        Tran::ListenerUpgrade: Send,
-        Tran::Incoming: Send,
-        Tran::IncomingUpgrade: Send,
-        To: AsyncRead + AsyncWrite + Send + 'static,
-        St: MuxedTransport<Output = Protocol<C>> + Send + Clone + 'static,
-        St::Dial: Send,
-        St::MultiaddrFuture: Send,
-        St::Listener: Send,
-        St::ListenerUpgrade: Send,
-        St::Incoming: Send,
-        St::IncomingUpgrade: Send,
-        C: Send + 'static,
-    {
+    pub fn dial(&self, expected_peer_id: &PeerId, mut addr: Multiaddr) {
         if expected_peer_id == self.local_peer_id() {
             debug!(target: "network", "ignore dial to self");
             return;
         }
         debug!(target: "network", "dial to peer {:?} address {:?}", expected_peer_id, addr);
-        for protocol in &self.ckb_protocols.0 {
-            self.dial_to_peer_protocol(
-                transport.clone(),
-                addr,
-                protocol.to_owned(),
-                expected_peer_id,
-                swarm_controller,
-                timeout,
-            )
-        }
-    }
-
-    fn dial_to_peer_protocol<Tran, To, St, C>(
-        &self,
-        transport: Tran,
-        addr: &Multiaddr,
-        protocol: CKBProtocol<Arc<CKBProtocolHandler>>,
-        expected_peer_id: &PeerId,
-        swarm_controller: &SwarmController<St, Box<Future<Item = (), Error = IoError> + Send>>,
-        timeout: Duration,
-    ) where
-        Tran: MuxedTransport<Output = TransportOutput<To>> + Send + Clone + 'static,
-        Tran::MultiaddrFuture: Send + 'static,
-        Tran::Dial: Send,
-        Tran::Listener: Send,
-        Tran::ListenerUpgrade: Send,
-        Tran::Incoming: Send,
-        Tran::IncomingUpgrade: Send,
-        To: AsyncRead + AsyncWrite + Send + 'static,
-        St: MuxedTransport<Output = Protocol<C>> + Send + Clone + 'static,
-        St::Dial: Send,
-        St::MultiaddrFuture: Send,
-        St::Listener: Send,
-        St::ListenerUpgrade: Send,
-        St::Incoming: Send,
-        St::IncomingUpgrade: Send,
-        C: Send + 'static,
-    {
-        trace!(
-        target: "network",
-        "prepare open protocol {:?} to {:?}",
-        protocol.base_name(),
-        addr
-        );
-
-        let protocol_id = protocol.id();
-        let transport = transport.clone().and_then({
-            let addr = addr.clone();
-            move |out, endpoint, client_addr| {
-                let peer_id = out.peer_id;
-                upgrade::apply(out.socket, protocol, endpoint, client_addr).map(
-                    move |(output, client_addr)| {
-                        (
-                            (
-                                peer_id.clone(),
-                                Protocol::CKBProtocol(output, peer_id, addr),
-                            ),
-                            client_addr,
-                        )
-                    },
-                )
+        match Multihash::from_bytes(expected_peer_id.as_bytes().to_vec()) {
+            Ok(peer_id_hash) => {
+                addr.append(multiaddr::Protocol::P2p(peer_id_hash));
+                self.dial_addr(addr);
             }
-        });
-
-        let transport = TransportTimeout::new(transport, timeout);
-        let unique_connec = match self.try_outbound_ckb_protocol_connec(
-            expected_peer_id,
-            protocol_id,
-            addr.to_owned(),
-        ) {
-            Ok(unique_connec) => unique_connec,
-            Err(_) => return,
-        };
-
-        let transport = transport.and_then({
-                let expected_peer_id = expected_peer_id.clone();
-                move |(peer_id, protocol), _, client_addr| {
-                    if peer_id == expected_peer_id {
-                        debug!(target: "network", "success connect to {:?}", peer_id);
-                        future::ok((protocol, client_addr))
-                    } else {
-                        debug!(target: "network", "connected peer id mismatch {:?}, disconnect!", peer_id);
-                        //Because multiaddrs is responsed by a third-part node, the mismatched
-                        //peer itself should not seems as a misbehaviour peer.
-                        //So we do not report this behaviour
-                        future::err(IoError::new(
-                                IoErrorKind::ConnectionRefused,
-                                "Peer id mismatch",
-                                ))
-                    }
-                }
-            });
-
-        trace!(
-        target: "network",
-        "Opening connection to {:?} addr {} with protocol {:?}",
-        expected_peer_id,
-        addr,
-        protocol_id
-        );
-        let _ = unique_connec.dial(swarm_controller, addr, transport);
+            Err(err) => {
+                error!(target: "network", "failed to convert peer_id to addr: {}", err);
+            }
+        }
     }
 
     pub(crate) fn inner_build(
         config: &NetworkConfig,
-        ckb_protocols: Vec<CKBProtocol<Arc<CKBProtocolHandler>>>,
-    ) -> Result<Arc<Self>, Error> {
+        ckb_protocols: CKBProtocols,
+    ) -> Result<(Arc<Self>, P2PService, TimerRegistry, Receiver<PingEvent>), Error> {
         let local_private_key = match config.fetch_private_key() {
             Some(private_key) => private_key?,
-            None => return Err(ErrorKind::Other("secret_key not set".to_owned()).into()),
+            None => return Err(ConfigError::InvalidKey.into()),
         };
         // set max score to public addresses
         let listened_addresses: FnvHashMap<Multiaddr, u8> = config
@@ -526,140 +369,46 @@ impl Network {
             config.reserved_only,
             reserved_peers,
         );
+        let mut p2p_service = ServiceBuilder::default().forever(true);
+        // register protocols
+        let (ping_sender, ping_receiver) = channel(std::u8::MAX as usize);
+        p2p_service = p2p_service.insert_protocol(PingProtocol::new(
+            PING_PROTOCOL_ID,
+            config.ping_interval,
+            config.ping_timeout,
+            ping_sender,
+        ));
+        for (ckb_protocol, _) in &ckb_protocols {
+            p2p_service = p2p_service.insert_protocol(ckb_protocol.clone());
+        }
+        let mut p2p_service = p2p_service
+            .key_pair(local_private_key.clone())
+            .build(EventHandler {});
+
+        let p2p_control = p2p_service.control().clone();
         let network: Arc<Network> = Arc::new(Network {
             peers_registry: RwLock::new(peers_registry),
             peer_store: Arc::clone(&peer_store),
             listened_addresses: RwLock::new(listened_addresses),
             original_listened_addresses: RwLock::new(Vec::new()),
-            ckb_protocols: CKBProtocols(ckb_protocols),
+            ckb_protocols,
             local_private_key: local_private_key.clone(),
-            local_peer_id: local_private_key.to_peer_id(),
+            local_peer_id: local_private_key.to_public_key().peer_id(),
+            p2p_control: RwLock::new(p2p_control.clone()),
         });
-        Ok(network)
-    }
 
-    pub(crate) fn build_network_future(
-        network: Arc<Network>,
-        config: &NetworkConfig,
-        close_rx: oneshot::Receiver<()>,
-    ) -> Result<Box<Future<Item = (), Error = IoError> + Send>, Error> {
-        let local_private_key = network.local_private_key().to_owned();
-        let local_peer_id: PeerId = local_private_key.to_peer_id();
-        let basic_transport_timeout = config.transport_timeout;
-        let client_version = config.client_version.clone();
-        let protocol_version = config.protocol_version.clone();
-        let max_outbound = config.max_outbound_peers as usize;
-        let basic_transport = {
-            let basic_transport = new_transport(local_private_key, basic_transport_timeout)
-                .map_err_dial({
-                    move |err, addr| {
-                        trace!(target: "network", "Failed to connect to peer {}, error: {:?}", addr, err);
-                        err
-                    }
-                });
-            Transport::and_then(basic_transport, {
-                // Register new peers information
-                let local_peer_id = local_peer_id.clone();
-                move |(peer_id, stream), _endpoint, remote_addr_fut| {
-                    remote_addr_fut.and_then(move |remote_addr| {
-                        debug!(target: "network", "connection from {:?} peer_id: {:?}", remote_addr, peer_id);
-                        if peer_id == local_peer_id {
-                            debug!(target: "network", "connect to self, disconnect");
-                            return Err(IoErrorKind::ConnectionRefused.into());
-                        }
-                        let out = TransportOutput {
-                            socket: stream,
-                            peer_id,
-                            original_addr: remote_addr.clone(),
-                        };
-                        Ok((out, future::ok(remote_addr)))
-                    })
-                }
-            })
-        };
-
-        // initialize ckb_protocols
         let timer_registry = Arc::new(Mutex::new(Some(Vec::new())));
-        for protocol in &network.ckb_protocols.0 {
-            protocol.protocol_handler().initialize(Box::new(
-                DefaultCKBProtocolContext::with_timer_registry(
-                    Arc::clone(&network),
-                    protocol.id(),
-                    Arc::clone(&timer_registry),
-                ),
-            ));
-        }
-        let ping_service = Arc::new(PingService::new(config.ping_interval, config.ping_timeout));
-        let identify_service = Arc::new(IdentifyService {
-            client_version,
-            protocol_version,
-            identify_timeout: config.identify_timeout,
-            identify_interval: config.identify_interval,
-        });
-
-        let ckb_protocol_service = Arc::new(CKBService {});
-        let timer_service = Arc::new(TimerService {
-            timer_registry: Arc::clone(&timer_registry),
-        });
-        let outbound_peer_service = Arc::new(OutboundPeerService {
-            try_connect_interval: config.try_outbound_connect_interval,
-            timeout: config.try_outbound_connect_timeout,
-        });
         // Transport used to handling received connections
-        let handling_transport = {
-            let transport = basic_transport.clone();
-            transport.and_then({
-                let network = Arc::clone(&network);
-                move |out, endpoint, fut| {
-                    let peer_id = Arc::new(out.peer_id);
-                    let original_addr = out.original_addr;
-                    // upgrades and apply protocols
-                    let ping_upgrade = upgrade::map_with_addr(libp2p::ping::Ping, {
-                        let peer_id = Arc::clone(&peer_id);
-                        move |out, addr| PingService::convert_to_protocol(peer_id, addr, out)
-                    });
-                    let identify_upgrade =
-                        upgrade::map_with_addr(identify::IdentifyProtocolConfig, {
-                            let peer_id = Arc::clone(&peer_id);
-                            let original_addr = original_addr.clone();
-                            move |out, _addr| {
-                                IdentifyService::convert_to_protocol(peer_id, &original_addr, out)
-                            }
-                        });
-                    let ckb_protocols_upgrade =
-                        upgrade::map_with_addr(network.ckb_protocols.clone(), {
-                            let peer_id = Arc::clone(&peer_id);
-                            move |out, addr| CKBService::convert_to_protocol(peer_id, addr, out)
-                        });
-                    let all_upgrade = upgrade::or(
-                        ckb_protocols_upgrade,
-                        upgrade::or(identify_upgrade, ping_upgrade),
-                    );
-                    upgrade::apply(out.socket, all_upgrade, endpoint, fut)
-                }
-            })
-        };
-        let (swarm_controller, swarm_events) = libp2p::core::swarm(handling_transport, {
-            let ping_service = Arc::clone(&ping_service);
-            let identify_service = Arc::clone(&identify_service);
-            let ckb_protocol_service = Arc::clone(&ckb_protocol_service);
-            let network = Arc::clone(&network);
-            move |protocol, _addr| match protocol {
-                Protocol::Ping(..) | Protocol::Pong(..) => ping_service
-                    .handle(Arc::clone(&network), protocol)
-                    as Box<Future<Item = (), Error = IoError> + Send>,
-                Protocol::IdentifyRequest(..) | Protocol::IdentifyResponse(..) => {
-                    identify_service.handle(Arc::clone(&network), protocol)
-                }
-                Protocol::CKBProtocol(..) => {
-                    ckb_protocol_service.handle(Arc::clone(&network), protocol)
-                }
-            }
-        });
-
-        // listen_on local addresses
+        for (protocol, handler) in &network.ckb_protocols {
+            handler.initialize(Box::new(DefaultCKBProtocolContext::with_timer_registry(
+                Arc::clone(&network),
+                protocol.id(),
+                Arc::clone(&timer_registry),
+            )));
+        }
+        // listen local addresses
         for addr in &config.listen_addresses {
-            match swarm_controller.listen_on(addr.clone()) {
+            match p2p_service.listen(addr.to_owned()) {
                 Ok(listen_address) => {
                     info!(
                     target: "network",
@@ -678,7 +427,8 @@ impl Network {
                     addr.clone(),
                     err
                     );
-                    return Err(ErrorKind::Other(format!("listen address error: {:?}", err)).into());
+                    //return Err(ErrorKind::Other(format!("listen address error: {:?}", err)).into());
+                    return Err(Error::Io(err));
                 }
             };
         }
@@ -686,74 +436,96 @@ impl Network {
         // dial reserved nodes and bootnodes
         {
             let network = Arc::clone(&network);
-            let dial_timeout = Duration::from_secs(DIAL_BOOTNODE_TIMEOUT);
             // dial reserved_nodes
             for (peer_id, addr) in config.reserved_peers()? {
-                network.dial_to_peer(
-                    basic_transport.clone(),
-                    &addr,
-                    &peer_id,
-                    &swarm_controller,
-                    dial_timeout,
-                );
+                network.dial(&peer_id, addr);
             }
 
             let bootnodes = network
                 .peer_store()
                 .read()
-                .bootnodes((max_outbound / 2) as u32)
+                .bootnodes(max((config.max_outbound_peers / 2) as u32, 1))
                 .clone();
             // dial half bootnodes
             for (peer_id, addr) in bootnodes {
                 debug!(target: "network", "dial bootnode {:?} {:?}", peer_id, addr);
-                network.dial_to_peer(
-                    basic_transport.clone(),
-                    &addr,
-                    &peer_id,
-                    &swarm_controller,
-                    dial_timeout,
-                );
+                network.dial(&peer_id, addr);
             }
         }
 
+        Ok((network, p2p_service, timer_registry, ping_receiver))
+    }
+
+    pub(crate) fn build_network_future(
+        network: Arc<Network>,
+        config: &NetworkConfig,
+        close_rx: oneshot::Receiver<()>,
+        p2p_service: P2PService,
+        timer_registry: TimerRegistry,
+        ckb_event_receiver: Receiver<CKBEvent>,
+        ping_event_receiver: Receiver<PingEvent>,
+    ) -> Result<Box<Future<Item = (), Error = Error> + Send>, Error> {
+        // initialize ckb_protocols
+        let ping_service = PingService {
+            network: Arc::clone(&network),
+            event_receiver: ping_event_receiver,
+        };
+        //let identify_service = Arc::new(IdentifyService {
+        //    client_version,
+        //    protocol_version,
+        //    identify_timeout: config.identify_timeout,
+        //    identify_interval: config.identify_interval,
+        //});
+
+        let ckb_service = CKBService {
+            event_receiver: ckb_event_receiver,
+            network: Arc::clone(&network),
+        };
+        let timer_service = TimerService::new(timer_registry, Arc::clone(&network));
+        let outbound_peer_service =
+            OutboundPeerService::new(Arc::clone(&network), config.try_outbound_connect_interval);
         // prepare services futures
-        let futures: Vec<Box<Future<Item = (), Error = IoError> + Send>> = vec![
-            Box::new(swarm_events.for_each(|_| Ok(()))),
+        let futures: Vec<Box<Future<Item = (), Error = Error> + Send>> = vec![
+            Box::new(
+                p2p_service
+                    .for_each(|_| Ok(()))
+                    .map_err(|_err| Error::Shutdown),
+            ),
+            Box::new(
+                ckb_service
+                    .for_each(|_| Ok(()))
+                    .map_err(|_err| Error::Shutdown),
+            ),
+            Box::new(
+                ping_service
+                    .for_each(|_| Ok(()))
+                    .map_err(|_err| Error::Shutdown),
+            ),
             // Box::new(
             //     discovery_query_service
             //         .into_future()
             //         .map(|_| ())
             //         .map_err(|(err, _)| err),
             // ) as Box<Future<Item = (), Error = IoError> + Send>,
-            ping_service.start_protocol(
-                Arc::clone(&network),
-                swarm_controller.clone(),
-                basic_transport.clone(),
+            //identify_service.start_protocol(
+            //    Arc::clone(&network),
+            //    swarm_controller.clone(),
+            //    basic_transport.clone(),
+            //),
+            Box::new(timer_service.timer_futures.for_each(|_| Ok(()))),
+            Box::new(
+                outbound_peer_service
+                    .for_each(|_| Ok(()))
+                    .map_err(|_| Error::Shutdown),
             ),
-            identify_service.start_protocol(
-                Arc::clone(&network),
-                swarm_controller.clone(),
-                basic_transport.clone(),
-            ),
-            timer_service.start_protocol(
-                Arc::clone(&network),
-                swarm_controller.clone(),
-                basic_transport.clone(),
-            ),
-            outbound_peer_service.start_protocol(
-                Arc::clone(&network),
-                swarm_controller.clone(),
-                basic_transport.clone(),
-            ),
-            Box::new(close_rx.map_err(|err| IoError::new(IoErrorKind::Other, err))),
+            Box::new(close_rx.map_err(|_err| Error::Shutdown)),
         ];
         let service_futures = select_all(futures)
             .and_then({
                 let network = Arc::clone(&network);
                 move |_| {
-                    let mut peers_registry = network.peers_registry.write();
-                    debug!(target: "network", "drop all connections...");
-                    peers_registry.drop_all();
+                    network.drop_all();
+                    debug!(target: "network", "network shutdown");
                     Ok(())
                 }
             })
@@ -762,25 +534,39 @@ impl Network {
                 err
             });
         let service_futures =
-            Box::new(service_futures) as Box<Future<Item = (), Error = IoError> + Send>;
+            Box::new(service_futures) as Box<Future<Item = (), Error = Error> + Send>;
         Ok(service_futures)
     }
 
-    #[allow(clippy::type_complexity)]
     pub fn build(
         config: &NetworkConfig,
-        ckb_protocols: Vec<CKBProtocol<Arc<CKBProtocolHandler>>>,
-    ) -> Result<
-        (
-            Arc<Self>,
-            oneshot::Sender<()>,
-            Box<Future<Item = (), Error = IoError> + Send>,
-        ),
-        Error,
-    > {
-        let network = Self::inner_build(config, ckb_protocols)?;
+        ckb_protocols: CKBProtocols,
+        ckb_event_receiver: Receiver<CKBEvent>,
+    ) -> NetworkResult {
+        let (network, p2p_service, timer_registry, ping_event_receiver) =
+            Self::inner_build(config, ckb_protocols)?;
         let (close_tx, close_rx) = oneshot::channel();
-        let network_future = Self::build_network_future(Arc::clone(&network), &config, close_rx)?;
+        let network_future = Self::build_network_future(
+            Arc::clone(&network),
+            &config,
+            close_rx,
+            p2p_service,
+            timer_registry,
+            ckb_event_receiver,
+            ping_event_receiver,
+        )?;
         Ok((network, close_tx, network_future))
+    }
+}
+
+pub struct EventHandler {}
+
+impl ServiceHandle for EventHandler {
+    fn handle_error(&mut self, _env: &mut ServiceContext, error: ServiceError) {
+        debug!(target: "network", "p2p service error: {:?}", error);
+    }
+
+    fn handle_event(&mut self, _env: &mut ServiceContext, event: ServiceEvent) {
+        debug!(target: "network", "p2p service event: {:?}", event);
     }
 }

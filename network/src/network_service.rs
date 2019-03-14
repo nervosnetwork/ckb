@@ -1,13 +1,14 @@
-use crate::ckb_protocol::CKBProtocol;
-use crate::ckb_protocol_handler::CKBProtocolHandler;
-use crate::ckb_protocol_handler::{CKBProtocolContext, DefaultCKBProtocolContext};
-use crate::network::Network;
-use crate::NetworkConfig;
-use crate::{Error, ErrorKind, ProtocolId};
+use crate::protocol_handler::{CKBProtocolContext, DefaultCKBProtocolContext};
+use crate::{errors::Error, CKBEvent, NetworkConfig, ProtocolId};
+use crate::{
+    multiaddr::Multiaddr,
+    network::{CKBProtocols, Network},
+    PeerId,
+};
 use ckb_util::Mutex;
 use futures::future::Future;
+use futures::sync::mpsc::Receiver;
 use futures::sync::oneshot;
-use libp2p::{Multiaddr, PeerId};
 use log::{debug, info};
 use std::sync::Arc;
 use std::thread;
@@ -52,7 +53,7 @@ impl NetworkService {
     where
         F: FnOnce(&CKBProtocolContext) -> T,
     {
-        match self.network.ckb_protocols.find_protocol(protocol_id) {
+        match self.network.find_protocol_without_version(protocol_id) {
             Some(_) => Some(f(&DefaultCKBProtocolContext::new(
                 Arc::clone(&self.network),
                 protocol_id,
@@ -63,9 +64,11 @@ impl NetworkService {
 
     pub fn run_in_thread(
         config: &NetworkConfig,
-        ckb_protocols: Vec<CKBProtocol<Arc<CKBProtocolHandler>>>,
+        ckb_protocols: CKBProtocols,
+        ckb_event_receiver: Receiver<CKBEvent>,
     ) -> Result<NetworkService, Error> {
-        let network = Network::inner_build(config, ckb_protocols)?;
+        let (network, p2p_service, timer_registry, ping_event_receiver) =
+            Network::inner_build(config, ckb_protocols)?;
         let (close_tx, close_rx) = oneshot::channel();
         let (init_tx, init_rx) = oneshot::channel();
         let join_handle = thread::spawn({
@@ -75,10 +78,18 @@ impl NetworkService {
                 info!(
                     target: "network",
                     "network peer_id {:?}",
-                    network.local_public_key().clone().into_peer_id()
+                    network.local_public_key().peer_id()
                 );
-                let network_future =
-                    Network::build_network_future(network, &config, close_rx).unwrap();
+                let network_future = Network::build_network_future(
+                    network,
+                    &config,
+                    close_rx,
+                    p2p_service,
+                    timer_registry,
+                    ckb_event_receiver,
+                    ping_event_receiver,
+                )
+                .unwrap();
                 init_tx.send(()).unwrap();
                 // here we use default config
                 let network_runtime = runtime::Runtime::new().unwrap();
@@ -88,11 +99,7 @@ impl NetworkService {
                 }
             }
         });
-        init_rx.wait().map_err(|err| {
-            Error::from(ErrorKind::Other(
-                format!("initialize network service error: {}", err.to_string()).to_owned(),
-            ))
-        })?;
+        init_rx.wait().map_err(|_err| Error::Shutdown)?;
         Ok(NetworkService {
             network,
             stop_handler: Mutex::new(Some(StopHandler::new(close_tx, join_handle))),
