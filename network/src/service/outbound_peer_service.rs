@@ -1,6 +1,6 @@
 use crate::Network;
 use futures::{Async, Stream};
-use log::error;
+use log::{debug, error};
 use std::sync::Arc;
 use std::time::Duration;
 use std::usize;
@@ -13,6 +13,7 @@ pub struct OutboundPeerService {
 
 impl OutboundPeerService {
     pub fn new(network: Arc<Network>, try_connect_interval: Duration) -> Self {
+        debug!(target: "network", "outbound peer service start, interval: {:?}", try_connect_interval);
         OutboundPeerService {
             network,
             stream_interval: Interval::new_interval(try_connect_interval),

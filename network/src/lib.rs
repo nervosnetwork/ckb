@@ -27,6 +27,7 @@ pub(crate) use p2p::{
     service::ServiceControl,
 };
 use serde_derive::Deserialize;
+use std::time::Duration;
 
 const DEFAULT_OUTGOING_PEERS_RATIO: u32 = 3;
 
@@ -37,7 +38,7 @@ pub type PeerIndex = usize;
 pub struct Config {
     pub listen_addresses: Vec<multiaddr::Multiaddr>,
     pub secret_file: Option<String>,
-    pub nodes_file: Option<String>,
+    pub try_outbound_connect_secs: Option<u64>,
     /// List of initial node addresses
     pub bootnodes: Vec<String>,
     /// List of reserved node addresses.
@@ -70,6 +71,9 @@ impl From<Config> for NetworkConfig {
         cfg.listen_addresses = config.listen_addresses;
         cfg.bootnodes = config.bootnodes;
         cfg.reserved_peers = config.reserved_nodes;
+        if let Some(try_outbound_connect_secs) = config.try_outbound_connect_secs {
+            cfg.try_outbound_connect_interval = Duration::from_secs(try_outbound_connect_secs);
+        }
         if let Some(value) = config.non_reserved_mode {
             cfg.reserved_only = match value.as_str() {
                 "Accept" => false,
