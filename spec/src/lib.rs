@@ -64,7 +64,9 @@ pub struct SystemCell {
     pub path: PathBuf,
 }
 
-fn build_system_cell_transaction(cells: &[SystemCell]) -> Result<Transaction, Box<Error>> {
+pub(self) fn build_system_cell_transaction(
+    cells: &[SystemCell],
+) -> Result<Transaction, Box<Error>> {
     let mut outputs = Vec::new();
     for system_cell in cells {
         let mut file = File::open(&system_cell.path)?;
@@ -160,5 +162,23 @@ pub mod test {
         for cell in &dev.unwrap().system_cells {
             assert!(cell.path.exists());
         }
+    }
+
+    #[test]
+    fn always_success_type_hash() {
+        let always_success_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../nodes_template/spec/cells/always_success");
+
+        let tx = build_system_cell_transaction(&[SystemCell {
+            path: always_success_path,
+        }])
+        .unwrap();
+
+        let script = Script::new(0, vec![], Some(tx.outputs()[0].data_hash()), None, vec![]);
+        let expect =
+            H256::from_hex_str("8954a4ac5e5c33eb7aa8bb91e0a000179708157729859bd8cf7e2278e1e12980")
+                .unwrap();
+
+        assert_eq!(script.type_hash(), expect);
     }
 }

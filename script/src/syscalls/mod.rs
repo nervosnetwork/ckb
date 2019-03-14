@@ -94,7 +94,7 @@ mod tests {
     use ckb_vm::machine::DefaultCoreMachine;
     use ckb_vm::{CoreMachine, Memory, SparseMemory, Syscalls, A0, A1, A2, A3, A4, A5, A7};
     use flatbuffers::FlatBufferBuilder;
-    use hash::sha3_256;
+    use hash::blake2b_256;
     use numext_fixed_hash::H256;
     use proptest::{collection::size_range, prelude::*};
 
@@ -550,8 +550,9 @@ mod tests {
         machine.registers_mut()[A5] = CellField::LockHash as u64; //field: 3 lock hash
         machine.registers_mut()[A7] = LOAD_CELL_BY_FIELD_SYSCALL_NUMBER; // syscall number
 
-        let sha3_data = sha3_256(data);
-        let input_cell = CellOutput::new(100, vec![], H256::from_slice(&sha3_data).unwrap(), None);
+        let blake2b_data = blake2b_256(data);
+        let input_cell =
+            CellOutput::new(100, vec![], H256::from_slice(&blake2b_data).unwrap(), None);
         let outputs = vec![];
         let input_cells = vec![];
         let dep_cells = vec![];
@@ -564,11 +565,11 @@ mod tests {
 
         prop_assert_eq!(
             machine.memory_mut().load64(size_addr as usize),
-            Ok(sha3_data.len() as u64)
+            Ok(blake2b_data.len() as u64)
         );
 
-        for (i, addr) in (addr as usize..addr as usize + sha3_data.len() as usize).enumerate() {
-            prop_assert_eq!(machine.memory_mut().load8(addr), Ok(sha3_data[i]));
+        for (i, addr) in (addr as usize..addr as usize + blake2b_data.len() as usize).enumerate() {
+            prop_assert_eq!(machine.memory_mut().load8(addr), Ok(blake2b_data[i]));
         }
 
         machine.registers_mut()[A0] = addr; // addr
@@ -579,7 +580,7 @@ mod tests {
 
         prop_assert_eq!(
             machine.memory_mut().load64(size_addr as usize),
-            Ok(sha3_data.len() as u64)
+            Ok(blake2b_data.len() as u64)
         );
         Ok(())
     }
@@ -738,8 +739,8 @@ mod tests {
         machine.registers_mut()[A7] = LOAD_INPUT_BY_FIELD_SYSCALL_NUMBER; // syscall number
 
         let unlock = Script::new(0, vec![], None, Some(vec![]), vec![]);
-        let sha3_data = sha3_256(data);
-        let out_point = OutPoint::new(H256::from_slice(&sha3_data).unwrap(), 3);
+        let blake2b_data = blake2b_256(data);
+        let out_point = OutPoint::new(H256::from_slice(&blake2b_data).unwrap(), 3);
         let mut builder = FlatBufferBuilder::new();
         let fbs_offset = FbsOutPoint::build(&mut builder, &out_point);
         builder.finish(fbs_offset, None);
@@ -871,7 +872,7 @@ mod tests {
         let dep_cells = vec![&dep_cell];
         let mut load_cell = LoadCellByField::new(&outputs, &input_cells, &input_cell, &dep_cells);
 
-        let data_hash = sha3_256(&data);
+        let data_hash = blake2b_256(&data);
 
         prop_assert!(machine
             .memory_mut()

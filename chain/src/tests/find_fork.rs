@@ -40,21 +40,24 @@ fn test_find_fork_case1() {
 
     let mut parent = genesis.clone();
     for i in 0..3 {
-        let new_block = gen_block(&parent, i + 1, U256::from(100u64), vec![], vec![]);
+        let new_block = gen_block(&parent, i, U256::from(90u64), vec![], vec![]);
         fork2.push(new_block.clone());
         parent = new_block.header().clone();
     }
 
+    // fork1 total_difficulty 400
     for blk in &fork1 {
         chain_service.process_block(Arc::new(blk.clone())).unwrap();
     }
 
+    // fork2 total_difficulty 270
     for blk in &fork2 {
         chain_service.process_block(Arc::new(blk.clone())).unwrap();
     }
 
     let tip_number = { shared.chain_state().lock().tip_number() };
 
+    // fork2 total_difficulty 470
     let new_block = gen_block(&parent, 100, U256::from(200u64), vec![], vec![]);
     fork2.push(new_block.clone());
 
@@ -109,15 +112,17 @@ fn test_find_fork_case2() {
 
     let mut parent = fork1[0].header().clone();
     for i in 0..2 {
-        let new_block = gen_block(&parent, i + 1, U256::from(100u64), vec![], vec![]);
+        let new_block = gen_block(&parent, i, U256::from(90u64), vec![], vec![]);
         fork2.push(new_block.clone());
         parent = new_block.header().clone();
     }
 
+    // fork2 total_difficulty 400
     for blk in &fork1 {
         chain_service.process_block(Arc::new(blk.clone())).unwrap();
     }
 
+    // fork2 total_difficulty 280
     for blk in &fork2 {
         chain_service.process_block(Arc::new(blk.clone())).unwrap();
     }
@@ -185,15 +190,17 @@ fn test_find_fork_case3() {
 
     let mut parent = genesis.clone();
     for i in 0..5 {
-        let new_block = gen_block(&parent, i + 1, U256::from(40u64), vec![], vec![]);
+        let new_block = gen_block(&parent, i, U256::from(40u64), vec![], vec![]);
         fork2.push(new_block.clone());
         parent = new_block.header().clone();
     }
 
+    // fork2 total_difficulty 240
     for blk in &fork1 {
         chain_service.process_block(Arc::new(blk.clone())).unwrap();
     }
 
+    // fork2 total_difficulty 200
     for blk in &fork2 {
         chain_service.process_block(Arc::new(blk.clone())).unwrap();
     }
@@ -255,15 +262,17 @@ fn test_find_fork_case4() {
 
     let mut parent = genesis.clone();
     for i in 0..2 {
-        let new_block = gen_block(&parent, i + 1, U256::from(80u64), vec![], vec![]);
+        let new_block = gen_block(&parent, i, U256::from(80u64), vec![], vec![]);
         fork2.push(new_block.clone());
         parent = new_block.header().clone();
     }
 
+    // fork2 total_difficulty 200
     for blk in &fork1 {
         chain_service.process_block(Arc::new(blk.clone())).unwrap();
     }
 
+    // fork2 total_difficulty 160
     for blk in &fork2 {
         chain_service.process_block(Arc::new(blk.clone())).unwrap();
     }

@@ -1,7 +1,7 @@
 use byteorder::{ByteOrder, LittleEndian};
 use ckb_core::difficulty::{boundary_to_difficulty, difficulty_to_boundary};
 use ckb_core::header::{BlockNumber, Header, RawHeader, Seal};
-use hash::blake2b;
+use hash::blake2b_256;
 use numext_fixed_hash::H256;
 use serde_derive::Deserialize;
 use std::sync::Arc;
@@ -40,7 +40,7 @@ pub trait PowEngine: Send + Sync {
 
     #[allow(clippy::op_ref)]
     fn verify_header(&self, header: &Header) -> bool {
-        let proof_hash: H256 = blake2b(&header.proof()).into();
+        let proof_hash: H256 = blake2b_256(&header.proof()).into();
         if &boundary_to_difficulty(&proof_hash) < header.difficulty() {
             return false;
         }
@@ -53,7 +53,7 @@ pub trait PowEngine: Send + Sync {
         let message = pow_message(&header.pow_hash()[..], nonce);
 
         if let Some(proof) = self.solve(header.number(), &message) {
-            let result: H256 = blake2b(&proof).into();
+            let result: H256 = blake2b_256(&proof).into();
             if result < difficulty_to_boundary(&header.difficulty()) {
                 return Some(Seal::new(nonce, proof));
             }
@@ -70,18 +70,18 @@ pub trait PowEngine: Send + Sync {
 #[cfg(test)]
 mod test {
     use super::*;
-    use hash::blake2b;
+    use hash::blake2b_256;
     #[test]
     fn test_pow_message() {
-        let zero_hash: H256 = blake2b(&[]).into();
+        let zero_hash: H256 = blake2b_256(&[]).into();
         let nonce = u64::max_value();
         let message = pow_message(zero_hash.as_bytes(), nonce);
         assert_eq!(
             message.to_vec(),
             [
-                255, 255, 255, 255, 255, 255, 255, 255, 14, 87, 81, 192, 38, 229, 67, 178, 232,
-                171, 46, 176, 96, 153, 218, 161, 209, 229, 223, 71, 119, 143, 119, 135, 250, 171,
-                69, 205, 241, 47, 227, 168
+                255, 255, 255, 255, 255, 255, 255, 255, 68, 244, 198, 151, 68, 213, 248, 197, 93,
+                100, 32, 98, 148, 157, 202, 228, 155, 196, 231, 239, 67, 211, 136, 197, 161, 47,
+                66, 181, 99, 61, 22, 62
             ]
             .to_vec()
         );

@@ -3,7 +3,7 @@ use crate::header::Header;
 use crate::transaction::{ProposalShortId, Transaction};
 use crate::BlockNumber;
 use bincode::serialize;
-use hash::sha3_256;
+use hash::blake2b_256;
 use numext_fixed_hash::H256;
 use serde_derive::{Deserialize, Serialize};
 
@@ -62,6 +62,6 @@ pub fn uncles_hash(uncles: &[UncleBlock]) -> H256 {
     if uncles.is_empty() {
         H256::zero()
     } else {
-        sha3_256(serialize(uncles).unwrap()).into()
+        blake2b_256(serialize(uncles).unwrap()).into()
     }
 }

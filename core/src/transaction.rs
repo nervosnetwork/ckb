@@ -5,7 +5,7 @@ pub use crate::Capacity;
 use crate::{BlockNumber, Version};
 use bincode::{deserialize, serialize};
 use faster_hex::hex_string;
-use hash::sha3_256;
+use hash::blake2b_256;
 use numext_fixed_hash::H256;
 use occupied_capacity::OccupiedCapacity;
 use serde_derive::{Deserialize, Serialize};
@@ -131,7 +131,7 @@ impl CellOutput {
     }
 
     pub fn data_hash(&self) -> H256 {
-        sha3_256(&self.data).into()
+        blake2b_256(&self.data).into()
     }
 
     pub fn destruct(self) -> (Capacity, Vec<u8>, H256, Option<Script>) {
@@ -221,7 +221,7 @@ impl ProposalShortId {
     }
 
     pub fn hash(&self) -> H256 {
-        sha3_256(serialize(self).unwrap()).into()
+        blake2b_256(serialize(self).unwrap()).into()
     }
 
     pub fn zero() -> Self {
@@ -255,7 +255,7 @@ impl Transaction {
     }
 
     pub fn hash(&self) -> H256 {
-        sha3_256(serialize(&self).unwrap()).into()
+        blake2b_256(serialize(&self).unwrap()).into()
     }
 
     pub fn out_points_iter(&self) -> impl Iterator<Item = &OutPoint> {
