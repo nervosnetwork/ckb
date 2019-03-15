@@ -174,11 +174,22 @@ pub mod test {
         }])
         .unwrap();
 
-        let script = Script::new(0, vec![], Some(tx.outputs()[0].data_hash()), None, vec![]);
-        let expect =
-            H256::from_hex_str("8954a4ac5e5c33eb7aa8bb91e0a000179708157729859bd8cf7e2278e1e12980")
-                .unwrap();
+        // Tx and Output hash will be used in some test cases directly, assert here for convenience
+        assert_eq!(
+            format!("{:x}", tx.hash()),
+            "06d185ca44a1426b01d8809738c84259b86dc33bfe99f271938432a9de4cc3aa"
+        );
 
-        assert_eq!(script.type_hash(), expect);
+        let reference = tx.outputs()[0].data_hash();
+        assert_eq!(
+            format!("{:x}", reference),
+            "61d7e01908bafa29d742e37b470dc906fb05c2115b0beba7b1c4fa3e66ca3e44"
+        );
+
+        let script = Script::new(0, vec![], Some(reference), None, vec![]);
+        assert_eq!(
+            format!("{:x}", script.type_hash()),
+            "8954a4ac5e5c33eb7aa8bb91e0a000179708157729859bd8cf7e2278e1e12980"
+        );
     }
 }
