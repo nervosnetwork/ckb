@@ -1,11 +1,12 @@
 use crate::error::TransactionError;
-use ckb_core::transaction::{Capacity, Transaction};
+use ckb_core::transaction::{Capacity, Transaction, TX_VERSION};
 use ckb_core::{cell::ResolvedTransaction, Cycle};
 use ckb_script::TransactionScriptsVerifier;
 use occupied_capacity::OccupiedCapacity;
 use std::collections::HashSet;
 
 pub struct TransactionVerifier<'a> {
+    pub version: VersionVerifier<'a>,
     pub null: NullVerifier<'a>,
     pub empty: EmptyVerifier<'a>,
     pub capacity: CapacityVerifier<'a>,
@@ -17,6 +18,7 @@ pub struct TransactionVerifier<'a> {
 impl<'a> TransactionVerifier<'a> {
     pub fn new(rtx: &'a ResolvedTransaction) -> Self {
         TransactionVerifier {
+            version: VersionVerifier::new(&rtx.transaction),
             null: NullVerifier::new(&rtx.transaction),
             empty: EmptyVerifier::new(&rtx.transaction),
             duplicate_inputs: DuplicateInputsVerifier::new(&rtx.transaction),
@@ -27,6 +29,7 @@ impl<'a> TransactionVerifier<'a> {
     }
 
     pub fn verify(&self, max_cycles: Cycle) -> Result<Cycle, TransactionError> {
+        self.version.verify()?;
         self.empty.verify()?;
         self.null.verify()?;
         self.capacity.verify()?;
@@ -35,6 +38,23 @@ impl<'a> TransactionVerifier<'a> {
         self.inputs.verify()?;
         let cycles = self.script.verify(max_cycles)?;
         Ok(cycles)
+    }
+}
+
+pub struct VersionVerifier<'a> {
+    transaction: &'a Transaction,
+}
+
+impl<'a> VersionVerifier<'a> {
+    pub fn new(transaction: &'a Transaction) -> Self {
+        VersionVerifier { transaction }
+    }
+
+    pub fn verify(&self) -> Result<(), TransactionError> {
+        if self.transaction.version() != TX_VERSION {
+            return Err(TransactionError::Version);
+        }
+        Ok(())
     }
 }
 

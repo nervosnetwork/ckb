@@ -8,6 +8,8 @@ use std::fmt;
 
 pub use crate::{BlockNumber, Version};
 
+pub const HEADER_VERSION: Version = 0;
+
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct Seal {
     nonce: u64,
