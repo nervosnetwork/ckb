@@ -27,8 +27,6 @@ pub enum Error {
     Transactions((usize, TransactionError)),
     /// This is a wrapper of error encountered when invoking chain API.
     Chain(String),
-    /// The committed transactions list is empty.
-    CommitTransactionsEmpty,
     /// There are duplicate proposed transactions.
     ProposalTransactionDuplicate,
     /// There are duplicate committed transactions.
@@ -71,6 +69,7 @@ pub enum CellbaseError {
     InvalidReward,
     InvalidQuantity,
     InvalidPosition,
+    InvalidOutput,
 }
 
 #[derive(Debug, PartialEq, Clone, Eq)]

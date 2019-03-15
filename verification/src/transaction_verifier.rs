@@ -50,13 +50,14 @@ impl<'a> InputVerifier<'a> {
     }
 
     pub fn verify(&self) -> Result<(), TransactionError> {
-        let mut inputs = self.resolved_transaction.transaction.inputs().iter();
-        for cs in &self.resolved_transaction.input_cells {
+        let inputs = self.resolved_transaction.transaction.inputs().iter();
+        let input_cells = self.resolved_transaction.input_cells.iter();
+        for (input, cs) in inputs.zip(input_cells) {
             if cs.is_live() {
-                if let Some(ref input) = cs.get_live() {
+                if let Some(ref input_cell) = cs.get_live() {
                     // TODO: remove this once VM mmap is in place so we can
                     // do P2SH within the VM.
-                    if input.lock != inputs.next().unwrap().unlock.type_hash() {
+                    if input_cell.lock != input.unlock.type_hash() {
                         return Err(TransactionError::InvalidScript);
                     }
                 }
