@@ -13,6 +13,8 @@ use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::ops::{Deref, DerefMut};
 
+pub const TX_VERSION: Version = 0;
+
 #[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Hash, OccupiedCapacity)]
 pub struct OutPoint {
     // Hash of Transaction

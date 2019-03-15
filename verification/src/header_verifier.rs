@@ -1,7 +1,7 @@
 use super::Verifier;
 use crate::error::{DifficultyError, Error, NumberError, PowError, TimestampError};
 use crate::shared::ALLOWED_FUTURE_BLOCKTIME;
-use ckb_core::header::Header;
+use ckb_core::header::{Header, HEADER_VERSION};
 use ckb_pow::PowEngine;
 use ckb_traits::BlockMedianTimeContext;
 use faketime::unix_time_as_millis;
@@ -37,7 +37,7 @@ impl<T: HeaderResolver, M: BlockMedianTimeContext + Clone> Verifier for HeaderVe
     type Target = T;
     fn verify(&self, target: &T) -> Result<(), Error> {
         let header = target.header();
-
+        VersionVerifier::new(header).verify()?;
         // POW check first
         PowVerifier::new(header, &self.pow).verify()?;
         let parent = target
@@ -46,6 +46,23 @@ impl<T: HeaderResolver, M: BlockMedianTimeContext + Clone> Verifier for HeaderVe
         NumberVerifier::new(parent, header).verify()?;
         TimestampVerifier::new(self.block_median_time_context.clone(), header).verify()?;
         DifficultyVerifier::verify(target)?;
+        Ok(())
+    }
+}
+
+pub struct VersionVerifier<'a> {
+    header: &'a Header,
+}
+
+impl<'a> VersionVerifier<'a> {
+    pub fn new(header: &'a Header) -> Self {
+        VersionVerifier { header }
+    }
+
+    pub fn verify(&self) -> Result<(), Error> {
+        if self.header.version() != HEADER_VERSION {
+            return Err(Error::Version);
+        }
         Ok(())
     }
 }

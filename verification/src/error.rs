@@ -49,6 +49,8 @@ pub enum Error {
     /// Cycles consumed by all scripts in all commit transactions of the block exceed
     /// the maximum allowed cycles in consensus rules
     ExceededMaximumCycles,
+    /// The field version in block header is not allowed.
+    Version,
 }
 
 impl fmt::Display for Error {
@@ -140,4 +142,5 @@ pub enum TransactionError {
     InvalidSignature,
     Conflict,
     UnknownInput,
+    Version,
 }
