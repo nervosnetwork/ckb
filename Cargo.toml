@@ -10,7 +10,7 @@ build = "build.rs"
 clap = { version = "2" }
 serde = "1.0"
 serde_derive = "1.0"
-toml = "0.4"
+toml = "0.5"
 log = "0.4"
 crossbeam-channel = "0.3"
 config-tool = { package= "config", version = "0.9" }
