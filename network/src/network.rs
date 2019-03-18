@@ -7,6 +7,7 @@ use crate::protocol::Version as ProtocolVersion;
 use crate::protocol_handler::{CKBProtocolHandler, DefaultCKBProtocolContext};
 use crate::service::{
     ckb_service::CKBService,
+    discovery_service::{DiscoveryEvent, DiscoveryProtocol, DiscoveryService},
     outbound_peer_service::OutboundPeerService,
     ping_service::PingService,
     timer_service::{TimerRegistry, TimerService},
@@ -19,6 +20,7 @@ use bytes::Bytes;
 use ckb_util::{Mutex, RwLock};
 use fnv::FnvHashMap;
 use futures::future::{select_all, Future};
+use futures::sync::mpsc;
 use futures::sync::mpsc::channel;
 use futures::sync::mpsc::Receiver;
 use futures::sync::oneshot;
@@ -41,6 +43,7 @@ use std::time::{Duration, Instant};
 use std::usize;
 
 const PING_PROTOCOL_ID: ProtocolId = 0;
+const DISCOVERY_PROTOCOL_ID: ProtocolId = 1;
 
 pub type CKBProtocols = Vec<(CKBProtocol, Arc<dyn CKBProtocolHandler>)>;
 type NetworkResult = Result<
@@ -337,7 +340,16 @@ impl Network {
     pub(crate) fn inner_build(
         config: &NetworkConfig,
         ckb_protocols: CKBProtocols,
-    ) -> Result<(Arc<Self>, P2PService, TimerRegistry, Receiver<PingEvent>), Error> {
+    ) -> Result<
+        (
+            Arc<Self>,
+            P2PService,
+            TimerRegistry,
+            Receiver<PingEvent>,
+            mpsc::UnboundedReceiver<DiscoveryEvent>,
+        ),
+        Error,
+    > {
         let local_private_key = match config.fetch_private_key() {
             Some(private_key) => private_key?,
             None => return Err(ConfigError::InvalidKey.into()),
@@ -383,6 +395,19 @@ impl Network {
             })
             .build();
         p2p_service = p2p_service.insert_protocol(ping_meta);
+
+        let (disc_sender, disc_receiver) = mpsc::unbounded();
+        let disc_meta = MetaBuilder::default()
+            .id(DISCOVERY_PROTOCOL_ID)
+            .service_handle(move || {
+                ProtocolHandle::Callback(Box::new(DiscoveryProtocol::new(
+                    DISCOVERY_PROTOCOL_ID,
+                    disc_sender.clone(),
+                )))
+            })
+            .build();
+        p2p_service = p2p_service.insert_protocol(disc_meta);
+
         for (ckb_protocol, _) in &ckb_protocols {
             p2p_service = p2p_service.insert_protocol(ckb_protocol.build());
         }
@@ -458,7 +483,13 @@ impl Network {
             }
         }
 
-        Ok((network, p2p_service, timer_registry, ping_receiver))
+        Ok((
+            network,
+            p2p_service,
+            timer_registry,
+            ping_receiver,
+            disc_receiver,
+        ))
     }
 
     pub(crate) fn build_network_future(
@@ -469,18 +500,14 @@ impl Network {
         timer_registry: TimerRegistry,
         ckb_event_receiver: Receiver<CKBEvent>,
         ping_event_receiver: Receiver<PingEvent>,
+        disc_event_receiver: mpsc::UnboundedReceiver<DiscoveryEvent>,
     ) -> Result<Box<Future<Item = (), Error = Error> + Send>, Error> {
         // initialize ckb_protocols
         let ping_service = PingService {
             network: Arc::clone(&network),
             event_receiver: ping_event_receiver,
         };
-        //let identify_service = Arc::new(IdentifyService {
-        //    client_version,
-        //    protocol_version,
-        //    identify_timeout: config.identify_timeout,
-        //    identify_interval: config.identify_interval,
-        //});
+        let disc_service = DiscoveryService::new(Arc::clone(&network), disc_event_receiver);
 
         let ckb_service = CKBService {
             event_receiver: ckb_event_receiver,
@@ -506,17 +533,11 @@ impl Network {
                     .for_each(|_| Ok(()))
                     .map_err(|_err| Error::Shutdown),
             ),
-            // Box::new(
-            //     discovery_query_service
-            //         .into_future()
-            //         .map(|_| ())
-            //         .map_err(|(err, _)| err),
-            // ) as Box<Future<Item = (), Error = IoError> + Send>,
-            //identify_service.start_protocol(
-            //    Arc::clone(&network),
-            //    swarm_controller.clone(),
-            //    basic_transport.clone(),
-            //),
+            Box::new(
+                disc_service
+                    .for_each(|_| Ok(()))
+                    .map_err(|_err| Error::Shutdown),
+            ),
             Box::new(timer_service.timer_futures.for_each(|_| Ok(()))),
             Box::new(
                 outbound_peer_service
@@ -548,7 +569,7 @@ impl Network {
         ckb_protocols: CKBProtocols,
         ckb_event_receiver: Receiver<CKBEvent>,
     ) -> NetworkResult {
-        let (network, p2p_service, timer_registry, ping_event_receiver) =
+        let (network, p2p_service, timer_registry, ping_event_receiver, disc_event_receiver) =
             Self::inner_build(config, ckb_protocols)?;
         let (close_tx, close_rx) = oneshot::channel();
         let network_future = Self::build_network_future(
@@ -559,6 +580,7 @@ impl Network {
             timer_registry,
             ckb_event_receiver,
             ping_event_receiver,
+            disc_event_receiver,
         )?;
         Ok((network, close_tx, network_future))
     }
