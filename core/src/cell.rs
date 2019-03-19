@@ -62,11 +62,6 @@ pub trait CellProvider {
     ) -> CellStatus {
         unreachable!()
     }
-
-    fn resolve_transaction(&self, transaction: &Transaction) -> ResolvedTransaction {
-        let mut seen_inputs = FnvHashSet::default();
-        resolve_transaction(transaction, &mut seen_inputs, |x| self.cell(x))
-    }
 }
 
 pub fn resolve_transaction<F: Fn(&OutPoint) -> CellStatus>(
