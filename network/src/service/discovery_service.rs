@@ -47,20 +47,20 @@ impl DiscoveryProtocol {
 
 impl ServiceProtocol for DiscoveryProtocol {
     fn init(&mut self, control: &mut ServiceContext) {
-        debug!("protocol [discovery({})]: init", self.id);
+        debug!(target: "network", "protocol [discovery({})]: init", self.id);
 
         let discovery_task = self
             .discovery
             .take()
             .map(|discovery| {
-                debug!("Start discovery future_task");
+                debug!(target: "network", "Start discovery future_task");
                 discovery
                     .for_each(|()| Ok(()))
                     .map_err(|err| {
-                        warn!("discovery stream error: {:?}", err);
+                        warn!(target: "network", "discovery stream error: {:?}", err);
                     })
                     .then(|_| {
-                        debug!("End of discovery");
+                        debug!(target: "network", "End of discovery");
                         Ok(())
                     })
             })
@@ -70,6 +70,7 @@ impl ServiceProtocol for DiscoveryProtocol {
 
     fn connected(&mut self, control: &mut ServiceContext, session: &SessionContext, _: &str) {
         debug!(
+            target: "network",
             "protocol [discovery] open on session [{}], address: [{}], type: [{:?}]",
             session.id, session.address, session.ty
         );
@@ -100,11 +101,11 @@ impl ServiceProtocol for DiscoveryProtocol {
         );
         match self.discovery_handle.substream_sender.try_send(substream) {
             Ok(_) => {
-                debug!("Send substream success");
+                debug!(target: "network", "Send substream success");
             }
             Err(err) => {
                 // TODO: handle channel is full (wait for poll API?)
-                warn!("Send substream failed : {:?}", err);
+                warn!(target: "network", "Send substream failed : {:?}", err);
             }
         }
     }
@@ -116,7 +117,7 @@ impl ServiceProtocol for DiscoveryProtocol {
             .unbounded_send(event)
             .expect("Send disconnected event failed");
         self.discovery_senders.remove(&session.id);
-        debug!("protocol [discovery] close on session [{}]", session.id);
+        debug!(target: "network", "protocol [discovery] close on session [{}]", session.id);
     }
 
     fn received(
@@ -125,17 +126,17 @@ impl ServiceProtocol for DiscoveryProtocol {
         session: &SessionContext,
         data: bytes::Bytes,
     ) {
-        debug!("[received message]: length={}", data.len());
+        debug!(target: "network", "[received message]: length={}", data.len());
 
         if let Some(ref mut sender) = self.discovery_senders.get_mut(&session.id) {
             // TODO: handle channel is full (wait for poll API?)
             if let Err(err) = sender.try_send(data.to_vec()) {
                 if err.is_full() {
-                    warn!("channel is full");
+                    warn!(target: "network", "channel is full");
                 } else if err.is_disconnected() {
-                    warn!("channel is disconnected");
+                    warn!(target: "network", "channel is disconnected");
                 } else {
-                    warn!("other channel error: {:?}", err);
+                    warn!(target: "network", "other channel error: {:?}", err);
                 }
             }
         }
