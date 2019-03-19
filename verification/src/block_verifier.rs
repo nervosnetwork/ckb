@@ -18,8 +18,6 @@ use std::collections::HashSet;
 //TODO: cellbase, witness
 #[derive(Clone)]
 pub struct BlockVerifier<P> {
-    // Verify if the committed transactions is empty
-    empty: EmptyVerifier,
     // Verify if the committed and proposed transactions contains duplicate
     duplicate: DuplicateVerifier,
     // Verify the cellbase
@@ -39,7 +37,6 @@ where
     pub fn new(provider: P) -> Self {
         BlockVerifier {
             // TODO change all new fn's chain to reference
-            empty: EmptyVerifier::new(),
             duplicate: DuplicateVerifier::new(),
             cellbase: CellbaseVerifier::new(provider.clone()),
             merkle_root: MerkleRootVerifier::new(),
@@ -53,11 +50,8 @@ impl<P: ChainProvider + CellProvider + Clone> Verifier for BlockVerifier<P> {
     type Target = Block;
 
     fn verify(&self, target: &Block) -> Result<(), Error> {
-        // EmptyTransactionsVerifier must be executed first. Other verifiers may depend on the
-        // assumption that the transactions list is not empty.
-        self.empty.verify(target)?;
-        self.duplicate.verify(target)?;
         self.cellbase.verify(target)?;
+        self.duplicate.verify(target)?;
         self.merkle_root.verify(target)?;
         self.commit.verify(target)?;
         self.uncles.verify(target)
@@ -75,9 +69,6 @@ impl<CP: ChainProvider + Clone> CellbaseVerifier<CP> {
     }
 
     pub fn verify(&self, block: &Block) -> Result<(), Error> {
-        if block.commit_transactions().is_empty() {
-            return Ok(());
-        }
         let cellbase_len = block
             .commit_transactions()
             .iter()
@@ -99,6 +90,16 @@ impl<CP: ChainProvider + Clone> CellbaseVerifier<CP> {
         {
             return Err(Error::Cellbase(CellbaseError::InvalidInput));
         }
+
+        // currently, we enforce`type` field of a cellbase output cell must be absent
+        if cellbase_transaction
+            .outputs()
+            .iter()
+            .any(|op| op.type_.is_some())
+        {
+            return Err(Error::Cellbase(CellbaseError::InvalidOutput));
+        }
+
         let block_reward = self.provider.block_reward(block.header().number());
         let mut fee = 0;
         for transaction in block.commit_transactions().iter().skip(1) {
@@ -115,23 +116,6 @@ impl<CP: ChainProvider + Clone> CellbaseVerifier<CP> {
             .sum();
         if output_capacity > total_reward {
             Err(Error::Cellbase(CellbaseError::InvalidReward))
-        } else {
-            Ok(())
-        }
-    }
-}
-
-#[derive(Clone)]
-pub struct EmptyVerifier {}
-
-impl EmptyVerifier {
-    pub fn new() -> Self {
-        EmptyVerifier {}
-    }
-
-    pub fn verify(&self, block: &Block) -> Result<(), Error> {
-        if block.commit_transactions().is_empty() {
-            Err(Error::CommitTransactionsEmpty)
         } else {
             Ok(())
         }

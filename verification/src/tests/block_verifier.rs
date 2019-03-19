@@ -1,4 +1,4 @@
-use super::super::block_verifier::{BlockVerifier, CellbaseVerifier, EmptyVerifier};
+use super::super::block_verifier::{BlockVerifier, CellbaseVerifier};
 use super::super::error::{CellbaseError, Error as VerifyError};
 use super::dummy::DummyChainProvider;
 use crate::Verifier;
@@ -244,15 +244,10 @@ pub fn test_empty_transactions() {
         transaction_fees,
     };
 
-    let verifier = EmptyVerifier::new();
     let full_verifier = BlockVerifier::new(provider);
-    assert_eq!(
-        verifier.verify(&block),
-        Err(VerifyError::CommitTransactionsEmpty)
-    );
     // short-circuit, Empty check first
     assert_eq!(
         full_verifier.verify(&block),
-        Err(VerifyError::CommitTransactionsEmpty)
+        Err(VerifyError::Cellbase(CellbaseError::InvalidQuantity))
     );
 }
