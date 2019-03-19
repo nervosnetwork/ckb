@@ -35,14 +35,20 @@ impl<CI: ChainIndex + 'static> TraceRpc for TraceRpcImpl<CI> {
     fn trace_transaction(&self, tx: Transaction) -> Result<H256> {
         let tx: CoreTransaction = tx.into();
         let tx_hash = tx.hash().clone();
-        let mut chain_state = self.shared.chain_state().lock();
-        let rtx = chain_state.resolve_tx_from_pool(&tx, &chain_state.tx_pool());
-        let tx_result = chain_state.verify_rtx(&rtx, self.shared.consensus().max_block_cycles());
+        let tx_result = {
+            let chain_state = self.shared.chain_state().lock();
+            let rtx = chain_state.resolve_tx_from_pool(&tx, &chain_state.tx_pool());
+            chain_state.verify_rtx(&rtx, self.shared.consensus().max_block_cycles())
+        };
 
         match tx_result {
             Ok(cycles) => {
                 let entry = PoolEntry::new(tx.clone(), 0, Some(cycles));
-                chain_state.mut_tx_pool().enqueue_tx(entry);
+                self.shared
+                    .chain_state()
+                    .lock()
+                    .mut_tx_pool()
+                    .enqueue_tx(entry);
                 let fbb = &mut FlatBufferBuilder::new();
                 let message = RelayMessage::build_transaction(fbb, &tx, cycles);
                 fbb.finish(message, None);
@@ -58,7 +64,11 @@ impl<CI: ChainIndex + 'static> TraceRpc for TraceRpcImpl<CI> {
             }
             Err(TransactionError::UnknownInput) => {
                 let entry = PoolEntry::new(tx, 0, None);
-                chain_state.mut_tx_pool().enqueue_tx(entry);
+                self.shared
+                    .chain_state()
+                    .lock()
+                    .mut_tx_pool()
+                    .enqueue_tx(entry);
                 Err(RPCError::custom(
                     RPCError::Staging,
                     "tx missing inputs".to_string(),
