@@ -171,6 +171,15 @@ impl<'a> From<ckb_protocol::Transaction<'a>> for ckb_core::transaction::Transact
     }
 }
 
+impl<'a> From<ckb_protocol::ValidTransaction<'a>>
+    for (ckb_core::transaction::Transaction, ckb_core::Cycle)
+{
+    fn from(tx: ckb_protocol::ValidTransaction<'a>) -> Self {
+        let cycles = tx.cycles();
+        (tx.transaction().unwrap().into(), cycles)
+    }
+}
+
 impl<'a> From<ckb_protocol::OutPoint<'a>> for ckb_core::transaction::OutPoint {
     fn from(out_point: ckb_protocol::OutPoint<'a>) -> Self {
         ckb_core::transaction::OutPoint {

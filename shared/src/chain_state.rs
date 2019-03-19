@@ -97,16 +97,31 @@ impl<CI: ChainIndex> ChainState<CI> {
         self.cell_set.update(txo_diff);
     }
 
-    pub fn add_tx_to_pool(&self, tx: Transaction, max_cycles: Cycle) -> Result<(), PoolError> {
+    pub fn add_tx_to_pool(&self, tx: Transaction, max_cycles: Cycle) -> Result<Cycle, PoolError> {
         let mut tx_pool = self.tx_pool.borrow_mut();
         let short_id = tx.proposal_short_id();
+        let rtx = self.resolve_tx_from_pool(&tx, &tx_pool);
+        let verify_result = self.verify_rtx(&rtx, max_cycles);
         if self.contains_proposal_id(&short_id) {
-            let entry = PoolEntry::new(tx, 0, None);
+            let entry = PoolEntry::new(tx, 0, verify_result.map(Some).unwrap_or(None));
             self.staging_tx(&mut tx_pool, entry, max_cycles)?;
+            Ok(verify_result.map_err(PoolError::InvalidTx)?)
         } else {
-            tx_pool.enqueue_tx(tx);
+            match verify_result {
+                Ok(cycles) => {
+                    // enqueue tx with cycles
+                    let entry = PoolEntry::new(tx, 0, Some(cycles));
+                    tx_pool.enqueue_tx(entry);
+                    Ok(cycles)
+                }
+                Err(TransactionError::UnknownInput) => {
+                    let entry = PoolEntry::new(tx, 0, None);
+                    tx_pool.enqueue_tx(entry);
+                    Err(PoolError::InvalidTx(TransactionError::UnknownInput))
+                }
+                Err(err) => Err(PoolError::InvalidTx(err)),
+            }
         }
-        Ok(())
     }
 
     fn get_cell_status_from_store(&self, out_point: &OutPoint) -> CellStatus {
@@ -163,7 +178,7 @@ impl<CI: ChainIndex> ChainState<CI> {
         }
     }
 
-    fn verify_rtx(
+    pub fn verify_rtx(
         &self,
         rtx: &ResolvedTransaction,
         max_cycles: Cycle,
@@ -267,9 +282,9 @@ impl<CI: ChainIndex> ChainState<CI> {
             tx_pool.add_orphan(entry, unknowns);
             return Ok(StagingTxResult::Orphan);
         }
-
+        let cycles = entry.cycles.expect("cycles must exists");
         tx_pool.add_staging(entry);
-        Ok(StagingTxResult::Normal)
+        Ok(StagingTxResult::Normal(cycles))
     }
 
     pub fn update_tx_pool_for_reorg(
@@ -316,7 +331,7 @@ impl<CI: ChainIndex> ChainState<CI> {
                 let tx = entry.transaction.clone();
                 let tx_hash = tx.hash();
                 match self.staging_tx(&mut tx_pool, entry, max_cycles) {
-                    Ok(StagingTxResult::Normal) => {
+                    Ok(StagingTxResult::Normal(_)) => {
                         self.update_orphan_from_tx(&mut tx_pool, &tx, max_cycles);
                     }
                     Err(e) => {

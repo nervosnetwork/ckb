@@ -62,8 +62,13 @@ fn relay_compact_block_with_one_tx() {
                 .build();
 
             {
+                let chain_state = shared1.chain_state().lock();
+                let rtx = chain_state.resolve_tx_from_pool(&tx, &chain_state.tx_pool());
+                let cycles = chain_state
+                    .verify_rtx(&rtx, shared1.consensus().max_block_cycles())
+                    .expect("verify relay tx");
                 let fbb = &mut FlatBufferBuilder::new();
-                let message = RelayMessage::build_transaction(fbb, &tx);
+                let message = RelayMessage::build_transaction(fbb, &tx, cycles);
                 fbb.finish(message, None);
                 node1.broadcast(
                     NetworkProtocol::RELAY as ProtocolId,
@@ -212,8 +217,16 @@ fn relay_compact_block_with_missing_indexs() {
                 .collect::<Vec<_>>();
 
             [3, 5].iter().for_each(|i| {
+                let tx = &txs[*i];
+                let cycles = {
+                    let chain_state = shared1.chain_state().lock();
+                    let rtx = chain_state.resolve_tx_from_pool(tx, &chain_state.tx_pool());
+                    chain_state
+                        .verify_rtx(&rtx, shared1.consensus().max_block_cycles())
+                        .expect("verify relay tx")
+                };
                 let fbb = &mut FlatBufferBuilder::new();
-                let message = RelayMessage::build_transaction(fbb, &txs[*i]);
+                let message = RelayMessage::build_transaction(fbb, tx, cycles);
                 fbb.finish(message, None);
                 node1.broadcast(
                     NetworkProtocol::RELAY as ProtocolId,

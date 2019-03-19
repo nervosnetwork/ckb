@@ -68,10 +68,13 @@ where
                 nc,
             )
             .execute(),
-            RelayPayload::Transaction => {
-                TransactionProcess::new(&message.payload_as_transaction().unwrap(), self, peer, nc)
-                    .execute()
-            }
+            RelayPayload::ValidTransaction => TransactionProcess::new(
+                &message.payload_as_valid_transaction().unwrap(),
+                self,
+                peer,
+                nc,
+            )
+            .execute(),
             RelayPayload::GetBlockTransactions => GetBlockTransactionsProcess::new(
                 &message.payload_as_get_block_transactions().unwrap(),
                 self,

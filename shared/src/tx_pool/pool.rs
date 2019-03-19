@@ -62,27 +62,25 @@ impl TxPool {
     }
 
     // enqueue_tx inserts a new transaction into the non-verifiable transaction queue.
-    pub fn enqueue_tx(&mut self, tx: Transaction) -> bool {
-        let tx_hash = tx.hash();
+    pub fn enqueue_tx(&mut self, entry: PoolEntry) -> bool {
+        let tx_hash = entry.transaction.hash();
         if !self.filter.insert(tx_hash.clone()) {
             trace!(target: "tx_pool", "discarding already known transaction {:#x}", tx_hash);
             return false;
         }
 
-        let short_id = tx.proposal_short_id();
-        let entry = PoolEntry::new(tx, 0, None);
+        let short_id = entry.transaction.proposal_short_id();
         self.pending.insert(short_id, entry).is_none()
     }
 
     // trace_tx basically same as enqueue_tx, but additional register a trace.
-    pub fn trace_tx(&mut self, tx: Transaction) -> bool {
-        let tx_hash = tx.hash();
+    pub fn trace_tx(&mut self, entry: PoolEntry) -> bool {
+        let tx_hash = entry.transaction.hash();
         if !self.filter.insert(tx_hash.clone()) {
             trace!(target: "tx_pool", "discarding already known transaction {:#x}", tx_hash);
             return false;
         }
-        let short_id = tx.proposal_short_id();
-        let entry = PoolEntry::new(tx, 0, None);
+        let short_id = entry.transaction.proposal_short_id();
 
         if self.config.trace_enable() {
             self.trace.add_pending(
