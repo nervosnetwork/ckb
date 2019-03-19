@@ -71,7 +71,7 @@ impl CKBProtocol {
 pub enum Event {
     Connected(PeerId, Multiaddr, Session, ProtocolId, Version),
     Disconnected(PeerId, ProtocolId),
-    Received(PeerId, ProtocolId, Vec<u8>),
+    Received(PeerId, ProtocolId, Bytes),
     Notify(ProtocolId, u64),
 }
 
@@ -139,7 +139,7 @@ impl ServiceProtocol for CKBHandler {
             .map(|pubkey| pubkey.peer_id())
         {
             debug!(target: "network", "ckb protocol received, addr: {}, protocol: {}, peer_id: {:?}", session.address, self.id, &peer_id);
-            self.send_event(Event::Received(peer_id, self.id, data.to_vec()));
+            self.send_event(Event::Received(peer_id, self.id, data));
         }
     }
     fn notify(&mut self, _control: &mut ServiceContext, token: u64) {

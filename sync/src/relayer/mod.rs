@@ -17,6 +17,7 @@ use self::get_block_transactions_process::GetBlockTransactionsProcess;
 use self::transaction_process::TransactionProcess;
 use crate::relayer::compact_block::ShortTransactionID;
 use crate::types::Peers;
+use bytes::Bytes;
 use ckb_chain::chain::ChainController;
 use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::transaction::{ProposalShortId, Transaction};
@@ -269,7 +270,7 @@ where
         let _ = nc.register_timer(TX_PROPOSAL_TOKEN, Duration::from_millis(100));
     }
 
-    fn received(&self, nc: Box<CKBProtocolContext>, peer: PeerIndex, data: Vec<u8>) {
+    fn received(&self, nc: Box<CKBProtocolContext>, peer: PeerIndex, data: Bytes) {
         // TODO use flatbuffers verifier
         let msg = get_root::<RelayMessage>(&data);
         debug!(target: "relay", "msg {:?}", msg.payload_type());

@@ -1,4 +1,4 @@
-use crate::peer_store::Behaviour;
+// use crate::peer_store::Behaviour;
 use crate::Network;
 use fnv::FnvHashMap;
 use futures::{sync::mpsc, sync::oneshot, Async, Future, Stream};
@@ -202,14 +202,8 @@ impl Stream for DiscoveryService {
             Some(DiscoveryEvent::Disconnected(session_id)) => {
                 self.sessions.remove(&session_id);
             }
-            Some(DiscoveryEvent::AddNewAddr { session_id, addr }) => {
-                if let Some(peer_id) = self.sessions.get(&session_id) {
-                    let _ = self
-                        .network
-                        .peer_store()
-                        .write()
-                        .add_discovered_address(peer_id, addr);
-                }
+            Some(DiscoveryEvent::AddNewAddr { .. }) => {
+                // NOTE: ignore add new addr message, handle this in identify protocol
             }
             Some(DiscoveryEvent::AddNewAddrs { session_id, addrs }) => {
                 if let Some(peer_id) = self.sessions.get(&session_id) {

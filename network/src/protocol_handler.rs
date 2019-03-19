@@ -1,5 +1,6 @@
 use crate::errors::{Error, PeerError, ProtocolError};
 use crate::{Network, PeerIndex, ProtocolId, SessionInfo, TimerRegistry, TimerToken};
+use bytes::Bytes;
 use ckb_util::Mutex;
 use log::debug;
 use log::info;
@@ -148,7 +149,7 @@ impl CKBProtocolContext for DefaultCKBProtocolContext {
 
 pub trait CKBProtocolHandler: Sync + Send {
     fn initialize(&self, _nc: Box<dyn CKBProtocolContext>);
-    fn received(&self, _nc: Box<dyn CKBProtocolContext>, _peer: PeerIndex, _data: Vec<u8>);
+    fn received(&self, _nc: Box<dyn CKBProtocolContext>, _peer: PeerIndex, _data: Bytes);
     fn connected(&self, _nc: Box<dyn CKBProtocolContext>, _peer: PeerIndex);
     fn disconnected(&self, _nc: Box<dyn CKBProtocolContext>, _peer: PeerIndex);
     fn timer_triggered(&self, _nc: Box<dyn CKBProtocolContext>, _timer: TimerToken) {}

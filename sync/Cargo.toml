@@ -26,6 +26,7 @@ ckb-chain-spec = { path = "../spec" }
 bloom-filters = "0.1.0"
 ckb-traits = { path = "../traits" }
 failure = "0.1.5"
+bytes = "0.4.12"
 
 [dev-dependencies]
 ckb-notify = { path = "../notify" }
