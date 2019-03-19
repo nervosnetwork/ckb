@@ -67,7 +67,7 @@ impl NetworkService {
         ckb_protocols: CKBProtocols,
         ckb_event_receiver: Receiver<CKBEvent>,
     ) -> Result<NetworkService, Error> {
-        let (network, p2p_service, timer_registry, ping_event_receiver, disc_event_receiver) =
+        let (network, p2p_service, timer_registry, receivers) =
             Network::inner_build(config, ckb_protocols)?;
         let (close_tx, close_rx) = oneshot::channel();
         let (init_tx, init_rx) = oneshot::channel();
@@ -87,8 +87,7 @@ impl NetworkService {
                     p2p_service,
                     timer_registry,
                     ckb_event_receiver,
-                    ping_event_receiver,
-                    disc_event_receiver,
+                    receivers,
                 )
                 .expect("Network thread init");
                 init_tx.send(()).expect("Network init signal send");

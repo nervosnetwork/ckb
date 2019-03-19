@@ -8,6 +8,7 @@ use crate::protocol_handler::{CKBProtocolHandler, DefaultCKBProtocolContext};
 use crate::service::{
     ckb_service::CKBService,
     discovery_service::{DiscoveryEvent, DiscoveryProtocol, DiscoveryService},
+    identify_service::{IdentifyAddressManager, IdentifyEvent, IdentifyProtocol, IdentifyService},
     outbound_peer_service::OutboundPeerService,
     ping_service::PingService,
     timer_service::{TimerRegistry, TimerService},
@@ -44,6 +45,7 @@ use std::usize;
 
 const PING_PROTOCOL_ID: ProtocolId = 0;
 const DISCOVERY_PROTOCOL_ID: ProtocolId = 1;
+const IDENTIFY_PROTOCOL_ID: ProtocolId = 2;
 
 pub type CKBProtocols = Vec<(CKBProtocol, Arc<dyn CKBProtocolHandler>)>;
 type NetworkResult = Result<
@@ -80,6 +82,12 @@ impl PeerInfo {
     pub fn is_inbound(&self) -> bool {
         !self.is_outbound()
     }
+}
+
+pub struct EventReceivers {
+    pub ping_event_receiver: Receiver<PingEvent>,
+    pub disc_event_receiver: mpsc::UnboundedReceiver<DiscoveryEvent>,
+    pub identify_event_receiver: mpsc::UnboundedReceiver<IdentifyEvent>,
 }
 
 type P2PService = Service<EventHandler>;
@@ -340,16 +348,7 @@ impl Network {
     pub(crate) fn inner_build(
         config: &NetworkConfig,
         ckb_protocols: CKBProtocols,
-    ) -> Result<
-        (
-            Arc<Self>,
-            P2PService,
-            TimerRegistry,
-            Receiver<PingEvent>,
-            mpsc::UnboundedReceiver<DiscoveryEvent>,
-        ),
-        Error,
-    > {
+    ) -> Result<(Arc<Self>, P2PService, TimerRegistry, EventReceivers), Error> {
         let local_private_key = match config.fetch_private_key() {
             Some(private_key) => private_key?,
             None => return Err(ConfigError::InvalidKey.into()),
@@ -380,7 +379,6 @@ impl Network {
             config.reserved_only,
             reserved_peers,
         );
-        let mut p2p_service = ServiceBuilder::default().forever(true);
         // register protocols
         let (ping_sender, ping_receiver) = channel(std::u8::MAX as usize);
         let ping_meta = MetaBuilder::default()
@@ -394,7 +392,6 @@ impl Network {
                 )))
             })
             .build();
-        p2p_service = p2p_service.insert_protocol(ping_meta);
 
         let (disc_sender, disc_receiver) = mpsc::unbounded();
         let disc_meta = MetaBuilder::default()
@@ -406,8 +403,24 @@ impl Network {
                 )))
             })
             .build();
-        p2p_service = p2p_service.insert_protocol(disc_meta);
 
+        let (identify_sender, identify_receiver) = mpsc::unbounded();
+        let identify_addr_mgr = IdentifyAddressManager::new(identify_sender.clone());
+        let identify_meta = MetaBuilder::default()
+            .id(IDENTIFY_PROTOCOL_ID)
+            .service_handle(move || {
+                ProtocolHandle::Callback(Box::new(IdentifyProtocol::new(
+                    IDENTIFY_PROTOCOL_ID,
+                    identify_addr_mgr.clone(),
+                )))
+            })
+            .build();
+
+        let mut p2p_service = ServiceBuilder::default()
+            .forever(true)
+            .insert_protocol(ping_meta)
+            .insert_protocol(disc_meta)
+            .insert_protocol(identify_meta);
         for (ckb_protocol, _) in &ckb_protocols {
             p2p_service = p2p_service.insert_protocol(ckb_protocol.build());
         }
@@ -487,8 +500,11 @@ impl Network {
             network,
             p2p_service,
             timer_registry,
-            ping_receiver,
-            disc_receiver,
+            EventReceivers {
+                ping_event_receiver: ping_receiver,
+                disc_event_receiver: disc_receiver,
+                identify_event_receiver: identify_receiver,
+            },
         ))
     }
 
@@ -499,19 +515,21 @@ impl Network {
         p2p_service: P2PService,
         timer_registry: TimerRegistry,
         ckb_event_receiver: Receiver<CKBEvent>,
-        ping_event_receiver: Receiver<PingEvent>,
-        disc_event_receiver: mpsc::UnboundedReceiver<DiscoveryEvent>,
+        receivers: EventReceivers,
     ) -> Result<Box<Future<Item = (), Error = Error> + Send>, Error> {
         // initialize ckb_protocols
         let ping_service = PingService {
             network: Arc::clone(&network),
-            event_receiver: ping_event_receiver,
+            event_receiver: receivers.ping_event_receiver,
         };
-        let disc_service = DiscoveryService::new(Arc::clone(&network), disc_event_receiver);
+        let disc_service =
+            DiscoveryService::new(Arc::clone(&network), receivers.disc_event_receiver);
+        let identify_service =
+            IdentifyService::new(Arc::clone(&network), receivers.identify_event_receiver);
 
         let ckb_service = CKBService {
-            event_receiver: ckb_event_receiver,
             network: Arc::clone(&network),
+            event_receiver: ckb_event_receiver,
         };
         let timer_service = TimerService::new(timer_registry, Arc::clone(&network));
         let outbound_peer_service =
@@ -535,6 +553,11 @@ impl Network {
             ),
             Box::new(
                 disc_service
+                    .for_each(|_| Ok(()))
+                    .map_err(|_err| Error::Shutdown),
+            ),
+            Box::new(
+                identify_service
                     .for_each(|_| Ok(()))
                     .map_err(|_err| Error::Shutdown),
             ),
@@ -569,7 +592,7 @@ impl Network {
         ckb_protocols: CKBProtocols,
         ckb_event_receiver: Receiver<CKBEvent>,
     ) -> NetworkResult {
-        let (network, p2p_service, timer_registry, ping_event_receiver, disc_event_receiver) =
+        let (network, p2p_service, timer_registry, receivers) =
             Self::inner_build(config, ckb_protocols)?;
         let (close_tx, close_rx) = oneshot::channel();
         let network_future = Self::build_network_future(
@@ -579,8 +602,7 @@ impl Network {
             p2p_service,
             timer_registry,
             ckb_event_receiver,
-            ping_event_receiver,
-            disc_event_receiver,
+            receivers,
         )?;
         Ok((network, close_tx, network_future))
     }
