@@ -250,7 +250,6 @@ pub struct DiscoveryAddressManager {
 
 impl AddressManager for DiscoveryAddressManager {
     fn add_new_addr(&mut self, session_id: SessionId, addr: Multiaddr) {
-        // FIXME: what if send failed
         let event = DiscoveryEvent::AddNewAddr { session_id, addr };
         if self.event_sender.unbounded_send(event).is_err() {
             warn!(target: "network", "receiver maybe dropped!");
@@ -258,7 +257,6 @@ impl AddressManager for DiscoveryAddressManager {
     }
 
     fn add_new_addrs(&mut self, session_id: SessionId, addrs: Vec<Multiaddr>) {
-        // FIXME: what if send failed
         let event = DiscoveryEvent::AddNewAddrs { session_id, addrs };
         if self.event_sender.unbounded_send(event).is_err() {
             warn!(target: "network", "receiver maybe dropped!");
@@ -267,7 +265,6 @@ impl AddressManager for DiscoveryAddressManager {
 
     fn misbehave(&mut self, session_id: SessionId, kind: Misbehavior) -> MisbehaveResult {
         let (sender, receiver) = oneshot::channel();
-        // FIXME: what if send failed
         let event = DiscoveryEvent::Misbehave {
             session_id,
             kind,
@@ -277,14 +274,12 @@ impl AddressManager for DiscoveryAddressManager {
             warn!(target: "network", "receiver maybe dropped!");
             MisbehaveResult::Disconnect
         } else {
-            // FIXME: what if receive failed
             receiver.wait().unwrap_or(MisbehaveResult::Disconnect)
         }
     }
 
     fn get_random(&mut self, n: usize) -> Vec<Multiaddr> {
         let (sender, receiver) = oneshot::channel();
-        // FIXME: what if send failed
         let event = DiscoveryEvent::GetRandom { n, result: sender };
         if self.event_sender.unbounded_send(event).is_err() {
             warn!(target: "network", "receiver maybe dropped!");
