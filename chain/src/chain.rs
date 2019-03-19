@@ -426,23 +426,7 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
         chain_state: &mut ChainState<CI>,
     ) -> Result<CellSetDiff, FailureError> {
         let skip_verify = !self.verification;
-
-        let mut old_inputs = FnvHashSet::default();
-        let mut old_outputs = FnvHashSet::default();
-        let mut new_inputs = FnvHashSet::default();
-        let mut new_outputs = FnvHashMap::default();
-
-        let push_new = |b: &Block,
-                        new_inputs: &mut FnvHashSet<OutPoint>,
-                        new_outputs: &mut FnvHashMap<H256, usize>| {
-            for tx in b.commit_transactions() {
-                let input_pts = tx.input_pts();
-                let tx_hash = tx.hash();
-                let output_len = tx.outputs().len();
-                new_inputs.extend(input_pts);
-                new_outputs.insert(tx_hash, output_len);
-            }
-        };
+        let mut cell_set_diff = CellSetDiff::default();
 
         let attached_blocks_iter = fork.attached_blocks().iter().rev();
         let detached_blocks_iter = fork.detached_blocks().iter().rev();
@@ -451,17 +435,11 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
         let verified_len = attached_blocks_len - fork.dirty_exts.len();
 
         for b in detached_blocks_iter {
-            for tx in b.commit_transactions() {
-                let input_pts = tx.input_pts();
-                let tx_hash = tx.hash();
-
-                old_inputs.extend(input_pts);
-                old_outputs.insert(tx_hash);
-            }
+            cell_set_diff.push_old(b);
         }
 
-        for b in attached_blocks_iter.clone().take(verified_len) {
-            push_new(b, &mut new_inputs, &mut new_outputs);
+        for b in attached_blocks_iter.take(verified_len) {
+            cell_set_diff.push_new(b);
         }
 
         // The verify function
@@ -477,20 +455,20 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
         {
             let cell_resolver = |op: &OutPoint| {
                 self.shared.cell_at(op, |op| {
-                    if new_inputs.contains(op) {
+                    if cell_set_diff.new_inputs.contains(op) {
                         Some(true)
-                    } else if let Some(x) = new_outputs.get(&op.hash) {
+                    } else if let Some(x) = cell_set_diff.new_outputs.get(&op.hash) {
                         if op.index < (*x as u32) {
                             Some(false)
                         } else {
                             Some(true)
                         }
-                    } else if old_outputs.contains(&op.hash) {
+                    } else if cell_set_diff.old_outputs.contains(&op.hash) {
                         None
                     } else {
                         chain_state
                             .is_dead(op)
-                            .map(|x| x && !old_inputs.contains(op))
+                            .map(|x| x && !cell_set_diff.old_inputs.contains(op))
                     }
                 })
             };
@@ -527,7 +505,7 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
                     .verify(chain_state.mut_txs_verify_cache(), &resolved)
                     .is_ok()
             {
-                push_new(b, &mut new_inputs, &mut new_outputs);
+                cell_set_diff.push_new(b);
                 ext.txs_verified = Some(true);
             } else {
                 found_error = true;
@@ -551,17 +529,7 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
             Err(SharedError::InvalidTransaction)?;
         }
 
-        let old_inputs: Vec<OutPoint> = old_inputs.into_iter().collect();
-        let old_outputs: Vec<H256> = old_outputs.into_iter().collect();
-        let new_inputs: Vec<OutPoint> = new_inputs.into_iter().collect();
-        let new_outputs: Vec<(H256, usize)> = new_outputs.into_iter().collect();
-
-        Ok(CellSetDiff {
-            old_inputs,
-            old_outputs,
-            new_inputs,
-            new_outputs,
-        })
+        Ok(cell_set_diff)
     }
 
     // TODO: beatify

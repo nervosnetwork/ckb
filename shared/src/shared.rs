@@ -135,14 +135,13 @@ impl<CI: ChainIndex> Shared<CI> {
             let hash = store.get_block_hash(n).unwrap();
             for tx in store.get_block_body(&hash).unwrap() {
                 let inputs = tx.input_pts();
-                let tx_hash = tx.hash();
                 let output_len = tx.outputs().len();
 
                 for o in inputs {
                     cell_set.mark_dead(&o);
                 }
 
-                cell_set.insert(tx_hash, output_len);
+                cell_set.insert(&tx.hash(), output_len);
             }
         }
 

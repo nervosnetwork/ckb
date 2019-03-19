@@ -1,15 +1,38 @@
+use ckb_core::block::Block;
 use ckb_core::transaction::OutPoint;
 use ckb_core::transaction_meta::TransactionMeta;
-use fnv::FnvHashMap;
+use fnv::{FnvHashMap, FnvHashSet};
 use numext_fixed_hash::H256;
 use serde_derive::{Deserialize, Serialize};
 
 #[derive(Default, Debug, Clone)]
 pub struct CellSetDiff {
-    pub old_inputs: Vec<OutPoint>,
-    pub old_outputs: Vec<H256>,
-    pub new_inputs: Vec<OutPoint>,
-    pub new_outputs: Vec<(H256, usize)>,
+    pub old_inputs: FnvHashSet<OutPoint>,
+    pub old_outputs: FnvHashSet<H256>,
+    pub new_inputs: FnvHashSet<OutPoint>,
+    pub new_outputs: FnvHashMap<H256, usize>,
+}
+
+impl CellSetDiff {
+    pub fn push_new(&mut self, block: &Block) {
+        for tx in block.commit_transactions() {
+            let input_pts = tx.input_pts();
+            let tx_hash = tx.hash();
+            let output_len = tx.outputs().len();
+            self.new_inputs.extend(input_pts);
+            self.new_outputs.insert(tx_hash, output_len);
+        }
+    }
+
+    pub fn push_old(&mut self, block: &Block) {
+        for tx in block.commit_transactions() {
+            let input_pts = tx.input_pts();
+            let tx_hash = tx.hash();
+
+            self.old_inputs.extend(input_pts);
+            self.old_outputs.insert(tx_hash);
+        }
+    }
 }
 
 #[derive(Default, Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
@@ -32,8 +55,9 @@ impl CellSet {
         self.inner.get(h)
     }
 
-    pub fn insert(&mut self, hash: H256, outputs_len: usize) {
-        self.inner.insert(hash, TransactionMeta::new(outputs_len));
+    pub fn insert(&mut self, hash: &H256, outputs_len: usize) {
+        self.inner
+            .insert(hash.clone(), TransactionMeta::new(outputs_len));
     }
 
     pub fn remove(&mut self, hash: &H256) -> Option<TransactionMeta> {
@@ -52,28 +76,21 @@ impl CellSet {
         }
     }
 
-    fn rollback(&mut self, inputs: Vec<OutPoint>, outputs: Vec<H256>) {
-        for h in outputs {
-            self.remove(&h);
-        }
-
-        for o in inputs {
-            self.mark_live(&o);
-        }
-    }
-
-    fn forward(&mut self, inputs: Vec<OutPoint>, outputs: Vec<(H256, usize)>) {
-        for (hash, len) in outputs {
-            self.insert(hash, len);
-        }
-
-        for o in inputs {
-            self.mark_dead(&o);
-        }
-    }
-
     pub fn update(&mut self, diff: CellSetDiff) {
-        self.rollback(diff.old_inputs, diff.old_outputs);
-        self.forward(diff.new_inputs, diff.new_outputs);
+        diff.old_outputs.iter().for_each(|h| {
+            self.remove(h);
+        });
+
+        diff.old_inputs.iter().for_each(|o| {
+            self.mark_live(o);
+        });
+
+        diff.new_outputs.iter().for_each(|(hash, len)| {
+            self.insert(hash, *len);
+        });
+
+        diff.new_inputs.iter().for_each(|o| {
+            self.mark_dead(o);
+        });
     }
 }
