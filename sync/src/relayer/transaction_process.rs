@@ -33,12 +33,13 @@ where
 
     pub fn execute(self) {
         let tx: Transaction = (*self.message).into();
-        let chain_state = self.relayer.shared.chain_state().lock();
-        let max_block_cycles = self.relayer.shared.consensus().max_block_cycles();
-        if chain_state
-            .add_tx_to_pool(tx.clone(), max_block_cycles)
-            .is_ok()
-        {
+        let ret = {
+            let chain_state = self.relayer.shared.chain_state().lock();
+            let max_block_cycles = self.relayer.shared.consensus().max_block_cycles();
+            chain_state.add_tx_to_pool(tx.clone(), max_block_cycles)
+        };
+
+        if ret.is_ok() {
             let fbb = &mut FlatBufferBuilder::new();
             let message = RelayMessage::build_transaction(fbb, &tx);
             fbb.finish(message, None);

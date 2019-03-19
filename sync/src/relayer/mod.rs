@@ -221,16 +221,18 @@ where
         let mut pending_proposals_request = self.state.pending_proposals_request.lock();
         let mut peer_txs = FnvHashMap::default();
         let mut remove_ids = Vec::new();
-        let chain_state = self.shared.chain_state().lock();
-        let tx_pool = chain_state.tx_pool();
-        for (id, peers) in pending_proposals_request.iter() {
-            if let Some(tx) = tx_pool.get_tx(id) {
-                for peer in peers {
-                    let tx_set = peer_txs.entry(*peer).or_insert_with(Vec::new);
-                    tx_set.push(tx.clone());
+        {
+            let chain_state = self.shared.chain_state().lock();
+            let tx_pool = chain_state.tx_pool();
+            for (id, peers) in pending_proposals_request.iter() {
+                if let Some(tx) = tx_pool.get_tx(id) {
+                    for peer in peers {
+                        let tx_set = peer_txs.entry(*peer).or_insert_with(Vec::new);
+                        tx_set.push(tx.clone());
+                    }
                 }
+                remove_ids.push(*id);
             }
-            remove_ids.push(*id);
         }
 
         for id in remove_ids {
