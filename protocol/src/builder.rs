@@ -136,12 +136,18 @@ impl<'a> FbsCellInput<'a> {
         cell_input: &CellInput,
     ) -> WIPOffset<FbsCellInput<'b>> {
         let hash = (&cell_input.previous_output.hash).into();
-        let unlock = FbsScript::build(fbb, &cell_input.unlock);
+
+        let vec = cell_input
+            .args
+            .iter()
+            .map(|argument| FbsBytes::build(fbb, argument))
+            .collect::<Vec<_>>();
+        let args = fbb.create_vector(&vec);
 
         let mut builder = CellInputBuilder::new(fbb);
         builder.add_hash(&hash);
         builder.add_index(cell_input.previous_output.index);
-        builder.add_unlock(unlock);
+        builder.add_args(args);
         builder.finish()
     }
 }
@@ -155,27 +161,12 @@ impl<'a> FbsScript<'a> {
             .collect::<Vec<_>>();
         let args = fbb.create_vector(&vec);
 
-        let binary = script.binary.as_ref().map(|s| FbsBytes::build(fbb, s));
-
-        let reference = script.reference.as_ref().map(Into::into);
-
-        let vec = script
-            .signed_args
-            .iter()
-            .map(|argument| FbsBytes::build(fbb, argument))
-            .collect::<Vec<_>>();
-        let signed_args = fbb.create_vector(&vec);
+        let reference = (&script.reference).into();
 
         let mut builder = ScriptBuilder::new(fbb);
         builder.add_version(script.version);
         builder.add_args(args);
-        if let Some(s) = binary {
-            builder.add_binary(s);
-        }
-        if let Some(ref r) = reference {
-            builder.add_reference(r);
-        }
-        builder.add_signed_args(signed_args);
+        builder.add_reference(&reference);
         builder.finish()
     }
 }
@@ -186,12 +177,12 @@ impl<'a> FbsCellOutput<'a> {
         cell_output: &CellOutput,
     ) -> WIPOffset<FbsCellOutput<'b>> {
         let data = FbsBytes::build(fbb, &cell_output.data);
-        let lock = (&cell_output.lock).into();
+        let lock = FbsScript::build(fbb, &cell_output.lock);
         let type_ = cell_output.type_.as_ref().map(|s| FbsScript::build(fbb, s));
         let mut builder = CellOutputBuilder::new(fbb);
         builder.add_capacity(cell_output.capacity);
         builder.add_data(data);
-        builder.add_lock(&lock);
+        builder.add_lock(lock);
         if let Some(s) = type_ {
             builder.add_type_(s);
         }

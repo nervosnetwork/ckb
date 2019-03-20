@@ -1439,6 +1439,7 @@ impl<'a> Transaction<'a> {
         _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr>,
         args: &'args TransactionArgs<'args>) -> flatbuffers::WIPOffset<Transaction<'bldr>> {
       let mut builder = TransactionBuilder::new(_fbb);
+      if let Some(x) = args.embeds { builder.add_embeds(x); }
       if let Some(x) = args.outputs { builder.add_outputs(x); }
       if let Some(x) = args.inputs { builder.add_inputs(x); }
       if let Some(x) = args.deps { builder.add_deps(x); }
@@ -1450,6 +1451,7 @@ impl<'a> Transaction<'a> {
     pub const VT_DEPS: flatbuffers::VOffsetT = 6;
     pub const VT_INPUTS: flatbuffers::VOffsetT = 8;
     pub const VT_OUTPUTS: flatbuffers::VOffsetT = 10;
+    pub const VT_EMBEDS: flatbuffers::VOffsetT = 12;
 
   #[inline]
   pub fn version(&self) -> u32 {
@@ -1467,6 +1469,10 @@ impl<'a> Transaction<'a> {
   pub fn outputs(&self) -> Option<flatbuffers::Vector<flatbuffers::ForwardsUOffset<CellOutput<'a>>>> {
     self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<flatbuffers::ForwardsUOffset<CellOutput<'a>>>>>(Transaction::VT_OUTPUTS, None)
   }
+  #[inline]
+  pub fn embeds(&self) -> Option<flatbuffers::Vector<flatbuffers::ForwardsUOffset<Bytes<'a>>>> {
+    self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<flatbuffers::ForwardsUOffset<Bytes<'a>>>>>(Transaction::VT_EMBEDS, None)
+  }
 }
 
 pub struct TransactionArgs<'a> {
@@ -1474,6 +1480,7 @@ pub struct TransactionArgs<'a> {
     pub deps: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a , flatbuffers::ForwardsUOffset<OutPoint<'a >>>>>,
     pub inputs: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a , flatbuffers::ForwardsUOffset<CellInput<'a >>>>>,
     pub outputs: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a , flatbuffers::ForwardsUOffset<CellOutput<'a >>>>>,
+    pub embeds: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a , flatbuffers::ForwardsUOffset<Bytes<'a >>>>>,
 }
 impl<'a> Default for TransactionArgs<'a> {
     #[inline]
@@ -1483,6 +1490,7 @@ impl<'a> Default for TransactionArgs<'a> {
             deps: None,
             inputs: None,
             outputs: None,
+            embeds: None,
         }
     }
 }
@@ -1506,6 +1514,10 @@ impl<'a: 'b, 'b> TransactionBuilder<'a, 'b> {
   #[inline]
   pub fn add_outputs(&mut self, outputs: flatbuffers::WIPOffset<flatbuffers::Vector<'b , flatbuffers::ForwardsUOffset<CellOutput<'b >>>>) {
     self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(Transaction::VT_OUTPUTS, outputs);
+  }
+  #[inline]
+  pub fn add_embeds(&mut self, embeds: flatbuffers::WIPOffset<flatbuffers::Vector<'b , flatbuffers::ForwardsUOffset<Bytes<'b >>>>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(Transaction::VT_EMBEDS, embeds);
   }
   #[inline]
   pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>) -> TransactionBuilder<'a, 'b> {
@@ -1639,7 +1651,7 @@ impl<'a> CellInput<'a> {
         _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr>,
         args: &'args CellInputArgs<'args>) -> flatbuffers::WIPOffset<CellInput<'bldr>> {
       let mut builder = CellInputBuilder::new(_fbb);
-      if let Some(x) = args.unlock { builder.add_unlock(x); }
+      if let Some(x) = args.args { builder.add_args(x); }
       builder.add_index(args.index);
       if let Some(x) = args.hash { builder.add_hash(x); }
       builder.finish()
@@ -1647,7 +1659,7 @@ impl<'a> CellInput<'a> {
 
     pub const VT_HASH: flatbuffers::VOffsetT = 4;
     pub const VT_INDEX: flatbuffers::VOffsetT = 6;
-    pub const VT_UNLOCK: flatbuffers::VOffsetT = 8;
+    pub const VT_ARGS: flatbuffers::VOffsetT = 8;
 
   #[inline]
   pub fn hash(&self) -> Option<&'a H256> {
@@ -1658,15 +1670,15 @@ impl<'a> CellInput<'a> {
     self._tab.get::<u32>(CellInput::VT_INDEX, Some(0)).unwrap()
   }
   #[inline]
-  pub fn unlock(&self) -> Option<Script<'a>> {
-    self._tab.get::<flatbuffers::ForwardsUOffset<Script<'a>>>(CellInput::VT_UNLOCK, None)
+  pub fn args(&self) -> Option<flatbuffers::Vector<flatbuffers::ForwardsUOffset<Bytes<'a>>>> {
+    self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<flatbuffers::ForwardsUOffset<Bytes<'a>>>>>(CellInput::VT_ARGS, None)
   }
 }
 
 pub struct CellInputArgs<'a> {
     pub hash: Option<&'a  H256>,
     pub index: u32,
-    pub unlock: Option<flatbuffers::WIPOffset<Script<'a >>>,
+    pub args: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a , flatbuffers::ForwardsUOffset<Bytes<'a >>>>>,
 }
 impl<'a> Default for CellInputArgs<'a> {
     #[inline]
@@ -1674,7 +1686,7 @@ impl<'a> Default for CellInputArgs<'a> {
         CellInputArgs {
             hash: None,
             index: 0,
-            unlock: None,
+            args: None,
         }
     }
 }
@@ -1692,8 +1704,8 @@ impl<'a: 'b, 'b> CellInputBuilder<'a, 'b> {
     self.fbb_.push_slot::<u32>(CellInput::VT_INDEX, index, 0);
   }
   #[inline]
-  pub fn add_unlock(&mut self, unlock: flatbuffers::WIPOffset<Script<'b >>) {
-    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<Script>>(CellInput::VT_UNLOCK, unlock);
+  pub fn add_args(&mut self, args: flatbuffers::WIPOffset<flatbuffers::Vector<'b , flatbuffers::ForwardsUOffset<Bytes<'b >>>>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(CellInput::VT_ARGS, args);
   }
   #[inline]
   pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>) -> CellInputBuilder<'a, 'b> {
@@ -1760,8 +1772,8 @@ impl<'a> CellOutput<'a> {
     self._tab.get::<flatbuffers::ForwardsUOffset<Bytes<'a>>>(CellOutput::VT_DATA, None)
   }
   #[inline]
-  pub fn lock(&self) -> Option<&'a H256> {
-    self._tab.get::<H256>(CellOutput::VT_LOCK, None)
+  pub fn lock(&self) -> Option<Script<'a>> {
+    self._tab.get::<flatbuffers::ForwardsUOffset<Script<'a>>>(CellOutput::VT_LOCK, None)
   }
   #[inline]
   pub fn type_(&self) -> Option<Script<'a>> {
@@ -1772,7 +1784,7 @@ impl<'a> CellOutput<'a> {
 pub struct CellOutputArgs<'a> {
     pub capacity: u64,
     pub data: Option<flatbuffers::WIPOffset<Bytes<'a >>>,
-    pub lock: Option<&'a  H256>,
+    pub lock: Option<flatbuffers::WIPOffset<Script<'a >>>,
     pub type_: Option<flatbuffers::WIPOffset<Script<'a >>>,
 }
 impl<'a> Default for CellOutputArgs<'a> {
@@ -1800,8 +1812,8 @@ impl<'a: 'b, 'b> CellOutputBuilder<'a, 'b> {
     self.fbb_.push_slot_always::<flatbuffers::WIPOffset<Bytes>>(CellOutput::VT_DATA, data);
   }
   #[inline]
-  pub fn add_lock(&mut self, lock: &'b  H256) {
-    self.fbb_.push_slot_always::<&H256>(CellOutput::VT_LOCK, lock);
+  pub fn add_lock(&mut self, lock: flatbuffers::WIPOffset<Script<'b >>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<Script>>(CellOutput::VT_LOCK, lock);
   }
   #[inline]
   pub fn add_type_(&mut self, type_: flatbuffers::WIPOffset<Script<'b >>) {
@@ -1851,9 +1863,7 @@ impl<'a> Script<'a> {
         _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr>,
         args: &'args ScriptArgs<'args>) -> flatbuffers::WIPOffset<Script<'bldr>> {
       let mut builder = ScriptBuilder::new(_fbb);
-      if let Some(x) = args.signed_args { builder.add_signed_args(x); }
       if let Some(x) = args.reference { builder.add_reference(x); }
-      if let Some(x) = args.binary { builder.add_binary(x); }
       if let Some(x) = args.args { builder.add_args(x); }
       builder.add_version(args.version);
       builder.finish()
@@ -1861,9 +1871,7 @@ impl<'a> Script<'a> {
 
     pub const VT_VERSION: flatbuffers::VOffsetT = 4;
     pub const VT_ARGS: flatbuffers::VOffsetT = 6;
-    pub const VT_BINARY: flatbuffers::VOffsetT = 8;
-    pub const VT_REFERENCE: flatbuffers::VOffsetT = 10;
-    pub const VT_SIGNED_ARGS: flatbuffers::VOffsetT = 12;
+    pub const VT_REFERENCE: flatbuffers::VOffsetT = 8;
 
   #[inline]
   pub fn version(&self) -> u8 {
@@ -1874,25 +1882,15 @@ impl<'a> Script<'a> {
     self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<flatbuffers::ForwardsUOffset<Bytes<'a>>>>>(Script::VT_ARGS, None)
   }
   #[inline]
-  pub fn binary(&self) -> Option<Bytes<'a>> {
-    self._tab.get::<flatbuffers::ForwardsUOffset<Bytes<'a>>>(Script::VT_BINARY, None)
-  }
-  #[inline]
   pub fn reference(&self) -> Option<&'a H256> {
     self._tab.get::<H256>(Script::VT_REFERENCE, None)
-  }
-  #[inline]
-  pub fn signed_args(&self) -> Option<flatbuffers::Vector<flatbuffers::ForwardsUOffset<Bytes<'a>>>> {
-    self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<flatbuffers::ForwardsUOffset<Bytes<'a>>>>>(Script::VT_SIGNED_ARGS, None)
   }
 }
 
 pub struct ScriptArgs<'a> {
     pub version: u8,
     pub args: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a , flatbuffers::ForwardsUOffset<Bytes<'a >>>>>,
-    pub binary: Option<flatbuffers::WIPOffset<Bytes<'a >>>,
     pub reference: Option<&'a  H256>,
-    pub signed_args: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a , flatbuffers::ForwardsUOffset<Bytes<'a >>>>>,
 }
 impl<'a> Default for ScriptArgs<'a> {
     #[inline]
@@ -1900,9 +1898,7 @@ impl<'a> Default for ScriptArgs<'a> {
         ScriptArgs {
             version: 0,
             args: None,
-            binary: None,
             reference: None,
-            signed_args: None,
         }
     }
 }
@@ -1920,16 +1916,8 @@ impl<'a: 'b, 'b> ScriptBuilder<'a, 'b> {
     self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(Script::VT_ARGS, args);
   }
   #[inline]
-  pub fn add_binary(&mut self, binary: flatbuffers::WIPOffset<Bytes<'b >>) {
-    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<Bytes>>(Script::VT_BINARY, binary);
-  }
-  #[inline]
   pub fn add_reference(&mut self, reference: &'b  H256) {
     self.fbb_.push_slot_always::<&H256>(Script::VT_REFERENCE, reference);
-  }
-  #[inline]
-  pub fn add_signed_args(&mut self, signed_args: flatbuffers::WIPOffset<flatbuffers::Vector<'b , flatbuffers::ForwardsUOffset<Bytes<'b >>>>) {
-    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(Script::VT_SIGNED_ARGS, signed_args);
   }
   #[inline]
   pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>) -> ScriptBuilder<'a, 'b> {

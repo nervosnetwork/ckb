@@ -1,7 +1,6 @@
 use crate::helper::wait_for_exit;
 use crate::Setup;
 use ckb_chain::chain::{ChainBuilder, ChainController};
-use ckb_core::script::Script;
 use ckb_db::diskdb::RocksDB;
 use ckb_miner::BlockAssembler;
 use ckb_network::futures::sync::mpsc::channel;
@@ -37,8 +36,7 @@ pub fn run(setup: Setup) {
     info!(target: "main", "chain genesis hash: {:#x}", shared.genesis_hash());
     // let tx_pool_controller = setup_tx_pool(setup.configs.pool, shared.clone(), notify.clone());
 
-    let block_assembler =
-        BlockAssembler::new(shared.clone(), setup.configs.block_assembler.type_hash);
+    let block_assembler = BlockAssembler::new(shared.clone(), setup.configs.block_assembler);
     let block_assembler_controller = block_assembler.start(Some("MinerAgent"), &notify);
 
     let synchronizer = Arc::new(Synchronizer::new(
@@ -127,15 +125,6 @@ fn setup_chain<CI: ChainIndex + 'static>(
 //     let tx_pool_service = TransactionPoolService::new(config, shared, notify);
 //     tx_pool_service.start(Some("TransactionPoolService"))
 // }
-
-pub fn type_hash(setup: &Setup) {
-    let consensus = setup.chain_spec.to_consensus().unwrap();
-    let system_cell_tx = &consensus.genesis_block().commit_transactions()[0];
-    let system_cell_data_hash = system_cell_tx.outputs()[0].data_hash();
-
-    let script = Script::new(0, vec![], Some(system_cell_data_hash), None, vec![]);
-    println!("{:#x}", script.type_hash());
-}
 
 pub fn keygen() {
     let result: H256 = Generator::new().random_privkey().into();

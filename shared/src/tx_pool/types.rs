@@ -612,6 +612,7 @@ impl PendingQueue {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ckb_core::script::Script;
     use ckb_core::transaction::{CellInput, CellOutput, Transaction, TransactionBuilder};
     use numext_fixed_hash::H256;
 
@@ -627,7 +628,7 @@ mod tests {
             )
             .outputs(
                 (0..outputs_len)
-                    .map(|i| CellOutput::new((i + 1) as u64, Vec::new(), H256::zero(), None))
+                    .map(|i| CellOutput::new((i + 1) as u64, Vec::new(), Script::default(), None))
                     .collect(),
             )
             .build();

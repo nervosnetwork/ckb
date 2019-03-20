@@ -4,6 +4,7 @@ use super::super::transaction_verifier::{
 use crate::error::TransactionError;
 use ckb_core::cell::CellStatus;
 use ckb_core::cell::ResolvedTransaction;
+use ckb_core::script::Script;
 use ckb_core::transaction::{CellInput, CellOutput, OutPoint, TransactionBuilder};
 use numext_fixed_hash::H256;
 
@@ -30,7 +31,7 @@ pub fn test_empty() {
 #[test]
 pub fn test_capacity_outofbound() {
     let transaction = TransactionBuilder::default()
-        .output(CellOutput::new(50, vec![1; 51], H256::zero(), None))
+        .output(CellOutput::new(50, vec![1; 51], Script::default(), None))
         .build();
 
     let rtx = ResolvedTransaction {
@@ -39,7 +40,7 @@ pub fn test_capacity_outofbound() {
         input_cells: vec![CellStatus::Live(CellOutput::new(
             50,
             Vec::new(),
-            H256::zero(),
+            Script::default(),
             None,
         ))],
     };
@@ -55,8 +56,8 @@ pub fn test_capacity_outofbound() {
 pub fn test_capacity_invalid() {
     let transaction = TransactionBuilder::default()
         .outputs(vec![
-            CellOutput::new(50, Vec::new(), H256::zero(), None),
-            CellOutput::new(100, Vec::new(), H256::zero(), None),
+            CellOutput::new(50, Vec::new(), Script::default(), None),
+            CellOutput::new(100, Vec::new(), Script::default(), None),
         ])
         .build();
 
@@ -64,8 +65,8 @@ pub fn test_capacity_invalid() {
         transaction,
         dep_cells: Vec::new(),
         input_cells: vec![
-            CellStatus::Live(CellOutput::new(49, Vec::new(), H256::zero(), None)),
-            CellStatus::Live(CellOutput::new(100, Vec::new(), H256::zero(), None)),
+            CellStatus::Live(CellOutput::new(49, Vec::new(), Script::default(), None)),
+            CellStatus::Live(CellOutput::new(100, Vec::new(), Script::default(), None)),
         ],
     };
     let verifier = CapacityVerifier::new(&rtx);

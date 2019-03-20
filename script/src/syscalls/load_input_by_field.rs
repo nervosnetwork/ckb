@@ -3,7 +3,7 @@ use crate::syscalls::{
     SUCCESS,
 };
 use ckb_core::transaction::CellInput;
-use ckb_protocol::{OutPoint as FbsOutPoint, Script as FbsScript};
+use ckb_protocol::{Bytes as FbsBytes, CellInputBuilder, OutPoint as FbsOutPoint};
 use ckb_vm::{CoreMachine, Error as VMError, Memory, Register, Syscalls, A0, A3, A4, A5, A7};
 use flatbuffers::FlatBufferBuilder;
 
@@ -54,9 +54,19 @@ impl<'a, R: Register, M: Memory> Syscalls<R, M> for LoadInputByField<'a> {
         let input = input.unwrap();
 
         let data_length = match field {
-            InputField::Unlock => {
+            InputField::Args => {
                 let mut builder = FlatBufferBuilder::new();
-                let offset = FbsScript::build(&mut builder, &input.unlock);
+                let vec = input
+                    .args
+                    .iter()
+                    .map(|argument| FbsBytes::build(&mut builder, argument))
+                    .collect::<Vec<_>>();
+                let args = builder.create_vector(&vec);
+                // Since a vector cannot be root FlatBuffer type, we have
+                // to wrap args here inside a CellInput struct.
+                let mut input_builder = CellInputBuilder::new(&mut builder);
+                input_builder.add_args(args);
+                let offset = input_builder.finish();
                 builder.finish(offset, None);
                 let data = builder.finished_data();
                 store_data(machine, data)?;

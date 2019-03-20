@@ -238,11 +238,6 @@ impl<'a> TryFrom<ckb_protocol::Script<'a>> for ckb_core::script::Script {
             .map(|argument| argument.seq().map(|s| s.to_vec()))
             .collect();
 
-        let signed_args: Option<Vec<Vec<u8>>> =
-            FlatbuffersVectorIterator::new(cast!(script.signed_args())?)
-                .map(|argument| argument.seq().map(|s| s.to_vec()))
-                .collect();
-
         let reference = match script.reference() {
             Some(reference) => Some(TryInto::try_into(reference)?),
             None => None,
@@ -251,9 +246,7 @@ impl<'a> TryFrom<ckb_protocol::Script<'a>> for ckb_core::script::Script {
         Ok(ckb_core::script::Script {
             version: script.version(),
             args: cast!(args)?,
-            binary: script.binary().and_then(|s| s.seq()).map(|s| s.to_vec()),
-            signed_args: cast!(signed_args)?,
-            reference,
+            reference: cast!(reference)?,
         })
     }
 }
@@ -263,13 +256,16 @@ impl<'a> TryFrom<ckb_protocol::CellInput<'a>> for ckb_core::transaction::CellInp
 
     fn try_from(cell_input: ckb_protocol::CellInput<'a>) -> Result<Self, Self::Error> {
         let hash = cast!(cell_input.hash())?;
-        let unlock = cast!(cell_input.unlock())?;
+        let args: Option<Vec<Vec<u8>>> = FlatbuffersVectorIterator::new(cast!(cell_input.args())?)
+            .map(|argument| argument.seq().map(|s| s.to_vec()))
+            .collect();
+
         Ok(ckb_core::transaction::CellInput {
             previous_output: ckb_core::transaction::OutPoint {
                 hash: TryInto::try_into(hash)?,
                 index: cell_input.index(),
             },
-            unlock: TryInto::try_into(unlock)?,
+            args: cast!(args)?,
         })
     }
 }

@@ -65,36 +65,30 @@ pub struct CellInput {
     pub previous_output: OutPoint,
     // Depends on whether the operation is Transform or Destroy, this is the proof to transform
     // lock or destroy lock.
-    pub unlock: Script,
+    pub args: Vec<Vec<u8>>,
 }
 
 impl CellInput {
-    pub fn new(previous_output: OutPoint, unlock: Script) -> Self {
+    pub fn new(previous_output: OutPoint, args: Vec<Vec<u8>>) -> Self {
         CellInput {
             previous_output,
-            unlock,
+            args,
         }
     }
 
     pub fn new_cellbase_input(block_number: BlockNumber) -> Self {
         CellInput {
             previous_output: OutPoint::null(),
-            unlock: Script::new(
-                0,
-                Vec::new(),
-                None,
-                Some(block_number.to_le_bytes().to_vec()),
-                Vec::new(),
-            ),
+            args: vec![block_number.to_le_bytes().to_vec()],
         }
     }
 
-    pub fn destruct(self) -> (OutPoint, Script) {
+    pub fn destruct(self) -> (OutPoint, Vec<Vec<u8>>) {
         let CellInput {
             previous_output,
-            unlock,
+            args,
         } = self;
-        (previous_output, unlock)
+        (previous_output, args)
     }
 }
 
@@ -103,7 +97,7 @@ pub struct CellOutput {
     pub capacity: Capacity,
     #[serde(with = "serde_bytes")]
     pub data: Vec<u8>,
-    pub lock: H256,
+    pub lock: Script,
     #[serde(rename = "type")]
     pub type_: Option<Script>,
 }
@@ -116,14 +110,14 @@ impl fmt::Debug for CellOutput {
                 "data",
                 &format_args!("0x{}", &hex_string(&self.data).expect("hex data")),
             )
-            .field("lock", &format_args!("{:#x}", self.lock))
+            .field("lock", &self.lock)
             .field("type", &self.type_)
             .finish()
     }
 }
 
 impl CellOutput {
-    pub fn new(capacity: Capacity, data: Vec<u8>, lock: H256, type_: Option<Script>) -> Self {
+    pub fn new(capacity: Capacity, data: Vec<u8>, lock: Script, type_: Option<Script>) -> Self {
         CellOutput {
             capacity,
             data,
@@ -136,7 +130,7 @@ impl CellOutput {
         blake2b_256(&self.data).into()
     }
 
-    pub fn destruct(self) -> (Capacity, Vec<u8>, H256, Option<Script>) {
+    pub fn destruct(self) -> (Capacity, Vec<u8>, Script, Option<Script>) {
         let CellOutput {
             capacity,
             data,
@@ -153,6 +147,7 @@ pub struct Transaction {
     deps: Vec<OutPoint>,
     inputs: Vec<CellInput>,
     outputs: Vec<CellOutput>,
+    embeds: Vec<Vec<u8>>,
 }
 
 impl Hash for Transaction {
@@ -250,6 +245,10 @@ impl Transaction {
 
     pub fn outputs(&self) -> &[CellOutput] {
         &self.outputs
+    }
+
+    pub fn embeds(&self) -> &[Vec<u8>] {
+        &self.embeds
     }
 
     pub fn is_cellbase(&self) -> bool {
@@ -363,6 +362,21 @@ impl TransactionBuilder {
 
     pub fn outputs_clear(mut self) -> Self {
         self.inner.outputs.clear();
+        self
+    }
+
+    pub fn embed(mut self, embed: Vec<u8>) -> Self {
+        self.inner.embeds.push(embed);
+        self
+    }
+
+    pub fn embeds(mut self, embeds: Vec<Vec<u8>>) -> Self {
+        self.inner.embeds.extend(embeds);
+        self
+    }
+
+    pub fn embeds_clear(mut self) -> Self {
+        self.inner.embeds.clear();
         self
     }
 

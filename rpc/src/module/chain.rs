@@ -78,7 +78,7 @@ impl<CI: ChainIndex + 'static> ChainRpc for ChainRpcImpl<CI> {
                         .get(&transaction.hash())
                         .ok_or_else(Error::internal_error)?;
                     for (i, output) in transaction.outputs().iter().enumerate() {
-                        if output.lock == type_hash && (!transaction_meta.is_dead(i)) {
+                        if output.lock.hash() == type_hash && (!transaction_meta.is_dead(i)) {
                             result.push(CellOutputWithOutPoint {
                                 out_point: OutPoint {
                                     hash: transaction.hash().clone(),

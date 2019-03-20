@@ -79,8 +79,17 @@ impl<'a, R: Register, M: Memory> Syscalls<R, M> for LoadCellByField<'a> {
                 store_data(machine, &bytes)?;
                 (SUCCESS, bytes.len())
             }
+            CellField::Lock => {
+                let mut builder = FlatBufferBuilder::new();
+                let offset = FbsScript::build(&mut builder, &cell.lock);
+                builder.finish(offset, None);
+                let data = builder.finished_data();
+                store_data(machine, data)?;
+                (SUCCESS, data.len())
+            }
             CellField::LockHash => {
-                let bytes = cell.lock.as_bytes();
+                let hash = cell.lock.hash();
+                let bytes = hash.as_bytes();
                 store_data(machine, &bytes)?;
                 (SUCCESS, bytes.len())
             }
@@ -97,7 +106,7 @@ impl<'a, R: Register, M: Memory> Syscalls<R, M> for LoadCellByField<'a> {
             },
             CellField::TypeHash => match cell.type_ {
                 Some(ref type_) => {
-                    let hash = type_.type_hash();
+                    let hash = type_.hash();
                     let bytes = hash.as_bytes();
                     store_data(machine, &bytes)?;
                     (SUCCESS, bytes.len())

@@ -15,6 +15,7 @@ use ckb_notify::NotifyService;
 use ckb_shared::shared::{Shared, SharedBuilder};
 use ckb_shared::store::ChainKVStore;
 use ckb_traits::ChainProvider;
+use hash::blake2b_256;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 use std::fs::File;
@@ -48,7 +49,7 @@ fn gen_block(
         .with_header_builder(header_builder)
 }
 
-fn get_script() -> Script {
+fn get_script() -> (Script, Vec<u8>) {
     let mut file = File::open(
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../nodes_template/spec/cells/always_success"),
     )
@@ -56,25 +57,22 @@ fn get_script() -> Script {
     let mut buffer = Vec::new();
     file.read_to_end(&mut buffer).unwrap();
 
-    Script::new(0, Vec::new(), None, Some(buffer), Vec::new())
+    let script = Script::new(0, Vec::new(), (&blake2b_256(&buffer)).into());
+    (script, buffer)
 }
 
 fn create_transaction(parent: &H256) -> Transaction {
-    let script = get_script();
+    let (script, binary) = get_script();
     let capacity = 100_000_000 / 100 as u64;
-    let output = CellOutput::new(
-        capacity,
-        Vec::new(),
-        script.type_hash(),
-        Some(script.clone()),
-    );
+    let output = CellOutput::new(capacity, Vec::new(), script.clone(), Some(script.clone()));
     let inputs: Vec<CellInput> = (0..100)
-        .map(|index| CellInput::new(OutPoint::new(parent.clone(), index), script.clone()))
+        .map(|index| CellInput::new(OutPoint::new(parent.clone(), index), vec![]))
         .collect();
 
     TransactionBuilder::default()
         .inputs(inputs)
         .outputs(vec![output; 100])
+        .embed(binary)
         .build()
 }
 
@@ -98,7 +96,7 @@ fn start_chain(
 fn create_cellbase(number: BlockNumber) -> Transaction {
     TransactionBuilder::default()
         .input(CellInput::new_cellbase_input(number))
-        .outputs(vec![CellOutput::new(0, vec![], H256::zero(), None)])
+        .outputs(vec![CellOutput::new(0, vec![], Script::default(), None)])
         .build()
 }
 
@@ -107,18 +105,19 @@ fn setup_env() -> (
     Shared<ChainKVStore<MemoryKeyValueDB>>,
     H256,
 ) {
-    let script = get_script();
+    let (script, binary) = get_script();
     let tx = TransactionBuilder::default()
         .input(CellInput::new(OutPoint::null(), Default::default()))
         .outputs(vec![
             CellOutput::new(
                 1_000_000,
                 Vec::new(),
-                script.type_hash(),
+                script.clone(),
                 Some(script),
             );
             100
         ])
+        .embed(binary)
         .build();
     let tx_hash = tx.hash();
     let genesis_block = BlockBuilder::default().commit_transaction(tx).build();

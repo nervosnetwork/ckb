@@ -131,6 +131,7 @@ impl ResolvedTransaction {
 
 #[cfg(test)]
 mod tests {
+    use super::super::script::Script;
     use super::*;
     use numext_fixed_hash::H256;
     use std::collections::HashMap;
@@ -177,7 +178,7 @@ mod tests {
         let o = CellOutput {
             capacity: 2,
             data: vec![],
-            lock: H256::default(),
+            lock: Script::default(),
             type_: None,
         };
 
