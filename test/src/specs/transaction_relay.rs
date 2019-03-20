@@ -11,6 +11,7 @@ impl Spec for TransactionRelayBasic {
         let node2 = &net.nodes[2];
 
         info!("Generate new transaction on node1");
+        node1.generate_block();
         let hash = node1.generate_transaction();
 
         info!("Waiting for relay");

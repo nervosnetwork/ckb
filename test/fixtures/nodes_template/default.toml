@@ -42,5 +42,5 @@ trace = 100
 txs_verify_cache_size = 100000
 
 [block_assembler]
-# value is from spec#always_success_type_hash test
+# type hash for `always_success` script
 type_hash = "0x8954a4ac5e5c33eb7aa8bb91e0a000179708157729859bd8cf7e2278e1e12980"
