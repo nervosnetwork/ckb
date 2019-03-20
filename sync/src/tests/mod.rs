@@ -1,3 +1,4 @@
+use bytes::Bytes;
 use ckb_network::{
     errors::Error as NetworkError, CKBProtocolContext, CKBProtocolHandler, PeerIndex, ProtocolId,
     SessionInfo, Severity, TimerToken,
@@ -101,7 +102,7 @@ impl TestNode {
                                 timer_senders: self.timer_senders.clone(),
                             }),
                             *peer,
-                            payload.clone(),
+                            Bytes::from(payload.clone()),
                         )
                     };
 

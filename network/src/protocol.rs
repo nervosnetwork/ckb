@@ -93,10 +93,7 @@ impl ServiceProtocol for CKBHandler {
     fn connected(&mut self, control: &mut ServiceContext, session: &SessionContext, version: &str) {
         let (peer_id, version) = {
             // FIXME: version number should be discussed.
-            let parsed_version = version
-                .split(".")
-                .last()
-                .and_then(|v| v.parse::<u8>().ok());
+            let parsed_version = version.split('.').last().and_then(|v| v.parse::<u8>().ok());
             if session.remote_pubkey.is_none() || parsed_version.is_none() {
                 error!(target: "network", "ckb protocol connected error, addr: {}, protocol:{}, version: {}", session.address, self.id, version);
                 control.disconnect(session.id);
