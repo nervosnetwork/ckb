@@ -279,11 +279,10 @@ impl PeerStore for SqlitePeerStore {
             }
         };
         let peer = self.get_or_insert_peer_info(peer_id);
-        let now = unix_time();
         let score = peer.score.saturating_add(behaviour_score);
         if score < self.schema.ban_score() {
-            let ban_time = self.schema.default_ban_timeout() + now;
-            self.ban_peer(peer_id, ban_time);
+            let ban_timeout = self.schema.default_ban_timeout();
+            self.ban_peer(peer_id, ban_timeout);
             return ReportResult::Banned;
         }
         self.pool
