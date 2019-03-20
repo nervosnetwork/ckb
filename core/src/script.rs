@@ -116,6 +116,9 @@ type ScriptTuple = (
     Vec<Vec<u8>>,
 );
 
+const VEC_WRITE_ALL_EXPECT: &str =
+    "Essentially, Vec::write_all invoke extend_from_slice, should not fail";
+
 impl Script {
     pub fn new(
         version: u8,
@@ -151,7 +154,9 @@ impl Script {
                 // TODO: switch to flatbuffer serialization once we
                 // can do stable serialization using flatbuffer.
                 if let Some(ref data) = self.reference {
-                    bytes.write_all(data.as_bytes()).unwrap();
+                    bytes
+                        .write_all(data.as_bytes())
+                        .expect(VEC_WRITE_ALL_EXPECT);
                 }
                 // A separator is used here to prevent the rare case
                 // that some binary might contain the exactly
@@ -160,12 +165,12 @@ impl Script {
                 // the hash. Note this might not solve every problem,
                 // when flatbuffer change is done, we can leverage flatbuffer
                 // serialization directly, which will be more reliable.
-                bytes.write_all(b"|").unwrap();
+                bytes.write_all(b"|").expect(VEC_WRITE_ALL_EXPECT);
                 if let Some(ref data) = self.binary {
-                    bytes.write_all(&data).unwrap()
+                    bytes.write_all(&data).expect(VEC_WRITE_ALL_EXPECT)
                 }
                 for argument in &self.signed_args {
-                    bytes.write_all(argument).unwrap();
+                    bytes.write_all(argument).expect(VEC_WRITE_ALL_EXPECT);
                 }
                 blake2b_256(bytes).into()
             }

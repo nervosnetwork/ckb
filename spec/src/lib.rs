@@ -97,7 +97,7 @@ impl ChainSpec {
     pub fn read_from_file<P: AsRef<Path>>(path: P) -> Result<ChainSpec, Box<Error>> {
         let config_str = std::fs::read_to_string(path.as_ref())?;
         let mut spec: Self = toml::from_str(&config_str)?;
-        spec.resolve_paths(path.as_ref().parent().unwrap());
+        spec.resolve_paths(path.as_ref().parent().expect("chain spec path resolve"));
         Ok(spec)
     }
 
