@@ -311,7 +311,6 @@ impl PeerStore for SqlitePeerStore {
     }
 
     fn add_bootnode(&mut self, peer_id: PeerId, addr: Multiaddr) {
-        self.new_connected_peer(&peer_id, addr.clone(), SessionType::Client);
         self.bootnodes.push((peer_id, addr));
     }
     // should return high scored nodes if possible, otherwise, return boostrap nodes
