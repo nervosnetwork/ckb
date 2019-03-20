@@ -39,9 +39,11 @@ where
 
     pub fn execute(self) {
         let (tx, relay_cycles): (Transaction, Cycle) = (*self.message).into();
-        let chain_state = self.relayer.shared.chain_state().lock();
-        let max_block_cycles = self.relayer.shared.consensus().max_block_cycles();
-        let tx_result = chain_state.add_tx_to_pool(tx.clone(), max_block_cycles);
+        let tx_result = {
+            let chain_state = self.relayer.shared.chain_state().lock();
+            let max_block_cycles = self.relayer.shared.consensus().max_block_cycles();
+            chain_state.add_tx_to_pool(tx.clone(), max_block_cycles)
+        };
         // disconnect peer if cycles mismatch
         match tx_result {
             Ok(cycles) if cycles == relay_cycles => {
