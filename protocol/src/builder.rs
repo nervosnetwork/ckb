@@ -9,7 +9,8 @@ use crate::protocol_generated::ckb::protocol::{
     ProposalShortId as FbsProposalShortId, RelayMessage, RelayMessageBuilder, RelayPayload,
     Script as FbsScript, ScriptBuilder, SyncMessage, SyncMessageBuilder, SyncPayload,
     Time as FbsTime, TimeBuilder, TimeMessage, TimeMessageBuilder, Transaction as FbsTransaction,
-    TransactionBuilder, UncleBlock as FbsUncleBlock, UncleBlockBuilder, H256 as FbsH256,
+    TransactionBuilder, UncleBlock as FbsUncleBlock, UncleBlockBuilder,
+    ValidTransaction as FbsValidTransaction, ValidTransactionBuilder, H256 as FbsH256,
 };
 use crate::{short_transaction_id, short_transaction_id_keys};
 use ckb_core::block::Block;
@@ -17,6 +18,7 @@ use ckb_core::header::{BlockNumber, Header};
 use ckb_core::script::Script;
 use ckb_core::transaction::{CellInput, CellOutput, OutPoint, ProposalShortId, Transaction};
 use ckb_core::uncle::UncleBlock;
+use ckb_core::Cycle;
 use ckb_merkle_tree::build_merkle_proof;
 use flatbuffers::{FlatBufferBuilder, WIPOffset};
 use numext_fixed_hash::H256;
@@ -110,6 +112,20 @@ impl<'a> FbsOutPoint<'a> {
         let mut builder = OutPointBuilder::new(fbb);
         builder.add_hash(&hash);
         builder.add_index(out_point.index);
+        builder.finish()
+    }
+}
+
+impl<'a> FbsValidTransaction<'a> {
+    pub fn build<'b>(
+        fbb: &mut FlatBufferBuilder<'b>,
+        transaction: &Transaction,
+        cycles: Cycle,
+    ) -> WIPOffset<FbsValidTransaction<'b>> {
+        let tx = FbsTransaction::build(fbb, transaction);
+        let mut builder = ValidTransactionBuilder::new(fbb);
+        builder.add_transaction(tx);
+        builder.add_cycles(cycles);
         builder.finish()
     }
 }
@@ -488,10 +504,11 @@ impl<'a> RelayMessage<'a> {
     pub fn build_transaction<'b>(
         fbb: &mut FlatBufferBuilder<'b>,
         transaction: &Transaction,
+        cycles: Cycle,
     ) -> WIPOffset<RelayMessage<'b>> {
-        let fbs_transaction = FbsTransaction::build(fbb, transaction);
+        let fbs_transaction = FbsValidTransaction::build(fbb, transaction, cycles);
         let mut builder = RelayMessageBuilder::new(fbb);
-        builder.add_payload_type(RelayPayload::Transaction);
+        builder.add_payload_type(RelayPayload::ValidTransaction);
         builder.add_payload(fbs_transaction.as_union_value());
         builder.finish()
     }
