@@ -31,9 +31,11 @@ impl<CI: ChainIndex + 'static> TraceRpc for TraceRpcImpl<CI> {
     fn trace_transaction(&self, tx: Transaction) -> Result<H256> {
         let tx: CoreTransaction = tx.into();
         let tx_hash = tx.hash().clone();
-        let mut chain_state = self.shared.chain_state().lock();
-        let tx_pool = chain_state.mut_tx_pool();
-        tx_pool.trace_tx(tx.clone());
+        {
+            let mut chain_state = self.shared.chain_state().lock();
+            let tx_pool = chain_state.mut_tx_pool();
+            tx_pool.trace_tx(tx.clone());
+        }
 
         let fbb = &mut FlatBufferBuilder::new();
         let message = RelayMessage::build_transaction(fbb, &tx);

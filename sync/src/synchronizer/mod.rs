@@ -549,9 +549,15 @@ impl<CI: ChainIndex> Synchronizer<CI> {
                 if !state.chain_sync.protect && is_outbound {
                     let best_known_header = best_known_headers.get(peer);
 
-                    let chain_state = self.shared.chain_state().lock();
+                    let (tip_header, local_total_difficulty) = {
+                        let chain_state = self.shared.chain_state().lock();
+                        (
+                            chain_state.tip_header().clone(),
+                            chain_state.total_difficulty().clone(),
+                        )
+                    };
                     if best_known_header.map(|h| h.total_difficulty())
-                        >= Some(chain_state.total_difficulty())
+                        >= Some(&local_total_difficulty)
                     {
                         if state.chain_sync.timeout != 0 {
                             state.chain_sync.timeout = 0;
@@ -569,9 +575,8 @@ impl<CI: ChainIndex> Synchronizer<CI> {
                         // where we checked against our tip.
                         // Either way, set a new timeout based on current tip.
                         state.chain_sync.timeout = now + CHAIN_SYNC_TIMEOUT;
-                        state.chain_sync.work_header = Some(chain_state.tip_header().clone());
-                        state.chain_sync.total_difficulty =
-                            Some(chain_state.total_difficulty().clone());
+                        state.chain_sync.work_header = Some(tip_header);
+                        state.chain_sync.total_difficulty = Some(local_total_difficulty);
                         state.chain_sync.sent_getheaders = false;
                     } else if state.chain_sync.timeout > 0 && now > state.chain_sync.timeout {
                         // No evidence yet that our peer has synced to a chain with work equal to that
