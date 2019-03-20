@@ -79,7 +79,7 @@ fn test_genesis_transaction_fetch() {
     let (_chain_controller, shared) = start_chain(Some(consensus));
 
     let out_point = OutPoint::new(root_hash, 0);
-    let state = shared.cell(&out_point);
+    let state = shared.chain_state().lock().cell(&out_point);
     assert!(state.is_live());
 }
 

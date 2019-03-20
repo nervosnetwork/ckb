@@ -2,7 +2,7 @@ use crate::error::{CellbaseError, CommitError, Error, UnclesError};
 use crate::header_verifier::HeaderResolver;
 use crate::{InputVerifier, TransactionVerifier, Verifier};
 use ckb_core::block::Block;
-use ckb_core::cell::{CellProvider, ResolvedTransaction};
+use ckb_core::cell::ResolvedTransaction;
 use ckb_core::header::Header;
 use ckb_core::transaction::{Capacity, CellInput};
 use ckb_core::Cycle;
@@ -32,7 +32,7 @@ pub struct BlockVerifier<P> {
 
 impl<P> BlockVerifier<P>
 where
-    P: ChainProvider + CellProvider + Clone + 'static,
+    P: ChainProvider + Clone + 'static,
 {
     pub fn new(provider: P) -> Self {
         BlockVerifier {
@@ -46,7 +46,7 @@ where
     }
 }
 
-impl<P: ChainProvider + CellProvider + Clone> Verifier for BlockVerifier<P> {
+impl<P: ChainProvider + Clone> Verifier for BlockVerifier<P> {
     type Target = Block;
 
     fn verify(&self, target: &Block) -> Result<(), Error> {

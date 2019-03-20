@@ -1,8 +1,10 @@
 use ckb_core::block::Block;
-use ckb_core::cell::{resolve_transaction, CellProvider, CellStatus, ResolvedTransaction};
+use ckb_core::cell::{
+    resolve_transaction, BlockCellProvider, OverlayCellProvider, ResolvedTransaction,
+};
 use ckb_core::extras::BlockExt;
 use ckb_core::service::{Request, DEFAULT_CHANNEL_SIZE, SIGNAL_CHANNEL_SIZE};
-use ckb_core::transaction::{OutPoint, ProposalShortId};
+use ckb_core::transaction::ProposalShortId;
 use ckb_core::BlockNumber;
 use ckb_db::batch::Batch;
 use ckb_notify::NotifyController;
@@ -453,26 +455,6 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
             .zip(fork.attached_blocks.iter())
             .rev()
         {
-            let cell_resolver = |op: &OutPoint| {
-                self.shared.cell_at(op, |op| {
-                    if cell_set_diff.new_inputs.contains(op) {
-                        Some(true)
-                    } else if let Some(x) = cell_set_diff.new_outputs.get(&op.hash) {
-                        if op.index < (*x as u32) {
-                            Some(false)
-                        } else {
-                            Some(true)
-                        }
-                    } else if cell_set_diff.old_outputs.contains(&op.hash) {
-                        None
-                    } else {
-                        chain_state
-                            .is_dead(op)
-                            .map(|x| x && !cell_set_diff.old_inputs.contains(op))
-                    }
-                })
-            };
-
             let mut output_indexs = FnvHashMap::default();
             let mut seen_inputs = FnvHashSet::default();
 
@@ -480,23 +462,16 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
                 output_indexs.insert(tx.hash(), i);
             }
 
+            let cell_set_diff_cp = OverlayCellProvider::new(&cell_set_diff, chain_state.cell_set());
+            let block_cp = BlockCellProvider::new(b);
+            let cell_provider = OverlayCellProvider::new(&block_cp, &cell_set_diff_cp);
+
             // cellbase verified
             let resolved: Vec<ResolvedTransaction> = b
                 .commit_transactions()
                 .iter()
                 .skip(1)
-                .map(|x| {
-                    resolve_transaction(x, &mut seen_inputs, |o| {
-                        if let Some(i) = output_indexs.get(&o.hash) {
-                            match b.commit_transactions()[*i].outputs().get(o.index as usize) {
-                                Some(x) => CellStatus::Live(x.clone()),
-                                None => CellStatus::Unknown,
-                            }
-                        } else {
-                            cell_resolver(o)
-                        }
-                    })
-                })
+                .map(|x| resolve_transaction(x, &mut seen_inputs, &cell_provider))
                 .collect();
 
             if !found_error

@@ -1,5 +1,7 @@
+use crate::block::Block;
 use crate::transaction::{CellOutput, OutPoint, Transaction};
-use fnv::FnvHashSet;
+use fnv::{FnvHashMap, FnvHashSet};
+use numext_fixed_hash::H256;
 use std::iter::Chain;
 use std::slice;
 
@@ -54,27 +56,81 @@ pub struct ResolvedTransaction {
 
 pub trait CellProvider {
     fn cell(&self, out_point: &OutPoint) -> CellStatus;
+}
 
-    fn cell_at<F: Fn(&OutPoint) -> Option<bool>>(
-        &self,
-        _out_point: &OutPoint,
-        _is_dead: F,
-    ) -> CellStatus {
-        unreachable!()
+pub struct OverlayCellProvider<'a, O, CP> {
+    overlay: &'a O,
+    cell_provider: &'a CP,
+}
+
+impl<'a, O, CP> OverlayCellProvider<'a, O, CP> {
+    pub fn new(overlay: &'a O, cell_provider: &'a CP) -> Self {
+        OverlayCellProvider {
+            overlay,
+            cell_provider,
+        }
     }
 }
 
-pub fn resolve_transaction<F: Fn(&OutPoint) -> CellStatus>(
+impl<'a, O, CP> CellProvider for OverlayCellProvider<'a, O, CP>
+where
+    O: CellProvider,
+    CP: CellProvider,
+{
+    fn cell(&self, out_point: &OutPoint) -> CellStatus {
+        match self.overlay.cell(out_point) {
+            CellStatus::Live(co) => CellStatus::Live(co),
+            CellStatus::Dead => CellStatus::Dead,
+            CellStatus::Unknown => self.cell_provider.cell(out_point),
+        }
+    }
+}
+
+pub struct BlockCellProvider<'a> {
+    output_indexs: FnvHashMap<H256, usize>,
+    block: &'a Block,
+}
+
+impl<'a> BlockCellProvider<'a> {
+    pub fn new(block: &'a Block) -> Self {
+        let mut output_indexs = FnvHashMap::default();
+        for (i, tx) in block.commit_transactions().iter().enumerate() {
+            output_indexs.insert(tx.hash(), i);
+        }
+        Self {
+            output_indexs,
+            block,
+        }
+    }
+}
+
+impl<'a> CellProvider for BlockCellProvider<'a> {
+    fn cell(&self, out_point: &OutPoint) -> CellStatus {
+        if let Some(i) = self.output_indexs.get(&out_point.hash) {
+            match self.block.commit_transactions()[*i]
+                .outputs()
+                .get(out_point.index as usize)
+            {
+                Some(x) => CellStatus::Live(x.clone()),
+                None => CellStatus::Unknown,
+            }
+        } else {
+            CellStatus::Unknown
+        }
+    }
+}
+
+pub fn resolve_transaction<CP: CellProvider>(
     transaction: &Transaction,
     seen_inputs: &mut FnvHashSet<OutPoint>,
-    cell: F,
+    cell_provider: &CP,
 ) -> ResolvedTransaction {
     let input_cells = transaction
         .input_pts()
         .iter()
         .map(|input| {
             if seen_inputs.insert(input.clone()) {
-                cell(input)
+                cell_provider.cell(input)
             } else {
                 CellStatus::Dead
             }
@@ -86,7 +142,7 @@ pub fn resolve_transaction<F: Fn(&OutPoint) -> CellStatus>(
         .iter()
         .map(|dep| {
             if seen_inputs.insert(dep.clone()) {
-                cell(dep)
+                cell_provider.cell(dep)
             } else {
                 CellStatus::Dead
             }
@@ -135,14 +191,6 @@ mod tests {
     }
     impl CellProvider for CellMemoryDb {
         fn cell(&self, o: &OutPoint) -> CellStatus {
-            match self.cells.get(o) {
-                Some(&Some(ref cell_output)) => CellStatus::Live(cell_output.clone()),
-                Some(&None) => CellStatus::Dead,
-                None => CellStatus::Unknown,
-            }
-        }
-
-        fn cell_at<F: Fn(&OutPoint) -> Option<bool>>(&self, o: &OutPoint, _: F) -> CellStatus {
             match self.cells.get(o) {
                 Some(&Some(ref cell_output)) => CellStatus::Live(cell_output.clone()),
                 Some(&None) => CellStatus::Dead,

@@ -1,4 +1,5 @@
 use ckb_core::block::Block;
+use ckb_core::cell::{CellProvider, CellStatus};
 use ckb_core::transaction::OutPoint;
 use ckb_core::transaction_meta::TransactionMeta;
 use fnv::{FnvHashMap, FnvHashSet};
@@ -31,6 +32,16 @@ impl CellSetDiff {
 
             self.old_inputs.extend(input_pts);
             self.old_outputs.insert(tx_hash);
+        }
+    }
+}
+
+impl CellProvider for CellSetDiff {
+    fn cell(&self, out_point: &OutPoint) -> CellStatus {
+        if self.new_inputs.contains(out_point) {
+            CellStatus::Dead
+        } else {
+            CellStatus::Unknown
         }
     }
 }
@@ -92,5 +103,20 @@ impl CellSet {
         diff.new_inputs.iter().for_each(|o| {
             self.mark_dead(o);
         });
+    }
+}
+
+impl CellProvider for CellSet {
+    fn cell(&self, out_point: &OutPoint) -> CellStatus {
+        match self.get(&out_point.hash) {
+            Some(meta) => {
+                if meta.is_dead(out_point.index as usize) {
+                    CellStatus::Dead
+                } else {
+                    CellStatus::Unknown
+                }
+            }
+            None => CellStatus::Unknown,
+        }
     }
 }
