@@ -2,9 +2,14 @@
 use crate::Network;
 use futures::{sync::mpsc, sync::oneshot, Async, Future, Stream};
 use log::{debug, warn};
+use std::collections::HashMap;
 use std::sync::Arc;
 
-use p2p::{multiaddr::Multiaddr, secio::PeerId};
+use p2p::{
+    multiaddr::{Multiaddr, Protocol},
+    secio::PeerId,
+    utils::multiaddr_to_socketaddr,
+};
 
 pub use p2p_identify::IdentifyProtocol;
 use p2p_identify::{AddrManager, MisbehaveResult, Misbehavior};
@@ -80,6 +85,7 @@ pub enum IdentifyEvent {
 pub(crate) struct IdentifyService {
     event_receiver: mpsc::UnboundedReceiver<IdentifyEvent>,
     network: Arc<Network>,
+    listen_addrs: HashMap<PeerId, Vec<Multiaddr>>,
 }
 
 impl IdentifyService {
@@ -90,6 +96,7 @@ impl IdentifyService {
         IdentifyService {
             event_receiver,
             network,
+            listen_addrs: HashMap::default(),
         }
     }
 }
@@ -99,11 +106,34 @@ impl Stream for IdentifyService {
     type Error = ();
     fn poll(&mut self) -> Result<Async<Option<Self::Item>>, Self::Error> {
         match try_ready!(self.event_receiver.poll()) {
-            Some(IdentifyEvent::AddListenAddrs { .. }) => {
-                // TODO: how to transform those addresses
+            Some(IdentifyEvent::AddListenAddrs { peer_id, addrs }) => {
+                self.listen_addrs.insert(peer_id, addrs);
             }
-            Some(IdentifyEvent::AddObservedAddr { .. }) => {
-                // TODO: how to transform this address
+            Some(IdentifyEvent::AddObservedAddr { peer_id, addr }) => {
+                // TODO: how to use listen addresses
+                if let Some(addr) = self
+                    .listen_addrs
+                    .get(&peer_id)
+                    .map(|addrs| addrs.iter().next())
+                    .unwrap_or(None)
+                    .map(|addr| multiaddr_to_socketaddr(addr))
+                    .unwrap_or(None)
+                    .map(|socket_addr| socket_addr.port())
+                    .map(move |port| {
+                        addr.into_iter()
+                            .map(|proto| match proto {
+                                Protocol::Tcp(_) => Protocol::Tcp(port),
+                                value => value,
+                            })
+                            .collect()
+                    })
+                {
+                    let _ = self
+                        .network
+                        .peer_store()
+                        .write()
+                        .add_discovered_address(&peer_id, addr);
+                }
             }
             Some(IdentifyEvent::Misbehave { result, .. }) => {
                 // TODO: report misbehave

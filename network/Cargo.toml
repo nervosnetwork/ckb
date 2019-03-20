@@ -20,10 +20,6 @@ bytes = "0.4.12"
 tokio = "0.1.17"
 futures = { version = "0.1.19", features = ["use_std"] }
 snap = "0.2"
-# p2p = { version = "0.2.0-alpha.1", package="tentacle" }
-# secio = { version = "0.1.0", package="tentacle-secio" }
-# p2p-ping = { version = "0.2.0", package="tentacle-ping" }
-# p2p-discovery = { git = "https://github.com/nervosnetwork/p2p", branch="discovery-use-multiaddr-format", package="tentacle-discovery" }
 p2p = { git = "https://github.com/nervosnetwork/p2p", rev="9c42be05724c3e2decb73716d0f515c36a7af1cb", package="tentacle" }
 secio = { git = "https://github.com/nervosnetwork/p2p", rev="9c42be05724c3e2decb73716d0f515c36a7af1cb", package="tentacle-secio" }
 p2p-ping = { git = "https://github.com/nervosnetwork/p2p", rev="9c42be05724c3e2decb73716d0f515c36a7af1cb", package="tentacle-ping" }
