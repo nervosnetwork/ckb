@@ -125,6 +125,7 @@ pub trait PeerStore: Send + Sync {
     fn bootnodes(&self, count: u32) -> Vec<(PeerId, Multiaddr)>;
     fn peer_addrs(&self, peer_id: &PeerId, count: u32) -> Option<Vec<Multiaddr>>;
     fn peers_to_attempt(&self, count: u32) -> Vec<(PeerId, Multiaddr)>;
+    fn random_peers(&self, count: u32) -> Vec<(PeerId, Multiaddr)>;
     fn ban_peer(&mut self, peer_id: &PeerId, timeout: Duration);
     fn is_banned(&self, peer_id: &PeerId) -> bool;
     fn scoring_schema(&self) -> &ScoringSchema;

@@ -344,6 +344,13 @@ impl PeerStore for SqlitePeerStore {
             .expect("get peers to attempt")
     }
 
+    //TODO Only return connected addresses after network support feeler connection
+    fn random_peers(&self, count: u32) -> Vec<(PeerId, Multiaddr)> {
+        self.pool
+            .fetch(|conn| db::get_random_peers(&conn, count))
+            .expect("get random peers")
+    }
+
     fn ban_peer(&mut self, peer_id: &PeerId, timeout: Duration) {
         if let Some(peer) = self.get_peer_info(peer_id) {
             self.ban_ip(&peer.connected_addr, timeout);
