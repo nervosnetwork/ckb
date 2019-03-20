@@ -147,6 +147,9 @@ pub struct Transaction {
     deps: Vec<OutPoint>,
     inputs: Vec<CellInput>,
     outputs: Vec<CellOutput>,
+    // Embeds are used to directly embed binaries used in scripts. This way CKB
+    // provides a way to reference the data from an already spent cell, or a script
+    // that's not yet included in any cell.
     embeds: Vec<Vec<u8>>,
 }
 

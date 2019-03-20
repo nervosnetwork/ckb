@@ -15,8 +15,10 @@ pub struct Script {
     pub args: Vec<Vec<u8>>,
     // The reference hash here can be used to refer to binary in any of the
     // following locations:
-    // 1. Data part of a dep cell in current transaction
-    // 2. An embed item in current transaction
+    // 1. Data part of a dep cell in current transaction, reference hash
+    // must be the hash of the cell data so as to reference this cell
+    // 2. An embed item in current transaction, reference hash must be the
+    // hash of the embed item to reference this item
     pub reference: H256,
 }
 
