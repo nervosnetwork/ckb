@@ -1,3 +1,5 @@
+use crate::network_group::MultiaddrExt;
+use crate::peer_store::sqlite::{self, db, ConnectionPool, ConnectionPoolExt, DBError};
 /// SqlitePeerStore
 /// Principles:
 /// 1. PeerId is easy to be generated, should never use a PeerId as an identity.
@@ -9,10 +11,9 @@
 /// 3. A bad peer can always avoid punishment by change it's PeerId, but it can't get high
 ///    score.
 /// 4. Good peers can get higher score than bad peers.
-use super::{Behaviour, Multiaddr, PeerId, PeerStore, ReportResult, Score, ScoringSchema, Status};
-use crate::network_group::MultiaddrExt;
-use crate::peer_store::db;
-use crate::peer_store::sqlite::{self, ConnectionPool, ConnectionPoolExt};
+use crate::peer_store::{
+    Behaviour, Multiaddr, PeerId, PeerStore, ReportResult, Score, ScoringSchema, Status,
+};
 use crate::SessionType;
 use faketime::unix_time;
 use fnv::FnvHashMap;
@@ -32,12 +33,6 @@ pub struct SqlitePeerStore {
     pool: ConnectionPool,
 }
 
-impl Default for SqlitePeerStore {
-    fn default() -> Self {
-        SqlitePeerStore::memory()
-    }
-}
-
 impl SqlitePeerStore {
     pub fn new(connection_pool: ConnectionPool) -> Self {
         let mut peer_store = SqlitePeerStore {
@@ -50,27 +45,27 @@ impl SqlitePeerStore {
         peer_store
     }
 
-    fn memory() -> Self {
-        let pool = sqlite::open_pool(sqlite::StorePath::Memory, DEFAULT_POOL_SIZE);
-        SqlitePeerStore::new(pool)
+    pub fn memory() -> Result<Self, DBError> {
+        let pool = sqlite::open_pool(sqlite::StorePath::Memory, DEFAULT_POOL_SIZE)?;
+        Ok(SqlitePeerStore::new(pool))
     }
 
     #[allow(dead_code)]
-    pub fn temp() -> Self {
-        let pool = sqlite::open_pool(sqlite::StorePath::File("".into()), DEFAULT_POOL_SIZE);
-        SqlitePeerStore::new(pool)
+    pub fn temp() -> Result<Self, DBError> {
+        let pool = sqlite::open_pool(sqlite::StorePath::File("".into()), DEFAULT_POOL_SIZE)?;
+        Ok(SqlitePeerStore::new(pool))
     }
 
-    fn prepare(&mut self) -> Result<(), sqlite::Error> {
+    fn prepare(&mut self) -> Result<(), DBError> {
         self.create_tables()?;
         self.load_banlist()
     }
 
-    fn create_tables(&mut self) -> Result<(), sqlite::Error> {
+    fn create_tables(&mut self) -> Result<(), DBError> {
         self.pool.fetch(|conn| db::create_tables(conn))
     }
 
-    fn load_banlist(&mut self) -> Result<(), sqlite::Error> {
+    fn load_banlist(&mut self) -> Result<(), DBError> {
         self.clear_expires_banned_ip()?;
         let now = unix_time();
         let ban_records = self.pool.fetch(|conn| db::get_ban_records(conn, now))?;
@@ -111,7 +106,7 @@ impl SqlitePeerStore {
         }
     }
 
-    fn clear_expires_banned_ip(&mut self) -> Result<(), sqlite::Error> {
+    fn clear_expires_banned_ip(&mut self) -> Result<(), DBError> {
         let now = unix_time();
         let ips = self
             .pool

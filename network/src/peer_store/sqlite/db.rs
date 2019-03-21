@@ -1,6 +1,6 @@
-use super::{Multiaddr, PeerId, Score, Status};
 use crate::network_group::{Group, NetworkGroup};
-use crate::peer_store::sqlite::Error as SqliteError;
+use crate::peer_store::sqlite::DBError;
+use crate::peer_store::{Multiaddr, PeerId, Score, Status};
 use crate::SessionType;
 use rusqlite::types::ToSql;
 use rusqlite::OptionalExtension;
@@ -8,7 +8,7 @@ use rusqlite::{Connection, NO_PARAMS};
 use std::iter::FromIterator;
 use std::time::Duration;
 
-type DBResult<T> = Result<T, SqliteError>;
+type DBResult<T> = Result<T, DBError>;
 
 pub fn create_tables(conn: &Connection) -> DBResult<()> {
     let sql = r#"

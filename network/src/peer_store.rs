@@ -1,12 +1,8 @@
-mod db;
-pub mod sqlite;
-pub use crate::{peer_store::sqlite_peer_store::SqlitePeerStore, SessionType};
-#[cfg(db_trace)]
-pub mod db_trace;
 mod score;
-pub(crate) mod sqlite_peer_store;
+pub mod sqlite;
 
 pub(crate) use crate::PeerId;
+pub use crate::{peer_store::sqlite::SqlitePeerStore, SessionType};
 use p2p::multiaddr::Multiaddr;
 pub use score::{Behaviour, Score, ScoringSchema};
 use std::time::Duration;

@@ -9,7 +9,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 fn new_peer_store() -> Arc<RwLock<dyn PeerStore>> {
-    Arc::new(RwLock::new(SqlitePeerStore::temp()))
+    Arc::new(RwLock::new(SqlitePeerStore::temp().expect("temp")))
 }
 
 #[test]
