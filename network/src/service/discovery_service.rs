@@ -10,6 +10,7 @@ use p2p::{
     multiaddr::Multiaddr,
     secio::PeerId,
     traits::ServiceProtocol,
+    utils::extract_peer_id,
     yamux::session::SessionType,
     ProtocolId, SessionId,
 };
@@ -207,12 +208,17 @@ impl Stream for DiscoveryService {
                 // NOTE: ignore add new addr message, handle this in identify protocol
             }
             Some(DiscoveryEvent::AddNewAddrs { session_id, addrs }) => {
-                if let Some(peer_id) = self.sessions.get(&session_id) {
-                    let _ = self
-                        .network
-                        .peer_store()
-                        .write()
-                        .add_discovered_addresses(peer_id, addrs);
+                if let Some(_peer_id) = self.sessions.get(&session_id) {
+                    // TODO: wait for peer store update
+                    for addr in addrs.into_iter() {
+                        if let Some(peer_id) = extract_peer_id(&addr) {
+                            let _ = self
+                                .network
+                                .peer_store()
+                                .write()
+                                .add_discovered_address(&peer_id, addr);
+                        }
+                    }
                 }
             }
             Some(DiscoveryEvent::Misbehave {
@@ -227,7 +233,7 @@ impl Stream for DiscoveryService {
                     .network
                     .peer_store()
                     .read()
-                    .peers_to_attempt(n as u32)
+                    .random_peers(n as u32)
                     .into_iter()
                     .map(|(_peer_id, addr)| addr)
                     .collect();

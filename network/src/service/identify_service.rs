@@ -114,10 +114,8 @@ impl Stream for IdentifyService {
                 if let Some(addr) = self
                     .listen_addrs
                     .get(&peer_id)
-                    .map(|addrs| addrs.iter().next())
-                    .unwrap_or(None)
-                    .map(|addr| multiaddr_to_socketaddr(addr))
-                    .unwrap_or(None)
+                    .and_then(|addrs| addrs.iter().next())
+                    .and_then(|addr| multiaddr_to_socketaddr(addr))
                     .map(|socket_addr| socket_addr.port())
                     .map(move |port| {
                         addr.into_iter()
