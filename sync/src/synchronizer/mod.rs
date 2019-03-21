@@ -21,6 +21,7 @@ use crate::{
     MAX_OUTBOUND_PEERS_TO_PROTECT_FROM_DISCONNECT, MAX_TIP_AGE, POW_SPACE,
 };
 use bitflags::bitflags;
+use bytes::Bytes;
 use ckb_chain::chain::ChainController;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::Block;
@@ -691,7 +692,7 @@ where
         let _ = nc.register_timer(TIMEOUT_EVICTION_TOKEN, Duration::from_millis(1000));
     }
 
-    fn received(&self, nc: Box<CKBProtocolContext>, peer: PeerIndex, data: Vec<u8>) {
+    fn received(&self, nc: Box<CKBProtocolContext>, peer: PeerIndex, data: Bytes) {
         // TODO use flatbuffers verifier
         let msg = get_root::<SyncMessage>(&data);
         debug!(target: "sync", "msg {:?}", msg.payload_type());

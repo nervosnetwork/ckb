@@ -106,6 +106,7 @@ pub fn run(setup: Setup) {
     rpc_server.close();
     info!(target: "main", "Jsonrpc shutdown");
 
+    // FIXME: should gracefully shutdown network
     network.close();
     info!(target: "main", "Network shutdown");
 }

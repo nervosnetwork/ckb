@@ -1,12 +1,14 @@
 use crate::{peers_registry::Session, PeerId, ServiceContext, SessionContext};
+use bytes::Bytes;
 use futures::sync::mpsc::Sender;
 use log::{debug, error};
 use p2p::{
+    builder::MetaBuilder,
     multiaddr::Multiaddr,
-    traits::{ProtocolMeta, ServiceProtocol},
+    service::{ProtocolHandle, ProtocolMeta},
+    traits::ServiceProtocol,
     ProtocolId,
 };
-use tokio::codec::LengthDelimitedCodec;
 
 pub type Version = u8;
 
@@ -50,34 +52,24 @@ impl CKBProtocol {
     pub fn match_version(&self, version: Version) -> bool {
         self.supported_versions.contains(&version)
     }
-}
 
-impl ProtocolMeta<LengthDelimitedCodec> for CKBProtocol {
-    fn name(&self) -> String {
-        self.protocol_name()
-    }
-
-    fn id(&self) -> ProtocolId {
-        CKBProtocol::id(&self)
-    }
-
-    fn codec(&self) -> LengthDelimitedCodec {
-        LengthDelimitedCodec::new()
-    }
-
-    fn service_handle(&self) -> Option<Box<dyn ServiceProtocol + Send + 'static>> {
-        let handler = Box::new(CKBHandler {
-            id: self.id(),
-            event_sender: self.event_sender.clone(),
-        });
-        Some(handler)
-    }
-
-    fn support_versions(&self) -> Vec<String> {
-        self.supported_versions
+    pub fn build(&self) -> ProtocolMeta {
+        let event_sender = self.event_sender.clone();
+        let supported_versions = self
+            .supported_versions
             .iter()
-            .map(|v| format!("{}", v))
-            .collect()
+            .map(|v| v.to_string())
+            .collect::<Vec<_>>();
+        MetaBuilder::default()
+            .id(self.id)
+            .support_versions(supported_versions)
+            .service_handle(move || {
+                ProtocolHandle::Callback(Box::new(CKBHandler {
+                    id: self.id,
+                    event_sender,
+                }))
+            })
+            .build()
     }
 }
 
@@ -85,7 +77,7 @@ impl ProtocolMeta<LengthDelimitedCodec> for CKBProtocol {
 pub enum Event {
     Connected(PeerId, Multiaddr, Session, ProtocolId, Version),
     Disconnected(PeerId, ProtocolId),
-    Received(PeerId, ProtocolId, Vec<u8>),
+    Received(PeerId, ProtocolId, Bytes),
     Notify(ProtocolId, u64),
 }
 
@@ -106,8 +98,9 @@ impl ServiceProtocol for CKBHandler {
     fn init(&mut self, _control: &mut ServiceContext) {}
     fn connected(&mut self, control: &mut ServiceContext, session: &SessionContext, version: &str) {
         let (peer_id, version) = {
-            let parsed_version = version.parse::<u8>();
-            if session.remote_pubkey.is_none() || parsed_version.is_err() {
+            // TODO: version number should be discussed.
+            let parsed_version = version.parse::<u8>().ok();
+            if session.remote_pubkey.is_none() || parsed_version.is_none() {
                 error!(target: "network", "ckb protocol connected error, addr: {}, protocol:{}, version: {}", session.address, self.id, version);
                 control.disconnect(session.id);
                 return;
@@ -146,7 +139,7 @@ impl ServiceProtocol for CKBHandler {
         }
     }
 
-    fn received(&mut self, _control: &mut ServiceContext, session: &SessionContext, data: Vec<u8>) {
+    fn received(&mut self, _control: &mut ServiceContext, session: &SessionContext, data: Bytes) {
         if let Some(peer_id) = session
             .remote_pubkey
             .as_ref()

@@ -1,6 +1,6 @@
 use crate::Network;
 use futures::{Async, Stream};
-use log::{debug, error};
+use log::{debug, warn};
 use std::sync::Arc;
 use std::time::Duration;
 use std::usize;
@@ -38,19 +38,16 @@ impl Stream for OutboundPeerService {
                         .peer_store()
                         .read()
                         .peers_to_attempt(new_outbound as u32);
-                    for (peer_id, addr) in attempt_peers.iter().filter_map(|(peer_id, addr)| {
-                        if self.network.local_peer_id() != peer_id {
-                            Some((peer_id.clone(), addr.clone()))
-                        } else {
-                            None
-                        }
-                    }) {
+                    for (peer_id, addr) in attempt_peers
+                        .into_iter()
+                        .filter(|(peer_id, _addr)| self.network.local_peer_id() != peer_id)
+                    {
                         self.network.dial(&peer_id, addr);
                     }
                 }
             }
             None => {
-                error!(target: "network", "ckb outbound peer service stopped");
+                warn!(target: "network", "ckb outbound peer service stopped");
                 return Ok(Async::Ready(None));
             }
         }
