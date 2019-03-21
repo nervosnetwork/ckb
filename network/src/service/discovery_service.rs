@@ -150,10 +150,6 @@ pub enum DiscoveryEvent {
         peer_id: Option<PeerId>,
     },
     Disconnected(SessionId),
-    AddNewAddr {
-        session_id: SessionId,
-        addr: Multiaddr,
-    },
     AddNewAddrs {
         session_id: SessionId,
         addrs: Vec<Multiaddr>,
@@ -203,9 +199,6 @@ impl Stream for DiscoveryService {
             }
             Some(DiscoveryEvent::Disconnected(session_id)) => {
                 self.sessions.remove(&session_id);
-            }
-            Some(DiscoveryEvent::AddNewAddr { .. }) => {
-                // NOTE: ignore add new addr message, handle this in identify protocol
             }
             Some(DiscoveryEvent::AddNewAddrs { session_id, addrs }) => {
                 if let Some(_peer_id) = self.sessions.get(&session_id) {
@@ -262,12 +255,7 @@ pub struct DiscoveryAddressManager {
 }
 
 impl AddressManager for DiscoveryAddressManager {
-    fn add_new_addr(&mut self, session_id: SessionId, addr: Multiaddr) {
-        let event = DiscoveryEvent::AddNewAddr { session_id, addr };
-        if self.event_sender.unbounded_send(event).is_err() {
-            warn!(target: "network", "receiver maybe dropped!");
-        }
-    }
+    fn add_new_addr(&mut self, _session_id: SessionId, _addr: Multiaddr) {}
 
     fn add_new_addrs(&mut self, session_id: SessionId, addrs: Vec<Multiaddr>) {
         let event = DiscoveryEvent::AddNewAddrs { session_id, addrs };
