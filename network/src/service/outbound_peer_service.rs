@@ -37,14 +37,11 @@ impl Stream for OutboundPeerService {
                         .network
                         .peer_store()
                         .read()
-                        .random_peers(new_outbound as u32)
+                        .peers_to_attempt(new_outbound as u32);
+                    for (peer_id, addr) in attempt_peers
                         .into_iter()
-                        .filter(|(peer_id, _addr)| {
-                            self.network.get_peer_index(peer_id).is_none()
-                                && self.network.local_peer_id() != peer_id
-                        })
-                        .collect::<Vec<_>>();
-                    for (peer_id, addr) in attempt_peers.into_iter() {
+                        .filter(|(peer_id, _addr)| self.network.local_peer_id() != peer_id)
+                    {
                         self.network.dial(&peer_id, addr);
                     }
                 }
