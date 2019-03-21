@@ -51,7 +51,7 @@ impl Stream for CKBService {
                             let mut peer_store = network.peer_store().write();
                             peer_store.report(&peer_id, Behaviour::Connect);
                             peer_store.update_status(&peer_id, Status::Connected);
-                            let _ = peer_store.add_discovered_address(&peer_id, addr);
+                            let _ = peer_store.add_discovered_addr(&peer_id, addr);
                         }
                         // call handler
                         match self.find_handler(&peer_id, protocol_id) {

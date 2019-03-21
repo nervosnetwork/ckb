@@ -1,3 +1,14 @@
+/// SqlitePeerStore
+/// Principles:
+/// 1. PeerId is easy to be generated, should never use a PeerId as an identity.
+/// 2. Peer's connected addr should be use as an identify to ban a peer, it is based on our
+///    assumption that IP is a limited resource.
+/// Solution:
+/// 1. Through PeerId to ban or score a peer.
+/// 2. When a peer get banned we also ban peer's connected addr.
+/// 3. A bad peer can always avoid punishment by change it's PeerId, but it can't get high
+///    score.
+/// 4. Good peers can get higher score than bad peers.
 use super::{Behaviour, Multiaddr, PeerId, PeerStore, ReportResult, Score, ScoringSchema, Status};
 use crate::network_group::MultiaddrExt;
 use crate::peer_store::db;
@@ -13,13 +24,6 @@ pub(crate) const PEER_STORE_LIMIT: u32 = 8192;
 pub(crate) const PEER_NOT_SEEN_TIMEOUT_SECS: u32 = 14 * 24 * 3600;
 const BAN_LIST_CLEAR_EXPIRES_SIZE: usize = 255;
 const DEFAULT_POOL_SIZE: u32 = 16;
-
-// Scoring and ban:
-// Because peer_id is easy to forge, we should consider to identify a peer by it's connected_addr
-// instead of peer_id
-// Howerver connected_addr maybe same for multiple inbound peers, these peers may in the same sub network or our node may behind a reverse proxy, so we can't just reject them.
-// A solution is to identify and score a peer by it's peer_id, but ban a peer through it connected_addr, it's
-// mean when a peer got banned, we're no longer accept new peers from the same connected_addr.
 
 pub struct SqlitePeerStore {
     bootnodes: Vec<(PeerId, Multiaddr)>,
@@ -118,7 +122,7 @@ impl SqlitePeerStore {
         Ok(())
     }
 
-    // check and try to delete peer_info if peer_infos reach limit
+    /// check and try delete peer_info if peer_infos reach limit
     fn check_store_limit(&mut self) -> Result<(), ()> {
         let peer_info_count = self
             .pool
@@ -224,7 +228,7 @@ impl SqlitePeerStore {
 }
 
 impl PeerStore for SqlitePeerStore {
-    fn new_connected_peer(&mut self, peer_id: &PeerId, addr: Multiaddr, endpoint: SessionType) {
+    fn add_connected_peer(&mut self, peer_id: &PeerId, addr: Multiaddr, endpoint: SessionType) {
         if self.check_store_limit().is_err() {
             return;
         }
@@ -233,38 +237,17 @@ impl PeerStore for SqlitePeerStore {
         self.get_and_upsert_peer_info_with(peer_id, &addr, endpoint, now);
     }
 
-    fn add_discovered_address(&mut self, peer_id: &PeerId, addr: Multiaddr) -> Result<(), ()> {
-        self.check_store_limit()?;
+    fn add_discovered_addr(&mut self, peer_id: &PeerId, addr: Multiaddr) -> bool {
+        // peer store is full
+        if self.check_store_limit().is_err() {
+            return false;
+        }
         let id = self.get_or_insert_peer_info(peer_id).id;
         let inserted = self
             .pool
             .fetch(|conn| db::PeerAddr::insert(&conn, id, &addr))
             .expect("insert addr");
-        if inserted > 0 {
-            Ok(())
-        } else {
-            Err(())
-        }
-    }
-
-    fn add_discovered_addresses(
-        &mut self,
-        peer_id: &PeerId,
-        addrs: Vec<Multiaddr>,
-    ) -> Result<usize, ()> {
-        self.check_store_limit()?;
-        let id = self.get_or_insert_peer_info(peer_id).id;
-        let count = self
-            .pool
-            .fetch(|conn| {
-                let mut count = 0;
-                for addr in &addrs {
-                    count += db::PeerAddr::insert(&conn, id, &addr)?;
-                }
-                Ok(count)
-            })
-            .expect("insert addrs");
-        Ok(count)
+        inserted > 0
     }
 
     fn report(&mut self, peer_id: &PeerId, behaviour: Behaviour) -> ReportResult {

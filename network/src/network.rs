@@ -242,7 +242,7 @@ impl Network {
         let _ = self
             .peer_store()
             .write()
-            .add_discovered_address(peer_id, address);
+            .add_discovered_addr(peer_id, address);
     }
 
     fn to_external_url(&self, addr: &Multiaddr) -> String {
