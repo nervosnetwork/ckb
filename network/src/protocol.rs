@@ -55,8 +55,14 @@ impl CKBProtocol {
 
     pub fn build(&self) -> ProtocolMeta {
         let event_sender = self.event_sender.clone();
+        let supported_versions = self
+            .supported_versions
+            .iter()
+            .map(|v| v.to_string())
+            .collect::<Vec<_>>();
         MetaBuilder::default()
             .id(self.id)
+            .support_versions(supported_versions)
             .service_handle(move || {
                 ProtocolHandle::Callback(Box::new(CKBHandler {
                     id: self.id,
@@ -92,8 +98,8 @@ impl ServiceProtocol for CKBHandler {
     fn init(&mut self, _control: &mut ServiceContext) {}
     fn connected(&mut self, control: &mut ServiceContext, session: &SessionContext, version: &str) {
         let (peer_id, version) = {
-            // FIXME: version number should be discussed.
-            let parsed_version = version.split('.').last().and_then(|v| v.parse::<u8>().ok());
+            // TODO: version number should be discussed.
+            let parsed_version = version.parse::<u8>().ok();
             if session.remote_pubkey.is_none() || parsed_version.is_none() {
                 error!(target: "network", "ckb protocol connected error, addr: {}, protocol:{}, version: {}", session.address, self.id, version);
                 control.disconnect(session.id);
