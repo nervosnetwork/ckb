@@ -399,7 +399,7 @@ impl Network {
             .service_handle(move || {
                 ProtocolHandle::Callback(Box::new(DiscoveryProtocol::new(
                     DISCOVERY_PROTOCOL_ID,
-                    disc_sender.clone(),
+                    disc_sender,
                 )))
             })
             .build();
