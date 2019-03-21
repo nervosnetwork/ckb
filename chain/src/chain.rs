@@ -316,21 +316,33 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
     ) {
         if new_tip_number <= current_tip_number {
             for bn in new_tip_number..=current_tip_number {
-                let hash = self.shared.block_hash(bn).unwrap();
-                let old_block = self.shared.block(&hash).unwrap();
+                let hash = self
+                    .shared
+                    .block_hash(bn)
+                    .expect("block hash stored before alignment_fork");
+                let old_block = self
+                    .shared
+                    .block(&hash)
+                    .expect("block data stored before alignment_fork");
                 fork.detached_blocks.push(old_block);
             }
         } else {
             while index.number > current_tip_number {
                 if index.unseen {
-                    let ext = self.shared.block_ext(&index.hash).unwrap();
+                    let ext = self
+                        .shared
+                        .block_ext(&index.hash)
+                        .expect("block ext stored before alignment_fork");
                     if ext.txs_verified.is_none() {
                         fork.dirty_exts.push(ext)
                     } else {
                         index.unseen = false;
                     }
                 }
-                let new_block = self.shared.block(&index.hash).unwrap();
+                let new_block = self
+                    .shared
+                    .block(&index.hash)
+                    .expect("block data stored before alignment_fork");
                 index.forward(new_block.header().parent_hash().clone());
                 fork.attached_blocks.push(new_block);
             }
@@ -342,15 +354,24 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
             if index.number == 0 {
                 break;
             }
-            let detached_hash = self.shared.block_hash(index.number).unwrap();
+            let detached_hash = self
+                .shared
+                .block_hash(index.number)
+                .expect("detached hash stored before find_fork_until_latest_common");
             if detached_hash == index.hash {
                 break;
             }
-            let detached_blocks = self.shared.block(&detached_hash).unwrap();
+            let detached_blocks = self
+                .shared
+                .block(&detached_hash)
+                .expect("detached block stored before find_fork_until_latest_common");
             fork.detached_blocks.push(detached_blocks);
 
             if index.unseen {
-                let ext = self.shared.block_ext(&index.hash).unwrap();
+                let ext = self
+                    .shared
+                    .block_ext(&index.hash)
+                    .expect("block ext stored before find_fork_until_latest_common");
                 if ext.txs_verified.is_none() {
                     fork.dirty_exts.push(ext)
                 } else {
@@ -358,7 +379,10 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
                 }
             }
 
-            let attached_block = self.shared.block(&index.hash).unwrap();
+            let attached_block = self
+                .shared
+                .block(&index.hash)
+                .expect("attached block stored before find_fork_until_latest_common");
             index.forward(attached_block.header().parent_hash().clone());
             fork.attached_blocks.push(attached_block);
         }

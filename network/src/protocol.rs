@@ -117,8 +117,8 @@ impl ServiceProtocol for CKBHandler {
                     .remote_pubkey
                     .as_ref()
                     .map(|pubkey| pubkey.peer_id())
-                    .unwrap(),
-                parsed_version.unwrap(),
+                    .expect("remote_pubkey existence checked"),
+                parsed_version.expect("parsed_version existence checked"),
             )
         };
         debug!(target: "network", "ckb protocol connected, addr: {}, protocol: {}, version: {}, peer_id: {:?}", session.address, self.id, version, &peer_id);

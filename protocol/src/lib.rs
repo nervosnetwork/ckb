@@ -5,8 +5,8 @@ mod convert;
 mod protocol_generated;
 
 pub use crate::protocol_generated::ckb::protocol::*;
-use byteorder::{ByteOrder, LittleEndian, WriteBytesExt};
-use hash::blake2b_256;
+use byteorder::{LittleEndian, ReadBytesExt};
+use hash::new_blake2b;
 use numext_fixed_hash::H256;
 use siphasher::sip::SipHasher;
 use std::hash::Hasher;
@@ -39,14 +39,19 @@ impl<'a, T: flatbuffers::Follow<'a> + 'a> Iterator for FlatbuffersVectorIterator
 pub type ShortTransactionID = [u8; 6];
 
 pub fn short_transaction_id_keys(header_nonce: u64, random_nonce: u64) -> (u64, u64) {
-    // sha3-256(header nonce + random nonce) in little-endian
-    let mut bytes = vec![];
-    bytes.write_u64::<LittleEndian>(header_nonce).unwrap();
-    bytes.write_u64::<LittleEndian>(random_nonce).unwrap();
-    let block_header_with_nonce_hash = blake2b_256(bytes);
+    // blake2b-256(header nonce + random nonce) in little-endian
+    let mut block_header_with_nonce_hash = [0; 32];
+    let mut blake2b = new_blake2b();
+    blake2b.update(&header_nonce.to_le_bytes());
+    blake2b.update(&random_nonce.to_le_bytes());
+    blake2b.finalize(&mut block_header_with_nonce_hash);
 
-    let key0 = LittleEndian::read_u64(&block_header_with_nonce_hash[0..8]);
-    let key1 = LittleEndian::read_u64(&block_header_with_nonce_hash[8..16]);
+    let key0 = (&block_header_with_nonce_hash[0..8])
+        .read_u64::<LittleEndian>()
+        .expect("read bound checked, should not fail");
+    let key1 = (&block_header_with_nonce_hash[8..16])
+        .read_u64::<LittleEndian>()
+        .expect("read bound checked, should not fail");
 
     (key0, key1)
 }

@@ -23,11 +23,8 @@ impl RocksDB {
         let cf_options: Vec<&str> = cfnames.iter().map(|n| n as &str).collect();
         let db = DB::open_cf(&opts, &config.path, &cf_options).expect("Failed to open rocksdb");
 
-        if config.options.is_some() {
-            let rocksdb_options: Vec<(&str, &str)> = config
-                .options
-                .as_ref()
-                .unwrap()
+        if let Some(db_opt) = config.options.as_ref() {
+            let rocksdb_options: Vec<(&str, &str)> = db_opt
                 .iter()
                 .map(|(k, v)| (k.as_str(), v.as_str()))
                 .collect();

@@ -223,7 +223,7 @@ impl ProposalShortId {
     }
 
     pub fn hash(&self) -> H256 {
-        blake2b_256(serialize(self).unwrap()).into()
+        blake2b_256(serialize(self).expect("ProposalShortId serialize should not fail")).into()
     }
 
     pub fn zero() -> Self {
@@ -257,7 +257,7 @@ impl Transaction {
     }
 
     pub fn hash(&self) -> H256 {
-        blake2b_256(serialize(&self).unwrap()).into()
+        blake2b_256(serialize(&self).expect("Transaction serialize should not fail")).into()
     }
 
     pub fn out_points_iter(&self) -> impl Iterator<Item = &OutPoint> {

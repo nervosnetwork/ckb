@@ -74,7 +74,7 @@ impl Logger {
                     }
                 }
             })
-            .unwrap();
+            .expect("Logger thread init should not fail");
 
         Logger {
             sender,
@@ -134,7 +134,7 @@ impl Log for Logger {
     }
 
     fn flush(&self) {
-        let handle = self.handle.lock().take().unwrap();
+        let handle = self.handle.lock().take().expect("Logger flush only once");
         let _ = self.sender.send(Message::Terminate);
         let _ = handle.join();
     }
@@ -142,7 +142,7 @@ impl Log for Logger {
 
 fn sanitize_color(s: &str) -> String {
     lazy_static! {
-        static ref RE: Regex = Regex::new("\x1b\\[[^m]+m").unwrap();
+        static ref RE: Regex = Regex::new("\x1b\\[[^m]+m").expect("Regex compile success");
     }
     RE.replace_all(s, "").to_string()
 }

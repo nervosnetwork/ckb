@@ -89,10 +89,10 @@ impl NetworkService {
                     ckb_event_receiver,
                     ping_event_receiver,
                 )
-                .unwrap();
-                init_tx.send(()).unwrap();
+                .expect("Network thread init");
+                init_tx.send(()).expect("Network init signal send");
                 // here we use default config
-                let network_runtime = runtime::Runtime::new().unwrap();
+                let network_runtime = runtime::Runtime::new().expect("Network tokio runtime init");;
                 match network_runtime.block_on_all(network_future) {
                     Ok(_) => info!(target: "network", "network service exit"),
                     Err(err) => panic!("network service exit unexpected {}", err),
