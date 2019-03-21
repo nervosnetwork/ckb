@@ -21,13 +21,16 @@ use bytes::Bytes;
 use ckb_chain::chain::ChainController;
 use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::transaction::{ProposalShortId, Transaction};
-use ckb_network::{CKBProtocolContext, CKBProtocolHandler, PeerIndex, TimerToken};
-use ckb_protocol::{short_transaction_id, short_transaction_id_keys, RelayMessage, RelayPayload};
+use ckb_network::{CKBProtocolContext, CKBProtocolHandler, PeerIndex, Severity, TimerToken};
+use ckb_protocol::{
+    cast, short_transaction_id, short_transaction_id_keys, RelayMessage, RelayPayload,
+};
 use ckb_shared::chain_state::ChainState;
 use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::Shared;
 use ckb_traits::ChainProvider;
 use ckb_util::Mutex;
+use failure::Error as FailureError;
 use flatbuffers::{get_root, FlatBufferBuilder};
 use fnv::{FnvHashMap, FnvHashSet};
 use log::{debug, info};
@@ -60,48 +63,72 @@ where
         }
     }
 
-    fn process(&self, nc: &CKBProtocolContext, peer: PeerIndex, message: RelayMessage) {
+    fn try_process(
+        &self,
+        nc: &CKBProtocolContext,
+        peer: PeerIndex,
+        message: RelayMessage,
+    ) -> Result<(), FailureError> {
         match message.payload_type() {
-            RelayPayload::CompactBlock => CompactBlockProcess::new(
-                &message.payload_as_compact_block().unwrap(),
-                self,
-                peer,
-                nc,
-            )
-            .execute(),
-            RelayPayload::ValidTransaction => TransactionProcess::new(
-                &message.payload_as_valid_transaction().unwrap(),
-                self,
-                peer,
-                nc,
-            )
-            .execute(),
-            RelayPayload::GetBlockTransactions => GetBlockTransactionsProcess::new(
-                &message.payload_as_get_block_transactions().unwrap(),
-                self,
-                peer,
-                nc,
-            )
-            .execute(),
-            RelayPayload::BlockTransactions => BlockTransactionsProcess::new(
-                &message.payload_as_block_transactions().unwrap(),
-                self,
-                peer,
-                nc,
-            )
-            .execute(),
-            RelayPayload::GetBlockProposal => GetBlockProposalProcess::new(
-                &message.payload_as_get_block_proposal().unwrap(),
-                self,
-                peer,
-                nc,
-            )
-            .execute(),
-            RelayPayload::BlockProposal => {
-                BlockProposalProcess::new(&message.payload_as_block_proposal().unwrap(), self)
-                    .execute()
+            RelayPayload::CompactBlock => {
+                CompactBlockProcess::new(
+                    &cast!(message.payload_as_compact_block())?,
+                    self,
+                    peer,
+                    nc,
+                )
+                .execute()?;
             }
-            RelayPayload::NONE => {}
+            RelayPayload::ValidTransaction => {
+                TransactionProcess::new(
+                    &cast!(message.payload_as_valid_transaction())?,
+                    self,
+                    peer,
+                    nc,
+                )
+                .execute()?;
+            }
+            RelayPayload::GetBlockTransactions => {
+                GetBlockTransactionsProcess::new(
+                    &cast!(message.payload_as_get_block_transactions())?,
+                    self,
+                    peer,
+                    nc,
+                )
+                .execute()?;
+            }
+            RelayPayload::BlockTransactions => {
+                BlockTransactionsProcess::new(
+                    &cast!(message.payload_as_block_transactions())?,
+                    self,
+                    peer,
+                    nc,
+                )
+                .execute()?;
+            }
+            RelayPayload::GetBlockProposal => {
+                GetBlockProposalProcess::new(
+                    &cast!(message.payload_as_get_block_proposal())?,
+                    self,
+                    peer,
+                    nc,
+                )
+                .execute()?;
+            }
+            RelayPayload::BlockProposal => {
+                BlockProposalProcess::new(&cast!(message.payload_as_block_proposal())?, self)
+                    .execute()?;
+            }
+            RelayPayload::NONE => {
+                cast!(None)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn process(&self, nc: &CKBProtocolContext, peer: PeerIndex, message: RelayMessage) {
+        if self.try_process(nc, peer, message).is_err() {
+            nc.report_peer(peer, Severity::Bad("Malformed RelayMessage"));
         }
     }
 
@@ -199,24 +226,27 @@ where
         // append remain transactions
         short_ids_iter.for_each(|short_id| block_transactions.push(txs_map.remove(short_id)));
 
-        let mut missing_indexes = Vec::new();
+        let missing = block_transactions.iter().any(|tx| tx.is_none());
 
-        for (i, t) in block_transactions.iter().enumerate() {
-            if t.is_none() {
-                missing_indexes.push(i);
-            }
-        }
-
-        if missing_indexes.is_empty() {
+        if !missing {
+            let txs = block_transactions
+                .into_iter()
+                .collect::<Option<Vec<_>>>()
+                .expect("missing checked, should not fail");
             let block = BlockBuilder::default()
                 .header(compact_block.header.clone())
                 .uncles(compact_block.uncles.clone())
-                .commit_transactions(block_transactions.into_iter().map(|t| t.unwrap()).collect())
+                .commit_transactions(txs)
                 .proposal_transactions(compact_block.proposal_transactions.clone())
                 .build();
 
             Ok(block)
         } else {
+            let missing_indexes = block_transactions
+                .iter()
+                .enumerate()
+                .filter_map(|(i, t)| if t.is_none() { Some(i) } else { None })
+                .collect();
             Err(missing_indexes)
         }
     }

@@ -1,7 +1,9 @@
 use ckb_core::header::Header;
 use ckb_core::transaction::{IndexTransaction, ProposalShortId};
 use ckb_core::uncle::UncleBlock;
-use ckb_protocol::{self, FlatbuffersVectorIterator};
+use ckb_protocol::{self, cast, FlatbuffersVectorIterator};
+use ckb_util::{TryFrom, TryInto};
+use failure::Error as FailureError;
 
 pub type ShortTransactionID = [u8; 6];
 
@@ -15,34 +17,39 @@ pub struct CompactBlock {
     pub proposal_transactions: Vec<ProposalShortId>,
 }
 
-impl<'a> From<ckb_protocol::CompactBlock<'a>> for CompactBlock {
-    fn from(b: ckb_protocol::CompactBlock<'a>) -> Self {
-        CompactBlock {
-            header: b.header().unwrap().into(),
+impl<'a> TryFrom<ckb_protocol::CompactBlock<'a>> for CompactBlock {
+    type Error = FailureError;
+
+    fn try_from(b: ckb_protocol::CompactBlock<'a>) -> Result<Self, Self::Error> {
+        let header = cast!(b.header())?;
+        let short_ids = cast!(b.short_ids())?;
+        let prefilled_transactions: Result<Vec<_>, FailureError> =
+            FlatbuffersVectorIterator::new(cast!(b.prefilled_transactions())?)
+                .map(TryInto::try_into)
+                .collect();
+
+        let uncles: Result<Vec<_>, FailureError> =
+            FlatbuffersVectorIterator::new(cast!(b.uncles())?)
+                .map(TryInto::try_into)
+                .collect();
+        let proposal_transactions: Result<Vec<_>, FailureError> = cast!(b.proposal_transactions())?
+            .iter()
+            .map(TryInto::try_into)
+            .collect();
+
+        Ok(CompactBlock {
+            header: header.try_into()?,
             nonce: b.nonce(),
-            short_ids: FlatbuffersVectorIterator::new(b.short_ids().unwrap())
-                .map(|bytes| {
+            short_ids: cast!(FlatbuffersVectorIterator::new(short_ids)
+                .map(|bytes| bytes.seq().map(|seq| {
                     let mut short_id = [0u8; 6];
-                    short_id.copy_from_slice(bytes.seq().unwrap());
+                    short_id.copy_from_slice(seq);
                     short_id
-                })
-                .collect(),
-            prefilled_transactions: FlatbuffersVectorIterator::new(
-                b.prefilled_transactions().unwrap(),
-            )
-            .map(Into::into)
-            .collect(),
-
-            uncles: FlatbuffersVectorIterator::new(b.uncles().unwrap())
-                .map(Into::into)
-                .collect(),
-
-            proposal_transactions: b
-                .proposal_transactions()
-                .unwrap()
-                .iter()
-                .map(Into::into)
-                .collect(),
-        }
+                }))
+                .collect::<Option<Vec<_>>>())?,
+            prefilled_transactions: prefilled_transactions?,
+            uncles: uncles?,
+            proposal_transactions: proposal_transactions?,
+        })
     }
 }

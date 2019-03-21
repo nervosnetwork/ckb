@@ -1,9 +1,10 @@
 use crate::relayer::Relayer;
 use ckb_core::transaction::Transaction;
-use ckb_network::CKBProtocolContext;
-use ckb_network::PeerIndex;
-use ckb_protocol::{BlockTransactions, FlatbuffersVectorIterator};
+use ckb_network::{CKBProtocolContext, PeerIndex};
+use ckb_protocol::{cast, BlockTransactions, FlatbuffersVectorIterator};
 use ckb_shared::index::ChainIndex;
+use ckb_util::TryInto;
+use failure::Error as FailureError;
 use std::sync::Arc;
 
 pub struct BlockTransactionsProcess<'a, CI: ChainIndex + 'a> {
@@ -31,8 +32,8 @@ where
         }
     }
 
-    pub fn execute(self) {
-        let hash = self.message.hash().unwrap().into();
+    pub fn execute(self) -> Result<(), FailureError> {
+        let hash = cast!(self.message.hash())?.try_into()?;
         if let Some(compact_block) = self
             .relayer
             .state
@@ -40,15 +41,15 @@ where
             .lock()
             .remove(&hash)
         {
-            let transactions: Vec<Transaction> =
-                FlatbuffersVectorIterator::new(self.message.transactions().unwrap())
-                    .map(Into::into)
+            let transactions: Result<Vec<Transaction>, FailureError> =
+                FlatbuffersVectorIterator::new(cast!(self.message.transactions())?)
+                    .map(TryInto::try_into)
                     .collect();
 
             let ret = {
                 let chain_state = self.relayer.shared.chain_state().lock();
                 self.relayer
-                    .reconstruct_block(&chain_state, &compact_block, transactions)
+                    .reconstruct_block(&chain_state, &compact_block, transactions?)
             };
 
             if let Ok(block) = ret {
@@ -56,5 +57,6 @@ where
                     .accept_block(self.nc, self.peer, &Arc::new(block));
             }
         }
+        Ok(())
     }
 }

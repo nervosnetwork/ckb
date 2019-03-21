@@ -622,6 +622,7 @@ mod tests {
     use ckb_core::block::BlockBuilder;
     use ckb_core::header::HeaderBuilder;
     use ckb_core::transaction::TransactionBuilder;
+    use ckb_util::TryInto;
     use flatbuffers::get_root;
 
     #[test]
@@ -632,7 +633,7 @@ mod tests {
         builder.finish(b, None);
 
         let fbs_header = get_root::<FbsHeader>(builder.finished_data());
-        assert_eq!(header, fbs_header.into());
+        assert_eq!(header, fbs_header.try_into().unwrap());
     }
 
     #[test]
@@ -645,7 +646,7 @@ mod tests {
         builder.finish(b, None);
 
         let fbs_block = get_root::<FbsBlock>(builder.finished_data());
-        assert_eq!(block, fbs_block.into());
+        assert_eq!(block, fbs_block.try_into().unwrap());
     }
 
     #[test]

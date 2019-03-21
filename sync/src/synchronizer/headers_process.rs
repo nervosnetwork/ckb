@@ -2,12 +2,13 @@ use crate::synchronizer::{BlockStatus, Synchronizer};
 use crate::MAX_HEADERS_LEN;
 use ckb_core::header::Header;
 use ckb_network::{CKBProtocolContext, PeerIndex};
-use ckb_protocol::{FlatbuffersVectorIterator, Headers};
+use ckb_protocol::{cast, FlatbuffersVectorIterator, Headers};
 use ckb_shared::index::ChainIndex;
 use ckb_traits::{BlockMedianTimeContext, ChainProvider};
+use ckb_util::TryInto;
 use ckb_verification::{Error as VerifyError, HeaderResolver, HeaderVerifier, Verifier};
-use log;
-use log::{debug, log_enabled};
+use failure::Error as FailureError;
+use log::{self, debug, log_enabled, warn};
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 use std::sync::Arc;
@@ -163,14 +164,6 @@ where
         }
     }
 
-    fn is_empty(&self) -> bool {
-        self.message.headers().unwrap().len() == 0
-    }
-
-    fn is_oversize(&self) -> bool {
-        self.message.headers().unwrap().len() > MAX_HEADERS_LEN
-    }
-
     fn is_continuous(&self, headers: &[Header]) -> bool {
         for window in headers.windows(2) {
             if let [parent, header] = &window {
@@ -205,28 +198,30 @@ where
         acceptor.accept()
     }
 
-    pub fn execute(self) {
+    pub fn execute(self) -> Result<(), FailureError> {
         debug!(target: "sync", "HeadersProcess begin");
 
-        if self.is_oversize() {
+        let headers = cast!(self.message.headers())?;
+
+        if headers.len() > MAX_HEADERS_LEN {
             self.synchronizer.peers.misbehavior(self.peer, 20);
-            debug!(target: "sync", "HeadersProcess is_oversize");
-            return;
+            warn!(target: "sync", "HeadersProcess is_oversize");
+            return Ok(());
         }
 
-        if self.is_empty() {
+        if headers.len() == 0 {
             debug!(target: "sync", "HeadersProcess is_empty");
-            return;
+            return Ok(());
         }
 
-        let headers = FlatbuffersVectorIterator::new(self.message.headers().unwrap())
-            .map(Into::into)
-            .collect::<Vec<Header>>();
+        let headers = FlatbuffersVectorIterator::new(headers)
+            .map(TryInto::try_into)
+            .collect::<Result<Vec<Header>, FailureError>>()?;
 
         if !self.is_continuous(&headers) {
             self.synchronizer.peers.misbehavior(self.peer, 20);
             debug!(target: "sync", "HeadersProcess is not continuous");
-            return;
+            return Ok(());
         }
 
         let result = self.accept_first(&headers[0]);
@@ -237,7 +232,7 @@ where
                     .misbehavior(self.peer, result.misbehavior);
             }
             debug!(target: "sync", "\n\nHeadersProcess accept_first is_valid {:?} headers = {:?}\n\n", result, headers[0]);
-            return;
+            return Ok(());
         }
 
         for window in headers.windows(2) {
@@ -258,7 +253,7 @@ where
                             .misbehavior(self.peer, result.misbehavior);
                     }
                     debug!(target: "sync", "HeadersProcess accept is invalid {:?}", result);
-                    return;
+                    return Ok(());
                 }
             }
         }
@@ -300,6 +295,7 @@ where
             self.synchronizer
                 .send_getheaders_to_peer(self.nc, self.peer, start);
         }
+        Ok(())
     }
 }
 

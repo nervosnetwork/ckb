@@ -526,6 +526,7 @@ dependencies = [
  "ckb-core 0.7.0-pre",
  "ckb-merkle-tree 0.7.0-pre",
  "ckb-util 0.7.0-pre",
+ "failure 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "flatbuffers 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "hash 0.7.0-pre",
  "numext-fixed-hash 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",

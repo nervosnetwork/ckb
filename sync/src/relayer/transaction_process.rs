@@ -5,7 +5,9 @@ use ckb_protocol::{RelayMessage, ValidTransaction as FbsValidTransaction};
 use ckb_shared::index::ChainIndex;
 use ckb_shared::tx_pool::types::PoolError;
 use ckb_traits::chain_provider::ChainProvider;
+use ckb_util::TryInto;
 use ckb_verification::TransactionError;
+use failure::Error as FailureError;
 use flatbuffers::FlatBufferBuilder;
 use log::debug;
 use std::time::Duration;
@@ -37,8 +39,8 @@ where
         }
     }
 
-    pub fn execute(self) {
-        let (tx, relay_cycles): (Transaction, Cycle) = (*self.message).into();
+    pub fn execute(self) -> Result<(), FailureError> {
+        let (tx, relay_cycles): (Transaction, Cycle) = (*self.message).try_into()?;
         let tx_result = {
             let chain_state = self.relayer.shared.chain_state().lock();
             let max_block_cycles = self.relayer.shared.consensus().max_block_cycles();
@@ -83,5 +85,7 @@ where
                 self.nc.ban_peer(self.peer, DEFAULT_BAN_TIME);
             }
         }
+
+        Ok(())
     }
 }
