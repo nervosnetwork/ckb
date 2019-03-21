@@ -4,7 +4,7 @@ use ckb_core::block::Block;
 use ckb_core::block::BlockBuilder;
 use ckb_core::header::{Header, HeaderBuilder};
 use ckb_core::transaction::{
-    CellInput, CellOutput, OutPoint, ProposalShortId, Transaction, TransactionBuilder,
+    CellInput, CellOutput, OutPoint, Transaction, TransactionBuilder,
 };
 use ckb_core::uncle::UncleBlock;
 use ckb_core::BlockNumber;
@@ -16,9 +16,11 @@ use ckb_shared::store::ChainKVStore;
 use faketime::unix_time_as_millis;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
+use rand;
 
 pub(crate) fn start_chain(
     consensus: Option<Consensus>,
+    verification: bool,
 ) -> (ChainController, Shared<ChainKVStore<MemoryKeyValueDB>>) {
     let builder = SharedBuilder::<MemoryKeyValueDB>::new();
     let shared = builder
@@ -27,7 +29,7 @@ pub(crate) fn start_chain(
 
     let notify = NotifyService::default().start::<&str>(None);
     let chain_service = ChainBuilder::new(shared.clone(), notify)
-        .verification(false)
+        .verification(verification)
         .build();
     let chain_controller = chain_service.start::<&str>(None);
     (chain_controller, shared)
@@ -42,28 +44,27 @@ fn create_cellbase(number: BlockNumber) -> Transaction {
 
 pub(crate) fn gen_block(
     parent_header: &Header,
-    nonce: u64,
     difficulty: U256,
     commit_transactions: Vec<Transaction>,
+    proposal_transactions: Vec<Transaction>,
     uncles: Vec<UncleBlock>,
 ) -> Block {
     let number = parent_header.number() + 1;
     let cellbase = create_cellbase(number);
-    let header = HeaderBuilder::default()
+    let header_builder = HeaderBuilder::default()
         .parent_hash(parent_header.hash().clone())
         .timestamp(unix_time_as_millis())
         .number(number)
         .difficulty(difficulty)
-        .nonce(nonce)
-        .build();
+        .cellbase_id(cellbase.hash())
+        .nonce(rand::random());
 
     BlockBuilder::default()
-        .header(header)
         .commit_transaction(cellbase)
         .commit_transactions(commit_transactions)
         .uncles(uncles)
-        .proposal_transaction(ProposalShortId::from_slice(&[1; 10]).unwrap())
-        .build()
+        .proposal_transactions(proposal_transactions.iter().map(|tx| tx.proposal_short_id()).collect())
+        .with_header_builder(header_builder)
 }
 
 pub(crate) fn create_transaction(parent: H256) -> Transaction {
