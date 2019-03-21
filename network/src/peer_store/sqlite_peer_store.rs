@@ -136,7 +136,7 @@ impl SqlitePeerStore {
                 unix_time() - Duration::from_secs(PEER_NOT_SEEN_TIMEOUT_SECS.into());
             peers
                 .into_iter()
-                .filter(move |peer| peer.connected_time < not_seen_timeout)
+                .filter(move |peer| peer.last_connected_at < not_seen_timeout)
         };
         let candidate_peer = match candidate_peers.min_by_key(|peer| peer.score) {
             Some(peer) => peer,
@@ -162,17 +162,17 @@ impl SqlitePeerStore {
         peer_id: &PeerId,
         addr: &Multiaddr,
         endpoint: SessionType,
-        connected_time: Duration,
+        last_connected_at: Duration,
     ) -> db::PeerInfo {
         self.pool
             .fetch(|conn| {
                 db::PeerInfo::get_by_peer_id(conn, peer_id).and_then(|peer| match peer {
                     Some(mut peer) => {
-                        db::PeerInfo::update(conn, peer.id, &addr, endpoint, connected_time)
+                        db::PeerInfo::update(conn, peer.id, &addr, endpoint, last_connected_at)
                             .expect("update peer info");
                         peer.connected_addr = addr.to_owned();
                         peer.endpoint = endpoint;
-                        peer.connected_time = connected_time;
+                        peer.last_connected_at = last_connected_at;
                         Ok(Some(peer))
                     }
                     None => {
@@ -182,7 +182,7 @@ impl SqlitePeerStore {
                             &addr,
                             endpoint,
                             self.scoring_schema().peer_init_score(),
-                            connected_time,
+                            last_connected_at,
                         )?;
                         db::PeerInfo::get_by_peer_id(conn, &peer_id)
                     }
