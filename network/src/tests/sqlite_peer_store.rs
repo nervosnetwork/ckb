@@ -112,6 +112,23 @@ fn test_peers_to_attempt() {
 }
 
 #[test]
+fn test_random_peers() {
+    let mut peer_store: Box<dyn PeerStore> = Box::new(SqlitePeerStore::temp());
+    assert!(peer_store.random_peers(1).is_empty());
+    let peer_id = random_peer_id();
+    let addr = "/ip4/127.0.0.1".to_multiaddr().unwrap();
+    peer_store.add_bootnode(peer_id.clone(), addr.clone());
+    assert!(peer_store.random_peers(1).is_empty());
+    let peer_id2 = random_peer_id();
+    peer_store
+        .add_discovered_address(&peer_id2, addr.clone())
+        .expect("add discovered address");
+    assert_eq!(peer_store.random_peers(2).len(), 1);
+    peer_store.update_status(&peer_id2, Status::Connected);
+    assert_eq!(peer_store.random_peers(1).len(), 1);
+}
+
+#[test]
 fn test_delete_peer_info() {
     let mut peer_store = SqlitePeerStore::temp();
     let addr1 = "/ip4/127.0.0.1".to_multiaddr().unwrap();

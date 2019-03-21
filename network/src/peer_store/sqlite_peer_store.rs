@@ -279,11 +279,10 @@ impl PeerStore for SqlitePeerStore {
             }
         };
         let peer = self.get_or_insert_peer_info(peer_id);
-        let now = unix_time();
         let score = peer.score.saturating_add(behaviour_score);
         if score < self.schema.ban_score() {
-            let ban_time = self.schema.default_ban_timeout() + now;
-            self.ban_peer(peer_id, ban_time);
+            let ban_timeout = self.schema.default_ban_timeout();
+            self.ban_peer(peer_id, ban_timeout);
             return ReportResult::Banned;
         }
         self.pool
@@ -311,7 +310,6 @@ impl PeerStore for SqlitePeerStore {
     }
 
     fn add_bootnode(&mut self, peer_id: PeerId, addr: Multiaddr) {
-        self.new_connected_peer(&peer_id, addr.clone(), SessionType::Client);
         self.bootnodes.push((peer_id, addr));
     }
     // should return high scored nodes if possible, otherwise, return boostrap nodes
@@ -342,6 +340,13 @@ impl PeerStore for SqlitePeerStore {
         self.pool
             .fetch(|conn| db::get_peers_to_attempt(&conn, count))
             .expect("get peers to attempt")
+    }
+
+    //TODO Only return connected addresses after network support feeler connection
+    fn random_peers(&self, count: u32) -> Vec<(PeerId, Multiaddr)> {
+        self.pool
+            .fetch(|conn| db::get_random_peers(&conn, count))
+            .expect("get random peers")
     }
 
     fn ban_peer(&mut self, peer_id: &PeerId, timeout: Duration) {
