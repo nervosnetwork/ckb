@@ -70,7 +70,9 @@ impl Script {
         match self.version {
             0 => {
                 let mut bytes = vec![];
-                bytes.write_all(self.reference.as_bytes()).expect(VEC_WRITE_ALL_EXPECT);
+                bytes
+                    .write_all(self.reference.as_bytes())
+                    .expect(VEC_WRITE_ALL_EXPECT);
                 for argument in &self.args {
                     bytes.write_all(argument).expect(VEC_WRITE_ALL_EXPECT);
                 }
