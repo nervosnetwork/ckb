@@ -37,7 +37,8 @@ pub type PeerIndex = usize;
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct Config {
     pub listen_addresses: Vec<multiaddr::Multiaddr>,
-    pub secret_file: Option<String>,
+    pub secret_file: String,
+    pub peer_store_path: String,
     pub try_outbound_connect_secs: Option<u64>,
     /// List of initial node addresses
     pub bootnodes: Vec<String>,
@@ -81,9 +82,9 @@ impl From<Config> for NetworkConfig {
                 _ => false,
             };
         }
-        if let Some(dir_path) = config.config_dir_path {
-            cfg.config_dir_path = Some(dir_path.clone());
-            cfg.secret_key_path = Some(format!("{}/secret_key", dir_path))
+        if let Some(dir_path) = &config.config_dir_path {
+            cfg.secret_key_path = Some(format!("{}/{}", dir_path, config.secret_file));
+            cfg.peer_store_path = Some(format!("{}/{}", dir_path, config.peer_store_path));
         }
         cfg.client_version = "ckb network".to_string();
         match cfg.read_secret_key() {

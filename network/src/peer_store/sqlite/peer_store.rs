@@ -45,6 +45,11 @@ impl SqlitePeerStore {
         peer_store
     }
 
+    pub fn file(path: String) -> Result<Self, DBError> {
+        let pool = sqlite::open_pool(sqlite::StorePath::File(path), DEFAULT_POOL_SIZE)?;
+        Ok(SqlitePeerStore::new(pool))
+    }
+
     pub fn memory() -> Result<Self, DBError> {
         let pool = sqlite::open_pool(sqlite::StorePath::Memory, DEFAULT_POOL_SIZE)?;
         Ok(SqlitePeerStore::new(pool))
@@ -52,8 +57,7 @@ impl SqlitePeerStore {
 
     #[allow(dead_code)]
     pub fn temp() -> Result<Self, DBError> {
-        let pool = sqlite::open_pool(sqlite::StorePath::File("".into()), DEFAULT_POOL_SIZE)?;
-        Ok(SqlitePeerStore::new(pool))
+        Self::file("".into())
     }
 
     fn prepare(&mut self) -> Result<(), DBError> {

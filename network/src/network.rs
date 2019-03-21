@@ -365,7 +365,10 @@ impl Network {
             .map(|addr| (addr.to_owned(), std::u8::MAX))
             .collect();
         let peer_store: Arc<RwLock<dyn PeerStore>> = {
-            let mut peer_store = SqlitePeerStore::memory()?;
+            let mut peer_store = match &config.peer_store_path {
+                Some(path) => SqlitePeerStore::file(path.to_string())?,
+                None => SqlitePeerStore::memory()?,
+            };
             let bootnodes = config.bootnodes()?;
             for (peer_id, addr) in bootnodes {
                 peer_store.add_bootnode(peer_id, addr);
