@@ -328,14 +328,15 @@ impl Network {
         }
     }
 
-    pub fn dial(&self, expected_peer_id: &PeerId, addr: Multiaddr) {
+    pub fn dial(&self, expected_peer_id: &PeerId, mut addr: Multiaddr) {
         if expected_peer_id == self.local_peer_id() {
             debug!(target: "network", "ignore dial to self");
             return;
         }
         debug!(target: "network", "dial to peer {:?} address {:?}", expected_peer_id, addr);
         match Multihash::from_bytes(expected_peer_id.as_bytes().to_vec()) {
-            Ok(_peer_id_hash) => {
+            Ok(peer_id_hash) => {
+                addr.append(multiaddr::Protocol::P2p(peer_id_hash));
                 self.dial_addr(addr);
             }
             Err(err) => {

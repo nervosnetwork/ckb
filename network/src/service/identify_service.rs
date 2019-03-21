@@ -119,9 +119,11 @@ impl Stream for IdentifyService {
                     .map(|socket_addr| socket_addr.port())
                     .map(move |port| {
                         addr.into_iter()
-                            .map(|proto| match proto {
-                                Protocol::Tcp(_) => Protocol::Tcp(port),
-                                value => value,
+                            .filter_map(|proto| match proto {
+                                Protocol::Tcp(_) => Some(Protocol::Tcp(port)),
+                                // Remove p2p part
+                                Protocol::P2p(_) => None,
+                                value => Some(value),
                             })
                             .collect()
                     })

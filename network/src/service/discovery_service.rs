@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use p2p::{
     context::{ServiceContext, SessionContext},
-    multiaddr::Multiaddr,
+    multiaddr::{Multiaddr, Protocol},
     secio::PeerId,
     traits::ServiceProtocol,
     utils::extract_peer_id,
@@ -212,6 +212,13 @@ impl Stream for DiscoveryService {
                     // TODO: wait for peer store update
                     for addr in addrs.into_iter() {
                         if let Some(peer_id) = extract_peer_id(&addr) {
+                            let addr = addr
+                                .into_iter()
+                                .filter(|proto| match proto {
+                                    Protocol::P2p(_) => false,
+                                    _ => true,
+                                })
+                                .collect::<Multiaddr>();
                             let _ = self
                                 .network
                                 .peer_store()
