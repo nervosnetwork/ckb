@@ -18,7 +18,8 @@ reserved_nodes = []
 only_reserved_peers = false
 min_peers = 4
 max_peers = 8
-secret_file = "secret"
+secret_file = "secret_key"
+peer_store_path = "peer_store.db"
 try_outbound_connect_secs = 1
 
 [rpc]
