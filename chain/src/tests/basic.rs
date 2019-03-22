@@ -188,9 +188,9 @@ fn test_transaction_conflict_in_same_block() {
         );
         chain.push(new_block);
     }
-    for i in 0..3 {
+    for block in chain.iter().take(3) {
         chain_controller
-            .process_block(Arc::new(chain[i].clone()))
+            .process_block(Arc::new(block.clone()))
             .expect("process block ok");
     }
     assert_eq!(
@@ -275,9 +275,9 @@ fn test_transaction_conflict_in_different_blocks() {
         );
         chain.push(new_block);
     }
-    for i in 0..4 {
+    for block in chain.iter().take(4) {
         chain_controller
-            .process_block(Arc::new(chain[i].clone()))
+            .process_block(Arc::new(block.clone()))
             .expect("process block ok");
     }
     assert_eq!(
