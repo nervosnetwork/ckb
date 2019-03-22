@@ -22,15 +22,14 @@ pub struct ScoringSchema {
 
 impl ScoringSchema {
     pub fn new_default() -> Self {
-        let schema = [
+        let schema = vec![
             (Behaviour::FailedToConnect, -20),
             (Behaviour::FailedToPing, -10),
             (Behaviour::Ping, 5),
             (Behaviour::Connect, 10),
             (Behaviour::UnexpectedDisconnect, -20),
         ]
-        .iter()
-        .cloned()
+        .into_iter()
         .collect();
         ScoringSchema {
             schema,
