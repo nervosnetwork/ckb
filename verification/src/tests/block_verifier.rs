@@ -131,29 +131,6 @@ pub fn test_cellbase_with_fee() {
 }
 
 #[test]
-pub fn test_cellbase_with_more_reward_than_available() {
-    let mut transaction_fees = HashMap::<H256, Result<Capacity, SharedError>>::new();
-    let transaction = create_normal_transaction();
-    transaction_fees.insert(transaction.hash().clone(), Ok(10));
-
-    let block = BlockBuilder::default()
-        .commit_transaction(create_cellbase_transaction_with_capacity(130))
-        .commit_transaction(transaction)
-        .build();
-
-    let provider = DummyChainProvider {
-        block_reward: 100,
-        transaction_fees,
-    };
-
-    let verifier = CellbaseVerifier::new(provider);
-    assert_eq!(
-        verifier.verify(&block),
-        Err(VerifyError::Cellbase(CellbaseError::InvalidReward))
-    );
-}
-
-#[test]
 pub fn test_empty_transactions() {
     let block = BlockBuilder::default().build();
     let transaction_fees = HashMap::<H256, Result<Capacity, SharedError>>::new();
