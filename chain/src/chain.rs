@@ -18,7 +18,7 @@ use ckb_verification::{BlockVerifier, TransactionsVerifier, Verifier};
 use crossbeam_channel::{self, select, Receiver, Sender};
 use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
-use fnv::{FnvHashMap, FnvHashSet};
+use fnv::FnvHashSet;
 use log::{self, debug, error, log_enabled};
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
@@ -198,7 +198,7 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
         );
 
         if parent_ext.txs_verified == Some(false) {
-            Err(SharedError::InvalidTransaction)?;
+            Err(SharedError::InvalidParentBlock)?;
         }
 
         let ext = BlockExt {
@@ -427,7 +427,6 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
         fork: &mut ForkChanges,
         chain_state: &mut ChainState<CI>,
     ) -> Result<CellSetDiff, FailureError> {
-        let skip_verify = !self.verification;
         let mut cell_set_diff = CellSetDiff::default();
 
         let attached_blocks_iter = fork.attached_blocks().iter().rev();
@@ -447,7 +446,7 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
         // The verify function
         let txs_verifier = TransactionsVerifier::new(self.shared.consensus().max_block_cycles());
 
-        let mut found_error = false;
+        let mut found_error = None;
         // verify transaction
         for (ext, b) in fork
             .dirty_exts
@@ -455,36 +454,42 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
             .zip(fork.attached_blocks.iter())
             .rev()
         {
-            let mut output_indexs = FnvHashMap::default();
-            let mut seen_inputs = FnvHashSet::default();
+            if self.verification {
+                if found_error.is_none() {
+                    let mut seen_inputs = FnvHashSet::default();
 
-            for (i, tx) in b.commit_transactions().iter().enumerate() {
-                output_indexs.insert(tx.hash(), i);
-            }
+                    // TODO Q impl CellProvider for store, use chain_state as CellProvider here directly.
+                    let cell_set_cp = OverlayCellProvider::new(chain_state.cell_set(), chain_state);
+                    let cell_set_diff_cp = OverlayCellProvider::new(&cell_set_diff, &cell_set_cp);
+                    let block_cp = BlockCellProvider::new(b);
+                    let cell_provider = OverlayCellProvider::new(&block_cp, &cell_set_diff_cp);
 
-            let cell_set_diff_cp = OverlayCellProvider::new(&cell_set_diff, chain_state.cell_set());
-            let block_cp = BlockCellProvider::new(b);
-            let cell_provider = OverlayCellProvider::new(&block_cp, &cell_set_diff_cp);
+                    let resolved: Vec<ResolvedTransaction> = b
+                        .commit_transactions()
+                        .iter()
+                        .map(|x| resolve_transaction(x, &mut seen_inputs, &cell_provider))
+                        .collect();
 
-            // cellbase verified
-            let resolved: Vec<ResolvedTransaction> = b
-                .commit_transactions()
-                .iter()
-                .skip(1)
-                .map(|x| resolve_transaction(x, &mut seen_inputs, &cell_provider))
-                .collect();
-
-            if !found_error
-                || skip_verify
-                || txs_verifier
-                    .verify(chain_state.mut_txs_verify_cache(), &resolved)
-                    .is_ok()
-            {
+                    match txs_verifier.verify(
+                        chain_state.mut_txs_verify_cache(),
+                        &resolved,
+                        self.shared.block_reward(b.header().number()),
+                    ) {
+                        Ok(_) => {
+                            cell_set_diff.push_new(b);
+                            ext.txs_verified = Some(true);
+                        }
+                        Err(err) => {
+                            found_error = Some(err);
+                            ext.txs_verified = Some(false);
+                        }
+                    }
+                } else {
+                    ext.txs_verified = Some(false);
+                }
+            } else {
                 cell_set_diff.push_new(b);
                 ext.txs_verified = Some(true);
-            } else {
-                found_error = true;
-                ext.txs_verified = Some(false);
             }
         }
 
@@ -500,8 +505,10 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
                 .insert_block_ext(batch, &b.header().hash(), ext);
         }
 
-        if found_error {
-            Err(SharedError::InvalidTransaction)?;
+        if found_error.is_some() {
+            Err(SharedError::InvalidTransaction(
+                found_error.unwrap().to_string(),
+            ))?;
         }
 
         Ok(cell_set_diff)

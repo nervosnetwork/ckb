@@ -1,5 +1,6 @@
 use crate::block::Block;
 use crate::transaction::{CellOutput, OutPoint, Transaction};
+use crate::Capacity;
 use fnv::{FnvHashMap, FnvHashSet};
 use numext_fixed_hash::H256;
 use std::iter::Chain;
@@ -177,6 +178,24 @@ impl ResolvedTransaction {
 
     pub fn is_fully_resolved(&self) -> bool {
         self.cells_iter().all(|state| state.is_live())
+    }
+
+    pub fn fee(&self) -> Capacity {
+        self.inputs_capacity()
+            .saturating_sub(self.transaction.outputs_capacity())
+    }
+
+    pub fn inputs_capacity(&self) -> Capacity {
+        self.input_cells
+            .iter()
+            .filter_map(|cell_status| {
+                if let CellStatus::Live(cell_output) = cell_status {
+                    Some(cell_output.capacity)
+                } else {
+                    None
+                }
+            })
+            .sum()
     }
 }
 

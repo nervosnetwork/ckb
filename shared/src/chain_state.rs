@@ -327,20 +327,12 @@ impl<CI: ChainIndex> ChainState<CI> {
 
 impl<CI: ChainIndex> CellProvider for ChainState<CI> {
     fn cell(&self, out_point: &OutPoint) -> CellStatus {
-        if let Some(f) = self.is_dead(out_point) {
-            if f {
-                CellStatus::Dead
-            } else {
-                match self.store.get_transaction(&out_point.hash) {
-                    Some(tx) => match tx.outputs().get(out_point.index as usize) {
-                        Some(output) => CellStatus::Live(output.clone()),
-                        None => CellStatus::Unknown,
-                    },
-                    None => CellStatus::Unknown,
-                }
-            }
-        } else {
-            CellStatus::Unknown
+        match self.store.get_transaction(&out_point.hash) {
+            Some(tx) => match tx.outputs().get(out_point.index as usize) {
+                Some(output) => CellStatus::Live(output.clone()),
+                None => CellStatus::Unknown,
+            },
+            None => CellStatus::Unknown,
         }
     }
 }

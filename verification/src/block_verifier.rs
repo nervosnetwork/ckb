@@ -389,10 +389,20 @@ impl TransactionsVerifier {
         &self,
         txs_verify_cache: &mut LruCache<H256, Cycle>,
         resolved: &[ResolvedTransaction],
+        block_reward: Capacity,
     ) -> Result<(), Error> {
+        // verify cellbase reward
+        let cellbase = &resolved[0];
+        let fee: Capacity = resolved.iter().skip(1).map(|rt| rt.fee()).sum();
+        if cellbase.transaction.outputs_capacity() > block_reward + fee {
+            return Err(Error::Cellbase(CellbaseError::InvalidReward));
+        }
+        // TODO use TransactionScriptsVerifier to verify cellbase script
+
         // make verifiers orthogonal
         let cycles_set = resolved
             .par_iter()
+            .skip(1)
             .enumerate()
             .map(|(index, tx)| {
                 if let Some(cycles) = txs_verify_cache.get(&tx.transaction.hash()) {

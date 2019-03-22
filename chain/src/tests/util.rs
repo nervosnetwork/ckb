@@ -3,9 +3,8 @@ use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::Block;
 use ckb_core::block::BlockBuilder;
 use ckb_core::header::{Header, HeaderBuilder};
-use ckb_core::transaction::{
-    CellInput, CellOutput, OutPoint, Transaction, TransactionBuilder,
-};
+use ckb_core::script::Script;
+use ckb_core::transaction::{CellInput, CellOutput, OutPoint, Transaction, TransactionBuilder};
 use ckb_core::uncle::UncleBlock;
 use ckb_core::BlockNumber;
 use ckb_db::memorydb::MemoryKeyValueDB;
@@ -17,6 +16,9 @@ use faketime::unix_time_as_millis;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 use rand;
+use std::fs::File;
+use std::io::Read;
+use std::path::Path;
 
 pub(crate) fn start_chain(
     consensus: Option<Consensus>,
@@ -38,7 +40,12 @@ pub(crate) fn start_chain(
 fn create_cellbase(number: BlockNumber) -> Transaction {
     TransactionBuilder::default()
         .input(CellInput::new_cellbase_input(number))
-        .output(CellOutput::new(0, vec![], H256::zero(), None))
+        .output(CellOutput::new(
+            5000,
+            vec![],
+            create_script().type_hash(),
+            None,
+        ))
         .build()
 }
 
@@ -63,17 +70,34 @@ pub(crate) fn gen_block(
         .commit_transaction(cellbase)
         .commit_transactions(commit_transactions)
         .uncles(uncles)
-        .proposal_transactions(proposal_transactions.iter().map(|tx| tx.proposal_short_id()).collect())
+        .proposal_transactions(
+            proposal_transactions
+                .iter()
+                .map(|tx| tx.proposal_short_id())
+                .collect(),
+        )
         .with_header_builder(header_builder)
 }
 
-pub(crate) fn create_transaction(parent: H256) -> Transaction {
-    let mut output = CellOutput::default();
-    output.capacity = 100_000_000 / 100 as u64;
-    let outputs: Vec<CellOutput> = vec![output.clone(); 100];
-
+pub(crate) fn create_transaction(parent: H256, unique_data: u8) -> Transaction {
+    let script = create_script();
     TransactionBuilder::default()
-        .input(CellInput::new(OutPoint::new(parent, 0), Default::default()))
-        .outputs(outputs)
+        .output(CellOutput::new(
+            5000,
+            vec![unique_data],
+            script.type_hash(),
+            None,
+        ))
+        .input(CellInput::new(OutPoint::new(parent, 0), script))
         .build()
+}
+
+fn create_script() -> Script {
+    let mut file = File::open(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../nodes_template/spec/cells/always_success"),
+    )
+    .unwrap();
+    let mut buffer = Vec::new();
+    file.read_to_end(&mut buffer).unwrap();
+    Script::new(0, Vec::new(), None, Some(buffer), Vec::new())
 }
