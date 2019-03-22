@@ -1,5 +1,5 @@
 use crate::errors::{ConfigError, Error, PeerError, ProtocolError};
-use crate::peer_store::{Behaviour, PeerStore, SqlitePeerStore};
+use crate::peer_store::{sqlite::SqlitePeerStore, Behaviour, PeerStore};
 use crate::peers_registry::{
     ConnectionStatus, Peer, PeerIdentifyInfo, PeersRegistry, RegisterResult, Session,
 };
@@ -242,7 +242,7 @@ impl Network {
         let _ = self
             .peer_store()
             .write()
-            .add_discovered_address(peer_id, address);
+            .add_discovered_addr(peer_id, address);
     }
 
     fn to_external_url(&self, addr: &Multiaddr) -> String {
@@ -263,7 +263,12 @@ impl Network {
                     .p2p_control
                     .write()
                     .send_message(peer.session.id, protocol_id, data.to_vec())
-                    .map_err(Into::into),
+                    .map_err(|_| {
+                        Error::P2P(format!(
+                            "error send to peer {:?} protocol {}",
+                            peer_id, protocol_id
+                        ))
+                    }),
                 None => Err(PeerError::ProtocolNotFound(peer_id.to_owned(), protocol_id).into()),
             })
             .unwrap_or_else(|| Err(PeerError::NotFound(peer_id.to_owned()).into()))
@@ -360,7 +365,10 @@ impl Network {
             .map(|addr| (addr.to_owned(), std::u8::MAX))
             .collect();
         let peer_store: Arc<RwLock<dyn PeerStore>> = {
-            let mut peer_store = SqlitePeerStore::default();
+            let mut peer_store = match &config.peer_store_path {
+                Some(path) => SqlitePeerStore::file(path.to_string())?,
+                None => SqlitePeerStore::memory("default".to_string())?,
+            };
             let bootnodes = config.bootnodes()?;
             for (peer_id, addr) in bootnodes {
                 peer_store.add_bootnode(peer_id, addr);
@@ -470,7 +478,6 @@ impl Network {
                     addr.clone(),
                     err
                     );
-                    //return Err(ErrorKind::Other(format!("listen address error: {:?}", err)).into());
                     return Err(Error::Io(err));
                 }
             };

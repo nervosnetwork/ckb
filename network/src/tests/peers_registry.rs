@@ -2,20 +2,20 @@ use crate::{
     multiaddr::ToMultiaddr,
     peer_store::{Behaviour, PeerStore, SqlitePeerStore},
     peers_registry::{PeersRegistry, Session, EVICTION_PROTECT_PEERS},
-    random_peer_id, SessionType,
+    PeerId, SessionType,
 };
 use ckb_util::RwLock;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 fn new_peer_store() -> Arc<RwLock<dyn PeerStore>> {
-    Arc::new(RwLock::new(SqlitePeerStore::temp()))
+    Arc::new(RwLock::new(SqlitePeerStore::temp().expect("temp")))
 }
 
 #[test]
 fn test_accept_inbound_peer_in_reserve_only_mode() {
     let peer_store = new_peer_store();
-    let reserved_peer = random_peer_id();
+    let reserved_peer = PeerId::random();
     let addr = "/ip4/127.0.0.1".to_multiaddr().unwrap();
     let session = Session {
         id: 1,
@@ -31,7 +31,7 @@ fn test_accept_inbound_peer_in_reserve_only_mode() {
         vec![reserved_peer.clone()],
     );
     assert!(peers
-        .accept_inbound_peer(random_peer_id(), addr.clone(), session)
+        .accept_inbound_peer(PeerId::random(), addr.clone(), session)
         .is_err());
     peers
         .accept_inbound_peer(reserved_peer.clone(), addr.clone(), session)
@@ -41,7 +41,7 @@ fn test_accept_inbound_peer_in_reserve_only_mode() {
 #[test]
 fn test_accept_inbound_peer_until_full() {
     let peer_store = new_peer_store();
-    let reserved_peer = random_peer_id();
+    let reserved_peer = PeerId::random();
     let addr = "/ip4/127.0.0.1".to_multiaddr().unwrap();
     let session = Session {
         id: 1,
@@ -56,17 +56,17 @@ fn test_accept_inbound_peer_until_full() {
         vec![reserved_peer.clone()],
     );
     peers
-        .accept_inbound_peer(random_peer_id(), addr.clone(), session)
+        .accept_inbound_peer(PeerId::random(), addr.clone(), session)
         .expect("accept");
     peers
-        .accept_inbound_peer(random_peer_id(), addr.clone(), session)
+        .accept_inbound_peer(PeerId::random(), addr.clone(), session)
         .expect("accept");
     peers
-        .accept_inbound_peer(random_peer_id(), addr.clone(), session)
+        .accept_inbound_peer(PeerId::random(), addr.clone(), session)
         .expect("accept");
     println!("{:?}", peers.connection_status());
     assert!(peers
-        .accept_inbound_peer(random_peer_id(), addr.clone(), session)
+        .accept_inbound_peer(PeerId::random(), addr.clone(), session)
         .is_err(),);
     // should still accept reserved peer
     peers
@@ -74,7 +74,7 @@ fn test_accept_inbound_peer_until_full() {
         .expect("accept");
     // should refuse accept low score peer
     assert!(peers
-        .accept_inbound_peer(random_peer_id(), addr.clone(), session)
+        .accept_inbound_peer(PeerId::random(), addr.clone(), session)
         .is_err());
 }
 
@@ -85,9 +85,9 @@ fn test_accept_inbound_peer_eviction() {
     // 2. should never evict reserved peer
     // 3. should evict lowest scored peer
     let peer_store = new_peer_store();
-    let reserved_peer = random_peer_id();
-    let evict_target = random_peer_id();
-    let lowest_score_peer = random_peer_id();
+    let reserved_peer = PeerId::random();
+    let evict_target = PeerId::random();
+    let lowest_score_peer = PeerId::random();
     let addr1 = "/ip4/127.0.0.1".to_multiaddr().unwrap();
     let addr2 = "/ip4/192.168.0.1".to_multiaddr().unwrap();
     let session = Session {
@@ -106,7 +106,7 @@ fn test_accept_inbound_peer_eviction() {
     );
     for _ in 0..protected_peers_count {
         assert!(peers_registry
-            .accept_inbound_peer(random_peer_id(), addr2.clone(), session)
+            .accept_inbound_peer(PeerId::random(), addr2.clone(), session)
             .is_ok());
     }
     let mut peers_iter = peers_registry
@@ -144,7 +144,7 @@ fn test_accept_inbound_peer_eviction() {
         let mut peer = peers_registry.get_mut(&peer_id).unwrap();
         peer.connected_time = now - Duration::from_secs(10);
     }
-    let mut new_peer_ids = (0..3).map(|_| random_peer_id()).collect::<Vec<_>>();
+    let mut new_peer_ids = (0..3).map(|_| PeerId::random()).collect::<Vec<_>>();
     // setup 3 node and 1 reserved node from addr1
     peers_registry
         .accept_inbound_peer(reserved_peer.clone(), addr1.clone(), session)
@@ -189,7 +189,7 @@ fn test_accept_inbound_peer_eviction() {
     // should evict evict target
     assert!(peers_registry.get(&evict_target).is_some());
     peers_registry
-        .accept_inbound_peer(random_peer_id(), addr1.clone(), session)
+        .accept_inbound_peer(PeerId::random(), addr1.clone(), session)
         .expect("accept");
     assert!(peers_registry.get(&evict_target).is_none());
 }

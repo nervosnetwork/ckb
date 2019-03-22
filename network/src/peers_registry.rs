@@ -390,7 +390,7 @@ impl PeersRegistry {
         connected_addr: Multiaddr,
         session: Session,
     ) -> RegisterResult {
-        self.peer_store.write().new_connected_peer(
+        self.peer_store.write().add_connected_peer(
             &peer_id,
             connected_addr.clone(),
             session.session_type,

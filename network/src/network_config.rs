@@ -26,7 +26,7 @@ pub struct NetworkConfig {
     pub reserved_peers: Vec<String>,
     pub secret_key: Option<Bytes>,
     pub secret_key_path: Option<String>,
-    // peer_store path
+    pub peer_store_path: Option<String>,
     pub config_dir_path: Option<String>,
     pub bootnodes: Vec<String>,
     pub ping_interval: Duration,
@@ -150,6 +150,7 @@ impl Default for NetworkConfig {
             discovery_response_count: 20,
             discovery_interval: Duration::from_secs(15),
             try_outbound_connect_interval: Duration::from_secs(15),
+            peer_store_path: None,
         }
     }
 }

@@ -216,7 +216,7 @@ impl Stream for DiscoveryService {
                                 .network
                                 .peer_store()
                                 .write()
-                                .add_discovered_address(&peer_id, addr);
+                                .add_discovered_addr(&peer_id, addr);
                         }
                     }
                 }

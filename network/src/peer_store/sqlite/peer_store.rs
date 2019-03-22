@@ -1,7 +1,19 @@
-use super::{Behaviour, Multiaddr, PeerId, PeerStore, ReportResult, Score, ScoringSchema, Status};
 use crate::network_group::MultiaddrExt;
-use crate::peer_store::db;
-use crate::peer_store::sqlite::{self, ConnectionPool, ConnectionPoolExt};
+use crate::peer_store::sqlite::{self, db, ConnectionPool, ConnectionPoolExt, DBError};
+/// SqlitePeerStore
+/// Principles:
+/// 1. PeerId is easy to be generated, should never use a PeerId as an identity.
+/// 2. Peer's connected addr should be use as an identify to ban a peer, it is based on our
+///    assumption that IP is a limited resource.
+/// Solution:
+/// 1. Through PeerId to ban or score a peer.
+/// 2. When a peer get banned we also ban peer's connected addr.
+/// 3. A bad peer can always avoid punishment by change it's PeerId, but it can't get high
+///    score.
+/// 4. Good peers can get higher score than bad peers.
+use crate::peer_store::{
+    Behaviour, Multiaddr, PeerId, PeerStore, ReportResult, Score, ScoringSchema, Status,
+};
 use crate::SessionType;
 use faketime::unix_time;
 use fnv::FnvHashMap;
@@ -14,24 +26,11 @@ pub(crate) const PEER_NOT_SEEN_TIMEOUT_SECS: u32 = 14 * 24 * 3600;
 const BAN_LIST_CLEAR_EXPIRES_SIZE: usize = 255;
 const DEFAULT_POOL_SIZE: u32 = 16;
 
-// Scoring and ban:
-// Because peer_id is easy to forge, we should consider to identify a peer by it's connected_addr
-// instead of peer_id
-// Howerver connected_addr maybe same for multiple inbound peers, these peers may in the same sub network or our node may behind a reverse proxy, so we can't just reject them.
-// A solution is to identify and score a peer by it's peer_id, but ban a peer through it connected_addr, it's
-// mean when a peer got banned, we're no longer accept new peers from the same connected_addr.
-
 pub struct SqlitePeerStore {
     bootnodes: Vec<(PeerId, Multiaddr)>,
     schema: ScoringSchema,
     ban_list: FnvHashMap<Vec<u8>, Duration>,
-    pool: ConnectionPool,
-}
-
-impl Default for SqlitePeerStore {
-    fn default() -> Self {
-        SqlitePeerStore::memory()
-    }
+    pub(crate) pool: ConnectionPool,
 }
 
 impl SqlitePeerStore {
@@ -46,27 +45,31 @@ impl SqlitePeerStore {
         peer_store
     }
 
-    fn memory() -> Self {
-        let pool = sqlite::open_pool(sqlite::StorePath::Memory, DEFAULT_POOL_SIZE);
-        SqlitePeerStore::new(pool)
+    pub fn file(path: String) -> Result<Self, DBError> {
+        let pool = sqlite::open_pool(sqlite::StorePath::File(path), DEFAULT_POOL_SIZE)?;
+        Ok(SqlitePeerStore::new(pool))
+    }
+
+    pub fn memory(db: String) -> Result<Self, DBError> {
+        let pool = sqlite::open_pool(sqlite::StorePath::Memory(db), DEFAULT_POOL_SIZE)?;
+        Ok(SqlitePeerStore::new(pool))
     }
 
     #[allow(dead_code)]
-    pub fn temp() -> Self {
-        let pool = sqlite::open_pool(sqlite::StorePath::File("".into()), DEFAULT_POOL_SIZE);
-        SqlitePeerStore::new(pool)
+    pub fn temp() -> Result<Self, DBError> {
+        Self::file("".into())
     }
 
-    fn prepare(&mut self) -> Result<(), sqlite::Error> {
+    fn prepare(&mut self) -> Result<(), DBError> {
         self.create_tables()?;
         self.load_banlist()
     }
 
-    fn create_tables(&mut self) -> Result<(), sqlite::Error> {
+    fn create_tables(&mut self) -> Result<(), DBError> {
         self.pool.fetch(|conn| db::create_tables(conn))
     }
 
-    fn load_banlist(&mut self) -> Result<(), sqlite::Error> {
+    fn load_banlist(&mut self) -> Result<(), DBError> {
         self.clear_expires_banned_ip()?;
         let now = unix_time();
         let ban_records = self.pool.fetch(|conn| db::get_ban_records(conn, now))?;
@@ -107,7 +110,7 @@ impl SqlitePeerStore {
         }
     }
 
-    fn clear_expires_banned_ip(&mut self) -> Result<(), sqlite::Error> {
+    fn clear_expires_banned_ip(&mut self) -> Result<(), DBError> {
         let now = unix_time();
         let ips = self
             .pool
@@ -118,7 +121,7 @@ impl SqlitePeerStore {
         Ok(())
     }
 
-    // check and try to delete peer_info if peer_infos reach limit
+    /// check and try delete peer_info if peer_infos reach limit
     fn check_store_limit(&mut self) -> Result<(), ()> {
         let peer_info_count = self
             .pool
@@ -136,7 +139,7 @@ impl SqlitePeerStore {
                 unix_time() - Duration::from_secs(PEER_NOT_SEEN_TIMEOUT_SECS.into());
             peers
                 .into_iter()
-                .filter(move |peer| peer.connected_time < not_seen_timeout)
+                .filter(move |peer| peer.last_connected_at < not_seen_timeout)
         };
         let candidate_peer = match candidate_peers.min_by_key(|peer| peer.score) {
             Some(peer) => peer,
@@ -162,17 +165,17 @@ impl SqlitePeerStore {
         peer_id: &PeerId,
         addr: &Multiaddr,
         endpoint: SessionType,
-        connected_time: Duration,
+        last_connected_at: Duration,
     ) -> db::PeerInfo {
         self.pool
             .fetch(|conn| {
                 db::PeerInfo::get_by_peer_id(conn, peer_id).and_then(|peer| match peer {
                     Some(mut peer) => {
-                        db::PeerInfo::update(conn, peer.id, &addr, endpoint, connected_time)
+                        db::PeerInfo::update(conn, peer.id, &addr, endpoint, last_connected_at)
                             .expect("update peer info");
                         peer.connected_addr = addr.to_owned();
                         peer.endpoint = endpoint;
-                        peer.connected_time = connected_time;
+                        peer.last_connected_at = last_connected_at;
                         Ok(Some(peer))
                     }
                     None => {
@@ -182,7 +185,7 @@ impl SqlitePeerStore {
                             &addr,
                             endpoint,
                             self.scoring_schema().peer_init_score(),
-                            connected_time,
+                            last_connected_at,
                         )?;
                         db::PeerInfo::get_by_peer_id(conn, &peer_id)
                     }
@@ -224,7 +227,7 @@ impl SqlitePeerStore {
 }
 
 impl PeerStore for SqlitePeerStore {
-    fn new_connected_peer(&mut self, peer_id: &PeerId, addr: Multiaddr, endpoint: SessionType) {
+    fn add_connected_peer(&mut self, peer_id: &PeerId, addr: Multiaddr, endpoint: SessionType) {
         if self.check_store_limit().is_err() {
             return;
         }
@@ -233,38 +236,17 @@ impl PeerStore for SqlitePeerStore {
         self.get_and_upsert_peer_info_with(peer_id, &addr, endpoint, now);
     }
 
-    fn add_discovered_address(&mut self, peer_id: &PeerId, addr: Multiaddr) -> Result<(), ()> {
-        self.check_store_limit()?;
+    fn add_discovered_addr(&mut self, peer_id: &PeerId, addr: Multiaddr) -> bool {
+        // peer store is full
+        if self.check_store_limit().is_err() {
+            return false;
+        }
         let id = self.get_or_insert_peer_info(peer_id).id;
         let inserted = self
             .pool
             .fetch(|conn| db::PeerAddr::insert(&conn, id, &addr))
             .expect("insert addr");
-        if inserted > 0 {
-            Ok(())
-        } else {
-            Err(())
-        }
-    }
-
-    fn add_discovered_addresses(
-        &mut self,
-        peer_id: &PeerId,
-        addrs: Vec<Multiaddr>,
-    ) -> Result<usize, ()> {
-        self.check_store_limit()?;
-        let id = self.get_or_insert_peer_info(peer_id).id;
-        let count = self
-            .pool
-            .fetch(|conn| {
-                let mut count = 0;
-                for addr in &addrs {
-                    count += db::PeerAddr::insert(&conn, id, &addr)?;
-                }
-                Ok(count)
-            })
-            .expect("insert addrs");
-        Ok(count)
+        inserted > 0
     }
 
     fn report(&mut self, peer_id: &PeerId, behaviour: Behaviour) -> ReportResult {

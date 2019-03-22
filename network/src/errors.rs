@@ -1,6 +1,5 @@
-use crate::{PeerIndex, ProtocolId};
-use p2p::{error::Error as P2PError, secio::PeerId, service::ServiceTask};
-use std::error;
+use crate::{peer_store::sqlite::DBError, PeerIndex, ProtocolId};
+use p2p::secio::PeerId;
 use std::fmt;
 use std::fmt::Display;
 use std::io::Error as IoError;
@@ -11,7 +10,8 @@ pub enum Error {
     Config(ConfigError),
     Protocol(ProtocolError),
     Io(IoError),
-    P2P(P2PError<ServiceTask>),
+    P2P(String),
+    DB(DBError),
     Shutdown,
 }
 
@@ -63,25 +63,32 @@ impl From<ProtocolError> for Error {
     }
 }
 
-impl From<P2PError<ServiceTask>> for Error {
-    fn from(err: P2PError<ServiceTask>) -> Error {
-        Error::P2P(err)
+impl From<DBError> for Error {
+    fn from(err: DBError) -> Error {
+        Error::DB(err)
     }
 }
 
 impl Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self)
+        write!(f, "{:?}", self)
     }
 }
 
-impl error::Error for Error {
-    fn description(&self) -> &str {
-        "ckb network error"
+impl Display for ConfigError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{:?}", self)
     }
+}
 
-    fn cause(&self) -> Option<&error::Error> {
-        // Generic error, underlying cause isn't tracked.
-        None
+impl Display for PeerError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
+impl Display for ProtocolError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{:?}", self)
     }
 }
