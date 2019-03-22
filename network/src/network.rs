@@ -367,7 +367,7 @@ impl Network {
         let peer_store: Arc<RwLock<dyn PeerStore>> = {
             let mut peer_store = match &config.peer_store_path {
                 Some(path) => SqlitePeerStore::file(path.to_string())?,
-                None => SqlitePeerStore::memory()?,
+                None => SqlitePeerStore::memory("default".to_string())?,
             };
             let bootnodes = config.bootnodes()?;
             for (peer_id, addr) in bootnodes {

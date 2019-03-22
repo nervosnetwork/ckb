@@ -50,8 +50,8 @@ impl SqlitePeerStore {
         Ok(SqlitePeerStore::new(pool))
     }
 
-    pub fn memory() -> Result<Self, DBError> {
-        let pool = sqlite::open_pool(sqlite::StorePath::Memory, DEFAULT_POOL_SIZE)?;
+    pub fn memory(db: String) -> Result<Self, DBError> {
+        let pool = sqlite::open_pool(sqlite::StorePath::Memory(db), DEFAULT_POOL_SIZE)?;
         Ok(SqlitePeerStore::new(pool))
     }
 

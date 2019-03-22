@@ -44,17 +44,16 @@ lazy_static! {
         | OpenFlags::SQLITE_OPEN_NO_MUTEX;
 }
 
-const SHARED_MEMORY_PATH: &str = "file::memory:?cache=shared";
-
 pub enum StorePath {
-    Memory,
+    Memory(String),
     File(String),
 }
 
 pub fn open_pool(store_path: StorePath, max_size: u32) -> Result<ConnectionPool, DBError> {
     let manager = match store_path {
-        StorePath::Memory => {
-            let manager = SqliteConnectionManager::file(SHARED_MEMORY_PATH);
+        StorePath::Memory(db) => {
+            let manager =
+                SqliteConnectionManager::file(format!("file:{}?mode=memory&cache=shared", db));
             manager.with_flags(*MEMORY_OPEN_FLAGS)
         }
         StorePath::File(file_path) => {
@@ -70,9 +69,11 @@ pub fn open_pool(store_path: StorePath, max_size: u32) -> Result<ConnectionPool,
 
 pub fn open(store_path: StorePath) -> Result<Connection, DBError> {
     match store_path {
-        StorePath::Memory => {
-            Connection::open_with_flags(SHARED_MEMORY_PATH, *MEMORY_OPEN_FLAGS).map_err(Into::into)
-        }
+        StorePath::Memory(db) => Connection::open_with_flags(
+            format!("file:{}?mode=memory&cache=shared", db),
+            *MEMORY_OPEN_FLAGS,
+        )
+        .map_err(Into::into),
         StorePath::File(file_path) => {
             Connection::open_with_flags(file_path, *FILE_OPEN_FLAGS).map_err(Into::into)
         }

@@ -6,11 +6,18 @@ use crate::{
     },
     random_peer_id, SessionType,
 };
+use rand::Rng;
 use std::time::Duration;
+
+fn new_peer_store() -> Box<dyn PeerStore> {
+    let mut rng = rand::thread_rng();
+    let db_number: u32 = rng.gen();
+    Box::new(SqlitePeerStore::memory(format!("db{}", db_number).to_string()).expect("memory"))
+}
 
 #[test]
 fn test_add_connected_peer() {
-    let mut peer_store: Box<dyn PeerStore> = Box::new(SqlitePeerStore::temp().expect("temp"));
+    let mut peer_store: Box<dyn PeerStore> = new_peer_store();
     let peer_id = random_peer_id();
     let addr = "/ip4/127.0.0.1".to_multiaddr().unwrap();
     peer_store.add_connected_peer(&peer_id, addr, SessionType::Client);
@@ -23,7 +30,7 @@ fn test_add_connected_peer() {
 
 #[test]
 fn test_add_discovered_addr() {
-    let mut peer_store: Box<dyn PeerStore> = Box::new(SqlitePeerStore::temp().expect("temp"));
+    let mut peer_store: Box<dyn PeerStore> = new_peer_store();
     let peer_id = random_peer_id();
     peer_store.add_discovered_addr(&peer_id, "/ip4/127.0.0.1".to_multiaddr().unwrap());
     assert_eq!(peer_store.peer_addrs(&peer_id, 2).unwrap().len(), 1);
@@ -31,7 +38,7 @@ fn test_add_discovered_addr() {
 
 #[test]
 fn test_report() {
-    let mut peer_store: Box<dyn PeerStore> = Box::new(SqlitePeerStore::temp().expect("temp"));
+    let mut peer_store: Box<dyn PeerStore> = new_peer_store();
     let peer_id = random_peer_id();
     assert!(peer_store.report(&peer_id, Behaviour::Ping).is_ok());
     assert!(
@@ -41,7 +48,7 @@ fn test_report() {
 
 #[test]
 fn test_update_status() {
-    let mut peer_store: Box<dyn PeerStore> = Box::new(SqlitePeerStore::temp().expect("temp"));
+    let mut peer_store: Box<dyn PeerStore> = new_peer_store();
     let peer_id = random_peer_id();
     peer_store.update_status(&peer_id, Status::Connected);
     assert_eq!(peer_store.peer_status(&peer_id), Status::Unknown);
@@ -53,7 +60,7 @@ fn test_update_status() {
 
 #[test]
 fn test_ban_peer() {
-    let mut peer_store: Box<dyn PeerStore> = Box::new(SqlitePeerStore::temp().expect("temp"));
+    let mut peer_store: Box<dyn PeerStore> = new_peer_store();
     let peer_id = random_peer_id();
     peer_store.ban_peer(&peer_id, Duration::from_secs(10));
     assert!(!peer_store.is_banned(&peer_id));
@@ -65,7 +72,7 @@ fn test_ban_peer() {
 
 #[test]
 fn test_bootnodes() {
-    let mut peer_store: Box<dyn PeerStore> = Box::new(SqlitePeerStore::temp().expect("temp"));
+    let mut peer_store: Box<dyn PeerStore> = new_peer_store();
     assert!(peer_store.bootnodes(1).is_empty());
     let peer_id = random_peer_id();
     let addr = "/ip4/127.0.0.1".to_multiaddr().unwrap();
@@ -81,7 +88,7 @@ fn test_bootnodes() {
 
 #[test]
 fn test_peers_to_attempt() {
-    let mut peer_store: Box<dyn PeerStore> = Box::new(SqlitePeerStore::temp().expect("temp"));
+    let mut peer_store: Box<dyn PeerStore> = new_peer_store();
     assert!(peer_store.peers_to_attempt(1).is_empty());
     let peer_id = random_peer_id();
     let addr = "/ip4/127.0.0.1".to_multiaddr().unwrap();
@@ -96,7 +103,7 @@ fn test_peers_to_attempt() {
 
 #[test]
 fn test_random_peers() {
-    let mut peer_store: Box<dyn PeerStore> = Box::new(SqlitePeerStore::temp().expect("temp"));
+    let mut peer_store: Box<dyn PeerStore> = new_peer_store();
     assert!(peer_store.random_peers(1).is_empty());
     let peer_id = random_peer_id();
     let addr = "/ip4/127.0.0.1".to_multiaddr().unwrap();
@@ -111,7 +118,7 @@ fn test_random_peers() {
 
 #[test]
 fn test_delete_peer_info() {
-    let mut peer_store = SqlitePeerStore::temp().expect("temp");
+    let mut peer_store = new_peer_store();
     let addr1 = "/ip4/127.0.0.1".to_multiaddr().unwrap();
     let addr2 = "/ip4/192.163.1.1".to_multiaddr().unwrap();
     for _ in 0..(PEER_STORE_LIMIT - 2) {
