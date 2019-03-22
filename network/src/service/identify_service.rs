@@ -5,11 +5,7 @@ use log::{debug, warn};
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use p2p::{
-    multiaddr::{Multiaddr, Protocol},
-    secio::PeerId,
-    utils::multiaddr_to_socketaddr,
-};
+use p2p::{multiaddr::Multiaddr, secio::PeerId};
 
 pub use p2p_identify::IdentifyProtocol;
 use p2p_identify::{AddrManager, MisbehaveResult, Misbehavior};
@@ -28,6 +24,13 @@ impl IdentifyAddressManager {
 }
 
 impl AddrManager for IdentifyAddressManager {
+    fn init_listen_addrs(&mut self, addrs: Vec<Multiaddr>) {
+        let event = IdentifyEvent::InitListenAddrs(addrs);
+        if self.event_sender.unbounded_send(event).is_err() {
+            warn!(target: "network", "receiver maybe dropped!");
+        }
+    }
+
     fn add_listen_addrs(&mut self, peer_id: &PeerId, addrs: Vec<Multiaddr>) {
         let event = IdentifyEvent::AddListenAddrs {
             peer_id: peer_id.clone(),
@@ -67,14 +70,15 @@ impl AddrManager for IdentifyAddressManager {
 }
 
 pub enum IdentifyEvent {
+    /// Local init listen addresses
+    InitListenAddrs(Vec<Multiaddr>),
+    /// Remote listen addresses
     AddListenAddrs {
         peer_id: PeerId,
         addrs: Vec<Multiaddr>,
     },
-    AddObservedAddr {
-        peer_id: PeerId,
-        addr: Multiaddr,
-    },
+    /// Observed address (already transformed)
+    AddObservedAddr { peer_id: PeerId, addr: Multiaddr },
     Misbehave {
         peer_id: PeerId,
         kind: Misbehavior,
@@ -85,7 +89,9 @@ pub enum IdentifyEvent {
 pub(crate) struct IdentifyService {
     event_receiver: mpsc::UnboundedReceiver<IdentifyEvent>,
     network: Arc<Network>,
-    listen_addrs: HashMap<PeerId, Vec<Multiaddr>>,
+    // local listen addresses for scoring and for rpc output
+    local_listen_addrs: Vec<Multiaddr>,
+    remote_listen_addrs: HashMap<PeerId, Vec<Multiaddr>>,
 }
 
 impl IdentifyService {
@@ -96,7 +102,8 @@ impl IdentifyService {
         IdentifyService {
             event_receiver,
             network,
-            listen_addrs: HashMap::default(),
+            local_listen_addrs: Vec::new(),
+            remote_listen_addrs: HashMap::default(),
         }
     }
 }
@@ -106,34 +113,25 @@ impl Stream for IdentifyService {
     type Error = ();
     fn poll(&mut self) -> Result<Async<Option<Self::Item>>, Self::Error> {
         match try_ready!(self.event_receiver.poll()) {
+            Some(IdentifyEvent::InitListenAddrs(addrs)) => {
+                self.local_listen_addrs = addrs;
+            }
             Some(IdentifyEvent::AddListenAddrs { peer_id, addrs }) => {
-                self.listen_addrs.insert(peer_id, addrs);
+                self.remote_listen_addrs
+                    .insert(peer_id.clone(), addrs.clone());
+                let mut peer_store = self.network.peer_store().write();
+                for addr in addrs {
+                    let _ = peer_store.add_discovered_addr(&peer_id, addr);
+                }
             }
             Some(IdentifyEvent::AddObservedAddr { peer_id, addr }) => {
                 // TODO: how to use listen addresses
-                if let Some(addr) = self
-                    .listen_addrs
-                    .get(&peer_id)
-                    .and_then(|addrs| addrs.iter().next())
-                    .and_then(|addr| multiaddr_to_socketaddr(addr))
-                    .map(|socket_addr| socket_addr.port())
-                    .map(move |port| {
-                        addr.into_iter()
-                            .filter_map(|proto| match proto {
-                                Protocol::Tcp(_) => Some(Protocol::Tcp(port)),
-                                // Remove p2p part
-                                Protocol::P2p(_) => None,
-                                value => Some(value),
-                            })
-                            .collect()
-                    })
-                {
-                    let _ = self
-                        .network
-                        .peer_store()
-                        .write()
-                        .add_discovered_addr(&peer_id, addr);
-                }
+                self.local_listen_addrs.push(addr.clone());
+                let _ = self
+                    .network
+                    .peer_store()
+                    .write()
+                    .add_discovered_addr(&peer_id, addr);
             }
             Some(IdentifyEvent::Misbehave { result, .. }) => {
                 // TODO: report misbehave
