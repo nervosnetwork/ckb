@@ -6,7 +6,7 @@ extern crate ckb_util;
 use ckb_network::{
     multiaddr::ToMultiaddr,
     peer_store::{PeerStore, SqlitePeerStore},
-    random_peer_id, SessionType,
+    PeerId, SessionType,
 };
 use ckb_util::Mutex;
 use criterion::Criterion;
@@ -18,7 +18,7 @@ fn insert_peer_info_benchmark(c: &mut Criterion) {
             let mut peer_store =
                 SqlitePeerStore::memory("bench_db_insert_100_peer_info".to_string())
                     .expect("memory");
-            let peer_ids = (0..100).map(|_| random_peer_id()).collect::<Vec<_>>();
+            let peer_ids = (0..100).map(|_| PeerId::random()).collect::<Vec<_>>();
             let addr = "/ip4/127.0.0.1".to_multiaddr().unwrap();
             move || {
                 for peer_id in peer_ids.clone() {
@@ -32,7 +32,7 @@ fn insert_peer_info_benchmark(c: &mut Criterion) {
             let mut peer_store =
                 SqlitePeerStore::memory("bench_db_insert_1000_peer_info".to_string())
                     .expect("memory");
-            let peer_ids = (0..1000).map(|_| random_peer_id()).collect::<Vec<_>>();
+            let peer_ids = (0..1000).map(|_| PeerId::random()).collect::<Vec<_>>();
             let addr = "/ip4/127.0.0.1".to_multiaddr().unwrap();
             move || {
                 for peer_id in peer_ids.clone() {
@@ -46,7 +46,7 @@ fn insert_peer_info_benchmark(c: &mut Criterion) {
     c.bench_function("insert 100 peer_info on filesystem", move |b| {
         b.iter({
             let mut peer_store = SqlitePeerStore::temp().expect("temp");
-            let peer_ids = (0..100).map(|_| random_peer_id()).collect::<Vec<_>>();
+            let peer_ids = (0..100).map(|_| PeerId::random()).collect::<Vec<_>>();
             let addr = "/ip4/127.0.0.1".to_multiaddr().unwrap();
             move || {
                 for peer_id in peer_ids.clone() {
@@ -66,7 +66,7 @@ fn random_order_benchmark(c: &mut Criterion) {
         {
             let mut peer_store = peer_store.lock();
             for _ in 0..8000 {
-                let peer_id = random_peer_id();
+                let peer_id = PeerId::random();
                 peer_store.add_connected_peer(&peer_id, addr.clone(), SessionType::Client);
                 let _ = peer_store.add_discovered_addr(&peer_id, addr.clone());
             }
@@ -113,7 +113,7 @@ fn random_order_benchmark(c: &mut Criterion) {
                 let mut peer_store = SqlitePeerStore::temp().expect("temp");
                 let addr = "/ip4/127.0.0.1".to_multiaddr().unwrap();
                 for _ in 0..8000 {
-                    let peer_id = random_peer_id();
+                    let peer_id = PeerId::random();
                     peer_store.add_connected_peer(&peer_id, addr.clone(), SessionType::Client);
                     let _ = peer_store.add_discovered_addr(&peer_id, addr.clone());
                 }

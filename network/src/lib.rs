@@ -97,31 +97,3 @@ impl From<Config> for NetworkConfig {
         cfg
     }
 }
-
-//TODO remove after tentacle-secio support PeerId::random
-pub fn random_peer_id() -> PeerId {
-    use rand::{thread_rng, Rng};
-    use sha2::digest::Digest;
-    use unsigned_varint::encode;
-
-    let data = {
-        let mut arr = [0u8; 20];
-        thread_rng().fill(&mut arr[..]);
-        arr
-    };
-    let mut buf = encode::u16_buffer();
-    let code = encode::u16(0x12, &mut buf);
-
-    let header_len = code.len() + 1;
-
-    let mut inner = Vec::new();
-    inner.resize(header_len + 32 as usize, 0);
-    inner[..code.len()].copy_from_slice(code);
-    inner[code.len()] = 32;
-
-    let mut hasher = sha2::Sha256::default();
-    hasher.input(data);
-    inner[header_len..].copy_from_slice(hasher.result().as_ref());
-
-    PeerId::from_bytes(inner).expect("random peer_id")
-}
