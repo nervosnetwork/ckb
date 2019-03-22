@@ -7,7 +7,7 @@ pub enum SharedError {
     InvalidInput,
     #[fail(display = "InvalidOutput")]
     InvalidOutput,
-    #[fail(display = "InvalidTransaction")]
+    #[fail(display = "InvalidTransaction: {}", _0)]
     InvalidTransaction(String),
     #[fail(display = "InvalidParentBlock")]
     InvalidParentBlock,
