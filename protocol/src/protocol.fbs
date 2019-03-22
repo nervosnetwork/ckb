@@ -90,7 +90,7 @@ table CellOutput {
 table Script {
     version:        uint8;
     args:           [Bytes];
-    reference:      H256;
+    binary_hash:    H256;
 }
 
 root_type SyncMessage;

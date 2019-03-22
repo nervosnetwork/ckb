@@ -99,7 +99,7 @@ impl<'a> TransactionScriptsVerifier<'a> {
 
     // Extracts actual script binary either in dep cell or in embeds.
     fn extract_script(&self, script: &'a Script) -> Result<&'a [u8], ScriptError> {
-        match self.binary_index.get(&script.reference) {
+        match self.binary_index.get(&script.binary_hash) {
             Some(ref binary) => Ok(binary),
             None => Err(ScriptError::InvalidReferenceIndex),
         }

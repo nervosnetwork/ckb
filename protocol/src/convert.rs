@@ -244,15 +244,15 @@ impl<'a> TryFrom<ckb_protocol::Script<'a>> for ckb_core::script::Script {
             .map(|argument| argument.seq().map(|s| s.to_vec()))
             .collect();
 
-        let reference = match script.reference() {
-            Some(reference) => Some(TryInto::try_into(reference)?),
+        let binary_hash = match script.binary_hash() {
+            Some(binary_hash) => Some(TryInto::try_into(binary_hash)?),
             None => None,
         };
 
         Ok(ckb_core::script::Script {
             version: script.version(),
             args: cast!(args)?,
-            reference: cast!(reference)?,
+            binary_hash: cast!(binary_hash)?,
         })
     }
 }

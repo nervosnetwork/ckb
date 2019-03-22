@@ -1863,7 +1863,7 @@ impl<'a> Script<'a> {
         _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr>,
         args: &'args ScriptArgs<'args>) -> flatbuffers::WIPOffset<Script<'bldr>> {
       let mut builder = ScriptBuilder::new(_fbb);
-      if let Some(x) = args.reference { builder.add_reference(x); }
+      if let Some(x) = args.binary_hash { builder.add_binary_hash(x); }
       if let Some(x) = args.args { builder.add_args(x); }
       builder.add_version(args.version);
       builder.finish()
@@ -1871,7 +1871,7 @@ impl<'a> Script<'a> {
 
     pub const VT_VERSION: flatbuffers::VOffsetT = 4;
     pub const VT_ARGS: flatbuffers::VOffsetT = 6;
-    pub const VT_REFERENCE: flatbuffers::VOffsetT = 8;
+    pub const VT_BINARY_HASH: flatbuffers::VOffsetT = 8;
 
   #[inline]
   pub fn version(&self) -> u8 {
@@ -1882,15 +1882,15 @@ impl<'a> Script<'a> {
     self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<flatbuffers::ForwardsUOffset<Bytes<'a>>>>>(Script::VT_ARGS, None)
   }
   #[inline]
-  pub fn reference(&self) -> Option<&'a H256> {
-    self._tab.get::<H256>(Script::VT_REFERENCE, None)
+  pub fn binary_hash(&self) -> Option<&'a H256> {
+    self._tab.get::<H256>(Script::VT_BINARY_HASH, None)
   }
 }
 
 pub struct ScriptArgs<'a> {
     pub version: u8,
     pub args: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a , flatbuffers::ForwardsUOffset<Bytes<'a >>>>>,
-    pub reference: Option<&'a  H256>,
+    pub binary_hash: Option<&'a  H256>,
 }
 impl<'a> Default for ScriptArgs<'a> {
     #[inline]
@@ -1898,7 +1898,7 @@ impl<'a> Default for ScriptArgs<'a> {
         ScriptArgs {
             version: 0,
             args: None,
-            reference: None,
+            binary_hash: None,
         }
     }
 }
@@ -1916,8 +1916,8 @@ impl<'a: 'b, 'b> ScriptBuilder<'a, 'b> {
     self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(Script::VT_ARGS, args);
   }
   #[inline]
-  pub fn add_reference(&mut self, reference: &'b  H256) {
-    self.fbb_.push_slot_always::<&H256>(Script::VT_REFERENCE, reference);
+  pub fn add_binary_hash(&mut self, binary_hash: &'b  H256) {
+    self.fbb_.push_slot_always::<&H256>(Script::VT_BINARY_HASH, binary_hash);
   }
   #[inline]
   pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>) -> ScriptBuilder<'a, 'b> {

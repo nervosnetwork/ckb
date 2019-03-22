@@ -13,13 +13,13 @@ use std::mem;
 pub struct Script {
     pub version: u8,
     pub args: Vec<Vec<u8>>,
-    // The reference hash here can be used to refer to binary in any of the
+    // Binary hash here can be used to refer to binary in any of the
     // following locations:
-    // 1. Data part of a dep cell in current transaction, reference hash
+    // 1. Data part of a dep cell in current transaction, binary hash
     // must be the hash of the cell data so as to reference this cell
-    // 2. An embed item in current transaction, reference hash must be the
+    // 2. An embed item in current transaction, binary hash must be the
     // hash of the embed item to reference this item
-    pub reference: H256,
+    pub binary_hash: H256,
 }
 
 fn prefix_hex(bytes: &[u8]) -> String {
@@ -37,7 +37,7 @@ impl fmt::Debug for Script {
             .entries(self.args.iter().map(|arg| prefix_hex(arg)))
             .finish()?;
 
-        write!(f, ", reference: {:#x}", self.reference,)?;
+        write!(f, ", binary_hash: {:#x}", self.binary_hash,)?;
 
         write!(f, " }}")
     }
@@ -49,11 +49,11 @@ const VEC_WRITE_ALL_EXPECT: &str =
     "Essentially, Vec::write_all invoke extend_from_slice, should not fail";
 
 impl Script {
-    pub fn new(version: u8, args: Vec<Vec<u8>>, reference: H256) -> Self {
+    pub fn new(version: u8, args: Vec<Vec<u8>>, binary_hash: H256) -> Self {
         Script {
             version,
             args,
-            reference,
+            binary_hash,
         }
     }
 
@@ -61,9 +61,9 @@ impl Script {
         let Script {
             version,
             args,
-            reference,
+            binary_hash,
         } = self;
-        (version, args, reference)
+        (version, args, binary_hash)
     }
 
     pub fn hash(&self) -> H256 {
@@ -71,7 +71,7 @@ impl Script {
             0 => {
                 let mut bytes = vec![];
                 bytes
-                    .write_all(self.reference.as_bytes())
+                    .write_all(self.binary_hash.as_bytes())
                     .expect(VEC_WRITE_ALL_EXPECT);
                 for argument in &self.args {
                     bytes.write_all(argument).expect(VEC_WRITE_ALL_EXPECT);
@@ -85,7 +85,7 @@ impl Script {
 
 impl OccupiedCapacity for Script {
     fn occupied_capacity(&self) -> usize {
-        mem::size_of::<u8>() + self.args.occupied_capacity() + self.reference.occupied_capacity()
+        mem::size_of::<u8>() + self.args.occupied_capacity() + self.binary_hash.occupied_capacity()
     }
 }
 

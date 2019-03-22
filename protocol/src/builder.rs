@@ -169,12 +169,12 @@ impl<'a> FbsScript<'a> {
             .collect::<Vec<_>>();
         let args = fbb.create_vector(&vec);
 
-        let reference = (&script.reference).into();
+        let binary_hash = (&script.binary_hash).into();
 
         let mut builder = ScriptBuilder::new(fbb);
         builder.add_version(script.version);
         builder.add_args(args);
-        builder.add_reference(&reference);
+        builder.add_binary_hash(&binary_hash);
         builder.finish()
     }
 }
