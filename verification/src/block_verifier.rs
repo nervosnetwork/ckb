@@ -100,25 +100,7 @@ impl<CP: ChainProvider + Clone> CellbaseVerifier<CP> {
             return Err(Error::Cellbase(CellbaseError::InvalidOutput));
         }
 
-        let block_reward = self.provider.block_reward(block.header().number());
-        let mut fee = 0;
-        for transaction in block.commit_transactions().iter().skip(1) {
-            fee += self
-                .provider
-                .calculate_transaction_fee(transaction)
-                .map_err(|e| Error::Chain(format!("{}", e)))?;
-        }
-        let total_reward = block_reward + fee;
-        let output_capacity: Capacity = cellbase_transaction
-            .outputs()
-            .iter()
-            .map(|output| output.capacity)
-            .sum();
-        if output_capacity > total_reward {
-            Err(Error::Cellbase(CellbaseError::InvalidReward))
-        } else {
-            Ok(())
-        }
+        Ok(())
     }
 }
 
