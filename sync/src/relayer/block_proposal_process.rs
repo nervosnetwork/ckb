@@ -1,7 +1,9 @@
 use crate::relayer::Relayer;
-use ckb_protocol::{BlockProposal, FlatbuffersVectorIterator};
+use ckb_protocol::{cast, BlockProposal, FlatbuffersVectorIterator};
 use ckb_shared::index::ChainIndex;
 use ckb_traits::chain_provider::ChainProvider;
+use ckb_util::TryInto;
+use failure::Error as FailureError;
 
 pub struct BlockProposalProcess<'a, CI: ChainIndex + 'a> {
     message: &'a BlockProposal<'a>,
@@ -16,13 +18,15 @@ where
         BlockProposalProcess { message, relayer }
     }
 
-    pub fn execute(self) {
+    pub fn execute(self) -> Result<(), FailureError> {
         let chain_state = self.relayer.shared.chain_state().lock();
-        FlatbuffersVectorIterator::new(self.message.transactions().unwrap()).for_each(|tx| {
+        let txs = FlatbuffersVectorIterator::new(cast!(self.message.transactions())?);
+        for tx in txs {
             let _ = chain_state.add_tx_to_pool(
-                tx.into(),
+                TryInto::try_into(tx)?,
                 self.relayer.shared.consensus().max_block_cycles(),
             );
-        })
+        }
+        Ok(())
     }
 }

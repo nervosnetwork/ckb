@@ -1,7 +1,9 @@
 use crate::relayer::Relayer;
 use ckb_network::{CKBProtocolContext, PeerIndex};
-use ckb_protocol::{GetBlockProposal, RelayMessage};
+use ckb_protocol::{cast, GetBlockProposal, RelayMessage};
 use ckb_shared::index::ChainIndex;
+use ckb_util::TryInto;
+use failure::Error as FailureError;
 use flatbuffers::FlatBufferBuilder;
 
 pub struct GetBlockProposalProcess<'a, CI: ChainIndex + 'a> {
@@ -29,17 +31,21 @@ where
         }
     }
 
-    pub fn execute(self) {
+    pub fn execute(self) -> Result<(), FailureError> {
         let mut pending_proposals_request = self.relayer.state.pending_proposals_request.lock();
+        let proposal_transactions = cast!(self.message.proposal_transactions())?;
 
         let transactions = {
             let chain_state = self.relayer.shared.chain_state().lock();
             let tx_pool = chain_state.tx_pool();
-            self.message
-                .proposal_transactions()
-                .unwrap()
+
+            let proposals = proposal_transactions
                 .iter()
-                .map(Into::into)
+                .map(TryInto::try_into)
+                .collect::<Result<Vec<_>, FailureError>>();
+
+            proposals?
+                .into_iter()
                 .filter_map(|short_id| {
                     tx_pool.get_tx(&short_id).or({
                         pending_proposals_request
@@ -57,5 +63,6 @@ where
         fbb.finish(message, None);
 
         let _ = self.nc.send(self.peer, fbb.finished_data().to_vec());
+        Ok(())
     }
 }

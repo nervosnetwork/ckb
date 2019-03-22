@@ -1,7 +1,9 @@
 use crate::relayer::Relayer;
 use ckb_network::{CKBProtocolContext, PeerIndex};
-use ckb_protocol::{GetBlockTransactions, RelayMessage};
+use ckb_protocol::{cast, GetBlockTransactions, RelayMessage};
 use ckb_shared::index::ChainIndex;
+use ckb_util::TryInto;
+use failure::Error as FailureError;
 use flatbuffers::FlatBufferBuilder;
 use log::debug;
 
@@ -30,15 +32,14 @@ where
         }
     }
 
-    pub fn execute(self) {
-        let hash = self.message.hash().unwrap().into();
+    pub fn execute(self) -> Result<(), FailureError> {
+        let hash = cast!(self.message.hash())?.try_into()?;
         debug!(target: "relay", "get_block_transactions {:?}", hash);
 
+        let indexes = cast!(self.message.indexes())?;
+
         if let Some(block) = self.relayer.get_block(&hash) {
-            let transactions = self
-                .message
-                .indexes()
-                .unwrap()
+            let transactions = indexes
                 .safe_slice()
                 .iter()
                 .filter_map(|i| block.commit_transactions().get(*i as usize).cloned())
@@ -50,5 +51,7 @@ where
 
             let _ = self.nc.send(self.peer, fbb.finished_data().to_vec());
         }
+
+        Ok(())
     }
 }

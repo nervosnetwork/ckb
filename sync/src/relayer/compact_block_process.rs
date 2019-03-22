@@ -5,7 +5,9 @@ use ckb_protocol::{CompactBlock as FbsCompactBlock, RelayMessage};
 use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::Shared;
 use ckb_traits::{BlockMedianTimeContext, ChainProvider};
+use ckb_util::TryInto;
 use ckb_verification::{HeaderResolverWrapper, HeaderVerifier, Verifier};
+use failure::Error as FailureError;
 use flatbuffers::FlatBufferBuilder;
 use fnv::FnvHashMap;
 use numext_fixed_hash::H256;
@@ -36,8 +38,8 @@ where
         }
     }
 
-    pub fn execute(self) {
-        let compact_block: CompactBlock = (*self.message).into();
+    pub fn execute(self) -> Result<(), FailureError> {
+        let compact_block: CompactBlock = (*self.message).try_into()?;
         let block_hash = compact_block.header.hash();
         let mut missing_indexes: Vec<usize> = Vec::new();
         {
@@ -94,6 +96,7 @@ where
             fbb.finish(message, None);
             let _ = self.nc.send(self.peer, fbb.finished_data().to_vec());
         }
+        Ok(())
     }
 }
 

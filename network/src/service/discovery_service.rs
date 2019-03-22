@@ -65,7 +65,7 @@ impl ServiceProtocol for DiscoveryProtocol {
                         Ok(())
                     })
             })
-            .unwrap();
+            .expect("Discovery init only once");
         control.future_task(discovery_task);
     }
 

@@ -27,7 +27,7 @@ use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::Block;
 use ckb_core::header::{BlockNumber, Header};
 use ckb_network::{CKBProtocolContext, CKBProtocolHandler, PeerIndex, Severity, TimerToken};
-use ckb_protocol::{SyncMessage, SyncPayload};
+use ckb_protocol::{cast, SyncMessage, SyncPayload};
 use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::Shared;
 use ckb_traits::ChainProvider;
@@ -136,35 +136,53 @@ impl<CI: ChainIndex> Synchronizer<CI> {
             outbound_peers_with_protect: Arc::new(AtomicUsize::new(0)),
         }
     }
-
-    fn process(&self, nc: &CKBProtocolContext, peer: PeerIndex, message: SyncMessage) {
+    fn try_process(
+        &self,
+        nc: &CKBProtocolContext,
+        peer: PeerIndex,
+        message: SyncMessage,
+    ) -> Result<(), FailureError> {
         match message.payload_type() {
             SyncPayload::GetHeaders => {
-                GetHeadersProcess::new(&message.payload_as_get_headers().unwrap(), self, peer, nc)
-                    .execute()
+                GetHeadersProcess::new(&cast!(message.payload_as_get_headers())?, self, peer, nc)
+                    .execute()?;
             }
             SyncPayload::Headers => {
-                HeadersProcess::new(&message.payload_as_headers().unwrap(), self, peer, nc)
-                    .execute()
+                HeadersProcess::new(&cast!(message.payload_as_headers())?, self, peer, nc)
+                    .execute()?;
             }
             SyncPayload::GetBlocks => {
-                GetBlocksProcess::new(&message.payload_as_get_blocks().unwrap(), self, peer, nc)
-                    .execute()
+                GetBlocksProcess::new(&cast!(message.payload_as_get_blocks())?, self, peer, nc)
+                    .execute()?;
             }
             SyncPayload::Block => {
-                BlockProcess::new(&message.payload_as_block().unwrap(), self, peer, nc).execute()
+                BlockProcess::new(&cast!(message.payload_as_block())?, self, peer, nc).execute()?;
             }
             SyncPayload::SetFilter => {
-                SetFilterProcess::new(&message.payload_as_set_filter().unwrap(), self, peer)
-                    .execute()
+                SetFilterProcess::new(&cast!(message.payload_as_set_filter())?, self, peer)
+                    .execute()?;
             }
             SyncPayload::AddFilter => {
-                AddFilterProcess::new(&message.payload_as_add_filter().unwrap(), self, peer)
-                    .execute()
+                AddFilterProcess::new(&cast!(message.payload_as_add_filter())?, self, peer)
+                    .execute()?;
             }
-            SyncPayload::ClearFilter => ClearFilterProcess::new(self, peer).execute(),
-            SyncPayload::FilteredBlock => {} // ignore, should not receive FilteredBlock in full node mode
-            SyncPayload::NONE => {}
+            SyncPayload::ClearFilter => {
+                ClearFilterProcess::new(self, peer).execute()?;
+            }
+            SyncPayload::FilteredBlock => {
+                // ignore, should not receive FilteredBlock in full node mode
+                cast!(None)?;
+            }
+            SyncPayload::NONE => {
+                cast!(None)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn process(&self, nc: &CKBProtocolContext, peer: PeerIndex, message: SyncMessage) {
+        if self.try_process(nc, peer, message).is_err() {
+            nc.report_peer(peer, Severity::Bad("Malformed SyncMessage"));
         }
     }
 
@@ -453,12 +471,11 @@ impl<CI: ChainIndex> Synchronizer<CI> {
                         .block_header(&block.header().parent_hash())
                         .is_some()
                     {
-                        let ret = self.accept_block(peer, &block);
-                        if ret.is_err() {
+                        if let Err(e) = self.accept_block(peer, &block) {
                             debug!(
                                 target: "sync", "[Synchronizer] accept_block {:?} error {:?}",
                                 block,
-                                ret.unwrap_err()
+                                e
                             );
                         }
                     } else {
@@ -592,7 +609,11 @@ impl<CI: ChainIndex> Synchronizer<CI> {
                             self.send_getheaders_to_peer(
                                 nc,
                                 *peer,
-                                &state.chain_sync.work_header.clone().unwrap(),
+                                &state
+                                    .chain_sync
+                                    .work_header
+                                    .clone()
+                                    .expect("work_header be assigned"),
                             );
                         }
                     }
@@ -1196,7 +1217,9 @@ mod tests {
         let fbs_headers = get_root::<FbsHeaders>(fbb.finished_data());
 
         let peer = 1usize;
-        HeadersProcess::new(&fbs_headers, &synchronizer1, peer, &mock_network_context(0)).execute();
+        HeadersProcess::new(&fbs_headers, &synchronizer1, peer, &mock_network_context(0))
+            .execute()
+            .unwrap();
 
         let best_known_header = synchronizer1.peers.best_known_header(peer);
 
@@ -1224,7 +1247,9 @@ mod tests {
             fbb.finish(fbs_block, None);
             let fbs_block = get_root::<FbsBlock>(fbb.finished_data());
 
-            BlockProcess::new(&fbs_block, &synchronizer1, peer, &mock_network_context(0)).execute();
+            BlockProcess::new(&fbs_block, &synchronizer1, peer, &mock_network_context(0))
+                .execute()
+                .unwrap();
         }
 
         assert_eq!(

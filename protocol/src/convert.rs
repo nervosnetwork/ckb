@@ -1,6 +1,9 @@
+use crate::cast;
 use crate::protocol_generated::ckb::protocol as ckb_protocol;
 use crate::FlatbuffersVectorIterator;
 use ckb_core;
+use ckb_util::{TryFrom, TryInto};
+use failure::Error as FailureError;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 
@@ -16,9 +19,11 @@ impl From<&H256> for ckb_protocol::H256 {
     }
 }
 
-impl From<&ckb_protocol::H256> for H256 {
-    fn from(h256: &ckb_protocol::H256) -> Self {
-        H256::from_slice(&[
+impl TryFrom<&ckb_protocol::H256> for H256 {
+    type Error = FailureError;
+
+    fn try_from(h256: &ckb_protocol::H256) -> Result<Self, Self::Error> {
+        let ret = H256::from_slice(&[
             h256.u0(),
             h256.u1(),
             h256.u2(),
@@ -51,8 +56,8 @@ impl From<&ckb_protocol::H256> for H256 {
             h256.u29(),
             h256.u30(),
             h256.u31(),
-        ])
-        .unwrap()
+        ])?;
+        Ok(ret)
     }
 }
 
@@ -66,9 +71,11 @@ impl From<&ckb_core::transaction::ProposalShortId> for ckb_protocol::ProposalSho
     }
 }
 
-impl From<&ckb_protocol::ProposalShortId> for ckb_core::transaction::ProposalShortId {
-    fn from(short_id: &ckb_protocol::ProposalShortId) -> Self {
-        Self::from_slice(&[
+impl TryFrom<&ckb_protocol::ProposalShortId> for ckb_core::transaction::ProposalShortId {
+    type Error = FailureError;
+
+    fn try_from(short_id: &ckb_protocol::ProposalShortId) -> Result<Self, Self::Error> {
+        let ret = cast!(Self::from_slice(&[
             short_id.u0(),
             short_id.u1(),
             short_id.u2(),
@@ -79,164 +86,221 @@ impl From<&ckb_protocol::ProposalShortId> for ckb_core::transaction::ProposalSho
             short_id.u7(),
             short_id.u8_(),
             short_id.u9(),
-        ])
-        .unwrap()
+        ]))?;
+        Ok(ret)
     }
 }
 
-impl<'a> From<ckb_protocol::Block<'a>> for ckb_core::block::Block {
-    fn from(block: ckb_protocol::Block<'a>) -> Self {
-        let commit_transactions =
-            FlatbuffersVectorIterator::new(block.commit_transactions().unwrap())
-                .map(Into::into)
+impl<'a> TryFrom<ckb_protocol::Block<'a>> for ckb_core::block::Block {
+    type Error = FailureError;
+
+    fn try_from(block: ckb_protocol::Block<'a>) -> Result<Self, Self::Error> {
+        let commit_transactions: Result<Vec<ckb_core::transaction::Transaction>, FailureError> =
+            FlatbuffersVectorIterator::new(cast!(block.commit_transactions())?)
+                .map(TryInto::try_into)
                 .collect();
 
-        let uncles = FlatbuffersVectorIterator::new(block.uncles().unwrap())
-            .map(Into::into)
-            .collect();
+        let uncles: Result<Vec<ckb_core::uncle::UncleBlock>, FailureError> =
+            FlatbuffersVectorIterator::new(cast!(block.uncles())?)
+                .map(TryInto::try_into)
+                .collect();
 
-        let proposal_transactions = block
-            .proposal_transactions()
-            .unwrap()
+        let proposal_transactions: Result<
+            Vec<ckb_core::transaction::ProposalShortId>,
+            FailureError,
+        > = cast!(block.proposal_transactions())?
             .iter()
-            .map(Into::into)
+            .map(TryInto::try_into)
             .collect();
 
-        ckb_core::block::BlockBuilder::default()
-            .header(block.header().unwrap().into())
-            .uncles(uncles)
-            .commit_transactions(commit_transactions)
-            .proposal_transactions(proposal_transactions)
-            .build()
+        let header = cast!(block.header())?;
+
+        Ok(ckb_core::block::BlockBuilder::default()
+            .header(TryInto::try_into(header)?)
+            .uncles(uncles?)
+            .commit_transactions(commit_transactions?)
+            .proposal_transactions(proposal_transactions?)
+            .build())
     }
 }
 
-impl<'a> From<ckb_protocol::UncleBlock<'a>> for ckb_core::uncle::UncleBlock {
-    fn from(uncle_block: ckb_protocol::UncleBlock<'a>) -> Self {
-        ckb_core::uncle::UncleBlock {
-            header: uncle_block.header().unwrap().into(),
-            cellbase: uncle_block.cellbase().unwrap().into(),
-            proposal_transactions: uncle_block
-                .proposal_transactions()
-                .unwrap()
-                .iter()
-                .map(Into::into)
-                .collect(),
-        }
+impl<'a> TryFrom<ckb_protocol::UncleBlock<'a>> for ckb_core::uncle::UncleBlock {
+    type Error = FailureError;
+
+    fn try_from(uncle_block: ckb_protocol::UncleBlock<'a>) -> Result<Self, Self::Error> {
+        let proposal_transactions: Result<
+            Vec<ckb_core::transaction::ProposalShortId>,
+            FailureError,
+        > = cast!(uncle_block.proposal_transactions())?
+            .iter()
+            .map(TryInto::try_into)
+            .collect();
+        let header = cast!(uncle_block.header())?;
+        let cellbase = cast!(uncle_block.cellbase())?;
+
+        Ok(ckb_core::uncle::UncleBlock {
+            header: TryInto::try_into(header)?,
+            cellbase: TryInto::try_into(cellbase)?,
+            proposal_transactions: proposal_transactions?,
+        })
     }
 }
 
-impl<'a> From<ckb_protocol::Header<'a>> for ckb_core::header::Header {
-    fn from(header: ckb_protocol::Header<'a>) -> Self {
-        ckb_core::header::HeaderBuilder::default()
+impl<'a> TryFrom<ckb_protocol::Header<'a>> for ckb_core::header::Header {
+    type Error = FailureError;
+
+    fn try_from(header: ckb_protocol::Header<'a>) -> Result<Self, Self::Error> {
+        let parent_hash = cast!(header.parent_hash())?;
+        let txs_commit = cast!(header.txs_commit())?;
+        let txs_proposal = cast!(header.txs_proposal())?;
+        let cellbase_id = cast!(header.cellbase_id())?;
+        let uncles_hash = cast!(header.uncles_hash())?;
+
+        Ok(ckb_core::header::HeaderBuilder::default()
             .version(header.version())
-            .parent_hash(header.parent_hash().unwrap().into())
+            .parent_hash(TryInto::try_into(parent_hash)?)
             .timestamp(header.timestamp())
             .number(header.number())
-            .txs_commit(header.txs_commit().unwrap().into())
-            .txs_proposal(header.txs_proposal().unwrap().into())
-            .difficulty(
-                U256::from_little_endian(header.difficulty().and_then(|b| b.seq()).unwrap())
-                    .unwrap(),
-            )
-            .cellbase_id(header.cellbase_id().unwrap().into())
-            .uncles_hash(header.uncles_hash().unwrap().into())
+            .txs_commit(TryInto::try_into(txs_commit)?)
+            .txs_proposal(TryInto::try_into(txs_proposal)?)
+            .difficulty(U256::from_little_endian(cast!(header
+                .difficulty()
+                .and_then(|d| d.seq()))?)?)
+            .cellbase_id(TryInto::try_into(cellbase_id)?)
+            .uncles_hash(TryInto::try_into(uncles_hash)?)
             .nonce(header.nonce())
-            .proof(header.proof().and_then(|b| b.seq()).unwrap().to_vec())
+            .proof(cast!(header
+                .proof()
+                .and_then(|p| p.seq())
+                .map(|p| p.to_vec()))?)
             .uncles_count(header.uncles_count())
-            .build()
+            .build())
     }
 }
 
-impl<'a> From<ckb_protocol::Transaction<'a>> for ckb_core::transaction::Transaction {
-    fn from(transaction: ckb_protocol::Transaction<'a>) -> Self {
-        let deps = FlatbuffersVectorIterator::new(transaction.deps().unwrap())
-            .map(Into::into)
-            .collect();
+impl<'a> TryFrom<ckb_protocol::Transaction<'a>> for ckb_core::transaction::Transaction {
+    type Error = FailureError;
 
-        let inputs = FlatbuffersVectorIterator::new(transaction.inputs().unwrap())
-            .map(Into::into)
-            .collect();
+    fn try_from(transaction: ckb_protocol::Transaction<'a>) -> Result<Self, Self::Error> {
+        let deps: Result<Vec<ckb_core::transaction::OutPoint>, FailureError> =
+            FlatbuffersVectorIterator::new(cast!(transaction.deps())?)
+                .map(TryInto::try_into)
+                .collect();
 
-        let outputs = FlatbuffersVectorIterator::new(transaction.outputs().unwrap())
-            .map(Into::into)
-            .collect();
+        let inputs: Result<Vec<ckb_core::transaction::CellInput>, FailureError> =
+            FlatbuffersVectorIterator::new(cast!(transaction.inputs())?)
+                .map(TryInto::try_into)
+                .collect();
 
-        ckb_core::transaction::TransactionBuilder::default()
+        let outputs: Result<Vec<ckb_core::transaction::CellOutput>, FailureError> =
+            FlatbuffersVectorIterator::new(cast!(transaction.outputs())?)
+                .map(TryInto::try_into)
+                .collect();
+
+        Ok(ckb_core::transaction::TransactionBuilder::default()
             .version(transaction.version())
-            .deps(deps)
-            .inputs(inputs)
-            .outputs(outputs)
-            .build()
+            .deps(deps?)
+            .inputs(inputs?)
+            .outputs(outputs?)
+            .build())
     }
 }
 
-impl<'a> From<ckb_protocol::ValidTransaction<'a>>
+impl<'a> TryFrom<ckb_protocol::ValidTransaction<'a>>
     for (ckb_core::transaction::Transaction, ckb_core::Cycle)
 {
-    fn from(tx: ckb_protocol::ValidTransaction<'a>) -> Self {
-        let cycles = tx.cycles();
-        (tx.transaction().unwrap().into(), cycles)
+    type Error = FailureError;
+
+    fn try_from(vtx: ckb_protocol::ValidTransaction<'a>) -> Result<Self, Self::Error> {
+        let tx = cast!(vtx.transaction())?;
+        let cycles = vtx.cycles();
+        Ok((TryInto::try_into(tx)?, cycles))
     }
 }
 
-impl<'a> From<ckb_protocol::OutPoint<'a>> for ckb_core::transaction::OutPoint {
-    fn from(out_point: ckb_protocol::OutPoint<'a>) -> Self {
-        ckb_core::transaction::OutPoint {
-            hash: out_point.hash().unwrap().into(),
+impl<'a> TryFrom<ckb_protocol::OutPoint<'a>> for ckb_core::transaction::OutPoint {
+    type Error = FailureError;
+
+    fn try_from(out_point: ckb_protocol::OutPoint<'a>) -> Result<Self, Self::Error> {
+        let hash = cast!(out_point.hash())?;
+        Ok(ckb_core::transaction::OutPoint {
+            hash: TryInto::try_into(hash)?,
             index: out_point.index(),
-        }
+        })
     }
 }
 
-impl<'a> From<ckb_protocol::Script<'a>> for ckb_core::script::Script {
-    fn from(script: ckb_protocol::Script<'a>) -> Self {
-        let args = FlatbuffersVectorIterator::new(script.args().unwrap())
-            .map(|argument| argument.seq().unwrap().to_vec())
+impl<'a> TryFrom<ckb_protocol::Script<'a>> for ckb_core::script::Script {
+    type Error = FailureError;
+
+    fn try_from(script: ckb_protocol::Script<'a>) -> Result<Self, Self::Error> {
+        let args: Option<Vec<Vec<u8>>> = FlatbuffersVectorIterator::new(cast!(script.args())?)
+            .map(|argument| argument.seq().map(|s| s.to_vec()))
             .collect();
 
-        let signed_args = FlatbuffersVectorIterator::new(script.signed_args().unwrap())
-            .map(|argument| argument.seq().unwrap().to_vec())
-            .collect();
+        let signed_args: Option<Vec<Vec<u8>>> =
+            FlatbuffersVectorIterator::new(cast!(script.signed_args())?)
+                .map(|argument| argument.seq().map(|s| s.to_vec()))
+                .collect();
 
-        ckb_core::script::Script {
+        let reference = match script.reference() {
+            Some(reference) => Some(TryInto::try_into(reference)?),
+            None => None,
+        };
+
+        Ok(ckb_core::script::Script {
             version: script.version(),
-            args,
+            args: cast!(args)?,
             binary: script.binary().and_then(|s| s.seq()).map(|s| s.to_vec()),
-            signed_args,
-            reference: script.reference().map(Into::into),
-        }
+            signed_args: cast!(signed_args)?,
+            reference,
+        })
     }
 }
 
-impl<'a> From<ckb_protocol::CellInput<'a>> for ckb_core::transaction::CellInput {
-    fn from(cell_input: ckb_protocol::CellInput<'a>) -> Self {
-        ckb_core::transaction::CellInput {
+impl<'a> TryFrom<ckb_protocol::CellInput<'a>> for ckb_core::transaction::CellInput {
+    type Error = FailureError;
+
+    fn try_from(cell_input: ckb_protocol::CellInput<'a>) -> Result<Self, Self::Error> {
+        let hash = cast!(cell_input.hash())?;
+        let unlock = cast!(cell_input.unlock())?;
+        Ok(ckb_core::transaction::CellInput {
             previous_output: ckb_core::transaction::OutPoint {
-                hash: cell_input.hash().unwrap().into(),
+                hash: TryInto::try_into(hash)?,
                 index: cell_input.index(),
             },
-            unlock: cell_input.unlock().unwrap().into(),
-        }
+            unlock: TryInto::try_into(unlock)?,
+        })
     }
 }
 
-impl<'a> From<ckb_protocol::CellOutput<'a>> for ckb_core::transaction::CellOutput {
-    fn from(cell_output: ckb_protocol::CellOutput<'a>) -> Self {
-        ckb_core::transaction::CellOutput {
+impl<'a> TryFrom<ckb_protocol::CellOutput<'a>> for ckb_core::transaction::CellOutput {
+    type Error = FailureError;
+
+    fn try_from(cell_output: ckb_protocol::CellOutput<'a>) -> Result<Self, Self::Error> {
+        let lock = cast!(cell_output.lock())?;
+        let type_ = match cell_output.type_() {
+            Some(type_) => Some(TryInto::try_into(type_)?),
+            None => None,
+        };
+
+        Ok(ckb_core::transaction::CellOutput {
             capacity: cell_output.capacity(),
-            data: cell_output.data().and_then(|b| b.seq()).unwrap().to_vec(),
-            lock: cell_output.lock().unwrap().into(),
-            type_: cell_output.type_().map(Into::into),
-        }
+            data: cast!(cell_output.data().and_then(|s| s.seq()))?.to_vec(),
+            lock: TryInto::try_into(lock)?,
+            type_,
+        })
     }
 }
 
-impl<'a> From<ckb_protocol::IndexTransaction<'a>> for ckb_core::transaction::IndexTransaction {
-    fn from(it: ckb_protocol::IndexTransaction<'a>) -> Self {
-        ckb_core::transaction::IndexTransaction {
+impl<'a> TryFrom<ckb_protocol::IndexTransaction<'a>> for ckb_core::transaction::IndexTransaction {
+    type Error = FailureError;
+
+    fn try_from(it: ckb_protocol::IndexTransaction<'a>) -> Result<Self, Self::Error> {
+        let transaction = cast!(it.transaction())?;
+        Ok(ckb_core::transaction::IndexTransaction {
             index: it.index() as usize,
-            transaction: it.transaction().unwrap().into(),
-        }
+            transaction: TryInto::try_into(transaction)?,
+        })
     }
 }

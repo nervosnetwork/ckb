@@ -1,5 +1,6 @@
 mod builder;
 mod convert;
+pub mod error;
 #[rustfmt::skip]
 #[allow(clippy::all)]
 mod protocol_generated;
@@ -68,4 +69,11 @@ pub fn short_transaction_id(key0: u64, key1: u64, transaction_hash: &H256) -> Sh
     short_transaction_id.copy_from_slice(&siphash_transaction_hash_bytes[..6]);
 
     short_transaction_id
+}
+
+#[macro_export]
+macro_rules! cast {
+    ($expr:expr) => {
+        $expr.ok_or_else(|| $crate::error::Error::Malformed)
+    };
 }
