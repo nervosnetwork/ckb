@@ -15,7 +15,9 @@ use std::rc::Rc;
 fn insert_peer_info_benchmark(c: &mut Criterion) {
     c.bench_function("insert 100 peer_info", |b| {
         b.iter({
-            let mut peer_store = SqlitePeerStore::memory().expect("memory");
+            let mut peer_store =
+                SqlitePeerStore::memory("bench_db_insert_100_peer_info".to_string())
+                    .expect("memory");
             let peer_ids = (0..100).map(|_| random_peer_id()).collect::<Vec<_>>();
             let addr = "/ip4/127.0.0.1".to_multiaddr().unwrap();
             move || {
@@ -27,7 +29,9 @@ fn insert_peer_info_benchmark(c: &mut Criterion) {
     });
     c.bench_function("insert 1000 peer_info", |b| {
         b.iter({
-            let mut peer_store = SqlitePeerStore::memory().expect("memory");
+            let mut peer_store =
+                SqlitePeerStore::memory("bench_db_insert_1000_peer_info".to_string())
+                    .expect("memory");
             let peer_ids = (0..1000).map(|_| random_peer_id()).collect::<Vec<_>>();
             let addr = "/ip4/127.0.0.1".to_multiaddr().unwrap();
             move || {
@@ -55,7 +59,9 @@ fn insert_peer_info_benchmark(c: &mut Criterion) {
 
 fn random_order_benchmark(c: &mut Criterion) {
     {
-        let peer_store = Rc::new(Mutex::new(SqlitePeerStore::memory().expect("memory")));
+        let peer_store = Rc::new(Mutex::new(
+            SqlitePeerStore::memory("bench_db_random_order".to_string()).expect("memory"),
+        ));
         let addr = "/ip4/127.0.0.1".to_multiaddr().unwrap();
         {
             let mut peer_store = peer_store.lock();
