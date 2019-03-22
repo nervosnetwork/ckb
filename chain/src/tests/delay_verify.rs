@@ -1,5 +1,6 @@
 use crate::tests::util::{create_transaction, gen_block, start_chain};
 use ckb_core::block::Block;
+use ckb_shared::error::SharedError;
 use ckb_traits::ChainProvider;
 use numext_fixed_uint::U256;
 use std::sync::Arc;
@@ -90,11 +91,12 @@ fn test_dead_cell_in_same_block() {
     }
 
     assert_eq!(
-        "Err(InvalidTransaction(\"Transactions((2, Conflict))\"))",
-        format!(
-            "{:?}",
-            chain_controller.process_block(Arc::new(chain2[switch_fork_number + 1].clone()))
-        )
+        SharedError::InvalidTransaction("Transactions((2, Conflict))".to_string()),
+        chain_controller
+            .process_block(Arc::new(chain2[switch_fork_number + 1].clone()))
+            .unwrap_err()
+            .downcast()
+            .unwrap()
     );
 }
 
@@ -191,10 +193,11 @@ fn test_dead_cell_in_different_block() {
     }
 
     assert_eq!(
-        "Err(InvalidTransaction(\"Transactions((0, Conflict))\"))",
-        format!(
-            "{:?}",
-            chain_controller.process_block(Arc::new(chain2[switch_fork_number + 2].clone()))
-        )
+        SharedError::InvalidTransaction("Transactions((0, Conflict))".to_string()),
+        chain_controller
+            .process_block(Arc::new(chain2[switch_fork_number + 2].clone()))
+            .unwrap_err()
+            .downcast()
+            .unwrap()
     );
 }

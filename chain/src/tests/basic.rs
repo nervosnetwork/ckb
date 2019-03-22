@@ -5,6 +5,7 @@ use ckb_core::block::BlockBuilder;
 use ckb_core::cell::CellProvider;
 use ckb_core::header::HeaderBuilder;
 use ckb_core::transaction::{CellInput, CellOutput, OutPoint, TransactionBuilder};
+use ckb_shared::error::SharedError;
 use ckb_traits::ChainProvider;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
@@ -194,11 +195,12 @@ fn test_transaction_conflict_in_same_block() {
             .expect("process block ok");
     }
     assert_eq!(
-        "Err(InvalidTransaction(\"Transactions((2, Conflict))\"))",
-        format!(
-            "{:?}",
-            chain_controller.process_block(Arc::new(chain[3].clone()))
-        )
+        SharedError::InvalidTransaction("Transactions((2, Conflict))".to_string()),
+        chain_controller
+            .process_block(Arc::new(chain[3].clone()))
+            .unwrap_err()
+            .downcast()
+            .unwrap()
     );
 }
 
@@ -281,11 +283,12 @@ fn test_transaction_conflict_in_different_blocks() {
             .expect("process block ok");
     }
     assert_eq!(
-        "Err(InvalidTransaction(\"Transactions((0, Conflict))\"))",
-        format!(
-            "{:?}",
-            chain_controller.process_block(Arc::new(chain[4].clone()))
-        )
+        SharedError::InvalidTransaction("Transactions((0, Conflict))".to_string()),
+        chain_controller
+            .process_block(Arc::new(chain[4].clone()))
+            .unwrap_err()
+            .downcast()
+            .unwrap()
     );
 }
 
