@@ -94,11 +94,19 @@ impl<'a> FbsTransaction<'a> {
             .collect::<Vec<_>>();
         let outputs = fbb.create_vector(&vec);
 
+        let vec = transaction
+            .embeds()
+            .iter()
+            .map(|argument| FbsBytes::build(fbb, argument))
+            .collect::<Vec<_>>();
+        let embeds = fbb.create_vector(&vec);
+
         let mut builder = TransactionBuilder::new(fbb);
         builder.add_version(transaction.version());
         builder.add_deps(deps);
         builder.add_inputs(inputs);
         builder.add_outputs(outputs);
+        builder.add_embeds(embeds);
         builder.finish()
     }
 }

@@ -59,6 +59,7 @@ fn relay_compact_block_with_one_tx() {
                     vec![],
                 ))
                 .output(CellOutput::new(50, Vec::new(), Script::default(), None))
+                .embeds(last_cellbase.embeds().to_vec())
                 .build();
 
             {
@@ -212,6 +213,7 @@ fn relay_compact_block_with_missing_indexs() {
                             vec![],
                         ))
                         .output(CellOutput::new(50, vec![i], Script::default(), None))
+                        .embeds(last_cellbase.embeds().to_vec())
                         .build()
                 })
                 .collect::<Vec<_>>();
