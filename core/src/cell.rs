@@ -88,18 +88,20 @@ where
 }
 
 pub struct BlockCellProvider<'a> {
-    output_indexs: FnvHashMap<H256, usize>,
+    output_indices: FnvHashMap<H256, usize>,
     block: &'a Block,
 }
 
 impl<'a> BlockCellProvider<'a> {
     pub fn new(block: &'a Block) -> Self {
-        let mut output_indexs = FnvHashMap::default();
-        for (i, tx) in block.commit_transactions().iter().enumerate() {
-            output_indexs.insert(tx.hash(), i);
-        }
+        let output_indices = block
+            .commit_transactions()
+            .iter()
+            .enumerate()
+            .map(|(idx, tx)| (tx.hash(), idx))
+            .collect();
         Self {
-            output_indexs,
+            output_indices,
             block,
         }
     }
@@ -107,7 +109,7 @@ impl<'a> BlockCellProvider<'a> {
 
 impl<'a> CellProvider for BlockCellProvider<'a> {
     fn cell(&self, out_point: &OutPoint) -> CellStatus {
-        if let Some(i) = self.output_indexs.get(&out_point.hash) {
+        if let Some(i) = self.output_indices.get(&out_point.hash) {
             match self.block.commit_transactions()[*i]
                 .outputs()
                 .get(out_point.index as usize)
