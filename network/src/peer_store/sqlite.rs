@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-mod db;
+pub(crate) mod db;
 #[cfg(db_trace)]
 pub mod db_trace;
 pub(crate) mod peer_store;

@@ -481,6 +481,7 @@ dependencies = [
  "rusqlite 0.16.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.89 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.89 (registry+https://github.com/rust-lang/crates.io-index)",
+ "sha2 0.8.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "snap 0.2.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "tempfile 3.0.7 (registry+https://github.com/rust-lang/crates.io-index)",
  "tentacle 0.2.0-alpha.1 (git+https://github.com/nervosnetwork/p2p?rev=9c42be05724c3e2decb73716d0f515c36a7af1cb)",

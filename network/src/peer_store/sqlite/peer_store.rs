@@ -30,7 +30,7 @@ pub struct SqlitePeerStore {
     bootnodes: Vec<(PeerId, Multiaddr)>,
     schema: ScoringSchema,
     ban_list: FnvHashMap<Vec<u8>, Duration>,
-    pool: ConnectionPool,
+    pub(crate) pool: ConnectionPool,
 }
 
 impl SqlitePeerStore {
