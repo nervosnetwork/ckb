@@ -74,3 +74,6 @@ members = [
     "pow",
     "benches"
 ]
+
+[profile.release]
+debug = true
