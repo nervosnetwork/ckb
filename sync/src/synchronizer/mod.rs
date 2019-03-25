@@ -182,7 +182,7 @@ impl<CI: ChainIndex> Synchronizer<CI> {
 
     fn process(&self, nc: &CKBProtocolContext, peer: PeerIndex, message: SyncMessage) {
         if self.try_process(nc, peer, message).is_err() {
-            let _ = nc.report_peer(peer, behaviour::UNEXPECTED_NETWORK_MESSAGE);
+            let _ = nc.report_peer(peer, behaviour::UNEXPECTED_MESSAGE);
         }
     }
 
@@ -622,7 +622,7 @@ impl<CI: ChainIndex> Synchronizer<CI> {
         }
         for peer in eviction {
             warn!(target: "sync", "timeout eviction peer={}", peer);
-            let _ = nc.report_peer(peer, behaviour::NETWORK_TIMEOUT);
+            let _ = nc.report_peer(peer, behaviour::TIMEOUT);
         }
     }
 

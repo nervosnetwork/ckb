@@ -128,7 +128,7 @@ where
 
     fn process(&self, nc: &CKBProtocolContext, peer: PeerIndex, message: RelayMessage) {
         if self.try_process(nc, peer, message).is_err() {
-            let _ = nc.report_peer(peer, behaviour::UNEXPECTED_NETWORK_MESSAGE);
+            let _ = nc.report_peer(peer, behaviour::UNEXPECTED_MESSAGE);
         }
     }
 
