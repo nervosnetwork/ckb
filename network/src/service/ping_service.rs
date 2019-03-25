@@ -1,4 +1,4 @@
-use crate::peer_store::Behaviour;
+use crate::behaviour;
 use crate::Network;
 use futures::{sync::mpsc::Receiver, Async, Stream};
 use log::{debug, trace};
@@ -27,16 +27,16 @@ impl Stream for PingService {
                     peer.ping = Some(duration);
                     peer.last_ping_time = Some(Instant::now());
                 });
-                self.network.report(&peer_id, Behaviour::Ping);
+                self.network.report(&peer_id, behaviour::PING);
             }
             Some(Timeout(peer_id)) => {
                 debug!(target: "network", "timeout to ping {:?}", peer_id);
-                self.network.report(&peer_id, Behaviour::FailedToPing);
+                self.network.report(&peer_id, behaviour::FAILED_TO_PING);
                 self.network.drop_peer(&peer_id);
             }
             Some(UnexpectedError(peer_id)) => {
                 debug!(target: "network", "failed to ping {:?}", peer_id);
-                self.network.report(&peer_id, Behaviour::FailedToPing);
+                self.network.report(&peer_id, behaviour::FAILED_TO_PING);
                 self.network.drop_peer(&peer_id);
             }
             None => {

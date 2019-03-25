@@ -1,10 +1,11 @@
 use crate::peer_store::sqlite::ConnectionPoolExt;
 use crate::{
+    behaviour,
     multiaddr::ToMultiaddr,
     peer_store::{
         sqlite::db,
         sqlite::peer_store::{PEER_NOT_SEEN_TIMEOUT_SECS, PEER_STORE_LIMIT},
-        Behaviour, PeerStore, SqlitePeerStore, Status,
+        PeerStore, SqlitePeerStore, Status,
     },
     PeerId, SessionType,
 };
@@ -24,8 +25,8 @@ fn test_add_connected_peer() {
     let addr = "/ip4/127.0.0.1".to_multiaddr().unwrap();
     peer_store.add_connected_peer(&peer_id, addr, SessionType::Client);
     assert_eq!(
-        peer_store.peer_score(&peer_id).unwrap(),
-        peer_store.scoring_schema().peer_init_score()
+        peer_store.peer_score(&peer_id),
+        Some(peer_store.peer_score_config().default_score)
     );
     assert_eq!(peer_store.peer_addrs(&peer_id, 1).unwrap().len(), 0);
 }
@@ -42,9 +43,10 @@ fn test_add_discovered_addr() {
 fn test_report() {
     let mut peer_store: Box<dyn PeerStore> = Box::new(new_peer_store());
     let peer_id = PeerId::random();
-    assert!(peer_store.report(&peer_id, Behaviour::Ping).is_ok());
+    assert!(peer_store.report(&peer_id, behaviour::PING).is_ok());
     assert!(
-        peer_store.peer_score_or_default(&peer_id) > peer_store.scoring_schema().peer_init_score()
+        peer_store.peer_score(&peer_id).expect("peer score")
+            > peer_store.peer_score_config().default_score
     );
 }
 
@@ -134,7 +136,7 @@ fn test_delete_peer_info() {
                     &PeerId::random(),
                     &addr1,
                     SessionType::Server,
-                    peer_store.scoring_schema().peer_init_score(),
+                    peer_store.peer_score_config().default_score,
                     now,
                 )?;
             }
@@ -153,19 +155,16 @@ fn test_delete_peer_info() {
         peer_store.add_connected_peer(&evict_target, addr1.clone(), SessionType::Server);
         peer_store.add_connected_peer(&fake_target, addr2, SessionType::Server);
     }
-    peer_store.report(&evict_target, Behaviour::FailedToPing);
-    peer_store.report(&fake_target, Behaviour::FailedToPing);
-    peer_store.report(&fake_target, Behaviour::FailedToPing);
+    peer_store.report(&evict_target, behaviour::FAILED_TO_PING);
+    peer_store.report(&fake_target, behaviour::FAILED_TO_PING);
+    peer_store.report(&fake_target, behaviour::FAILED_TO_PING);
     // evict_target has lower score than init score
     assert!(
-        peer_store.peer_score_or_default(&evict_target)
-            < peer_store.scoring_schema().peer_init_score()
+        peer_store.peer_score(&evict_target).expect("peer store")
+            < peer_store.peer_score_config().default_score
     );
     // should evict evict_target and accept this
     peer_store.add_connected_peer(&PeerId::random(), addr1, SessionType::Server);
     // evict_target is evicted in previous step
-    assert_eq!(
-        peer_store.peer_score_or_default(&evict_target),
-        peer_store.scoring_schema().peer_init_score()
-    );
+    assert_eq!(peer_store.peer_score(&evict_target), None);
 }

@@ -1,5 +1,5 @@
-use crate::peer_store::{Behaviour, Status};
 use crate::protocol_handler::DefaultCKBProtocolContext;
+use crate::{behaviour, peer_store::Status};
 use crate::{peers_registry::RegisterResult, CKBEvent, CKBProtocolHandler, Network, PeerId};
 use futures::{sync::mpsc::Receiver, Async, Stream};
 use log::{debug, error, info};
@@ -49,7 +49,7 @@ impl Stream for CKBService {
                         // update status in peer_store
                         if let RegisterResult::New(_) = register_result {
                             let mut peer_store = network.peer_store().write();
-                            peer_store.report(&peer_id, Behaviour::Connect);
+                            peer_store.report(&peer_id, behaviour::CONNECT);
                             peer_store.update_status(&peer_id, Status::Connected);
                             let _ = peer_store.add_discovered_addr(&peer_id, addr);
                         }
@@ -78,7 +78,7 @@ impl Stream for CKBService {
                 // update disconnect in peer_store
                 {
                     let mut peer_store = network.peer_store().write();
-                    peer_store.report(&peer_id, Behaviour::UnexpectedDisconnect);
+                    peer_store.report(&peer_id, behaviour::UNEXPECTED_DISCONNECT);
                     peer_store.update_status(&peer_id, Status::Disconnected);
                 }
                 if let Some(peer_index) = network.get_peer_index(&peer_id) {
