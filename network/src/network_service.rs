@@ -1,3 +1,4 @@
+use crate::peers_registry::Peer;
 use crate::protocol::ckb_handler::{CKBProtocolContext, DefaultCKBProtocolContext};
 use crate::{errors::Error, CKBEvent, NetworkConfig, ProtocolId};
 use crate::{
@@ -124,5 +125,14 @@ impl NetworkService {
 
     pub fn add_node(&self, peer_id: &PeerId, address: Multiaddr) {
         self.network.add_node(peer_id, address)
+    }
+
+    pub fn connected_peers(&self) -> Vec<(PeerId, Peer)> {
+        self.network
+            .peers_registry
+            .read()
+            .peers_iter()
+            .map(|(peer_id, peer)| (peer_id.clone(), peer.clone()))
+            .collect()
     }
 }

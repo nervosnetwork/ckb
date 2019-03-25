@@ -12,3 +12,11 @@ pub struct NodeAddress {
     pub address: String,
     pub score: u8,
 }
+
+// TODO add more fields and refactor LocalNode to same struc
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+pub struct RemoteNode {
+    pub version: String,
+    pub node_id: String,
+    pub address: String,
+}
