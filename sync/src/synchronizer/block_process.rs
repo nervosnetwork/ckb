@@ -30,7 +30,7 @@ where
 
     pub fn execute(self) {
         let block: Block = (*self.message).into();
-        debug!(target: "sync", "BlockProcess received block {} {:?}", block.header().number(), block.header().hash());
+        debug!(target: "sync", "BlockProcess received block {} {:x}", block.header().number(), block.header().hash());
 
         self.synchronizer.peers.block_received(self.peer, &block);
         self.synchronizer.process_new_block(self.peer, block);

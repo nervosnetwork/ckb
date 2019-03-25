@@ -61,7 +61,7 @@ impl<'a> InputVerifier<'a> {
                     }
                 }
             } else if cs.is_dead() {
-                return Err(TransactionError::DoubleSpent);
+                return Err(TransactionError::Conflict);
             } else if cs.is_unknown() {
                 return Err(TransactionError::UnknownInput);
             }
@@ -69,7 +69,7 @@ impl<'a> InputVerifier<'a> {
 
         for cs in &self.resolved_transaction.dep_cells {
             if cs.is_dead() {
-                return Err(TransactionError::DoubleSpent);
+                return Err(TransactionError::Conflict);
             } else if cs.is_unknown() {
                 return Err(TransactionError::UnknownInput);
             }
@@ -125,9 +125,9 @@ impl<'a> DuplicateInputsVerifier<'a> {
 
     pub fn verify(&self) -> Result<(), TransactionError> {
         let transaction = self.transaction;
-        let inputs = transaction.inputs().iter().collect::<HashSet<_>>();
+        let mut seen = HashSet::with_capacity(self.transaction.inputs().len());
 
-        if inputs.len() == transaction.inputs().len() {
+        if transaction.inputs().iter().all(|id| seen.insert(id)) {
             Ok(())
         } else {
             Err(TransactionError::DuplicateInputs)
@@ -185,17 +185,17 @@ impl<'a> CapacityVerifier<'a> {
             .fold(0, |acc, output| acc + output.capacity);
 
         if inputs_total < outputs_total {
-            Err(TransactionError::OutputsSumOverflow)
-        } else if self
+            return Err(TransactionError::OutputsSumOverflow);
+        }
+        if self
             .resolved_transaction
             .transaction
             .outputs()
             .iter()
             .any(|output| output.occupied_capacity() as Capacity > output.capacity)
         {
-            Err(TransactionError::CapacityOverflow)
-        } else {
-            Ok(())
+            return Err(TransactionError::CapacityOverflow);
         }
+        Ok(())
     }
 }

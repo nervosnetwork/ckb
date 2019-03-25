@@ -2,13 +2,13 @@ use crate::error::{CellbaseError, CommitError, Error, UnclesError};
 use crate::header_verifier::HeaderResolver;
 use crate::{InputVerifier, TransactionVerifier, Verifier};
 use ckb_core::block::Block;
-use ckb_core::cell::{resolve_transaction, CellProvider, CellStatus, ResolvedTransaction};
+use ckb_core::cell::{CellProvider, ResolvedTransaction};
 use ckb_core::header::Header;
-use ckb_core::transaction::{Capacity, CellInput, OutPoint};
+use ckb_core::transaction::{Capacity, CellInput};
 use ckb_core::Cycle;
 use ckb_merkle_tree::merkle_root;
-use ckb_shared::shared::ChainProvider;
-use fnv::{FnvHashMap, FnvHashSet};
+use ckb_traits::ChainProvider;
+use fnv::FnvHashSet;
 use lru_cache::LruCache;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
@@ -102,7 +102,10 @@ impl<CP: ChainProvider + Clone> CellbaseVerifier<CP> {
         let block_reward = self.provider.block_reward(block.header().number());
         let mut fee = 0;
         for transaction in block.commit_transactions().iter().skip(1) {
-            fee += self.provider.calculate_transaction_fee(transaction)?;
+            fee += self
+                .provider
+                .calculate_transaction_fee(transaction)
+                .map_err(|e| Error::Chain(format!("{}", e)))?;
         }
         let total_reward = block_reward + fee;
         let output_capacity: Capacity = cellbase_transaction
@@ -242,7 +245,7 @@ impl<CP: ChainProvider + Clone> UnclesVerifier<CP> {
     }
 
     // -  uncles_hash
-    // -  uncles_len
+    // -  uncles_num
     // -  depth
     // -  uncle cellbase_id
     // -  uncle not in main chain
@@ -270,25 +273,25 @@ impl<CP: ChainProvider + Clone> UnclesVerifier<CP> {
             return Ok(());
         }
 
-        // verify uncles lenght =< max_uncles_len
-        let uncles_len = block.uncles().len();
-        let max_uncles_len = self.provider.consensus().max_uncles_len();
-        if uncles_len > max_uncles_len {
+        // verify uncles lenght =< max_uncles_num
+        let uncles_num = block.uncles().len();
+        let max_uncles_num = self.provider.consensus().max_uncles_num();
+        if uncles_num > max_uncles_num {
             return Err(Error::Uncles(UnclesError::OverCount {
-                max: max_uncles_len,
-                actual: uncles_len,
+                max: max_uncles_num,
+                actual: uncles_num,
             }));
         }
 
         // verify uncles age
-        let max_uncles_age = self.provider.consensus().max_uncles_age();
+        let max_uncles_age = self.provider.consensus().max_uncles_age() as u64;
         for uncle in block.uncles() {
             let depth = block.header().number().saturating_sub(uncle.number());
 
-            if depth > max_uncles_age as u64 || depth < 1 {
+            if depth > max_uncles_age || depth < 1 {
                 return Err(Error::Uncles(UnclesError::InvalidDepth {
-                    min: block.header().number() - max_uncles_age as u64,
-                    max: block.header().number() - 1,
+                    min: block.header().number().saturating_sub(max_uncles_age),
+                    max: block.header().number().saturating_sub(1),
                     actual: uncle.number(),
                 }));
             }
@@ -398,51 +401,17 @@ impl TransactionsVerifier {
         TransactionsVerifier { max_cycles }
     }
 
-    pub fn verify<F: Fn(&OutPoint) -> CellStatus>(
+    pub fn verify(
         &self,
-        txs_verify_cache: &mut Option<LruCache<H256, Cycle>>,
-        block: &Block,
-        cell_resolver: F,
+        txs_verify_cache: &mut LruCache<H256, Cycle>,
+        resolved: &[ResolvedTransaction],
     ) -> Result<(), Error> {
-        let mut output_indexs = FnvHashMap::default();
-        let mut seen_inputs = FnvHashSet::default();
-
-        for (i, tx) in block.commit_transactions().iter().enumerate() {
-            output_indexs.insert(tx.hash(), i);
-        }
-
-        // skip first tx, assume the first is cellbase, other verifier will verify cellbase
-        let resolved: Vec<ResolvedTransaction> = block
-            .commit_transactions()
-            .iter()
-            .skip(1)
-            .map(|x| {
-                resolve_transaction(x, &mut seen_inputs, |o| {
-                    if let Some(i) = output_indexs.get(&o.hash) {
-                        match block.commit_transactions()[*i]
-                            .outputs()
-                            .get(o.index as usize)
-                        {
-                            Some(x) => CellStatus::Live(x.clone()),
-                            None => CellStatus::Unknown,
-                        }
-                    } else {
-                        (cell_resolver)(o)
-                    }
-                })
-            })
-            .collect();
-
         // make verifiers orthogonal
-        //
         let cycles_set = resolved
             .par_iter()
             .enumerate()
             .map(|(index, tx)| {
-                if let Some(cycles) = txs_verify_cache
-                    .as_ref()
-                    .and_then(|cache| cache.get(&tx.transaction.hash()))
-                {
+                if let Some(cycles) = txs_verify_cache.get(&tx.transaction.hash()) {
                     InputVerifier::new(&tx)
                         .verify()
                         .map_err(|e| Error::Transactions((index, e)))
@@ -460,9 +429,7 @@ impl TransactionsVerifier {
 
         for (hash, cycles) in cycles_set {
             if let Some(h) = hash {
-                txs_verify_cache
-                    .as_mut()
-                    .map(|cache| cache.insert(h, cycles));
+                txs_verify_cache.insert(h, cycles);
             }
         }
 
@@ -485,19 +452,23 @@ impl<CP: ChainProvider + Clone> CommitVerifier<CP> {
     }
 
     pub fn verify(&self, block: &Block) -> Result<(), Error> {
-        let block_number = block.header().number();
-        let t_prop = self.provider.consensus().transaction_propagation_time;
-        let mut walk = self.provider.consensus().transaction_propagation_timeout;
-        let start = block_number.saturating_sub(t_prop);
-
-        if start < 1 {
+        if block.is_genesis() {
             return Ok(());
         }
+        let block_number = block.header().number();
+        let proposal_window = self.provider.consensus().tx_proposal_window();
+        let proposal_start = block_number.saturating_sub(proposal_window.start());
+        let mut proposal_end = block_number.saturating_sub(proposal_window.end());
 
-        let mut block_hash = block.header().parent_hash().clone();
+        let mut block_hash = self
+            .provider
+            .get_ancestor(&block.header().parent_hash(), proposal_end)
+            .map(|h| h.hash())
+            .ok_or_else(|| Error::Commit(CommitError::AncestorNotFound))?;
+
         let mut proposal_txs_ids = FnvHashSet::default();
 
-        while walk > 0 {
+        while proposal_end >= proposal_start {
             let block = self
                 .provider
                 .block(&block_hash)
@@ -505,28 +476,20 @@ impl<CP: ChainProvider + Clone> CommitVerifier<CP> {
             if block.is_genesis() {
                 break;
             }
-            proposal_txs_ids.extend(
-                block.proposal_transactions().iter().cloned().chain(
-                    block
-                        .uncles()
-                        .iter()
-                        .flat_map(|uncle| uncle.proposal_transactions())
-                        .cloned(),
-                ),
-            );
+            proposal_txs_ids.extend(block.union_proposal_ids());
 
             block_hash = block.header().parent_hash().clone();
-            walk -= 1;
+            proposal_end -= 1;
         }
 
-        let commited_ids: FnvHashSet<_> = block
+        let committed_ids: FnvHashSet<_> = block
             .commit_transactions()
             .par_iter()
             .skip(1)
             .map(|tx| tx.proposal_short_id())
             .collect();
 
-        let difference: Vec<_> = commited_ids.difference(&proposal_txs_ids).collect();
+        let difference: Vec<_> = committed_ids.difference(&proposal_txs_ids).collect();
 
         if !difference.is_empty() {
             return Err(Error::Commit(CommitError::Invalid));

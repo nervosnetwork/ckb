@@ -1,4 +1,5 @@
 use numext_fixed_hash::H256;
+
 pub trait BlockMedianTimeContext {
     fn block_count(&self) -> u32;
     fn timestamp(&self, hash: &H256) -> Option<u64>;

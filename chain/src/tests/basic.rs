@@ -5,7 +5,7 @@ use ckb_core::block::BlockBuilder;
 use ckb_core::cell::CellProvider;
 use ckb_core::header::HeaderBuilder;
 use ckb_core::transaction::{CellInput, CellOutput, OutPoint, TransactionBuilder};
-use ckb_shared::shared::ChainProvider;
+use ckb_traits::ChainProvider;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 use std::sync::Arc;
@@ -289,7 +289,7 @@ fn test_calculate_difficulty() {
         chain2.push(new_block.clone());
         parent = new_block.header().clone();
     }
-    let tip = shared.chain_state().read().tip_header().clone();
+    let tip = shared.chain_state().lock().tip_header().clone();
     let total_uncles_count = shared.block_ext(&tip.hash()).unwrap().total_uncles_count;
     assert_eq!(total_uncles_count, 25);
     let difficulty = shared.calculate_difficulty(&tip).unwrap();
@@ -319,7 +319,7 @@ fn test_calculate_difficulty() {
         chain2.push(new_block.clone());
         parent = new_block.header().clone();
     }
-    let tip = shared.chain_state().read().tip_header().clone();
+    let tip = shared.chain_state().lock().tip_header().clone();
     let total_uncles_count = shared.block_ext(&tip.hash()).unwrap().total_uncles_count;
     assert_eq!(total_uncles_count, 10);
     let difficulty = shared.calculate_difficulty(&tip).unwrap();
@@ -349,7 +349,7 @@ fn test_calculate_difficulty() {
         chain2.push(new_block.clone());
         parent = new_block.header().clone();
     }
-    let tip = shared.chain_state().read().tip_header().clone();
+    let tip = shared.chain_state().lock().tip_header().clone();
     let total_uncles_count = shared.block_ext(&tip.hash()).unwrap().total_uncles_count;
     assert_eq!(total_uncles_count, 150);
     let difficulty = shared.calculate_difficulty(&tip).unwrap();

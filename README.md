@@ -32,13 +32,13 @@ The contribution workflow is described in [CONTRIBUTING.md](CONTRIBUTING.md), an
 
 ## Build dependencies
 
-CKB is currently tested mainly with `stable-1.32.0` on Linux and Mac OSX.
+CKB is currently tested mainly with `stable-1.33.0` on Linux and Mac OSX.
 
 We recommend installing Rust through [rustup](https://www.rustup.rs/)
 
 ```bash
 # Get rustup from rustup.rs, then in your `ckb` folder:
-rustup override set 1.32.0
+rustup override set 1.33.0
 rustup component add rustfmt
 rustup component add clippy
 ```
@@ -53,7 +53,7 @@ You also need to get the following packages：
 sudo apt-get install git gcc libc6-dev pkg-config libssl-dev libclang-dev clang
 ```
 
-* Archlinux
+* Arch Linux
 
 ```shell
 sudo pacman -Sy git gcc pkgconf openssl-1.0 clang
@@ -65,7 +65,7 @@ If you get openssl related errors in compiling, try the following environment va
 OPENSSL_INCLUDE_DIR=/usr/include/openssl-1.0 OPENSSL_LIB_DIR=/usr/lib/openssl-1.0 cargo build --release
 ```
 
-* OSX:
+* macOS:
 
 ```shell
 brew install autoconf libtool
@@ -111,7 +111,7 @@ Use the config file to start the node
 target/release/ckb run
 ```
 
-It searches config file `ckb.json`, `nodes/default.json` in the shell
+It searches config file `ckb.toml`, `nodes/default.toml` in the shell
 working directory in that order. Alternatively, the argument `-c` can specify
 the config file used to start the node.
 
@@ -141,27 +141,21 @@ Run multiple nodes in different data directories.
 Create the config file for new nodes, for example:
 
 ```shell
-cp nodes/default.json nodes/node2.json
+cp nodes/default.toml nodes/node2.toml
 ```
 
 Update `data_dir` configuration in config file to a different directory.
 
 ```
-"data_dir": "node2"
-```
-
-or using a simple shell command to modify the config file:
-
-```shell
-ex -sc '%s/"data_dir": "default"/"data_dir": "node2"/|x' nodes/node2.json
+data_dir = "node2"
 ```
 
 Then start the new node using the new config file
 
 ```shell
-target/release/ckb run -c nodes/node2.json
+target/release/ckb run -c nodes/node2.toml
 ```
 
-The option `ckb.chain` configures the chain spec. It accepts a path to the spec JSON file. The directory `nodes_template/spec` has all the pre-defined specs. Please note that nodes with different chain specs may fail to connect with each other.
+The option `ckb.chain` configures the chain spec. It accepts a path to the spec toml file. The directory `nodes_template/spec` has all the pre-defined specs. Please note that nodes with different chain specs may fail to connect with each other.
 
 The chain spec can switch between different PoW engines. Wiki has the [instructions](https://github.com/nervosnetwork/ckb/wiki/PoW-Engines) about how to configure it.

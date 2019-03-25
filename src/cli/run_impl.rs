@@ -3,20 +3,19 @@ use crate::Setup;
 use ckb_chain::chain::{ChainBuilder, ChainController};
 use ckb_core::script::Script;
 use ckb_db::diskdb::RocksDB;
-use ckb_miner::{BlockAssembler, BlockAssemblerController};
+use ckb_miner::BlockAssembler;
 use ckb_network::CKBProtocol;
 use ckb_network::NetworkConfig;
 use ckb_network::NetworkService;
 use ckb_notify::{NotifyController, NotifyService};
-use ckb_pool::txs_pool::{PoolConfig, TransactionPoolController, TransactionPoolService};
-use ckb_pow::PowEngine;
-use ckb_rpc::{Config as RpcConfig, RpcServer};
+use ckb_rpc::RpcServer;
 use ckb_shared::cachedb::CacheDB;
 use ckb_shared::index::ChainIndex;
-use ckb_shared::shared::{ChainProvider, Shared, SharedBuilder};
+use ckb_shared::shared::{Shared, SharedBuilder};
 use ckb_sync::{
     NetTimeProtocol, Relayer, Synchronizer, RELAY_PROTOCOL_ID, SYNC_PROTOCOL_ID, TIME_PROTOCOL_ID,
 };
+use ckb_traits::ChainProvider;
 use crypto::secp::Generator;
 use log::info;
 use numext_fixed_hash::H256;
@@ -24,25 +23,22 @@ use std::sync::Arc;
 
 pub fn run(setup: Setup) {
     let consensus = setup.chain_spec.to_consensus().unwrap();
-    let pow_engine = setup.chain_spec.pow_engine();
 
     let shared = SharedBuilder::<CacheDB<RocksDB>>::default()
         .consensus(consensus)
         .db(&setup.configs.db)
-        .txs_verify_cache_size(setup.configs.txs_verify_cache_size)
+        .tx_pool_config(setup.configs.tx_pool.clone())
+        .txs_verify_cache_size(setup.configs.tx_pool.txs_verify_cache_size)
         .build();
 
     let notify = NotifyService::default().start(Some("notify"));
 
     let chain_controller = setup_chain(shared.clone(), notify.clone());
     info!(target: "main", "chain genesis hash: {:#x}", shared.genesis_hash());
-    let tx_pool_controller = setup_tx_pool(setup.configs.pool, shared.clone(), notify.clone());
+    // let tx_pool_controller = setup_tx_pool(setup.configs.pool, shared.clone(), notify.clone());
 
-    let block_assembler = BlockAssembler::new(
-        shared.clone(),
-        tx_pool_controller.clone(),
-        setup.configs.block_assembler.type_hash,
-    );
+    let block_assembler =
+        BlockAssembler::new(shared.clone(), setup.configs.block_assembler.type_hash);
     let block_assembler_controller = block_assembler.start(Some("MinerAgent"), &notify);
 
     let synchronizer = Arc::new(Synchronizer::new(
@@ -54,7 +50,6 @@ pub fn run(setup: Setup) {
     let relayer = Arc::new(Relayer::new(
         chain_controller.clone(),
         shared.clone(),
-        tx_pool_controller.clone(),
         synchronizer.peers(),
     ));
 
@@ -87,12 +82,10 @@ pub fn run(setup: Setup) {
             .expect("Create and start network"),
     );
 
-    let rpc_server = setup_rpc(
+    let rpc_server = RpcServer::new(
         setup.configs.rpc,
-        &pow_engine,
         Arc::clone(&network),
         shared,
-        tx_pool_controller,
         chain_controller,
         block_assembler_controller,
     );
@@ -116,34 +109,14 @@ fn setup_chain<CI: ChainIndex + 'static>(
     chain_service.start(Some("ChainService"))
 }
 
-fn setup_tx_pool<CI: ChainIndex + 'static>(
-    config: PoolConfig,
-    shared: Shared<CI>,
-    notify: NotifyController,
-) -> TransactionPoolController {
-    let tx_pool_service = TransactionPoolService::new(config, shared, notify);
-    tx_pool_service.start(Some("TransactionPoolService"))
-}
-
-fn setup_rpc<CI: ChainIndex + 'static>(
-    config: RpcConfig,
-    pow: &Arc<dyn PowEngine>,
-    network: Arc<NetworkService>,
-    shared: Shared<CI>,
-    tx_pool: TransactionPoolController,
-    chain: ChainController,
-    agent: BlockAssemblerController,
-) -> RpcServer {
-    use ckb_pow::Clicker;
-
-    let pow = pow
-        .as_ref()
-        .as_any()
-        .downcast_ref::<Clicker>()
-        .map(|pow| Arc::new(pow.clone()));
-
-    RpcServer::new(config, network, shared, tx_pool, chain, agent, pow)
-}
+// fn setup_tx_pool<CI: ChainIndex + 'static>(
+//     config: PoolConfig,
+//     shared: Shared<CI>,
+//     notify: NotifyController,
+// ) -> TransactionPoolController {
+//     let tx_pool_service = TransactionPoolService::new(config, shared, notify);
+//     tx_pool_service.start(Some("TransactionPoolService"))
+// }
 
 pub fn type_hash(setup: &Setup) {
     let consensus = setup.chain_spec.to_consensus().unwrap();

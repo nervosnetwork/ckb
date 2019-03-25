@@ -18,7 +18,7 @@ pub fn import(setup: &Setup, matches: &ArgMatches) {
 
     let notify = NotifyService::default().start::<&str>(None);
     let chain_service = ChainBuilder::new(shared.clone(), notify).build();
-    let chain_controller = chain_service.start::<&str>(None);
+    let chain_controller = chain_service.start::<&str>(Some("ImportChainService"));
 
     Import::new(chain_controller, format, source.into())
         .execute()

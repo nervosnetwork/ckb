@@ -19,7 +19,9 @@ fn main() {
             _ => unreachable!(),
         },
         ("run", Some(run_matches)) => {
-            cli::run(setup(&run_matches));
+            let setup = setup(&run_matches);
+            logger::init(setup.configs.logger.clone()).expect("Init Logger");
+            cli::run(setup);
         }
         ("miner", Some(miner_matches)) => cli::miner(&miner_matches),
         ("export", Some(export_matches)) => cli::export(&setup(&export_matches), export_matches),
@@ -32,20 +34,13 @@ fn main() {
 
 fn setup(matches: &ArgMatches<'static>) -> Setup {
     let config_path = get_config_path(matches);
-    let setup = match Setup::setup(&config_path) {
-        Ok(setup) => {
-            logger::init(setup.configs.logger.clone()).expect("Init Logger");
-            setup
-        }
-        Err(e) => {
-            eprintln!(
-                "Failed to setup with config {}, cause err: {:?}",
-                config_path.display(),
-                e
-            );
-            ::std::process::exit(1);
-        }
-    };
     info!(target: "main", "Setup with config {}", config_path.display());
-    setup
+    Setup::setup(&config_path).unwrap_or_else(|e| {
+        eprintln!(
+            "Failed to setup with config {}, cause err: {:?}",
+            config_path.display(),
+            e
+        );
+        ::std::process::exit(1);
+    })
 }

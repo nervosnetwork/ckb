@@ -1,10 +1,10 @@
 use crate::{
-    block_median_time_context::BlockMedianTimeContext,
     shared::{Shared, SharedBuilder},
     store::{ChainKVStore, ChainStore},
 };
 use ckb_core::{block::BlockBuilder, header::HeaderBuilder};
 use ckb_db::{kvdb::KeyValueDB, memorydb::MemoryKeyValueDB};
+use ckb_traits::BlockMedianTimeContext;
 use numext_fixed_hash::H256;
 
 fn new_shared() -> Shared<ChainKVStore<MemoryKeyValueDB>> {

@@ -1,83 +1,33 @@
-use crate::block_median_time_context::BlockMedianTimeContext;
 use crate::cachedb::CacheDB;
+use crate::cell_set::CellSet;
+use crate::chain_state::ChainState;
 use crate::error::SharedError;
 use crate::index::ChainIndex;
 use crate::store::ChainKVStore;
-use crate::txo_set::{TxoSet, TxoSetDiff};
+use crate::tx_pool::{TxPool, TxPoolConfig};
+use crate::tx_proposal_table::TxProposalTable;
 use crate::{COLUMNS, COLUMN_BLOCK_HEADER};
-use ckb_chain_spec::consensus::Consensus;
+use ckb_chain_spec::consensus::{Consensus, ProposalWindow};
 use ckb_core::block::Block;
 use ckb_core::cell::{CellProvider, CellStatus};
 use ckb_core::extras::BlockExt;
 use ckb_core::header::{BlockNumber, Header};
 use ckb_core::transaction::{Capacity, OutPoint, ProposalShortId, Transaction};
 use ckb_core::uncle::UncleBlock;
-use ckb_core::Cycle;
 use ckb_db::{DBConfig, KeyValueDB, MemoryKeyValueDB, RocksDB};
-use ckb_util::RwLock;
+use ckb_traits::{BlockMedianTimeContext, ChainProvider};
+use ckb_util::Mutex;
+use failure::Error;
 use fnv::FnvHashSet;
 use lru_cache::LruCache;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 use std::sync::Arc;
 
-#[derive(Default, Debug, PartialEq, Clone, Eq)]
-pub struct ChainState {
-    tip_header: Header,
-    total_difficulty: U256,
-    txo_set: TxoSet,
-}
-
-impl ChainState {
-    pub fn new(tip_header: Header, total_difficulty: U256, txo_set: TxoSet) -> Self {
-        ChainState {
-            tip_header,
-            total_difficulty,
-            txo_set,
-        }
-    }
-
-    pub fn tip_number(&self) -> BlockNumber {
-        self.tip_header.number()
-    }
-
-    pub fn tip_hash(&self) -> H256 {
-        self.tip_header.hash()
-    }
-
-    pub fn total_difficulty(&self) -> &U256 {
-        &self.total_difficulty
-    }
-
-    pub fn tip_header(&self) -> &Header {
-        &self.tip_header
-    }
-
-    pub fn txo_set(&self) -> &TxoSet {
-        &self.txo_set
-    }
-
-    pub fn is_spent(&self, o: &OutPoint) -> Option<bool> {
-        self.txo_set.is_spent(o)
-    }
-
-    pub fn update_header(&mut self, header: Header) {
-        self.tip_header = header;
-    }
-
-    pub fn update_difficulty(&mut self, difficulty: U256) {
-        self.total_difficulty = difficulty;
-    }
-
-    pub fn update_txo_set(&mut self, diff: TxoSetDiff) {
-        self.txo_set.update(diff);
-    }
-}
-
+#[derive(Debug)]
 pub struct Shared<CI> {
     store: Arc<CI>,
-    chain_state: Arc<RwLock<ChainState>>,
-    txs_verify_cache: Arc<RwLock<Option<LruCache<H256, Cycle>>>>,
+    chain_state: Arc<Mutex<ChainState<CI>>>,
     consensus: Arc<Consensus>,
 }
 
@@ -87,7 +37,6 @@ impl<CI: ChainIndex> ::std::clone::Clone for Shared<CI> {
         Shared {
             store: Arc::clone(&self.store),
             chain_state: Arc::clone(&self.chain_state),
-            txs_verify_cache: Arc::clone(&self.txs_verify_cache),
             consensus: Arc::clone(&self.consensus),
         }
     }
@@ -97,8 +46,10 @@ impl<CI: ChainIndex> Shared<CI> {
     pub fn new(
         store: CI,
         consensus: Consensus,
-        txs_verify_cache: Arc<RwLock<Option<LruCache<H256, Cycle>>>>,
+        txs_verify_cache_size: usize,
+        tx_pool_config: TxPoolConfig,
     ) -> Self {
+        let store = Arc::new(store);
         let chain_state = {
             // check head in store or save the genesis block as head
             let header = {
@@ -112,29 +63,36 @@ impl<CI: ChainIndex> Shared<CI> {
                 }
             };
 
-            let txo_set = Self::init_txo_set(&store, header.number());
+            let tip_number = header.number();
+            let proposal_window = consensus.tx_proposal_window();
+            let proposal_ids = Self::init_proposal_ids(&store, proposal_window, tip_number);
+
+            let cell_set = Self::init_cell_set(&store, tip_number);
 
             let total_difficulty = store
                 .get_block_ext(&header.hash())
                 .expect("block_ext stored")
                 .total_difficulty;
 
-            Arc::new(RwLock::new(ChainState::new(
+            Arc::new(Mutex::new(ChainState::new(
+                &store,
                 header,
                 total_difficulty,
-                txo_set,
+                cell_set,
+                proposal_ids,
+                TxPool::new(tx_pool_config),
+                LruCache::new(txs_verify_cache_size),
             )))
         };
 
         Shared {
-            store: Arc::new(store),
+            store,
             chain_state,
-            txs_verify_cache,
             consensus: Arc::new(consensus),
         }
     }
 
-    pub fn chain_state(&self) -> &RwLock<ChainState> {
+    pub fn chain_state(&self) -> &Mutex<ChainState<CI>> {
         &self.chain_state
     }
 
@@ -142,12 +100,36 @@ impl<CI: ChainIndex> Shared<CI> {
         &self.store
     }
 
-    pub fn txs_verify_cache(&self) -> &RwLock<Option<LruCache<H256, Cycle>>> {
-        &self.txs_verify_cache
+    pub fn init_proposal_ids(
+        store: &CI,
+        proposal_window: ProposalWindow,
+        tip_number: u64,
+    ) -> TxProposalTable {
+        let mut proposal_ids = TxProposalTable::new(proposal_window);
+        let proposal_start = tip_number.saturating_sub(proposal_window.start());
+        let proposal_end = tip_number.saturating_sub(proposal_window.end());
+        for bn in proposal_start..=proposal_end {
+            if let Some(hash) = store.get_block_hash(bn) {
+                let mut ids_set = FnvHashSet::default();
+                if let Some(ids) = store.get_block_proposal_txs_ids(&hash) {
+                    ids_set.extend(ids)
+                }
+
+                if let Some(us) = store.get_block_uncles(&hash) {
+                    for u in us {
+                        let ids = u.proposal_transactions;
+                        ids_set.extend(ids);
+                    }
+                }
+                proposal_ids.update_or_insert(bn, ids_set);
+            }
+        }
+        proposal_ids.finalize(tip_number);
+        proposal_ids
     }
 
-    pub fn init_txo_set(store: &CI, number: u64) -> TxoSet {
-        let mut txo_set = TxoSet::new();
+    pub fn init_cell_set(store: &CI, number: u64) -> CellSet {
+        let mut cell_set = CellSet::new();
 
         for n in 0..=number {
             let hash = store.get_block_hash(n).unwrap();
@@ -157,29 +139,29 @@ impl<CI: ChainIndex> Shared<CI> {
                 let output_len = tx.outputs().len();
 
                 for o in inputs {
-                    txo_set.mark_spent(&o);
+                    cell_set.mark_dead(&o);
                 }
 
-                txo_set.insert(tx_hash, output_len);
+                cell_set.insert(tx_hash, output_len);
             }
         }
 
-        txo_set
+        cell_set
     }
 }
 
 impl<CI: ChainIndex> CellProvider for Shared<CI> {
     fn cell(&self, out_point: &OutPoint) -> CellStatus {
-        self.cell_at(out_point, |op| self.chain_state.read().is_spent(op))
+        self.cell_at(out_point, |op| self.chain_state.lock().is_dead(op))
     }
 
     fn cell_at<F: Fn(&OutPoint) -> Option<bool>>(
         &self,
         out_point: &OutPoint,
-        is_spent: F,
+        is_dead: F,
     ) -> CellStatus {
         let index = out_point.index as usize;
-        if let Some(f) = is_spent(out_point) {
+        if let Some(f) = is_dead(out_point) {
             if f {
                 CellStatus::Dead
             } else {
@@ -193,46 +175,6 @@ impl<CI: ChainIndex> CellProvider for Shared<CI> {
             CellStatus::Unknown
         }
     }
-}
-
-pub trait ChainProvider: Sync + Send {
-    fn block_body(&self, hash: &H256) -> Option<Vec<Transaction>>;
-
-    fn block_header(&self, hash: &H256) -> Option<Header>;
-
-    fn block_proposal_txs_ids(&self, hash: &H256) -> Option<Vec<ProposalShortId>>;
-
-    fn union_proposal_ids_n(&self, bn: BlockNumber, n: usize) -> Vec<Vec<ProposalShortId>>;
-
-    fn uncles(&self, hash: &H256) -> Option<Vec<UncleBlock>>;
-
-    fn block_hash(&self, number: BlockNumber) -> Option<H256>;
-
-    fn block_ext(&self, hash: &H256) -> Option<BlockExt>;
-
-    fn block_number(&self, hash: &H256) -> Option<BlockNumber>;
-
-    fn block(&self, hash: &H256) -> Option<Block>;
-
-    fn genesis_hash(&self) -> H256;
-
-    fn get_transaction(&self, hash: &H256) -> Option<Transaction>;
-
-    fn contain_transaction(&self, hash: &H256) -> bool;
-
-    fn block_reward(&self, block_number: BlockNumber) -> Capacity;
-
-    fn get_ancestor(&self, base: &H256, number: BlockNumber) -> Option<Header>;
-
-    // Loops through all inputs and outputs of given transaction to calculate
-    // fee that miner can obtain. Could result in error state when input
-    // transaction is missing.
-    fn calculate_transaction_fee(&self, transaction: &Transaction)
-        -> Result<Capacity, SharedError>;
-
-    fn calculate_difficulty(&self, last: &Header) -> Option<U256>;
-
-    fn consensus(&self) -> &Consensus;
 }
 
 impl<CI: ChainIndex> ChainProvider for Shared<CI> {
@@ -318,55 +260,22 @@ impl<CI: ChainIndex> ChainProvider for Shared<CI> {
         None
     }
 
-    /// Proposals in blocks from bn-n(exclusive) to bn(inclusive)
-    fn union_proposal_ids_n(&self, bn: BlockNumber, n: usize) -> Vec<Vec<ProposalShortId>> {
-        let m = if bn > n as u64 { n } else { bn as usize };
-        let mut ret = Vec::new();
-
-        if let Some(mut hash) = self.block_hash(bn) {
-            for _ in 0..m {
-                let mut ids_set = FnvHashSet::default();
-
-                if let Some(ids) = self.block_proposal_txs_ids(&hash) {
-                    ids_set.extend(ids)
-                }
-
-                if let Some(us) = self.uncles(&hash) {
-                    for u in us {
-                        let ids = u.proposal_transactions;
-                        ids_set.extend(ids);
-                    }
-                }
-
-                let ids_vec: Vec<ProposalShortId> = ids_set.into_iter().collect();
-                ret.push(ids_vec);
-
-                hash = self.block_header(&hash).unwrap().parent_hash().clone();
-            }
-        }
-
-        ret
-    }
-
     // TODO: find a way to write test for this once we can build a mock on
     // ChainIndex
-    fn calculate_transaction_fee(
-        &self,
-        transaction: &Transaction,
-    ) -> Result<Capacity, SharedError> {
+    fn calculate_transaction_fee(&self, transaction: &Transaction) -> Result<Capacity, Error> {
         let mut fee = 0;
         for input in transaction.inputs() {
             let previous_output = &input.previous_output;
             match self.get_transaction(&previous_output.hash) {
                 Some(previous_transaction) => {
                     let index = previous_output.index as usize;
-                    if index < previous_transaction.outputs().len() {
-                        fee += previous_transaction.outputs()[index].capacity;
+                    if let Some(output) = previous_transaction.outputs().get(index) {
+                        fee += output.capacity;
                     } else {
-                        return Err(SharedError::InvalidInput);
+                        Err(SharedError::InvalidInput)?;
                     }
                 }
-                None => return Err(SharedError::InvalidInput),
+                None => Err(SharedError::InvalidInput)?,
             }
         }
         let spent_capacity: Capacity = transaction
@@ -375,7 +284,7 @@ impl<CI: ChainIndex> ChainProvider for Shared<CI> {
             .map(|output| output.capacity)
             .sum();
         if spent_capacity > fee {
-            return Err(SharedError::InvalidOutput);
+            Err(SharedError::InvalidOutput)?;
         }
         fee -= spent_capacity;
         Ok(fee)
@@ -448,7 +357,7 @@ impl<CI: ChainIndex> BlockMedianTimeContext for Shared<CI> {
 pub struct SharedBuilder<DB: KeyValueDB> {
     db: Option<DB>,
     consensus: Option<Consensus>,
-    txs_verify_cache_size: Option<usize>,
+    tx_pool_config: Option<TxPoolConfig>,
 }
 
 impl<DB: KeyValueDB> Default for SharedBuilder<DB> {
@@ -456,7 +365,7 @@ impl<DB: KeyValueDB> Default for SharedBuilder<DB> {
         SharedBuilder {
             db: None,
             consensus: None,
-            txs_verify_cache_size: None,
+            tx_pool_config: None,
         }
     }
 }
@@ -466,7 +375,7 @@ impl SharedBuilder<MemoryKeyValueDB> {
         SharedBuilder {
             db: Some(MemoryKeyValueDB::open(COLUMNS as usize)),
             consensus: None,
-            txs_verify_cache_size: None,
+            tx_pool_config: None,
         }
     }
 }
@@ -485,24 +394,35 @@ impl SharedBuilder<CacheDB<RocksDB>> {
     }
 }
 
+pub const MIN_TXS_VERIFY_CACHE_SIZE: Option<usize> = Some(100);
+
 impl<DB: 'static + KeyValueDB> SharedBuilder<DB> {
     pub fn consensus(mut self, value: Consensus) -> Self {
         self.consensus = Some(value);
         self
     }
 
+    pub fn tx_pool_config(mut self, config: TxPoolConfig) -> Self {
+        self.tx_pool_config = Some(config);
+        self
+    }
+
     pub fn txs_verify_cache_size(mut self, value: usize) -> Self {
-        self.txs_verify_cache_size = Some(value);
+        if let Some(c) = self.tx_pool_config.as_mut() {
+            c.txs_verify_cache_size = value;
+        };
         self
     }
 
     pub fn build(self) -> Shared<ChainKVStore<DB>> {
         let store = ChainKVStore::new(self.db.unwrap());
         let consensus = self.consensus.unwrap_or_else(Consensus::default);
+        let tx_pool_config = self.tx_pool_config.unwrap_or_else(Default::default);
         Shared::new(
             store,
             consensus,
-            Arc::new(RwLock::new(self.txs_verify_cache_size.map(LruCache::new))),
+            tx_pool_config.txs_verify_cache_size,
+            tx_pool_config,
         )
     }
 }

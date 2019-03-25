@@ -6,7 +6,7 @@ mod protocol_generated;
 
 pub use crate::protocol_generated::ckb::protocol::*;
 use byteorder::{ByteOrder, LittleEndian, WriteBytesExt};
-use hash::sha3_256;
+use hash::blake2b_256;
 use numext_fixed_hash::H256;
 use siphasher::sip::SipHasher;
 use std::hash::Hasher;
@@ -43,7 +43,7 @@ pub fn short_transaction_id_keys(header_nonce: u64, random_nonce: u64) -> (u64, 
     let mut bytes = vec![];
     bytes.write_u64::<LittleEndian>(header_nonce).unwrap();
     bytes.write_u64::<LittleEndian>(random_nonce).unwrap();
-    let block_header_with_nonce_hash = sha3_256(bytes);
+    let block_header_with_nonce_hash = blake2b_256(bytes);
 
     let key0 = LittleEndian::read_u64(&block_header_with_nonce_hash[0..8]);
     let key1 = LittleEndian::read_u64(&block_header_with_nonce_hash[8..16]);

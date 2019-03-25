@@ -1,9 +1,7 @@
 use ckb_core::cell::CellProvider;
 use ckb_core::BlockNumber;
-use ckb_shared::{
-    index::ChainIndex,
-    shared::{ChainProvider, Shared},
-};
+use ckb_shared::{index::ChainIndex, shared::Shared};
+use ckb_traits::ChainProvider;
 use jsonrpc_core::{Error, Result};
 use jsonrpc_derive::rpc;
 use jsonrpc_types::{Block, CellOutputWithOutPoint, CellWithStatus, Header, OutPoint, Transaction};
@@ -56,7 +54,7 @@ impl<CI: ChainIndex + 'static> ChainRpc for ChainRpcImpl<CI> {
     }
 
     fn get_tip_header(&self) -> Result<Header> {
-        Ok(self.shared.chain_state().read().tip_header().into())
+        Ok(self.shared.chain_state().lock().tip_header().into())
     }
 
     // TODO: we need to build a proper index instead of scanning every time
@@ -67,7 +65,7 @@ impl<CI: ChainIndex + 'static> ChainRpc for ChainRpcImpl<CI> {
         to: BlockNumber,
     ) -> Result<Vec<CellOutputWithOutPoint>> {
         let mut result = Vec::new();
-        let chain_state = self.shared.chain_state().read();
+        let chain_state = self.shared.chain_state().lock();
         for block_number in from..=to {
             if let Some(block_hash) = self.shared.block_hash(block_number) {
                 let block = self
@@ -76,11 +74,11 @@ impl<CI: ChainIndex + 'static> ChainRpc for ChainRpcImpl<CI> {
                     .ok_or_else(Error::internal_error)?;
                 for transaction in block.commit_transactions() {
                     let transaction_meta = chain_state
-                        .txo_set()
+                        .cell_set()
                         .get(&transaction.hash())
                         .ok_or_else(Error::internal_error)?;
                     for (i, output) in transaction.outputs().iter().enumerate() {
-                        if output.lock == type_hash && (!transaction_meta.is_spent(i)) {
+                        if output.lock == type_hash && (!transaction_meta.is_dead(i)) {
                             result.push(CellOutputWithOutPoint {
                                 out_point: OutPoint {
                                     hash: transaction.hash().clone(),
@@ -102,6 +100,6 @@ impl<CI: ChainIndex + 'static> ChainRpc for ChainRpcImpl<CI> {
     }
 
     fn get_tip_block_number(&self) -> Result<BlockNumber> {
-        Ok(self.shared.chain_state().read().tip_number())
+        Ok(self.shared.chain_state().lock().tip_number())
     }
 }

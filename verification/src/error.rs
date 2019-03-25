@@ -1,11 +1,17 @@
 use ckb_core::BlockNumber;
 use ckb_script::ScriptError;
-use ckb_shared::error::SharedError;
+use failure::Fail;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
+use std::fmt;
 
 /// Block verification error
-#[derive(Debug, PartialEq, Clone, Eq)]
+
+/// Should we use ErrorKind pattern?
+/// Those error kind carry some data that provide additional information,
+/// ErrorKind pattern should only carry stateless data. And, our ErrorKind can not be `Eq`.
+/// If the Rust community has better patterns in the future, then look back here
+#[derive(Debug, Fail, PartialEq)]
 pub enum Error {
     /// PoW proof is corrupt or does not meet the difficulty target.
     Pow(PowError),
@@ -20,7 +26,7 @@ pub enum Error {
     /// transaction index in the block and the second item is the transaction verification error.
     Transactions((usize, TransactionError)),
     /// This is a wrapper of error encountered when invoking chain API.
-    Chain(SharedError),
+    Chain(String),
     /// The committed transactions list is empty.
     CommitTransactionsEmpty,
     /// There are duplicate proposed transactions.
@@ -43,6 +49,12 @@ pub enum Error {
     /// Cycles consumed by all scripts in all commit transactions of the block exceed
     /// the maximum allowed cycles in consensus rules
     ExceededMaximumCycles,
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fmt::Debug::fmt(&self, f)
+    }
 }
 
 #[derive(Debug, PartialEq, Clone, Eq)]
@@ -126,12 +138,6 @@ pub enum TransactionError {
     InvalidScript,
     ScriptFailure(ScriptError),
     InvalidSignature,
-    DoubleSpent,
+    Conflict,
     UnknownInput,
-}
-
-impl From<SharedError> for Error {
-    fn from(e: SharedError) -> Self {
-        Error::Chain(e)
-    }
 }

@@ -5,11 +5,12 @@ pub use crate::Capacity;
 use crate::{BlockNumber, Version};
 use bincode::{deserialize, serialize};
 use faster_hex::hex_string;
-use hash::sha3_256;
+use hash::blake2b_256;
 use numext_fixed_hash::H256;
 use occupied_capacity::OccupiedCapacity;
 use serde_derive::{Deserialize, Serialize};
 use std::fmt;
+use std::hash::{Hash, Hasher};
 use std::ops::{Deref, DerefMut};
 
 #[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Hash, OccupiedCapacity)]
@@ -98,6 +99,7 @@ impl CellInput {
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, OccupiedCapacity)]
 pub struct CellOutput {
     pub capacity: Capacity,
+    #[serde(with = "serde_bytes")]
     pub data: Vec<u8>,
     pub lock: H256,
     #[serde(rename = "type")]
@@ -129,7 +131,7 @@ impl CellOutput {
     }
 
     pub fn data_hash(&self) -> H256 {
-        sha3_256(&self.data).into()
+        blake2b_256(&self.data).into()
     }
 
     pub fn destruct(self) -> (Capacity, Vec<u8>, H256, Option<Script>) {
@@ -143,12 +145,24 @@ impl CellOutput {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug, Default, OccupiedCapacity)]
+#[derive(Clone, Serialize, Deserialize, Eq, Debug, Default, OccupiedCapacity)]
 pub struct Transaction {
     version: Version,
     deps: Vec<OutPoint>,
     inputs: Vec<CellInput>,
     outputs: Vec<CellOutput>,
+}
+
+impl Hash for Transaction {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        state.write(self.hash().as_fixed_bytes())
+    }
+}
+
+impl PartialEq for Transaction {
+    fn eq(&self, other: &Transaction) -> bool {
+        self.hash() == other.hash()
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -207,7 +221,7 @@ impl ProposalShortId {
     }
 
     pub fn hash(&self) -> H256 {
-        sha3_256(serialize(self).unwrap()).into()
+        blake2b_256(serialize(self).unwrap()).into()
     }
 
     pub fn zero() -> Self {
@@ -241,12 +255,7 @@ impl Transaction {
     }
 
     pub fn hash(&self) -> H256 {
-        sha3_256(serialize(&self).unwrap()).into()
-    }
-
-    pub fn check_lock(&self, unlock: &[u8], lock: &[u8]) -> bool {
-        // TODO: check using pubkey signature
-        unlock.is_empty() || !lock.is_empty()
+        blake2b_256(serialize(&self).unwrap()).into()
     }
 
     pub fn out_points_iter(&self) -> impl Iterator<Item = &OutPoint> {

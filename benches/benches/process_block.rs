@@ -9,8 +9,9 @@ use ckb_core::transaction::{
 use ckb_db::{diskdb::RocksDB, DBConfig};
 use ckb_notify::NotifyService;
 use ckb_shared::cachedb::CacheDB;
-use ckb_shared::shared::{ChainProvider, Shared, SharedBuilder};
+use ckb_shared::shared::{Shared, SharedBuilder};
 use ckb_shared::store::ChainKVStore;
+use ckb_traits::ChainProvider;
 use criterion::{criterion_group, criterion_main, Criterion};
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
@@ -164,7 +165,7 @@ fn new_chain() -> (
     let shared = SharedBuilder::<CacheDB<RocksDB>>::default()
         .db(&DBConfig {
             path: db_dir.path().to_owned(),
-            rocksdb: None,
+            options: None,
         })
         .consensus(consensus)
         .build();

@@ -7,6 +7,7 @@ pub enum Module {
     Miner,
     Pool,
     Trace,
+    IntegrationTest,
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
@@ -36,5 +37,9 @@ impl Config {
 
     pub(crate) fn trace_enable(&self) -> bool {
         self.modules.contains(&Module::Trace)
+    }
+
+    pub(crate) fn integration_test_enable(&self) -> bool {
+        self.modules.contains(&Module::IntegrationTest)
     }
 }

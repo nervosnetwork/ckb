@@ -22,15 +22,16 @@ use crate::{
 };
 use bitflags::bitflags;
 use ckb_chain::chain::ChainController;
-use ckb_chain::error::ProcessBlockError;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::Block;
 use ckb_core::header::{BlockNumber, Header};
 use ckb_network::{CKBProtocolContext, CKBProtocolHandler, PeerIndex, Severity, TimerToken};
 use ckb_protocol::{SyncMessage, SyncPayload};
 use ckb_shared::index::ChainIndex;
-use ckb_shared::shared::{ChainProvider, Shared};
-use ckb_util::{try_option, RwLock, RwLockUpgradableReadGuard};
+use ckb_shared::shared::Shared;
+use ckb_traits::ChainProvider;
+use ckb_util::{try_option, Mutex, RwLock};
+use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
 use flatbuffers::{get_root, FlatBufferBuilder};
 use log::{debug, info, warn};
@@ -66,7 +67,7 @@ bitflags! {
     }
 }
 
-pub type BlockStatusMap = Arc<RwLock<HashMap<H256, BlockStatus>>>;
+pub type BlockStatusMap = Arc<Mutex<HashMap<H256, BlockStatus>>>;
 pub type BlockHeaderMap = Arc<RwLock<HashMap<H256, HeaderView>>>;
 
 pub struct Synchronizer<CI: ChainIndex> {
@@ -108,7 +109,7 @@ fn is_outbound(nc: &CKBProtocolContext, peer: PeerIndex) -> Option<bool> {
 impl<CI: ChainIndex> Synchronizer<CI> {
     pub fn new(chain: ChainController, shared: Shared<CI>, config: Config) -> Synchronizer<CI> {
         let (total_difficulty, header, total_uncles_count) = {
-            let chain_state = shared.chain_state().read();
+            let chain_state = shared.chain_state().lock();
             let block_ext = shared
                 .block_ext(&chain_state.tip_hash())
                 .expect("tip block_ext must exist");
@@ -128,7 +129,7 @@ impl<CI: ChainIndex> Synchronizer<CI> {
             peers: Arc::new(Peers::default()),
             orphan_block_pool: Arc::new(OrphanBlockPool::with_capacity(orphan_block_limit)),
             best_known_header: Arc::new(RwLock::new(best_known_header)),
-            status_map: Arc::new(RwLock::new(HashMap::new())),
+            status_map: Arc::new(Mutex::new(HashMap::new())),
             header_map: Arc::new(RwLock::new(HashMap::new())),
             n_sync: Arc::new(AtomicUsize::new(0)),
             outbound_peers_with_protect: Arc::new(AtomicUsize::new(0)),
@@ -167,13 +168,12 @@ impl<CI: ChainIndex> Synchronizer<CI> {
     }
 
     pub fn get_block_status(&self, hash: &H256) -> BlockStatus {
-        let guard = self.status_map.upgradable_read();
+        let mut guard = self.status_map.lock();
         match guard.get(hash).cloned() {
             Some(s) => s,
             None => {
                 if self.shared.block_header(hash).is_some() {
-                    let mut write_guard = RwLockUpgradableReadGuard::upgrade(guard);
-                    write_guard.insert(hash.clone(), BlockStatus::BLOCK_HAVE_MASK);
+                    guard.insert(hash.clone(), BlockStatus::BLOCK_HAVE_MASK);
                     BlockStatus::BLOCK_HAVE_MASK
                 } else {
                     BlockStatus::UNKNOWN
@@ -187,7 +187,7 @@ impl<CI: ChainIndex> Synchronizer<CI> {
     }
 
     pub fn insert_block_status(&self, hash: H256, status: BlockStatus) {
-        self.status_map.write().insert(hash, status);
+        self.status_map.lock().insert(hash, status);
     }
 
     pub fn best_known_header(&self) -> HeaderView {
@@ -196,7 +196,7 @@ impl<CI: ChainIndex> Synchronizer<CI> {
 
     pub fn is_initial_block_download(&self) -> bool {
         unix_time_as_millis()
-            .saturating_sub(self.shared.chain_state().read().tip_header().timestamp())
+            .saturating_sub(self.shared.chain_state().lock().tip_header().timestamp())
             > MAX_TIP_AGE
     }
 
@@ -209,14 +209,14 @@ impl<CI: ChainIndex> Synchronizer<CI> {
 
     pub fn mark_block_stored(&self, hash: H256) {
         self.status_map
-            .write()
+            .lock()
             .entry(hash)
             .and_modify(|status| *status = BlockStatus::BLOCK_HAVE_MASK)
             .or_insert_with(|| BlockStatus::BLOCK_HAVE_MASK);
     }
 
     pub fn tip_header(&self) -> Header {
-        self.shared.chain_state().read().tip_header().clone()
+        self.shared.chain_state().lock().tip_header().clone()
     }
 
     pub fn get_locator(&self, start: &Header) -> Vec<H256> {
@@ -424,7 +424,7 @@ impl<CI: ChainIndex> Synchronizer<CI> {
         }
     }
 
-    fn accept_block(&self, peer: PeerIndex, block: &Arc<Block>) -> Result<(), ProcessBlockError> {
+    fn accept_block(&self, peer: PeerIndex, block: &Arc<Block>) -> Result<(), FailureError> {
         // TODO: some transactions' verification can be skiped.
         self.chain.process_block(Arc::clone(&block))?;
         self.mark_block_stored(block.header().hash().clone());
@@ -462,7 +462,7 @@ impl<CI: ChainIndex> Synchronizer<CI> {
                         }
                     } else {
                         debug!(
-                            target: "sync", "[Synchronizer] insert_orphan_block {:?}------------{:?}",
+                            target: "sync", "[Synchronizer] insert_orphan_block {:?}------------{:x}",
                             block.header().number(),
                             block.header().hash()
                         );
@@ -478,7 +478,7 @@ impl<CI: ChainIndex> Synchronizer<CI> {
             }
         } else {
             debug!(
-                target: "sync", "[Synchronizer] insert_orphan_block {:?}------------{:?}",
+                target: "sync", "[Synchronizer] insert_orphan_block {:?}------------{:x}",
                 block.header().number(),
                 block.header().hash()
             );
@@ -549,7 +549,7 @@ impl<CI: ChainIndex> Synchronizer<CI> {
                 if !state.chain_sync.protect && is_outbound {
                     let best_known_header = best_known_headers.get(peer);
 
-                    let chain_state = self.shared.chain_state().read();
+                    let chain_state = self.shared.chain_state().lock();
                     if best_known_header.map(|h| h.total_difficulty())
                         >= Some(chain_state.total_difficulty())
                     {
@@ -614,7 +614,7 @@ impl<CI: ChainIndex> Synchronizer<CI> {
         }
         let tip = {
             let (header, total_difficulty) = {
-                let chain_state = self.shared.chain_state().read();
+                let chain_state = self.shared.chain_state().lock();
                 (
                     chain_state.tip_header().clone(),
                     chain_state.total_difficulty().clone(),
@@ -846,7 +846,7 @@ mod tests {
 
         let synchronizer = gen_synchronizer(chain_controller.clone(), shared.clone());
 
-        let locator = synchronizer.get_locator(shared.chain_state().read().tip_header());
+        let locator = synchronizer.get_locator(shared.chain_state().lock().tip_header());
 
         let mut expect = Vec::new();
 
@@ -878,7 +878,7 @@ mod tests {
 
         let synchronizer2 = gen_synchronizer(chain_controller2.clone(), shared2.clone());
 
-        let locator1 = synchronizer1.get_locator(shared1.chain_state().read().tip_header());
+        let locator1 = synchronizer1.get_locator(shared1.chain_state().lock().tip_header());
 
         let latest_common = synchronizer2.locate_latest_common_block(&H256::zero(), &locator1[..]);
 
@@ -934,7 +934,7 @@ mod tests {
 
         let synchronizer1 = gen_synchronizer(chain_controller1.clone(), shared1.clone());
         let synchronizer2 = gen_synchronizer(chain_controller2.clone(), shared2.clone());
-        let locator1 = synchronizer1.get_locator(shared1.chain_state().read().tip_header());
+        let locator1 = synchronizer1.get_locator(shared1.chain_state().lock().tip_header());
 
         let latest_common = synchronizer2
             .locate_latest_common_block(&H256::zero(), &locator1[..])
@@ -963,15 +963,15 @@ mod tests {
 
         let synchronizer = gen_synchronizer(chain_controller.clone(), shared.clone());
 
-        let header = synchronizer.get_ancestor(&shared.chain_state().read().tip_hash(), 100);
-        let tip = synchronizer.get_ancestor(&shared.chain_state().read().tip_hash(), 199);
-        let noop = synchronizer.get_ancestor(&shared.chain_state().read().tip_hash(), 200);
+        let header = synchronizer.get_ancestor(&shared.chain_state().lock().tip_hash(), 100);
+        let tip = synchronizer.get_ancestor(&shared.chain_state().lock().tip_hash(), 199);
+        let noop = synchronizer.get_ancestor(&shared.chain_state().lock().tip_hash(), 200);
         assert!(tip.is_some());
         assert!(header.is_some());
         assert!(noop.is_none());
         assert_eq!(
             tip.unwrap(),
-            shared.chain_state().read().tip_header().clone()
+            shared.chain_state().lock().tip_header().clone()
         );
         assert_eq!(
             header.unwrap(),
@@ -1010,7 +1010,7 @@ mod tests {
         });
         assert_eq!(
             chain1_last_block.header(),
-            shared2.chain_state().read().tip_header()
+            shared2.chain_state().lock().tip_header()
         );
     }
 
@@ -1148,7 +1148,7 @@ mod tests {
 
         let synchronizer1 = gen_synchronizer(chain_controller1.clone(), shared1.clone());
 
-        let locator1 = synchronizer1.get_locator(&shared1.chain_state().read().tip_header());
+        let locator1 = synchronizer1.get_locator(&shared1.chain_state().lock().tip_header());
 
         for i in 1..=num {
             let j = if i > 192 { i + 1 } else { i };
@@ -1212,8 +1212,6 @@ mod tests {
             fetched_blocks.push(shared2.block(block_hash).unwrap());
         }
 
-        let fork_receiver = notify.subscribe_switch_fork("fork_receiver");
-
         for block in &fetched_blocks {
             let fbb = &mut FlatBufferBuilder::new();
             let fbs_block = FbsBlock::build(fbb, block);
@@ -1233,8 +1231,6 @@ mod tests {
                 .hash(),
             blocks_to_fetch.last().unwrap()
         );
-
-        assert!(fork_receiver.recv().is_ok());
     }
 
     #[cfg(not(disable_faketime))]
@@ -1281,7 +1277,7 @@ mod tests {
         let (chain_controller, shared, _notify) = start_chain(Some(consensus), None);
 
         assert_eq!(
-            shared.chain_state().read().total_difficulty(),
+            shared.chain_state().lock().total_difficulty(),
             &U256::from(2u64)
         );
 
@@ -1317,7 +1313,7 @@ mod tests {
             // where we checked against our tip.
             // Either way, set a new timeout based on current tip.
             let (tip, total_difficulty) = {
-                let chain_state = shared.chain_state().read();
+                let chain_state = shared.chain_state().lock();
                 let header = chain_state.tip_header().clone();
                 let total_difficulty = chain_state.total_difficulty().clone();
                 (header, total_difficulty)

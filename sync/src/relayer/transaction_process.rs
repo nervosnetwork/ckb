@@ -3,6 +3,7 @@ use ckb_core::transaction::Transaction;
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::{RelayMessage, Transaction as FbsTransaction};
 use ckb_shared::index::ChainIndex;
+use ckb_traits::chain_provider::ChainProvider;
 use flatbuffers::FlatBufferBuilder;
 
 pub struct TransactionProcess<'a, CI: ChainIndex + 'a> {
@@ -32,7 +33,12 @@ where
 
     pub fn execute(self) {
         let tx: Transaction = (*self.message).into();
-        if self.relayer.tx_pool.add_transaction(tx.clone()).is_ok() {
+        let chain_state = self.relayer.shared.chain_state().lock();
+        let max_block_cycles = self.relayer.shared.consensus().max_block_cycles();
+        if chain_state
+            .add_tx_to_pool(tx.clone(), max_block_cycles)
+            .is_ok()
+        {
             let fbb = &mut FlatBufferBuilder::new();
             let message = RelayMessage::build_transaction(fbb, &tx);
             fbb.finish(message, None);

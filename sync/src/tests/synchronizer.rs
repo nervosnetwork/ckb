@@ -9,8 +9,9 @@ use ckb_core::transaction::{CellInput, CellOutput, TransactionBuilder};
 use ckb_db::memorydb::MemoryKeyValueDB;
 use ckb_notify::NotifyService;
 use ckb_protocol::SyncMessage;
-use ckb_shared::shared::{ChainProvider, Shared, SharedBuilder};
+use ckb_shared::shared::{Shared, SharedBuilder};
 use ckb_shared::store::ChainKVStore;
+use ckb_traits::ChainProvider;
 use faketime::{self, unix_time_as_millis};
 use flatbuffers::get_root;
 use numext_fixed_uint::U256;
@@ -54,10 +55,10 @@ fn basic_sync() {
     // Wait node1 receive block from node2
     let _ = signal_rx1.recv();
 
-    assert_eq!(shared1.chain_state().read().tip_number(), 3);
+    assert_eq!(shared1.chain_state().lock().tip_number(), 3);
     assert_eq!(
-        shared1.chain_state().read().tip_number(),
-        shared2.chain_state().read().tip_number()
+        shared1.chain_state().lock().tip_number(),
+        shared2.chain_state().lock().tip_number()
     );
 }
 

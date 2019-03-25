@@ -6,19 +6,18 @@ use ckb_core::uncle::UncleBlock;
 use ckb_core::BlockNumber;
 use ckb_core::{Cycle, Version};
 use ckb_notify::NotifyController;
-use ckb_pool::txs_pool::TransactionPoolController;
-use ckb_pool::PoolEntry;
-use ckb_shared::error::SharedError;
-use ckb_shared::index::ChainIndex;
-use ckb_shared::shared::{ChainProvider, Shared};
+use ckb_shared::{index::ChainIndex, shared::Shared, tx_pool::PoolEntry};
+use ckb_traits::ChainProvider;
 use ckb_util::Mutex;
 use crossbeam_channel::{self, select, Receiver, Sender};
+use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
 use fnv::FnvHashSet;
 use jsonrpc_types::{BlockTemplate, CellbaseTemplate, TransactionTemplate, UncleTemplate};
 use log::error;
 use lru_cache::LruCache;
 use numext_fixed_hash::H256;
+use numext_fixed_uint::U256;
 use std::cmp;
 use std::sync::{atomic::AtomicUsize, atomic::Ordering, Arc};
 use std::thread;
@@ -26,7 +25,7 @@ use stop_handler::{SignalSender, StopHandler};
 
 const MAX_CANDIDATE_UNCLES: usize = 42;
 type BlockTemplateParams = (Option<Cycle>, Option<u64>, Option<Version>);
-type BlockTemplateResult = Result<BlockTemplate, SharedError>;
+type BlockTemplateResult = Result<BlockTemplate, FailureError>;
 const BLOCK_ASSEMBLER_SUBSCRIBER: &str = "block_assembler";
 const BLOCK_TEMPLATE_TIMEOUT: u64 = 3000;
 const TEMPLATE_CACHE_SIZE: usize = 10;
@@ -86,7 +85,6 @@ impl BlockAssemblerController {
 
 pub struct BlockAssembler<CI> {
     shared: Shared<CI>,
-    tx_pool: TransactionPoolController,
     candidate_uncles: LruCache<H256, Arc<Block>>,
     type_hash: H256,
     work_id: AtomicUsize,
@@ -95,10 +93,9 @@ pub struct BlockAssembler<CI> {
 }
 
 impl<CI: ChainIndex + 'static> BlockAssembler<CI> {
-    pub fn new(shared: Shared<CI>, tx_pool: TransactionPoolController, type_hash: H256) -> Self {
+    pub fn new(shared: Shared<CI>, type_hash: H256) -> Self {
         Self {
             shared,
-            tx_pool,
             type_hash,
             candidate_uncles: LruCache::new(MAX_CANDIDATE_UNCLES),
             work_id: AtomicUsize::new(0),
@@ -228,15 +225,15 @@ impl<CI: ChainIndex + 'static> BlockAssembler<CI> {
         cycles_limit: Option<Cycle>,
         bytes_limit: Option<u64>,
         max_version: Option<Version>,
-    ) -> Result<BlockTemplate, SharedError> {
+    ) -> Result<BlockTemplate, FailureError> {
         let (cycles_limit, bytes_limit, version) =
             self.transform_params(cycles_limit, bytes_limit, max_version);
-        let uncles_count_limit = self.shared.consensus().max_uncles_len() as u32;
+        let uncles_count_limit = self.shared.consensus().max_uncles_num() as u32;
 
         let last_uncles_updated_at = self.last_uncles_updated_at.load(Ordering::SeqCst) as u64;
-        let last_txs_updated_at = self.tx_pool.get_last_txs_updated_at();
+        let chain_state = self.shared.chain_state().lock();
+        let last_txs_updated_at = chain_state.get_last_txs_updated_at();
 
-        let chain_state = self.shared.chain_state().read();
         let header = chain_state.tip_header();
         let number = chain_state.tip_number() + 1;
         let current_time = cmp::max(unix_time_as_millis(), header.timestamp() + 1);
@@ -260,9 +257,9 @@ impl<CI: ChainIndex + 'static> BlockAssembler<CI> {
             .expect("get difficulty");
 
         let (proposal_transactions, commit_transactions) =
-            self.tx_pool.get_proposal_commit_transactions(10000, 10000);
+            chain_state.get_proposal_and_staging_txs(10000, 10000);
 
-        let (uncles, bad_uncles) = self.prepare_uncles(&header);
+        let (uncles, bad_uncles) = self.prepare_uncles(&header, &difficulty);
         if !bad_uncles.is_empty() {
             for bad in bad_uncles {
                 self.candidate_uncles.remove(&bad);
@@ -310,7 +307,7 @@ impl<CI: ChainIndex + 'static> BlockAssembler<CI> {
         header: &Header,
         pes: &[PoolEntry],
         type_hash: H256,
-    ) -> Result<Transaction, SharedError> {
+    ) -> Result<Transaction, FailureError> {
         // NOTE: To generate different cellbase txid, we put header number in the input script
         let input = CellInput::new_cellbase_input(header.number() + 1);
         // NOTE: We could've just used byteorder to serialize u64 and hex string into bytes,
@@ -331,7 +328,11 @@ impl<CI: ChainIndex + 'static> BlockAssembler<CI> {
             .build())
     }
 
-    fn prepare_uncles(&self, tip: &Header) -> (Vec<UncleBlock>, Vec<H256>) {
+    fn prepare_uncles(
+        &self,
+        tip: &Header,
+        current_difficulty: &U256,
+    ) -> (Vec<UncleBlock>, Vec<H256>) {
         let max_uncles_age = self.shared.consensus().max_uncles_age();
         let mut excluded = FnvHashSet::default();
 
@@ -359,25 +360,26 @@ impl<CI: ChainIndex + 'static> BlockAssembler<CI> {
             }
         }
 
-        let tip_difficulty_epoch =
-            tip.number() / self.shared.consensus().difficulty_adjustment_interval();
-
-        let max_uncles_len = self.shared.consensus().max_uncles_len();
-        let mut included = FnvHashSet::default();
-        let mut uncles = Vec::with_capacity(max_uncles_len);
-        let mut bad_uncles = Vec::new();
         let current_number = tip.number() + 1;
+        let current_difficulty_epoch =
+            current_number / self.shared.consensus().difficulty_adjustment_interval();
+
+        let max_uncles_num = self.shared.consensus().max_uncles_num();
+        let mut included = FnvHashSet::default();
+        let mut uncles = Vec::with_capacity(max_uncles_num);
+        let mut bad_uncles = Vec::new();
+
         for (hash, block) in self.candidate_uncles.iter() {
-            if uncles.len() == max_uncles_len {
+            if uncles.len() == max_uncles_num {
                 break;
             }
 
             let block_difficulty_epoch =
                 block.header().number() / self.shared.consensus().difficulty_adjustment_interval();
 
-            // uncle must be same difficulty epoch with tip
-            if block.header().difficulty() != tip.difficulty()
-                || block_difficulty_epoch != tip_difficulty_epoch
+            // uncle must be same difficulty epoch with candidate
+            if block.header().difficulty() != current_difficulty
+                || block_difficulty_epoch != current_difficulty_epoch
             {
                 bad_uncles.push(hash.clone());
                 continue;
@@ -412,19 +414,26 @@ mod tests {
     use ckb_chain::chain::ChainBuilder;
     use ckb_chain::chain::ChainController;
     use ckb_chain_spec::consensus::Consensus;
+    use ckb_core::block::Block;
     use ckb_core::block::BlockBuilder;
-    use ckb_core::header::HeaderBuilder;
+    use ckb_core::header::{Header, HeaderBuilder};
+    use ckb_core::transaction::{
+        CellInput, CellOutput, ProposalShortId, Transaction, TransactionBuilder,
+    };
+    use ckb_core::BlockNumber;
     use ckb_db::memorydb::MemoryKeyValueDB;
     use ckb_notify::{NotifyController, NotifyService};
-    use ckb_pool::txs_pool::{PoolConfig, TransactionPoolController, TransactionPoolService};
     use ckb_pow::Pow;
     use ckb_shared::index::ChainIndex;
     use ckb_shared::shared::Shared;
     use ckb_shared::shared::SharedBuilder;
     use ckb_shared::store::ChainKVStore;
+    use ckb_traits::ChainProvider;
     use ckb_verification::{BlockVerifier, HeaderResolverWrapper, HeaderVerifier, Verifier};
     use jsonrpc_types::{BlockTemplate, CellbaseTemplate};
     use numext_fixed_hash::H256;
+    use numext_fixed_uint::U256;
+    use std::sync::Arc;
 
     fn start_chain(
         consensus: Option<Consensus>,
@@ -441,41 +450,24 @@ mod tests {
         let shared = builder.build();
 
         let notify = notify.unwrap_or_else(|| NotifyService::default().start::<&str>(None));
-        let chain_service = ChainBuilder::new(shared.clone(), notify.clone()).build();
+        let chain_service = ChainBuilder::new(shared.clone(), notify.clone())
+            .verification(false)
+            .build();
         let chain_controller = chain_service.start::<&str>(None);
         (chain_controller, shared, notify)
     }
 
-    fn setup_tx_pool<CI: ChainIndex + 'static>(
-        shared: Shared<CI>,
-        notify: NotifyController,
-    ) -> TransactionPoolController {
-        let config = PoolConfig {
-            max_pool_size: 1000,
-            max_orphan_size: 1000,
-            max_proposal_size: 1000,
-            max_cache_size: 1000,
-            max_pending_size: 1000,
-            trace: Some(100),
-        };
-        let tx_pool_service = TransactionPoolService::new(config, shared, notify);
-        tx_pool_service.start(Some("TransactionPoolService"))
-    }
-
     fn setup_block_assembler<CI: ChainIndex + 'static>(
-        tx_pool: TransactionPoolController,
         shared: Shared<CI>,
         type_hash: H256,
     ) -> BlockAssembler<CI> {
-        BlockAssembler::new(shared, tx_pool, type_hash)
+        BlockAssembler::new(shared, type_hash)
     }
 
     #[test]
-    fn test_get_get_block_template() {
-        let (_chain_controller, shared, notify) = start_chain(None, None);
-        let tx_pool_controller = setup_tx_pool(shared.clone(), notify.clone());
-        let mut block_assembler =
-            setup_block_assembler(tx_pool_controller, shared.clone(), H256::zero());
+    fn test_get_block_template() {
+        let (_chain_controller, shared, _notify) = start_chain(None, None);
+        let mut block_assembler = setup_block_assembler(shared.clone(), H256::zero());
 
         let block_template = block_assembler
             .get_block_template(None, None, None)
@@ -523,5 +515,83 @@ mod tests {
 
         let block_verify = BlockVerifier::new(shared.clone());
         assert!(block_verify.verify(&block).is_ok());
+    }
+
+    fn gen_block(parent_header: &Header, nonce: u64, difficulty: U256) -> Block {
+        let number = parent_header.number() + 1;
+        let cellbase = create_cellbase(number);
+        let header = HeaderBuilder::default()
+            .parent_hash(parent_header.hash().clone())
+            .timestamp(parent_header.timestamp() + 10)
+            .number(number)
+            .difficulty(difficulty)
+            .nonce(nonce)
+            .build();
+
+        BlockBuilder::default()
+            .header(header)
+            .commit_transaction(cellbase)
+            .proposal_transaction(ProposalShortId::from_slice(&[1; 10]).unwrap())
+            .build()
+    }
+
+    fn create_cellbase(number: BlockNumber) -> Transaction {
+        TransactionBuilder::default()
+            .input(CellInput::new_cellbase_input(number))
+            .output(CellOutput::new(0, vec![], H256::zero(), None))
+            .build()
+    }
+
+    #[test]
+    fn test_prepare_uncles() {
+        let mut consensus = Consensus::default();
+        consensus.pow_time_span = 4;
+        consensus.pow_spacing = 1;
+
+        let (chain_controller, shared, notify) = start_chain(Some(consensus), None);
+        let block_assembler = setup_block_assembler(shared.clone(), H256::zero());
+        let new_uncle_receiver = notify.subscribe_new_uncle("test_prepare_uncles");
+        let block_assembler_controller = block_assembler.start(Some("test"), &notify.clone());
+
+        let genesis = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
+        let block0_0 = gen_block(&genesis, 10, genesis.difficulty().clone());
+        let block0_1 = gen_block(&genesis, 11, genesis.difficulty().clone());
+        let block1_1 = gen_block(
+            block0_1.header(),
+            10,
+            block0_1.header().difficulty().clone(),
+        );
+
+        chain_controller
+            .process_block(Arc::new(block0_1.clone()))
+            .unwrap();
+        chain_controller
+            .process_block(Arc::new(block0_0.clone()))
+            .unwrap();
+        chain_controller
+            .process_block(Arc::new(block1_1.clone()))
+            .unwrap();
+
+        // block number 3, epoch 0
+        let _ = new_uncle_receiver.recv();
+        let block_template = block_assembler_controller
+            .get_block_template(None, None, None)
+            .unwrap();
+        assert_eq!(block_template.uncles[0].hash, block0_0.header().hash());
+
+        let block2_1 = gen_block(
+            block1_1.header(),
+            10,
+            block1_1.header().difficulty().clone(),
+        );
+        chain_controller
+            .process_block(Arc::new(block2_1.clone()))
+            .unwrap();
+
+        let block_template = block_assembler_controller
+            .get_block_template(None, None, None)
+            .unwrap();
+        // block number 4, epoch 1, block_template should not include last epoch uncles
+        assert!(block_template.uncles.is_empty());
     }
 }

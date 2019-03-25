@@ -3,9 +3,8 @@ use crate::MAX_HEADERS_LEN;
 use ckb_core::header::Header;
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::{FlatbuffersVectorIterator, Headers};
-use ckb_shared::block_median_time_context::BlockMedianTimeContext;
 use ckb_shared::index::ChainIndex;
-use ckb_shared::shared::ChainProvider;
+use ckb_traits::{BlockMedianTimeContext, ChainProvider};
 use ckb_verification::{Error as VerifyError, HeaderResolver, HeaderVerifier, Verifier};
 use log;
 use log::{debug, log_enabled};
@@ -266,13 +265,13 @@ where
 
         if log_enabled!(target: "sync", log::Level::Debug) {
             let own = { self.synchronizer.best_known_header.read().clone() };
-            let chain_state = self.synchronizer.shared.chain_state().read();
+            let chain_state = self.synchronizer.shared.chain_state().lock();
             let peer_state = self.synchronizer.peers.best_known_header(self.peer);
             debug!(
                 target: "sync",
                 concat!(
                     "\n\nchain total_difficulty = {}; number={}\n",
-                    "number={}; best_known_header = {}; total_difficulty = {};\n",
+                    "number={}; best_known_header = {:x}; total_difficulty = {};\n",
                     "peers={} number={:?}; best_known_header = {:?}; total_difficulty = {:?}\n",
                 ),
                 chain_state.total_difficulty(),
@@ -282,8 +281,8 @@ where
                 own.total_difficulty(),
                 self.peer,
                 peer_state.as_ref().map(|state| state.number()),
-                peer_state.as_ref().map(|state| state.hash()),
-                peer_state.as_ref().map(|state| state.total_difficulty()),
+                peer_state.as_ref().map(|state| format!("{:x}", state.hash())),
+                peer_state.as_ref().map(|state| format!("{}", state.total_difficulty())),
             );
         }
 
@@ -435,7 +434,7 @@ impl Default for ValidationState {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum ValidationError {
     Verify(VerifyError),
     FailedMask,
@@ -443,7 +442,7 @@ pub enum ValidationError {
     InvalidParent,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Default)]
 pub struct ValidationResult {
     pub error: Option<ValidationError>,
     pub misbehavior: u32,

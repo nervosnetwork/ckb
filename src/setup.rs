@@ -3,18 +3,18 @@ use ckb_chain_spec::ChainSpec;
 use ckb_db::DBConfig;
 use ckb_miner::BlockAssemblerConfig;
 use ckb_network::Config as NetworkConfig;
-use ckb_pool::txs_pool::PoolConfig;
 use ckb_rpc::Config as RpcConfig;
+use ckb_shared::tx_pool::TxPoolConfig;
 use ckb_sync::Config as SyncConfig;
 use clap::ArgMatches;
-use config_tool::{Config as ConfigTool, File};
+use config_tool::{Config as ConfigTool, ConfigError, File};
 use dir::Directories;
 use logger::Config as LogConfig;
 use serde_derive::Deserialize;
 use std::error::Error;
 use std::path::{Path, PathBuf};
 
-const DEFAULT_CONFIG_PATHS: &[&str] = &["ckb.json", "nodes/default.json"];
+const DEFAULT_CONFIG_PATHS: &[&str] = &["ckb.toml", "nodes/default.toml"];
 
 #[derive(Clone, Debug)]
 pub struct Setup {
@@ -38,8 +38,7 @@ pub struct Configs {
     pub rpc: RpcConfig,
     pub block_assembler: BlockAssemblerConfig,
     pub sync: SyncConfig,
-    pub pool: PoolConfig,
-    pub txs_verify_cache_size: usize,
+    pub tx_pool: TxPoolConfig,
 }
 
 pub fn get_config_path(matches: &ArgMatches) -> PathBuf {
@@ -77,7 +76,13 @@ impl Setup {
                 Some(dirs.join("network").to_string_lossy().to_string());
         }
 
-        let chain_spec = ChainSpec::read_from_file(&configs.chain.spec)?;
+        let chain_spec = ChainSpec::read_from_file(&configs.chain.spec).map_err(|e| {
+            Box::new(ConfigError::Message(format!(
+                "invalid chain spec {}, {}",
+                configs.chain.spec.display(),
+                e
+            )))
+        })?;
 
         Ok(Setup {
             configs,
@@ -124,7 +129,7 @@ pub mod test {
     fn override_default_config_file<T: AsRef<Path>>(config_path: &T) -> Result<Setup, Box<Error>> {
         let mut config_tool = ConfigTool::new();
         let default_config_path =
-            Path::new(env!("CARGO_MANIFEST_DIR")).join("nodes_template/default.json");
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("nodes_template/default.toml");
         config_tool.merge(ConfigFile::from(default_config_path.as_path()))?;
         config_tool.merge(ConfigFile::from(config_path.as_ref()))?;
 
@@ -142,37 +147,38 @@ pub mod test {
 
     fn test_chain_spec() -> &'static str {
         r#"
-        {
-            "name": "ckb_test_custom",
-            "genesis": {
-                "seal": {
-                    "nonce": 233,
-                    "proof": [2, 3, 3]
-                },
-                "version": 0,
-                "parent_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
-                "timestamp": 0,
-                "txs_commit": "0x0000000000000000000000000000000000000000000000000000000000000000",
-                "txs_proposal": "0x0000000000000000000000000000000000000000000000000000000000000000",
-                "difficulty": "0x233",
-                "cellbase_id": "0x0000000000000000000000000000000000000000000000000000000000000000",
-                "uncles_hash": "0x0000000000000000000000000000000000000000000000000000000000000000"
-            },
-            "params": {
-                "initial_block_reward": 233,
-                "max_block_cycles": 100000000
-            },
-            "system_cells": [
-                {"path": "verify"},
-                {"path": "always_success"}
-            ],
-            "pow": {
-                "Cuckoo": {
-                    "edge_bits": 29,
-                    "cycle_length": 42
-                }
-            }
-        }
+        name = "ckb_test_custom"
+
+        [genesis]
+        version = 0
+        parent_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
+        timestamp = 0
+        txs_commit = "0x0000000000000000000000000000000000000000000000000000000000000000"
+        txs_proposal = "0x0000000000000000000000000000000000000000000000000000000000000000"
+        difficulty = "0x233"
+        cellbase_id = "0x0000000000000000000000000000000000000000000000000000000000000000"
+        uncles_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
+
+        [genesis.seal]
+        nonce = 233
+        proof = [2, 3, 3]
+
+        [params]
+        initial_block_reward = 233
+        max_block_cycles = 100000000
+
+        [pow]
+        func = "Cuckoo"
+
+        [pow.params]
+        edge_bits = 29
+        cycle_length = 42
+
+        [[system_cells]]
+        path = "verify"
+
+        [[system_cells]]
+        path = "always_success"
         "#
     }
 
@@ -183,12 +189,11 @@ pub mod test {
             .tempdir()
             .unwrap();
 
-        let test_conifg = r#"{
-            "network": {
-                "listen_addresses": ["/ip4/1.1.1.1/tcp/1"]
-            }
-        }"#;
-        let config_path = tmp_dir.path().join("config.json");
+        let test_conifg = r#"
+            [network]
+            listen_addresses = ["/ip4/1.1.1.1/tcp/1"]
+        "#;
+        let config_path = tmp_dir.path().join("config.toml");
         write_file(&config_path, test_conifg);
         let setup = override_default_config_file(&config_path);
         assert!(setup.is_ok());
@@ -205,34 +210,28 @@ pub mod test {
             .tempdir()
             .unwrap();
 
-        let test_conifg = r#"{
-            "db": {
-                "rocksdb": {
-                    "disable_auto_compactions": "true",
-                    "paranoid_file_checks": "true"
-                }
-            }
-        }"#;
-        let config_path = tmp_dir.path().join("config.json");
+        let test_conifg = r#"
+            [db.options]
+            disable_auto_compactions = "true"
+            paranoid_file_checks = "true"
+        "#;
+        let config_path = tmp_dir.path().join("config.toml");
         write_file(&config_path, test_conifg);
         let setup = override_default_config_file(&config_path).unwrap();
-        let rocksdb_options: Vec<(&str, &str)> = setup
+        let options: Vec<(&str, &str)> = setup
             .configs
             .db
-            .rocksdb
+            .options
             .as_ref()
             .unwrap()
             .iter()
             .map(|(k, v)| (k.as_str(), v.as_str()))
             .collect();
         assert_eq!(
-            rocksdb_options.contains(&("disable_auto_compactions", "true")),
+            options.contains(&("disable_auto_compactions", "true")),
             true
         );
-        assert_eq!(
-            rocksdb_options.contains(&("paranoid_file_checks", "true")),
-            true
-        );
+        assert_eq!(options.contains(&("paranoid_file_checks", "true")), true);
     }
 
     #[test]
@@ -242,19 +241,17 @@ pub mod test {
             .tempdir()
             .unwrap();
 
-        let chain_spec_path = tmp_dir.path().join("ckb_test_custom.json");
-        let test_conifg = format!(
+        let chain_spec_path = tmp_dir.path().join("ckb_test_custom.toml");
+        let test_config = format!(
             r#"
-        {{
-            "chain": {{
-                "spec": "{}"
-            }}
-        }}"#,
+            [chain]
+            spec = "{}"
+            "#,
             chain_spec_path.to_str().unwrap()
         );
 
-        let config_path = tmp_dir.path().join("config.json");
-        write_file(&config_path, &test_conifg);
+        let config_path = tmp_dir.path().join("config.toml");
+        write_file(&config_path, &test_config);
         write_file(&chain_spec_path, test_chain_spec());
 
         let setup = override_default_config_file(&config_path);

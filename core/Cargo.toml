@@ -1,6 +1,6 @@
 [package]
 name = "ckb-core"
-version = "0.6.0"
+version = "0.7.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -20,3 +20,4 @@ ckb-util = { path = "../util" }
 fnv = "1.0.3"
 ckb-merkle-tree = {path = "../util/merkle-tree"}
 faster-hex = "0.3"
+serde_bytes = "0.10.5"

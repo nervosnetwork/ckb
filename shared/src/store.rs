@@ -1,4 +1,3 @@
-use crate::error::SharedError;
 use crate::flat_serializer::{serialize as flat_serialize, Address};
 use crate::{
     COLUMN_BLOCK_BODY, COLUMN_BLOCK_HEADER, COLUMN_BLOCK_PROPOSAL_IDS,
@@ -13,6 +12,7 @@ use ckb_core::transaction::{ProposalShortId, Transaction, TransactionBuilder};
 use ckb_core::uncle::UncleBlock;
 use ckb_db::batch::{Batch, Col};
 use ckb_db::kvdb::KeyValueDB;
+use failure::Error;
 use numext_fixed_hash::H256;
 use std::ops::Range;
 use std::sync::Arc;
@@ -55,10 +55,10 @@ pub trait ChainStore: Sync + Send {
     fn get_block_ext(&self, block_hash: &H256) -> Option<BlockExt>;
     fn insert_block(&self, batch: &mut Batch, b: &Block);
     fn insert_block_ext(&self, batch: &mut Batch, block_hash: &H256, ext: &BlockExt);
-    fn save_with_batch<F: FnOnce(&mut Batch) -> Result<(), SharedError>>(
+    fn save_with_batch<F: FnOnce(&mut Batch) -> Result<(), Error>>(
         &self,
         f: F,
-    ) -> Result<(), SharedError>;
+    ) -> Result<(), Error>;
 
     /// Visits block headers backward to genesis.
     fn headers_iter<'a>(&'a self, head: Header) -> ChainStoreHeaderIterator<'a, Self>
@@ -162,10 +162,10 @@ impl<T: 'static + KeyValueDB> ChainStore for ChainKVStore<T> {
             .map(|raw| deserialize(&raw[..]).unwrap())
     }
 
-    fn save_with_batch<F: FnOnce(&mut Batch) -> Result<(), SharedError>>(
+    fn save_with_batch<F: FnOnce(&mut Batch) -> Result<(), Error>>(
         &self,
         f: F,
-    ) -> Result<(), SharedError> {
+    ) -> Result<(), Error> {
         let mut batch = Batch::new();
         f(&mut batch)?;
         self.db.write(batch)?;
@@ -278,7 +278,7 @@ mod tests {
             received_at: block.header().timestamp(),
             total_difficulty: block.header().difficulty().clone(),
             total_uncles_count: block.uncles().len() as u64,
-            valid: Some(true),
+            txs_verified: Some(true),
         };
 
         let hash = block.header().hash();

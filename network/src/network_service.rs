@@ -7,6 +7,7 @@ use crate::{Error, ErrorKind, ProtocolId};
 use ckb_util::Mutex;
 use futures::future::Future;
 use futures::sync::oneshot;
+use libp2p::{Multiaddr, PeerId};
 use log::{debug, info};
 use std::sync::Arc;
 use std::thread;
@@ -108,5 +109,9 @@ impl NetworkService {
             .take()
             .expect("network_service can only close once");
         handler.close();
+    }
+
+    pub fn add_node(&self, peer_id: &PeerId, address: Multiaddr) {
+        self.network.add_node(peer_id, address)
     }
 }

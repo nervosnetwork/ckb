@@ -6,8 +6,6 @@ use crate::module::{
 use ckb_chain::chain::ChainController;
 use ckb_miner::BlockAssemblerController;
 use ckb_network::NetworkService;
-use ckb_pool::txs_pool::TransactionPoolController;
-use ckb_pow::Clicker;
 use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::Shared;
 use jsonrpc_core::IoHandler;
@@ -25,10 +23,8 @@ impl RpcServer {
         config: Config,
         network: Arc<NetworkService>,
         shared: Shared<CI>,
-        tx_pool: TransactionPoolController,
         chain: ChainController,
         block_assembler: BlockAssemblerController,
-        test_engine: Option<Arc<Clicker>>,
     ) -> RpcServer
     where
         CI: ChainIndex,
@@ -48,7 +44,7 @@ impl RpcServer {
             io.extend_with(
                 PoolRpcImpl {
                     network: Arc::clone(&network),
-                    tx_pool: tx_pool.clone(),
+                    shared: shared.clone(),
                 }
                 .to_delegate(),
             );
@@ -57,7 +53,7 @@ impl RpcServer {
         if config.miner_enable() {
             io.extend_with(
                 MinerRpcImpl {
-                    shared,
+                    shared: shared.clone(),
                     block_assembler,
                     chain,
                     network: Arc::clone(&network),
@@ -79,20 +75,14 @@ impl RpcServer {
             io.extend_with(
                 TraceRpcImpl {
                     network: Arc::clone(&network),
-                    tx_pool,
+                    shared,
                 }
                 .to_delegate(),
             );
         }
 
-        if test_engine.is_some() {
-            io.extend_with(
-                IntegrationTestRpcImpl {
-                    network,
-                    test_engine: test_engine.expect("pow engine supply"),
-                }
-                .to_delegate(),
-            );
+        if config.integration_test_enable() {
+            io.extend_with(IntegrationTestRpcImpl { network }.to_delegate());
         }
 
         let server = ServerBuilder::new(io)

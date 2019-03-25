@@ -1,5 +1,5 @@
 use faster_hex::hex_encode;
-use hash::sha3_256;
+use hash::blake2b_256;
 use numext_fixed_hash::H256;
 use occupied_capacity::OccupiedCapacity;
 use serde_derive::{Deserialize, Serialize};
@@ -167,7 +167,7 @@ impl Script {
                 for argument in &self.signed_args {
                     bytes.write_all(argument).unwrap();
                 }
-                sha3_256(bytes).into()
+                blake2b_256(bytes).into()
             }
             _ => H256::zero(),
         }
@@ -181,5 +181,45 @@ impl OccupiedCapacity for Script {
             + self.reference.occupied_capacity()
             + self.binary.occupied_capacity()
             + self.signed_args.occupied_capacity()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Script, H256};
+
+    #[test]
+    fn empty_script_type_hash() {
+        let script = Script::new(0, vec![], None, None, vec![]);
+        let expect =
+            H256::from_hex_str("4b29eb5168ba6f74bff824b15146246109c732626abd3c0578cbf147d8e28479")
+                .unwrap();
+        assert_eq!(script.type_hash(), expect);
+    }
+
+    #[test]
+    fn always_success_script_type_hash() {
+        let always_success = include_bytes!("../../nodes_template/spec/cells/always_success");
+        let script = Script::new(0, vec![], None, Some(always_success.to_vec()), vec![]);
+        let expect =
+            H256::from_hex_str("9f94d2511b787387638faa4a5bfd448baf21aa5fde3afaa54bb791188b5cf002")
+                .unwrap();
+        assert_eq!(script.type_hash(), expect);
+    }
+
+    #[test]
+    fn one_script_type_hash() {
+        let one = Script::new(
+            0,
+            vec![vec![1]],
+            Some(H256::zero()),
+            Some(vec![1]),
+            vec![vec![1]],
+        );
+        let expect =
+            H256::from_hex_str("afb140d0673571ed5710d220d6146d41bd8bc18a3a4ff723dad4331da5af5bb6")
+                .unwrap();
+
+        assert_eq!(one.type_hash(), expect);
     }
 }

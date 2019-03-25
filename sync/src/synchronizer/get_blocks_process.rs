@@ -33,9 +33,9 @@ where
     pub fn execute(self) {
         self.message.block_hashes().unwrap().iter().for_each(|fbs_h256| {
             let block_hash = fbs_h256.into();
-            debug!(target: "sync", "get_blocks {:?}", block_hash);
+            debug!(target: "sync", "get_blocks {:x}", block_hash);
             if let Some(block) = self.synchronizer.get_block(&block_hash) {
-                debug!(target: "sync", "respond_block {} {:?}", block.header().number(), block.header().hash());
+                debug!(target: "sync", "respond_block {} {:x}", block.header().number(), block.header().hash());
                 if let Some(filter) = self.synchronizer.peers.transaction_filters.read().get(&self.peer) {
                     let transactions_index = block.commit_transactions().iter().enumerate().filter(|(_index, tx)|
                         filter.contains(tx)
