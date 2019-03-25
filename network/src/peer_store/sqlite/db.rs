@@ -79,23 +79,41 @@ impl PeerInfo {
         ])
         .map_err(Into::into)
     }
+
+    pub fn get_or_insert(
+        conn: &Connection,
+        peer_id: &PeerId,
+        addr: &Multiaddr,
+        session_type: SessionType,
+        score: Score,
+        last_connected_at: Duration,
+    ) -> DBResult<Option<PeerInfo>> {
+        match Self::get_by_peer_id(conn, peer_id)? {
+            Some(peer) => Ok(Some(peer)),
+            None => {
+                Self::insert(conn, peer_id, addr, session_type, score, last_connected_at)?;
+                Self::get_by_peer_id(conn, peer_id)
+            }
+        }
+    }
+
     pub fn update(
         conn: &Connection,
-        id: u32,
+        peer_id: &PeerId,
         connected_addr: &Multiaddr,
         endpoint: SessionType,
         last_connected_at: Duration,
     ) -> DBResult<usize> {
         let mut stmt = conn
             .prepare(
-                "UPDATE peer_info SET connected_addr=:connected_addr, endpoint=:endpoint, last_connected_at=:last_connected_at WHERE id=:id",
+                "UPDATE peer_info SET connected_addr=:connected_addr, endpoint=:endpoint, last_connected_at=:last_connected_at WHERE peer_id=:peer_id",
                 )
             .expect("prepare");
         stmt.execute_named(&[
             (":connected_addr", &connected_addr.to_bytes()),
             (":endpoint", &endpoint_to_bool(endpoint)),
             (":last_connected_at", &duration_to_secs(last_connected_at)),
-            (":id", &id),
+            (":peer_id", &peer_id.as_bytes()),
         ])
         .map_err(Into::into)
     }

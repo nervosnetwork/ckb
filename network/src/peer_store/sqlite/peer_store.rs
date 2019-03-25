@@ -162,62 +162,21 @@ impl SqlitePeerStore {
         Ok(())
     }
 
-    fn get_and_upsert_peer_info_with(
-        &mut self,
-        peer_id: &PeerId,
-        addr: &Multiaddr,
-        endpoint: SessionType,
-        last_connected_at: Duration,
-    ) -> db::PeerInfo {
+    fn fetch_peer_info(&mut self, peer_id: &PeerId) -> db::PeerInfo {
+        let blank_addr = &Multiaddr::from_bytes(Vec::new()).expect("null multiaddr");
         self.pool
             .fetch(|conn| {
-                db::PeerInfo::get_by_peer_id(conn, peer_id).and_then(|peer| match peer {
-                    Some(mut peer) => {
-                        db::PeerInfo::update(conn, peer.id, &addr, endpoint, last_connected_at)
-                            .expect("update peer info");
-                        peer.connected_addr = addr.to_owned();
-                        peer.endpoint = endpoint;
-                        peer.last_connected_at = last_connected_at;
-                        Ok(Some(peer))
-                    }
-                    None => {
-                        db::PeerInfo::insert(
-                            conn,
-                            peer_id,
-                            &addr,
-                            endpoint,
-                            self.peer_score_config.default_score,
-                            last_connected_at,
-                        )?;
-                        db::PeerInfo::get_by_peer_id(conn, &peer_id)
-                    }
-                })
+                db::PeerInfo::get_or_insert(
+                    conn,
+                    peer_id,
+                    &blank_addr,
+                    SessionType::Server,
+                    self.peer_score_config.default_score,
+                    Duration::from_secs(0),
+                )
             })
-            .expect("upsert peer info")
-            .expect("get peer info")
-    }
-
-    fn get_or_insert_peer_info(&mut self, peer_id: &PeerId) -> db::PeerInfo {
-        let addr = &Multiaddr::from_bytes(Vec::new()).expect("null multiaddr");
-        self.pool
-            .fetch(|conn| {
-                db::PeerInfo::get_by_peer_id(conn, peer_id).and_then(|peer| match peer {
-                    Some(peer) => Ok(Some(peer)),
-                    None => {
-                        db::PeerInfo::insert(
-                            conn,
-                            peer_id,
-                            &addr,
-                            SessionType::Server,
-                            self.peer_score_config.default_score,
-                            Duration::from_secs(0),
-                        )?;
-                        db::PeerInfo::get_by_peer_id(conn, &peer_id)
-                    }
-                })
-            })
-            .expect("get or insert peer info")
-            .expect("get peer info")
+            .expect("get or insert")
+            .expect("must have peer info")
     }
 
     fn get_peer_info(&self, peer_id: &PeerId) -> Option<db::PeerInfo> {
@@ -234,7 +193,26 @@ impl PeerStore for SqlitePeerStore {
         }
         let now = unix_time();
         // upsert peer_info
-        self.get_and_upsert_peer_info_with(peer_id, &addr, endpoint, now);
+        self.pool
+            .fetch(|conn| {
+                db::PeerInfo::update(conn, peer_id, &addr, endpoint, now).and_then(
+                    |affected_lines| {
+                        if affected_lines > 0 {
+                            Ok(affected_lines)
+                        } else {
+                            db::PeerInfo::insert(
+                                conn,
+                                peer_id,
+                                &addr,
+                                endpoint,
+                                self.scoring_schema().peer_init_score(),
+                                now,
+                            )
+                        }
+                    },
+                )
+            })
+            .expect("upsert peer info");
     }
 
     fn add_discovered_addr(&mut self, peer_id: &PeerId, addr: Multiaddr) -> bool {
@@ -242,10 +220,10 @@ impl PeerStore for SqlitePeerStore {
         if self.check_store_limit().is_err() {
             return false;
         }
-        let id = self.get_or_insert_peer_info(peer_id).id;
+        let peer_info = self.fetch_peer_info(peer_id);
         let inserted = self
             .pool
-            .fetch(|conn| db::PeerAddr::insert(&conn, id, &addr))
+            .fetch(|conn| db::PeerAddr::insert(&conn, peer_info.id, &addr))
             .expect("insert addr");
         inserted > 0
     }
@@ -254,7 +232,7 @@ impl PeerStore for SqlitePeerStore {
         if self.is_banned(peer_id) {
             return ReportResult::Banned;
         }
-        let peer = self.get_or_insert_peer_info(peer_id);
+        let peer = self.fetch_peer_info(peer_id);
         let score = peer.score.saturating_add(behaviour.score());
         if score < self.peer_score_config.ban_score {
             self.ban_peer(peer_id, self.peer_score_config.ban_timeout);
@@ -329,7 +307,6 @@ impl PeerStore for SqlitePeerStore {
             .expect("get peers to attempt")
     }
 
-    //TODO Only return connected addresses after network support feeler connection
     fn random_peers(&self, count: u32) -> Vec<(PeerId, Multiaddr)> {
         self.pool
             .fetch(|conn| {
