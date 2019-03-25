@@ -17,7 +17,7 @@ ckb-util = { path = "../util" }
 unsigned-varint = {git = "https://github.com/paritytech/unsigned-varint", features = ["codec"]}
 log = "0.4.5"
 bytes = "0.4.12"
-tokio = "0.1.17"
+tokio = "0.1.18"
 futures = { version = "0.1.19", features = ["use_std"] }
 snap = "0.2"
 p2p = { git = "https://github.com/nervosnetwork/p2p", rev="6c1f778914dae864d13c1d9110a08b46fb4d38fe", package="tentacle" }
