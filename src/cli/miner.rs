@@ -1,3 +1,4 @@
+use crate::cli::SentryConfig;
 use crate::helper::{require_path_exists, to_absolute_path};
 use ckb_chain_spec::{ChainSpec, SpecPath};
 use ckb_miner::{Client, Miner, MinerConfig};
@@ -5,6 +6,7 @@ use ckb_util::Mutex;
 use clap::ArgMatches;
 use crossbeam_channel::unbounded;
 use dir::Directories;
+use log::info;
 use logger::{self, Config as LogConfig};
 use serde_derive::Deserialize;
 use std::error::Error;
@@ -21,6 +23,7 @@ struct Config {
     pub miner: MinerConfig,
     pub chain: SpecPath,
     pub data_dir: PathBuf,
+    pub sentry: SentryConfig,
 }
 
 impl Config {
@@ -58,6 +61,12 @@ pub fn miner(matches: &ArgMatches) {
     });
 
     logger::init(config.logger.clone()).expect("Init Logger");
+    let sentry_guard = config.sentry.clone().init();
+    if sentry_guard.is_enabled() {
+        info!(target: "miner", "sentry is enabled");
+    } else {
+        info!(target: "miner", "sentry is disabled");
+    }
 
     let chain_spec = ChainSpec::read_from_file(&config.chain).expect("Load chain spec");
 

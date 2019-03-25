@@ -48,3 +48,7 @@ txs_verify_cache_size = 100000
 # value is set as always success binary hash
 binary_hash = "0x0000000000000000000000000000000000000000000000000000000000000001"
 args = []
+
+[sentry]
+# set to blank to disable sentry error collection
+dsn = ""

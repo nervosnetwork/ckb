@@ -20,6 +20,13 @@ fn main() {
         ("run", Some(run_matches)) => {
             let setup = setup(&run_matches);
             logger::init(setup.configs.logger.clone()).expect("Init Logger");
+            let guard = setup.configs.sentry.clone().init();
+            if guard.is_enabled() {
+                info!(target: "main", "sentry is enabled");
+            } else {
+                info!(target: "main", "sentry is disabled");
+            }
+
             cli::run(setup);
         }
         ("miner", Some(miner_matches)) => cli::miner(&miner_matches),
