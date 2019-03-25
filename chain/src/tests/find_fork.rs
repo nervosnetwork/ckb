@@ -32,15 +32,15 @@ fn test_find_fork_case1() {
     let mut fork2: Vec<Block> = Vec::new();
 
     let mut parent = genesis.clone();
-    for i in 0..4 {
-        let new_block = gen_block(&parent, i, U256::from(100u64), vec![], vec![]);
+    for _ in 0..4 {
+        let new_block = gen_block(&parent, U256::from(100u64), vec![], vec![], vec![]);
         fork1.push(new_block.clone());
         parent = new_block.header().clone();
     }
 
     let mut parent = genesis.clone();
-    for i in 0..3 {
-        let new_block = gen_block(&parent, i, U256::from(90u64), vec![], vec![]);
+    for _ in 0..3 {
+        let new_block = gen_block(&parent, U256::from(90u64), vec![], vec![], vec![]);
         fork2.push(new_block.clone());
         parent = new_block.header().clone();
     }
@@ -58,7 +58,7 @@ fn test_find_fork_case1() {
     let tip_number = { shared.chain_state().lock().tip_number() };
 
     // fork2 total_difficulty 470
-    let new_block = gen_block(&parent, 100, U256::from(200u64), vec![], vec![]);
+    let new_block = gen_block(&parent, U256::from(200u64), vec![], vec![], vec![]);
     fork2.push(new_block.clone());
 
     let ext = BlockExt {
@@ -104,15 +104,15 @@ fn test_find_fork_case2() {
     let mut fork2: Vec<Block> = Vec::new();
 
     let mut parent = genesis.clone();
-    for i in 0..4 {
-        let new_block = gen_block(&parent, i, U256::from(100u64), vec![], vec![]);
+    for _ in 0..4 {
+        let new_block = gen_block(&parent, U256::from(100u64), vec![], vec![], vec![]);
         fork1.push(new_block.clone());
         parent = new_block.header().clone();
     }
 
     let mut parent = fork1[0].header().clone();
-    for i in 0..2 {
-        let new_block = gen_block(&parent, i, U256::from(90u64), vec![], vec![]);
+    for _ in 0..2 {
+        let new_block = gen_block(&parent, U256::from(90u64), vec![], vec![], vec![]);
         fork2.push(new_block.clone());
         parent = new_block.header().clone();
     }
@@ -132,8 +132,8 @@ fn test_find_fork_case2() {
     let difficulty = parent.difficulty().clone();
     let new_block = gen_block(
         &parent,
-        100,
         difficulty + U256::from(200u64),
+        vec![],
         vec![],
         vec![],
     );
@@ -182,15 +182,15 @@ fn test_find_fork_case3() {
     let mut fork2: Vec<Block> = Vec::new();
 
     let mut parent = genesis.clone();
-    for i in 0..3 {
-        let new_block = gen_block(&parent, i, U256::from(80u64), vec![], vec![]);
+    for _ in 0..3 {
+        let new_block = gen_block(&parent, U256::from(80u64), vec![], vec![], vec![]);
         fork1.push(new_block.clone());
         parent = new_block.header().clone();
     }
 
     let mut parent = genesis.clone();
-    for i in 0..5 {
-        let new_block = gen_block(&parent, i, U256::from(40u64), vec![], vec![]);
+    for _ in 0..5 {
+        let new_block = gen_block(&parent, U256::from(40u64), vec![], vec![], vec![]);
         fork2.push(new_block.clone());
         parent = new_block.header().clone();
     }
@@ -209,7 +209,7 @@ fn test_find_fork_case3() {
 
     println!("case3 tip{}", tip_number);
 
-    let new_block = gen_block(&parent, 100, U256::from(100u64), vec![], vec![]);
+    let new_block = gen_block(&parent, U256::from(100u64), vec![], vec![], vec![]);
     fork2.push(new_block.clone());
 
     let ext = BlockExt {
@@ -254,15 +254,15 @@ fn test_find_fork_case4() {
     let mut fork2: Vec<Block> = Vec::new();
 
     let mut parent = genesis.clone();
-    for i in 0..5 {
-        let new_block = gen_block(&parent, i, U256::from(40u64), vec![], vec![]);
+    for _ in 0..5 {
+        let new_block = gen_block(&parent, U256::from(40u64), vec![], vec![], vec![]);
         fork1.push(new_block.clone());
         parent = new_block.header().clone();
     }
 
     let mut parent = genesis.clone();
-    for i in 0..2 {
-        let new_block = gen_block(&parent, i, U256::from(80u64), vec![], vec![]);
+    for _ in 0..2 {
+        let new_block = gen_block(&parent, U256::from(80u64), vec![], vec![], vec![]);
         fork2.push(new_block.clone());
         parent = new_block.header().clone();
     }
@@ -281,7 +281,7 @@ fn test_find_fork_case4() {
 
     println!("case3 tip{}", tip_number);
 
-    let new_block = gen_block(&parent, 100, U256::from(100u64), vec![], vec![]);
+    let new_block = gen_block(&parent, U256::from(100u64), vec![], vec![], vec![]);
     fork2.push(new_block.clone());
 
     let ext = BlockExt {

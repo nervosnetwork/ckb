@@ -9,10 +9,9 @@ use crate::tx_proposal_table::TxProposalTable;
 use crate::{COLUMNS, COLUMN_BLOCK_HEADER};
 use ckb_chain_spec::consensus::{Consensus, ProposalWindow};
 use ckb_core::block::Block;
-use ckb_core::cell::{CellProvider, CellStatus};
 use ckb_core::extras::BlockExt;
 use ckb_core::header::{BlockNumber, Header};
-use ckb_core::transaction::{Capacity, OutPoint, ProposalShortId, Transaction};
+use ckb_core::transaction::{Capacity, ProposalShortId, Transaction};
 use ckb_core::uncle::UncleBlock;
 use ckb_db::{DBConfig, KeyValueDB, MemoryKeyValueDB, RocksDB};
 use ckb_traits::{BlockMedianTimeContext, ChainProvider};
@@ -135,45 +134,17 @@ impl<CI: ChainIndex> Shared<CI> {
             let hash = store.get_block_hash(n).unwrap();
             for tx in store.get_block_body(&hash).unwrap() {
                 let inputs = tx.input_pts();
-                let tx_hash = tx.hash();
                 let output_len = tx.outputs().len();
 
                 for o in inputs {
                     cell_set.mark_dead(&o);
                 }
 
-                cell_set.insert(tx_hash, output_len);
+                cell_set.insert(tx.hash(), output_len);
             }
         }
 
         cell_set
-    }
-}
-
-impl<CI: ChainIndex> CellProvider for Shared<CI> {
-    fn cell(&self, out_point: &OutPoint) -> CellStatus {
-        self.cell_at(out_point, |op| self.chain_state.lock().is_dead(op))
-    }
-
-    fn cell_at<F: Fn(&OutPoint) -> Option<bool>>(
-        &self,
-        out_point: &OutPoint,
-        is_dead: F,
-    ) -> CellStatus {
-        let index = out_point.index as usize;
-        if let Some(f) = is_dead(out_point) {
-            if f {
-                CellStatus::Dead
-            } else {
-                let transaction = self
-                    .store
-                    .get_transaction(&out_point.hash)
-                    .expect("transaction must exist");
-                CellStatus::Live(transaction.outputs()[index].clone())
-            }
-        } else {
-            CellStatus::Unknown
-        }
     }
 }
 

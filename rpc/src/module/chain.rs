@@ -96,7 +96,12 @@ impl<CI: ChainIndex + 'static> ChainRpc for ChainRpcImpl<CI> {
     }
 
     fn get_live_cell(&self, out_point: OutPoint) -> Result<CellWithStatus> {
-        Ok(self.shared.cell(&(out_point.into())).into())
+        Ok(self
+            .shared
+            .chain_state()
+            .lock()
+            .cell(&(out_point.into()))
+            .into())
     }
 
     fn get_tip_block_number(&self) -> Result<BlockNumber> {

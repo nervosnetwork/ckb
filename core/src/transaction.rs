@@ -297,6 +297,10 @@ impl Transaction {
     pub fn get_output(&self, i: usize) -> Option<CellOutput> {
         self.outputs.get(i).cloned()
     }
+
+    pub fn outputs_capacity(&self) -> Capacity {
+        self.outputs.iter().map(|output| output.capacity).sum()
+    }
 }
 
 #[derive(Default)]
