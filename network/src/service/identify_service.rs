@@ -8,7 +8,7 @@ use std::sync::Arc;
 use p2p::{multiaddr::Multiaddr, secio::PeerId};
 
 pub use p2p_identify::IdentifyProtocol;
-use p2p_identify::{AddrManager, MisbehaveResult, Misbehavior};
+use p2p_identify::{Callback, MisbehaveResult, Misbehavior};
 
 #[derive(Clone)]
 pub(crate) struct IdentifyAddressManager {
@@ -23,16 +23,40 @@ impl IdentifyAddressManager {
     }
 }
 
-impl AddrManager for IdentifyAddressManager {
-    fn init_listen_addrs(&mut self, addrs: Vec<Multiaddr>) {
-        let event = IdentifyEvent::InitListenAddrs(addrs);
+impl Callback for IdentifyAddressManager {
+    fn init_local_listen_addrs(&mut self, addrs: Vec<Multiaddr>) {
+        let event = IdentifyEvent::InitLocalListenAddrs(addrs);
         if self.event_sender.unbounded_send(event).is_err() {
             warn!(target: "network", "receiver maybe dropped!");
         }
     }
 
-    fn add_listen_addrs(&mut self, peer_id: &PeerId, addrs: Vec<Multiaddr>) {
-        let event = IdentifyEvent::AddListenAddrs {
+    /// Add local listen address
+    fn add_local_listen_addr(&mut self, addr: Multiaddr) {
+        let event = IdentifyEvent::AddLocalListenAddr(addr);
+        if self.event_sender.unbounded_send(event).is_err() {
+            warn!(target: "network", "receiver maybe dropped!");
+        }
+    }
+
+    /// Get local listen addresses
+    fn local_listen_addrs(&mut self) -> Vec<Multiaddr> {
+        let (sender, receiver) = std::sync::mpsc::channel::<Vec<Multiaddr>>();
+        let event = IdentifyEvent::GetLocalListenAddrs(sender);
+        if self.event_sender.unbounded_send(event).is_err() {
+            warn!(target: "network", "receiver maybe dropped!");
+        }
+        match receiver.recv() {
+            Ok(addrs) => addrs,
+            Err(err) => {
+                warn!("receive local listen addrs failed: {:?}", err);
+                Vec::new()
+            }
+        }
+    }
+
+    fn add_remote_listen_addrs(&mut self, peer_id: &PeerId, addrs: Vec<Multiaddr>) {
+        let event = IdentifyEvent::AddRemoteListenAddrs {
             peer_id: peer_id.clone(),
             addrs,
         };
@@ -70,15 +94,19 @@ impl AddrManager for IdentifyAddressManager {
 }
 
 pub enum IdentifyEvent {
-    /// Local init listen addresses
-    InitListenAddrs(Vec<Multiaddr>),
+    InitLocalListenAddrs(Vec<Multiaddr>),
+    AddLocalListenAddr(Multiaddr),
+    GetLocalListenAddrs(std::sync::mpsc::Sender<Vec<Multiaddr>>),
     /// Remote listen addresses
-    AddListenAddrs {
+    AddRemoteListenAddrs {
         peer_id: PeerId,
         addrs: Vec<Multiaddr>,
     },
     /// Observed address (already transformed)
-    AddObservedAddr { peer_id: PeerId, addr: Multiaddr },
+    AddObservedAddr {
+        peer_id: PeerId,
+        addr: Multiaddr,
+    },
     Misbehave {
         peer_id: PeerId,
         kind: Misbehavior,
@@ -113,10 +141,18 @@ impl Stream for IdentifyService {
     type Error = ();
     fn poll(&mut self) -> Result<Async<Option<Self::Item>>, Self::Error> {
         match try_ready!(self.event_receiver.poll()) {
-            Some(IdentifyEvent::InitListenAddrs(addrs)) => {
+            Some(IdentifyEvent::InitLocalListenAddrs(addrs)) => {
                 self.local_listen_addrs = addrs;
             }
-            Some(IdentifyEvent::AddListenAddrs { peer_id, addrs }) => {
+            Some(IdentifyEvent::AddLocalListenAddr(addr)) => {
+                self.local_listen_addrs.insert(0, addr);
+            }
+            Some(IdentifyEvent::GetLocalListenAddrs(sender)) => {
+                if let Err(err) = sender.send(self.local_listen_addrs.to_vec()) {
+                    warn!("send local listen addrs failed: {:?}", err);
+                }
+            }
+            Some(IdentifyEvent::AddRemoteListenAddrs { peer_id, addrs }) => {
                 self.remote_listen_addrs
                     .insert(peer_id.clone(), addrs.clone());
                 let mut peer_store = self.network.peer_store().write();
