@@ -186,15 +186,27 @@ impl PeerAddr {
     }
 }
 
-pub fn get_random_peers(conn: &Connection, count: u32) -> DBResult<Vec<(PeerId, Multiaddr)>> {
-    // random select peers
-    let mut stmt = conn.prepare("SELECT id, peer_id FROM peer_info WHERE ban_time < strftime('%s','now') ORDER BY RANDOM() LIMIT :count")?;
-    let rows = stmt.query_map_named(&[(":count", &count)], |row| {
-        (
-            row.get::<_, u32>(0),
-            PeerId::from_bytes(row.get(1)).expect("parse peer_id"),
-        )
-    })?;
+pub fn get_random_peers(
+    conn: &Connection,
+    count: u32,
+    expired_at: Duration,
+) -> DBResult<Vec<(PeerId, Multiaddr)>> {
+    // random select peers that we have connect to recently.
+    let mut stmt = conn.prepare(
+        "SELECT id, peer_id FROM peer_info 
+                                WHERE ban_time < strftime('%s','now') 
+                                AND last_connected_at > :time 
+                                ORDER BY RANDOM() LIMIT :count",
+    )?;
+    let rows = stmt.query_map_named(
+        &[(":count", &count), (":time", &duration_to_secs(expired_at))],
+        |row| {
+            (
+                row.get::<_, u32>(0),
+                PeerId::from_bytes(row.get(1)).expect("parse peer_id"),
+            )
+        },
+    )?;
 
     let mut peers = Vec::with_capacity(count as usize);
     for row in rows {
@@ -209,13 +221,59 @@ pub fn get_random_peers(conn: &Connection, count: u32) -> DBResult<Vec<(PeerId, 
 
 pub fn get_peers_to_attempt(conn: &Connection, count: u32) -> DBResult<Vec<(PeerId, Multiaddr)>> {
     // random select peers
-    let mut stmt = conn.prepare("SELECT id, peer_id FROM peer_info WHERE status != :connected_status AND ban_time < strftime('%s','now') ORDER BY RANDOM() LIMIT :count")?;
+    let mut stmt = conn.prepare(
+        "SELECT id, peer_id FROM peer_info 
+                                WHERE status != :connected_status 
+                                AND ban_time < strftime('%s','now') 
+                                ORDER BY RANDOM() LIMIT :count",
+    )?;
     let rows = stmt.query_map_named(
         &[
             (
                 ":connected_status",
                 &status_to_u8(Status::Connected) as &ToSql,
             ),
+            (":count", &count),
+        ],
+        |row| {
+            (
+                row.get::<_, u32>(0),
+                PeerId::from_bytes(row.get(1)).expect("parse peer_id"),
+            )
+        },
+    )?;
+
+    let mut peers = Vec::with_capacity(count as usize);
+    for row in rows {
+        let (id, peer_id) = row?;
+        let mut addrs = PeerAddr::get_addrs(conn, id, 1)?;
+        if let Some(addr) = addrs.pop() {
+            peers.push((peer_id, addr));
+        }
+    }
+    Ok(peers)
+}
+
+pub fn get_peers_to_feeler(
+    conn: &Connection,
+    count: u32,
+    expired_at: Duration,
+) -> DBResult<Vec<(PeerId, Multiaddr)>> {
+    // random select peers
+    let mut stmt = conn.prepare(
+        "SELECT id, peer_id FROM peer_info 
+                                WHERE status != :connected_status 
+                                AND last_connected_at < :time 
+                                AND ban_time < strftime('%s','now') 
+                                ORDER BY RANDOM() LIMIT :count",
+    )?;
+    let rows = stmt.query_map_named(
+        &[
+            (
+                ":connected_status",
+                &status_to_u8(Status::Connected) as &ToSql,
+            ),
+            (":time", &duration_to_secs(expired_at)),
             (":count", &count),
         ],
         |row| {

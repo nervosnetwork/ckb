@@ -20,9 +20,13 @@ use fnv::FnvHashMap;
 use std::net::IpAddr;
 use std::time::Duration;
 
+/// After this limitation, peer store will try to eviction peers
 pub(crate) const PEER_STORE_LIMIT: u32 = 8192;
-pub(crate) const PEER_NOT_SEEN_TIMEOUT_SECS: u32 = 14 * 24 * 3600;
-const BAN_LIST_CLEAR_EXPIRES_SIZE: usize = 255;
+/// Consider we never seen a peer if peer's last_connected_at beyond this timeout
+pub(crate) const LAST_CONNECTED_TIMEOUT_SECS: u64 = 14 * 24 * 3600;
+/// Clear banned list if the list reach this size
+const BAN_LIST_CLEAR_EXPIRES_SIZE: usize = 1024;
+/// SQLITE connection pool size
 const DEFAULT_POOL_SIZE: u32 = 16;
 
 pub struct SqlitePeerStore {
@@ -134,8 +138,7 @@ impl SqlitePeerStore {
                 .pool
                 .fetch(|conn| db::PeerInfo::largest_network_group(conn))
                 .expect("query largest network group");
-            let not_seen_timeout =
-                unix_time() - Duration::from_secs(PEER_NOT_SEEN_TIMEOUT_SECS.into());
+            let not_seen_timeout = unix_time() - Duration::from_secs(LAST_CONNECTED_TIMEOUT_SECS);
             peers
                 .into_iter()
                 .filter(move |peer| peer.last_connected_at < not_seen_timeout)
@@ -195,7 +198,6 @@ impl SqlitePeerStore {
     }
 
     fn get_or_insert_peer_info(&mut self, peer_id: &PeerId) -> db::PeerInfo {
-        let now = unix_time();
         let addr = &Multiaddr::from_bytes(Vec::new()).expect("null multiaddr");
         self.pool
             .fetch(|conn| {
@@ -208,7 +210,7 @@ impl SqlitePeerStore {
                             &addr,
                             SessionType::Server,
                             self.peer_score_config.default_score,
-                            now,
+                            Duration::from_secs(0),
                         )?;
                         db::PeerInfo::get_by_peer_id(conn, &peer_id)
                     }
@@ -315,10 +317,28 @@ impl PeerStore for SqlitePeerStore {
             .expect("get peers to attempt")
     }
 
+    fn peers_to_feeler(&self, count: u32) -> Vec<(PeerId, Multiaddr)> {
+        self.pool
+            .fetch(|conn| {
+                db::get_peers_to_feeler(
+                    &conn,
+                    count,
+                    unix_time() - Duration::from_secs(LAST_CONNECTED_TIMEOUT_SECS),
+                )
+            })
+            .expect("get peers to attempt")
+    }
+
     //TODO Only return connected addresses after network support feeler connection
     fn random_peers(&self, count: u32) -> Vec<(PeerId, Multiaddr)> {
         self.pool
-            .fetch(|conn| db::get_random_peers(&conn, count))
+            .fetch(|conn| {
+                db::get_random_peers(
+                    &conn,
+                    count,
+                    unix_time() - Duration::from_secs(LAST_CONNECTED_TIMEOUT_SECS),
+                )
+            })
             .expect("get random peers")
     }
 
