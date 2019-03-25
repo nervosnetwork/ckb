@@ -17,7 +17,7 @@ use serde_derive::{Deserialize, Serialize};
 pub struct Script {
     pub version: u8,
     pub args: Vec<Bytes>,
-    pub reference: H256,
+    pub binary_hash: H256,
 }
 
 impl From<Script> for CoreScript {
@@ -25,22 +25,22 @@ impl From<Script> for CoreScript {
         let Script {
             version,
             args,
-            reference,
+            binary_hash,
         } = json;
         CoreScript::new(
             version,
             args.into_iter().map(|arg| arg.into_vec()).collect(),
-            reference,
+            binary_hash,
         )
     }
 }
 
 impl From<CoreScript> for Script {
     fn from(core: CoreScript) -> Script {
-        let (version, args, reference) = core.destruct();
+        let (version, args, binary_hash) = core.destruct();
         Script {
             version,
-            reference,
+            binary_hash,
             args: args.into_iter().map(Bytes::new).collect(),
         }
     }
