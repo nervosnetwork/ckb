@@ -505,13 +505,11 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
                 .insert_block_ext(batch, &b.header().hash(), ext);
         }
 
-        if found_error.is_some() {
-            Err(SharedError::InvalidTransaction(
-                found_error.unwrap().to_string(),
-            ))?;
+        if let Some(err) = found_error {
+            Err(SharedError::InvalidTransaction(err.to_string()))?
+        } else {
+            Ok(cell_set_diff)
         }
-
-        Ok(cell_set_diff)
     }
 
     // TODO: beatify

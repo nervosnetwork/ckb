@@ -27,4 +27,3 @@ failure = "0.1.5"
 [dev-dependencies]
 env_logger = "0.6"
 tempfile = "3.0"
-rand = "0.6"

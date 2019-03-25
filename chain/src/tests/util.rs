@@ -15,7 +15,6 @@ use ckb_shared::store::ChainKVStore;
 use faketime::unix_time_as_millis;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
-use rand;
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;
@@ -63,8 +62,7 @@ pub(crate) fn gen_block(
         .timestamp(unix_time_as_millis())
         .number(number)
         .difficulty(difficulty)
-        .cellbase_id(cellbase.hash())
-        .nonce(rand::random());
+        .cellbase_id(cellbase.hash());
 
     BlockBuilder::default()
         .commit_transaction(cellbase)

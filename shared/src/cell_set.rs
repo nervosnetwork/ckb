@@ -66,9 +66,8 @@ impl CellSet {
         self.inner.get(h)
     }
 
-    pub fn insert(&mut self, hash: &H256, outputs_len: usize) {
-        self.inner
-            .insert(hash.clone(), TransactionMeta::new(outputs_len));
+    pub fn insert(&mut self, hash: H256, outputs_len: usize) {
+        self.inner.insert(hash, TransactionMeta::new(outputs_len));
     }
 
     pub fn remove(&mut self, hash: &H256) -> Option<TransactionMeta> {
@@ -88,19 +87,26 @@ impl CellSet {
     }
 
     pub fn update(&mut self, diff: CellSetDiff) {
-        diff.old_outputs.iter().for_each(|h| {
+        let CellSetDiff {
+            old_inputs,
+            old_outputs,
+            new_inputs,
+            new_outputs,
+        } = diff;
+
+        old_outputs.iter().for_each(|h| {
             self.remove(h);
         });
 
-        diff.old_inputs.iter().for_each(|o| {
+        old_inputs.iter().for_each(|o| {
             self.mark_live(o);
         });
 
-        diff.new_outputs.iter().for_each(|(hash, len)| {
-            self.insert(hash, *len);
+        new_outputs.into_iter().for_each(|(hash, len)| {
+            self.insert(hash, len);
         });
 
-        diff.new_inputs.iter().for_each(|o| {
+        new_inputs.iter().for_each(|o| {
             self.mark_dead(o);
         });
     }
