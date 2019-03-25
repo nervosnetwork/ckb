@@ -140,7 +140,7 @@ impl<CI: ChainIndex> Shared<CI> {
                     cell_set.mark_dead(&o);
                 }
 
-                cell_set.insert(tx.hash(), output_len);
+                cell_set.insert(tx.hash(), n, tx.is_cellbase(), output_len);
             }
         }
 

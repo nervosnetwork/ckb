@@ -11,7 +11,7 @@ pub struct CellSetDiff {
     pub old_inputs: FnvHashSet<OutPoint>,
     pub old_outputs: FnvHashSet<H256>,
     pub new_inputs: FnvHashSet<OutPoint>,
-    pub new_outputs: FnvHashMap<H256, usize>,
+    pub new_outputs: FnvHashMap<H256, (u64, bool, usize)>,
 }
 
 impl CellSetDiff {
@@ -21,7 +21,10 @@ impl CellSetDiff {
             let tx_hash = tx.hash();
             let output_len = tx.outputs().len();
             self.new_inputs.extend(input_pts);
-            self.new_outputs.insert(tx_hash, output_len);
+            self.new_outputs.insert(
+                tx_hash,
+                (block.header().number(), tx.is_cellbase(), output_len),
+            );
         }
     }
 
@@ -66,8 +69,14 @@ impl CellSet {
         self.inner.get(h)
     }
 
-    pub fn insert(&mut self, hash: H256, outputs_len: usize) {
-        self.inner.insert(hash, TransactionMeta::new(outputs_len));
+    pub fn insert(&mut self, hash: H256, number: u64, cellbase: bool, outputs_len: usize) {
+        if cellbase {
+            self.inner
+                .insert(hash, TransactionMeta::new_cellbase(number, outputs_len));
+        } else {
+            self.inner
+                .insert(hash, TransactionMeta::new(number, outputs_len));
+        }
     }
 
     pub fn remove(&mut self, hash: &H256) -> Option<TransactionMeta> {
@@ -102,9 +111,11 @@ impl CellSet {
             self.mark_live(o);
         });
 
-        new_outputs.into_iter().for_each(|(hash, len)| {
-            self.insert(hash, len);
-        });
+        new_outputs
+            .into_iter()
+            .for_each(|(hash, (number, cellbase, len))| {
+                self.insert(hash, number, cellbase, len);
+            });
 
         new_inputs.iter().for_each(|o| {
             self.mark_dead(o);
