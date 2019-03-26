@@ -11,5 +11,5 @@ pub use self::block_template::{
 pub use self::blockchain::{Block, Header, OutPoint, Transaction, UncleBlock};
 pub use self::bytes::Bytes;
 pub use self::cell::{CellOutputWithOutPoint, CellWithStatus};
-pub use self::net::{LocalNode, NodeAddress, RemoteNode};
+pub use self::net::Node;
 pub use jsonrpc_core::types::{error, id, params, request, response, version};

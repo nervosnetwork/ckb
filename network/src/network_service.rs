@@ -128,6 +128,7 @@ impl NetworkService {
     }
 
     pub fn connected_peers(&self) -> Vec<(PeerId, Peer)> {
+        // TODO return listen addr for connected peers
         self.network
             .peers_registry
             .read()

@@ -302,12 +302,7 @@ curl -d '{"id": 2, "jsonrpc": "2.0", "method":"local_node_info","params": []}' -
 {
     "jsonrpc": "2.0",
     "result": {
-        "addresses": [
-            {
-                "address": "/ip4/0.0.0.0/tcp/12344/p2p/QmWRU2NSro4wKgVbFX6y8SPFkcJ1tE2X5xzk9msMhdRmdS",
-                "score": 1
-            }
-        ],
+        "address": "/ip4/0.0.0.0/tcp/12344/p2p/QmWRU2NSro4wKgVbFX6y8SPFkcJ1tE2X5xzk9msMhdRmdS",
         "node_id": "QmWRU2NSro4wKgVbFX6y8SPFkcJ1tE2X5xzk9msMhdRmdS",
         "version": "0.5.0"
     },
