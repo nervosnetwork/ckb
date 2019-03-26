@@ -4,7 +4,7 @@ use log::info;
 pub struct TransactionRelayBasic;
 
 impl Spec for TransactionRelayBasic {
-    fn run(&self, net: &Net) {
+    fn run(&self, net: Net) {
         info!("Running TransactionRelayBasic");
         let node0 = &net.nodes[0];
         let node1 = &net.nodes[1];

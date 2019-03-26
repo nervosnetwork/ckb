@@ -29,7 +29,7 @@ fn main() {
             _ => panic!("invalid spec"),
         };
         let net = spec.setup_net(&binary, start_port);
-        spec.run(&net);
+        spec.run(net);
     } else {
         let specs: Vec<Box<Spec>> = vec![
             Box::new(BlockRelayBasic),
@@ -42,7 +42,7 @@ fn main() {
 
         specs.iter().for_each(|spec| {
             let net = spec.setup_net(&binary, start_port);
-            spec.run(&net);
+            spec.run(net);
         })
     }
 
