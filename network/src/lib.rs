@@ -2,14 +2,14 @@
 pub extern crate futures;
 mod behaviour;
 pub mod errors;
-mod network;
+pub mod network;
 mod network_config;
 mod network_group;
 mod network_service;
 mod peer;
 pub mod peer_store;
 pub mod peers_registry;
-mod protocol;
+pub mod protocol;
 mod service;
 #[cfg(test)]
 mod tests;

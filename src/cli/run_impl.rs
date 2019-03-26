@@ -9,6 +9,7 @@ use ckb_network::CKBProtocol;
 use ckb_network::NetworkConfig;
 use ckb_network::NetworkService;
 use ckb_network::ProtocolId;
+use ckb_network::{network::FEELER_PROTOCOL_ID, protocol::feeler::Feeler};
 use ckb_notify::{NotifyController, NotifyService};
 use ckb_rpc::RpcServer;
 use ckb_shared::cachedb::CacheDB;
@@ -84,6 +85,16 @@ pub fn run(setup: Setup) {
                 sender.clone(),
             ),
             net_time_checker as Arc<_>,
+        ),
+        // TODO Work around, should move to network after refactor
+        (
+            CKBProtocol::new(
+                "flr".to_string(),
+                FEELER_PROTOCOL_ID,
+                &[1][..],
+                sender.clone(),
+            ),
+            Arc::new(Feeler {}) as Arc<_>,
         ),
     ];
     let network = Arc::new(

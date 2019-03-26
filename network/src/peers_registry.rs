@@ -12,7 +12,6 @@ use rand::thread_rng;
 use std::collections::hash_map::Entry;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-use std::time::Instant;
 
 pub(crate) const EVICTION_PROTECT_PEERS: usize = 8;
 
@@ -78,18 +77,7 @@ impl PeerManage {
             Entry::Occupied(entry) => RegisterResult::Exist(entry.get().peer_index),
             Entry::Vacant(entry) => {
                 let peer_index = self.id_allocator.fetch_add(1, Ordering::Relaxed);
-                let peer = Peer {
-                    connected_addr,
-                    identify_info: None,
-                    ping: None,
-                    last_ping_time: None,
-                    last_message_time: None,
-                    connected_time: Instant::now(),
-                    peer_index,
-                    session_id,
-                    session_type,
-                    protocols: FnvHashMap::with_capacity_and_hasher(1, Default::default()),
-                };
+                let peer = Peer::new(peer_index, connected_addr, session_id, session_type);
                 entry.insert(peer);
                 self.peer_id_by_index.insert(peer_index, peer_id);
                 RegisterResult::New(peer_index)

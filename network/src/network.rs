@@ -45,6 +45,7 @@ use std::usize;
 const PING_PROTOCOL_ID: ProtocolId = 0;
 const DISCOVERY_PROTOCOL_ID: ProtocolId = 1;
 const IDENTIFY_PROTOCOL_ID: ProtocolId = 2;
+pub const FEELER_PROTOCOL_ID: ProtocolId = 3;
 
 pub type CKBProtocols = Vec<(CKBProtocol, Arc<dyn CKBProtocolHandler>)>;
 type NetworkResult = Result<
@@ -302,27 +303,53 @@ impl Network {
         })
     }
 
-    pub fn dial_addr(&self, addr: Multiaddr) {
-        if let Err(err) = self.p2p_control.write().dial(addr, DialProtocol::All) {
-            error!(target: "network", "failed to dial: {}", err);
-        }
-    }
-
-    pub fn dial(&self, expected_peer_id: &PeerId, mut addr: Multiaddr) {
+    fn inner_dial(
+        &self,
+        expected_peer_id: &PeerId,
+        mut addr: Multiaddr,
+        dial_protocol: DialProtocol,
+    ) -> Result<(), Error> {
         if expected_peer_id == self.local_peer_id() {
             debug!(target: "network", "ignore dial to self");
-            return;
+            return Ok(());
         }
         debug!(target: "network", "dial to peer {:?} address {:?}", expected_peer_id, addr);
-        match Multihash::from_bytes(expected_peer_id.as_bytes().to_vec()) {
-            Ok(peer_id_hash) => {
-                addr.append(multiaddr::Protocol::P2p(peer_id_hash));
-                self.dial_addr(addr);
-            }
-            Err(err) => {
-                error!(target: "network", "failed to convert peer_id to addr: {}", err);
-            }
-        }
+        let p2p_phase =
+            Multihash::from_bytes(expected_peer_id.as_bytes().to_vec()).map_err(|_| {
+                Error::P2P(format!("peer_id is invalid {:?}", expected_peer_id).to_string())
+            })?;
+        addr.append(multiaddr::Protocol::P2p(p2p_phase));
+        self.p2p_control
+            .write()
+            .dial(addr, dial_protocol)
+            .map_err(|_| Error::P2P("dial error".to_string()))
+    }
+
+    pub fn dial(&self, expected_peer_id: &PeerId, addr: Multiaddr) -> Result<(), Error> {
+        self.inner_dial(expected_peer_id, addr, {
+            let mut protocols = vec![
+                PING_PROTOCOL_ID,
+                DISCOVERY_PROTOCOL_ID,
+                IDENTIFY_PROTOCOL_ID,
+            ];
+            protocols.extend(
+                // TODO remove the filter after refactor
+                self.ckb_protocols
+                    .iter()
+                    .map(|p| p.0.id())
+                    .filter(|id| *id != FEELER_PROTOCOL_ID)
+                    .collect::<Vec<_>>(),
+            );
+            DialProtocol::Multi(protocols)
+        })
+    }
+
+    pub fn dial_feeler(&self, expected_peer_id: &PeerId, addr: Multiaddr) -> Result<(), Error> {
+        self.inner_dial(
+            expected_peer_id,
+            addr,
+            DialProtocol::Single(FEELER_PROTOCOL_ID),
+        )
     }
 
     pub(crate) fn inner_build(
@@ -463,7 +490,7 @@ impl Network {
             let network = Arc::clone(&network);
             // dial reserved_nodes
             for (peer_id, addr) in config.reserved_peers()? {
-                network.dial(&peer_id, addr);
+                let _ = network.dial(&peer_id, addr);
             }
 
             let bootnodes = network
@@ -474,7 +501,7 @@ impl Network {
             // dial half bootnodes
             for (peer_id, addr) in bootnodes {
                 debug!(target: "network", "dial bootnode {:?} {:?}", peer_id, addr);
-                network.dial(&peer_id, addr);
+                let _ = network.dial(&peer_id, addr);
             }
         }
 
