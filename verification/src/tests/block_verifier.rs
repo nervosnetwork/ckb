@@ -137,55 +137,6 @@ pub fn test_cellbase_with_fee() {
 }
 
 #[test]
-pub fn test_cellbase_with_more_reward_than_available() {
-    let mut transaction_fees = HashMap::<H256, Result<Capacity, SharedError>>::new();
-    let transaction = create_normal_transaction();
-    transaction_fees.insert(transaction.hash().clone(), Ok(10));
-
-    let block = BlockBuilder::default()
-        .commit_transaction(create_cellbase_transaction_with_capacity(130))
-        .commit_transaction(transaction)
-        .build();
-
-    let provider = DummyChainProvider {
-        block_reward: 100,
-        transaction_fees,
-    };
-
-    let verifier = CellbaseVerifier::new(provider);
-    assert_eq!(
-        verifier.verify(&block),
-        Err(VerifyError::Cellbase(CellbaseError::InvalidReward))
-    );
-}
-
-#[test]
-pub fn test_cellbase_with_invalid_transaction() {
-    let mut transaction_fees = HashMap::<H256, Result<Capacity, SharedError>>::new();
-    let transaction = create_normal_transaction();
-    transaction_fees.insert(transaction.hash().clone(), Err(SharedError::InvalidOutput));
-
-    let block = BlockBuilder::default()
-        .commit_transaction(create_cellbase_transaction_with_capacity(100))
-        .commit_transaction(transaction)
-        .build();
-
-    let provider = DummyChainProvider {
-        block_reward: 100,
-        transaction_fees,
-    };
-
-    let verifier = CellbaseVerifier::new(provider);
-    assert_eq!(
-        verifier.verify(&block),
-        Err(VerifyError::Chain(format!(
-            "{}",
-            SharedError::InvalidOutput
-        )))
-    );
-}
-
-#[test]
 pub fn test_cellbase_with_two_outputs() {
     let mut transaction_fees = HashMap::<H256, Result<Capacity, SharedError>>::new();
     let transaction = create_normal_transaction();
@@ -209,35 +160,6 @@ pub fn test_cellbase_with_two_outputs() {
 
     let verifier = CellbaseVerifier::new(provider);
     assert!(verifier.verify(&block).is_ok());
-}
-
-#[test]
-pub fn test_cellbase_with_two_outputs_and_more_rewards_than_maximum() {
-    let mut transaction_fees = HashMap::<H256, Result<Capacity, SharedError>>::new();
-    let transaction = create_normal_transaction();
-    transaction_fees.insert(transaction.hash().clone(), Ok(0));
-
-    let cellbase_transaction = TransactionBuilder::default()
-        .input(CellInput::new_cellbase_input(0))
-        .output(CellOutput::new(100, Vec::new(), Script::default(), None))
-        .output(CellOutput::new(50, Vec::new(), Script::default(), None))
-        .build();
-
-    let block = BlockBuilder::default()
-        .commit_transaction(cellbase_transaction)
-        .commit_transaction(transaction)
-        .build();
-
-    let provider = DummyChainProvider {
-        block_reward: 100,
-        transaction_fees,
-    };
-
-    let verifier = CellbaseVerifier::new(provider);
-    assert_eq!(
-        verifier.verify(&block),
-        Err(VerifyError::Cellbase(CellbaseError::InvalidReward))
-    );
 }
 
 #[test]

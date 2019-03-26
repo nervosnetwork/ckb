@@ -4,7 +4,9 @@ use crate::index::ChainIndex;
 use crate::tx_pool::{PoolEntry, PoolError, StagingTxResult, TxPool};
 use crate::tx_proposal_table::TxProposalTable;
 use ckb_core::block::Block;
-use ckb_core::cell::{CellProvider, CellStatus, ResolvedTransaction};
+use ckb_core::cell::{
+    resolve_transaction, CellProvider, CellStatus, OverlayCellProvider, ResolvedTransaction,
+};
 use ckb_core::header::{BlockNumber, Header};
 use ckb_core::transaction::{OutPoint, ProposalShortId, Transaction};
 use ckb_core::Cycle;
@@ -124,58 +126,10 @@ impl<CI: ChainIndex> ChainState<CI> {
         }
     }
 
-    fn get_cell_status_from_store(&self, out_point: &OutPoint) -> CellStatus {
-        let index = out_point.index as usize;
-        if let Some(f) = self.is_dead(out_point) {
-            if f {
-                CellStatus::Dead
-            } else {
-                let transaction = self
-                    .store
-                    .get_transaction(&out_point.hash)
-                    .expect("transaction must exist");
-                CellStatus::Live(transaction.outputs()[index].clone())
-            }
-        } else {
-            CellStatus::Unknown
-        }
-    }
-
     pub fn resolve_tx_from_pool(&self, tx: &Transaction, tx_pool: &TxPool) -> ResolvedTransaction {
-        let fetch_cell = |op| match tx_pool.staging.cell(op) {
-            CellStatus::Unknown => self.get_cell_status_from_store(op),
-            cs => cs,
-        };
+        let cell_provider = OverlayCellProvider::new(&tx_pool.staging, self);
         let mut seen_inputs = FnvHashSet::default();
-        let inputs = tx.input_pts();
-        let input_cells = inputs
-            .iter()
-            .map(|input| {
-                if seen_inputs.insert(input.clone()) {
-                    fetch_cell(input)
-                } else {
-                    CellStatus::Dead
-                }
-            })
-            .collect();
-
-        let dep_cells = tx
-            .dep_pts()
-            .iter()
-            .map(|dep| {
-                if seen_inputs.insert(dep.clone()) {
-                    fetch_cell(dep)
-                } else {
-                    CellStatus::Dead
-                }
-            })
-            .collect();
-
-        ResolvedTransaction {
-            transaction: tx.clone(),
-            input_cells,
-            dep_cells,
-        }
+        resolve_transaction(tx, &mut seen_inputs, &cell_provider)
     }
 
     pub fn verify_rtx(
@@ -368,5 +322,21 @@ impl<CI: ChainIndex> ChainState<CI> {
 
     pub fn mut_tx_pool(&mut self) -> &mut TxPool {
         self.tx_pool.get_mut()
+    }
+}
+
+impl<CI: ChainIndex> CellProvider for ChainState<CI> {
+    fn cell(&self, out_point: &OutPoint) -> CellStatus {
+        match self.is_dead(out_point) {
+            Some(true) => CellStatus::Dead,
+            Some(false) => {
+                let tx = self
+                    .store
+                    .get_transaction(&out_point.hash)
+                    .expect("store should be consistent with cell_set");
+                CellStatus::Live(tx.outputs()[out_point.index as usize].clone())
+            }
+            None => CellStatus::Unknown,
+        }
     }
 }

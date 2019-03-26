@@ -1,8 +1,8 @@
 use crate::{
     multiaddr::ToMultiaddr,
-    peer_store::{Behaviour, PeerStore, SqlitePeerStore},
+    peer_store::{PeerStore, SqlitePeerStore},
     peers_registry::{PeersRegistry, Session, EVICTION_PROTECT_PEERS},
-    PeerId, SessionType,
+    Behaviour, PeerId, SessionType,
 };
 use ckb_util::RwLock;
 use std::sync::Arc;

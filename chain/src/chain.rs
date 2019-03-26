@@ -1,8 +1,10 @@
 use ckb_core::block::Block;
-use ckb_core::cell::{resolve_transaction, CellProvider, CellStatus, ResolvedTransaction};
+use ckb_core::cell::{
+    resolve_transaction, BlockCellProvider, OverlayCellProvider, ResolvedTransaction,
+};
 use ckb_core::extras::BlockExt;
 use ckb_core::service::{Request, DEFAULT_CHANNEL_SIZE, SIGNAL_CHANNEL_SIZE};
-use ckb_core::transaction::{OutPoint, ProposalShortId};
+use ckb_core::transaction::ProposalShortId;
 use ckb_core::BlockNumber;
 use ckb_db::batch::Batch;
 use ckb_notify::NotifyController;
@@ -16,7 +18,7 @@ use ckb_verification::{BlockVerifier, TransactionsVerifier, Verifier};
 use crossbeam_channel::{self, select, Receiver, Sender};
 use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
-use fnv::{FnvHashMap, FnvHashSet};
+use fnv::FnvHashSet;
 use log::{self, debug, error, log_enabled};
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
@@ -196,7 +198,7 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
         );
 
         if parent_ext.txs_verified == Some(false) {
-            Err(SharedError::InvalidTransaction)?;
+            Err(SharedError::InvalidParentBlock)?;
         }
 
         let ext = BlockExt {
@@ -425,24 +427,7 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
         fork: &mut ForkChanges,
         chain_state: &mut ChainState<CI>,
     ) -> Result<CellSetDiff, FailureError> {
-        let skip_verify = !self.verification;
-
-        let mut old_inputs = FnvHashSet::default();
-        let mut old_outputs = FnvHashSet::default();
-        let mut new_inputs = FnvHashSet::default();
-        let mut new_outputs = FnvHashMap::default();
-
-        let push_new = |b: &Block,
-                        new_inputs: &mut FnvHashSet<OutPoint>,
-                        new_outputs: &mut FnvHashMap<H256, usize>| {
-            for tx in b.commit_transactions() {
-                let input_pts = tx.input_pts();
-                let tx_hash = tx.hash();
-                let output_len = tx.outputs().len();
-                new_inputs.extend(input_pts);
-                new_outputs.insert(tx_hash, output_len);
-            }
-        };
+        let mut cell_set_diff = CellSetDiff::default();
 
         let attached_blocks_iter = fork.attached_blocks().iter().rev();
         let detached_blocks_iter = fork.detached_blocks().iter().rev();
@@ -451,23 +436,17 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
         let verified_len = attached_blocks_len - fork.dirty_exts.len();
 
         for b in detached_blocks_iter {
-            for tx in b.commit_transactions() {
-                let input_pts = tx.input_pts();
-                let tx_hash = tx.hash();
-
-                old_inputs.extend(input_pts);
-                old_outputs.insert(tx_hash);
-            }
+            cell_set_diff.push_old(b);
         }
 
-        for b in attached_blocks_iter.clone().take(verified_len) {
-            push_new(b, &mut new_inputs, &mut new_outputs);
+        for b in attached_blocks_iter.take(verified_len) {
+            cell_set_diff.push_new(b);
         }
 
         // The verify function
         let txs_verifier = TransactionsVerifier::new(self.shared.consensus().max_block_cycles());
 
-        let mut found_error = false;
+        let mut found_error = None;
         // verify transaction
         for (ext, b) in fork
             .dirty_exts
@@ -475,63 +454,40 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
             .zip(fork.attached_blocks.iter())
             .rev()
         {
-            let cell_resolver = |op: &OutPoint| {
-                self.shared.cell_at(op, |op| {
-                    if new_inputs.contains(op) {
-                        Some(true)
-                    } else if let Some(x) = new_outputs.get(&op.hash) {
-                        if op.index < (*x as u32) {
-                            Some(false)
-                        } else {
-                            Some(true)
+            if self.verification {
+                if found_error.is_none() {
+                    let mut seen_inputs = FnvHashSet::default();
+
+                    let cell_set_diff_cp = OverlayCellProvider::new(&cell_set_diff, chain_state);
+                    let block_cp = BlockCellProvider::new(b);
+                    let cell_provider = OverlayCellProvider::new(&block_cp, &cell_set_diff_cp);
+
+                    let resolved: Vec<ResolvedTransaction> = b
+                        .commit_transactions()
+                        .iter()
+                        .map(|x| resolve_transaction(x, &mut seen_inputs, &cell_provider))
+                        .collect();
+
+                    match txs_verifier.verify(
+                        chain_state.mut_txs_verify_cache(),
+                        &resolved,
+                        self.shared.block_reward(b.header().number()),
+                    ) {
+                        Ok(_) => {
+                            cell_set_diff.push_new(b);
+                            ext.txs_verified = Some(true);
                         }
-                    } else if old_outputs.contains(&op.hash) {
-                        None
-                    } else {
-                        chain_state
-                            .is_dead(op)
-                            .map(|x| x && !old_inputs.contains(op))
+                        Err(err) => {
+                            found_error = Some(err);
+                            ext.txs_verified = Some(false);
+                        }
                     }
-                })
-            };
-
-            let mut output_indexs = FnvHashMap::default();
-            let mut seen_inputs = FnvHashSet::default();
-
-            for (i, tx) in b.commit_transactions().iter().enumerate() {
-                output_indexs.insert(tx.hash(), i);
-            }
-
-            // cellbase verified
-            let resolved: Vec<ResolvedTransaction> = b
-                .commit_transactions()
-                .iter()
-                .skip(1)
-                .map(|x| {
-                    resolve_transaction(x, &mut seen_inputs, |o| {
-                        if let Some(i) = output_indexs.get(&o.hash) {
-                            match b.commit_transactions()[*i].outputs().get(o.index as usize) {
-                                Some(x) => CellStatus::Live(x.clone()),
-                                None => CellStatus::Unknown,
-                            }
-                        } else {
-                            cell_resolver(o)
-                        }
-                    })
-                })
-                .collect();
-
-            if !found_error
-                || skip_verify
-                || txs_verifier
-                    .verify(chain_state.mut_txs_verify_cache(), &resolved)
-                    .is_ok()
-            {
-                push_new(b, &mut new_inputs, &mut new_outputs);
-                ext.txs_verified = Some(true);
+                } else {
+                    ext.txs_verified = Some(false);
+                }
             } else {
-                found_error = true;
-                ext.txs_verified = Some(false);
+                cell_set_diff.push_new(b);
+                ext.txs_verified = Some(true);
             }
         }
 
@@ -547,21 +503,11 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
                 .insert_block_ext(batch, &b.header().hash(), ext);
         }
 
-        if found_error {
-            Err(SharedError::InvalidTransaction)?;
+        if let Some(err) = found_error {
+            Err(SharedError::InvalidTransaction(err.to_string()))?
+        } else {
+            Ok(cell_set_diff)
         }
-
-        let old_inputs: Vec<OutPoint> = old_inputs.into_iter().collect();
-        let old_outputs: Vec<H256> = old_outputs.into_iter().collect();
-        let new_inputs: Vec<OutPoint> = new_inputs.into_iter().collect();
-        let new_outputs: Vec<(H256, usize)> = new_outputs.into_iter().collect();
-
-        Ok(CellSetDiff {
-            old_inputs,
-            old_outputs,
-            new_inputs,
-            new_outputs,
-        })
     }
 
     // TODO: beatify

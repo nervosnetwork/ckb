@@ -2,6 +2,34 @@ All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
 
+# [v0.7.0](https://github.com/nervosnetwork/ckb/compare/v0.6.0...v0.7.0) (2019-03-25)
+
+
+This version requires Rust 1.33.0.
+
+### Bug Fixes
+
+* remove use of upgradable reads ([#310](https://github.com/nervosnetwork/ckb/issues/310)) ([f9e7f97](https://github.com/nervosnetwork/ckb/commit/f9e7f97))
+* `block_assembler` selects invalid uncle during epoch switch ([05d29fc](https://github.com/nervosnetwork/ckb/commit/05d29fc))
+* **miner:** uncles in solo mining ([abe7a8b](https://github.com/nervosnetwork/ckb/commit/abe7a8b))
+
+
+### Features
+
+* use toml for miner and chain spec ([#311](https://github.com/nervosnetwork/ckb/issues/311)) ([4b87df3](https://github.com/nervosnetwork/ckb/commit/4b87df3))
+* move config `txs_verify_cache_size` to section `tx_pool` ([06a0b3c](https://github.com/nervosnetwork/ckb/commit/06a0b3c))
+* Use blake2b as the hash function uniformly ([6a42874](https://github.com/zhangsoledad/ckb/commit/6a42874))
+* refactor: avoid  multiple lock ([d51c197](https://github.com/nervosnetwork/ckb/commit/d51c197))
+* refactor: rename `txo_set` -> `cell_set` ([759eea1](https://github.com/nervosnetwork/ckb/commit/759eea1))
+* refactor: txs verify cache required ([79cec0a](https://github.com/nervosnetwork/ckb/commit/79cec0a))
+
+### BREAKING CHANGES
+
+* Use TOML as config file format. Please copy and use the new TOML config file templates.
+* Move `txs_verify_cache_size` to section `tx_pool`.
+* Change miner config `poll_interval` unit from second to millisecond.
+
+
 # [v0.6.0](https://github.com/nervosnetwork/ckb/compare/v0.5.0...v0.6.0) (2019-02-25)
 
 ### Bug Fixes

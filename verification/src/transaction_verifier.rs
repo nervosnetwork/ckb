@@ -32,10 +32,9 @@ impl<'a> TransactionVerifier<'a> {
         self.version.verify()?;
         self.empty.verify()?;
         self.null.verify()?;
+        self.inputs.verify()?;
         self.capacity.verify()?;
         self.duplicate_inputs.verify()?;
-        // InputVerifier should be executed before ScriptVerifier
-        self.inputs.verify()?;
         let cycles = self.script.verify(max_cycles)?;
         Ok(cycles)
     }

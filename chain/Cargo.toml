@@ -1,6 +1,6 @@
 [package]
 name = "ckb-chain"
-version = "0.7.0-pre"
+version = "0.8.0-pre"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -23,8 +23,8 @@ lru-cache = { git = "https://github.com/nervosnetwork/lru-cache" }
 serde = "1.0"
 ckb-traits = { path = "../traits" }
 failure = "0.1.5"
+hash = {path = "../util/hash"}
 
 [dev-dependencies]
 env_logger = "0.6"
 tempfile = "3.0"
-rand = "0.6"

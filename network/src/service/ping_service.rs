@@ -1,4 +1,4 @@
-use crate::peer_store::Behaviour;
+use crate::Behaviour;
 use crate::Network;
 use futures::{sync::mpsc::Receiver, Async, Stream};
 use log::{debug, trace};

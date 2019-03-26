@@ -1,5 +1,5 @@
 use crate::errors::{ConfigError, Error, PeerError, ProtocolError};
-use crate::peer_store::{sqlite::SqlitePeerStore, Behaviour, PeerStore};
+use crate::peer_store::{sqlite::SqlitePeerStore, PeerStore};
 use crate::peers_registry::{
     ConnectionStatus, Peer, PeerIdentifyInfo, PeersRegistry, RegisterResult, Session,
 };
@@ -14,8 +14,8 @@ use crate::service::{
     timer_service::{TimerRegistry, TimerService},
 };
 use crate::{
-    CKBEvent, CKBProtocol, NetworkConfig, PeerIndex, ProtocolId, ServiceContext, ServiceControl,
-    SessionType,
+    Behaviour, CKBEvent, CKBProtocol, NetworkConfig, PeerIndex, ProtocolId, ServiceContext,
+    ServiceControl, SessionType,
 };
 use bytes::Bytes;
 use ckb_util::{Mutex, RwLock};

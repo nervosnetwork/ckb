@@ -1,6 +1,6 @@
 [package]
 name = "dir"
-version = "0.7.0-pre"
+version = "0.8.0-pre"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
