@@ -2,7 +2,7 @@ use crate::tests::util::{create_transaction, gen_block, start_chain};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::Block;
 use ckb_core::block::BlockBuilder;
-use ckb_core::cell::CellProvider;
+use ckb_core::cell::{CellProvider, CellStatus};
 use ckb_core::header::HeaderBuilder;
 use ckb_core::transaction::{CellInput, CellOutput, OutPoint, TransactionBuilder};
 use ckb_shared::error::SharedError;
@@ -27,6 +27,8 @@ fn test_genesis_transaction_spend() {
         .build();
 
     let mut root_hash = tx.hash().clone();
+
+    let genesis_tx_hash = root_hash.clone();
 
     let genesis_block = BlockBuilder::default()
         .commit_transaction(tx)
@@ -59,6 +61,14 @@ fn test_genesis_transaction_spend() {
             .process_block(Arc::new(block.clone()))
             .is_ok());
     }
+
+    assert_eq!(
+        shared
+            .chain_state()
+            .lock()
+            .cell(&OutPoint::new(genesis_tx_hash, 0)),
+        CellStatus::Dead
+    );
 }
 
 #[test]
@@ -80,9 +90,30 @@ fn test_transaction_spend_in_same_block() {
     }
 
     let last_cell_base = &chain.last().unwrap().commit_transactions()[0];
-    let tx1 = create_transaction(last_cell_base.hash(), 1);
-    let tx2 = create_transaction(tx1.hash(), 2);
+    let last_cell_base_hash = last_cell_base.hash().clone();
+    let tx1 = create_transaction(last_cell_base_hash.clone(), 1);
+    let tx1_hash = tx1.hash().clone();
+    let tx2 = create_transaction(tx1_hash.clone(), 2);
+    let tx2_hash = tx2.hash().clone();
+    let tx2_output = tx2.outputs()[0].clone();
+
     let txs = vec![tx1, tx2];
+
+    for hash in [
+        last_cell_base_hash.clone(),
+        tx1_hash.clone(),
+        tx2_hash.clone(),
+    ]
+    .iter()
+    {
+        assert_eq!(
+            shared
+                .chain_state()
+                .lock()
+                .cell(&OutPoint::new(hash.clone(), 0)),
+            CellStatus::Unknown
+        );
+    }
     // proposal txs
     {
         let difficulty = parent.difficulty().clone();
@@ -126,6 +157,24 @@ fn test_transaction_spend_in_same_block() {
             .process_block(Arc::new(block.clone()))
             .expect("process block ok");
     }
+
+    for hash in [last_cell_base_hash, tx1_hash].iter() {
+        assert_eq!(
+            shared
+                .chain_state()
+                .lock()
+                .cell(&OutPoint::new(hash.clone(), 0)),
+            CellStatus::Dead
+        );
+    }
+
+    assert_eq!(
+        shared
+            .chain_state()
+            .lock()
+            .cell(&OutPoint::new(tx2_hash, 0)),
+        CellStatus::Live(tx2_output)
+    );
 }
 
 #[test]
