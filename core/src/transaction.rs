@@ -141,91 +141,35 @@ impl CellOutput {
     }
 }
 
+pub type Witness = Vec<Vec<u8>>;
+
 #[derive(Clone, Serialize, Deserialize, Eq, Debug, Default, OccupiedCapacity)]
 pub struct Transaction {
     version: Version,
     deps: Vec<OutPoint>,
     inputs: Vec<CellInput>,
     outputs: Vec<CellOutput>,
+    //Segregated Witness to provide protection from transaction malleability.
+    witnesses: Vec<Witness>,
+}
+
+#[derive(Serialize)]
+struct RawTransaction<'a> {
+    version: Version,
+    deps: &'a [OutPoint],
+    inputs: &'a [CellInput],
+    outputs: &'a [CellOutput],
 }
 
 impl Hash for Transaction {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        state.write(self.hash().as_fixed_bytes())
+        state.write(self.witness_hash().as_fixed_bytes())
     }
 }
 
 impl PartialEq for Transaction {
     fn eq(&self, other: &Transaction) -> bool {
-        self.hash() == other.hash()
-    }
-}
-
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub struct IndexTransaction {
-    pub index: usize,
-    pub transaction: Transaction,
-}
-
-#[derive(Serialize, Deserialize, Copy, Clone, PartialEq, Eq, Default, Hash)]
-pub struct ProposalShortId([u8; 10]);
-
-impl Deref for ProposalShortId {
-    type Target = [u8; 10];
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl fmt::Debug for ProposalShortId {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "ProposalShortId(0x{})",
-            hex_string(&self.0).expect("hex proposal short id")
-        )
-    }
-}
-
-impl DerefMut for ProposalShortId {
-    fn deref_mut(&mut self) -> &mut [u8; 10] {
-        &mut self.0
-    }
-}
-
-impl ProposalShortId {
-    pub fn new(inner: [u8; 10]) -> Self {
-        ProposalShortId(inner)
-    }
-
-    pub fn from_slice(slice: &[u8]) -> Option<Self> {
-        if slice.len() == 10usize {
-            let mut id = [0u8; 10];
-            id.copy_from_slice(slice);
-            Some(ProposalShortId(id))
-        } else {
-            None
-        }
-    }
-
-    pub fn from_h256(h: &H256) -> Self {
-        let v = h.to_vec();
-        let mut inner = [0u8; 10];
-        inner.copy_from_slice(&v[..10]);
-        ProposalShortId(inner)
-    }
-
-    pub fn hash(&self) -> H256 {
-        blake2b_256(serialize(self).expect("ProposalShortId serialize should not fail")).into()
-    }
-
-    pub fn zero() -> Self {
-        ProposalShortId([0; 10])
-    }
-
-    pub fn into_inner(self) -> [u8; 10] {
-        self.0
+        self.witness_hash() == other.witness_hash()
     }
 }
 
@@ -246,11 +190,25 @@ impl Transaction {
         &self.outputs
     }
 
+    pub fn witnesses(&self) -> &[Witness] {
+        &self.witnesses
+    }
+
     pub fn is_cellbase(&self) -> bool {
         self.inputs.len() == 1 && self.inputs[0].previous_output.is_null()
     }
 
     pub fn hash(&self) -> H256 {
+        let raw = RawTransaction {
+            version: self.version,
+            deps: &self.deps,
+            inputs: &self.inputs,
+            outputs: &self.outputs,
+        };
+        blake2b_256(serialize(&raw).expect("Transaction serialize should not fail")).into()
+    }
+
+    pub fn witness_hash(&self) -> H256 {
         blake2b_256(serialize(&self).expect("Transaction serialize should not fail")).into()
     }
 
@@ -284,8 +242,9 @@ impl Transaction {
         self.inputs.is_empty() || self.outputs.is_empty()
     }
 
+    // proposal_short_id
     pub fn proposal_short_id(&self) -> ProposalShortId {
-        ProposalShortId::from_h256(&self.hash())
+        ProposalShortId::from_tx_hash(&self.hash())
     }
 
     pub fn get_output(&self, i: usize) -> Option<CellOutput> {
@@ -364,7 +323,120 @@ impl TransactionBuilder {
         self
     }
 
+    pub fn witness(mut self, witness: Witness) -> Self {
+        self.inner.witnesses.push(witness);
+        self
+    }
+
+    pub fn witnesses(mut self, witness: Vec<Witness>) -> Self {
+        self.inner.witnesses.extend(witness);
+        self
+    }
+
+    pub fn witnesses_clear(mut self) -> Self {
+        self.inner.witnesses.clear();
+        self
+    }
+
     pub fn build(self) -> Transaction {
         self.inner
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct IndexTransaction {
+    pub index: usize,
+    pub transaction: Transaction,
+}
+
+#[derive(Serialize, Deserialize, Copy, Clone, PartialEq, Eq, Default, Hash)]
+pub struct ProposalShortId([u8; 10]);
+
+impl Deref for ProposalShortId {
+    type Target = [u8; 10];
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl fmt::Debug for ProposalShortId {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "ProposalShortId(0x{})",
+            hex_string(&self.0).expect("hex proposal short id")
+        )
+    }
+}
+
+impl DerefMut for ProposalShortId {
+    fn deref_mut(&mut self) -> &mut [u8; 10] {
+        &mut self.0
+    }
+}
+
+impl ProposalShortId {
+    pub fn new(inner: [u8; 10]) -> Self {
+        ProposalShortId(inner)
+    }
+
+    pub fn from_slice(slice: &[u8]) -> Option<Self> {
+        if slice.len() == 10usize {
+            let mut id = [0u8; 10];
+            id.copy_from_slice(slice);
+            Some(ProposalShortId(id))
+        } else {
+            None
+        }
+    }
+
+    pub fn from_tx_hash(h: &H256) -> Self {
+        let v = h.to_vec();
+        let mut inner = [0u8; 10];
+        inner.copy_from_slice(&v[..10]);
+        ProposalShortId(inner)
+    }
+
+    pub fn hash(&self) -> H256 {
+        blake2b_256(serialize(self).expect("ProposalShortId serialize should not fail")).into()
+    }
+
+    pub fn zero() -> Self {
+        ProposalShortId([0; 10])
+    }
+
+    pub fn into_inner(self) -> [u8; 10] {
+        self.0
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_tx_hash() {
+        let tx = TransactionBuilder::default()
+            .output(CellOutput::new(
+                5000,
+                vec![1, 2, 3],
+                Script::default(),
+                None,
+            ))
+            .input(CellInput::new(OutPoint::new(H256::zero(), 0), vec![]))
+            .witness(vec![vec![7, 8, 9]])
+            .build();
+
+        assert_eq!(
+            tx.hash(),
+            H256::from_hex_str("7e1e256d6882809b7dfb55d002e54c5b4fbdbbbe8ce906aa6eae1b429de4d3d8")
+                .unwrap()
+        );
+        assert_eq!(
+            tx.witness_hash(),
+            H256::from_hex_str("93d363096f3901651b718d093751aa78ce7b56274850841a3e4134fe14ffb120")
+                .unwrap()
+        );
     }
 }

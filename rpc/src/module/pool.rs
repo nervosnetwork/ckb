@@ -75,7 +75,7 @@ impl<CI: ChainIndex + 'static> PoolRpc for PoolRpcImpl<CI> {
     }
 
     fn get_pool_transaction(&self, hash: H256) -> Result<Option<Transaction>> {
-        let id = ProposalShortId::from_h256(&hash);
+        let id = ProposalShortId::from_tx_hash(&hash);
         Ok(self
             .shared
             .chain_state()

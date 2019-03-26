@@ -142,6 +142,17 @@ impl BlockBuilder {
                 .collect::<Vec<_>>(),
         );
 
+        // The witness hash of cellbase transaction is assumed to be zero 0x0000....0000
+        let mut witnesses = vec![H256::zero()];
+        witnesses.extend(
+            self.inner
+                .commit_transactions()
+                .iter()
+                .skip(1)
+                .map(|tx| tx.witness_hash()),
+        );
+        let witnesses_root = merkle_root(&witnesses[..]);
+
         let txs_proposal = merkle_root(
             &self
                 .inner
@@ -156,6 +167,7 @@ impl BlockBuilder {
         self.inner.header = header_builder
             .txs_commit(txs_commit)
             .txs_proposal(txs_proposal)
+            .witnesses_root(witnesses_root)
             .uncles_hash(uncles_hash)
             .uncles_count(self.inner.uncles.len() as u32)
             .build();

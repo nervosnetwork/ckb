@@ -35,6 +35,8 @@ pub enum Error {
     ProposalTransactionsRoot,
     /// The merkle tree hash of committed transactions does not match the one in header.
     CommitTransactionsRoot,
+    /// The merkle tree witness hash of committed transactions does not match the one in header.
+    WitnessesMerkleRoot,
     /// The parent of the block is unknown.
     UnknownParent(H256),
     /// Uncles does not meet the consensus requirements.

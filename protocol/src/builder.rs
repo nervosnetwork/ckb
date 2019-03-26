@@ -10,7 +10,8 @@ use crate::protocol_generated::ckb::protocol::{
     Script as FbsScript, ScriptBuilder, SyncMessage, SyncMessageBuilder, SyncPayload,
     Time as FbsTime, TimeBuilder, TimeMessage, TimeMessageBuilder, Transaction as FbsTransaction,
     TransactionBuilder, UncleBlock as FbsUncleBlock, UncleBlockBuilder,
-    ValidTransaction as FbsValidTransaction, ValidTransactionBuilder, H256 as FbsH256,
+    ValidTransaction as FbsValidTransaction, ValidTransactionBuilder, Witness as FbsWitness,
+    WitnessBuilder, H256 as FbsH256,
 };
 use crate::{short_transaction_id, short_transaction_id_keys};
 use ckb_core::block::Block;
@@ -47,6 +48,7 @@ impl<'a> FbsHeader<'a> {
         let parent_hash = header.parent_hash().into();
         let txs_commit = header.txs_commit().into();
         let txs_proposal = header.txs_proposal().into();
+        let witnesses_root = header.witnesses_root().into();
         let difficulty = FbsBytes::build(fbb, &uint_to_bytes(header.difficulty()));
         let proof = FbsBytes::build(fbb, &header.proof());
         let cellbase_id = header.cellbase_id().into();
@@ -58,6 +60,7 @@ impl<'a> FbsHeader<'a> {
         builder.add_number(header.number());
         builder.add_txs_commit(&txs_commit);
         builder.add_txs_proposal(&txs_proposal);
+        builder.add_witnesses_root(&witnesses_root);
         builder.add_difficulty(difficulty);
         builder.add_nonce(header.nonce());
         builder.add_proof(proof);
@@ -94,11 +97,19 @@ impl<'a> FbsTransaction<'a> {
             .collect::<Vec<_>>();
         let outputs = fbb.create_vector(&vec);
 
+        let vec = transaction
+            .witnesses()
+            .iter()
+            .map(|witness| FbsWitness::build(fbb, witness))
+            .collect::<Vec<_>>();
+        let witnesses = fbb.create_vector(&vec);
+
         let mut builder = TransactionBuilder::new(fbb);
         builder.add_version(transaction.version());
         builder.add_deps(deps);
         builder.add_inputs(inputs);
         builder.add_outputs(outputs);
+        builder.add_witnesses(witnesses);
         builder.finish()
     }
 }
@@ -167,6 +178,23 @@ impl<'a> FbsScript<'a> {
         builder.add_version(script.version);
         builder.add_args(args);
         builder.add_binary_hash(&binary_hash);
+        builder.finish()
+    }
+}
+
+impl<'a> FbsWitness<'a> {
+    pub fn build<'b>(
+        fbb: &mut FlatBufferBuilder<'b>,
+        witness: &[Vec<u8>],
+    ) -> WIPOffset<FbsWitness<'b>> {
+        let data = witness
+            .iter()
+            .map(|item| FbsBytes::build(fbb, item))
+            .collect::<Vec<_>>();
+
+        let data = fbb.create_vector(&data);
+        let mut builder = WitnessBuilder::new(fbb);
+        builder.add_data(data);
         builder.finish()
     }
 }
@@ -447,7 +475,7 @@ impl<'a> CompactBlock<'a> {
             } else {
                 short_ids.push(FbsBytes::build(
                     fbb,
-                    &short_transaction_id(key0, key1, &transaction.hash()),
+                    &short_transaction_id(key0, key1, &transaction.witness_hash()),
                 ));
             }
         }

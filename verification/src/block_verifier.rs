@@ -153,6 +153,20 @@ impl MerkleRootVerifier {
             return Err(Error::CommitTransactionsRoot);
         }
 
+        // The witness hash of cellbase transaction is assumed to be zero 0x0000....0000
+        let mut witnesses = vec![H256::zero()];
+        witnesses.extend(
+            block
+                .commit_transactions()
+                .iter()
+                .skip(1)
+                .map(|tx| tx.witness_hash()),
+        );
+
+        if block.header().witnesses_root() != &merkle_root(&witnesses[..]) {
+            return Err(Error::WitnessesMerkleRoot);
+        }
+
         let proposals = block
             .proposal_transactions()
             .iter()

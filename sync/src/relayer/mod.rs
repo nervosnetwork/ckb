@@ -190,7 +190,7 @@ where
         let mut txs_map: FnvHashMap<ShortTransactionID, Transaction> = transactions
             .into_iter()
             .map(|tx| {
-                let short_id = short_transaction_id(key0, key1, &tx.hash());
+                let short_id = short_transaction_id(key0, key1, &tx.witness_hash());
                 (short_id, tx)
             })
             .collect();
@@ -198,7 +198,7 @@ where
         {
             let tx_pool = chain_state.tx_pool();
             let iter = tx_pool.staging_txs_iter().filter_map(|entry| {
-                let short_id = short_transaction_id(key0, key1, &entry.transaction.hash());
+                let short_id = short_transaction_id(key0, key1, &entry.transaction.witness_hash());
                 if compact_block.short_ids.contains(&short_id) {
                     Some((short_id, entry.transaction.clone()))
                 } else {

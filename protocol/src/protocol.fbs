@@ -40,6 +40,7 @@ table Header {
     number:         uint64;
     txs_commit:     H256;
     txs_proposal:   H256;
+    witnesses_root: H256;
     difficulty:     Bytes;
     nonce:          uint64;
     proof:          Bytes;
@@ -66,6 +67,11 @@ table Transaction {
     deps:           [OutPoint];
     inputs:         [CellInput];
     outputs:        [CellOutput];
+    witnesses:      [Witness];
+}
+
+table Witness {
+    data:           [Bytes];
 }
 
 table OutPoint {
@@ -224,4 +230,3 @@ table TimeMessage {
 table Time {
     timestamp: uint64;
 }
-
