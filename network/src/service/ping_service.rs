@@ -1,6 +1,6 @@
 use crate::Behaviour;
 use crate::Network;
-use crate::{Network, Peer};
+use crate::Peer;
 use futures::{sync::mpsc::Receiver, Async, Stream};
 use log::{debug, trace};
 use p2p_ping::Event;

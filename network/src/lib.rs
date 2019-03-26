@@ -18,8 +18,8 @@ pub use crate::behaviour::Behaviour;
 pub use crate::network::{Network, SessionInfo};
 pub use crate::network_config::NetworkConfig;
 pub use crate::network_service::NetworkService;
-pub use crate::peer_store::Score;
 pub use crate::peer::{Peer, PeerIdentifyInfo};
+pub use crate::peer_store::Score;
 pub use crate::peers_registry::RegisterResult;
 pub use crate::protocol::{
     ckb::{CKBProtocol, Event as CKBEvent, Version as ProtocolVersion},

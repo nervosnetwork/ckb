@@ -205,7 +205,7 @@ impl PeerStore for SqlitePeerStore {
                                 peer_id,
                                 &addr,
                                 endpoint,
-                                self.scoring_schema().peer_init_score(),
+                                self.peer_score_config().default_score,
                                 now,
                             )
                         }

@@ -762,8 +762,8 @@ mod tests {
     use ckb_core::transaction::{CellInput, CellOutput, Transaction, TransactionBuilder};
     use ckb_db::memorydb::MemoryKeyValueDB;
     use ckb_network::{
-        errors::Error as NetworkError, multiaddr::ToMultiaddr, Behaviour, CKBProtocolContext, Peer, PeerIndex,
-        ProtocolId, SessionInfo, SessionType, TimerToken,
+        errors::Error as NetworkError, multiaddr::ToMultiaddr, Behaviour, CKBProtocolContext, Peer,
+        PeerIndex, ProtocolId, SessionInfo, SessionType, TimerToken,
     };
     use ckb_notify::{NotifyController, NotifyService};
     use ckb_protocol::{Block as FbsBlock, Headers as FbsHeaders};

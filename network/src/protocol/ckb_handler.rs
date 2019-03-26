@@ -1,5 +1,5 @@
 use crate::errors::{Error, PeerError, ProtocolError};
-use crate::{Behaviour, Network, Peer, PeerIndex, ProtocolId, SessionInfo, TimerRegistry, TimerToken};
+use crate::{Behaviour, Network, PeerIndex, ProtocolId, SessionInfo, TimerRegistry, TimerToken};
 use bytes::Bytes;
 use ckb_util::Mutex;
 use log::debug;
