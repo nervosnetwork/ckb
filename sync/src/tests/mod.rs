@@ -1,7 +1,7 @@
 use bytes::Bytes;
 use ckb_network::{
-    errors::Error as NetworkError, CKBProtocolContext, CKBProtocolHandler, PeerIndex, ProtocolId,
-    SessionInfo, Severity, TimerToken,
+    errors::Error as NetworkError, Behaviour, CKBProtocolContext, CKBProtocolHandler, PeerIndex,
+    ProtocolId, SessionInfo, TimerToken,
 };
 use std::collections::HashMap;
 use std::sync::mpsc::{channel, Receiver, Sender};
@@ -163,7 +163,9 @@ impl CKBProtocolContext for TestNetworkContext {
         Ok(())
     }
 
-    fn report_peer(&self, _peer: PeerIndex, _reason: Severity) {}
+    fn report_peer(&self, _peer: PeerIndex, _behaviour: Behaviour) -> Result<(), NetworkError> {
+        Ok(())
+    }
 
     fn register_timer(&self, token: TimerToken, delay: Duration) -> Result<(), NetworkError> {
         if let Some(sender) = self.timer_senders.get(&(self.protocol, token)) {

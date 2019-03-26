@@ -12,12 +12,11 @@ use crate::peer_store::sqlite::{self, db, ConnectionPool, ConnectionPoolExt, DBE
 ///    score.
 /// 4. Good peers can get higher score than bad peers.
 use crate::peer_store::{
-    Behaviour, Multiaddr, PeerId, PeerStore, ReportResult, Score, ScoringSchema, Status,
+    Behaviour, Multiaddr, PeerId, PeerScoreConfig, PeerStore, ReportResult, Score, Status,
 };
 use crate::SessionType;
 use faketime::unix_time;
 use fnv::FnvHashMap;
-use log::debug;
 use std::net::IpAddr;
 use std::time::Duration;
 
@@ -28,18 +27,18 @@ const DEFAULT_POOL_SIZE: u32 = 16;
 
 pub struct SqlitePeerStore {
     bootnodes: Vec<(PeerId, Multiaddr)>,
-    schema: ScoringSchema,
+    peer_score_config: PeerScoreConfig,
     ban_list: FnvHashMap<Vec<u8>, Duration>,
     pub(crate) pool: ConnectionPool,
 }
 
 impl SqlitePeerStore {
-    pub fn new(connection_pool: ConnectionPool) -> Self {
+    pub fn new(connection_pool: ConnectionPool, peer_score_config: PeerScoreConfig) -> Self {
         let mut peer_store = SqlitePeerStore {
             bootnodes: Vec::new(),
-            schema: Default::default(),
             ban_list: Default::default(),
             pool: connection_pool,
+            peer_score_config,
         };
         peer_store.prepare().expect("prepare tables");
         peer_store
@@ -47,12 +46,12 @@ impl SqlitePeerStore {
 
     pub fn file(path: String) -> Result<Self, DBError> {
         let pool = sqlite::open_pool(sqlite::StorePath::File(path), DEFAULT_POOL_SIZE)?;
-        Ok(SqlitePeerStore::new(pool))
+        Ok(SqlitePeerStore::new(pool, PeerScoreConfig::default()))
     }
 
     pub fn memory(db: String) -> Result<Self, DBError> {
         let pool = sqlite::open_pool(sqlite::StorePath::Memory(db), DEFAULT_POOL_SIZE)?;
-        Ok(SqlitePeerStore::new(pool))
+        Ok(SqlitePeerStore::new(pool, PeerScoreConfig::default()))
     }
 
     #[allow(dead_code)]
@@ -146,7 +145,7 @@ impl SqlitePeerStore {
             None => return Err(()),
         };
 
-        if candidate_peer.score >= self.schema.peer_init_score() {
+        if candidate_peer.score >= self.peer_score_config.default_score {
             return Err(());
         }
         self.pool
@@ -184,7 +183,7 @@ impl SqlitePeerStore {
                             peer_id,
                             &addr,
                             endpoint,
-                            self.scoring_schema().peer_init_score(),
+                            self.peer_score_config.default_score,
                             last_connected_at,
                         )?;
                         db::PeerInfo::get_by_peer_id(conn, &peer_id)
@@ -208,7 +207,7 @@ impl SqlitePeerStore {
                             peer_id,
                             &addr,
                             SessionType::Server,
-                            self.scoring_schema().peer_init_score(),
+                            self.peer_score_config.default_score,
                             now,
                         )?;
                         db::PeerInfo::get_by_peer_id(conn, &peer_id)
@@ -253,18 +252,10 @@ impl PeerStore for SqlitePeerStore {
         if self.is_banned(peer_id) {
             return ReportResult::Banned;
         }
-        let behaviour_score = match self.schema.get_score(behaviour) {
-            Some(score) => score,
-            None => {
-                debug!(target: "network", "behaviour {:?} is undefined", behaviour);
-                return ReportResult::Ok;
-            }
-        };
         let peer = self.get_or_insert_peer_info(peer_id);
-        let score = peer.score.saturating_add(behaviour_score);
-        if score < self.schema.ban_score() {
-            let ban_timeout = self.schema.default_ban_timeout();
-            self.ban_peer(peer_id, ban_timeout);
+        let score = peer.score.saturating_add(behaviour.score());
+        if score < self.peer_score_config.ban_score {
+            self.ban_peer(peer_id, self.peer_score_config.ban_timeout);
             return ReportResult::Banned;
         }
         self.pool
@@ -343,8 +334,7 @@ impl PeerStore for SqlitePeerStore {
         }
         false
     }
-
-    fn scoring_schema(&self) -> &ScoringSchema {
-        &self.schema
+    fn peer_score_config(&self) -> PeerScoreConfig {
+        self.peer_score_config
     }
 }

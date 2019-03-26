@@ -1,5 +1,5 @@
-use crate::peer_store::{Behaviour, Status};
 use crate::protocol_handler::DefaultCKBProtocolContext;
+use crate::{peer_store::Status, Behaviour};
 use crate::{peers_registry::RegisterResult, CKBEvent, CKBProtocolHandler, Network, PeerId};
 use futures::{sync::mpsc::Receiver, Async, Stream};
 use log::{debug, error, info};

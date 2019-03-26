@@ -1,11 +1,29 @@
-mod score;
 pub mod sqlite;
 
-pub(crate) use crate::PeerId;
 pub use crate::{peer_store::sqlite::SqlitePeerStore, SessionType};
+pub(crate) use crate::{Behaviour, PeerId};
 use p2p::multiaddr::Multiaddr;
-pub use score::{Behaviour, Score, ScoringSchema};
 use std::time::Duration;
+
+pub type Score = i32;
+
+/// PeerStore Scoring configuration
+#[derive(Copy, Clone, Debug)]
+pub struct PeerScoreConfig {
+    pub default_score: Score,
+    pub ban_score: Score,
+    pub ban_timeout: Duration,
+}
+
+impl Default for PeerScoreConfig {
+    fn default() -> Self {
+        PeerScoreConfig {
+            default_score: 100,
+            ban_score: 40,
+            ban_timeout: Duration::from_secs(24 * 3600),
+        }
+    }
+}
 
 /// PeerStore
 /// See [rfc0007](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0007-scoring-system-and-network-security/0007-scoring-system-and-network-security.md) for details.
@@ -34,12 +52,10 @@ pub trait PeerStore: Send + Sync {
     fn random_peers(&self, count: u32) -> Vec<(PeerId, Multiaddr)>;
     /// Ban a peer
     fn ban_peer(&mut self, peer_id: &PeerId, timeout: Duration);
+    /// Check peer ban status
     fn is_banned(&self, peer_id: &PeerId) -> bool;
-    fn scoring_schema(&self) -> &ScoringSchema;
-    fn peer_score_or_default(&self, peer_id: &PeerId) -> Score {
-        self.peer_score(peer_id)
-            .unwrap_or_else(|| self.scoring_schema().peer_init_score())
-    }
+    /// peer score config
+    fn peer_score_config(&self) -> PeerScoreConfig;
 }
 
 /// Peer Status

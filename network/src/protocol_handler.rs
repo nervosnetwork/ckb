@@ -1,9 +1,8 @@
 use crate::errors::{Error, PeerError, ProtocolError};
-use crate::{Network, PeerIndex, ProtocolId, SessionInfo, TimerRegistry, TimerToken};
+use crate::{Behaviour, Network, PeerIndex, ProtocolId, SessionInfo, TimerRegistry, TimerToken};
 use bytes::Bytes;
 use ckb_util::Mutex;
 use log::debug;
-use log::info;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -23,7 +22,7 @@ pub trait CKBProtocolContext: Send {
         data: Vec<u8>,
     ) -> Result<(), Error>;
     // TODO combinate this interface with peer score
-    fn report_peer(&self, peer_index: PeerIndex, reason: Severity);
+    fn report_peer(&self, peer_index: PeerIndex, behaviour: Behaviour) -> Result<(), Error>;
     fn ban_peer(&self, peer_index: PeerIndex, timeout: Duration);
     fn disconnect(&self, peer_index: PeerIndex);
     fn register_timer(&self, token: TimerToken, delay: Duration) -> Result<(), Error>;
@@ -83,11 +82,24 @@ impl CKBProtocolContext for DefaultCKBProtocolContext {
         }
     }
     // report peer behaviour
-    fn report_peer(&self, peer_index: PeerIndex, reason: Severity) {
-        // TODO combinate this interface with peer score
-        info!(target: "network", "report peer {} reason: {:?}", peer_index, reason);
-        self.disconnect(peer_index);
+    fn report_peer(&self, peer_index: PeerIndex, behaviour: Behaviour) -> Result<(), Error> {
+        debug!(target: "network", "report peer {} behaviour: {:?}", peer_index, behaviour);
+        if let Some(peer_id) = self.network.get_peer_id(peer_index) {
+            if self
+                .network
+                .peer_store()
+                .write()
+                .report(&peer_id, behaviour)
+                .is_banned()
+            {
+                self.disconnect(peer_index);
+            }
+            Ok(())
+        } else {
+            Err(Error::Peer(PeerError::IndexNotFound(peer_index)))
+        }
     }
+
     // ban peer
     fn ban_peer(&self, peer_index: PeerIndex, timeout: Duration) {
         if let Some(peer_id) = self.network.get_peer_id(peer_index) {

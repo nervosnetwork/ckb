@@ -26,7 +26,7 @@ use ckb_chain::chain::ChainController;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::Block;
 use ckb_core::header::{BlockNumber, Header};
-use ckb_network::{CKBProtocolContext, CKBProtocolHandler, PeerIndex, Severity, TimerToken};
+use ckb_network::{Behaviour, CKBProtocolContext, CKBProtocolHandler, PeerIndex, TimerToken};
 use ckb_protocol::{cast, SyncMessage, SyncPayload};
 use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::Shared;
@@ -182,7 +182,7 @@ impl<CI: ChainIndex> Synchronizer<CI> {
 
     fn process(&self, nc: &CKBProtocolContext, peer: PeerIndex, message: SyncMessage) {
         if self.try_process(nc, peer, message).is_err() {
-            nc.report_peer(peer, Severity::Bad("Malformed SyncMessage"));
+            let _ = nc.report_peer(peer, Behaviour::UnexpectedMessage);
         }
     }
 
@@ -622,7 +622,7 @@ impl<CI: ChainIndex> Synchronizer<CI> {
         }
         for peer in eviction {
             warn!(target: "sync", "timeout eviction peer={}", peer);
-            nc.report_peer(peer, Severity::Timeout);
+            let _ = nc.report_peer(peer, Behaviour::Timeout);
         }
     }
 
@@ -762,8 +762,8 @@ mod tests {
     use ckb_core::transaction::{CellInput, CellOutput, Transaction, TransactionBuilder};
     use ckb_db::memorydb::MemoryKeyValueDB;
     use ckb_network::{
-        errors::Error as NetworkError, multiaddr::ToMultiaddr, CKBProtocolContext, PeerId,
-        PeerIndex, PeerInfo, ProtocolId, SessionInfo, SessionType, Severity, TimerToken,
+        multiaddr::ToMultiaddr, Behaviour, CKBProtocolContext, Error as NetworkError, PeerId,
+        PeerIndex, PeerInfo, ProtocolId, SessionInfo, SessionType, TimerToken,
     };
     use ckb_notify::{NotifyController, NotifyService};
     use ckb_protocol::{Block as FbsBlock, Headers as FbsHeaders};
@@ -1117,8 +1117,9 @@ mod tests {
             Ok(())
         }
         /// Report peer. Depending on the report, peer may be disconnected and possibly banned.
-        fn report_peer(&self, peer: PeerIndex, _reason: Severity) {
+        fn report_peer(&self, peer: PeerIndex, _behaviour: Behaviour) -> Result<(), NetworkError> {
             self.disconnected.lock().insert(peer);
+            Ok(())
         }
 
         fn ban_peer(&self, _peer: PeerIndex, _duration: Duration) {}
