@@ -458,9 +458,7 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
                 if found_error.is_none() {
                     let mut seen_inputs = FnvHashSet::default();
 
-                    // TODO Q impl CellProvider for store, use chain_state as CellProvider here directly.
-                    let cell_set_cp = OverlayCellProvider::new(chain_state.cell_set(), chain_state);
-                    let cell_set_diff_cp = OverlayCellProvider::new(&cell_set_diff, &cell_set_cp);
+                    let cell_set_diff_cp = OverlayCellProvider::new(&cell_set_diff, chain_state);
                     let block_cp = BlockCellProvider::new(b);
                     let cell_provider = OverlayCellProvider::new(&block_cp, &cell_set_diff_cp);
 
