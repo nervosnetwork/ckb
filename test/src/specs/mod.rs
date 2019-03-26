@@ -1,6 +1,7 @@
 mod block_relay;
 mod block_sync;
 mod mining;
+mod net;
 mod pool;
 mod transaction_relay;
 
@@ -29,7 +30,6 @@ pub trait Spec {
         // start all nodes
         net.nodes.iter_mut().for_each(|node| {
             node.start();
-            node.wait_for_rpc_connection();
         });
 
         // connect the nodes as a linear chain: node0 <-> node1 <-> node2 <-> ...
