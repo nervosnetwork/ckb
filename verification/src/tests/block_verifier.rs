@@ -137,32 +137,6 @@ pub fn test_cellbase_with_fee() {
 }
 
 #[test]
-pub fn test_cellbase_with_two_outputs() {
-    let mut transaction_fees = HashMap::<H256, Result<Capacity, SharedError>>::new();
-    let transaction = create_normal_transaction();
-    transaction_fees.insert(transaction.hash().clone(), Ok(0));
-
-    let cellbase_transaction = TransactionBuilder::default()
-        .input(CellInput::new_cellbase_input(0))
-        .output(CellOutput::new(100, Vec::new(), Script::default(), None))
-        .output(CellOutput::new(50, Vec::new(), Script::default(), None))
-        .build();
-
-    let block = BlockBuilder::default()
-        .commit_transaction(cellbase_transaction)
-        .commit_transaction(transaction)
-        .build();
-
-    let provider = DummyChainProvider {
-        block_reward: 150,
-        transaction_fees,
-    };
-
-    let verifier = CellbaseVerifier::new(provider);
-    assert!(verifier.verify(&block).is_ok());
-}
-
-#[test]
 pub fn test_empty_transactions() {
     let block = BlockBuilder::default().build();
     let transaction_fees = HashMap::<H256, Result<Capacity, SharedError>>::new();
