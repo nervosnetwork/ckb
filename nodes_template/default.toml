@@ -13,13 +13,16 @@ color = true
 
 [network]
 listen_addresses = ["/ip4/0.0.0.0/tcp/8115"]
+public_addresses = []
 bootnodes = []
-reserved_nodes = []
-only_reserved_peers = false
-min_peers = 4
-max_peers = 8
-secret_file = "secret_key"
-peer_store_path = "peer_store.db"
+reserved_peers = []
+reserved_only = false
+max_peers = 125
+max_outbound_peers = 30
+config_dir_path = "default/network"
+ping_interval_secs = 15
+ping_timeout_secs = 20
+connect_outbound_interval_secs = 15
 
 [rpc]
 listen_address = "0.0.0.0:8114"

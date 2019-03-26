@@ -1,4 +1,4 @@
-use crate::errors::{ConfigError, Error, PeerError, ProtocolError};
+use crate::errors::{Error, PeerError, ProtocolError};
 use crate::peer_store::{sqlite::SqlitePeerStore, PeerStore};
 use crate::peers_registry::{
     ConnectionStatus, Peer, PeerIdentifyInfo, PeersRegistry, RegisterResult, Session,
@@ -354,10 +354,8 @@ impl Network {
         config: &NetworkConfig,
         ckb_protocols: CKBProtocols,
     ) -> Result<(Arc<Self>, P2PService, TimerRegistry, EventReceivers), Error> {
-        let local_private_key = match config.fetch_private_key() {
-            Some(private_key) => private_key?,
-            None => return Err(ConfigError::InvalidKey.into()),
-        };
+        config.create_dir_if_not_exists()?;
+        let local_private_key = config.fetch_private_key()?;
         // set max score to public addresses
         let listened_addresses: FnvHashMap<Multiaddr, u8> = config
             .public_addresses
@@ -365,10 +363,8 @@ impl Network {
             .map(|addr| (addr.to_owned(), std::u8::MAX))
             .collect();
         let peer_store: Arc<RwLock<dyn PeerStore>> = {
-            let mut peer_store = match &config.peer_store_path {
-                Some(path) => SqlitePeerStore::file(path.to_string())?,
-                None => SqlitePeerStore::memory("default".to_string())?,
-            };
+            let mut peer_store =
+                SqlitePeerStore::file(config.peer_store_path().to_string_lossy().to_string())?;
             let bootnodes = config.bootnodes()?;
             for (peer_id, addr) in bootnodes {
                 peer_store.add_bootnode(peer_id, addr);
@@ -382,8 +378,8 @@ impl Network {
             .collect::<Vec<_>>();
         let peers_registry = PeersRegistry::new(
             Arc::clone(&peer_store),
-            config.max_inbound_peers,
-            config.max_outbound_peers,
+            config.max_inbound_peers(),
+            config.max_outbound_peers(),
             config.reserved_only,
             reserved_peers,
         );
@@ -394,8 +390,8 @@ impl Network {
             .service_handle(move || {
                 ProtocolHandle::Callback(Box::new(PingHandler::new(
                     PING_PROTOCOL_ID,
-                    config.ping_interval,
-                    config.ping_timeout,
+                    Duration::from_secs(config.ping_interval_secs),
+                    Duration::from_secs(config.ping_timeout_secs),
                     ping_sender,
                 )))
             })
@@ -539,8 +535,10 @@ impl Network {
             event_receiver: ckb_event_receiver,
         };
         let timer_service = TimerService::new(timer_registry, Arc::clone(&network));
-        let outbound_peer_service =
-            OutboundPeerService::new(Arc::clone(&network), config.try_outbound_connect_interval);
+        let outbound_peer_service = OutboundPeerService::new(
+            Arc::clone(&network),
+            Duration::from_secs(config.connect_outbound_interval_secs),
+        );
         // prepare services futures
         let futures: Vec<Box<Future<Item = (), Error = Error> + Send>> = vec![
             Box::new(
