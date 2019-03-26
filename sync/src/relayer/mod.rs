@@ -21,7 +21,7 @@ use bytes::Bytes;
 use ckb_chain::chain::ChainController;
 use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::transaction::{ProposalShortId, Transaction};
-use ckb_network::{behaviour, CKBProtocolContext, CKBProtocolHandler, PeerIndex, TimerToken};
+use ckb_network::{Behaviour, CKBProtocolContext, CKBProtocolHandler, PeerIndex, TimerToken};
 use ckb_protocol::{
     cast, short_transaction_id, short_transaction_id_keys, RelayMessage, RelayPayload,
 };
@@ -128,7 +128,7 @@ where
 
     fn process(&self, nc: &CKBProtocolContext, peer: PeerIndex, message: RelayMessage) {
         if self.try_process(nc, peer, message).is_err() {
-            let _ = nc.report_peer(peer, behaviour::UNEXPECTED_MESSAGE);
+            let _ = nc.report_peer(peer, Behaviour::UnexpectedMessage);
         }
     }
 

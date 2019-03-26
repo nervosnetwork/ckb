@@ -1,9 +1,8 @@
 use crate::{
-    behaviour,
     multiaddr::ToMultiaddr,
     peer_store::{PeerStore, SqlitePeerStore},
     peers_registry::{PeersRegistry, Session, EVICTION_PROTECT_PEERS},
-    PeerId, SessionType,
+    Behaviour, PeerId, SessionType,
 };
 use ckb_util::RwLock;
 use std::sync::Arc;
@@ -120,8 +119,8 @@ fn test_accept_inbound_peer_eviction() {
         let mut peer_store = peer_store.write();
         for _ in 0..EVICTION_PROTECT_PEERS {
             let peer_id = peers_iter.next().unwrap();
-            peer_store.report(&peer_id, behaviour::PING);
-            peer_store.report(&peer_id, behaviour::PING);
+            peer_store.report(&peer_id, Behaviour::Ping);
+            peer_store.report(&peer_id, Behaviour::Ping);
         }
     }
     // lowest ping peers
@@ -169,12 +168,12 @@ fn test_accept_inbound_peer_eviction() {
     // setup score
     {
         let mut peer_store = peer_store.write();
-        peer_store.report(&lowest_score_peer, behaviour::FAILED_TO_PING);
-        peer_store.report(&lowest_score_peer, behaviour::FAILED_TO_PING);
-        peer_store.report(&lowest_score_peer, behaviour::FAILED_TO_PING);
-        peer_store.report(&reserved_peer, behaviour::FAILED_TO_PING);
-        peer_store.report(&reserved_peer, behaviour::FAILED_TO_PING);
-        peer_store.report(&evict_target, behaviour::FAILED_TO_PING);
+        peer_store.report(&lowest_score_peer, Behaviour::FailedToPing);
+        peer_store.report(&lowest_score_peer, Behaviour::FailedToPing);
+        peer_store.report(&lowest_score_peer, Behaviour::FailedToPing);
+        peer_store.report(&reserved_peer, Behaviour::FailedToPing);
+        peer_store.report(&reserved_peer, Behaviour::FailedToPing);
+        peer_store.report(&evict_target, Behaviour::FailedToPing);
     }
     // make sure other peers should not protected by longest connection time rule
     new_peer_ids.extend_from_slice(&[

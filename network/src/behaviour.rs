@@ -1,21 +1,27 @@
 use crate::Score;
-pub type Behaviour = (Score, &'static str);
 
-macro_rules! define_behaviour {
-    ( $( $name:ident => $score:expr ),* ) => {
-            $(
-                pub const $name: Behaviour = ($score,"$name");
-            )*
-    };
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum Behaviour {
+    Connect,
+    Ping,
+    FailedToPing,
+    Timeout,
+    SyncUseless,
+    UnexpectedMessage,
+    UnexpectedDisconnect,
 }
 
-// Define behaviours and scores
-define_behaviour! {
-    CONNECT => 10,
-    PING => 10,
-    FAILED_TO_PING => -20,
-    TIMEOUT => -20,
-    SYNC_USELESS => -50,
-    UNEXPECTED_MESSAGE => -50,
-    UNEXPECTED_DISCONNECT => -10
+impl Behaviour {
+    pub fn score(self) -> Score {
+        use Behaviour::*;
+        match self {
+            Connect => 10,
+            Ping => 10,
+            FailedToPing => -20,
+            Timeout => -20,
+            SyncUseless => -50,
+            UnexpectedMessage => -50,
+            UnexpectedDisconnect => -10,
+        }
+    }
 }

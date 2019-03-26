@@ -1,13 +1,12 @@
 use crate::peer_store::sqlite::ConnectionPoolExt;
 use crate::{
-    behaviour,
     multiaddr::ToMultiaddr,
     peer_store::{
         sqlite::db,
         sqlite::peer_store::{PEER_NOT_SEEN_TIMEOUT_SECS, PEER_STORE_LIMIT},
         PeerStore, SqlitePeerStore, Status,
     },
-    PeerId, SessionType,
+    Behaviour, PeerId, SessionType,
 };
 use rand::Rng;
 use std::time::Duration;
@@ -43,7 +42,7 @@ fn test_add_discovered_addr() {
 fn test_report() {
     let mut peer_store: Box<dyn PeerStore> = Box::new(new_peer_store());
     let peer_id = PeerId::random();
-    assert!(peer_store.report(&peer_id, behaviour::PING).is_ok());
+    assert!(peer_store.report(&peer_id, Behaviour::Ping).is_ok());
     assert!(
         peer_store.peer_score(&peer_id).expect("peer score")
             > peer_store.peer_score_config().default_score
@@ -155,9 +154,9 @@ fn test_delete_peer_info() {
         peer_store.add_connected_peer(&evict_target, addr1.clone(), SessionType::Server);
         peer_store.add_connected_peer(&fake_target, addr2, SessionType::Server);
     }
-    peer_store.report(&evict_target, behaviour::FAILED_TO_PING);
-    peer_store.report(&fake_target, behaviour::FAILED_TO_PING);
-    peer_store.report(&fake_target, behaviour::FAILED_TO_PING);
+    peer_store.report(&evict_target, Behaviour::FailedToPing);
+    peer_store.report(&fake_target, Behaviour::FailedToPing);
+    peer_store.report(&fake_target, Behaviour::FailedToPing);
     // evict_target has lower score than init score
     assert!(
         peer_store.peer_score(&evict_target).expect("peer store")

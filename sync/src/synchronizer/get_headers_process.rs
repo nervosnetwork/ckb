@@ -1,7 +1,7 @@
 use crate::synchronizer::Synchronizer;
 use crate::MAX_LOCATOR_SIZE;
 use ckb_core::header::Header;
-use ckb_network::{behaviour, CKBProtocolContext, PeerIndex};
+use ckb_network::{Behaviour, CKBProtocolContext, PeerIndex};
 use ckb_protocol::{cast, GetHeaders, SyncMessage};
 use ckb_shared::index::ChainIndex;
 use ckb_util::TryInto;
@@ -76,7 +76,7 @@ where
             warn!(target: "sync", "\n\nunknown block headers from peer {} {:#?}\n\n", self.peer, block_locator_hashes);
             // Got 'headers' message without known blocks
             // ban or close peers
-            let _ = self.nc.report_peer(self.peer, behaviour::SYNC_USELESS);
+            let _ = self.nc.report_peer(self.peer, Behaviour::SyncUseless);
             // disconnect peer anyway
             self.nc.disconnect(self.peer);
         }

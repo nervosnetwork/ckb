@@ -1,6 +1,6 @@
 #[macro_use]
 pub extern crate futures;
-pub mod behaviour;
+mod behaviour;
 pub mod errors;
 mod network;
 mod network_config;

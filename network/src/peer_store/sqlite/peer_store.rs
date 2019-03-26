@@ -12,7 +12,7 @@ use crate::peer_store::sqlite::{self, db, ConnectionPool, ConnectionPoolExt, DBE
 ///    score.
 /// 4. Good peers can get higher score than bad peers.
 use crate::peer_store::{
-    Multiaddr, PeerId, PeerScoreConfig, PeerStore, ReportResult, Score, Status,
+    Behaviour, Multiaddr, PeerId, PeerScoreConfig, PeerStore, ReportResult, Score, Status,
 };
 use crate::SessionType;
 use faketime::unix_time;
@@ -248,12 +248,12 @@ impl PeerStore for SqlitePeerStore {
         inserted > 0
     }
 
-    fn report(&mut self, peer_id: &PeerId, (score_offset, _reason): (Score, &str)) -> ReportResult {
+    fn report(&mut self, peer_id: &PeerId, behaviour: Behaviour) -> ReportResult {
         if self.is_banned(peer_id) {
             return ReportResult::Banned;
         }
         let peer = self.get_or_insert_peer_info(peer_id);
-        let score = peer.score.saturating_add(score_offset);
+        let score = peer.score.saturating_add(behaviour.score());
         if score < self.peer_score_config.ban_score {
             self.ban_peer(peer_id, self.peer_score_config.ban_timeout);
             return ReportResult::Banned;

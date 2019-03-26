@@ -26,7 +26,7 @@ use ckb_chain::chain::ChainController;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::Block;
 use ckb_core::header::{BlockNumber, Header};
-use ckb_network::{behaviour, CKBProtocolContext, CKBProtocolHandler, PeerIndex, TimerToken};
+use ckb_network::{Behaviour, CKBProtocolContext, CKBProtocolHandler, PeerIndex, TimerToken};
 use ckb_protocol::{cast, SyncMessage, SyncPayload};
 use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::Shared;
@@ -182,7 +182,7 @@ impl<CI: ChainIndex> Synchronizer<CI> {
 
     fn process(&self, nc: &CKBProtocolContext, peer: PeerIndex, message: SyncMessage) {
         if self.try_process(nc, peer, message).is_err() {
-            let _ = nc.report_peer(peer, behaviour::UNEXPECTED_MESSAGE);
+            let _ = nc.report_peer(peer, Behaviour::UnexpectedMessage);
         }
     }
 
@@ -622,7 +622,7 @@ impl<CI: ChainIndex> Synchronizer<CI> {
         }
         for peer in eviction {
             warn!(target: "sync", "timeout eviction peer={}", peer);
-            let _ = nc.report_peer(peer, behaviour::TIMEOUT);
+            let _ = nc.report_peer(peer, Behaviour::Timeout);
         }
     }
 

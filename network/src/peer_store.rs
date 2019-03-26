@@ -1,7 +1,7 @@
 pub mod sqlite;
 
-pub(crate) use crate::PeerId;
 pub use crate::{peer_store::sqlite::SqlitePeerStore, SessionType};
+pub(crate) use crate::{Behaviour, PeerId};
 use p2p::multiaddr::Multiaddr;
 use std::time::Duration;
 
@@ -35,7 +35,7 @@ pub trait PeerStore: Send + Sync {
     /// this method will assume peer and addr is untrust since we have not connected to it.
     fn add_discovered_addr(&mut self, peer_id: &PeerId, address: Multiaddr) -> bool;
     /// Report peer behaviours
-    fn report(&mut self, peer_id: &PeerId, behaviour: (Score, &str)) -> ReportResult;
+    fn report(&mut self, peer_id: &PeerId, behaviour: Behaviour) -> ReportResult;
     /// Update peer status
     fn update_status(&mut self, peer_id: &PeerId, status: Status);
     fn peer_status(&self, peer_id: &PeerId) -> Status;
