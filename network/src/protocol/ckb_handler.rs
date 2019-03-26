@@ -1,5 +1,5 @@
 use crate::errors::{Error, PeerError, ProtocolError};
-use crate::{Behaviour, Network, PeerIndex, ProtocolId, SessionInfo, TimerRegistry, TimerToken};
+use crate::{Behaviour, Network, Peer, PeerIndex, ProtocolId, SessionInfo, TimerRegistry, TimerToken};
 use bytes::Bytes;
 use ckb_util::Mutex;
 use log::debug;
@@ -27,6 +27,7 @@ pub trait CKBProtocolContext: Send {
     fn disconnect(&self, peer_index: PeerIndex);
     fn register_timer(&self, token: TimerToken, delay: Duration) -> Result<(), Error>;
     fn session_info(&self, peer_index: PeerIndex) -> Option<SessionInfo>;
+    fn modify_peer(&self, peer_index: PeerIndex, peer: Peer);
     fn protocol_version(&self, peer_index: PeerIndex, protocol_id: ProtocolId) -> Option<u8>;
     fn protocol_id(&self) -> ProtocolId;
     fn sessions(&self, peer_indexes: &[PeerIndex]) -> Vec<(PeerIndex, SessionInfo)> {
@@ -138,6 +139,14 @@ impl CKBProtocolContext for DefaultCKBProtocolContext {
             None
         }
     }
+
+    fn modify_peer(&self, peer_index: PeerIndex, peer: Peer) {
+        if let Some(peer_id) = self.network.get_peer_id(peer_index) {
+            self.network
+                .modify_peer(&peer_id, move |p: &mut Peer| *p = peer)
+        }
+    }
+
     fn protocol_version(&self, peer_index: PeerIndex, protocol_id: ProtocolId) -> Option<u8> {
         if let Some(protocol_version) = self
             .network

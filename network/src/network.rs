@@ -1,10 +1,8 @@
 use crate::errors::{ConfigError, Error, PeerError, ProtocolError};
 use crate::peer_store::{sqlite::SqlitePeerStore, PeerStore};
-use crate::peers_registry::{
-    ConnectionStatus, Peer, PeerIdentifyInfo, PeersRegistry, RegisterResult, Session,
-};
-use crate::protocol::Version as ProtocolVersion;
-use crate::protocol_handler::{CKBProtocolHandler, DefaultCKBProtocolContext};
+use crate::peers_registry::{ConnectionStatus, PeersRegistry, RegisterResult};
+use crate::protocol::ckb::Version as ProtocolVersion;
+use crate::protocol::ckb_handler::{CKBProtocolHandler, DefaultCKBProtocolContext};
 use crate::service::{
     ckb_service::CKBService,
     discovery_service::{DiscoveryEvent, DiscoveryProtocol, DiscoveryService},
@@ -13,9 +11,10 @@ use crate::service::{
     ping_service::PingService,
     timer_service::{TimerRegistry, TimerService},
 };
+use crate::Peer;
 use crate::{
     Behaviour, CKBEvent, CKBProtocol, NetworkConfig, PeerIndex, ProtocolId, ServiceContext,
-    ServiceControl, SessionType,
+    ServiceControl, SessionId, SessionType,
 };
 use bytes::Bytes;
 use ckb_util::{Mutex, RwLock};
@@ -40,7 +39,7 @@ use secio;
 use std::boxed::Box;
 use std::cmp::max;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use std::usize;
 
 const PING_PROTOCOL_ID: ProtocolId = 0;
@@ -59,29 +58,8 @@ type NetworkResult = Result<
 
 #[derive(Debug, Clone)]
 pub struct SessionInfo {
-    pub peer: PeerInfo,
+    pub peer: Peer,
     pub protocol_version: Option<u8>,
-}
-
-#[derive(Debug, Clone)]
-pub struct PeerInfo {
-    pub peer_id: PeerId,
-    pub session_type: SessionType,
-    pub last_ping_time: Option<Instant>,
-    pub connected_addr: Multiaddr,
-    pub identify_info: Option<PeerIdentifyInfo>,
-}
-
-impl PeerInfo {
-    #[inline]
-    pub fn is_outbound(&self) -> bool {
-        self.session_type == SessionType::Client
-    }
-
-    #[inline]
-    pub fn is_inbound(&self) -> bool {
-        !self.is_outbound()
-    }
 }
 
 pub struct EventReceivers {
@@ -133,7 +111,7 @@ impl Network {
         debug!(target: "network", "drop peer {:?}", peer_id);
         if let Some(peer) = self.peers_registry.write().drop_peer(&peer_id) {
             let mut p2p_control = self.p2p_control.write();
-            if let Err(err) = p2p_control.disconnect(peer.session.id) {
+            if let Err(err) = p2p_control.disconnect(peer.session_id) {
                 error!(target: "network", "disconnect peer error {:?}", err);
             }
         }
@@ -144,7 +122,7 @@ impl Network {
         let mut peers_registry = self.peers_registry.write();
         let mut p2p_control = self.p2p_control.write();
         for (_peer_id, peer) in peers_registry.peers_iter() {
-            if let Err(err) = p2p_control.disconnect(peer.session.id) {
+            if let Err(err) = p2p_control.disconnect(peer.session_id) {
                 error!(target: "network", "disconnect peer error {:?}", err);
             }
         }
@@ -181,17 +159,13 @@ impl Network {
         peers_registry.connection_status()
     }
 
-    pub(crate) fn modify_peer<F>(&self, peer_id: &PeerId, mut f: F) -> bool
+    pub(crate) fn modify_peer<F>(&self, peer_id: &PeerId, f: F)
     where
-        F: FnMut(&mut Peer) -> (),
+        F: FnOnce(&mut Peer) -> (),
     {
         let mut peers_registry = self.peers_registry.write();
-        match peers_registry.get_mut(peer_id) {
-            Some(peer) => {
-                f(peer);
-                true
-            }
-            None => false,
+        if let Some(peer) = peers_registry.get_mut(peer_id) {
+            f(peer);
         }
     }
 
@@ -262,7 +236,7 @@ impl Network {
                 Some(_) => self
                     .p2p_control
                     .write()
-                    .send_message(peer.session.id, protocol_id, data.to_vec())
+                    .send_message(peer.session_id, protocol_id, data.to_vec())
                     .map_err(|_| {
                         Error::P2P(format!(
                             "error send to peer {:?} protocol {}",
@@ -278,18 +252,25 @@ impl Network {
         &self,
         peer_id: PeerId,
         connected_addr: Multiaddr,
-        session: Session,
+        session_id: SessionId,
+        session_type: SessionType,
         protocol_id: ProtocolId,
         protocol_version: ProtocolVersion,
     ) -> Result<RegisterResult, Error> {
         let mut peers_registry = self.peers_registry.write();
-        let register_result = match session.session_type {
-            SessionType::Client => {
-                peers_registry.try_outbound_peer(peer_id.clone(), connected_addr, session)
-            }
-            SessionType::Server => {
-                peers_registry.accept_inbound_peer(peer_id.clone(), connected_addr, session)
-            }
+        let register_result = match session_type {
+            SessionType::Client => peers_registry.try_outbound_peer(
+                peer_id.clone(),
+                connected_addr,
+                session_id,
+                session_type,
+            ),
+            SessionType::Server => peers_registry.accept_inbound_peer(
+                peer_id.clone(),
+                connected_addr,
+                session_id,
+                session_type,
+            ),
         }?;
         // add session to peer
         match peers_registry.get_mut(&peer_id) {
@@ -315,13 +296,7 @@ impl Network {
         peers_registry.get(peer_id).map(|peer| {
             let protocol_version = peer.protocol_version(protocol_id);
             SessionInfo {
-                peer: PeerInfo {
-                    peer_id: peer_id.to_owned(),
-                    session_type: peer.session.session_type,
-                    last_ping_time: peer.last_ping_time,
-                    connected_addr: peer.connected_addr.clone(),
-                    identify_info: peer.identify_info.clone(),
-                },
+                peer: peer.clone(),
                 protocol_version,
             }
         })
