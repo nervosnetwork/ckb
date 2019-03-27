@@ -2,6 +2,8 @@ use crate::{CKBProtocolContext, CKBProtocolHandler, PeerIndex};
 use bytes::Bytes;
 use log::info;
 
+/// Feeler
+/// Currently do nothing, CKBProtocol auto refresh peer_store after connected.
 pub struct Feeler {}
 
 //TODO

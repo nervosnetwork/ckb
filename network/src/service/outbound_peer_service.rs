@@ -38,8 +38,7 @@ impl OutboundPeerService {
             .into_iter()
             .filter(|(peer_id, _addr)| self.network.local_peer_id() != peer_id)
         {
-            //TODO only dial feeler connection
-            let _ = self.network.dial(&peer_id, addr);
+            let _ = self.network.dial_feeler(&peer_id, addr);
         }
     }
 }
