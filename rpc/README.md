@@ -47,7 +47,6 @@ curl -d '{"id": 2, "jsonrpc": "2.0", "method":"get_block","params": ["0x087c25e2
             }
         ],
         "header": {
-            "cellbase_id": "0x3abd21e6e51674bb961bb4c5f3cee9faa5da30e64be10628dc1cef292cbae324",
             "difficulty": "0x100",
             "hash": "0x087c25e23e42f5d1e00e6984241b3711742d5e0eaf75d79a427276473e1de3f9",
             "number": 1,
@@ -155,7 +154,6 @@ curl -d '{"id": 2, "jsonrpc": "2.0", "method":"get_tip_header","params": []}' -H
 {
     "jsonrpc": "2.0",
     "result": {
-        "cellbase_id": "0xa4ecd25e3b572dc078cf000bfa1d81f1b578eeb5245c166353682919d37ebf42",
         "difficulty": "0x100",
         "hash": "0x44483beaf890d4aac2b2df90a50d9236db4a810d08f0912c1981f4a1db8086fd",
         "number": 37,

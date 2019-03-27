@@ -213,7 +213,6 @@ impl<CP: ChainProvider + Clone> UnclesVerifier<CP> {
     // -  uncles_hash
     // -  uncles_num
     // -  depth
-    // -  uncle cellbase_id
     // -  uncle not in main chain
     // -  uncle duplicate
     pub fn verify(&self, block: &Block) -> Result<(), Error> {

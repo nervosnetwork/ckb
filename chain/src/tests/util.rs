@@ -58,8 +58,7 @@ pub(crate) fn gen_block(
         .parent_hash(parent_header.hash().clone())
         .timestamp(unix_time_as_millis())
         .number(number)
-        .difficulty(difficulty)
-        .cellbase_id(cellbase.hash());
+        .difficulty(difficulty);
 
     BlockBuilder::default()
         .commit_transaction(cellbase)

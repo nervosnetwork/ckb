@@ -58,9 +58,9 @@ impl Miner {
                 // uncles_count_limit,
             } = template;
 
-            let (cellbase_id, cellbase) = {
-                let CellbaseTemplate { hash, data, .. } = cellbase;
-                (hash, data)
+            let cellbase = {
+                let CellbaseTemplate { data, .. } = cellbase;
+                data
             };
 
             let header_builder = HeaderBuilder::default()
@@ -68,8 +68,7 @@ impl Miner {
                 .number(number)
                 .difficulty(difficulty)
                 .timestamp(current_time)
-                .parent_hash(parent_hash)
-                .cellbase_id(cellbase_id);
+                .parent_hash(parent_hash);
 
             let block = BlockBuilder::default()
                 .uncles(uncles.into_iter().map(Into::into).collect())

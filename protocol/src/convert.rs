@@ -151,7 +151,6 @@ impl<'a> TryFrom<ckb_protocol::Header<'a>> for ckb_core::header::Header {
         let parent_hash = cast!(header.parent_hash())?;
         let txs_commit = cast!(header.txs_commit())?;
         let txs_proposal = cast!(header.txs_proposal())?;
-        let cellbase_id = cast!(header.cellbase_id())?;
         let uncles_hash = cast!(header.uncles_hash())?;
 
         Ok(ckb_core::header::HeaderBuilder::default()
@@ -164,7 +163,6 @@ impl<'a> TryFrom<ckb_protocol::Header<'a>> for ckb_core::header::Header {
             .difficulty(U256::from_little_endian(cast!(header
                 .difficulty()
                 .and_then(|d| d.seq()))?)?)
-            .cellbase_id(TryInto::try_into(cellbase_id)?)
             .uncles_hash(TryInto::try_into(uncles_hash)?)
             .nonce(header.nonce())
             .proof(cast!(header
