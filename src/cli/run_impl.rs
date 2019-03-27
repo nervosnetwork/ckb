@@ -35,7 +35,6 @@ pub fn run(setup: Setup) {
 
     let chain_controller = setup_chain(shared.clone(), notify.clone());
     info!(target: "main", "chain genesis hash: {:#x}", shared.genesis_hash());
-    // let tx_pool_controller = setup_tx_pool(setup.configs.pool, shared.clone(), notify.clone());
 
     let block_assembler =
         BlockAssembler::new(shared.clone(), setup.configs.block_assembler.type_hash);
@@ -118,15 +117,6 @@ fn setup_chain<CI: ChainIndex + 'static>(
     let chain_service = ChainBuilder::new(shared, notify).build();
     chain_service.start(Some("ChainService"))
 }
-
-// fn setup_tx_pool<CI: ChainIndex + 'static>(
-//     config: PoolConfig,
-//     shared: Shared<CI>,
-//     notify: NotifyController,
-// ) -> TransactionPoolController {
-//     let tx_pool_service = TransactionPoolService::new(config, shared, notify);
-//     tx_pool_service.start(Some("TransactionPoolService"))
-// }
 
 pub fn type_hash(setup: &Setup) {
     let consensus = setup.chain_spec.to_consensus().unwrap();

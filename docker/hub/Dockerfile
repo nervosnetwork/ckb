@@ -41,7 +41,7 @@ RUN ./rustup-init -y --no-modify-path --default-toolchain $RUST_VERSION; \
 WORKDIR /ckb
 COPY ./ .
 
-RUN cargo build --release
+RUN make prod
 
 
 FROM ubuntu:bionic

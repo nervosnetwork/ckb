@@ -1,7 +1,7 @@
 use crate::{sleep, Net, Spec};
 use log::info;
 
-pub struct BlockRelayBasic {}
+pub struct BlockRelayBasic;
 
 impl Spec for BlockRelayBasic {
     fn run(&self, net: &Net) {

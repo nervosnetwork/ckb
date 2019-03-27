@@ -1,4 +1,5 @@
 use ckb_core::BlockNumber;
+use ckb_shared::tx_pool::TxTrace;
 use jsonrpc_client_core::{expand_params, jsonrpc_client};
 use jsonrpc_types::{Block, BlockTemplate, Header, LocalNode, Transaction};
 use numext_fixed_hash::H256;
@@ -12,6 +13,8 @@ jsonrpc_client!(pub struct RpcClient {
     pub fn submit_block(&mut self, work_id: String, data: Block) -> RpcRequest<Option<H256>>;
 
     pub fn send_transaction(&mut self, tx: Transaction) -> RpcRequest<H256>;
+    pub fn trace_transaction(&mut self, tx: Transaction) -> RpcRequest<H256>;
+    pub fn get_transaction_trace(&mut self, hash: H256) -> RpcRequest<Option<Vec<TxTrace>>>;
     pub fn get_pool_transaction(&mut self, hash: H256) -> RpcRequest<Option<Transaction>>;
 
     pub fn get_block(&mut self, hash: H256) -> RpcRequest<Option<Block>>;
