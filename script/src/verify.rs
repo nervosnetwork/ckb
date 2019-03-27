@@ -1,6 +1,8 @@
 use crate::{
     cost_model::instruction_cycles,
-    syscalls::{build_tx, Debugger, LoadCell, LoadCellByField, LoadInputByField, LoadTx},
+    syscalls::{
+        build_tx, Debugger, LoadCell, LoadCellByField, LoadEmbed, LoadInputByField, LoadTx,
+    },
     ScriptError,
 };
 use ckb_core::cell::ResolvedTransaction;
@@ -24,6 +26,7 @@ pub struct TransactionScriptsVerifier<'a> {
     tx_builder: FlatBufferBuilder<'a>,
     input_cells: Vec<&'a CellOutput>,
     dep_cells: Vec<&'a CellOutput>,
+    embeds: Vec<&'a Vec<u8>>,
     hash: H256,
 }
 
@@ -47,12 +50,13 @@ impl<'a> TransactionScriptsVerifier<'a> {
             .collect();
         let inputs = rtx.transaction.inputs().iter().collect();
         let outputs = rtx.transaction.outputs().iter().collect();
+        let embeds: Vec<&'a Vec<u8>> = rtx.transaction.embeds().iter().collect();
 
         let mut binary_index: FnvHashMap<H256, &'a [u8]> = FnvHashMap::default();
         for dep_cell in &dep_cells {
             binary_index.insert(dep_cell.data_hash(), &dep_cell.data);
         }
-        for embed in rtx.transaction.embeds() {
+        for embed in &embeds {
             binary_index.insert(blake2b_256(&embed).into(), &embed);
         }
 
@@ -67,12 +71,17 @@ impl<'a> TransactionScriptsVerifier<'a> {
             outputs,
             input_cells,
             dep_cells,
+            embeds,
             hash: rtx.transaction.hash().clone(),
         }
     }
 
     fn build_load_tx(&self) -> LoadTx {
         LoadTx::new(self.tx_builder.finished_data())
+    }
+
+    fn build_load_embeds(&self) -> LoadEmbed {
+        LoadEmbed::new(&self.embeds)
     }
 
     fn build_load_cell(&self, current_cell: &'a CellOutput) -> LoadCell {
@@ -128,6 +137,7 @@ impl<'a> TransactionScriptsVerifier<'a> {
             machine.add_syscall_module(Box::new(self.build_load_cell(current_cell)));
             machine.add_syscall_module(Box::new(self.build_load_cell_by_field(current_cell)));
             machine.add_syscall_module(Box::new(self.build_load_input_by_field(current_input)));
+            machine.add_syscall_module(Box::new(self.build_load_embeds()));
             machine.add_syscall_module(Box::new(Debugger::new(prefix)));
             machine
                 .run(script_binary, &args)
