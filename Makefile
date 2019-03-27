@@ -1,3 +1,5 @@
+FLATC   := flatc
+CFBC    := cfbc
 VERBOSE := $(if ${CI},--verbose,)
 
 test:
@@ -50,6 +52,19 @@ security-audit:
 docker:
 	docker build -f docker/hub/Dockerfile -t nervos/ckb:latest .
 
-.PHONY: build prod prod-test docker
-.PHONY: fmt test clippy proto doc doc-deps check stats
+GEN_FILES := protocol/src/protocol_generated.rs protocol/src/protocol_generated_verifier.rs
+gen: ${GEN_FILES}
+gen-clean:
+	rm -f ${GEN_FILES}
+
+%_generated.rs: %.fbs
+	$(FLATC) -r -o $(shell dirname $@) $<
+
+%_generated_verifier.rs: %.fbs
+	$(FLATC) -b --schema -o $(shell dirname $@) $<
+	$(CFBC) -o $(shell dirname $@) $*.bfbs
+	rm -f $*.bfbs $*_builder.rs
+
+.PHONY: build prod prod-test docker gen gen-clean
+.PHONY: fmt test clippy doc doc-deps check stats
 .PHONY: ci info security-audit
