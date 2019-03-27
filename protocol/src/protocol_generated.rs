@@ -1439,7 +1439,6 @@ impl<'a> Transaction<'a> {
         _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr>,
         args: &'args TransactionArgs<'args>) -> flatbuffers::WIPOffset<Transaction<'bldr>> {
       let mut builder = TransactionBuilder::new(_fbb);
-      if let Some(x) = args.embeds { builder.add_embeds(x); }
       if let Some(x) = args.outputs { builder.add_outputs(x); }
       if let Some(x) = args.inputs { builder.add_inputs(x); }
       if let Some(x) = args.deps { builder.add_deps(x); }
@@ -1451,7 +1450,6 @@ impl<'a> Transaction<'a> {
     pub const VT_DEPS: flatbuffers::VOffsetT = 6;
     pub const VT_INPUTS: flatbuffers::VOffsetT = 8;
     pub const VT_OUTPUTS: flatbuffers::VOffsetT = 10;
-    pub const VT_EMBEDS: flatbuffers::VOffsetT = 12;
 
   #[inline]
   pub fn version(&self) -> u32 {
@@ -1469,10 +1467,6 @@ impl<'a> Transaction<'a> {
   pub fn outputs(&self) -> Option<flatbuffers::Vector<flatbuffers::ForwardsUOffset<CellOutput<'a>>>> {
     self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<flatbuffers::ForwardsUOffset<CellOutput<'a>>>>>(Transaction::VT_OUTPUTS, None)
   }
-  #[inline]
-  pub fn embeds(&self) -> Option<flatbuffers::Vector<flatbuffers::ForwardsUOffset<Bytes<'a>>>> {
-    self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<flatbuffers::ForwardsUOffset<Bytes<'a>>>>>(Transaction::VT_EMBEDS, None)
-  }
 }
 
 pub struct TransactionArgs<'a> {
@@ -1480,7 +1474,6 @@ pub struct TransactionArgs<'a> {
     pub deps: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a , flatbuffers::ForwardsUOffset<OutPoint<'a >>>>>,
     pub inputs: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a , flatbuffers::ForwardsUOffset<CellInput<'a >>>>>,
     pub outputs: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a , flatbuffers::ForwardsUOffset<CellOutput<'a >>>>>,
-    pub embeds: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a , flatbuffers::ForwardsUOffset<Bytes<'a >>>>>,
 }
 impl<'a> Default for TransactionArgs<'a> {
     #[inline]
@@ -1490,7 +1483,6 @@ impl<'a> Default for TransactionArgs<'a> {
             deps: None,
             inputs: None,
             outputs: None,
-            embeds: None,
         }
     }
 }
@@ -1514,10 +1506,6 @@ impl<'a: 'b, 'b> TransactionBuilder<'a, 'b> {
   #[inline]
   pub fn add_outputs(&mut self, outputs: flatbuffers::WIPOffset<flatbuffers::Vector<'b , flatbuffers::ForwardsUOffset<CellOutput<'b >>>>) {
     self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(Transaction::VT_OUTPUTS, outputs);
-  }
-  #[inline]
-  pub fn add_embeds(&mut self, embeds: flatbuffers::WIPOffset<flatbuffers::Vector<'b , flatbuffers::ForwardsUOffset<Bytes<'b >>>>) {
-    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(Transaction::VT_EMBEDS, embeds);
   }
   #[inline]
   pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>) -> TransactionBuilder<'a, 'b> {

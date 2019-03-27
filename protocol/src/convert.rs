@@ -197,17 +197,11 @@ impl<'a> TryFrom<ckb_protocol::Transaction<'a>> for ckb_core::transaction::Trans
                 .map(TryInto::try_into)
                 .collect();
 
-        let embeds: Option<Vec<Vec<u8>>> =
-            FlatbuffersVectorIterator::new(cast!(transaction.embeds())?)
-                .map(|embed| embed.seq().map(|s| s.to_vec()))
-                .collect();
-
         Ok(ckb_core::transaction::TransactionBuilder::default()
             .version(transaction.version())
             .deps(deps?)
             .inputs(inputs?)
             .outputs(outputs?)
-            .embeds(cast!(embeds)?)
             .build())
     }
 }

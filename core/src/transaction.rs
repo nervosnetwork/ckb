@@ -147,10 +147,6 @@ pub struct Transaction {
     deps: Vec<OutPoint>,
     inputs: Vec<CellInput>,
     outputs: Vec<CellOutput>,
-    // Embeds are used to directly embed binaries used in scripts. This way CKB
-    // provides a way to reference the data from an already spent cell, or a script
-    // that's not yet included in any cell.
-    embeds: Vec<Vec<u8>>,
 }
 
 impl Hash for Transaction {
@@ -248,10 +244,6 @@ impl Transaction {
 
     pub fn outputs(&self) -> &[CellOutput] {
         &self.outputs
-    }
-
-    pub fn embeds(&self) -> &[Vec<u8>] {
-        &self.embeds
     }
 
     pub fn is_cellbase(&self) -> bool {
@@ -369,21 +361,6 @@ impl TransactionBuilder {
 
     pub fn outputs_clear(mut self) -> Self {
         self.inner.outputs.clear();
-        self
-    }
-
-    pub fn embed(mut self, embed: Vec<u8>) -> Self {
-        self.inner.embeds.push(embed);
-        self
-    }
-
-    pub fn embeds(mut self, embeds: Vec<Vec<u8>>) -> Self {
-        self.inner.embeds.extend(embeds);
-        self
-    }
-
-    pub fn embeds_clear(mut self) -> Self {
-        self.inner.embeds.clear();
         self
     }
 

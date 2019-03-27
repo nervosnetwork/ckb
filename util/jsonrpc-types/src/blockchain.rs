@@ -139,7 +139,6 @@ pub struct Transaction {
     pub deps: Vec<OutPoint>,
     pub inputs: Vec<CellInput>,
     pub outputs: Vec<CellOutput>,
-    pub embeds: Vec<Bytes>,
     #[serde(skip_deserializing)]
     pub hash: H256,
 }
@@ -153,7 +152,6 @@ impl<'a> From<&'a CoreTransaction> for Transaction {
             deps: core.deps().iter().cloned().map(Into::into).collect(),
             inputs: core.inputs().iter().cloned().map(Into::into).collect(),
             outputs: core.outputs().iter().cloned().map(Into::into).collect(),
-            embeds: core.embeds().iter().cloned().map(Bytes::new).collect(),
             hash,
         }
     }
@@ -166,7 +164,6 @@ impl From<Transaction> for CoreTransaction {
             deps,
             inputs,
             outputs,
-            embeds,
             ..
         } = json;
 
@@ -175,7 +172,6 @@ impl From<Transaction> for CoreTransaction {
             .deps(deps.into_iter().map(Into::into).collect())
             .inputs(inputs.into_iter().map(Into::into).collect())
             .outputs(outputs.into_iter().map(Into::into).collect())
-            .embeds(embeds.into_iter().map(|embed| embed.into_vec()).collect())
             .build()
     }
 }
@@ -369,37 +365,32 @@ mod tests {
         CoreCellInput::new(CoreOutPoint::default(), vec![arg])
     }
 
-    fn mock_full_tx(data: Vec<u8>, arg: Vec<u8>, binary: Vec<u8>) -> CoreTransaction {
+    fn mock_full_tx(data: Vec<u8>, arg: Vec<u8>) -> CoreTransaction {
         TransactionBuilder::default()
             .deps(vec![CoreOutPoint::default()])
             .inputs(vec![mock_cell_input(arg.clone())])
             .outputs(vec![mock_cell_output(data, arg)])
-            .embed(binary)
             .build()
     }
 
-    fn mock_uncle(data: Vec<u8>, arg: Vec<u8>, binary: Vec<u8>) -> CoreUncleBlock {
+    fn mock_uncle(data: Vec<u8>, arg: Vec<u8>) -> CoreUncleBlock {
         CoreUncleBlock::new(
             HeaderBuilder::default().build(),
-            mock_full_tx(data, arg, binary),
+            mock_full_tx(data, arg),
             vec![CoreProposalShortId::default()],
         )
     }
 
-    fn mock_full_block(data: Vec<u8>, arg: Vec<u8>, binary: Vec<u8>) -> CoreBlock {
+    fn mock_full_block(data: Vec<u8>, arg: Vec<u8>) -> CoreBlock {
         BlockBuilder::default()
-            .uncles(vec![mock_uncle(data.clone(), arg.clone(), binary.clone())])
-            .commit_transactions(vec![mock_full_tx(data, arg, binary)])
+            .uncles(vec![mock_uncle(data.clone(), arg.clone())])
+            .commit_transactions(vec![mock_full_tx(data, arg)])
             .proposal_transactions(vec![CoreProposalShortId::default()])
             .build()
     }
 
-    fn _test_block_convert(
-        data: Vec<u8>,
-        arg: Vec<u8>,
-        binary: Vec<u8>,
-    ) -> Result<(), TestCaseError> {
-        let block = mock_full_block(data, arg, binary);
+    fn _test_block_convert(data: Vec<u8>, arg: Vec<u8>) -> Result<(), TestCaseError> {
+        let block = mock_full_block(data, arg);
         let json_block: Block = (&block).into();
         let encoded = serde_json::to_string(&json_block).unwrap();
         let decode: Block = serde_json::from_str(&encoded).unwrap();
@@ -413,9 +404,8 @@ mod tests {
         fn test_block_convert(
             data in any_with::<Vec<u8>>(size_range(80).lift()),
             arg in any_with::<Vec<u8>>(size_range(80).lift()),
-            binary in any_with::<Vec<u8>>(size_range(80).lift())
         ) {
-            _test_block_convert(data, arg, binary)?;
+            _test_block_convert(data, arg)?;
         }
     }
 }

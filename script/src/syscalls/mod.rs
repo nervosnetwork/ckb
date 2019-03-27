@@ -2,7 +2,6 @@ mod builder;
 mod debugger;
 mod load_cell;
 mod load_cell_by_field;
-mod load_embed;
 mod load_input_by_field;
 mod load_tx;
 mod utils;
@@ -11,7 +10,6 @@ pub use self::builder::build_tx;
 pub use self::debugger::Debugger;
 pub use self::load_cell::LoadCell;
 pub use self::load_cell_by_field::LoadCellByField;
-pub use self::load_embed::LoadEmbed;
 pub use self::load_input_by_field::LoadInputByField;
 pub use self::load_tx::LoadTx;
 
@@ -24,7 +22,6 @@ pub const LOAD_TX_SYSCALL_NUMBER: u64 = 2049;
 pub const LOAD_CELL_SYSCALL_NUMBER: u64 = 2053;
 pub const LOAD_CELL_BY_FIELD_SYSCALL_NUMBER: u64 = 2054;
 pub const LOAD_INPUT_BY_FIELD_SYSCALL_NUMBER: u64 = 2055;
-pub const LOAD_EMBED_SYSCALL_NUMBER: u64 = 2056;
 pub const DEBUG_PRINT_SYSCALL_NUMBER: u64 = 2177;
 
 #[derive(Debug, PartialEq, Clone, Copy, Eq)]
@@ -920,47 +917,6 @@ mod tests {
         #[test]
         fn test_load_dep_cell_data_hash(ref data in any_with::<Vec<u8>>(size_range(1000).lift())) {
             _test_load_dep_cell_data_hash(data)?;
-        }
-    }
-
-    fn _test_load_embed(data: Vec<u8>) -> Result<(), TestCaseError> {
-        let mut machine = DefaultCoreMachine::<u64, SparseMemory>::default();
-        let size_addr = 0;
-        let addr = 100;
-
-        machine.registers_mut()[A0] = addr; // addr
-        machine.registers_mut()[A1] = size_addr; // size_addr
-        machine.registers_mut()[A2] = 0; // offset
-        machine.registers_mut()[A3] = 1; //index
-        machine.registers_mut()[A7] = LOAD_EMBED_SYSCALL_NUMBER; // syscall number
-
-        let empty_embed = vec![];
-        let embeds = vec![&empty_embed, &data];
-        let mut load_embed = LoadEmbed::new(&embeds);
-
-        prop_assert!(machine
-            .memory_mut()
-            .store64(size_addr as usize, data.len() as u64 + 20)
-            .is_ok());
-
-        prop_assert!(load_embed.ecall(&mut machine).is_ok());
-        prop_assert_eq!(machine.registers()[A0], u64::from(SUCCESS));
-
-        prop_assert_eq!(
-            machine.memory_mut().load64(size_addr as usize),
-            Ok(data.len() as u64)
-        );
-
-        for (i, addr) in (addr as usize..addr as usize + data.len() as usize).enumerate() {
-            prop_assert_eq!(machine.memory_mut().load8(addr), Ok(data[i]));
-        }
-        Ok(())
-    }
-
-    proptest! {
-        #[test]
-        fn test_load_embed(data in any_with::<Vec<u8>>(size_range(1000).lift())) {
-            _test_load_embed(data)?;
         }
     }
 }

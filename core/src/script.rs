@@ -7,18 +7,19 @@ use std::fmt;
 use std::io::Write;
 use std::mem;
 
+pub const ALWAYS_SUCCESS_HASH: [u8; 32] = [
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
+];
+
 // TODO: when flatbuffer work is done, remove Serialize/Deserialize here and
 // implement proper From trait
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct Script {
     pub version: u8,
     pub args: Vec<Vec<u8>>,
-    // Binary hash here can be used to refer to binary in any of the
-    // following locations:
-    // 1. Data part of a dep cell in current transaction, binary hash
-    // must be the hash of the cell data so as to reference this cell
-    // 2. An embed item in current transaction, binary hash must be the
-    // hash of the embed item to reference this item
+    // Binary hash here can be used to refer to binary in one of the dep
+    // cells of current transaction. The hash here must match the hash of
+    // cell data so as to reference a dep cell.
     pub binary_hash: H256,
 }
 
@@ -55,6 +56,10 @@ impl Script {
             args,
             binary_hash,
         }
+    }
+
+    pub fn always_success() -> Self {
+        Self::new(0, vec![], H256(ALWAYS_SUCCESS_HASH))
     }
 
     pub fn destruct(self) -> ScriptTuple {

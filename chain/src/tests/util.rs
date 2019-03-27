@@ -13,12 +13,8 @@ use ckb_shared::shared::Shared;
 use ckb_shared::shared::SharedBuilder;
 use ckb_shared::store::ChainKVStore;
 use faketime::unix_time_as_millis;
-use hash::blake2b_256;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
-use std::fs::File;
-use std::io::Read;
-use std::path::Path;
 
 pub(crate) fn start_chain(
     consensus: Option<Consensus>,
@@ -38,11 +34,14 @@ pub(crate) fn start_chain(
 }
 
 fn create_cellbase(number: BlockNumber) -> Transaction {
-    let (script, binary) = create_script();
     TransactionBuilder::default()
         .input(CellInput::new_cellbase_input(number))
-        .output(CellOutput::new(5000, vec![], script, None))
-        .embed(binary)
+        .output(CellOutput::new(
+            5000,
+            vec![],
+            Script::always_success(),
+            None,
+        ))
         .build()
 }
 
@@ -76,22 +75,13 @@ pub(crate) fn gen_block(
 }
 
 pub(crate) fn create_transaction(parent: H256, unique_data: u8) -> Transaction {
-    let (script, binary) = create_script();
     TransactionBuilder::default()
-        .output(CellOutput::new(5000, vec![unique_data], script, None))
+        .output(CellOutput::new(
+            5000,
+            vec![unique_data],
+            Script::always_success(),
+            None,
+        ))
         .input(CellInput::new(OutPoint::new(parent, 0), vec![]))
-        .embed(binary)
         .build()
-}
-
-fn create_script() -> (Script, Vec<u8>) {
-    let mut file = File::open(
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../nodes_template/spec/cells/always_success"),
-    )
-    .unwrap();
-    let mut buffer = Vec::new();
-    file.read_to_end(&mut buffer).unwrap();
-
-    let script = Script::new(0, Vec::new(), (&blake2b_256(&buffer)).into());
-    (script, buffer)
 }

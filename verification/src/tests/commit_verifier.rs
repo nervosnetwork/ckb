@@ -15,12 +15,8 @@ use ckb_notify::NotifyService;
 use ckb_shared::shared::{Shared, SharedBuilder};
 use ckb_shared::store::ChainKVStore;
 use ckb_traits::ChainProvider;
-use hash::blake2b_256;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
-use std::fs::File;
-use std::io::Read;
-use std::path::Path;
 use std::sync::Arc;
 
 fn gen_block(
@@ -49,22 +45,14 @@ fn gen_block(
         .with_header_builder(header_builder)
 }
 
-fn get_script() -> (Script, Vec<u8>) {
-    let mut file = File::open(
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../nodes_template/spec/cells/always_success"),
-    )
-    .unwrap();
-    let mut buffer = Vec::new();
-    file.read_to_end(&mut buffer).unwrap();
-
-    let script = Script::new(0, Vec::new(), (&blake2b_256(&buffer)).into());
-    (script, buffer)
-}
-
 fn create_transaction(parent: &H256) -> Transaction {
-    let (script, binary) = get_script();
     let capacity = 100_000_000 / 100 as u64;
-    let output = CellOutput::new(capacity, Vec::new(), script.clone(), Some(script.clone()));
+    let output = CellOutput::new(
+        capacity,
+        Vec::new(),
+        Script::always_success(),
+        Some(Script::always_success()),
+    );
     let inputs: Vec<CellInput> = (0..100)
         .map(|index| CellInput::new(OutPoint::new(parent.clone(), index), vec![]))
         .collect();
@@ -72,7 +60,6 @@ fn create_transaction(parent: &H256) -> Transaction {
     TransactionBuilder::default()
         .inputs(inputs)
         .outputs(vec![output; 100])
-        .embed(binary)
         .build()
 }
 
@@ -105,19 +92,17 @@ fn setup_env() -> (
     Shared<ChainKVStore<MemoryKeyValueDB>>,
     H256,
 ) {
-    let (script, binary) = get_script();
     let tx = TransactionBuilder::default()
         .input(CellInput::new(OutPoint::null(), Default::default()))
         .outputs(vec![
             CellOutput::new(
                 1_000_000,
                 Vec::new(),
-                script.clone(),
-                Some(script),
+                Script::always_success(),
+                Some(Script::always_success()),
             );
             100
         ])
-        .embed(binary)
         .build();
     let tx_hash = tx.hash();
     let genesis_block = BlockBuilder::default().commit_transaction(tx).build();
