@@ -39,13 +39,13 @@ fn generate_random_key() -> [u8; 32] {
 impl NetworkConfig {
     pub fn secret_key_path(&self) -> PathBuf {
         let mut path = self.path.clone();
-        path.set_file_name("secret_key");
+        path.push("secret_key");
         path
     }
 
     pub fn peer_store_path(&self) -> PathBuf {
         let mut path = self.path.clone();
-        path.set_file_name("peer_store.db");
+        path.push("peer_store.db");
         path
     }
 
