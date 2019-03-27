@@ -20,7 +20,7 @@ pub struct NetworkConfig {
     pub reserved_only: bool,
     pub max_peers: u32,
     pub max_outbound_peers: u32,
-    pub config_dir_path: PathBuf,
+    pub path: PathBuf,
     pub ping_interval_secs: u64,
     pub ping_timeout_secs: u64,
     pub connect_outbound_interval_secs: u64,
@@ -38,20 +38,20 @@ fn generate_random_key() -> [u8; 32] {
 
 impl NetworkConfig {
     pub fn secret_key_path(&self) -> PathBuf {
-        let mut path = self.config_dir_path.clone();
+        let mut path = self.path.clone();
         path.set_file_name("secret_key");
         path
     }
 
     pub fn peer_store_path(&self) -> PathBuf {
-        let mut path = self.config_dir_path.clone();
+        let mut path = self.path.clone();
         path.set_file_name("peer_store.db");
         path
     }
 
     pub fn create_dir_if_not_exists(&self) -> Result<(), Error> {
-        if !self.config_dir_path.exists() {
-            fs::create_dir(&self.config_dir_path)?;
+        if !self.path.exists() {
+            fs::create_dir(&self.path)?;
         }
         Ok(())
     }

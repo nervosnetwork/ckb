@@ -12,6 +12,7 @@ filter = "info,network=trace,rpc=debug,sync=debug,relay=debug"
 color = true
 
 [network]
+path = "default/network"
 listen_addresses = ["/ip4/0.0.0.0/tcp/P2P_PORT"]
 public_addresses = []
 bootnodes = []
@@ -19,7 +20,6 @@ reserved_peers = []
 reserved_only = false
 max_peers = 125
 max_outbound_peers = 30
-config_dir_path = "default/network"
 ping_interval_secs = 15
 ping_timeout_secs = 20
 connect_outbound_interval_secs = 1

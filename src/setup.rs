@@ -109,6 +109,9 @@ impl Configs {
         if self.db.path.is_relative() {
             self.db.path = base.join(&self.db.path);
         }
+        if self.network.path.is_relative() {
+            self.network.path = base.join(&self.network.path);
+        }
     }
 }
 
