@@ -111,7 +111,6 @@ pub struct Genesis {
     pub txs_commit: H256,
     pub txs_proposal: H256,
     pub difficulty: U256,
-    pub cellbase_id: H256,
     pub uncles_hash: H256,
 }
 
@@ -161,7 +160,6 @@ impl ChainSpec {
             .difficulty(self.genesis.difficulty.clone())
             .nonce(self.genesis.seal.nonce)
             .proof(self.genesis.seal.proof.to_vec())
-            .cellbase_id(self.genesis.cellbase_id.clone())
             .uncles_hash(self.genesis.uncles_hash.clone())
             .build();
 

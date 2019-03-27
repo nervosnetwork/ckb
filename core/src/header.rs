@@ -55,8 +55,6 @@ pub struct RawHeader {
     txs_proposal: H256,
     /// Block difficulty.
     difficulty: U256,
-    /// Hash of the cellbase
-    cellbase_id: H256,
     /// Hash of the uncles
     uncles_hash: H256,
     /// Number of the uncles
@@ -113,7 +111,6 @@ impl fmt::Debug for Header {
                 &format_args!("{:#x}", self.raw.txs_proposal),
             )
             .field("difficulty", &format_args!("{:#x}", self.raw.difficulty))
-            .field("cellbase_id", &format_args!("{:#x}", self.raw.cellbase_id))
             .field("uncles_hash", &format_args!("{:#x}", self.raw.uncles_hash))
             .field("uncles_count", &self.raw.uncles_count)
             .field("seal", &self.seal)
@@ -172,10 +169,6 @@ impl Header {
 
     pub fn txs_proposal(&self) -> &H256 {
         &self.raw.txs_proposal
-    }
-
-    pub fn cellbase_id(&self) -> &H256 {
-        &self.raw.cellbase_id
     }
 
     pub fn uncles_hash(&self) -> &H256 {
@@ -265,11 +258,6 @@ impl HeaderBuilder {
 
     pub fn txs_proposal(mut self, hash: H256) -> Self {
         self.inner.raw.txs_proposal = hash;
-        self
-    }
-
-    pub fn cellbase_id(mut self, hash: H256) -> Self {
-        self.inner.raw.cellbase_id = hash;
         self
     }
 

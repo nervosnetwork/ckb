@@ -43,7 +43,6 @@ table Header {
     difficulty:     Bytes;
     nonce:          uint64;
     proof:          Bytes;
-    cellbase_id:    H256;
     uncles_hash:    H256;
     uncles_count:   uint32;
 }
