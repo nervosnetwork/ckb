@@ -1,5 +1,5 @@
 use crate::helper::{require_path_exists, to_absolute_path};
-use ckb_chain_spec::ChainSpec;
+use ckb_chain_spec::{ChainSpec, SpecPath};
 use ckb_miner::{Client, Miner, MinerConfig};
 use ckb_util::Mutex;
 use clap::ArgMatches;
@@ -19,15 +19,13 @@ struct Config {
     pub logger: LogConfig,
     #[serde(flatten)]
     pub miner: MinerConfig,
-    pub chain: PathBuf,
+    pub chain: SpecPath,
     pub data_dir: PathBuf,
 }
 
 impl Config {
     fn resolve_paths(&mut self, base: &Path) {
-        if self.chain.is_relative() {
-            self.chain = base.join(&self.chain);
-        }
+        self.chain = self.chain.expand_path(base);
 
         if self.data_dir.is_relative() {
             self.data_dir = base.join(&self.data_dir);

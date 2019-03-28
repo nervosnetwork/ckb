@@ -5,6 +5,9 @@
 //! In order to run a chain different to the official public one,
 //! with a config file specifying chain = "path" under [ckb].
 
+// Shields clippy errors in generated chainspecs.rs file.
+#![allow(clippy::unreadable_literal)]
+
 use crate::consensus::Consensus;
 use ckb_core::block::BlockBuilder;
 use ckb_core::header::HeaderBuilder;
@@ -16,12 +19,98 @@ use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 use serde_derive::Deserialize;
 use std::error::Error;
+use std::fmt;
 use std::fs::File;
 use std::io::Read;
-use std::path::{Path, PathBuf};
+use std::path::{Display, Path, PathBuf};
 use std::sync::Arc;
 
 pub mod consensus;
+
+include!(concat!(env!("OUT_DIR"), "/chainspecs.rs"));
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SpecPath {
+    Testnet,
+    Local(PathBuf),
+}
+
+struct SpecPathVisitor;
+
+impl<'de> serde::de::Visitor<'de> for SpecPathVisitor {
+    type Value = SpecPath;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+        formatter.write_str("a utf8 string either containing spec file path or hardcoded value")
+    }
+
+    fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        let result = match v {
+            "testnet" => SpecPath::Testnet,
+            path => SpecPath::Local(PathBuf::from(path)),
+        };
+        Ok(result)
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for SpecPath {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        deserializer.deserialize_str(SpecPathVisitor)
+    }
+}
+
+impl SpecPath {
+    pub fn display(&self) -> Display {
+        match self {
+            SpecPath::Testnet => Path::new("testnet").display(),
+            SpecPath::Local(path) => path.display(),
+        }
+    }
+
+    pub fn expand_path<P: AsRef<Path>>(&self, base: P) -> Self {
+        match self {
+            SpecPath::Testnet => SpecPath::Testnet,
+            SpecPath::Local(path) => {
+                if path.is_relative() {
+                    SpecPath::Local(base.as_ref().join(path))
+                } else {
+                    SpecPath::Local(path.to_path_buf())
+                }
+            }
+        }
+    }
+
+    fn path(&self) -> PathBuf {
+        match self {
+            SpecPath::Testnet => PathBuf::from("testnet/testnet.toml"),
+            SpecPath::Local(path) => PathBuf::from(path),
+        }
+    }
+
+    fn load_file<P: AsRef<Path>>(&self, path: P) -> Result<Vec<u8>, Box<Error>> {
+        match self {
+            SpecPath::Testnet => {
+                let s = path.as_ref().to_str().expect("chain spec path");
+                Ok(FILES
+                    .get(&format!("chainspecs/{}", s))
+                    .expect("hardcoded spec")
+                    .to_vec())
+            }
+            SpecPath::Local(_) => {
+                let mut file = File::open(&path)?;
+                let mut data = Vec::new();
+                file.read_to_end(&mut data)?;
+                Ok(data)
+            }
+        }
+    }
+}
 
 #[derive(Clone, PartialEq, Eq, Debug, Deserialize)]
 pub struct ChainSpec {
@@ -64,12 +153,11 @@ pub struct SystemCell {
 
 pub(self) fn build_system_cell_transaction(
     cells: &[SystemCell],
+    spec_path: &SpecPath,
 ) -> Result<Transaction, Box<Error>> {
     let mut outputs = Vec::new();
     for system_cell in cells {
-        let mut file = File::open(&system_cell.path)?;
-        let mut data = Vec::new();
-        file.read_to_end(&mut data)?;
+        let data = spec_path.load_file(&system_cell.path)?;
 
         // TODO: we should provide a proper lock script here so system cells
         // can be updated.
@@ -81,10 +169,12 @@ pub(self) fn build_system_cell_transaction(
 }
 
 impl ChainSpec {
-    pub fn read_from_file<P: AsRef<Path>>(path: P) -> Result<ChainSpec, Box<Error>> {
-        let config_str = std::fs::read_to_string(path.as_ref())?;
+    pub fn read_from_file(spec_path: &SpecPath) -> Result<ChainSpec, Box<Error>> {
+        let config_bytes = spec_path.load_file(spec_path.path())?;
+        let config_str = String::from_utf8(config_bytes)?;
         let mut spec: Self = toml::from_str(&config_str)?;
-        spec.resolve_paths(path.as_ref().parent().expect("chain spec path resolve"));
+        spec.resolve_paths(spec_path.path().parent().expect("chain spec path resolve"));
+
         Ok(spec)
     }
 
@@ -92,7 +182,7 @@ impl ChainSpec {
         self.pow.engine()
     }
 
-    pub fn to_consensus(&self) -> Result<Consensus, Box<Error>> {
+    pub fn to_consensus(&self, spec_path: &SpecPath) -> Result<Consensus, Box<Error>> {
         let header = HeaderBuilder::default()
             .version(self.genesis.version)
             .parent_hash(self.genesis.parent_hash.clone())
@@ -107,7 +197,10 @@ impl ChainSpec {
             .build();
 
         let genesis_block = BlockBuilder::default()
-            .commit_transaction(build_system_cell_transaction(&self.system_cells)?)
+            .commit_transaction(build_system_cell_transaction(
+                &self.system_cells,
+                &spec_path,
+            )?)
             .header(header)
             .build();
 
@@ -142,9 +235,9 @@ pub mod test {
                 .join("../nodes_template/spec/dev.toml")
                 .display()
         );
-        let dev = ChainSpec::read_from_file(
+        let dev = ChainSpec::read_from_file(&SpecPath::Local(
             Path::new(env!("CARGO_MANIFEST_DIR")).join("../nodes_template/spec/dev.toml"),
-        );
+        ));
         assert!(dev.is_ok(), format!("{:?}", dev));
         for cell in &dev.unwrap().system_cells {
             assert!(cell.path.exists());
@@ -153,12 +246,18 @@ pub mod test {
 
     #[test]
     fn always_success_type_hash() {
+        let spec_path = SpecPath::Local(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../nodes_template/spec/dev.toml"),
+        );
         let always_success_path = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../nodes_template/spec/cells/always_success");
 
-        let tx = build_system_cell_transaction(&[SystemCell {
-            path: always_success_path,
-        }])
+        let tx = build_system_cell_transaction(
+            &[SystemCell {
+                path: always_success_path,
+            }],
+            &spec_path,
+        )
         .unwrap();
 
         // Tx and Output hash will be used in some test cases directly, assert here for convenience
@@ -177,6 +276,24 @@ pub mod test {
         assert_eq!(
             format!("{:x}", script.hash()),
             "9a9a6bdbc38d4905eace1822f85237e3a1e238bb3f277aa7b7c8903441123510"
+        );
+    }
+
+    #[test]
+    fn test_testnet_chain_spec_load() {
+        let spec_path = SpecPath::Testnet;
+        let result = ChainSpec::read_from_file(&spec_path);
+        assert!(result.is_ok(), format!("{:?}", result));
+        let chain_spec = result.unwrap();
+
+        let result = build_system_cell_transaction(&chain_spec.system_cells, &spec_path);
+        assert!(result.is_ok(), format!("{:?}", result));
+        let tx = result.unwrap();
+
+        let data_hash = tx.outputs()[0].data_hash();
+        assert_eq!(
+            format!("{:x}", data_hash),
+            "26e5586a6e5b2f087bd1fd43fb5f807a5cc65cd6e36dad32a934ac1500a6b76d"
         );
     }
 }

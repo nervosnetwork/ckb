@@ -12,7 +12,12 @@ pub fn import(setup: &Setup, matches: &ArgMatches) {
     let source = value_t!(matches.value_of("source"), String).unwrap_or_else(|e| e.exit());
 
     let shared = SharedBuilder::<CacheDB<RocksDB>>::default()
-        .consensus(setup.chain_spec.to_consensus().unwrap())
+        .consensus(
+            setup
+                .chain_spec
+                .to_consensus(&setup.configs.chain.spec)
+                .unwrap(),
+        )
         .db(&setup.configs.db)
         .build();
 
