@@ -269,7 +269,8 @@ impl<CI: ChainIndex + 'static> BlockAssembler<CI> {
         }
 
         // dummy cellbase
-        let cellbase_lock = Script::new(0, self.config.args.clone(), self.config.reference.clone());
+        let cellbase_lock =
+            Script::new(0, self.config.args.clone(), self.config.binary_hash.clone());
         let cellbase =
             self.create_cellbase_transaction(header, &commit_transactions, cellbase_lock)?;
 
@@ -472,7 +473,7 @@ mod tests {
     fn test_get_block_template() {
         let (_chain_controller, shared, _notify) = start_chain(None, None);
         let config = BlockAssemblerConfig {
-            reference: H256::zero(),
+            binary_hash: H256::zero(),
             args: vec![],
         };
         let mut block_assembler = setup_block_assembler(shared.clone(), config);
@@ -558,7 +559,7 @@ mod tests {
 
         let (chain_controller, shared, notify) = start_chain(Some(consensus), None);
         let config = BlockAssemblerConfig {
-            reference: H256::zero(),
+            binary_hash: H256::zero(),
             args: vec![],
         };
         let block_assembler = setup_block_assembler(shared.clone(), config);
