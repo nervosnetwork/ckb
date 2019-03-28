@@ -1,9 +1,9 @@
 use bytes::Bytes;
-use ckb_network::{CKBProtocolContext, CKBProtocolHandler, PeerIndex};
-use ckb_protocol::TimeMessage;
+use ckb_network::{Behaviour, CKBProtocolContext, CKBProtocolHandler, PeerIndex};
+use ckb_protocol::{get_root, TimeMessage};
 use ckb_util::RwLock;
-use flatbuffers::{get_root, FlatBufferBuilder};
-use log::{debug, warn};
+use flatbuffers::FlatBufferBuilder;
+use log::{debug, info, warn};
 use std::collections::VecDeque;
 
 const TOLERANT_OFFSET: u64 = 7_200_000;
@@ -92,23 +92,32 @@ impl Default for NetTimeProtocol {
 impl CKBProtocolHandler for NetTimeProtocol {
     fn initialize(&self, _nc: Box<CKBProtocolContext>) {}
     fn received(&self, nc: Box<CKBProtocolContext>, peer: PeerIndex, data: Bytes) {
-        // collect time sample from outbound peer
-        if nc.session_info(peer).map(|s| s.peer.is_outbound()) == Some(true) {
-            let now: u64 = faketime::unix_time_as_millis();
-            let timestamp: u64 = match get_root::<TimeMessage>(&data)
-                .payload()
-                .map(|time| time.timestamp())
-            {
-                Some(timestamp) => timestamp,
-                None => return,
-            };
-            let offset: i64 = (i128::from(now) - i128::from(timestamp)) as i64;
-            let mut net_time_checker = self.0.write();
-            debug!(target: "network", "new net time offset sample {}ms", offset);
-            net_time_checker.add_sample(offset);
-            if let Err(offset) = net_time_checker.check() {
-                warn!(target: "network", "Please check your computer's local clock({}ms offset from network peers), If your clock is wrong, it may cause unexpected errors.", offset);
+        if nc.session_info(peer).map(|s| s.peer.is_outbound()) != Some(true) {
+            info!(target: "network", "Peer {} is not outbound but sends us time message", peer);
+            let _ = nc.report_peer(peer, Behaviour::UnexpectedMessage);
+            return;
+        }
+
+        let timestamp = match get_root::<TimeMessage>(&data)
+            .ok()
+            .and_then(|m| m.payload())
+            .map(|p| p.timestamp())
+        {
+            Some(timestamp) => timestamp,
+            None => {
+                info!(target: "network", "Peer {} sends us malformed message", peer);
+                let _ = nc.report_peer(peer, Behaviour::UnexpectedMessage);
+                return;
             }
+        };
+
+        let now: u64 = faketime::unix_time_as_millis();
+        let offset: i64 = (i128::from(now) - i128::from(timestamp)) as i64;
+        let mut net_time_checker = self.0.write();
+        debug!(target: "network", "new net time offset sample {}ms", offset);
+        net_time_checker.add_sample(offset);
+        if let Err(offset) = net_time_checker.check() {
+            warn!(target: "network", "Please check your computer's local clock({}ms offset from network peers), If your clock is wrong, it may cause unexpected errors.", offset);
         }
     }
 

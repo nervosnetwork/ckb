@@ -27,14 +27,14 @@ use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::Block;
 use ckb_core::header::{BlockNumber, Header};
 use ckb_network::{Behaviour, CKBProtocolContext, CKBProtocolHandler, PeerIndex};
-use ckb_protocol::{cast, SyncMessage, SyncPayload};
+use ckb_protocol::{cast, get_root, SyncMessage, SyncPayload};
 use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::Shared;
 use ckb_traits::ChainProvider;
 use ckb_util::{try_option, Mutex, RwLock};
 use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
-use flatbuffers::{get_root, FlatBufferBuilder};
+use flatbuffers::FlatBufferBuilder;
 use log::{debug, info, warn};
 use numext_fixed_hash::H256;
 use std::cmp;
@@ -714,8 +714,15 @@ where
     }
 
     fn received(&self, mut nc: Box<CKBProtocolContext>, peer: PeerIndex, data: Bytes) {
-        // TODO use flatbuffers verifier
-        let msg = get_root::<SyncMessage>(&data);
+        let msg = match get_root::<SyncMessage>(&data) {
+            Ok(msg) => msg,
+            _ => {
+                info!(target: "sync", "Peer {} sends us a malformed message", peer);
+                let _ = nc.report_peer(peer, Behaviour::UnexpectedMessage);
+                return;
+            }
+        };
+
         debug!(target: "sync", "msg {:?}", msg.payload_type());
         self.process(nc.as_mut(), peer, msg);
     }
@@ -774,7 +781,7 @@ mod tests {
     use ckb_util::Mutex;
     #[cfg(not(disable_faketime))]
     use faketime;
-    use flatbuffers::FlatBufferBuilder;
+    use flatbuffers::{get_root, FlatBufferBuilder};
     use fnv::{FnvHashMap, FnvHashSet};
     use numext_fixed_uint::U256;
     use std::ops::Deref;
