@@ -12,8 +12,6 @@ use ckb_core::script::Script;
 use ckb_core::transaction::{CellOutput, Transaction, TransactionBuilder};
 use ckb_core::{Capacity, Cycle};
 use ckb_pow::{Pow, PowEngine};
-use ckb_protocol::Script as FbsScript;
-use flatbuffers::FlatBufferBuilder;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 use serde_derive::Deserialize;
@@ -73,20 +71,9 @@ pub(self) fn build_system_cell_transaction(
         let mut data = Vec::new();
         file.read_to_end(&mut data)?;
 
-        let script = Script::new(0, vec![], None, Some(data), vec![]);
-        let mut builder = FlatBufferBuilder::new();
-        let offset = FbsScript::build(&mut builder, &script);
-        builder.finish(offset, None);
-        let script_data = builder.finished_data().to_vec();
-
-        // TODO: we should either provide a valid type hash so we can
-        // update system cell, or we can update this when P2SH is moved into VM.
-        let output = CellOutput::new(
-            script_data.len() as Capacity,
-            script_data,
-            H256::default(),
-            None,
-        );
+        // TODO: we should provide a proper lock script here so system cells
+        // can be updated.
+        let output = CellOutput::new(data.len() as Capacity, data, Script::default(), None);
         outputs.push(output);
     }
 
@@ -177,19 +164,19 @@ pub mod test {
         // Tx and Output hash will be used in some test cases directly, assert here for convenience
         assert_eq!(
             format!("{:x}", tx.hash()),
-            "06d185ca44a1426b01d8809738c84259b86dc33bfe99f271938432a9de4cc3aa"
+            "9c3c3cc1a11966ff78a739a1ddb5e4b94fdcaa4e63e3e341c6f8126de2dfa2ac"
         );
 
         let reference = tx.outputs()[0].data_hash();
         assert_eq!(
             format!("{:x}", reference),
-            "61d7e01908bafa29d742e37b470dc906fb05c2115b0beba7b1c4fa3e66ca3e44"
+            "28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5"
         );
 
-        let script = Script::new(0, vec![], Some(reference), None, vec![]);
+        let script = Script::new(0, vec![], reference);
         assert_eq!(
-            format!("{:x}", script.type_hash()),
-            "8954a4ac5e5c33eb7aa8bb91e0a000179708157729859bd8cf7e2278e1e12980"
+            format!("{:x}", script.hash()),
+            "9a9a6bdbc38d4905eace1822f85237e3a1e238bb3f277aa7b7c8903441123510"
         );
     }
 }

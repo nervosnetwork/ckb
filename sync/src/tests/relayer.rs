@@ -17,12 +17,8 @@ use ckb_traits::ChainProvider;
 use faketime::{self, unix_time_as_millis};
 use flatbuffers::get_root;
 use flatbuffers::FlatBufferBuilder;
-use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 use std::collections::HashSet;
-use std::fs::File;
-use std::io::Read;
-use std::path::Path;
 use std::sync::mpsc::channel;
 use std::sync::{Arc, Barrier};
 use std::{thread, time};
@@ -56,9 +52,9 @@ fn relay_compact_block_with_one_tx() {
             let tx = TransactionBuilder::default()
                 .input(CellInput::new(
                     OutPoint::new(last_cellbase.hash().clone(), 0),
-                    create_valid_script(),
+                    vec![],
                 ))
-                .output(CellOutput::new(50, Vec::new(), H256::zero(), None))
+                .output(CellOutput::new(50, Vec::new(), Script::default(), None))
                 .build();
 
             {
@@ -209,9 +205,9 @@ fn relay_compact_block_with_missing_indexs() {
                     TransactionBuilder::default()
                         .input(CellInput::new(
                             OutPoint::new(last_cellbase.hash().clone(), u32::from(i)),
-                            create_valid_script(),
+                            vec![],
                         ))
-                        .output(CellOutput::new(50, vec![i], H256::zero(), None))
+                        .output(CellOutput::new(50, vec![i], Script::default(), None))
                         .build()
                 })
                 .collect::<Vec<_>>();
@@ -362,7 +358,7 @@ fn setup_node(
         let timestamp = block.header().timestamp() + 1;
         let difficulty = shared.calculate_difficulty(&block.header()).unwrap();
         let outputs = (0..20)
-            .map(|_| CellOutput::new(50, Vec::new(), create_valid_script().type_hash(), None))
+            .map(|_| CellOutput::new(50, Vec::new(), Script::always_success(), None))
             .collect::<Vec<_>>();
         let cellbase = TransactionBuilder::default()
             .input(CellInput::new_cellbase_input(number))
@@ -399,17 +395,4 @@ fn setup_node(
         &[TX_PROPOSAL_TOKEN],
     );
     (node, shared, chain_controller)
-}
-
-// This helper is copied from pool test
-// TODO should provide some helper or add validation option to pool / chain for testing
-fn create_valid_script() -> Script {
-    let mut file = File::open(
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../nodes_template/spec/cells/always_success"),
-    )
-    .unwrap();
-    let mut buffer = Vec::new();
-    file.read_to_end(&mut buffer).unwrap();
-
-    Script::new(0, Vec::new(), None, Some(buffer), Vec::new())
 }

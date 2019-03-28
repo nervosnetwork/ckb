@@ -42,10 +42,8 @@ fn build_output<'b>(
     fbb: &mut FlatBufferBuilder<'b>,
     output: &CellOutput,
 ) -> WIPOffset<FbsCellOutput<'b>> {
-    let lock = (&output.lock).into();
     let mut builder = CellOutputBuilder::new(fbb);
     builder.add_capacity(output.capacity);
-    builder.add_lock(&lock);
     builder.finish()
 }
 

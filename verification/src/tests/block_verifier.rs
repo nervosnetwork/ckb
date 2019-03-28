@@ -3,6 +3,7 @@ use super::super::error::{CellbaseError, Error as VerifyError};
 use super::dummy::DummyChainProvider;
 use crate::Verifier;
 use ckb_core::block::BlockBuilder;
+use ckb_core::script::Script;
 use ckb_core::transaction::{CellInput, CellOutput, OutPoint, Transaction, TransactionBuilder};
 use ckb_core::Capacity;
 use ckb_shared::error::SharedError;
@@ -12,7 +13,12 @@ use std::collections::HashMap;
 fn create_cellbase_transaction_with_capacity(capacity: Capacity) -> Transaction {
     TransactionBuilder::default()
         .input(CellInput::new_cellbase_input(0))
-        .output(CellOutput::new(capacity, Vec::new(), H256::default(), None))
+        .output(CellOutput::new(
+            capacity,
+            Vec::new(),
+            Script::default(),
+            None,
+        ))
         .build()
 }
 
@@ -26,7 +32,7 @@ fn create_normal_transaction() -> Transaction {
             OutPoint::new(H256::from_trimmed_hex_str("1").unwrap(), 0),
             Default::default(),
         ))
-        .output(CellOutput::new(100, Vec::new(), H256::default(), None))
+        .output(CellOutput::new(100, Vec::new(), Script::default(), None))
         .build()
 }
 

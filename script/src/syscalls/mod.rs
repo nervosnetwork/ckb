@@ -29,6 +29,7 @@ enum CellField {
     Capacity = 0,
     Data = 1,
     DataHash = 2,
+    Lock = 6,
     LockHash = 3,
     Type = 4,
     TypeHash = 5,
@@ -43,6 +44,7 @@ impl CellField {
             3 => Ok(CellField::LockHash),
             4 => Ok(CellField::Type),
             5 => Ok(CellField::TypeHash),
+            6 => Ok(CellField::Lock),
             _ => Err(Error::ParseError),
         }
     }
@@ -50,14 +52,14 @@ impl CellField {
 
 #[derive(Debug, PartialEq, Clone, Copy, Eq)]
 enum InputField {
-    Unlock = 0,
+    Args = 0,
     OutPoint = 1,
 }
 
 impl InputField {
     fn parse_from_u64(i: u64) -> Result<InputField, Error> {
         match i {
-            0 => Ok(InputField::Unlock),
+            0 => Ok(InputField::Args),
             1 => Ok(InputField::OutPoint),
             _ => Err(Error::ParseError),
         }
@@ -90,7 +92,9 @@ mod tests {
     use byteorder::{LittleEndian, WriteBytesExt};
     use ckb_core::script::Script;
     use ckb_core::transaction::{CellInput, CellOutput, OutPoint};
-    use ckb_protocol::{CellOutput as FbsCellOutput, OutPoint as FbsOutPoint, Script as FbsScript};
+    use ckb_protocol::{
+        Bytes as FbsBytes, CellInputBuilder, CellOutput as FbsCellOutput, OutPoint as FbsOutPoint,
+    };
     use ckb_vm::machine::DefaultCoreMachine;
     use ckb_vm::{CoreMachine, Memory, SparseMemory, Syscalls, A0, A1, A2, A3, A4, A5, A7};
     use flatbuffers::FlatBufferBuilder;
@@ -227,11 +231,11 @@ mod tests {
             .store64(size_addr as usize, data.len() as u64)
             .is_ok());
 
-        let output = CellOutput::new(100, data.to_vec(), H256::zero(), None);
+        let output = CellOutput::new(100, data.to_vec(), Script::default(), None);
         let input_cell = CellOutput::new(
             100,
             data.iter().rev().cloned().collect(),
-            H256::zero(),
+            Script::default(),
             None,
         );
         let outputs = vec![&output];
@@ -263,11 +267,11 @@ mod tests {
         machine.registers_mut()[A4] = Source::Input as u64; //source: 1 input
         machine.registers_mut()[A7] = LOAD_CELL_SYSCALL_NUMBER; // syscall number
 
-        let output = CellOutput::new(100, data.to_vec(), H256::zero(), None);
+        let output = CellOutput::new(100, data.to_vec(), Script::default(), None);
         let input_cell = CellOutput::new(
             100,
             data.iter().rev().cloned().collect(),
-            H256::zero(),
+            Script::default(),
             None,
         );
         let outputs = vec![&output];
@@ -348,11 +352,11 @@ mod tests {
         machine.registers_mut()[A4] = Source::Input as u64; //source: 1 input
         machine.registers_mut()[A7] = LOAD_CELL_SYSCALL_NUMBER; // syscall number
 
-        let output = CellOutput::new(100, data.to_vec(), H256::zero(), None);
+        let output = CellOutput::new(100, data.to_vec(), Script::default(), None);
         let input_cell = CellOutput::new(
             100,
             data.iter().rev().cloned().collect(),
-            H256::zero(),
+            Script::default(),
             None,
         );
         let outputs = vec![&output];
@@ -397,11 +401,11 @@ mod tests {
         machine.registers_mut()[A4] = Source::Input as u64; // source: 1 input
         machine.registers_mut()[A7] = LOAD_CELL_SYSCALL_NUMBER; // syscall number
 
-        let output = CellOutput::new(100, data.to_vec(), H256::zero(), None);
+        let output = CellOutput::new(100, data.to_vec(), Script::default(), None);
         let input_cell = CellOutput::new(
             100,
             data.iter().rev().cloned().collect(),
-            H256::zero(),
+            Script::default(),
             None,
         );
         let outputs = vec![&output];
@@ -455,7 +459,7 @@ mod tests {
         let input_cell = CellOutput::new(
             100,
             data.iter().rev().cloned().collect(),
-            H256::zero(),
+            Script::default(),
             None,
         );
         let outputs = vec![];
@@ -508,7 +512,7 @@ mod tests {
         machine.registers_mut()[A5] = CellField::Capacity as u64; //field: 0 capacity
         machine.registers_mut()[A7] = LOAD_CELL_BY_FIELD_SYSCALL_NUMBER; // syscall number
 
-        let input_cell = CellOutput::new(capacity, vec![], H256::zero(), None);
+        let input_cell = CellOutput::new(capacity, vec![], Script::default(), None);
         let outputs = vec![];
         let input_cells = vec![&input_cell];
         let dep_cells = vec![];
@@ -550,9 +554,10 @@ mod tests {
         machine.registers_mut()[A5] = CellField::LockHash as u64; //field: 3 lock hash
         machine.registers_mut()[A7] = LOAD_CELL_BY_FIELD_SYSCALL_NUMBER; // syscall number
 
-        let blake2b_data = blake2b_256(data);
-        let input_cell =
-            CellOutput::new(100, vec![], H256::from_slice(&blake2b_data).unwrap(), None);
+        let script = Script::new(0, vec![data.to_vec()], H256::zero());
+        let h = script.hash();
+        let hash = h.as_bytes();
+        let input_cell = CellOutput::new(100, vec![], script, None);
         let outputs = vec![];
         let input_cells = vec![];
         let dep_cells = vec![];
@@ -565,11 +570,11 @@ mod tests {
 
         prop_assert_eq!(
             machine.memory_mut().load64(size_addr as usize),
-            Ok(blake2b_data.len() as u64)
+            Ok(hash.len() as u64)
         );
 
-        for (i, addr) in (addr as usize..addr as usize + blake2b_data.len() as usize).enumerate() {
-            prop_assert_eq!(machine.memory_mut().load8(addr), Ok(blake2b_data[i]));
+        for (i, addr) in (addr as usize..addr as usize + hash.len() as usize).enumerate() {
+            prop_assert_eq!(machine.memory_mut().load8(addr), Ok(hash[i]));
         }
 
         machine.registers_mut()[A0] = addr; // addr
@@ -580,7 +585,7 @@ mod tests {
 
         prop_assert_eq!(
             machine.memory_mut().load64(size_addr as usize),
-            Ok(blake2b_data.len() as u64)
+            Ok(hash.len() as u64)
         );
         Ok(())
     }
@@ -606,7 +611,7 @@ mod tests {
         machine.registers_mut()[A5] = CellField::Type as u64; //field: 4 type
         machine.registers_mut()[A7] = LOAD_CELL_BY_FIELD_SYSCALL_NUMBER; // syscall number
 
-        let output_cell = CellOutput::new(100, vec![], H256::default(), None);
+        let output_cell = CellOutput::new(100, vec![], Script::default(), None);
         let outputs = vec![&output_cell];
         let input_cells = vec![];
         let dep_cells = vec![];
@@ -627,7 +632,7 @@ mod tests {
         }
     }
 
-    fn _test_load_input_unlock_script(data: Vec<u8>) -> Result<(), TestCaseError> {
+    fn _test_load_input_unlock_args(data: Vec<u8>) -> Result<(), TestCaseError> {
         let mut machine = DefaultCoreMachine::<u64, SparseMemory>::default();
         let size_addr = 0;
         let addr = 100;
@@ -637,22 +642,30 @@ mod tests {
         machine.registers_mut()[A2] = 0; // offset
         machine.registers_mut()[A3] = 0; //index
         machine.registers_mut()[A4] = Source::Input as u64; //source: 1 input
-        machine.registers_mut()[A5] = InputField::Unlock as u64; //field: 0 unlock
+        machine.registers_mut()[A5] = InputField::Args as u64; //field: 0 args
         machine.registers_mut()[A7] = LOAD_INPUT_BY_FIELD_SYSCALL_NUMBER; // syscall number
 
-        let unlock = Script::new(0, vec![], None, Some(data), vec![]);
-        let mut builder = FlatBufferBuilder::new();
-        let fbs_offset = FbsScript::build(&mut builder, &unlock);
-        builder.finish(fbs_offset, None);
-        let unlock_data = builder.finished_data();
+        let args = vec![data.to_vec()];
 
-        let input = CellInput::new(OutPoint::default(), unlock);
+        let mut builder = FlatBufferBuilder::new();
+        let vec = args
+            .iter()
+            .map(|argument| FbsBytes::build(&mut builder, argument))
+            .collect::<Vec<_>>();
+        let fbs_args = builder.create_vector(&vec);
+        let mut input_builder = CellInputBuilder::new(&mut builder);
+        input_builder.add_args(fbs_args);
+        let offset = input_builder.finish();
+        builder.finish(offset, None);
+        let args_data = builder.finished_data();
+
+        let input = CellInput::new(OutPoint::default(), args);
         let inputs = vec![&input];
         let mut load_input = LoadInputByField::new(&inputs, Some(&input));
 
         prop_assert!(machine
             .memory_mut()
-            .store64(size_addr as usize, unlock_data.len() as u64)
+            .store64(size_addr as usize, args_data.len() as u64)
             .is_ok());
 
         prop_assert!(load_input.ecall(&mut machine).is_ok());
@@ -660,23 +673,23 @@ mod tests {
 
         prop_assert_eq!(
             machine.memory_mut().load64(size_addr as usize),
-            Ok(unlock_data.len() as u64)
+            Ok(args_data.len() as u64)
         );
 
-        for (i, addr) in (addr as usize..addr as usize + unlock_data.len() as usize).enumerate() {
-            prop_assert_eq!(machine.memory_mut().load8(addr), Ok(unlock_data[i]));
+        for (i, addr) in (addr as usize..addr as usize + args_data.len() as usize).enumerate() {
+            prop_assert_eq!(machine.memory_mut().load8(addr), Ok(args_data[i]));
         }
         Ok(())
     }
 
     proptest! {
         #[test]
-        fn test_load_input_unlock_script(data in any_with::<Vec<u8>>(size_range(1000).lift())) {
-            _test_load_input_unlock_script(data)?;
+        fn test_load_input_unlock_args(data in any_with::<Vec<u8>>(size_range(1000).lift())) {
+            _test_load_input_unlock_args(data)?;
         }
     }
 
-    fn _test_load_missing_output_unlock_script(data: Vec<u8>) -> Result<(), TestCaseError> {
+    fn _test_load_missing_output_unlock_args(data: Vec<u8>) -> Result<(), TestCaseError> {
         let mut machine = DefaultCoreMachine::<u64, SparseMemory>::default();
         let size_addr = 0;
         let addr = 100;
@@ -686,22 +699,30 @@ mod tests {
         machine.registers_mut()[A2] = 0; // offset
         machine.registers_mut()[A3] = 0; //index
         machine.registers_mut()[A4] = Source::Output as u64; //source: 2 output
-        machine.registers_mut()[A5] = InputField::Unlock as u64; //field: 0 unlock
+        machine.registers_mut()[A5] = InputField::Args as u64; //field: 0 unlock
         machine.registers_mut()[A7] = LOAD_INPUT_BY_FIELD_SYSCALL_NUMBER; // syscall number
 
-        let unlock = Script::new(0, vec![], None, Some(data), vec![]);
-        let mut builder = FlatBufferBuilder::new();
-        let fbs_offset = FbsScript::build(&mut builder, &unlock);
-        builder.finish(fbs_offset, None);
-        let unlock_data = builder.finished_data();
+        let args = vec![data.to_vec()];
 
-        let input = CellInput::new(OutPoint::default(), unlock);
+        let mut builder = FlatBufferBuilder::new();
+        let vec = args
+            .iter()
+            .map(|argument| FbsBytes::build(&mut builder, argument))
+            .collect::<Vec<_>>();
+        let fbs_args = builder.create_vector(&vec);
+        let mut input_builder = CellInputBuilder::new(&mut builder);
+        input_builder.add_args(fbs_args);
+        let offset = input_builder.finish();
+        builder.finish(offset, None);
+        let args_data = builder.finished_data();
+
+        let input = CellInput::new(OutPoint::default(), args);
         let inputs = vec![&input];
         let mut load_input = LoadInputByField::new(&inputs, Some(&input));
 
         prop_assert!(machine
             .memory_mut()
-            .store64(size_addr as usize, unlock_data.len() as u64 + 10)
+            .store64(size_addr as usize, args_data.len() as u64 + 10)
             .is_ok());
 
         prop_assert!(load_input.ecall(&mut machine).is_ok());
@@ -709,10 +730,10 @@ mod tests {
 
         prop_assert_eq!(
             machine.memory_mut().load64(size_addr as usize),
-            Ok(unlock_data.len() as u64 + 10)
+            Ok(args_data.len() as u64 + 10)
         );
 
-        for addr in addr as usize..addr as usize + unlock_data.len() as usize {
+        for addr in addr as usize..addr as usize + args_data.len() as usize {
             prop_assert_eq!(machine.memory_mut().load8(addr), Ok(0));
         }
         Ok(())
@@ -720,8 +741,8 @@ mod tests {
 
     proptest! {
         #[test]
-        fn test_load_missing_output_unlock_script(data in any_with::<Vec<u8>>(size_range(1000).lift())) {
-            _test_load_missing_output_unlock_script(data)?;
+        fn test_load_missing_output_unlock_args(data in any_with::<Vec<u8>>(size_range(1000).lift())) {
+            _test_load_missing_output_unlock_args(data)?;
         }
     }
 
@@ -738,7 +759,6 @@ mod tests {
         machine.registers_mut()[A5] = InputField::OutPoint as u64; //field: 1 out_point
         machine.registers_mut()[A7] = LOAD_INPUT_BY_FIELD_SYSCALL_NUMBER; // syscall number
 
-        let unlock = Script::new(0, vec![], None, Some(vec![]), vec![]);
         let blake2b_data = blake2b_256(data);
         let out_point = OutPoint::new(H256::from_slice(&blake2b_data).unwrap(), 3);
         let mut builder = FlatBufferBuilder::new();
@@ -746,7 +766,7 @@ mod tests {
         builder.finish(fbs_offset, None);
         let out_point_data = builder.finished_data();
 
-        let input = CellInput::new(out_point, unlock);
+        let input = CellInput::new(out_point, vec![]);
         let inputs = vec![];
         let mut load_input = LoadInputByField::new(&inputs, Some(&input));
 
@@ -819,8 +839,8 @@ mod tests {
         machine.registers_mut()[A5] = CellField::Data as u64; //field: 1 data
         machine.registers_mut()[A7] = LOAD_CELL_BY_FIELD_SYSCALL_NUMBER; // syscall number
 
-        let input_cell = CellOutput::new(1000, vec![], H256::zero(), None);
-        let dep_cell = CellOutput::new(1000, data.to_vec(), H256::zero(), None);
+        let input_cell = CellOutput::new(1000, vec![], Script::default(), None);
+        let dep_cell = CellOutput::new(1000, data.to_vec(), Script::default(), None);
         let outputs = vec![];
         let input_cells = vec![&input_cell];
         let dep_cells = vec![&dep_cell];
@@ -865,8 +885,8 @@ mod tests {
         machine.registers_mut()[A5] = CellField::DataHash as u64; //field: 2 data hash
         machine.registers_mut()[A7] = LOAD_CELL_BY_FIELD_SYSCALL_NUMBER; // syscall number
 
-        let input_cell = CellOutput::new(1000, vec![], H256::zero(), None);
-        let dep_cell = CellOutput::new(1000, data.to_vec(), H256::zero(), None);
+        let input_cell = CellOutput::new(1000, vec![], Script::default(), None);
+        let dep_cell = CellOutput::new(1000, data.to_vec(), Script::default(), None);
         let outputs = vec![];
         let input_cells = vec![&input_cell];
         let dep_cells = vec![&dep_cell];

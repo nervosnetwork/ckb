@@ -15,9 +15,6 @@ use ckb_shared::store::ChainKVStore;
 use faketime::unix_time_as_millis;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
-use std::fs::File;
-use std::io::Read;
-use std::path::Path;
 
 pub(crate) fn start_chain(
     consensus: Option<Consensus>,
@@ -42,7 +39,7 @@ fn create_cellbase(number: BlockNumber) -> Transaction {
         .output(CellOutput::new(
             5000,
             vec![],
-            create_script().type_hash(),
+            Script::always_success(),
             None,
         ))
         .build()
@@ -78,24 +75,13 @@ pub(crate) fn gen_block(
 }
 
 pub(crate) fn create_transaction(parent: H256, unique_data: u8) -> Transaction {
-    let script = create_script();
     TransactionBuilder::default()
         .output(CellOutput::new(
             5000,
             vec![unique_data],
-            script.type_hash(),
+            Script::always_success(),
             None,
         ))
-        .input(CellInput::new(OutPoint::new(parent, 0), script))
+        .input(CellInput::new(OutPoint::new(parent, 0), vec![]))
         .build()
-}
-
-fn create_script() -> Script {
-    let mut file = File::open(
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../nodes_template/spec/cells/always_success"),
-    )
-    .unwrap();
-    let mut buffer = Vec::new();
-    file.read_to_end(&mut buffer).unwrap();
-    Script::new(0, Vec::new(), None, Some(buffer), Vec::new())
 }

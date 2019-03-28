@@ -17,9 +17,7 @@ use serde_derive::{Deserialize, Serialize};
 pub struct Script {
     pub version: u8,
     pub args: Vec<Bytes>,
-    pub reference: Option<H256>,
-    pub binary: Option<Bytes>,
-    pub signed_args: Vec<Bytes>,
+    pub binary_hash: H256,
 }
 
 impl From<Script> for CoreScript {
@@ -27,29 +25,23 @@ impl From<Script> for CoreScript {
         let Script {
             version,
             args,
-            reference,
-            binary,
-            signed_args,
+            binary_hash,
         } = json;
         CoreScript::new(
             version,
             args.into_iter().map(|arg| arg.into_vec()).collect(),
-            reference,
-            binary.map(|b| b.into_vec()),
-            signed_args.into_iter().map(|arg| arg.into_vec()).collect(),
+            binary_hash,
         )
     }
 }
 
 impl From<CoreScript> for Script {
     fn from(core: CoreScript) -> Script {
-        let (version, args, reference, binary, signed_args) = core.destruct();
+        let (version, args, binary_hash) = core.destruct();
         Script {
             version,
-            reference,
+            binary_hash,
             args: args.into_iter().map(Bytes::new).collect(),
-            binary: binary.map(Bytes::new),
-            signed_args: signed_args.into_iter().map(Bytes::new).collect(),
         }
     }
 }
@@ -58,7 +50,7 @@ impl From<CoreScript> for Script {
 pub struct CellOutput {
     pub capacity: Capacity,
     pub data: Bytes,
-    pub lock: H256,
+    pub lock: Script,
     #[serde(rename = "type")]
     pub type_: Option<Script>,
 }
@@ -69,7 +61,7 @@ impl From<CoreCellOutput> for CellOutput {
         CellOutput {
             capacity,
             data: Bytes::new(data),
-            lock,
+            lock: lock.into(),
             type_: type_.map(Into::into),
         }
     }
@@ -83,7 +75,12 @@ impl From<CellOutput> for CoreCellOutput {
             lock,
             type_,
         } = json;
-        CoreCellOutput::new(capacity, data.into_vec(), lock, type_.map(Into::into))
+        CoreCellOutput::new(
+            capacity,
+            data.into_vec(),
+            lock.into(),
+            type_.map(Into::into),
+        )
     }
 }
 
@@ -110,15 +107,15 @@ impl From<OutPoint> for CoreOutPoint {
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct CellInput {
     pub previous_output: OutPoint,
-    pub unlock: Script,
+    pub args: Vec<Bytes>,
 }
 
 impl From<CoreCellInput> for CellInput {
     fn from(core: CoreCellInput) -> CellInput {
-        let (previous_output, unlock) = core.destruct();
+        let (previous_output, args) = core.destruct();
         CellInput {
             previous_output: previous_output.into(),
-            unlock: unlock.into(),
+            args: args.into_iter().map(Bytes::new).collect(),
         }
     }
 }
@@ -127,9 +124,12 @@ impl From<CellInput> for CoreCellInput {
     fn from(json: CellInput) -> CoreCellInput {
         let CellInput {
             previous_output,
-            unlock,
+            args,
         } = json;
-        CoreCellInput::new(previous_output.into(), unlock.into())
+        CoreCellInput::new(
+            previous_output.into(),
+            args.into_iter().map(|arg| arg.into_vec()).collect(),
+        )
     }
 }
 
@@ -353,92 +353,44 @@ mod tests {
     use ckb_core::transaction::ProposalShortId as CoreProposalShortId;
     use proptest::{collection::size_range, prelude::*};
 
-    fn mock_script(arg: Vec<u8>, binary: Vec<u8>, signed_arg: Vec<u8>) -> CoreScript {
-        CoreScript::new(
-            0,
-            vec![arg],
-            Some(H256::default()),
-            Some(binary),
-            vec![signed_arg],
-        )
+    fn mock_script(arg: Vec<u8>) -> CoreScript {
+        CoreScript::new(0, vec![arg], H256::default())
     }
 
-    fn mock_cell_output(
-        data: Vec<u8>,
-        arg: Vec<u8>,
-        binary: Vec<u8>,
-        signed_arg: Vec<u8>,
-    ) -> CoreCellOutput {
-        CoreCellOutput::new(
-            0,
-            data,
-            H256::default(),
-            Some(mock_script(arg, binary, signed_arg)),
-        )
+    fn mock_cell_output(data: Vec<u8>, arg: Vec<u8>) -> CoreCellOutput {
+        CoreCellOutput::new(0, data, CoreScript::default(), Some(mock_script(arg)))
     }
 
-    fn mock_cell_input(arg: Vec<u8>, binary: Vec<u8>, signed_arg: Vec<u8>) -> CoreCellInput {
-        CoreCellInput::new(
-            CoreOutPoint::default(),
-            mock_script(arg, binary, signed_arg),
-        )
+    fn mock_cell_input(arg: Vec<u8>) -> CoreCellInput {
+        CoreCellInput::new(CoreOutPoint::default(), vec![arg])
     }
 
-    fn mock_full_tx(
-        data: Vec<u8>,
-        arg: Vec<u8>,
-        binary: Vec<u8>,
-        signed_arg: Vec<u8>,
-    ) -> CoreTransaction {
+    fn mock_full_tx(data: Vec<u8>, arg: Vec<u8>) -> CoreTransaction {
         TransactionBuilder::default()
             .deps(vec![CoreOutPoint::default()])
-            .inputs(vec![mock_cell_input(
-                arg.clone(),
-                binary.clone(),
-                signed_arg.clone(),
-            )])
-            .outputs(vec![mock_cell_output(data, arg, binary, signed_arg)])
+            .inputs(vec![mock_cell_input(arg.clone())])
+            .outputs(vec![mock_cell_output(data, arg)])
             .build()
     }
 
-    fn mock_uncle(
-        data: Vec<u8>,
-        arg: Vec<u8>,
-        binary: Vec<u8>,
-        signed_arg: Vec<u8>,
-    ) -> CoreUncleBlock {
+    fn mock_uncle(data: Vec<u8>, arg: Vec<u8>) -> CoreUncleBlock {
         CoreUncleBlock::new(
             HeaderBuilder::default().build(),
-            mock_full_tx(data, arg, binary, signed_arg),
+            mock_full_tx(data, arg),
             vec![CoreProposalShortId::default()],
         )
     }
 
-    fn mock_full_block(
-        data: Vec<u8>,
-        arg: Vec<u8>,
-        binary: Vec<u8>,
-        signed_arg: Vec<u8>,
-    ) -> CoreBlock {
+    fn mock_full_block(data: Vec<u8>, arg: Vec<u8>) -> CoreBlock {
         BlockBuilder::default()
-            .uncles(vec![mock_uncle(
-                data.clone(),
-                arg.clone(),
-                binary.clone(),
-                signed_arg.clone(),
-            )])
-            .commit_transactions(vec![mock_full_tx(data, arg, binary, signed_arg)])
+            .uncles(vec![mock_uncle(data.clone(), arg.clone())])
+            .commit_transactions(vec![mock_full_tx(data, arg)])
             .proposal_transactions(vec![CoreProposalShortId::default()])
             .build()
     }
 
-    fn _test_block_convert(
-        data: Vec<u8>,
-        arg: Vec<u8>,
-        binary: Vec<u8>,
-        signed_arg: Vec<u8>,
-    ) -> Result<(), TestCaseError> {
-        let block = mock_full_block(data, arg, binary, signed_arg);
+    fn _test_block_convert(data: Vec<u8>, arg: Vec<u8>) -> Result<(), TestCaseError> {
+        let block = mock_full_block(data, arg);
         let json_block: Block = (&block).into();
         let encoded = serde_json::to_string(&json_block).unwrap();
         let decode: Block = serde_json::from_str(&encoded).unwrap();
@@ -452,10 +404,8 @@ mod tests {
         fn test_block_convert(
             data in any_with::<Vec<u8>>(size_range(80).lift()),
             arg in any_with::<Vec<u8>>(size_range(80).lift()),
-            binary in any_with::<Vec<u8>>(size_range(80).lift()),
-            signed_arg in any_with::<Vec<u8>>(size_range(80).lift())
         ) {
-            _test_block_convert(data, arg, binary, signed_arg)?;
+            _test_block_convert(data, arg)?;
         }
     }
 }

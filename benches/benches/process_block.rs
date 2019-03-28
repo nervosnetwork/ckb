@@ -16,9 +16,6 @@ use criterion::{criterion_group, criterion_main, Criterion};
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 use rand::random;
-use std::fs::File;
-use std::io::Read;
-use std::path::Path;
 use std::sync::Arc;
 use tempfile::{tempdir, TempDir};
 
@@ -139,17 +136,20 @@ fn new_chain() -> (
 ) {
     let cellbase = TransactionBuilder::default()
         .input(CellInput::new_cellbase_input(0))
-        .output(CellOutput::new(0, vec![], H256::zero(), None))
+        .output(CellOutput::new(0, vec![], Script::default(), None))
         .build();
-
-    let script = create_script();
 
     // create genesis block with 100 tx
     let commit_transactions: Vec<Transaction> = (0..100)
         .map(|i| {
             TransactionBuilder::default()
-                .input(CellInput::new(OutPoint::null(), script.clone()))
-                .output(CellOutput::new(50000, vec![i], script.type_hash(), None))
+                .input(CellInput::new(OutPoint::null(), vec![]))
+                .output(CellOutput::new(
+                    50000,
+                    vec![i],
+                    Script::always_success(),
+                    None,
+                ))
                 .build()
         })
         .collect();
@@ -185,7 +185,7 @@ fn gen_block(blocks: &mut Vec<Block>, parent_index: usize) {
 
     let cellbase = TransactionBuilder::default()
         .input(CellInput::new_cellbase_input(number))
-        .output(CellOutput::new(0, vec![], H256::zero(), None))
+        .output(CellOutput::new(0, vec![], Script::default(), None))
         .build();
 
     // spent n-2 block's tx and proposal n-1 block's tx
@@ -225,20 +225,13 @@ fn gen_block(blocks: &mut Vec<Block>, parent_index: usize) {
 }
 
 fn create_transaction(hash: H256) -> Transaction {
-    let script = create_script();
     TransactionBuilder::default()
-        .output(CellOutput::new(50000, vec![], script.type_hash(), None))
-        .input(CellInput::new(OutPoint::new(hash, 0), script))
+        .output(CellOutput::new(
+            50000,
+            vec![],
+            Script::always_success(),
+            None,
+        ))
+        .input(CellInput::new(OutPoint::new(hash, 0), vec![]))
         .build()
-}
-
-fn create_script() -> Script {
-    let mut file = File::open(
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../nodes_template/spec/cells/always_success"),
-    )
-    .unwrap();
-    let mut buffer = Vec::new();
-    file.read_to_end(&mut buffer).unwrap();
-
-    Script::new(0, Vec::new(), None, Some(buffer), Vec::new())
 }

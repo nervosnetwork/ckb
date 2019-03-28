@@ -1,7 +1,7 @@
 use crate::blockchain::{CellOutput, OutPoint};
 use ckb_core::cell::CellStatus;
+use ckb_core::script::Script;
 use ckb_core::Capacity;
-use numext_fixed_hash::H256;
 use serde_derive::Serialize;
 
 // This is used as return value of get_cells_by_type_hash RPC:
@@ -11,7 +11,7 @@ use serde_derive::Serialize;
 pub struct CellOutputWithOutPoint {
     pub out_point: OutPoint,
     pub capacity: Capacity,
-    pub lock: H256,
+    pub lock: Script,
 }
 
 #[derive(Serialize)]

@@ -175,20 +175,20 @@ curl -d '{"id": 2, "jsonrpc": "2.0", "method":"get_tip_header","params": []}' -H
 }
 ```
 
-# get_cells_by_type_hash
+# get_cells_by_lock_hash
 
-Returns the information about cells collection by type_hash.
+Returns the information about cells collection by the hash of lock script.
 
 ## Parameters
 
-    type_hash - Cell type hash.
+    lock_hash - Cell lock script hash.
     from - Start block number.
     to - End block number.
 
 ## Examples
 
 ```shell
-curl -d '{"id": 2, "jsonrpc": "2.0", "method":"get_cells_by_type_hash","params": ["0x321c1ca2887fb8eddaaa7e917399f71e63e03a1c83ff75ed12099a01115ea2ff", 1, 5]}' -H 'content-type:application/json' 'http://localhost:8114'
+curl -d '{"id": 2, "jsonrpc": "2.0", "method":"get_cells_by_lock_hash","params": ["0x321c1ca2887fb8eddaaa7e917399f71e63e03a1c83ff75ed12099a01115ea2ff", 1, 5]}' -H 'content-type:application/json' 'http://localhost:8114'
 ```
 
 ```json
