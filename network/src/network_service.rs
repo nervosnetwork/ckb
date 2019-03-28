@@ -127,13 +127,26 @@ impl NetworkService {
         self.network.add_node(peer_id, address)
     }
 
-    pub fn connected_peers(&self) -> Vec<(PeerId, Peer)> {
-        // TODO return listen addr for connected peers
+    // FIXME how to return address score?
+    pub fn connected_peers(&self) -> Vec<(PeerId, Peer, Vec<(Multiaddr, u8)>)> {
+        let peer_store = self.network.peer_store().read();
+
         self.network
             .peers_registry
             .read()
             .peers_iter()
-            .map(|(peer_id, peer)| (peer_id.clone(), peer.clone()))
+            .map(|(peer_id, peer)| {
+                (
+                    peer_id.clone(),
+                    peer.clone(),
+                    peer_store
+                        .peer_addrs(peer_id, 3)
+                        .unwrap_or_default()
+                        .into_iter()
+                        .map(|address| (address, 1))
+                        .collect(),
+                )
+            })
             .collect()
     }
 }

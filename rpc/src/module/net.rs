@@ -40,17 +40,20 @@ impl NetworkRpc for NetworkRpcImpl {
         let peers = self.network.connected_peers();
         Ok(peers
             .into_iter()
-            .map(|(peer_id, peer)| Node {
+            .map(|(peer_id, peer, addresses)| Node {
                 version: peer
                     .identify_info
                     .map(|info| info.client_version)
                     .unwrap_or_else(|| "unknown".to_string()),
                 node_id: peer_id.to_base58(),
                 // TODO how to get correct port and score?
-                addresses: vec![NodeAddress {
-                    address: peer.connected_addr.to_string(),
-                    score: 0,
-                }],
+                addresses: addresses
+                    .into_iter()
+                    .map(|(address, score)| NodeAddress {
+                        address: address.to_string(),
+                        score,
+                    })
+                    .collect(),
             })
             .collect())
     }
