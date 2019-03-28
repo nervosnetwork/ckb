@@ -1,5 +1,6 @@
 use crate::Behaviour;
 use crate::Network;
+use crate::Peer;
 use futures::{sync::mpsc::Receiver, Async, Stream};
 use log::{debug, trace};
 use p2p_ping::Event;
@@ -23,7 +24,7 @@ impl Stream for PingService {
             }
             Some(Pong(peer_id, duration)) => {
                 trace!(target: "network", "receive pong from {:?} duration {:?}", peer_id, duration);
-                self.network.modify_peer(&peer_id, |peer| {
+                self.network.modify_peer(&peer_id, |peer: &mut Peer| {
                     peer.ping = Some(duration);
                     peer.last_ping_time = Some(Instant::now());
                 });

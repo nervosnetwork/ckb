@@ -81,16 +81,16 @@ pub fn open(store_path: StorePath) -> Result<Connection, DBError> {
 }
 
 pub trait ConnectionPoolExt {
-    fn fetch<I, F: FnMut(&mut PooledConnection) -> Result<I, DBError>>(
+    fn fetch<I, F: FnOnce(&mut PooledConnection) -> Result<I, DBError>>(
         &self,
         f: F,
     ) -> Result<I, DBError>;
 }
 
 impl ConnectionPoolExt for ConnectionPool {
-    fn fetch<I, F: FnMut(&mut PooledConnection) -> Result<I, DBError>>(
+    fn fetch<I, F: FnOnce(&mut PooledConnection) -> Result<I, DBError>>(
         &self,
-        mut f: F,
+        f: F,
     ) -> Result<I, DBError> {
         let mut connection = self.get()?;
         f(&mut connection)

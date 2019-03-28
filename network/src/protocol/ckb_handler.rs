@@ -138,6 +138,7 @@ impl CKBProtocolContext for DefaultCKBProtocolContext {
             None
         }
     }
+
     fn protocol_version(&self, peer_index: PeerIndex, protocol_id: ProtocolId) -> Option<u8> {
         if let Some(protocol_version) = self
             .network

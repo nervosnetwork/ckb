@@ -1,23 +1,17 @@
-use crate::network_group::{Group, NetworkGroup};
 use crate::peer_store::PeerStore;
-use crate::protocol::Version;
 use crate::{
     errors::{Error, PeerError},
-    PeerId, PeerIndex, ProtocolId, SessionType,
+    multiaddr::Multiaddr,
+    Peer, PeerId, PeerIndex, SessionId, SessionType,
 };
 use ckb_util::RwLock;
 use fnv::{FnvHashMap, FnvHashSet};
 use log::debug;
-pub use p2p::{
-    multiaddr::{Multiaddr, ToMultiaddr},
-    SessionId,
-};
 use rand::seq::SliceRandom;
 use rand::thread_rng;
 use std::collections::hash_map::Entry;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
 
 pub(crate) const EVICTION_PROTECT_PEERS: usize = 8;
 
@@ -76,23 +70,14 @@ impl PeerManage {
         &mut self,
         peer_id: PeerId,
         connected_addr: Multiaddr,
-        session: Session,
+        session_id: SessionId,
+        session_type: SessionType,
     ) -> RegisterResult {
         match self.peers.entry(peer_id.clone()) {
             Entry::Occupied(entry) => RegisterResult::Exist(entry.get().peer_index),
             Entry::Vacant(entry) => {
                 let peer_index = self.id_allocator.fetch_add(1, Ordering::Relaxed);
-                let peer = Peer {
-                    connected_addr,
-                    identify_info: None,
-                    ping: None,
-                    last_ping_time: None,
-                    last_message_time: None,
-                    connected_time: Instant::now(),
-                    peer_index,
-                    session,
-                    protocols: FnvHashMap::with_capacity_and_hasher(1, Default::default()),
-                };
+                let peer = Peer::new(peer_index, connected_addr, session_id, session_type);
                 entry.insert(peer);
                 self.peer_id_by_index.insert(peer_index, peer_id);
                 RegisterResult::New(peer_index)
@@ -114,57 +99,6 @@ impl Default for PeerManage {
             peers: FnvHashMap::with_capacity_and_hasher(20, Default::default()),
             peer_id_by_index: FnvHashMap::with_capacity_and_hasher(20, Default::default()),
         }
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct PeerIdentifyInfo {
-    pub client_version: String,
-    pub protocol_version: String,
-    pub supported_protocols: Vec<String>,
-    pub count_of_known_listen_addrs: usize,
-}
-
-#[derive(Clone, Debug, Copy, Eq, PartialEq)]
-pub struct Session {
-    pub id: SessionId,
-    pub session_type: SessionType,
-}
-
-#[derive(Clone, Debug)]
-pub struct Peer {
-    pub(crate) peer_index: PeerIndex,
-    pub connected_addr: Multiaddr,
-    // Client or Server
-    pub identify_info: Option<PeerIdentifyInfo>,
-    pub last_ping_time: Option<Instant>,
-    pub last_message_time: Option<Instant>,
-    pub ping: Option<Duration>,
-    pub connected_time: Instant,
-    pub session: Session,
-    pub protocols: FnvHashMap<ProtocolId, Version>,
-}
-
-impl Peer {
-    #[inline]
-    pub fn is_outbound(&self) -> bool {
-        self.session.session_type == SessionType::Client
-    }
-
-    #[allow(dead_code)]
-    #[inline]
-    pub fn is_inbound(&self) -> bool {
-        !self.is_outbound()
-    }
-
-    #[allow(dead_code)]
-    #[inline]
-    fn network_group(&self) -> Group {
-        self.connected_addr.network_group()
-    }
-
-    pub fn protocol_version(&self, protocol_id: ProtocolId) -> Option<Version> {
-        self.protocols.get(&protocol_id).cloned()
     }
 }
 
@@ -254,7 +188,8 @@ impl PeersRegistry {
         &mut self,
         peer_id: PeerId,
         addr: Multiaddr,
-        session: Session,
+        session_id: SessionId,
+        session_type: SessionType,
     ) -> Result<RegisterResult, Error> {
         if let Some(peer) = self.peers.get(&peer_id) {
             return Ok(RegisterResult::Exist(peer.peer_index));
@@ -275,14 +210,15 @@ impl PeersRegistry {
                 return Err(Error::Peer(PeerError::ReachMaxInboundLimit(peer_id)));
             }
         }
-        Ok(self.register_peer(peer_id, addr, session))
+        Ok(self.register_peer(peer_id, addr, session_id, session_type))
     }
 
     pub fn try_outbound_peer(
         &mut self,
         peer_id: PeerId,
         addr: Multiaddr,
-        session: Session,
+        session_id: SessionId,
+        session_type: SessionType,
     ) -> Result<RegisterResult, Error> {
         if let Some(peer) = self.peers.get(&peer_id) {
             return Ok(RegisterResult::Exist(peer.peer_index));
@@ -301,7 +237,7 @@ impl PeersRegistry {
                 return Err(Error::Peer(PeerError::ReachMaxOutboundLimit(peer_id)));
             }
         }
-        Ok(self.register_peer(peer_id, addr, session))
+        Ok(self.register_peer(peer_id, addr, session_id, session_type))
     }
 
     fn try_evict_inbound_peer(&mut self) -> bool {
@@ -388,14 +324,14 @@ impl PeersRegistry {
         &mut self,
         peer_id: PeerId,
         connected_addr: Multiaddr,
-        session: Session,
+        session_id: SessionId,
+        session_type: SessionType,
     ) -> RegisterResult {
-        self.peer_store.write().add_connected_peer(
-            &peer_id,
-            connected_addr.clone(),
-            session.session_type,
-        );
-        self.peers.add_peer(peer_id, connected_addr, session)
+        self.peer_store
+            .write()
+            .add_connected_peer(&peer_id, connected_addr.clone(), session_type);
+        self.peers
+            .add_peer(peer_id, connected_addr, session_id, session_type)
     }
 
     #[inline]

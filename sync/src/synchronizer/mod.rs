@@ -763,8 +763,8 @@ mod tests {
     use ckb_core::transaction::{CellInput, CellOutput, Transaction, TransactionBuilder};
     use ckb_db::memorydb::MemoryKeyValueDB;
     use ckb_network::{
-        multiaddr::ToMultiaddr, Behaviour, CKBProtocolContext, Error as NetworkError, PeerId,
-        PeerIndex, PeerInfo, ProtocolId, SessionInfo, SessionType, TimerToken,
+        errors::Error as NetworkError, multiaddr::ToMultiaddr, Behaviour, CKBProtocolContext, Peer,
+        PeerIndex, ProtocolId, SessionInfo, SessionType, TimerToken,
     };
     use ckb_notify::{NotifyController, NotifyService};
     use ckb_protocol::{Block as FbsBlock, Headers as FbsHeaders};
@@ -1083,13 +1083,12 @@ mod tests {
 
     fn mock_session_info() -> SessionInfo {
         SessionInfo {
-            peer: PeerInfo {
-                peer_id: PeerId::random(),
-                session_type: SessionType::Client,
-                last_ping_time: None,
-                connected_addr: "/ip4/127.0.0.1".to_multiaddr().expect("parse multiaddr"),
-                identify_info: None,
-            },
+            peer: Peer::new(
+                0,
+                "/ip4/127.0.0.1".to_multiaddr().expect("parse multiaddr"),
+                1,
+                SessionType::Client,
+            ),
             protocol_version: None,
         }
     }

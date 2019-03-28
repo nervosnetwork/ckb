@@ -29,7 +29,8 @@ pub fn create_tables(conn: &Connection) -> DBResult<()> {
     CREATE TABLE IF NOT EXISTS peer_addr (
     id INTEGER PRIMARY KEY NOT NULL,
     peer_info_id INTEGER NOT NULL,
-    addr BINARY NOT NULL
+    addr BINARY NOT NULL,
+    last_connected_at INTEGER NOT NULL
     );
     CREATE UNIQUE INDEX IF NOT EXISTS idx_peer_info_id_addr_on_peer_addr ON peer_addr (peer_info_id, addr);
     "#;
@@ -79,23 +80,41 @@ impl PeerInfo {
         ])
         .map_err(Into::into)
     }
+
+    pub fn get_or_insert(
+        conn: &Connection,
+        peer_id: &PeerId,
+        addr: &Multiaddr,
+        session_type: SessionType,
+        score: Score,
+        last_connected_at: Duration,
+    ) -> DBResult<Option<PeerInfo>> {
+        match Self::get_by_peer_id(conn, peer_id)? {
+            Some(peer) => Ok(Some(peer)),
+            None => {
+                Self::insert(conn, peer_id, addr, session_type, score, last_connected_at)?;
+                Self::get_by_peer_id(conn, peer_id)
+            }
+        }
+    }
+
     pub fn update(
         conn: &Connection,
-        id: u32,
+        peer_id: &PeerId,
         connected_addr: &Multiaddr,
         endpoint: SessionType,
         last_connected_at: Duration,
     ) -> DBResult<usize> {
         let mut stmt = conn
             .prepare(
-                "UPDATE peer_info SET connected_addr=:connected_addr, endpoint=:endpoint, last_connected_at=:last_connected_at WHERE id=:id",
+                "UPDATE peer_info SET connected_addr=:connected_addr, endpoint=:endpoint, last_connected_at=:last_connected_at WHERE peer_id=:peer_id",
                 )
             .expect("prepare");
         stmt.execute_named(&[
             (":connected_addr", &connected_addr.to_bytes()),
             (":endpoint", &endpoint_to_bool(endpoint)),
             (":last_connected_at", &duration_to_secs(last_connected_at)),
-            (":id", &id),
+            (":peer_id", &peer_id.as_bytes()),
         ])
         .map_err(Into::into)
     }
@@ -159,21 +178,47 @@ impl PeerInfo {
 pub struct PeerAddr;
 
 impl PeerAddr {
-    pub fn insert(conn: &Connection, peer_info_id: u32, addr: &Multiaddr) -> DBResult<usize> {
+    pub fn insert(
+        conn: &Connection,
+        peer_info_id: u32,
+        addr: &Multiaddr,
+        last_connected_at: Duration,
+    ) -> DBResult<usize> {
         let mut stmt = conn.prepare(
-            "INSERT OR IGNORE INTO peer_addr (peer_info_id, addr)
-                     VALUES(:peer_info_id, :addr)",
+            "INSERT OR IGNORE INTO peer_addr (peer_info_id, addr, last_connected_at)
+                     VALUES(:peer_info_id, :addr, :last_connected_at)",
         )?;
         stmt.execute_named(&[
             (":peer_info_id", &peer_info_id),
             (":addr", &addr.to_bytes()),
+            (":last_connected_at", &duration_to_secs(last_connected_at)),
+        ])
+        .map_err(Into::into)
+    }
+
+    pub fn update_connected_at(
+        conn: &Connection,
+        peer_info_id: u32,
+        addr: Multiaddr,
+        last_connected_at: Duration,
+    ) -> DBResult<usize> {
+        let mut stmt = conn.prepare(
+            "UPDATE peer_addr SET last_connected_at=:last_connected_at
+                    WHERE peer_info_id=:peer_info_id AND addr=:addr",
+        )?;
+        stmt.execute_named(&[
+            (":peer_info_id", &peer_info_id),
+            (":addr", &addr.to_bytes()),
+            (":last_connected_at", &duration_to_secs(last_connected_at)),
         ])
         .map_err(Into::into)
     }
 
     pub fn get_addrs(conn: &Connection, id: u32, count: u32) -> DBResult<Vec<Multiaddr>> {
-        let mut stmt =
-            conn.prepare("SELECT addr FROM peer_addr WHERE peer_info_id == :id LIMIT :count")?;
+        let mut stmt = conn.prepare(
+            "SELECT addr FROM peer_addr WHERE peer_info_id == :id 
+                         ORDER BY last_connected_at DESC LIMIT :count",
+        )?;
         let rows = stmt.query_map_named(&[(":id", &id), (":count", &count)], |row| {
             Multiaddr::from_bytes(row.get(0)).expect("parse multiaddr")
         })?;
@@ -186,15 +231,27 @@ impl PeerAddr {
     }
 }
 
-pub fn get_random_peers(conn: &Connection, count: u32) -> DBResult<Vec<(PeerId, Multiaddr)>> {
-    // random select peers
-    let mut stmt = conn.prepare("SELECT id, peer_id FROM peer_info WHERE ban_time < strftime('%s','now') ORDER BY RANDOM() LIMIT :count")?;
-    let rows = stmt.query_map_named(&[(":count", &count)], |row| {
-        (
-            row.get::<_, u32>(0),
-            PeerId::from_bytes(row.get(1)).expect("parse peer_id"),
-        )
-    })?;
+pub fn get_random_peers(
+    conn: &Connection,
+    count: u32,
+    expired_at: Duration,
+) -> DBResult<Vec<(PeerId, Multiaddr)>> {
+    // random select peers that we have connect to recently.
+    let mut stmt = conn.prepare(
+        "SELECT id, peer_id FROM peer_info 
+                                WHERE ban_time < strftime('%s','now') 
+                                AND last_connected_at > :time 
+                                ORDER BY RANDOM() LIMIT :count",
+    )?;
+    let rows = stmt.query_map_named(
+        &[(":count", &count), (":time", &duration_to_secs(expired_at))],
+        |row| {
+            (
+                row.get::<_, u32>(0),
+                PeerId::from_bytes(row.get(1)).expect("parse peer_id"),
+            )
+        },
+    )?;
 
     let mut peers = Vec::with_capacity(count as usize);
     for row in rows {
@@ -209,13 +266,59 @@ pub fn get_random_peers(conn: &Connection, count: u32) -> DBResult<Vec<(PeerId, 
 
 pub fn get_peers_to_attempt(conn: &Connection, count: u32) -> DBResult<Vec<(PeerId, Multiaddr)>> {
     // random select peers
-    let mut stmt = conn.prepare("SELECT id, peer_id FROM peer_info WHERE status != :connected_status AND ban_time < strftime('%s','now') ORDER BY RANDOM() LIMIT :count")?;
+    let mut stmt = conn.prepare(
+        "SELECT id, peer_id FROM peer_info 
+                                WHERE status != :connected_status 
+                                AND ban_time < strftime('%s','now') 
+                                ORDER BY RANDOM() LIMIT :count",
+    )?;
     let rows = stmt.query_map_named(
         &[
             (
                 ":connected_status",
                 &status_to_u8(Status::Connected) as &ToSql,
             ),
+            (":count", &count),
+        ],
+        |row| {
+            (
+                row.get::<_, u32>(0),
+                PeerId::from_bytes(row.get(1)).expect("parse peer_id"),
+            )
+        },
+    )?;
+
+    let mut peers = Vec::with_capacity(count as usize);
+    for row in rows {
+        let (id, peer_id) = row?;
+        let mut addrs = PeerAddr::get_addrs(conn, id, 1)?;
+        if let Some(addr) = addrs.pop() {
+            peers.push((peer_id, addr));
+        }
+    }
+    Ok(peers)
+}
+
+pub fn get_peers_to_feeler(
+    conn: &Connection,
+    count: u32,
+    expired_at: Duration,
+) -> DBResult<Vec<(PeerId, Multiaddr)>> {
+    // random select peers
+    let mut stmt = conn.prepare(
+        "SELECT id, peer_id FROM peer_info 
+                                WHERE status != :connected_status 
+                                AND last_connected_at < :time 
+                                AND ban_time < strftime('%s','now') 
+                                ORDER BY RANDOM() LIMIT :count",
+    )?;
+    let rows = stmt.query_map_named(
+        &[
+            (
+                ":connected_status",
+                &status_to_u8(Status::Connected) as &ToSql,
+            ),
+            (":time", &duration_to_secs(expired_at)),
             (":count", &count),
         ],
         |row| {

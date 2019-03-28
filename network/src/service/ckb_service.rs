@@ -1,5 +1,5 @@
-use crate::protocol_handler::DefaultCKBProtocolContext;
-use crate::{peer_store::Status, Behaviour};
+use crate::peer_store::{Behaviour, Status};
+use crate::protocol::ckb_handler::DefaultCKBProtocolContext;
 use crate::{peers_registry::RegisterResult, CKBEvent, CKBProtocolHandler, Network, PeerId};
 use futures::{sync::mpsc::Receiver, Async, Stream};
 use log::{debug, error, info};
@@ -37,11 +37,19 @@ impl Stream for CKBService {
 
         let network = Arc::clone(&self.network);
         match try_ready!(self.event_receiver.poll()) {
-            Some(Connected(peer_id, addr, session, protocol_id, protocol_version)) => {
+            Some(Connected(
+                peer_id,
+                addr,
+                session_id,
+                session_type,
+                protocol_id,
+                protocol_version,
+            )) => {
                 match network.accept_connection(
                     peer_id.clone(),
                     addr.clone(),
-                    session,
+                    session_id,
+                    session_type,
                     protocol_id,
                     protocol_version,
                 ) {
@@ -64,7 +72,7 @@ impl Stream for CKBService {
                             ),
                             None => {
                                 network.drop_peer(&peer_id);
-                                error!(target: "network", "can't find protocol handler for {:?} {}",session, protocol_id)
+                                error!(target: "network", "can't find protocol handler for {} {:?} {}",session_id, session_type, protocol_id)
                             }
                         }
                     }

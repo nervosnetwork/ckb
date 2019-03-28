@@ -48,6 +48,9 @@ pub trait PeerStore: Send + Sync {
     fn peer_addrs(&self, peer_id: &PeerId, count: u32) -> Option<Vec<Multiaddr>>;
     /// Get peers for outbound connection, this method randomly return non-connected peer addrs
     fn peers_to_attempt(&self, count: u32) -> Vec<(PeerId, Multiaddr)>;
+    /// Get peers for feeler connection, this method randomly return peer addrs that we never
+    /// connected to.
+    fn peers_to_feeler(&self, count: u32) -> Vec<(PeerId, Multiaddr)>;
     /// Randomly get peers
     fn random_peers(&self, count: u32) -> Vec<(PeerId, Multiaddr)>;
     /// Ban a peer

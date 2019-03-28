@@ -3,7 +3,7 @@ use crate::{
     multiaddr::ToMultiaddr,
     peer_store::{
         sqlite::db,
-        sqlite::peer_store::{PEER_NOT_SEEN_TIMEOUT_SECS, PEER_STORE_LIMIT},
+        sqlite::peer_store::{LAST_CONNECTED_TIMEOUT_SECS, PEER_STORE_LIMIT},
         PeerStore, SqlitePeerStore, Status,
     },
     Behaviour, PeerId, SessionType,
@@ -105,6 +105,27 @@ fn test_peers_to_attempt() {
 }
 
 #[test]
+fn test_peers_to_feeler() {
+    let mut peer_store: Box<dyn PeerStore> = Box::new(new_peer_store());
+    assert!(peer_store.peers_to_feeler(1).is_empty());
+    let peer_id = PeerId::random();
+    let addr = "/ip4/127.0.0.1".to_multiaddr().unwrap();
+    peer_store.add_bootnode(peer_id.clone(), addr.clone());
+    assert!(peer_store.peers_to_feeler(1).is_empty());
+    let peer_id2 = PeerId::random();
+    peer_store.add_discovered_addr(&peer_id2, addr.clone());
+    assert_eq!(peer_store.peers_to_feeler(2).len(), 1);
+    peer_store.update_status(&peer_id2, Status::Connected);
+    assert!(peer_store.peers_to_feeler(1).is_empty());
+    peer_store.update_status(&peer_id2, Status::Unknown);
+    assert_eq!(peer_store.peers_to_feeler(2).len(), 1);
+    // peer does not need feeler if it connected to us recently
+    peer_store.add_connected_peer(&peer_id2, addr.clone(), SessionType::Server);
+    peer_store.update_status(&peer_id2, Status::Unknown);
+    assert!(peer_store.peers_to_feeler(1).is_empty());
+}
+
+#[test]
 fn test_random_peers() {
     let mut peer_store: Box<dyn PeerStore> = Box::new(new_peer_store());
     assert!(peer_store.random_peers(1).is_empty());
@@ -114,6 +135,9 @@ fn test_random_peers() {
     assert!(peer_store.random_peers(1).is_empty());
     let peer_id2 = PeerId::random();
     peer_store.add_discovered_addr(&peer_id2, addr.clone());
+    // random should not return peer that we have never connected to
+    assert!(peer_store.random_peers(1).is_empty());
+    peer_store.add_connected_peer(&peer_id2, addr.clone(), SessionType::Server);
     assert_eq!(peer_store.random_peers(2).len(), 1);
     peer_store.update_status(&peer_id2, Status::Connected);
     assert_eq!(peer_store.random_peers(1).len(), 1);
@@ -147,7 +171,7 @@ fn test_delete_peer_info() {
     {
         // make sure these 2 peers become candidate in eviction
         let recent_not_seen_time =
-            faketime::unix_time() - Duration::from_secs(u64::from(PEER_NOT_SEEN_TIMEOUT_SECS + 1));
+            faketime::unix_time() - Duration::from_secs(LAST_CONNECTED_TIMEOUT_SECS + 1);
         let faketime_file = faketime::millis_tempfile(recent_not_seen_time.as_secs() * 1000)
             .expect("create faketime file");
         faketime::enable(&faketime_file);

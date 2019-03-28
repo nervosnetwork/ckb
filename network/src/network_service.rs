@@ -1,4 +1,4 @@
-use crate::protocol_handler::{CKBProtocolContext, DefaultCKBProtocolContext};
+use crate::protocol::ckb_handler::{CKBProtocolContext, DefaultCKBProtocolContext};
 use crate::{errors::Error, CKBEvent, NetworkConfig, ProtocolId};
 use crate::{
     multiaddr::Multiaddr,
