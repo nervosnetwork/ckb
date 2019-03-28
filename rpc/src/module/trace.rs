@@ -46,7 +46,7 @@ impl<CI: ChainIndex + 'static> TraceRpc for TraceRpcImpl<CI> {
                 Ok(cycles) => Some(cycles),
             };
             let entry = PoolEntry::new(tx.clone(), 0, cycles);
-            chain_state.mut_tx_pool().enqueue_tx(entry);
+            chain_state.mut_tx_pool().trace_tx(entry);
             cycles
         };
 

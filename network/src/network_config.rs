@@ -1,93 +1,102 @@
 use crate::errors::{ConfigError, Error};
 use crate::PeerId;
-use bytes::Bytes;
 use log::info;
 use p2p::multiaddr::{Multiaddr, Protocol, ToMultiaddr};
 use rand;
 use rand::Rng;
 use secio;
+use serde_derive::Deserialize;
 use std::fs;
-use std::io::Error as IoError;
 use std::io::Read;
 use std::io::Write;
-use std::iter;
-use std::net::Ipv4Addr;
-use std::time::Duration;
+use std::path::PathBuf;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Deserialize)]
 pub struct NetworkConfig {
     pub listen_addresses: Vec<Multiaddr>,
     pub public_addresses: Vec<Multiaddr>,
-    pub client_version: String,
-    pub protocol_version: String,
+    pub bootnodes: Vec<Multiaddr>,
+    pub reserved_peers: Vec<Multiaddr>,
     pub reserved_only: bool,
-    pub max_inbound_peers: u32,
+    pub max_peers: u32,
     pub max_outbound_peers: u32,
-    pub reserved_peers: Vec<String>,
-    pub secret_key: Option<Bytes>,
-    pub secret_key_path: Option<String>,
-    pub peer_store_path: Option<String>,
-    pub config_dir_path: Option<String>,
-    pub bootnodes: Vec<String>,
-    pub ping_interval: Duration,
-    pub ping_timeout: Duration,
-    pub discovery_timeout: Duration,
-    pub discovery_response_count: usize,
-    pub discovery_interval: Duration,
-    pub try_outbound_connect_interval: Duration,
+    pub path: PathBuf,
+    pub ping_interval_secs: u64,
+    pub ping_timeout_secs: u64,
+    pub connect_outbound_interval_secs: u64,
+}
+
+fn generate_random_key() -> [u8; 32] {
+    loop {
+        let mut key: [u8; 32] = [0; 32];
+        rand::thread_rng().fill(&mut key);
+        if secio::SecioKeyPair::secp256k1_raw_key(&key).is_ok() {
+            return key;
+        }
+    }
 }
 
 impl NetworkConfig {
-    pub(crate) fn read_secret_key(&self) -> Option<Bytes> {
-        if self.secret_key.is_some() {
-            self.secret_key.clone()
-        } else if let Some(ref path) = self.secret_key_path {
-            match fs::File::open(path).and_then(|mut file| {
-                let mut buf = Vec::new();
-                file.read_to_end(&mut buf).map(|_| buf)
-            }) {
-                Ok(secret) => Some(secret.into()),
-                Err(_err) => None,
-            }
-        } else {
-            None
-        }
+    pub fn secret_key_path(&self) -> PathBuf {
+        let mut path = self.path.clone();
+        path.push("secret_key");
+        path
     }
 
-    pub fn new() -> Self {
-        Self::default()
+    pub fn peer_store_path(&self) -> PathBuf {
+        let mut path = self.path.clone();
+        path.push("peer_store.db");
+        path
     }
 
-    pub fn generate_random_key(&mut self) -> Result<secio::SecioKeyPair, Error> {
-        info!(target: "network", "Generate random key");
-        let mut key: [u8; 32] = [0; 32];
-        rand::thread_rng().fill(&mut key);
-        self.secret_key = Some(Bytes::from(key.to_vec()));
-        secio::SecioKeyPair::secp256k1_raw_key(&key).map_err(|_err| ConfigError::InvalidKey.into())
-    }
-
-    pub fn write_secret_key_to_file(&mut self) -> Result<(), IoError> {
-        if let Some(ref secret_key_path) = self.secret_key_path {
-            if let Some(secret_key) = self.secret_key.clone() {
-                info!(target: "network", "write random secret key to {}", secret_key_path);
-                return fs::OpenOptions::new()
-                    .create(true)
-                    .write(true)
-                    .open(secret_key_path)
-                    .and_then(|mut file| file.write_all(&secret_key));
-            }
+    pub fn create_dir_if_not_exists(&self) -> Result<(), Error> {
+        if !self.path.exists() {
+            fs::create_dir(&self.path)?;
         }
         Ok(())
     }
 
-    pub fn fetch_private_key(&self) -> Option<Result<secio::SecioKeyPair, Error>> {
-        if let Some(secret) = self.read_secret_key() {
-            Some(
-                secio::SecioKeyPair::secp256k1_raw_key(&secret)
-                    .map_err(|_err| ConfigError::InvalidKey.into()),
-            )
-        } else {
-            None
+    pub fn max_inbound_peers(&self) -> u32 {
+        self.max_peers - self.max_outbound_peers
+    }
+
+    pub fn max_outbound_peers(&self) -> u32 {
+        self.max_outbound_peers
+    }
+
+    fn read_secret_key(&self) -> Result<Option<secio::SecioKeyPair>, Error> {
+        let path = self.secret_key_path();
+        let mut file = match fs::File::open(path) {
+            Ok(file) => file,
+            Err(_) => return Ok(None),
+        };
+        let mut buf = Vec::new();
+        file.read_to_end(&mut buf)?;
+        Ok(Some(secio::SecioKeyPair::secp256k1_raw_key(&buf).map_err(
+            |_err: secio::error::SecioError| ConfigError::InvalidKey,
+        )?))
+    }
+
+    fn write_secret_key_to_file(&self) -> Result<(), Error> {
+        let path = self.secret_key_path();
+        info!(target: "network", "Generate random key");
+        let random_key_pair = generate_random_key();
+        info!(target: "network", "write random secret key to {:?}", path);
+        fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .open(path)
+            .and_then(|mut file| file.write_all(&random_key_pair))
+            .map_err(Into::into)
+    }
+
+    pub fn fetch_private_key(&self) -> Result<secio::SecioKeyPair, Error> {
+        match self.read_secret_key()? {
+            Some(key) => Ok(key),
+            None => {
+                self.write_secret_key_to_file()?;
+                Ok(self.read_secret_key()?.expect("key must exists"))
+            }
         }
     }
 
@@ -123,34 +132,5 @@ impl NetworkConfig {
             peers.push((peer_id, addr));
         }
         Ok(peers)
-    }
-}
-
-impl Default for NetworkConfig {
-    fn default() -> Self {
-        NetworkConfig {
-            listen_addresses: vec![iter::once(Protocol::Ip4(Ipv4Addr::new(0, 0, 0, 0)))
-                .chain(iter::once(Protocol::Tcp(30333)))
-                .collect()],
-            public_addresses: Vec::new(),
-            client_version: "ckb<unknown>".to_owned(),
-            protocol_version: "ckb".to_owned(),
-            reserved_only: false,
-            max_outbound_peers: 15,
-            max_inbound_peers: 10,
-            reserved_peers: vec![],
-            secret_key: None,
-            secret_key_path: None,
-            bootnodes: vec![],
-            config_dir_path: None,
-            // protocol services config
-            ping_interval: Duration::from_secs(15),
-            ping_timeout: Duration::from_secs(20),
-            discovery_timeout: Duration::from_secs(20),
-            discovery_response_count: 20,
-            discovery_interval: Duration::from_secs(15),
-            try_outbound_connect_interval: Duration::from_secs(15),
-            peer_store_path: None,
-        }
     }
 }

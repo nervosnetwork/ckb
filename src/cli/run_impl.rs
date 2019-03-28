@@ -5,7 +5,6 @@ use ckb_db::diskdb::RocksDB;
 use ckb_miner::BlockAssembler;
 use ckb_network::futures::sync::mpsc::channel;
 use ckb_network::CKBProtocol;
-use ckb_network::NetworkConfig;
 use ckb_network::NetworkService;
 use ckb_network::ProtocolId;
 use ckb_notify::{NotifyController, NotifyService};
@@ -34,7 +33,6 @@ pub fn run(setup: Setup) {
 
     let chain_controller = setup_chain(shared.clone(), notify.clone());
     info!(target: "main", "chain genesis hash: {:#x}", shared.genesis_hash());
-    // let tx_pool_controller = setup_tx_pool(setup.configs.pool, shared.clone(), notify.clone());
 
     let block_assembler = BlockAssembler::new(shared.clone(), setup.configs.block_assembler);
     let block_assembler_controller = block_assembler.start(Some("MinerAgent"), &notify);
@@ -53,7 +51,6 @@ pub fn run(setup: Setup) {
 
     let net_time_checker = Arc::new(NetTimeProtocol::default());
 
-    let network_config = NetworkConfig::from(setup.configs.network);
     let (sender, receiver) = channel(std::u8::MAX as usize);
     let protocols = vec![
         (
@@ -85,7 +82,7 @@ pub fn run(setup: Setup) {
         ),
     ];
     let network = Arc::new(
-        NetworkService::run_in_thread(&network_config, protocols, receiver)
+        NetworkService::run_in_thread(&setup.configs.network, protocols, receiver)
             .expect("Create and start network"),
     );
 
@@ -116,15 +113,6 @@ fn setup_chain<CI: ChainIndex + 'static>(
     let chain_service = ChainBuilder::new(shared, notify).build();
     chain_service.start(Some("ChainService"))
 }
-
-// fn setup_tx_pool<CI: ChainIndex + 'static>(
-//     config: PoolConfig,
-//     shared: Shared<CI>,
-//     notify: NotifyController,
-// ) -> TransactionPoolController {
-//     let tx_pool_service = TransactionPoolService::new(config, shared, notify);
-//     tx_pool_service.start(Some("TransactionPoolService"))
-// }
 
 pub fn keygen() {
     let result: H256 = Generator::new().random_privkey().into();
