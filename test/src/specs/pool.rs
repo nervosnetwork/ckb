@@ -61,7 +61,7 @@ impl Spec for PoolReconcile {
 pub struct PoolTrace;
 
 impl Spec for PoolTrace {
-    fn run(&self, net: &Net) {
+    fn run(&self, net: Net) {
         info!("Running PoolTrace");
         let node0 = &net.nodes[0];
 

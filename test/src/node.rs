@@ -154,18 +154,6 @@ impl Node {
             .expect("rpc call send_transaction failed")
     }
 
-    pub fn wait_for_rpc_connection(&self) {
-        let mut client = self.rpc_client();
-
-        loop {
-            if let Ok(result) = client.local_node_info().call() {
-                info!("RPC service ready, {:?}", result);
-                break;
-            }
-            sleep(1);
-        }
-    }
-
     pub fn new_block(&self) -> Block {
         let template = self
             .rpc_client()

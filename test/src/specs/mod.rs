@@ -10,6 +10,7 @@ pub use block_sync::BlockSyncBasic;
 pub use mining::MiningBasic;
 pub use pool::{PoolReconcile, PoolTrace};
 pub use transaction_relay::TransactionRelayBasic;
+pub use net::{Disconnect, Discovery};
 
 use crate::{sleep, Net};
 

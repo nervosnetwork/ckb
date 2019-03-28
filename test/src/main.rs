@@ -26,6 +26,8 @@ fn main() {
             "pool_reconcile" => Box::new(PoolReconcile),
             "pool_trace" => Box::new(PoolTrace),
             "transaction_relay_basic" => Box::new(TransactionRelayBasic),
+            "discovery" => Box::new(Discovery),
+            "disconnect" => Box::new(Disconnect),
             _ => panic!("invalid spec"),
         };
         let net = spec.setup_net(&binary, start_port);
@@ -38,6 +40,8 @@ fn main() {
             Box::new(PoolReconcile),
             Box::new(PoolTrace),
             Box::new(TransactionRelayBasic),
+            Box::new(Discovery),
+            Box::new(Disconnect),
         ];
 
         specs.iter().for_each(|spec| {

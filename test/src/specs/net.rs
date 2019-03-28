@@ -1,7 +1,7 @@
 use crate::{sleep, Net, Spec};
 use log::info;
 
-pub struct Discovery {}
+pub struct Discovery;
 
 impl Spec for Discovery {
     fn run(&self, net: Net) {
@@ -22,7 +22,7 @@ impl Spec for Discovery {
     }
 }
 
-pub struct Disconnect {}
+pub struct Disconnect;
 
 impl Spec for Disconnect {
     fn run(&self, mut net: Net) {
