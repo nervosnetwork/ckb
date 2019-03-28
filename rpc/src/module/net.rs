@@ -46,6 +46,7 @@ impl NetworkRpc for NetworkRpcImpl {
                     .map(|info| info.client_version)
                     .unwrap_or_else(|| "unknown".to_string()),
                 node_id: peer_id.to_base58(),
+                // TODO how to get correct port?
                 addresses: vec![peer.connected_addr.to_string()],
             })
             .collect())

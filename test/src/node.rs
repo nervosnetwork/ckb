@@ -59,7 +59,7 @@ impl Node {
             ])
             .stdin(Stdio::null())
             .stdout(Stdio::null())
-            .stderr(Stdio::null())
+            .stderr(Stdio::inherit())
             .spawn()
             .expect("failed to run binary");
         self.guard = Some(ProcessGuard(child_process));
