@@ -29,7 +29,8 @@ pub fn create_tables(conn: &Connection) -> DBResult<()> {
     CREATE TABLE IF NOT EXISTS peer_addr (
     id INTEGER PRIMARY KEY NOT NULL,
     peer_info_id INTEGER NOT NULL,
-    addr BINARY NOT NULL
+    addr BINARY NOT NULL,
+    last_connected_at INTEGER NOT NULL
     );
     CREATE UNIQUE INDEX IF NOT EXISTS idx_peer_info_id_addr_on_peer_addr ON peer_addr (peer_info_id, addr);
     "#;
@@ -177,21 +178,47 @@ impl PeerInfo {
 pub struct PeerAddr;
 
 impl PeerAddr {
-    pub fn insert(conn: &Connection, peer_info_id: u32, addr: &Multiaddr) -> DBResult<usize> {
+    pub fn insert(
+        conn: &Connection,
+        peer_info_id: u32,
+        addr: &Multiaddr,
+        last_connected_at: Duration,
+    ) -> DBResult<usize> {
         let mut stmt = conn.prepare(
-            "INSERT OR IGNORE INTO peer_addr (peer_info_id, addr)
-                     VALUES(:peer_info_id, :addr)",
+            "INSERT OR IGNORE INTO peer_addr (peer_info_id, addr, last_connected_at)
+                     VALUES(:peer_info_id, :addr, :last_connected_at)",
         )?;
         stmt.execute_named(&[
             (":peer_info_id", &peer_info_id),
             (":addr", &addr.to_bytes()),
+            (":last_connected_at", &duration_to_secs(last_connected_at)),
+        ])
+        .map_err(Into::into)
+    }
+
+    pub fn update_connected_at(
+        conn: &Connection,
+        peer_info_id: u32,
+        addr: Multiaddr,
+        last_connected_at: Duration,
+    ) -> DBResult<usize> {
+        let mut stmt = conn.prepare(
+            "UPDATE peer_addr SET last_connected_at=:last_connected_at
+                    WHERE peer_info_id=:peer_info_id AND addr=:addr",
+        )?;
+        stmt.execute_named(&[
+            (":peer_info_id", &peer_info_id),
+            (":addr", &addr.to_bytes()),
+            (":last_connected_at", &duration_to_secs(last_connected_at)),
         ])
         .map_err(Into::into)
     }
 
     pub fn get_addrs(conn: &Connection, id: u32, count: u32) -> DBResult<Vec<Multiaddr>> {
-        let mut stmt =
-            conn.prepare("SELECT addr FROM peer_addr WHERE peer_info_id == :id LIMIT :count")?;
+        let mut stmt = conn.prepare(
+            "SELECT addr FROM peer_addr WHERE peer_info_id == :id 
+                         ORDER BY last_connected_at DESC LIMIT :count",
+        )?;
         let rows = stmt.query_map_named(&[(":id", &id), (":count", &count)], |row| {
             Multiaddr::from_bytes(row.get(0)).expect("parse multiaddr")
         })?;

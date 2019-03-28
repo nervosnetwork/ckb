@@ -17,7 +17,6 @@ use crate::peer_store::{
 use crate::SessionType;
 use faketime::unix_time;
 use fnv::FnvHashMap;
-use std::net::IpAddr;
 use std::time::Duration;
 
 /// After this limitation, peer store will try to eviction peers
@@ -83,10 +82,11 @@ impl SqlitePeerStore {
     }
 
     fn ban_ip(&mut self, addr: &Multiaddr, timeout: Duration) {
-        let ip = match addr.extract_ip_addr() {
-            Some(IpAddr::V4(ipv4)) => ipv4.octets().to_vec(),
-            Some(IpAddr::V6(ipv6)) => ipv6.octets().to_vec(),
-            None => return,
+        let ip = {
+            match addr.extract_ip_addr_binary() {
+                Some(binary) => binary,
+                None => return,
+            }
         };
         let ban_time = unix_time() + timeout;
         {
@@ -101,9 +101,8 @@ impl SqlitePeerStore {
     }
 
     fn is_addr_banned(&self, addr: &Multiaddr) -> bool {
-        let ip = match addr.extract_ip_addr() {
-            Some(IpAddr::V4(ipv4)) => ipv4.octets().to_vec(),
-            Some(IpAddr::V6(ipv6)) => ipv6.octets().to_vec(),
+        let ip = match addr.extract_ip_addr_binary() {
+            Some(ip) => ip,
             None => return false,
         };
         let now = unix_time();
@@ -192,25 +191,33 @@ impl PeerStore for SqlitePeerStore {
             return;
         }
         let now = unix_time();
+        let default_peer_score = self.peer_score_config().default_score;
         // upsert peer_info
         self.pool
-            .fetch(|conn| {
+            .fetch(move |conn| {
                 db::PeerInfo::update(conn, peer_id, &addr, endpoint, now).and_then(
                     |affected_lines| {
                         if affected_lines > 0 {
-                            Ok(affected_lines)
+                            Ok(())
                         } else {
                             db::PeerInfo::insert(
                                 conn,
                                 peer_id,
                                 &addr,
                                 endpoint,
-                                self.peer_score_config().default_score,
+                                default_peer_score,
                                 now,
                             )
+                            .map(|_| ())
                         }
                     },
-                )
+                )?;
+
+                if endpoint == SessionType::Client {
+                    let peer = db::PeerInfo::get_by_peer_id(conn, peer_id)?.expect("must have");
+                    db::PeerAddr::update_connected_at(conn, peer.id, addr, now)?;
+                }
+                Ok(())
             })
             .expect("upsert peer info");
     }
@@ -223,7 +230,7 @@ impl PeerStore for SqlitePeerStore {
         let peer_info = self.fetch_peer_info(peer_id);
         let inserted = self
             .pool
-            .fetch(|conn| db::PeerAddr::insert(&conn, peer_info.id, &addr))
+            .fetch(|conn| db::PeerAddr::insert(&conn, peer_info.id, &addr, Duration::from_secs(0)))
             .expect("insert addr");
         inserted > 0
     }
