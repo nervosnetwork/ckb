@@ -2,7 +2,7 @@ use build_info::{get_version, Version};
 use ckb_network::NetworkService;
 use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
-use jsonrpc_types::Node;
+use jsonrpc_types::{Node, NodeAddress};
 use std::sync::Arc;
 
 const MAX_ADDRS: usize = 50;
@@ -31,7 +31,7 @@ impl NetworkRpc for NetworkRpcImpl {
                 .network
                 .external_urls(MAX_ADDRS)
                 .into_iter()
-                .map(|(address, _)| address)
+                .map(|(address, score)| NodeAddress { address, score })
                 .collect(),
         })
     }
@@ -46,8 +46,11 @@ impl NetworkRpc for NetworkRpcImpl {
                     .map(|info| info.client_version)
                     .unwrap_or_else(|| "unknown".to_string()),
                 node_id: peer_id.to_base58(),
-                // TODO how to get correct port?
-                addresses: vec![peer.connected_addr.to_string()],
+                // TODO how to get correct port and score?
+                addresses: vec![NodeAddress {
+                    address: peer.connected_addr.to_string(),
+                    score: 0,
+                }],
             })
             .collect())
     }

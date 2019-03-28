@@ -302,7 +302,12 @@ curl -d '{"id": 2, "jsonrpc": "2.0", "method":"local_node_info","params": []}' -
 {
     "jsonrpc": "2.0",
     "result": {
-        "address": "/ip4/0.0.0.0/tcp/12344/p2p/QmWRU2NSro4wKgVbFX6y8SPFkcJ1tE2X5xzk9msMhdRmdS",
+        "addresses": [
+            {
+                "address": "/ip4/0.0.0.0/tcp/12344/p2p/QmWRU2NSro4wKgVbFX6y8SPFkcJ1tE2X5xzk9msMhdRmdS",
+                "score": 1
+            }
+        ],
         "node_id": "QmWRU2NSro4wKgVbFX6y8SPFkcJ1tE2X5xzk9msMhdRmdS",
         "version": "0.5.0"
     },
@@ -325,7 +330,12 @@ curl -d '{"id": 2, "jsonrpc": "2.0", "method":"get_peers","params": []}' -H 'con
     "jsonrpc": "2.0",
     "result": [
         {
-            "address": "/ip4/127.0.0.1/tcp/60470/p2p/QmdiJuQZj1dM4K4HKMxfMwcAqGFYvGKpbvVxTzyQeNGEcG",
+            "addresses": [
+                {
+                    "address": "/ip4/192.168.2.3/tcp/12344/p2p/QmdiJuQZj1dM4K4HKMxfMwcAqGFYvGKpbvVxTzyQeNGEcG",
+                    "score": 1
+                }
+            ],
             "node_id": "QmdiJuQZj1dM4K4HKMxfMwcAqGFYvGKpbvVxTzyQeNGEcG",
             "version": "0.5.0"
         }
