@@ -33,6 +33,7 @@ addons:
       - texinfo
       - libtool
 
+before_install: if [ "$TRAVIS_OS_NAME" = "osx" ]; then ulimit -n 8192; fi
 install: ./devtools/ci/install.sh
 script: ./devtools/ci/script.sh
 
