@@ -10,6 +10,7 @@ jsonrpc-types = { path = "../util/jsonrpc-types" }
 logger = { path = "../util/logger" }
 ckb-core= { path = "../core" }
 ckb-network = { path = "../network" }
+ckb-shared = { path = "../shared" }
 numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 fs_extra = "1.1"
 tempfile = "3.0"
@@ -18,4 +19,6 @@ jsonrpc-client-http = "0.5.0"
 rand = "0.6"
 log = "0.4"
 
-[dev-dependencies]
+# Prevent this from interfering with workspaces
+[workspace]
+members = ["."]

@@ -1,7 +1,7 @@
 use crate::{sleep, Net, Spec};
 use log::info;
 
-pub struct TransactionRelayBasic {}
+pub struct TransactionRelayBasic;
 
 impl Spec for TransactionRelayBasic {
     fn run(&self, net: &Net) {

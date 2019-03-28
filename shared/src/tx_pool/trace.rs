@@ -1,11 +1,11 @@
 use faketime::unix_time_as_millis;
 use lru_cache::LruCache;
 use numext_fixed_hash::H256;
-use serde_derive::Serialize;
+use serde_derive::{Deserialize, Serialize};
 use std::fmt;
 
-#[derive(Debug, Clone, Eq, PartialEq, Serialize, Hash)]
-pub(crate) enum Action {
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize, Hash)]
+pub enum Action {
     AddPending,
     Proposed,
     Staged,
@@ -14,7 +14,7 @@ pub(crate) enum Action {
     Committed,
 }
 
-#[derive(Clone, Eq, PartialEq, Serialize, Hash)]
+#[derive(Clone, Eq, PartialEq, Serialize, Deserialize, Hash)]
 pub struct TxTrace {
     pub(crate) action: Action,
     pub(crate) info: String,
@@ -24,6 +24,10 @@ pub struct TxTrace {
 impl TxTrace {
     pub(crate) fn new(action: Action, info: String, time: u64) -> TxTrace {
         TxTrace { action, info, time }
+    }
+
+    pub fn action(&self) -> &Action {
+        &self.action
     }
 }
 

@@ -20,22 +20,24 @@ fn main() {
         .expect("invalid port number");
     if let Some(spec_name) = env::args().nth(3) {
         let spec: Box<Spec> = match &spec_name[..] {
-            "block_relay_basic" => Box::new(BlockRelayBasic {}),
-            "block_sync_basic" => Box::new(BlockSyncBasic {}),
-            "mining_basic" => Box::new(MiningBasic {}),
-            "pool_reconcile" => Box::new(PoolReconcile {}),
-            "transaction_relay_basic" => Box::new(TransactionRelayBasic {}),
+            "block_relay_basic" => Box::new(BlockRelayBasic),
+            "block_sync_basic" => Box::new(BlockSyncBasic),
+            "mining_basic" => Box::new(MiningBasic),
+            "pool_reconcile" => Box::new(PoolReconcile),
+            "pool_trace" => Box::new(PoolTrace),
+            "transaction_relay_basic" => Box::new(TransactionRelayBasic),
             _ => panic!("invalid spec"),
         };
         let net = spec.setup_net(&binary, start_port);
         spec.run(&net);
     } else {
         let specs: Vec<Box<Spec>> = vec![
-            Box::new(BlockRelayBasic {}),
-            Box::new(BlockSyncBasic {}),
-            Box::new(MiningBasic {}),
-            Box::new(PoolReconcile {}),
-            Box::new(TransactionRelayBasic {}),
+            Box::new(BlockRelayBasic),
+            Box::new(BlockSyncBasic),
+            Box::new(MiningBasic),
+            Box::new(PoolReconcile),
+            Box::new(PoolTrace),
+            Box::new(TransactionRelayBasic),
         ];
 
         specs.iter().for_each(|spec| {
@@ -43,4 +45,6 @@ fn main() {
             spec.run(&net);
         })
     }
+
+    logger::flush();
 }
