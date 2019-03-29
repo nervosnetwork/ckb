@@ -334,7 +334,6 @@ impl PeersRegistry {
             .add_peer(peer_id, connected_addr, session_id, session_type)
     }
 
-    #[cfg(test)]
     #[inline]
     pub(crate) fn peers_iter(&self) -> impl Iterator<Item = (&PeerId, &Peer)> {
         self.peers.iter()

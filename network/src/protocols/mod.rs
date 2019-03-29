@@ -184,8 +184,7 @@ impl ServiceProtocol for CKBHandler {
                 )
             }
             Err(err) => {
-                network.drop_peer(&peer_id);
-                context.disconnect(session.id);
+                network.drop_peer(context.control(), &peer_id);
                 info!(
                     target: "network",
                     "reject connection from {} {}, because {:?}",
@@ -231,7 +230,7 @@ impl ServiceProtocol for CKBHandler {
                 );
             }
             // disconnect
-            network.drop_peer(&peer_id);
+            network.drop_peer(context.control(), &peer_id);
         }
     }
 
@@ -391,14 +390,16 @@ impl CKBProtocolContext for DefaultCKBProtocolContext {
     // ban peer
     fn ban_peer(&self, peer_index: PeerIndex, timeout: Duration) {
         if let Some(peer_id) = self.network_state.get_peer_id(peer_index) {
-            self.network_state.ban_peer(&peer_id, timeout)
+            self.network_state
+                .ban_peer(&mut self.p2p_control.clone(), &peer_id, timeout)
         }
     }
     // disconnect from peer
     fn disconnect(&self, peer_index: PeerIndex) {
         debug!(target: "network", "disconnect peer {}", peer_index);
         if let Some(peer_id) = self.network_state.get_peer_id(peer_index) {
-            self.network_state.drop_peer(&peer_id);
+            self.network_state
+                .drop_peer(&mut self.p2p_control.clone(), &peer_id);
         }
     }
 

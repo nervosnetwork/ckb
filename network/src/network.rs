@@ -110,14 +110,24 @@ impl NetworkState {
         self.peer_store.write().report(peer_id, behaviour);
     }
 
-    pub fn drop_peer(&self, peer_id: &PeerId) {
+    pub fn drop_peer(&self, p2p_control: &mut ServiceControl, peer_id: &PeerId) {
         debug!(target: "network", "drop peer {:?}", peer_id);
-        self.peers_registry.write().drop_peer(&peer_id);
+        if let Some(peer) = self.peers_registry.write().drop_peer(&peer_id) {
+            if let Err(err) = p2p_control.disconnect(peer.session_id) {
+                error!(target: "network", "disconnect peer error {:?}", err);
+            }
+        }
     }
 
-    pub fn drop_all(&self) {
+    pub fn drop_all(&self, p2p_control: &mut ServiceControl) {
         debug!(target: "network", "drop all connections...");
-        self.peers_registry.write().drop_all();
+        let mut peers_registry = self.peers_registry.write();
+        for (_peer_id, peer) in peers_registry.peers_iter() {
+            if let Err(err) = p2p_control.disconnect(peer.session_id) {
+                error!(target: "network", "disconnect peer error {:?}", err);
+            }
+        }
+        peers_registry.drop_all();
     }
 
     pub fn local_peer_id(&self) -> &PeerId {
@@ -166,13 +176,16 @@ impl NetworkState {
         iter.collect::<Vec<_>>()
     }
 
-    #[inline]
-    pub(crate) fn ban_peer(&self, peer_id: &PeerId, timeout: Duration) {
-        self.drop_peer(peer_id);
+    pub(crate) fn ban_peer(
+        &self,
+        p2p_control: &mut ServiceControl,
+        peer_id: &PeerId,
+        timeout: Duration,
+    ) {
+        self.drop_peer(p2p_control, peer_id);
         self.peer_store.write().ban_peer(peer_id, timeout);
     }
 
-    #[inline]
     pub(crate) fn peer_store(&self) -> &RwLock<dyn PeerStore> {
         &self.peer_store
     }
@@ -334,7 +347,8 @@ impl NetworkService {
         let config = &network_state.config;
 
         // == Build special protocols
-        // TODO: how to deny banned node to open this protocol?
+
+        // TODO: how to deny banned node to open those protocols?
         // Ping protocol
         let (ping_sender, ping_receiver) = channel(std::u8::MAX as usize);
         let ping_meta = MetaBuilder::default()
@@ -398,10 +412,11 @@ impl NetworkService {
 
         // == Build background service tasks
         let disc_service = DiscoveryService::new(Arc::clone(&network_state), disc_receiver);
-        let ping_service = PingService {
-            network_state: Arc::clone(&network_state),
-            event_receiver: ping_receiver,
-        };
+        let ping_service = PingService::new(
+            Arc::clone(&network_state),
+            p2p_service.control().clone(),
+            ping_receiver,
+        );
         let outbound_peer_service = OutboundPeerService::new(
             Arc::clone(&network_state),
             p2p_service.control().clone(),
@@ -481,6 +496,7 @@ impl NetworkService {
         let (sender, receiver) = crossbeam_channel::bounded(1);
         let thread = thread_builder
             .spawn(move || {
+                let mut p2p_control_thread = self.p2p_service.control().clone();
                 let mut runtime = Runtime::new().expect("Network tokio runtime init failed");
                 runtime.spawn(self.p2p_service.for_each(|_| Ok(())));
 
@@ -497,11 +513,15 @@ impl NetworkService {
                     );
                 }
 
+                debug!(target: "network", "Shuting down network service");
+
+                // Recevied stop signal, doing cleanup
                 let _ = receiver.recv();
+                self.network_state.drop_all(&mut p2p_control_thread);
                 for signal in bg_signals.into_iter() {
                     let _ = signal.send(());
                 }
-                debug!(target: "network", "Shuting down network service");
+
                 // TODO: not that gracefully shutdown, will output below error message:
                 //       "terminate called after throwing an instance of 'std::system_error'"
                 runtime.shutdown_now();
