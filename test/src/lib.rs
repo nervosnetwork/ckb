@@ -7,7 +7,7 @@ use std::thread;
 use std::time;
 
 pub use net::Net;
-pub use node::Node;
+pub use node::{Node, TestNode};
 pub use specs::Spec;
 
 pub fn sleep(secs: u64) {

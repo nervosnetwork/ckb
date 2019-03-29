@@ -4,6 +4,7 @@ mod mining;
 mod net;
 mod pool;
 mod transaction_relay;
+mod sync_protocol;
 
 pub use block_relay::BlockRelayBasic;
 pub use block_sync::BlockSyncBasic;
@@ -11,6 +12,7 @@ pub use mining::MiningBasic;
 pub use pool::{PoolReconcile, PoolTrace};
 pub use transaction_relay::TransactionRelayBasic;
 pub use net::{Disconnect, Discovery};
+pub use sync_protocol::MalformedMessage;
 
 use crate::{sleep, Net};
 

@@ -18,6 +18,7 @@ jsonrpc-client-core = "0.5.0"
 jsonrpc-client-http = "0.5.0"
 rand = "0.6"
 log = "0.4"
+bytes = "0.4.12"
 
 # Prevent this from interfering with workspaces
 [workspace]

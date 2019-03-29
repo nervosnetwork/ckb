@@ -4,7 +4,7 @@ use std::env;
 
 fn main() {
     let log_config = Config {
-        filter: Some("info".to_owned()),
+        filter: Some("info,network=trace".to_owned()),
         color: true,
         file: None,
     };
@@ -28,6 +28,7 @@ fn main() {
             "transaction_relay_basic" => Box::new(TransactionRelayBasic),
             "discovery" => Box::new(Discovery),
             "disconnect" => Box::new(Disconnect),
+            "malformed_message" => Box::new(MalformedMessage),
             _ => panic!("invalid spec"),
         };
         let net = spec.setup_net(&binary, start_port);
@@ -42,6 +43,7 @@ fn main() {
             Box::new(TransactionRelayBasic),
             Box::new(Discovery),
             Box::new(Disconnect),
+            Box::new(MalformedMessage),
         ];
 
         specs.iter().for_each(|spec| {

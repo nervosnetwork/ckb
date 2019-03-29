@@ -1,3 +1,4 @@
+use tempfile::tempdir;
 use crate::rpc::RpcClient;
 use crate::sleep;
 use ckb_core::block::{Block, BlockBuilder};
@@ -14,6 +15,11 @@ use std::fs::File;
 use std::io::{Error, Read, Write};
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
+use ckb_network::{TimerToken, CKBProtocolHandler, ProtocolId, CKBProtocol, CKBProtocolContext, PeerIndex, NetworkConfig, NetworkService};
+use ckb_network::futures::sync::mpsc::channel;
+use std::sync::Arc;
+use bytes::Bytes;
+use ckb_network::multiaddr::ToMultiaddr;
 
 const DEFAULT_CONFIG_FILE: &str = "default.toml";
 
@@ -224,5 +230,85 @@ impl Node {
         let mut file = File::create(dest.join(DEFAULT_CONFIG_FILE))?;
         file.write_all(new_data.as_bytes())?;
         Ok(())
+    }
+}
+
+pub struct TestNode {
+    network: Arc<NetworkService>
+}
+
+
+impl TestNode {
+    pub fn new() -> Self {
+        let mut config = NetworkConfig::default();
+        config.listen_addresses = vec!["/ip4/0.0.0.0/tcp/12345".to_multiaddr().unwrap()];
+        config.ping_interval_secs = 15;
+        config.ping_timeout_secs = 20;
+        config.max_peers = 125;
+        config.max_outbound_peers = 30;
+        config.connect_outbound_interval_secs = 1;
+        config.path = tempdir().unwrap().path().to_path_buf();
+
+        let (sender, receiver) = channel(std::u8::MAX as usize);
+
+        let protocols = vec![
+        (
+            CKBProtocol::new(
+                "syn".to_string(),
+                100,
+                &[1][..],
+                sender.clone(),
+            ),
+            Arc::new(DummyProtocolHandler) as Arc<_>
+        )];
+
+        let network_service = NetworkService::run_in_thread(&config, protocols, receiver)
+            .expect("Create and start network");
+
+        Self {
+            network: Arc::new(network_service)
+        }
+    }
+
+    pub fn connect(&self, node: &Node) {
+        let node_info = node
+            .rpc_client()
+            .local_node_info()
+            .call()
+            .expect("rpc call local_node_info failed");
+        self.network.add_node(
+            &node_info.node_id.parse().expect("invalid peer_id"),
+            format!("/ip4/127.0.0.1/tcp/{}", node.p2p_port).parse().expect("invalid address"),
+        );
+    }
+
+    pub fn send(&self, protocol_id: ProtocolId, peer: PeerIndex, data: Vec<u8>) {
+        self.network.with_protocol_context(protocol_id, |nc| {
+            info!("{:?}", nc.send(peer, data));
+        });
+    }
+}
+
+pub struct DummyProtocolHandler;
+
+impl CKBProtocolHandler for DummyProtocolHandler {
+    fn initialize(&self, _nc: Box<dyn CKBProtocolContext>) {
+
+    }
+
+    fn received(&self, _nc: Box<dyn CKBProtocolContext>, peer: PeerIndex, data: Bytes) {
+        info!("received {:?}, {:?}", peer, data);
+    }
+
+    fn connected(&self, _nc: Box<dyn CKBProtocolContext>, _peer: PeerIndex) {
+
+    }
+
+    fn disconnected(&self, _nc: Box<dyn CKBProtocolContext>, _peer: PeerIndex) {
+
+    }
+
+    fn timer_triggered(&self, _nc: Box<dyn CKBProtocolContext>, _timer: TimerToken) {
+
     }
 }
