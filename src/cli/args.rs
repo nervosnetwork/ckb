@@ -89,10 +89,5 @@ fn cli() -> App<'static, 'static> {
     SubCommand::with_name("cli")
         .about("Running ckb cli")
         .setting(AppSettings::SubcommandRequiredElseHelp)
-        .subcommand(
-            SubCommand::with_name("type_hash")
-                .arg(arg_config_with_help(CKB_CONFIG_HELP))
-                .about("Generate lock script type hash using the first system cell, which by default is always_success"),
-        )
         .subcommand(SubCommand::with_name("keygen").about("Generate new key"))
 }
