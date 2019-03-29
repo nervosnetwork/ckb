@@ -7,7 +7,7 @@ use ckb_core::cell::ResolvedTransaction;
 use ckb_core::script::{Script, ALWAYS_SUCCESS_HASH};
 use ckb_core::transaction::{CellInput, CellOutput};
 use ckb_core::Cycle;
-use ckb_vm::{CoreMachine, DefaultMachine, SparseMemory};
+use ckb_vm::{DefaultCoreMachine, DefaultMachineBuilder, SparseMemory, SupportMachine};
 use flatbuffers::FlatBufferBuilder;
 use fnv::FnvHashMap;
 use log::info;
@@ -119,25 +119,27 @@ impl<'a> TransactionScriptsVerifier<'a> {
                 args.extend_from_slice(&input.args.as_slice());
             }
 
-            let mut machine = DefaultMachine::<u64, SparseMemory>::new_with_cost_model(
-                Box::new(instruction_cycles),
-                max_cycles,
-            );
-            machine.add_syscall_module(Box::new(self.build_load_tx()));
-            machine.add_syscall_module(Box::new(self.build_load_cell(current_cell)));
-            machine.add_syscall_module(Box::new(self.build_load_cell_by_field(current_cell)));
-            machine.add_syscall_module(Box::new(self.build_load_input_by_field(current_input)));
-            machine.add_syscall_module(Box::new(Debugger::new(prefix)));
-            machine
-                .run(script_binary, &args)
-                .map_err(ScriptError::VMError)
-                .and_then(|code| {
-                    if code == 0 {
-                        Ok(machine.cycles())
-                    } else {
-                        Err(ScriptError::ValidationFailure(code))
-                    }
-                })
+            let core_machine =
+                DefaultCoreMachine::<u64, SparseMemory<u64>>::new_with_max_cycles(max_cycles);
+            let mut machine =
+                DefaultMachineBuilder::<DefaultCoreMachine<u64, SparseMemory<u64>>>::new(
+                    core_machine,
+                )
+                .instruction_cycle_func(Box::new(instruction_cycles))
+                .syscall(Box::new(self.build_load_tx()))
+                .syscall(Box::new(self.build_load_cell(current_cell)))
+                .syscall(Box::new(self.build_load_cell_by_field(current_cell)))
+                .syscall(Box::new(self.build_load_input_by_field(current_input)))
+                .syscall(Box::new(Debugger::new(prefix)))
+                .build()
+                .load_program(script_binary, &args)
+                .map_err(ScriptError::VMError)?;
+            let code = machine.interpret().map_err(ScriptError::VMError)?;
+            if code == 0 {
+                Ok(machine.cycles())
+            } else {
+                Err(ScriptError::ValidationFailure(code))
+            }
         })
     }
 

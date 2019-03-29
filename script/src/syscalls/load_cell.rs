@@ -1,7 +1,9 @@
 use crate::syscalls::{Source, ITEM_MISSING, LOAD_CELL_SYSCALL_NUMBER, SUCCESS};
 use ckb_core::transaction::CellOutput;
 use ckb_protocol::CellOutput as FbsCellOutput;
-use ckb_vm::{CoreMachine, Error as VMError, Memory, Register, Syscalls, A0, A1, A2, A3, A4, A7};
+use ckb_vm::{
+    Error as VMError, Memory, Register, SupportMachine, Syscalls, A0, A1, A2, A3, A4, A7,
+};
 use flatbuffers::FlatBufferBuilder;
 use std::cmp;
 
@@ -38,27 +40,30 @@ impl<'a> LoadCell<'a> {
     }
 }
 
-impl<'a, R: Register, M: Memory> Syscalls<R, M> for LoadCell<'a> {
-    fn initialize(&mut self, _machine: &mut CoreMachine<R, M>) -> Result<(), VMError> {
+impl<'a, Mac: SupportMachine> Syscalls<Mac> for LoadCell<'a> {
+    fn initialize(&mut self, _machine: &mut Mac) -> Result<(), VMError> {
         Ok(())
     }
 
-    fn ecall(&mut self, machine: &mut CoreMachine<R, M>) -> Result<bool, VMError> {
+    fn ecall(&mut self, machine: &mut Mac) -> Result<bool, VMError> {
         if machine.registers()[A7].to_u64() != LOAD_CELL_SYSCALL_NUMBER {
             return Ok(false);
         }
-        machine.add_cycles(100);
+        machine.add_cycles(100)?;
 
         let addr = machine.registers()[A0].to_usize();
         let size_addr = machine.registers()[A1].to_usize();
-        let size = machine.memory_mut().load64(size_addr)? as usize;
+        let size = machine
+            .memory_mut()
+            .load64(&Mac::REG::from_usize(size_addr))?
+            .to_usize();
 
         let index = machine.registers()[A3].to_usize();
         let source = Source::parse_from_u64(machine.registers()[A4].to_u64())?;
 
         let cell = self.fetch_cell(source, index);
         if cell.is_none() {
-            machine.registers_mut()[A0] = R::from_u8(ITEM_MISSING);
+            machine.set_register(A0, Mac::REG::from_u8(ITEM_MISSING));
             return Ok(true);
         }
         let cell = cell.unwrap();
@@ -80,12 +85,15 @@ impl<'a, R: Register, M: Memory> Syscalls<R, M> for LoadCell<'a> {
         let offset = machine.registers()[A2].to_usize();
         let full_size = data.len() - offset;
         let real_size = cmp::min(size, full_size);
-        machine.memory_mut().store64(size_addr, full_size as u64)?;
+        machine.memory_mut().store64(
+            &Mac::REG::from_usize(size_addr),
+            &Mac::REG::from_usize(full_size),
+        )?;
         machine
             .memory_mut()
             .store_bytes(addr, &data[offset..offset + real_size])?;
-        machine.registers_mut()[A0] = R::from_u8(SUCCESS);
-        machine.add_cycles(data.len() as u64 * 100);
+        machine.set_register(A0, Mac::REG::from_u8(SUCCESS));
+        machine.add_cycles(data.len() as u64 * 100)?;
         Ok(true)
     }
 }
