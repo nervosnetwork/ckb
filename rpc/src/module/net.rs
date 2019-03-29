@@ -36,7 +36,7 @@ impl NetworkRpc for NetworkRpcImpl {
     }
 
     fn get_peers(&self) -> Result<Vec<Node>> {
-        let peers = self.network.connected_peers();
+        let peers = self.network_controller.connected_peers();
         Ok(peers
             .into_iter()
             .map(|(peer_id, peer, addresses)| Node {

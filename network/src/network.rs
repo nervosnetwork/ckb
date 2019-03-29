@@ -45,6 +45,10 @@ const DISCOVERY_PROTOCOL_ID: ProtocolId = 1;
 const IDENTIFY_PROTOCOL_ID: ProtocolId = 2;
 const FEELER_PROTOCOL_ID: ProtocolId = 3;
 
+const ADDR_LIMIT: u32 = 3;
+
+type MultiaddrList = Vec<(Multiaddr, u8)>;
+
 #[derive(Debug, Clone)]
 pub struct SessionInfo {
     pub peer: Peer,
@@ -590,6 +594,29 @@ impl NetworkController {
     #[inline]
     pub fn add_node(&self, peer_id: &PeerId, address: Multiaddr) {
         self.network_state.add_node(peer_id, address)
+    }
+
+    pub fn connected_peers(&self) -> Vec<(PeerId, Peer, MultiaddrList)> {
+        let peer_store = self.network_state.peer_store().read();
+
+        self.network_state
+            .peers_registry
+            .read()
+            .peers_iter()
+            .map(|(peer_id, peer)| {
+                (
+                    peer_id.clone(),
+                    peer.clone(),
+                    peer_store
+                        .peer_addrs(peer_id, ADDR_LIMIT)
+                        .unwrap_or_default()
+                        .into_iter()
+                    // FIXME how to return address score?
+                        .map(|address| (address, 1))
+                        .collect(),
+                )
+            })
+            .collect()
     }
 
     pub fn with_protocol_context<F, T>(&self, protocol_id: ProtocolId, f: F) -> T
