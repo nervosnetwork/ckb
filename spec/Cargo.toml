@@ -4,6 +4,8 @@ version = "0.8.0-pre"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
+build = "build.rs"
+include = ["/chainspecs"]
 
 [dependencies]
 serde = "1.0"
@@ -13,3 +15,8 @@ numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heap
 numext-fixed-uint = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 ckb-core = { path = "../core" }
 ckb-pow = { path = "../pow" }
+includedir = "0.5.0"
+phf = "0.7.21"
+
+[build-dependencies]
+includedir_codegen = "0.5.0"

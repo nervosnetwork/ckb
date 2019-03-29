@@ -1,5 +1,5 @@
 use crate::helper::{require_path_exists, to_absolute_path};
-use ckb_chain_spec::ChainSpec;
+use ckb_chain_spec::{ChainSpec, SpecPath};
 use ckb_db::DBConfig;
 use ckb_miner::BlockAssemblerConfig;
 use ckb_network::NetworkConfig;
@@ -25,7 +25,7 @@ pub struct Setup {
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct ChainConfig {
-    pub spec: PathBuf,
+    pub spec: SpecPath,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -103,9 +103,7 @@ impl Configs {
         if self.data_dir.is_relative() {
             self.data_dir = base.join(&self.data_dir);
         }
-        if self.chain.spec.is_relative() {
-            self.chain.spec = base.join(&self.chain.spec);
-        }
+        self.chain.spec = self.chain.spec.expand_path(base);
         if self.db.path.is_relative() {
             self.db.path = base.join(&self.db.path);
         }
@@ -243,7 +241,7 @@ pub mod test {
         let test_config = format!(
             r#"
             [chain]
-            spec = "{}"
+            spec = {{ Local = "{}" }}
             "#,
             chain_spec_path.to_str().unwrap()
         );
@@ -255,5 +253,27 @@ pub mod test {
         let setup = override_default_config_file(&config_path);
         assert!(setup.is_ok());
         assert_eq!(setup.unwrap().chain_spec.name, "ckb_test_custom");
+    }
+
+    #[test]
+    fn test_testnet_chain_spec_with_config() {
+        let tmp_dir = tempfile::Builder::new()
+            .prefix("test_testnet_chain_spec_with_config")
+            .tempdir()
+            .unwrap();
+
+        let test_config = r#"
+            [chain]
+            spec = "Testnet"
+            "#;
+
+        let config_path = tmp_dir.path().join("config.toml");
+        write_file(&config_path, &test_config);
+
+        let setup = override_default_config_file(&config_path);
+        assert!(setup.is_ok());
+        let setup = setup.unwrap();
+        assert_eq!(setup.configs.chain.spec, SpecPath::Testnet);
+        assert_eq!(setup.chain_spec.name, "ckb_testnet");
     }
 }

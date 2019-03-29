@@ -17,7 +17,10 @@ use numext_fixed_hash::H256;
 use std::sync::Arc;
 
 pub fn run(setup: Setup) {
-    let consensus = setup.chain_spec.to_consensus().unwrap();
+    let consensus = setup
+        .chain_spec
+        .to_consensus(&setup.configs.chain.spec)
+        .unwrap();
 
     let shared = SharedBuilder::<CacheDB<RocksDB>>::default()
         .consensus(consensus)
