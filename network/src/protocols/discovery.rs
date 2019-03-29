@@ -2,12 +2,12 @@
 use crate::NetworkState;
 use fnv::FnvHashMap;
 use futures::{sync::mpsc, sync::oneshot, Async, Future, Stream};
-use log::{debug, warn};
+use log::{debug, trace, warn};
 use std::sync::Arc;
 
 use p2p::{
     context::{ProtocolContext, ProtocolContextMutRef},
-    multiaddr::{Multiaddr, Protocol},
+    multiaddr::{multihash::Multihash, Multiaddr, Protocol},
     secio::PeerId,
     traits::ServiceProtocol,
     utils::extract_peer_id,
@@ -191,6 +191,7 @@ impl Stream for DiscoveryService {
                 if let Some(_peer_id) = self.sessions.get(&session_id) {
                     // TODO: wait for peer store update
                     for addr in addrs.into_iter() {
+                        trace!(target: "network", "Add discovered address:{:?}", addr);
                         if let Some(peer_id) = extract_peer_id(&addr) {
                             let addr = addr
                                 .into_iter()
@@ -222,8 +223,16 @@ impl Stream for DiscoveryService {
                     .read()
                     .random_peers(n as u32)
                     .into_iter()
-                    .map(|(_peer_id, addr)| addr)
+                    .filter_map(|(peer_id, mut addr)| {
+                        Multihash::from_bytes(peer_id.into_bytes())
+                            .ok()
+                            .map(move |peer_id_hash| {
+                                addr.append(Protocol::P2p(peer_id_hash));
+                                addr
+                            })
+                    })
                     .collect();
+                trace!(target: "network", "discovery send random addrs: {:?}", addrs);
                 result
                     .send(addrs)
                     .expect("Send failed (should not happened)");

@@ -40,6 +40,7 @@ impl OutboundPeerService {
             .into_iter()
             .filter(|(peer_id, _addr)| self.network_state.local_peer_id() != peer_id)
         {
+            debug!(target: "network", "dial attempt peer: {:?}", addr);
             self.network_state
                 .dial_all(&mut p2p_control, &peer_id, addr);
         }
@@ -56,6 +57,7 @@ impl OutboundPeerService {
             .into_iter()
             .filter(|(peer_id, _addr)| self.network_state.local_peer_id() != peer_id)
         {
+            debug!(target: "network", "dial feeler peer: {:?}", addr);
             self.network_state
                 .dial_feeler(&mut p2p_control, &peer_id, addr);
         }

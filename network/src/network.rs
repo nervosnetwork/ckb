@@ -1,5 +1,5 @@
 use crate::errors::{Error, ProtocolError};
-use crate::peer_store::{sqlite::SqlitePeerStore, PeerStore};
+use crate::peer_store::{sqlite::SqlitePeerStore, PeerStore, Status};
 use crate::peers_registry::{ConnectionStatus, PeersRegistry, RegisterResult};
 use crate::protocols::{
     discovery::{DiscoveryProtocol, DiscoveryService},
@@ -25,7 +25,7 @@ use p2p::{
     error::Error as P2pError,
     multiaddr::{self, multihash::Multihash, Multiaddr},
     secio::PeerId,
-    service::{DialProtocol, ProtocolHandle, Service, ServiceError, ServiceEvent},
+    service::{DialProtocol, ProtocolEvent, ProtocolHandle, Service, ServiceError, ServiceEvent},
     traits::ServiceHandle,
 };
 use p2p_identify::IdentifyProtocol;
@@ -364,35 +364,68 @@ impl ServiceHandle for EventHandler {
         }
     }
 
-    fn handle_event(&mut self, context: &mut ServiceContext, event: ServiceEvent) {
-        warn!(target: "network", "p2p service event: {:?}", event);
-        if let ServiceEvent::SessionOpen { session_context } = event {
-            if let Some(peer_id) = session_context
-                .remote_pubkey
-                .as_ref()
-                .map(|pubkey| pubkey.peer_id())
-            {
-                let mut peers_registry = self.network_state.peers_registry.write();
-                let result = if session_context.ty.is_outbound() {
-                    peers_registry.try_outbound_peer(
-                        peer_id,
-                        session_context.address.clone(),
-                        session_context.id,
-                        session_context.ty.into(),
-                    )
-                } else {
-                    peers_registry.accept_inbound_peer(
+    fn handle_event(&mut self, _context: &mut ServiceContext, event: ServiceEvent) {
+        info!(target: "network", "p2p service event: {:?}", event);
+    }
+
+    fn handle_proto(&mut self, context: &mut ServiceContext, event: ProtocolEvent) {
+        match event {
+            ProtocolEvent::Connected {
+                session_context,
+                proto_id,
+                version,
+            } => {
+                let peer_id = session_context
+                    .remote_pubkey
+                    .as_ref()
+                    .map(|pubkey| pubkey.peer_id())
+                    .expect("Secio must enabled");
+                if let Ok(parsed_version) = version.parse::<ProtocolVersion>() {
+                    match self.network_state.accept_connection(
                         peer_id.clone(),
                         session_context.address.clone(),
                         session_context.id,
                         session_context.ty.into(),
-                    )
-                };
-                if let Err(err) = result {
-                    context.disconnect(session_context.id);
-                    info!("disconnect {} because: {:?}", session_context.address, err);
+                        proto_id,
+                        parsed_version,
+                    ) {
+                        Ok(register_result) => {
+                            // update status in peer_store
+                            if let RegisterResult::New(_) = register_result {
+                                let mut peer_store = self.network_state.peer_store().write();
+                                peer_store.report(&peer_id, Behaviour::Connect);
+                                peer_store.update_status(&peer_id, Status::Connected);
+                            }
+                        }
+                        Err(err) => {
+                            self.network_state.drop_peer(context.control(), &peer_id);
+                            info!(
+                                target: "network",
+                                "reject connection from {} {}, because {:?}",
+                                peer_id.to_base58(),
+                                session_context.address,
+                                err,
+                            )
+                        }
+                    }
                 }
             }
+            ProtocolEvent::DisConnected {
+                session_context, ..
+            } => {
+                let peer_id = session_context
+                    .remote_pubkey
+                    .as_ref()
+                    .map(|pubkey| pubkey.peer_id())
+                    .expect("Secio must enabled");
+
+                let mut peer_store = self.network_state.peer_store().write();
+                peer_store.report(&peer_id, Behaviour::UnexpectedDisconnect);
+                peer_store.update_status(&peer_id, Status::Disconnected);
+
+                self.network_state.drop_peer(context.control(), &peer_id);
+            }
+            _ => {}
         }
     }
 }
@@ -416,7 +449,7 @@ impl NetworkService {
         let ping_meta = MetaBuilder::default()
             .id(PING_PROTOCOL_ID)
             .service_handle(move || {
-                ProtocolHandle::Callback(Box::new(PingHandler::new(
+                ProtocolHandle::Both(Box::new(PingHandler::new(
                     PING_PROTOCOL_ID,
                     Duration::from_secs(config.ping_interval_secs),
                     Duration::from_secs(config.ping_timeout_secs),
@@ -430,7 +463,7 @@ impl NetworkService {
         let disc_meta = MetaBuilder::default()
             .id(DISCOVERY_PROTOCOL_ID)
             .service_handle(move || {
-                ProtocolHandle::Callback(Box::new(DiscoveryProtocol::new(disc_sender)))
+                ProtocolHandle::Both(Box::new(DiscoveryProtocol::new(disc_sender)))
             })
             .build();
 
@@ -439,7 +472,7 @@ impl NetworkService {
         let identify_meta = MetaBuilder::default()
             .id(IDENTIFY_PROTOCOL_ID)
             .service_handle(move || {
-                ProtocolHandle::Callback(Box::new(IdentifyProtocol::new(identify_callback)))
+                ProtocolHandle::Both(Box::new(IdentifyProtocol::new(identify_callback)))
             })
             .build();
 
