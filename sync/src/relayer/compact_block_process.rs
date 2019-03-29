@@ -17,7 +17,7 @@ pub struct CompactBlockProcess<'a, CI: ChainIndex + 'a> {
     message: &'a FbsCompactBlock<'a>,
     relayer: &'a Relayer<CI>,
     peer: PeerIndex,
-    nc: &'a CKBProtocolContext,
+    nc: &'a mut CKBProtocolContext,
 }
 
 impl<'a, CI> CompactBlockProcess<'a, CI>
@@ -28,7 +28,7 @@ where
         message: &'a FbsCompactBlock,
         relayer: &'a Relayer<CI>,
         peer: PeerIndex,
-        nc: &'a CKBProtocolContext,
+        nc: &'a mut CKBProtocolContext,
     ) -> Self {
         CompactBlockProcess {
             message,

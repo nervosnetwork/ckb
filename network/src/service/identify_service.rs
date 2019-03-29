@@ -1,185 +1,104 @@
 // use crate::peer_store::Behaviour;
-use crate::Network;
-use futures::{sync::mpsc, sync::oneshot, Async, Future, Stream};
-use log::{debug, warn};
+use crate::NetworkState;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use p2p::{multiaddr::Multiaddr, secio::PeerId};
-
-pub use p2p_identify::IdentifyProtocol;
+use log::debug;
+use p2p::{
+    multiaddr::{Multiaddr, Protocol},
+    secio::PeerId,
+    service::SessionType,
+    utils::{is_reachable, multiaddr_to_socketaddr},
+};
 use p2p_identify::{Callback, MisbehaveResult, Misbehavior};
 
+const MAX_RETURN_LISTEN_ADDRS: usize = 10;
+
 #[derive(Clone)]
-pub(crate) struct IdentifyAddressManager {
-    event_sender: mpsc::UnboundedSender<IdentifyEvent>,
+pub(crate) struct IdentifyCallback {
+    network_state: Arc<NetworkState>,
+    // local listen addresses for scoring and for rpc output
+    remote_listen_addrs: HashMap<PeerId, Vec<Multiaddr>>,
 }
 
-impl IdentifyAddressManager {
-    pub(crate) fn new(
-        event_sender: mpsc::UnboundedSender<IdentifyEvent>,
-    ) -> IdentifyAddressManager {
-        IdentifyAddressManager { event_sender }
-    }
-}
-
-impl Callback for IdentifyAddressManager {
-    fn init_local_listen_addrs(&mut self, addrs: Vec<Multiaddr>) {
-        let event = IdentifyEvent::InitLocalListenAddrs(addrs);
-        if self.event_sender.unbounded_send(event).is_err() {
-            warn!(target: "network", "receiver maybe dropped!");
+impl IdentifyCallback {
+    pub(crate) fn new(network_state: Arc<NetworkState>) -> IdentifyCallback {
+        IdentifyCallback {
+            network_state,
+            remote_listen_addrs: HashMap::default(),
         }
     }
 
-    /// Add local listen address
-    fn add_local_listen_addr(&mut self, addr: Multiaddr) {
-        let event = IdentifyEvent::AddLocalListenAddr(addr);
-        if self.event_sender.unbounded_send(event).is_err() {
-            warn!(target: "network", "receiver maybe dropped!");
-        }
+    fn listen_addrs(&self) -> Vec<Multiaddr> {
+        let mut addrs = self
+            .network_state
+            .listened_addresses(MAX_RETURN_LISTEN_ADDRS * 2);
+        addrs.sort_by(|a, b| a.1.cmp(&b.1));
+        addrs
+            .into_iter()
+            .take(MAX_RETURN_LISTEN_ADDRS)
+            .map(|(addr, _)| addr)
+            .collect::<Vec<_>>()
     }
+}
 
+impl Callback for IdentifyCallback {
     /// Get local listen addresses
     fn local_listen_addrs(&mut self) -> Vec<Multiaddr> {
-        let (sender, receiver) = std::sync::mpsc::channel::<Vec<Multiaddr>>();
-        let event = IdentifyEvent::GetLocalListenAddrs(sender);
-        if self.event_sender.unbounded_send(event).is_err() {
-            warn!(target: "network", "receiver maybe dropped!");
-        }
-        match receiver.recv() {
-            Ok(addrs) => addrs,
-            Err(err) => {
-                warn!("receive local listen addrs failed: {:?}", err);
-                Vec::new()
-            }
-        }
+        self.listen_addrs()
     }
 
     fn add_remote_listen_addrs(&mut self, peer_id: &PeerId, addrs: Vec<Multiaddr>) {
-        let event = IdentifyEvent::AddRemoteListenAddrs {
-            peer_id: peer_id.clone(),
-            addrs,
-        };
-        if self.event_sender.unbounded_send(event).is_err() {
-            warn!(target: "network", "receiver maybe dropped!");
+        self.remote_listen_addrs
+            .insert(peer_id.clone(), addrs.clone());
+        let mut peer_store = self.network_state.peer_store().write();
+        for addr in addrs {
+            let _ = peer_store.add_discovered_addr(&peer_id, addr);
         }
     }
 
-    fn add_observed_addr(&mut self, peer_id: &PeerId, addr: Multiaddr) -> MisbehaveResult {
-        let event = IdentifyEvent::AddObservedAddr {
-            peer_id: peer_id.clone(),
+    fn add_observed_addr(
+        &mut self,
+        peer_id: &PeerId,
+        addr: Multiaddr,
+        ty: SessionType,
+    ) -> MisbehaveResult {
+        debug!(
+            target: "network",
+            "peer({:?}, {:?}) reported observed addr {}",
+            peer_id,
+            ty,
             addr,
-        };
-        if self.event_sender.unbounded_send(event).is_err() {
-            warn!(target: "network", "receiver maybe dropped!");
+        );
+        for transformed_addr in self
+            .listen_addrs()
+            .into_iter()
+            .filter_map(|listen_addr| multiaddr_to_socketaddr(&listen_addr))
+            .filter(|socket_addr| is_reachable(socket_addr.ip()))
+            .map(|socket_addr| socket_addr.port())
+            .map(|listen_port| {
+                addr.iter()
+                    .filter_map(|proto| match proto {
+                        // Replace only it's an outbound connnection
+                        Protocol::P2p(_) => None,
+                        Protocol::Tcp(_) => Some(Protocol::Tcp(listen_port)),
+                        value => Some(value),
+                    })
+                    .collect::<Multiaddr>()
+            })
+        {
+            let local_peer_id = self.network_state.local_peer_id();
+            let _ = self
+                .network_state
+                .peer_store()
+                .write()
+                .add_discovered_addr(local_peer_id, transformed_addr);
         }
         // NOTE: for future usage
         MisbehaveResult::Continue
     }
 
-    fn misbehave(&mut self, peer_id: &PeerId, kind: Misbehavior) -> MisbehaveResult {
-        let (sender, receiver) = oneshot::channel();
-        let event = IdentifyEvent::Misbehave {
-            peer_id: peer_id.clone(),
-            kind,
-            result: sender,
-        };
-        if self.event_sender.unbounded_send(event).is_err() {
-            warn!(target: "network", "receiver maybe dropped!");
-            MisbehaveResult::Disconnect
-        } else {
-            receiver.wait().unwrap_or(MisbehaveResult::Disconnect)
-        }
-    }
-}
-
-pub enum IdentifyEvent {
-    InitLocalListenAddrs(Vec<Multiaddr>),
-    AddLocalListenAddr(Multiaddr),
-    GetLocalListenAddrs(std::sync::mpsc::Sender<Vec<Multiaddr>>),
-    /// Remote listen addresses
-    AddRemoteListenAddrs {
-        peer_id: PeerId,
-        addrs: Vec<Multiaddr>,
-    },
-    /// Observed address (already transformed)
-    AddObservedAddr {
-        peer_id: PeerId,
-        addr: Multiaddr,
-    },
-    Misbehave {
-        peer_id: PeerId,
-        kind: Misbehavior,
-        result: oneshot::Sender<MisbehaveResult>,
-    },
-}
-
-pub(crate) struct IdentifyService {
-    event_receiver: mpsc::UnboundedReceiver<IdentifyEvent>,
-    network: Arc<Network>,
-    // local listen addresses for scoring and for rpc output
-    local_listen_addrs: Vec<Multiaddr>,
-    remote_listen_addrs: HashMap<PeerId, Vec<Multiaddr>>,
-}
-
-impl IdentifyService {
-    pub(crate) fn new(
-        network: Arc<Network>,
-        event_receiver: mpsc::UnboundedReceiver<IdentifyEvent>,
-    ) -> IdentifyService {
-        IdentifyService {
-            event_receiver,
-            network,
-            local_listen_addrs: Vec::new(),
-            remote_listen_addrs: HashMap::default(),
-        }
-    }
-}
-
-impl Stream for IdentifyService {
-    type Item = ();
-    type Error = ();
-    fn poll(&mut self) -> Result<Async<Option<Self::Item>>, Self::Error> {
-        match try_ready!(self.event_receiver.poll()) {
-            Some(IdentifyEvent::InitLocalListenAddrs(addrs)) => {
-                self.local_listen_addrs = addrs;
-            }
-            Some(IdentifyEvent::AddLocalListenAddr(addr)) => {
-                self.local_listen_addrs.insert(0, addr);
-            }
-            Some(IdentifyEvent::GetLocalListenAddrs(sender)) => {
-                if let Err(err) = sender.send(self.local_listen_addrs.to_vec()) {
-                    warn!("send local listen addrs failed: {:?}", err);
-                }
-            }
-            Some(IdentifyEvent::AddRemoteListenAddrs { peer_id, addrs }) => {
-                self.remote_listen_addrs
-                    .insert(peer_id.clone(), addrs.clone());
-                let mut peer_store = self.network.peer_store().write();
-                for addr in addrs {
-                    let _ = peer_store.add_discovered_addr(&peer_id, addr);
-                }
-            }
-            Some(IdentifyEvent::AddObservedAddr { peer_id, addr }) => {
-                // TODO: how to use listen addresses
-                self.local_listen_addrs.push(addr.clone());
-                let _ = self
-                    .network
-                    .peer_store()
-                    .write()
-                    .add_discovered_addr(&peer_id, addr);
-            }
-            Some(IdentifyEvent::Misbehave { result, .. }) => {
-                // TODO: report misbehave
-                if result.send(MisbehaveResult::Continue).is_err() {
-                    return Err(());
-                }
-            }
-            None => {
-                debug!(target: "network", "identify service shutdown");
-                return Ok(Async::Ready(None));
-            }
-        }
-        Ok(Async::Ready(Some(())))
+    fn misbehave(&mut self, _peer_id: &PeerId, _kind: Misbehavior) -> MisbehaveResult {
+        MisbehaveResult::Disconnect
     }
 }

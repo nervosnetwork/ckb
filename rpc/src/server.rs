@@ -5,14 +5,13 @@ use crate::module::{
 };
 use ckb_chain::chain::ChainController;
 use ckb_miner::BlockAssemblerController;
-use ckb_network::NetworkService;
+use ckb_network::NetworkController;
 use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::Shared;
 use jsonrpc_core::IoHandler;
 use jsonrpc_http_server::{Server, ServerBuilder};
 use jsonrpc_server_utils::cors::AccessControlAllowOrigin;
 use jsonrpc_server_utils::hosts::DomainsValidation;
-use std::sync::Arc;
 
 pub struct RpcServer {
     server: Server,
@@ -21,7 +20,7 @@ pub struct RpcServer {
 impl RpcServer {
     pub fn new<CI: ChainIndex + 'static>(
         config: Config,
-        network: Arc<NetworkService>,
+        network_controller: NetworkController,
         shared: Shared<CI>,
         chain: ChainController,
         block_assembler: BlockAssemblerController,
@@ -43,7 +42,7 @@ impl RpcServer {
         if config.pool_enable() {
             io.extend_with(
                 PoolRpcImpl {
-                    network: Arc::clone(&network),
+                    network_controller: network_controller.clone(),
                     shared: shared.clone(),
                 }
                 .to_delegate(),
@@ -56,7 +55,7 @@ impl RpcServer {
                     shared: shared.clone(),
                     block_assembler,
                     chain,
-                    network: Arc::clone(&network),
+                    network_controller: network_controller.clone(),
                 }
                 .to_delegate(),
             );
@@ -65,7 +64,7 @@ impl RpcServer {
         if config.net_enable() {
             io.extend_with(
                 NetworkRpcImpl {
-                    network: Arc::clone(&network),
+                    network_controller: network_controller.clone(),
                 }
                 .to_delegate(),
             );
@@ -74,7 +73,7 @@ impl RpcServer {
         if config.trace_enable() {
             io.extend_with(
                 TraceRpcImpl {
-                    network: Arc::clone(&network),
+                    network_controller: network_controller.clone(),
                     shared,
                 }
                 .to_delegate(),
@@ -82,7 +81,7 @@ impl RpcServer {
         }
 
         if config.integration_test_enable() {
-            io.extend_with(IntegrationTestRpcImpl { network }.to_delegate());
+            io.extend_with(IntegrationTestRpcImpl { network_controller }.to_delegate());
         }
 
         let server = ServerBuilder::new(io)

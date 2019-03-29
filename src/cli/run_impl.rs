@@ -3,11 +3,8 @@ use crate::Setup;
 use ckb_chain::chain::{ChainBuilder, ChainController};
 use ckb_db::diskdb::RocksDB;
 use ckb_miner::BlockAssembler;
-use ckb_network::futures::sync::mpsc::channel;
-use ckb_network::CKBProtocol;
-use ckb_network::NetworkService;
-use ckb_network::ProtocolId;
 use ckb_network::{network::FEELER_PROTOCOL_ID, protocol::feeler::Feeler};
+use ckb_network::{CKBProtocol, NetworkService, NetworkState, ProtocolId};
 use ckb_notify::{NotifyController, NotifyService};
 use ckb_rpc::RpcServer;
 use ckb_shared::cachedb::CacheDB;
@@ -38,68 +35,58 @@ pub fn run(setup: Setup) {
     let block_assembler = BlockAssembler::new(shared.clone(), setup.configs.block_assembler);
     let block_assembler_controller = block_assembler.start(Some("MinerAgent"), &notify);
 
-    let synchronizer = Arc::new(Synchronizer::new(
-        chain_controller.clone(),
-        shared.clone(),
-        setup.configs.sync,
-    ));
+    let synchronizer =
+        Synchronizer::new(chain_controller.clone(), shared.clone(), setup.configs.sync);
 
-    let relayer = Arc::new(Relayer::new(
+    let relayer = Relayer::new(
         chain_controller.clone(),
         shared.clone(),
         synchronizer.peers(),
-    ));
+    );
 
-    let net_time_checker = Arc::new(NetTimeProtocol::default());
+    let net_time_checker = NetTimeProtocol::default();
 
-    let (sender, receiver) = channel(std::u8::MAX as usize);
+    let network_state = Arc::new(
+        NetworkState::from_config(setup.configs.network).expect("Init network state failed"),
+    );
     let protocols = vec![
-        (
-            CKBProtocol::new(
-                "syn".to_string(),
-                NetworkProtocol::SYNC as ProtocolId,
-                &[1][..],
-                sender.clone(),
-            ),
-            synchronizer as Arc<_>,
+        CKBProtocol::new(
+            "syn".to_string(),
+            NetworkProtocol::SYNC as ProtocolId,
+            &[1][..],
+            Box::new(synchronizer),
+            Arc::clone(&network_state),
         ),
-        (
-            CKBProtocol::new(
-                "rel".to_string(),
-                NetworkProtocol::RELAY as ProtocolId,
-                &[1][..],
-                sender.clone(),
-            ),
-            relayer as Arc<_>,
+        CKBProtocol::new(
+            "rel".to_string(),
+            NetworkProtocol::RELAY as ProtocolId,
+            &[1][..],
+            Box::new(relayer),
+            Arc::clone(&network_state),
         ),
-        (
-            CKBProtocol::new(
-                "tim".to_string(),
-                NetworkProtocol::TIME as ProtocolId,
-                &[1][..],
-                sender.clone(),
-            ),
-            net_time_checker as Arc<_>,
+        CKBProtocol::new(
+            "tim".to_string(),
+            NetworkProtocol::TIME as ProtocolId,
+            &[1][..],
+            Box::new(net_time_checker),
+            Arc::clone(&network_state),
         ),
         // TODO Work around, should move to network after refactor
-        (
-            CKBProtocol::new(
-                "flr".to_string(),
-                FEELER_PROTOCOL_ID,
-                &[1][..],
-                sender.clone(),
-            ),
-            Arc::new(Feeler {}) as Arc<_>,
+        CKBProtocol::new(
+            "flr".to_string(),
+            FEELER_PROTOCOL_ID,
+            &[1][..],
+            Box::new(Feeler {}),
+            Arc::clone(&network_state),
         ),
     ];
-    let network = Arc::new(
-        NetworkService::run_in_thread(&setup.configs.network, protocols, receiver)
-            .expect("Create and start network"),
-    );
+    let network_controller = NetworkService::new(Arc::clone(&network_state), protocols)
+        .start(Some("NetworkService"))
+        .expect("Start network service failed");
 
     let rpc_server = RpcServer::new(
         setup.configs.rpc,
-        Arc::clone(&network),
+        network_controller,
         shared,
         chain_controller,
         block_assembler_controller,
@@ -111,10 +98,6 @@ pub fn run(setup: Setup) {
 
     rpc_server.close();
     info!(target: "main", "Jsonrpc shutdown");
-
-    // FIXME: should gracefully shutdown network
-    network.close();
-    info!(target: "main", "Network shutdown");
 }
 
 fn setup_chain<CI: ChainIndex + 'static>(

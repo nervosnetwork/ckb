@@ -18,7 +18,7 @@ pub struct TransactionProcess<'a, CI: ChainIndex + 'a> {
     message: &'a FbsValidTransaction<'a>,
     relayer: &'a Relayer<CI>,
     peer: PeerIndex,
-    nc: &'a CKBProtocolContext,
+    nc: &'a mut CKBProtocolContext,
 }
 
 impl<'a, CI> TransactionProcess<'a, CI>
@@ -29,7 +29,7 @@ where
         message: &'a FbsValidTransaction,
         relayer: &'a Relayer<CI>,
         peer: PeerIndex,
-        nc: &'a CKBProtocolContext,
+        nc: &'a mut CKBProtocolContext,
     ) -> Self {
         TransactionProcess {
             message,

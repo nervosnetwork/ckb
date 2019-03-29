@@ -1,25 +1,23 @@
 // use crate::peer_store::Behaviour;
-use crate::Network;
+use crate::NetworkState;
 use fnv::FnvHashMap;
 use futures::{sync::mpsc, sync::oneshot, Async, Future, Stream};
 use log::{debug, warn};
 use std::sync::Arc;
 
 use p2p::{
-    context::{ServiceContext, SessionContext},
+    context::{ProtocolContext, ProtocolContextMutRef},
     multiaddr::{Multiaddr, Protocol},
     secio::PeerId,
     traits::ServiceProtocol,
     utils::extract_peer_id,
-    yamux::session::SessionType,
-    ProtocolId, SessionId,
+    SessionId,
 };
 use p2p_discovery::{
-    AddressManager, Direction, Discovery, DiscoveryHandle, MisbehaveResult, Misbehavior, Substream,
+    AddressManager, Discovery, DiscoveryHandle, MisbehaveResult, Misbehavior, Substream,
 };
 
 pub struct DiscoveryProtocol {
-    id: ProtocolId,
     discovery: Option<Discovery<DiscoveryAddressManager>>,
     discovery_handle: DiscoveryHandle,
     discovery_senders: FnvHashMap<SessionId, mpsc::Sender<Vec<u8>>>,
@@ -27,17 +25,13 @@ pub struct DiscoveryProtocol {
 }
 
 impl DiscoveryProtocol {
-    pub fn new(
-        id: ProtocolId,
-        event_sender: mpsc::UnboundedSender<DiscoveryEvent>,
-    ) -> DiscoveryProtocol {
+    pub fn new(event_sender: mpsc::UnboundedSender<DiscoveryEvent>) -> DiscoveryProtocol {
         let addr_mgr = DiscoveryAddressManager {
             event_sender: event_sender.clone(),
         };
         let discovery = Discovery::new(addr_mgr);
         let discovery_handle = discovery.handle();
         DiscoveryProtocol {
-            id,
             discovery: Some(discovery),
             discovery_handle,
             discovery_senders: FnvHashMap::default(),
@@ -47,8 +41,8 @@ impl DiscoveryProtocol {
 }
 
 impl ServiceProtocol for DiscoveryProtocol {
-    fn init(&mut self, control: &mut ServiceContext) {
-        debug!(target: "network", "protocol [discovery({})]: init", self.id);
+    fn init(&mut self, context: &mut ProtocolContext) {
+        debug!(target: "network", "protocol [discovery({})]: init", context.proto_id);
 
         let discovery_task = self
             .discovery
@@ -66,10 +60,11 @@ impl ServiceProtocol for DiscoveryProtocol {
                     })
             })
             .expect("Discovery init only once");
-        control.future_task(discovery_task);
+        context.future_task(discovery_task);
     }
 
-    fn connected(&mut self, control: &mut ServiceContext, session: &SessionContext, _: &str) {
+    fn connected(&mut self, mut context: ProtocolContextMutRef, _: &str) {
+        let session = context.session;
         debug!(
             target: "network",
             "protocol [discovery] open on session [{}], address: [{}], type: [{:?}]",
@@ -84,21 +79,16 @@ impl ServiceProtocol for DiscoveryProtocol {
             return;
         }
 
-        let direction = if session.ty == SessionType::Server {
-            Direction::Inbound
-        } else {
-            Direction::Outbound
-        };
         let (sender, receiver) = mpsc::channel(8);
         self.discovery_senders.insert(session.id, sender);
         let substream = Substream::new(
             session.address.clone(),
-            direction,
-            self.id,
+            session.ty,
+            context.proto_id,
             session.id,
             receiver,
-            control.control().clone(),
-            control.listens(),
+            context.control().clone(),
+            context.listens(),
         );
         match self.discovery_handle.substream_sender.try_send(substream) {
             Ok(_) => {
@@ -111,7 +101,8 @@ impl ServiceProtocol for DiscoveryProtocol {
         }
     }
 
-    fn disconnected(&mut self, _control: &mut ServiceContext, session: &SessionContext) {
+    fn disconnected(&mut self, context: ProtocolContextMutRef) {
+        let session = context.session;
         let event = DiscoveryEvent::Disconnected(session.id);
         if self.event_sender.unbounded_send(event).is_err() {
             warn!(target: "network", "receiver maybe dropped!");
@@ -121,12 +112,8 @@ impl ServiceProtocol for DiscoveryProtocol {
         debug!(target: "network", "protocol [discovery] close on session [{}]", session.id);
     }
 
-    fn received(
-        &mut self,
-        _control: &mut ServiceContext,
-        session: &SessionContext,
-        data: bytes::Bytes,
-    ) {
+    fn received(&mut self, context: ProtocolContextMutRef, data: bytes::Bytes) {
+        let session = context.session;
         debug!(target: "network", "[received message]: length={}", data.len());
 
         if let Some(ref mut sender) = self.discovery_senders.get_mut(&session.id) {
@@ -167,18 +154,18 @@ pub enum DiscoveryEvent {
 
 pub struct DiscoveryService {
     event_receiver: mpsc::UnboundedReceiver<DiscoveryEvent>,
-    network: Arc<Network>,
+    network_state: Arc<NetworkState>,
     sessions: FnvHashMap<SessionId, PeerId>,
 }
 
 impl DiscoveryService {
     pub fn new(
-        network: Arc<Network>,
+        network_state: Arc<NetworkState>,
         event_receiver: mpsc::UnboundedReceiver<DiscoveryEvent>,
     ) -> DiscoveryService {
         DiscoveryService {
             event_receiver,
-            network,
+            network_state,
             sessions: FnvHashMap::default(),
         }
     }
@@ -213,7 +200,7 @@ impl Stream for DiscoveryService {
                                 })
                                 .collect::<Multiaddr>();
                             let _ = self
-                                .network
+                                .network_state
                                 .peer_store()
                                 .write()
                                 .add_discovered_addr(&peer_id, addr);
@@ -230,7 +217,7 @@ impl Stream for DiscoveryService {
             }
             Some(DiscoveryEvent::GetRandom { n, result }) => {
                 let addrs = self
-                    .network
+                    .network_state
                     .peer_store()
                     .read()
                     .random_peers(n as u32)

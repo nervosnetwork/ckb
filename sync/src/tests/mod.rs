@@ -1,7 +1,7 @@
 use bytes::Bytes;
 use ckb_network::{
     errors::Error as NetworkError, Behaviour, CKBProtocolContext, CKBProtocolHandler, PeerIndex,
-    ProtocolId, SessionInfo, TimerToken,
+    ProtocolId, SessionInfo,
 };
 use std::collections::HashMap;
 use std::sync::mpsc::{channel, Receiver, Sender};
@@ -21,8 +21,8 @@ struct TestNode {
     pub protocols: HashMap<ProtocolId, Arc<CKBProtocolHandler + Send + Sync>>,
     pub msg_senders: HashMap<(ProtocolId, PeerIndex), Sender<Vec<u8>>>,
     pub msg_receivers: HashMap<(ProtocolId, PeerIndex), Receiver<Vec<u8>>>,
-    pub timer_senders: HashMap<(ProtocolId, TimerToken), Sender<()>>,
-    pub timer_receivers: HashMap<(ProtocolId, TimerToken), Receiver<()>>,
+    pub timer_senders: HashMap<(ProtocolId, u64), Sender<()>>,
+    pub timer_receivers: HashMap<(ProtocolId, u64), Receiver<()>>,
 }
 
 impl TestNode {
@@ -30,7 +30,7 @@ impl TestNode {
         &mut self,
         protocol: ProtocolId,
         handler: &Arc<CKBProtocolHandler + Send + Sync>,
-        timers: &[TimerToken],
+        timers: &[u64],
     ) {
         self.protocols.insert(protocol, Arc::clone(handler));
         timers.iter().for_each(|timer| {
@@ -143,11 +143,11 @@ impl TestNode {
 struct TestNetworkContext {
     protocol: ProtocolId,
     msg_senders: HashMap<(ProtocolId, PeerIndex), Sender<Vec<u8>>>,
-    timer_senders: HashMap<(ProtocolId, TimerToken), Sender<()>>,
+    timer_senders: HashMap<(ProtocolId, u64), Sender<()>>,
 }
 
 impl CKBProtocolContext for TestNetworkContext {
-    fn send(&self, peer: PeerIndex, data: Vec<u8>) -> Result<(), NetworkError> {
+    fn send(&mut self, peer: PeerIndex, data: Vec<u8>) -> Result<(), NetworkError> {
         if let Some(sender) = self.msg_senders.get(&(self.protocol, peer)) {
             let _ = sender.send(data);
         }
@@ -155,7 +155,7 @@ impl CKBProtocolContext for TestNetworkContext {
     }
     /// Send a packet over the network to another peer using specified protocol.
     fn send_protocol(
-        &self,
+        &mut self,
         _peer: PeerIndex,
         _protocol: ProtocolId,
         _data: Vec<u8>,
@@ -167,15 +167,14 @@ impl CKBProtocolContext for TestNetworkContext {
         Ok(())
     }
 
-    fn register_timer(&self, token: TimerToken, delay: Duration) -> Result<(), NetworkError> {
+    fn register_timer(&self, interval: Duration, token: u64) {
         if let Some(sender) = self.timer_senders.get(&(self.protocol, token)) {
             let sender = sender.clone();
             thread::spawn(move || loop {
-                thread::sleep(delay);
+                thread::sleep(interval);
                 let _ = sender.send(());
             });
         }
-        Ok(())
     }
 
     fn ban_peer(&self, _peer: PeerIndex, _duration: Duration) {}

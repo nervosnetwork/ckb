@@ -1,63 +1,50 @@
-use crate::errors::{Error, PeerError, ProtocolError};
+use crate::errors::{Error, ProtocolError};
 use crate::peer_store::{sqlite::SqlitePeerStore, PeerStore};
 use crate::peers_registry::{ConnectionStatus, PeersRegistry, RegisterResult};
-use crate::protocol::ckb::Version as ProtocolVersion;
-use crate::protocol::ckb_handler::{CKBProtocolHandler, DefaultCKBProtocolContext};
+use crate::protocol::ckb_handler::DefaultCKBProtocolContext;
+use crate::protocols::outbound_peer::OutboundPeerProtocol;
 use crate::service::{
-    ckb_service::CKBService,
-    discovery_service::{DiscoveryEvent, DiscoveryProtocol, DiscoveryService},
-    identify_service::{IdentifyAddressManager, IdentifyEvent, IdentifyProtocol, IdentifyService},
-    outbound_peer_service::OutboundPeerService,
+    discovery_service::{DiscoveryProtocol, DiscoveryService},
+    identify_service::IdentifyCallback,
     ping_service::PingService,
-    timer_service::{TimerRegistry, TimerService},
 };
 use crate::Peer;
 use crate::{
-    Behaviour, CKBEvent, CKBProtocol, NetworkConfig, PeerIndex, ProtocolId, ServiceContext,
-    ServiceControl, SessionId, SessionType,
+    Behaviour, CKBProtocol, CKBProtocolContext, NetworkConfig, PeerIndex, ProtocolId,
+    ProtocolVersion, ServiceContext, ServiceControl, SessionId, SessionType,
 };
-use bytes::Bytes;
-use ckb_util::{Mutex, RwLock};
-use fnv::FnvHashMap;
-use futures::future::{select_all, Future};
-use futures::sync::mpsc;
+use ckb_util::RwLock;
+use fnv::{FnvHashMap, FnvHashSet};
 use futures::sync::mpsc::channel;
-use futures::sync::mpsc::Receiver;
-use futures::sync::oneshot;
+use futures::sync::{mpsc, oneshot};
+use futures::Future;
 use futures::Stream;
 use log::{debug, error, info, warn};
-use multiaddr::multihash::Multihash;
 use p2p::{
     builder::{MetaBuilder, ServiceBuilder},
-    multiaddr::{self, Multiaddr},
-    secio::{PeerId, PublicKey},
+    multiaddr::{self, multihash::Multihash, Multiaddr},
+    secio::PeerId,
     service::{DialProtocol, ProtocolHandle, Service, ServiceError, ServiceEvent},
     traits::ServiceHandle,
 };
-use p2p_ping::{Event as PingEvent, PingHandler};
+use p2p_identify::IdentifyProtocol;
+use p2p_ping::PingHandler;
 use secio;
 use std::boxed::Box;
 use std::cmp::max;
 use std::sync::Arc;
+use std::thread;
 use std::time::Duration;
 use std::usize;
+use stop_handler::{SignalSender, StopHandler};
+use tokio::runtime::Runtime;
 
 const PING_PROTOCOL_ID: ProtocolId = 0;
 const DISCOVERY_PROTOCOL_ID: ProtocolId = 1;
 const IDENTIFY_PROTOCOL_ID: ProtocolId = 2;
 pub const FEELER_PROTOCOL_ID: ProtocolId = 3;
 
-pub type CKBProtocols = Vec<(CKBProtocol, Arc<dyn CKBProtocolHandler>)>;
-pub type MultiaddrList = Vec<(Multiaddr, u8)>;
-
-type NetworkResult = Result<
-    (
-        Arc<Network>,
-        oneshot::Sender<()>,
-        Box<Future<Item = (), Error = Error> + Send>,
-    ),
-    Error,
->;
+const OUTBOUND_PROTOCOL_ID: ProtocolId = 3;
 
 #[derive(Debug, Clone)]
 pub struct SessionInfo {
@@ -65,45 +52,60 @@ pub struct SessionInfo {
     pub protocol_version: Option<u8>,
 }
 
-pub struct EventReceivers {
-    pub ping_event_receiver: Receiver<PingEvent>,
-    pub disc_event_receiver: mpsc::UnboundedReceiver<DiscoveryEvent>,
-    pub identify_event_receiver: mpsc::UnboundedReceiver<IdentifyEvent>,
-}
-
-type P2PService = Service<EventHandler>;
-
-pub struct Network {
+pub struct NetworkState {
+    protocol_ids: RwLock<FnvHashSet<ProtocolId>>,
     pub(crate) peers_registry: RwLock<PeersRegistry>,
     peer_store: Arc<RwLock<dyn PeerStore>>,
     listened_addresses: RwLock<FnvHashMap<Multiaddr, u8>>,
     pub(crate) original_listened_addresses: RwLock<Vec<Multiaddr>>,
-    pub(crate) ckb_protocols: CKBProtocols,
     local_private_key: secio::SecioKeyPair,
     local_peer_id: PeerId,
-    p2p_control: RwLock<ServiceControl>,
+    config: NetworkConfig,
 }
 
-impl Network {
-    pub fn find_protocol(
-        &self,
-        id: ProtocolId,
-        version: ProtocolVersion,
-    ) -> Option<(&CKBProtocol, Arc<dyn CKBProtocolHandler>)> {
-        self.ckb_protocols
+impl NetworkState {
+    pub fn from_config(config: NetworkConfig) -> Result<NetworkState, Error> {
+        config.create_dir_if_not_exists()?;
+        let local_private_key = config.fetch_private_key()?;
+        // set max score to public addresses
+        let listened_addresses: FnvHashMap<Multiaddr, u8> = config
+            .public_addresses
             .iter()
-            .find(|(protocol, _)| protocol.id() == id && protocol.match_version(version))
-            .map(|(protocol, handler)| (protocol, Arc::clone(handler)))
-    }
+            .map(|addr| (addr.to_owned(), std::u8::MAX))
+            .collect();
+        let peer_store: Arc<RwLock<dyn PeerStore>> = {
+            let mut peer_store =
+                SqlitePeerStore::file(config.peer_store_path().to_string_lossy().to_string())?;
+            let bootnodes = config.bootnodes()?;
+            for (peer_id, addr) in bootnodes {
+                peer_store.add_bootnode(peer_id, addr);
+            }
+            Arc::new(RwLock::new(peer_store))
+        };
 
-    pub fn find_protocol_without_version(
-        &self,
-        id: ProtocolId,
-    ) -> Option<(&CKBProtocol, Arc<dyn CKBProtocolHandler>)> {
-        self.ckb_protocols
+        let reserved_peers = config
+            .reserved_peers()?
             .iter()
-            .find(|(protocol, _)| protocol.id() == id)
-            .map(|(protocol, handler)| (protocol, Arc::clone(handler)))
+            .map(|(peer_id, _)| peer_id.to_owned())
+            .collect::<Vec<_>>();
+        let peers_registry = PeersRegistry::new(
+            Arc::clone(&peer_store),
+            config.max_inbound_peers(),
+            config.max_outbound_peers(),
+            config.reserved_only,
+            reserved_peers,
+        );
+
+        Ok(NetworkState {
+            peer_store,
+            config,
+            peers_registry: RwLock::new(peers_registry),
+            listened_addresses: RwLock::new(listened_addresses),
+            original_listened_addresses: RwLock::new(Vec::new()),
+            local_private_key: local_private_key.clone(),
+            local_peer_id: local_private_key.to_public_key().peer_id(),
+            protocol_ids: RwLock::new(FnvHashSet::default()),
+        })
     }
 
     pub fn report(&self, peer_id: &PeerId, behaviour: Behaviour) {
@@ -112,31 +114,19 @@ impl Network {
 
     pub fn drop_peer(&self, peer_id: &PeerId) {
         debug!(target: "network", "drop peer {:?}", peer_id);
-        if let Some(peer) = self.peers_registry.write().drop_peer(&peer_id) {
-            let mut p2p_control = self.p2p_control.write();
-            if let Err(err) = p2p_control.disconnect(peer.session_id) {
-                error!(target: "network", "disconnect peer error {:?}", err);
-            }
-        }
+        self.peers_registry.write().drop_peer(&peer_id);
     }
 
     pub fn drop_all(&self) {
         debug!(target: "network", "drop all connections...");
-        let mut peers_registry = self.peers_registry.write();
-        let mut p2p_control = self.p2p_control.write();
-        for (_peer_id, peer) in peers_registry.peers_iter() {
-            if let Err(err) = p2p_control.disconnect(peer.session_id) {
-                error!(target: "network", "disconnect peer error {:?}", err);
-            }
-        }
-        peers_registry.drop_all();
+        self.peers_registry.write().drop_all();
     }
 
     pub fn local_peer_id(&self) -> &PeerId {
         &self.local_peer_id
     }
 
-    pub(crate) fn listened_addresses(&self, count: usize) -> MultiaddrList {
+    pub(crate) fn listened_addresses(&self, count: usize) -> Vec<(Multiaddr, u8)> {
         let listened_addresses = self.listened_addresses.read();
         listened_addresses
             .iter()
@@ -193,10 +183,6 @@ impl Network {
         &self.local_private_key
     }
 
-    pub(crate) fn local_public_key(&self) -> PublicKey {
-        self.local_private_key.to_public_key()
-    }
-
     pub fn external_urls(&self, max_urls: usize) -> Vec<(String, u8)> {
         let original_listened_addresses = self.original_listened_addresses.read();
         self.listened_addresses(max_urls.saturating_sub(original_listened_addresses.len()))
@@ -224,31 +210,6 @@ impl Network {
 
     fn to_external_url(&self, addr: &Multiaddr) -> String {
         format!("{}/p2p/{}", addr, self.node_id())
-    }
-
-    pub(crate) fn send(
-        &self,
-        peer_id: &PeerId,
-        protocol_id: ProtocolId,
-        data: Bytes,
-    ) -> Result<(), Error> {
-        self.peers_registry
-            .read()
-            .get(peer_id)
-            .map(|peer| match peer.protocol_version(protocol_id) {
-                Some(_) => self
-                    .p2p_control
-                    .write()
-                    .send_message(peer.session_id, protocol_id, data.to_vec())
-                    .map_err(|_| {
-                        Error::P2P(format!(
-                            "error send to peer {:?} protocol {}",
-                            peer_id, protocol_id
-                        ))
-                    }),
-                None => Err(PeerError::ProtocolNotFound(peer_id.to_owned(), protocol_id).into()),
-            })
-            .unwrap_or_else(|| Err(PeerError::NotFound(peer_id.to_owned()).into()))
     }
 
     pub(crate) fn accept_connection(
@@ -305,89 +266,54 @@ impl Network {
         })
     }
 
-    fn inner_dial(
-        &self,
-        expected_peer_id: &PeerId,
-        mut addr: Multiaddr,
-        dial_protocol: DialProtocol,
-    ) -> Result<(), Error> {
-        if expected_peer_id == self.local_peer_id() {
-            debug!(target: "network", "ignore dial to self");
-            return Ok(());
-        }
-        debug!(target: "network", "dial to peer {:?} address {:?}", expected_peer_id, addr);
-        let p2p_phase =
-            Multihash::from_bytes(expected_peer_id.as_bytes().to_vec()).map_err(|_| {
-                Error::P2P(format!("peer_id is invalid {:?}", expected_peer_id).to_string())
-            })?;
-        addr.append(multiaddr::Protocol::P2p(p2p_phase));
-        self.p2p_control
-            .write()
-            .dial(addr, dial_protocol)
-            .map_err(|_| Error::P2P("dial error".to_string()))
-    }
-
-    pub fn dial(&self, expected_peer_id: &PeerId, addr: Multiaddr) -> Result<(), Error> {
-        self.inner_dial(expected_peer_id, addr, {
-            let mut protocols = vec![
-                PING_PROTOCOL_ID,
-                DISCOVERY_PROTOCOL_ID,
-                IDENTIFY_PROTOCOL_ID,
-            ];
-            protocols.extend(
-                // TODO remove the filter after refactor
-                self.ckb_protocols
-                    .iter()
-                    .map(|p| p.0.id())
-                    .filter(|id| *id != FEELER_PROTOCOL_ID)
-                    .collect::<Vec<_>>(),
-            );
-            DialProtocol::Multi(protocols)
-        })
-    }
-
-    pub fn dial_feeler(&self, expected_peer_id: &PeerId, addr: Multiaddr) -> Result<(), Error> {
-        self.inner_dial(
-            expected_peer_id,
-            addr,
-            DialProtocol::Single(FEELER_PROTOCOL_ID),
-        )
-    }
-
-    pub(crate) fn inner_build(
-        config: &NetworkConfig,
-        ckb_protocols: CKBProtocols,
-    ) -> Result<(Arc<Self>, P2PService, TimerRegistry, EventReceivers), Error> {
-        config.create_dir_if_not_exists()?;
-        let local_private_key = config.fetch_private_key()?;
-        // set max score to public addresses
-        let listened_addresses: FnvHashMap<Multiaddr, u8> = config
-            .public_addresses
+    pub fn get_protocol_ids<F: Fn(ProtocolId) -> bool>(&self, filter: F) -> Vec<ProtocolId> {
+        self.protocol_ids
+            .read()
             .iter()
-            .map(|addr| (addr.to_owned(), std::u8::MAX))
-            .collect();
-        let peer_store: Arc<RwLock<dyn PeerStore>> = {
-            let mut peer_store =
-                SqlitePeerStore::file(config.peer_store_path().to_string_lossy().to_string())?;
-            let bootnodes = config.bootnodes()?;
-            for (peer_id, addr) in bootnodes {
-                peer_store.add_bootnode(peer_id, addr);
+            .filter(|id| filter(**id))
+            .cloned()
+            .collect::<Vec<_>>()
+    }
+
+    pub fn dial(&self, p2p_control: &mut ServiceControl, peer_id: &PeerId, mut addr: Multiaddr) {
+        match Multihash::from_bytes(peer_id.as_bytes().to_vec()) {
+            Ok(peer_id_hash) => {
+                addr.append(multiaddr::Protocol::P2p(peer_id_hash));
+                if let Err(err) = p2p_control.dial(addr.clone(), DialProtocol::All) {
+                    debug!(target: "network", "dial fialed: {:?}", err);
+                }
             }
-            Arc::new(RwLock::new(peer_store))
-        };
-        let reserved_peers = config
-            .reserved_peers()?
-            .iter()
-            .map(|(peer_id, _)| peer_id.to_owned())
-            .collect::<Vec<_>>();
-        let peers_registry = PeersRegistry::new(
-            Arc::clone(&peer_store),
-            config.max_inbound_peers(),
-            config.max_outbound_peers(),
-            config.reserved_only,
-            reserved_peers,
-        );
-        // register protocols
+            Err(err) => {
+                error!(target: "network", "failed to convert peer_id to addr: {}", err);
+            }
+        }
+    }
+}
+
+pub struct EventHandler {}
+
+impl ServiceHandle for EventHandler {
+    fn handle_error(&mut self, _context: &mut ServiceContext, error: ServiceError) {
+        debug!(target: "network", "p2p service error: {:?}", error);
+    }
+
+    fn handle_event(&mut self, _context: &mut ServiceContext, event: ServiceEvent) {
+        debug!(target: "network", "p2p service event: {:?}", event);
+    }
+}
+
+pub struct NetworkService {
+    p2p_service: Service<EventHandler>,
+    network_state: Arc<NetworkState>,
+    // Background services
+    bg_services: Vec<Box<dyn Future<Item = (), Error = ()> + Send + 'static>>,
+}
+
+impl NetworkService {
+    pub fn new(network_state: Arc<NetworkState>, protocols: Vec<CKBProtocol>) -> NetworkService {
+        let config = &network_state.config;
+
+        // Ping protocol
         let (ping_sender, ping_receiver) = channel(std::u8::MAX as usize);
         let ping_meta = MetaBuilder::default()
             .id(PING_PROTOCOL_ID)
@@ -400,231 +326,205 @@ impl Network {
                 )))
             })
             .build();
+        let ping_service = PingService {
+            network_state: Arc::clone(&network_state),
+            event_receiver: ping_receiver,
+        };
 
+        // Discovery protocol
         let (disc_sender, disc_receiver) = mpsc::unbounded();
         let disc_meta = MetaBuilder::default()
             .id(DISCOVERY_PROTOCOL_ID)
             .service_handle(move || {
-                ProtocolHandle::Callback(Box::new(DiscoveryProtocol::new(
-                    DISCOVERY_PROTOCOL_ID,
-                    disc_sender,
-                )))
+                ProtocolHandle::Callback(Box::new(DiscoveryProtocol::new(disc_sender)))
             })
             .build();
+        let disc_service = DiscoveryService::new(Arc::clone(&network_state), disc_receiver);
 
-        let (identify_sender, identify_receiver) = mpsc::unbounded();
-        let identify_addr_mgr = IdentifyAddressManager::new(identify_sender.clone());
+        // Identify protocol
+        let identify_callback = IdentifyCallback::new(Arc::clone(&network_state));
         let identify_meta = MetaBuilder::default()
             .id(IDENTIFY_PROTOCOL_ID)
             .service_handle(move || {
-                ProtocolHandle::Callback(Box::new(IdentifyProtocol::new(
-                    IDENTIFY_PROTOCOL_ID,
-                    identify_addr_mgr.clone(),
-                )))
+                ProtocolHandle::Callback(Box::new(IdentifyProtocol::new(identify_callback)))
             })
             .build();
 
-        let mut p2p_service = ServiceBuilder::default()
-            .forever(true)
-            .insert_protocol(ping_meta)
-            .insert_protocol(disc_meta)
-            .insert_protocol(identify_meta);
-        for (ckb_protocol, _) in &ckb_protocols {
-            p2p_service = p2p_service.insert_protocol(ckb_protocol.build());
+        let outbound_peer_meta = MetaBuilder::default()
+            .id(OUTBOUND_PROTOCOL_ID)
+            .service_handle({
+                let network_state = Arc::clone(&network_state);
+                move || {
+                    ProtocolHandle::Callback(Box::new(OutboundPeerProtocol::new(
+                        network_state,
+                        Duration::from_secs(config.connect_outbound_interval_secs),
+                    )))
+                }
+            })
+            .build();
+
+        let mut service_builder = ServiceBuilder::default();
+        for meta in protocols
+            .into_iter()
+            .map(|protocol| protocol.build())
+            .chain(vec![ping_meta, disc_meta, identify_meta, outbound_peer_meta].into_iter())
+        {
+            network_state.protocol_ids.write().insert(meta.id());
+            service_builder = service_builder.insert_protocol(meta);
         }
-        let mut p2p_service = p2p_service
-            .key_pair(local_private_key.clone())
+
+        let p2p_service = service_builder
+            .key_pair(network_state.local_private_key.clone())
+            .forever(true)
             .build(EventHandler {});
 
-        let p2p_control = p2p_service.control().clone();
-        let network: Arc<Network> = Arc::new(Network {
-            peers_registry: RwLock::new(peers_registry),
-            peer_store: Arc::clone(&peer_store),
-            listened_addresses: RwLock::new(listened_addresses),
-            original_listened_addresses: RwLock::new(Vec::new()),
-            ckb_protocols,
-            local_private_key: local_private_key.clone(),
-            local_peer_id: local_private_key.to_public_key().peer_id(),
-            p2p_control: RwLock::new(p2p_control.clone()),
-        });
-
-        let timer_registry = Arc::new(Mutex::new(Some(Vec::new())));
-        // Transport used to handling received connections
-        for (protocol, handler) in &network.ckb_protocols {
-            handler.initialize(Box::new(DefaultCKBProtocolContext::with_timer_registry(
-                Arc::clone(&network),
-                protocol.id(),
-                Arc::clone(&timer_registry),
-            )));
+        let bg_services = vec![
+            Box::new(ping_service.for_each(|_| Ok(()))) as Box<_>,
+            Box::new(disc_service.for_each(|_| Ok(()))) as Box<_>,
+        ];
+        NetworkService {
+            p2p_service,
+            network_state,
+            bg_services,
         }
+    }
+
+    pub fn start<S: ToString>(
+        mut self,
+        thread_name: Option<S>,
+    ) -> Result<NetworkController, Error> {
+        let config = &self.network_state.config;
         // listen local addresses
         for addr in &config.listen_addresses {
-            match p2p_service.listen(addr.to_owned()) {
+            match self.p2p_service.listen(addr.to_owned()) {
                 Ok(listen_address) => {
                     info!(
-                    target: "network",
-                    "Listen on address: {}",
-                    network.to_external_url(&listen_address)
+                        target: "network",
+                        "Listen on address: {}",
+                        self.network_state.to_external_url(&listen_address)
                     );
-                    network
+                    self.network_state
                         .original_listened_addresses
                         .write()
                         .push(listen_address.clone())
                 }
                 Err(err) => {
                     warn!(
-                    target: "network",
-                    "listen on address {} failed, due to error: {}",
-                    addr.clone(),
-                    err
+                        target: "network",
+                        "listen on address {} failed, due to error: {}",
+                        addr.clone(),
+                        err
                     );
                     return Err(Error::Io(err));
                 }
             };
         }
 
-        // dial reserved nodes and bootnodes
-        {
-            let network = Arc::clone(&network);
-            // dial reserved_nodes
-            for (peer_id, addr) in config.reserved_peers()? {
-                let _ = network.dial(&peer_id, addr);
-            }
-
-            let bootnodes = network
-                .peer_store()
-                .read()
-                .bootnodes(max((config.max_outbound_peers / 2) as u32, 1))
-                .clone();
-            // dial half bootnodes
-            for (peer_id, addr) in bootnodes {
-                debug!(target: "network", "dial bootnode {:?} {:?}", peer_id, addr);
-                let _ = network.dial(&peer_id, addr);
-            }
+        // dial reserved_nodes
+        for (peer_id, addr) in config.reserved_peers()? {
+            debug!(target: "network", "dial reserved_peers {:?} {:?}", peer_id, addr);
+            self.network_state
+                .dial(self.p2p_service.control(), &peer_id, addr);
         }
 
-        Ok((
-            network,
-            p2p_service,
-            timer_registry,
-            EventReceivers {
-                ping_event_receiver: ping_receiver,
-                disc_event_receiver: disc_receiver,
-                identify_event_receiver: identify_receiver,
-            },
-        ))
-    }
+        let bootnodes = self
+            .network_state
+            .peer_store()
+            .read()
+            .bootnodes(max((config.max_outbound_peers / 2) as u32, 1))
+            .clone();
+        // dial half bootnodes
+        for (peer_id, addr) in bootnodes {
+            debug!(target: "network", "dial bootnode {:?} {:?}", peer_id, addr);
+            self.network_state
+                .dial(self.p2p_service.control(), &peer_id, addr);
+        }
+        let p2p_control = self.p2p_service.control().clone();
+        let network_state = Arc::clone(&self.network_state);
 
-    pub(crate) fn build_network_future(
-        network: Arc<Network>,
-        config: &NetworkConfig,
-        close_rx: oneshot::Receiver<()>,
-        p2p_service: P2PService,
-        timer_registry: TimerRegistry,
-        ckb_event_receiver: Receiver<CKBEvent>,
-        receivers: EventReceivers,
-    ) -> Result<Box<Future<Item = (), Error = Error> + Send>, Error> {
-        // initialize ckb_protocols
-        let ping_service = PingService {
-            network: Arc::clone(&network),
-            event_receiver: receivers.ping_event_receiver,
-        };
-        let disc_service =
-            DiscoveryService::new(Arc::clone(&network), receivers.disc_event_receiver);
-        let identify_service =
-            IdentifyService::new(Arc::clone(&network), receivers.identify_event_receiver);
+        // Mainly for test: give a empty thread_name
+        let mut thread_builder = thread::Builder::new();
+        if let Some(name) = thread_name {
+            thread_builder = thread_builder.name(name.to_string());
+        }
+        let (sender, receiver) = crossbeam_channel::bounded(1);
+        let thread = thread_builder
+            .spawn(move || {
+                let mut runtime = Runtime::new().expect("Network tokio runtime init failed");
+                runtime.spawn(self.p2p_service.for_each(|_| Ok(())));
 
-        let ckb_service = CKBService {
-            network: Arc::clone(&network),
-            event_receiver: ckb_event_receiver,
-        };
-        let timer_service = TimerService::new(timer_registry, Arc::clone(&network));
-        let outbound_peer_service = OutboundPeerService::new(
-            Arc::clone(&network),
-            Duration::from_secs(config.connect_outbound_interval_secs),
-        );
-        // prepare services futures
-        let futures: Vec<Box<Future<Item = (), Error = Error> + Send>> = vec![
-            Box::new(
-                p2p_service
-                    .for_each(|_| Ok(()))
-                    .map_err(|_err| Error::Shutdown),
-            ),
-            Box::new(
-                ckb_service
-                    .for_each(|_| Ok(()))
-                    .map_err(|_err| Error::Shutdown),
-            ),
-            Box::new(
-                ping_service
-                    .for_each(|_| Ok(()))
-                    .map_err(|_err| Error::Shutdown),
-            ),
-            Box::new(
-                disc_service
-                    .for_each(|_| Ok(()))
-                    .map_err(|_err| Error::Shutdown),
-            ),
-            Box::new(
-                identify_service
-                    .for_each(|_| Ok(()))
-                    .map_err(|_err| Error::Shutdown),
-            ),
-            Box::new(timer_service.timer_futures.for_each(|_| Ok(()))),
-            Box::new(
-                outbound_peer_service
-                    .for_each(|_| Ok(()))
-                    .map_err(|_| Error::Shutdown),
-            ),
-            Box::new(close_rx.map_err(|_err| Error::Shutdown)),
-        ];
-        let service_futures = select_all(futures)
-            .and_then({
-                let network = Arc::clone(&network);
-                move |_| {
-                    network.drop_all();
-                    debug!(target: "network", "network shutdown");
-                    Ok(())
+                // NOTE: for ensure background task finished
+                let mut bg_signals = Vec::new();
+                for bg_service in self.bg_services.into_iter() {
+                    let (signal_sender, signal_receiver) = oneshot::channel::<()>();
+                    bg_signals.push(signal_sender);
+                    runtime.spawn(
+                        signal_receiver
+                            .select2(bg_service)
+                            .map(|_| ())
+                            .map_err(|_| ()),
+                    );
                 }
-            })
-            .map_err(|(err, _, _)| {
-                debug!(target: "network", "network exit, error {:?}", err);
-                err
-            });
-        let service_futures =
-            Box::new(service_futures) as Box<Future<Item = (), Error = Error> + Send>;
-        Ok(service_futures)
-    }
 
-    pub fn build(
-        config: &NetworkConfig,
-        ckb_protocols: CKBProtocols,
-        ckb_event_receiver: Receiver<CKBEvent>,
-    ) -> NetworkResult {
-        let (network, p2p_service, timer_registry, receivers) =
-            Self::inner_build(config, ckb_protocols)?;
-        let (close_tx, close_rx) = oneshot::channel();
-        let network_future = Self::build_network_future(
-            Arc::clone(&network),
-            &config,
-            close_rx,
-            p2p_service,
-            timer_registry,
-            ckb_event_receiver,
-            receivers,
-        )?;
-        Ok((network, close_tx, network_future))
+                let _ = receiver.recv();
+                for signal in bg_signals.into_iter() {
+                    let _ = signal.send(());
+                }
+                debug!(target: "network", "Shuting down network service");
+                // TODO: not that gracefully shutdown, will output below error message:
+                //       "terminate called after throwing an instance of 'std::system_error'"
+                runtime.shutdown_now();
+                debug!(target: "network", "Already shutdown network service");
+            })
+            .expect("Start NetworkService fialed");
+        let stop = StopHandler::new(SignalSender::Crossbeam(sender), thread);
+        Ok(NetworkController {
+            network_state,
+            p2p_control,
+            stop,
+        })
     }
 }
 
-pub struct EventHandler {}
+#[derive(Clone)]
+pub struct NetworkController {
+    network_state: Arc<NetworkState>,
+    p2p_control: ServiceControl,
+    stop: StopHandler<()>,
+}
 
-impl ServiceHandle for EventHandler {
-    fn handle_error(&mut self, _env: &mut ServiceContext, error: ServiceError) {
-        debug!(target: "network", "p2p service error: {:?}", error);
+impl NetworkController {
+    #[inline]
+    pub fn external_urls(&self, max_urls: usize) -> Vec<(String, u8)> {
+        self.network_state.external_urls(max_urls)
     }
 
-    fn handle_event(&mut self, _env: &mut ServiceContext, event: ServiceEvent) {
-        debug!(target: "network", "p2p service event: {:?}", event);
+    #[inline]
+    pub fn node_id(&self) -> String {
+        self.network_state.node_id()
+    }
+
+    #[inline]
+    pub fn add_node(&self, peer_id: &PeerId, address: Multiaddr) {
+        self.network_state.add_node(peer_id, address)
+    }
+
+    pub fn with_protocol_context<F, T>(&self, protocol_id: ProtocolId, f: F) -> T
+    where
+        F: FnOnce(Box<dyn CKBProtocolContext>) -> T,
+    {
+        let context = Box::new(DefaultCKBProtocolContext::new(
+            protocol_id,
+            Arc::clone(&self.network_state),
+            self.p2p_control.clone(),
+        ));
+        f(context)
+    }
+}
+
+impl Drop for NetworkController {
+    fn drop(&mut self) {
+        // FIXME: should gracefully shutdown network in p2p library
+        self.stop.try_send();
     }
 }

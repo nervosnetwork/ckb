@@ -1,12 +1,12 @@
 use crate::peer_store::PeerStore;
 use crate::{
     errors::{Error, PeerError},
-    multiaddr::Multiaddr,
-    Peer, PeerId, PeerIndex, SessionId, SessionType,
+    Peer, PeerId, PeerIndex, SessionType,
 };
 use ckb_util::RwLock;
 use fnv::{FnvHashMap, FnvHashSet};
 use log::debug;
+use p2p::{multiaddr::Multiaddr, SessionId};
 use rand::seq::SliceRandom;
 use rand::thread_rng;
 use std::collections::hash_map::Entry;
@@ -334,8 +334,9 @@ impl PeersRegistry {
             .add_peer(peer_id, connected_addr, session_id, session_type)
     }
 
+    #[cfg(test)]
     #[inline]
-    pub fn peers_iter(&self) -> impl Iterator<Item = (&PeerId, &Peer)> {
+    pub(crate) fn peers_iter(&self) -> impl Iterator<Item = (&PeerId, &Peer)> {
         self.peers.iter()
     }
 

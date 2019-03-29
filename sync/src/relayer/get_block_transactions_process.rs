@@ -11,7 +11,7 @@ pub struct GetBlockTransactionsProcess<'a, CI: ChainIndex + 'a> {
     message: &'a GetBlockTransactions<'a>,
     relayer: &'a Relayer<CI>,
     peer: PeerIndex,
-    nc: &'a CKBProtocolContext,
+    nc: &'a mut CKBProtocolContext,
 }
 
 impl<'a, CI> GetBlockTransactionsProcess<'a, CI>
@@ -22,7 +22,7 @@ where
         message: &'a GetBlockTransactions,
         relayer: &'a Relayer<CI>,
         peer: PeerIndex,
-        nc: &'a CKBProtocolContext,
+        nc: &'a mut CKBProtocolContext,
     ) -> Self {
         GetBlockTransactionsProcess {
             message,

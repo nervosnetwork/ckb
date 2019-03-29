@@ -1,9 +1,8 @@
 use build_info::{get_version, Version};
-use ckb_network::NetworkService;
+use ckb_network::NetworkController;
 use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
 use jsonrpc_types::{Node, NodeAddress};
-use std::sync::Arc;
 
 const MAX_ADDRS: usize = 50;
 
@@ -19,16 +18,16 @@ pub trait NetworkRpc {
 }
 
 pub(crate) struct NetworkRpcImpl {
-    pub network: Arc<NetworkService>,
+    pub network_controller: NetworkController,
 }
 
 impl NetworkRpc for NetworkRpcImpl {
     fn local_node_info(&self) -> Result<Node> {
         Ok(Node {
             version: get_version!().to_string(),
-            node_id: self.network.node_id(),
+            node_id: self.network_controller.node_id(),
             addresses: self
-                .network
+                .network_controller
                 .external_urls(MAX_ADDRS)
                 .into_iter()
                 .map(|(address, score)| NodeAddress { address, score })
