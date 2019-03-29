@@ -48,6 +48,8 @@ const IDENTIFY_PROTOCOL_ID: ProtocolId = 2;
 pub const FEELER_PROTOCOL_ID: ProtocolId = 3;
 
 pub type CKBProtocols = Vec<(CKBProtocol, Arc<dyn CKBProtocolHandler>)>;
+pub type MultiaddrList = Vec<(Multiaddr, u8)>;
+
 type NetworkResult = Result<
     (
         Arc<Network>,
@@ -134,7 +136,7 @@ impl Network {
         &self.local_peer_id
     }
 
-    pub(crate) fn listened_addresses(&self, count: usize) -> Vec<(Multiaddr, u8)> {
+    pub(crate) fn listened_addresses(&self, count: usize) -> MultiaddrList {
         let listened_addresses = self.listened_addresses.read();
         listened_addresses
             .iter()

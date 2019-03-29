@@ -1,3 +1,4 @@
+use crate::network::MultiaddrList;
 use crate::protocol::ckb_handler::{CKBProtocolContext, DefaultCKBProtocolContext};
 use crate::{errors::Error, CKBEvent, NetworkConfig, ProtocolId};
 use crate::{
@@ -12,6 +13,8 @@ use futures::sync::oneshot;
 use log::{debug, error, info};
 use std::sync::Arc;
 use tokio::runtime;
+
+const ADDR_LIMIT: u32 = 3;
 
 pub struct StopHandler {
     signal: oneshot::Sender<()>,
@@ -126,8 +129,7 @@ impl NetworkService {
         self.network.add_node(peer_id, address)
     }
 
-    // FIXME how to return address score?
-    pub fn connected_peers(&self) -> Vec<(PeerId, Peer, Vec<(Multiaddr, u8)>)> {
+    pub fn connected_peers(&self) -> Vec<(PeerId, Peer, MultiaddrList)> {
         let peer_store = self.network.peer_store().read();
 
         self.network
@@ -139,9 +141,10 @@ impl NetworkService {
                     peer_id.clone(),
                     peer.clone(),
                     peer_store
-                        .peer_addrs(peer_id, 3)
+                        .peer_addrs(peer_id, ADDR_LIMIT)
                         .unwrap_or_default()
                         .into_iter()
+                        // FIXME how to return address score?
                         .map(|address| (address, 1))
                         .collect(),
                 )
