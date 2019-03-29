@@ -19,7 +19,6 @@ use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 use serde_derive::Deserialize;
 use std::error::Error;
-use std::fmt;
 use std::fs::File;
 use std::io::Read;
 use std::path::{Display, Path, PathBuf};
@@ -29,46 +28,16 @@ pub mod consensus;
 
 include!(concat!(env!("OUT_DIR"), "/chainspecs.rs"));
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 pub enum SpecPath {
     Testnet,
     Local(PathBuf),
 }
 
-struct SpecPathVisitor;
-
-impl<'de> serde::de::Visitor<'de> for SpecPathVisitor {
-    type Value = SpecPath;
-
-    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-        formatter.write_str("a utf8 string either containing spec file path or hardcoded value")
-    }
-
-    fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
-    where
-        E: serde::de::Error,
-    {
-        let result = match v {
-            "testnet" => SpecPath::Testnet,
-            path => SpecPath::Local(PathBuf::from(path)),
-        };
-        Ok(result)
-    }
-}
-
-impl<'de> serde::Deserialize<'de> for SpecPath {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        deserializer.deserialize_str(SpecPathVisitor)
-    }
-}
-
 impl SpecPath {
     pub fn display(&self) -> Display {
         match self {
-            SpecPath::Testnet => Path::new("testnet").display(),
+            SpecPath::Testnet => Path::new("Testnet").display(),
             SpecPath::Local(path) => path.display(),
         }
     }

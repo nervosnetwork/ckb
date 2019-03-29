@@ -4,7 +4,7 @@ data_dir = "default"
 path = "default/db"
 
 [chain]
-spec = "spec/integration_test.toml"
+spec = { Local = "spec/integration_test.toml" }
 
 [logger]
 file = "ckb.log"

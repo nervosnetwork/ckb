@@ -241,7 +241,7 @@ pub mod test {
         let test_config = format!(
             r#"
             [chain]
-            spec = "{}"
+            spec = {{ Local = "{}" }}
             "#,
             chain_spec_path.to_str().unwrap()
         );
@@ -264,7 +264,7 @@ pub mod test {
 
         let test_config = r#"
             [chain]
-            spec = "testnet"
+            spec = "Testnet"
             "#;
 
         let config_path = tmp_dir.path().join("config.toml");
