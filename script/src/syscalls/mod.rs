@@ -681,7 +681,10 @@ mod tests {
         );
 
         for (i, addr) in (addr..addr + args_data.len() as u64).enumerate() {
-            prop_assert_eq!(machine.memory_mut().load8(&addr), Ok(u64::from(args_data[i])));
+            prop_assert_eq!(
+                machine.memory_mut().load8(&addr),
+                Ok(u64::from(args_data[i]))
+            );
         }
         Ok(())
     }
@@ -914,7 +917,10 @@ mod tests {
         );
 
         for (i, addr) in (addr..addr + data_hash.len() as u64).enumerate() {
-            prop_assert_eq!(machine.memory_mut().load8(&addr), Ok(u64::from(data_hash[i])));
+            prop_assert_eq!(
+                machine.memory_mut().load8(&addr),
+                Ok(u64::from(data_hash[i]))
+            );
         }
         Ok(())
     }
