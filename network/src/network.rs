@@ -341,11 +341,13 @@ pub struct EventHandler {
 
 impl ServiceHandle for EventHandler {
     fn handle_error(&mut self, _context: &mut ServiceContext, error: ServiceError) {
+        warn!(target: "network", "p2p service error: {:?}", error);
         if let ServiceError::DialerError {
             ref address,
             ref error,
         } = error
         {
+            debug!(target: "network", "add self address: {:?}", address);
             if error == &P2pError::ConnectSelf {
                 let addr = address
                     .iter()
@@ -360,11 +362,38 @@ impl ServiceHandle for EventHandler {
                     .insert(addr, std::u8::MAX);
             }
         }
-        warn!(target: "network", "p2p service error: {:?}", error);
     }
 
-    fn handle_event(&mut self, _context: &mut ServiceContext, event: ServiceEvent) {
-        debug!(target: "network", "p2p service event: {:?}", event);
+    fn handle_event(&mut self, context: &mut ServiceContext, event: ServiceEvent) {
+        warn!(target: "network", "p2p service event: {:?}", event);
+        if let ServiceEvent::SessionOpen { session_context } = event {
+            if let Some(peer_id) = session_context
+                .remote_pubkey
+                .as_ref()
+                .map(|pubkey| pubkey.peer_id())
+            {
+                let mut peers_registry = self.network_state.peers_registry.write();
+                let result = if session_context.ty.is_outbound() {
+                    peers_registry.try_outbound_peer(
+                        peer_id,
+                        session_context.address.clone(),
+                        session_context.id,
+                        session_context.ty.into(),
+                    )
+                } else {
+                    peers_registry.accept_inbound_peer(
+                        peer_id.clone(),
+                        session_context.address.clone(),
+                        session_context.id,
+                        session_context.ty.into(),
+                    )
+                };
+                if let Err(err) = result {
+                    context.disconnect(session_context.id);
+                    info!("disconnect {} because: {:?}", session_context.address, err);
+                }
+            }
+        }
     }
 }
 
