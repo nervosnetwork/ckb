@@ -59,7 +59,7 @@ pub fn miner(matches: &ArgMatches) {
         ::std::process::exit(1);
     });
 
-    logger::init(config.logger.clone()).expect("Init Logger");
+    let _logger_guard = logger::init(config.logger.clone()).expect("Init Logger");
     let _sentry_guard = config.sentry.clone().init();
 
     let chain_spec = ChainSpec::read_from_file(&config.chain).expect("Load chain spec");
