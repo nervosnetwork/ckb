@@ -146,6 +146,7 @@ pub type Witness = Vec<Vec<u8>>;
 #[derive(Clone, Serialize, Deserialize, Eq, Debug, Default, OccupiedCapacity)]
 pub struct Transaction {
     version: Version,
+    valid_since: u64,
     deps: Vec<OutPoint>,
     inputs: Vec<CellInput>,
     outputs: Vec<CellOutput>,
@@ -176,6 +177,10 @@ impl PartialEq for Transaction {
 impl Transaction {
     pub fn version(&self) -> u32 {
         self.version
+    }
+
+    pub fn valid_since(&self) -> u64 {
+        self.valid_since
     }
 
     pub fn deps(&self) -> &[OutPoint] {
@@ -275,6 +280,11 @@ impl TransactionBuilder {
 
     pub fn version(mut self, version: u32) -> Self {
         self.inner.version = version;
+        self
+    }
+
+    pub fn valid_since(mut self, valid_since: u64) -> Self {
+        self.inner.valid_since = valid_since;
         self
     }
 

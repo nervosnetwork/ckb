@@ -62,6 +62,7 @@ table UncleBlock {
 
 table Transaction {
     version:        uint32;
+    valid_since:    uint64;
     deps:           [OutPoint];
     inputs:         [CellInput];
     outputs:        [CellOutput];

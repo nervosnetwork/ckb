@@ -1,11 +1,19 @@
 use crate::error::TransactionError;
 use ckb_core::transaction::{Capacity, Transaction, TX_VERSION};
-use ckb_core::{cell::ResolvedTransaction, Cycle};
+use ckb_core::{cell::ResolvedTransaction, BlockNumber, Cycle};
 use ckb_script::TransactionScriptsVerifier;
+use ckb_traits::BlockMedianTimeContext;
+use numext_fixed_hash::H256;
 use occupied_capacity::OccupiedCapacity;
 use std::collections::HashSet;
 
-pub struct TransactionVerifier<'a> {
+pub struct BlockContext<M> {
+    pub block_median_time_context: M,
+    pub tip_number: BlockNumber,
+    pub tip_hash: H256,
+}
+
+pub struct TransactionVerifier<'a, M> {
     pub version: VersionVerifier<'a>,
     pub null: NullVerifier<'a>,
     pub empty: EmptyVerifier<'a>,
@@ -13,10 +21,14 @@ pub struct TransactionVerifier<'a> {
     pub duplicate_inputs: DuplicateInputsVerifier<'a>,
     pub inputs: InputVerifier<'a>,
     pub script: ScriptVerifier<'a>,
+    pub valid_since: ValidSinceVerifier<'a, M>,
 }
 
-impl<'a> TransactionVerifier<'a> {
-    pub fn new(rtx: &'a ResolvedTransaction) -> Self {
+impl<'a, M> TransactionVerifier<'a, M>
+where
+    M: BlockMedianTimeContext,
+{
+    pub fn new(rtx: &'a ResolvedTransaction, block_context: &'a BlockContext<M>) -> Self {
         TransactionVerifier {
             version: VersionVerifier::new(&rtx.transaction),
             null: NullVerifier::new(&rtx.transaction),
@@ -25,6 +37,7 @@ impl<'a> TransactionVerifier<'a> {
             script: ScriptVerifier::new(rtx),
             capacity: CapacityVerifier::new(rtx),
             inputs: InputVerifier::new(rtx),
+            valid_since: ValidSinceVerifier::new(&rtx.transaction, &block_context),
         }
     }
 
@@ -205,6 +218,43 @@ impl<'a> CapacityVerifier<'a> {
             .any(|output| output.occupied_capacity() as Capacity > output.capacity)
         {
             return Err(TransactionError::CapacityOverflow);
+        }
+        Ok(())
+    }
+}
+
+pub struct ValidSinceVerifier<'a, M> {
+    transaction: &'a Transaction,
+    block_context: &'a BlockContext<M>,
+}
+
+impl<'a, M> ValidSinceVerifier<'a, M>
+where
+    M: BlockMedianTimeContext,
+{
+    pub fn new(transaction: &'a Transaction, block_context: &'a BlockContext<M>) -> Self {
+        ValidSinceVerifier {
+            transaction,
+            block_context,
+        }
+    }
+    // https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0017-tx-valid-since/0017-tx-valid-since.md#detailed-specification
+    pub fn verify(&self) -> Result<(), TransactionError> {
+        let valid_since = self.transaction.valid_since();
+        if valid_since == 0 {
+            return Ok(());
+        }
+        if valid_since >> 63 == 0 && self.block_context.tip_number < valid_since {
+            return Err(TransactionError::Immature);
+        }
+        if self
+            .block_context
+            .block_median_time_context
+            .block_median_time(&self.block_context.tip_hash)
+            .unwrap_or_else(|| 0)
+            < (valid_since ^ (1 << 63)) * 512 * 1000
+        {
+            return Err(TransactionError::Immature);
         }
         Ok(())
     }

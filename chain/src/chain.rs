@@ -1,3 +1,4 @@
+use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::Block;
 use ckb_core::cell::{
     resolve_transaction, BlockCellProvider, OverlayCellProvider, ResolvedTransaction,
@@ -5,7 +6,8 @@ use ckb_core::cell::{
 use ckb_core::extras::BlockExt;
 use ckb_core::service::{Request, DEFAULT_CHANNEL_SIZE, SIGNAL_CHANNEL_SIZE};
 use ckb_core::transaction::ProposalShortId;
-use ckb_core::BlockNumber;
+use ckb_core::{header::Header, BlockNumber};
+use ckb_db::batch::Batch;
 use ckb_notify::NotifyController;
 use ckb_shared::cell_set::CellSetDiff;
 use ckb_shared::chain_state::ChainState;
@@ -13,8 +15,8 @@ use ckb_shared::error::SharedError;
 use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::Shared;
 use ckb_shared::store::StoreBatch;
-use ckb_traits::ChainProvider;
-use ckb_verification::{BlockVerifier, TransactionsVerifier, Verifier};
+use ckb_traits::{BlockMedianTimeContext, ChainProvider};
+use ckb_verification::{BlockContext, BlockVerifier, TransactionsVerifier, Verifier};
 use crossbeam_channel::{self, select, Receiver, Sender};
 use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
@@ -93,6 +95,40 @@ impl GlobalIndex {
     pub(crate) fn forward(&mut self, hash: H256) {
         self.number -= 1;
         self.hash = hash;
+    }
+}
+
+// Verification context for fork
+struct ForkContext<'a, CI> {
+    pub fork_blocks: &'a [Block],
+    pub store: Arc<CI>,
+    pub consensus: &'a Consensus,
+}
+
+impl<'a, CI: ChainIndex> ForkContext<'a, CI> {
+    fn get_header(&self, hash: &H256) -> Option<Header> {
+        self.fork_blocks
+            .iter()
+            .find(|b| &b.header().hash() == hash)
+            .map_or_else(
+                || self.store.get_header(hash),
+                |b| Some(b.header().to_owned()),
+            )
+    }
+}
+
+impl<'a, CI: ChainIndex> BlockMedianTimeContext for ForkContext<'a, CI> {
+    fn block_count(&self) -> u32 {
+        self.consensus.median_time_block_count() as u32
+    }
+
+    fn timestamp(&self, hash: &H256) -> Option<u64> {
+        self.get_header(hash).map(|header| header.timestamp())
+    }
+
+    fn parent_hash(&self, hash: &H256) -> Option<H256> {
+        self.get_header(hash)
+            .map(|header| header.parent_hash().to_owned())
     }
 }
 
@@ -190,10 +226,10 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
         let current_total_difficulty = chain_state.total_difficulty().clone();
 
         debug!(
-            target: "chain",
-            "difficulty current = {}, cannon = {}",
-            current_total_difficulty,
-            cannon_total_difficulty,
+        target: "chain",
+        "difficulty current = {}, cannon = {}",
+        current_total_difficulty,
+        cannon_total_difficulty,
         );
 
         if parent_ext.txs_verified == Some(false) {
@@ -429,6 +465,16 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
                     let block_cp = BlockCellProvider::new(b);
                     let cell_provider = OverlayCellProvider::new(&block_cp, &cell_set_diff_cp);
 
+                    let block_context = BlockContext {
+                        tip_number: b.header().number(),
+                        tip_hash: b.header().hash(),
+                        block_median_time_context: ForkContext {
+                            fork_blocks: &fork.attached_blocks,
+                            store: Arc::clone(self.shared.store()),
+                            consensus: self.shared.consensus(),
+                        },
+                    };
+
                     let resolved: Vec<ResolvedTransaction> = b
                         .commit_transactions()
                         .iter()
@@ -439,6 +485,7 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
                         chain_state.mut_txs_verify_cache(),
                         &resolved,
                         self.shared.block_reward(b.header().number()),
+                        block_context,
                     ) {
                         Ok(_) => {
                             cell_set_diff.push_new(b);
@@ -506,10 +553,10 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
 
         debug!(target: "chain", "Proposal in Head Block {{");
         debug!(target: "chain",  "   {:?}", self
-            .shared
-            .block_hash(tip)
-            .and_then(|hash| self.shared.store().get_block_proposal_txs_ids(&hash))
-            .expect("invalid block number"));
+               .shared
+               .block_hash(tip)
+               .and_then(|hash| self.shared.store().get_block_proposal_txs_ids(&hash))
+               .expect("invalid block number"));
 
         debug!(target: "chain", "}}");
 

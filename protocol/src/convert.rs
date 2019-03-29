@@ -202,6 +202,7 @@ impl<'a> TryFrom<ckb_protocol::Transaction<'a>> for ckb_core::transaction::Trans
 
         Ok(ckb_core::transaction::TransactionBuilder::default()
             .version(transaction.version())
+            .valid_since(transaction.valid_since())
             .deps(deps?)
             .inputs(inputs?)
             .outputs(outputs?)

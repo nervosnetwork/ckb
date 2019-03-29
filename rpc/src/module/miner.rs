@@ -64,12 +64,14 @@ impl<CI: ChainIndex + 'static> MinerRpc for MinerRpcImpl<CI> {
     fn submit_block(&self, _work_id: String, data: Block) -> Result<Option<H256>> {
         let block: Arc<CoreBlock> = Arc::new(data.try_into().map_err(|_| Error::parse_error())?);
         let resolver = HeaderResolverWrapper::new(block.header(), self.shared.clone());
-        let header_verifier = HeaderVerifier::new(
-            self.shared.clone(),
-            Arc::clone(&self.shared.consensus().pow_engine()),
-        );
-
-        let header_verify_ret = header_verifier.verify(&resolver);
+        let header_verify_ret = {
+            let chain_state = self.shared.chain_state().lock();
+            let header_verifier = HeaderVerifier::new(
+                &*chain_state,
+                Arc::clone(&self.shared.consensus().pow_engine()),
+            );
+            header_verifier.verify(&resolver)
+        };
         if header_verify_ret.is_ok() {
             let ret = self.chain.process_block(Arc::clone(&block));
             if ret.is_ok() {

@@ -538,8 +538,12 @@ mod tests {
             .with_header_builder(header_builder);
 
         let resolver = HeaderResolverWrapper::new(block.header(), shared.clone());
-        let header_verifier = HeaderVerifier::new(shared.clone(), Pow::Dummy.engine());
-        assert!(header_verifier.verify(&resolver).is_ok());
+        let header_verify_result = {
+            let chain_state = shared.chain_state().lock();
+            let header_verifier = HeaderVerifier::new(&*chain_state, Pow::Dummy.engine());
+            header_verifier.verify(&resolver)
+        };
+        assert!(header_verify_result.is_ok());
 
         let block_verify = BlockVerifier::new(shared.clone());
         assert!(block_verify.verify(&block).is_ok());

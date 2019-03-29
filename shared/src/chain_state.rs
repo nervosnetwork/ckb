@@ -3,6 +3,7 @@ use crate::cell_set::CellSetDiff;
 use crate::index::ChainIndex;
 use crate::tx_pool::{PoolEntry, PoolError, StagingTxResult, TxPool};
 use crate::tx_proposal_table::TxProposalTable;
+use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::Block;
 use ckb_core::cell::{
     resolve_transaction, CellProvider, CellStatus, OverlayCellProvider, ResolvedTransaction,
@@ -10,7 +11,8 @@ use ckb_core::cell::{
 use ckb_core::header::{BlockNumber, Header};
 use ckb_core::transaction::{OutPoint, ProposalShortId, Transaction};
 use ckb_core::Cycle;
-use ckb_verification::{TransactionError, TransactionVerifier};
+use ckb_traits::BlockMedianTimeContext;
+use ckb_verification::{BlockContext, TransactionError, TransactionVerifier};
 use fnv::FnvHashSet;
 use log::{error, trace};
 use lru_cache::LruCache;
@@ -29,9 +31,11 @@ pub struct ChainState<CI> {
     // interior mutability for immutable borrow proposal_ids
     tx_pool: RefCell<TxPool>,
     txs_verify_cache: RefCell<LruCache<H256, Cycle>>,
+    consensus: Arc<Consensus>,
 }
 
 impl<CI: ChainIndex> ChainState<CI> {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         store: &Arc<CI>,
         tip_header: Header,
@@ -40,6 +44,7 @@ impl<CI: ChainIndex> ChainState<CI> {
         proposal_ids: TxProposalTable,
         tx_pool: TxPool,
         txs_verify_cache: LruCache<H256, Cycle>,
+        consensus: Arc<Consensus>,
     ) -> Self {
         ChainState {
             store: Arc::clone(store),
@@ -49,6 +54,7 @@ impl<CI: ChainIndex> ChainState<CI> {
             proposal_ids,
             tx_pool: RefCell::new(tx_pool),
             txs_verify_cache: RefCell::new(txs_verify_cache),
+            consensus,
         }
     }
 
@@ -151,7 +157,12 @@ impl<CI: ChainIndex> ChainState<CI> {
         match ret {
             Some(cycles) => Ok(cycles),
             None => {
-                let cycles = TransactionVerifier::new(&rtx).verify(max_cycles)?;
+                let block_context = BlockContext {
+                    tip_number: self.tip_number(),
+                    tip_hash: self.tip_hash(),
+                    block_median_time_context: self,
+                };
+                let cycles = TransactionVerifier::new(&rtx, &block_context).verify(max_cycles)?;
                 // write cache
                 self.txs_verify_cache.borrow_mut().insert(tx_hash, cycles);
                 Ok(cycles)
@@ -336,6 +347,10 @@ impl<CI: ChainIndex> ChainState<CI> {
     pub fn mut_tx_pool(&mut self) -> &mut TxPool {
         self.tx_pool.get_mut()
     }
+
+    pub fn consensus(&self) -> Arc<Consensus> {
+        Arc::clone(&self.consensus)
+    }
 }
 
 impl<CI: ChainIndex> CellProvider for ChainState<CI> {
@@ -351,5 +366,21 @@ impl<CI: ChainIndex> CellProvider for ChainState<CI> {
             }
             None => CellStatus::Unknown,
         }
+    }
+}
+
+impl<CI: ChainIndex> BlockMedianTimeContext for &ChainState<CI> {
+    fn block_count(&self) -> u32 {
+        self.consensus.median_time_block_count() as u32
+    }
+
+    fn timestamp(&self, hash: &H256) -> Option<u64> {
+        self.store.get_header(hash).map(|header| header.timestamp())
+    }
+
+    fn parent_hash(&self, hash: &H256) -> Option<H256> {
+        self.store
+            .get_header(hash)
+            .map(|header| header.parent_hash().to_owned())
     }
 }

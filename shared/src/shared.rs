@@ -43,6 +43,7 @@ impl<CI: ChainIndex> ::std::clone::Clone for Shared<CI> {
 impl<CI: ChainIndex> Shared<CI> {
     pub fn new(store: CI, consensus: Consensus, tx_pool_config: TxPoolConfig) -> Self {
         let store = Arc::new(store);
+        let consensus = Arc::new(consensus);
         let chain_state = {
             // check head in store or save the genesis block as head
             let header = {
@@ -78,13 +79,14 @@ impl<CI: ChainIndex> Shared<CI> {
                 proposal_ids,
                 TxPool::new(tx_pool_config),
                 LruCache::new(txs_verify_cache_size),
+                Arc::clone(&consensus),
             )))
         };
 
         Shared {
             store,
             chain_state,
-            consensus: Arc::new(consensus),
+            consensus,
         }
     }
 
@@ -306,19 +308,6 @@ impl<CI: ChainIndex> ChainProvider for Shared<CI> {
 
     fn consensus(&self) -> &Consensus {
         &*self.consensus
-    }
-}
-
-impl<CI: ChainIndex> BlockMedianTimeContext for Shared<CI> {
-    fn block_count(&self) -> u32 {
-        self.consensus.median_time_block_count() as u32
-    }
-    fn timestamp(&self, hash: &H256) -> Option<u64> {
-        self.block_header(hash).map(|header| header.timestamp())
-    }
-    fn parent_hash(&self, hash: &H256) -> Option<H256> {
-        self.block_header(hash)
-            .map(|header| header.parent_hash().to_owned())
     }
 }
 

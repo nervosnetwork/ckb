@@ -144,4 +144,6 @@ pub enum TransactionError {
     Conflict,
     UnknownInput,
     Version,
+    /// Tx not satisfied valid_since condition
+    Immature,
 }

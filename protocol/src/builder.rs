@@ -104,6 +104,7 @@ impl<'a> FbsTransaction<'a> {
 
         let mut builder = TransactionBuilder::new(fbb);
         builder.add_version(transaction.version());
+        builder.add_valid_since(transaction.valid_since());
         builder.add_deps(deps);
         builder.add_inputs(inputs);
         builder.add_outputs(outputs);
