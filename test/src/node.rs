@@ -22,6 +22,7 @@ pub struct Node {
     pub dir: String,
     pub p2p_port: u16,
     pub rpc_port: u16,
+    pub node_id: Option<String>,
     guard: Option<ProcessGuard>,
 }
 
@@ -43,6 +44,7 @@ impl Node {
             dir: dir.to_string(),
             p2p_port,
             rpc_port,
+            node_id: None,
             guard: None,
         }
     }
@@ -57,11 +59,21 @@ impl Node {
             ])
             .stdin(Stdio::null())
             .stdout(Stdio::null())
-            .stderr(Stdio::null())
+            .stderr(Stdio::inherit())
             .spawn()
             .expect("failed to run binary");
         self.guard = Some(ProcessGuard(child_process));
         info!("Started node with working dir: {}", self.dir);
+
+        let mut client = self.rpc_client();
+        loop {
+            if let Ok(result) = client.local_node_info().call() {
+                info!("RPC service ready, {:?}", result);
+                self.node_id = Some(result.node_id);
+                break;
+            }
+            sleep(1);
+        }
     }
 
     pub fn connect(&self, node: &Node) {
@@ -140,18 +152,6 @@ impl Node {
         rpc.trace_transaction((&self.new_transaction(cellbase.hash())).into())
             .call()
             .expect("rpc call send_transaction failed")
-    }
-
-    pub fn wait_for_rpc_connection(&self) {
-        let mut client = self.rpc_client();
-
-        loop {
-            if let Ok(result) = client.local_node_info().call() {
-                info!("RPC service ready, {:?}", result);
-                break;
-            }
-            sleep(1);
-        }
     }
 
     pub fn new_block(&self) -> Block {

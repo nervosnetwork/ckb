@@ -315,6 +315,35 @@ curl -d '{"id": 2, "jsonrpc": "2.0", "method":"local_node_info","params": []}' -
 }
 ```
 
+# get_peers
+
+Returns the connected peers information.
+
+## Examples
+
+```shell
+curl -d '{"id": 2, "jsonrpc": "2.0", "method":"get_peers","params": []}' -H 'content-type:application/json' 'http://localhost:8114'
+```
+
+```json
+{
+    "jsonrpc": "2.0",
+    "result": [
+        {
+            "addresses": [
+                {
+                    "address": "/ip4/192.168.2.3/tcp/12344/p2p/QmdiJuQZj1dM4K4HKMxfMwcAqGFYvGKpbvVxTzyQeNGEcG",
+                    "score": 1
+                }
+            ],
+            "node_id": "QmdiJuQZj1dM4K4HKMxfMwcAqGFYvGKpbvVxTzyQeNGEcG",
+            "version": "0.5.0"
+        }
+    ],
+    "id": 2
+}
+```
+
 # send_transaction
 
 Creates new transaction.

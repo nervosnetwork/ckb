@@ -6,7 +6,7 @@ use log::info;
 pub struct MiningBasic;
 
 impl Spec for MiningBasic {
-    fn run(&self, net: &Net) {
+    fn run(&self, net: Net) {
         info!("Running MiningBasic");
         let node = &net.nodes[0];
 

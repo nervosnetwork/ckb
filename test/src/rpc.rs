@@ -1,11 +1,12 @@
 use ckb_core::BlockNumber;
 use ckb_shared::tx_pool::TxTrace;
 use jsonrpc_client_core::{expand_params, jsonrpc_client};
-use jsonrpc_types::{Block, BlockTemplate, Header, LocalNode, Transaction};
+use jsonrpc_types::{Block, BlockTemplate, Header, Node, Transaction};
 use numext_fixed_hash::H256;
 
 jsonrpc_client!(pub struct RpcClient {
-    pub fn local_node_info(&mut self) -> RpcRequest<LocalNode>;
+    pub fn local_node_info(&mut self) -> RpcRequest<Node>;
+    pub fn get_peers(&mut self) -> RpcRequest<Vec<Node>>;
 
     pub fn add_node(&mut self, peer_id: String, address: String) -> RpcRequest<()>;
 
