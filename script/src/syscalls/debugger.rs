@@ -1,5 +1,5 @@
 use crate::syscalls::DEBUG_PRINT_SYSCALL_NUMBER;
-use ckb_vm::{CoreMachine, Error as VMError, Memory, Register, Syscalls, A0, A7};
+use ckb_vm::{Error as VMError, Memory, Register, SupportMachine, Syscalls, A0, A7};
 use log::debug;
 
 pub struct Debugger<'a> {
@@ -12,12 +12,12 @@ impl<'a> Debugger<'a> {
     }
 }
 
-impl<'a, R: Register, M: Memory> Syscalls<R, M> for Debugger<'a> {
-    fn initialize(&mut self, _machine: &mut CoreMachine<R, M>) -> Result<(), VMError> {
+impl<'a, Mac: SupportMachine> Syscalls<Mac> for Debugger<'a> {
+    fn initialize(&mut self, _machine: &mut Mac) -> Result<(), VMError> {
         Ok(())
     }
 
-    fn ecall(&mut self, machine: &mut CoreMachine<R, M>) -> Result<bool, VMError> {
+    fn ecall(&mut self, machine: &mut Mac) -> Result<bool, VMError> {
         let number = machine.registers()[A7].to_u64();
         if number != DEBUG_PRINT_SYSCALL_NUMBER {
             return Ok(false);
@@ -27,7 +27,10 @@ impl<'a, R: Register, M: Memory> Syscalls<R, M> for Debugger<'a> {
         let mut buffer = Vec::new();
 
         loop {
-            let byte = machine.memory_mut().load8(addr)?;
+            let byte = machine
+                .memory_mut()
+                .load8(&Mac::REG::from_usize(addr))?
+                .to_u8();
             if byte == 0 {
                 break;
             }
@@ -35,7 +38,7 @@ impl<'a, R: Register, M: Memory> Syscalls<R, M> for Debugger<'a> {
             addr += 1;
         }
 
-        machine.add_cycles((buffer.len() as u64 + 1) * 10);
+        machine.add_cycles((buffer.len() as u64 + 1) * 10)?;
         let s = String::from_utf8(buffer).map_err(|_| VMError::ParseError)?;
         debug!(target: "script", "{} DEBUG OUTPUT: {}", self.prefix, s);
         Ok(true)
