@@ -262,7 +262,7 @@ pub mod test {
         let data_hash = tx.outputs()[0].data_hash();
         assert_eq!(
             format!("{:x}", data_hash),
-            "26e5586a6e5b2f087bd1fd43fb5f807a5cc65cd6e36dad32a934ac1500a6b76d"
+            "fe1cf5a297023a3c5282ecd9b0ca88d6736424d75fbe4dcf47a7c8b303e4d339"
         );
     }
 }
