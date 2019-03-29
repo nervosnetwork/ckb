@@ -1,10 +1,9 @@
-use crate::peers_registry::Peer;
 use crate::protocol::ckb_handler::{CKBProtocolContext, DefaultCKBProtocolContext};
 use crate::{errors::Error, CKBEvent, NetworkConfig, ProtocolId};
 use crate::{
     multiaddr::Multiaddr,
     network::{CKBProtocols, Network},
-    PeerId,
+    Peer, PeerId,
 };
 use ckb_util::Mutex;
 use futures::future::Future;
