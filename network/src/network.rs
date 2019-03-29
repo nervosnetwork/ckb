@@ -22,6 +22,7 @@ use futures::Stream;
 use log::{debug, error, info, warn};
 use p2p::{
     builder::{MetaBuilder, ServiceBuilder},
+    error::Error as P2pError,
     multiaddr::{self, multihash::Multihash, Multiaddr},
     secio::PeerId,
     service::{DialProtocol, ProtocolHandle, Service, ServiceError, ServiceEvent},
@@ -298,15 +299,17 @@ impl NetworkState {
         mut addr: Multiaddr,
         target: DialProtocol,
     ) {
-        match Multihash::from_bytes(peer_id.as_bytes().to_vec()) {
-            Ok(peer_id_hash) => {
-                addr.append(multiaddr::Protocol::P2p(peer_id_hash));
-                if let Err(err) = p2p_control.dial(addr.clone(), target) {
-                    debug!(target: "network", "dial fialed: {:?}", err);
+        if !self.listened_addresses.read().contains_key(&addr) {
+            match Multihash::from_bytes(peer_id.as_bytes().to_vec()) {
+                Ok(peer_id_hash) => {
+                    addr.append(multiaddr::Protocol::P2p(peer_id_hash));
+                    if let Err(err) = p2p_control.dial(addr.clone(), target) {
+                        debug!(target: "network", "dial fialed: {:?}", err);
+                    }
                 }
-            }
-            Err(err) => {
-                error!(target: "network", "failed to convert peer_id to addr: {}", err);
+                Err(err) => {
+                    error!(target: "network", "failed to convert peer_id to addr: {}", err);
+                }
             }
         }
     }
@@ -328,11 +331,32 @@ impl NetworkState {
     }
 }
 
-pub struct EventHandler {}
+pub struct EventHandler {
+    network_state: Arc<NetworkState>,
+}
 
 impl ServiceHandle for EventHandler {
     fn handle_error(&mut self, _context: &mut ServiceContext, error: ServiceError) {
-        debug!(target: "network", "p2p service error: {:?}", error);
+        if let ServiceError::DialerError {
+            ref address,
+            ref error,
+        } = error
+        {
+            if error == &P2pError::ConnectSelf {
+                let addr = address
+                    .iter()
+                    .filter(|proto| match proto {
+                        multiaddr::Protocol::P2p(_) => false,
+                        _ => true,
+                    })
+                    .collect();
+                self.network_state
+                    .listened_addresses
+                    .write()
+                    .insert(addr, std::u8::MAX);
+            }
+        }
+        warn!(target: "network", "p2p service error: {:?}", error);
     }
 
     fn handle_event(&mut self, _context: &mut ServiceContext, event: ServiceEvent) {
@@ -410,10 +434,13 @@ impl NetworkService {
             network_state.protocol_ids.write().insert(meta.id());
             service_builder = service_builder.insert_protocol(meta);
         }
+        let event_handler = EventHandler {
+            network_state: Arc::clone(&network_state),
+        };
         let mut p2p_service = service_builder
             .key_pair(network_state.local_private_key.clone())
             .forever(true)
-            .build(EventHandler {});
+            .build(event_handler);
 
         // == Build background service tasks
         let disc_service = DiscoveryService::new(Arc::clone(&network_state), disc_receiver);

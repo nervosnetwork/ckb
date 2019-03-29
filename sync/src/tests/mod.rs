@@ -1,7 +1,7 @@
 use bytes::Bytes;
 use ckb_network::{
     errors::Error as NetworkError, Behaviour, CKBProtocolContext, CKBProtocolHandler, PeerIndex,
-    ProtocolId, SessionInfo,
+    ProtocolId, ProtocolVersion, SessionInfo,
 };
 use std::collections::HashMap;
 use std::sync::mpsc::{channel, Receiver, Sender};
@@ -184,7 +184,7 @@ impl CKBProtocolContext for TestNetworkContext {
         None
     }
     /// Returns max version for a given protocol.
-    fn protocol_version(&self, _peer: PeerIndex, _protocol: ProtocolId) -> Option<u8> {
+    fn protocol_version(&self, _peer: PeerIndex, _protocol: ProtocolId) -> Option<ProtocolVersion> {
         unimplemented!();
     }
 

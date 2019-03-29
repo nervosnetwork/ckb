@@ -3,7 +3,7 @@ use crate::NetworkState;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use log::debug;
+use log::{debug, trace};
 use p2p::{
     multiaddr::{Multiaddr, Protocol},
     secio::PeerId,
@@ -49,6 +49,12 @@ impl Callback for IdentifyCallback {
     }
 
     fn add_remote_listen_addrs(&mut self, peer_id: &PeerId, addrs: Vec<Multiaddr>) {
+        trace!(
+            target: "network",
+            "got remote listen addrs from peer_id={:?}, addrs={:?}",
+            peer_id,
+            addrs,
+        );
         self.remote_listen_addrs
             .insert(peer_id.clone(), addrs.clone());
         let mut peer_store = self.network_state.peer_store().write();
@@ -70,6 +76,12 @@ impl Callback for IdentifyCallback {
             ty,
             addr,
         );
+
+        if ty.is_inbound() {
+            // The address already been discovered by other peer
+            return MisbehaveResult::Continue;
+        }
+
         for transformed_addr in self
             .listen_addrs()
             .into_iter()
@@ -87,6 +99,7 @@ impl Callback for IdentifyCallback {
                     .collect::<Multiaddr>()
             })
         {
+            debug!(target: "network", "identify add transformed addr: {:?}", transformed_addr);
             let local_peer_id = self.network_state.local_peer_id();
             let _ = self
                 .network_state

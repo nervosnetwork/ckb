@@ -764,7 +764,7 @@ mod tests {
     use ckb_db::memorydb::MemoryKeyValueDB;
     use ckb_network::{
         errors::Error as NetworkError, multiaddr::ToMultiaddr, CKBProtocolContext, Peer, PeerIndex,
-        ProtocolId, SessionInfo, SessionType,
+        ProtocolId, ProtocolVersion, SessionInfo, SessionType,
     };
     use ckb_notify::{NotifyController, NotifyService};
     use ckb_protocol::{Block as FbsBlock, Headers as FbsHeaders};
@@ -1134,7 +1134,11 @@ mod tests {
             self.sessions.get(&peer).cloned()
         }
         /// Returns max version for a given protocol.
-        fn protocol_version(&self, _peer: PeerIndex, _protocol: ProtocolId) -> Option<u8> {
+        fn protocol_version(
+            &self,
+            _peer: PeerIndex,
+            _protocol: ProtocolId,
+        ) -> Option<ProtocolVersion> {
             unimplemented!();
         }
 
