@@ -13,6 +13,10 @@ Nervos CKB is the layer 1 of Nervos Network, a public blockchain with PoW and ce
 
 Nervos project defines a suite of scalable and interoperable blockchain protocols. Nervos CKB uses those protocols to create a self-evolving distributed network with a novel economic model, data model and more.
 
+**Notice**: The ckb process will send stack trace to sentry on Rust panics.
+This is enabled by default before mainnet, which can be opted out by setting
+the option `dsn` to empty in the config file.
+
 ## License [![FOSSA Status](https://app.fossa.io/api/projects/git%2Bgithub.com%2Fnervosnetwork%2Fckb.svg?type=shield)](https://app.fossa.io/projects/git%2Bgithub.com%2Fnervosnetwork%2Fckb?ref=badge_shield)
 
 Nervos CKB is released under the terms of the MIT license. See [COPYING](COPYING) for more information or see [https://opensource.org/licenses/MIT](https://opensource.org/licenses/MIT).

@@ -147,10 +147,20 @@ fn sanitize_color(s: &str) -> String {
     RE.replace_all(s, "").to_string()
 }
 
-pub fn init(config: Config) -> Result<(), SetLoggerError> {
+/// Flush the logger when dropped
+#[must_use]
+pub struct LoggerInitGuard;
+
+impl Drop for LoggerInitGuard {
+    fn drop(&mut self) {
+        flush();
+    }
+}
+
+pub fn init(config: Config) -> Result<LoggerInitGuard, SetLoggerError> {
     let logger = Logger::new(config);
     log::set_max_level(logger.filter());
-    log::set_boxed_logger(Box::new(logger))
+    log::set_boxed_logger(Box::new(logger)).map(|_| LoggerInitGuard)
 }
 
 pub fn flush() {

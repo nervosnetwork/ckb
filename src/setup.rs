@@ -1,3 +1,4 @@
+use crate::cli::SentryConfig;
 use crate::helper::{require_path_exists, to_absolute_path};
 use ckb_chain_spec::{ChainSpec, SpecPath};
 use ckb_db::DBConfig;
@@ -39,6 +40,7 @@ pub struct Configs {
     pub block_assembler: BlockAssemblerConfig,
     pub sync: SyncConfig,
     pub tx_pool: TxPoolConfig,
+    pub sentry: SentryConfig,
 }
 
 pub fn get_config_path(matches: &ArgMatches) -> PathBuf {

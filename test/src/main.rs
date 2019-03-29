@@ -8,7 +8,7 @@ fn main() {
         color: true,
         file: None,
     };
-    logger::init(log_config).expect("init Logger");
+    let _logger_guard = logger::init(log_config).expect("init Logger");
 
     let binary = env::args()
         .nth(1)
@@ -49,6 +49,4 @@ fn main() {
             spec.run(net);
         })
     }
-
-    logger::flush();
 }

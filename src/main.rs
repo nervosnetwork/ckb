@@ -19,7 +19,8 @@ fn main() {
         },
         ("run", Some(run_matches)) => {
             let setup = setup(&run_matches);
-            logger::init(setup.configs.logger.clone()).expect("Init Logger");
+            let _logger_guard = logger::init(setup.configs.logger.clone()).expect("Init Logger");
+            let _sentry_guard = setup.configs.sentry.clone().init();
             cli::run(setup);
         }
         ("miner", Some(miner_matches)) => cli::miner(&miner_matches),
@@ -27,8 +28,6 @@ fn main() {
         ("import", Some(import_matches)) => cli::import(&setup(&import_matches), import_matches),
         _ => unreachable!(),
     }
-
-    logger::flush();
 }
 
 fn setup(matches: &ArgMatches<'static>) -> Setup {

@@ -1,3 +1,4 @@
+use crate::cli::SentryConfig;
 use crate::helper::{require_path_exists, to_absolute_path};
 use ckb_chain_spec::{ChainSpec, SpecPath};
 use ckb_miner::{Client, Miner, MinerConfig};
@@ -21,6 +22,7 @@ struct Config {
     pub miner: MinerConfig,
     pub chain: SpecPath,
     pub data_dir: PathBuf,
+    pub sentry: SentryConfig,
 }
 
 impl Config {
@@ -57,7 +59,8 @@ pub fn miner(matches: &ArgMatches) {
         ::std::process::exit(1);
     });
 
-    logger::init(config.logger.clone()).expect("Init Logger");
+    let _logger_guard = logger::init(config.logger.clone()).expect("Init Logger");
+    let _sentry_guard = config.sentry.clone().init();
 
     let chain_spec = ChainSpec::read_from_file(&config.chain).expect("Load chain spec");
 

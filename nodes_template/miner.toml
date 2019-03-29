@@ -13,3 +13,7 @@ poll_interval = 1000
 file = "miner.log"
 filter = "info"
 color = true
+
+[sentry]
+# set to blank to disable sentry error collection
+dsn = "https://48c6a88d92e246478e2d53b5917a887c@sentry.io/1422795"
