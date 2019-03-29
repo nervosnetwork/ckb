@@ -21,7 +21,7 @@ pub use crate::{
     peer::{Peer, PeerIdentifyInfo},
     peer_store::Score,
     peers_registry::RegisterResult,
-    protocols::{CKBProtocol, CKBProtocolContext, CKBProtocolHandler, ProtocolVersion, Severity},
+    protocols::{CKBProtocol, CKBProtocolContext, CKBProtocolHandler, ProtocolVersion},
 };
 pub use p2p::{
     context::{ProtocolContext, ProtocolContextMutRef, ServiceContext, SessionContext},

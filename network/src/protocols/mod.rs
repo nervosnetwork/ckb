@@ -21,15 +21,7 @@ use p2p::{
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-// TODO: change to u32 or u64
-pub type ProtocolVersion = u8;
-
-#[derive(Clone, Debug)]
-pub enum Severity<'a> {
-    Timeout,
-    Useless(&'a str),
-    Bad(&'a str),
-}
+pub type ProtocolVersion = u32;
 
 pub struct CKBProtocol {
     id: ProtocolId,
@@ -128,7 +120,7 @@ impl ServiceProtocol for CKBHandler {
         let session = context.session;
         let (peer_id, version) = {
             // TODO: version number should be discussed.
-            let parsed_version = version.parse::<u8>().ok();
+            let parsed_version = version.parse::<ProtocolVersion>().ok();
             if session.remote_pubkey.is_none() || parsed_version.is_none() {
                 error!(
                     target: "network",
@@ -299,7 +291,11 @@ pub trait CKBProtocolContext: Send {
     fn disconnect(&self, peer_index: PeerIndex);
     fn register_timer(&self, interval: Duration, token: u64);
     fn session_info(&self, peer_index: PeerIndex) -> Option<SessionInfo>;
-    fn protocol_version(&self, peer_index: PeerIndex, protocol_id: ProtocolId) -> Option<u8>;
+    fn protocol_version(
+        &self,
+        peer_index: PeerIndex,
+        protocol_id: ProtocolId,
+    ) -> Option<ProtocolVersion>;
     fn protocol_id(&self) -> ProtocolId;
     fn sessions(&self, peer_indexes: &[PeerIndex]) -> Vec<(PeerIndex, SessionInfo)> {
         peer_indexes
@@ -426,7 +422,11 @@ impl CKBProtocolContext for DefaultCKBProtocolContext {
         }
     }
 
-    fn protocol_version(&self, peer_index: PeerIndex, protocol_id: ProtocolId) -> Option<u8> {
+    fn protocol_version(
+        &self,
+        peer_index: PeerIndex,
+        protocol_id: ProtocolId,
+    ) -> Option<ProtocolVersion> {
         if let Some(protocol_version) = self.network_state.get_peer_id(peer_index).map(|peer_id| {
             self.network_state
                 .peer_protocol_version(&peer_id, protocol_id)

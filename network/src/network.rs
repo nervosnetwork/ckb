@@ -47,7 +47,7 @@ const FEELER_PROTOCOL_ID: ProtocolId = 3;
 #[derive(Debug, Clone)]
 pub struct SessionInfo {
     pub peer: Peer,
-    pub protocol_version: Option<u8>,
+    pub protocol_version: Option<ProtocolVersion>,
 }
 
 pub struct NetworkState {
@@ -67,8 +67,9 @@ impl NetworkState {
         let local_private_key = config.fetch_private_key()?;
         // set max score to public addresses
         let listened_addresses: FnvHashMap<Multiaddr, u8> = config
-            .public_addresses
+            .listen_addresses
             .iter()
+            .chain(config.public_addresses.iter())
             .map(|addr| (addr.to_owned(), std::u8::MAX))
             .collect();
         let peer_store: Arc<RwLock<dyn PeerStore>> = {
@@ -260,7 +261,11 @@ impl NetworkState {
         Ok(register_result)
     }
 
-    pub fn peer_protocol_version(&self, peer_id: &PeerId, protocol_id: ProtocolId) -> Option<u8> {
+    pub fn peer_protocol_version(
+        &self,
+        peer_id: &PeerId,
+        protocol_id: ProtocolId,
+    ) -> Option<ProtocolVersion> {
         let peers_registry = self.peers_registry.read();
         peers_registry
             .get(peer_id)
