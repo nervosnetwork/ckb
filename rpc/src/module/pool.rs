@@ -1,6 +1,6 @@
 use crate::error::RPCError;
 use ckb_core::transaction::{ProposalShortId, Transaction as CoreTransaction};
-use ckb_network::{NetworkService, ProtocolId};
+use ckb_network::{NetworkController, ProtocolId};
 use ckb_protocol::RelayMessage;
 use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::Shared;
@@ -14,7 +14,6 @@ use jsonrpc_derive::rpc;
 use jsonrpc_types::Transaction;
 use log::debug;
 use numext_fixed_hash::H256;
-use std::sync::Arc;
 
 #[rpc]
 pub trait PoolRpc {
@@ -28,7 +27,7 @@ pub trait PoolRpc {
 }
 
 pub(crate) struct PoolRpcImpl<CI> {
-    pub network: Arc<NetworkService>,
+    pub network_controller: NetworkController,
     pub shared: Shared<CI>,
 }
 
@@ -57,13 +56,15 @@ impl<CI: ChainIndex + 'static> PoolRpc for PoolRpcImpl<CI> {
                 let message = RelayMessage::build_transaction(fbb, &tx, cycles);
                 fbb.finish(message, None);
 
-                self.network
-                    .with_protocol_context(NetworkProtocol::RELAY as ProtocolId, |nc| {
+                self.network_controller.with_protocol_context(
+                    NetworkProtocol::RELAY as ProtocolId,
+                    |mut nc| {
                         for peer in nc.connected_peers() {
                             debug!(target: "rpc", "relay transaction {} to peer#{}", tx_hash, peer);
                             let _ = nc.send(peer, fbb.finished_data().to_vec());
                         }
-                    });
+                    },
+                );
                 Ok(tx_hash)
             }
             None => Err(RPCError::custom(

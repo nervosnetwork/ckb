@@ -14,7 +14,7 @@ pub struct GetHeadersProcess<'a, CI: ChainIndex + 'a> {
     message: &'a GetHeaders<'a>,
     synchronizer: &'a Synchronizer<CI>,
     peer: PeerIndex,
-    nc: &'a CKBProtocolContext,
+    nc: &'a mut CKBProtocolContext,
 }
 
 impl<'a, CI> GetHeadersProcess<'a, CI>
@@ -25,7 +25,7 @@ where
         message: &'a GetHeaders,
         synchronizer: &'a Synchronizer<CI>,
         peer: PeerIndex,
-        nc: &'a CKBProtocolContext,
+        nc: &'a mut CKBProtocolContext,
     ) -> Self {
         GetHeadersProcess {
             message,

@@ -1,15 +1,29 @@
-use crate::Behaviour;
-use crate::Network;
-use crate::Peer;
+use crate::{Behaviour, NetworkState, Peer};
 use futures::{sync::mpsc::Receiver, Async, Stream};
 use log::{debug, trace};
+use p2p::service::ServiceControl;
 use p2p_ping::Event;
 use std::sync::Arc;
 use std::time::Instant;
 
 pub struct PingService {
-    pub event_receiver: Receiver<Event>,
-    pub network: Arc<Network>,
+    network_state: Arc<NetworkState>,
+    p2p_control: ServiceControl,
+    event_receiver: Receiver<Event>,
+}
+
+impl PingService {
+    pub fn new(
+        network_state: Arc<NetworkState>,
+        p2p_control: ServiceControl,
+        event_receiver: Receiver<Event>,
+    ) -> PingService {
+        PingService {
+            network_state,
+            p2p_control,
+            event_receiver,
+        }
+    }
 }
 
 impl Stream for PingService {
@@ -24,21 +38,23 @@ impl Stream for PingService {
             }
             Some(Pong(peer_id, duration)) => {
                 trace!(target: "network", "receive pong from {:?} duration {:?}", peer_id, duration);
-                self.network.modify_peer(&peer_id, |peer: &mut Peer| {
+                self.network_state.modify_peer(&peer_id, |peer: &mut Peer| {
                     peer.ping = Some(duration);
                     peer.last_ping_time = Some(Instant::now());
                 });
-                self.network.report(&peer_id, Behaviour::Ping);
+                self.network_state.report(&peer_id, Behaviour::Ping);
             }
             Some(Timeout(peer_id)) => {
                 debug!(target: "network", "timeout to ping {:?}", peer_id);
-                self.network.report(&peer_id, Behaviour::FailedToPing);
-                self.network.drop_peer(&peer_id);
+                self.network_state.report(&peer_id, Behaviour::FailedToPing);
+                self.network_state
+                    .drop_peer(&mut self.p2p_control, &peer_id);
             }
             Some(UnexpectedError(peer_id)) => {
                 debug!(target: "network", "failed to ping {:?}", peer_id);
-                self.network.report(&peer_id, Behaviour::FailedToPing);
-                self.network.drop_peer(&peer_id);
+                self.network_state.report(&peer_id, Behaviour::FailedToPing);
+                self.network_state
+                    .drop_peer(&mut self.p2p_control, &peer_id);
             }
             None => {
                 debug!(target: "network", "ping service shutdown");

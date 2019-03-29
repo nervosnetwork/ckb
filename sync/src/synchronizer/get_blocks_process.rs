@@ -10,7 +10,7 @@ use log::debug;
 pub struct GetBlocksProcess<'a, CI: ChainIndex + 'a> {
     message: &'a GetBlocks<'a>,
     synchronizer: &'a Synchronizer<CI>,
-    nc: &'a CKBProtocolContext,
+    nc: &'a mut CKBProtocolContext,
     peer: PeerIndex,
 }
 
@@ -22,7 +22,7 @@ where
         message: &'a GetBlocks,
         synchronizer: &'a Synchronizer<CI>,
         peer: PeerIndex,
-        nc: &'a CKBProtocolContext,
+        nc: &'a mut CKBProtocolContext,
     ) -> Self {
         GetBlocksProcess {
             peer,
