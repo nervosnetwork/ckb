@@ -1,13 +1,13 @@
 use crate::errors::{Error, ProtocolError};
 use crate::peer_store::{sqlite::SqlitePeerStore, PeerStore};
 use crate::peers_registry::{ConnectionStatus, PeersRegistry, RegisterResult};
-use crate::protocol::ckb_handler::DefaultCKBProtocolContext;
-use crate::protocols::outbound_peer::OutboundPeerProtocol;
-use crate::service::{
-    discovery_service::{DiscoveryProtocol, DiscoveryService},
-    identify_service::IdentifyCallback,
-    ping_service::PingService,
+use crate::protocols::{
+    discovery::{DiscoveryProtocol, DiscoveryService},
+    identify::IdentifyCallback,
+    outbound_peer::OutboundPeerService,
+    ping::PingService,
 };
+use crate::protocols::{feeler::Feeler, DefaultCKBProtocolContext};
 use crate::Peer;
 use crate::{
     Behaviour, CKBProtocol, CKBProtocolContext, NetworkConfig, PeerIndex, ProtocolId,
@@ -42,9 +42,7 @@ use tokio::runtime::Runtime;
 const PING_PROTOCOL_ID: ProtocolId = 0;
 const DISCOVERY_PROTOCOL_ID: ProtocolId = 1;
 const IDENTIFY_PROTOCOL_ID: ProtocolId = 2;
-pub const FEELER_PROTOCOL_ID: ProtocolId = 3;
-
-const OUTBOUND_PROTOCOL_ID: ProtocolId = 3;
+const FEELER_PROTOCOL_ID: ProtocolId = 3;
 
 #[derive(Debug, Clone)]
 pub struct SessionInfo {
@@ -275,11 +273,17 @@ impl NetworkState {
             .collect::<Vec<_>>()
     }
 
-    pub fn dial(&self, p2p_control: &mut ServiceControl, peer_id: &PeerId, mut addr: Multiaddr) {
+    pub fn dial(
+        &self,
+        p2p_control: &mut ServiceControl,
+        peer_id: &PeerId,
+        mut addr: Multiaddr,
+        target: DialProtocol,
+    ) {
         match Multihash::from_bytes(peer_id.as_bytes().to_vec()) {
             Ok(peer_id_hash) => {
                 addr.append(multiaddr::Protocol::P2p(peer_id_hash));
-                if let Err(err) = p2p_control.dial(addr.clone(), DialProtocol::All) {
+                if let Err(err) = p2p_control.dial(addr.clone(), target) {
                     debug!(target: "network", "dial fialed: {:?}", err);
                 }
             }
@@ -287,6 +291,22 @@ impl NetworkState {
                 error!(target: "network", "failed to convert peer_id to addr: {}", err);
             }
         }
+    }
+
+    /// Dial all protocol except feeler
+    pub fn dial_all(&self, p2p_control: &mut ServiceControl, peer_id: &PeerId, addr: Multiaddr) {
+        let ids = self.get_protocol_ids(|id| id != FEELER_PROTOCOL_ID);
+        self.dial(p2p_control, peer_id, addr, DialProtocol::Multi(ids));
+    }
+
+    /// Dial just feeler protocol
+    pub fn dial_feeler(&self, p2p_control: &mut ServiceControl, peer_id: &PeerId, addr: Multiaddr) {
+        self.dial(
+            p2p_control,
+            peer_id,
+            addr,
+            DialProtocol::Single(FEELER_PROTOCOL_ID),
+        );
     }
 }
 
@@ -313,6 +333,8 @@ impl NetworkService {
     pub fn new(network_state: Arc<NetworkState>, protocols: Vec<CKBProtocol>) -> NetworkService {
         let config = &network_state.config;
 
+        // == Build special protocols
+        // TODO: how to deny banned node to open this protocol?
         // Ping protocol
         let (ping_sender, ping_receiver) = channel(std::u8::MAX as usize);
         let ping_meta = MetaBuilder::default()
@@ -326,10 +348,6 @@ impl NetworkService {
                 )))
             })
             .build();
-        let ping_service = PingService {
-            network_state: Arc::clone(&network_state),
-            event_receiver: ping_receiver,
-        };
 
         // Discovery protocol
         let (disc_sender, disc_receiver) = mpsc::unbounded();
@@ -339,7 +357,6 @@ impl NetworkService {
                 ProtocolHandle::Callback(Box::new(DiscoveryProtocol::new(disc_sender)))
             })
             .build();
-        let disc_service = DiscoveryService::new(Arc::clone(&network_state), disc_receiver);
 
         // Identify protocol
         let identify_callback = IdentifyCallback::new(Arc::clone(&network_state));
@@ -350,38 +367,52 @@ impl NetworkService {
             })
             .build();
 
-        let outbound_peer_meta = MetaBuilder::default()
-            .id(OUTBOUND_PROTOCOL_ID)
-            .service_handle({
-                let network_state = Arc::clone(&network_state);
-                move || {
-                    ProtocolHandle::Callback(Box::new(OutboundPeerProtocol::new(
-                        network_state,
-                        Duration::from_secs(config.connect_outbound_interval_secs),
-                    )))
-                }
-            })
-            .build();
+        // Feeler protocol
+        let feeler_protocol = CKBProtocol::new(
+            "flr".to_string(),
+            FEELER_PROTOCOL_ID,
+            &[1][..],
+            Box::new(Feeler {}),
+            Arc::clone(&network_state),
+        );
 
-        let mut service_builder = ServiceBuilder::default();
-        for meta in protocols
+        // == Build p2p service struct
+        let mut protocol_metas = protocols
             .into_iter()
             .map(|protocol| protocol.build())
-            .chain(vec![ping_meta, disc_meta, identify_meta, outbound_peer_meta].into_iter())
-        {
+            .collect::<Vec<_>>();
+        protocol_metas.push(feeler_protocol.build());
+        protocol_metas.push(ping_meta);
+        protocol_metas.push(disc_meta);
+        protocol_metas.push(identify_meta);
+
+        let mut service_builder = ServiceBuilder::default();
+        for meta in protocol_metas.into_iter() {
             network_state.protocol_ids.write().insert(meta.id());
             service_builder = service_builder.insert_protocol(meta);
         }
-
-        let p2p_service = service_builder
+        let mut p2p_service = service_builder
             .key_pair(network_state.local_private_key.clone())
             .forever(true)
             .build(EventHandler {});
 
+        // == Build background service tasks
+        let disc_service = DiscoveryService::new(Arc::clone(&network_state), disc_receiver);
+        let ping_service = PingService {
+            network_state: Arc::clone(&network_state),
+            event_receiver: ping_receiver,
+        };
+        let outbound_peer_service = OutboundPeerService::new(
+            Arc::clone(&network_state),
+            p2p_service.control().clone(),
+            Duration::from_secs(config.connect_outbound_interval_secs),
+        );
         let bg_services = vec![
             Box::new(ping_service.for_each(|_| Ok(()))) as Box<_>,
             Box::new(disc_service.for_each(|_| Ok(()))) as Box<_>,
+            Box::new(outbound_peer_service.for_each(|_| Ok(()))) as Box<_>,
         ];
+
         NetworkService {
             p2p_service,
             network_state,
@@ -424,7 +455,7 @@ impl NetworkService {
         for (peer_id, addr) in config.reserved_peers()? {
             debug!(target: "network", "dial reserved_peers {:?} {:?}", peer_id, addr);
             self.network_state
-                .dial(self.p2p_service.control(), &peer_id, addr);
+                .dial_all(self.p2p_service.control(), &peer_id, addr);
         }
 
         let bootnodes = self
@@ -437,7 +468,7 @@ impl NetworkService {
         for (peer_id, addr) in bootnodes {
             debug!(target: "network", "dial bootnode {:?} {:?}", peer_id, addr);
             self.network_state
-                .dial(self.p2p_service.control(), &peer_id, addr);
+                .dial_all(self.p2p_service.control(), &peer_id, addr);
         }
         let p2p_control = self.p2p_service.control().clone();
         let network_state = Arc::clone(&self.network_state);

@@ -3,7 +3,6 @@ use crate::Setup;
 use ckb_chain::chain::{ChainBuilder, ChainController};
 use ckb_db::diskdb::RocksDB;
 use ckb_miner::BlockAssembler;
-use ckb_network::{network::FEELER_PROTOCOL_ID, protocol::feeler::Feeler};
 use ckb_network::{CKBProtocol, NetworkService, NetworkState, ProtocolId};
 use ckb_notify::{NotifyController, NotifyService};
 use ckb_rpc::RpcServer;
@@ -69,14 +68,6 @@ pub fn run(setup: Setup) {
             NetworkProtocol::TIME as ProtocolId,
             &[1][..],
             Box::new(net_time_checker),
-            Arc::clone(&network_state),
-        ),
-        // TODO Work around, should move to network after refactor
-        CKBProtocol::new(
-            "flr".to_string(),
-            FEELER_PROTOCOL_ID,
-            &[1][..],
-            Box::new(Feeler {}),
             Arc::clone(&network_state),
         ),
     ];

@@ -1,50 +1,91 @@
 use crate::NetworkState;
-use log::debug;
+use futures::{Async, Stream};
+use log::{debug, warn};
+use p2p::service::ServiceControl;
 use std::sync::Arc;
 use std::time::Duration;
+use std::usize;
+use tokio::timer::Interval;
 
-use p2p::{context::ProtocolContext, traits::ServiceProtocol};
+const FEELER_CONNECTION_COUNT: u32 = 5;
 
-const OUTBOUND_INTERVAL_TOKEN: u64 = 0;
-
-pub(crate) struct OutboundPeerProtocol {
-    // Try connect interval
-    interval: Duration,
-    network_state: Arc<NetworkState>,
+pub struct OutboundPeerService {
+    pub stream_interval: Interval,
+    pub network_state: Arc<NetworkState>,
+    pub p2p_control: ServiceControl,
 }
 
-impl OutboundPeerProtocol {
-    pub(crate) fn new(network_state: Arc<NetworkState>, interval: Duration) -> Self {
-        debug!(target: "network", "outbound peer service start, interval: {:?}", interval);
-        OutboundPeerProtocol {
+impl OutboundPeerService {
+    pub fn new(
+        network_state: Arc<NetworkState>,
+        p2p_control: ServiceControl,
+        try_connect_interval: Duration,
+    ) -> Self {
+        debug!(target: "network", "outbound peer service start, interval: {:?}", try_connect_interval);
+        OutboundPeerService {
             network_state,
-            interval,
+            p2p_control,
+            stream_interval: Interval::new_interval(try_connect_interval),
+        }
+    }
+
+    fn attempt_dial_peers(&mut self, count: u32) {
+        let attempt_peers = self
+            .network_state
+            .peer_store()
+            .read()
+            .peers_to_attempt(count);
+        let mut p2p_control = self.p2p_control.clone();
+        for (peer_id, addr) in attempt_peers
+            .into_iter()
+            .filter(|(peer_id, _addr)| self.network_state.local_peer_id() != peer_id)
+        {
+            self.network_state
+                .dial_all(&mut p2p_control, &peer_id, addr);
+        }
+    }
+
+    fn feeler_peers(&mut self, count: u32) {
+        let peers = self
+            .network_state
+            .peer_store()
+            .read()
+            .peers_to_feeler(count);
+        let mut p2p_control = self.p2p_control.clone();
+        for (peer_id, addr) in peers
+            .into_iter()
+            .filter(|(peer_id, _addr)| self.network_state.local_peer_id() != peer_id)
+        {
+            self.network_state
+                .dial_feeler(&mut p2p_control, &peer_id, addr);
         }
     }
 }
 
-impl ServiceProtocol for OutboundPeerProtocol {
-    fn init(&mut self, context: &mut ProtocolContext) {
-        let proto_id = context.proto_id;
-        context.set_service_notify(proto_id, self.interval, OUTBOUND_INTERVAL_TOKEN);
-    }
+impl Stream for OutboundPeerService {
+    type Item = ();
+    type Error = ();
 
-    fn notify(&mut self, context: &mut ProtocolContext, _token: u64) {
-        let connection_status = self.network_state.connection_status();
-        let new_outbound =
-            (connection_status.max_outbound - connection_status.unreserved_outbound) as usize;
-        if new_outbound > 0 {
-            let attempt_peers = self
-                .network_state
-                .peer_store()
-                .read()
-                .peers_to_attempt(new_outbound as u32);
-            for (peer_id, addr) in attempt_peers
-                .into_iter()
-                .filter(|(peer_id, _addr)| self.network_state.local_peer_id() != peer_id)
-            {
-                self.network_state.dial(context.control(), &peer_id, addr);
+    fn poll(&mut self) -> Result<Async<Option<Self::Item>>, Self::Error> {
+        match try_ready!(self.stream_interval.poll().map_err(|_| ())) {
+            Some(_tick) => {
+                let connection_status = self.network_state.connection_status();
+                let new_outbound = (connection_status.max_outbound
+                    - connection_status.unreserved_outbound)
+                    as usize;
+                if new_outbound > 0 {
+                    // dial peers
+                    self.attempt_dial_peers(new_outbound as u32);
+                } else {
+                    // feeler peers
+                    self.feeler_peers(FEELER_CONNECTION_COUNT);
+                }
+            }
+            None => {
+                warn!(target: "network", "ckb outbound peer service stopped");
+                return Ok(Async::Ready(None));
             }
         }
+        Ok(Async::Ready(Some(())))
     }
 }
