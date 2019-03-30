@@ -4,7 +4,7 @@ use std::env;
 
 fn main() {
     let log_config = Config {
-        filter: Some("info,network=trace".to_owned()),
+        filter: Some("info".to_owned()),
         color: true,
         file: None,
     };

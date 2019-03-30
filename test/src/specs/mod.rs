@@ -1,20 +1,21 @@
 mod block_relay;
 mod block_sync;
 mod mining;
-mod net;
+mod p2p;
 mod pool;
+mod protocols;
 mod transaction_relay;
-mod sync_protocol;
 
 pub use block_relay::BlockRelayBasic;
 pub use block_sync::BlockSyncBasic;
 pub use mining::MiningBasic;
+pub use p2p::{Disconnect, Discovery};
 pub use pool::{PoolReconcile, PoolTrace};
+pub use protocols::MalformedMessage;
 pub use transaction_relay::TransactionRelayBasic;
-pub use net::{Disconnect, Discovery};
-pub use sync_protocol::MalformedMessage;
 
 use crate::{sleep, Net};
+use ckb_network::{ProtocolId, ProtocolVersion};
 
 pub trait Spec {
     fn run(&self, net: Net);
@@ -27,8 +28,12 @@ pub trait Spec {
         true
     }
 
+    fn test_protocols(&self) -> Vec<TestProtocol> {
+        vec![]
+    }
+
     fn setup_net(&self, binary: &str, start_port: u16) -> Net {
-        let mut net = Net::new(binary, self.num_nodes(), start_port);
+        let mut net = Net::new(binary, self.num_nodes(), start_port, self.test_protocols());
 
         // start all nodes
         net.nodes.iter_mut().for_each(|node| {
@@ -48,4 +53,10 @@ pub trait Spec {
 
         net
     }
+}
+
+pub struct TestProtocol {
+    pub id: ProtocolId,
+    pub protocol_name: String,
+    pub supported_versions: Vec<ProtocolVersion>,
 }

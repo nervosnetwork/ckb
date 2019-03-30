@@ -11,6 +11,8 @@ logger = { path = "../util/logger" }
 ckb-core= { path = "../core" }
 ckb-network = { path = "../network" }
 ckb-shared = { path = "../shared" }
+ckb-sync = { path = "../sync" }
+ckb-protocol = { path = "../protocol"}
 numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 fs_extra = "1.1"
 tempfile = "3.0"
@@ -19,6 +21,8 @@ jsonrpc-client-http = "0.5.0"
 rand = "0.6"
 log = "0.4"
 bytes = "0.4.12"
+crossbeam-channel = "0.3"
+flatbuffers = "0.5.0"
 
 # Prevent this from interfering with workspaces
 [workspace]
