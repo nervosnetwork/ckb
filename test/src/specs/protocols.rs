@@ -16,14 +16,18 @@ impl Spec for MalformedMessage {
         net.connect(node0);
 
         info!("Test node should receive GetHeaders message from node0");
-        let (_peer_id, data) = net.receive();
+        let (peer_id, data) = net.receive();
         let msg = get_root::<SyncMessage>(&data);
         assert_eq!(SyncPayload::GetHeaders, msg.payload_type());
 
         // TODO waiting for https://github.com/nervosnetwork/ckb/pull/364
         // Now, it will print out the error backtrace of node0
         info!("Send malformed message to node0");
-        net.send(100, 0, vec![0, 1, 2, 3]);
+        net.send(
+            NetworkProtocol::SYNC as ProtocolId,
+            peer_id,
+            vec![0, 1, 2, 3],
+        );
         sleep(3);
 
         info!("Node0 should disconnect and ban test node");
