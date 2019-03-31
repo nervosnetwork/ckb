@@ -133,13 +133,23 @@ impl NetworkState {
 
     pub fn drop_all(&self, p2p_control: &mut ServiceControl) {
         debug!(target: "network", "drop all connections...");
+        let mut peer_ids = Vec::new();
         let mut peers_registry = self.peers_registry.write();
-        for (_peer_id, peer) in peers_registry.peers_iter() {
+        for (peer_id, peer) in peers_registry.peers_iter() {
+            peer_ids.push(peer_id.clone());
             if let Err(err) = p2p_control.disconnect(peer.session_id) {
                 error!(target: "network", "disconnect peer error {:?}", err);
             }
         }
         peers_registry.drop_all();
+
+        let mut peer_store = self.peer_store().write();
+        for peer_id in peer_ids {
+            if peer_store.peer_status(&peer_id) != Status::Disconnected {
+                peer_store.report(&peer_id, Behaviour::UnexpectedDisconnect);
+                peer_store.update_status(&peer_id, Status::Disconnected);
+            }
+        }
     }
 
     pub fn local_peer_id(&self) -> &PeerId {
@@ -387,8 +397,10 @@ impl ServiceHandle for EventHandler {
                 .expect("Secio must enabled");
 
             let mut peer_store = self.network_state.peer_store().write();
-            peer_store.report(&peer_id, Behaviour::UnexpectedDisconnect);
-            peer_store.update_status(&peer_id, Status::Disconnected);
+            if peer_store.peer_status(&peer_id) != Status::Disconnected {
+                peer_store.report(&peer_id, Behaviour::UnexpectedDisconnect);
+                peer_store.update_status(&peer_id, Status::Disconnected);
+            }
         }
     }
 

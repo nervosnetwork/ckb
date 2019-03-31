@@ -1,6 +1,6 @@
 use crate::NetworkState;
 use futures::{try_ready, Async, Stream};
-use log::{debug, warn};
+use log::{debug, trace, warn};
 use p2p::service::ServiceControl;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -36,6 +36,7 @@ impl OutboundPeerService {
             .read()
             .peers_to_attempt(count + 5);
         let mut p2p_control = self.p2p_control.clone();
+        trace!(target: "network", "count={}, attempt_peers: {:?}", count, attempt_peers);
         for (peer_id, addr) in attempt_peers
             .into_iter()
             .filter(|(peer_id, _addr)| {
