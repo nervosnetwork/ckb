@@ -1,5 +1,3 @@
-#[macro_use]
-pub extern crate futures;
 mod behaviour;
 mod config;
 pub mod errors;

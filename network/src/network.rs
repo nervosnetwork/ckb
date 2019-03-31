@@ -20,6 +20,7 @@ use futures::sync::{mpsc, oneshot};
 use futures::Future;
 use futures::Stream;
 use log::{debug, error, info, warn};
+use lru_cache::LruCache;
 use p2p::{
     builder::{MetaBuilder, ServiceBuilder},
     error::Error as P2pError,
@@ -27,6 +28,7 @@ use p2p::{
     secio::PeerId,
     service::{DialProtocol, ProtocolEvent, ProtocolHandle, Service, ServiceError, ServiceEvent},
     traits::ServiceHandle,
+    utils::extract_peer_id,
 };
 use p2p_identify::IdentifyProtocol;
 use p2p_ping::PingHandler;
@@ -35,7 +37,7 @@ use std::boxed::Box;
 use std::cmp::max;
 use std::sync::Arc;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use std::usize;
 use stop_handler::{SignalSender, StopHandler};
 use tokio::runtime::Runtime;
@@ -46,6 +48,7 @@ const IDENTIFY_PROTOCOL_ID: ProtocolId = 2;
 const FEELER_PROTOCOL_ID: ProtocolId = 3;
 
 const ADDR_LIMIT: u32 = 3;
+const FAILED_DIAL_CACHE_SIZE: usize = 100;
 
 type MultiaddrList = Vec<(Multiaddr, u8)>;
 
@@ -61,6 +64,8 @@ pub struct NetworkState {
     peer_store: Arc<RwLock<dyn PeerStore>>,
     listened_addresses: RwLock<FnvHashMap<Multiaddr, u8>>,
     pub(crate) original_listened_addresses: RwLock<Vec<Multiaddr>>,
+    // For avoid repeat failed dial
+    pub(crate) failed_dials: RwLock<LruCache<PeerId, Instant>>,
     local_private_key: secio::SecioKeyPair,
     local_peer_id: PeerId,
     config: NetworkConfig,
@@ -103,6 +108,7 @@ impl NetworkState {
         Ok(NetworkState {
             peer_store,
             config,
+            failed_dials: RwLock::new(LruCache::new(FAILED_DIAL_CACHE_SIZE)),
             peers_registry: RwLock::new(peers_registry),
             listened_addresses: RwLock::new(listened_addresses),
             original_listened_addresses: RwLock::new(Vec::new()),
@@ -361,14 +367,33 @@ impl ServiceHandle for EventHandler {
                     .write()
                     .insert(addr, std::u8::MAX);
             }
+            if let Some(peer_id) = extract_peer_id(address) {
+                self.network_state
+                    .failed_dials
+                    .write()
+                    .insert(peer_id, Instant::now());
+            }
         }
     }
 
     fn handle_event(&mut self, _context: &mut ServiceContext, event: ServiceEvent) {
         info!(target: "network", "p2p service event: {:?}", event);
+        // When session disconnect update status anyway
+        if let ServiceEvent::SessionClose { session_context } = event {
+            let peer_id = session_context
+                .remote_pubkey
+                .as_ref()
+                .map(|pubkey| pubkey.peer_id())
+                .expect("Secio must enabled");
+
+            let mut peer_store = self.network_state.peer_store().write();
+            peer_store.report(&peer_id, Behaviour::UnexpectedDisconnect);
+            peer_store.update_status(&peer_id, Status::Disconnected);
+        }
     }
 
     fn handle_proto(&mut self, context: &mut ServiceContext, event: ProtocolEvent) {
+        // For special protocols: ping/discovery/identify
         match event {
             ProtocolEvent::Connected {
                 session_context,
@@ -393,7 +418,6 @@ impl ServiceHandle for EventHandler {
                             // update status in peer_store
                             if let RegisterResult::New(_) = register_result {
                                 let mut peer_store = self.network_state.peer_store().write();
-                                peer_store.report(&peer_id, Behaviour::Connect);
                                 peer_store.update_status(&peer_id, Status::Connected);
                             }
                         }
@@ -418,11 +442,6 @@ impl ServiceHandle for EventHandler {
                     .as_ref()
                     .map(|pubkey| pubkey.peer_id())
                     .expect("Secio must enabled");
-
-                let mut peer_store = self.network_state.peer_store().write();
-                peer_store.report(&peer_id, Behaviour::UnexpectedDisconnect);
-                peer_store.update_status(&peer_id, Status::Disconnected);
-
                 self.network_state.drop_peer(context.control(), &peer_id);
             }
             _ => {}

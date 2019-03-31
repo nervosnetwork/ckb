@@ -1,7 +1,7 @@
 // use crate::peer_store::Behaviour;
 use crate::NetworkState;
 use fnv::FnvHashMap;
-use futures::{sync::mpsc, sync::oneshot, Async, Future, Stream};
+use futures::{sync::mpsc, sync::oneshot, try_ready, Async, Future, Stream};
 use log::{debug, trace, warn};
 use std::sync::Arc;
 

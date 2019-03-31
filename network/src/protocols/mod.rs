@@ -205,11 +205,6 @@ impl ServiceProtocol for CKBHandler {
 
             let network = &self.network_state;
             // update disconnect in peer_store
-            {
-                let mut peer_store = network.peer_store().write();
-                peer_store.report(&peer_id, Behaviour::UnexpectedDisconnect);
-                peer_store.update_status(&peer_id, Status::Disconnected);
-            }
             if let Some(peer_index) = network.get_peer_index(&peer_id) {
                 // call handler
                 self.handler.disconnected(

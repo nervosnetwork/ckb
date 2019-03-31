@@ -1,5 +1,5 @@
 use crate::{Behaviour, NetworkState, Peer};
-use futures::{sync::mpsc::Receiver, Async, Stream};
+use futures::{sync::mpsc::Receiver, try_ready, Async, Stream};
 use log::{debug, trace};
 use p2p::service::ServiceControl;
 use p2p_ping::Event;
