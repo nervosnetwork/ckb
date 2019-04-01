@@ -622,7 +622,9 @@ impl<CI: ChainIndex> Synchronizer<CI> {
         }
         for peer in eviction {
             warn!(target: "sync", "timeout eviction peer={}", peer);
-            let _ = nc.report_peer(peer, Behaviour::Timeout);
+            // Do not connect this peer in 3 minutes
+            nc.ban_peer(peer, Duration::from_secs(180));
+            nc.disconnect(peer);
         }
     }
 

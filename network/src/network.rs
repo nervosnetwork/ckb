@@ -398,7 +398,7 @@ impl ServiceHandle for EventHandler {
                 .expect("Secio must enabled");
 
             let mut peer_store = self.network_state.peer_store().write();
-            if peer_store.peer_status(&peer_id) != Status::Disconnected {
+            if peer_store.peer_status(&peer_id) == Status::Connected {
                 peer_store.report(&peer_id, Behaviour::UnexpectedDisconnect);
                 peer_store.update_status(&peer_id, Status::Disconnected);
             }
@@ -408,47 +408,45 @@ impl ServiceHandle for EventHandler {
 
     fn handle_proto(&mut self, context: &mut ServiceContext, event: ProtocolEvent) {
         // For special protocols: ping/discovery/identify
-        match event {
-            ProtocolEvent::Connected {
-                session_context,
-                proto_id,
-                version,
-            } => {
-                let peer_id = session_context
-                    .remote_pubkey
-                    .as_ref()
-                    .map(|pubkey| pubkey.peer_id())
-                    .expect("Secio must enabled");
-                if let Ok(parsed_version) = version.parse::<ProtocolVersion>() {
-                    match self.network_state.accept_connection(
-                        peer_id.clone(),
-                        session_context.address.clone(),
-                        session_context.id,
-                        session_context.ty.into(),
-                        proto_id,
-                        parsed_version,
-                    ) {
-                        Ok(register_result) => {
-                            // update status in peer_store
-                            if let RegisterResult::New(_) = register_result {
-                                let mut peer_store = self.network_state.peer_store().write();
-                                peer_store.update_status(&peer_id, Status::Connected);
-                            }
+        if let ProtocolEvent::Connected {
+            session_context,
+            proto_id,
+            version,
+        } = event
+        {
+            let peer_id = session_context
+                .remote_pubkey
+                .as_ref()
+                .map(|pubkey| pubkey.peer_id())
+                .expect("Secio must enabled");
+            if let Ok(parsed_version) = version.parse::<ProtocolVersion>() {
+                match self.network_state.accept_connection(
+                    peer_id.clone(),
+                    session_context.address.clone(),
+                    session_context.id,
+                    session_context.ty.into(),
+                    proto_id,
+                    parsed_version,
+                ) {
+                    Ok(register_result) => {
+                        // update status in peer_store
+                        if let RegisterResult::New(_) = register_result {
+                            let mut peer_store = self.network_state.peer_store().write();
+                            peer_store.update_status(&peer_id, Status::Connected);
                         }
-                        Err(err) => {
-                            self.network_state.drop_peer(context.control(), &peer_id);
-                            info!(
-                                target: "network",
-                                "reject connection from {} {}, because {:?}",
-                                peer_id.to_base58(),
-                                session_context.address,
-                                err,
-                            )
-                        }
+                    }
+                    Err(err) => {
+                        self.network_state.drop_peer(context.control(), &peer_id);
+                        info!(
+                            target: "network",
+                            "reject connection from {} {}, because {:?}",
+                            peer_id.to_base58(),
+                            session_context.address,
+                            err,
+                        )
                     }
                 }
             }
-            _ => {}
         }
     }
 }
