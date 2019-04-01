@@ -166,6 +166,7 @@ impl TryFrom<Witness> for CoreWitness {
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct Transaction {
     pub version: u32,
+    pub valid_since: u64,
     pub deps: Vec<OutPoint>,
     pub inputs: Vec<CellInput>,
     pub outputs: Vec<CellOutput>,
@@ -180,6 +181,7 @@ impl<'a> From<&'a CoreTransaction> for Transaction {
 
         Transaction {
             version: core.version(),
+            valid_since: core.valid_since(),
             deps: core.deps().iter().cloned().map(Into::into).collect(),
             inputs: core.inputs().iter().cloned().map(Into::into).collect(),
             outputs: core.outputs().iter().cloned().map(Into::into).collect(),
@@ -195,6 +197,7 @@ impl TryFrom<Transaction> for CoreTransaction {
     fn try_from(json: Transaction) -> Result<Self, Self::Error> {
         let Transaction {
             version,
+            valid_since,
             deps,
             inputs,
             outputs,
@@ -204,6 +207,7 @@ impl TryFrom<Transaction> for CoreTransaction {
 
         Ok(TransactionBuilder::default()
             .version(version)
+            .valid_since(valid_since)
             .deps(
                 deps.into_iter()
                     .map(TryInto::try_into)
