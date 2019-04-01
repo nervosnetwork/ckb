@@ -18,7 +18,7 @@ impl From<BitVecSerde> for BitVec {
 pub struct TransactionMeta {
     block_number: u64,
     /// first bit indicate if transaction is a cellbase transaction
-    /// next bits indicate if transaction has deal cells
+    /// next bits indicate if transaction has dead cells
     #[serde(with = "BitVecSerde")]
     dead_cell: BitVec,
 }
