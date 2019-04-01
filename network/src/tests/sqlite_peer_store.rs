@@ -74,6 +74,18 @@ fn test_ban_peer() {
 }
 
 #[test]
+fn test_attepmt_ban() {
+    let mut peer_store: Box<dyn PeerStore> = Box::new(new_peer_store());
+    let peer_id = PeerId::random();
+    let addr = "/ip4/127.0.0.1".to_multiaddr().unwrap();
+    peer_store.add_connected_peer(&peer_id, addr.clone(), SessionType::Server);
+    peer_store.add_discovered_addr(&peer_id, addr.clone());
+    assert_eq!(peer_store.peers_to_attempt(2).len(), 1);
+    peer_store.ban_peer(&peer_id, Duration::from_secs(10));
+    assert_eq!(peer_store.peers_to_attempt(2).len(), 0);
+}
+
+#[test]
 fn test_bootnodes() {
     let mut peer_store: Box<dyn PeerStore> = Box::new(new_peer_store());
     assert!(peer_store.bootnodes(1).is_empty());

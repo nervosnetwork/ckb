@@ -27,6 +27,7 @@ pub(crate) const LAST_CONNECTED_TIMEOUT_SECS: u64 = 14 * 24 * 3600;
 const BAN_LIST_CLEAR_EXPIRES_SIZE: usize = 1024;
 /// SQLITE connection pool size
 const DEFAULT_POOL_SIZE: u32 = 16;
+const DEFAULT_ADDRS: u32 = 3;
 
 pub struct SqlitePeerStore {
     bootnodes: Vec<(PeerId, Multiaddr)>,
@@ -64,11 +65,16 @@ impl SqlitePeerStore {
 
     fn prepare(&mut self) -> Result<(), DBError> {
         self.create_tables()?;
+        self.reset_status()?;
         self.load_banlist()
     }
 
     fn create_tables(&mut self) -> Result<(), DBError> {
         self.pool.fetch(|conn| db::create_tables(conn))
+    }
+
+    fn reset_status(&mut self) -> Result<usize, DBError> {
+        self.pool.fetch(|conn| db::PeerInfo::reset_status(conn))
     }
 
     fn load_banlist(&mut self) -> Result<(), DBError> {
@@ -183,6 +189,21 @@ impl SqlitePeerStore {
             .fetch(|conn| db::PeerInfo::get_by_peer_id(conn, peer_id))
             .expect("get peer info")
     }
+
+    fn find_addrs_for_peers(
+        &self,
+        conn: &rusqlite::Connection,
+        peers: Vec<(u32, PeerId)>,
+    ) -> Result<Vec<(PeerId, Multiaddr)>, DBError> {
+        let mut peer_addrs = Vec::with_capacity(peers.len());
+        for (id, peer_id) in peers {
+            let addrs = db::PeerAddr::get_addrs(conn, id, DEFAULT_ADDRS)?;
+            if let Some(addr) = addrs.into_iter().find(|addr| !self.is_addr_banned(&addr)) {
+                peer_addrs.push((peer_id, addr));
+            }
+        }
+        Ok(peer_addrs)
+    }
 }
 
 impl PeerStore for SqlitePeerStore {
@@ -274,10 +295,7 @@ impl PeerStore for SqlitePeerStore {
     }
     // should return high scored nodes if possible, otherwise, return boostrap nodes
     fn bootnodes(&self, count: u32) -> Vec<(PeerId, Multiaddr)> {
-        let mut peers = self
-            .pool
-            .fetch(|conn| db::get_peers_to_attempt(&conn, count))
-            .expect("get peers to attempt");
+        let mut peers = self.peers_to_attempt(count);
         if peers.len() < count as usize {
             for (peer_id, addr) in &self.bootnodes {
                 let peer = (peer_id.to_owned(), addr.to_owned());
@@ -298,18 +316,22 @@ impl PeerStore for SqlitePeerStore {
 
     fn peers_to_attempt(&self, count: u32) -> Vec<(PeerId, Multiaddr)> {
         self.pool
-            .fetch(|conn| db::get_peers_to_attempt(&conn, count))
+            .fetch(|conn| {
+                let peers = db::get_peers_to_attempt(&conn, count)?;
+                self.find_addrs_for_peers(&conn, peers)
+            })
             .expect("get peers to attempt")
     }
 
     fn peers_to_feeler(&self, count: u32) -> Vec<(PeerId, Multiaddr)> {
         self.pool
             .fetch(|conn| {
-                db::get_peers_to_feeler(
+                let peers = db::get_peers_to_feeler(
                     &conn,
                     count,
                     unix_time() - Duration::from_secs(LAST_CONNECTED_TIMEOUT_SECS),
-                )
+                )?;
+                self.find_addrs_for_peers(&conn, peers)
             })
             .expect("get peers to attempt")
     }

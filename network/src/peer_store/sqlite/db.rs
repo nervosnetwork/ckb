@@ -149,6 +149,12 @@ impl PeerInfo {
             .map_err(Into::into)
     }
 
+    pub fn reset_status(conn: &Connection) -> DBResult<usize> {
+        let mut stmt = conn.prepare("UPDATE peer_info SET status=:status WHERE status!=:status")?;
+        stmt.execute_named(&[(":status", &status_to_u8(Status::Disconnected))])
+            .map_err(Into::into)
+    }
+
     pub fn largest_network_group(conn: &Connection) -> DBResult<Vec<PeerInfo>> {
         let (network_group, _group_peers_count) = conn
             .query_row::<(Vec<u8>, u32), _, _>("SELECT network_group, COUNT(network_group) AS network_group_count FROM peer_info
@@ -264,7 +270,7 @@ pub fn get_random_peers(
     Ok(peers)
 }
 
-pub fn get_peers_to_attempt(conn: &Connection, count: u32) -> DBResult<Vec<(PeerId, Multiaddr)>> {
+pub fn get_peers_to_attempt(conn: &Connection, count: u32) -> DBResult<Vec<(u32, PeerId)>> {
     // random select peers
     let mut stmt = conn.prepare(
         "SELECT id, peer_id FROM peer_info 
@@ -288,22 +294,14 @@ pub fn get_peers_to_attempt(conn: &Connection, count: u32) -> DBResult<Vec<(Peer
         },
     )?;
 
-    let mut peers = Vec::with_capacity(count as usize);
-    for row in rows {
-        let (id, peer_id) = row?;
-        let mut addrs = PeerAddr::get_addrs(conn, id, 1)?;
-        if let Some(addr) = addrs.pop() {
-            peers.push((peer_id, addr));
-        }
-    }
-    Ok(peers)
+    rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
 }
 
 pub fn get_peers_to_feeler(
     conn: &Connection,
     count: u32,
     expired_at: Duration,
-) -> DBResult<Vec<(PeerId, Multiaddr)>> {
+) -> DBResult<Vec<(u32, PeerId)>> {
     // random select peers
     let mut stmt = conn.prepare(
         "SELECT id, peer_id FROM peer_info 
@@ -328,16 +326,7 @@ pub fn get_peers_to_feeler(
             )
         },
     )?;
-
-    let mut peers = Vec::with_capacity(count as usize);
-    for row in rows {
-        let (id, peer_id) = row?;
-        let mut addrs = PeerAddr::get_addrs(conn, id, 1)?;
-        if let Some(addr) = addrs.pop() {
-            peers.push((peer_id, addr));
-        }
-    }
-    Ok(peers)
+    rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
 }
 
 pub fn insert_ban_record(conn: &Connection, ip: &[u8], ban_time: Duration) -> DBResult<usize> {
