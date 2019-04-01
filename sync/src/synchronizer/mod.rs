@@ -622,7 +622,9 @@ impl<CI: ChainIndex> Synchronizer<CI> {
         }
         for peer in eviction {
             warn!(target: "sync", "timeout eviction peer={}", peer);
-            let _ = nc.report_peer(peer, Behaviour::Timeout);
+            // Do not connect this peer in 3 minutes
+            nc.ban_peer(peer, Duration::from_secs(180));
+            nc.disconnect(peer);
         }
     }
 
@@ -721,7 +723,7 @@ where
     }
 
     fn connected(&self, nc: Box<CKBProtocolContext>, peer: PeerIndex) {
-        debug!(target: "sync", "init_getheaders peer={:?} connected", peer);
+        info!(target: "sync", "peer={:?} SyncProtocol.connected (init_getheaders)", peer);
         self.on_connected(nc.as_ref(), peer);
     }
 
@@ -1117,8 +1119,7 @@ mod tests {
             Ok(())
         }
         /// Report peer. Depending on the report, peer may be disconnected and possibly banned.
-        fn report_peer(&self, peer: PeerIndex, _behaviour: Behaviour) -> Result<(), NetworkError> {
-            self.disconnected.lock().insert(peer);
+        fn report_peer(&self, _peer: PeerIndex, _behaviour: Behaviour) -> Result<(), NetworkError> {
             Ok(())
         }
 
@@ -1142,7 +1143,9 @@ mod tests {
             unimplemented!();
         }
 
-        fn disconnect(&self, _peer: PeerIndex) {}
+        fn disconnect(&self, peer: PeerIndex) {
+            self.disconnected.lock().insert(peer);
+        }
         fn protocol_id(&self) -> ProtocolId {
             unimplemented!();
         }

@@ -20,6 +20,7 @@ use futures::sync::{mpsc, oneshot};
 use futures::Future;
 use futures::Stream;
 use log::{debug, error, info, warn};
+use lru_cache::LruCache;
 use p2p::{
     builder::{MetaBuilder, ServiceBuilder},
     error::Error as P2pError,
@@ -27,6 +28,7 @@ use p2p::{
     secio::PeerId,
     service::{DialProtocol, ProtocolEvent, ProtocolHandle, Service, ServiceError, ServiceEvent},
     traits::ServiceHandle,
+    utils::extract_peer_id,
 };
 use p2p_identify::IdentifyProtocol;
 use p2p_ping::PingHandler;
@@ -35,7 +37,7 @@ use std::boxed::Box;
 use std::cmp::max;
 use std::sync::Arc;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use std::usize;
 use stop_handler::{SignalSender, StopHandler};
 use tokio::runtime::Runtime;
@@ -46,6 +48,7 @@ const IDENTIFY_PROTOCOL_ID: ProtocolId = 2;
 const FEELER_PROTOCOL_ID: ProtocolId = 3;
 
 const ADDR_LIMIT: u32 = 3;
+const FAILED_DIAL_CACHE_SIZE: usize = 100;
 
 type MultiaddrList = Vec<(Multiaddr, u8)>;
 
@@ -61,6 +64,8 @@ pub struct NetworkState {
     peer_store: Arc<RwLock<dyn PeerStore>>,
     listened_addresses: RwLock<FnvHashMap<Multiaddr, u8>>,
     pub(crate) original_listened_addresses: RwLock<Vec<Multiaddr>>,
+    // For avoid repeat failed dial
+    pub(crate) failed_dials: RwLock<LruCache<PeerId, Instant>>,
     local_private_key: secio::SecioKeyPair,
     local_peer_id: PeerId,
     config: NetworkConfig,
@@ -103,6 +108,7 @@ impl NetworkState {
         Ok(NetworkState {
             peer_store,
             config,
+            failed_dials: RwLock::new(LruCache::new(FAILED_DIAL_CACHE_SIZE)),
             peers_registry: RwLock::new(peers_registry),
             listened_addresses: RwLock::new(listened_addresses),
             original_listened_addresses: RwLock::new(Vec::new()),
@@ -113,6 +119,7 @@ impl NetworkState {
     }
 
     pub fn report(&self, peer_id: &PeerId, behaviour: Behaviour) {
+        info!(target: "network", "report {:?} because {:?}", peer_id, behaviour);
         self.peer_store.write().report(peer_id, behaviour);
     }
 
@@ -127,13 +134,23 @@ impl NetworkState {
 
     pub fn drop_all(&self, p2p_control: &mut ServiceControl) {
         debug!(target: "network", "drop all connections...");
+        let mut peer_ids = Vec::new();
         let mut peers_registry = self.peers_registry.write();
-        for (_peer_id, peer) in peers_registry.peers_iter() {
+        for (peer_id, peer) in peers_registry.peers_iter() {
+            peer_ids.push(peer_id.clone());
             if let Err(err) = p2p_control.disconnect(peer.session_id) {
                 error!(target: "network", "disconnect peer error {:?}", err);
             }
         }
         peers_registry.drop_all();
+
+        let mut peer_store = self.peer_store().write();
+        for peer_id in peer_ids {
+            if peer_store.peer_status(&peer_id) != Status::Disconnected {
+                peer_store.report(&peer_id, Behaviour::UnexpectedDisconnect);
+                peer_store.update_status(&peer_id, Status::Disconnected);
+            }
+        }
     }
 
     pub fn local_peer_id(&self) -> &PeerId {
@@ -361,71 +378,75 @@ impl ServiceHandle for EventHandler {
                     .write()
                     .insert(addr, std::u8::MAX);
             }
+            if let Some(peer_id) = extract_peer_id(address) {
+                self.network_state
+                    .failed_dials
+                    .write()
+                    .insert(peer_id, Instant::now());
+            }
         }
     }
 
-    fn handle_event(&mut self, _context: &mut ServiceContext, event: ServiceEvent) {
+    fn handle_event(&mut self, context: &mut ServiceContext, event: ServiceEvent) {
         info!(target: "network", "p2p service event: {:?}", event);
+        // When session disconnect update status anyway
+        if let ServiceEvent::SessionClose { session_context } = event {
+            let peer_id = session_context
+                .remote_pubkey
+                .as_ref()
+                .map(|pubkey| pubkey.peer_id())
+                .expect("Secio must enabled");
+
+            let mut peer_store = self.network_state.peer_store().write();
+            if peer_store.peer_status(&peer_id) == Status::Connected {
+                peer_store.report(&peer_id, Behaviour::UnexpectedDisconnect);
+                peer_store.update_status(&peer_id, Status::Disconnected);
+            }
+            self.network_state.drop_peer(context.control(), &peer_id);
+        }
     }
 
     fn handle_proto(&mut self, context: &mut ServiceContext, event: ProtocolEvent) {
-        match event {
-            ProtocolEvent::Connected {
-                session_context,
-                proto_id,
-                version,
-            } => {
-                let peer_id = session_context
-                    .remote_pubkey
-                    .as_ref()
-                    .map(|pubkey| pubkey.peer_id())
-                    .expect("Secio must enabled");
-                if let Ok(parsed_version) = version.parse::<ProtocolVersion>() {
-                    match self.network_state.accept_connection(
-                        peer_id.clone(),
-                        session_context.address.clone(),
-                        session_context.id,
-                        session_context.ty.into(),
-                        proto_id,
-                        parsed_version,
-                    ) {
-                        Ok(register_result) => {
-                            // update status in peer_store
-                            if let RegisterResult::New(_) = register_result {
-                                let mut peer_store = self.network_state.peer_store().write();
-                                peer_store.report(&peer_id, Behaviour::Connect);
-                                peer_store.update_status(&peer_id, Status::Connected);
-                            }
+        // For special protocols: ping/discovery/identify
+        if let ProtocolEvent::Connected {
+            session_context,
+            proto_id,
+            version,
+        } = event
+        {
+            let peer_id = session_context
+                .remote_pubkey
+                .as_ref()
+                .map(|pubkey| pubkey.peer_id())
+                .expect("Secio must enabled");
+            if let Ok(parsed_version) = version.parse::<ProtocolVersion>() {
+                match self.network_state.accept_connection(
+                    peer_id.clone(),
+                    session_context.address.clone(),
+                    session_context.id,
+                    session_context.ty.into(),
+                    proto_id,
+                    parsed_version,
+                ) {
+                    Ok(register_result) => {
+                        // update status in peer_store
+                        if let RegisterResult::New(_) = register_result {
+                            let mut peer_store = self.network_state.peer_store().write();
+                            peer_store.update_status(&peer_id, Status::Connected);
                         }
-                        Err(err) => {
-                            self.network_state.drop_peer(context.control(), &peer_id);
-                            info!(
-                                target: "network",
-                                "reject connection from {} {}, because {:?}",
-                                peer_id.to_base58(),
-                                session_context.address,
-                                err,
-                            )
-                        }
+                    }
+                    Err(err) => {
+                        self.network_state.drop_peer(context.control(), &peer_id);
+                        info!(
+                            target: "network",
+                            "reject connection from {} {}, because {:?}",
+                            peer_id.to_base58(),
+                            session_context.address,
+                            err,
+                        )
                     }
                 }
             }
-            ProtocolEvent::DisConnected {
-                session_context, ..
-            } => {
-                let peer_id = session_context
-                    .remote_pubkey
-                    .as_ref()
-                    .map(|pubkey| pubkey.peer_id())
-                    .expect("Secio must enabled");
-
-                let mut peer_store = self.network_state.peer_store().write();
-                peer_store.report(&peer_id, Behaviour::UnexpectedDisconnect);
-                peer_store.update_status(&peer_id, Status::Disconnected);
-
-                self.network_state.drop_peer(context.control(), &peer_id);
-            }
-            _ => {}
         }
     }
 }
