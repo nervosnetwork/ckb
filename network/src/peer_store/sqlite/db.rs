@@ -149,6 +149,12 @@ impl PeerInfo {
             .map_err(Into::into)
     }
 
+    pub fn reset_status(conn: &Connection) -> DBResult<usize> {
+        let mut stmt = conn.prepare("UPDATE peer_info SET status=:status WHERE status!=:status")?;
+        stmt.execute_named(&[(":status", &status_to_u8(Status::Disconnected))])
+            .map_err(Into::into)
+    }
+
     pub fn largest_network_group(conn: &Connection) -> DBResult<Vec<PeerInfo>> {
         let (network_group, _group_peers_count) = conn
             .query_row::<(Vec<u8>, u32), _, _>("SELECT network_group, COUNT(network_group) AS network_group_count FROM peer_info

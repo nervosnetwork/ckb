@@ -64,11 +64,16 @@ impl SqlitePeerStore {
 
     fn prepare(&mut self) -> Result<(), DBError> {
         self.create_tables()?;
+        self.reset_status()?;
         self.load_banlist()
     }
 
     fn create_tables(&mut self) -> Result<(), DBError> {
         self.pool.fetch(|conn| db::create_tables(conn))
+    }
+
+    fn reset_status(&mut self) -> Result<usize, DBError> {
+        self.pool.fetch(|conn| db::PeerInfo::reset_status(conn))
     }
 
     fn load_banlist(&mut self) -> Result<(), DBError> {
