@@ -11,16 +11,15 @@ pub use crate::protocol_generated::ckb::protocol::*;
 use byteorder::{LittleEndian, ReadBytesExt};
 use hash::new_blake2b;
 use numext_fixed_hash::H256;
-use protocol_generated_verifier as verifier;
 use siphasher::sip::SipHasher;
 use std::hash::Hasher;
 
 pub fn get_root<'a, T>(data: &'a [u8]) -> Result<T::Inner, error::Error>
 where
     T: flatbuffers::Follow<'a> + 'a,
-    T::Inner: verifier::Verify,
+    T::Inner: flatbuffers_verifier::Verify,
 {
-    verifier::get_root::<T>(data).map_err(|_| error::Error::Malformed)
+    flatbuffers_verifier::get_root::<T>(data).map_err(|_| error::Error::Malformed)
 }
 
 pub struct FlatbuffersVectorIterator<'a, T: flatbuffers::Follow<'a> + 'a> {

@@ -14,7 +14,7 @@ hash = {path = "../util/hash"}
 ckb-vm = { git = "https://github.com/nervosnetwork/ckb-vm", rev = "d4638be" }
 faster-hex = "0.3"
 fnv = "1.0.3"
-flatbuffers = "0.5.0"
+flatbuffers = { git = "https://github.com/google/flatbuffers", rev = "4f10da8d99c1a7bc8c9c7d06d2092a689f171d29" }
 log = "0.4"
 ckb-protocol = { path = "../protocol" }
 
