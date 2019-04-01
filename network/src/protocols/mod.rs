@@ -11,7 +11,7 @@ use crate::{
     NetworkState, PeerIndex, ProtocolContext, ProtocolContextMutRef, ServiceControl, SessionInfo,
 };
 use bytes::Bytes;
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
 use p2p::{
     builder::MetaBuilder,
     service::{ProtocolHandle, ProtocolMeta},
@@ -216,8 +216,6 @@ impl ServiceProtocol for CKBHandler {
                     peer_index,
                 );
             }
-            // disconnect
-            network.drop_peer(context.control(), &peer_id);
         }
     }
 
@@ -259,9 +257,11 @@ impl ServiceProtocol for CKBHandler {
                 data,
             )
         } else {
-            error!(target: "network", "can not get peer_id");
+            warn!(target: "network", "can not get peer_id, disconnect it");
+            context.disconnect(session.id);
         }
     }
+
     fn notify(&mut self, context: &mut ProtocolContext, token: u64) {
         let context = Box::new(DefaultCKBProtocolContext::new(
             self.id,

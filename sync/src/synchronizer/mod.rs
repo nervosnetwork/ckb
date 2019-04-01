@@ -721,7 +721,7 @@ where
     }
 
     fn connected(&self, nc: Box<CKBProtocolContext>, peer: PeerIndex) {
-        debug!(target: "sync", "init_getheaders peer={:?} connected", peer);
+        info!(target: "sync", "peer={:?} SyncProtocol.connected (init_getheaders)", peer);
         self.on_connected(nc.as_ref(), peer);
     }
 

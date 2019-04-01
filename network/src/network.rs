@@ -119,6 +119,7 @@ impl NetworkState {
     }
 
     pub fn report(&self, peer_id: &PeerId, behaviour: Behaviour) {
+        info!(target: "network", "report {:?} because {:?}", peer_id, behaviour);
         self.peer_store.write().report(peer_id, behaviour);
     }
 
@@ -386,7 +387,7 @@ impl ServiceHandle for EventHandler {
         }
     }
 
-    fn handle_event(&mut self, _context: &mut ServiceContext, event: ServiceEvent) {
+    fn handle_event(&mut self, context: &mut ServiceContext, event: ServiceEvent) {
         info!(target: "network", "p2p service event: {:?}", event);
         // When session disconnect update status anyway
         if let ServiceEvent::SessionClose { session_context } = event {
@@ -401,6 +402,7 @@ impl ServiceHandle for EventHandler {
                 peer_store.report(&peer_id, Behaviour::UnexpectedDisconnect);
                 peer_store.update_status(&peer_id, Status::Disconnected);
             }
+            self.network_state.drop_peer(context.control(), &peer_id);
         }
     }
 
@@ -445,16 +447,6 @@ impl ServiceHandle for EventHandler {
                         }
                     }
                 }
-            }
-            ProtocolEvent::DisConnected {
-                session_context, ..
-            } => {
-                let peer_id = session_context
-                    .remote_pubkey
-                    .as_ref()
-                    .map(|pubkey| pubkey.peer_id())
-                    .expect("Secio must enabled");
-                self.network_state.drop_peer(context.control(), &peer_id);
             }
             _ => {}
         }
