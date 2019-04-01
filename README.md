@@ -60,13 +60,7 @@ sudo apt-get install git gcc libc6-dev pkg-config libssl-dev libclang-dev clang
 * Arch Linux
 
 ```shell
-sudo pacman -Sy git gcc pkgconf openssl-1.0 clang
-```
-
-If you get openssl related errors in compiling, try the following environment variables to specify openssl-1.0:
-
-```shell
-OPENSSL_INCLUDE_DIR=/usr/include/openssl-1.0 OPENSSL_LIB_DIR=/usr/lib/openssl-1.0 cargo build --release
+sudo pacman -Sy git gcc pkgconf clang
 ```
 
 * macOS:
