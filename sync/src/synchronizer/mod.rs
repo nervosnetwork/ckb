@@ -1119,8 +1119,7 @@ mod tests {
             Ok(())
         }
         /// Report peer. Depending on the report, peer may be disconnected and possibly banned.
-        fn report_peer(&self, peer: PeerIndex, _behaviour: Behaviour) -> Result<(), NetworkError> {
-            self.disconnected.lock().insert(peer);
+        fn report_peer(&self, _peer: PeerIndex, _behaviour: Behaviour) -> Result<(), NetworkError> {
             Ok(())
         }
 
@@ -1144,7 +1143,9 @@ mod tests {
             unimplemented!();
         }
 
-        fn disconnect(&self, _peer: PeerIndex) {}
+        fn disconnect(&self, peer: PeerIndex) {
+            self.disconnected.lock().insert(peer);
+        }
         fn protocol_id(&self) -> ProtocolId {
             unimplemented!();
         }
