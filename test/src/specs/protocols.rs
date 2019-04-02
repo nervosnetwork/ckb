@@ -1,8 +1,7 @@
 use crate::{sleep, Net, Spec, TestProtocol};
 use ckb_network::ProtocolId;
-use ckb_protocol::{SyncMessage, SyncPayload};
+use ckb_protocol::{get_root, SyncMessage, SyncPayload};
 use ckb_sync::NetworkProtocol;
-use flatbuffers::get_root;
 use log::info;
 
 pub struct MalformedMessage;
@@ -17,12 +16,16 @@ impl Spec for MalformedMessage {
 
         info!("Test node should receive GetHeaders message from node0");
         let (peer_id, data) = net.receive();
-        let msg = get_root::<SyncMessage>(&data);
+        let msg = get_root::<SyncMessage>(&data).expect("parse message failed");
         assert_eq!(SyncPayload::GetHeaders, msg.payload_type());
 
-        // TODO waiting for https://github.com/nervosnetwork/ckb/pull/364
-        // Now, it will print out the error backtrace of node0
-        info!("Send malformed message to node0");
+        info!("Send malformed message to node0 twice");
+        net.send(
+            NetworkProtocol::SYNC as ProtocolId,
+            peer_id,
+            vec![0, 0, 0, 0],
+        );
+        sleep(3);
         net.send(
             NetworkProtocol::SYNC as ProtocolId,
             peer_id,
@@ -30,14 +33,25 @@ impl Spec for MalformedMessage {
         );
         sleep(3);
 
-        info!("Node0 should disconnect and ban test node");
-        let _peers = net.nodes[0]
+        info!("Node0 should disconnect test node");
+        let peers = net.nodes[0]
             .rpc_client()
             .get_peers()
             .call()
             .expect("rpc call get_peers failed");
 
-        // assert!(peers.is_empty());
+        assert!(peers.is_empty());
+
+        info!("Node0 should ban test node");
+        net.connect(node0);
+        sleep(3);
+        let peers = net.nodes[0]
+            .rpc_client()
+            .get_peers()
+            .call()
+            .expect("rpc call get_peers failed");
+
+        assert!(peers.is_empty());
     }
 
     fn num_nodes(&self) -> usize {
