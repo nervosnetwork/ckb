@@ -23,7 +23,7 @@ use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::transaction::{ProposalShortId, Transaction};
 use ckb_network::{Behaviour, CKBProtocolContext, CKBProtocolHandler, PeerIndex};
 use ckb_protocol::{
-    cast, short_transaction_id, short_transaction_id_keys, RelayMessage, RelayPayload,
+    cast, get_root, short_transaction_id, short_transaction_id_keys, RelayMessage, RelayPayload,
 };
 use ckb_shared::chain_state::ChainState;
 use ckb_shared::index::ChainIndex;
@@ -31,7 +31,7 @@ use ckb_shared::shared::Shared;
 use ckb_traits::ChainProvider;
 use ckb_util::Mutex;
 use failure::Error as FailureError;
-use flatbuffers::{get_root, FlatBufferBuilder};
+use flatbuffers::FlatBufferBuilder;
 use fnv::{FnvHashMap, FnvHashSet};
 use log::{debug, info};
 use numext_fixed_hash::H256;
@@ -301,8 +301,15 @@ where
     }
 
     fn received(&self, mut nc: Box<CKBProtocolContext>, peer: PeerIndex, data: Bytes) {
-        // TODO use flatbuffers verifier
-        let msg = get_root::<RelayMessage>(&data);
+        let msg = match get_root::<RelayMessage>(&data) {
+            Ok(msg) => msg,
+            _ => {
+                info!(target: "sync", "Peer {} sends us a malformed message", peer);
+                let _ = nc.report_peer(peer, Behaviour::UnexpectedMessage);
+                return;
+            }
+        };
+
         debug!(target: "relay", "msg {:?}", msg.payload_type());
         self.process(nc.as_mut(), peer, msg);
     }
