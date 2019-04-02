@@ -47,7 +47,10 @@ impl<CI: ChainIndex + 'static> PoolRpc for PoolRpcImpl<CI> {
                 Ok(cycles) => Some(cycles),
             };
             let entry = PoolEntry::new(tx.clone(), 0, cycles);
-            chain_state.mut_tx_pool().enqueue_tx(entry);
+            if !chain_state.mut_tx_pool().enqueue_tx(entry) {
+                // Duplicate tx
+                return Ok(tx_hash);
+            }
             cycles
         };
         match cycles {
