@@ -1,6 +1,6 @@
 # Build CKB
 
-## Build dependencies
+## Install Build Dependencies
 
 CKB is currently tested mainly with `stable-1.33.0` on Linux and macOS.
 
@@ -9,8 +9,6 @@ We recommend installing Rust through [rustup](https://www.rustup.rs/)
 ```bash
 # Get rustup from rustup.rs, then in your `ckb` folder:
 rustup override set 1.33.0
-rustup component add rustfmt
-rustup component add clippy
 ```
 
 Report new breakage is welcome.
@@ -35,9 +33,7 @@ sudo pacman -Sy git gcc pkgconf clang
 brew install autoconf libtool
 ```
 
----
-
-## Build from source
+## Build from Source
 
 ```bash
 # get ckb source code
@@ -48,4 +44,11 @@ cd ckb
 make build
 ```
 
-This will build the executable `target/release/ckb`.
+This will build the executable `target/release/ckb`. Please add the directory
+to `PATH` or copy/link the file into a directory already in the `PATH`.
+
+```base
+export PATH="$(pwd)/target/release:$PATH"
+# or
+# ln -snf "$(pwd)/target/release/ckb" /usr/local/bin/ckb
+```
