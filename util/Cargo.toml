@@ -6,4 +6,4 @@ authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
 
 [dependencies]
-parking_lot = "0.7"
+parking_lot = {version = "0.7", features = ["deadlock_detection"]}

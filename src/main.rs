@@ -21,6 +21,7 @@ fn main() {
             let setup = setup(&run_matches);
             let _logger_guard = logger::init(setup.configs.logger.clone()).expect("Init Logger");
             let _sentry_guard = setup.configs.sentry.clone().init();
+            helper::deadlock_detection();
             cli::run(setup);
         }
         ("miner", Some(miner_matches)) => cli::miner(&miner_matches),
