@@ -12,7 +12,7 @@ use ckb_core::transaction::{OutPoint, ProposalShortId, Transaction};
 use ckb_core::Cycle;
 use ckb_verification::{TransactionError, TransactionVerifier};
 use fnv::FnvHashSet;
-use log::error;
+use log::{error, trace};
 use lru_cache::LruCache;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
@@ -106,7 +106,7 @@ impl<CI: ChainIndex> ChainState<CI> {
         let verify_result = self.verify_rtx(&rtx, max_cycles);
         let tx_hash = tx.hash();
         if self.contains_proposal_id(&short_id) {
-            if !self.filter.insert(tx_hash.clone()) {
+            if !tx_pool.filter.insert(tx_hash.clone()) {
                 trace!(target: "tx_pool", "discarding already known transaction {:#x}", tx_hash);
                 return Err(PoolError::Duplicate);
             }
