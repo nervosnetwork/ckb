@@ -1,7 +1,10 @@
-use ckb_util::{Condvar, Mutex};
+use ckb_util::{parking_lot::deadlock, Condvar, Mutex};
 use ctrlc;
+use log::warn;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::thread;
+use std::time::Duration;
 
 pub fn wait_for_exit() {
     let exit = Arc::new((Mutex::new(()), Condvar::new()));
@@ -33,4 +36,23 @@ pub fn to_absolute_path(path: PathBuf) -> PathBuf {
         absulute_path.push(path);
         absulute_path
     }
+}
+
+pub fn deadlock_detection() {
+    thread::spawn(move || loop {
+        thread::sleep(Duration::from_secs(10));
+        let deadlocks = deadlock::check_deadlock();
+        if deadlocks.is_empty() {
+            continue;
+        }
+
+        warn!("{} deadlocks detected", deadlocks.len());
+        for (i, threads) in deadlocks.iter().enumerate() {
+            warn!("Deadlock #{}", i);
+            for t in threads {
+                warn!("Thread Id {:#?}", t.thread_id());
+                warn!("{:#?}", t.backtrace());
+            }
+        }
+    });
 }
