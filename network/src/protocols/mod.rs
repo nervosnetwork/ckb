@@ -154,7 +154,7 @@ impl ServiceProtocol for CKBHandler {
             peer_id.clone(),
             session.address.clone(),
             session.id,
-            session.ty.into(),
+            session.ty,
             self.id,
             version,
         ) {
@@ -351,7 +351,7 @@ impl CKBProtocolContext for DefaultCKBProtocolContext {
             })?;
 
         self.p2p_control
-            .send_message(session_id, protocol_id, data.to_vec())
+            .send_message(session_id, protocol_id, data)
             .map_err(|_| {
                 Error::P2P(format!(
                     "error send to peer {:?} protocol {}",

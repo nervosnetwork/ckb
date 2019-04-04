@@ -22,7 +22,7 @@ fn insert_peer_info_benchmark(c: &mut Criterion) {
             let addr = "/ip4/127.0.0.1".to_multiaddr().unwrap();
             move || {
                 for peer_id in peer_ids.clone() {
-                    peer_store.add_connected_peer(&peer_id, addr.clone(), SessionType::Client);
+                    peer_store.add_connected_peer(&peer_id, addr.clone(), SessionType::Outbound);
                 }
             }
         })
@@ -36,7 +36,7 @@ fn insert_peer_info_benchmark(c: &mut Criterion) {
             let addr = "/ip4/127.0.0.1".to_multiaddr().unwrap();
             move || {
                 for peer_id in peer_ids.clone() {
-                    peer_store.add_connected_peer(&peer_id, addr.clone(), SessionType::Client);
+                    peer_store.add_connected_peer(&peer_id, addr.clone(), SessionType::Outbound);
                 }
             }
         })
@@ -50,7 +50,7 @@ fn insert_peer_info_benchmark(c: &mut Criterion) {
             let addr = "/ip4/127.0.0.1".to_multiaddr().unwrap();
             move || {
                 for peer_id in peer_ids.clone() {
-                    peer_store.add_connected_peer(&peer_id, addr.clone(), SessionType::Client);
+                    peer_store.add_connected_peer(&peer_id, addr.clone(), SessionType::Outbound);
                 }
             }
         })
@@ -67,7 +67,7 @@ fn random_order_benchmark(c: &mut Criterion) {
             let mut peer_store = peer_store.lock();
             for _ in 0..8000 {
                 let peer_id = PeerId::random();
-                peer_store.add_connected_peer(&peer_id, addr.clone(), SessionType::Client);
+                peer_store.add_connected_peer(&peer_id, addr.clone(), SessionType::Outbound);
                 let _ = peer_store.add_discovered_addr(&peer_id, addr.clone());
             }
         }
@@ -114,7 +114,7 @@ fn random_order_benchmark(c: &mut Criterion) {
                 let addr = "/ip4/127.0.0.1".to_multiaddr().unwrap();
                 for _ in 0..8000 {
                     let peer_id = PeerId::random();
-                    peer_store.add_connected_peer(&peer_id, addr.clone(), SessionType::Client);
+                    peer_store.add_connected_peer(&peer_id, addr.clone(), SessionType::Outbound);
                     let _ = peer_store.add_discovered_addr(&peer_id, addr.clone());
                 }
                 move || {

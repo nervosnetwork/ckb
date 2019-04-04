@@ -256,19 +256,20 @@ impl NetworkState {
         protocol_version: ProtocolVersion,
     ) -> Result<RegisterResult, Error> {
         let mut peers_registry = self.peers_registry.write();
-        let register_result = match session_type {
-            SessionType::Client => peers_registry.try_outbound_peer(
+        let register_result = if session_type.is_outbound() {
+            peers_registry.try_outbound_peer(
                 peer_id.clone(),
                 connected_addr,
                 session_id,
                 session_type,
-            ),
-            SessionType::Server => peers_registry.accept_inbound_peer(
+            )
+        } else {
+            peers_registry.accept_inbound_peer(
                 peer_id.clone(),
                 connected_addr,
                 session_id,
                 session_type,
-            ),
+            )
         }?;
         // add session to peer
         match peers_registry.get_mut(&peer_id) {
@@ -424,7 +425,7 @@ impl ServiceHandle for EventHandler {
                     peer_id.clone(),
                     session_context.address.clone(),
                     session_context.id,
-                    session_context.ty.into(),
+                    session_context.ty,
                     proto_id,
                     parsed_version,
                 ) {
