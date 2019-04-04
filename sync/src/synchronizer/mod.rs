@@ -628,11 +628,8 @@ impl<CI: ChainIndex> Synchronizer<CI> {
             }
         }
         for peer in eviction {
-            warn!(target: "sync", "timeout eviction peer={}", peer);
-
-            // FIXME: learn how bitcoin handle this evicted peer, then fix this.
-            // nc.ban_peer(peer, Duration::from_secs(180));
-            // nc.disconnect(peer);
+            info!(target: "sync", "timeout eviction peer={}", peer);
+            nc.disconnect(peer);
         }
     }
 
