@@ -1,7 +1,7 @@
 use crate::peer_store::PeerStore;
 use crate::{
     errors::{Error, PeerError},
-    Peer, PeerId, PeerIndex, SessionType,
+    Peer, PeerId, PeerIndex, ProtocolId, ProtocolVersion, SessionType,
 };
 use ckb_util::RwLock;
 use fnv::{FnvHashMap, FnvHashSet};
@@ -9,7 +9,6 @@ use log::debug;
 use p2p::{multiaddr::Multiaddr, SessionId};
 use rand::seq::SliceRandom;
 use rand::thread_rng;
-use std::collections::hash_map::Entry;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
@@ -30,78 +29,6 @@ impl RegisterResult {
     }
 }
 
-struct PeerManage {
-    id_allocator: AtomicUsize,
-    peers: FnvHashMap<PeerId, Peer>,
-    pub(crate) peer_id_by_index: FnvHashMap<PeerIndex, PeerId>,
-}
-
-impl PeerManage {
-    #[inline]
-    fn get(&self, peer_id: &PeerId) -> Option<&Peer> {
-        self.peers.get(peer_id)
-    }
-
-    #[inline]
-    fn get_peer_id(&self, peer_index: PeerIndex) -> Option<&PeerId> {
-        self.peer_id_by_index.get(&peer_index)
-    }
-
-    #[inline]
-    fn get_mut(&mut self, peer_id: &PeerId) -> Option<&mut Peer> {
-        self.peers.get_mut(peer_id)
-    }
-
-    #[inline]
-    fn remove(&mut self, peer_id: &PeerId) -> Option<Peer> {
-        if let Some(peer) = self.peers.remove(peer_id) {
-            self.peer_id_by_index.remove(&peer.peer_index);
-            return Some(peer);
-        }
-        None
-    }
-
-    #[inline]
-    fn iter(&self) -> impl Iterator<Item = (&PeerId, &Peer)> {
-        self.peers.iter()
-    }
-    #[inline]
-    fn add_peer(
-        &mut self,
-        peer_id: PeerId,
-        connected_addr: Multiaddr,
-        session_id: SessionId,
-        session_type: SessionType,
-    ) -> RegisterResult {
-        match self.peers.entry(peer_id.clone()) {
-            Entry::Occupied(entry) => RegisterResult::Exist(entry.get().peer_index),
-            Entry::Vacant(entry) => {
-                let peer_index = self.id_allocator.fetch_add(1, Ordering::Relaxed);
-                let peer = Peer::new(peer_index, connected_addr, session_id, session_type);
-                entry.insert(peer);
-                self.peer_id_by_index.insert(peer_index, peer_id);
-                RegisterResult::New(peer_index)
-            }
-        }
-    }
-
-    fn clear(&mut self) {
-        self.peers.clear();
-        self.peer_id_by_index.clear();
-        self.id_allocator.store(0, Ordering::Relaxed)
-    }
-}
-
-impl Default for PeerManage {
-    fn default() -> Self {
-        PeerManage {
-            id_allocator: AtomicUsize::new(0),
-            peers: FnvHashMap::with_capacity_and_hasher(20, Default::default()),
-            peer_id_by_index: FnvHashMap::with_capacity_and_hasher(20, Default::default()),
-        }
-    }
-}
-
 #[derive(Clone, Copy, Debug)]
 pub struct ConnectionStatus {
     pub total: u32,
@@ -112,9 +39,10 @@ pub struct ConnectionStatus {
 }
 
 pub(crate) struct PeersRegistry {
-    // store all known peers
-    peer_store: Arc<RwLock<dyn PeerStore>>,
-    peers: PeerManage,
+    id_allocator: AtomicUsize,
+    peers: RwLock<FnvHashMap<PeerId, Peer>>,
+    peer_id_by_index: RwLock<FnvHashMap<PeerIndex, PeerId>>,
+    peer_store: Arc<dyn PeerStore>,
     // max inbound limitation
     max_inbound: u32,
     // max outbound limitation
@@ -154,7 +82,7 @@ where
 
 impl PeersRegistry {
     pub fn new(
-        peer_store: Arc<RwLock<dyn PeerStore>>,
+        peer_store: Arc<dyn PeerStore>,
         max_inbound: u32,
         max_outbound: u32,
         reserved_only: bool,
@@ -166,8 +94,13 @@ impl PeersRegistry {
             reserved_peers_set.insert(reserved_peer);
         }
         PeersRegistry {
+            id_allocator: AtomicUsize::new(0),
+            peers: RwLock::new(FnvHashMap::with_capacity_and_hasher(20, Default::default())),
+            peer_id_by_index: RwLock::new(FnvHashMap::with_capacity_and_hasher(
+                20,
+                Default::default(),
+            )),
             peer_store,
-            peers: Default::default(),
             reserved_peers: reserved_peers_set,
             max_inbound,
             max_outbound,
@@ -175,87 +108,83 @@ impl PeersRegistry {
         }
     }
 
-    #[inline]
-    pub fn get_peer_id(&self, peer_index: PeerIndex) -> Option<&PeerId> {
-        self.peers.get_peer_id(peer_index)
+    pub fn get_peer_id(&self, peer_index: PeerIndex) -> Option<PeerId> {
+        self.peer_indexes_guard().read().get(&peer_index).cloned()
     }
 
     pub fn is_reserved(&self, peer_id: &PeerId) -> bool {
         self.reserved_peers.contains(&peer_id)
     }
 
-    pub fn accept_inbound_peer(
-        &mut self,
+    pub(crate) fn accept_connection(
+        &self,
         peer_id: PeerId,
-        addr: Multiaddr,
+        connected_addr: Multiaddr,
         session_id: SessionId,
         session_type: SessionType,
+        protocol_id: ProtocolId,
+        protocol_version: ProtocolVersion,
     ) -> Result<RegisterResult, Error> {
-        if let Some(peer) = self.peers.get(&peer_id) {
+        let mut peers = self.peers.write();
+
+        if let Some(peer) = peers.get(&peer_id) {
             return Ok(RegisterResult::Exist(peer.peer_index));
         }
+
+        let inbound = session_type.is_inbound();
+        let mut peer_id_by_index = self.peer_id_by_index.write();
+
         if !self.is_reserved(&peer_id) {
             if self.reserved_only {
                 return Err(Error::Peer(PeerError::NonReserved(peer_id)));
             }
-            if self.peer_store.read().is_banned(&peer_id) {
+            // ban_list lock acquired
+            if self.peer_store.is_banned(&peer_id) {
                 return Err(Error::Peer(PeerError::Banned(peer_id)));
             }
 
-            let connection_status = self.connection_status();
+            let connection_status = self._connection_status(peers.iter());
             // check peers connection limitation
-            if connection_status.unreserved_inbound >= self.max_inbound
-                && !self.try_evict_inbound_peer()
-            {
-                return Err(Error::Peer(PeerError::ReachMaxInboundLimit(peer_id)));
-            }
-        }
-        Ok(self.register_peer(peer_id, addr, session_id, session_type))
-    }
-
-    pub fn try_outbound_peer(
-        &mut self,
-        peer_id: PeerId,
-        addr: Multiaddr,
-        session_id: SessionId,
-        session_type: SessionType,
-    ) -> Result<RegisterResult, Error> {
-        if let Some(peer) = self.peers.get(&peer_id) {
-            return Ok(RegisterResult::Exist(peer.peer_index));
-        }
-        if !self.is_reserved(&peer_id) {
-            if self.reserved_only {
-                return Err(Error::Peer(PeerError::NonReserved(peer_id)));
-            }
-            if self.peer_store.read().is_banned(&peer_id) {
-                return Err(Error::Peer(PeerError::Banned(peer_id)));
-            }
-            let connection_status = self.connection_status();
-            // check peers connection limitation
-            // TODO: implement extra outbound peer logic
-            if connection_status.unreserved_outbound >= self.max_outbound {
+            if inbound {
+                if connection_status.unreserved_inbound >= self.max_inbound
+                    && !self._try_evict_inbound_peer(&mut peers, &mut peer_id_by_index)
+                {
+                    return Err(Error::Peer(PeerError::ReachMaxInboundLimit(peer_id)));
+                }
+            } else if connection_status.unreserved_outbound >= self.max_outbound {
                 return Err(Error::Peer(PeerError::ReachMaxOutboundLimit(peer_id)));
             }
         }
-        Ok(self.register_peer(peer_id, addr, session_id, session_type))
+        self.peer_store
+            .add_connected_peer(&peer_id, connected_addr.clone(), session_type);
+        let peer_index = self.id_allocator.fetch_add(1, Ordering::Relaxed);
+        let mut peer = Peer::new(peer_index, connected_addr, session_id, session_type);
+        peer.protocols.insert(protocol_id, protocol_version);
+        peers.insert(peer_id.clone(), peer);
+        peer_id_by_index.insert(peer_index, peer_id);
+        Ok(RegisterResult::New(peer_index))
     }
 
-    fn try_evict_inbound_peer(&mut self) -> bool {
+    fn _try_evict_inbound_peer(
+        &self,
+        peers: &mut FnvHashMap<PeerId, Peer>,
+        peer_id_by_index: &mut FnvHashMap<PeerIndex, PeerId>,
+    ) -> bool {
         let peer_id: PeerId = {
-            let mut candidate_peers = self
-                .peers
-                .iter()
-                .filter(|(peer_id, peer)| peer.is_inbound() && !self.is_reserved(peer_id))
-                .collect::<Vec<_>>();
-            let peer_store = self.peer_store.read();
+            let mut candidate_peers = {
+                peers
+                    .iter()
+                    .filter(|(peer_id, peer)| peer.is_inbound() && !self.is_reserved(peer_id))
+                    .collect::<Vec<_>>()
+            };
             // Protect peers based on characteristics that an attacker hard to simulate or manipulate
             // Protect peers which has the highest score
             sort_then_drop_last_n_elements(
                 &mut candidate_peers,
                 EVICTION_PROTECT_PEERS,
                 |(peer_id1, _), (peer_id2, _)| {
-                    let peer1_score = peer_store.peer_score(peer_id1).unwrap_or_default();
-                    let peer2_score = peer_store.peer_score(peer_id2).unwrap_or_default();
+                    let peer1_score = self.peer_store.peer_score(peer_id1).unwrap_or_default();
+                    let peer2_score = self.peer_store.peer_score(peer_id2).unwrap_or_default();
                     peer1_score.cmp(&peer2_score)
                 },
             );
@@ -308,52 +237,33 @@ impl PeersRegistry {
             // randomly evict a lowest scored peer
             match evict_group
                 .iter()
-                .min_by_key(|peer_id| peer_store.peer_score(peer_id).unwrap_or_default())
+                .min_by_key(|peer_id| self.peer_store.peer_score(peer_id).unwrap_or_default())
             {
                 Some(peer_id) => peer_id.to_owned().to_owned(),
                 None => return false,
             }
         };
         debug!(target: "network", "evict inbound peer {:?}", peer_id);
-        self.drop_peer(&peer_id);
+        self._drop_peer(&peer_id, peers, peer_id_by_index);
         true
     }
 
-    // registry a new peer
-    fn register_peer(
-        &mut self,
-        peer_id: PeerId,
-        connected_addr: Multiaddr,
-        session_id: SessionId,
-        session_type: SessionType,
-    ) -> RegisterResult {
-        self.peer_store
-            .write()
-            .add_connected_peer(&peer_id, connected_addr.clone(), session_type);
-        self.peers
-            .add_peer(peer_id, connected_addr, session_id, session_type)
+    pub fn modify_peer<R>(
+        &self,
+        peer_id: &PeerId,
+        callback: impl FnOnce(&mut Peer) -> R,
+    ) -> Option<R> {
+        self.peers.write().get_mut(peer_id).map(callback)
     }
 
-    #[inline]
-    pub(crate) fn peers_iter(&self) -> impl Iterator<Item = (&PeerId, &Peer)> {
-        self.peers.iter()
-    }
-
-    #[inline]
-    pub fn get(&self, peer_id: &PeerId) -> Option<&Peer> {
-        self.peers.get(peer_id)
-    }
-
-    #[inline]
-    pub fn get_mut(&mut self, peer_id: &PeerId) -> Option<&mut Peer> {
-        self.peers.get_mut(peer_id)
-    }
-
-    pub fn connection_status(&self) -> ConnectionStatus {
+    pub fn _connection_status<'a>(
+        &self,
+        peers: impl Iterator<Item = (&'a PeerId, &'a Peer)>,
+    ) -> ConnectionStatus {
         let mut total: u32 = 0;
         let mut unreserved_inbound: u32 = 0;
         let mut unreserved_outbound: u32 = 0;
-        for (peer_id, peer_connection) in self.peers.iter() {
+        for (peer_id, peer_connection) in peers {
             total += 1;
             if self.is_reserved(peer_id) {
                 continue;
@@ -373,19 +283,61 @@ impl PeersRegistry {
         }
     }
 
-    #[inline]
-    pub fn connected_peers_indexes(&self) -> impl Iterator<Item = PeerIndex> + '_ {
-        self.peers.peer_id_by_index.iter().map(|(k, _v)| *k)
+    pub fn connection_status(&self) -> ConnectionStatus {
+        self._connection_status(self.peers.read().iter())
     }
 
     #[inline]
-    pub fn drop_peer(&mut self, peer_id: &PeerId) -> Option<Peer> {
-        self.peers.remove(peer_id)
+    pub fn connected_peers_indexes(&self) -> Vec<PeerIndex> {
+        self.peer_id_by_index
+            .read()
+            .iter()
+            .map(|(k, _v)| *k)
+            .collect::<Vec<_>>()
+    }
+
+    fn _drop_peer(
+        &self,
+        peer_id: &PeerId,
+        peers: &mut FnvHashMap<PeerId, Peer>,
+        peer_id_by_index: &mut FnvHashMap<PeerIndex, PeerId>,
+    ) -> Option<Peer> {
+        if let Some(peer) = peers.remove(peer_id) {
+            peer_id_by_index.remove(&peer.peer_index);
+            return Some(peer);
+        }
+        None
     }
 
     #[inline]
-    pub fn drop_all(&mut self) {
+    pub fn drop_peer(&self, peer_id: &PeerId) -> Option<Peer> {
+        let mut peers = self.peers.write();
+        let mut peer_id_by_index = self.peer_id_by_index.write();
+        self._drop_peer(peer_id, &mut peers, &mut peer_id_by_index)
+    }
+
+    pub fn peers_guard(&self) -> &RwLock<FnvHashMap<PeerId, Peer>> {
+        &self.peers
+    }
+
+    fn peer_indexes_guard(&self) -> &RwLock<FnvHashMap<PeerIndex, PeerId>> {
+        &self.peer_id_by_index
+    }
+
+    fn _drop_all(
+        &self,
+        peers: &mut FnvHashMap<PeerId, Peer>,
+        peer_id_by_index: &mut FnvHashMap<PeerIndex, PeerId>,
+    ) {
+        peers.clear();
+        peer_id_by_index.clear();
+        self.id_allocator.store(0, Ordering::Relaxed)
+    }
+
+    pub fn drop_all(&self) {
         debug!(target: "network", "drop_all");
-        self.peers.clear()
+        let mut peers = self.peers.write();
+        let mut peer_id_by_index = self.peer_id_by_index.write();
+        self._drop_all(&mut peers, &mut peer_id_by_index);
     }
 }

@@ -203,7 +203,6 @@ impl Stream for DiscoveryService {
                             let _ = self
                                 .network_state
                                 .peer_store()
-                                .write()
                                 .add_discovered_addr(&peer_id, addr);
                         }
                     }
@@ -220,7 +219,6 @@ impl Stream for DiscoveryService {
                 let addrs = self
                     .network_state
                     .peer_store()
-                    .read()
                     .random_peers(n as u32)
                     .into_iter()
                     .filter_map(|(peer_id, mut addr)| {

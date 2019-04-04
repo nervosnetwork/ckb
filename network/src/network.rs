@@ -1,4 +1,4 @@
-use crate::errors::{Error, ProtocolError};
+use crate::errors::Error;
 use crate::peer_store::{sqlite::SqlitePeerStore, PeerStore, Status};
 use crate::peers_registry::{ConnectionStatus, PeersRegistry, RegisterResult};
 use crate::protocols::{
@@ -60,8 +60,8 @@ pub struct SessionInfo {
 
 pub struct NetworkState {
     protocol_ids: RwLock<FnvHashSet<ProtocolId>>,
-    pub(crate) peers_registry: RwLock<PeersRegistry>,
-    peer_store: Arc<RwLock<dyn PeerStore>>,
+    pub(crate) peers_registry: PeersRegistry,
+    peer_store: Arc<dyn PeerStore>,
     listened_addresses: RwLock<FnvHashMap<Multiaddr, u8>>,
     pub(crate) original_listened_addresses: RwLock<Vec<Multiaddr>>,
     // For avoid repeat failed dial
@@ -82,14 +82,14 @@ impl NetworkState {
             .chain(config.public_addresses.iter())
             .map(|addr| (addr.to_owned(), std::u8::MAX))
             .collect();
-        let peer_store: Arc<RwLock<dyn PeerStore>> = {
-            let mut peer_store =
+        let peer_store: Arc<dyn PeerStore> = {
+            let peer_store =
                 SqlitePeerStore::file(config.peer_store_path().to_string_lossy().to_string())?;
             let bootnodes = config.bootnodes()?;
             for (peer_id, addr) in bootnodes {
                 peer_store.add_bootnode(peer_id, addr);
             }
-            Arc::new(RwLock::new(peer_store))
+            Arc::new(peer_store)
         };
 
         let reserved_peers = config
@@ -108,8 +108,8 @@ impl NetworkState {
         Ok(NetworkState {
             peer_store,
             config,
+            peers_registry,
             failed_dials: RwLock::new(LruCache::new(FAILED_DIAL_CACHE_SIZE)),
-            peers_registry: RwLock::new(peers_registry),
             listened_addresses: RwLock::new(listened_addresses),
             original_listened_addresses: RwLock::new(Vec::new()),
             local_private_key: local_private_key.clone(),
@@ -120,12 +120,12 @@ impl NetworkState {
 
     pub fn report(&self, peer_id: &PeerId, behaviour: Behaviour) {
         info!(target: "network", "report {:?} because {:?}", peer_id, behaviour);
-        self.peer_store.write().report(peer_id, behaviour);
+        self.peer_store.report(peer_id, behaviour);
     }
 
     pub fn drop_peer(&self, p2p_control: &mut ServiceControl, peer_id: &PeerId) {
         debug!(target: "network", "drop peer {:?}", peer_id);
-        if let Some(peer) = self.peers_registry.write().drop_peer(&peer_id) {
+        if let Some(peer) = self.peers_registry.drop_peer(&peer_id) {
             if let Err(err) = p2p_control.disconnect(peer.session_id) {
                 error!(target: "network", "disconnect peer error {:?}", err);
             }
@@ -135,16 +135,17 @@ impl NetworkState {
     pub fn drop_all(&self, p2p_control: &mut ServiceControl) {
         debug!(target: "network", "drop all connections...");
         let mut peer_ids = Vec::new();
-        let mut peers_registry = self.peers_registry.write();
-        for (peer_id, peer) in peers_registry.peers_iter() {
-            peer_ids.push(peer_id.clone());
-            if let Err(err) = p2p_control.disconnect(peer.session_id) {
-                error!(target: "network", "disconnect peer error {:?}", err);
+        {
+            for (peer_id, peer) in self.peers_registry.peers_guard().read().iter() {
+                peer_ids.push(peer_id.clone());
+                if let Err(err) = p2p_control.disconnect(peer.session_id) {
+                    error!(target: "network", "disconnect peer error {:?}", err);
+                }
             }
         }
-        peers_registry.drop_all();
+        self.peers_registry.drop_all();
 
-        let mut peer_store = self.peer_store().write();
+        let peer_store = self.peer_store();
         for peer_id in peer_ids {
             if peer_store.peer_status(&peer_id) != Status::Disconnected {
                 peer_store.report(&peer_id, Behaviour::UnexpectedDisconnect);
@@ -167,36 +168,30 @@ impl NetworkState {
     }
 
     pub(crate) fn get_peer_index(&self, peer_id: &PeerId) -> Option<PeerIndex> {
-        let peers_registry = self.peers_registry.read();
-        peers_registry.get(&peer_id).map(|peer| peer.peer_index)
+        self.peers_registry
+            .peers_guard()
+            .read()
+            .get(&peer_id)
+            .map(|peer| peer.peer_index)
     }
 
     pub(crate) fn get_peer_id(&self, peer_index: PeerIndex) -> Option<PeerId> {
-        let peers_registry = self.peers_registry.read();
-        peers_registry
-            .get_peer_id(peer_index)
-            .map(|peer_id| peer_id.to_owned())
+        self.peers_registry.get_peer_id(peer_index)
     }
 
     pub(crate) fn connection_status(&self) -> ConnectionStatus {
-        let peers_registry = self.peers_registry.read();
-        peers_registry.connection_status()
+        self.peers_registry.connection_status()
     }
 
     pub(crate) fn modify_peer<F>(&self, peer_id: &PeerId, f: F)
     where
         F: FnOnce(&mut Peer) -> (),
     {
-        let mut peers_registry = self.peers_registry.write();
-        if let Some(peer) = peers_registry.get_mut(peer_id) {
-            f(peer);
-        }
+        self.peers_registry.modify_peer(peer_id, f);
     }
 
     pub(crate) fn peers_indexes(&self) -> Vec<PeerIndex> {
-        let peers_registry = self.peers_registry.read();
-        let iter = peers_registry.connected_peers_indexes();
-        iter.collect::<Vec<_>>()
+        self.peers_registry.connected_peers_indexes()
     }
 
     pub(crate) fn ban_peer(
@@ -206,10 +201,10 @@ impl NetworkState {
         timeout: Duration,
     ) {
         self.drop_peer(p2p_control, peer_id);
-        self.peer_store.write().ban_peer(peer_id, timeout);
+        self.peer_store.ban_peer(peer_id, timeout);
     }
 
-    pub(crate) fn peer_store(&self) -> &RwLock<dyn PeerStore> {
+    pub(crate) fn peer_store(&self) -> &Arc<dyn PeerStore> {
         &self.peer_store
     }
 
@@ -236,10 +231,7 @@ impl NetworkState {
 
     // A workaround method for `add_node` rpc call, need to re-write it after new p2p lib integration.
     pub fn add_node(&self, peer_id: &PeerId, address: Multiaddr) {
-        let _ = self
-            .peer_store()
-            .write()
-            .add_discovered_addr(peer_id, address);
+        let _ = self.peer_store().add_discovered_addr(peer_id, address);
     }
 
     fn to_external_url(&self, addr: &Multiaddr) -> String {
@@ -255,33 +247,14 @@ impl NetworkState {
         protocol_id: ProtocolId,
         protocol_version: ProtocolVersion,
     ) -> Result<RegisterResult, Error> {
-        let mut peers_registry = self.peers_registry.write();
-        let register_result = if session_type.is_outbound() {
-            peers_registry.try_outbound_peer(
-                peer_id.clone(),
-                connected_addr,
-                session_id,
-                session_type,
-            )
-        } else {
-            peers_registry.accept_inbound_peer(
-                peer_id.clone(),
-                connected_addr,
-                session_id,
-                session_type,
-            )
-        }?;
-        // add session to peer
-        match peers_registry.get_mut(&peer_id) {
-            Some(peer) => match peer.protocol_version(protocol_id) {
-                Some(_) => return Err(ProtocolError::Duplicate(protocol_id).into()),
-                None => {
-                    peer.protocols.insert(protocol_id, protocol_version);
-                }
-            },
-            None => unreachable!("get peer after inserted"),
-        }
-        Ok(register_result)
+        self.peers_registry.accept_connection(
+            peer_id,
+            connected_addr,
+            session_id,
+            session_type,
+            protocol_id,
+            protocol_version,
+        )
     }
 
     pub fn peer_protocol_version(
@@ -289,20 +262,25 @@ impl NetworkState {
         peer_id: &PeerId,
         protocol_id: ProtocolId,
     ) -> Option<ProtocolVersion> {
-        let peers_registry = self.peers_registry.read();
-        peers_registry
+        self.peers_registry
+            .peers_guard()
+            .read()
             .get(peer_id)
             .and_then(|peer| peer.protocol_version(protocol_id))
     }
+
     pub fn session_info(&self, peer_id: &PeerId, protocol_id: ProtocolId) -> Option<SessionInfo> {
-        let peers_registry = self.peers_registry.read();
-        peers_registry.get(peer_id).map(|peer| {
-            let protocol_version = peer.protocol_version(protocol_id);
-            SessionInfo {
-                peer: peer.clone(),
-                protocol_version,
-            }
-        })
+        self.peers_registry
+            .peers_guard()
+            .read()
+            .get(peer_id)
+            .map(|peer| {
+                let protocol_version = peer.protocol_version(protocol_id);
+                SessionInfo {
+                    peer: peer.clone(),
+                    protocol_version,
+                }
+            })
     }
 
     pub fn get_protocol_ids<F: Fn(ProtocolId) -> bool>(&self, filter: F) -> Vec<ProtocolId> {
@@ -398,7 +376,7 @@ impl ServiceHandle for EventHandler {
                 .map(|pubkey| pubkey.peer_id())
                 .expect("Secio must enabled");
 
-            let mut peer_store = self.network_state.peer_store().write();
+            let peer_store = self.network_state.peer_store();
             if peer_store.peer_status(&peer_id) == Status::Connected {
                 peer_store.report(&peer_id, Behaviour::UnexpectedDisconnect);
                 peer_store.update_status(&peer_id, Status::Disconnected);
@@ -432,7 +410,7 @@ impl ServiceHandle for EventHandler {
                     Ok(register_result) => {
                         // update status in peer_store
                         if let RegisterResult::New(_) = register_result {
-                            let mut peer_store = self.network_state.peer_store().write();
+                            let peer_store = self.network_state.peer_store();
                             peer_store.update_status(&peer_id, Status::Connected);
                         }
                     }
@@ -596,7 +574,6 @@ impl NetworkService {
         let bootnodes = self
             .network_state
             .peer_store()
-            .read()
             .bootnodes(max((config.max_outbound_peers / 2) as u32, 1))
             .clone();
         // dial half bootnodes
@@ -681,12 +658,13 @@ impl NetworkController {
     }
 
     pub fn connected_peers(&self) -> Vec<(PeerId, Peer, MultiaddrList)> {
-        let peer_store = self.network_state.peer_store().read();
+        let peer_store = self.network_state.peer_store();
 
         self.network_state
             .peers_registry
+            .peers_guard()
             .read()
-            .peers_iter()
+            .iter()
             .map(|(peer_id, peer)| {
                 (
                     peer_id.clone(),

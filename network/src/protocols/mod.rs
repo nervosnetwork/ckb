@@ -161,7 +161,7 @@ impl ServiceProtocol for CKBHandler {
             Ok(register_result) => {
                 // update status in peer_store
                 if let RegisterResult::New(_) = register_result {
-                    let mut peer_store = network.peer_store().write();
+                    let peer_store = network.peer_store();
                     peer_store.report(&peer_id, Behaviour::Connect);
                     peer_store.update_status(&peer_id, Status::Connected);
                 }
@@ -340,6 +340,7 @@ impl CKBProtocolContext for DefaultCKBProtocolContext {
         let session_id = self
             .network_state
             .peers_registry
+            .peers_guard()
             .read()
             .get(&peer_id)
             .ok_or_else(|| PeerError::NotFound(peer_id.to_owned()))
@@ -365,7 +366,6 @@ impl CKBProtocolContext for DefaultCKBProtocolContext {
             if self
                 .network_state
                 .peer_store()
-                .write()
                 .report(&peer_id, behaviour)
                 .is_banned()
             {

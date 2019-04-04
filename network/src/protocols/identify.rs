@@ -57,7 +57,7 @@ impl Callback for IdentifyCallback {
         );
         self.remote_listen_addrs
             .insert(peer_id.clone(), addrs.clone());
-        let mut peer_store = self.network_state.peer_store().write();
+        let peer_store = self.network_state.peer_store();
         for addr in addrs {
             let _ = peer_store.add_discovered_addr(&peer_id, addr);
         }
@@ -104,7 +104,6 @@ impl Callback for IdentifyCallback {
             let _ = self
                 .network_state
                 .peer_store()
-                .write()
                 .add_discovered_addr(local_peer_id, transformed_addr);
         }
         // NOTE: for future usage
