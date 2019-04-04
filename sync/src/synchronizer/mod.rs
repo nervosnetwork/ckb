@@ -35,7 +35,7 @@ use ckb_util::{try_option, Mutex, RwLock};
 use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
 use flatbuffers::FlatBufferBuilder;
-use log::{debug, info, warn};
+use log::{debug, info};
 use numext_fixed_hash::H256;
 use std::cmp;
 use std::collections::HashMap;
@@ -621,11 +621,8 @@ impl<CI: ChainIndex> Synchronizer<CI> {
             }
         }
         for peer in eviction {
-            warn!(target: "sync", "timeout eviction peer={}", peer);
-
-            // FIXME: learn how bitcoin handle this evicted peer, then fix this.
-            // nc.ban_peer(peer, Duration::from_secs(180));
-            // nc.disconnect(peer);
+            info!(target: "sync", "timeout eviction peer={}", peer);
+            nc.disconnect(peer);
         }
     }
 
