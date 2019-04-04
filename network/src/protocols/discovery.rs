@@ -126,6 +126,7 @@ impl ServiceProtocol for DiscoveryProtocol {
                 } else {
                     warn!(target: "network", "other channel error: {:?}", err);
                 }
+                self.discovery_senders.remove(&session.id);
             }
         }
     }
