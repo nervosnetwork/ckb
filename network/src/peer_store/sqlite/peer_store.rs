@@ -175,7 +175,7 @@ impl SqlitePeerStore {
                     conn,
                     peer_id,
                     &blank_addr,
-                    SessionType::Server,
+                    SessionType::Inbound,
                     self.peer_score_config.default_score,
                     Duration::from_secs(0),
                 )
@@ -234,7 +234,7 @@ impl PeerStore for SqlitePeerStore {
                     },
                 )?;
 
-                if endpoint == SessionType::Client {
+                if endpoint.is_outbound() {
                     let peer = db::PeerInfo::get_by_peer_id(conn, peer_id)?.expect("must have");
                     db::PeerAddr::update_connected_at(conn, peer.id, addr, now)?;
                 }

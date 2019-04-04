@@ -22,7 +22,7 @@ fn test_add_connected_peer() {
     let mut peer_store: Box<dyn PeerStore> = Box::new(new_peer_store());
     let peer_id = PeerId::random();
     let addr = "/ip4/127.0.0.1".to_multiaddr().unwrap();
-    peer_store.add_connected_peer(&peer_id, addr, SessionType::Client);
+    peer_store.add_connected_peer(&peer_id, addr, SessionType::Outbound);
     assert_eq!(
         peer_store.peer_score(&peer_id),
         Some(peer_store.peer_score_config().default_score)
@@ -56,7 +56,7 @@ fn test_update_status() {
     peer_store.update_status(&peer_id, Status::Connected);
     assert_eq!(peer_store.peer_status(&peer_id), Status::Unknown);
     let addr = "/ip4/127.0.0.1".to_multiaddr().unwrap();
-    peer_store.add_connected_peer(&peer_id, addr, SessionType::Server);
+    peer_store.add_connected_peer(&peer_id, addr, SessionType::Inbound);
     peer_store.update_status(&peer_id, Status::Connected);
     assert_eq!(peer_store.peer_status(&peer_id), Status::Connected);
 }
@@ -68,7 +68,7 @@ fn test_ban_peer() {
     peer_store.ban_peer(&peer_id, Duration::from_secs(10));
     assert!(!peer_store.is_banned(&peer_id));
     let addr = "/ip4/127.0.0.1".to_multiaddr().unwrap();
-    peer_store.add_connected_peer(&peer_id, addr, SessionType::Server);
+    peer_store.add_connected_peer(&peer_id, addr, SessionType::Inbound);
     peer_store.ban_peer(&peer_id, Duration::from_secs(10));
     assert!(peer_store.is_banned(&peer_id));
 }
@@ -78,7 +78,7 @@ fn test_attepmt_ban() {
     let mut peer_store: Box<dyn PeerStore> = Box::new(new_peer_store());
     let peer_id = PeerId::random();
     let addr = "/ip4/127.0.0.1".to_multiaddr().unwrap();
-    peer_store.add_connected_peer(&peer_id, addr.clone(), SessionType::Server);
+    peer_store.add_connected_peer(&peer_id, addr.clone(), SessionType::Inbound);
     peer_store.add_discovered_addr(&peer_id, addr.clone());
     assert_eq!(peer_store.peers_to_attempt(2).len(), 1);
     peer_store.ban_peer(&peer_id, Duration::from_secs(10));
@@ -132,7 +132,7 @@ fn test_peers_to_feeler() {
     peer_store.update_status(&peer_id2, Status::Unknown);
     assert_eq!(peer_store.peers_to_feeler(2).len(), 1);
     // peer does not need feeler if it connected to us recently
-    peer_store.add_connected_peer(&peer_id2, addr.clone(), SessionType::Server);
+    peer_store.add_connected_peer(&peer_id2, addr.clone(), SessionType::Inbound);
     peer_store.update_status(&peer_id2, Status::Unknown);
     assert!(peer_store.peers_to_feeler(1).is_empty());
 }
@@ -149,7 +149,7 @@ fn test_random_peers() {
     peer_store.add_discovered_addr(&peer_id2, addr.clone());
     // random should not return peer that we have never connected to
     assert!(peer_store.random_peers(1).is_empty());
-    peer_store.add_connected_peer(&peer_id2, addr.clone(), SessionType::Server);
+    peer_store.add_connected_peer(&peer_id2, addr.clone(), SessionType::Inbound);
     assert_eq!(peer_store.random_peers(2).len(), 1);
     peer_store.update_status(&peer_id2, Status::Connected);
     assert_eq!(peer_store.random_peers(1).len(), 1);
@@ -170,7 +170,7 @@ fn test_delete_peer_info() {
                     conn,
                     &PeerId::random(),
                     &addr1,
-                    SessionType::Server,
+                    SessionType::Inbound,
                     peer_store.peer_score_config().default_score,
                     now,
                 )?;
@@ -187,8 +187,8 @@ fn test_delete_peer_info() {
         let faketime_file = faketime::millis_tempfile(recent_not_seen_time.as_secs() * 1000)
             .expect("create faketime file");
         faketime::enable(&faketime_file);
-        peer_store.add_connected_peer(&evict_target, addr1.clone(), SessionType::Server);
-        peer_store.add_connected_peer(&fake_target, addr2, SessionType::Server);
+        peer_store.add_connected_peer(&evict_target, addr1.clone(), SessionType::Inbound);
+        peer_store.add_connected_peer(&fake_target, addr2, SessionType::Inbound);
     }
     peer_store.report(&evict_target, Behaviour::FailedToPing);
     peer_store.report(&fake_target, Behaviour::FailedToPing);
@@ -199,7 +199,7 @@ fn test_delete_peer_info() {
             < peer_store.peer_score_config().default_score
     );
     // should evict evict_target and accept this
-    peer_store.add_connected_peer(&PeerId::random(), addr1, SessionType::Server);
+    peer_store.add_connected_peer(&PeerId::random(), addr1, SessionType::Inbound);
     // evict_target is evicted in previous step
     assert_eq!(peer_store.peer_score(&evict_target), None);
 }

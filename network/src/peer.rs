@@ -50,13 +50,13 @@ impl Peer {
     }
     #[inline]
     pub fn is_outbound(&self) -> bool {
-        self.session_type == SessionType::Client
+        self.session_type.is_outbound()
     }
 
     #[allow(dead_code)]
     #[inline]
     pub fn is_inbound(&self) -> bool {
-        !self.is_outbound()
+        self.session_type.is_inbound()
     }
 
     #[inline]

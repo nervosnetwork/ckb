@@ -371,14 +371,14 @@ fn duration_to_secs(duration: Duration) -> u32 {
 }
 
 fn endpoint_to_bool(endpoint: SessionType) -> bool {
-    endpoint == SessionType::Server
+    endpoint.is_inbound()
 }
 
 fn bool_to_endpoint(is_inbound: bool) -> SessionType {
     if is_inbound {
-        SessionType::Server
+        SessionType::Inbound
     } else {
-        SessionType::Client
+        SessionType::Outbound
     }
 }
 

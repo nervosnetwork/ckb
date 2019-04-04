@@ -1096,7 +1096,7 @@ mod tests {
                 0,
                 "/ip4/127.0.0.1".to_multiaddr().expect("parse multiaddr"),
                 1,
-                SessionType::Client,
+                SessionType::Outbound,
             ),
             protocol_version: None,
         }

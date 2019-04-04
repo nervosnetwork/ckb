@@ -18,7 +18,7 @@ fn test_accept_inbound_peer_in_reserve_only_mode() {
     let reserved_peer = PeerId::random();
     let addr = "/ip4/127.0.0.1".to_multiaddr().unwrap();
     let session_id = 1;
-    let session_type = SessionType::Server;
+    let session_type = SessionType::Inbound;
 
     // reserved_only mode: only accept reserved_peer
     let mut peers = PeersRegistry::new(
@@ -47,7 +47,7 @@ fn test_accept_inbound_peer_until_full() {
     let reserved_peer = PeerId::random();
     let addr = "/ip4/127.0.0.1".to_multiaddr().unwrap();
     let session_id = 1;
-    let session_type = SessionType::Server;
+    let session_type = SessionType::Inbound;
     // accept node until inbound connections is full
     let mut peers = PeersRegistry::new(
         Arc::clone(&peer_store),
@@ -97,7 +97,7 @@ fn test_accept_inbound_peer_eviction() {
     let addr1 = "/ip4/127.0.0.1".to_multiaddr().unwrap();
     let addr2 = "/ip4/192.168.0.1".to_multiaddr().unwrap();
     let session_id = 1;
-    let session_type = SessionType::Server;
+    let session_type = SessionType::Inbound;
     // prepare protected peers
     let longest_connection_time_peers_count = 5;
     let protected_peers_count = 3 * EVICTION_PROTECT_PEERS + longest_connection_time_peers_count;
