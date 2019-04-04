@@ -10,7 +10,7 @@ use ckb_shared::index::ChainIndex;
 use ckb_traits::ChainProvider;
 use ckb_util::try_option;
 use faketime::unix_time_as_millis;
-use log::debug;
+use log::{debug, trace};
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 use std::cmp;
@@ -48,7 +48,7 @@ where
             .or_insert_with(Default::default);
 
         if inflight.timestamp < unix_time_as_millis().saturating_sub(BLOCK_DOWNLOAD_TIMEOUT) {
-            debug!(target: "sync", "[block downloader] inflight block download timeout");
+            trace!(target: "sync", "[block downloader] inflight block download timeout");
             inflight.clear();
         }
 
@@ -123,7 +123,7 @@ where
     }
 
     pub fn fetch(self) -> Option<Vec<H256>> {
-        debug!(target: "sync", "[block downloader] BlockFetcher process");
+        trace!(target: "sync", "[block downloader] BlockFetcher process");
 
         if self.initial_and_check_inflight() {
             debug!(target: "sync", "[block downloader] inflight count reach limit");
@@ -133,7 +133,7 @@ where
         let best_known_header = match self.peer_best_known_header() {
             Some(best_known_header) => best_known_header,
             _ => {
-                debug!(target: "sync", "[block downloader] peer_best_known_header not found peer={}", self.peer);
+                trace!(target: "sync", "[block downloader] peer_best_known_header not found peer={}", self.peer);
                 return None;
             }
         };

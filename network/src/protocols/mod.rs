@@ -11,7 +11,7 @@ use crate::{
     NetworkState, PeerIndex, ProtocolContext, ProtocolContextMutRef, ServiceControl, SessionInfo,
 };
 use bytes::Bytes;
-use log::{debug, error, info, warn};
+use log::{trace, debug, error, info, warn};
 use p2p::{
     builder::MetaBuilder,
     service::{ProtocolHandle, ProtocolMeta},
@@ -242,7 +242,7 @@ impl ServiceProtocol for CKBHandler {
                     .map(|peer_index| (peer_id, peer_index))
             })
         {
-            debug!(
+            trace!(
                 target: "network",
                 "ckb protocol received, addr: {}, protocol: {}, peer_id: {:?}",
                 session.address,
