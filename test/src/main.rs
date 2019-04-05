@@ -7,6 +7,7 @@ fn main() {
         filter: Some("info".to_owned()),
         color: true,
         file: None,
+        copy_to_stdout: true,
     };
     let _logger_guard = logger::init(log_config).expect("init Logger");
 

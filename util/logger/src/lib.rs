@@ -39,6 +39,7 @@ impl Logger {
         let (sender, receiver) = unbounded();
         let file = config.file;
         let enable_color = config.color;
+        let copy_to_stdout = config.copy_to_stdout;
 
         let tb = thread::Builder::new()
             .name("LogWriter".to_owned())
@@ -66,7 +67,9 @@ impl Logger {
                                 let _ = file.write_all(removed_color.as_bytes());
                                 let _ = file.write_all(b"\n");
                             };
-                            println!("{}", output);
+                            if copy_to_stdout {
+                                println!("{}", output);
+                            }
                         }
                         Ok(Message::Terminate) | Err(_) => {
                             break;
@@ -93,6 +96,7 @@ pub struct Config {
     pub filter: Option<String>,
     pub color: bool,
     pub file: Option<PathBuf>,
+    pub copy_to_stdout: bool,
 }
 
 impl Default for Config {
@@ -101,6 +105,7 @@ impl Default for Config {
             filter: None,
             color: !cfg!(windows),
             file: None,
+            copy_to_stdout: true,
         }
     }
 }

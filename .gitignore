@@ -39,4 +39,7 @@ tags
 .vagrant
 
 # runtime folder
-/nodes/
+/ckb.toml
+/ckb-miner.toml
+/data
+/specs

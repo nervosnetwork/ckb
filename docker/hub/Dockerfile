@@ -72,9 +72,6 @@ COPY --from=ckb-builder /ckb/target/release/ckb /bin/ckb
 RUN echo "#!/bin/bash \n ckb \$@" > ./entrypoint.sh
 RUN chmod +x ./entrypoint.sh
 
-# copy "nodes_template" to `WORKDIR`/nodes/
-COPY --chown=ckb:ckb nodes_template/ nodes/
-
 #switch use
 USER ckb
 

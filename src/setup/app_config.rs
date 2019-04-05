@@ -1,0 +1,190 @@
+use std::fs;
+use std::path::{Path, PathBuf};
+
+use serde_derive::Deserialize;
+
+use ckb_chain_spec::ChainSpec;
+use ckb_db::DBConfig;
+use ckb_miner::BlockAssemblerConfig;
+use ckb_miner::MinerConfig;
+use ckb_network::NetworkConfig;
+use ckb_resource::{Resource, ResourceLocator};
+use ckb_rpc::Config as RpcConfig;
+use ckb_shared::tx_pool::TxPoolConfig;
+use ckb_sync::Config as SyncConfig;
+use logger::Config as LogConfig;
+
+use super::sentry_config::SentryConfig;
+use super::{cli, ExitCode};
+
+pub struct AppConfig {
+    resource: Resource,
+    content: AppConfigContent,
+}
+
+pub enum AppConfigContent {
+    CKB(Box<CKBAppConfig>),
+    Miner(Box<MinerAppConfig>),
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct CKBAppConfig {
+    pub chain: ChainConfig,
+    pub data_dir: PathBuf,
+    pub logger: LogConfig,
+    pub sentry: SentryConfig,
+
+    pub block_assembler: BlockAssemblerConfig,
+    #[serde(default)]
+    pub db: DBConfig,
+    pub network: NetworkConfig,
+    pub rpc: RpcConfig,
+    pub sync: SyncConfig,
+    pub tx_pool: TxPoolConfig,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct MinerAppConfig {
+    pub chain: ChainConfig,
+    pub data_dir: PathBuf,
+    pub logger: LogConfig,
+    pub sentry: SentryConfig,
+
+    pub miner: MinerConfig,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct ChainConfig {
+    pub spec: PathBuf,
+}
+
+impl AppConfig {
+    pub fn load_for_subcommand(
+        locator: &ResourceLocator,
+        subcommand_name: &str,
+    ) -> Result<AppConfig, ExitCode> {
+        match subcommand_name {
+            cli::CMD_MINER => {
+                let resource = locator.miner();
+                let config: MinerAppConfig = toml::from_slice(&resource.get()?)?;
+
+                Ok(AppConfig {
+                    resource,
+                    content: AppConfigContent::with_miner(
+                        config.derive_options(locator.root_dir())?,
+                    ),
+                })
+            }
+            _ => {
+                let resource = locator.ckb();
+                let config: CKBAppConfig = toml::from_slice(&resource.get()?)?;
+                Ok(AppConfig {
+                    resource,
+                    content: AppConfigContent::with_ckb(
+                        config.derive_options(locator.root_dir(), subcommand_name)?,
+                    ),
+                })
+            }
+        }
+    }
+
+    pub fn logger(&self) -> &LogConfig {
+        match &self.content {
+            AppConfigContent::CKB(config) => &config.logger,
+            AppConfigContent::Miner(config) => &config.logger,
+        }
+    }
+
+    pub fn sentry(&self) -> &SentryConfig {
+        match &self.content {
+            AppConfigContent::CKB(config) => &config.sentry,
+            AppConfigContent::Miner(config) => &config.sentry,
+        }
+    }
+
+    pub fn chain_spec(&self, locator: &ResourceLocator) -> Result<ChainSpec, ExitCode> {
+        let spec_path = PathBuf::from(match &self.content {
+            AppConfigContent::CKB(config) => &config.chain.spec,
+            AppConfigContent::Miner(config) => &config.chain.spec,
+        });
+        ChainSpec::resolve_relative_to(locator, spec_path, &self.resource).map_err(|err| {
+            eprintln!("{:?}", err);
+            ExitCode::Config
+        })
+    }
+
+    pub fn into_ckb(self) -> Result<Box<CKBAppConfig>, ExitCode> {
+        match self.content {
+            AppConfigContent::CKB(config) => Ok(config),
+            _ => {
+                eprintln!("unmatched config file");
+                Err(ExitCode::Failure)
+            }
+        }
+    }
+
+    pub fn into_miner(self) -> Result<Box<MinerAppConfig>, ExitCode> {
+        match self.content {
+            AppConfigContent::Miner(config) => Ok(config),
+            _ => {
+                eprintln!("unmatched config file");
+                Err(ExitCode::Failure)
+            }
+        }
+    }
+}
+
+impl AppConfigContent {
+    fn with_ckb(config: CKBAppConfig) -> AppConfigContent {
+        AppConfigContent::CKB(Box::new(config))
+    }
+    fn with_miner(config: MinerAppConfig) -> AppConfigContent {
+        AppConfigContent::Miner(Box::new(config))
+    }
+}
+
+impl CKBAppConfig {
+    fn derive_options(mut self, root_dir: &Path, subcommand_name: &str) -> Result<Self, ExitCode> {
+        self.data_dir = canonicalize_data_dir(self.data_dir, root_dir)?;
+        self.logger.file = Some(touch(
+            mkdir(self.data_dir.join("logs"))?.join(subcommand_name.to_string() + ".log"),
+        )?);
+        self.db.path = mkdir(self.data_dir.join("db"))?;
+        self.network.path = mkdir(self.data_dir.join("network"))?;
+
+        Ok(self)
+    }
+}
+
+impl MinerAppConfig {
+    fn derive_options(mut self, root_dir: &Path) -> Result<Self, ExitCode> {
+        self.data_dir = canonicalize_data_dir(self.data_dir, root_dir)?;
+        self.logger.file = Some(touch(mkdir(self.data_dir.join("logs"))?.join("miner.log"))?);
+
+        Ok(self)
+    }
+}
+
+fn canonicalize_data_dir(data_dir: PathBuf, root_dir: &Path) -> Result<PathBuf, ExitCode> {
+    let path = if data_dir.is_absolute() {
+        data_dir
+    } else {
+        root_dir.join(data_dir)
+    };
+
+    mkdir(path)
+}
+
+fn mkdir(dir: PathBuf) -> Result<PathBuf, ExitCode> {
+    fs::create_dir_all(&dir)?;
+    dir.canonicalize().map_err(Into::into)
+}
+
+fn touch(path: PathBuf) -> Result<PathBuf, ExitCode> {
+    fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)?;
+
+    Ok(path)
+}
