@@ -35,7 +35,7 @@ pub(crate) fn start_chain(
 
 fn create_cellbase(number: BlockNumber) -> Transaction {
     TransactionBuilder::default()
-        .input(CellInput::new_cellbase_input(number))
+        .input(CellInput::new_cellbase_input(number, 0))
         .output(CellOutput::new(
             5000,
             vec![],
@@ -81,6 +81,6 @@ pub(crate) fn create_transaction(parent: H256, unique_data: u8) -> Transaction {
             Script::always_success(),
             None,
         ))
-        .input(CellInput::new(OutPoint::new(parent, 0), vec![]))
+        .input(CellInput::new(OutPoint::new(parent, 0), 0, vec![]))
         .build()
 }

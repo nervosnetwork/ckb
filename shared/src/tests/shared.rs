@@ -1,35 +1,40 @@
 use crate::{
+    index::ChainIndex,
     shared::{Shared, SharedBuilder},
     store::{ChainKVStore, ChainStore, StoreBatch},
 };
 use ckb_core::{block::BlockBuilder, header::HeaderBuilder};
 use ckb_db::{KeyValueDB, MemoryKeyValueDB};
 use ckb_traits::BlockMedianTimeContext;
-use numext_fixed_hash::H256;
 
 fn new_shared() -> Shared<ChainKVStore<MemoryKeyValueDB>> {
     SharedBuilder::<MemoryKeyValueDB>::new().build()
 }
 
-fn insert_block_timestamps<T: KeyValueDB>(
-    store: &ChainKVStore<T>,
-    timestamps: &[u64],
-) -> Vec<H256> {
+fn insert_block_timestamps<T>(store: &ChainKVStore<T>, timestamps: &[u64])
+where
+    T: KeyValueDB,
+{
     let mut blocks = Vec::with_capacity(timestamps.len());
-    let mut hashes = Vec::with_capacity(timestamps.len());
-    let mut parent_hash = H256::zero();
+    let tip_header = store.get_tip_header().expect("tip");
+    let mut parent_hash = tip_header.hash();
+    let mut parent_number = tip_header.number();
     for timestamp in timestamps {
         let header = HeaderBuilder::default()
             .timestamp(*timestamp)
             .parent_hash(parent_hash.clone())
+            .number(parent_number + 1)
             .build();
         parent_hash = header.hash();
-        hashes.push(parent_hash.clone());
+        parent_number += 1;
         blocks.push(BlockBuilder::default().header(header).build());
     }
     let mut batch = store.new_batch().unwrap();
     for b in blocks {
         batch.insert_block(&b).unwrap();
+        batch
+            .insert_block_hash(b.header().number(), &b.header().hash())
+            .unwrap();
     }
     batch.commit().unwrap();
     hashes
@@ -39,19 +44,18 @@ fn insert_block_timestamps<T: KeyValueDB>(
 fn test_block_median_time() {
     let shared = new_shared();
     let chain_state = shared.chain_state().lock();
-    assert!((&*chain_state).block_median_time(&H256::zero()).is_none());
+    assert_eq!((&*chain_state).block_median_time(0), Some(0));
     let now = faketime::unix_time_as_millis();
-    let block_hashes = insert_block_timestamps(shared.store(), &[now]);
+    insert_block_timestamps(shared.store(), &[now]);
     assert_eq!(
-        (&*chain_state)
-            .block_median_time(&block_hashes[0])
-            .expect("median time"),
+        (&*chain_state).block_median_time(1).expect("median time"),
         now
     );
-    let block_hashes = insert_block_timestamps(shared.store(), &(0..=22).collect::<Vec<_>>());
+    let timestamps = (1..=22).collect::<Vec<_>>();
+    insert_block_timestamps(shared.store(), &timestamps);
     assert_eq!(
         (&*chain_state)
-            .block_median_time(&block_hashes.last().expect("last"))
+            .block_median_time(*timestamps.last().expect("last"))
             .expect("median time"),
         17
     );

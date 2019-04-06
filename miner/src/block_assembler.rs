@@ -317,7 +317,7 @@ impl<CI: ChainIndex + 'static> BlockAssembler<CI> {
         lock: Script,
     ) -> Result<Transaction, FailureError> {
         // NOTE: To generate different cellbase txid, we put header number in the input script
-        let input = CellInput::new_cellbase_input(header.number() + 1);
+        let input = CellInput::new_cellbase_input(header.number() + 1, 0);
         // NOTE: We could've just used byteorder to serialize u64 and hex string into bytes,
         // but the truth is we will modify this after we designed lock script anyway, so let's
         // stick to the simpler way and just convert everything to a single string, then to UTF8
@@ -569,7 +569,7 @@ mod tests {
 
     fn create_cellbase(number: BlockNumber) -> Transaction {
         TransactionBuilder::default()
-            .input(CellInput::new_cellbase_input(number))
+            .input(CellInput::new_cellbase_input(number, 0))
             .output(CellOutput::new(0, vec![], Script::default(), None))
             .build()
     }

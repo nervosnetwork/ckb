@@ -2,7 +2,7 @@ use crate::tests::util::{create_transaction, gen_block, start_chain};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::Block;
 use ckb_core::block::BlockBuilder;
-use ckb_core::cell::{CellProvider, CellStatus};
+use ckb_core::cell::{CellMeta, CellProvider, CellStatus};
 use ckb_core::header::HeaderBuilder;
 use ckb_core::script::Script;
 use ckb_core::transaction::{CellInput, CellOutput, OutPoint, TransactionBuilder};
@@ -14,7 +14,7 @@ use std::sync::Arc;
 #[test]
 fn test_genesis_transaction_spend() {
     let tx = TransactionBuilder::default()
-        .input(CellInput::new(OutPoint::null(), Default::default()))
+        .input(CellInput::new(OutPoint::null(), 0, Default::default()))
         .outputs(vec![
             CellOutput::new(
                 100_000_000,
@@ -173,7 +173,10 @@ fn test_transaction_spend_in_same_block() {
             .chain_state()
             .lock()
             .cell(&OutPoint::new(tx2_hash, 0)),
-        CellStatus::Live(tx2_output)
+        CellStatus::Live(CellMeta {
+            cell_output: tx2_output,
+            block_number: Some(4)
+        })
     );
 }
 
@@ -344,7 +347,7 @@ fn test_transaction_conflict_in_different_blocks() {
 #[test]
 fn test_genesis_transaction_fetch() {
     let tx = TransactionBuilder::default()
-        .input(CellInput::new(OutPoint::null(), Default::default()))
+        .input(CellInput::new(OutPoint::null(), 0, Default::default()))
         .outputs(vec![
             CellOutput::new(
                 100_000_000,

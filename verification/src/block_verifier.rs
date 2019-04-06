@@ -1,11 +1,11 @@
 use crate::error::{CellbaseError, CommitError, Error, UnclesError};
 use crate::header_verifier::HeaderResolver;
-use crate::{BlockContext, InputVerifier, TransactionVerifier, Verifier};
-use ckb_core::block::Block;
+use crate::{InputVerifier, TransactionVerifier, Verifier};
 use ckb_core::cell::ResolvedTransaction;
 use ckb_core::header::Header;
 use ckb_core::transaction::{Capacity, CellInput};
 use ckb_core::Cycle;
+use ckb_core::{block::Block, BlockNumber};
 use ckb_merkle_tree::merkle_root;
 use ckb_traits::{BlockMedianTimeContext, ChainProvider};
 use fnv::FnvHashSet;
@@ -85,8 +85,9 @@ impl<CP: ChainProvider + Clone> CellbaseVerifier<CP> {
         }
 
         let cellbase_transaction = &block.commit_transactions()[0];
-        if cellbase_transaction.inputs()[0]
-            != CellInput::new_cellbase_input(block.header().number())
+        let cellbase_input = &cellbase_transaction.inputs()[0];
+        if cellbase_input
+            != &CellInput::new_cellbase_input(block.header().number(), cellbase_input.valid_since)
         {
             return Err(Error::Cellbase(CellbaseError::InvalidInput));
         }
@@ -359,7 +360,8 @@ impl TransactionsVerifier {
         txs_verify_cache: &mut LruCache<H256, Cycle>,
         resolved: &[ResolvedTransaction],
         block_reward: Capacity,
-        block_context: BlockContext<M>,
+        block_median_time_context: M,
+        tip_number: BlockNumber,
     ) -> Result<(), Error>
     where
         M: BlockMedianTimeContext + Sync,
@@ -384,7 +386,7 @@ impl TransactionsVerifier {
                         .map_err(|e| Error::Transactions((index, e)))
                         .map(|_| (None, *cycles))
                 } else {
-                    TransactionVerifier::new(&tx, &block_context)
+                    TransactionVerifier::new(&tx, &block_median_time_context, tip_number)
                         .verify(self.max_cycles)
                         .map_err(|e| Error::Transactions((index, e)))
                         .map(|cycles| (Some(tx.transaction.hash()), cycles))

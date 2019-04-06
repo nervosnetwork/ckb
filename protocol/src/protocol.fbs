@@ -62,7 +62,6 @@ table UncleBlock {
 
 table Transaction {
     version:        uint32;
-    valid_since:    uint64;
     deps:           [OutPoint];
     inputs:         [CellInput];
     outputs:        [CellOutput];
@@ -81,6 +80,7 @@ table OutPoint {
 table CellInput {
     hash:           H256;
     index:          uint32;
+    valid_since:    uint64;
     args:           [Bytes];
 }
 

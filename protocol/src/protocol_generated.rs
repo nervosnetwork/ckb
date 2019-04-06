@@ -1427,7 +1427,6 @@ impl<'a> Transaction<'a> {
         _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr>,
         args: &'args TransactionArgs<'args>) -> flatbuffers::WIPOffset<Transaction<'bldr>> {
       let mut builder = TransactionBuilder::new(_fbb);
-      builder.add_valid_since(args.valid_since);
       if let Some(x) = args.witnesses { builder.add_witnesses(x); }
       if let Some(x) = args.outputs { builder.add_outputs(x); }
       if let Some(x) = args.inputs { builder.add_inputs(x); }
@@ -1437,19 +1436,14 @@ impl<'a> Transaction<'a> {
     }
 
     pub const VT_VERSION: flatbuffers::VOffsetT = 4;
-    pub const VT_VALID_SINCE: flatbuffers::VOffsetT = 6;
-    pub const VT_DEPS: flatbuffers::VOffsetT = 8;
-    pub const VT_INPUTS: flatbuffers::VOffsetT = 10;
-    pub const VT_OUTPUTS: flatbuffers::VOffsetT = 12;
-    pub const VT_WITNESSES: flatbuffers::VOffsetT = 14;
+    pub const VT_DEPS: flatbuffers::VOffsetT = 6;
+    pub const VT_INPUTS: flatbuffers::VOffsetT = 8;
+    pub const VT_OUTPUTS: flatbuffers::VOffsetT = 10;
+    pub const VT_WITNESSES: flatbuffers::VOffsetT = 12;
 
   #[inline]
   pub fn version(&self) -> u32 {
     self._tab.get::<u32>(Transaction::VT_VERSION, Some(0)).unwrap()
-  }
-  #[inline]
-  pub fn valid_since(&self) -> u64 {
-    self._tab.get::<u64>(Transaction::VT_VALID_SINCE, Some(0)).unwrap()
   }
   #[inline]
   pub fn deps(&self) -> Option<flatbuffers::Vector<flatbuffers::ForwardsUOffset<OutPoint<'a>>>> {
@@ -1471,7 +1465,6 @@ impl<'a> Transaction<'a> {
 
 pub struct TransactionArgs<'a> {
     pub version: u32,
-    pub valid_since: u64,
     pub deps: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a , flatbuffers::ForwardsUOffset<OutPoint<'a >>>>>,
     pub inputs: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a , flatbuffers::ForwardsUOffset<CellInput<'a >>>>>,
     pub outputs: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a , flatbuffers::ForwardsUOffset<CellOutput<'a >>>>>,
@@ -1482,7 +1475,6 @@ impl<'a> Default for TransactionArgs<'a> {
     fn default() -> Self {
         TransactionArgs {
             version: 0,
-            valid_since: 0,
             deps: None,
             inputs: None,
             outputs: None,
@@ -1498,10 +1490,6 @@ impl<'a: 'b, 'b> TransactionBuilder<'a, 'b> {
   #[inline]
   pub fn add_version(&mut self, version: u32) {
     self.fbb_.push_slot::<u32>(Transaction::VT_VERSION, version, 0);
-  }
-  #[inline]
-  pub fn add_valid_since(&mut self, valid_since: u64) {
-    self.fbb_.push_slot::<u64>(Transaction::VT_VALID_SINCE, valid_since, 0);
   }
   #[inline]
   pub fn add_deps(&mut self, deps: flatbuffers::WIPOffset<flatbuffers::Vector<'b , flatbuffers::ForwardsUOffset<OutPoint<'b >>>>) {
@@ -1727,6 +1715,7 @@ impl<'a> CellInput<'a> {
         _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr>,
         args: &'args CellInputArgs<'args>) -> flatbuffers::WIPOffset<CellInput<'bldr>> {
       let mut builder = CellInputBuilder::new(_fbb);
+      builder.add_valid_since(args.valid_since);
       if let Some(x) = args.args { builder.add_args(x); }
       builder.add_index(args.index);
       if let Some(x) = args.hash { builder.add_hash(x); }
@@ -1735,7 +1724,8 @@ impl<'a> CellInput<'a> {
 
     pub const VT_HASH: flatbuffers::VOffsetT = 4;
     pub const VT_INDEX: flatbuffers::VOffsetT = 6;
-    pub const VT_ARGS: flatbuffers::VOffsetT = 8;
+    pub const VT_VALID_SINCE: flatbuffers::VOffsetT = 8;
+    pub const VT_ARGS: flatbuffers::VOffsetT = 10;
 
   #[inline]
   pub fn hash(&self) -> Option<&'a H256> {
@@ -1746,6 +1736,10 @@ impl<'a> CellInput<'a> {
     self._tab.get::<u32>(CellInput::VT_INDEX, Some(0)).unwrap()
   }
   #[inline]
+  pub fn valid_since(&self) -> u64 {
+    self._tab.get::<u64>(CellInput::VT_VALID_SINCE, Some(0)).unwrap()
+  }
+  #[inline]
   pub fn args(&self) -> Option<flatbuffers::Vector<flatbuffers::ForwardsUOffset<Bytes<'a>>>> {
     self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<flatbuffers::ForwardsUOffset<Bytes<'a>>>>>(CellInput::VT_ARGS, None)
   }
@@ -1754,6 +1748,7 @@ impl<'a> CellInput<'a> {
 pub struct CellInputArgs<'a> {
     pub hash: Option<&'a  H256>,
     pub index: u32,
+    pub valid_since: u64,
     pub args: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a , flatbuffers::ForwardsUOffset<Bytes<'a >>>>>,
 }
 impl<'a> Default for CellInputArgs<'a> {
@@ -1762,6 +1757,7 @@ impl<'a> Default for CellInputArgs<'a> {
         CellInputArgs {
             hash: None,
             index: 0,
+            valid_since: 0,
             args: None,
         }
     }
@@ -1778,6 +1774,10 @@ impl<'a: 'b, 'b> CellInputBuilder<'a, 'b> {
   #[inline]
   pub fn add_index(&mut self, index: u32) {
     self.fbb_.push_slot::<u32>(CellInput::VT_INDEX, index, 0);
+  }
+  #[inline]
+  pub fn add_valid_since(&mut self, valid_since: u64) {
+    self.fbb_.push_slot::<u64>(CellInput::VT_VALID_SINCE, valid_since, 0);
   }
   #[inline]
   pub fn add_args(&mut self, args: flatbuffers::WIPOffset<flatbuffers::Vector<'b , flatbuffers::ForwardsUOffset<Bytes<'b >>>>) {

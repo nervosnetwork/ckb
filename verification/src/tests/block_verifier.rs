@@ -12,7 +12,7 @@ use std::collections::HashMap;
 
 fn create_cellbase_transaction_with_capacity(capacity: Capacity) -> Transaction {
     TransactionBuilder::default()
-        .input(CellInput::new_cellbase_input(0))
+        .input(CellInput::new_cellbase_input(0, 0))
         .output(CellOutput::new(
             capacity,
             Vec::new(),
@@ -30,6 +30,7 @@ fn create_normal_transaction() -> Transaction {
     TransactionBuilder::default()
         .input(CellInput::new(
             OutPoint::new(H256::from_trimmed_hex_str("1").unwrap(), 0),
+            0,
             Default::default(),
         ))
         .output(CellOutput::new(100, Vec::new(), Script::default(), None))

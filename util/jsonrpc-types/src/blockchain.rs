@@ -114,14 +114,16 @@ impl TryFrom<OutPoint> for CoreOutPoint {
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct CellInput {
     pub previous_output: OutPoint,
+    pub valid_since: u64,
     pub args: Vec<Bytes>,
 }
 
 impl From<CoreCellInput> for CellInput {
     fn from(core: CoreCellInput) -> CellInput {
-        let (previous_output, args) = core.destruct();
+        let (previous_output, valid_since, args) = core.destruct();
         CellInput {
             previous_output: previous_output.into(),
+            valid_since,
             args: args.into_iter().map(Bytes::new).collect(),
         }
     }
@@ -133,10 +135,12 @@ impl TryFrom<CellInput> for CoreCellInput {
     fn try_from(json: CellInput) -> Result<Self, Self::Error> {
         let CellInput {
             previous_output,
+            valid_since,
             args,
         } = json;
         Ok(CoreCellInput::new(
             previous_output.try_into()?,
+            valid_since,
             args.into_iter().map(Bytes::into_vec).collect(),
         ))
     }
@@ -166,7 +170,6 @@ impl TryFrom<Witness> for CoreWitness {
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct Transaction {
     pub version: u32,
-    pub valid_since: u64,
     pub deps: Vec<OutPoint>,
     pub inputs: Vec<CellInput>,
     pub outputs: Vec<CellOutput>,
@@ -181,7 +184,6 @@ impl<'a> From<&'a CoreTransaction> for Transaction {
 
         Transaction {
             version: core.version(),
-            valid_since: core.valid_since(),
             deps: core.deps().iter().cloned().map(Into::into).collect(),
             inputs: core.inputs().iter().cloned().map(Into::into).collect(),
             outputs: core.outputs().iter().cloned().map(Into::into).collect(),
@@ -197,7 +199,6 @@ impl TryFrom<Transaction> for CoreTransaction {
     fn try_from(json: Transaction) -> Result<Self, Self::Error> {
         let Transaction {
             version,
-            valid_since,
             deps,
             inputs,
             outputs,
@@ -207,7 +208,6 @@ impl TryFrom<Transaction> for CoreTransaction {
 
         Ok(TransactionBuilder::default()
             .version(version)
-            .valid_since(valid_since)
             .deps(
                 deps.into_iter()
                     .map(TryInto::try_into)
@@ -443,7 +443,7 @@ mod tests {
     }
 
     fn mock_cell_input(arg: Vec<u8>) -> CoreCellInput {
-        CoreCellInput::new(CoreOutPoint::default(), vec![arg])
+        CoreCellInput::new(CoreOutPoint::default(), 0, vec![arg])
     }
 
     fn mock_full_tx(data: Vec<u8>, arg: Vec<u8>) -> CoreTransaction {

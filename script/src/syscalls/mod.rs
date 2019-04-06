@@ -663,7 +663,7 @@ mod tests {
         builder.finish(offset, None);
         let args_data = builder.finished_data();
 
-        let input = CellInput::new(OutPoint::default(), args);
+        let input = CellInput::new(OutPoint::default(), 0, args);
         let inputs = vec![&input];
         let mut load_input = LoadInputByField::new(&inputs, Some(&input));
 
@@ -723,7 +723,7 @@ mod tests {
         builder.finish(offset, None);
         let args_data = builder.finished_data();
 
-        let input = CellInput::new(OutPoint::default(), args);
+        let input = CellInput::new(OutPoint::default(), 0, args);
         let inputs = vec![&input];
         let mut load_input = LoadInputByField::new(&inputs, Some(&input));
 
@@ -773,7 +773,7 @@ mod tests {
         builder.finish(fbs_offset, None);
         let out_point_data = builder.finished_data();
 
-        let input = CellInput::new(out_point, vec![]);
+        let input = CellInput::new(out_point, 0, vec![]);
         let inputs = vec![];
         let mut load_input = LoadInputByField::new(&inputs, Some(&input));
 

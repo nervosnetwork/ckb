@@ -28,7 +28,7 @@ impl From<CellStatus> for CellWithStatus {
             CellStatus::Unknown => (None, "unknown"),
         };
         Self {
-            cell: cell.map(Into::into),
+            cell: cell.map(|cell| cell.cell_output.into()),
             status: status.to_string(),
         }
     }

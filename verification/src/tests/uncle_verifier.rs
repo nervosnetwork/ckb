@@ -56,7 +56,7 @@ fn start_chain(
 
 fn create_cellbase(number: BlockNumber) -> Transaction {
     TransactionBuilder::default()
-        .input(CellInput::new_cellbase_input(number))
+        .input(CellInput::new_cellbase_input(number, 0))
         .output(CellOutput::new(0, vec![], Script::default(), None))
         .build()
 }

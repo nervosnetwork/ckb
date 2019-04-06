@@ -7,9 +7,15 @@ use std::iter::Chain;
 use std::slice;
 
 #[derive(Clone, PartialEq, Debug)]
+pub struct CellMeta {
+    pub cell_output: CellOutput,
+    pub block_number: Option<u64>,
+}
+
+#[derive(Clone, PartialEq, Debug)]
 pub enum CellStatus {
     /// Cell exists and has not been spent.
-    Live(CellOutput),
+    Live(CellMeta),
     /// Cell exists and has been spent.
     Dead,
     /// Cell does not exist.
@@ -32,14 +38,14 @@ impl CellStatus {
         self == &CellStatus::Unknown
     }
 
-    pub fn get_live(&self) -> Option<&CellOutput> {
+    pub fn get_live(&self) -> Option<&CellMeta> {
         match *self {
             CellStatus::Live(ref output) => Some(output),
             _ => None,
         }
     }
 
-    pub fn take_live(self) -> Option<CellOutput> {
+    pub fn take_live(self) -> Option<CellMeta> {
         match self {
             CellStatus::Live(output) => Some(output),
             _ => None,
@@ -114,7 +120,10 @@ impl<'a> CellProvider for BlockCellProvider<'a> {
                 .outputs()
                 .get(out_point.index as usize)
             {
-                Some(x) => CellStatus::Live(x.clone()),
+                Some(x) => CellStatus::Live(CellMeta {
+                    cell_output: x.clone(),
+                    block_number: Some(self.block.header().number()),
+                }),
                 None => CellStatus::Unknown,
             }
         } else {
@@ -191,8 +200,8 @@ impl ResolvedTransaction {
         self.input_cells
             .iter()
             .filter_map(|cell_status| {
-                if let CellStatus::Live(cell_output) = cell_status {
-                    Some(cell_output.capacity)
+                if let CellStatus::Live(cell_meta) = cell_status {
+                    Some(cell_meta.cell_output.capacity)
                 } else {
                     None
                 }
@@ -209,12 +218,12 @@ mod tests {
     use std::collections::HashMap;
 
     struct CellMemoryDb {
-        cells: HashMap<OutPoint, Option<CellOutput>>,
+        cells: HashMap<OutPoint, Option<CellMeta>>,
     }
     impl CellProvider for CellMemoryDb {
         fn cell(&self, o: &OutPoint) -> CellStatus {
             match self.cells.get(o) {
-                Some(&Some(ref cell_output)) => CellStatus::Live(cell_output.clone()),
+                Some(&Some(ref cell)) => CellStatus::Live(cell.clone()),
                 Some(&None) => CellStatus::Dead,
                 None => CellStatus::Unknown,
             }
@@ -239,11 +248,14 @@ mod tests {
             hash: H256::zero(),
             index: 3,
         };
-        let o = CellOutput {
-            capacity: 2,
-            data: vec![],
-            lock: Script::default(),
-            type_: None,
+        let o = CellMeta {
+            block_number: Some(1),
+            cell_output: CellOutput {
+                capacity: 2,
+                data: vec![],
+                lock: Script::default(),
+                type_: None,
+            },
         };
 
         db.cells.insert(p1.clone(), Some(o.clone()));

@@ -104,7 +104,6 @@ impl<'a> FbsTransaction<'a> {
 
         let mut builder = TransactionBuilder::new(fbb);
         builder.add_version(transaction.version());
-        builder.add_valid_since(transaction.valid_since());
         builder.add_deps(deps);
         builder.add_inputs(inputs);
         builder.add_outputs(outputs);
@@ -157,6 +156,7 @@ impl<'a> FbsCellInput<'a> {
         let mut builder = CellInputBuilder::new(fbb);
         builder.add_hash(&hash);
         builder.add_index(cell_input.previous_output.index);
+        builder.add_valid_since(cell_input.valid_since);
         builder.add_args(args);
         builder.finish()
     }

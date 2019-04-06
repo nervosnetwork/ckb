@@ -6,13 +6,14 @@ use crate::tx_proposal_table::TxProposalTable;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::Block;
 use ckb_core::cell::{
-    resolve_transaction, CellProvider, CellStatus, OverlayCellProvider, ResolvedTransaction,
+    resolve_transaction, CellMeta, CellProvider, CellStatus, OverlayCellProvider,
+    ResolvedTransaction,
 };
 use ckb_core::header::{BlockNumber, Header};
 use ckb_core::transaction::{OutPoint, ProposalShortId, Transaction};
 use ckb_core::Cycle;
 use ckb_traits::BlockMedianTimeContext;
-use ckb_verification::{BlockContext, TransactionError, TransactionVerifier};
+use ckb_verification::{TransactionError, TransactionVerifier};
 use fnv::FnvHashSet;
 use log::{error, trace};
 use lru_cache::LruCache;
@@ -157,12 +158,8 @@ impl<CI: ChainIndex> ChainState<CI> {
         match ret {
             Some(cycles) => Ok(cycles),
             None => {
-                let block_context = BlockContext {
-                    tip_number: self.tip_number(),
-                    tip_hash: self.tip_hash(),
-                    block_median_time_context: self,
-                };
-                let cycles = TransactionVerifier::new(&rtx, &block_context).verify(max_cycles)?;
+                let cycles =
+                    TransactionVerifier::new(&rtx, &self, self.tip_number()).verify(max_cycles)?;
                 // write cache
                 self.txs_verify_cache.borrow_mut().insert(tx_hash, cycles);
                 Ok(cycles)
@@ -355,14 +352,20 @@ impl<CI: ChainIndex> ChainState<CI> {
 
 impl<CI: ChainIndex> CellProvider for ChainState<CI> {
     fn cell(&self, out_point: &OutPoint) -> CellStatus {
-        match self.is_dead(out_point) {
-            Some(true) => CellStatus::Dead,
-            Some(false) => {
-                let tx = self
-                    .store
-                    .get_transaction(&out_point.hash)
-                    .expect("store should be consistent with cell_set");
-                CellStatus::Live(tx.outputs()[out_point.index as usize].clone())
+        match self.cell_set().get(&out_point.hash) {
+            Some(tx_meta) => {
+                if tx_meta.is_dead(out_point.index as usize) {
+                    CellStatus::Dead
+                } else {
+                    let tx = self
+                        .store
+                        .get_transaction(&out_point.hash)
+                        .expect("store should be consistent with cell_set");
+                    CellStatus::Live(CellMeta {
+                        cell_output: tx.outputs()[out_point.index as usize].clone(),
+                        block_number: Some(tx_meta.block_number()),
+                    })
+                }
             }
             None => CellStatus::Unknown,
         }
@@ -370,17 +373,15 @@ impl<CI: ChainIndex> CellProvider for ChainState<CI> {
 }
 
 impl<CI: ChainIndex> BlockMedianTimeContext for &ChainState<CI> {
-    fn block_count(&self) -> u32 {
-        self.consensus.median_time_block_count() as u32
+    fn median_block_count(&self) -> u64 {
+        self.consensus.median_time_block_count() as u64
     }
 
-    fn timestamp(&self, hash: &H256) -> Option<u64> {
-        self.store.get_header(hash).map(|header| header.timestamp())
-    }
-
-    fn parent_hash(&self, hash: &H256) -> Option<H256> {
-        self.store
-            .get_header(hash)
-            .map(|header| header.parent_hash().to_owned())
+    fn timestamp(&self, number: BlockNumber) -> Option<u64> {
+        self.store.get_block_hash(number).and_then(|hash| {
+            self.store
+                .get_header(&hash)
+                .map(|header| header.timestamp())
+        })
     }
 }

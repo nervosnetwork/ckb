@@ -63,32 +63,36 @@ impl OutPoint {
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug, OccupiedCapacity)]
 pub struct CellInput {
     pub previous_output: OutPoint,
+    pub valid_since: u64,
     // Depends on whether the operation is Transform or Destroy, this is the proof to transform
     // lock or destroy lock.
     pub args: Vec<Vec<u8>>,
 }
 
 impl CellInput {
-    pub fn new(previous_output: OutPoint, args: Vec<Vec<u8>>) -> Self {
+    pub fn new(previous_output: OutPoint, valid_since: u64, args: Vec<Vec<u8>>) -> Self {
         CellInput {
             previous_output,
+            valid_since,
             args,
         }
     }
 
-    pub fn new_cellbase_input(block_number: BlockNumber) -> Self {
+    pub fn new_cellbase_input(block_number: BlockNumber, valid_since: u64) -> Self {
         CellInput {
             previous_output: OutPoint::null(),
+            valid_since,
             args: vec![block_number.to_le_bytes().to_vec()],
         }
     }
 
-    pub fn destruct(self) -> (OutPoint, Vec<Vec<u8>>) {
+    pub fn destruct(self) -> (OutPoint, u64, Vec<Vec<u8>>) {
         let CellInput {
             previous_output,
+            valid_since,
             args,
         } = self;
-        (previous_output, args)
+        (previous_output, valid_since, args)
     }
 }
 
@@ -146,7 +150,6 @@ pub type Witness = Vec<Vec<u8>>;
 #[derive(Clone, Serialize, Deserialize, Eq, Debug, Default, OccupiedCapacity)]
 pub struct Transaction {
     version: Version,
-    valid_since: u64,
     deps: Vec<OutPoint>,
     inputs: Vec<CellInput>,
     outputs: Vec<CellOutput>,
@@ -177,10 +180,6 @@ impl PartialEq for Transaction {
 impl Transaction {
     pub fn version(&self) -> u32 {
         self.version
-    }
-
-    pub fn valid_since(&self) -> u64 {
-        self.valid_since
     }
 
     pub fn deps(&self) -> &[OutPoint] {
@@ -280,11 +279,6 @@ impl TransactionBuilder {
 
     pub fn version(mut self, version: u32) -> Self {
         self.inner.version = version;
-        self
-    }
-
-    pub fn valid_since(mut self, valid_since: u64) -> Self {
-        self.inner.valid_since = valid_since;
         self
     }
 

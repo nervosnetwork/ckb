@@ -16,7 +16,7 @@ use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::Shared;
 use ckb_shared::store::StoreBatch;
 use ckb_traits::{BlockMedianTimeContext, ChainProvider};
-use ckb_verification::{BlockContext, BlockVerifier, TransactionsVerifier, Verifier};
+use ckb_verification::{BlockVerifier, TransactionsVerifier, Verifier};
 use crossbeam_channel::{self, select, Receiver, Sender};
 use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
@@ -106,29 +106,28 @@ struct ForkContext<'a, CI> {
 }
 
 impl<'a, CI: ChainIndex> ForkContext<'a, CI> {
-    fn get_header(&self, hash: &H256) -> Option<Header> {
-        self.fork_blocks
+    fn get_header(&self, number: BlockNumber) -> Option<Header> {
+        match self
+            .fork_blocks
             .iter()
-            .find(|b| &b.header().hash() == hash)
-            .map_or_else(
-                || self.store.get_header(hash),
-                |b| Some(b.header().to_owned()),
-            )
+            .find(|b| b.header().number() == number)
+        {
+            Some(block) => Some(block.header().to_owned()),
+            None => self
+                .store
+                .get_block_hash(number)
+                .and_then(|hash| self.store.get_header(&hash)),
+        }
     }
 }
 
 impl<'a, CI: ChainIndex> BlockMedianTimeContext for ForkContext<'a, CI> {
-    fn block_count(&self) -> u32 {
-        self.consensus.median_time_block_count() as u32
+    fn median_block_count(&self) -> u64 {
+        self.consensus.median_time_block_count() as u64
     }
 
-    fn timestamp(&self, hash: &H256) -> Option<u64> {
-        self.get_header(hash).map(|header| header.timestamp())
-    }
-
-    fn parent_hash(&self, hash: &H256) -> Option<H256> {
-        self.get_header(hash)
-            .map(|header| header.parent_hash().to_owned())
+    fn timestamp(&self, number: BlockNumber) -> Option<u64> {
+        self.get_header(number).map(|header| header.timestamp())
     }
 }
 
@@ -465,16 +464,6 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
                     let block_cp = BlockCellProvider::new(b);
                     let cell_provider = OverlayCellProvider::new(&block_cp, &cell_set_diff_cp);
 
-                    let block_context = BlockContext {
-                        tip_number: b.header().number(),
-                        tip_hash: b.header().hash(),
-                        block_median_time_context: ForkContext {
-                            fork_blocks: &fork.attached_blocks,
-                            store: Arc::clone(self.shared.store()),
-                            consensus: self.shared.consensus(),
-                        },
-                    };
-
                     let resolved: Vec<ResolvedTransaction> = b
                         .commit_transactions()
                         .iter()
@@ -485,7 +474,12 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
                         chain_state.mut_txs_verify_cache(),
                         &resolved,
                         self.shared.block_reward(b.header().number()),
-                        block_context,
+                        ForkContext {
+                            fork_blocks: &fork.attached_blocks,
+                            store: Arc::clone(self.shared.store()),
+                            consensus: self.shared.consensus(),
+                        },
+                        b.header().number(),
                     ) {
                         Ok(_) => {
                             cell_set_diff.push_new(b);

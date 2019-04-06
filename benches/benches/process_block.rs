@@ -134,7 +134,7 @@ fn new_chain() -> (
     TempDir,
 ) {
     let cellbase = TransactionBuilder::default()
-        .input(CellInput::new_cellbase_input(0))
+        .input(CellInput::new_cellbase_input(0, 0))
         .output(CellOutput::new(0, vec![], Script::default(), None))
         .build();
 
@@ -142,7 +142,7 @@ fn new_chain() -> (
     let commit_transactions: Vec<Transaction> = (0..100)
         .map(|i| {
             TransactionBuilder::default()
-                .input(CellInput::new(OutPoint::null(), vec![]))
+                .input(CellInput::new(OutPoint::null(), 0, vec![]))
                 .output(CellOutput::new(
                     50000,
                     vec![i],
@@ -183,7 +183,7 @@ fn gen_block(blocks: &mut Vec<Block>, parent_index: usize) {
     );
 
     let cellbase = TransactionBuilder::default()
-        .input(CellInput::new_cellbase_input(number))
+        .input(CellInput::new_cellbase_input(number, 0))
         .output(CellOutput::new(0, vec![], Script::default(), None))
         .build();
 
@@ -231,6 +231,6 @@ fn create_transaction(hash: H256) -> Transaction {
             Script::always_success(),
             None,
         ))
-        .input(CellInput::new(OutPoint::new(hash, 0), vec![]))
+        .input(CellInput::new(OutPoint::new(hash, 0), 0, vec![]))
         .build()
 }
