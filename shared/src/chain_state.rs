@@ -1,9 +1,9 @@
 use crate::cell_set::CellSet;
 use crate::cell_set::CellSetDiff;
 use crate::index::ChainIndex;
-use crate::tx_pool::{PoolEntry, PoolError, StagingTxResult, TxPool};
+use crate::tx_pool::{PoolEntry, PoolError, StagingTxResult, TxPool, TxPoolConfig};
 use crate::tx_proposal_table::TxProposalTable;
-use ckb_chain_spec::consensus::Consensus;
+use ckb_chain_spec::consensus::{Consensus, ProposalWindow};
 use ckb_core::block::Block;
 use ckb_core::cell::{
     resolve_transaction, CellMeta, CellProvider, CellStatus, OverlayCellProvider,
@@ -39,14 +39,35 @@ impl<CI: ChainIndex> ChainState<CI> {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         store: &Arc<CI>,
-        tip_header: Header,
-        total_difficulty: U256,
-        cell_set: CellSet,
-        proposal_ids: TxProposalTable,
-        tx_pool: TxPool,
-        txs_verify_cache: LruCache<H256, Cycle>,
         consensus: Arc<Consensus>,
+        txs_verify_cache_size: usize,
+        tx_pool_config: TxPoolConfig,
     ) -> Self {
+        // check head in store or save the genesis block as head
+        let tip_header = {
+            let genesis = consensus.genesis_block();
+            match store.get_tip_header() {
+                Some(h) => h,
+                None => {
+                    store.init(&genesis);
+                    genesis.header().clone()
+                }
+            }
+        };
+
+        let tx_pool = TxPool::new(tx_pool_config);
+        let txs_verify_cache = LruCache::new(txs_verify_cache_size);
+
+        let tip_number = tip_header.number();
+        let proposal_window = consensus.tx_proposal_window();
+        let proposal_ids = Self::init_proposal_ids(&store, proposal_window, tip_number);
+
+        let cell_set = Self::init_cell_set(&store, tip_number);
+
+        let total_difficulty = store
+            .get_block_ext(&tip_header.hash())
+            .expect("block_ext stored")
+            .total_difficulty;
         ChainState {
             store: Arc::clone(store),
             tip_header,
@@ -57,6 +78,54 @@ impl<CI: ChainIndex> ChainState<CI> {
             txs_verify_cache: RefCell::new(txs_verify_cache),
             consensus,
         }
+    }
+
+    fn init_proposal_ids(
+        store: &CI,
+        proposal_window: ProposalWindow,
+        tip_number: u64,
+    ) -> TxProposalTable {
+        let mut proposal_ids = TxProposalTable::new(proposal_window);
+        let proposal_start = tip_number.saturating_sub(proposal_window.start());
+        let proposal_end = tip_number.saturating_sub(proposal_window.end());
+        for bn in proposal_start..=proposal_end {
+            if let Some(hash) = store.get_block_hash(bn) {
+                let mut ids_set = FnvHashSet::default();
+                if let Some(ids) = store.get_block_proposal_txs_ids(&hash) {
+                    ids_set.extend(ids)
+                }
+
+                if let Some(us) = store.get_block_uncles(&hash) {
+                    for u in us {
+                        let ids = u.proposal_transactions;
+                        ids_set.extend(ids);
+                    }
+                }
+                proposal_ids.update_or_insert(bn, ids_set);
+            }
+        }
+        proposal_ids.finalize(tip_number);
+        proposal_ids
+    }
+
+    fn init_cell_set(store: &CI, number: u64) -> CellSet {
+        let mut cell_set = CellSet::new();
+
+        for n in 0..=number {
+            let hash = store.get_block_hash(n).unwrap();
+            for tx in store.get_block_body(&hash).unwrap() {
+                let inputs = tx.input_pts();
+                let output_len = tx.outputs().len();
+
+                for o in inputs {
+                    cell_set.mark_dead(&o);
+                }
+
+                cell_set.insert(tx.hash(), n, tx.is_cellbase(), output_len);
+            }
+        }
+
+        cell_set
     }
 
     pub fn tip_number(&self) -> BlockNumber {

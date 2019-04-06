@@ -50,6 +50,7 @@ where
         self.inputs.verify()?;
         self.capacity.verify()?;
         self.duplicate_inputs.verify()?;
+        self.valid_since.verify()?;
         let cycles = self.script.verify(max_cycles)?;
         Ok(cycles)
     }
