@@ -320,7 +320,9 @@ where
             }
 
             if let Some(block_timestamp) = valid_since.block_timestamp() {
-                let tip_timestamp = self.block_median_time(self.tip_number).unwrap_or_else(|| 0);
+                let tip_timestamp = self
+                    .block_median_time(self.tip_number.saturating_sub(1))
+                    .unwrap_or_else(|| 0);
                 if tip_timestamp < block_timestamp {
                     return Err(TransactionError::Immature);
                 }
@@ -346,9 +348,11 @@ where
             }
 
             if let Some(block_timestamp) = valid_since.block_timestamp() {
-                let tip_timestamp = self.block_median_time(self.tip_number).unwrap_or_else(|| 0);
+                let tip_timestamp = self
+                    .block_median_time(self.tip_number.saturating_sub(1))
+                    .unwrap_or_else(|| 0);
                 let median_timestamp = self
-                    .block_median_time(cell_block_number)
+                    .block_median_time(cell_block_number.saturating_sub(1))
                     .unwrap_or_else(|| 0);
                 if tip_timestamp < median_timestamp + block_timestamp {
                     return Err(TransactionError::Immature);
