@@ -36,7 +36,6 @@ pub struct ChainState<CI> {
 }
 
 impl<CI: ChainIndex> ChainState<CI> {
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
         store: &Arc<CI>,
         consensus: Arc<Consensus>,
