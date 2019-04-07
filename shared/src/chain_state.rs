@@ -36,12 +36,7 @@ pub struct ChainState<CI> {
 }
 
 impl<CI: ChainIndex> ChainState<CI> {
-    pub fn new(
-        store: &Arc<CI>,
-        consensus: Arc<Consensus>,
-        txs_verify_cache_size: usize,
-        tx_pool_config: TxPoolConfig,
-    ) -> Self {
+    pub fn new(store: &Arc<CI>, consensus: Arc<Consensus>, tx_pool_config: TxPoolConfig) -> Self {
         // check head in store or save the genesis block as head
         let tip_header = {
             let genesis = consensus.genesis_block();
@@ -54,8 +49,8 @@ impl<CI: ChainIndex> ChainState<CI> {
             }
         };
 
+        let txs_verify_cache = LruCache::new(tx_pool_config.txs_verify_cache_size);
         let tx_pool = TxPool::new(tx_pool_config);
-        let txs_verify_cache = LruCache::new(txs_verify_cache_size);
 
         let tip_number = tip_header.number();
         let proposal_window = consensus.tx_proposal_window();

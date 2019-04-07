@@ -44,7 +44,6 @@ impl<CI: ChainIndex> Shared<CI> {
         let chain_state = Arc::new(Mutex::new(ChainState::new(
             &store,
             Arc::clone(&consensus),
-            txs_verify_cache_size,
             tx_pool_config,
         )));
 
