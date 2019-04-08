@@ -5,16 +5,23 @@ import sys
 import subprocess
 from collections import namedtuple, OrderedDict
 
+
+def _str(s):
+    if sys.version_info >= (3, 0):
+        return s.decode('utf-8')
+    return s
+
+
 if len(sys.argv) > 1:
     since = sys.argv[1]
 else:
-    tag_rev = subprocess.check_output(
-        ['git', 'rev-list', '--tags', '--max-count=1']).strip()
-    since = subprocess.check_output(
-        ['git', 'describe', '--tags', tag_rev]).strip()
+    tag_rev = _str(subprocess.check_output(
+        ['git', 'rev-list', '--tags', '--max-count=1']).strip())
+    since = _str(subprocess.check_output(
+        ['git', 'describe', '--tags', tag_rev]).strip())
 
-logs = subprocess.check_output(
-    ['git', 'log', '--merges', '{}...HEAD'.format(since)])
+logs = _str(subprocess.check_output(
+    ['git', 'log', '--merges', '{}...HEAD'.format(since)]))
 
 START_RE = re.compile(r'\s+(\d+): (?:(\w+)(\([^\)]+\))?: )?(.*r=.*)')
 END_RE = re.compile(r'\s+Co-authored-by:')
