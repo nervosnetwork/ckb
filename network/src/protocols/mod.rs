@@ -244,18 +244,17 @@ impl ServiceProtocol for CKBHandler {
             network.modify_peer(&peer_id, |peer| {
                 peer.last_message_time = Some(now);
             });
-            let peer_index = network
-                .get_peer_index(&peer_id)
-                .expect("get peer index failed");
-            self.handler.received(
-                Box::new(DefaultCKBProtocolContext::new(
-                    self.id,
-                    Arc::clone(network),
-                    context.control().clone(),
-                )),
-                peer_index,
-                data,
-            )
+            if let Some(peer_index) = network.get_peer_index(&peer_id) {
+                self.handler.received(
+                    Box::new(DefaultCKBProtocolContext::new(
+                        self.id,
+                        Arc::clone(network),
+                        context.control().clone(),
+                    )),
+                    peer_index,
+                    data,
+                )
+            }
         } else {
             warn!(target: "network", "can not get peer_id, disconnect it");
             context.disconnect(session.id);
