@@ -53,6 +53,8 @@ pub struct RawHeader {
     txs_commit: H256,
     /// Transactions proposal merkle root.
     txs_proposal: H256,
+    /// Witness hash commitment.
+    witnesses_root: H256,
     /// Block difficulty.
     difficulty: U256,
     /// Hash of the uncles
@@ -109,6 +111,10 @@ impl fmt::Debug for Header {
             .field(
                 "txs_proposal",
                 &format_args!("{:#x}", self.raw.txs_proposal),
+            )
+            .field(
+                "witnesses_root",
+                &format_args!("{:#x}", self.raw.witnesses_root),
             )
             .field("difficulty", &format_args!("{:#x}", self.raw.difficulty))
             .field("uncles_hash", &format_args!("{:#x}", self.raw.uncles_hash))
@@ -169,6 +175,10 @@ impl Header {
 
     pub fn txs_proposal(&self) -> &H256 {
         &self.raw.txs_proposal
+    }
+
+    pub fn witnesses_root(&self) -> &H256 {
+        &self.raw.witnesses_root
     }
 
     pub fn uncles_hash(&self) -> &H256 {
@@ -258,6 +268,11 @@ impl HeaderBuilder {
 
     pub fn txs_proposal(mut self, hash: H256) -> Self {
         self.inner.raw.txs_proposal = hash;
+        self
+    }
+
+    pub fn witnesses_root(mut self, hash: H256) -> Self {
+        self.inner.raw.witnesses_root = hash;
         self
     }
 

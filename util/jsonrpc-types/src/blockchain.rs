@@ -5,7 +5,7 @@ use ckb_core::header::{Header as CoreHeader, HeaderBuilder, Seal as CoreSeal};
 use ckb_core::script::Script as CoreScript;
 use ckb_core::transaction::{
     CellInput as CoreCellInput, CellOutput as CoreCellOutput, OutPoint as CoreOutPoint,
-    Transaction as CoreTransaction, TransactionBuilder,
+    Transaction as CoreTransaction, TransactionBuilder, Witness as CoreWitness,
 };
 use ckb_core::uncle::UncleBlock as CoreUncleBlock;
 use ckb_core::{BlockNumber, Capacity};
@@ -134,11 +134,31 @@ impl From<CellInput> for CoreCellInput {
 }
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+pub struct Witness {
+    data: Vec<Bytes>,
+}
+
+impl<'a> From<&'a CoreWitness> for Witness {
+    fn from(core: &CoreWitness) -> Witness {
+        Witness {
+            data: core.iter().cloned().map(Bytes::new).collect(),
+        }
+    }
+}
+
+impl From<Witness> for CoreWitness {
+    fn from(json: Witness) -> CoreWitness {
+        json.data.into_iter().map(|item| item.into_vec()).collect()
+    }
+}
+
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct Transaction {
     pub version: u32,
     pub deps: Vec<OutPoint>,
     pub inputs: Vec<CellInput>,
     pub outputs: Vec<CellOutput>,
+    pub witnesses: Vec<Witness>,
     #[serde(skip_deserializing)]
     pub hash: H256,
 }
@@ -152,6 +172,7 @@ impl<'a> From<&'a CoreTransaction> for Transaction {
             deps: core.deps().iter().cloned().map(Into::into).collect(),
             inputs: core.inputs().iter().cloned().map(Into::into).collect(),
             outputs: core.outputs().iter().cloned().map(Into::into).collect(),
+            witnesses: core.witnesses().iter().map(Into::into).collect(),
             hash,
         }
     }
@@ -164,6 +185,7 @@ impl From<Transaction> for CoreTransaction {
             deps,
             inputs,
             outputs,
+            witnesses,
             ..
         } = json;
 
@@ -172,6 +194,7 @@ impl From<Transaction> for CoreTransaction {
             .deps(deps.into_iter().map(Into::into).collect())
             .inputs(inputs.into_iter().map(Into::into).collect())
             .outputs(outputs.into_iter().map(Into::into).collect())
+            .witnesses(witnesses.into_iter().map(Into::into).collect())
             .build()
     }
 }
@@ -207,6 +230,7 @@ pub struct Header {
     pub number: BlockNumber,
     pub txs_commit: H256,
     pub txs_proposal: H256,
+    pub witnesses_root: H256,
     pub difficulty: U256,
     pub uncles_hash: H256,
     pub uncles_count: u32,
@@ -224,6 +248,7 @@ impl<'a> From<&'a CoreHeader> for Header {
             number: core.number(),
             txs_commit: core.txs_commit().clone(),
             txs_proposal: core.txs_proposal().clone(),
+            witnesses_root: core.witnesses_root().clone(),
             difficulty: core.difficulty().clone(),
             uncles_hash: core.uncles_hash().clone(),
             uncles_count: core.uncles_count(),
@@ -242,6 +267,7 @@ impl From<Header> for CoreHeader {
             number,
             txs_commit,
             txs_proposal,
+            witnesses_root,
             difficulty,
             uncles_hash,
             uncles_count,
@@ -256,6 +282,7 @@ impl From<Header> for CoreHeader {
             .number(number)
             .txs_commit(txs_commit)
             .txs_proposal(txs_proposal)
+            .witnesses_root(witnesses_root)
             .difficulty(difficulty)
             .uncles_hash(uncles_hash)
             .uncles_count(uncles_count)
@@ -361,7 +388,8 @@ mod tests {
         TransactionBuilder::default()
             .deps(vec![CoreOutPoint::default()])
             .inputs(vec![mock_cell_input(arg.clone())])
-            .outputs(vec![mock_cell_output(data, arg)])
+            .outputs(vec![mock_cell_output(data, arg.clone())])
+            .witness(vec![arg])
             .build()
     }
 

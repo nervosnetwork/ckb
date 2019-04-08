@@ -1022,6 +1022,7 @@ impl<'a> Header<'a> {
       if let Some(x) = args.uncles_hash { builder.add_uncles_hash(x); }
       if let Some(x) = args.proof { builder.add_proof(x); }
       if let Some(x) = args.difficulty { builder.add_difficulty(x); }
+      if let Some(x) = args.witnesses_root { builder.add_witnesses_root(x); }
       if let Some(x) = args.txs_proposal { builder.add_txs_proposal(x); }
       if let Some(x) = args.txs_commit { builder.add_txs_commit(x); }
       if let Some(x) = args.parent_hash { builder.add_parent_hash(x); }
@@ -1035,11 +1036,12 @@ impl<'a> Header<'a> {
     pub const VT_NUMBER: flatbuffers::VOffsetT = 10;
     pub const VT_TXS_COMMIT: flatbuffers::VOffsetT = 12;
     pub const VT_TXS_PROPOSAL: flatbuffers::VOffsetT = 14;
-    pub const VT_DIFFICULTY: flatbuffers::VOffsetT = 16;
-    pub const VT_NONCE: flatbuffers::VOffsetT = 18;
-    pub const VT_PROOF: flatbuffers::VOffsetT = 20;
-    pub const VT_UNCLES_HASH: flatbuffers::VOffsetT = 22;
-    pub const VT_UNCLES_COUNT: flatbuffers::VOffsetT = 24;
+    pub const VT_WITNESSES_ROOT: flatbuffers::VOffsetT = 16;
+    pub const VT_DIFFICULTY: flatbuffers::VOffsetT = 18;
+    pub const VT_NONCE: flatbuffers::VOffsetT = 20;
+    pub const VT_PROOF: flatbuffers::VOffsetT = 22;
+    pub const VT_UNCLES_HASH: flatbuffers::VOffsetT = 24;
+    pub const VT_UNCLES_COUNT: flatbuffers::VOffsetT = 26;
 
   #[inline]
   pub fn version(&self) -> u32 {
@@ -1064,6 +1066,10 @@ impl<'a> Header<'a> {
   #[inline]
   pub fn txs_proposal(&self) -> Option<&'a H256> {
     self._tab.get::<H256>(Header::VT_TXS_PROPOSAL, None)
+  }
+  #[inline]
+  pub fn witnesses_root(&self) -> Option<&'a H256> {
+    self._tab.get::<H256>(Header::VT_WITNESSES_ROOT, None)
   }
   #[inline]
   pub fn difficulty(&self) -> Option<Bytes<'a>> {
@@ -1094,6 +1100,7 @@ pub struct HeaderArgs<'a> {
     pub number: u64,
     pub txs_commit: Option<&'a  H256>,
     pub txs_proposal: Option<&'a  H256>,
+    pub witnesses_root: Option<&'a  H256>,
     pub difficulty: Option<flatbuffers::WIPOffset<Bytes<'a >>>,
     pub nonce: u64,
     pub proof: Option<flatbuffers::WIPOffset<Bytes<'a >>>,
@@ -1110,6 +1117,7 @@ impl<'a> Default for HeaderArgs<'a> {
             number: 0,
             txs_commit: None,
             txs_proposal: None,
+            witnesses_root: None,
             difficulty: None,
             nonce: 0,
             proof: None,
@@ -1146,6 +1154,10 @@ impl<'a: 'b, 'b> HeaderBuilder<'a, 'b> {
   #[inline]
   pub fn add_txs_proposal(&mut self, txs_proposal: &'b  H256) {
     self.fbb_.push_slot_always::<&H256>(Header::VT_TXS_PROPOSAL, txs_proposal);
+  }
+  #[inline]
+  pub fn add_witnesses_root(&mut self, witnesses_root: &'b  H256) {
+    self.fbb_.push_slot_always::<&H256>(Header::VT_WITNESSES_ROOT, witnesses_root);
   }
   #[inline]
   pub fn add_difficulty(&mut self, difficulty: flatbuffers::WIPOffset<Bytes<'b >>) {
@@ -1411,6 +1423,7 @@ impl<'a> Transaction<'a> {
         _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr>,
         args: &'args TransactionArgs<'args>) -> flatbuffers::WIPOffset<Transaction<'bldr>> {
       let mut builder = TransactionBuilder::new(_fbb);
+      if let Some(x) = args.witnesses { builder.add_witnesses(x); }
       if let Some(x) = args.outputs { builder.add_outputs(x); }
       if let Some(x) = args.inputs { builder.add_inputs(x); }
       if let Some(x) = args.deps { builder.add_deps(x); }
@@ -1422,6 +1435,7 @@ impl<'a> Transaction<'a> {
     pub const VT_DEPS: flatbuffers::VOffsetT = 6;
     pub const VT_INPUTS: flatbuffers::VOffsetT = 8;
     pub const VT_OUTPUTS: flatbuffers::VOffsetT = 10;
+    pub const VT_WITNESSES: flatbuffers::VOffsetT = 12;
 
   #[inline]
   pub fn version(&self) -> u32 {
@@ -1439,6 +1453,10 @@ impl<'a> Transaction<'a> {
   pub fn outputs(&self) -> Option<flatbuffers::Vector<flatbuffers::ForwardsUOffset<CellOutput<'a>>>> {
     self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<flatbuffers::ForwardsUOffset<CellOutput<'a>>>>>(Transaction::VT_OUTPUTS, None)
   }
+  #[inline]
+  pub fn witnesses(&self) -> Option<flatbuffers::Vector<flatbuffers::ForwardsUOffset<Witness<'a>>>> {
+    self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<flatbuffers::ForwardsUOffset<Witness<'a>>>>>(Transaction::VT_WITNESSES, None)
+  }
 }
 
 pub struct TransactionArgs<'a> {
@@ -1446,6 +1464,7 @@ pub struct TransactionArgs<'a> {
     pub deps: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a , flatbuffers::ForwardsUOffset<OutPoint<'a >>>>>,
     pub inputs: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a , flatbuffers::ForwardsUOffset<CellInput<'a >>>>>,
     pub outputs: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a , flatbuffers::ForwardsUOffset<CellOutput<'a >>>>>,
+    pub witnesses: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a , flatbuffers::ForwardsUOffset<Witness<'a >>>>>,
 }
 impl<'a> Default for TransactionArgs<'a> {
     #[inline]
@@ -1455,6 +1474,7 @@ impl<'a> Default for TransactionArgs<'a> {
             deps: None,
             inputs: None,
             outputs: None,
+            witnesses: None,
         }
     }
 }
@@ -1480,6 +1500,10 @@ impl<'a: 'b, 'b> TransactionBuilder<'a, 'b> {
     self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(Transaction::VT_OUTPUTS, outputs);
   }
   #[inline]
+  pub fn add_witnesses(&mut self, witnesses: flatbuffers::WIPOffset<flatbuffers::Vector<'b , flatbuffers::ForwardsUOffset<Witness<'b >>>>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(Transaction::VT_WITNESSES, witnesses);
+  }
+  #[inline]
   pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>) -> TransactionBuilder<'a, 'b> {
     let start = _fbb.start_table();
     TransactionBuilder {
@@ -1489,6 +1513,82 @@ impl<'a: 'b, 'b> TransactionBuilder<'a, 'b> {
   }
   #[inline]
   pub fn finish(self) -> flatbuffers::WIPOffset<Transaction<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+pub enum WitnessOffset {}
+#[derive(Copy, Clone, Debug, PartialEq)]
+
+pub struct Witness<'a> {
+  pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for Witness<'a> {
+    type Inner = Witness<'a>;
+    #[inline]
+    fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        Self {
+            _tab: flatbuffers::Table { buf: buf, loc: loc },
+        }
+    }
+}
+
+impl<'a> Witness<'a> {
+    #[inline]
+    pub fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+        Witness {
+            _tab: table,
+        }
+    }
+    #[allow(unused_mut)]
+    pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr>(
+        _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr>,
+        args: &'args WitnessArgs<'args>) -> flatbuffers::WIPOffset<Witness<'bldr>> {
+      let mut builder = WitnessBuilder::new(_fbb);
+      if let Some(x) = args.data { builder.add_data(x); }
+      builder.finish()
+    }
+
+    pub const VT_DATA: flatbuffers::VOffsetT = 4;
+
+  #[inline]
+  pub fn data(&self) -> Option<flatbuffers::Vector<flatbuffers::ForwardsUOffset<Bytes<'a>>>> {
+    self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<flatbuffers::ForwardsUOffset<Bytes<'a>>>>>(Witness::VT_DATA, None)
+  }
+}
+
+pub struct WitnessArgs<'a> {
+    pub data: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a , flatbuffers::ForwardsUOffset<Bytes<'a >>>>>,
+}
+impl<'a> Default for WitnessArgs<'a> {
+    #[inline]
+    fn default() -> Self {
+        WitnessArgs {
+            data: None,
+        }
+    }
+}
+pub struct WitnessBuilder<'a: 'b, 'b> {
+  fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a>,
+  start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b> WitnessBuilder<'a, 'b> {
+  #[inline]
+  pub fn add_data(&mut self, data: flatbuffers::WIPOffset<flatbuffers::Vector<'b , flatbuffers::ForwardsUOffset<Bytes<'b >>>>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(Witness::VT_DATA, data);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>) -> WitnessBuilder<'a, 'b> {
+    let start = _fbb.start_table();
+    WitnessBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> flatbuffers::WIPOffset<Witness<'a>> {
     let o = self.fbb_.end_table(self.start_);
     flatbuffers::WIPOffset::new(o.value())
   }

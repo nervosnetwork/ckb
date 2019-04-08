@@ -151,6 +151,7 @@ impl<'a> TryFrom<ckb_protocol::Header<'a>> for ckb_core::header::Header {
         let parent_hash = cast!(header.parent_hash())?;
         let txs_commit = cast!(header.txs_commit())?;
         let txs_proposal = cast!(header.txs_proposal())?;
+        let witnesses_root = cast!(header.witnesses_root())?;
         let uncles_hash = cast!(header.uncles_hash())?;
 
         Ok(ckb_core::header::HeaderBuilder::default()
@@ -160,6 +161,7 @@ impl<'a> TryFrom<ckb_protocol::Header<'a>> for ckb_core::header::Header {
             .number(header.number())
             .txs_commit(TryInto::try_into(txs_commit)?)
             .txs_proposal(TryInto::try_into(txs_proposal)?)
+            .witnesses_root(TryInto::try_into(witnesses_root)?)
             .difficulty(U256::from_little_endian(cast!(header
                 .difficulty()
                 .and_then(|d| d.seq()))?)?)
@@ -193,11 +195,17 @@ impl<'a> TryFrom<ckb_protocol::Transaction<'a>> for ckb_core::transaction::Trans
                 .map(TryInto::try_into)
                 .collect();
 
+        let witnesses: Result<Vec<ckb_core::transaction::Witness>, FailureError> =
+            FlatbuffersVectorIterator::new(cast!(transaction.witnesses())?)
+                .map(TryInto::try_into)
+                .collect();
+
         Ok(ckb_core::transaction::TransactionBuilder::default()
             .version(transaction.version())
             .deps(deps?)
             .inputs(inputs?)
             .outputs(outputs?)
+            .witnesses(witnesses?)
             .build())
     }
 }
@@ -211,6 +219,18 @@ impl<'a> TryFrom<ckb_protocol::ValidTransaction<'a>>
         let tx = cast!(vtx.transaction())?;
         let cycles = vtx.cycles();
         Ok((TryInto::try_into(tx)?, cycles))
+    }
+}
+
+impl<'a> TryFrom<ckb_protocol::Witness<'a>> for ckb_core::transaction::Witness {
+    type Error = FailureError;
+
+    fn try_from(wit: ckb_protocol::Witness<'a>) -> Result<Self, Self::Error> {
+        let data: Option<Vec<Vec<u8>>> = FlatbuffersVectorIterator::new(cast!(wit.data())?)
+            .map(|item| item.seq().map(|s| s.to_vec()))
+            .collect();
+
+        Ok(cast!(data)?)
     }
 }
 

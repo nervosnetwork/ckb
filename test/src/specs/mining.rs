@@ -38,7 +38,7 @@ impl Spec for MiningBasic {
         assert!(block1
             .proposal_transactions()
             .iter()
-            .any(|id| ProposalShortId::from_h256(&transaction_hash).eq(id)));
+            .any(|id| ProposalShortId::from_tx_hash(&transaction_hash).eq(id)));
 
         info!("Generated tx should be included in next + n block's commit txs, current n = 2");
         assert!(block3

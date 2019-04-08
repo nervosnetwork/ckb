@@ -252,7 +252,7 @@ impl StagingPool {
 
     pub fn get_output(&self, o: &OutPoint) -> Option<CellOutput> {
         self.vertices
-            .get(&ProposalShortId::from_h256(&o.hash))
+            .get(&ProposalShortId::from_tx_hash(&o.hash))
             .and_then(|x| x.transaction.get_output(o.index as usize))
     }
 

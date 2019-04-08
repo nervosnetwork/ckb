@@ -143,23 +143,15 @@ impl MerkleRootVerifier {
     }
 
     pub fn verify(&self, block: &Block) -> Result<(), Error> {
-        let commits = block
-            .commit_transactions()
-            .iter()
-            .map(|tx| tx.hash())
-            .collect::<Vec<_>>();
-
-        if block.header().txs_commit() != &merkle_root(&commits[..]) {
+        if block.header().txs_commit() != &block.cal_txs_commit_root() {
             return Err(Error::CommitTransactionsRoot);
         }
 
-        let proposals = block
-            .proposal_transactions()
-            .iter()
-            .map(|id| id.hash())
-            .collect::<Vec<_>>();
+        if block.header().witnesses_root() != &block.cal_witnesses_root() {
+            return Err(Error::WitnessesMerkleRoot);
+        }
 
-        if block.header().txs_proposal() != &merkle_root(&proposals[..]) {
+        if block.header().txs_proposal() != &block.cal_txs_proposal_root() {
             return Err(Error::ProposalTransactionsRoot);
         }
 
