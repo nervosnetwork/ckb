@@ -5,6 +5,14 @@ VERBOSE := $(if ${CI},--verbose,)
 test:
 	cargo test ${VERBOSE} --all -- --nocapture
 
+integration:
+	cargo build ${VERBOSE}
+	cd test && cargo run ../target/debug/ckb
+
+integration-release:
+	cargo build ${VERBOSE} --release
+	cd test && cargo run --release -- ../target/release/ckb
+
 doc:
 	cargo doc --all --no-deps
 
@@ -71,3 +79,4 @@ gen-clean:
 .PHONY: build prod prod-test docker gen gen-clean
 .PHONY: fmt test clippy doc doc-deps check stats
 .PHONY: ci info security-audit
+.PHONY: integration integration-release
