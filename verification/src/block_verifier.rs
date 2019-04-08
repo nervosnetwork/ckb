@@ -213,7 +213,6 @@ impl<CP: ChainProvider + Clone> UnclesVerifier<CP> {
     // -  uncles_hash
     // -  uncles_num
     // -  depth
-    // -  uncle cellbase_id
     // -  uncle not in main chain
     // -  uncle duplicate
     pub fn verify(&self, block: &Block) -> Result<(), Error> {
@@ -305,10 +304,6 @@ impl<CP: ChainProvider + Clone> UnclesVerifier<CP> {
 
             if block_difficulty_epoch != uncle_difficulty_epoch {
                 return Err(Error::Uncles(UnclesError::InvalidDifficultyEpoch));
-            }
-
-            if uncle.header().cellbase_id() != &uncle.cellbase().hash() {
-                return Err(Error::Uncles(UnclesError::InvalidCellbase));
             }
 
             let uncle_header = uncle.header.clone();

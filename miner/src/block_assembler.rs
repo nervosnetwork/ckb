@@ -187,14 +187,12 @@ impl<CI: ChainIndex + 'static> BlockAssembler<CI> {
     fn transform_uncle(uncle: UncleBlock) -> UncleTemplate {
         let UncleBlock {
             header,
-            cellbase,
             proposal_transactions,
         } = uncle;
 
         UncleTemplate {
             hash: header.hash(),
             required: false, //
-            cellbase: Self::transform_cellbase(&cellbase, None),
             proposal_transactions: proposal_transactions.into_iter().map(Into::into).collect(),
             header: (&header).into(),
         }
@@ -396,16 +394,13 @@ impl<CI: ChainIndex + 'static> BlockAssembler<CI> {
                 || excluded.contains(hash)
             {
                 bad_uncles.push(hash.clone());
-            } else if let Some(cellbase) = block.commit_transactions().first() {
+            } else {
                 let uncle = UncleBlock {
                     header: block.header().clone(),
-                    cellbase: cellbase.clone(),
                     proposal_transactions: block.proposal_transactions().to_vec(),
                 };
                 uncles.push(uncle);
                 included.insert(hash.clone());
-            } else {
-                bad_uncles.push(hash.clone());
             }
         }
         (uncles, bad_uncles)
@@ -498,9 +493,9 @@ mod tests {
             // uncles_count_limit,
         } = block_template;
 
-        let (cellbase_id, cellbase) = {
-            let CellbaseTemplate { hash, data, .. } = cellbase;
-            (hash, data)
+        let cellbase = {
+            let CellbaseTemplate { data, .. } = cellbase;
+            data
         };
 
         let header_builder = HeaderBuilder::default()
@@ -508,8 +503,7 @@ mod tests {
             .number(number)
             .difficulty(difficulty)
             .timestamp(current_time)
-            .parent_hash(parent_hash)
-            .cellbase_id(cellbase_id);
+            .parent_hash(parent_hash);
 
         let block = BlockBuilder::default()
             .uncles(uncles.into_iter().map(Into::into).collect())

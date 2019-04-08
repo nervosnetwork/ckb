@@ -43,7 +43,6 @@ table Header {
     difficulty:     Bytes;
     nonce:          uint64;
     proof:          Bytes;
-    cellbase_id:    H256;
     uncles_hash:    H256;
     uncles_count:   uint32;
 }
@@ -57,7 +56,6 @@ table Block {
 
 table UncleBlock {
     header:                 Header;
-    cellbase:               Transaction;
     proposal_transactions:  [ProposalShortId];
 }
 
@@ -224,4 +222,3 @@ table TimeMessage {
 table Time {
     timestamp: uint64;
 }
-

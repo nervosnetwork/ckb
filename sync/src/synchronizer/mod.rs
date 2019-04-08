@@ -843,7 +843,6 @@ mod tests {
             .timestamp(now)
             .number(number)
             .difficulty(difficulty)
-            .cellbase_id(cellbase.hash().clone())
             .nonce(nonce);
 
         BlockBuilder::default()

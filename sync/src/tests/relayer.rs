@@ -86,8 +86,7 @@ fn relay_compact_block_with_one_tx() {
                     .parent_hash(last_block.header().hash().clone())
                     .number(number)
                     .timestamp(timestamp)
-                    .difficulty(difficulty)
-                    .cellbase_id(cellbase.hash().clone());
+                    .difficulty(difficulty);
 
                 BlockBuilder::default()
                     .commit_transaction(cellbase)
@@ -125,8 +124,7 @@ fn relay_compact_block_with_one_tx() {
                     .parent_hash(last_block.header().hash().clone())
                     .number(number)
                     .timestamp(timestamp)
-                    .difficulty(difficulty)
-                    .cellbase_id(cellbase.hash().clone());
+                    .difficulty(difficulty);
 
                 BlockBuilder::default()
                     .commit_transaction(cellbase)
@@ -244,8 +242,7 @@ fn relay_compact_block_with_missing_indexs() {
                     .parent_hash(last_block.header().hash().clone())
                     .number(number)
                     .timestamp(timestamp)
-                    .difficulty(difficulty)
-                    .cellbase_id(cellbase.hash().clone());
+                    .difficulty(difficulty);
 
                 BlockBuilder::default()
                     .commit_transaction(cellbase)
@@ -283,8 +280,7 @@ fn relay_compact_block_with_missing_indexs() {
                     .parent_hash(last_block.header().hash().clone())
                     .number(number)
                     .timestamp(timestamp)
-                    .difficulty(difficulty)
-                    .cellbase_id(cellbase.hash().clone());
+                    .difficulty(difficulty);
 
                 BlockBuilder::default()
                     .commit_transaction(cellbase)
@@ -369,8 +365,7 @@ fn setup_node(
             .parent_hash(block.header().hash().clone())
             .number(number)
             .timestamp(timestamp)
-            .difficulty(difficulty)
-            .cellbase_id(cellbase.hash().clone());
+            .difficulty(difficulty);
 
         block = BlockBuilder::default()
             .commit_transaction(cellbase)

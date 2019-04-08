@@ -97,8 +97,7 @@ fn setup_node(
             .parent_hash(block.header().hash().clone())
             .number(number)
             .timestamp(timestamp)
-            .difficulty(difficulty)
-            .cellbase_id(cellbase.hash().clone());
+            .difficulty(difficulty);
 
         block = BlockBuilder::default()
             .commit_transaction(cellbase)

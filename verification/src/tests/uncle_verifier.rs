@@ -29,7 +29,6 @@ fn gen_block(parent_header: &Header, nonce: u64, difficulty: U256) -> Block {
         .timestamp(now)
         .number(number)
         .difficulty(difficulty)
-        .cellbase_id(cellbase.hash().clone())
         .nonce(nonce);
 
     BlockBuilder::default()

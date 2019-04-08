@@ -1020,7 +1020,6 @@ impl<'a> Header<'a> {
       builder.add_timestamp(args.timestamp);
       builder.add_uncles_count(args.uncles_count);
       if let Some(x) = args.uncles_hash { builder.add_uncles_hash(x); }
-      if let Some(x) = args.cellbase_id { builder.add_cellbase_id(x); }
       if let Some(x) = args.proof { builder.add_proof(x); }
       if let Some(x) = args.difficulty { builder.add_difficulty(x); }
       if let Some(x) = args.txs_proposal { builder.add_txs_proposal(x); }
@@ -1039,9 +1038,8 @@ impl<'a> Header<'a> {
     pub const VT_DIFFICULTY: flatbuffers::VOffsetT = 16;
     pub const VT_NONCE: flatbuffers::VOffsetT = 18;
     pub const VT_PROOF: flatbuffers::VOffsetT = 20;
-    pub const VT_CELLBASE_ID: flatbuffers::VOffsetT = 22;
-    pub const VT_UNCLES_HASH: flatbuffers::VOffsetT = 24;
-    pub const VT_UNCLES_COUNT: flatbuffers::VOffsetT = 26;
+    pub const VT_UNCLES_HASH: flatbuffers::VOffsetT = 22;
+    pub const VT_UNCLES_COUNT: flatbuffers::VOffsetT = 24;
 
   #[inline]
   pub fn version(&self) -> u32 {
@@ -1080,10 +1078,6 @@ impl<'a> Header<'a> {
     self._tab.get::<flatbuffers::ForwardsUOffset<Bytes<'a>>>(Header::VT_PROOF, None)
   }
   #[inline]
-  pub fn cellbase_id(&self) -> Option<&'a H256> {
-    self._tab.get::<H256>(Header::VT_CELLBASE_ID, None)
-  }
-  #[inline]
   pub fn uncles_hash(&self) -> Option<&'a H256> {
     self._tab.get::<H256>(Header::VT_UNCLES_HASH, None)
   }
@@ -1103,7 +1097,6 @@ pub struct HeaderArgs<'a> {
     pub difficulty: Option<flatbuffers::WIPOffset<Bytes<'a >>>,
     pub nonce: u64,
     pub proof: Option<flatbuffers::WIPOffset<Bytes<'a >>>,
-    pub cellbase_id: Option<&'a  H256>,
     pub uncles_hash: Option<&'a  H256>,
     pub uncles_count: u32,
 }
@@ -1120,7 +1113,6 @@ impl<'a> Default for HeaderArgs<'a> {
             difficulty: None,
             nonce: 0,
             proof: None,
-            cellbase_id: None,
             uncles_hash: None,
             uncles_count: 0,
         }
@@ -1166,10 +1158,6 @@ impl<'a: 'b, 'b> HeaderBuilder<'a, 'b> {
   #[inline]
   pub fn add_proof(&mut self, proof: flatbuffers::WIPOffset<Bytes<'b >>) {
     self.fbb_.push_slot_always::<flatbuffers::WIPOffset<Bytes>>(Header::VT_PROOF, proof);
-  }
-  #[inline]
-  pub fn add_cellbase_id(&mut self, cellbase_id: &'b  H256) {
-    self.fbb_.push_slot_always::<&H256>(Header::VT_CELLBASE_ID, cellbase_id);
   }
   #[inline]
   pub fn add_uncles_hash(&mut self, uncles_hash: &'b  H256) {
@@ -1336,22 +1324,16 @@ impl<'a> UncleBlock<'a> {
         args: &'args UncleBlockArgs<'args>) -> flatbuffers::WIPOffset<UncleBlock<'bldr>> {
       let mut builder = UncleBlockBuilder::new(_fbb);
       if let Some(x) = args.proposal_transactions { builder.add_proposal_transactions(x); }
-      if let Some(x) = args.cellbase { builder.add_cellbase(x); }
       if let Some(x) = args.header { builder.add_header(x); }
       builder.finish()
     }
 
     pub const VT_HEADER: flatbuffers::VOffsetT = 4;
-    pub const VT_CELLBASE: flatbuffers::VOffsetT = 6;
-    pub const VT_PROPOSAL_TRANSACTIONS: flatbuffers::VOffsetT = 8;
+    pub const VT_PROPOSAL_TRANSACTIONS: flatbuffers::VOffsetT = 6;
 
   #[inline]
   pub fn header(&self) -> Option<Header<'a>> {
     self._tab.get::<flatbuffers::ForwardsUOffset<Header<'a>>>(UncleBlock::VT_HEADER, None)
-  }
-  #[inline]
-  pub fn cellbase(&self) -> Option<Transaction<'a>> {
-    self._tab.get::<flatbuffers::ForwardsUOffset<Transaction<'a>>>(UncleBlock::VT_CELLBASE, None)
   }
   #[inline]
   pub fn proposal_transactions(&self) -> Option<&'a [ProposalShortId]> {
@@ -1361,7 +1343,6 @@ impl<'a> UncleBlock<'a> {
 
 pub struct UncleBlockArgs<'a> {
     pub header: Option<flatbuffers::WIPOffset<Header<'a >>>,
-    pub cellbase: Option<flatbuffers::WIPOffset<Transaction<'a >>>,
     pub proposal_transactions: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a , ProposalShortId>>>,
 }
 impl<'a> Default for UncleBlockArgs<'a> {
@@ -1369,7 +1350,6 @@ impl<'a> Default for UncleBlockArgs<'a> {
     fn default() -> Self {
         UncleBlockArgs {
             header: None,
-            cellbase: None,
             proposal_transactions: None,
         }
     }
@@ -1382,10 +1362,6 @@ impl<'a: 'b, 'b> UncleBlockBuilder<'a, 'b> {
   #[inline]
   pub fn add_header(&mut self, header: flatbuffers::WIPOffset<Header<'b >>) {
     self.fbb_.push_slot_always::<flatbuffers::WIPOffset<Header>>(UncleBlock::VT_HEADER, header);
-  }
-  #[inline]
-  pub fn add_cellbase(&mut self, cellbase: flatbuffers::WIPOffset<Transaction<'b >>) {
-    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<Transaction>>(UncleBlock::VT_CELLBASE, cellbase);
   }
   #[inline]
   pub fn add_proposal_transactions(&mut self, proposal_transactions: flatbuffers::WIPOffset<flatbuffers::Vector<'b , ProposalShortId>>) {

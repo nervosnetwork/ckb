@@ -174,9 +174,9 @@ impl Node {
             ..
         } = template;
 
-        let (cellbase_id, cellbase) = {
-            let CellbaseTemplate { hash, data, .. } = cellbase;
-            (hash, data)
+        let cellbase = {
+            let CellbaseTemplate { data, .. } = cellbase;
+            data
         };
 
         let header_builder = HeaderBuilder::default()
@@ -185,7 +185,6 @@ impl Node {
             .difficulty(difficulty)
             .timestamp(current_time)
             .parent_hash(parent_hash)
-            .cellbase_id(cellbase_id)
             .seal(Seal::new(rand::random(), Vec::new()));
 
         BlockBuilder::default()

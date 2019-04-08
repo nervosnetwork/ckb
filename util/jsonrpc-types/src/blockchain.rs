@@ -208,7 +208,6 @@ pub struct Header {
     pub txs_commit: H256,
     pub txs_proposal: H256,
     pub difficulty: U256,
-    pub cellbase_id: H256,
     pub uncles_hash: H256,
     pub uncles_count: u32,
     pub seal: Seal,
@@ -226,7 +225,6 @@ impl<'a> From<&'a CoreHeader> for Header {
             txs_commit: core.txs_commit().clone(),
             txs_proposal: core.txs_proposal().clone(),
             difficulty: core.difficulty().clone(),
-            cellbase_id: core.cellbase_id().clone(),
             uncles_hash: core.uncles_hash().clone(),
             uncles_count: core.uncles_count(),
             seal: core.seal().clone().into(),
@@ -245,7 +243,6 @@ impl From<Header> for CoreHeader {
             txs_commit,
             txs_proposal,
             difficulty,
-            cellbase_id,
             uncles_hash,
             uncles_count,
             seal,
@@ -260,7 +257,6 @@ impl From<Header> for CoreHeader {
             .txs_commit(txs_commit)
             .txs_proposal(txs_proposal)
             .difficulty(difficulty)
-            .cellbase_id(cellbase_id)
             .uncles_hash(uncles_hash)
             .uncles_count(uncles_count)
             .seal(seal.into())
@@ -271,7 +267,6 @@ impl From<Header> for CoreHeader {
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct UncleBlock {
     pub header: Header,
-    pub cellbase: Transaction,
     pub proposal_transactions: Vec<ProposalShortId>,
 }
 
@@ -279,7 +274,6 @@ impl<'a> From<&'a CoreUncleBlock> for UncleBlock {
     fn from(core: &CoreUncleBlock) -> UncleBlock {
         UncleBlock {
             header: core.header().into(),
-            cellbase: core.cellbase().into(),
             proposal_transactions: core
                 .proposal_transactions()
                 .iter()
@@ -294,12 +288,10 @@ impl From<UncleBlock> for CoreUncleBlock {
     fn from(json: UncleBlock) -> CoreUncleBlock {
         let UncleBlock {
             header,
-            cellbase,
             proposal_transactions,
         } = json;
         CoreUncleBlock::new(
             header.into(),
-            cellbase.into(),
             proposal_transactions.into_iter().map(Into::into).collect(),
         )
     }
@@ -373,18 +365,17 @@ mod tests {
             .build()
     }
 
-    fn mock_uncle(data: Vec<u8>, arg: Vec<u8>) -> CoreUncleBlock {
+    fn mock_uncle() -> CoreUncleBlock {
         CoreUncleBlock::new(
             HeaderBuilder::default().build(),
-            mock_full_tx(data, arg),
             vec![CoreProposalShortId::default()],
         )
     }
 
     fn mock_full_block(data: Vec<u8>, arg: Vec<u8>) -> CoreBlock {
         BlockBuilder::default()
-            .uncles(vec![mock_uncle(data.clone(), arg.clone())])
             .commit_transactions(vec![mock_full_tx(data, arg)])
+            .uncles(vec![mock_uncle()])
             .proposal_transactions(vec![CoreProposalShortId::default()])
             .build()
     }
