@@ -2,7 +2,7 @@ use crate::helper::{require_path_exists, to_absolute_path};
 use ckb_chain_spec::ChainSpec;
 use ckb_db::DBConfig;
 use ckb_miner::BlockAssemblerConfig;
-use ckb_network::Config as NetworkConfig;
+use ckb_network::NetworkConfig;
 use ckb_rpc::Config as RpcConfig;
 use ckb_shared::tx_pool::TxPoolConfig;
 use ckb_sync::Config as SyncConfig;
@@ -71,11 +71,6 @@ impl Setup {
             configs.logger.file = Some(path.join(file));
         }
 
-        if configs.network.config_dir_path.is_none() {
-            configs.network.config_dir_path =
-                Some(dirs.join("network").to_string_lossy().to_string());
-        }
-
         let chain_spec = ChainSpec::read_from_file(&configs.chain.spec).map_err(|e| {
             Box::new(ConfigError::Message(format!(
                 "invalid chain spec {}, {}",
@@ -113,6 +108,9 @@ impl Configs {
         }
         if self.db.path.is_relative() {
             self.db.path = base.join(&self.db.path);
+        }
+        if self.network.path.is_relative() {
+            self.network.path = base.join(&self.network.path);
         }
     }
 }

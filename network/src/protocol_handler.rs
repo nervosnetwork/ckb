@@ -1,9 +1,8 @@
-use crate::errors::{Error, ErrorKind};
-use crate::{Network, SessionInfo, Timer};
-use crate::{PeerIndex, ProtocolId, TimerToken};
+use crate::errors::{Error, PeerError, ProtocolError};
+use crate::{Behaviour, Network, PeerIndex, ProtocolId, SessionInfo, TimerRegistry, TimerToken};
+use bytes::Bytes;
 use ckb_util::Mutex;
 use log::debug;
-use log::info;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -23,7 +22,7 @@ pub trait CKBProtocolContext: Send {
         data: Vec<u8>,
     ) -> Result<(), Error>;
     // TODO combinate this interface with peer score
-    fn report_peer(&self, peer_index: PeerIndex, reason: Severity);
+    fn report_peer(&self, peer_index: PeerIndex, behaviour: Behaviour) -> Result<(), Error>;
     fn ban_peer(&self, peer_index: PeerIndex, timeout: Duration);
     fn disconnect(&self, peer_index: PeerIndex);
     fn register_timer(&self, token: TimerToken, delay: Duration) -> Result<(), Error>;
@@ -45,7 +44,7 @@ pub trait CKBProtocolContext: Send {
 pub(crate) struct DefaultCKBProtocolContext {
     pub protocol_id: ProtocolId,
     pub network: Arc<Network>,
-    pub timer_registry: Arc<Mutex<Option<Vec<Timer>>>>,
+    pub timer_registry: TimerRegistry,
 }
 
 impl DefaultCKBProtocolContext {
@@ -56,7 +55,7 @@ impl DefaultCKBProtocolContext {
     pub fn with_timer_registry(
         network: Arc<Network>,
         protocol_id: ProtocolId,
-        timer_registry: Arc<Mutex<Option<Vec<Timer>>>>,
+        timer_registry: TimerRegistry,
     ) -> Self {
         DefaultCKBProtocolContext {
             network,
@@ -79,15 +78,28 @@ impl CKBProtocolContext for DefaultCKBProtocolContext {
         if let Some(peer_id) = self.network.get_peer_id(peer_index) {
             self.network.send(&peer_id, protocol_id, data.into())
         } else {
-            Err(ErrorKind::PeerNotFound.into())
+            Err(Error::Peer(PeerError::IndexNotFound(peer_index)))
         }
     }
     // report peer behaviour
-    fn report_peer(&self, peer_index: PeerIndex, reason: Severity) {
-        // TODO combinate this interface with peer score
-        info!(target: "network", "report peer {} reason: {:?}", peer_index, reason);
-        self.disconnect(peer_index);
+    fn report_peer(&self, peer_index: PeerIndex, behaviour: Behaviour) -> Result<(), Error> {
+        debug!(target: "network", "report peer {} behaviour: {:?}", peer_index, behaviour);
+        if let Some(peer_id) = self.network.get_peer_id(peer_index) {
+            if self
+                .network
+                .peer_store()
+                .write()
+                .report(&peer_id, behaviour)
+                .is_banned()
+            {
+                self.disconnect(peer_index);
+            }
+            Ok(())
+        } else {
+            Err(Error::Peer(PeerError::IndexNotFound(peer_index)))
+        }
     }
+
     // ban peer
     fn ban_peer(&self, peer_index: PeerIndex, timeout: Duration) {
         if let Some(peer_id) = self.network.get_peer_id(peer_index) {
@@ -98,22 +110,20 @@ impl CKBProtocolContext for DefaultCKBProtocolContext {
     fn disconnect(&self, peer_index: PeerIndex) {
         debug!(target: "network", "disconnect peer {}", peer_index);
         if let Some(peer_id) = self.network.get_peer_id(peer_index) {
-            self.network.drop_peer(&peer_id)
+            self.network.drop_peer(&peer_id);
         }
     }
     fn register_timer(&self, token: TimerToken, duration: Duration) -> Result<(), Error> {
-        let handler = self
+        let (_, handler) = self
             .network
-            .ckb_protocols
-            .find_protocol(self.protocol_id)
-            .ok_or(ErrorKind::BadProtocol)?
-            .protocol_handler()
-            .to_owned();
+            .find_protocol_without_version(self.protocol_id)
+            .ok_or_else(|| ProtocolError::NotFound(self.protocol_id))?;
+
         match *self.timer_registry.lock() {
             Some(ref mut timer_registry) => {
                 timer_registry.push((handler, self.protocol_id, token, duration))
             }
-            None => return Err(ErrorKind::TimerRegisterNotAvailable.into()),
+            None => return Err(ProtocolError::DisallowRegisterTimer.into()),
         }
         Ok(())
     }
@@ -151,7 +161,7 @@ impl CKBProtocolContext for DefaultCKBProtocolContext {
 
 pub trait CKBProtocolHandler: Sync + Send {
     fn initialize(&self, _nc: Box<dyn CKBProtocolContext>);
-    fn received(&self, _nc: Box<dyn CKBProtocolContext>, _peer: PeerIndex, _data: &[u8]);
+    fn received(&self, _nc: Box<dyn CKBProtocolContext>, _peer: PeerIndex, _data: Bytes);
     fn connected(&self, _nc: Box<dyn CKBProtocolContext>, _peer: PeerIndex);
     fn disconnected(&self, _nc: Box<dyn CKBProtocolContext>, _peer: PeerIndex);
     fn timer_triggered(&self, _nc: Box<dyn CKBProtocolContext>, _timer: TimerToken) {}

@@ -62,6 +62,6 @@ pub fn uncles_hash(uncles: &[UncleBlock]) -> H256 {
     if uncles.is_empty() {
         H256::zero()
     } else {
-        blake2b_256(serialize(uncles).unwrap()).into()
+        blake2b_256(serialize(uncles).expect("Uncle serialize should not fail")).into()
     }
 }

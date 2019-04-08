@@ -1,34 +1,42 @@
-use crate::ckb_protocol::CKBProtocol;
-use crate::ckb_protocol_handler::CKBProtocolHandler;
-use crate::ckb_protocol_handler::{CKBProtocolContext, DefaultCKBProtocolContext};
-use crate::network::Network;
-use crate::NetworkConfig;
-use crate::{Error, ErrorKind, ProtocolId};
+use crate::protocol_handler::{CKBProtocolContext, DefaultCKBProtocolContext};
+use crate::{errors::Error, CKBEvent, NetworkConfig, ProtocolId};
+use crate::{
+    multiaddr::Multiaddr,
+    network::{CKBProtocols, Network},
+    PeerId,
+};
 use ckb_util::Mutex;
 use futures::future::Future;
+use futures::sync::mpsc::Receiver;
 use futures::sync::oneshot;
-use libp2p::{Multiaddr, PeerId};
-use log::{debug, info};
+use log::{debug, error, info};
 use std::sync::Arc;
-use std::thread;
 use tokio::runtime;
 
 pub struct StopHandler {
     signal: oneshot::Sender<()>,
-    thread: thread::JoinHandle<()>,
+    network_runtime: runtime::Runtime,
 }
 
 impl StopHandler {
-    pub fn new(signal: oneshot::Sender<()>, thread: thread::JoinHandle<()>) -> StopHandler {
-        StopHandler { signal, thread }
+    pub fn new(signal: oneshot::Sender<()>, network_runtime: runtime::Runtime) -> StopHandler {
+        StopHandler {
+            signal,
+            network_runtime,
+        }
     }
 
     pub fn close(self) {
-        let StopHandler { signal, thread } = self;
+        let StopHandler {
+            signal,
+            network_runtime,
+        } = self;
         if let Err(e) = signal.send(()) {
             debug!(target: "network", "send shutdown signal error, ignoring error: {:?}", e)
         };
-        thread.join().expect("join network_service thread");
+        // TODO: not that gracefully shutdown, will output below error message:
+        //       "terminate called after throwing an instance of 'std::system_error'"
+        network_runtime.shutdown_now();
     }
 }
 
@@ -52,7 +60,7 @@ impl NetworkService {
     where
         F: FnOnce(&CKBProtocolContext) -> T,
     {
-        match self.network.ckb_protocols.find_protocol(protocol_id) {
+        match self.network.find_protocol_without_version(protocol_id) {
             Some(_) => Some(f(&DefaultCKBProtocolContext::new(
                 Arc::clone(&self.network),
                 protocol_id,
@@ -63,39 +71,42 @@ impl NetworkService {
 
     pub fn run_in_thread(
         config: &NetworkConfig,
-        ckb_protocols: Vec<CKBProtocol<Arc<CKBProtocolHandler>>>,
+        ckb_protocols: CKBProtocols,
+        ckb_event_receiver: Receiver<CKBEvent>,
     ) -> Result<NetworkService, Error> {
-        let network = Network::inner_build(config, ckb_protocols)?;
+        let (network, p2p_service, timer_registry, receivers) =
+            Network::inner_build(config, ckb_protocols)?;
         let (close_tx, close_rx) = oneshot::channel();
         let (init_tx, init_rx) = oneshot::channel();
-        let join_handle = thread::spawn({
-            let network = Arc::clone(&network);
-            let config = config.clone();
-            move || {
-                info!(
-                    target: "network",
-                    "network peer_id {:?}",
-                    network.local_public_key().clone().into_peer_id()
-                );
-                let network_future =
-                    Network::build_network_future(network, &config, close_rx).unwrap();
-                init_tx.send(()).unwrap();
-                // here we use default config
-                let network_runtime = runtime::Runtime::new().unwrap();
-                match network_runtime.block_on_all(network_future) {
-                    Ok(_) => info!(target: "network", "network service exit"),
-                    Err(err) => panic!("network service exit unexpected {}", err),
-                }
-            }
-        });
-        init_rx.wait().map_err(|err| {
-            Error::from(ErrorKind::Other(
-                format!("initialize network service error: {}", err.to_string()).to_owned(),
-            ))
-        })?;
+
+        info!(
+            target: "network",
+            "network peer_id {:?}",
+            network.local_public_key().peer_id()
+        );
+        let network_future = Network::build_network_future(
+            Arc::clone(&network),
+            &config,
+            close_rx,
+            p2p_service,
+            timer_registry,
+            ckb_event_receiver,
+            receivers,
+        )
+        .expect("Network thread init");
+        init_tx.send(()).expect("Network init signal send");
+        // here we use default config
+        let mut network_runtime = runtime::Runtime::new().expect("Network tokio runtime init");
+        network_runtime.spawn(
+            network_future
+                .map(|_| info!(target: "network", "network service exit"))
+                .map_err(|err| error!("network service exit unexpected {}", err)),
+        );
+
+        init_rx.wait().map_err(|_err| Error::Shutdown)?;
         Ok(NetworkService {
             network,
-            stop_handler: Mutex::new(Some(StopHandler::new(close_tx, join_handle))),
+            stop_handler: Mutex::new(Some(StopHandler::new(close_tx, network_runtime))),
         })
     }
 

@@ -1,14 +1,14 @@
-use super::{Multiaddr, PeerId, Score, Status};
 use crate::network_group::{Group, NetworkGroup};
-use crate::peer_store::sqlite::Error as SqliteError;
-use libp2p::core::Endpoint;
+use crate::peer_store::sqlite::DBError;
+use crate::peer_store::{Multiaddr, PeerId, Score, Status};
+use crate::SessionType;
 use rusqlite::types::ToSql;
 use rusqlite::OptionalExtension;
 use rusqlite::{Connection, NO_PARAMS};
 use std::iter::FromIterator;
 use std::time::Duration;
 
-type DBResult<T> = Result<T, SqliteError>;
+type DBResult<T> = Result<T, DBError>;
 
 pub fn create_tables(conn: &Connection) -> DBResult<()> {
     let sql = r#"
@@ -21,7 +21,7 @@ pub fn create_tables(conn: &Connection) -> DBResult<()> {
     status INTEGER NOT NULL,
     endpoint INTEGER NOT NULL,
     ban_time INTEGER NOT NULL,
-    connected_time INTEGER NOT NULL
+    last_connected_at INTEGER NOT NULL
     );
     "#;
     conn.execute_batch(sql)?;
@@ -51,9 +51,9 @@ pub struct PeerInfo {
     pub connected_addr: Multiaddr,
     pub score: Score,
     pub status: Status,
-    pub endpoint: Endpoint,
+    pub endpoint: SessionType,
     pub ban_time: Duration,
-    pub connected_time: Duration,
+    pub last_connected_at: Duration,
 }
 
 impl PeerInfo {
@@ -61,20 +61,20 @@ impl PeerInfo {
         conn: &Connection,
         peer_id: &PeerId,
         connected_addr: &Multiaddr,
-        endpoint: Endpoint,
+        endpoint: SessionType,
         score: Score,
-        connected_time: Duration,
+        last_connected_at: Duration,
     ) -> DBResult<usize> {
         let network_group = connected_addr.network_group();
-        let mut stmt = conn.prepare("INSERT INTO peer_info (peer_id, connected_addr, score, status, endpoint, connected_time, network_group, ban_time) 
-                                    VALUES(:peer_id, :connected_addr, :score, :status, :endpoint, :connected_time, :network_group, 0)").expect("prepare");
+        let mut stmt = conn.prepare("INSERT INTO peer_info (peer_id, connected_addr, score, status, endpoint, last_connected_at, network_group, ban_time) 
+                                    VALUES(:peer_id, :connected_addr, :score, :status, :endpoint, :last_connected_at, :network_group, 0)").expect("prepare");
         stmt.execute_named(&[
             (":peer_id", &peer_id.as_bytes()),
             (":connected_addr", &connected_addr.to_bytes()),
             (":score", &score),
             (":status", &status_to_u8(Status::Unknown)),
             (":endpoint", &endpoint_to_bool(endpoint)),
-            (":connected_time", &duration_to_secs(connected_time)),
+            (":last_connected_at", &duration_to_secs(last_connected_at)),
             (":network_group", &network_group_to_bytes(&network_group)),
         ])
         .map_err(Into::into)
@@ -83,18 +83,18 @@ impl PeerInfo {
         conn: &Connection,
         id: u32,
         connected_addr: &Multiaddr,
-        endpoint: Endpoint,
-        connected_time: Duration,
+        endpoint: SessionType,
+        last_connected_at: Duration,
     ) -> DBResult<usize> {
         let mut stmt = conn
             .prepare(
-                "UPDATE peer_info SET connected_addr=:connected_addr, endpoint=:endpoint, connected_time=:connected_time WHERE id=:id",
+                "UPDATE peer_info SET connected_addr=:connected_addr, endpoint=:endpoint, last_connected_at=:last_connected_at WHERE id=:id",
                 )
             .expect("prepare");
         stmt.execute_named(&[
             (":connected_addr", &connected_addr.to_bytes()),
             (":endpoint", &endpoint_to_bool(endpoint)),
-            (":connected_time", &duration_to_secs(connected_time)),
+            (":last_connected_at", &duration_to_secs(last_connected_at)),
             (":id", &id),
         ])
         .map_err(Into::into)
@@ -106,7 +106,7 @@ impl PeerInfo {
     }
 
     pub fn get_by_peer_id(conn: &Connection, peer_id: &PeerId) -> DBResult<Option<PeerInfo>> {
-        conn.query_row("SELECT id, peer_id, connected_addr, score, status, endpoint, ban_time, connected_time FROM peer_info WHERE peer_id=?1 LIMIT 1", &[&peer_id.as_bytes()], |row| PeerInfo {
+        conn.query_row("SELECT id, peer_id, connected_addr, score, status, endpoint, ban_time, last_connected_at FROM peer_info WHERE peer_id=?1 LIMIT 1", &[&peer_id.as_bytes()], |row| PeerInfo {
             id: row.get(0),
             peer_id: PeerId::from_bytes(row.get(1)).expect("parse peer_id"),
             connected_addr: Multiaddr::from_bytes(row.get(2)).expect("parse multiaddr"),
@@ -114,7 +114,7 @@ impl PeerInfo {
             status: u8_to_status(row.get::<_, u8>(4)),
             endpoint: bool_to_endpoint(row.get::<_, bool>(5)),
             ban_time: secs_to_duration(row.get(6)),
-            connected_time: secs_to_duration(row.get(7)),
+            last_connected_at: secs_to_duration(row.get(7)),
         }).optional().map_err(Into::into)
     }
 
@@ -135,7 +135,7 @@ impl PeerInfo {
             .query_row::<(Vec<u8>, u32), _, _>("SELECT network_group, COUNT(network_group) AS network_group_count FROM peer_info
                                                GROUP BY network_group ORDER BY network_group_count DESC LIMIT 1",
                                                NO_PARAMS, |r| (r.get(0), r.get(1)))?;
-        let mut stmt = conn.prepare("SELECT id, peer_id, connected_addr, score, status, endpoint, ban_time, connected_time FROM peer_info
+        let mut stmt = conn.prepare("SELECT id, peer_id, connected_addr, score, status, endpoint, ban_time, last_connected_at FROM peer_info
                                     WHERE network_group=:network_group")?;
         let rows = stmt.query_map_named(&[(":network_group", &network_group)], |row| PeerInfo {
             id: row.get(0),
@@ -145,7 +145,7 @@ impl PeerInfo {
             status: u8_to_status(row.get::<_, u8>(4)),
             endpoint: bool_to_endpoint(row.get::<_, bool>(5)),
             ban_time: secs_to_duration(row.get(6)),
-            connected_time: secs_to_duration(row.get(7)),
+            last_connected_at: secs_to_duration(row.get(7)),
         })?;
         Result::from_iter(rows).map_err(Into::into)
     }
@@ -184,6 +184,27 @@ impl PeerAddr {
         conn.execute("DELETE FROM peer_addr WHERE peer_info_id=?1", &[id])
             .map_err(Into::into)
     }
+}
+
+pub fn get_random_peers(conn: &Connection, count: u32) -> DBResult<Vec<(PeerId, Multiaddr)>> {
+    // random select peers
+    let mut stmt = conn.prepare("SELECT id, peer_id FROM peer_info WHERE ban_time < strftime('%s','now') ORDER BY RANDOM() LIMIT :count")?;
+    let rows = stmt.query_map_named(&[(":count", &count)], |row| {
+        (
+            row.get::<_, u32>(0),
+            PeerId::from_bytes(row.get(1)).expect("parse peer_id"),
+        )
+    })?;
+
+    let mut peers = Vec::with_capacity(count as usize);
+    for row in rows {
+        let (id, peer_id) = row?;
+        let mut addrs = PeerAddr::get_addrs(conn, id, 1)?;
+        if let Some(addr) = addrs.pop() {
+            peers.push((peer_id, addr));
+        }
+    }
+    Ok(peers)
 }
 
 pub fn get_peers_to_attempt(conn: &Connection, count: u32) -> DBResult<Vec<(PeerId, Multiaddr)>> {
@@ -257,15 +278,15 @@ fn duration_to_secs(duration: Duration) -> u32 {
     duration.as_secs() as u32
 }
 
-fn endpoint_to_bool(endpoint: Endpoint) -> bool {
-    endpoint == Endpoint::Listener
+fn endpoint_to_bool(endpoint: SessionType) -> bool {
+    endpoint == SessionType::Server
 }
 
-fn bool_to_endpoint(is_inbound: bool) -> Endpoint {
+fn bool_to_endpoint(is_inbound: bool) -> SessionType {
     if is_inbound {
-        Endpoint::Listener
+        SessionType::Server
     } else {
-        Endpoint::Dialer
+        SessionType::Client
     }
 }
 

@@ -1,6 +1,6 @@
 [package]
 name = "ckb-sync"
-version = "0.7.0"
+version = "0.8.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -26,6 +26,7 @@ ckb-chain-spec = { path = "../spec" }
 bloom-filters = "0.1.0"
 ckb-traits = { path = "../traits" }
 failure = "0.1.5"
+bytes = "0.4.12"
 
 [dev-dependencies]
 ckb-notify = { path = "../notify" }

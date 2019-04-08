@@ -92,7 +92,12 @@ impl RpcServer {
             ]))
             .threads(config.threads.unwrap_or_else(num_cpus::get))
             .max_request_body_size(config.max_request_body_size)
-            .start_http(&config.listen_address.parse().unwrap())
+            .start_http(
+                &config
+                    .listen_address
+                    .parse()
+                    .expect("config listen_address parsed"),
+            )
             .expect("Jsonrpc initialize");
 
         RpcServer { server }

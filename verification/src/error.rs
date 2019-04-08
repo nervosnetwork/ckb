@@ -27,8 +27,6 @@ pub enum Error {
     Transactions((usize, TransactionError)),
     /// This is a wrapper of error encountered when invoking chain API.
     Chain(String),
-    /// The committed transactions list is empty.
-    CommitTransactionsEmpty,
     /// There are duplicate proposed transactions.
     ProposalTransactionDuplicate,
     /// There are duplicate committed transactions.
@@ -49,6 +47,8 @@ pub enum Error {
     /// Cycles consumed by all scripts in all commit transactions of the block exceed
     /// the maximum allowed cycles in consensus rules
     ExceededMaximumCycles,
+    /// The field version in block header is not allowed.
+    Version,
 }
 
 impl fmt::Display for Error {
@@ -71,6 +71,7 @@ pub enum CellbaseError {
     InvalidReward,
     InvalidQuantity,
     InvalidPosition,
+    InvalidOutput,
 }
 
 #[derive(Debug, PartialEq, Clone, Eq)]
@@ -140,4 +141,5 @@ pub enum TransactionError {
     InvalidSignature,
     Conflict,
     UnknownInput,
+    Version,
 }

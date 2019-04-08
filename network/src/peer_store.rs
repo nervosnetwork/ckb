@@ -1,24 +1,64 @@
-mod db;
 pub mod sqlite;
-pub use crate::peer_store::sqlite_peer_store::SqlitePeerStore;
-#[cfg(db_trace)]
-pub mod db_trace;
-pub(crate) mod sqlite_peer_store;
 
-use crate::PeerId;
-use fnv::FnvHashMap;
-use libp2p::core::{Endpoint, Multiaddr};
+pub use crate::{peer_store::sqlite::SqlitePeerStore, SessionType};
+pub(crate) use crate::{Behaviour, PeerId};
+use p2p::multiaddr::Multiaddr;
 use std::time::Duration;
 
-#[allow(dead_code)]
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
-pub enum Behaviour {
-    FailedToConnect,
-    FailedToPing,
-    Ping,
-    Connect,
-    UnexpectedDisconnect,
+pub type Score = i32;
+
+/// PeerStore Scoring configuration
+#[derive(Copy, Clone, Debug)]
+pub struct PeerScoreConfig {
+    pub default_score: Score,
+    pub ban_score: Score,
+    pub ban_timeout: Duration,
 }
+
+impl Default for PeerScoreConfig {
+    fn default() -> Self {
+        PeerScoreConfig {
+            default_score: 100,
+            ban_score: 40,
+            ban_timeout: Duration::from_secs(24 * 3600),
+        }
+    }
+}
+
+/// PeerStore
+/// See [rfc0007](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0007-scoring-system-and-network-security/0007-scoring-system-and-network-security.md) for details.
+pub trait PeerStore: Send + Sync {
+    /// Add a peer and address into peer_store
+    /// this method will assume peer is connected, which implies address is "verified".
+    fn add_connected_peer(&mut self, peer_id: &PeerId, address: Multiaddr, endpoint: SessionType);
+    /// Add discovered peer addresses
+    /// this method will assume peer and addr is untrust since we have not connected to it.
+    fn add_discovered_addr(&mut self, peer_id: &PeerId, address: Multiaddr) -> bool;
+    /// Report peer behaviours
+    fn report(&mut self, peer_id: &PeerId, behaviour: Behaviour) -> ReportResult;
+    /// Update peer status
+    fn update_status(&mut self, peer_id: &PeerId, status: Status);
+    fn peer_status(&self, peer_id: &PeerId) -> Status;
+    fn peer_score(&self, peer_id: &PeerId) -> Option<Score>;
+    /// Add bootnode
+    fn add_bootnode(&mut self, peer_id: PeerId, addr: Multiaddr);
+    /// This method randomly return peers, it return bootnodes if no other peers in PeerStore.
+    fn bootnodes(&self, count: u32) -> Vec<(PeerId, Multiaddr)>;
+    /// Get addrs of a peer, note a peer may have multiple addrs
+    fn peer_addrs(&self, peer_id: &PeerId, count: u32) -> Option<Vec<Multiaddr>>;
+    /// Get peers for outbound connection, this method randomly return non-connected peer addrs
+    fn peers_to_attempt(&self, count: u32) -> Vec<(PeerId, Multiaddr)>;
+    /// Randomly get peers
+    fn random_peers(&self, count: u32) -> Vec<(PeerId, Multiaddr)>;
+    /// Ban a peer
+    fn ban_peer(&mut self, peer_id: &PeerId, timeout: Duration);
+    /// Check peer ban status
+    fn is_banned(&self, peer_id: &PeerId) -> bool;
+    /// peer score config
+    fn peer_score_config(&self) -> PeerScoreConfig;
+}
+
+/// Peer Status
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum Status {
     Connected = 0,
@@ -51,85 +91,5 @@ impl ReportResult {
 
     pub fn is_ok(self) -> bool {
         self == ReportResult::Ok
-    }
-}
-
-pub type Score = i32;
-
-pub struct ScoringSchema {
-    schema: FnvHashMap<Behaviour, Score>,
-    peer_init_score: Score,
-    ban_score: Score,
-    default_ban_timeout: Duration,
-}
-
-impl ScoringSchema {
-    pub fn new_default() -> Self {
-        let schema = [
-            (Behaviour::FailedToConnect, -20),
-            (Behaviour::FailedToPing, -10),
-            (Behaviour::Ping, 5),
-            (Behaviour::Connect, 10),
-            (Behaviour::UnexpectedDisconnect, -20),
-        ]
-        .iter()
-        .cloned()
-        .collect();
-        ScoringSchema {
-            schema,
-            peer_init_score: 100,
-            ban_score: 40,
-            default_ban_timeout: Duration::from_secs(24 * 3600),
-        }
-    }
-
-    pub fn peer_init_score(&self) -> Score {
-        self.peer_init_score
-    }
-
-    pub fn ban_score(&self) -> Score {
-        self.ban_score
-    }
-
-    pub fn get_score(&self, behaviour: Behaviour) -> Option<Score> {
-        self.schema.get(&behaviour).cloned()
-    }
-
-    pub fn default_ban_timeout(&self) -> Duration {
-        self.default_ban_timeout
-    }
-}
-
-impl Default for ScoringSchema {
-    fn default() -> Self {
-        ScoringSchema::new_default()
-    }
-}
-
-pub trait PeerStore: Send + Sync {
-    // initial or update peer_info in peer_store
-    fn new_connected_peer(&mut self, peer_id: &PeerId, address: Multiaddr, endpoint: Endpoint);
-    // add peer discovered addresses, return numbers of new inserted line, return Err if peer not exists
-    fn add_discovered_address(&mut self, peer_id: &PeerId, address: Multiaddr) -> Result<(), ()>;
-    fn add_discovered_addresses(
-        &mut self,
-        peer_id: &PeerId,
-        address: Vec<Multiaddr>,
-    ) -> Result<usize, ()>;
-    fn report(&mut self, peer_id: &PeerId, behaviour: Behaviour) -> ReportResult;
-    fn update_status(&mut self, peer_id: &PeerId, status: Status);
-    fn peer_status(&self, peer_id: &PeerId) -> Status;
-    fn peer_score(&self, peer_id: &PeerId) -> Option<Score>;
-    fn add_bootnode(&mut self, peer_id: PeerId, addr: Multiaddr);
-    // should return high scored nodes if possible, otherwise, return boostrap nodes
-    fn bootnodes(&self, count: u32) -> Vec<(PeerId, Multiaddr)>;
-    fn peer_addrs(&self, peer_id: &PeerId, count: u32) -> Option<Vec<Multiaddr>>;
-    fn peers_to_attempt(&self, count: u32) -> Vec<(PeerId, Multiaddr)>;
-    fn ban_peer(&mut self, peer_id: &PeerId, timeout: Duration);
-    fn is_banned(&self, peer_id: &PeerId) -> bool;
-    fn scoring_schema(&self) -> &ScoringSchema;
-    fn peer_score_or_default(&self, peer_id: &PeerId) -> Score {
-        self.peer_score(peer_id)
-            .unwrap_or_else(|| self.scoring_schema().peer_init_score())
     }
 }

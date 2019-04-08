@@ -7,7 +7,7 @@ mod transaction_relay;
 pub use block_relay::BlockRelayBasic;
 pub use block_sync::BlockSyncBasic;
 pub use mining::MiningBasic;
-pub use pool::PoolReconcile;
+pub use pool::{PoolReconcile, PoolTrace};
 pub use transaction_relay::TransactionRelayBasic;
 
 use crate::{sleep, Net};

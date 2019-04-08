@@ -2,7 +2,7 @@ use crate::error::{CellbaseError, CommitError, Error, UnclesError};
 use crate::header_verifier::HeaderResolver;
 use crate::{InputVerifier, TransactionVerifier, Verifier};
 use ckb_core::block::Block;
-use ckb_core::cell::{CellProvider, ResolvedTransaction};
+use ckb_core::cell::ResolvedTransaction;
 use ckb_core::header::Header;
 use ckb_core::transaction::{Capacity, CellInput};
 use ckb_core::Cycle;
@@ -18,8 +18,6 @@ use std::collections::HashSet;
 //TODO: cellbase, witness
 #[derive(Clone)]
 pub struct BlockVerifier<P> {
-    // Verify if the committed transactions is empty
-    empty: EmptyVerifier,
     // Verify if the committed and proposed transactions contains duplicate
     duplicate: DuplicateVerifier,
     // Verify the cellbase
@@ -34,12 +32,11 @@ pub struct BlockVerifier<P> {
 
 impl<P> BlockVerifier<P>
 where
-    P: ChainProvider + CellProvider + Clone + 'static,
+    P: ChainProvider + Clone + 'static,
 {
     pub fn new(provider: P) -> Self {
         BlockVerifier {
             // TODO change all new fn's chain to reference
-            empty: EmptyVerifier::new(),
             duplicate: DuplicateVerifier::new(),
             cellbase: CellbaseVerifier::new(provider.clone()),
             merkle_root: MerkleRootVerifier::new(),
@@ -49,15 +46,12 @@ where
     }
 }
 
-impl<P: ChainProvider + CellProvider + Clone> Verifier for BlockVerifier<P> {
+impl<P: ChainProvider + Clone> Verifier for BlockVerifier<P> {
     type Target = Block;
 
     fn verify(&self, target: &Block) -> Result<(), Error> {
-        // EmptyTransactionsVerifier must be executed first. Other verifiers may depend on the
-        // assumption that the transactions list is not empty.
-        self.empty.verify(target)?;
-        self.duplicate.verify(target)?;
         self.cellbase.verify(target)?;
+        self.duplicate.verify(target)?;
         self.merkle_root.verify(target)?;
         self.commit.verify(target)?;
         self.uncles.verify(target)
@@ -75,9 +69,6 @@ impl<CP: ChainProvider + Clone> CellbaseVerifier<CP> {
     }
 
     pub fn verify(&self, block: &Block) -> Result<(), Error> {
-        if block.commit_transactions().is_empty() {
-            return Ok(());
-        }
         let cellbase_len = block
             .commit_transactions()
             .iter()
@@ -99,42 +90,17 @@ impl<CP: ChainProvider + Clone> CellbaseVerifier<CP> {
         {
             return Err(Error::Cellbase(CellbaseError::InvalidInput));
         }
-        let block_reward = self.provider.block_reward(block.header().number());
-        let mut fee = 0;
-        for transaction in block.commit_transactions().iter().skip(1) {
-            fee += self
-                .provider
-                .calculate_transaction_fee(transaction)
-                .map_err(|e| Error::Chain(format!("{}", e)))?;
-        }
-        let total_reward = block_reward + fee;
-        let output_capacity: Capacity = cellbase_transaction
+
+        // currently, we enforce`type` field of a cellbase output cell must be absent
+        if cellbase_transaction
             .outputs()
             .iter()
-            .map(|output| output.capacity)
-            .sum();
-        if output_capacity > total_reward {
-            Err(Error::Cellbase(CellbaseError::InvalidReward))
-        } else {
-            Ok(())
+            .any(|op| op.type_.is_some())
+        {
+            return Err(Error::Cellbase(CellbaseError::InvalidOutput));
         }
-    }
-}
 
-#[derive(Clone)]
-pub struct EmptyVerifier {}
-
-impl EmptyVerifier {
-    pub fn new() -> Self {
-        EmptyVerifier {}
-    }
-
-    pub fn verify(&self, block: &Block) -> Result<(), Error> {
-        if block.commit_transactions().is_empty() {
-            Err(Error::CommitTransactionsEmpty)
-        } else {
-            Ok(())
-        }
+        Ok(())
     }
 }
 
@@ -405,10 +371,20 @@ impl TransactionsVerifier {
         &self,
         txs_verify_cache: &mut LruCache<H256, Cycle>,
         resolved: &[ResolvedTransaction],
+        block_reward: Capacity,
     ) -> Result<(), Error> {
+        // verify cellbase reward
+        let cellbase = &resolved[0];
+        let fee: Capacity = resolved.iter().skip(1).map(|rt| rt.fee()).sum();
+        if cellbase.transaction.outputs_capacity() > block_reward + fee {
+            return Err(Error::Cellbase(CellbaseError::InvalidReward));
+        }
+        // TODO use TransactionScriptsVerifier to verify cellbase script
+
         // make verifiers orthogonal
         let cycles_set = resolved
             .par_iter()
+            .skip(1)
             .enumerate()
             .map(|(index, tx)| {
                 if let Some(cycles) = txs_verify_cache.get(&tx.transaction.hash()) {

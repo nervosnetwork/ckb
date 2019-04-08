@@ -1,11 +1,12 @@
 use crate::error::TransactionError;
-use ckb_core::transaction::{Capacity, Transaction};
+use ckb_core::transaction::{Capacity, Transaction, TX_VERSION};
 use ckb_core::{cell::ResolvedTransaction, Cycle};
 use ckb_script::TransactionScriptsVerifier;
 use occupied_capacity::OccupiedCapacity;
 use std::collections::HashSet;
 
 pub struct TransactionVerifier<'a> {
+    pub version: VersionVerifier<'a>,
     pub null: NullVerifier<'a>,
     pub empty: EmptyVerifier<'a>,
     pub capacity: CapacityVerifier<'a>,
@@ -17,6 +18,7 @@ pub struct TransactionVerifier<'a> {
 impl<'a> TransactionVerifier<'a> {
     pub fn new(rtx: &'a ResolvedTransaction) -> Self {
         TransactionVerifier {
+            version: VersionVerifier::new(&rtx.transaction),
             null: NullVerifier::new(&rtx.transaction),
             empty: EmptyVerifier::new(&rtx.transaction),
             duplicate_inputs: DuplicateInputsVerifier::new(&rtx.transaction),
@@ -27,14 +29,31 @@ impl<'a> TransactionVerifier<'a> {
     }
 
     pub fn verify(&self, max_cycles: Cycle) -> Result<Cycle, TransactionError> {
+        self.version.verify()?;
         self.empty.verify()?;
         self.null.verify()?;
+        self.inputs.verify()?;
         self.capacity.verify()?;
         self.duplicate_inputs.verify()?;
-        // InputVerifier should be executed before ScriptVerifier
-        self.inputs.verify()?;
         let cycles = self.script.verify(max_cycles)?;
         Ok(cycles)
+    }
+}
+
+pub struct VersionVerifier<'a> {
+    transaction: &'a Transaction,
+}
+
+impl<'a> VersionVerifier<'a> {
+    pub fn new(transaction: &'a Transaction) -> Self {
+        VersionVerifier { transaction }
+    }
+
+    pub fn verify(&self) -> Result<(), TransactionError> {
+        if self.transaction.version() != TX_VERSION {
+            return Err(TransactionError::Version);
+        }
+        Ok(())
     }
 }
 
@@ -50,13 +69,14 @@ impl<'a> InputVerifier<'a> {
     }
 
     pub fn verify(&self) -> Result<(), TransactionError> {
-        let mut inputs = self.resolved_transaction.transaction.inputs().iter();
-        for cs in &self.resolved_transaction.input_cells {
+        let inputs = self.resolved_transaction.transaction.inputs().iter();
+        let input_cells = self.resolved_transaction.input_cells.iter();
+        for (input, cs) in inputs.zip(input_cells) {
             if cs.is_live() {
-                if let Some(ref input) = cs.get_live() {
+                if let Some(ref input_cell) = cs.get_live() {
                     // TODO: remove this once VM mmap is in place so we can
                     // do P2SH within the VM.
-                    if input.lock != inputs.next().unwrap().unlock.type_hash() {
+                    if input_cell.lock != input.unlock.type_hash() {
                         return Err(TransactionError::InvalidScript);
                     }
                 }

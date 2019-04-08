@@ -12,14 +12,17 @@ filter = "info"
 color = true
 
 [network]
+path = "default/network"
 listen_addresses = ["/ip4/0.0.0.0/tcp/8115"]
+public_addresses = []
 bootnodes = []
-reserved_nodes = []
-only_reserved_peers = false
-min_peers = 4
-max_peers = 8
-secret_file = "secret"
-nodes_file = "nodes.toml"
+reserved_peers = []
+reserved_only = false
+max_peers = 125
+max_outbound_peers = 30
+ping_interval_secs = 15
+ping_timeout_secs = 20
+connect_outbound_interval_secs = 15
 
 [rpc]
 listen_address = "0.0.0.0:8114"
@@ -44,4 +47,5 @@ trace = 100
 txs_verify_cache_size = 100000
 
 [block_assembler]
+# value is from spec#always_success_type_hash test
 type_hash = "0x8954a4ac5e5c33eb7aa8bb91e0a000179708157729859bd8cf7e2278e1e12980"

@@ -3,9 +3,15 @@ use std::env;
 #[macro_export]
 macro_rules! get_version {
     () => {{
-        let major = env!("CARGO_PKG_VERSION_MAJOR").parse::<u8>().unwrap();
-        let minor = env!("CARGO_PKG_VERSION_MINOR").parse::<u8>().unwrap();
-        let patch = env!("CARGO_PKG_VERSION_PATCH").parse::<u16>().unwrap();
+        let major = env!("CARGO_PKG_VERSION_MAJOR")
+            .parse::<u8>()
+            .expect("CARGO_PKG_VERSION_MAJOR parse success");
+        let minor = env!("CARGO_PKG_VERSION_MINOR")
+            .parse::<u8>()
+            .expect("CARGO_PKG_VERSION_MINOR parse success");
+        let patch = env!("CARGO_PKG_VERSION_PATCH")
+            .parse::<u16>()
+            .expect("CARGO_PKG_VERSION_PATCH parse success");
 
         let host_compiler = $crate::get_channel();
         let commit_describe = option_env!("COMMIT_DESCRIBE").map(|s| s.to_string());

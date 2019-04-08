@@ -112,7 +112,7 @@ pub struct SyncPayloadUnionTableOffset {}
 pub enum RelayPayload {
   NONE = 0,
   CompactBlock = 1,
-  Transaction = 2,
+  ValidTransaction = 2,
   GetBlockTransactions = 3,
   BlockTransactions = 4,
   GetBlockProposal = 5,
@@ -158,7 +158,7 @@ impl flatbuffers::Push for RelayPayload {
 const ENUM_VALUES_RELAY_PAYLOAD:[RelayPayload; 7] = [
   RelayPayload::NONE,
   RelayPayload::CompactBlock,
-  RelayPayload::Transaction,
+  RelayPayload::ValidTransaction,
   RelayPayload::GetBlockTransactions,
   RelayPayload::BlockTransactions,
   RelayPayload::GetBlockProposal,
@@ -169,7 +169,7 @@ const ENUM_VALUES_RELAY_PAYLOAD:[RelayPayload; 7] = [
 const ENUM_NAMES_RELAY_PAYLOAD:[&'static str; 7] = [
     "NONE",
     "CompactBlock",
-    "Transaction",
+    "ValidTransaction",
     "GetBlockTransactions",
     "BlockTransactions",
     "GetBlockProposal",
@@ -2003,9 +2003,9 @@ impl<'a> RelayMessage<'a> {
 
   #[inline]
   #[allow(non_snake_case)]
-  pub fn payload_as_transaction(&'a self) -> Option<Transaction> {
-    if self.payload_type() == RelayPayload::Transaction {
-      self.payload().map(|u| Transaction::init_from_table(u))
+  pub fn payload_as_valid_transaction(&'a self) -> Option<ValidTransaction> {
+    if self.payload_type() == RelayPayload::ValidTransaction {
+      self.payload().map(|u| ValidTransaction::init_from_table(u))
     } else {
       None
     }
@@ -2313,6 +2313,94 @@ impl<'a: 'b, 'b> IndexTransactionBuilder<'a, 'b> {
   }
   #[inline]
   pub fn finish(self) -> flatbuffers::WIPOffset<IndexTransaction<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+pub enum ValidTransactionOffset {}
+#[derive(Copy, Clone, Debug, PartialEq)]
+
+pub struct ValidTransaction<'a> {
+  pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for ValidTransaction<'a> {
+    type Inner = ValidTransaction<'a>;
+    #[inline]
+    fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        Self {
+            _tab: flatbuffers::Table { buf: buf, loc: loc },
+        }
+    }
+}
+
+impl<'a> ValidTransaction<'a> {
+    #[inline]
+    pub fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+        ValidTransaction {
+            _tab: table,
+        }
+    }
+    #[allow(unused_mut)]
+    pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr>(
+        _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr>,
+        args: &'args ValidTransactionArgs<'args>) -> flatbuffers::WIPOffset<ValidTransaction<'bldr>> {
+      let mut builder = ValidTransactionBuilder::new(_fbb);
+      builder.add_cycles(args.cycles);
+      if let Some(x) = args.transaction { builder.add_transaction(x); }
+      builder.finish()
+    }
+
+    pub const VT_CYCLES: flatbuffers::VOffsetT = 4;
+    pub const VT_TRANSACTION: flatbuffers::VOffsetT = 6;
+
+  #[inline]
+  pub fn cycles(&self) -> u64 {
+    self._tab.get::<u64>(ValidTransaction::VT_CYCLES, Some(0)).unwrap()
+  }
+  #[inline]
+  pub fn transaction(&self) -> Option<Transaction<'a>> {
+    self._tab.get::<flatbuffers::ForwardsUOffset<Transaction<'a>>>(ValidTransaction::VT_TRANSACTION, None)
+  }
+}
+
+pub struct ValidTransactionArgs<'a> {
+    pub cycles: u64,
+    pub transaction: Option<flatbuffers::WIPOffset<Transaction<'a >>>,
+}
+impl<'a> Default for ValidTransactionArgs<'a> {
+    #[inline]
+    fn default() -> Self {
+        ValidTransactionArgs {
+            cycles: 0,
+            transaction: None,
+        }
+    }
+}
+pub struct ValidTransactionBuilder<'a: 'b, 'b> {
+  fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a>,
+  start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b> ValidTransactionBuilder<'a, 'b> {
+  #[inline]
+  pub fn add_cycles(&mut self, cycles: u64) {
+    self.fbb_.push_slot::<u64>(ValidTransaction::VT_CYCLES, cycles, 0);
+  }
+  #[inline]
+  pub fn add_transaction(&mut self, transaction: flatbuffers::WIPOffset<Transaction<'b >>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<Transaction>>(ValidTransaction::VT_TRANSACTION, transaction);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>) -> ValidTransactionBuilder<'a, 'b> {
+    let start = _fbb.start_table();
+    ValidTransactionBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> flatbuffers::WIPOffset<ValidTransaction<'a>> {
     let o = self.fbb_.end_table(self.start_);
     flatbuffers::WIPOffset::new(o.value())
   }

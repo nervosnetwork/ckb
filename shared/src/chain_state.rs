@@ -4,7 +4,9 @@ use crate::index::ChainIndex;
 use crate::tx_pool::{PoolEntry, PoolError, StagingTxResult, TxPool};
 use crate::tx_proposal_table::TxProposalTable;
 use ckb_core::block::Block;
-use ckb_core::cell::{CellProvider, CellStatus, ResolvedTransaction};
+use ckb_core::cell::{
+    resolve_transaction, CellProvider, CellStatus, OverlayCellProvider, ResolvedTransaction,
+};
 use ckb_core::header::{BlockNumber, Header};
 use ckb_core::transaction::{OutPoint, ProposalShortId, Transaction};
 use ckb_core::Cycle;
@@ -97,73 +99,40 @@ impl<CI: ChainIndex> ChainState<CI> {
         self.cell_set.update(txo_diff);
     }
 
-    pub fn add_tx_to_pool(&self, tx: Transaction, max_cycles: Cycle) -> Result<(), PoolError> {
+    pub fn add_tx_to_pool(&self, tx: Transaction, max_cycles: Cycle) -> Result<Cycle, PoolError> {
         let mut tx_pool = self.tx_pool.borrow_mut();
         let short_id = tx.proposal_short_id();
+        let rtx = self.resolve_tx_from_pool(&tx, &tx_pool);
+        let verify_result = self.verify_rtx(&rtx, max_cycles);
         if self.contains_proposal_id(&short_id) {
-            let entry = PoolEntry::new(tx, 0, None);
+            let entry = PoolEntry::new(tx, 0, verify_result.map(Some).unwrap_or(None));
             self.staging_tx(&mut tx_pool, entry, max_cycles)?;
+            Ok(verify_result.map_err(PoolError::InvalidTx)?)
         } else {
-            tx_pool.enqueue_tx(tx);
-        }
-        Ok(())
-    }
-
-    fn get_cell_status_from_store(&self, out_point: &OutPoint) -> CellStatus {
-        let index = out_point.index as usize;
-        if let Some(f) = self.is_dead(out_point) {
-            if f {
-                CellStatus::Dead
-            } else {
-                let transaction = self
-                    .store
-                    .get_transaction(&out_point.hash)
-                    .expect("transaction must exist");
-                CellStatus::Live(transaction.outputs()[index].clone())
+            match verify_result {
+                Ok(cycles) => {
+                    // enqueue tx with cycles
+                    let entry = PoolEntry::new(tx, 0, Some(cycles));
+                    tx_pool.enqueue_tx(entry);
+                    Ok(cycles)
+                }
+                Err(TransactionError::UnknownInput) => {
+                    let entry = PoolEntry::new(tx, 0, None);
+                    tx_pool.enqueue_tx(entry);
+                    Err(PoolError::InvalidTx(TransactionError::UnknownInput))
+                }
+                Err(err) => Err(PoolError::InvalidTx(err)),
             }
-        } else {
-            CellStatus::Unknown
         }
     }
 
     pub fn resolve_tx_from_pool(&self, tx: &Transaction, tx_pool: &TxPool) -> ResolvedTransaction {
-        let fetch_cell = |op| match tx_pool.staging.cell(op) {
-            CellStatus::Unknown => self.get_cell_status_from_store(op),
-            cs => cs,
-        };
+        let cell_provider = OverlayCellProvider::new(&tx_pool.staging, self);
         let mut seen_inputs = FnvHashSet::default();
-        let inputs = tx.input_pts();
-        let input_cells = inputs
-            .iter()
-            .map(|input| {
-                if seen_inputs.insert(input.clone()) {
-                    fetch_cell(input)
-                } else {
-                    CellStatus::Dead
-                }
-            })
-            .collect();
-
-        let dep_cells = tx
-            .dep_pts()
-            .iter()
-            .map(|dep| {
-                if seen_inputs.insert(dep.clone()) {
-                    fetch_cell(dep)
-                } else {
-                    CellStatus::Dead
-                }
-            })
-            .collect();
-
-        ResolvedTransaction {
-            transaction: tx.clone(),
-            input_cells,
-            dep_cells,
-        }
+        resolve_transaction(tx, &mut seen_inputs, &cell_provider)
     }
 
-    fn verify_rtx(
+    pub fn verify_rtx(
         &self,
         rtx: &ResolvedTransaction,
         max_cycles: Cycle,
@@ -267,9 +236,9 @@ impl<CI: ChainIndex> ChainState<CI> {
             tx_pool.add_orphan(entry, unknowns);
             return Ok(StagingTxResult::Orphan);
         }
-
+        let cycles = entry.cycles.expect("cycles must exists");
         tx_pool.add_staging(entry);
-        Ok(StagingTxResult::Normal)
+        Ok(StagingTxResult::Normal(cycles))
     }
 
     pub fn update_tx_pool_for_reorg(
@@ -316,7 +285,7 @@ impl<CI: ChainIndex> ChainState<CI> {
                 let tx = entry.transaction.clone();
                 let tx_hash = tx.hash();
                 match self.staging_tx(&mut tx_pool, entry, max_cycles) {
-                    Ok(StagingTxResult::Normal) => {
+                    Ok(StagingTxResult::Normal(_)) => {
                         self.update_orphan_from_tx(&mut tx_pool, &tx, max_cycles);
                     }
                     Err(e) => {
@@ -353,5 +322,21 @@ impl<CI: ChainIndex> ChainState<CI> {
 
     pub fn mut_tx_pool(&mut self) -> &mut TxPool {
         self.tx_pool.get_mut()
+    }
+}
+
+impl<CI: ChainIndex> CellProvider for ChainState<CI> {
+    fn cell(&self, out_point: &OutPoint) -> CellStatus {
+        match self.is_dead(out_point) {
+            Some(true) => CellStatus::Dead,
+            Some(false) => {
+                let tx = self
+                    .store
+                    .get_transaction(&out_point.hash)
+                    .expect("store should be consistent with cell_set");
+                CellStatus::Live(tx.outputs()[out_point.index as usize].clone())
+            }
+            None => CellStatus::Unknown,
+        }
     }
 }

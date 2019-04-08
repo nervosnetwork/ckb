@@ -1,6 +1,6 @@
 [package]
 name = "ckb-chain-spec"
-version = "0.7.0"
+version = "0.8.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -8,7 +8,7 @@ edition = "2018"
 [dependencies]
 serde = "1.0"
 serde_derive = "1.0"
-toml = "0.4"
+toml = "0.5"
 numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 numext-fixed-uint = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 ckb-core = { path = "../core" }

@@ -1,8 +1,9 @@
 use crate::synchronizer::Synchronizer;
 use crate::types::TransactionFilter;
 use ckb_network::PeerIndex;
-use ckb_protocol::{AddFilter, SetFilter};
+use ckb_protocol::{cast, AddFilter, SetFilter};
 use ckb_shared::index::ChainIndex;
+use failure::Error as FailureError;
 
 pub struct SetFilterProcess<'a, CI: ChainIndex + 'a> {
     message: &'a SetFilter<'a>,
@@ -26,16 +27,18 @@ where
         }
     }
 
-    pub fn execute(self) {
+    pub fn execute(self) -> Result<(), FailureError> {
         // TODO add filter size and num_hashes max value checking
         let mut filters = self.synchronizer.peers.transaction_filters.write();
+        let msg = cast!(self.message.filter())?;
         filters.entry(self.peer).or_insert_with(|| {
             TransactionFilter::new(
-                self.message.filter().unwrap(),
+                msg,
                 self.message.num_hashes() as usize,
                 self.message.hash_seed() as usize,
             )
         });
+        Ok(())
     }
 }
 
@@ -61,11 +64,13 @@ where
         }
     }
 
-    pub fn execute(self) {
+    pub fn execute(self) -> Result<(), FailureError> {
         let mut filters = self.synchronizer.peers.transaction_filters.write();
+        let msg = cast!(self.message.filter())?;
         filters
             .entry(self.peer)
-            .and_modify(|filter| filter.update(self.message.filter().unwrap()));
+            .and_modify(|filter| filter.update(msg));
+        Ok(())
     }
 }
 
@@ -82,8 +87,9 @@ where
         Self { peer, synchronizer }
     }
 
-    pub fn execute(self) {
+    pub fn execute(self) -> Result<(), FailureError> {
         let mut filters = self.synchronizer.peers.transaction_filters.write();
         filters.remove(&self.peer);
+        Ok(())
     }
 }

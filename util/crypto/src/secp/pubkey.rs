@@ -25,43 +25,23 @@ impl Pubkey {
             temp
         };
 
-        let pubkey = key::PublicKey::from_slice(context, &prefix_key)?;
+        let pubkey = key::PublicKey::from_slice(&prefix_key)?;
         let recoverable_signature = signature.to_recoverable()?;
-        let signature = recoverable_signature.to_standard(context);
+        let signature = recoverable_signature.to_standard();
 
         let message = SecpMessage::from_slice(message.as_bytes())?;
         context.verify(&message, &signature, &pubkey)?;
         Ok(())
     }
 
-    pub fn verify_schnorr(&self, message: &Message, signature: &Signature) -> Result<(), Error> {
-        let context = &SECP256K1;
-
-        // non-compressed key prefix 4
-        let prefix_key: [u8; 65] = {
-            let mut temp = [4u8; 65];
-            temp[1..65].copy_from_slice(self.inner.as_bytes());
-            temp
-        };
-
-        let pubkey = key::PublicKey::from_slice(context, &prefix_key)?;
-        let schnorr_signature = signature.to_schnorr();
-
-        let message = SecpMessage::from_slice(message.as_bytes())?;
-        context.verify_schnorr(&message, &schnorr_signature, &pubkey)?;
-        Ok(())
-    }
-
     pub fn serialize(&self) -> Vec<u8> {
-        let context = &SECP256K1;
-
         // non-compressed key prefix 4
         let prefix_key: [u8; 65] = {
             let mut temp = [4u8; 65];
             temp[1..65].copy_from_slice(self.inner.as_bytes());
             temp
         };
-        let pubkey = key::PublicKey::from_slice(context, &prefix_key).unwrap();
+        let pubkey = key::PublicKey::from_slice(&prefix_key).unwrap();
         Vec::from(&pubkey.serialize()[..])
     }
 }

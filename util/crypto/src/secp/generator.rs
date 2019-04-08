@@ -2,8 +2,8 @@ use super::error::Error;
 use super::privkey::Privkey;
 use super::pubkey::Pubkey;
 use super::SECP256K1;
-use rand;
-use secp256k1::key;
+use rand::{self, Rng};
+use secp256k1::{PublicKey, SecretKey};
 
 pub struct Generator;
 
@@ -13,16 +13,25 @@ impl Generator {
     }
 
     pub fn random_privkey(&self) -> Privkey {
-        let mut rng = rand::thread_rng();
-        key::SecretKey::new(&SECP256K1, &mut rng).into()
+        self.random_secret_key().into()
     }
 
     pub fn random_keypair(self) -> Result<(Privkey, Pubkey), Error> {
+        let secret_key = self.random_secret_key();
+        let pubkey = PublicKey::from_secret_key(&*SECP256K1, &secret_key);
+
+        Ok((secret_key.into(), pubkey.into()))
+    }
+
+    pub fn random_secret_key(&self) -> SecretKey {
+        let mut seed = vec![0; 32];
         let mut rng = rand::thread_rng();
-
-        let (sec, publ) = SECP256K1.generate_keypair(&mut rng)?;
-
-        Ok((sec.into(), publ.into()))
+        loop {
+            rng.fill(seed.as_mut_slice());
+            if let Ok(key) = SecretKey::from_slice(&seed) {
+                return key;
+            }
+        }
     }
 }
 

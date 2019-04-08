@@ -1,3 +1,4 @@
+use bytes::Bytes;
 use ckb_network::{CKBProtocolContext, CKBProtocolHandler, PeerIndex};
 use ckb_protocol::TimeMessage;
 use ckb_util::RwLock;
@@ -90,7 +91,7 @@ impl Default for NetTimeProtocol {
 
 impl CKBProtocolHandler for NetTimeProtocol {
     fn initialize(&self, _nc: Box<CKBProtocolContext>) {}
-    fn received(&self, nc: Box<CKBProtocolContext>, peer: PeerIndex, data: &[u8]) {
+    fn received(&self, nc: Box<CKBProtocolContext>, peer: PeerIndex, data: Bytes) {
         // collect time sample from outbound peer
         if nc.session_info(peer).map(|s| s.peer.is_outbound()) == Some(true) {
             let now: u64 = faketime::unix_time_as_millis();

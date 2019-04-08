@@ -4,18 +4,17 @@ use ckb_chain::chain::{ChainBuilder, ChainController};
 use ckb_core::script::Script;
 use ckb_db::diskdb::RocksDB;
 use ckb_miner::BlockAssembler;
+use ckb_network::futures::sync::mpsc::channel;
 use ckb_network::CKBProtocol;
-use ckb_network::NetworkConfig;
 use ckb_network::NetworkService;
+use ckb_network::ProtocolId;
 use ckb_notify::{NotifyController, NotifyService};
 use ckb_rpc::RpcServer;
 use ckb_shared::cachedb::CacheDB;
 use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::{Shared, SharedBuilder};
-use ckb_sync::{
-    NetTimeProtocol, Relayer, Synchronizer, RELAY_PROTOCOL_ID, SYNC_PROTOCOL_ID, TIME_PROTOCOL_ID,
-};
-use ckb_traits::ChainProvider;
+use ckb_sync::{NetTimeProtocol, NetworkProtocol, Relayer, Synchronizer};
+use ckb_traits::chain_provider::ChainProvider;
 use crypto::secp::Generator;
 use log::info;
 use numext_fixed_hash::H256;
@@ -35,7 +34,6 @@ pub fn run(setup: Setup) {
 
     let chain_controller = setup_chain(shared.clone(), notify.clone());
     info!(target: "main", "chain genesis hash: {:#x}", shared.genesis_hash());
-    // let tx_pool_controller = setup_tx_pool(setup.configs.pool, shared.clone(), notify.clone());
 
     let block_assembler =
         BlockAssembler::new(shared.clone(), setup.configs.block_assembler.type_hash);
@@ -55,30 +53,38 @@ pub fn run(setup: Setup) {
 
     let net_time_checker = Arc::new(NetTimeProtocol::default());
 
-    let network_config = NetworkConfig::from(setup.configs.network);
-    let protocol_base_name = "ckb";
+    let (sender, receiver) = channel(std::u8::MAX as usize);
     let protocols = vec![
-        CKBProtocol::new(
-            protocol_base_name.to_string(),
+        (
+            CKBProtocol::new(
+                "syn".to_string(),
+                NetworkProtocol::SYNC as ProtocolId,
+                &[1][..],
+                sender.clone(),
+            ),
             synchronizer as Arc<_>,
-            SYNC_PROTOCOL_ID,
-            &[1][..],
         ),
-        CKBProtocol::new(
-            protocol_base_name.to_string(),
+        (
+            CKBProtocol::new(
+                "rel".to_string(),
+                NetworkProtocol::RELAY as ProtocolId,
+                &[1][..],
+                sender.clone(),
+            ),
             relayer as Arc<_>,
-            RELAY_PROTOCOL_ID,
-            &[1][..],
         ),
-        CKBProtocol::new(
-            protocol_base_name.to_string(),
+        (
+            CKBProtocol::new(
+                "tim".to_string(),
+                NetworkProtocol::TIME as ProtocolId,
+                &[1][..],
+                sender.clone(),
+            ),
             net_time_checker as Arc<_>,
-            TIME_PROTOCOL_ID,
-            &[1][..],
         ),
     ];
     let network = Arc::new(
-        NetworkService::run_in_thread(&network_config, protocols)
+        NetworkService::run_in_thread(&setup.configs.network, protocols, receiver)
             .expect("Create and start network"),
     );
 
@@ -97,6 +103,7 @@ pub fn run(setup: Setup) {
     rpc_server.close();
     info!(target: "main", "Jsonrpc shutdown");
 
+    // FIXME: should gracefully shutdown network
     network.close();
     info!(target: "main", "Network shutdown");
 }
@@ -108,15 +115,6 @@ fn setup_chain<CI: ChainIndex + 'static>(
     let chain_service = ChainBuilder::new(shared, notify).build();
     chain_service.start(Some("ChainService"))
 }
-
-// fn setup_tx_pool<CI: ChainIndex + 'static>(
-//     config: PoolConfig,
-//     shared: Shared<CI>,
-//     notify: NotifyController,
-// ) -> TransactionPoolController {
-//     let tx_pool_service = TransactionPoolService::new(config, shared, notify);
-//     tx_pool_service.start(Some("TransactionPoolService"))
-// }
 
 pub fn type_hash(setup: &Setup) {
     let consensus = setup.chain_spec.to_consensus().unwrap();

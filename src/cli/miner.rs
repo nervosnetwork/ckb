@@ -43,7 +43,10 @@ impl Config {
     pub fn read_from_file<P: AsRef<Path>>(path: P) -> Result<Config, Box<Error>> {
         let config_str = std::fs::read_to_string(path.as_ref())?;
         let mut config: Self = toml::from_str(&config_str)?;
-        config.resolve_paths(path.as_ref().parent().unwrap());
+        config.resolve_paths(path.as_ref().parent().unwrap_or_else(|| {
+            eprintln!("Invalid config file path {:?}", path.as_ref());
+            ::std::process::exit(1);
+        }));
         Ok(config)
     }
 }

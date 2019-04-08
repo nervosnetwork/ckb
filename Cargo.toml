@@ -1,6 +1,6 @@
 [package]
 name = "ckb"
-version = "0.7.0"
+version = "0.8.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -10,7 +10,7 @@ build = "build.rs"
 clap = { version = "2" }
 serde = "1.0"
 serde_derive = "1.0"
-toml = "0.4"
+toml = "0.5"
 log = "0.4"
 crossbeam-channel = "0.3"
 config-tool = { package= "config", version = "0.9" }
@@ -70,6 +70,5 @@ members = [
     "verification",
     "script",
     "pow",
-    "benches",
-    "test"
+    "benches"
 ]

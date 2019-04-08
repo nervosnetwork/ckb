@@ -53,7 +53,7 @@ impl TxPoolConfig {
 
 #[derive(Debug, PartialEq, Clone, Eq)]
 pub enum StagingTxResult {
-    Normal,
+    Normal(Cycle),
     Orphan,
     Proposed,
     Unknown,
@@ -61,7 +61,7 @@ pub enum StagingTxResult {
 
 // TODO document this enum more accurately
 /// Enum of errors
-#[derive(Debug, Clone, Fail)]
+#[derive(Debug, Clone, PartialEq, Fail)]
 pub enum PoolError {
     /// An invalid pool entry caused by underlying tx validation error
     InvalidTx(TransactionError),

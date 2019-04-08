@@ -1,57 +1,94 @@
-use std::error;
+use crate::{peer_store::sqlite::DBError, PeerIndex, ProtocolId};
+use p2p::secio::PeerId;
 use std::fmt;
 use std::fmt::Display;
-use std::io::{Error as IoError, ErrorKind as IoErrorKind};
+use std::io::Error as IoError;
 
 #[derive(Debug)]
-pub struct Error {
-    pub error_kind: ErrorKind,
-}
-
-#[derive(Debug)]
-pub enum ErrorKind {
-    PeerNotFound,
-    InvalidNewPeer(String),
-    ParseAddress,
-    BadProtocol,
-    TimerRegisterNotAvailable,
+pub enum Error {
+    Peer(PeerError),
+    Config(ConfigError),
+    Protocol(ProtocolError),
     Io(IoError),
-    Other(String),
+    P2P(String),
+    DB(DBError),
+    Shutdown,
 }
 
-impl From<ErrorKind> for Error {
-    fn from(e: ErrorKind) -> Error {
-        Error { error_kind: e }
+#[derive(Debug)]
+pub enum ConfigError {
+    BadAddress,
+    InvalidKey,
+}
+
+#[derive(Debug)]
+pub enum PeerError {
+    IndexNotFound(PeerIndex),
+    ProtocolNotFound(PeerId, ProtocolId),
+    NotFound(PeerId),
+    NonReserved(PeerId),
+    Banned(PeerId),
+    ReachMaxInboundLimit(PeerId),
+    ReachMaxOutboundLimit(PeerId),
+}
+
+#[derive(Debug)]
+pub enum ProtocolError {
+    NotFound(ProtocolId),
+    DisallowRegisterTimer,
+    Duplicate(ProtocolId),
+}
+
+impl From<PeerError> for Error {
+    fn from(err: PeerError) -> Error {
+        Error::Peer(err)
     }
 }
 
 impl From<IoError> for Error {
     fn from(err: IoError) -> Error {
-        Error {
-            error_kind: ErrorKind::Io(err),
-        }
+        Error::Io(err)
     }
 }
 
-impl Into<IoError> for Error {
-    fn into(self: Error) -> IoError {
-        IoError::new(IoErrorKind::Other, self)
+impl From<ConfigError> for Error {
+    fn from(err: ConfigError) -> Error {
+        Error::Config(err)
+    }
+}
+
+impl From<ProtocolError> for Error {
+    fn from(err: ProtocolError) -> Error {
+        Error::Protocol(err)
+    }
+}
+
+impl From<DBError> for Error {
+    fn from(err: DBError) -> Error {
+        Error::DB(err)
     }
 }
 
 impl Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self)
+        write!(f, "{:?}", self)
     }
 }
 
-impl error::Error for Error {
-    fn description(&self) -> &str {
-        "general error in libp2p"
+impl Display for ConfigError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{:?}", self)
     }
+}
 
-    fn cause(&self) -> Option<&error::Error> {
-        // Generic error, underlying cause isn't tracked.
-        None
+impl Display for PeerError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
+impl Display for ProtocolError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{:?}", self)
     }
 }

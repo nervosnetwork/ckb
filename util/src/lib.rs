@@ -1,5 +1,6 @@
 mod unstable;
 
+pub use crate::unstable::{TryFrom, TryInto};
 pub use parking_lot::{Condvar, Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 /// Helper macro for reducing boilerplate code for matching `Option` together

@@ -13,6 +13,8 @@ use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::ops::{Deref, DerefMut};
 
+pub const TX_VERSION: Version = 0;
+
 #[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Hash, OccupiedCapacity)]
 pub struct OutPoint {
     // Hash of Transaction
@@ -221,7 +223,7 @@ impl ProposalShortId {
     }
 
     pub fn hash(&self) -> H256 {
-        blake2b_256(serialize(self).unwrap()).into()
+        blake2b_256(serialize(self).expect("ProposalShortId serialize should not fail")).into()
     }
 
     pub fn zero() -> Self {
@@ -255,7 +257,7 @@ impl Transaction {
     }
 
     pub fn hash(&self) -> H256 {
-        blake2b_256(serialize(&self).unwrap()).into()
+        blake2b_256(serialize(&self).expect("Transaction serialize should not fail")).into()
     }
 
     pub fn out_points_iter(&self) -> impl Iterator<Item = &OutPoint> {
@@ -294,6 +296,10 @@ impl Transaction {
 
     pub fn get_output(&self, i: usize) -> Option<CellOutput> {
         self.outputs.get(i).cloned()
+    }
+
+    pub fn outputs_capacity(&self) -> Capacity {
+        self.outputs.iter().map(|output| output.capacity).sum()
     }
 }
 

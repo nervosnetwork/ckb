@@ -1,7 +1,7 @@
 use crate::{sleep, Net, Spec};
 use log::info;
 
-pub struct BlockSyncBasic {}
+pub struct BlockSyncBasic;
 
 impl Spec for BlockSyncBasic {
     fn run(&self, net: &Net) {

@@ -201,11 +201,11 @@ impl Cuckoo {
             let next_lower = *from_upper[&cur_edge.0]
                 .iter()
                 .find(|v| **v != cur_edge.1)
-                .unwrap();
+                .expect("next_lower should be found");
             let next_upper = *from_lower[&next_lower]
                 .iter()
                 .find(|u| **u != cur_edge.0)
-                .unwrap();
+                .expect("next_upper should be found");
             cur_edge = (next_upper, next_lower);
             cycle_length += 2;
 
@@ -232,7 +232,7 @@ impl Cuckoo {
             }
             let path_u = Cuckoo::path(&graph, u);
             let path_v = Cuckoo::path(&graph, v);
-            if path_u.last().unwrap() == path_v.last().unwrap() {
+            if path_u.last().is_some() && (path_u.last() == path_v.last()) {
                 let common = path_u
                     .iter()
                     .rev()

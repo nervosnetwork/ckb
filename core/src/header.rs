@@ -8,6 +8,8 @@ use std::fmt;
 
 pub use crate::{BlockNumber, Version};
 
+pub const HEADER_VERSION: Version = 0;
+
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct Seal {
     nonce: u64,
@@ -63,7 +65,7 @@ pub struct RawHeader {
 
 impl RawHeader {
     pub fn pow_hash(&self) -> H256 {
-        blake2b_256(serialize(self).unwrap()).into()
+        blake2b_256(serialize(self).expect("RawHeader serialize should not fail")).into()
     }
 
     pub fn with_seal(self, seal: Seal) -> Header {
@@ -149,7 +151,7 @@ impl Header {
     }
 
     pub fn hash(&self) -> H256 {
-        blake2b_256(serialize(&self).unwrap()).into()
+        blake2b_256(serialize(&self).expect("Header serialize should not fail")).into()
     }
 
     pub fn pow_hash(&self) -> H256 {

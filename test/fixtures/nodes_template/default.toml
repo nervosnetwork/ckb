@@ -8,26 +8,28 @@ spec = "spec/integration_test.toml"
 
 [logger]
 file = "ckb.log"
-filter = "info,network=trace,rpc=debug"
+filter = "info,network=trace,rpc=debug,sync=debug,relay=debug"
 color = true
 
 [network]
+path = "default/network"
 listen_addresses = ["/ip4/0.0.0.0/tcp/P2P_PORT"]
+public_addresses = []
 bootnodes = []
-reserved_nodes = []
-only_reserved_peers = false
-min_peers = 4
-max_peers = 8
-secret_file = "secret"
-nodes_file = "nodes.toml"
-try_outbound_connect_interval = 1
+reserved_peers = []
+reserved_only = false
+max_peers = 125
+max_outbound_peers = 30
+ping_interval_secs = 15
+ping_timeout_secs = 20
+connect_outbound_interval_secs = 1
 
 [rpc]
 listen_address = "0.0.0.0:RPC_PORT"
 
 max_request_body_size = 10485760
 
-modules = ["Net", "Pool", "Miner", "Chain", "IntegrationTest"]
+modules = ["Net", "Pool", "Miner", "Chain", "IntegrationTest", "Trace"]
 
 [sync]
 verification_level = "Full"

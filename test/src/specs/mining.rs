@@ -3,7 +3,7 @@ use ckb_core::block::Block;
 use ckb_core::transaction::ProposalShortId;
 use log::info;
 
-pub struct MiningBasic {}
+pub struct MiningBasic;
 
 impl Spec for MiningBasic {
     fn run(&self, net: &Net) {

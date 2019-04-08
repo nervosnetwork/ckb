@@ -1,7 +1,7 @@
 use crate::{sleep, Net, Spec};
 use log::info;
 
-pub struct TransactionRelayBasic {}
+pub struct TransactionRelayBasic;
 
 impl Spec for TransactionRelayBasic {
     fn run(&self, net: &Net) {
@@ -11,6 +11,7 @@ impl Spec for TransactionRelayBasic {
         let node2 = &net.nodes[2];
 
         info!("Generate new transaction on node1");
+        node1.generate_block();
         let hash = node1.generate_transaction();
 
         info!("Waiting for relay");
