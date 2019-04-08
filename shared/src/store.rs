@@ -1,8 +1,7 @@
 use crate::flat_serializer::{serialize as flat_serialize, Address};
 use crate::{
     COLUMN_BLOCK_BODY, COLUMN_BLOCK_HEADER, COLUMN_BLOCK_PROPOSAL_IDS,
-    COLUMN_BLOCK_TRANSACTION_ADDRESSES, COLUMN_BLOCK_TRANSACTION_IDS, COLUMN_BLOCK_UNCLE,
-    COLUMN_EXT,
+    COLUMN_BLOCK_TRANSACTION_ADDRESSES, COLUMN_BLOCK_UNCLE, COLUMN_EXT,
 };
 use bincode::{deserialize, serialize};
 use ckb_core::block::{Block, BlockBuilder};
@@ -174,34 +173,24 @@ impl<T: 'static + KeyValueDB> ChainStore for ChainKVStore<T> {
 
     fn insert_block(&self, batch: &mut Batch, b: &Block) {
         let hash = b.header().hash().to_vec();
-        let txs_ids = b
-            .commit_transactions()
-            .iter()
-            .map(|tx| tx.hash())
-            .collect::<Vec<H256>>();
         batch.insert(
             COLUMN_BLOCK_HEADER,
             hash.clone(),
             serialize(b.header()).expect("serializing header should be ok"),
-        );
-        let (block_data, block_addresses) = flat_serialize(b.commit_transactions().iter()).unwrap();
-        batch.insert(
-            COLUMN_BLOCK_TRANSACTION_IDS,
-            hash.clone(),
-            serialize(&txs_ids).expect("serializing txs hash should be ok"),
         );
         batch.insert(
             COLUMN_BLOCK_UNCLE,
             hash.clone(),
             serialize(b.uncles()).expect("serializing uncles should be ok"),
         );
-        batch.insert(COLUMN_BLOCK_BODY, hash.clone(), block_data);
         batch.insert(
             COLUMN_BLOCK_PROPOSAL_IDS,
             hash.clone(),
             serialize(b.proposal_transactions())
                 .expect("serializing proposal_transactions should be ok"),
         );
+        let (block_data, block_addresses) = flat_serialize(b.commit_transactions().iter()).unwrap();
+        batch.insert(COLUMN_BLOCK_BODY, hash.clone(), block_data);
         batch.insert(
             COLUMN_BLOCK_TRANSACTION_ADDRESSES,
             hash,
