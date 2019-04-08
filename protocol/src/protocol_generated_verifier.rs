@@ -1598,15 +1598,6 @@ pub mod ckb {
                     }
                 }
 
-                if Self::VT_CELLBASE_ID as usize + flatbuffers::SIZE_VOFFSET
-                    <= vtab_num_bytes
-                {
-                    let voffset = vtab.get(Self::VT_CELLBASE_ID) as usize;
-                    if voffset > 0 && object_inline_num_bytes - voffset < 32 {
-                        return Err(Error::OutOfBounds);
-                    }
-                }
-
                 if Self::VT_UNCLES_HASH as usize + flatbuffers::SIZE_VOFFSET
                     <= vtab_num_bytes
                 {
@@ -2795,21 +2786,6 @@ pub mod ckb {
                         }
 
                         if let Some(f) = self.header() {
-                            f.verify()?;
-                        }
-                    }
-                }
-
-                if Self::VT_CELLBASE as usize + flatbuffers::SIZE_VOFFSET
-                    <= vtab_num_bytes
-                {
-                    let voffset = vtab.get(Self::VT_CELLBASE) as usize;
-                    if voffset > 0 {
-                        if voffset + 4 > object_inline_num_bytes {
-                            return Err(Error::OutOfBounds);
-                        }
-
-                        if let Some(f) = self.cellbase() {
                             f.verify()?;
                         }
                     }
