@@ -263,6 +263,10 @@ impl<CI: ChainIndex> ChainState<CI> {
             attached.extend(blk.commit_transactions().iter().skip(1).cloned())
         }
 
+        if !detached.is_empty() {
+            self.txs_verify_cache.borrow_mut().clear();
+        }
+
         let retain: Vec<&Transaction> = detached.difference(&attached).collect();
 
         for tx in retain {
