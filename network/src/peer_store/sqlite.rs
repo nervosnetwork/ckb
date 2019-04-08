@@ -35,12 +35,9 @@ pub type ConnectionPool = Pool<SqliteConnectionManager>;
 pub type PooledConnection = r2d2::PooledConnection<SqliteConnectionManager>;
 
 lazy_static! {
-    static ref MEMORY_OPEN_FLAGS: OpenFlags = OpenFlags::SQLITE_OPEN_READ_WRITE
+    static ref OPEN_FLAGS: OpenFlags = OpenFlags::SQLITE_OPEN_READ_WRITE
         | OpenFlags::SQLITE_OPEN_CREATE
         | OpenFlags::SQLITE_OPEN_SHARED_CACHE
-        | OpenFlags::SQLITE_OPEN_NO_MUTEX;
-    static ref FILE_OPEN_FLAGS: OpenFlags = OpenFlags::SQLITE_OPEN_READ_WRITE
-        | OpenFlags::SQLITE_OPEN_CREATE
         | OpenFlags::SQLITE_OPEN_NO_MUTEX;
 }
 
@@ -54,11 +51,11 @@ pub fn open_pool(store_path: StorePath, max_size: u32) -> Result<ConnectionPool,
         StorePath::Memory(db) => {
             let manager =
                 SqliteConnectionManager::file(format!("file:{}?mode=memory&cache=shared", db));
-            manager.with_flags(*MEMORY_OPEN_FLAGS)
+            manager.with_flags(*OPEN_FLAGS)
         }
         StorePath::File(file_path) => {
             let manager = SqliteConnectionManager::file(file_path);
-            manager.with_flags(*FILE_OPEN_FLAGS)
+            manager.with_flags(*OPEN_FLAGS)
         }
     };
     Pool::builder()
@@ -71,11 +68,11 @@ pub fn open(store_path: StorePath) -> Result<Connection, DBError> {
     match store_path {
         StorePath::Memory(db) => Connection::open_with_flags(
             format!("file:{}?mode=memory&cache=shared", db),
-            *MEMORY_OPEN_FLAGS,
+            *OPEN_FLAGS,
         )
         .map_err(Into::into),
         StorePath::File(file_path) => {
-            Connection::open_with_flags(file_path, *FILE_OPEN_FLAGS).map_err(Into::into)
+            Connection::open_with_flags(file_path, *OPEN_FLAGS).map_err(Into::into)
         }
     }
 }

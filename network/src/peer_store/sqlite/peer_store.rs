@@ -26,7 +26,7 @@ pub(crate) const LAST_CONNECTED_TIMEOUT_SECS: u64 = 14 * 24 * 3600;
 /// Clear banned list if the list reach this size
 const BAN_LIST_CLEAR_EXPIRES_SIZE: usize = 1024;
 /// SQLITE connection pool size
-const DEFAULT_POOL_SIZE: u32 = 16;
+const DEFAULT_POOL_SIZE: u32 = 32;
 const DEFAULT_ADDRS: u32 = 3;
 
 pub struct SqlitePeerStore {
