@@ -2,6 +2,78 @@ All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
 
+# [v0.8.0](https://github.com/nervosnetwork/ckb/compare/v0.7.0...v0.8.0) (2019-04-08)
+
+### Features
+
+* #336: index whether a tx is a cellbase in the chain r=quake a=u2
+
+    Index whether a tx is a cellbase in the chain, prepare for the cellbase outputs maturity checking.
+
+    Now saving the cellbase index and block number in the `TransactionMeta`, there is another implementation which creates a `HashMap<tx_hash, number>`. The second one may be a little memory saving, but this one is more simple. I think both are ok.
+
+    https://github.com/nervosnetwork/ckb/issues/54
+
+* #350: use TryFrom convert protocol r=doitian a=zhangsoledad
+* #340: Integrate discovery and identify protocol r=jjyr a=TheWaWaR
+
+    Known issues:
+
+    - Shutdown network not very graceful.
+
+* #345: Add `random_peers` function to PeerStore r=jjyr a=jjyr
+* #335: Enforce `type` field of a cellbase output cell must be absent r=doitian a=zhangsoledad
+* #334: Version verification r=doitian a=zhangsoledad
+* #295: Replace P2P library r=quake a=jjyr
+
+### Bug Fixes
+
+* #365: trace rpc r=zhangsoledad a=zhangsoledad
+
+    addition:
+    * remove integration tests from root workspace
+    * fix integration tests logger panic at flush
+
+* #341: verify tx cycles in relay protocol r=zhangsoledad a=jjyr
+
+### Improvements
+
+* #359: merge `cell_set` `chain_state` cell provider r=quake a=zhangsoledad
+
+* #343: use CellProvider r=zhangsoledad a=quake
+
+    This refactoring is intended to remove closure in ChainService and duplicate code in ChainState. And fix bugs in block processing and add some test cases.
+
+* #346: replace unwrap with expect r=doitian a=zhangsoledad
+* #342: shrink lock-acquisition r=quake a=zhangsoledad
+* #361: refactor network config r=jjyr a=jjyr
+* #356: Unify network peer scoring r=jjyr a=jjyr
+* #349: Refactor peer store r=jjyr a=jjyr
+
+### BREAKING CHANGES
+
+* #361: network config
+
+```diff
+[network]
+- reserved_nodes = []
+-only_reserved_peers = false
+-max_peers = 8
+-min_peers = 4
+-secret_file = "secret_key"
+-peer_store_path = "peer_store.db"
+
++reserved_peers = []
++reserved_only = false
++max_peers = 125
++max_outbound_peers = 30
++config_dir_path = "default/network"
++ping_interval_secs = 15
++ping_timeout_secs = 20
++connect_outbound_interval_secs = 15
+```
+
+
 # [v0.7.0](https://github.com/nervosnetwork/ckb/compare/v0.6.0...v0.7.0) (2019-03-25)
 
 
