@@ -103,6 +103,15 @@ impl KeyValueDB for RocksDB {
         .map(|v| v.and_then(|vi| vi.get(range.start..range.end).map(|slice| slice.to_vec())))
         .map_err(Into::into)
     }
+
+    fn iter(&self, col: Col, key: &[u8]) -> Option<DBIterator> {
+        self.cf_handle(col).expect("invalid col").map(|cf| {
+            self.inner
+                .db
+                .iterator_cf(cf, IteratorMode::From(key, Direction::Forward))
+                .expect("invalid iterator")
+        })
+    }
 }
 
 #[cfg(test)]

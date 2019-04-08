@@ -1,13 +1,14 @@
 use crate::batch::{Batch, Col};
 use bincode::Error as BcError;
 use failure::Fail;
-use rocksdb::Error as RdbError;
+use rocksdb::{DBIterator as RdbIterator, Error as RdbError};
 use std::error::Error as StdError;
 use std::ops::Range;
 use std::result;
 
 pub type Error = ErrorKind;
 pub type Result<T> = result::Result<T, Error>;
+pub type DBIterator<'a> = RdbIterator<'a>;
 
 #[derive(Clone, Debug, PartialEq, Eq, Fail)]
 pub enum ErrorKind {
@@ -35,5 +36,10 @@ pub trait KeyValueDB: Sync + Send {
     fn partial_read(&self, col: Col, key: &[u8], range: &Range<usize>) -> Result<Option<Vec<u8>>>;
     fn batch(&self) -> Batch {
         Batch::new()
+    }
+    /// returns an iterator over a column, starts from a key in forward direction.
+    /// TODO use Rocksdb's DBIterator as a temp soluction, refactor it to associated type, same as Batch
+    fn iter(&self, col: Col, key: &[u8]) -> Option<DBIterator> {
+        None
     }
 }

@@ -1,5 +1,5 @@
 use ckb_db::batch::{Batch, Col, Operation};
-use ckb_db::kvdb::{KeyValueDB, Result};
+use ckb_db::kvdb::{DBIterator, KeyValueDB, Result};
 use ckb_util::RwLock;
 use fnv::FnvHashMap;
 use lru_cache::LruCache;
@@ -71,5 +71,9 @@ where
             return Ok(data.get(range.start..range.end).map(|slice| slice.to_vec()));
         }
         self.db.partial_read(col, key, range)
+    }
+
+    fn iter(&self, col: Col, key: &[u8]) -> Option<DBIterator> {
+        self.db.iter(col, key)
     }
 }
