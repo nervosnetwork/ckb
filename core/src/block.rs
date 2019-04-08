@@ -64,6 +64,38 @@ impl Block {
 
         ids.into_iter().collect()
     }
+
+    pub fn cal_witnesses_root(&self) -> H256 {
+        // The witness hash of cellbase transaction is assumed to be zero 0x0000....0000
+        let mut witnesses = vec![H256::zero()];
+        witnesses.extend(
+            self.commit_transactions()
+                .iter()
+                .skip(1)
+                .map(|tx| tx.witness_hash()),
+        );
+        merkle_root(&witnesses[..])
+    }
+
+    pub fn cal_txs_commit_root(&self) -> H256 {
+        merkle_root(
+            &self
+                .commit_transactions
+                .iter()
+                .map(|t| t.hash())
+                .collect::<Vec<_>>(),
+        )
+    }
+
+    pub fn cal_txs_proposal_root(&self) -> H256 {
+        merkle_root(
+            &self
+                .proposal_transactions
+                .iter()
+                .map(|t| t.hash())
+                .collect::<Vec<_>>(),
+        )
+    }
 }
 
 impl ::std::hash::Hash for Block {
@@ -133,36 +165,10 @@ impl BlockBuilder {
     }
 
     pub fn with_header_builder(mut self, header_builder: HeaderBuilder) -> Block {
-        let txs_commit = merkle_root(
-            &self
-                .inner
-                .commit_transactions
-                .iter()
-                .map(|t| t.hash())
-                .collect::<Vec<_>>(),
-        );
-
-        // The witness hash of cellbase transaction is assumed to be zero 0x0000....0000
-        let mut witnesses = vec![H256::zero()];
-        witnesses.extend(
-            self.inner
-                .commit_transactions()
-                .iter()
-                .skip(1)
-                .map(|tx| tx.witness_hash()),
-        );
-        let witnesses_root = merkle_root(&witnesses[..]);
-
-        let txs_proposal = merkle_root(
-            &self
-                .inner
-                .proposal_transactions
-                .iter()
-                .map(|t| t.hash())
-                .collect::<Vec<_>>(),
-        );
-
-        let uncles_hash = uncles_hash(&self.inner.uncles);
+        let txs_commit = self.inner.cal_txs_commit_root();
+        let witnesses_root = self.inner.cal_witnesses_root();
+        let txs_proposal = self.inner.cal_txs_proposal_root();
+        let uncles_hash = self.inner.cal_uncles_hash();
 
         self.inner.header = header_builder
             .txs_commit(txs_commit)

@@ -143,37 +143,15 @@ impl MerkleRootVerifier {
     }
 
     pub fn verify(&self, block: &Block) -> Result<(), Error> {
-        let commits = block
-            .commit_transactions()
-            .iter()
-            .map(|tx| tx.hash())
-            .collect::<Vec<_>>();
-
-        if block.header().txs_commit() != &merkle_root(&commits[..]) {
+        if block.header().txs_commit() != &block.cal_txs_commit_root() {
             return Err(Error::CommitTransactionsRoot);
         }
 
-        // The witness hash of cellbase transaction is assumed to be zero 0x0000....0000
-        let mut witnesses = vec![H256::zero()];
-        witnesses.extend(
-            block
-                .commit_transactions()
-                .iter()
-                .skip(1)
-                .map(|tx| tx.witness_hash()),
-        );
-
-        if block.header().witnesses_root() != &merkle_root(&witnesses[..]) {
+        if block.header().witnesses_root() != &block.cal_witnesses_root() {
             return Err(Error::WitnessesMerkleRoot);
         }
 
-        let proposals = block
-            .proposal_transactions()
-            .iter()
-            .map(|id| id.hash())
-            .collect::<Vec<_>>();
-
-        if block.header().txs_proposal() != &merkle_root(&proposals[..]) {
+        if block.header().txs_proposal() != &block.cal_txs_proposal_root() {
             return Err(Error::ProposalTransactionsRoot);
         }
 
