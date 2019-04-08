@@ -204,7 +204,7 @@ mod tests {
 
     fn mkdir() -> tempfile::TempDir {
         tempfile::Builder::new()
-            .prefix("ckb_resoruce_test")
+            .prefix("ckb_resource_test")
             .tempdir()
             .unwrap()
     }

@@ -188,3 +188,35 @@ fn touch(path: PathBuf) -> Result<PathBuf, ExitCode> {
 
     Ok(path)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn mkdir() -> tempfile::TempDir {
+        tempfile::Builder::new()
+            .prefix("app_config_test")
+            .tempdir()
+            .unwrap()
+    }
+
+    #[test]
+    fn test_ckb_toml() {
+        let dir = mkdir();
+        let locator = ResourceLocator::with_root_dir(dir.path().to_path_buf()).unwrap();
+        let app_config = AppConfig::load_for_subcommand(&locator, cli::CMD_RUN)
+            .unwrap_or_else(|err| panic!(err));
+        let ckb_config = app_config.into_ckb().unwrap_or_else(|err| panic!(err));
+        assert_eq!(ckb_config.chain.spec, PathBuf::from("specs/dev.toml"));
+    }
+
+    #[test]
+    fn test_miner_toml() {
+        let dir = mkdir();
+        let locator = ResourceLocator::with_root_dir(dir.path().to_path_buf()).unwrap();
+        let app_config = AppConfig::load_for_subcommand(&locator, cli::CMD_MINER)
+            .unwrap_or_else(|err| panic!(err));
+        let miner_config = app_config.into_miner().unwrap_or_else(|err| panic!(err));
+        assert_eq!(miner_config.chain.spec, PathBuf::from("specs/dev.toml"));
+    }
+}
