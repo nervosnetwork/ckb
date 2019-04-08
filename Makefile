@@ -13,6 +13,7 @@ doc-deps:
 
 check:
 	cargo check ${VERBOSE} --all
+	cd test && cargo check ${VERBOSE} --all
 
 build:
 	cargo build ${VERBOSE} --release
@@ -25,9 +26,11 @@ prod-test:
 
 fmt:
 	cargo fmt ${VERBOSE} --all -- --check
+	cd test && cargo fmt ${VERBOSE} --all -- --check
 
 clippy:
 	cargo clippy ${VERBOSE} --all --all-targets --all-features -- -D warnings -D clippy::clone_on_ref_ptr -D clippy::enum_glob_use -D clippy::fallible_impl_from
+	cd test && cargo clippy ${VERBOSE} --all --all-targets --all-features -- -D warnings -D clippy::clone_on_ref_ptr -D clippy::enum_glob_use -D clippy::fallible_impl_from
 
 
 ci: fmt clippy test
