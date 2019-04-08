@@ -25,7 +25,7 @@ serde = "1.0"
 serde_derive = "1.0"
 serde_json = "1.0"
 log = "0.4"
-flatbuffers = { git = "https://github.com/google/flatbuffers", rev = "4f10da8d99c1a7bc8c9c7d06d2092a689f171d29" }
+flatbuffers = "0.5.0"
 num_cpus = "1.10"
 faster-hex = "0.3"
 jsonrpc-types = { path = "../util/jsonrpc-types" }
