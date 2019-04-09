@@ -1,5 +1,8 @@
 use crate::setup::{ExitCode, InitArgs};
-use ckb_resource::{TemplateContext, AVAILABLE_SPECS};
+use ckb_resource::{
+    TemplateContext, AVAILABLE_SPECS, CKB_CONFIG_FILE_NAME, MINER_CONFIG_FILE_NAME,
+    SPECS_RESOURCE_DIR_NAME,
+};
 
 pub fn init(args: InitArgs) -> Result<(), ExitCode> {
     if args.list_specs {
@@ -15,15 +18,29 @@ pub fn init(args: InitArgs) -> Result<(), ExitCode> {
         p2p_port: &args.p2p_port,
     };
 
-    if !args.force && args.locator.exported() {
+    let exported = args.locator.exported();
+    if !args.force && exported {
         eprintln!("Config files already exists, use --force to overwrite.");
         return Err(ExitCode::Failure);
     }
 
+    println!(
+        "{} CKB directory in {}",
+        if !exported {
+            "Initialized"
+        } else {
+            "Reinitialized"
+        },
+        args.locator.root_dir().display()
+    );
+
+    println!("export {}", CKB_CONFIG_FILE_NAME);
     args.locator.export_ckb(&context)?;
+    println!("export {}", MINER_CONFIG_FILE_NAME);
     args.locator.export_miner(&context)?;
 
     if args.export_specs {
+        println!("export {}", SPECS_RESOURCE_DIR_NAME);
         args.locator.export_specs()?;
     }
 

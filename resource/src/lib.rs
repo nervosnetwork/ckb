@@ -19,7 +19,7 @@ include!(concat!(env!("OUT_DIR"), "/bundled.rs"));
 
 pub const CKB_CONFIG_FILE_NAME: &str = "ckb.toml";
 pub const MINER_CONFIG_FILE_NAME: &str = "ckb-miner.toml";
-const SPECS_RESOURCE_DIR_NAME: &str = "specs/";
+pub const SPECS_RESOURCE_DIR_NAME: &str = "specs/";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Resource {
