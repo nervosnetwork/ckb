@@ -11,7 +11,7 @@ use crate::{
     NetworkState, PeerIndex, ProtocolContext, ProtocolContextMutRef, ServiceControl, SessionInfo,
 };
 use bytes::Bytes;
-use log::{trace, debug, error, info, warn};
+use log::{debug, error, info, trace, warn};
 use p2p::{
     builder::MetaBuilder,
     service::{ProtocolHandle, ProtocolMeta},
