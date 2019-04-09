@@ -31,6 +31,8 @@ impl From<RdbError> for Error {
 }
 
 pub trait KeyValueDB: Sync + Send {
+    type Batch: DbBatch;
+    fn db_batch(&self) -> Result<Self::Batch>;
     fn write(&self, batch: Batch) -> Result<()>;
     fn read(&self, col: Col, key: &[u8]) -> Result<Option<Vec<u8>>>;
     fn partial_read(&self, col: Col, key: &[u8], range: &Range<usize>) -> Result<Option<Vec<u8>>>;
@@ -42,4 +44,10 @@ pub trait KeyValueDB: Sync + Send {
     fn iter(&self, col: Col, key: &[u8]) -> Option<DBIterator> {
         None
     }
+}
+
+pub trait DbBatch {
+    fn put(&mut self, key: &[u8], value: &[u8]) -> Result<()>;
+    fn delete(&mut self, key: &[u8]) -> Result<()>;
+    fn commit(self) -> Result<()>;
 }

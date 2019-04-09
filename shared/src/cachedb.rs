@@ -36,6 +36,8 @@ impl<T> KeyValueDB for CacheDB<T>
 where
     T: KeyValueDB,
 {
+    type Batch = T::Batch;
+
     fn write(&self, batch: Batch) -> Result<()> {
         let mut cache_guard = self.cache.write();
         batch.operations.iter().for_each(|op| match op {
@@ -75,5 +77,9 @@ where
 
     fn iter(&self, col: Col, key: &[u8]) -> Option<DBIterator> {
         self.db.iter(col, key)
+    }
+
+    fn db_batch(&self) -> Result<Self::Batch> {
+        self.db.db_batch()
     }
 }

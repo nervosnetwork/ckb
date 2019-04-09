@@ -4,14 +4,11 @@ use crate::kvdb::{ErrorKind, KeyValueDB, Result};
 use log::warn;
 use rocksdb::{ColumnFamily, Options, WriteBatch, DB};
 use std::ops::Range;
-
-struct Inner {
-    db: DB,
-    cfnames: Vec<String>,
-}
+use std::sync::Arc;
 
 pub struct RocksDB {
-    inner: Inner,
+    inner: Arc<DB>,
+    cfnames: Vec<String>,
 }
 
 impl RocksDB {
@@ -47,20 +44,18 @@ impl RocksDB {
                 .expect("Failed to set rocksdb option");
         }
 
-        let inner = Inner {
-            db,
-            cfnames: cfnames.clone(),
-        };
-        RocksDB { inner }
+        RocksDB {
+            inner: Arc::new(db),
+            cfnames,
+        }
     }
 
     fn cf_handle(&self, col: Option<u32>) -> Result<Option<ColumnFamily>> {
         if let Some(col) = col {
-            self.inner
-                .cfnames
+            self.cfnames
                 .get(col as usize)
                 .ok_or_else(|| ErrorKind::DBError(format!("column {:?} not found ", col)))
-                .map(|cfname| self.inner.db.cf_handle(&cfname))
+                .map(|cfname| self.inner.cf_handle(&cfname))
         } else {
             Ok(None)
         }
@@ -68,6 +63,8 @@ impl RocksDB {
 }
 
 impl KeyValueDB for RocksDB {
+    type Batch = RocksdbBatch;
+
     fn write(&self, batch: Batch) -> Result<()> {
         let mut wb = WriteBatch::default();
         for op in batch.operations {
@@ -82,14 +79,14 @@ impl KeyValueDB for RocksDB {
                 },
             }?;
         }
-        self.inner.db.write(wb)?;
+        self.inner.write(wb)?;
         Ok(())
     }
 
     fn read(&self, col: Col, key: &[u8]) -> Result<Option<Vec<u8>>> {
         match self.cf_handle(col)? {
-            Some(cf) => self.inner.db.get_cf(cf, &key),
-            None => self.inner.db.get(&key),
+            Some(cf) => self.inner.get_cf(cf, &key),
+            None => self.inner.get(&key),
         }
         .map(|v| v.map(|vi| vi.to_vec()))
         .map_err(Into::into)
@@ -97,20 +94,48 @@ impl KeyValueDB for RocksDB {
 
     fn partial_read(&self, col: Col, key: &[u8], range: &Range<usize>) -> Result<Option<Vec<u8>>> {
         match self.cf_handle(col)? {
-            Some(cf) => self.inner.db.get_pinned_cf(cf, &key),
-            None => self.inner.db.get_pinned(&key),
+            Some(cf) => self.inner.get_pinned_cf(cf, &key),
+            None => self.inner.get_pinned(&key),
         }
         .map(|v| v.and_then(|vi| vi.get(range.start..range.end).map(|slice| slice.to_vec())))
         .map_err(Into::into)
     }
 
+    fn db_batch(&self) -> Result<Self::Batch> {
+        Ok(Self::Batch {
+            db: Arc::clone(&self.inner),
+            wb: WriteBatch::default(),
+        })
+    }
+
     fn iter(&self, col: Col, key: &[u8]) -> Option<DBIterator> {
         self.cf_handle(col).expect("invalid col").map(|cf| {
             self.inner
-                .db
                 .iterator_cf(cf, IteratorMode::From(key, Direction::Forward))
                 .expect("invalid iterator")
         })
+    }
+}
+
+pub struct RocksdbBatch {
+    db: Arc<DB>,
+    wb: WriteBatch,
+}
+
+impl DbBatch for RocksdbBatch {
+    fn put(&mut self, key: &[u8], value: &[u8]) -> Result<()> {
+        self.wb.put(key, value)?;
+        Ok(())
+    }
+
+    fn delete(&mut self, key: &[u8]) -> Result<()> {
+        self.wb.delete(key)?;
+        Ok(())
+    }
+
+    fn commit(self) -> Result<()> {
+        self.db.write(self.wb)?;
+        Ok(())
     }
 }
 

@@ -1,5 +1,5 @@
 use crate::batch::{Batch, Col, Operation};
-use crate::kvdb::{ErrorKind, KeyValueDB, Result};
+use crate::kvdb::{DbBatch, ErrorKind, KeyValueDB, Result};
 use ckb_util::RwLock;
 use fnv::FnvHashMap;
 use std::ops::Range;
@@ -27,6 +27,8 @@ impl MemoryKeyValueDB {
 }
 
 impl KeyValueDB for MemoryKeyValueDB {
+    type Batch = MemoryDbBatch;
+
     fn write(&self, batch: Batch) -> Result<()> {
         let mut db = self.db.write();
         batch.operations.into_iter().for_each(|op| match op {
@@ -63,6 +65,42 @@ impl KeyValueDB for MemoryKeyValueDB {
                 .and_then(|data| data.get(range.start..range.end))
                 .map(|slice| slice.to_vec())),
         }
+    }
+
+    fn db_batch(&self) -> Result<Self::Batch> {
+        Ok(Self::Batch {
+            operations: Vec::new(),
+        })
+    }
+}
+
+pub struct MemoryDbBatch {
+    operations: Vec<BatchOperation>,
+}
+
+enum BatchOperation {
+    Insert {
+        col: Col,
+        key: Vec<u8>,
+        value: Vec<u8>,
+    },
+    Delete {
+        col: Col,
+        key: Vec<u8>,
+    },
+}
+
+impl DbBatch for MemoryDbBatch {
+    fn put(&mut self, key: &[u8], value: &[u8]) -> Result<()> {
+        unimplemented!()
+    }
+
+    fn delete(&mut self, key: &[u8]) -> Result<()> {
+        unimplemented!()
+    }
+
+    fn commit(self) -> Result<()> {
+        unimplemented!()
     }
 }
 
