@@ -428,18 +428,18 @@ mod test {
                 Script::default(),
                 None,
             ))
-            .input(CellInput::new(OutPoint::new(H256::zero(), 0), vec![]))
+            .input(CellInput::new(OutPoint::new(H256::zero(), 0), 0, vec![]))
             .witness(vec![vec![7, 8, 9]])
             .build();
 
         assert_eq!(
             tx.hash(),
-            H256::from_hex_str("3a4238c3fda565d6e76e76b5b05d3403b37b94d53c1644d5ff58d4e9293ca468")
+            H256::from_hex_str("8e23669b744ed93805f81999602a2640d99afa821a062fb5816b4b903c973f90")
                 .unwrap()
         );
         assert_eq!(
             tx.witness_hash(),
-            H256::from_hex_str("997f0627d2c1ef00fc98311357aa097c3fff5ed0a0408e14ea26656f5beae6b3")
+            H256::from_hex_str("652396516abfe2fb64fdbe574b909c66cdb42a7e62f7674a39bb8b94634031c4")
                 .unwrap()
         );
     }
