@@ -19,10 +19,8 @@ fi
 git diff --exit-code Cargo.lock
 
 if [ "$TRAVIS_BRANCH" = master -o "$TRAVIS_BRANCH" = staging -o "$TRAVIS_BRANCH" = trying ]; then
-  cargo build
-  cd test && cargo run ../target/debug/ckb
+  make integration
 
   # Switch to release mode when the running time is much longer than the build time.
-  # cargo build --release
-  # cargo run --release -p ckb-test target/release/ckb
+  # make integration-release
 fi
