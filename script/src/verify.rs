@@ -119,7 +119,7 @@ impl<'a> TransactionScriptsVerifier<'a> {
         current_input: Option<&'a CellInput>,
         max_cycles: Cycle,
     ) -> Result<Cycle, ScriptError> {
-        if script.binary_hash.as_fixed_bytes() == &ALWAYS_SUCCESS_HASH {
+        if script.binary_hash == ALWAYS_SUCCESS_HASH {
             return Ok(0);
         }
         let mut args = vec![b"verify".to_vec()];

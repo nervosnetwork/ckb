@@ -1,15 +1,13 @@
 use faster_hex::hex_encode;
 use hash::blake2b_256;
-use numext_fixed_hash::H256;
+use numext_fixed_hash::{h256, H256};
 use occupied_capacity::OccupiedCapacity;
 use serde_derive::{Deserialize, Serialize};
 use std::fmt;
 use std::io::Write;
 use std::mem;
 
-pub const ALWAYS_SUCCESS_HASH: [u8; 32] = [
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
-];
+pub const ALWAYS_SUCCESS_HASH: H256 = h256!("0x1");
 
 // TODO: when flatbuffer work is done, remove Serialize/Deserialize here and
 // implement proper From trait
@@ -59,7 +57,7 @@ impl Script {
     }
 
     pub fn always_success() -> Self {
-        Self::new(0, vec![], H256(ALWAYS_SUCCESS_HASH))
+        Self::new(0, vec![], ALWAYS_SUCCESS_HASH)
     }
 
     pub fn destruct(self) -> ScriptTuple {
