@@ -68,6 +68,9 @@ gen-clean:
 	$(CFBC) -o $(shell dirname $@) $*.bfbs
 	rm -f $*.bfbs $*_builder.rs
 
-.PHONY: build prod prod-test docker gen gen-clean
+clean:
+	rm -rf ckb.toml ckb-miner.toml specs/
+
+.PHONY: build prod prod-test docker gen gen-clean clean
 .PHONY: fmt test clippy doc doc-deps check stats
 .PHONY: ci info security-audit
