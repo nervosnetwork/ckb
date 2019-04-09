@@ -192,6 +192,7 @@ fn touch(path: PathBuf) -> Result<PathBuf, ExitCode> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ckb_resource::TemplateContext;
 
     fn mkdir() -> tempfile::TempDir {
         tempfile::Builder::new()
@@ -208,6 +209,15 @@ mod tests {
             .unwrap_or_else(|err| panic!(err));
         let ckb_config = app_config.into_ckb().unwrap_or_else(|err| panic!(err));
         assert_eq!(ckb_config.chain.spec, PathBuf::from("specs/dev.toml"));
+        assert_eq!(
+            ckb_config.logger.file,
+            Some(locator.root_dir().join("data/logs/run.log"))
+        );
+        assert_eq!(ckb_config.db.path, locator.root_dir().join("data/db"));
+        assert_eq!(
+            ckb_config.network.path,
+            locator.root_dir().join("data/network")
+        );
     }
 
     #[test]
@@ -218,5 +228,115 @@ mod tests {
             .unwrap_or_else(|err| panic!(err));
         let miner_config = app_config.into_miner().unwrap_or_else(|err| panic!(err));
         assert_eq!(miner_config.chain.spec, PathBuf::from("specs/dev.toml"));
+        assert_eq!(
+            miner_config.logger.file,
+            Some(locator.root_dir().join("data/logs/miner.log"))
+        );
+    }
+
+    #[test]
+    fn test_export_dev_config_files() {
+        let dir = mkdir();
+        let locator = ResourceLocator::with_root_dir(dir.path().to_path_buf()).unwrap();
+        let context = TemplateContext {
+            spec: "dev",
+            rpc_port: "7000",
+            p2p_port: "8000",
+        };
+        {
+            locator.export_ckb(&context).expect("export config files");
+            let app_config = AppConfig::load_for_subcommand(&locator, cli::CMD_RUN)
+                .unwrap_or_else(|err| panic!(err));
+            let ckb_config = app_config.into_ckb().unwrap_or_else(|err| panic!(err));
+            assert_eq!(ckb_config.logger.filter, Some("info".to_string()));
+            assert_eq!(ckb_config.chain.spec, PathBuf::from("specs/dev.toml"));
+            assert_eq!(
+                ckb_config.network.listen_addresses,
+                vec!["/ip4/0.0.0.0/tcp/8000".parse().unwrap()]
+            );
+            assert_eq!(ckb_config.network.connect_outbound_interval_secs, 15);
+            assert_eq!(ckb_config.rpc.listen_address, "0.0.0.0:7000");
+        }
+        {
+            locator.export_miner(&context).expect("export config files");
+            let app_config = AppConfig::load_for_subcommand(&locator, cli::CMD_MINER)
+                .unwrap_or_else(|err| panic!(err));
+            let miner_config = app_config.into_miner().unwrap_or_else(|err| panic!(err));
+            assert_eq!(miner_config.logger.filter, Some("info".to_string()));
+            assert_eq!(miner_config.chain.spec, PathBuf::from("specs/dev.toml"));
+            assert_eq!(miner_config.miner.rpc_url, "http://127.0.0.1:7000/");
+        }
+    }
+
+    #[test]
+    fn test_export_testnet_config_files() {
+        let dir = mkdir();
+        let locator = ResourceLocator::with_root_dir(dir.path().to_path_buf()).unwrap();
+        let context = TemplateContext {
+            spec: "testnet",
+            rpc_port: "7000",
+            p2p_port: "8000",
+        };
+        locator.export_ckb(&context).expect("export config files");
+        {
+            let app_config = AppConfig::load_for_subcommand(&locator, cli::CMD_RUN)
+                .unwrap_or_else(|err| panic!(err));
+            let ckb_config = app_config.into_ckb().unwrap_or_else(|err| panic!(err));
+            assert_eq!(ckb_config.logger.filter, Some("info".to_string()));
+            assert_eq!(ckb_config.chain.spec, PathBuf::from("specs/testnet.toml"));
+            assert_eq!(
+                ckb_config.network.listen_addresses,
+                vec!["/ip4/0.0.0.0/tcp/8000".parse().unwrap()]
+            );
+            assert_eq!(ckb_config.network.connect_outbound_interval_secs, 15);
+            assert_eq!(ckb_config.rpc.listen_address, "0.0.0.0:7000");
+        }
+        {
+            locator.export_miner(&context).expect("export config files");
+            let app_config = AppConfig::load_for_subcommand(&locator, cli::CMD_MINER)
+                .unwrap_or_else(|err| panic!(err));
+            let miner_config = app_config.into_miner().unwrap_or_else(|err| panic!(err));
+            assert_eq!(miner_config.logger.filter, Some("info".to_string()));
+            assert_eq!(miner_config.chain.spec, PathBuf::from("specs/testnet.toml"));
+            assert_eq!(miner_config.miner.rpc_url, "http://127.0.0.1:7000/");
+        }
+    }
+
+    #[test]
+    fn test_export_integration_config_files() {
+        let dir = mkdir();
+        let locator = ResourceLocator::with_root_dir(dir.path().to_path_buf()).unwrap();
+        let context = TemplateContext {
+            spec: "integration",
+            rpc_port: "7000",
+            p2p_port: "8000",
+        };
+        locator.export_ckb(&context).expect("export config files");
+        {
+            let app_config = AppConfig::load_for_subcommand(&locator, cli::CMD_RUN)
+                .unwrap_or_else(|err| panic!(err));
+            let ckb_config = app_config.into_ckb().unwrap_or_else(|err| panic!(err));
+            assert_eq!(
+                ckb_config.chain.spec,
+                PathBuf::from("specs/integration.toml")
+            );
+            assert_eq!(
+                ckb_config.network.listen_addresses,
+                vec!["/ip4/0.0.0.0/tcp/8000".parse().unwrap()]
+            );
+            assert_eq!(ckb_config.network.connect_outbound_interval_secs, 1);
+            assert_eq!(ckb_config.rpc.listen_address, "0.0.0.0:7000");
+        }
+        {
+            locator.export_miner(&context).expect("export config files");
+            let app_config = AppConfig::load_for_subcommand(&locator, cli::CMD_MINER)
+                .unwrap_or_else(|err| panic!(err));
+            let miner_config = app_config.into_miner().unwrap_or_else(|err| panic!(err));
+            assert_eq!(
+                miner_config.chain.spec,
+                PathBuf::from("specs/integration.toml")
+            );
+            assert_eq!(miner_config.miner.rpc_url, "http://127.0.0.1:7000/");
+        }
     }
 }
