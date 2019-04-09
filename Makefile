@@ -68,15 +68,18 @@ gen: ${GEN_FILES}
 gen-clean:
 	rm -f ${GEN_FILES}
 
+check-cfbc-version:
+	test "$$($(CFBC) --version)" = 0.1.9
+
 %_generated.rs: %.fbs
 	$(FLATC) -r -o $(shell dirname $@) $<
 
-%_generated_verifier.rs: %.fbs
+%_generated_verifier.rs: %.fbs check-cfbc-version
 	$(FLATC) -b --schema -o $(shell dirname $@) $<
 	$(CFBC) -o $(shell dirname $@) $*.bfbs
 	rm -f $*.bfbs $*_builder.rs
 
-.PHONY: build prod prod-test docker gen gen-clean
+.PHONY: build prod prod-test docker gen gen-clean check-cfbc-version
 .PHONY: fmt test clippy doc doc-deps check stats
 .PHONY: ci info security-audit
 .PHONY: integration integration-release
