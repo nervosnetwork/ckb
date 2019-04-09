@@ -137,6 +137,12 @@ impl ResourceLocator {
         }
     }
 
+    pub fn exported(&self) -> bool {
+        BUNDLED
+            .file_names()
+            .any(|name| self.root_dir.join(name).exists())
+    }
+
     pub fn export_ckb<'a>(&self, context: &TemplateContext<'a>) -> Result<()> {
         let ckb = Resource::Bundled(CKB_CONFIG_FILE_NAME.to_string());
         let template = Template::new(from_utf8(ckb.get()?)?);

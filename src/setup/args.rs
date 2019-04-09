@@ -38,4 +38,5 @@ pub struct InitArgs {
     pub p2p_port: String,
     pub export_specs: bool,
     pub list_specs: bool,
+    pub force: bool,
 }

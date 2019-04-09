@@ -112,6 +112,7 @@ impl Setup {
         let locator = locator_from_matches(matches)?;
         let export_specs = matches.is_present(cli::ARG_EXPORT_SPECS);
         let list_specs = matches.is_present(cli::ARG_LIST_SPECS);
+        let force = matches.is_present(cli::ARG_FORCE);
         let spec = matches.value_of(cli::ARG_SPEC).unwrap().to_string();
         let rpc_port = matches.value_of(cli::ARG_RPC_PORT).unwrap().to_string();
         let p2p_port = matches.value_of(cli::ARG_P2P_PORT).unwrap().to_string();
@@ -123,6 +124,7 @@ impl Setup {
             p2p_port,
             export_specs,
             list_specs,
+            force,
         })
     }
 

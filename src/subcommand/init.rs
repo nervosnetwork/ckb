@@ -15,6 +15,11 @@ pub fn init(args: InitArgs) -> Result<(), ExitCode> {
         p2p_port: &args.p2p_port,
     };
 
+    if !args.force && args.locator.exported() {
+        eprintln!("Config files already exists, use --force to overwrite.");
+        return Err(ExitCode::Failure);
+    }
+
     args.locator.export_ckb(&context)?;
     args.locator.export_miner(&context)?;
 

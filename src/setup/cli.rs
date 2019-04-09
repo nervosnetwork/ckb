@@ -19,6 +19,7 @@ pub const ARG_SPEC: &str = "spec";
 pub const ARG_EXPORT_SPECS: &str = "export-specs";
 pub const ARG_P2P_PORT: &str = "p2p-port";
 pub const ARG_RPC_PORT: &str = "rpc-port";
+pub const ARG_FORCE: &str = "force";
 
 pub fn get_matches() -> ArgMatches<'static> {
     let version = get_version!();
@@ -118,6 +119,12 @@ fn init() -> App<'static, 'static> {
                 .long(ARG_SPEC)
                 .default_value(DEFAULT_SPEC)
                 .help("Export config files for <spec>"),
+        )
+        .arg(
+            Arg::with_name(ARG_FORCE)
+                .short("f")
+                .long(ARG_FORCE)
+                .help("Force overwriting existing files"),
         )
         .arg(
             Arg::with_name(ARG_RPC_PORT)
