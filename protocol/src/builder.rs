@@ -173,7 +173,6 @@ impl<'a> FbsScript<'a> {
         let binary_hash = (&script.binary_hash).into();
 
         let mut builder = ScriptBuilder::new(fbb);
-        builder.add_version(script.version);
         builder.add_args(args);
         builder.add_binary_hash(&binary_hash);
         builder.finish()

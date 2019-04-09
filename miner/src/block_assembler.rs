@@ -267,8 +267,7 @@ impl<CI: ChainIndex + 'static> BlockAssembler<CI> {
         }
 
         // dummy cellbase
-        let cellbase_lock =
-            Script::new(0, self.config.args.clone(), self.config.binary_hash.clone());
+        let cellbase_lock = Script::new(self.config.args.clone(), self.config.binary_hash.clone());
         let cellbase =
             self.create_cellbase_transaction(header, &commit_transactions, cellbase_lock)?;
 

@@ -1925,18 +1925,12 @@ impl<'a> Script<'a> {
       let mut builder = ScriptBuilder::new(_fbb);
       if let Some(x) = args.binary_hash { builder.add_binary_hash(x); }
       if let Some(x) = args.args { builder.add_args(x); }
-      builder.add_version(args.version);
       builder.finish()
     }
 
-    pub const VT_VERSION: flatbuffers::VOffsetT = 4;
-    pub const VT_ARGS: flatbuffers::VOffsetT = 6;
-    pub const VT_BINARY_HASH: flatbuffers::VOffsetT = 8;
+    pub const VT_ARGS: flatbuffers::VOffsetT = 4;
+    pub const VT_BINARY_HASH: flatbuffers::VOffsetT = 6;
 
-  #[inline]
-  pub fn version(&self) -> u8 {
-    self._tab.get::<u8>(Script::VT_VERSION, Some(0)).unwrap()
-  }
   #[inline]
   pub fn args(&self) -> Option<flatbuffers::Vector<flatbuffers::ForwardsUOffset<Bytes<'a>>>> {
     self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<flatbuffers::ForwardsUOffset<Bytes<'a>>>>>(Script::VT_ARGS, None)
@@ -1948,7 +1942,6 @@ impl<'a> Script<'a> {
 }
 
 pub struct ScriptArgs<'a> {
-    pub version: u8,
     pub args: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a , flatbuffers::ForwardsUOffset<Bytes<'a >>>>>,
     pub binary_hash: Option<&'a  H256>,
 }
@@ -1956,7 +1949,6 @@ impl<'a> Default for ScriptArgs<'a> {
     #[inline]
     fn default() -> Self {
         ScriptArgs {
-            version: 0,
             args: None,
             binary_hash: None,
         }
@@ -1967,10 +1959,6 @@ pub struct ScriptBuilder<'a: 'b, 'b> {
   start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
 }
 impl<'a: 'b, 'b> ScriptBuilder<'a, 'b> {
-  #[inline]
-  pub fn add_version(&mut self, version: u8) {
-    self.fbb_.push_slot::<u8>(Script::VT_VERSION, version, 0);
-  }
   #[inline]
   pub fn add_args(&mut self, args: flatbuffers::WIPOffset<flatbuffers::Vector<'b , flatbuffers::ForwardsUOffset<Bytes<'b >>>>) {
     self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(Script::VT_ARGS, args);

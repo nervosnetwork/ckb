@@ -230,7 +230,7 @@ pub mod test {
         // Tx and Output hash will be used in some test cases directly, assert here for convenience
         assert_eq!(
             format!("{:x}", tx.hash()),
-            "9c3c3cc1a11966ff78a739a1ddb5e4b94fdcaa4e63e3e341c6f8126de2dfa2ac"
+            "913a98b7a6521b879e60a02a2c38ea14355f3e98beb60215e67e2512b6e0a235"
         );
 
         let reference = tx.outputs()[0].data_hash();
@@ -239,7 +239,7 @@ pub mod test {
             "28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5"
         );
 
-        let script = Script::new(0, vec![], reference);
+        let script = Script::new(vec![], reference);
         assert_eq!(
             format!("{:x}", script.hash()),
             "9a9a6bdbc38d4905eace1822f85237e3a1e238bb3f277aa7b7c8903441123510"

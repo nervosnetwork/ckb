@@ -260,7 +260,6 @@ impl<'a> TryFrom<ckb_protocol::Script<'a>> for ckb_core::script::Script {
         };
 
         Ok(ckb_core::script::Script {
-            version: script.version(),
             args: cast!(args)?,
             binary_hash: cast!(binary_hash)?,
         })

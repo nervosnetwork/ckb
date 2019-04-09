@@ -561,7 +561,7 @@ mod tests {
         machine.set_register(A5, CellField::LockHash as u64); //field: 3 lock hash
         machine.set_register(A7, LOAD_CELL_BY_FIELD_SYSCALL_NUMBER); // syscall number
 
-        let script = Script::new(0, vec![data.to_vec()], H256::zero());
+        let script = Script::new(vec![data.to_vec()], H256::zero());
         let h = script.hash();
         let hash = h.as_bytes();
         let input_cell = CellOutput::new(100, vec![], script, None);
