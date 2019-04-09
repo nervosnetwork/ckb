@@ -228,7 +228,6 @@ impl<'a> CapacityVerifier<'a> {
 
 const LOCK_TYPE_FLAG: u64 = 1 << 63;
 const TIME_TYPE_FLAG: u64 = 1 << 62;
-const TIMESTAMP_SCALAR: u64 = 9;
 const VALUE_MUSK: u64 = 0x00ff_ffff_ffff_ffff;
 
 /// RFC 0017
@@ -245,25 +244,25 @@ impl ValidSince {
         !self.is_absolute()
     }
 
-    fn time_type_is_number(self) -> bool {
+    fn metric_type_is_number(self) -> bool {
         self.0 & TIME_TYPE_FLAG == 0
     }
 
     #[inline]
-    fn time_type_is_timestamp(self) -> bool {
-        !self.time_type_is_number()
+    fn metric_type_is_timestamp(self) -> bool {
+        !self.metric_type_is_number()
     }
 
     pub fn block_timestamp(self) -> Option<u64> {
-        if self.time_type_is_timestamp() {
-            Some(((self.0 & VALUE_MUSK) << TIMESTAMP_SCALAR) * 1000)
+        if self.metric_type_is_timestamp() {
+            Some((self.0 & VALUE_MUSK) * 1000)
         } else {
             None
         }
     }
 
     pub fn block_number(self) -> Option<u64> {
-        if self.time_type_is_number() {
+        if self.metric_type_is_number() {
             Some(self.0 & VALUE_MUSK)
         } else {
             None
