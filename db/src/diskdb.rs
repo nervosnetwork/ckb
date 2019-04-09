@@ -1,6 +1,7 @@
 use crate::batch::{Batch, Col, Operation};
 use crate::config::DBConfig;
 use crate::kvdb::{ErrorKind, KeyValueDB, Result};
+use log::warn;
 use rocksdb::{ColumnFamily, Options, WriteBatch, DB};
 use std::ops::Range;
 
@@ -21,7 +22,21 @@ impl RocksDB {
 
         let cfnames: Vec<_> = (0..columns).map(|c| format!("c{}", c)).collect();
         let cf_options: Vec<&str> = cfnames.iter().map(|n| n as &str).collect();
-        let db = DB::open_cf(&opts, &config.path, &cf_options).expect("Failed to open rocksdb");
+        let db = DB::open_cf(&opts, &config.path, &cf_options).unwrap_or_else(|err| {
+            if err.as_ref().starts_with("Corruption:") {
+                warn!("Try repairing the rocksdb since {} ...", err);
+                let mut repair_opts = Options::default();
+                repair_opts.create_if_missing(false);
+                repair_opts.create_missing_column_families(false);
+                DB::repair(repair_opts, &config.path)
+                    .unwrap_or_else(|err| panic!("Failed to repair the rocksdb: {}", err));
+                warn!("Try opening the repaired rocksdb ...");
+                DB::open_cf(&opts, &config.path, &cf_options)
+                    .unwrap_or_else(|err| panic!("Failed to open the repaired rocksdb: {}", err))
+            } else {
+                panic!("Failed to open rocksdb: {}", err);
+            }
+        });
 
         if let Some(db_opt) = config.options.as_ref() {
             let rocksdb_options: Vec<(&str, &str)> = db_opt
