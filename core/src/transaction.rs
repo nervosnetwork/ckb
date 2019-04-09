@@ -430,12 +430,12 @@ mod test {
 
         assert_eq!(
             tx.hash(),
-            H256::from_hex_str("7e1e256d6882809b7dfb55d002e54c5b4fbdbbbe8ce906aa6eae1b429de4d3d8")
+            H256::from_hex_str("3a4238c3fda565d6e76e76b5b05d3403b37b94d53c1644d5ff58d4e9293ca468")
                 .unwrap()
         );
         assert_eq!(
             tx.witness_hash(),
-            H256::from_hex_str("93d363096f3901651b718d093751aa78ce7b56274850841a3e4134fe14ffb120")
+            H256::from_hex_str("997f0627d2c1ef00fc98311357aa097c3fff5ed0a0408e14ea26656f5beae6b3")
                 .unwrap()
         );
     }

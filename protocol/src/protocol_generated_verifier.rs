@@ -2169,15 +2169,6 @@ pub mod ckb {
                     }
                 }
 
-                if Self::VT_VERSION as usize + flatbuffers::SIZE_VOFFSET
-                    <= vtab_num_bytes
-                {
-                    let voffset = vtab.get(Self::VT_VERSION) as usize;
-                    if voffset > 0 && object_inline_num_bytes - voffset < 1 {
-                        return Err(Error::OutOfBounds);
-                    }
-                }
-
                 if Self::VT_ARGS as usize + flatbuffers::SIZE_VOFFSET
                     <= vtab_num_bytes
                 {

@@ -15,20 +15,14 @@ use serde_derive::{Deserialize, Serialize};
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct Script {
-    pub version: u8,
     pub args: Vec<Bytes>,
     pub binary_hash: H256,
 }
 
 impl From<Script> for CoreScript {
     fn from(json: Script) -> CoreScript {
-        let Script {
-            version,
-            args,
-            binary_hash,
-        } = json;
+        let Script { args, binary_hash } = json;
         CoreScript::new(
-            version,
             args.into_iter().map(|arg| arg.into_vec()).collect(),
             binary_hash,
         )
@@ -37,9 +31,8 @@ impl From<Script> for CoreScript {
 
 impl From<CoreScript> for Script {
     fn from(core: CoreScript) -> Script {
-        let (version, args, binary_hash) = core.destruct();
+        let (args, binary_hash) = core.destruct();
         Script {
-            version,
             binary_hash,
             args: args.into_iter().map(Bytes::new).collect(),
         }
@@ -373,7 +366,7 @@ mod tests {
     use proptest::{collection::size_range, prelude::*};
 
     fn mock_script(arg: Vec<u8>) -> CoreScript {
-        CoreScript::new(0, vec![arg], H256::default())
+        CoreScript::new(vec![arg], H256::default())
     }
 
     fn mock_cell_output(data: Vec<u8>, arg: Vec<u8>) -> CoreCellOutput {

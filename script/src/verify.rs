@@ -264,7 +264,7 @@ mod tests {
         let dep_out_point = OutPoint::new(H256::from_trimmed_hex_str("123").unwrap(), 8);
         let dep_cell = CellOutput::new(buffer.len() as Capacity, buffer, Script::default(), None);
 
-        let script = Script::new(0, args, binary_hash);
+        let script = Script::new(args, binary_hash);
         let input = CellInput::new(OutPoint::null(), vec![]);
 
         let transaction = TransactionBuilder::default()
@@ -319,7 +319,7 @@ mod tests {
         let dep_out_point = OutPoint::new(H256::from_trimmed_hex_str("123").unwrap(), 8);
         let dep_cell = CellOutput::new(buffer.len() as Capacity, buffer, Script::default(), None);
 
-        let script = Script::new(0, args, binary_hash);
+        let script = Script::new(args, binary_hash);
         let input = CellInput::new(OutPoint::null(), vec![]);
 
         let transaction = TransactionBuilder::default()
@@ -376,7 +376,7 @@ mod tests {
         let dep_out_point = OutPoint::new(H256::from_trimmed_hex_str("123").unwrap(), 8);
         let dep_cell = CellOutput::new(buffer.len() as Capacity, buffer, Script::default(), None);
 
-        let script = Script::new(0, args, binary_hash);
+        let script = Script::new(args, binary_hash);
         let input = CellInput::new(OutPoint::null(), vec![]);
 
         let transaction = TransactionBuilder::default()
@@ -429,7 +429,7 @@ mod tests {
         witness_data.insert(0, hex_pubkey);
 
         let binary_hash: H256 = (&blake2b_256(&buffer)).into();
-        let script = Script::new(0, args, binary_hash);
+        let script = Script::new(args, binary_hash);
         let input = CellInput::new(OutPoint::null(), vec![]);
 
         let transaction = TransactionBuilder::default()
@@ -482,11 +482,11 @@ mod tests {
         let input = CellInput::new(OutPoint::null(), vec![]);
         let dummy_cell = CellOutput::new(100, vec![], Script::always_success(), None);
 
-        let script = Script::new(0, args, (&blake2b_256(&buffer)).into());
+        let script = Script::new(args, (&blake2b_256(&buffer)).into());
         let output = CellOutput::new(
             0,
             Vec::new(),
-            Script::new(0, vec![], H256::zero()),
+            Script::new(vec![], H256::zero()),
             Some(script),
         );
 
@@ -543,7 +543,7 @@ mod tests {
         let input = CellInput::new(OutPoint::null(), vec![]);
         let dummy_cell = CellOutput::new(100, vec![], Script::always_success(), None);
 
-        let script = Script::new(0, args, (&blake2b_256(&buffer)).into());
+        let script = Script::new(args, (&blake2b_256(&buffer)).into());
         let output = CellOutput::new(0, Vec::new(), Script::default(), Some(script));
 
         let dep_out_point = OutPoint::new(H256::from_trimmed_hex_str("123").unwrap(), 8);

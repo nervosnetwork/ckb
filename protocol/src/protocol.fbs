@@ -91,7 +91,6 @@ table CellOutput {
 }
 
 table Script {
-    version:        uint8;
     args:           [Bytes];
     binary_hash:    H256;
 }
