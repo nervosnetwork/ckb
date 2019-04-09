@@ -80,7 +80,7 @@ fn relay_compact_block_with_one_tx() {
                 let timestamp = last_block.header().timestamp() + 1;
                 let difficulty = shared1.calculate_difficulty(&last_block.header()).unwrap();
                 let cellbase = TransactionBuilder::default()
-                    .input(CellInput::new_cellbase_input(number, 0))
+                    .input(CellInput::new_cellbase_input(number))
                     .output(CellOutput::default())
                     .build();
 
@@ -118,7 +118,7 @@ fn relay_compact_block_with_one_tx() {
                 let timestamp = last_block.header().timestamp() + 1;
                 let difficulty = shared1.calculate_difficulty(&last_block.header()).unwrap();
                 let cellbase = TransactionBuilder::default()
-                    .input(CellInput::new_cellbase_input(number, 0))
+                    .input(CellInput::new_cellbase_input(number))
                     .output(CellOutput::default())
                     .build();
 
@@ -237,7 +237,7 @@ fn relay_compact_block_with_missing_indexs() {
                 let timestamp = last_block.header().timestamp() + 1;
                 let difficulty = shared1.calculate_difficulty(&last_block.header()).unwrap();
                 let cellbase = TransactionBuilder::default()
-                    .input(CellInput::new_cellbase_input(number, 0))
+                    .input(CellInput::new_cellbase_input(number))
                     .output(CellOutput::default())
                     .build();
 
@@ -275,7 +275,7 @@ fn relay_compact_block_with_missing_indexs() {
                 let timestamp = last_block.header().timestamp() + 1;
                 let difficulty = shared1.calculate_difficulty(&last_block.header()).unwrap();
                 let cellbase = TransactionBuilder::default()
-                    .input(CellInput::new_cellbase_input(number, 0))
+                    .input(CellInput::new_cellbase_input(number))
                     .output(CellOutput::default())
                     .build();
 
@@ -360,7 +360,7 @@ fn setup_node(
             .map(|_| CellOutput::new(50, Vec::new(), Script::always_success(), None))
             .collect::<Vec<_>>();
         let cellbase = TransactionBuilder::default()
-            .input(CellInput::new_cellbase_input(number, 0))
+            .input(CellInput::new_cellbase_input(number))
             .outputs(outputs)
             .build();
 

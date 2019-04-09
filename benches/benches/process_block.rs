@@ -134,7 +134,7 @@ fn new_chain() -> (
     TempDir,
 ) {
     let cellbase = TransactionBuilder::default()
-        .input(CellInput::new_cellbase_input(0, 0))
+        .input(CellInput::new_cellbase_input(0))
         .output(CellOutput::new(0, vec![], Script::default(), None))
         .build();
 
@@ -183,7 +183,7 @@ fn gen_block(blocks: &mut Vec<Block>, parent_index: usize) {
     );
 
     let cellbase = TransactionBuilder::default()
-        .input(CellInput::new_cellbase_input(number, 0))
+        .input(CellInput::new_cellbase_input(number))
         .output(CellOutput::new(0, vec![], Script::default(), None))
         .build();
 

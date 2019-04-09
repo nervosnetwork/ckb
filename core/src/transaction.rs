@@ -78,10 +78,10 @@ impl CellInput {
         }
     }
 
-    pub fn new_cellbase_input(block_number: BlockNumber, valid_since: u64) -> Self {
+    pub fn new_cellbase_input(block_number: BlockNumber) -> Self {
         CellInput {
             previous_output: OutPoint::null(),
-            valid_since,
+            valid_since: 0,
             args: vec![block_number.to_le_bytes().to_vec()],
         }
     }

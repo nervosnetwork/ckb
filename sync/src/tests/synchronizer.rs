@@ -89,7 +89,7 @@ fn setup_node(
         let timestamp = block.header().timestamp() + 1;
         let difficulty = shared.calculate_difficulty(&block.header()).unwrap();
         let cellbase = TransactionBuilder::default()
-            .input(CellInput::new_cellbase_input(number, 0))
+            .input(CellInput::new_cellbase_input(number))
             .output(CellOutput::default())
             .build();
 

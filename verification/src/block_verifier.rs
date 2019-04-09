@@ -86,9 +86,7 @@ impl<CP: ChainProvider + Clone> CellbaseVerifier<CP> {
 
         let cellbase_transaction = &block.commit_transactions()[0];
         let cellbase_input = &cellbase_transaction.inputs()[0];
-        if cellbase_input
-            != &CellInput::new_cellbase_input(block.header().number(), cellbase_input.valid_since)
-        {
+        if cellbase_input != &CellInput::new_cellbase_input(block.header().number()) {
             return Err(Error::Cellbase(CellbaseError::InvalidInput));
         }
 

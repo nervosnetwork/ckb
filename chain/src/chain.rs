@@ -225,10 +225,10 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
         let current_total_difficulty = chain_state.total_difficulty().clone();
 
         debug!(
-        target: "chain",
-        "difficulty current = {}, cannon = {}",
-        current_total_difficulty,
-        cannon_total_difficulty,
+            target: "chain",
+            "difficulty current = {}, cannon = {}",
+            current_total_difficulty,
+            cannon_total_difficulty,
         );
 
         if parent_ext.txs_verified == Some(false) {
