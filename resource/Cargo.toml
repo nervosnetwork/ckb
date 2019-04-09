@@ -10,8 +10,6 @@ include = ["/specs", "/ckb.toml", "/ckb-miner.toml"]
 [dependencies]
 phf = "0.7.21"
 includedir = "0.5.0"
-
-[dev-dependencies]
 tempfile = "3.0"
 
 [build-dependencies]

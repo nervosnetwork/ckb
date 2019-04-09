@@ -13,6 +13,7 @@ use std::borrow::Cow;
 use std::fs;
 use std::io::{self, BufReader, Read};
 use std::path::{Path, PathBuf};
+use tempfile::NamedTempFile;
 
 include!(concat!(env!("OUT_DIR"), "/bundled.rs"));
 
@@ -139,15 +140,21 @@ impl ResourceLocator {
     pub fn export_ckb<'a>(&self, context: &TemplateContext<'a>) -> Result<()> {
         let ckb = Resource::Bundled(CKB_CONFIG_FILE_NAME.to_string());
         let template = Template::new(from_utf8(ckb.get()?)?);
-        let mut out = fs::File::create(self.root_dir.join(CKB_CONFIG_FILE_NAME))?;
-        template.write_to(&mut out, context)
+        let mut out = NamedTempFile::new()?;
+        template.write_to(&mut out, context)?;
+        out.into_temp_path()
+            .persist(self.root_dir.join(CKB_CONFIG_FILE_NAME))
+            .map_err(Into::into)
     }
 
     pub fn export_miner<'a>(&self, context: &TemplateContext<'a>) -> Result<()> {
         let miner = Resource::Bundled(MINER_CONFIG_FILE_NAME.to_string());
         let template = Template::new(from_utf8(miner.get()?)?);
-        let mut out = fs::File::create(self.root_dir.join(MINER_CONFIG_FILE_NAME))?;
-        template.write_to(&mut out, context)
+        let mut out = NamedTempFile::new()?;
+        template.write_to(&mut out, context)?;
+        out.into_temp_path()
+            .persist(self.root_dir.join(MINER_CONFIG_FILE_NAME))
+            .map_err(Into::into)
     }
 
     pub fn export_specs(&self) -> Result<()> {
@@ -155,8 +162,9 @@ impl ResourceLocator {
             if name.starts_with(SPECS_RESOURCE_DIR_NAME) {
                 let path = self.root_dir.join(name);
                 fs::create_dir_all(path.parent().unwrap())?;
-                let mut out = fs::File::create(path)?;
+                let mut out = NamedTempFile::new()?;
                 io::copy(&mut BUNDLED.read(name)?, &mut out)?;
+                out.into_temp_path().persist(path)?;
             }
         }
 
