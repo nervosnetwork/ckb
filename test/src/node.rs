@@ -4,6 +4,7 @@ use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::header::{HeaderBuilder, Seal};
 use ckb_core::script::Script;
 use ckb_core::transaction::{CellInput, CellOutput, OutPoint, Transaction, TransactionBuilder};
+use ckb_util::TryInto;
 use fs_extra::dir::{copy, CopyOptions};
 use jsonrpc_client_http::{HttpHandle, HttpTransport};
 use jsonrpc_types::{BlockTemplate, CellbaseTemplate};
@@ -126,7 +127,10 @@ impl Node {
             .call()
             .expect("rpc call get_block failed")
             .expect("get_block result none");
-        let cellbase: Transaction = block.commit_transactions[0].clone().into();
+        let cellbase: Transaction = block.commit_transactions[0]
+            .clone()
+            .try_into()
+            .expect("parse cellbase transaction failed");
         rpc.send_transaction((&self.new_transaction(cellbase.hash())).into())
             .call()
             .expect("rpc call send_transaction failed")
@@ -148,7 +152,10 @@ impl Node {
             .call()
             .expect("rpc call get_block failed")
             .expect("get_block result none");
-        let cellbase: Transaction = block.commit_transactions[0].clone().into();
+        let cellbase: Transaction = block.commit_transactions[0]
+            .clone()
+            .try_into()
+            .expect("parse cellbase transaction failed");
         rpc.trace_transaction((&self.new_transaction(cellbase.hash())).into())
             .call()
             .expect("rpc call send_transaction failed")
@@ -188,10 +195,28 @@ impl Node {
             .seal(Seal::new(rand::random(), Vec::new()));
 
         BlockBuilder::default()
-            .uncles(uncles.into_iter().map(Into::into).collect())
-            .commit_transaction(cellbase.into())
-            .commit_transactions(commit_transactions.into_iter().map(Into::into).collect())
-            .proposal_transactions(proposal_transactions.into_iter().map(Into::into).collect())
+            .uncles(
+                uncles
+                    .into_iter()
+                    .map(TryInto::try_into)
+                    .collect::<Result<_, _>>()
+                    .expect("parse uncles failed"),
+            )
+            .commit_transaction(cellbase.try_into().expect("parse cellbase failed"))
+            .commit_transactions(
+                commit_transactions
+                    .into_iter()
+                    .map(TryInto::try_into)
+                    .collect::<Result<_, _>>()
+                    .expect("parse commit transactions failed"),
+            )
+            .proposal_transactions(
+                proposal_transactions
+                    .into_iter()
+                    .map(TryInto::try_into)
+                    .collect::<Result<_, _>>()
+                    .expect("parse proposal transactions failed"),
+            )
             .with_header_builder(header_builder)
     }
 

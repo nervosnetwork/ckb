@@ -8,9 +8,10 @@ use ckb_shared::tx_pool::types::PoolEntry;
 use ckb_shared::tx_pool::TxTrace;
 use ckb_sync::NetworkProtocol;
 use ckb_traits::chain_provider::ChainProvider;
+use ckb_util::TryInto;
 use ckb_verification::TransactionError;
 use flatbuffers::FlatBufferBuilder;
-use jsonrpc_core::Result;
+use jsonrpc_core::{Error, Result};
 use jsonrpc_derive::rpc;
 use jsonrpc_types::Transaction;
 use log::debug;
@@ -32,7 +33,7 @@ pub(crate) struct TraceRpcImpl<CI> {
 
 impl<CI: ChainIndex + 'static> TraceRpc for TraceRpcImpl<CI> {
     fn trace_transaction(&self, tx: Transaction) -> Result<H256> {
-        let tx: CoreTransaction = tx.into();
+        let tx: CoreTransaction = tx.try_into().map_err(|_| Error::parse_error())?;
         let tx_hash = tx.hash().clone();
         let cycles = {
             let mut chain_state = self.shared.chain_state().lock();

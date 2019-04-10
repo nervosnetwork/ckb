@@ -3,9 +3,10 @@ use crate::Work;
 use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::header::{HeaderBuilder, RawHeader, Seal};
 use ckb_pow::PowEngine;
+use ckb_util::TryInto;
 use crossbeam_channel::Receiver;
 use jsonrpc_types::{BlockTemplate, CellbaseTemplate};
-use log::{debug, info};
+use log::{debug, error, info};
 use rand::{thread_rng, Rng};
 use std::sync::Arc;
 
@@ -70,11 +71,34 @@ impl Miner {
                 .timestamp(current_time)
                 .parent_hash(parent_hash);
 
+            let uncles = uncles.into_iter().map(TryInto::try_into).collect();
+            if let Err(ref e) = uncles {
+                error!(target: "miner", "error parsing uncles: {:?}", e);
+            }
+            let cellbase = cellbase.try_into();
+            if let Err(ref e) = cellbase {
+                error!(target: "miner", "error parsing cellbase: {:?}", e);
+            }
+            let commit_transactions = commit_transactions
+                .into_iter()
+                .map(TryInto::try_into)
+                .collect();
+            if let Err(ref e) = commit_transactions {
+                error!(target: "miner", "error parsing commit transactions: {:?}", e);
+            }
+            let proposal_transactions = proposal_transactions
+                .into_iter()
+                .map(TryInto::try_into)
+                .collect();
+            if let Err(ref e) = proposal_transactions {
+                error!(target: "miner", "error parsing proposal transactions: {:?}", e);
+            }
+
             let block = BlockBuilder::default()
-                .uncles(uncles.into_iter().map(Into::into).collect())
-                .commit_transaction(cellbase.into())
-                .commit_transactions(commit_transactions.into_iter().map(Into::into).collect())
-                .proposal_transactions(proposal_transactions.into_iter().map(Into::into).collect())
+                .uncles(uncles.unwrap())
+                .commit_transaction(cellbase.unwrap())
+                .commit_transactions(commit_transactions.unwrap())
+                .proposal_transactions(proposal_transactions.unwrap())
                 .with_header_builder(header_builder);
 
             let raw_header = block.header().raw().clone();

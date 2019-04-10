@@ -33,7 +33,7 @@ build-info = { path = "../util/build-info" }
 futures = "0.1"
 ckb-verification = { path = "../verification" }
 ckb-traits = { path = "../traits" }
-
+ckb-util = { path = "../util" }
 
 [dev-dependencies]
 ckb-db = { path = "../db" }

@@ -6,6 +6,7 @@ use ckb_protocol::RelayMessage;
 use ckb_shared::{index::ChainIndex, shared::Shared};
 use ckb_sync::NetworkProtocol;
 use ckb_traits::ChainProvider;
+use ckb_util::TryInto;
 use ckb_verification::{HeaderResolverWrapper, HeaderVerifier, Verifier};
 use flatbuffers::FlatBufferBuilder;
 use jsonrpc_core::{Error, Result};
@@ -52,7 +53,7 @@ impl<CI: ChainIndex + 'static> MinerRpc for MinerRpcImpl<CI> {
     }
 
     fn submit_block(&self, _work_id: String, data: Block) -> Result<Option<H256>> {
-        let block: Arc<CoreBlock> = Arc::new(data.into());
+        let block: Arc<CoreBlock> = Arc::new(data.try_into().map_err(|_| Error::parse_error())?);
         let resolver = HeaderResolverWrapper::new(block.header(), self.shared.clone());
         let header_verifier = HeaderVerifier::new(
             self.shared.clone(),

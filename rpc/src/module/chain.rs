@@ -2,6 +2,7 @@ use ckb_core::cell::CellProvider;
 use ckb_core::BlockNumber;
 use ckb_shared::{index::ChainIndex, shared::Shared};
 use ckb_traits::ChainProvider;
+use ckb_util::TryInto;
 use jsonrpc_core::{Error, Result};
 use jsonrpc_derive::rpc;
 use jsonrpc_types::{Block, CellOutputWithOutPoint, CellWithStatus, Header, OutPoint, Transaction};
@@ -100,7 +101,7 @@ impl<CI: ChainIndex + 'static> ChainRpc for ChainRpcImpl<CI> {
             .shared
             .chain_state()
             .lock()
-            .cell(&(out_point.into()))
+            .cell(&(out_point.try_into().map_err(|_| Error::parse_error())?))
             .into())
     }
 

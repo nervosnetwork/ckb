@@ -428,6 +428,7 @@ mod tests {
     use ckb_shared::shared::SharedBuilder;
     use ckb_shared::store::ChainKVStore;
     use ckb_traits::ChainProvider;
+    use ckb_util::TryInto;
     use ckb_verification::{BlockVerifier, HeaderResolverWrapper, HeaderVerifier, Verifier};
     use jsonrpc_types::{BlockTemplate, CellbaseTemplate};
     use numext_fixed_hash::H256;
@@ -505,10 +506,28 @@ mod tests {
             .parent_hash(parent_hash);
 
         let block = BlockBuilder::default()
-            .uncles(uncles.into_iter().map(Into::into).collect())
-            .commit_transaction(cellbase.into())
-            .commit_transactions(commit_transactions.into_iter().map(Into::into).collect())
-            .proposal_transactions(proposal_transactions.into_iter().map(Into::into).collect())
+            .uncles(
+                uncles
+                    .into_iter()
+                    .map(TryInto::try_into)
+                    .collect::<Result<_, _>>()
+                    .unwrap(),
+            )
+            .commit_transaction(cellbase.try_into().unwrap())
+            .commit_transactions(
+                commit_transactions
+                    .into_iter()
+                    .map(TryInto::try_into)
+                    .collect::<Result<_, _>>()
+                    .unwrap(),
+            )
+            .proposal_transactions(
+                proposal_transactions
+                    .into_iter()
+                    .map(TryInto::try_into)
+                    .collect::<Result<_, _>>()
+                    .unwrap(),
+            )
             .with_header_builder(header_builder);
 
         let resolver = HeaderResolverWrapper::new(block.header(), shared.clone());

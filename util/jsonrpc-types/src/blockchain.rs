@@ -9,6 +9,8 @@ use ckb_core::transaction::{
 };
 use ckb_core::uncle::UncleBlock as CoreUncleBlock;
 use ckb_core::{BlockNumber, Capacity};
+use ckb_util::{TryFrom, TryInto};
+use failure::Error as FailureError;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 use serde_derive::{Deserialize, Serialize};
@@ -19,13 +21,15 @@ pub struct Script {
     pub binary_hash: H256,
 }
 
-impl From<Script> for CoreScript {
-    fn from(json: Script) -> CoreScript {
+impl TryFrom<Script> for CoreScript {
+    type Error = FailureError;
+
+    fn try_from(json: Script) -> Result<Self, Self::Error> {
         let Script { args, binary_hash } = json;
-        CoreScript::new(
+        Ok(CoreScript::new(
             args.into_iter().map(|arg| arg.into_vec()).collect(),
             binary_hash,
-        )
+        ))
     }
 }
 
@@ -60,20 +64,28 @@ impl From<CoreCellOutput> for CellOutput {
     }
 }
 
-impl From<CellOutput> for CoreCellOutput {
-    fn from(json: CellOutput) -> CoreCellOutput {
+impl TryFrom<CellOutput> for CoreCellOutput {
+    type Error = FailureError;
+
+    fn try_from(json: CellOutput) -> Result<Self, Self::Error> {
         let CellOutput {
             capacity,
             data,
             lock,
             type_,
         } = json;
-        CoreCellOutput::new(
+
+        let type_ = match type_ {
+            Some(type_) => Some(TryInto::try_into(type_)?),
+            None => None,
+        };
+
+        Ok(CoreCellOutput::new(
             capacity,
             data.into_vec(),
-            lock.into(),
-            type_.map(Into::into),
-        )
+            lock.try_into()?,
+            type_,
+        ))
     }
 }
 
@@ -90,10 +102,12 @@ impl From<CoreOutPoint> for OutPoint {
     }
 }
 
-impl From<OutPoint> for CoreOutPoint {
-    fn from(json: OutPoint) -> CoreOutPoint {
+impl TryFrom<OutPoint> for CoreOutPoint {
+    type Error = FailureError;
+
+    fn try_from(json: OutPoint) -> Result<Self, Self::Error> {
         let OutPoint { hash, index } = json;
-        CoreOutPoint::new(hash, index)
+        Ok(CoreOutPoint::new(hash, index))
     }
 }
 
@@ -113,16 +127,18 @@ impl From<CoreCellInput> for CellInput {
     }
 }
 
-impl From<CellInput> for CoreCellInput {
-    fn from(json: CellInput) -> CoreCellInput {
+impl TryFrom<CellInput> for CoreCellInput {
+    type Error = FailureError;
+
+    fn try_from(json: CellInput) -> Result<Self, Self::Error> {
         let CellInput {
             previous_output,
             args,
         } = json;
-        CoreCellInput::new(
-            previous_output.into(),
+        Ok(CoreCellInput::new(
+            previous_output.try_into()?,
             args.into_iter().map(|arg| arg.into_vec()).collect(),
-        )
+        ))
     }
 }
 
@@ -139,9 +155,11 @@ impl<'a> From<&'a CoreWitness> for Witness {
     }
 }
 
-impl From<Witness> for CoreWitness {
-    fn from(json: Witness) -> CoreWitness {
-        json.data.into_iter().map(|item| item.into_vec()).collect()
+impl TryFrom<Witness> for CoreWitness {
+    type Error = FailureError;
+
+    fn try_from(json: Witness) -> Result<Self, Self::Error> {
+        Ok(json.data.into_iter().map(|item| item.into_vec()).collect())
     }
 }
 
@@ -171,8 +189,10 @@ impl<'a> From<&'a CoreTransaction> for Transaction {
     }
 }
 
-impl From<Transaction> for CoreTransaction {
-    fn from(json: Transaction) -> CoreTransaction {
+impl TryFrom<Transaction> for CoreTransaction {
+    type Error = FailureError;
+
+    fn try_from(json: Transaction) -> Result<Self, Self::Error> {
         let Transaction {
             version,
             deps,
@@ -182,13 +202,32 @@ impl From<Transaction> for CoreTransaction {
             ..
         } = json;
 
-        TransactionBuilder::default()
+        Ok(TransactionBuilder::default()
             .version(version)
-            .deps(deps.into_iter().map(Into::into).collect())
-            .inputs(inputs.into_iter().map(Into::into).collect())
-            .outputs(outputs.into_iter().map(Into::into).collect())
-            .witnesses(witnesses.into_iter().map(Into::into).collect())
-            .build()
+            .deps(
+                deps.into_iter()
+                    .map(TryInto::try_into)
+                    .collect::<Result<_, _>>()?,
+            )
+            .inputs(
+                inputs
+                    .into_iter()
+                    .map(TryInto::try_into)
+                    .collect::<Result<_, _>>()?,
+            )
+            .outputs(
+                outputs
+                    .into_iter()
+                    .map(TryInto::try_into)
+                    .collect::<Result<_, _>>()?,
+            )
+            .witnesses(
+                witnesses
+                    .into_iter()
+                    .map(TryInto::try_into)
+                    .collect::<Result<_, _>>()?,
+            )
+            .build())
     }
 }
 
@@ -208,10 +247,12 @@ impl From<CoreSeal> for Seal {
     }
 }
 
-impl From<Seal> for CoreSeal {
-    fn from(json: Seal) -> CoreSeal {
+impl TryFrom<Seal> for CoreSeal {
+    type Error = FailureError;
+
+    fn try_from(json: Seal) -> Result<Self, Self::Error> {
         let Seal { nonce, proof } = json;
-        CoreSeal::new(nonce, proof.into_vec())
+        Ok(CoreSeal::new(nonce, proof.into_vec()))
     }
 }
 
@@ -251,8 +292,10 @@ impl<'a> From<&'a CoreHeader> for Header {
     }
 }
 
-impl From<Header> for CoreHeader {
-    fn from(json: Header) -> CoreHeader {
+impl TryFrom<Header> for CoreHeader {
+    type Error = FailureError;
+
+    fn try_from(json: Header) -> Result<Self, Self::Error> {
         let Header {
             version,
             parent_hash,
@@ -268,7 +311,7 @@ impl From<Header> for CoreHeader {
             ..
         } = json;
 
-        HeaderBuilder::default()
+        Ok(HeaderBuilder::default()
             .version(version)
             .parent_hash(parent_hash)
             .timestamp(timestamp)
@@ -279,8 +322,8 @@ impl From<Header> for CoreHeader {
             .difficulty(difficulty)
             .uncles_hash(uncles_hash)
             .uncles_count(uncles_count)
-            .seal(seal.into())
-            .build()
+            .seal(seal.try_into()?)
+            .build())
     }
 }
 
@@ -304,16 +347,21 @@ impl<'a> From<&'a CoreUncleBlock> for UncleBlock {
     }
 }
 
-impl From<UncleBlock> for CoreUncleBlock {
-    fn from(json: UncleBlock) -> CoreUncleBlock {
+impl TryFrom<UncleBlock> for CoreUncleBlock {
+    type Error = FailureError;
+
+    fn try_from(json: UncleBlock) -> Result<Self, Self::Error> {
         let UncleBlock {
             header,
             proposal_transactions,
         } = json;
-        CoreUncleBlock::new(
-            header.into(),
-            proposal_transactions.into_iter().map(Into::into).collect(),
-        )
+        Ok(CoreUncleBlock::new(
+            header.try_into()?,
+            proposal_transactions
+                .into_iter()
+                .map(TryInto::try_into)
+                .collect::<Result<_, _>>()?,
+        ))
     }
 }
 
@@ -341,8 +389,10 @@ impl<'a> From<&'a CoreBlock> for Block {
     }
 }
 
-impl From<Block> for CoreBlock {
-    fn from(json: Block) -> CoreBlock {
+impl TryFrom<Block> for CoreBlock {
+    type Error = FailureError;
+
+    fn try_from(json: Block) -> Result<Self, Self::Error> {
         let Block {
             header,
             uncles,
@@ -350,12 +400,27 @@ impl From<Block> for CoreBlock {
             proposal_transactions,
         } = json;
 
-        BlockBuilder::default()
-            .header(header.into())
-            .uncles(uncles.into_iter().map(Into::into).collect())
-            .commit_transactions(commit_transactions.into_iter().map(Into::into).collect())
-            .proposal_transactions(proposal_transactions.into_iter().map(Into::into).collect())
-            .build()
+        Ok(BlockBuilder::default()
+            .header(header.try_into()?)
+            .uncles(
+                uncles
+                    .into_iter()
+                    .map(TryInto::try_into)
+                    .collect::<Result<_, _>>()?,
+            )
+            .commit_transactions(
+                commit_transactions
+                    .into_iter()
+                    .map(TryInto::try_into)
+                    .collect::<Result<_, _>>()?,
+            )
+            .proposal_transactions(
+                proposal_transactions
+                    .into_iter()
+                    .map(TryInto::try_into)
+                    .collect::<Result<_, _>>()?,
+            )
+            .build())
     }
 }
 
@@ -406,7 +471,7 @@ mod tests {
         let json_block: Block = (&block).into();
         let encoded = serde_json::to_string(&json_block).unwrap();
         let decode: Block = serde_json::from_str(&encoded).unwrap();
-        let decode_block: CoreBlock = decode.into();
+        let decode_block: CoreBlock = decode.try_into().unwrap();
         prop_assert_eq!(decode_block, block);
         Ok(())
     }
