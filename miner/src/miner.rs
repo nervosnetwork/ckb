@@ -5,6 +5,7 @@ use ckb_core::header::{HeaderBuilder, RawHeader, Seal};
 use ckb_pow::PowEngine;
 use ckb_util::TryInto;
 use crossbeam_channel::Receiver;
+use failure::Error;
 use jsonrpc_types::{BlockTemplate, CellbaseTemplate};
 use log::{debug, error, info};
 use rand::{thread_rng, Rng};
@@ -34,13 +35,18 @@ impl Miner {
     pub fn run(&self) {
         loop {
             self.client.try_update_block_template();
-            if let Some((work_id, block)) = self.mine() {
-                self.client.submit_block(&work_id, &block);
-            }
+            match self.mine() {
+                Ok(result) => {
+                    if let Some((work_id, block)) = result {
+                        self.client.submit_block(&work_id, &block);
+                    }
+                }
+                Err(e) => error!(target: "miner", "mining error encountered: {:?}", e),
+            };
         }
     }
 
-    fn mine(&self) -> Option<(String, Block)> {
+    fn mine(&self) -> Result<Option<(String, Block)>, Error> {
         if let Some(template) = { self.current_work.lock().clone() } {
             let BlockTemplate {
                 version,
@@ -71,52 +77,41 @@ impl Miner {
                 .timestamp(current_time)
                 .parent_hash(parent_hash);
 
-            let uncles = uncles.into_iter().map(TryInto::try_into).collect();
-            if let Err(ref e) = uncles {
-                error!(target: "miner", "error parsing uncles: {:?}", e);
-                return None;
-            }
-            let cellbase = cellbase.try_into();
-            if let Err(ref e) = cellbase {
-                error!(target: "miner", "error parsing cellbase: {:?}", e);
-                return None;
-            }
-            let commit_transactions = commit_transactions
-                .into_iter()
-                .map(TryInto::try_into)
-                .collect();
-            if let Err(ref e) = commit_transactions {
-                error!(target: "miner", "error parsing commit transactions: {:?}", e);
-                return None;
-            }
-            let proposal_transactions = proposal_transactions
-                .into_iter()
-                .map(TryInto::try_into)
-                .collect();
-            if let Err(ref e) = proposal_transactions {
-                error!(target: "miner", "error parsing proposal transactions: {:?}", e);
-                return None;
-            }
-
             let block = BlockBuilder::default()
-                .uncles(uncles.unwrap())
-                .commit_transaction(cellbase.unwrap())
-                .commit_transactions(commit_transactions.unwrap())
-                .proposal_transactions(proposal_transactions.unwrap())
+                .uncles(
+                    uncles
+                        .into_iter()
+                        .map(TryInto::try_into)
+                        .collect::<Result<_, _>>()?,
+                )
+                .commit_transaction(cellbase.try_into()?)
+                .commit_transactions(
+                    commit_transactions
+                        .into_iter()
+                        .map(TryInto::try_into)
+                        .collect::<Result<_, _>>()?,
+                )
+                .proposal_transactions(
+                    proposal_transactions
+                        .into_iter()
+                        .map(TryInto::try_into)
+                        .collect::<Result<_, _>>()?,
+                )
                 .with_header_builder(header_builder);
 
             let raw_header = block.header().raw().clone();
 
-            self.mine_loop(&raw_header)
+            Ok(self
+                .mine_loop(&raw_header)
                 .map(|seal| {
                     BlockBuilder::default()
                         .block(block)
                         .header(raw_header.with_seal(seal))
                         .build()
                 })
-                .map(|block| (work_id, block))
+                .map(|block| (work_id, block)))
         } else {
-            None
+            Ok(None)
         }
     }
 
