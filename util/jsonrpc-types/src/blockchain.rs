@@ -45,7 +45,7 @@ impl From<CoreScript> for Script {
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct CellOutput {
-    pub capacity: Capacity,
+    pub capacity: String,
     pub data: Bytes,
     pub lock: Script,
     #[serde(rename = "type")]
@@ -56,7 +56,7 @@ impl From<CoreCellOutput> for CellOutput {
     fn from(core: CoreCellOutput) -> CellOutput {
         let (capacity, data, lock, type_) = core.destruct();
         CellOutput {
-            capacity,
+            capacity: capacity.to_string(),
             data: Bytes::new(data),
             lock: lock.into(),
             type_: type_.map(Into::into),
@@ -81,7 +81,7 @@ impl TryFrom<CellOutput> for CoreCellOutput {
         };
 
         Ok(CoreCellOutput::new(
-            capacity,
+            capacity.parse::<Capacity>()?,
             data.into_vec(),
             lock.try_into()?,
             type_,
