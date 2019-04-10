@@ -14,17 +14,14 @@ use std::time::Duration;
 
 const DEFAULT_BAN_TIME: Duration = Duration::from_secs(3600 * 24 * 3);
 
-pub struct TransactionProcess<'a, CI: ChainIndex + 'a> {
+pub struct TransactionProcess<'a, CI> {
     message: &'a FbsValidTransaction<'a>,
     relayer: &'a Relayer<CI>,
     peer: PeerIndex,
     nc: &'a mut CKBProtocolContext,
 }
 
-impl<'a, CI> TransactionProcess<'a, CI>
-where
-    CI: ChainIndex + 'static,
-{
+impl<'a, CI: ChainIndex> TransactionProcess<'a, CI> {
     pub fn new(
         message: &'a FbsValidTransaction,
         relayer: &'a Relayer<CI>,
