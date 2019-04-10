@@ -169,8 +169,8 @@ impl Client {
     fn get_block_template(&self) -> impl Future<Item = BlockTemplate, Error = RpcError> {
         let method = "get_block_template".to_owned();
         let params = vec![
-            json!(self.config.cycles_limit),
-            json!(self.config.bytes_limit),
+            json!(self.config.cycles_limit.to_string()),
+            json!(self.config.bytes_limit.to_string()),
             json!(self.config.max_version),
         ];
 
