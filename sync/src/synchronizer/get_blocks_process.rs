@@ -5,7 +5,7 @@ use ckb_shared::index::ChainIndex;
 use ckb_util::TryInto;
 use failure::Error as FailureError;
 use flatbuffers::FlatBufferBuilder;
-use log::debug;
+use log::{debug, warn};
 
 pub struct GetBlocksProcess<'a, CI: ChainIndex + 'a> {
     message: &'a GetBlocks<'a>,
@@ -59,12 +59,18 @@ where
                     let message =
                         SyncMessage::build_filtered_block(fbb, &block, &transactions_index);
                     fbb.finish(message, None);
-                    let _ = self.nc.send(self.peer, fbb.finished_data().to_vec());
+                    let ret = self.nc.send(self.peer, fbb.finished_data().to_vec());
+                    if ret.is_err() {
+                        warn!(target: "relay", "response GetBlocks error {:?}", ret);
+                    }
                 } else {
                     let fbb = &mut FlatBufferBuilder::new();
                     let message = SyncMessage::build_block(fbb, &block);
                     fbb.finish(message, None);
-                    let _ = self.nc.send(self.peer, fbb.finished_data().to_vec());
+                    let ret = self.nc.send(self.peer, fbb.finished_data().to_vec());
+                    if ret.is_err() {
+                        warn!(target: "relay", "response GetBlocks error {:?}", ret);
+                    }
                 }
             } else {
                 // TODO response not found

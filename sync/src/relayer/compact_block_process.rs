@@ -10,6 +10,7 @@ use ckb_verification::{HeaderResolverWrapper, HeaderVerifier, Verifier};
 use failure::Error as FailureError;
 use flatbuffers::FlatBufferBuilder;
 use fnv::FnvHashMap;
+use log::warn;
 use numext_fixed_hash::H256;
 use std::sync::Arc;
 
@@ -94,7 +95,11 @@ where
                     .collect::<Vec<_>>(),
             );
             fbb.finish(message, None);
-            let _ = self.nc.send(self.peer, fbb.finished_data().to_vec());
+            let ret = self.nc.send(self.peer, fbb.finished_data().to_vec());
+
+            if ret.is_err() {
+                warn!(target: "relay", "CompactBlockProcess relay error {:?}", ret);
+            }
         }
         Ok(())
     }

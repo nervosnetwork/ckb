@@ -33,6 +33,7 @@ use ckb_util::Mutex;
 use failure::Error as FailureError;
 use flatbuffers::FlatBufferBuilder;
 use fnv::{FnvHashMap, FnvHashSet};
+use log::warn;
 use log::{debug, info};
 use numext_fixed_hash::H256;
 use std::collections::HashSet;
@@ -128,7 +129,11 @@ where
 
     fn process(&self, nc: &mut CKBProtocolContext, peer: PeerIndex, message: RelayMessage) {
         if self.try_process(nc, peer, message).is_err() {
-            let _ = nc.report_peer(peer, Behaviour::UnexpectedMessage);
+            let ret = nc.report_peer(peer, Behaviour::UnexpectedMessage);
+
+            if ret.is_err() {
+                warn!(target: "network", "report_peer peer {:?} UnexpectedMessage error {:?}", peer, ret);
+            }
         }
     }
 
@@ -158,7 +163,10 @@ where
             RelayMessage::build_get_block_proposal(fbb, block.header.number(), &unknown_ids);
         fbb.finish(message, None);
 
-        let _ = nc.send(peer, fbb.finished_data().to_vec());
+        let ret = nc.send(peer, fbb.finished_data().to_vec());
+        if ret.is_err() {
+            warn!(target: "relay", "relay get_block_proposal error {:?}", ret);
+        }
     }
 
     pub fn accept_block(&self, nc: &mut CKBProtocolContext, peer: PeerIndex, block: &Arc<Block>) {
@@ -170,7 +178,10 @@ where
 
             for peer_id in nc.connected_peers() {
                 if peer_id != peer {
-                    let _ = nc.send(peer_id, fbb.finished_data().to_vec());
+                    let ret = nc.send(peer_id, fbb.finished_data().to_vec());
+                    if ret.is_err() {
+                        warn!(target: "relay", "relay compact_block error {:?}", ret);
+                    }
                 }
             }
         } else {
@@ -279,7 +290,11 @@ where
                 RelayMessage::build_block_proposal(fbb, &txs.into_iter().collect::<Vec<_>>());
             fbb.finish(message, None);
 
-            let _ = nc.send(peer, fbb.finished_data().to_vec());
+            let ret = nc.send(peer, fbb.finished_data().to_vec());
+
+            if ret.is_err() {
+                warn!(target: "relay", "send block_proposal error {:?}", ret);
+            }
         }
     }
 
@@ -305,7 +320,10 @@ where
             Ok(msg) => msg,
             _ => {
                 info!(target: "sync", "Peer {} sends us a malformed message", peer);
-                let _ = nc.report_peer(peer, Behaviour::UnexpectedMessage);
+                let ret = nc.report_peer(peer, Behaviour::UnexpectedMessage);
+                if ret.is_err() {
+                    warn!(target: "network", "report_peer peer {:?} UnexpectedMessage error  {:?}", peer, ret);
+                }
                 return;
             }
         };

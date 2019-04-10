@@ -1,9 +1,6 @@
 // use crate::peer_store::Behaviour;
 use crate::NetworkState;
-use std::collections::HashMap;
-use std::sync::Arc;
-
-use log::{debug, trace};
+use log::{debug, trace, warn};
 use p2p::{
     multiaddr::{Multiaddr, Protocol},
     secio::PeerId,
@@ -11,6 +8,8 @@ use p2p::{
     utils::{is_reachable, multiaddr_to_socketaddr},
 };
 use p2p_identify::{Callback, MisbehaveResult, Misbehavior};
+use std::collections::HashMap;
+use std::sync::Arc;
 
 const MAX_RETURN_LISTEN_ADDRS: usize = 10;
 
@@ -57,9 +56,11 @@ impl Callback for IdentifyCallback {
         );
         self.remote_listen_addrs
             .insert(peer_id.clone(), addrs.clone());
-        let mut peer_store = self.network_state.peer_store().write();
+        let peer_store = self.network_state.peer_store();
         for addr in addrs {
-            let _ = peer_store.add_discovered_addr(&peer_id, addr);
+            if !peer_store.add_discovered_addr(&peer_id, addr) {
+                warn!(target: "network", "add_discovered_addr failed {:?}", peer_id);
+            }
         }
     }
 
@@ -101,11 +102,14 @@ impl Callback for IdentifyCallback {
         {
             debug!(target: "network", "identify add transformed addr: {:?}", transformed_addr);
             let local_peer_id = self.network_state.local_peer_id();
-            let _ = self
+
+            if !self
                 .network_state
                 .peer_store()
-                .write()
-                .add_discovered_addr(local_peer_id, transformed_addr);
+                .add_discovered_addr(local_peer_id, transformed_addr)
+            {
+                warn!(target: "network", "add_discovered_addr failed {:?}", local_peer_id);
+            }
         }
         // NOTE: for future usage
         MisbehaveResult::Continue

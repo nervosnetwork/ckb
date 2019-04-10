@@ -200,11 +200,14 @@ impl Stream for DiscoveryService {
                                     _ => true,
                                 })
                                 .collect::<Multiaddr>();
-                            let _ = self
+
+                            if !self
                                 .network_state
                                 .peer_store()
-                                .write()
-                                .add_discovered_addr(&peer_id, addr);
+                                .add_discovered_addr(&peer_id, addr)
+                            {
+                                warn!(target: "network", "add_discovered_addr failed {:?}", peer_id);
+                            }
                         }
                     }
                 }
@@ -220,7 +223,6 @@ impl Stream for DiscoveryService {
                 let addrs = self
                     .network_state
                     .peer_store()
-                    .read()
                     .random_peers(n as u32)
                     .into_iter()
                     .filter_map(|(peer_id, mut addr)| {
