@@ -1,28 +1,29 @@
-use crate::flat_serializer::{serialize as flat_serialize, Address};
+use crate::flat_serializer::{serialize as flat_serialize, serialized_addresses, Address};
 use crate::{
     COLUMN_BLOCK_BODY, COLUMN_BLOCK_HEADER, COLUMN_BLOCK_PROPOSAL_IDS,
-    COLUMN_BLOCK_TRANSACTION_ADDRESSES, COLUMN_BLOCK_UNCLE, COLUMN_EXT,
+    COLUMN_BLOCK_TRANSACTION_ADDRESSES, COLUMN_BLOCK_UNCLE, COLUMN_EXT, COLUMN_INDEX, COLUMN_META,
+    COLUMN_TRANSACTION_ADDR,
 };
 use bincode::{deserialize, serialize};
 use ckb_core::block::{Block, BlockBuilder};
-use ckb_core::extras::BlockExt;
-use ckb_core::header::{Header, HeaderBuilder};
+use ckb_core::extras::{BlockExt, TransactionAddress};
+use ckb_core::header::{BlockNumber, Header, HeaderBuilder};
 use ckb_core::transaction::{ProposalShortId, Transaction, TransactionBuilder};
 use ckb_core::uncle::UncleBlock;
 use ckb_db::batch::{Batch, Col};
-use ckb_db::kvdb::KeyValueDB;
+use ckb_db::kvdb::{DbBatch, KeyValueDB};
 use failure::Error;
 use numext_fixed_hash::H256;
 use std::ops::Range;
-use std::sync::Arc;
 
-pub struct ChainKVStore<T: KeyValueDB> {
-    pub db: Arc<T>,
+const META_TIP_HEADER_KEY: &[u8] = b"TIP_HEADER";
+
+pub struct ChainKVStore<T> {
+    db: T,
 }
 
-impl<T: 'static + KeyValueDB> ChainKVStore<T> {
+impl<T: KeyValueDB> ChainKVStore<T> {
     pub fn new(db: T) -> Self {
-        let db = Arc::new(db);
         ChainKVStore { db }
     }
 
@@ -46,18 +47,14 @@ where
 }
 
 pub trait ChainStore: Sync + Send {
+    type Batch: StoreBatch;
+
     fn get_block(&self, block_hash: &H256) -> Option<Block>;
     fn get_header(&self, block_hash: &H256) -> Option<Header>;
     fn get_block_body(&self, block_hash: &H256) -> Option<Vec<Transaction>>;
     fn get_block_proposal_txs_ids(&self, h: &H256) -> Option<Vec<ProposalShortId>>;
     fn get_block_uncles(&self, block_hash: &H256) -> Option<Vec<UncleBlock>>;
     fn get_block_ext(&self, block_hash: &H256) -> Option<BlockExt>;
-    fn insert_block(&self, batch: &mut Batch, b: &Block);
-    fn insert_block_ext(&self, batch: &mut Batch, block_hash: &H256, ext: &BlockExt);
-    fn save_with_batch<F: FnOnce(&mut Batch) -> Result<(), Error>>(
-        &self,
-        f: F,
-    ) -> Result<(), Error>;
 
     /// Visits block headers backward to genesis.
     fn headers_iter<'a>(&'a self, head: Header) -> ChainStoreHeaderIterator<'a, Self>
@@ -69,6 +66,22 @@ pub trait ChainStore: Sync + Send {
             head: Some(head),
         }
     }
+
+    fn new_batch(&self) -> Self::Batch;
+}
+
+pub trait StoreBatch {
+    fn insert_block(&mut self, b: &Block);
+    fn insert_block_ext(&mut self, block_hash: &H256, ext: &BlockExt);
+    fn insert_block_hash(&mut self, number: BlockNumber, hash: &H256);
+    fn delete_block_hash(&mut self, number: BlockNumber);
+    fn insert_block_number(&mut self, hash: &H256, number: BlockNumber);
+    fn delete_block_number(&mut self, hash: &H256);
+    fn insert_tip_header(&mut self, h: &Header);
+    fn insert_transaction_address(&mut self, block_hash: &H256, txs: &[Transaction]);
+    fn delete_transaction_address(&mut self, txs: &[Transaction]);
+
+    fn commit(self);
 }
 
 impl<'a, T: ChainStore> Iterator for ChainStoreHeaderIterator<'a, T> {
@@ -97,7 +110,9 @@ impl<'a, T: ChainStore> Iterator for ChainStoreHeaderIterator<'a, T> {
     }
 }
 
-impl<T: 'static + KeyValueDB> ChainStore for ChainKVStore<T> {
+impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
+    type Batch = DefaultStoreBatch<T::Batch>;
+
     // TODO error log
     fn get_block(&self, h: &H256) -> Option<Block> {
         self.get_header(h).map(|header| {
@@ -161,45 +176,105 @@ impl<T: 'static + KeyValueDB> ChainStore for ChainKVStore<T> {
             .map(|raw| deserialize(&raw[..]).unwrap())
     }
 
-    fn save_with_batch<F: FnOnce(&mut Batch) -> Result<(), Error>>(
-        &self,
-        f: F,
-    ) -> Result<(), Error> {
-        let mut batch = Batch::new();
-        f(&mut batch)?;
-        self.db.write(batch)?;
-        Ok(())
+    fn new_batch(&self) -> Self::Batch {
+        DefaultStoreBatch {
+            inner: self.db.db_batch().expect("new db batch should be ok"),
+        }
     }
+}
 
-    fn insert_block(&self, batch: &mut Batch, b: &Block) {
+pub struct DefaultStoreBatch<B> {
+    inner: B,
+}
+
+impl<B: DbBatch> StoreBatch for DefaultStoreBatch<B> {
+    fn insert_block(&mut self, b: &Block) {
         let hash = b.header().hash().to_vec();
-        batch.insert(
+        self.inner.insert(
             COLUMN_BLOCK_HEADER,
-            hash.clone(),
-            serialize(b.header()).expect("serializing header should be ok"),
+            &hash,
+            &serialize(b.header()).expect("serializing header should be ok"),
         );
-        batch.insert(
+        self.inner.insert(
             COLUMN_BLOCK_UNCLE,
-            hash.clone(),
-            serialize(b.uncles()).expect("serializing uncles should be ok"),
+            &hash,
+            &serialize(b.uncles()).expect("serializing uncles should be ok"),
         );
-        batch.insert(
+        self.inner.insert(
             COLUMN_BLOCK_PROPOSAL_IDS,
-            hash.clone(),
-            serialize(b.proposal_transactions())
+            &hash,
+            &serialize(b.proposal_transactions())
                 .expect("serializing proposal_transactions should be ok"),
         );
         let (block_data, block_addresses) = flat_serialize(b.commit_transactions().iter()).unwrap();
-        batch.insert(COLUMN_BLOCK_BODY, hash.clone(), block_data);
-        batch.insert(
+        self.inner.insert(COLUMN_BLOCK_BODY, &hash, &block_data);
+        self.inner.insert(
             COLUMN_BLOCK_TRANSACTION_ADDRESSES,
-            hash,
-            serialize(&block_addresses).expect("serializing addresses should be ok"),
+            &hash,
+            &serialize(&block_addresses).expect("serializing addresses should be ok"),
         );
     }
 
-    fn insert_block_ext(&self, batch: &mut Batch, block_hash: &H256, ext: &BlockExt) {
-        batch.insert(COLUMN_EXT, block_hash.to_vec(), serialize(&ext).unwrap());
+    fn insert_block_ext(&mut self, block_hash: &H256, ext: &BlockExt) {
+        self.inner.insert(
+            COLUMN_EXT,
+            &block_hash.to_vec(),
+            &serialize(ext).expect("serializing block ext should be ok"),
+        );
+    }
+
+    fn insert_block_hash(&mut self, number: BlockNumber, hash: &H256) {
+        let key = serialize(&number).unwrap();
+        self.inner.insert(COLUMN_INDEX, &key, &hash.to_vec());
+    }
+
+    fn insert_block_number(&mut self, hash: &H256, number: BlockNumber) {
+        self.inner
+            .insert(COLUMN_INDEX, &hash.to_vec(), &serialize(&number).unwrap());
+    }
+
+    fn insert_transaction_address(&mut self, block_hash: &H256, txs: &[Transaction]) {
+        let addresses = serialized_addresses(txs.iter()).unwrap();
+        for (id, tx) in txs.iter().enumerate() {
+            let address = TransactionAddress {
+                block_hash: block_hash.clone(),
+                offset: addresses[id].offset,
+                length: addresses[id].length,
+            };
+            self.inner.insert(
+                COLUMN_TRANSACTION_ADDR,
+                &tx.hash().to_vec(),
+                &serialize(&address).unwrap(),
+            );
+        }
+    }
+
+    fn delete_transaction_address(&mut self, txs: &[Transaction]) {
+        for tx in txs {
+            self.inner
+                .delete(COLUMN_TRANSACTION_ADDR, &tx.hash().to_vec());
+        }
+    }
+
+    fn insert_tip_header(&mut self, h: &Header) {
+        self.inner.insert(
+            COLUMN_META,
+            &META_TIP_HEADER_KEY.to_vec(),
+            &h.hash().to_vec(),
+        );
+    }
+
+    fn delete_block_hash(&mut self, number: BlockNumber) {
+        let key = serialize(&number).unwrap();
+        self.inner.delete(COLUMN_INDEX, &key);
+    }
+
+    fn delete_block_number(&mut self, hash: &H256) {
+        self.inner.delete(COLUMN_INDEX, &hash.to_vec());
+    }
+
+    fn commit(self) {
+        self.inner.commit();
     }
 }
 
@@ -207,6 +282,7 @@ impl<T: 'static + KeyValueDB> ChainStore for ChainKVStore<T> {
 mod tests {
     use super::super::COLUMNS;
     use super::*;
+    use crate::store::StoreBatch;
     use ckb_chain_spec::consensus::Consensus;
     use ckb_db::{DBConfig, RocksDB};
     use tempfile;
@@ -229,11 +305,9 @@ mod tests {
         let block = consensus.genesis_block();
 
         let hash = block.header().hash();
-        let ret = store.save_with_batch(|batch| {
-            store.insert_block(batch, &block);
-            Ok(())
-        });
-        assert!(ret.is_ok());
+        let mut batch = store.new_batch();
+        batch.insert_block(&block);
+        batch.commit();
         assert_eq!(block, &store.get_block(&hash).unwrap());
     }
 
@@ -248,11 +322,9 @@ mod tests {
             .build();
 
         let hash = block.header().hash();
-        let ret = store.save_with_batch(|batch| {
-            store.insert_block(batch, &block);
-            Ok(())
-        });
-        assert!(ret.is_ok());
+        let mut batch = store.new_batch();
+        batch.insert_block(&block);
+        batch.commit();
         assert_eq!(block, store.get_block(&hash).unwrap());
     }
 
@@ -271,12 +343,9 @@ mod tests {
         };
 
         let hash = block.header().hash();
-        let ret = store.save_with_batch(|batch| {
-            store.insert_block_ext(batch, &hash, &ext);
-            Ok(())
-        });
-
-        assert!(ret.is_ok());
+        let mut batch = store.new_batch();
+        batch.insert_block_ext(&hash, &ext);
+        batch.commit();
         assert_eq!(ext, store.get_block_ext(&hash).unwrap());
     }
 }

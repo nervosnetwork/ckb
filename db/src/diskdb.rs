@@ -123,13 +123,25 @@ pub struct RocksdbBatch {
 }
 
 impl DbBatch for RocksdbBatch {
-    fn put(&mut self, key: &[u8], value: &[u8]) -> Result<()> {
-        self.wb.put(key, value)?;
+    fn insert(&mut self, col: Col, key: &[u8], value: &[u8]) -> Result<()> {
+        match col {
+            Some(col) => {
+                let cf = self.db.cf_handle(&col.to_string()).unwrap();
+                self.wb.put_cf(cf, key, value)?
+            }
+            None => self.wb.put(key, value)?,
+        }
         Ok(())
     }
 
-    fn delete(&mut self, key: &[u8]) -> Result<()> {
-        self.wb.delete(key)?;
+    fn delete(&mut self, col: Col, key: &[u8]) -> Result<()> {
+        match col {
+            Some(col) => {
+                let cf = self.db.cf_handle(&col.to_string()).unwrap();
+                self.wb.delete_cf(cf, &key)?
+            }
+            None => self.wb.delete(key)?,
+        }
         Ok(())
     }
 

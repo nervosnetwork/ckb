@@ -91,11 +91,11 @@ enum BatchOperation {
 }
 
 impl DbBatch for MemoryDbBatch {
-    fn put(&mut self, key: &[u8], value: &[u8]) -> Result<()> {
+    fn insert(&mut self, col: Col, key: &[u8], value: &[u8]) -> Result<()> {
         unimplemented!()
     }
 
-    fn delete(&mut self, key: &[u8]) -> Result<()> {
+    fn delete(&mut self, col: Col, key: &[u8]) -> Result<()> {
         unimplemented!()
     }
 

@@ -1,5 +1,5 @@
 use crate::flat_serializer::serialized_addresses;
-use crate::store::{ChainKVStore, ChainStore};
+use crate::store::{ChainKVStore, ChainStore, DefaultStoreBatch, StoreBatch};
 use crate::{COLUMN_BLOCK_BODY, COLUMN_INDEX, COLUMN_META, COLUMN_TRANSACTION_ADDR};
 use bincode::{deserialize, serialize};
 use ckb_core::block::Block;
@@ -7,7 +7,7 @@ use ckb_core::extras::{BlockExt, TransactionAddress};
 use ckb_core::header::{BlockNumber, Header};
 use ckb_core::transaction::{Transaction, TransactionBuilder};
 use ckb_db::batch::Batch;
-use ckb_db::kvdb::KeyValueDB;
+use ckb_db::kvdb::{DbBatch, KeyValueDB};
 use numext_fixed_hash::H256;
 
 const META_TIP_HEADER_KEY: &[u8] = b"TIP_HEADER";
@@ -20,49 +20,39 @@ pub trait ChainIndex: ChainStore {
     fn get_tip_header(&self) -> Option<Header>;
     fn get_transaction(&self, h: &H256) -> Option<Transaction>;
     fn get_transaction_address(&self, hash: &H256) -> Option<TransactionAddress>;
-
-    fn insert_block_hash(&self, batch: &mut Batch, number: BlockNumber, hash: &H256);
-    fn delete_block_hash(&self, batch: &mut Batch, number: BlockNumber);
-    fn insert_block_number(&self, batch: &mut Batch, hash: &H256, number: BlockNumber);
-    fn delete_block_number(&self, batch: &mut Batch, hash: &H256);
-    fn insert_tip_header(&self, batch: &mut Batch, h: &Header);
-    fn insert_transaction_address(&self, batch: &mut Batch, block_hash: &H256, txs: &[Transaction]);
-    fn delete_transaction_address(&self, batch: &mut Batch, txs: &[Transaction]);
 }
 
-impl<T: 'static + KeyValueDB> ChainIndex for ChainKVStore<T> {
+impl<T: KeyValueDB> ChainIndex for ChainKVStore<T> {
     fn init(&self, genesis: &Block) {
-        self.save_with_batch(|batch| {
-            let genesis_hash = genesis.header().hash();
-            let ext = BlockExt {
-                received_at: genesis.header().timestamp(),
-                total_difficulty: genesis.header().difficulty().clone(),
-                total_uncles_count: 0,
-                txs_verified: Some(true),
+        let mut batch = self.new_batch();
+        let genesis_hash = genesis.header().hash();
+        let ext = BlockExt {
+            received_at: genesis.header().timestamp(),
+            total_difficulty: genesis.header().difficulty().clone(),
+            total_uncles_count: 0,
+            txs_verified: Some(true),
+        };
+
+        let mut cells = Vec::with_capacity(genesis.commit_transactions().len());
+
+        for tx in genesis.commit_transactions() {
+            let ins = if tx.is_cellbase() {
+                Vec::new()
+            } else {
+                tx.input_pts()
             };
+            let outs = tx.output_pts();
 
-            let mut cells = Vec::with_capacity(genesis.commit_transactions().len());
+            cells.push((ins, outs));
+        }
 
-            for tx in genesis.commit_transactions() {
-                let ins = if tx.is_cellbase() {
-                    Vec::new()
-                } else {
-                    tx.input_pts()
-                };
-                let outs = tx.output_pts();
-
-                cells.push((ins, outs));
-            }
-
-            self.insert_block(batch, genesis);
-            self.insert_block_ext(batch, &genesis_hash, &ext);
-            self.insert_tip_header(batch, &genesis.header());
-            self.insert_block_hash(batch, 0, &genesis_hash);
-            self.insert_block_number(batch, &genesis_hash, 0);
-            self.insert_transaction_address(batch, &genesis_hash, genesis.commit_transactions());
-            Ok(())
-        })
-        .expect("genesis init");
+        batch.insert_block(genesis);
+        batch.insert_block_ext(&genesis_hash, &ext);
+        batch.insert_tip_header(&genesis.header());
+        batch.insert_block_hash(0, &genesis_hash);
+        batch.insert_block_number(&genesis_hash, 0);
+        batch.insert_transaction_address(&genesis_hash, genesis.commit_transactions());
+        batch.commit();
     }
 
     fn get_block_hash(&self, number: BlockNumber) -> Option<H256> {
@@ -99,55 +89,6 @@ impl<T: 'static + KeyValueDB> ChainIndex for ChainKVStore<T> {
     fn get_transaction_address(&self, h: &H256) -> Option<TransactionAddress> {
         self.get(COLUMN_TRANSACTION_ADDR, h.as_bytes())
             .map(|raw| deserialize(&raw[..]).unwrap())
-    }
-
-    fn insert_tip_header(&self, batch: &mut Batch, h: &Header) {
-        batch.insert(COLUMN_META, META_TIP_HEADER_KEY.to_vec(), h.hash().to_vec());
-    }
-
-    fn insert_block_hash(&self, batch: &mut Batch, number: BlockNumber, hash: &H256) {
-        let key = serialize(&number).unwrap();
-        batch.insert(COLUMN_INDEX, key, hash.to_vec());
-    }
-
-    fn insert_block_number(&self, batch: &mut Batch, hash: &H256, number: BlockNumber) {
-        batch.insert(COLUMN_INDEX, hash.to_vec(), serialize(&number).unwrap());
-    }
-
-    fn insert_transaction_address(
-        &self,
-        batch: &mut Batch,
-        block_hash: &H256,
-        txs: &[Transaction],
-    ) {
-        let addresses = serialized_addresses(txs.iter()).unwrap();
-        for (id, tx) in txs.iter().enumerate() {
-            let address = TransactionAddress {
-                block_hash: block_hash.clone(),
-                offset: addresses[id].offset,
-                length: addresses[id].length,
-            };
-            batch.insert(
-                COLUMN_TRANSACTION_ADDR,
-                tx.hash().to_vec(),
-                serialize(&address).unwrap(),
-            );
-        }
-    }
-
-    fn delete_transaction_address(&self, batch: &mut Batch, txs: &[Transaction]) {
-        for tx in txs {
-            batch.delete(COLUMN_TRANSACTION_ADDR, tx.hash().to_vec());
-        }
-    }
-
-    fn delete_block_hash(&self, batch: &mut Batch, number: BlockNumber) {
-        let key = serialize(&number).unwrap();
-        batch.delete(COLUMN_INDEX, key);
-    }
-
-    fn delete_block_number(&self, batch: &mut Batch, hash: &H256) {
-        batch.delete(COLUMN_INDEX, hash.to_vec());
     }
 }
 

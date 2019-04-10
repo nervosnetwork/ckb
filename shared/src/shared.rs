@@ -367,7 +367,7 @@ impl SharedBuilder<CacheDB<RocksDB>> {
 
 pub const MIN_TXS_VERIFY_CACHE_SIZE: Option<usize> = Some(100);
 
-impl<DB: 'static + KeyValueDB> SharedBuilder<DB> {
+impl<DB: KeyValueDB> SharedBuilder<DB> {
     pub fn consensus(mut self, value: Consensus) -> Self {
         self.consensus = Some(value);
         self

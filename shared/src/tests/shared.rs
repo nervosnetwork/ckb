@@ -1,6 +1,6 @@
 use crate::{
     shared::{Shared, SharedBuilder},
-    store::{ChainKVStore, ChainStore},
+    store::{ChainKVStore, ChainStore, StoreBatch},
 };
 use ckb_core::{block::BlockBuilder, header::HeaderBuilder};
 use ckb_db::{kvdb::KeyValueDB, memorydb::MemoryKeyValueDB};
@@ -27,14 +27,11 @@ where
         hashes.push(parent_hash.clone());
         blocks.push(BlockBuilder::default().header(header).build());
     }
-    store
-        .save_with_batch(|batch| {
-            for b in blocks {
-                store.insert_block(batch, &b);
-            }
-            Ok(())
-        })
-        .expect("insert blocks");
+    let mut batch = store.new_batch();
+    for b in blocks {
+        batch.insert_block(&b);
+    }
+    batch.commit();
     hashes
 }
 
