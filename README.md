@@ -36,7 +36,7 @@ The contribution workflow is described in [CONTRIBUTING.md](CONTRIBUTING.md), an
 
 ## Documentations
 
-- [Build CKB](docs/build.md)
+- [Get CKB](docs/get-ckb.md)
 - [Quick Start](docs/quick-start.md)
 - [Configure CKB](docs/configure.md)
 - [CKB Core Development](docs/ckb-core-dev.md)

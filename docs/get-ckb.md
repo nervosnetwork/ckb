@@ -1,6 +1,14 @@
-# Build CKB
+# Get CKB
 
-## Install Build Dependencies
+## Download from Releases
+
+We will publish binaries for each release via [Github Releases](https://github.com/nervosnetwork/ckb/releases). If your system
+is listed there, you can download the package directory.
+
+
+## Build from Source
+
+### Install Build Dependencies
 
 CKB is currently tested mainly with `stable-1.33.0` on Linux and macOS.
 
@@ -33,7 +41,7 @@ sudo pacman -Sy git gcc pkgconf clang
 brew install autoconf libtool
 ```
 
-## Build from Source
+### Build
 
 ```bash
 # get ckb source code
