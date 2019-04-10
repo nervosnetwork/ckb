@@ -127,7 +127,8 @@ impl PeersRegistry {
     ) -> Result<RegisterResult, Error> {
         let mut peers = self.peers.write();
 
-        if let Some(peer) = peers.get(&peer_id) {
+        if let Some(peer) = peers.get_mut(&peer_id) {
+            peer.protocols.insert(protocol_id, protocol_version);
             return Ok(RegisterResult::Exist(peer.peer_index));
         }
 
