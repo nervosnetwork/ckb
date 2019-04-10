@@ -146,21 +146,19 @@ impl ResourceLocator {
     pub fn export_ckb<'a>(&self, context: &TemplateContext<'a>) -> Result<()> {
         let ckb = Resource::Bundled(CKB_CONFIG_FILE_NAME.to_string());
         let template = Template::new(from_utf8(ckb.get()?)?);
-        let mut out = NamedTempFile::new()?;
+        let mut out = NamedTempFile::new_in(&self.root_dir)?;
         template.write_to(&mut out, context)?;
-        out.into_temp_path()
-            .persist(self.root_dir.join(CKB_CONFIG_FILE_NAME))
-            .map_err(Into::into)
+        out.persist(self.root_dir.join(CKB_CONFIG_FILE_NAME))?;
+        Ok(())
     }
 
     pub fn export_miner<'a>(&self, context: &TemplateContext<'a>) -> Result<()> {
         let miner = Resource::Bundled(MINER_CONFIG_FILE_NAME.to_string());
         let template = Template::new(from_utf8(miner.get()?)?);
-        let mut out = NamedTempFile::new()?;
+        let mut out = NamedTempFile::new_in(&self.root_dir)?;
         template.write_to(&mut out, context)?;
-        out.into_temp_path()
-            .persist(self.root_dir.join(MINER_CONFIG_FILE_NAME))
-            .map_err(Into::into)
+        out.persist(self.root_dir.join(MINER_CONFIG_FILE_NAME))?;
+        Ok(())
     }
 
     pub fn export_specs(&self) -> Result<()> {
@@ -168,7 +166,7 @@ impl ResourceLocator {
             if name.starts_with(SPECS_RESOURCE_DIR_NAME) {
                 let path = self.root_dir.join(name);
                 fs::create_dir_all(path.parent().unwrap())?;
-                let mut out = NamedTempFile::new()?;
+                let mut out = NamedTempFile::new_in(&self.root_dir)?;
                 io::copy(&mut BUNDLED.read(name)?, &mut out)?;
                 out.into_temp_path().persist(path)?;
             }
