@@ -216,6 +216,7 @@ impl NetworkState {
         let original_listened_addresses = self.original_listened_addresses.read();
         self.listened_addresses(max_urls.saturating_sub(original_listened_addresses.len()))
             .into_iter()
+            .filter(|(addr, _)| !original_listened_addresses.contains(addr))
             .chain(
                 original_listened_addresses
                     .iter()
