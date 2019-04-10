@@ -433,14 +433,12 @@ mod test {
             .build();
 
         assert_eq!(
-            tx.hash(),
-            H256::from_hex_str("8e23669b744ed93805f81999602a2640d99afa821a062fb5816b4b903c973f90")
-                .unwrap()
+            format!("{:x}", tx.hash()),
+            "a896bfe8c8439305f099e1f07b47844ba0a5a27ec1e26ec25b236fa7e4831115"
         );
         assert_eq!(
-            tx.witness_hash(),
-            H256::from_hex_str("652396516abfe2fb64fdbe574b909c66cdb42a7e62f7674a39bb8b94634031c4")
-                .unwrap()
+            format!("{:x}", tx.witness_hash()),
+            "3f08580e373cad9a828173efe614ce3a8310957351c77f2859a18fc49d4cd227"
         );
     }
 }
