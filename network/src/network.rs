@@ -2,9 +2,7 @@ use crate::errors::Error;
 use crate::peer_store::{sqlite::SqlitePeerStore, PeerStore, Status};
 use crate::peers_registry::{ConnectionStatus, PeersRegistry, RegisterResult};
 use crate::protocols::{
-    discovery::{DiscoveryProtocol, DiscoveryService},
-    identify::IdentifyCallback,
-    outbound_peer::OutboundPeerService,
+    discovery::DiscoveryProtocol, identify::IdentifyCallback, outbound_peer::OutboundPeerService,
     ping::PingService,
 };
 use crate::protocols::{feeler::Feeler, DefaultCKBProtocolContext};
@@ -16,7 +14,7 @@ use crate::{
 use ckb_util::RwLock;
 use fnv::{FnvHashMap, FnvHashSet};
 use futures::sync::mpsc::channel;
-use futures::sync::{mpsc, oneshot};
+use futures::sync::oneshot;
 use futures::Future;
 use futures::Stream;
 use log::{debug, error, info, warn};
@@ -478,11 +476,22 @@ impl NetworkService {
             .build();
 
         // Discovery protocol
-        let (disc_sender, disc_receiver) = mpsc::unbounded();
+        let bootnodes: Vec<Multiaddr> = config
+            .bootnodes()
+            .expect("Invalid bootnodes config")
+            .into_iter()
+            .map(|(_, addr)| addr)
+            .collect();
         let disc_meta = MetaBuilder::default()
             .id(DISCOVERY_PROTOCOL_ID)
-            .service_handle(move || {
-                ProtocolHandle::Both(Box::new(DiscoveryProtocol::new(disc_sender.clone())))
+            .service_handle({
+                let network_state = Arc::clone(&network_state);
+                move || {
+                    ProtocolHandle::Both(Box::new(DiscoveryProtocol::new(
+                        Arc::clone(&network_state),
+                        bootnodes.clone(),
+                    )))
+                }
             })
             .build();
 
@@ -528,7 +537,6 @@ impl NetworkService {
             .build(event_handler);
 
         // == Build background service tasks
-        let disc_service = DiscoveryService::new(Arc::clone(&network_state), disc_receiver);
         let ping_service = PingService::new(
             Arc::clone(&network_state),
             p2p_service.control().clone(),
@@ -541,7 +549,6 @@ impl NetworkService {
         );
         let bg_services = vec![
             Box::new(ping_service.for_each(|_| Ok(()))) as Box<_>,
-            Box::new(disc_service.for_each(|_| Ok(()))) as Box<_>,
             Box::new(outbound_peer_service.for_each(|_| Ok(()))) as Box<_>,
         ];
 
