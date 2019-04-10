@@ -12,7 +12,7 @@ use flatbuffers::FlatBufferBuilder;
 use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
 use jsonrpc_types::Transaction;
-use log::debug;
+use log::{debug, warn};
 use numext_fixed_hash::H256;
 
 #[rpc]
@@ -61,7 +61,10 @@ impl<CI: ChainIndex + 'static> PoolRpc for PoolRpcImpl<CI> {
                     |mut nc| {
                         for peer in nc.connected_peers() {
                             debug!(target: "rpc", "relay transaction {} to peer#{}", tx_hash, peer);
-                            let _ = nc.send(peer, fbb.finished_data().to_vec());
+                            let ret = nc.send(peer, fbb.finished_data().to_vec());
+                            if ret.is_err() {
+                                warn!(target: "rpc", "relay transaction error {:?}", ret);
+                            }
                         }
                     },
                 );

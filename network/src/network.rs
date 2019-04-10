@@ -231,7 +231,9 @@ impl NetworkState {
 
     // A workaround method for `add_node` rpc call, need to re-write it after new p2p lib integration.
     pub fn add_node(&self, peer_id: &PeerId, address: Multiaddr) {
-        let _ = self.peer_store().add_discovered_addr(peer_id, address);
+        if !self.peer_store().add_discovered_addr(peer_id, address) {
+            warn!(target: "network", "add_node failed {:?}", peer_id);
+        }
     }
 
     fn to_external_url(&self, addr: &Multiaddr) -> String {

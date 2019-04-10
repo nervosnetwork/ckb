@@ -71,12 +71,20 @@ where
             let fbb = &mut FlatBufferBuilder::new();
             let message = SyncMessage::build_headers(fbb, &headers);
             fbb.finish(message, None);
-            let _ = self.nc.send(self.peer, fbb.finished_data().to_vec());
+            let ret = self.nc.send(self.peer, fbb.finished_data().to_vec());
+
+            if ret.is_err() {
+                warn!(target: "sync", "response GetHeaders error {:?}", ret);
+            }
         } else {
             warn!(target: "sync", "\n\nunknown block headers from peer {} {:#?}\n\n", self.peer, block_locator_hashes);
             // Got 'headers' message without known blocks
             // ban or close peers
-            let _ = self.nc.report_peer(self.peer, Behaviour::SyncUseless);
+            let report_ret = self.nc.report_peer(self.peer, Behaviour::SyncUseless);
+
+            if report_ret.is_err() {
+                warn!(target: "sync", "report behaviour SyncUseless error {:?}", report_ret);
+            }
             // disconnect peer anyway
             self.nc.disconnect(self.peer);
         }

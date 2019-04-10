@@ -182,7 +182,10 @@ impl<CI: ChainIndex> Synchronizer<CI> {
 
     fn process(&self, nc: &mut CKBProtocolContext, peer: PeerIndex, message: SyncMessage) {
         if self.try_process(nc, peer, message).is_err() {
-            let _ = nc.report_peer(peer, Behaviour::UnexpectedMessage);
+            let ret = nc.report_peer(peer, Behaviour::UnexpectedMessage);
+            if ret.is_err() {
+                warn!(target: "network", "report_peer peer {:?} UnexpectedMessage error  {:?}", peer, ret);
+            }
         }
     }
 
@@ -537,7 +540,11 @@ impl<CI: ChainIndex> Synchronizer<CI> {
         let fbb = &mut FlatBufferBuilder::new();
         let message = SyncMessage::build_get_headers(fbb, &locator_hash);
         fbb.finish(message, None);
-        let _ = nc.send(peer, fbb.finished_data().to_vec());
+        let ret = nc.send(peer, fbb.finished_data().to_vec());
+
+        if ret.is_err() {
+            warn!(target: "sync", "send_getheaders_to_peer error {:?}", ret);
+        }
     }
 
     //   - If at timeout their best known block now has more work than our tip
@@ -699,7 +706,10 @@ impl<CI: ChainIndex> Synchronizer<CI> {
         let fbb = &mut FlatBufferBuilder::new();
         let message = SyncMessage::build_get_blocks(fbb, v_fetch);
         fbb.finish(message, None);
-        let _ = nc.send(peer, fbb.finished_data().to_vec());
+        let ret = nc.send(peer, fbb.finished_data().to_vec());
+        if ret.is_err() {
+            warn!(target: "sync", "send_getblocks error {:?}", ret);
+        }
         debug!(target: "sync", "send_getblocks len={:?} to peer={}", v_fetch.len() , peer);
     }
 }
@@ -720,7 +730,10 @@ where
             Ok(msg) => msg,
             _ => {
                 info!(target: "sync", "Peer {} sends us a malformed message", peer);
-                let _ = nc.report_peer(peer, Behaviour::UnexpectedMessage);
+                let ret = nc.report_peer(peer, Behaviour::UnexpectedMessage);
+                if ret.is_err() {
+                    warn!(target: "sync", "report_peer peer {:?} UnexpectedMessage error  {:?}", peer, ret)
+                }
                 return;
             }
         };

@@ -5,7 +5,7 @@ use ckb_shared::index::ChainIndex;
 use ckb_util::TryInto;
 use failure::Error as FailureError;
 use flatbuffers::FlatBufferBuilder;
-use log::debug;
+use log::{debug, warn};
 
 pub struct GetBlockTransactionsProcess<'a, CI: ChainIndex + 'a> {
     message: &'a GetBlockTransactions<'a>,
@@ -49,7 +49,10 @@ where
             let message = RelayMessage::build_block_transactions(fbb, &hash, &transactions);
             fbb.finish(message, None);
 
-            let _ = self.nc.send(self.peer, fbb.finished_data().to_vec());
+            let ret = self.nc.send(self.peer, fbb.finished_data().to_vec());
+            if ret.is_err() {
+                warn!(target: "relay", "GetBlockTransactionsProcess response error {:?}", ret);
+            }
         }
 
         Ok(())
