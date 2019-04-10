@@ -210,7 +210,6 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
 
         let mut batch = self.shared.store().new_batch();
         batch.insert_block(&block);
-
         if (cannon_total_difficulty > current_total_difficulty)
             || ((current_total_difficulty == cannon_total_difficulty)
                 && (block.header().hash() < tip_hash))
@@ -233,41 +232,7 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
         } else {
             batch.insert_block_ext(&block.header().hash(), &ext);
         }
-
         batch.commit();
-
-        // self.shared.store().save_with_batch(|batch| {
-        //     self.shared.store().insert_block(batch, &block);
-
-        //     if (cannon_total_difficulty > current_total_difficulty)
-        //         || ((current_total_difficulty == cannon_total_difficulty)
-        //             && (block.header().hash() < tip_hash))
-        //     {
-        //         debug!(
-        //             target: "chain",
-        //             "new best block found: {} => {}, difficulty diff = {}",
-        //             block.header().number(), block.header().hash(),
-        //             &cannon_total_difficulty - &current_total_difficulty
-        //         );
-
-        //         self.find_fork(&mut fork, tip_number, &block, ext);
-        //         cell_set_diff = self.reconcile_main_chain(batch, &mut fork, &mut chain_state)?;
-        //         self.update_index(batch, &fork.detached_blocks, &fork.attached_blocks);
-        //         self.update_proposal_ids(&mut chain_state, &fork);
-        //         self.shared
-        //             .store()
-        //             .insert_tip_header(batch, &block.header());
-
-        //         new_best_block = true;
-
-        //         total_difficulty = cannon_total_difficulty;
-        //     } else {
-        //         self.shared
-        //             .store()
-        //             .insert_block_ext(batch, &block.header().hash(), &ext);
-        //     }
-        //     Ok(())
-        // })?;
 
         if new_best_block {
             let tip_header = block.header().clone();
@@ -302,28 +267,12 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
         detached_blocks: &[Block],
         attached_blocks: &[Block],
     ) {
-        let old_number = match detached_blocks.get(0) {
-            Some(b) => b.header().number(),
-            None => 0,
-        };
-
-        let new_number = attached_blocks[0].header().number();
-
         for block in detached_blocks {
-            batch.delete_block_number(&block.header().hash());
-            batch.delete_transaction_address(block.commit_transactions());
+            batch.detach_block(block);
         }
 
         for block in attached_blocks {
-            let number = block.header().number();
-            let hash = block.header().hash();
-            batch.insert_block_hash(number, &hash);
-            batch.insert_block_number(&hash, number);
-            batch.insert_transaction_address(&hash, block.commit_transactions());
-        }
-
-        for n in new_number..old_number {
-            batch.delete_block_hash(n + 1);
+            batch.attach_block(block);
         }
     }
 

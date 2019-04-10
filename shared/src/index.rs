@@ -48,9 +48,7 @@ impl<T: KeyValueDB> ChainIndex for ChainKVStore<T> {
         batch.insert_block(genesis);
         batch.insert_block_ext(&genesis_hash, &ext);
         batch.insert_tip_header(&genesis.header());
-        batch.insert_block_hash(0, &genesis_hash);
-        batch.insert_block_number(&genesis_hash, 0);
-        batch.insert_transaction_address(&genesis_hash, genesis.commit_transactions());
+        batch.attach_block(genesis);
         batch.commit();
     }
 

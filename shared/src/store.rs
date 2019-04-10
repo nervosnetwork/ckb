@@ -38,16 +38,9 @@ impl<T: KeyValueDB> ChainKVStore<T> {
     }
 }
 
-pub struct ChainStoreHeaderIterator<'a, T: ChainStore>
-where
-    T: 'a,
-{
-    store: &'a T,
-    head: Option<Header>,
-}
-
 pub trait ChainStore: Sync + Send {
     type Batch: StoreBatch;
+    fn new_batch(&self) -> Self::Batch;
 
     fn get_block(&self, block_hash: &H256) -> Option<Block>;
     fn get_header(&self, block_hash: &H256) -> Option<Header>;
@@ -55,65 +48,28 @@ pub trait ChainStore: Sync + Send {
     fn get_block_proposal_txs_ids(&self, h: &H256) -> Option<Vec<ProposalShortId>>;
     fn get_block_uncles(&self, block_hash: &H256) -> Option<Vec<UncleBlock>>;
     fn get_block_ext(&self, block_hash: &H256) -> Option<BlockExt>;
-
-    /// Visits block headers backward to genesis.
-    fn headers_iter<'a>(&'a self, head: Header) -> ChainStoreHeaderIterator<'a, Self>
-    where
-        Self: 'a + Sized,
-    {
-        ChainStoreHeaderIterator {
-            store: self,
-            head: Some(head),
-        }
-    }
-
-    fn new_batch(&self) -> Self::Batch;
 }
 
 pub trait StoreBatch {
-    fn insert_block(&mut self, b: &Block);
+    fn insert_block(&mut self, block: &Block);
     fn insert_block_ext(&mut self, block_hash: &H256, ext: &BlockExt);
-    fn insert_block_hash(&mut self, number: BlockNumber, hash: &H256);
-    fn delete_block_hash(&mut self, number: BlockNumber);
-    fn insert_block_number(&mut self, hash: &H256, number: BlockNumber);
-    fn delete_block_number(&mut self, hash: &H256);
-    fn insert_tip_header(&mut self, h: &Header);
-    fn insert_transaction_address(&mut self, block_hash: &H256, txs: &[Transaction]);
-    fn delete_transaction_address(&mut self, txs: &[Transaction]);
+    fn insert_tip_header(&mut self, header: &Header);
+
+    fn attach_block(&mut self, block: &Block);
+    fn detach_block(&mut self, block: &Block);
 
     fn commit(self);
-}
-
-impl<'a, T: ChainStore> Iterator for ChainStoreHeaderIterator<'a, T> {
-    type Item = Header;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let current_header = self.head.take();
-        self.head = match current_header {
-            Some(ref h) => {
-                if h.number() > 0 {
-                    self.store.get_header(&h.parent_hash())
-                } else {
-                    None
-                }
-            }
-            None => None,
-        };
-        current_header
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        match self.head {
-            Some(ref h) => (1, Some(h.number() as usize + 1)),
-            None => (0, Some(0)),
-        }
-    }
 }
 
 impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
     type Batch = DefaultStoreBatch<T::Batch>;
 
-    // TODO error log
+    fn new_batch(&self) -> Self::Batch {
+        DefaultStoreBatch {
+            inner: self.db.batch().expect("new db batch should be ok"),
+        }
+    }
+
     fn get_block(&self, h: &H256) -> Option<Block> {
         self.get_header(h).map(|header| {
             let commit_transactions = self
@@ -175,12 +131,6 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
         self.get(COLUMN_EXT, block_hash.as_bytes())
             .map(|raw| deserialize(&raw[..]).unwrap())
     }
-
-    fn new_batch(&self) -> Self::Batch {
-        DefaultStoreBatch {
-            inner: self.db.batch().expect("new db batch should be ok"),
-        }
-    }
 }
 
 pub struct DefaultStoreBatch<B> {
@@ -223,21 +173,16 @@ impl<B: DbBatch> StoreBatch for DefaultStoreBatch<B> {
         );
     }
 
-    fn insert_block_hash(&mut self, number: BlockNumber, hash: &H256) {
-        let key = serialize(&number).unwrap();
-        self.inner.insert(COLUMN_INDEX, &key, &hash.to_vec());
-    }
+    fn attach_block(&mut self, block: &Block) {
+        let hash = block.header().hash();
+        let number = serialize(&block.header().number()).unwrap();
+        self.inner.insert(COLUMN_INDEX, &number, &hash.to_vec());
+        self.inner.insert(COLUMN_INDEX, &hash.to_vec(), &number);
 
-    fn insert_block_number(&mut self, hash: &H256, number: BlockNumber) {
-        self.inner
-            .insert(COLUMN_INDEX, &hash.to_vec(), &serialize(&number).unwrap());
-    }
-
-    fn insert_transaction_address(&mut self, block_hash: &H256, txs: &[Transaction]) {
-        let addresses = serialized_addresses(txs.iter()).unwrap();
-        for (id, tx) in txs.iter().enumerate() {
+        let addresses = serialized_addresses(block.commit_transactions().iter()).unwrap();
+        for (id, tx) in block.commit_transactions().iter().enumerate() {
             let address = TransactionAddress {
-                block_hash: block_hash.clone(),
+                block_hash: hash.clone(),
                 offset: addresses[id].offset,
                 length: addresses[id].length,
             };
@@ -249,8 +194,12 @@ impl<B: DbBatch> StoreBatch for DefaultStoreBatch<B> {
         }
     }
 
-    fn delete_transaction_address(&mut self, txs: &[Transaction]) {
-        for tx in txs {
+    fn detach_block(&mut self, block: &Block) {
+        self.inner
+            .delete(COLUMN_INDEX, &serialize(&block.header().number()).unwrap());
+        self.inner
+            .delete(COLUMN_INDEX, &block.header().hash().to_vec());
+        for tx in block.commit_transactions() {
             self.inner
                 .delete(COLUMN_TRANSACTION_ADDR, &tx.hash().to_vec());
         }
@@ -262,15 +211,6 @@ impl<B: DbBatch> StoreBatch for DefaultStoreBatch<B> {
             &META_TIP_HEADER_KEY.to_vec(),
             &h.hash().to_vec(),
         );
-    }
-
-    fn delete_block_hash(&mut self, number: BlockNumber) {
-        let key = serialize(&number).unwrap();
-        self.inner.delete(COLUMN_INDEX, &key);
-    }
-
-    fn delete_block_number(&mut self, hash: &H256) {
-        self.inner.delete(COLUMN_INDEX, &hash.to_vec());
     }
 
     fn commit(self) {
