@@ -22,7 +22,7 @@ where
     pub fn new(db: T, cols: &[CacheCols]) -> Self {
         let mut table = FnvHashMap::with_capacity_and_hasher(cols.len(), Default::default());
         for (idx, capacity) in cols {
-            table.insert(Some(*idx), LruCache::new(*capacity));
+            table.insert(*idx, LruCache::new(*capacity));
         }
         CacheDB {
             db,

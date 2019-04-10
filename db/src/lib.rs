@@ -15,7 +15,7 @@ pub use crate::config::DBConfig;
 pub use crate::memorydb::MemoryKeyValueDB;
 pub use crate::rocksdb::RocksDB;
 
-pub type Col = Option<u32>;
+pub type Col = u32;
 pub type Error = ErrorKind;
 pub type Result<T> = result::Result<T, Error>;
 

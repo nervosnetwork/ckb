@@ -359,7 +359,7 @@ impl SharedBuilder<CacheDB<RocksDB>> {
     pub fn db(mut self, config: &DBConfig) -> Self {
         self.db = Some(CacheDB::new(
             RocksDB::open(config, COLUMNS),
-            &[(COLUMN_BLOCK_HEADER.unwrap(), 4096)],
+            &[(COLUMN_BLOCK_HEADER, 4096)],
         ));
         self
     }
