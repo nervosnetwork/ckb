@@ -126,6 +126,33 @@ impl BlockMedianTimeContext for FakeMedianTime {
 
 #[test]
 pub fn test_valid_since() {
+    // use remain flags
+    let transaction = TransactionBuilder::default()
+        .inputs(vec![CellInput::new(
+            OutPoint::new(H256::from_trimmed_hex_str("1").unwrap(), 0),
+            0x2000_0000_0000_0000,
+            Default::default(),
+        )])
+        .build();
+
+    let rtx = ResolvedTransaction {
+        transaction,
+        dep_cells: Vec::new(),
+        input_cells: vec![CellStatus::Live(CellMeta {
+            cell_output: CellOutput::new(50, Vec::new(), Script::default(), None),
+            block_number: Some(1),
+        })],
+    };
+
+    let median_time_context = FakeMedianTime {
+        timestamps: vec![0; 11],
+    };
+    let verifier = ValidSinceVerifier::new(&rtx, &median_time_context, 5);
+    assert_eq!(
+        verifier.verify().err(),
+        Some(TransactionError::InvalidValidSince)
+    );
+
     // absolute lock
     let transaction = TransactionBuilder::default()
         .inputs(vec![CellInput::new(

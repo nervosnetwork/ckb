@@ -229,6 +229,7 @@ impl<'a> CapacityVerifier<'a> {
 const LOCK_TYPE_FLAG: u64 = 1 << 63;
 const TIME_TYPE_FLAG: u64 = 1 << 62;
 const VALUE_MUSK: u64 = 0x00ff_ffff_ffff_ffff;
+const REMAIN_FLAGS_BITS: u64 = 0x3f00_0000_0000_0000;
 
 /// RFC 0017
 #[derive(Copy, Clone, Debug)]
@@ -242,6 +243,10 @@ impl ValidSince {
     #[inline]
     pub fn is_relative(self) -> bool {
         !self.is_absolute()
+    }
+
+    pub fn remain_flags_is_empty(self) -> bool {
+        self.0 & REMAIN_FLAGS_BITS == 0
     }
 
     fn metric_type_is_number(self) -> bool {
@@ -368,16 +373,22 @@ where
             .iter()
             .zip(self.rtx.transaction.inputs())
         {
-            let cell = match cell_status.get_live() {
-                Some(cell) => cell,
-                None => return Err(TransactionError::Conflict),
-            };
             // ignore empty valid_since
             if input.valid_since == 0 {
                 continue;
             }
             let valid_since = ValidSince(input.valid_since);
+            // check remain flags
+            if !valid_since.remain_flags_is_empty() {
+                return Err(TransactionError::InvalidValidSince);
+            }
+
+            // verify time lock
             self.verify_absolute_lock(valid_since)?;
+            let cell = match cell_status.get_live() {
+                Some(cell) => cell,
+                None => return Err(TransactionError::Conflict),
+            };
             self.verify_relative_lock(valid_since, cell)?;
         }
         Ok(())

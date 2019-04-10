@@ -146,4 +146,6 @@ pub enum TransactionError {
     Version,
     /// Tx not satisfied valid_since condition
     Immature,
+    /// Invalid ValidSince flags
+    InvalidValidSince,
 }
