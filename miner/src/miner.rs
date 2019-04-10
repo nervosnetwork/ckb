@@ -74,10 +74,12 @@ impl Miner {
             let uncles = uncles.into_iter().map(TryInto::try_into).collect();
             if let Err(ref e) = uncles {
                 error!(target: "miner", "error parsing uncles: {:?}", e);
+                return None;
             }
             let cellbase = cellbase.try_into();
             if let Err(ref e) = cellbase {
                 error!(target: "miner", "error parsing cellbase: {:?}", e);
+                return None;
             }
             let commit_transactions = commit_transactions
                 .into_iter()
@@ -85,6 +87,7 @@ impl Miner {
                 .collect();
             if let Err(ref e) = commit_transactions {
                 error!(target: "miner", "error parsing commit transactions: {:?}", e);
+                return None;
             }
             let proposal_transactions = proposal_transactions
                 .into_iter()
@@ -92,6 +95,7 @@ impl Miner {
                 .collect();
             if let Err(ref e) = proposal_transactions {
                 error!(target: "miner", "error parsing proposal transactions: {:?}", e);
+                return None;
             }
 
             let block = BlockBuilder::default()
