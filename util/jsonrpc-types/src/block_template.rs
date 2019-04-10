@@ -1,6 +1,6 @@
 use crate::proposal_short_id::ProposalShortId;
 use crate::{Header, Transaction};
-use ckb_core::{BlockNumber, Cycle, Version};
+use ckb_core::{Cycle, Version};
 use ckb_util::{TryFrom, TryInto};
 use failure::Error as FailureError;
 use numext_fixed_hash::H256;
@@ -14,11 +14,11 @@ use ckb_core::uncle::UncleBlock as CoreUncleBlock;
 pub struct BlockTemplate {
     pub version: Version,
     pub difficulty: U256,
-    pub current_time: u64,
-    pub number: BlockNumber,
+    pub current_time: String,
+    pub number: String,
     pub parent_hash: H256,
-    pub cycles_limit: Cycle,
-    pub bytes_limit: u64,
+    pub cycles_limit: String,
+    pub bytes_limit: String,
     pub uncles_count_limit: u32,
     pub uncles: Vec<UncleTemplate>,
     pub commit_transactions: Vec<TransactionTemplate>,

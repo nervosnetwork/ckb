@@ -233,7 +233,7 @@ impl TryFrom<Transaction> for CoreTransaction {
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct Seal {
-    pub nonce: u64,
+    pub nonce: String,
     pub proof: Bytes,
 }
 
@@ -241,7 +241,7 @@ impl From<CoreSeal> for Seal {
     fn from(core: CoreSeal) -> Seal {
         let (nonce, proof) = core.destruct();
         Seal {
-            nonce,
+            nonce: nonce.to_string(),
             proof: Bytes::new(proof),
         }
     }
@@ -252,7 +252,7 @@ impl TryFrom<Seal> for CoreSeal {
 
     fn try_from(json: Seal) -> Result<Self, Self::Error> {
         let Seal { nonce, proof } = json;
-        Ok(CoreSeal::new(nonce, proof.into_vec()))
+        Ok(CoreSeal::new(nonce.parse::<u64>()?, proof.into_vec()))
     }
 }
 
@@ -260,8 +260,8 @@ impl TryFrom<Seal> for CoreSeal {
 pub struct Header {
     pub version: u32,
     pub parent_hash: H256,
-    pub timestamp: u64,
-    pub number: BlockNumber,
+    pub timestamp: String,
+    pub number: String,
     pub txs_commit: H256,
     pub txs_proposal: H256,
     pub witnesses_root: H256,
@@ -278,8 +278,8 @@ impl<'a> From<&'a CoreHeader> for Header {
         Header {
             version: core.version(),
             parent_hash: core.parent_hash().clone(),
-            timestamp: core.timestamp(),
-            number: core.number(),
+            timestamp: core.timestamp().to_string(),
+            number: core.number().to_string(),
             txs_commit: core.txs_commit().clone(),
             txs_proposal: core.txs_proposal().clone(),
             witnesses_root: core.witnesses_root().clone(),
@@ -314,8 +314,8 @@ impl TryFrom<Header> for CoreHeader {
         Ok(HeaderBuilder::default()
             .version(version)
             .parent_hash(parent_hash)
-            .timestamp(timestamp)
-            .number(number)
+            .timestamp(timestamp.parse::<u64>()?)
+            .number(number.parse::<BlockNumber>()?)
             .txs_commit(txs_commit)
             .txs_proposal(txs_proposal)
             .witnesses_root(witnesses_root)

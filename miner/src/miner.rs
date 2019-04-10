@@ -2,6 +2,7 @@ use crate::client::Client;
 use crate::Work;
 use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::header::{HeaderBuilder, RawHeader, Seal};
+use ckb_core::BlockNumber;
 use ckb_pow::PowEngine;
 use ckb_util::TryInto;
 use crossbeam_channel::Receiver;
@@ -72,9 +73,9 @@ impl Miner {
 
             let header_builder = HeaderBuilder::default()
                 .version(version)
-                .number(number)
+                .number(number.parse::<BlockNumber>()?)
                 .difficulty(difficulty)
-                .timestamp(current_time)
+                .timestamp(current_time.parse::<u64>()?)
                 .parent_hash(parent_hash);
 
             let block = BlockBuilder::default()

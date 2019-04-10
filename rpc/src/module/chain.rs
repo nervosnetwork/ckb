@@ -17,7 +17,7 @@ pub trait ChainRpc {
     fn get_transaction(&self, _hash: H256) -> Result<Option<Transaction>>;
 
     #[rpc(name = "get_block_hash")]
-    fn get_block_hash(&self, _number: u64) -> Result<Option<H256>>;
+    fn get_block_hash(&self, _number: String) -> Result<Option<H256>>;
 
     #[rpc(name = "get_tip_header")]
     fn get_tip_header(&self) -> Result<Header>;
@@ -26,15 +26,15 @@ pub trait ChainRpc {
     fn get_cells_by_lock_hash(
         &self,
         _lock_hash: H256,
-        _from: BlockNumber,
-        _to: BlockNumber,
+        _from: String,
+        _to: String,
     ) -> Result<Vec<CellOutputWithOutPoint>>;
 
     #[rpc(name = "get_live_cell")]
     fn get_live_cell(&self, _out_point: OutPoint) -> Result<CellWithStatus>;
 
     #[rpc(name = "get_tip_block_number")]
-    fn get_tip_block_number(&self) -> Result<BlockNumber>;
+    fn get_tip_block_number(&self) -> Result<String>;
 }
 
 pub(crate) struct ChainRpcImpl<CI> {
@@ -50,8 +50,12 @@ impl<CI: ChainIndex + 'static> ChainRpc for ChainRpcImpl<CI> {
         Ok(self.shared.get_transaction(&hash).as_ref().map(Into::into))
     }
 
-    fn get_block_hash(&self, number: BlockNumber) -> Result<Option<H256>> {
-        Ok(self.shared.block_hash(number))
+    fn get_block_hash(&self, number: String) -> Result<Option<H256>> {
+        Ok(self.shared.block_hash(
+            number
+                .parse::<BlockNumber>()
+                .map_err(|_| Error::parse_error())?,
+        ))
     }
 
     fn get_tip_header(&self) -> Result<Header> {
@@ -62,11 +66,17 @@ impl<CI: ChainIndex + 'static> ChainRpc for ChainRpcImpl<CI> {
     fn get_cells_by_lock_hash(
         &self,
         lock_hash: H256,
-        from: BlockNumber,
-        to: BlockNumber,
+        from: String,
+        to: String,
     ) -> Result<Vec<CellOutputWithOutPoint>> {
         let mut result = Vec::new();
         let chain_state = self.shared.chain_state().lock();
+        let from = from
+            .parse::<BlockNumber>()
+            .map_err(|_| Error::parse_error())?;
+        let to = to
+            .parse::<BlockNumber>()
+            .map_err(|_| Error::parse_error())?;
         for block_number in from..=to {
             if let Some(block_hash) = self.shared.block_hash(block_number) {
                 let block = self
@@ -105,7 +115,7 @@ impl<CI: ChainIndex + 'static> ChainRpc for ChainRpcImpl<CI> {
             .into())
     }
 
-    fn get_tip_block_number(&self) -> Result<BlockNumber> {
-        Ok(self.shared.chain_state().lock().tip_number())
+    fn get_tip_block_number(&self) -> Result<String> {
+        Ok(self.shared.chain_state().lock().tip_number().to_string())
     }
 }

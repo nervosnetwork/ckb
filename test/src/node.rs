@@ -4,6 +4,7 @@ use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::header::{HeaderBuilder, Seal};
 use ckb_core::script::Script;
 use ckb_core::transaction::{CellInput, CellOutput, OutPoint, Transaction, TransactionBuilder};
+use ckb_core::BlockNumber;
 use ckb_util::TryInto;
 use fs_extra::dir::{copy, CopyOptions};
 use jsonrpc_client_http::{HttpHandle, HttpTransport};
@@ -188,9 +189,17 @@ impl Node {
 
         let header_builder = HeaderBuilder::default()
             .version(version)
-            .number(number)
+            .number(
+                number
+                    .parse::<BlockNumber>()
+                    .expect("parse block number failed"),
+            )
             .difficulty(difficulty)
-            .timestamp(current_time)
+            .timestamp(
+                current_time
+                    .parse::<u64>()
+                    .expect("parse current time failed"),
+            )
             .parent_hash(parent_hash)
             .seal(Seal::new(rand::random(), Vec::new()));
 

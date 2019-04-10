@@ -1,5 +1,6 @@
 use ckb_chain::chain::ChainController;
 use ckb_core::block::Block as CoreBlock;
+use ckb_core::Cycle;
 use ckb_miner::BlockAssemblerController;
 use ckb_network::{NetworkController, ProtocolId};
 use ckb_protocol::RelayMessage;
@@ -23,8 +24,8 @@ pub trait MinerRpc {
     #[rpc(name = "get_block_template")]
     fn get_block_template(
         &self,
-        cycles_limit: Option<u64>,
-        bytes_limit: Option<u64>,
+        cycles_limit: Option<String>,
+        bytes_limit: Option<String>,
         max_version: Option<u32>,
     ) -> Result<BlockTemplate>;
 
@@ -43,10 +44,18 @@ pub(crate) struct MinerRpcImpl<CI> {
 impl<CI: ChainIndex + 'static> MinerRpc for MinerRpcImpl<CI> {
     fn get_block_template(
         &self,
-        cycles_limit: Option<u64>,
-        bytes_limit: Option<u64>,
+        cycles_limit: Option<String>,
+        bytes_limit: Option<String>,
         max_version: Option<u32>,
     ) -> Result<BlockTemplate> {
+        let cycles_limit = match cycles_limit {
+            Some(c) => Some(c.parse::<Cycle>().map_err(|_| Error::parse_error())?),
+            None => None,
+        };
+        let bytes_limit = match bytes_limit {
+            Some(b) => Some(b.parse::<u64>().map_err(|_| Error::parse_error())?),
+            None => None,
+        };
         self.block_assembler
             .get_block_template(cycles_limit, bytes_limit, max_version)
             .map_err(|_| Error::internal_error())
