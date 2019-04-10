@@ -5,7 +5,6 @@ use ckb_core::script::Script;
 use ckb_core::service::{Request, DEFAULT_CHANNEL_SIZE, SIGNAL_CHANNEL_SIZE};
 use ckb_core::transaction::{CellInput, CellOutput, Transaction, TransactionBuilder};
 use ckb_core::uncle::UncleBlock;
-use ckb_core::BlockNumber;
 use ckb_core::{Cycle, Version};
 use ckb_notify::NotifyController;
 use ckb_shared::{index::ChainIndex, shared::Shared, tx_pool::PoolEntry};
@@ -45,7 +44,7 @@ impl TemplateCache {
         last_uncles_updated_at: u64,
         last_txs_updated_at: u64,
         current_time: u64,
-        number: BlockNumber,
+        number: String,
     ) -> bool {
         last_uncles_updated_at != self.uncles_updated_at
             || last_txs_updated_at != self.txs_updated_at
@@ -245,7 +244,7 @@ impl<CI: ChainIndex + 'static> BlockAssembler<CI> {
                 last_uncles_updated_at,
                 last_txs_updated_at,
                 current_time,
-                number,
+                number.to_string(),
             ) {
                 return Ok(template_cache.template.clone());
             }
@@ -274,11 +273,11 @@ impl<CI: ChainIndex + 'static> BlockAssembler<CI> {
         let template = BlockTemplate {
             version,
             difficulty,
-            current_time,
-            number,
+            current_time: current_time.to_string(),
+            number: number.to_string(),
             parent_hash: header.hash(),
-            cycles_limit,
-            bytes_limit,
+            cycles_limit: cycles_limit.to_string(),
+            bytes_limit: bytes_limit.to_string(),
             uncles_count_limit,
             uncles: uncles.into_iter().map(Self::transform_uncle).collect(),
             commit_transactions: commit_transactions
@@ -428,6 +427,7 @@ mod tests {
     use ckb_shared::shared::SharedBuilder;
     use ckb_shared::store::ChainKVStore;
     use ckb_traits::ChainProvider;
+    use ckb_util::TryInto;
     use ckb_verification::{BlockVerifier, HeaderResolverWrapper, HeaderVerifier, Verifier};
     use jsonrpc_types::{BlockTemplate, CellbaseTemplate};
     use numext_fixed_hash::H256;
@@ -499,16 +499,34 @@ mod tests {
 
         let header_builder = HeaderBuilder::default()
             .version(version)
-            .number(number)
+            .number(number.parse::<BlockNumber>().unwrap())
             .difficulty(difficulty)
-            .timestamp(current_time)
+            .timestamp(current_time.parse::<u64>().unwrap())
             .parent_hash(parent_hash);
 
         let block = BlockBuilder::default()
-            .uncles(uncles.into_iter().map(Into::into).collect())
-            .commit_transaction(cellbase.into())
-            .commit_transactions(commit_transactions.into_iter().map(Into::into).collect())
-            .proposal_transactions(proposal_transactions.into_iter().map(Into::into).collect())
+            .uncles(
+                uncles
+                    .into_iter()
+                    .map(TryInto::try_into)
+                    .collect::<Result<_, _>>()
+                    .unwrap(),
+            )
+            .commit_transaction(cellbase.try_into().unwrap())
+            .commit_transactions(
+                commit_transactions
+                    .into_iter()
+                    .map(TryInto::try_into)
+                    .collect::<Result<_, _>>()
+                    .unwrap(),
+            )
+            .proposal_transactions(
+                proposal_transactions
+                    .into_iter()
+                    .map(TryInto::try_into)
+                    .collect::<Result<_, _>>()
+                    .unwrap(),
+            )
             .with_header_builder(header_builder);
 
         let resolver = HeaderResolverWrapper::new(block.header(), shared.clone());

@@ -13,6 +13,7 @@ ckb-network = { path = "../network" }
 ckb-shared = { path = "../shared" }
 ckb-sync = { path = "../sync" }
 ckb-protocol = { path = "../protocol"}
+ckb-util = { path = "../util" }
 numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 fs_extra = "1.1"
 tempfile = "3.0"
