@@ -94,8 +94,10 @@ impl CKBProtocolHandler for NetTimeProtocol {
     fn received(&self, nc: Box<CKBProtocolContext>, peer: PeerIndex, data: Bytes) {
         if nc.session_info(peer).map(|s| s.peer.is_outbound()) != Some(true) {
             info!(target: "network", "Peer {} is not outbound but sends us time message", peer);
-            let _ = nc.report_peer(peer, Behaviour::UnexpectedMessage);
-            return;
+            let ret = nc.report_peer(peer, Behaviour::UnexpectedMessage);
+            if ret.is_err() {
+                warn!(target: "network", "report_peer peer {:?} UnexpectedMessage error {:?}", peer, ret);
+            }
         }
 
         let timestamp = match get_root::<TimeMessage>(&data)
@@ -106,7 +108,10 @@ impl CKBProtocolHandler for NetTimeProtocol {
             Some(timestamp) => timestamp,
             None => {
                 info!(target: "network", "Peer {} sends us malformed message", peer);
-                let _ = nc.report_peer(peer, Behaviour::UnexpectedMessage);
+                let ret = nc.report_peer(peer, Behaviour::UnexpectedMessage);
+                if ret.is_err() {
+                    warn!(target: "network", "report_peer peer {:?} UnexpectedMessage error  {:?}", peer, ret);
+                }
                 return;
             }
         };
@@ -128,7 +133,10 @@ impl CKBProtocolHandler for NetTimeProtocol {
             let fbb = &mut FlatBufferBuilder::new();
             let message = TimeMessage::build_time(fbb, now);
             fbb.finish(message, None);
-            let _ = nc.send(peer, fbb.finished_data().to_vec());
+            let ret = nc.send(peer, fbb.finished_data().to_vec());
+            if ret.is_err() {
+                warn!(target: "network", "NetTimeProtocol connected init msg send error {:?}", ret);
+            }
         }
     }
     fn disconnected(&self, _nc: Box<CKBProtocolContext>, _peer: PeerIndex) {}

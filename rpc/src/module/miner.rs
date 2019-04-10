@@ -11,7 +11,7 @@ use flatbuffers::FlatBufferBuilder;
 use jsonrpc_core::{Error, Result};
 use jsonrpc_derive::rpc;
 use jsonrpc_types::{Block, BlockTemplate};
-use log::debug;
+use log::{debug, warn};
 use numext_fixed_hash::H256;
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -72,7 +72,10 @@ impl<CI: ChainIndex + 'static> MinerRpc for MinerRpcImpl<CI> {
                             RelayMessage::build_compact_block(fbb, &block, &HashSet::new());
                         fbb.finish(message, None);
                         for peer in nc.connected_peers() {
-                            let _ = nc.send(peer, fbb.finished_data().to_vec());
+                            let ret = nc.send(peer, fbb.finished_data().to_vec());
+                            if ret.is_err() {
+                                warn!(target: "rpc", "relay block error {:?}", ret);
+                            }
                         }
                     },
                 );
