@@ -1,5 +1,5 @@
 use super::super::setup::Setup;
-use ckb_db::diskdb::RocksDB;
+use ckb_db::RocksDB;
 use ckb_instrument::{Export, Format};
 use ckb_shared::cachedb::CacheDB;
 use ckb_shared::shared::SharedBuilder;

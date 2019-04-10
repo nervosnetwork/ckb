@@ -6,7 +6,6 @@ use ckb_core::extras::BlockExt;
 use ckb_core::service::{Request, DEFAULT_CHANNEL_SIZE, SIGNAL_CHANNEL_SIZE};
 use ckb_core::transaction::ProposalShortId;
 use ckb_core::BlockNumber;
-use ckb_db::batch::Batch;
 use ckb_notify::NotifyController;
 use ckb_shared::cell_set::CellSetDiff;
 use ckb_shared::chain_state::ChainState;
@@ -234,6 +233,8 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
         } else {
             batch.insert_block_ext(&block.header().hash(), &ext);
         }
+
+        batch.commit();
 
         // self.shared.store().save_with_batch(|batch| {
         //     self.shared.store().insert_block(batch, &block);

@@ -1,6 +1,6 @@
 use super::super::setup::Setup;
 use ckb_chain::chain::ChainBuilder;
-use ckb_db::diskdb::RocksDB;
+use ckb_db::RocksDB;
 use ckb_instrument::{Format, Import};
 use ckb_notify::NotifyService;
 use ckb_shared::cachedb::CacheDB;

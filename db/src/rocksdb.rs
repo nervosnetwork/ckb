@@ -8,7 +8,6 @@ use std::sync::Arc;
 
 pub struct RocksDB {
     inner: Arc<DB>,
-    cfnames: Vec<String>,
 }
 
 impl RocksDB {
@@ -17,7 +16,7 @@ impl RocksDB {
         opts.create_if_missing(true);
         opts.create_missing_column_families(true);
 
-        let cfnames: Vec<_> = (0..columns).map(|c| format!("c{}", c)).collect();
+        let cfnames: Vec<_> = (0..columns).map(|c| c.to_string()).collect();
         let cf_options: Vec<&str> = cfnames.iter().map(|n| n as &str).collect();
         let db = DB::open_cf(&opts, &config.path, &cf_options).unwrap_or_else(|err| {
             if err.as_ref().starts_with("Corruption:") {
@@ -46,18 +45,6 @@ impl RocksDB {
 
         RocksDB {
             inner: Arc::new(db),
-            cfnames,
-        }
-    }
-
-    fn cf_handle(&self, col: Option<u32>) -> Result<Option<ColumnFamily>> {
-        if let Some(col) = col {
-            self.cfnames
-                .get(col as usize)
-                .ok_or_else(|| ErrorKind::DBError(format!("column {:?} not found ", col)))
-                .map(|cfname| self.inner.cf_handle(&cfname))
-        } else {
-            Ok(None)
         }
     }
 }
@@ -65,27 +52,15 @@ impl RocksDB {
 impl KeyValueDB for RocksDB {
     type Batch = RocksdbBatch;
 
-    fn write(&self, batch: Batch) -> Result<()> {
-        let mut wb = WriteBatch::default();
-        for op in batch.operations {
-            match op {
-                Operation::Insert { col, key, value } => match self.cf_handle(col)? {
-                    Some(cf) => wb.put_cf(cf, &key, &value),
-                    None => wb.put(&key, &value),
-                },
-                Operation::Delete { col, key } => match self.cf_handle(col)? {
-                    None => wb.delete(&key),
-                    Some(cf) => wb.delete_cf(cf, &key),
-                },
-            }?;
-        }
-        self.inner.write(wb)?;
-        Ok(())
-    }
-
     fn read(&self, col: Col, key: &[u8]) -> Result<Option<Vec<u8>>> {
-        match self.cf_handle(col)? {
-            Some(cf) => self.inner.get_cf(cf, &key),
+        match col {
+            Some(col) => {
+                let cf = self
+                    .inner
+                    .cf_handle(&col.to_string())
+                    .expect("column not found");
+                self.inner.get_cf(cf, &key)
+            }
             None => self.inner.get(&key),
         }
         .map(|v| v.map(|vi| vi.to_vec()))
@@ -93,26 +68,24 @@ impl KeyValueDB for RocksDB {
     }
 
     fn partial_read(&self, col: Col, key: &[u8], range: &Range<usize>) -> Result<Option<Vec<u8>>> {
-        match self.cf_handle(col)? {
-            Some(cf) => self.inner.get_pinned_cf(cf, &key),
+        match col {
+            Some(col) => {
+                let cf = self
+                    .inner
+                    .cf_handle(&col.to_string())
+                    .expect("column not found");
+                self.inner.get_pinned_cf(cf, &key)
+            }
             None => self.inner.get_pinned(&key),
         }
         .map(|v| v.and_then(|vi| vi.get(range.start..range.end).map(|slice| slice.to_vec())))
         .map_err(Into::into)
     }
 
-    fn db_batch(&self) -> Result<Self::Batch> {
+    fn batch(&self) -> Result<Self::Batch> {
         Ok(Self::Batch {
             db: Arc::clone(&self.inner),
             wb: WriteBatch::default(),
-        })
-    }
-
-    fn iter(&self, col: Col, key: &[u8]) -> Option<DBIterator> {
-        self.cf_handle(col).expect("invalid col").map(|cf| {
-            self.inner
-                .iterator_cf(cf, IteratorMode::From(key, Direction::Forward))
-                .expect("invalid iterator")
         })
     }
 }
@@ -126,7 +99,10 @@ impl DbBatch for RocksdbBatch {
     fn insert(&mut self, col: Col, key: &[u8], value: &[u8]) -> Result<()> {
         match col {
             Some(col) => {
-                let cf = self.db.cf_handle(&col.to_string()).unwrap();
+                let cf = self
+                    .db
+                    .cf_handle(&col.to_string())
+                    .expect("column not found");
                 self.wb.put_cf(cf, key, value)?
             }
             None => self.wb.put(key, value)?,
@@ -137,7 +113,10 @@ impl DbBatch for RocksdbBatch {
     fn delete(&mut self, col: Col, key: &[u8]) -> Result<()> {
         match col {
             Some(col) => {
-                let cf = self.db.cf_handle(&col.to_string()).unwrap();
+                let cf = self
+                    .db
+                    .cf_handle(&col.to_string())
+                    .expect("column not found");
                 self.wb.delete_cf(cf, &key)?
             }
             None => self.wb.delete(key)?,
@@ -148,6 +127,12 @@ impl DbBatch for RocksdbBatch {
     fn commit(self) -> Result<()> {
         self.db.write(self.wb)?;
         Ok(())
+    }
+}
+
+impl From<RdbError> for Error {
+    fn from(err: RdbError) -> Error {
+        ErrorKind::DBError(err.into())
     }
 }
 
@@ -206,29 +191,26 @@ mod tests {
     fn write_and_read() {
         let db = setup_db("write_and_read", 2);
 
-        let mut batch = Batch::default();
-        batch.insert(None, vec![0, 0], vec![0, 0, 0]);
-        batch.insert(Some(1), vec![1, 1], vec![1, 1, 1]);
-        db.write(batch).unwrap();
+        let mut batch = db.batch().unwrap();
+        batch.insert(None, &[0, 0], &[0, 0, 0]);
+        batch.insert(Some(1), &[1, 1], &[1, 1, 1]);
+        batch.commit();
 
         assert_eq!(Some(vec![0, 0, 0]), db.read(None, &[0, 0]).unwrap());
         assert_eq!(None, db.read(None, &[1, 1]).unwrap());
 
         assert_eq!(None, db.read(Some(1), &[0, 0]).unwrap());
         assert_eq!(Some(vec![1, 1, 1]), db.read(Some(1), &[1, 1]).unwrap());
-
-        // return err when col doesn't exist
-        assert!(db.read(Some(2), &[0, 0]).is_err());
     }
 
     #[test]
     fn write_and_partial_read() {
         let db = setup_db("write_and_partial_read", 2);
 
-        let mut batch = Batch::default();
-        batch.insert(None, vec![0, 0], vec![5, 4, 3, 2]);
-        batch.insert(Some(1), vec![1, 1], vec![1, 2, 3, 4, 5]);
-        db.write(batch).unwrap();
+        let mut batch = db.batch().unwrap();
+        batch.insert(None, &[0, 0], &[5, 4, 3, 2]);
+        batch.insert(Some(1), &[1, 1], &[1, 2, 3, 4, 5]);
+        batch.commit();
 
         assert_eq!(
             Some(vec![2, 3, 4]),
@@ -239,8 +221,6 @@ mod tests {
         assert_eq!(None, db.partial_read(Some(1), &[1, 1], &(2..8)).unwrap());
         // range must be increasing
         assert_eq!(None, db.partial_read(Some(1), &[1, 1], &(3..0)).unwrap());
-        // return err when col doesn't exist
-        assert!(db.partial_read(Some(2), &[0, 0], &(0..1)).is_err());
 
         assert_eq!(
             Some(vec![4, 3, 2]),

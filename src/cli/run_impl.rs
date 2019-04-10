@@ -1,7 +1,7 @@
 use crate::helper::wait_for_exit;
 use crate::Setup;
 use ckb_chain::chain::{ChainBuilder, ChainController};
-use ckb_db::diskdb::RocksDB;
+use ckb_db::RocksDB;
 use ckb_miner::BlockAssembler;
 use ckb_network::{CKBProtocol, NetworkService, NetworkState, ProtocolId};
 use ckb_notify::{NotifyController, NotifyService};

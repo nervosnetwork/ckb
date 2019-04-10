@@ -1,5 +1,4 @@
-use ckb_db::batch::{Batch, Col, Operation};
-use ckb_db::kvdb::{DBIterator, KeyValueDB, Result};
+use ckb_db::{Col, KeyValueDB, Result};
 use ckb_util::RwLock;
 use fnv::FnvHashMap;
 use lru_cache::LruCache;
@@ -38,23 +37,6 @@ where
 {
     type Batch = T::Batch;
 
-    fn write(&self, batch: Batch) -> Result<()> {
-        let mut cache_guard = self.cache.write();
-        batch.operations.iter().for_each(|op| match op {
-            Operation::Insert { col, key, value } => {
-                if let Some(lru) = cache_guard.get_mut(&col) {
-                    lru.insert(key.clone(), value.clone());
-                }
-            }
-            Operation::Delete { col, key } => {
-                if let Some(lru) = cache_guard.get_mut(&col) {
-                    lru.remove(key);
-                }
-            }
-        });
-        self.db.write(batch)
-    }
-
     fn read(&self, col: Col, key: &[u8]) -> Result<Option<Vec<u8>>> {
         let cache_guard = self.cache.read();
         if let Some(value) = cache_guard
@@ -75,11 +57,7 @@ where
         self.db.partial_read(col, key, range)
     }
 
-    fn iter(&self, col: Col, key: &[u8]) -> Option<DBIterator> {
-        self.db.iter(col, key)
-    }
-
-    fn db_batch(&self) -> Result<Self::Batch> {
-        self.db.db_batch()
+    fn batch(&self) -> Result<Self::Batch> {
+        self.db.batch()
     }
 }

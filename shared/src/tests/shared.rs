@@ -3,7 +3,7 @@ use crate::{
     store::{ChainKVStore, ChainStore, StoreBatch},
 };
 use ckb_core::{block::BlockBuilder, header::HeaderBuilder};
-use ckb_db::{kvdb::KeyValueDB, memorydb::MemoryKeyValueDB};
+use ckb_db::{KeyValueDB, MemoryKeyValueDB};
 use ckb_traits::BlockMedianTimeContext;
 use numext_fixed_hash::H256;
 

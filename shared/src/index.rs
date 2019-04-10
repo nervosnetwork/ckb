@@ -6,8 +6,7 @@ use ckb_core::block::Block;
 use ckb_core::extras::{BlockExt, TransactionAddress};
 use ckb_core::header::{BlockNumber, Header};
 use ckb_core::transaction::{Transaction, TransactionBuilder};
-use ckb_db::batch::Batch;
-use ckb_db::kvdb::{DbBatch, KeyValueDB};
+use ckb_db::{DbBatch, KeyValueDB};
 use numext_fixed_hash::H256;
 
 const META_TIP_HEADER_KEY: &[u8] = b"TIP_HEADER";

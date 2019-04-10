@@ -10,8 +10,8 @@ use ckb_core::extras::{BlockExt, TransactionAddress};
 use ckb_core::header::{BlockNumber, Header, HeaderBuilder};
 use ckb_core::transaction::{ProposalShortId, Transaction, TransactionBuilder};
 use ckb_core::uncle::UncleBlock;
-use ckb_db::batch::{Batch, Col};
-use ckb_db::kvdb::{DbBatch, KeyValueDB};
+use ckb_db::Col;
+use ckb_db::{DbBatch, KeyValueDB};
 use failure::Error;
 use numext_fixed_hash::H256;
 use std::ops::Range;
@@ -178,7 +178,7 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
 
     fn new_batch(&self) -> Self::Batch {
         DefaultStoreBatch {
-            inner: self.db.db_batch().expect("new db batch should be ok"),
+            inner: self.db.batch().expect("new db batch should be ok"),
         }
     }
 }

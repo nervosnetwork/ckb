@@ -21,16 +21,15 @@ mod tx_proposal_table;
 #[cfg(test)]
 mod tests;
 
-use ckb_db::batch::Col;
+use ckb_db::Col;
 
-// REMEMBER to update the const defined in util/avl/src/lib.rs as well
-pub const COLUMNS: u32 = 12;
+pub const COLUMNS: u32 = 9;
 pub const COLUMN_INDEX: Col = Some(0);
 pub const COLUMN_BLOCK_HEADER: Col = Some(1);
 pub const COLUMN_BLOCK_BODY: Col = Some(2);
 pub const COLUMN_BLOCK_UNCLE: Col = Some(3);
 pub const COLUMN_META: Col = Some(4);
 pub const COLUMN_TRANSACTION_ADDR: Col = Some(5);
-pub const COLUMN_EXT: Col = Some(7);
-pub const COLUMN_BLOCK_TRANSACTION_ADDRESSES: Col = Some(9);
-pub const COLUMN_BLOCK_PROPOSAL_IDS: Col = Some(11);
+pub const COLUMN_EXT: Col = Some(6);
+pub const COLUMN_BLOCK_TRANSACTION_ADDRESSES: Col = Some(7);
+pub const COLUMN_BLOCK_PROPOSAL_IDS: Col = Some(8);

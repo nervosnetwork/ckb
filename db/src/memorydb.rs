@@ -1,8 +1,9 @@
-use crate::batch::{Batch, Col, Operation};
-use crate::kvdb::{DbBatch, ErrorKind, KeyValueDB, Result};
+// for unit test
+use crate::{Col, DbBatch, ErrorKind, KeyValueDB, Result};
 use ckb_util::RwLock;
 use fnv::FnvHashMap;
 use std::ops::Range;
+use std::sync::Arc;
 
 pub type MemoryKey = Vec<u8>;
 pub type MemoryValue = Vec<u8>;
@@ -10,7 +11,7 @@ pub type MemoryTable = FnvHashMap<Col, FnvHashMap<MemoryKey, MemoryValue>>;
 
 #[derive(Default, Debug)]
 pub struct MemoryKeyValueDB {
-    db: RwLock<MemoryTable>,
+    db: Arc<RwLock<MemoryTable>>,
 }
 
 impl MemoryKeyValueDB {
@@ -21,30 +22,13 @@ impl MemoryKeyValueDB {
             table.insert(Some(idx as u32), FnvHashMap::default());
         }
         MemoryKeyValueDB {
-            db: RwLock::new(table),
+            db: Arc::new(RwLock::new(table)),
         }
     }
 }
 
 impl KeyValueDB for MemoryKeyValueDB {
     type Batch = MemoryDbBatch;
-
-    fn write(&self, batch: Batch) -> Result<()> {
-        let mut db = self.db.write();
-        batch.operations.into_iter().for_each(|op| match op {
-            Operation::Insert { col, key, value } => {
-                if let Some(map) = db.get_mut(&col) {
-                    map.insert(key, value);
-                }
-            }
-            Operation::Delete { col, key } => {
-                if let Some(map) = db.get_mut(&col) {
-                    map.remove(&key);
-                }
-            }
-        });
-        Ok(())
-    }
 
     fn read(&self, col: Col, key: &[u8]) -> Result<Option<MemoryValue>> {
         let db = self.db.read();
@@ -67,15 +51,17 @@ impl KeyValueDB for MemoryKeyValueDB {
         }
     }
 
-    fn db_batch(&self) -> Result<Self::Batch> {
+    fn batch(&self) -> Result<Self::Batch> {
         Ok(Self::Batch {
             operations: Vec::new(),
+            db: Arc::clone(&self.db),
         })
     }
 }
 
 pub struct MemoryDbBatch {
     operations: Vec<BatchOperation>,
+    db: Arc<RwLock<MemoryTable>>,
 }
 
 enum BatchOperation {
@@ -92,15 +78,37 @@ enum BatchOperation {
 
 impl DbBatch for MemoryDbBatch {
     fn insert(&mut self, col: Col, key: &[u8], value: &[u8]) -> Result<()> {
-        unimplemented!()
+        self.operations.push(BatchOperation::Insert {
+            col,
+            key: key.to_vec(),
+            value: value.to_vec(),
+        });
+        Ok(())
     }
 
     fn delete(&mut self, col: Col, key: &[u8]) -> Result<()> {
-        unimplemented!()
+        self.operations.push(BatchOperation::Delete {
+            col,
+            key: key.to_vec(),
+        });
+        Ok(())
     }
 
     fn commit(self) -> Result<()> {
-        unimplemented!()
+        let mut db = self.db.write();
+        self.operations.into_iter().for_each(|op| match op {
+            BatchOperation::Insert { col, key, value } => {
+                if let Some(map) = db.get_mut(&col) {
+                    map.insert(key, value);
+                }
+            }
+            BatchOperation::Delete { col, key } => {
+                if let Some(map) = db.get_mut(&col) {
+                    map.remove(&key);
+                }
+            }
+        });
+        Ok(())
     }
 }
 
@@ -111,28 +119,25 @@ mod tests {
     #[test]
     fn write_and_read() {
         let db = MemoryKeyValueDB::open(2);
-        let mut batch = Batch::default();
-        batch.insert(None, vec![0, 0], vec![0, 0, 0]);
-        batch.insert(Some(1), vec![1, 1], vec![1, 1, 1]);
-        db.write(batch).unwrap();
+        let mut batch = db.batch().unwrap();
+        batch.insert(None, &[0, 0], &[0, 0, 0]);
+        batch.insert(Some(1), &[1, 1], &[1, 1, 1]);
+        batch.commit();
 
         assert_eq!(Some(vec![0, 0, 0]), db.read(None, &[0, 0]).unwrap());
         assert_eq!(None, db.read(None, &[1, 1]).unwrap());
 
         assert_eq!(None, db.read(Some(1), &[0, 0]).unwrap());
         assert_eq!(Some(vec![1, 1, 1]), db.read(Some(1), &[1, 1]).unwrap());
-
-        // return err when col doesn't exist
-        assert!(db.read(Some(2), &[0, 0]).is_err());
     }
 
     #[test]
     fn write_and_partial_read() {
         let db = MemoryKeyValueDB::open(2);
-        let mut batch = Batch::default();
-        batch.insert(None, vec![0, 0], vec![5, 4, 3, 2]);
-        batch.insert(Some(1), vec![1, 1], vec![1, 2, 3, 4, 5]);
-        db.write(batch).unwrap();
+        let mut batch = db.batch().unwrap();
+        batch.insert(None, &[0, 0], &[5, 4, 3, 2]);
+        batch.insert(Some(1), &[1, 1], &[1, 2, 3, 4, 5]);
+        batch.commit();
 
         assert_eq!(
             Some(vec![2, 3, 4]),
@@ -143,8 +148,6 @@ mod tests {
         assert_eq!(None, db.partial_read(Some(1), &[1, 1], &(2..8)).unwrap());
         // range must be increasing
         assert_eq!(None, db.partial_read(Some(1), &[1, 1], &(3..0)).unwrap());
-        // return err when col doesn't exist
-        assert!(db.partial_read(Some(2), &[0, 0], &(0..1)).is_err());
 
         assert_eq!(
             Some(vec![4, 3, 2]),
