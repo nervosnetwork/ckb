@@ -1,6 +1,6 @@
 use crate::{Col, DBConfig, DbBatch, Error, ErrorKind, KeyValueDB, Result};
 use log::warn;
-use rocksdb::{ColumnFamily, Options, WriteBatch, DB};
+use rocksdb::{Error as RdbError, Options, WriteBatch, DB};
 use std::ops::Range;
 use std::sync::Arc;
 
