@@ -8,8 +8,8 @@ pub struct SentryConfig {
 }
 
 impl SentryConfig {
-    pub fn init(self) -> sentry::internals::ClientInitGuard {
-        let guard = sentry::init(&self);
+    pub fn init(&self) -> sentry::internals::ClientInitGuard {
+        let guard = sentry::init(self);
         if guard.is_enabled() {
             sentry::integrations::panic::register_panic_handler();
             info!(target: "sentry", "**Notice**: \

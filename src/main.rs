@@ -1,44 +1,41 @@
-mod cli;
-mod helper;
 mod setup;
+mod subcommand;
+mod system;
 
-use crate::setup::{get_config_path, Setup};
-use clap::ArgMatches;
-use log::info;
+use setup::{cli, ExitCode, Setup};
 
-fn main() {
+fn run_app() -> Result<(), ExitCode> {
     // Always print backtrace on panic.
     ::std::env::set_var("RUST_BACKTRACE", "full");
 
-    let matches = cli::get_matches();
-
-    match matches.subcommand() {
-        ("cli", Some(cli_matches)) => match cli_matches.subcommand() {
-            ("keygen", _) => cli::keygen(),
-            _ => unreachable!(),
-        },
-        ("run", Some(run_matches)) => {
-            let setup = setup(&run_matches);
-            let _logger_guard = logger::init(setup.configs.logger.clone()).expect("Init Logger");
-            let _sentry_guard = setup.configs.sentry.clone().init();
-            cli::run(setup);
+    let app_matches = cli::get_matches();
+    match app_matches.subcommand() {
+        (cli::CMD_INIT, Some(matches)) => return subcommand::init(Setup::init(&matches)?),
+        (cli::CMD_CLI, Some(matches)) => {
+            return match matches.subcommand() {
+                (cli::CMD_KEYGEN, _) => subcommand::cli::keygen(),
+                _ => unreachable!(),
+            };
         }
-        ("miner", Some(miner_matches)) => cli::miner(&miner_matches),
-        ("export", Some(export_matches)) => cli::export(&setup(&export_matches), export_matches),
-        ("import", Some(import_matches)) => cli::import(&setup(&import_matches), import_matches),
+        _ => {
+            // continue
+        }
+    }
+
+    let setup = Setup::from_matches(&app_matches)?;
+    let _guard = setup.setup_app();
+
+    match app_matches.subcommand() {
+        (cli::CMD_RUN, _) => subcommand::run(setup.run()?),
+        (cli::CMD_MINER, _) => subcommand::miner(setup.miner()?),
+        (cli::CMD_EXPORT, Some(matches)) => subcommand::export(setup.export(&matches)?),
+        (cli::CMD_IMPORT, Some(matches)) => subcommand::import(setup.import(&matches)?),
         _ => unreachable!(),
     }
 }
 
-fn setup(matches: &ArgMatches<'static>) -> Setup {
-    let config_path = get_config_path(matches);
-    info!(target: "main", "Setup with config {}", config_path.display());
-    Setup::setup(&config_path).unwrap_or_else(|e| {
-        eprintln!(
-            "Failed to setup with config {}, cause err: {:?}",
-            config_path.display(),
-            e
-        );
-        ::std::process::exit(1);
-    })
+fn main() {
+    if let Some(exit_code) = run_app().err() {
+        ::std::process::exit(exit_code.into());
+    }
 }

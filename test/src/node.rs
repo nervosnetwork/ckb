@@ -4,18 +4,13 @@ use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::header::{HeaderBuilder, Seal};
 use ckb_core::script::Script;
 use ckb_core::transaction::{CellInput, CellOutput, OutPoint, Transaction, TransactionBuilder};
-use fs_extra::dir::{copy, CopyOptions};
 use jsonrpc_client_http::{HttpHandle, HttpTransport};
 use jsonrpc_types::{BlockTemplate, CellbaseTemplate};
 use log::info;
 use numext_fixed_hash::H256;
 use rand;
-use std::fs::File;
-use std::io::{Error, Read, Write};
-use std::path::PathBuf;
+use std::io::Error;
 use std::process::{Child, Command, Stdio};
-
-const DEFAULT_CONFIG_FILE: &str = "default.toml";
 
 pub struct Node {
     pub binary: String,
@@ -52,11 +47,7 @@ impl Node {
     pub fn start(&mut self) {
         self.init_config_file().expect("failed to init config file");
         let child_process = Command::new(self.binary.to_owned())
-            .args(&[
-                "run",
-                "-c",
-                &format!("{}/{}", self.dir, DEFAULT_CONFIG_FILE),
-            ])
+            .args(&["-C", &self.dir, "run"])
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::inherit())
@@ -206,22 +197,21 @@ impl Node {
     }
 
     fn init_config_file(&self) -> Result<(), Error> {
-        let mut options = CopyOptions::new();
-        options.copy_inside = true;
-        let source = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("fixtures/nodes_template");
-        let dest = PathBuf::from(&self.dir);
-        copy(source, &dest, &options).expect("failed to copy template");
-
-        let mut data = String::new();
-        {
-            let mut file = File::open(dest.join(DEFAULT_CONFIG_FILE))?;
-            file.read_to_string(&mut data)?;
-        }
-        let new_data = data
-            .replace("P2P_PORT", &self.p2p_port.to_string())
-            .replace("RPC_PORT", &self.rpc_port.to_string());
-        let mut file = File::create(dest.join(DEFAULT_CONFIG_FILE))?;
-        file.write_all(new_data.as_bytes())?;
-        Ok(())
+        let rpc_port = format!("{}", self.rpc_port).to_string();
+        let p2p_port = format!("{}", self.p2p_port).to_string();
+        Command::new(self.binary.to_owned())
+            .args(&[
+                "-C",
+                &self.dir,
+                "init",
+                "--spec",
+                "integration",
+                "--rpc-port",
+                &rpc_port,
+                "--p2p-port",
+                &p2p_port,
+            ])
+            .output()
+            .map(|_| ())
     }
 }

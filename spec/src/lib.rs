@@ -5,9 +5,6 @@
 //! In order to run a chain different to the official public one,
 //! with a config file specifying chain = "path" under [ckb].
 
-// Shields clippy errors in generated chainspecs.rs file.
-#![allow(clippy::unreadable_literal)]
-
 use crate::consensus::Consensus;
 use ckb_core::block::BlockBuilder;
 use ckb_core::header::HeaderBuilder;
@@ -15,74 +12,29 @@ use ckb_core::script::Script;
 use ckb_core::transaction::{CellOutput, Transaction, TransactionBuilder};
 use ckb_core::{Capacity, Cycle};
 use ckb_pow::{Pow, PowEngine};
+use ckb_resource::{Resource, ResourceLocator};
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 use serde_derive::Deserialize;
 use std::error::Error;
-use std::fs::File;
-use std::io::Read;
-use std::path::{Display, Path, PathBuf};
+use std::fmt;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 pub mod consensus;
 
-include!(concat!(env!("OUT_DIR"), "/chainspecs.rs"));
-
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
-pub enum SpecPath {
-    Testnet,
-    Local(PathBuf),
-}
-
-impl SpecPath {
-    pub fn display(&self) -> Display {
-        match self {
-            SpecPath::Testnet => Path::new("Testnet").display(),
-            SpecPath::Local(path) => path.display(),
-        }
-    }
-
-    pub fn expand_path<P: AsRef<Path>>(&self, base: P) -> Self {
-        match self {
-            SpecPath::Testnet => SpecPath::Testnet,
-            SpecPath::Local(path) => {
-                if path.is_relative() {
-                    SpecPath::Local(base.as_ref().join(path))
-                } else {
-                    SpecPath::Local(path.to_path_buf())
-                }
-            }
-        }
-    }
-
-    fn path(&self) -> PathBuf {
-        match self {
-            SpecPath::Testnet => PathBuf::from("testnet/testnet.toml"),
-            SpecPath::Local(path) => PathBuf::from(path),
-        }
-    }
-
-    fn load_file<P: AsRef<Path>>(&self, path: P) -> Result<Vec<u8>, Box<Error>> {
-        match self {
-            SpecPath::Testnet => {
-                let s = path.as_ref().to_str().expect("chain spec path");
-                Ok(FILES
-                    .get(&format!("chainspecs/{}", s))
-                    .expect("hardcoded spec")
-                    .to_vec())
-            }
-            SpecPath::Local(_) => {
-                let mut file = File::open(&path)?;
-                let mut data = Vec::new();
-                file.read_to_end(&mut data)?;
-                Ok(data)
-            }
-        }
-    }
-}
-
-#[derive(Clone, PartialEq, Eq, Debug, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub struct ChainSpec {
+    pub resource: Resource,
+    pub name: String,
+    pub genesis: Genesis,
+    pub params: Params,
+    pub system_cells: Vec<Resource>,
+    pub pow: Pow,
+}
+
+#[derive(Deserialize)]
+struct ChainSpecConfig {
     pub name: String,
     pub genesis: Genesis,
     pub params: Params,
@@ -119,38 +71,80 @@ pub struct SystemCell {
     pub path: PathBuf,
 }
 
-pub(self) fn build_system_cell_transaction(
-    cells: &[SystemCell],
-    spec_path: &SpecPath,
-) -> Result<Transaction, Box<Error>> {
-    let mut outputs = Vec::new();
-    for system_cell in cells {
-        let data = spec_path.load_file(&system_cell.path)?;
+#[derive(Debug)]
+pub struct FileNotFoundError;
 
-        // TODO: we should provide a proper lock script here so system cells
-        // can be updated.
-        let output = CellOutput::new(data.len() as Capacity, data, Script::default(), None);
-        outputs.push(output);
+impl FileNotFoundError {
+    fn boxed() -> Box<Self> {
+        Box::new(FileNotFoundError)
     }
+}
 
-    Ok(TransactionBuilder::default().outputs(outputs).build())
+impl Error for FileNotFoundError {}
+
+impl fmt::Display for FileNotFoundError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "ChainSpec: file not found")
+    }
 }
 
 impl ChainSpec {
-    pub fn read_from_file(spec_path: &SpecPath) -> Result<ChainSpec, Box<Error>> {
-        let config_bytes = spec_path.load_file(spec_path.path())?;
-        let config_str = String::from_utf8(config_bytes)?;
-        let mut spec: Self = toml::from_str(&config_str)?;
-        spec.resolve_paths(spec_path.path().parent().expect("chain spec path resolve"));
+    pub fn resolve_relative_to(
+        locator: &ResourceLocator,
+        spec_path: PathBuf,
+        config_file: &Resource,
+    ) -> Result<ChainSpec, Box<Error>> {
+        let resource = match locator.resolve_relative_to(spec_path, config_file) {
+            Some(r) => r,
+            None => return Err(FileNotFoundError::boxed()),
+        };
+        let config_bytes = resource.get()?;
+        let spec_config: ChainSpecConfig = toml::from_slice(&config_bytes)?;
 
-        Ok(spec)
+        let system_cells_result: Result<Vec<_>, FileNotFoundError> = spec_config
+            .system_cells
+            .into_iter()
+            .map(|c| {
+                locator
+                    .resolve_relative_to(c.path, &resource)
+                    .ok_or(FileNotFoundError)
+            })
+            .collect();
+
+        Ok(ChainSpec {
+            resource,
+            system_cells: system_cells_result?,
+            name: spec_config.name,
+            genesis: spec_config.genesis,
+            params: spec_config.params,
+            pow: spec_config.pow,
+        })
     }
 
     pub fn pow_engine(&self) -> Arc<dyn PowEngine> {
         self.pow.engine()
     }
 
-    pub fn to_consensus(&self, spec_path: &SpecPath) -> Result<Consensus, Box<Error>> {
+    fn build_system_cell_transaction(&self) -> Result<Transaction, Box<Error>> {
+        let outputs_result: Result<Vec<_>, _> = self
+            .system_cells
+            .iter()
+            .map(|c| {
+                c.get().map(|data| {
+                    let data = data.into_owned();
+                    // TODO: we should provide a proper lock script here so system cells
+                    // can be updated.
+                    CellOutput::new(data.len() as u64, data, Script::default(), None)
+                })
+            })
+            .collect();
+
+        let outputs = outputs_result?;
+
+        Ok(TransactionBuilder::default().outputs(outputs).build())
+    }
+
+    pub fn to_consensus(&self) -> Result<Consensus, Box<Error>> {
         let header = HeaderBuilder::default()
             .version(self.genesis.version)
             .parent_hash(self.genesis.parent_hash.clone())
@@ -164,10 +158,7 @@ impl ChainSpec {
             .build();
 
         let genesis_block = BlockBuilder::default()
-            .commit_transaction(build_system_cell_transaction(
-                &self.system_cells,
-                &spec_path,
-            )?)
+            .commit_transaction(self.build_system_cell_transaction()?)
             .header(header)
             .build();
 
@@ -180,14 +171,6 @@ impl ChainSpec {
 
         Ok(consensus)
     }
-
-    fn resolve_paths(&mut self, base: &Path) {
-        for mut cell in &mut self.system_cells {
-            if cell.path.is_relative() {
-                cell.path = base.join(&cell.path);
-            }
-        }
-    }
 }
 
 #[cfg(test)]
@@ -196,36 +179,19 @@ pub mod test {
 
     #[test]
     fn test_chain_spec_load() {
-        println!(
-            "{:?}",
-            Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("../nodes_template/spec/dev.toml")
-                .display()
-        );
-        let dev = ChainSpec::read_from_file(&SpecPath::Local(
-            Path::new(env!("CARGO_MANIFEST_DIR")).join("../nodes_template/spec/dev.toml"),
-        ));
+        let locator = ResourceLocator::current_dir().unwrap();
+        let ckb = locator.ckb();
+        let dev = ChainSpec::resolve_relative_to(&locator, PathBuf::from("specs/dev.toml"), &ckb);
         assert!(dev.is_ok(), format!("{:?}", dev));
-        for cell in &dev.unwrap().system_cells {
-            assert!(cell.path.exists());
-        }
     }
 
     #[test]
     fn always_success_type_hash() {
-        let spec_path = SpecPath::Local(
-            Path::new(env!("CARGO_MANIFEST_DIR")).join("../nodes_template/spec/dev.toml"),
-        );
-        let always_success_path = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../nodes_template/spec/cells/always_success");
-
-        let tx = build_system_cell_transaction(
-            &[SystemCell {
-                path: always_success_path,
-            }],
-            &spec_path,
-        )
-        .unwrap();
+        let locator = ResourceLocator::current_dir().unwrap();
+        let ckb = locator.ckb();
+        let dev = ChainSpec::resolve_relative_to(&locator, PathBuf::from("specs/dev.toml"), &ckb)
+            .unwrap();
+        let tx = dev.build_system_cell_transaction().unwrap();
 
         // Tx and Output hash will be used in some test cases directly, assert here for convenience
         assert_eq!(
@@ -248,12 +214,14 @@ pub mod test {
 
     #[test]
     fn test_testnet_chain_spec_load() {
-        let spec_path = SpecPath::Testnet;
-        let result = ChainSpec::read_from_file(&spec_path);
-        assert!(result.is_ok(), format!("{:?}", result));
-        let chain_spec = result.unwrap();
+        let locator = ResourceLocator::current_dir().unwrap();
+        let ckb = locator.ckb();
+        let testnet =
+            ChainSpec::resolve_relative_to(&locator, PathBuf::from("specs/testnet.toml"), &ckb);
+        assert!(testnet.is_ok(), format!("{:?}", testnet));
+        let chain_spec = testnet.unwrap();
 
-        let result = build_system_cell_transaction(&chain_spec.system_cells, &spec_path);
+        let result = chain_spec.build_system_cell_transaction();
         assert!(result.is_ok(), format!("{:?}", result));
         let tx = result.unwrap();
 

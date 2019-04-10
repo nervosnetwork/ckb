@@ -1,5 +1,5 @@
-use crate::helper::wait_for_exit;
-use crate::Setup;
+use crate::setup::{ExitCode, RunArgs};
+use crate::system::wait_for_exit;
 use ckb_chain::chain::{ChainBuilder, ChainController};
 use ckb_db::diskdb::RocksDB;
 use ckb_miner::BlockAssembler;
@@ -11,22 +11,14 @@ use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::{Shared, SharedBuilder};
 use ckb_sync::{NetTimeProtocol, NetworkProtocol, Relayer, Synchronizer};
 use ckb_traits::chain_provider::ChainProvider;
-use crypto::secp::Generator;
 use log::info;
-use numext_fixed_hash::H256;
 use std::sync::Arc;
 
-pub fn run(setup: Setup) {
-    let consensus = setup
-        .chain_spec
-        .to_consensus(&setup.configs.chain.spec)
-        .unwrap();
-
+pub fn run(args: RunArgs) -> Result<(), ExitCode> {
     let shared = SharedBuilder::<CacheDB<RocksDB>>::default()
-        .consensus(consensus)
-        .db(&setup.configs.db)
-        .tx_pool_config(setup.configs.tx_pool.clone())
-        .txs_verify_cache_size(setup.configs.tx_pool.txs_verify_cache_size)
+        .consensus(args.consensus)
+        .db(&args.config.db)
+        .tx_pool_config(args.config.tx_pool)
         .build();
 
     let notify = NotifyService::default().start(Some("notify"));
@@ -34,11 +26,11 @@ pub fn run(setup: Setup) {
     let chain_controller = setup_chain(shared.clone(), notify.clone());
     info!(target: "main", "chain genesis hash: {:#x}", shared.genesis_hash());
 
-    let block_assembler = BlockAssembler::new(shared.clone(), setup.configs.block_assembler);
+    let block_assembler = BlockAssembler::new(shared.clone(), args.config.block_assembler);
     let block_assembler_controller = block_assembler.start(Some("MinerAgent"), &notify);
 
     let synchronizer =
-        Synchronizer::new(chain_controller.clone(), shared.clone(), setup.configs.sync);
+        Synchronizer::new(chain_controller.clone(), shared.clone(), args.config.sync);
 
     let relayer = Relayer::new(
         chain_controller.clone(),
@@ -49,7 +41,7 @@ pub fn run(setup: Setup) {
     let net_time_checker = NetTimeProtocol::default();
 
     let network_state = Arc::new(
-        NetworkState::from_config(setup.configs.network).expect("Init network state failed"),
+        NetworkState::from_config(args.config.network).expect("Init network state failed"),
     );
     let protocols = vec![
         CKBProtocol::new(
@@ -79,7 +71,7 @@ pub fn run(setup: Setup) {
         .expect("Start network service failed");
 
     let rpc_server = RpcServer::new(
-        setup.configs.rpc,
+        args.config.rpc,
         network_controller,
         shared,
         chain_controller,
@@ -92,6 +84,8 @@ pub fn run(setup: Setup) {
 
     rpc_server.close();
     info!(target: "main", "Jsonrpc shutdown");
+
+    Ok(())
 }
 
 fn setup_chain<CI: ChainIndex + 'static>(
@@ -100,9 +94,4 @@ fn setup_chain<CI: ChainIndex + 'static>(
 ) -> ChainController {
     let chain_service = ChainBuilder::new(shared, notify).build();
     chain_service.start(Some("ChainService"))
-}
-
-pub fn keygen() {
-    let result: H256 = Generator::new().random_privkey().into();
-    println!("{:#x}", result);
 }
