@@ -1,6 +1,4 @@
-use crate::batch::{Batch, Col, Operation};
-use crate::config::DBConfig;
-use crate::kvdb::{ErrorKind, KeyValueDB, Result};
+use crate::{Col, DBConfig, DbBatch, Error, ErrorKind, KeyValueDB, Result};
 use log::warn;
 use rocksdb::{ColumnFamily, Options, WriteBatch, DB};
 use std::ops::Range;
