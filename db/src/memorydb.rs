@@ -120,9 +120,9 @@ mod tests {
     fn write_and_read() {
         let db = MemoryKeyValueDB::open(2);
         let mut batch = db.batch().unwrap();
-        batch.insert(None, &[0, 0], &[0, 0, 0]);
-        batch.insert(Some(1), &[1, 1], &[1, 1, 1]);
-        batch.commit();
+        batch.insert(None, &[0, 0], &[0, 0, 0]).unwrap();
+        batch.insert(Some(1), &[1, 1], &[1, 1, 1]).unwrap();
+        batch.commit().unwrap();
 
         assert_eq!(Some(vec![0, 0, 0]), db.read(None, &[0, 0]).unwrap());
         assert_eq!(None, db.read(None, &[1, 1]).unwrap());
@@ -135,9 +135,9 @@ mod tests {
     fn write_and_partial_read() {
         let db = MemoryKeyValueDB::open(2);
         let mut batch = db.batch().unwrap();
-        batch.insert(None, &[0, 0], &[5, 4, 3, 2]);
-        batch.insert(Some(1), &[1, 1], &[1, 2, 3, 4, 5]);
-        batch.commit();
+        batch.insert(None, &[0, 0], &[5, 4, 3, 2]).unwrap();
+        batch.insert(Some(1), &[1, 1], &[1, 2, 3, 4, 5]).unwrap();
+        batch.commit().unwrap();
 
         assert_eq!(
             Some(vec![2, 3, 4]),

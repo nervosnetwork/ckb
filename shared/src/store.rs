@@ -7,13 +7,13 @@ use crate::{
 use bincode::{deserialize, serialize};
 use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::extras::{BlockExt, TransactionAddress};
-use ckb_core::header::{BlockNumber, Header, HeaderBuilder};
+use ckb_core::header::{Header, HeaderBuilder};
 use ckb_core::transaction::{ProposalShortId, Transaction, TransactionBuilder};
 use ckb_core::uncle::UncleBlock;
 use ckb_db::Col;
 use ckb_db::{DbBatch, KeyValueDB};
-use failure::Error;
 use numext_fixed_hash::H256;
+use serde::Serialize;
 use std::ops::Range;
 
 const META_TIP_HEADER_KEY: &[u8] = b"TIP_HEADER";
@@ -137,47 +137,59 @@ pub struct DefaultStoreBatch<B> {
     inner: B,
 }
 
+/// helper methods
+impl<B: DbBatch> DefaultStoreBatch<B> {
+    fn insert_raw(&mut self, col: Col, key: &[u8], value: &[u8]) {
+        self.inner
+            .insert(col, key, value)
+            .expect("batch insert_raw should be ok")
+    }
+
+    fn insert_serialize<T: Serialize + ?Sized>(&mut self, col: Col, key: &[u8], item: &T) {
+        self.inner
+            .insert(
+                col,
+                key,
+                &serialize(item).expect("serializing should be ok"),
+            )
+            .expect("batch insert_serialize should be ok")
+    }
+
+    fn delete(&mut self, col: Col, key: &[u8]) {
+        self.inner
+            .delete(col, key)
+            .expect("batch delete should be ok")
+    }
+}
+
 impl<B: DbBatch> StoreBatch for DefaultStoreBatch<B> {
     fn insert_block(&mut self, b: &Block) {
-        let hash = b.header().hash().to_vec();
-        self.inner.insert(
-            COLUMN_BLOCK_HEADER,
-            &hash,
-            &serialize(b.header()).expect("serializing header should be ok"),
-        );
-        self.inner.insert(
-            COLUMN_BLOCK_UNCLE,
-            &hash,
-            &serialize(b.uncles()).expect("serializing uncles should be ok"),
-        );
-        self.inner.insert(
+        let hash = b.header().hash();
+        self.insert_serialize(COLUMN_BLOCK_HEADER, hash.as_bytes(), b.header());
+        self.insert_serialize(COLUMN_BLOCK_UNCLE, hash.as_bytes(), b.uncles());
+        self.insert_serialize(
             COLUMN_BLOCK_PROPOSAL_IDS,
-            &hash,
-            &serialize(b.proposal_transactions())
-                .expect("serializing proposal_transactions should be ok"),
+            hash.as_bytes(),
+            b.proposal_transactions(),
         );
         let (block_data, block_addresses) = flat_serialize(b.commit_transactions().iter()).unwrap();
-        self.inner.insert(COLUMN_BLOCK_BODY, &hash, &block_data);
-        self.inner.insert(
+        self.insert_raw(COLUMN_BLOCK_BODY, hash.as_bytes(), &block_data);
+        self.insert_serialize(
             COLUMN_BLOCK_TRANSACTION_ADDRESSES,
-            &hash,
-            &serialize(&block_addresses).expect("serializing addresses should be ok"),
+            hash.as_bytes(),
+            &block_addresses,
         );
     }
 
     fn insert_block_ext(&mut self, block_hash: &H256, ext: &BlockExt) {
-        self.inner.insert(
-            COLUMN_EXT,
-            &block_hash.to_vec(),
-            &serialize(ext).expect("serializing block ext should be ok"),
-        );
+        self.insert_serialize(COLUMN_EXT, block_hash.as_bytes(), ext);
     }
 
     fn attach_block(&mut self, block: &Block) {
         let hash = block.header().hash();
-        let number = serialize(&block.header().number()).unwrap();
-        self.inner.insert(COLUMN_INDEX, &number, &hash.to_vec());
-        self.inner.insert(COLUMN_INDEX, &hash.to_vec(), &number);
+        let number = block.header().number().to_le_bytes();
+        self.insert_raw(COLUMN_INDEX, &number, hash.as_bytes());
+        self.insert_raw(COLUMN_INDEX, hash.as_bytes(), &number);
 
         let addresses = serialized_addresses(block.commit_transactions().iter()).unwrap();
         for (id, tx) in block.commit_transactions().iter().enumerate() {
@@ -186,35 +198,24 @@ impl<B: DbBatch> StoreBatch for DefaultStoreBatch<B> {
                 offset: addresses[id].offset,
                 length: addresses[id].length,
             };
-            self.inner.insert(
-                COLUMN_TRANSACTION_ADDR,
-                &tx.hash().to_vec(),
-                &serialize(&address).unwrap(),
-            );
+            self.insert_serialize(COLUMN_TRANSACTION_ADDR, tx.hash().as_bytes(), &address);
         }
     }
 
     fn detach_block(&mut self, block: &Block) {
-        self.inner
-            .delete(COLUMN_INDEX, &serialize(&block.header().number()).unwrap());
-        self.inner
-            .delete(COLUMN_INDEX, &block.header().hash().to_vec());
+        self.delete(COLUMN_INDEX, &block.header().number().to_le_bytes());
+        self.delete(COLUMN_INDEX, block.header().hash().as_bytes());
         for tx in block.commit_transactions() {
-            self.inner
-                .delete(COLUMN_TRANSACTION_ADDR, &tx.hash().to_vec());
+            self.delete(COLUMN_TRANSACTION_ADDR, tx.hash().as_bytes());
         }
     }
 
     fn insert_tip_header(&mut self, h: &Header) {
-        self.inner.insert(
-            COLUMN_META,
-            &META_TIP_HEADER_KEY.to_vec(),
-            &h.hash().to_vec(),
-        );
+        self.insert_raw(COLUMN_META, META_TIP_HEADER_KEY, h.hash().as_bytes());
     }
 
     fn commit(self) {
-        self.inner.commit();
+        self.inner.commit().expect("batch commit should be ok");
     }
 }
 

@@ -1,12 +1,11 @@
-use crate::flat_serializer::serialized_addresses;
-use crate::store::{ChainKVStore, ChainStore, DefaultStoreBatch, StoreBatch};
+use crate::store::{ChainKVStore, ChainStore, StoreBatch};
 use crate::{COLUMN_BLOCK_BODY, COLUMN_INDEX, COLUMN_META, COLUMN_TRANSACTION_ADDR};
-use bincode::{deserialize, serialize};
+use bincode::deserialize;
 use ckb_core::block::Block;
 use ckb_core::extras::{BlockExt, TransactionAddress};
 use ckb_core::header::{BlockNumber, Header};
 use ckb_core::transaction::{Transaction, TransactionBuilder};
-use ckb_db::{DbBatch, KeyValueDB};
+use ckb_db::KeyValueDB;
 use numext_fixed_hash::H256;
 
 const META_TIP_HEADER_KEY: &[u8] = b"TIP_HEADER";
@@ -53,8 +52,7 @@ impl<T: KeyValueDB> ChainIndex for ChainKVStore<T> {
     }
 
     fn get_block_hash(&self, number: BlockNumber) -> Option<H256> {
-        let key = serialize(&number).unwrap();
-        self.get(COLUMN_INDEX, &key)
+        self.get(COLUMN_INDEX, &number.to_le_bytes())
             .map(|raw| H256::from_slice(&raw[..]).expect("db safe access"))
     }
 
