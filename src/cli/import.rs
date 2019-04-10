@@ -1,9 +1,8 @@
 use super::super::setup::Setup;
 use ckb_chain::chain::ChainBuilder;
-use ckb_db::RocksDB;
+use ckb_db::{CacheDB, RocksDB};
 use ckb_instrument::{Format, Import};
 use ckb_notify::NotifyService;
-use ckb_shared::cachedb::CacheDB;
 use ckb_shared::shared::SharedBuilder;
 use clap::{value_t, ArgMatches};
 

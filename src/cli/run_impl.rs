@@ -1,12 +1,11 @@
 use crate::helper::wait_for_exit;
 use crate::Setup;
 use ckb_chain::chain::{ChainBuilder, ChainController};
-use ckb_db::RocksDB;
+use ckb_db::{CacheDB, RocksDB};
 use ckb_miner::BlockAssembler;
 use ckb_network::{CKBProtocol, NetworkService, NetworkState, ProtocolId};
 use ckb_notify::{NotifyController, NotifyService};
 use ckb_rpc::RpcServer;
-use ckb_shared::cachedb::CacheDB;
 use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::{Shared, SharedBuilder};
 use ckb_sync::{NetTimeProtocol, NetworkProtocol, Relayer, Synchronizer};

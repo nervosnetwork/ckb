@@ -6,9 +6,8 @@ use ckb_core::script::Script;
 use ckb_core::transaction::{
     CellInput, CellOutput, OutPoint, ProposalShortId, Transaction, TransactionBuilder,
 };
-use ckb_db::{DBConfig, RocksDB};
+use ckb_db::{CacheDB, DBConfig, RocksDB};
 use ckb_notify::NotifyService;
-use ckb_shared::cachedb::CacheDB;
 use ckb_shared::shared::{Shared, SharedBuilder};
 use ckb_shared::store::ChainKVStore;
 use ckb_traits::ChainProvider;

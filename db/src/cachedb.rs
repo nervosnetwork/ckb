@@ -1,4 +1,4 @@
-use ckb_db::{Col, KeyValueDB, Result};
+use crate::{Col, KeyValueDB, Result};
 use ckb_util::RwLock;
 use fnv::FnvHashMap;
 use lru_cache::LruCache;

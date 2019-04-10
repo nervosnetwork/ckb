@@ -7,7 +7,6 @@
 //! - [Chain](chain::chain::Chain) represent a struct which
 //!   implement `ChainProvider`
 
-pub mod cachedb;
 pub mod cell_set;
 pub mod chain_state;
 pub mod error;

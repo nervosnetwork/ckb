@@ -1,4 +1,3 @@
-use crate::cachedb::CacheDB;
 use crate::cell_set::CellSet;
 use crate::chain_state::ChainState;
 use crate::error::SharedError;
@@ -13,7 +12,7 @@ use ckb_core::extras::BlockExt;
 use ckb_core::header::{BlockNumber, Header};
 use ckb_core::transaction::{Capacity, ProposalShortId, Transaction};
 use ckb_core::uncle::UncleBlock;
-use ckb_db::{DBConfig, KeyValueDB, MemoryKeyValueDB, RocksDB};
+use ckb_db::{CacheDB, DBConfig, KeyValueDB, MemoryKeyValueDB, RocksDB};
 use ckb_traits::{BlockMedianTimeContext, ChainProvider};
 use ckb_util::Mutex;
 use failure::Error;
