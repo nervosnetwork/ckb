@@ -116,6 +116,12 @@ impl Setup {
         let spec = matches.value_of(cli::ARG_SPEC).unwrap().to_string();
         let rpc_port = matches.value_of(cli::ARG_RPC_PORT).unwrap().to_string();
         let p2p_port = matches.value_of(cli::ARG_P2P_PORT).unwrap().to_string();
+        let (log_to_file, log_to_stdout) = match matches.value_of(cli::ARG_LOG_TO) {
+            Some("file") => (true, false),
+            Some("stdout") => (false, true),
+            Some("both") => (true, true),
+            _ => unreachable!(),
+        };
 
         Ok(InitArgs {
             locator,
@@ -125,6 +131,8 @@ impl Setup {
             export_specs,
             list_specs,
             force,
+            log_to_file,
+            log_to_stdout,
         })
     }
 

@@ -5,9 +5,7 @@ use std::env;
 fn main() {
     let log_config = Config {
         filter: Some("info".to_owned()),
-        color: true,
-        file: None,
-        copy_to_stdout: true,
+        ..Default::default()
     };
     let _logger_guard = logger::init(log_config).expect("init Logger");
 

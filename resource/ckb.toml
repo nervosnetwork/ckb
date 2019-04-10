@@ -19,8 +19,12 @@ filter = "info" # {{
 # integration => filter = "info,network=trace,rpc=debug,sync=debug,relay=debug"
 # }}
 color = true
-# Print logs to stdout as well
-copy_to_stdout = true
+log_to_file = true # {{
+# _ => log_to_file = {log_to_file}
+# }}
+log_to_stdout = true # {{
+# _ => log_to_stdout = {log_to_stdout}
+# }}
 
 [sentry]
 # set to blank to disable sentry error collection

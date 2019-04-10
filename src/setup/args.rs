@@ -36,6 +36,8 @@ pub struct InitArgs {
     pub spec: String,
     pub rpc_port: String,
     pub p2p_port: String,
+    pub log_to_file: bool,
+    pub log_to_stdout: bool,
     pub export_specs: bool,
     pub list_specs: bool,
     pub force: bool,

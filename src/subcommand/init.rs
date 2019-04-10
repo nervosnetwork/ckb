@@ -16,6 +16,8 @@ pub fn init(args: InitArgs) -> Result<(), ExitCode> {
         spec: &args.spec,
         rpc_port: &args.rpc_port,
         p2p_port: &args.p2p_port,
+        log_to_file: args.log_to_file,
+        log_to_stdout: args.log_to_stdout,
     };
 
     let exported = args.locator.exported();

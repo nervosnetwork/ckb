@@ -146,9 +146,11 @@ impl AppConfigContent {
 impl CKBAppConfig {
     fn derive_options(mut self, root_dir: &Path, subcommand_name: &str) -> Result<Self, ExitCode> {
         self.data_dir = canonicalize_data_dir(self.data_dir, root_dir)?;
-        self.logger.file = Some(touch(
-            mkdir(self.data_dir.join("logs"))?.join(subcommand_name.to_string() + ".log"),
-        )?);
+        if self.logger.log_to_file {
+            self.logger.file = Some(touch(
+                mkdir(self.data_dir.join("logs"))?.join(subcommand_name.to_string() + ".log"),
+            )?);
+        }
         self.db.path = mkdir(self.data_dir.join("db"))?;
         self.network.path = mkdir(self.data_dir.join("network"))?;
 
@@ -159,7 +161,9 @@ impl CKBAppConfig {
 impl MinerAppConfig {
     fn derive_options(mut self, root_dir: &Path) -> Result<Self, ExitCode> {
         self.data_dir = canonicalize_data_dir(self.data_dir, root_dir)?;
-        self.logger.file = Some(touch(mkdir(self.data_dir.join("logs"))?.join("miner.log"))?);
+        if self.logger.log_to_file {
+            self.logger.file = Some(touch(mkdir(self.data_dir.join("logs"))?.join("miner.log"))?);
+        }
 
         Ok(self)
     }
@@ -242,6 +246,8 @@ mod tests {
             spec: "dev",
             rpc_port: "7000",
             p2p_port: "8000",
+            log_to_file: true,
+            log_to_stdout: true,
         };
         {
             locator.export_ckb(&context).expect("export config files");
@@ -269,6 +275,37 @@ mod tests {
     }
 
     #[test]
+    fn test_log_to_stdout_only() {
+        let dir = mkdir();
+        let locator = ResourceLocator::with_root_dir(dir.path().to_path_buf()).unwrap();
+        let context = TemplateContext {
+            spec: "dev",
+            rpc_port: "7000",
+            p2p_port: "8000",
+            log_to_file: false,
+            log_to_stdout: true,
+        };
+        {
+            locator.export_ckb(&context).expect("export config files");
+            let app_config = AppConfig::load_for_subcommand(&locator, cli::CMD_RUN)
+                .unwrap_or_else(|err| panic!(err));
+            let ckb_config = app_config.into_ckb().unwrap_or_else(|err| panic!(err));
+            assert_eq!(ckb_config.logger.file, None);
+            assert_eq!(ckb_config.logger.log_to_file, false);
+            assert_eq!(ckb_config.logger.log_to_stdout, true);
+        }
+        {
+            locator.export_miner(&context).expect("export config files");
+            let app_config = AppConfig::load_for_subcommand(&locator, cli::CMD_MINER)
+                .unwrap_or_else(|err| panic!(err));
+            let miner_config = app_config.into_miner().unwrap_or_else(|err| panic!(err));
+            assert_eq!(miner_config.logger.file, None);
+            assert_eq!(miner_config.logger.log_to_file, false);
+            assert_eq!(miner_config.logger.log_to_stdout, true);
+        }
+    }
+
+    #[test]
     fn test_export_testnet_config_files() {
         let dir = mkdir();
         let locator = ResourceLocator::with_root_dir(dir.path().to_path_buf()).unwrap();
@@ -276,6 +313,8 @@ mod tests {
             spec: "testnet",
             rpc_port: "7000",
             p2p_port: "8000",
+            log_to_file: true,
+            log_to_stdout: true,
         };
         locator.export_ckb(&context).expect("export config files");
         {
@@ -310,6 +349,8 @@ mod tests {
             spec: "integration",
             rpc_port: "7000",
             p2p_port: "8000",
+            log_to_file: true,
+            log_to_stdout: true,
         };
         locator.export_ckb(&context).expect("export config files");
         {
