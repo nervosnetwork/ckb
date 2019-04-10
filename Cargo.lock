@@ -563,7 +563,7 @@ dependencies = [
  "ckb-util 0.9.0-pre",
  "failure 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "flatbuffers 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "flatbuffers-verifier 0.1.8 (registry+https://github.com/rust-lang/crates.io-index)",
+ "flatbuffers-verifier 0.1.9 (registry+https://github.com/rust-lang/crates.io-index)",
  "hash 0.9.0-pre",
  "numext-fixed-hash 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "numext-fixed-uint 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1165,7 +1165,7 @@ dependencies = [
 
 [[package]]
 name = "flatbuffers-verifier"
-version = "0.1.8"
+version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "flatbuffers 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -3610,7 +3610,7 @@ dependencies = [
 "checksum faster-hex 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)" = "2ea2e4ecc921ec2cbb8b10f0d400fe448554779d2ac5e0bfbb065836d9d8483a"
 "checksum faster-hex 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)" = "a5b8cccaafb5aae8c282692e5590f341925edea6c696e8715ff0d973320b2646"
 "checksum flatbuffers 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)" = "ea0c34f669be9911826facafe996adfda978aeee67285a13556869e2d8b8331f"
-"checksum flatbuffers-verifier 0.1.8 (registry+https://github.com/rust-lang/crates.io-index)" = "c0118b65128a67eb0eeb805f6032d37325659e42198b3d3f34f205eddda73bd1"
+"checksum flatbuffers-verifier 0.1.9 (registry+https://github.com/rust-lang/crates.io-index)" = "228f0226833a59e66d5ba28d15fca4efce5d598314d56179b22b3d89fbb6bf10"
 "checksum flate2 1.0.7 (registry+https://github.com/rust-lang/crates.io-index)" = "f87e68aa82b2de08a6e037f1385455759df6e445a8df5e005b4297191dbf18aa"
 "checksum fnv 1.0.6 (registry+https://github.com/rust-lang/crates.io-index)" = "2fad85553e09a6f881f739c29f0b00b0f01357c743266d478b68951ce23285f3"
 "checksum foreign-types 0.3.2 (registry+https://github.com/rust-lang/crates.io-index)" = "f6f339eb8adc052cd2ca78910fda869aefa38d22d5cb648e6485e4d3fc06f3b1"
