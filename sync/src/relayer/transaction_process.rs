@@ -9,7 +9,7 @@ use ckb_util::TryInto;
 use ckb_verification::TransactionError;
 use failure::Error as FailureError;
 use flatbuffers::FlatBufferBuilder;
-use log::debug;
+use log::{debug, warn};
 use std::time::Duration;
 
 const DEFAULT_BAN_TIME: Duration = Duration::from_secs(3600 * 24 * 3);
@@ -64,7 +64,11 @@ where
                             .get(&peer)
                             .map_or(true, |filter| filter.contains(&tx))
                     {
-                        let _ = self.nc.send(peer, fbb.finished_data().to_vec());
+                        let ret = self.nc.send(peer, fbb.finished_data().to_vec());
+
+                        if ret.is_err() {
+                            warn!(target: "relay", "relay Transaction error {:?}", ret);
+                        }
                     }
                 }
             }

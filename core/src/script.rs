@@ -27,7 +27,7 @@ fn prefix_hex(bytes: &[u8]) -> String {
     let mut dst = vec![0u8; bytes.len() * 2 + 2];
     dst[0] = b'0';
     dst[1] = b'x';
-    let _ = hex_encode(bytes, &mut dst[2..]);
+    hex_encode(bytes, &mut dst[2..]).expect("hex encode buffer checked");
     unsafe { String::from_utf8_unchecked(dst) }
 }
 
