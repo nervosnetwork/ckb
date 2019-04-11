@@ -14,7 +14,6 @@ toml = "0.5"
 log = "0.4"
 futures = "0.1"
 crossbeam-channel = "0.3"
-config-tool = { package= "config", version = "0.9" }
 ckb-util = { path = "util" }
 ckb-core = { path = "core" }
 ckb-chain = { path = "chain" }
@@ -26,10 +25,10 @@ ckb-db = { path = "db" }
 ckb-pow = { path = "pow" }
 ckb-network = { path = "network"}
 ckb-rpc = { path = "rpc"}
+ckb-resource = { path = "resource"}
 logger = { path = "util/logger" }
 numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 numext-fixed-uint = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
-dir = { path = "util/dir" }
 ctrlc = { version = "3.1", features = ["termination"] }
 ckb-sync = { path = "sync"}
 crypto = { path = "util/crypto"}
@@ -52,7 +51,6 @@ members = [
     "util/merkle-tree",
     "util/jsonrpc-types",
     "util/crypto",
-    "util/dir",
     "util/instrument",
     "util/build-info",
     "util/occupied-capacity",
@@ -72,7 +70,8 @@ members = [
     "verification",
     "script",
     "pow",
-    "benches"
+    "benches",
+    "resource",
 ]
 
 [profile.release]

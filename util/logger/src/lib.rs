@@ -37,8 +37,14 @@ impl Logger {
         }
 
         let (sender, receiver) = unbounded();
-        let file = config.file;
-        let enable_color = config.color;
+        let Config {
+            color,
+            file,
+            log_to_file,
+            log_to_stdout,
+            ..
+        } = config;
+        let file = if log_to_file { file } else { None };
 
         let tb = thread::Builder::new()
             .name("LogWriter".to_owned())
@@ -57,16 +63,14 @@ impl Logger {
                     match receiver.recv() {
                         Ok(Message::Record(record)) => {
                             let removed_color = sanitize_color(record.as_ref());
-                            let output = if enable_color {
-                                record
-                            } else {
-                                removed_color.clone()
-                            };
+                            let output = if color { record } else { removed_color.clone() };
                             if let Some(mut file) = file.as_ref() {
                                 let _ = file.write_all(removed_color.as_bytes());
                                 let _ = file.write_all(b"\n");
                             };
-                            println!("{}", output);
+                            if log_to_stdout {
+                                println!("{}", output);
+                            }
                         }
                         Ok(Message::Terminate) | Err(_) => {
                             break;
@@ -93,6 +97,8 @@ pub struct Config {
     pub filter: Option<String>,
     pub color: bool,
     pub file: Option<PathBuf>,
+    pub log_to_file: bool,
+    pub log_to_stdout: bool,
 }
 
 impl Default for Config {
@@ -101,6 +107,8 @@ impl Default for Config {
             filter: None,
             color: !cfg!(windows),
             file: None,
+            log_to_file: false,
+            log_to_stdout: true,
         }
     }
 }

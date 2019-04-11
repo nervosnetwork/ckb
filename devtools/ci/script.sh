@@ -24,3 +24,25 @@ if [ "$TRAVIS_BRANCH" = master -o "$TRAVIS_BRANCH" = staging -o "$TRAVIS_BRANCH"
   # Switch to release mode when the running time is much longer than the build time.
   # make integration-release
 fi
+
+if [ -n "$TRAVIS_TAG" -a -n "$GITHUB_TOKEN" -a -n "$REL_PKG" ]; then
+  make build
+  rm -rf releases
+  mkdir releases
+  PKG_NAME="ckb_${TRAVIS_TAG}_${REL_PKG%%.*}"
+  mkdir "releases/$PKG_NAME"
+  mv target/release/ckb "releases/$PKG_NAME"
+  cp README.md CHANGELOG.md COPYING "releases/$PKG_NAME"
+  cp -R devtools/init/ "releases/$PKG_NAME"
+  if [ -d docs ]; then
+    cp -R docs "releases/$PKG_NAME"
+  fi
+
+  pushd releases
+  if [ "${REL_PKG#*.}" = "tar.gz" ]; then
+    tar -czf $PKG_NAME.tar.gz $PKG_NAME
+  else
+    zip -r $PKG_NAME.zip $PKG_NAME
+  fi
+  popd
+fi

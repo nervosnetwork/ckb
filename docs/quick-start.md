@@ -1,0 +1,29 @@
+# Quick Start
+
+Following steps will assume that the shell can find the executable `ckb`, see
+how to [build CKB from source](build.md).
+
+## Start Node
+
+```shell
+ckb run
+```
+
+It will start a node using the default configurations and store files in `data/dev` in current directory.
+
+## Use RPC
+
+Find RPC port in the log output, the following command assumes 8114 is used:
+
+```shell
+curl -d '{"id": 1, "jsonrpc": "2.0", "method":"get_tip_header","params": []}' \
+  -H 'content-type:application/json' 'http://localhost:8114'
+```
+
+## Run Miner
+
+Run miner, gets a block template to mine.
+
+```shell
+ckb miner
+```

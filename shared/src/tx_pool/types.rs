@@ -79,6 +79,8 @@ pub enum PoolError {
     TimeOut,
     /// BlockNumber is not right
     InvalidBlockNumber,
+    /// Duplicate tx
+    Duplicate,
 }
 
 impl fmt::Display for PoolError {
