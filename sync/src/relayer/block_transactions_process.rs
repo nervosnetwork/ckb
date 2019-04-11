@@ -7,17 +7,14 @@ use ckb_util::TryInto;
 use failure::Error as FailureError;
 use std::sync::Arc;
 
-pub struct BlockTransactionsProcess<'a, CI: ChainIndex + 'a> {
+pub struct BlockTransactionsProcess<'a, CI> {
     message: &'a BlockTransactions<'a>,
     relayer: &'a Relayer<CI>,
     peer: PeerIndex,
     nc: &'a mut CKBProtocolContext,
 }
 
-impl<'a, CI> BlockTransactionsProcess<'a, CI>
-where
-    CI: ChainIndex + 'static,
-{
+impl<'a, CI: ChainIndex> BlockTransactionsProcess<'a, CI> {
     pub fn new(
         message: &'a BlockTransactions,
         relayer: &'a Relayer<CI>,

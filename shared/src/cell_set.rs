@@ -51,7 +51,7 @@ impl CellProvider for CellSetDiff {
 
 #[derive(Default, Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub struct CellSet {
-    pub inner: FnvHashMap<H256, TransactionMeta>,
+    inner: FnvHashMap<H256, TransactionMeta>,
 }
 
 impl CellSet {

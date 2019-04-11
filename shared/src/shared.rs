@@ -1,4 +1,3 @@
-use crate::cachedb::CacheDB;
 use crate::cell_set::CellSet;
 use crate::chain_state::ChainState;
 use crate::error::SharedError;
@@ -13,7 +12,7 @@ use ckb_core::extras::BlockExt;
 use ckb_core::header::{BlockNumber, Header};
 use ckb_core::transaction::{Capacity, ProposalShortId, Transaction};
 use ckb_core::uncle::UncleBlock;
-use ckb_db::{DBConfig, KeyValueDB, MemoryKeyValueDB, RocksDB};
+use ckb_db::{CacheDB, DBConfig, KeyValueDB, MemoryKeyValueDB, RocksDB};
 use ckb_traits::{BlockMedianTimeContext, ChainProvider};
 use ckb_util::Mutex;
 use failure::Error;
@@ -51,7 +50,9 @@ impl<CI: ChainIndex> Shared<CI> {
                 match store.get_tip_header() {
                     Some(h) => h,
                     None => {
-                        store.init(&genesis);
+                        store
+                            .init(&genesis)
+                            .expect("init genesis block should be ok");
                         genesis.header().clone()
                     }
                 }
@@ -355,7 +356,7 @@ impl SharedBuilder<CacheDB<RocksDB>> {
     pub fn db(mut self, config: &DBConfig) -> Self {
         self.db = Some(CacheDB::new(
             RocksDB::open(config, COLUMNS),
-            &[(COLUMN_BLOCK_HEADER.unwrap(), 4096)],
+            &[(COLUMN_BLOCK_HEADER, 4096)],
         ));
         self
     }
@@ -363,7 +364,7 @@ impl SharedBuilder<CacheDB<RocksDB>> {
 
 pub const MIN_TXS_VERIFY_CACHE_SIZE: Option<usize> = Some(100);
 
-impl<DB: 'static + KeyValueDB> SharedBuilder<DB> {
+impl<DB: KeyValueDB> SharedBuilder<DB> {
     pub fn consensus(mut self, value: Consensus) -> Self {
         self.consensus = Some(value);
         self

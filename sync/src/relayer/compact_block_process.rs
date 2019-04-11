@@ -14,17 +14,14 @@ use log::warn;
 use numext_fixed_hash::H256;
 use std::sync::Arc;
 
-pub struct CompactBlockProcess<'a, CI: ChainIndex + 'a> {
+pub struct CompactBlockProcess<'a, CI> {
     message: &'a FbsCompactBlock<'a>,
     relayer: &'a Relayer<CI>,
     peer: PeerIndex,
     nc: &'a mut CKBProtocolContext,
 }
 
-impl<'a, CI> CompactBlockProcess<'a, CI>
-where
-    CI: ChainIndex + 'static,
-{
+impl<'a, CI: ChainIndex> CompactBlockProcess<'a, CI> {
     pub fn new(
         message: &'a FbsCompactBlock,
         relayer: &'a Relayer<CI>,
@@ -105,30 +102,12 @@ where
     }
 }
 
-struct CompactBlockMedianTimeView<'a, CI>
-where
-    CI: ChainIndex + 'static,
-{
+struct CompactBlockMedianTimeView<'a, CI> {
     pending_compact_blocks: &'a FnvHashMap<H256, CompactBlock>,
     shared: &'a Shared<CI>,
 }
 
-impl<'a, CI> ::std::clone::Clone for CompactBlockMedianTimeView<'a, CI>
-where
-    CI: ChainIndex + 'static,
-{
-    fn clone(&self) -> Self {
-        CompactBlockMedianTimeView {
-            pending_compact_blocks: self.pending_compact_blocks,
-            shared: self.shared,
-        }
-    }
-}
-
-impl<'a, CI> BlockMedianTimeContext for CompactBlockMedianTimeView<'a, CI>
-where
-    CI: ChainIndex + 'static,
-{
+impl<'a, CI: ChainIndex> BlockMedianTimeContext for CompactBlockMedianTimeView<'a, CI> {
     fn block_count(&self) -> u32 {
         self.shared.consensus().median_time_block_count() as u32
     }

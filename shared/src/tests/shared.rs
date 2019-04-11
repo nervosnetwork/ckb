@@ -1,9 +1,9 @@
 use crate::{
     shared::{Shared, SharedBuilder},
-    store::{ChainKVStore, ChainStore},
+    store::{ChainKVStore, ChainStore, StoreBatch},
 };
 use ckb_core::{block::BlockBuilder, header::HeaderBuilder};
-use ckb_db::{kvdb::KeyValueDB, memorydb::MemoryKeyValueDB};
+use ckb_db::{KeyValueDB, MemoryKeyValueDB};
 use ckb_traits::BlockMedianTimeContext;
 use numext_fixed_hash::H256;
 
@@ -11,10 +11,10 @@ fn new_shared() -> Shared<ChainKVStore<MemoryKeyValueDB>> {
     SharedBuilder::<MemoryKeyValueDB>::new().build()
 }
 
-fn insert_block_timestamps<T>(store: &ChainKVStore<T>, timestamps: &[u64]) -> Vec<H256>
-where
-    T: KeyValueDB + 'static,
-{
+fn insert_block_timestamps<T: KeyValueDB>(
+    store: &ChainKVStore<T>,
+    timestamps: &[u64],
+) -> Vec<H256> {
     let mut blocks = Vec::with_capacity(timestamps.len());
     let mut hashes = Vec::with_capacity(timestamps.len());
     let mut parent_hash = H256::zero();
@@ -27,14 +27,11 @@ where
         hashes.push(parent_hash.clone());
         blocks.push(BlockBuilder::default().header(header).build());
     }
-    store
-        .save_with_batch(|batch| {
-            for b in blocks {
-                store.insert_block(batch, &b);
-            }
-            Ok(())
-        })
-        .expect("insert blocks");
+    let mut batch = store.new_batch().unwrap();
+    for b in blocks {
+        batch.insert_block(&b).unwrap();
+    }
+    batch.commit().unwrap();
     hashes
 }
 

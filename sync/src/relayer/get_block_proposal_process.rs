@@ -7,17 +7,14 @@ use failure::Error as FailureError;
 use flatbuffers::FlatBufferBuilder;
 use log::warn;
 
-pub struct GetBlockProposalProcess<'a, CI: ChainIndex + 'a> {
+pub struct GetBlockProposalProcess<'a, CI> {
     message: &'a GetBlockProposal<'a>,
     relayer: &'a Relayer<CI>,
     peer: PeerIndex,
     nc: &'a mut CKBProtocolContext,
 }
 
-impl<'a, CI> GetBlockProposalProcess<'a, CI>
-where
-    CI: ChainIndex + 'static,
-{
+impl<'a, CI: ChainIndex> GetBlockProposalProcess<'a, CI> {
     pub fn new(
         message: &'a GetBlockProposal,
         relayer: &'a Relayer<CI>,

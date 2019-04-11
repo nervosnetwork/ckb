@@ -6,15 +6,12 @@ use ckb_util::TryInto;
 use failure::Error as FailureError;
 use log::warn;
 
-pub struct BlockProposalProcess<'a, CI: ChainIndex + 'a> {
+pub struct BlockProposalProcess<'a, CI> {
     message: &'a BlockProposal<'a>,
     relayer: &'a Relayer<CI>,
 }
 
-impl<'a, CI> BlockProposalProcess<'a, CI>
-where
-    CI: ChainIndex + 'static,
-{
+impl<'a, CI: ChainIndex> BlockProposalProcess<'a, CI> {
     pub fn new(message: &'a BlockProposal, relayer: &'a Relayer<CI>) -> Self {
         BlockProposalProcess { message, relayer }
     }

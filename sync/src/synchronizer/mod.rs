@@ -712,10 +712,7 @@ impl<CI: ChainIndex> Synchronizer<CI> {
     }
 }
 
-impl<CI> CKBProtocolHandler for Synchronizer<CI>
-where
-    CI: ChainIndex + 'static,
-{
+impl<CI: ChainIndex> CKBProtocolHandler for Synchronizer<CI> {
     fn initialize(&self, nc: Box<CKBProtocolContext>) {
         // NOTE: 100ms is what bitcoin use.
         nc.register_timer(Duration::from_millis(1000), SEND_GET_HEADERS_TOKEN);
@@ -823,7 +820,7 @@ mod tests {
         (chain_controller, shared, notify)
     }
 
-    fn gen_synchronizer<CI: ChainIndex + 'static>(
+    fn gen_synchronizer<CI: ChainIndex>(
         chain_controller: ChainController,
         shared: Shared<CI>,
     ) -> Synchronizer<CI> {

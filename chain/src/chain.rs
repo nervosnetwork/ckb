@@ -6,13 +6,13 @@ use ckb_core::extras::BlockExt;
 use ckb_core::service::{Request, DEFAULT_CHANNEL_SIZE, SIGNAL_CHANNEL_SIZE};
 use ckb_core::transaction::ProposalShortId;
 use ckb_core::BlockNumber;
-use ckb_db::batch::Batch;
 use ckb_notify::NotifyController;
 use ckb_shared::cell_set::CellSetDiff;
 use ckb_shared::chain_state::ChainState;
 use ckb_shared::error::SharedError;
 use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::Shared;
+use ckb_shared::store::StoreBatch;
 use ckb_traits::ChainProvider;
 use ckb_verification::{BlockVerifier, TransactionsVerifier, Verifier};
 use crossbeam_channel::{self, select, Receiver, Sender};
@@ -172,7 +172,6 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
         Ok(())
     }
 
-    #[allow(clippy::op_ref)]
     pub(crate) fn insert_block(&self, block: Arc<Block>) -> Result<(), FailureError> {
         let mut new_best_block = false;
         let mut total_difficulty = U256::zero();
@@ -208,38 +207,31 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
             txs_verified: None,
         };
 
-        self.shared.store().save_with_batch(|batch| {
-            self.shared.store().insert_block(batch, &block);
+        let mut batch = self.shared.store().new_batch()?;
+        batch.insert_block(&block)?;
+        if (cannon_total_difficulty > current_total_difficulty)
+            || ((current_total_difficulty == cannon_total_difficulty)
+                && (block.header().hash() < tip_hash))
+        {
+            debug!(
+                target: "chain",
+                "new best block found: {} => {}, difficulty diff = {}",
+                block.header().number(), block.header().hash(),
+                &cannon_total_difficulty - &current_total_difficulty
+            );
 
-            if (cannon_total_difficulty > current_total_difficulty)
-                || ((current_total_difficulty == cannon_total_difficulty)
-                    && (block.header().hash() < tip_hash))
-            {
-                debug!(
-                    target: "chain",
-                    "new best block found: {} => {}, difficulty diff = {}",
-                    block.header().number(), block.header().hash(),
-                    &cannon_total_difficulty - &current_total_difficulty
-                );
+            self.find_fork(&mut fork, tip_number, &block, ext);
+            cell_set_diff = self.reconcile_main_chain(&mut batch, &mut fork, &mut chain_state)?;
+            self.update_index(&mut batch, &fork.detached_blocks, &fork.attached_blocks)?;
+            self.update_proposal_ids(&mut chain_state, &fork);
+            batch.insert_tip_header(&block.header())?;
+            new_best_block = true;
 
-                self.find_fork(&mut fork, tip_number, &block, ext);
-                cell_set_diff = self.reconcile_main_chain(batch, &mut fork, &mut chain_state)?;
-                self.update_index(batch, &fork.detached_blocks, &fork.attached_blocks);
-                self.update_proposal_ids(&mut chain_state, &fork);
-                self.shared
-                    .store()
-                    .insert_tip_header(batch, &block.header());
-
-                new_best_block = true;
-
-                total_difficulty = cannon_total_difficulty;
-            } else {
-                self.shared
-                    .store()
-                    .insert_block_ext(batch, &block.header().hash(), &ext);
-            }
-            Ok(())
-        })?;
+            total_difficulty = cannon_total_difficulty;
+        } else {
+            batch.insert_block_ext(&block.header().hash(), &ext)?;
+        }
+        batch.commit()?;
 
         if new_best_block {
             let tip_header = block.header().clone();
@@ -270,43 +262,18 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
 
     pub(crate) fn update_index(
         &self,
-        batch: &mut Batch,
+        batch: &mut StoreBatch,
         detached_blocks: &[Block],
         attached_blocks: &[Block],
-    ) {
-        let old_number = match detached_blocks.get(0) {
-            Some(b) => b.header().number(),
-            None => 0,
-        };
-
-        let new_number = attached_blocks[0].header().number();
-
+    ) -> Result<(), FailureError> {
         for block in detached_blocks {
-            self.shared
-                .store()
-                .delete_block_number(batch, &block.header().hash());
-            self.shared
-                .store()
-                .delete_transaction_address(batch, block.commit_transactions());
+            batch.detach_block(block)?;
         }
 
         for block in attached_blocks {
-            let number = block.header().number();
-            let hash = block.header().hash();
-            self.shared.store().insert_block_hash(batch, number, &hash);
-            self.shared
-                .store()
-                .insert_block_number(batch, &hash, number);
-            self.shared.store().insert_transaction_address(
-                batch,
-                &hash,
-                block.commit_transactions(),
-            );
+            batch.attach_block(block)?;
         }
-
-        for n in new_number..old_number {
-            self.shared.store().delete_block_hash(batch, n + 1);
-        }
+        Ok(())
     }
 
     fn alignment_fork(
@@ -423,7 +390,7 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
     // we found new best_block total_difficulty > old_chain.total_difficulty
     pub(crate) fn reconcile_main_chain(
         &self,
-        batch: &mut Batch,
+        batch: &mut StoreBatch,
         fork: &mut ForkChanges,
         chain_state: &mut ChainState<CI>,
     ) -> Result<CellSetDiff, FailureError> {
@@ -498,9 +465,7 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
             .zip(fork.attached_blocks().iter())
             .rev()
         {
-            self.shared
-                .store()
-                .insert_block_ext(batch, &b.header().hash(), ext);
+            batch.insert_block_ext(&b.header().hash(), ext)?;
         }
 
         if let Some(err) = found_error {

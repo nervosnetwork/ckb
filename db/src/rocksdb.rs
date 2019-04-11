@@ -1,17 +1,11 @@
-use crate::batch::{Batch, Col, Operation};
-use crate::config::DBConfig;
-use crate::kvdb::{ErrorKind, KeyValueDB, Result};
+use crate::{Col, DBConfig, DbBatch, Error, KeyValueDB, Result};
 use log::warn;
-use rocksdb::{ColumnFamily, Options, WriteBatch, DB};
+use rocksdb::{ColumnFamily, Error as RdbError, Options, WriteBatch, DB};
 use std::ops::Range;
-
-struct Inner {
-    db: DB,
-    cfnames: Vec<String>,
-}
+use std::sync::Arc;
 
 pub struct RocksDB {
-    inner: Inner,
+    inner: Arc<DB>,
 }
 
 impl RocksDB {
@@ -20,7 +14,7 @@ impl RocksDB {
         opts.create_if_missing(true);
         opts.create_missing_column_families(true);
 
-        let cfnames: Vec<_> = (0..columns).map(|c| format!("c{}", c)).collect();
+        let cfnames: Vec<_> = (0..columns).map(|c| c.to_string()).collect();
         let cf_options: Vec<&str> = cfnames.iter().map(|n| n as &str).collect();
         let db = DB::open_cf(&opts, &config.path, &cf_options).unwrap_or_else(|err| {
             if err.as_ref().starts_with("Corruption:") {
@@ -47,61 +41,71 @@ impl RocksDB {
                 .expect("Failed to set rocksdb option");
         }
 
-        let inner = Inner {
-            db,
-            cfnames: cfnames.clone(),
-        };
-        RocksDB { inner }
-    }
-
-    fn cf_handle(&self, col: Option<u32>) -> Result<Option<ColumnFamily>> {
-        if let Some(col) = col {
-            self.inner
-                .cfnames
-                .get(col as usize)
-                .ok_or_else(|| ErrorKind::DBError(format!("column {:?} not found ", col)))
-                .map(|cfname| self.inner.db.cf_handle(&cfname))
-        } else {
-            Ok(None)
+        RocksDB {
+            inner: Arc::new(db),
         }
     }
 }
 
+fn cf_handle(db: &DB, col: Col) -> Result<ColumnFamily> {
+    db.cf_handle(&col.to_string())
+        .ok_or_else(|| Error::DBError(format!("column {} not found", col)))
+}
+
 impl KeyValueDB for RocksDB {
-    fn write(&self, batch: Batch) -> Result<()> {
-        let mut wb = WriteBatch::default();
-        for op in batch.operations {
-            match op {
-                Operation::Insert { col, key, value } => match self.cf_handle(col)? {
-                    Some(cf) => wb.put_cf(cf, &key, &value),
-                    None => wb.put(&key, &value),
-                },
-                Operation::Delete { col, key } => match self.cf_handle(col)? {
-                    None => wb.delete(&key),
-                    Some(cf) => wb.delete_cf(cf, &key),
-                },
-            }?;
-        }
-        self.inner.db.write(wb)?;
-        Ok(())
-    }
+    type Batch = RocksdbBatch;
 
     fn read(&self, col: Col, key: &[u8]) -> Result<Option<Vec<u8>>> {
-        match self.cf_handle(col)? {
-            Some(cf) => self.inner.db.get_cf(cf, &key),
-            None => self.inner.db.get(&key),
-        }
-        .map(|v| v.map(|vi| vi.to_vec()))
-        .map_err(Into::into)
+        let cf = cf_handle(&self.inner, col)?;
+        self.inner
+            .get_cf(cf, &key)
+            .map(|v| v.map(|vi| vi.to_vec()))
+            .map_err(Into::into)
     }
 
     fn partial_read(&self, col: Col, key: &[u8], range: &Range<usize>) -> Result<Option<Vec<u8>>> {
-        match self.cf_handle(col)? {
-            Some(cf) => self.inner.db.get_pinned_cf(cf, &key),
-            None => self.inner.db.get_pinned(&key),
-        }
-        .map(|v| v.and_then(|vi| vi.get(range.start..range.end).map(|slice| slice.to_vec())))
-        .map_err(Into::into)
+        let cf = cf_handle(&self.inner, col)?;
+        self.inner
+            .get_pinned_cf(cf, &key)
+            .map(|v| v.and_then(|vi| vi.get(range.start..range.end).map(|slice| slice.to_vec())))
+            .map_err(Into::into)
+    }
+
+    fn batch(&self) -> Result<Self::Batch> {
+        Ok(Self::Batch {
+            db: Arc::clone(&self.inner),
+            wb: WriteBatch::default(),
+        })
+    }
+}
+
+pub struct RocksdbBatch {
+    db: Arc<DB>,
+    wb: WriteBatch,
+}
+
+impl DbBatch for RocksdbBatch {
+    fn insert(&mut self, col: Col, key: &[u8], value: &[u8]) -> Result<()> {
+        let cf = cf_handle(&self.db, col)?;
+        self.wb.put_cf(cf, key, value)?;
+        Ok(())
+    }
+
+    fn delete(&mut self, col: Col, key: &[u8]) -> Result<()> {
+        let cf = cf_handle(&self.db, col)?;
+        self.wb.delete_cf(cf, &key)?;
+        Ok(())
+    }
+
+    fn commit(self) -> Result<()> {
+        self.db.write(self.wb)?;
+        Ok(())
+    }
+}
+
+impl From<RdbError> for Error {
+    fn from(err: RdbError) -> Error {
+        Error::DBError(err.into())
     }
 }
 
@@ -160,45 +164,40 @@ mod tests {
     fn write_and_read() {
         let db = setup_db("write_and_read", 2);
 
-        let mut batch = Batch::default();
-        batch.insert(None, vec![0, 0], vec![0, 0, 0]);
-        batch.insert(Some(1), vec![1, 1], vec![1, 1, 1]);
-        db.write(batch).unwrap();
+        let mut batch = db.batch().unwrap();
+        batch.insert(0, &[0, 0], &[0, 0, 0]).unwrap();
+        batch.insert(1, &[1, 1], &[1, 1, 1]).unwrap();
+        batch.commit().unwrap();
 
-        assert_eq!(Some(vec![0, 0, 0]), db.read(None, &[0, 0]).unwrap());
-        assert_eq!(None, db.read(None, &[1, 1]).unwrap());
+        assert_eq!(Some(vec![0, 0, 0]), db.read(0, &[0, 0]).unwrap());
+        assert_eq!(None, db.read(0, &[1, 1]).unwrap());
 
-        assert_eq!(None, db.read(Some(1), &[0, 0]).unwrap());
-        assert_eq!(Some(vec![1, 1, 1]), db.read(Some(1), &[1, 1]).unwrap());
-
-        // return err when col doesn't exist
-        assert!(db.read(Some(2), &[0, 0]).is_err());
+        assert_eq!(None, db.read(1, &[0, 0]).unwrap());
+        assert_eq!(Some(vec![1, 1, 1]), db.read(1, &[1, 1]).unwrap());
     }
 
     #[test]
     fn write_and_partial_read() {
         let db = setup_db("write_and_partial_read", 2);
 
-        let mut batch = Batch::default();
-        batch.insert(None, vec![0, 0], vec![5, 4, 3, 2]);
-        batch.insert(Some(1), vec![1, 1], vec![1, 2, 3, 4, 5]);
-        db.write(batch).unwrap();
+        let mut batch = db.batch().unwrap();
+        batch.insert(0, &[0, 0], &[5, 4, 3, 2]).unwrap();
+        batch.insert(1, &[1, 1], &[1, 2, 3, 4, 5]).unwrap();
+        batch.commit().unwrap();
 
         assert_eq!(
             Some(vec![2, 3, 4]),
-            db.partial_read(Some(1), &[1, 1], &(1..4)).unwrap()
+            db.partial_read(1, &[1, 1], &(1..4)).unwrap()
         );
-        assert_eq!(None, db.partial_read(Some(1), &[0, 0], &(1..4)).unwrap());
+        assert_eq!(None, db.partial_read(1, &[0, 0], &(1..4)).unwrap());
         // return None when invalid range is passed
-        assert_eq!(None, db.partial_read(Some(1), &[1, 1], &(2..8)).unwrap());
+        assert_eq!(None, db.partial_read(1, &[1, 1], &(2..8)).unwrap());
         // range must be increasing
-        assert_eq!(None, db.partial_read(Some(1), &[1, 1], &(3..0)).unwrap());
-        // return err when col doesn't exist
-        assert!(db.partial_read(Some(2), &[0, 0], &(0..1)).is_err());
+        assert_eq!(None, db.partial_read(1, &[1, 1], &(3..0)).unwrap());
 
         assert_eq!(
             Some(vec![4, 3, 2]),
-            db.partial_read(None, &[0, 0], &(1..4)).unwrap()
+            db.partial_read(0, &[0, 0], &(1..4)).unwrap()
         );
     }
 }

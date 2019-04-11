@@ -42,8 +42,7 @@ use std::time::Duration;
 
 pub const TX_PROPOSAL_TOKEN: u64 = 0;
 
-#[derive(Clone)]
-pub struct Relayer<CI: ChainIndex> {
+pub struct Relayer<CI> {
     chain: ChainController,
     pub(crate) shared: Shared<CI>,
     state: Arc<RelayState>,
@@ -51,10 +50,7 @@ pub struct Relayer<CI: ChainIndex> {
     peers: Arc<Peers>,
 }
 
-impl<CI> Relayer<CI>
-where
-    CI: ChainIndex + 'static,
-{
+impl<CI: ChainIndex> Relayer<CI> {
     pub fn new(chain: ChainController, shared: Shared<CI>, peers: Arc<Peers>) -> Self {
         Relayer {
             chain,
@@ -307,10 +303,7 @@ where
     }
 }
 
-impl<CI> CKBProtocolHandler for Relayer<CI>
-where
-    CI: ChainIndex + 'static,
-{
+impl<CI: ChainIndex> CKBProtocolHandler for Relayer<CI> {
     fn initialize(&self, nc: Box<CKBProtocolContext>) {
         nc.register_timer(Duration::from_millis(100), TX_PROPOSAL_TOKEN);
     }
