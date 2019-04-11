@@ -5,13 +5,18 @@ use ckb_core::block::Block;
 use ckb_core::header::{BlockNumber, Header};
 use ckb_core::transaction::Transaction;
 use ckb_network::PeerIndex;
+use ckb_util::Mutex;
 use ckb_util::RwLock;
 use faketime::unix_time_as_millis;
 use fnv::{FnvHashMap, FnvHashSet};
 use log::debug;
+use lru_cache::LruCache;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
+use std::collections::hash_map::Entry;
 use std::hash::{BuildHasher, Hasher};
+
+const FILTER_SIZE: usize = 500;
 
 // State used to enforce CHAIN_SYNC_TIMEOUT
 // Only in effect for outbound, non-manual connections, with
@@ -57,6 +62,28 @@ pub struct PeerState {
     pub chain_sync: ChainSyncState,
 }
 
+#[derive(Clone, Default)]
+pub struct KnownFilter {
+    inner: FnvHashMap<PeerIndex, LruCache<H256, ()>>,
+}
+
+impl KnownFilter {
+    /// Adds a value to the filter.
+    /// If the filter did not have this value present, `true` is returned.
+    /// If the filter did have this value present, `false` is returned.
+    pub fn insert(&mut self, index: PeerIndex, hash: H256) -> bool {
+        match self.inner.entry(index) {
+            Entry::Occupied(mut o) => o.get_mut().insert(hash, ()).is_none(),
+            Entry::Vacant(v) => {
+                let mut lru = LruCache::new(FILTER_SIZE);
+                lru.insert(hash, ());
+                v.insert(lru);
+                true
+            }
+        }
+    }
+}
+
 #[derive(Default)]
 pub struct Peers {
     pub state: RwLock<FnvHashMap<PeerIndex, PeerState>>,
@@ -65,6 +92,8 @@ pub struct Peers {
     pub best_known_headers: RwLock<FnvHashMap<PeerIndex, HeaderView>>,
     pub last_common_headers: RwLock<FnvHashMap<PeerIndex, Header>>,
     pub transaction_filters: RwLock<FnvHashMap<PeerIndex, TransactionFilter>>,
+    pub known_txs: Mutex<KnownFilter>,
+    pub known_blocks: Mutex<KnownFilter>,
 }
 
 #[derive(Debug, Clone)]
