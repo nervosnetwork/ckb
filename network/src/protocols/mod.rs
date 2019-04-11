@@ -127,9 +127,9 @@ pub trait CKBProtocolContext: Send {
         data: Vec<u8>,
     ) -> Result<(), Error>;
     // TODO combinate this interface with peer score
-    fn report_peer(&self, peer_index: PeerIndex, behaviour: Behaviour) -> Result<(), Error>;
-    fn ban_peer(&self, peer_index: PeerIndex, timeout: Duration);
-    fn disconnect(&self, peer_index: PeerIndex);
+    fn report_peer(&mut self, peer_index: PeerIndex, behaviour: Behaviour) -> Result<(), Error>;
+    fn ban_peer(&mut self, peer_index: PeerIndex, timeout: Duration);
+    fn disconnect(&mut self, peer_index: PeerIndex);
     fn register_timer(&self, interval: Duration, token: u64);
     fn session_info(&self, peer_index: PeerIndex) -> Option<SessionInfo>;
     fn protocol_version(
@@ -188,8 +188,6 @@ impl<'a> CKBProtocolContext for DefaultCKBProtocolContext<'a> {
         let session_id = self
             .network_state
             .peers_registry
-            .peers_guard()
-            .read()
             .get(&peer_id)
             .ok_or_else(|| PeerError::NotFound(peer_id.to_owned()))
             .and_then(|peer| {
@@ -208,12 +206,12 @@ impl<'a> CKBProtocolContext for DefaultCKBProtocolContext<'a> {
             })
     }
     // report peer behaviour
-    fn report_peer(&self, peer_index: PeerIndex, behaviour: Behaviour) -> Result<(), Error> {
+    fn report_peer(&mut self, peer_index: PeerIndex, behaviour: Behaviour) -> Result<(), Error> {
         debug!(target: "network", "report peer {} behaviour: {:?}", peer_index, behaviour);
         if let Some(peer_id) = self.network_state.get_peer_id(peer_index) {
             if self
                 .network_state
-                .peer_store()
+                .peer_store
                 .report(&peer_id, behaviour)
                 .is_banned()
             {
@@ -226,14 +224,14 @@ impl<'a> CKBProtocolContext for DefaultCKBProtocolContext<'a> {
     }
 
     // ban peer
-    fn ban_peer(&self, peer_index: PeerIndex, timeout: Duration) {
+    fn ban_peer(&mut self, peer_index: PeerIndex, timeout: Duration) {
         if let Some(peer_id) = self.network_state.get_peer_id(peer_index) {
             self.network_state
                 .ban_peer(&mut self.p2p_control.clone(), &peer_id, timeout)
         }
     }
     // disconnect from peer
-    fn disconnect(&self, peer_index: PeerIndex) {
+    fn disconnect(&mut self, peer_index: PeerIndex) {
         debug!(target: "network", "disconnect peer {}", peer_index);
         if let Some(peer_id) = self.network_state.get_peer_id(peer_index) {
             self.network_state
@@ -290,9 +288,9 @@ impl<'a> CKBProtocolContext for DefaultCKBProtocolContext<'a> {
 
 pub trait CKBProtocolHandler: Sync + Send {
     // TODO: Remove (_service: &mut ServiceContext) argument later
-    fn initialize(&self, _nc: &dyn CKBProtocolContext);
-    fn received(&self, _nc: &dyn CKBProtocolContext, _peer: PeerIndex, _data: Bytes);
-    fn connected(&self, _nc: &dyn CKBProtocolContext, _peer: PeerIndex);
-    fn disconnected(&self, _nc: &dyn CKBProtocolContext, _peer: PeerIndex);
-    fn timer_triggered(&self, _nc: &dyn CKBProtocolContext, _timer: u64) {}
+    fn initialize(&self, _nc: &mut dyn CKBProtocolContext);
+    fn received(&self, _nc: &mut dyn CKBProtocolContext, _peer: PeerIndex, _data: Bytes);
+    fn connected(&self, _nc: &mut dyn CKBProtocolContext, _peer: PeerIndex);
+    fn disconnected(&self, _nc: &mut dyn CKBProtocolContext, _peer: PeerIndex);
+    fn timer_triggered(&self, _nc: &mut dyn CKBProtocolContext, _timer: u64) {}
 }

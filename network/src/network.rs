@@ -15,7 +15,6 @@ use crate::{
     ProtocolVersion, PublicKey, ServiceContext, ServiceControl, SessionId, SessionType,
 };
 use crate::{DISCOVERY_PROTOCOL_ID, FEELER_PROTOCOL_ID, IDENTIFY_PROTOCOL_ID, PING_PROTOCOL_ID};
-use ckb_util::RwLock;
 use fnv::{FnvHashMap, FnvHashSet};
 use futures::sync::mpsc::channel;
 use futures::sync::{mpsc, oneshot};
@@ -54,13 +53,13 @@ pub struct SessionInfo {
 }
 
 pub struct NetworkState {
-    pub(crate) protocol_ids: RwLock<FnvHashSet<ProtocolId>>,
-    pub(crate) peers_registry: RwLock<PeersRegistry>,
-    peer_store: Arc<RwLock<dyn PeerStore>>,
-    pub(crate) listened_addresses: RwLock<FnvHashMap<Multiaddr, u8>>,
-    pub(crate) original_listened_addresses: RwLock<Vec<Multiaddr>>,
+    pub(crate) protocol_ids: FnvHashSet<ProtocolId>,
+    pub(crate) peers_registry: PeersRegistry,
+    pub(crate) peer_store: Box<dyn PeerStore>,
+    pub(crate) listened_addresses: FnvHashMap<Multiaddr, u8>,
+    pub(crate) original_listened_addresses: Vec<Multiaddr>,
     // For avoid repeat failed dial
-    pub(crate) failed_dials: RwLock<LruCache<PeerId, Instant>>,
+    pub(crate) failed_dials: LruCache<PeerId, Instant>,
     local_private_key: secio::SecioKeyPair,
     local_peer_id: PeerId,
     pub(crate) config: NetworkConfig,
@@ -77,14 +76,14 @@ impl NetworkState {
             .chain(config.public_addresses.iter())
             .map(|addr| (addr.to_owned(), std::u8::MAX))
             .collect();
-        let peer_store: Arc<dyn PeerStore> = {
-            let peer_store =
+        let peer_store: Box<dyn PeerStore> = {
+            let mut peer_store =
                 SqlitePeerStore::file(config.peer_store_path().to_string_lossy().to_string())?;
             let bootnodes = config.bootnodes()?;
             for (peer_id, addr) in bootnodes {
                 peer_store.add_bootnode(peer_id, addr);
             }
-            Arc::new(peer_store)
+            Box::new(peer_store)
         };
 
         let reserved_peers = config
@@ -92,33 +91,34 @@ impl NetworkState {
             .iter()
             .map(|(peer_id, _)| peer_id.to_owned())
             .collect::<Vec<_>>();
-        let peers_registry = PeersRegistry::new(
-            Arc::clone(&peer_store),
-            config.max_inbound_peers(),
-            config.max_outbound_peers(),
-            config.reserved_only,
-            reserved_peers,
-        );
+        //let peers_registry = PeersRegistry::new(
+        //    peer_store,
+        //    config.max_inbound_peers(),
+        //    config.max_outbound_peers(),
+        //    config.reserved_only,
+        //    reserved_peers,
+        //);
+        let peers_registry = unreachable!();
 
         Ok(NetworkState {
             peer_store,
             config,
+            failed_dials: LruCache::new(FAILED_DIAL_CACHE_SIZE),
             peers_registry,
-            failed_dials: RwLock::new(LruCache::new(FAILED_DIAL_CACHE_SIZE)),
-            listened_addresses: RwLock::new(listened_addresses),
-            original_listened_addresses: RwLock::new(Vec::new()),
+            listened_addresses,
+            original_listened_addresses: Vec::new(),
             local_private_key: local_private_key.clone(),
             local_peer_id: local_private_key.to_public_key().peer_id(),
-            protocol_ids: RwLock::new(FnvHashSet::default()),
+            protocol_ids: FnvHashSet::default(),
         })
     }
 
-    pub fn report(&self, peer_id: &PeerId, behaviour: Behaviour) {
+    pub fn report(&mut self, peer_id: &PeerId, behaviour: Behaviour) {
         info!(target: "network", "report {:?} because {:?}", peer_id, behaviour);
         self.peer_store.report(peer_id, behaviour);
     }
 
-    pub fn drop_peer(&self, p2p_control: &mut ServiceControl, peer_id: &PeerId) {
+    pub fn drop_peer(&mut self, p2p_control: &mut ServiceControl, peer_id: &PeerId) {
         debug!(target: "network", "drop peer {:?}", peer_id);
         if let Some(peer) = self.peers_registry.drop_peer(&peer_id) {
             if let Err(err) = p2p_control.disconnect(peer.session_id) {
@@ -127,24 +127,23 @@ impl NetworkState {
         }
     }
 
-    pub fn drop_all(&self, p2p_control: &mut ServiceControl) {
+    pub fn drop_all(&mut self, p2p_control: &mut ServiceControl) {
         debug!(target: "network", "drop all connections...");
         let mut peer_ids = Vec::new();
-        {
-            for (peer_id, peer) in self.peers_registry.peers_guard().read().iter() {
-                peer_ids.push(peer_id.clone());
-                if let Err(err) = p2p_control.disconnect(peer.session_id) {
-                    error!(target: "network", "disconnect peer error {:?}", err);
-                }
+        for (peer_id, peer) in self.peers_registry.peers_iter() {
+            peer_ids.push(peer_id.clone());
+            if let Err(err) = p2p_control.disconnect(peer.session_id) {
+                error!(target: "network", "disconnect peer error {:?}", err);
             }
         }
         self.peers_registry.drop_all();
 
-        let peer_store = self.peer_store();
         for peer_id in peer_ids {
-            if peer_store.peer_status(&peer_id) != Status::Disconnected {
-                peer_store.report(&peer_id, Behaviour::UnexpectedDisconnect);
-                peer_store.update_status(&peer_id, Status::Disconnected);
+            if self.peer_store.peer_status(&peer_id) != Status::Disconnected {
+                self.peer_store
+                    .report(&peer_id, Behaviour::UnexpectedDisconnect);
+                self.peer_store
+                    .update_status(&peer_id, Status::Disconnected);
             }
         }
     }
@@ -154,8 +153,7 @@ impl NetworkState {
     }
 
     pub(crate) fn listened_addresses(&self, count: usize) -> Vec<(Multiaddr, u8)> {
-        let listened_addresses = self.listened_addresses.read();
-        listened_addresses
+        self.listened_addresses
             .iter()
             .take(count)
             .map(|(addr, score)| (addr.to_owned(), *score))
@@ -164,33 +162,36 @@ impl NetworkState {
 
     pub(crate) fn get_peer_index(&self, peer_id: &PeerId) -> Option<PeerIndex> {
         self.peers_registry
-            .peers_guard()
-            .read()
             .get(&peer_id)
             .map(|peer| peer.peer_index)
     }
 
     pub(crate) fn get_peer_id(&self, peer_index: PeerIndex) -> Option<PeerId> {
-        self.peers_registry.get_peer_id(peer_index)
+        self.peers_registry
+            .get_peer_id(peer_index)
+            .map(|peer_id| peer_id.to_owned())
     }
 
     pub(crate) fn connection_status(&self) -> ConnectionStatus {
         self.peers_registry.connection_status()
     }
 
-    pub(crate) fn modify_peer<F>(&self, peer_id: &PeerId, f: F)
-    where
-        F: FnOnce(&mut Peer) -> (),
-    {
-        self.peers_registry.modify_peer(peer_id, f);
-    }
+    //pub(crate) fn modify_peer<F>(&mut self, peer_id: &PeerId, f: F)
+    //where
+    //    F: FnOnce(&mut Peer) -> (),
+    //{
+    //    if let Some(peer) = self.peers_registry.get_mut(peer_id) {
+    //        f(peer);
+    //    }
+    //}
 
     pub(crate) fn peers_indexes(&self) -> Vec<PeerIndex> {
-        self.peers_registry.connected_peers_indexes()
+        let iter = self.peers_registry.connected_peers_indexes();
+        iter.collect::<Vec<_>>()
     }
 
     pub(crate) fn ban_peer(
-        &self,
+        &mut self,
         p2p_control: &mut ServiceControl,
         peer_id: &PeerId,
         timeout: Duration,
@@ -199,21 +200,16 @@ impl NetworkState {
         self.peer_store.ban_peer(peer_id, timeout);
     }
 
-    pub(crate) fn peer_store(&self) -> &Arc<dyn PeerStore> {
-        &self.peer_store
-    }
-
     pub(crate) fn local_private_key(&self) -> &secio::SecioKeyPair {
         &self.local_private_key
     }
 
     pub fn external_urls(&self, max_urls: usize) -> Vec<(String, u8)> {
-        let original_listened_addresses = self.original_listened_addresses.read();
-        self.listened_addresses(max_urls.saturating_sub(original_listened_addresses.len()))
+        self.listened_addresses(max_urls.saturating_sub(self.original_listened_addresses.len()))
             .into_iter()
             .filter(|(addr, _)| !original_listened_addresses.contains(addr))
             .chain(
-                original_listened_addresses
+                self.original_listened_addresses
                     .iter()
                     .map(|addr| (addr.to_owned(), 1)),
             )
@@ -226,12 +222,12 @@ impl NetworkState {
     }
 
     // A workaround method for `add_node` rpc call, need to re-write it after new p2p lib integration.
-    pub fn dial_node(&self, peer_id: &PeerId, address: Multiaddr) {
+    pub fn dial_node(&mut self, peer_id: &PeerId, address: Multiaddr) {
         self.add_discovered_addr(peer_id, address);
     }
 
-    pub fn add_discovered_addr(&self, peer_id: &PeerId, addr: Multiaddr) {
-        self.peer_store().write().add_discovered_addr(peer_id, addr);
+    pub fn add_discovered_addr(&mut self, peer_id: &PeerId, addr: Multiaddr) {
+        self.peer_store.add_discovered_addr(peer_id, addr);
     }
 
     pub fn to_external_url(&self, addr: &Multiaddr) -> String {
@@ -239,7 +235,7 @@ impl NetworkState {
     }
 
     pub(crate) fn accept_connection(
-        &self,
+        &mut self,
         peer_id: PeerId,
         connected_addr: Multiaddr,
         session_id: SessionId,
@@ -247,14 +243,32 @@ impl NetworkState {
         protocol_id: ProtocolId,
         protocol_version: ProtocolVersion,
     ) -> Result<RegisterResult, Error> {
-        self.peers_registry.accept_connection(
-            peer_id,
-            connected_addr,
-            session_id,
-            session_type,
-            protocol_id,
-            protocol_version,
-        )
+        let register_result = if session_type.is_outbound() {
+            self.peers_registry.try_outbound_peer(
+                peer_id.clone(),
+                connected_addr,
+                session_id,
+                session_type,
+            )
+        } else {
+            self.peers_registry.accept_inbound_peer(
+                peer_id.clone(),
+                connected_addr,
+                session_id,
+                session_type,
+            )
+        }?;
+        // add session to peer
+        match self.peers_registry.get_mut(&peer_id) {
+            Some(peer) => match peer.protocol_version(protocol_id) {
+                Some(_) => return Err(ProtocolError::Duplicate(protocol_id).into()),
+                None => {
+                    peer.protocols.insert(protocol_id, protocol_version);
+                }
+            },
+            None => unreachable!("get peer after inserted"),
+        }
+        Ok(register_result)
     }
 
     pub fn peer_protocol_version(
@@ -263,29 +277,22 @@ impl NetworkState {
         protocol_id: ProtocolId,
     ) -> Option<ProtocolVersion> {
         self.peers_registry
-            .peers_guard()
-            .read()
             .get(peer_id)
             .and_then(|peer| peer.protocol_version(protocol_id))
     }
 
     pub fn session_info(&self, peer_id: &PeerId, protocol_id: ProtocolId) -> Option<SessionInfo> {
-        self.peers_registry
-            .peers_guard()
-            .read()
-            .get(peer_id)
-            .map(|peer| {
-                let protocol_version = peer.protocol_version(protocol_id);
-                SessionInfo {
-                    peer: peer.clone(),
-                    protocol_version,
-                }
-            })
+        self.peers_registry.get(peer_id).map(|peer| {
+            let protocol_version = peer.protocol_version(protocol_id);
+            SessionInfo {
+                peer: peer.clone(),
+                protocol_version,
+            }
+        })
     }
 
     pub fn get_protocol_ids<F: Fn(ProtocolId) -> bool>(&self, filter: F) -> Vec<ProtocolId> {
         self.protocol_ids
-            .read()
             .iter()
             .filter(|id| filter(**id))
             .cloned()
@@ -299,7 +306,7 @@ impl NetworkState {
         mut addr: Multiaddr,
         target: DialProtocol,
     ) {
-        if !self.listened_addresses.read().contains_key(&addr) {
+        if !self.listened_addresses.contains_key(&addr) {
             match Multihash::from_bytes(peer_id.as_bytes().to_vec()) {
                 Ok(peer_id_hash) => {
                     addr.append(multiaddr::Protocol::P2p(peer_id_hash));
@@ -312,6 +319,25 @@ impl NetworkState {
                 }
             }
         }
+    }
+
+    pub fn connected_peers(&self) -> Vec<(PeerId, Peer, MultiaddrList)> {
+        self.peers_registry
+            .peers_iter()
+            .map(|(peer_id, peer)| {
+                (
+                    peer_id.clone(),
+                    peer.clone(),
+                    self.peer_store
+                    .peer_addrs(peer_id, ADDR_LIMIT)
+                    .unwrap_or_default()
+                    .into_iter()
+                    // FIXME how to return address score?
+                    .map(|address| (address, 1))
+                    .collect(),
+                )
+            })
+            .collect()
     }
 
     /// Dial all protocol except feeler

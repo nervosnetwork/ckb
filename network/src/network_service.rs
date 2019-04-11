@@ -104,7 +104,6 @@ impl Stream for NetworkService {
     type Item = ();
     type Error = ();
 
-    // TODO simple schedule
     fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
         match try_ready!(self.event_receiver.poll()) {
             Some(NetworkEvent::Error(error)) => {
@@ -118,7 +117,7 @@ impl Stream for NetworkService {
                 self.handle_protocol(event);
             }
             None => {
-                // do nothing
+                error!(target: "network", "event_receiver stopped");
             }
         }
 
@@ -133,6 +132,8 @@ impl Stream for NetworkService {
         //TODO peer disconnect flag
         //TODO 4. update network state/dial/disconnect...
         //TODO Process peer registry in session events
+        //TODO remove locks
+        // TODO simple schedule, consume all network events then do other things
         // TODO Check Shutdown
         // 1. disconnect all
         // 2. shutdown stream
@@ -142,7 +143,7 @@ impl Stream for NetworkService {
 
 impl NetworkService {
     pub fn build(
-        network_state: NetworkState,
+        mut network_state: NetworkState,
         protocols: Vec<CKBProtocol>,
     ) -> (NetworkService, NetworkController) {
         let config = network_state.config.clone();
@@ -243,7 +244,7 @@ impl NetworkService {
 
         let mut service_builder = ServiceBuilder::default();
         for meta in protocol_metas.into_iter() {
-            network_state.protocol_ids.write().insert(meta.id());
+            network_state.protocol_ids.insert(meta.id());
             service_builder = service_builder.insert_protocol(meta);
         }
 
@@ -288,15 +289,14 @@ impl NetworkService {
         for addr in &config.listen_addresses {
             match self.p2p_service.listen(addr.to_owned()) {
                 Ok(listen_address) => {
+                    let mut network_state = self.network_state.borrow_mut();
                     info!(
                     target: "network",
                     "Listen on address: {}",
-                    self.network_state.borrow().to_external_url(&listen_address)
+                    network_state.to_external_url(&listen_address)
                     );
-                    self.network_state
-                        .borrow()
+                    network_state
                         .original_listened_addresses
-                        .write()
                         .push(listen_address.clone())
                 }
                 Err(err) => {
@@ -322,8 +322,7 @@ impl NetworkService {
         let bootnodes = self
             .network_state
             .borrow()
-            .peer_store()
-            .read()
+            .peer_store
             .bootnodes(max((config.max_outbound_peers / 2) as u32, 1))
             .clone();
         // dial half bootnodes
@@ -396,11 +395,14 @@ impl NetworkService {
                 .map(|pubkey| pubkey.peer_id())
                 .expect("Secio must enabled");
 
-            let network_state = self.network_state.borrow_mut();
-            let mut peer_store = network_state.peer_store().write();
-            if peer_store.peer_status(&peer_id) == Status::Connected {
-                peer_store.report(&peer_id, Behaviour::UnexpectedDisconnect);
-                peer_store.update_status(&peer_id, Status::Disconnected);
+            let mut network_state = self.network_state.borrow_mut();
+            if network_state.peer_store.peer_status(&peer_id) == Status::Connected {
+                network_state
+                    .peer_store
+                    .report(&peer_id, Behaviour::UnexpectedDisconnect);
+                network_state
+                    .peer_store
+                    .update_status(&peer_id, Status::Disconnected);
             }
             network_state.drop_peer(self.p2p_service.control(), &peer_id);
         }
@@ -424,15 +426,13 @@ impl NetworkService {
                 self.network_state
                     .borrow_mut()
                     .listened_addresses
-                    .write()
                     .insert(addr, std::u8::MAX);
             }
             // TODO implement in peer store
             if let Some(peer_id) = extract_peer_id(address) {
                 self.network_state
-                    .borrow()
+                    .borrow_mut()
                     .failed_dials
-                    .write()
                     .insert(peer_id, Instant::now());
             }
         }
@@ -440,6 +440,7 @@ impl NetworkService {
 
     fn handle_protocol(&mut self, event: ProtocolEvent) {
         let p2p_control = self.p2p_service.control().clone();
+        let mut network_state = self.network_state.borrow_mut();
         match event {
             ProtocolEvent::Connected {
                 session_context,
@@ -455,7 +456,7 @@ impl NetworkService {
                     .parse::<ProtocolVersion>()
                     .expect("parse protocol version");
                 // try accept connection
-                let result = self.network_state.borrow_mut().accept_connection(
+                let result = network_state.accept_connection(
                     peer_id.clone(),
                     session_context.address.clone(),
                     session_context.id,
@@ -464,9 +465,7 @@ impl NetworkService {
                     parsed_version,
                 );
                 if let Err(err) = result {
-                    self.network_state
-                        .borrow_mut()
-                        .drop_peer(&mut p2p_control.clone(), &peer_id);
+                    network_state.drop_peer(&mut p2p_control.clone(), &peer_id);
                     info!(
                     target: "network",
                     "reject connection from {} {}, because {:?}",
@@ -479,22 +478,18 @@ impl NetworkService {
                 // update peer status if connection is new
                 if let Ok(RegisterResult::New(_)) = result {
                     // update status in peer_store
-                    let network_state = self.network_state.borrow();
-                    let mut peer_store = network_state.peer_store().write();
-                    peer_store.update_status(&peer_id, Status::Connected);
+                    network_state
+                        .peer_store
+                        .update_status(&peer_id, Status::Connected);
                 }
 
                 // call handler
                 if let Some(protocol) = self.find_protocol(proto_id) {
-                    let peer_index = self
-                        .network_state
-                        .borrow()
-                        .get_peer_index(&peer_id)
-                        .expect("peer index");
+                    let peer_index = network_state.get_peer_index(&peer_id).expect("peer index");
                     protocol.handler().connected(
-                        &DefaultCKBProtocolContext::new(
+                        &mut DefaultCKBProtocolContext::new(
                             proto_id,
-                            &mut self.network_state.borrow_mut(),
+                            &mut network_state,
                             p2p_control,
                         ),
                         peer_index,
@@ -519,7 +514,7 @@ impl NetworkService {
                         .get_peer_index(&peer_id)
                         .expect("peer index");
                     protocol.handler().received(
-                        &DefaultCKBProtocolContext::new(
+                        &mut DefaultCKBProtocolContext::new(
                             proto_id,
                             &mut self.network_state.borrow_mut(),
                             p2p_control,
@@ -545,7 +540,7 @@ impl NetworkService {
                         .get_peer_index(&peer_id)
                         .expect("peer index");
                     protocol.handler().disconnected(
-                        &DefaultCKBProtocolContext::new(
+                        &mut DefaultCKBProtocolContext::new(
                             proto_id,
                             &mut self.network_state.borrow_mut(),
                             p2p_control,
@@ -557,7 +552,7 @@ impl NetworkService {
             ProtocolEvent::ProtocolNotify { proto_id, token } => {
                 if let Some(protocol) = self.find_protocol(proto_id) {
                     protocol.handler().timer_triggered(
-                        &DefaultCKBProtocolContext::new(
+                        &mut DefaultCKBProtocolContext::new(
                             proto_id,
                             &mut self.network_state.borrow_mut(),
                             p2p_control,
@@ -578,7 +573,7 @@ impl NetworkService {
     fn init_protocols(&mut self) {
         let p2p_control = self.p2p_service.control().clone();
         for p in &self.protocols {
-            p.handler().initialize(&DefaultCKBProtocolContext::new(
+            p.handler().initialize(&mut DefaultCKBProtocolContext::new(
                 p.id(),
                 &mut self.network_state.borrow_mut(),
                 p2p_control.clone(),
@@ -591,7 +586,7 @@ impl NetworkService {
     }
 
     fn process_network_call(&mut self) -> bool {
-        let network_state = self.network_state.borrow_mut();
+        let mut network_state = self.network_state.borrow_mut();
         select! {
             recv(self.receivers.external_urls_receiver) -> msg => match msg {
                 Ok(Request {responder, arguments: count}) => {
@@ -695,26 +690,6 @@ impl NetworkController {
 
     pub fn connected_peers(&self) -> Vec<(PeerId, Peer, MultiaddrList)> {
         Request::call(&self.connected_peers_sender, ()).expect("connected_peers() failed")
-        // let peer_store = self.network_state.peer_store().read();
-
-        // self.network_state
-        //     .peers_registry
-        //     .read()
-        //     .peers_iter()
-        //     .map(|(peer_id, peer)| {
-        //         (
-        //             peer_id.clone(),
-        //             peer.clone(),
-        //             peer_store
-        //             .peer_addrs(peer_id, ADDR_LIMIT)
-        //             .unwrap_or_default()
-        //             .into_iter()
-        //             // FIXME how to return address score?
-        //             .map(|address| (address, 1))
-        //             .collect(),
-        //             )
-        //     })
-        // .collect()
     }
 
     //pub fn with_protocol_context<F, T>(&mut self, protocol_id: ProtocolId, f: F) -> T

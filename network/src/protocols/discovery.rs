@@ -189,10 +189,7 @@ impl BackgroundService for DiscoveryService {
                                             _ => true,
                                         })
                                         .collect::<Multiaddr>();
-                                    let _ = network_state
-                                        .peer_store()
-                                        .write()
-                                        .add_discovered_addr(&peer_id, addr);
+                                    network_state.peer_store.add_discovered_addr(&peer_id, addr);
                                 }
                             }
                         }
@@ -206,8 +203,7 @@ impl BackgroundService for DiscoveryService {
                     }
                     Some(DiscoveryEvent::GetRandom { n, result }) => {
                         let addrs = network_state
-                            .peer_store()
-                            .read()
+                            .peer_store
                             .random_peers(n as u32)
                             .into_iter()
                             .filter_map(|(peer_id, mut addr)| {

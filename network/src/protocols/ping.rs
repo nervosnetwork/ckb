@@ -33,10 +33,10 @@ impl BackgroundService for PingService {
                     }
                     Some(Pong(peer_id, duration)) => {
                         trace!(target: "network", "receive pong from {:?} duration {:?}", peer_id, duration);
-                        network_state.modify_peer(&peer_id, |peer: &mut Peer| {
+                        if let Some(peer) = network_state.peers_registry.get_mut(&peer_id) {
                             peer.ping = Some(duration);
                             peer.last_ping_time = Some(Instant::now());
-                        });
+                        }
                         network_state.report(&peer_id, Behaviour::Ping);
                     }
                     Some(Timeout(peer_id)) => {
