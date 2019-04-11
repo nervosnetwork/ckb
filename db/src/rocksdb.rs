@@ -1,6 +1,6 @@
-use crate::{Col, DBConfig, DbBatch, Error, ErrorKind, KeyValueDB, Result};
+use crate::{Col, DBConfig, DbBatch, Error, KeyValueDB, Result};
 use log::warn;
-use rocksdb::{Error as RdbError, Options, WriteBatch, DB};
+use rocksdb::{ColumnFamily, Error as RdbError, Options, WriteBatch, DB};
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -47,14 +47,16 @@ impl RocksDB {
     }
 }
 
+fn cf_handle(db: &DB, col: Col) -> Result<ColumnFamily> {
+    db.cf_handle(&col.to_string())
+        .ok_or_else(|| Error::DBError(format!("column {} not found", col)))
+}
+
 impl KeyValueDB for RocksDB {
     type Batch = RocksdbBatch;
 
     fn read(&self, col: Col, key: &[u8]) -> Result<Option<Vec<u8>>> {
-        let cf = self
-            .inner
-            .cf_handle(&col.to_string())
-            .expect("column not found");
+        let cf = cf_handle(&self.inner, col)?;
         self.inner
             .get_cf(cf, &key)
             .map(|v| v.map(|vi| vi.to_vec()))
@@ -62,10 +64,7 @@ impl KeyValueDB for RocksDB {
     }
 
     fn partial_read(&self, col: Col, key: &[u8], range: &Range<usize>) -> Result<Option<Vec<u8>>> {
-        let cf = self
-            .inner
-            .cf_handle(&col.to_string())
-            .expect("column not found");
+        let cf = cf_handle(&self.inner, col)?;
         self.inner
             .get_pinned_cf(cf, &key)
             .map(|v| v.and_then(|vi| vi.get(range.start..range.end).map(|slice| slice.to_vec())))
@@ -87,19 +86,13 @@ pub struct RocksdbBatch {
 
 impl DbBatch for RocksdbBatch {
     fn insert(&mut self, col: Col, key: &[u8], value: &[u8]) -> Result<()> {
-        let cf = self
-            .db
-            .cf_handle(&col.to_string())
-            .expect("column not found");
+        let cf = cf_handle(&self.db, col)?;
         self.wb.put_cf(cf, key, value)?;
         Ok(())
     }
 
     fn delete(&mut self, col: Col, key: &[u8]) -> Result<()> {
-        let cf = self
-            .db
-            .cf_handle(&col.to_string())
-            .expect("column not found");
+        let cf = cf_handle(&self.db, col)?;
         self.wb.delete_cf(cf, &key)?;
         Ok(())
     }
@@ -112,7 +105,7 @@ impl DbBatch for RocksdbBatch {
 
 impl From<RdbError> for Error {
     fn from(err: RdbError) -> Error {
-        ErrorKind::DBError(err.into())
+        Error::DBError(err.into())
     }
 }
 

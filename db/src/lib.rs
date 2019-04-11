@@ -18,11 +18,10 @@ pub use crate::memorydb::MemoryKeyValueDB;
 pub use crate::rocksdb::RocksDB;
 
 pub type Col = u32;
-pub type Error = ErrorKind;
 pub type Result<T> = result::Result<T, Error>;
 
 #[derive(Clone, Debug, PartialEq, Eq, Fail)]
-pub enum ErrorKind {
+pub enum Error {
     #[fail(display = "DBError {}", _0)]
     DBError(String),
 }

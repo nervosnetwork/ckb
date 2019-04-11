@@ -11,10 +11,10 @@ fn new_shared() -> Shared<ChainKVStore<MemoryKeyValueDB>> {
     SharedBuilder::<MemoryKeyValueDB>::new().build()
 }
 
-fn insert_block_timestamps<T>(store: &ChainKVStore<T>, timestamps: &[u64]) -> Vec<H256>
-where
-    T: KeyValueDB + 'static,
-{
+fn insert_block_timestamps<T: KeyValueDB>(
+    store: &ChainKVStore<T>,
+    timestamps: &[u64],
+) -> Vec<H256> {
     let mut blocks = Vec::with_capacity(timestamps.len());
     let mut hashes = Vec::with_capacity(timestamps.len());
     let mut parent_hash = H256::zero();
@@ -27,11 +27,11 @@ where
         hashes.push(parent_hash.clone());
         blocks.push(BlockBuilder::default().header(header).build());
     }
-    let mut batch = store.new_batch();
+    let mut batch = store.new_batch().unwrap();
     for b in blocks {
-        batch.insert_block(&b);
+        batch.insert_block(&b).unwrap();
     }
-    batch.commit();
+    batch.commit().unwrap();
     hashes
 }
 

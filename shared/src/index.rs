@@ -5,14 +5,14 @@ use ckb_core::block::Block;
 use ckb_core::extras::{BlockExt, TransactionAddress};
 use ckb_core::header::{BlockNumber, Header};
 use ckb_core::transaction::{Transaction, TransactionBuilder};
-use ckb_db::KeyValueDB;
+use ckb_db::{Error, KeyValueDB};
 use numext_fixed_hash::H256;
 
 const META_TIP_HEADER_KEY: &[u8] = b"TIP_HEADER";
 
 // maintain chain index, extend chainstore
 pub trait ChainIndex: ChainStore {
-    fn init(&self, genesis: &Block);
+    fn init(&self, genesis: &Block) -> Result<(), Error>;
     fn get_block_hash(&self, number: BlockNumber) -> Option<H256>;
     fn get_block_number(&self, hash: &H256) -> Option<BlockNumber>;
     fn get_tip_header(&self) -> Option<Header>;
@@ -21,8 +21,8 @@ pub trait ChainIndex: ChainStore {
 }
 
 impl<T: KeyValueDB> ChainIndex for ChainKVStore<T> {
-    fn init(&self, genesis: &Block) {
-        let mut batch = self.new_batch();
+    fn init(&self, genesis: &Block) -> Result<(), Error> {
+        let mut batch = self.new_batch()?;
         let genesis_hash = genesis.header().hash();
         let ext = BlockExt {
             received_at: genesis.header().timestamp(),
@@ -44,11 +44,11 @@ impl<T: KeyValueDB> ChainIndex for ChainKVStore<T> {
             cells.push((ins, outs));
         }
 
-        batch.insert_block(genesis);
-        batch.insert_block_ext(&genesis_hash, &ext);
-        batch.insert_tip_header(&genesis.header());
-        batch.attach_block(genesis);
-        batch.commit();
+        batch.insert_block(genesis)?;
+        batch.insert_block_ext(&genesis_hash, &ext)?;
+        batch.insert_tip_header(&genesis.header())?;
+        batch.attach_block(genesis)?;
+        batch.commit()
     }
 
     fn get_block_hash(&self, number: BlockNumber) -> Option<H256> {
@@ -110,7 +110,7 @@ mod tests {
         let consensus = Consensus::default();
         let block = consensus.genesis_block();
         let hash = block.header().hash();
-        store.init(&block);
+        store.init(&block).unwrap();
         assert_eq!(&hash, &store.get_block_hash(0).unwrap());
 
         assert_eq!(

@@ -10,8 +10,7 @@ use ckb_core::extras::{BlockExt, TransactionAddress};
 use ckb_core::header::{Header, HeaderBuilder};
 use ckb_core::transaction::{ProposalShortId, Transaction, TransactionBuilder};
 use ckb_core::uncle::UncleBlock;
-use ckb_db::Col;
-use ckb_db::{DbBatch, KeyValueDB};
+use ckb_db::{Col, DbBatch, Error, KeyValueDB};
 use numext_fixed_hash::H256;
 use serde::Serialize;
 use std::ops::Range;
@@ -40,7 +39,7 @@ impl<T: KeyValueDB> ChainKVStore<T> {
 
 pub trait ChainStore: Sync + Send {
     type Batch: StoreBatch;
-    fn new_batch(&self) -> Self::Batch;
+    fn new_batch(&self) -> Result<Self::Batch, Error>;
 
     fn get_block(&self, block_hash: &H256) -> Option<Block>;
     fn get_header(&self, block_hash: &H256) -> Option<Header>;
@@ -51,23 +50,23 @@ pub trait ChainStore: Sync + Send {
 }
 
 pub trait StoreBatch {
-    fn insert_block(&mut self, block: &Block);
-    fn insert_block_ext(&mut self, block_hash: &H256, ext: &BlockExt);
-    fn insert_tip_header(&mut self, header: &Header);
+    fn insert_block(&mut self, block: &Block) -> Result<(), Error>;
+    fn insert_block_ext(&mut self, block_hash: &H256, ext: &BlockExt) -> Result<(), Error>;
+    fn insert_tip_header(&mut self, header: &Header) -> Result<(), Error>;
 
-    fn attach_block(&mut self, block: &Block);
-    fn detach_block(&mut self, block: &Block);
+    fn attach_block(&mut self, block: &Block) -> Result<(), Error>;
+    fn detach_block(&mut self, block: &Block) -> Result<(), Error>;
 
-    fn commit(self);
+    fn commit(self) -> Result<(), Error>;
 }
 
 impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
     type Batch = DefaultStoreBatch<T::Batch>;
 
-    fn new_batch(&self) -> Self::Batch {
-        DefaultStoreBatch {
-            inner: self.db.batch().expect("new db batch should be ok"),
-        }
+    fn new_batch(&self) -> Result<Self::Batch, Error> {
+        Ok(DefaultStoreBatch {
+            inner: self.db.batch()?,
+        })
     }
 
     fn get_block(&self, h: &H256) -> Option<Block> {
@@ -98,18 +97,19 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
     fn get_block_uncles(&self, h: &H256) -> Option<Vec<UncleBlock>> {
         // TODO Q use builder
         self.get(COLUMN_BLOCK_UNCLE, h.as_bytes())
-            .map(|raw| deserialize(&raw[..]).unwrap())
+            .map(|raw| deserialize(&raw[..]).expect("deserialize uncle should be ok"))
     }
 
     fn get_block_proposal_txs_ids(&self, h: &H256) -> Option<Vec<ProposalShortId>> {
         self.get(COLUMN_BLOCK_PROPOSAL_IDS, h.as_bytes())
-            .map(|raw| deserialize(&raw[..]).unwrap())
+            .map(|raw| deserialize(&raw[..]).expect("deserialize proposal txs id should be ok"))
     }
 
     fn get_block_body(&self, h: &H256) -> Option<Vec<Transaction>> {
         self.get(COLUMN_BLOCK_TRANSACTION_ADDRESSES, h.as_bytes())
             .and_then(|serialized_addresses| {
-                let addresses: Vec<Address> = deserialize(&serialized_addresses).unwrap();
+                let addresses: Vec<Address> =
+                    deserialize(&serialized_addresses).expect("deserialize address should be ok");
                 self.get(COLUMN_BLOCK_BODY, h.as_bytes())
                     .map(|serialized_body| {
                         let txs: Vec<TransactionBuilder> = addresses
@@ -129,7 +129,7 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
 
     fn get_block_ext(&self, block_hash: &H256) -> Option<BlockExt> {
         self.get(COLUMN_EXT, block_hash.as_bytes())
-            .map(|raw| deserialize(&raw[..]).unwrap())
+            .map(|raw| deserialize(&raw[..]).expect("deserialize block ext should be ok"))
     }
 }
 
@@ -139,83 +139,84 @@ pub struct DefaultStoreBatch<B> {
 
 /// helper methods
 impl<B: DbBatch> DefaultStoreBatch<B> {
-    fn insert_raw(&mut self, col: Col, key: &[u8], value: &[u8]) {
-        self.inner
-            .insert(col, key, value)
-            .expect("batch insert_raw should be ok")
+    fn insert_raw(&mut self, col: Col, key: &[u8], value: &[u8]) -> Result<(), Error> {
+        self.inner.insert(col, key, value)
     }
 
-    fn insert_serialize<T: Serialize + ?Sized>(&mut self, col: Col, key: &[u8], item: &T) {
-        self.inner
-            .insert(
-                col,
-                key,
-                &serialize(item).expect("serializing should be ok"),
-            )
-            .expect("batch insert_serialize should be ok")
+    fn insert_serialize<T: Serialize + ?Sized>(
+        &mut self,
+        col: Col,
+        key: &[u8],
+        item: &T,
+    ) -> Result<(), Error> {
+        self.inner.insert(
+            col,
+            key,
+            &serialize(item).expect("serializing should be ok"),
+        )
     }
 
-    fn delete(&mut self, col: Col, key: &[u8]) {
-        self.inner
-            .delete(col, key)
-            .expect("batch delete should be ok")
+    fn delete(&mut self, col: Col, key: &[u8]) -> Result<(), Error> {
+        self.inner.delete(col, key)
     }
 }
 
 impl<B: DbBatch> StoreBatch for DefaultStoreBatch<B> {
-    fn insert_block(&mut self, b: &Block) {
+    fn insert_block(&mut self, b: &Block) -> Result<(), Error> {
         let hash = b.header().hash();
-        self.insert_serialize(COLUMN_BLOCK_HEADER, hash.as_bytes(), b.header());
-        self.insert_serialize(COLUMN_BLOCK_UNCLE, hash.as_bytes(), b.uncles());
+        self.insert_serialize(COLUMN_BLOCK_HEADER, hash.as_bytes(), b.header())?;
+        self.insert_serialize(COLUMN_BLOCK_UNCLE, hash.as_bytes(), b.uncles())?;
         self.insert_serialize(
             COLUMN_BLOCK_PROPOSAL_IDS,
             hash.as_bytes(),
             b.proposal_transactions(),
-        );
-        let (block_data, block_addresses) = flat_serialize(b.commit_transactions().iter()).unwrap();
-        self.insert_raw(COLUMN_BLOCK_BODY, hash.as_bytes(), &block_data);
+        )?;
+        let (block_data, block_addresses) =
+            flat_serialize(b.commit_transactions().iter()).expect("flat serialize should be ok");
+        self.insert_raw(COLUMN_BLOCK_BODY, hash.as_bytes(), &block_data)?;
         self.insert_serialize(
             COLUMN_BLOCK_TRANSACTION_ADDRESSES,
             hash.as_bytes(),
             &block_addresses,
-        );
+        )
     }
 
-    fn insert_block_ext(&mut self, block_hash: &H256, ext: &BlockExt) {
-        self.insert_serialize(COLUMN_EXT, block_hash.as_bytes(), ext);
+    fn insert_block_ext(&mut self, block_hash: &H256, ext: &BlockExt) -> Result<(), Error> {
+        self.insert_serialize(COLUMN_EXT, block_hash.as_bytes(), ext)
     }
 
-    fn attach_block(&mut self, block: &Block) {
+    fn attach_block(&mut self, block: &Block) -> Result<(), Error> {
         let hash = block.header().hash();
-        let number = block.header().number().to_le_bytes();
-        self.insert_raw(COLUMN_INDEX, &number, hash.as_bytes());
-        self.insert_raw(COLUMN_INDEX, hash.as_bytes(), &number);
-
-        let addresses = serialized_addresses(block.commit_transactions().iter()).unwrap();
+        let addresses = serialized_addresses(block.commit_transactions().iter())
+            .expect("serialize addresses should be ok");
         for (id, tx) in block.commit_transactions().iter().enumerate() {
             let address = TransactionAddress {
                 block_hash: hash.clone(),
                 offset: addresses[id].offset,
                 length: addresses[id].length,
             };
-            self.insert_serialize(COLUMN_TRANSACTION_ADDR, tx.hash().as_bytes(), &address);
+            self.insert_serialize(COLUMN_TRANSACTION_ADDR, tx.hash().as_bytes(), &address)?;
         }
+
+        let number = block.header().number().to_le_bytes();
+        self.insert_raw(COLUMN_INDEX, &number, hash.as_bytes())?;
+        self.insert_raw(COLUMN_INDEX, hash.as_bytes(), &number)
     }
 
-    fn detach_block(&mut self, block: &Block) {
-        self.delete(COLUMN_INDEX, &block.header().number().to_le_bytes());
-        self.delete(COLUMN_INDEX, block.header().hash().as_bytes());
+    fn detach_block(&mut self, block: &Block) -> Result<(), Error> {
         for tx in block.commit_transactions() {
-            self.delete(COLUMN_TRANSACTION_ADDR, tx.hash().as_bytes());
+            self.delete(COLUMN_TRANSACTION_ADDR, tx.hash().as_bytes())?;
         }
+        self.delete(COLUMN_INDEX, &block.header().number().to_le_bytes())?;
+        self.delete(COLUMN_INDEX, block.header().hash().as_bytes())
     }
 
-    fn insert_tip_header(&mut self, h: &Header) {
-        self.insert_raw(COLUMN_META, META_TIP_HEADER_KEY, h.hash().as_bytes());
+    fn insert_tip_header(&mut self, h: &Header) -> Result<(), Error> {
+        self.insert_raw(COLUMN_META, META_TIP_HEADER_KEY, h.hash().as_bytes())
     }
 
-    fn commit(self) {
-        self.inner.commit().expect("batch commit should be ok");
+    fn commit(self) -> Result<(), Error> {
+        self.inner.commit()
     }
 }
 
@@ -246,9 +247,9 @@ mod tests {
         let block = consensus.genesis_block();
 
         let hash = block.header().hash();
-        let mut batch = store.new_batch();
-        batch.insert_block(&block);
-        batch.commit();
+        let mut batch = store.new_batch().unwrap();
+        batch.insert_block(&block).unwrap();
+        batch.commit().unwrap();
         assert_eq!(block, &store.get_block(&hash).unwrap());
     }
 
@@ -263,9 +264,9 @@ mod tests {
             .build();
 
         let hash = block.header().hash();
-        let mut batch = store.new_batch();
-        batch.insert_block(&block);
-        batch.commit();
+        let mut batch = store.new_batch().unwrap();
+        batch.insert_block(&block).unwrap();
+        batch.commit().unwrap();
         assert_eq!(block, store.get_block(&hash).unwrap());
     }
 
@@ -284,9 +285,9 @@ mod tests {
         };
 
         let hash = block.header().hash();
-        let mut batch = store.new_batch();
-        batch.insert_block_ext(&hash, &ext);
-        batch.commit();
+        let mut batch = store.new_batch().unwrap();
+        batch.insert_block_ext(&hash, &ext).unwrap();
+        batch.commit().unwrap();
         assert_eq!(ext, store.get_block_ext(&hash).unwrap());
     }
 }

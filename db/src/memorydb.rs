@@ -1,5 +1,5 @@
 // for unit test
-use crate::{Col, DbBatch, ErrorKind, KeyValueDB, Result};
+use crate::{Col, DbBatch, Error, KeyValueDB, Result};
 use ckb_util::RwLock;
 use fnv::FnvHashMap;
 use std::ops::Range;
@@ -33,7 +33,7 @@ impl KeyValueDB for MemoryKeyValueDB {
         let db = self.db.read();
 
         match db.get(&col) {
-            None => Err(ErrorKind::DBError(format!("column {:?} not found ", col))),
+            None => Err(Error::DBError(format!("column {} not found ", col))),
             Some(map) => Ok(map.get(key).cloned()),
         }
     }
@@ -42,7 +42,7 @@ impl KeyValueDB for MemoryKeyValueDB {
         let db = self.db.read();
 
         match db.get(&col) {
-            None => Err(ErrorKind::DBError(format!("column {:?} not found ", col))),
+            None => Err(Error::DBError(format!("column {} not found ", col))),
             Some(map) => Ok(map
                 .get(key)
                 .and_then(|data| data.get(range.start..range.end))

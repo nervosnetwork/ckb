@@ -172,7 +172,6 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
         Ok(())
     }
 
-    #[allow(clippy::op_ref)]
     pub(crate) fn insert_block(&self, block: Arc<Block>) -> Result<(), FailureError> {
         let mut new_best_block = false;
         let mut total_difficulty = U256::zero();
@@ -208,8 +207,8 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
             txs_verified: None,
         };
 
-        let mut batch = self.shared.store().new_batch();
-        batch.insert_block(&block);
+        let mut batch = self.shared.store().new_batch()?;
+        batch.insert_block(&block)?;
         if (cannon_total_difficulty > current_total_difficulty)
             || ((current_total_difficulty == cannon_total_difficulty)
                 && (block.header().hash() < tip_hash))
@@ -223,16 +222,16 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
 
             self.find_fork(&mut fork, tip_number, &block, ext);
             cell_set_diff = self.reconcile_main_chain(&mut batch, &mut fork, &mut chain_state)?;
-            self.update_index(&mut batch, &fork.detached_blocks, &fork.attached_blocks);
+            self.update_index(&mut batch, &fork.detached_blocks, &fork.attached_blocks)?;
             self.update_proposal_ids(&mut chain_state, &fork);
-            batch.insert_tip_header(&block.header());
+            batch.insert_tip_header(&block.header())?;
             new_best_block = true;
 
             total_difficulty = cannon_total_difficulty;
         } else {
-            batch.insert_block_ext(&block.header().hash(), &ext);
+            batch.insert_block_ext(&block.header().hash(), &ext)?;
         }
-        batch.commit();
+        batch.commit()?;
 
         if new_best_block {
             let tip_header = block.header().clone();
@@ -266,14 +265,15 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
         batch: &mut StoreBatch,
         detached_blocks: &[Block],
         attached_blocks: &[Block],
-    ) {
+    ) -> Result<(), FailureError> {
         for block in detached_blocks {
-            batch.detach_block(block);
+            batch.detach_block(block)?;
         }
 
         for block in attached_blocks {
-            batch.attach_block(block);
+            batch.attach_block(block)?;
         }
+        Ok(())
     }
 
     fn alignment_fork(
@@ -465,7 +465,7 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
             .zip(fork.attached_blocks().iter())
             .rev()
         {
-            batch.insert_block_ext(&b.header().hash(), ext);
+            batch.insert_block_ext(&b.header().hash(), ext)?;
         }
 
         if let Some(err) = found_error {
