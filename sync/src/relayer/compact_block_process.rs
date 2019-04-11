@@ -112,7 +112,7 @@ struct CompactBlockMedianTimeView<'a, CI> {
 
 impl<'a, CI> ::std::clone::Clone for CompactBlockMedianTimeView<'a, CI>
 where
-    CI: ChainIndex + 'static,
+    CI: ChainIndex,
 {
     fn clone(&self) -> Self {
         CompactBlockMedianTimeView {
@@ -125,7 +125,7 @@ where
 
 impl<'a, CI> CompactBlockMedianTimeView<'a, CI>
 where
-    CI: ChainIndex + 'static,
+    CI: ChainIndex,
 {
     fn get_header(&self, hash: &H256) -> Option<Header> {
         self.pending_compact_blocks

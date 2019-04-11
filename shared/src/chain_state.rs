@@ -43,7 +43,9 @@ impl<CI: ChainIndex> ChainState<CI> {
             match store.get_tip_header() {
                 Some(h) => h,
                 None => {
-                    store.init(&genesis);
+                    store
+                        .init(&genesis)
+                        .expect("init genesis block should be ok");
                     genesis.header().clone()
                 }
             }

@@ -32,12 +32,9 @@ where
     let mut batch = store.new_batch().unwrap();
     for b in blocks {
         batch.insert_block(&b).unwrap();
-        batch
-            .insert_block_hash(b.header().number(), &b.header().hash())
-            .unwrap();
+        batch.attach_block(&b).unwrap();
     }
     batch.commit().unwrap();
-    hashes
 }
 
 #[test]
