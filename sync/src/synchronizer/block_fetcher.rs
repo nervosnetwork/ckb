@@ -10,7 +10,7 @@ use ckb_shared::index::ChainIndex;
 use ckb_traits::ChainProvider;
 use ckb_util::try_option;
 use faketime::unix_time_as_millis;
-use log::debug;
+use log::{debug, trace};
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 use std::cmp;

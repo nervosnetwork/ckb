@@ -55,15 +55,7 @@ where
                 fbb.finish(message, None);
 
                 for peer in self.nc.connected_peers() {
-                    if peer != self.peer
-                        && self
-                            .relayer
-                            .peers()
-                            .transaction_filters
-                            .read()
-                            .get(&peer)
-                            .map_or(true, |filter| filter.contains(&tx))
-                    {
+                    if peer != self.peer {
                         let ret = self.nc.send(peer, fbb.finished_data().to_vec());
 
                         if ret.is_err() {

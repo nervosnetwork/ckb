@@ -128,6 +128,7 @@ impl PeersRegistry {
         let mut peers = self.peers.write();
 
         if let Some(peer) = peers.get_mut(&peer_id) {
+            debug!(target: "network", "add peer protocol: peer_id={:?}, session_id={}, protocol_id={}", peer_id, session_id, protocol_id);
             peer.protocols.insert(protocol_id, protocol_version);
             return Ok(RegisterResult::Exist(peer.peer_index));
         }
