@@ -41,12 +41,13 @@ sudo pacman -Sy git gcc pkgconf clang
 brew install autoconf libtool
 ```
 
-### Build
+### Build from master branch
 
 ```bash
 # get ckb source code
 git clone https://github.com/nervosnetwork/ckb.git
 cd ckb
+git checkout master
 
 # build in release mode
 make build
