@@ -37,7 +37,6 @@ pub type PooledConnection = r2d2::PooledConnection<SqliteConnectionManager>;
 lazy_static! {
     static ref OPEN_FLAGS: OpenFlags = OpenFlags::SQLITE_OPEN_READ_WRITE
         | OpenFlags::SQLITE_OPEN_CREATE
-        | OpenFlags::SQLITE_OPEN_SHARED_CACHE
         | OpenFlags::SQLITE_OPEN_NO_MUTEX;
 }
 
