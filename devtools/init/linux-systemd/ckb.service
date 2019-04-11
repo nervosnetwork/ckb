@@ -9,7 +9,7 @@ User=ckb
 Group=ckb
 WorkingDirectory=/var/lib/ckb
 
-ExecStart=/usr/local/bin/ckb
+ExecStart=/usr/local/bin/ckb run
 Restart=on-abnormal
 KillMode=mixed
 TimeoutStopSec=5s

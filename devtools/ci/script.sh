@@ -35,7 +35,7 @@ if [ -n "$TRAVIS_TAG" -a -n "$GITHUB_TOKEN" -a -n "$REL_PKG" ]; then
   mkdir "releases/$PKG_NAME"
   mv target/release/ckb "releases/$PKG_NAME"
   cp README.md CHANGELOG.md COPYING "releases/$PKG_NAME"
-  cp -R devtools/init/ "releases/$PKG_NAME"
+  cp -R devtools/init "releases/$PKG_NAME"
   if [ -d docs ]; then
     cp -R docs "releases/$PKG_NAME"
   fi

@@ -22,7 +22,7 @@ Setup the directories and generate config files for testnet.
 
 ```bash
 sudo mkdir /var/lib/ckb
-sudo /usr/local/bin/ckb init -C /var/lib/ckb --spec testnet --log stdout
+sudo /usr/local/bin/ckb init -C /var/lib/ckb --spec testnet --log-to stdout
 ```
 
 Setup the user and group and the appropriate ownership and permissions.
