@@ -52,6 +52,12 @@ pub mod ckb {
 
                 let vtab = tab.vtable();
                 let vtab_num_bytes = vtab.num_bytes();
+                let object_inline_num_bytes = vtab.object_inline_num_bytes();
+                if vtab_num_bytes < flatbuffers::SIZE_VOFFSET + flatbuffers::SIZE_VOFFSET
+                    || object_inline_num_bytes < flatbuffers::SIZE_SOFFSET
+                {
+                    return Err(Error::OutOfBounds);
+                }
                 if vtab_loc
                     .checked_add(vtab_num_bytes)
                     .filter(|loc| *loc <= buf_len)
@@ -59,7 +65,6 @@ pub mod ckb {
                 {
                     return Err(Error::OutOfBounds);
                 }
-                let object_inline_num_bytes = vtab.object_inline_num_bytes();
                 if tab
                     .loc
                     .checked_add(object_inline_num_bytes)
@@ -131,6 +136,12 @@ pub mod ckb {
 
                 let vtab = tab.vtable();
                 let vtab_num_bytes = vtab.num_bytes();
+                let object_inline_num_bytes = vtab.object_inline_num_bytes();
+                if vtab_num_bytes < flatbuffers::SIZE_VOFFSET + flatbuffers::SIZE_VOFFSET
+                    || object_inline_num_bytes < flatbuffers::SIZE_SOFFSET
+                {
+                    return Err(Error::OutOfBounds);
+                }
                 if vtab_loc
                     .checked_add(vtab_num_bytes)
                     .filter(|loc| *loc <= buf_len)
@@ -138,7 +149,6 @@ pub mod ckb {
                 {
                     return Err(Error::OutOfBounds);
                 }
-                let object_inline_num_bytes = vtab.object_inline_num_bytes();
                 if tab
                     .loc
                     .checked_add(object_inline_num_bytes)
@@ -261,6 +271,12 @@ pub mod ckb {
 
                 let vtab = tab.vtable();
                 let vtab_num_bytes = vtab.num_bytes();
+                let object_inline_num_bytes = vtab.object_inline_num_bytes();
+                if vtab_num_bytes < flatbuffers::SIZE_VOFFSET + flatbuffers::SIZE_VOFFSET
+                    || object_inline_num_bytes < flatbuffers::SIZE_SOFFSET
+                {
+                    return Err(Error::OutOfBounds);
+                }
                 if vtab_loc
                     .checked_add(vtab_num_bytes)
                     .filter(|loc| *loc <= buf_len)
@@ -268,7 +284,6 @@ pub mod ckb {
                 {
                     return Err(Error::OutOfBounds);
                 }
-                let object_inline_num_bytes = vtab.object_inline_num_bytes();
                 if tab
                     .loc
                     .checked_add(object_inline_num_bytes)
@@ -341,6 +356,12 @@ pub mod ckb {
 
                 let vtab = tab.vtable();
                 let vtab_num_bytes = vtab.num_bytes();
+                let object_inline_num_bytes = vtab.object_inline_num_bytes();
+                if vtab_num_bytes < flatbuffers::SIZE_VOFFSET + flatbuffers::SIZE_VOFFSET
+                    || object_inline_num_bytes < flatbuffers::SIZE_SOFFSET
+                {
+                    return Err(Error::OutOfBounds);
+                }
                 if vtab_loc
                     .checked_add(vtab_num_bytes)
                     .filter(|loc| *loc <= buf_len)
@@ -348,7 +369,6 @@ pub mod ckb {
                 {
                     return Err(Error::OutOfBounds);
                 }
-                let object_inline_num_bytes = vtab.object_inline_num_bytes();
                 if tab
                     .loc
                     .checked_add(object_inline_num_bytes)
@@ -430,6 +450,12 @@ pub mod ckb {
 
                 let vtab = tab.vtable();
                 let vtab_num_bytes = vtab.num_bytes();
+                let object_inline_num_bytes = vtab.object_inline_num_bytes();
+                if vtab_num_bytes < flatbuffers::SIZE_VOFFSET + flatbuffers::SIZE_VOFFSET
+                    || object_inline_num_bytes < flatbuffers::SIZE_SOFFSET
+                {
+                    return Err(Error::OutOfBounds);
+                }
                 if vtab_loc
                     .checked_add(vtab_num_bytes)
                     .filter(|loc| *loc <= buf_len)
@@ -437,7 +463,6 @@ pub mod ckb {
                 {
                     return Err(Error::OutOfBounds);
                 }
-                let object_inline_num_bytes = vtab.object_inline_num_bytes();
                 if tab
                     .loc
                     .checked_add(object_inline_num_bytes)
@@ -509,6 +534,12 @@ pub mod ckb {
 
                 let vtab = tab.vtable();
                 let vtab_num_bytes = vtab.num_bytes();
+                let object_inline_num_bytes = vtab.object_inline_num_bytes();
+                if vtab_num_bytes < flatbuffers::SIZE_VOFFSET + flatbuffers::SIZE_VOFFSET
+                    || object_inline_num_bytes < flatbuffers::SIZE_SOFFSET
+                {
+                    return Err(Error::OutOfBounds);
+                }
                 if vtab_loc
                     .checked_add(vtab_num_bytes)
                     .filter(|loc| *loc <= buf_len)
@@ -516,7 +547,6 @@ pub mod ckb {
                 {
                     return Err(Error::OutOfBounds);
                 }
-                let object_inline_num_bytes = vtab.object_inline_num_bytes();
                 if tab
                     .loc
                     .checked_add(object_inline_num_bytes)
@@ -616,6 +646,12 @@ pub mod ckb {
 
                 let vtab = tab.vtable();
                 let vtab_num_bytes = vtab.num_bytes();
+                let object_inline_num_bytes = vtab.object_inline_num_bytes();
+                if vtab_num_bytes < flatbuffers::SIZE_VOFFSET + flatbuffers::SIZE_VOFFSET
+                    || object_inline_num_bytes < flatbuffers::SIZE_SOFFSET
+                {
+                    return Err(Error::OutOfBounds);
+                }
                 if vtab_loc
                     .checked_add(vtab_num_bytes)
                     .filter(|loc| *loc <= buf_len)
@@ -623,7 +659,6 @@ pub mod ckb {
                 {
                     return Err(Error::OutOfBounds);
                 }
-                let object_inline_num_bytes = vtab.object_inline_num_bytes();
                 if tab
                     .loc
                     .checked_add(object_inline_num_bytes)
@@ -732,6 +767,12 @@ pub mod ckb {
 
                 let vtab = tab.vtable();
                 let vtab_num_bytes = vtab.num_bytes();
+                let object_inline_num_bytes = vtab.object_inline_num_bytes();
+                if vtab_num_bytes < flatbuffers::SIZE_VOFFSET + flatbuffers::SIZE_VOFFSET
+                    || object_inline_num_bytes < flatbuffers::SIZE_SOFFSET
+                {
+                    return Err(Error::OutOfBounds);
+                }
                 if vtab_loc
                     .checked_add(vtab_num_bytes)
                     .filter(|loc| *loc <= buf_len)
@@ -739,7 +780,6 @@ pub mod ckb {
                 {
                     return Err(Error::OutOfBounds);
                 }
-                let object_inline_num_bytes = vtab.object_inline_num_bytes();
                 if tab
                     .loc
                     .checked_add(object_inline_num_bytes)
@@ -794,6 +834,12 @@ pub mod ckb {
 
                 let vtab = tab.vtable();
                 let vtab_num_bytes = vtab.num_bytes();
+                let object_inline_num_bytes = vtab.object_inline_num_bytes();
+                if vtab_num_bytes < flatbuffers::SIZE_VOFFSET + flatbuffers::SIZE_VOFFSET
+                    || object_inline_num_bytes < flatbuffers::SIZE_SOFFSET
+                {
+                    return Err(Error::OutOfBounds);
+                }
                 if vtab_loc
                     .checked_add(vtab_num_bytes)
                     .filter(|loc| *loc <= buf_len)
@@ -801,7 +847,6 @@ pub mod ckb {
                 {
                     return Err(Error::OutOfBounds);
                 }
-                let object_inline_num_bytes = vtab.object_inline_num_bytes();
                 if tab
                     .loc
                     .checked_add(object_inline_num_bytes)
@@ -951,6 +996,12 @@ pub mod ckb {
 
                 let vtab = tab.vtable();
                 let vtab_num_bytes = vtab.num_bytes();
+                let object_inline_num_bytes = vtab.object_inline_num_bytes();
+                if vtab_num_bytes < flatbuffers::SIZE_VOFFSET + flatbuffers::SIZE_VOFFSET
+                    || object_inline_num_bytes < flatbuffers::SIZE_SOFFSET
+                {
+                    return Err(Error::OutOfBounds);
+                }
                 if vtab_loc
                     .checked_add(vtab_num_bytes)
                     .filter(|loc| *loc <= buf_len)
@@ -958,7 +1009,6 @@ pub mod ckb {
                 {
                     return Err(Error::OutOfBounds);
                 }
-                let object_inline_num_bytes = vtab.object_inline_num_bytes();
                 if tab
                     .loc
                     .checked_add(object_inline_num_bytes)
@@ -1061,6 +1111,12 @@ pub mod ckb {
 
                 let vtab = tab.vtable();
                 let vtab_num_bytes = vtab.num_bytes();
+                let object_inline_num_bytes = vtab.object_inline_num_bytes();
+                if vtab_num_bytes < flatbuffers::SIZE_VOFFSET + flatbuffers::SIZE_VOFFSET
+                    || object_inline_num_bytes < flatbuffers::SIZE_SOFFSET
+                {
+                    return Err(Error::OutOfBounds);
+                }
                 if vtab_loc
                     .checked_add(vtab_num_bytes)
                     .filter(|loc| *loc <= buf_len)
@@ -1068,7 +1124,6 @@ pub mod ckb {
                 {
                     return Err(Error::OutOfBounds);
                 }
-                let object_inline_num_bytes = vtab.object_inline_num_bytes();
                 if tab
                     .loc
                     .checked_add(object_inline_num_bytes)
@@ -1149,6 +1204,12 @@ pub mod ckb {
 
                 let vtab = tab.vtable();
                 let vtab_num_bytes = vtab.num_bytes();
+                let object_inline_num_bytes = vtab.object_inline_num_bytes();
+                if vtab_num_bytes < flatbuffers::SIZE_VOFFSET + flatbuffers::SIZE_VOFFSET
+                    || object_inline_num_bytes < flatbuffers::SIZE_SOFFSET
+                {
+                    return Err(Error::OutOfBounds);
+                }
                 if vtab_loc
                     .checked_add(vtab_num_bytes)
                     .filter(|loc| *loc <= buf_len)
@@ -1156,7 +1217,6 @@ pub mod ckb {
                 {
                     return Err(Error::OutOfBounds);
                 }
-                let object_inline_num_bytes = vtab.object_inline_num_bytes();
                 if tab
                     .loc
                     .checked_add(object_inline_num_bytes)
@@ -1237,6 +1297,12 @@ pub mod ckb {
 
                 let vtab = tab.vtable();
                 let vtab_num_bytes = vtab.num_bytes();
+                let object_inline_num_bytes = vtab.object_inline_num_bytes();
+                if vtab_num_bytes < flatbuffers::SIZE_VOFFSET + flatbuffers::SIZE_VOFFSET
+                    || object_inline_num_bytes < flatbuffers::SIZE_SOFFSET
+                {
+                    return Err(Error::OutOfBounds);
+                }
                 if vtab_loc
                     .checked_add(vtab_num_bytes)
                     .filter(|loc| *loc <= buf_len)
@@ -1244,7 +1310,6 @@ pub mod ckb {
                 {
                     return Err(Error::OutOfBounds);
                 }
-                let object_inline_num_bytes = vtab.object_inline_num_bytes();
                 if tab
                     .loc
                     .checked_add(object_inline_num_bytes)
@@ -1316,6 +1381,12 @@ pub mod ckb {
 
                 let vtab = tab.vtable();
                 let vtab_num_bytes = vtab.num_bytes();
+                let object_inline_num_bytes = vtab.object_inline_num_bytes();
+                if vtab_num_bytes < flatbuffers::SIZE_VOFFSET + flatbuffers::SIZE_VOFFSET
+                    || object_inline_num_bytes < flatbuffers::SIZE_SOFFSET
+                {
+                    return Err(Error::OutOfBounds);
+                }
                 if vtab_loc
                     .checked_add(vtab_num_bytes)
                     .filter(|loc| *loc <= buf_len)
@@ -1323,7 +1394,6 @@ pub mod ckb {
                 {
                     return Err(Error::OutOfBounds);
                 }
-                let object_inline_num_bytes = vtab.object_inline_num_bytes();
                 if tab
                     .loc
                     .checked_add(object_inline_num_bytes)
@@ -1413,6 +1483,12 @@ pub mod ckb {
 
                 let vtab = tab.vtable();
                 let vtab_num_bytes = vtab.num_bytes();
+                let object_inline_num_bytes = vtab.object_inline_num_bytes();
+                if vtab_num_bytes < flatbuffers::SIZE_VOFFSET + flatbuffers::SIZE_VOFFSET
+                    || object_inline_num_bytes < flatbuffers::SIZE_SOFFSET
+                {
+                    return Err(Error::OutOfBounds);
+                }
                 if vtab_loc
                     .checked_add(vtab_num_bytes)
                     .filter(|loc| *loc <= buf_len)
@@ -1420,7 +1496,6 @@ pub mod ckb {
                 {
                     return Err(Error::OutOfBounds);
                 }
-                let object_inline_num_bytes = vtab.object_inline_num_bytes();
                 if tab
                     .loc
                     .checked_add(object_inline_num_bytes)
@@ -1595,6 +1670,12 @@ pub mod ckb {
 
                 let vtab = tab.vtable();
                 let vtab_num_bytes = vtab.num_bytes();
+                let object_inline_num_bytes = vtab.object_inline_num_bytes();
+                if vtab_num_bytes < flatbuffers::SIZE_VOFFSET + flatbuffers::SIZE_VOFFSET
+                    || object_inline_num_bytes < flatbuffers::SIZE_SOFFSET
+                {
+                    return Err(Error::OutOfBounds);
+                }
                 if vtab_loc
                     .checked_add(vtab_num_bytes)
                     .filter(|loc| *loc <= buf_len)
@@ -1602,7 +1683,6 @@ pub mod ckb {
                 {
                     return Err(Error::OutOfBounds);
                 }
-                let object_inline_num_bytes = vtab.object_inline_num_bytes();
                 if tab
                     .loc
                     .checked_add(object_inline_num_bytes)
@@ -1675,6 +1755,12 @@ pub mod ckb {
 
                 let vtab = tab.vtable();
                 let vtab_num_bytes = vtab.num_bytes();
+                let object_inline_num_bytes = vtab.object_inline_num_bytes();
+                if vtab_num_bytes < flatbuffers::SIZE_VOFFSET + flatbuffers::SIZE_VOFFSET
+                    || object_inline_num_bytes < flatbuffers::SIZE_SOFFSET
+                {
+                    return Err(Error::OutOfBounds);
+                }
                 if vtab_loc
                     .checked_add(vtab_num_bytes)
                     .filter(|loc| *loc <= buf_len)
@@ -1682,7 +1768,6 @@ pub mod ckb {
                 {
                     return Err(Error::OutOfBounds);
                 }
-                let object_inline_num_bytes = vtab.object_inline_num_bytes();
                 if tab
                     .loc
                     .checked_add(object_inline_num_bytes)
@@ -1761,6 +1846,12 @@ pub mod ckb {
 
                 let vtab = tab.vtable();
                 let vtab_num_bytes = vtab.num_bytes();
+                let object_inline_num_bytes = vtab.object_inline_num_bytes();
+                if vtab_num_bytes < flatbuffers::SIZE_VOFFSET + flatbuffers::SIZE_VOFFSET
+                    || object_inline_num_bytes < flatbuffers::SIZE_SOFFSET
+                {
+                    return Err(Error::OutOfBounds);
+                }
                 if vtab_loc
                     .checked_add(vtab_num_bytes)
                     .filter(|loc| *loc <= buf_len)
@@ -1768,7 +1859,6 @@ pub mod ckb {
                 {
                     return Err(Error::OutOfBounds);
                 }
-                let object_inline_num_bytes = vtab.object_inline_num_bytes();
                 if tab
                     .loc
                     .checked_add(object_inline_num_bytes)
@@ -1857,6 +1947,12 @@ pub mod ckb {
 
                 let vtab = tab.vtable();
                 let vtab_num_bytes = vtab.num_bytes();
+                let object_inline_num_bytes = vtab.object_inline_num_bytes();
+                if vtab_num_bytes < flatbuffers::SIZE_VOFFSET + flatbuffers::SIZE_VOFFSET
+                    || object_inline_num_bytes < flatbuffers::SIZE_SOFFSET
+                {
+                    return Err(Error::OutOfBounds);
+                }
                 if vtab_loc
                     .checked_add(vtab_num_bytes)
                     .filter(|loc| *loc <= buf_len)
@@ -1864,7 +1960,6 @@ pub mod ckb {
                 {
                     return Err(Error::OutOfBounds);
                 }
-                let object_inline_num_bytes = vtab.object_inline_num_bytes();
                 if tab
                     .loc
                     .checked_add(object_inline_num_bytes)
@@ -1937,6 +2032,12 @@ pub mod ckb {
 
                 let vtab = tab.vtable();
                 let vtab_num_bytes = vtab.num_bytes();
+                let object_inline_num_bytes = vtab.object_inline_num_bytes();
+                if vtab_num_bytes < flatbuffers::SIZE_VOFFSET + flatbuffers::SIZE_VOFFSET
+                    || object_inline_num_bytes < flatbuffers::SIZE_SOFFSET
+                {
+                    return Err(Error::OutOfBounds);
+                }
                 if vtab_loc
                     .checked_add(vtab_num_bytes)
                     .filter(|loc| *loc <= buf_len)
@@ -1944,7 +2045,6 @@ pub mod ckb {
                 {
                     return Err(Error::OutOfBounds);
                 }
-                let object_inline_num_bytes = vtab.object_inline_num_bytes();
                 if tab
                     .loc
                     .checked_add(object_inline_num_bytes)
@@ -2047,6 +2147,12 @@ pub mod ckb {
 
                 let vtab = tab.vtable();
                 let vtab_num_bytes = vtab.num_bytes();
+                let object_inline_num_bytes = vtab.object_inline_num_bytes();
+                if vtab_num_bytes < flatbuffers::SIZE_VOFFSET + flatbuffers::SIZE_VOFFSET
+                    || object_inline_num_bytes < flatbuffers::SIZE_SOFFSET
+                {
+                    return Err(Error::OutOfBounds);
+                }
                 if vtab_loc
                     .checked_add(vtab_num_bytes)
                     .filter(|loc| *loc <= buf_len)
@@ -2054,7 +2160,6 @@ pub mod ckb {
                 {
                     return Err(Error::OutOfBounds);
                 }
-                let object_inline_num_bytes = vtab.object_inline_num_bytes();
                 if tab
                     .loc
                     .checked_add(object_inline_num_bytes)
@@ -2136,6 +2241,12 @@ pub mod ckb {
 
                 let vtab = tab.vtable();
                 let vtab_num_bytes = vtab.num_bytes();
+                let object_inline_num_bytes = vtab.object_inline_num_bytes();
+                if vtab_num_bytes < flatbuffers::SIZE_VOFFSET + flatbuffers::SIZE_VOFFSET
+                    || object_inline_num_bytes < flatbuffers::SIZE_SOFFSET
+                {
+                    return Err(Error::OutOfBounds);
+                }
                 if vtab_loc
                     .checked_add(vtab_num_bytes)
                     .filter(|loc| *loc <= buf_len)
@@ -2143,7 +2254,6 @@ pub mod ckb {
                 {
                     return Err(Error::OutOfBounds);
                 }
-                let object_inline_num_bytes = vtab.object_inline_num_bytes();
                 if tab
                     .loc
                     .checked_add(object_inline_num_bytes)
@@ -2233,6 +2343,12 @@ pub mod ckb {
 
                 let vtab = tab.vtable();
                 let vtab_num_bytes = vtab.num_bytes();
+                let object_inline_num_bytes = vtab.object_inline_num_bytes();
+                if vtab_num_bytes < flatbuffers::SIZE_VOFFSET + flatbuffers::SIZE_VOFFSET
+                    || object_inline_num_bytes < flatbuffers::SIZE_SOFFSET
+                {
+                    return Err(Error::OutOfBounds);
+                }
                 if vtab_loc
                     .checked_add(vtab_num_bytes)
                     .filter(|loc| *loc <= buf_len)
@@ -2240,7 +2356,6 @@ pub mod ckb {
                 {
                     return Err(Error::OutOfBounds);
                 }
-                let object_inline_num_bytes = vtab.object_inline_num_bytes();
                 if tab
                     .loc
                     .checked_add(object_inline_num_bytes)
@@ -2351,6 +2466,12 @@ pub mod ckb {
 
                 let vtab = tab.vtable();
                 let vtab_num_bytes = vtab.num_bytes();
+                let object_inline_num_bytes = vtab.object_inline_num_bytes();
+                if vtab_num_bytes < flatbuffers::SIZE_VOFFSET + flatbuffers::SIZE_VOFFSET
+                    || object_inline_num_bytes < flatbuffers::SIZE_SOFFSET
+                {
+                    return Err(Error::OutOfBounds);
+                }
                 if vtab_loc
                     .checked_add(vtab_num_bytes)
                     .filter(|loc| *loc <= buf_len)
@@ -2358,7 +2479,6 @@ pub mod ckb {
                 {
                     return Err(Error::OutOfBounds);
                 }
-                let object_inline_num_bytes = vtab.object_inline_num_bytes();
                 if tab
                     .loc
                     .checked_add(object_inline_num_bytes)
@@ -2422,6 +2542,12 @@ pub mod ckb {
 
                 let vtab = tab.vtable();
                 let vtab_num_bytes = vtab.num_bytes();
+                let object_inline_num_bytes = vtab.object_inline_num_bytes();
+                if vtab_num_bytes < flatbuffers::SIZE_VOFFSET + flatbuffers::SIZE_VOFFSET
+                    || object_inline_num_bytes < flatbuffers::SIZE_SOFFSET
+                {
+                    return Err(Error::OutOfBounds);
+                }
                 if vtab_loc
                     .checked_add(vtab_num_bytes)
                     .filter(|loc| *loc <= buf_len)
@@ -2429,7 +2555,6 @@ pub mod ckb {
                 {
                     return Err(Error::OutOfBounds);
                 }
-                let object_inline_num_bytes = vtab.object_inline_num_bytes();
                 if tab
                     .loc
                     .checked_add(object_inline_num_bytes)
@@ -2499,6 +2624,12 @@ pub mod ckb {
 
                 let vtab = tab.vtable();
                 let vtab_num_bytes = vtab.num_bytes();
+                let object_inline_num_bytes = vtab.object_inline_num_bytes();
+                if vtab_num_bytes < flatbuffers::SIZE_VOFFSET + flatbuffers::SIZE_VOFFSET
+                    || object_inline_num_bytes < flatbuffers::SIZE_SOFFSET
+                {
+                    return Err(Error::OutOfBounds);
+                }
                 if vtab_loc
                     .checked_add(vtab_num_bytes)
                     .filter(|loc| *loc <= buf_len)
@@ -2506,7 +2637,6 @@ pub mod ckb {
                 {
                     return Err(Error::OutOfBounds);
                 }
-                let object_inline_num_bytes = vtab.object_inline_num_bytes();
                 if tab
                     .loc
                     .checked_add(object_inline_num_bytes)
@@ -2642,6 +2772,12 @@ pub mod ckb {
 
                 let vtab = tab.vtable();
                 let vtab_num_bytes = vtab.num_bytes();
+                let object_inline_num_bytes = vtab.object_inline_num_bytes();
+                if vtab_num_bytes < flatbuffers::SIZE_VOFFSET + flatbuffers::SIZE_VOFFSET
+                    || object_inline_num_bytes < flatbuffers::SIZE_SOFFSET
+                {
+                    return Err(Error::OutOfBounds);
+                }
                 if vtab_loc
                     .checked_add(vtab_num_bytes)
                     .filter(|loc| *loc <= buf_len)
@@ -2649,7 +2785,6 @@ pub mod ckb {
                 {
                     return Err(Error::OutOfBounds);
                 }
-                let object_inline_num_bytes = vtab.object_inline_num_bytes();
                 if tab
                     .loc
                     .checked_add(object_inline_num_bytes)
@@ -2736,6 +2871,12 @@ pub mod ckb {
 
                 let vtab = tab.vtable();
                 let vtab_num_bytes = vtab.num_bytes();
+                let object_inline_num_bytes = vtab.object_inline_num_bytes();
+                if vtab_num_bytes < flatbuffers::SIZE_VOFFSET + flatbuffers::SIZE_VOFFSET
+                    || object_inline_num_bytes < flatbuffers::SIZE_SOFFSET
+                {
+                    return Err(Error::OutOfBounds);
+                }
                 if vtab_loc
                     .checked_add(vtab_num_bytes)
                     .filter(|loc| *loc <= buf_len)
@@ -2743,7 +2884,6 @@ pub mod ckb {
                 {
                     return Err(Error::OutOfBounds);
                 }
-                let object_inline_num_bytes = vtab.object_inline_num_bytes();
                 if tab
                     .loc
                     .checked_add(object_inline_num_bytes)
