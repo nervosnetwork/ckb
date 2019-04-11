@@ -28,14 +28,17 @@ const MAX_FRAME_LENGTH: usize = 20 * 1024 * 1024;
 
 pub type ProtocolVersion = u32;
 
+pub trait BackgroundService {
+    fn poll(&mut self, network_state: &mut NetworkState) -> Result<bool, ()>;
+}
+
 pub struct CKBProtocol {
     id: ProtocolId,
     // for example: b"/ckb/"
     protocol_name: String,
     // supported version, used to check protocol version
     supported_versions: Vec<ProtocolVersion>,
-    handler: Box<Fn() -> Box<dyn CKBProtocolHandler> + Send + 'static>,
-    network_state: Arc<NetworkState>,
+    handler: Box<dyn CKBProtocolHandler + Send + 'static>,
 }
 
 impl CKBProtocol {
@@ -43,13 +46,11 @@ impl CKBProtocol {
         protocol_name: String,
         id: ProtocolId,
         versions: &[ProtocolVersion],
-        handler: F,
-        network_state: Arc<NetworkState>,
+        handler: Box<dyn CKBProtocolHandler + Send + 'static>,
     ) -> Self {
         CKBProtocol {
             id,
-            handler: Box::new(handler),
-            network_state,
+            handler,
             protocol_name: format!("/ckb/{}/", protocol_name).to_string(),
             supported_versions: {
                 let mut versions: Vec<_> = versions.to_vec();
@@ -62,17 +63,20 @@ impl CKBProtocol {
     pub fn id(&self) -> ProtocolId {
         self.id
     }
+    pub fn handler(&self) -> &dyn CKBProtocolHandler {
+        self.handler.as_ref()
+    }
 
-    pub fn protocol_name(&self) -> String {
-        self.protocol_name.clone()
+    pub fn protocol_name(&self) -> &str {
+        &self.protocol_name
     }
 
     pub fn match_version(&self, version: ProtocolVersion) -> bool {
         self.supported_versions.contains(&version)
     }
 
-    pub fn build(self) -> ProtocolMeta {
-        let protocol_name = self.protocol_name();
+    pub fn build(&self) -> ProtocolMeta {
+        let protocol_name = self.protocol_name().to_owned();
         let supported_versions = self
             .supported_versions
             .iter()
@@ -80,7 +84,7 @@ impl CKBProtocol {
             .collect::<Vec<_>>();
         MetaBuilder::default()
             .id(self.id)
-            .name(move |_| protocol_name.clone())
+            .name(move |_| protocol_name.to_string())
             .codec(|| {
                 Box::new(
                     length_delimited::Builder::new()
@@ -89,11 +93,7 @@ impl CKBProtocol {
                 )
             })
             .support_versions(supported_versions)
-            .service_handle(move || {
-                let handler =
-                    CKBHandler::new(self.id, Arc::clone(&self.network_state), (self.handler)());
-                ProtocolHandle::Callback(Box::new(handler))
-            })
+            .service_handle(move || ProtocolHandle::Event)
             .build()
     }
 }
@@ -115,168 +115,6 @@ impl CKBHandler {
             network_state,
             handler,
         }
-    }
-}
-
-impl ServiceProtocol for CKBHandler {
-    fn init(&mut self, context: &mut ProtocolContext) {
-        let context = Box::new(DefaultCKBProtocolContext::new(
-            self.id,
-            Arc::clone(&self.network_state),
-            context.control().clone(),
-        ));
-        self.handler.initialize(context);
-    }
-
-    fn connected(&mut self, mut context: ProtocolContextMutRef, version: &str) {
-        let network = &self.network_state;
-        let session = context.session;
-        let (peer_id, version) = {
-            // TODO: version number should be discussed.
-            let parsed_version = version.parse::<ProtocolVersion>().ok();
-            if session.remote_pubkey.is_none() || parsed_version.is_none() {
-                error!(
-                    target: "network",
-                    "ckb protocol connected error, addr: {}, protocol:{}, version: {}",
-                    session.address,
-                    self.id,
-                    version,
-                );
-                context.disconnect(session.id);
-                return;
-            }
-            (
-                session
-                    .remote_pubkey
-                    .as_ref()
-                    .map(PublicKey::peer_id)
-                    .expect("remote_pubkey existence checked"),
-                parsed_version.expect("parsed_version existence checked"),
-            )
-        };
-        debug!(
-            target: "network",
-            "ckb protocol connected, addr: {}, protocol: {}, version: {}, peer_id: {:?}",
-            session.address,
-            self.id,
-            version,
-            &peer_id,
-        );
-
-        match network.accept_connection(
-            peer_id.clone(),
-            session.address.clone(),
-            session.id,
-            session.ty,
-            self.id,
-            version,
-        ) {
-            Ok(register_result) => {
-                // update status in peer_store
-                if let RegisterResult::New(_) = register_result {
-                    let peer_store = network.peer_store();
-                    peer_store.report(&peer_id, Behaviour::Connect);
-                    peer_store.update_status(&peer_id, Status::Connected);
-                }
-                // call handler
-                self.handler.connected(
-                    Box::new(DefaultCKBProtocolContext::new(
-                        self.id,
-                        Arc::clone(&self.network_state),
-                        context.control().clone(),
-                    )),
-                    register_result.peer_index(),
-                )
-            }
-            Err(err) => {
-                network.drop_peer(context.control(), &peer_id);
-                info!(
-                    target: "network",
-                    "reject connection from {} {}, because {:?}",
-                    peer_id.to_base58(),
-                    session.address,
-                    err,
-                )
-            }
-        }
-    }
-
-    fn disconnected(&mut self, mut context: ProtocolContextMutRef) {
-        let session = context.session;
-        if let Some(peer_id) = session.remote_pubkey.as_ref().map(PublicKey::peer_id) {
-            debug!(
-                target: "network",
-                "ckb protocol disconnect, addr: {}, protocol: {}, peer_id: {:?}",
-                session.address,
-                self.id,
-                &peer_id,
-            );
-
-            let network = &self.network_state;
-            // update disconnect in peer_store
-            if let Some(peer_index) = network.get_peer_index(&peer_id) {
-                // call handler
-                self.handler.disconnected(
-                    Box::new(DefaultCKBProtocolContext::new(
-                        self.id,
-                        Arc::clone(network),
-                        context.control().clone(),
-                    )),
-                    peer_index,
-                );
-            }
-        }
-    }
-
-    fn received(&mut self, mut context: ProtocolContextMutRef, data: Bytes) {
-        let session = context.session;
-        if let Some((peer_id, _peer_index)) = session
-            .remote_pubkey
-            .as_ref()
-            .map(PublicKey::peer_id)
-            .and_then(|peer_id| {
-                self.network_state
-                    .get_peer_index(&peer_id)
-                    .map(|peer_index| (peer_id, peer_index))
-            })
-        {
-            trace!(
-                target: "network",
-                "ckb protocol received, addr: {}, protocol: {}, peer_id: {:?}",
-                session.address,
-                self.id,
-                &peer_id,
-            );
-
-            let now = Instant::now();
-            let network = &self.network_state;
-            network.modify_peer(&peer_id, |peer| {
-                peer.last_message_time = Some(now);
-            });
-            if let Some(peer_index) = network.get_peer_index(&peer_id) {
-                self.handler.received(
-                    Box::new(DefaultCKBProtocolContext::new(
-                        self.id,
-                        Arc::clone(network),
-                        context.control().clone(),
-                    )),
-                    peer_index,
-                    data,
-                )
-            }
-        } else {
-            warn!(target: "network", "can not get peer_id, disconnect it");
-            context.disconnect(session.id);
-        }
-    }
-
-    fn notify(&mut self, context: &mut ProtocolContext, token: u64) {
-        let context = Box::new(DefaultCKBProtocolContext::new(
-            self.id,
-            Arc::clone(&self.network_state),
-            context.control().clone(),
-        ));
-        self.handler.timer_triggered(context, token);
     }
 }
 
@@ -312,16 +150,16 @@ pub trait CKBProtocolContext: Send {
     fn connected_peers(&self) -> Vec<PeerIndex>;
 }
 
-pub(crate) struct DefaultCKBProtocolContext {
+pub(crate) struct DefaultCKBProtocolContext<'a> {
     pub protocol_id: ProtocolId,
-    pub network_state: Arc<NetworkState>,
+    pub network_state: &'a mut NetworkState,
     pub p2p_control: ServiceControl,
 }
 
-impl DefaultCKBProtocolContext {
+impl<'a> DefaultCKBProtocolContext<'a> {
     pub fn new(
         protocol_id: ProtocolId,
-        network_state: Arc<NetworkState>,
+        network_state: &'a mut NetworkState,
         p2p_control: ServiceControl,
     ) -> Self {
         DefaultCKBProtocolContext {
@@ -332,7 +170,7 @@ impl DefaultCKBProtocolContext {
     }
 }
 
-impl CKBProtocolContext for DefaultCKBProtocolContext {
+impl<'a> CKBProtocolContext for DefaultCKBProtocolContext<'a> {
     fn send(&mut self, peer_index: PeerIndex, data: Vec<u8>) -> Result<(), Error> {
         self.send_protocol(peer_index, self.protocol_id, data)
     }
@@ -452,9 +290,9 @@ impl CKBProtocolContext for DefaultCKBProtocolContext {
 
 pub trait CKBProtocolHandler: Sync + Send {
     // TODO: Remove (_service: &mut ServiceContext) argument later
-    fn initialize(&self, _nc: Box<dyn CKBProtocolContext>);
-    fn received(&self, _nc: Box<dyn CKBProtocolContext>, _peer: PeerIndex, _data: Bytes);
-    fn connected(&self, _nc: Box<dyn CKBProtocolContext>, _peer: PeerIndex);
-    fn disconnected(&self, _nc: Box<dyn CKBProtocolContext>, _peer: PeerIndex);
-    fn timer_triggered(&self, _nc: Box<dyn CKBProtocolContext>, _timer: u64) {}
+    fn initialize(&self, _nc: &dyn CKBProtocolContext);
+    fn received(&self, _nc: &dyn CKBProtocolContext, _peer: PeerIndex, _data: Bytes);
+    fn connected(&self, _nc: &dyn CKBProtocolContext, _peer: PeerIndex);
+    fn disconnected(&self, _nc: &dyn CKBProtocolContext, _peer: PeerIndex);
+    fn timer_triggered(&self, _nc: &dyn CKBProtocolContext, _timer: u64) {}
 }

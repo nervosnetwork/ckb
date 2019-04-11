@@ -14,6 +14,7 @@ fnv = "1.0"
 serde = "1.0"
 serde_derive = "1.0"
 ckb-util = { path = "../util" }
+ckb-core = { path = "../core" }
 stop-handler = { path = "../util/stop-handler" }
 unsigned-varint = {git = "https://github.com/paritytech/unsigned-varint", features = ["codec"]}
 lru-cache = { git = "https://github.com/nervosnetwork/lru-cache" }
@@ -23,11 +24,11 @@ tokio = "0.1.18"
 futures = "0.1"
 snap = "0.2"
 crossbeam-channel = "0.3"
-p2p = { git = "https://github.com/nervosnetwork/p2p", rev="1ce924dec380d65444a14dbbf285f2d6f411145d", package="tentacle" }
-secio = { git = "https://github.com/nervosnetwork/p2p", rev="1ce924dec380d65444a14dbbf285f2d6f411145d", package="tentacle-secio" }
-p2p-ping = { git = "https://github.com/nervosnetwork/p2p", rev="1ce924dec380d65444a14dbbf285f2d6f411145d", package="tentacle-ping" }
-p2p-discovery = { git = "https://github.com/nervosnetwork/p2p", rev="1ce924dec380d65444a14dbbf285f2d6f411145d", package="tentacle-discovery" }
-p2p-identify = { git = "https://github.com/nervosnetwork/p2p", rev="1ce924dec380d65444a14dbbf285f2d6f411145d", package="tentacle-identify" }
+p2p = { git = "https://github.com/nervosnetwork/p2p", rev="5b82be9e77857c425d6378ce4c80bf755ed54e4c", package="tentacle" }
+secio = { git = "https://github.com/nervosnetwork/p2p", rev="5b82be9e77857c425d6378ce4c80bf755ed54e4c", package="tentacle-secio" }
+p2p-ping = { git = "https://github.com/nervosnetwork/p2p", rev="5b82be9e77857c425d6378ce4c80bf755ed54e4c", package="tentacle-ping" }
+p2p-discovery = { git = "https://github.com/nervosnetwork/p2p", rev="5b82be9e77857c425d6378ce4c80bf755ed54e4c", package="tentacle-discovery" }
+p2p-identify = { git = "https://github.com/nervosnetwork/p2p", rev="5b82be9e77857c425d6378ce4c80bf755ed54e4c", package="tentacle-identify" }
 faketime = "0.2.0"
 rusqlite = {version = "0.16.0", features = ["bundled"]}
 lazy_static = "1.3.0"

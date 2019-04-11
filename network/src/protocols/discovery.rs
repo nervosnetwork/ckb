@@ -1,8 +1,9 @@
 // use crate::peer_store::Behaviour;
+use crate::protocols::BackgroundService;
 use crate::NetworkState;
 use fnv::FnvHashMap;
 use futures::{sync::mpsc, sync::oneshot, try_ready, Async, Future, Stream};
-use log::{debug, trace, warn};
+use log::{debug, error, trace, warn};
 use std::{sync::Arc, time::Duration};
 
 use p2p::{
@@ -147,97 +148,94 @@ pub enum DiscoveryEvent {
 
 pub struct DiscoveryService {
     event_receiver: mpsc::UnboundedReceiver<DiscoveryEvent>,
-    network_state: Arc<NetworkState>,
     sessions: FnvHashMap<SessionId, PeerId>,
 }
 
 impl DiscoveryService {
-    pub fn new(
-        network_state: Arc<NetworkState>,
-        event_receiver: mpsc::UnboundedReceiver<DiscoveryEvent>,
-    ) -> DiscoveryService {
+    pub fn new(event_receiver: mpsc::UnboundedReceiver<DiscoveryEvent>) -> DiscoveryService {
         DiscoveryService {
             event_receiver,
-            network_state,
             sessions: FnvHashMap::default(),
         }
     }
 }
 
-impl Stream for DiscoveryService {
-    type Item = ();
-    type Error = ();
-    fn poll(&mut self) -> Result<Async<Option<Self::Item>>, Self::Error> {
-        match try_ready!(self.event_receiver.poll()) {
-            Some(DiscoveryEvent::Connected {
-                session_id,
-                peer_id,
-            }) => {
-                if let Some(peer_id) = peer_id {
-                    self.sessions.insert(session_id, peer_id);
-                }
-            }
-            Some(DiscoveryEvent::Disconnected(session_id)) => {
-                self.sessions.remove(&session_id);
-            }
-            Some(DiscoveryEvent::AddNewAddrs { session_id, addrs }) => {
-                if let Some(_peer_id) = self.sessions.get(&session_id) {
-                    // TODO: wait for peer store update
-                    for addr in addrs.into_iter() {
-                        trace!(target: "network", "Add discovered address:{:?}", addr);
-                        if let Some(peer_id) = extract_peer_id(&addr) {
-                            let addr = addr
-                                .into_iter()
-                                .filter(|proto| match proto {
-                                    Protocol::P2p(_) => false,
-                                    _ => true,
-                                })
-                                .collect::<Multiaddr>();
-
-                            if !self
-                                .network_state
-                                .peer_store()
-                                .add_discovered_addr(&peer_id, addr)
-                            {
-                                warn!(target: "network", "add_discovered_addr failed {:?}", peer_id);
+impl BackgroundService for DiscoveryService {
+    fn poll(&mut self, network_state: &mut NetworkState) -> Result<bool, ()> {
+        match self.event_receiver.poll() {
+            Ok(Async::Ready(event)) => {
+                match event {
+                    Some(DiscoveryEvent::Connected {
+                        session_id,
+                        peer_id,
+                    }) => {
+                        if let Some(peer_id) = peer_id {
+                            self.sessions.insert(session_id, peer_id);
+                        }
+                    }
+                    Some(DiscoveryEvent::Disconnected(session_id)) => {
+                        self.sessions.remove(&session_id);
+                    }
+                    Some(DiscoveryEvent::AddNewAddrs { session_id, addrs }) => {
+                        if let Some(_peer_id) = self.sessions.get(&session_id) {
+                            // TODO: wait for peer store update
+                            for addr in addrs.into_iter() {
+                                trace!(target: "network", "Add discovered address:{:?}", addr);
+                                if let Some(peer_id) = extract_peer_id(&addr) {
+                                    let addr = addr
+                                        .into_iter()
+                                        .filter(|proto| match proto {
+                                            Protocol::P2p(_) => false,
+                                            _ => true,
+                                        })
+                                        .collect::<Multiaddr>();
+                                    let _ = network_state
+                                        .peer_store()
+                                        .write()
+                                        .add_discovered_addr(&peer_id, addr);
+                                }
                             }
                         }
                     }
-                }
-            }
-            Some(DiscoveryEvent::Misbehave {
-                session_id: _session_id,
-                kind: _kind,
-                result: _result,
-            }) => {
-                // FIXME:
-            }
-            Some(DiscoveryEvent::GetRandom { n, result }) => {
-                let addrs = self
-                    .network_state
-                    .peer_store()
-                    .random_peers(n as u32)
-                    .into_iter()
-                    .filter_map(|(peer_id, mut addr)| {
-                        Multihash::from_bytes(peer_id.into_bytes())
-                            .ok()
-                            .map(move |peer_id_hash| {
-                                addr.append(Protocol::P2p(peer_id_hash));
-                                addr
+                    Some(DiscoveryEvent::Misbehave {
+                        session_id: _session_id,
+                        kind: _kind,
+                        result: _result,
+                    }) => {
+                        // FIXME:
+                    }
+                    Some(DiscoveryEvent::GetRandom { n, result }) => {
+                        let addrs = network_state
+                            .peer_store()
+                            .read()
+                            .random_peers(n as u32)
+                            .into_iter()
+                            .filter_map(|(peer_id, mut addr)| {
+                                Multihash::from_bytes(peer_id.into_bytes()).ok().map(
+                                    move |peer_id_hash| {
+                                        addr.append(Protocol::P2p(peer_id_hash));
+                                        addr
+                                    },
+                                )
                             })
-                    })
-                    .collect();
-                trace!(target: "network", "discovery send random addrs: {:?}", addrs);
-                result
-                    .send(addrs)
-                    .expect("Send failed (should not happened)");
+                            .collect();
+                        trace!(target: "network", "discovery send random addrs: {:?}", addrs);
+                        result
+                            .send(addrs)
+                            .expect("Send failed (should not happened)");
+                    }
+                    None => {
+                        debug!(target: "network", "discovery service shutdown");
+                    }
+                }
+                Ok(true)
             }
-            None => {
-                debug!(target: "network", "discovery service shutdown");
-                return Ok(Async::Ready(None));
+            Ok(Async::NotReady) => Ok(false),
+            Err(err) => {
+                error!(target: "network", "discovery service error: {:?}", err);
+                Err(())
             }
         }
-        Ok(Async::Ready(Some(())))
     }
 }
 

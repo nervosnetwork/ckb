@@ -1,6 +1,9 @@
 // use crate::peer_store::Behaviour;
-use crate::NetworkState;
 use log::{debug, trace, warn};
+use crate::{NetworkController, NetworkState};
+use std::collections::HashMap;
+use std::sync::Arc;
+
 use p2p::{
     multiaddr::{Multiaddr, Protocol},
     secio::PeerId,
@@ -15,22 +18,22 @@ const MAX_RETURN_LISTEN_ADDRS: usize = 10;
 
 #[derive(Clone)]
 pub(crate) struct IdentifyCallback {
-    network_state: Arc<NetworkState>,
+    network_controller: NetworkController,
     // local listen addresses for scoring and for rpc output
     remote_listen_addrs: HashMap<PeerId, Vec<Multiaddr>>,
 }
 
 impl IdentifyCallback {
-    pub(crate) fn new(network_state: Arc<NetworkState>) -> IdentifyCallback {
+    pub(crate) fn new(network_controller: NetworkController) -> IdentifyCallback {
         IdentifyCallback {
-            network_state,
+            network_controller,
             remote_listen_addrs: HashMap::default(),
         }
     }
 
     fn listen_addrs(&self) -> Vec<Multiaddr> {
         let mut addrs = self
-            .network_state
+            .network_controller
             .listened_addresses(MAX_RETURN_LISTEN_ADDRS * 2);
         addrs.sort_by(|a, b| a.1.cmp(&b.1));
         addrs
@@ -56,11 +59,9 @@ impl Callback for IdentifyCallback {
         );
         self.remote_listen_addrs
             .insert(peer_id.clone(), addrs.clone());
-        let peer_store = self.network_state.peer_store();
         for addr in addrs {
-            if !peer_store.add_discovered_addr(&peer_id, addr) {
-                warn!(target: "network", "add_discovered_addr failed {:?}", peer_id);
-            }
+            self.network_controller
+                .add_discovered_addr(peer_id.clone(), addr);
         }
     }
 
@@ -101,15 +102,9 @@ impl Callback for IdentifyCallback {
             })
         {
             debug!(target: "network", "identify add transformed addr: {:?}", transformed_addr);
-            let local_peer_id = self.network_state.local_peer_id();
-
-            if !self
-                .network_state
-                .peer_store()
-                .add_discovered_addr(local_peer_id, transformed_addr)
-            {
-                warn!(target: "network", "add_discovered_addr failed {:?}", local_peer_id);
-            }
+            let local_peer_id = self.network_controller.local_peer_id();
+            self.network_controller
+                .add_discovered_addr(local_peer_id.to_owned(), transformed_addr);
         }
         // NOTE: for future usage
         MisbehaveResult::Continue
