@@ -42,7 +42,6 @@ deploy:
   api_key: "$GITHUB_TOKEN"
   file: "releases/ckb_${TRAVIS_TAG}_${REL_PKG}"
   skip_cleanup: true
-  draft: true
   on:
     tags: true
     condition: '"$GITHUB_TOKEN" != "" && "$REL_PKG" != ""'
