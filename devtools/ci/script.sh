@@ -26,6 +26,7 @@ if [ "$TRAVIS_BRANCH" = master -o "$TRAVIS_BRANCH" = staging -o "$TRAVIS_BRANCH"
 fi
 
 if [ -n "$TRAVIS_TAG" -a -n "$GITHUB_TOKEN" -a -n "$REL_PKG" ]; then
+  git fetch --unshallow
   make build
   rm -rf releases
   mkdir releases
