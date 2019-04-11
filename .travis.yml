@@ -47,5 +47,6 @@ deploy:
     condition: '"$GITHUB_TOKEN" != "" && "$REL_PKG" != ""'
 
 before_cache:
+- rm -rf ./target/release
 - rm -rf ./target/debug/incremental/
 - cargo sweep -f
