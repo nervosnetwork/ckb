@@ -11,7 +11,7 @@ use crate::{
     NetworkState, PeerIndex, ProtocolContext, ProtocolContextMutRef, ServiceControl, SessionInfo,
 };
 use bytes::Bytes;
-use log::{debug, error, info, warn};
+use log::{debug, error, info, trace, warn};
 use p2p::{
     builder::MetaBuilder,
     service::{ProtocolHandle, ProtocolMeta},
@@ -20,6 +20,10 @@ use p2p::{
 };
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use tokio::codec::length_delimited;
+
+// Max message frame length: 20MB
+const MAX_FRAME_LENGTH: usize = 20 * 1024 * 1024;
 
 pub type ProtocolVersion = u32;
 
@@ -76,6 +80,13 @@ impl CKBProtocol {
         MetaBuilder::default()
             .id(self.id)
             .name(move |_| protocol_name.clone())
+            .codec(|| {
+                Box::new(
+                    length_delimited::Builder::new()
+                        .max_frame_length(MAX_FRAME_LENGTH)
+                        .new_codec(),
+                )
+            })
             .support_versions(supported_versions)
             .service_handle(move || {
                 let handler = CKBHandler::new(self.id, self.network_state, self.handler);
@@ -231,7 +242,7 @@ impl ServiceProtocol for CKBHandler {
                     .map(|peer_index| (peer_id, peer_index))
             })
         {
-            debug!(
+            trace!(
                 target: "network",
                 "ckb protocol received, addr: {}, protocol: {}, peer_id: {:?}",
                 session.address,
@@ -337,6 +348,7 @@ impl CKBProtocolContext for DefaultCKBProtocolContext {
             .network_state
             .get_peer_id(peer_index)
             .ok_or_else(|| PeerError::IndexNotFound(peer_index))?;
+
         let session_id = self
             .network_state
             .peers_registry

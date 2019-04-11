@@ -1,6 +1,6 @@
+mod helper;
 mod setup;
 mod subcommand;
-mod system;
 
 use setup::{cli, ExitCode, Setup};
 

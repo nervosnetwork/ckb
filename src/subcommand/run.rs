@@ -1,5 +1,5 @@
+use crate::helper::{deadlock_detection, wait_for_exit};
 use crate::setup::{ExitCode, RunArgs};
-use crate::system::wait_for_exit;
 use ckb_chain::chain::{ChainBuilder, ChainController};
 use ckb_db::diskdb::RocksDB;
 use ckb_miner::BlockAssembler;
@@ -15,6 +15,8 @@ use log::info;
 use std::sync::Arc;
 
 pub fn run(args: RunArgs) -> Result<(), ExitCode> {
+    deadlock_detection();
+
     let shared = SharedBuilder::<CacheDB<RocksDB>>::default()
         .consensus(args.consensus)
         .db(&args.config.db)
