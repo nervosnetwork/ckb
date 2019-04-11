@@ -27,7 +27,7 @@ impl TryFrom<Script> for CoreScript {
     fn try_from(json: Script) -> Result<Self, Self::Error> {
         let Script { args, binary_hash } = json;
         Ok(CoreScript::new(
-            args.into_iter().map(|arg| arg.into_vec()).collect(),
+            args.into_iter().map(Bytes::into_vec).collect(),
             binary_hash,
         ))
     }
@@ -137,7 +137,7 @@ impl TryFrom<CellInput> for CoreCellInput {
         } = json;
         Ok(CoreCellInput::new(
             previous_output.try_into()?,
-            args.into_iter().map(|arg| arg.into_vec()).collect(),
+            args.into_iter().map(Bytes::into_vec).collect(),
         ))
     }
 }
@@ -159,7 +159,7 @@ impl TryFrom<Witness> for CoreWitness {
     type Error = FailureError;
 
     fn try_from(json: Witness) -> Result<Self, Self::Error> {
-        Ok(json.data.into_iter().map(|item| item.into_vec()).collect())
+        Ok(json.data.into_iter().map(Bytes::into_vec).collect())
     }
 }
 

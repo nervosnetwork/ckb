@@ -1,4 +1,5 @@
 use ckb_core::{Cycle, Version};
+use jsonrpc_types::Bytes;
 use numext_fixed_hash::H256;
 use serde_derive::Deserialize;
 
@@ -15,5 +16,5 @@ pub struct MinerConfig {
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct BlockAssemblerConfig {
     pub binary_hash: H256,
-    pub args: Vec<Vec<u8>>,
+    pub args: Vec<Bytes>,
 }

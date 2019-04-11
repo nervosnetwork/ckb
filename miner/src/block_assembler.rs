@@ -14,7 +14,7 @@ use crossbeam_channel::{self, select, Receiver, Sender};
 use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
 use fnv::FnvHashSet;
-use jsonrpc_types::{BlockTemplate, CellbaseTemplate, TransactionTemplate, UncleTemplate};
+use jsonrpc_types::{BlockTemplate, Bytes, CellbaseTemplate, TransactionTemplate, UncleTemplate};
 use log::error;
 use lru_cache::LruCache;
 use numext_fixed_hash::H256;
@@ -265,8 +265,16 @@ impl<CI: ChainIndex + 'static> BlockAssembler<CI> {
             }
         }
 
+        let args = self
+            .config
+            .args
+            .iter()
+            .cloned()
+            .map(Bytes::into_vec)
+            .collect();
+
         // dummy cellbase
-        let cellbase_lock = Script::new(self.config.args.clone(), self.config.binary_hash.clone());
+        let cellbase_lock = Script::new(args, self.config.binary_hash.clone());
         let cellbase =
             self.create_cellbase_transaction(header, &commit_transactions, cellbase_lock)?;
 
