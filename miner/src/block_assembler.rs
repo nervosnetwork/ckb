@@ -20,7 +20,7 @@ use lru_cache::LruCache;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 use std::cmp;
-use std::sync::{atomic::AtomicUsize, atomic::Ordering, Arc};
+use std::sync::{atomic::AtomicU64, atomic::AtomicUsize, atomic::Ordering, Arc};
 use std::thread;
 use stop_handler::{SignalSender, StopHandler};
 
@@ -89,7 +89,7 @@ pub struct BlockAssembler<CI> {
     candidate_uncles: LruCache<H256, Arc<Block>>,
     config: BlockAssemblerConfig,
     work_id: AtomicUsize,
-    last_uncles_updated_at: AtomicUsize,
+    last_uncles_updated_at: AtomicU64,
     template_caches: Mutex<LruCache<(Cycle, u64, Version), TemplateCache>>,
 }
 
@@ -100,7 +100,7 @@ impl<CI: ChainIndex + 'static> BlockAssembler<CI> {
             config,
             candidate_uncles: LruCache::new(MAX_CANDIDATE_UNCLES),
             work_id: AtomicUsize::new(0),
-            last_uncles_updated_at: AtomicUsize::new(0),
+            last_uncles_updated_at: AtomicU64::new(0),
             template_caches: Mutex::new(LruCache::new(TEMPLATE_CACHE_SIZE)),
         }
     }
@@ -137,7 +137,7 @@ impl<CI: ChainIndex + 'static> BlockAssembler<CI> {
                             let hash = uncle_block.header().hash().clone();
                             self.candidate_uncles.insert(hash, uncle_block);
                             self.last_uncles_updated_at
-                                .store(unix_time_as_millis() as usize, Ordering::SeqCst);
+                                .store(unix_time_as_millis(), Ordering::SeqCst);
                         }
                         _ => {
                             error!(target: "miner", "new_uncle_receiver closed");
@@ -229,7 +229,7 @@ impl<CI: ChainIndex + 'static> BlockAssembler<CI> {
             self.transform_params(cycles_limit, bytes_limit, max_version);
         let uncles_count_limit = self.shared.consensus().max_uncles_num() as u32;
 
-        let last_uncles_updated_at = self.last_uncles_updated_at.load(Ordering::SeqCst) as u64;
+        let last_uncles_updated_at = self.last_uncles_updated_at.load(Ordering::SeqCst);
         let chain_state = self.shared.chain_state().lock();
         let last_txs_updated_at = chain_state.get_last_txs_updated_at();
 
@@ -435,11 +435,11 @@ mod tests {
     use ckb_shared::shared::SharedBuilder;
     use ckb_shared::store::ChainKVStore;
     use ckb_traits::ChainProvider;
-    use ckb_util::TryInto;
     use ckb_verification::{BlockVerifier, HeaderResolverWrapper, HeaderVerifier, Verifier};
     use jsonrpc_types::{BlockTemplate, CellbaseTemplate};
     use numext_fixed_hash::H256;
     use numext_fixed_uint::U256;
+    use std::convert::TryInto;
     use std::sync::Arc;
 
     fn start_chain(

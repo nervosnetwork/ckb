@@ -124,7 +124,7 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
                         txs
                     })
             })
-            .map(|txs| txs.into_iter().map(|tx| tx.build()).collect())
+            .map(|txs| txs.into_iter().map(TransactionBuilder::build).collect())
     }
 
     fn get_block_ext(&self, block_hash: &H256) -> Option<BlockExt> {

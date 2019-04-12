@@ -22,8 +22,8 @@ macro_rules! get_version {
         };
 
         let host_compiler = $crate::get_channel();
-        let commit_describe = option_env!("COMMIT_DESCRIBE").map(|s| s.to_string());
-        let commit_date = option_env!("COMMIT_DATE").map(|s| s.to_string());
+        let commit_describe = option_env!("COMMIT_DESCRIBE").map(ToString::to_string);
+        let commit_date = option_env!("COMMIT_DATE").map(ToString::to_string);
         Version {
             major,
             minor,

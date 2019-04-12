@@ -1,14 +1,13 @@
 use crate::proposal_short_id::ProposalShortId;
 use crate::{Header, Transaction};
+use ckb_core::transaction::Transaction as CoreTransaction;
+use ckb_core::uncle::UncleBlock as CoreUncleBlock;
 use ckb_core::{Cycle, Version};
-use ckb_util::{TryFrom, TryInto};
 use failure::Error as FailureError;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 use serde_derive::{Deserialize, Serialize};
-
-use ckb_core::transaction::Transaction as CoreTransaction;
-use ckb_core::uncle::UncleBlock as CoreUncleBlock;
+use std::convert::{TryFrom, TryInto};
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct BlockTemplate {

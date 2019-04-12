@@ -1,15 +1,16 @@
 use crate::synchronizer::{BlockStatus, Synchronizer};
+use crate::types::HeaderView;
 use crate::MAX_HEADERS_LEN;
 use ckb_core::{header::Header, BlockNumber};
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::{cast, FlatbuffersVectorIterator, Headers};
 use ckb_shared::index::ChainIndex;
 use ckb_traits::{BlockMedianTimeContext, ChainProvider};
-use ckb_util::TryInto;
 use ckb_verification::{Error as VerifyError, HeaderResolver, HeaderVerifier, Verifier};
 use failure::Error as FailureError;
 use log::{self, debug, log_enabled, warn};
 use numext_fixed_uint::U256;
+use std::convert::TryInto;
 use std::sync::Arc;
 
 pub struct HeadersProcess<'a, CI: ChainIndex + 'a> {
@@ -271,7 +272,7 @@ where
                 own.hash(),
                 own.total_difficulty(),
                 self.peer,
-                peer_state.as_ref().map(|state| state.number()),
+                peer_state.as_ref().map(HeaderView::number),
                 peer_state.as_ref().map(|state| format!("{:x}", state.hash())),
                 peer_state.as_ref().map(|state| format!("{}", state.total_difficulty())),
             );

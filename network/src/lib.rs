@@ -24,7 +24,7 @@ pub use crate::{
 pub use p2p::{
     context::{ProtocolContext, ProtocolContextMutRef, ServiceContext, SessionContext},
     multiaddr,
-    secio::PeerId,
+    secio::{PeerId, PublicKey},
     service::{ServiceControl, SessionType},
     ProtocolId, SessionId,
 };

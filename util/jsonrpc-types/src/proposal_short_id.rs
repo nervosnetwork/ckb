@@ -1,7 +1,7 @@
 use ckb_core::transaction::ProposalShortId as CoreProposalShortId;
-use ckb_util::TryFrom;
 use failure::Error as FailureError;
 use faster_hex::{hex_decode, hex_encode};
+use std::convert::TryFrom;
 use std::fmt;
 
 #[derive(Clone, Default, PartialEq, Eq, Hash, Debug)]

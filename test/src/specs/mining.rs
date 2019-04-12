@@ -1,8 +1,8 @@
 use crate::{Net, Spec};
 use ckb_core::block::Block;
 use ckb_core::transaction::ProposalShortId;
-use ckb_util::TryInto;
 use log::info;
+use std::convert::TryInto;
 
 pub struct MiningBasic;
 

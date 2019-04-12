@@ -13,13 +13,13 @@ branch.
 
 ### Install Build Dependencies
 
-CKB is currently tested mainly with `stable-1.33.0` on Linux and macOS.
+CKB is currently tested mainly with `stable-1.34.0` on Linux and macOS.
 
 We recommend installing Rust through [rustup](https://www.rustup.rs/)
 
 ```bash
 # Get rustup from rustup.rs, then in your `ckb` folder:
-rustup override set 1.33.0
+rustup override set 1.34.0
 ```
 
 Report new breakage is welcome.

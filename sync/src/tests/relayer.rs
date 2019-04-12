@@ -6,7 +6,7 @@ use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::BlockBuilder;
 use ckb_core::header::HeaderBuilder;
 use ckb_core::script::Script;
-use ckb_core::transaction::{CellInput, CellOutput, OutPoint, TransactionBuilder};
+use ckb_core::transaction::{CellInput, CellOutput, OutPoint, Transaction, TransactionBuilder};
 use ckb_db::memorydb::MemoryKeyValueDB;
 use ckb_network::ProtocolId;
 use ckb_notify::NotifyService;
@@ -249,7 +249,7 @@ fn relay_compact_block_with_missing_indexs() {
 
                 BlockBuilder::default()
                     .commit_transaction(cellbase)
-                    .proposal_transactions(txs.iter().map(|tx| tx.proposal_short_id()).collect())
+                    .proposal_transactions(txs.iter().map(Transaction::proposal_short_id).collect())
                     .with_header_builder(header_builder)
             };
 

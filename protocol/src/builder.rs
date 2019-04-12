@@ -412,7 +412,7 @@ impl<'a> FilteredBlock<'a> {
                 &block
                     .commit_transactions()
                     .iter()
-                    .map(|tx| tx.hash())
+                    .map(Transaction::hash)
                     .collect::<Vec<_>>(),
                 transactions_index,
             );
@@ -637,8 +637,8 @@ mod tests {
     use ckb_core::block::BlockBuilder;
     use ckb_core::header::HeaderBuilder;
     use ckb_core::transaction::TransactionBuilder;
-    use ckb_util::TryInto;
     use flatbuffers::get_root;
+    use std::convert::TryInto;
 
     #[test]
     fn build_and_convert_header() {

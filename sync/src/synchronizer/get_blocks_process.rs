@@ -2,10 +2,10 @@ use crate::synchronizer::Synchronizer;
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::{cast, GetBlocks, SyncMessage};
 use ckb_shared::index::ChainIndex;
-use ckb_util::TryInto;
 use failure::Error as FailureError;
 use flatbuffers::FlatBufferBuilder;
 use log::{debug, warn};
+use std::convert::TryInto;
 
 pub struct GetBlocksProcess<'a, CI: ChainIndex + 'a> {
     message: &'a GetBlocks<'a>,

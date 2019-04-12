@@ -4,12 +4,12 @@ use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::header::{HeaderBuilder, RawHeader, Seal};
 use ckb_core::BlockNumber;
 use ckb_pow::PowEngine;
-use ckb_util::TryInto;
 use crossbeam_channel::Receiver;
 use failure::Error;
 use jsonrpc_types::{BlockTemplate, CellbaseTemplate};
 use log::{debug, error, info};
 use rand::{thread_rng, Rng};
+use std::convert::TryInto;
 use std::sync::Arc;
 
 pub struct Miner {

@@ -128,7 +128,7 @@ fn test_proposal() {
 
     //proposal in block(1)
     let proposed = 1;
-    let proposal_ids: Vec<_> = txs20.iter().map(|tx| tx.proposal_short_id()).collect();
+    let proposal_ids: Vec<_> = txs20.iter().map(Transaction::proposal_short_id).collect();
     let block: Block = gen_block(&parent, vec![], proposal_ids, vec![]);
     chain_controller
         .process_block(Arc::new(block.clone()))
@@ -189,7 +189,7 @@ fn test_uncle_proposal() {
 
     //proposal in block(1)
     let proposed = 1;
-    let proposal_ids: Vec<_> = txs20.iter().map(|tx| tx.proposal_short_id()).collect();
+    let proposal_ids: Vec<_> = txs20.iter().map(Transaction::proposal_short_id).collect();
     let uncle: Block = gen_block(&parent, vec![], proposal_ids, vec![]);
     let block: Block = gen_block(&parent, vec![], vec![], vec![uncle.into()]);
     chain_controller

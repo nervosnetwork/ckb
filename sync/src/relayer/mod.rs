@@ -21,6 +21,7 @@ use bytes::Bytes;
 use ckb_chain::chain::ChainController;
 use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::transaction::{ProposalShortId, Transaction};
+use ckb_core::uncle::UncleBlock;
 use ckb_network::{Behaviour, CKBProtocolContext, CKBProtocolHandler, PeerIndex};
 use ckb_protocol::{
     cast, get_root, short_transaction_id, short_transaction_id_keys, RelayMessage, RelayPayload,
@@ -148,7 +149,7 @@ impl<CI: ChainIndex> Relayer<CI> {
                 block
                     .uncles
                     .iter()
-                    .flat_map(|uncle| uncle.proposal_transactions()),
+                    .flat_map(UncleBlock::proposal_transactions),
             )
             .filter(|x| !chain_state.contains_proposal_id(x) && inflight.insert(**x))
             .cloned()
@@ -233,7 +234,7 @@ impl<CI: ChainIndex> Relayer<CI> {
         // append remain transactions
         short_ids_iter.for_each(|short_id| block_transactions.push(txs_map.remove(short_id)));
 
-        let missing = block_transactions.iter().any(|tx| tx.is_none());
+        let missing = block_transactions.iter().any(Option::is_none);
 
         if !missing {
             let txs = block_transactions

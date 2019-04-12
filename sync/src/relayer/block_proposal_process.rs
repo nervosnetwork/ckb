@@ -2,9 +2,9 @@ use crate::relayer::Relayer;
 use ckb_protocol::{cast, BlockProposal, FlatbuffersVectorIterator};
 use ckb_shared::index::ChainIndex;
 use ckb_traits::chain_provider::ChainProvider;
-use ckb_util::TryInto;
 use failure::Error as FailureError;
 use log::warn;
+use std::convert::TryInto;
 
 pub struct BlockProposalProcess<'a, CI> {
     message: &'a BlockProposal<'a>,

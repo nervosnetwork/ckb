@@ -3,8 +3,8 @@ use ckb_core::transaction::Transaction;
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::{cast, BlockTransactions, FlatbuffersVectorIterator};
 use ckb_shared::index::ChainIndex;
-use ckb_util::TryInto;
 use failure::Error as FailureError;
+use std::convert::TryInto;
 use std::sync::Arc;
 
 pub struct BlockTransactionsProcess<'a, CI> {

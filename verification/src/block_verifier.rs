@@ -3,10 +3,9 @@ use crate::header_verifier::HeaderResolver;
 use crate::{InputVerifier, TransactionVerifier, Verifier};
 use ckb_core::cell::ResolvedTransaction;
 use ckb_core::header::Header;
-use ckb_core::transaction::{Capacity, CellInput};
+use ckb_core::transaction::{Capacity, CellInput, Transaction};
 use ckb_core::Cycle;
 use ckb_core::{block::Block, BlockNumber};
-use ckb_merkle_tree::merkle_root;
 use ckb_traits::{BlockMedianTimeContext, ChainProvider};
 use fnv::FnvHashSet;
 use lru_cache::LruCache;
@@ -308,13 +307,7 @@ impl<CP: ChainProvider + Clone> UnclesVerifier<CP> {
                 return Err(Error::Uncles(UnclesError::InvalidInclude(uncle_hash)));
             }
 
-            let proposals = uncle
-                .proposal_transactions()
-                .iter()
-                .map(|id| id.hash())
-                .collect::<Vec<_>>();
-
-            if uncle_header.txs_proposal() != &merkle_root(&proposals[..]) {
+            if uncle_header.txs_proposal() != &uncle.cal_txs_proposal_root() {
                 return Err(Error::Uncles(UnclesError::ProposalTransactionsRoot));
             }
 
@@ -366,7 +359,7 @@ impl TransactionsVerifier {
     {
         // verify cellbase reward
         let cellbase = &resolved[0];
-        let fee: Capacity = resolved.iter().skip(1).map(|rt| rt.fee()).sum();
+        let fee: Capacity = resolved.iter().skip(1).map(ResolvedTransaction::fee).sum();
         if cellbase.transaction.outputs_capacity() > block_reward + fee {
             return Err(Error::Cellbase(CellbaseError::InvalidReward));
         }
@@ -453,7 +446,7 @@ impl<CP: ChainProvider + Clone> CommitVerifier<CP> {
             .commit_transactions()
             .par_iter()
             .skip(1)
-            .map(|tx| tx.proposal_short_id())
+            .map(Transaction::proposal_short_id)
             .collect();
 
         let difference: Vec<_> = committed_ids.difference(&proposal_txs_ids).collect();

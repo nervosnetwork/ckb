@@ -1,7 +1,7 @@
 use crate::error::TransactionError;
 use ckb_core::transaction::{Capacity, Transaction, TX_VERSION};
 use ckb_core::{
-    cell::{CellMeta, ResolvedTransaction},
+    cell::{CellMeta, CellStatus, ResolvedTransaction},
     BlockNumber, Cycle,
 };
 use ckb_script::TransactionScriptsVerifier;
@@ -200,7 +200,7 @@ impl<'a> CapacityVerifier<'a> {
             .resolved_transaction
             .input_cells
             .iter()
-            .filter_map(|state| state.get_live())
+            .filter_map(CellStatus::get_live)
             .fold(0, |acc, cell| acc + cell.cell_output.capacity);
 
         let outputs_total = self
