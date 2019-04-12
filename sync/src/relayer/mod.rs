@@ -329,11 +329,11 @@ impl<CS: ChainStore> Relayer<CS> {
 }
 
 impl<CS: ChainStore> CKBProtocolHandler for Relayer<CS> {
-    fn initialize(&self, nc: Box<CKBProtocolContext>) {
+    fn initialize(&self, nc: &mut dyn CKBProtocolContext) {
         nc.register_timer(Duration::from_millis(100), TX_PROPOSAL_TOKEN);
     }
 
-    fn received(&self, mut nc: Box<CKBProtocolContext>, peer: PeerIndex, data: Bytes) {
+    fn received(&self, nc: &mut dyn CKBProtocolContext, peer: PeerIndex, data: Bytes) {
         let msg = match get_root::<RelayMessage>(&data) {
             Ok(msg) => msg,
             _ => {
@@ -347,22 +347,22 @@ impl<CS: ChainStore> CKBProtocolHandler for Relayer<CS> {
         };
 
         debug!(target: "relay", "msg {:?}", msg.payload_type());
-        self.process(nc.as_mut(), peer, msg);
+        self.process(nc, peer, msg);
     }
 
-    fn connected(&self, _nc: Box<CKBProtocolContext>, peer: PeerIndex) {
+    fn connected(&self, _nc: &mut dyn CKBProtocolContext, peer: PeerIndex) {
         info!(target: "relay", "peer={} RelayProtocol.connected", peer);
         // do nothing
     }
 
-    fn disconnected(&self, _nc: Box<CKBProtocolContext>, peer: PeerIndex) {
+    fn disconnected(&self, _nc: &mut dyn CKBProtocolContext, peer: PeerIndex) {
         info!(target: "relay", "peer={} RelayProtocol.disconnected", peer);
         // TODO
     }
 
-    fn timer_triggered(&self, mut nc: Box<CKBProtocolContext>, token: u64) {
+    fn timer_triggered(&self, nc: &mut dyn CKBProtocolContext, token: u64) {
         match token {
-            TX_PROPOSAL_TOKEN => self.prune_tx_proposal_request(nc.as_mut()),
+            TX_PROPOSAL_TOKEN => self.prune_tx_proposal_request(nc),
             _ => unreachable!(),
         }
     }

@@ -39,39 +39,40 @@ pub fn run(args: RunArgs) -> Result<(), ExitCode> {
         synchronizer.peers(),
     );
 
-    let network_state = Arc::new(
-        NetworkState::from_config(args.config.network).expect("Init network state failed"),
-    );
+    let net_time_checker = NetTimeProtocol::default();
+
+    let network_state =
+        NetworkState::from_config(setup.configs.network).expect("Init network state failed");
+
     let protocols = vec![
         CKBProtocol::new(
             "syn".to_string(),
             NetworkProtocol::SYNC as ProtocolId,
             &[1][..],
-            move || Box::new(synchronizer.clone()),
-            Arc::clone(&network_state),
+            Box::new(synchronizer),
         ),
         CKBProtocol::new(
             "rel".to_string(),
             NetworkProtocol::RELAY as ProtocolId,
             &[1][..],
-            move || Box::new(relayer.clone()),
-            Arc::clone(&network_state),
+            Box::new(relayer),
         ),
         CKBProtocol::new(
             "tim".to_string(),
             NetworkProtocol::TIME as ProtocolId,
             &[1][..],
-            || Box::new(NetTimeProtocol::default()),
-            Arc::clone(&network_state),
+            Box::new(net_time_checker),
         ),
     ];
-    let network_controller = NetworkService::new(Arc::clone(&network_state), protocols)
-        .start(Some("NetworkService"))
-        .expect("Start network service failed");
+
+    let (network_service, p2p_service, mut network_controller) =
+        NetworkService::build(network_state, protocols);
+    let network_runtime =
+        NetworkService::start(network_service, p2p_service).expect("Start network service failed");
 
     let rpc_server = RpcServer::new(
-        args.config.rpc,
-        network_controller,
+        setup.configs.rpc,
+        network_controller.clone(),
         shared,
         chain_controller,
         block_assembler_controller,
@@ -80,6 +81,9 @@ pub fn run(args: RunArgs) -> Result<(), ExitCode> {
     wait_for_exit();
 
     info!(target: "main", "Finishing work, please wait...");
+    network_controller.shutdown();
+    network_runtime.shutdown_now();
+    info!(target: "main", "Network shutdown");
 
     rpc_server.close();
     info!(target: "main", "Jsonrpc shutdown");

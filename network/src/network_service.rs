@@ -19,8 +19,10 @@ use ckb_core::service::{Request, DEFAULT_CHANNEL_SIZE, SIGNAL_CHANNEL_SIZE};
 use ckb_util::RwLock;
 use crossbeam_channel::{self, select, Receiver, Sender, TryRecvError};
 use fnv::{FnvHashMap, FnvHashSet};
-use futures::sync::mpsc::channel;
-use futures::sync::{mpsc, oneshot};
+use futures::sync::{
+    mpsc::{self, channel},
+    oneshot,
+};
 use futures::Future;
 use futures::Stream;
 use futures::{try_ready, Async, Poll};
@@ -105,18 +107,19 @@ impl Stream for NetworkService {
     type Error = ();
 
     fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
+        let mut network_state = self.network_state.borrow_mut();
         // handle all network events
         loop {
             match self.event_receiver.poll() {
                 Ok(Async::Ready(Some(NetworkEvent::Error(error)))) => {
-                    self.handle_service_error(error);
+                    self.handle_service_error(&mut network_state, error);
                 }
                 Ok(Async::Ready(Some(NetworkEvent::Event(event)))) => {
-                    self.handle_service_event(event);
+                    self.handle_service_event(&mut network_state, event);
                 }
 
                 Ok(Async::Ready(Some(NetworkEvent::Protocol(event)))) => {
-                    self.handle_protocol(event);
+                    self.handle_protocol(&mut network_state, event);
                 }
                 Ok(Async::Ready(None)) => {
                     error!(target: "network", "event_receiver stopped");
@@ -130,7 +133,6 @@ impl Stream for NetworkService {
 
         // handle back ground services
         {
-            let mut network_state = self.network_state.borrow_mut();
             for s in &mut self.bg_services {
                 s.poll(&mut network_state);
             }
@@ -139,20 +141,20 @@ impl Stream for NetworkService {
         }
 
         // handle controller request
-        self.process_rpc_call();
+        self.process_rpc_call(&mut network_state);
 
         // Check Shutdown
         match self.stop_signal.try_recv() {
             Err(TryRecvError::Empty) => Ok(Async::Ready(Some(()))),
             Ok(stop_waiter) => {
                 debug!(target: "network", "network received stop signal");
-                self.shutdown();
+                network_state.drop_all(&mut self.p2p_control);
                 stop_waiter.send(());
                 Ok(Async::Ready(None))
             }
             Err(TryRecvError::Disconnected) => {
                 debug!(target: "network", "network stop signal dropped");
-                self.shutdown();
+                network_state.drop_all(&mut self.p2p_control);
                 Ok(Async::Ready(None))
             }
         }
@@ -177,6 +179,9 @@ impl NetworkService {
             crossbeam_channel::bounded(DEFAULT_CHANNEL_SIZE);
         let (add_discovered_addr_sender, add_discovered_addr_receiver) =
             crossbeam_channel::bounded(DEFAULT_CHANNEL_SIZE);
+
+        let (broadcast_sender, broadcast_receiver) =
+            crossbeam_channel::bounded(DEFAULT_CHANNEL_SIZE);
         let (stop_sender, stop_signal) = crossbeam_channel::bounded(1);
 
         let receivers = NetworkReceivers {
@@ -185,6 +190,7 @@ impl NetworkService {
             dial_node_receiver,
             connected_peers_receiver,
             add_discovered_addr_receiver,
+            broadcast_receiver,
         };
         let controller = NetworkController {
             peer_id: network_state.local_peer_id().to_owned(),
@@ -193,6 +199,7 @@ impl NetworkService {
             dial_node_sender,
             connected_peers_sender,
             add_discovered_addr_sender,
+            broadcast_sender,
             stop_sender,
         };
 
@@ -302,22 +309,25 @@ impl NetworkService {
     pub fn start(
         mut network_service: NetworkService,
         mut p2p_service: Service<EventHandler>,
-    ) -> Result<(), Error> {
+    ) -> Result<Runtime, Error> {
         network_service.setup_network(&mut p2p_service)?;
         // spawn p2p and network service
         let mut runtime = Runtime::new().expect("Network tokio runtime init failed");
+        println!("spawn p2p service");
         runtime.spawn(p2p_service.for_each(|_| Ok(())));
+        println!("spawn network service");
         runtime.spawn(network_service.for_each(|_| Ok(())));
-        Ok(())
+        Ok(runtime)
     }
 
     fn setup_network(&mut self, p2p_service: &mut Service<EventHandler>) -> Result<(), Error> {
-        let config = &self.network_state.borrow().config;
+        let mut network_state = self.network_state.borrow_mut();
+        let config = network_state.config.clone();
+        println!("listening");
         // listen local addresses
         for addr in &config.listen_addresses {
             match p2p_service.listen(addr.to_owned()) {
                 Ok(listen_address) => {
-                    let mut network_state = self.network_state.borrow_mut();
                     info!(
                     target: "network",
                     "Listen on address: {}",
@@ -342,29 +352,27 @@ impl NetworkService {
         // dial reserved_nodes
         for (peer_id, addr) in config.reserved_peers()? {
             debug!(target: "network", "dial reserved_peers {:?} {:?}", peer_id, addr);
-            self.network_state
-                .borrow_mut()
-                .dial_all(p2p_service.control(), &peer_id, addr);
+            network_state.dial_all(p2p_service.control(), &peer_id, addr);
         }
 
-        let bootnodes = self
-            .network_state
-            .borrow()
+        println!("booting");
+        let bootnodes = network_state
             .peer_store()
             .bootnodes(max((config.max_outbound_peers / 2) as u32, 1))
             .clone();
         // dial half bootnodes
         for (peer_id, addr) in bootnodes {
             debug!(target: "network", "dial bootnode {:?} {:?}", peer_id, addr);
-            self.network_state
-                .borrow_mut()
-                .dial_all(p2p_service.control(), &peer_id, addr);
+            network_state.dial_all(p2p_service.control(), &peer_id, addr);
         }
+
+        // init protocols
+        self.init_protocols(&mut network_state);
         Ok(())
     }
 
-    fn handle_service_event(&mut self, event: ServiceEvent) {
-        let mut network_state = self.network_state.borrow_mut();
+    fn handle_service_event(&self, network_state: &mut NetworkState, event: ServiceEvent) {
+        println!("sucks {:?}", event);
         match event {
             // Register Peer
             ServiceEvent::SessionOpen { session_context } => {
@@ -381,7 +389,7 @@ impl NetworkService {
                     session_context.ty,
                 ) {
                     // disconnect immediatly
-                    self.p2p_control.disconnect(session_context.id);
+                    self.p2p_control.clone().disconnect(session_context.id);
                     info!(
                     target: "network",
                     "reject connection from {} {}, because {:?}",
@@ -390,6 +398,7 @@ impl NetworkService {
                     err,
                     );
                 }
+                debug!(target: "network", "connect new peer {:?}", peer_id);
             }
             // When session disconnect update status anyway
             ServiceEvent::SessionClose { session_context } => {
@@ -398,6 +407,7 @@ impl NetworkService {
                     .as_ref()
                     .map(|pubkey| pubkey.peer_id())
                     .expect("Secio must enabled");
+                debug!(target: "network", "disconnect from {:?}", peer_id);
                 network_state.disconnect_peer(&peer_id);
             }
             _ => {
@@ -406,7 +416,7 @@ impl NetworkService {
         }
     }
 
-    fn handle_service_error(&self, error: ServiceError) {
+    fn handle_service_error(&self, network_state: &mut NetworkState, error: ServiceError) {
         if let ServiceError::DialerError {
             ref address,
             ref error,
@@ -421,30 +431,27 @@ impl NetworkService {
                         _ => true,
                     })
                     .collect();
-                self.network_state
-                    .borrow_mut()
-                    .listened_addresses
-                    .insert(addr, std::u8::MAX);
+                network_state.listened_addresses.insert(addr, std::u8::MAX);
             }
             // TODO implement in peer store
             if let Some(peer_id) = extract_peer_id(address) {
-                self.network_state
-                    .borrow_mut()
-                    .failed_dials
-                    .insert(peer_id, Instant::now());
+                network_state.failed_dials.insert(peer_id, Instant::now());
             }
         }
     }
 
-    fn handle_protocol(&mut self, event: ProtocolEvent) {
+    fn handle_protocol(&self, network_state: &mut NetworkState, event: ProtocolEvent) {
         let p2p_control = self.p2p_control.clone();
-        let mut network_state = self.network_state.borrow_mut();
         match event {
             ProtocolEvent::Connected {
                 session_context,
                 proto_id,
                 version,
             } => {
+                let protocol = match self.find_protocol(proto_id) {
+                    Some(p) => p,
+                    None => return,
+                };
                 let peer_id = session_context
                     .remote_pubkey
                     .as_ref()
@@ -461,10 +468,9 @@ impl NetworkService {
                     network_state.disconnect_peer(&peer_id);
                     return;
                 } // call handler
-                let protocol = self.find_protocol(proto_id).expect("protocol");
                 let peer_index = network_state.get_peer_index(&peer_id).expect("peer index");
                 protocol.handler().connected(
-                    &mut DefaultCKBProtocolContext::new(proto_id, &mut network_state, p2p_control),
+                    &mut DefaultCKBProtocolContext::new(proto_id, network_state, p2p_control),
                     peer_index,
                 );
             }
@@ -480,17 +486,9 @@ impl NetworkService {
                     .map(|pubkey| pubkey.peer_id())
                     .expect("Secio must enabled");
                 if let Some(protocol) = self.find_protocol(proto_id) {
-                    let peer_index = self
-                        .network_state
-                        .borrow()
-                        .get_peer_index(&peer_id)
-                        .expect("peer index");
+                    let peer_index = network_state.get_peer_index(&peer_id).expect("peer index");
                     protocol.handler().received(
-                        &mut DefaultCKBProtocolContext::new(
-                            proto_id,
-                            &mut self.network_state.borrow_mut(),
-                            p2p_control,
-                        ),
+                        &mut DefaultCKBProtocolContext::new(proto_id, network_state, p2p_control),
                         peer_index,
                         data,
                     );
@@ -506,17 +504,9 @@ impl NetworkService {
                     .map(|pubkey| pubkey.peer_id())
                     .expect("Secio must enabled");
                 if let Some(protocol) = self.find_protocol(proto_id) {
-                    let peer_index = self
-                        .network_state
-                        .borrow()
-                        .get_peer_index(&peer_id)
-                        .expect("peer index");
+                    let peer_index = network_state.get_peer_index(&peer_id).expect("peer index");
                     protocol.handler().disconnected(
-                        &mut DefaultCKBProtocolContext::new(
-                            proto_id,
-                            &mut self.network_state.borrow_mut(),
-                            p2p_control,
-                        ),
+                        &mut DefaultCKBProtocolContext::new(proto_id, network_state, p2p_control),
                         peer_index,
                     );
                 }
@@ -524,11 +514,7 @@ impl NetworkService {
             ProtocolEvent::ProtocolNotify { proto_id, token } => {
                 if let Some(protocol) = self.find_protocol(proto_id) {
                     protocol.handler().timer_triggered(
-                        &mut DefaultCKBProtocolContext::new(
-                            proto_id,
-                            &mut self.network_state.borrow_mut(),
-                            p2p_control,
-                        ),
+                        &mut DefaultCKBProtocolContext::new(proto_id, network_state, p2p_control),
                         token,
                     );
                 }
@@ -542,12 +528,12 @@ impl NetworkService {
             }
         }
     }
-    fn init_protocols(&mut self) {
+    fn init_protocols(&self, network_state: &mut NetworkState) {
         let p2p_control = self.p2p_control.clone();
         for p in &self.protocols {
             p.handler().initialize(&mut DefaultCKBProtocolContext::new(
                 p.id(),
-                &mut self.network_state.borrow_mut(),
+                network_state,
                 p2p_control.clone(),
             ));
         }
@@ -557,8 +543,7 @@ impl NetworkService {
         self.protocols.iter().find(|p| p.id() == proto_id)
     }
 
-    fn process_rpc_call(&mut self) -> bool {
-        let mut network_state = self.network_state.borrow_mut();
+    fn process_rpc_call(&self, network_state: &mut NetworkState) -> bool {
         select! {
             recv(self.receivers.external_urls_receiver) -> msg => match msg {
                 Ok(Request {responder, arguments: count}) => {
@@ -600,15 +585,21 @@ impl NetworkService {
                     error!(target: "network", "add_discovered_addr_receiver closed");
                 },
             },
+            recv(self.receivers.broadcast_receiver) -> msg => match msg {
+                Ok(Request {responder, arguments: (protocol_id, data)}) => {
+                    for (_, peer) in network_state.peers_registry.iter() {
+                        self.p2p_control.clone()
+                            .send_message(peer.session_id, protocol_id, data.to_vec());
+                    }
+                    let _ = responder.send(());
+                },
+                _ => {
+                    error!(target: "network", "add_discovered_addr_receiver closed");
+                },
+            },
             default() => return false,
         }
         true
-    }
-
-    fn shutdown(&mut self) {
-        let mut network_state = self.network_state.borrow_mut();
-        // drop all peers
-        network_state.drop_all(&mut self.p2p_control);
     }
 }
 
@@ -618,6 +609,7 @@ struct NetworkReceivers {
     dial_node_receiver: Receiver<Request<(PeerId, Multiaddr), ()>>,
     connected_peers_receiver: Receiver<Request<(), Vec<(PeerId, Peer, MultiaddrList)>>>,
     add_discovered_addr_receiver: Receiver<Request<(PeerId, Multiaddr), ()>>,
+    broadcast_receiver: Receiver<Request<(ProtocolId, Vec<u8>), ()>>,
 }
 
 #[derive(Clone)]
@@ -629,6 +621,7 @@ pub struct NetworkController {
     dial_node_sender: Sender<Request<(PeerId, Multiaddr), ()>>,
     connected_peers_sender: Sender<Request<(), Vec<(PeerId, Peer, MultiaddrList)>>>,
     add_discovered_addr_sender: Sender<Request<(PeerId, Multiaddr), ()>>,
+    broadcast_sender: Sender<Request<(ProtocolId, Vec<u8>), ()>>,
     stop_sender: Sender<Sender<()>>,
 }
 
@@ -639,6 +632,10 @@ impl NetworkController {
 
     pub fn listened_addresses(&self, count: usize) -> Vec<(Multiaddr, u8)> {
         Request::call(&self.listened_addresses_sender, count).expect("listened_addresses() failed")
+    }
+
+    pub fn dial_node(&self, peer_id: PeerId, addr: Multiaddr) {
+        Request::call(&self.dial_node_sender, (peer_id, addr)).expect("dial_node() failed")
     }
 
     pub fn add_discovered_addr(&self, peer_id: PeerId, addr: Multiaddr) {
@@ -655,7 +652,7 @@ impl NetworkController {
     }
 
     /// Send stop signal to network, then wait until network shutdown
-    fn shutdown(&mut self) {
+    pub fn shutdown(&mut self) {
         let (stopped_sender, stopped_receiver) = crossbeam_channel::bounded(1);
         self.stop_sender.send(stopped_sender);
         // NOTICE return a disconnect error is in expect, which mean network stream is dropped.
@@ -669,22 +666,7 @@ impl NetworkController {
         Request::call(&self.connected_peers_sender, ()).expect("connected_peers() failed")
     }
 
-    //pub fn with_protocol_context<F, T>(&mut self, protocol_id: ProtocolId, f: F) -> T
-    //    where
-    //    F: FnOnce(Box<dyn CKBProtocolContext>) -> T,
-    //    {
-    //        let context = Box::new(DefaultCKBProtocolContext::new(
-    //                protocol_id,
-    //                self.network_state,
-    //                self.p2p_control.clone(),
-    //                ));
-    //        f(context)
-    //    }
-}
-
-impl Drop for NetworkController {
-    fn drop(&mut self) {
-        // FIXME: should gracefully shutdown network in p2p library
-        self.shutdown();
+    pub fn broadcast(&self, protocol_id: ProtocolId, data: Vec<u8>) {
+        Request::call(&self.broadcast_sender, (protocol_id, data)).expect("broadcast() failed")
     }
 }

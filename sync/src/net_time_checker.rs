@@ -90,8 +90,8 @@ impl Default for NetTimeProtocol {
 }
 
 impl CKBProtocolHandler for NetTimeProtocol {
-    fn initialize(&self, _nc: Box<CKBProtocolContext>) {}
-    fn received(&self, nc: Box<CKBProtocolContext>, peer: PeerIndex, data: Bytes) {
+    fn initialize(&self, _nc: &mut CKBProtocolContext) {}
+    fn received(&self, nc: &mut CKBProtocolContext, peer: PeerIndex, data: Bytes) {
         if nc.session_info(peer).map(|s| s.peer.is_outbound()) != Some(true) {
             info!(target: "network", "Peer {} is not outbound but sends us time message", peer);
             let ret = nc.report_peer(peer, Behaviour::UnexpectedMessage);
@@ -126,7 +126,7 @@ impl CKBProtocolHandler for NetTimeProtocol {
         }
     }
 
-    fn connected(&self, mut nc: Box<CKBProtocolContext>, peer: PeerIndex) {
+    fn connected(&self, mut nc: &mut CKBProtocolContext, peer: PeerIndex) {
         // send local time to inbound peers
         if nc.session_info(peer).map(|s| s.peer.is_inbound()) == Some(true) {
             let now = faketime::unix_time_as_millis();
@@ -139,7 +139,7 @@ impl CKBProtocolHandler for NetTimeProtocol {
             }
         }
     }
-    fn disconnected(&self, _nc: Box<CKBProtocolContext>, _peer: PeerIndex) {}
+    fn disconnected(&self, _nc: &mut CKBProtocolContext, _peer: PeerIndex) {}
 }
 
 #[cfg(test)]

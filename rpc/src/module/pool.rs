@@ -60,17 +60,9 @@ impl<CS: ChainStore + 'static> PoolRpc for PoolRpcImpl<CS> {
                 let message = RelayMessage::build_transaction(fbb, &tx, cycles);
                 fbb.finish(message, None);
 
-                self.network_controller.with_protocol_context(
+                self.network_controller.broadcast(
                     NetworkProtocol::RELAY as ProtocolId,
-                    |mut nc| {
-                        for peer in nc.connected_peers() {
-                            debug!(target: "rpc", "relay transaction {} to peer#{}", tx_hash, peer);
-                            let ret = nc.send(peer, fbb.finished_data().to_vec());
-                            if ret.is_err() {
-                                warn!(target: "rpc", "relay transaction error {:?}", ret);
-                            }
-                        }
-                    },
+                    fbb.finished_data().to_vec(),
                 );
                 Ok(tx_hash)
             }

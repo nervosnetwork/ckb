@@ -100,6 +100,7 @@ impl<CS: ChainStore> ::std::clone::Clone for Synchronizer<CS> {
     }
 }
 
+#[inline]
 fn is_outbound(nc: &CKBProtocolContext, peer: PeerIndex) -> Option<bool> {
     nc.session_info(peer)
         .map(|session_info| session_info.peer.is_outbound())
@@ -697,14 +698,14 @@ impl<CS: ChainStore> Synchronizer<CS> {
 }
 
 impl<CS: ChainStore> CKBProtocolHandler for Synchronizer<CS> {
-    fn initialize(&self, nc: Box<CKBProtocolContext>) {
+    fn initialize(&self, nc: &mut dyn CKBProtocolContext) {
         // NOTE: 100ms is what bitcoin use.
         nc.register_timer(Duration::from_millis(1000), SEND_GET_HEADERS_TOKEN);
         nc.register_timer(Duration::from_millis(1000), BLOCK_FETCH_TOKEN);
         nc.register_timer(Duration::from_millis(1000), TIMEOUT_EVICTION_TOKEN);
     }
 
-    fn received(&self, mut nc: Box<CKBProtocolContext>, peer: PeerIndex, data: Bytes) {
+    fn received(&self, nc: &mut dyn CKBProtocolContext, peer: PeerIndex, data: Bytes) {
         let msg = match get_root::<SyncMessage>(&data) {
             Ok(msg) => msg,
             _ => {
@@ -718,30 +719,30 @@ impl<CS: ChainStore> CKBProtocolHandler for Synchronizer<CS> {
         };
 
         debug!(target: "sync", "msg {:?}", msg.payload_type());
-        self.process(nc.as_mut(), peer, msg);
+        self.process(nc, peer, msg);
     }
 
-    fn connected(&self, nc: Box<CKBProtocolContext>, peer: PeerIndex) {
+    fn connected(&self, nc: &mut dyn CKBProtocolContext, peer: PeerIndex) {
         info!(target: "sync", "peer={:?} SyncProtocol.connected (init_getheaders)", peer);
-        self.on_connected(nc.as_ref(), peer);
+        self.on_connected(nc, peer);
     }
 
-    fn disconnected(&self, _nc: Box<CKBProtocolContext>, peer: PeerIndex) {
+    fn disconnected(&self, _nc: &mut dyn CKBProtocolContext, peer: PeerIndex) {
         info!(target: "sync", "peer={} SyncProtocol.disconnected", peer);
         self.peers.disconnected(peer);
     }
 
-    fn timer_triggered(&self, mut nc: Box<CKBProtocolContext>, token: u64) {
+    fn timer_triggered(&self, nc: &mut dyn CKBProtocolContext, token: u64) {
         if !self.peers.state.read().is_empty() {
             match token {
                 SEND_GET_HEADERS_TOKEN => {
-                    self.start_sync_headers(nc.as_mut());
+                    self.start_sync_headers(nc);
                 }
                 BLOCK_FETCH_TOKEN => {
-                    self.find_blocks_to_fetch(nc.as_mut());
+                    self.find_blocks_to_fetch(nc);
                 }
                 TIMEOUT_EVICTION_TOKEN => {
-                    self.eviction(nc.as_mut());
+                    self.eviction(nc);
                 }
                 _ => unreachable!(),
             }

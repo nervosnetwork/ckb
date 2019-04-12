@@ -79,6 +79,7 @@ impl NetworkState {
             let mut peer_store =
                 SqlitePeerStore::file(config.peer_store_path().to_string_lossy().to_string())?;
             let bootnodes = config.bootnodes()?;
+            println!("boot nodes {:?}", bootnodes);
             for (peer_id, addr) in bootnodes {
                 peer_store.add_bootnode(peer_id, addr);
             }
@@ -125,14 +126,13 @@ impl NetworkState {
 
     /// Mark a peer as disconnect
     pub fn disconnect_peer(&mut self, peer_id: &PeerId) {
-        debug!(target: "network", "drop peer {:?}", peer_id);
+        debug!(target: "network", "mark disconnect peer {:?}", peer_id);
         if let Some(peer) = self.peers_registry.get_mut(&peer_id) {
             peer.is_disconnect = true;
         }
     }
 
     pub(crate) fn drop_disconnect_peers(&mut self, p2p_control: &mut ServiceControl) {
-        debug!(target: "network", "clean all disconnect peers");
         let disconnet_session_ids: Vec<(PeerId, SessionId)> = self
             .peers_registry
             .iter()
@@ -148,6 +148,7 @@ impl NetworkState {
             if let Err(err) = p2p_control.disconnect(session_id) {
                 error!(target: "network", "disconnect peer error {:?}", err);
             }
+            self.peers_registry.drop_peer(&peer_id);
             // update peer status
             self.mut_peer_store()
                 .update_status(&peer_id, Status::Disconnected);

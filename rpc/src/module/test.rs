@@ -15,8 +15,8 @@ pub(crate) struct IntegrationTestRpcImpl {
 
 impl IntegrationTestRpc for IntegrationTestRpcImpl {
     fn add_node(&self, peer_id: String, address: String) -> Result<()> {
-        self.network_controller.add_node(
-            &peer_id.parse().expect("invalid peer_id"),
+        self.network_controller.dial_node(
+            peer_id.parse().expect("invalid peer_id"),
             address.parse().expect("invalid address"),
         );
         Ok(())
