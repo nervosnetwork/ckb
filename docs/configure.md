@@ -10,9 +10,9 @@ CKB looks for configuration files in `<config-dir>`, which is the current workin
 -   `ckb export`: `ckb.toml`
 -   `ckb cli`: no config file required yet
 
-Command line argument `-C <path>` sets the value of `<config-dir>` to `<path>`, which must come before subcommand.
+Command line argument `-C <path>` sets the value of `<config-dir>` to `<path>`.
 
-If configuration file is missing, the default config files bundled in the executable will be used.
+If CKB could not find the config file, it will use the default bundled ones.
 
 Some config file may refer to other files, for example, `chain.spec` in
 `ckb.toml` and `system_cells` in chain spec file. The file is referred via
