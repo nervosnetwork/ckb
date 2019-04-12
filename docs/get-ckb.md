@@ -8,6 +8,14 @@ is listed there, you can download the package directory.
 There is also a repository [ckb-builds](https://github.com/ckb-builds/ckb-builds/releases) containing the nightly builds from the develop
 branch.
 
+The Linux builds require `libssl` dynamic libraries to run. In Ubuntu, it can be installed by:
+
+```bash
+sudo apt-get install libssl1.0.0
+```
+
+We also provides docker images, see [how to run CKB with docker](run-ckb-with-docker.md).
+
 ## Build from Source
 
 ### Install Build Dependencies

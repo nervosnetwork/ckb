@@ -41,39 +41,29 @@ RUN ./rustup-init -y --no-modify-path --default-toolchain $RUST_VERSION; \
 WORKDIR /ckb
 COPY ./ .
 
-RUN make prod
+RUN make VERBOSE=--verbose prod
 
 
 FROM ubuntu:bionic
 LABEL description="Nervos CKB is a public permissionless blockchain, the common knowledge layer of Nervos network."
 LABEL maintainer="Nervos Core Dev <dev@nervos.org>"
 
-#build arg
-ARG DATADIR=/usr/local/share/ckb
-ENV DATADIR ${DATADIR}
+RUN groupadd -g 1000 ckb \
+ && useradd -m -u 1000 -g ckb -s /bin/sh ckb \
+ && mkdir -p /var/lib/ckb \
+ && chown -R ckb:ckb /var/lib/ckb \
+ && chmod 755 /var/lib/ckb
 
-#useradd
-RUN groupadd -g 1000 ckb && useradd -m -u 1000 -g ckb -s /bin/sh ckb
+WORKDIR /var/lib/ckb
 
-WORKDIR ${DATADIR}
-
-#apt
-RUN apt update && apt install -y --no-install-recommends libssl-dev
-
-#cleanup
-RUN apt autoremove -y
-RUN apt clean -y
-RUN rm -rf /tmp/* /var/tmp/* /var/lib/apt/lists/*
-
-#target
+COPY --from=ckb-builder \
+     /usr/lib/x86_64-linux-gnu/libssl.so.* \
+     /usr/lib/x86_64-linux-gnu/libcrypto.so.* \
+     /usr/lib/x86_64-linux-gnu/
 COPY --from=ckb-builder /ckb/target/release/ckb /bin/ckb
 
-#entrypoint
-RUN echo "#!/bin/bash \n ckb \$@" > ./entrypoint.sh
-RUN chmod +x ./entrypoint.sh
-
-#switch use
 USER ckb
 
 EXPOSE 8114 8115
-ENTRYPOINT ["./entrypoint.sh"]
+VOLUME ["/var/lib/ckb"]
+ENTRYPOINT ["/bin/ckb"]
