@@ -36,7 +36,10 @@ The contribution workflow is described in [CONTRIBUTING.md](CONTRIBUTING.md), an
 
 ## Documentations
 
+[Latest version](https://github.com/nervosnetwork/ckb#documentations) is hosted in GitHub.
+
 - [Get CKB](docs/get-ckb.md)
 - [Quick Start](docs/quick-start.md)
+- [Run CKB with Docker](docs/run-ckb-with-docker.md)
 - [Configure CKB](docs/configure.md)
 - [CKB Core Development](docs/ckb-core-dev.md)
