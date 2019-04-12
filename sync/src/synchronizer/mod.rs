@@ -436,6 +436,11 @@ impl<CI: ChainIndex> Synchronizer<CI> {
     //TODO: process block which we don't request
     #[allow(clippy::single_match)]
     pub fn process_new_block(&self, peer: PeerIndex, block: Block) {
+        if self.orphan_block_pool.contains(&block) {
+            debug!(target: "sync", "block {} already in orphan pool", block.header().hash());
+            return;
+        }
+
         match self.get_block_status(&block.header().hash()) {
             BlockStatus::VALID_MASK => {
                 self.insert_new_block(peer, block);
@@ -492,7 +497,7 @@ impl<CI: ChainIndex> Synchronizer<CI> {
                 }
             } else {
                 debug!(
-                    target: "sync", "[Synchronizer] accept_block {:?} error {:?}",
+                    target: "sync", "[Synchronizer] accept_block {:?} error {}",
                     block,
                     accept_ret.unwrap_err()
                 )
