@@ -1,12 +1,12 @@
 mod behaviour;
 mod config;
 pub mod errors;
-pub mod network;
 mod network_group;
 mod network_service;
+mod network_state;
 mod peer;
-pub mod peer_store;
-pub mod peers_registry;
+mod peer_store;
+mod peers_registry;
 mod protocols;
 
 #[cfg(test)]
@@ -16,8 +16,8 @@ pub use crate::{
     behaviour::Behaviour,
     config::NetworkConfig,
     errors::Error,
-    network::{NetworkState, SessionInfo},
     network_service::{NetworkController, NetworkService},
+    network_state::{NetworkState, SessionInfo},
     peer::{Peer, PeerIdentifyInfo},
     peer_store::Score,
     protocols::{CKBProtocol, CKBProtocolContext, CKBProtocolHandler, ProtocolVersion},
