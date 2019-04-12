@@ -66,11 +66,12 @@ impl Net {
             let protocols = test_protocols
                 .into_iter()
                 .map(|tp| {
+                    let tx = tx.clone();
                     CKBProtocol::new(
                         tp.protocol_name,
                         tp.id,
                         &tp.supported_versions,
-                        Box::new(DummyProtocolHandler { tx: tx.clone() }),
+                        move || Box::new(DummyProtocolHandler { tx: tx.clone() }),
                         Arc::clone(&network_state),
                     )
                 })

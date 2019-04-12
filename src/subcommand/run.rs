@@ -39,8 +39,6 @@ pub fn run(args: RunArgs) -> Result<(), ExitCode> {
         synchronizer.peers(),
     );
 
-    let net_time_checker = NetTimeProtocol::default();
-
     let network_state = Arc::new(
         NetworkState::from_config(args.config.network).expect("Init network state failed"),
     );
@@ -49,21 +47,21 @@ pub fn run(args: RunArgs) -> Result<(), ExitCode> {
             "syn".to_string(),
             NetworkProtocol::SYNC as ProtocolId,
             &[1][..],
-            Box::new(synchronizer),
+            move || Box::new(synchronizer.clone()),
             Arc::clone(&network_state),
         ),
         CKBProtocol::new(
             "rel".to_string(),
             NetworkProtocol::RELAY as ProtocolId,
             &[1][..],
-            Box::new(relayer),
+            move || Box::new(relayer.clone()),
             Arc::clone(&network_state),
         ),
         CKBProtocol::new(
             "tim".to_string(),
             NetworkProtocol::TIME as ProtocolId,
             &[1][..],
-            Box::new(net_time_checker),
+            || Box::new(NetTimeProtocol::default()),
             Arc::clone(&network_state),
         ),
     ];

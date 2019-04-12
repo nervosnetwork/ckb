@@ -34,21 +34,21 @@ pub struct CKBProtocol {
     protocol_name: String,
     // supported version, used to check protocol version
     supported_versions: Vec<ProtocolVersion>,
-    handler: Box<dyn CKBProtocolHandler + Send + 'static>,
+    handler: Box<Fn() -> Box<dyn CKBProtocolHandler> + Send + 'static>,
     network_state: Arc<NetworkState>,
 }
 
 impl CKBProtocol {
-    pub fn new(
+    pub fn new<F: Fn() -> Box<dyn CKBProtocolHandler> + Send + 'static>(
         protocol_name: String,
         id: ProtocolId,
         versions: &[ProtocolVersion],
-        handler: Box<dyn CKBProtocolHandler + Send + 'static>,
+        handler: F,
         network_state: Arc<NetworkState>,
     ) -> Self {
         CKBProtocol {
             id,
-            handler,
+            handler: Box::new(handler),
             network_state,
             protocol_name: format!("/ckb/{}/", protocol_name).to_string(),
             supported_versions: {
@@ -90,7 +90,8 @@ impl CKBProtocol {
             })
             .support_versions(supported_versions)
             .service_handle(move || {
-                let handler = CKBHandler::new(self.id, self.network_state, self.handler);
+                let handler =
+                    CKBHandler::new(self.id, Arc::clone(&self.network_state), (self.handler)());
                 ProtocolHandle::Callback(Box::new(handler))
             })
             .build()
@@ -100,14 +101,14 @@ impl CKBProtocol {
 struct CKBHandler {
     id: ProtocolId,
     network_state: Arc<NetworkState>,
-    handler: Box<dyn CKBProtocolHandler + Send + 'static>,
+    handler: Box<dyn CKBProtocolHandler>,
 }
 
 impl CKBHandler {
     pub fn new(
         id: ProtocolId,
         network_state: Arc<NetworkState>,
-        handler: Box<dyn CKBProtocolHandler + Send + 'static>,
+        handler: Box<dyn CKBProtocolHandler>,
     ) -> CKBHandler {
         CKBHandler {
             id,

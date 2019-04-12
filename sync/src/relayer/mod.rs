@@ -51,6 +51,20 @@ pub struct Relayer<CI> {
     peers: Arc<Peers>,
 }
 
+impl<CI> Clone for Relayer<CI>
+where
+    CI: ckb_shared::index::ChainIndex,
+{
+    fn clone(&self) -> Self {
+        Relayer {
+            chain: self.chain.clone(),
+            shared: Clone::clone(&self.shared),
+            state: Arc::clone(&self.state),
+            peers: Arc::clone(&self.peers),
+        }
+    }
+}
+
 impl<CI: ChainIndex> Relayer<CI> {
     pub fn new(chain: ChainController, shared: Shared<CI>, peers: Arc<Peers>) -> Self {
         Relayer {
@@ -155,14 +169,16 @@ impl<CI: ChainIndex> Relayer<CI> {
             .cloned()
             .collect::<Vec<_>>();
 
-        let fbb = &mut FlatBufferBuilder::new();
-        let message =
-            RelayMessage::build_get_block_proposal(fbb, block.header.number(), &unknown_ids);
-        fbb.finish(message, None);
+        if !unknown_ids.is_empty() {
+            let fbb = &mut FlatBufferBuilder::new();
+            let message =
+                RelayMessage::build_get_block_proposal(fbb, block.header.number(), &unknown_ids);
+            fbb.finish(message, None);
 
-        let ret = nc.send(peer, fbb.finished_data().to_vec());
-        if ret.is_err() {
-            warn!(target: "relay", "relay get_block_proposal error {:?}", ret);
+            let ret = nc.send(peer, fbb.finished_data().to_vec());
+            if ret.is_err() {
+                warn!(target: "relay", "relay get_block_proposal error {:?}", ret);
+            }
         }
     }
 
