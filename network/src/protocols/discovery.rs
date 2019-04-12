@@ -3,7 +3,7 @@ use crate::NetworkState;
 use fnv::FnvHashMap;
 use futures::{sync::mpsc, sync::oneshot, try_ready, Async, Future, Stream};
 use log::{debug, trace, warn};
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use p2p::{
     context::{ProtocolContext, ProtocolContextMutRef},
@@ -29,7 +29,7 @@ impl DiscoveryProtocol {
         let addr_mgr = DiscoveryAddressManager {
             event_sender: event_sender.clone(),
         };
-        let discovery = Discovery::new(addr_mgr);
+        let discovery = Discovery::new(addr_mgr, Some(Duration::from_secs(7)));
         let discovery_handle = discovery.handle();
         DiscoveryProtocol {
             discovery: Some(discovery),
@@ -63,7 +63,7 @@ impl ServiceProtocol for DiscoveryProtocol {
         context.future_task(discovery_task);
     }
 
-    fn connected(&mut self, mut context: ProtocolContextMutRef, _: &str) {
+    fn connected(&mut self, context: ProtocolContextMutRef, _: &str) {
         let session = context.session;
         debug!(
             target: "network",
@@ -81,15 +81,7 @@ impl ServiceProtocol for DiscoveryProtocol {
 
         let (sender, receiver) = mpsc::channel(8);
         self.discovery_senders.insert(session.id, sender);
-        let substream = Substream::new(
-            session.address.clone(),
-            session.ty,
-            context.proto_id,
-            session.id,
-            receiver,
-            context.control().clone(),
-            context.listens(),
-        );
+        let substream = Substream::new(context, receiver);
         match self.discovery_handle.substream_sender.try_send(substream) {
             Ok(_) => {
                 debug!(target: "network", "Send substream success");

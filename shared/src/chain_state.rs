@@ -182,7 +182,7 @@ impl<CI: ChainIndex> ChainState<CI> {
                 trace!(target: "tx_pool", "discarding already known transaction {:#x}", tx_hash);
                 return Err(PoolError::Duplicate);
             }
-            let entry = PoolEntry::new(tx, 0, verify_result.map(Some).unwrap_or(None));
+            let entry = PoolEntry::new(tx, 0, verify_result.ok());
             self.staging_tx(&mut tx_pool, entry, max_cycles)?;
             Ok(verify_result.map_err(PoolError::InvalidTx)?)
         } else {

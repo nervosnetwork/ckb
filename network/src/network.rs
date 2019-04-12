@@ -463,14 +463,16 @@ impl NetworkService {
         // TODO: how to deny banned node to open those protocols?
         // Ping protocol
         let (ping_sender, ping_receiver) = channel(std::u8::MAX as usize);
+        let ping_interval = Duration::from_secs(config.ping_interval_secs);
+        let ping_timeout = Duration::from_secs(config.ping_timeout_secs);
+
         let ping_meta = MetaBuilder::default()
             .id(PING_PROTOCOL_ID)
             .service_handle(move || {
                 ProtocolHandle::Both(Box::new(PingHandler::new(
-                    PING_PROTOCOL_ID,
-                    Duration::from_secs(config.ping_interval_secs),
-                    Duration::from_secs(config.ping_timeout_secs),
-                    ping_sender,
+                    ping_interval,
+                    ping_timeout,
+                    ping_sender.clone(),
                 )))
             })
             .build();
@@ -480,7 +482,7 @@ impl NetworkService {
         let disc_meta = MetaBuilder::default()
             .id(DISCOVERY_PROTOCOL_ID)
             .service_handle(move || {
-                ProtocolHandle::Both(Box::new(DiscoveryProtocol::new(disc_sender)))
+                ProtocolHandle::Both(Box::new(DiscoveryProtocol::new(disc_sender.clone())))
             })
             .build();
 
@@ -489,7 +491,7 @@ impl NetworkService {
         let identify_meta = MetaBuilder::default()
             .id(IDENTIFY_PROTOCOL_ID)
             .service_handle(move || {
-                ProtocolHandle::Both(Box::new(IdentifyProtocol::new(identify_callback)))
+                ProtocolHandle::Both(Box::new(IdentifyProtocol::new(identify_callback.clone())))
             })
             .build();
 
@@ -498,7 +500,7 @@ impl NetworkService {
             "flr".to_string(),
             FEELER_PROTOCOL_ID,
             &[1][..],
-            Box::new(Feeler {}),
+            || Box::new(Feeler {}),
             Arc::clone(&network_state),
         );
 
