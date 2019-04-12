@@ -51,10 +51,7 @@ pub struct Relayer<CS> {
     peers: Arc<Peers>,
 }
 
-impl<CI> Clone for Relayer<CI>
-where
-    CI: ckb_shared::index::ChainIndex,
-{
+impl<CS: ChainStore> Clone for Relayer<CS> {
     fn clone(&self) -> Self {
         Relayer {
             chain: self.chain.clone(),
@@ -65,8 +62,8 @@ where
     }
 }
 
-impl<CI: ChainIndex> Relayer<CI> {
-    pub fn new(chain: ChainController, shared: Shared<CI>, peers: Arc<Peers>) -> Self {
+impl<CS: ChainStore> Relayer<CS> {
+    pub fn new(chain: ChainController, shared: Shared<CS>, peers: Arc<Peers>) -> Self {
         Relayer {
             chain,
             shared,

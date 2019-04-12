@@ -3,7 +3,7 @@ use crate::MAX_LOCATOR_SIZE;
 use ckb_core::header::Header;
 use ckb_network::{Behaviour, CKBProtocolContext, PeerIndex};
 use ckb_protocol::{cast, GetHeaders, SyncMessage};
-use ckb_shared::index::ChainIndex;
+use ckb_shared::store::ChainStore;
 use failure::Error as FailureError;
 use flatbuffers::FlatBufferBuilder;
 use log::{debug, info, warn};
