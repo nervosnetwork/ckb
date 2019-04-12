@@ -3,13 +3,22 @@
 Following steps will assume that the shell can find the executable `ckb`, see
 how to [get CKB](get-ckb.md).
 
+CKB uses current directory to store data. It is recommended to setup the
+directory with default config files:
+
+```shell
+ckb init
+```
+
+See how to [configure CKB](configure.md) if you like to tweak the options.
+
 ## Start Node
 
 ```shell
 ckb run
 ```
 
-It will start a node using the default configurations and store files in `data/dev` in current directory. If you want to customize the configurations, see how to [configure CKB](configure.md).
+Restarting in the same directory will reuse the data.
 
 ## Use RPC
 
