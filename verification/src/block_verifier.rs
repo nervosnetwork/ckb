@@ -31,7 +31,7 @@ pub struct BlockVerifier<P> {
 
 impl<P> BlockVerifier<P>
 where
-    P: ChainProvider + Clone + 'static,
+    P: ChainProvider + Clone,
 {
     pub fn new(provider: P) -> Self {
         BlockVerifier {
