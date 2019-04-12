@@ -1,12 +1,15 @@
 use crate::error::TransactionError;
 use ckb_core::transaction::{Capacity, Transaction, TX_VERSION};
+use ckb_core::transaction_meta::TransactionMeta;
 use ckb_core::{
     cell::{CellMeta, CellStatus, ResolvedTransaction},
     BlockNumber, Cycle,
 };
 use ckb_script::TransactionScriptsVerifier;
 use ckb_traits::BlockMedianTimeContext;
+use fnv::FnvHashMap;
 use lru_cache::LruCache;
+use numext_fixed_hash::H256;
 use occupied_capacity::OccupiedCapacity;
 use std::cell::RefCell;
 use std::collections::HashSet;
@@ -15,6 +18,7 @@ pub struct TransactionVerifier<'a, M> {
     pub version: VersionVerifier<'a>,
     pub null: NullVerifier<'a>,
     pub empty: EmptyVerifier<'a>,
+    pub maturity: MaturityVerifier<'a>,
     pub capacity: CapacityVerifier<'a>,
     pub duplicate_inputs: DuplicateInputsVerifier<'a>,
     pub inputs: InputVerifier<'a>,
@@ -30,11 +34,19 @@ where
         rtx: &'a ResolvedTransaction,
         median_time_context: &'a M,
         tip_number: BlockNumber,
+        cell_set: &'a FnvHashMap<H256, TransactionMeta>,
+        cellbase_maturity: usize,
     ) -> Self {
         TransactionVerifier {
             version: VersionVerifier::new(&rtx.transaction),
             null: NullVerifier::new(&rtx.transaction),
             empty: EmptyVerifier::new(&rtx.transaction),
+            maturity: MaturityVerifier::new(
+                &rtx.transaction,
+                tip_number,
+                cell_set,
+                cellbase_maturity,
+            ),
             duplicate_inputs: DuplicateInputsVerifier::new(&rtx.transaction),
             script: ScriptVerifier::new(rtx),
             capacity: CapacityVerifier::new(rtx),
@@ -47,6 +59,7 @@ where
         self.version.verify()?;
         self.empty.verify()?;
         self.null.verify()?;
+        self.maturity.verify()?;
         self.inputs.verify()?;
         self.capacity.verify()?;
         self.duplicate_inputs.verify()?;
@@ -134,6 +147,50 @@ impl<'a> EmptyVerifier<'a> {
     pub fn verify(&self) -> Result<(), TransactionError> {
         if self.transaction.is_empty() {
             Err(TransactionError::Empty)
+        } else {
+            Ok(())
+        }
+    }
+}
+
+pub struct MaturityVerifier<'a> {
+    transaction: &'a Transaction,
+    tip_number: BlockNumber,
+    cell_set: &'a FnvHashMap<H256, TransactionMeta>,
+    cellbase_maturity: usize,
+}
+
+impl<'a> MaturityVerifier<'a> {
+    pub fn new(
+        transaction: &'a Transaction,
+        tip_number: BlockNumber,
+        cell_set: &'a FnvHashMap<H256, TransactionMeta>,
+        cellbase_maturity: usize,
+    ) -> Self {
+        MaturityVerifier {
+            transaction,
+            tip_number,
+            cell_set,
+            cellbase_maturity,
+        }
+    }
+
+    pub fn verify(&self) -> Result<(), TransactionError> {
+        let immature_spend = self.transaction.inputs().iter().any(|input| {
+            match self.cell_set.get(&input.previous_output.hash) {
+                Some(ref meta)
+                    if meta.is_cellbase()
+                        && self.tip_number
+                            < meta.block_number() + self.cellbase_maturity as u64 =>
+                {
+                    true
+                }
+                _ => false,
+            }
+        });
+
+        if immature_spend {
+            Err(TransactionError::CellbaseImmaturity)
         } else {
             Ok(())
         }

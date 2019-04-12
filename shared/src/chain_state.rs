@@ -223,8 +223,14 @@ impl<CI: ChainIndex> ChainState<CI> {
         match ret {
             Some(cycles) => Ok(cycles),
             None => {
-                let cycles =
-                    TransactionVerifier::new(&rtx, &self, self.tip_number()).verify(max_cycles)?;
+                let cycles = TransactionVerifier::new(
+                    &rtx,
+                    &self,
+                    self.tip_number(),
+                    &self.cell_set.inner,
+                    self.consensus().cellbase_maturity,
+                )
+                .verify(max_cycles)?;
                 // write cache
                 self.txs_verify_cache.borrow_mut().insert(tx_hash, cycles);
                 Ok(cycles)

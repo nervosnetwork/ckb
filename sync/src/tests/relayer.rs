@@ -339,7 +339,9 @@ fn setup_node(
             .timestamp(unix_time_as_millis())
             .difficulty(U256::from(1000u64)),
     );
-    let consensus = Consensus::default().set_genesis_block(block.clone());
+    let consensus = Consensus::default()
+        .set_genesis_block(block.clone())
+        .set_cellbase_maturity(0);
 
     let shared = SharedBuilder::<MemoryKeyValueDB>::new()
         .consensus(consensus)

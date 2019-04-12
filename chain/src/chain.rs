@@ -469,6 +469,9 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
                         .map(|x| resolve_transaction(x, &mut seen_inputs, &cell_provider))
                         .collect();
 
+                    let cell_set = { chain_state.cell_set().inner.clone() };
+                    let cellbase_maturity = { self.shared.consensus().cellbase_maturity() };
+
                     match txs_verifier.verify(
                         chain_state.mut_txs_verify_cache(),
                         &resolved,
@@ -479,6 +482,8 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
                             consensus: self.shared.consensus(),
                         },
                         b.header().number(),
+                        cell_set,
+                        cellbase_maturity,
                     ) {
                         Ok(_) => {
                             cell_set_diff.push_new(b);
