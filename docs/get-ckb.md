@@ -5,9 +5,8 @@
 We will publish binaries for each release via [Github Releases](https://github.com/nervosnetwork/ckb/releases). If your system
 is listed there, you can download the package directory.
 
-There is also a repository [ckb-nightly](https://github.com/ckb-nightly/ckb-nightly/releases) containing the nightly builds from the develop
+There is also a repository [ckb-builds](https://github.com/ckb-builds/ckb-builds/releases) containing the nightly builds from the develop
 branch.
-
 
 ## Build from Source
 
