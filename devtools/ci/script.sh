@@ -1,8 +1,6 @@
 #!/bin/bash
 set -ev
 
-echo "TRAVIS_BRANCH=$TRAVIS_BRANCH"
-
 cargo sweep -s
 
 if [ "$FMT" = true ]; then
@@ -18,13 +16,18 @@ fi
 
 git diff --exit-code Cargo.lock
 
-if [ "$TRAVIS_BRANCH" = master -o "$TRAVIS_BRANCH" = staging -o "$TRAVIS_BRANCH" = trying ]; then
+# We'll create PR for develop and rc branches to trigger the integration test.
+if [ "$TRAVIS_BRANCH" = master ]; then
+  echo "Running integration test..."
   make integration
 
   # Switch to release mode when the running time is much longer than the build time.
   # make integration-release
+else
+  echo "Skip integration test..."
 fi
 
+# Publish package for release
 if [ -n "$TRAVIS_TAG" -a -n "$GITHUB_TOKEN" -a -n "$REL_PKG" ]; then
   git fetch --unshallow
   make build
