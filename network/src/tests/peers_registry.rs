@@ -7,8 +7,8 @@ use crate::{
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-fn new_peer_store() -> Arc<dyn PeerStore> {
-    Arc::new(SqlitePeerStore::temp().expect("temp"))
+fn new_peer_store() -> Box<dyn PeerStore> {
+    Box::new(SqlitePeerStore::temp().expect("temp"))
 }
 
 const TEST_PROTOCOL_ID: ProtocolId = 0;
@@ -23,13 +23,7 @@ fn test_accept_inbound_peer_in_reserve_only_mode() {
     let session_type = SessionType::Inbound;
 
     // reserved_only mode: only accept reserved_peer
-    let peers = PeersRegistry::new(
-        Arc::clone(&peer_store),
-        3,
-        3,
-        true,
-        vec![reserved_peer.clone()],
-    );
+    let mut peers = PeersRegistry::new(peer_store, 3, 3, true, vec![reserved_peer.clone()]);
     assert!(peers
         .accept_connection(
             PeerId::random(),
@@ -61,13 +55,7 @@ fn test_accept_inbound_peer_until_full() {
     let session_id = 1;
     let session_type = SessionType::Inbound;
     // accept node until inbound connections is full
-    let peers = PeersRegistry::new(
-        Arc::clone(&peer_store),
-        3,
-        3,
-        false,
-        vec![reserved_peer.clone()],
-    );
+    let mut peers = PeersRegistry::new(peer_store, 3, 3, false, vec![reserved_peer.clone()]);
     peers
         .accept_connection(
             PeerId::random(),
@@ -139,7 +127,7 @@ fn test_accept_inbound_peer_eviction() {
     // 1. should evict from largest network groups
     // 2. should never evict reserved peer
     // 3. should evict lowest scored peer
-    let peer_store = new_peer_store();
+    let mut peer_store = new_peer_store();
     let reserved_peer = PeerId::random();
     let evict_target = PeerId::random();
     let lowest_score_peer = PeerId::random();
@@ -150,8 +138,8 @@ fn test_accept_inbound_peer_eviction() {
     // prepare protected peers
     let longest_connection_time_peers_count = 5;
     let protected_peers_count = 3 * EVICTION_PROTECT_PEERS + longest_connection_time_peers_count;
-    let peers_registry = PeersRegistry::new(
-        Arc::clone(&peer_store),
+    let mut peers_registry = PeersRegistry::new(
+        peer_store,
         (protected_peers_count + longest_connection_time_peers_count) as u32,
         3,
         false,
@@ -169,23 +157,17 @@ fn test_accept_inbound_peer_eviction() {
             )
             .is_ok());
     }
-    let peers: Vec<_> = {
-        peers_registry
-            .peers_guard()
-            .read()
-            .iter()
-            .map(|(peer_id, _)| peer_id)
-            .cloned()
-            .collect()
-    };
-
-    let mut peers_iter = peers.iter();
+    let mut peers_iter = peers_registry
+        .iter()
+        .map(|(peer_id, _)| peer_id.to_owned())
+        .collect::<Vec<_>>()
+        .into_iter();
     // higest scored peers
     {
         for _ in 0..EVICTION_PROTECT_PEERS {
             let peer_id = peers_iter.next().unwrap();
-            peer_store.report(&peer_id, Behaviour::Ping);
-            peer_store.report(&peer_id, Behaviour::Ping);
+            peers_registry.peer_store.report(&peer_id, Behaviour::Ping);
+            peers_registry.peer_store.report(&peer_id, Behaviour::Ping);
         }
     }
     // lowest ping peers
@@ -277,12 +259,24 @@ fn test_accept_inbound_peer_eviction() {
         .expect("accept");
     // setup score
     {
-        peer_store.report(&lowest_score_peer, Behaviour::FailedToPing);
-        peer_store.report(&lowest_score_peer, Behaviour::FailedToPing);
-        peer_store.report(&lowest_score_peer, Behaviour::FailedToPing);
-        peer_store.report(&reserved_peer, Behaviour::FailedToPing);
-        peer_store.report(&reserved_peer, Behaviour::FailedToPing);
-        peer_store.report(&evict_target, Behaviour::FailedToPing);
+        peers_registry
+            .peer_store
+            .report(&lowest_score_peer, Behaviour::FailedToPing);
+        peers_registry
+            .peer_store
+            .report(&lowest_score_peer, Behaviour::FailedToPing);
+        peers_registry
+            .peer_store
+            .report(&lowest_score_peer, Behaviour::FailedToPing);
+        peers_registry
+            .peer_store
+            .report(&reserved_peer, Behaviour::FailedToPing);
+        peers_registry
+            .peer_store
+            .report(&reserved_peer, Behaviour::FailedToPing);
+        peers_registry
+            .peer_store
+            .report(&evict_target, Behaviour::FailedToPing);
     }
     // make sure other peers should not protected by longest connection time rule
     new_peer_ids.extend_from_slice(&[

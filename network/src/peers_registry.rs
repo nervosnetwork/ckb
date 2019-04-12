@@ -15,7 +15,6 @@ use std::sync::Arc;
 pub(crate) const EVICTION_PROTECT_PEERS: usize = 8;
 
 struct PeerManage {
-    id_allocator: AtomicUsize,
     peers: FnvHashMap<PeerId, Peer>,
     pub(crate) peer_id_by_index: FnvHashMap<PeerIndex, PeerId>,
 }
@@ -41,7 +40,9 @@ impl PeerManage {
         match self.peers.entry(peer_id.clone()) {
             Entry::Occupied(entry) => Err(PeerError::Duplicate(entry.get().peer_index).into()),
             Entry::Vacant(entry) => {
-                let peer_index = self.id_allocator.fetch_add(1, Ordering::Relaxed);
+                // since session_id has the same purpose with peer_index, we can use session_id as
+                // peer_index
+                let peer_index = session_id;
                 let peer = Peer::new(peer_index, connected_addr, session_id, session_type);
                 entry.insert(peer);
                 self.peer_id_by_index.insert(peer_index, peer_id);
@@ -53,14 +54,12 @@ impl PeerManage {
     fn clear(&mut self) {
         self.peers.clear();
         self.peer_id_by_index.clear();
-        self.id_allocator.store(0, Ordering::Relaxed)
     }
 }
 
 impl Default for PeerManage {
     fn default() -> Self {
         PeerManage {
-            id_allocator: AtomicUsize::new(0),
             peers: FnvHashMap::with_capacity_and_hasher(20, Default::default()),
             peer_id_by_index: FnvHashMap::with_capacity_and_hasher(20, Default::default()),
         }
