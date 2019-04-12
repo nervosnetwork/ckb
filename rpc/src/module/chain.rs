@@ -1,6 +1,6 @@
 use ckb_core::cell::CellProvider;
 use ckb_core::BlockNumber;
-use ckb_shared::{index::ChainIndex, shared::Shared};
+use ckb_shared::{shared::Shared, store::ChainStore};
 use ckb_traits::ChainProvider;
 use jsonrpc_core::{Error, Result};
 use jsonrpc_derive::rpc;
@@ -37,11 +37,11 @@ pub trait ChainRpc {
     fn get_tip_block_number(&self) -> Result<String>;
 }
 
-pub(crate) struct ChainRpcImpl<CI> {
-    pub shared: Shared<CI>,
+pub(crate) struct ChainRpcImpl<CS> {
+    pub shared: Shared<CS>,
 }
 
-impl<CI: ChainIndex + 'static> ChainRpc for ChainRpcImpl<CI> {
+impl<CS: ChainStore + 'static> ChainRpc for ChainRpcImpl<CS> {
     fn get_block(&self, hash: H256) -> Result<Option<Block>> {
         Ok(self.shared.block(&hash).as_ref().map(Into::into))
     }

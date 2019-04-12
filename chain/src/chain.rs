@@ -11,8 +11,8 @@ use ckb_notify::NotifyController;
 use ckb_shared::cell_set::CellSetDiff;
 use ckb_shared::chain_state::ChainState;
 use ckb_shared::error::SharedError;
-use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::Shared;
+use ckb_shared::store::ChainStore;
 use ckb_shared::store::StoreBatch;
 use ckb_traits::{BlockMedianTimeContext, ChainProvider};
 use ckb_verification::{BlockVerifier, TransactionsVerifier, Verifier};
@@ -98,13 +98,13 @@ impl GlobalIndex {
 }
 
 // Verification context for fork
-struct ForkContext<'a, CI> {
+struct ForkContext<'a, CS> {
     pub fork_blocks: &'a [Block],
-    pub store: Arc<CI>,
+    pub store: Arc<CS>,
     pub consensus: &'a Consensus,
 }
 
-impl<'a, CI: ChainIndex> ForkContext<'a, CI> {
+impl<'a, CS: ChainStore> ForkContext<'a, CS> {
     fn get_header(&self, number: BlockNumber) -> Option<Header> {
         match self
             .fork_blocks
@@ -120,7 +120,7 @@ impl<'a, CI: ChainIndex> ForkContext<'a, CI> {
     }
 }
 
-impl<'a, CI: ChainIndex> BlockMedianTimeContext for ForkContext<'a, CI> {
+impl<'a, CS: ChainStore> BlockMedianTimeContext for ForkContext<'a, CS> {
     fn median_block_count(&self) -> u64 {
         self.consensus.median_time_block_count() as u64
     }
@@ -130,18 +130,18 @@ impl<'a, CI: ChainIndex> BlockMedianTimeContext for ForkContext<'a, CI> {
     }
 }
 
-pub struct ChainService<CI> {
-    shared: Shared<CI>,
+pub struct ChainService<CS> {
+    shared: Shared<CS>,
     notify: NotifyController,
     verification: bool,
 }
 
-impl<CI: ChainIndex + 'static> ChainService<CI> {
+impl<CS: ChainStore + 'static> ChainService<CS> {
     pub fn new(
-        shared: Shared<CI>,
+        shared: Shared<CS>,
         notify: NotifyController,
         verification: bool,
-    ) -> ChainService<CI> {
+    ) -> ChainService<CS> {
         ChainService {
             shared,
             notify,
@@ -288,7 +288,7 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
         Ok(())
     }
 
-    pub(crate) fn update_proposal_ids(&self, chain_state: &mut ChainState<CI>, fork: &ForkChanges) {
+    pub(crate) fn update_proposal_ids(&self, chain_state: &mut ChainState<CS>, fork: &ForkChanges) {
         for blk in fork.attached_blocks() {
             chain_state.update_proposal_ids(&blk);
         }
@@ -426,7 +426,7 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
         &self,
         batch: &mut StoreBatch,
         fork: &mut ForkChanges,
-        chain_state: &mut ChainState<CI>,
+        chain_state: &mut ChainState<CS>,
     ) -> Result<CellSetDiff, FailureError> {
         let mut cell_set_diff = CellSetDiff::default();
 
@@ -516,7 +516,7 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
     }
 
     // TODO: beatify
-    fn print_chain(&self, chain_state: &ChainState<CI>, len: u64) {
+    fn print_chain(&self, chain_state: &ChainState<CS>, len: u64) {
         debug!(target: "chain", "Chain {{");
 
         let tip = chain_state.tip_number();
@@ -568,14 +568,14 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
     }
 }
 
-pub struct ChainBuilder<CI> {
-    shared: Shared<CI>,
+pub struct ChainBuilder<CS> {
+    shared: Shared<CS>,
     notify: NotifyController,
     verification: bool,
 }
 
-impl<CI: ChainIndex + 'static> ChainBuilder<CI> {
-    pub fn new(shared: Shared<CI>, notify: NotifyController) -> ChainBuilder<CI> {
+impl<CS: ChainStore + 'static> ChainBuilder<CS> {
+    pub fn new(shared: Shared<CS>, notify: NotifyController) -> ChainBuilder<CS> {
         ChainBuilder {
             shared,
             notify,
@@ -593,7 +593,7 @@ impl<CI: ChainIndex + 'static> ChainBuilder<CI> {
         self
     }
 
-    pub fn build(self) -> ChainService<CI> {
+    pub fn build(self) -> ChainService<CS> {
         ChainService::new(self.shared, self.notify, self.verification)
     }
 }

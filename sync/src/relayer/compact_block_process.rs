@@ -3,8 +3,8 @@ use crate::relayer::Relayer;
 use ckb_core::{header::Header, BlockNumber};
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::{CompactBlock as FbsCompactBlock, RelayMessage};
-use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::Shared;
+use ckb_shared::store::ChainStore;
 use ckb_traits::{BlockMedianTimeContext, ChainProvider};
 use ckb_verification::{HeaderResolverWrapper, HeaderVerifier, Verifier};
 use failure::Error as FailureError;
@@ -15,17 +15,17 @@ use numext_fixed_hash::H256;
 use std::convert::TryInto;
 use std::sync::Arc;
 
-pub struct CompactBlockProcess<'a, CI> {
+pub struct CompactBlockProcess<'a, CS> {
     message: &'a FbsCompactBlock<'a>,
-    relayer: &'a Relayer<CI>,
+    relayer: &'a Relayer<CS>,
     peer: PeerIndex,
     nc: &'a mut CKBProtocolContext,
 }
 
-impl<'a, CI: ChainIndex> CompactBlockProcess<'a, CI> {
+impl<'a, CS: ChainStore> CompactBlockProcess<'a, CS> {
     pub fn new(
         message: &'a FbsCompactBlock,
-        relayer: &'a Relayer<CI>,
+        relayer: &'a Relayer<CS>,
         peer: PeerIndex,
         nc: &'a mut CKBProtocolContext,
     ) -> Self {
@@ -104,28 +104,15 @@ impl<'a, CI: ChainIndex> CompactBlockProcess<'a, CI> {
     }
 }
 
-struct CompactBlockMedianTimeView<'a, CI> {
+struct CompactBlockMedianTimeView<'a, CS> {
     header: &'a Header,
     pending_compact_blocks: &'a FnvHashMap<H256, CompactBlock>,
-    shared: &'a Shared<CI>,
+    shared: &'a Shared<CS>,
 }
 
-impl<'a, CI> ::std::clone::Clone for CompactBlockMedianTimeView<'a, CI>
+impl<'a, CS> CompactBlockMedianTimeView<'a, CS>
 where
-    CI: ChainIndex,
-{
-    fn clone(&self) -> Self {
-        CompactBlockMedianTimeView {
-            header: self.header,
-            pending_compact_blocks: self.pending_compact_blocks,
-            shared: self.shared,
-        }
-    }
-}
-
-impl<'a, CI> CompactBlockMedianTimeView<'a, CI>
-where
-    CI: ChainIndex,
+    CS: ChainStore,
 {
     fn get_header(&self, hash: &H256) -> Option<Header> {
         self.pending_compact_blocks
@@ -135,9 +122,9 @@ where
     }
 }
 
-impl<'a, CI> BlockMedianTimeContext for CompactBlockMedianTimeView<'a, CI>
+impl<'a, CS> BlockMedianTimeContext for CompactBlockMedianTimeView<'a, CS>
 where
-    CI: ChainIndex,
+    CS: ChainStore,
 {
     fn median_block_count(&self) -> u64 {
         self.shared.consensus().median_time_block_count() as u64

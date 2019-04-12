@@ -28,8 +28,8 @@ use ckb_core::block::Block;
 use ckb_core::header::{BlockNumber, Header};
 use ckb_network::{Behaviour, CKBProtocolContext, CKBProtocolHandler, PeerIndex};
 use ckb_protocol::{cast, get_root, SyncMessage, SyncPayload};
-use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::Shared;
+use ckb_shared::store::ChainStore;
 use ckb_traits::ChainProvider;
 use ckb_util::{try_option, Mutex, RwLock};
 use failure::Error as FailureError;
@@ -71,9 +71,9 @@ bitflags! {
 pub type BlockStatusMap = Arc<Mutex<HashMap<H256, BlockStatus>>>;
 pub type BlockHeaderMap = Arc<RwLock<HashMap<H256, HeaderView>>>;
 
-pub struct Synchronizer<CI: ChainIndex> {
+pub struct Synchronizer<CS: ChainStore> {
     chain: ChainController,
-    shared: Shared<CI>,
+    shared: Shared<CS>,
     pub status_map: BlockStatusMap,
     pub header_map: BlockHeaderMap,
     pub best_known_header: Arc<RwLock<HeaderView>>,
@@ -85,7 +85,7 @@ pub struct Synchronizer<CI: ChainIndex> {
 }
 
 // https://github.com/rust-lang/rust/issues/40754
-impl<CI: ChainIndex> ::std::clone::Clone for Synchronizer<CI> {
+impl<CS: ChainStore> ::std::clone::Clone for Synchronizer<CS> {
     fn clone(&self) -> Self {
         Synchronizer {
             chain: self.chain.clone(),
@@ -107,8 +107,8 @@ fn is_outbound(nc: &CKBProtocolContext, peer: PeerIndex) -> Option<bool> {
         .map(|session_info| session_info.peer.is_outbound())
 }
 
-impl<CI: ChainIndex> Synchronizer<CI> {
-    pub fn new(chain: ChainController, shared: Shared<CI>, config: Config) -> Synchronizer<CI> {
+impl<CS: ChainStore> Synchronizer<CS> {
+    pub fn new(chain: ChainController, shared: Shared<CS>, config: Config) -> Synchronizer<CS> {
         let (total_difficulty, header, total_uncles_count) = {
             let chain_state = shared.chain_state().lock();
             let block_ext = shared
@@ -712,7 +712,7 @@ impl<CI: ChainIndex> Synchronizer<CI> {
     }
 }
 
-impl<CI: ChainIndex> CKBProtocolHandler for Synchronizer<CI> {
+impl<CS: ChainStore> CKBProtocolHandler for Synchronizer<CS> {
     fn initialize(&self, nc: Box<CKBProtocolContext>) {
         // NOTE: 100ms is what bitcoin use.
         nc.register_timer(Duration::from_millis(1000), SEND_GET_HEADERS_TOKEN);
@@ -785,9 +785,9 @@ mod tests {
     };
     use ckb_notify::{NotifyController, NotifyService};
     use ckb_protocol::{Block as FbsBlock, Headers as FbsHeaders};
-    use ckb_shared::index::ChainIndex;
     use ckb_shared::shared::SharedBuilder;
     use ckb_shared::store::ChainKVStore;
+    use ckb_shared::store::ChainStore;
     use ckb_util::Mutex;
     #[cfg(not(disable_faketime))]
     use faketime;
@@ -820,10 +820,10 @@ mod tests {
         (chain_controller, shared, notify)
     }
 
-    fn gen_synchronizer<CI: ChainIndex>(
+    fn gen_synchronizer<CS: ChainStore>(
         chain_controller: ChainController,
-        shared: Shared<CI>,
-    ) -> Synchronizer<CI> {
+        shared: Shared<CS>,
+    ) -> Synchronizer<CS> {
         Synchronizer::new(chain_controller, shared, Config::default())
     }
 
@@ -858,9 +858,9 @@ mod tests {
             .with_header_builder(header_builder)
     }
 
-    fn insert_block<CI: ChainIndex>(
+    fn insert_block<CS: ChainStore>(
         chain_controller: &ChainController,
-        shared: &Shared<CI>,
+        shared: &Shared<CS>,
         nonce: u64,
         number: BlockNumber,
     ) {

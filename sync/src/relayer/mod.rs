@@ -27,8 +27,8 @@ use ckb_protocol::{
     cast, get_root, short_transaction_id, short_transaction_id_keys, RelayMessage, RelayPayload,
 };
 use ckb_shared::chain_state::ChainState;
-use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::Shared;
+use ckb_shared::store::ChainStore;
 use ckb_traits::ChainProvider;
 use ckb_util::Mutex;
 use failure::Error as FailureError;
@@ -43,9 +43,9 @@ use std::time::Duration;
 
 pub const TX_PROPOSAL_TOKEN: u64 = 0;
 
-pub struct Relayer<CI> {
+pub struct Relayer<CS> {
     chain: ChainController,
-    pub(crate) shared: Shared<CI>,
+    pub(crate) shared: Shared<CS>,
     state: Arc<RelayState>,
     // TODO refactor shared Peers struct with Synchronizer
     peers: Arc<Peers>,
@@ -150,7 +150,7 @@ impl<CI: ChainIndex> Relayer<CI> {
 
     pub fn request_proposal_txs(
         &self,
-        chain_state: &ChainState<CI>,
+        chain_state: &ChainState<CS>,
         nc: &mut CKBProtocolContext,
         peer: PeerIndex,
         block: &CompactBlock,
@@ -204,7 +204,7 @@ impl<CI: ChainIndex> Relayer<CI> {
 
     pub fn reconstruct_block(
         &self,
-        chain_state: &ChainState<CI>,
+        chain_state: &ChainState<CS>,
         compact_block: &CompactBlock,
         transactions: Vec<Transaction>,
     ) -> Result<Block, Vec<usize>> {
@@ -320,7 +320,7 @@ impl<CI: ChainIndex> Relayer<CI> {
     }
 }
 
-impl<CI: ChainIndex> CKBProtocolHandler for Relayer<CI> {
+impl<CS: ChainStore> CKBProtocolHandler for Relayer<CS> {
     fn initialize(&self, nc: Box<CKBProtocolContext>) {
         nc.register_timer(Duration::from_millis(100), TX_PROPOSAL_TOKEN);
     }

@@ -10,20 +10,20 @@ use log::{debug, info, warn};
 use numext_fixed_hash::H256;
 use std::convert::TryInto;
 
-pub struct GetHeadersProcess<'a, CI: ChainIndex + 'a> {
+pub struct GetHeadersProcess<'a, CS: ChainStore + 'a> {
     message: &'a GetHeaders<'a>,
-    synchronizer: &'a Synchronizer<CI>,
+    synchronizer: &'a Synchronizer<CS>,
     peer: PeerIndex,
     nc: &'a mut CKBProtocolContext,
 }
 
-impl<'a, CI> GetHeadersProcess<'a, CI>
+impl<'a, CS> GetHeadersProcess<'a, CS>
 where
-    CI: ChainIndex + 'a,
+    CS: ChainStore + 'a,
 {
     pub fn new(
         message: &'a GetHeaders,
-        synchronizer: &'a Synchronizer<CI>,
+        synchronizer: &'a Synchronizer<CS>,
         peer: PeerIndex,
         nc: &'a mut CKBProtocolContext,
     ) -> Self {

@@ -6,8 +6,8 @@ use ckb_miner::BlockAssembler;
 use ckb_network::{CKBProtocol, NetworkService, NetworkState, ProtocolId};
 use ckb_notify::{NotifyController, NotifyService};
 use ckb_rpc::RpcServer;
-use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::{Shared, SharedBuilder};
+use ckb_shared::store::ChainStore;
 use ckb_sync::{NetTimeProtocol, NetworkProtocol, Relayer, Synchronizer};
 use ckb_traits::chain_provider::ChainProvider;
 use log::info;
@@ -87,8 +87,8 @@ pub fn run(args: RunArgs) -> Result<(), ExitCode> {
     Ok(())
 }
 
-fn setup_chain<CI: ChainIndex + 'static>(
-    shared: Shared<CI>,
+fn setup_chain<CS: ChainStore + 'static>(
+    shared: Shared<CS>,
     notify: NotifyController,
 ) -> ChainController {
     let chain_service = ChainBuilder::new(shared, notify).build();

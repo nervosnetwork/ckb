@@ -1,6 +1,6 @@
 use crate::cell_set::CellSet;
 use crate::cell_set::CellSetDiff;
-use crate::index::ChainIndex;
+use crate::store::ChainStore;
 use crate::tx_pool::{PoolEntry, PoolError, StagingTxResult, TxPool, TxPoolConfig};
 use crate::tx_proposal_table::TxProposalTable;
 use ckb_chain_spec::consensus::{Consensus, ProposalWindow};
@@ -23,8 +23,8 @@ use std::cell::{Ref, RefCell};
 use std::sync::Arc;
 
 #[derive(Debug, Clone)]
-pub struct ChainState<CI> {
-    store: Arc<CI>,
+pub struct ChainState<CS> {
+    store: Arc<CS>,
     tip_header: Header,
     total_difficulty: U256,
     cell_set: CellSet,
@@ -35,8 +35,8 @@ pub struct ChainState<CI> {
     consensus: Arc<Consensus>,
 }
 
-impl<CI: ChainIndex> ChainState<CI> {
-    pub fn new(store: &Arc<CI>, consensus: Arc<Consensus>, tx_pool_config: TxPoolConfig) -> Self {
+impl<CS: ChainStore> ChainState<CS> {
+    pub fn new(store: &Arc<CS>, consensus: Arc<Consensus>, tx_pool_config: TxPoolConfig) -> Self {
         // check head in store or save the genesis block as head
         let tip_header = {
             let genesis = consensus.genesis_block();
@@ -77,7 +77,7 @@ impl<CI: ChainIndex> ChainState<CI> {
     }
 
     fn init_proposal_ids(
-        store: &CI,
+        store: &CS,
         proposal_window: ProposalWindow,
         tip_number: u64,
     ) -> TxProposalTable {
@@ -104,7 +104,7 @@ impl<CI: ChainIndex> ChainState<CI> {
         proposal_ids
     }
 
-    fn init_cell_set(store: &CI, number: u64) -> CellSet {
+    fn init_cell_set(store: &CS, number: u64) -> CellSet {
         let mut cell_set = CellSet::new();
 
         for n in 0..=number {
@@ -415,7 +415,7 @@ impl<CI: ChainIndex> ChainState<CI> {
     }
 }
 
-impl<CI: ChainIndex> CellProvider for ChainState<CI> {
+impl<CS: ChainStore> CellProvider for ChainState<CS> {
     fn cell(&self, out_point: &OutPoint) -> CellStatus {
         match self.cell_set().get(&out_point.hash) {
             Some(tx_meta) => {
@@ -437,7 +437,7 @@ impl<CI: ChainIndex> CellProvider for ChainState<CI> {
     }
 }
 
-impl<CI: ChainIndex> BlockMedianTimeContext for &ChainState<CI> {
+impl<CS: ChainStore> BlockMedianTimeContext for &ChainState<CS> {
     fn median_block_count(&self) -> u64 {
         self.consensus.median_time_block_count() as u64
     }

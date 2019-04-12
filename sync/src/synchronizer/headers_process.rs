@@ -4,7 +4,7 @@ use crate::MAX_HEADERS_LEN;
 use ckb_core::{header::Header, BlockNumber};
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::{cast, FlatbuffersVectorIterator, Headers};
-use ckb_shared::index::ChainIndex;
+use ckb_shared::store::ChainStore;
 use ckb_traits::{BlockMedianTimeContext, ChainProvider};
 use ckb_verification::{Error as VerifyError, HeaderResolver, HeaderVerifier, Verifier};
 use failure::Error as FailureError;
@@ -13,24 +13,24 @@ use numext_fixed_uint::U256;
 use std::convert::TryInto;
 use std::sync::Arc;
 
-pub struct HeadersProcess<'a, CI: ChainIndex + 'a> {
+pub struct HeadersProcess<'a, CS: ChainStore + 'a> {
     message: &'a Headers<'a>,
-    synchronizer: &'a Synchronizer<CI>,
+    synchronizer: &'a Synchronizer<CS>,
     peer: PeerIndex,
     nc: &'a mut CKBProtocolContext,
 }
 
-pub struct VerifierResolver<'a, CI: ChainIndex + 'a> {
-    synchronizer: &'a Synchronizer<CI>,
+pub struct VerifierResolver<'a, CS: ChainStore + 'a> {
+    synchronizer: &'a Synchronizer<CS>,
     header: &'a Header,
     parent: Option<&'a Header>,
 }
 
-impl<'a, CI: ChainIndex + 'a> VerifierResolver<'a, CI> {
+impl<'a, CS: ChainStore + 'a> VerifierResolver<'a, CS> {
     pub fn new(
         parent: Option<&'a Header>,
         header: &'a Header,
-        synchronizer: &'a Synchronizer<CI>,
+        synchronizer: &'a Synchronizer<CS>,
     ) -> Self {
         VerifierResolver {
             parent,
@@ -40,7 +40,7 @@ impl<'a, CI: ChainIndex + 'a> VerifierResolver<'a, CI> {
     }
 }
 
-impl<'a, CI: ChainIndex> ::std::clone::Clone for VerifierResolver<'a, CI> {
+impl<'a, CS: ChainStore> ::std::clone::Clone for VerifierResolver<'a, CS> {
     fn clone(&self) -> Self {
         VerifierResolver {
             parent: self.parent,
@@ -50,7 +50,7 @@ impl<'a, CI: ChainIndex> ::std::clone::Clone for VerifierResolver<'a, CI> {
     }
 }
 
-impl<'a, CI: ChainIndex + 'a> BlockMedianTimeContext for VerifierResolver<'a, CI> {
+impl<'a, CS: ChainStore + 'a> BlockMedianTimeContext for VerifierResolver<'a, CS> {
     fn median_block_count(&self) -> u64 {
         self.synchronizer
             .shared
@@ -82,7 +82,7 @@ impl<'a, CI: ChainIndex + 'a> BlockMedianTimeContext for VerifierResolver<'a, CI
     }
 }
 
-impl<'a, CI: ChainIndex> HeaderResolver for VerifierResolver<'a, CI> {
+impl<'a, CS: ChainStore> HeaderResolver for VerifierResolver<'a, CS> {
     fn header(&self) -> &Header {
         self.header
     }
@@ -143,13 +143,13 @@ impl<'a, CI: ChainIndex> HeaderResolver for VerifierResolver<'a, CI> {
     }
 }
 
-impl<'a, CI> HeadersProcess<'a, CI>
+impl<'a, CS> HeadersProcess<'a, CS>
 where
-    CI: ChainIndex + 'a,
+    CS: ChainStore + 'a,
 {
     pub fn new(
         message: &'a Headers,
-        synchronizer: &'a Synchronizer<CI>,
+        synchronizer: &'a Synchronizer<CS>,
         peer: PeerIndex,
         nc: &'a mut CKBProtocolContext,
     ) -> Self {
@@ -297,23 +297,23 @@ where
 }
 
 #[derive(Clone)]
-pub struct HeaderAcceptor<'a, V: Verifier, CI: ChainIndex + 'a> {
+pub struct HeaderAcceptor<'a, V: Verifier, CS: ChainStore + 'a> {
     header: &'a Header,
     peer: PeerIndex,
-    synchronizer: &'a Synchronizer<CI>,
+    synchronizer: &'a Synchronizer<CS>,
     resolver: V::Target,
     verifier: V,
 }
 
-impl<'a, V, CI> HeaderAcceptor<'a, V, CI>
+impl<'a, V, CS> HeaderAcceptor<'a, V, CS>
 where
     V: Verifier,
-    CI: ChainIndex + 'a,
+    CS: ChainStore + 'a,
 {
     pub fn new(
         header: &'a Header,
         peer: PeerIndex,
-        synchronizer: &'a Synchronizer<CI>,
+        synchronizer: &'a Synchronizer<CS>,
         resolver: V::Target,
         verifier: V,
     ) -> Self {

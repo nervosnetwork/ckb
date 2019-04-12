@@ -1,7 +1,7 @@
 use crate::format::Format;
 use crate::iter::ChainIterator;
-use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::Shared;
+use ckb_shared::store::ChainStore;
 use ckb_traits::ChainProvider;
 #[cfg(feature = "progress_bar")]
 use indicatif::{ProgressBar, ProgressStyle};
@@ -13,16 +13,16 @@ use std::io::Write;
 use std::path::PathBuf;
 
 /// Export block from datbase to specify file.
-pub struct Export<CI> {
+pub struct Export<CS> {
     /// export target path
     pub target: PathBuf,
-    pub shared: Shared<CI>,
+    pub shared: Shared<CS>,
     /// which format be used to export
     pub format: Format,
 }
 
-impl<CI: ChainIndex> Export<CI> {
-    pub fn new(shared: Shared<CI>, format: Format, target: PathBuf) -> Self {
+impl<CS: ChainStore> Export<CS> {
+    pub fn new(shared: Shared<CS>, format: Format, target: PathBuf) -> Self {
         Export {
             shared,
             format,
@@ -31,7 +31,7 @@ impl<CI: ChainIndex> Export<CI> {
     }
 
     /// Returning ChainIterator dealing with blocks iterate.
-    pub fn iter(&self) -> ChainIterator<CI> {
+    pub fn iter(&self) -> ChainIterator<CS> {
         ChainIterator::new(self.shared.clone())
     }
 

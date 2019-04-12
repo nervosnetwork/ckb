@@ -4,7 +4,7 @@ use ckb_core::Cycle;
 use ckb_miner::BlockAssemblerController;
 use ckb_network::{NetworkController, ProtocolId};
 use ckb_protocol::RelayMessage;
-use ckb_shared::{index::ChainIndex, shared::Shared};
+use ckb_shared::{shared::Shared, store::ChainStore};
 use ckb_sync::NetworkProtocol;
 use ckb_traits::ChainProvider;
 use ckb_verification::{HeaderResolverWrapper, HeaderVerifier, Verifier};
@@ -34,14 +34,14 @@ pub trait MinerRpc {
     fn submit_block(&self, _work_id: String, _data: Block) -> Result<Option<H256>>;
 }
 
-pub(crate) struct MinerRpcImpl<CI> {
+pub(crate) struct MinerRpcImpl<CS> {
     pub network_controller: NetworkController,
-    pub shared: Shared<CI>,
+    pub shared: Shared<CS>,
     pub block_assembler: BlockAssemblerController,
     pub chain: ChainController,
 }
 
-impl<CI: ChainIndex + 'static> MinerRpc for MinerRpcImpl<CI> {
+impl<CS: ChainStore + 'static> MinerRpc for MinerRpcImpl<CS> {
     fn get_block_template(
         &self,
         cycles_limit: Option<String>,

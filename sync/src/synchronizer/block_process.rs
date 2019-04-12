@@ -7,19 +7,19 @@ use failure::Error as FailureError;
 use log::debug;
 use std::convert::TryInto;
 
-pub struct BlockProcess<'a, CI: ChainIndex + 'a> {
+pub struct BlockProcess<'a, CS: ChainStore + 'a> {
     message: &'a PBlock<'a>,
-    synchronizer: &'a Synchronizer<CI>,
+    synchronizer: &'a Synchronizer<CS>,
     peer: PeerIndex,
 }
 
-impl<'a, CI> BlockProcess<'a, CI>
+impl<'a, CS> BlockProcess<'a, CS>
 where
-    CI: ChainIndex + 'a,
+    CS: ChainStore + 'a,
 {
     pub fn new(
         message: &'a PBlock,
-        synchronizer: &'a Synchronizer<CI>,
+        synchronizer: &'a Synchronizer<CS>,
         peer: PeerIndex,
         _nc: &'a CKBProtocolContext,
     ) -> Self {
