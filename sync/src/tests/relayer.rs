@@ -52,6 +52,7 @@ fn relay_compact_block_with_one_tx() {
             let tx = TransactionBuilder::default()
                 .input(CellInput::new(
                     OutPoint::new(last_cellbase.hash().clone(), 0),
+                    0,
                     vec![],
                 ))
                 .output(CellOutput::new(50, Vec::new(), Script::default(), None))
@@ -60,6 +61,7 @@ fn relay_compact_block_with_one_tx() {
             {
                 let chain_state = shared1.chain_state().lock();
                 let rtx = chain_state.resolve_tx_from_pool(&tx, &chain_state.tx_pool());
+                println!("rtx {:?}", rtx);
                 let cycles = chain_state
                     .verify_rtx(&rtx, shared1.consensus().max_block_cycles())
                     .expect("verify relay tx");
@@ -203,6 +205,7 @@ fn relay_compact_block_with_missing_indexs() {
                     TransactionBuilder::default()
                         .input(CellInput::new(
                             OutPoint::new(last_cellbase.hash().clone(), u32::from(i)),
+                            0,
                             vec![],
                         ))
                         .output(CellOutput::new(50, vec![i], Script::default(), None))

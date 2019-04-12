@@ -358,7 +358,7 @@ transaction - The transaction object.
 ## Examples
 
 ```shell
-curl -d '{"id": 2, "jsonrpc": "2.0", "method":"send_transaction","params": [{"version":2, "deps":[], "inputs":[], "outputs":[]}]}' -H 'content-type:application/json' 'http://localhost:8114'
+curl -d '{"id": 2, "jsonrpc": "2.0", "method":"send_transaction","params": [{"version":0, "deps":[], "inputs":[{"previous_output": {"hash": "<hash>", "index": 0}, "args": ["<unlock sign>"], "valid_since": 0}], "outputs":[{"capacity": 200, "data": "0x", "lock": {"version": 0, "args": [], "binary_hash": "0x0000000000000000000000000000000000000000000000000000000000000000"}, "type": null }]}]}' -H 'content-type:application/json' 'http://localhost:8114'
 ```
 
 ```json

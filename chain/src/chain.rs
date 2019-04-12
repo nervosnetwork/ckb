@@ -1,3 +1,4 @@
+use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::Block;
 use ckb_core::cell::{
     resolve_transaction, BlockCellProvider, OverlayCellProvider, ResolvedTransaction,
@@ -5,7 +6,7 @@ use ckb_core::cell::{
 use ckb_core::extras::BlockExt;
 use ckb_core::service::{Request, DEFAULT_CHANNEL_SIZE, SIGNAL_CHANNEL_SIZE};
 use ckb_core::transaction::ProposalShortId;
-use ckb_core::BlockNumber;
+use ckb_core::{header::Header, BlockNumber};
 use ckb_notify::NotifyController;
 use ckb_shared::cell_set::CellSetDiff;
 use ckb_shared::chain_state::ChainState;
@@ -13,7 +14,7 @@ use ckb_shared::error::SharedError;
 use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::Shared;
 use ckb_shared::store::StoreBatch;
-use ckb_traits::ChainProvider;
+use ckb_traits::{BlockMedianTimeContext, ChainProvider};
 use ckb_verification::{BlockVerifier, TransactionsVerifier, Verifier};
 use crossbeam_channel::{self, select, Receiver, Sender};
 use failure::Error as FailureError;
@@ -93,6 +94,39 @@ impl GlobalIndex {
     pub(crate) fn forward(&mut self, hash: H256) {
         self.number -= 1;
         self.hash = hash;
+    }
+}
+
+// Verification context for fork
+struct ForkContext<'a, CI> {
+    pub fork_blocks: &'a [Block],
+    pub store: Arc<CI>,
+    pub consensus: &'a Consensus,
+}
+
+impl<'a, CI: ChainIndex> ForkContext<'a, CI> {
+    fn get_header(&self, number: BlockNumber) -> Option<Header> {
+        match self
+            .fork_blocks
+            .iter()
+            .find(|b| b.header().number() == number)
+        {
+            Some(block) => Some(block.header().to_owned()),
+            None => self
+                .store
+                .get_block_hash(number)
+                .and_then(|hash| self.store.get_header(&hash)),
+        }
+    }
+}
+
+impl<'a, CI: ChainIndex> BlockMedianTimeContext for ForkContext<'a, CI> {
+    fn median_block_count(&self) -> u64 {
+        self.consensus.median_time_block_count() as u64
+    }
+
+    fn timestamp(&self, number: BlockNumber) -> Option<u64> {
+        self.get_header(number).map(|header| header.timestamp())
     }
 }
 
@@ -439,6 +473,12 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
                         chain_state.mut_txs_verify_cache(),
                         &resolved,
                         self.shared.block_reward(b.header().number()),
+                        ForkContext {
+                            fork_blocks: &fork.attached_blocks,
+                            store: Arc::clone(self.shared.store()),
+                            consensus: self.shared.consensus(),
+                        },
+                        b.header().number(),
                     ) {
                         Ok(_) => {
                             cell_set_diff.push_new(b);
@@ -506,10 +546,10 @@ impl<CI: ChainIndex + 'static> ChainService<CI> {
 
         debug!(target: "chain", "Proposal in Head Block {{");
         debug!(target: "chain",  "   {:?}", self
-            .shared
-            .block_hash(tip)
-            .and_then(|hash| self.shared.store().get_block_proposal_txs_ids(&hash))
-            .expect("invalid block number"));
+               .shared
+               .block_hash(tip)
+               .and_then(|hash| self.shared.store().get_block_proposal_txs_ids(&hash))
+               .expect("invalid block number"));
 
         debug!(target: "chain", "}}");
 

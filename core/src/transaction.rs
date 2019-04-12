@@ -63,15 +63,17 @@ impl OutPoint {
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug, OccupiedCapacity)]
 pub struct CellInput {
     pub previous_output: OutPoint,
+    pub valid_since: u64,
     // Depends on whether the operation is Transform or Destroy, this is the proof to transform
     // lock or destroy lock.
     pub args: Vec<Vec<u8>>,
 }
 
 impl CellInput {
-    pub fn new(previous_output: OutPoint, args: Vec<Vec<u8>>) -> Self {
+    pub fn new(previous_output: OutPoint, valid_since: u64, args: Vec<Vec<u8>>) -> Self {
         CellInput {
             previous_output,
+            valid_since,
             args,
         }
     }
@@ -79,16 +81,18 @@ impl CellInput {
     pub fn new_cellbase_input(block_number: BlockNumber) -> Self {
         CellInput {
             previous_output: OutPoint::null(),
+            valid_since: 0,
             args: vec![block_number.to_le_bytes().to_vec()],
         }
     }
 
-    pub fn destruct(self) -> (OutPoint, Vec<Vec<u8>>) {
+    pub fn destruct(self) -> (OutPoint, u64, Vec<Vec<u8>>) {
         let CellInput {
             previous_output,
+            valid_since,
             args,
         } = self;
-        (previous_output, args)
+        (previous_output, valid_since, args)
     }
 }
 
@@ -424,19 +428,17 @@ mod test {
                 Script::default(),
                 None,
             ))
-            .input(CellInput::new(OutPoint::new(H256::zero(), 0), vec![]))
+            .input(CellInput::new(OutPoint::new(H256::zero(), 0), 0, vec![]))
             .witness(vec![vec![7, 8, 9]])
             .build();
 
         assert_eq!(
-            tx.hash(),
-            H256::from_hex_str("3a4238c3fda565d6e76e76b5b05d3403b37b94d53c1644d5ff58d4e9293ca468")
-                .unwrap()
+            format!("{:x}", tx.hash()),
+            "a896bfe8c8439305f099e1f07b47844ba0a5a27ec1e26ec25b236fa7e4831115"
         );
         assert_eq!(
-            tx.witness_hash(),
-            H256::from_hex_str("997f0627d2c1ef00fc98311357aa097c3fff5ed0a0408e14ea26656f5beae6b3")
-                .unwrap()
+            format!("{:x}", tx.witness_hash()),
+            "3f08580e373cad9a828173efe614ce3a8310957351c77f2859a18fc49d4cd227"
         );
     }
 }

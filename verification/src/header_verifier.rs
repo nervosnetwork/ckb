@@ -88,8 +88,10 @@ impl<'a, M: BlockMedianTimeContext> TimestampVerifier<'a, M> {
             return Ok(());
         }
         let min = match self
-            .block_median_time_context
-            .block_median_time(self.header.parent_hash())
+            .header
+            .number()
+            .checked_sub(1)
+            .and_then(|n| self.block_median_time_context.block_median_time(n))
         {
             Some(time) => time,
             None => return Err(Error::UnknownParent(self.header.parent_hash().clone())),

@@ -156,6 +156,7 @@ impl<'a> FbsCellInput<'a> {
         let mut builder = CellInputBuilder::new(fbb);
         builder.add_hash(&hash);
         builder.add_index(cell_input.previous_output.index);
+        builder.add_valid_since(cell_input.valid_since);
         builder.add_args(args);
         builder.finish()
     }

@@ -226,7 +226,7 @@ impl Node {
 
         TransactionBuilder::default()
             .output(CellOutput::new(50000, vec![], script.clone(), None))
-            .input(CellInput::new(OutPoint::new(hash, 0), vec![]))
+            .input(CellInput::new(OutPoint::new(hash, 0), 0, vec![]))
             .build()
     }
 

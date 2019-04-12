@@ -280,6 +280,7 @@ impl<'a> TryFrom<ckb_protocol::CellInput<'a>> for ckb_core::transaction::CellInp
                 hash: TryInto::try_into(hash)?,
                 index: cell_input.index(),
             },
+            valid_since: cell_input.valid_since(),
             args: cast!(args)?,
         })
     }

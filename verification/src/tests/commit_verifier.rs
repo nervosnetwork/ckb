@@ -54,7 +54,7 @@ fn create_transaction(parent: &H256) -> Transaction {
         Some(Script::always_success()),
     );
     let inputs: Vec<CellInput> = (0..100)
-        .map(|index| CellInput::new(OutPoint::new(parent.clone(), index), vec![]))
+        .map(|index| CellInput::new(OutPoint::new(parent.clone(), index), 0, vec![]))
         .collect();
 
     TransactionBuilder::default()
@@ -93,7 +93,7 @@ fn setup_env() -> (
     H256,
 ) {
     let tx = TransactionBuilder::default()
-        .input(CellInput::new(OutPoint::null(), Default::default()))
+        .input(CellInput::new(OutPoint::null(), 0, Default::default()))
         .outputs(vec![
             CellOutput::new(
                 1_000_000,

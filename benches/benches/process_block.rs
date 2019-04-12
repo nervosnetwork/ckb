@@ -142,7 +142,7 @@ fn new_chain() -> (
     let commit_transactions: Vec<Transaction> = (0..100)
         .map(|i| {
             TransactionBuilder::default()
-                .input(CellInput::new(OutPoint::null(), vec![]))
+                .input(CellInput::new(OutPoint::null(), 0, vec![]))
                 .output(CellOutput::new(
                     50000,
                     vec![i],
@@ -231,6 +231,6 @@ fn create_transaction(hash: H256) -> Transaction {
             Script::always_success(),
             None,
         ))
-        .input(CellInput::new(OutPoint::new(hash, 0), vec![]))
+        .input(CellInput::new(OutPoint::new(hash, 0), 0, vec![]))
         .build()
 }

@@ -1,13 +1,13 @@
 use crate::error::{CellbaseError, CommitError, Error, UnclesError};
 use crate::header_verifier::HeaderResolver;
 use crate::{InputVerifier, TransactionVerifier, Verifier};
-use ckb_core::block::Block;
 use ckb_core::cell::ResolvedTransaction;
 use ckb_core::header::Header;
 use ckb_core::transaction::{Capacity, CellInput};
 use ckb_core::Cycle;
+use ckb_core::{block::Block, BlockNumber};
 use ckb_merkle_tree::merkle_root;
-use ckb_traits::ChainProvider;
+use ckb_traits::{BlockMedianTimeContext, ChainProvider};
 use fnv::FnvHashSet;
 use lru_cache::LruCache;
 use numext_fixed_hash::H256;
@@ -85,9 +85,8 @@ impl<CP: ChainProvider + Clone> CellbaseVerifier<CP> {
         }
 
         let cellbase_transaction = &block.commit_transactions()[0];
-        if cellbase_transaction.inputs()[0]
-            != CellInput::new_cellbase_input(block.header().number())
-        {
+        let cellbase_input = &cellbase_transaction.inputs()[0];
+        if cellbase_input != &CellInput::new_cellbase_input(block.header().number()) {
             return Err(Error::Cellbase(CellbaseError::InvalidInput));
         }
 
@@ -354,12 +353,17 @@ impl TransactionsVerifier {
         TransactionsVerifier { max_cycles }
     }
 
-    pub fn verify(
+    pub fn verify<M>(
         &self,
         txs_verify_cache: &mut LruCache<H256, Cycle>,
         resolved: &[ResolvedTransaction],
         block_reward: Capacity,
-    ) -> Result<(), Error> {
+        block_median_time_context: M,
+        tip_number: BlockNumber,
+    ) -> Result<(), Error>
+    where
+        M: BlockMedianTimeContext + Sync,
+    {
         // verify cellbase reward
         let cellbase = &resolved[0];
         let fee: Capacity = resolved.iter().skip(1).map(|rt| rt.fee()).sum();
@@ -380,7 +384,7 @@ impl TransactionsVerifier {
                         .map_err(|e| Error::Transactions((index, e)))
                         .map(|_| (None, *cycles))
                 } else {
-                    TransactionVerifier::new(&tx)
+                    TransactionVerifier::new(&tx, &block_median_time_context, tip_number)
                         .verify(self.max_cycles)
                         .map_err(|e| Error::Transactions((index, e)))
                         .map(|cycles| (Some(tx.transaction.hash()), cycles))

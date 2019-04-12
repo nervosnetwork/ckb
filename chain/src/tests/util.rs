@@ -81,6 +81,6 @@ pub(crate) fn create_transaction(parent: H256, unique_data: u8) -> Transaction {
             Script::always_success(),
             None,
         ))
-        .input(CellInput::new(OutPoint::new(parent, 0), vec![]))
+        .input(CellInput::new(OutPoint::new(parent, 0), 0, vec![]))
         .build()
 }
