@@ -209,7 +209,7 @@ impl<'a> CKBProtocolContext for DefaultCKBProtocolContext<'a> {
         if let Some(peer_id) = self.network_state.get_peer_id(peer_index) {
             if self
                 .network_state
-                .peer_store
+                .mut_peer_store()
                 .report(&peer_id, behaviour)
                 .is_banned()
             {

@@ -55,7 +55,6 @@ pub struct SessionInfo {
 pub struct NetworkState {
     pub(crate) protocol_ids: FnvHashSet<ProtocolId>,
     pub(crate) peers_registry: PeersRegistry,
-    pub(crate) peer_store: Box<dyn PeerStore>,
     pub(crate) listened_addresses: FnvHashMap<Multiaddr, u8>,
     pub(crate) original_listened_addresses: Vec<Multiaddr>,
     // For avoid repeat failed dial
@@ -91,17 +90,15 @@ impl NetworkState {
             .iter()
             .map(|(peer_id, _)| peer_id.to_owned())
             .collect::<Vec<_>>();
-        //let peers_registry = PeersRegistry::new(
-        //    peer_store,
-        //    config.max_inbound_peers(),
-        //    config.max_outbound_peers(),
-        //    config.reserved_only,
-        //    reserved_peers,
-        //);
-        let peers_registry = unreachable!();
+        let peers_registry = PeersRegistry::new(
+            peer_store,
+            config.max_inbound_peers(),
+            config.max_outbound_peers(),
+            config.reserved_only,
+            reserved_peers,
+        );
 
         Ok(NetworkState {
-            peer_store,
             config,
             failed_dials: LruCache::new(FAILED_DIAL_CACHE_SIZE),
             peers_registry,
@@ -113,9 +110,17 @@ impl NetworkState {
         })
     }
 
+    pub fn peer_store(&self) -> &dyn PeerStore {
+        self.peers_registry.peer_store.as_ref()
+    }
+
+    pub fn mut_peer_store(&mut self) -> &mut dyn PeerStore {
+        self.peers_registry.peer_store.as_mut()
+    }
+
     pub fn report(&mut self, peer_id: &PeerId, behaviour: Behaviour) {
         info!(target: "network", "report {:?} because {:?}", peer_id, behaviour);
-        self.peer_store.report(peer_id, behaviour);
+        self.mut_peer_store().report(peer_id, behaviour);
     }
 
     /// Mark a peer as disconnect
@@ -128,22 +133,23 @@ impl NetworkState {
 
     pub(crate) fn drop_disconnect_peers(&mut self, p2p_control: &mut ServiceControl) {
         debug!(target: "network", "clean all disconnect peers");
-        let disconnet_session_ids =
-            self.peers_registry
-                .peers_iter()
-                .filter_map(|(peer_id, peer)| {
-                    if peer.is_disconnect {
-                        Some((peer_id.to_owned(), peer.session_id))
-                    } else {
-                        None
-                    }
-                });
+        let disconnet_session_ids: Vec<(PeerId, SessionId)> = self
+            .peers_registry
+            .iter()
+            .filter_map(|(peer_id, peer)| {
+                if peer.is_disconnect {
+                    Some((peer_id.to_owned(), peer.session_id))
+                } else {
+                    None
+                }
+            })
+            .collect();
         for (peer_id, session_id) in disconnet_session_ids {
             if let Err(err) = p2p_control.disconnect(session_id) {
                 error!(target: "network", "disconnect peer error {:?}", err);
             }
             // update peer status
-            self.peer_store
+            self.mut_peer_store()
                 .update_status(&peer_id, Status::Disconnected);
         }
     }
@@ -151,7 +157,7 @@ impl NetworkState {
     /// Drop all peer record, immediatly
     pub(crate) fn drop_all(&mut self, p2p_control: &mut ServiceControl) {
         debug!(target: "network", "drop all connections...");
-        for (peer_id, peer) in self.peers_registry.peers_iter() {
+        for (peer_id, peer) in self.peers_registry.iter() {
             if let Err(err) = p2p_control.disconnect(peer.session_id) {
                 error!(target: "network", "disconnect peer error {:?}", err);
             }
@@ -198,13 +204,15 @@ impl NetworkState {
     //}
 
     pub(crate) fn peers_indexes(&self) -> Vec<PeerIndex> {
-        let iter = self.peers_registry.connected_peers_indexes();
-        iter.collect::<Vec<_>>()
+        self.peers_registry
+            .iter()
+            .map(|(_, peer)| peer.peer_index)
+            .collect()
     }
 
     pub(crate) fn ban_peer(&mut self, peer_id: &PeerId, timeout: Duration) {
         self.disconnect_peer(peer_id);
-        self.peer_store.ban_peer(peer_id, timeout);
+        self.mut_peer_store().ban_peer(peer_id, timeout);
     }
 
     pub(crate) fn local_private_key(&self) -> &secio::SecioKeyPair {
@@ -234,7 +242,7 @@ impl NetworkState {
     }
 
     pub fn add_discovered_addr(&mut self, peer_id: &PeerId, addr: Multiaddr) {
-        self.peer_store.add_discovered_addr(peer_id, addr);
+        self.mut_peer_store().add_discovered_addr(peer_id, addr);
     }
 
     pub fn to_external_url(&self, addr: &Multiaddr) -> String {
@@ -264,7 +272,8 @@ impl NetworkState {
             )
         };
         if result.is_ok() {
-            self.peer_store.update_status(&peer_id, Status::Connected);
+            self.mut_peer_store()
+                .update_status(&peer_id, Status::Connected);
         }
         result
     }
@@ -340,12 +349,12 @@ impl NetworkState {
 
     pub fn connected_peers(&self) -> Vec<(PeerId, Peer, MultiaddrList)> {
         self.peers_registry
-            .peers_iter()
+            .iter()
             .map(|(peer_id, peer)| {
                 (
                     peer_id.clone(),
                     peer.clone(),
-                    self.peer_store
+                    self.peer_store()
                     .peer_addrs(peer_id, ADDR_LIMIT)
                     .unwrap_or_default()
                     .into_iter()
