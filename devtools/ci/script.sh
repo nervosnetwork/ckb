@@ -1,8 +1,6 @@
 #!/bin/bash
 set -ev
 
-echo "TRAVIS_BRANCH=$TRAVIS_BRANCH"
-
 cargo sweep -s
 
 if [ "$FMT" = true ]; then
@@ -18,15 +16,20 @@ fi
 
 git diff --exit-code Cargo.lock
 
-if [ "$TRAVIS_BRANCH" = master -o "$TRAVIS_BRANCH" = staging -o "$TRAVIS_BRANCH" = trying ]; then
+# We'll create PR for develop and rc branches to trigger the integration test.
+if [ "$TRAVIS_BRANCH" = master ]; then
+  echo "Running integration test..."
   cargo build
   cd test && cargo run ../target/debug/ckb
 
   # Switch to release mode when the running time is much longer than the build time.
   # cargo build --release
   # cargo run --release -p ckb-test target/release/ckb
+else
+  echo "Skip integration test..."
 fi
 
+# Publish package for release
 if [ -n "$TRAVIS_TAG" -a -n "$GITHUB_TOKEN" -a -n "$REL_PKG" ]; then
   make build
   rm -rf releases
