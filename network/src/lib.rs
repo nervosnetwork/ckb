@@ -20,7 +20,6 @@ pub use crate::{
     network_service::{NetworkController, NetworkService},
     peer::{Peer, PeerIdentifyInfo},
     peer_store::Score,
-    peers_registry::RegisterResult,
     protocols::{CKBProtocol, CKBProtocolContext, CKBProtocolHandler, ProtocolVersion},
 };
 pub use p2p::{

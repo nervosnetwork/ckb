@@ -1,6 +1,6 @@
 use crate::errors::{Error, ProtocolError};
 use crate::peer_store::{sqlite::SqlitePeerStore, PeerStore, Status};
-use crate::peers_registry::{ConnectionStatus, PeersRegistry, RegisterResult};
+use crate::peers_registry::{ConnectionStatus, PeersRegistry};
 use crate::protocols::{
     discovery::{DiscoveryProtocol, DiscoveryService},
     identify::IdentifyCallback,
@@ -105,19 +105,26 @@ impl Stream for NetworkService {
     type Error = ();
 
     fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
-        match try_ready!(self.event_receiver.poll()) {
-            Some(NetworkEvent::Error(error)) => {
-                self.handle_service_error(error);
-            }
-            Some(NetworkEvent::Event(event)) => {
-                self.handle_service_event(event);
-            }
+        // handle all network events
+        loop {
+            match self.event_receiver.poll() {
+                Ok(Async::Ready(Some(NetworkEvent::Error(error)))) => {
+                    self.handle_service_error(error);
+                }
+                Ok(Async::Ready(Some(NetworkEvent::Event(event)))) => {
+                    self.handle_service_event(event);
+                }
 
-            Some(NetworkEvent::Protocol(event)) => {
-                self.handle_protocol(event);
-            }
-            None => {
-                error!(target: "network", "event_receiver stopped");
+                Ok(Async::Ready(Some(NetworkEvent::Protocol(event)))) => {
+                    self.handle_protocol(event);
+                }
+                Ok(Async::Ready(None)) => {
+                    error!(target: "network", "event_receiver stopped");
+                }
+                Ok(Async::NotReady) => break,
+                Err(err) => {
+                    error!(target: "network", "event_receiver error : {:?}", err);
+                }
             }
         }
 
@@ -127,13 +134,10 @@ impl Stream for NetworkService {
             for s in &mut self.bg_services {
                 s.poll(&mut network_state);
             }
+            // clean peers by is_disconnect flag
+            network_state.drop_disconnect_peers(self.p2p_service.control());
         }
-        self.process_network_call();
-        //TODO peer disconnect flag
-        //TODO 4. update network state/dial/disconnect...
-        //TODO Process peer registry in session events
-        //TODO remove locks
-        // TODO simple schedule, consume all network events then do other things
+        self.process_rpc_call();
         // TODO Check Shutdown
         // 1. disconnect all
         // 2. shutdown stream
@@ -212,7 +216,6 @@ impl NetworkService {
             .build();
 
         // Identify protocol
-        // TODO pass network controller
         let identify_meta = MetaBuilder::default()
             .id(IDENTIFY_PROTOCOL_ID)
             .service_handle({
@@ -387,24 +390,45 @@ impl NetworkService {
     }
 
     fn handle_service_event(&mut self, event: ServiceEvent) {
-        // When session disconnect update status anyway
-        if let ServiceEvent::SessionClose { session_context } = event {
-            let peer_id = session_context
-                .remote_pubkey
-                .as_ref()
-                .map(|pubkey| pubkey.peer_id())
-                .expect("Secio must enabled");
-
-            let mut network_state = self.network_state.borrow_mut();
-            if network_state.peer_store.peer_status(&peer_id) == Status::Connected {
-                network_state
-                    .peer_store
-                    .report(&peer_id, Behaviour::UnexpectedDisconnect);
-                network_state
-                    .peer_store
-                    .update_status(&peer_id, Status::Disconnected);
+        let mut network_state = self.network_state.borrow_mut();
+        match event {
+            // Register Peer
+            ServiceEvent::SessionOpen { session_context } => {
+                let peer_id = session_context
+                    .remote_pubkey
+                    .as_ref()
+                    .map(|pubkey| pubkey.peer_id())
+                    .expect("Secio must enabled");
+                // try accept connection
+                if let Err(err) = network_state.accept_connection(
+                    peer_id.clone(),
+                    session_context.address.clone(),
+                    session_context.id,
+                    session_context.ty,
+                ) {
+                    // disconnect immediatly
+                    self.p2p_service.control().disconnect(session_context.id);
+                    info!(
+                    target: "network",
+                    "reject connection from {} {}, because {:?}",
+                    peer_id.to_base58(),
+                    session_context.address,
+                    err,
+                    );
+                }
             }
-            network_state.drop_peer(self.p2p_service.control(), &peer_id);
+            // When session disconnect update status anyway
+            ServiceEvent::SessionClose { session_context } => {
+                let peer_id = session_context
+                    .remote_pubkey
+                    .as_ref()
+                    .map(|pubkey| pubkey.peer_id())
+                    .expect("Secio must enabled");
+                network_state.disconnect_peer(&peer_id);
+            }
+            _ => {
+                // do nothing
+            }
         }
     }
 
@@ -452,49 +476,23 @@ impl NetworkService {
                     .as_ref()
                     .map(|pubkey| pubkey.peer_id())
                     .expect("Secio must enabled");
-                let parsed_version = version
+                let proto_version = version
                     .parse::<ProtocolVersion>()
                     .expect("parse protocol version");
-                // try accept connection
-                let result = network_state.accept_connection(
-                    peer_id.clone(),
-                    session_context.address.clone(),
-                    session_context.id,
-                    session_context.ty,
-                    proto_id,
-                    parsed_version,
-                );
-                if let Err(err) = result {
-                    network_state.drop_peer(&mut p2p_control.clone(), &peer_id);
-                    info!(
-                    target: "network",
-                    "reject connection from {} {}, because {:?}",
-                    peer_id.to_base58(),
-                    session_context.address,
-                    err,
-                    );
+                // register new protocol
+                if let Err(err) =
+                    network_state.peer_new_protocol(peer_id.clone(), proto_id, proto_version)
+                {
+                    error!(target: "network", "disconnect peer {:?}, because {:?}",peer_id, err);
+                    network_state.disconnect_peer(&peer_id);
                     return;
-                }
-                // update peer status if connection is new
-                if let Ok(RegisterResult::New(_)) = result {
-                    // update status in peer_store
-                    network_state
-                        .peer_store
-                        .update_status(&peer_id, Status::Connected);
-                }
-
-                // call handler
-                if let Some(protocol) = self.find_protocol(proto_id) {
-                    let peer_index = network_state.get_peer_index(&peer_id).expect("peer index");
-                    protocol.handler().connected(
-                        &mut DefaultCKBProtocolContext::new(
-                            proto_id,
-                            &mut network_state,
-                            p2p_control,
-                        ),
-                        peer_index,
-                    );
-                }
+                } // call handler
+                let protocol = self.find_protocol(proto_id).expect("protocol");
+                let peer_index = network_state.get_peer_index(&peer_id).expect("peer index");
+                protocol.handler().connected(
+                    &mut DefaultCKBProtocolContext::new(proto_id, &mut network_state, p2p_control),
+                    peer_index,
+                );
             }
 
             ProtocolEvent::Received {
@@ -585,7 +583,7 @@ impl NetworkService {
         self.protocols.iter().find(|p| p.id() == proto_id)
     }
 
-    fn process_network_call(&mut self) -> bool {
+    fn process_rpc_call(&mut self) -> bool {
         let mut network_state = self.network_state.borrow_mut();
         select! {
             recv(self.receivers.external_urls_receiver) -> msg => match msg {

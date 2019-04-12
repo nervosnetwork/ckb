@@ -24,6 +24,7 @@ pub enum ConfigError {
 #[derive(Debug)]
 pub enum PeerError {
     IndexNotFound(PeerIndex),
+    Duplicate(PeerIndex),
     ProtocolNotFound(PeerId, ProtocolId),
     NotFound(PeerId),
     NonReserved(PeerId),

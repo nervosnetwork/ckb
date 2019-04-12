@@ -1,6 +1,6 @@
-use crate::errors::Error;
+use crate::errors::{Error, PeerError, ProtocolError};
 use crate::peer_store::{sqlite::SqlitePeerStore, PeerStore, Status};
-use crate::peers_registry::{ConnectionStatus, PeersRegistry, RegisterResult};
+use crate::peers_registry::{ConnectionStatus, PeersRegistry};
 use crate::protocols::{
     discovery::{DiscoveryProtocol, DiscoveryService},
     identify::IdentifyCallback,
@@ -118,34 +118,46 @@ impl NetworkState {
         self.peer_store.report(peer_id, behaviour);
     }
 
-    pub fn drop_peer(&mut self, p2p_control: &mut ServiceControl, peer_id: &PeerId) {
+    /// Mark a peer as disconnect
+    pub fn disconnect_peer(&mut self, peer_id: &PeerId) {
         debug!(target: "network", "drop peer {:?}", peer_id);
-        if let Some(peer) = self.peers_registry.drop_peer(&peer_id) {
-            if let Err(err) = p2p_control.disconnect(peer.session_id) {
-                error!(target: "network", "disconnect peer error {:?}", err);
-            }
+        if let Some(peer) = self.peers_registry.get_mut(&peer_id) {
+            peer.is_disconnect = true;
         }
     }
 
-    pub fn drop_all(&mut self, p2p_control: &mut ServiceControl) {
+    pub(crate) fn drop_disconnect_peers(&mut self, p2p_control: &mut ServiceControl) {
+        debug!(target: "network", "clean all disconnect peers");
+        let disconnet_session_ids =
+            self.peers_registry
+                .peers_iter()
+                .filter_map(|(peer_id, peer)| {
+                    if peer.is_disconnect {
+                        Some((peer_id.to_owned(), peer.session_id))
+                    } else {
+                        None
+                    }
+                });
+        for (peer_id, session_id) in disconnet_session_ids {
+            if let Err(err) = p2p_control.disconnect(session_id) {
+                error!(target: "network", "disconnect peer error {:?}", err);
+            }
+            // update peer status
+            self.peer_store
+                .update_status(&peer_id, Status::Disconnected);
+        }
+    }
+
+    /// Drop all peer record, immediatly
+    pub(crate) fn drop_all(&mut self, p2p_control: &mut ServiceControl) {
         debug!(target: "network", "drop all connections...");
-        let mut peer_ids = Vec::new();
         for (peer_id, peer) in self.peers_registry.peers_iter() {
-            peer_ids.push(peer_id.clone());
             if let Err(err) = p2p_control.disconnect(peer.session_id) {
                 error!(target: "network", "disconnect peer error {:?}", err);
             }
         }
+        self.drop_disconnect_peers(p2p_control);
         self.peers_registry.drop_all();
-
-        for peer_id in peer_ids {
-            if self.peer_store.peer_status(&peer_id) != Status::Disconnected {
-                self.peer_store
-                    .report(&peer_id, Behaviour::UnexpectedDisconnect);
-                self.peer_store
-                    .update_status(&peer_id, Status::Disconnected);
-            }
-        }
     }
 
     pub fn local_peer_id(&self) -> &PeerId {
@@ -190,13 +202,8 @@ impl NetworkState {
         iter.collect::<Vec<_>>()
     }
 
-    pub(crate) fn ban_peer(
-        &mut self,
-        p2p_control: &mut ServiceControl,
-        peer_id: &PeerId,
-        timeout: Duration,
-    ) {
-        self.drop_peer(p2p_control, peer_id);
+    pub(crate) fn ban_peer(&mut self, peer_id: &PeerId, timeout: Duration) {
+        self.disconnect_peer(peer_id);
         self.peer_store.ban_peer(peer_id, timeout);
     }
 
@@ -240,10 +247,8 @@ impl NetworkState {
         connected_addr: Multiaddr,
         session_id: SessionId,
         session_type: SessionType,
-        protocol_id: ProtocolId,
-        protocol_version: ProtocolVersion,
-    ) -> Result<RegisterResult, Error> {
-        let register_result = if session_type.is_outbound() {
+    ) -> Result<PeerIndex, Error> {
+        let result = if session_type.is_outbound() {
             self.peers_registry.try_outbound_peer(
                 peer_id.clone(),
                 connected_addr,
@@ -257,18 +262,30 @@ impl NetworkState {
                 session_id,
                 session_type,
             )
-        }?;
-        // add session to peer
+        };
+        if result.is_ok() {
+            self.peer_store.update_status(&peer_id, Status::Connected);
+        }
+        result
+    }
+
+    pub(crate) fn peer_new_protocol(
+        &mut self,
+        peer_id: PeerId,
+        protocol_id: ProtocolId,
+        protocol_version: ProtocolVersion,
+    ) -> Result<(), Error> {
+        // add protocol to peer
         match self.peers_registry.get_mut(&peer_id) {
             Some(peer) => match peer.protocol_version(protocol_id) {
-                Some(_) => return Err(ProtocolError::Duplicate(protocol_id).into()),
+                Some(_) => Err(ProtocolError::Duplicate(protocol_id).into()),
                 None => {
                     peer.protocols.insert(protocol_id, protocol_version);
+                    Ok(())
                 }
             },
-            None => unreachable!("get peer after inserted"),
+            None => Err(PeerError::NotFound(peer_id).into()),
         }
-        Ok(register_result)
     }
 
     pub fn peer_protocol_version(

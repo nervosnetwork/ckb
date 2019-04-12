@@ -7,9 +7,7 @@ pub(crate) mod ping;
 use crate::{
     errors::{Error, PeerError},
     peer_store::{Behaviour, Status},
-    peers_registry::RegisterResult,
-    NetworkState, PeerIndex, ProtocolContext, ProtocolContextMutRef, PublicKey, ServiceControl,
-    SessionInfo,
+    NetworkState, PeerIndex, ProtocolContext, ProtocolContextMutRef, ServiceControl, SessionInfo,
 };
 use bytes::Bytes;
 use log::{debug, error, info, trace, warn};
@@ -226,16 +224,14 @@ impl<'a> CKBProtocolContext for DefaultCKBProtocolContext<'a> {
     // ban peer
     fn ban_peer(&mut self, peer_index: PeerIndex, timeout: Duration) {
         if let Some(peer_id) = self.network_state.get_peer_id(peer_index) {
-            self.network_state
-                .ban_peer(&mut self.p2p_control.clone(), &peer_id, timeout)
+            self.network_state.ban_peer(&peer_id, timeout)
         }
     }
     // disconnect from peer
     fn disconnect(&mut self, peer_index: PeerIndex) {
         debug!(target: "network", "disconnect peer {}", peer_index);
         if let Some(peer_id) = self.network_state.get_peer_id(peer_index) {
-            self.network_state
-                .drop_peer(&mut self.p2p_control.clone(), &peer_id);
+            self.network_state.disconnect_peer(&peer_id);
         }
     }
 

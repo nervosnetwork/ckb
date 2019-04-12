@@ -14,17 +14,74 @@ use std::sync::Arc;
 
 pub(crate) const EVICTION_PROTECT_PEERS: usize = 8;
 
-#[derive(Clone, Copy, Eq, PartialEq, Debug)]
-pub enum RegisterResult {
-    New(PeerIndex),
-    Exist(PeerIndex),
+struct PeerManage {
+    id_allocator: AtomicUsize,
+    peers: FnvHashMap<PeerId, Peer>,
+    pub(crate) peer_id_by_index: FnvHashMap<PeerIndex, PeerId>,
 }
 
-impl RegisterResult {
-    pub fn peer_index(&self) -> PeerIndex {
-        match self {
-            RegisterResult::New(peer_index) => *peer_index,
-            RegisterResult::Exist(peer_index) => *peer_index,
+impl PeerManage {
+    #[inline]
+    fn get(&self, peer_id: &PeerId) -> Option<&Peer> {
+        self.peers.get(peer_id)
+    }
+
+    #[inline]
+    fn get_peer_id(&self, peer_index: PeerIndex) -> Option<&PeerId> {
+        self.peer_id_by_index.get(&peer_index)
+    }
+
+    #[inline]
+    fn get_mut(&mut self, peer_id: &PeerId) -> Option<&mut Peer> {
+        self.peers.get_mut(peer_id)
+    }
+
+    #[inline]
+    fn remove(&mut self, peer_id: &PeerId) -> Option<Peer> {
+        if let Some(peer) = self.peers.remove(peer_id) {
+            self.peer_id_by_index.remove(&peer.peer_index);
+            return Some(peer);
+        }
+        None
+    }
+
+    #[inline]
+    fn iter(&self) -> impl Iterator<Item = (&PeerId, &Peer)> {
+        self.peers.iter()
+    }
+    #[inline]
+    fn add_peer(
+        &mut self,
+        peer_id: PeerId,
+        connected_addr: Multiaddr,
+        session_id: SessionId,
+        session_type: SessionType,
+    ) -> Result<PeerIndex, Error> {
+        match self.peers.entry(peer_id.clone()) {
+            Entry::Occupied(entry) => Err(PeerError::Duplicate(entry.get().peer_index).into()),
+            Entry::Vacant(entry) => {
+                let peer_index = self.id_allocator.fetch_add(1, Ordering::Relaxed);
+                let peer = Peer::new(peer_index, connected_addr, session_id, session_type);
+                entry.insert(peer);
+                self.peer_id_by_index.insert(peer_index, peer_id);
+                Ok(peer_index)
+            }
+        }
+    }
+
+    fn clear(&mut self) {
+        self.peers.clear();
+        self.peer_id_by_index.clear();
+        self.id_allocator.store(0, Ordering::Relaxed)
+    }
+}
+
+impl Default for PeerManage {
+    fn default() -> Self {
+        PeerManage {
+            id_allocator: AtomicUsize::new(0),
+            peers: FnvHashMap::with_capacity_and_hasher(20, Default::default()),
+            peer_id_by_index: FnvHashMap::with_capacity_and_hasher(20, Default::default()),
         }
     }
 }
@@ -122,19 +179,32 @@ impl PeersRegistry {
         connected_addr: Multiaddr,
         session_id: SessionId,
         session_type: SessionType,
-        protocol_id: ProtocolId,
-        protocol_version: ProtocolVersion,
-    ) -> Result<RegisterResult, Error> {
-        let mut peers = self.peers.write();
-
-        if let Some(peer) = peers.get_mut(&peer_id) {
-            peer.protocols.insert(protocol_id, protocol_version);
-            return Ok(RegisterResult::Exist(peer.peer_index));
+    ) -> Result<PeerIndex, Error> {
+        if let Some(peer) = self.peers.get(&peer_id) {
+            return Ok(peer.peer_index);
         }
 
-        let inbound = session_type.is_inbound();
-        let mut peer_id_by_index = self.peer_id_by_index.write();
+            let connection_status = self.connection_status();
+            // check peers connection limitation
+            if connection_status.unreserved_inbound >= self.max_inbound
+                && !self.try_evict_inbound_peer()
+            {
+                return Err(Error::Peer(PeerError::ReachMaxInboundLimit(peer_id)));
+            }
+        }
+        self.register_peer(peer_id, addr, session_id, session_type)
+    }
 
+    pub fn try_outbound_peer(
+        &mut self,
+        peer_id: PeerId,
+        addr: Multiaddr,
+        session_id: SessionId,
+        session_type: SessionType,
+    ) -> Result<PeerIndex, Error> {
+        if let Some(peer) = self.peers.get(&peer_id) {
+            return Ok(peer.peer_index);
+        }
         if !self.is_reserved(&peer_id) {
             if self.reserved_only {
                 return Err(Error::Peer(PeerError::NonReserved(peer_id)));
@@ -156,14 +226,7 @@ impl PeersRegistry {
                 return Err(Error::Peer(PeerError::ReachMaxOutboundLimit(peer_id)));
             }
         }
-        self.peer_store
-            .add_connected_peer(&peer_id, connected_addr.clone(), session_type);
-        let peer_index = self.id_allocator.fetch_add(1, Ordering::Relaxed);
-        let mut peer = Peer::new(peer_index, connected_addr, session_id, session_type);
-        peer.protocols.insert(protocol_id, protocol_version);
-        peers.insert(peer_id.clone(), peer);
-        peer_id_by_index.insert(peer_index, peer_id);
-        Ok(RegisterResult::New(peer_index))
+        self.register_peer(peer_id, addr, session_id, session_type)
     }
 
     fn _try_evict_inbound_peer(
@@ -249,12 +312,34 @@ impl PeersRegistry {
         true
     }
 
-    pub fn modify_peer<R>(
-        &self,
-        peer_id: &PeerId,
-        callback: impl FnOnce(&mut Peer) -> R,
-    ) -> Option<R> {
-        self.peers.write().get_mut(peer_id).map(callback)
+    // registry a new peer
+    fn register_peer(
+        &mut self,
+        peer_id: PeerId,
+        connected_addr: Multiaddr,
+        session_id: SessionId,
+        session_type: SessionType,
+    ) -> Result<PeerIndex, Error> {
+        self.peer_store
+            .write()
+            .add_connected_peer(&peer_id, connected_addr.clone(), session_type);
+        self.peers
+            .add_peer(peer_id, connected_addr, session_id, session_type)
+    }
+
+    #[inline]
+    pub(crate) fn peers_iter(&self) -> impl Iterator<Item = (&PeerId, &Peer)> {
+        self.peers.iter()
+    }
+
+    #[inline]
+    pub fn get(&self, peer_id: &PeerId) -> Option<&Peer> {
+        self.peers.get(peer_id)
+    }
+
+    #[inline]
+    pub fn get_mut(&mut self, peer_id: &PeerId) -> Option<&mut Peer> {
+        self.peers.get_mut(peer_id)
     }
 
     pub fn _connection_status<'a>(

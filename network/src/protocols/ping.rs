@@ -42,12 +42,12 @@ impl BackgroundService for PingService {
                     Some(Timeout(peer_id)) => {
                         debug!(target: "network", "timeout to ping {:?}", peer_id);
                         network_state.report(&peer_id, Behaviour::FailedToPing);
-                        network_state.drop_peer(&mut self.p2p_control, &peer_id);
+                        network_state.disconnect_peer(&peer_id);
                     }
                     Some(UnexpectedError(peer_id)) => {
                         debug!(target: "network", "failed to ping {:?}", peer_id);
                         network_state.report(&peer_id, Behaviour::FailedToPing);
-                        network_state.drop_peer(&mut self.p2p_control, &peer_id);
+                        network_state.disconnect_peer(&peer_id);
                     }
                     None => {
                         debug!(target: "network", "ping service shutdown");
