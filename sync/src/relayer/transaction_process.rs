@@ -1,4 +1,5 @@
 use crate::relayer::Relayer;
+use crate::relayer::MAX_RELAY_PEERS;
 use ckb_core::{transaction::Transaction, Cycle};
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::{RelayMessage, ValidTransaction as FbsValidTransaction};
@@ -9,6 +10,7 @@ use ckb_verification::TransactionError;
 use failure::Error as FailureError;
 use flatbuffers::FlatBufferBuilder;
 use log::{debug, warn};
+use numext_fixed_hash::H256;
 use std::convert::TryInto;
 use std::time::Duration;
 
@@ -38,6 +40,13 @@ impl<'a, CI: ChainIndex> TransactionProcess<'a, CI> {
 
     pub fn execute(self) -> Result<(), FailureError> {
         let (tx, relay_cycles): (Transaction, Cycle) = (*self.message).try_into()?;
+        let tx_hash = tx.hash();
+
+        if self.already_known(tx_hash.clone()) {
+            debug!(target: "relay", "discarding already known transaction {:#x}", tx_hash);
+            return Ok(());
+        }
+
         let tx_result = {
             let chain_state = self.relayer.shared.chain_state().lock();
             let max_block_cycles = self.relayer.shared.consensus().max_block_cycles();
@@ -51,21 +60,21 @@ impl<'a, CI: ChainIndex> TransactionProcess<'a, CI> {
                 let message = RelayMessage::build_transaction(fbb, &tx, cycles);
                 fbb.finish(message, None);
 
-                for peer in self.nc.connected_peers() {
-                    if peer != self.peer
-                        && self
-                            .relayer
-                            .peers()
-                            .transaction_filters
-                            .read()
-                            .get(&peer)
-                            .map_or(true, |filter| filter.contains(&tx))
-                    {
-                        let ret = self.nc.send(peer, fbb.finished_data().to_vec());
+                let mut known_txs = self.relayer.peers.known_txs.lock();
+                let selected_peers: Vec<PeerIndex> = self
+                    .nc
+                    .connected_peers()
+                    .into_iter()
+                    .filter(|peer_index| {
+                        known_txs.insert(*peer_index, tx_hash.clone()) && (self.peer != *peer_index)
+                    })
+                    .take(MAX_RELAY_PEERS)
+                    .collect();
 
-                        if ret.is_err() {
-                            warn!(target: "relay", "relay Transaction error {:?}", ret);
-                        }
+                for peer in selected_peers {
+                    let ret = self.nc.send(peer, fbb.finished_data().to_vec());
+                    if ret.is_err() {
+                        warn!(target: "relay", "relay Transaction error {:?}", ret);
                     }
                 }
             }
@@ -90,5 +99,10 @@ impl<'a, CI: ChainIndex> TransactionProcess<'a, CI> {
         }
 
         Ok(())
+    }
+
+    fn already_known(&self, hash: H256) -> bool {
+        let mut tx_filter = self.relayer.state.tx_filter.lock();
+        tx_filter.insert(hash, ()).is_some()
     }
 }

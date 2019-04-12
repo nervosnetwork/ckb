@@ -28,6 +28,7 @@ ckb-traits = { path = "../traits" }
 failure = "0.1.5"
 bytes = "0.4.12"
 hash = {path = "../util/hash"}
+lru-cache = { git = "https://github.com/nervosnetwork/lru-cache" }
 
 [dev-dependencies]
 ckb-notify = { path = "../notify" }

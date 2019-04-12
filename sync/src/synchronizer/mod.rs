@@ -1,7 +1,6 @@
 mod block_fetcher;
 mod block_pool;
 mod block_process;
-mod filter_process;
 mod get_blocks_process;
 mod get_headers_process;
 mod headers_process;
@@ -9,7 +8,6 @@ mod headers_process;
 use self::block_fetcher::BlockFetcher;
 use self::block_pool::OrphanBlockPool;
 use self::block_process::BlockProcess;
-use self::filter_process::{AddFilterProcess, ClearFilterProcess, SetFilterProcess};
 use self::get_blocks_process::GetBlocksProcess;
 use self::get_headers_process::GetHeadersProcess;
 use self::headers_process::HeadersProcess;
@@ -158,22 +156,10 @@ impl<CI: ChainIndex> Synchronizer<CI> {
             SyncPayload::Block => {
                 BlockProcess::new(&cast!(message.payload_as_block())?, self, peer, nc).execute()?;
             }
-            SyncPayload::SetFilter => {
-                SetFilterProcess::new(&cast!(message.payload_as_set_filter())?, self, peer)
-                    .execute()?;
-            }
-            SyncPayload::AddFilter => {
-                AddFilterProcess::new(&cast!(message.payload_as_add_filter())?, self, peer)
-                    .execute()?;
-            }
-            SyncPayload::ClearFilter => {
-                ClearFilterProcess::new(self, peer).execute()?;
-            }
-            SyncPayload::FilteredBlock => {
-                // ignore, should not receive FilteredBlock in full node mode
+            SyncPayload::NONE => {
                 cast!(None)?;
             }
-            SyncPayload::NONE => {
+            _ => {
                 cast!(None)?;
             }
         }

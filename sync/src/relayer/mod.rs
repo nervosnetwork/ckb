@@ -36,12 +36,15 @@ use flatbuffers::FlatBufferBuilder;
 use fnv::{FnvHashMap, FnvHashSet};
 use log::warn;
 use log::{debug, info};
+use lru_cache::LruCache;
 use numext_fixed_hash::H256;
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Duration;
 
 pub const TX_PROPOSAL_TOKEN: u64 = 0;
+pub const MAX_RELAY_PEERS: usize = 128;
+pub const TX_FILTER_SIZE: usize = 1000;
 
 pub struct Relayer<CI> {
     chain: ChainController,
@@ -184,17 +187,27 @@ impl<CI: ChainIndex> Relayer<CI> {
 
     pub fn accept_block(&self, nc: &mut CKBProtocolContext, peer: PeerIndex, block: &Arc<Block>) {
         let ret = self.chain.process_block(Arc::clone(&block));
+
         if ret.is_ok() {
+            let block_hash = block.header().hash();
             let fbb = &mut FlatBufferBuilder::new();
             let message = RelayMessage::build_compact_block(fbb, block, &HashSet::new());
             fbb.finish(message, None);
 
-            for peer_id in nc.connected_peers() {
-                if peer_id != peer {
-                    let ret = nc.send(peer_id, fbb.finished_data().to_vec());
-                    if ret.is_err() {
-                        warn!(target: "relay", "relay compact_block error {:?}", ret);
-                    }
+            let mut known_blocks = self.peers.known_blocks.lock();
+            let selected_peers: Vec<PeerIndex> = nc
+                .connected_peers()
+                .into_iter()
+                .filter(|peer_index| {
+                    known_blocks.insert(*peer_index, block_hash.clone()) && (*peer_index != peer)
+                })
+                .take(MAX_RELAY_PEERS)
+                .collect();
+
+            for peer_id in selected_peers {
+                let ret = nc.send(peer_id, fbb.finished_data().to_vec());
+                if ret.is_err() {
+                    warn!(target: "relay", "relay compact_block error {:?}", ret);
                 }
             }
         } else {
@@ -360,9 +373,20 @@ impl<CI: ChainIndex> CKBProtocolHandler for Relayer<CI> {
     }
 }
 
-#[derive(Default)]
 pub struct RelayState {
     pub pending_compact_blocks: Mutex<FnvHashMap<H256, CompactBlock>>,
     pub inflight_proposals: Mutex<FnvHashSet<ProposalShortId>>,
     pub pending_proposals_request: Mutex<FnvHashMap<ProposalShortId, FnvHashSet<PeerIndex>>>,
+    pub tx_filter: Mutex<LruCache<H256, ()>>,
+}
+
+impl Default for RelayState {
+    fn default() -> Self {
+        RelayState {
+            pending_compact_blocks: Mutex::new(FnvHashMap::default()),
+            inflight_proposals: Mutex::new(FnvHashSet::default()),
+            pending_proposals_request: Mutex::new(FnvHashMap::default()),
+            tx_filter: Mutex::new(LruCache::new(TX_FILTER_SIZE)),
+        }
+    }
 }
