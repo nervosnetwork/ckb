@@ -1,7 +1,7 @@
 # Quick Start
 
 Following steps will assume that the shell can find the executable `ckb`, see
-how to [build CKB from source](build.md).
+how to [get CKB](get-ckb.md).
 
 ## Start Node
 
@@ -9,7 +9,7 @@ how to [build CKB from source](build.md).
 ckb run
 ```
 
-It will start a node using the default configurations and store files in `data/dev` in current directory.
+It will start a node using the default configurations and store files in `data/dev` in current directory. If you want to customize the configurations, see how to [configure CKB](configure.md).
 
 ## Use RPC
 
