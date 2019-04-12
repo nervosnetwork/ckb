@@ -73,7 +73,6 @@ impl TxTraceMap {
         }
     }
 
-    #[allow(clippy::needless_pass_by_value)]
     pub fn add_pending<S: ToString>(&mut self, hash: &H256, info: S) {
         self.inner
             .entry(hash.clone())

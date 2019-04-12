@@ -1,5 +1,3 @@
-#![allow(clippy::needless_pass_by_value)]
-
 mod block_proposal_process;
 mod block_transactions_process;
 pub mod compact_block;

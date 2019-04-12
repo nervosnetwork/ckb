@@ -380,7 +380,6 @@ impl<CS: ChainStore> Synchronizer<CS> {
             .collect()
     }
 
-    #[allow(clippy::op_ref)]
     pub fn insert_header_view(&self, header: &Header, peer: PeerIndex) {
         if let Some(parent_view) = self.get_header_view(&header.parent_hash()) {
             let total_difficulty = parent_view.total_difficulty() + header.difficulty();
@@ -391,7 +390,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
                 let header_view =
                     HeaderView::new(header.clone(), total_difficulty.clone(), total_uncles_count);
 
-                if &total_difficulty > best_known_header.total_difficulty()
+                if total_difficulty.gt(best_known_header.total_difficulty())
                     || (&total_difficulty == best_known_header.total_difficulty()
                         && header.hash() < best_known_header.hash())
                 {
@@ -434,7 +433,6 @@ impl<CS: ChainStore> Synchronizer<CS> {
     }
 
     //TODO: process block which we don't request
-    #[allow(clippy::single_match)]
     pub fn process_new_block(&self, peer: PeerIndex, block: Block) {
         match self.get_block_status(&block.header().hash()) {
             BlockStatus::VALID_MASK => {
@@ -786,8 +784,7 @@ mod tests {
     use ckb_notify::{NotifyController, NotifyService};
     use ckb_protocol::{Block as FbsBlock, Headers as FbsHeaders};
     use ckb_shared::shared::SharedBuilder;
-    use ckb_shared::store::ChainKVStore;
-    use ckb_shared::store::ChainStore;
+    use ckb_shared::store::{ChainKVStore, ChainStore};
     use ckb_util::Mutex;
     #[cfg(not(disable_faketime))]
     use faketime;

@@ -91,7 +91,6 @@ impl<'a, CS: ChainStore> HeaderResolver for VerifierResolver<'a, CS> {
         self.parent
     }
 
-    #[allow(clippy::op_ref)]
     fn calculate_difficulty(&self) -> Option<U256> {
         self.parent().and_then(|parent| {
             let parent_hash = parent.hash();
@@ -133,7 +132,7 @@ impl<'a, CS: ChainStore> HeaderResolver for VerifierResolver<'a, CS> {
                     return Some(max_difficulty);
                 }
 
-                if &difficulty < min_difficulty {
+                if difficulty.lt(min_difficulty) {
                     return Some(min_difficulty.clone());
                 }
                 return Some(difficulty);

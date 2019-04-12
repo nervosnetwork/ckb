@@ -432,8 +432,7 @@ mod tests {
     use ckb_pow::Pow;
     use ckb_shared::shared::Shared;
     use ckb_shared::shared::SharedBuilder;
-    use ckb_shared::store::ChainKVStore;
-    use ckb_shared::store::ChainStore;
+    use ckb_shared::store::{ChainKVStore, ChainStore};
     use ckb_traits::ChainProvider;
     use ckb_verification::{BlockVerifier, HeaderResolverWrapper, HeaderVerifier, Verifier};
     use jsonrpc_types::{BlockTemplate, CellbaseTemplate};

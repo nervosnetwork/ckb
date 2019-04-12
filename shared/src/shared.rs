@@ -178,7 +178,6 @@ impl<CS: ChainStore> ChainProvider for Shared<CS> {
     // T_interval = L / C_m
     // HR_m = HR_last/ (1 + o)
     // Diff= HR_m * T_interval / H = Diff_last * o_last / o
-    #[allow(clippy::op_ref)]
     fn calculate_difficulty(&self, last: &Header) -> Option<U256> {
         let last_hash = last.hash();
         let last_number = last.number();
@@ -209,11 +208,11 @@ impl<CS: ChainStore> ChainProvider for Shared<CS> {
 
             let min_difficulty = self.consensus.min_difficulty();
             let max_difficulty = last_difficulty * 2u32;
-            if &difficulty > &max_difficulty {
+            if difficulty > max_difficulty {
                 return Some(max_difficulty);
             }
 
-            if &difficulty < min_difficulty {
+            if difficulty.lt(min_difficulty) {
                 return Some(min_difficulty.clone());
             }
             return Some(difficulty);
