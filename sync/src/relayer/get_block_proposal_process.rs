@@ -2,10 +2,10 @@ use crate::relayer::Relayer;
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::{cast, GetBlockProposal, RelayMessage};
 use ckb_shared::index::ChainIndex;
-use ckb_util::TryInto;
 use failure::Error as FailureError;
 use flatbuffers::FlatBufferBuilder;
 use log::warn;
+use std::convert::TryInto;
 
 pub struct GetBlockProposalProcess<'a, CI> {
     message: &'a GetBlockProposal<'a>,

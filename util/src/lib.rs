@@ -1,6 +1,3 @@
-mod unstable;
-
-pub use crate::unstable::{TryFrom, TryInto};
 pub use parking_lot::{
     self, Condvar, Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard,
 };

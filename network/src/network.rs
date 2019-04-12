@@ -11,7 +11,7 @@ use crate::protocols::{feeler::Feeler, DefaultCKBProtocolContext};
 use crate::Peer;
 use crate::{
     Behaviour, CKBProtocol, CKBProtocolContext, NetworkConfig, PeerIndex, ProtocolId,
-    ProtocolVersion, ServiceContext, ServiceControl, SessionId, SessionType,
+    ProtocolVersion, PublicKey, ServiceContext, ServiceControl, SessionId, SessionType,
 };
 use ckb_util::RwLock;
 use fnv::{FnvHashMap, FnvHashSet};
@@ -390,7 +390,7 @@ impl ServiceHandle for EventHandler {
             let peer_id = session_context
                 .remote_pubkey
                 .as_ref()
-                .map(|pubkey| pubkey.peer_id())
+                .map(PublicKey::peer_id)
                 .expect("Secio must enabled");
 
             let peer_store = self.network_state.peer_store();
@@ -413,7 +413,7 @@ impl ServiceHandle for EventHandler {
             let peer_id = session_context
                 .remote_pubkey
                 .as_ref()
-                .map(|pubkey| pubkey.peer_id())
+                .map(PublicKey::peer_id)
                 .expect("Secio must enabled");
             if let Ok(parsed_version) = version.parse::<ProtocolVersion>() {
                 match self.network_state.accept_connection(
@@ -505,7 +505,7 @@ impl NetworkService {
         // == Build p2p service struct
         let mut protocol_metas = protocols
             .into_iter()
-            .map(|protocol| protocol.build())
+            .map(CKBProtocol::build)
             .collect::<Vec<_>>();
         protocol_metas.push(feeler_protocol.build());
         protocol_metas.push(ping_meta);

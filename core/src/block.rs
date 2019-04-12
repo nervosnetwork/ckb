@@ -72,7 +72,7 @@ impl Block {
             self.commit_transactions()
                 .iter()
                 .skip(1)
-                .map(|tx| tx.witness_hash()),
+                .map(Transaction::witness_hash),
         );
         merkle_root(&witnesses[..])
     }
@@ -82,7 +82,7 @@ impl Block {
             &self
                 .commit_transactions
                 .iter()
-                .map(|t| t.hash())
+                .map(Transaction::hash)
                 .collect::<Vec<_>>(),
         )
     }
@@ -92,7 +92,7 @@ impl Block {
             &self
                 .proposal_transactions
                 .iter()
-                .map(|t| t.hash())
+                .map(ProposalShortId::hash)
                 .collect::<Vec<_>>(),
         )
     }

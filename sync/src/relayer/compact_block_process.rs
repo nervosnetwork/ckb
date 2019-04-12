@@ -6,13 +6,13 @@ use ckb_protocol::{CompactBlock as FbsCompactBlock, RelayMessage};
 use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::Shared;
 use ckb_traits::{BlockMedianTimeContext, ChainProvider};
-use ckb_util::TryInto;
 use ckb_verification::{HeaderResolverWrapper, HeaderVerifier, Verifier};
 use failure::Error as FailureError;
 use flatbuffers::FlatBufferBuilder;
 use fnv::FnvHashMap;
 use log::warn;
 use numext_fixed_hash::H256;
+use std::convert::TryInto;
 use std::sync::Arc;
 
 pub struct CompactBlockProcess<'a, CI> {

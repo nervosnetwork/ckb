@@ -8,7 +8,6 @@ use ckb_shared::tx_pool::types::PoolEntry;
 use ckb_shared::tx_pool::TxTrace;
 use ckb_sync::NetworkProtocol;
 use ckb_traits::chain_provider::ChainProvider;
-use ckb_util::TryInto;
 use ckb_verification::TransactionError;
 use flatbuffers::FlatBufferBuilder;
 use jsonrpc_core::{Error, Result};
@@ -16,6 +15,7 @@ use jsonrpc_derive::rpc;
 use jsonrpc_types::Transaction;
 use log::{debug, warn};
 use numext_fixed_hash::H256;
+use std::convert::TryInto;
 
 #[rpc]
 pub trait TraceRpc {

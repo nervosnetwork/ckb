@@ -337,7 +337,7 @@ impl<CI: ChainIndex> Synchronizer<CI> {
         self.header_map
             .read()
             .get(hash)
-            .map(|view| view.inner())
+            .map(HeaderView::inner)
             .cloned()
             .or_else(|| self.shared.block_header(hash))
     }
@@ -581,7 +581,7 @@ impl<CI: ChainIndex> Synchronizer<CI> {
                             chain_state.total_difficulty().clone(),
                         )
                     };
-                    if best_known_header.map(|h| h.total_difficulty())
+                    if best_known_header.map(HeaderView::total_difficulty)
                         >= Some(&local_total_difficulty)
                     {
                         if state.chain_sync.timeout != 0 {
@@ -592,7 +592,7 @@ impl<CI: ChainIndex> Synchronizer<CI> {
                         }
                     } else if state.chain_sync.timeout == 0
                         || (best_known_header.is_some()
-                            && best_known_header.map(|h| h.total_difficulty())
+                            && best_known_header.map(HeaderView::total_difficulty)
                                 >= state.chain_sync.total_difficulty.as_ref())
                     {
                         // Our best block known by this peer is behind our tip, and we're either noticing

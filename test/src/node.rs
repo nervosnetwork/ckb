@@ -5,12 +5,12 @@ use ckb_core::header::{HeaderBuilder, Seal};
 use ckb_core::script::Script;
 use ckb_core::transaction::{CellInput, CellOutput, OutPoint, Transaction, TransactionBuilder};
 use ckb_core::BlockNumber;
-use ckb_util::TryInto;
 use jsonrpc_client_http::{HttpHandle, HttpTransport};
 use jsonrpc_types::{BlockTemplate, CellbaseTemplate};
 use log::info;
 use numext_fixed_hash::H256;
 use rand;
+use std::convert::TryInto;
 use std::io::Error;
 use std::process::{Child, Command, Stdio};
 

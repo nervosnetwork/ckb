@@ -7,7 +7,6 @@ use ckb_protocol::RelayMessage;
 use ckb_shared::{index::ChainIndex, shared::Shared};
 use ckb_sync::NetworkProtocol;
 use ckb_traits::ChainProvider;
-use ckb_util::TryInto;
 use ckb_verification::{HeaderResolverWrapper, HeaderVerifier, Verifier};
 use flatbuffers::FlatBufferBuilder;
 use jsonrpc_core::{Error, Result};
@@ -16,6 +15,7 @@ use jsonrpc_types::{Block, BlockTemplate};
 use log::{debug, warn};
 use numext_fixed_hash::H256;
 use std::collections::HashSet;
+use std::convert::TryInto;
 use std::sync::Arc;
 
 #[rpc]

@@ -3,9 +3,9 @@ use ckb_core::block::Block;
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::Block as PBlock;
 use ckb_shared::index::ChainIndex;
-use ckb_util::TryInto;
 use failure::Error as FailureError;
 use log::debug;
+use std::convert::TryInto;
 
 pub struct BlockProcess<'a, CI: ChainIndex + 'a> {
     message: &'a PBlock<'a>,

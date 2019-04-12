@@ -4,11 +4,11 @@ use ckb_core::header::Header;
 use ckb_network::{Behaviour, CKBProtocolContext, PeerIndex};
 use ckb_protocol::{cast, GetHeaders, SyncMessage};
 use ckb_shared::index::ChainIndex;
-use ckb_util::TryInto;
 use failure::Error as FailureError;
 use flatbuffers::FlatBufferBuilder;
 use log::{debug, info, warn};
 use numext_fixed_hash::H256;
+use std::convert::TryInto;
 
 pub struct GetHeadersProcess<'a, CI: ChainIndex + 'a> {
     message: &'a GetHeaders<'a>,

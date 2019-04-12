@@ -9,11 +9,11 @@ use ckb_core::transaction::{
 };
 use ckb_core::uncle::UncleBlock as CoreUncleBlock;
 use ckb_core::{BlockNumber, Capacity};
-use ckb_util::{TryFrom, TryInto};
 use failure::Error as FailureError;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 use serde_derive::{Deserialize, Serialize};
+use std::convert::{TryFrom, TryInto};
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct Script {

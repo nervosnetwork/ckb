@@ -5,11 +5,11 @@ use ckb_protocol::{RelayMessage, ValidTransaction as FbsValidTransaction};
 use ckb_shared::index::ChainIndex;
 use ckb_shared::tx_pool::types::PoolError;
 use ckb_traits::chain_provider::ChainProvider;
-use ckb_util::TryInto;
 use ckb_verification::TransactionError;
 use failure::Error as FailureError;
 use flatbuffers::FlatBufferBuilder;
 use log::{debug, warn};
+use std::convert::TryInto;
 use std::time::Duration;
 
 const DEFAULT_BAN_TIME: Duration = Duration::from_secs(3600 * 24 * 3);

@@ -180,15 +180,15 @@ impl ResolvedTransaction {
     }
 
     pub fn is_double_spend(&self) -> bool {
-        self.cells_iter().any(|state| state.is_dead())
+        self.cells_iter().any(CellStatus::is_dead)
     }
 
     pub fn is_orphan(&self) -> bool {
-        self.cells_iter().any(|state| state.is_unknown())
+        self.cells_iter().any(CellStatus::is_unknown)
     }
 
     pub fn is_fully_resolved(&self) -> bool {
-        self.cells_iter().all(|state| state.is_live())
+        self.cells_iter().all(CellStatus::is_live)
     }
 
     pub fn fee(&self) -> Capacity {
