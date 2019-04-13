@@ -2,8 +2,8 @@ use super::super::transaction_verifier::{
     CapacityVerifier, DuplicateInputsVerifier, EmptyVerifier, NullVerifier,
 };
 use crate::error::TransactionError;
-use ckb_core::cell::CellStatus;
 use ckb_core::cell::ResolvedTransaction;
+use ckb_core::cell::{CellStatus, LiveCell};
 use ckb_core::script::Script;
 use ckb_core::transaction::{CellInput, CellOutput, OutPoint, TransactionBuilder};
 use numext_fixed_hash::H256;
@@ -37,12 +37,12 @@ pub fn test_capacity_outofbound() {
     let rtx = ResolvedTransaction {
         transaction,
         dep_cells: Vec::new(),
-        input_cells: vec![CellStatus::Live(CellOutput::new(
+        input_cells: vec![CellStatus::Live(LiveCell::Output(CellOutput::new(
             50,
             Vec::new(),
             Script::default(),
             None,
-        ))],
+        )))],
     };
     let verifier = CapacityVerifier::new(&rtx);
 
@@ -65,8 +65,18 @@ pub fn test_capacity_invalid() {
         transaction,
         dep_cells: Vec::new(),
         input_cells: vec![
-            CellStatus::Live(CellOutput::new(49, Vec::new(), Script::default(), None)),
-            CellStatus::Live(CellOutput::new(100, Vec::new(), Script::default(), None)),
+            CellStatus::Live(LiveCell::Output(CellOutput::new(
+                49,
+                Vec::new(),
+                Script::default(),
+                None,
+            ))),
+            CellStatus::Live(LiveCell::Output(CellOutput::new(
+                100,
+                Vec::new(),
+                Script::default(),
+                None,
+            ))),
         ],
     };
     let verifier = CapacityVerifier::new(&rtx);

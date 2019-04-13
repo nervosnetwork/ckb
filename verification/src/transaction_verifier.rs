@@ -156,15 +156,18 @@ impl<'a> NullVerifier<'a> {
 
     pub fn verify(&self) -> Result<(), TransactionError> {
         let transaction = self.transaction;
+        if transaction.deps().iter().any(|dep| dep.is_null()) {
+            return Err(TransactionError::NullDep);
+        }
+
         if transaction
             .inputs()
             .iter()
             .any(|input| input.previous_output.is_null())
         {
-            Err(TransactionError::NullInput)
-        } else {
-            Ok(())
+            return Err(TransactionError::NullInput);
         }
+        Ok(())
     }
 }
 
@@ -184,7 +187,7 @@ impl<'a> CapacityVerifier<'a> {
             .resolved_transaction
             .input_cells
             .iter()
-            .filter_map(|state| state.get_live())
+            .filter_map(|state| state.get_live_output())
             .fold(0, |acc, output| acc + output.capacity);
 
         let outputs_total = self

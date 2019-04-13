@@ -1,11 +1,11 @@
-use crate::cell_set::CellSet;
-use crate::cell_set::CellSetDiff;
+use crate::cell_set::{CellSet, CellSetDiff, CellSetOverlay};
 use crate::index::ChainIndex;
 use crate::tx_pool::{PoolEntry, PoolError, StagingTxResult, TxPool};
 use crate::tx_proposal_table::TxProposalTable;
 use ckb_core::block::Block;
 use ckb_core::cell::{
-    resolve_transaction, CellProvider, CellStatus, OverlayCellProvider, ResolvedTransaction,
+    resolve_transaction, CellProvider, CellStatus, LiveCell, OverlayCellProvider,
+    ResolvedTransaction,
 };
 use ckb_core::header::{BlockNumber, Header};
 use ckb_core::transaction::{OutPoint, ProposalShortId, Transaction};
@@ -24,7 +24,7 @@ pub struct ChainState<CI> {
     store: Arc<CI>,
     tip_header: Header,
     total_difficulty: U256,
-    cell_set: CellSet,
+    pub(crate) cell_set: CellSet,
     proposal_ids: TxProposalTable,
     // interior mutability for immutable borrow proposal_ids
     tx_pool: RefCell<TxPool>,
@@ -72,7 +72,7 @@ impl<CI: ChainIndex> ChainState<CI> {
         &self.cell_set
     }
 
-    pub fn is_dead(&self, o: &OutPoint) -> Option<bool> {
+    pub fn is_dead_cell(&self, o: &OutPoint) -> Option<bool> {
         self.cell_set.is_dead(o)
     }
 
@@ -266,10 +266,6 @@ impl<CI: ChainIndex> ChainState<CI> {
             attached.extend(blk.commit_transactions().iter().skip(1).cloned())
         }
 
-        if !detached.is_empty() {
-            self.txs_verify_cache.borrow_mut().clear();
-        }
-
         let retain: Vec<&Transaction> = detached.difference(&attached).collect();
 
         for tx in retain {
@@ -330,18 +326,50 @@ impl<CI: ChainIndex> ChainState<CI> {
     pub fn mut_tx_pool(&mut self) -> &mut TxPool {
         self.tx_pool.get_mut()
     }
+
+    pub fn new_cell_set_overlay<'a>(&'a self, diff: &CellSetDiff) -> ChainCellSetOverlay<'a, CI> {
+        ChainCellSetOverlay {
+            overlay: self.cell_set.new_overlay(diff),
+            store: Arc::clone(&self.store),
+        }
+    }
+}
+
+pub struct ChainCellSetOverlay<'a, CI> {
+    pub(crate) overlay: CellSetOverlay<'a>,
+    store: Arc<CI>,
 }
 
 impl<CI: ChainIndex> CellProvider for ChainState<CI> {
     fn cell(&self, out_point: &OutPoint) -> CellStatus {
-        match self.is_dead(out_point) {
+        match self.is_dead_cell(out_point) {
             Some(true) => CellStatus::Dead,
             Some(false) => {
                 let tx = self
                     .store
                     .get_transaction(&out_point.hash)
                     .expect("store should be consistent with cell_set");
-                CellStatus::Live(tx.outputs()[out_point.index as usize].clone())
+                CellStatus::Live(LiveCell::Output(
+                    tx.outputs()[out_point.index as usize].clone(),
+                ))
+            }
+            None => CellStatus::Unknown,
+        }
+    }
+}
+
+impl<'a, CI: ChainIndex> CellProvider for ChainCellSetOverlay<'a, CI> {
+    fn cell(&self, out_point: &OutPoint) -> CellStatus {
+        match self.overlay.is_dead_cell(out_point) {
+            Some(true) => CellStatus::Dead,
+            Some(false) => {
+                let tx = self
+                    .store
+                    .get_transaction(&out_point.hash)
+                    .expect("store should be consistent with cell_set");
+                CellStatus::Live(LiveCell::Output(
+                    tx.outputs()[out_point.index as usize].clone(),
+                ))
             }
             None => CellStatus::Unknown,
         }

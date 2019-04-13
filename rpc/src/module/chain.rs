@@ -100,7 +100,7 @@ impl<CI: ChainIndex + 'static> ChainRpc for ChainRpcImpl<CI> {
             .shared
             .chain_state()
             .lock()
-            .cell(&(out_point.into()))
+            .get_cell_status(&(out_point.into()))
             .into())
     }
 

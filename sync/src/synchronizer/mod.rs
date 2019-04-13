@@ -452,7 +452,6 @@ impl<CI: ChainIndex> Synchronizer<CI> {
     }
 
     fn accept_block(&self, peer: PeerIndex, block: &Arc<Block>) -> Result<(), FailureError> {
-        // TODO: some transactions' verification can be skiped.
         self.chain.process_block(Arc::clone(&block))?;
         self.mark_block_stored(block.header().hash().clone());
         self.peers.set_last_common_header(peer, &block.header());
