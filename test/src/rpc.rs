@@ -1,6 +1,5 @@
-use ckb_shared::tx_pool::TxTrace;
 use jsonrpc_client_core::{expand_params, jsonrpc_client};
-use jsonrpc_types::{Block, BlockTemplate, Header, Node, Transaction};
+use jsonrpc_types::{Block, BlockTemplate, Header, Node, Transaction, TxTrace};
 use numext_fixed_hash::H256;
 
 jsonrpc_client!(pub struct RpcClient {

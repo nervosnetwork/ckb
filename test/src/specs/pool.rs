@@ -1,5 +1,5 @@
 use crate::{sleep, Net, Spec};
-use ckb_shared::tx_pool::trace::{Action, TxTrace};
+use jsonrpc_types::{Action, TxTrace};
 use log::info;
 
 pub struct PoolReconcile;

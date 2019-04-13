@@ -1,8 +1,9 @@
 //! Top-level Pool type, methods, and tests
-use super::trace::{TxTrace, TxTraceMap};
+use super::trace::TxTraceMap;
 use super::types::{OrphanPool, PendingQueue, PoolEntry, StagingPool, TxPoolConfig};
 use ckb_core::transaction::{OutPoint, ProposalShortId, Transaction};
 use faketime::unix_time_as_millis;
+use jsonrpc_types::TxTrace;
 use log::trace;
 use lru_cache::LruCache;
 use numext_fixed_hash::H256;
