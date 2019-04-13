@@ -1,4 +1,4 @@
-use crate::{peer_store::sqlite::DBError, PeerIndex, ProtocolId};
+use crate::{peer_store::sqlite::DBError, ProtocolId, SessionId};
 use p2p::secio::PeerId;
 use std::fmt;
 use std::fmt::Display;
@@ -23,8 +23,8 @@ pub enum ConfigError {
 
 #[derive(Debug)]
 pub enum PeerError {
-    IndexNotFound(PeerIndex),
-    Duplicate(PeerIndex),
+    SessionNotFound(SessionId),
+    Duplicate(SessionId),
     ProtocolNotFound(PeerId, ProtocolId),
     NotFound(PeerId),
     NonReserved(PeerId),

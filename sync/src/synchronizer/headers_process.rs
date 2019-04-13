@@ -2,7 +2,7 @@ use crate::synchronizer::{BlockStatus, Synchronizer};
 use crate::types::HeaderView;
 use crate::MAX_HEADERS_LEN;
 use ckb_core::{header::Header, BlockNumber};
-use ckb_network::{CKBProtocolContext, PeerIndex};
+use ckb_network::{CKBProtocolContext, SessionId};
 use ckb_protocol::{cast, FlatbuffersVectorIterator, Headers};
 use ckb_shared::store::ChainStore;
 use ckb_traits::{BlockMedianTimeContext, ChainProvider};
@@ -16,7 +16,7 @@ use std::sync::Arc;
 pub struct HeadersProcess<'a, CS: ChainStore + 'a> {
     message: &'a Headers<'a>,
     synchronizer: &'a Synchronizer<CS>,
-    peer: PeerIndex,
+    peer: SessionId,
     nc: &'a mut CKBProtocolContext,
 }
 
@@ -149,7 +149,7 @@ where
     pub fn new(
         message: &'a Headers,
         synchronizer: &'a Synchronizer<CS>,
-        peer: PeerIndex,
+        peer: SessionId,
         nc: &'a mut CKBProtocolContext,
     ) -> Self {
         HeadersProcess {
@@ -298,7 +298,7 @@ where
 #[derive(Clone)]
 pub struct HeaderAcceptor<'a, V: Verifier, CS: ChainStore + 'a> {
     header: &'a Header,
-    peer: PeerIndex,
+    peer: SessionId,
     synchronizer: &'a Synchronizer<CS>,
     resolver: V::Target,
     verifier: V,
@@ -311,7 +311,7 @@ where
 {
     pub fn new(
         header: &'a Header,
-        peer: PeerIndex,
+        peer: SessionId,
         synchronizer: &'a Synchronizer<CS>,
         resolver: V::Target,
         verifier: V,

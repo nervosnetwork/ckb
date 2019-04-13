@@ -24,7 +24,7 @@ use ckb_chain::chain::ChainController;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::Block;
 use ckb_core::header::{BlockNumber, Header};
-use ckb_network::{Behaviour, CKBProtocolContext, CKBProtocolHandler, PeerIndex};
+use ckb_network::{Behaviour, CKBProtocolContext, CKBProtocolHandler, SessionId};
 use ckb_protocol::{cast, get_root, SyncMessage, SyncPayload};
 use ckb_shared::shared::Shared;
 use ckb_shared::store::ChainStore;
@@ -101,7 +101,7 @@ impl<CS: ChainStore> ::std::clone::Clone for Synchronizer<CS> {
 }
 
 #[inline]
-fn is_outbound(nc: &CKBProtocolContext, peer: PeerIndex) -> Option<bool> {
+fn is_outbound(nc: &CKBProtocolContext, peer: SessionId) -> Option<bool> {
     nc.session_info(peer)
         .map(|session_info| session_info.peer.is_outbound())
 }
@@ -138,7 +138,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
     fn try_process(
         &self,
         nc: &mut CKBProtocolContext,
-        peer: PeerIndex,
+        peer: SessionId,
         message: SyncMessage,
     ) -> Result<(), FailureError> {
         match message.payload_type() {
@@ -167,7 +167,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
         Ok(())
     }
 
-    fn process(&self, nc: &mut CKBProtocolContext, peer: PeerIndex, message: SyncMessage) {
+    fn process(&self, nc: &mut CKBProtocolContext, peer: SessionId, message: SyncMessage) {
         if self.try_process(nc, peer, message).is_err() {
             let ret = nc.report_peer(peer, Behaviour::UnexpectedMessage);
             if ret.is_err() {
@@ -367,7 +367,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
             .collect()
     }
 
-    pub fn insert_header_view(&self, header: &Header, peer: PeerIndex) {
+    pub fn insert_header_view(&self, header: &Header, peer: SessionId) {
         if let Some(parent_view) = self.get_header_view(&header.parent_hash()) {
             let total_difficulty = parent_view.total_difficulty() + header.difficulty();
             let total_uncles_count =
@@ -420,7 +420,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
     }
 
     //TODO: process block which we don't request
-    pub fn process_new_block(&self, peer: PeerIndex, block: Block) {
+    pub fn process_new_block(&self, peer: SessionId, block: Block) {
         match self.get_block_status(&block.header().hash()) {
             BlockStatus::VALID_MASK => {
                 self.insert_new_block(peer, block);
@@ -431,7 +431,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
         }
     }
 
-    fn accept_block(&self, peer: PeerIndex, block: &Arc<Block>) -> Result<(), FailureError> {
+    fn accept_block(&self, peer: SessionId, block: &Arc<Block>) -> Result<(), FailureError> {
         // TODO: some transactions' verification can be skiped.
         self.chain.process_block(Arc::clone(&block))?;
         self.mark_block_stored(block.header().hash().clone());
@@ -440,7 +440,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
     }
 
     //FIXME: guarantee concurrent block process
-    fn insert_new_block(&self, peer: PeerIndex, block: Block) {
+    fn insert_new_block(&self, peer: SessionId, block: Block) {
         let block = Arc::new(block);
         if self
             .shared
@@ -494,11 +494,11 @@ impl<CS: ChainStore> Synchronizer<CS> {
         debug!(target: "sync", "[Synchronizer] insert_new_block finish");
     }
 
-    pub fn get_blocks_to_fetch(&self, peer: PeerIndex) -> Option<Vec<H256>> {
+    pub fn get_blocks_to_fetch(&self, peer: SessionId) -> Option<Vec<H256>> {
         BlockFetcher::new(self.clone(), peer).fetch()
     }
 
-    fn on_connected(&self, nc: &CKBProtocolContext, peer: PeerIndex) {
+    fn on_connected(&self, nc: &CKBProtocolContext, peer: SessionId) {
         let tip = self.tip_header();
         let predicted_headers_sync_time = self.predict_headers_sync_time(&tip);
 
@@ -518,7 +518,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
     pub fn send_getheaders_to_peer(
         &self,
         nc: &mut CKBProtocolContext,
-        peer: PeerIndex,
+        peer: SessionId,
         header: &Header,
     ) {
         let locator_hash = self.get_locator(header);
@@ -619,7 +619,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
     }
 
     fn start_sync_headers(&self, nc: &mut CKBProtocolContext) {
-        let peers: Vec<PeerIndex> = self
+        let peers: Vec<SessionId> = self
             .peers
             .state
             .read()
@@ -667,7 +667,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
     }
 
     fn find_blocks_to_fetch(&self, nc: &mut CKBProtocolContext) {
-        let peers: Vec<PeerIndex> = self
+        let peers: Vec<SessionId> = self
             .peers
             .state
             .read()
@@ -685,7 +685,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
         }
     }
 
-    fn send_getblocks(&self, v_fetch: &[H256], nc: &mut CKBProtocolContext, peer: PeerIndex) {
+    fn send_getblocks(&self, v_fetch: &[H256], nc: &mut CKBProtocolContext, peer: SessionId) {
         let fbb = &mut FlatBufferBuilder::new();
         let message = SyncMessage::build_get_blocks(fbb, v_fetch);
         fbb.finish(message, None);
@@ -705,7 +705,7 @@ impl<CS: ChainStore> CKBProtocolHandler for Synchronizer<CS> {
         nc.register_timer(Duration::from_millis(1000), TIMEOUT_EVICTION_TOKEN);
     }
 
-    fn received(&self, nc: &mut dyn CKBProtocolContext, peer: PeerIndex, data: Bytes) {
+    fn received(&self, nc: &mut dyn CKBProtocolContext, peer: SessionId, data: Bytes) {
         let msg = match get_root::<SyncMessage>(&data) {
             Ok(msg) => msg,
             _ => {
@@ -722,12 +722,12 @@ impl<CS: ChainStore> CKBProtocolHandler for Synchronizer<CS> {
         self.process(nc, peer, msg);
     }
 
-    fn connected(&self, nc: &mut dyn CKBProtocolContext, peer: PeerIndex) {
+    fn connected(&self, nc: &mut dyn CKBProtocolContext, peer: SessionId) {
         info!(target: "sync", "peer={:?} SyncProtocol.connected (init_getheaders)", peer);
         self.on_connected(nc, peer);
     }
 
-    fn disconnected(&self, _nc: &mut dyn CKBProtocolContext, peer: PeerIndex) {
+    fn disconnected(&self, _nc: &mut dyn CKBProtocolContext, peer: SessionId) {
         info!(target: "sync", "peer={} SyncProtocol.disconnected", peer);
         self.peers.disconnected(peer);
     }
@@ -765,8 +765,8 @@ mod tests {
     use ckb_core::transaction::{CellInput, CellOutput, Transaction, TransactionBuilder};
     use ckb_db::memorydb::MemoryKeyValueDB;
     use ckb_network::{
-        errors::Error as NetworkError, multiaddr::ToMultiaddr, CKBProtocolContext, Peer, PeerIndex,
-        ProtocolId, ProtocolVersion, SessionInfo, SessionType,
+        errors::Error as NetworkError, multiaddr::ToMultiaddr, CKBProtocolContext, Peer,
+        ProtocolId, ProtocolVersion, SessionId, SessionInfo, SessionType,
     };
     use ckb_notify::{NotifyController, NotifyService};
     use ckb_protocol::{Block as FbsBlock, Headers as FbsHeaders};
@@ -1077,8 +1077,8 @@ mod tests {
 
     #[derive(Clone)]
     struct DummyNetworkContext {
-        pub sessions: FnvHashMap<PeerIndex, SessionInfo>,
-        pub disconnected: Arc<Mutex<FnvHashSet<PeerIndex>>>,
+        pub sessions: FnvHashMap<SessionId, SessionInfo>,
+        pub disconnected: Arc<Mutex<FnvHashSet<SessionId>>>,
     }
 
     fn mock_session_info() -> SessionInfo {
@@ -1103,25 +1103,25 @@ mod tests {
 
     impl CKBProtocolContext for DummyNetworkContext {
         /// Send a packet over the network to another peer.
-        fn send(&mut self, _peer: PeerIndex, _data: Vec<u8>) -> Result<(), NetworkError> {
+        fn send(&mut self, _peer: SessionId, _data: Vec<u8>) -> Result<(), NetworkError> {
             Ok(())
         }
 
         /// Send a packet over the network to another peer using specified protocol.
         fn send_protocol(
             &mut self,
-            _peer: PeerIndex,
+            _peer: SessionId,
             _protocol: ProtocolId,
             _data: Vec<u8>,
         ) -> Result<(), NetworkError> {
             Ok(())
         }
         /// Report peer. Depending on the report, peer may be disconnected and possibly banned.
-        fn report_peer(&self, _peer: PeerIndex, _behaviour: Behaviour) -> Result<(), NetworkError> {
+        fn report_peer(&self, _peer: SessionId, _behaviour: Behaviour) -> Result<(), NetworkError> {
             Ok(())
         }
 
-        fn ban_peer(&self, _peer: PeerIndex, _duration: Duration) {}
+        fn ban_peer(&self, _peer: SessionId, _duration: Duration) {}
 
         /// Register a new IO timer. 'IoHandler::timeout' will be called with the token.
         fn register_timer(&self, _interval: Duration, _token: u64) {
@@ -1129,26 +1129,26 @@ mod tests {
         }
 
         /// Returns information on p2p session
-        fn session_info(&self, peer: PeerIndex) -> Option<SessionInfo> {
+        fn session_info(&self, peer: SessionId) -> Option<SessionInfo> {
             self.sessions.get(&peer).cloned()
         }
         /// Returns max version for a given protocol.
         fn protocol_version(
             &self,
-            _peer: PeerIndex,
+            _peer: SessionId,
             _protocol: ProtocolId,
         ) -> Option<ProtocolVersion> {
             unimplemented!();
         }
 
-        fn disconnect(&self, peer: PeerIndex) {
+        fn disconnect(&self, peer: SessionId) {
             self.disconnected.lock().insert(peer);
         }
         fn protocol_id(&self) -> ProtocolId {
             unimplemented!();
         }
 
-        fn connected_peers(&self) -> Vec<PeerIndex> {
+        fn connected_peers(&self) -> Vec<SessionId> {
             unimplemented!();
         }
     }

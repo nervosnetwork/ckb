@@ -1,11 +1,11 @@
 use crate::peer_store::PeerStore;
 use crate::{
     errors::{Error, PeerError},
-    Peer, PeerId, PeerIndex, ProtocolId, ProtocolVersion, SessionType,
+    Peer, PeerId, ProtocolId, ProtocolVersion, SessionId, SessionType,
 };
 use fnv::{FnvHashMap, FnvHashSet};
 use log::debug;
-use p2p::{multiaddr::Multiaddr, SessionId};
+use p2p::multiaddr::Multiaddr;
 use rand::seq::SliceRandom;
 use rand::thread_rng;
 use std::collections::hash_map::Entry;
@@ -16,14 +16,14 @@ pub(crate) const EVICTION_PROTECT_PEERS: usize = 8;
 
 struct PeerManage {
     peers: FnvHashMap<PeerId, Peer>,
-    pub(crate) peer_id_by_index: FnvHashMap<PeerIndex, PeerId>,
+    pub(crate) peer_id_by_session: FnvHashMap<SessionId, PeerId>,
 }
 
 impl PeerManage {
     #[inline]
     fn remove(&mut self, peer_id: &PeerId) -> Option<Peer> {
         if let Some(peer) = self.peers.remove(peer_id) {
-            self.peer_id_by_index.remove(&peer.peer_index);
+            self.peer_id_by_session.remove(&peer.session_id);
             return Some(peer);
         }
         None
@@ -36,24 +36,21 @@ impl PeerManage {
         connected_addr: Multiaddr,
         session_id: SessionId,
         session_type: SessionType,
-    ) -> Result<PeerIndex, Error> {
+    ) -> Result<SessionId, Error> {
         match self.peers.entry(peer_id.clone()) {
-            Entry::Occupied(entry) => Err(PeerError::Duplicate(entry.get().peer_index).into()),
+            Entry::Occupied(entry) => Err(PeerError::Duplicate(entry.get().session_id).into()),
             Entry::Vacant(entry) => {
-                // since session_id has the same purpose with peer_index, we can use session_id as
-                // peer_index
-                let peer_index = session_id;
-                let peer = Peer::new(peer_index, connected_addr, session_id, session_type);
+                let peer = Peer::new(connected_addr, session_id, session_type);
                 entry.insert(peer);
-                self.peer_id_by_index.insert(peer_index, peer_id);
-                Ok(peer_index)
+                self.peer_id_by_session.insert(session_id, peer_id);
+                Ok(session_id)
             }
         }
     }
 
     fn clear(&mut self) {
         self.peers.clear();
-        self.peer_id_by_index.clear();
+        self.peer_id_by_session.clear();
     }
 }
 
@@ -61,7 +58,7 @@ impl Default for PeerManage {
     fn default() -> Self {
         PeerManage {
             peers: FnvHashMap::with_capacity_and_hasher(20, Default::default()),
-            peer_id_by_index: FnvHashMap::with_capacity_and_hasher(20, Default::default()),
+            peer_id_by_session: FnvHashMap::with_capacity_and_hasher(20, Default::default()),
         }
     }
 }
@@ -149,9 +146,9 @@ impl PeersRegistry {
         addr: Multiaddr,
         session_id: SessionId,
         session_type: SessionType,
-    ) -> Result<PeerIndex, Error> {
+    ) -> Result<SessionId, Error> {
         if let Some(peer) = self.get(&peer_id) {
-            return Ok(peer.peer_index);
+            return Ok(peer.session_id);
         }
         if !self.is_reserved(&peer_id) {
             if self.reserved_only {
@@ -178,9 +175,9 @@ impl PeersRegistry {
         addr: Multiaddr,
         session_id: SessionId,
         session_type: SessionType,
-    ) -> Result<PeerIndex, Error> {
+    ) -> Result<SessionId, Error> {
         if let Some(peer) = self.get(&peer_id) {
-            return Ok(peer.peer_index);
+            return Ok(peer.session_id);
         }
         if !self.is_reserved(&peer_id) {
             if self.reserved_only {
@@ -283,7 +280,7 @@ impl PeersRegistry {
         connected_addr: Multiaddr,
         session_id: SessionId,
         session_type: SessionType,
-    ) -> Result<PeerIndex, Error> {
+    ) -> Result<SessionId, Error> {
         self.peer_store
             .add_connected_peer(&peer_id, connected_addr.clone(), session_type);
         self.peer_manage
@@ -320,8 +317,8 @@ impl PeersRegistry {
     }
 
     #[inline]
-    pub fn get_peer_id(&self, peer_index: PeerIndex) -> Option<&PeerId> {
-        self.peer_manage.peer_id_by_index.get(&peer_index)
+    pub fn get_peer_id(&self, session_id: SessionId) -> Option<&PeerId> {
+        self.peer_manage.peer_id_by_session.get(&session_id)
     }
 
     #[inline]

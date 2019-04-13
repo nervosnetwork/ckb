@@ -9,7 +9,7 @@ use crate::protocols::{feeler::Feeler, BackgroundService, DefaultCKBProtocolCont
 use crate::MultiaddrList;
 use crate::Peer;
 use crate::{
-    Behaviour, CKBProtocol, CKBProtocolContext, NetworkConfig, NetworkState, PeerIndex, ProtocolId,
+    Behaviour, CKBProtocol, CKBProtocolContext, NetworkConfig, NetworkState, ProtocolId,
     ProtocolVersion, ServiceContext, ServiceControl, SessionId, SessionType,
 };
 use crate::{DISCOVERY_PROTOCOL_ID, FEELER_PROTOCOL_ID, IDENTIFY_PROTOCOL_ID, PING_PROTOCOL_ID};

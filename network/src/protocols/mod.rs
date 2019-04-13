@@ -5,7 +5,7 @@ pub(crate) mod identify;
 use crate::{
     errors::{Error, PeerError},
     peer_store::{Behaviour, Status},
-    NetworkState, PeerIndex, ProtocolContext, ProtocolContextMutRef, ServiceControl, SessionInfo,
+    NetworkState, ProtocolContext, ProtocolContextMutRef, ServiceControl, SessionId, SessionInfo,
 };
 use bytes::Bytes;
 use log::{debug, error, info, trace, warn};
@@ -116,35 +116,35 @@ impl CKBHandler {
 }
 
 pub trait CKBProtocolContext: Send {
-    fn send(&mut self, peer_index: PeerIndex, data: Vec<u8>) -> Result<(), Error>;
+    fn send(&mut self, session_id: SessionId, data: Vec<u8>) -> Result<(), Error>;
     fn send_protocol(
         &mut self,
-        peer_index: PeerIndex,
+        session_id: SessionId,
         protocol_id: ProtocolId,
         data: Vec<u8>,
     ) -> Result<(), Error>;
     // TODO combinate this interface with peer score
-    fn report_peer(&mut self, peer_index: PeerIndex, behaviour: Behaviour) -> Result<(), Error>;
-    fn ban_peer(&mut self, peer_index: PeerIndex, timeout: Duration);
-    fn disconnect(&mut self, peer_index: PeerIndex);
+    fn report_peer(&mut self, session_id: SessionId, behaviour: Behaviour) -> Result<(), Error>;
+    fn ban_peer(&mut self, session_id: SessionId, timeout: Duration);
+    fn disconnect(&mut self, session_id: SessionId);
     fn register_timer(&self, interval: Duration, token: u64);
-    fn session_info(&self, peer_index: PeerIndex) -> Option<SessionInfo>;
+    fn session_info(&self, session_id: SessionId) -> Option<SessionInfo>;
     fn protocol_version(
         &self,
-        peer_index: PeerIndex,
+        session_id: SessionId,
         protocol_id: ProtocolId,
     ) -> Option<ProtocolVersion>;
     fn protocol_id(&self) -> ProtocolId;
-    fn sessions(&self, peer_indexes: &[PeerIndex]) -> Vec<(PeerIndex, SessionInfo)> {
-        peer_indexes
+    fn sessions(&self, session_ides: &[SessionId]) -> Vec<(SessionId, SessionInfo)> {
+        session_ides
             .iter()
-            .filter_map(|peer_index| {
-                self.session_info(*peer_index)
-                    .and_then(|session| Some((*peer_index, session)))
+            .filter_map(|session_id| {
+                self.session_info(*session_id)
+                    .and_then(|session| Some((*session_id, session)))
             })
             .collect()
     }
-    fn connected_peers(&self) -> Vec<PeerIndex>;
+    fn connected_peers(&self) -> Vec<SessionId>;
 }
 
 pub(crate) struct DefaultCKBProtocolContext<'a> {
@@ -168,19 +168,19 @@ impl<'a> DefaultCKBProtocolContext<'a> {
 }
 
 impl<'a> CKBProtocolContext for DefaultCKBProtocolContext<'a> {
-    fn send(&mut self, peer_index: PeerIndex, data: Vec<u8>) -> Result<(), Error> {
-        self.send_protocol(peer_index, self.protocol_id, data)
+    fn send(&mut self, session_id: SessionId, data: Vec<u8>) -> Result<(), Error> {
+        self.send_protocol(session_id, self.protocol_id, data)
     }
     fn send_protocol(
         &mut self,
-        peer_index: PeerIndex,
+        session_id: SessionId,
         protocol_id: ProtocolId,
         data: Vec<u8>,
     ) -> Result<(), Error> {
         let peer_id = self
             .network_state
-            .get_peer_id(peer_index)
-            .ok_or_else(|| PeerError::IndexNotFound(peer_index))?;
+            .get_peer_id(session_id)
+            .ok_or_else(|| PeerError::SessionNotFound(session_id))?;
 
         let session_id = self
             .network_state
@@ -203,33 +203,33 @@ impl<'a> CKBProtocolContext for DefaultCKBProtocolContext<'a> {
             })
     }
     // report peer behaviour
-    fn report_peer(&mut self, peer_index: PeerIndex, behaviour: Behaviour) -> Result<(), Error> {
-        debug!(target: "network", "report peer {} behaviour: {:?}", peer_index, behaviour);
-        if let Some(peer_id) = self.network_state.get_peer_id(peer_index) {
+    fn report_peer(&mut self, session_id: SessionId, behaviour: Behaviour) -> Result<(), Error> {
+        debug!(target: "network", "report peer {} behaviour: {:?}", session_id, behaviour);
+        if let Some(peer_id) = self.network_state.get_peer_id(session_id) {
             if self
                 .network_state
                 .mut_peer_store()
                 .report(&peer_id, behaviour)
                 .is_banned()
             {
-                self.disconnect(peer_index);
+                self.disconnect(session_id);
             }
             Ok(())
         } else {
-            Err(Error::Peer(PeerError::IndexNotFound(peer_index)))
+            Err(Error::Peer(PeerError::SessionNotFound(session_id)))
         }
     }
 
     // ban peer
-    fn ban_peer(&mut self, peer_index: PeerIndex, timeout: Duration) {
-        if let Some(peer_id) = self.network_state.get_peer_id(peer_index) {
+    fn ban_peer(&mut self, session_id: SessionId, timeout: Duration) {
+        if let Some(peer_id) = self.network_state.get_peer_id(session_id) {
             self.network_state.ban_peer(&peer_id, timeout)
         }
     }
     // disconnect from peer
-    fn disconnect(&mut self, peer_index: PeerIndex) {
-        debug!(target: "network", "disconnect peer {}", peer_index);
-        if let Some(peer_id) = self.network_state.get_peer_id(peer_index) {
+    fn disconnect(&mut self, session_id: SessionId) {
+        debug!(target: "network", "disconnect peer {}", session_id);
+        if let Some(peer_id) = self.network_state.get_peer_id(session_id) {
             self.network_state.disconnect_peer(&peer_id);
         }
     }
@@ -245,10 +245,10 @@ impl<'a> CKBProtocolContext for DefaultCKBProtocolContext<'a> {
         }
     }
 
-    fn session_info(&self, peer_index: PeerIndex) -> Option<SessionInfo> {
+    fn session_info(&self, session_id: SessionId) -> Option<SessionInfo> {
         if let Some(session) = self
             .network_state
-            .get_peer_id(peer_index)
+            .get_peer_id(session_id)
             .map(|peer_id| self.network_state.session_info(&peer_id, self.protocol_id))
         {
             session
@@ -259,10 +259,10 @@ impl<'a> CKBProtocolContext for DefaultCKBProtocolContext<'a> {
 
     fn protocol_version(
         &self,
-        peer_index: PeerIndex,
+        session_id: SessionId,
         protocol_id: ProtocolId,
     ) -> Option<ProtocolVersion> {
-        if let Some(protocol_version) = self.network_state.get_peer_id(peer_index).map(|peer_id| {
+        if let Some(protocol_version) = self.network_state.get_peer_id(session_id).map(|peer_id| {
             self.network_state
                 .peer_protocol_version(&peer_id, protocol_id)
         }) {
@@ -276,16 +276,16 @@ impl<'a> CKBProtocolContext for DefaultCKBProtocolContext<'a> {
         self.protocol_id
     }
 
-    fn connected_peers(&self) -> Vec<PeerIndex> {
-        self.network_state.peers_indexes()
+    fn connected_peers(&self) -> Vec<SessionId> {
+        self.network_state.session_ids()
     }
 }
 
 pub trait CKBProtocolHandler: Sync + Send {
     // TODO: Remove (_service: &mut ServiceContext) argument later
     fn initialize(&self, _nc: &mut dyn CKBProtocolContext);
-    fn received(&self, _nc: &mut dyn CKBProtocolContext, _peer: PeerIndex, _data: Bytes);
-    fn connected(&self, _nc: &mut dyn CKBProtocolContext, _peer: PeerIndex);
-    fn disconnected(&self, _nc: &mut dyn CKBProtocolContext, _peer: PeerIndex);
+    fn received(&self, _nc: &mut dyn CKBProtocolContext, _peer: SessionId, _data: Bytes);
+    fn connected(&self, _nc: &mut dyn CKBProtocolContext, _peer: SessionId);
+    fn disconnected(&self, _nc: &mut dyn CKBProtocolContext, _peer: SessionId);
     fn timer_triggered(&self, _nc: &mut dyn CKBProtocolContext, _timer: u64) {}
 }

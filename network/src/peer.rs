@@ -1,5 +1,5 @@
 use crate::network_group::{Group, NetworkGroup};
-use crate::{multiaddr::Multiaddr, PeerIndex, ProtocolId, ProtocolVersion, SessionId, SessionType};
+use crate::{multiaddr::Multiaddr, ProtocolId, ProtocolVersion, SessionId, SessionType};
 use fnv::FnvHashMap;
 use std::time::{Duration, Instant};
 
@@ -13,7 +13,6 @@ pub struct PeerIdentifyInfo {
 
 #[derive(Clone, Debug)]
 pub struct Peer {
-    pub(crate) peer_index: PeerIndex,
     pub connected_addr: Multiaddr,
     // Client or Server
     pub identify_info: Option<PeerIdentifyInfo>,
@@ -23,14 +22,13 @@ pub struct Peer {
     pub is_feeler: bool,
     pub is_disconnect: bool,
     pub connected_time: Instant,
-    pub session_id: SessionId,
+    pub(crate) session_id: SessionId,
     pub session_type: SessionType,
     pub protocols: FnvHashMap<ProtocolId, ProtocolVersion>,
 }
 
 impl Peer {
     pub fn new(
-        peer_index: PeerIndex,
         connected_addr: Multiaddr,
         session_id: SessionId,
         session_type: SessionType,
@@ -44,7 +42,6 @@ impl Peer {
             connected_time: Instant::now(),
             is_feeler: false,
             is_disconnect: false,
-            peer_index,
             session_id,
             session_type,
             protocols: FnvHashMap::with_capacity_and_hasher(1, Default::default()),

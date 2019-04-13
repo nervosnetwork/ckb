@@ -5,8 +5,8 @@ use crate::{
     PER_FETCH_BLOCK_LIMIT,
 };
 use ckb_core::header::Header;
-use ckb_network::PeerIndex;
 use ckb_shared::store::ChainStore;
+use ckb_network::SessionId;
 use ckb_traits::ChainProvider;
 use ckb_util::try_option;
 use faketime::unix_time_as_millis;
@@ -17,7 +17,7 @@ use std::cmp;
 
 pub struct BlockFetcher<CS: ChainStore> {
     synchronizer: Synchronizer<CS>,
-    peer: PeerIndex,
+    peer: SessionId,
     tip_header: Header,
     total_difficulty: U256,
 }
@@ -26,7 +26,7 @@ impl<CS> BlockFetcher<CS>
 where
     CS: ChainStore,
 {
-    pub fn new(synchronizer: Synchronizer<CS>, peer: PeerIndex) -> Self {
+    pub fn new(synchronizer: Synchronizer<CS>, peer: SessionId) -> Self {
         let (tip_header, total_difficulty) = {
             let chain_state = synchronizer.shared.chain_state().lock();
             (

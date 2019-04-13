@@ -1,7 +1,7 @@
 use crate::relayer::Relayer;
 use crate::relayer::MAX_RELAY_PEERS;
 use ckb_core::{transaction::Transaction, Cycle};
-use ckb_network::{CKBProtocolContext, PeerIndex};
+use ckb_network::{CKBProtocolContext, SessionId};
 use ckb_protocol::{RelayMessage, ValidTransaction as FbsValidTransaction};
 use ckb_shared::store::ChainStore;
 use ckb_shared::tx_pool::types::PoolError;
@@ -19,7 +19,7 @@ const DEFAULT_BAN_TIME: Duration = Duration::from_secs(3600 * 24 * 3);
 pub struct TransactionProcess<'a, CS> {
     message: &'a FbsValidTransaction<'a>,
     relayer: &'a Relayer<CS>,
-    peer: PeerIndex,
+    peer: SessionId,
     nc: &'a mut CKBProtocolContext,
 }
 
@@ -27,7 +27,7 @@ impl<'a, CS: ChainStore> TransactionProcess<'a, CS> {
     pub fn new(
         message: &'a FbsValidTransaction,
         relayer: &'a Relayer<CS>,
-        peer: PeerIndex,
+        peer: SessionId,
         nc: &'a mut CKBProtocolContext,
     ) -> Self {
         TransactionProcess {
@@ -61,12 +61,12 @@ impl<'a, CS: ChainStore> TransactionProcess<'a, CS> {
                 fbb.finish(message, None);
 
                 let mut known_txs = self.relayer.peers.known_txs.lock();
-                let selected_peers: Vec<PeerIndex> = self
+                let selected_peers: Vec<SessionId> = self
                     .nc
                     .connected_peers()
                     .into_iter()
-                    .filter(|peer_index| {
-                        known_txs.insert(*peer_index, tx_hash.clone()) && (self.peer != *peer_index)
+                    .filter(|session_id| {
+                        known_txs.insert(*session_id, tx_hash.clone()) && (self.peer != *session_id)
                     })
                     .take(MAX_RELAY_PEERS)
                     .collect();

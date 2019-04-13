@@ -20,7 +20,7 @@ use ckb_chain::chain::ChainController;
 use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::transaction::{ProposalShortId, Transaction};
 use ckb_core::uncle::UncleBlock;
-use ckb_network::{Behaviour, CKBProtocolContext, CKBProtocolHandler, PeerIndex};
+use ckb_network::{Behaviour, CKBProtocolContext, CKBProtocolHandler, SessionId};
 use ckb_protocol::{
     cast, get_root, short_transaction_id, short_transaction_id_keys, RelayMessage, RelayPayload,
 };
@@ -76,7 +76,7 @@ impl<CS: ChainStore> Relayer<CS> {
     fn try_process(
         &self,
         nc: &mut CKBProtocolContext,
-        peer: PeerIndex,
+        peer: SessionId,
         message: RelayMessage,
     ) -> Result<(), FailureError> {
         match message.payload_type() {
@@ -136,7 +136,7 @@ impl<CS: ChainStore> Relayer<CS> {
         Ok(())
     }
 
-    fn process(&self, nc: &mut CKBProtocolContext, peer: PeerIndex, message: RelayMessage) {
+    fn process(&self, nc: &mut CKBProtocolContext, peer: SessionId, message: RelayMessage) {
         if self.try_process(nc, peer, message).is_err() {
             let ret = nc.report_peer(peer, Behaviour::UnexpectedMessage);
 
@@ -150,7 +150,7 @@ impl<CS: ChainStore> Relayer<CS> {
         &self,
         chain_state: &ChainState<CS>,
         nc: &mut CKBProtocolContext,
-        peer: PeerIndex,
+        peer: SessionId,
         block: &CompactBlock,
     ) {
         let mut inflight = self.state.inflight_proposals.lock();
@@ -180,7 +180,7 @@ impl<CS: ChainStore> Relayer<CS> {
         }
     }
 
-    pub fn accept_block(&self, nc: &mut CKBProtocolContext, peer: PeerIndex, block: &Arc<Block>) {
+    pub fn accept_block(&self, nc: &mut CKBProtocolContext, peer: SessionId, block: &Arc<Block>) {
         let ret = self.chain.process_block(Arc::clone(&block));
 
         if ret.is_ok() {
@@ -190,11 +190,11 @@ impl<CS: ChainStore> Relayer<CS> {
             fbb.finish(message, None);
 
             let mut known_blocks = self.peers.known_blocks.lock();
-            let selected_peers: Vec<PeerIndex> = nc
+            let selected_peers: Vec<SessionId> = nc
                 .connected_peers()
                 .into_iter()
-                .filter(|peer_index| {
-                    known_blocks.insert(*peer_index, block_hash.clone()) && (*peer_index != peer)
+                .filter(|session_id| {
+                    known_blocks.insert(*session_id, block_hash.clone()) && (*session_id != peer)
                 })
                 .take(MAX_RELAY_PEERS)
                 .collect();
@@ -333,7 +333,7 @@ impl<CS: ChainStore> CKBProtocolHandler for Relayer<CS> {
         nc.register_timer(Duration::from_millis(100), TX_PROPOSAL_TOKEN);
     }
 
-    fn received(&self, nc: &mut dyn CKBProtocolContext, peer: PeerIndex, data: Bytes) {
+    fn received(&self, nc: &mut dyn CKBProtocolContext, peer: SessionId, data: Bytes) {
         let msg = match get_root::<RelayMessage>(&data) {
             Ok(msg) => msg,
             _ => {
@@ -350,12 +350,12 @@ impl<CS: ChainStore> CKBProtocolHandler for Relayer<CS> {
         self.process(nc, peer, msg);
     }
 
-    fn connected(&self, _nc: &mut dyn CKBProtocolContext, peer: PeerIndex) {
+    fn connected(&self, _nc: &mut dyn CKBProtocolContext, peer: SessionId) {
         info!(target: "relay", "peer={} RelayProtocol.connected", peer);
         // do nothing
     }
 
-    fn disconnected(&self, _nc: &mut dyn CKBProtocolContext, peer: PeerIndex) {
+    fn disconnected(&self, _nc: &mut dyn CKBProtocolContext, peer: SessionId) {
         info!(target: "relay", "peer={} RelayProtocol.disconnected", peer);
         // TODO
     }
@@ -371,7 +371,7 @@ impl<CS: ChainStore> CKBProtocolHandler for Relayer<CS> {
 pub struct RelayState {
     pub pending_compact_blocks: Mutex<FnvHashMap<H256, CompactBlock>>,
     pub inflight_proposals: Mutex<FnvHashSet<ProposalShortId>>,
-    pub pending_proposals_request: Mutex<FnvHashMap<ProposalShortId, FnvHashSet<PeerIndex>>>,
+    pub pending_proposals_request: Mutex<FnvHashMap<ProposalShortId, FnvHashSet<SessionId>>>,
     pub tx_filter: Mutex<LruCache<H256, ()>>,
 }
 

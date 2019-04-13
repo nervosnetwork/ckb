@@ -10,7 +10,7 @@ use crate::protocols::{feeler::Feeler, BackgroundService, DefaultCKBProtocolCont
 use crate::MultiaddrList;
 use crate::Peer;
 use crate::{
-    Behaviour, CKBProtocol, CKBProtocolContext, NetworkConfig, NetworkState, PeerIndex, ProtocolId,
+    Behaviour, CKBProtocol, CKBProtocolContext, NetworkConfig, NetworkState, ProtocolId,
     ProtocolVersion, ServiceContext, ServiceControl, SessionId, SessionType,
 };
 use crate::{DISCOVERY_PROTOCOL_ID, FEELER_PROTOCOL_ID, IDENTIFY_PROTOCOL_ID, PING_PROTOCOL_ID};
@@ -699,10 +699,10 @@ impl NetworkService {
                     network_state.disconnect_peer(&peer_id);
                     return;
                 } // call handler
-                let peer_index = network_state.get_peer_index(&peer_id).expect("peer index");
+                let session_id = network_state.get_session_id(&peer_id).expect("peer index");
                 protocol.handler().connected(
                     &mut DefaultCKBProtocolContext::new(proto_id, network_state, p2p_control),
-                    peer_index,
+                    session_id,
                 );
             }
 
@@ -717,10 +717,10 @@ impl NetworkService {
                     .map(|pubkey| pubkey.peer_id())
                     .expect("Secio must enabled");
                 if let Some(protocol) = self.find_protocol(proto_id) {
-                    let peer_index = network_state.get_peer_index(&peer_id).expect("peer index");
+                    let session_id = network_state.get_session_id(&peer_id).expect("peer index");
                     protocol.handler().received(
                         &mut DefaultCKBProtocolContext::new(proto_id, network_state, p2p_control),
-                        peer_index,
+                        session_id,
                         data,
                     );
                 }
@@ -735,10 +735,10 @@ impl NetworkService {
                     .map(|pubkey| pubkey.peer_id())
                     .expect("Secio must enabled");
                 if let Some(protocol) = self.find_protocol(proto_id) {
-                    let peer_index = network_state.get_peer_index(&peer_id).expect("peer index");
+                    let session_id = network_state.get_session_id(&peer_id).expect("peer index");
                     protocol.handler().disconnected(
                         &mut DefaultCKBProtocolContext::new(proto_id, network_state, p2p_control),
-                        peer_index,
+                        session_id,
                     );
                 }
             }

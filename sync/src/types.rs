@@ -1,6 +1,6 @@
 use ckb_core::block::Block;
 use ckb_core::header::{BlockNumber, Header};
-use ckb_network::PeerIndex;
+use ckb_network::SessionId;
 use ckb_util::Mutex;
 use ckb_util::RwLock;
 use faketime::unix_time_as_millis;
@@ -59,14 +59,14 @@ pub struct PeerState {
 
 #[derive(Clone, Default)]
 pub struct KnownFilter {
-    inner: FnvHashMap<PeerIndex, LruCache<H256, ()>>,
+    inner: FnvHashMap<SessionId, LruCache<H256, ()>>,
 }
 
 impl KnownFilter {
     /// Adds a value to the filter.
     /// If the filter did not have this value present, `true` is returned.
     /// If the filter did have this value present, `false` is returned.
-    pub fn insert(&mut self, index: PeerIndex, hash: H256) -> bool {
+    pub fn insert(&mut self, index: SessionId, hash: H256) -> bool {
         match self.inner.entry(index) {
             Entry::Occupied(mut o) => o.get_mut().insert(hash, ()).is_none(),
             Entry::Vacant(v) => {
@@ -81,11 +81,11 @@ impl KnownFilter {
 
 #[derive(Default)]
 pub struct Peers {
-    pub state: RwLock<FnvHashMap<PeerIndex, PeerState>>,
-    pub misbehavior: RwLock<FnvHashMap<PeerIndex, u32>>,
-    pub blocks_inflight: RwLock<FnvHashMap<PeerIndex, BlocksInflight>>,
-    pub best_known_headers: RwLock<FnvHashMap<PeerIndex, HeaderView>>,
-    pub last_common_headers: RwLock<FnvHashMap<PeerIndex, Header>>,
+    pub state: RwLock<FnvHashMap<SessionId, PeerState>>,
+    pub misbehavior: RwLock<FnvHashMap<SessionId, u32>>,
+    pub blocks_inflight: RwLock<FnvHashMap<SessionId, BlocksInflight>>,
+    pub best_known_headers: RwLock<FnvHashMap<SessionId, HeaderView>>,
+    pub last_common_headers: RwLock<FnvHashMap<SessionId, Header>>,
     pub known_txs: Mutex<KnownFilter>,
     pub known_blocks: Mutex<KnownFilter>,
 }
@@ -132,7 +132,7 @@ impl BlocksInflight {
 }
 
 impl Peers {
-    pub fn misbehavior(&self, peer: PeerIndex, score: u32) {
+    pub fn misbehavior(&self, peer: SessionId, score: u32) {
         if score == 0 {
             return;
         }
@@ -143,7 +143,7 @@ impl Peers {
             .or_insert_with(|| score);
     }
 
-    pub fn on_connected(&self, peer: PeerIndex, predicted_headers_sync_time: u64, protect: bool) {
+    pub fn on_connected(&self, peer: SessionId, predicted_headers_sync_time: u64, protect: bool) {
         self.state
             .write()
             .entry(peer)
@@ -164,11 +164,11 @@ impl Peers {
             });
     }
 
-    pub fn best_known_header(&self, peer: PeerIndex) -> Option<HeaderView> {
+    pub fn best_known_header(&self, peer: SessionId) -> Option<HeaderView> {
         self.best_known_headers.read().get(&peer).cloned()
     }
 
-    pub fn new_header_received(&self, peer: PeerIndex, header_view: &HeaderView) {
+    pub fn new_header_received(&self, peer: SessionId, header_view: &HeaderView) {
         self.best_known_headers
             .write()
             .entry(peer)
@@ -183,11 +183,11 @@ impl Peers {
             .or_insert_with(|| header_view.clone());
     }
 
-    pub fn getheaders_received(&self, _peer: PeerIndex) {
+    pub fn getheaders_received(&self, _peer: SessionId) {
         // TODO:
     }
 
-    pub fn disconnected(&self, peer: PeerIndex) {
+    pub fn disconnected(&self, peer: SessionId) {
         self.state.write().remove(&peer);
         self.best_known_headers.write().remove(&peer);
         // self.misbehavior.write().remove(peer);
@@ -195,7 +195,7 @@ impl Peers {
         self.last_common_headers.write().remove(&peer);
     }
 
-    pub fn block_received(&self, peer: PeerIndex, block: &Block) {
+    pub fn block_received(&self, peer: SessionId, block: &Block) {
         let mut blocks_inflight = self.blocks_inflight.write();
         debug!(target: "sync", "block_received from peer {} {} {:x}", peer, block.header().number(), block.header().hash());
         blocks_inflight.entry(peer).and_modify(|inflight| {
@@ -204,7 +204,7 @@ impl Peers {
         });
     }
 
-    pub fn set_last_common_header(&self, peer: PeerIndex, header: &Header) {
+    pub fn set_last_common_header(&self, peer: SessionId, header: &Header) {
         let mut last_common_headers = self.last_common_headers.write();
         last_common_headers
             .entry(peer)

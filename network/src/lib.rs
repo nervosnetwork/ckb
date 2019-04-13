@@ -31,8 +31,6 @@ pub use p2p::{
     ProtocolId, SessionId,
 };
 
-// used in CKBProtocolContext
-pub type PeerIndex = SessionId;
 pub type MultiaddrList = Vec<(multiaddr::Multiaddr, u8)>;
 
 // basic protcol ids

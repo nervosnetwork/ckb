@@ -1,4 +1,4 @@
-use crate::{CKBProtocolContext, CKBProtocolHandler, PeerIndex};
+use crate::{CKBProtocolContext, CKBProtocolHandler, SessionId};
 use bytes::Bytes;
 use log::info;
 
@@ -12,14 +12,14 @@ pub struct Feeler {}
 impl CKBProtocolHandler for Feeler {
     fn initialize(&self, nc: &mut dyn CKBProtocolContext) {}
 
-    fn received(&self, _nc: &mut dyn CKBProtocolContext, _peer: PeerIndex, _data: Bytes) {}
+    fn received(&self, _nc: &mut dyn CKBProtocolContext, _peer: SessionId, _data: Bytes) {}
 
-    fn connected(&self, nc: &mut dyn CKBProtocolContext, peer: PeerIndex) {
+    fn connected(&self, nc: &mut dyn CKBProtocolContext, peer: SessionId) {
         info!(target: "feeler", "peer={} FeelerProtocol.connected", peer);
         nc.disconnect(peer);
     }
 
-    fn disconnected(&self, _nc: &mut dyn CKBProtocolContext, peer: PeerIndex) {
+    fn disconnected(&self, _nc: &mut dyn CKBProtocolContext, peer: SessionId) {
         info!(target: "relay", "peer={} FeelerProtocol.disconnected", peer);
     }
 }

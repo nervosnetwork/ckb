@@ -1,7 +1,7 @@
 use super::compact_block::CompactBlock;
 use crate::relayer::Relayer;
 use ckb_core::{header::Header, BlockNumber};
-use ckb_network::{CKBProtocolContext, PeerIndex};
+use ckb_network::{CKBProtocolContext, SessionId};
 use ckb_protocol::{CompactBlock as FbsCompactBlock, RelayMessage};
 use ckb_shared::shared::Shared;
 use ckb_shared::store::ChainStore;
@@ -18,7 +18,7 @@ use std::sync::Arc;
 pub struct CompactBlockProcess<'a, CS> {
     message: &'a FbsCompactBlock<'a>,
     relayer: &'a Relayer<CS>,
-    peer: PeerIndex,
+    peer: SessionId,
     nc: &'a mut CKBProtocolContext,
 }
 
@@ -26,7 +26,7 @@ impl<'a, CS: ChainStore> CompactBlockProcess<'a, CS> {
     pub fn new(
         message: &'a FbsCompactBlock,
         relayer: &'a Relayer<CS>,
-        peer: PeerIndex,
+        peer: SessionId,
         nc: &'a mut CKBProtocolContext,
     ) -> Self {
         CompactBlockProcess {

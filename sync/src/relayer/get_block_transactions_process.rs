@@ -1,5 +1,5 @@
 use crate::relayer::Relayer;
-use ckb_network::{CKBProtocolContext, PeerIndex};
+use ckb_network::{CKBProtocolContext, SessionId};
 use ckb_protocol::{cast, GetBlockTransactions, RelayMessage};
 use ckb_shared::store::ChainStore;
 use failure::Error as FailureError;
@@ -10,7 +10,7 @@ use std::convert::TryInto;
 pub struct GetBlockTransactionsProcess<'a, CS> {
     message: &'a GetBlockTransactions<'a>,
     relayer: &'a Relayer<CS>,
-    peer: PeerIndex,
+    peer: SessionId,
     nc: &'a mut CKBProtocolContext,
 }
 
@@ -18,7 +18,7 @@ impl<'a, CS: ChainStore> GetBlockTransactionsProcess<'a, CS> {
     pub fn new(
         message: &'a GetBlockTransactions,
         relayer: &'a Relayer<CS>,
-        peer: PeerIndex,
+        peer: SessionId,
         nc: &'a mut CKBProtocolContext,
     ) -> Self {
         GetBlockTransactionsProcess {

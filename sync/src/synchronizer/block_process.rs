@@ -1,6 +1,6 @@
 use crate::synchronizer::Synchronizer;
 use ckb_core::block::Block;
-use ckb_network::{CKBProtocolContext, PeerIndex};
+use ckb_network::{CKBProtocolContext, SessionId};
 use ckb_protocol::Block as PBlock;
 use ckb_shared::store::ChainStore;
 use failure::Error as FailureError;
@@ -10,7 +10,7 @@ use std::convert::TryInto;
 pub struct BlockProcess<'a, CS: ChainStore + 'a> {
     message: &'a PBlock<'a>,
     synchronizer: &'a Synchronizer<CS>,
-    peer: PeerIndex,
+    peer: SessionId,
 }
 
 impl<'a, CS> BlockProcess<'a, CS>
@@ -20,7 +20,7 @@ where
     pub fn new(
         message: &'a PBlock,
         synchronizer: &'a Synchronizer<CS>,
-        peer: PeerIndex,
+        peer: SessionId,
         _nc: &'a CKBProtocolContext,
     ) -> Self {
         BlockProcess {

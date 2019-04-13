@@ -6,8 +6,8 @@ use crate::protocols::{feeler::Feeler, DefaultCKBProtocolContext};
 use crate::MultiaddrList;
 use crate::Peer;
 use crate::{
-    Behaviour, CKBProtocol, CKBProtocolContext, NetworkConfig, PeerIndex, ProtocolId,
-    ProtocolVersion, PublicKey, ServiceContext, ServiceControl, SessionId, SessionType,
+    Behaviour, CKBProtocol, CKBProtocolContext, NetworkConfig, ProtocolId, ProtocolVersion,
+    PublicKey, ServiceContext, ServiceControl, SessionId, SessionType,
 };
 use crate::{DISCOVERY_PROTOCOL_ID, FEELER_PROTOCOL_ID, IDENTIFY_PROTOCOL_ID, PING_PROTOCOL_ID};
 use fnv::{FnvHashMap, FnvHashSet};
@@ -173,15 +173,15 @@ impl NetworkState {
             .collect()
     }
 
-    pub(crate) fn get_peer_index(&self, peer_id: &PeerId) -> Option<PeerIndex> {
+    pub(crate) fn get_session_id(&self, peer_id: &PeerId) -> Option<SessionId> {
         self.peers_registry
             .get(&peer_id)
-            .map(|peer| peer.peer_index)
+            .map(|peer| peer.session_id)
     }
 
-    pub(crate) fn get_peer_id(&self, peer_index: PeerIndex) -> Option<PeerId> {
+    pub(crate) fn get_peer_id(&self, session_id: SessionId) -> Option<PeerId> {
         self.peers_registry
-            .get_peer_id(peer_index)
+            .get_peer_id(session_id)
             .map(|peer_id| peer_id.to_owned())
     }
 
@@ -189,19 +189,10 @@ impl NetworkState {
         self.peers_registry.connection_status()
     }
 
-    //pub(crate) fn modify_peer<F>(&mut self, peer_id: &PeerId, f: F)
-    //where
-    //    F: FnOnce(&mut Peer) -> (),
-    //{
-    //    if let Some(peer) = self.peers_registry.get_mut(peer_id) {
-    //        f(peer);
-    //    }
-    //}
-
-    pub(crate) fn peers_indexes(&self) -> Vec<PeerIndex> {
+    pub(crate) fn session_ids(&self) -> Vec<SessionId> {
         self.peers_registry
             .iter()
-            .map(|(_, peer)| peer.peer_index)
+            .map(|(_, peer)| peer.session_id)
             .collect()
     }
 
@@ -250,7 +241,7 @@ impl NetworkState {
         connected_addr: Multiaddr,
         session_id: SessionId,
         session_type: SessionType,
-    ) -> Result<PeerIndex, Error> {
+    ) -> Result<SessionId, Error> {
         let result = if session_type.is_outbound() {
             self.peers_registry.try_outbound_peer(
                 peer_id.clone(),
