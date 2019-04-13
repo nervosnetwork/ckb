@@ -22,10 +22,6 @@ impl TxFilter {
     pub fn insert(&mut self, hash: H256) -> bool {
         self.map.insert(hash, ()).is_none()
     }
-
-    pub fn contains(&self, hash: &H256) -> bool {
-        self.map.contains_key(&hash)
-    }
 }
 
 #[derive(Debug, Clone)]

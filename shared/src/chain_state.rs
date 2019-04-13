@@ -101,9 +101,6 @@ impl<CI: ChainIndex> ChainState<CI> {
 
     pub fn add_tx_to_pool(&self, tx: Transaction, max_cycles: Cycle) -> Result<Cycle, PoolError> {
         let mut tx_pool = self.tx_pool.borrow_mut();
-        if tx_pool.filter.contains(&tx.hash()) {
-            return Err(PoolError::AlreadyInPool);
-        }
         let short_id = tx.proposal_short_id();
         let rtx = self.resolve_tx_from_pool(&tx, &tx_pool);
         let verify_result = self.verify_rtx(&rtx, max_cycles);
