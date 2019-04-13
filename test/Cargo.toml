@@ -10,7 +10,6 @@ jsonrpc-types = { path = "../util/jsonrpc-types" }
 logger = { path = "../util/logger" }
 ckb-core= { path = "../core" }
 ckb-network = { path = "../network" }
-ckb-shared = { path = "../shared" }
 ckb-sync = { path = "../sync" }
 ckb-protocol = { path = "../protocol"}
 ckb-util = { path = "../util" }
