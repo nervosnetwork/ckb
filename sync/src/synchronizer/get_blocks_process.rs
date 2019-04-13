@@ -40,37 +40,12 @@ where
             debug!(target: "sync", "get_blocks {:x}", block_hash);
             if let Some(block) = self.synchronizer.get_block(&block_hash) {
                 debug!(target: "sync", "respond_block {} {:x}", block.header().number(), block.header().hash());
-                if let Some(filter) = self
-                    .synchronizer
-                    .peers
-                    .transaction_filters
-                    .read()
-                    .get(&self.peer)
-                {
-                    let transactions_index = block
-                        .commit_transactions()
-                        .iter()
-                        .enumerate()
-                        .filter(|(_index, tx)| filter.contains(tx))
-                        .map(|ti| ti.0)
-                        .collect::<Vec<_>>();
-
-                    let fbb = &mut FlatBufferBuilder::new();
-                    let message =
-                        SyncMessage::build_filtered_block(fbb, &block, &transactions_index);
-                    fbb.finish(message, None);
-                    let ret = self.nc.send(self.peer, fbb.finished_data().to_vec());
-                    if ret.is_err() {
-                        warn!(target: "relay", "response GetBlocks error {:?}", ret);
-                    }
-                } else {
-                    let fbb = &mut FlatBufferBuilder::new();
-                    let message = SyncMessage::build_block(fbb, &block);
-                    fbb.finish(message, None);
-                    let ret = self.nc.send(self.peer, fbb.finished_data().to_vec());
-                    if ret.is_err() {
-                        warn!(target: "relay", "response GetBlocks error {:?}", ret);
-                    }
+                let fbb = &mut FlatBufferBuilder::new();
+                let message = SyncMessage::build_block(fbb, &block);
+                fbb.finish(message, None);
+                let ret = self.nc.send(self.peer, fbb.finished_data().to_vec());
+                if ret.is_err() {
+                    warn!(target: "relay", "response GetBlocks error {:?}", ret);
                 }
             } else {
                 // TODO response not found

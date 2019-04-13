@@ -701,7 +701,9 @@ impl<CI: ChainIndex> Synchronizer<CI> {
         debug!(target: "sync", "poll find_blocks_to_fetch select peers");
         for peer in peers {
             if let Some(v_fetch) = self.get_blocks_to_fetch(peer) {
-                self.send_getblocks(&v_fetch, nc, peer);
+                if !v_fetch.is_empty() {
+                    self.send_getblocks(&v_fetch, nc, peer);
+                }
             }
         }
     }

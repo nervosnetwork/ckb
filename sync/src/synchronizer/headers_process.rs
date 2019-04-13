@@ -329,15 +329,16 @@ where
         }
     }
 
-    pub fn duplicate_check(&self, state: &mut ValidationResult) -> Result<(), ()> {
-        let status = self.synchronizer.get_block_status(&self.header.hash());
-        if status != BlockStatus::UNKNOWN {
-            if (status & BlockStatus::FAILED_MASK) == status {
-                state.invalid(Some(ValidationError::FailedMask));
-            }
-            if (status & BlockStatus::FAILED_MASK) == status {}
-            return Err(());
-        }
+    //FIXME: status flag
+    pub fn duplicate_check(&self, _state: &mut ValidationResult) -> Result<(), ()> {
+        // let status = self.synchronizer.get_block_status(&self.header.hash());
+        // if status != BlockStatus::UNKNOWN {
+        //     if (status & BlockStatus::FAILED_MASK) == status {
+        //         state.invalid(Some(ValidationError::FailedMask));
+        //     }
+        //     if (status & BlockStatus::FAILED_MASK) == status {}
+        //     return Err(());
+        // }
         Ok(())
     }
 
