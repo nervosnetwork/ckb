@@ -20,6 +20,7 @@ pub struct NetworkConfig {
     pub reserved_only: bool,
     pub max_peers: u32,
     pub max_outbound_peers: u32,
+    #[serde(default)]
     pub path: PathBuf,
     pub ping_interval_secs: u64,
     pub ping_timeout_secs: u64,
