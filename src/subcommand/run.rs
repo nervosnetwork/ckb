@@ -11,7 +11,6 @@ use ckb_shared::store::ChainStore;
 use ckb_sync::{NetTimeProtocol, NetworkProtocol, Relayer, Synchronizer};
 use ckb_traits::chain_provider::ChainProvider;
 use log::info;
-use std::sync::Arc;
 
 pub fn run(args: RunArgs) -> Result<(), ExitCode> {
     deadlock_detection();
@@ -42,7 +41,7 @@ pub fn run(args: RunArgs) -> Result<(), ExitCode> {
     let net_time_checker = NetTimeProtocol::default();
 
     let network_state =
-        NetworkState::from_config(setup.configs.network).expect("Init network state failed");
+        NetworkState::from_config(args.config.network).expect("Init network state failed");
 
     let protocols = vec![
         CKBProtocol::new(
@@ -71,7 +70,7 @@ pub fn run(args: RunArgs) -> Result<(), ExitCode> {
         NetworkService::start(network_service, p2p_service).expect("Start network service failed");
 
     let rpc_server = RpcServer::new(
-        setup.configs.rpc,
+        args.config.rpc,
         network_controller.clone(),
         shared,
         chain_controller,

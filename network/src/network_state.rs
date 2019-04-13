@@ -74,7 +74,6 @@ impl NetworkState {
             let mut peer_store =
                 SqlitePeerStore::file(config.peer_store_path().to_string_lossy().to_string())?;
             let bootnodes = config.bootnodes()?;
-            println!("boot nodes {:?}", bootnodes);
             for (peer_id, addr) in bootnodes {
                 peer_store.add_bootnode(peer_id, addr);
             }
@@ -218,7 +217,7 @@ impl NetworkState {
     pub fn external_urls(&self, max_urls: usize) -> Vec<(String, u8)> {
         self.listened_addresses(max_urls.saturating_sub(self.original_listened_addresses.len()))
             .into_iter()
-            .filter(|(addr, _)| !original_listened_addresses.contains(addr))
+            .filter(|(addr, _)| !self.original_listened_addresses.contains(addr))
             .chain(
                 self.original_listened_addresses
                     .iter()
@@ -378,4 +377,3 @@ impl NetworkState {
         );
     }
 }
-

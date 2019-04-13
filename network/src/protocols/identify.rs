@@ -1,6 +1,6 @@
 // use crate::peer_store::Behaviour;
-use log::{debug, trace, warn};
 use crate::{NetworkController, NetworkState};
+use log::{debug, trace, warn};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -11,8 +11,6 @@ use p2p::{
     utils::{is_reachable, multiaddr_to_socketaddr},
 };
 use p2p_identify::{Callback, MisbehaveResult, Misbehavior};
-use std::collections::HashMap;
-use std::sync::Arc;
 
 const MAX_RETURN_LISTEN_ADDRS: usize = 10;
 

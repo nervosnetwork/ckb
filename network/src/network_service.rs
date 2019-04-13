@@ -145,7 +145,6 @@ impl NetworkService {
                 let ping_timeout_secs = config.ping_timeout_secs;
                 move || {
                     ProtocolHandle::Both(Box::new(PingHandler::new(
-                        PING_PROTOCOL_ID,
                         Duration::from_secs(ping_interval_secs),
                         Duration::from_secs(ping_timeout_secs),
                         ping_fut_sender.clone(),
@@ -440,7 +439,6 @@ impl NetworkService {
     fn setup_network(&mut self, p2p_service: &mut Service<EventHandler>) -> Result<(), Error> {
         let mut network_state = self.network_state.borrow_mut();
         let config = network_state.config.clone();
-        println!("listening");
         // listen local addresses
         for addr in &config.listen_addresses {
             match p2p_service.listen(addr.to_owned()) {
@@ -472,7 +470,6 @@ impl NetworkService {
             network_state.dial_all(p2p_service.control(), &peer_id, addr);
         }
 
-        println!("booting");
         let bootnodes = network_state
             .peer_store()
             .bootnodes(max((config.max_outbound_peers / 2) as u32, 1))

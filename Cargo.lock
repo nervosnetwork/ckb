@@ -518,11 +518,11 @@ dependencies = [
  "snap 0.2.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "stop-handler 0.9.0-pre",
  "tempfile 3.0.7 (registry+https://github.com/rust-lang/crates.io-index)",
- "tentacle 0.2.0-alpha.1 (git+https://github.com/nervosnetwork/p2p?rev=5b82be9e77857c425d6378ce4c80bf755ed54e4c)",
- "tentacle-discovery 0.1.0 (git+https://github.com/nervosnetwork/p2p?rev=5b82be9e77857c425d6378ce4c80bf755ed54e4c)",
- "tentacle-identify 0.1.0 (git+https://github.com/nervosnetwork/p2p?rev=5b82be9e77857c425d6378ce4c80bf755ed54e4c)",
- "tentacle-ping 0.2.0 (git+https://github.com/nervosnetwork/p2p?rev=5b82be9e77857c425d6378ce4c80bf755ed54e4c)",
- "tentacle-secio 0.1.0 (git+https://github.com/nervosnetwork/p2p?rev=5b82be9e77857c425d6378ce4c80bf755ed54e4c)",
+ "tentacle 0.2.0-alpha.1 (git+https://github.com/nervosnetwork/p2p?rev=d2317b0c99db178c020aa3b9f9bdb2f3c1a78e39)",
+ "tentacle-discovery 0.1.0 (git+https://github.com/nervosnetwork/p2p?rev=d2317b0c99db178c020aa3b9f9bdb2f3c1a78e39)",
+ "tentacle-identify 0.1.0 (git+https://github.com/nervosnetwork/p2p?rev=d2317b0c99db178c020aa3b9f9bdb2f3c1a78e39)",
+ "tentacle-ping 0.2.0 (git+https://github.com/nervosnetwork/p2p?rev=d2317b0c99db178c020aa3b9f9bdb2f3c1a78e39)",
+ "tentacle-secio 0.1.0 (git+https://github.com/nervosnetwork/p2p?rev=d2317b0c99db178c020aa3b9f9bdb2f3c1a78e39)",
  "tokio 0.1.18 (registry+https://github.com/rust-lang/crates.io-index)",
  "unsigned-varint 0.2.2 (git+https://github.com/paritytech/unsigned-varint)",
 ]
@@ -1160,14 +1160,6 @@ version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "smallvec 0.6.9 (registry+https://github.com/rust-lang/crates.io-index)",
-]
-
-[[package]]
-name = "flatbuffers-verifier"
-version = "0.1.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-dependencies = [
- "flatbuffers 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -2841,7 +2833,7 @@ dependencies = [
 [[package]]
 name = "tentacle"
 version = "0.2.0-alpha.1"
-source = "git+https://github.com/nervosnetwork/p2p?rev=5b82be9e77857c425d6378ce4c80bf755ed54e4c#5b82be9e77857c425d6378ce4c80bf755ed54e4c"
+source = "git+https://github.com/nervosnetwork/p2p?rev=d2317b0c99db178c020aa3b9f9bdb2f3c1a78e39#d2317b0c99db178c020aa3b9f9bdb2f3c1a78e39"
 dependencies = [
  "bytes 0.4.12 (registry+https://github.com/rust-lang/crates.io-index)",
  "flatbuffers 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -2849,16 +2841,16 @@ dependencies = [
  "futures 0.1.26 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "parity-multiaddr 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "tentacle-secio 0.1.0 (git+https://github.com/nervosnetwork/p2p?rev=5b82be9e77857c425d6378ce4c80bf755ed54e4c)",
+ "tentacle-secio 0.1.0 (git+https://github.com/nervosnetwork/p2p?rev=d2317b0c99db178c020aa3b9f9bdb2f3c1a78e39)",
  "tokio 0.1.18 (registry+https://github.com/rust-lang/crates.io-index)",
  "tokio-threadpool 0.1.13 (registry+https://github.com/rust-lang/crates.io-index)",
- "tokio-yamux 0.1.4 (git+https://github.com/nervosnetwork/p2p?rev=5b82be9e77857c425d6378ce4c80bf755ed54e4c)",
+ "tokio-yamux 0.1.4 (git+https://github.com/nervosnetwork/p2p?rev=d2317b0c99db178c020aa3b9f9bdb2f3c1a78e39)",
 ]
 
 [[package]]
 name = "tentacle-discovery"
 version = "0.1.0"
-source = "git+https://github.com/nervosnetwork/p2p?rev=5b82be9e77857c425d6378ce4c80bf755ed54e4c#5b82be9e77857c425d6378ce4c80bf755ed54e4c"
+source = "git+https://github.com/nervosnetwork/p2p?rev=d2317b0c99db178c020aa3b9f9bdb2f3c1a78e39#d2317b0c99db178c020aa3b9f9bdb2f3c1a78e39"
 dependencies = [
  "byteorder 1.3.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "bytes 0.4.12 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -2870,7 +2862,7 @@ dependencies = [
  "rand 0.6.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.90 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.90 (registry+https://github.com/rust-lang/crates.io-index)",
- "tentacle 0.2.0-alpha.1 (git+https://github.com/nervosnetwork/p2p?rev=5b82be9e77857c425d6378ce4c80bf755ed54e4c)",
+ "tentacle 0.2.0-alpha.1 (git+https://github.com/nervosnetwork/p2p?rev=d2317b0c99db178c020aa3b9f9bdb2f3c1a78e39)",
  "tokio 0.1.18 (registry+https://github.com/rust-lang/crates.io-index)",
  "trust-dns 0.15.1 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
@@ -2878,20 +2870,20 @@ dependencies = [
 [[package]]
 name = "tentacle-identify"
 version = "0.1.0"
-source = "git+https://github.com/nervosnetwork/p2p?rev=5b82be9e77857c425d6378ce4c80bf755ed54e4c#5b82be9e77857c425d6378ce4c80bf755ed54e4c"
+source = "git+https://github.com/nervosnetwork/p2p?rev=d2317b0c99db178c020aa3b9f9bdb2f3c1a78e39#d2317b0c99db178c020aa3b9f9bdb2f3c1a78e39"
 dependencies = [
  "bytes 0.4.12 (registry+https://github.com/rust-lang/crates.io-index)",
  "flatbuffers 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "flatbuffers-verifier 0.1.9 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
- "tentacle 0.2.0-alpha.1 (git+https://github.com/nervosnetwork/p2p?rev=5b82be9e77857c425d6378ce4c80bf755ed54e4c)",
+ "tentacle 0.2.0-alpha.1 (git+https://github.com/nervosnetwork/p2p?rev=d2317b0c99db178c020aa3b9f9bdb2f3c1a78e39)",
  "tokio 0.1.18 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
 name = "tentacle-ping"
 version = "0.2.0"
-source = "git+https://github.com/nervosnetwork/p2p?rev=5b82be9e77857c425d6378ce4c80bf755ed54e4c#5b82be9e77857c425d6378ce4c80bf755ed54e4c"
+source = "git+https://github.com/nervosnetwork/p2p?rev=d2317b0c99db178c020aa3b9f9bdb2f3c1a78e39#d2317b0c99db178c020aa3b9f9bdb2f3c1a78e39"
 dependencies = [
  "bytes 0.4.12 (registry+https://github.com/rust-lang/crates.io-index)",
  "flatbuffers 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -2899,13 +2891,13 @@ dependencies = [
  "fnv 1.0.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "generic-channel 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
- "tentacle 0.2.0-alpha.1 (git+https://github.com/nervosnetwork/p2p?rev=5b82be9e77857c425d6378ce4c80bf755ed54e4c)",
+ "tentacle 0.2.0-alpha.1 (git+https://github.com/nervosnetwork/p2p?rev=d2317b0c99db178c020aa3b9f9bdb2f3c1a78e39)",
 ]
 
 [[package]]
 name = "tentacle-secio"
 version = "0.1.0"
-source = "git+https://github.com/nervosnetwork/p2p?rev=5b82be9e77857c425d6378ce4c80bf755ed54e4c#5b82be9e77857c425d6378ce4c80bf755ed54e4c"
+source = "git+https://github.com/nervosnetwork/p2p?rev=d2317b0c99db178c020aa3b9f9bdb2f3c1a78e39#d2317b0c99db178c020aa3b9f9bdb2f3c1a78e39"
 dependencies = [
  "aes-ctr 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "bs58 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -3186,7 +3178,7 @@ dependencies = [
 [[package]]
 name = "tokio-yamux"
 version = "0.1.4"
-source = "git+https://github.com/nervosnetwork/p2p?rev=5b82be9e77857c425d6378ce4c80bf755ed54e4c#5b82be9e77857c425d6378ce4c80bf755ed54e4c"
+source = "git+https://github.com/nervosnetwork/p2p?rev=d2317b0c99db178c020aa3b9f9bdb2f3c1a78e39#d2317b0c99db178c020aa3b9f9bdb2f3c1a78e39"
 dependencies = [
  "byteorder 1.3.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "bytes 0.4.12 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -3760,11 +3752,11 @@ dependencies = [
 "checksum synom 0.11.3 (registry+https://github.com/rust-lang/crates.io-index)" = "a393066ed9010ebaed60b9eafa373d4b1baac186dd7e008555b0f702b51945b6"
 "checksum synstructure 0.10.1 (registry+https://github.com/rust-lang/crates.io-index)" = "73687139bf99285483c96ac0add482c3776528beac1d97d444f6e91f203a2015"
 "checksum tempfile 3.0.7 (registry+https://github.com/rust-lang/crates.io-index)" = "b86c784c88d98c801132806dadd3819ed29d8600836c4088e855cdf3e178ed8a"
-"checksum tentacle 0.2.0-alpha.1 (git+https://github.com/nervosnetwork/p2p?rev=5b82be9e77857c425d6378ce4c80bf755ed54e4c)" = "<none>"
-"checksum tentacle-discovery 0.1.0 (git+https://github.com/nervosnetwork/p2p?rev=5b82be9e77857c425d6378ce4c80bf755ed54e4c)" = "<none>"
-"checksum tentacle-identify 0.1.0 (git+https://github.com/nervosnetwork/p2p?rev=5b82be9e77857c425d6378ce4c80bf755ed54e4c)" = "<none>"
-"checksum tentacle-ping 0.2.0 (git+https://github.com/nervosnetwork/p2p?rev=5b82be9e77857c425d6378ce4c80bf755ed54e4c)" = "<none>"
-"checksum tentacle-secio 0.1.0 (git+https://github.com/nervosnetwork/p2p?rev=5b82be9e77857c425d6378ce4c80bf755ed54e4c)" = "<none>"
+"checksum tentacle 0.2.0-alpha.1 (git+https://github.com/nervosnetwork/p2p?rev=d2317b0c99db178c020aa3b9f9bdb2f3c1a78e39)" = "<none>"
+"checksum tentacle-discovery 0.1.0 (git+https://github.com/nervosnetwork/p2p?rev=d2317b0c99db178c020aa3b9f9bdb2f3c1a78e39)" = "<none>"
+"checksum tentacle-identify 0.1.0 (git+https://github.com/nervosnetwork/p2p?rev=d2317b0c99db178c020aa3b9f9bdb2f3c1a78e39)" = "<none>"
+"checksum tentacle-ping 0.2.0 (git+https://github.com/nervosnetwork/p2p?rev=d2317b0c99db178c020aa3b9f9bdb2f3c1a78e39)" = "<none>"
+"checksum tentacle-secio 0.1.0 (git+https://github.com/nervosnetwork/p2p?rev=d2317b0c99db178c020aa3b9f9bdb2f3c1a78e39)" = "<none>"
 "checksum termcolor 1.0.4 (registry+https://github.com/rust-lang/crates.io-index)" = "4096add70612622289f2fdcdbd5086dc81c1e2675e6ae58d6c4f62a16c6d7f2f"
 "checksum termion 1.5.1 (registry+https://github.com/rust-lang/crates.io-index)" = "689a3bdfaab439fd92bc87df5c4c78417d3cbe537487274e9b0b2dce76e92096"
 "checksum termios 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)" = "72b620c5ea021d75a735c943269bb07d30c9b77d6ac6b236bc8b5c496ef05625"
@@ -3788,7 +3780,7 @@ dependencies = [
 "checksum tokio-trace-core 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)" = "350c9edade9830dc185ae48ba45667a445ab59f6167ef6d0254ec9d2430d9dd3"
 "checksum tokio-udp 0.1.3 (registry+https://github.com/rust-lang/crates.io-index)" = "66268575b80f4a4a710ef83d087fdfeeabdce9b74c797535fbac18a2cb906e92"
 "checksum tokio-uds 0.2.5 (registry+https://github.com/rust-lang/crates.io-index)" = "037ffc3ba0e12a0ab4aca92e5234e0dedeb48fddf6ccd260f1f150a36a9f2445"
-"checksum tokio-yamux 0.1.4 (git+https://github.com/nervosnetwork/p2p?rev=5b82be9e77857c425d6378ce4c80bf755ed54e4c)" = "<none>"
+"checksum tokio-yamux 0.1.4 (git+https://github.com/nervosnetwork/p2p?rev=d2317b0c99db178c020aa3b9f9bdb2f3c1a78e39)" = "<none>"
 "checksum toml 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)" = "87c5890a989fa47ecdc7bcb4c63a77a82c18f306714104b1decfd722db17b39e"
 "checksum trust-dns 0.15.1 (registry+https://github.com/rust-lang/crates.io-index)" = "65096825b064877da37eeeb9a83390bd23433eabfc503a6476dc5b1949034aa7"
 "checksum trust-dns-proto 0.6.3 (registry+https://github.com/rust-lang/crates.io-index)" = "09144f0992b0870fa8d2972cc069cbf1e3c0fda64d1f3d45c4d68d0e0b52ad4e"

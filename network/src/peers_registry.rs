@@ -3,12 +3,12 @@ use crate::{
     errors::{Error, PeerError},
     Peer, PeerId, PeerIndex, ProtocolId, ProtocolVersion, SessionType,
 };
-use ckb_util::RwLock;
 use fnv::{FnvHashMap, FnvHashSet};
 use log::debug;
 use p2p::{multiaddr::Multiaddr, SessionId};
 use rand::seq::SliceRandom;
 use rand::thread_rng;
+use std::collections::hash_map::Entry;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
@@ -130,12 +130,6 @@ impl PeersRegistry {
             reserved_peers_set.insert(reserved_peer);
         }
         PeersRegistry {
-            id_allocator: AtomicUsize::new(0),
-            peers: RwLock::new(FnvHashMap::with_capacity_and_hasher(20, Default::default())),
-            peer_id_by_index: RwLock::new(FnvHashMap::with_capacity_and_hasher(
-                20,
-                Default::default(),
-            )),
             peer_store,
             peer_manage: Default::default(),
             reserved_peers: reserved_peers_set,
@@ -149,10 +143,10 @@ impl PeersRegistry {
         self.reserved_peers.contains(&peer_id)
     }
 
-    pub(crate) fn accept_connection(
-        &self,
+    pub fn accept_inbound_peer(
+        &mut self,
         peer_id: PeerId,
-        connected_addr: Multiaddr,
+        addr: Multiaddr,
         session_id: SessionId,
         session_type: SessionType,
     ) -> Result<PeerIndex, Error> {
@@ -195,27 +189,17 @@ impl PeersRegistry {
             if self.peer_store.is_banned(&peer_id) {
                 return Err(Error::Peer(PeerError::Banned(peer_id)));
             }
-
-            let connection_status = self._connection_status(peers.iter());
+            let connection_status = self.connection_status();
             // check peers connection limitation
-            if inbound {
-                if connection_status.unreserved_inbound >= self.max_inbound
-                    && !self._try_evict_inbound_peer(&mut peers, &mut peer_id_by_index)
-                {
-                    return Err(Error::Peer(PeerError::ReachMaxInboundLimit(peer_id)));
-                }
-            } else if connection_status.unreserved_outbound >= self.max_outbound {
+            // TODO: implement extra outbound peer logic
+            if connection_status.unreserved_outbound >= self.max_outbound {
                 return Err(Error::Peer(PeerError::ReachMaxOutboundLimit(peer_id)));
             }
         }
         self.register_peer(peer_id, addr, session_id, session_type)
     }
 
-    fn _try_evict_inbound_peer(
-        &self,
-        peers: &mut FnvHashMap<PeerId, Peer>,
-        peer_id_by_index: &mut FnvHashMap<PeerIndex, PeerId>,
-    ) -> bool {
+    fn try_evict_inbound_peer(&mut self) -> bool {
         let peer_id: PeerId = {
             let mut candidate_peers = self
                 .iter()
@@ -288,7 +272,7 @@ impl PeersRegistry {
             }
         };
         debug!(target: "network", "evict inbound peer {:?}", peer_id);
-        self._drop_peer(&peer_id, peers, peer_id_by_index);
+        self.drop_peer(&peer_id);
         true
     }
 
@@ -355,33 +339,7 @@ impl PeersRegistry {
         self.peer_manage.remove(peer_id)
     }
 
-    #[inline]
-    pub fn drop_peer(&self, peer_id: &PeerId) -> Option<Peer> {
-        let mut peers = self.peers.write();
-        let mut peer_id_by_index = self.peer_id_by_index.write();
-        self._drop_peer(peer_id, &mut peers, &mut peer_id_by_index)
-    }
-
-    pub fn peers_guard(&self) -> &RwLock<FnvHashMap<PeerId, Peer>> {
-        &self.peers
-    }
-
-    pub fn peer_indexes_guard(&self) -> &RwLock<FnvHashMap<PeerIndex, PeerId>> {
-        &self.peer_id_by_index
-    }
-
-    fn _drop_all(
-        &self,
-        peers: &mut FnvHashMap<PeerId, Peer>,
-        peer_id_by_index: &mut FnvHashMap<PeerIndex, PeerId>,
-    ) {
-        peers.clear();
-        peer_id_by_index.clear();
-        self.id_allocator.store(0, Ordering::Relaxed)
-    }
-
-    pub fn drop_all(&self) {
-        debug!(target: "network", "drop_all");
+    pub fn drop_all(&mut self) {
         self.peer_manage.clear()
     }
 }

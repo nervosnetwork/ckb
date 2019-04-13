@@ -39,7 +39,7 @@ pub struct CKBProtocol {
 }
 
 impl CKBProtocol {
-    pub fn new<F: Fn() -> Box<dyn CKBProtocolHandler> + Send + 'static>(
+    pub fn new(
         protocol_name: String,
         id: ProtocolId,
         versions: &[ProtocolVersion],
