@@ -1,8 +1,6 @@
 pub(crate) mod discovery;
 pub(crate) mod feeler;
 pub(crate) mod identify;
-pub(crate) mod outbound_peer;
-pub(crate) mod ping;
 
 use crate::{
     errors::{Error, PeerError},
@@ -27,7 +25,8 @@ const MAX_FRAME_LENGTH: usize = 20 * 1024 * 1024;
 pub type ProtocolVersion = u32;
 
 pub trait BackgroundService {
-    fn poll(&mut self, network_state: &mut NetworkState) -> Result<bool, ()>;
+    fn handle(&mut self, network_state: &mut NetworkState);
+    fn interval(&self) -> Duration;
 }
 
 pub struct CKBProtocol {

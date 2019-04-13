@@ -1,12 +1,7 @@
 use crate::errors::{Error, PeerError, ProtocolError};
 use crate::peer_store::{sqlite::SqlitePeerStore, PeerStore, Status};
 use crate::peers_registry::{ConnectionStatus, PeersRegistry};
-use crate::protocols::{
-    discovery::{DiscoveryProtocol, DiscoveryService},
-    identify::IdentifyCallback,
-    outbound_peer::OutboundPeerService,
-    ping::PingService,
-};
+use crate::protocols::{discovery::DiscoveryProtocol, identify::IdentifyCallback};
 use crate::protocols::{feeler::Feeler, DefaultCKBProtocolContext};
 use crate::MultiaddrList;
 use crate::Peer;

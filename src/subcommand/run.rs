@@ -67,7 +67,7 @@ pub fn run(args: RunArgs) -> Result<(), ExitCode> {
 
     let (network_service, p2p_service, mut network_controller) =
         NetworkService::build(network_state, protocols);
-    let network_runtime =
+    let (network_runtime, network_thread_handle) =
         NetworkService::start(network_service, p2p_service).expect("Start network service failed");
 
     let rpc_server = RpcServer::new(
@@ -83,6 +83,7 @@ pub fn run(args: RunArgs) -> Result<(), ExitCode> {
     info!(target: "main", "Finishing work, please wait...");
     network_controller.shutdown();
     network_runtime.shutdown_now();
+    network_thread_handle.join().expect("wait network thread");
     info!(target: "main", "Network shutdown");
 
     rpc_server.close();

@@ -1,6 +1,7 @@
 mod behaviour;
 mod config;
 pub mod errors;
+mod network_event;
 mod network_group;
 mod network_service;
 mod network_state;
