@@ -67,7 +67,7 @@ impl PeerInfo {
         last_connected_at: Duration,
     ) -> DBResult<usize> {
         let network_group = connected_addr.network_group();
-        let mut stmt = conn.prepare("INSERT INTO peer_info (peer_id, connected_addr, score, status, endpoint, last_connected_at, network_group, ban_time) 
+        let mut stmt = conn.prepare("INSERT OR REPLACE INTO peer_info (peer_id, connected_addr, score, status, endpoint, last_connected_at, network_group, ban_time) 
                                     VALUES(:peer_id, :connected_addr, :score, :status, :endpoint, :last_connected_at, :network_group, 0)").expect("prepare");
         stmt.execute_named(&[
             (":peer_id", &peer_id.as_bytes()),
