@@ -28,6 +28,13 @@ pub enum Resource {
 }
 
 impl Resource {
+    pub fn is_bundled(&self) -> bool {
+        match self {
+            Resource::Bundled(_) => true,
+            _ => false,
+        }
+    }
+
     /// Gets resource content
     pub fn get(&self) -> Result<Cow<'static, [u8]>> {
         match self {

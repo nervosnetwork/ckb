@@ -40,6 +40,10 @@ impl Setup {
 
         let resource_locator = locator_from_matches(matches)?;
         let config = AppConfig::load_for_subcommand(&resource_locator, subcommand_name)?;
+        if config.is_bundled() {
+            eprintln!("Not a CKB directory, initialize one with `ckb init`.");
+            return Err(ExitCode::Config);
+        }
 
         Ok(Setup {
             subcommand_name: subcommand_name.to_string(),

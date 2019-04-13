@@ -61,6 +61,7 @@ COPY --from=ckb-builder \
      /usr/lib/x86_64-linux-gnu/libcrypto.so.* \
      /usr/lib/x86_64-linux-gnu/
 COPY --from=ckb-builder /ckb/target/release/ckb /bin/ckb
+RUN /bin/ckb init --force
 
 USER ckb
 
