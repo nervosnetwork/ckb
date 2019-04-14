@@ -43,3 +43,6 @@ tags
 /ckb-miner.toml
 /data
 /specs
+/ckb-dev
+/ckb-testnet
+/ckb-mainnet

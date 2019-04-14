@@ -3,8 +3,16 @@
 Following steps will assume that the shell can find the executable `ckb`, see
 how to [get CKB](get-ckb.md).
 
-CKB uses current directory to store data. It is recommended to setup the
-directory with default config files:
+First creates a directory to run CKB
+
+```shell
+mkdir ckb-dev
+cd ckb-dev
+```
+
+All the following commands will run in this same directory.
+
+Then init the directory with the default config files.
 
 ```shell
 ckb init
@@ -13,6 +21,8 @@ ckb init
 See how to [configure CKB](configure.md) if you like to tweak the options.
 
 ## Start Node
+
+Start the node from the directory
 
 ```shell
 ckb run

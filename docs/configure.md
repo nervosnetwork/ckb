@@ -12,7 +12,7 @@ CKB looks for configuration files in `<config-dir>`, which is the current workin
 
 Command line argument `-C <path>` sets the value of `<config-dir>` to `<path>`.
 
-If CKB could not find the config file, it will use the default bundled ones.
+Command `ckb init` initializes a directory by exporting the config files.
 
 Some config file may refer to other files, for example, `chain.spec` in
 `ckb.toml` and `system_cells` in chain spec file. The file is referred via
