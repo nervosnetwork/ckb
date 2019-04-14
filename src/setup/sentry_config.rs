@@ -1,5 +1,4 @@
 use build_info::{get_version, Version};
-use log::info;
 use serde_derive::Deserialize;
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
@@ -18,15 +17,13 @@ impl SentryConfig {
             });
 
             sentry::integrations::panic::register_panic_handler();
-            info!(target: "sentry", "**Notice**: \
-                The ckb process will send stack trace to sentry on Rust panics. \
-                This is enabled by default before mainnet, which can be opted out by setting \
-                the option `dsn` to empty in the config file. The DSN is now {}", self.dsn);
-        } else {
-            info!(target: "sentry", "sentry is disabled");
         }
 
         guard
+    }
+
+    pub fn is_enabled(&self) -> bool {
+        self.dsn.parse::<sentry::internals::Dsn>().is_ok()
     }
 
     fn build_sentry_client_options(&self, version: &Version) -> sentry::ClientOptions {
