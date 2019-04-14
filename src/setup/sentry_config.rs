@@ -9,8 +9,14 @@ pub struct SentryConfig {
 
 impl SentryConfig {
     pub fn init(&self) -> sentry::internals::ClientInitGuard {
-        let guard = sentry::init(self);
+        let version = get_version!();
+        let guard = sentry::init(self.build_sentry_client_options(&version));
         if guard.is_enabled() {
+            sentry::configure_scope(|scope| {
+                scope.set_tag("release.pre", version.is_pre());
+                scope.set_tag("release.dirty", version.is_dirty());
+            });
+
             sentry::integrations::panic::register_panic_handler();
             info!(target: "sentry", "**Notice**: \
                 The ckb process will send stack trace to sentry on Rust panics. \
@@ -22,12 +28,8 @@ impl SentryConfig {
 
         guard
     }
-}
 
-impl<'a> Into<sentry::ClientOptions> for &'a SentryConfig {
-    fn into(self) -> sentry::ClientOptions {
-        let version = get_version!();
-
+    fn build_sentry_client_options(&self, version: &Version) -> sentry::ClientOptions {
         sentry::ClientOptions {
             dsn: self.dsn.parse().ok(),
             release: Some(version.long().into()),

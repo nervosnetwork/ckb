@@ -59,6 +59,18 @@ impl Version {
     pub fn long(&self) -> String {
         format!("{}", self)
     }
+
+    pub fn is_pre(&self) -> bool {
+        self.dash_pre != ""
+    }
+
+    pub fn is_dirty(&self) -> bool {
+        if let Some(describe) = &self.commit_describe {
+            describe.ends_with("-dirty")
+        } else {
+            false
+        }
+    }
 }
 
 impl std::fmt::Display for Version {
@@ -93,7 +105,7 @@ pub fn get_channel() -> Option<String> {
 
 pub fn get_commit_describe() -> Option<String> {
     std::process::Command::new("git")
-        .args(&["describe", "--dirty=dev"])
+        .args(&["describe", "--dirty"])
         .output()
         .ok()
         .and_then(|r| String::from_utf8(r.stdout).ok())
