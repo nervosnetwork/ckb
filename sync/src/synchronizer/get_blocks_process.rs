@@ -1,26 +1,26 @@
 use crate::synchronizer::Synchronizer;
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::{cast, GetBlocks, SyncMessage};
-use ckb_shared::index::ChainIndex;
+use ckb_shared::store::ChainStore;
 use failure::Error as FailureError;
 use flatbuffers::FlatBufferBuilder;
 use log::{debug, warn};
 use std::convert::TryInto;
 
-pub struct GetBlocksProcess<'a, CI: ChainIndex + 'a> {
+pub struct GetBlocksProcess<'a, CS: ChainStore + 'a> {
     message: &'a GetBlocks<'a>,
-    synchronizer: &'a Synchronizer<CI>,
+    synchronizer: &'a Synchronizer<CS>,
     nc: &'a mut CKBProtocolContext,
     peer: PeerIndex,
 }
 
-impl<'a, CI> GetBlocksProcess<'a, CI>
+impl<'a, CS> GetBlocksProcess<'a, CS>
 where
-    CI: ChainIndex + 'a,
+    CS: ChainStore + 'a,
 {
     pub fn new(
         message: &'a GetBlocks,
-        synchronizer: &'a Synchronizer<CI>,
+        synchronizer: &'a Synchronizer<CS>,
         peer: PeerIndex,
         nc: &'a mut CKBProtocolContext,
     ) -> Self {

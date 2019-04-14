@@ -1,23 +1,23 @@
 use crate::relayer::Relayer;
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::{cast, GetBlockProposal, RelayMessage};
-use ckb_shared::index::ChainIndex;
+use ckb_shared::store::ChainStore;
 use failure::Error as FailureError;
 use flatbuffers::FlatBufferBuilder;
 use log::warn;
 use std::convert::TryInto;
 
-pub struct GetBlockProposalProcess<'a, CI> {
+pub struct GetBlockProposalProcess<'a, CS> {
     message: &'a GetBlockProposal<'a>,
-    relayer: &'a Relayer<CI>,
+    relayer: &'a Relayer<CS>,
     peer: PeerIndex,
     nc: &'a mut CKBProtocolContext,
 }
 
-impl<'a, CI: ChainIndex> GetBlockProposalProcess<'a, CI> {
+impl<'a, CS: ChainStore> GetBlockProposalProcess<'a, CS> {
     pub fn new(
         message: &'a GetBlockProposal,
-        relayer: &'a Relayer<CI>,
+        relayer: &'a Relayer<CS>,
         peer: PeerIndex,
         nc: &'a mut CKBProtocolContext,
     ) -> Self {

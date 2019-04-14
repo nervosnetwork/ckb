@@ -38,10 +38,9 @@ fn pow_message(pow_hash: &[u8], nonce: u64) -> [u8; 40] {
 pub trait PowEngine: Send + Sync {
     fn init(&self, number: BlockNumber);
 
-    #[allow(clippy::op_ref)]
     fn verify_header(&self, header: &Header) -> bool {
         let proof_hash: H256 = blake2b_256(&header.proof()).into();
-        if &boundary_to_difficulty(&proof_hash) < header.difficulty() {
+        if boundary_to_difficulty(&proof_hash).lt(header.difficulty()) {
             return false;
         }
 

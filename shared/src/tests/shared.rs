@@ -1,5 +1,4 @@
 use crate::{
-    index::ChainIndex,
     shared::{Shared, SharedBuilder},
     store::{ChainKVStore, ChainStore, StoreBatch},
 };

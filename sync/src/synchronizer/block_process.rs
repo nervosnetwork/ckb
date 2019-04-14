@@ -2,24 +2,24 @@ use crate::synchronizer::Synchronizer;
 use ckb_core::block::Block;
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::Block as PBlock;
-use ckb_shared::index::ChainIndex;
+use ckb_shared::store::ChainStore;
 use failure::Error as FailureError;
 use log::debug;
 use std::convert::TryInto;
 
-pub struct BlockProcess<'a, CI: ChainIndex + 'a> {
+pub struct BlockProcess<'a, CS: ChainStore + 'a> {
     message: &'a PBlock<'a>,
-    synchronizer: &'a Synchronizer<CI>,
+    synchronizer: &'a Synchronizer<CS>,
     peer: PeerIndex,
 }
 
-impl<'a, CI> BlockProcess<'a, CI>
+impl<'a, CS> BlockProcess<'a, CS>
 where
-    CI: ChainIndex + 'a,
+    CS: ChainStore + 'a,
 {
     pub fn new(
         message: &'a PBlock,
-        synchronizer: &'a Synchronizer<CI>,
+        synchronizer: &'a Synchronizer<CS>,
         peer: PeerIndex,
         _nc: &'a CKBProtocolContext,
     ) -> Self {

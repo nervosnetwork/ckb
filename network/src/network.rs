@@ -451,7 +451,7 @@ pub struct NetworkService {
     p2p_service: Service<EventHandler>,
     network_state: Arc<NetworkState>,
     // Background services
-    bg_services: Vec<Box<dyn Future<Item = (), Error = ()> + Send + 'static>>,
+    bg_services: Vec<Box<dyn Future<Item = (), Error = ()> + Send>>,
 }
 
 impl NetworkService {

@@ -2,8 +2,8 @@ use crate::error::RPCError;
 use ckb_core::transaction::{ProposalShortId, Transaction as CoreTransaction};
 use ckb_network::{NetworkController, ProtocolId};
 use ckb_protocol::RelayMessage;
-use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::Shared;
+use ckb_shared::store::ChainStore;
 use ckb_shared::tx_pool::types::PoolEntry;
 use ckb_sync::NetworkProtocol;
 use ckb_traits::chain_provider::ChainProvider;
@@ -27,12 +27,12 @@ pub trait PoolRpc {
     fn get_pool_transaction(&self, _hash: H256) -> Result<Option<Transaction>>;
 }
 
-pub(crate) struct PoolRpcImpl<CI> {
+pub(crate) struct PoolRpcImpl<CS> {
     pub network_controller: NetworkController,
-    pub shared: Shared<CI>,
+    pub shared: Shared<CS>,
 }
 
-impl<CI: ChainIndex + 'static> PoolRpc for PoolRpcImpl<CI> {
+impl<CS: ChainStore + 'static> PoolRpc for PoolRpcImpl<CS> {
     fn send_transaction(&self, tx: Transaction) -> Result<H256> {
         let tx: CoreTransaction = tx.try_into().map_err(|_| Error::parse_error())?;
         let tx_hash = tx.hash().clone();

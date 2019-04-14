@@ -1,7 +1,7 @@
 use crate::chain_state::ChainState;
 use crate::error::SharedError;
-use crate::index::ChainIndex;
 use crate::store::ChainKVStore;
+use crate::store::ChainStore;
 use crate::tx_pool::TxPoolConfig;
 use crate::{COLUMNS, COLUMN_BLOCK_HEADER};
 use ckb_chain_spec::consensus::Consensus;
@@ -19,14 +19,14 @@ use numext_fixed_uint::U256;
 use std::sync::Arc;
 
 #[derive(Debug)]
-pub struct Shared<CI> {
-    store: Arc<CI>,
-    chain_state: Arc<Mutex<ChainState<CI>>>,
+pub struct Shared<CS> {
+    store: Arc<CS>,
+    chain_state: Arc<Mutex<ChainState<CS>>>,
     consensus: Arc<Consensus>,
 }
 
 // https://github.com/rust-lang/rust/issues/40754
-impl<CI: ChainIndex> ::std::clone::Clone for Shared<CI> {
+impl<CS: ChainStore> ::std::clone::Clone for Shared<CS> {
     fn clone(&self) -> Self {
         Shared {
             store: Arc::clone(&self.store),
@@ -36,8 +36,8 @@ impl<CI: ChainIndex> ::std::clone::Clone for Shared<CI> {
     }
 }
 
-impl<CI: ChainIndex> Shared<CI> {
-    pub fn new(store: CI, consensus: Consensus, tx_pool_config: TxPoolConfig) -> Self {
+impl<CS: ChainStore> Shared<CS> {
+    pub fn new(store: CS, consensus: Consensus, tx_pool_config: TxPoolConfig) -> Self {
         let store = Arc::new(store);
         let consensus = Arc::new(consensus);
         let chain_state = Arc::new(Mutex::new(ChainState::new(
@@ -53,16 +53,16 @@ impl<CI: ChainIndex> Shared<CI> {
         }
     }
 
-    pub fn chain_state(&self) -> &Mutex<ChainState<CI>> {
+    pub fn chain_state(&self) -> &Mutex<ChainState<CS>> {
         &self.chain_state
     }
 
-    pub fn store(&self) -> &Arc<CI> {
+    pub fn store(&self) -> &Arc<CS> {
         &self.store
     }
 }
 
-impl<CI: ChainIndex> ChainProvider for Shared<CI> {
+impl<CS: ChainStore> ChainProvider for Shared<CS> {
     fn block(&self, hash: &H256) -> Option<Block> {
         self.store.get_block(hash)
     }
@@ -178,7 +178,6 @@ impl<CI: ChainIndex> ChainProvider for Shared<CI> {
     // T_interval = L / C_m
     // HR_m = HR_last/ (1 + o)
     // Diff= HR_m * T_interval / H = Diff_last * o_last / o
-    #[allow(clippy::op_ref)]
     fn calculate_difficulty(&self, last: &Header) -> Option<U256> {
         let last_hash = last.hash();
         let last_number = last.number();
@@ -209,11 +208,11 @@ impl<CI: ChainIndex> ChainProvider for Shared<CI> {
 
             let min_difficulty = self.consensus.min_difficulty();
             let max_difficulty = last_difficulty * 2u32;
-            if &difficulty > &max_difficulty {
+            if difficulty > max_difficulty {
                 return Some(max_difficulty);
             }
 
-            if &difficulty < min_difficulty {
+            if difficulty.lt(min_difficulty) {
                 return Some(min_difficulty.clone());
             }
             return Some(difficulty);

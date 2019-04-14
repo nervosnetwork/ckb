@@ -7,7 +7,7 @@ use ckb_core::transaction::{CellInput, CellOutput, Transaction, TransactionBuild
 use ckb_core::uncle::UncleBlock;
 use ckb_core::{Cycle, Version};
 use ckb_notify::NotifyController;
-use ckb_shared::{index::ChainIndex, shared::Shared, tx_pool::PoolEntry};
+use ckb_shared::{shared::Shared, store::ChainStore, tx_pool::PoolEntry};
 use ckb_traits::ChainProvider;
 use ckb_util::Mutex;
 use crossbeam_channel::{self, select, Receiver, Sender};
@@ -84,8 +84,8 @@ impl BlockAssemblerController {
     }
 }
 
-pub struct BlockAssembler<CI> {
-    shared: Shared<CI>,
+pub struct BlockAssembler<CS> {
+    shared: Shared<CS>,
     candidate_uncles: LruCache<H256, Arc<Block>>,
     config: BlockAssemblerConfig,
     work_id: AtomicUsize,
@@ -93,8 +93,8 @@ pub struct BlockAssembler<CI> {
     template_caches: Mutex<LruCache<(Cycle, u64, Version), TemplateCache>>,
 }
 
-impl<CI: ChainIndex + 'static> BlockAssembler<CI> {
-    pub fn new(shared: Shared<CI>, config: BlockAssemblerConfig) -> Self {
+impl<CS: ChainStore + 'static> BlockAssembler<CS> {
+    pub fn new(shared: Shared<CS>, config: BlockAssemblerConfig) -> Self {
         Self {
             shared,
             config,
@@ -430,10 +430,9 @@ mod tests {
     use ckb_db::memorydb::MemoryKeyValueDB;
     use ckb_notify::{NotifyController, NotifyService};
     use ckb_pow::Pow;
-    use ckb_shared::index::ChainIndex;
     use ckb_shared::shared::Shared;
     use ckb_shared::shared::SharedBuilder;
-    use ckb_shared::store::ChainKVStore;
+    use ckb_shared::store::{ChainKVStore, ChainStore};
     use ckb_traits::ChainProvider;
     use ckb_verification::{BlockVerifier, HeaderResolverWrapper, HeaderVerifier, Verifier};
     use jsonrpc_types::{BlockTemplate, CellbaseTemplate};
@@ -464,10 +463,10 @@ mod tests {
         (chain_controller, shared, notify)
     }
 
-    fn setup_block_assembler<CI: ChainIndex + 'static>(
-        shared: Shared<CI>,
+    fn setup_block_assembler<CS: ChainStore + 'static>(
+        shared: Shared<CS>,
         config: BlockAssemblerConfig,
-    ) -> BlockAssembler<CI> {
+    ) -> BlockAssembler<CS> {
         BlockAssembler::new(shared, config)
     }
 
