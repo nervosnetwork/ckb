@@ -149,6 +149,7 @@ fn init() -> App<'static, 'static> {
         .arg(
             Arg::with_name(ARG_EXPORT_SPECS)
                 .long(ARG_EXPORT_SPECS)
+                .hidden(true)
                 .help("Export spec files as well"),
         )
 }
