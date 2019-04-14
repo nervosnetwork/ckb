@@ -3,7 +3,9 @@ use crate::Node;
 use bytes::Bytes;
 use ckb_network::{
     CKBProtocol, CKBProtocolContext, CKBProtocolHandler, NetworkConfig, NetworkController,
-    NetworkService, NetworkState, PeerIndex, ProtocolId,
+    NetworkService, NetworkState, ProtocolId, SessionId,
+
+tokio::runtime::Runtime,
 };
 use crossbeam_channel::{self, Receiver, Sender};
 use std::sync::Arc;
@@ -11,7 +13,7 @@ use tempfile::tempdir;
 
 pub struct Net {
     pub nodes: Vec<Node>,
-    pub controller: Option<(NetworkController, Receiver<(PeerIndex, Bytes)>)>,
+    pub controller: Option<(NetworkController, Runtime, std::thread::JoinHandle<()>, Receiver<(SessionId, Bytes)>)>,
 }
 
 impl Net {
@@ -61,7 +63,7 @@ impl Net {
             };
 
             let network_state =
-                Arc::new(NetworkState::from_config(config).expect("Init network state failed"));
+                NetworkState::from_config(config).expect("Init network state failed");
 
             let protocols = test_protocols
                 .into_iter()
@@ -71,18 +73,21 @@ impl Net {
                         tp.protocol_name,
                         tp.id,
                         &tp.supported_versions,
-                        move || Box::new(DummyProtocolHandler { tx: tx.clone() }),
-                        Arc::clone(&network_state),
+                        Box::new(DummyProtocolHandler { tx: tx.clone() }),
                     )
                 })
                 .collect();
 
-            Some((
-                NetworkService::new(Arc::clone(&network_state), protocols)
-                    .start(Some("NetworkService"))
-                    .expect("Start network service failed"),
-                rx,
-            ))
+                let (network_service, p2p_service, mut network_controller) =
+                    NetworkService::build(network_state, protocols);
+                let (network_runtime, network_thread_handle) =
+                    NetworkService::start(network_service, p2p_service).expect("Start network service failed");
+                Some((
+                        network_controller,
+                        network_runtime,
+                        network_thread_handle,
+                        rx,
+                        ))
         };
 
         Self { nodes, controller }
@@ -94,43 +99,41 @@ impl Net {
             .local_node_info()
             .call()
             .expect("rpc call local_node_info failed");
-        self.controller.as_ref().unwrap().0.add_node(
-            &node_info.node_id.parse().expect("invalid peer_id"),
+        self.controller.as_ref().unwrap().0.dial_node(
+            node_info.node_id.parse().expect("invalid peer_id"),
             format!("/ip4/127.0.0.1/tcp/{}", node.p2p_port)
-                .parse()
-                .expect("invalid address"),
-        );
+            .parse()
+            .expect("invalid address"),
+            );
     }
 
-    pub fn send(&self, protocol_id: ProtocolId, peer: PeerIndex, data: Vec<u8>) {
+    pub fn send(&self, protocol_id: ProtocolId, peer: SessionId, data: Vec<u8>) {
         self.controller
             .as_ref()
             .unwrap()
             .0
-            .with_protocol_context(protocol_id, |mut nc| {
-                nc.send(peer, data).expect("send error");
-            });
+            .send_message(peer, protocol_id, data);
     }
 
-    pub fn receive(&self) -> (PeerIndex, Bytes) {
-        self.controller.as_ref().unwrap().1.recv().unwrap()
+    pub fn receive(&self) -> (SessionId, Bytes) {
+        self.controller.as_ref().unwrap().3.recv().unwrap()
     }
 }
 
 pub struct DummyProtocolHandler {
-    tx: Sender<(PeerIndex, Bytes)>,
+    tx: Sender<(SessionId, Bytes)>,
 }
 
 impl CKBProtocolHandler for DummyProtocolHandler {
-    fn initialize(&self, _nc: Box<dyn CKBProtocolContext>) {}
+    fn initialize(&self, _nc: &mut dyn CKBProtocolContext) {}
 
-    fn received(&self, _nc: Box<dyn CKBProtocolContext>, peer: PeerIndex, data: Bytes) {
+    fn received(&self, _nc: &mut dyn CKBProtocolContext, peer: SessionId, data: Bytes) {
         let _ = self.tx.send((peer, data));
     }
 
-    fn connected(&self, _nc: Box<dyn CKBProtocolContext>, _peer: PeerIndex) {}
+    fn connected(&self, _nc: &mut dyn CKBProtocolContext, _peer: SessionId) {}
 
-    fn disconnected(&self, _nc: Box<dyn CKBProtocolContext>, _peer: PeerIndex) {}
+    fn disconnected(&self, _nc: &mut dyn CKBProtocolContext, _peer: SessionId) {}
 
-    fn timer_triggered(&self, _nc: Box<dyn CKBProtocolContext>, _timer: u64) {}
+    fn timer_triggered(&self, _nc: &mut dyn CKBProtocolContext, _timer: u64) {}
 }

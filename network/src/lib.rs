@@ -31,6 +31,8 @@ pub use p2p::{
     ProtocolId, SessionId,
 };
 
+pub use tokio;
+
 pub type MultiaddrList = Vec<(multiaddr::Multiaddr, u8)>;
 
 // basic protcol ids

@@ -86,6 +86,7 @@ struct NetworkReceivers {
     dial_node_receiver: Receiver<Request<(PeerId, Multiaddr), ()>>,
     connected_peers_receiver: Receiver<Request<(), Vec<(PeerId, Peer, MultiaddrList)>>>,
     add_discovered_addr_receiver: Receiver<Request<(PeerId, Multiaddr), ()>>,
+    send_message_receiver: Receiver<Request<(SessionId, ProtocolId, Vec<u8>), ()>>,
     broadcast_receiver: Receiver<Request<(ProtocolId, Vec<u8>), ()>>,
 }
 
@@ -116,6 +117,8 @@ impl NetworkService {
             crossbeam_channel::bounded(DEFAULT_CHANNEL_SIZE);
         let (add_discovered_addr_sender, add_discovered_addr_receiver) =
             crossbeam_channel::bounded(DEFAULT_CHANNEL_SIZE);
+        let (send_message_sender, send_message_receiver) =
+            crossbeam_channel::bounded(DEFAULT_CHANNEL_SIZE);
         let (broadcast_sender, broadcast_receiver) =
             crossbeam_channel::bounded(DEFAULT_CHANNEL_SIZE);
         let (stop_sender, stop_signal) = crossbeam_channel::bounded(1);
@@ -128,6 +131,7 @@ impl NetworkService {
             dial_node_sender,
             connected_peers_sender,
             add_discovered_addr_sender,
+            send_message_sender,
             broadcast_sender,
             stop_sender,
         };
@@ -233,6 +237,7 @@ impl NetworkService {
             dial_node_receiver,
             connected_peers_receiver,
             add_discovered_addr_receiver,
+            send_message_receiver,
             broadcast_receiver,
             network_event_receiver,
             ping_receiver,
@@ -265,21 +270,21 @@ impl NetworkService {
                     self.handle_protocol(network_state, event);
                 }
                 Err(err) => {
-                    error!(target: "network", "event_receiver error: {:?}", err);
+                    debug!(target: "network", "event_receiver error: {:?}", err);
                 }
             },
             // handle network events
             recv(self.receivers.ping_receiver) -> msg => match msg {
                 Ok(event) => self.handle_ping_event(event, network_state),
-                Err(err) => error!(target: "network", "ping_receiver error: {:?}", err),
+                Err(err) => debug!(target: "network", "ping_receiver error: {:?}", err),
             },
             recv(self.receivers.disc_receiver) -> msg => match msg {
                 Ok(event) => self.handle_disc_event(event, network_state),
-                Err(err) => error!(target: "network", "disc_receiver error: {:?}", err),
+                Err(err) => debug!(target: "network", "disc_receiver error: {:?}", err),
             },
             recv(self.receivers.outbound_receiver) -> msg => match msg {
                 Ok(_) => self.dial_outbound_peers(network_state),
-                Err(err) => error!(target: "network", "disc_receiver error: {:?}", err),
+                Err(err) => debug!(target: "network", "disc_receiver error: {:?}", err),
             },
             // handle stop events
             recv(self.receivers.stop_signal) -> msg => match msg {
@@ -299,7 +304,7 @@ impl NetworkService {
                     let _ = responder.send(network_state.external_urls(count));
                 },
                 _ => {
-                    error!(target: "network", "external_urls_receiver closed");
+                    debug!(target: "network", "external_urls_receiver closed");
                 },
             },
             recv(self.receivers.listened_addresses_receiver) -> msg => match msg {
@@ -307,7 +312,7 @@ impl NetworkService {
                     let _ = responder.send(network_state.listened_addresses(count));
                 },
                 _ => {
-                    error!(target: "network", "listened_addresses_receiver closed");
+                    debug!(target: "network", "listened_addresses_receiver closed");
                 },
             },
             recv(self.receivers.dial_node_receiver) -> msg => match msg {
@@ -315,7 +320,7 @@ impl NetworkService {
                     let _ = responder.send(network_state.dial_node(&peer_id, addr));
                 },
                 _ => {
-                    error!(target: "network", "dial_node_receiver closed");
+                    debug!(target: "network", "dial_node_receiver closed");
                 },
             },
             recv(self.receivers.connected_peers_receiver) -> msg => match msg {
@@ -323,7 +328,7 @@ impl NetworkService {
                     let _ = responder.send(network_state.connected_peers());
                 },
                 _ => {
-                    error!(target: "network", "connected_peers_receiver closed");
+                    debug!(target: "network", "connected_peers_receiver closed");
                 },
             },
             recv(self.receivers.add_discovered_addr_receiver) -> msg => match msg {
@@ -331,7 +336,17 @@ impl NetworkService {
                     let _ = responder.send(network_state.add_discovered_addr(&peer_id, addr));
                 },
                 _ => {
-                    error!(target: "network", "add_discovered_addr_receiver closed");
+                    debug!(target: "network", "add_discovered_addr_receiver closed");
+                },
+            },
+            recv(self.receivers.send_message_receiver) -> msg => match msg {
+                Ok(Request {responder, arguments: (session_id, protocol_id, data)}) => {
+                    self.p2p_control.clone()
+                        .send_message(session_id, protocol_id, data.to_vec());
+                    let _ = responder.send(());
+                },
+                _ => {
+                    debug!(target: "network", "add_discovered_addr_receiver closed");
                 },
             },
             recv(self.receivers.broadcast_receiver) -> msg => match msg {
@@ -343,7 +358,7 @@ impl NetworkService {
                     let _ = responder.send(());
                 },
                 _ => {
-                    error!(target: "network", "add_discovered_addr_receiver closed");
+                    debug!(target: "network", "add_discovered_addr_receiver closed");
                 },
             },
         }
@@ -699,10 +714,9 @@ impl NetworkService {
                     network_state.disconnect_peer(&peer_id);
                     return;
                 } // call handler
-                let session_id = network_state.get_session_id(&peer_id).expect("peer index");
                 protocol.handler().connected(
                     &mut DefaultCKBProtocolContext::new(proto_id, network_state, p2p_control),
-                    session_id,
+                    session_context.id,
                 );
             }
 
@@ -717,10 +731,10 @@ impl NetworkService {
                     .map(|pubkey| pubkey.peer_id())
                     .expect("Secio must enabled");
                 if let Some(protocol) = self.find_protocol(proto_id) {
-                    let session_id = network_state.get_session_id(&peer_id).expect("peer index");
+                    println!("received {} {}", proto_id, data.len());
                     protocol.handler().received(
                         &mut DefaultCKBProtocolContext::new(proto_id, network_state, p2p_control),
-                        session_id,
+                        session_context.id,
                         data,
                     );
                 }
@@ -735,10 +749,9 @@ impl NetworkService {
                     .map(|pubkey| pubkey.peer_id())
                     .expect("Secio must enabled");
                 if let Some(protocol) = self.find_protocol(proto_id) {
-                    let session_id = network_state.get_session_id(&peer_id).expect("peer index");
                     protocol.handler().disconnected(
                         &mut DefaultCKBProtocolContext::new(proto_id, network_state, p2p_control),
-                        session_id,
+                        session_context.id,
                     );
                 }
             }
@@ -783,6 +796,7 @@ pub struct NetworkController {
     dial_node_sender: Sender<Request<(PeerId, Multiaddr), ()>>,
     connected_peers_sender: Sender<Request<(), Vec<(PeerId, Peer, MultiaddrList)>>>,
     add_discovered_addr_sender: Sender<Request<(PeerId, Multiaddr), ()>>,
+    send_message_sender: Sender<Request<(SessionId, ProtocolId, Vec<u8>), ()>>,
     broadcast_sender: Sender<Request<(ProtocolId, Vec<u8>), ()>>,
     stop_sender: Sender<Sender<()>>,
 }
@@ -826,6 +840,11 @@ impl NetworkController {
 
     pub fn connected_peers(&self) -> Vec<(PeerId, Peer, MultiaddrList)> {
         Request::call(&self.connected_peers_sender, ()).expect("connected_peers() failed")
+    }
+
+    pub fn send_message(&self, peer: SessionId, protocol_id: ProtocolId, data: Vec<u8>) {
+        Request::call(&self.send_message_sender, (peer, protocol_id, data))
+            .expect("send_message() failed")
     }
 
     pub fn broadcast(&self, protocol_id: ProtocolId, data: Vec<u8>) {
