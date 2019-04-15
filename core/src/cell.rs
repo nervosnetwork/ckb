@@ -9,7 +9,19 @@ use std::slice;
 #[derive(Clone, Eq, PartialEq, Debug)]
 pub enum LiveCell {
     Null,
-    Output(CellOutput),
+    Output(CellMeta),
+}
+
+#[derive(Clone, Eq, PartialEq, Debug)]
+pub struct CellMeta {
+    pub cell_output: CellOutput,
+    pub block_number: Option<u64>,
+}
+
+impl CellMeta {
+    pub fn capacity(&self) -> Capacity {
+        self.cell_output.capacity
+    }
 }
 
 #[derive(Clone, PartialEq, Debug)]
@@ -23,6 +35,17 @@ pub enum CellStatus {
 }
 
 impl CellStatus {
+    pub fn null() -> CellStatus {
+        CellStatus::Live(LiveCell::Null)
+    }
+
+    pub fn live_output(cell_output: CellOutput, block_number: Option<u64>) -> CellStatus {
+        CellStatus::Live(LiveCell::Output(CellMeta {
+            cell_output,
+            block_number,
+        }))
+    }
+
     pub fn is_live(&self) -> bool {
         match *self {
             CellStatus::Live(_) => true,
@@ -38,14 +61,14 @@ impl CellStatus {
         self == &CellStatus::Unknown
     }
 
-    pub fn get_live_output(&self) -> Option<&CellOutput> {
+    pub fn get_live_output(&self) -> Option<&CellMeta> {
         match *self {
             CellStatus::Live(LiveCell::Output(ref output)) => Some(output),
             _ => None,
         }
     }
 
-    pub fn take_live_output(self) -> Option<CellOutput> {
+    pub fn take_live_output(self) -> Option<CellMeta> {
         match self {
             CellStatus::Live(LiveCell::Output(output)) => Some(output),
             _ => None,
@@ -128,7 +151,7 @@ impl<'a> CellProvider for BlockCellProvider<'a> {
                 .outputs()
                 .get(out_point.index as usize)
             {
-                Some(x) => CellStatus::Live(LiveCell::Output(x.clone())),
+                Some(x) => CellStatus::live_output(x.clone(), Some(self.block.header().number())),
                 None => CellStatus::Unknown,
             }
         } else {
@@ -185,15 +208,15 @@ impl ResolvedTransaction {
     }
 
     pub fn is_double_spend(&self) -> bool {
-        self.cells_iter().any(|state| state.is_dead())
+        self.cells_iter().any(CellStatus::is_dead)
     }
 
     pub fn is_orphan(&self) -> bool {
-        self.cells_iter().any(|state| state.is_unknown())
+        self.cells_iter().any(CellStatus::is_unknown)
     }
 
     pub fn is_fully_resolved(&self) -> bool {
-        self.cells_iter().all(|state| state.is_live())
+        self.cells_iter().all(CellStatus::is_live)
     }
 
     pub fn fee(&self) -> Capacity {
@@ -205,8 +228,8 @@ impl ResolvedTransaction {
         self.input_cells
             .iter()
             .filter_map(|cell_status| {
-                if let CellStatus::Live(LiveCell::Output(cell_output)) = cell_status {
-                    Some(cell_output.capacity)
+                if let CellStatus::Live(LiveCell::Output(cell_meta)) = cell_status {
+                    Some(cell_meta.capacity())
                 } else {
                     None
                 }
@@ -223,14 +246,12 @@ mod tests {
     use std::collections::HashMap;
 
     struct CellMemoryDb {
-        cells: HashMap<OutPoint, Option<CellOutput>>,
+        cells: HashMap<OutPoint, Option<CellMeta>>,
     }
     impl CellProvider for CellMemoryDb {
         fn cell(&self, o: &OutPoint) -> CellStatus {
             match self.cells.get(o) {
-                Some(&Some(ref cell_output)) => {
-                    CellStatus::Live(LiveCell::Output(cell_output.clone()))
-                }
+                Some(&Some(ref cell_meta)) => CellStatus::Live(LiveCell::Output(cell_meta.clone())),
                 Some(&None) => CellStatus::Dead,
                 None => CellStatus::Unknown,
             }
@@ -255,11 +276,14 @@ mod tests {
             hash: H256::zero(),
             index: 3,
         };
-        let o = CellOutput {
-            capacity: 2,
-            data: vec![],
-            lock: Script::default(),
-            type_: None,
+        let o = CellMeta {
+            block_number: Some(1),
+            cell_output: CellOutput {
+                capacity: 2,
+                data: vec![],
+                lock: Script::default(),
+                type_: None,
+            },
         };
 
         db.cells.insert(p1.clone(), Some(o.clone()));

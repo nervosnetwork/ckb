@@ -1,15 +1,16 @@
 use crate::cell_set::{CellSet, CellSetDiff, CellSetOverlay};
-use crate::index::ChainIndex;
-use crate::tx_pool::{PoolEntry, PoolError, StagingTxResult, TxPool};
+use crate::store::ChainStore;
+use crate::tx_pool::{PoolEntry, PoolError, StagingTxResult, TxPool, TxPoolConfig};
 use crate::tx_proposal_table::TxProposalTable;
+use ckb_chain_spec::consensus::{Consensus, ProposalWindow};
 use ckb_core::block::Block;
 use ckb_core::cell::{
-    resolve_transaction, CellProvider, CellStatus, LiveCell, OverlayCellProvider,
-    ResolvedTransaction,
+    resolve_transaction, CellProvider, CellStatus, OverlayCellProvider, ResolvedTransaction,
 };
 use ckb_core::header::{BlockNumber, Header};
 use ckb_core::transaction::{OutPoint, ProposalShortId, Transaction};
 use ckb_core::Cycle;
+use ckb_traits::BlockMedianTimeContext;
 use ckb_verification::{TransactionError, TransactionVerifier};
 use fnv::FnvHashSet;
 use log::error;
@@ -20,8 +21,8 @@ use std::cell::{Ref, RefCell};
 use std::sync::Arc;
 
 #[derive(Debug, Clone)]
-pub struct ChainState<CI> {
-    store: Arc<CI>,
+pub struct ChainState<CS> {
+    store: Arc<CS>,
     tip_header: Header,
     total_difficulty: U256,
     pub(crate) cell_set: CellSet,
@@ -29,18 +30,38 @@ pub struct ChainState<CI> {
     // interior mutability for immutable borrow proposal_ids
     tx_pool: RefCell<TxPool>,
     txs_verify_cache: RefCell<LruCache<H256, Cycle>>,
+    consensus: Arc<Consensus>,
 }
 
-impl<CI: ChainIndex> ChainState<CI> {
-    pub fn new(
-        store: &Arc<CI>,
-        tip_header: Header,
-        total_difficulty: U256,
-        cell_set: CellSet,
-        proposal_ids: TxProposalTable,
-        tx_pool: TxPool,
-        txs_verify_cache: LruCache<H256, Cycle>,
-    ) -> Self {
+impl<CS: ChainStore> ChainState<CS> {
+    pub fn new(store: &Arc<CS>, consensus: Arc<Consensus>, tx_pool_config: TxPoolConfig) -> Self {
+        // check head in store or save the genesis block as head
+        let tip_header = {
+            let genesis = consensus.genesis_block();
+            match store.get_tip_header() {
+                Some(h) => h,
+                None => {
+                    store
+                        .init(&genesis)
+                        .expect("init genesis block should be ok");
+                    genesis.header().clone()
+                }
+            }
+        };
+
+        let txs_verify_cache = LruCache::new(tx_pool_config.txs_verify_cache_size);
+        let tx_pool = TxPool::new(tx_pool_config);
+
+        let tip_number = tip_header.number();
+        let proposal_window = consensus.tx_proposal_window();
+        let proposal_ids = Self::init_proposal_ids(&store, proposal_window, tip_number);
+
+        let cell_set = Self::init_cell_set(&store, tip_number);
+
+        let total_difficulty = store
+            .get_block_ext(&tip_header.hash())
+            .expect("block_ext stored")
+            .total_difficulty;
         ChainState {
             store: Arc::clone(store),
             tip_header,
@@ -49,7 +70,56 @@ impl<CI: ChainIndex> ChainState<CI> {
             proposal_ids,
             tx_pool: RefCell::new(tx_pool),
             txs_verify_cache: RefCell::new(txs_verify_cache),
+            consensus,
         }
+    }
+
+    fn init_proposal_ids(
+        store: &CS,
+        proposal_window: ProposalWindow,
+        tip_number: u64,
+    ) -> TxProposalTable {
+        let mut proposal_ids = TxProposalTable::new(proposal_window);
+        let proposal_start = tip_number.saturating_sub(proposal_window.start());
+        let proposal_end = tip_number.saturating_sub(proposal_window.end());
+        for bn in proposal_start..=proposal_end {
+            if let Some(hash) = store.get_block_hash(bn) {
+                let mut ids_set = FnvHashSet::default();
+                if let Some(ids) = store.get_block_proposal_txs_ids(&hash) {
+                    ids_set.extend(ids)
+                }
+
+                if let Some(us) = store.get_block_uncles(&hash) {
+                    for u in us {
+                        let ids = u.proposal_transactions;
+                        ids_set.extend(ids);
+                    }
+                }
+                proposal_ids.update_or_insert(bn, ids_set);
+            }
+        }
+        proposal_ids.finalize(tip_number);
+        proposal_ids
+    }
+
+    fn init_cell_set(store: &CS, number: u64) -> CellSet {
+        let mut cell_set = CellSet::new();
+
+        for n in 0..=number {
+            let hash = store.get_block_hash(n).unwrap();
+            for tx in store.get_block_body(&hash).unwrap() {
+                let inputs = tx.input_pts();
+                let output_len = tx.outputs().len();
+
+                for o in inputs {
+                    cell_set.mark_dead(&o);
+                }
+
+                cell_set.insert(tx.hash(), n, tx.is_cellbase(), output_len);
+            }
+        }
+
+        cell_set
     }
 
     pub fn tip_number(&self) -> BlockNumber {
@@ -105,7 +175,7 @@ impl<CI: ChainIndex> ChainState<CI> {
         let rtx = self.resolve_tx_from_pool(&tx, &tx_pool);
         let verify_result = self.verify_rtx(&rtx, max_cycles);
         if self.contains_proposal_id(&short_id) {
-            let entry = PoolEntry::new(tx, 0, verify_result.map(Some).unwrap_or(None));
+            let entry = PoolEntry::new(tx, 0, verify_result.ok());
             self.staging_tx(&mut tx_pool, entry, max_cycles)?;
             Ok(verify_result.map_err(PoolError::InvalidTx)?)
         } else {
@@ -142,7 +212,8 @@ impl<CI: ChainIndex> ChainState<CI> {
         match ret {
             Some(cycles) => Ok(cycles),
             None => {
-                let cycles = TransactionVerifier::new(&rtx).verify(max_cycles)?;
+                let cycles =
+                    TransactionVerifier::new(&rtx, &self, self.tip_number()).verify(max_cycles)?;
                 // write cache
                 self.txs_verify_cache.borrow_mut().insert(tx_hash, cycles);
                 Ok(cycles)
@@ -324,7 +395,11 @@ impl<CI: ChainIndex> ChainState<CI> {
         self.tx_pool.get_mut()
     }
 
-    pub fn new_cell_set_overlay<'a>(&'a self, diff: &CellSetDiff) -> ChainCellSetOverlay<'a, CI> {
+    pub fn consensus(&self) -> Arc<Consensus> {
+        Arc::clone(&self.consensus)
+    }
+
+    pub fn new_cell_set_overlay<'a>(&'a self, diff: &CellSetDiff) -> ChainCellSetOverlay<'a, CS> {
         ChainCellSetOverlay {
             overlay: self.cell_set.new_overlay(diff),
             store: Arc::clone(&self.store),
@@ -332,43 +407,65 @@ impl<CI: ChainIndex> ChainState<CI> {
     }
 }
 
-pub struct ChainCellSetOverlay<'a, CI> {
+pub struct ChainCellSetOverlay<'a, CS> {
     pub(crate) overlay: CellSetOverlay<'a>,
-    store: Arc<CI>,
+    store: Arc<CS>,
 }
 
-impl<CI: ChainIndex> CellProvider for ChainState<CI> {
+impl<CS: ChainStore> CellProvider for ChainState<CS> {
     fn cell(&self, out_point: &OutPoint) -> CellStatus {
-        match self.is_dead_cell(out_point) {
-            Some(true) => CellStatus::Dead,
-            Some(false) => {
-                let tx = self
-                    .store
-                    .get_transaction(&out_point.hash)
-                    .expect("store should be consistent with cell_set");
-                CellStatus::Live(LiveCell::Output(
-                    tx.outputs()[out_point.index as usize].clone(),
-                ))
+        match self.cell_set().get(&out_point.hash) {
+            Some(tx_meta) => {
+                if tx_meta.is_dead(out_point.index as usize) {
+                    CellStatus::Dead
+                } else {
+                    let tx = self
+                        .store
+                        .get_transaction(&out_point.hash)
+                        .expect("store should be consistent with cell_set");
+                    CellStatus::live_output(
+                        tx.outputs()[out_point.index as usize].clone(),
+                        Some(tx_meta.block_number()),
+                    )
+                }
             }
             None => CellStatus::Unknown,
         }
     }
 }
 
-impl<'a, CI: ChainIndex> CellProvider for ChainCellSetOverlay<'a, CI> {
+impl<'a, CS: ChainStore> CellProvider for ChainCellSetOverlay<'a, CS> {
     fn cell(&self, out_point: &OutPoint) -> CellStatus {
-        match self.overlay.is_dead_cell(out_point) {
-            Some(true) => CellStatus::Dead,
-            Some(false) => {
-                let tx = self
-                    .store
-                    .get_transaction(&out_point.hash)
-                    .expect("store should be consistent with cell_set");
-                CellStatus::Live(LiveCell::Output(
-                    tx.outputs()[out_point.index as usize].clone(),
-                ))
+        match self.overlay.get(&out_point.hash) {
+            Some(tx_meta) => {
+                if tx_meta.is_dead(out_point.index as usize) {
+                    CellStatus::Dead
+                } else {
+                    let tx = self
+                        .store
+                        .get_transaction(&out_point.hash)
+                        .expect("store should be consistent with cell_set");
+                    CellStatus::live_output(
+                        tx.outputs()[out_point.index as usize].clone(),
+                        Some(tx_meta.block_number()),
+                    )
+                }
             }
             None => CellStatus::Unknown,
         }
+    }
+}
+
+impl<CS: ChainStore> BlockMedianTimeContext for &ChainState<CS> {
+    fn median_block_count(&self) -> u64 {
+        self.consensus.median_time_block_count() as u64
+    }
+
+    fn timestamp(&self, number: BlockNumber) -> Option<u64> {
+        self.store.get_block_hash(number).and_then(|hash| {
+            self.store
+                .get_header(&hash)
+                .map(|header| header.timestamp())
+        })
     }
 }

@@ -1,36 +1,36 @@
 use crate::synchronizer::{BlockStatus, Synchronizer};
+use crate::types::HeaderView;
 use crate::MAX_HEADERS_LEN;
-use ckb_core::header::Header;
+use ckb_core::{header::Header, BlockNumber};
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::{cast, FlatbuffersVectorIterator, Headers};
-use ckb_shared::index::ChainIndex;
+use ckb_shared::store::ChainStore;
 use ckb_traits::{BlockMedianTimeContext, ChainProvider};
-use ckb_util::TryInto;
 use ckb_verification::{Error as VerifyError, HeaderResolver, HeaderVerifier, Verifier};
 use failure::Error as FailureError;
 use log::{self, debug, log_enabled, warn};
-use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
+use std::convert::TryInto;
 use std::sync::Arc;
 
-pub struct HeadersProcess<'a, CI: ChainIndex + 'a> {
+pub struct HeadersProcess<'a, CS: ChainStore + 'a> {
     message: &'a Headers<'a>,
-    synchronizer: &'a Synchronizer<CI>,
+    synchronizer: &'a Synchronizer<CS>,
     peer: PeerIndex,
     nc: &'a mut CKBProtocolContext,
 }
 
-pub struct VerifierResolver<'a, CI: ChainIndex + 'a> {
-    synchronizer: &'a Synchronizer<CI>,
+pub struct VerifierResolver<'a, CS: ChainStore + 'a> {
+    synchronizer: &'a Synchronizer<CS>,
     header: &'a Header,
     parent: Option<&'a Header>,
 }
 
-impl<'a, CI: ChainIndex + 'a> VerifierResolver<'a, CI> {
+impl<'a, CS: ChainStore + 'a> VerifierResolver<'a, CS> {
     pub fn new(
         parent: Option<&'a Header>,
         header: &'a Header,
-        synchronizer: &'a Synchronizer<CI>,
+        synchronizer: &'a Synchronizer<CS>,
     ) -> Self {
         VerifierResolver {
             parent,
@@ -40,7 +40,7 @@ impl<'a, CI: ChainIndex + 'a> VerifierResolver<'a, CI> {
     }
 }
 
-impl<'a, CI: ChainIndex> ::std::clone::Clone for VerifierResolver<'a, CI> {
+impl<'a, CS: ChainStore> ::std::clone::Clone for VerifierResolver<'a, CS> {
     fn clone(&self) -> Self {
         VerifierResolver {
             parent: self.parent,
@@ -50,42 +50,39 @@ impl<'a, CI: ChainIndex> ::std::clone::Clone for VerifierResolver<'a, CI> {
     }
 }
 
-impl<'a, CI: ChainIndex + 'a> BlockMedianTimeContext for VerifierResolver<'a, CI> {
-    fn block_count(&self) -> u32 {
+impl<'a, CS: ChainStore + 'a> BlockMedianTimeContext for VerifierResolver<'a, CS> {
+    fn median_block_count(&self) -> u64 {
         self.synchronizer
             .shared
             .consensus()
-            .median_time_block_count() as u32
+            .median_time_block_count() as u64
     }
-    fn timestamp(&self, hash: &H256) -> Option<u64> {
-        self.synchronizer
-            .header_map
-            .read()
-            .get(hash)
-            .map(|h| h.inner().timestamp())
-            .or_else(|| {
-                self.synchronizer
-                    .shared
-                    .block_header(hash)
-                    .map(|header| header.timestamp())
-            })
+
+    fn timestamp(&self, _n: BlockNumber) -> Option<u64> {
+        None
     }
-    fn parent_hash(&self, hash: &H256) -> Option<H256> {
-        self.synchronizer
-            .header_map
-            .read()
-            .get(hash)
-            .map(|h| h.inner().parent_hash().to_owned())
-            .or_else(|| {
-                self.synchronizer
-                    .shared
-                    .block_header(hash)
-                    .map(|header| header.parent_hash().to_owned())
-            })
+
+    fn ancestor_timestamps(&self, block_number: BlockNumber) -> Vec<u64> {
+        if Some(block_number) != self.parent.and_then(|p| Some(p.number())) {
+            return Vec::new();
+        }
+        let parent = self.parent.expect("parent");
+        let count = std::cmp::min(self.median_block_count(), block_number + 1);
+        let mut block_hash = parent.hash().to_owned();
+        let mut timestamps: Vec<u64> = Vec::with_capacity(count as usize);
+        for _ in 0..count {
+            let header = match self.synchronizer.get_header(&block_hash) {
+                Some(h) => h,
+                None => break,
+            };
+            timestamps.push(header.timestamp());
+            block_hash = header.parent_hash().to_owned();
+        }
+        timestamps
     }
 }
 
-impl<'a, CI: ChainIndex> HeaderResolver for VerifierResolver<'a, CI> {
+impl<'a, CS: ChainStore> HeaderResolver for VerifierResolver<'a, CS> {
     fn header(&self) -> &Header {
         self.header
     }
@@ -94,7 +91,6 @@ impl<'a, CI: ChainIndex> HeaderResolver for VerifierResolver<'a, CI> {
         self.parent
     }
 
-    #[allow(clippy::op_ref)]
     fn calculate_difficulty(&self) -> Option<U256> {
         self.parent().and_then(|parent| {
             let parent_hash = parent.hash();
@@ -136,7 +132,7 @@ impl<'a, CI: ChainIndex> HeaderResolver for VerifierResolver<'a, CI> {
                     return Some(max_difficulty);
                 }
 
-                if &difficulty < min_difficulty {
+                if difficulty.lt(min_difficulty) {
                     return Some(min_difficulty.clone());
                 }
                 return Some(difficulty);
@@ -146,13 +142,13 @@ impl<'a, CI: ChainIndex> HeaderResolver for VerifierResolver<'a, CI> {
     }
 }
 
-impl<'a, CI> HeadersProcess<'a, CI>
+impl<'a, CS> HeadersProcess<'a, CS>
 where
-    CI: ChainIndex + 'a,
+    CS: ChainStore + 'a,
 {
     pub fn new(
         message: &'a Headers,
-        synchronizer: &'a Synchronizer<CI>,
+        synchronizer: &'a Synchronizer<CS>,
         peer: PeerIndex,
         nc: &'a mut CKBProtocolContext,
     ) -> Self {
@@ -275,7 +271,7 @@ where
                 own.hash(),
                 own.total_difficulty(),
                 self.peer,
-                peer_state.as_ref().map(|state| state.number()),
+                peer_state.as_ref().map(HeaderView::number),
                 peer_state.as_ref().map(|state| format!("{:x}", state.hash())),
                 peer_state.as_ref().map(|state| format!("{}", state.total_difficulty())),
             );
@@ -300,23 +296,23 @@ where
 }
 
 #[derive(Clone)]
-pub struct HeaderAcceptor<'a, V: Verifier, CI: ChainIndex + 'a> {
+pub struct HeaderAcceptor<'a, V: Verifier, CS: ChainStore + 'a> {
     header: &'a Header,
     peer: PeerIndex,
-    synchronizer: &'a Synchronizer<CI>,
+    synchronizer: &'a Synchronizer<CS>,
     resolver: V::Target,
     verifier: V,
 }
 
-impl<'a, V, CI> HeaderAcceptor<'a, V, CI>
+impl<'a, V, CS> HeaderAcceptor<'a, V, CS>
 where
     V: Verifier,
-    CI: ChainIndex + 'a,
+    CS: ChainStore + 'a,
 {
     pub fn new(
         header: &'a Header,
         peer: PeerIndex,
-        synchronizer: &'a Synchronizer<CI>,
+        synchronizer: &'a Synchronizer<CS>,
         resolver: V::Target,
         verifier: V,
     ) -> Self {
@@ -434,7 +430,6 @@ impl Default for ValidationState {
 #[derive(Debug)]
 pub enum ValidationError {
     Verify(VerifyError),
-    FailedMask,
     Version,
     InvalidParent,
 }

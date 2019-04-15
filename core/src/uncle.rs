@@ -3,6 +3,7 @@ use crate::header::Header;
 use crate::transaction::ProposalShortId;
 use crate::BlockNumber;
 use bincode::serialize;
+use ckb_merkle_tree::merkle_root;
 use hash::blake2b_256;
 use numext_fixed_hash::H256;
 use serde_derive::{Deserialize, Serialize};
@@ -40,6 +41,16 @@ impl UncleBlock {
 
     pub fn proposal_transactions(&self) -> &[ProposalShortId] {
         &self.proposal_transactions
+    }
+
+    pub fn cal_txs_proposal_root(&self) -> H256 {
+        merkle_root(
+            &self
+                .proposal_transactions
+                .iter()
+                .map(ProposalShortId::hash)
+                .collect::<Vec<_>>(),
+        )
     }
 }
 

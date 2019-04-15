@@ -12,14 +12,23 @@ macro_rules! get_version {
         let patch = env!("CARGO_PKG_VERSION_PATCH")
             .parse::<u16>()
             .expect("CARGO_PKG_VERSION_PATCH parse success");
+        let dash_pre = {
+            let pre = env!("CARGO_PKG_VERSION_PRE");
+            if pre == "" {
+                pre.to_string()
+            } else {
+                "-".to_string() + pre
+            }
+        };
 
         let host_compiler = $crate::get_channel();
-        let commit_describe = option_env!("COMMIT_DESCRIBE").map(|s| s.to_string());
-        let commit_date = option_env!("COMMIT_DATE").map(|s| s.to_string());
+        let commit_describe = option_env!("COMMIT_DESCRIBE").map(ToString::to_string);
+        let commit_date = option_env!("COMMIT_DATE").map(ToString::to_string);
         Version {
             major,
             minor,
             patch,
+            dash_pre,
             host_compiler,
             commit_describe,
             commit_date,
@@ -28,10 +37,12 @@ macro_rules! get_version {
 }
 
 // some code taken and adapted from RLS and cargo
+#[derive(Debug)]
 pub struct Version {
     pub major: u8,
     pub minor: u8,
     pub patch: u16,
+    pub dash_pre: String,
     pub host_compiler: Option<String>,
     pub commit_describe: Option<String>,
     pub commit_date: Option<String>,
@@ -39,11 +50,26 @@ pub struct Version {
 
 impl Version {
     pub fn short(&self) -> String {
-        format!("{}.{}.{}", self.major, self.minor, self.patch)
+        format!(
+            "{}.{}.{}{}",
+            self.major, self.minor, self.patch, self.dash_pre
+        )
     }
 
     pub fn long(&self) -> String {
         format!("{}", self)
+    }
+
+    pub fn is_pre(&self) -> bool {
+        self.dash_pre != ""
+    }
+
+    pub fn is_dirty(&self) -> bool {
+        if let Some(describe) = &self.commit_describe {
+            describe.ends_with("-dirty")
+        } else {
+            false
+        }
     }
 }
 
@@ -52,10 +78,11 @@ impl std::fmt::Display for Version {
         if self.commit_describe.is_some() {
             write!(
                 f,
-                "{}.{}.{} ({} {})",
+                "{}.{}.{}{} ({} {})",
                 self.major,
                 self.minor,
                 self.patch,
+                self.dash_pre,
                 self.commit_describe.clone().unwrap_or_default().trim(),
                 self.commit_date.clone().unwrap_or_default().trim(),
             )?;
@@ -78,7 +105,7 @@ pub fn get_channel() -> Option<String> {
 
 pub fn get_commit_describe() -> Option<String> {
     std::process::Command::new("git")
-        .args(&["describe", "--dirty=dev"])
+        .args(&["describe", "--dirty"])
         .output()
         .ok()
         .and_then(|r| String::from_utf8(r.stdout).ok())

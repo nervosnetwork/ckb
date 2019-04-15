@@ -2,18 +2,19 @@ use crate::error::RPCError;
 use ckb_core::transaction::{ProposalShortId, Transaction as CoreTransaction};
 use ckb_network::{NetworkController, ProtocolId};
 use ckb_protocol::RelayMessage;
-use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::Shared;
+use ckb_shared::store::ChainStore;
 use ckb_shared::tx_pool::types::PoolEntry;
 use ckb_sync::NetworkProtocol;
 use ckb_traits::chain_provider::ChainProvider;
 use ckb_verification::TransactionError;
 use flatbuffers::FlatBufferBuilder;
-use jsonrpc_core::Result;
+use jsonrpc_core::{Error, Result};
 use jsonrpc_derive::rpc;
 use jsonrpc_types::Transaction;
 use log::{debug, warn};
 use numext_fixed_hash::H256;
+use std::convert::TryInto;
 
 #[rpc]
 pub trait PoolRpc {
@@ -26,14 +27,14 @@ pub trait PoolRpc {
     fn get_pool_transaction(&self, _hash: H256) -> Result<Option<Transaction>>;
 }
 
-pub(crate) struct PoolRpcImpl<CI> {
+pub(crate) struct PoolRpcImpl<CS> {
     pub network_controller: NetworkController,
-    pub shared: Shared<CI>,
+    pub shared: Shared<CS>,
 }
 
-impl<CI: ChainIndex + 'static> PoolRpc for PoolRpcImpl<CI> {
+impl<CS: ChainStore + 'static> PoolRpc for PoolRpcImpl<CS> {
     fn send_transaction(&self, tx: Transaction) -> Result<H256> {
-        let tx: CoreTransaction = tx.into();
+        let tx: CoreTransaction = tx.try_into().map_err(|_| Error::parse_error())?;
         let tx_hash = tx.hash().clone();
         let cycles = {
             let mut chain_state = self.shared.chain_state().lock();
@@ -47,7 +48,10 @@ impl<CI: ChainIndex + 'static> PoolRpc for PoolRpcImpl<CI> {
                 Ok(cycles) => Some(cycles),
             };
             let entry = PoolEntry::new(tx.clone(), 0, cycles);
-            chain_state.mut_tx_pool().enqueue_tx(entry);
+            if !chain_state.mut_tx_pool().enqueue_tx(entry) {
+                // Duplicate tx
+                return Ok(tx_hash);
+            }
             cycles
         };
         match cycles {

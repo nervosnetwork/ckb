@@ -28,6 +28,13 @@ pub enum Resource {
 }
 
 impl Resource {
+    pub fn is_bundled(&self) -> bool {
+        match self {
+            Resource::Bundled(_) => true,
+            _ => false,
+        }
+    }
+
     /// Gets resource content
     pub fn get(&self) -> Result<Cow<'static, [u8]>> {
         match self {
@@ -295,9 +302,9 @@ mod tests {
                 Some(Resource::Bundled("specs/cells/always_success".into()))
             );
             assert_eq!(
-                locator.resolve_relative_to("cells/secp256k1_blake2b_lock".into(), &ckb),
+                locator.resolve_relative_to("cells/secp256k1_blake2b_sighash_all".into(), &ckb),
                 Some(Resource::Bundled(
-                    "specs/cells/secp256k1_blake2b_lock".into()
+                    "specs/cells/secp256k1_blake2b_sighash_all".into()
                 ))
             );
             assert_eq!(locator.resolve_relative_to("x".into(), &ckb), None);
@@ -316,9 +323,10 @@ mod tests {
                 Some(Resource::FileSystem(always_success_path.clone()))
             );
             assert_eq!(
-                locator.resolve_relative_to("cells/secp256k1_blake2b_lock".into(), &spec_dev),
+                locator
+                    .resolve_relative_to("cells/secp256k1_blake2b_sighash_all".into(), &spec_dev),
                 Some(Resource::Bundled(
-                    "specs/cells/secp256k1_blake2b_lock".into()
+                    "specs/cells/secp256k1_blake2b_sighash_all".into()
                 ))
             );
             assert_eq!(locator.resolve_relative_to("x".into(), &spec_dev), None);

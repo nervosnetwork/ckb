@@ -1,15 +1,34 @@
 # Quick Start
 
 Following steps will assume that the shell can find the executable `ckb`, see
-how to [build CKB from source](build.md).
+how to [get CKB](get-ckb.md).
+
+First creates a directory to run CKB
+
+```shell
+mkdir ckb-dev
+cd ckb-dev
+```
+
+All the following commands will run in this same directory.
+
+Then init the directory with the default config files.
+
+```shell
+ckb init
+```
+
+See how to [configure CKB](configure.md) if you like to tweak the options.
 
 ## Start Node
+
+Start the node from the directory
 
 ```shell
 ckb run
 ```
 
-It will start a node using the default configurations and store files in `data/dev` in current directory.
+Restarting in the same directory will reuse the data.
 
 ## Use RPC
 

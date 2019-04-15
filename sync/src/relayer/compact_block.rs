@@ -2,8 +2,8 @@ use ckb_core::header::Header;
 use ckb_core::transaction::{IndexTransaction, ProposalShortId};
 use ckb_core::uncle::UncleBlock;
 use ckb_protocol::{self, cast, FlatbuffersVectorIterator};
-use ckb_util::{TryFrom, TryInto};
 use failure::Error as FailureError;
+use std::convert::{TryFrom, TryInto};
 
 pub type ShortTransactionID = [u8; 6];
 

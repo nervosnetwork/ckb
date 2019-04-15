@@ -23,7 +23,7 @@ pub struct HeaderVerifier<T, M> {
     _phantom: PhantomData<T>,
 }
 
-impl<T, M: BlockMedianTimeContext + Clone> HeaderVerifier<T, M> {
+impl<T, M: BlockMedianTimeContext> HeaderVerifier<T, M> {
     pub fn new(block_median_time_context: M, pow: Arc<dyn PowEngine>) -> Self {
         HeaderVerifier {
             pow,
@@ -33,7 +33,7 @@ impl<T, M: BlockMedianTimeContext + Clone> HeaderVerifier<T, M> {
     }
 }
 
-impl<T: HeaderResolver, M: BlockMedianTimeContext + Clone> Verifier for HeaderVerifier<T, M> {
+impl<T: HeaderResolver, M: BlockMedianTimeContext> Verifier for HeaderVerifier<T, M> {
     type Target = T;
     fn verify(&self, target: &T) -> Result<(), Error> {
         let header = target.header();
@@ -44,7 +44,7 @@ impl<T: HeaderResolver, M: BlockMedianTimeContext + Clone> Verifier for HeaderVe
             .parent()
             .ok_or_else(|| Error::UnknownParent(header.parent_hash().clone()))?;
         NumberVerifier::new(parent, header).verify()?;
-        TimestampVerifier::new(self.block_median_time_context.clone(), header).verify()?;
+        TimestampVerifier::new(&self.block_median_time_context, header).verify()?;
         DifficultyVerifier::verify(target)?;
         Ok(())
     }
@@ -69,12 +69,12 @@ impl<'a> VersionVerifier<'a> {
 
 pub struct TimestampVerifier<'a, M> {
     header: &'a Header,
-    block_median_time_context: M,
+    block_median_time_context: &'a M,
     now: u64,
 }
 
 impl<'a, M: BlockMedianTimeContext> TimestampVerifier<'a, M> {
-    pub fn new(block_median_time_context: M, header: &'a Header) -> Self {
+    pub fn new(block_median_time_context: &'a M, header: &'a Header) -> Self {
         TimestampVerifier {
             block_median_time_context,
             header,
@@ -88,8 +88,10 @@ impl<'a, M: BlockMedianTimeContext> TimestampVerifier<'a, M> {
             return Ok(());
         }
         let min = match self
-            .block_median_time_context
-            .block_median_time(self.header.parent_hash())
+            .header
+            .number()
+            .checked_sub(1)
+            .and_then(|n| self.block_median_time_context.block_median_time(n))
         {
             Some(time) => time,
             None => return Err(Error::UnknownParent(self.header.parent_hash().clone())),

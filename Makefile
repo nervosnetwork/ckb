@@ -5,6 +5,14 @@ VERBOSE := $(if ${CI},--verbose,)
 test:
 	cargo test ${VERBOSE} --all -- --nocapture
 
+integration:
+	cargo build ${VERBOSE}
+	cd test && cargo run ../target/debug/ckb
+
+integration-release:
+	cargo build ${VERBOSE} --release
+	cd test && cargo run --release -- ../target/release/ckb
+
 doc:
 	cargo doc --all --no-deps
 
@@ -60,10 +68,13 @@ gen: ${GEN_FILES}
 gen-clean:
 	rm -f ${GEN_FILES}
 
+check-cfbc-version:
+	test "$$($(CFBC) --version)" = 0.1.9
+
 %_generated.rs: %.fbs
 	$(FLATC) -r -o $(shell dirname $@) $<
 
-%_generated_verifier.rs: %.fbs
+%_generated_verifier.rs: %.fbs check-cfbc-version
 	$(FLATC) -b --schema -o $(shell dirname $@) $<
 	$(CFBC) -o $(shell dirname $@) $*.bfbs
 	rm -f $*.bfbs $*_builder.rs
@@ -71,6 +82,8 @@ gen-clean:
 clean:
 	rm -rf ckb.toml ckb-miner.toml specs/
 
-.PHONY: build prod prod-test docker gen gen-clean clean
+.PHONY: build prod prod-test docker
+.PHONY: gen gen-clean clean check-cfbc-version
 .PHONY: fmt test clippy doc doc-deps check stats
 .PHONY: ci info security-audit
+.PHONY: integration integration-release

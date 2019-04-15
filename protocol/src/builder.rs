@@ -156,6 +156,7 @@ impl<'a> FbsCellInput<'a> {
         let mut builder = CellInputBuilder::new(fbb);
         builder.add_hash(&hash);
         builder.add_index(cell_input.previous_output.index);
+        builder.add_valid_since(cell_input.valid_since);
         builder.add_args(args);
         builder.finish()
     }
@@ -173,7 +174,6 @@ impl<'a> FbsScript<'a> {
         let binary_hash = (&script.binary_hash).into();
 
         let mut builder = ScriptBuilder::new(fbb);
-        builder.add_version(script.version);
         builder.add_args(args);
         builder.add_binary_hash(&binary_hash);
         builder.finish()
@@ -412,7 +412,7 @@ impl<'a> FilteredBlock<'a> {
                 &block
                     .commit_transactions()
                     .iter()
-                    .map(|tx| tx.hash())
+                    .map(Transaction::hash)
                     .collect::<Vec<_>>(),
                 transactions_index,
             );
@@ -637,8 +637,8 @@ mod tests {
     use ckb_core::block::BlockBuilder;
     use ckb_core::header::HeaderBuilder;
     use ckb_core::transaction::TransactionBuilder;
-    use ckb_util::TryInto;
     use flatbuffers::get_root;
+    use std::convert::TryInto;
 
     #[test]
     fn build_and_convert_header() {

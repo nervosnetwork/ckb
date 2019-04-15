@@ -1,1 +1,8 @@
+README.md
+ckb.toml
+ckb-miner.toml
 target/
+data/
+specs/
+docs/
+docker/

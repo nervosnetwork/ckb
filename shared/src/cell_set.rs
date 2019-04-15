@@ -46,21 +46,18 @@ pub struct CellSetOverlay<'a> {
 }
 
 impl<'a> CellSetOverlay<'a> {
-    pub fn is_dead_cell(&self, o: &OutPoint) -> Option<bool> {
-        if self.removed.get(&o.hash).is_some() {
+    pub fn get(&self, hash: &H256) -> Option<&TransactionMeta> {
+        if self.removed.get(hash).is_some() {
             return None;
         }
 
-        self.new
-            .get(&o.hash)
-            .or_else(|| self.origin.get(&o.hash))
-            .map(|x| x.is_dead(o.index as usize))
+        self.new.get(hash).or_else(|| self.origin.get(hash))
     }
 }
 
 #[derive(Default, Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub struct CellSet {
-    pub inner: FnvHashMap<H256, TransactionMeta>,
+    pub(crate) inner: FnvHashMap<H256, TransactionMeta>,
 }
 
 impl CellSet {

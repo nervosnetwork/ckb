@@ -3,33 +3,30 @@ use crate::relayer::MAX_RELAY_PEERS;
 use ckb_core::{transaction::Transaction, Cycle};
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::{RelayMessage, ValidTransaction as FbsValidTransaction};
-use ckb_shared::index::ChainIndex;
+use ckb_shared::store::ChainStore;
 use ckb_shared::tx_pool::types::PoolError;
 use ckb_traits::chain_provider::ChainProvider;
-use ckb_util::TryInto;
 use ckb_verification::TransactionError;
 use failure::Error as FailureError;
 use flatbuffers::FlatBufferBuilder;
 use log::{debug, warn};
 use numext_fixed_hash::H256;
+use std::convert::TryInto;
 use std::time::Duration;
 
 const DEFAULT_BAN_TIME: Duration = Duration::from_secs(3600 * 24 * 3);
 
-pub struct TransactionProcess<'a, CI: ChainIndex + 'a> {
+pub struct TransactionProcess<'a, CS> {
     message: &'a FbsValidTransaction<'a>,
-    relayer: &'a Relayer<CI>,
+    relayer: &'a Relayer<CS>,
     peer: PeerIndex,
     nc: &'a mut CKBProtocolContext,
 }
 
-impl<'a, CI> TransactionProcess<'a, CI>
-where
-    CI: ChainIndex + 'static,
-{
+impl<'a, CS: ChainStore> TransactionProcess<'a, CS> {
     pub fn new(
         message: &'a FbsValidTransaction,
-        relayer: &'a Relayer<CI>,
+        relayer: &'a Relayer<CS>,
         peer: PeerIndex,
         nc: &'a mut CKBProtocolContext,
     ) -> Self {
@@ -82,7 +79,8 @@ where
                 }
             }
             Err(PoolError::InvalidTx(TransactionError::UnknownInput))
-            | Err(PoolError::InvalidTx(TransactionError::Conflict)) => {
+            | Err(PoolError::InvalidTx(TransactionError::Conflict))
+            | Err(PoolError::InvalidTx(TransactionError::Immature)) => {
                 // this error may occured when peer's tip is different with us,
                 // we can't proof peer is bad so just ignore this
                 debug!(target: "relay", "peer {} relay a conflict or missing input tx: {:?}", self.peer, tx);

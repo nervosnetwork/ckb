@@ -4,11 +4,13 @@ use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::header::{HeaderBuilder, Seal};
 use ckb_core::script::Script;
 use ckb_core::transaction::{CellInput, CellOutput, OutPoint, Transaction, TransactionBuilder};
+use ckb_core::BlockNumber;
 use jsonrpc_client_http::{HttpHandle, HttpTransport};
 use jsonrpc_types::{BlockTemplate, CellbaseTemplate};
 use log::info;
 use numext_fixed_hash::H256;
 use rand;
+use std::convert::TryInto;
 use std::io::Error;
 use std::process::{Child, Command, Stdio};
 
@@ -117,7 +119,10 @@ impl Node {
             .call()
             .expect("rpc call get_block failed")
             .expect("get_block result none");
-        let cellbase: Transaction = block.commit_transactions[0].clone().into();
+        let cellbase: Transaction = block.commit_transactions[0]
+            .clone()
+            .try_into()
+            .expect("parse cellbase transaction failed");
         rpc.send_transaction((&self.new_transaction(cellbase.hash())).into())
             .call()
             .expect("rpc call send_transaction failed")
@@ -139,7 +144,10 @@ impl Node {
             .call()
             .expect("rpc call get_block failed")
             .expect("get_block result none");
-        let cellbase: Transaction = block.commit_transactions[0].clone().into();
+        let cellbase: Transaction = block.commit_transactions[0]
+            .clone()
+            .try_into()
+            .expect("parse cellbase transaction failed");
         rpc.trace_transaction((&self.new_transaction(cellbase.hash())).into())
             .call()
             .expect("rpc call send_transaction failed")
@@ -172,17 +180,43 @@ impl Node {
 
         let header_builder = HeaderBuilder::default()
             .version(version)
-            .number(number)
+            .number(
+                number
+                    .parse::<BlockNumber>()
+                    .expect("parse block number failed"),
+            )
             .difficulty(difficulty)
-            .timestamp(current_time)
+            .timestamp(
+                current_time
+                    .parse::<u64>()
+                    .expect("parse current time failed"),
+            )
             .parent_hash(parent_hash)
             .seal(Seal::new(rand::random(), Vec::new()));
 
         BlockBuilder::default()
-            .uncles(uncles.into_iter().map(Into::into).collect())
-            .commit_transaction(cellbase.into())
-            .commit_transactions(commit_transactions.into_iter().map(Into::into).collect())
-            .proposal_transactions(proposal_transactions.into_iter().map(Into::into).collect())
+            .uncles(
+                uncles
+                    .into_iter()
+                    .map(TryInto::try_into)
+                    .collect::<Result<_, _>>()
+                    .expect("parse uncles failed"),
+            )
+            .commit_transaction(cellbase.try_into().expect("parse cellbase failed"))
+            .commit_transactions(
+                commit_transactions
+                    .into_iter()
+                    .map(TryInto::try_into)
+                    .collect::<Result<_, _>>()
+                    .expect("parse commit transactions failed"),
+            )
+            .proposal_transactions(
+                proposal_transactions
+                    .into_iter()
+                    .map(TryInto::try_into)
+                    .collect::<Result<_, _>>()
+                    .expect("parse proposal transactions failed"),
+            )
             .with_header_builder(header_builder)
     }
 
@@ -192,7 +226,7 @@ impl Node {
 
         TransactionBuilder::default()
             .output(CellOutput::new(50000, vec![], script.clone(), None))
-            .input(CellInput::new(OutPoint::new(hash, 0), vec![]))
+            .input(CellInput::new(OutPoint::new(hash, 0), 0, vec![]))
             .build()
     }
 

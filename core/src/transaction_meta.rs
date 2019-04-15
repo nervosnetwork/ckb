@@ -47,6 +47,10 @@ impl TransactionMeta {
         self.dead_cell.len()
     }
 
+    pub fn block_number(&self) -> u64 {
+        self.block_number
+    }
+
     pub fn is_empty(&self) -> bool {
         self.dead_cell.is_empty()
     }

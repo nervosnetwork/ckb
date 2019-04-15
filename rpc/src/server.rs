@@ -6,8 +6,8 @@ use crate::module::{
 use ckb_chain::chain::ChainController;
 use ckb_miner::BlockAssemblerController;
 use ckb_network::NetworkController;
-use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::Shared;
+use ckb_shared::store::ChainStore;
 use jsonrpc_core::IoHandler;
 use jsonrpc_http_server::{Server, ServerBuilder};
 use jsonrpc_server_utils::cors::AccessControlAllowOrigin;
@@ -18,15 +18,15 @@ pub struct RpcServer {
 }
 
 impl RpcServer {
-    pub fn new<CI: ChainIndex + 'static>(
+    pub fn new<CS: ChainStore + 'static>(
         config: Config,
         network_controller: NetworkController,
-        shared: Shared<CI>,
+        shared: Shared<CS>,
         chain: ChainController,
         block_assembler: BlockAssemblerController,
     ) -> RpcServer
     where
-        CI: ChainIndex,
+        CS: ChainStore,
     {
         let mut io = IoHandler::new();
 

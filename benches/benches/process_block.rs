@@ -6,9 +6,8 @@ use ckb_core::script::Script;
 use ckb_core::transaction::{
     CellInput, CellOutput, OutPoint, ProposalShortId, Transaction, TransactionBuilder,
 };
-use ckb_db::{diskdb::RocksDB, DBConfig};
+use ckb_db::{CacheDB, DBConfig, RocksDB};
 use ckb_notify::NotifyService;
-use ckb_shared::cachedb::CacheDB;
 use ckb_shared::shared::{Shared, SharedBuilder};
 use ckb_shared::store::ChainKVStore;
 use ckb_traits::ChainProvider;
@@ -143,7 +142,7 @@ fn new_chain() -> (
     let commit_transactions: Vec<Transaction> = (0..100)
         .map(|i| {
             TransactionBuilder::default()
-                .input(CellInput::new(OutPoint::null(), vec![]))
+                .input(CellInput::new(OutPoint::null(), 0, vec![]))
                 .output(CellOutput::new(
                     50000,
                     vec![i],
@@ -232,6 +231,6 @@ fn create_transaction(hash: H256) -> Transaction {
             Script::always_success(),
             None,
         ))
-        .input(CellInput::new(OutPoint::new(hash, 0), vec![]))
+        .input(CellInput::new(OutPoint::new(hash, 0), 0, vec![]))
         .build()
 }

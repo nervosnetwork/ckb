@@ -1,21 +1,18 @@
 use crate::relayer::Relayer;
 use ckb_protocol::{cast, BlockProposal, FlatbuffersVectorIterator};
-use ckb_shared::index::ChainIndex;
+use ckb_shared::store::ChainStore;
 use ckb_traits::chain_provider::ChainProvider;
-use ckb_util::TryInto;
 use failure::Error as FailureError;
 use log::warn;
+use std::convert::TryInto;
 
-pub struct BlockProposalProcess<'a, CI: ChainIndex + 'a> {
+pub struct BlockProposalProcess<'a, CS> {
     message: &'a BlockProposal<'a>,
-    relayer: &'a Relayer<CI>,
+    relayer: &'a Relayer<CS>,
 }
 
-impl<'a, CI> BlockProposalProcess<'a, CI>
-where
-    CI: ChainIndex + 'static,
-{
-    pub fn new(message: &'a BlockProposal, relayer: &'a Relayer<CI>) -> Self {
+impl<'a, CS: ChainStore> BlockProposalProcess<'a, CS> {
+    pub fn new(message: &'a BlockProposal, relayer: &'a Relayer<CS>) -> Self {
         BlockProposalProcess { message, relayer }
     }
 

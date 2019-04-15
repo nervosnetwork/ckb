@@ -1,20 +1,21 @@
+use crate::helper::{deadlock_detection, wait_for_exit};
 use crate::setup::{ExitCode, RunArgs};
-use crate::system::wait_for_exit;
 use ckb_chain::chain::{ChainBuilder, ChainController};
-use ckb_db::diskdb::RocksDB;
+use ckb_db::{CacheDB, RocksDB};
 use ckb_miner::BlockAssembler;
 use ckb_network::{CKBProtocol, NetworkService, NetworkState, ProtocolId};
 use ckb_notify::{NotifyController, NotifyService};
 use ckb_rpc::RpcServer;
-use ckb_shared::cachedb::CacheDB;
-use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::{Shared, SharedBuilder};
+use ckb_shared::store::ChainStore;
 use ckb_sync::{NetTimeProtocol, NetworkProtocol, Relayer, Synchronizer};
 use ckb_traits::chain_provider::ChainProvider;
 use log::info;
 use std::sync::Arc;
 
 pub fn run(args: RunArgs) -> Result<(), ExitCode> {
+    deadlock_detection();
+
     let shared = SharedBuilder::<CacheDB<RocksDB>>::default()
         .consensus(args.consensus)
         .db(&args.config.db)
@@ -38,8 +39,6 @@ pub fn run(args: RunArgs) -> Result<(), ExitCode> {
         synchronizer.peers(),
     );
 
-    let net_time_checker = NetTimeProtocol::default();
-
     let network_state = Arc::new(
         NetworkState::from_config(args.config.network).expect("Init network state failed"),
     );
@@ -48,21 +47,21 @@ pub fn run(args: RunArgs) -> Result<(), ExitCode> {
             "syn".to_string(),
             NetworkProtocol::SYNC as ProtocolId,
             &[1][..],
-            Box::new(synchronizer),
+            move || Box::new(synchronizer.clone()),
             Arc::clone(&network_state),
         ),
         CKBProtocol::new(
             "rel".to_string(),
             NetworkProtocol::RELAY as ProtocolId,
             &[1][..],
-            Box::new(relayer),
+            move || Box::new(relayer.clone()),
             Arc::clone(&network_state),
         ),
         CKBProtocol::new(
             "tim".to_string(),
             NetworkProtocol::TIME as ProtocolId,
             &[1][..],
-            Box::new(net_time_checker),
+            || Box::new(NetTimeProtocol::default()),
             Arc::clone(&network_state),
         ),
     ];
@@ -88,8 +87,8 @@ pub fn run(args: RunArgs) -> Result<(), ExitCode> {
     Ok(())
 }
 
-fn setup_chain<CI: ChainIndex + 'static>(
-    shared: Shared<CI>,
+fn setup_chain<CS: ChainStore + 'static>(
+    shared: Shared<CS>,
     notify: NotifyController,
 ) -> ChainController {
     let chain_service = ChainBuilder::new(shared, notify).build();

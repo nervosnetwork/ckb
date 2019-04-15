@@ -33,9 +33,9 @@ impl TxProposalTable {
             .extend(ids);
     }
 
-    pub fn get_ids_by_number(&self, number: BlockNumber) -> Option<&FnvHashSet<ProposalShortId>> {
-        self.table.get(&number)
-    }
+    //pub fn get_ids_by_number(&self, number: BlockNumber) -> Option<&FnvHashSet<ProposalShortId>> {
+    //    self.table.get(&number)
+    //}
 
     pub fn contains(&self, id: &ProposalShortId) -> bool {
         self.set.contains(id)

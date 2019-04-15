@@ -1,33 +1,31 @@
 use super::compact_block::CompactBlock;
 use crate::relayer::Relayer;
+use ckb_core::{header::Header, BlockNumber};
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::{CompactBlock as FbsCompactBlock, RelayMessage};
-use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::Shared;
+use ckb_shared::store::ChainStore;
 use ckb_traits::{BlockMedianTimeContext, ChainProvider};
-use ckb_util::TryInto;
 use ckb_verification::{HeaderResolverWrapper, HeaderVerifier, Verifier};
 use failure::Error as FailureError;
 use flatbuffers::FlatBufferBuilder;
 use fnv::FnvHashMap;
 use log::warn;
 use numext_fixed_hash::H256;
+use std::convert::TryInto;
 use std::sync::Arc;
 
-pub struct CompactBlockProcess<'a, CI: ChainIndex + 'a> {
+pub struct CompactBlockProcess<'a, CS> {
     message: &'a FbsCompactBlock<'a>,
-    relayer: &'a Relayer<CI>,
+    relayer: &'a Relayer<CS>,
     peer: PeerIndex,
     nc: &'a mut CKBProtocolContext,
 }
 
-impl<'a, CI> CompactBlockProcess<'a, CI>
-where
-    CI: ChainIndex + 'static,
-{
+impl<'a, CS: ChainStore> CompactBlockProcess<'a, CS> {
     pub fn new(
         message: &'a FbsCompactBlock,
-        relayer: &'a Relayer<CI>,
+        relayer: &'a Relayer<CS>,
         peer: PeerIndex,
         nc: &'a mut CKBProtocolContext,
     ) -> Self {
@@ -52,6 +50,7 @@ where
                     HeaderResolverWrapper::new(&compact_block.header, self.relayer.shared.clone());
                 let header_verifier = HeaderVerifier::new(
                     CompactBlockMedianTimeView {
+                        header: &compact_block.header,
                         pending_compact_blocks: &pending_compact_blocks,
                         shared: &self.relayer.shared,
                     },
@@ -105,53 +104,51 @@ where
     }
 }
 
-struct CompactBlockMedianTimeView<'a, CI>
-where
-    CI: ChainIndex + 'static,
-{
+struct CompactBlockMedianTimeView<'a, CS> {
+    header: &'a Header,
     pending_compact_blocks: &'a FnvHashMap<H256, CompactBlock>,
-    shared: &'a Shared<CI>,
+    shared: &'a Shared<CS>,
 }
 
-impl<'a, CI> ::std::clone::Clone for CompactBlockMedianTimeView<'a, CI>
+impl<'a, CS> CompactBlockMedianTimeView<'a, CS>
 where
-    CI: ChainIndex + 'static,
+    CS: ChainStore,
 {
-    fn clone(&self) -> Self {
-        CompactBlockMedianTimeView {
-            pending_compact_blocks: self.pending_compact_blocks,
-            shared: self.shared,
+    fn get_header(&self, hash: &H256) -> Option<Header> {
+        self.pending_compact_blocks
+            .get(hash)
+            .map(|cb| cb.header.to_owned())
+            .or_else(|| self.shared.block_header(hash))
+    }
+}
+
+impl<'a, CS> BlockMedianTimeContext for CompactBlockMedianTimeView<'a, CS>
+where
+    CS: ChainStore,
+{
+    fn median_block_count(&self) -> u64 {
+        self.shared.consensus().median_time_block_count() as u64
+    }
+
+    fn timestamp(&self, _n: BlockNumber) -> Option<u64> {
+        None
+    }
+
+    fn ancestor_timestamps(&self, block_number: BlockNumber) -> Vec<u64> {
+        if Some(block_number) != self.header.number().checked_sub(1) {
+            return Vec::new();
         }
-    }
-}
-
-impl<'a, CI> BlockMedianTimeContext for CompactBlockMedianTimeView<'a, CI>
-where
-    CI: ChainIndex + 'static,
-{
-    fn block_count(&self) -> u32 {
-        self.shared.consensus().median_time_block_count() as u32
-    }
-
-    fn timestamp(&self, hash: &H256) -> Option<u64> {
-        self.pending_compact_blocks
-            .get(hash)
-            .map(|cb| cb.header.timestamp())
-            .or_else(|| {
-                self.shared
-                    .block_header(hash)
-                    .map(|header| header.timestamp())
-            })
-    }
-
-    fn parent_hash(&self, hash: &H256) -> Option<H256> {
-        self.pending_compact_blocks
-            .get(hash)
-            .map(|cb| cb.header.parent_hash().to_owned())
-            .or_else(|| {
-                self.shared
-                    .block_header(hash)
-                    .map(|header| header.parent_hash().to_owned())
-            })
+        let count = std::cmp::min(self.median_block_count(), block_number + 1);
+        let mut block_hash = self.header.parent_hash().to_owned();
+        let mut timestamps: Vec<u64> = Vec::with_capacity(count as usize);
+        for _ in 0..count {
+            let header = match self.get_header(&block_hash) {
+                Some(h) => h,
+                None => break,
+            };
+            timestamps.push(header.timestamp());
+            block_hash = header.parent_hash().to_owned();
+        }
+        timestamps
     }
 }

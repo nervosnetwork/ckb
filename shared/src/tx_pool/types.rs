@@ -1,7 +1,7 @@
 //! The primary module containing the implementations of the transaction pool
 //! and its top-level members.
 
-use ckb_core::cell::{CellProvider, CellStatus, LiveCell};
+use ckb_core::cell::{CellProvider, CellStatus};
 use ckb_core::transaction::{CellOutput, OutPoint, ProposalShortId, Transaction};
 use ckb_core::Cycle;
 use ckb_verification::TransactionError;
@@ -218,7 +218,7 @@ impl CellProvider for StagingPool {
             if x.is_some() {
                 CellStatus::Dead
             } else {
-                CellStatus::Live(LiveCell::Output(self.get_output(o).unwrap()))
+                CellStatus::live_output(self.get_output(o).expect("output"), None)
             }
         } else if self.edges.get_outer(o).is_some() {
             CellStatus::Dead
@@ -621,7 +621,7 @@ mod tests {
                 inputs
                     .into_iter()
                     .map(|(txid, index)| {
-                        CellInput::new(OutPoint::new(txid, index), Default::default())
+                        CellInput::new(OutPoint::new(txid, index), 0, Default::default())
                     })
                     .collect(),
             )
