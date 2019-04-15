@@ -7,7 +7,7 @@ use ckb_core::extras::BlockExt;
 use ckb_core::service::{Request, DEFAULT_CHANNEL_SIZE, SIGNAL_CHANNEL_SIZE};
 use ckb_core::transaction::ProposalShortId;
 use ckb_core::{header::Header, BlockNumber};
-use ckb_notify::NotifyController;
+use ckb_notify::{NotifyController, TipChanges};
 use ckb_shared::cell_set::CellSetDiff;
 use ckb_shared::chain_state::ChainState;
 use ckb_shared::error::SharedError;
@@ -277,6 +277,10 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
                 fork.detached_proposal_id(),
                 self.shared.consensus().max_block_cycles(),
             );
+            self.notify.notify_new_tip(Arc::new(TipChanges {
+                attached_blocks: fork.attached_blocks,
+                detached_blocks: fork.detached_blocks,
+            }));
             if log_enabled!(target: "chain", log::Level::Debug) {
                 self.print_chain(&chain_state, 10);
             }
