@@ -223,8 +223,13 @@ impl<CS: ChainStore> ChainState<CS> {
         match ret {
             Some(cycles) => Ok(cycles),
             None => {
-                let cycles =
-                    TransactionVerifier::new(&rtx, &self, self.tip_number()).verify(max_cycles)?;
+                let cycles = TransactionVerifier::new(
+                    &rtx,
+                    &self,
+                    self.tip_number(),
+                    self.consensus().cellbase_maturity,
+                )
+                .verify(max_cycles)?;
                 // write cache
                 self.txs_verify_cache.borrow_mut().insert(tx_hash, cycles);
                 Ok(cycles)
@@ -429,6 +434,7 @@ impl<CS: ChainStore> CellProvider for ChainState<CS> {
                     CellStatus::Live(CellMeta {
                         cell_output: tx.outputs()[out_point.index as usize].clone(),
                         block_number: Some(tx_meta.block_number()),
+                        cellbase: tx_meta.is_cellbase(),
                     })
                 }
             }

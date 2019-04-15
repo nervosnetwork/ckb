@@ -175,7 +175,8 @@ fn test_transaction_spend_in_same_block() {
             .cell(&OutPoint::new(tx2_hash, 0)),
         CellStatus::Live(CellMeta {
             cell_output: tx2_output,
-            block_number: Some(4)
+            block_number: Some(4),
+            cellbase: false,
         })
     );
 }
