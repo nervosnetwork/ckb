@@ -8,7 +8,7 @@ mod trace;
 
 pub type BlockNumber = String;
 pub type Capacity = String;
-pub type Cycle = u64;
+pub type Cycle = String;
 
 pub use self::block_template::{
     BlockTemplate, CellbaseTemplate, TransactionTemplate, UncleTemplate,
