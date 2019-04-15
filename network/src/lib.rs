@@ -15,7 +15,7 @@ pub use crate::{
     behaviour::Behaviour,
     config::NetworkConfig,
     errors::Error,
-    network::{NetworkController, NetworkService, NetworkState, SessionInfo},
+    network::{NetworkController, NetworkService, NetworkState},
     peer::{Peer, PeerIdentifyInfo},
     peer_registry::PeerRegistry,
     peer_store::Score,
@@ -24,7 +24,7 @@ pub use crate::{
 pub use p2p::{
     multiaddr,
     secio::{PeerId, PublicKey},
-    service::{ServiceControl, SessionType},
+    service::{ServiceControl, SessionType, TargetSession},
     traits::ServiceProtocol,
     ProtocolId,
 };
