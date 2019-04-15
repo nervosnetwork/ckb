@@ -1,7 +1,7 @@
 use crate::peer_store::PeerStore;
 use crate::{
     errors::{Error, PeerError},
-    Peer, PeerId, ProtocolId, ProtocolVersion, SessionId, SessionType,
+    Peer, PeerId, SessionId, SessionType,
 };
 use fnv::{FnvHashMap, FnvHashSet};
 use log::debug;
@@ -9,8 +9,6 @@ use p2p::multiaddr::Multiaddr;
 use rand::seq::SliceRandom;
 use rand::thread_rng;
 use std::collections::hash_map::Entry;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
 
 pub(crate) const EVICTION_PROTECT_PEERS: usize = 8;
 

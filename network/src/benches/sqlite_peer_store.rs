@@ -56,7 +56,7 @@ fn insert_peer_info_benchmark(c: &mut Criterion) {
 
 fn random_order_benchmark(c: &mut Criterion) {
     {
-        let peer_store =
+        let peer_store: Rc<dyn PeerStore> =
             Rc::new(SqlitePeerStore::memory("bench_db_random_order".to_string()).expect("memory"));
         let addr = "/ip4/127.0.0.1".to_multiaddr().unwrap();
         {

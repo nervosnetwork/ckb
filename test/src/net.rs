@@ -2,18 +2,21 @@ use crate::specs::TestProtocol;
 use crate::Node;
 use bytes::Bytes;
 use ckb_network::{
-    CKBProtocol, CKBProtocolContext, CKBProtocolHandler, NetworkConfig, NetworkController,
-    NetworkService, NetworkState, ProtocolId, SessionId,
-
-tokio::runtime::Runtime,
+    tokio::runtime::Runtime, CKBProtocol, CKBProtocolContext, CKBProtocolHandler, NetworkConfig,
+    NetworkController, NetworkService, NetworkState, ProtocolId, SessionId,
 };
 use crossbeam_channel::{self, Receiver, Sender};
-use std::sync::Arc;
 use tempfile::tempdir;
 
+#[allow(clippy::type_complexity)]
 pub struct Net {
     pub nodes: Vec<Node>,
-    pub controller: Option<(NetworkController, Runtime, std::thread::JoinHandle<()>, Receiver<(SessionId, Bytes)>)>,
+    pub controller: Option<(
+        NetworkController,
+        Runtime,
+        std::thread::JoinHandle<()>,
+        Receiver<(SessionId, Bytes)>,
+    )>,
 }
 
 impl Net {
@@ -78,16 +81,17 @@ impl Net {
                 })
                 .collect();
 
-                let (network_service, p2p_service, mut network_controller) =
-                    NetworkService::build(network_state, protocols);
-                let (network_runtime, network_thread_handle) =
-                    NetworkService::start(network_service, p2p_service).expect("Start network service failed");
-                Some((
-                        network_controller,
-                        network_runtime,
-                        network_thread_handle,
-                        rx,
-                        ))
+            let (network_service, p2p_service, network_controller) =
+                NetworkService::build(network_state, protocols);
+            let (network_runtime, network_thread_handle) =
+                NetworkService::start(network_service, p2p_service)
+                    .expect("Start network service failed");
+            Some((
+                network_controller,
+                network_runtime,
+                network_thread_handle,
+                rx,
+            ))
         };
 
         Self { nodes, controller }
@@ -102,9 +106,9 @@ impl Net {
         self.controller.as_ref().unwrap().0.dial_node(
             node_info.node_id.parse().expect("invalid peer_id"),
             format!("/ip4/127.0.0.1/tcp/{}", node.p2p_port)
-            .parse()
-            .expect("invalid address"),
-            );
+                .parse()
+                .expect("invalid address"),
+        );
     }
 
     pub fn send(&self, protocol_id: ProtocolId, peer: SessionId, data: Vec<u8>) {

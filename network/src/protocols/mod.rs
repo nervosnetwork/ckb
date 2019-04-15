@@ -4,19 +4,17 @@ pub(crate) mod identify;
 
 use crate::{
     errors::{Error, PeerError},
-    peer_store::{Behaviour, Status},
-    NetworkState, ProtocolContext, ProtocolContextMutRef, ServiceControl, SessionId, SessionInfo,
+    peer_store::Behaviour,
+    NetworkState, ServiceControl, SessionId, SessionInfo,
 };
 use bytes::Bytes;
-use log::{debug, error, info, trace, warn};
+use log::{debug, error};
 use p2p::{
     builder::MetaBuilder,
     service::{ProtocolHandle, ProtocolMeta},
-    traits::ServiceProtocol,
     ProtocolId,
 };
-use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use tokio::codec::length_delimited;
 
 // Max message frame length: 20MB
@@ -92,26 +90,6 @@ impl CKBProtocol {
             .support_versions(supported_versions)
             .service_handle(move || ProtocolHandle::Event)
             .build()
-    }
-}
-
-struct CKBHandler {
-    id: ProtocolId,
-    network_state: Arc<NetworkState>,
-    handler: Box<dyn CKBProtocolHandler>,
-}
-
-impl CKBHandler {
-    pub fn new(
-        id: ProtocolId,
-        network_state: Arc<NetworkState>,
-        handler: Box<dyn CKBProtocolHandler>,
-    ) -> CKBHandler {
-        CKBHandler {
-            id,
-            network_state,
-            handler,
-        }
     }
 }
 

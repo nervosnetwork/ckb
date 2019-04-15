@@ -10,7 +10,7 @@ pub struct Feeler {}
 //1. report bad behaviours
 //2. set peer feeler flag
 impl CKBProtocolHandler for Feeler {
-    fn initialize(&self, nc: &mut dyn CKBProtocolContext) {}
+    fn initialize(&self, _nc: &mut dyn CKBProtocolContext) {}
 
     fn received(&self, _nc: &mut dyn CKBProtocolContext, _peer: SessionId, _data: Bytes) {}
 

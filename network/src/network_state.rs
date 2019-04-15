@@ -1,42 +1,24 @@
 use crate::errors::{Error, PeerError, ProtocolError};
 use crate::peer_store::{sqlite::SqlitePeerStore, PeerStore, Status};
 use crate::peers_registry::{ConnectionStatus, PeersRegistry};
-use crate::protocols::{discovery::DiscoveryProtocol, identify::IdentifyCallback};
-use crate::protocols::{feeler::Feeler, DefaultCKBProtocolContext};
 use crate::MultiaddrList;
 use crate::Peer;
+use crate::FEELER_PROTOCOL_ID;
 use crate::{
-    Behaviour, CKBProtocol, CKBProtocolContext, NetworkConfig, ProtocolId, ProtocolVersion,
-    PublicKey, ServiceContext, ServiceControl, SessionId, SessionType,
+    Behaviour, NetworkConfig, ProtocolId, ProtocolVersion, ServiceControl, SessionId, SessionType,
 };
-use crate::{DISCOVERY_PROTOCOL_ID, FEELER_PROTOCOL_ID, IDENTIFY_PROTOCOL_ID, PING_PROTOCOL_ID};
 use fnv::{FnvHashMap, FnvHashSet};
-use futures::sync::mpsc::channel;
-use futures::sync::{mpsc, oneshot};
-use futures::Future;
-use futures::Stream;
-use log::{debug, error, info, warn};
+use log::{debug, error, info};
 use lru_cache::LruCache;
 use p2p::{
-    builder::{MetaBuilder, ServiceBuilder},
-    error::Error as P2pError,
     multiaddr::{self, multihash::Multihash, Multiaddr},
     secio::PeerId,
-    service::{DialProtocol, ProtocolEvent, ProtocolHandle, Service, ServiceError, ServiceEvent},
-    traits::ServiceHandle,
-    utils::extract_peer_id,
+    service::DialProtocol,
 };
-use p2p_identify::IdentifyProtocol;
-use p2p_ping::PingHandler;
 use secio;
 use std::boxed::Box;
-use std::cmp::max;
-use std::sync::Arc;
-use std::thread;
 use std::time::{Duration, Instant};
 use std::usize;
-use stop_handler::{SignalSender, StopHandler};
-use tokio::runtime::Runtime;
 
 const FAILED_DIAL_CACHE_SIZE: usize = 100;
 const ADDR_LIMIT: u32 = 3;
@@ -72,7 +54,7 @@ impl NetworkState {
             .map(|addr| (addr.to_owned(), std::u8::MAX))
             .collect();
         let peer_store: Box<dyn PeerStore> = {
-            let mut peer_store =
+            let peer_store =
                 SqlitePeerStore::file(config.peer_store_path().to_string_lossy().to_string())?;
             let bootnodes = config.bootnodes()?;
             for (peer_id, addr) in bootnodes {
@@ -160,7 +142,7 @@ impl NetworkState {
     /// Drop all peer record, immediatly
     pub(crate) fn drop_all(&mut self, p2p_control: &mut ServiceControl) {
         debug!(target: "network", "drop all connections...");
-        for (peer_id, peer) in self.peers_registry.iter() {
+        for (_peer_id, peer) in self.peers_registry.iter() {
             if let Err(err) = p2p_control.disconnect(peer.session_id) {
                 error!(target: "network", "disconnect peer error {:?}", err);
             }
@@ -181,16 +163,10 @@ impl NetworkState {
             .collect()
     }
 
-    pub(crate) fn get_session_id(&self, peer_id: &PeerId) -> Option<SessionId> {
-        self.peers_registry
-            .get(&peer_id)
-            .map(|peer| peer.session_id)
-    }
-
     pub(crate) fn get_peer_id(&self, session_id: SessionId) -> Option<PeerId> {
         self.peers_registry
             .get_peer_id(session_id)
-            .map(|peer_id| peer_id.to_owned())
+            .map(ToOwned::to_owned)
     }
 
     pub(crate) fn connection_status(&self) -> ConnectionStatus {

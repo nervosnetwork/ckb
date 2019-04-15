@@ -126,7 +126,7 @@ impl CKBProtocolHandler for NetTimeProtocol {
         }
     }
 
-    fn connected(&self, mut nc: &mut CKBProtocolContext, peer: SessionId) {
+    fn connected(&self, nc: &mut CKBProtocolContext, peer: SessionId) {
         // send local time to inbound peers
         if nc.session_info(peer).map(|s| s.peer.is_inbound()) == Some(true) {
             let now = faketime::unix_time_as_millis();

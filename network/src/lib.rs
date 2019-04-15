@@ -6,7 +6,7 @@ mod network_group;
 mod network_service;
 mod network_state;
 mod peer;
-mod peer_store;
+pub mod peer_store;
 mod peers_registry;
 mod protocols;
 

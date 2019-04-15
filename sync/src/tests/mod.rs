@@ -1,7 +1,7 @@
 use bytes::Bytes;
 use ckb_network::{
-    errors::Error as NetworkError, Behaviour, CKBProtocolContext, CKBProtocolHandler, PeerIndex,
-    ProtocolId, ProtocolVersion, SessionInfo,
+    errors::Error as NetworkError, Behaviour, CKBProtocolContext, CKBProtocolHandler, ProtocolId,
+    ProtocolVersion, SessionId, SessionInfo,
 };
 use std::collections::HashMap;
 use std::sync::mpsc::{channel, Receiver, Sender};
@@ -16,10 +16,10 @@ mod synchronizer;
 
 #[derive(Default)]
 struct TestNode {
-    pub peers: Vec<PeerIndex>,
+    pub peers: Vec<SessionId>,
     pub protocols: HashMap<ProtocolId, Arc<CKBProtocolHandler + Send + Sync>>,
-    pub msg_senders: HashMap<(ProtocolId, PeerIndex), Sender<Vec<u8>>>,
-    pub msg_receivers: HashMap<(ProtocolId, PeerIndex), Receiver<Vec<u8>>>,
+    pub msg_senders: HashMap<(ProtocolId, SessionId), Sender<Vec<u8>>>,
+    pub msg_receivers: HashMap<(ProtocolId, SessionId), Receiver<Vec<u8>>>,
     pub timer_senders: HashMap<(ProtocolId, u64), Sender<()>>,
     pub timer_receivers: HashMap<(ProtocolId, u64), Receiver<()>>,
 }
@@ -39,11 +39,11 @@ impl TestNode {
                 .insert((protocol, *timer), timer_receiver);
         });
 
-        handler.initialize(Box::new(TestNetworkContext {
+        handler.initialize(&mut TestNetworkContext {
             protocol,
             msg_senders: self.msg_senders.clone(),
             timer_senders: self.timer_senders.clone(),
-        }))
+        })
     }
 
     pub fn connect(&mut self, remote: &mut TestNode, protocol: ProtocolId) {
@@ -68,22 +68,22 @@ impl TestNode {
 
         if let Some(handler) = self.protocols.get(&protocol) {
             handler.connected(
-                Box::new(TestNetworkContext {
+                &mut TestNetworkContext {
                     protocol,
                     msg_senders: self.msg_senders.clone(),
                     timer_senders: self.timer_senders.clone(),
-                }),
+                },
                 local_index,
             )
         }
 
         if let Some(handler) = remote.protocols.get(&protocol) {
             handler.connected(
-                Box::new(TestNetworkContext {
+                &mut TestNetworkContext {
                     protocol,
                     msg_senders: remote.msg_senders.clone(),
                     timer_senders: remote.timer_senders.clone(),
-                }),
+                },
                 local_index,
             )
         }
@@ -95,11 +95,11 @@ impl TestNode {
                 let _ = receiver.try_recv().map(|payload| {
                     if let Some(handler) = self.protocols.get(protocol) {
                         handler.received(
-                            Box::new(TestNetworkContext {
+                            &mut TestNetworkContext {
                                 protocol: *protocol,
                                 msg_senders: self.msg_senders.clone(),
                                 timer_senders: self.timer_senders.clone(),
-                            }),
+                            },
                             *peer,
                             Bytes::from(payload.clone()),
                         )
@@ -115,11 +115,11 @@ impl TestNode {
                 let _ = receiver.try_recv().map(|_| {
                     if let Some(handler) = self.protocols.get(protocol) {
                         handler.timer_triggered(
-                            Box::new(TestNetworkContext {
+                            &mut TestNetworkContext {
                                 protocol: *protocol,
                                 msg_senders: self.msg_senders.clone(),
                                 timer_senders: self.timer_senders.clone(),
-                            }),
+                            },
                             *timer,
                         )
                     }
@@ -141,12 +141,12 @@ impl TestNode {
 
 struct TestNetworkContext {
     protocol: ProtocolId,
-    msg_senders: HashMap<(ProtocolId, PeerIndex), Sender<Vec<u8>>>,
+    msg_senders: HashMap<(ProtocolId, SessionId), Sender<Vec<u8>>>,
     timer_senders: HashMap<(ProtocolId, u64), Sender<()>>,
 }
 
 impl CKBProtocolContext for TestNetworkContext {
-    fn send(&mut self, peer: PeerIndex, data: Vec<u8>) -> Result<(), NetworkError> {
+    fn send(&mut self, peer: SessionId, data: Vec<u8>) -> Result<(), NetworkError> {
         if let Some(sender) = self.msg_senders.get(&(self.protocol, peer)) {
             let _ = sender.send(data);
         }
@@ -155,14 +155,14 @@ impl CKBProtocolContext for TestNetworkContext {
     /// Send a packet over the network to another peer using specified protocol.
     fn send_protocol(
         &mut self,
-        _peer: PeerIndex,
+        _peer: SessionId,
         _protocol: ProtocolId,
         _data: Vec<u8>,
     ) -> Result<(), NetworkError> {
         Ok(())
     }
 
-    fn report_peer(&self, _peer: PeerIndex, _behaviour: Behaviour) -> Result<(), NetworkError> {
+    fn report_peer(&mut self, _peer: SessionId, _behaviour: Behaviour) -> Result<(), NetworkError> {
         Ok(())
     }
 
@@ -176,23 +176,23 @@ impl CKBProtocolContext for TestNetworkContext {
         }
     }
 
-    fn ban_peer(&self, _peer: PeerIndex, _duration: Duration) {}
+    fn ban_peer(&mut self, _peer: SessionId, _duration: Duration) {}
 
     /// Returns information on p2p session
-    fn session_info(&self, _peer: PeerIndex) -> Option<SessionInfo> {
+    fn session_info(&self, _peer: SessionId) -> Option<SessionInfo> {
         None
     }
     /// Returns max version for a given protocol.
-    fn protocol_version(&self, _peer: PeerIndex, _protocol: ProtocolId) -> Option<ProtocolVersion> {
+    fn protocol_version(&self, _peer: SessionId, _protocol: ProtocolId) -> Option<ProtocolVersion> {
         unimplemented!();
     }
 
-    fn disconnect(&self, _peer: PeerIndex) {}
+    fn disconnect(&mut self, _peer: SessionId) {}
     fn protocol_id(&self) -> ProtocolId {
         unimplemented!();
     }
 
-    fn connected_peers(&self) -> Vec<PeerIndex> {
+    fn connected_peers(&self) -> Vec<SessionId> {
         self.msg_senders.keys().map(|k| k.1).collect::<Vec<_>>()
     }
 }

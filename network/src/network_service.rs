@@ -1,52 +1,38 @@
-use crate::errors::{Error, ProtocolError};
+use crate::errors::Error;
 use crate::network_event::{EventHandler, NetworkEvent};
-use crate::peer_store::{sqlite::SqlitePeerStore, PeerStore, Status};
-use crate::peers_registry::{ConnectionStatus, PeersRegistry};
 use crate::protocols::{
     discovery::{DiscoveryEvent, DiscoveryProtocol},
     identify::IdentifyCallback,
 };
-use crate::protocols::{feeler::Feeler, BackgroundService, DefaultCKBProtocolContext};
+use crate::protocols::{feeler::Feeler, DefaultCKBProtocolContext};
 use crate::MultiaddrList;
 use crate::Peer;
 use crate::{
-    Behaviour, CKBProtocol, CKBProtocolContext, NetworkConfig, NetworkState, ProtocolId,
-    ProtocolVersion, ServiceContext, ServiceControl, SessionId, SessionType,
+    Behaviour, CKBProtocol, NetworkState, ProtocolId, ProtocolVersion, ServiceControl, SessionId,
 };
 use crate::{DISCOVERY_PROTOCOL_ID, FEELER_PROTOCOL_ID, IDENTIFY_PROTOCOL_ID, PING_PROTOCOL_ID};
-use ckb_core::service::{Request, DEFAULT_CHANNEL_SIZE, SIGNAL_CHANNEL_SIZE};
-use ckb_util::RwLock;
-use crossbeam_channel::{self, select, Receiver, Sender, TryRecvError};
-use fnv::{FnvHashMap, FnvHashSet};
-use futures::sync::{
-    mpsc::{self, channel},
-    oneshot,
-};
+use ckb_core::service::{Request, DEFAULT_CHANNEL_SIZE};
+use crossbeam_channel::{self, select, Receiver, Sender};
+use futures::sync::mpsc;
 use futures::Future;
 use futures::Stream;
-use futures::{try_ready, Async, Poll};
 use log::{debug, error, info, trace, warn};
-use lru_cache::LruCache;
 use p2p::{
     builder::{MetaBuilder, ServiceBuilder},
     error::Error as P2pError,
     multiaddr::{self, multihash::Multihash, Multiaddr},
-    secio::PeerId,
-    service::{DialProtocol, ProtocolEvent, ProtocolHandle, Service, ServiceError, ServiceEvent},
-    traits::ServiceHandle,
+    secio::{PeerId, PublicKey},
+    service::{ProtocolEvent, ProtocolHandle, Service, ServiceError, ServiceEvent},
     utils::extract_peer_id,
 };
 use p2p_identify::IdentifyProtocol;
 use p2p_ping::{Event as PingEvent, PingHandler};
-use secio;
 use std::boxed::Box;
 use std::cell::RefCell;
 use std::cmp::max;
-use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 use std::usize;
-use stop_handler::{SignalSender, StopHandler};
 use tokio::runtime::Runtime;
 use tokio::timer::Interval;
 
@@ -69,6 +55,7 @@ struct EventForward {
     ping_source: futures::sync::mpsc::Receiver<PingEvent>,
 }
 
+#[allow(clippy::type_complexity)]
 struct NetworkReceivers {
     /// network event
     network_event_receiver: Receiver<NetworkEvent>,
@@ -190,10 +177,7 @@ impl NetworkService {
         );
 
         // == Build p2p service struct
-        let mut protocol_metas = protocols
-            .iter()
-            .map(|protocol| protocol.build())
-            .collect::<Vec<_>>();
+        let mut protocol_metas = protocols.iter().map(CKBProtocol::build).collect::<Vec<_>>();
         protocol_metas.push(feeler_protocol.build());
         protocol_metas.push(ping_meta);
         protocol_metas.push(disc_meta);
@@ -255,11 +239,13 @@ impl NetworkService {
         };
         (network_service, p2p_service, controller)
     }
+
+    #[allow(clippy::cyclomatic_complexity)]
     fn handle_receivers(&self, network_state: &mut NetworkState) -> HandleResult {
         select! {
             // handle network events
             recv(self.receivers.network_event_receiver) -> msg => match msg {
-                Ok((NetworkEvent::Error(error))) => {
+                Ok(NetworkEvent::Error(error)) => {
                     self.handle_service_error(network_state, error);
                 }
                 Ok(NetworkEvent::Event(event)) => {
@@ -317,14 +303,15 @@ impl NetworkService {
             },
             recv(self.receivers.dial_node_receiver) -> msg => match msg {
                 Ok(Request {responder, arguments: (peer_id, addr)}) => {
-                    let _ = responder.send(network_state.dial_node(&peer_id, addr));
+                    network_state.dial_node(&peer_id, addr);
+                    let _ = responder.send(());
                 },
                 _ => {
                     debug!(target: "network", "dial_node_receiver closed");
                 },
             },
             recv(self.receivers.connected_peers_receiver) -> msg => match msg {
-                Ok(Request {responder, arguments}) => {
+                Ok(Request {responder, ..}) => {
                     let _ = responder.send(network_state.connected_peers());
                 },
                 _ => {
@@ -333,7 +320,8 @@ impl NetworkService {
             },
             recv(self.receivers.add_discovered_addr_receiver) -> msg => match msg {
                 Ok(Request {responder, arguments: (peer_id, addr)}) => {
-                    let _ = responder.send(network_state.add_discovered_addr(&peer_id, addr));
+                    network_state.add_discovered_addr(&peer_id, addr);
+                    let _ = responder.send(());
                 },
                 _ => {
                     debug!(target: "network", "add_discovered_addr_receiver closed");
@@ -341,8 +329,10 @@ impl NetworkService {
             },
             recv(self.receivers.send_message_receiver) -> msg => match msg {
                 Ok(Request {responder, arguments: (session_id, protocol_id, data)}) => {
-                    self.p2p_control.clone()
-                        .send_message(session_id, protocol_id, data.to_vec());
+                    if let Err(err) = self.p2p_control.clone()
+                        .send_message(session_id, protocol_id, data.to_vec()){
+                            error!(target: "network", "failed to send message, error: {:?}", err);
+                        }
                     let _ = responder.send(());
                 },
                 _ => {
@@ -352,8 +342,10 @@ impl NetworkService {
             recv(self.receivers.broadcast_receiver) -> msg => match msg {
                 Ok(Request {responder, arguments: (protocol_id, data)}) => {
                     for (_, peer) in network_state.peers_registry.iter() {
-                        self.p2p_control.clone()
-                            .send_message(peer.session_id, protocol_id, data.to_vec());
+                        if let Err(err) = self.p2p_control.clone()
+                            .send_message(peer.session_id, protocol_id, data.to_vec()) {
+                                error!(target: "network", "failed to send message, error: {:?}", err);
+                            }
                     }
                     let _ = responder.send(());
                 },
@@ -376,7 +368,9 @@ impl NetworkService {
                 HandleResult::Stop(stop_waiter) => {
                     network_state.drop_all(&mut self.p2p_control.clone());
                     if let Some(stop_waiter) = stop_waiter {
-                        stop_waiter.send(());
+                        if let Err(err) = stop_waiter.send(()) {
+                            error!(target: "network", "failed to send stop_waiter: {:?}", err);
+                        }
                     }
                     // exit event loop
                     break;
@@ -440,7 +434,7 @@ impl NetworkService {
                         }
                         Ok(())
                     })
-                    .map_err(|err| ()),
+                    .map_err(|_err| ()),
             );
         }
         debug!(target: "network", "spawn network service");
@@ -507,7 +501,7 @@ impl NetworkService {
                 let peer_id = session_context
                     .remote_pubkey
                     .as_ref()
-                    .map(|pubkey| pubkey.peer_id())
+                    .map(PublicKey::peer_id)
                     .expect("Secio must enabled");
                 // try accept connection
                 if let Err(err) = network_state.accept_connection(
@@ -517,7 +511,9 @@ impl NetworkService {
                     session_context.ty,
                 ) {
                     // disconnect immediatly
-                    self.p2p_control.clone().disconnect(session_context.id);
+                    if let Err(err) = self.p2p_control.clone().disconnect(session_context.id) {
+                        error!(target: "network", "failed to disconnect, error: {:?}", err);
+                    }
                     info!(
                     target: "network",
                     "reject connection from {} {}, because {:?}",
@@ -533,7 +529,7 @@ impl NetworkService {
                 let peer_id = session_context
                     .remote_pubkey
                     .as_ref()
-                    .map(|pubkey| pubkey.peer_id())
+                    .map(PublicKey::peer_id)
                     .expect("Secio must enabled");
                 debug!(target: "network", "disconnect from {:?}", peer_id);
                 network_state.disconnect_peer(&peer_id);
@@ -605,7 +601,7 @@ impl NetworkService {
             // feeler peers
             let peers = network_state
                 .peer_store()
-                .peers_to_feeler(remain_slots as u32);
+                .peers_to_feeler(FEELER_CONNECTION_COUNT);
             for (peer_id, addr) in peers
                 .into_iter()
                 .filter(|(peer_id, _addr)| network_state.local_peer_id() != peer_id)
@@ -619,7 +615,7 @@ impl NetworkService {
     fn handle_disc_event(&self, event: DiscoveryEvent, network_state: &mut NetworkState) {
         use p2p::multiaddr::Protocol;
         match event {
-            DiscoveryEvent::AddNewAddrs { session_id, addrs } => {
+            DiscoveryEvent::AddNewAddrs { addrs, .. } => {
                 // TODO: wait for peer store update
                 for addr in addrs.into_iter() {
                     trace!(target: "network", "Add discovered address: {:?}", addr);
@@ -656,7 +652,7 @@ impl NetworkService {
                     .send(addrs)
                     .expect("Send failed (should not happened)");
             }
-            event => {
+            _ => {
                 trace!(target: "network", "ignore discovery event");
             }
         }
@@ -701,7 +697,7 @@ impl NetworkService {
                 let peer_id = session_context
                     .remote_pubkey
                     .as_ref()
-                    .map(|pubkey| pubkey.peer_id())
+                    .map(PublicKey::peer_id)
                     .expect("Secio must enabled");
                 let proto_version = version
                     .parse::<ProtocolVersion>()
@@ -725,11 +721,6 @@ impl NetworkService {
                 proto_id,
                 data,
             } => {
-                let peer_id = session_context
-                    .remote_pubkey
-                    .as_ref()
-                    .map(|pubkey| pubkey.peer_id())
-                    .expect("Secio must enabled");
                 if let Some(protocol) = self.find_protocol(proto_id) {
                     println!("received {} {}", proto_id, data.len());
                     protocol.handler().received(
@@ -743,11 +734,6 @@ impl NetworkService {
                 proto_id,
                 session_context,
             } => {
-                let peer_id = session_context
-                    .remote_pubkey
-                    .as_ref()
-                    .map(|pubkey| pubkey.peer_id())
-                    .expect("Secio must enabled");
                 if let Some(protocol) = self.find_protocol(proto_id) {
                     protocol.handler().disconnected(
                         &mut DefaultCKBProtocolContext::new(proto_id, network_state, p2p_control),
@@ -763,11 +749,7 @@ impl NetworkService {
                     );
                 }
             }
-            ProtocolEvent::ProtocolSessionNotify {
-                session_context,
-                proto_id,
-                token,
-            } => {
+            ProtocolEvent::ProtocolSessionNotify { .. } => {
                 // ignore
             }
         }
@@ -788,6 +770,7 @@ impl NetworkService {
     }
 }
 
+#[allow(clippy::type_complexity)]
 #[derive(Clone)]
 pub struct NetworkController {
     peer_id: PeerId,
@@ -830,7 +813,9 @@ impl NetworkController {
     /// Send stop signal to network, then wait until network shutdown
     pub fn shutdown(&mut self) {
         let (stopped_sender, stopped_receiver) = crossbeam_channel::bounded(1);
-        self.stop_sender.send(stopped_sender);
+        if let Err(err) = self.stop_sender.send(stopped_sender) {
+            error!(target: "network", "send stop signal error: {:?}", err);
+        }
         // NOTICE return a disconnect error is in expect, which mean network stream is dropped.
         if let Err(err) = stopped_receiver.recv() {
             debug!(target: "network", "network stopped {:?}", err);

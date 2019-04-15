@@ -1,8 +1,7 @@
 // use crate::peer_store::Behaviour;
-use crate::{NetworkController, NetworkState};
-use log::{debug, trace, warn};
+use crate::NetworkController;
+use log::{debug, trace};
 use std::collections::HashMap;
-use std::sync::Arc;
 
 use p2p::{
     multiaddr::{Multiaddr, Protocol},

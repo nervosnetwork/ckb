@@ -1,17 +1,13 @@
-// use crate::peer_store::Behaviour;
-use crate::protocols::BackgroundService;
-use crate::NetworkState;
 use fnv::FnvHashMap;
-use futures::{sync::mpsc, sync::oneshot, try_ready, Async, Future, Stream};
-use log::{debug, error, trace, warn};
-use std::{sync::Arc, time::Duration};
+use futures::{sync::mpsc, sync::oneshot, Future, Stream};
+use log::{debug, warn};
+use std::time::Duration;
 
 use p2p::{
     context::{ProtocolContext, ProtocolContextMutRef},
-    multiaddr::{multihash::Multihash, Multiaddr, Protocol},
+    multiaddr::Multiaddr,
     secio::PeerId,
     traits::ServiceProtocol,
-    utils::extract_peer_id,
     SessionId,
 };
 use p2p_discovery::{

@@ -4,7 +4,6 @@ use crate::{
     peers_registry::{PeersRegistry, EVICTION_PROTECT_PEERS},
     Behaviour, PeerId, SessionType,
 };
-use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 fn new_peer_store() -> Box<dyn PeerStore> {
@@ -77,7 +76,7 @@ fn test_accept_inbound_peer_eviction() {
     // 1. should evict from largest network groups
     // 2. should never evict reserved peer
     // 3. should evict lowest scored peer
-    let mut peer_store = new_peer_store();
+    let peer_store = new_peer_store();
     let reserved_peer = PeerId::random();
     let evict_target = PeerId::random();
     let lowest_score_peer = PeerId::random();

@@ -12,7 +12,7 @@ use flatbuffers::FlatBufferBuilder;
 use jsonrpc_core::{Error, Result};
 use jsonrpc_derive::rpc;
 use jsonrpc_types::{Block, BlockTemplate};
-use log::{debug, warn};
+use log::debug;
 use numext_fixed_hash::H256;
 use std::collections::HashSet;
 use std::convert::TryInto;
