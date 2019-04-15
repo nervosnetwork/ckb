@@ -57,6 +57,7 @@ pub struct NetworkState {
     local_private_key: secio::SecioKeyPair,
     local_peer_id: PeerId,
     pub(crate) config: NetworkConfig,
+    peers_changed: bool,
 }
 
 impl NetworkState {
@@ -102,6 +103,7 @@ impl NetworkState {
             local_private_key: local_private_key.clone(),
             local_peer_id: local_private_key.to_public_key().peer_id(),
             protocol_ids: FnvHashSet::default(),
+            peers_changed: false,
         })
     }
 
@@ -123,10 +125,16 @@ impl NetworkState {
         debug!(target: "network", "mark disconnect peer {:?}", peer_id);
         if let Some(peer) = self.peers_registry.get_mut(&peer_id) {
             peer.is_disconnect = true;
+            self.peers_changed = true;
         }
     }
 
     pub(crate) fn drop_disconnect_peers(&mut self, p2p_control: &mut ServiceControl) {
+        // check peers_changed flag
+        if !self.peers_changed {
+            return;
+        }
+        self.peers_changed = false;
         let disconnet_session_ids: Vec<(PeerId, SessionId)> = self
             .peers_registry
             .iter()
