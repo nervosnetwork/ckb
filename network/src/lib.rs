@@ -4,8 +4,8 @@ pub mod errors;
 pub mod network;
 mod network_group;
 mod peer;
+pub mod peer_registry;
 pub mod peer_store;
-pub mod peers_registry;
 mod protocols;
 
 #[cfg(test)]
@@ -17,17 +17,18 @@ pub use crate::{
     errors::Error,
     network::{NetworkController, NetworkService, NetworkState, SessionInfo},
     peer::{Peer, PeerIdentifyInfo},
+    peer_registry::PeerRegistry,
     peer_store::Score,
-    peers_registry::RegisterResult,
-    protocols::{CKBProtocol, CKBProtocolContext, CKBProtocolHandler, ProtocolVersion},
+    protocols::{CKBProtocol, CKBProtocolContext, CKBProtocolHandler, PeerIndex},
 };
 pub use p2p::{
-    context::{ProtocolContext, ProtocolContextMutRef, ServiceContext, SessionContext},
     multiaddr,
     secio::{PeerId, PublicKey},
     service::{ServiceControl, SessionType},
-    ProtocolId, SessionId,
+    traits::ServiceProtocol,
+    ProtocolId,
 };
 
-// used in CKBProtocolContext
-pub type PeerIndex = usize;
+// Max message frame length: 20MB
+pub const MAX_FRAME_LENGTH: usize = 20 * 1024 * 1024;
+pub type ProtocolVersion = String;

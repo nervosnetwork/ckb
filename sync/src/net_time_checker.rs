@@ -1,5 +1,4 @@
 use crate::BAD_MESSAGE_BAN_TIME;
-use bytes::Bytes;
 use ckb_network::{CKBProtocolContext, CKBProtocolHandler, PeerIndex};
 use ckb_protocol::{get_root, TimeMessage};
 use ckb_util::RwLock;
@@ -12,6 +11,7 @@ const MIN_SAMPLES: usize = 5;
 const MAX_SAMPLES: usize = 11;
 
 /// Collect and check time offset samples
+#[derive(Clone)]
 pub struct NetTimeChecker {
     /// Local clock should has less offset than this value.
     tolerant_offset: u64,
@@ -72,30 +72,63 @@ impl Default for NetTimeChecker {
 }
 
 /// Collect time offset samples from network peers and send notify to user if offset is too large
-pub struct NetTimeProtocol(RwLock<NetTimeChecker>);
+pub struct NetTimeProtocol {
+    checker: RwLock<NetTimeChecker>,
+}
+
+impl Clone for NetTimeProtocol {
+    fn clone(&self) -> Self {
+        NetTimeProtocol {
+            checker: RwLock::new(self.checker.read().clone()),
+        }
+    }
+}
 
 impl NetTimeProtocol {
     pub fn new(min_samples: usize, max_samples: usize, tolerant_offset: u64) -> Self {
-        NetTimeProtocol(RwLock::new(NetTimeChecker::new(
+        let checker = RwLock::new(NetTimeChecker::new(
             min_samples,
             max_samples,
             tolerant_offset,
-        )))
+        ));
+        NetTimeProtocol { checker }
     }
 }
 
 impl Default for NetTimeProtocol {
     fn default() -> Self {
-        NetTimeProtocol(RwLock::new(NetTimeChecker::default()))
+        let checker = RwLock::new(NetTimeChecker::default());
+        NetTimeProtocol { checker }
     }
 }
 
 impl CKBProtocolHandler for NetTimeProtocol {
-    fn initialize(&self, _nc: Box<CKBProtocolContext>) {}
-    fn received(&self, nc: Box<CKBProtocolContext>, peer: PeerIndex, data: Bytes) {
-        if nc.session_info(peer).map(|s| s.peer.is_outbound()) != Some(true) {
-            info!(target: "network", "Peer {} is not outbound but sends us time message", peer);
-            return;
+    fn init(&mut self, _nc: Box<dyn CKBProtocolContext>) {}
+
+    fn connected(
+        &mut self,
+        nc: Box<dyn CKBProtocolContext>,
+        peer_index: PeerIndex,
+        _version: &str,
+    ) {
+        // send local time to inbound peers
+        if let Some(true) = nc.get_peer(peer_index).map(|peer| peer.is_inbound()) {
+            let now = faketime::unix_time_as_millis();
+            let fbb = &mut FlatBufferBuilder::new();
+            let message = TimeMessage::build_time(fbb, now);
+            fbb.finish(message, None);
+            nc.send_message_to(peer_index, fbb.finished_data().to_vec());
+        }
+    }
+
+    fn received(
+        &mut self,
+        nc: Box<dyn CKBProtocolContext>,
+        peer_index: PeerIndex,
+        data: bytes::Bytes,
+    ) {
+        if let Some(true) = nc.get_peer(peer_index).map(|peer| peer.is_inbound()) {
+            info!(target: "network", "Peer {} is not outbound but sends us time message", peer_index);
         }
 
         let timestamp = match get_root::<TimeMessage>(&data)
@@ -105,36 +138,21 @@ impl CKBProtocolHandler for NetTimeProtocol {
         {
             Some(timestamp) => timestamp,
             None => {
-                info!(target: "network", "Peer {} sends us malformed message", peer);
-                nc.ban_peer(peer, BAD_MESSAGE_BAN_TIME);
+                info!(target: "network", "Peer {} sends us malformed message", peer_index);
+                nc.ban_peer(peer_index, BAD_MESSAGE_BAN_TIME);
                 return;
             }
         };
 
         let now: u64 = faketime::unix_time_as_millis();
         let offset: i64 = (i128::from(now) - i128::from(timestamp)) as i64;
-        let mut net_time_checker = self.0.write();
+        let mut net_time_checker = self.checker.write();
         debug!(target: "network", "new net time offset sample {}ms", offset);
         net_time_checker.add_sample(offset);
         if let Err(offset) = net_time_checker.check() {
             warn!(target: "network", "Please check your computer's local clock({}ms offset from network peers), If your clock is wrong, it may cause unexpected errors.", offset);
         }
     }
-
-    fn connected(&self, mut nc: Box<CKBProtocolContext>, peer: PeerIndex) {
-        // send local time to inbound peers
-        if nc.session_info(peer).map(|s| s.peer.is_inbound()) == Some(true) {
-            let now = faketime::unix_time_as_millis();
-            let fbb = &mut FlatBufferBuilder::new();
-            let message = TimeMessage::build_time(fbb, now);
-            fbb.finish(message, None);
-            let ret = nc.send(peer, fbb.finished_data().to_vec());
-            if ret.is_err() {
-                debug!(target: "network", "NetTimeProtocol connected init msg send error {:?}", ret);
-            }
-        }
-    }
-    fn disconnected(&self, _nc: Box<CKBProtocolContext>, _peer: PeerIndex) {}
 }
 
 #[cfg(test)]

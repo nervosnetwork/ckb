@@ -9,7 +9,7 @@ use ckb_traits::chain_provider::ChainProvider;
 use ckb_verification::TransactionError;
 use failure::Error as FailureError;
 use flatbuffers::FlatBufferBuilder;
-use log::{debug, warn};
+use log::debug;
 use numext_fixed_hash::H256;
 use std::convert::TryInto;
 use std::time::Duration;
@@ -19,21 +19,21 @@ const DEFAULT_BAN_TIME: Duration = Duration::from_secs(3600 * 24 * 3);
 pub struct TransactionProcess<'a, CS> {
     message: &'a FbsValidTransaction<'a>,
     relayer: &'a Relayer<CS>,
+    nc: &'a CKBProtocolContext,
     peer: PeerIndex,
-    nc: &'a mut CKBProtocolContext,
 }
 
 impl<'a, CS: ChainStore> TransactionProcess<'a, CS> {
     pub fn new(
         message: &'a FbsValidTransaction,
         relayer: &'a Relayer<CS>,
+        nc: &'a CKBProtocolContext,
         peer: PeerIndex,
-        nc: &'a mut CKBProtocolContext,
     ) -> Self {
         TransactionProcess {
             message,
-            nc,
             relayer,
+            nc,
             peer,
         }
     }
@@ -65,17 +65,16 @@ impl<'a, CS: ChainStore> TransactionProcess<'a, CS> {
                     .nc
                     .connected_peers()
                     .into_iter()
-                    .filter(|peer_index| {
-                        known_txs.insert(*peer_index, tx_hash.clone()) && (self.peer != *peer_index)
+                    .filter(|target_peer| {
+                        known_txs.insert(*target_peer, tx_hash.clone())
+                            && (self.peer != *target_peer)
                     })
                     .take(MAX_RELAY_PEERS)
                     .collect();
 
-                for peer in selected_peers {
-                    let ret = self.nc.send(peer, fbb.finished_data().to_vec());
-                    if ret.is_err() {
-                        warn!(target: "relay", "relay Transaction error {:?}", ret);
-                    }
+                for target_peer in selected_peers {
+                    self.nc
+                        .send_message_to(target_peer, fbb.finished_data().to_vec());
                 }
             }
             Err(PoolError::InvalidTx(TransactionError::UnknownInput))
@@ -87,7 +86,11 @@ impl<'a, CS: ChainStore> TransactionProcess<'a, CS> {
                 debug!(target: "relay", "peer {} relay a conflict or missing input tx: {:?}", self.peer, tx);
             }
             Ok(cycles) => {
-                debug!(target: "relay", "peer {} relay wrong cycles tx: {:?} real cycles {} wrong cycles {}", self.peer, tx, cycles, relay_cycles);
+                debug!(
+                    target: "relay",
+                    "peer {} relay wrong cycles tx: {:?} real cycles {} wrong cycles {}",
+                    self.peer, tx, cycles, relay_cycles,
+                );
                 // TODO use report score interface
                 self.nc.ban_peer(self.peer, DEFAULT_BAN_TIME);
             }

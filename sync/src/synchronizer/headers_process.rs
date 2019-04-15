@@ -17,7 +17,7 @@ pub struct HeadersProcess<'a, CS: ChainStore + 'a> {
     message: &'a Headers<'a>,
     synchronizer: &'a Synchronizer<CS>,
     peer: PeerIndex,
-    nc: &'a mut CKBProtocolContext,
+    nc: &'a CKBProtocolContext,
 }
 
 pub struct VerifierResolver<'a, CS: ChainStore + 'a> {
@@ -150,7 +150,7 @@ where
         message: &'a Headers,
         synchronizer: &'a Synchronizer<CS>,
         peer: PeerIndex,
-        nc: &'a mut CKBProtocolContext,
+        nc: &'a CKBProtocolContext,
     ) -> Self {
         HeadersProcess {
             message,
@@ -298,8 +298,8 @@ where
 #[derive(Clone)]
 pub struct HeaderAcceptor<'a, V: Verifier, CS: ChainStore + 'a> {
     header: &'a Header,
-    peer: PeerIndex,
     synchronizer: &'a Synchronizer<CS>,
+    peer: PeerIndex,
     resolver: V::Target,
     verifier: V,
 }

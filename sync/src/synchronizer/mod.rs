@@ -19,7 +19,6 @@ use crate::{
     MAX_OUTBOUND_PEERS_TO_PROTECT_FROM_DISCONNECT, MAX_TIP_AGE, POW_SPACE,
 };
 use bitflags::bitflags;
-use bytes::Bytes;
 use ckb_chain::chain::ChainController;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::Block;
@@ -100,11 +99,6 @@ impl<CS: ChainStore> ::std::clone::Clone for Synchronizer<CS> {
     }
 }
 
-fn is_outbound(nc: &CKBProtocolContext, peer: PeerIndex) -> Option<bool> {
-    nc.session_info(peer)
-        .map(|session_info| session_info.peer.is_outbound())
-}
-
 impl<CS: ChainStore> Synchronizer<CS> {
     pub fn new(chain: ChainController, shared: Shared<CS>, config: Config) -> Synchronizer<CS> {
         let (total_difficulty, header, total_uncles_count) = {
@@ -134,9 +128,10 @@ impl<CS: ChainStore> Synchronizer<CS> {
             outbound_peers_with_protect: Arc::new(AtomicUsize::new(0)),
         }
     }
+
     fn try_process(
         &self,
-        nc: &mut CKBProtocolContext,
+        nc: &CKBProtocolContext,
         peer: PeerIndex,
         message: SyncMessage,
     ) -> Result<(), FailureError> {
@@ -166,9 +161,8 @@ impl<CS: ChainStore> Synchronizer<CS> {
         Ok(())
     }
 
-    fn process(&self, nc: &mut CKBProtocolContext, peer: PeerIndex, message: SyncMessage) {
-        if let Err(err) = self.try_process(nc, peer, message) {
-            info!(target: "sync", "try_process peer {:?} message error {:?}", peer, err);
+    fn process(&self, nc: &CKBProtocolContext, peer: PeerIndex, message: SyncMessage) {
+        if self.try_process(nc, peer, message).is_err() {
             nc.ban_peer(peer, BAD_MESSAGE_BAN_TIME);
         }
     }
@@ -503,7 +497,11 @@ impl<CS: ChainStore> Synchronizer<CS> {
         let tip = self.tip_header();
         let predicted_headers_sync_time = self.predict_headers_sync_time(&tip);
 
-        let protect_outbound = is_outbound(nc, peer).unwrap_or_else(|| false)
+        let is_outbound = nc
+            .get_peer(peer)
+            .map(|peer| peer.is_outbound())
+            .unwrap_or(false);
+        let protect_outbound = is_outbound
             && self.outbound_peers_with_protect.load(Ordering::Acquire)
                 < MAX_OUTBOUND_PEERS_TO_PROTECT_FROM_DISCONNECT;
 
@@ -518,7 +516,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
 
     pub fn send_getheaders_to_peer(
         &self,
-        nc: &mut CKBProtocolContext,
+        nc: &CKBProtocolContext,
         peer: PeerIndex,
         header: &Header,
     ) {
@@ -526,11 +524,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
         let fbb = &mut FlatBufferBuilder::new();
         let message = SyncMessage::build_get_headers(fbb, &locator_hash);
         fbb.finish(message, None);
-        let ret = nc.send(peer, fbb.finished_data().to_vec());
-
-        if ret.is_err() {
-            debug!(target: "sync", "send_getheaders_to_peer error {:?}", ret);
-        }
+        nc.send_message_to(peer, fbb.finished_data().to_vec());
     }
 
     //   - If at timeout their best known block now has more work than our tip
@@ -541,7 +535,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
     //     and set a shorter timeout, HEADERS_RESPONSE_TIME seconds in future.
     //     If their best known block is still behind when that new timeout is
     //     reached, disconnect.
-    pub fn eviction(&self, nc: &mut CKBProtocolContext) {
+    pub fn eviction(&self, nc: &CKBProtocolContext) {
         let mut peer_state = self.peers.state.write();
         let best_known_headers = self.peers.best_known_headers.read();
         let is_initial_block_download = self.is_initial_block_download();
@@ -556,7 +550,8 @@ impl<CS: ChainStore> Synchronizer<CS> {
                     continue;
                 }
             }
-            if let Some(is_outbound) = is_outbound(nc, *peer) {
+
+            if let Some(is_outbound) = nc.get_peer(*peer).map(|peer| peer.is_outbound()) {
                 if !state.chain_sync.protect && is_outbound {
                     let best_known_header = best_known_headers.get(peer);
 
@@ -619,7 +614,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
         }
     }
 
-    fn start_sync_headers(&self, nc: &mut CKBProtocolContext) {
+    fn start_sync_headers(&self, nc: &CKBProtocolContext) {
         let peers: Vec<PeerIndex> = self
             .peers
             .state
@@ -669,7 +664,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
         }
     }
 
-    fn find_blocks_to_fetch(&self, nc: &mut CKBProtocolContext) {
+    fn find_blocks_to_fetch(&self, nc: &CKBProtocolContext) {
         let peers: Vec<PeerIndex> = self
             .peers
             .state
@@ -690,68 +685,70 @@ impl<CS: ChainStore> Synchronizer<CS> {
         }
     }
 
-    fn send_getblocks(&self, v_fetch: &[H256], nc: &mut CKBProtocolContext, peer: PeerIndex) {
+    fn send_getblocks(&self, v_fetch: &[H256], nc: &CKBProtocolContext, peer: PeerIndex) {
         let fbb = &mut FlatBufferBuilder::new();
         let message = SyncMessage::build_get_blocks(fbb, v_fetch);
         fbb.finish(message, None);
-        let ret = nc.send(peer, fbb.finished_data().to_vec());
-        if ret.is_err() {
-            debug!(target: "sync", "send_getblocks error {:?}", ret);
-        }
+        nc.send_message_to(peer, fbb.finished_data().to_vec());
         debug!(target: "sync", "send_getblocks len={:?} to peer={}", v_fetch.len() , peer);
     }
 }
 
 impl<CS: ChainStore> CKBProtocolHandler for Synchronizer<CS> {
-    fn initialize(&self, nc: Box<CKBProtocolContext>) {
+    fn init(&mut self, nc: Box<dyn CKBProtocolContext>) {
         // NOTE: 100ms is what bitcoin use.
-        nc.register_timer(Duration::from_millis(1000), SEND_GET_HEADERS_TOKEN);
-        nc.register_timer(Duration::from_millis(1000), BLOCK_FETCH_TOKEN);
-        nc.register_timer(Duration::from_millis(1000), TIMEOUT_EVICTION_TOKEN);
+        nc.set_notify(Duration::from_millis(1000), SEND_GET_HEADERS_TOKEN);
+        nc.set_notify(Duration::from_millis(1000), BLOCK_FETCH_TOKEN);
+        nc.set_notify(Duration::from_millis(1000), TIMEOUT_EVICTION_TOKEN);
     }
 
-    fn received(&self, mut nc: Box<CKBProtocolContext>, peer: PeerIndex, data: Bytes) {
+    fn received(
+        &mut self,
+        nc: Box<dyn CKBProtocolContext>,
+        peer_index: PeerIndex,
+        data: bytes::Bytes,
+    ) {
         let msg = match get_root::<SyncMessage>(&data) {
             Ok(msg) => msg,
-            Err(err) => {
-                info!(target: "sync", "receive peer {:?} message error {:?}", peer, err);
-                nc.ban_peer(peer, BAD_MESSAGE_BAN_TIME);
+            _ => {
+                info!(target: "sync", "Peer {} sends us a malformed message", peer_index);
+                nc.ban_peer(peer_index, BAD_MESSAGE_BAN_TIME);
                 return;
             }
         };
 
         debug!(target: "sync", "msg {:?}", msg.payload_type());
-        self.process(nc.as_mut(), peer, msg);
+        self.process(nc.as_ref(), peer_index, msg);
     }
 
-    fn connected(&self, nc: Box<CKBProtocolContext>, peer: PeerIndex) {
-        info!(target: "sync", "peer={:?} SyncProtocol.connected (init_getheaders)", peer);
-        self.on_connected(nc.as_ref(), peer);
+    fn connected(&mut self, nc: Box<CKBProtocolContext>, peer_index: PeerIndex, _version: &str) {
+        info!(target: "sync", "SyncProtocol.connected peer={}", peer_index);
+        self.on_connected(nc.as_ref(), peer_index);
     }
 
-    fn disconnected(&self, _nc: Box<CKBProtocolContext>, peer: PeerIndex) {
-        info!(target: "sync", "peer={} SyncProtocol.disconnected", peer);
+    fn disconnected(&mut self, _nc: Box<CKBProtocolContext>, peer_index: PeerIndex) {
+        info!(target: "sync", "SyncProtocol.disconnected peer={}", peer_index);
         let mut state = self.peers.state.write();
-        if let Some(peer_state) = state.get(&peer) {
+        if let Some(peer_state) = state.get(&peer_index) {
             if peer_state.sync_started && self.n_sync.fetch_sub(1, Ordering::Release) == 0 {
                 panic!("Synchronizer n_sync overflow");
             }
         }
-        state.remove(&peer);
-        self.peers.disconnected(peer);
+        state.remove(&peer_index);
+        self.peers.disconnected(peer_index);
     }
 
-    fn timer_triggered(&self, mut nc: Box<CKBProtocolContext>, token: u64) {
+    fn notify(&mut self, nc: Box<dyn CKBProtocolContext>, token: u64) {
         if !self.peers.state.read().is_empty() {
             match token {
                 SEND_GET_HEADERS_TOKEN => {
-                    self.start_sync_headers(nc.as_mut());
+                    self.start_sync_headers(nc.as_ref());
                 }
                 BLOCK_FETCH_TOKEN => {
-                    self.find_blocks_to_fetch(nc.as_mut());
+                    self.find_blocks_to_fetch(nc.as_ref());
                 }
                 TIMEOUT_EVICTION_TOKEN => {
-                    self.eviction(nc.as_mut());
+                    self.eviction(nc.as_ref());
                 }
                 _ => unreachable!(),
             }

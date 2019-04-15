@@ -2,7 +2,7 @@ use ckb_chain::chain::ChainController;
 use ckb_core::block::Block as CoreBlock;
 use ckb_core::Cycle;
 use ckb_miner::BlockAssemblerController;
-use ckb_network::{NetworkController, ProtocolId};
+use ckb_network::NetworkController;
 use ckb_protocol::RelayMessage;
 use ckb_shared::{shared::Shared, store::ChainStore};
 use ckb_sync::NetworkProtocol;
@@ -13,7 +13,7 @@ use flatbuffers::FlatBufferBuilder;
 use jsonrpc_core::{Error, ErrorCode, Result};
 use jsonrpc_derive::rpc;
 use jsonrpc_types::{Block, BlockTemplate};
-use log::{debug, error, warn};
+use log::{debug, error};
 use numext_fixed_hash::H256;
 use std::collections::HashSet;
 use std::convert::TryInto;
@@ -84,21 +84,13 @@ impl<CS: ChainStore + 'static> MinerRpc for MinerRpcImpl<CS> {
             if ret.is_ok() {
                 debug!(target: "miner", "[block_relay] announce new block {} {}", block.header().hash(), unix_time_as_millis());
                 // announce new block
-                self.network_controller.with_protocol_context(
-                    NetworkProtocol::RELAY as ProtocolId,
-                    |mut nc| {
-                        let fbb = &mut FlatBufferBuilder::new();
-                        let message =
-                            RelayMessage::build_compact_block(fbb, &block, &HashSet::new());
-                        fbb.finish(message, None);
-                        for peer in nc.connected_peers() {
-                            let ret = nc.send(peer, fbb.finished_data().to_vec());
-                            if ret.is_err() {
-                                warn!(target: "rpc", "relay block error {:?}", ret);
-                            }
-                        }
-                    },
-                );
+
+                let fbb = &mut FlatBufferBuilder::new();
+                let message = RelayMessage::build_compact_block(fbb, &block, &HashSet::new());
+                fbb.finish(message, None);
+                let data = fbb.finished_data().to_vec();
+                self.network_controller
+                    .broadcast(NetworkProtocol::RELAY.into(), data);
                 Ok(Some(block.header().hash().clone()))
             } else {
                 let chain_state = self.shared.chain_state().lock();
