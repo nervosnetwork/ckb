@@ -4,6 +4,7 @@ use ckb_core::header::{BlockNumber, Header, RawHeader, Seal};
 use hash::blake2b_256;
 use numext_fixed_hash::H256;
 use serde_derive::Deserialize;
+use std::fmt;
 use std::sync::Arc;
 
 mod cuckoo;
@@ -17,6 +18,15 @@ pub use crate::dummy::DummyPowEngine;
 pub enum Pow {
     Dummy,
     Cuckoo(CuckooParams),
+}
+
+impl fmt::Display for Pow {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Pow::Dummy => write!(f, "Dummy"),
+            Pow::Cuckoo(params) => write!(f, "Cuckoo{}", params),
+        }
+    }
 }
 
 impl Pow {

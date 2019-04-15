@@ -5,6 +5,7 @@ use hash::blake2b_256;
 use serde::{de, Deserialize as SerdeDeserialize};
 use serde_derive::Deserialize;
 use std::collections::HashMap;
+use std::fmt;
 
 // Cuckatoo proofs take the form of a length 42 off-by-1-cycle in a bipartite graph with
 // 2^N+2^N nodes and 2^N edges, with N ranging from 10 up to 64.
@@ -17,6 +18,12 @@ pub struct CuckooParams {
     // of the cycle to be found. a minimum of 12 is recommended
     #[serde(deserialize_with = "validate_cycle_length")]
     cycle_length: u32,
+}
+
+impl fmt::Display for CuckooParams {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "({}, {})", self.edge_bits, self.cycle_length)
+    }
 }
 
 fn validate_cycle_length<'de, D>(d: D) -> Result<u32, D::Error>
