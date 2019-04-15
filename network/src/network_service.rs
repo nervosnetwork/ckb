@@ -659,26 +659,40 @@ impl NetworkService {
     }
 
     fn handle_service_error(&self, network_state: &mut NetworkState, error: ServiceError) {
-        if let ServiceError::DialerError {
-            ref address,
-            ref error,
-        } = error
-        {
-            debug!(target: "network", "add self address: {:?}", address);
-            if error == &P2pError::ConnectSelf {
-                let addr = address
-                    .iter()
-                    .filter(|proto| match proto {
-                        multiaddr::Protocol::P2p(_) => false,
-                        _ => true,
-                    })
-                    .collect();
-                network_state.listened_addresses.insert(addr, std::u8::MAX);
+        match error {
+            ServiceError::DialerError {
+                ref address,
+                ref error,
+            } => {
+                debug!(target: "network", "add self address: {:?}", address);
+                if error == &P2pError::ConnectSelf {
+                    let addr = address
+                        .iter()
+                        .filter(|proto| match proto {
+                            multiaddr::Protocol::P2p(_) => false,
+                            _ => true,
+                        })
+                        .collect();
+                    network_state.listened_addresses.insert(addr, std::u8::MAX);
+                }
+                // TODO implement in peer store
+                if let Some(peer_id) = extract_peer_id(address) {
+                    network_state.failed_dials.insert(peer_id, Instant::now());
+                }
             }
-            // TODO implement in peer store
-            if let Some(peer_id) = extract_peer_id(address) {
-                network_state.failed_dials.insert(peer_id, Instant::now());
+            ServiceError::ProtocolError { id, .. } => {
+                if let Err(err) = self.p2p_control.clone().disconnect(id) {
+                    warn!(target: "network", "send disconnect task(session_id={}) failed, error={:?}", id, err);
+                }
             }
+            ServiceError::MuxerError {
+                session_context, ..
+            } => {
+                if let Err(err) = self.p2p_control.clone().disconnect(session_context.id) {
+                    warn!(target: "network", "send disconnect task(session_id={}) failed, error={:?}", session_context.id, err);
+                }
+            }
+            _ => {}
         }
     }
 

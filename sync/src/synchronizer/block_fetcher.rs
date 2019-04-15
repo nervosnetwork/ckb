@@ -5,8 +5,8 @@ use crate::{
     PER_FETCH_BLOCK_LIMIT,
 };
 use ckb_core::header::Header;
-use ckb_shared::store::ChainStore;
 use ckb_network::SessionId;
+use ckb_shared::store::ChainStore;
 use ckb_traits::ChainProvider;
 use ckb_util::try_option;
 use faketime::unix_time_as_millis;
