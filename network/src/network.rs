@@ -677,13 +677,17 @@ impl NetworkController {
         self.network_state.add_node(peer_id, address)
     }
 
-    // TODO: should change this API later
     pub fn connected_peers(&self) -> Vec<(PeerId, Peer, MultiaddrList)> {
-        self.network_state
+        let peers = self
+            .network_state
             .peer_registry
             .read()
             .peers()
             .values()
+            .cloned()
+            .collect::<Vec<_>>();
+        peers
+            .into_iter()
             .map(|peer| {
                 (
                     peer.peer_id.clone(),
