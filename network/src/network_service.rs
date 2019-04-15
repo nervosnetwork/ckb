@@ -22,7 +22,7 @@ use p2p::{
     error::Error as P2pError,
     multiaddr::{self, multihash::Multihash, Multiaddr},
     secio::{PeerId, PublicKey},
-    service::{ProtocolEvent, ProtocolHandle, Service, ServiceError, ServiceEvent},
+    service::{ProtocolEvent, ProtocolHandle, Service, ServiceError, ServiceEvent, TargetSession},
     utils::extract_peer_id,
 };
 use p2p_identify::IdentifyProtocol;
@@ -341,11 +341,9 @@ impl NetworkService {
             },
             recv(self.receivers.broadcast_receiver) -> msg => match msg {
                 Ok(Request {responder, arguments: (protocol_id, data)}) => {
-                    for (_, peer) in network_state.peers_registry.iter() {
-                        if let Err(err) = self.p2p_control.clone()
-                            .send_message(peer.session_id, protocol_id, data.to_vec()) {
-                                error!(target: "network", "failed to send message, error: {:?}", err);
-                            }
+                    if let Err(err) = self.p2p_control.clone().filter_broadcast(TargetSession::All, protocol_id, data.to_vec()) {
+                        error!(target: "network", "failed to broadcast, error: {:?}", err);
+
                     }
                     let _ = responder.send(());
                 },
