@@ -21,10 +21,10 @@ pub enum ConfigError {
     InvalidKey,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub enum PeerError {
-    IndexNotFound(SessionId),
-    ProtocolNotFound(PeerId, ProtocolId),
+    SessionExists(SessionId),
+    PeerIdExists(PeerId),
     NotFound(PeerId),
     NonReserved,
     Banned,

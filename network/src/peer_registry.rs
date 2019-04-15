@@ -1,8 +1,5 @@
 use crate::peer_store::PeerStore;
-use crate::{
-    errors::{Error, PeerError},
-    Peer, PeerId, SessionType,
-};
+use crate::{errors::PeerError, Peer, PeerId, SessionType};
 use fnv::{FnvHashMap, FnvHashSet};
 use log::debug;
 use p2p::{multiaddr::Multiaddr, SessionId};
@@ -38,7 +35,9 @@ where
     F: FnMut(&T, &T) -> std::cmp::Ordering,
 {
     list.sort_by(compare);
-    list.truncate(list.len().saturating_sub(n));
+    if list.len() > n {
+        list.truncate(list.len() - n);
+    }
 }
 
 impl PeerRegistry {
@@ -70,17 +69,24 @@ impl PeerRegistry {
         remote_addr: Multiaddr,
         session_id: SessionId,
         session_type: SessionType,
-    ) -> Result<Option<Peer>, Error> {
+    ) -> Result<Option<Peer>, PeerError> {
+        if self.peers.contains_key(&session_id) {
+            return Err(PeerError::SessionExists(session_id));
+        }
+        if self.get_key_by_peer_id(&peer_id).is_some() {
+            return Err(PeerError::PeerIdExists(peer_id));
+        }
+
         let is_reserved = self.reserved_peers.contains(&peer_id);
         let mut evicted_peer: Option<Peer> = None;
 
         if !is_reserved {
             if self.reserved_only {
-                return Err(Error::Peer(PeerError::NonReserved));
+                return Err(PeerError::NonReserved);
             }
             // ban_list lock acquired
             if self.peer_store.is_banned(&peer_id) {
-                return Err(Error::Peer(PeerError::Banned));
+                return Err(PeerError::Banned);
             }
 
             let connection_status = self.connection_status();
@@ -90,11 +96,11 @@ impl PeerRegistry {
                     if let Some(evicted_session) = self.try_evict_inbound_peer() {
                         evicted_peer = self.remove_peer(evicted_session);
                     } else {
-                        return Err(Error::Peer(PeerError::ReachMaxInboundLimit));
+                        return Err(PeerError::ReachMaxInboundLimit);
                     }
                 }
             } else if connection_status.unreserved_outbound >= self.max_outbound {
-                return Err(Error::Peer(PeerError::ReachMaxOutboundLimit));
+                return Err(PeerError::ReachMaxOutboundLimit);
             }
         }
         self.peer_store
@@ -210,20 +216,22 @@ impl PeerRegistry {
         self.peers.get_mut(&session_id)
     }
 
-    pub fn remove_peer(&mut self, session_id: SessionId) -> Option<Peer> {
+    pub(crate) fn remove_peer(&mut self, session_id: SessionId) -> Option<Peer> {
         self.peers.remove(&session_id)
     }
 
-    pub fn remove_peer_by_peer_id(&mut self, peer_id: &PeerId) -> Option<Peer> {
-        self.peers
-            .values()
-            .find_map(|peer| {
-                if &peer.peer_id == peer_id {
-                    Some(peer.session_id)
-                } else {
-                    None
-                }
-            })
+    pub fn get_key_by_peer_id(&self, peer_id: &PeerId) -> Option<SessionId> {
+        self.peers.values().find_map(|peer| {
+            if &peer.peer_id == peer_id {
+                Some(peer.session_id)
+            } else {
+                None
+            }
+        })
+    }
+
+    pub(crate) fn remove_peer_by_peer_id(&mut self, peer_id: &PeerId) -> Option<Peer> {
+        self.get_key_by_peer_id(peer_id)
             .and_then(|session_id| self.peers.remove(&session_id))
     }
 
