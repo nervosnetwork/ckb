@@ -1,5 +1,4 @@
 use crate::{sleep, Net, Spec, TestProtocol};
-use ckb_network::ProtocolId;
 use ckb_protocol::{get_root, SyncMessage, SyncPayload};
 use ckb_sync::NetworkProtocol;
 use log::info;
@@ -20,17 +19,9 @@ impl Spec for MalformedMessage {
         assert_eq!(SyncPayload::GetHeaders, msg.payload_type());
 
         info!("Send malformed message to node0 twice");
-        net.send(
-            NetworkProtocol::SYNC as ProtocolId,
-            peer_id,
-            vec![0, 0, 0, 0],
-        );
+        net.send(NetworkProtocol::SYNC.into(), peer_id, vec![0, 0, 0, 0]);
         sleep(3);
-        net.send(
-            NetworkProtocol::SYNC as ProtocolId,
-            peer_id,
-            vec![0, 1, 2, 3],
-        );
+        net.send(NetworkProtocol::SYNC.into(), peer_id, vec![0, 1, 2, 3]);
         sleep(3);
 
         info!("Node0 should disconnect test node");
@@ -60,9 +51,9 @@ impl Spec for MalformedMessage {
 
     fn test_protocols(&self) -> Vec<TestProtocol> {
         vec![TestProtocol {
-            id: NetworkProtocol::SYNC as ProtocolId,
+            id: NetworkProtocol::SYNC.into(),
             protocol_name: "syn".to_string(),
-            supported_versions: vec![1],
+            supported_versions: vec!["1".to_string()],
         }]
     }
 }

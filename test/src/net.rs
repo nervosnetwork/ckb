@@ -107,9 +107,7 @@ impl Net {
             .as_ref()
             .unwrap()
             .0
-            .with_protocol_context(protocol_id, |mut nc| {
-                nc.send(peer, data).expect("send error");
-            });
+            .send_message_to(peer, protocol_id, data);
     }
 
     pub fn receive(&self) -> (PeerIndex, Bytes) {
@@ -122,15 +120,14 @@ pub struct DummyProtocolHandler {
 }
 
 impl CKBProtocolHandler for DummyProtocolHandler {
-    fn initialize(&self, _nc: Box<dyn CKBProtocolContext>) {}
+    fn init(&mut self, _nc: Box<dyn CKBProtocolContext>) {}
 
-    fn received(&self, _nc: Box<dyn CKBProtocolContext>, peer: PeerIndex, data: Bytes) {
-        let _ = self.tx.send((peer, data));
+    fn received(
+        &mut self,
+        _nc: Box<dyn CKBProtocolContext>,
+        peer_index: PeerIndex,
+        data: bytes::Bytes,
+    ) {
+        let _ = self.tx.send((peer_index, data));
     }
-
-    fn connected(&self, _nc: Box<dyn CKBProtocolContext>, _peer: PeerIndex) {}
-
-    fn disconnected(&self, _nc: Box<dyn CKBProtocolContext>, _peer: PeerIndex) {}
-
-    fn timer_triggered(&self, _nc: Box<dyn CKBProtocolContext>, _timer: u64) {}
 }
