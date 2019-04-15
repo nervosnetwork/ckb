@@ -4,13 +4,13 @@ use ckb_protocol::{cast, GetBlocks, SyncMessage};
 use ckb_shared::store::ChainStore;
 use failure::Error as FailureError;
 use flatbuffers::FlatBufferBuilder;
-use log::{debug, warn};
+use log::debug;
 use std::convert::TryInto;
 
 pub struct GetBlocksProcess<'a, CS: ChainStore + 'a> {
     message: &'a GetBlocks<'a>,
     synchronizer: &'a Synchronizer<CS>,
-    nc: &'a mut CKBProtocolContext,
+    nc: &'a CKBProtocolContext,
     peer: PeerIndex,
 }
 
@@ -22,7 +22,7 @@ where
         message: &'a GetBlocks,
         synchronizer: &'a Synchronizer<CS>,
         peer: PeerIndex,
-        nc: &'a mut CKBProtocolContext,
+        nc: &'a CKBProtocolContext,
     ) -> Self {
         GetBlocksProcess {
             peer,
@@ -43,10 +43,8 @@ where
                 let fbb = &mut FlatBufferBuilder::new();
                 let message = SyncMessage::build_block(fbb, &block);
                 fbb.finish(message, None);
-                let ret = self.nc.send(self.peer, fbb.finished_data().to_vec());
-                if ret.is_err() {
-                    warn!(target: "relay", "response GetBlocks error {:?}", ret);
-                }
+                self.nc
+                    .send_message_to(self.peer, fbb.finished_data().to_vec());
             } else {
                 // TODO response not found
                 // TODO add timeout check in synchronizer

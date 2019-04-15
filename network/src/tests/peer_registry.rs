@@ -1,7 +1,7 @@
 use crate::{
     multiaddr::ToMultiaddr,
+    peer_registry::{PeerRegistry, EVICTION_PROTECT_PEERS},
     peer_store::{PeerStore, SqlitePeerStore},
-    peers_registry::{PeersRegistry, EVICTION_PROTECT_PEERS},
     Behaviour, PeerId, ProtocolId, ProtocolVersion, SessionType,
 };
 use std::sync::Arc;
@@ -11,8 +11,8 @@ fn new_peer_store() -> Arc<dyn PeerStore> {
     Arc::new(SqlitePeerStore::temp().expect("temp"))
 }
 
-const TEST_PROTOCOL_ID: ProtocolId = 0;
-const TEST_PROTOCOL_VERSION: ProtocolVersion = 0;
+const TEST_PROTOCOL_ID: usize = 0;
+const TEST_PROTOCOL_VERSION: usize = 0;
 
 #[test]
 fn test_accept_inbound_peer_in_reserve_only_mode() {
@@ -23,7 +23,7 @@ fn test_accept_inbound_peer_in_reserve_only_mode() {
     let session_type = SessionType::Inbound;
 
     // reserved_only mode: only accept reserved_peer
-    let peers = PeersRegistry::new(
+    let peers = PeerRegistry::new(
         Arc::clone(&peer_store),
         3,
         3,
@@ -61,7 +61,7 @@ fn test_accept_inbound_peer_until_full() {
     let session_id = 1;
     let session_type = SessionType::Inbound;
     // accept node until inbound connections is full
-    let peers = PeersRegistry::new(
+    let peers = PeerRegistry::new(
         Arc::clone(&peer_store),
         3,
         3,
@@ -74,8 +74,8 @@ fn test_accept_inbound_peer_until_full() {
             addr.clone(),
             session_id,
             session_type,
-            TEST_PROTOCOL_ID,
-            TEST_PROTOCOL_VERSION,
+            TEST_PROTOCOL_ID.into(),
+            TEST_PROTOCOL_VERSION.into(),
         )
         .expect("accept");
     peers
@@ -84,8 +84,8 @@ fn test_accept_inbound_peer_until_full() {
             addr.clone(),
             session_id,
             session_type,
-            TEST_PROTOCOL_ID,
-            TEST_PROTOCOL_VERSION,
+            TEST_PROTOCOL_ID.into(),
+            TEST_PROTOCOL_VERSION.into(),
         )
         .expect("accept");
     peers
@@ -94,8 +94,8 @@ fn test_accept_inbound_peer_until_full() {
             addr.clone(),
             session_id,
             session_type,
-            TEST_PROTOCOL_ID,
-            TEST_PROTOCOL_VERSION,
+            TEST_PROTOCOL_ID.into(),
+            TEST_PROTOCOL_VERSION.into(),
         )
         .expect("accept");
     println!("{:?}", peers.connection_status());
@@ -105,8 +105,8 @@ fn test_accept_inbound_peer_until_full() {
             addr.clone(),
             session_id,
             session_type,
-            TEST_PROTOCOL_ID,
-            TEST_PROTOCOL_VERSION
+            TEST_PROTOCOL_ID.into(),
+            TEST_PROTOCOL_VERSION.into()
         )
         .is_err(),);
     // should still accept reserved peer
@@ -116,8 +116,8 @@ fn test_accept_inbound_peer_until_full() {
             addr.clone(),
             session_id,
             session_type,
-            TEST_PROTOCOL_ID,
-            TEST_PROTOCOL_VERSION,
+            TEST_PROTOCOL_ID.into(),
+            TEST_PROTOCOL_VERSION.into(),
         )
         .expect("accept");
     // should refuse accept low score peer
@@ -127,8 +127,8 @@ fn test_accept_inbound_peer_until_full() {
             addr.clone(),
             session_id,
             session_type,
-            TEST_PROTOCOL_ID,
-            TEST_PROTOCOL_VERSION
+            TEST_PROTOCOL_ID.into(),
+            TEST_PROTOCOL_VERSION.into(),
         )
         .is_err());
 }
@@ -150,7 +150,7 @@ fn test_accept_inbound_peer_eviction() {
     // prepare protected peers
     let longest_connection_time_peers_count = 5;
     let protected_peers_count = 3 * EVICTION_PROTECT_PEERS + longest_connection_time_peers_count;
-    let peers_registry = PeersRegistry::new(
+    let peers_registry = PeerRegistry::new(
         Arc::clone(&peer_store),
         (protected_peers_count + longest_connection_time_peers_count) as u32,
         3,

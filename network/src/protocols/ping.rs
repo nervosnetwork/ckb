@@ -1,6 +1,6 @@
-use crate::{Behaviour, NetworkState, Peer};
+use crate::{Behaviour, NetworkState};
 use futures::{sync::mpsc::Receiver, try_ready, Async, Stream};
-use log::{debug, trace};
+use log::{debug, trace, warn};
 use p2p::service::ServiceControl;
 use p2p_ping::Event;
 use std::sync::Arc;
@@ -38,23 +38,53 @@ impl Stream for PingService {
             }
             Some(Pong(peer_id, duration)) => {
                 trace!(target: "network", "receive pong from {:?} duration {:?}", peer_id, duration);
-                self.network_state.modify_peer(&peer_id, |peer: &mut Peer| {
-                    peer.ping = Some(duration);
-                    peer.last_ping_time = Some(Instant::now());
-                });
-                self.network_state.report(&peer_id, Behaviour::Ping);
+                if let Some(session_id) = self.network_state.query_session_id(&peer_id) {
+                    self.network_state.with_peer_registry_mut(|reg| {
+                        if let Some(mut peer) = reg.get_peer_mut(session_id) {
+                            peer.ping = Some(duration);
+                            peer.last_ping_time = Some(Instant::now());
+                        }
+                    })
+                }
+                self.network_state.report_peer(&peer_id, Behaviour::Ping);
             }
             Some(Timeout(peer_id)) => {
                 debug!(target: "network", "timeout to ping {:?}", peer_id);
-                self.network_state.report(&peer_id, Behaviour::FailedToPing);
                 self.network_state
-                    .drop_peer(&mut self.p2p_control, &peer_id);
+                    .report_peer(&peer_id, Behaviour::FailedToPing);
+                if let Some(session_id) = self.network_state.with_peer_registry_mut(|reg| {
+                    reg.remove_peer_by_peer_id(&peer_id)
+                        .map(|peer| peer.session_id)
+                }) {
+                    if let Err(err) = self.p2p_control.disconnect(session_id) {
+                        warn!(
+                            target: "network",
+                            "send disconnect failed {} => {:?}, error={:?}",
+                            session_id,
+                            peer_id,
+                            err,
+                        );
+                    }
+                }
             }
             Some(UnexpectedError(peer_id)) => {
                 debug!(target: "network", "failed to ping {:?}", peer_id);
-                self.network_state.report(&peer_id, Behaviour::FailedToPing);
                 self.network_state
-                    .drop_peer(&mut self.p2p_control, &peer_id);
+                    .report_peer(&peer_id, Behaviour::FailedToPing);
+                if let Some(session_id) = self.network_state.with_peer_registry_mut(|reg| {
+                    reg.remove_peer_by_peer_id(&peer_id)
+                        .map(|peer| peer.session_id)
+                }) {
+                    if let Err(err) = self.p2p_control.disconnect(session_id) {
+                        warn!(
+                            target: "network",
+                            "send disconnect failed {} => {:?}, error={:?}",
+                            session_id,
+                            peer_id,
+                            err,
+                        );
+                    }
+                }
             }
             None => {
                 debug!(target: "network", "ping service shutdown");

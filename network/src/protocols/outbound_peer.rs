@@ -30,8 +30,8 @@ impl OutboundPeerService {
     }
 
     fn attempt_dial_peers(&mut self, count: u32) {
-        let attempt_peers = self.network_state.peer_store().peers_to_attempt(count + 5);
-        let mut p2p_control = self.p2p_control.clone();
+        let attempt_peers = self.network_state.peer_store.peers_to_attempt(count + 5);
+        let p2p_control = self.p2p_control.clone();
         trace!(target: "network", "count={}, attempt_peers: {:?}", count, attempt_peers);
         for (peer_id, addr) in attempt_peers
             .into_iter()
@@ -51,21 +51,19 @@ impl OutboundPeerService {
             .take(count as usize)
         {
             debug!(target: "network", "dial attempt peer: {:?}", addr);
-            self.network_state
-                .dial_all(&mut p2p_control, &peer_id, addr);
+            self.network_state.dial_all(&p2p_control, &peer_id, addr);
         }
     }
 
     fn feeler_peers(&mut self, count: u32) {
-        let peers = self.network_state.peer_store().peers_to_feeler(count);
-        let mut p2p_control = self.p2p_control.clone();
+        let peers = self.network_state.peer_store.peers_to_feeler(count);
+        let p2p_control = self.p2p_control.clone();
         for (peer_id, addr) in peers
             .into_iter()
             .filter(|(peer_id, _addr)| self.network_state.local_peer_id() != peer_id)
         {
             debug!(target: "network", "dial feeler peer: {:?}", addr);
-            self.network_state
-                .dial_feeler(&mut p2p_control, &peer_id, addr);
+            self.network_state.dial_feeler(&p2p_control, &peer_id, addr);
         }
     }
 }
