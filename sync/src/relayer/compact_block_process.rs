@@ -10,7 +10,6 @@ use ckb_verification::{HeaderResolverWrapper, HeaderVerifier, Verifier};
 use failure::Error as FailureError;
 use flatbuffers::FlatBufferBuilder;
 use fnv::FnvHashMap;
-use log::warn;
 use numext_fixed_hash::H256;
 use std::convert::TryInto;
 use std::sync::Arc;
@@ -18,16 +17,16 @@ use std::sync::Arc;
 pub struct CompactBlockProcess<'a, CS> {
     message: &'a FbsCompactBlock<'a>,
     relayer: &'a Relayer<CS>,
+    nc: &'a CKBProtocolContext,
     peer: PeerIndex,
-    nc: &'a mut CKBProtocolContext,
 }
 
 impl<'a, CS: ChainStore> CompactBlockProcess<'a, CS> {
     pub fn new(
         message: &'a FbsCompactBlock,
         relayer: &'a Relayer<CS>,
+        nc: &'a CKBProtocolContext,
         peer: PeerIndex,
-        nc: &'a mut CKBProtocolContext,
     ) -> Self {
         CompactBlockProcess {
             message,
@@ -94,11 +93,8 @@ impl<'a, CS: ChainStore> CompactBlockProcess<'a, CS> {
                     .collect::<Vec<_>>(),
             );
             fbb.finish(message, None);
-            let ret = self.nc.send(self.peer, fbb.finished_data().to_vec());
-
-            if ret.is_err() {
-                warn!(target: "relay", "CompactBlockProcess relay error {:?}", ret);
-            }
+            self.nc
+                .send_message_to(self.peer, fbb.finished_data().to_vec());
         }
         Ok(())
     }

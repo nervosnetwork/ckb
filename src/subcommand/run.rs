@@ -3,7 +3,7 @@ use crate::setup::{ExitCode, RunArgs};
 use ckb_chain::chain::{ChainBuilder, ChainController};
 use ckb_db::{CacheDB, RocksDB};
 use ckb_miner::BlockAssembler;
-use ckb_network::{CKBProtocol, NetworkService, NetworkState, ProtocolId};
+use ckb_network::{CKBProtocol, NetworkService, NetworkState};
 use ckb_notify::{NotifyController, NotifyService};
 use ckb_rpc::RpcServer;
 use ckb_shared::shared::{Shared, SharedBuilder};
@@ -30,6 +30,9 @@ pub fn run(args: RunArgs) -> Result<(), ExitCode> {
     let block_assembler = BlockAssembler::new(shared.clone(), args.config.block_assembler);
     let block_assembler_controller = block_assembler.start(Some("MinerAgent"), &notify);
 
+    let network_state = Arc::new(
+        NetworkState::from_config(args.config.network).expect("Init network state failed"),
+    );
     let synchronizer =
         Synchronizer::new(chain_controller.clone(), shared.clone(), args.config.sync);
 
@@ -38,30 +41,28 @@ pub fn run(args: RunArgs) -> Result<(), ExitCode> {
         shared.clone(),
         synchronizer.peers(),
     );
+    let net_timer = NetTimeProtocol::default();
 
-    let network_state = Arc::new(
-        NetworkState::from_config(args.config.network).expect("Init network state failed"),
-    );
     let protocols = vec![
         CKBProtocol::new(
             "syn".to_string(),
-            NetworkProtocol::SYNC as ProtocolId,
-            &[1][..],
+            NetworkProtocol::SYNC.into(),
+            &["1".to_string()][..],
             move || Box::new(synchronizer.clone()),
             Arc::clone(&network_state),
         ),
         CKBProtocol::new(
             "rel".to_string(),
-            NetworkProtocol::RELAY as ProtocolId,
-            &[1][..],
+            NetworkProtocol::RELAY.into(),
+            &["1".to_string()][..],
             move || Box::new(relayer.clone()),
             Arc::clone(&network_state),
         ),
         CKBProtocol::new(
             "tim".to_string(),
-            NetworkProtocol::TIME as ProtocolId,
-            &[1][..],
-            || Box::new(NetTimeProtocol::default()),
+            NetworkProtocol::TIME.into(),
+            &["1".to_string()][..],
+            move || Box::new(net_timer.clone()),
             Arc::clone(&network_state),
         ),
     ];
