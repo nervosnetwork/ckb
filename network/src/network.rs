@@ -716,7 +716,7 @@ impl NetworkService {
                     warn!(target: "network", "send shutdown message to p2p error: {:?}", err);
                 }
 
-                runtime.shutdown_on_idle();
+                runtime.shutdown_on_idle().wait().unwrap();
                 debug!(target: "network", "Shutdown network service finished!");
             })
             .expect("Start NetworkService fialed");
