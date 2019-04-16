@@ -56,16 +56,13 @@ impl Callback for IdentifyCallback {
         );
         self.remote_listen_addrs
             .insert(peer_id.clone(), addrs.clone());
-        for addr in addrs {
-            if !self
-                .network_state
-                .peer_store
-                .lock()
-                .add_discovered_addr(&peer_id, addr)
-            {
-                debug!(target: "network", "add_discovered_addr failed {:?}", peer_id);
+        self.network_state.with_peer_store_mut(|peer_store| {
+            for addr in addrs {
+                if !peer_store.add_discovered_addr(&peer_id, addr) {
+                    trace!(target: "network", "add_discovered_addr failed {:?}", peer_id);
+                }
             }
-        }
+        })
     }
 
     fn add_observed_addr(
@@ -106,15 +103,11 @@ impl Callback for IdentifyCallback {
         {
             debug!(target: "network", "identify add transformed addr: {:?}", transformed_addr);
             let local_peer_id = self.network_state.local_peer_id();
-
-            if !self
-                .network_state
-                .peer_store
-                .lock()
-                .add_discovered_addr(local_peer_id, transformed_addr)
-            {
-                debug!(target: "network", "add_discovered_addr failed {:?}", local_peer_id);
-            }
+            self.network_state.with_peer_store_mut(|peer_store| {
+                if !peer_store.add_discovered_addr(local_peer_id, transformed_addr) {
+                    trace!(target: "network", "add_discovered_addr failed {:?}", local_peer_id);
+                }
+            });
         }
         // NOTE: for future usage
         MisbehaveResult::Continue
