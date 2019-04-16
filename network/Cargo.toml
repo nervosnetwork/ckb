@@ -23,7 +23,7 @@ tokio = "0.1.18"
 futures = "0.1"
 snap = "0.2"
 crossbeam-channel = "0.3"
-p2p = { version="0.2.0-alpha.3", package="tentacle" }
+p2p = { version="0.2.0-alpha.4", package="tentacle" }
 secio = { version="0.1.1", package="tentacle-secio" }
 p2p-ping = { version="0.3.0", package="tentacle-ping" }
 p2p-discovery = { version="0.2.0", package="tentacle-discovery" }
