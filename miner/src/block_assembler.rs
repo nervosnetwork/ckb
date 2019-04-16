@@ -1,9 +1,10 @@
 use crate::config::BlockAssemblerConfig;
+use crate::error::Error;
 use ckb_core::block::Block;
 use ckb_core::header::Header;
 use ckb_core::script::Script;
 use ckb_core::service::{Request, DEFAULT_CHANNEL_SIZE, SIGNAL_CHANNEL_SIZE};
-use ckb_core::transaction::{CellInput, CellOutput, Transaction, TransactionBuilder};
+use ckb_core::transaction::{Capacity, CellInput, CellOutput, Transaction, TransactionBuilder};
 use ckb_core::uncle::UncleBlock;
 use ckb_core::{Cycle, Version};
 use ckb_notify::NotifyController;
@@ -13,6 +14,7 @@ use ckb_util::Mutex;
 use crossbeam_channel::{self, select, Receiver, Sender};
 use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
+use fnv::FnvHashMap;
 use fnv::FnvHashSet;
 use jsonrpc_types::{BlockTemplate, Bytes, CellbaseTemplate, TransactionTemplate, UncleTemplate};
 use log::error;
@@ -50,6 +52,67 @@ impl TemplateCache {
             || last_txs_updated_at != self.txs_updated_at
             || number != self.template.number
             || current_time.saturating_sub(self.time) > BLOCK_TEMPLATE_TIMEOUT
+    }
+}
+
+struct FeeCalculator<'a> {
+    txs: &'a [PoolEntry],
+    provider: &'a dyn ChainProvider,
+    txs_map: FnvHashMap<H256, usize>,
+}
+
+impl<'a> FeeCalculator<'a> {
+    fn new(txs: &'a [PoolEntry], provider: &'a dyn ChainProvider) -> Self {
+        let mut txs_map = FnvHashMap::with_capacity_and_hasher(txs.len(), Default::default());
+        for (index, tx) in txs.iter().enumerate() {
+            txs_map.insert(tx.transaction.hash(), index);
+        }
+        Self {
+            txs,
+            provider,
+            txs_map,
+        }
+    }
+    fn get_transaction(&self, tx_hash: &H256) -> Option<Transaction> {
+        // tx may depend on a tx which within the same block
+        match self.provider.get_transaction(tx_hash) {
+            Some(tx) => Some(tx),
+            None => self
+                .txs_map
+                .get(tx_hash)
+                .map(|index| self.txs[*index].transaction.clone()),
+        }
+    }
+
+    fn calculate_transaction_fee(
+        &self,
+        transaction: &Transaction,
+    ) -> Result<Capacity, FailureError> {
+        let mut fee = 0;
+        for input in transaction.inputs() {
+            let previous_output = &input.previous_output;
+            match self.get_transaction(&previous_output.hash) {
+                Some(previous_transaction) => {
+                    let index = previous_output.index as usize;
+                    if let Some(output) = previous_transaction.outputs().get(index) {
+                        fee += output.capacity;
+                    } else {
+                        Err(Error::InvalidInput)?;
+                    }
+                }
+                None => Err(Error::InvalidInput)?,
+            }
+        }
+        let spent_capacity: Capacity = transaction
+            .outputs()
+            .iter()
+            .map(|output| output.capacity)
+            .sum();
+        if spent_capacity > fee {
+            Err(Error::InvalidOutput)?;
+        }
+        fee -= spent_capacity;
+        Ok(fee)
     }
 }
 
@@ -191,7 +254,7 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
 
         UncleTemplate {
             hash: header.hash(),
-            required: false, //
+            required: false,
             proposal_transactions: proposal_transactions.into_iter().map(Into::into).collect(),
             header: (&header).into(),
         }
@@ -324,8 +387,10 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
         // bytes, they really serve the same purpose at the moment
         let block_reward = self.shared.block_reward(header.number() + 1);
         let mut fee = 0;
+        // depends cells may produced from previous tx
+        let fee_calculator = FeeCalculator::new(&pes, &self.shared);
         for pe in pes {
-            fee += self.shared.calculate_transaction_fee(&pe.transaction)?;
+            fee += fee_calculator.calculate_transaction_fee(&pe.transaction)?;
         }
 
         let output = CellOutput::new(block_reward + fee, Vec::new(), lock, None);
