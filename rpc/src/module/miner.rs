@@ -9,7 +9,7 @@ use ckb_sync::NetworkProtocol;
 use ckb_traits::ChainProvider;
 use ckb_verification::{HeaderResolverWrapper, HeaderVerifier, Verifier};
 use flatbuffers::FlatBufferBuilder;
-use jsonrpc_core::{Error, ErrorCode, Result};
+use jsonrpc_core::{Error, Result};
 use jsonrpc_derive::rpc;
 use jsonrpc_types::{Block, BlockTemplate};
 use log::{debug, warn};
@@ -56,15 +56,9 @@ impl<CS: ChainStore + 'static> MinerRpc for MinerRpcImpl<CS> {
             Some(b) => Some(b.parse::<u64>().map_err(|_| Error::parse_error())?),
             None => None,
         };
-        let r = self
-            .block_assembler
-            .get_block_template(cycles_limit, bytes_limit, max_version);
-        //r.map_err(|_| Error::internal_error())
-        r.map_err(|err| Error {
-            code: ErrorCode::from(666),
-            message: format!("get_block_template: {:?}", err),
-            data: None,
-        })
+        self.block_assembler
+            .get_block_template(cycles_limit, bytes_limit, max_version)
+            .map_err(|_| Error::internal_error())
     }
 
     fn submit_block(&self, _work_id: String, data: Block) -> Result<Option<H256>> {
