@@ -1,5 +1,5 @@
 use crate::error::TransactionError;
-use ckb_core::transaction::{Capacity, Transaction, TX_VERSION};
+use ckb_core::transaction::{Capacity, OutPoint, Transaction, TX_VERSION};
 use ckb_core::{
     cell::{CellMeta, CellStatus, ResolvedTransaction},
     BlockNumber, Cycle,
@@ -165,7 +165,7 @@ impl<'a> MaturityVerifier<'a> {
 
     pub fn verify(&self) -> Result<(), TransactionError> {
         let cellbase_immature = |cell_status: &CellStatus| -> bool {
-            match cell_status.get_live() {
+            match cell_status.get_live_output() {
                 Some(ref meta)
                     if meta.is_cellbase()
                         && self.tip_number
@@ -222,15 +222,18 @@ impl<'a> NullVerifier<'a> {
 
     pub fn verify(&self) -> Result<(), TransactionError> {
         let transaction = self.transaction;
+        if transaction.deps().iter().any(OutPoint::is_null) {
+            return Err(TransactionError::NullDep);
+        }
+
         if transaction
             .inputs()
             .iter()
             .any(|input| input.previous_output.is_null())
         {
-            Err(TransactionError::NullInput)
-        } else {
-            Ok(())
+            return Err(TransactionError::NullInput);
         }
+        Ok(())
     }
 }
 
@@ -250,8 +253,8 @@ impl<'a> CapacityVerifier<'a> {
             .resolved_transaction
             .input_cells
             .iter()
-            .filter_map(CellStatus::get_live)
-            .fold(0, |acc, cell| acc + cell.cell_output.capacity);
+            .filter_map(CellStatus::get_live_output)
+            .fold(0, |acc, meta| acc + meta.capacity());
 
         let outputs_total = self
             .resolved_transaction
@@ -435,7 +438,7 @@ where
 
             // verify time lock
             self.verify_absolute_lock(valid_since)?;
-            let cell = match cell_status.get_live() {
+            let cell = match cell_status.get_live_output() {
                 Some(cell) => cell,
                 None => return Err(TransactionError::Conflict),
             };

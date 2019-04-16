@@ -1,5 +1,5 @@
 use crate::blockchain::{CellOutput, OutPoint};
-use ckb_core::cell::CellStatus;
+use ckb_core::cell::{CellStatus, LiveCell};
 use ckb_core::script::Script;
 use ckb_core::Capacity;
 use serde_derive::{Deserialize, Serialize};
@@ -23,7 +23,10 @@ pub struct CellWithStatus {
 impl From<CellStatus> for CellWithStatus {
     fn from(status: CellStatus) -> Self {
         let (cell, status) = match status {
-            CellStatus::Live(cell) => (Some(cell), "live"),
+            CellStatus::Live(cell) => match cell {
+                LiveCell::Null => (None, "live"),
+                LiveCell::Output(o) => (Some(o), "live"),
+            },
             CellStatus::Dead => (None, "dead"),
             CellStatus::Unknown => (None, "unknown"),
         };

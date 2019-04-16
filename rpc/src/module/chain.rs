@@ -111,7 +111,7 @@ impl<CS: ChainStore + 'static> ChainRpc for ChainRpcImpl<CS> {
             .shared
             .chain_state()
             .lock()
-            .cell(&(out_point.try_into().map_err(|_| Error::parse_error())?))
+            .get_cell_status(&(out_point.try_into().map_err(|_| Error::parse_error())?))
             .into())
     }
 

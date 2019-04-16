@@ -54,6 +54,12 @@ impl OrphanBlockPool {
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
+
+    pub fn contains(&self, block: &Block) -> bool {
+        self.blocks
+            .read()
+            .contains_key(block.header().parent_hash())
+    }
 }
 
 #[cfg(test)]

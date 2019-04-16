@@ -458,9 +458,9 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
                 if found_error.is_none() {
                     let mut seen_inputs = FnvHashSet::default();
 
-                    let cell_set_diff_cp = OverlayCellProvider::new(&cell_set_diff, chain_state);
+                    let cell_set_overlay = chain_state.new_cell_set_overlay(&cell_set_diff);
                     let block_cp = BlockCellProvider::new(b);
-                    let cell_provider = OverlayCellProvider::new(&block_cp, &cell_set_diff_cp);
+                    let cell_provider = OverlayCellProvider::new(&block_cp, &cell_set_overlay);
 
                     let resolved: Vec<ResolvedTransaction> = b
                         .commit_transactions()
