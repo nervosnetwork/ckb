@@ -12,7 +12,7 @@ use flatbuffers::FlatBufferBuilder;
 use jsonrpc_core::{Error, ErrorCode, Result};
 use jsonrpc_derive::rpc;
 use jsonrpc_types::{Block, BlockTemplate};
-use log::{debug, warn};
+use log::{debug, error, warn};
 use numext_fixed_hash::H256;
 use std::collections::HashSet;
 use std::convert::TryInto;
@@ -99,7 +99,9 @@ impl<CS: ChainStore + 'static> MinerRpc for MinerRpcImpl<CS> {
                 );
                 Ok(Some(block.header().hash().clone()))
             } else {
-                debug!(target: "rpc", "submit_block process_block {:?}", ret);
+                let chain_state = self.shared.chain_state().lock();
+                error!(target: "rpc", "submit_block process_block {:?}", ret);
+                error!(target: "rpc", "proposal table {}", serde_json::to_string(chain_state.proposal_ids().all()).unwrap());
                 Ok(None)
             }
         } else {
