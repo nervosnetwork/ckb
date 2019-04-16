@@ -32,9 +32,7 @@ impl OutboundPeerService {
     fn attempt_dial_peers(&mut self, count: u32) {
         let attempt_peers = self
             .network_state
-            .peer_store
-            .lock()
-            .peers_to_attempt(count + 5);
+            .with_peer_store(|peer_store| peer_store.peers_to_attempt(count + 5));
         let p2p_control = self.p2p_control.clone();
         trace!(target: "network", "count={}, attempt_peers: {:?}", count, attempt_peers);
         for (peer_id, addr) in attempt_peers
@@ -60,7 +58,9 @@ impl OutboundPeerService {
     }
 
     fn feeler_peers(&mut self, count: u32) {
-        let peers = self.network_state.peer_store.lock().peers_to_feeler(count);
+        let peers = self
+            .network_state
+            .with_peer_store(|peer_store| peer_store.peers_to_feeler(count));
         let p2p_control = self.p2p_control.clone();
         for (peer_id, addr) in peers
             .into_iter()
