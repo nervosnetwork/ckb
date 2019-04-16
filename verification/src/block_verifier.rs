@@ -353,7 +353,7 @@ impl TransactionsVerifier {
         block_reward: Capacity,
         block_median_time_context: M,
         tip_number: BlockNumber,
-        cellbase_maturity: usize,
+        cellbase_maturity: BlockNumber,
     ) -> Result<(), Error>
     where
         M: BlockMedianTimeContext + Sync,
