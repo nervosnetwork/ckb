@@ -8,6 +8,7 @@ use ckb_shared::{shared::Shared, store::ChainStore};
 use ckb_sync::NetworkProtocol;
 use ckb_traits::ChainProvider;
 use ckb_verification::{HeaderResolverWrapper, HeaderVerifier, Verifier};
+use faketime::unix_time_as_millis;
 use flatbuffers::FlatBufferBuilder;
 use jsonrpc_core::{Error, ErrorCode, Result};
 use jsonrpc_derive::rpc;
@@ -81,6 +82,7 @@ impl<CS: ChainStore + 'static> MinerRpc for MinerRpcImpl<CS> {
         if header_verify_ret.is_ok() {
             let ret = self.chain.process_block(Arc::clone(&block));
             if ret.is_ok() {
+                debug!(target: "miner", "[block_relay] announce new block {} {}", block.header().hash(), unix_time_as_millis());
                 // announce new block
                 self.network_controller.with_protocol_context(
                     NetworkProtocol::RELAY as ProtocolId,
