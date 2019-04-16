@@ -12,7 +12,7 @@ use crate::Peer;
 use crate::{
     Behaviour, CKBProtocol, NetworkConfig, ProtocolId, ProtocolVersion, PublicKey, ServiceControl,
 };
-use ckb_util::RwLock;
+use ckb_util::{Mutex, RwLock};
 use fnv::{FnvHashMap, FnvHashSet};
 use futures::sync::mpsc::channel;
 use futures::sync::{mpsc, oneshot};
@@ -22,7 +22,7 @@ use log::{debug, error, info, warn};
 use lru_cache::LruCache;
 use p2p::{
     builder::{MetaBuilder, ServiceBuilder},
-    context::ServiceContext,
+    context::{ServiceContext, SessionContext},
     error::Error as P2pError,
     multiaddr::{self, multihash::Multihash, Multiaddr},
     secio::PeerId,
@@ -64,7 +64,7 @@ pub struct SessionInfo {
 
 pub struct NetworkState {
     peer_registry: RwLock<PeerRegistry>,
-    pub(crate) peer_store: Arc<dyn PeerStore>,
+    pub(crate) peer_store: Mutex<Box<dyn PeerStore>>,
     pub(crate) original_listened_addresses: RwLock<Vec<Multiaddr>>,
     // For avoid repeat failed dial
     pub(crate) failed_dials: RwLock<LruCache<PeerId, Instant>>,
@@ -87,14 +87,14 @@ impl NetworkState {
             .chain(config.public_addresses.iter())
             .map(|addr| (addr.to_owned(), std::u8::MAX))
             .collect();
-        let peer_store: Arc<dyn PeerStore> = {
-            let peer_store =
+        let peer_store: Mutex<Box<dyn PeerStore>> = {
+            let mut peer_store =
                 SqlitePeerStore::file(config.peer_store_path().to_string_lossy().to_string())?;
             let bootnodes = config.bootnodes()?;
             for (peer_id, addr) in bootnodes {
                 peer_store.add_bootnode(peer_id, addr);
             }
-            Arc::new(peer_store)
+            Mutex::new(Box::new(peer_store))
         };
 
         let reserved_peers = config
@@ -103,7 +103,6 @@ impl NetworkState {
             .map(|(peer_id, _)| peer_id.to_owned())
             .collect::<Vec<_>>();
         let peer_registry = PeerRegistry::new(
-            Arc::clone(&peer_store),
             config.max_inbound_peers(),
             config.max_outbound_peers(),
             config.reserved_only,
@@ -135,7 +134,7 @@ impl NetworkState {
 
     pub fn report_peer(&self, peer_id: &PeerId, behaviour: Behaviour) {
         info!(target: "network", "report {:?} because {:?}", peer_id, behaviour);
-        self.peer_store.report(peer_id, behaviour);
+        self.peer_store.lock().report(peer_id, behaviour);
     }
 
     pub fn ban_session(&self, session_id: SessionId, timeout: Duration) {
@@ -152,7 +151,7 @@ impl NetworkState {
         // FIXME: ban_peer by address
         let peer = self.with_peer_registry_mut(|reg| reg.remove_peer_by_peer_id(peer_id));
         if let Some(peer) = peer {
-            self.peer_store.ban_addr(&peer.address, timeout);
+            self.peer_store.lock().ban_addr(&peer.address, timeout);
         }
     }
 
@@ -168,6 +167,34 @@ impl NetworkState {
             }
         }
         target_session_id
+    }
+
+    pub(crate) fn accept_peer(
+        &self,
+        session_context: &SessionContext,
+    ) -> Result<Option<Peer>, Error> {
+        let peer_id = session_context
+            .remote_pubkey
+            .as_ref()
+            .map(PublicKey::peer_id)
+            .expect("Secio must enabled");
+
+        // NOTE: be careful, here easy cause a deadlock
+        let mut peer_store = self.peer_store.lock();
+        let accept_peer_result = {
+            self.peer_registry.write().accept_peer(
+                peer_id.clone(),
+                session_context.address.clone(),
+                session_context.id,
+                session_context.ty,
+                peer_store.as_mut(),
+            )
+        };
+        if accept_peer_result.is_ok() {
+            peer_store.report(&peer_id, Behaviour::Connect);
+            peer_store.update_status(&peer_id, Status::Connected);
+        }
+        accept_peer_result.map_err(Into::into)
     }
 
     pub(crate) fn with_peer_registry<F, T>(&self, callback: F) -> T
@@ -225,7 +252,7 @@ impl NetworkState {
 
     // TODO: A workaround method for `add_node` rpc call, need to re-write it after new p2p lib integration.
     pub fn add_node(&self, peer_id: &PeerId, address: Multiaddr) {
-        if !self.peer_store.add_discovered_addr(peer_id, address) {
+        if !self.peer_store.lock().add_discovered_addr(peer_id, address) {
             warn!(target: "network", "add_node failed {:?}", peer_id);
         }
     }
@@ -330,28 +357,7 @@ impl ServiceHandle for EventHandler {
         // When session disconnect update status anyway
         match event {
             ServiceEvent::SessionOpen { session_context } => {
-                let peer_id = session_context
-                    .remote_pubkey
-                    .as_ref()
-                    .map(PublicKey::peer_id)
-                    .expect("Secio must enabled");
-
-                let accept_peer_result = self.network_state.peer_registry.write().accept_peer(
-                    peer_id.clone(),
-                    session_context.address.clone(),
-                    session_context.id,
-                    session_context.ty,
-                );
-                if accept_peer_result.is_ok() {
-                    self.network_state
-                        .peer_store
-                        .report(&peer_id, Behaviour::Connect);
-                    self.network_state
-                        .peer_store
-                        .update_status(&peer_id, Status::Connected);
-                }
-
-                match accept_peer_result {
+                match self.network_state.accept_peer(&session_context) {
                     Ok(Some(evicted_peer)) => {
                         info!(
                             target: "network",
@@ -380,19 +386,19 @@ impl ServiceHandle for EventHandler {
                 }
             }
             ServiceEvent::SessionClose { session_context } => {
-                if self
+                let peer_exists = self
                     .network_state
                     .peer_registry
                     .write()
                     .remove_peer(session_context.id)
-                    .is_some()
-                {
+                    .is_some();
+                if peer_exists {
                     let peer_id = session_context
                         .remote_pubkey
                         .as_ref()
                         .map(PublicKey::peer_id)
                         .expect("Secio must enabled");
-                    let peer_store = &self.network_state.peer_store;
+                    let mut peer_store = self.network_state.peer_store.lock();
                     peer_store.report(&peer_id, Behaviour::UnexpectedDisconnect);
                     peer_store.update_status(&peer_id, Status::Disconnected);
                 }
@@ -598,6 +604,7 @@ impl NetworkService {
         let bootnodes = self
             .network_state
             .peer_store
+            .lock()
             .bootnodes(max((config.max_outbound_peers / 2) as u32, 1))
             .clone();
         // dial half bootnodes
@@ -700,7 +707,9 @@ impl NetworkController {
                 (
                     peer.peer_id.clone(),
                     peer.clone(),
-                    self.network_state.peer_store
+                    self.network_state
+                        .peer_store
+                        .lock()
                         .peer_addrs(&peer.peer_id, ADDR_LIMIT)
                         .unwrap_or_default()
                         .into_iter()

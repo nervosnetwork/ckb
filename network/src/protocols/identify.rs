@@ -60,6 +60,7 @@ impl Callback for IdentifyCallback {
             if !self
                 .network_state
                 .peer_store
+                .lock()
                 .add_discovered_addr(&peer_id, addr)
             {
                 debug!(target: "network", "add_discovered_addr failed {:?}", peer_id);
@@ -109,6 +110,7 @@ impl Callback for IdentifyCallback {
             if !self
                 .network_state
                 .peer_store
+                .lock()
                 .add_discovered_addr(local_peer_id, transformed_addr)
             {
                 debug!(target: "network", "add_discovered_addr failed {:?}", local_peer_id);
