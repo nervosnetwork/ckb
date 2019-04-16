@@ -353,6 +353,7 @@ impl TransactionsVerifier {
         block_reward: Capacity,
         block_median_time_context: M,
         tip_number: BlockNumber,
+        cellbase_maturity: BlockNumber,
     ) -> Result<(), Error>
     where
         M: BlockMedianTimeContext + Sync,
@@ -377,10 +378,15 @@ impl TransactionsVerifier {
                         .map_err(|e| Error::Transactions((index, e)))
                         .map(|_| (None, *cycles))
                 } else {
-                    TransactionVerifier::new(&tx, &block_median_time_context, tip_number)
-                        .verify(self.max_cycles)
-                        .map_err(|e| Error::Transactions((index, e)))
-                        .map(|cycles| (Some(tx.transaction.hash()), cycles))
+                    TransactionVerifier::new(
+                        &tx,
+                        &block_median_time_context,
+                        tip_number,
+                        cellbase_maturity,
+                    )
+                    .verify(self.max_cycles)
+                    .map_err(|e| Error::Transactions((index, e)))
+                    .map(|cycles| (Some(tx.transaction.hash()), cycles))
                 }
             })
             .collect::<Result<Vec<_>, _>>()?;

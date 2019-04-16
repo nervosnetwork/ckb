@@ -114,7 +114,7 @@ impl TryFrom<OutPoint> for CoreOutPoint {
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct CellInput {
     pub previous_output: OutPoint,
-    pub valid_since: u64,
+    pub valid_since: String,
     pub args: Vec<Bytes>,
 }
 
@@ -123,7 +123,7 @@ impl From<CoreCellInput> for CellInput {
         let (previous_output, valid_since, args) = core.destruct();
         CellInput {
             previous_output: previous_output.into(),
-            valid_since,
+            valid_since: valid_since.to_string(),
             args: args.into_iter().map(Bytes::new).collect(),
         }
     }
@@ -140,7 +140,7 @@ impl TryFrom<CellInput> for CoreCellInput {
         } = json;
         Ok(CoreCellInput::new(
             previous_output.try_into()?,
-            valid_since,
+            valid_since.parse::<u64>()?,
             args.into_iter().map(Bytes::into_vec).collect(),
         ))
     }

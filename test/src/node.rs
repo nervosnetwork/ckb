@@ -104,31 +104,30 @@ impl Node {
     }
 
     pub fn generate_transaction(&self) -> H256 {
-        let mut rpc = self.rpc_client();
-        let tip_number = rpc
-            .get_tip_block_number()
-            .call()
-            .expect("rpc call get_tip_block_number failed");
-        let block_hash = rpc
-            .get_block_hash(tip_number)
-            .call()
-            .expect("rpc call get_block_hash failed")
-            .expect("get_block_hash result none");
-        let block = rpc
-            .get_block(block_hash)
-            .call()
-            .expect("rpc call get_block failed")
-            .expect("get_block result none");
-        let cellbase: Transaction = block.commit_transactions[0]
+        let block = self.get_tip_block();
+        let cellbase: Transaction = block.commit_transactions()[0]
             .clone()
             .try_into()
             .expect("parse cellbase transaction failed");
+        let mut rpc = self.rpc_client();
         rpc.send_transaction((&self.new_transaction(cellbase.hash())).into())
             .call()
             .expect("rpc call send_transaction failed")
     }
 
     pub fn send_traced_transaction(&self) -> H256 {
+        let block = self.get_tip_block();
+        let cellbase: Transaction = block.commit_transactions()[0]
+            .clone()
+            .try_into()
+            .expect("parse cellbase transaction failed");
+        let mut rpc = self.rpc_client();
+        rpc.trace_transaction((&self.new_transaction(cellbase.hash())).into())
+            .call()
+            .expect("rpc call send_transaction failed")
+    }
+
+    pub fn get_tip_block(&self) -> Block {
         let mut rpc = self.rpc_client();
         let tip_number = rpc
             .get_tip_block_number()
@@ -139,18 +138,12 @@ impl Node {
             .call()
             .expect("rpc call get_block_hash failed")
             .expect("get_block_hash result none");
-        let block = rpc
-            .get_block(block_hash)
+        rpc.get_block(block_hash)
             .call()
             .expect("rpc call get_block failed")
-            .expect("get_block result none");
-        let cellbase: Transaction = block.commit_transactions[0]
-            .clone()
+            .expect("get_block result none")
             .try_into()
-            .expect("parse cellbase transaction failed");
-        rpc.trace_transaction((&self.new_transaction(cellbase.hash())).into())
-            .call()
-            .expect("rpc call send_transaction failed")
+            .expect("block")
     }
 
     pub fn new_block(&self) -> Block {
