@@ -197,6 +197,7 @@ impl Stream for DiscoveryService {
                             if !self
                                 .network_state
                                 .peer_store
+                                .lock()
                                 .add_discovered_addr(&peer_id, addr)
                             {
                                 debug!(target: "network", "add_discovered_addr failed {:?}", peer_id);
@@ -216,6 +217,7 @@ impl Stream for DiscoveryService {
                 let addrs = self
                     .network_state
                     .peer_store
+                    .lock()
                     .random_peers(n as u32)
                     .into_iter()
                     .filter_map(|(peer_id, mut addr)| {

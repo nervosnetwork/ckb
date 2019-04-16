@@ -5,13 +5,11 @@ use log::debug;
 use p2p::{multiaddr::Multiaddr, SessionId};
 use rand::seq::SliceRandom;
 use rand::thread_rng;
-use std::sync::Arc;
 
 pub(crate) const EVICTION_PROTECT_PEERS: usize = 8;
 
 pub struct PeerRegistry {
     peers: FnvHashMap<SessionId, Peer>,
-    peer_store: Arc<dyn PeerStore>,
     // max inbound limitation
     max_inbound: u32,
     // max outbound limitation
@@ -42,7 +40,6 @@ where
 
 impl PeerRegistry {
     pub fn new(
-        peer_store: Arc<dyn PeerStore>,
         max_inbound: u32,
         max_outbound: u32,
         reserved_only: bool,
@@ -55,7 +52,6 @@ impl PeerRegistry {
         }
         PeerRegistry {
             peers: FnvHashMap::with_capacity_and_hasher(20, Default::default()),
-            peer_store,
             reserved_peers: reserved_peers_set,
             max_inbound,
             max_outbound,
@@ -69,6 +65,7 @@ impl PeerRegistry {
         remote_addr: Multiaddr,
         session_id: SessionId,
         session_type: SessionType,
+        peer_store: &mut PeerStore,
     ) -> Result<Option<Peer>, PeerError> {
         if self.peers.contains_key(&session_id) {
             return Err(PeerError::SessionExists(session_id));
@@ -85,7 +82,7 @@ impl PeerRegistry {
                 return Err(PeerError::NonReserved);
             }
             // ban_list lock acquired
-            if self.peer_store.is_banned(&peer_id) {
+            if peer_store.is_banned(&peer_id) {
                 return Err(PeerError::Banned);
             }
 
@@ -93,7 +90,7 @@ impl PeerRegistry {
             // check peers connection limitation
             if session_type.is_inbound() {
                 if connection_status.unreserved_inbound >= self.max_inbound {
-                    if let Some(evicted_session) = self.try_evict_inbound_peer() {
+                    if let Some(evicted_session) = self.try_evict_inbound_peer(peer_store) {
                         evicted_peer = self.remove_peer(evicted_session);
                     } else {
                         return Err(PeerError::ReachMaxInboundLimit);
@@ -103,8 +100,7 @@ impl PeerRegistry {
                 return Err(PeerError::ReachMaxOutboundLimit);
             }
         }
-        self.peer_store
-            .add_connected_peer(&peer_id, remote_addr.clone(), session_type);
+        peer_store.add_connected_peer(&peer_id, remote_addr.clone(), session_type);
         let peer = Peer::new(session_id, session_type, peer_id, remote_addr, is_reserved);
         self.peers.insert(session_id, peer);
         Ok(evicted_peer)
@@ -112,7 +108,7 @@ impl PeerRegistry {
 
     // When have inbound connection, we try evict a inbound peer
     // TODO: revisit this after find out what's bitcoin way
-    fn try_evict_inbound_peer(&self) -> Option<SessionId> {
+    fn try_evict_inbound_peer(&self, peer_store: &PeerStore) -> Option<SessionId> {
         let mut candidate_peers = {
             self.peers
                 .values()
@@ -125,14 +121,8 @@ impl PeerRegistry {
             &mut candidate_peers,
             EVICTION_PROTECT_PEERS,
             |peer1, peer2| {
-                let peer1_score = self
-                    .peer_store
-                    .peer_score(&peer1.peer_id)
-                    .unwrap_or_default();
-                let peer2_score = self
-                    .peer_store
-                    .peer_score(&peer2.peer_id)
-                    .unwrap_or_default();
+                let peer1_score = peer_store.peer_score(&peer1.peer_id).unwrap_or_default();
+                let peer2_score = peer_store.peer_score(&peer2.peer_id).unwrap_or_default();
                 peer1_score.cmp(&peer2_score)
             },
         );
@@ -197,11 +187,7 @@ impl PeerRegistry {
         // randomly evict a lowest scored peer
         evict_group
             .iter()
-            .min_by_key(|peer| {
-                self.peer_store
-                    .peer_score(&peer.peer_id)
-                    .unwrap_or_default()
-            })
+            .min_by_key(|peer| peer_store.peer_score(&peer.peer_id).unwrap_or_default())
             .map(|peer| {
                 debug!(target: "network", "evict inbound peer {:?}", peer.peer_id);
                 peer.session_id
