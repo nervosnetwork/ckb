@@ -21,7 +21,6 @@ impl OutboundPeerService {
         p2p_control: ServiceControl,
         try_connect_interval: Duration,
     ) -> Self {
-        debug!(target: "network", "outbound peer service start, interval: {:?}", try_connect_interval);
         OutboundPeerService {
             network_state,
             p2p_control,
