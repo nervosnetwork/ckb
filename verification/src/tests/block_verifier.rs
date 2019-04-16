@@ -6,9 +6,7 @@ use ckb_core::block::BlockBuilder;
 use ckb_core::script::Script;
 use ckb_core::transaction::{CellInput, CellOutput, OutPoint, Transaction, TransactionBuilder};
 use ckb_core::Capacity;
-use ckb_shared::error::SharedError;
 use numext_fixed_hash::H256;
-use std::collections::HashMap;
 
 fn create_cellbase_transaction_with_capacity(capacity: Capacity) -> Transaction {
     TransactionBuilder::default()
@@ -51,19 +49,14 @@ pub fn test_block_without_cellbase() {
 
 #[test]
 pub fn test_block_with_one_cellbase_at_first() {
-    let mut transaction_fees = HashMap::<H256, Result<Capacity, SharedError>>::new();
     let transaction = create_normal_transaction();
-    transaction_fees.insert(transaction.hash().clone(), Ok(0));
 
     let block = BlockBuilder::default()
         .commit_transaction(create_cellbase_transaction())
         .commit_transaction(transaction)
         .build();
 
-    let provider = DummyChainProvider {
-        block_reward: 100,
-        transaction_fees,
-    };
+    let provider = DummyChainProvider { block_reward: 100 };
 
     let verifier = CellbaseVerifier::new(provider);
     assert!(verifier.verify(&block).is_ok());
@@ -99,19 +92,14 @@ pub fn test_block_with_two_cellbases() {
 
 #[test]
 pub fn test_cellbase_with_less_reward() {
-    let mut transaction_fees = HashMap::<H256, Result<Capacity, SharedError>>::new();
     let transaction = create_normal_transaction();
-    transaction_fees.insert(transaction.hash().clone(), Ok(0));
 
     let block = BlockBuilder::default()
         .commit_transaction(create_cellbase_transaction_with_capacity(50))
         .commit_transaction(transaction)
         .build();
 
-    let provider = DummyChainProvider {
-        block_reward: 100,
-        transaction_fees,
-    };
+    let provider = DummyChainProvider { block_reward: 100 };
 
     let verifier = CellbaseVerifier::new(provider);
     assert!(verifier.verify(&block).is_ok());
@@ -119,19 +107,14 @@ pub fn test_cellbase_with_less_reward() {
 
 #[test]
 pub fn test_cellbase_with_fee() {
-    let mut transaction_fees = HashMap::<H256, Result<Capacity, SharedError>>::new();
     let transaction = create_normal_transaction();
-    transaction_fees.insert(transaction.hash().clone(), Ok(10));
 
     let block = BlockBuilder::default()
         .commit_transaction(create_cellbase_transaction_with_capacity(110))
         .commit_transaction(transaction)
         .build();
 
-    let provider = DummyChainProvider {
-        block_reward: 100,
-        transaction_fees,
-    };
+    let provider = DummyChainProvider { block_reward: 100 };
 
     let verifier = CellbaseVerifier::new(provider);
     assert!(verifier.verify(&block).is_ok());
@@ -140,12 +123,8 @@ pub fn test_cellbase_with_fee() {
 #[test]
 pub fn test_empty_transactions() {
     let block = BlockBuilder::default().build();
-    let transaction_fees = HashMap::<H256, Result<Capacity, SharedError>>::new();
 
-    let provider = DummyChainProvider {
-        block_reward: 150,
-        transaction_fees,
-    };
+    let provider = DummyChainProvider { block_reward: 150 };
 
     let full_verifier = BlockVerifier::new(provider);
     // short-circuit, Empty check first
