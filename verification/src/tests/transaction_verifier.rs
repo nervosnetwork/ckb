@@ -1,5 +1,6 @@
 use super::super::transaction_verifier::{
-    CapacityVerifier, DuplicateInputsVerifier, EmptyVerifier, NullVerifier, ValidSinceVerifier,
+    CapacityVerifier, DuplicateInputsVerifier, EmptyVerifier, MaturityVerifier, NullVerifier,
+    ValidSinceVerifier,
 };
 use crate::error::TransactionError;
 use ckb_core::cell::ResolvedTransaction;
@@ -42,6 +43,7 @@ pub fn test_capacity_outofbound() {
         input_cells: vec![CellStatus::Live(CellMeta {
             cell_output: CellOutput::new(50, Vec::new(), Script::default(), None),
             block_number: None,
+            cellbase: false,
         })],
     };
     let verifier = CapacityVerifier::new(&rtx);
@@ -50,6 +52,37 @@ pub fn test_capacity_outofbound() {
         verifier.verify().err(),
         Some(TransactionError::CapacityOverflow)
     );
+}
+
+#[test]
+pub fn test_cellbase_maturity() {
+    let transaction = TransactionBuilder::default()
+        .output(CellOutput::new(50, vec![1; 51], Script::default(), None))
+        .build();
+
+    let rtx = ResolvedTransaction {
+        transaction,
+        dep_cells: Vec::new(),
+        input_cells: vec![CellStatus::Live(CellMeta {
+            cell_output: CellOutput::new(50, Vec::new(), Script::default(), None),
+            block_number: Some(30),
+            cellbase: true,
+        })],
+    };
+
+    let tip_number = 70;
+    let cellbase_maturity = 100;
+    let verifier = MaturityVerifier::new(&rtx, tip_number, cellbase_maturity);
+
+    assert_eq!(
+        verifier.verify().err(),
+        Some(TransactionError::CellbaseImmaturity)
+    );
+
+    let tip_number = 130;
+    let verifier = MaturityVerifier::new(&rtx, tip_number, cellbase_maturity);
+
+    assert!(verifier.verify().is_ok());
 }
 
 #[test]
@@ -68,10 +101,12 @@ pub fn test_capacity_invalid() {
             CellStatus::Live(CellMeta {
                 cell_output: CellOutput::new(49, Vec::new(), Script::default(), None),
                 block_number: None,
+                cellbase: false,
             }),
             CellStatus::Live(CellMeta {
                 cell_output: CellOutput::new(100, Vec::new(), Script::default(), None),
                 block_number: None,
+                cellbase: false,
             }),
         ],
     };
@@ -141,6 +176,7 @@ pub fn test_valid_since() {
         input_cells: vec![CellStatus::Live(CellMeta {
             cell_output: CellOutput::new(50, Vec::new(), Script::default(), None),
             block_number: Some(1),
+            cellbase: false,
         })],
     };
 
@@ -168,6 +204,7 @@ pub fn test_valid_since() {
         input_cells: vec![CellStatus::Live(CellMeta {
             cell_output: CellOutput::new(50, Vec::new(), Script::default(), None),
             block_number: Some(1),
+            cellbase: false,
         })],
     };
 
@@ -195,6 +232,7 @@ pub fn test_valid_since() {
         input_cells: vec![CellStatus::Live(CellMeta {
             cell_output: CellOutput::new(50, Vec::new(), Script::default(), None),
             block_number: Some(1),
+            cellbase: false,
         })],
     };
 
@@ -230,6 +268,7 @@ pub fn test_valid_since() {
         input_cells: vec![CellStatus::Live(CellMeta {
             cell_output: CellOutput::new(50, Vec::new(), Script::default(), None),
             block_number: Some(1),
+            cellbase: false,
         })],
     };
 

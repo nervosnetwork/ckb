@@ -10,6 +10,13 @@ use std::slice;
 pub struct CellMeta {
     pub cell_output: CellOutput,
     pub block_number: Option<u64>,
+    pub cellbase: bool,
+}
+
+impl CellMeta {
+    pub fn is_cellbase(&self) -> bool {
+        self.cellbase
+    }
 }
 
 #[derive(Clone, PartialEq, Debug)]
@@ -123,6 +130,7 @@ impl<'a> CellProvider for BlockCellProvider<'a> {
                 Some(x) => CellStatus::Live(CellMeta {
                     cell_output: x.clone(),
                     block_number: Some(self.block.header().number()),
+                    cellbase: *i == 0,
                 }),
                 None => CellStatus::Unknown,
             }
@@ -256,6 +264,7 @@ mod tests {
                 lock: Script::default(),
                 type_: None,
             },
+            cellbase: false,
         };
 
         db.cells.insert(p1.clone(), Some(o.clone()));

@@ -114,6 +114,11 @@ impl Consensus {
         self
     }
 
+    pub fn set_cellbase_maturity(mut self, cellbase_maturity: usize) -> Self {
+        self.cellbase_maturity = cellbase_maturity;
+        self
+    }
+
     pub fn genesis_block(&self) -> &Block {
         &self.genesis_block
     }

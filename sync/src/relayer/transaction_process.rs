@@ -81,7 +81,8 @@ impl<'a, CS: ChainStore> TransactionProcess<'a, CS> {
             Err(PoolError::InvalidTx(TransactionError::UnknownInput))
             | Err(PoolError::InvalidTx(TransactionError::Conflict))
             | Err(PoolError::Duplicate)
-            | Err(PoolError::InvalidTx(TransactionError::Immature)) => {
+            | Err(PoolError::InvalidTx(TransactionError::Immature))
+            | Err(PoolError::InvalidTx(TransactionError::CellbaseImmaturity)) => {
                 // this error may occured when peer's tip is different with us,
                 // we can't proof peer is bad so just ignore this
                 debug!(target: "relay", "peer {} relay a conflict or missing input tx: {:?}", self.peer, tx);
