@@ -64,7 +64,7 @@ pub struct SessionInfo {
 
 pub struct NetworkState {
     peer_registry: RwLock<PeerRegistry>,
-    pub(crate) peer_store: Mutex<Box<dyn PeerStore>>,
+    peer_store: Mutex<Box<dyn PeerStore>>,
     pub(crate) original_listened_addresses: RwLock<Vec<Multiaddr>>,
     // For avoid repeat failed dial
     pub(crate) failed_dials: RwLock<LruCache<PeerId, Instant>>,
@@ -175,7 +175,8 @@ impl NetworkState {
             .map(PublicKey::peer_id)
             .expect("Secio must enabled");
 
-        // NOTE: be careful, here easy cause a deadlock
+        // NOTE: be careful, here easy cause a deadlock,
+        //    because peer_store's lock scope across peer_registry's lock scope
         let mut peer_store = self.peer_store.lock();
         let accept_peer_result = {
             self.peer_registry.write().accept_peer(
@@ -206,6 +207,20 @@ impl NetworkState {
         callback(&mut self.peer_registry.write())
     }
 
+    pub(crate) fn with_peer_store<F, T>(&self, callback: F) -> T
+    where
+        F: FnOnce(&PeerStore) -> T,
+    {
+        callback(self.peer_store.lock().as_ref())
+    }
+
+    pub(crate) fn with_peer_store_mut<F, T>(&self, callback: F) -> T
+    where
+        F: FnOnce(&mut PeerStore) -> T,
+    {
+        callback(self.peer_store.lock().as_mut())
+    }
+
     pub fn local_peer_id(&self) -> &PeerId {
         &self.local_peer_id
     }
@@ -219,8 +234,8 @@ impl NetworkState {
     }
 
     pub(crate) fn listened_addresses(&self, count: usize) -> Vec<(Multiaddr, u8)> {
-        let listened_addresses = self.listened_addresses.read();
-        listened_addresses
+        self.listened_addresses
+            .read()
             .iter()
             .take(count)
             .map(|(addr, score)| (addr.to_owned(), *score))
@@ -393,8 +408,9 @@ impl ServiceHandle for EventHandler {
                         .as_ref()
                         .map(PublicKey::peer_id)
                         .expect("Secio must enabled");
-                    let peer_store = self.network_state.peer_store.lock();
-                    peer_store.update_status(&peer_id, Status::Disconnected);
+                    self.network_state.with_peer_store_mut(|peer_store| {
+                        peer_store.update_status(&peer_id, Status::Disconnected);
+                    })
                 }
             }
             _ => {}
@@ -595,12 +611,9 @@ impl NetworkService {
                 .dial_all(self.p2p_service.control(), &peer_id, addr);
         }
 
-        let bootnodes = self
-            .network_state
-            .peer_store
-            .lock()
-            .bootnodes(max((config.max_outbound_peers / 2) as u32, 1))
-            .clone();
+        let bootnodes = self.network_state.with_peer_store(|peer_store| {
+            peer_store.bootnodes(max((config.max_outbound_peers / 2) as u32, 1))
+        });
         // dial half bootnodes
         for (peer_id, addr) in bootnodes {
             debug!(target: "network", "dial bootnode {:?} {:?}", peer_id, addr);
@@ -689,30 +702,25 @@ impl NetworkController {
     pub fn connected_peers(&self) -> Vec<(PeerId, Peer, MultiaddrList)> {
         let peers = self
             .network_state
-            .peer_registry
-            .read()
-            .peers()
-            .values()
-            .cloned()
-            .collect::<Vec<_>>();
-        peers
-            .into_iter()
-            .map(|peer| {
-                (
-                    peer.peer_id.clone(),
-                    peer.clone(),
-                    self.network_state
-                        .peer_store
-                        .lock()
-                        .peer_addrs(&peer.peer_id, ADDR_LIMIT)
-                        .unwrap_or_default()
-                        .into_iter()
-                    // FIXME how to return address score?
-                        .map(|address| (address, 1))
-                        .collect(),
-                )
-            })
-            .collect()
+            .with_peer_registry(|reg| reg.peers().values().cloned().collect::<Vec<_>>());
+        self.network_state.with_peer_store(|peer_store| {
+            peers
+                .into_iter()
+                .map(|peer| {
+                    (
+                        peer.peer_id.clone(),
+                        peer.clone(),
+                        peer_store
+                            .peer_addrs(&peer.peer_id, ADDR_LIMIT)
+                            .unwrap_or_default()
+                            .into_iter()
+                        // FIXME how to return address score?
+                            .map(|address| (address, 1))
+                            .collect(),
+                    )
+                })
+                .collect()
+        })
     }
 
     pub fn broadcast(&self, proto_id: ProtocolId, data: Vec<u8>) {
