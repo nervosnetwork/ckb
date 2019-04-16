@@ -1,4 +1,4 @@
-use ckb_db::kvdb::Error as DBError;
+use ckb_db::Error as DBError;
 use failure::Fail;
 
 #[derive(Debug, PartialEq, Clone, Eq, Fail)]

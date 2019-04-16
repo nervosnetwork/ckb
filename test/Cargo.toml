@@ -10,9 +10,9 @@ jsonrpc-types = { path = "../util/jsonrpc-types" }
 logger = { path = "../util/logger" }
 ckb-core= { path = "../core" }
 ckb-network = { path = "../network" }
-ckb-shared = { path = "../shared" }
 ckb-sync = { path = "../sync" }
 ckb-protocol = { path = "../protocol"}
+ckb-util = { path = "../util" }
 numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 tempfile = "3.0"
 jsonrpc-client-core = "0.5.0"

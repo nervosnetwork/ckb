@@ -9,7 +9,6 @@ use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
-mod filter;
 #[cfg(not(disable_faketime))]
 mod relayer;
 #[cfg(not(disable_faketime))]

@@ -4,6 +4,7 @@ use ckb_core::header::{BlockNumber, Header, RawHeader, Seal};
 use hash::blake2b_256;
 use numext_fixed_hash::H256;
 use serde_derive::Deserialize;
+use std::fmt;
 use std::sync::Arc;
 
 mod cuckoo;
@@ -17,6 +18,15 @@ pub use crate::dummy::DummyPowEngine;
 pub enum Pow {
     Dummy,
     Cuckoo(CuckooParams),
+}
+
+impl fmt::Display for Pow {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Pow::Dummy => write!(f, "Dummy"),
+            Pow::Cuckoo(params) => write!(f, "Cuckoo{}", params),
+        }
+    }
 }
 
 impl Pow {
@@ -38,10 +48,9 @@ fn pow_message(pow_hash: &[u8], nonce: u64) -> [u8; 40] {
 pub trait PowEngine: Send + Sync {
     fn init(&self, number: BlockNumber);
 
-    #[allow(clippy::op_ref)]
     fn verify_header(&self, header: &Header) -> bool {
         let proof_hash: H256 = blake2b_256(&header.proof()).into();
-        if &boundary_to_difficulty(&proof_hash) < header.difficulty() {
+        if boundary_to_difficulty(&proof_hash).lt(header.difficulty()) {
             return false;
         }
 

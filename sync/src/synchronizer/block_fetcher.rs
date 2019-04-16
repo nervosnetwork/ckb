@@ -6,7 +6,7 @@ use crate::{
 };
 use ckb_core::header::Header;
 use ckb_network::PeerIndex;
-use ckb_shared::index::ChainIndex;
+use ckb_shared::store::ChainStore;
 use ckb_traits::ChainProvider;
 use ckb_util::try_option;
 use faketime::unix_time_as_millis;
@@ -15,18 +15,18 @@ use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 use std::cmp;
 
-pub struct BlockFetcher<CI: ChainIndex> {
-    synchronizer: Synchronizer<CI>,
+pub struct BlockFetcher<CS: ChainStore> {
+    synchronizer: Synchronizer<CS>,
     peer: PeerIndex,
     tip_header: Header,
     total_difficulty: U256,
 }
 
-impl<CI> BlockFetcher<CI>
+impl<CS> BlockFetcher<CS>
 where
-    CI: ChainIndex,
+    CS: ChainStore,
 {
-    pub fn new(synchronizer: Synchronizer<CI>, peer: PeerIndex) -> Self {
+    pub fn new(synchronizer: Synchronizer<CS>, peer: PeerIndex) -> Self {
         let (tip_header, total_difficulty) = {
             let chain_state = synchronizer.shared.chain_state().lock();
             (
@@ -48,7 +48,7 @@ where
             .or_insert_with(Default::default);
 
         if inflight.timestamp < unix_time_as_millis().saturating_sub(BLOCK_DOWNLOAD_TIMEOUT) {
-            debug!(target: "sync", "[block downloader] inflight block download timeout");
+            trace!(target: "sync", "[block downloader] inflight block download timeout");
             inflight.clear();
         }
 
@@ -123,7 +123,7 @@ where
     }
 
     pub fn fetch(self) -> Option<Vec<H256>> {
-        debug!(target: "sync", "[block downloader] BlockFetcher process");
+        trace!(target: "sync", "[block downloader] BlockFetcher process");
 
         if self.initial_and_check_inflight() {
             debug!(target: "sync", "[block downloader] inflight count reach limit");
@@ -133,7 +133,7 @@ where
         let best_known_header = match self.peer_best_known_header() {
             Some(best_known_header) => best_known_header,
             _ => {
-                debug!(target: "sync", "[block downloader] peer_best_known_header not found peer={}", self.peer);
+                trace!(target: "sync", "[block downloader] peer_best_known_header not found peer={}", self.peer);
                 return None;
             }
         };

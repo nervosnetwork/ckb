@@ -3,27 +3,27 @@ use crate::MAX_LOCATOR_SIZE;
 use ckb_core::header::Header;
 use ckb_network::{Behaviour, CKBProtocolContext, PeerIndex};
 use ckb_protocol::{cast, GetHeaders, SyncMessage};
-use ckb_shared::index::ChainIndex;
-use ckb_util::TryInto;
+use ckb_shared::store::ChainStore;
 use failure::Error as FailureError;
 use flatbuffers::FlatBufferBuilder;
 use log::{debug, info, warn};
 use numext_fixed_hash::H256;
+use std::convert::TryInto;
 
-pub struct GetHeadersProcess<'a, CI: ChainIndex + 'a> {
+pub struct GetHeadersProcess<'a, CS: ChainStore + 'a> {
     message: &'a GetHeaders<'a>,
-    synchronizer: &'a Synchronizer<CI>,
+    synchronizer: &'a Synchronizer<CS>,
     peer: PeerIndex,
     nc: &'a mut CKBProtocolContext,
 }
 
-impl<'a, CI> GetHeadersProcess<'a, CI>
+impl<'a, CS> GetHeadersProcess<'a, CS>
 where
-    CI: ChainIndex + 'a,
+    CS: ChainStore + 'a,
 {
     pub fn new(
         message: &'a GetHeaders,
-        synchronizer: &'a Synchronizer<CI>,
+        synchronizer: &'a Synchronizer<CS>,
         peer: PeerIndex,
         nc: &'a mut CKBProtocolContext,
     ) -> Self {

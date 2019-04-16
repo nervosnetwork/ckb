@@ -1,9 +1,5 @@
-use bloom_filters::{
-    BloomFilter, ClassicBloomFilter, DefaultBuildHashKernels, UpdatableBloomFilter,
-};
 use ckb_core::block::Block;
 use ckb_core::header::{BlockNumber, Header};
-use ckb_core::transaction::Transaction;
 use ckb_network::PeerIndex;
 use ckb_util::Mutex;
 use ckb_util::RwLock;
@@ -14,7 +10,6 @@ use lru_cache::LruCache;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 use std::collections::hash_map::Entry;
-use std::hash::{BuildHasher, Hasher};
 
 const FILTER_SIZE: usize = 500;
 
@@ -91,7 +86,6 @@ pub struct Peers {
     pub blocks_inflight: RwLock<FnvHashMap<PeerIndex, BlocksInflight>>,
     pub best_known_headers: RwLock<FnvHashMap<PeerIndex, HeaderView>>,
     pub last_common_headers: RwLock<FnvHashMap<PeerIndex, Header>>,
-    pub transaction_filters: RwLock<FnvHashMap<PeerIndex, TransactionFilter>>,
     pub known_txs: Mutex<KnownFilter>,
     pub known_blocks: Mutex<KnownFilter>,
 }
@@ -257,73 +251,5 @@ impl HeaderView {
 
     pub fn into_inner(self) -> Header {
         self.inner
-    }
-}
-
-pub struct TransactionFilter {
-    filter: ClassicBloomFilter<DefaultBuildHashKernels<HighLowBytesBuildHasher>>,
-}
-
-impl TransactionFilter {
-    pub fn new(raw_data: &[u8], k: usize, hash_seed: usize) -> Self {
-        Self {
-            filter: ClassicBloomFilter::with_raw_data(
-                raw_data,
-                k,
-                DefaultBuildHashKernels::new(hash_seed, HighLowBytesBuildHasher),
-            ),
-        }
-    }
-
-    pub fn update(&mut self, raw_data: &[u8]) {
-        self.filter.update(raw_data)
-    }
-
-    pub fn insert(&mut self, hash: &H256) {
-        self.filter.insert(hash);
-    }
-
-    pub fn contains(&self, transaction: &Transaction) -> bool {
-        self.filter.contains(&transaction.hash())
-            || transaction
-                .inputs()
-                .iter()
-                .any(|input| self.filter.contains(&input.previous_output.hash))
-            || transaction
-                .outputs()
-                .iter()
-                .any(|output| self.filter.contains(&output.lock.hash()))
-    }
-}
-
-struct HighLowBytesBuildHasher;
-
-impl BuildHasher for HighLowBytesBuildHasher {
-    type Hasher = HighLowBytesHasher;
-
-    fn build_hasher(&self) -> Self::Hasher {
-        HighLowBytesHasher(0)
-    }
-}
-
-/// a hasher which only accepts H256 bytes and use high / low bytes as hash value
-struct HighLowBytesHasher(u64);
-
-impl Hasher for HighLowBytesHasher {
-    fn write(&mut self, bytes: &[u8]) {
-        if bytes.len() == 32 {
-            self.0 = (u64::from(bytes[0]) << 56)
-                + (u64::from(bytes[1]) << 48)
-                + (u64::from(bytes[2]) << 40)
-                + (u64::from(bytes[3]) << 32)
-                + (u64::from(bytes[28]) << 24)
-                + (u64::from(bytes[29]) << 16)
-                + (u64::from(bytes[30]) << 8)
-                + u64::from(bytes[31]);
-        }
-    }
-
-    fn finish(&self) -> u64 {
-        self.0
     }
 }

@@ -6,7 +6,6 @@ authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
 
 [dependencies]
-bincode = "1.1"
 ckb-util = { path = "../util" }
 rocksdb = "0.12.1"
 fnv = "1.0.3"
@@ -14,6 +13,8 @@ serde = "1.0"
 serde_derive = "1.0"
 serde_json = "1.0"
 failure = "0.1.5"
+log = "0.4"
+lru-cache = { git = "https://github.com/nervosnetwork/lru-cache" }
 
 [dev-dependencies]
 tempfile = "3.0"

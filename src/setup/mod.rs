@@ -12,6 +12,7 @@ use ckb_chain_spec::{consensus::Consensus, ChainSpec};
 use ckb_instrument::Format;
 use ckb_resource::ResourceLocator;
 use clap::{value_t, ArgMatches};
+use log::info;
 use logger::LoggerInitGuard;
 use std::path::PathBuf;
 
@@ -19,6 +20,7 @@ pub struct Setup {
     subcommand_name: String,
     resource_locator: ResourceLocator,
     config: AppConfig,
+    is_sentry_enabled: bool,
 }
 
 pub struct SetupGuard {
@@ -40,19 +42,41 @@ impl Setup {
 
         let resource_locator = locator_from_matches(matches)?;
         let config = AppConfig::load_for_subcommand(&resource_locator, subcommand_name)?;
+        if config.is_bundled() {
+            eprintln!("Not a CKB directory, initialize one with `ckb init`.");
+            return Err(ExitCode::Config);
+        }
+
+        let is_sentry_enabled = is_daemon(&subcommand_name) && config.sentry().is_enabled();
 
         Ok(Setup {
             subcommand_name: subcommand_name.to_string(),
             resource_locator,
             config,
+            is_sentry_enabled,
         })
     }
 
     pub fn setup_app(&self) -> Result<SetupGuard, ExitCode> {
         let logger_guard = logger::init(self.config.logger().clone())?;
-        let sentry_guard = if is_daemon(&self.subcommand_name) {
-            Some(self.config.sentry().init())
+
+        let sentry_guard = if self.is_sentry_enabled {
+            let sentry_config = self.config.sentry();
+
+            info!(target: "sentry", "**Notice**: \
+                The ckb process will send stack trace to sentry on Rust panics. \
+                This is enabled by default before mainnet, which can be opted out by setting \
+                the option `dsn` to empty in the config file. The DSN is now {}", sentry_config.dsn);
+
+            let guard = sentry_config.init();
+
+            sentry::configure_scope(|scope| {
+                scope.set_tag("subcommand", &self.subcommand_name);
+            });
+
+            Some(guard)
         } else {
+            info!(target: "sentry", "sentry is disabled");
             None
         };
 
@@ -137,11 +161,32 @@ impl Setup {
     }
 
     fn chain_spec(&self) -> Result<ChainSpec, ExitCode> {
-        self.config.chain_spec(&self.resource_locator)
+        let result = self.config.chain_spec(&self.resource_locator);
+
+        if let Ok(spec) = &result {
+            if self.is_sentry_enabled {
+                sentry::configure_scope(|scope| {
+                    scope.set_tag("spec.name", &spec.name);
+                    scope.set_tag("spec.pow", &spec.pow);
+                });
+            }
+        }
+
+        result
     }
 
     fn consensus(&self) -> Result<Consensus, ExitCode> {
-        consensus_from_spec(&self.chain_spec()?)
+        let result = consensus_from_spec(&self.chain_spec()?);
+
+        if let Ok(consensus) = &result {
+            if self.is_sentry_enabled {
+                sentry::configure_scope(|scope| {
+                    scope.set_tag("genesis", consensus.genesis_block.header().hash());
+                });
+            }
+        }
+
+        result
     }
 }
 

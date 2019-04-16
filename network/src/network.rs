@@ -11,7 +11,7 @@ use crate::protocols::{feeler::Feeler, DefaultCKBProtocolContext};
 use crate::Peer;
 use crate::{
     Behaviour, CKBProtocol, CKBProtocolContext, NetworkConfig, PeerIndex, ProtocolId,
-    ProtocolVersion, ServiceContext, ServiceControl, SessionId, SessionType,
+    ProtocolVersion, PublicKey, ServiceContext, ServiceControl, SessionId, SessionType,
 };
 use ckb_util::RwLock;
 use fnv::{FnvHashMap, FnvHashSet};
@@ -216,6 +216,7 @@ impl NetworkState {
         let original_listened_addresses = self.original_listened_addresses.read();
         self.listened_addresses(max_urls.saturating_sub(original_listened_addresses.len()))
             .into_iter()
+            .filter(|(addr, _)| !original_listened_addresses.contains(addr))
             .chain(
                 original_listened_addresses
                     .iter()
@@ -389,7 +390,7 @@ impl ServiceHandle for EventHandler {
             let peer_id = session_context
                 .remote_pubkey
                 .as_ref()
-                .map(|pubkey| pubkey.peer_id())
+                .map(PublicKey::peer_id)
                 .expect("Secio must enabled");
 
             let peer_store = self.network_state.peer_store();
@@ -412,7 +413,7 @@ impl ServiceHandle for EventHandler {
             let peer_id = session_context
                 .remote_pubkey
                 .as_ref()
-                .map(|pubkey| pubkey.peer_id())
+                .map(PublicKey::peer_id)
                 .expect("Secio must enabled");
             if let Ok(parsed_version) = version.parse::<ProtocolVersion>() {
                 match self.network_state.accept_connection(
@@ -450,7 +451,7 @@ pub struct NetworkService {
     p2p_service: Service<EventHandler>,
     network_state: Arc<NetworkState>,
     // Background services
-    bg_services: Vec<Box<dyn Future<Item = (), Error = ()> + Send + 'static>>,
+    bg_services: Vec<Box<dyn Future<Item = (), Error = ()> + Send>>,
 }
 
 impl NetworkService {
@@ -462,14 +463,16 @@ impl NetworkService {
         // TODO: how to deny banned node to open those protocols?
         // Ping protocol
         let (ping_sender, ping_receiver) = channel(std::u8::MAX as usize);
+        let ping_interval = Duration::from_secs(config.ping_interval_secs);
+        let ping_timeout = Duration::from_secs(config.ping_timeout_secs);
+
         let ping_meta = MetaBuilder::default()
             .id(PING_PROTOCOL_ID)
             .service_handle(move || {
                 ProtocolHandle::Both(Box::new(PingHandler::new(
-                    PING_PROTOCOL_ID,
-                    Duration::from_secs(config.ping_interval_secs),
-                    Duration::from_secs(config.ping_timeout_secs),
-                    ping_sender,
+                    ping_interval,
+                    ping_timeout,
+                    ping_sender.clone(),
                 )))
             })
             .build();
@@ -479,7 +482,7 @@ impl NetworkService {
         let disc_meta = MetaBuilder::default()
             .id(DISCOVERY_PROTOCOL_ID)
             .service_handle(move || {
-                ProtocolHandle::Both(Box::new(DiscoveryProtocol::new(disc_sender)))
+                ProtocolHandle::Both(Box::new(DiscoveryProtocol::new(disc_sender.clone())))
             })
             .build();
 
@@ -488,7 +491,7 @@ impl NetworkService {
         let identify_meta = MetaBuilder::default()
             .id(IDENTIFY_PROTOCOL_ID)
             .service_handle(move || {
-                ProtocolHandle::Both(Box::new(IdentifyProtocol::new(identify_callback)))
+                ProtocolHandle::Both(Box::new(IdentifyProtocol::new(identify_callback.clone())))
             })
             .build();
 
@@ -497,14 +500,14 @@ impl NetworkService {
             "flr".to_string(),
             FEELER_PROTOCOL_ID,
             &[1][..],
-            Box::new(Feeler {}),
+            || Box::new(Feeler {}),
             Arc::clone(&network_state),
         );
 
         // == Build p2p service struct
         let mut protocol_metas = protocols
             .into_iter()
-            .map(|protocol| protocol.build())
+            .map(CKBProtocol::build)
             .collect::<Vec<_>>();
         protocol_metas.push(feeler_protocol.build());
         protocol_metas.push(ping_meta);

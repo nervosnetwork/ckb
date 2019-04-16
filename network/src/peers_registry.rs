@@ -321,7 +321,7 @@ impl PeersRegistry {
         &self.peers
     }
 
-    fn peer_indexes_guard(&self) -> &RwLock<FnvHashMap<PeerIndex, PeerId>> {
+    pub fn peer_indexes_guard(&self) -> &RwLock<FnvHashMap<PeerIndex, PeerId>> {
         &self.peer_id_by_index
     }
 

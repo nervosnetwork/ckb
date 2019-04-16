@@ -1,5 +1,3 @@
-#![allow(clippy::needless_pass_by_value)]
-
 mod block_proposal_process;
 mod block_transactions_process;
 pub mod compact_block;
@@ -21,13 +19,14 @@ use bytes::Bytes;
 use ckb_chain::chain::ChainController;
 use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::transaction::{ProposalShortId, Transaction};
+use ckb_core::uncle::UncleBlock;
 use ckb_network::{Behaviour, CKBProtocolContext, CKBProtocolHandler, PeerIndex};
 use ckb_protocol::{
     cast, get_root, short_transaction_id, short_transaction_id_keys, RelayMessage, RelayPayload,
 };
 use ckb_shared::chain_state::ChainState;
-use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::Shared;
+use ckb_shared::store::ChainStore;
 use ckb_traits::ChainProvider;
 use ckb_util::Mutex;
 use failure::Error as FailureError;
@@ -45,20 +44,27 @@ pub const TX_PROPOSAL_TOKEN: u64 = 0;
 pub const MAX_RELAY_PEERS: usize = 128;
 pub const TX_FILTER_SIZE: usize = 1000;
 
-#[derive(Clone)]
-pub struct Relayer<CI: ChainIndex> {
+pub struct Relayer<CS> {
     chain: ChainController,
-    pub(crate) shared: Shared<CI>,
+    pub(crate) shared: Shared<CS>,
     state: Arc<RelayState>,
     // TODO refactor shared Peers struct with Synchronizer
     peers: Arc<Peers>,
 }
 
-impl<CI> Relayer<CI>
-where
-    CI: ChainIndex + 'static,
-{
-    pub fn new(chain: ChainController, shared: Shared<CI>, peers: Arc<Peers>) -> Self {
+impl<CS: ChainStore> Clone for Relayer<CS> {
+    fn clone(&self) -> Self {
+        Relayer {
+            chain: self.chain.clone(),
+            shared: Clone::clone(&self.shared),
+            state: Arc::clone(&self.state),
+            peers: Arc::clone(&self.peers),
+        }
+    }
+}
+
+impl<CS: ChainStore> Relayer<CS> {
+    pub fn new(chain: ChainController, shared: Shared<CS>, peers: Arc<Peers>) -> Self {
         Relayer {
             chain,
             shared,
@@ -142,7 +148,7 @@ where
 
     pub fn request_proposal_txs(
         &self,
-        chain_state: &ChainState<CI>,
+        chain_state: &ChainState<CS>,
         nc: &mut CKBProtocolContext,
         peer: PeerIndex,
         block: &CompactBlock,
@@ -155,20 +161,22 @@ where
                 block
                     .uncles
                     .iter()
-                    .flat_map(|uncle| uncle.proposal_transactions()),
+                    .flat_map(UncleBlock::proposal_transactions),
             )
             .filter(|x| !chain_state.contains_proposal_id(x) && inflight.insert(**x))
             .cloned()
             .collect::<Vec<_>>();
 
-        let fbb = &mut FlatBufferBuilder::new();
-        let message =
-            RelayMessage::build_get_block_proposal(fbb, block.header.number(), &unknown_ids);
-        fbb.finish(message, None);
+        if !unknown_ids.is_empty() {
+            let fbb = &mut FlatBufferBuilder::new();
+            let message =
+                RelayMessage::build_get_block_proposal(fbb, block.header.number(), &unknown_ids);
+            fbb.finish(message, None);
 
-        let ret = nc.send(peer, fbb.finished_data().to_vec());
-        if ret.is_err() {
-            warn!(target: "relay", "relay get_block_proposal error {:?}", ret);
+            let ret = nc.send(peer, fbb.finished_data().to_vec());
+            if ret.is_err() {
+                warn!(target: "relay", "relay get_block_proposal error {:?}", ret);
+            }
         }
     }
 
@@ -204,7 +212,7 @@ where
 
     pub fn reconstruct_block(
         &self,
-        chain_state: &ChainState<CI>,
+        chain_state: &ChainState<CS>,
         compact_block: &CompactBlock,
         transactions: Vec<Transaction>,
     ) -> Result<Block, Vec<usize>> {
@@ -250,7 +258,7 @@ where
         // append remain transactions
         short_ids_iter.for_each(|short_id| block_transactions.push(txs_map.remove(short_id)));
 
-        let missing = block_transactions.iter().any(|tx| tx.is_none());
+        let missing = block_transactions.iter().any(Option::is_none);
 
         if !missing {
             let txs = block_transactions
@@ -320,10 +328,7 @@ where
     }
 }
 
-impl<CI> CKBProtocolHandler for Relayer<CI>
-where
-    CI: ChainIndex + 'static,
-{
+impl<CS: ChainStore> CKBProtocolHandler for Relayer<CS> {
     fn initialize(&self, nc: Box<CKBProtocolContext>) {
         nc.register_timer(Duration::from_millis(100), TX_PROPOSAL_TOKEN);
     }

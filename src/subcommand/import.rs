@@ -1,9 +1,8 @@
 use crate::setup::{ExitCode, ImportArgs};
 use ckb_chain::chain::ChainBuilder;
-use ckb_db::diskdb::RocksDB;
+use ckb_db::{CacheDB, RocksDB};
 use ckb_instrument::Import;
 use ckb_notify::NotifyService;
-use ckb_shared::cachedb::CacheDB;
 use ckb_shared::shared::SharedBuilder;
 
 pub fn import(args: ImportArgs) -> Result<(), ExitCode> {

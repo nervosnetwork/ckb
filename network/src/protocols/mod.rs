@@ -8,7 +8,8 @@ use crate::{
     errors::{Error, PeerError},
     peer_store::{Behaviour, Status},
     peers_registry::RegisterResult,
-    NetworkState, PeerIndex, ProtocolContext, ProtocolContextMutRef, ServiceControl, SessionInfo,
+    NetworkState, PeerIndex, ProtocolContext, ProtocolContextMutRef, PublicKey, ServiceControl,
+    SessionInfo,
 };
 use bytes::Bytes;
 use log::{debug, error, info, trace, warn};
@@ -33,21 +34,21 @@ pub struct CKBProtocol {
     protocol_name: String,
     // supported version, used to check protocol version
     supported_versions: Vec<ProtocolVersion>,
-    handler: Box<dyn CKBProtocolHandler + Send + 'static>,
+    handler: Box<Fn() -> Box<dyn CKBProtocolHandler> + Send + 'static>,
     network_state: Arc<NetworkState>,
 }
 
 impl CKBProtocol {
-    pub fn new(
+    pub fn new<F: Fn() -> Box<dyn CKBProtocolHandler> + Send + 'static>(
         protocol_name: String,
         id: ProtocolId,
         versions: &[ProtocolVersion],
-        handler: Box<dyn CKBProtocolHandler + Send + 'static>,
+        handler: F,
         network_state: Arc<NetworkState>,
     ) -> Self {
         CKBProtocol {
             id,
-            handler,
+            handler: Box::new(handler),
             network_state,
             protocol_name: format!("/ckb/{}/", protocol_name).to_string(),
             supported_versions: {
@@ -75,7 +76,7 @@ impl CKBProtocol {
         let supported_versions = self
             .supported_versions
             .iter()
-            .map(|v| v.to_string())
+            .map(ToString::to_string)
             .collect::<Vec<_>>();
         MetaBuilder::default()
             .id(self.id)
@@ -89,7 +90,8 @@ impl CKBProtocol {
             })
             .support_versions(supported_versions)
             .service_handle(move || {
-                let handler = CKBHandler::new(self.id, self.network_state, self.handler);
+                let handler =
+                    CKBHandler::new(self.id, Arc::clone(&self.network_state), (self.handler)());
                 ProtocolHandle::Callback(Box::new(handler))
             })
             .build()
@@ -99,14 +101,14 @@ impl CKBProtocol {
 struct CKBHandler {
     id: ProtocolId,
     network_state: Arc<NetworkState>,
-    handler: Box<dyn CKBProtocolHandler + Send + 'static>,
+    handler: Box<dyn CKBProtocolHandler>,
 }
 
 impl CKBHandler {
     pub fn new(
         id: ProtocolId,
         network_state: Arc<NetworkState>,
-        handler: Box<dyn CKBProtocolHandler + Send + 'static>,
+        handler: Box<dyn CKBProtocolHandler>,
     ) -> CKBHandler {
         CKBHandler {
             id,
@@ -147,7 +149,7 @@ impl ServiceProtocol for CKBHandler {
                 session
                     .remote_pubkey
                     .as_ref()
-                    .map(|pubkey| pubkey.peer_id())
+                    .map(PublicKey::peer_id)
                     .expect("remote_pubkey existence checked"),
                 parsed_version.expect("parsed_version existence checked"),
             )
@@ -201,11 +203,7 @@ impl ServiceProtocol for CKBHandler {
 
     fn disconnected(&mut self, mut context: ProtocolContextMutRef) {
         let session = context.session;
-        if let Some(peer_id) = session
-            .remote_pubkey
-            .as_ref()
-            .map(|pubkey| pubkey.peer_id())
-        {
+        if let Some(peer_id) = session.remote_pubkey.as_ref().map(PublicKey::peer_id) {
             debug!(
                 target: "network",
                 "ckb protocol disconnect, addr: {}, protocol: {}, peer_id: {:?}",
@@ -235,7 +233,7 @@ impl ServiceProtocol for CKBHandler {
         if let Some((peer_id, _peer_index)) = session
             .remote_pubkey
             .as_ref()
-            .map(|pubkey| pubkey.peer_id())
+            .map(PublicKey::peer_id)
             .and_then(|peer_id| {
                 self.network_state
                     .get_peer_index(&peer_id)

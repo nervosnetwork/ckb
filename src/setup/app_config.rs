@@ -59,6 +59,10 @@ pub struct ChainConfig {
 }
 
 impl AppConfig {
+    pub fn is_bundled(&self) -> bool {
+        self.resource.is_bundled()
+    }
+
     pub fn load_for_subcommand(
         locator: &ResourceLocator,
         subcommand_name: &str,

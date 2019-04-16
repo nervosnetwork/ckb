@@ -5,6 +5,7 @@ use hash::blake2b_256;
 use serde::{de, Deserialize as SerdeDeserialize};
 use serde_derive::Deserialize;
 use std::collections::HashMap;
+use std::fmt;
 
 // Cuckatoo proofs take the form of a length 42 off-by-1-cycle in a bipartite graph with
 // 2^N+2^N nodes and 2^N edges, with N ranging from 10 up to 64.
@@ -17,6 +18,12 @@ pub struct CuckooParams {
     // of the cycle to be found. a minimum of 12 is recommended
     #[serde(deserialize_with = "validate_cycle_length")]
     cycle_length: u32,
+}
+
+impl fmt::Display for CuckooParams {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "({}, {})", self.edge_bits, self.cycle_length)
+    }
 }
 
 fn validate_cycle_length<'de, D>(d: D) -> Result<u32, D::Error>
@@ -61,6 +68,9 @@ impl PowEngine for CuckooEngine {
 
     #[inline]
     fn verify(&self, _number: BlockNumber, message: &[u8], proof: &[u8]) -> bool {
+        if proof.len() != self.cuckoo.cycle_length << 2 {
+            return false;
+        }
         let mut proof_u32 = vec![0u32; self.cuckoo.cycle_length];
         LittleEndian::read_u32_into(&proof, &mut proof_u32);
         self.cuckoo.verify(message, &proof_u32)
@@ -69,7 +79,7 @@ impl PowEngine for CuckooEngine {
     #[inline]
     fn solve(&self, _number: BlockNumber, message: &[u8]) -> Option<Vec<u8>> {
         self.cuckoo.solve(message).map(|proof| {
-            let mut proof_u8 = vec![0u8; self.cuckoo.cycle_length * 4];
+            let mut proof_u8 = vec![0u8; self.cuckoo.cycle_length << 2];
             LittleEndian::write_u32_into(&proof, &mut proof_u8);
             proof_u8
         })
@@ -299,14 +309,17 @@ impl Cuckoo {
 
 #[cfg(test)]
 mod test {
-    use super::Cuckoo;
+    use super::*;
 
     use proptest::{collection::size_range, prelude::*};
 
     fn _cuckoo_solve(message: &[u8]) -> Result<(), TestCaseError> {
-        let cuckoo = Cuckoo::new(6, 8);
-        if let Some(proof) = cuckoo.solve(message) {
-            prop_assert!(cuckoo.verify(message, &proof));
+        let engine = CuckooEngine::new(CuckooParams {
+            edge_bits: 6,
+            cycle_length: 8,
+        });
+        if let Some(proof) = engine.solve(0, message) {
+            prop_assert!(engine.verify(0, message, &proof));
         }
         Ok(())
     }
@@ -365,5 +378,14 @@ mod test {
         for (message, proof) in TESTSET.iter() {
             assert!(cuckoo.verify(message, proof));
         }
+    }
+
+    #[test]
+    fn verify_invalid_length_should_not_panic() {
+        let engine = CuckooEngine::new(CuckooParams {
+            edge_bits: 6,
+            cycle_length: 8,
+        });
+        assert!(!engine.verify(0, &[0, 1], &[0, 1]));
     }
 }

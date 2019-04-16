@@ -30,6 +30,7 @@ fn create_normal_transaction() -> Transaction {
     TransactionBuilder::default()
         .input(CellInput::new(
             OutPoint::new(H256::from_trimmed_hex_str("1").unwrap(), 0),
+            0,
             Default::default(),
         ))
         .output(CellOutput::new(100, Vec::new(), Script::default(), None))

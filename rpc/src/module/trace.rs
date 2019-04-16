@@ -2,19 +2,19 @@ use crate::error::RPCError;
 use ckb_core::transaction::Transaction as CoreTransaction;
 use ckb_network::{NetworkController, ProtocolId};
 use ckb_protocol::RelayMessage;
-use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::Shared;
+use ckb_shared::store::ChainStore;
 use ckb_shared::tx_pool::types::PoolEntry;
-use ckb_shared::tx_pool::TxTrace;
 use ckb_sync::NetworkProtocol;
 use ckb_traits::chain_provider::ChainProvider;
 use ckb_verification::TransactionError;
 use flatbuffers::FlatBufferBuilder;
-use jsonrpc_core::Result;
+use jsonrpc_core::{Error, Result};
 use jsonrpc_derive::rpc;
-use jsonrpc_types::Transaction;
+use jsonrpc_types::{Transaction, TxTrace};
 use log::{debug, warn};
 use numext_fixed_hash::H256;
+use std::convert::TryInto;
 
 #[rpc]
 pub trait TraceRpc {
@@ -25,14 +25,14 @@ pub trait TraceRpc {
     fn get_transaction_trace(&self, _hash: H256) -> Result<Option<Vec<TxTrace>>>;
 }
 
-pub(crate) struct TraceRpcImpl<CI> {
+pub(crate) struct TraceRpcImpl<CS> {
     pub network_controller: NetworkController,
-    pub shared: Shared<CI>,
+    pub shared: Shared<CS>,
 }
 
-impl<CI: ChainIndex + 'static> TraceRpc for TraceRpcImpl<CI> {
+impl<CS: ChainStore + 'static> TraceRpc for TraceRpcImpl<CS> {
     fn trace_transaction(&self, tx: Transaction) -> Result<H256> {
-        let tx: CoreTransaction = tx.into();
+        let tx: CoreTransaction = tx.try_into().map_err(|_| Error::parse_error())?;
         let tx_hash = tx.hash().clone();
         let cycles = {
             let mut chain_state = self.shared.chain_state().lock();
