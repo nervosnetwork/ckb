@@ -147,6 +147,10 @@ impl<CS: ChainStore> ChainState<CS> {
         self.cell_set.is_dead(o)
     }
 
+    pub fn proposal_ids(&self) -> &TxProposalTable {
+        &self.proposal_ids
+    }
+
     pub fn contains_proposal_id(&self, id: &ProposalShortId) -> bool {
         self.proposal_ids.contains(id)
     }

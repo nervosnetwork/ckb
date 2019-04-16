@@ -33,16 +33,16 @@ impl TxProposalTable {
             .extend(ids);
     }
 
-    //pub fn get_ids_by_number(&self, number: BlockNumber) -> Option<&FnvHashSet<ProposalShortId>> {
-    //    self.table.get(&number)
-    //}
-
     pub fn contains(&self, id: &ProposalShortId) -> bool {
         self.set.contains(id)
     }
 
     pub fn get_ids_iter(&self) -> impl Iterator<Item = &ProposalShortId> {
         self.set.iter()
+    }
+
+    pub fn all(&self) -> &BTreeMap<BlockNumber, FnvHashSet<ProposalShortId>> {
+        &self.table
     }
 
     pub fn finalize(&mut self, number: BlockNumber) -> Vec<ProposalShortId> {
