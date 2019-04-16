@@ -10,7 +10,7 @@ use ckb_core::block::BlockBuilder;
 use ckb_core::header::HeaderBuilder;
 use ckb_core::script::Script;
 use ckb_core::transaction::{CellOutput, Transaction, TransactionBuilder};
-use ckb_core::{Capacity, Cycle};
+use ckb_core::{BlockNumber, Capacity, Cycle};
 use ckb_pow::{Pow, PowEngine};
 use ckb_resource::{Resource, ResourceLocator};
 use numext_fixed_hash::H256;
@@ -46,6 +46,7 @@ struct ChainSpecConfig {
 pub struct Params {
     pub initial_block_reward: Capacity,
     pub max_block_cycles: Cycle,
+    pub cellbase_maturity: BlockNumber,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug, Deserialize)]
@@ -165,6 +166,7 @@ impl ChainSpec {
         let consensus = Consensus::default()
             .set_id(self.name.clone())
             .set_genesis_block(genesis_block)
+            .set_cellbase_maturity(self.params.cellbase_maturity)
             .set_initial_block_reward(self.params.initial_block_reward)
             .set_max_block_cycles(self.params.max_block_cycles)
             .set_pow(self.pow.clone());

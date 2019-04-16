@@ -5,7 +5,8 @@ use crate::tx_proposal_table::TxProposalTable;
 use ckb_chain_spec::consensus::{Consensus, ProposalWindow};
 use ckb_core::block::Block;
 use ckb_core::cell::{
-    resolve_transaction, CellProvider, CellStatus, OverlayCellProvider, ResolvedTransaction,
+    resolve_transaction, CellMeta, CellProvider, CellStatus, OverlayCellProvider,
+    ResolvedTransaction,
 };
 use ckb_core::header::{BlockNumber, Header};
 use ckb_core::transaction::{OutPoint, ProposalShortId, Transaction};
@@ -13,7 +14,7 @@ use ckb_core::Cycle;
 use ckb_traits::BlockMedianTimeContext;
 use ckb_verification::{TransactionError, TransactionVerifier};
 use fnv::FnvHashSet;
-use log::error;
+use log::{error, trace};
 use lru_cache::LruCache;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
