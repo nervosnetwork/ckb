@@ -12,6 +12,7 @@ use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;
 use rusqlite::OpenFlags;
 pub use rusqlite::{Connection, Error as SqliteError};
+use std::time::Duration;
 
 #[derive(Debug)]
 pub enum DBError {
@@ -50,11 +51,15 @@ pub fn open_pool(store_path: StorePath, max_size: u32) -> Result<ConnectionPool,
         StorePath::Memory(db) => {
             let manager =
                 SqliteConnectionManager::file(format!("file:{}?mode=memory&cache=shared", db));
-            manager.with_flags(*OPEN_FLAGS)
+            manager
+                .with_flags(*OPEN_FLAGS)
+                .with_init(|c| c.busy_timeout(Duration::from_secs(3)))
         }
         StorePath::File(file_path) => {
             let manager = SqliteConnectionManager::file(file_path);
-            manager.with_flags(*OPEN_FLAGS)
+            manager
+                .with_flags(*OPEN_FLAGS)
+                .with_init(|c| c.busy_timeout(Duration::from_secs(3)))
         }
     };
     Pool::builder()

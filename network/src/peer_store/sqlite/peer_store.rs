@@ -27,7 +27,7 @@ pub(crate) const LAST_CONNECTED_TIMEOUT_SECS: u64 = 14 * 24 * 3600;
 /// Clear banned list if the list reach this size
 const BAN_LIST_CLEAR_EXPIRES_SIZE: usize = 1024;
 /// SQLITE connection pool size
-const DEFAULT_POOL_SIZE: u32 = 64;
+const DEFAULT_POOL_SIZE: u32 = 1;
 const DEFAULT_ADDRS: u32 = 3;
 
 pub struct SqlitePeerStore {
@@ -366,5 +366,29 @@ impl PeerStore for SqlitePeerStore {
     }
     fn peer_score_config(&self) -> PeerScoreConfig {
         self.peer_score_config
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::multiaddr::ToMultiaddr;
+    use rayon::prelude::*;
+    use tempfile::NamedTempFile;
+
+    #[test]
+    fn concurrent_write() {
+        let file = NamedTempFile::new().unwrap();
+        let peer_store = SqlitePeerStore::file(file.path().to_str().unwrap().to_string()).unwrap();
+        peer_store.prepare().unwrap();
+        let addr = "/ip4/127.0.0.1".to_multiaddr().unwrap();
+        (0..100u64)
+            .into_par_iter()
+            .map(|_| {
+                let peer_id = PeerId::random();
+                peer_store.add_connected_peer(&peer_id, addr.clone(), SessionType::Outbound);
+                let _ = peer_store.add_discovered_addr(&peer_id, addr.clone());
+            })
+            .collect::<Vec<_>>();
     }
 }
