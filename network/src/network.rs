@@ -122,33 +122,75 @@ impl NetworkState {
         })
     }
 
-    pub fn report_session(&self, session_id: SessionId, behaviour: Behaviour) {
+    pub(crate) fn report_session(
+        &self,
+        p2p_control: &ServiceControl,
+        session_id: SessionId,
+        behaviour: Behaviour,
+    ) {
         if let Some(peer_id) =
             self.with_peer_registry(|reg| reg.get_peer(session_id).map(|peer| peer.peer_id.clone()))
         {
-            self.report_peer(&peer_id, behaviour);
+            self.report_peer(p2p_control, &peer_id, behaviour);
         } else {
-            debug!(target: "network", "Report session({}) failed: not in peer registry", session_id);
+            info!(target: "network", "Report {} failed: not in peer registry", session_id);
         }
     }
 
-    pub fn report_peer(&self, peer_id: &PeerId, behaviour: Behaviour) {
+    pub(crate) fn report_peer(
+        &self,
+        p2p_control: &ServiceControl,
+        peer_id: &PeerId,
+        behaviour: Behaviour,
+    ) {
         info!(target: "network", "report {:?} because {:?}", peer_id, behaviour);
-        self.peer_store.lock().report(peer_id, behaviour);
+        if self
+            .peer_store
+            .lock()
+            .report(peer_id, behaviour)
+            .is_banned()
+        {
+            self.with_peer_registry_mut(|reg| {
+                if let Some(session_id) = reg.get_key_by_peer_id(peer_id) {
+                    reg.remove_peer(session_id);
+                    if let Err(err) = p2p_control.disconnect(session_id) {
+                        error!(target: "network", "send message to p2p service error: {:?}", err);
+                    }
+                }
+            })
+        }
     }
 
-    pub fn ban_session(&self, session_id: SessionId, timeout: Duration) {
+    pub(crate) fn ban_session(
+        &self,
+        p2p_control: &ServiceControl,
+        session_id: SessionId,
+        timeout: Duration,
+    ) {
         if let Some(peer_id) =
             self.with_peer_registry(|reg| reg.get_peer(session_id).map(|peer| peer.peer_id.clone()))
         {
-            self.ban_peer(&peer_id, timeout);
+            self.ban_peer(p2p_control, &peer_id, timeout);
         } else {
             debug!(target: "network", "Ban session({}) failed: not in peer registry", session_id);
         }
     }
 
-    pub fn ban_peer(&self, peer_id: &PeerId, timeout: Duration) {
+    pub(crate) fn ban_peer(
+        &self,
+        p2p_control: &ServiceControl,
+        peer_id: &PeerId,
+        timeout: Duration,
+    ) {
         self.peer_store.lock().ban_peer(peer_id, timeout);
+        self.with_peer_registry_mut(|reg| {
+            if let Some(session_id) = reg.get_key_by_peer_id(peer_id) {
+                reg.remove_peer(session_id);
+                if let Err(err) = p2p_control.disconnect(session_id) {
+                    error!(target: "network", "send message to p2p service error: {:?}", err);
+                }
+            }
+        });
     }
 
     pub(crate) fn query_session_id(&self, peer_id: &PeerId) -> Option<SessionId> {
@@ -261,7 +303,13 @@ impl NetworkState {
     }
 
     // TODO: A workaround method for `add_node` rpc call, need to re-write it after new p2p lib integration.
-    pub fn add_node(&self, peer_id: &PeerId, address: Multiaddr) {
+    pub(crate) fn add_node(
+        &self,
+        p2p_control: &ServiceControl,
+        peer_id: &PeerId,
+        address: Multiaddr,
+    ) {
+        self.dial_all(p2p_control, peer_id, address.clone());
         if !self.peer_store.lock().add_discovered_addr(peer_id, address) {
             warn!(target: "network", "add_node failed {:?}", peer_id);
         }
@@ -291,6 +339,7 @@ impl NetworkState {
             match Multihash::from_bytes(peer_id.as_bytes().to_vec()) {
                 Ok(peer_id_hash) => {
                     addr.append(multiaddr::Protocol::P2p(peer_id_hash));
+                    debug!(target: "network", "dialing {} with {:?}", addr, target);
                     if let Err(err) = p2p_control.dial(addr.clone(), target) {
                         debug!(target: "network", "dial fialed: {:?}", err);
                     }
@@ -331,8 +380,8 @@ impl ServiceHandle for EventHandler {
                 ref address,
                 ref error,
             } => {
-                debug!(target: "network", "add self address: {:?}", address);
                 if error == &P2pError::ConnectSelf {
+                    debug!(target: "network", "add self address: {:?}", address);
                     let addr = address
                         .iter()
                         .filter(|proto| match proto {
@@ -403,6 +452,7 @@ impl ServiceHandle for EventHandler {
                     .remove_peer(session_context.id)
                     .is_some();
                 if peer_exists {
+                    debug!(target: "network", "remove peer from peer_registry {}", session_context.id);
                     let peer_id = session_context
                         .remote_pubkey
                         .as_ref()
@@ -453,7 +503,7 @@ impl ServiceHandle for EventHandler {
                         .map(|peer| {
                             peer.last_message_time = Some(Instant::now());
                         })
-                        .is_some()
+                        .is_none()
                 });
                 if peer_not_exists {
                     debug!(
@@ -696,7 +746,8 @@ impl NetworkController {
     }
 
     pub fn add_node(&self, peer_id: &PeerId, address: Multiaddr) {
-        self.network_state.add_node(peer_id, address)
+        self.network_state
+            .add_node(&self.p2p_control, peer_id, address)
     }
 
     pub fn connected_peers(&self) -> Vec<(PeerId, Peer, MultiaddrList)> {

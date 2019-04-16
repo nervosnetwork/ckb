@@ -106,7 +106,7 @@ impl ServiceProtocol for DiscoveryProtocol {
 
     fn received(&mut self, context: ProtocolContextMutRef, data: bytes::Bytes) {
         let session = context.session;
-        debug!(target: "network", "[received message]: length={}", data.len());
+        trace!(target: "network", "[received message]: length={}", data.len());
 
         if let Some(ref mut sender) = self.discovery_senders.get_mut(&session.id) {
             // TODO: handle channel is full (wait for poll API?)
