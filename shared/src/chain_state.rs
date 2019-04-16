@@ -183,12 +183,16 @@ impl<CS: ChainStore> ChainState<CS> {
                 Ok(cycles) => {
                     // enqueue tx with cycles
                     let entry = PoolEntry::new(tx, 0, Some(cycles));
-                    tx_pool.enqueue_tx(entry);
+                    if !tx_pool.enqueue_tx(entry) {
+                        return Err(PoolError::Duplicate);
+                    }
                     Ok(cycles)
                 }
                 Err(TransactionError::UnknownInput) => {
                     let entry = PoolEntry::new(tx, 0, None);
-                    tx_pool.enqueue_tx(entry);
+                    if !tx_pool.enqueue_tx(entry) {
+                        return Err(PoolError::Duplicate);
+                    }
                     Err(PoolError::InvalidTx(TransactionError::UnknownInput))
                 }
                 Err(err) => Err(PoolError::InvalidTx(err)),
@@ -212,8 +216,13 @@ impl<CS: ChainStore> ChainState<CS> {
         match ret {
             Some(cycles) => Ok(cycles),
             None => {
-                let cycles =
-                    TransactionVerifier::new(&rtx, &self, self.tip_number()).verify(max_cycles)?;
+                let cycles = TransactionVerifier::new(
+                    &rtx,
+                    &self,
+                    self.tip_number(),
+                    self.consensus().cellbase_maturity,
+                )
+                .verify(max_cycles)?;
                 // write cache
                 self.txs_verify_cache.borrow_mut().insert(tx_hash, cycles);
                 Ok(cycles)
@@ -426,6 +435,7 @@ impl<CS: ChainStore> CellProvider for ChainState<CS> {
                     CellStatus::live_output(
                         tx.outputs()[out_point.index as usize].clone(),
                         Some(tx_meta.block_number()),
+                        tx_meta.is_cellbase(),
                     )
                 }
             }
@@ -448,6 +458,7 @@ impl<'a, CS: ChainStore> CellProvider for ChainCellSetOverlay<'a, CS> {
                     CellStatus::live_output(
                         tx.outputs()[out_point.index as usize].clone(),
                         Some(tx_meta.block_number()),
+                        tx_meta.is_cellbase(),
                     )
                 }
             }

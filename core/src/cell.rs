@@ -16,9 +16,14 @@ pub enum LiveCell {
 pub struct CellMeta {
     pub cell_output: CellOutput,
     pub block_number: Option<u64>,
+    pub cellbase: bool,
 }
 
 impl CellMeta {
+    pub fn is_cellbase(&self) -> bool {
+        self.cellbase
+    }
+
     pub fn capacity(&self) -> Capacity {
         self.cell_output.capacity
     }
@@ -39,10 +44,15 @@ impl CellStatus {
         CellStatus::Live(LiveCell::Null)
     }
 
-    pub fn live_output(cell_output: CellOutput, block_number: Option<u64>) -> CellStatus {
+    pub fn live_output(
+        cell_output: CellOutput,
+        block_number: Option<u64>,
+        cellbase: bool,
+    ) -> CellStatus {
         CellStatus::Live(LiveCell::Output(CellMeta {
             cell_output,
             block_number,
+            cellbase,
         }))
     }
 
@@ -151,7 +161,9 @@ impl<'a> CellProvider for BlockCellProvider<'a> {
                 .outputs()
                 .get(out_point.index as usize)
             {
-                Some(x) => CellStatus::live_output(x.clone(), Some(self.block.header().number())),
+                Some(x) => {
+                    CellStatus::live_output(x.clone(), Some(self.block.header().number()), *i == 0)
+                }
                 None => CellStatus::Unknown,
             }
         } else {
@@ -284,6 +296,7 @@ mod tests {
                 lock: Script::default(),
                 type_: None,
             },
+            cellbase: false,
         };
 
         db.cells.insert(p1.clone(), Some(o.clone()));

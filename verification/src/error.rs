@@ -149,4 +149,5 @@ pub enum TransactionError {
     Immature,
     /// Invalid ValidSince flags
     InvalidValidSince,
+    CellbaseImmaturity,
 }

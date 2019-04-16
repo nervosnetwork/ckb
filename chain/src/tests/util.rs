@@ -22,7 +22,7 @@ pub(crate) fn start_chain(
 ) -> (ChainController, Shared<ChainKVStore<MemoryKeyValueDB>>) {
     let builder = SharedBuilder::<MemoryKeyValueDB>::new();
     let shared = builder
-        .consensus(consensus.unwrap_or_else(Default::default))
+        .consensus(consensus.unwrap_or_else(|| Consensus::default().set_cellbase_maturity(0)))
         .build();
 
     let notify = NotifyService::default().start::<&str>(None);

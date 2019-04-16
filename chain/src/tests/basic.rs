@@ -173,7 +173,7 @@ fn test_transaction_spend_in_same_block() {
             .chain_state()
             .lock()
             .get_cell_status(&OutPoint::new(tx2_hash, 0)),
-        CellStatus::live_output(tx2_output, Some(4))
+        CellStatus::live_output(tx2_output, Some(4), false)
     );
 }
 

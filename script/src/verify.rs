@@ -222,6 +222,7 @@ mod tests {
         let dummy_cell = CellMeta {
             cell_output: CellOutput::new(100, vec![], Script::always_success(), None),
             block_number: Some(1),
+            cellbase: false,
         };
         let input = CellInput::new(OutPoint::null(), 0, vec![]);
 
@@ -272,6 +273,7 @@ mod tests {
         let dep_cell = CellMeta {
             cell_output: CellOutput::new(buffer.len() as Capacity, buffer, Script::default(), None),
             block_number: Some(1),
+            cellbase: false,
         };
 
         let script = Script::new(args, binary_hash);
@@ -286,6 +288,7 @@ mod tests {
         let dummy_cell = CellMeta {
             cell_output: CellOutput::new(100, vec![], script, None),
             block_number: Some(1),
+            cellbase: false,
         };
 
         let rtx = ResolvedTransaction {
@@ -333,6 +336,7 @@ mod tests {
         let dep_cell = CellMeta {
             cell_output: CellOutput::new(buffer.len() as Capacity, buffer, Script::default(), None),
             block_number: Some(1),
+            cellbase: false,
         };
 
         let script = Script::new(args, binary_hash);
@@ -347,6 +351,7 @@ mod tests {
         let dummy_cell = CellMeta {
             cell_output: CellOutput::new(100, vec![], script, None),
             block_number: Some(1),
+            cellbase: false,
         };
 
         let rtx = ResolvedTransaction {
@@ -396,6 +401,7 @@ mod tests {
         let dep_cell = CellMeta {
             cell_output: CellOutput::new(buffer.len() as Capacity, buffer, Script::default(), None),
             block_number: Some(1),
+            cellbase: false,
         };
 
         let script = Script::new(args, binary_hash);
@@ -410,6 +416,7 @@ mod tests {
         let dummy_cell = CellMeta {
             cell_output: CellOutput::new(100, vec![], script, None),
             block_number: Some(1),
+            cellbase: false,
         };
 
         let rtx = ResolvedTransaction {
@@ -466,6 +473,7 @@ mod tests {
         let dummy_cell = CellMeta {
             cell_output: CellOutput::new(100, vec![], script, None),
             block_number: Some(1),
+            cellbase: false,
         };
 
         let rtx = ResolvedTransaction {
@@ -511,6 +519,7 @@ mod tests {
         let dummy_cell = CellMeta {
             cell_output: CellOutput::new(100, vec![], Script::always_success(), None),
             block_number: Some(1),
+            cellbase: false,
         };
 
         let script = Script::new(args, (&blake2b_256(&buffer)).into());
@@ -525,6 +534,7 @@ mod tests {
         let dep_cell = CellMeta {
             cell_output: CellOutput::new(buffer.len() as Capacity, buffer, Script::default(), None),
             block_number: Some(1),
+            cellbase: false,
         };
 
         let transaction = TransactionBuilder::default()
@@ -578,6 +588,7 @@ mod tests {
         let dummy_cell = CellMeta {
             cell_output: CellOutput::new(100, vec![], Script::always_success(), None),
             block_number: Some(1),
+            cellbase: false,
         };
 
         let script = Script::new(args, (&blake2b_256(&buffer)).into());
@@ -587,6 +598,7 @@ mod tests {
         let dep_cell = CellMeta {
             cell_output: CellOutput::new(buffer.len() as Capacity, buffer, Script::default(), None),
             block_number: Some(1),
+            cellbase: false,
         };
 
         let transaction = TransactionBuilder::default()

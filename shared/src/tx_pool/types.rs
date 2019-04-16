@@ -78,6 +78,8 @@ pub enum PoolError {
     TimeOut,
     /// BlockNumber is not right
     InvalidBlockNumber,
+    /// Duplicate tx
+    Duplicate,
 }
 
 impl fmt::Display for PoolError {
@@ -218,7 +220,7 @@ impl CellProvider for StagingPool {
             if x.is_some() {
                 CellStatus::Dead
             } else {
-                CellStatus::live_output(self.get_output(o).expect("output"), None)
+                CellStatus::live_output(self.get_output(o).expect("output"), None, false)
             }
         } else if self.edges.get_outer(o).is_some() {
             CellStatus::Dead
