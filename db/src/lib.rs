@@ -33,6 +33,14 @@ pub trait KeyValueDB: Sync + Send {
     fn batch(&self) -> Result<Self::Batch>;
 }
 
+pub trait IterableKeyValueDB: KeyValueDB {
+    fn iter<'a>(
+        &'a self,
+        col: Col,
+        from_key: &'a [u8],
+    ) -> Result<Box<Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a>>;
+}
+
 pub trait DbBatch {
     fn insert(&mut self, col: Col, key: &[u8], value: &[u8]) -> Result<()>;
     fn delete(&mut self, col: Col, key: &[u8]) -> Result<()>;

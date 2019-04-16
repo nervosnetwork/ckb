@@ -1,6 +1,6 @@
-use crate::{Col, DBConfig, DbBatch, Error, KeyValueDB, Result};
+use crate::{Col, DBConfig, DbBatch, Error, IterableKeyValueDB, KeyValueDB, Result};
 use log::warn;
-use rocksdb::{ColumnFamily, Error as RdbError, Options, WriteBatch, DB};
+use rocksdb::{ColumnFamily, Direction, Error as RdbError, IteratorMode, Options, WriteBatch, DB};
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -76,6 +76,21 @@ impl KeyValueDB for RocksDB {
             db: Arc::clone(&self.inner),
             wb: WriteBatch::default(),
         })
+    }
+}
+
+impl IterableKeyValueDB for RocksDB {
+    fn iter<'a>(
+        &'a self,
+        col: Col,
+        from_key: &'a [u8],
+    ) -> Result<Box<Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a>> {
+        let cf = cf_handle(&self.inner, col)?;
+        let mode = IteratorMode::From(from_key, Direction::Forward);
+        self.inner
+            .iterator_cf(cf, mode)
+            .map(|iter| Box::new(iter) as Box<_>)
+            .map_err(Into::into)
     }
 }
 
@@ -199,5 +214,25 @@ mod tests {
             Some(vec![4, 3, 2]),
             db.partial_read(0, &[0, 0], &(1..4)).unwrap()
         );
+    }
+
+    #[test]
+    fn iter() {
+        let db = setup_db("iter", 2);
+
+        let mut batch = db.batch().unwrap();
+        let kv1: (Box<[u8]>, Box<[u8]>) = (Box::new([0, 1, 1]), Box::new([1]));
+        let kv2: (Box<[u8]>, Box<[u8]>) = (Box::new([0, 2, 0]), Box::new([2]));
+        let kv3: (Box<[u8]>, Box<[u8]>) = (Box::new([0, 2, 1]), Box::new([3]));
+
+        batch.insert(0, &kv1.0, &kv1.1).unwrap();
+        batch.insert(0, &kv2.0, &kv2.1).unwrap();
+        batch.insert(0, &kv3.0, &kv3.1).unwrap();
+        batch.commit().unwrap();
+
+        let mut iter = db.iter(0, &[0, 2]).unwrap();
+        assert_eq!(Some(kv2), iter.next());
+        assert_eq!(Some(kv3), iter.next());
+        assert_eq!(None, iter.next());
     }
 }
