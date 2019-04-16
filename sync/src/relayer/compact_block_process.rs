@@ -10,6 +10,7 @@ use ckb_verification::{HeaderResolverWrapper, HeaderVerifier, Verifier};
 use failure::Error as FailureError;
 use flatbuffers::FlatBufferBuilder;
 use fnv::FnvHashMap;
+use log::debug;
 use numext_fixed_hash::H256;
 use std::convert::TryInto;
 use std::sync::Arc;
@@ -55,31 +56,37 @@ impl<'a, CS: ChainStore> CompactBlockProcess<'a, CS> {
                     },
                     Arc::clone(&self.relayer.shared.consensus().pow_engine()),
                 );
-
-                if header_verifier.verify(&resolver).is_ok() {
-                    let ret = {
-                        let chain_state = self.relayer.shared.chain_state().lock();
-                        self.relayer.request_proposal_txs(
-                            &chain_state,
-                            self.nc,
-                            self.peer,
-                            &compact_block,
-                        );
-                        self.relayer
-                            .reconstruct_block(&chain_state, &compact_block, Vec::new())
-                    };
-                    match ret {
-                        Ok(block) => {
+                match header_verifier.verify(&resolver) {
+                    Ok(_) => {
+                        let ret = {
+                            let chain_state = self.relayer.shared.chain_state().lock();
+                            self.relayer.request_proposal_txs(
+                                &chain_state,
+                                self.nc,
+                                self.peer,
+                                &compact_block,
+                            );
                             self.relayer
-                                .accept_block(self.nc, self.peer, &Arc::new(block))
-                        }
-                        Err(missing) => {
-                            missing_indexes = missing;
-                            pending_compact_blocks
-                                .insert(block_hash.clone(), compact_block.clone());
+                                .reconstruct_block(&chain_state, &compact_block, Vec::new())
+                        };
+                        match ret {
+                            Ok(block) => {
+                                self.relayer
+                                    .accept_block(self.nc, self.peer, &Arc::new(block))
+                            }
+                            Err(missing) => {
+                                missing_indexes = missing;
+                                pending_compact_blocks
+                                    .insert(block_hash.clone(), compact_block.clone());
+                            }
                         }
                     }
+                    Err(err) => {
+                        debug!(target: "relay", "header verify failed: {:?}", err);
+                    }
                 }
+            } else {
+                debug!(target: "relay", "Can not get block {}", block_hash);
             }
         }
         if !missing_indexes.is_empty() {

@@ -46,12 +46,16 @@ impl Stream for PingService {
                         }
                     })
                 }
-                self.network_state.report_peer(&peer_id, Behaviour::Ping);
+                self.network_state
+                    .report_peer(&self.p2p_control, &peer_id, Behaviour::Ping);
             }
             Some(Timeout(peer_id)) => {
                 debug!(target: "network", "timeout to ping {:?}", peer_id);
-                self.network_state
-                    .report_peer(&peer_id, Behaviour::FailedToPing);
+                self.network_state.report_peer(
+                    &self.p2p_control,
+                    &peer_id,
+                    Behaviour::FailedToPing,
+                );
                 if let Some(session_id) = self.network_state.with_peer_registry_mut(|reg| {
                     reg.remove_peer_by_peer_id(&peer_id)
                         .map(|peer| peer.session_id)
@@ -69,8 +73,11 @@ impl Stream for PingService {
             }
             Some(UnexpectedError(peer_id)) => {
                 debug!(target: "network", "failed to ping {:?}", peer_id);
-                self.network_state
-                    .report_peer(&peer_id, Behaviour::FailedToPing);
+                self.network_state.report_peer(
+                    &self.p2p_control,
+                    &peer_id,
+                    Behaviour::FailedToPing,
+                );
                 if let Some(session_id) = self.network_state.with_peer_registry_mut(|reg| {
                     reg.remove_peer_by_peer_id(&peer_id)
                         .map(|peer| peer.session_id)

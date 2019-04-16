@@ -245,10 +245,12 @@ impl CKBProtocolContext for DefaultCKBProtocolContext {
             .with_peer_registry(PeerRegistry::connected_peers)
     }
     fn report_peer(&self, peer_index: PeerIndex, behaviour: Behaviour) {
-        self.network_state.report_session(peer_index, behaviour);
+        self.network_state
+            .report_session(&self.p2p_control, peer_index, behaviour);
     }
     fn ban_peer(&self, peer_index: PeerIndex, timeout: Duration) {
-        self.network_state.ban_session(peer_index, timeout);
+        self.network_state
+            .ban_session(&self.p2p_control, peer_index, timeout);
     }
 
     fn protocol_id(&self) -> ProtocolId {

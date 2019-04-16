@@ -32,7 +32,7 @@ use ckb_util::{try_option, Mutex, RwLock};
 use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
 use flatbuffers::FlatBufferBuilder;
-use log::{debug, info};
+use log::{debug, info, trace};
 use numext_fixed_hash::H256;
 use std::cmp;
 use std::collections::HashMap;
@@ -627,6 +627,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
         if !peers.is_empty() {
             debug!(target: "sync", "start sync peers= {:?}", &peers);
         }
+
         let tip = {
             let (header, total_difficulty) = {
                 let chain_state = self.shared.chain_state().lock();
@@ -673,7 +674,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
             .cloned()
             .collect();
 
-        debug!(target: "sync", "poll find_blocks_to_fetch select peers");
+        trace!(target: "sync", "poll find_blocks_to_fetch select peers");
         for peer in peers {
             if let Some(v_fetch) = self.get_blocks_to_fetch(peer) {
                 if !v_fetch.is_empty() {
@@ -688,7 +689,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
         let message = SyncMessage::build_get_blocks(fbb, v_fetch);
         fbb.finish(message, None);
         nc.send_message_to(peer, fbb.finished_data().to_vec());
-        debug!(target: "sync", "send_getblocks len={:?} to peer={}", v_fetch.len() , peer);
+        trace!(target: "sync", "send_getblocks len={:?} to peer={}", v_fetch.len() , peer);
     }
 }
 
