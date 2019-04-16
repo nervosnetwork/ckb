@@ -4,6 +4,7 @@ mod mining;
 mod p2p;
 mod pool;
 mod protocols;
+mod transaction;
 mod transaction_relay;
 
 pub use block_relay::BlockRelayBasic;
@@ -12,6 +13,7 @@ pub use mining::MiningBasic;
 pub use p2p::{Disconnect, Discovery};
 pub use pool::{PoolReconcile, PoolTrace};
 pub use protocols::MalformedMessage;
+pub use transaction::*;
 pub use transaction_relay::TransactionRelayBasic;
 
 use crate::{sleep, Net};
