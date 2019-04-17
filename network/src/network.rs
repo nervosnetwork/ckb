@@ -71,6 +71,8 @@ pub struct NetworkState {
 
     protocol_ids: RwLock<FnvHashSet<ProtocolId>>,
     listened_addresses: RwLock<FnvHashMap<Multiaddr, u8>>,
+    // Send disconnect message but not disconnected yet
+    disconnecting_sessions: RwLock<FnvHashSet<SessionId>>,
     local_private_key: secio::SecioKeyPair,
     local_peer_id: PeerId,
     config: NetworkConfig,
@@ -116,6 +118,7 @@ impl NetworkState {
             failed_dials: RwLock::new(LruCache::new(FAILED_DIAL_CACHE_SIZE)),
             listened_addresses: RwLock::new(listened_addresses),
             original_listened_addresses: RwLock::new(Vec::new()),
+            disconnecting_sessions: RwLock::new(FnvHashSet::default()),
             local_private_key: local_private_key.clone(),
             local_peer_id: local_private_key.to_public_key().peer_id(),
             protocol_ids: RwLock::new(FnvHashSet::default()),
@@ -422,35 +425,51 @@ impl ServiceHandle for EventHandler {
         // When session disconnect update status anyway
         match event {
             ServiceEvent::SessionOpen { session_context } => {
-                match self.network_state.accept_peer(&session_context) {
-                    Ok(Some(evicted_peer)) => {
-                        info!(
+                let peer_id = session_context
+                    .remote_pubkey
+                    .as_ref()
+                    .map(PublicKey::peer_id)
+                    .expect("Secio must enabled");
+                if self
+                    .network_state
+                    .with_peer_registry(|reg| reg.is_feeler(&peer_id))
+                {
+                    debug!(target: "network", "feeler connected {} => {:?}", session_context.id, peer_id);
+                } else {
+                    match self.network_state.accept_peer(&session_context) {
+                        Ok(Some(evicted_peer)) => {
+                            info!(
+                                target: "network",
+                                "evict peer (disonnect it), {} => {}",
+                                evicted_peer.session_id,
+                                evicted_peer.address,
+                            );
+                            context.disconnect(evicted_peer.session_id);
+                        }
+                        Ok(None) => info!(
                             target: "network",
-                            "evict peer (disonnect it),session.id={}, address={}",
-                            evicted_peer.session_id,
-                            evicted_peer.address,
-                        );
-                        context.disconnect(evicted_peer.session_id);
-                    }
-                    Ok(None) => info!(
-                        target: "network",
-                        "registry peer success, session.id={}, address={}",
-                        session_context.id,
-                        session_context.address,
-                    ),
-                    Err(err) => {
-                        warn!(
-                            target: "network",
-                            "registry peer failed {:?} disconnect it, session.id={}, address={}",
-                            err,
+                            "registry peer success, session.id={}, address={}",
                             session_context.id,
                             session_context.address,
-                        );
-                        context.disconnect(session_context.id);
+                        ),
+                        Err(err) => {
+                            warn!(
+                                target: "network",
+                                "registry peer failed {:?} disconnect it, {} => {}",
+                                err,
+                                session_context.id,
+                                session_context.address,
+                            );
+                            context.disconnect(session_context.id);
+                        }
                     }
                 }
             }
             ServiceEvent::SessionClose { session_context } => {
+                self.network_state
+                    .disconnecting_sessions
+                    .write()
+                    .remove(&session_context.id);
                 let peer_exists = self
                     .network_state
                     .peer_registry
@@ -458,7 +477,7 @@ impl ServiceHandle for EventHandler {
                     .remove_peer(session_context.id)
                     .is_some();
                 if peer_exists {
-                    debug!(target: "network", "remove peer from peer_registry {}", session_context.id);
+                    debug!(target: "network", "session closed, remove peer from peer_registry {}", session_context.id);
                     let peer_id = session_context
                         .remote_pubkey
                         .as_ref()
@@ -490,12 +509,22 @@ impl ServiceHandle for EventHandler {
                 {
                     peer.protocols.insert(proto_id, version);
                 } else {
-                    warn!(
-                        target: "network",
-                        "Invalid session {}, protocol id {}",
-                        session_context.id,
-                        proto_id,
-                    );
+                    let peer_id = session_context
+                        .remote_pubkey
+                        .as_ref()
+                        .map(PublicKey::peer_id)
+                        .expect("Secio must enabled");
+                    if !self
+                        .network_state
+                        .with_peer_registry(|reg| reg.is_feeler(&peer_id))
+                    {
+                        warn!(
+                            target: "network",
+                            "Invalid session {}, protocol id {}",
+                            session_context.id,
+                            proto_id,
+                        );
+                    }
                 }
             }
             ProtocolEvent::Disconnected { .. } => {
@@ -512,12 +541,22 @@ impl ServiceHandle for EventHandler {
                         })
                         .is_none()
                 });
-                if peer_not_exists {
+                if peer_not_exists
+                    && !self
+                        .network_state
+                        .disconnecting_sessions
+                        .read()
+                        .contains(&session_id)
+                {
                     debug!(
                         target: "network",
                         "disconnect peer({}) already removed from registry",
                         session_context.id
                     );
+                    self.network_state
+                        .disconnecting_sessions
+                        .write()
+                        .insert(session_id);
                     context.disconnect(session_id);
                 }
             }
@@ -578,8 +617,11 @@ impl NetworkService {
         // TODO: versions
         let feeler_meta = MetaBuilder::default()
             .id(FEELER_PROTOCOL_ID.into())
-            .name(move |_| "/ckb/feeler/".to_string())
-            .service_handle(move || ProtocolHandle::Both(Box::new(Feeler {})))
+            .name(move |_| "/ckb/flr/".to_string())
+            .service_handle({
+                let network_state = Arc::clone(&network_state);
+                move || ProtocolHandle::Both(Box::new(Feeler::new(Arc::clone(&network_state))))
+            })
             .build();
 
         // == Build p2p service struct
@@ -707,7 +749,7 @@ impl NetworkService {
                     })
                     .collect::<Vec<_>>();
 
-                debug!(target: "network", "Shuting down network service ...");
+                debug!(target: "network", "received shutdown signal");
 
                 // Recevied stop signal, doing cleanup
                 let _ = receiver.recv();
@@ -723,6 +765,7 @@ impl NetworkService {
                     warn!(target: "network", "send shutdown message to p2p error: {:?}", err);
                 }
 
+                debug!(target: "network", "Waiting tokio runtime finish......");
                 runtime.shutdown_on_idle().wait().unwrap();
                 debug!(target: "network", "Shutdown network service finished!");
             })

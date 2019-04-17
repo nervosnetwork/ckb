@@ -17,6 +17,7 @@ pub struct PeerRegistry {
     // Only reserved peers or allow all peers.
     reserved_only: bool,
     reserved_peers: FnvHashSet<PeerId>,
+    feeler_peers: FnvHashSet<PeerId>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -53,6 +54,7 @@ impl PeerRegistry {
         PeerRegistry {
             peers: FnvHashMap::with_capacity_and_hasher(20, Default::default()),
             reserved_peers: reserved_peers_set,
+            feeler_peers: FnvHashSet::default(),
             max_inbound,
             max_outbound,
             reserved_only,
@@ -192,6 +194,18 @@ impl PeerRegistry {
                 debug!(target: "network", "evict inbound peer {:?}", peer.peer_id);
                 peer.session_id
             })
+    }
+
+    pub fn add_feeler(&mut self, peer_id: PeerId) {
+        self.feeler_peers.insert(peer_id);
+    }
+
+    pub fn remove_feeler(&mut self, peer_id: &PeerId) {
+        self.feeler_peers.remove(peer_id);
+    }
+
+    pub fn is_feeler(&self, peer_id: &PeerId) -> bool {
+        self.feeler_peers.contains(peer_id)
     }
 
     pub fn get_peer(&self, session_id: SessionId) -> Option<&Peer> {
