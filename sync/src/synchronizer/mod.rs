@@ -520,6 +520,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
         peer: PeerIndex,
         header: &Header,
     ) {
+        debug!(target: "sync", "send_getheaders_to_peer peer={}, hash={}", peer, header.hash());
         let locator_hash = self.get_locator(header);
         let fbb = &mut FlatBufferBuilder::new();
         let message = SyncMessage::build_get_headers(fbb, &locator_hash);
@@ -624,9 +625,6 @@ impl<CS: ChainStore> Synchronizer<CS> {
             .map(|(peer_id, _)| peer_id)
             .cloned()
             .collect();
-        if !peers.is_empty() {
-            debug!(target: "sync", "start sync peers= {:?}", &peers);
-        }
 
         let tip = {
             let (header, total_difficulty) = {
@@ -659,6 +657,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
             }
             self.n_sync.fetch_add(1, Ordering::Release);
 
+            debug!(target: "sync", "start sync peer={}", peer);
             self.send_getheaders_to_peer(nc, peer, &tip);
         }
     }
