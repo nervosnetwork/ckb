@@ -86,7 +86,7 @@ impl<'a, CS: ChainStore> CompactBlockProcess<'a, CS> {
                     }
                 }
             } else {
-                debug!(target: "relay", "Can not get block {}", block_hash);
+                debug!(target: "relay", "Already processed compact block {}", block_hash);
             }
         }
         if !missing_indexes.is_empty() {

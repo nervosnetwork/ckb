@@ -4,7 +4,7 @@ pub(crate) mod identify;
 pub(crate) mod outbound_peer;
 pub(crate) mod ping;
 
-use log::error;
+use log::{debug, error};
 use p2p::{
     builder::MetaBuilder,
     context::{ProtocolContext, ProtocolContextMutRef},
@@ -147,6 +147,7 @@ impl ServiceProtocol for CKBHandler {
             network_state: Arc::clone(&self.network_state),
             p2p_control: context.control().clone(),
         };
+        nc.set_notify(Duration::from_secs(6), std::u64::MAX);
         self.handler.init(Box::new(nc));
     }
 
@@ -171,6 +172,7 @@ impl ServiceProtocol for CKBHandler {
     }
 
     fn received(&mut self, context: ProtocolContextMutRef, data: bytes::Bytes) {
+        debug!(target: "network", "[received message]: {}, {}, length={}", self.proto_id, context.session.id, data.len());
         let nc = DefaultCKBProtocolContext {
             proto_id: self.proto_id,
             network_state: Arc::clone(&self.network_state),
@@ -181,12 +183,16 @@ impl ServiceProtocol for CKBHandler {
     }
 
     fn notify(&mut self, context: &mut ProtocolContext, token: u64) {
-        let nc = DefaultCKBProtocolContext {
-            proto_id: self.proto_id,
-            network_state: Arc::clone(&self.network_state),
-            p2p_control: context.control().clone(),
-        };
-        self.handler.notify(Box::new(nc), token);
+        if token == std::u64::MAX {
+            debug!(target: "network", "protocol handler heart beat {}", self.proto_id);
+        } else {
+            let nc = DefaultCKBProtocolContext {
+                proto_id: self.proto_id,
+                network_state: Arc::clone(&self.network_state),
+                p2p_control: context.control().clone(),
+            };
+            self.handler.notify(Box::new(nc), token);
+        }
     }
 
     fn poll(&mut self, context: &mut ProtocolContext) {
@@ -215,6 +221,7 @@ impl CKBProtocolContext for DefaultCKBProtocolContext {
         }
     }
     fn send_message_to(&self, peer_index: PeerIndex, data: Vec<u8>) {
+        debug!(target: "network", "[send message]: {}, to={}, length={}", self.proto_id, peer_index, data.len());
         if let Err(err) = self
             .p2p_control
             .send_message_to(peer_index, self.proto_id, data)
