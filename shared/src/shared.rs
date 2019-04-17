@@ -1,5 +1,4 @@
 use crate::chain_state::ChainState;
-use crate::error::SharedError;
 use crate::store::ChainKVStore;
 use crate::store::ChainStore;
 use crate::tx_pool::TxPoolConfig;
@@ -13,7 +12,6 @@ use ckb_core::uncle::UncleBlock;
 use ckb_db::{CacheDB, DBConfig, KeyValueDB, MemoryKeyValueDB, RocksDB};
 use ckb_traits::ChainProvider;
 use ckb_util::Mutex;
-use failure::Error;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 use std::sync::Arc;
@@ -143,36 +141,6 @@ impl<CS: ChainStore> ChainProvider for Shared<CS> {
             return Some(index_walk);
         }
         None
-    }
-
-    // TODO: find a way to write test for this once we can build a mock on
-    // ChainIndex
-    fn calculate_transaction_fee(&self, transaction: &Transaction) -> Result<Capacity, Error> {
-        let mut fee = 0;
-        for input in transaction.inputs() {
-            let previous_output = &input.previous_output;
-            match self.get_transaction(&previous_output.hash) {
-                Some(previous_transaction) => {
-                    let index = previous_output.index as usize;
-                    if let Some(output) = previous_transaction.outputs().get(index) {
-                        fee += output.capacity;
-                    } else {
-                        Err(SharedError::InvalidInput)?;
-                    }
-                }
-                None => Err(SharedError::InvalidInput)?,
-            }
-        }
-        let spent_capacity: Capacity = transaction
-            .outputs()
-            .iter()
-            .map(|output| output.capacity)
-            .sum();
-        if spent_capacity > fee {
-            Err(SharedError::InvalidOutput)?;
-        }
-        fee -= spent_capacity;
-        Ok(fee)
     }
 
     // T_interval = L / C_m

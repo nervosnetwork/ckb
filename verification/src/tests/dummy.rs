@@ -5,30 +5,18 @@ use ckb_core::extras::BlockExt;
 use ckb_core::header::{BlockNumber, Header};
 use ckb_core::transaction::{Capacity, OutPoint, ProposalShortId, Transaction};
 use ckb_core::uncle::UncleBlock;
-use ckb_shared::error::SharedError;
 use ckb_traits::ChainProvider;
-use failure::Error as FailureError;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
-use std::collections::HashMap;
 
 #[derive(Default, Clone)]
 pub struct DummyChainProvider {
-    pub transaction_fees: HashMap<H256, Result<Capacity, SharedError>>,
     pub block_reward: Capacity,
 }
 
 impl ChainProvider for DummyChainProvider {
     fn block_reward(&self, _block_number: BlockNumber) -> Capacity {
         self.block_reward
-    }
-
-    fn calculate_transaction_fee(
-        &self,
-        transaction: &Transaction,
-    ) -> Result<Capacity, FailureError> {
-        let cap = self.transaction_fees[&transaction.hash()].clone()?;
-        Ok(cap)
     }
 
     fn block_ext(&self, _hash: &H256) -> Option<BlockExt> {

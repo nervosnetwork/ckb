@@ -31,7 +31,7 @@ where
         rtx: &'a ResolvedTransaction,
         median_time_context: &'a M,
         tip_number: BlockNumber,
-        cellbase_maturity: usize,
+        cellbase_maturity: BlockNumber,
     ) -> Self {
         TransactionVerifier {
             version: VersionVerifier::new(&rtx.transaction),
@@ -147,14 +147,14 @@ impl<'a> EmptyVerifier<'a> {
 pub struct MaturityVerifier<'a> {
     transaction: &'a ResolvedTransaction,
     tip_number: BlockNumber,
-    cellbase_maturity: usize,
+    cellbase_maturity: BlockNumber,
 }
 
 impl<'a> MaturityVerifier<'a> {
     pub fn new(
         transaction: &'a ResolvedTransaction,
         tip_number: BlockNumber,
-        cellbase_maturity: usize,
+        cellbase_maturity: BlockNumber,
     ) -> Self {
         MaturityVerifier {
             transaction,
@@ -171,7 +171,7 @@ impl<'a> MaturityVerifier<'a> {
                         && self.tip_number
                             < meta.block_number.expect(
                                 "cell meta should have block number when transaction verify",
-                            ) + self.cellbase_maturity as u64 =>
+                            ) + self.cellbase_maturity =>
                 {
                     true
                 }
