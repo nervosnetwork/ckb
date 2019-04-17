@@ -1,12 +1,23 @@
+use crate::NetworkState;
 use log::info;
 use p2p::{
     context::{ProtocolContext, ProtocolContextMutRef},
+    secio::PublicKey,
     traits::ServiceProtocol,
 };
+use std::sync::Arc;
 
 /// Feeler
 /// Currently do nothing, CKBProtocol auto refresh peer_store after connected.
-pub struct Feeler {}
+pub(crate) struct Feeler {
+    network_state: Arc<NetworkState>,
+}
+
+impl Feeler {
+    pub(crate) fn new(network_state: Arc<NetworkState>) -> Self {
+        Feeler { network_state }
+    }
+}
 
 //TODO
 //1. report bad behaviours
@@ -16,12 +27,28 @@ impl ServiceProtocol for Feeler {
 
     fn connected(&mut self, context: ProtocolContextMutRef, _: &str) {
         let session = context.session;
+        let peer_id = session
+            .remote_pubkey
+            .as_ref()
+            .map(PublicKey::peer_id)
+            .expect("Secio must enabled");
+        self.network_state.with_peer_store_mut(|peer_store| {
+            peer_store.add_connected_peer(&peer_id, session.address.clone(), session.ty);
+        });
         info!(target: "feeler", "peer={} FeelerProtocol.connected", session.address);
         context.disconnect(session.id);
     }
 
     fn disconnected(&mut self, context: ProtocolContextMutRef) {
         let session = context.session;
+        let peer_id = session
+            .remote_pubkey
+            .as_ref()
+            .map(PublicKey::peer_id)
+            .expect("Secio must enabled");
+        self.network_state.with_peer_registry_mut(|reg| {
+            reg.remove_feeler(&peer_id);
+        });
         info!(target: "relay", "peer={} FeelerProtocol.disconnected", session.address);
     }
 }
