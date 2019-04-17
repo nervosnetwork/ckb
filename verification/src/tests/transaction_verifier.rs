@@ -3,8 +3,8 @@ use super::super::transaction_verifier::{
     ValidSinceVerifier,
 };
 use crate::error::TransactionError;
+use ckb_core::cell::CellStatus;
 use ckb_core::cell::ResolvedTransaction;
-use ckb_core::cell::{CellMeta, CellStatus};
 use ckb_core::script::Script;
 use ckb_core::transaction::{CellInput, CellOutput, OutPoint, TransactionBuilder};
 use ckb_traits::BlockMedianTimeContext;

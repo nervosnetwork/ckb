@@ -5,8 +5,7 @@ use crate::tx_proposal_table::TxProposalTable;
 use ckb_chain_spec::consensus::{Consensus, ProposalWindow};
 use ckb_core::block::Block;
 use ckb_core::cell::{
-    resolve_transaction, CellMeta, CellProvider, CellStatus, OverlayCellProvider,
-    ResolvedTransaction,
+    resolve_transaction, CellProvider, CellStatus, OverlayCellProvider, ResolvedTransaction,
 };
 use ckb_core::header::{BlockNumber, Header};
 use ckb_core::transaction::{OutPoint, ProposalShortId, Transaction};
@@ -14,7 +13,7 @@ use ckb_core::Cycle;
 use ckb_traits::BlockMedianTimeContext;
 use ckb_verification::{TransactionError, TransactionVerifier};
 use fnv::FnvHashSet;
-use log::{error, trace};
+use log::error;
 use lru_cache::LruCache;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
@@ -96,7 +95,7 @@ impl<CS: ChainStore> ChainState<CS> {
                         ids_set.extend(ids);
                     }
                 }
-                proposal_ids.update_or_insert(bn, ids_set);
+                proposal_ids.insert(bn, ids_set);
             }
         }
         proposal_ids.finalize(tip_number);
@@ -155,16 +154,20 @@ impl<CS: ChainStore> ChainState<CS> {
         self.proposal_ids.contains(id)
     }
 
-    pub fn update_proposal_ids(&mut self, block: &Block) {
+    pub fn insert_proposal_ids(&mut self, block: &Block) {
         self.proposal_ids
-            .update_or_insert(block.header().number(), block.union_proposal_ids())
+            .insert(block.header().number(), block.union_proposal_ids());
+    }
+
+    pub fn remove_proposal_ids(&mut self, block: &Block) {
+        self.proposal_ids.remove(block.header().number());
     }
 
     pub fn get_proposal_ids_iter(&self) -> impl Iterator<Item = &ProposalShortId> {
         self.proposal_ids.get_ids_iter()
     }
 
-    pub fn proposal_ids_finalize(&mut self, number: BlockNumber) -> Vec<ProposalShortId> {
+    pub fn proposal_ids_finalize(&mut self, number: BlockNumber) -> FnvHashSet<ProposalShortId> {
         self.proposal_ids.finalize(number)
     }
 
@@ -326,11 +329,11 @@ impl<CS: ChainStore> ChainState<CS> {
         Ok(StagingTxResult::Normal(cycles))
     }
 
-    pub fn update_tx_pool_for_reorg(
+    pub fn update_tx_pool_for_reorg<'a>(
         &self,
-        detached_blocks: &[Block],
-        attached_blocks: &[Block],
-        detached_proposal_id: &[ProposalShortId],
+        detached_blocks: impl Iterator<Item = &'a Block>,
+        attached_blocks: impl Iterator<Item = &'a Block>,
+        detached_proposal_id: impl Iterator<Item = &'a ProposalShortId>,
         max_cycles: Cycle,
     ) {
         let mut tx_pool = self.tx_pool.borrow_mut();

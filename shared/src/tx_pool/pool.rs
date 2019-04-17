@@ -175,7 +175,7 @@ impl TxPool {
         self.capacity() > self.config.max_pool_size
     }
 
-    pub fn remove_expired(&mut self, ids: &[ProposalShortId]) {
+    pub fn remove_expired<'a>(&mut self, ids: impl Iterator<Item = &'a ProposalShortId>) {
         for id in ids {
             if let Some(entries) = self.staging.remove(id) {
                 let first = entries[0].clone();
