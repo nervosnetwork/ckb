@@ -460,6 +460,7 @@ impl<CP: ChainProvider + Clone> CommitVerifier<CP> {
 
         if !difference.is_empty() {
             error!(target: "chain",  "Block {} {:x}", block.header().number(), block.header().hash());
+            error!(target: "chain",  "proposal_window proposal_start {}", proposal_start);
             error!(target: "chain",  "committed_ids {} ", serde_json::to_string(&committed_ids).unwrap());
             error!(target: "chain",  "proposal_txs_ids {} ", serde_json::to_string(&proposal_txs_ids).unwrap());
             return Err(Error::Commit(CommitError::Invalid));

@@ -56,7 +56,7 @@ pub struct ForkChanges {
     // blocks detached from index after forks
     pub(crate) detached_blocks: Vec<Block>,
     // proposal_id detached to index after forks
-    pub(crate) detached_proposal_id: Vec<ProposalShortId>,
+    pub(crate) detached_proposal_id: FnvHashSet<ProposalShortId>,
     // to be updated exts
     pub(crate) dirty_exts: Vec<BlockExt>,
 }
@@ -70,7 +70,7 @@ impl ForkChanges {
         &self.detached_blocks
     }
 
-    pub fn detached_proposal_id(&self) -> &[ProposalShortId] {
+    pub fn detached_proposal_id(&self) -> &FnvHashSet<ProposalShortId> {
         &self.detached_proposal_id
     }
 }
@@ -268,13 +268,15 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
 
         if new_best_block {
             let tip_header = block.header().clone();
+            // finalize proposal_id table change
+            // then, update tx_pool
             let detached_proposal_id = chain_state.proposal_ids_finalize(tip_header.number());
             fork.detached_proposal_id = detached_proposal_id;
             chain_state.update_tip(tip_header, total_difficulty, cell_set_diff);
             chain_state.update_tx_pool_for_reorg(
-                fork.detached_blocks(),
-                fork.attached_blocks(),
-                fork.detached_proposal_id(),
+                fork.detached_blocks().iter(),
+                fork.attached_blocks().iter(),
+                fork.detached_proposal_id().iter(),
                 self.shared.consensus().max_block_cycles(),
             );
             if log_enabled!(target: "chain", log::Level::Debug) {
@@ -288,8 +290,11 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
     }
 
     pub(crate) fn update_proposal_ids(&self, chain_state: &mut ChainState<CS>, fork: &ForkChanges) {
+        for blk in fork.detached_blocks() {
+            chain_state.remove_proposal_ids(&blk);
+        }
         for blk in fork.attached_blocks() {
-            chain_state.update_proposal_ids(&blk);
+            chain_state.insert_proposal_ids(&blk);
         }
     }
 
