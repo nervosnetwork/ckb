@@ -501,14 +501,14 @@ impl ServiceHandle for EventHandler {
                 proto_id,
                 version,
             } => {
-                if let Some(peer) = self
-                    .network_state
-                    .peer_registry
-                    .write()
-                    .get_peer_mut(session_context.id)
-                {
-                    peer.protocols.insert(proto_id, version);
-                } else {
+                let peer_not_exists = self.network_state.with_peer_registry_mut(|reg| {
+                    reg.get_peer_mut(session_context.id)
+                        .map(|peer| {
+                            peer.protocols.insert(proto_id, version);
+                        })
+                        .is_none()
+                });
+                if peer_not_exists {
                     let peer_id = session_context
                         .remote_pubkey
                         .as_ref()
