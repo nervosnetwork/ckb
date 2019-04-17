@@ -1,11 +1,13 @@
 use crate::config::Config;
 use crate::module::{
-    ChainRpc, ChainRpcImpl, IntegrationTestRpc, IntegrationTestRpcImpl, MinerRpc, MinerRpcImpl,
-    NetworkRpc, NetworkRpcImpl, PoolRpc, PoolRpcImpl, TraceRpc, TraceRpcImpl,
+    new_default_wallet_rpc, ChainRpc, ChainRpcImpl, IntegrationTestRpc, IntegrationTestRpcImpl,
+    MinerRpc, MinerRpcImpl, NetworkRpc, NetworkRpcImpl, PoolRpc, PoolRpcImpl, TraceRpc,
+    TraceRpcImpl, WalletRpc,
 };
 use ckb_chain::chain::ChainController;
-use ckb_miner::BlockAssemblerController;
+use ckb_miner::{BlockAssembler, BlockAssemblerConfig};
 use ckb_network::NetworkController;
+use ckb_notify::NotifyController;
 use ckb_shared::shared::Shared;
 use ckb_shared::store::ChainStore;
 use jsonrpc_core::IoHandler;
@@ -20,10 +22,11 @@ pub struct RpcServer {
 impl RpcServer {
     pub fn new<CS: ChainStore + 'static>(
         config: Config,
+        block_assembler_config: BlockAssemblerConfig,
         network_controller: NetworkController,
         shared: Shared<CS>,
         chain: ChainController,
-        block_assembler: BlockAssemblerController,
+        notify: NotifyController,
     ) -> RpcServer
     where
         CS: ChainStore,
@@ -50,6 +53,9 @@ impl RpcServer {
         }
 
         if config.miner_enable() {
+            let block_assembler = BlockAssembler::new(shared.clone(), block_assembler_config)
+                .start(Some("MinerAgent"), &notify);
+
             io.extend_with(
                 MinerRpcImpl {
                     shared: shared.clone(),
@@ -82,6 +88,13 @@ impl RpcServer {
 
         if config.integration_test_enable() {
             io.extend_with(IntegrationTestRpcImpl { network_controller }.to_delegate());
+        }
+
+        if config.wallet_enable() {
+            let mut path = config.path.clone();
+            path.push("wallet.db");
+
+            io.extend_with(new_default_wallet_rpc(path, &notify).to_delegate());
         }
 
         let server = ServerBuilder::new(io)

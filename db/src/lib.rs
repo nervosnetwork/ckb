@@ -19,6 +19,7 @@ pub use crate::rocksdb::RocksDB;
 
 pub type Col = u32;
 pub type Result<T> = result::Result<T, Error>;
+pub type KeyValueIteratorItem = (Box<[u8]>, Box<[u8]>);
 
 #[derive(Clone, Debug, PartialEq, Eq, Fail)]
 pub enum Error {
@@ -38,7 +39,7 @@ pub trait IterableKeyValueDB: KeyValueDB {
         &'a self,
         col: Col,
         from_key: &'a [u8],
-    ) -> Result<Box<Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a>>;
+    ) -> Result<Box<Iterator<Item = KeyValueIteratorItem> + 'a>>;
 }
 
 pub trait DbBatch {

@@ -2,7 +2,6 @@ use crate::helper::{deadlock_detection, wait_for_exit};
 use crate::setup::{ExitCode, RunArgs};
 use ckb_chain::chain::{ChainBuilder, ChainController};
 use ckb_db::{CacheDB, RocksDB};
-use ckb_miner::BlockAssembler;
 use ckb_network::{CKBProtocol, NetworkService, NetworkState, ProtocolId};
 use ckb_notify::{NotifyController, NotifyService};
 use ckb_rpc::RpcServer;
@@ -26,9 +25,6 @@ pub fn run(args: RunArgs) -> Result<(), ExitCode> {
 
     let chain_controller = setup_chain(shared.clone(), notify.clone());
     info!(target: "main", "chain genesis hash: {:#x}", shared.genesis_hash());
-
-    let block_assembler = BlockAssembler::new(shared.clone(), args.config.block_assembler);
-    let block_assembler_controller = block_assembler.start(Some("MinerAgent"), &notify);
 
     let synchronizer =
         Synchronizer::new(chain_controller.clone(), shared.clone(), args.config.sync);
@@ -71,10 +67,11 @@ pub fn run(args: RunArgs) -> Result<(), ExitCode> {
 
     let rpc_server = RpcServer::new(
         args.config.rpc,
+        args.config.block_assembler,
         network_controller,
         shared,
         chain_controller,
-        block_assembler_controller,
+        notify,
     );
 
     wait_for_exit();

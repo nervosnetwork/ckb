@@ -1,4 +1,5 @@
 use serde_derive::Deserialize;
+use std::path::PathBuf;
 
 #[derive(Clone, Debug, Copy, Eq, PartialEq, Deserialize)]
 pub enum Module {
@@ -8,6 +9,7 @@ pub enum Module {
     Pool,
     Trace,
     IntegrationTest,
+    Wallet,
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
@@ -16,6 +18,8 @@ pub struct Config {
     pub threads: Option<usize>,
     pub modules: Vec<Module>,
     pub max_request_body_size: usize,
+    #[serde(default)]
+    pub path: PathBuf,
 }
 
 impl Config {
@@ -41,5 +45,9 @@ impl Config {
 
     pub(crate) fn integration_test_enable(&self) -> bool {
         self.modules.contains(&Module::IntegrationTest)
+    }
+
+    pub(crate) fn wallet_enable(&self) -> bool {
+        self.modules.contains(&Module::Wallet)
     }
 }

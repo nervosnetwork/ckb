@@ -157,6 +157,7 @@ impl CKBAppConfig {
         }
         self.db.path = mkdir(self.data_dir.join("db"))?;
         self.network.path = mkdir(self.data_dir.join("network"))?;
+        self.rpc.path = mkdir(self.data_dir.join("rpc"))?;
 
         Ok(self)
     }
