@@ -734,6 +734,16 @@ impl<CS: ChainStore> CKBProtocolHandler for Synchronizer<CS> {
 
     fn disconnected(&self, _nc: Box<CKBProtocolContext>, peer: PeerIndex) {
         info!(target: "sync", "peer={} SyncProtocol.disconnected", peer);
+        let state = self.peers.state.write();
+        if let Some(peer_state) = state.get(&peer) {
+            if peer_state.sync_started {
+                if self.n_sync.fetch_sub(1, Ordering::Release) == 0 {
+                    // overflow
+                    panic!("Synchronizer n_sync overflow");
+                }
+            }
+        }
+        state.remove(&peer);
         self.peers.disconnected(peer);
     }
 
