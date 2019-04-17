@@ -1,8 +1,6 @@
-use crate::proposal_short_id::ProposalShortId;
-use crate::{Header, Transaction};
+use crate::{Cycle, Header, ProposalShortId, Transaction, Version};
 use ckb_core::transaction::Transaction as CoreTransaction;
 use ckb_core::uncle::UncleBlock as CoreUncleBlock;
-use ckb_core::{Cycle, Version};
 use failure::Error as FailureError;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;

@@ -1,5 +1,4 @@
-use crate::proposal_short_id::ProposalShortId;
-use crate::Bytes;
+use crate::{BlockNumber, Bytes, Capacity, ProposalShortId};
 use ckb_core::block::{Block as CoreBlock, BlockBuilder};
 use ckb_core::header::{Header as CoreHeader, HeaderBuilder, Seal as CoreSeal};
 use ckb_core::script::Script as CoreScript;
@@ -8,7 +7,7 @@ use ckb_core::transaction::{
     Transaction as CoreTransaction, TransactionBuilder, Witness as CoreWitness,
 };
 use ckb_core::uncle::UncleBlock as CoreUncleBlock;
-use ckb_core::{BlockNumber, Capacity};
+use ckb_core::{BlockNumber as CoreBlockNumber, Capacity as CoreCapacity};
 use failure::Error as FailureError;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
@@ -45,7 +44,7 @@ impl From<CoreScript> for Script {
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct CellOutput {
-    pub capacity: String,
+    pub capacity: Capacity,
     pub data: Bytes,
     pub lock: Script,
     #[serde(rename = "type")]
@@ -81,7 +80,7 @@ impl TryFrom<CellOutput> for CoreCellOutput {
         };
 
         Ok(CoreCellOutput::new(
-            capacity.parse::<Capacity>()?,
+            capacity.parse::<CoreCapacity>()?,
             data.into_vec(),
             lock.try_into()?,
             type_,
@@ -102,12 +101,10 @@ impl From<CoreOutPoint> for OutPoint {
     }
 }
 
-impl TryFrom<OutPoint> for CoreOutPoint {
-    type Error = FailureError;
-
-    fn try_from(json: OutPoint) -> Result<Self, Self::Error> {
+impl From<OutPoint> for CoreOutPoint {
+    fn from(json: OutPoint) -> Self {
         let OutPoint { hash, index } = json;
-        Ok(CoreOutPoint::new(hash, index))
+        CoreOutPoint::new(hash, index)
     }
 }
 
@@ -265,7 +262,7 @@ pub struct Header {
     pub version: u32,
     pub parent_hash: H256,
     pub timestamp: String,
-    pub number: String,
+    pub number: BlockNumber,
     pub txs_commit: H256,
     pub txs_proposal: H256,
     pub witnesses_root: H256,
@@ -319,7 +316,7 @@ impl TryFrom<Header> for CoreHeader {
             .version(version)
             .parent_hash(parent_hash)
             .timestamp(timestamp.parse::<u64>()?)
-            .number(number.parse::<BlockNumber>()?)
+            .number(number.parse::<CoreBlockNumber>()?)
             .txs_commit(txs_commit)
             .txs_proposal(txs_proposal)
             .witnesses_root(witnesses_root)

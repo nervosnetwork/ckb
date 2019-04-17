@@ -1,7 +1,5 @@
-use crate::blockchain::{CellOutput, OutPoint};
+use crate::{Capacity, CellOutput, OutPoint, Script};
 use ckb_core::cell::CellStatus;
-use ckb_core::script::Script;
-use ckb_core::Capacity;
 use serde_derive::{Deserialize, Serialize};
 
 // This is used as return value of get_cells_by_type_hash RPC:
