@@ -225,6 +225,7 @@ impl CellProvider for StagingPool {
                 CellStatus::Live(CellMeta {
                     cell_output: self.get_output(o).expect("output"),
                     block_number: None,
+                    cellbase: false,
                 })
             }
         } else if self.edges.get_outer(o).is_some() {

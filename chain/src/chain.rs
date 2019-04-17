@@ -468,6 +468,8 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
                         .map(|x| resolve_transaction(x, &mut seen_inputs, &cell_provider))
                         .collect();
 
+                    let cellbase_maturity = { self.shared.consensus().cellbase_maturity() };
+
                     match txs_verifier.verify(
                         chain_state.mut_txs_verify_cache(),
                         &resolved,
@@ -478,6 +480,7 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
                             consensus: self.shared.consensus(),
                         },
                         b.header().number(),
+                        cellbase_maturity,
                     ) {
                         Ok(_) => {
                             cell_set_diff.push_new(b);

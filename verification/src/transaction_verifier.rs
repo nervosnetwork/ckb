@@ -15,6 +15,7 @@ pub struct TransactionVerifier<'a, M> {
     pub version: VersionVerifier<'a>,
     pub null: NullVerifier<'a>,
     pub empty: EmptyVerifier<'a>,
+    pub maturity: MaturityVerifier<'a>,
     pub capacity: CapacityVerifier<'a>,
     pub duplicate_inputs: DuplicateInputsVerifier<'a>,
     pub inputs: InputVerifier<'a>,
@@ -30,11 +31,13 @@ where
         rtx: &'a ResolvedTransaction,
         median_time_context: &'a M,
         tip_number: BlockNumber,
+        cellbase_maturity: usize,
     ) -> Self {
         TransactionVerifier {
             version: VersionVerifier::new(&rtx.transaction),
             null: NullVerifier::new(&rtx.transaction),
             empty: EmptyVerifier::new(&rtx.transaction),
+            maturity: MaturityVerifier::new(&rtx, tip_number, cellbase_maturity),
             duplicate_inputs: DuplicateInputsVerifier::new(&rtx.transaction),
             script: ScriptVerifier::new(rtx),
             capacity: CapacityVerifier::new(rtx),
@@ -47,6 +50,7 @@ where
         self.version.verify()?;
         self.empty.verify()?;
         self.null.verify()?;
+        self.maturity.verify()?;
         self.inputs.verify()?;
         self.capacity.verify()?;
         self.duplicate_inputs.verify()?;
@@ -134,6 +138,52 @@ impl<'a> EmptyVerifier<'a> {
     pub fn verify(&self) -> Result<(), TransactionError> {
         if self.transaction.is_empty() {
             Err(TransactionError::Empty)
+        } else {
+            Ok(())
+        }
+    }
+}
+
+pub struct MaturityVerifier<'a> {
+    transaction: &'a ResolvedTransaction,
+    tip_number: BlockNumber,
+    cellbase_maturity: usize,
+}
+
+impl<'a> MaturityVerifier<'a> {
+    pub fn new(
+        transaction: &'a ResolvedTransaction,
+        tip_number: BlockNumber,
+        cellbase_maturity: usize,
+    ) -> Self {
+        MaturityVerifier {
+            transaction,
+            tip_number,
+            cellbase_maturity,
+        }
+    }
+
+    pub fn verify(&self) -> Result<(), TransactionError> {
+        let cellbase_immature = |cell_status: &CellStatus| -> bool {
+            match cell_status.get_live() {
+                Some(ref meta)
+                    if meta.is_cellbase()
+                        && self.tip_number
+                            < meta.block_number.expect(
+                                "cell meta should have block number when transaction verify",
+                            ) + self.cellbase_maturity as u64 =>
+                {
+                    true
+                }
+                _ => false,
+            }
+        };
+
+        let input_immature_spend = || self.transaction.input_cells.iter().any(cellbase_immature);
+        let dep_immature_spend = || self.transaction.dep_cells.iter().any(cellbase_immature);
+
+        if input_immature_spend() || dep_immature_spend() {
+            Err(TransactionError::CellbaseImmaturity)
         } else {
             Ok(())
         }
