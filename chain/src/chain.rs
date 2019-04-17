@@ -539,27 +539,6 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
         debug!(target: "chain", "}}");
 
         // TODO: remove me when block explorer is available
-        debug!(target: "chain", "Tx in Head Block {{");
-        for transaction in self
-            .shared
-            .block_hash(tip)
-            .and_then(|hash| self.shared.store().get_block_body(&hash))
-            .expect("invalid block number")
-        {
-            debug!(target: "chain", "   {} => {:?}", transaction.hash(), transaction);
-        }
-
-        debug!(target: "chain", "}}");
-
-        debug!(target: "chain", "Proposal in Head Block {{");
-        debug!(target: "chain",  "   {:?}", self
-               .shared
-               .block_hash(tip)
-               .and_then(|hash| self.shared.store().get_block_proposal_txs_ids(&hash))
-               .expect("invalid block number"));
-
-        debug!(target: "chain", "}}");
-
         debug!(target: "chain", "Uncle block {{");
         for (index, uncle) in self
             .shared
