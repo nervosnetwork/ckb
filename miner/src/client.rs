@@ -12,7 +12,8 @@ use jsonrpc_types::{
     error::Error as RpcFail, id::Id, params::Params, request::MethodCall, response::Output,
     version::Version, Block as JsonBlock,
 };
-use log::{debug, error};
+use log::{debug, error, warn};
+use numext_fixed_hash::H256;
 use serde_json::error::Error as JsonError;
 use serde_json::{self, json, Value};
 use std::thread;
@@ -136,7 +137,12 @@ impl Client {
     pub fn submit_block(&self, work_id: &str, block: &Block) {
         let future = self.send_submit_block_request(work_id, block);
         if self.config.block_on_submit {
-            let _ = future.wait();
+            let ret: Result<Option<H256>, RpcError> = future.and_then(parse_response).wait();
+            if let Ok(hash) = ret {
+                if hash.is_none() {
+                    warn!(target: "miner", "submit_block failed {}", serde_json::to_string(block).unwrap());
+                }
+            }
         }
     }
 

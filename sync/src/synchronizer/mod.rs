@@ -420,6 +420,11 @@ impl<CS: ChainStore> Synchronizer<CS> {
 
     //TODO: process block which we don't request
     pub fn process_new_block(&self, peer: PeerIndex, block: Block) {
+        if self.orphan_block_pool.contains(&block) {
+            debug!(target: "sync", "block {} already in orphan pool", block.header().hash());
+            return;
+        }
+
         match self.get_block_status(&block.header().hash()) {
             BlockStatus::VALID_MASK => {
                 self.insert_new_block(peer, block);
@@ -431,7 +436,6 @@ impl<CS: ChainStore> Synchronizer<CS> {
     }
 
     fn accept_block(&self, peer: PeerIndex, block: &Arc<Block>) -> Result<(), FailureError> {
-        // TODO: some transactions' verification can be skiped.
         self.chain.process_block(Arc::clone(&block))?;
         self.mark_block_stored(block.header().hash().clone());
         self.peers.set_last_common_header(peer, &block.header());
@@ -476,7 +480,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
                 }
             } else {
                 debug!(
-                    target: "sync", "[Synchronizer] accept_block {:?} error {:?}",
+                    target: "sync", "[Synchronizer] accept_block {:?} error {}",
                     block,
                     accept_ret.unwrap_err()
                 )
@@ -679,7 +683,9 @@ impl<CS: ChainStore> Synchronizer<CS> {
         debug!(target: "sync", "poll find_blocks_to_fetch select peers");
         for peer in peers {
             if let Some(v_fetch) = self.get_blocks_to_fetch(peer) {
-                self.send_getblocks(&v_fetch, nc, peer);
+                if !v_fetch.is_empty() {
+                    self.send_getblocks(&v_fetch, nc, peer);
+                }
             }
         }
     }

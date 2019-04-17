@@ -356,7 +356,10 @@ impl CKBProtocolContext for DefaultCKBProtocolContext {
             .ok_or_else(|| PeerError::NotFound(peer_id.to_owned()))
             .and_then(|peer| {
                 peer.protocol_version(protocol_id)
-                    .ok_or_else(|| PeerError::ProtocolNotFound(peer_id.to_owned(), protocol_id))
+                    .ok_or_else(|| {
+                        warn!(target: "network", "can not get protocol version: peer={:?}, protocol_id={}", peer, protocol_id);
+                        PeerError::ProtocolNotFound(peer_id.to_owned(), protocol_id)
+                    })
                     .map(|_| peer.session_id)
             })?;
 

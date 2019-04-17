@@ -30,6 +30,7 @@ use ckb_shared::store::ChainStore;
 use ckb_traits::ChainProvider;
 use ckb_util::Mutex;
 use failure::Error as FailureError;
+use faketime::unix_time_as_millis;
 use flatbuffers::FlatBufferBuilder;
 use fnv::{FnvHashMap, FnvHashSet};
 use log::warn;
@@ -184,6 +185,7 @@ impl<CS: ChainStore> Relayer<CS> {
         let ret = self.chain.process_block(Arc::clone(&block));
 
         if ret.is_ok() {
+            debug!(target: "relay", "[block_relay] relayer accept_block {} {}", block.header().hash(), unix_time_as_millis());
             let block_hash = block.header().hash();
             let fbb = &mut FlatBufferBuilder::new();
             let message = RelayMessage::build_compact_block(fbb, block, &HashSet::new());

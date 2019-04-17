@@ -128,11 +128,11 @@ impl PeersRegistry {
         let mut peers = self.peers.write();
 
         if let Some(peer) = peers.get_mut(&peer_id) {
+            debug!(target: "network", "add peer protocol: peer_id={:?}, session_id={}, protocol_id={}", peer_id, session_id, protocol_id);
             peer.protocols.insert(protocol_id, protocol_version);
             return Ok(RegisterResult::Exist(peer.peer_index));
         }
 
-        let inbound = session_type.is_inbound();
         let mut peer_id_by_index = self.peer_id_by_index.write();
 
         if !self.is_reserved(&peer_id) {
@@ -146,7 +146,7 @@ impl PeersRegistry {
 
             let connection_status = self._connection_status(peers.iter());
             // check peers connection limitation
-            if inbound {
+            if session_type.is_inbound() {
                 if connection_status.unreserved_inbound >= self.max_inbound
                     && !self._try_evict_inbound_peer(&mut peers, &mut peer_id_by_index)
                 {

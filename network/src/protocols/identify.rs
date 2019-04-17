@@ -1,6 +1,6 @@
 // use crate::peer_store::Behaviour;
 use crate::NetworkState;
-use log::{debug, trace, warn};
+use log::{debug, trace};
 use p2p::{
     multiaddr::{Multiaddr, Protocol},
     secio::PeerId,
@@ -59,7 +59,7 @@ impl Callback for IdentifyCallback {
         let peer_store = self.network_state.peer_store();
         for addr in addrs {
             if !peer_store.add_discovered_addr(&peer_id, addr) {
-                warn!(target: "network", "add_discovered_addr failed {:?}", peer_id);
+                debug!(target: "network", "add_discovered_addr failed {:?}", peer_id);
             }
         }
     }
@@ -108,7 +108,7 @@ impl Callback for IdentifyCallback {
                 .peer_store()
                 .add_discovered_addr(local_peer_id, transformed_addr)
             {
-                warn!(target: "network", "add_discovered_addr failed {:?}", local_peer_id);
+                debug!(target: "network", "add_discovered_addr failed {:?}", local_peer_id);
             }
         }
         // NOTE: for future usage
