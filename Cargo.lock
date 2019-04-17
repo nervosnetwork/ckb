@@ -478,7 +478,7 @@ dependencies = [
  "faketime 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "fnv 1.0.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "futures 0.1.26 (registry+https://github.com/rust-lang/crates.io-index)",
- "hyper 0.12.26 (registry+https://github.com/rust-lang/crates.io-index)",
+ "hyper 0.12.27 (registry+https://github.com/rust-lang/crates.io-index)",
  "jsonrpc-types 0.9.0-pre",
  "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "lru-cache 0.1.0 (git+https://github.com/nervosnetwork/lru-cache)",
@@ -1366,7 +1366,7 @@ dependencies = [
 
 [[package]]
 name = "hyper"
-version = "0.12.26"
+version = "0.12.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "bytes 0.4.12 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1398,7 +1398,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "bytes 0.4.12 (registry+https://github.com/rust-lang/crates.io-index)",
  "futures 0.1.26 (registry+https://github.com/rust-lang/crates.io-index)",
- "hyper 0.12.26 (registry+https://github.com/rust-lang/crates.io-index)",
+ "hyper 0.12.27 (registry+https://github.com/rust-lang/crates.io-index)",
  "native-tls 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "tokio-io 0.1.12 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
@@ -1508,7 +1508,7 @@ name = "jsonrpc-http-server"
 version = "10.0.1"
 source = "git+https://github.com/nervosnetwork/jsonrpc?branch=http_remake#7c101f83a8fe34369c1b7a0e9b6721fcb0f91ee0"
 dependencies = [
- "hyper 0.12.26 (registry+https://github.com/rust-lang/crates.io-index)",
+ "hyper 0.12.27 (registry+https://github.com/rust-lang/crates.io-index)",
  "jsonrpc-core 10.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "jsonrpc-server-utils 10.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -2414,7 +2414,7 @@ dependencies = [
  "flate2 1.0.7 (registry+https://github.com/rust-lang/crates.io-index)",
  "futures 0.1.26 (registry+https://github.com/rust-lang/crates.io-index)",
  "http 0.1.16 (registry+https://github.com/rust-lang/crates.io-index)",
- "hyper 0.12.26 (registry+https://github.com/rust-lang/crates.io-index)",
+ "hyper 0.12.27 (registry+https://github.com/rust-lang/crates.io-index)",
  "hyper-tls 0.3.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "mime 0.3.13 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -3598,7 +3598,7 @@ dependencies = [
 "checksum httparse 1.3.3 (registry+https://github.com/rust-lang/crates.io-index)" = "e8734b0cfd3bc3e101ec59100e101c2eecd19282202e87808b3037b442777a83"
 "checksum httpdate 0.3.2 (registry+https://github.com/rust-lang/crates.io-index)" = "494b4d60369511e7dea41cf646832512a94e542f68bb9c49e54518e0f468eb47"
 "checksum humantime 1.2.0 (registry+https://github.com/rust-lang/crates.io-index)" = "3ca7e5f2e110db35f93b837c81797f3714500b81d517bf20c431b16d3ca4f114"
-"checksum hyper 0.12.26 (registry+https://github.com/rust-lang/crates.io-index)" = "3811a1fe10f3cc132124099150fabb15b22530bdbc3e15f35371335b91c4766a"
+"checksum hyper 0.12.27 (registry+https://github.com/rust-lang/crates.io-index)" = "4f2777434f26af6e4ce4fdcdccd3bed9d861d11e87bcbe72c0f51ddaca8ff848"
 "checksum hyper-tls 0.3.2 (registry+https://github.com/rust-lang/crates.io-index)" = "3a800d6aa50af4b5850b2b0f659625ce9504df908e9733b635720483be26174f"
 "checksum idna 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)" = "38f09e0f0b1fb55fdee1f17470ad800da77af5186a1a76c026b679358b7e844e"
 "checksum im 12.3.3 (registry+https://github.com/rust-lang/crates.io-index)" = "efe5ea3ac18d45fedbd8f586f9059848d7a986542b7ecf92c7c946b3853d443f"
