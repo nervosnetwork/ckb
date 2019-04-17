@@ -654,8 +654,8 @@ impl<CS: ChainStore> Synchronizer<CS> {
         };
         for peer in peers {
             // Only sync with 1 peer if we're in IBD
-            if self.is_initial_block_download() && !self.n_sync.load(Ordering::Acquire) == 0 {
-                return;
+            if self.is_initial_block_download() && self.n_sync.load(Ordering::Acquire) != 0 {
+                break;
             }
             {
                 let mut state = self.peers.state.write();
