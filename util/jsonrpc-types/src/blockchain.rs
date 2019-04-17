@@ -101,12 +101,10 @@ impl From<CoreOutPoint> for OutPoint {
     }
 }
 
-impl TryFrom<OutPoint> for CoreOutPoint {
-    type Error = FailureError;
-
-    fn try_from(json: OutPoint) -> Result<Self, Self::Error> {
+impl From<OutPoint> for CoreOutPoint {
+    fn from(json: OutPoint) -> Self {
         let OutPoint { hash, index } = json;
-        Ok(CoreOutPoint::new(hash, index))
+        CoreOutPoint::new(hash, index)
     }
 }
 
