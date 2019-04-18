@@ -14,8 +14,8 @@ use self::headers_process::HeadersProcess;
 use crate::config::Config;
 use crate::types::{HeaderView, Peers};
 use crate::{
-    CHAIN_SYNC_TIMEOUT, EVICTION_HEADERS_RESPONSE_TIME, HEADERS_DOWNLOAD_TIMEOUT_BASE,
-    HEADERS_DOWNLOAD_TIMEOUT_PER_HEADER, MAX_HEADERS_LEN,
+    BAD_MESSAGE_BAN_TIME, CHAIN_SYNC_TIMEOUT, EVICTION_HEADERS_RESPONSE_TIME,
+    HEADERS_DOWNLOAD_TIMEOUT_BASE, HEADERS_DOWNLOAD_TIMEOUT_PER_HEADER, MAX_HEADERS_LEN,
     MAX_OUTBOUND_PEERS_TO_PROTECT_FROM_DISCONNECT, MAX_TIP_AGE, POW_SPACE,
 };
 use bitflags::bitflags;
@@ -24,7 +24,7 @@ use ckb_chain::chain::ChainController;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::Block;
 use ckb_core::header::{BlockNumber, Header};
-use ckb_network::{Behaviour, CKBProtocolContext, CKBProtocolHandler, PeerIndex};
+use ckb_network::{CKBProtocolContext, CKBProtocolHandler, PeerIndex};
 use ckb_protocol::{cast, get_root, SyncMessage, SyncPayload};
 use ckb_shared::shared::Shared;
 use ckb_shared::store::ChainStore;
@@ -33,7 +33,7 @@ use ckb_util::{try_option, Mutex, RwLock};
 use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
 use flatbuffers::FlatBufferBuilder;
-use log::{debug, info, warn};
+use log::{debug, info};
 use numext_fixed_hash::H256;
 use std::cmp;
 use std::collections::HashMap;
@@ -167,11 +167,9 @@ impl<CS: ChainStore> Synchronizer<CS> {
     }
 
     fn process(&self, nc: &mut CKBProtocolContext, peer: PeerIndex, message: SyncMessage) {
-        if self.try_process(nc, peer, message).is_err() {
-            let ret = nc.report_peer(peer, Behaviour::UnexpectedMessage);
-            if ret.is_err() {
-                warn!(target: "network", "report_peer peer {:?} UnexpectedMessage error  {:?}", peer, ret);
-            }
+        if let Err(err) = self.try_process(nc, peer, message) {
+            info!(target: "sync", "try_process peer {:?} message error {:?}", peer, err);
+            nc.ban_peer(peer, BAD_MESSAGE_BAN_TIME);
         }
     }
 
@@ -531,7 +529,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
         let ret = nc.send(peer, fbb.finished_data().to_vec());
 
         if ret.is_err() {
-            warn!(target: "sync", "send_getheaders_to_peer error {:?}", ret);
+            debug!(target: "sync", "send_getheaders_to_peer error {:?}", ret);
         }
     }
 
@@ -698,7 +696,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
         fbb.finish(message, None);
         let ret = nc.send(peer, fbb.finished_data().to_vec());
         if ret.is_err() {
-            warn!(target: "sync", "send_getblocks error {:?}", ret);
+            debug!(target: "sync", "send_getblocks error {:?}", ret);
         }
         debug!(target: "sync", "send_getblocks len={:?} to peer={}", v_fetch.len() , peer);
     }
@@ -715,12 +713,9 @@ impl<CS: ChainStore> CKBProtocolHandler for Synchronizer<CS> {
     fn received(&self, mut nc: Box<CKBProtocolContext>, peer: PeerIndex, data: Bytes) {
         let msg = match get_root::<SyncMessage>(&data) {
             Ok(msg) => msg,
-            _ => {
-                info!(target: "sync", "Peer {} sends us a malformed message", peer);
-                let ret = nc.report_peer(peer, Behaviour::UnexpectedMessage);
-                if ret.is_err() {
-                    warn!(target: "sync", "report_peer peer {:?} UnexpectedMessage error  {:?}", peer, ret)
-                }
+            Err(err) => {
+                info!(target: "sync", "receive peer {:?} message error {:?}", peer, err);
+                nc.ban_peer(peer, BAD_MESSAGE_BAN_TIME);
                 return;
             }
         };
@@ -779,8 +774,8 @@ mod tests {
     use ckb_core::transaction::{CellInput, CellOutput, Transaction, TransactionBuilder};
     use ckb_db::memorydb::MemoryKeyValueDB;
     use ckb_network::{
-        errors::Error as NetworkError, multiaddr::ToMultiaddr, CKBProtocolContext, Peer, PeerIndex,
-        ProtocolId, ProtocolVersion, SessionInfo, SessionType,
+        errors::Error as NetworkError, multiaddr::ToMultiaddr, Behaviour, CKBProtocolContext, Peer,
+        PeerIndex, ProtocolId, ProtocolVersion, SessionInfo, SessionType,
     };
     use ckb_notify::{NotifyController, NotifyService};
     use ckb_protocol::{Block as FbsBlock, Headers as FbsHeaders};

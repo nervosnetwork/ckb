@@ -1,5 +1,6 @@
+use crate::BAD_MESSAGE_BAN_TIME;
 use bytes::Bytes;
-use ckb_network::{Behaviour, CKBProtocolContext, CKBProtocolHandler, PeerIndex};
+use ckb_network::{CKBProtocolContext, CKBProtocolHandler, PeerIndex};
 use ckb_protocol::{get_root, TimeMessage};
 use ckb_util::RwLock;
 use flatbuffers::FlatBufferBuilder;
@@ -94,10 +95,7 @@ impl CKBProtocolHandler for NetTimeProtocol {
     fn received(&self, nc: Box<CKBProtocolContext>, peer: PeerIndex, data: Bytes) {
         if nc.session_info(peer).map(|s| s.peer.is_outbound()) != Some(true) {
             info!(target: "network", "Peer {} is not outbound but sends us time message", peer);
-            let ret = nc.report_peer(peer, Behaviour::UnexpectedMessage);
-            if ret.is_err() {
-                warn!(target: "network", "report_peer peer {:?} UnexpectedMessage error {:?}", peer, ret);
-            }
+            return;
         }
 
         let timestamp = match get_root::<TimeMessage>(&data)
@@ -108,10 +106,7 @@ impl CKBProtocolHandler for NetTimeProtocol {
             Some(timestamp) => timestamp,
             None => {
                 info!(target: "network", "Peer {} sends us malformed message", peer);
-                let ret = nc.report_peer(peer, Behaviour::UnexpectedMessage);
-                if ret.is_err() {
-                    warn!(target: "network", "report_peer peer {:?} UnexpectedMessage error  {:?}", peer, ret);
-                }
+                nc.ban_peer(peer, BAD_MESSAGE_BAN_TIME);
                 return;
             }
         };
@@ -135,7 +130,7 @@ impl CKBProtocolHandler for NetTimeProtocol {
             fbb.finish(message, None);
             let ret = nc.send(peer, fbb.finished_data().to_vec());
             if ret.is_err() {
-                warn!(target: "network", "NetTimeProtocol connected init msg send error {:?}", ret);
+                debug!(target: "network", "NetTimeProtocol connected init msg send error {:?}", ret);
             }
         }
     }

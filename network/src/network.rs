@@ -148,7 +148,6 @@ impl NetworkState {
         let peer_store = self.peer_store();
         for peer_id in peer_ids {
             if peer_store.peer_status(&peer_id) != Status::Disconnected {
-                peer_store.report(&peer_id, Behaviour::UnexpectedDisconnect);
                 peer_store.update_status(&peer_id, Status::Disconnected);
             }
         }
@@ -395,7 +394,6 @@ impl ServiceHandle for EventHandler {
 
             let peer_store = self.network_state.peer_store();
             if peer_store.peer_status(&peer_id) == Status::Connected {
-                peer_store.report(&peer_id, Behaviour::UnexpectedDisconnect);
                 peer_store.update_status(&peer_id, Status::Disconnected);
             }
             self.network_state.drop_peer(context.control(), &peer_id);

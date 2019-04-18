@@ -15,12 +15,13 @@ use self::get_block_transactions_process::GetBlockTransactionsProcess;
 use self::transaction_process::TransactionProcess;
 use crate::relayer::compact_block::ShortTransactionID;
 use crate::types::Peers;
+use crate::BAD_MESSAGE_BAN_TIME;
 use bytes::Bytes;
 use ckb_chain::chain::ChainController;
 use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::transaction::{ProposalShortId, Transaction};
 use ckb_core::uncle::UncleBlock;
-use ckb_network::{Behaviour, CKBProtocolContext, CKBProtocolHandler, PeerIndex};
+use ckb_network::{CKBProtocolContext, CKBProtocolHandler, PeerIndex};
 use ckb_protocol::{
     cast, get_root, short_transaction_id, short_transaction_id_keys, RelayMessage, RelayPayload,
 };
@@ -33,7 +34,6 @@ use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
 use flatbuffers::FlatBufferBuilder;
 use fnv::{FnvHashMap, FnvHashSet};
-use log::warn;
 use log::{debug, info};
 use lru_cache::LruCache;
 use numext_fixed_hash::H256;
@@ -138,12 +138,9 @@ impl<CS: ChainStore> Relayer<CS> {
     }
 
     fn process(&self, nc: &mut CKBProtocolContext, peer: PeerIndex, message: RelayMessage) {
-        if self.try_process(nc, peer, message).is_err() {
-            let ret = nc.report_peer(peer, Behaviour::UnexpectedMessage);
-
-            if ret.is_err() {
-                warn!(target: "network", "report_peer peer {:?} UnexpectedMessage error {:?}", peer, ret);
-            }
+        if let Err(err) = self.try_process(nc, peer, message) {
+            info!(target: "relay", "relay process peer {:?} UnexpectedMessage error {:?}", peer, err);
+            nc.ban_peer(peer, BAD_MESSAGE_BAN_TIME);
         }
     }
 
@@ -176,7 +173,7 @@ impl<CS: ChainStore> Relayer<CS> {
 
             let ret = nc.send(peer, fbb.finished_data().to_vec());
             if ret.is_err() {
-                warn!(target: "relay", "relay get_block_proposal error {:?}", ret);
+                debug!(target: "relay", "relay get_block_proposal error {:?}", ret);
             }
         }
     }
@@ -204,7 +201,7 @@ impl<CS: ChainStore> Relayer<CS> {
             for peer_id in selected_peers {
                 let ret = nc.send(peer_id, fbb.finished_data().to_vec());
                 if ret.is_err() {
-                    warn!(target: "relay", "relay compact_block error {:?}", ret);
+                    debug!(target: "relay", "relay compact_block error {:?}", ret);
                 }
             }
         } else {
@@ -316,7 +313,7 @@ impl<CS: ChainStore> Relayer<CS> {
             let ret = nc.send(peer, fbb.finished_data().to_vec());
 
             if ret.is_err() {
-                warn!(target: "relay", "send block_proposal error {:?}", ret);
+                debug!(target: "relay", "send block_proposal error {:?}", ret);
             }
         }
     }
@@ -340,10 +337,7 @@ impl<CS: ChainStore> CKBProtocolHandler for Relayer<CS> {
             Ok(msg) => msg,
             _ => {
                 info!(target: "sync", "Peer {} sends us a malformed message", peer);
-                let ret = nc.report_peer(peer, Behaviour::UnexpectedMessage);
-                if ret.is_err() {
-                    warn!(target: "network", "report_peer peer {:?} UnexpectedMessage error  {:?}", peer, ret);
-                }
+                nc.ban_peer(peer, BAD_MESSAGE_BAN_TIME);
                 return;
             }
         };
