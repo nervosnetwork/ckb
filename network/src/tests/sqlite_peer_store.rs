@@ -42,7 +42,7 @@ fn test_add_discovered_addr() {
 fn test_report() {
     let peer_store: Box<dyn PeerStore> = Box::new(new_peer_store());
     let peer_id = PeerId::random();
-    assert!(peer_store.report(&peer_id, Behaviour::Ping).is_ok());
+    assert!(peer_store.report(&peer_id, Behaviour::TestGood).is_ok());
     assert!(
         peer_store.peer_score(&peer_id).expect("peer score")
             > peer_store.peer_score_config().default_score
@@ -190,9 +190,9 @@ fn test_delete_peer_info() {
         peer_store.add_connected_peer(&evict_target, addr1.clone(), SessionType::Inbound);
         peer_store.add_connected_peer(&fake_target, addr2, SessionType::Inbound);
     }
-    peer_store.report(&evict_target, Behaviour::FailedToPing);
-    peer_store.report(&fake_target, Behaviour::FailedToPing);
-    peer_store.report(&fake_target, Behaviour::FailedToPing);
+    peer_store.report(&evict_target, Behaviour::TestBad);
+    peer_store.report(&fake_target, Behaviour::TestBad);
+    peer_store.report(&fake_target, Behaviour::TestBad);
     // evict_target has lower score than init score
     assert!(
         peer_store.peer_score(&evict_target).expect("peer store")

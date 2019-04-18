@@ -175,7 +175,6 @@ impl ServiceProtocol for CKBHandler {
                 // update status in peer_store
                 if let RegisterResult::New(_) = register_result {
                     let peer_store = network.peer_store();
-                    peer_store.report(&peer_id, Behaviour::Connect);
                     peer_store.update_status(&peer_id, Status::Connected);
                 }
                 // call handler
@@ -288,7 +287,6 @@ pub trait CKBProtocolContext: Send {
         protocol_id: ProtocolId,
         data: Vec<u8>,
     ) -> Result<(), Error>;
-    // TODO combinate this interface with peer score
     fn report_peer(&self, peer_index: PeerIndex, behaviour: Behaviour) -> Result<(), Error>;
     fn ban_peer(&self, peer_index: PeerIndex, timeout: Duration);
     fn disconnect(&self, peer_index: PeerIndex);

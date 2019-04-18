@@ -1,4 +1,4 @@
-use crate::{Behaviour, NetworkState, Peer};
+use crate::{NetworkState, Peer};
 use futures::{sync::mpsc::Receiver, try_ready, Async, Stream};
 use log::{debug, trace};
 use p2p::service::ServiceControl;
@@ -42,17 +42,14 @@ impl Stream for PingService {
                     peer.ping = Some(duration);
                     peer.last_ping_time = Some(Instant::now());
                 });
-                self.network_state.report(&peer_id, Behaviour::Ping);
             }
             Some(Timeout(peer_id)) => {
                 debug!(target: "network", "timeout to ping {:?}", peer_id);
-                self.network_state.report(&peer_id, Behaviour::FailedToPing);
                 self.network_state
                     .drop_peer(&mut self.p2p_control, &peer_id);
             }
             Some(UnexpectedError(peer_id)) => {
                 debug!(target: "network", "failed to ping {:?}", peer_id);
-                self.network_state.report(&peer_id, Behaviour::FailedToPing);
                 self.network_state
                     .drop_peer(&mut self.p2p_control, &peer_id);
             }
