@@ -660,10 +660,12 @@ impl<CS: ChainStore> Synchronizer<CS> {
             {
                 let mut state = self.peers.state.write();
                 if let Some(mut peer_state) = state.get_mut(&peer) {
-                    peer_state.sync_started = true;
+                    if !peer_state.sync_started {
+                        peer_state.sync_started = true;
+                        self.n_sync.fetch_add(1, Ordering::Release);
+                    }
                 }
             }
-            self.n_sync.fetch_add(1, Ordering::Release);
 
             self.send_getheaders_to_peer(nc, peer, &tip);
         }
