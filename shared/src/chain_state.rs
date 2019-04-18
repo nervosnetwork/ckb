@@ -353,6 +353,10 @@ impl<CS: ChainStore> ChainState<CS> {
 
         let retain: Vec<&Transaction> = detached.difference(&attached).collect();
 
+        if !detached.is_empty() {
+            self.txs_verify_cache.borrow_mut().clear();
+        }
+
         for tx in retain {
             let rtx = self.resolve_tx_from_pool(tx, &tx_pool);
             if let Ok(cycles) = self.verify_rtx(&rtx, max_cycles) {
