@@ -40,7 +40,7 @@ impl<CS: ChainStore + 'static> TraceRpc for TraceRpcImpl<CS> {
             let cycles = match chain_state
                 .verify_rtx(&rtx, self.shared.consensus().max_block_cycles())
             {
-                Err(TransactionError::UnknownInput) => None,
+                Err(TransactionError::Unknown) => None,
                 Err(err) => return Err(RPCError::custom(RPCError::Invalid, format!("{:?}", err))),
                 Ok(cycles) => Some(cycles),
             };
@@ -71,7 +71,7 @@ impl<CS: ChainStore + 'static> TraceRpc for TraceRpcImpl<CS> {
             }
             None => Err(RPCError::custom(
                 RPCError::Staging,
-                "tx missing inputs".to_string(),
+                "unknown inputs or deps".to_string(),
             )),
         }
     }

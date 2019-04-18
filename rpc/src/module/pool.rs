@@ -43,7 +43,7 @@ impl<CS: ChainStore + 'static> PoolRpc for PoolRpcImpl<CS> {
                 chain_state.verify_rtx(&rtx, self.shared.consensus().max_block_cycles());
             debug!(target: "rpc", "send_transaction add to pool result: {:?}", tx_result);
             let cycles = match tx_result {
-                Err(TransactionError::UnknownInput) => None,
+                Err(TransactionError::Unknown) => None,
                 Err(err) => return Err(RPCError::custom(RPCError::Invalid, format!("{:?}", err))),
                 Ok(cycles) => Some(cycles),
             };
@@ -76,7 +76,7 @@ impl<CS: ChainStore + 'static> PoolRpc for PoolRpcImpl<CS> {
             }
             None => Err(RPCError::custom(
                 RPCError::Staging,
-                "tx missing inputs".to_string(),
+                "unknown inputs or deps".to_string(),
             )),
         }
     }
