@@ -37,6 +37,7 @@ hash = { path = "util/hash"}
 build-info = { path = "util/build-info" }
 ckb-traits = { path = "traits" }
 sentry = "^0.15.2"
+ckb-verification = { path = "verification" }
 
 [dev-dependencies]
 tempfile = "3.0"

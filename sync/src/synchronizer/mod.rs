@@ -263,7 +263,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
             return None;
         }
 
-        if locator.last().expect("empty checked") != &self.shared.genesis_hash() {
+        if locator.last().expect("empty checked") != self.shared.genesis_hash() {
             return None;
         }
 

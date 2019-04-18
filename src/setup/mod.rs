@@ -11,9 +11,11 @@ pub use exit_code::ExitCode;
 use ckb_chain_spec::{consensus::Consensus, ChainSpec};
 use ckb_instrument::Format;
 use ckb_resource::ResourceLocator;
+use ckb_verification::MerkleRootVerifier;
 use clap::{value_t, ArgMatches};
 use log::info;
 use logger::LoggerInitGuard;
+use std::error::Error;
 use std::path::PathBuf;
 
 pub struct Setup {
@@ -181,7 +183,7 @@ impl Setup {
         if let Ok(consensus) = &result {
             if self.is_sentry_enabled {
                 sentry::configure_scope(|scope| {
-                    scope.set_tag("genesis", consensus.genesis_block.header().hash());
+                    scope.set_tag("genesis", consensus.genesis_hash());
                 });
             }
         }
@@ -199,10 +201,17 @@ fn is_daemon(subcommand_name: &str) -> bool {
 }
 
 fn consensus_from_spec(spec: &ChainSpec) -> Result<Consensus, ExitCode> {
-    spec.to_consensus().map_err(|err| {
+    spec.to_consensus().and_then(verify_genesis).map_err(|err| {
         eprintln!("{:?}", err);
         ExitCode::Config
     })
+}
+
+fn verify_genesis(consensus: Consensus) -> Result<Consensus, Box<Error>> {
+    MerkleRootVerifier::new()
+        .verify(consensus.genesis_block())
+        .map_err(Box::new)?;
+    Ok(consensus)
 }
 
 fn locator_from_matches<'m>(matches: &ArgMatches<'m>) -> Result<ResourceLocator, ExitCode> {

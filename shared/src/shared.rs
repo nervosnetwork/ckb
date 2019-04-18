@@ -93,8 +93,8 @@ impl<CS: ChainStore> ChainProvider for Shared<CS> {
         self.store.get_block_number(hash)
     }
 
-    fn genesis_hash(&self) -> H256 {
-        self.consensus.genesis_block().header().hash()
+    fn genesis_hash(&self) -> &H256 {
+        self.consensus.genesis_hash()
     }
 
     fn get_transaction(&self, hash: &H256) -> Option<Transaction> {
