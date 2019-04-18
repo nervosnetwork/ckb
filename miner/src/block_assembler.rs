@@ -604,7 +604,8 @@ mod tests {
         let resolver = HeaderResolverWrapper::new(block.header(), shared.clone());
         let header_verify_result = {
             let chain_state = shared.chain_state().lock();
-            let header_verifier = HeaderVerifier::new(&*chain_state, Pow::Dummy.engine());
+            let header_verifier =
+                HeaderVerifier::new(&*chain_state, Pow::Dummy(Default::default()).engine());
             header_verifier.verify(&resolver)
         };
         assert!(header_verify_result.is_ok());

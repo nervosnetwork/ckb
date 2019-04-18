@@ -11,19 +11,19 @@ mod cuckoo;
 mod dummy;
 
 pub use crate::cuckoo::{Cuckoo, CuckooEngine, CuckooParams};
-pub use crate::dummy::DummyPowEngine;
+pub use crate::dummy::{DummyPowEngine, DummyPowParams};
 
 #[derive(Clone, Deserialize, Eq, PartialEq, Hash, Debug)]
 #[serde(tag = "func", content = "params")]
 pub enum Pow {
-    Dummy,
+    Dummy(DummyPowParams),
     Cuckoo(CuckooParams),
 }
 
 impl fmt::Display for Pow {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Pow::Dummy => write!(f, "Dummy"),
+            Pow::Dummy(params) => write!(f, "Dummy{}", params),
             Pow::Cuckoo(params) => write!(f, "Cuckoo{}", params),
         }
     }
@@ -32,7 +32,7 @@ impl fmt::Display for Pow {
 impl Pow {
     pub fn engine(&self) -> Arc<dyn PowEngine> {
         match *self {
-            Pow::Dummy => Arc::new(DummyPowEngine::new()),
+            Pow::Dummy(params) => Arc::new(DummyPowEngine::new(params)),
             Pow::Cuckoo(params) => Arc::new(CuckooEngine::new(params)),
         }
     }
