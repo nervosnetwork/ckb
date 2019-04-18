@@ -237,6 +237,19 @@ impl<CS: ChainStore> ChainState<CS> {
         }
     }
 
+    /// Only use on rpc transaction/trace transaction interface
+    pub fn rpc_resolve_tx_from_pool(
+        &self,
+        tx: &Transaction,
+        tx_pool: &TxPool,
+    ) -> ResolvedTransaction {
+        let staging_provider = OverlayCellProvider::new(&tx_pool.staging, self);
+        let pending_and_staging_provider =
+            OverlayCellProvider::new(&tx_pool.pending, &staging_provider);
+        let mut seen_inputs = FnvHashSet::default();
+        resolve_transaction(tx, &mut seen_inputs, &pending_and_staging_provider)
+    }
+
     // remove resolved tx from orphan pool
     pub(crate) fn update_orphan_from_tx(
         &self,

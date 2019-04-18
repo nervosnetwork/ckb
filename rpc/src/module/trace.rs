@@ -35,7 +35,7 @@ impl<CS: ChainStore + 'static> TraceRpc for TraceRpcImpl<CS> {
         let tx: CoreTransaction = tx.try_into().map_err(|_| Error::parse_error())?;
 
         let mut chain_state = self.shared.chain_state().lock();
-        let rtx = chain_state.resolve_tx_from_pool(&tx, &chain_state.tx_pool());
+        let rtx = chain_state.rpc_resolve_tx_from_pool(&tx, &chain_state.tx_pool());
         let tx_result = chain_state.verify_rtx(&rtx, self.shared.consensus().max_block_cycles());
 
         match tx_result {
