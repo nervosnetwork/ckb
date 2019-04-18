@@ -29,6 +29,8 @@ fn main() {
             "disconnect" => Box::new(Disconnect),
             "malformed_message" => Box::new(MalformedMessage),
             "depent_tx_in_same_block" => Box::new(DepentTxInSameBlock),
+            "valid_since_txs_in_one_block_success" => Box::new(ValidSinceTxsInOneBlockSuccess),
+            "valid_since_txs_in_one_block_failure" => Box::new(ValidSinceTxsInOneBlockFailure),
             _ => panic!("invalid spec"),
         };
         let net = spec.setup_net(&binary, start_port);
@@ -45,6 +47,8 @@ fn main() {
             Box::new(Disconnect),
             Box::new(MalformedMessage),
             Box::new(DepentTxInSameBlock),
+            Box::new(ValidSinceTxsInOneBlockSuccess),
+            Box::new(ValidSinceTxsInOneBlockFailure),
         ];
 
         specs.iter().for_each(|spec| {

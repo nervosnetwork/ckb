@@ -1,3 +1,7 @@
 mod depend_tx_in_same_block;
+mod valid_since_txs_in_one_block_failure;
+mod valid_since_txs_in_one_block_success;
 
 pub use depend_tx_in_same_block::DepentTxInSameBlock;
+pub use valid_since_txs_in_one_block_failure::ValidSinceTxsInOneBlockFailure;
+pub use valid_since_txs_in_one_block_success::ValidSinceTxsInOneBlockSuccess;

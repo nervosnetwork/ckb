@@ -13,7 +13,7 @@ use ckb_core::header::{BlockNumber, Header};
 use ckb_core::transaction::{OutPoint, ProposalShortId, Transaction};
 use ckb_core::Cycle;
 use ckb_traits::BlockMedianTimeContext;
-use ckb_verification::{TransactionError, TransactionVerifier};
+use ckb_verification::{TransactionError, TransactionVerifier, ValidSinceVerifier};
 use fnv::FnvHashSet;
 use log::{error, trace};
 use lru_cache::LruCache;
@@ -213,6 +213,19 @@ impl<CS: ChainStore> ChainState<CS> {
         resolve_transaction(tx, &mut seen_inputs, &cell_provider)
     }
 
+    /// Only use on rpc transaction/trace transaction interface
+    pub fn rpc_resolve_tx_from_pool(
+        &self,
+        tx: &Transaction,
+        tx_pool: &TxPool,
+    ) -> ResolvedTransaction {
+        let staging_provider = OverlayCellProvider::new(&tx_pool.staging, self);
+        let pending_and_staging_provider =
+            OverlayCellProvider::new(&tx_pool.pending, &staging_provider);
+        let mut seen_inputs = FnvHashSet::default();
+        resolve_transaction(tx, &mut seen_inputs, &pending_and_staging_provider)
+    }
+
     pub fn verify_rtx(
         &self,
         rtx: &ResolvedTransaction,
@@ -237,17 +250,8 @@ impl<CS: ChainStore> ChainState<CS> {
         }
     }
 
-    /// Only use on rpc transaction/trace transaction interface
-    pub fn rpc_resolve_tx_from_pool(
-        &self,
-        tx: &Transaction,
-        tx_pool: &TxPool,
-    ) -> ResolvedTransaction {
-        let staging_provider = OverlayCellProvider::new(&tx_pool.staging, self);
-        let pending_and_staging_provider =
-            OverlayCellProvider::new(&tx_pool.pending, &staging_provider);
-        let mut seen_inputs = FnvHashSet::default();
-        resolve_transaction(tx, &mut seen_inputs, &pending_and_staging_provider)
+    fn verify_tx_valid_since(&self, rtx: &ResolvedTransaction) -> Result<(), TransactionError> {
+        ValidSinceVerifier::new(&rtx, &self, self.tip_number()).verify()
     }
 
     // remove resolved tx from orphan pool
@@ -324,12 +328,19 @@ impl<CS: ChainStore> ChainState<CS> {
             }
         }
 
+        // do verification
         if unknowns.is_empty() && entry.cycles.is_none() {
             let cycles = self.verify_rtx(&rtx, max_cycles).map_err(|e| {
                 error!(target: "txs_pool", "Failed to staging tx {:}, reason: {:?}", tx_hash, e);
                 PoolError::InvalidTx(e)
             })?;
             entry.cycles = Some(cycles);
+        } else {
+            // check valid_since, re-org may cause tx invalid
+            self.verify_tx_valid_since(&rtx).map_err(|e| {
+                error!(target: "txs_pool", "Failed to staging tx {:}, reason: {:?}", tx_hash, e);
+                PoolError::InvalidTx(e)
+            })?;
         }
 
         if !unknowns.is_empty() {
