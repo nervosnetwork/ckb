@@ -616,6 +616,23 @@ impl PendingQueue {
     }
 }
 
+impl CellProvider for PendingQueue {
+    fn cell(&self, o: &OutPoint) -> CellStatus {
+        if let Some(x) = self.inner.get(&ProposalShortId::from_tx_hash(&o.hash)) {
+            match x.transaction.get_output(o.index as usize) {
+                Some(cell) => CellStatus::Live(CellMeta {
+                    cell_output: cell,
+                    block_number: None,
+                    cellbase: false,
+                }),
+                None => CellStatus::Unknown,
+            }
+        } else {
+            CellStatus::Unknown
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

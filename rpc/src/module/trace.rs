@@ -7,7 +7,6 @@ use ckb_shared::store::ChainStore;
 use ckb_shared::tx_pool::types::PoolEntry;
 use ckb_sync::NetworkProtocol;
 use ckb_traits::chain_provider::ChainProvider;
-use ckb_verification::TransactionError;
 use flatbuffers::FlatBufferBuilder;
 use jsonrpc_core::{Error, Result};
 use jsonrpc_derive::rpc;
@@ -35,14 +34,9 @@ impl<CS: ChainStore + 'static> TraceRpc for TraceRpcImpl<CS> {
         let tx: CoreTransaction = tx.try_into().map_err(|_| Error::parse_error())?;
 
         let mut chain_state = self.shared.chain_state().lock();
-        let rtx = chain_state.resolve_tx_from_pool(&tx, &chain_state.tx_pool());
+        let rtx = chain_state.rpc_resolve_tx_from_pool(&tx, &chain_state.tx_pool());
         let tx_result = chain_state.verify_rtx(&rtx, self.shared.consensus().max_block_cycles());
-
         match tx_result {
-            Err(TransactionError::Unknown) => Err(RPCError::custom(
-                RPCError::Staging,
-                "unknown inputs or deps".to_string(),
-            )),
             Err(err) => Err(RPCError::custom(RPCError::Invalid, format!("{:?}", err))),
             Ok(cycles) => {
                 let tx_hash = tx.hash().clone();
