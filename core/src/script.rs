@@ -1,17 +1,16 @@
 use faster_hex::hex_encode;
 use hash::blake2b_256;
 use numext_fixed_hash::{h256, H256};
-use occupied_capacity::OccupiedCapacity;
+use occupied_capacity_derive::OccupiedCapacity;
 use serde_derive::{Deserialize, Serialize};
 use std::fmt;
 use std::io::Write;
-use std::mem;
 
 pub const ALWAYS_SUCCESS_HASH: H256 = h256!("0x1");
 
 // TODO: when flatbuffer work is done, remove Serialize/Deserialize here and
 // implement proper From trait
-#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, OccupiedCapacity)]
 pub struct Script {
     pub args: Vec<Vec<u8>>,
     // Binary hash here can be used to refer to binary in one of the dep
@@ -72,24 +71,21 @@ impl Script {
     }
 }
 
-impl OccupiedCapacity for Script {
-    fn occupied_capacity(&self) -> usize {
-        mem::size_of::<u8>() + self.args.occupied_capacity() + self.binary_hash.occupied_capacity()
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{Script, H256};
+    use super::{h256, Script, H256};
     use hash::blake2b_256;
+    use occupied_capacity::OccupiedCapacity;
 
     #[test]
     fn empty_script_hash() {
         let script = Script::new(vec![], H256::zero());
-        let expect =
-            H256::from_hex_str("266cec97cbede2cfbce73666f08deed9560bdf7841a7a5a51b3a3f09da249e21")
-                .unwrap();
+        let expect = h256!("0x266cec97cbede2cfbce73666f08deed9560bdf7841a7a5a51b3a3f09da249e21");
         assert_eq!(script.hash(), expect);
+
+        let expect_occupied_capacity =
+            script.args.occupied_capacity() + script.binary_hash.occupied_capacity();
+        assert_eq!(script.occupied_capacity(), expect_occupied_capacity);
     }
 
     #[test]
@@ -98,19 +94,22 @@ mod tests {
         let always_success_hash: H256 = (&blake2b_256(&always_success[..])).into();
 
         let script = Script::new(vec![], always_success_hash);
-        let expect =
-            H256::from_hex_str("9a9a6bdbc38d4905eace1822f85237e3a1e238bb3f277aa7b7c8903441123510")
-                .unwrap();
+        let expect = h256!("0x9a9a6bdbc38d4905eace1822f85237e3a1e238bb3f277aa7b7c8903441123510");
         assert_eq!(script.hash(), expect);
+
+        let expect_occupied_capacity =
+            script.args.occupied_capacity() + script.binary_hash.occupied_capacity();
+        assert_eq!(script.occupied_capacity(), expect_occupied_capacity);
     }
 
     #[test]
     fn one_script_hash() {
         let one = Script::new(vec![vec![1]], H256::zero());
-        let expect =
-            H256::from_hex_str("dade0e507e27e2a5995cf39c8cf454b6e70fa80d03c1187db7a4cb2c9eab79da")
-                .unwrap();
-
+        let expect = h256!("0xdade0e507e27e2a5995cf39c8cf454b6e70fa80d03c1187db7a4cb2c9eab79da");
         assert_eq!(one.hash(), expect);
+
+        let expect_occupied_capacity =
+            one.args.occupied_capacity() + one.binary_hash.occupied_capacity();
+        assert_eq!(one.occupied_capacity(), expect_occupied_capacity);
     }
 }
