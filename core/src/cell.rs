@@ -40,7 +40,7 @@ pub enum CellStatus {
 }
 
 impl CellStatus {
-    pub fn null() -> CellStatus {
+    pub fn live_null() -> CellStatus {
         CellStatus::Live(LiveCell::Null)
     }
 
