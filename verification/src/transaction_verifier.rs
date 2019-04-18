@@ -1,7 +1,7 @@
 use crate::error::TransactionError;
 use ckb_core::transaction::{Capacity, OutPoint, Transaction, TX_VERSION};
 use ckb_core::{
-    cell::{CellMeta, CellStatus, ResolvedTransaction},
+    cell::{CellMeta, CellStatus, LiveCell, ResolvedTransaction},
     BlockNumber, Cycle,
 };
 use ckb_script::TransactionScriptsVerifier;
@@ -438,9 +438,13 @@ where
 
             // verify time lock
             self.verify_absolute_lock(valid_since)?;
-            let cell = match cell_status.get_live_output() {
-                Some(cell) => cell,
-                None => return Err(TransactionError::Conflict),
+
+            let cell = match cell_status {
+                CellStatus::Live(cell) => match cell {
+                    LiveCell::Null => continue, // do not verify null in ValidSinceVerifier
+                    LiveCell::Output(meta) => meta,
+                },
+                _ => return Err(TransactionError::Conflict),
             };
             self.verify_relative_lock(valid_since, cell)?;
         }
