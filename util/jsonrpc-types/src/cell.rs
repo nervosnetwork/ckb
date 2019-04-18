@@ -1,15 +1,27 @@
-use crate::{Capacity, CellOutput, OutPoint, Script};
+use crate::{BlockNumber, CellOutput};
 use ckb_core::cell::CellStatus;
+use numext_fixed_hash::H256;
 use serde_derive::{Deserialize, Serialize};
 
-// This is used as return value of get_cells_by_type_hash RPC:
-// it contains both OutPoint data used for referencing a cell, as well as
-// cell's own data such as lock and capacity
+// This is used as return value of get_live_cells_by_lock_hash RPC
 #[derive(Serialize, Deserialize)]
-pub struct CellOutputWithOutPoint {
-    pub out_point: OutPoint,
-    pub capacity: Capacity,
-    pub lock: Script,
+pub struct LiveCellWithOutPoint {
+    pub cell: CellOutput,
+    pub out_point: TransactionPoint,
+}
+
+// This is used as return value of get_transactions_by_lock_hash RPC
+#[derive(Serialize, Deserialize)]
+pub struct CellTransaction {
+    pub out_point: TransactionPoint,
+    pub in_point: Option<TransactionPoint>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct TransactionPoint {
+    pub block_number: BlockNumber,
+    pub hash: H256,
+    pub index: u32,
 }
 
 #[derive(Serialize, Deserialize)]

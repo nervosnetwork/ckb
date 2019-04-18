@@ -209,21 +209,21 @@ curl -H 'content-type:application/json' \
 }
 ```
 
-### get_cells_by_lock_hash
+### get_live_cells_by_lock_hash
 
 Returns the information about cells collection by the hash of lock script.
 
 #### Parameters
 
     lock_hash - Cell lock script hash.
-    from - Start block number.
-    to - End block number.
+    page - Number of page.
+    per_page - How many items you want each page to return, up to 50 items.
 
 #### Examples
 
 ```bash
 curl -H 'content-type:application/json' \
-    -d '{"id": 2, "jsonrpc": "2.0", "method": "get_cells_by_lock_hash", "params": ["0xcb7bce98a778f130d34da522623d7e56705bddfe0dc4781bd2331211134a19a5", "9001", "9003"]}' \
+    -d '{"id": 2, "jsonrpc": "2.0", "method": "get_live_cells_by_lock_hash", "params": ["0xcb7bce98a778f130d34da522623d7e56705bddfe0dc4781bd2331211134a19a5", 0, 50]}' \
     http://localhost:8114
 ```
 
@@ -232,35 +232,81 @@ curl -H 'content-type:application/json' \
     "jsonrpc": "2.0",
     "result": [
         {
-            "capacity": 50000,
-            "lock": {
-                "args": [],
-                "binary_hash": "0x0000000000000000000000000000000000000000000000000000000000000001"
+            "cell": {
+                "capacity": "50000",
+                "data": "0x",
+                "lock": {
+                    "args": [],
+                    "binary_hash": "0x0000000000000000000000000000000000000000000000000000000000000001"
+                },
+                "type": null
             },
             "out_point": {
-                "hash": "0xc15274f7aaec78b74ea2b87a2aefd5dc3e003b367eab326a29a73900fd9b91ff",
+                "block_number": "1",
+                "hash": "0xbd9ed8dec5288bdeb2ebbcc4c118a8adb6baab07a44ea79843255ccda6c57915",
                 "index": 0
             }
         },
         {
-            "capacity": 50000,
-            "lock": {
-                "args": [],
-                "binary_hash": "0x0000000000000000000000000000000000000000000000000000000000000001"
+            "cell": {
+                "capacity": "50000",
+                "data": "0x",
+                "lock": {
+                    "args": [],
+                    "binary_hash": "0x0000000000000000000000000000000000000000000000000000000000000001"
+                },
+                "type": null
             },
             "out_point": {
-                "hash": "0xbcc4ffd86c681c1004f746422e33b1ac3cd59bdf6155afd5ea076219ed29bbae",
+                "block_number": "2",
+                "hash": "0x9defbef60635e92d77ec14a393e0e9701f87b02190bf3bbb37be760946ac4f73",
+                "index": 0
+            }
+        }
+    ],
+    "id": 2
+}
+```
+
+### get_transactions_by_lock_hash
+
+Returns the information about transaction collection by the hash of lock script.
+
+#### Parameters
+
+    lock_hash - Cell lock script hash.
+    page - Number of page.
+    per_page - How many items you want each page to return, up to 50 items.
+
+#### Examples
+
+```bash
+curl -H 'content-type:application/json' \
+    -d '{"id": 2, "jsonrpc": "2.0", "method": "get_transactions_by_lock_hash", "params": ["0xcb7bce98a778f130d34da522623d7e56705bddfe0dc4781bd2331211134a19a5", 0, 50]}' \
+    http://localhost:8114
+```
+
+```json
+{
+    "jsonrpc": "2.0",
+    "result": [
+        {
+            "in_point": {
+                "block_number": "4",
+                "hash": "0xd3b3c6a9056c0130242a6a4fedbb7b40e4edc99a9505e19dc2b26f89f7535bc1",
+                "index": 0
+            },
+            "out_point": {
+                "block_number": "1",
+                "hash": "0xbd9ed8dec5288bdeb2ebbcc4c118a8adb6baab07a44ea79843255ccda6c57915",
                 "index": 0
             }
         },
         {
-            "capacity": 50000,
-            "lock": {
-                "args": [],
-                "binary_hash": "0x0000000000000000000000000000000000000000000000000000000000000001"
-            },
+            "in_point": null,
             "out_point": {
-                "hash": "0x9289e12f0a9b2cfce51cd4a64d733c0a3ca9a52093669863c485ea6dfae81a3e",
+                "block_number": "2",
+                "hash": "0x9defbef60635e92d77ec14a393e0e9701f87b02190bf3bbb37be760946ac4f73",
                 "index": 0
             }
         }

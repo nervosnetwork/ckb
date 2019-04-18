@@ -1,14 +1,14 @@
 use bincode::{deserialize, serialize};
 use ckb_core::block::Block;
 use ckb_core::header::BlockNumber;
-use ckb_core::transaction::{CellOutput, OutPoint as CoreOutPoint};
+use ckb_core::transaction::{CellOutput, OutPoint};
 use ckb_db::{Col, DbBatch, IterableKeyValueDB};
 use ckb_db::{DBConfig, RocksDB};
 use ckb_notify::NotifyController;
 use crossbeam_channel::{self, select};
 use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
-use jsonrpc_types::{CellOutputWithOutPoint, OutPoint, Transaction};
+use jsonrpc_types::{CellTransaction, LiveCellWithOutPoint, TransactionPoint};
 use log::error;
 use numext_fixed_hash::H256;
 use serde_derive::{Deserialize, Serialize};
@@ -20,18 +20,23 @@ use std::thread;
 
 #[rpc]
 pub trait WalletRpc {
-    // curl -d '{"id": 2, "jsonrpc": "2.0", "method":"get_live_cells","params": ["0xcb7bce98a778f130d34da522623d7e56705bddfe0dc4781bd2331211134a19a5", 0, 50]}' -H 'content-type:application/json' 'http://localhost:8114'
-    #[rpc(name = "get_live_cells")]
-    fn get_live_cells(
+    // curl -d '{"id": 2, "jsonrpc": "2.0", "method":"get_live_cells_by_lock_hash","params": ["0xcb7bce98a778f130d34da522623d7e56705bddfe0dc4781bd2331211134a19a5", 0, 50]}' -H 'content-type:application/json' 'http://localhost:8114'
+    #[rpc(name = "get_live_cells_by_lock_hash")]
+    fn get_live_cells_by_lock_hash(
         &self,
         _lock_hash: H256,
         _page: usize,
         _per_page: usize,
-    ) -> Result<Vec<CellOutputWithOutPoint>>;
+    ) -> Result<Vec<LiveCellWithOutPoint>>;
 
-    // curl -d '{"id": 2, "jsonrpc": "2.0", "method":"get_transactions","params": ["0xcb7bce98a778f130d34da522623d7e56705bddfe0dc4781bd2331211134a19a5"]}' -H 'content-type:application/json' 'http://localhost:8114'
-    #[rpc(name = "get_transactions")]
-    fn get_transactions(&self, _lock_hash: H256) -> Result<Vec<Transaction>>;
+    // curl -d '{"id": 2, "jsonrpc": "2.0", "method":"get_transactions_by_lock_hash","params": ["0xcb7bce98a778f130d34da522623d7e56705bddfe0dc4781bd2331211134a19a5"]}' -H 'content-type:application/json' 'http://localhost:8114'
+    #[rpc(name = "get_transactions_by_lock_hash")]
+    fn get_transactions_by_lock_hash(
+        &self,
+        _lock_hash: H256,
+        _page: usize,
+        _per_page: usize,
+    ) -> Result<Vec<CellTransaction>>;
 }
 
 pub(crate) struct WalletRpcImpl<WS> {
@@ -55,20 +60,28 @@ pub(crate) fn new_default_wallet_rpc(
 }
 
 impl<WS: WalletStore + 'static> WalletRpc for WalletRpcImpl<WS> {
-    fn get_live_cells(
+    fn get_live_cells_by_lock_hash(
         &self,
         lock_hash: H256,
         page: usize,
         per_page: usize,
-    ) -> Result<Vec<CellOutputWithOutPoint>> {
+    ) -> Result<Vec<LiveCellWithOutPoint>> {
         let per_page = per_page.min(50);
         Ok(self
             .store
             .get_live_cells(&lock_hash, page.saturating_mul(per_page), per_page))
     }
 
-    fn get_transactions(&self, _lock_hash: H256) -> Result<Vec<Transaction>> {
-        unimplemented!()
+    fn get_transactions_by_lock_hash(
+        &self,
+        lock_hash: H256,
+        page: usize,
+        per_page: usize,
+    ) -> Result<Vec<CellTransaction>> {
+        let per_page = per_page.min(50);
+        Ok(self
+            .store
+            .get_transactions(&lock_hash, page.saturating_mul(per_page), per_page))
     }
 }
 
@@ -78,7 +91,14 @@ pub trait WalletStore: Sync + Send {
         lock_hash: &H256,
         skip_num: usize,
         take_num: usize,
-    ) -> Vec<CellOutputWithOutPoint>;
+    ) -> Vec<LiveCellWithOutPoint>;
+
+    fn get_transactions(
+        &self,
+        lock_hash: &H256,
+        skip_num: usize,
+        take_num: usize,
+    ) -> Vec<CellTransaction>;
 }
 
 pub const WALLET_SUBSCRIBER: &str = "wallet";
@@ -87,9 +107,6 @@ pub const COLUMNS: u32 = 3;
 const COLUMN_LOCK_HASH_LIVE_CELL: Col = 0;
 const COLUMN_LOCK_HASH_TRANSACTION: Col = 1;
 const COLUMN_OUT_POINT_LOCK_HASH: Col = 2;
-
-#[derive(Serialize, Deserialize)]
-struct InPoint(H256, u32);
 
 #[derive(Serialize, Deserialize, Clone)]
 struct LockHashCellOutput(H256, BlockNumber, CellOutput);
@@ -153,7 +170,7 @@ impl<T: IterableKeyValueDB + 'static> DefaultWalletStore<T> {
                     .iter()
                     .for_each(|block| self.detach_block(&mut batch, block));
                 // rocksdb rust binding doesn't support transactional batch read, have to use a batch buffer here.
-                let mut batch_buffer = HashMap::<CoreOutPoint, LockHashCellOutput>::new();
+                let mut batch_buffer = HashMap::<OutPoint, LockHashCellOutput>::new();
                 attached_blocks
                     .iter()
                     .for_each(|block| self.attach_block(&mut batch, &mut batch_buffer, block));
@@ -174,7 +191,8 @@ impl<T: IterableKeyValueDB + 'static> DefaultWalletStore<T> {
             if !tx.is_cellbase() {
                 tx.inputs().iter().enumerate().for_each(|(index, input)| {
                     let index = index as u32;
-                    let lock_hash_cell_output = self.get_lock_hash_cell_output(&input.previous_output);
+                    let lock_hash_cell_output =
+                        self.get_lock_hash_cell_output(&input.previous_output);
                     let lock_hash_key = serialize_lock_hash_key(
                         &lock_hash_cell_output.0,
                         block_number,
@@ -195,7 +213,8 @@ impl<T: IterableKeyValueDB + 'static> DefaultWalletStore<T> {
                         .insert(
                             COLUMN_LOCK_HASH_TRANSACTION,
                             &lock_hash_key,
-                            &serialize(&None::<InPoint>).expect("serialize None should be ok"),
+                            &serialize(&None::<TransactionPoint>)
+                                .expect("serialize None should be ok"),
                         )
                         .expect("batch insert lock_hash_transaction failed");
                 });
@@ -206,7 +225,7 @@ impl<T: IterableKeyValueDB + 'static> DefaultWalletStore<T> {
                 let lock_hash = output.lock.hash();
                 let lock_hash_key =
                     serialize_lock_hash_key(&lock_hash, block_number, &tx_hash, index);
-                let out_point = CoreOutPoint::new(tx_hash.clone(), index);
+                let out_point = OutPoint::new(tx_hash.clone(), index);
 
                 batch
                     .delete(COLUMN_LOCK_HASH_LIVE_CELL, &lock_hash_key)
@@ -227,7 +246,7 @@ impl<T: IterableKeyValueDB + 'static> DefaultWalletStore<T> {
     fn attach_block(
         &self,
         batch: &mut DbBatch,
-        batch_buffer: &mut HashMap<CoreOutPoint, LockHashCellOutput>,
+        batch_buffer: &mut HashMap<OutPoint, LockHashCellOutput>,
         block: &Block,
     ) {
         let block_number = block.header().number();
@@ -238,7 +257,7 @@ impl<T: IterableKeyValueDB + 'static> DefaultWalletStore<T> {
                 let lock_hash = output.lock.hash();
                 let lock_hash_key =
                     serialize_lock_hash_key(&lock_hash, block_number, &tx_hash, index);
-                let out_point = CoreOutPoint::new(tx_hash.clone(), index);
+                let out_point = OutPoint::new(tx_hash.clone(), index);
                 let lock_hash_cell_output =
                     LockHashCellOutput(lock_hash.clone(), block_number, output.clone());
 
@@ -255,7 +274,7 @@ impl<T: IterableKeyValueDB + 'static> DefaultWalletStore<T> {
                     .insert(
                         COLUMN_LOCK_HASH_TRANSACTION,
                         &lock_hash_key,
-                        &serialize(&None::<InPoint>).expect("serialize None should be ok"),
+                        &serialize(&None::<TransactionPoint>).expect("serialize None should be ok"),
                     )
                     .expect("batch insert lock_hash_transaction failed");
 
@@ -285,8 +304,11 @@ impl<T: IterableKeyValueDB + 'static> DefaultWalletStore<T> {
                         &input.previous_output.hash,
                         input.previous_output.index,
                     );
-                    let in_point = InPoint(tx_hash.clone(), index);
-
+                    let in_point = TransactionPoint {
+                        block_number: block_number.to_string(),
+                        hash: tx_hash.clone(),
+                        index,
+                    };
                     batch
                         .delete(COLUMN_LOCK_HASH_LIVE_CELL, &lock_hash_key)
                         .expect("batch delete lock_hash_live_cell failed");
@@ -294,7 +316,8 @@ impl<T: IterableKeyValueDB + 'static> DefaultWalletStore<T> {
                         .insert(
                             COLUMN_LOCK_HASH_TRANSACTION,
                             &lock_hash_key,
-                            &serialize(&in_point).expect("serializing InPoint be ok"),
+                            &serialize(&Some(in_point))
+                                .expect("serializing TransactionPoint be ok"),
                         )
                         .expect("batch insert lock_hash_outputs failed");
                 });
@@ -302,7 +325,7 @@ impl<T: IterableKeyValueDB + 'static> DefaultWalletStore<T> {
         })
     }
 
-    fn get_lock_hash_cell_output(&self, out_point: &CoreOutPoint) -> LockHashCellOutput {
+    fn get_lock_hash_cell_output(&self, out_point: &OutPoint) -> LockHashCellOutput {
         deserialize(
             &self
                 .db
@@ -323,21 +346,54 @@ impl<T: IterableKeyValueDB + 'static> WalletStore for DefaultWalletStore<T> {
         lock_hash: &H256,
         skip_num: usize,
         take_num: usize,
-    ) -> Vec<CellOutputWithOutPoint> {
+    ) -> Vec<LiveCellWithOutPoint> {
         let iter = self
             .db
             .iter(COLUMN_LOCK_HASH_LIVE_CELL, lock_hash.as_bytes())
             .expect("wallet db iter should be ok");
-        iter.take_while(|(key, _)| key.starts_with(lock_hash.as_bytes()))
-            .skip(skip_num)
+        iter.skip(skip_num)
             .take(take_num)
+            .take_while(|(key, _)| key.starts_with(lock_hash.as_bytes()))
             .map(|(key, value)| {
-                let output: CellOutput = deserialize(&value).expect("deserialize should be ok");
-                let (_, _, hash, index) = deserialize_lock_hash_key(&key);
-                CellOutputWithOutPoint {
-                    out_point: OutPoint { hash, index },
-                    lock: output.lock,
-                    capacity: output.capacity,
+                let cell_output: CellOutput =
+                    deserialize(&value).expect("deserialize should be ok");
+                let (_, block_number, hash, index) = deserialize_lock_hash_key(&key);
+                LiveCellWithOutPoint {
+                    cell: cell_output.into(),
+                    out_point: TransactionPoint {
+                        block_number: block_number.to_string(),
+                        hash,
+                        index,
+                    },
+                }
+            })
+            .collect()
+    }
+
+    fn get_transactions(
+        &self,
+        lock_hash: &H256,
+        skip_num: usize,
+        take_num: usize,
+    ) -> Vec<CellTransaction> {
+        let iter = self
+            .db
+            .iter(COLUMN_LOCK_HASH_TRANSACTION, lock_hash.as_bytes())
+            .expect("wallet db iter should be ok");
+        iter.skip(skip_num)
+            .take(take_num)
+            .take_while(|(key, _)| key.starts_with(lock_hash.as_bytes()))
+            .map(|(key, value)| {
+                let in_point: Option<TransactionPoint> =
+                    deserialize(&value).expect("deserialize should be ok");
+                let (_, block_number, hash, index) = deserialize_lock_hash_key(&key);
+                CellTransaction {
+                    out_point: TransactionPoint {
+                        block_number: block_number.to_string(),
+                        hash,
+                        index,
+                    },
+                    in_point,
                 }
             })
             .collect()
@@ -391,43 +447,117 @@ mod tests {
             .build();
 
         let block2 = BlockBuilder::default()
-            .commit_transaction(tx21)
-            .commit_transaction(tx22)
+            .commit_transaction(tx21.clone())
+            .commit_transaction(tx22.clone())
             .with_header_builder(HeaderBuilder::default().number(2));
 
         let tx31 = TransactionBuilder::default()
-            .input(CellInput::new(CoreOutPoint::new(tx11.hash(), 0), 0, vec![]))
+            .input(CellInput::new(OutPoint::new(tx11.hash(), 0), 0, vec![]))
             .output(CellOutput::new(5000, vec![31], script1.clone(), None))
             .build();
 
         let tx32 = TransactionBuilder::default()
-            .input(CellInput::new(CoreOutPoint::new(tx12.hash(), 0), 0, vec![]))
+            .input(CellInput::new(OutPoint::new(tx12.hash(), 0), 0, vec![]))
             .output(CellOutput::new(6000, vec![32], script2.clone(), None))
             .build();
 
         let block3 = BlockBuilder::default()
-            .commit_transaction(tx31)
-            .commit_transaction(tx32)
+            .commit_transaction(tx31.clone())
+            .commit_transaction(tx32.clone())
             .with_header_builder(HeaderBuilder::default().number(3));
 
         store.update(&[], &[block1, block2.clone()]);
         let cells = store.get_live_cells(&script1.hash(), 0, 100);
         assert_eq!(2, cells.len());
-        assert_eq!(1000, cells[0].capacity);
-        assert_eq!(3000, cells[1].capacity);
+        assert_eq!("1000", cells[0].cell.capacity);
+        assert_eq!("3000", cells[1].cell.capacity);
 
         let cells = store.get_live_cells(&script2.hash(), 0, 100);
         assert_eq!(2, cells.len());
-        assert_eq!(2000, cells[0].capacity);
-        assert_eq!(4000, cells[1].capacity);
+        assert_eq!("2000", cells[0].cell.capacity);
+        assert_eq!("4000", cells[1].cell.capacity);
 
         store.update(&[block2], &[block3]);
         let cells = store.get_live_cells(&script1.hash(), 0, 100);
         assert_eq!(1, cells.len());
-        assert_eq!(5000, cells[0].capacity);
+        assert_eq!("5000", cells[0].cell.capacity);
 
         let cells = store.get_live_cells(&script2.hash(), 0, 100);
         assert_eq!(1, cells.len());
-        assert_eq!(6000, cells[0].capacity);
+        assert_eq!("6000", cells[0].cell.capacity);
+    }
+
+    #[test]
+    fn get_transactions() {
+        let store = setup_store("get_transactions");
+        let script1 = Script::always_success();
+        let script2 = Script::default();
+
+        let tx11 = TransactionBuilder::default()
+            .output(CellOutput::new(1000, vec![11], script1.clone(), None))
+            .build();
+
+        let tx12 = TransactionBuilder::default()
+            .output(CellOutput::new(2000, vec![12], script2.clone(), None))
+            .build();
+
+        let block1 = BlockBuilder::default()
+            .commit_transaction(tx11.clone())
+            .commit_transaction(tx12.clone())
+            .with_header_builder(HeaderBuilder::default().number(1));
+
+        let tx21 = TransactionBuilder::default()
+            .output(CellOutput::new(3000, vec![21], script1.clone(), None))
+            .build();
+
+        let tx22 = TransactionBuilder::default()
+            .output(CellOutput::new(4000, vec![22], script2.clone(), None))
+            .build();
+
+        let block2 = BlockBuilder::default()
+            .commit_transaction(tx21.clone())
+            .commit_transaction(tx22.clone())
+            .with_header_builder(HeaderBuilder::default().number(2));
+
+        let tx31 = TransactionBuilder::default()
+            .input(CellInput::new(OutPoint::new(tx11.hash(), 0), 0, vec![]))
+            .output(CellOutput::new(5000, vec![31], script1.clone(), None))
+            .build();
+
+        let tx32 = TransactionBuilder::default()
+            .input(CellInput::new(OutPoint::new(tx12.hash(), 0), 0, vec![]))
+            .output(CellOutput::new(6000, vec![32], script2.clone(), None))
+            .build();
+
+        let block3 = BlockBuilder::default()
+            .commit_transaction(tx31.clone())
+            .commit_transaction(tx32.clone())
+            .with_header_builder(HeaderBuilder::default().number(3));
+
+        store.update(&[], &[block1, block2.clone()]);
+        let transactions = store.get_transactions(&script1.hash(), 0, 100);
+        assert_eq!(2, transactions.len());
+        assert_eq!(tx11.hash(), transactions[0].out_point.hash);
+        assert_eq!(tx21.hash(), transactions[1].out_point.hash);
+
+        let transactions = store.get_transactions(&script2.hash(), 0, 100);
+        assert_eq!(2, transactions.len());
+        assert_eq!(tx12.hash(), transactions[0].out_point.hash);
+        assert_eq!(tx22.hash(), transactions[1].out_point.hash);
+
+        store.update(&[block2], &[block3]);
+        let transactions = store.get_transactions(&script1.hash(), 0, 100);
+        assert_eq!(2, transactions.len());
+        assert_eq!(tx11.hash(), transactions[0].out_point.hash);
+        assert_eq!(
+            Some(tx31.hash()),
+            transactions[0].in_point.as_ref().map(|p| p.hash.clone())
+        );
+        assert_eq!(tx31.hash(), transactions[1].out_point.hash);
+
+        let transactions = store.get_transactions(&script2.hash(), 0, 100);
+        assert_eq!(2, transactions.len());
+        assert_eq!(tx12.hash(), transactions[0].out_point.hash);
+        assert_eq!(tx32.hash(), transactions[1].out_point.hash);
     }
 }
