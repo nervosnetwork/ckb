@@ -195,12 +195,12 @@ impl<CS: ChainStore> ChainState<CS> {
                     }
                     Ok(cycles)
                 }
-                Err(TransactionError::UnknownInput) => {
+                Err(TransactionError::Unknown) => {
                     let entry = PoolEntry::new(tx, 0, None);
                     if !tx_pool.enqueue_tx(entry) {
                         return Err(PoolError::Duplicate);
                     }
-                    Err(PoolError::InvalidTx(TransactionError::UnknownInput))
+                    Err(PoolError::InvalidTx(TransactionError::Unknown))
                 }
                 Err(err) => Err(PoolError::InvalidTx(err)),
             }

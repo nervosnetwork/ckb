@@ -93,7 +93,7 @@ impl<'a> InputVerifier<'a> {
             if cs.is_dead() {
                 return Err(TransactionError::Conflict);
             } else if cs.is_unknown() {
-                return Err(TransactionError::UnknownInput);
+                return Err(TransactionError::Unknown);
             }
         }
 
@@ -101,7 +101,7 @@ impl<'a> InputVerifier<'a> {
             if cs.is_dead() {
                 return Err(TransactionError::Conflict);
             } else if cs.is_unknown() {
-                return Err(TransactionError::UnknownInput);
+                return Err(TransactionError::Unknown);
             }
         }
         Ok(())
