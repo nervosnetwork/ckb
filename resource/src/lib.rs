@@ -302,9 +302,9 @@ mod tests {
                 Some(Resource::Bundled("specs/cells/always_success".into()))
             );
             assert_eq!(
-                locator.resolve_relative_to("cells/secp256k1_blake2b_sighash_all".into(), &ckb),
+                locator.resolve_relative_to("cells/secp256k1_blake160_sighash_all".into(), &ckb),
                 Some(Resource::Bundled(
-                    "specs/cells/secp256k1_blake2b_sighash_all".into()
+                    "specs/cells/secp256k1_blake160_sighash_all".into()
                 ))
             );
             assert_eq!(locator.resolve_relative_to("x".into(), &ckb), None);
@@ -324,9 +324,9 @@ mod tests {
             );
             assert_eq!(
                 locator
-                    .resolve_relative_to("cells/secp256k1_blake2b_sighash_all".into(), &spec_dev),
+                    .resolve_relative_to("cells/secp256k1_blake160_sighash_all".into(), &spec_dev),
                 Some(Resource::Bundled(
-                    "specs/cells/secp256k1_blake2b_sighash_all".into()
+                    "specs/cells/secp256k1_blake160_sighash_all".into()
                 ))
             );
             assert_eq!(locator.resolve_relative_to("x".into(), &spec_dev), None);
