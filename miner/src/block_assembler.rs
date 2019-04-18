@@ -263,7 +263,7 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
     fn transform_cellbase(tx: &Transaction, cycles: Option<Cycle>) -> CellbaseTemplate {
         CellbaseTemplate {
             hash: tx.hash(),
-            cycles,
+            cycles: cycles.map(|c| c.to_string()),
             data: tx.into(),
         }
     }
@@ -276,7 +276,7 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
         TransactionTemplate {
             hash: tx.transaction.hash(),
             required,
-            cycles: tx.cycles,
+            cycles: tx.cycles.map(|c| c.to_string()),
             depends,
             data: (&tx.transaction).into(),
         }

@@ -95,8 +95,8 @@ impl<CS: ChainStore + 'static> ChainRpc for ChainRpcImpl<CS> {
                                     hash: transaction.hash().clone(),
                                     index: i as u32,
                                 },
-                                capacity: output.capacity,
-                                lock: output.lock.clone(),
+                                capacity: output.capacity.to_string(),
+                                lock: output.lock.clone().into(),
                             });
                         }
                     }

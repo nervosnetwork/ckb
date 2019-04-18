@@ -78,13 +78,13 @@ impl<'a, CS: ChainStore> TransactionProcess<'a, CS> {
                     }
                 }
             }
-            Err(PoolError::InvalidTx(TransactionError::UnknownInput))
+            Err(PoolError::InvalidTx(TransactionError::Unknown))
             | Err(PoolError::InvalidTx(TransactionError::Conflict))
             | Err(PoolError::InvalidTx(TransactionError::Immature))
             | Err(PoolError::InvalidTx(TransactionError::CellbaseImmaturity)) => {
                 // this error may occured when peer's tip is different with us,
                 // we can't proof peer is bad so just ignore this
-                debug!(target: "relay", "peer {} relay a conflict or missing input tx: {:?}", self.peer, tx);
+                debug!(target: "relay", "peer {} relay a conflict or unknown input / dep tx: {:?}", self.peer, tx);
             }
             Ok(cycles) => {
                 debug!(target: "relay", "peer {} relay wrong cycles tx: {:?} real cycles {} wrong cycles {}", self.peer, tx, cycles, relay_cycles);

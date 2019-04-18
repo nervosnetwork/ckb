@@ -7,7 +7,6 @@ use ckb_shared::store::ChainStore;
 use ckb_shared::tx_pool::types::PoolEntry;
 use ckb_sync::NetworkProtocol;
 use ckb_traits::chain_provider::ChainProvider;
-use ckb_verification::TransactionError;
 use flatbuffers::FlatBufferBuilder;
 use jsonrpc_core::{Error, Result};
 use jsonrpc_derive::rpc;
@@ -35,49 +34,39 @@ pub(crate) struct PoolRpcImpl<CS> {
 impl<CS: ChainStore + 'static> PoolRpc for PoolRpcImpl<CS> {
     fn send_transaction(&self, tx: Transaction) -> Result<H256> {
         let tx: CoreTransaction = tx.try_into().map_err(|_| Error::parse_error())?;
-        let tx_hash = tx.hash().clone();
-        let cycles = {
-            let mut chain_state = self.shared.chain_state().lock();
-            let rtx = chain_state.resolve_tx_from_pool(&tx, &chain_state.tx_pool());
-            let tx_result =
-                chain_state.verify_rtx(&rtx, self.shared.consensus().max_block_cycles());
-            debug!(target: "rpc", "send_transaction add to pool result: {:?}", tx_result);
-            let cycles = match tx_result {
-                Err(TransactionError::UnknownInput) => None,
-                Err(err) => return Err(RPCError::custom(RPCError::Invalid, format!("{:?}", err))),
-                Ok(cycles) => Some(cycles),
-            };
-            let entry = PoolEntry::new(tx.clone(), 0, cycles);
-            if !chain_state.mut_tx_pool().enqueue_tx(entry) {
-                // Duplicate tx
-                return Ok(tx_hash);
-            }
-            cycles
-        };
-        match cycles {
-            Some(cycles) => {
-                let fbb = &mut FlatBufferBuilder::new();
-                let message = RelayMessage::build_transaction(fbb, &tx, cycles);
-                fbb.finish(message, None);
 
-                self.network_controller.with_protocol_context(
-                    NetworkProtocol::RELAY as ProtocolId,
-                    |mut nc| {
-                        for peer in nc.connected_peers() {
-                            debug!(target: "rpc", "relay transaction {} to peer#{}", tx_hash, peer);
-                            let ret = nc.send(peer, fbb.finished_data().to_vec());
-                            if ret.is_err() {
-                                warn!(target: "rpc", "relay transaction error {:?}", ret);
+        let mut chain_state = self.shared.chain_state().lock();
+        let rtx = chain_state.rpc_resolve_tx_from_pool(&tx, &chain_state.tx_pool());
+        let tx_result = chain_state.verify_rtx(&rtx, self.shared.consensus().max_block_cycles());
+        debug!(target: "rpc", "send_transaction add to pool result: {:?}", tx_result);
+        match tx_result {
+            Err(err) => Err(RPCError::custom(RPCError::Invalid, format!("{:?}", err))),
+            Ok(cycles) => {
+                let entry = PoolEntry::new(tx.clone(), 0, Some(cycles));
+                let tx_hash = tx.hash().clone();
+                if !chain_state.mut_tx_pool().enqueue_tx(entry) {
+                    // Duplicate tx
+                    Ok(tx_hash)
+                } else {
+                    let fbb = &mut FlatBufferBuilder::new();
+                    let message = RelayMessage::build_transaction(fbb, &tx, cycles);
+                    fbb.finish(message, None);
+
+                    self.network_controller.with_protocol_context(
+                        NetworkProtocol::RELAY as ProtocolId,
+                        |mut nc| {
+                            for peer in nc.connected_peers() {
+                                debug!(target: "rpc", "relay transaction {} to peer#{}", tx_hash, peer);
+                                let ret = nc.send(peer, fbb.finished_data().to_vec());
+                                if ret.is_err() {
+                                    warn!(target: "rpc", "relay transaction error {:?}", ret);
+                                }
                             }
-                        }
-                    },
-                );
-                Ok(tx_hash)
+                        },
+                    );
+                    Ok(tx_hash)
+                }
             }
-            None => Err(RPCError::custom(
-                RPCError::Staging,
-                "tx missing inputs".to_string(),
-            )),
         }
     }
 

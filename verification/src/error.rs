@@ -143,7 +143,7 @@ pub enum TransactionError {
     ScriptFailure(ScriptError),
     InvalidSignature,
     Conflict,
-    UnknownInput,
+    Unknown,
     Version,
     /// Tx not satisfied valid_since condition
     Immature,

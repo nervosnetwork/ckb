@@ -34,4 +34,4 @@ cycle_length = 12
 # An array list paths to system cell files, which is absolute or relative to
 # the directory containing this config file.
 [[system_cells]]
-path = "cells/secp256k1_blake2b_sighash_all"
+path = "cells/secp256k1_blake160_sighash_all"
