@@ -6,6 +6,7 @@
 //! with a config file specifying chain = "path" under [ckb].
 
 use crate::consensus::Consensus;
+use ckb_core::block::Block;
 use ckb_core::block::BlockBuilder;
 use ckb_core::header::HeaderBuilder;
 use ckb_core::script::Script;
@@ -61,10 +62,9 @@ pub struct Genesis {
     pub version: u32,
     pub parent_hash: H256,
     pub timestamp: u64,
-    pub txs_commit: H256,
-    pub txs_proposal: H256,
     pub difficulty: U256,
     pub uncles_hash: H256,
+    pub hash: Option<H256>,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug, Deserialize)]
@@ -86,6 +86,30 @@ impl Error for FileNotFoundError {}
 impl fmt::Display for FileNotFoundError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "ChainSpec: file not found")
+    }
+}
+
+#[derive(Debug)]
+pub struct GenesisError {
+    expect: H256,
+    actual: H256,
+}
+
+impl GenesisError {
+    fn boxed(self) -> Box<Self> {
+        Box::new(self)
+    }
+}
+
+impl Error for GenesisError {}
+
+impl fmt::Display for GenesisError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "GenesisError: hash mismatch, expect {:x}, actual {:x}",
+            self.expect, self.actual
+        )
     }
 }
 
@@ -145,23 +169,35 @@ impl ChainSpec {
         Ok(TransactionBuilder::default().outputs(outputs).build())
     }
 
+    fn verify_genesis_hash(&self, genesis: &Block) -> Result<(), Box<Error>> {
+        if let Some(ref expect) = self.genesis.hash {
+            let actual = genesis.header().hash();
+            if &actual != expect {
+                return Err(GenesisError {
+                    actual,
+                    expect: expect.clone(),
+                }
+                .boxed());
+            }
+        }
+        Ok(())
+    }
+
     pub fn to_consensus(&self) -> Result<Consensus, Box<Error>> {
-        let header = HeaderBuilder::default()
+        let header_builder = HeaderBuilder::default()
             .version(self.genesis.version)
             .parent_hash(self.genesis.parent_hash.clone())
             .timestamp(self.genesis.timestamp)
-            .txs_commit(self.genesis.txs_commit.clone())
-            .txs_proposal(self.genesis.txs_proposal.clone())
             .difficulty(self.genesis.difficulty.clone())
             .nonce(self.genesis.seal.nonce)
             .proof(self.genesis.seal.proof.to_vec())
-            .uncles_hash(self.genesis.uncles_hash.clone())
-            .build();
+            .uncles_hash(self.genesis.uncles_hash.clone());
 
         let genesis_block = BlockBuilder::default()
             .commit_transaction(self.build_system_cell_transaction()?)
-            .header(header)
-            .build();
+            .with_header_builder(header_builder);
+
+        self.verify_genesis_hash(&genesis_block)?;
 
         let consensus = Consensus::default()
             .set_id(self.name.clone())
@@ -191,9 +227,11 @@ pub mod test {
     fn always_success_type_hash() {
         let locator = ResourceLocator::current_dir().unwrap();
         let ckb = locator.ckb();
-        let dev = ChainSpec::resolve_relative_to(&locator, PathBuf::from("specs/dev.toml"), &ckb)
-            .unwrap();
-        let tx = dev.build_system_cell_transaction().unwrap();
+        let dev = ChainSpec::resolve_relative_to(&locator, PathBuf::from("specs/dev.toml"), &ckb);
+        assert!(dev.is_ok(), format!("{:?}", dev));
+
+        let chain_spec = dev.unwrap();
+        let tx = chain_spec.build_system_cell_transaction().unwrap();
 
         // Tx and Output hash will be used in some test cases directly, assert here for convenience
         assert_eq!(
@@ -212,6 +250,8 @@ pub mod test {
             format!("{:x}", script.hash()),
             "9a9a6bdbc38d4905eace1822f85237e3a1e238bb3f277aa7b7c8903441123510"
         );
+
+        assert!(chain_spec.to_consensus().is_ok());
     }
 
     #[test]
@@ -232,5 +272,29 @@ pub mod test {
             format!("{:x}", data_hash),
             "8bddddc3ae2e09c13106634d012525aa32fc47736456dba11514d352845e561d"
         );
+
+        assert!(chain_spec.to_consensus().is_ok());
+    }
+
+    #[test]
+    fn test_integration_chain_spec_load() {
+        let locator = ResourceLocator::current_dir().unwrap();
+        let ckb = locator.ckb();
+        let integration =
+            ChainSpec::resolve_relative_to(&locator, PathBuf::from("specs/integration.toml"), &ckb);
+        assert!(integration.is_ok(), format!("{:?}", integration));
+        let chain_spec = integration.unwrap();
+
+        let result = chain_spec.build_system_cell_transaction();
+        assert!(result.is_ok(), format!("{:?}", result));
+        let tx = result.unwrap();
+
+        let data_hash = tx.outputs()[0].data_hash();
+        assert_eq!(
+            format!("{:x}", data_hash),
+            "28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5"
+        );
+
+        assert!(chain_spec.to_consensus().is_ok());
     }
 }

@@ -133,12 +133,12 @@ impl DuplicateVerifier {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct MerkleRootVerifier {}
 
 impl MerkleRootVerifier {
     pub fn new() -> Self {
-        MerkleRootVerifier {}
+        MerkleRootVerifier::default()
     }
 
     pub fn verify(&self, block: &Block) -> Result<(), Error> {
