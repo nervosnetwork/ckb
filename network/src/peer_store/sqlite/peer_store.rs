@@ -261,13 +261,13 @@ impl PeerStore for SqlitePeerStore {
     }
 
     fn report(&self, peer_id: &PeerId, behaviour: Behaviour) -> ReportResult {
-        if self.is_banned(peer_id) {
+        let peer = self.fetch_peer_info(peer_id);
+        if self.is_banned(&peer.connected_addr) {
             return ReportResult::Banned;
         }
-        let peer = self.fetch_peer_info(peer_id);
         let score = peer.score.saturating_add(behaviour.score());
         if score < self.peer_score_config.ban_score {
-            self.ban_peer(peer_id, self.peer_score_config.ban_timeout);
+            self.ban_addr(&peer.connected_addr, self.peer_score_config.ban_timeout);
             return ReportResult::Banned;
         }
         self.pool
@@ -352,18 +352,16 @@ impl PeerStore for SqlitePeerStore {
             .expect("get random peers")
     }
 
-    fn ban_peer(&self, peer_id: &PeerId, timeout: Duration) {
-        if let Some(peer) = self.get_peer_info(peer_id) {
-            self.ban_ip(&peer.connected_addr, timeout);
-        }
+    #[inline]
+    fn ban_addr(&self, addr: &Multiaddr, timeout: Duration) {
+        self.ban_ip(addr, timeout)
     }
 
-    fn is_banned(&self, peer_id: &PeerId) -> bool {
-        if let Some(peer) = self.get_peer_info(peer_id) {
-            return self.is_addr_banned(&peer.connected_addr);
-        }
-        false
+    #[inline]
+    fn is_banned(&self, addr: &Multiaddr) -> bool {
+        self.is_addr_banned(&addr)
     }
+
     fn peer_score_config(&self) -> PeerScoreConfig {
         self.peer_score_config
     }
