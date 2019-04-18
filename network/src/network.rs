@@ -200,8 +200,13 @@ impl NetworkState {
         peer_id: &PeerId,
         timeout: Duration,
     ) {
+        {
+            let peers_registry = self.peers_registry.peers_guard().read();
+            if let Some(peer) = peers_registry.get(peer_id) {
+                self.peer_store.ban_addr(&peer.connected_addr, timeout);
+            }
+        }
         self.drop_peer(p2p_control, peer_id);
-        self.peer_store.ban_peer(peer_id, timeout);
     }
 
     pub(crate) fn peer_store(&self) -> &Arc<dyn PeerStore> {
