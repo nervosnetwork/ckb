@@ -4,7 +4,7 @@ pub(crate) mod identify;
 pub(crate) mod outbound_peer;
 pub(crate) mod ping;
 
-use log::{debug, error};
+use log::{error, trace};
 use p2p::{
     builder::MetaBuilder,
     context::{ProtocolContext, ProtocolContextMutRef},
@@ -172,7 +172,7 @@ impl ServiceProtocol for CKBHandler {
     }
 
     fn received(&mut self, context: ProtocolContextMutRef, data: bytes::Bytes) {
-        debug!(target: "network", "[received message]: {}, {}, length={}", self.proto_id, context.session.id, data.len());
+        trace!(target: "network", "[received message]: {}, {}, length={}", self.proto_id, context.session.id, data.len());
         let nc = DefaultCKBProtocolContext {
             proto_id: self.proto_id,
             network_state: Arc::clone(&self.network_state),
@@ -184,7 +184,7 @@ impl ServiceProtocol for CKBHandler {
 
     fn notify(&mut self, context: &mut ProtocolContext, token: u64) {
         if token == std::u64::MAX {
-            debug!(target: "network", "protocol handler heart beat {}", self.proto_id);
+            trace!(target: "network", "protocol handler heart beat {}", self.proto_id);
         } else {
             let nc = DefaultCKBProtocolContext {
                 proto_id: self.proto_id,
@@ -221,7 +221,7 @@ impl CKBProtocolContext for DefaultCKBProtocolContext {
         }
     }
     fn send_message_to(&self, peer_index: PeerIndex, data: Vec<u8>) {
-        debug!(target: "network", "[send message]: {}, to={}, length={}", self.proto_id, peer_index, data.len());
+        trace!(target: "network", "[send message]: {}, to={}, length={}", self.proto_id, peer_index, data.len());
         if let Err(err) = self
             .p2p_control
             .send_message_to(peer_index, self.proto_id, data)

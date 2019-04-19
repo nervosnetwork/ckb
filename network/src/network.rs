@@ -18,7 +18,7 @@ use futures::sync::mpsc::channel;
 use futures::sync::{mpsc, oneshot};
 use futures::Future;
 use futures::Stream;
-use log::{debug, error, info, warn};
+use log::{debug, error, info, trace, warn};
 use lru_cache::LruCache;
 use p2p::{
     builder::{MetaBuilder, ServiceBuilder},
@@ -136,7 +136,7 @@ impl NetworkState {
         {
             self.report_peer(p2p_control, &peer_id, behaviour);
         } else {
-            info!(target: "network", "Report {} failed: not in peer registry", session_id);
+            debug!(target: "network", "Report {} failed: not in peer registry", session_id);
         }
     }
 
@@ -146,13 +146,14 @@ impl NetworkState {
         peer_id: &PeerId,
         behaviour: Behaviour,
     ) {
-        info!(target: "network", "report {:?} because {:?}", peer_id, behaviour);
+        trace!(target: "network", "report {:?} because {:?}", peer_id, behaviour);
         if self
             .peer_store
             .lock()
             .report(peer_id, behaviour)
             .is_banned()
         {
+            info!(target: "network", "peer {:?} banned", peer_id);
             self.with_peer_registry_mut(|reg| {
                 if let Some(session_id) = reg.get_key_by_peer_id(peer_id) {
                     reg.remove_peer(session_id);
@@ -185,6 +186,7 @@ impl NetworkState {
         peer_id: &PeerId,
         timeout: Duration,
     ) {
+        debug!(target: "network", "ban peer {:?} with {:?}", peer_id, timeout);
         let peer = self.with_peer_registry_mut(|reg| {
             if let Some(session_id) = reg.get_key_by_peer_id(peer_id) {
                 let peer = reg.remove_peer(session_id);
@@ -244,6 +246,7 @@ impl NetworkState {
         accept_peer_result.map_err(Into::into)
     }
 
+    // For restrict lock in inner scope
     pub(crate) fn with_peer_registry<F, T>(&self, callback: F) -> T
     where
         F: FnOnce(&PeerRegistry) -> T,
@@ -251,6 +254,7 @@ impl NetworkState {
         callback(&self.peer_registry.read())
     }
 
+    // For restrict lock in inner scope
     pub(crate) fn with_peer_registry_mut<F, T>(&self, callback: F) -> T
     where
         F: FnOnce(&mut PeerRegistry) -> T,
@@ -258,6 +262,7 @@ impl NetworkState {
         callback(&mut self.peer_registry.write())
     }
 
+    // For restrict lock in inner scope
     pub(crate) fn with_peer_store<F, T>(&self, callback: F) -> T
     where
         F: FnOnce(&PeerStore) -> T,
@@ -265,6 +270,7 @@ impl NetworkState {
         callback(self.peer_store.lock().as_ref())
     }
 
+    // For restrict lock in inner scope
     pub(crate) fn with_peer_store_mut<F, T>(&self, callback: F) -> T
     where
         F: FnOnce(&mut PeerStore) -> T,
@@ -383,12 +389,12 @@ pub struct EventHandler {
 
 impl ServiceHandle for EventHandler {
     fn handle_error(&mut self, context: &mut ServiceContext, error: ServiceError) {
-        warn!(target: "network", "p2p service error: {:?}", error);
         match error {
             ServiceError::DialerError {
                 ref address,
                 ref error,
             } => {
+                warn!(target: "network", "DialerError({}) {}", address, error);
                 if error == &P2pError::ConnectSelf {
                     debug!(target: "network", "add self address: {:?}", address);
                     let addr = address
@@ -410,21 +416,51 @@ impl ServiceHandle for EventHandler {
                         .insert(peer_id, Instant::now());
                 }
             }
-            ServiceError::ProtocolError { id, .. } => {
+            ServiceError::ProtocolError {
+                id,
+                proto_id,
+                error,
+            } => {
+                warn!(target: "network", "ProtocolError({}, {}) {}", id, proto_id, error);
                 context.disconnect(id);
             }
+            ServiceError::SessionTimeout { session_context } => {
+                warn!(
+                    target: "network",
+                    "SessionTimeout({}, {})",
+                    session_context.id,
+                    session_context.address,
+                );
+            }
             ServiceError::MuxerError {
-                session_context, ..
-            } => context.disconnect(session_context.id),
-            _ => {}
+                session_context,
+                error,
+            } => {
+                warn!(
+                    target: "network",
+                    "MuxerError({}, {}), substream error {}, disconnect it",
+                    session_context.id,
+                    session_context.address,
+                    error,
+                );
+                context.disconnect(session_context.id)
+            }
+            _ => {
+                warn!(target: "network", "p2p service error: {:?}", error);
+            }
         }
     }
 
     fn handle_event(&mut self, context: &mut ServiceContext, event: ServiceEvent) {
-        info!(target: "network", "p2p service event: {:?}", event);
         // When session disconnect update status anyway
         match event {
             ServiceEvent::SessionOpen { session_context } => {
+                debug!(
+                    target: "network",
+                    "SessionOpen({}, {})",
+                    session_context.id,
+                    session_context.address,
+                );
                 let peer_id = session_context
                     .remote_pubkey
                     .as_ref()
@@ -434,7 +470,12 @@ impl ServiceHandle for EventHandler {
                     .network_state
                     .with_peer_registry(|reg| reg.is_feeler(&peer_id))
                 {
-                    debug!(target: "network", "feeler connected {} => {:?}", session_context.id, peer_id);
+                    debug!(
+                        target: "network",
+                        "feeler connected {} => {}",
+                        session_context.id,
+                        session_context.address,
+                    );
                 } else {
                     match self.network_state.accept_peer(&session_context) {
                         Ok(Some(evicted_peer)) => {
@@ -448,7 +489,7 @@ impl ServiceHandle for EventHandler {
                         }
                         Ok(None) => info!(
                             target: "network",
-                            "registry peer success, session.id={}, address={}",
+                            "{} open, registry {} success",
                             session_context.id,
                             session_context.address,
                         ),
@@ -466,6 +507,12 @@ impl ServiceHandle for EventHandler {
                 }
             }
             ServiceEvent::SessionClose { session_context } => {
+                debug!(
+                    target: "network",
+                    "SessionClose({}, {})",
+                    session_context.id,
+                    session_context.address,
+                );
                 self.network_state
                     .disconnecting_sessions
                     .write()
@@ -477,7 +524,12 @@ impl ServiceHandle for EventHandler {
                     .remove_peer(session_context.id)
                     .is_some();
                 if peer_exists {
-                    debug!(target: "network", "session closed, remove peer from peer_registry {}", session_context.id);
+                    info!(
+                        target: "network",
+                        "{} closed, remove {} from peer_registry",
+                        session_context.id,
+                        session_context.address,
+                    );
                     let peer_id = session_context
                         .remote_pubkey
                         .as_ref()
@@ -489,7 +541,9 @@ impl ServiceHandle for EventHandler {
                     })
                 }
             }
-            _ => {}
+            _ => {
+                info!(target: "network", "p2p service event: {:?}", event);
+            }
         }
     }
 
@@ -749,7 +803,7 @@ impl NetworkService {
                     })
                     .collect::<Vec<_>>();
 
-                debug!(target: "network", "received shutdown signal");
+                debug!(target: "network", "receiving shutdown signal ...");
 
                 // Recevied stop signal, doing cleanup
                 let _ = receiver.recv();
@@ -765,7 +819,7 @@ impl NetworkService {
                     warn!(target: "network", "send shutdown message to p2p error: {:?}", err);
                 }
 
-                debug!(target: "network", "Waiting tokio runtime finish......");
+                debug!(target: "network", "Waiting tokio runtime to finish ...");
                 runtime.shutdown_on_idle().wait().unwrap();
                 debug!(target: "network", "Shutdown network service finished!");
             })
