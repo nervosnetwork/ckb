@@ -22,6 +22,7 @@ use fnv::FnvHashSet;
 use log::{self, debug, error, log_enabled};
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
+use serde_derive::{Deserialize, Serialize};
 use std::cmp;
 use std::sync::Arc;
 use std::thread;
@@ -49,7 +50,7 @@ struct ChainReceivers {
     process_block_receiver: Receiver<Request<Arc<Block>, Result<(), FailureError>>>,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 pub struct ForkChanges {
     // blocks attached to index after forks
     pub(crate) attached_blocks: Vec<Block>,
@@ -492,12 +493,18 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
                             ext.txs_verified = Some(true);
                         }
                         Err(err) => {
+                            error!(target: "chain", "cell_set_diff {}", serde_json::to_string(&cell_set_diff).unwrap());
+                            error!(target: "chain", "block {}", serde_json::to_string(b).unwrap());
                             found_error = Some(err);
                             ext.txs_verified = Some(false);
                         }
                     }
                 } else {
                     ext.txs_verified = Some(false);
+                }
+
+                if found_error.is_some() {
+                    error!(target: "chain", "cell_set {}", serde_json::to_string(&chain_state.cell_set()).unwrap());
                 }
             } else {
                 cell_set_diff.push_new(b);
@@ -516,6 +523,7 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
         }
 
         if let Some(err) = found_error {
+            error!(target: "chain", "fork {}", serde_json::to_string(&fork).unwrap());
             Err(SharedError::InvalidTransaction(err.to_string()))?
         } else {
             Ok(cell_set_diff)
