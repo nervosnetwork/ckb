@@ -48,7 +48,8 @@ impl Miner {
     }
 
     fn mine(&self) -> Result<Option<(String, Block)>, Error> {
-        if let Some(template) = { self.current_work.lock().clone() } {
+        let current_work = { self.current_work.lock().clone() };
+        if let Some(template) = current_work {
             let BlockTemplate {
                 version,
                 difficulty,

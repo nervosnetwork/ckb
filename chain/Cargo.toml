@@ -24,6 +24,8 @@ serde = "1.0"
 ckb-traits = { path = "../traits" }
 failure = "0.1.5"
 hash = {path = "../util/hash"}
+serde_json = "1.0"
+serde_derive = "1.0"
 
 [dev-dependencies]
 env_logger = "0.6"
