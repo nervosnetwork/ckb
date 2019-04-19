@@ -199,7 +199,7 @@ impl Stream for DiscoveryService {
                                 .peer_store()
                                 .add_discovered_addr(&peer_id, addr)
                             {
-                                warn!(target: "network", "add_discovered_addr failed {:?}", peer_id);
+                                debug!(target: "network", "add_discovered_addr failed {:?}", peer_id);
                             }
                         }
                     }

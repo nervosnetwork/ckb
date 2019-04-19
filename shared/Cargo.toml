@@ -29,3 +29,4 @@ linked-hash-map = { git = "https://github.com/nervosnetwork/linked-hash-map", re
 env_logger = "0.6"
 tempfile = "3.0"
 rand = "0.6"
+serde_json = "1.0"

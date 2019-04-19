@@ -80,7 +80,6 @@ impl<'a, CS: ChainStore> TransactionProcess<'a, CS> {
             }
             Err(PoolError::InvalidTx(TransactionError::Unknown))
             | Err(PoolError::InvalidTx(TransactionError::Conflict))
-            | Err(PoolError::Duplicate)
             | Err(PoolError::InvalidTx(TransactionError::Immature))
             | Err(PoolError::InvalidTx(TransactionError::CellbaseImmaturity)) => {
                 // this error may occured when peer's tip is different with us,

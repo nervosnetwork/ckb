@@ -8,11 +8,12 @@ use ckb_shared::{shared::Shared, store::ChainStore};
 use ckb_sync::NetworkProtocol;
 use ckb_traits::ChainProvider;
 use ckb_verification::{HeaderResolverWrapper, HeaderVerifier, Verifier};
+use faketime::unix_time_as_millis;
 use flatbuffers::FlatBufferBuilder;
 use jsonrpc_core::{Error, Result};
 use jsonrpc_derive::rpc;
 use jsonrpc_types::{Block, BlockTemplate};
-use log::{debug, warn};
+use log::{debug, error, warn};
 use numext_fixed_hash::H256;
 use std::collections::HashSet;
 use std::convert::TryInto;
@@ -75,6 +76,7 @@ impl<CS: ChainStore + 'static> MinerRpc for MinerRpcImpl<CS> {
         if header_verify_ret.is_ok() {
             let ret = self.chain.process_block(Arc::clone(&block));
             if ret.is_ok() {
+                debug!(target: "miner", "[block_relay] announce new block {} {}", block.header().hash(), unix_time_as_millis());
                 // announce new block
                 self.network_controller.with_protocol_context(
                     NetworkProtocol::RELAY as ProtocolId,
@@ -93,7 +95,9 @@ impl<CS: ChainStore + 'static> MinerRpc for MinerRpcImpl<CS> {
                 );
                 Ok(Some(block.header().hash().clone()))
             } else {
-                debug!(target: "rpc", "submit_block process_block {:?}", ret);
+                let chain_state = self.shared.chain_state().lock();
+                error!(target: "rpc", "submit_block process_block {:?}", ret);
+                error!(target: "rpc", "proposal table {}", serde_json::to_string(chain_state.proposal_ids().all()).unwrap());
                 Ok(None)
             }
         } else {

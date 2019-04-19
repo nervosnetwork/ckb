@@ -1,9 +1,7 @@
 //! The primary module containing the implementations of the transaction pool
 //! and its top-level members.
 
-use ckb_core::cell::CellMeta;
-use ckb_core::cell::CellProvider;
-use ckb_core::cell::CellStatus;
+use ckb_core::cell::{CellProvider, CellStatus};
 use ckb_core::transaction::{CellOutput, OutPoint, ProposalShortId, Transaction};
 use ckb_core::Cycle;
 use ckb_verification::TransactionError;
@@ -222,11 +220,7 @@ impl CellProvider for StagingPool {
             if x.is_some() {
                 CellStatus::Dead
             } else {
-                CellStatus::Live(CellMeta {
-                    cell_output: self.get_output(o).expect("output"),
-                    block_number: None,
-                    cellbase: false,
-                })
+                CellStatus::live_output(self.get_output(o).expect("output"), None, false)
             }
         } else if self.edges.get_outer(o).is_some() {
             CellStatus::Dead
@@ -620,11 +614,7 @@ impl CellProvider for PendingQueue {
     fn cell(&self, o: &OutPoint) -> CellStatus {
         if let Some(x) = self.inner.get(&ProposalShortId::from_tx_hash(&o.hash)) {
             match x.transaction.get_output(o.index as usize) {
-                Some(cell) => CellStatus::Live(CellMeta {
-                    cell_output: cell,
-                    block_number: None,
-                    cellbase: false,
-                }),
+                Some(cell) => CellStatus::live_output(cell, None, false),
                 None => CellStatus::Unknown,
             }
         } else {

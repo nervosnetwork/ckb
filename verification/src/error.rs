@@ -132,6 +132,7 @@ pub enum DifficultyError {
 #[derive(Debug, PartialEq, Clone, Copy, Eq)]
 pub enum TransactionError {
     NullInput,
+    NullDep,
     /// Occur output's bytes_len exceed capacity
     CapacityOverflow,
     DuplicateInputs,

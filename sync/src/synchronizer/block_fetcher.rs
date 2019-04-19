@@ -192,7 +192,7 @@ where
                 if block_status == BlockStatus::VALID_MASK
                     && inflight.insert(to_fetch_hash.clone().clone())
                 {
-                    debug!(
+                    trace!(
                         target: "sync", "[Synchronizer] inflight insert {:?}------------{:x}",
                         to_fetch.number(),
                         to_fetch_hash

@@ -22,20 +22,15 @@ impl TxProposalTable {
         }
     }
 
-    pub fn update_or_insert(
-        &mut self,
-        number: BlockNumber,
-        ids: impl IntoIterator<Item = ProposalShortId>,
-    ) {
-        self.table
-            .entry(number)
-            .or_insert_with(Default::default)
-            .extend(ids);
+    // If the TABLE did not have this value present, true is returned.
+    // If the TABLE did have this value present, false is returned
+    pub fn insert(&mut self, number: BlockNumber, ids: FnvHashSet<ProposalShortId>) -> bool {
+        self.table.insert(number, ids).is_none()
     }
 
-    //pub fn get_ids_by_number(&self, number: BlockNumber) -> Option<&FnvHashSet<ProposalShortId>> {
-    //    self.table.get(&number)
-    //}
+    pub fn remove(&mut self, number: BlockNumber) -> Option<FnvHashSet<ProposalShortId>> {
+        self.table.remove(&number)
+    }
 
     pub fn contains(&self, id: &ProposalShortId) -> bool {
         self.set.contains(id)
@@ -45,7 +40,11 @@ impl TxProposalTable {
         self.set.iter()
     }
 
-    pub fn finalize(&mut self, number: BlockNumber) -> Vec<ProposalShortId> {
+    pub fn all(&self) -> &BTreeMap<BlockNumber, FnvHashSet<ProposalShortId>> {
+        &self.table
+    }
+
+    pub fn finalize(&mut self, number: BlockNumber) -> FnvHashSet<ProposalShortId> {
         let proposal_start = number.saturating_sub(self.proposal_window.start()) + 1;
         let proposal_end = number.saturating_sub(self.proposal_window.end()) + 1;
 
@@ -61,7 +60,8 @@ impl TxProposalTable {
             .flatten()
             .collect();
 
-        let removed_ids: Vec<ProposalShortId> = self.set.difference(&new_ids).cloned().collect();
+        let removed_ids: FnvHashSet<ProposalShortId> =
+            self.set.difference(&new_ids).cloned().collect();
         trace!(target: "chain", "[proposal_finalize] number {} proposal_start {}----proposal_end {}", number , proposal_start, proposal_end);
         trace!(target: "chain", "[proposal_finalize] number {} new_ids {:?}----removed_ids {:?}", number, new_ids, removed_ids);
         self.set = new_ids;
@@ -78,7 +78,9 @@ mod tests {
         let id = ProposalShortId::zero();
         let window = ProposalWindow(2, 10);
         let mut table = TxProposalTable::new(window);
-        table.update_or_insert(1, vec![id]);
+        let mut ids = FnvHashSet::default();
+        ids.insert(id);
+        table.insert(1, ids.clone());
         assert!(!table.contains(&id));
 
         // in window
@@ -87,7 +89,7 @@ mod tests {
             assert!(table.contains(&id));
         }
 
-        assert_eq!(table.finalize(11), vec![id]);
+        assert_eq!(table.finalize(11), ids);
         assert!(!table.contains(&id));
 
         assert!(table.finalize(12).is_empty());
