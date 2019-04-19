@@ -21,4 +21,5 @@ jsonrpc_client!(pub struct RpcClient {
     pub fn get_block_hash(&mut self, number: String) -> RpcRequest<Option<H256>>;
     pub fn get_tip_header(&mut self) -> RpcRequest<Header>;
     pub fn get_tip_block_number(&mut self) -> RpcRequest<String>;
+    pub fn add_tx_to_pool(&mut self, tx: Transaction) -> RpcRequest<H256>;
 });

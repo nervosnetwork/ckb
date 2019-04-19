@@ -24,6 +24,9 @@ pub trait PoolRpc {
     // curl -d '{"id": 2, "jsonrpc": "2.0", "method":"get_pool_transaction","params": [""]}' -H 'content-type:application/json' 'http://localhost:8114'
     #[rpc(name = "get_pool_transaction")]
     fn get_pool_transaction(&self, _hash: H256) -> Result<Option<Transaction>>;
+
+    #[rpc(name = "add_tx_to_pool")]
+    fn add_tx_to_pool(&self, _tx: Transaction) -> Result<H256>;
 }
 
 pub(crate) struct PoolRpcImpl<CS> {
@@ -79,5 +82,14 @@ impl<CS: ChainStore + 'static> PoolRpc for PoolRpcImpl<CS> {
             .tx_pool()
             .get_tx(&id)
             .map(|tx| (&tx).into()))
+    }
+
+    fn add_tx_to_pool(&self, tx: Transaction) -> Result<H256> {
+        let tx: CoreTransaction = tx.try_into().map_err(|_| Error::parse_error())?;
+        let mut chain_state = self.shared.chain_state().lock();
+        let tx_hash = tx.hash().clone();
+        let entry = PoolEntry::new(tx, 0, None);
+        chain_state.mut_tx_pool().enqueue_tx(entry);
+        Ok(tx_hash)
     }
 }

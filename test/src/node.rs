@@ -11,8 +11,10 @@ use log::info;
 use numext_fixed_hash::H256;
 use rand;
 use std::convert::TryInto;
+use std::fs;
 use std::io::Error;
 use std::process::{Child, Command, Stdio};
+use toml_edit::{value, Document};
 
 pub struct Node {
     pub binary: String,
@@ -20,6 +22,7 @@ pub struct Node {
     pub p2p_port: u16,
     pub rpc_port: u16,
     pub node_id: Option<String>,
+    pub cellbase_maturity: Option<BlockNumber>,
     guard: Option<ProcessGuard>,
 }
 
@@ -35,7 +38,13 @@ impl Drop for ProcessGuard {
 }
 
 impl Node {
-    pub fn new(binary: &str, dir: &str, p2p_port: u16, rpc_port: u16) -> Self {
+    pub fn new(
+        binary: &str,
+        dir: &str,
+        p2p_port: u16,
+        rpc_port: u16,
+        cellbase_maturity: Option<BlockNumber>,
+    ) -> Self {
         Self {
             binary: binary.to_string(),
             dir: dir.to_string(),
@@ -43,6 +52,7 @@ impl Node {
             rpc_port,
             node_id: None,
             guard: None,
+            cellbase_maturity,
         }
     }
 
@@ -223,9 +233,50 @@ impl Node {
             .build()
     }
 
+    fn prepare_chain_spec(&self, config_path: &str) -> Result<(), Error> {
+        let integration_spec = include_str!("../integration.toml");
+        let always_success_cell = include_bytes!("../../resource/specs/cells/always_success");
+        fs::create_dir_all(format!("{}/specs", self.dir))?;
+        fs::create_dir_all(format!("{}/sepcs/cells", self.dir))?;
+        fs::write(
+            format!("{}/specs/cells/always_success", self.dir),
+            always_success_cell.as_ref(),
+        )?;
+        let mut spec_config = integration_spec
+            .parse::<Document>()
+            .expect("parse spec_config");
+
+        // modify chain spec
+        if let Some(cellbase_maturity) = self.cellbase_maturity {
+            spec_config["params"]["cellbase_maturity"] = value(cellbase_maturity as i64);
+        }
+        // write to dir
+        fs::write(&config_path, spec_config.to_string())
+    }
+
+    fn rewrite_spec(&self, config_path: &str) -> Result<(), Error> {
+        // rewrite ckb.toml
+        let ckb_config_path = format!("{}/ckb.toml", self.dir);
+        let mut ckb_config = std::str::from_utf8(&fs::read(&ckb_config_path)?)
+            .unwrap()
+            .parse::<Document>()
+            .expect("parse ckb.toml");
+        ckb_config["chain"]["spec"] = value(config_path.clone());
+        // rewrite ckb-miner.toml
+        let miner_config_path = format!("{}/ckb-miner.toml", self.dir);
+        fs::write(&ckb_config_path, ckb_config.to_string())?;
+        let mut miner_config = std::str::from_utf8(&fs::read(&miner_config_path)?)
+            .unwrap()
+            .parse::<Document>()
+            .expect("parse ckb-miner.toml");
+        miner_config["chain"]["spec"] = value(config_path.clone());
+        fs::write(&miner_config_path, miner_config.to_string())
+    }
+
     fn init_config_file(&self) -> Result<(), Error> {
         let rpc_port = format!("{}", self.rpc_port).to_string();
         let p2p_port = format!("{}", self.p2p_port).to_string();
+
         Command::new(self.binary.to_owned())
             .args(&[
                 "-C",
@@ -239,6 +290,11 @@ impl Node {
                 &p2p_port,
             ])
             .output()
-            .map(|_| ())
+            .map(|_| ())?;
+
+        let spec_config_path = format!("{}/specs/integration.toml", self.dir);
+        self.prepare_chain_spec(&spec_config_path)?;
+        self.rewrite_spec(&spec_config_path)?;
+        Ok(())
     }
 }

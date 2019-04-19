@@ -5,7 +5,8 @@ use crate::tx_proposal_table::TxProposalTable;
 use ckb_chain_spec::consensus::{Consensus, ProposalWindow};
 use ckb_core::block::Block;
 use ckb_core::cell::{
-    resolve_transaction, CellProvider, CellStatus, OverlayCellProvider, ResolvedTransaction,
+    resolve_transaction, CellMeta, CellProvider, CellStatus, LiveCell, OverlayCellProvider,
+    ResolvedTransaction,
 };
 use ckb_core::header::{BlockNumber, Header};
 use ckb_core::transaction::{OutPoint, ProposalShortId, Transaction};
@@ -251,6 +252,24 @@ impl<CS: ChainStore> ChainState<CS> {
         resolve_transaction(tx, &mut seen_inputs, &pending_and_staging_provider)
     }
 
+    fn verify_cellbase_maturity(
+        &self,
+        meta: &CellMeta,
+        cellbase_maturity: BlockNumber,
+    ) -> Result<(), TransactionError> {
+        if meta.is_cellbase()
+            && self.tip_number()
+                < meta
+                    .block_number
+                    .expect("cellbase must have a block number")
+                    + cellbase_maturity
+        {
+            Err(TransactionError::CellbaseImmaturity)
+        } else {
+            Ok(())
+        }
+    }
+
     // remove resolved tx from orphan pool
     pub(crate) fn update_orphan_from_tx(
         &self,
@@ -297,6 +316,7 @@ impl<CS: ChainStore> ChainState<CS> {
         let tx_hash = tx.hash();
 
         let rtx = self.resolve_tx_from_pool(tx, tx_pool);
+        let cellbase_maturity = self.consensus().cellbase_maturity();
 
         let mut unknowns = Vec::new();
         for (cs, input) in rtx.input_cells.iter().zip(inputs.iter()) {
@@ -308,7 +328,15 @@ impl<CS: ChainStore> ChainState<CS> {
                     tx_pool.conflict.insert(short_id, entry);
                     return Err(PoolError::Conflict);
                 }
-                _ => {}
+                CellStatus::Live(cell) => match cell {
+                    LiveCell::Output(meta) => {
+                        self.verify_cellbase_maturity(meta, cellbase_maturity).map_err(|e| {
+                                error!(target: "txs_pool", "Failed to staging tx {:}, reason: {:?}", tx_hash, e);
+                                PoolError::InvalidTx(e)
+                            })?;
+                    }
+                    LiveCell::Null => return Err(PoolError::Cellbase),
+                },
             }
         }
 
@@ -321,7 +349,15 @@ impl<CS: ChainStore> ChainState<CS> {
                     tx_pool.conflict.insert(short_id, entry);
                     return Err(PoolError::Conflict);
                 }
-                _ => {}
+                CellStatus::Live(cell) => match cell {
+                    LiveCell::Output(meta) => {
+                        self.verify_cellbase_maturity(meta, cellbase_maturity).map_err(|e| {
+                                error!(target: "txs_pool", "Failed to staging tx {:}, reason: {:?}", tx_hash, e);
+                                PoolError::InvalidTx(e)
+                            })?;
+                    }
+                    LiveCell::Null => return Err(PoolError::Cellbase),
+                },
             }
         }
 
