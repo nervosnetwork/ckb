@@ -78,7 +78,7 @@ impl Default for Consensus {
             pow_time_span: POW_TIME_SPAN,
             pow_spacing: POW_SPACING,
             tx_proposal_window: TX_PROPOSAL_WINDOW,
-            pow: Pow::Dummy,
+            pow: Pow::Dummy(Default::default()),
             cellbase_maturity: CELLBASE_MATURITY,
             median_time_block_count: MEDIAN_TIME_BLOCK_COUNT,
             max_block_cycles: MAX_BLOCK_CYCLES,

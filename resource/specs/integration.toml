@@ -21,6 +21,11 @@ cellbase_maturity = 0
 [pow]
 func = "Dummy"
 
+# Delay offset (in milliseconds)
+[pow.params.delay]
+type = "constant"
+value = 5000
+
 # An array list paths to system cell files, which is absolute or relative to
 # the directory containing this config file.
 [[system_cells]]
