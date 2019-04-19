@@ -140,7 +140,7 @@ where
 
         // This peer has nothing interesting.
         if !self.is_better_chain(&best_known_header) {
-            debug!(
+            trace!(
                 target: "sync",
                 "[block downloader] best_known_header {} chain {}",
                 best_known_header.total_difficulty(),
