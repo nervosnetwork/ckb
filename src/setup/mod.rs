@@ -164,7 +164,6 @@ impl Setup {
 
     fn chain_spec(&self) -> Result<ChainSpec, ExitCode> {
         let result = self.config.chain_spec(&self.resource_locator);
-
         if let Ok(spec) = &result {
             if self.is_sentry_enabled {
                 sentry::configure_scope(|scope| {
