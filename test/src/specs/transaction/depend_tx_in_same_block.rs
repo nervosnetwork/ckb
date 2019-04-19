@@ -11,9 +11,11 @@ impl Spec for DepentTxInSameBlock {
         info!("Generate 2 tx in same block");
         node0.generate_block();
         let tx_hash_0 = node0.generate_transaction();
-        let tx = node0.new_transaction(tx_hash_0.clone());
-        let tx_hash_1 = tx.hash().clone();
-        node0.rpc_client().send_transaction((&tx).into());
+        let tx_hash_1 = node0
+            .rpc_client()
+            .send_transaction((&node0.new_transaction(tx_hash_0.clone())).into())
+            .call()
+            .expect("send transaction error");
 
         // mine 2 txs
         info!("Mine 2 tx");
