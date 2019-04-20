@@ -13,27 +13,8 @@ use lru_cache::LruCache;
 use numext_fixed_hash::H256;
 
 #[derive(Debug, Clone)]
-pub(crate) struct TxFilter {
-    map: LruCache<H256, ()>,
-}
-
-impl TxFilter {
-    pub fn new(size: usize) -> TxFilter {
-        TxFilter {
-            map: LruCache::new(size),
-        }
-    }
-
-    pub fn insert(&mut self, hash: H256) -> bool {
-        self.map.insert(hash, ()).is_none()
-    }
-}
-
-#[derive(Debug, Clone)]
 pub struct TxPool {
     pub(crate) config: TxPoolConfig,
-    /// Already known transaction filter
-    pub(crate) filter: TxFilter,
     /// The short id that has not been proposed
     pub(crate) pending: PendingQueue,
     /// Tx pool that finely for commit
@@ -56,7 +37,6 @@ impl TxPool {
 
         TxPool {
             config,
-            filter: TxFilter::new(1000),
             pending: PendingQueue::new(),
             staging: StagingPool::new(),
             orphan: OrphanPool::new(),
@@ -68,22 +48,11 @@ impl TxPool {
 
     // enqueue_tx inserts a new transaction into the non-verifiable transaction queue.
     pub fn enqueue_tx(&mut self, cycles: Option<Cycle>, tx: Transaction) -> bool {
-        let tx_hash = tx.hash();
-        if !self.filter.insert(tx_hash.clone()) {
-            trace!(target: "tx_pool", "discarding already known transaction {:#x}", tx_hash);
-            return false;
-        }
         self.pending.add_tx(cycles, tx).is_none()
     }
 
     // trace_tx basically same as enqueue_tx, but additional register a trace.
     pub fn trace_tx(&mut self, tx: Transaction) -> bool {
-        let tx_hash = tx.hash();
-        if !self.filter.insert(tx_hash.clone()) {
-            trace!(target: "tx_pool", "discarding already known transaction {:#x}", tx_hash);
-            return false;
-        }
-
         if self.config.trace_enable() {
             self.trace
                 .add_pending(&tx.hash(), "unknown tx, insert to pending queue");

@@ -186,11 +186,7 @@ impl<CS: ChainStore> ChainState<CS> {
             Ok(cycles) => {
                 if self.contains_proposal_id(&short_id) {
                     // if tx is proposed, we resolve from staging, verify again
-                    let tx_hash = tx.hash();
-                    let ret = self.staging_tx(&mut tx_pool, Some(cycles), tx);
-                    if ret.is_err() {
-                        trace!(target: "tx_pool", "staging tx {:x} failed {:?}", tx_hash, ret);
-                    }
+                    self.staging_tx_and_descendants(&mut tx_pool, Some(cycles), tx);
                 } else {
                     tx_pool.enqueue_tx(Some(cycles), tx);
                 }
@@ -222,6 +218,7 @@ impl<CS: ChainStore> ChainState<CS> {
         resolve_transaction(tx, &mut seen_inputs, &cell_provider)
     }
 
+    // FIXME: we may need redesign orphan pool, this is not short-circuiting
     fn verify_rtx_inputs(&self, rtx: &ResolvedTransaction) -> Result<(), PoolError> {
         let mut unknowns = Vec::new();
         let inputs = rtx.transaction.input_pts();
@@ -339,8 +336,24 @@ impl<CS: ChainStore> ChainState<CS> {
                 Ok(cycles)
             }
             Err(e) => {
-                error!(target: "txs_pool", "Failed to staging tx {:}, reason: {:?}", tx_hash, e);
+                error!(target: "tx_pool", "Failed to staging tx {:}, reason: {:?}", tx_hash, e);
                 Err(e)
+            }
+        }
+    }
+
+    pub(crate) fn staging_tx_and_descendants(
+        &self,
+        tx_pool: &mut TxPool,
+        cycles: Option<Cycle>,
+        tx: Transaction,
+    ) {
+        match self.staging_tx(tx_pool, cycles, tx.clone()) {
+            Ok(_) => {
+                self.try_staging_orphan_by_ancestor(tx_pool, &tx);
+            }
+            Err(e) => {
+                error!(target: "tx_pool", "Failed to staging tx {:}, reason: {:?}", tx.hash(), e);
             }
         }
     }
@@ -371,13 +384,10 @@ impl<CS: ChainStore> ChainState<CS> {
 
         for tx in retain {
             if self.contains_proposal_id(&tx.proposal_short_id()) {
-                let tx_hash = tx.hash();
-                let ret = self.staging_tx(&mut tx_pool, None, tx);
-                if ret.is_err() {
-                    trace!(target: "tx_pool", "staging tx {:x} failed {:?}", tx_hash, ret);
-                }
+                self.staging_tx_and_descendants(&mut tx_pool, None, tx);
+            } else {
+                tx_pool.enqueue_tx(None, tx);
             }
-            // TODO: enqueue pending?
         }
 
         for tx in &attached {
@@ -386,15 +396,7 @@ impl<CS: ChainStore> ChainState<CS> {
 
         for id in self.get_proposal_ids_iter() {
             if let Some(entry) = tx_pool.remove_pending_and_conflict(id) {
-                let tx_hash = entry.transaction.hash();
-                match self.staging_tx(&mut tx_pool, entry.cycles, entry.transaction.clone()) {
-                    Ok(_) => {
-                        self.try_staging_orphan_by_ancestor(&mut tx_pool, &entry.transaction);
-                    }
-                    Err(e) => {
-                        error!(target: "txs_pool", "Failed to staging tx {:}, reason: {:?}", tx_hash, e);
-                    }
-                }
+                self.staging_tx_and_descendants(&mut tx_pool, entry.cycles, entry.transaction);
             }
         }
     }

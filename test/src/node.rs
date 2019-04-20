@@ -1,5 +1,7 @@
 use crate::rpc::RpcClient;
 use crate::sleep;
+use ckb_app_config::{CKBAppConfig, MinerAppConfig};
+use ckb_chain_spec::ChainSpecConfig;
 use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::header::{HeaderBuilder, Seal};
 use ckb_core::script::Script;
@@ -14,7 +16,6 @@ use std::convert::TryInto;
 use std::fs;
 use std::io::Error;
 use std::process::{Child, Command, Stdio};
-use toml_edit::{value, Document};
 
 pub struct Node {
     pub binary: String,
@@ -234,43 +235,47 @@ impl Node {
     }
 
     fn prepare_chain_spec(&self, config_path: &str) -> Result<(), Error> {
-        let integration_spec = include_str!("../integration.toml");
+        let integration_spec = include_bytes!("../integration.toml");
         let always_success_cell = include_bytes!("../../resource/specs/cells/always_success");
         fs::create_dir_all(format!("{}/specs", self.dir))?;
-        fs::create_dir_all(format!("{}/sepcs/cells", self.dir))?;
+        fs::create_dir_all(format!("{}/specs/cells", self.dir))?;
         fs::write(
             format!("{}/specs/cells/always_success", self.dir),
-            always_success_cell.as_ref(),
+            &always_success_cell[..],
         )?;
-        let mut spec_config = integration_spec
-            .parse::<Document>()
-            .expect("parse spec_config");
 
+        let mut spec_config: ChainSpecConfig =
+            toml::from_slice(&integration_spec[..]).expect("chain spec config");
         // modify chain spec
         if let Some(cellbase_maturity) = self.cellbase_maturity {
-            spec_config["params"]["cellbase_maturity"] = value(cellbase_maturity as i64);
+            spec_config.params.cellbase_maturity = cellbase_maturity;
         }
         // write to dir
-        fs::write(&config_path, spec_config.to_string())
+        fs::write(
+            &config_path,
+            toml::to_string(&spec_config).expect("chain spec serialize"),
+        )
     }
 
     fn rewrite_spec(&self, config_path: &str) -> Result<(), Error> {
         // rewrite ckb.toml
         let ckb_config_path = format!("{}/ckb.toml", self.dir);
-        let mut ckb_config = std::str::from_utf8(&fs::read(&ckb_config_path)?)
-            .unwrap()
-            .parse::<Document>()
-            .expect("parse ckb.toml");
-        ckb_config["chain"]["spec"] = value(config_path.clone());
+        let mut ckb_config: CKBAppConfig =
+            toml::from_slice(&fs::read(&ckb_config_path)?).expect("ckb config");
+        ckb_config.chain.spec = config_path.into();
+        fs::write(
+            &ckb_config_path,
+            toml::to_string(&ckb_config).expect("ckb config serialize"),
+        )?;
         // rewrite ckb-miner.toml
         let miner_config_path = format!("{}/ckb-miner.toml", self.dir);
-        fs::write(&ckb_config_path, ckb_config.to_string())?;
-        let mut miner_config = std::str::from_utf8(&fs::read(&miner_config_path)?)
-            .unwrap()
-            .parse::<Document>()
-            .expect("parse ckb-miner.toml");
-        miner_config["chain"]["spec"] = value(config_path.clone());
-        fs::write(&miner_config_path, miner_config.to_string())
+        let mut miner_config: MinerAppConfig =
+            toml::from_slice(&fs::read(&miner_config_path)?).expect("miner config");
+        miner_config.chain.spec = config_path.into();
+        fs::write(
+            &miner_config_path,
+            toml::to_string(&miner_config).expect("miner config serialize"),
+        )
     }
 
     fn init_config_file(&self) -> Result<(), Error> {
