@@ -4,9 +4,9 @@ use crate::tx_pool::{PoolEntry, PoolError, StagingTxResult, TxPool, TxPoolConfig
 use crate::tx_proposal_table::TxProposalTable;
 use ckb_chain_spec::consensus::{Consensus, ProposalWindow};
 use ckb_core::block::Block;
-use ckb_core::cell::{
-    resolve_transaction, CellProvider, CellStatus, OverlayCellProvider, ResolvedTransaction,
-};
+#[allow(unused_imports)] // incorrect lint
+use ckb_core::cell::CellProvider;
+use ckb_core::cell::{resolve_transaction, CellStatus, OverlayCellProvider, ResolvedTransaction};
 use ckb_core::header::{BlockNumber, Header};
 use ckb_core::transaction::{OutPoint, ProposalShortId, Transaction};
 use ckb_core::Cycle;
@@ -428,6 +428,7 @@ impl<CS: ChainStore> ChainState<CS> {
     }
 }
 
+#[allow(dead_code)] // incorrect lint
 pub struct ChainCellSetOverlay<'a, CS> {
     pub(crate) overlay: CellSetOverlay<'a>,
     store: Arc<CS>,
