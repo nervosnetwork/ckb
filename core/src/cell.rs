@@ -193,10 +193,10 @@ pub fn resolve_transaction<CP: CellProvider>(
         .dep_pts()
         .iter()
         .map(|dep| {
-            if seen_inputs.insert(dep.clone()) {
-                cell_provider.get_cell_status(dep)
-            } else {
+            if seen_inputs.contains(dep) {
                 CellStatus::Dead
+            } else {
+                cell_provider.get_cell_status(dep)
             }
         })
         .collect();

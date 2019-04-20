@@ -433,6 +433,7 @@ pub struct ChainCellSetOverlay<'a, CS> {
     store: Arc<CS>,
 }
 
+#[cfg(not(test))]
 impl<CS: ChainStore> CellProvider for ChainState<CS> {
     fn cell(&self, out_point: &OutPoint) -> CellStatus {
         match self.cell_set().get(&out_point.hash) {
@@ -456,6 +457,7 @@ impl<CS: ChainStore> CellProvider for ChainState<CS> {
     }
 }
 
+#[cfg(not(test))]
 impl<'a, CS: ChainStore> CellProvider for ChainCellSetOverlay<'a, CS> {
     fn cell(&self, out_point: &OutPoint) -> CellStatus {
         match self.overlay.get(&out_point.hash) {
