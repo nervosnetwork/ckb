@@ -3,13 +3,13 @@ use byteorder::{ByteOrder, LittleEndian};
 use ckb_core::header::BlockNumber;
 use hash::blake2b_256;
 use serde::{de, Deserialize as SerdeDeserialize};
-use serde_derive::Deserialize;
+use serde_derive::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;
 
 // Cuckatoo proofs take the form of a length 42 off-by-1-cycle in a bipartite graph with
 // 2^N+2^N nodes and 2^N edges, with N ranging from 10 up to 64.
-#[derive(Copy, Clone, Deserialize, Eq, PartialEq, Hash, Debug)]
+#[derive(Copy, Clone, Serialize, Deserialize, Eq, PartialEq, Hash, Debug)]
 pub struct CuckooParams {
     // the main parameter is the 2-log of the graph size,
     // which is the size in bits of the node identifiers

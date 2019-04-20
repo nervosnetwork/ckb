@@ -4,13 +4,13 @@ use rand::{
     distributions::{self as dist, Distribution as _},
     thread_rng,
 };
-use serde_derive::Deserialize;
+use serde_derive::{Deserialize, Serialize};
 use std::{fmt, thread, time};
 
-#[derive(Deserialize, Copy, Clone, Eq, PartialEq, Hash, Debug, Default)]
+#[derive(Serialize, Deserialize, Copy, Clone, Eq, PartialEq, Hash, Debug, Default)]
 pub struct DummyPowParams {
     // Delay offset (in milliseconds)
-    #[serde(default)]
+    #[serde(skip)]
     delay: Distribution,
 }
 

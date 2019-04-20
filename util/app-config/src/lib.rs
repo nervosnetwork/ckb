@@ -4,7 +4,7 @@ pub mod cli;
 mod exit_code;
 mod sentry_config;
 
-pub use app_config::AppConfig;
+pub use app_config::{AppConfig, CKBAppConfig, MinerAppConfig};
 pub use args::{ExportArgs, ImportArgs, InitArgs, MinerArgs, RunArgs};
 pub use exit_code::ExitCode;
 

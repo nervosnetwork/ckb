@@ -4,6 +4,10 @@
 //!
 //! In order to run a chain different to the official public one,
 //! with a config file specifying chain = "path" under [ckb].
+//!
+//! Because the limitation of toml library,
+//! we must put nested config struct in the tail to make it serializable,
+//! details https://docs.rs/toml/0.5.0/toml/ser/index.html
 
 use crate::consensus::Consensus;
 use ckb_core::block::BlockBuilder;
@@ -15,7 +19,7 @@ use ckb_pow::{Pow, PowEngine};
 use ckb_resource::{Resource, ResourceLocator};
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
-use serde_derive::Deserialize;
+use serde_derive::{Deserialize, Serialize};
 use std::error::Error;
 use std::fmt;
 use std::path::PathBuf;
@@ -33,31 +37,31 @@ pub struct ChainSpec {
     pub pow: Pow,
 }
 
-#[derive(Deserialize)]
-struct ChainSpecConfig {
+// change the order will break integration test, see module doc.
+#[derive(Serialize, Deserialize)]
+pub struct ChainSpecConfig {
     pub name: String,
-    pub genesis: Genesis,
-    pub params: Params,
     pub system_cells: Vec<SystemCell>,
     pub pow: Pow,
+    pub genesis: Genesis,
+    pub params: Params,
 }
 
-#[derive(Clone, PartialEq, Eq, Debug, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct Params {
     pub initial_block_reward: Capacity,
     pub max_block_cycles: Cycle,
     pub cellbase_maturity: BlockNumber,
 }
 
-#[derive(Clone, PartialEq, Eq, Debug, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct Seal {
     pub nonce: u64,
     pub proof: Vec<u8>,
 }
 
-#[derive(Clone, PartialEq, Eq, Debug, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct Genesis {
-    pub seal: Seal,
     pub version: u32,
     pub parent_hash: H256,
     pub timestamp: u64,
@@ -65,9 +69,10 @@ pub struct Genesis {
     pub txs_proposal: H256,
     pub difficulty: U256,
     pub uncles_hash: H256,
+    pub seal: Seal,
 }
 
-#[derive(Clone, PartialEq, Eq, Debug, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct SystemCell {
     pub path: PathBuf,
 }

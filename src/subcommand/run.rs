@@ -1,5 +1,5 @@
 use crate::helper::{deadlock_detection, wait_for_exit};
-use crate::setup::{ExitCode, RunArgs};
+use ckb_app_config::{ExitCode, RunArgs};
 use ckb_chain::chain::{ChainBuilder, ChainController};
 use ckb_db::{CacheDB, RocksDB};
 use ckb_miner::BlockAssembler;

@@ -1,4 +1,4 @@
-use crate::setup::{ExitCode, ImportArgs};
+use ckb_app_config::{ExitCode, ImportArgs};
 use ckb_chain::chain::ChainBuilder;
 use ckb_db::{CacheDB, RocksDB};
 use ckb_instrument::Import;
