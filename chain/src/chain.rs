@@ -545,20 +545,6 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
         }
 
         debug!(target: "chain", "}}");
-
-        // TODO: remove me when block explorer is available
-        debug!(target: "chain", "Uncle block {{");
-        for (index, uncle) in self
-            .shared
-            .block_hash(tip)
-            .and_then(|hash| self.shared.store().get_block_uncles(&hash))
-            .expect("invalid block number")
-            .iter()
-            .enumerate()
-        {
-            debug!(target: "chain", "   {} => {:?}", index, uncle);
-        }
-        debug!(target: "chain", "}}");
     }
 }
 
