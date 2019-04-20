@@ -12,7 +12,9 @@ pub use crate::block_verifier::{
 };
 pub use crate::error::{Error, TransactionError};
 pub use crate::header_verifier::{HeaderResolver, HeaderVerifier};
-pub use crate::transaction_verifier::{InputVerifier, TransactionVerifier};
+pub use crate::transaction_verifier::{
+    InputVerifier, PoolTransactionVerifier, TransactionVerifier,
+};
 
 pub trait Verifier {
     type Target;

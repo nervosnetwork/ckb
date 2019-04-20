@@ -40,13 +40,13 @@ impl Spec for PoolReconcile {
         info!("Waiting for sync");
         sleep(10);
 
-        info!("Tx should be re-added to node0's pool");
+        info!("Tx should be mined");
         assert!(node0
             .rpc_client()
             .get_pool_transaction(hash.clone())
             .call()
             .unwrap()
-            .is_some());
+            .is_none());
     }
 
     fn num_nodes(&self) -> usize {

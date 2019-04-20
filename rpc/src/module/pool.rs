@@ -4,10 +4,7 @@ use ckb_network::{NetworkController, ProtocolId};
 use ckb_protocol::RelayMessage;
 use ckb_shared::shared::Shared;
 use ckb_shared::store::ChainStore;
-use ckb_shared::tx_pool::types::PoolEntry;
 use ckb_sync::NetworkProtocol;
-use ckb_traits::chain_provider::ChainProvider;
-use ckb_verification::TransactionError;
 use flatbuffers::FlatBufferBuilder;
 use jsonrpc_core::{Error, Result};
 use jsonrpc_derive::rpc;
@@ -36,26 +33,14 @@ impl<CS: ChainStore + 'static> PoolRpc for PoolRpcImpl<CS> {
     fn send_transaction(&self, tx: Transaction) -> Result<H256> {
         let tx: CoreTransaction = tx.try_into().map_err(|_| Error::parse_error())?;
         let tx_hash = tx.hash().clone();
-        let cycles = {
-            let mut chain_state = self.shared.chain_state().lock();
-            let rtx = chain_state.resolve_tx_from_pool(&tx, &chain_state.tx_pool());
-            let tx_result =
-                chain_state.verify_rtx(&rtx, self.shared.consensus().max_block_cycles());
-            debug!(target: "rpc", "send_transaction add to pool result: {:?}", tx_result);
-            let cycles = match tx_result {
-                Err(TransactionError::UnknownInput) => None,
-                Err(err) => return Err(RPCError::custom(RPCError::Invalid, format!("{:?}", err))),
-                Ok(cycles) => Some(cycles),
-            };
-            let entry = PoolEntry::new(tx.clone(), 0, cycles);
-            if !chain_state.mut_tx_pool().enqueue_tx(entry) {
-                // Duplicate tx
-                return Ok(tx_hash);
-            }
-            cycles
+
+        let result = {
+            let chain_state = self.shared.chain_state().lock();
+            chain_state.add_tx_to_pool(tx.clone())
         };
-        match cycles {
-            Some(cycles) => {
+
+        match result {
+            Ok(cycles) => {
                 let fbb = &mut FlatBufferBuilder::new();
                 let message = RelayMessage::build_transaction(fbb, &tx, cycles);
                 fbb.finish(message, None);
@@ -74,10 +59,7 @@ impl<CS: ChainStore + 'static> PoolRpc for PoolRpcImpl<CS> {
                 );
                 Ok(tx_hash)
             }
-            None => Err(RPCError::custom(
-                RPCError::Staging,
-                "tx missing inputs".to_string(),
-            )),
+            Err(e) => Err(RPCError::custom(RPCError::Staging, e.to_string())),
         }
     }
 

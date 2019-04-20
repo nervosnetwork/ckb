@@ -5,7 +5,6 @@ use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::{RelayMessage, ValidTransaction as FbsValidTransaction};
 use ckb_shared::store::ChainStore;
 use ckb_shared::tx_pool::types::PoolError;
-use ckb_traits::chain_provider::ChainProvider;
 use ckb_verification::TransactionError;
 use failure::Error as FailureError;
 use flatbuffers::FlatBufferBuilder;
@@ -49,8 +48,7 @@ impl<'a, CS: ChainStore> TransactionProcess<'a, CS> {
 
         let tx_result = {
             let chain_state = self.relayer.shared.chain_state().lock();
-            let max_block_cycles = self.relayer.shared.consensus().max_block_cycles();
-            chain_state.add_tx_to_pool(tx.clone(), max_block_cycles)
+            chain_state.add_tx_to_pool(tx.clone())
         };
         // disconnect peer if cycles mismatch
         match tx_result {
@@ -81,7 +79,9 @@ impl<'a, CS: ChainStore> TransactionProcess<'a, CS> {
             Err(PoolError::InvalidTx(TransactionError::UnknownInput))
             | Err(PoolError::InvalidTx(TransactionError::Conflict))
             | Err(PoolError::InvalidTx(TransactionError::Immature))
-            | Err(PoolError::InvalidTx(TransactionError::CellbaseImmaturity)) => {
+            | Err(PoolError::InvalidTx(TransactionError::CellbaseImmaturity))
+            | Err(PoolError::UnknownInputs(_))
+            | Err(PoolError::Conflict) => {
                 // this error may occured when peer's tip is different with us,
                 // we can't proof peer is bad so just ignore this
                 debug!(target: "relay", "peer {} relay a conflict or missing input tx: {:?}", self.peer, tx);
@@ -94,7 +94,7 @@ impl<'a, CS: ChainStore> TransactionProcess<'a, CS> {
             Err(err) => {
                 debug!(target: "relay", "peer {} relay a invalid tx: {:?}, error: {:?}", self.peer, tx, err);
                 // TODO use report score interface
-                self.nc.ban_peer(self.peer, DEFAULT_BAN_TIME);
+                // self.nc.ban_peer(self.peer, DEFAULT_BAN_TIME);
             }
         }
 

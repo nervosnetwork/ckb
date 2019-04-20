@@ -1,21 +1,23 @@
 use crate::cell_set::{CellSet, CellSetDiff, CellSetOverlay};
 use crate::store::ChainStore;
-use crate::tx_pool::{PoolEntry, PoolError, StagingTxResult, TxPool, TxPoolConfig};
+use crate::tx_pool::types::PoolEntry;
+use crate::tx_pool::{PoolError, TxPool, TxPoolConfig};
 use crate::tx_proposal_table::TxProposalTable;
 use ckb_chain_spec::consensus::{Consensus, ProposalWindow};
 use ckb_core::block::Block;
 #[allow(unused_imports)] // incorrect lint
 use ckb_core::cell::CellProvider;
-use ckb_core::cell::{resolve_transaction, CellStatus, OverlayCellProvider, ResolvedTransaction};
+use ckb_core::cell::{
+    resolve_transaction, CellStatus, LiveCell, OverlayCellProvider, ResolvedTransaction,
+};
 use ckb_core::header::{BlockNumber, Header};
 use ckb_core::transaction::CellOutput;
 use ckb_core::transaction::{OutPoint, ProposalShortId, Transaction};
 use ckb_core::Cycle;
 use ckb_traits::BlockMedianTimeContext;
-use ckb_verification::{TransactionError, TransactionVerifier};
+use ckb_verification::{PoolTransactionVerifier, TransactionVerifier};
 use fnv::{FnvHashMap, FnvHashSet};
-use log::error;
-use lru_cache::LruCache;
+use log::{error, trace};
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 use std::cell::{Ref, RefCell};
@@ -30,7 +32,6 @@ pub struct ChainState<CS> {
     proposal_ids: TxProposalTable,
     // interior mutability for immutable borrow proposal_ids
     tx_pool: RefCell<TxPool>,
-    txs_verify_cache: RefCell<LruCache<H256, Cycle>>,
     consensus: Arc<Consensus>,
 }
 
@@ -50,7 +51,6 @@ impl<CS: ChainStore> ChainState<CS> {
             }
         };
 
-        let txs_verify_cache = LruCache::new(tx_pool_config.txs_verify_cache_size);
         let tx_pool = TxPool::new(tx_pool_config);
 
         let tip_number = tip_header.number();
@@ -70,7 +70,6 @@ impl<CS: ChainStore> ChainState<CS> {
             cell_set,
             proposal_ids,
             tx_pool: RefCell::new(tx_pool),
-            txs_verify_cache: RefCell::new(txs_verify_cache),
             consensus,
         }
     }
@@ -178,123 +177,65 @@ impl<CS: ChainStore> ChainState<CS> {
         self.cell_set.update(txo_diff);
     }
 
-    pub fn add_tx_to_pool(&self, tx: Transaction, max_cycles: Cycle) -> Result<Cycle, PoolError> {
+    pub fn add_tx_to_pool(&self, tx: Transaction) -> Result<Cycle, PoolError> {
         let mut tx_pool = self.tx_pool.borrow_mut();
         let short_id = tx.proposal_short_id();
-        let rtx = self.resolve_tx_from_pool(&tx, &tx_pool);
-        let verify_result = self.verify_rtx(&rtx, max_cycles);
-        if self.contains_proposal_id(&short_id) {
-            let entry = PoolEntry::new(tx, 0, verify_result.ok());
-            self.staging_tx(&mut tx_pool, entry, max_cycles)?;
-            Ok(verify_result.map_err(PoolError::InvalidTx)?)
-        } else {
-            match verify_result {
-                Ok(cycles) => {
-                    // enqueue tx with cycles
-                    let entry = PoolEntry::new(tx, 0, Some(cycles));
-                    if !tx_pool.enqueue_tx(entry) {
-                        return Err(PoolError::Duplicate);
+        let rtx = self.resolve_tx_from_pending_and_staging(&tx, &tx_pool);
+
+        match self.verify_rtx(&rtx, None) {
+            Ok(cycles) => {
+                if self.contains_proposal_id(&short_id) {
+                    // if tx is proposed, we resolve from staging, verify again
+                    let tx_hash = tx.hash();
+                    let ret = self.staging_tx(&mut tx_pool, Some(cycles), tx);
+                    if ret.is_err() {
+                        trace!(target: "tx_pool", "staging tx {:x} failed {:?}", tx_hash, ret);
                     }
-                    Ok(cycles)
+                } else {
+                    tx_pool.enqueue_tx(Some(cycles), tx);
                 }
-                Err(TransactionError::UnknownInput) => {
-                    let entry = PoolEntry::new(tx, 0, None);
-                    if !tx_pool.enqueue_tx(entry) {
-                        return Err(PoolError::Duplicate);
-                    }
-                    Err(PoolError::InvalidTx(TransactionError::UnknownInput))
-                }
-                Err(err) => Err(PoolError::InvalidTx(err)),
+                Ok(cycles)
             }
+            error => error,
         }
     }
 
-    pub fn resolve_tx_from_pool(&self, tx: &Transaction, tx_pool: &TxPool) -> ResolvedTransaction {
+    pub fn resolve_tx_from_pending_and_staging(
+        &self,
+        tx: &Transaction,
+        tx_pool: &TxPool,
+    ) -> ResolvedTransaction {
+        let staging_provider = OverlayCellProvider::new(&tx_pool.staging, self);
+        let pending_and_staging_provider =
+            OverlayCellProvider::new(&tx_pool.pending, &staging_provider);
+        let mut seen_inputs = FnvHashSet::default();
+        resolve_transaction(tx, &mut seen_inputs, &pending_and_staging_provider)
+    }
+
+    pub fn resolve_tx_from_staging(
+        &self,
+        tx: &Transaction,
+        tx_pool: &TxPool,
+    ) -> ResolvedTransaction {
         let cell_provider = OverlayCellProvider::new(&tx_pool.staging, self);
         let mut seen_inputs = FnvHashSet::default();
         resolve_transaction(tx, &mut seen_inputs, &cell_provider)
     }
 
-    pub fn verify_rtx(
-        &self,
-        rtx: &ResolvedTransaction,
-        max_cycles: Cycle,
-    ) -> Result<Cycle, TransactionError> {
-        let tx_hash = rtx.transaction.hash();
-        let ret = { self.txs_verify_cache.borrow().get(&tx_hash).cloned() };
-        match ret {
-            Some(cycles) => Ok(cycles),
-            None => {
-                let cycles = TransactionVerifier::new(
-                    &rtx,
-                    &self,
-                    self.tip_number(),
-                    self.consensus().cellbase_maturity,
-                )
-                .verify(max_cycles)?;
-                // write cache
-                self.txs_verify_cache.borrow_mut().insert(tx_hash, cycles);
-                Ok(cycles)
-            }
-        }
-    }
-
-    // remove resolved tx from orphan pool
-    pub(crate) fn update_orphan_from_tx(
-        &self,
-        tx_pool: &mut TxPool,
-        tx: &Transaction,
-        max_cycles: Cycle,
-    ) {
-        let entries = tx_pool.orphan.remove_by_ancestor(tx);
-
-        for mut entry in entries {
-            let verify_result = match entry.cycles {
-                Some(cycles) => Ok(cycles),
-                None => {
-                    let rtx = self.resolve_tx_from_pool(tx, tx_pool);
-                    self.verify_rtx(&rtx, max_cycles)
-                }
-            };
-
-            match verify_result {
-                Ok(cycles) => {
-                    entry.cycles = Some(cycles);
-                    tx_pool.add_staging(entry);
-                }
-                Err(TransactionError::Conflict) => {
-                    tx_pool
-                        .conflict
-                        .insert(entry.transaction.proposal_short_id(), entry);
-                }
-                _ => (),
-            }
-        }
-    }
-
-    pub(crate) fn staging_tx(
-        &self,
-        tx_pool: &mut TxPool,
-        mut entry: PoolEntry,
-        max_cycles: Cycle,
-    ) -> Result<StagingTxResult, PoolError> {
-        let tx = &entry.transaction;
-        let inputs = tx.input_pts();
-        let deps = tx.dep_pts();
-        let short_id = tx.proposal_short_id();
-        let tx_hash = tx.hash();
-
-        let rtx = self.resolve_tx_from_pool(tx, tx_pool);
-
+    fn verify_rtx_inputs(&self, rtx: &ResolvedTransaction) -> Result<(), PoolError> {
         let mut unknowns = Vec::new();
+        let inputs = rtx.transaction.input_pts();
+        let deps = rtx.transaction.dep_pts();
         for (cs, input) in rtx.input_cells.iter().zip(inputs.iter()) {
             match cs {
                 CellStatus::Unknown => {
                     unknowns.push(input.clone());
                 }
                 CellStatus::Dead => {
-                    tx_pool.conflict.insert(short_id, entry);
                     return Err(PoolError::Conflict);
+                }
+                CellStatus::Live(LiveCell::Null) => {
+                    return Err(PoolError::NullInput);
                 }
                 _ => {}
             }
@@ -306,28 +247,102 @@ impl<CS: ChainStore> ChainState<CS> {
                     unknowns.push(dep.clone());
                 }
                 CellStatus::Dead => {
-                    tx_pool.conflict.insert(short_id, entry);
                     return Err(PoolError::Conflict);
+                }
+                CellStatus::Live(LiveCell::Null) => {
+                    return Err(PoolError::NullInput);
                 }
                 _ => {}
             }
         }
 
-        if unknowns.is_empty() && entry.cycles.is_none() {
-            let cycles = self.verify_rtx(&rtx, max_cycles).map_err(|e| {
-                error!(target: "txs_pool", "Failed to staging tx {:}, reason: {:?}", tx_hash, e);
-                PoolError::InvalidTx(e)
-            })?;
-            entry.cycles = Some(cycles);
-        }
-
         if !unknowns.is_empty() {
-            tx_pool.add_orphan(entry, unknowns);
-            return Ok(StagingTxResult::Orphan);
+            return Err(PoolError::UnknownInputs(unknowns));
         }
-        let cycles = entry.cycles.expect("cycles must exists");
-        tx_pool.add_staging(entry);
-        Ok(StagingTxResult::Normal(cycles))
+        Ok(())
+    }
+
+    pub(crate) fn verify_rtx(
+        &self,
+        rtx: &ResolvedTransaction,
+        cycles: Option<Cycle>,
+    ) -> Result<Cycle, PoolError> {
+        self.verify_rtx_inputs(rtx)?;
+        let max_cycles = self.consensus.max_block_cycles();
+
+        match cycles {
+            Some(cycles) => {
+                PoolTransactionVerifier::new(
+                    &rtx,
+                    &self,
+                    self.tip_number(),
+                    self.consensus().cellbase_maturity,
+                )
+                .verify()
+                .map_err(PoolError::InvalidTx)?;
+                Ok(cycles)
+            }
+            None => {
+                let cycles = TransactionVerifier::new(
+                    &rtx,
+                    &self,
+                    self.tip_number(),
+                    self.consensus().cellbase_maturity,
+                )
+                .verify(max_cycles)
+                .map_err(PoolError::InvalidTx)?;
+                Ok(cycles)
+            }
+        }
+    }
+
+    // remove resolved tx from orphan pool
+    pub(crate) fn try_staging_orphan_by_ancestor(&self, tx_pool: &mut TxPool, tx: &Transaction) {
+        let entries = tx_pool.orphan.remove_by_ancestor(tx);
+        for entry in entries {
+            if self.contains_proposal_id(&tx.proposal_short_id()) {
+                let tx_hash = entry.transaction.hash();
+                let ret = self.staging_tx(tx_pool, entry.cycles, entry.transaction);
+                if ret.is_err() {
+                    trace!(target: "tx_pool", "staging tx {:x} failed {:?}", tx_hash, ret);
+                }
+            } else {
+                tx_pool.enqueue_tx(entry.cycles, entry.transaction);
+            }
+        }
+    }
+
+    pub(crate) fn staging_tx(
+        &self,
+        tx_pool: &mut TxPool,
+        cycles: Option<Cycle>,
+        tx: Transaction,
+    ) -> Result<Cycle, PoolError> {
+        let short_id = tx.proposal_short_id();
+        let tx_hash = tx.hash();
+
+        let rtx = self.resolve_tx_from_staging(&tx, tx_pool);
+
+        match self.verify_rtx(&rtx, cycles) {
+            Err(PoolError::Conflict) => {
+                tx_pool
+                    .conflict
+                    .insert(short_id, PoolEntry::new(tx, 0, cycles));
+                Err(PoolError::Conflict)
+            }
+            Err(PoolError::UnknownInputs(unknowns)) => {
+                tx_pool.add_orphan(cycles, tx, unknowns.clone());
+                Err(PoolError::UnknownInputs(unknowns))
+            }
+            Ok(cycles) => {
+                tx_pool.add_staging(cycles, tx);
+                Ok(cycles)
+            }
+            Err(e) => {
+                error!(target: "txs_pool", "Failed to staging tx {:}, reason: {:?}", tx_hash, e);
+                Err(e)
+            }
+        }
     }
 
     pub fn update_tx_pool_for_reorg<'a>(
@@ -335,15 +350,12 @@ impl<CS: ChainStore> ChainState<CS> {
         detached_blocks: impl Iterator<Item = &'a Block>,
         attached_blocks: impl Iterator<Item = &'a Block>,
         detached_proposal_id: impl Iterator<Item = &'a ProposalShortId>,
-        max_cycles: Cycle,
     ) {
         let mut tx_pool = self.tx_pool.borrow_mut();
-        tx_pool.remove_expired(detached_proposal_id);
 
         let mut detached = FnvHashSet::default();
         let mut attached = FnvHashSet::default();
 
-        //skip cellbase
         for blk in detached_blocks {
             detached.extend(blk.commit_transactions().iter().skip(1).cloned())
         }
@@ -352,39 +364,36 @@ impl<CS: ChainStore> ChainState<CS> {
             attached.extend(blk.commit_transactions().iter().skip(1).cloned())
         }
 
-        let retain: Vec<&Transaction> = detached.difference(&attached).collect();
+        let retain: Vec<Transaction> = detached.difference(&attached).cloned().collect();
 
-        if !detached.is_empty() {
-            self.txs_verify_cache.borrow_mut().clear();
-        }
+        tx_pool.remove_expired(detached_proposal_id);
+        tx_pool.remove_committed_txs_from_staging(attached.iter());
 
         for tx in retain {
-            let rtx = self.resolve_tx_from_pool(tx, &tx_pool);
-            if let Ok(cycles) = self.verify_rtx(&rtx, max_cycles) {
-                tx_pool.staging.readd_tx(&tx, cycles);
+            if self.contains_proposal_id(&tx.proposal_short_id()) {
+                let tx_hash = tx.hash();
+                let ret = self.staging_tx(&mut tx_pool, None, tx);
+                if ret.is_err() {
+                    trace!(target: "tx_pool", "staging tx {:x} failed {:?}", tx_hash, ret);
+                }
             }
+            // TODO: enqueue pending?
         }
 
         for tx in &attached {
-            self.update_orphan_from_tx(&mut tx_pool, tx, max_cycles);
-        }
-
-        for tx in &attached {
-            tx_pool.committed(tx);
+            self.try_staging_orphan_by_ancestor(&mut tx_pool, tx);
         }
 
         for id in self.get_proposal_ids_iter() {
-            if let Some(entry) = tx_pool.remove_pending_from_proposal(id) {
-                let tx = entry.transaction.clone();
-                let tx_hash = tx.hash();
-                match self.staging_tx(&mut tx_pool, entry, max_cycles) {
-                    Ok(StagingTxResult::Normal(_)) => {
-                        self.update_orphan_from_tx(&mut tx_pool, &tx, max_cycles);
+            if let Some(entry) = tx_pool.remove_pending_and_conflict(id) {
+                let tx_hash = entry.transaction.hash();
+                match self.staging_tx(&mut tx_pool, entry.cycles, entry.transaction.clone()) {
+                    Ok(_) => {
+                        self.try_staging_orphan_by_ancestor(&mut tx_pool, &entry.transaction);
                     }
                     Err(e) => {
                         error!(target: "txs_pool", "Failed to staging tx {:}, reason: {:?}", tx_hash, e);
                     }
-                    _ => {}
                 }
             }
         }
@@ -392,10 +401,6 @@ impl<CS: ChainStore> ChainState<CS> {
 
     pub fn get_last_txs_updated_at(&self) -> u64 {
         self.tx_pool.borrow().last_txs_updated_at
-    }
-
-    pub fn mut_txs_verify_cache(&mut self) -> &mut LruCache<H256, Cycle> {
-        self.txs_verify_cache.get_mut()
     }
 
     pub fn get_proposal_and_staging_txs(

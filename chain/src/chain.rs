@@ -280,7 +280,6 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
                 fork.detached_blocks().iter(),
                 fork.attached_blocks().iter(),
                 fork.detached_proposal_id().iter(),
-                self.shared.consensus().max_block_cycles(),
             );
             if log_enabled!(target: "chain", log::Level::Debug) {
                 self.print_chain(&chain_state, 10);
@@ -483,7 +482,6 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
                     let cellbase_maturity = { self.shared.consensus().cellbase_maturity() };
 
                     match txs_verifier.verify(
-                        chain_state.mut_txs_verify_cache(),
                         &resolved,
                         self.shared.block_reward(b.header().number()),
                         ForkContext {
