@@ -244,7 +244,7 @@ fn test_transaction_conflict_in_same_block() {
             .expect("process block ok");
     }
     assert_eq!(
-        SharedError::InvalidTransaction("Transactions((2, Conflict))".to_string()),
+        SharedError::InvalidTransaction("Transactions((1, Conflict))".to_string()),
         chain_controller
             .process_block(Arc::new(chain[3].clone()))
             .unwrap_err()
