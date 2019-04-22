@@ -8,11 +8,12 @@ use ckb_core::block::Block;
 use ckb_core::cell::CellProvider;
 use ckb_core::cell::{resolve_transaction, CellStatus, OverlayCellProvider, ResolvedTransaction};
 use ckb_core::header::{BlockNumber, Header};
+use ckb_core::transaction::CellOutput;
 use ckb_core::transaction::{OutPoint, ProposalShortId, Transaction};
 use ckb_core::Cycle;
 use ckb_traits::BlockMedianTimeContext;
 use ckb_verification::{TransactionError, TransactionVerifier};
-use fnv::FnvHashSet;
+use fnv::{FnvHashMap, FnvHashSet};
 use log::error;
 use lru_cache::LruCache;
 use numext_fixed_hash::H256;
@@ -420,10 +421,15 @@ impl<CS: ChainStore> ChainState<CS> {
         Arc::clone(&self.consensus)
     }
 
-    pub fn new_cell_set_overlay<'a>(&'a self, diff: &CellSetDiff) -> ChainCellSetOverlay<'a, CS> {
+    pub fn new_cell_set_overlay<'a>(
+        &'a self,
+        diff: &CellSetDiff,
+        outputs: &'a FnvHashMap<H256, &'a [CellOutput]>,
+    ) -> ChainCellSetOverlay<'a, CS> {
         ChainCellSetOverlay {
             overlay: self.cell_set.new_overlay(diff),
             store: Arc::clone(&self.store),
+            outputs,
         }
     }
 }
@@ -431,7 +437,8 @@ impl<CS: ChainStore> ChainState<CS> {
 #[allow(dead_code)] // incorrect lint
 pub struct ChainCellSetOverlay<'a, CS> {
     pub(crate) overlay: CellSetOverlay<'a>,
-    store: Arc<CS>,
+    pub(crate) store: Arc<CS>,
+    pub(crate) outputs: &'a FnvHashMap<H256, &'a [CellOutput]>,
 }
 
 #[cfg(not(test))]
@@ -466,12 +473,19 @@ impl<'a, CS: ChainStore> CellProvider for ChainCellSetOverlay<'a, CS> {
                 if tx_meta.is_dead(out_point.index as usize) {
                     CellStatus::Dead
                 } else {
-                    let tx = self
-                        .store
-                        .get_transaction(&out_point.hash)
+                    let output = self
+                        .outputs
+                        .get(&out_point.hash)
+                        .map(|outputs| outputs[out_point.index as usize].clone())
+                        .or_else(|| {
+                            self.store
+                                .get_transaction(&out_point.hash)
+                                .map(|tx| tx.outputs()[out_point.index as usize].clone())
+                        })
                         .expect("store should be consistent with cell_set");
+
                     CellStatus::live_output(
-                        tx.outputs()[out_point.index as usize].clone(),
+                        output,
                         Some(tx_meta.block_number()),
                         tx_meta.is_cellbase(),
                     )
