@@ -131,12 +131,16 @@ impl ChainSpec {
             .system_cells
             .iter()
             .map(|c| {
-                c.get().map(|data| {
-                    let data = data.into_owned();
-                    // TODO: we should provide a proper lock script here so system cells
-                    // can be updated.
-                    CellOutput::new(data.len() as u64, data, Script::default(), None)
-                })
+                c.get()
+                    .map_err(|err| Box::new(err) as Box<Error>)
+                    .and_then(|data| {
+                        let data = data.into_owned();
+                        // TODO: we should provide a proper lock script here so system cells
+                        // can be updated.
+                        Capacity::bytes(data.len())
+                            .map(|cap| CellOutput::new(cap, data, Script::default(), None))
+                            .map_err(|err| Box::new(err) as Box<Error>)
+                    })
             })
             .collect();
 

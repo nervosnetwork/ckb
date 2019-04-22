@@ -51,6 +51,8 @@ pub enum Error {
     ExceededMaximumCycles,
     /// The field version in block header is not allowed.
     Version,
+    /// Overflow when do computation for capacity.
+    CapacityOverflow,
 }
 
 impl fmt::Display for Error {
@@ -150,4 +152,20 @@ pub enum TransactionError {
     /// Invalid ValidSince flags
     InvalidValidSince,
     CellbaseImmaturity,
+}
+
+impl From<occupied_capacity::Error> for TransactionError {
+    fn from(error: occupied_capacity::Error) -> Self {
+        match error {
+            occupied_capacity::Error::Overflow => TransactionError::CapacityOverflow,
+        }
+    }
+}
+
+impl From<occupied_capacity::Error> for Error {
+    fn from(error: occupied_capacity::Error) -> Self {
+        match error {
+            occupied_capacity::Error::Overflow => Error::CapacityOverflow,
+        }
+    }
 }

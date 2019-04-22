@@ -254,28 +254,36 @@ impl<'a> CapacityVerifier<'a> {
             .input_cells
             .iter()
             .filter_map(CellStatus::get_live_output)
-            .fold(0, |acc, meta| acc + meta.capacity());
+            .try_fold(Capacity::zero(), |acc, meta| acc.safe_add(meta.capacity()))?;
 
         let outputs_total = self
             .resolved_transaction
             .transaction
             .outputs()
             .iter()
-            .fold(0, |acc, output| acc + output.capacity);
+            .try_fold(Capacity::zero(), |acc, output| {
+                acc.safe_add(output.capacity)
+            })?;
 
         if inputs_total < outputs_total {
             return Err(TransactionError::OutputsSumOverflow);
         }
-        if self
+        let of = self
             .resolved_transaction
             .transaction
             .outputs()
             .iter()
-            .any(|output| output.occupied_capacity() as Capacity > output.capacity)
-        {
-            return Err(TransactionError::CapacityOverflow);
+            .any(|output| {
+                output
+                    .occupied_capacity()
+                    .map(|x| x > output.capacity)
+                    .unwrap_or(true)
+            });
+        if of {
+            Err(TransactionError::CapacityOverflow)
+        } else {
+            Ok(())
         }
-        Ok(())
     }
 }
 

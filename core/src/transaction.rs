@@ -257,8 +257,11 @@ impl Transaction {
         self.outputs.get(i).cloned()
     }
 
-    pub fn outputs_capacity(&self) -> Capacity {
-        self.outputs.iter().map(|output| output.capacity).sum()
+    pub fn outputs_capacity(&self) -> ::occupied_capacity::Result<Capacity> {
+        self.outputs
+            .iter()
+            .map(|output| output.capacity)
+            .try_fold(Capacity::zero(), Capacity::safe_add)
     }
 }
 

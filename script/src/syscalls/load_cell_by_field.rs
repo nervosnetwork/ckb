@@ -65,7 +65,7 @@ impl<'a, Mac: SupportMachine> Syscalls<Mac> for LoadCellByField<'a> {
         let (return_code, data_length) = match field {
             CellField::Capacity => {
                 let mut buffer = vec![];
-                buffer.write_u64::<LittleEndian>(cell.capacity)?;
+                buffer.write_u64::<LittleEndian>(cell.capacity.as_u64())?;
                 store_data(machine, &buffer)?;
                 (SUCCESS, buffer.len())
             }

@@ -43,7 +43,7 @@ fn build_output<'b>(
     output: &CellOutput,
 ) -> WIPOffset<FbsCellOutput<'b>> {
     let mut builder = CellOutputBuilder::new(fbb);
-    builder.add_capacity(output.capacity);
+    builder.add_capacity(output.capacity.as_u64());
     builder.finish()
 }
 

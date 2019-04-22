@@ -361,8 +361,15 @@ impl TransactionsVerifier {
     {
         // verify cellbase reward
         let cellbase = &resolved[0];
-        let fee: Capacity = resolved.iter().skip(1).map(ResolvedTransaction::fee).sum();
-        if cellbase.transaction.outputs_capacity() > block_reward + fee {
+        let fee: Capacity = resolved
+            .iter()
+            .skip(1)
+            .map(ResolvedTransaction::fee)
+            .try_fold(Capacity::zero(), |acc, rhs| {
+                rhs.and_then(|x| acc.safe_add(x))
+            })?;
+
+        if cellbase.transaction.outputs_capacity()? > block_reward.safe_add(fee)? {
             return Err(Error::Cellbase(CellbaseError::InvalidReward));
         }
         // TODO use TransactionScriptsVerifier to verify cellbase script

@@ -265,12 +265,19 @@ impl ResolvedTransaction {
         self.cells_iter().all(CellStatus::is_live)
     }
 
-    pub fn fee(&self) -> Capacity {
-        self.inputs_capacity()
-            .saturating_sub(self.transaction.outputs_capacity())
+    pub fn fee(&self) -> ::occupied_capacity::Result<Capacity> {
+        self.inputs_capacity().and_then(|x| {
+            self.transaction.outputs_capacity().and_then(|y| {
+                if x > y {
+                    x.safe_sub(y)
+                } else {
+                    Ok(Capacity::zero())
+                }
+            })
+        })
     }
 
-    pub fn inputs_capacity(&self) -> Capacity {
+    pub fn inputs_capacity(&self) -> ::occupied_capacity::Result<Capacity> {
         self.input_cells
             .iter()
             .filter_map(|cell_status| {
@@ -280,7 +287,7 @@ impl ResolvedTransaction {
                     None
                 }
             })
-            .sum()
+            .try_fold(Capacity::zero(), Capacity::safe_add)
     }
 }
 
