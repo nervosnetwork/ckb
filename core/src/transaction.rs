@@ -440,11 +440,11 @@ mod test {
 
         assert_eq!(
             format!("{:x}", tx.hash()),
-            "a896bfe8c8439305f099e1f07b47844ba0a5a27ec1e26ec25b236fa7e4831115"
+            "a2cfcbc6b5f4d153ea90b6e203b14f7ab1ead6eab61450f88203e414a7e68c2c"
         );
         assert_eq!(
             format!("{:x}", tx.witness_hash()),
-            "3f08580e373cad9a828173efe614ce3a8310957351c77f2859a18fc49d4cd227"
+            "4bb6ed9e544f5609749cfaa91f315adc7facecbe18b0d507330ed070fb2a4247"
         );
     }
 }

@@ -202,7 +202,7 @@ pub mod test {
         // Tx and Output hash will be used in some test cases directly, assert here for convenience
         assert_eq!(
             format!("{:x}", tx.hash()),
-            "913a98b7a6521b879e60a02a2c38ea14355f3e98beb60215e67e2512b6e0a235"
+            "48168c5b2460bfa698f60e67f08df5298b1d43b2da7939a219ffd863e1380d11"
         );
 
         let reference = tx.outputs()[0].data_hash();
