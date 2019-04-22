@@ -7,7 +7,7 @@ use bincode::{deserialize, serialize};
 use faster_hex::hex_string;
 use hash::blake2b_256;
 use numext_fixed_hash::H256;
-use occupied_capacity::OccupiedCapacity;
+use occupied_capacity::HasOccupiedCapacity;
 use serde_derive::{Deserialize, Serialize};
 use std::fmt;
 use std::hash::{Hash, Hasher};
@@ -15,7 +15,7 @@ use std::ops::{Deref, DerefMut};
 
 pub const TX_VERSION: Version = 0;
 
-#[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Hash, OccupiedCapacity)]
+#[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Hash, HasOccupiedCapacity)]
 pub struct OutPoint {
     // Hash of Transaction
     pub hash: H256,
@@ -60,7 +60,9 @@ impl OutPoint {
     }
 }
 
-#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug, OccupiedCapacity)]
+#[derive(
+    Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug, HasOccupiedCapacity,
+)]
 pub struct CellInput {
     pub previous_output: OutPoint,
     pub valid_since: u64,
@@ -96,7 +98,7 @@ impl CellInput {
     }
 }
 
-#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, OccupiedCapacity)]
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, HasOccupiedCapacity)]
 pub struct CellOutput {
     pub capacity: Capacity,
     #[serde(with = "serde_bytes")]
@@ -147,7 +149,7 @@ impl CellOutput {
 
 pub type Witness = Vec<Vec<u8>>;
 
-#[derive(Clone, Serialize, Deserialize, Eq, Debug, Default, OccupiedCapacity)]
+#[derive(Clone, Serialize, Deserialize, Eq, Debug, Default, HasOccupiedCapacity)]
 pub struct Transaction {
     version: Version,
     deps: Vec<OutPoint>,

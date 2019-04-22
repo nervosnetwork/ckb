@@ -7,7 +7,7 @@ use syn::{
     parse_macro_input, parse_quote, Data, DeriveInput, Fields, GenericParam, Generics, Index,
 };
 
-#[proc_macro_derive(OccupiedCapacity)]
+#[proc_macro_derive(HasOccupiedCapacity)]
 pub fn derive_occupied_capacity(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     // Parse the input tokens into a syntax tree.
     let input = parse_macro_input!(input as DeriveInput);

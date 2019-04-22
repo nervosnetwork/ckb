@@ -1,7 +1,7 @@
 use faster_hex::hex_encode;
 use hash::blake2b_256;
 use numext_fixed_hash::{h256, H256};
-use occupied_capacity_derive::OccupiedCapacity;
+use occupied_capacity::HasOccupiedCapacity;
 use serde_derive::{Deserialize, Serialize};
 use std::fmt;
 use std::io::Write;
@@ -10,7 +10,7 @@ pub const ALWAYS_SUCCESS_HASH: H256 = h256!("0x1");
 
 // TODO: when flatbuffer work is done, remove Serialize/Deserialize here and
 // implement proper From trait
-#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, OccupiedCapacity)]
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, HasOccupiedCapacity)]
 pub struct Script {
     pub args: Vec<Vec<u8>>,
     // Binary hash here can be used to refer to binary in one of the dep

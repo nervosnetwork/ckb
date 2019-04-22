@@ -14,7 +14,6 @@ numext-fixed-uint = { version = "0.1", features = ["support_rand", "support_heap
 hash = {path = "../util/hash"}
 crypto = {path = "../util/crypto"}
 occupied-capacity = {path = "../util/occupied-capacity"}
-occupied-capacity-derive = {path = "../util/occupied-capacity-derive"}
 bit-vec = "0.5.1"
 crossbeam-channel = "0.3"
 ckb-util = { path = "../util" }

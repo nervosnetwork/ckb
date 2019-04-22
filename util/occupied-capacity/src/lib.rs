@@ -1,7 +1,7 @@
 //! Data structure measurement.
 
 use numext_fixed_hash::H256;
-pub use occupied_capacity_derive::*;
+pub use occupied_capacity_derive::HasOccupiedCapacity;
 use std::mem;
 
 pub trait OccupiedCapacity {
