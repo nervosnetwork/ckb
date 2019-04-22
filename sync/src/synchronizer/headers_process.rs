@@ -17,7 +17,7 @@ pub struct HeadersProcess<'a, CI: ChainIndex + 'a> {
     message: &'a Headers<'a>,
     synchronizer: &'a Synchronizer<CI>,
     peer: PeerIndex,
-    nc: &'a CKBProtocolContext,
+    nc: &'a mut CKBProtocolContext,
 }
 
 pub struct VerifierResolver<'a, CI: ChainIndex + 'a> {
@@ -154,7 +154,7 @@ where
         message: &'a Headers,
         synchronizer: &'a Synchronizer<CI>,
         peer: PeerIndex,
-        nc: &'a CKBProtocolContext,
+        nc: &'a mut CKBProtocolContext,
     ) -> Self {
         HeadersProcess {
             message,

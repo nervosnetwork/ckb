@@ -1,7 +1,6 @@
-use ckb_network::NetworkService;
+use ckb_network::NetworkController;
 use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
-use std::sync::Arc;
 
 #[rpc]
 pub trait IntegrationTestRpc {
@@ -11,12 +10,12 @@ pub trait IntegrationTestRpc {
 }
 
 pub(crate) struct IntegrationTestRpcImpl {
-    pub network: Arc<NetworkService>,
+    pub network_controller: NetworkController,
 }
 
 impl IntegrationTestRpc for IntegrationTestRpcImpl {
     fn add_node(&self, peer_id: String, address: String) -> Result<()> {
-        self.network.add_node(
+        self.network_controller.add_node(
             &peer_id.parse().expect("invalid peer_id"),
             address.parse().expect("invalid address"),
         );

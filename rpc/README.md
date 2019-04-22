@@ -47,7 +47,6 @@ curl -d '{"id": 2, "jsonrpc": "2.0", "method":"get_block","params": ["0x087c25e2
             }
         ],
         "header": {
-            "cellbase_id": "0x3abd21e6e51674bb961bb4c5f3cee9faa5da30e64be10628dc1cef292cbae324",
             "difficulty": "0x100",
             "hash": "0x087c25e23e42f5d1e00e6984241b3711742d5e0eaf75d79a427276473e1de3f9",
             "number": 1,
@@ -155,7 +154,6 @@ curl -d '{"id": 2, "jsonrpc": "2.0", "method":"get_tip_header","params": []}' -H
 {
     "jsonrpc": "2.0",
     "result": {
-        "cellbase_id": "0xa4ecd25e3b572dc078cf000bfa1d81f1b578eeb5245c166353682919d37ebf42",
         "difficulty": "0x100",
         "hash": "0x44483beaf890d4aac2b2df90a50d9236db4a810d08f0912c1981f4a1db8086fd",
         "number": 37,
@@ -175,20 +173,20 @@ curl -d '{"id": 2, "jsonrpc": "2.0", "method":"get_tip_header","params": []}' -H
 }
 ```
 
-# get_cells_by_type_hash
+# get_cells_by_lock_hash
 
-Returns the information about cells collection by type_hash.
+Returns the information about cells collection by the hash of lock script.
 
 ## Parameters
 
-    type_hash - Cell type hash.
+    lock_hash - Cell lock script hash.
     from - Start block number.
     to - End block number.
 
 ## Examples
 
 ```shell
-curl -d '{"id": 2, "jsonrpc": "2.0", "method":"get_cells_by_type_hash","params": ["0x321c1ca2887fb8eddaaa7e917399f71e63e03a1c83ff75ed12099a01115ea2ff", 1, 5]}' -H 'content-type:application/json' 'http://localhost:8114'
+curl -d '{"id": 2, "jsonrpc": "2.0", "method":"get_cells_by_lock_hash","params": ["0x321c1ca2887fb8eddaaa7e917399f71e63e03a1c83ff75ed12099a01115ea2ff", 1, 5]}' -H 'content-type:application/json' 'http://localhost:8114'
 ```
 
 ```json
@@ -311,6 +309,35 @@ curl -d '{"id": 2, "jsonrpc": "2.0", "method":"local_node_info","params": []}' -
         "node_id": "QmWRU2NSro4wKgVbFX6y8SPFkcJ1tE2X5xzk9msMhdRmdS",
         "version": "0.5.0"
     },
+    "id": 2
+}
+```
+
+# get_peers
+
+Returns the connected peers information.
+
+## Examples
+
+```shell
+curl -d '{"id": 2, "jsonrpc": "2.0", "method":"get_peers","params": []}' -H 'content-type:application/json' 'http://localhost:8114'
+```
+
+```json
+{
+    "jsonrpc": "2.0",
+    "result": [
+        {
+            "addresses": [
+                {
+                    "address": "/ip4/192.168.2.3/tcp/12344/p2p/QmdiJuQZj1dM4K4HKMxfMwcAqGFYvGKpbvVxTzyQeNGEcG",
+                    "score": 1
+                }
+            ],
+            "node_id": "QmdiJuQZj1dM4K4HKMxfMwcAqGFYvGKpbvVxTzyQeNGEcG",
+            "version": "0.5.0"
+        }
+    ],
     "id": 2
 }
 ```

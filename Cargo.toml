@@ -1,6 +1,6 @@
 [package]
 name = "ckb"
-version = "0.8.0"
+version = "0.9.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -12,8 +12,8 @@ serde = "1.0"
 serde_derive = "1.0"
 toml = "0.5"
 log = "0.4"
+futures = "0.1"
 crossbeam-channel = "0.3"
-config-tool = { package= "config", version = "0.9" }
 ckb-util = { path = "util" }
 ckb-core = { path = "core" }
 ckb-chain = { path = "chain" }
@@ -25,10 +25,10 @@ ckb-db = { path = "db" }
 ckb-pow = { path = "pow" }
 ckb-network = { path = "network"}
 ckb-rpc = { path = "rpc"}
+ckb-resource = { path = "resource"}
 logger = { path = "util/logger" }
 numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 numext-fixed-uint = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
-dir = { path = "util/dir" }
 ctrlc = { version = "3.1", features = ["termination"] }
 ckb-sync = { path = "sync"}
 crypto = { path = "util/crypto"}
@@ -36,6 +36,7 @@ ckb-instrument = { path = "util/instrument", features = ["progress_bar"] }
 hash = { path = "util/hash"}
 build-info = { path = "util/build-info" }
 ckb-traits = { path = "traits" }
+sentry = "^0.15.2"
 
 [dev-dependencies]
 tempfile = "3.0"
@@ -50,7 +51,6 @@ members = [
     "util/merkle-tree",
     "util/jsonrpc-types",
     "util/crypto",
-    "util/dir",
     "util/instrument",
     "util/build-info",
     "util/occupied-capacity",
@@ -70,5 +70,9 @@ members = [
     "verification",
     "script",
     "pow",
-    "benches"
+    "benches",
+    "resource",
 ]
+
+[profile.release]
+debug = true

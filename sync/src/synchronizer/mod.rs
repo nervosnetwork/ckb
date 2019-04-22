@@ -26,15 +26,15 @@ use ckb_chain::chain::ChainController;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::Block;
 use ckb_core::header::{BlockNumber, Header};
-use ckb_network::{Behaviour, CKBProtocolContext, CKBProtocolHandler, PeerIndex, TimerToken};
-use ckb_protocol::{cast, SyncMessage, SyncPayload};
+use ckb_network::{Behaviour, CKBProtocolContext, CKBProtocolHandler, PeerIndex};
+use ckb_protocol::{cast, get_root, SyncMessage, SyncPayload};
 use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::Shared;
 use ckb_traits::ChainProvider;
 use ckb_util::{try_option, Mutex, RwLock};
 use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
-use flatbuffers::{get_root, FlatBufferBuilder};
+use flatbuffers::FlatBufferBuilder;
 use log::{debug, info, warn};
 use numext_fixed_hash::H256;
 use std::cmp;
@@ -44,9 +44,9 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
 
-pub const SEND_GET_HEADERS_TOKEN: TimerToken = 0;
-pub const BLOCK_FETCH_TOKEN: TimerToken = 1;
-pub const TIMEOUT_EVICTION_TOKEN: TimerToken = 2;
+pub const SEND_GET_HEADERS_TOKEN: u64 = 0;
+pub const BLOCK_FETCH_TOKEN: u64 = 1;
+pub const TIMEOUT_EVICTION_TOKEN: u64 = 2;
 
 bitflags! {
     pub struct BlockStatus: u32 {
@@ -138,7 +138,7 @@ impl<CI: ChainIndex> Synchronizer<CI> {
     }
     fn try_process(
         &self,
-        nc: &CKBProtocolContext,
+        nc: &mut CKBProtocolContext,
         peer: PeerIndex,
         message: SyncMessage,
     ) -> Result<(), FailureError> {
@@ -180,9 +180,12 @@ impl<CI: ChainIndex> Synchronizer<CI> {
         Ok(())
     }
 
-    fn process(&self, nc: &CKBProtocolContext, peer: PeerIndex, message: SyncMessage) {
+    fn process(&self, nc: &mut CKBProtocolContext, peer: PeerIndex, message: SyncMessage) {
         if self.try_process(nc, peer, message).is_err() {
-            let _ = nc.report_peer(peer, Behaviour::UnexpectedMessage);
+            let ret = nc.report_peer(peer, Behaviour::UnexpectedMessage);
+            if ret.is_err() {
+                warn!(target: "network", "report_peer peer {:?} UnexpectedMessage error  {:?}", peer, ret);
+            }
         }
     }
 
@@ -529,7 +532,7 @@ impl<CI: ChainIndex> Synchronizer<CI> {
 
     pub fn send_getheaders_to_peer(
         &self,
-        nc: &CKBProtocolContext,
+        nc: &mut CKBProtocolContext,
         peer: PeerIndex,
         header: &Header,
     ) {
@@ -537,7 +540,11 @@ impl<CI: ChainIndex> Synchronizer<CI> {
         let fbb = &mut FlatBufferBuilder::new();
         let message = SyncMessage::build_get_headers(fbb, &locator_hash);
         fbb.finish(message, None);
-        let _ = nc.send(peer, fbb.finished_data().to_vec());
+        let ret = nc.send(peer, fbb.finished_data().to_vec());
+
+        if ret.is_err() {
+            warn!(target: "sync", "send_getheaders_to_peer error {:?}", ret);
+        }
     }
 
     //   - If at timeout their best known block now has more work than our tip
@@ -548,7 +555,7 @@ impl<CI: ChainIndex> Synchronizer<CI> {
     //     and set a shorter timeout, HEADERS_RESPONSE_TIME seconds in future.
     //     If their best known block is still behind when that new timeout is
     //     reached, disconnect.
-    pub fn eviction(&self, nc: &CKBProtocolContext) {
+    pub fn eviction(&self, nc: &mut CKBProtocolContext) {
         let mut peer_state = self.peers.state.write();
         let best_known_headers = self.peers.best_known_headers.read();
         let is_initial_block_download = self.is_initial_block_download();
@@ -621,12 +628,12 @@ impl<CI: ChainIndex> Synchronizer<CI> {
             }
         }
         for peer in eviction {
-            warn!(target: "sync", "timeout eviction peer={}", peer);
-            let _ = nc.report_peer(peer, Behaviour::Timeout);
+            info!(target: "sync", "timeout eviction peer={}", peer);
+            nc.disconnect(peer);
         }
     }
 
-    fn start_sync_headers(&self, nc: &CKBProtocolContext) {
+    fn start_sync_headers(&self, nc: &mut CKBProtocolContext) {
         let peers: Vec<PeerIndex> = self
             .peers
             .state
@@ -674,7 +681,7 @@ impl<CI: ChainIndex> Synchronizer<CI> {
         }
     }
 
-    fn find_blocks_to_fetch(&self, nc: &CKBProtocolContext) {
+    fn find_blocks_to_fetch(&self, nc: &mut CKBProtocolContext) {
         let peers: Vec<PeerIndex> = self
             .peers
             .state
@@ -693,11 +700,14 @@ impl<CI: ChainIndex> Synchronizer<CI> {
         }
     }
 
-    fn send_getblocks(&self, v_fetch: &[H256], nc: &CKBProtocolContext, peer: PeerIndex) {
+    fn send_getblocks(&self, v_fetch: &[H256], nc: &mut CKBProtocolContext, peer: PeerIndex) {
         let fbb = &mut FlatBufferBuilder::new();
         let message = SyncMessage::build_get_blocks(fbb, v_fetch);
         fbb.finish(message, None);
-        let _ = nc.send(peer, fbb.finished_data().to_vec());
+        let ret = nc.send(peer, fbb.finished_data().to_vec());
+        if ret.is_err() {
+            warn!(target: "sync", "send_getblocks error {:?}", ret);
+        }
         debug!(target: "sync", "send_getblocks len={:?} to peer={}", v_fetch.len() , peer);
     }
 }
@@ -708,20 +718,30 @@ where
 {
     fn initialize(&self, nc: Box<CKBProtocolContext>) {
         // NOTE: 100ms is what bitcoin use.
-        let _ = nc.register_timer(SEND_GET_HEADERS_TOKEN, Duration::from_millis(1000));
-        let _ = nc.register_timer(BLOCK_FETCH_TOKEN, Duration::from_millis(1000));
-        let _ = nc.register_timer(TIMEOUT_EVICTION_TOKEN, Duration::from_millis(1000));
+        nc.register_timer(Duration::from_millis(1000), SEND_GET_HEADERS_TOKEN);
+        nc.register_timer(Duration::from_millis(1000), BLOCK_FETCH_TOKEN);
+        nc.register_timer(Duration::from_millis(1000), TIMEOUT_EVICTION_TOKEN);
     }
 
-    fn received(&self, nc: Box<CKBProtocolContext>, peer: PeerIndex, data: Bytes) {
-        // TODO use flatbuffers verifier
-        let msg = get_root::<SyncMessage>(&data);
+    fn received(&self, mut nc: Box<CKBProtocolContext>, peer: PeerIndex, data: Bytes) {
+        let msg = match get_root::<SyncMessage>(&data) {
+            Ok(msg) => msg,
+            _ => {
+                info!(target: "sync", "Peer {} sends us a malformed message", peer);
+                let ret = nc.report_peer(peer, Behaviour::UnexpectedMessage);
+                if ret.is_err() {
+                    warn!(target: "sync", "report_peer peer {:?} UnexpectedMessage error  {:?}", peer, ret)
+                }
+                return;
+            }
+        };
+
         debug!(target: "sync", "msg {:?}", msg.payload_type());
-        self.process(nc.as_ref(), peer, msg);
+        self.process(nc.as_mut(), peer, msg);
     }
 
     fn connected(&self, nc: Box<CKBProtocolContext>, peer: PeerIndex) {
-        debug!(target: "sync", "init_getheaders peer={:?} connected", peer);
+        info!(target: "sync", "peer={:?} SyncProtocol.connected (init_getheaders)", peer);
         self.on_connected(nc.as_ref(), peer);
     }
 
@@ -730,17 +750,17 @@ where
         self.peers.disconnected(peer);
     }
 
-    fn timer_triggered(&self, nc: Box<CKBProtocolContext>, token: TimerToken) {
+    fn timer_triggered(&self, mut nc: Box<CKBProtocolContext>, token: u64) {
         if !self.peers.state.read().is_empty() {
-            match token as usize {
+            match token {
                 SEND_GET_HEADERS_TOKEN => {
-                    self.start_sync_headers(nc.as_ref());
+                    self.start_sync_headers(nc.as_mut());
                 }
                 BLOCK_FETCH_TOKEN => {
-                    self.find_blocks_to_fetch(nc.as_ref());
+                    self.find_blocks_to_fetch(nc.as_mut());
                 }
                 TIMEOUT_EVICTION_TOKEN => {
-                    self.eviction(nc.as_ref());
+                    self.eviction(nc.as_mut());
                 }
                 _ => unreachable!(),
             }
@@ -759,11 +779,12 @@ mod tests {
     use ckb_chain_spec::consensus::Consensus;
     use ckb_core::block::BlockBuilder;
     use ckb_core::header::{Header, HeaderBuilder};
+    use ckb_core::script::Script;
     use ckb_core::transaction::{CellInput, CellOutput, Transaction, TransactionBuilder};
     use ckb_db::memorydb::MemoryKeyValueDB;
     use ckb_network::{
-        multiaddr::ToMultiaddr, Behaviour, CKBProtocolContext, Error as NetworkError, PeerId,
-        PeerIndex, PeerInfo, ProtocolId, SessionInfo, SessionType, TimerToken,
+        errors::Error as NetworkError, multiaddr::ToMultiaddr, CKBProtocolContext, Peer, PeerIndex,
+        ProtocolId, ProtocolVersion, SessionInfo, SessionType,
     };
     use ckb_notify::{NotifyController, NotifyService};
     use ckb_protocol::{Block as FbsBlock, Headers as FbsHeaders};
@@ -773,7 +794,7 @@ mod tests {
     use ckb_util::Mutex;
     #[cfg(not(disable_faketime))]
     use faketime;
-    use flatbuffers::FlatBufferBuilder;
+    use flatbuffers::{get_root, FlatBufferBuilder};
     use fnv::{FnvHashMap, FnvHashSet};
     use numext_fixed_uint::U256;
     use std::ops::Deref;
@@ -820,7 +841,7 @@ mod tests {
     fn create_cellbase(number: BlockNumber) -> Transaction {
         TransactionBuilder::default()
             .input(CellInput::new_cellbase_input(number))
-            .output(CellOutput::new(0, vec![], H256::zero(), None))
+            .output(CellOutput::new(0, vec![], Script::default(), None))
             .build()
     }
 
@@ -833,7 +854,6 @@ mod tests {
             .timestamp(now)
             .number(number)
             .difficulty(difficulty)
-            .cellbase_id(cellbase.hash().clone())
             .nonce(nonce);
 
         BlockBuilder::default()
@@ -1082,13 +1102,12 @@ mod tests {
 
     fn mock_session_info() -> SessionInfo {
         SessionInfo {
-            peer: PeerInfo {
-                peer_id: PeerId::random(),
-                session_type: SessionType::Client,
-                last_ping_time: None,
-                connected_addr: "/ip4/127.0.0.1".to_multiaddr().expect("parse multiaddr"),
-                identify_info: None,
-            },
+            peer: Peer::new(
+                0,
+                "/ip4/127.0.0.1".to_multiaddr().expect("parse multiaddr"),
+                1,
+                SessionType::Outbound,
+            ),
             protocol_version: None,
         }
     }
@@ -1103,13 +1122,13 @@ mod tests {
 
     impl CKBProtocolContext for DummyNetworkContext {
         /// Send a packet over the network to another peer.
-        fn send(&self, _peer: PeerIndex, _data: Vec<u8>) -> Result<(), NetworkError> {
+        fn send(&mut self, _peer: PeerIndex, _data: Vec<u8>) -> Result<(), NetworkError> {
             Ok(())
         }
 
         /// Send a packet over the network to another peer using specified protocol.
         fn send_protocol(
-            &self,
+            &mut self,
             _peer: PeerIndex,
             _protocol: ProtocolId,
             _data: Vec<u8>,
@@ -1117,15 +1136,14 @@ mod tests {
             Ok(())
         }
         /// Report peer. Depending on the report, peer may be disconnected and possibly banned.
-        fn report_peer(&self, peer: PeerIndex, _behaviour: Behaviour) -> Result<(), NetworkError> {
-            self.disconnected.lock().insert(peer);
+        fn report_peer(&self, _peer: PeerIndex, _behaviour: Behaviour) -> Result<(), NetworkError> {
             Ok(())
         }
 
         fn ban_peer(&self, _peer: PeerIndex, _duration: Duration) {}
 
         /// Register a new IO timer. 'IoHandler::timeout' will be called with the token.
-        fn register_timer(&self, _token: TimerToken, _delay: Duration) -> Result<(), NetworkError> {
+        fn register_timer(&self, _interval: Duration, _token: u64) {
             unimplemented!();
         }
 
@@ -1134,11 +1152,17 @@ mod tests {
             self.sessions.get(&peer).cloned()
         }
         /// Returns max version for a given protocol.
-        fn protocol_version(&self, _peer: PeerIndex, _protocol: ProtocolId) -> Option<u8> {
+        fn protocol_version(
+            &self,
+            _peer: PeerIndex,
+            _protocol: ProtocolId,
+        ) -> Option<ProtocolVersion> {
             unimplemented!();
         }
 
-        fn disconnect(&self, _peer: PeerIndex) {}
+        fn disconnect(&self, peer: PeerIndex) {
+            self.disconnected.lock().insert(peer);
+        }
         fn protocol_id(&self) -> ProtocolId {
             unimplemented!();
         }
@@ -1218,9 +1242,14 @@ mod tests {
         let fbs_headers = get_root::<FbsHeaders>(fbb.finished_data());
 
         let peer = 1usize;
-        HeadersProcess::new(&fbs_headers, &synchronizer1, peer, &mock_network_context(0))
-            .execute()
-            .unwrap();
+        HeadersProcess::new(
+            &fbs_headers,
+            &synchronizer1,
+            peer,
+            &mut mock_network_context(0),
+        )
+        .execute()
+        .unwrap();
 
         let best_known_header = synchronizer1.peers.best_known_header(peer);
 
@@ -1276,7 +1305,7 @@ mod tests {
 
         let synchronizer = gen_synchronizer(chain_controller.clone(), shared.clone());
 
-        let network_context = mock_network_context(5);
+        let mut network_context = mock_network_context(5);
         faketime::write_millis(&faketime_file, MAX_TIP_AGE * 2).expect("write millis");
         assert!(synchronizer.is_initial_block_download());
         let peers = synchronizer.peers();
@@ -1284,7 +1313,7 @@ mod tests {
         peers.on_connected(0, 0, true);
         peers.on_connected(1, 0, false);
         peers.on_connected(2, MAX_TIP_AGE * 2, false);
-        synchronizer.eviction(&network_context);
+        synchronizer.eviction(&mut network_context);
         let disconnected = network_context.disconnected.lock();
         assert_eq!(
             disconnected.deref(),
@@ -1315,7 +1344,7 @@ mod tests {
 
         let synchronizer = gen_synchronizer(chain_controller.clone(), shared.clone());
 
-        let network_context = mock_network_context(6);
+        let mut network_context = mock_network_context(6);
         let peers = synchronizer.peers();
         //6 peers do not trigger header sync timeout
         peers.on_connected(0, MAX_TIP_AGE * 2, true);
@@ -1328,7 +1357,7 @@ mod tests {
         peers.new_header_received(2, &mock_header_view(3));
         peers.new_header_received(3, &mock_header_view(1));
         peers.new_header_received(5, &mock_header_view(3));
-        synchronizer.eviction(&network_context);
+        synchronizer.eviction(&mut network_context);
         {
             assert!({ network_context.disconnected.lock().is_empty() });
             let peer_state = peers.state.read();
@@ -1376,7 +1405,7 @@ mod tests {
             );
         }
         faketime::write_millis(&faketime_file, CHAIN_SYNC_TIMEOUT + 1).expect("write millis");
-        synchronizer.eviction(&network_context);
+        synchronizer.eviction(&mut network_context);
         {
             let peer_state = peers.state.read();
             // No evidence yet that our peer has synced to a chain with work equal to that
@@ -1397,7 +1426,7 @@ mod tests {
             unix_time_as_millis() + EVICTION_HEADERS_RESPONSE_TIME + 1,
         )
         .expect("write millis");
-        synchronizer.eviction(&network_context);
+        synchronizer.eviction(&mut network_context);
         {
             // Peer(3,4) run out of time to catch up!
             let disconnected = network_context.disconnected.lock();

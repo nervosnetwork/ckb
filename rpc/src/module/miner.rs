@@ -1,7 +1,7 @@
 use ckb_chain::chain::ChainController;
 use ckb_core::block::Block as CoreBlock;
 use ckb_miner::BlockAssemblerController;
-use ckb_network::{NetworkService, ProtocolId};
+use ckb_network::{NetworkController, ProtocolId};
 use ckb_protocol::RelayMessage;
 use ckb_shared::{index::ChainIndex, shared::Shared};
 use ckb_sync::NetworkProtocol;
@@ -11,7 +11,7 @@ use flatbuffers::FlatBufferBuilder;
 use jsonrpc_core::{Error, Result};
 use jsonrpc_derive::rpc;
 use jsonrpc_types::{Block, BlockTemplate};
-use log::debug;
+use log::{debug, warn};
 use numext_fixed_hash::H256;
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -33,7 +33,7 @@ pub trait MinerRpc {
 }
 
 pub(crate) struct MinerRpcImpl<CI> {
-    pub network: Arc<NetworkService>,
+    pub network_controller: NetworkController,
     pub shared: Shared<CI>,
     pub block_assembler: BlockAssemblerController,
     pub chain: ChainController,
@@ -64,16 +64,21 @@ impl<CI: ChainIndex + 'static> MinerRpc for MinerRpcImpl<CI> {
             let ret = self.chain.process_block(Arc::clone(&block));
             if ret.is_ok() {
                 // announce new block
-                self.network
-                    .with_protocol_context(NetworkProtocol::RELAY as ProtocolId, |nc| {
+                self.network_controller.with_protocol_context(
+                    NetworkProtocol::RELAY as ProtocolId,
+                    |mut nc| {
                         let fbb = &mut FlatBufferBuilder::new();
                         let message =
                             RelayMessage::build_compact_block(fbb, &block, &HashSet::new());
                         fbb.finish(message, None);
                         for peer in nc.connected_peers() {
-                            let _ = nc.send(peer, fbb.finished_data().to_vec());
+                            let ret = nc.send(peer, fbb.finished_data().to_vec());
+                            if ret.is_err() {
+                                warn!(target: "rpc", "relay block error {:?}", ret);
+                            }
                         }
-                    });
+                    },
+                );
                 Ok(Some(block.header().hash().clone()))
             } else {
                 debug!(target: "rpc", "submit_block process_block {:?}", ret);

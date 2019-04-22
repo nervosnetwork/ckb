@@ -4,10 +4,10 @@ use ckb_core::block::Block;
 use ckb_core::block::BlockBuilder;
 use ckb_core::cell::{CellProvider, CellStatus};
 use ckb_core::header::HeaderBuilder;
+use ckb_core::script::Script;
 use ckb_core::transaction::{CellInput, CellOutput, OutPoint, TransactionBuilder};
 use ckb_shared::error::SharedError;
 use ckb_traits::ChainProvider;
-use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 use std::sync::Arc;
 
@@ -19,7 +19,7 @@ fn test_genesis_transaction_spend() {
             CellOutput::new(
                 100_000_000,
                 vec![],
-                H256::default(),
+                Script::default(),
                 None
             );
             100
@@ -349,7 +349,7 @@ fn test_genesis_transaction_fetch() {
             CellOutput::new(
                 100_000_000,
                 vec![],
-                H256::default(),
+                Script::default(),
                 None
             );
             100

@@ -53,10 +53,10 @@ pub struct RawHeader {
     txs_commit: H256,
     /// Transactions proposal merkle root.
     txs_proposal: H256,
+    /// Witness hash commitment.
+    witnesses_root: H256,
     /// Block difficulty.
     difficulty: U256,
-    /// Hash of the cellbase
-    cellbase_id: H256,
     /// Hash of the uncles
     uncles_hash: H256,
     /// Number of the uncles
@@ -112,8 +112,11 @@ impl fmt::Debug for Header {
                 "txs_proposal",
                 &format_args!("{:#x}", self.raw.txs_proposal),
             )
+            .field(
+                "witnesses_root",
+                &format_args!("{:#x}", self.raw.witnesses_root),
+            )
             .field("difficulty", &format_args!("{:#x}", self.raw.difficulty))
-            .field("cellbase_id", &format_args!("{:#x}", self.raw.cellbase_id))
             .field("uncles_hash", &format_args!("{:#x}", self.raw.uncles_hash))
             .field("uncles_count", &self.raw.uncles_count)
             .field("seal", &self.seal)
@@ -174,8 +177,8 @@ impl Header {
         &self.raw.txs_proposal
     }
 
-    pub fn cellbase_id(&self) -> &H256 {
-        &self.raw.cellbase_id
+    pub fn witnesses_root(&self) -> &H256 {
+        &self.raw.witnesses_root
     }
 
     pub fn uncles_hash(&self) -> &H256 {
@@ -268,8 +271,8 @@ impl HeaderBuilder {
         self
     }
 
-    pub fn cellbase_id(mut self, hash: H256) -> Self {
-        self.inner.raw.cellbase_id = hash;
+    pub fn witnesses_root(mut self, hash: H256) -> Self {
+        self.inner.raw.witnesses_root = hash;
         self
     }
 

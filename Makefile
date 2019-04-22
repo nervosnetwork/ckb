@@ -1,3 +1,5 @@
+FLATC   := flatc
+CFBC    := cfbc
 VERBOSE := $(if ${CI},--verbose,)
 
 test:
@@ -11,6 +13,7 @@ doc-deps:
 
 check:
 	cargo check ${VERBOSE} --all
+	cd test && cargo check ${VERBOSE} --all
 
 build:
 	cargo build ${VERBOSE} --release
@@ -23,9 +26,11 @@ prod-test:
 
 fmt:
 	cargo fmt ${VERBOSE} --all -- --check
+	cd test && cargo fmt ${VERBOSE} --all -- --check
 
 clippy:
 	cargo clippy ${VERBOSE} --all --all-targets --all-features -- -D warnings -D clippy::clone_on_ref_ptr -D clippy::enum_glob_use -D clippy::fallible_impl_from
+	cd test && cargo clippy ${VERBOSE} --all --all-targets --all-features -- -D warnings -D clippy::clone_on_ref_ptr -D clippy::enum_glob_use -D clippy::fallible_impl_from
 
 
 ci: fmt clippy test
@@ -50,6 +55,22 @@ security-audit:
 docker:
 	docker build -f docker/hub/Dockerfile -t nervos/ckb:latest .
 
-.PHONY: build prod prod-test docker
-.PHONY: fmt test clippy proto doc doc-deps check stats
+GEN_FILES := protocol/src/protocol_generated.rs protocol/src/protocol_generated_verifier.rs
+gen: ${GEN_FILES}
+gen-clean:
+	rm -f ${GEN_FILES}
+
+%_generated.rs: %.fbs
+	$(FLATC) -r -o $(shell dirname $@) $<
+
+%_generated_verifier.rs: %.fbs
+	$(FLATC) -b --schema -o $(shell dirname $@) $<
+	$(CFBC) -o $(shell dirname $@) $*.bfbs
+	rm -f $*.bfbs $*_builder.rs
+
+clean:
+	rm -rf ckb.toml ckb-miner.toml specs/
+
+.PHONY: build prod prod-test docker gen gen-clean clean
+.PHONY: fmt test clippy doc doc-deps check stats
 .PHONY: ci info security-audit

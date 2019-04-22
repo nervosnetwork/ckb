@@ -4,24 +4,20 @@ use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::header::{HeaderBuilder, Seal};
 use ckb_core::script::Script;
 use ckb_core::transaction::{CellInput, CellOutput, OutPoint, Transaction, TransactionBuilder};
-use fs_extra::dir::{copy, CopyOptions};
 use jsonrpc_client_http::{HttpHandle, HttpTransport};
 use jsonrpc_types::{BlockTemplate, CellbaseTemplate};
 use log::info;
 use numext_fixed_hash::H256;
 use rand;
-use std::fs::File;
-use std::io::{Error, Read, Write};
-use std::path::PathBuf;
+use std::io::Error;
 use std::process::{Child, Command, Stdio};
-
-const DEFAULT_CONFIG_FILE: &str = "default.toml";
 
 pub struct Node {
     pub binary: String,
     pub dir: String,
     pub p2p_port: u16,
     pub rpc_port: u16,
+    pub node_id: Option<String>,
     guard: Option<ProcessGuard>,
 }
 
@@ -43,6 +39,7 @@ impl Node {
             dir: dir.to_string(),
             p2p_port,
             rpc_port,
+            node_id: None,
             guard: None,
         }
     }
@@ -50,18 +47,24 @@ impl Node {
     pub fn start(&mut self) {
         self.init_config_file().expect("failed to init config file");
         let child_process = Command::new(self.binary.to_owned())
-            .args(&[
-                "run",
-                "-c",
-                &format!("{}/{}", self.dir, DEFAULT_CONFIG_FILE),
-            ])
+            .args(&["-C", &self.dir, "run"])
             .stdin(Stdio::null())
             .stdout(Stdio::null())
-            .stderr(Stdio::null())
+            .stderr(Stdio::inherit())
             .spawn()
             .expect("failed to run binary");
         self.guard = Some(ProcessGuard(child_process));
         info!("Started node with working dir: {}", self.dir);
+
+        let mut client = self.rpc_client();
+        loop {
+            if let Ok(result) = client.local_node_info().call() {
+                info!("RPC service ready, {:?}", result);
+                self.node_id = Some(result.node_id);
+                break;
+            }
+            sleep(1);
+        }
     }
 
     pub fn connect(&self, node: &Node) {
@@ -142,18 +145,6 @@ impl Node {
             .expect("rpc call send_transaction failed")
     }
 
-    pub fn wait_for_rpc_connection(&self) {
-        let mut client = self.rpc_client();
-
-        loop {
-            if let Ok(result) = client.local_node_info().call() {
-                info!("RPC service ready, {:?}", result);
-                break;
-            }
-            sleep(1);
-        }
-    }
-
     pub fn new_block(&self) -> Block {
         let template = self
             .rpc_client()
@@ -174,9 +165,9 @@ impl Node {
             ..
         } = template;
 
-        let (cellbase_id, cellbase) = {
-            let CellbaseTemplate { hash, data, .. } = cellbase;
-            (hash, data)
+        let cellbase = {
+            let CellbaseTemplate { data, .. } = cellbase;
+            data
         };
 
         let header_builder = HeaderBuilder::default()
@@ -185,7 +176,6 @@ impl Node {
             .difficulty(difficulty)
             .timestamp(current_time)
             .parent_hash(parent_hash)
-            .cellbase_id(cellbase_id)
             .seal(Seal::new(rand::random(), Vec::new()));
 
         BlockBuilder::default()
@@ -198,48 +188,30 @@ impl Node {
 
     pub fn new_transaction(&self, hash: H256) -> Transaction {
         // OutPoint and Script reference hash values are from spec#always_success_type_hash test
-        let out_point = OutPoint::new(
-            H256::from_hex_str("06d185ca44a1426b01d8809738c84259b86dc33bfe99f271938432a9de4cc3aa")
-                .unwrap(),
-            0,
-        );
-        let script = Script::new(
-            0,
-            vec![],
-            Some(
-                H256::from_hex_str(
-                    "61d7e01908bafa29d742e37b470dc906fb05c2115b0beba7b1c4fa3e66ca3e44",
-                )
-                .unwrap(),
-            ),
-            None,
-            vec![],
-        );
+        let script = Script::always_success();
 
         TransactionBuilder::default()
-            .dep(out_point)
-            .output(CellOutput::new(50000, vec![], script.type_hash(), None))
-            .input(CellInput::new(OutPoint::new(hash, 0), script))
+            .output(CellOutput::new(50000, vec![], script.clone(), None))
+            .input(CellInput::new(OutPoint::new(hash, 0), vec![]))
             .build()
     }
 
     fn init_config_file(&self) -> Result<(), Error> {
-        let mut options = CopyOptions::new();
-        options.copy_inside = true;
-        let source = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("fixtures/nodes_template");
-        let dest = PathBuf::from(&self.dir);
-        copy(source, &dest, &options).expect("failed to copy template");
-
-        let mut data = String::new();
-        {
-            let mut file = File::open(dest.join(DEFAULT_CONFIG_FILE))?;
-            file.read_to_string(&mut data)?;
-        }
-        let new_data = data
-            .replace("P2P_PORT", &self.p2p_port.to_string())
-            .replace("RPC_PORT", &self.rpc_port.to_string());
-        let mut file = File::create(dest.join(DEFAULT_CONFIG_FILE))?;
-        file.write_all(new_data.as_bytes())?;
-        Ok(())
+        let rpc_port = format!("{}", self.rpc_port).to_string();
+        let p2p_port = format!("{}", self.p2p_port).to_string();
+        Command::new(self.binary.to_owned())
+            .args(&[
+                "-C",
+                &self.dir,
+                "init",
+                "--spec",
+                "integration",
+                "--rpc-port",
+                &rpc_port,
+                "--p2p-port",
+                &p2p_port,
+            ])
+            .output()
+            .map(|_| ())
     }
 }

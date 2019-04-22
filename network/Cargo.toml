@@ -1,6 +1,6 @@
 [package]
 name = "ckb-network"
-version = "0.8.0"
+version = "0.9.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -14,21 +14,24 @@ fnv = "1.0"
 serde = "1.0"
 serde_derive = "1.0"
 ckb-util = { path = "../util" }
+stop-handler = { path = "../util/stop-handler" }
 unsigned-varint = {git = "https://github.com/paritytech/unsigned-varint", features = ["codec"]}
+lru-cache = { git = "https://github.com/nervosnetwork/lru-cache" }
 log = "0.4.5"
 bytes = "0.4.12"
 tokio = "0.1.18"
-futures = { version = "0.1.19", features = ["use_std"] }
+futures = "0.1"
 snap = "0.2"
-p2p = { git = "https://github.com/nervosnetwork/p2p", rev="6c1f778914dae864d13c1d9110a08b46fb4d38fe", package="tentacle" }
-secio = { git = "https://github.com/nervosnetwork/p2p", rev="6c1f778914dae864d13c1d9110a08b46fb4d38fe", package="tentacle-secio" }
-p2p-ping = { git = "https://github.com/nervosnetwork/p2p", rev="6c1f778914dae864d13c1d9110a08b46fb4d38fe", package="tentacle-ping" }
-p2p-discovery = { git = "https://github.com/nervosnetwork/p2p", rev="6c1f778914dae864d13c1d9110a08b46fb4d38fe", package="tentacle-discovery" }
-p2p-identify = { git = "https://github.com/nervosnetwork/p2p", rev="6c1f778914dae864d13c1d9110a08b46fb4d38fe", package="tentacle-identify" }
+crossbeam-channel = "0.3"
+p2p = { git = "https://github.com/nervosnetwork/p2p", rev="53cb765b94041543a9c8582aa4d0d34fb2ac6d95", package="tentacle" }
+secio = { git = "https://github.com/nervosnetwork/p2p", rev="53cb765b94041543a9c8582aa4d0d34fb2ac6d95", package="tentacle-secio" }
+p2p-ping = { git = "https://github.com/nervosnetwork/p2p", rev="53cb765b94041543a9c8582aa4d0d34fb2ac6d95", package="tentacle-ping" }
+p2p-discovery = { git = "https://github.com/nervosnetwork/p2p", rev="53cb765b94041543a9c8582aa4d0d34fb2ac6d95", package="tentacle-discovery" }
+p2p-identify = { git = "https://github.com/nervosnetwork/p2p", rev="53cb765b94041543a9c8582aa4d0d34fb2ac6d95", package="tentacle-identify" }
 faketime = "0.2.0"
 rusqlite = {version = "0.16.0", features = ["bundled"]}
 lazy_static = "1.3.0"
-r2d2 = "0.8.3"
+r2d2 = "0.8.4"
 r2d2_sqlite = "0.8.0"
 generic-channel = { version = "0.2.0", features = ["all"] }
 sha2 = "0.8.0"

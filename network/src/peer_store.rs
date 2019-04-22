@@ -30,28 +30,31 @@ impl Default for PeerScoreConfig {
 pub trait PeerStore: Send + Sync {
     /// Add a peer and address into peer_store
     /// this method will assume peer is connected, which implies address is "verified".
-    fn add_connected_peer(&mut self, peer_id: &PeerId, address: Multiaddr, endpoint: SessionType);
+    fn add_connected_peer(&self, peer_id: &PeerId, address: Multiaddr, endpoint: SessionType);
     /// Add discovered peer addresses
     /// this method will assume peer and addr is untrust since we have not connected to it.
-    fn add_discovered_addr(&mut self, peer_id: &PeerId, address: Multiaddr) -> bool;
+    fn add_discovered_addr(&self, peer_id: &PeerId, address: Multiaddr) -> bool;
     /// Report peer behaviours
-    fn report(&mut self, peer_id: &PeerId, behaviour: Behaviour) -> ReportResult;
+    fn report(&self, peer_id: &PeerId, behaviour: Behaviour) -> ReportResult;
     /// Update peer status
-    fn update_status(&mut self, peer_id: &PeerId, status: Status);
+    fn update_status(&self, peer_id: &PeerId, status: Status);
     fn peer_status(&self, peer_id: &PeerId) -> Status;
     fn peer_score(&self, peer_id: &PeerId) -> Option<Score>;
     /// Add bootnode
-    fn add_bootnode(&mut self, peer_id: PeerId, addr: Multiaddr);
+    fn add_bootnode(&self, peer_id: PeerId, addr: Multiaddr);
     /// This method randomly return peers, it return bootnodes if no other peers in PeerStore.
     fn bootnodes(&self, count: u32) -> Vec<(PeerId, Multiaddr)>;
     /// Get addrs of a peer, note a peer may have multiple addrs
     fn peer_addrs(&self, peer_id: &PeerId, count: u32) -> Option<Vec<Multiaddr>>;
     /// Get peers for outbound connection, this method randomly return non-connected peer addrs
     fn peers_to_attempt(&self, count: u32) -> Vec<(PeerId, Multiaddr)>;
+    /// Get peers for feeler connection, this method randomly return peer addrs that we never
+    /// connected to.
+    fn peers_to_feeler(&self, count: u32) -> Vec<(PeerId, Multiaddr)>;
     /// Randomly get peers
     fn random_peers(&self, count: u32) -> Vec<(PeerId, Multiaddr)>;
     /// Ban a peer
-    fn ban_peer(&mut self, peer_id: &PeerId, timeout: Duration);
+    fn ban_peer(&self, peer_id: &PeerId, timeout: Duration);
     /// Check peer ban status
     fn is_banned(&self, peer_id: &PeerId) -> bool;
     /// peer score config

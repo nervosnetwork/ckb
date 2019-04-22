@@ -12,7 +12,7 @@ use ckb_core::transaction::{OutPoint, ProposalShortId, Transaction};
 use ckb_core::Cycle;
 use ckb_verification::{TransactionError, TransactionVerifier};
 use fnv::FnvHashSet;
-use log::error;
+use log::{error, trace};
 use lru_cache::LruCache;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
@@ -104,7 +104,12 @@ impl<CI: ChainIndex> ChainState<CI> {
         let short_id = tx.proposal_short_id();
         let rtx = self.resolve_tx_from_pool(&tx, &tx_pool);
         let verify_result = self.verify_rtx(&rtx, max_cycles);
+        let tx_hash = tx.hash();
         if self.contains_proposal_id(&short_id) {
+            if !tx_pool.filter.insert(tx_hash.clone()) {
+                trace!(target: "tx_pool", "discarding already known transaction {:#x}", tx_hash);
+                return Err(PoolError::Duplicate);
+            }
             let entry = PoolEntry::new(tx, 0, verify_result.map(Some).unwrap_or(None));
             self.staging_tx(&mut tx_pool, entry, max_cycles)?;
             Ok(verify_result.map_err(PoolError::InvalidTx)?)
@@ -113,12 +118,16 @@ impl<CI: ChainIndex> ChainState<CI> {
                 Ok(cycles) => {
                     // enqueue tx with cycles
                     let entry = PoolEntry::new(tx, 0, Some(cycles));
-                    tx_pool.enqueue_tx(entry);
+                    if !tx_pool.enqueue_tx(entry) {
+                        return Err(PoolError::Duplicate);
+                    }
                     Ok(cycles)
                 }
                 Err(TransactionError::UnknownInput) => {
                     let entry = PoolEntry::new(tx, 0, None);
-                    tx_pool.enqueue_tx(entry);
+                    if !tx_pool.enqueue_tx(entry) {
+                        return Err(PoolError::Duplicate);
+                    }
                     Err(PoolError::InvalidTx(TransactionError::UnknownInput))
                 }
                 Err(err) => Err(PoolError::InvalidTx(err)),
@@ -261,6 +270,10 @@ impl<CI: ChainIndex> ChainState<CI> {
 
         for blk in attached_blocks {
             attached.extend(blk.commit_transactions().iter().skip(1).cloned())
+        }
+
+        if !detached.is_empty() {
+            self.txs_verify_cache.borrow_mut().clear();
         }
 
         let retain: Vec<&Transaction> = detached.difference(&attached).collect();

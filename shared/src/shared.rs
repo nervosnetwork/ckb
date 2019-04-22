@@ -42,12 +42,7 @@ impl<CI: ChainIndex> ::std::clone::Clone for Shared<CI> {
 }
 
 impl<CI: ChainIndex> Shared<CI> {
-    pub fn new(
-        store: CI,
-        consensus: Consensus,
-        txs_verify_cache_size: usize,
-        tx_pool_config: TxPoolConfig,
-    ) -> Self {
+    pub fn new(store: CI, consensus: Consensus, tx_pool_config: TxPoolConfig) -> Self {
         let store = Arc::new(store);
         let chain_state = {
             // check head in store or save the genesis block as head
@@ -73,6 +68,7 @@ impl<CI: ChainIndex> Shared<CI> {
                 .expect("block_ext stored")
                 .total_difficulty;
 
+            let txs_verify_cache_size = tx_pool_config.txs_verify_cache_size;
             Arc::new(Mutex::new(ChainState::new(
                 &store,
                 header,
@@ -378,22 +374,10 @@ impl<DB: 'static + KeyValueDB> SharedBuilder<DB> {
         self
     }
 
-    pub fn txs_verify_cache_size(mut self, value: usize) -> Self {
-        if let Some(c) = self.tx_pool_config.as_mut() {
-            c.txs_verify_cache_size = value;
-        };
-        self
-    }
-
     pub fn build(self) -> Shared<ChainKVStore<DB>> {
         let store = ChainKVStore::new(self.db.unwrap());
         let consensus = self.consensus.unwrap_or_else(Consensus::default);
         let tx_pool_config = self.tx_pool_config.unwrap_or_else(Default::default);
-        Shared::new(
-            store,
-            consensus,
-            tx_pool_config.txs_verify_cache_size,
-            tx_pool_config,
-        )
+        Shared::new(store, consensus, tx_pool_config)
     }
 }

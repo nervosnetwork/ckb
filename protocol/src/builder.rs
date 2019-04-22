@@ -10,7 +10,8 @@ use crate::protocol_generated::ckb::protocol::{
     Script as FbsScript, ScriptBuilder, SyncMessage, SyncMessageBuilder, SyncPayload,
     Time as FbsTime, TimeBuilder, TimeMessage, TimeMessageBuilder, Transaction as FbsTransaction,
     TransactionBuilder, UncleBlock as FbsUncleBlock, UncleBlockBuilder,
-    ValidTransaction as FbsValidTransaction, ValidTransactionBuilder, H256 as FbsH256,
+    ValidTransaction as FbsValidTransaction, ValidTransactionBuilder, Witness as FbsWitness,
+    WitnessBuilder, H256 as FbsH256,
 };
 use crate::{short_transaction_id, short_transaction_id_keys};
 use ckb_core::block::Block;
@@ -47,9 +48,9 @@ impl<'a> FbsHeader<'a> {
         let parent_hash = header.parent_hash().into();
         let txs_commit = header.txs_commit().into();
         let txs_proposal = header.txs_proposal().into();
+        let witnesses_root = header.witnesses_root().into();
         let difficulty = FbsBytes::build(fbb, &uint_to_bytes(header.difficulty()));
         let proof = FbsBytes::build(fbb, &header.proof());
-        let cellbase_id = header.cellbase_id().into();
         let uncles_hash = header.uncles_hash().into();
         let mut builder = HeaderBuilder::new(fbb);
         builder.add_version(header.version());
@@ -58,10 +59,10 @@ impl<'a> FbsHeader<'a> {
         builder.add_number(header.number());
         builder.add_txs_commit(&txs_commit);
         builder.add_txs_proposal(&txs_proposal);
+        builder.add_witnesses_root(&witnesses_root);
         builder.add_difficulty(difficulty);
         builder.add_nonce(header.nonce());
         builder.add_proof(proof);
-        builder.add_cellbase_id(&cellbase_id);
         builder.add_uncles_hash(&uncles_hash);
         builder.add_uncles_count(header.uncles_count());
         builder.finish()
@@ -94,11 +95,19 @@ impl<'a> FbsTransaction<'a> {
             .collect::<Vec<_>>();
         let outputs = fbb.create_vector(&vec);
 
+        let vec = transaction
+            .witnesses()
+            .iter()
+            .map(|witness| FbsWitness::build(fbb, witness))
+            .collect::<Vec<_>>();
+        let witnesses = fbb.create_vector(&vec);
+
         let mut builder = TransactionBuilder::new(fbb);
         builder.add_version(transaction.version());
         builder.add_deps(deps);
         builder.add_inputs(inputs);
         builder.add_outputs(outputs);
+        builder.add_witnesses(witnesses);
         builder.finish()
     }
 }
@@ -136,12 +145,18 @@ impl<'a> FbsCellInput<'a> {
         cell_input: &CellInput,
     ) -> WIPOffset<FbsCellInput<'b>> {
         let hash = (&cell_input.previous_output.hash).into();
-        let unlock = FbsScript::build(fbb, &cell_input.unlock);
+
+        let vec = cell_input
+            .args
+            .iter()
+            .map(|argument| FbsBytes::build(fbb, argument))
+            .collect::<Vec<_>>();
+        let args = fbb.create_vector(&vec);
 
         let mut builder = CellInputBuilder::new(fbb);
         builder.add_hash(&hash);
         builder.add_index(cell_input.previous_output.index);
-        builder.add_unlock(unlock);
+        builder.add_args(args);
         builder.finish()
     }
 }
@@ -155,27 +170,29 @@ impl<'a> FbsScript<'a> {
             .collect::<Vec<_>>();
         let args = fbb.create_vector(&vec);
 
-        let binary = script.binary.as_ref().map(|s| FbsBytes::build(fbb, s));
-
-        let reference = script.reference.as_ref().map(Into::into);
-
-        let vec = script
-            .signed_args
-            .iter()
-            .map(|argument| FbsBytes::build(fbb, argument))
-            .collect::<Vec<_>>();
-        let signed_args = fbb.create_vector(&vec);
+        let binary_hash = (&script.binary_hash).into();
 
         let mut builder = ScriptBuilder::new(fbb);
         builder.add_version(script.version);
         builder.add_args(args);
-        if let Some(s) = binary {
-            builder.add_binary(s);
-        }
-        if let Some(ref r) = reference {
-            builder.add_reference(r);
-        }
-        builder.add_signed_args(signed_args);
+        builder.add_binary_hash(&binary_hash);
+        builder.finish()
+    }
+}
+
+impl<'a> FbsWitness<'a> {
+    pub fn build<'b>(
+        fbb: &mut FlatBufferBuilder<'b>,
+        witness: &[Vec<u8>],
+    ) -> WIPOffset<FbsWitness<'b>> {
+        let data = witness
+            .iter()
+            .map(|item| FbsBytes::build(fbb, item))
+            .collect::<Vec<_>>();
+
+        let data = fbb.create_vector(&data);
+        let mut builder = WitnessBuilder::new(fbb);
+        builder.add_data(data);
         builder.finish()
     }
 }
@@ -186,12 +203,12 @@ impl<'a> FbsCellOutput<'a> {
         cell_output: &CellOutput,
     ) -> WIPOffset<FbsCellOutput<'b>> {
         let data = FbsBytes::build(fbb, &cell_output.data);
-        let lock = (&cell_output.lock).into();
+        let lock = FbsScript::build(fbb, &cell_output.lock);
         let type_ = cell_output.type_.as_ref().map(|s| FbsScript::build(fbb, s));
         let mut builder = CellOutputBuilder::new(fbb);
         builder.add_capacity(cell_output.capacity);
         builder.add_data(data);
-        builder.add_lock(&lock);
+        builder.add_lock(lock);
         if let Some(s) = type_ {
             builder.add_type_(s);
         }
@@ -240,7 +257,6 @@ impl<'a> FbsUncleBlock<'a> {
     ) -> WIPOffset<FbsUncleBlock<'b>> {
         // TODO how to avoid clone here?
         let header = FbsHeader::build(fbb, &uncle_block.header().clone());
-        let cellbase = FbsTransaction::build(fbb, &uncle_block.cellbase);
         let vec = uncle_block
             .proposal_transactions
             .iter()
@@ -250,7 +266,6 @@ impl<'a> FbsUncleBlock<'a> {
 
         let mut builder = UncleBlockBuilder::new(fbb);
         builder.add_header(header);
-        builder.add_cellbase(cellbase);
         builder.add_proposal_transactions(proposal_transactions);
         builder.finish()
     }
@@ -456,7 +471,7 @@ impl<'a> CompactBlock<'a> {
             } else {
                 short_ids.push(FbsBytes::build(
                     fbb,
-                    &short_transaction_id(key0, key1, &transaction.hash()),
+                    &short_transaction_id(key0, key1, &transaction.witness_hash()),
                 ));
             }
         }

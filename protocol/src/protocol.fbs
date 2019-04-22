@@ -40,10 +40,10 @@ table Header {
     number:         uint64;
     txs_commit:     H256;
     txs_proposal:   H256;
+    witnesses_root: H256;
     difficulty:     Bytes;
     nonce:          uint64;
     proof:          Bytes;
-    cellbase_id:    H256;
     uncles_hash:    H256;
     uncles_count:   uint32;
 }
@@ -57,7 +57,6 @@ table Block {
 
 table UncleBlock {
     header:                 Header;
-    cellbase:               Transaction;
     proposal_transactions:  [ProposalShortId];
 }
 
@@ -66,6 +65,11 @@ table Transaction {
     deps:           [OutPoint];
     inputs:         [CellInput];
     outputs:        [CellOutput];
+    witnesses:      [Witness];
+}
+
+table Witness {
+    data:           [Bytes];
 }
 
 table OutPoint {
@@ -76,22 +80,20 @@ table OutPoint {
 table CellInput {
     hash:           H256;
     index:          uint32;
-    unlock:         Script;
+    args:           [Bytes];
 }
 
 table CellOutput {
     capacity:       uint64;
     data:           Bytes;
-    lock:           H256;
+    lock:           Script;
     type:           Script;
 }
 
 table Script {
     version:        uint8;
     args:           [Bytes];
-    binary:         Bytes;
-    reference:      H256;
-    signed_args:    [Bytes];
+    binary_hash:    H256;
 }
 
 root_type SyncMessage;
@@ -226,4 +228,3 @@ table TimeMessage {
 table Time {
     timestamp: uint64;
 }
-

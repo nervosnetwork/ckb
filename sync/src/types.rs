@@ -256,14 +256,14 @@ impl TransactionFilter {
 
     pub fn contains(&self, transaction: &Transaction) -> bool {
         self.filter.contains(&transaction.hash())
-            || transaction.inputs().iter().any(|input| {
-                self.filter.contains(&input.previous_output.hash)
-                    || self.filter.contains(&input.unlock.type_hash())
-            })
+            || transaction
+                .inputs()
+                .iter()
+                .any(|input| self.filter.contains(&input.previous_output.hash))
             || transaction
                 .outputs()
                 .iter()
-                .any(|output| self.filter.contains(&output.lock))
+                .any(|output| self.filter.contains(&output.lock.hash()))
     }
 }
 

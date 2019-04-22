@@ -5,10 +5,9 @@ use std::env;
 fn main() {
     let log_config = Config {
         filter: Some("info".to_owned()),
-        color: true,
-        file: None,
+        ..Default::default()
     };
-    logger::init(log_config).expect("init Logger");
+    let _logger_guard = logger::init(log_config).expect("init Logger");
 
     let binary = env::args()
         .nth(1)
@@ -26,10 +25,13 @@ fn main() {
             "pool_reconcile" => Box::new(PoolReconcile),
             "pool_trace" => Box::new(PoolTrace),
             "transaction_relay_basic" => Box::new(TransactionRelayBasic),
+            "discovery" => Box::new(Discovery),
+            "disconnect" => Box::new(Disconnect),
+            "malformed_message" => Box::new(MalformedMessage),
             _ => panic!("invalid spec"),
         };
         let net = spec.setup_net(&binary, start_port);
-        spec.run(&net);
+        spec.run(net);
     } else {
         let specs: Vec<Box<Spec>> = vec![
             Box::new(BlockRelayBasic),
@@ -38,13 +40,14 @@ fn main() {
             Box::new(PoolReconcile),
             Box::new(PoolTrace),
             Box::new(TransactionRelayBasic),
+            Box::new(Discovery),
+            Box::new(Disconnect),
+            Box::new(MalformedMessage),
         ];
 
         specs.iter().for_each(|spec| {
             let net = spec.setup_net(&binary, start_port);
-            spec.run(&net);
+            spec.run(net);
         })
     }
-
-    logger::flush();
 }

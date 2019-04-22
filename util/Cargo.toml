@@ -1,9 +1,9 @@
 [package]
 name = "ckb-util"
-version = "0.8.0"
+version = "0.9.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
 
 [dependencies]
-parking_lot = "0.7"
+parking_lot = {version = "0.7", features = ["deadlock_detection"]}

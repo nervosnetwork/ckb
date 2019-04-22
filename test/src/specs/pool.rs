@@ -5,7 +5,7 @@ use log::info;
 pub struct PoolReconcile;
 
 impl Spec for PoolReconcile {
-    fn run(&self, net: &Net) {
+    fn run(&self, net: Net) {
         info!("Running PoolReconcile");
         let node0 = &net.nodes[0];
         let node1 = &net.nodes[1];
@@ -61,7 +61,7 @@ impl Spec for PoolReconcile {
 pub struct PoolTrace;
 
 impl Spec for PoolTrace {
-    fn run(&self, net: &Net) {
+    fn run(&self, net: Net) {
         info!("Running PoolTrace");
         let node0 = &net.nodes[0];
 

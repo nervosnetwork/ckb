@@ -3,8 +3,8 @@ use crate::syscalls::{
     SUCCESS,
 };
 use ckb_core::transaction::CellInput;
-use ckb_protocol::{OutPoint as FbsOutPoint, Script as FbsScript};
-use ckb_vm::{CoreMachine, Error as VMError, Memory, Register, Syscalls, A0, A3, A4, A5, A7};
+use ckb_protocol::{Bytes as FbsBytes, CellInputBuilder, OutPoint as FbsOutPoint};
+use ckb_vm::{Error as VMError, Register, SupportMachine, Syscalls, A0, A3, A4, A5, A7};
 use flatbuffers::FlatBufferBuilder;
 
 #[derive(Debug)]
@@ -31,16 +31,16 @@ impl<'a> LoadInputByField<'a> {
     }
 }
 
-impl<'a, R: Register, M: Memory> Syscalls<R, M> for LoadInputByField<'a> {
-    fn initialize(&mut self, _machine: &mut CoreMachine<R, M>) -> Result<(), VMError> {
+impl<'a, Mac: SupportMachine> Syscalls<Mac> for LoadInputByField<'a> {
+    fn initialize(&mut self, _machine: &mut Mac) -> Result<(), VMError> {
         Ok(())
     }
 
-    fn ecall(&mut self, machine: &mut CoreMachine<R, M>) -> Result<bool, VMError> {
+    fn ecall(&mut self, machine: &mut Mac) -> Result<bool, VMError> {
         if machine.registers()[A7].to_u64() != LOAD_INPUT_BY_FIELD_SYSCALL_NUMBER {
             return Ok(false);
         }
-        machine.add_cycles(10);
+        machine.add_cycles(10)?;
 
         let index = machine.registers()[A3].to_usize();
         let source = Source::parse_from_u64(machine.registers()[A4].to_u64())?;
@@ -48,15 +48,25 @@ impl<'a, R: Register, M: Memory> Syscalls<R, M> for LoadInputByField<'a> {
 
         let input = self.fetch_input(source, index);
         if input.is_none() {
-            machine.registers_mut()[A0] = R::from_u8(ITEM_MISSING);
+            machine.set_register(A0, Mac::REG::from_u8(ITEM_MISSING));
             return Ok(true);
         }
         let input = input.unwrap();
 
         let data_length = match field {
-            InputField::Unlock => {
+            InputField::Args => {
                 let mut builder = FlatBufferBuilder::new();
-                let offset = FbsScript::build(&mut builder, &input.unlock);
+                let vec = input
+                    .args
+                    .iter()
+                    .map(|argument| FbsBytes::build(&mut builder, argument))
+                    .collect::<Vec<_>>();
+                let args = builder.create_vector(&vec);
+                // Since a vector cannot be root FlatBuffer type, we have
+                // to wrap args here inside a CellInput struct.
+                let mut input_builder = CellInputBuilder::new(&mut builder);
+                input_builder.add_args(args);
+                let offset = input_builder.finish();
                 builder.finish(offset, None);
                 let data = builder.finished_data();
                 store_data(machine, data)?;
@@ -71,8 +81,8 @@ impl<'a, R: Register, M: Memory> Syscalls<R, M> for LoadInputByField<'a> {
                 data.len()
             }
         };
-        machine.registers_mut()[A0] = R::from_u8(SUCCESS);
-        machine.add_cycles(data_length as u64 * 10);
+        machine.set_register(A0, Mac::REG::from_u8(SUCCESS));
+        machine.add_cycles(data_length as u64 * 10)?;
         Ok(true)
     }
 }

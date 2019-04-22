@@ -2,7 +2,7 @@ use super::PowEngine;
 use byteorder::{ByteOrder, LittleEndian};
 use ckb_core::header::BlockNumber;
 use hash::blake2b_256;
-use serde::{de, Deserialize};
+use serde::{de, Deserialize as SerdeDeserialize};
 use serde_derive::Deserialize;
 use std::collections::HashMap;
 

@@ -4,6 +4,8 @@ pub mod error;
 #[rustfmt::skip]
 #[allow(clippy::all)]
 mod protocol_generated;
+#[rustfmt::skip]
+mod protocol_generated_verifier;
 
 pub use crate::protocol_generated::ckb::protocol::*;
 use byteorder::{LittleEndian, ReadBytesExt};
@@ -11,6 +13,14 @@ use hash::new_blake2b;
 use numext_fixed_hash::H256;
 use siphasher::sip::SipHasher;
 use std::hash::Hasher;
+
+pub fn get_root<'a, T>(data: &'a [u8]) -> Result<T::Inner, error::Error>
+where
+    T: flatbuffers::Follow<'a> + 'a,
+    T::Inner: flatbuffers_verifier::Verify,
+{
+    flatbuffers_verifier::get_root::<T>(data).map_err(|_| error::Error::Malformed)
+}
 
 pub struct FlatbuffersVectorIterator<'a, T: flatbuffers::Follow<'a> + 'a> {
     vector: flatbuffers::Vector<'a, T>,
@@ -57,9 +67,9 @@ pub fn short_transaction_id_keys(header_nonce: u64, random_nonce: u64) -> (u64, 
     (key0, key1)
 }
 
-pub fn short_transaction_id(key0: u64, key1: u64, transaction_hash: &H256) -> ShortTransactionID {
+pub fn short_transaction_id(key0: u64, key1: u64, witness_hash: &H256) -> ShortTransactionID {
     let mut hasher = SipHasher::new_with_keys(key0, key1);
-    hasher.write(transaction_hash.as_bytes());
+    hasher.write(witness_hash.as_bytes());
     let siphash_transaction_hash = hasher.finish();
 
     let siphash_transaction_hash_bytes = siphash_transaction_hash.to_le_bytes();

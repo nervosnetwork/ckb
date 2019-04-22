@@ -21,10 +21,10 @@ pub trait ChainRpc {
     #[rpc(name = "get_tip_header")]
     fn get_tip_header(&self) -> Result<Header>;
 
-    #[rpc(name = "get_cells_by_type_hash")]
-    fn get_cells_by_type_hash(
+    #[rpc(name = "get_cells_by_lock_hash")]
+    fn get_cells_by_lock_hash(
         &self,
-        _type_hash: H256,
+        _lock_hash: H256,
         _from: BlockNumber,
         _to: BlockNumber,
     ) -> Result<Vec<CellOutputWithOutPoint>>;
@@ -58,9 +58,9 @@ impl<CI: ChainIndex + 'static> ChainRpc for ChainRpcImpl<CI> {
     }
 
     // TODO: we need to build a proper index instead of scanning every time
-    fn get_cells_by_type_hash(
+    fn get_cells_by_lock_hash(
         &self,
-        type_hash: H256,
+        lock_hash: H256,
         from: BlockNumber,
         to: BlockNumber,
     ) -> Result<Vec<CellOutputWithOutPoint>> {
@@ -78,7 +78,7 @@ impl<CI: ChainIndex + 'static> ChainRpc for ChainRpcImpl<CI> {
                         .get(&transaction.hash())
                         .ok_or_else(Error::internal_error)?;
                     for (i, output) in transaction.outputs().iter().enumerate() {
-                        if output.lock == type_hash && (!transaction_meta.is_dead(i)) {
+                        if output.lock.hash() == lock_hash && (!transaction_meta.is_dead(i)) {
                             result.push(CellOutputWithOutPoint {
                                 out_point: OutPoint {
                                     hash: transaction.hash().clone(),

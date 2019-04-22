@@ -2,6 +2,76 @@ All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
 
+# [v0.9.0](https://github.com/nervosnetwork/ckb/compare/v0.8.0...v0.9.0) (2019-04-22)
+
+### Bug Fixes
+
+* #410: network panic errors r=jjyr a=jjyr
+
+    * Peer Store no such table
+    * get peer index panic
+
+* #386: flatbuffers vtable `num_fields` overflow r=zhangsoledad a=doitian
+
+    Refs https://github.com/nervosnetwork/cfb/pull/16
+
+* #385: Upgrade p2p fix repeat connection bug r=jjyr a=TheWaWaR
+
+    Related PR: https://github.com/nervosnetwork/p2p/pull/92
+
+* #382: reset peer store connection status when setup r=TheWaWaR a=jjyr
+
+    1. reset peer status
+    2. remove banned addrs from peer_attemps result
+
+* #424: many bug fixes of the p2p network issues fix a=TheWaWaR,zhangsoledad
+
+### Features
+
+* #491: update lock cell for segwit and address format a=classicalliu
+
+* #368: segregated witness r=janx,quake a=zhangsoledad
+
+* #409: remove uncle cellbase r=doitian a=zhangsoledad
+
+* #369: Embed testnet chain spec in compiled binary r=doitian a=xxuejie
+
+* #344: Revise script structure r=xxuejie a=xxuejie
+
+* #425: Bundle app config in compiled binary a=doitian
+
+### Improvements
+
+* #392: avoid recursive lock a=zhangsoledad
+
+### BREAKING CHANGES
+
+This release has changed core data structure, please delete the old data directory.
+
+The testnet chain spec is also changed, which is incompatible with previous versions.
+
+Command line argument `-c` is removed, and a new command line argument `-C` is added. See `ckb help` for details.
+
+Now the command `ckb` no longer searches the config file `nodes/default.toml`. It looks for the config file `ckb.toml` or `ckb-miner.toml` in current directory and uses the default config options when not found. A new command `ckb init` is added, see its usage with `ckb init --help`.
+
+Config file `ckb.toml` changes:
+
+- Removed `logger.file`, `db.path` and `network.path` from config file.
+- Added config option `logger.log_to_stdout` and `logger.log_to_file`.
+- Section `block_assembler` now accepts two options `binary_hash` and `args`.
+- Added a new option to set sentry DSN.
+
+File `miner.toml` changes:
+
+- Option `spec` is moved under `chain`, which is consistent with `ckb.toml`.
+- Move miner own config options under section `miner`.
+- Remove `logger.file` from config file.
+- Add config option `logger.log_to_stdout` and `logger.log_to_file`.
+
+It is recommended to export the config files via `ckb init`, then apply the
+modifications upon the new config files.
+
+
 # [v0.8.0](https://github.com/nervosnetwork/ckb/compare/v0.7.0...v0.8.0) (2019-04-08)
 
 ### Features

@@ -4,6 +4,7 @@ use ckb_chain::chain::{ChainBuilder, ChainController};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::header::{Header, HeaderBuilder};
+use ckb_core::script::Script;
 use ckb_core::transaction::{
     CellInput, CellOutput, ProposalShortId, Transaction, TransactionBuilder,
 };
@@ -28,7 +29,6 @@ fn gen_block(parent_header: &Header, nonce: u64, difficulty: U256) -> Block {
         .timestamp(now)
         .number(number)
         .difficulty(difficulty)
-        .cellbase_id(cellbase.hash().clone())
         .nonce(nonce);
 
     BlockBuilder::default()
@@ -57,7 +57,7 @@ fn start_chain(
 fn create_cellbase(number: BlockNumber) -> Transaction {
     TransactionBuilder::default()
         .input(CellInput::new_cellbase_input(number))
-        .output(CellOutput::new(0, vec![], H256::zero(), None))
+        .output(CellOutput::new(0, vec![], Script::default(), None))
         .build()
 }
 

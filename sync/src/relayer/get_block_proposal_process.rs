@@ -5,12 +5,13 @@ use ckb_shared::index::ChainIndex;
 use ckb_util::TryInto;
 use failure::Error as FailureError;
 use flatbuffers::FlatBufferBuilder;
+use log::warn;
 
 pub struct GetBlockProposalProcess<'a, CI: ChainIndex + 'a> {
     message: &'a GetBlockProposal<'a>,
     relayer: &'a Relayer<CI>,
     peer: PeerIndex,
-    nc: &'a CKBProtocolContext,
+    nc: &'a mut CKBProtocolContext,
 }
 
 impl<'a, CI> GetBlockProposalProcess<'a, CI>
@@ -21,7 +22,7 @@ where
         message: &'a GetBlockProposal,
         relayer: &'a Relayer<CI>,
         peer: PeerIndex,
-        nc: &'a CKBProtocolContext,
+        nc: &'a mut CKBProtocolContext,
     ) -> Self {
         GetBlockProposalProcess {
             message,
@@ -62,7 +63,10 @@ where
         let message = RelayMessage::build_block_proposal(fbb, &transactions);
         fbb.finish(message, None);
 
-        let _ = self.nc.send(self.peer, fbb.finished_data().to_vec());
+        let ret = self.nc.send(self.peer, fbb.finished_data().to_vec());
+        if ret.is_err() {
+            warn!(target: "relay", "GetBlockProposalProcess response error {:?}", ret);
+        }
         Ok(())
     }
 }

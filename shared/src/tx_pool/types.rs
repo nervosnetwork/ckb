@@ -79,6 +79,8 @@ pub enum PoolError {
     TimeOut,
     /// BlockNumber is not right
     InvalidBlockNumber,
+    /// Duplicate tx
+    Duplicate,
 }
 
 impl fmt::Display for PoolError {
@@ -252,7 +254,7 @@ impl StagingPool {
 
     pub fn get_output(&self, o: &OutPoint) -> Option<CellOutput> {
         self.vertices
-            .get(&ProposalShortId::from_h256(&o.hash))
+            .get(&ProposalShortId::from_tx_hash(&o.hash))
             .and_then(|x| x.transaction.get_output(o.index as usize))
     }
 
@@ -612,6 +614,7 @@ impl PendingQueue {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ckb_core::script::Script;
     use ckb_core::transaction::{CellInput, CellOutput, Transaction, TransactionBuilder};
     use numext_fixed_hash::H256;
 
@@ -627,7 +630,7 @@ mod tests {
             )
             .outputs(
                 (0..outputs_len)
-                    .map(|i| CellOutput::new((i + 1) as u64, Vec::new(), H256::zero(), None))
+                    .map(|i| CellOutput::new((i + 1) as u64, Vec::new(), Script::default(), None))
                     .collect(),
             )
             .build();

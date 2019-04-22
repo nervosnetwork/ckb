@@ -29,7 +29,6 @@ pub struct BlockTemplate {
 pub struct UncleTemplate {
     pub hash: H256,
     pub required: bool,
-    pub cellbase: CellbaseTemplate,
     pub proposal_transactions: Vec<ProposalShortId>,
     pub header: Header, // temporary
 }
@@ -37,7 +36,6 @@ pub struct UncleTemplate {
 impl From<UncleTemplate> for CoreUncleBlock {
     fn from(template: UncleTemplate) -> CoreUncleBlock {
         let UncleTemplate {
-            cellbase,
             proposal_transactions,
             header,
             ..
@@ -45,7 +43,6 @@ impl From<UncleTemplate> for CoreUncleBlock {
 
         CoreUncleBlock {
             header: header.into(),
-            cellbase: cellbase.into(),
             proposal_transactions: proposal_transactions
                 .iter()
                 .cloned()

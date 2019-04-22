@@ -1,6 +1,4 @@
 fn main() {
-    // Don't rebuild even if nothing changed
-    println!("cargo:rerun-if-changed=build.rs");
     // forward git repo hashes we build at
     println!(
         "cargo:rustc-env=COMMIT_DESCRIBE={}",

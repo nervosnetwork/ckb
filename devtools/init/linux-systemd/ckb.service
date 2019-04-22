@@ -1,0 +1,21 @@
+[Unit]
+Description=Nervos CKB Node
+Documentation=https://github.com/nervosnetwork/ckb
+After=network-online.target
+Wants=network-online.target systemd-networkd-wait-online.service
+
+[Service]
+User=ckb
+Group=ckb
+WorkingDirectory=/var/lib/ckb
+
+ExecStart=/usr/local/bin/ckb run
+Restart=on-abnormal
+KillMode=mixed
+TimeoutStopSec=5s
+
+LimitNOFILE=1048576
+LimitNPROC=512
+
+[Install]
+WantedBy=multi-user.target

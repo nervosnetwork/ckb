@@ -15,6 +15,12 @@ pub trait NetworkGroup {
 
 pub trait MultiaddrExt {
     fn extract_ip_addr(&self) -> Option<IpAddr>;
+    fn extract_ip_addr_binary(&self) -> Option<Vec<u8>> {
+        self.extract_ip_addr().map(|ip| match ip {
+            IpAddr::V4(ipv4) => ipv4.octets().to_vec(),
+            IpAddr::V6(ipv6) => ipv6.octets().to_vec(),
+        })
+    }
 }
 
 impl MultiaddrExt for Multiaddr {

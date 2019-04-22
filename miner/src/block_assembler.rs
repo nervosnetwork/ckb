@@ -1,5 +1,7 @@
+use crate::config::BlockAssemblerConfig;
 use ckb_core::block::Block;
 use ckb_core::header::Header;
+use ckb_core::script::Script;
 use ckb_core::service::{Request, DEFAULT_CHANNEL_SIZE, SIGNAL_CHANNEL_SIZE};
 use ckb_core::transaction::{CellInput, CellOutput, Transaction, TransactionBuilder};
 use ckb_core::uncle::UncleBlock;
@@ -86,17 +88,17 @@ impl BlockAssemblerController {
 pub struct BlockAssembler<CI> {
     shared: Shared<CI>,
     candidate_uncles: LruCache<H256, Arc<Block>>,
-    type_hash: H256,
+    config: BlockAssemblerConfig,
     work_id: AtomicUsize,
     last_uncles_updated_at: AtomicUsize,
     template_caches: Mutex<LruCache<(Cycle, u64, Version), TemplateCache>>,
 }
 
 impl<CI: ChainIndex + 'static> BlockAssembler<CI> {
-    pub fn new(shared: Shared<CI>, type_hash: H256) -> Self {
+    pub fn new(shared: Shared<CI>, config: BlockAssemblerConfig) -> Self {
         Self {
             shared,
-            type_hash,
+            config,
             candidate_uncles: LruCache::new(MAX_CANDIDATE_UNCLES),
             work_id: AtomicUsize::new(0),
             last_uncles_updated_at: AtomicUsize::new(0),
@@ -185,14 +187,12 @@ impl<CI: ChainIndex + 'static> BlockAssembler<CI> {
     fn transform_uncle(uncle: UncleBlock) -> UncleTemplate {
         let UncleBlock {
             header,
-            cellbase,
             proposal_transactions,
         } = uncle;
 
         UncleTemplate {
             hash: header.hash(),
             required: false, //
-            cellbase: Self::transform_cellbase(&cellbase, None),
             proposal_transactions: proposal_transactions.into_iter().map(Into::into).collect(),
             header: (&header).into(),
         }
@@ -267,8 +267,10 @@ impl<CI: ChainIndex + 'static> BlockAssembler<CI> {
         }
 
         // dummy cellbase
+        let cellbase_lock =
+            Script::new(0, self.config.args.clone(), self.config.binary_hash.clone());
         let cellbase =
-            self.create_cellbase_transaction(header, &commit_transactions, self.type_hash.clone())?;
+            self.create_cellbase_transaction(header, &commit_transactions, cellbase_lock)?;
 
         let template = BlockTemplate {
             version,
@@ -306,7 +308,7 @@ impl<CI: ChainIndex + 'static> BlockAssembler<CI> {
         &self,
         header: &Header,
         pes: &[PoolEntry],
-        type_hash: H256,
+        lock: Script,
     ) -> Result<Transaction, FailureError> {
         // NOTE: To generate different cellbase txid, we put header number in the input script
         let input = CellInput::new_cellbase_input(header.number() + 1);
@@ -320,7 +322,7 @@ impl<CI: ChainIndex + 'static> BlockAssembler<CI> {
             fee += self.shared.calculate_transaction_fee(&pe.transaction)?;
         }
 
-        let output = CellOutput::new(block_reward + fee, Vec::new(), type_hash, None);
+        let output = CellOutput::new(block_reward + fee, Vec::new(), lock, None);
 
         Ok(TransactionBuilder::default()
             .input(input)
@@ -392,16 +394,13 @@ impl<CI: ChainIndex + 'static> BlockAssembler<CI> {
                 || excluded.contains(hash)
             {
                 bad_uncles.push(hash.clone());
-            } else if let Some(cellbase) = block.commit_transactions().first() {
+            } else {
                 let uncle = UncleBlock {
                     header: block.header().clone(),
-                    cellbase: cellbase.clone(),
                     proposal_transactions: block.proposal_transactions().to_vec(),
                 };
                 uncles.push(uncle);
                 included.insert(hash.clone());
-            } else {
-                bad_uncles.push(hash.clone());
             }
         }
         (uncles, bad_uncles)
@@ -410,13 +409,14 @@ impl<CI: ChainIndex + 'static> BlockAssembler<CI> {
 
 #[cfg(test)]
 mod tests {
-    use crate::block_assembler::BlockAssembler;
+    use crate::{block_assembler::BlockAssembler, config::BlockAssemblerConfig};
     use ckb_chain::chain::ChainBuilder;
     use ckb_chain::chain::ChainController;
     use ckb_chain_spec::consensus::Consensus;
     use ckb_core::block::Block;
     use ckb_core::block::BlockBuilder;
     use ckb_core::header::{Header, HeaderBuilder};
+    use ckb_core::script::Script;
     use ckb_core::transaction::{
         CellInput, CellOutput, ProposalShortId, Transaction, TransactionBuilder,
     };
@@ -459,15 +459,19 @@ mod tests {
 
     fn setup_block_assembler<CI: ChainIndex + 'static>(
         shared: Shared<CI>,
-        type_hash: H256,
+        config: BlockAssemblerConfig,
     ) -> BlockAssembler<CI> {
-        BlockAssembler::new(shared, type_hash)
+        BlockAssembler::new(shared, config)
     }
 
     #[test]
     fn test_get_block_template() {
         let (_chain_controller, shared, _notify) = start_chain(None, None);
-        let mut block_assembler = setup_block_assembler(shared.clone(), H256::zero());
+        let config = BlockAssemblerConfig {
+            binary_hash: H256::zero(),
+            args: vec![],
+        };
+        let mut block_assembler = setup_block_assembler(shared.clone(), config);
 
         let block_template = block_assembler
             .get_block_template(None, None, None)
@@ -489,9 +493,9 @@ mod tests {
             // uncles_count_limit,
         } = block_template;
 
-        let (cellbase_id, cellbase) = {
-            let CellbaseTemplate { hash, data, .. } = cellbase;
-            (hash, data)
+        let cellbase = {
+            let CellbaseTemplate { data, .. } = cellbase;
+            data
         };
 
         let header_builder = HeaderBuilder::default()
@@ -499,8 +503,7 @@ mod tests {
             .number(number)
             .difficulty(difficulty)
             .timestamp(current_time)
-            .parent_hash(parent_hash)
-            .cellbase_id(cellbase_id);
+            .parent_hash(parent_hash);
 
         let block = BlockBuilder::default()
             .uncles(uncles.into_iter().map(Into::into).collect())
@@ -538,7 +541,7 @@ mod tests {
     fn create_cellbase(number: BlockNumber) -> Transaction {
         TransactionBuilder::default()
             .input(CellInput::new_cellbase_input(number))
-            .output(CellOutput::new(0, vec![], H256::zero(), None))
+            .output(CellOutput::new(0, vec![], Script::default(), None))
             .build()
     }
 
@@ -549,7 +552,11 @@ mod tests {
         consensus.pow_spacing = 1;
 
         let (chain_controller, shared, notify) = start_chain(Some(consensus), None);
-        let block_assembler = setup_block_assembler(shared.clone(), H256::zero());
+        let config = BlockAssemblerConfig {
+            binary_hash: H256::zero(),
+            args: vec![],
+        };
+        let block_assembler = setup_block_assembler(shared.clone(), config);
         let new_uncle_receiver = notify.subscribe_new_uncle("test_prepare_uncles");
         let block_assembler_controller = block_assembler.start(Some("test"), &notify.clone());
 

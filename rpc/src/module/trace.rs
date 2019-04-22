@@ -1,6 +1,6 @@
 use crate::error::RPCError;
 use ckb_core::transaction::Transaction as CoreTransaction;
-use ckb_network::{NetworkService, ProtocolId};
+use ckb_network::{NetworkController, ProtocolId};
 use ckb_protocol::RelayMessage;
 use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::Shared;
@@ -13,9 +13,8 @@ use flatbuffers::FlatBufferBuilder;
 use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
 use jsonrpc_types::Transaction;
-use log::debug;
+use log::{debug, warn};
 use numext_fixed_hash::H256;
-use std::sync::Arc;
 
 #[rpc]
 pub trait TraceRpc {
@@ -27,7 +26,7 @@ pub trait TraceRpc {
 }
 
 pub(crate) struct TraceRpcImpl<CI> {
-    pub network: Arc<NetworkService>,
+    pub network_controller: NetworkController,
     pub shared: Shared<CI>,
 }
 
@@ -56,13 +55,18 @@ impl<CI: ChainIndex + 'static> TraceRpc for TraceRpcImpl<CI> {
                 let message = RelayMessage::build_transaction(fbb, &tx, cycles);
                 fbb.finish(message, None);
 
-                self.network
-                    .with_protocol_context(NetworkProtocol::RELAY as ProtocolId, |nc| {
+                self.network_controller.with_protocol_context(
+                    NetworkProtocol::RELAY as ProtocolId,
+                    |mut nc| {
                         for peer in nc.connected_peers() {
                             debug!(target: "rpc", "relay transaction {} to peer#{}", tx_hash, peer);
-                            let _ = nc.send(peer, fbb.finished_data().to_vec());
+                            let ret = nc.send(peer, fbb.finished_data().to_vec());
+                            if ret.is_err() {
+                                warn!(target: "rpc", "relay transaction error {:?}", ret);
+                            }
                         }
-                    });
+                    },
+                );
                 Ok(tx_hash)
             }
             None => Err(RPCError::custom(

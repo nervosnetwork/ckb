@@ -63,13 +63,13 @@ int hex_to_bin(char* buf, size_t buf_len, const char* hex)
 /*
  * Arguments are listed in the following order:
  * 0. Program name, ignored here, only preserved for compatibility reason
- * 1. Pubkey in hex format, a maximum of 130 bytes will be processed
- * 2. Signature in hex format, a maximum of 512 bytes will be processed
- * 3. Current script hash in hex format, which is 128 bytes. While this program
+ * 1. Current script hash in hex format, which is 128 bytes. While this program
  * cannot verify the hash directly, this ensures the script is include in
  * signature calculation
- * 4. Other additional parameters that might be included. Notice only ASCII
+ * 2. Other additional parameters that might be included. Notice only ASCII
  * characters are included, so binary should be passed as binary format.
+ * 3. Pubkey in hex format, a maximum of 130 bytes will be processed
+ * 4. Signature in hex format, a maximum of 512 bytes will be processed
  *
  * This program will run double sha256 on all arguments excluding pubkey and
  * signature(also for simplicity, we are running sha256 on ASCII chars directly,
@@ -95,7 +95,7 @@ int main(int argc, char* argv[])
     return 4;
   }
 
-  len = hex_to_bin(buf, 65, argv[1]);
+  len = hex_to_bin(buf, 65, argv[argc - 2]);
   CHECK_LEN(len);
   secp256k1_pubkey pubkey;
 
@@ -104,7 +104,7 @@ int main(int argc, char* argv[])
     return 1;
   }
 
-  len = hex_to_bin(buf, 256, argv[2]);
+  len = hex_to_bin(buf, 256, argv[argc - 1]);
   CHECK_LEN(len);
   secp256k1_ecdsa_signature signature;
   secp256k1_ecdsa_signature_parse_der(&context, &signature, buf, len);
@@ -115,7 +115,7 @@ int main(int argc, char* argv[])
   sha3_ctx_t sha3_ctx;
   unsigned char hash[SHA3_BLOCK_SIZE];
   sha3_init(&sha3_ctx, SHA3_BLOCK_SIZE);
-  for (int i = 3; i < argc; i++) {
+  for (int i = 1; i < argc -2; i++) {
     sha3_update(&sha3_ctx, argv[i], strlen(argv[i]));
   }
   sha3_final(hash, &sha3_ctx);

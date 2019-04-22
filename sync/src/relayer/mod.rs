@@ -21,9 +21,9 @@ use bytes::Bytes;
 use ckb_chain::chain::ChainController;
 use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::transaction::{ProposalShortId, Transaction};
-use ckb_network::{Behaviour, CKBProtocolContext, CKBProtocolHandler, PeerIndex, TimerToken};
+use ckb_network::{Behaviour, CKBProtocolContext, CKBProtocolHandler, PeerIndex};
 use ckb_protocol::{
-    cast, short_transaction_id, short_transaction_id_keys, RelayMessage, RelayPayload,
+    cast, get_root, short_transaction_id, short_transaction_id_keys, RelayMessage, RelayPayload,
 };
 use ckb_shared::chain_state::ChainState;
 use ckb_shared::index::ChainIndex;
@@ -31,15 +31,16 @@ use ckb_shared::shared::Shared;
 use ckb_traits::ChainProvider;
 use ckb_util::Mutex;
 use failure::Error as FailureError;
-use flatbuffers::{get_root, FlatBufferBuilder};
+use flatbuffers::FlatBufferBuilder;
 use fnv::{FnvHashMap, FnvHashSet};
+use log::warn;
 use log::{debug, info};
 use numext_fixed_hash::H256;
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Duration;
 
-pub const TX_PROPOSAL_TOKEN: TimerToken = 0;
+pub const TX_PROPOSAL_TOKEN: u64 = 0;
 
 #[derive(Clone)]
 pub struct Relayer<CI: ChainIndex> {
@@ -65,7 +66,7 @@ where
 
     fn try_process(
         &self,
-        nc: &CKBProtocolContext,
+        nc: &mut CKBProtocolContext,
         peer: PeerIndex,
         message: RelayMessage,
     ) -> Result<(), FailureError> {
@@ -126,16 +127,20 @@ where
         Ok(())
     }
 
-    fn process(&self, nc: &CKBProtocolContext, peer: PeerIndex, message: RelayMessage) {
+    fn process(&self, nc: &mut CKBProtocolContext, peer: PeerIndex, message: RelayMessage) {
         if self.try_process(nc, peer, message).is_err() {
-            let _ = nc.report_peer(peer, Behaviour::UnexpectedMessage);
+            let ret = nc.report_peer(peer, Behaviour::UnexpectedMessage);
+
+            if ret.is_err() {
+                warn!(target: "network", "report_peer peer {:?} UnexpectedMessage error {:?}", peer, ret);
+            }
         }
     }
 
     pub fn request_proposal_txs(
         &self,
         chain_state: &ChainState<CI>,
-        nc: &CKBProtocolContext,
+        nc: &mut CKBProtocolContext,
         peer: PeerIndex,
         block: &CompactBlock,
     ) {
@@ -158,10 +163,13 @@ where
             RelayMessage::build_get_block_proposal(fbb, block.header.number(), &unknown_ids);
         fbb.finish(message, None);
 
-        let _ = nc.send(peer, fbb.finished_data().to_vec());
+        let ret = nc.send(peer, fbb.finished_data().to_vec());
+        if ret.is_err() {
+            warn!(target: "relay", "relay get_block_proposal error {:?}", ret);
+        }
     }
 
-    pub fn accept_block(&self, nc: &CKBProtocolContext, peer: PeerIndex, block: &Arc<Block>) {
+    pub fn accept_block(&self, nc: &mut CKBProtocolContext, peer: PeerIndex, block: &Arc<Block>) {
         let ret = self.chain.process_block(Arc::clone(&block));
         if ret.is_ok() {
             let fbb = &mut FlatBufferBuilder::new();
@@ -170,7 +178,10 @@ where
 
             for peer_id in nc.connected_peers() {
                 if peer_id != peer {
-                    let _ = nc.send(peer_id, fbb.finished_data().to_vec());
+                    let ret = nc.send(peer_id, fbb.finished_data().to_vec());
+                    if ret.is_err() {
+                        warn!(target: "relay", "relay compact_block error {:?}", ret);
+                    }
                 }
             }
         } else {
@@ -190,7 +201,7 @@ where
         let mut txs_map: FnvHashMap<ShortTransactionID, Transaction> = transactions
             .into_iter()
             .map(|tx| {
-                let short_id = short_transaction_id(key0, key1, &tx.hash());
+                let short_id = short_transaction_id(key0, key1, &tx.witness_hash());
                 (short_id, tx)
             })
             .collect();
@@ -198,7 +209,7 @@ where
         {
             let tx_pool = chain_state.tx_pool();
             let iter = tx_pool.staging_txs_iter().filter_map(|entry| {
-                let short_id = short_transaction_id(key0, key1, &entry.transaction.hash());
+                let short_id = short_transaction_id(key0, key1, &entry.transaction.witness_hash());
                 if compact_block.short_ids.contains(&short_id) {
                     Some((short_id, entry.transaction.clone()))
                 } else {
@@ -251,7 +262,7 @@ where
         }
     }
 
-    fn prune_tx_proposal_request(&self, nc: &CKBProtocolContext) {
+    fn prune_tx_proposal_request(&self, nc: &mut CKBProtocolContext) {
         let mut pending_proposals_request = self.state.pending_proposals_request.lock();
         let mut peer_txs = FnvHashMap::default();
         let mut remove_ids = Vec::new();
@@ -279,7 +290,11 @@ where
                 RelayMessage::build_block_proposal(fbb, &txs.into_iter().collect::<Vec<_>>());
             fbb.finish(message, None);
 
-            let _ = nc.send(peer, fbb.finished_data().to_vec());
+            let ret = nc.send(peer, fbb.finished_data().to_vec());
+
+            if ret.is_err() {
+                warn!(target: "relay", "send block_proposal error {:?}", ret);
+            }
         }
     }
 
@@ -297,14 +312,24 @@ where
     CI: ChainIndex + 'static,
 {
     fn initialize(&self, nc: Box<CKBProtocolContext>) {
-        let _ = nc.register_timer(TX_PROPOSAL_TOKEN, Duration::from_millis(100));
+        nc.register_timer(Duration::from_millis(100), TX_PROPOSAL_TOKEN);
     }
 
-    fn received(&self, nc: Box<CKBProtocolContext>, peer: PeerIndex, data: Bytes) {
-        // TODO use flatbuffers verifier
-        let msg = get_root::<RelayMessage>(&data);
+    fn received(&self, mut nc: Box<CKBProtocolContext>, peer: PeerIndex, data: Bytes) {
+        let msg = match get_root::<RelayMessage>(&data) {
+            Ok(msg) => msg,
+            _ => {
+                info!(target: "sync", "Peer {} sends us a malformed message", peer);
+                let ret = nc.report_peer(peer, Behaviour::UnexpectedMessage);
+                if ret.is_err() {
+                    warn!(target: "network", "report_peer peer {:?} UnexpectedMessage error  {:?}", peer, ret);
+                }
+                return;
+            }
+        };
+
         debug!(target: "relay", "msg {:?}", msg.payload_type());
-        self.process(nc.as_ref(), peer, msg);
+        self.process(nc.as_mut(), peer, msg);
     }
 
     fn connected(&self, _nc: Box<CKBProtocolContext>, peer: PeerIndex) {
@@ -317,9 +342,9 @@ where
         // TODO
     }
 
-    fn timer_triggered(&self, nc: Box<CKBProtocolContext>, token: TimerToken) {
-        match token as usize {
-            TX_PROPOSAL_TOKEN => self.prune_tx_proposal_request(nc.as_ref()),
+    fn timer_triggered(&self, mut nc: Box<CKBProtocolContext>, token: u64) {
+        match token {
+            TX_PROPOSAL_TOKEN => self.prune_tx_proposal_request(nc.as_mut()),
             _ => unreachable!(),
         }
     }

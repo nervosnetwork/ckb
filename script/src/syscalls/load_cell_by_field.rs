@@ -4,7 +4,7 @@ use crate::syscalls::{
 use byteorder::{LittleEndian, WriteBytesExt};
 use ckb_core::transaction::CellOutput;
 use ckb_protocol::Script as FbsScript;
-use ckb_vm::{CoreMachine, Error as VMError, Memory, Register, Syscalls, A0, A3, A4, A5, A7};
+use ckb_vm::{Error as VMError, Register, SupportMachine, Syscalls, A0, A3, A4, A5, A7};
 use flatbuffers::FlatBufferBuilder;
 
 #[derive(Debug)]
@@ -40,16 +40,16 @@ impl<'a> LoadCellByField<'a> {
     }
 }
 
-impl<'a, R: Register, M: Memory> Syscalls<R, M> for LoadCellByField<'a> {
-    fn initialize(&mut self, _machine: &mut CoreMachine<R, M>) -> Result<(), VMError> {
+impl<'a, Mac: SupportMachine> Syscalls<Mac> for LoadCellByField<'a> {
+    fn initialize(&mut self, _machine: &mut Mac) -> Result<(), VMError> {
         Ok(())
     }
 
-    fn ecall(&mut self, machine: &mut CoreMachine<R, M>) -> Result<bool, VMError> {
+    fn ecall(&mut self, machine: &mut Mac) -> Result<bool, VMError> {
         if machine.registers()[A7].to_u64() != LOAD_CELL_BY_FIELD_SYSCALL_NUMBER {
             return Ok(false);
         }
-        machine.add_cycles(10);
+        machine.add_cycles(10)?;
 
         let index = machine.registers()[A3].to_usize();
         let source = Source::parse_from_u64(machine.registers()[A4].to_u64())?;
@@ -57,7 +57,7 @@ impl<'a, R: Register, M: Memory> Syscalls<R, M> for LoadCellByField<'a> {
 
         let cell = self.fetch_cell(source, index);
         if cell.is_none() {
-            machine.registers_mut()[A0] = R::from_u8(ITEM_MISSING);
+            machine.set_register(A0, Mac::REG::from_u8(ITEM_MISSING));
             return Ok(true);
         }
         let cell = cell.unwrap();
@@ -79,8 +79,17 @@ impl<'a, R: Register, M: Memory> Syscalls<R, M> for LoadCellByField<'a> {
                 store_data(machine, &bytes)?;
                 (SUCCESS, bytes.len())
             }
+            CellField::Lock => {
+                let mut builder = FlatBufferBuilder::new();
+                let offset = FbsScript::build(&mut builder, &cell.lock);
+                builder.finish(offset, None);
+                let data = builder.finished_data();
+                store_data(machine, data)?;
+                (SUCCESS, data.len())
+            }
             CellField::LockHash => {
-                let bytes = cell.lock.as_bytes();
+                let hash = cell.lock.hash();
+                let bytes = hash.as_bytes();
                 store_data(machine, &bytes)?;
                 (SUCCESS, bytes.len())
             }
@@ -97,7 +106,7 @@ impl<'a, R: Register, M: Memory> Syscalls<R, M> for LoadCellByField<'a> {
             },
             CellField::TypeHash => match cell.type_ {
                 Some(ref type_) => {
-                    let hash = type_.type_hash();
+                    let hash = type_.hash();
                     let bytes = hash.as_bytes();
                     store_data(machine, &bytes)?;
                     (SUCCESS, bytes.len())
@@ -105,8 +114,8 @@ impl<'a, R: Register, M: Memory> Syscalls<R, M> for LoadCellByField<'a> {
                 None => (ITEM_MISSING, 0),
             },
         };
-        machine.registers_mut()[A0] = R::from_u8(return_code);
-        machine.add_cycles(data_length as u64 * 10);
+        machine.set_register(A0, Mac::REG::from_u8(return_code));
+        machine.add_cycles(data_length as u64 * 10)?;
         Ok(true)
     }
 }

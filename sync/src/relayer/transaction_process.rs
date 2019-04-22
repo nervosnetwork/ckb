@@ -9,7 +9,7 @@ use ckb_util::TryInto;
 use ckb_verification::TransactionError;
 use failure::Error as FailureError;
 use flatbuffers::FlatBufferBuilder;
-use log::debug;
+use log::{debug, warn};
 use std::time::Duration;
 
 const DEFAULT_BAN_TIME: Duration = Duration::from_secs(3600 * 24 * 3);
@@ -18,7 +18,7 @@ pub struct TransactionProcess<'a, CI: ChainIndex + 'a> {
     message: &'a FbsValidTransaction<'a>,
     relayer: &'a Relayer<CI>,
     peer: PeerIndex,
-    nc: &'a CKBProtocolContext,
+    nc: &'a mut CKBProtocolContext,
 }
 
 impl<'a, CI> TransactionProcess<'a, CI>
@@ -29,7 +29,7 @@ where
         message: &'a FbsValidTransaction,
         relayer: &'a Relayer<CI>,
         peer: PeerIndex,
-        nc: &'a CKBProtocolContext,
+        nc: &'a mut CKBProtocolContext,
     ) -> Self {
         TransactionProcess {
             message,
@@ -64,12 +64,17 @@ where
                             .get(&peer)
                             .map_or(true, |filter| filter.contains(&tx))
                     {
-                        let _ = self.nc.send(peer, fbb.finished_data().to_vec());
+                        let ret = self.nc.send(peer, fbb.finished_data().to_vec());
+
+                        if ret.is_err() {
+                            warn!(target: "relay", "relay Transaction error {:?}", ret);
+                        }
                     }
                 }
             }
             Err(PoolError::InvalidTx(TransactionError::UnknownInput))
-            | Err(PoolError::InvalidTx(TransactionError::Conflict)) => {
+            | Err(PoolError::InvalidTx(TransactionError::Conflict))
+            | Err(PoolError::Duplicate) => {
                 // this error may occured when peer's tip is different with us,
                 // we can't proof peer is bad so just ignore this
                 debug!(target: "relay", "peer {} relay a conflict or missing input tx: {:?}", self.peer, tx);
