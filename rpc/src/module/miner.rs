@@ -1,21 +1,10 @@
-use ckb_chain::chain::ChainController;
+use crate::agent::RpcAgentController;
 use ckb_core::block::Block as CoreBlock;
 use ckb_core::Cycle;
-use ckb_miner::BlockAssemblerController;
-use ckb_network::{NetworkController, ProtocolId};
-use ckb_protocol::RelayMessage;
-use ckb_shared::{shared::Shared, store::ChainStore};
-use ckb_sync::NetworkProtocol;
-use ckb_traits::ChainProvider;
-use ckb_verification::{HeaderResolverWrapper, HeaderVerifier, Verifier};
-use faketime::unix_time_as_millis;
-use flatbuffers::FlatBufferBuilder;
 use jsonrpc_core::{Error, Result};
 use jsonrpc_derive::rpc;
 use jsonrpc_types::{Block, BlockTemplate};
-use log::{debug, error, warn};
 use numext_fixed_hash::H256;
-use std::collections::HashSet;
 use std::convert::TryInto;
 use std::sync::Arc;
 
@@ -35,14 +24,11 @@ pub trait MinerRpc {
     fn submit_block(&self, _work_id: String, _data: Block) -> Result<Option<H256>>;
 }
 
-pub(crate) struct MinerRpcImpl<CS> {
-    pub network_controller: NetworkController,
-    pub shared: Shared<CS>,
-    pub block_assembler: BlockAssemblerController,
-    pub chain: ChainController,
+pub(crate) struct MinerRpcImpl {
+    pub agent_controller: Arc<RpcAgentController>,
 }
 
-impl<CS: ChainStore + 'static> MinerRpc for MinerRpcImpl<CS> {
+impl MinerRpc for MinerRpcImpl {
     fn get_block_template(
         &self,
         cycles_limit: Option<String>,
@@ -57,52 +43,13 @@ impl<CS: ChainStore + 'static> MinerRpc for MinerRpcImpl<CS> {
             Some(b) => Some(b.parse::<u64>().map_err(|_| Error::parse_error())?),
             None => None,
         };
-        self.block_assembler
+        self.agent_controller
             .get_block_template(cycles_limit, bytes_limit, max_version)
             .map_err(|_| Error::internal_error())
     }
 
-    fn submit_block(&self, _work_id: String, data: Block) -> Result<Option<H256>> {
-        let block: Arc<CoreBlock> = Arc::new(data.try_into().map_err(|_| Error::parse_error())?);
-        let resolver = HeaderResolverWrapper::new(block.header(), self.shared.clone());
-        let header_verify_ret = {
-            let chain_state = self.shared.chain_state().lock();
-            let header_verifier = HeaderVerifier::new(
-                &*chain_state,
-                Arc::clone(&self.shared.consensus().pow_engine()),
-            );
-            header_verifier.verify(&resolver)
-        };
-        if header_verify_ret.is_ok() {
-            let ret = self.chain.process_block(Arc::clone(&block));
-            if ret.is_ok() {
-                debug!(target: "miner", "[block_relay] announce new block {} {}", block.header().hash(), unix_time_as_millis());
-                // announce new block
-                self.network_controller.with_protocol_context(
-                    NetworkProtocol::RELAY as ProtocolId,
-                    |mut nc| {
-                        let fbb = &mut FlatBufferBuilder::new();
-                        let message =
-                            RelayMessage::build_compact_block(fbb, &block, &HashSet::new());
-                        fbb.finish(message, None);
-                        for peer in nc.connected_peers() {
-                            let ret = nc.send(peer, fbb.finished_data().to_vec());
-                            if ret.is_err() {
-                                warn!(target: "rpc", "relay block error {:?}", ret);
-                            }
-                        }
-                    },
-                );
-                Ok(Some(block.header().hash().clone()))
-            } else {
-                let chain_state = self.shared.chain_state().lock();
-                error!(target: "rpc", "submit_block process_block {:?}", ret);
-                error!(target: "rpc", "proposal table {}", serde_json::to_string(chain_state.proposal_ids().all()).unwrap());
-                Ok(None)
-            }
-        } else {
-            debug!(target: "rpc", "submit_block header verifier {:?}", header_verify_ret);
-            Ok(None)
-        }
+    fn submit_block(&self, work_id: String, data: Block) -> Result<Option<H256>> {
+        let block: CoreBlock = data.try_into().map_err(|_| Error::parse_error())?;
+        Ok(self.agent_controller.submit_block(work_id, block))
     }
 }

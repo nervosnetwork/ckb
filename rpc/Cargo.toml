@@ -35,6 +35,9 @@ ckb-verification = { path = "../verification" }
 ckb-traits = { path = "../traits" }
 ckb-util = { path = "../util" }
 faketime = "0.2.0"
+crossbeam-channel = "0.3"
+stop-handler = { path = "../util/stop-handler" }
+failure = "0.1.5"
 
 [dev-dependencies]
 ckb-db = { path = "../db" }
