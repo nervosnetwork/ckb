@@ -6,6 +6,7 @@ use ckb_core::cell::{CellProvider, CellStatus};
 use ckb_core::header::HeaderBuilder;
 use ckb_core::script::Script;
 use ckb_core::transaction::{CellInput, CellOutput, OutPoint, TransactionBuilder};
+use ckb_core::{capacity_bytes, Capacity};
 use ckb_shared::error::SharedError;
 use ckb_traits::ChainProvider;
 use numext_fixed_uint::U256;
@@ -17,7 +18,7 @@ fn test_genesis_transaction_spend() {
         .input(CellInput::new(OutPoint::null(), 0, Default::default()))
         .outputs(vec![
             CellOutput::new(
-                100_000_000,
+                capacity_bytes!(100_000_000),
                 vec![],
                 Script::default(),
                 None
@@ -353,7 +354,7 @@ fn test_genesis_transaction_fetch() {
         .input(CellInput::new(OutPoint::null(), 0, Default::default()))
         .outputs(vec![
             CellOutput::new(
-                100_000_000,
+                capacity_bytes!(100_000_000),
                 vec![],
                 Script::default(),
                 None

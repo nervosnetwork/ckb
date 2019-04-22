@@ -768,6 +768,7 @@ mod tests {
     use ckb_core::header::{Header, HeaderBuilder};
     use ckb_core::script::Script;
     use ckb_core::transaction::{CellInput, CellOutput, Transaction, TransactionBuilder};
+    use ckb_core::Capacity;
     use ckb_db::memorydb::MemoryKeyValueDB;
     use ckb_network::{
         errors::Error as NetworkError, multiaddr::ToMultiaddr, CKBProtocolContext, Peer, PeerIndex,
@@ -827,7 +828,12 @@ mod tests {
     fn create_cellbase(number: BlockNumber) -> Transaction {
         TransactionBuilder::default()
             .input(CellInput::new_cellbase_input(number))
-            .output(CellOutput::new(0, vec![], Script::default(), None))
+            .output(CellOutput::new(
+                Capacity::zero(),
+                vec![],
+                Script::default(),
+                None,
+            ))
             .build()
     }
 

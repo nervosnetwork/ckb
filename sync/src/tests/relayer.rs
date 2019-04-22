@@ -7,6 +7,7 @@ use ckb_core::block::BlockBuilder;
 use ckb_core::header::HeaderBuilder;
 use ckb_core::script::Script;
 use ckb_core::transaction::{CellInput, CellOutput, OutPoint, Transaction, TransactionBuilder};
+use ckb_core::{capacity_bytes, Capacity};
 use ckb_db::memorydb::MemoryKeyValueDB;
 use ckb_network::ProtocolId;
 use ckb_notify::NotifyService;
@@ -55,7 +56,12 @@ fn relay_compact_block_with_one_tx() {
                     0,
                     vec![],
                 ))
-                .output(CellOutput::new(50, Vec::new(), Script::default(), None))
+                .output(CellOutput::new(
+                    capacity_bytes!(50),
+                    Vec::new(),
+                    Script::default(),
+                    None,
+                ))
                 .build();
 
             {
@@ -208,7 +214,12 @@ fn relay_compact_block_with_missing_indexs() {
                             0,
                             vec![],
                         ))
-                        .output(CellOutput::new(50, vec![i], Script::default(), None))
+                        .output(CellOutput::new(
+                            capacity_bytes!(50),
+                            vec![i],
+                            Script::default(),
+                            None,
+                        ))
                         .build()
                 })
                 .collect::<Vec<_>>();
@@ -359,7 +370,14 @@ fn setup_node(
         let timestamp = block.header().timestamp() + 1;
         let difficulty = shared.calculate_difficulty(&block.header()).unwrap();
         let outputs = (0..20)
-            .map(|_| CellOutput::new(50, Vec::new(), Script::always_success(), None))
+            .map(|_| {
+                CellOutput::new(
+                    capacity_bytes!(50),
+                    Vec::new(),
+                    Script::always_success(),
+                    None,
+                )
+            })
             .collect::<Vec<_>>();
         let cellbase = TransactionBuilder::default()
             .input(CellInput::new_cellbase_input(number))

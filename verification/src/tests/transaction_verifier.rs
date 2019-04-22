@@ -7,6 +7,7 @@ use ckb_core::cell::CellStatus;
 use ckb_core::cell::ResolvedTransaction;
 use ckb_core::script::Script;
 use ckb_core::transaction::{CellInput, CellOutput, OutPoint, TransactionBuilder};
+use ckb_core::{capacity_bytes, Capacity};
 use ckb_traits::BlockMedianTimeContext;
 use numext_fixed_hash::H256;
 
@@ -34,14 +35,19 @@ pub fn test_empty() {
 #[test]
 pub fn test_capacity_outofbound() {
     let transaction = TransactionBuilder::default()
-        .output(CellOutput::new(50, vec![1; 51], Script::default(), None))
+        .output(CellOutput::new(
+            capacity_bytes!(50),
+            vec![1; 51],
+            Script::default(),
+            None,
+        ))
         .build();
 
     let rtx = ResolvedTransaction {
         transaction,
         dep_cells: Vec::new(),
         input_cells: vec![CellStatus::live_output(
-            CellOutput::new(50, Vec::new(), Script::default(), None),
+            CellOutput::new(capacity_bytes!(50), Vec::new(), Script::default(), None),
             None,
             false,
         )],
@@ -57,14 +63,19 @@ pub fn test_capacity_outofbound() {
 #[test]
 pub fn test_cellbase_maturity() {
     let transaction = TransactionBuilder::default()
-        .output(CellOutput::new(50, vec![1; 51], Script::default(), None))
+        .output(CellOutput::new(
+            capacity_bytes!(50),
+            vec![1; 51],
+            Script::default(),
+            None,
+        ))
         .build();
 
     let rtx = ResolvedTransaction {
         transaction,
         dep_cells: Vec::new(),
         input_cells: vec![CellStatus::live_output(
-            CellOutput::new(50, Vec::new(), Script::default(), None),
+            CellOutput::new(capacity_bytes!(50), Vec::new(), Script::default(), None),
             Some(30),
             true,
         )],
@@ -89,8 +100,8 @@ pub fn test_cellbase_maturity() {
 pub fn test_capacity_invalid() {
     let transaction = TransactionBuilder::default()
         .outputs(vec![
-            CellOutput::new(50, Vec::new(), Script::default(), None),
-            CellOutput::new(100, Vec::new(), Script::default(), None),
+            CellOutput::new(capacity_bytes!(50), Vec::new(), Script::default(), None),
+            CellOutput::new(capacity_bytes!(100), Vec::new(), Script::default(), None),
         ])
         .build();
 
@@ -99,12 +110,12 @@ pub fn test_capacity_invalid() {
         dep_cells: Vec::new(),
         input_cells: vec![
             CellStatus::live_output(
-                CellOutput::new(49, Vec::new(), Script::default(), None),
+                CellOutput::new(capacity_bytes!(49), Vec::new(), Script::default(), None),
                 None,
                 false,
             ),
             CellStatus::live_output(
-                CellOutput::new(100, Vec::new(), Script::default(), None),
+                CellOutput::new(capacity_bytes!(100), Vec::new(), Script::default(), None),
                 None,
                 false,
             ),
@@ -174,7 +185,7 @@ pub fn test_valid_since() {
         transaction,
         dep_cells: Vec::new(),
         input_cells: vec![CellStatus::live_output(
-            CellOutput::new(50, Vec::new(), Script::default(), None),
+            CellOutput::new(capacity_bytes!(50), Vec::new(), Script::default(), None),
             Some(1),
             false,
         )],
@@ -202,7 +213,7 @@ pub fn test_valid_since() {
         transaction,
         dep_cells: Vec::new(),
         input_cells: vec![CellStatus::live_output(
-            CellOutput::new(50, Vec::new(), Script::default(), None),
+            CellOutput::new(capacity_bytes!(50), Vec::new(), Script::default(), None),
             Some(1),
             false,
         )],
@@ -230,7 +241,7 @@ pub fn test_valid_since() {
         transaction,
         dep_cells: Vec::new(),
         input_cells: vec![CellStatus::live_output(
-            CellOutput::new(50, Vec::new(), Script::default(), None),
+            CellOutput::new(capacity_bytes!(50), Vec::new(), Script::default(), None),
             Some(1),
             false,
         )],
@@ -266,7 +277,7 @@ pub fn test_valid_since() {
         transaction,
         dep_cells: Vec::new(),
         input_cells: vec![CellStatus::live_output(
-            CellOutput::new(50, Vec::new(), Script::default(), None),
+            CellOutput::new(capacity_bytes!(50), Vec::new(), Script::default(), None),
             Some(1),
             false,
         )],

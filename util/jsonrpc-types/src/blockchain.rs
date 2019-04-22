@@ -429,6 +429,7 @@ impl TryFrom<Block> for CoreBlock {
 mod tests {
     use super::*;
     use ckb_core::transaction::ProposalShortId as CoreProposalShortId;
+    use ckb_core::Capacity;
     use proptest::{collection::size_range, prelude::*};
 
     fn mock_script(arg: Vec<u8>) -> CoreScript {
@@ -436,7 +437,12 @@ mod tests {
     }
 
     fn mock_cell_output(data: Vec<u8>, arg: Vec<u8>) -> CoreCellOutput {
-        CoreCellOutput::new(0, data, CoreScript::default(), Some(mock_script(arg)))
+        CoreCellOutput::new(
+            Capacity::zero(),
+            data,
+            CoreScript::default(),
+            Some(mock_script(arg)),
+        )
     }
 
     fn mock_cell_input(arg: Vec<u8>) -> CoreCellInput {

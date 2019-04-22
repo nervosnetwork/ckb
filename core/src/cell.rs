@@ -295,6 +295,7 @@ impl ResolvedTransaction {
 mod tests {
     use super::super::script::Script;
     use super::*;
+    use crate::{capacity_bytes, Capacity};
     use numext_fixed_hash::H256;
     use std::collections::HashMap;
 
@@ -332,7 +333,7 @@ mod tests {
         let o = CellMeta {
             block_number: Some(1),
             cell_output: CellOutput {
-                capacity: 2,
+                capacity: capacity_bytes!(2),
                 data: vec![],
                 lock: Script::default(),
                 type_: None,

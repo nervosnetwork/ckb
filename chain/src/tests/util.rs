@@ -6,7 +6,7 @@ use ckb_core::header::{Header, HeaderBuilder};
 use ckb_core::script::Script;
 use ckb_core::transaction::{CellInput, CellOutput, OutPoint, Transaction, TransactionBuilder};
 use ckb_core::uncle::UncleBlock;
-use ckb_core::BlockNumber;
+use ckb_core::{capacity_bytes, BlockNumber, Capacity};
 use ckb_db::memorydb::MemoryKeyValueDB;
 use ckb_notify::NotifyService;
 use ckb_shared::shared::Shared;
@@ -37,7 +37,7 @@ fn create_cellbase(number: BlockNumber) -> Transaction {
     TransactionBuilder::default()
         .input(CellInput::new_cellbase_input(number))
         .output(CellOutput::new(
-            5000,
+            capacity_bytes!(5000),
             vec![],
             Script::always_success(),
             None,
@@ -76,7 +76,7 @@ pub(crate) fn gen_block(
 pub(crate) fn create_transaction(parent: H256, unique_data: u8) -> Transaction {
     TransactionBuilder::default()
         .output(CellOutput::new(
-            5000,
+            capacity_bytes!(5000),
             vec![unique_data],
             Script::always_success(),
             None,

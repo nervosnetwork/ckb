@@ -6,6 +6,7 @@ use ckb_core::script::Script;
 use ckb_core::transaction::{
     CellInput, CellOutput, OutPoint, ProposalShortId, Transaction, TransactionBuilder,
 };
+use ckb_core::{capacity_bytes, Capacity};
 use ckb_db::{CacheDB, DBConfig, RocksDB};
 use ckb_notify::NotifyService;
 use ckb_shared::shared::{Shared, SharedBuilder};
@@ -135,7 +136,12 @@ fn new_chain() -> (
 ) {
     let cellbase = TransactionBuilder::default()
         .input(CellInput::new_cellbase_input(0))
-        .output(CellOutput::new(0, vec![], Script::default(), None))
+        .output(CellOutput::new(
+            Capacity::zero(),
+            vec![],
+            Script::default(),
+            None,
+        ))
         .build();
 
     // create genesis block with 100 tx
@@ -144,7 +150,7 @@ fn new_chain() -> (
             TransactionBuilder::default()
                 .input(CellInput::new(OutPoint::null(), 0, vec![]))
                 .output(CellOutput::new(
-                    50000,
+                    capacity_bytes!(50_000),
                     vec![i],
                     Script::always_success(),
                     None,
@@ -184,7 +190,12 @@ fn gen_block(blocks: &mut Vec<Block>, parent_index: usize) {
 
     let cellbase = TransactionBuilder::default()
         .input(CellInput::new_cellbase_input(number))
-        .output(CellOutput::new(0, vec![], Script::default(), None))
+        .output(CellOutput::new(
+            Capacity::zero(),
+            vec![],
+            Script::default(),
+            None,
+        ))
         .build();
 
     // spent n-2 block's tx and proposal n-1 block's tx
@@ -226,7 +237,7 @@ fn gen_block(blocks: &mut Vec<Block>, parent_index: usize) {
 fn create_transaction(hash: H256) -> Transaction {
     TransactionBuilder::default()
         .output(CellOutput::new(
-            50000,
+            capacity_bytes!(50_000),
             vec![],
             Script::always_success(),
             None,

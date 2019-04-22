@@ -83,9 +83,16 @@ mod tests {
         let expect = h256!("0x266cec97cbede2cfbce73666f08deed9560bdf7841a7a5a51b3a3f09da249e21");
         assert_eq!(script.hash(), expect);
 
-        let expect_occupied_capacity =
-            script.args.occupied_capacity() + script.binary_hash.occupied_capacity();
-        assert_eq!(script.occupied_capacity(), expect_occupied_capacity);
+        let expect_occupied_capacity = script
+            .args
+            .occupied_capacity()
+            .unwrap()
+            .safe_add(script.binary_hash.occupied_capacity().unwrap())
+            .unwrap();
+        assert_eq!(
+            script.occupied_capacity().unwrap(),
+            expect_occupied_capacity
+        );
     }
 
     #[test]
@@ -97,19 +104,33 @@ mod tests {
         let expect = h256!("0x9a9a6bdbc38d4905eace1822f85237e3a1e238bb3f277aa7b7c8903441123510");
         assert_eq!(script.hash(), expect);
 
-        let expect_occupied_capacity =
-            script.args.occupied_capacity() + script.binary_hash.occupied_capacity();
-        assert_eq!(script.occupied_capacity(), expect_occupied_capacity);
+        let expect_occupied_capacity = script
+            .args
+            .occupied_capacity()
+            .unwrap()
+            .safe_add(script.binary_hash.occupied_capacity().unwrap())
+            .unwrap();
+        assert_eq!(
+            script.occupied_capacity().unwrap(),
+            expect_occupied_capacity
+        );
     }
 
     #[test]
     fn one_script_hash() {
-        let one = Script::new(vec![vec![1]], H256::zero());
+        let script = Script::new(vec![vec![1]], H256::zero());
         let expect = h256!("0xdade0e507e27e2a5995cf39c8cf454b6e70fa80d03c1187db7a4cb2c9eab79da");
-        assert_eq!(one.hash(), expect);
+        assert_eq!(script.hash(), expect);
 
-        let expect_occupied_capacity =
-            one.args.occupied_capacity() + one.binary_hash.occupied_capacity();
-        assert_eq!(one.occupied_capacity(), expect_occupied_capacity);
+        let expect_occupied_capacity = script
+            .args
+            .occupied_capacity()
+            .unwrap()
+            .safe_add(script.binary_hash.occupied_capacity().unwrap())
+            .unwrap();
+        assert_eq!(
+            script.occupied_capacity().unwrap(),
+            expect_occupied_capacity
+        );
     }
 }

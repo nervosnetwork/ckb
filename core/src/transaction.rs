@@ -423,12 +423,13 @@ impl ProposalShortId {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::{capacity_bytes, Capacity};
 
     #[test]
     fn test_tx_hash() {
         let tx = TransactionBuilder::default()
             .output(CellOutput::new(
-                5000,
+                capacity_bytes!(5000),
                 vec![1, 2, 3],
                 Script::default(),
                 None,
