@@ -1,12 +1,11 @@
-use ckb_core::cell::CellProvider;
+use crate::agent::RpcAgentController;
 use ckb_core::BlockNumber;
-use ckb_shared::{shared::Shared, store::ChainStore};
-use ckb_traits::ChainProvider;
 use jsonrpc_core::{Error, Result};
 use jsonrpc_derive::rpc;
 use jsonrpc_types::{Block, CellOutputWithOutPoint, CellWithStatus, Header, OutPoint, Transaction};
 use numext_fixed_hash::H256;
 use std::convert::TryInto;
+use std::sync::Arc;
 
 #[rpc]
 pub trait ChainRpc {
@@ -37,21 +36,29 @@ pub trait ChainRpc {
     fn get_tip_block_number(&self) -> Result<String>;
 }
 
-pub(crate) struct ChainRpcImpl<CS> {
-    pub shared: Shared<CS>,
+pub(crate) struct ChainRpcImpl {
+    pub agent_controller: Arc<RpcAgentController>,
 }
 
-impl<CS: ChainStore + 'static> ChainRpc for ChainRpcImpl<CS> {
+impl ChainRpc for ChainRpcImpl {
     fn get_block(&self, hash: H256) -> Result<Option<Block>> {
-        Ok(self.shared.block(&hash).as_ref().map(Into::into))
+        Ok(self
+            .agent_controller
+            .get_block(hash)
+            .as_ref()
+            .map(Into::into))
     }
 
     fn get_transaction(&self, hash: H256) -> Result<Option<Transaction>> {
-        Ok(self.shared.get_transaction(&hash).as_ref().map(Into::into))
+        Ok(self
+            .agent_controller
+            .get_transaction(hash)
+            .as_ref()
+            .map(Into::into))
     }
 
     fn get_block_hash(&self, number: String) -> Result<Option<H256>> {
-        Ok(self.shared.block_hash(
+        Ok(self.agent_controller.get_block_hash(
             number
                 .parse::<BlockNumber>()
                 .map_err(|_| Error::parse_error())?,
@@ -59,7 +66,7 @@ impl<CS: ChainStore + 'static> ChainRpc for ChainRpcImpl<CS> {
     }
 
     fn get_tip_header(&self) -> Result<Header> {
-        Ok(self.shared.chain_state().lock().tip_header().into())
+        Ok((&self.agent_controller.get_tip_header()).into())
     }
 
     // TODO: we need to build a proper index instead of scanning every time
@@ -69,53 +76,26 @@ impl<CS: ChainStore + 'static> ChainRpc for ChainRpcImpl<CS> {
         from: String,
         to: String,
     ) -> Result<Vec<CellOutputWithOutPoint>> {
-        let mut result = Vec::new();
-        let chain_state = self.shared.chain_state().lock();
         let from = from
             .parse::<BlockNumber>()
             .map_err(|_| Error::parse_error())?;
         let to = to
             .parse::<BlockNumber>()
             .map_err(|_| Error::parse_error())?;
-        for block_number in from..=to {
-            if let Some(block_hash) = self.shared.block_hash(block_number) {
-                let block = self
-                    .shared
-                    .block(&block_hash)
-                    .ok_or_else(Error::internal_error)?;
-                for transaction in block.commit_transactions() {
-                    let transaction_meta = chain_state
-                        .cell_set()
-                        .get(&transaction.hash())
-                        .ok_or_else(Error::internal_error)?;
-                    for (i, output) in transaction.outputs().iter().enumerate() {
-                        if output.lock.hash() == lock_hash && (!transaction_meta.is_dead(i)) {
-                            result.push(CellOutputWithOutPoint {
-                                out_point: OutPoint {
-                                    hash: transaction.hash().clone(),
-                                    index: i as u32,
-                                },
-                                capacity: output.capacity,
-                                lock: output.lock.clone(),
-                            });
-                        }
-                    }
-                }
-            }
-        }
+        let result = self
+            .agent_controller
+            .get_cells_by_lock_hash(lock_hash, from, to);
         Ok(result)
     }
 
     fn get_live_cell(&self, out_point: OutPoint) -> Result<CellWithStatus> {
         Ok(self
-            .shared
-            .chain_state()
-            .lock()
-            .get_cell_status(&(out_point.try_into().map_err(|_| Error::parse_error())?))
+            .agent_controller
+            .get_live_cell(out_point.try_into().map_err(|_| Error::parse_error())?)
             .into())
     }
 
     fn get_tip_block_number(&self) -> Result<String> {
-        Ok(self.shared.chain_state().lock().tip_number().to_string())
+        Ok(self.agent_controller.get_tip_block_number().to_string())
     }
 }

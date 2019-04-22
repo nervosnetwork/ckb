@@ -1,3 +1,4 @@
+use crate::agent::RpcAgent;
 use crate::config::Config;
 use crate::module::{
     ChainRpc, ChainRpcImpl, IntegrationTestRpc, IntegrationTestRpcImpl, MinerRpc, MinerRpcImpl,
@@ -12,6 +13,7 @@ use jsonrpc_core::IoHandler;
 use jsonrpc_http_server::{Server, ServerBuilder};
 use jsonrpc_server_utils::cors::AccessControlAllowOrigin;
 use jsonrpc_server_utils::hosts::DomainsValidation;
+use std::sync::Arc;
 
 pub struct RpcServer {
     server: Server,
@@ -28,12 +30,19 @@ impl RpcServer {
     where
         CS: ChainStore,
     {
+        let rpc_agent = RpcAgent::new(
+            network_controller.clone(),
+            shared.clone(),
+            chain.clone(),
+            block_assembler.clone(),
+        );
+        let agent_controller = Arc::new(rpc_agent.start(Some("RPC agent")));
         let mut io = IoHandler::new();
 
         if config.chain_enable() {
             io.extend_with(
                 ChainRpcImpl {
-                    shared: shared.clone(),
+                    agent_controller: Arc::clone(&agent_controller),
                 }
                 .to_delegate(),
             );
@@ -42,8 +51,7 @@ impl RpcServer {
         if config.pool_enable() {
             io.extend_with(
                 PoolRpcImpl {
-                    network_controller: network_controller.clone(),
-                    shared: shared.clone(),
+                    agent_controller: Arc::clone(&agent_controller),
                 }
                 .to_delegate(),
             );
@@ -52,10 +60,7 @@ impl RpcServer {
         if config.miner_enable() {
             io.extend_with(
                 MinerRpcImpl {
-                    shared: shared.clone(),
-                    block_assembler,
-                    chain,
-                    network_controller: network_controller.clone(),
+                    agent_controller: Arc::clone(&agent_controller),
                 }
                 .to_delegate(),
             );
@@ -64,7 +69,7 @@ impl RpcServer {
         if config.net_enable() {
             io.extend_with(
                 NetworkRpcImpl {
-                    network_controller: network_controller.clone(),
+                    agent_controller: Arc::clone(&agent_controller),
                 }
                 .to_delegate(),
             );
@@ -73,15 +78,19 @@ impl RpcServer {
         if config.trace_enable() {
             io.extend_with(
                 TraceRpcImpl {
-                    network_controller: network_controller.clone(),
-                    shared,
+                    agent_controller: Arc::clone(&agent_controller),
                 }
                 .to_delegate(),
             );
         }
 
         if config.integration_test_enable() {
-            io.extend_with(IntegrationTestRpcImpl { network_controller }.to_delegate());
+            io.extend_with(
+                IntegrationTestRpcImpl {
+                    agent_controller: Arc::clone(&agent_controller),
+                }
+                .to_delegate(),
+            );
         }
 
         let server = ServerBuilder::new(io)
