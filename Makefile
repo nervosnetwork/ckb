@@ -10,7 +10,7 @@ integration:
 	cd test && cargo run ../target/debug/ckb
 
 integration-release:
-	cargo build ${VERBOSE} --release
+	RUSTFLAGS="-C overflow-checks=on" cargo build ${VERBOSE} --release
 	cd test && cargo run --release -- ../target/release/ckb
 
 doc:
@@ -24,10 +24,10 @@ check:
 	cd test && cargo check ${VERBOSE} --all
 
 build:
-	cargo build ${VERBOSE} --release
+	RUSTFLAGS="-C overflow-checks=on" cargo build ${VERBOSE} --release
 
 prod:
-	RUSTFLAGS="--cfg disable_faketime" cargo build ${VERBOSE} --release
+	RUSTFLAGS="--cfg disable_faketime -C overflow-checks=on" cargo build ${VERBOSE} --release
 
 prod-test:
 	RUSTFLAGS="--cfg disable_faketime" RUSTDOCFLAGS="--cfg disable_faketime" cargo test ${VERBOSE} --all -- --nocapture
