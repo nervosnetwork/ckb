@@ -1,11 +1,26 @@
 extern crate proc_macro;
 
 use proc_macro2::TokenStream;
+use proc_macro_hack::proc_macro_hack;
 use quote::{quote, quote_spanned};
 use syn::spanned::Spanned;
 use syn::{
     parse_macro_input, parse_quote, Data, DeriveInput, Fields, GenericParam, Generics, Index,
 };
+
+use occupied_capacity_core::Capacity;
+
+#[proc_macro_hack]
+pub fn capacity_bytes(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    let input = parse_macro_input!(input as syn::LitInt);
+    let expanded = if let Ok(oc) = Capacity::bytes(input.value() as usize) {
+        let shannons = syn::LitInt::new(oc.as_u64(), syn::IntSuffix::None, input.span());
+        quote!(Capacity::shannons(#shannons))
+    } else {
+        panic!("Occupied capacity is overflow.");
+    };
+    expanded.into()
+}
 
 #[proc_macro_derive(HasOccupiedCapacity)]
 pub fn derive_occupied_capacity(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
@@ -24,7 +39,7 @@ pub fn derive_occupied_capacity(input: proc_macro::TokenStream) -> proc_macro::T
     let expanded = quote! {
         // The generated impl.
         impl #impl_generics ::occupied_capacity::OccupiedCapacity for #name #ty_generics #where_clause {
-            fn occupied_capacity(&self) -> usize {
+            fn occupied_capacity(&self) -> ::occupied_capacity::Result<::occupied_capacity::Capacity> {
                 #sum
             }
         }
@@ -54,7 +69,12 @@ fn occupied_capacity_sum(data: &Data) -> TokenStream {
                 Fields::Named(ref fields) => {
                     // Expands to an expression like
                     //
-                    //     0 + self.x.occupied_capacity() + self.y.occupied_capacity() + self.z.occupied_capacity()
+                    //      Ok(::occupied_capacity::Capacity::zero())
+                    //          .and_then(|x|
+                    //              self.field0.occupied_capacity().and_then(|y| x.safe_add(y)))
+                    //          .and_then(|x|
+                    //              self.field1.occupied_capacity().and_then(|y| x.safe_add(y)))
+                    //          ... ...
                     //
                     // but using fully qualified function call syntax.
                     //
@@ -70,13 +90,24 @@ fn occupied_capacity_sum(data: &Data) -> TokenStream {
                         }
                     });
                     quote! {
-                        0 #(+ #recurse)*
+                        Ok(::occupied_capacity::Capacity::zero())
+                        #(
+                            .and_then(|x| {
+                                #recurse.and_then(|y| x.safe_add(y))
+                            })
+                        )*
                     }
                 }
                 Fields::Unnamed(ref fields) => {
                     // Expands to an expression like
                     //
-                    //     0 + self.0.occupied_capacity() + self.1.occupied_capacity() + self.2.occupied_capacity()
+                    //      Ok(::occupied_capacity::Capacity::zero())
+                    //          .and_then(|x|
+                    //              self.0.occupied_capacity().and_then(|y| x.safe_add(y)))
+                    //          .and_then(|x|
+                    //              self.1.occupied_capacity().and_then(|y| x.safe_add(y)))
+                    //          ... ...
+                    //
                     let recurse = fields.unnamed.iter().enumerate().map(|(i, f)| {
                         let index = Index::from(i);
                         quote_spanned! {f.span()=>
@@ -84,12 +115,17 @@ fn occupied_capacity_sum(data: &Data) -> TokenStream {
                         }
                     });
                     quote! {
-                        0 #(+ #recurse)*
+                        Ok(::occupied_capacity::Capacity::zero())
+                        #(
+                            .and_then(|x| {
+                                #recurse.and_then(|y| x.safe_add(y))
+                            })
+                        )*
                     }
                 }
                 Fields::Unit => {
                     // Unit structs cannot own more than 0 bytes of heap memory.
-                    quote!(0)
+                    quote!(Ok(::occupied_capacity::Capacity::zero()))
                 }
             }
         }
