@@ -771,7 +771,7 @@ mod tests {
     use ckb_core::transaction::{CellInput, CellOutput, Transaction, TransactionBuilder};
     use ckb_db::memorydb::MemoryKeyValueDB;
     use ckb_network::{
-        multiaddr::ToMultiaddr, CKBProtocolContext, Peer, PeerId, PeerIndex, ProtocolId,
+        multiaddr::ToMultiaddr, Behaviour, CKBProtocolContext, Peer, PeerId, PeerIndex, ProtocolId,
         SessionType, TargetSession,
     };
     use ckb_notify::{NotifyController, NotifyService};
