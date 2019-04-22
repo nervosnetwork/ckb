@@ -255,8 +255,9 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
             );
 
             self.find_fork(&mut fork, tip_number, &block, ext);
-            cell_set_diff = self.reconcile_main_chain(&mut batch, &mut fork, &mut chain_state)?;
             self.update_index(&mut batch, &fork.detached_blocks, &fork.attached_blocks)?;
+            // MUST update index before reconcile_main_chain
+            cell_set_diff = self.reconcile_main_chain(&mut batch, &mut fork, &mut chain_state)?;
             self.update_proposal_ids(&mut chain_state, &fork);
             batch.insert_tip_header(&block.header())?;
             new_best_block = true;
