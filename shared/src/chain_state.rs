@@ -5,7 +5,7 @@ use crate::tx_proposal_table::TxProposalTable;
 use ckb_chain_spec::consensus::{Consensus, ProposalWindow};
 use ckb_core::block::Block;
 use ckb_core::cell::{
-    resolve_transaction, CellProvider, CellStatus, OverlayCellProvider, ResolvedTransaction,
+    CellProvider, CellStatus, OverlayCellProvider, ResolvedTransaction, TransactionCellProvider,
 };
 use ckb_core::header::{BlockNumber, Header};
 use ckb_core::transaction::{OutPoint, ProposalShortId, Transaction};
@@ -209,9 +209,10 @@ impl<CS: ChainStore> ChainState<CS> {
     }
 
     pub fn resolve_tx_from_pool(&self, tx: &Transaction, tx_pool: &TxPool) -> ResolvedTransaction {
-        let cell_provider = OverlayCellProvider::new(&tx_pool.staging, self);
-        let mut seen_inputs = FnvHashSet::default();
-        resolve_transaction(tx, &mut seen_inputs, &cell_provider)
+        let transaction_cp = TransactionCellProvider::new(tx);
+        let staging_cp = OverlayCellProvider::new(&tx_pool.staging, self);
+        let cell_provider = OverlayCellProvider::new(&transaction_cp, &staging_cp);
+        cell_provider.resolve_transaction(tx)
     }
 
     pub fn verify_rtx(
@@ -244,11 +245,11 @@ impl<CS: ChainStore> ChainState<CS> {
         tx: &Transaction,
         tx_pool: &TxPool,
     ) -> ResolvedTransaction {
-        let staging_provider = OverlayCellProvider::new(&tx_pool.staging, self);
-        let pending_and_staging_provider =
-            OverlayCellProvider::new(&tx_pool.pending, &staging_provider);
-        let mut seen_inputs = FnvHashSet::default();
-        resolve_transaction(tx, &mut seen_inputs, &pending_and_staging_provider)
+        let transaction_cp = TransactionCellProvider::new(tx);
+        let staging_cp = OverlayCellProvider::new(&tx_pool.staging, self);
+        let pending_and_staging_cp = OverlayCellProvider::new(&tx_pool.pending, &staging_cp);
+        let cell_provider = OverlayCellProvider::new(&transaction_cp, &pending_and_staging_cp);
+        cell_provider.resolve_transaction(tx)
     }
 
     // remove resolved tx from orphan pool

@@ -91,7 +91,7 @@ fn test_dead_cell_in_same_block() {
     }
 
     assert_eq!(
-        SharedError::InvalidTransaction("Transactions((2, Conflict))".to_string()),
+        SharedError::InvalidTransaction("Transactions((1, Conflict))".to_string()),
         chain_controller
             .process_block(Arc::new(chain2[switch_fork_number + 1].clone()))
             .unwrap_err()

@@ -1,8 +1,6 @@
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::Block;
-use ckb_core::cell::{
-    resolve_transaction, BlockCellProvider, OverlayCellProvider, ResolvedTransaction,
-};
+use ckb_core::cell::{BlockCellProvider, CellProvider, OverlayCellProvider, ResolvedTransaction};
 use ckb_core::extras::BlockExt;
 use ckb_core::service::{Request, DEFAULT_CHANNEL_SIZE, SIGNAL_CHANNEL_SIZE};
 use ckb_core::transaction::ProposalShortId;
@@ -461,8 +459,6 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
         {
             if self.verification {
                 if found_error.is_none() {
-                    let mut seen_inputs = FnvHashSet::default();
-
                     let cell_set_overlay = chain_state.new_cell_set_overlay(&cell_set_diff);
                     let block_cp = BlockCellProvider::new(b);
                     let cell_provider = OverlayCellProvider::new(&block_cp, &cell_set_overlay);
@@ -470,7 +466,7 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
                     let resolved: Vec<ResolvedTransaction> = b
                         .commit_transactions()
                         .iter()
-                        .map(|x| resolve_transaction(x, &mut seen_inputs, &cell_provider))
+                        .map(|x| cell_provider.resolve_transaction(x))
                         .collect();
 
                     let cellbase_maturity = { self.shared.consensus().cellbase_maturity() };
