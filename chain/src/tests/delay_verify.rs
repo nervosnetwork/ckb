@@ -90,14 +90,17 @@ fn test_dead_cell_in_same_block() {
             .expect("process block ok");
     }
 
-    assert_eq!(
-        SharedError::InvalidTransaction("Transactions((1, Conflict))".to_string()),
-        chain_controller
-            .process_block(Arc::new(chain2[switch_fork_number + 1].clone()))
-            .unwrap_err()
-            .downcast()
-            .unwrap()
-    );
+    let error = chain_controller
+        .process_block(Arc::new(chain2[switch_fork_number + 1].clone()))
+        .unwrap_err()
+        .downcast()
+        .unwrap();
+    if let SharedError::InvalidTransaction(errmsg) = error {
+        let re = regex::Regex::new(r#"Transactions\(\([0-9], Conflict\)\)"#).unwrap();
+        assert!(re.is_match(&errmsg));
+    } else {
+        panic!("should be the Conflict Transactions error");
+    }
 }
 
 #[test]
@@ -192,12 +195,15 @@ fn test_dead_cell_in_different_block() {
             .expect("process block ok");
     }
 
-    assert_eq!(
-        SharedError::InvalidTransaction("Transactions((0, Conflict))".to_string()),
-        chain_controller
-            .process_block(Arc::new(chain2[switch_fork_number + 2].clone()))
-            .unwrap_err()
-            .downcast()
-            .unwrap()
-    );
+    let error = chain_controller
+        .process_block(Arc::new(chain2[switch_fork_number + 2].clone()))
+        .unwrap_err()
+        .downcast()
+        .unwrap();
+    if let SharedError::InvalidTransaction(errmsg) = error {
+        let re = regex::Regex::new(r#"Transactions\(\([0-9], Conflict\)\)"#).unwrap();
+        assert!(re.is_match(&errmsg));
+    } else {
+        panic!("should be the Conflict Transactions error");
+    }
 }
