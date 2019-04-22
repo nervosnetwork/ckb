@@ -5,7 +5,7 @@ use ckb_core::cell::{
 };
 use ckb_core::extras::BlockExt;
 use ckb_core::service::{Request, DEFAULT_CHANNEL_SIZE, SIGNAL_CHANNEL_SIZE};
-use ckb_core::transaction::ProposalShortId;
+use ckb_core::transaction::{CellOutput, ProposalShortId};
 use ckb_core::{header::Header, BlockNumber};
 use ckb_notify::NotifyController;
 use ckb_shared::cell_set::CellSetDiff;
@@ -18,12 +18,13 @@ use ckb_verification::{BlockVerifier, TransactionsVerifier, Verifier};
 use crossbeam_channel::{self, select, Receiver, Sender};
 use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
-use fnv::FnvHashSet;
+use fnv::{FnvHashMap, FnvHashSet};
 use log::{self, debug, error, log_enabled};
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 use serde_derive::{Deserialize, Serialize};
 use std::cmp;
+use std::mem;
 use std::sync::Arc;
 use std::thread;
 use stop_handler::{SignalSender, StopHandler};
@@ -435,19 +436,28 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
         chain_state: &mut ChainState<CS>,
     ) -> Result<CellSetDiff, FailureError> {
         let mut cell_set_diff = CellSetDiff::default();
+        let mut outputs: FnvHashMap<H256, &[CellOutput]> = FnvHashMap::default();
+
+        let mut dirty_exts = Vec::new();
+        // cause we need borrow outputs from fork, swap `dirty_exts` out to evade from borrow check
+        mem::swap(&mut fork.dirty_exts, &mut dirty_exts);
 
         let attached_blocks_iter = fork.attached_blocks().iter().rev();
         let detached_blocks_iter = fork.detached_blocks().iter().rev();
 
-        let attached_blocks_len = fork.attached_blocks.len();
-        let verified_len = attached_blocks_len - fork.dirty_exts.len();
+        let unverified_len = fork.attached_blocks.len() - dirty_exts.len();
 
         for b in detached_blocks_iter {
             cell_set_diff.push_old(b);
         }
 
-        for b in attached_blocks_iter.take(verified_len) {
+        for b in attached_blocks_iter.take(unverified_len) {
             cell_set_diff.push_new(b);
+            outputs.extend(
+                b.commit_transactions()
+                    .iter()
+                    .map(|tx| (tx.hash(), tx.outputs())),
+            );
         }
 
         // The verify function
@@ -455,17 +465,12 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
 
         let mut found_error = None;
         // verify transaction
-        for (ext, b) in fork
-            .dirty_exts
-            .iter_mut()
-            .zip(fork.attached_blocks.iter())
-            .rev()
-        {
+        for (ext, b) in dirty_exts.iter_mut().zip(fork.attached_blocks.iter()).rev() {
             if self.verification {
                 if found_error.is_none() {
                     let mut seen_inputs = FnvHashSet::default();
-
-                    let cell_set_overlay = chain_state.new_cell_set_overlay(&cell_set_diff);
+                    let cell_set_overlay =
+                        chain_state.new_cell_set_overlay(&cell_set_diff, &outputs);
                     let block_cp = BlockCellProvider::new(b);
                     let cell_provider = OverlayCellProvider::new(&block_cp, &cell_set_overlay);
 
@@ -491,6 +496,11 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
                     ) {
                         Ok(_) => {
                             cell_set_diff.push_new(b);
+                            outputs.extend(
+                                b.commit_transactions()
+                                    .iter()
+                                    .map(|tx| (tx.hash(), tx.outputs())),
+                            );
                             ext.txs_verified = Some(true);
                         }
                         Err(err) => {
@@ -509,9 +519,15 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
                 }
             } else {
                 cell_set_diff.push_new(b);
+                outputs.extend(
+                    b.commit_transactions()
+                        .iter()
+                        .map(|tx| (tx.hash(), tx.outputs())),
+                );
                 ext.txs_verified = Some(true);
             }
         }
+        mem::replace(&mut fork.dirty_exts, dirty_exts);
 
         // update exts
         for (ext, b) in fork

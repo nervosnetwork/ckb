@@ -6,7 +6,7 @@ use crate::{
 use ckb_core::cell::{resolve_transaction, CellStatus, LiveCell};
 use ckb_core::transaction::Transaction;
 use ckb_db::memorydb::MemoryKeyValueDB;
-use fnv::FnvHashSet;
+use fnv::{FnvHashMap, FnvHashSet};
 use std::fs::File;
 use std::io::BufReader;
 use std::path::Path;
@@ -48,8 +48,9 @@ fn case_no1() {
     chain_state.cell_set = cell_set();
 
     let cell_set_diff = cell_set_diff();
-    let cell_set_overlay = chain_state.new_cell_set_overlay(&cell_set_diff);
+    let outputs = FnvHashMap::default();
 
+    let cell_set_overlay = chain_state.new_cell_set_overlay(&cell_set_diff, &outputs);
     let transcations = transcations();
     // let cell_provider = OverlayCellProvider::new(&overlay, &cell_set);
 
