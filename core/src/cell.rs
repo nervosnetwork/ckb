@@ -231,9 +231,12 @@ impl ResolvedTransaction {
         self.cells_iter().all(CellStatus::is_live)
     }
 
-    pub fn fee(&self) -> Capacity {
-        self.inputs_capacity()
-            .saturating_sub(self.transaction.outputs_capacity())
+    pub fn fee(&self) -> Option<Capacity> {
+        let outputs_capacity = match self.transaction.outputs_capacity() {
+            Some(capacity) => capacity,
+            None => return None,
+        };
+        Some(self.inputs_capacity().saturating_sub(outputs_capacity))
     }
 
     pub fn inputs_capacity(&self) -> Capacity {

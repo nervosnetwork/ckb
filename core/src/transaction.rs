@@ -255,8 +255,15 @@ impl Transaction {
         self.outputs.get(i).cloned()
     }
 
-    pub fn outputs_capacity(&self) -> Capacity {
-        self.outputs.iter().map(|output| output.capacity).sum()
+    pub fn outputs_capacity(&self) -> Option<Capacity> {
+        let mut total_capacity: Capacity = 0;
+        for output in self.outputs().iter() {
+            match total_capacity.checked_add(output.capacity) {
+                Some(capacity) => total_capacity = capacity,
+                None => return None,
+            }
+        }
+        Some(total_capacity)
     }
 }
 

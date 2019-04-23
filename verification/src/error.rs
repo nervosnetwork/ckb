@@ -49,6 +49,8 @@ pub enum Error {
     /// Cycles consumed by all scripts in all commit transactions of the block exceed
     /// the maximum allowed cycles in consensus rules
     ExceededMaximumCycles,
+    /// The money amount is too large
+    CapacityOverflow,
     /// The field version in block header is not allowed.
     Version,
 }

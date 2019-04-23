@@ -361,8 +361,18 @@ impl TransactionsVerifier {
     {
         // verify cellbase reward
         let cellbase = &resolved[0];
-        let fee: Capacity = resolved.iter().skip(1).map(ResolvedTransaction::fee).sum();
-        if cellbase.transaction.outputs_capacity() > block_reward + fee {
+        let mut fee: Capacity = 0;
+        for tx_fee in resolved.iter().skip(1).map(ResolvedTransaction::fee) {
+            match tx_fee.and_then(|tx_fee| fee.checked_add(tx_fee)) {
+                Some(total_fee) => fee = total_fee,
+                None => return Err(Error::CapacityOverflow),
+            }
+        }
+        let outputs_capacity = match cellbase.transaction.outputs_capacity() {
+            Some(capacity) => capacity,
+            None => return Err(Error::CapacityOverflow),
+        };
+        if outputs_capacity > block_reward + fee {
             return Err(Error::Cellbase(CellbaseError::InvalidReward));
         }
         // TODO use TransactionScriptsVerifier to verify cellbase script
