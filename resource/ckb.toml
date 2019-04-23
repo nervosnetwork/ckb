@@ -45,7 +45,7 @@ bootnodes = []
 reserved_peers = []
 reserved_only = false
 max_peers = 125
-max_outbound_peers = 30
+max_outbound_peers = 8
 # 2 minutes
 ping_interval_secs = 120
 # 20 minutes
