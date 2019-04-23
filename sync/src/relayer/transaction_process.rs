@@ -86,7 +86,6 @@ impl<'a, CS: ChainStore> TransactionProcess<'a, CS> {
             | Err(PoolError::InvalidTx(TransactionError::InvalidSignature))
             | Err(PoolError::InvalidTx(TransactionError::InvalidValidSince)) => {
                 debug!(target: "relay", "peer {} relay a invalid tx: {:?}", self.peer, tx);
-                // TODO use report score interface
                 self.nc.ban_peer(self.peer, DEFAULT_BAN_TIME);
             }
             Ok(cycles) => {
@@ -95,13 +94,12 @@ impl<'a, CS: ChainStore> TransactionProcess<'a, CS> {
                     "peer {} relay wrong cycles tx: {:?} real cycles {} wrong cycles {}",
                     self.peer, tx, cycles, relay_cycles,
                 );
-                // TODO use report score interface
                 self.nc.ban_peer(self.peer, DEFAULT_BAN_TIME);
             }
             Err(err) => {
                 // this error may occured when peer's tip is different with us,
                 // we can't proof peer is bad so just ignore this
-                debug!(target: "relay", "peer {} relay tx verify err: {:?}, error: {:?}", self.peer, tx, err);
+                debug!(target: "relay", "peer {} relay a conflict or missing input tx: {:?}, error: {:?}", self.peer, tx, err);
             }
         }
 
