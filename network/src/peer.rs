@@ -1,6 +1,7 @@
 use crate::network_group::{Group, NetworkGroup};
-use crate::{multiaddr::Multiaddr, PeerIndex, ProtocolId, ProtocolVersion, SessionId, SessionType};
+use crate::{multiaddr::Multiaddr, ProtocolId, ProtocolVersion, SessionType};
 use fnv::FnvHashMap;
+use p2p::{secio::PeerId, SessionId};
 use std::time::{Duration, Instant};
 
 #[derive(Clone, Debug)]
@@ -13,8 +14,8 @@ pub struct PeerIdentifyInfo {
 
 #[derive(Clone, Debug)]
 pub struct Peer {
-    pub(crate) peer_index: PeerIndex,
-    pub connected_addr: Multiaddr,
+    pub address: Multiaddr,
+    pub peer_id: PeerId,
     // Client or Server
     pub identify_info: Option<PeerIdentifyInfo>,
     pub last_ping_time: Option<Instant>,
@@ -25,43 +26,43 @@ pub struct Peer {
     pub session_id: SessionId,
     pub session_type: SessionType,
     pub protocols: FnvHashMap<ProtocolId, ProtocolVersion>,
+    pub is_reserved: bool,
 }
 
 impl Peer {
     pub fn new(
-        peer_index: PeerIndex,
-        connected_addr: Multiaddr,
         session_id: SessionId,
         session_type: SessionType,
+        peer_id: PeerId,
+        address: Multiaddr,
+        is_reserved: bool,
     ) -> Self {
         Peer {
-            connected_addr,
+            address,
             identify_info: None,
             ping: None,
             last_ping_time: None,
             last_message_time: None,
             connected_time: Instant::now(),
             is_feeler: false,
-            peer_index,
+            peer_id,
             session_id,
             session_type,
             protocols: FnvHashMap::with_capacity_and_hasher(1, Default::default()),
+            is_reserved,
         }
     }
-    #[inline]
+
     pub fn is_outbound(&self) -> bool {
         self.session_type.is_outbound()
     }
 
-    #[allow(dead_code)]
-    #[inline]
     pub fn is_inbound(&self) -> bool {
         self.session_type.is_inbound()
     }
 
-    #[inline]
     pub fn network_group(&self) -> Group {
-        self.connected_addr.network_group()
+        self.address.network_group()
     }
 
     pub fn protocol_version(&self, protocol_id: ProtocolId) -> Option<ProtocolVersion> {

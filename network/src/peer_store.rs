@@ -27,21 +27,21 @@ impl Default for PeerScoreConfig {
 
 /// PeerStore
 /// See [rfc0007](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0007-scoring-system-and-network-security/0007-scoring-system-and-network-security.md) for details.
-pub trait PeerStore: Send + Sync {
+pub trait PeerStore: Send {
     /// Add a peer and address into peer_store
     /// this method will assume peer is connected, which implies address is "verified".
-    fn add_connected_peer(&self, peer_id: &PeerId, address: Multiaddr, endpoint: SessionType);
+    fn add_connected_peer(&mut self, peer_id: &PeerId, address: Multiaddr, endpoint: SessionType);
     /// Add discovered peer addresses
     /// this method will assume peer and addr is untrust since we have not connected to it.
-    fn add_discovered_addr(&self, peer_id: &PeerId, address: Multiaddr) -> bool;
+    fn add_discovered_addr(&mut self, peer_id: &PeerId, address: Multiaddr) -> bool;
     /// Report peer behaviours
-    fn report(&self, peer_id: &PeerId, behaviour: Behaviour) -> ReportResult;
+    fn report(&mut self, peer_id: &PeerId, behaviour: Behaviour) -> ReportResult;
     /// Update peer status
     fn update_status(&self, peer_id: &PeerId, status: Status);
     fn peer_status(&self, peer_id: &PeerId) -> Status;
     fn peer_score(&self, peer_id: &PeerId) -> Option<Score>;
     /// Add bootnode
-    fn add_bootnode(&self, peer_id: PeerId, addr: Multiaddr);
+    fn add_bootnode(&mut self, peer_id: PeerId, addr: Multiaddr);
     /// This method randomly return peers, it return bootnodes if no other peers in PeerStore.
     fn bootnodes(&self, count: u32) -> Vec<(PeerId, Multiaddr)>;
     /// Get addrs of a peer, note a peer may have multiple addrs
@@ -54,7 +54,7 @@ pub trait PeerStore: Send + Sync {
     /// Randomly get peers
     fn random_peers(&self, count: u32) -> Vec<(PeerId, Multiaddr)>;
     /// Ban a peer
-    fn ban_peer(&self, peer_id: &PeerId, timeout: Duration);
+    fn ban_peer(&mut self, peer_id: &PeerId, timeout: Duration);
     /// Check peer ban status
     fn is_banned(&self, peer_id: &PeerId) -> bool;
     /// peer score config

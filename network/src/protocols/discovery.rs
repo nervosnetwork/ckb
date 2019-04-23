@@ -106,7 +106,7 @@ impl ServiceProtocol for DiscoveryProtocol {
 
     fn received(&mut self, context: ProtocolContextMutRef, data: bytes::Bytes) {
         let session = context.session;
-        debug!(target: "network", "[received message]: length={}", data.len());
+        trace!(target: "network", "[received message]: length={}", data.len());
 
         if let Some(ref mut sender) = self.discovery_senders.get_mut(&session.id) {
             // TODO: handle channel is full (wait for poll API?)
@@ -194,13 +194,11 @@ impl Stream for DiscoveryService {
                                 })
                                 .collect::<Multiaddr>();
 
-                            if !self
-                                .network_state
-                                .peer_store()
-                                .add_discovered_addr(&peer_id, addr)
-                            {
-                                debug!(target: "network", "add_discovered_addr failed {:?}", peer_id);
-                            }
+                            self.network_state.with_peer_store_mut(|peer_store| {
+                                if !peer_store.add_discovered_addr(&peer_id, addr) {
+                                    trace!(target: "network", "add_discovered_addr failed {:?}", peer_id);
+                                }
+                            });
                         }
                     }
                 }
@@ -213,10 +211,10 @@ impl Stream for DiscoveryService {
                 // FIXME:
             }
             Some(DiscoveryEvent::GetRandom { n, result }) => {
-                let addrs = self
+                let random_peers = self
                     .network_state
-                    .peer_store()
-                    .random_peers(n as u32)
+                    .with_peer_store(|peer_store| peer_store.random_peers(n as u32));
+                let addrs = random_peers
                     .into_iter()
                     .filter_map(|(peer_id, mut addr)| {
                         Multihash::from_bytes(peer_id.into_bytes())
