@@ -14,7 +14,7 @@ pub struct GetHeadersProcess<'a, CS: ChainStore + 'a> {
     message: &'a GetHeaders<'a>,
     synchronizer: &'a Synchronizer<CS>,
     peer: PeerIndex,
-    nc: &'a mut CKBProtocolContext,
+    nc: &'a CKBProtocolContext,
 }
 
 impl<'a, CS> GetHeadersProcess<'a, CS>
@@ -25,7 +25,7 @@ where
         message: &'a GetHeaders,
         synchronizer: &'a Synchronizer<CS>,
         peer: PeerIndex,
-        nc: &'a mut CKBProtocolContext,
+        nc: &'a CKBProtocolContext,
     ) -> Self {
         GetHeadersProcess {
             message,
@@ -71,20 +71,13 @@ where
             let fbb = &mut FlatBufferBuilder::new();
             let message = SyncMessage::build_headers(fbb, &headers);
             fbb.finish(message, None);
-            let ret = self.nc.send(self.peer, fbb.finished_data().to_vec());
-
-            if ret.is_err() {
-                warn!(target: "sync", "response GetHeaders error {:?}", ret);
-            }
+            self.nc
+                .send_message_to(self.peer, fbb.finished_data().to_vec());
         } else {
             warn!(target: "sync", "\n\nunknown block headers from peer {} {:#?}\n\n", self.peer, block_locator_hashes);
             // Got 'headers' message without known blocks
             // ban or close peers
-            let report_ret = self.nc.report_peer(self.peer, Behaviour::SyncUseless);
-
-            if report_ret.is_err() {
-                warn!(target: "sync", "report behaviour SyncUseless error {:?}", report_ret);
-            }
+            self.nc.report_peer(self.peer, Behaviour::SyncUseless);
             // disconnect peer anyway
             self.nc.disconnect(self.peer);
         }

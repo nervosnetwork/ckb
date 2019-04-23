@@ -4,28 +4,28 @@ use ckb_protocol::{cast, GetBlockTransactions, RelayMessage};
 use ckb_shared::store::ChainStore;
 use failure::Error as FailureError;
 use flatbuffers::FlatBufferBuilder;
-use log::{debug, warn};
+use log::debug;
 use std::convert::TryInto;
 
 pub struct GetBlockTransactionsProcess<'a, CS> {
     message: &'a GetBlockTransactions<'a>,
     relayer: &'a Relayer<CS>,
+    nc: &'a CKBProtocolContext,
     peer: PeerIndex,
-    nc: &'a mut CKBProtocolContext,
 }
 
 impl<'a, CS: ChainStore> GetBlockTransactionsProcess<'a, CS> {
     pub fn new(
         message: &'a GetBlockTransactions,
         relayer: &'a Relayer<CS>,
+        nc: &'a CKBProtocolContext,
         peer: PeerIndex,
-        nc: &'a mut CKBProtocolContext,
     ) -> Self {
         GetBlockTransactionsProcess {
             message,
             nc,
-            peer,
             relayer,
+            peer,
         }
     }
 
@@ -46,10 +46,8 @@ impl<'a, CS: ChainStore> GetBlockTransactionsProcess<'a, CS> {
             let message = RelayMessage::build_block_transactions(fbb, &hash, &transactions);
             fbb.finish(message, None);
 
-            let ret = self.nc.send(self.peer, fbb.finished_data().to_vec());
-            if ret.is_err() {
-                warn!(target: "relay", "GetBlockTransactionsProcess response error {:?}", ret);
-            }
+            self.nc
+                .send_message_to(self.peer, fbb.finished_data().to_vec());
         }
 
         Ok(())

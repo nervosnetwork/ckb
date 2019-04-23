@@ -28,10 +28,18 @@ pub const STALE_RELAY_AGE_LIMIT: u64 = 30 * 24 * 60 * 60 * 1000;
 pub const BLOCK_DOWNLOAD_WINDOW: u64 = 1024;
 pub const PER_FETCH_BLOCK_LIMIT: usize = 128;
 
+use ckb_network::ProtocolId;
+
 pub enum NetworkProtocol {
     SYNC = 100,
     RELAY = 101,
     TIME = 102,
+}
+
+impl Into<ProtocolId> for NetworkProtocol {
+    fn into(self) -> ProtocolId {
+        (self as usize).into()
+    }
 }
 
 //  Timeout = base + per_header * (expected number of headers)
