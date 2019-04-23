@@ -43,7 +43,7 @@ fn create_normal_transaction() -> Transaction {
 #[test]
 pub fn test_block_without_cellbase() {
     let block = BlockBuilder::default()
-        .commit_transaction(TransactionBuilder::default().build())
+        .transaction(TransactionBuilder::default().build())
         .build();
     let verifier = CellbaseVerifier::new(DummyChainProvider::default());
     assert_eq!(
@@ -57,8 +57,8 @@ pub fn test_block_with_one_cellbase_at_first() {
     let transaction = create_normal_transaction();
 
     let block = BlockBuilder::default()
-        .commit_transaction(create_cellbase_transaction())
-        .commit_transaction(transaction)
+        .transaction(create_cellbase_transaction())
+        .transaction(transaction)
         .build();
 
     let provider = DummyChainProvider {
@@ -72,8 +72,8 @@ pub fn test_block_with_one_cellbase_at_first() {
 #[test]
 pub fn test_block_with_one_cellbase_at_last() {
     let block = BlockBuilder::default()
-        .commit_transaction(create_normal_transaction())
-        .commit_transaction(create_cellbase_transaction())
+        .transaction(create_normal_transaction())
+        .transaction(create_cellbase_transaction())
         .build();
 
     let verifier = CellbaseVerifier::new(DummyChainProvider::default());
@@ -86,8 +86,8 @@ pub fn test_block_with_one_cellbase_at_last() {
 #[test]
 pub fn test_block_with_two_cellbases() {
     let block = BlockBuilder::default()
-        .commit_transaction(create_cellbase_transaction())
-        .commit_transaction(create_cellbase_transaction())
+        .transaction(create_cellbase_transaction())
+        .transaction(create_cellbase_transaction())
         .build();
 
     let verifier = CellbaseVerifier::new(DummyChainProvider::default());
@@ -102,10 +102,10 @@ pub fn test_cellbase_with_less_reward() {
     let transaction = create_normal_transaction();
 
     let block = BlockBuilder::default()
-        .commit_transaction(create_cellbase_transaction_with_capacity(capacity_bytes!(
+        .transaction(create_cellbase_transaction_with_capacity(capacity_bytes!(
             50
         )))
-        .commit_transaction(transaction)
+        .transaction(transaction)
         .build();
 
     let provider = DummyChainProvider {
@@ -121,10 +121,10 @@ pub fn test_cellbase_with_fee() {
     let transaction = create_normal_transaction();
 
     let block = BlockBuilder::default()
-        .commit_transaction(create_cellbase_transaction_with_capacity(capacity_bytes!(
+        .transaction(create_cellbase_transaction_with_capacity(capacity_bytes!(
             110
         )))
-        .commit_transaction(transaction)
+        .transaction(transaction)
         .build();
 
     let provider = DummyChainProvider {

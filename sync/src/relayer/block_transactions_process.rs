@@ -30,13 +30,13 @@ impl<'a, CS: ChainStore> BlockTransactionsProcess<'a, CS> {
     }
 
     pub fn execute(self) -> Result<(), FailureError> {
-        let hash = cast!(self.message.hash())?.try_into()?;
+        let block_hash = cast!(self.message.block_hash())?.try_into()?;
         if let Some(compact_block) = self
             .relayer
             .state
             .pending_compact_blocks
             .lock()
-            .remove(&hash)
+            .remove(&block_hash)
         {
             let transactions: Result<Vec<Transaction>, FailureError> =
                 FlatbuffersVectorIterator::new(cast!(self.message.transactions())?)

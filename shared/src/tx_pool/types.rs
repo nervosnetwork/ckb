@@ -249,7 +249,7 @@ impl StagingPool {
 
     pub fn get_output(&self, o: &OutPoint) -> Option<CellOutput> {
         self.vertices
-            .get(&ProposalShortId::from_tx_hash(&o.hash))
+            .get(&ProposalShortId::from_tx_hash(&o.tx_hash))
             .and_then(|x| x.transaction.get_output(o.index as usize))
     }
 
@@ -608,7 +608,7 @@ impl PendingQueue {
 
 impl CellProvider for PendingQueue {
     fn cell(&self, o: &OutPoint) -> CellStatus {
-        if let Some(x) = self.inner.get(&ProposalShortId::from_tx_hash(&o.hash)) {
+        if let Some(x) = self.inner.get(&ProposalShortId::from_tx_hash(&o.tx_hash)) {
             match x.transaction.get_output(o.index as usize) {
                 Some(cell) => CellStatus::live_output(cell, None, false),
                 None => CellStatus::Unknown,

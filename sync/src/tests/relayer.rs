@@ -47,7 +47,7 @@ fn relay_compact_block_with_one_tx() {
             let last_block = shared1
                 .block(&shared1.chain_state().lock().tip_hash())
                 .unwrap();
-            let last_cellbase = last_block.commit_transactions().first().unwrap();
+            let last_cellbase = last_block.transactions().first().unwrap();
 
             // building tx and broadcast it
             let tx = TransactionBuilder::default()
@@ -94,8 +94,8 @@ fn relay_compact_block_with_one_tx() {
                     .difficulty(difficulty);
 
                 BlockBuilder::default()
-                    .commit_transaction(cellbase)
-                    .proposal_transaction(tx.proposal_short_id())
+                    .transaction(cellbase)
+                    .proposal(tx.proposal_short_id())
                     .with_header_builder(header_builder)
             };
 
@@ -129,8 +129,8 @@ fn relay_compact_block_with_one_tx() {
                     .difficulty(difficulty);
 
                 BlockBuilder::default()
-                    .commit_transaction(cellbase)
-                    .commit_transaction(tx)
+                    .transaction(cellbase)
+                    .transaction(tx)
                     .with_header_builder(header_builder)
             };
 
@@ -194,7 +194,7 @@ fn relay_compact_block_with_missing_indexs() {
             let last_block = shared1
                 .block(&shared1.chain_state().lock().tip_hash())
                 .unwrap();
-            let last_cellbase = last_block.commit_transactions().first().unwrap();
+            let last_cellbase = last_block.transactions().first().unwrap();
 
             // building 10 txs and broadcast some
             let txs = (0..10u8)
@@ -247,8 +247,8 @@ fn relay_compact_block_with_missing_indexs() {
                     .difficulty(difficulty);
 
                 BlockBuilder::default()
-                    .commit_transaction(cellbase)
-                    .proposal_transactions(txs.iter().map(Transaction::proposal_short_id).collect())
+                    .transaction(cellbase)
+                    .proposals(txs.iter().map(Transaction::proposal_short_id).collect())
                     .with_header_builder(header_builder)
             };
 
@@ -282,8 +282,8 @@ fn relay_compact_block_with_missing_indexs() {
                     .difficulty(difficulty);
 
                 BlockBuilder::default()
-                    .commit_transaction(cellbase)
-                    .commit_transactions(txs)
+                    .transaction(cellbase)
+                    .transactions(txs)
                     .with_header_builder(header_builder)
             };
 
@@ -373,7 +373,7 @@ fn setup_node(
             .difficulty(difficulty);
 
         block = BlockBuilder::default()
-            .commit_transaction(cellbase)
+            .transaction(cellbase)
             .with_header_builder(header_builder);
 
         chain_controller

@@ -32,8 +32,8 @@ fn gen_block(parent_header: &Header, nonce: u64, difficulty: U256) -> Block {
         .nonce(nonce);
 
     BlockBuilder::default()
-        .commit_transaction(cellbase)
-        .proposal_transaction(ProposalShortId::from_slice(&[1; 10]).unwrap())
+        .transaction(cellbase)
+        .proposal(ProposalShortId::from_slice(&[1; 10]).unwrap())
         .with_header_builder(header_builder)
 }
 
@@ -183,7 +183,7 @@ fn test_uncle_verifier() {
 
     let uncle = BlockBuilder::default()
         .block(chain2.get(6).cloned().unwrap())
-        .proposal_transaction(ProposalShortId::from_slice(&[1; 10]).unwrap())
+        .proposal(ProposalShortId::from_slice(&[1; 10]).unwrap())
         .build();
     let block = BlockBuilder::default()
         .block(chain1.get(8).cloned().unwrap())
@@ -196,7 +196,7 @@ fn test_uncle_verifier() {
 
     let uncle = BlockBuilder::default()
         .block(chain2.get(6).cloned().unwrap())
-        .proposal_transaction(ProposalShortId::from_slice(&[1; 10]).unwrap())
+        .proposal(ProposalShortId::from_slice(&[1; 10]).unwrap())
         .with_header_builder(HeaderBuilder::default().header(chain2[6].header().clone()));
     let block = BlockBuilder::default()
         .block(chain1.get(8).cloned().unwrap())

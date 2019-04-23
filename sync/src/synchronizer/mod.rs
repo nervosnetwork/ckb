@@ -846,7 +846,7 @@ mod tests {
             .nonce(nonce);
 
         BlockBuilder::default()
-            .commit_transaction(cellbase)
+            .transaction(cellbase)
             .with_header_builder(header_builder)
     }
 

@@ -147,7 +147,7 @@ pub enum TransactionError {
     Conflict,
     Unknown,
     Version,
-    /// Tx not satisfied valid_since condition
+    /// Tx not satisfied since condition
     Immature,
     /// Invalid ValidSince flags
     InvalidValidSince,

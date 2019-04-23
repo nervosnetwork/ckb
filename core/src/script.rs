@@ -16,7 +16,7 @@ pub struct Script {
     // Binary hash here can be used to refer to binary in one of the dep
     // cells of current transaction. The hash here must match the hash of
     // cell data so as to reference a dep cell.
-    pub binary_hash: H256,
+    pub code_hash: H256,
 }
 
 fn prefix_hex(bytes: &[u8]) -> String {
@@ -34,7 +34,7 @@ impl fmt::Debug for Script {
             .entries(self.args.iter().map(|arg| prefix_hex(arg)))
             .finish()?;
 
-        write!(f, ", binary_hash: {:#x}", self.binary_hash,)?;
+        write!(f, ", code_hash: {:#x}", self.code_hash,)?;
 
         write!(f, " }}")
     }
@@ -46,8 +46,8 @@ const VEC_WRITE_ALL_EXPECT: &str =
     "Essentially, Vec::write_all invoke extend_from_slice, should not fail";
 
 impl Script {
-    pub fn new(args: Vec<Vec<u8>>, binary_hash: H256) -> Self {
-        Script { args, binary_hash }
+    pub fn new(args: Vec<Vec<u8>>, code_hash: H256) -> Self {
+        Script { args, code_hash }
     }
 
     pub fn always_success() -> Self {
@@ -55,14 +55,14 @@ impl Script {
     }
 
     pub fn destruct(self) -> ScriptTuple {
-        let Script { args, binary_hash } = self;
-        (args, binary_hash)
+        let Script { args, code_hash } = self;
+        (args, code_hash)
     }
 
     pub fn hash(&self) -> H256 {
         let mut bytes = vec![];
         bytes
-            .write_all(self.binary_hash.as_bytes())
+            .write_all(self.code_hash.as_bytes())
             .expect(VEC_WRITE_ALL_EXPECT);
         for argument in &self.args {
             bytes.write_all(argument).expect(VEC_WRITE_ALL_EXPECT);
@@ -87,7 +87,7 @@ mod tests {
             .args
             .occupied_capacity()
             .unwrap()
-            .safe_add(script.binary_hash.occupied_capacity().unwrap())
+            .safe_add(script.code_hash.occupied_capacity().unwrap())
             .unwrap();
         assert_eq!(
             script.occupied_capacity().unwrap(),
@@ -108,7 +108,7 @@ mod tests {
             .args
             .occupied_capacity()
             .unwrap()
-            .safe_add(script.binary_hash.occupied_capacity().unwrap())
+            .safe_add(script.code_hash.occupied_capacity().unwrap())
             .unwrap();
         assert_eq!(
             script.occupied_capacity().unwrap(),
@@ -126,7 +126,7 @@ mod tests {
             .args
             .occupied_capacity()
             .unwrap()
-            .safe_add(script.binary_hash.occupied_capacity().unwrap())
+            .safe_add(script.code_hash.occupied_capacity().unwrap())
             .unwrap();
         assert_eq!(
             script.occupied_capacity().unwrap(),

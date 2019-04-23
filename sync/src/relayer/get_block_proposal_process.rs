@@ -30,13 +30,13 @@ impl<'a, CS: ChainStore> GetBlockProposalProcess<'a, CS> {
 
     pub fn execute(self) -> Result<(), FailureError> {
         let mut pending_proposals_request = self.relayer.state.pending_proposals_request.lock();
-        let proposal_transactions = cast!(self.message.proposal_transactions())?;
+        let proposals = cast!(self.message.proposals())?;
 
         let transactions = {
             let chain_state = self.relayer.shared.chain_state().lock();
             let tx_pool = chain_state.tx_pool();
 
-            let proposals = proposal_transactions
+            let proposals = proposals
                 .iter()
                 .map(TryInto::try_into)
                 .collect::<Result<Vec<_>, FailureError>>();

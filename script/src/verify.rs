@@ -108,7 +108,7 @@ impl<'a> TransactionScriptsVerifier<'a> {
 
     // Extracts actual script binary either in dep cells.
     fn extract_script(&self, script: &'a Script) -> Result<&'a [u8], ScriptError> {
-        match self.binary_index.get(&script.binary_hash) {
+        match self.binary_index.get(&script.code_hash) {
             Some(ref binary) => Ok(binary),
             None => Err(ScriptError::InvalidReferenceIndex),
         }
@@ -123,7 +123,7 @@ impl<'a> TransactionScriptsVerifier<'a> {
         current_input: Option<&'a CellInput>,
         max_cycles: Cycle,
     ) -> Result<Cycle, ScriptError> {
-        if script.binary_hash == ALWAYS_SUCCESS_HASH {
+        if script.code_hash == ALWAYS_SUCCESS_HASH {
             return Ok(0);
         }
         let mut args = vec![b"verify".to_vec()];
@@ -273,7 +273,7 @@ mod tests {
         hex_encode(&pubkey, &mut hex_pubkey).expect("hex pubkey");
         witness_data.insert(0, hex_pubkey);
 
-        let binary_hash: H256 = (&blake2b_256(&buffer)).into();
+        let code_hash: H256 = (&blake2b_256(&buffer)).into();
         let dep_out_point = OutPoint::new(H256::from_trimmed_hex_str("123").unwrap(), 8);
         let dep_cell = CellMeta {
             cell_output: CellOutput::new(
@@ -286,7 +286,7 @@ mod tests {
             cellbase: false,
         };
 
-        let script = Script::new(args, binary_hash);
+        let script = Script::new(args, code_hash);
         let input = CellInput::new(OutPoint::null(), 0, vec![]);
 
         let transaction = TransactionBuilder::default()
@@ -341,7 +341,7 @@ mod tests {
         hex_encode(&pubkey, &mut hex_pubkey).expect("hex pubkey");
         witness_data.insert(0, hex_pubkey);
 
-        let binary_hash: H256 = (&blake2b_256(&buffer)).into();
+        let code_hash: H256 = (&blake2b_256(&buffer)).into();
         let dep_out_point = OutPoint::new(H256::from_trimmed_hex_str("123").unwrap(), 8);
         let dep_cell = CellMeta {
             cell_output: CellOutput::new(
@@ -354,7 +354,7 @@ mod tests {
             cellbase: false,
         };
 
-        let script = Script::new(args, binary_hash);
+        let script = Script::new(args, code_hash);
         let input = CellInput::new(OutPoint::null(), 0, vec![]);
 
         let transaction = TransactionBuilder::default()
@@ -411,7 +411,7 @@ mod tests {
         hex_encode(&pubkey, &mut hex_pubkey).expect("hex pubkey");
         witness_data.insert(0, hex_pubkey);
 
-        let binary_hash: H256 = (&blake2b_256(&buffer)).into();
+        let code_hash: H256 = (&blake2b_256(&buffer)).into();
         let dep_out_point = OutPoint::new(H256::from_trimmed_hex_str("123").unwrap(), 8);
         let dep_cell = CellMeta {
             cell_output: CellOutput::new(
@@ -424,7 +424,7 @@ mod tests {
             cellbase: false,
         };
 
-        let script = Script::new(args, binary_hash);
+        let script = Script::new(args, code_hash);
         let input = CellInput::new(OutPoint::null(), 0, vec![]);
 
         let transaction = TransactionBuilder::default()
@@ -480,8 +480,8 @@ mod tests {
         hex_encode(&pubkey, &mut hex_pubkey).expect("hex pubkey");
         witness_data.insert(0, hex_pubkey);
 
-        let binary_hash: H256 = (&blake2b_256(&buffer)).into();
-        let script = Script::new(args, binary_hash);
+        let code_hash: H256 = (&blake2b_256(&buffer)).into();
+        let script = Script::new(args, code_hash);
         let input = CellInput::new(OutPoint::null(), 0, vec![]);
 
         let transaction = TransactionBuilder::default()

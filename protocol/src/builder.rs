@@ -7,11 +7,11 @@ use crate::protocol_generated::ckb::protocol::{
     Header as FbsHeader, HeaderBuilder, Headers as FbsHeaders, HeadersBuilder,
     IndexTransactionBuilder, MerkleProofBuilder, OutPoint as FbsOutPoint, OutPointBuilder,
     ProposalShortId as FbsProposalShortId, RelayMessage, RelayMessageBuilder, RelayPayload,
-    Script as FbsScript, ScriptBuilder, SyncMessage, SyncMessageBuilder, SyncPayload,
-    Time as FbsTime, TimeBuilder, TimeMessage, TimeMessageBuilder, Transaction as FbsTransaction,
-    TransactionBuilder, UncleBlock as FbsUncleBlock, UncleBlockBuilder,
-    ValidTransaction as FbsValidTransaction, ValidTransactionBuilder, Witness as FbsWitness,
-    WitnessBuilder, H256 as FbsH256,
+    RelayTransaction as FbsRelayTransaction, RelayTransactionBuilder, Script as FbsScript,
+    ScriptBuilder, SyncMessage, SyncMessageBuilder, SyncPayload, Time as FbsTime, TimeBuilder,
+    TimeMessage, TimeMessageBuilder, Transaction as FbsTransaction, TransactionBuilder,
+    UncleBlock as FbsUncleBlock, UncleBlockBuilder, Witness as FbsWitness, WitnessBuilder,
+    H256 as FbsH256,
 };
 use crate::{short_transaction_id, short_transaction_id_keys};
 use ckb_core::block::Block;
@@ -46,8 +46,8 @@ impl<'a> FbsBytes<'a> {
 impl<'a> FbsHeader<'a> {
     pub fn build<'b>(fbb: &mut FlatBufferBuilder<'b>, header: &Header) -> WIPOffset<FbsHeader<'b>> {
         let parent_hash = header.parent_hash().into();
-        let txs_commit = header.txs_commit().into();
-        let txs_proposal = header.txs_proposal().into();
+        let transactions_root = header.transactions_root().into();
+        let proposals_root = header.proposals_root().into();
         let witnesses_root = header.witnesses_root().into();
         let difficulty = FbsBytes::build(fbb, &uint_to_bytes(header.difficulty()));
         let proof = FbsBytes::build(fbb, &header.proof());
@@ -57,8 +57,8 @@ impl<'a> FbsHeader<'a> {
         builder.add_parent_hash(&parent_hash);
         builder.add_timestamp(header.timestamp());
         builder.add_number(header.number());
-        builder.add_txs_commit(&txs_commit);
-        builder.add_txs_proposal(&txs_proposal);
+        builder.add_transactions_root(&transactions_root);
+        builder.add_proposals_root(&proposals_root);
         builder.add_witnesses_root(&witnesses_root);
         builder.add_difficulty(difficulty);
         builder.add_nonce(header.nonce());
@@ -117,22 +117,22 @@ impl<'a> FbsOutPoint<'a> {
         fbb: &mut FlatBufferBuilder<'b>,
         out_point: &OutPoint,
     ) -> WIPOffset<FbsOutPoint<'b>> {
-        let hash = (&out_point.hash).into();
+        let tx_hash = (&out_point.tx_hash).into();
         let mut builder = OutPointBuilder::new(fbb);
-        builder.add_hash(&hash);
+        builder.add_tx_hash(&tx_hash);
         builder.add_index(out_point.index);
         builder.finish()
     }
 }
 
-impl<'a> FbsValidTransaction<'a> {
+impl<'a> FbsRelayTransaction<'a> {
     pub fn build<'b>(
         fbb: &mut FlatBufferBuilder<'b>,
         transaction: &Transaction,
         cycles: Cycle,
-    ) -> WIPOffset<FbsValidTransaction<'b>> {
+    ) -> WIPOffset<FbsRelayTransaction<'b>> {
         let tx = FbsTransaction::build(fbb, transaction);
-        let mut builder = ValidTransactionBuilder::new(fbb);
+        let mut builder = RelayTransactionBuilder::new(fbb);
         builder.add_transaction(tx);
         builder.add_cycles(cycles);
         builder.finish()
@@ -144,7 +144,7 @@ impl<'a> FbsCellInput<'a> {
         fbb: &mut FlatBufferBuilder<'b>,
         cell_input: &CellInput,
     ) -> WIPOffset<FbsCellInput<'b>> {
-        let hash = (&cell_input.previous_output.hash).into();
+        let tx_hash = (&cell_input.previous_output.tx_hash).into();
 
         let vec = cell_input
             .args
@@ -154,9 +154,9 @@ impl<'a> FbsCellInput<'a> {
         let args = fbb.create_vector(&vec);
 
         let mut builder = CellInputBuilder::new(fbb);
-        builder.add_hash(&hash);
+        builder.add_tx_hash(&tx_hash);
         builder.add_index(cell_input.previous_output.index);
-        builder.add_valid_since(cell_input.valid_since);
+        builder.add_since(cell_input.since);
         builder.add_args(args);
         builder.finish()
     }
@@ -171,11 +171,11 @@ impl<'a> FbsScript<'a> {
             .collect::<Vec<_>>();
         let args = fbb.create_vector(&vec);
 
-        let binary_hash = (&script.binary_hash).into();
+        let code_hash = (&script.code_hash).into();
 
         let mut builder = ScriptBuilder::new(fbb);
         builder.add_args(args);
-        builder.add_binary_hash(&binary_hash);
+        builder.add_code_hash(&code_hash);
         builder.finish()
     }
 }
@@ -228,24 +228,24 @@ impl<'a> FbsBlock<'a> {
         let uncles = fbb.create_vector(&vec);
 
         let vec = block
-            .commit_transactions()
+            .transactions()
             .iter()
             .map(|transaction| FbsTransaction::build(fbb, transaction))
             .collect::<Vec<_>>();
-        let commit_transactions = fbb.create_vector(&vec);
+        let transactions = fbb.create_vector(&vec);
 
         let vec = block
-            .proposal_transactions()
+            .proposals()
             .iter()
             .map(Into::into)
             .collect::<Vec<FbsProposalShortId>>();
-        let proposal_transactions = fbb.create_vector(&vec);
+        let proposals = fbb.create_vector(&vec);
 
         let mut builder = BlockBuilder::new(fbb);
         builder.add_header(header);
         builder.add_uncles(uncles);
-        builder.add_commit_transactions(commit_transactions);
-        builder.add_proposal_transactions(proposal_transactions);
+        builder.add_transactions(transactions);
+        builder.add_proposals(proposals);
         builder.finish()
     }
 }
@@ -258,15 +258,15 @@ impl<'a> FbsUncleBlock<'a> {
         // TODO how to avoid clone here?
         let header = FbsHeader::build(fbb, &uncle_block.header().clone());
         let vec = uncle_block
-            .proposal_transactions
+            .proposals
             .iter()
             .map(Into::into)
             .collect::<Vec<FbsProposalShortId>>();
-        let proposal_transactions = fbb.create_vector(&vec);
+        let proposals = fbb.create_vector(&vec);
 
         let mut builder = UncleBlockBuilder::new(fbb);
         builder.add_header(header);
-        builder.add_proposal_transactions(proposal_transactions);
+        builder.add_proposals(proposals);
         builder.finish()
     }
 }
@@ -405,12 +405,12 @@ impl<'a> FilteredBlock<'a> {
         } else {
             let transactions = transactions_index
                 .iter()
-                .map(|ti| FbsTransaction::build(fbb, &block.commit_transactions()[*ti]))
+                .map(|ti| FbsTransaction::build(fbb, &block.transactions()[*ti]))
                 .collect::<Vec<_>>();
 
             let proof = build_merkle_proof(
                 &block
-                    .commit_transactions()
+                    .transactions()
                     .iter()
                     .map(Transaction::hash)
                     .collect::<Vec<_>>(),
@@ -452,14 +452,14 @@ impl<'a> CompactBlock<'a> {
         let prefilled_transactions_len = prefilled_transactions_indexes.len() + 1;
         let mut short_ids: Vec<_> = Vec::with_capacity(
             block
-                .commit_transactions()
+                .transactions()
                 .len()
                 .saturating_sub(prefilled_transactions_len),
         );
         let mut prefilled_transactions = Vec::with_capacity(prefilled_transactions_len);
 
         let (key0, key1) = short_transaction_id_keys(block.header().nonce(), nonce);
-        for (transaction_index, transaction) in block.commit_transactions().iter().enumerate() {
+        for (transaction_index, transaction) in block.transactions().iter().enumerate() {
             if prefilled_transactions_indexes.contains(&transaction_index)
                 || transaction.is_cellbase()
             {
@@ -486,11 +486,11 @@ impl<'a> CompactBlock<'a> {
             .collect::<Vec<_>>();
         let uncles = fbb.create_vector(&vec);
         let vec = block
-            .proposal_transactions()
+            .proposals()
             .iter()
             .map(Into::into)
             .collect::<Vec<FbsProposalShortId>>();
-        let proposal_transactions = fbb.create_vector(&vec);
+        let proposals = fbb.create_vector(&vec);
 
         let mut builder = CompactBlockBuilder::new(fbb);
         builder.add_header(header);
@@ -498,7 +498,7 @@ impl<'a> CompactBlock<'a> {
         builder.add_short_ids(short_ids);
         builder.add_prefilled_transactions(prefilled_transactions);
         builder.add_uncles(uncles);
-        builder.add_proposal_transactions(proposal_transactions);
+        builder.add_proposals(proposals);
         builder.finish()
     }
 }
@@ -521,23 +521,23 @@ impl<'a> RelayMessage<'a> {
         transaction: &Transaction,
         cycles: Cycle,
     ) -> WIPOffset<RelayMessage<'b>> {
-        let fbs_transaction = FbsValidTransaction::build(fbb, transaction, cycles);
+        let fbs_transaction = FbsRelayTransaction::build(fbb, transaction, cycles);
         let mut builder = RelayMessageBuilder::new(fbb);
-        builder.add_payload_type(RelayPayload::ValidTransaction);
+        builder.add_payload_type(RelayPayload::RelayTransaction);
         builder.add_payload(fbs_transaction.as_union_value());
         builder.finish()
     }
 
     pub fn build_get_block_transactions<'b>(
         fbb: &mut FlatBufferBuilder<'b>,
-        hash: &H256,
+        block_hash: &H256,
         indexes: &[u32],
     ) -> WIPOffset<RelayMessage<'b>> {
         let get_block_transactions = {
-            let fbs_hash = hash.into();
+            let fbs_block_hash = block_hash.into();
             let indexes = fbb.create_vector(indexes);
             let mut builder = GetBlockTransactionsBuilder::new(fbb);
-            builder.add_hash(&fbs_hash);
+            builder.add_block_hash(&fbs_block_hash);
             builder.add_indexes(indexes);
             builder.finish()
         };
@@ -550,11 +550,11 @@ impl<'a> RelayMessage<'a> {
 
     pub fn build_block_transactions<'b>(
         fbb: &mut FlatBufferBuilder<'b>,
-        hash: &H256,
+        block_hash: &H256,
         transactions: &[Transaction],
     ) -> WIPOffset<RelayMessage<'b>> {
         let block_transactions = {
-            let fbs_hash = hash.into();
+            let fbs_block_hash = block_hash.into();
             let vec = transactions
                 .iter()
                 .map(|transaction| FbsTransaction::build(fbb, transaction))
@@ -562,7 +562,7 @@ impl<'a> RelayMessage<'a> {
             let transactions = fbb.create_vector(&vec);
 
             let mut builder = BlockTransactionsBuilder::new(fbb);
-            builder.add_hash(&fbs_hash);
+            builder.add_block_hash(&fbs_block_hash);
             builder.add_transactions(transactions);
             builder.finish()
         };
@@ -576,17 +576,17 @@ impl<'a> RelayMessage<'a> {
     pub fn build_get_block_proposal<'b>(
         fbb: &mut FlatBufferBuilder<'b>,
         block_number: BlockNumber,
-        proposal_transactions: &[ProposalShortId],
+        proposals: &[ProposalShortId],
     ) -> WIPOffset<RelayMessage<'b>> {
         let get_block_proposal = {
-            let vec = proposal_transactions
+            let vec = proposals
                 .iter()
                 .map(Into::into)
                 .collect::<Vec<FbsProposalShortId>>();
-            let proposal_transactions = fbb.create_vector(&vec);
+            let proposals = fbb.create_vector(&vec);
             let mut builder = GetBlockProposalBuilder::new(fbb);
             builder.add_block_number(block_number);
-            builder.add_proposal_transactions(proposal_transactions);
+            builder.add_proposals(proposals);
             builder.finish()
         };
 
@@ -668,7 +668,7 @@ mod tests {
     fn build_compcat_block_prefilled_transactions_indexes_overflow() {
         let block = BlockBuilder::default()
             .header(HeaderBuilder::default().build())
-            .commit_transaction(TransactionBuilder::default().build())
+            .transaction(TransactionBuilder::default().build())
             .build();
         let builder = &mut FlatBufferBuilder::new();
         let mut prefilled_transactions_indexes = HashSet::new();

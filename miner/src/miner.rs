@@ -56,8 +56,8 @@ impl Miner {
                 number,
                 parent_hash,
                 uncles, // Vec<UncleTemplate>
-                commit_transactions, // Vec<TransactionTemplate>
-                proposal_transactions, // Vec<ProposalShortId>
+                transactions, // Vec<TransactionTemplate>
+                proposals, // Vec<ProposalShortId>
                 cellbase, // CellbaseTemplate
                 work_id,
                 ..
@@ -85,15 +85,15 @@ impl Miner {
                         .map(TryInto::try_into)
                         .collect::<Result<_, _>>()?,
                 )
-                .commit_transaction(cellbase.try_into()?)
-                .commit_transactions(
-                    commit_transactions
+                .transaction(cellbase.try_into()?)
+                .transactions(
+                    transactions
                         .into_iter()
                         .map(TryInto::try_into)
                         .collect::<Result<_, _>>()?,
                 )
-                .proposal_transactions(
-                    proposal_transactions
+                .proposals(
+                    proposals
                         .into_iter()
                         .map(TryInto::try_into)
                         .collect::<Result<_, _>>()?,

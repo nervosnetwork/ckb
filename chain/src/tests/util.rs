@@ -48,8 +48,8 @@ fn create_cellbase(number: BlockNumber) -> Transaction {
 pub(crate) fn gen_block(
     parent_header: &Header,
     difficulty: U256,
-    commit_transactions: Vec<Transaction>,
-    proposal_transactions: Vec<Transaction>,
+    transactions: Vec<Transaction>,
+    proposals: Vec<Transaction>,
     uncles: Vec<UncleBlock>,
 ) -> Block {
     let number = parent_header.number() + 1;
@@ -61,11 +61,11 @@ pub(crate) fn gen_block(
         .difficulty(difficulty);
 
     BlockBuilder::default()
-        .commit_transaction(cellbase)
-        .commit_transactions(commit_transactions)
+        .transaction(cellbase)
+        .transactions(transactions)
         .uncles(uncles)
-        .proposal_transactions(
-            proposal_transactions
+        .proposals(
+            proposals
                 .iter()
                 .map(Transaction::proposal_short_id)
                 .collect(),

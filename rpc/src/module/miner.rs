@@ -30,7 +30,7 @@ pub trait MinerRpc {
         max_version: Option<u32>,
     ) -> Result<BlockTemplate>;
 
-    // curl -d '{"id": 2, "jsonrpc": "2.0", "method":"submit_block","params": [{"header":{}, "uncles":[], "commit_transactions":[], "proposal_transactions":[]}]}' -H 'content-type:application/json' 'http://localhost:8114'
+    // curl -d '{"id": 2, "jsonrpc": "2.0", "method":"submit_block","params": [{"header":{}, "uncles":[], "transactions":[], "proposals":[]}]}' -H 'content-type:application/json' 'http://localhost:8114'
     #[rpc(name = "submit_block")]
     fn submit_block(&self, _work_id: String, _data: Block) -> Result<Option<H256>>;
 }

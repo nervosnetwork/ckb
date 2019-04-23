@@ -11,24 +11,21 @@ use serde_derive::{Deserialize, Serialize};
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Default, Debug)]
 pub struct UncleBlock {
     pub header: Header,
-    pub proposal_transactions: Vec<ProposalShortId>,
+    pub proposals: Vec<ProposalShortId>,
 }
 
 impl From<Block> for UncleBlock {
     fn from(block: Block) -> Self {
         UncleBlock {
             header: block.header().clone(),
-            proposal_transactions: block.proposal_transactions().to_vec(),
+            proposals: block.proposals().to_vec(),
         }
     }
 }
 
 impl UncleBlock {
-    pub fn new(header: Header, proposal_transactions: Vec<ProposalShortId>) -> UncleBlock {
-        UncleBlock {
-            header,
-            proposal_transactions,
-        }
+    pub fn new(header: Header, proposals: Vec<ProposalShortId>) -> UncleBlock {
+        UncleBlock { header, proposals }
     }
 
     pub fn header(&self) -> &Header {
@@ -39,14 +36,14 @@ impl UncleBlock {
         self.header.number()
     }
 
-    pub fn proposal_transactions(&self) -> &[ProposalShortId] {
-        &self.proposal_transactions
+    pub fn proposals(&self) -> &[ProposalShortId] {
+        &self.proposals
     }
 
-    pub fn cal_txs_proposal_root(&self) -> H256 {
+    pub fn cal_proposals_root(&self) -> H256 {
         merkle_root(
             &self
-                .proposal_transactions
+                .proposals
                 .iter()
                 .map(ProposalShortId::hash)
                 .collect::<Vec<_>>(),

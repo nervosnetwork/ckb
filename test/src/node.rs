@@ -105,7 +105,7 @@ impl Node {
 
     pub fn generate_transaction(&self) -> H256 {
         let block = self.get_tip_block();
-        let cellbase: Transaction = block.commit_transactions()[0]
+        let cellbase: Transaction = block.transactions()[0]
             .clone()
             .try_into()
             .expect("parse cellbase transaction failed");
@@ -117,7 +117,7 @@ impl Node {
 
     pub fn send_traced_transaction(&self) -> H256 {
         let block = self.get_tip_block();
-        let cellbase: Transaction = block.commit_transactions()[0]
+        let cellbase: Transaction = block.transactions()[0]
             .clone()
             .try_into()
             .expect("parse cellbase transaction failed");
@@ -159,10 +159,10 @@ impl Node {
             current_time,
             number,
             parent_hash,
-            uncles,                // Vec<UncleTemplate>
-            commit_transactions,   // Vec<TransactionTemplate>
-            proposal_transactions, // Vec<ProposalShortId>
-            cellbase,              // CellbaseTemplate
+            uncles,       // Vec<UncleTemplate>
+            transactions, // Vec<TransactionTemplate>
+            proposals,    // Vec<ProposalShortId>
+            cellbase,     // CellbaseTemplate
             ..
         } = template;
 
@@ -195,16 +195,16 @@ impl Node {
                     .collect::<Result<_, _>>()
                     .expect("parse uncles failed"),
             )
-            .commit_transaction(cellbase.try_into().expect("parse cellbase failed"))
-            .commit_transactions(
-                commit_transactions
+            .transaction(cellbase.try_into().expect("parse cellbase failed"))
+            .transactions(
+                transactions
                     .into_iter()
                     .map(TryInto::try_into)
                     .collect::<Result<_, _>>()
                     .expect("parse commit transactions failed"),
             )
-            .proposal_transactions(
-                proposal_transactions
+            .proposals(
+                proposals
                     .into_iter()
                     .map(TryInto::try_into)
                     .collect::<Result<_, _>>()

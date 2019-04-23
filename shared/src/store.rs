@@ -78,20 +78,20 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
 
     fn get_block(&self, h: &H256) -> Option<Block> {
         self.get_header(h).map(|header| {
-            let commit_transactions = self
+            let transactions = self
                 .get_block_body(h)
                 .expect("block transactions must be stored");
             let uncles = self
                 .get_block_uncles(h)
                 .expect("block uncles must be stored");
-            let proposal_transactions = self
+            let proposals = self
                 .get_block_proposal_txs_ids(h)
                 .expect("block proposal_ids must be stored");
             BlockBuilder::default()
                 .header(header)
                 .uncles(uncles)
-                .commit_transactions(commit_transactions)
-                .proposal_transactions(proposal_transactions)
+                .transactions(transactions)
+                .proposals(proposals)
                 .build()
         })
     }
@@ -149,9 +149,9 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
             txs_verified: Some(true),
         };
 
-        let mut cells = Vec::with_capacity(genesis.commit_transactions().len());
+        let mut cells = Vec::with_capacity(genesis.transactions().len());
 
-        for tx in genesis.commit_transactions() {
+        for tx in genesis.transactions() {
             let ins = if tx.is_cellbase() {
                 Vec::new()
             } else {
@@ -238,13 +238,9 @@ impl<B: DbBatch> StoreBatch for DefaultStoreBatch<B> {
         let hash = b.header().hash();
         self.insert_serialize(COLUMN_BLOCK_HEADER, hash.as_bytes(), b.header())?;
         self.insert_serialize(COLUMN_BLOCK_UNCLE, hash.as_bytes(), b.uncles())?;
-        self.insert_serialize(
-            COLUMN_BLOCK_PROPOSAL_IDS,
-            hash.as_bytes(),
-            b.proposal_transactions(),
-        )?;
+        self.insert_serialize(COLUMN_BLOCK_PROPOSAL_IDS, hash.as_bytes(), b.proposals())?;
         let (block_data, block_addresses) =
-            flat_serialize(b.commit_transactions().iter()).expect("flat serialize should be ok");
+            flat_serialize(b.transactions().iter()).expect("flat serialize should be ok");
         self.insert_raw(COLUMN_BLOCK_BODY, hash.as_bytes(), &block_data)?;
         self.insert_serialize(
             COLUMN_BLOCK_TRANSACTION_ADDRESSES,
@@ -259,9 +255,9 @@ impl<B: DbBatch> StoreBatch for DefaultStoreBatch<B> {
 
     fn attach_block(&mut self, block: &Block) -> Result<(), Error> {
         let hash = block.header().hash();
-        let addresses = serialized_addresses(block.commit_transactions().iter())
+        let addresses = serialized_addresses(block.transactions().iter())
             .expect("serialize addresses should be ok");
-        for (id, tx) in block.commit_transactions().iter().enumerate() {
+        for (id, tx) in block.transactions().iter().enumerate() {
             let address = TransactionAddress {
                 block_hash: hash.clone(),
                 offset: addresses[id].offset,
@@ -276,7 +272,7 @@ impl<B: DbBatch> StoreBatch for DefaultStoreBatch<B> {
     }
 
     fn detach_block(&mut self, block: &Block) -> Result<(), Error> {
-        for tx in block.commit_transactions() {
+        for tx in block.transactions() {
             self.delete(COLUMN_TRANSACTION_ADDR, tx.hash().as_bytes())?;
         }
         self.delete(COLUMN_INDEX, &block.header().number().to_le_bytes())?;
@@ -330,9 +326,9 @@ mod tests {
         let db = setup_db("save_and_get_block_with_transactions", COLUMNS);
         let store = ChainKVStore::new(db);
         let block = BlockBuilder::default()
-            .commit_transaction(TransactionBuilder::default().build())
-            .commit_transaction(TransactionBuilder::default().build())
-            .commit_transaction(TransactionBuilder::default().build())
+            .transaction(TransactionBuilder::default().build())
+            .transaction(TransactionBuilder::default().build())
+            .transaction(TransactionBuilder::default().build())
             .build();
 
         let hash = block.header().hash();

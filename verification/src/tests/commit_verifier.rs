@@ -21,8 +21,8 @@ use std::sync::Arc;
 
 fn gen_block(
     parent_header: &Header,
-    commit_transactions: Vec<Transaction>,
-    proposal_transactions: Vec<ProposalShortId>,
+    transactions: Vec<Transaction>,
+    proposals: Vec<ProposalShortId>,
     uncles: Vec<UncleBlock>,
 ) -> Block {
     let now = 1 + parent_header.timestamp();
@@ -38,9 +38,9 @@ fn gen_block(
         .nonce(nonce);
 
     BlockBuilder::default()
-        .commit_transaction(cellbase)
-        .commit_transactions(commit_transactions)
-        .proposal_transactions(proposal_transactions)
+        .transaction(cellbase)
+        .transactions(transactions)
+        .proposals(proposals)
         .uncles(uncles)
         .with_header_builder(header_builder)
 }
@@ -110,7 +110,7 @@ fn setup_env() -> (
         ])
         .build();
     let tx_hash = tx.hash();
-    let genesis_block = BlockBuilder::default().commit_transaction(tx).build();
+    let genesis_block = BlockBuilder::default().transaction(tx).build();
     let consensus = Consensus::default().set_genesis_block(genesis_block);
     let (chain_controller, shared) = start_chain(Some(consensus));
     (chain_controller, shared, tx_hash)

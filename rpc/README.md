@@ -47,8 +47,8 @@ curl -H 'content-type:application/json' \
             "proof": "0x131c00009227000084330000e54700002d4e0000cd4f000023510000b2560000715a0000156300006d6700007a740000"
         },
         "timestamp": "1555509433451",
-        "txs_commit": "0x6eb5de3f5ed394c3eae59b52996bb62ee6ea92e1b0159cd0866a98a6d6864599",
-        "txs_proposal": "0x0000000000000000000000000000000000000000000000000000000000000000",
+        "transactions_root": "0x6eb5de3f5ed394c3eae59b52996bb62ee6ea92e1b0159cd0866a98a6d6864599",
+        "proposals_root": "0x0000000000000000000000000000000000000000000000000000000000000000",
         "uncles_count": 2,
         "uncles_hash": "0x8290616424ad001046d5c3f7c232ffc512dcd57d3420b1e968c3460a69524045",
         "version": 0,
@@ -102,7 +102,7 @@ curl -H 'content-type:application/json' \
 {
     "jsonrpc": "2.0",
     "result": {
-        "commit_transactions": [
+        "transactions": [
             {
                 "deps": [],
                 "hash": "0xbd9ed8dec5288bdeb2ebbcc4c118a8adb6baab07a44ea79843255ccda6c57915",
@@ -115,7 +115,7 @@ curl -H 'content-type:application/json' \
                             "hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
                             "index": 4294967295
                         },
-                        "valid_since": "0"
+                        "since": "0"
                     }
                 ],
                 "outputs": [
@@ -124,7 +124,7 @@ curl -H 'content-type:application/json' \
                         "data": "0x",
                         "lock": {
                             "args": [],
-                            "binary_hash": "0x0000000000000000000000000000000000000000000000000000000000000001"
+                            "code_hash": "0x0000000000000000000000000000000000000000000000000000000000000001"
                         },
                         "type": null
                     }
@@ -143,14 +143,14 @@ curl -H 'content-type:application/json' \
                 "proof": "0xa00600005a0a00001c21000009230000db240000fb350000523600005f4b0000bb4b00000a4d00001b56000070700000"
             },
             "timestamp": "1555422499746",
-            "txs_commit": "0xbd9ed8dec5288bdeb2ebbcc4c118a8adb6baab07a44ea79843255ccda6c57915",
-            "txs_proposal": "0x0000000000000000000000000000000000000000000000000000000000000000",
+            "transactions_root": "0xbd9ed8dec5288bdeb2ebbcc4c118a8adb6baab07a44ea79843255ccda6c57915",
+            "proposals_root": "0x0000000000000000000000000000000000000000000000000000000000000000",
             "uncles_count": 0,
             "uncles_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
             "version": 0,
             "witnesses_root": "0x0000000000000000000000000000000000000000000000000000000000000000"
         },
-        "proposal_transactions": [],
+        "proposals": [],
         "uncles": []
     },
     "id": 2
@@ -186,7 +186,7 @@ curl -H 'content-type:application/json' \
                     "hash": "0xeea31bfdcc4ac3bcb0204c450f08fb46c3840042b0a4e657edff3180cbb01c47",
                     "index": 2996
                 },
-                "valid_since": "0"
+                "since": "0"
             }
         ],
         "outputs": [
@@ -197,7 +197,7 @@ curl -H 'content-type:application/json' \
                     "args": [
                         "0x79616e676279"
                     ],
-                    "binary_hash": "0x0000000000000000000000000000000000000000000000000000000000000001"
+                    "code_hash": "0x0000000000000000000000000000000000000000000000000000000000000001"
                 },
                 "type": null
             }
@@ -235,7 +235,7 @@ curl -H 'content-type:application/json' \
             "capacity": 50000,
             "lock": {
                 "args": [],
-                "binary_hash": "0x0000000000000000000000000000000000000000000000000000000000000001"
+                "code_hash": "0x0000000000000000000000000000000000000000000000000000000000000001"
             },
             "out_point": {
                 "hash": "0xc15274f7aaec78b74ea2b87a2aefd5dc3e003b367eab326a29a73900fd9b91ff",
@@ -246,7 +246,7 @@ curl -H 'content-type:application/json' \
             "capacity": 50000,
             "lock": {
                 "args": [],
-                "binary_hash": "0x0000000000000000000000000000000000000000000000000000000000000001"
+                "code_hash": "0x0000000000000000000000000000000000000000000000000000000000000001"
             },
             "out_point": {
                 "hash": "0xbcc4ffd86c681c1004f746422e33b1ac3cd59bdf6155afd5ea076219ed29bbae",
@@ -257,7 +257,7 @@ curl -H 'content-type:application/json' \
             "capacity": 50000,
             "lock": {
                 "args": [],
-                "binary_hash": "0x0000000000000000000000000000000000000000000000000000000000000001"
+                "code_hash": "0x0000000000000000000000000000000000000000000000000000000000000001"
             },
             "out_point": {
                 "hash": "0x9289e12f0a9b2cfce51cd4a64d733c0a3ca9a52093669863c485ea6dfae81a3e",
@@ -294,7 +294,7 @@ curl -H 'content-type:application/json' \
             "data": "0x",
             "lock": {
                 "args": [],
-                "binary_hash": "0x0000000000000000000000000000000000000000000000000000000000000001"
+                "code_hash": "0x0000000000000000000000000000000000000000000000000000000000000001"
             },
             "type": null
         },
@@ -418,7 +418,7 @@ echo '{
                             "hash": "0xeea31bfdcc4ac3bcb0204c450f08fb46c3840042b0a4e657edff3180cbb01c47",
                             "index": 2995
                         },
-                        "valid_since": "0",
+                        "since": "0",
                         "args": []
                     }
                 ],
@@ -430,7 +430,7 @@ echo '{
                             "args": [
                                 "0x79616e676279"
                             ],
-                            "binary_hash": "0x0000000000000000000000000000000000000000000000000000000000000001"
+                            "code_hash": "0x0000000000000000000000000000000000000000000000000000000000000001"
                         },
                         "type": null
                     }
@@ -483,7 +483,7 @@ curl -H 'content-type:application/json' \
                     "hash": "0xeea31bfdcc4ac3bcb0204c450f08fb46c3840042b0a4e657edff3180cbb01c47",
                     "index": 2994
                 },
-                "valid_since": "0"
+                "since": "0"
             }
         ],
         "outputs": [
@@ -494,7 +494,7 @@ curl -H 'content-type:application/json' \
                     "args": [
                         "0x79616e676279"
                     ],
-                    "binary_hash": "0x0000000000000000000000000000000000000000000000000000000000000001"
+                    "code_hash": "0x0000000000000000000000000000000000000000000000000000000000000001"
                 },
                 "type": null
             }
@@ -539,7 +539,7 @@ echo '{
                             "hash": "0xeea31bfdcc4ac3bcb0204c450f08fb46c3840042b0a4e657edff3180cbb01c47",
                             "index": 2996
                         },
-                        "valid_since": "0",
+                        "since": "0",
                         "args": []
                     }
                 ],
@@ -551,7 +551,7 @@ echo '{
                             "args": [
                                 "0x79616e676279"
                             ],
-                            "binary_hash": "0x0000000000000000000000000000000000000000000000000000000000000001"
+                            "code_hash": "0x0000000000000000000000000000000000000000000000000000000000000001"
                         },
                         "type": null
                     }
