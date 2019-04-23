@@ -33,46 +33,39 @@ pub(crate) struct TraceRpcImpl<CS> {
 impl<CS: ChainStore + 'static> TraceRpc for TraceRpcImpl<CS> {
     fn trace_transaction(&self, tx: Transaction) -> Result<H256> {
         let tx: CoreTransaction = tx.try_into().map_err(|_| Error::parse_error())?;
-        let tx_hash = tx.hash().clone();
-        let cycles = {
-            let mut chain_state = self.shared.chain_state().lock();
-            let rtx = chain_state.resolve_tx_from_pool(&tx, &chain_state.tx_pool());
-            let cycles = match chain_state
-                .verify_rtx(&rtx, self.shared.consensus().max_block_cycles())
-            {
-                Err(TransactionError::UnknownInput) => None,
-                Err(err) => return Err(RPCError::custom(RPCError::Invalid, format!("{:?}", err))),
-                Ok(cycles) => Some(cycles),
-            };
-            let entry = PoolEntry::new(tx.clone(), 0, cycles);
-            chain_state.mut_tx_pool().trace_tx(entry);
-            cycles
-        };
 
-        match cycles {
-            Some(cycles) => {
-                let fbb = &mut FlatBufferBuilder::new();
-                let message = RelayMessage::build_transaction(fbb, &tx, cycles);
-                fbb.finish(message, None);
+        let mut chain_state = self.shared.chain_state().lock();
+        let rtx = chain_state.rpc_resolve_tx_from_pool(&tx, &chain_state.tx_pool());
+        let tx_result = chain_state.verify_rtx(&rtx, self.shared.consensus().max_block_cycles());
+        match tx_result {
+            Err(err) => Err(RPCError::custom(RPCError::Invalid, format!("{:?}", err))),
+            Ok(cycles) => {
+                let tx_hash = tx.hash().clone();
+                let entry = PoolEntry::new(tx.clone(), 0, Some(cycles));
 
-                self.network_controller.with_protocol_context(
-                    NetworkProtocol::RELAY as ProtocolId,
-                    |mut nc| {
-                        for peer in nc.connected_peers() {
-                            debug!(target: "rpc", "relay transaction {} to peer#{}", tx_hash, peer);
-                            let ret = nc.send(peer, fbb.finished_data().to_vec());
-                            if ret.is_err() {
-                                warn!(target: "rpc", "relay transaction error {:?}", ret);
+                if !chain_state.mut_tx_pool().trace_tx(entry) {
+                    // Duplicate tx
+                    Ok(tx_hash)
+                } else {
+                    let fbb = &mut FlatBufferBuilder::new();
+                    let message = RelayMessage::build_transaction(fbb, &tx, cycles);
+                    fbb.finish(message, None);
+
+                    self.network_controller.with_protocol_context(
+                        NetworkProtocol::RELAY as ProtocolId,
+                        |mut nc| {
+                            for peer in nc.connected_peers() {
+                                debug!(target: "rpc", "relay transaction {} to peer#{}", tx_hash, peer);
+                                let ret = nc.send(peer, fbb.finished_data().to_vec());
+                                if ret.is_err() {
+                                    warn!(target: "rpc", "relay transaction error {:?}", ret);
+                                }
                             }
-                        }
-                    },
-                );
-                Ok(tx_hash)
+                        },
+                        );
+                    Ok(tx_hash)
+                }
             }
-            None => Err(RPCError::custom(
-                RPCError::Staging,
-                "tx missing inputs".to_string(),
-            )),
         }
     }
 
