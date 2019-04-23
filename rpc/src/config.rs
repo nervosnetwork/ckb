@@ -1,6 +1,6 @@
-use serde_derive::Deserialize;
+use serde_derive::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, Copy, Eq, PartialEq, Deserialize)]
+#[derive(Clone, Debug, Copy, Eq, PartialEq, Serialize, Deserialize)]
 pub enum Module {
     Net,
     Chain,
@@ -10,12 +10,12 @@ pub enum Module {
     IntegrationTest,
 }
 
-#[derive(Clone, Debug, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Config {
     pub listen_address: String,
+    pub max_request_body_size: usize,
     pub threads: Option<usize>,
     pub modules: Vec<Module>,
-    pub max_request_body_size: usize,
 }
 
 impl Config {

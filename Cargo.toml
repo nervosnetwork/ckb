@@ -14,6 +14,7 @@ toml = "0.5"
 log = "0.4"
 futures = "0.1"
 crossbeam-channel = "0.3"
+ckb-app-config = { path = "util/app-config" }
 ckb-util = { path = "util" }
 ckb-core = { path = "core" }
 ckb-chain = { path = "chain" }
@@ -56,6 +57,7 @@ members = [
     "util/build-info",
     "util/occupied-capacity",
     "util/stop-handler",
+    "util/app-config",
     "traits",
     "network",
     "protocol",

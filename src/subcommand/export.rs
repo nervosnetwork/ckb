@@ -1,4 +1,4 @@
-use crate::setup::{ExitCode, ExportArgs};
+use ckb_app_config::{ExitCode, ExportArgs};
 use ckb_db::{CacheDB, RocksDB};
 use ckb_instrument::Export;
 use ckb_shared::shared::SharedBuilder;

@@ -6,13 +6,16 @@ authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
 
 [dependencies]
+toml = "0.5.0"
 jsonrpc-types = { path = "../util/jsonrpc-types" }
 logger = { path = "../util/logger" }
-ckb-core= { path = "../core" }
+ckb-app-config = { path = "../util/app-config" }
+ckb-core = { path = "../core" }
 ckb-network = { path = "../network" }
 ckb-sync = { path = "../sync" }
 ckb-protocol = { path = "../protocol"}
 ckb-util = { path = "../util" }
+ckb-chain-spec = { path = "../spec" }
 numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 tempfile = "3.0"
 jsonrpc-client-core = "0.5.0"

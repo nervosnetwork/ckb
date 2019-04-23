@@ -62,6 +62,7 @@ impl TxProposalTable {
 
         let removed_ids: FnvHashSet<ProposalShortId> =
             self.set.difference(&new_ids).cloned().collect();
+
         trace!(target: "chain", "[proposal_finalize] number {} proposal_start {}----proposal_end {}", number , proposal_start, proposal_end);
         trace!(target: "chain", "[proposal_finalize] number {} new_ids {:?}----removed_ids {:?}", number, new_ids, removed_ids);
         self.set = new_ids;

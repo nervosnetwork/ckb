@@ -5,18 +5,14 @@ use p2p::multiaddr::{Multiaddr, Protocol, ToMultiaddr};
 use rand;
 use rand::Rng;
 use secio;
-use serde_derive::Deserialize;
+use serde_derive::{Deserialize, Serialize};
 use std::fs;
 use std::io::Read;
 use std::io::Write;
 use std::path::PathBuf;
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct NetworkConfig {
-    pub listen_addresses: Vec<Multiaddr>,
-    pub public_addresses: Vec<Multiaddr>,
-    pub bootnodes: Vec<Multiaddr>,
-    pub reserved_peers: Vec<Multiaddr>,
     pub reserved_only: bool,
     pub max_peers: u32,
     pub max_outbound_peers: u32,
@@ -25,6 +21,10 @@ pub struct NetworkConfig {
     pub ping_interval_secs: u64,
     pub ping_timeout_secs: u64,
     pub connect_outbound_interval_secs: u64,
+    pub listen_addresses: Vec<Multiaddr>,
+    pub public_addresses: Vec<Multiaddr>,
+    pub bootnodes: Vec<Multiaddr>,
+    pub reserved_peers: Vec<Multiaddr>,
 }
 
 fn generate_random_key() -> [u8; 32] {

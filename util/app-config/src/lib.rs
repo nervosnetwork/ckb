@@ -4,7 +4,7 @@ pub mod cli;
 mod exit_code;
 mod sentry_config;
 
-pub use app_config::AppConfig;
+pub use app_config::{AppConfig, CKBAppConfig, MinerAppConfig};
 pub use args::{ExportArgs, ImportArgs, InitArgs, MinerArgs, RunArgs};
 pub use exit_code::ExitCode;
 
@@ -164,7 +164,6 @@ impl Setup {
 
     fn chain_spec(&self) -> Result<ChainSpec, ExitCode> {
         let result = self.config.chain_spec(&self.resource_locator);
-
         if let Ok(spec) = &result {
             if self.is_sentry_enabled {
                 sentry::configure_scope(|scope| {

@@ -11,6 +11,33 @@ use occupied_capacity::OccupiedCapacity;
 use std::cell::RefCell;
 use std::collections::HashSet;
 
+pub struct PoolTransactionVerifier<'a, M> {
+    pub maturity: MaturityVerifier<'a>,
+    pub valid_since: ValidSinceVerifier<'a, M>,
+}
+impl<'a, M> PoolTransactionVerifier<'a, M>
+where
+    M: BlockMedianTimeContext,
+{
+    pub fn new(
+        rtx: &'a ResolvedTransaction,
+        median_time_context: &'a M,
+        tip_number: BlockNumber,
+        cellbase_maturity: BlockNumber,
+    ) -> Self {
+        PoolTransactionVerifier {
+            maturity: MaturityVerifier::new(&rtx, tip_number, cellbase_maturity),
+            valid_since: ValidSinceVerifier::new(rtx, median_time_context, tip_number),
+        }
+    }
+
+    pub fn verify(&self) -> Result<(), TransactionError> {
+        self.maturity.verify()?;
+        self.valid_since.verify()?;
+        Ok(())
+    }
+}
+
 pub struct TransactionVerifier<'a, M> {
     pub version: VersionVerifier<'a>,
     pub null: NullVerifier<'a>,
