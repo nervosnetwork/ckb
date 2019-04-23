@@ -8,7 +8,7 @@ use ckb_core::script::Script;
 use ckb_core::transaction::{
     CellInput, CellOutput, ProposalShortId, Transaction, TransactionBuilder,
 };
-use ckb_core::BlockNumber;
+use ckb_core::{BlockNumber, Capacity};
 use ckb_db::memorydb::MemoryKeyValueDB;
 use ckb_notify::NotifyService;
 use ckb_shared::shared::{Shared, SharedBuilder};
@@ -57,7 +57,12 @@ fn start_chain(
 fn create_cellbase(number: BlockNumber) -> Transaction {
     TransactionBuilder::default()
         .input(CellInput::new_cellbase_input(number))
-        .output(CellOutput::new(0, vec![], Script::default(), None))
+        .output(CellOutput::new(
+            Capacity::zero(),
+            vec![],
+            Script::default(),
+            None,
+        ))
         .build()
 }
 

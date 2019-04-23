@@ -92,6 +92,7 @@ mod tests {
     use byteorder::{LittleEndian, WriteBytesExt};
     use ckb_core::script::Script;
     use ckb_core::transaction::{CellInput, CellOutput, OutPoint};
+    use ckb_core::{capacity_bytes, Capacity};
     use ckb_protocol::{
         Bytes as FbsBytes, CellInputBuilder, CellOutput as FbsCellOutput, OutPoint as FbsOutPoint,
     };
@@ -231,9 +232,9 @@ mod tests {
             .store64(&size_addr, &(data.len() as u64))
             .is_ok());
 
-        let output = CellOutput::new(100, data.to_vec(), Script::default(), None);
+        let output = CellOutput::new(capacity_bytes!(100), data.to_vec(), Script::default(), None);
         let input_cell = CellOutput::new(
-            100,
+            capacity_bytes!(100),
             data.iter().rev().cloned().collect(),
             Script::default(),
             None,
@@ -267,9 +268,9 @@ mod tests {
         machine.set_register(A4, Source::Input as u64); //source: 1 input
         machine.set_register(A7, LOAD_CELL_SYSCALL_NUMBER); // syscall number
 
-        let output = CellOutput::new(100, data.to_vec(), Script::default(), None);
+        let output = CellOutput::new(capacity_bytes!(100), data.to_vec(), Script::default(), None);
         let input_cell = CellOutput::new(
-            100,
+            capacity_bytes!(100),
             data.iter().rev().cloned().collect(),
             Script::default(),
             None,
@@ -358,9 +359,9 @@ mod tests {
         machine.set_register(A4, Source::Input as u64); //source: 1 input
         machine.set_register(A7, LOAD_CELL_SYSCALL_NUMBER); // syscall number
 
-        let output = CellOutput::new(100, data.to_vec(), Script::default(), None);
+        let output = CellOutput::new(capacity_bytes!(100), data.to_vec(), Script::default(), None);
         let input_cell = CellOutput::new(
-            100,
+            capacity_bytes!(100),
             data.iter().rev().cloned().collect(),
             Script::default(),
             None,
@@ -407,9 +408,9 @@ mod tests {
         machine.set_register(A4, Source::Input as u64); // source: 1 input
         machine.set_register(A7, LOAD_CELL_SYSCALL_NUMBER); // syscall number
 
-        let output = CellOutput::new(100, data.to_vec(), Script::default(), None);
+        let output = CellOutput::new(capacity_bytes!(100), data.to_vec(), Script::default(), None);
         let input_cell = CellOutput::new(
-            100,
+            capacity_bytes!(100),
             data.iter().rev().cloned().collect(),
             Script::default(),
             None,
@@ -461,7 +462,7 @@ mod tests {
         machine.set_register(A7, LOAD_CELL_SYSCALL_NUMBER); // syscall number
 
         let input_cell = CellOutput::new(
-            100,
+            capacity_bytes!(100),
             data.iter().rev().cloned().collect(),
             Script::default(),
             None,
@@ -506,7 +507,7 @@ mod tests {
         }
     }
 
-    fn _test_load_cell_capacity(capacity: u64) -> Result<(), TestCaseError> {
+    fn _test_load_cell_capacity(capacity: Capacity) -> Result<(), TestCaseError> {
         let mut machine = DefaultCoreMachine::<u64, SparseMemory<u64>>::default();
         let size_addr: u64 = 0;
         let addr: u64 = 100;
@@ -533,7 +534,7 @@ mod tests {
         prop_assert_eq!(machine.memory_mut().load64(&size_addr), Ok(8));
 
         let mut buffer = vec![];
-        buffer.write_u64::<LittleEndian>(capacity).unwrap();
+        buffer.write_u64::<LittleEndian>(capacity.as_u64()).unwrap();
 
         for (i, addr) in (addr..addr + buffer.len() as u64).enumerate() {
             prop_assert_eq!(machine.memory_mut().load8(&addr), Ok(u64::from(buffer[i])));
@@ -544,7 +545,7 @@ mod tests {
     proptest! {
         #[test]
         fn test_load_cell_capacity(capacity in any::<u64>()) {
-            _test_load_cell_capacity(capacity)?;
+            _test_load_cell_capacity(Capacity::shannons(capacity))?;
         }
     }
 
@@ -564,7 +565,7 @@ mod tests {
         let script = Script::new(vec![data.to_vec()], H256::zero());
         let h = script.hash();
         let hash = h.as_bytes();
-        let input_cell = CellOutput::new(100, vec![], script, None);
+        let input_cell = CellOutput::new(capacity_bytes!(100), vec![], script, None);
         let outputs = vec![];
         let input_cells = vec![];
         let dep_cells = vec![];
@@ -618,7 +619,7 @@ mod tests {
         machine.set_register(A5, CellField::Type as u64); //field: 4 type
         machine.set_register(A7, LOAD_CELL_BY_FIELD_SYSCALL_NUMBER); // syscall number
 
-        let output_cell = CellOutput::new(100, vec![], Script::default(), None);
+        let output_cell = CellOutput::new(capacity_bytes!(100), vec![], Script::default(), None);
         let outputs = vec![&output_cell];
         let input_cells = vec![];
         let dep_cells = vec![];
@@ -848,8 +849,13 @@ mod tests {
         machine.set_register(A5, CellField::Data as u64); //field: 1 data
         machine.set_register(A7, LOAD_CELL_BY_FIELD_SYSCALL_NUMBER); // syscall number
 
-        let input_cell = CellOutput::new(1000, vec![], Script::default(), None);
-        let dep_cell = CellOutput::new(1000, data.to_vec(), Script::default(), None);
+        let input_cell = CellOutput::new(capacity_bytes!(1000), vec![], Script::default(), None);
+        let dep_cell = CellOutput::new(
+            capacity_bytes!(1000),
+            data.to_vec(),
+            Script::default(),
+            None,
+        );
         let outputs = vec![];
         let input_cells = vec![&input_cell];
         let dep_cells = vec![&dep_cell];
@@ -894,8 +900,13 @@ mod tests {
         machine.set_register(A5, CellField::DataHash as u64); //field: 2 data hash
         machine.set_register(A7, LOAD_CELL_BY_FIELD_SYSCALL_NUMBER); // syscall number
 
-        let input_cell = CellOutput::new(1000, vec![], Script::default(), None);
-        let dep_cell = CellOutput::new(1000, data.to_vec(), Script::default(), None);
+        let input_cell = CellOutput::new(capacity_bytes!(1000), vec![], Script::default(), None);
+        let dep_cell = CellOutput::new(
+            capacity_bytes!(1000),
+            data.to_vec(),
+            Script::default(),
+            None,
+        );
         let outputs = vec![];
         let input_cells = vec![&input_cell];
         let dep_cells = vec![&dep_cell];

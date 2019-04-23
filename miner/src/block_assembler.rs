@@ -88,14 +88,14 @@ impl<'a> FeeCalculator<'a> {
         &self,
         transaction: &Transaction,
     ) -> Result<Capacity, FailureError> {
-        let mut fee = 0;
+        let mut fee = Capacity::zero();
         for input in transaction.inputs() {
             let previous_output = &input.previous_output;
             match self.get_transaction(&previous_output.hash) {
                 Some(previous_transaction) => {
                     let index = previous_output.index as usize;
                     if let Some(output) = previous_transaction.outputs().get(index) {
-                        fee += output.capacity;
+                        fee = fee.safe_add(output.capacity)?;
                     } else {
                         Err(Error::InvalidInput)?;
                     }
@@ -107,11 +107,11 @@ impl<'a> FeeCalculator<'a> {
             .outputs()
             .iter()
             .map(|output| output.capacity)
-            .sum();
+            .try_fold(Capacity::zero(), Capacity::safe_add)?;
         if spent_capacity > fee {
             Err(Error::InvalidOutput)?;
         }
-        fee -= spent_capacity;
+        fee = fee.safe_sub(spent_capacity)?;
         Ok(fee)
     }
 }
@@ -386,14 +386,14 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
         // stick to the simpler way and just convert everything to a single string, then to UTF8
         // bytes, they really serve the same purpose at the moment
         let block_reward = self.shared.block_reward(header.number() + 1);
-        let mut fee = 0;
+        let mut fee = Capacity::zero();
         // depends cells may produced from previous tx
         let fee_calculator = FeeCalculator::new(&pes, &self.shared);
         for pe in pes {
-            fee += fee_calculator.calculate_transaction_fee(&pe.transaction)?;
+            fee = fee.safe_add(fee_calculator.calculate_transaction_fee(&pe.transaction)?)?;
         }
 
-        let output = CellOutput::new(block_reward + fee, Vec::new(), lock, None);
+        let output = CellOutput::new(block_reward.safe_add(fee)?, Vec::new(), lock, None);
 
         Ok(TransactionBuilder::default()
             .input(input)
@@ -491,7 +491,7 @@ mod tests {
     use ckb_core::transaction::{
         CellInput, CellOutput, ProposalShortId, Transaction, TransactionBuilder,
     };
-    use ckb_core::BlockNumber;
+    use ckb_core::{BlockNumber, Capacity};
     use ckb_db::memorydb::MemoryKeyValueDB;
     use ckb_notify::{NotifyController, NotifyService};
     use ckb_pow::Pow;
@@ -635,7 +635,12 @@ mod tests {
     fn create_cellbase(number: BlockNumber) -> Transaction {
         TransactionBuilder::default()
             .input(CellInput::new_cellbase_input(number))
-            .output(CellOutput::new(0, vec![], Script::default(), None))
+            .output(CellOutput::new(
+                Capacity::zero(),
+                vec![],
+                Script::default(),
+                None,
+            ))
             .build()
     }
 

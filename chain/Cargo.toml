@@ -28,3 +28,4 @@ hash = {path = "../util/hash"}
 [dev-dependencies]
 env_logger = "0.6"
 tempfile = "3.0"
+regex = "1"

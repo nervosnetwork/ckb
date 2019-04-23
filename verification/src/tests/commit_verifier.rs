@@ -9,7 +9,7 @@ use ckb_core::transaction::{
     CellInput, CellOutput, OutPoint, ProposalShortId, Transaction, TransactionBuilder,
 };
 use ckb_core::uncle::UncleBlock;
-use ckb_core::BlockNumber;
+use ckb_core::{capacity_bytes, BlockNumber, Capacity};
 use ckb_db::memorydb::MemoryKeyValueDB;
 use ckb_notify::NotifyService;
 use ckb_shared::shared::{Shared, SharedBuilder};
@@ -46,9 +46,9 @@ fn gen_block(
 }
 
 fn create_transaction(parent: &H256) -> Transaction {
-    let capacity = 100_000_000 / 100 as u64;
+    let capacity = 100_000_000 / 100 as usize;
     let output = CellOutput::new(
-        capacity,
+        Capacity::bytes(capacity).unwrap(),
         Vec::new(),
         Script::always_success(),
         Some(Script::always_success()),
@@ -83,7 +83,12 @@ fn start_chain(
 fn create_cellbase(number: BlockNumber) -> Transaction {
     TransactionBuilder::default()
         .input(CellInput::new_cellbase_input(number))
-        .outputs(vec![CellOutput::new(0, vec![], Script::default(), None)])
+        .outputs(vec![CellOutput::new(
+            Capacity::zero(),
+            vec![],
+            Script::default(),
+            None,
+        )])
         .build()
 }
 
@@ -96,7 +101,7 @@ fn setup_env() -> (
         .input(CellInput::new(OutPoint::null(), 0, Default::default()))
         .outputs(vec![
             CellOutput::new(
-                1_000_000,
+                capacity_bytes!(1_000_000),
                 Vec::new(),
                 Script::always_success(),
                 Some(Script::always_success()),

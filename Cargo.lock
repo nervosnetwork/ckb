@@ -382,6 +382,7 @@ dependencies = [
  "lru-cache 0.1.0 (git+https://github.com/nervosnetwork/lru-cache)",
  "numext-fixed-hash 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "numext-fixed-uint 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)",
+ "regex 1.1.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.90 (registry+https://github.com/rust-lang/crates.io-index)",
  "stop-handler 0.11.0-pre",
  "tempfile 3.0.7 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -418,7 +419,6 @@ dependencies = [
  "numext-fixed-hash 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "numext-fixed-uint 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "occupied-capacity 0.11.0-pre",
- "occupied-capacity-derive 0.11.0-pre",
  "serde 1.0.90 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_bytes 0.11.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.90 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -657,7 +657,6 @@ dependencies = [
  "lru-cache 0.1.0 (git+https://github.com/nervosnetwork/lru-cache)",
  "numext-fixed-hash 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "numext-fixed-uint 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)",
- "occupied-capacity 0.11.0-pre",
  "rand 0.6.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.90 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.90 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1950,14 +1949,26 @@ dependencies = [
 name = "occupied-capacity"
 version = "0.11.0-pre"
 dependencies = [
- "numext-fixed-hash 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)",
- "occupied-capacity-derive 0.11.0-pre",
+ "occupied-capacity-core 0.11.0-pre",
+ "occupied-capacity-macros 0.11.0-pre",
+ "proc-macro-hack 0.5.4 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
-name = "occupied-capacity-derive"
+name = "occupied-capacity-core"
 version = "0.11.0-pre"
 dependencies = [
+ "numext-fixed-hash 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)",
+ "serde 1.0.90 (registry+https://github.com/rust-lang/crates.io-index)",
+ "serde_derive 1.0.90 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
+name = "occupied-capacity-macros"
+version = "0.11.0-pre"
+dependencies = [
+ "occupied-capacity-core 0.11.0-pre",
+ "proc-macro-hack 0.5.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "proc-macro2 0.4.27 (registry+https://github.com/rust-lang/crates.io-index)",
  "quote 0.6.11 (registry+https://github.com/rust-lang/crates.io-index)",
  "syn 0.15.29 (registry+https://github.com/rust-lang/crates.io-index)",

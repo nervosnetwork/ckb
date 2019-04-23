@@ -206,7 +206,7 @@ impl<'a> FbsCellOutput<'a> {
         let lock = FbsScript::build(fbb, &cell_output.lock);
         let type_ = cell_output.type_.as_ref().map(|s| FbsScript::build(fbb, s));
         let mut builder = CellOutputBuilder::new(fbb);
-        builder.add_capacity(cell_output.capacity);
+        builder.add_capacity(cell_output.capacity.as_u64());
         builder.add_data(data);
         builder.add_lock(lock);
         if let Some(s) = type_ {

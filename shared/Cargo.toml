@@ -22,7 +22,6 @@ log = "0.4"
 ckb-traits = { path = "../traits" }
 failure = "0.1.5"
 ckb-verification = { path = "../verification" }
-occupied-capacity = { path = "../util/occupied-capacity" }
 linked-hash-map = { git = "https://github.com/nervosnetwork/linked-hash-map", rev = "df27f21" }
 
 [dev-dependencies]

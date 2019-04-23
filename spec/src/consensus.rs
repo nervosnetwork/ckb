@@ -1,12 +1,11 @@
 use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::header::HeaderBuilder;
-use ckb_core::transaction::Capacity;
-use ckb_core::{BlockNumber, Cycle, Version};
+use ckb_core::{capacity_bytes, BlockNumber, Capacity, Cycle, Version};
 use ckb_pow::{Pow, PowEngine};
 use numext_fixed_uint::U256;
 use std::sync::Arc;
 
-pub(crate) const DEFAULT_BLOCK_REWARD: Capacity = 5_000;
+pub(crate) const DEFAULT_BLOCK_REWARD: Capacity = capacity_bytes!(5_000);
 pub(crate) const MAX_UNCLE_NUM: usize = 2;
 pub(crate) const MAX_UNCLE_AGE: usize = 6;
 pub(crate) const TX_PROPOSAL_WINDOW: ProposalWindow = ProposalWindow(2, 10);

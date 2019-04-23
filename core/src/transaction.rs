@@ -7,7 +7,7 @@ use bincode::{deserialize, serialize};
 use faster_hex::hex_string;
 use hash::blake2b_256;
 use numext_fixed_hash::H256;
-use occupied_capacity::OccupiedCapacity;
+use occupied_capacity::HasOccupiedCapacity;
 use serde_derive::{Deserialize, Serialize};
 use std::fmt;
 use std::hash::{Hash, Hasher};
@@ -15,7 +15,7 @@ use std::ops::{Deref, DerefMut};
 
 pub const TX_VERSION: Version = 0;
 
-#[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Hash, OccupiedCapacity)]
+#[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Hash, HasOccupiedCapacity)]
 pub struct OutPoint {
     // Hash of Transaction
     pub hash: H256,
@@ -60,7 +60,9 @@ impl OutPoint {
     }
 }
 
-#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug, OccupiedCapacity)]
+#[derive(
+    Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug, HasOccupiedCapacity,
+)]
 pub struct CellInput {
     pub previous_output: OutPoint,
     pub valid_since: u64,
@@ -96,7 +98,7 @@ impl CellInput {
     }
 }
 
-#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, OccupiedCapacity)]
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, HasOccupiedCapacity)]
 pub struct CellOutput {
     pub capacity: Capacity,
     #[serde(with = "serde_bytes")]
@@ -147,7 +149,7 @@ impl CellOutput {
 
 pub type Witness = Vec<Vec<u8>>;
 
-#[derive(Clone, Serialize, Deserialize, Eq, Debug, Default, OccupiedCapacity)]
+#[derive(Clone, Serialize, Deserialize, Eq, Debug, Default, HasOccupiedCapacity)]
 pub struct Transaction {
     version: Version,
     deps: Vec<OutPoint>,
@@ -255,8 +257,11 @@ impl Transaction {
         self.outputs.get(i).cloned()
     }
 
-    pub fn outputs_capacity(&self) -> Capacity {
-        self.outputs.iter().map(|output| output.capacity).sum()
+    pub fn outputs_capacity(&self) -> ::occupied_capacity::Result<Capacity> {
+        self.outputs
+            .iter()
+            .map(|output| output.capacity)
+            .try_fold(Capacity::zero(), Capacity::safe_add)
     }
 }
 
@@ -418,12 +423,13 @@ impl ProposalShortId {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::{capacity_bytes, Capacity};
 
     #[test]
     fn test_tx_hash() {
         let tx = TransactionBuilder::default()
             .output(CellOutput::new(
-                5000,
+                capacity_bytes!(5000),
                 vec![1, 2, 3],
                 Script::default(),
                 None,
@@ -434,11 +440,11 @@ mod test {
 
         assert_eq!(
             format!("{:x}", tx.hash()),
-            "a896bfe8c8439305f099e1f07b47844ba0a5a27ec1e26ec25b236fa7e4831115"
+            "a2cfcbc6b5f4d153ea90b6e203b14f7ab1ead6eab61450f88203e414a7e68c2c"
         );
         assert_eq!(
             format!("{:x}", tx.witness_hash()),
-            "3f08580e373cad9a828173efe614ce3a8310957351c77f2859a18fc49d4cd227"
+            "4bb6ed9e544f5609749cfaa91f315adc7facecbe18b0d507330ed070fb2a4247"
         );
     }
 }

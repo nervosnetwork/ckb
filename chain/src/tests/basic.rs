@@ -6,6 +6,7 @@ use ckb_core::cell::{CellProvider, CellStatus};
 use ckb_core::header::HeaderBuilder;
 use ckb_core::script::Script;
 use ckb_core::transaction::{CellInput, CellOutput, OutPoint, TransactionBuilder};
+use ckb_core::{capacity_bytes, Capacity};
 use ckb_shared::error::SharedError;
 use ckb_traits::ChainProvider;
 use numext_fixed_uint::U256;
@@ -17,7 +18,7 @@ fn test_genesis_transaction_spend() {
         .input(CellInput::new(OutPoint::null(), 0, Default::default()))
         .outputs(vec![
             CellOutput::new(
-                100_000_000,
+                capacity_bytes!(100_000_000),
                 vec![],
                 Script::default(),
                 None
@@ -243,14 +244,17 @@ fn test_transaction_conflict_in_same_block() {
             .process_block(Arc::new(block.clone()))
             .expect("process block ok");
     }
-    assert_eq!(
-        SharedError::InvalidTransaction("Transactions((1, Conflict))".to_string()),
-        chain_controller
-            .process_block(Arc::new(chain[3].clone()))
-            .unwrap_err()
-            .downcast()
-            .unwrap()
-    );
+    let error = chain_controller
+        .process_block(Arc::new(chain[3].clone()))
+        .unwrap_err()
+        .downcast()
+        .unwrap();
+    if let SharedError::InvalidTransaction(errmsg) = error {
+        let re = regex::Regex::new(r#"Transactions\(\([0-9], Conflict\)\)"#).unwrap();
+        assert!(re.is_match(&errmsg));
+    } else {
+        panic!("should be the Conflict Transactions error");
+    }
 }
 
 #[test]
@@ -331,14 +335,17 @@ fn test_transaction_conflict_in_different_blocks() {
             .process_block(Arc::new(block.clone()))
             .expect("process block ok");
     }
-    assert_eq!(
-        SharedError::InvalidTransaction("Transactions((0, Conflict))".to_string()),
-        chain_controller
-            .process_block(Arc::new(chain[4].clone()))
-            .unwrap_err()
-            .downcast()
-            .unwrap()
-    );
+    let error = chain_controller
+        .process_block(Arc::new(chain[4].clone()))
+        .unwrap_err()
+        .downcast()
+        .unwrap();
+    if let SharedError::InvalidTransaction(errmsg) = error {
+        let re = regex::Regex::new(r#"Transactions\(\([0-9], Conflict\)\)"#).unwrap();
+        assert!(re.is_match(&errmsg));
+    } else {
+        panic!("should be the Conflict Transactions error");
+    }
 }
 
 #[test]
@@ -347,7 +354,7 @@ fn test_genesis_transaction_fetch() {
         .input(CellInput::new(OutPoint::null(), 0, Default::default()))
         .outputs(vec![
             CellOutput::new(
-                100_000_000,
+                capacity_bytes!(100_000_000),
                 vec![],
                 Script::default(),
                 None

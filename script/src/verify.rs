@@ -204,7 +204,7 @@ mod tests {
     use ckb_core::cell::{CellMeta, CellStatus, LiveCell};
     use ckb_core::script::Script;
     use ckb_core::transaction::{CellInput, CellOutput, OutPoint, TransactionBuilder};
-    use ckb_core::Capacity;
+    use ckb_core::{capacity_bytes, Capacity};
     use crypto::secp::Generator;
     use faster_hex::hex_encode;
     use hash::{blake2b_256, sha3_256};
@@ -220,7 +220,12 @@ mod tests {
     #[test]
     fn check_always_success_hash() {
         let dummy_cell = CellMeta {
-            cell_output: CellOutput::new(100, vec![], Script::always_success(), None),
+            cell_output: CellOutput::new(
+                capacity_bytes!(100),
+                vec![],
+                Script::always_success(),
+                None,
+            ),
             block_number: Some(1),
             cellbase: false,
         };
@@ -271,7 +276,12 @@ mod tests {
         let binary_hash: H256 = (&blake2b_256(&buffer)).into();
         let dep_out_point = OutPoint::new(H256::from_trimmed_hex_str("123").unwrap(), 8);
         let dep_cell = CellMeta {
-            cell_output: CellOutput::new(buffer.len() as Capacity, buffer, Script::default(), None),
+            cell_output: CellOutput::new(
+                Capacity::bytes(buffer.len()).unwrap(),
+                buffer,
+                Script::default(),
+                None,
+            ),
             block_number: Some(1),
             cellbase: false,
         };
@@ -286,7 +296,7 @@ mod tests {
             .build();
 
         let dummy_cell = CellMeta {
-            cell_output: CellOutput::new(100, vec![], script, None),
+            cell_output: CellOutput::new(capacity_bytes!(100), vec![], script, None),
             block_number: Some(1),
             cellbase: false,
         };
@@ -334,7 +344,12 @@ mod tests {
         let binary_hash: H256 = (&blake2b_256(&buffer)).into();
         let dep_out_point = OutPoint::new(H256::from_trimmed_hex_str("123").unwrap(), 8);
         let dep_cell = CellMeta {
-            cell_output: CellOutput::new(buffer.len() as Capacity, buffer, Script::default(), None),
+            cell_output: CellOutput::new(
+                Capacity::bytes(buffer.len()).unwrap(),
+                buffer,
+                Script::default(),
+                None,
+            ),
             block_number: Some(1),
             cellbase: false,
         };
@@ -349,7 +364,7 @@ mod tests {
             .build();
 
         let dummy_cell = CellMeta {
-            cell_output: CellOutput::new(100, vec![], script, None),
+            cell_output: CellOutput::new(capacity_bytes!(100), vec![], script, None),
             block_number: Some(1),
             cellbase: false,
         };
@@ -399,7 +414,12 @@ mod tests {
         let binary_hash: H256 = (&blake2b_256(&buffer)).into();
         let dep_out_point = OutPoint::new(H256::from_trimmed_hex_str("123").unwrap(), 8);
         let dep_cell = CellMeta {
-            cell_output: CellOutput::new(buffer.len() as Capacity, buffer, Script::default(), None),
+            cell_output: CellOutput::new(
+                Capacity::bytes(buffer.len()).unwrap(),
+                buffer,
+                Script::default(),
+                None,
+            ),
             block_number: Some(1),
             cellbase: false,
         };
@@ -414,7 +434,7 @@ mod tests {
             .build();
 
         let dummy_cell = CellMeta {
-            cell_output: CellOutput::new(100, vec![], script, None),
+            cell_output: CellOutput::new(capacity_bytes!(100), vec![], script, None),
             block_number: Some(1),
             cellbase: false,
         };
@@ -471,7 +491,7 @@ mod tests {
             .build();
 
         let dummy_cell = CellMeta {
-            cell_output: CellOutput::new(100, vec![], script, None),
+            cell_output: CellOutput::new(capacity_bytes!(100), vec![], script, None),
             block_number: Some(1),
             cellbase: false,
         };
@@ -517,14 +537,19 @@ mod tests {
 
         let input = CellInput::new(OutPoint::null(), 0, vec![]);
         let dummy_cell = CellMeta {
-            cell_output: CellOutput::new(100, vec![], Script::always_success(), None),
+            cell_output: CellOutput::new(
+                capacity_bytes!(100),
+                vec![],
+                Script::always_success(),
+                None,
+            ),
             block_number: Some(1),
             cellbase: false,
         };
 
         let script = Script::new(args, (&blake2b_256(&buffer)).into());
         let output = CellOutput::new(
-            0,
+            Capacity::zero(),
             Vec::new(),
             Script::new(vec![], H256::zero()),
             Some(script),
@@ -532,7 +557,12 @@ mod tests {
 
         let dep_out_point = OutPoint::new(H256::from_trimmed_hex_str("123").unwrap(), 8);
         let dep_cell = CellMeta {
-            cell_output: CellOutput::new(buffer.len() as Capacity, buffer, Script::default(), None),
+            cell_output: CellOutput::new(
+                Capacity::bytes(buffer.len()).unwrap(),
+                buffer,
+                Script::default(),
+                None,
+            ),
             block_number: Some(1),
             cellbase: false,
         };
@@ -586,17 +616,32 @@ mod tests {
 
         let input = CellInput::new(OutPoint::null(), 0, vec![]);
         let dummy_cell = CellMeta {
-            cell_output: CellOutput::new(100, vec![], Script::always_success(), None),
+            cell_output: CellOutput::new(
+                capacity_bytes!(100),
+                vec![],
+                Script::always_success(),
+                None,
+            ),
             block_number: Some(1),
             cellbase: false,
         };
 
         let script = Script::new(args, (&blake2b_256(&buffer)).into());
-        let output = CellOutput::new(0, Vec::new(), Script::default(), Some(script));
+        let output = CellOutput::new(
+            Capacity::zero(),
+            Vec::new(),
+            Script::default(),
+            Some(script),
+        );
 
         let dep_out_point = OutPoint::new(H256::from_trimmed_hex_str("123").unwrap(), 8);
         let dep_cell = CellMeta {
-            cell_output: CellOutput::new(buffer.len() as Capacity, buffer, Script::default(), None),
+            cell_output: CellOutput::new(
+                Capacity::bytes(buffer.len()).unwrap(),
+                buffer,
+                Script::default(),
+                None,
+            ),
             block_number: Some(1),
             cellbase: false,
         };

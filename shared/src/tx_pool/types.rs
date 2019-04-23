@@ -8,7 +8,6 @@ use ckb_verification::TransactionError;
 use failure::Fail;
 use fnv::{FnvHashMap, FnvHashSet};
 use linked_hash_map::LinkedHashMap;
-use occupied_capacity::OccupiedCapacity;
 use serde_derive::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use std::fmt;
@@ -95,8 +94,6 @@ pub struct PoolEntry {
     pub transaction: Transaction,
     /// refs count
     pub refs_count: usize,
-    /// Bytes size
-    pub bytes_size: usize,
     /// Cycles
     pub cycles: Option<Cycle>,
 }
@@ -105,7 +102,6 @@ impl PoolEntry {
     /// Create new transaction pool entry
     pub fn new(tx: Transaction, count: usize, cycles: Option<Cycle>) -> PoolEntry {
         PoolEntry {
-            bytes_size: tx.occupied_capacity(),
             transaction: tx,
             refs_count: count,
             cycles,
@@ -628,6 +624,7 @@ mod tests {
     use super::*;
     use ckb_core::script::Script;
     use ckb_core::transaction::{CellInput, CellOutput, Transaction, TransactionBuilder};
+    use ckb_core::Capacity;
     use numext_fixed_hash::H256;
 
     fn build_tx(inputs: Vec<(H256, u32)>, outputs_len: usize) -> PoolEntry {
@@ -642,7 +639,14 @@ mod tests {
             )
             .outputs(
                 (0..outputs_len)
-                    .map(|i| CellOutput::new((i + 1) as u64, Vec::new(), Script::default(), None))
+                    .map(|i| {
+                        CellOutput::new(
+                            Capacity::bytes(i + 1).unwrap(),
+                            Vec::new(),
+                            Script::default(),
+                            None,
+                        )
+                    })
                     .collect(),
             )
             .build();

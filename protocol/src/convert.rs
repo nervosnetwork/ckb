@@ -297,7 +297,7 @@ impl<'a> TryFrom<ckb_protocol::CellOutput<'a>> for ckb_core::transaction::CellOu
         };
 
         Ok(ckb_core::transaction::CellOutput {
-            capacity: cell_output.capacity(),
+            capacity: ckb_core::Capacity::shannons(cell_output.capacity()),
             data: cast!(cell_output.data().and_then(|s| s.seq()))?.to_vec(),
             lock: TryInto::try_into(lock)?,
             type_,
