@@ -61,7 +61,7 @@ impl<CS: ChainStore + 'static> RpcAgent<CS> {
         let (signal_sender, signal_receiver) =
             crossbeam_channel::bounded::<()>(SIGNAL_CHANNEL_SIZE);
         let (local_node_info_sender, local_node_info_receiver) =
-            crossbeam_channel::bounded(SIGNAL_CHANNEL_SIZE);
+            crossbeam_channel::bounded(DEFAULT_CHANNEL_SIZE);
         let (get_peers_sender, get_peers_receiver) =
             crossbeam_channel::bounded(DEFAULT_CHANNEL_SIZE);
         let (get_block_template_sender, get_block_template_receiver) =
@@ -321,6 +321,7 @@ impl<CS: ChainStore + 'static> RpcAgent<CS> {
                 .into_iter()
                 .map(|(address, score)| NodeAddress { address, score })
                 .collect(),
+            is_outbound: None,
         }
     }
 
@@ -329,6 +330,7 @@ impl<CS: ChainStore + 'static> RpcAgent<CS> {
         peers
             .into_iter()
             .map(|(peer_id, peer, addresses)| Node {
+                is_outbound: Some(peer.is_outbound()),
                 version: peer
                     .identify_info
                     .map(|info| info.client_version)
@@ -415,7 +417,7 @@ impl<CS: ChainStore + 'static> RpcAgent<CS> {
                                     hash: transaction.hash().clone(),
                                     index: i as u32,
                                 },
-                                capacity: output.capacity.to_string(),
+                                capacity: output.capacity,
                                 lock: output.lock.clone().into(),
                             });
                         }

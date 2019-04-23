@@ -1,12 +1,12 @@
 use crate::agent::RpcAgentController;
 use ckb_core::block::Block as CoreBlock;
 use ckb_core::Cycle;
+use jsonrpc_core::{Error, Result};
 use jsonrpc_derive::rpc;
 use jsonrpc_types::{Block, BlockTemplate};
 use numext_fixed_hash::H256;
 use std::convert::TryInto;
 use std::sync::Arc;
-use jsonrpc_types::{Error, Result};
 
 #[rpc]
 pub trait MinerRpc {
