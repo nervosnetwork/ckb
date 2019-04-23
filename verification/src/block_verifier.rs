@@ -360,12 +360,10 @@ impl TransactionsVerifier {
         if cellbase.transaction.outputs_capacity()? > block_reward.safe_add(fee)? {
             return Err(Error::Cellbase(CellbaseError::InvalidReward));
         }
-        // TODO use TransactionScriptsVerifier to verify cellbase script
 
         // make verifiers orthogonal
         let cycles_set = resolved
-            .par_iter()
-            .skip(1)
+            .iter()
             .enumerate()
             .map(|(index, tx)| {
                 if let Some(cycles) = txs_verify_cache.get(&tx.transaction.hash()) {

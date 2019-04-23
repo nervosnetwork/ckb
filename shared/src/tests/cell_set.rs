@@ -3,11 +3,6 @@ use crate::{
     shared::{Shared, SharedBuilder},
     store::ChainKVStore,
 };
-<<<<<<< HEAD
-use ckb_core::cell::{CellProvider, CellStatus, LiveCell};
-=======
-use ckb_core::cell::resolve_transaction;
->>>>>>> refactor: revert CellStatus
 use ckb_core::transaction::Transaction;
 use ckb_db::memorydb::MemoryKeyValueDB;
 use std::fs::File;
@@ -54,10 +49,6 @@ fn case_no1() {
     let cell_set_overlay = chain_state.new_cell_set_overlay(&cell_set_diff);
 
     let transcations = transcations();
-
-    //Outpoint::null should be live
-    let rtx0 = cell_set_overlay.resolve_transaction(&transcations[0]);
-    assert_eq!(rtx0.input_cells[0], CellStatus::Live(LiveCell::Null));
 
     let out_point = transcations[1].inputs()[0].previous_output.clone();
 

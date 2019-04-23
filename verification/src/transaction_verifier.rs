@@ -1,5 +1,5 @@
 use crate::error::TransactionError;
-use ckb_core::transaction::{Capacity, OutPoint, Transaction, TX_VERSION};
+use ckb_core::transaction::{Capacity, Transaction, TX_VERSION};
 use ckb_core::{
     cell::{CellMeta, CellStatus, ResolvedTransaction},
     BlockNumber, Cycle,
@@ -9,15 +9,12 @@ use ckb_traits::BlockMedianTimeContext;
 use lru_cache::LruCache;
 use occupied_capacity::OccupiedCapacity;
 use std::cell::RefCell;
-use std::collections::HashSet;
 
 pub struct TransactionVerifier<'a, M> {
     pub version: VersionVerifier<'a>,
-    pub null: NullVerifier<'a>,
     pub empty: EmptyVerifier<'a>,
     pub maturity: MaturityVerifier<'a>,
     pub capacity: CapacityVerifier<'a>,
-    pub duplicate_inputs: DuplicateInputsVerifier<'a>,
     pub inputs: InputVerifier<'a>,
     pub script: ScriptVerifier<'a>,
     pub since: ValidSinceVerifier<'a, M>,
@@ -35,10 +32,8 @@ where
     ) -> Self {
         TransactionVerifier {
             version: VersionVerifier::new(&rtx.transaction),
-            null: NullVerifier::new(&rtx.transaction),
             empty: EmptyVerifier::new(&rtx.transaction),
             maturity: MaturityVerifier::new(&rtx, tip_number, cellbase_maturity),
-            duplicate_inputs: DuplicateInputsVerifier::new(&rtx.transaction),
             script: ScriptVerifier::new(rtx),
             capacity: CapacityVerifier::new(rtx),
             inputs: InputVerifier::new(rtx),
@@ -49,7 +44,6 @@ where
     pub fn verify(&self, max_cycles: Cycle) -> Result<Cycle, TransactionError> {
         self.version.verify()?;
         self.empty.verify()?;
-        self.null.verify()?;
         self.maturity.verify()?;
         self.inputs.verify()?;
         self.capacity.verify()?;
@@ -190,53 +184,6 @@ impl<'a> MaturityVerifier<'a> {
     }
 }
 
-pub struct DuplicateInputsVerifier<'a> {
-    transaction: &'a Transaction,
-}
-
-impl<'a> DuplicateInputsVerifier<'a> {
-    pub fn new(transaction: &'a Transaction) -> Self {
-        DuplicateInputsVerifier { transaction }
-    }
-
-    pub fn verify(&self) -> Result<(), TransactionError> {
-        let transaction = self.transaction;
-        let mut seen = HashSet::with_capacity(self.transaction.inputs().len());
-
-        if transaction.inputs().iter().all(|id| seen.insert(id)) {
-            Ok(())
-        } else {
-            Err(TransactionError::DuplicateInputs)
-        }
-    }
-}
-
-pub struct NullVerifier<'a> {
-    transaction: &'a Transaction,
-}
-
-impl<'a> NullVerifier<'a> {
-    pub fn new(transaction: &'a Transaction) -> Self {
-        NullVerifier { transaction }
-    }
-
-    pub fn verify(&self) -> Result<(), TransactionError> {
-        let transaction = self.transaction;
-        if transaction.deps().iter().any(OutPoint::is_null) {
-            return Err(TransactionError::NullDep);
-        }
-
-        if transaction
-            .inputs()
-            .iter()
-            .any(|input| input.previous_output.is_null())
-        {
-            return Err(TransactionError::NullInput);
-        }
-        Ok(())
-    }
-}
-
 pub struct CapacityVerifier<'a> {
     resolved_transaction: &'a ResolvedTransaction,
 }
@@ -249,6 +196,9 @@ impl<'a> CapacityVerifier<'a> {
     }
 
     pub fn verify(&self) -> Result<(), TransactionError> {
+        if self.resolved_transaction.is_cellbase() {
+            return Ok(());
+        }
         let inputs_total = self
             .resolved_transaction
             .input_cells

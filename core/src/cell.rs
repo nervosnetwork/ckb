@@ -3,8 +3,6 @@ use crate::transaction::{CellOutput, OutPoint, Transaction};
 use crate::Capacity;
 use fnv::FnvHashMap;
 use numext_fixed_hash::H256;
-use std::iter::Chain;
-use std::slice;
 
 #[derive(Clone, Eq, PartialEq, Debug)]
 pub struct CellMeta {
@@ -85,11 +83,16 @@ pub trait CellProvider {
     }
 
     fn resolve_transaction(&self, transaction: &Transaction) -> ResolvedTransaction {
-        let input_cells = transaction
-            .input_pts()
-            .iter()
-            .map(|input| self.get_cell_status(input))
-            .collect();
+        // setup empty input cells for cellbase
+        let input_cells = if transaction.is_cellbase() {
+            Vec::new()
+        } else {
+            transaction
+                .input_pts()
+                .iter()
+                .map(|input| self.get_cell_status(input))
+                .collect()
+        };
 
         let dep_cells = transaction
             .dep_pts()
@@ -222,26 +225,8 @@ impl<'a> CellProvider for TransactionCellProvider<'a> {
 }
 
 impl ResolvedTransaction {
-    pub fn cells_iter(&self) -> Chain<slice::Iter<CellStatus>, slice::Iter<CellStatus>> {
-        self.dep_cells.iter().chain(&self.input_cells)
-    }
-
-    pub fn cells_iter_mut(
-        &mut self,
-    ) -> Chain<slice::IterMut<CellStatus>, slice::IterMut<CellStatus>> {
-        self.dep_cells.iter_mut().chain(&mut self.input_cells)
-    }
-
-    pub fn is_double_spend(&self) -> bool {
-        self.cells_iter().any(CellStatus::is_dead)
-    }
-
-    pub fn is_orphan(&self) -> bool {
-        self.cells_iter().any(CellStatus::is_unknown)
-    }
-
-    pub fn is_fully_resolved(&self) -> bool {
-        self.cells_iter().all(CellStatus::is_live)
+    pub fn is_cellbase(&self) -> bool {
+        self.input_cells.is_empty()
     }
 
     pub fn fee(&self) -> ::occupied_capacity::Result<Capacity> {
@@ -323,10 +308,7 @@ mod tests {
         db.cells.insert(p1.clone(), Some(o.clone()));
         db.cells.insert(p2.clone(), None);
 
-        assert_eq!(
-            CellStatus::Live(o),
-            db.get_cell_status(&p1)
-        );
+        assert_eq!(CellStatus::Live(o), db.get_cell_status(&p1));
         assert_eq!(CellStatus::Dead, db.get_cell_status(&p2));
         assert_eq!(CellStatus::Unknown, db.get_cell_status(&p3));
     }

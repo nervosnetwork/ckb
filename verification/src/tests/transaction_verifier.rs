@@ -1,6 +1,5 @@
 use super::super::transaction_verifier::{
-    CapacityVerifier, DuplicateInputsVerifier, EmptyVerifier, MaturityVerifier, NullVerifier,
-    ValidSinceVerifier,
+    CapacityVerifier, EmptyVerifier, MaturityVerifier, ValidSinceVerifier,
 };
 use crate::error::TransactionError;
 use ckb_core::cell::CellStatus;
@@ -10,19 +9,6 @@ use ckb_core::transaction::{CellInput, CellOutput, OutPoint, TransactionBuilder}
 use ckb_core::{capacity_bytes, Capacity};
 use ckb_traits::BlockMedianTimeContext;
 use numext_fixed_hash::H256;
-
-#[test]
-pub fn test_null() {
-    let transaction = TransactionBuilder::default()
-        .input(CellInput::new(
-            OutPoint::new(H256::zero(), u32::max_value()),
-            0,
-            Default::default(),
-        ))
-        .build();
-    let verifier = NullVerifier::new(&transaction);
-    assert_eq!(verifier.verify().err(), Some(TransactionError::NullInput));
-}
 
 #[test]
 pub fn test_empty() {
@@ -126,31 +112,6 @@ pub fn test_capacity_invalid() {
     assert_eq!(
         verifier.verify().err(),
         Some(TransactionError::OutputsSumOverflow)
-    );
-}
-
-#[test]
-pub fn test_duplicate_inputs() {
-    let transaction = TransactionBuilder::default()
-        .inputs(vec![
-            CellInput::new(
-                OutPoint::new(H256::from_trimmed_hex_str("1").unwrap(), 0),
-                0,
-                Default::default(),
-            ),
-            CellInput::new(
-                OutPoint::new(H256::from_trimmed_hex_str("1").unwrap(), 0),
-                0,
-                Default::default(),
-            ),
-        ])
-        .build();
-
-    let verifier = DuplicateInputsVerifier::new(&transaction);
-
-    assert_eq!(
-        verifier.verify().err(),
-        Some(TransactionError::DuplicateInputs)
     );
 }
 

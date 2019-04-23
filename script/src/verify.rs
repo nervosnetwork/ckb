@@ -3,7 +3,7 @@ use crate::{
     syscalls::{build_tx, Debugger, LoadCell, LoadCellByField, LoadInputByField, LoadTx},
     ScriptError,
 };
-use ckb_core::cell::ResolvedTransaction;
+use ckb_core::cell::{CellStatus, ResolvedTransaction};
 use ckb_core::script::{Script, ALWAYS_SUCCESS_HASH};
 use ckb_core::transaction::{CellInput, CellOutput};
 use ckb_core::Cycle;
@@ -32,15 +32,12 @@ impl<'a> TransactionScriptsVerifier<'a> {
         let dep_cells: Vec<&'a CellOutput> = rtx
             .dep_cells
             .iter()
-            .filter_map(|cell_status|
-                cell_status
-                    .get_live_output()
-            )
+            .filter_map(CellStatus::get_live_output)
             .collect();
         let input_cells = rtx
             .input_cells
             .iter()
-            .filter_map(|cell_status| cell_status.get_live_output())
+            .filter_map(CellStatus::get_live_output)
             .collect();
         let inputs = rtx.transaction.inputs().iter().collect();
         let outputs = rtx.transaction.outputs().iter().collect();
