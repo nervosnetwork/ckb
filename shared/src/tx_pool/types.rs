@@ -1,7 +1,7 @@
 //! The primary module containing the implementations of the transaction pool
 //! and its top-level members.
 
-use ckb_core::cell::{CellProvider, CellStatus};
+use ckb_core::cell::{CellMeta, CellProvider, CellStatus, LiveCell};
 use ckb_core::transaction::{CellOutput, OutPoint, ProposalShortId, Transaction};
 use ckb_core::Cycle;
 use ckb_verification::TransactionError;
@@ -607,6 +607,23 @@ impl PendingQueue {
 
     pub fn fetch(&self, n: usize) -> Vec<ProposalShortId> {
         self.inner.keys().take(n).cloned().collect()
+    }
+}
+
+impl CellProvider for PendingQueue {
+    fn cell(&self, o: &OutPoint) -> CellStatus {
+        if let Some(x) = self.inner.get(&ProposalShortId::from_tx_hash(&o.hash)) {
+            match x.transaction.get_output(o.index as usize) {
+                Some(cell) => CellStatus::Live(LiveCell::Output(CellMeta {
+                    cell_output: cell,
+                    block_number: None,
+                    cellbase: false,
+                })),
+                None => CellStatus::Unknown,
+            }
+        } else {
+            CellStatus::Unknown
+        }
     }
 }
 
