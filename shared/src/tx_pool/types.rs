@@ -64,14 +64,10 @@ pub enum StagingTxResult {
 pub enum PoolError {
     /// An invalid pool entry caused by underlying tx validation error
     InvalidTx(TransactionError),
-    /// An entry already in the pool
-    AlreadyInPool,
     /// CellStatus Conflict
     Conflict,
     /// Transaction pool is over capacity, can't accept more transactions
     OverCapacity,
-    /// A duplicate output
-    DuplicateOutput,
     /// tx_pool don't accept cellbase-like tx
     Cellbase,
     /// TimeOut
