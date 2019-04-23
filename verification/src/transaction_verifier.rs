@@ -165,8 +165,8 @@ impl<'a> MaturityVerifier<'a> {
 
     pub fn verify(&self) -> Result<(), TransactionError> {
         let cellbase_immature = |cell_status: &CellStatus| -> bool {
-            match cell_status.get_live_output() {
-                Some(ref meta)
+            match cell_status {
+                CellStatus::Live(meta)
                     if meta.is_cellbase()
                         && self.tip_number
                             < meta.block_number.expect(

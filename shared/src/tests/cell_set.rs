@@ -3,7 +3,11 @@ use crate::{
     shared::{Shared, SharedBuilder},
     store::ChainKVStore,
 };
+<<<<<<< HEAD
 use ckb_core::cell::{CellProvider, CellStatus, LiveCell};
+=======
+use ckb_core::cell::resolve_transaction;
+>>>>>>> refactor: revert CellStatus
 use ckb_core::transaction::Transaction;
 use ckb_db::memorydb::MemoryKeyValueDB;
 use std::fs::File;
