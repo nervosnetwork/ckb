@@ -505,7 +505,7 @@ dependencies = [
  "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "lru-cache 0.1.0 (git+https://github.com/nervosnetwork/lru-cache)",
  "rand 0.6.5 (registry+https://github.com/rust-lang/crates.io-index)",
- "rusqlite 0.16.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "rusqlite 0.17.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.90 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.90 (registry+https://github.com/rust-lang/crates.io-index)",
  "sha2 0.8.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1137,6 +1137,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "fallible-iterator"
+version = "0.1.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+
+[[package]]
+name = "fallible-streaming-iterator"
+version = "0.1.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+
+[[package]]
 name = "faster-hex"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1594,7 +1604,7 @@ dependencies = [
 
 [[package]]
 name = "libsqlite3-sys"
-version = "0.11.1"
+version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "cc 1.0.26 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -2447,12 +2457,15 @@ dependencies = [
 
 [[package]]
 name = "rusqlite"
-version = "0.16.0"
+version = "0.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "bitflags 1.0.4 (registry+https://github.com/rust-lang/crates.io-index)",
- "libsqlite3-sys 0.11.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "fallible-iterator 0.1.6 (registry+https://github.com/rust-lang/crates.io-index)",
+ "fallible-streaming-iterator 0.1.9 (registry+https://github.com/rust-lang/crates.io-index)",
+ "libsqlite3-sys 0.13.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "lru-cache 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "memchr 2.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "time 0.1.42 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
@@ -3552,6 +3565,8 @@ dependencies = [
 "checksum failure_derive 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)" = "ea1063915fd7ef4309e222a5a07cf9c319fb9c7836b1f89b85458672dbb127e1"
 "checksum fake-simd 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)" = "e88a8acf291dafb59c2d96e8f59828f3838bb1a70398823ade51a84de6a6deed"
 "checksum faketime 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)" = "17087bd8c5a4a3e8bd40ecd9d3bda587459abcf67ca94211df09ec8451404cf8"
+"checksum fallible-iterator 0.1.6 (registry+https://github.com/rust-lang/crates.io-index)" = "eb7217124812dc5672b7476d0c2d20cfe9f7c0f1ba0904b674a9762a0212f72e"
+"checksum fallible-streaming-iterator 0.1.9 (registry+https://github.com/rust-lang/crates.io-index)" = "7360491ce676a36bf9bb3c56c1aa791658183a54d2744120f27285738d90465a"
 "checksum faster-hex 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)" = "2ea2e4ecc921ec2cbb8b10f0d400fe448554779d2ac5e0bfbb065836d9d8483a"
 "checksum faster-hex 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)" = "a5b8cccaafb5aae8c282692e5590f341925edea6c696e8715ff0d973320b2646"
 "checksum fixedbitset 0.1.9 (registry+https://github.com/rust-lang/crates.io-index)" = "86d4de0081402f5e88cdac65c8dcdcc73118c1a7a465e2a05f0da05843a8ea33"
@@ -3601,7 +3616,7 @@ dependencies = [
 "checksum libc 0.2.50 (registry+https://github.com/rust-lang/crates.io-index)" = "aab692d7759f5cd8c859e169db98ae5b52c924add2af5fbbca11d12fefb567c1"
 "checksum libloading 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)" = "9c3ad660d7cb8c5822cd83d10897b0f1f1526792737a179e73896152f85b88c2"
 "checksum librocksdb-sys 5.17.2 (registry+https://github.com/rust-lang/crates.io-index)" = "7dfb546562f9b450237bb8df7a31961849ee9fb1186d9e356db1d7a6b7609ff2"
-"checksum libsqlite3-sys 0.11.1 (registry+https://github.com/rust-lang/crates.io-index)" = "3567bc1a0c84e2c0d71eeb4a1f08451babf7843babd733158777d9c686dad9f3"
+"checksum libsqlite3-sys 0.13.0 (registry+https://github.com/rust-lang/crates.io-index)" = "44c0ae64aa0fc0c81fc1ddc9eae833e617e900677f83a72907b5535f08913d99"
 "checksum linked-hash-map 0.5.1 (git+https://github.com/nervosnetwork/linked-hash-map?rev=df27f21)" = "<none>"
 "checksum linked-hash-map 0.5.2 (registry+https://github.com/rust-lang/crates.io-index)" = "ae91b68aebc4ddb91978b11a1b02ddd8602a05ec19002801c5666000e05e0f83"
 "checksum lock_api 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)" = "62ebf1391f6acad60e5c8b43706dde4582df75c06698ab44511d15016bc2442c"
@@ -3688,7 +3703,7 @@ dependencies = [
 "checksum reqwest 0.9.12 (registry+https://github.com/rust-lang/crates.io-index)" = "962fa64e670e70b9d3a81c3688832eb59293ef490e0af5ad169763f62016ac5e"
 "checksum ring 0.14.6 (registry+https://github.com/rust-lang/crates.io-index)" = "426bc186e3e95cac1e4a4be125a4aca7e84c2d616ffc02244eef36e2a60a093c"
 "checksum rocksdb 0.12.1 (registry+https://github.com/rust-lang/crates.io-index)" = "3eca7dfb97566985090e6bc4a529af42d0adda683d346a024104ee1b1932e340"
-"checksum rusqlite 0.16.0 (registry+https://github.com/rust-lang/crates.io-index)" = "6381ddfe91dbb659b4b132168da15985bc84162378cf4fcdc4eb99c857d063e2"
+"checksum rusqlite 0.17.0 (registry+https://github.com/rust-lang/crates.io-index)" = "f8ef7411f02f83d4ce1b9c6c043013ed141f01aa1a77c665fb6d72042a3705cf"
 "checksum rustc-demangle 0.1.13 (registry+https://github.com/rust-lang/crates.io-index)" = "adacaae16d02b6ec37fdc7acfcddf365978de76d1983d3ee22afc260e1ca9619"
 "checksum rustc_version 0.2.3 (registry+https://github.com/rust-lang/crates.io-index)" = "138e3e0acb6c9fb258b19b67cb8abd63c00679d2851805ea151465464fe9030a"
 "checksum rusty-fork 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)" = "9591f190d2852720b679c21f66ad929f9f1d7bb09d1193c26167586029d8489c"
