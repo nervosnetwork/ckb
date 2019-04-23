@@ -19,7 +19,7 @@ unsigned-varint = {git = "https://github.com/paritytech/unsigned-varint", featur
 lru-cache = { git = "https://github.com/nervosnetwork/lru-cache" }
 log = "0.4.5"
 bytes = "0.4.12"
-tokio = "0.1.18"
+tokio = "0.1.19"
 futures = "0.1"
 snap = "0.2"
 crossbeam-channel = "0.3"
