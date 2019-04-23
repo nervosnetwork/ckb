@@ -77,13 +77,20 @@ impl<'a, CS: ChainStore> TransactionProcess<'a, CS> {
                         .send_message_to(target_peer, fbb.finished_data().to_vec());
                 }
             }
-            Err(PoolError::InvalidTx(TransactionError::UnknownInput))
-            | Err(PoolError::InvalidTx(TransactionError::Conflict))
-            | Err(PoolError::InvalidTx(TransactionError::Immature))
-            | Err(PoolError::InvalidTx(TransactionError::CellbaseImmaturity)) => {
-                // this error may occured when peer's tip is different with us,
-                // we can't proof peer is bad so just ignore this
-                debug!(target: "relay", "peer {} relay a conflict or missing input tx: {:?}", self.peer, tx);
+            Err(PoolError::InvalidTx(TransactionError::NullInput))
+            | Err(PoolError::InvalidTx(TransactionError::NullDep))
+            | Err(PoolError::InvalidTx(TransactionError::CapacityOverflow))
+            | Err(PoolError::InvalidTx(TransactionError::DuplicateInputs))
+            | Err(PoolError::InvalidTx(TransactionError::Empty))
+            | Err(PoolError::InvalidTx(TransactionError::OutputsSumOverflow))
+            | Err(PoolError::InvalidTx(TransactionError::InvalidScript))
+            | Err(PoolError::InvalidTx(TransactionError::ScriptFailure(_)))
+            | Err(PoolError::InvalidTx(TransactionError::InvalidSignature))
+            | Err(PoolError::InvalidTx(TransactionError::InvalidValidSince))
+            | Err(PoolError::Cellbase) => {
+                debug!(target: "relay", "peer {} relay a invalid tx: {:?}", self.peer, tx);
+                // TODO use report score interface
+                self.nc.ban_peer(self.peer, DEFAULT_BAN_TIME);
             }
             Ok(cycles) => {
                 debug!(
@@ -95,9 +102,9 @@ impl<'a, CS: ChainStore> TransactionProcess<'a, CS> {
                 self.nc.ban_peer(self.peer, DEFAULT_BAN_TIME);
             }
             Err(err) => {
-                debug!(target: "relay", "peer {} relay a invalid tx: {:?}, error: {:?}", self.peer, tx, err);
-                // TODO use report score interface
-                self.nc.ban_peer(self.peer, DEFAULT_BAN_TIME);
+                // this error may occured when peer's tip is different with us,
+                // we can't proof peer is bad so just ignore this
+                debug!(target: "relay", "peer {} relay a conflict or missing input tx: {:?}, error: {:?}", self.peer, tx, err);
             }
         }
 
