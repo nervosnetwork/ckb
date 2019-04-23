@@ -78,10 +78,6 @@ pub struct ResolvedTransaction {
 pub trait CellProvider {
     fn cell(&self, out_point: &OutPoint) -> CellStatus;
 
-    fn get_cell_status(&self, out_point: &OutPoint) -> CellStatus {
-        self.cell(out_point)
-    }
-
     fn resolve_transaction(&self, transaction: &Transaction) -> ResolvedTransaction {
         // setup empty input cells for cellbase
         let input_cells = if transaction.is_cellbase() {
@@ -90,14 +86,14 @@ pub trait CellProvider {
             transaction
                 .input_pts()
                 .iter()
-                .map(|input| self.get_cell_status(input))
+                .map(|input| self.cell(input))
                 .collect()
         };
 
         let dep_cells = transaction
             .dep_pts()
             .iter()
-            .map(|dep| self.get_cell_status(dep))
+            .map(|dep| self.cell(dep))
             .collect();
 
         ResolvedTransaction {
@@ -124,10 +120,10 @@ impl<'a> OverlayCellProvider<'a> {
 
 impl<'a> CellProvider for OverlayCellProvider<'a> {
     fn cell(&self, out_point: &OutPoint) -> CellStatus {
-        match self.overlay.get_cell_status(out_point) {
+        match self.overlay.cell(out_point) {
             CellStatus::Live(co) => CellStatus::Live(co),
             CellStatus::Dead => CellStatus::Dead,
-            CellStatus::Unknown => self.cell_provider.get_cell_status(out_point),
+            CellStatus::Unknown => self.cell_provider.cell(out_point),
         }
     }
 }
@@ -308,8 +304,8 @@ mod tests {
         db.cells.insert(p1.clone(), Some(o.clone()));
         db.cells.insert(p2.clone(), None);
 
-        assert_eq!(CellStatus::Live(o), db.get_cell_status(&p1));
-        assert_eq!(CellStatus::Dead, db.get_cell_status(&p2));
-        assert_eq!(CellStatus::Unknown, db.get_cell_status(&p3));
+        assert_eq!(CellStatus::Live(o), db.cell(&p1));
+        assert_eq!(CellStatus::Dead, db.cell(&p2));
+        assert_eq!(CellStatus::Unknown, db.cell(&p3));
     }
 }

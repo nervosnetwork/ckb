@@ -67,7 +67,7 @@ fn test_genesis_transaction_spend() {
         shared
             .chain_state()
             .lock()
-            .get_cell_status(&OutPoint::new(genesis_tx_hash, 0)),
+            .cell(&OutPoint::new(genesis_tx_hash, 0)),
         CellStatus::Dead
     );
 }
@@ -111,7 +111,7 @@ fn test_transaction_spend_in_same_block() {
             shared
                 .chain_state()
                 .lock()
-                .get_cell_status(&OutPoint::new(hash.clone(), 0)),
+                .cell(&OutPoint::new(hash.clone(), 0)),
             CellStatus::Unknown
         );
     }
@@ -164,7 +164,7 @@ fn test_transaction_spend_in_same_block() {
             shared
                 .chain_state()
                 .lock()
-                .get_cell_status(&OutPoint::new(hash.clone(), 0)),
+                .cell(&OutPoint::new(hash.clone(), 0)),
             CellStatus::Dead
         );
     }
@@ -173,7 +173,7 @@ fn test_transaction_spend_in_same_block() {
         shared
             .chain_state()
             .lock()
-            .get_cell_status(&OutPoint::new(tx2_hash, 0)),
+            .cell(&OutPoint::new(tx2_hash, 0)),
         CellStatus::live_output(tx2_output, Some(4), false)
     );
 }
@@ -373,7 +373,7 @@ fn test_genesis_transaction_fetch() {
     let (_chain_controller, shared) = start_chain(Some(consensus), false);
 
     let out_point = OutPoint::new(root_hash, 0);
-    let state = shared.chain_state().lock().get_cell_status(&out_point);
+    let state = shared.chain_state().lock().cell(&out_point);
     assert!(state.is_live());
 }
 
