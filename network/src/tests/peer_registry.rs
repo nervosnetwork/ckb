@@ -1,136 +1,114 @@
 use crate::{
+    errors::PeerError,
     multiaddr::ToMultiaddr,
+    peer_registry::{PeerRegistry, EVICTION_PROTECT_PEERS},
     peer_store::{PeerStore, SqlitePeerStore},
-    peers_registry::{PeersRegistry, EVICTION_PROTECT_PEERS},
-    Behaviour, PeerId, ProtocolId, ProtocolVersion, SessionType,
+    Behaviour, PeerId, SessionType,
 };
-use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-fn new_peer_store() -> Arc<dyn PeerStore> {
-    Arc::new(SqlitePeerStore::temp().expect("temp"))
+fn new_peer_store() -> Box<dyn PeerStore> {
+    Box::new(SqlitePeerStore::temp().expect("temp"))
 }
 
-const TEST_PROTOCOL_ID: ProtocolId = 0;
-const TEST_PROTOCOL_VERSION: ProtocolVersion = 0;
+// TODO: add test evict peer in same network group
 
 #[test]
 fn test_accept_inbound_peer_in_reserve_only_mode() {
-    let peer_store = new_peer_store();
+    let mut peer_store = new_peer_store();
     let reserved_peer = PeerId::random();
     let addr = "/ip4/127.0.0.1".to_multiaddr().unwrap();
-    let session_id = 1;
-    let session_type = SessionType::Inbound;
+    let session_id = 1.into();
 
     // reserved_only mode: only accept reserved_peer
-    let peers = PeersRegistry::new(
-        Arc::clone(&peer_store),
-        3,
-        3,
-        true,
-        vec![reserved_peer.clone()],
-    );
+    let mut peers = PeerRegistry::new(3, 3, true, vec![reserved_peer.clone()]);
     assert!(peers
-        .accept_connection(
+        .accept_peer(
             PeerId::random(),
             addr.clone(),
             session_id,
-            session_type,
-            0,
-            0
+            SessionType::Inbound,
+            peer_store.as_mut(),
         )
         .is_err());
 
     peers
-        .accept_connection(
+        .accept_peer(
             reserved_peer.clone(),
             addr.clone(),
             session_id,
-            session_type,
-            0,
-            0,
+            SessionType::Inbound,
+            peer_store.as_mut(),
         )
         .expect("accept");
 }
 
 #[test]
 fn test_accept_inbound_peer_until_full() {
-    let peer_store = new_peer_store();
+    let mut peer_store = new_peer_store();
     let reserved_peer = PeerId::random();
     let addr = "/ip4/127.0.0.1".to_multiaddr().unwrap();
-    let session_id = 1;
-    let session_type = SessionType::Inbound;
     // accept node until inbound connections is full
-    let peers = PeersRegistry::new(
-        Arc::clone(&peer_store),
-        3,
-        3,
-        false,
-        vec![reserved_peer.clone()],
+    let mut peers = PeerRegistry::new(3, 3, false, vec![reserved_peer.clone()]);
+    for session_id in 1..=3 {
+        peers
+            .accept_peer(
+                PeerId::random(),
+                addr.clone(),
+                session_id.into(),
+                SessionType::Inbound,
+                peer_store.as_mut(),
+            )
+            .expect("accept");
+    }
+
+    assert_eq!(
+        peers
+            .accept_peer(
+                PeerId::random(),
+                addr.clone(),
+                3.into(),
+                SessionType::Outbound,
+                peer_store.as_mut(),
+            )
+            .unwrap_err(),
+        PeerError::SessionExists(3.into()),
     );
-    peers
-        .accept_connection(
-            PeerId::random(),
-            addr.clone(),
-            session_id,
-            session_type,
-            TEST_PROTOCOL_ID,
-            TEST_PROTOCOL_VERSION,
-        )
-        .expect("accept");
-    peers
-        .accept_connection(
-            PeerId::random(),
-            addr.clone(),
-            session_id,
-            session_type,
-            TEST_PROTOCOL_ID,
-            TEST_PROTOCOL_VERSION,
-        )
-        .expect("accept");
-    peers
-        .accept_connection(
-            PeerId::random(),
-            addr.clone(),
-            session_id,
-            session_type,
-            TEST_PROTOCOL_ID,
-            TEST_PROTOCOL_VERSION,
-        )
-        .expect("accept");
+
     println!("{:?}", peers.connection_status());
+    // test evict a peer
     assert!(peers
-        .accept_connection(
+        .accept_peer(
             PeerId::random(),
             addr.clone(),
-            session_id,
-            session_type,
-            TEST_PROTOCOL_ID,
-            TEST_PROTOCOL_VERSION
+            4.into(),
+            SessionType::Inbound,
+            peer_store.as_mut(),
         )
-        .is_err(),);
+        .expect("Accept peer should ok")
+        .is_some());
     // should still accept reserved peer
     peers
-        .accept_connection(
+        .accept_peer(
             reserved_peer.clone(),
             addr.clone(),
-            session_id,
-            session_type,
-            TEST_PROTOCOL_ID,
-            TEST_PROTOCOL_VERSION,
+            5.into(),
+            SessionType::Inbound,
+            peer_store.as_mut(),
         )
         .expect("accept");
-    // should refuse accept low score peer
-    assert!(peers
-        .accept_connection(
-            PeerId::random(),
-            addr.clone(),
-            session_id,
-            session_type,
-            TEST_PROTOCOL_ID,
-            TEST_PROTOCOL_VERSION
-        )
-        .is_err());
+    assert_eq!(
+        peers
+            .accept_peer(
+                reserved_peer.clone(),
+                addr.clone(),
+                6.into(),
+                SessionType::Inbound,
+                peer_store.as_mut(),
+            )
+            .unwrap_err(),
+        PeerError::PeerIdExists(reserved_peer.clone()),
+    );
 }
 
 #[test]
@@ -139,43 +117,37 @@ fn test_accept_inbound_peer_eviction() {
     // 1. should evict from largest network groups
     // 2. should never evict reserved peer
     // 3. should evict lowest scored peer
-    let peer_store = new_peer_store();
+    let mut peer_store = new_peer_store();
     let reserved_peer = PeerId::random();
     let evict_target = PeerId::random();
     let lowest_score_peer = PeerId::random();
     let addr1 = "/ip4/127.0.0.1".to_multiaddr().unwrap();
     let addr2 = "/ip4/192.168.0.1".to_multiaddr().unwrap();
-    let session_id = 1;
-    let session_type = SessionType::Inbound;
     // prepare protected peers
     let longest_connection_time_peers_count = 5;
     let protected_peers_count = 3 * EVICTION_PROTECT_PEERS + longest_connection_time_peers_count;
-    let peers_registry = PeersRegistry::new(
-        Arc::clone(&peer_store),
+    let mut peers_registry = PeerRegistry::new(
         (protected_peers_count + longest_connection_time_peers_count) as u32,
         3,
         false,
         vec![reserved_peer.clone()],
     );
-    for _ in 0..protected_peers_count {
+    for session_id in 0..protected_peers_count {
         assert!(peers_registry
-            .accept_connection(
+            .accept_peer(
                 PeerId::random(),
                 addr2.clone(),
-                session_id,
-                session_type,
-                TEST_PROTOCOL_ID,
-                TEST_PROTOCOL_VERSION
+                session_id.into(),
+                SessionType::Inbound,
+                peer_store.as_mut(),
             )
             .is_ok());
     }
     let peers: Vec<_> = {
         peers_registry
-            .peers_guard()
-            .read()
-            .iter()
-            .map(|(peer_id, _)| peer_id)
-            .cloned()
+            .peers()
+            .values()
+            .map(|peer| peer.peer_id.clone())
             .collect()
     };
 
@@ -191,9 +163,12 @@ fn test_accept_inbound_peer_eviction() {
     // lowest ping peers
     for _ in 0..EVICTION_PROTECT_PEERS {
         let peer_id = peers_iter.next().unwrap();
-        peers_registry.modify_peer(&peer_id, |peer| {
+        let session_id = peers_registry
+            .get_key_by_peer_id(&peer_id)
+            .expect("get_key_by_peer_id failed");
+        if let Some(peer) = peers_registry.get_peer_mut(session_id) {
             peer.ping = Some(Duration::from_secs(0));
-        });
+        };
     }
 
     // to prevent time error, we set now to 10ago.
@@ -201,78 +176,78 @@ fn test_accept_inbound_peer_eviction() {
     // peers which most recently sent messages
     for _ in 0..EVICTION_PROTECT_PEERS {
         let peer_id = peers_iter.next().unwrap();
-        peers_registry.modify_peer(&peer_id, |peer| {
+        let session_id = peers_registry
+            .get_key_by_peer_id(&peer_id)
+            .expect("get_key_by_peer_id failed");
+        if let Some(peer) = peers_registry.get_peer_mut(session_id) {
             peer.last_message_time = Some(now + Duration::from_secs(10));
-        });
+        };
     }
     // protect 5 peers which have the longest connection time
     for _ in 0..longest_connection_time_peers_count {
         let peer_id = peers_iter.next().unwrap();
-        peers_registry.modify_peer(&peer_id, |peer| {
+        let session_id = peers_registry
+            .get_key_by_peer_id(&peer_id)
+            .expect("get_key_by_peer_id failed");
+        if let Some(peer) = peers_registry.get_peer_mut(session_id) {
             peer.connected_time = now - Duration::from_secs(10);
-        });
+        };
     }
     let mut new_peer_ids = (0..3).map(|_| PeerId::random()).collect::<Vec<_>>();
     // setup 3 node and 1 reserved node from addr1
     peers_registry
-        .accept_connection(
+        .accept_peer(
             reserved_peer.clone(),
             addr1.clone(),
-            session_id,
-            session_type,
-            TEST_PROTOCOL_ID,
-            TEST_PROTOCOL_VERSION,
+            1000.into(),
+            SessionType::Inbound,
+            peer_store.as_mut(),
         )
         .expect("accept");
     peers_registry
-        .accept_connection(
+        .accept_peer(
             evict_target.clone(),
             addr1.clone(),
-            session_id,
-            session_type,
-            TEST_PROTOCOL_ID,
-            TEST_PROTOCOL_VERSION,
+            1001.into(),
+            SessionType::Inbound,
+            peer_store.as_mut(),
         )
         .expect("accept");
     peers_registry
-        .accept_connection(
+        .accept_peer(
             new_peer_ids[0].clone(),
             addr1.clone(),
-            session_id,
-            session_type,
-            TEST_PROTOCOL_ID,
-            TEST_PROTOCOL_VERSION,
+            1002.into(),
+            SessionType::Inbound,
+            peer_store.as_mut(),
         )
         .expect("accept");
     peers_registry
-        .accept_connection(
+        .accept_peer(
             new_peer_ids[1].clone(),
             addr1.clone(),
-            session_id,
-            session_type,
-            TEST_PROTOCOL_ID,
-            TEST_PROTOCOL_VERSION,
+            1003.into(),
+            SessionType::Inbound,
+            peer_store.as_mut(),
         )
         .expect("accept");
     // setup 2 node from addr2
     peers_registry
-        .accept_connection(
+        .accept_peer(
             lowest_score_peer.clone(),
             addr2.clone(),
-            session_id,
-            session_type,
-            TEST_PROTOCOL_ID,
-            TEST_PROTOCOL_VERSION,
+            1004.into(),
+            SessionType::Inbound,
+            peer_store.as_mut(),
         )
         .expect("accept");
     peers_registry
-        .accept_connection(
+        .accept_peer(
             new_peer_ids[2].clone(),
             addr2.clone(),
-            session_id,
-            session_type,
-            TEST_PROTOCOL_ID,
-            TEST_PROTOCOL_VERSION,
+            1005.into(),
+            SessionType::Inbound,
+            peer_store.as_mut(),
         )
         .expect("accept");
     // setup score
@@ -291,30 +266,24 @@ fn test_accept_inbound_peer_eviction() {
         lowest_score_peer.clone(),
     ]);
     for peer_id in new_peer_ids {
-        peers_registry.modify_peer(&peer_id, |peer| {
+        let session_id = peers_registry
+            .get_key_by_peer_id(&peer_id)
+            .expect("get_key_by_peer_id failed");
+        if let Some(peer) = peers_registry.get_peer_mut(session_id) {
             // push the connected_time to make sure peer is unprotect
             peer.connected_time = now + Duration::from_secs(10);
-        });
+        };
     }
     // should evict evict target
-    assert!(peers_registry
-        .peers_guard()
-        .read()
-        .get(&evict_target)
-        .is_some());
+    assert!(peers_registry.get_key_by_peer_id(&evict_target).is_some());
     peers_registry
-        .accept_connection(
+        .accept_peer(
             PeerId::random(),
             addr1.clone(),
-            session_id,
-            session_type,
-            TEST_PROTOCOL_ID,
-            TEST_PROTOCOL_VERSION,
+            2000.into(),
+            SessionType::Inbound,
+            peer_store.as_mut(),
         )
         .expect("accept");
-    assert!(peers_registry
-        .peers_guard()
-        .read()
-        .get(&evict_target)
-        .is_none());
+    assert!(peers_registry.get_key_by_peer_id(&evict_target).is_none());
 }

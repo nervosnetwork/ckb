@@ -10,22 +10,22 @@ use std::sync::Arc;
 pub struct BlockTransactionsProcess<'a, CS> {
     message: &'a BlockTransactions<'a>,
     relayer: &'a Relayer<CS>,
+    nc: &'a CKBProtocolContext,
     peer: PeerIndex,
-    nc: &'a mut CKBProtocolContext,
 }
 
 impl<'a, CS: ChainStore> BlockTransactionsProcess<'a, CS> {
     pub fn new(
         message: &'a BlockTransactions,
         relayer: &'a Relayer<CS>,
+        nc: &'a CKBProtocolContext,
         peer: PeerIndex,
-        nc: &'a mut CKBProtocolContext,
     ) -> Self {
         BlockTransactionsProcess {
             message,
             relayer,
-            peer,
             nc,
+            peer,
         }
     }
 
