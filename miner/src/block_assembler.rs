@@ -74,14 +74,10 @@ impl<'a> FeeCalculator<'a> {
         }
     }
     fn get_transaction(&self, tx_hash: &H256) -> Option<Transaction> {
-        // tx may depend on a tx which within the same block
-        match self.provider.get_transaction(tx_hash) {
-            Some(tx) => Some(tx),
-            None => self
-                .txs_map
-                .get(tx_hash)
-                .map(|index| self.txs[*index].transaction.clone()),
-        }
+        self.txs_map
+            .get(tx_hash)
+            .map(|index| self.txs[*index].transaction.clone())
+            .or_else(|| self.provider.get_transaction(tx_hash))
     }
 
     fn calculate_transaction_fee(
