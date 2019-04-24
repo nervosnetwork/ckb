@@ -150,3 +150,29 @@ pub fn test_empty_transactions() {
         Err(VerifyError::Cellbase(CellbaseError::InvalidQuantity))
     );
 }
+
+#[test]
+pub fn test_cellbase_with_type() {
+    let transaction = create_normal_transaction();
+    let cellbase = TransactionBuilder::default()
+        .input(CellInput::new_cellbase_input(0))
+        .output(CellOutput::new(
+            capacity_bytes!(110),
+            Vec::new(),
+            Script::default(),
+            Some(Script::default()),
+        ))
+        .build();
+
+    let block = BlockBuilder::default()
+        .transaction(cellbase)
+        .transaction(transaction)
+        .build();
+
+    let provider = DummyChainProvider {
+        block_reward: capacity_bytes!(100),
+    };
+
+    let verifier = CellbaseVerifier::new(provider);
+    assert!(verifier.verify(&block).is_ok());
+}

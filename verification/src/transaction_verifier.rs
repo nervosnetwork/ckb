@@ -203,7 +203,9 @@ impl<'a> CapacityVerifier<'a> {
             .input_cells
             .iter()
             .filter_map(CellStatus::get_live_output)
-            .try_fold(Capacity::zero(), |acc, output| acc.safe_add(output.capacity))?;
+            .try_fold(Capacity::zero(), |acc, output| {
+                acc.safe_add(output.capacity)
+            })?;
 
         let outputs_total = self
             .resolved_transaction
@@ -398,7 +400,7 @@ where
             if let CellStatus::Live(meta) = cell_status {
                 self.verify_relative_lock(since, meta)?;
             } else {
-                return Err(TransactionError::Conflict)
+                return Err(TransactionError::Conflict);
             }
         }
         Ok(())

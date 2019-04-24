@@ -90,15 +90,6 @@ impl<CP: ChainProvider + Clone> CellbaseVerifier<CP> {
             return Err(Error::Cellbase(CellbaseError::InvalidInput));
         }
 
-        // currently, we enforce`type` field of a cellbase output cell must be absent
-        if cellbase_transaction
-            .outputs()
-            .iter()
-            .any(|op| op.type_.is_some())
-        {
-            return Err(Error::Cellbase(CellbaseError::InvalidOutput));
-        }
-
         Ok(())
     }
 }

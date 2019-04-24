@@ -372,6 +372,9 @@ impl<CS: ChainStore> ChainState<CS> {
             self.tx_pool.committed(tx);
         }
 
+        // TODO Q
+        // Cannot mutating one field while iterating over another immutable field, use `cloned` as a temp soluction here.
+        // We can remove this clone after refactoring `staging_tx` and `update_orphan_from_tx` to an inner struct field method later.
         let ids: Vec<_> = self.proposal_ids.get_ids_iter().cloned().collect();
         for id in ids.iter() {
             if let Some(entry) = self.tx_pool.remove_pending_from_proposal(id) {
