@@ -363,7 +363,7 @@ impl TransactionsVerifier {
 
         // make verifiers orthogonal
         let cycles_set = resolved
-            .iter()
+            .par_iter()
             .enumerate()
             .map(|(index, tx)| {
                 if let Some(cycles) = txs_verify_cache.get(&tx.transaction.hash()) {

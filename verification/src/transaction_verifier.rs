@@ -47,7 +47,6 @@ where
         self.maturity.verify()?;
         self.inputs.verify()?;
         self.capacity.verify()?;
-        self.duplicate_inputs.verify()?;
         self.since.verify()?;
         let cycles = self.script.verify(max_cycles)?;
         Ok(cycles)
@@ -204,7 +203,7 @@ impl<'a> CapacityVerifier<'a> {
             .input_cells
             .iter()
             .filter_map(CellStatus::get_live_output)
-            .try_fold(Capacity::zero(), |acc, meta| acc.safe_add(meta.capacity()))?;
+            .try_fold(Capacity::zero(), |acc, output| acc.safe_add(output.capacity))?;
 
         let outputs_total = self
             .resolved_transaction
@@ -396,11 +395,11 @@ where
 
             // verify time lock
             self.verify_absolute_lock(since)?;
-            let cell = match cell_status.get_live_output() {
-                Some(cell) => cell,
-                None => return Err(TransactionError::Conflict),
-            };
-            self.verify_relative_lock(since, cell)?;
+            if let CellStatus::Live(meta) = cell_status {
+                self.verify_relative_lock(since, meta)?;
+            } else {
+                return Err(TransactionError::Conflict)
+            }
         }
         Ok(())
     }
