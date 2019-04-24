@@ -23,7 +23,7 @@ pub struct NetworkConfig {
     pub connect_outbound_interval_secs: u64,
     pub listen_addresses: Vec<Multiaddr>,
     pub public_addresses: Vec<Multiaddr>,
-    pub bootnodes: Vec<Multiaddr>,
+    pub bootnodes: Vec<String>,
     pub reserved_peers: Vec<Multiaddr>,
 }
 
@@ -114,23 +114,6 @@ impl NetworkConfig {
                 _ => return Err(ConfigError::BadAddress.into()),
             };
             peers.push((peer_id, addr))
-        }
-        Ok(peers)
-    }
-
-    pub fn bootnodes(&self) -> Result<Vec<(PeerId, Multiaddr)>, Error> {
-        let mut peers = Vec::with_capacity(self.bootnodes.len());
-        for addr_str in &self.bootnodes {
-            let mut addr = addr_str
-                .to_multiaddr()
-                .map_err(|_| ConfigError::BadAddress)?;
-            let peer_id = match addr.pop() {
-                Some(Protocol::P2p(key)) => {
-                    PeerId::from_bytes(key.into_bytes()).map_err(|_| ConfigError::BadAddress)?
-                }
-                _ => return Err(ConfigError::BadAddress.into()),
-            };
-            peers.push((peer_id, addr));
         }
         Ok(peers)
     }
