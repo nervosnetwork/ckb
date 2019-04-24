@@ -574,110 +574,110 @@ fn test_chain_get_ancestor() {
     );
 }
 
-#[test]
-fn test_calculate_difficulty() {
-    let genesis_block = BlockBuilder::default()
-        .with_header_builder(HeaderBuilder::default().difficulty(U256::from(1000u64)));
-    let mut consensus = Consensus::default().set_genesis_block(genesis_block);
-    consensus.pow_time_span = 200;
-    consensus.pow_spacing = 1;
+// #[test]
+// fn test_calculate_difficulty() {
+//     let genesis_block = BlockBuilder::default()
+//         .with_header_builder(HeaderBuilder::default().difficulty(U256::from(1000u64)));
+//     let mut consensus = Consensus::default().set_genesis_block(genesis_block);
+//     consensus.pow_time_span = 200;
+//     consensus.pow_spacing = 1;
 
-    let (chain_controller, shared) = start_chain(Some(consensus.clone()), false);
-    let final_number = shared.consensus().difficulty_adjustment_interval();
+//     let (chain_controller, shared) = start_chain(Some(consensus.clone()), false);
+//     let final_number = shared.consensus().difficulty_adjustment_interval();
 
-    let mut chain1: Vec<Block> = Vec::new();
-    let mut chain2: Vec<Block> = Vec::new();
+//     let mut chain1: Vec<Block> = Vec::new();
+//     let mut chain2: Vec<Block> = Vec::new();
 
-    let mut parent = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
-    for _ in 1..final_number - 1 {
-        let difficulty = shared.calculate_difficulty(&parent).unwrap();
-        let new_block = gen_block(&parent, difficulty, vec![], vec![], vec![]);
-        chain_controller
-            .process_block(Arc::new(new_block.clone()))
-            .expect("process block ok");
-        chain1.push(new_block.clone());
-        parent = new_block.header().to_owned();
-    }
+//     let mut parent = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
+//     for _ in 1..final_number - 1 {
+//         let difficulty = shared.calculate_difficulty(&parent).unwrap();
+//         let new_block = gen_block(&parent, difficulty, vec![], vec![], vec![]);
+//         chain_controller
+//             .process_block(Arc::new(new_block.clone()))
+//             .expect("process block ok");
+//         chain1.push(new_block.clone());
+//         parent = new_block.header().clone();
+//     }
 
-    parent = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
-    for i in 1..final_number {
-        let difficulty = shared.calculate_difficulty(&parent).unwrap();
-        let mut uncles = vec![];
-        if i < 26 {
-            uncles.push(chain1[i as usize].clone().into());
-        }
-        let new_block = gen_block(&parent, difficulty, vec![], vec![], uncles);
-        chain_controller
-            .process_block(Arc::new(new_block.clone()))
-            .expect("process block ok");
-        chain2.push(new_block.clone());
-        parent = new_block.header().to_owned();
-    }
-    let tip = shared.chain_state().lock().tip_header().to_owned();
-    let total_uncles_count = shared.block_ext(&tip.hash()).unwrap().total_uncles_count;
-    assert_eq!(total_uncles_count, 25);
-    let difficulty = shared.calculate_difficulty(&tip).unwrap();
+//     parent = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
+//     for i in 1..final_number {
+//         let difficulty = shared.calculate_difficulty(&parent).unwrap();
+//         let mut uncles = vec![];
+//         if i < 26 {
+//             uncles.push(chain1[i as usize].clone().into());
+//         }
+//         let new_block = gen_block(&parent, difficulty, vec![], vec![], uncles);
+//         chain_controller
+//             .process_block(Arc::new(new_block.clone()))
+//             .expect("process block ok");
+//         chain2.push(new_block.clone());
+//         parent = new_block.header().clone();
+//     }
+//     let tip = shared.chain_state().lock().tip_header().clone();
+//     let total_uncles_count = shared.block_ext(&tip.hash()).unwrap().total_uncles_count;
+//     assert_eq!(total_uncles_count, 25);
+//     let difficulty = shared.calculate_difficulty(&tip).unwrap();
 
-    // 25 * 10 * 1000 / 200
-    assert_eq!(difficulty, U256::from(1250u64));
+//     // 25 * 10 * 1000 / 200
+//     assert_eq!(difficulty, U256::from(1250u64));
 
-    let (chain_controller, shared) = start_chain(Some(consensus.clone()), false);
-    let mut chain2: Vec<Block> = Vec::new();
-    for i in 1..final_number - 1 {
-        chain_controller
-            .process_block(Arc::new(chain1[(i - 1) as usize].clone()))
-            .expect("process block ok");
-    }
+//     let (chain_controller, shared) = start_chain(Some(consensus.clone()), false);
+//     let mut chain2: Vec<Block> = Vec::new();
+//     for i in 1..final_number - 1 {
+//         chain_controller
+//             .process_block(Arc::new(chain1[(i - 1) as usize].clone()))
+//             .expect("process block ok");
+//     }
 
-    parent = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
-    for i in 1..final_number {
-        let difficulty = shared.calculate_difficulty(&parent).unwrap();
-        let mut uncles = vec![];
-        if i < 11 {
-            uncles.push(chain1[i as usize].clone().into());
-        }
-        let new_block = gen_block(&parent, difficulty, vec![], vec![], uncles);
-        chain_controller
-            .process_block(Arc::new(new_block.clone()))
-            .expect("process block ok");
-        chain2.push(new_block.clone());
-        parent = new_block.header().to_owned();
-    }
-    let tip = shared.chain_state().lock().tip_header().to_owned();
-    let total_uncles_count = shared.block_ext(&tip.hash()).unwrap().total_uncles_count;
-    assert_eq!(total_uncles_count, 10);
-    let difficulty = shared.calculate_difficulty(&tip).unwrap();
+//     parent = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
+//     for i in 1..final_number {
+//         let difficulty = shared.calculate_difficulty(&parent).unwrap();
+//         let mut uncles = vec![];
+//         if i < 11 {
+//             uncles.push(chain1[i as usize].clone().into());
+//         }
+//         let new_block = gen_block(&parent, difficulty, vec![], vec![], uncles);
+//         chain_controller
+//             .process_block(Arc::new(new_block.clone()))
+//             .expect("process block ok");
+//         chain2.push(new_block.clone());
+//         parent = new_block.header().clone();
+//     }
+//     let tip = shared.chain_state().lock().tip_header().clone();
+//     let total_uncles_count = shared.block_ext(&tip.hash()).unwrap().total_uncles_count;
+//     assert_eq!(total_uncles_count, 10);
+//     let difficulty = shared.calculate_difficulty(&tip).unwrap();
 
-    // min[10 * 10 * 1000 / 200, 1000]
-    assert_eq!(difficulty, U256::from(1000u64));
+//     // min[10 * 10 * 1000 / 200, 1000]
+//     assert_eq!(difficulty, U256::from(1000u64));
 
-    let (chain_controller, shared) = start_chain(Some(consensus.clone()), false);
-    let mut chain2: Vec<Block> = Vec::new();
-    for i in 1..final_number - 1 {
-        chain_controller
-            .process_block(Arc::new(chain1[(i - 1) as usize].clone()))
-            .expect("process block ok");
-    }
+//     let (chain_controller, shared) = start_chain(Some(consensus.clone()), false);
+//     let mut chain2: Vec<Block> = Vec::new();
+//     for i in 1..final_number - 1 {
+//         chain_controller
+//             .process_block(Arc::new(chain1[(i - 1) as usize].clone()))
+//             .expect("process block ok");
+//     }
 
-    parent = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
-    for i in 1..final_number {
-        let difficulty = shared.calculate_difficulty(&parent).unwrap();
-        let mut uncles = vec![];
-        if i < 151 {
-            uncles.push(chain1[i as usize].clone().into());
-        }
-        let new_block = gen_block(&parent, difficulty, vec![], vec![], uncles);
-        chain_controller
-            .process_block(Arc::new(new_block.clone()))
-            .expect("process block ok");
-        chain2.push(new_block.clone());
-        parent = new_block.header().to_owned();
-    }
-    let tip = shared.chain_state().lock().tip_header().to_owned();
-    let total_uncles_count = shared.block_ext(&tip.hash()).unwrap().total_uncles_count;
-    assert_eq!(total_uncles_count, 150);
-    let difficulty = shared.calculate_difficulty(&tip).unwrap();
+//     parent = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
+//     for i in 1..final_number {
+//         let difficulty = shared.calculate_difficulty(&parent).unwrap();
+//         let mut uncles = vec![];
+//         if i < 151 {
+//             uncles.push(chain1[i as usize].clone().into());
+//         }
+//         let new_block = gen_block(&parent, difficulty, vec![], vec![], uncles);
+//         chain_controller
+//             .process_block(Arc::new(new_block.clone()))
+//             .expect("process block ok");
+//         chain2.push(new_block.clone());
+//         parent = new_block.header().clone();
+//     }
+//     let tip = shared.chain_state().lock().tip_header().clone();
+//     let total_uncles_count = shared.block_ext(&tip.hash()).unwrap().total_uncles_count;
+//     assert_eq!(total_uncles_count, 150);
+//     let difficulty = shared.calculate_difficulty(&tip).unwrap();
 
-    // max[150 * 10 * 1000 / 200, 2 * 1000]
-    assert_eq!(difficulty, U256::from(2000u64));
-}
+//     // max[150 * 10 * 1000 / 200, 2 * 1000]
+//     assert_eq!(difficulty, U256::from(2000u64));
+// }

@@ -1,6 +1,7 @@
 use super::Verifier;
 use crate::error::{DifficultyError, Error, NumberError, PowError, TimestampError};
-use crate::shared::ALLOWED_FUTURE_BLOCKTIME;
+use crate::ALLOWED_FUTURE_BLOCKTIME;
+use ckb_core::extras::EpochExt;
 use ckb_core::header::{Header, HEADER_VERSION};
 use ckb_pow::PowEngine;
 use ckb_traits::BlockMedianTimeContext;
@@ -14,7 +15,7 @@ pub trait HeaderResolver {
     /// resolves parent header
     fn parent(&self) -> Option<&Header>;
     /// resolves header difficulty
-    fn calculate_difficulty(&self) -> Option<U256>;
+    fn epoch(&self) -> Option<&EpochExt>;
 }
 
 pub struct HeaderVerifier<T, M> {
@@ -139,14 +140,14 @@ pub struct DifficultyVerifier<T> {
 }
 
 impl<T: HeaderResolver> DifficultyVerifier<T> {
-    pub fn verify(resolver: &T) -> Result<(), Error> {
-        let expected = resolver
-            .calculate_difficulty()
+    pub fn verify(target: &T) -> Result<(), Error> {
+        let epoch = target
+            .epoch()
             .ok_or_else(|| Error::Difficulty(DifficultyError::AncestorNotFound))?;
-        let actual = resolver.header().difficulty();
-        if &expected != actual {
+        let actual = target.header().difficulty();
+        if epoch.difficulty() != actual {
             return Err(Error::Difficulty(DifficultyError::MixMismatch {
-                expected,
+                expected: epoch.difficulty().clone(),
                 actual: actual.clone(),
             }));
         }

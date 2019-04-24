@@ -1,6 +1,7 @@
 use crate::config::BlockAssemblerConfig;
 use crate::error::Error;
 use ckb_core::block::Block;
+use ckb_core::extras::EpochExt;
 use ckb_core::header::Header;
 use ckb_core::script::Script;
 use ckb_core::service::{Request, DEFAULT_CHANNEL_SIZE, SIGNAL_CHANNEL_SIZE};
@@ -10,8 +11,8 @@ use ckb_core::transaction::{
 use ckb_core::uncle::UncleBlock;
 use ckb_core::{Bytes, Cycle, Version};
 use ckb_notify::NotifyController;
-use ckb_shared::{shared::Shared, tx_pool::PoolEntry};
-use ckb_store::ChainStore;
+use ckb_shared::chain_state::ChainState;
+use ckb_shared::{shared::Shared, store::ChainStore, tx_pool::PoolEntry};
 use ckb_traits::ChainProvider;
 use ckb_util::Mutex;
 use crossbeam_channel::{self, select, Receiver, Sender};
@@ -343,13 +344,12 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
                 return Ok(template_cache.template.clone());
             }
         }
+        let current_epoch = chain_state.current_epoch_ext().clone();
 
-        let difficulty = self
-            .shared
-            .calculate_difficulty(&header)
-            .expect("get difficulty");
+        // Release the lock as soon as possible, let other services do their work
+        drop(chain_state);
 
-        let (uncles, bad_uncles) = self.prepare_uncles(&header, &difficulty);
+        let (uncles, bad_uncles) = self.prepare_uncles(&header, current_epoch);
         if !bad_uncles.is_empty() {
             for bad in bad_uncles {
                 self.candidate_uncles.remove(&bad);
@@ -380,7 +380,7 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
         let current_time = cmp::max(unix_time_as_millis(), header.timestamp() + 1);
         let template = BlockTemplate {
             version,
-            difficulty,
+            difficulty: current_epoch.difficulty().clone(),
             current_time: current_time.to_string(),
             number: number.to_string(),
             parent_hash: header.hash(),
@@ -422,7 +422,9 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
         // but the truth is we will modify this after we designed lock script anyway, so let's
         // stick to the simpler way and just convert everything to a single string, then to UTF8
         // bytes, they really serve the same purpose at the moment
-        let block_reward = self.shared.block_reward(header.number() + 1);
+
+        //FIXME
+        let block_reward = Capacity::zero();
         let mut fee = Capacity::zero();
         // depends cells may produced from previous tx
         let fee_calculator = FeeCalculator::new(&pes, &self.shared);
@@ -441,7 +443,7 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
     fn prepare_uncles(
         &self,
         tip: &Header,
-        current_difficulty: &U256,
+        current_epoch_ext: &EpochExt,
     ) -> (Vec<UncleBlock>, Vec<H256>) {
         let max_uncles_age = self.shared.consensus().max_uncles_age();
         let mut excluded = FnvHashSet::default();
@@ -471,8 +473,6 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
         }
 
         let current_number = tip.number() + 1;
-        let current_difficulty_epoch =
-            current_number / self.shared.consensus().difficulty_adjustment_interval();
 
         let max_uncles_num = self.shared.consensus().max_uncles_num();
         let mut included = FnvHashSet::default();
@@ -484,12 +484,11 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
                 break;
             }
 
-            let block_difficulty_epoch =
-                block.header().number() / self.shared.consensus().difficulty_adjustment_interval();
+            let epoch_number = current_epoch_ext.number();
 
             // uncle must be same difficulty epoch with candidate
-            if block.header().difficulty() != current_difficulty
-                || block_difficulty_epoch != current_difficulty_epoch
+            if block.header().difficulty() != current_epoch_ext.difficulty()
+                || block.header().epoch() != epoch_number
             {
                 bad_uncles.push(hash.clone());
                 continue;

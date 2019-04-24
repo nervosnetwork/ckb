@@ -209,6 +209,7 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
 
     pub(crate) fn insert_block(&self, block: Arc<Block>) -> Result<(), FailureError> {
         let mut new_best_block = false;
+        let mut new_epoch = None;
         let mut total_difficulty = U256::zero();
 
         let mut cell_set_diff = CellSetDiff::default();
@@ -254,7 +255,14 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
                 block.header().number(), block.header().hash(),
                 &cannon_total_difficulty - &current_total_difficulty
             );
-
+            if let Some(epoch) = self
+                .shared
+                .next_epoch_ext(chain_state.current_epoch_ext(), block.header())
+            {
+                batch.insert_current_epoch_ext(&epoch)?;
+                batch.insert_epoch_ext(&epoch)?;
+                new_epoch = Some(epoch);
+            }
             self.find_fork(&mut fork, tip_number, &block, ext);
             self.update_index(&mut batch, &fork.detached_blocks, &fork.attached_blocks)?;
             // MUST update index before reconcile_main_chain
@@ -279,11 +287,15 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
                 target: "chain",
                 "block: {}, hash: {:#x}, diff: {:#x}, txs: {}",
                 tip_number, tip_hash, total_difficulty, txs_cnt);
+            let tip_header = block.header().to_owned();
+            if let Some(epoch) = new_epoch {
+                chain_state.update_current_epoch_ext(epoch);
+            };
             // finalize proposal_id table change
             // then, update tx_pool
             let detached_proposal_id = chain_state.proposal_ids_finalize(tip_number);
             fork.detached_proposal_id = detached_proposal_id;
-            chain_state.update_tip(tip_header.to_owned(), total_difficulty, cell_set_diff);
+            chain_state.update_tip(tip_header, total_difficulty, cell_set_diff);
             chain_state.update_tx_pool_for_reorg(
                 fork.detached_blocks().iter(),
                 fork.attached_blocks().iter(),
@@ -493,7 +505,7 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
                             match txs_verifier.verify(
                                 &resolved,
                                 Arc::clone(self.shared.store()),
-                                self.shared.block_reward(b.header().number()),
+                                chain_state.current_epoch_ext().block_reward().clone(),
                                 ForkContext {
                                     fork_blocks: &fork.attached_blocks,
                                     store: Arc::clone(self.shared.store()),

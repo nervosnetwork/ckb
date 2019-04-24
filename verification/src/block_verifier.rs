@@ -2,6 +2,7 @@ use crate::error::{CellbaseError, CommitError, Error, UnclesError};
 use crate::header_verifier::HeaderResolver;
 use crate::{TransactionVerifier, Verifier};
 use ckb_core::cell::ResolvedTransaction;
+use ckb_core::extras::EpochExt;
 use ckb_core::header::Header;
 use ckb_core::transaction::{Capacity, CellInput, CellOutput, Transaction};
 use ckb_core::Cycle;
@@ -34,6 +35,19 @@ pub struct BlockVerifier<P> {
     block_bytes: BlockBytesVerifier,
 }
 
+pub trait EpochProvider {
+    fn epoch(&self) -> &EpochExt;
+}
+
+#[derive(Clone)]
+pub struct EpochMock;
+
+impl EpochProvider for EpochMock {
+    fn epoch(&self) -> &EpochExt {
+        unimplemented!()
+    }
+}
+
 impl<P> BlockVerifier<P>
 where
     P: ChainProvider + Clone,
@@ -48,7 +62,7 @@ where
             duplicate: DuplicateVerifier::new(),
             cellbase: CellbaseVerifier::new(),
             merkle_root: MerkleRootVerifier::new(),
-            uncles: UnclesVerifier::new(provider.clone()),
+            uncles: UnclesVerifier::new(provider.clone(), mock),
             commit: CommitVerifier::new(provider),
             block_proposals_limit: BlockProposalsLimitVerifier::new(max_block_proposals_limit),
             block_bytes: BlockBytesVerifier::new(max_block_bytes, proof_size),
@@ -56,7 +70,10 @@ where
     }
 }
 
-impl<P: ChainProvider + Clone> Verifier for BlockVerifier<P> {
+impl<P> Verifier for BlockVerifier<P>
+where
+    P: ChainProvider + Clone,
+{
     type Target = Block;
 
     fn verify(&self, target: &Block) -> Result<(), Error> {
@@ -194,21 +211,24 @@ impl<'a, CP: ChainProvider> HeaderResolver for HeaderResolverWrapper<'a, CP> {
         self.parent.as_ref()
     }
 
-    fn calculate_difficulty(&self) -> Option<U256> {
-        self.parent()
-            .and_then(|parent| self.provider.calculate_difficulty(parent))
+    fn epoch(&self) -> Option<&EpochExt> {
+        unimplemented!();
     }
 }
 
 // TODO redo uncle verifier, check uncle proposal duplicate
 #[derive(Clone)]
-pub struct UnclesVerifier<CP> {
-    provider: CP,
+pub struct UnclesVerifier<P> {
+    provider: P,
+    epoch: EpochMock,
 }
 
-impl<CP: ChainProvider + Clone> UnclesVerifier<CP> {
-    pub fn new(provider: CP) -> Self {
-        UnclesVerifier { provider }
+impl<P> UnclesVerifier<P>
+where
+    P: ChainProvider + Clone,
+{
+    pub fn new(provider: P, epoch: EpochMock) -> Self {
+        UnclesVerifier { provider, epoch }
     }
 
     // -  uncles_hash
@@ -302,18 +322,14 @@ impl<CP: ChainProvider + Clone> UnclesVerifier<CP> {
             }
         }
 
-        let block_difficulty_epoch =
-            block.header().number() / self.provider.consensus().difficulty_adjustment_interval();
+        let epoch = self.epoch.epoch();
 
         for uncle in block.uncles() {
-            let uncle_difficulty_epoch = uncle.header().number()
-                / self.provider.consensus().difficulty_adjustment_interval();
-
-            if uncle.header().difficulty() != block.header().difficulty() {
+            if uncle.header().difficulty() != epoch.difficulty() {
                 return Err(Error::Uncles(UnclesError::InvalidDifficulty));
             }
 
-            if block_difficulty_epoch != uncle_difficulty_epoch {
+            if epoch.number() != uncle.header().epoch() {
                 return Err(Error::Uncles(UnclesError::InvalidDifficultyEpoch));
             }
 

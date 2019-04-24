@@ -57,6 +57,8 @@ pub enum Error {
     Version,
     /// Overflow when do computation for capacity.
     CapacityOverflow,
+    /// Epoch infomation
+    Epoch,
 }
 
 impl StdError for Error {}

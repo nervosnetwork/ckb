@@ -1,12 +1,15 @@
 use ckb_core::block::{Block, BlockBuilder};
+use ckb_core::extras::EpochExt;
 use ckb_core::header::HeaderBuilder;
-use ckb_core::{capacity_bytes, BlockNumber, Capacity, Cycle, Version};
+use ckb_core::{BlockNumber, Capacity, Cycle, Version};
 use ckb_pow::{Pow, PowEngine};
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 use std::sync::Arc;
 
-pub(crate) const DEFAULT_BLOCK_REWARD: Capacity = capacity_bytes!(5_000);
+pub(crate) const DEFAULT_EPOCH_REWARD: u64 = 5_000_000;
+pub(crate) const GENESIS_EPOCH_LENGTH: u64 = 1_000;
+pub(crate) const GENESIS_EPOCH_REWARD: u64 = DEFAULT_EPOCH_REWARD / GENESIS_EPOCH_LENGTH;
 pub(crate) const MAX_UNCLE_NUM: usize = 2;
 pub(crate) const MAX_UNCLE_AGE: usize = 6;
 pub(crate) const TX_PROPOSAL_WINDOW: ProposalWindow = ProposalWindow(2, 10);
@@ -15,9 +18,13 @@ pub(crate) const CELLBASE_MATURITY: BlockNumber = 100;
 pub(crate) const MEDIAN_TIME_BLOCK_COUNT: usize = 11;
 
 //TODO：find best ORPHAN_RATE_TARGET
-pub(crate) const ORPHAN_RATE_TARGET: f32 = 0.1;
-pub(crate) const POW_TIME_SPAN: u64 = 12 * 60 * 60 * 1000; // 12 hours
-pub(crate) const POW_SPACING: u64 = 15 * 1000; //15s
+pub(crate) const ORPHAN_RATE_TARGET_RECIP: u64 = 10;
+
+const MAX_BLOCK_INTERVAL: u64 = 25 * 6 * 1000; // 2.5min
+const MIN_BLOCK_INTERVAL: u64 = 5 * 1000; // 5s
+pub(crate) const EPOCH_DURATION: u64 = 2 * 60 * 60 * 1000; // 1hour
+pub(crate) const MAX_EPOCH_LENGTH: u64 = EPOCH_DURATION / MIN_BLOCK_INTERVAL; // 1440
+pub(crate) const MIN_EPOCH_LENGTH: u64 = EPOCH_DURATION / MAX_BLOCK_INTERVAL; // 48
 
 pub(crate) const MAX_BLOCK_CYCLES: Cycle = 20_000_000_000;
 pub(crate) const MAX_BLOCK_BYTES: u64 = 2_000_000; // 2mb
@@ -44,12 +51,11 @@ pub struct Consensus {
     pub id: String,
     pub genesis_block: Block,
     pub genesis_hash: H256,
-    pub initial_block_reward: Capacity,
+    pub epoch_reward: Capacity,
     pub max_uncles_age: usize,
     pub max_uncles_num: usize,
-    pub orphan_rate_target: f32,
-    pub pow_time_span: u64,
-    pub pow_spacing: u64,
+    pub orphan_rate_target_recip: u64,
+    pub epoch_duration: u64,
     pub tx_proposal_window: ProposalWindow,
     pub pow: Pow,
     // For each input, if the referenced output transaction is cellbase,
@@ -68,6 +74,7 @@ pub struct Consensus {
     pub block_version: Version,
     // block version number supported
     pub max_block_proposals_limit: u64,
+    pub genesis_epoch_ext: EpochExt,
 }
 
 // genesis difficulty should not be zero
@@ -76,16 +83,24 @@ impl Default for Consensus {
         let genesis_block = BlockBuilder::default()
             .with_header_builder(HeaderBuilder::default().difficulty(U256::one()));
 
+        let genesis_epoch_ext = EpochExt::new(
+            0, // number
+            Capacity::shannons(GENESIS_EPOCH_REWARD), // block_reward
+            Capacity::shannons(0), // remainder_reward
+            0, // start
+            1000, // length
+            genesis_block.header().difficulty().clone() // difficulty,
+        );
+
         Consensus {
             genesis_hash: genesis_block.header().hash(),
             genesis_block,
             id: "main".to_owned(),
             max_uncles_age: MAX_UNCLE_AGE,
             max_uncles_num: MAX_UNCLE_NUM,
-            initial_block_reward: DEFAULT_BLOCK_REWARD,
-            orphan_rate_target: ORPHAN_RATE_TARGET,
-            pow_time_span: POW_TIME_SPAN,
-            pow_spacing: POW_SPACING,
+            epoch_reward: Capacity::shannons(DEFAULT_EPOCH_REWARD),
+            orphan_rate_target_recip: ORPHAN_RATE_TARGET_RECIP,
+            epoch_duration: EPOCH_DURATION,
             tx_proposal_window: TX_PROPOSAL_WINDOW,
             pow: Pow::Dummy(Default::default()),
             cellbase_maturity: CELLBASE_MATURITY,
@@ -93,6 +108,7 @@ impl Default for Consensus {
             max_block_cycles: MAX_BLOCK_CYCLES,
             max_block_bytes: MAX_BLOCK_BYTES,
             max_transaction_memory_bytes: MAX_TRANSACTION_MEMORY_BYTES,
+            genesis_epoch_ext,
             block_version: BLOCK_VERSION,
             max_block_proposals_limit: MAX_BLOCK_PROPOSALS_LIMIT,
         }
@@ -111,8 +127,8 @@ impl Consensus {
         self
     }
 
-    pub fn set_initial_block_reward(mut self, initial_block_reward: Capacity) -> Self {
-        self.initial_block_reward = initial_block_reward;
+    pub fn set_epoch_reward(mut self, epoch_reward: Capacity) -> Self {
+        self.epoch_reward = epoch_reward;
         self
     }
 
@@ -151,16 +167,28 @@ impl Consensus {
         self.genesis_block.header().difficulty()
     }
 
-    pub fn initial_block_reward(&self) -> Capacity {
-        self.initial_block_reward
+    pub fn epoch_reward(&self) -> Capacity {
+        self.epoch_reward
     }
 
-    pub fn difficulty_adjustment_interval(&self) -> BlockNumber {
-        self.pow_time_span / self.pow_spacing
+    pub fn epoch_duration(&self) -> u64 {
+        self.epoch_duration
     }
 
-    pub fn orphan_rate_target(&self) -> f32 {
-        self.orphan_rate_target
+    pub fn genesis_epoch_ext(&self) -> &EpochExt {
+        &self.genesis_epoch_ext
+    }
+
+    pub fn max_epoch_length(&self) -> BlockNumber {
+        MAX_EPOCH_LENGTH
+    }
+
+    pub fn min_epoch_length(&self) -> BlockNumber {
+        MIN_EPOCH_LENGTH
+    }
+
+    pub fn orphan_rate_target_recip(&self) -> u64 {
+        self.orphan_rate_target_recip
     }
 
     pub fn pow_engine(&self) -> Arc<dyn PowEngine> {

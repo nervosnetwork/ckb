@@ -1,6 +1,7 @@
 use crate::synchronizer::{BlockStatus, Synchronizer};
 use crate::types::HeaderView;
 use crate::MAX_HEADERS_LEN;
+use ckb_core::extras::EpochExt;
 use ckb_core::{header::Header, BlockNumber};
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::{cast, FlatbuffersVectorIterator, Headers};
@@ -91,60 +92,123 @@ impl<'a, CS: ChainStore> HeaderResolver for VerifierResolver<'a, CS> {
         self.parent
     }
 
-    fn calculate_difficulty(&self) -> Option<U256> {
-        self.parent().and_then(|parent| {
-            let parent_hash = parent.hash();
-            let parent_number = parent.number();
-            let last_difficulty = parent.difficulty();
-
-            let interval = self
-                .synchronizer
-                .shared
-                .consensus()
-                .difficulty_adjustment_interval();
-
-            if self.header().number() % interval != 0 {
-                return Some(last_difficulty.clone());
-            }
-
-            let start = parent_number.saturating_sub(interval);
-
-            if let Some(start_header) = self.synchronizer.shared.get_ancestor(&parent_hash, start) {
-                let start_total_uncles_count = self
-                    .synchronizer
-                    .shared
-                    .get_header_view(&start_header.hash())
-                    .expect("start header_view exist")
-                    .total_uncles_count();
-
-                let last_total_uncles_count = self
-                    .synchronizer
-                    .shared
-                    .get_header_view(&parent_hash)
-                    .expect("last header_view exist")
-                    .total_uncles_count();
-
-                let difficulty = last_difficulty
-                    * U256::from(last_total_uncles_count - start_total_uncles_count)
-                    * U256::from(
-                        (1.0 / self.synchronizer.shared.consensus().orphan_rate_target()) as u64,
-                    )
-                    / U256::from(interval);
-
-                let min_difficulty = self.synchronizer.shared.consensus().min_difficulty();
-                let max_difficulty = last_difficulty * 2u32;
-                if difficulty > max_difficulty {
-                    return Some(max_difficulty);
-                }
-
-                if difficulty.lt(min_difficulty) {
-                    return Some(min_difficulty.clone());
-                }
-                return Some(difficulty);
-            }
-            None
-        })
+    fn epoch(&self) -> Option<&EpochExt> {
+        unimplemented!();
     }
+
+    // fn next_epoch_ext(&self) -> Option<Epoch> {
+    //     self.parent().and_then(|parent| {
+    //         let start = last_epoch.start();
+    //         let last_epoch_length = last_epoch.length();
+
+    //         if !self.is_epoch_end(last_epoch, header.number()) {
+    //             return None;
+    //         }
+
+    //         let end_hash = header.hash();
+    //         let target_recip = self.consensus.orphan_rate_target_recip();
+    //         let epoch_duration = self.consensus.epoch_duration();
+
+    //         if let Some(start_header) = self.get_ancestor(&end_hash, start) {
+    //             let start_total_uncles_count = self
+    //                 .block_ext(&start_header.hash())
+    //                 .expect("block_ext exist")
+    //                 .total_uncles_count;
+
+    //             let last_total_uncles_count = self
+    //                 .block_ext(&last_hash)
+    //                 .expect("block_ext exist")
+    //                 .total_uncles_count;
+
+    //             let last_duration = header
+    //                 .header()
+    //                 .timestamp()
+    //                 .saturating_sub(start_header.header().timestamp());
+    //             if last_duration == 0 {
+    //                 return None;
+    //             }
+
+    //             let numerator =
+    //                 (last_uncles_count + last_epoch_length) * epoch_duration * last_epoch_length;
+    //             let denominator = (target_recip + 1) * last_uncles_count * last_duration;
+    //             let raw_next_epoch_length = numerator / denominator;
+    //             let next_epoch_length = self.fix_epoch_length(raw_next_epoch_length);
+
+    //             let raw_difficulty =
+    //                 last_difficulty * U256::from(last_uncles_count) * U256::from(target_recip)
+    //                     / U256::from(last_epoch_length);
+
+    //             let difficulty = self.fix_epoch_difficulty(last_difficulty, raw_difficulty);
+
+    //             let block_reward =
+    //                 Capacity::shannons(self.consensus.epoch_reward().as_u64() / next_epoch_length);
+    //             let remainder_reward =
+    //                 Capacity::shannons(self.consensus.epoch_reward().as_u64() / next_epoch_length);
+
+    //             let epoch = EpochExt::new(
+    //                 last_epoch.number() + 1, // number
+    //                 block_reward,
+    //                 remainder_reward,        // remainder_reward
+    //                 header.number() + 1,     // start
+    //                 next_epoch_length,       // length
+    //                 difficulty               // difficulty,
+    //             );
+    //             Some(epoch)
+    //         } else {
+    //             None
+    //         }
+    //     })
+    // }
+
+    // fn calculate_difficulty(&self) -> Option<U256> {
+    //     self.parent().and_then(|parent| {
+    //         let parent_hash = parent.hash();
+    //         let parent_number = parent.number();
+    //         let last_difficulty = parent.difficulty();
+
+    //         let interval = self
+    //             .synchronizer
+    //             .consensus()
+    //             .difficulty_adjustment_interval();
+
+    //         if self.header().number() % interval != 0 {
+    //             return Some(last_difficulty.clone());
+    //         }
+
+    //         let start = parent_number.saturating_sub(interval);
+
+    //         if let Some(start_header) = self.synchronizer.get_ancestor(&parent_hash, start) {
+    //             let start_total_uncles_count = self
+    //                 .synchronizer
+    //                 .get_header_view(&start_header.hash())
+    //                 .expect("start header_view exist")
+    //                 .total_uncles_count();
+
+    //             let last_total_uncles_count = self
+    //                 .synchronizer
+    //                 .get_header_view(&parent_hash)
+    //                 .expect("last header_view exist")
+    //                 .total_uncles_count();
+
+    //             let difficulty = last_difficulty
+    //                 * U256::from(last_total_uncles_count - start_total_uncles_count)
+    //                 * U256::from((1.0 / self.synchronizer.consensus().orphan_rate_target()) as u64)
+    //                 / U256::from(interval);
+
+    //             let min_difficulty = self.synchronizer.consensus().min_difficulty();
+    //             let max_difficulty = last_difficulty * 2u32;
+    //             if difficulty > max_difficulty {
+    //                 return Some(max_difficulty);
+    //             }
+
+    //             if difficulty.lt(min_difficulty) {
+    //                 return Some(min_difficulty.clone());
+    //             }
+    //             return Some(difficulty);
+    //         }
+    //         None
+    //     })
+    // }
 }
 
 impl<'a, CS> HeadersProcess<'a, CS>

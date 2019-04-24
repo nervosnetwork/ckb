@@ -1,6 +1,6 @@
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::Block;
-use ckb_core::extras::BlockExt;
+use ckb_core::extras::{BlockExt, EpochExt};
 use ckb_core::header::{BlockNumber, Header};
 use ckb_core::transaction::{Capacity, ProposalShortId, Transaction};
 use ckb_core::uncle::UncleBlock;
@@ -30,11 +30,11 @@ pub trait ChainProvider: Sync + Send {
 
     fn contain_transaction(&self, hash: &H256) -> bool;
 
-    fn block_reward(&self, block_number: BlockNumber) -> Capacity;
-
     fn get_ancestor(&self, base: &H256, number: BlockNumber) -> Option<Header>;
 
-    fn calculate_difficulty(&self, last: &Header) -> Option<U256>;
+    fn next_epoch_ext(&self, last_epoch: &EpochExt, header: &Header) -> Option<EpochExt>;
+
+    fn is_epoch_end(&self, epoch: &EpochExt, number: BlockNumber) -> bool;
 
     fn consensus(&self) -> &Consensus;
 }

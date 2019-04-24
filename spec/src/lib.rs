@@ -50,7 +50,7 @@ pub struct ChainSpecConfig {
 
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct Params {
-    pub initial_block_reward: Capacity,
+    pub epoch_reward: Capacity,
     pub max_block_cycles: Cycle,
     pub cellbase_maturity: BlockNumber,
 }
@@ -219,7 +219,7 @@ impl ChainSpec {
             .set_id(self.name.clone())
             .set_genesis_block(genesis_block)
             .set_cellbase_maturity(self.params.cellbase_maturity)
-            .set_initial_block_reward(self.params.initial_block_reward)
+            .set_epoch_reward(self.params.epoch_reward)
             .set_max_block_cycles(self.params.max_block_cycles)
             .set_pow(self.pow.clone());
 

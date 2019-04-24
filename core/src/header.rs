@@ -6,7 +6,7 @@ use numext_fixed_uint::U256;
 use serde_derive::{Deserialize, Serialize};
 use std::{fmt, mem};
 
-pub use crate::{BlockNumber, Version};
+pub use crate::{BlockNumber, EpochNumber, Version};
 
 pub const HEADER_VERSION: Version = 0;
 
@@ -47,7 +47,7 @@ pub struct RawHeader {
     parent_hash: H256,
     /// Block timestamp(ms).
     timestamp: u64,
-    /// Genesis number is 0, Child block number is parent block number + 1.
+    /// Index of Block in epoch
     number: BlockNumber,
     /// Transactions merkle root.
     transactions_root: H256,
@@ -61,6 +61,8 @@ pub struct RawHeader {
     uncles_hash: H256,
     /// Number of the uncles
     uncles_count: u32,
+    /// Epoch sequence number
+    epoch: EpochNumber,
 }
 
 impl RawHeader {
@@ -77,6 +79,10 @@ impl RawHeader {
 
     pub fn number(&self) -> BlockNumber {
         self.number
+    }
+
+    pub fn epoch(&self) -> EpochNumber {
+        self.epoch
     }
 
     pub fn difficulty(&self) -> &U256 {
@@ -130,7 +136,8 @@ impl fmt::Debug for Header {
             )
             .field("difficulty", &format_args!("{:#x}", self.raw.difficulty))
             .field("uncles_hash", &format_args!("{:#x}", self.raw.uncles_hash))
-            .field("uncles_count", &self.raw.uncles_count)
+            .field("uncles_hash", &format_args!("{:#x}", self.raw.uncles_hash))
+            .field("epoch", &self.raw.epoch)
             .field("seal", &self.seal)
             .finish()
     }
@@ -151,6 +158,10 @@ impl Header {
 
     pub fn number(&self) -> BlockNumber {
         self.raw.number
+    }
+
+    pub fn epoch(&self) -> EpochNumber {
+        self.raw.epoch
     }
 
     pub fn difficulty(&self) -> &U256 {

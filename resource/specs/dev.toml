@@ -13,7 +13,7 @@ nonce = 0
 proof = [0]
 
 [params]
-initial_block_reward = 5_000_000_000_000
+epoch_reward = 5_000_000_000_000_000
 max_block_cycles = 100000000
 cellbase_maturity = 0
 
