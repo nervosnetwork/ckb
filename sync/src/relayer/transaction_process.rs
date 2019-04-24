@@ -4,7 +4,6 @@ use ckb_core::{transaction::Transaction, Cycle};
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::{RelayMessage, RelayTransaction as FbsRelayTransaction};
 use ckb_shared::store::ChainStore;
-use ckb_traits::chain_provider::ChainProvider;
 use failure::Error as FailureError;
 use flatbuffers::FlatBufferBuilder;
 use log::debug;
@@ -84,7 +83,7 @@ impl<'a, CS: ChainStore> TransactionProcess<'a, CS> {
             }
             Err(err) => {
                 if err.is_bad_tx() {
-                    debug!(target: "relay", "peer {} relay a invalid tx: {:?}, error: {:?}", self.peer, tx, err);
+                    debug!(target: "relay", "peer {} relay a invalid tx: {:?}, error: {:?}", self.peer, tx_hash, err);
                     sentry::capture_message(
                         &format!(
                             "ban peer {} {:?}, reason: relay invalid tx: {:?}, error: {:?}",
@@ -94,7 +93,7 @@ impl<'a, CS: ChainStore> TransactionProcess<'a, CS> {
                     );
                     self.nc.ban_peer(self.peer, DEFAULT_BAN_TIME);
                 } else {
-                    debug!(target: "relay", "peer {} relay a conflict or missing input tx: {:?}, error: {:?}", self.peer, tx, err);
+                    debug!(target: "relay", "peer {} relay a conflict or missing input tx: {:?}, error: {:?}", self.peer, tx_hash, err);
                 }
             }
         }
