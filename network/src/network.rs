@@ -404,6 +404,9 @@ impl ServiceHandle for EventHandler {
                         .insert(addr, std::u8::MAX);
                 }
                 if let Some(peer_id) = extract_peer_id(address) {
+                    self.network_state.with_peer_registry_mut(|reg| {
+                        reg.remove_feeler(&peer_id);
+                    });
                     self.network_state
                         .failed_dials
                         .write()
