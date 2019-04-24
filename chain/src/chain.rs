@@ -275,7 +275,6 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
                 fork.detached_blocks().iter(),
                 fork.attached_blocks().iter(),
                 fork.detached_proposal_id().iter(),
-                self.shared.consensus().max_block_cycles(),
             );
             if log_enabled!(target: "chain", log::Level::Debug) {
                 self.print_chain(&chain_state, 10);

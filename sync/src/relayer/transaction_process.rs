@@ -5,7 +5,6 @@ use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::{RelayMessage, RelayTransaction as FbsRelayTransaction};
 use ckb_shared::store::ChainStore;
 use ckb_shared::tx_pool::types::PoolError;
-use ckb_traits::chain_provider::ChainProvider;
 use ckb_verification::TransactionError;
 use failure::Error as FailureError;
 use flatbuffers::FlatBufferBuilder;
@@ -48,9 +47,8 @@ impl<'a, CS: ChainStore> TransactionProcess<'a, CS> {
         }
 
         let tx_result = {
-            let chain_state = self.relayer.shared.chain_state().lock();
-            let max_block_cycles = self.relayer.shared.consensus().max_block_cycles();
-            chain_state.add_tx_to_pool(tx.clone(), max_block_cycles)
+            let mut chain_state = self.relayer.shared.chain_state().lock();
+            chain_state.add_tx_to_pool(tx.clone())
         };
         // disconnect peer if cycles mismatch
         match tx_result {

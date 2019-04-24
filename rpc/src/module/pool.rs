@@ -6,7 +6,6 @@ use ckb_shared::shared::Shared;
 use ckb_shared::store::ChainStore;
 use ckb_shared::tx_pool::types::PoolEntry;
 use ckb_sync::NetworkProtocol;
-use ckb_traits::chain_provider::ChainProvider;
 use flatbuffers::FlatBufferBuilder;
 use jsonrpc_core::{Error, Result};
 use jsonrpc_derive::rpc;
@@ -36,8 +35,7 @@ impl<CS: ChainStore + 'static> PoolRpc for PoolRpcImpl<CS> {
         let tx: CoreTransaction = tx.try_into().map_err(|_| Error::parse_error())?;
 
         let mut chain_state = self.shared.chain_state().lock();
-        let rtx = chain_state.rpc_resolve_tx_from_pool(&tx, &chain_state.tx_pool());
-        let tx_result = chain_state.verify_rtx(&rtx, self.shared.consensus().max_block_cycles());
+        let tx_result = chain_state.verify_transaction_with_pending(&tx);
         debug!(target: "rpc", "send_transaction add to pool result: {:?}", tx_result);
         match tx_result {
             Err(err) => Err(RPCError::custom(RPCError::Invalid, format!("{:?}", err))),
