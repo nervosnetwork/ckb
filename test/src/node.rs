@@ -75,13 +75,28 @@ impl Node {
             .local_node_info()
             .call()
             .expect("rpc call local_node_info failed");
+        let node_id = node_info.node_id;
         self.rpc_client()
             .add_node(
-                node_info.node_id,
+                node_id.clone(),
                 format!("/ip4/127.0.0.1/tcp/{}", node.p2p_port),
             )
             .call()
             .expect("rpc call add_node failed");
+
+        for _ in 0..5 {
+            sleep(1);
+            let peers = self
+                .rpc_client()
+                .get_peers()
+                .call()
+                .expect("rpc call get_peers failed");
+            if peers.iter().any(|peer| peer.node_id == node_id) {
+                return;
+            }
+        }
+
+        panic!("Connect timeout, node {}", node_id);
     }
 
     pub fn rpc_client(&self) -> RpcClient<HttpHandle> {
