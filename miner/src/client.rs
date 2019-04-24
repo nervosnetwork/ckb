@@ -138,9 +138,14 @@ impl Client {
         let future = self.send_submit_block_request(work_id, block);
         if self.config.block_on_submit {
             let ret: Result<Option<H256>, RpcError> = future.and_then(parse_response).wait();
-            if let Ok(hash) = ret {
-                if hash.is_none() {
-                    warn!(target: "miner", "submit_block failed {}", serde_json::to_string(block).unwrap());
+            match ret {
+                Ok(hash) => {
+                    if hash.is_none() {
+                        warn!(target: "miner", "submit_block failed {}", serde_json::to_string(block).unwrap());
+                    }
+                }
+                Err(e) => {
+                    error!(target: "miner", "rpc call submit_block error: {:?}", e);
                 }
             }
         }
