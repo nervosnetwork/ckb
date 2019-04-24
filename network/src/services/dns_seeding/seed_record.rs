@@ -67,33 +67,27 @@ impl SeedRecord {
     }
 
     pub fn decode(record: &str) -> Result<SeedRecord, SeedRecordError> {
-        if record.split(SEP).count() != 5 {
+        let parts = record.split(SEP).collect::<Vec<&str>>();
+        if parts.len() != 5 {
             return Err(SeedRecordError::InvalidRecord);
         }
 
-        let mut parts = record.split(SEP);
-        let ip: IpAddr = parts
-            .next()
-            .unwrap()
+        let ip: IpAddr = parts[0]
             .parse()
             .map_err(|_| SeedRecordError::InvalidRecord)?;
-        let port: u16 = parts
-            .next()
-            .unwrap()
+        let port: u16 = parts[1]
             .parse()
             .map_err(|_| SeedRecordError::InvalidRecord)?;
-        let peer_id_str = parts.next().unwrap();
+        let peer_id_str = parts[2];
         let peer_id = if !peer_id_str.is_empty() {
             Some(PeerId::from_str(peer_id_str).map_err(|_| SeedRecordError::InvalidRecord)?)
         } else {
             None
         };
-        let valid_until: u64 = parts
-            .next()
-            .unwrap()
+        let valid_until: u64 = parts[3]
             .parse()
             .map_err(|_| SeedRecordError::InvalidRecord)?;
-        let sig: Vec<u8> = bs58::decode(parts.next().unwrap())
+        let sig: Vec<u8> = bs58::decode(parts[4])
             .into_vec()
             .map_err(|_| SeedRecordError::InvalidRecord)?;
 
