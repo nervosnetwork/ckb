@@ -29,6 +29,7 @@ failure = "0.1.5"
 bytes = "0.4.12"
 hash = {path = "../util/hash"}
 lru-cache = { git = "https://github.com/nervosnetwork/lru-cache" }
+sentry = "^0.15.2"
 
 [dev-dependencies]
 ckb-notify = { path = "../notify" }
