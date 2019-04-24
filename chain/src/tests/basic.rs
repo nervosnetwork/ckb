@@ -32,7 +32,7 @@ fn test_genesis_transaction_spend() {
     let genesis_tx_hash = root_hash.clone();
 
     let genesis_block = BlockBuilder::default()
-        .commit_transaction(tx)
+        .transaction(tx)
         .with_header_builder(HeaderBuilder::default().difficulty(U256::from(1000u64)));
 
     let consensus = Consensus::default().set_genesis_block(genesis_block);
@@ -90,7 +90,7 @@ fn test_transaction_spend_in_same_block() {
         chain.push(new_block);
     }
 
-    let last_cell_base = &chain.last().unwrap().commit_transactions()[0];
+    let last_cell_base = &chain.last().unwrap().transactions()[0];
     let last_cell_base_hash = last_cell_base.hash().clone();
     let tx1 = create_transaction(last_cell_base_hash.clone(), 1);
     let tx1_hash = tx1.hash().clone();
@@ -196,7 +196,7 @@ fn test_transaction_conflict_in_same_block() {
         chain.push(new_block);
     }
 
-    let last_cell_base = &chain.last().unwrap().commit_transactions()[0];
+    let last_cell_base = &chain.last().unwrap().transactions()[0];
     let tx1 = create_transaction(last_cell_base.hash(), 1);
     let tx2 = create_transaction(tx1.hash(), 2);
     let tx3 = create_transaction(tx1.hash(), 3);
@@ -275,7 +275,7 @@ fn test_transaction_conflict_in_different_blocks() {
         chain.push(new_block);
     }
 
-    let last_cell_base = &chain.last().unwrap().commit_transactions()[0];
+    let last_cell_base = &chain.last().unwrap().transactions()[0];
     let tx1 = create_transaction(last_cell_base.hash(), 1);
     let tx2 = create_transaction(tx1.hash(), 2);
     let tx3 = create_transaction(tx1.hash(), 3);
@@ -366,7 +366,7 @@ fn test_genesis_transaction_fetch() {
     let root_hash = tx.hash().clone();
 
     let genesis_block = BlockBuilder::default()
-        .commit_transaction(tx)
+        .transaction(tx)
         .with_header_builder(HeaderBuilder::default().difficulty(U256::from(1000u64)));
 
     let consensus = Consensus::default().set_genesis_block(genesis_block);

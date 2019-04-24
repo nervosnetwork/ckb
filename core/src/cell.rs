@@ -161,7 +161,7 @@ impl<'a> BlockCellProvider<'a> {
         let mut duplicate_inputs_counter = FnvHashMap::default();
 
         let output_indices = block
-            .commit_transactions()
+            .transactions()
             .iter()
             .enumerate()
             .map(|(idx, tx)| {
@@ -191,8 +191,8 @@ impl<'a> CellProvider for BlockCellProvider<'a> {
             .map(|counter| *counter > 0)
         {
             CellStatus::Dead
-        } else if let Some(i) = self.output_indices.get(&out_point.hash) {
-            match self.block.commit_transactions()[*i]
+        } else if let Some(i) = self.output_indices.get(&out_point.tx_hash) {
+            match self.block.transactions()[*i]
                 .outputs()
                 .get(out_point.index as usize)
             {
@@ -319,15 +319,15 @@ mod tests {
         };
 
         let p1 = OutPoint {
-            hash: H256::zero(),
+            tx_hash: H256::zero(),
             index: 1,
         };
         let p2 = OutPoint {
-            hash: H256::zero(),
+            tx_hash: H256::zero(),
             index: 2,
         };
         let p3 = OutPoint {
-            hash: H256::zero(),
+            tx_hash: H256::zero(),
             index: 3,
         };
         let o = CellMeta {

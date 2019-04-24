@@ -91,7 +91,7 @@ impl<CS: ChainStore> ChainState<CS> {
 
                 if let Some(us) = store.get_block_uncles(&hash) {
                     for u in us {
-                        let ids = u.proposal_transactions;
+                        let ids = u.proposals;
                         ids_set.extend(ids);
                     }
                 }
@@ -358,11 +358,11 @@ impl<CS: ChainStore> ChainState<CS> {
 
         //skip cellbase
         for blk in detached_blocks {
-            detached.extend(blk.commit_transactions().iter().skip(1).cloned())
+            detached.extend(blk.transactions().iter().skip(1).cloned())
         }
 
         for blk in attached_blocks {
-            attached.extend(blk.commit_transactions().iter().skip(1).cloned())
+            attached.extend(blk.transactions().iter().skip(1).cloned())
         }
 
         let retain: Vec<&Transaction> = detached.difference(&attached).collect();
@@ -449,14 +449,14 @@ pub struct ChainCellSetOverlay<'a, CS> {
 
 impl<CS: ChainStore> CellProvider for ChainState<CS> {
     fn cell(&self, out_point: &OutPoint) -> CellStatus {
-        match self.cell_set().get(&out_point.hash) {
+        match self.cell_set().get(&out_point.tx_hash) {
             Some(tx_meta) => {
                 if tx_meta.is_dead(out_point.index as usize) {
                     CellStatus::Dead
                 } else {
                     let tx = self
                         .store
-                        .get_transaction(&out_point.hash)
+                        .get_transaction(&out_point.tx_hash)
                         .expect("store should be consistent with cell_set");
                     CellStatus::live_output(
                         tx.outputs()[out_point.index as usize].clone(),
@@ -472,14 +472,14 @@ impl<CS: ChainStore> CellProvider for ChainState<CS> {
 
 impl<'a, CS: ChainStore> CellProvider for ChainCellSetOverlay<'a, CS> {
     fn cell(&self, out_point: &OutPoint) -> CellStatus {
-        match self.overlay.get(&out_point.hash) {
+        match self.overlay.get(&out_point.tx_hash) {
             Some(tx_meta) => {
                 if tx_meta.is_dead(out_point.index as usize) {
                     CellStatus::Dead
                 } else {
                     let tx = self
                         .store
-                        .get_transaction(&out_point.hash)
+                        .get_transaction(&out_point.tx_hash)
                         .expect("store should be consistent with cell_set");
                     CellStatus::live_output(
                         tx.outputs()[out_point.index as usize].clone(),

@@ -70,7 +70,7 @@ impl<CP: ChainProvider + Clone> CellbaseVerifier<CP> {
 
     pub fn verify(&self, block: &Block) -> Result<(), Error> {
         let cellbase_len = block
-            .commit_transactions()
+            .transactions()
             .iter()
             .filter(|tx| tx.is_cellbase())
             .count();
@@ -80,11 +80,11 @@ impl<CP: ChainProvider + Clone> CellbaseVerifier<CP> {
             return Err(Error::Cellbase(CellbaseError::InvalidQuantity));
         }
 
-        if !block.commit_transactions()[0].is_cellbase() {
+        if !block.transactions()[0].is_cellbase() {
             return Err(Error::Cellbase(CellbaseError::InvalidPosition));
         }
 
-        let cellbase_transaction = &block.commit_transactions()[0];
+        let cellbase_transaction = &block.transactions()[0];
         let cellbase_input = &cellbase_transaction.inputs()[0];
         if cellbase_input != &CellInput::new_cellbase_input(block.header().number()) {
             return Err(Error::Cellbase(CellbaseError::InvalidInput));
@@ -112,21 +112,13 @@ impl DuplicateVerifier {
     }
 
     pub fn verify(&self, block: &Block) -> Result<(), Error> {
-        let mut seen = HashSet::with_capacity(block.commit_transactions().len());
-        if !block
-            .commit_transactions()
-            .iter()
-            .all(|tx| seen.insert(tx.hash()))
-        {
+        let mut seen = HashSet::with_capacity(block.transactions().len());
+        if !block.transactions().iter().all(|tx| seen.insert(tx.hash())) {
             return Err(Error::CommitTransactionDuplicate);
         }
 
-        let mut seen = HashSet::with_capacity(block.proposal_transactions().len());
-        if !block
-            .proposal_transactions()
-            .iter()
-            .all(|id| seen.insert(id))
-        {
+        let mut seen = HashSet::with_capacity(block.proposals().len());
+        if !block.proposals().iter().all(|id| seen.insert(id)) {
             return Err(Error::ProposalTransactionDuplicate);
         }
         Ok(())
@@ -142,7 +134,7 @@ impl MerkleRootVerifier {
     }
 
     pub fn verify(&self, block: &Block) -> Result<(), Error> {
-        if block.header().txs_commit() != &block.cal_txs_commit_root() {
+        if block.header().transactions_root() != &block.cal_transactions_root() {
             return Err(Error::CommitTransactionsRoot);
         }
 
@@ -150,7 +142,7 @@ impl MerkleRootVerifier {
             return Err(Error::WitnessesMerkleRoot);
         }
 
-        if block.header().txs_proposal() != &block.cal_txs_proposal_root() {
+        if block.header().proposals_root() != &block.cal_proposals_root() {
             return Err(Error::ProposalTransactionsRoot);
         }
 
@@ -308,16 +300,12 @@ impl<CP: ChainProvider + Clone> UnclesVerifier<CP> {
                 return Err(Error::Uncles(UnclesError::InvalidInclude(uncle_hash)));
             }
 
-            if uncle_header.txs_proposal() != &uncle.cal_txs_proposal_root() {
+            if uncle_header.proposals_root() != &uncle.cal_proposals_root() {
                 return Err(Error::Uncles(UnclesError::ProposalTransactionsRoot));
             }
 
-            let mut seen = HashSet::with_capacity(uncle.proposal_transactions().len());
-            if !uncle
-                .proposal_transactions()
-                .iter()
-                .all(|id| seen.insert(id))
-            {
+            let mut seen = HashSet::with_capacity(uncle.proposals().len());
+            if !uncle.proposals().iter().all(|id| seen.insert(id)) {
                 return Err(Error::Uncles(UnclesError::ProposalTransactionDuplicate));
             }
 
@@ -457,7 +445,7 @@ impl<CP: ChainProvider + Clone> CommitVerifier<CP> {
         }
 
         let committed_ids: FnvHashSet<_> = block
-            .commit_transactions()
+            .transactions()
             .par_iter()
             .skip(1)
             .map(Transaction::proposal_short_id)

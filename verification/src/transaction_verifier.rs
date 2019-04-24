@@ -20,7 +20,7 @@ pub struct TransactionVerifier<'a, M> {
     pub duplicate_inputs: DuplicateInputsVerifier<'a>,
     pub inputs: InputVerifier<'a>,
     pub script: ScriptVerifier<'a>,
-    pub valid_since: ValidSinceVerifier<'a, M>,
+    pub since: ValidSinceVerifier<'a, M>,
 }
 
 impl<'a, M> TransactionVerifier<'a, M>
@@ -42,7 +42,7 @@ where
             script: ScriptVerifier::new(rtx),
             capacity: CapacityVerifier::new(rtx),
             inputs: InputVerifier::new(rtx),
-            valid_since: ValidSinceVerifier::new(rtx, median_time_context, tip_number),
+            since: ValidSinceVerifier::new(rtx, median_time_context, tip_number),
         }
     }
 
@@ -54,7 +54,7 @@ where
         self.inputs.verify()?;
         self.capacity.verify()?;
         self.duplicate_inputs.verify()?;
-        self.valid_since.verify()?;
+        self.since.verify()?;
         let cycles = self.script.verify(max_cycles)?;
         Ok(cycles)
     }
@@ -376,15 +376,15 @@ where
         }
     }
 
-    fn verify_absolute_lock(&self, valid_since: ValidSince) -> Result<(), TransactionError> {
-        if valid_since.is_absolute() {
-            if let Some(block_number) = valid_since.block_number() {
+    fn verify_absolute_lock(&self, since: ValidSince) -> Result<(), TransactionError> {
+        if since.is_absolute() {
+            if let Some(block_number) = since.block_number() {
                 if self.tip_number < block_number {
                     return Err(TransactionError::Immature);
                 }
             }
 
-            if let Some(block_timestamp) = valid_since.block_timestamp() {
+            if let Some(block_timestamp) = since.block_timestamp() {
                 let tip_timestamp = self
                     .block_median_time(self.tip_number.saturating_sub(1))
                     .unwrap_or_else(|| 0);
@@ -397,22 +397,22 @@ where
     }
     fn verify_relative_lock(
         &self,
-        valid_since: ValidSince,
+        since: ValidSince,
         cell_meta: &CellMeta,
     ) -> Result<(), TransactionError> {
-        if valid_since.is_relative() {
+        if since.is_relative() {
             // cell still in tx_pool
             let cell_block_number = match cell_meta.block_number {
                 Some(number) => number,
                 None => return Err(TransactionError::Immature),
             };
-            if let Some(block_number) = valid_since.block_number() {
+            if let Some(block_number) = since.block_number() {
                 if self.tip_number < cell_block_number + block_number {
                     return Err(TransactionError::Immature);
                 }
             }
 
-            if let Some(block_timestamp) = valid_since.block_timestamp() {
+            if let Some(block_timestamp) = since.block_timestamp() {
                 let tip_timestamp = self
                     .block_median_time(self.tip_number.saturating_sub(1))
                     .unwrap_or_else(|| 0);
@@ -434,23 +434,23 @@ where
             .iter()
             .zip(self.rtx.transaction.inputs())
         {
-            // ignore empty valid_since
-            if input.valid_since == 0 {
+            // ignore empty since
+            if input.since == 0 {
                 continue;
             }
-            let valid_since = ValidSince(input.valid_since);
+            let since = ValidSince(input.since);
             // check remain flags
-            if !valid_since.remain_flags_is_empty() {
+            if !since.remain_flags_is_empty() {
                 return Err(TransactionError::InvalidValidSince);
             }
 
             // verify time lock
-            self.verify_absolute_lock(valid_since)?;
+            self.verify_absolute_lock(since)?;
             let cell = match cell_status.get_live_output() {
                 Some(cell) => cell,
                 None => return Err(TransactionError::Conflict),
             };
-            self.verify_relative_lock(valid_since, cell)?;
+            self.verify_relative_lock(since, cell)?;
         }
         Ok(())
     }

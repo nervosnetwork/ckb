@@ -50,9 +50,9 @@ pub struct RawHeader {
     /// Genesis number is 0, Child block number is parent block number + 1.
     number: BlockNumber,
     /// Transactions merkle root.
-    txs_commit: H256,
+    transactions_root: H256,
     /// Transactions proposal merkle root.
-    txs_proposal: H256,
+    proposals_root: H256,
     /// Witness hash commitment.
     witnesses_root: H256,
     /// Block difficulty.
@@ -107,10 +107,13 @@ impl fmt::Debug for Header {
             .field("parent_hash", &format_args!("{:#x}", self.raw.parent_hash))
             .field("timestamp", &self.raw.timestamp)
             .field("number", &self.raw.number)
-            .field("txs_commit", &format_args!("{:#x}", self.raw.txs_commit))
             .field(
-                "txs_proposal",
-                &format_args!("{:#x}", self.raw.txs_proposal),
+                "transactions_root",
+                &format_args!("{:#x}", self.raw.transactions_root),
+            )
+            .field(
+                "proposals_root",
+                &format_args!("{:#x}", self.raw.proposals_root),
             )
             .field(
                 "witnesses_root",
@@ -169,12 +172,12 @@ impl Header {
         &self.raw.parent_hash
     }
 
-    pub fn txs_commit(&self) -> &H256 {
-        &self.raw.txs_commit
+    pub fn transactions_root(&self) -> &H256 {
+        &self.raw.transactions_root
     }
 
-    pub fn txs_proposal(&self) -> &H256 {
-        &self.raw.txs_proposal
+    pub fn proposals_root(&self) -> &H256 {
+        &self.raw.proposals_root
     }
 
     pub fn witnesses_root(&self) -> &H256 {
@@ -261,13 +264,13 @@ impl HeaderBuilder {
         self
     }
 
-    pub fn txs_commit(mut self, hash: H256) -> Self {
-        self.inner.raw.txs_commit = hash;
+    pub fn transactions_root(mut self, hash: H256) -> Self {
+        self.inner.raw.transactions_root = hash;
         self
     }
 
-    pub fn txs_proposal(mut self, hash: H256) -> Self {
-        self.inner.raw.txs_proposal = hash;
+    pub fn proposals_root(mut self, hash: H256) -> Self {
+        self.inner.raw.proposals_root = hash;
         self
     }
 

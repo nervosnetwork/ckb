@@ -61,7 +61,7 @@ fn case_no1() {
     // A is dead in old fork
     assert_eq!(
         cell_set()
-            .get(&out_point.hash)
+            .get(&out_point.tx_hash)
             .map(|mate| mate.is_dead(out_point.index as usize)),
         Some(true)
     );
@@ -71,7 +71,7 @@ fn case_no1() {
     assert_eq!(
         cell_set_overlay
             .overlay
-            .get(&out_point.hash)
+            .get(&out_point.tx_hash)
             .map(|mate| mate.is_dead(out_point.index as usize)),
         Some(false)
     );

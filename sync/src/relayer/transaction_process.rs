@@ -2,7 +2,7 @@ use crate::relayer::Relayer;
 use crate::relayer::MAX_RELAY_PEERS;
 use ckb_core::{transaction::Transaction, Cycle};
 use ckb_network::{CKBProtocolContext, PeerIndex};
-use ckb_protocol::{RelayMessage, ValidTransaction as FbsValidTransaction};
+use ckb_protocol::{RelayMessage, RelayTransaction as FbsRelayTransaction};
 use ckb_shared::store::ChainStore;
 use ckb_shared::tx_pool::types::PoolError;
 use ckb_traits::chain_provider::ChainProvider;
@@ -17,7 +17,7 @@ use std::time::Duration;
 const DEFAULT_BAN_TIME: Duration = Duration::from_secs(3600 * 24 * 3);
 
 pub struct TransactionProcess<'a, CS> {
-    message: &'a FbsValidTransaction<'a>,
+    message: &'a FbsRelayTransaction<'a>,
     relayer: &'a Relayer<CS>,
     nc: &'a CKBProtocolContext,
     peer: PeerIndex,
@@ -25,7 +25,7 @@ pub struct TransactionProcess<'a, CS> {
 
 impl<'a, CS: ChainStore> TransactionProcess<'a, CS> {
     pub fn new(
-        message: &'a FbsValidTransaction,
+        message: &'a FbsRelayTransaction,
         relayer: &'a Relayer<CS>,
         nc: &'a CKBProtocolContext,
         peer: PeerIndex,

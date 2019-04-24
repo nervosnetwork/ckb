@@ -171,7 +171,7 @@ impl BlockMedianTimeContext for FakeMedianTime {
 }
 
 #[test]
-pub fn test_valid_since() {
+pub fn test_since() {
     // use remain flags
     let transaction = TransactionBuilder::default()
         .inputs(vec![CellInput::new(

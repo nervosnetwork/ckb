@@ -18,7 +18,7 @@ pub const TX_VERSION: Version = 0;
 #[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Hash, HasOccupiedCapacity)]
 pub struct OutPoint {
     // Hash of Transaction
-    pub hash: H256,
+    pub tx_hash: H256,
     // Index of output
     pub index: u32,
 }
@@ -26,7 +26,7 @@ pub struct OutPoint {
 impl fmt::Debug for OutPoint {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_struct("OutPoint")
-            .field("hash", &format_args!("{:#x}", self.hash))
+            .field("tx_hash", &format_args!("{:#x}", self.tx_hash))
             .field("index", &self.index)
             .finish()
     }
@@ -35,15 +35,15 @@ impl fmt::Debug for OutPoint {
 impl Default for OutPoint {
     fn default() -> Self {
         OutPoint {
-            hash: H256::zero(),
+            tx_hash: H256::zero(),
             index: u32::max_value(),
         }
     }
 }
 
 impl OutPoint {
-    pub fn new(hash: H256, index: u32) -> Self {
-        OutPoint { hash, index }
+    pub fn new(tx_hash: H256, index: u32) -> Self {
+        OutPoint { tx_hash, index }
     }
 
     pub fn null() -> Self {
@@ -51,12 +51,12 @@ impl OutPoint {
     }
 
     pub fn is_null(&self) -> bool {
-        self.hash.is_zero() && self.index == u32::max_value()
+        self.tx_hash.is_zero() && self.index == u32::max_value()
     }
 
     pub fn destruct(self) -> (H256, u32) {
-        let OutPoint { hash, index } = self;
-        (hash, index)
+        let OutPoint { tx_hash, index } = self;
+        (tx_hash, index)
     }
 }
 
@@ -65,17 +65,17 @@ impl OutPoint {
 )]
 pub struct CellInput {
     pub previous_output: OutPoint,
-    pub valid_since: u64,
+    pub since: u64,
     // Depends on whether the operation is Transform or Destroy, this is the proof to transform
     // lock or destroy lock.
     pub args: Vec<Vec<u8>>,
 }
 
 impl CellInput {
-    pub fn new(previous_output: OutPoint, valid_since: u64, args: Vec<Vec<u8>>) -> Self {
+    pub fn new(previous_output: OutPoint, since: u64, args: Vec<Vec<u8>>) -> Self {
         CellInput {
             previous_output,
-            valid_since,
+            since,
             args,
         }
     }
@@ -83,7 +83,7 @@ impl CellInput {
     pub fn new_cellbase_input(block_number: BlockNumber) -> Self {
         CellInput {
             previous_output: OutPoint::null(),
-            valid_since: 0,
+            since: 0,
             args: vec![block_number.to_le_bytes().to_vec()],
         }
     }
@@ -91,10 +91,10 @@ impl CellInput {
     pub fn destruct(self) -> (OutPoint, u64, Vec<Vec<u8>>) {
         let CellInput {
             previous_output,
-            valid_since,
+            since,
             args,
         } = self;
-        (previous_output, valid_since, args)
+        (previous_output, since, args)
     }
 }
 

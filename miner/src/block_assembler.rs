@@ -91,7 +91,7 @@ impl<'a> FeeCalculator<'a> {
         let mut fee = Capacity::zero();
         for input in transaction.inputs() {
             let previous_output = &input.previous_output;
-            match self.get_transaction(&previous_output.hash) {
+            match self.get_transaction(&previous_output.tx_hash) {
                 Some(previous_transaction) => {
                     let index = previous_output.index as usize;
                     if let Some(output) = previous_transaction.outputs().get(index) {
@@ -247,15 +247,12 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
     }
 
     fn transform_uncle(uncle: UncleBlock) -> UncleTemplate {
-        let UncleBlock {
-            header,
-            proposal_transactions,
-        } = uncle;
+        let UncleBlock { header, proposals } = uncle;
 
         UncleTemplate {
             hash: header.hash(),
             required: false,
-            proposal_transactions: proposal_transactions.into_iter().map(Into::into).collect(),
+            proposals: proposals.into_iter().map(Into::into).collect(),
             header: (&header).into(),
         }
     }
@@ -318,8 +315,7 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
             .calculate_difficulty(header)
             .expect("get difficulty");
 
-        let (proposal_transactions, commit_transactions) =
-            chain_state.get_proposal_and_staging_txs(10000, 10000);
+        let (proposals, transactions) = chain_state.get_proposal_and_staging_txs(10000, 10000);
 
         let (uncles, bad_uncles) = self.prepare_uncles(&header, &difficulty);
         if !bad_uncles.is_empty() {
@@ -337,9 +333,8 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
             .collect();
 
         // dummy cellbase
-        let cellbase_lock = Script::new(args, self.config.binary_hash.clone());
-        let cellbase =
-            self.create_cellbase_transaction(header, &commit_transactions, cellbase_lock)?;
+        let cellbase_lock = Script::new(args, self.config.code_hash.clone());
+        let cellbase = self.create_cellbase_transaction(header, &transactions, cellbase_lock)?;
 
         let template = BlockTemplate {
             version,
@@ -351,11 +346,11 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
             bytes_limit: bytes_limit.to_string(),
             uncles_count_limit,
             uncles: uncles.into_iter().map(Self::transform_uncle).collect(),
-            commit_transactions: commit_transactions
+            transactions: transactions
                 .iter()
                 .map(|tx| Self::transform_tx(tx, false, None))
                 .collect(),
-            proposal_transactions: proposal_transactions.into_iter().map(Into::into).collect(),
+            proposals: proposals.into_iter().map(Into::into).collect(),
             cellbase: Self::transform_cellbase(&cellbase, None),
             work_id: format!("{}", self.work_id.fetch_add(1, Ordering::SeqCst)),
         };
@@ -468,7 +463,7 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
             } else {
                 let uncle = UncleBlock {
                     header: block.header().clone(),
-                    proposal_transactions: block.proposal_transactions().to_vec(),
+                    proposals: block.proposals().to_vec(),
                 };
                 uncles.push(uncle);
                 included.insert(hash.clone());
@@ -539,7 +534,7 @@ mod tests {
     fn test_get_block_template() {
         let (_chain_controller, shared, _notify) = start_chain(None, None);
         let config = BlockAssemblerConfig {
-            binary_hash: H256::zero(),
+            code_hash: H256::zero(),
             args: vec![],
         };
         let mut block_assembler = setup_block_assembler(shared.clone(), config);
@@ -555,8 +550,8 @@ mod tests {
             number,
             parent_hash,
             uncles, // Vec<UncleTemplate>
-            commit_transactions, // Vec<TransactionTemplate>
-            proposal_transactions, // Vec<ProposalShortId>
+            transactions, // Vec<TransactionTemplate>
+            proposals, // Vec<ProposalShortId>
             cellbase, // CellbaseTemplate
             ..
             // cycles_limit,
@@ -584,16 +579,16 @@ mod tests {
                     .collect::<Result<_, _>>()
                     .unwrap(),
             )
-            .commit_transaction(cellbase.try_into().unwrap())
-            .commit_transactions(
-                commit_transactions
+            .transaction(cellbase.try_into().unwrap())
+            .transactions(
+                transactions
                     .into_iter()
                     .map(TryInto::try_into)
                     .collect::<Result<_, _>>()
                     .unwrap(),
             )
-            .proposal_transactions(
-                proposal_transactions
+            .proposals(
+                proposals
                     .into_iter()
                     .map(TryInto::try_into)
                     .collect::<Result<_, _>>()
@@ -627,8 +622,8 @@ mod tests {
 
         BlockBuilder::default()
             .header(header)
-            .commit_transaction(cellbase)
-            .proposal_transaction(ProposalShortId::from_slice(&[1; 10]).unwrap())
+            .transaction(cellbase)
+            .proposal(ProposalShortId::from_slice(&[1; 10]).unwrap())
             .build()
     }
 
@@ -652,7 +647,7 @@ mod tests {
 
         let (chain_controller, shared, notify) = start_chain(Some(consensus), None);
         let config = BlockAssemblerConfig {
-            binary_hash: H256::zero(),
+            code_hash: H256::zero(),
             args: vec![],
         };
         let block_assembler = setup_block_assembler(shared.clone(), config);

@@ -145,7 +145,7 @@ fn new_chain() -> (
         .build();
 
     // create genesis block with 100 tx
-    let commit_transactions: Vec<Transaction> = (0..100)
+    let transactions: Vec<Transaction> = (0..100)
         .map(|i| {
             TransactionBuilder::default()
                 .input(CellInput::new(OutPoint::null(), 0, vec![]))
@@ -160,8 +160,8 @@ fn new_chain() -> (
         .collect();
 
     let genesis_block = BlockBuilder::default()
-        .commit_transaction(cellbase)
-        .commit_transactions(commit_transactions)
+        .transaction(cellbase)
+        .transactions(transactions)
         .with_header_builder(HeaderBuilder::default().difficulty(U256::from(1000u64)));
 
     let consensus = Consensus::default().set_genesis_block(genesis_block);
@@ -199,10 +199,10 @@ fn gen_block(blocks: &mut Vec<Block>, parent_index: usize) {
         .build();
 
     // spent n-2 block's tx and proposal n-1 block's tx
-    let commit_transactions: Vec<Transaction> = if blocks.len() > parent_index + 1 {
+    let transactions: Vec<Transaction> = if blocks.len() > parent_index + 1 {
         let pp_block = &blocks[parent_index - 1];
         pp_block
-            .commit_transactions()
+            .transactions()
             .iter()
             .skip(1)
             .map(|tx| create_transaction(tx.hash()))
@@ -211,17 +211,17 @@ fn gen_block(blocks: &mut Vec<Block>, parent_index: usize) {
         vec![]
     };
 
-    let proposal_transactions: Vec<ProposalShortId> = p_block
-        .commit_transactions()
+    let proposals: Vec<ProposalShortId> = p_block
+        .transactions()
         .iter()
         .skip(1)
         .map(|tx| create_transaction(tx.hash()).proposal_short_id())
         .collect();
 
     let block = BlockBuilder::default()
-        .commit_transaction(cellbase)
-        .commit_transactions(commit_transactions)
-        .proposal_transactions(proposal_transactions)
+        .transaction(cellbase)
+        .transactions(transactions)
+        .proposals(proposals)
         .with_header_builder(
             HeaderBuilder::default()
                 .parent_hash(p_block.header().hash().clone())

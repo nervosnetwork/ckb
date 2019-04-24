@@ -464,7 +464,7 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
                     let cell_provider = OverlayCellProvider::new(&block_cp, &cell_set_overlay);
 
                     let resolved: Vec<ResolvedTransaction> = b
-                        .commit_transactions()
+                        .transactions()
                         .iter()
                         .map(|x| cell_provider.resolve_transaction(x))
                         .collect();

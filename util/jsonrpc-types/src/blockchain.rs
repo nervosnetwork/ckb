@@ -17,26 +17,26 @@ use std::convert::{TryFrom, TryInto};
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct Script {
     pub args: Vec<Bytes>,
-    pub binary_hash: H256,
+    pub code_hash: H256,
 }
 
 impl TryFrom<Script> for CoreScript {
     type Error = FailureError;
 
     fn try_from(json: Script) -> Result<Self, Self::Error> {
-        let Script { args, binary_hash } = json;
+        let Script { args, code_hash } = json;
         Ok(CoreScript::new(
             args.into_iter().map(Bytes::into_vec).collect(),
-            binary_hash,
+            code_hash,
         ))
     }
 }
 
 impl From<CoreScript> for Script {
     fn from(core: CoreScript) -> Script {
-        let (args, binary_hash) = core.destruct();
+        let (args, code_hash) = core.destruct();
         Script {
-            binary_hash,
+            code_hash,
             args: args.into_iter().map(Bytes::new).collect(),
         }
     }
@@ -111,16 +111,16 @@ impl From<OutPoint> for CoreOutPoint {
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct CellInput {
     pub previous_output: OutPoint,
-    pub valid_since: String,
+    pub since: String,
     pub args: Vec<Bytes>,
 }
 
 impl From<CoreCellInput> for CellInput {
     fn from(core: CoreCellInput) -> CellInput {
-        let (previous_output, valid_since, args) = core.destruct();
+        let (previous_output, since, args) = core.destruct();
         CellInput {
             previous_output: previous_output.into(),
-            valid_since: valid_since.to_string(),
+            since: since.to_string(),
             args: args.into_iter().map(Bytes::new).collect(),
         }
     }
@@ -132,12 +132,12 @@ impl TryFrom<CellInput> for CoreCellInput {
     fn try_from(json: CellInput) -> Result<Self, Self::Error> {
         let CellInput {
             previous_output,
-            valid_since,
+            since,
             args,
         } = json;
         Ok(CoreCellInput::new(
             previous_output.try_into()?,
-            valid_since.parse::<u64>()?,
+            since.parse::<u64>()?,
             args.into_iter().map(Bytes::into_vec).collect(),
         ))
     }
@@ -263,8 +263,8 @@ pub struct Header {
     pub parent_hash: H256,
     pub timestamp: String,
     pub number: BlockNumber,
-    pub txs_commit: H256,
-    pub txs_proposal: H256,
+    pub transactions_root: H256,
+    pub proposals_root: H256,
     pub witnesses_root: H256,
     pub difficulty: U256,
     pub uncles_hash: H256,
@@ -281,8 +281,8 @@ impl<'a> From<&'a CoreHeader> for Header {
             parent_hash: core.parent_hash().clone(),
             timestamp: core.timestamp().to_string(),
             number: core.number().to_string(),
-            txs_commit: core.txs_commit().clone(),
-            txs_proposal: core.txs_proposal().clone(),
+            transactions_root: core.transactions_root().clone(),
+            proposals_root: core.proposals_root().clone(),
             witnesses_root: core.witnesses_root().clone(),
             difficulty: core.difficulty().clone(),
             uncles_hash: core.uncles_hash().clone(),
@@ -302,8 +302,8 @@ impl TryFrom<Header> for CoreHeader {
             parent_hash,
             timestamp,
             number,
-            txs_commit,
-            txs_proposal,
+            transactions_root,
+            proposals_root,
             witnesses_root,
             difficulty,
             uncles_hash,
@@ -317,8 +317,8 @@ impl TryFrom<Header> for CoreHeader {
             .parent_hash(parent_hash)
             .timestamp(timestamp.parse::<u64>()?)
             .number(number.parse::<CoreBlockNumber>()?)
-            .txs_commit(txs_commit)
-            .txs_proposal(txs_proposal)
+            .transactions_root(transactions_root)
+            .proposals_root(proposals_root)
             .witnesses_root(witnesses_root)
             .difficulty(difficulty)
             .uncles_hash(uncles_hash)
@@ -331,19 +331,14 @@ impl TryFrom<Header> for CoreHeader {
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct UncleBlock {
     pub header: Header,
-    pub proposal_transactions: Vec<ProposalShortId>,
+    pub proposals: Vec<ProposalShortId>,
 }
 
 impl<'a> From<&'a CoreUncleBlock> for UncleBlock {
     fn from(core: &CoreUncleBlock) -> UncleBlock {
         UncleBlock {
             header: core.header().into(),
-            proposal_transactions: core
-                .proposal_transactions()
-                .iter()
-                .cloned()
-                .map(Into::into)
-                .collect(),
+            proposals: core.proposals().iter().cloned().map(Into::into).collect(),
         }
     }
 }
@@ -352,13 +347,10 @@ impl TryFrom<UncleBlock> for CoreUncleBlock {
     type Error = FailureError;
 
     fn try_from(json: UncleBlock) -> Result<Self, Self::Error> {
-        let UncleBlock {
-            header,
-            proposal_transactions,
-        } = json;
+        let UncleBlock { header, proposals } = json;
         Ok(CoreUncleBlock::new(
             header.try_into()?,
-            proposal_transactions
+            proposals
                 .into_iter()
                 .map(TryInto::try_into)
                 .collect::<Result<_, _>>()?,
@@ -370,8 +362,8 @@ impl TryFrom<UncleBlock> for CoreUncleBlock {
 pub struct Block {
     pub header: Header,
     pub uncles: Vec<UncleBlock>,
-    pub commit_transactions: Vec<Transaction>,
-    pub proposal_transactions: Vec<ProposalShortId>,
+    pub transactions: Vec<Transaction>,
+    pub proposals: Vec<ProposalShortId>,
 }
 
 impl<'a> From<&'a CoreBlock> for Block {
@@ -379,13 +371,8 @@ impl<'a> From<&'a CoreBlock> for Block {
         Block {
             header: core.header().into(),
             uncles: core.uncles().iter().map(Into::into).collect(),
-            commit_transactions: core.commit_transactions().iter().map(Into::into).collect(),
-            proposal_transactions: core
-                .proposal_transactions()
-                .iter()
-                .cloned()
-                .map(Into::into)
-                .collect(),
+            transactions: core.transactions().iter().map(Into::into).collect(),
+            proposals: core.proposals().iter().cloned().map(Into::into).collect(),
         }
     }
 }
@@ -397,8 +384,8 @@ impl TryFrom<Block> for CoreBlock {
         let Block {
             header,
             uncles,
-            commit_transactions,
-            proposal_transactions,
+            transactions,
+            proposals,
         } = json;
 
         Ok(BlockBuilder::default()
@@ -409,14 +396,14 @@ impl TryFrom<Block> for CoreBlock {
                     .map(TryInto::try_into)
                     .collect::<Result<_, _>>()?,
             )
-            .commit_transactions(
-                commit_transactions
+            .transactions(
+                transactions
                     .into_iter()
                     .map(TryInto::try_into)
                     .collect::<Result<_, _>>()?,
             )
-            .proposal_transactions(
-                proposal_transactions
+            .proposals(
+                proposals
                     .into_iter()
                     .map(TryInto::try_into)
                     .collect::<Result<_, _>>()?,
@@ -467,9 +454,9 @@ mod tests {
 
     fn mock_full_block(data: Vec<u8>, arg: Vec<u8>) -> CoreBlock {
         BlockBuilder::default()
-            .commit_transactions(vec![mock_full_tx(data, arg)])
+            .transactions(vec![mock_full_tx(data, arg)])
             .uncles(vec![mock_uncle()])
-            .proposal_transactions(vec![CoreProposalShortId::default()])
+            .proposals(vec![CoreProposalShortId::default()])
             .build()
     }
 

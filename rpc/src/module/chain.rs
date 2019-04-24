@@ -83,7 +83,7 @@ impl<CS: ChainStore + 'static> ChainRpc for ChainRpcImpl<CS> {
                     .shared
                     .block(&block_hash)
                     .ok_or_else(Error::internal_error)?;
-                for transaction in block.commit_transactions() {
+                for transaction in block.transactions() {
                     let transaction_meta = chain_state
                         .cell_set()
                         .get(&transaction.hash())

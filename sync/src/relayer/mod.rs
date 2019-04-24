@@ -88,9 +88,9 @@ impl<CS: ChainStore> Relayer<CS> {
                 )
                 .execute()?;
             }
-            RelayPayload::ValidTransaction => {
+            RelayPayload::RelayTransaction => {
                 TransactionProcess::new(
-                    &cast!(message.payload_as_valid_transaction())?,
+                    &cast!(message.payload_as_relay_transaction())?,
                     self,
                     nc,
                     peer,
@@ -150,14 +150,9 @@ impl<CS: ChainStore> Relayer<CS> {
     ) {
         let mut inflight = self.state.inflight_proposals.lock();
         let unknown_ids = block
-            .proposal_transactions
+            .proposals
             .iter()
-            .chain(
-                block
-                    .uncles
-                    .iter()
-                    .flat_map(UncleBlock::proposal_transactions),
-            )
+            .chain(block.uncles.iter().flat_map(UncleBlock::proposals))
             .filter(|x| !chain_state.contains_proposal_id(x) && inflight.insert(**x))
             .cloned()
             .collect::<Vec<_>>();
@@ -258,8 +253,8 @@ impl<CS: ChainStore> Relayer<CS> {
             let block = BlockBuilder::default()
                 .header(compact_block.header.clone())
                 .uncles(compact_block.uncles.clone())
-                .commit_transactions(txs)
-                .proposal_transactions(compact_block.proposal_transactions.clone())
+                .transactions(txs)
+                .proposals(compact_block.proposals.clone())
                 .build();
 
             Ok(block)

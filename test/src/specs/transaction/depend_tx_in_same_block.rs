@@ -30,12 +30,12 @@ impl Spec for DepentTxInSameBlock {
 
         let tip_block = node0.get_tip_block();
         let commit_txs_hash: Vec<_> = tip_block
-            .commit_transactions()
+            .transactions()
             .iter()
             .map(|tx| tx.hash().clone())
             .collect();
 
-        info!("2 txs should included in commit_transactions");
+        info!("2 txs should included in transactions");
         assert!(commit_txs_hash.contains(&tx_hash_0));
         assert!(commit_txs_hash.contains(&tx_hash_1));
     }

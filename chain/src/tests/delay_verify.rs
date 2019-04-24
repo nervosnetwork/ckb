@@ -42,7 +42,7 @@ fn test_dead_cell_in_same_block() {
         parent = new_block.header().clone();
     }
 
-    let last_cell_base = &chain2.last().unwrap().commit_transactions()[0];
+    let last_cell_base = &chain2.last().unwrap().transactions()[0];
     let tx1 = create_transaction(last_cell_base.hash(), 1);
     let tx2 = create_transaction(tx1.hash(), 2);
     let tx3 = create_transaction(tx1.hash(), 3);
@@ -140,7 +140,7 @@ fn test_dead_cell_in_different_block() {
         parent = new_block.header().clone();
     }
 
-    let last_cell_base = &chain2.last().unwrap().commit_transactions()[0];
+    let last_cell_base = &chain2.last().unwrap().transactions()[0];
     let tx1 = create_transaction(last_cell_base.hash(), 1);
     let tx2 = create_transaction(tx1.hash(), 2);
     let tx3 = create_transaction(tx1.hash(), 3);

@@ -14,7 +14,7 @@ pub struct CompactBlock {
     pub nonce: u64,
     pub short_ids: Vec<ShortTransactionID>,
     pub prefilled_transactions: Vec<IndexTransaction>,
-    pub proposal_transactions: Vec<ProposalShortId>,
+    pub proposals: Vec<ProposalShortId>,
 }
 
 impl<'a> TryFrom<ckb_protocol::CompactBlock<'a>> for CompactBlock {
@@ -32,7 +32,7 @@ impl<'a> TryFrom<ckb_protocol::CompactBlock<'a>> for CompactBlock {
             FlatbuffersVectorIterator::new(cast!(b.uncles())?)
                 .map(TryInto::try_into)
                 .collect();
-        let proposal_transactions: Result<Vec<_>, FailureError> = cast!(b.proposal_transactions())?
+        let proposals: Result<Vec<_>, FailureError> = cast!(b.proposals())?
             .iter()
             .map(TryInto::try_into)
             .collect();
@@ -49,7 +49,7 @@ impl<'a> TryFrom<ckb_protocol::CompactBlock<'a>> for CompactBlock {
                 .collect::<Option<Vec<_>>>())?,
             prefilled_transactions: prefilled_transactions?,
             uncles: uncles?,
-            proposal_transactions: proposal_transactions?,
+            proposals: proposals?,
         })
     }
 }

@@ -61,8 +61,8 @@ pub struct Genesis {
     pub version: u32,
     pub parent_hash: H256,
     pub timestamp: u64,
-    pub txs_commit: H256,
-    pub txs_proposal: H256,
+    pub transactions_root: H256,
+    pub proposals_root: H256,
     pub difficulty: U256,
     pub uncles_hash: H256,
 }
@@ -154,8 +154,8 @@ impl ChainSpec {
             .version(self.genesis.version)
             .parent_hash(self.genesis.parent_hash.clone())
             .timestamp(self.genesis.timestamp)
-            .txs_commit(self.genesis.txs_commit.clone())
-            .txs_proposal(self.genesis.txs_proposal.clone())
+            .transactions_root(self.genesis.transactions_root.clone())
+            .proposals_root(self.genesis.proposals_root.clone())
             .difficulty(self.genesis.difficulty.clone())
             .nonce(self.genesis.seal.nonce)
             .proof(self.genesis.seal.proof.to_vec())
@@ -163,7 +163,7 @@ impl ChainSpec {
             .build();
 
         let genesis_block = BlockBuilder::default()
-            .commit_transaction(self.build_system_cell_transaction()?)
+            .transaction(self.build_system_cell_transaction()?)
             .header(header)
             .build();
 

@@ -100,7 +100,7 @@ fn setup_node(
             .difficulty(difficulty);
 
         block = BlockBuilder::default()
-            .commit_transaction(cellbase)
+            .transaction(cellbase)
             .with_header_builder(header_builder);
 
         chain_controller
