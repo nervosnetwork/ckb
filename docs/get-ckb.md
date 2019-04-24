@@ -11,7 +11,7 @@ branch.
 The Linux builds require `libssl` dynamic libraries to run. In Ubuntu, it can be installed by:
 
 ```bash
-sudo apt-get install libssl1.0.0 -y
+sudo apt-get install -y libssl1.0.0
 ```
 
 We also provides docker images, see [how to run CKB with docker](run-ckb-with-docker.md).
