@@ -84,7 +84,6 @@ pub fn run(args: RunArgs) -> Result<(), ExitCode> {
 
     rpc_server.close();
     info!(target: "main", "Jsonrpc shutdown");
-
     Ok(())
 }
 

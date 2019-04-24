@@ -38,9 +38,9 @@ build-info = { path = "util/build-info" }
 ckb-traits = { path = "traits" }
 sentry = "^0.15.2"
 ckb-verification = { path = "verification" }
+tempfile = "3.0"
 
 [dev-dependencies]
-tempfile = "3.0"
 
 [workspace]
 members = [

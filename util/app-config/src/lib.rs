@@ -5,7 +5,7 @@ mod exit_code;
 mod sentry_config;
 
 pub use app_config::{AppConfig, CKBAppConfig, MinerAppConfig};
-pub use args::{ExportArgs, ImportArgs, InitArgs, MinerArgs, RunArgs};
+pub use args::{ExportArgs, ImportArgs, InitArgs, MinerArgs, ProfArgs, RunArgs};
 pub use exit_code::ExitCode;
 
 use ckb_chain_spec::{consensus::Consensus, ChainSpec};
@@ -103,6 +103,20 @@ impl Setup {
         Ok(MinerArgs {
             pow_engine,
             config: config.miner,
+        })
+    }
+
+    pub fn prof<'m>(self, matches: &ArgMatches<'m>) -> Result<ProfArgs, ExitCode> {
+        let consensus = self.consensus()?;
+        let config = self.config.into_ckb()?;
+        let from = value_t!(matches.value_of("from"), u64)?;
+        let to = value_t!(matches.value_of("to"), u64)?;
+
+        Ok(ProfArgs {
+            config,
+            consensus,
+            from,
+            to,
         })
     }
 
