@@ -10,7 +10,7 @@ impl Spec for Discovery {
         let node2 = &net.nodes[2];
 
         info!("Waiting for discovering");
-        sleep(5);
+        sleep(10);
 
         info!("The address of node0 should be discovered by node2 and connected");
         let peers = node2

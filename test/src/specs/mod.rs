@@ -16,7 +16,7 @@ pub use protocols::MalformedMessage;
 pub use transaction::*;
 pub use transaction_relay::TransactionRelayBasic;
 
-use crate::{sleep, Net};
+use crate::Net;
 use ckb_network::{ProtocolId, ProtocolVersion};
 
 pub trait Spec {
@@ -47,10 +47,6 @@ pub trait Spec {
             net.nodes
                 .windows(2)
                 .for_each(|nodes| nodes[0].connect(&nodes[1]));
-
-            // workaround: waiting for all nodes connected
-            // TODO: add getpeerinfo rpc
-            sleep(5);
         }
 
         net
