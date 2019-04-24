@@ -146,6 +146,10 @@ impl Client {
                 }
                 Err(e) => {
                     error!(target: "miner", "rpc call submit_block error: {:?}", e);
+                    sentry::capture_message(
+                        &format!("rpc call submit_block error: {:?}", e),
+                        sentry::Level::Error,
+                    );
                 }
             }
         }

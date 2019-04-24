@@ -28,6 +28,7 @@ lru-cache = { git = "https://github.com/nervosnetwork/lru-cache" }
 stop-handler = { path = "../util/stop-handler" }
 ckb-traits = { path = "../traits" }
 failure = "0.1.5"
+sentry = "^0.15.2"
 
 [dev-dependencies]
 proptest = "0.9"
