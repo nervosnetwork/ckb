@@ -46,8 +46,10 @@ reserved_peers = []
 reserved_only = false
 max_peers = 125
 max_outbound_peers = 30
-ping_interval_secs = 15
-ping_timeout_secs = 20
+# 2 minutes
+ping_interval_secs = 120
+# 20 minutes
+ping_timeout_secs = 1200
 connect_outbound_interval_secs = 15 # {{
 # integration => connect_outbound_interval_secs = 1
 # }}
