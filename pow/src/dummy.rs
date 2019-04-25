@@ -4,13 +4,12 @@ use rand::{
     distributions::{self as dist, Distribution as _},
     thread_rng,
 };
-use serde_derive::Deserialize;
+use serde_derive::{Deserialize, Serialize};
 use std::{fmt, thread, time};
 
-#[derive(Deserialize, Copy, Clone, Eq, PartialEq, Hash, Debug, Default)]
+#[derive(Serialize, Deserialize, Copy, Clone, Eq, PartialEq, Hash, Debug, Default)]
 pub struct DummyPowParams {
     // Delay offset (in milliseconds)
-    #[serde(default)]
     delay: Distribution,
 }
 
@@ -39,7 +38,7 @@ impl DummyPowParams {
 
 // TODO Enhance: we can add more distributions to mock POW
 // Ref: https://docs.rs/rand/latest/rand/distributions/index.html
-#[derive(Deserialize, Copy, Clone, Eq, PartialEq, Hash, Debug)]
+#[derive(Deserialize, Serialize, Copy, Clone, Eq, PartialEq, Hash, Debug)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Distribution {
     Constant { value: u64 },

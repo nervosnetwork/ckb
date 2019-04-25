@@ -54,9 +54,9 @@ pub trait PeerStore: Send {
     /// Randomly get peers
     fn random_peers(&self, count: u32) -> Vec<(PeerId, Multiaddr)>;
     /// Ban a peer
-    fn ban_addr(&mut self, addr: &Multiaddr, timeout: Duration);
+    fn ban_peer(&mut self, peer_id: &PeerId, timeout: Duration);
     /// Check peer ban status
-    fn is_banned(&self, addr: &Multiaddr) -> bool;
+    fn is_banned(&self, peer_id: &PeerId) -> bool;
     /// peer score config
     fn peer_score_config(&self) -> PeerScoreConfig;
 }

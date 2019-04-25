@@ -25,6 +25,7 @@ impl NetworkRpc for NetworkRpcImpl {
     fn local_node_info(&self) -> Result<Node> {
         Ok(Node {
             version: get_version!().to_string(),
+            is_outbound: None,
             node_id: self.network_controller.node_id(),
             addresses: self
                 .network_controller
@@ -40,6 +41,7 @@ impl NetworkRpc for NetworkRpcImpl {
         Ok(peers
             .into_iter()
             .map(|(peer_id, peer, addresses)| Node {
+                is_outbound: Some(peer.is_outbound()),
                 version: peer
                     .identify_info
                     .map(|info| info.client_version)

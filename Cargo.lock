@@ -304,6 +304,7 @@ name = "ckb"
 version = "0.11.0-pre"
 dependencies = [
  "build-info 0.11.0-pre",
+ "ckb-app-config 0.9.0-pre",
  "ckb-chain 0.11.0-pre",
  "ckb-chain-spec 0.11.0-pre",
  "ckb-core 0.11.0-pre",
@@ -319,6 +320,7 @@ dependencies = [
  "ckb-sync 0.11.0-pre",
  "ckb-traits 0.11.0-pre",
  "ckb-util 0.11.0-pre",
+ "ckb-verification 0.11.0-pre",
  "clap 2.33.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "crossbeam-channel 0.3.8 (registry+https://github.com/rust-lang/crates.io-index)",
  "crypto 0.11.0-pre",
@@ -329,6 +331,32 @@ dependencies = [
  "logger 0.11.0-pre",
  "numext-fixed-hash 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "numext-fixed-uint 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)",
+ "sentry 0.15.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "serde 1.0.90 (registry+https://github.com/rust-lang/crates.io-index)",
+ "serde_derive 1.0.90 (registry+https://github.com/rust-lang/crates.io-index)",
+ "tempfile 3.0.7 (registry+https://github.com/rust-lang/crates.io-index)",
+ "toml 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
+name = "ckb-app-config"
+version = "0.9.0-pre"
+dependencies = [
+ "build-info 0.11.0-pre",
+ "ckb-chain-spec 0.11.0-pre",
+ "ckb-db 0.11.0-pre",
+ "ckb-instrument 0.11.0-pre",
+ "ckb-miner 0.11.0-pre",
+ "ckb-network 0.11.0-pre",
+ "ckb-pow 0.11.0-pre",
+ "ckb-resource 0.11.0-pre",
+ "ckb-rpc 0.11.0-pre",
+ "ckb-shared 0.11.0-pre",
+ "ckb-sync 0.11.0-pre",
+ "ckb-verification 0.11.0-pre",
+ "clap 2.33.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
+ "logger 0.11.0-pre",
  "sentry 0.15.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.90 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.90 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -379,6 +407,8 @@ dependencies = [
  "numext-fixed-uint 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "regex 1.1.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.90 (registry+https://github.com/rust-lang/crates.io-index)",
+ "serde_derive 1.0.90 (registry+https://github.com/rust-lang/crates.io-index)",
+ "serde_json 1.0.39 (registry+https://github.com/rust-lang/crates.io-index)",
  "stop-handler 0.11.0-pre",
  "tempfile 3.0.7 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
@@ -600,7 +630,7 @@ dependencies = [
  "futures 0.1.26 (registry+https://github.com/rust-lang/crates.io-index)",
  "jsonrpc-core 10.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "jsonrpc-derive 10.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "jsonrpc-http-server 10.0.1 (git+https://github.com/nervosnetwork/jsonrpc?branch=http_remake)",
+ "jsonrpc-http-server 10.0.1 (git+https://github.com/nervosnetwork/jsonrpc?rev=7c101f83a8fe34369c1b7a0e9b6721fcb0f91ee0)",
  "jsonrpc-server-utils 10.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "jsonrpc-types 0.11.0-pre",
  "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -722,7 +752,6 @@ dependencies = [
  "ckb-script 0.11.0-pre",
  "ckb-shared 0.11.0-pre",
  "ckb-traits 0.11.0-pre",
- "failure 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "faketime 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "fnv 1.0.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "hash 0.11.0-pre",
@@ -1505,7 +1534,7 @@ dependencies = [
 [[package]]
 name = "jsonrpc-http-server"
 version = "10.0.1"
-source = "git+https://github.com/nervosnetwork/jsonrpc?branch=http_remake#7c101f83a8fe34369c1b7a0e9b6721fcb0f91ee0"
+source = "git+https://github.com/nervosnetwork/jsonrpc?rev=7c101f83a8fe34369c1b7a0e9b6721fcb0f91ee0#7c101f83a8fe34369c1b7a0e9b6721fcb0f91ee0"
 dependencies = [
  "hyper 0.12.27 (registry+https://github.com/rust-lang/crates.io-index)",
  "jsonrpc-core 10.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -3594,7 +3623,7 @@ dependencies = [
 "checksum itoa 0.4.3 (registry+https://github.com/rust-lang/crates.io-index)" = "1306f3464951f30e30d12373d31c79fbd52d236e5e896fd92f96ec7babbbe60b"
 "checksum jsonrpc-core 10.1.0 (registry+https://github.com/rust-lang/crates.io-index)" = "dc15eef5f8b6bef5ac5f7440a957ff95d036e2f98706947741bfc93d1976db4c"
 "checksum jsonrpc-derive 10.1.0 (registry+https://github.com/rust-lang/crates.io-index)" = "c2dae61ca8a3b047fb11309b00661bc56837085bd07e46f907b9c562c0b03e68"
-"checksum jsonrpc-http-server 10.0.1 (git+https://github.com/nervosnetwork/jsonrpc?branch=http_remake)" = "<none>"
+"checksum jsonrpc-http-server 10.0.1 (git+https://github.com/nervosnetwork/jsonrpc?rev=7c101f83a8fe34369c1b7a0e9b6721fcb0f91ee0)" = "<none>"
 "checksum jsonrpc-server-utils 10.1.0 (registry+https://github.com/rust-lang/crates.io-index)" = "c9527f01ef25f251d64082cbefc0c6d6f367349afe6848ef908a674e06b2bdd3"
 "checksum kernel32-sys 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)" = "7507624b29483431c0ba2d82aece8ca6cdba9382bff4ddd0f7490560c056098d"
 "checksum lazy_static 1.3.0 (registry+https://github.com/rust-lang/crates.io-index)" = "bc5729f27f159ddd61f4df6228e827e86643d4d3e7c32183cb30a1c08f604a14"

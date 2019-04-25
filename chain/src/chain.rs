@@ -1,9 +1,11 @@
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::Block;
-use ckb_core::cell::{BlockCellProvider, CellProvider, OverlayCellProvider, ResolvedTransaction};
+use ckb_core::cell::{
+    resolve_transaction, BlockCellProvider, OverlayCellProvider, ResolvedTransaction,
+};
 use ckb_core::extras::BlockExt;
 use ckb_core::service::{Request, DEFAULT_CHANNEL_SIZE, SIGNAL_CHANNEL_SIZE};
-use ckb_core::transaction::ProposalShortId;
+use ckb_core::transaction::{CellOutput, ProposalShortId};
 use ckb_core::{header::Header, BlockNumber};
 use ckb_notify::NotifyController;
 use ckb_shared::cell_set::CellSetDiff;
@@ -16,11 +18,13 @@ use ckb_verification::{BlockVerifier, TransactionsVerifier, Verifier};
 use crossbeam_channel::{self, select, Receiver, Sender};
 use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
-use fnv::FnvHashSet;
+use fnv::{FnvHashMap, FnvHashSet};
 use log::{self, debug, error, log_enabled};
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
+use serde_derive::{Deserialize, Serialize};
 use std::cmp;
+use std::mem;
 use std::sync::Arc;
 use std::thread;
 use stop_handler::{SignalSender, StopHandler};
@@ -47,7 +51,7 @@ struct ChainReceivers {
     process_block_receiver: Receiver<Request<Arc<Block>, Result<(), FailureError>>>,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 pub struct ForkChanges {
     // blocks attached to index after forks
     pub(crate) attached_blocks: Vec<Block>,
@@ -252,8 +256,9 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
             );
 
             self.find_fork(&mut fork, tip_number, &block, ext);
-            cell_set_diff = self.reconcile_main_chain(&mut batch, &mut fork, &mut chain_state)?;
             self.update_index(&mut batch, &fork.detached_blocks, &fork.attached_blocks)?;
+            // MUST update index before reconcile_main_chain
+            cell_set_diff = self.reconcile_main_chain(&mut batch, &mut fork, &mut chain_state)?;
             self.update_proposal_ids(&mut chain_state, &fork);
             batch.insert_tip_header(&block.header())?;
             new_best_block = true;
@@ -275,7 +280,6 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
                 fork.detached_blocks().iter(),
                 fork.attached_blocks().iter(),
                 fork.detached_proposal_id().iter(),
-                self.shared.consensus().max_block_cycles(),
             );
             if log_enabled!(target: "chain", log::Level::Debug) {
                 self.print_chain(&chain_state, 10);
@@ -431,19 +435,24 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
         chain_state: &mut ChainState<CS>,
     ) -> Result<CellSetDiff, FailureError> {
         let mut cell_set_diff = CellSetDiff::default();
+        let mut outputs: FnvHashMap<H256, &[CellOutput]> = FnvHashMap::default();
+
+        let mut dirty_exts = Vec::new();
+        // cause we need borrow outputs from fork, swap `dirty_exts` out to evade from borrow check
+        mem::swap(&mut fork.dirty_exts, &mut dirty_exts);
 
         let attached_blocks_iter = fork.attached_blocks().iter().rev();
         let detached_blocks_iter = fork.detached_blocks().iter().rev();
 
-        let attached_blocks_len = fork.attached_blocks.len();
-        let verified_len = attached_blocks_len - fork.dirty_exts.len();
+        let unverified_len = fork.attached_blocks.len() - dirty_exts.len();
 
         for b in detached_blocks_iter {
             cell_set_diff.push_old(b);
         }
 
-        for b in attached_blocks_iter.take(verified_len) {
+        for b in attached_blocks_iter.take(unverified_len) {
             cell_set_diff.push_new(b);
+            outputs.extend(b.transactions().iter().map(|tx| (tx.hash(), tx.outputs())));
         }
 
         // The verify function
@@ -451,28 +460,24 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
 
         let mut found_error = None;
         // verify transaction
-        for (ext, b) in fork
-            .dirty_exts
-            .iter_mut()
-            .zip(fork.attached_blocks.iter())
-            .rev()
-        {
+        for (ext, b) in dirty_exts.iter_mut().zip(fork.attached_blocks.iter()).rev() {
             if self.verification {
                 if found_error.is_none() {
-                    let cell_set_overlay = chain_state.new_cell_set_overlay(&cell_set_diff);
+                    let mut seen_inputs = FnvHashSet::default();
+                    let cell_set_overlay =
+                        chain_state.new_cell_set_overlay(&cell_set_diff, &outputs);
                     let block_cp = BlockCellProvider::new(b);
                     let cell_provider = OverlayCellProvider::new(&block_cp, &cell_set_overlay);
 
                     let resolved: Vec<ResolvedTransaction> = b
                         .transactions()
                         .iter()
-                        .map(|x| cell_provider.resolve_transaction(x))
+                        .map(|x| resolve_transaction(x, &mut seen_inputs, &cell_provider))
                         .collect();
 
                     let cellbase_maturity = { self.shared.consensus().cellbase_maturity() };
 
                     match txs_verifier.verify(
-                        chain_state.mut_txs_verify_cache(),
                         &resolved,
                         self.shared.block_reward(b.header().number()),
                         ForkContext {
@@ -485,9 +490,14 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
                     ) {
                         Ok(_) => {
                             cell_set_diff.push_new(b);
+                            outputs.extend(
+                                b.transactions().iter().map(|tx| (tx.hash(), tx.outputs())),
+                            );
                             ext.txs_verified = Some(true);
                         }
                         Err(err) => {
+                            error!(target: "chain", "cell_set_diff {}", serde_json::to_string(&cell_set_diff).unwrap());
+                            error!(target: "chain", "block {}", serde_json::to_string(b).unwrap());
                             found_error = Some(err);
                             ext.txs_verified = Some(false);
                         }
@@ -495,11 +505,17 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
                 } else {
                     ext.txs_verified = Some(false);
                 }
+
+                if found_error.is_some() {
+                    error!(target: "chain", "cell_set {}", serde_json::to_string(&chain_state.cell_set()).unwrap());
+                }
             } else {
                 cell_set_diff.push_new(b);
+                outputs.extend(b.transactions().iter().map(|tx| (tx.hash(), tx.outputs())));
                 ext.txs_verified = Some(true);
             }
         }
+        mem::replace(&mut fork.dirty_exts, dirty_exts);
 
         // update exts
         for (ext, b) in fork
@@ -512,6 +528,7 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
         }
 
         if let Some(err) = found_error {
+            error!(target: "chain", "fork {}", serde_json::to_string(&fork).unwrap());
             Err(SharedError::InvalidTransaction(err.to_string()))?
         } else {
             Ok(cell_set_diff)
@@ -532,41 +549,6 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
             debug!(target: "chain", "   {} => {}", number, hash);
         }
 
-        debug!(target: "chain", "}}");
-
-        // TODO: remove me when block explorer is available
-        debug!(target: "chain", "Tx in Head Block {{");
-        for transaction in self
-            .shared
-            .block_hash(tip)
-            .and_then(|hash| self.shared.store().get_block_body(&hash))
-            .expect("invalid block number")
-        {
-            debug!(target: "chain", "   {} => {:?}", transaction.hash(), transaction);
-        }
-
-        debug!(target: "chain", "}}");
-
-        debug!(target: "chain", "Proposal in Head Block {{");
-        debug!(target: "chain",  "   {:?}", self
-               .shared
-               .block_hash(tip)
-               .and_then(|hash| self.shared.store().get_block_proposal_txs_ids(&hash))
-               .expect("invalid block number"));
-
-        debug!(target: "chain", "}}");
-
-        debug!(target: "chain", "Uncle block {{");
-        for (index, uncle) in self
-            .shared
-            .block_hash(tip)
-            .and_then(|hash| self.shared.store().get_block_uncles(&hash))
-            .expect("invalid block number")
-            .iter()
-            .enumerate()
-        {
-            debug!(target: "chain", "   {} => {:?}", index, uncle);
-        }
         debug!(target: "chain", "}}");
     }
 }

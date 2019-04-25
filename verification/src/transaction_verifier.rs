@@ -1,7 +1,7 @@
 use crate::error::TransactionError;
 use ckb_core::transaction::{Capacity, OutPoint, Transaction, TX_VERSION};
 use ckb_core::{
-    cell::{CellMeta, CellStatus, ResolvedTransaction},
+    cell::{CellMeta, CellStatus, LiveCell, ResolvedTransaction},
     BlockNumber, Cycle,
 };
 use ckb_script::TransactionScriptsVerifier;
@@ -10,6 +10,33 @@ use lru_cache::LruCache;
 use occupied_capacity::OccupiedCapacity;
 use std::cell::RefCell;
 use std::collections::HashSet;
+
+pub struct PoolTransactionVerifier<'a, M> {
+    pub maturity: MaturityVerifier<'a>,
+    pub valid_since: ValidSinceVerifier<'a, M>,
+}
+impl<'a, M> PoolTransactionVerifier<'a, M>
+where
+    M: BlockMedianTimeContext,
+{
+    pub fn new(
+        rtx: &'a ResolvedTransaction,
+        median_time_context: &'a M,
+        tip_number: BlockNumber,
+        cellbase_maturity: BlockNumber,
+    ) -> Self {
+        PoolTransactionVerifier {
+            maturity: MaturityVerifier::new(&rtx, tip_number, cellbase_maturity),
+            valid_since: ValidSinceVerifier::new(rtx, median_time_context, tip_number),
+        }
+    }
+
+    pub fn verify(&self) -> Result<(), TransactionError> {
+        self.maturity.verify()?;
+        self.valid_since.verify()?;
+        Ok(())
+    }
+}
 
 pub struct TransactionVerifier<'a, M> {
     pub version: VersionVerifier<'a>,
@@ -446,9 +473,13 @@ where
 
             // verify time lock
             self.verify_absolute_lock(since)?;
-            let cell = match cell_status.get_live_output() {
-                Some(cell) => cell,
-                None => return Err(TransactionError::Conflict),
+
+            let cell = match cell_status {
+                CellStatus::Live(cell) => match cell {
+                    LiveCell::Null => continue, // do not verify null in ValidSinceVerifier
+                    LiveCell::Output(meta) => meta,
+                },
+                _ => return Err(TransactionError::Conflict),
             };
             self.verify_relative_lock(since, cell)?;
         }

@@ -1,4 +1,4 @@
-use crate::setup::{ExitCode, InitArgs};
+use ckb_app_config::{ExitCode, InitArgs};
 use ckb_resource::{
     TemplateContext, AVAILABLE_SPECS, CKB_CONFIG_FILE_NAME, MINER_CONFIG_FILE_NAME,
     SPECS_RESOURCE_DIR_NAME,

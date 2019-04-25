@@ -295,4 +295,25 @@ pub fn test_since() {
     };
     let verifier = ValidSinceVerifier::new(&rtx, &median_time_context, 10);
     assert!(verifier.verify().is_ok());
+
+    // null should be ok
+    let transaction = TransactionBuilder::default()
+        .inputs(vec![CellInput::new(
+            OutPoint::null(),
+            0x0000_0000_0000_000a,
+            Default::default(),
+        )])
+        .build();
+
+    let rtx = ResolvedTransaction {
+        transaction,
+        dep_cells: Vec::new(),
+        input_cells: vec![CellStatus::live_null()],
+    };
+
+    let median_time_context = FakeMedianTime {
+        timestamps: vec![0; 11],
+    };
+    let verifier = ValidSinceVerifier::new(&rtx, &median_time_context, 10);
+    assert!(verifier.verify().is_ok());
 }

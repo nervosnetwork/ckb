@@ -186,21 +186,16 @@ impl NetworkState {
         peer_id: &PeerId,
         timeout: Duration,
     ) {
-        debug!(target: "network", "ban peer {:?} with {:?}", peer_id, timeout);
-        let peer = self.with_peer_registry_mut(|reg| {
+        info!(target: "network", "ban peer {:?} with {:?}", peer_id, timeout);
+        self.peer_store.lock().ban_peer(peer_id, timeout);
+        self.with_peer_registry_mut(|reg| {
             if let Some(session_id) = reg.get_key_by_peer_id(peer_id) {
-                let peer = reg.remove_peer(session_id);
+                reg.remove_peer(session_id);
                 if let Err(err) = p2p_control.disconnect(session_id) {
                     error!(target: "network", "send message to p2p service error: {:?}", err);
                 }
-                peer
-            } else {
-                None
             }
         });
-        if let Some(peer) = peer {
-            self.peer_store.lock().ban_addr(&peer.address, timeout);
-        }
     }
 
     pub(crate) fn query_session_id(&self, peer_id: &PeerId) -> Option<SessionId> {
@@ -240,7 +235,6 @@ impl NetworkState {
             )
         };
         if accept_peer_result.is_ok() {
-            peer_store.report(&peer_id, Behaviour::Connect);
             peer_store.update_status(&peer_id, Status::Connected);
         }
         accept_peer_result.map_err(Into::into)
@@ -410,6 +404,9 @@ impl ServiceHandle for EventHandler {
                         .insert(addr, std::u8::MAX);
                 }
                 if let Some(peer_id) = extract_peer_id(address) {
+                    self.network_state.with_peer_registry_mut(|reg| {
+                        reg.remove_feeler(&peer_id);
+                    });
                     self.network_state
                         .failed_dials
                         .write()
@@ -536,7 +533,6 @@ impl ServiceHandle for EventHandler {
                         .map(PublicKey::peer_id)
                         .expect("Secio must enabled");
                     self.network_state.with_peer_store_mut(|peer_store| {
-                        peer_store.report(&peer_id, Behaviour::UnexpectedDisconnect);
                         peer_store.update_status(&peer_id, Status::Disconnected);
                     })
                 }

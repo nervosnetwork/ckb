@@ -1,4 +1,4 @@
-use crate::{Behaviour, NetworkState};
+use crate::NetworkState;
 use futures::{sync::mpsc::Receiver, try_ready, Async, Stream};
 use log::{debug, trace, warn};
 use p2p::service::ServiceControl;
@@ -46,16 +46,9 @@ impl Stream for PingService {
                         }
                     })
                 }
-                self.network_state
-                    .report_peer(&self.p2p_control, &peer_id, Behaviour::Ping);
             }
             Some(Timeout(peer_id)) => {
                 debug!(target: "network", "timeout to ping {:?}", peer_id);
-                self.network_state.report_peer(
-                    &self.p2p_control,
-                    &peer_id,
-                    Behaviour::FailedToPing,
-                );
                 if let Some(session_id) = self.network_state.with_peer_registry_mut(|reg| {
                     reg.remove_peer_by_peer_id(&peer_id)
                         .map(|peer| peer.session_id)
@@ -73,11 +66,6 @@ impl Stream for PingService {
             }
             Some(UnexpectedError(peer_id)) => {
                 debug!(target: "network", "failed to ping {:?}", peer_id);
-                self.network_state.report_peer(
-                    &self.p2p_control,
-                    &peer_id,
-                    Behaviour::FailedToPing,
-                );
                 if let Some(session_id) = self.network_state.with_peer_registry_mut(|reg| {
                     reg.remove_peer_by_peer_id(&peer_id)
                         .map(|peer| peer.session_id)

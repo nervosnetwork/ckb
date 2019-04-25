@@ -1,10 +1,47 @@
+use crate::chain_state::{ChainCellSetOverlay, ChainState};
 use crate::{
     shared::{Shared, SharedBuilder},
     store::{ChainKVStore, ChainStore, StoreBatch},
 };
+use ckb_core::cell::CellProvider;
+use ckb_core::cell::CellStatus;
+use ckb_core::transaction::OutPoint;
 use ckb_core::{block::BlockBuilder, header::HeaderBuilder};
 use ckb_db::{KeyValueDB, MemoryKeyValueDB};
 use ckb_traits::BlockMedianTimeContext;
+
+// Mock CellProvider
+#[cfg(test)]
+impl<CS: ChainStore> CellProvider for ChainState<CS> {
+    fn cell(&self, out_point: &OutPoint) -> CellStatus {
+        match self.cell_set().get(&out_point.tx_hash) {
+            Some(tx_meta) => {
+                if tx_meta.is_dead(out_point.index as usize) {
+                    CellStatus::Dead
+                } else {
+                    CellStatus::live_null()
+                }
+            }
+            None => CellStatus::Unknown,
+        }
+    }
+}
+
+#[cfg(test)]
+impl<'a, CS: ChainStore> CellProvider for ChainCellSetOverlay<'a, CS> {
+    fn cell(&self, out_point: &OutPoint) -> CellStatus {
+        match self.overlay.get(&out_point.tx_hash) {
+            Some(tx_meta) => {
+                if tx_meta.is_dead(out_point.index as usize) {
+                    CellStatus::Dead
+                } else {
+                    CellStatus::live_null()
+                }
+            }
+            None => CellStatus::Unknown,
+        }
+    }
+}
 
 fn new_shared() -> Shared<ChainKVStore<MemoryKeyValueDB>> {
     SharedBuilder::<MemoryKeyValueDB>::new().build()

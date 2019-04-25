@@ -38,7 +38,7 @@ fn test_add_discovered_addr() {
 fn test_report() {
     let mut peer_store: Box<dyn PeerStore> = Box::new(new_peer_store());
     let peer_id = PeerId::random();
-    assert!(peer_store.report(&peer_id, Behaviour::Ping).is_ok());
+    assert!(peer_store.report(&peer_id, Behaviour::TestGood).is_ok());
     assert!(
         peer_store.peer_score(&peer_id).expect("peer score")
             > peer_store.peer_score_config().default_score
@@ -60,10 +60,13 @@ fn test_update_status() {
 #[test]
 fn test_ban_peer() {
     let mut peer_store: Box<dyn PeerStore> = Box::new(new_peer_store());
+    let peer_id = PeerId::random();
+    peer_store.ban_peer(&peer_id, Duration::from_secs(10));
+    assert!(!peer_store.is_banned(&peer_id));
     let addr = "/ip4/127.0.0.1".to_multiaddr().unwrap();
-    assert!(!peer_store.is_banned(&addr));
-    peer_store.ban_addr(&addr, Duration::from_secs(10));
-    assert!(peer_store.is_banned(&addr));
+    peer_store.add_connected_peer(&peer_id, addr, SessionType::Inbound);
+    peer_store.ban_peer(&peer_id, Duration::from_secs(10));
+    assert!(peer_store.is_banned(&peer_id));
 }
 
 #[test]
@@ -74,7 +77,7 @@ fn test_attepmt_ban() {
     peer_store.add_connected_peer(&peer_id, addr.clone(), SessionType::Inbound);
     peer_store.add_discovered_addr(&peer_id, addr.clone());
     assert_eq!(peer_store.peers_to_attempt(2).len(), 1);
-    peer_store.ban_addr(&addr, Duration::from_secs(10));
+    peer_store.ban_peer(&peer_id, Duration::from_secs(10));
     assert_eq!(peer_store.peers_to_attempt(2).len(), 0);
 }
 
@@ -178,9 +181,9 @@ fn test_delete_peer_info() {
         peer_store.add_connected_peer(&evict_target, addr1.clone(), SessionType::Inbound);
         peer_store.add_connected_peer(&fake_target, addr2, SessionType::Inbound);
     }
-    peer_store.report(&evict_target, Behaviour::FailedToPing);
-    peer_store.report(&fake_target, Behaviour::FailedToPing);
-    peer_store.report(&fake_target, Behaviour::FailedToPing);
+    peer_store.report(&evict_target, Behaviour::TestBad);
+    peer_store.report(&fake_target, Behaviour::TestBad);
+    peer_store.report(&fake_target, Behaviour::TestBad);
     // evict_target has lower score than init score
     assert!(
         peer_store.peer_score(&evict_target).expect("peer store")

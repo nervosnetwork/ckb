@@ -1,7 +1,7 @@
 use build_info::{get_version, Version};
-use serde_derive::Deserialize;
+use serde_derive::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SentryConfig {
     pub dsn: String,
 }

@@ -74,14 +74,20 @@ impl RpcServer {
             io.extend_with(
                 TraceRpcImpl {
                     network_controller: network_controller.clone(),
-                    shared,
+                    shared: shared.clone(),
                 }
                 .to_delegate(),
             );
         }
 
         if config.integration_test_enable() {
-            io.extend_with(IntegrationTestRpcImpl { network_controller }.to_delegate());
+            io.extend_with(
+                IntegrationTestRpcImpl {
+                    network_controller,
+                    shared,
+                }
+                .to_delegate(),
+            );
         }
 
         let server = ServerBuilder::new(io)

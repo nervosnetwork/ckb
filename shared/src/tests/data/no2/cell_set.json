@@ -1,0 +1,36 @@
+{
+    "inner": {
+        "0x2aa2fa8a71464bfdef455d0a63631899a499aabb449617843f62e79b3ae77177": {
+            "block_number": 5370,
+            "dead_cell": {
+                "bits": [
+                    128
+                ]
+            }
+        },
+        "0x8df00a60bf68666ea7b7502e3d59d48d1b3f131d82e8069c070258f3b841d476": {
+            "block_number": 5390,
+            "dead_cell": {
+                "bits": [
+                    128
+                ]
+            }
+        },
+        "0x63e555c0e187916411915a73f9397e37cb7bcb55683e3f29a85fa89eb7f027ee": {
+            "block_number": 5357,
+            "dead_cell": {
+                "bits": [
+                    128
+                ]
+            }
+        },
+        "0x8d37f0856ebb70c12871830667d82224e6619896c7f12bb73a14dd9329af9c8d": {
+            "block_number": 0,
+            "dead_cell": {
+                "bits": [
+                    0
+                ]
+            }
+        }
+    }
+}

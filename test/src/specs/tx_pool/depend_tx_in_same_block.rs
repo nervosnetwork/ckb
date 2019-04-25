@@ -11,11 +11,9 @@ impl Spec for DepentTxInSameBlock {
         info!("Generate 2 tx in same block");
         node0.generate_block();
         let tx_hash_0 = node0.generate_transaction();
-        let tx_hash_1 = node0
-            .rpc_client()
-            .send_transaction((&node0.new_transaction(tx_hash_0.clone())).into())
-            .call()
-            .expect("send transaction error");
+        let tx = node0.new_transaction(tx_hash_0.clone());
+        let tx_hash_1 = tx.hash().clone();
+        node0.rpc_client().send_transaction((&tx).into());
 
         // mine 2 txs
         info!("Mine 2 tx");
@@ -35,7 +33,7 @@ impl Spec for DepentTxInSameBlock {
             .map(|tx| tx.hash().clone())
             .collect();
 
-        info!("2 txs should included in transactions");
+        info!("2 txs should included in commit_transactions");
         assert!(commit_txs_hash.contains(&tx_hash_0));
         assert!(commit_txs_hash.contains(&tx_hash_1));
     }
