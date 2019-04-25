@@ -9,6 +9,7 @@ pub const CMD_IMPORT: &str = "import";
 pub const CMD_INIT: &str = "init";
 pub const CMD_CLI: &str = "cli";
 pub const CMD_KEYGEN: &str = "keygen";
+pub const CMD_PROF: &str = "prof";
 
 pub const ARG_CONFIG_DIR: &str = "config-dir";
 pub const ARG_FORMAT: &str = "format";
@@ -47,6 +48,7 @@ pub fn get_matches() -> ArgMatches<'static> {
         .subcommand(import())
         .subcommand(cli())
         .subcommand(init())
+        .subcommand(prof())
         .get_matches()
 }
 
@@ -56,6 +58,27 @@ fn run() -> App<'static, 'static> {
 
 fn miner() -> App<'static, 'static> {
     SubCommand::with_name(CMD_MINER).about("Running ckb miner")
+}
+
+fn prof() -> App<'static, 'static> {
+    SubCommand::with_name(CMD_PROF)
+        .about(
+            "Profling ckb node\n\
+             Example: Process 1..500 blocks then output flagme graph\n\
+             cargo flamegraph --bin ckb -- -C <dir> prof 1 500",
+        )
+        .arg(
+            Arg::with_name("from")
+                .required(true)
+                .index(1)
+                .help("from block number."),
+        )
+        .arg(
+            Arg::with_name("to")
+                .required(true)
+                .index(2)
+                .help("to block number."),
+        )
 }
 
 fn arg_format() -> Arg<'static, 'static> {
