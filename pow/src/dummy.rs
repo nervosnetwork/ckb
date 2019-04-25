@@ -113,4 +113,8 @@ impl PowEngine for DummyPowEngine {
     fn solve(&self, _number: BlockNumber, _message: &[u8]) -> Option<Vec<u8>> {
         Some(Vec::new())
     }
+
+    fn proof_size(&self) -> usize {
+        0
+    }
 }

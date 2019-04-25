@@ -4,7 +4,7 @@ use hash::blake2b_256;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 use serde_derive::{Deserialize, Serialize};
-use std::fmt;
+use std::{fmt, mem};
 
 pub use crate::{BlockNumber, Version};
 
@@ -90,6 +90,15 @@ impl RawHeader {
     pub fn mut_uncles_count(&mut self) -> &mut u32 {
         &mut self.uncles_count
     }
+
+    // temp
+    pub const fn serialized_size() -> usize {
+        mem::size_of::<Version>()
+            + H256::size_of() * 5
+            + U256::size_of()
+            + mem::size_of::<u64>() * 2
+            + mem::size_of::<u32>()
+    }
 }
 
 #[derive(Clone, Serialize, Deserialize, Default, Eq)]
@@ -128,6 +137,10 @@ impl fmt::Debug for Header {
 }
 
 impl Header {
+    pub fn serialized_size(proof_size: usize) -> usize {
+        RawHeader::serialized_size() + proof_size + mem::size_of::<u64>()
+    }
+
     pub fn version(&self) -> u32 {
         self.raw.version
     }
