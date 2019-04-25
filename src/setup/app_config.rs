@@ -201,6 +201,8 @@ fn touch(path: PathBuf) -> Result<PathBuf, ExitCode> {
 mod tests {
     use super::*;
     use ckb_resource::TemplateContext;
+    use hash::blake2b_256;
+    use numext_fixed_hash::H256;
 
     fn mkdir() -> tempfile::TempDir {
         tempfile::Builder::new()
@@ -383,5 +385,22 @@ mod tests {
             );
             assert_eq!(miner_config.miner.rpc_url, "http://127.0.0.1:7000/");
         }
+    }
+
+    #[test]
+    fn test_secp256k1_blake160_sighash_all_code_hash() {
+        let dir = mkdir();
+        let locator = ResourceLocator::with_root_dir(dir.path().to_path_buf()).unwrap();
+        let cell_data = locator
+            .resolve(PathBuf::from("specs/cells/secp256k1_blake160_sighash_all"))
+            .unwrap()
+            .get()
+            .unwrap()
+            .to_vec();
+        let actual = blake2b_256(cell_data).into();
+        let expected =
+            H256::from_hex_str("55a809b92c5c404989bfe523639a741f4368ecaa3d4c42d1eb8854445b1b798b")
+                .unwrap();
+        assert_eq!(expected, actual);
     }
 }
