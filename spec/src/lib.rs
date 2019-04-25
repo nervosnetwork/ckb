@@ -287,7 +287,7 @@ pub mod test {
         let data_hash = tx.outputs()[0].data_hash();
         assert_eq!(
             format!("{:x}", data_hash),
-            "8bddddc3ae2e09c13106634d012525aa32fc47736456dba11514d352845e561d"
+            "55a809b92c5c404989bfe523639a741f4368ecaa3d4c42d1eb8854445b1b798b"
         );
 
         assert!(
