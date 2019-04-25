@@ -13,7 +13,7 @@ pub const ALWAYS_SUCCESS_HASH: H256 = h256!("0x1");
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, HasOccupiedCapacity)]
 pub struct Script {
     pub args: Vec<Vec<u8>>,
-    // Binary hash here can be used to refer to binary in one of the dep
+    // Code hash here can be used to refer to the data in one of the dep
     // cells of current transaction. The hash here must match the hash of
     // cell data so as to reference a dep cell.
     pub code_hash: H256,
