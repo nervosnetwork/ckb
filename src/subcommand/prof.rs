@@ -54,7 +54,7 @@ fn profile_block_process<CS: ChainStore + 'static>(
             let block_hash = shared.store().get_block_hash(index).unwrap();
             shared.store().get_block(&block_hash).unwrap()
         };
-        tx_count += block.commit_transactions().len();
+        tx_count += block.transactions().len();
         chain_controller.process_block(Arc::new(block)).unwrap();
     }
     tx_count
