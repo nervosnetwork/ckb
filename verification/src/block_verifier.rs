@@ -256,17 +256,19 @@ impl<CP: ChainProvider + Clone> UnclesVerifier<CP> {
         // TODO: cache context
         let mut excluded = FnvHashSet::default();
         let mut included = FnvHashSet::default();
-        excluded.insert(block.header().hash().clone());
+        excluded.insert(block.header().hash());
         let mut block_hash = block.header().parent_hash().clone();
         excluded.insert(block_hash.clone());
         for _ in 0..max_uncles_age {
-            if let Some(block) = self.provider.block(&block_hash) {
-                excluded.insert(block.header().parent_hash().clone());
-                for uncle in block.uncles() {
-                    excluded.insert(uncle.header.hash().clone());
-                }
-
-                block_hash = block.header().parent_hash().clone();
+            if let Some(header) = self.provider.block_header(&block_hash) {
+                let parent_hash = header.parent_hash().clone();
+                excluded.insert(parent_hash.clone());
+                if let Some(uncles) = self.provider.uncles(&block_hash) {
+                    uncles.iter().for_each(|uncle| {
+                        excluded.insert(uncle.header.hash());
+                    });
+                };
+                block_hash = parent_hash;
             } else {
                 break;
             }
@@ -415,16 +417,24 @@ impl<CP: ChainProvider + Clone> CommitVerifier<CP> {
         let mut proposal_txs_ids = FnvHashSet::default();
 
         while proposal_end >= proposal_start {
-            let block = self
+            let header = self
                 .provider
-                .block(&block_hash)
+                .block_header(&block_hash)
                 .ok_or_else(|| Error::Commit(CommitError::AncestorNotFound))?;
-            if block.is_genesis() {
+            if header.is_genesis() {
                 break;
             }
-            proposal_txs_ids.extend(block.union_proposal_ids());
 
-            block_hash = block.header().parent_hash().clone();
+            if let Some(ids) = self.provider.block_proposal_txs_ids(&block_hash) {
+                proposal_txs_ids.extend(ids);
+            }
+            if let Some(uncles) = self.provider.uncles(&block_hash) {
+                uncles
+                    .iter()
+                    .for_each(|uncle| proposal_txs_ids.extend(uncle.proposals()));
+            }
+
+            block_hash = header.parent_hash().clone();
             proposal_end -= 1;
         }
 
