@@ -90,21 +90,21 @@ impl TryFrom<CellOutput> for CoreCellOutput {
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct OutPoint {
-    pub hash: H256,
+    pub tx_hash: H256,
     pub index: u32,
 }
 
 impl From<CoreOutPoint> for OutPoint {
     fn from(core: CoreOutPoint) -> OutPoint {
-        let (hash, index) = core.destruct();
-        OutPoint { hash, index }
+        let (tx_hash, index) = core.destruct();
+        OutPoint { tx_hash, index }
     }
 }
 
 impl From<OutPoint> for CoreOutPoint {
     fn from(json: OutPoint) -> Self {
-        let OutPoint { hash, index } = json;
-        CoreOutPoint::new(hash, index)
+        let OutPoint { tx_hash, index } = json;
+        CoreOutPoint::new(tx_hash, index)
     }
 }
 
