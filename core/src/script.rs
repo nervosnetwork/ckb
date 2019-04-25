@@ -69,6 +69,10 @@ impl Script {
         }
         blake2b_256(bytes).into()
     }
+
+    pub fn serialized_size(&self) -> usize {
+        self.args.iter().map(Vec::len).sum::<usize>() + H256::size_of()
+    }
 }
 
 #[cfg(test)]

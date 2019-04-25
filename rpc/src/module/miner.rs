@@ -27,6 +27,7 @@ pub trait MinerRpc {
         &self,
         cycles_limit: Option<String>,
         bytes_limit: Option<String>,
+        proposals_limit: Option<String>,
         max_version: Option<u32>,
     ) -> Result<BlockTemplate>;
 
@@ -47,6 +48,7 @@ impl<CS: ChainStore + 'static> MinerRpc for MinerRpcImpl<CS> {
         &self,
         cycles_limit: Option<String>,
         bytes_limit: Option<String>,
+        proposals_limit: Option<String>,
         max_version: Option<u32>,
     ) -> Result<BlockTemplate> {
         let cycles_limit = match cycles_limit {
@@ -58,8 +60,13 @@ impl<CS: ChainStore + 'static> MinerRpc for MinerRpcImpl<CS> {
             None => None,
         };
 
+        let proposals_limit = match proposals_limit {
+            Some(b) => Some(b.parse::<u64>().map_err(|_| Error::parse_error())?),
+            None => None,
+        };
+
         self.block_assembler
-            .get_block_template(cycles_limit, bytes_limit, max_version)
+            .get_block_template(cycles_limit, bytes_limit, proposals_limit, max_version)
             .map_err(|_| Error::internal_error())
     }
 

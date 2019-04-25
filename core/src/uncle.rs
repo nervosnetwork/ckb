@@ -49,6 +49,11 @@ impl UncleBlock {
                 .collect::<Vec<_>>(),
         )
     }
+
+    pub fn serialized_size(&self, proof_size: usize) -> usize {
+        Header::serialized_size(proof_size)
+            + ProposalShortId::serialized_size() * self.proposals.len()
+    }
 }
 
 pub fn uncles_hash(uncles: &[UncleBlock]) -> H256 {

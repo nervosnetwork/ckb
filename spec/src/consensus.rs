@@ -21,6 +21,7 @@ pub(crate) const POW_SPACING: u64 = 15 * 1000; //15s
 
 pub(crate) const MAX_BLOCK_CYCLES: Cycle = 100_000_000;
 pub(crate) const MAX_BLOCK_BYTES: u64 = 10_000_000; // 10mb
+pub(crate) const MAX_BLOCK_PROPOSALS_LIMIT: u64 = 5_000;
 pub(crate) const BLOCK_VERSION: u32 = 0;
 
 #[derive(Clone, PartialEq, Debug, Eq, Copy)]
@@ -61,6 +62,8 @@ pub struct Consensus {
     pub max_block_bytes: u64,
     // block version number supported
     pub block_version: Version,
+    // block version number supported
+    pub max_block_proposals_limit: u64,
 }
 
 // genesis difficulty should not be zero
@@ -86,6 +89,7 @@ impl Default for Consensus {
             max_block_cycles: MAX_BLOCK_CYCLES,
             max_block_bytes: MAX_BLOCK_BYTES,
             block_version: BLOCK_VERSION,
+            max_block_proposals_limit: MAX_BLOCK_PROPOSALS_LIMIT,
         }
     }
 }
@@ -172,6 +176,10 @@ impl Consensus {
 
     pub fn max_block_bytes(&self) -> u64 {
         self.max_block_bytes
+    }
+
+    pub fn max_block_proposals_limit(&self) -> u64 {
+        self.max_block_proposals_limit
     }
 
     pub fn block_version(&self) -> Version {
