@@ -427,15 +427,23 @@ impl<CS: ChainStore> ChainState<CS> {
         self.tx_pool.borrow().last_txs_updated_at
     }
 
-    pub fn get_proposal_and_staging_txs(
-        &self,
-        max_prop: usize,
-        max_tx: usize,
-    ) -> (Vec<ProposalShortId>, Vec<PoolEntry>) {
+    pub fn get_proposals(&self, proposals_limit: usize) -> Vec<ProposalShortId> {
         let tx_pool = self.tx_pool.borrow();
-        let proposal = tx_pool.pending.fetch(max_prop);
-        let staging_txs = tx_pool.staging.get_txs(max_tx);
-        (proposal, staging_txs)
+        tx_pool.pending.fetch(proposals_limit)
+    }
+
+    pub fn get_staging_txs(&self, txs_size_limit: usize) -> Vec<PoolEntry> {
+        let mut size = 0;
+        let tx_pool = self.tx_pool.borrow();
+        tx_pool
+            .staging
+            .txs_iter()
+            .take_while(|tx| {
+                size += tx.transaction.serialized_size();
+                size < txs_size_limit
+            })
+            .cloned()
+            .collect()
     }
 
     pub fn tx_pool(&self) -> Ref<TxPool> {
