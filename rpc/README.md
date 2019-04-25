@@ -112,7 +112,7 @@ curl -H 'content-type:application/json' \
                             "0x0100000000000000"
                         ],
                         "previous_output": {
-                            "hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                            "tx_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
                             "index": 4294967295
                         },
                         "since": "0"
@@ -183,7 +183,7 @@ curl -H 'content-type:application/json' \
             {
                 "args": [],
                 "previous_output": {
-                    "hash": "0xeea31bfdcc4ac3bcb0204c450f08fb46c3840042b0a4e657edff3180cbb01c47",
+                    "tx_hash": "0xeea31bfdcc4ac3bcb0204c450f08fb46c3840042b0a4e657edff3180cbb01c47",
                     "index": 2996
                 },
                 "since": "0"
@@ -238,7 +238,7 @@ curl -H 'content-type:application/json' \
                 "code_hash": "0x0000000000000000000000000000000000000000000000000000000000000001"
             },
             "out_point": {
-                "hash": "0xc15274f7aaec78b74ea2b87a2aefd5dc3e003b367eab326a29a73900fd9b91ff",
+                "tx_hash": "0xc15274f7aaec78b74ea2b87a2aefd5dc3e003b367eab326a29a73900fd9b91ff",
                 "index": 0
             }
         },
@@ -249,7 +249,7 @@ curl -H 'content-type:application/json' \
                 "code_hash": "0x0000000000000000000000000000000000000000000000000000000000000001"
             },
             "out_point": {
-                "hash": "0xbcc4ffd86c681c1004f746422e33b1ac3cd59bdf6155afd5ea076219ed29bbae",
+                "tx_hash": "0xbcc4ffd86c681c1004f746422e33b1ac3cd59bdf6155afd5ea076219ed29bbae",
                 "index": 0
             }
         },
@@ -260,7 +260,7 @@ curl -H 'content-type:application/json' \
                 "code_hash": "0x0000000000000000000000000000000000000000000000000000000000000001"
             },
             "out_point": {
-                "hash": "0x9289e12f0a9b2cfce51cd4a64d733c0a3ca9a52093669863c485ea6dfae81a3e",
+                "tx_hash": "0x9289e12f0a9b2cfce51cd4a64d733c0a3ca9a52093669863c485ea6dfae81a3e",
                 "index": 0
             }
         }
@@ -275,13 +275,13 @@ Returns the information about a cell by out_point.
 
 #### Parameters
 
-    out_point - OutPoint object {"hash": <hash>, "index": <index>}.
+    out_point - OutPoint object {"tx_hash": <tx_hash>, "index": <index>}.
 
 #### Examples
 
 ```bash
 curl -H 'content-type:application/json' \
-    -d '{"id": 2, "jsonrpc": "2.0", "method":"get_live_cell","params": [{"hash": "0xbcc4ffd86c681c1004f746422e33b1ac3cd59bdf6155afd5ea076219ed29bbae", "index": 0}]}' \
+    -d '{"id": 2, "jsonrpc": "2.0", "method":"get_live_cell","params": [{"tx_hash": "0xbcc4ffd86c681c1004f746422e33b1ac3cd59bdf6155afd5ea076219ed29bbae", "index": 0}]}' \
     http://localhost:8114
 ```
 
@@ -415,7 +415,7 @@ echo '{
                 "inputs": [
                     {
                         "previous_output": {
-                            "hash": "0xeea31bfdcc4ac3bcb0204c450f08fb46c3840042b0a4e657edff3180cbb01c47",
+                            "tx_hash": "0xeea31bfdcc4ac3bcb0204c450f08fb46c3840042b0a4e657edff3180cbb01c47",
                             "index": 2995
                         },
                         "since": "0",
@@ -480,7 +480,7 @@ curl -H 'content-type:application/json' \
             {
                 "args": [],
                 "previous_output": {
-                    "hash": "0xeea31bfdcc4ac3bcb0204c450f08fb46c3840042b0a4e657edff3180cbb01c47",
+                    "tx_hash": "0xeea31bfdcc4ac3bcb0204c450f08fb46c3840042b0a4e657edff3180cbb01c47",
                     "index": 2994
                 },
                 "since": "0"
@@ -536,7 +536,7 @@ echo '{
                 "inputs": [
                     {
                         "previous_output": {
-                            "hash": "0xeea31bfdcc4ac3bcb0204c450f08fb46c3840042b0a4e657edff3180cbb01c47",
+                            "tx_hash": "0xeea31bfdcc4ac3bcb0204c450f08fb46c3840042b0a4e657edff3180cbb01c47",
                             "index": 2996
                         },
                         "since": "0",
