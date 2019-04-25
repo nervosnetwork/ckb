@@ -60,6 +60,9 @@ impl Setup {
     }
 
     pub fn setup_app(&self) -> Result<SetupGuard, ExitCode> {
+        // Initialization of logger must do before sentry, since `logger::init()` and
+        // `sentry_config::init()` both registers custom panic hooks, but `logger::init()`
+        // replaces all hooks previously registered.
         let logger_guard = logger::init(self.config.logger().clone())?;
 
         let sentry_guard = if self.is_sentry_enabled {
