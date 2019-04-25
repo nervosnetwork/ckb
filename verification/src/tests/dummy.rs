@@ -23,7 +23,7 @@ impl ChainProvider for DummyChainProvider {
         panic!("Not implemented!");
     }
 
-    fn genesis_hash(&self) -> H256 {
+    fn genesis_hash(&self) -> &H256 {
         panic!("Not implemented!");
     }
 

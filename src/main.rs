@@ -1,8 +1,7 @@
 mod helper;
-mod setup;
 mod subcommand;
 
-use setup::{cli, ExitCode, Setup};
+use ckb_app_config::{cli, ExitCode, Setup};
 
 fn run_app() -> Result<(), ExitCode> {
     // Always print backtrace on panic.

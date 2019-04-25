@@ -1,7 +1,7 @@
 use crate::block::Block;
 use crate::transaction::{CellOutput, OutPoint, Transaction};
 use crate::Capacity;
-use fnv::FnvHashMap;
+use fnv::{FnvHashMap, FnvHashSet};
 use numext_fixed_hash::H256;
 use std::iter::Chain;
 use std::slice;
@@ -40,7 +40,7 @@ pub enum CellStatus {
 }
 
 impl CellStatus {
-    pub fn null() -> CellStatus {
+    pub fn live_null() -> CellStatus {
         CellStatus::Live(LiveCell::Null)
     }
 
@@ -104,26 +104,6 @@ pub trait CellProvider {
             self.cell(out_point)
         }
     }
-
-    fn resolve_transaction(&self, transaction: &Transaction) -> ResolvedTransaction {
-        let input_cells = transaction
-            .input_pts()
-            .iter()
-            .map(|input| self.get_cell_status(input))
-            .collect();
-
-        let dep_cells = transaction
-            .dep_pts()
-            .iter()
-            .map(|dep| self.get_cell_status(dep))
-            .collect();
-
-        ResolvedTransaction {
-            transaction: transaction.clone(),
-            input_cells,
-            dep_cells,
-        }
-    }
 }
 
 pub struct OverlayCellProvider<'a> {
@@ -152,32 +132,19 @@ impl<'a> CellProvider for OverlayCellProvider<'a> {
 
 pub struct BlockCellProvider<'a> {
     output_indices: FnvHashMap<H256, usize>,
-    duplicate_inputs_counter: FnvHashMap<&'a OutPoint, usize>,
     block: &'a Block,
 }
 
 impl<'a> BlockCellProvider<'a> {
     pub fn new(block: &'a Block) -> Self {
-        let mut duplicate_inputs_counter = FnvHashMap::default();
-
         let output_indices = block
             .transactions()
             .iter()
             .enumerate()
-            .map(|(idx, tx)| {
-                tx.inputs().iter().for_each(|input| {
-                    duplicate_inputs_counter
-                        .entry(&input.previous_output)
-                        .and_modify(|c| *c += 1)
-                        .or_default();
-                });
-                (tx.hash(), idx)
-            })
+            .map(|(idx, tx)| (tx.hash(), idx))
             .collect();
-
         Self {
             output_indices,
-            duplicate_inputs_counter,
             block,
         }
     }
@@ -185,13 +152,7 @@ impl<'a> BlockCellProvider<'a> {
 
 impl<'a> CellProvider for BlockCellProvider<'a> {
     fn cell(&self, out_point: &OutPoint) -> CellStatus {
-        if let Some(true) = self
-            .duplicate_inputs_counter
-            .get(out_point)
-            .map(|counter| *counter > 0)
-        {
-            CellStatus::Dead
-        } else if let Some(i) = self.output_indices.get(&out_point.tx_hash) {
+        if let Some(i) = self.output_indices.get(&out_point.tx_hash) {
             match self.block.transactions()[*i]
                 .outputs()
                 .get(out_point.index as usize)
@@ -207,38 +168,39 @@ impl<'a> CellProvider for BlockCellProvider<'a> {
     }
 }
 
-pub struct TransactionCellProvider<'a> {
-    duplicate_inputs_counter: FnvHashMap<&'a OutPoint, usize>,
-}
+pub fn resolve_transaction<CP: CellProvider>(
+    transaction: &Transaction,
+    seen_inputs: &mut FnvHashSet<OutPoint>,
+    cell_provider: &CP,
+) -> ResolvedTransaction {
+    let input_cells = transaction
+        .input_pts()
+        .iter()
+        .map(|input| {
+            if seen_inputs.insert(input.clone()) {
+                cell_provider.get_cell_status(input)
+            } else {
+                CellStatus::Dead
+            }
+        })
+        .collect();
 
-impl<'a> TransactionCellProvider<'a> {
-    pub fn new(transaction: &'a Transaction) -> Self {
-        let mut duplicate_inputs_counter = FnvHashMap::default();
+    let dep_cells = transaction
+        .dep_pts()
+        .iter()
+        .map(|dep| {
+            if seen_inputs.contains(dep) {
+                CellStatus::Dead
+            } else {
+                cell_provider.get_cell_status(dep)
+            }
+        })
+        .collect();
 
-        transaction.inputs().iter().for_each(|input| {
-            duplicate_inputs_counter
-                .entry(&input.previous_output)
-                .and_modify(|c| *c += 1)
-                .or_default();
-        });
-
-        Self {
-            duplicate_inputs_counter,
-        }
-    }
-}
-
-impl<'a> CellProvider for TransactionCellProvider<'a> {
-    fn cell(&self, out_point: &OutPoint) -> CellStatus {
-        if let Some(true) = self
-            .duplicate_inputs_counter
-            .get(out_point)
-            .map(|counter| *counter > 0)
-        {
-            CellStatus::Dead
-        } else {
-            CellStatus::Unknown
-        }
+    ResolvedTransaction {
+        transaction: transaction.clone(),
+        input_cells,
+        dep_cells,
     }
 }
 

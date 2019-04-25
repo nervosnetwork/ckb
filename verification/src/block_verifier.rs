@@ -1,6 +1,6 @@
 use crate::error::{CellbaseError, CommitError, Error, UnclesError};
 use crate::header_verifier::HeaderResolver;
-use crate::{InputVerifier, TransactionVerifier, Verifier};
+use crate::{TransactionVerifier, Verifier};
 use ckb_core::cell::ResolvedTransaction;
 use ckb_core::header::Header;
 use ckb_core::transaction::{Capacity, CellInput, Transaction};
@@ -9,8 +9,6 @@ use ckb_core::{block::Block, BlockNumber};
 use ckb_traits::{BlockMedianTimeContext, ChainProvider};
 use fnv::FnvHashSet;
 use log::error;
-use lru_cache::LruCache;
-use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use std::collections::HashSet;
@@ -125,12 +123,12 @@ impl DuplicateVerifier {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct MerkleRootVerifier {}
 
 impl MerkleRootVerifier {
     pub fn new() -> Self {
-        MerkleRootVerifier {}
+        MerkleRootVerifier::default()
     }
 
     pub fn verify(&self, block: &Block) -> Result<(), Error> {
@@ -337,7 +335,6 @@ impl TransactionsVerifier {
 
     pub fn verify<M>(
         &self,
-        txs_verify_cache: &mut LruCache<H256, Cycle>,
         resolved: &[ResolvedTransaction],
         block_reward: Capacity,
         block_median_time_context: M,
@@ -368,32 +365,19 @@ impl TransactionsVerifier {
             .skip(1)
             .enumerate()
             .map(|(index, tx)| {
-                if let Some(cycles) = txs_verify_cache.get(&tx.transaction.hash()) {
-                    InputVerifier::new(&tx)
-                        .verify()
-                        .map_err(|e| Error::Transactions((index, e)))
-                        .map(|_| (None, *cycles))
-                } else {
-                    TransactionVerifier::new(
-                        &tx,
-                        &block_median_time_context,
-                        tip_number,
-                        cellbase_maturity,
-                    )
-                    .verify(self.max_cycles)
-                    .map_err(|e| Error::Transactions((index, e)))
-                    .map(|cycles| (Some(tx.transaction.hash()), cycles))
-                }
+                TransactionVerifier::new(
+                    &tx,
+                    &block_median_time_context,
+                    tip_number,
+                    cellbase_maturity,
+                )
+                .verify(self.max_cycles)
+                .map_err(|e| Error::Transactions((index, e)))
+                .map(|cycles| cycles)
             })
             .collect::<Result<Vec<_>, _>>()?;
 
-        let sum: Cycle = cycles_set.iter().map(|(_, cycles)| cycles).sum();
-
-        for (hash, cycles) in cycles_set {
-            if let Some(h) = hash {
-                txs_verify_cache.insert(h, cycles);
-            }
-        }
+        let sum: Cycle = cycles_set.iter().sum();
 
         if sum > self.max_cycles {
             Err(Error::ExceededMaximumCycles)

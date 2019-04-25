@@ -1,5 +1,7 @@
 use crate::rpc::RpcClient;
 use crate::sleep;
+use ckb_app_config::{CKBAppConfig, MinerAppConfig};
+use ckb_chain_spec::ChainSpecConfig;
 use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::header::{HeaderBuilder, Seal};
 use ckb_core::script::Script;
@@ -11,6 +13,7 @@ use log::info;
 use numext_fixed_hash::H256;
 use rand;
 use std::convert::TryInto;
+use std::fs;
 use std::io::Error;
 use std::process::{Child, Command, Stdio};
 
@@ -20,6 +23,7 @@ pub struct Node {
     pub p2p_port: u16,
     pub rpc_port: u16,
     pub node_id: Option<String>,
+    pub cellbase_maturity: Option<BlockNumber>,
     guard: Option<ProcessGuard>,
 }
 
@@ -35,7 +39,13 @@ impl Drop for ProcessGuard {
 }
 
 impl Node {
-    pub fn new(binary: &str, dir: &str, p2p_port: u16, rpc_port: u16) -> Self {
+    pub fn new(
+        binary: &str,
+        dir: &str,
+        p2p_port: u16,
+        rpc_port: u16,
+        cellbase_maturity: Option<BlockNumber>,
+    ) -> Self {
         Self {
             binary: binary.to_string(),
             dir: dir.to_string(),
@@ -43,6 +53,7 @@ impl Node {
             rpc_port,
             node_id: None,
             guard: None,
+            cellbase_maturity,
         }
     }
 
@@ -243,9 +254,54 @@ impl Node {
             .build()
     }
 
+    fn prepare_chain_spec(&self, config_path: &str) -> Result<(), Error> {
+        let integration_spec = include_bytes!("../integration.toml");
+        let always_success_cell = include_bytes!("../../resource/specs/cells/always_success");
+        fs::create_dir_all(format!("{}/specs", self.dir))?;
+        fs::create_dir_all(format!("{}/specs/cells", self.dir))?;
+        fs::write(
+            format!("{}/specs/cells/always_success", self.dir),
+            &always_success_cell[..],
+        )?;
+
+        let mut spec_config: ChainSpecConfig =
+            toml::from_slice(&integration_spec[..]).expect("chain spec config");
+        // modify chain spec
+        if let Some(cellbase_maturity) = self.cellbase_maturity {
+            spec_config.params.cellbase_maturity = cellbase_maturity;
+        }
+        // write to dir
+        fs::write(
+            &config_path,
+            toml::to_string(&spec_config).expect("chain spec serialize"),
+        )
+    }
+
+    fn rewrite_spec(&self, config_path: &str) -> Result<(), Error> {
+        // rewrite ckb.toml
+        let ckb_config_path = format!("{}/ckb.toml", self.dir);
+        let mut ckb_config: CKBAppConfig =
+            toml::from_slice(&fs::read(&ckb_config_path)?).expect("ckb config");
+        ckb_config.chain.spec = config_path.into();
+        fs::write(
+            &ckb_config_path,
+            toml::to_string(&ckb_config).expect("ckb config serialize"),
+        )?;
+        // rewrite ckb-miner.toml
+        let miner_config_path = format!("{}/ckb-miner.toml", self.dir);
+        let mut miner_config: MinerAppConfig =
+            toml::from_slice(&fs::read(&miner_config_path)?).expect("miner config");
+        miner_config.chain.spec = config_path.into();
+        fs::write(
+            &miner_config_path,
+            toml::to_string(&miner_config).expect("miner config serialize"),
+        )
+    }
+
     fn init_config_file(&self) -> Result<(), Error> {
         let rpc_port = format!("{}", self.rpc_port).to_string();
         let p2p_port = format!("{}", self.p2p_port).to_string();
+
         Command::new(self.binary.to_owned())
             .args(&[
                 "-C",
@@ -259,6 +315,11 @@ impl Node {
                 &p2p_port,
             ])
             .output()
-            .map(|_| ())
+            .map(|_| ())?;
+
+        let spec_config_path = format!("{}/specs/integration.toml", self.dir);
+        self.prepare_chain_spec(&spec_config_path)?;
+        self.rewrite_spec(&spec_config_path)?;
+        Ok(())
     }
 }

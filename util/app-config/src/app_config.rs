@@ -1,7 +1,13 @@
+//! # CKB AppConfig
+//!
+//! Because the limitation of toml library,
+//! we must put nested config struct in the tail to make it serializable,
+//! details https://docs.rs/toml/0.5.0/toml/ser/index.html
+
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use serde_derive::Deserialize;
+use serde_derive::{Deserialize, Serialize};
 
 use ckb_chain_spec::ChainSpec;
 use ckb_db::DBConfig;
@@ -27,15 +33,16 @@ pub enum AppConfigContent {
     Miner(Box<MinerAppConfig>),
 }
 
-#[derive(Clone, Debug, Deserialize)]
+// change the order of fields will break integration test, see module doc.
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CKBAppConfig {
-    pub chain: ChainConfig,
     pub data_dir: PathBuf,
     pub logger: LogConfig,
     pub sentry: SentryConfig,
+    pub chain: ChainConfig,
 
     pub block_assembler: BlockAssemblerConfig,
-    #[serde(default)]
+    #[serde(skip)]
     pub db: DBConfig,
     pub network: NetworkConfig,
     pub rpc: RpcConfig,
@@ -43,17 +50,18 @@ pub struct CKBAppConfig {
     pub tx_pool: TxPoolConfig,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+// change the order of fields will break integration test, see module doc.
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MinerAppConfig {
-    pub chain: ChainConfig,
     pub data_dir: PathBuf,
+    pub chain: ChainConfig,
     pub logger: LogConfig,
     pub sentry: SentryConfig,
 
     pub miner: MinerConfig,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ChainConfig {
     pub spec: PathBuf,
 }

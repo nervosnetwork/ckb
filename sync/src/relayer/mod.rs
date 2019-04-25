@@ -15,11 +15,12 @@ use self::get_block_transactions_process::GetBlockTransactionsProcess;
 use self::transaction_process::TransactionProcess;
 use crate::relayer::compact_block::ShortTransactionID;
 use crate::types::Peers;
+use crate::BAD_MESSAGE_BAN_TIME;
 use ckb_chain::chain::ChainController;
 use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::transaction::{ProposalShortId, Transaction};
 use ckb_core::uncle::UncleBlock;
-use ckb_network::{Behaviour, CKBProtocolContext, CKBProtocolHandler, PeerIndex};
+use ckb_network::{CKBProtocolContext, CKBProtocolHandler, PeerIndex};
 use ckb_protocol::{
     cast, get_root, short_transaction_id, short_transaction_id_keys, RelayMessage, RelayPayload,
 };
@@ -137,7 +138,7 @@ impl<CS: ChainStore> Relayer<CS> {
 
     fn process(&self, nc: &CKBProtocolContext, peer: PeerIndex, message: RelayMessage) {
         if self.try_process(nc, peer, message).is_err() {
-            nc.report_peer(peer, Behaviour::UnexpectedMessage);
+            nc.ban_peer(peer, BAD_MESSAGE_BAN_TIME);
         }
     }
 
@@ -187,6 +188,7 @@ impl<CS: ChainStore> Relayer<CS> {
                 .take(MAX_RELAY_PEERS)
                 .collect();
 
+            // TODO: use filter broadcast
             for target_peer in selected_peers {
                 nc.send_message_to(target_peer, fbb.finished_data().to_vec());
             }
@@ -290,6 +292,7 @@ impl<CS: ChainStore> Relayer<CS> {
             pending_proposals_request.remove(&id);
         }
 
+        // TODO: use filter_broadcast
         for (peer_index, txs) in peer_txs {
             let fbb = &mut FlatBufferBuilder::new();
             let message =
@@ -323,7 +326,7 @@ impl<CS: ChainStore> CKBProtocolHandler for Relayer<CS> {
             Ok(msg) => msg,
             _ => {
                 info!(target: "sync", "Peer {} sends us a malformed message", peer_index);
-                nc.report_peer(peer_index, Behaviour::UnexpectedMessage);
+                nc.ban_peer(peer_index, BAD_MESSAGE_BAN_TIME);
                 return;
             }
         };

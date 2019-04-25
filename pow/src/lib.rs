@@ -3,7 +3,7 @@ use ckb_core::difficulty::{boundary_to_difficulty, difficulty_to_boundary};
 use ckb_core::header::{BlockNumber, Header, RawHeader, Seal};
 use hash::blake2b_256;
 use numext_fixed_hash::H256;
-use serde_derive::Deserialize;
+use serde_derive::{Deserialize, Serialize};
 use std::fmt;
 use std::sync::Arc;
 
@@ -13,7 +13,7 @@ mod dummy;
 pub use crate::cuckoo::{Cuckoo, CuckooEngine, CuckooParams};
 pub use crate::dummy::{DummyPowEngine, DummyPowParams};
 
-#[derive(Clone, Deserialize, Eq, PartialEq, Hash, Debug)]
+#[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Hash, Debug)]
 #[serde(tag = "func", content = "params")]
 pub enum Pow {
     Dummy(DummyPowParams),

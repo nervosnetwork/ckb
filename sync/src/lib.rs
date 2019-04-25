@@ -16,6 +16,7 @@ pub use crate::config::Config;
 pub use crate::net_time_checker::NetTimeProtocol;
 pub use crate::relayer::Relayer;
 pub use crate::synchronizer::Synchronizer;
+use std::time::Duration;
 
 pub const MAX_HEADERS_LEN: usize = 2_000;
 pub const MAX_INVENTORY_LEN: usize = 50_000;
@@ -57,3 +58,9 @@ pub const EVICTION_HEADERS_RESPONSE_TIME: u64 = 120 * 1000; // 2 minutes
 pub const MAX_LOCATOR_SIZE: usize = 101;
 
 pub const BLOCK_DOWNLOAD_TIMEOUT: u64 = 30 * 1000; // 30s
+
+// ban time
+// 5 minutes
+pub const BAD_MESSAGE_BAN_TIME: Duration = Duration::from_secs(5 * 60);
+// 10 minutes, peer have no common ancestor block
+pub const SYNC_USELESS_BAN_TIME: Duration = Duration::from_secs(10 * 60);

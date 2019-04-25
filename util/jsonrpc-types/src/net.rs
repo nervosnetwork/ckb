@@ -6,6 +6,7 @@ pub struct Node {
     pub version: String,
     pub node_id: String,
     pub addresses: Vec<NodeAddress>,
+    pub is_outbound: Option<bool>,
 }
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]

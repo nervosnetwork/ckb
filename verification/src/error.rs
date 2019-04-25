@@ -1,8 +1,8 @@
 use ckb_core::BlockNumber;
 use ckb_script::ScriptError;
-use failure::Fail;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
+use std::error::Error as StdError;
 use std::fmt;
 
 /// Block verification error
@@ -11,7 +11,7 @@ use std::fmt;
 /// Those error kind carry some data that provide additional information,
 /// ErrorKind pattern should only carry stateless data. And, our ErrorKind can not be `Eq`.
 /// If the Rust community has better patterns in the future, then look back here
-#[derive(Debug, Fail, PartialEq)]
+#[derive(Debug, PartialEq)]
 pub enum Error {
     /// PoW proof is corrupt or does not meet the difficulty target.
     Pow(PowError),
@@ -54,6 +54,8 @@ pub enum Error {
     /// Overflow when do computation for capacity.
     CapacityOverflow,
 }
+
+impl StdError for Error {}
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {

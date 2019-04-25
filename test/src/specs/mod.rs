@@ -4,8 +4,8 @@ mod mining;
 mod p2p;
 mod pool;
 mod protocols;
-mod transaction;
 mod transaction_relay;
+mod tx_pool;
 
 pub use block_relay::BlockRelayBasic;
 pub use block_sync::BlockSyncBasic;
@@ -13,10 +13,11 @@ pub use mining::MiningBasic;
 pub use p2p::{Disconnect, Discovery};
 pub use pool::{PoolReconcile, PoolTrace};
 pub use protocols::MalformedMessage;
-pub use transaction::*;
 pub use transaction_relay::TransactionRelayBasic;
+pub use tx_pool::{CellbaseImmatureTx, DepentTxInSameBlock};
 
 use crate::Net;
+use ckb_core::BlockNumber;
 use ckb_network::{ProtocolId, ProtocolVersion};
 
 pub trait Spec {
@@ -24,6 +25,10 @@ pub trait Spec {
 
     fn num_nodes(&self) -> usize {
         3
+    }
+
+    fn cellbase_maturity(&self) -> Option<BlockNumber> {
+        None
     }
 
     fn connect_all(&self) -> bool {
@@ -35,7 +40,13 @@ pub trait Spec {
     }
 
     fn setup_net(&self, binary: &str, start_port: u16) -> Net {
-        let mut net = Net::new(binary, self.num_nodes(), start_port, self.test_protocols());
+        let mut net = Net::new(
+            binary,
+            self.num_nodes(),
+            start_port,
+            self.test_protocols(),
+            self.cellbase_maturity(),
+        );
 
         // start all nodes
         net.nodes.iter_mut().for_each(|node| {

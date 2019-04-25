@@ -4,7 +4,6 @@ version = "0.11.0-pre"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
-build = "build.rs"
 
 [dependencies]
 clap = { version = "2" }
@@ -14,6 +13,7 @@ toml = "0.5"
 log = "0.4"
 futures = "0.1"
 crossbeam-channel = "0.3"
+ckb-app-config = { path = "util/app-config" }
 ckb-util = { path = "util" }
 ckb-core = { path = "core" }
 ckb-chain = { path = "chain" }
@@ -37,12 +37,10 @@ hash = { path = "util/hash"}
 build-info = { path = "util/build-info" }
 ckb-traits = { path = "traits" }
 sentry = "^0.15.2"
+ckb-verification = { path = "verification" }
 
 [dev-dependencies]
 tempfile = "3.0"
-
-[build-dependencies]
-build-info = { path = "util/build-info" }
 
 [workspace]
 members = [
@@ -55,6 +53,7 @@ members = [
     "util/build-info",
     "util/occupied-capacity",
     "util/stop-handler",
+    "util/app-config",
     "traits",
     "network",
     "protocol",

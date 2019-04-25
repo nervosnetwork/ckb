@@ -2,6 +2,7 @@ use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::header::HeaderBuilder;
 use ckb_core::{capacity_bytes, BlockNumber, Capacity, Cycle, Version};
 use ckb_pow::{Pow, PowEngine};
+use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 use std::sync::Arc;
 
@@ -39,6 +40,7 @@ impl ProposalWindow {
 pub struct Consensus {
     pub id: String,
     pub genesis_block: Block,
+    pub genesis_hash: H256,
     pub initial_block_reward: Capacity,
     pub max_uncles_age: usize,
     pub max_uncles_num: usize,
@@ -68,6 +70,7 @@ impl Default for Consensus {
             .with_header_builder(HeaderBuilder::default().difficulty(U256::one()));
 
         Consensus {
+            genesis_hash: genesis_block.header().hash(),
             genesis_block,
             id: "main".to_owned(),
             max_uncles_age: MAX_UNCLE_AGE,
@@ -94,6 +97,7 @@ impl Consensus {
     }
 
     pub fn set_genesis_block(mut self, genesis_block: Block) -> Self {
+        self.genesis_hash = genesis_block.header().hash();
         self.genesis_block = genesis_block;
         self
     }
@@ -120,6 +124,10 @@ impl Consensus {
 
     pub fn genesis_block(&self) -> &Block {
         &self.genesis_block
+    }
+
+    pub fn genesis_hash(&self) -> &H256 {
+        &self.genesis_hash
     }
 
     pub fn max_uncles_num(&self) -> usize {

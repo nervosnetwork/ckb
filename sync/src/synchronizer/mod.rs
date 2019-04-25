@@ -14,8 +14,8 @@ use self::headers_process::HeadersProcess;
 use crate::config::Config;
 use crate::types::{HeaderView, Peers};
 use crate::{
-    CHAIN_SYNC_TIMEOUT, EVICTION_HEADERS_RESPONSE_TIME, HEADERS_DOWNLOAD_TIMEOUT_BASE,
-    HEADERS_DOWNLOAD_TIMEOUT_PER_HEADER, MAX_HEADERS_LEN,
+    BAD_MESSAGE_BAN_TIME, CHAIN_SYNC_TIMEOUT, EVICTION_HEADERS_RESPONSE_TIME,
+    HEADERS_DOWNLOAD_TIMEOUT_BASE, HEADERS_DOWNLOAD_TIMEOUT_PER_HEADER, MAX_HEADERS_LEN,
     MAX_OUTBOUND_PEERS_TO_PROTECT_FROM_DISCONNECT, MAX_TIP_AGE, POW_SPACE,
 };
 use bitflags::bitflags;
@@ -23,7 +23,7 @@ use ckb_chain::chain::ChainController;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::Block;
 use ckb_core::header::{BlockNumber, Header};
-use ckb_network::{Behaviour, CKBProtocolContext, CKBProtocolHandler, PeerIndex};
+use ckb_network::{CKBProtocolContext, CKBProtocolHandler, PeerIndex};
 use ckb_protocol::{cast, get_root, SyncMessage, SyncPayload};
 use ckb_shared::shared::Shared;
 use ckb_shared::store::ChainStore;
@@ -163,7 +163,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
 
     fn process(&self, nc: &CKBProtocolContext, peer: PeerIndex, message: SyncMessage) {
         if self.try_process(nc, peer, message).is_err() {
-            nc.report_peer(peer, Behaviour::UnexpectedMessage);
+            nc.ban_peer(peer, BAD_MESSAGE_BAN_TIME);
         }
     }
 
@@ -255,7 +255,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
             return None;
         }
 
-        if locator.last().expect("empty checked") != &self.shared.genesis_hash() {
+        if locator.last().expect("empty checked") != self.shared.genesis_hash() {
             return None;
         }
 
@@ -646,16 +646,18 @@ impl<CS: ChainStore> Synchronizer<CS> {
         };
         for peer in peers {
             // Only sync with 1 peer if we're in IBD
-            if self.is_initial_block_download() && !self.n_sync.load(Ordering::Acquire) == 0 {
-                return;
+            if self.is_initial_block_download() && self.n_sync.load(Ordering::Acquire) != 0 {
+                break;
             }
             {
                 let mut state = self.peers.state.write();
                 if let Some(mut peer_state) = state.get_mut(&peer) {
-                    peer_state.sync_started = true;
+                    if !peer_state.sync_started {
+                        peer_state.sync_started = true;
+                        self.n_sync.fetch_add(1, Ordering::Release);
+                    }
                 }
             }
-            self.n_sync.fetch_add(1, Ordering::Release);
 
             debug!(target: "sync", "start sync peer={}", peer);
             self.send_getheaders_to_peer(nc, peer, &tip);
@@ -700,21 +702,6 @@ impl<CS: ChainStore> CKBProtocolHandler for Synchronizer<CS> {
         nc.set_notify(Duration::from_millis(1000), TIMEOUT_EVICTION_TOKEN);
     }
 
-    fn connected(
-        &mut self,
-        nc: Box<dyn CKBProtocolContext>,
-        peer_index: PeerIndex,
-        _version: &str,
-    ) {
-        info!(target: "sync", "SyncProtocol.connected peer={}", peer_index);
-        self.on_connected(nc.as_ref(), peer_index);
-    }
-
-    fn disconnected(&mut self, _nc: Box<dyn CKBProtocolContext>, peer_index: PeerIndex) {
-        info!(target: "sync", "SyncProtocol.disconnected peer={}", peer_index);
-        self.peers.disconnected(peer_index);
-    }
-
     fn received(
         &mut self,
         nc: Box<dyn CKBProtocolContext>,
@@ -725,13 +712,33 @@ impl<CS: ChainStore> CKBProtocolHandler for Synchronizer<CS> {
             Ok(msg) => msg,
             _ => {
                 info!(target: "sync", "Peer {} sends us a malformed message", peer_index);
-                nc.report_peer(peer_index, Behaviour::UnexpectedMessage);
+                nc.ban_peer(peer_index, BAD_MESSAGE_BAN_TIME);
                 return;
             }
         };
 
         debug!(target: "sync", "msg {:?}", msg.payload_type());
         self.process(nc.as_ref(), peer_index, msg);
+    }
+
+    fn connected(&mut self, nc: Box<CKBProtocolContext>, peer_index: PeerIndex, _version: &str) {
+        info!(target: "sync", "SyncProtocol.connected peer={}", peer_index);
+        self.on_connected(nc.as_ref(), peer_index);
+    }
+
+    fn disconnected(&mut self, _nc: Box<CKBProtocolContext>, peer_index: PeerIndex) {
+        info!(target: "sync", "SyncProtocol.disconnected peer={}", peer_index);
+        let mut state = self.peers.state.write();
+        if let Some(peer_state) = state.get(&peer_index) {
+            // It shouldn't happen
+            // fetch_sub wraps around on overflow, we still check manually
+            // panic here to prevent some bug be hidden silently.
+            if peer_state.sync_started && self.n_sync.fetch_sub(1, Ordering::Release) == 0 {
+                panic!("Synchronizer n_sync overflow");
+            }
+        }
+        state.remove(&peer_index);
+        self.peers.disconnected(peer_index);
     }
 
     fn notify(&mut self, nc: Box<dyn CKBProtocolContext>, token: u64) {
@@ -768,7 +775,7 @@ mod tests {
     use ckb_core::Capacity;
     use ckb_db::memorydb::MemoryKeyValueDB;
     use ckb_network::{
-        multiaddr::ToMultiaddr, CKBProtocolContext, Peer, PeerId, PeerIndex, ProtocolId,
+        multiaddr::ToMultiaddr, Behaviour, CKBProtocolContext, Peer, PeerId, PeerIndex, ProtocolId,
         SessionType, TargetSession,
     };
     use ckb_notify::{NotifyController, NotifyService};

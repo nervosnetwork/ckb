@@ -19,7 +19,7 @@ ckb-protocol = { path = "../protocol" }
 ckb-pow = { path = "../pow"}
 jsonrpc-core = "10.1"
 jsonrpc-derive = "10.1"
-jsonrpc-http-server = { git = "https://github.com/nervosnetwork/jsonrpc", branch = "http_remake" }
+jsonrpc-http-server = { git = "https://github.com/nervosnetwork/jsonrpc", rev = "7c101f83a8fe34369c1b7a0e9b6721fcb0f91ee0" }
 jsonrpc-server-utils = "10.1"
 serde = "1.0"
 serde_derive = "1.0"

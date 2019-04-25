@@ -1,4 +1,5 @@
-use ckb_network::{Behaviour, CKBProtocolContext, CKBProtocolHandler, PeerIndex};
+use crate::BAD_MESSAGE_BAN_TIME;
+use ckb_network::{CKBProtocolContext, CKBProtocolHandler, PeerIndex};
 use ckb_protocol::{get_root, TimeMessage};
 use ckb_util::RwLock;
 use flatbuffers::FlatBufferBuilder;
@@ -128,7 +129,6 @@ impl CKBProtocolHandler for NetTimeProtocol {
     ) {
         if let Some(true) = nc.get_peer(peer_index).map(|peer| peer.is_inbound()) {
             info!(target: "network", "Peer {} is not outbound but sends us time message", peer_index);
-            nc.report_peer(peer_index, Behaviour::UnexpectedMessage);
         }
 
         let timestamp = match get_root::<TimeMessage>(&data)
@@ -139,7 +139,7 @@ impl CKBProtocolHandler for NetTimeProtocol {
             Some(timestamp) => timestamp,
             None => {
                 info!(target: "network", "Peer {} sends us malformed message", peer_index);
-                nc.report_peer(peer_index, Behaviour::UnexpectedMessage);
+                nc.ban_peer(peer_index, BAD_MESSAGE_BAN_TIME);
                 return;
             }
         };

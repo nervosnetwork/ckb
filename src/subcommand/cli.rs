@@ -1,4 +1,4 @@
-use crate::setup::ExitCode;
+use ckb_app_config::ExitCode;
 use crypto::secp::Generator;
 use numext_fixed_hash::H256;
 

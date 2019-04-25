@@ -57,6 +57,7 @@ impl<CS: ChainStore + 'static> MinerRpc for MinerRpcImpl<CS> {
             Some(b) => Some(b.parse::<u64>().map_err(|_| Error::parse_error())?),
             None => None,
         };
+
         self.block_assembler
             .get_block_template(cycles_limit, bytes_limit, max_version)
             .map_err(|_| Error::internal_error())
