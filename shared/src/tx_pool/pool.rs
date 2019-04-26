@@ -133,6 +133,10 @@ impl TxPool {
             .cloned()
     }
 
+    pub fn get_tx_from_staging(&self, id: &ProposalShortId) -> Option<Transaction> {
+        self.staging.get_tx(id).cloned()
+    }
+
     //FIXME: use memsize
     pub fn is_full(&self) -> bool {
         self.capacity() > self.config.max_pool_size

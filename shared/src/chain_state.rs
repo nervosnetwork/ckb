@@ -452,7 +452,7 @@ impl<CS: ChainStore> CellProvider for ChainState<CS> {
                 if tx_meta.is_dead(out_point.index as usize) {
                     CellStatus::Dead
                 } else {
-                    let tx = self
+                    let (tx, _) = self
                         .store
                         .get_transaction(&out_point.tx_hash)
                         .expect("store should be consistent with cell_set");
@@ -483,7 +483,7 @@ impl<'a, CS: ChainStore> CellProvider for ChainCellSetOverlay<'a, CS> {
                         .or_else(|| {
                             self.store
                                 .get_transaction(&out_point.tx_hash)
-                                .map(|tx| tx.outputs()[out_point.index as usize].clone())
+                                .map(|(tx, _)| tx.outputs()[out_point.index as usize].clone())
                         })
                         .expect("store should be consistent with cell_set");
 

@@ -59,7 +59,7 @@ impl ChainProvider for DummyChainProvider {
         panic!("Not implemented!");
     }
 
-    fn get_transaction(&self, _hash: &H256) -> Option<Transaction> {
+    fn get_transaction(&self, _hash: &H256) -> Option<(Transaction, H256)> {
         panic!("Not implemented!");
     }
 

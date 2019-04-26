@@ -97,7 +97,7 @@ impl<CS: ChainStore> ChainProvider for Shared<CS> {
         self.consensus.genesis_hash()
     }
 
-    fn get_transaction(&self, hash: &H256) -> Option<Transaction> {
+    fn get_transaction(&self, hash: &H256) -> Option<(Transaction, H256)> {
         self.store.get_transaction(hash)
     }
 

@@ -232,6 +232,52 @@ impl TryFrom<Transaction> for CoreTransaction {
     }
 }
 
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+pub struct TransactionWithStatus {
+    pub transaction: Transaction,
+    /// Indicate the Transaction status
+    pub tx_status: TxStatus,
+}
+
+impl TransactionWithStatus {
+    /// Build with pending status
+    pub fn with_pending(tx: CoreTransaction) -> Self {
+        Self {
+            tx_status: TxStatus::Pending,
+            transaction: (&tx).into(),
+        }
+    }
+
+    /// Build with proposed status
+    pub fn with_proposed(tx: CoreTransaction) -> Self {
+        Self {
+            tx_status: TxStatus::Proposed,
+            transaction: (&tx).into(),
+        }
+    }
+
+    /// Build with committed status
+    pub fn with_committed(tx: CoreTransaction, hash: H256) -> Self {
+        Self {
+            tx_status: TxStatus::Committed(hash),
+            transaction: (&tx).into(),
+        }
+    }
+}
+
+/// Can see the serialization results on the links: https://play.rust-lang.org/?version=stable&mode=debug&edition=2018&gist=c48782574d5ebe42dd24cd3650313cca
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+#[serde(tag = "status", content = "block_hash")]
+#[serde(rename_all = "lowercase")]
+pub enum TxStatus {
+    /// Transaction on pool, not proposed
+    Pending,
+    /// Transaction on pool, proposed
+    Proposed,
+    /// Transaction commit on block
+    Committed(H256),
+}
+
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct Seal {
     pub nonce: String,

@@ -14,7 +14,8 @@ pub use self::block_template::{
     BlockTemplate, CellbaseTemplate, TransactionTemplate, UncleTemplate,
 };
 pub use self::blockchain::{
-    Block, CellInput, CellOutput, Header, OutPoint, Script, Seal, Transaction, UncleBlock, Witness,
+    Block, CellInput, CellOutput, Header, OutPoint, Script, Seal, Transaction,
+    TransactionWithStatus, TxStatus, UncleBlock, Witness,
 };
 pub use self::bytes::Bytes;
 pub use self::cell::{CellOutputWithOutPoint, CellWithStatus};

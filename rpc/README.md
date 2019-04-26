@@ -177,33 +177,39 @@ curl -H 'content-type:application/json' \
 {
     "jsonrpc": "2.0",
     "result": {
-        "deps": [],
-        "hash": "0xa093b2e820f3f2202a6802314ece2eee3f863b177b3abe11bf16b1588152d31b",
-        "inputs": [
-            {
-                "args": [],
-                "previous_output": {
-                    "tx_hash": "0xeea31bfdcc4ac3bcb0204c450f08fb46c3840042b0a4e657edff3180cbb01c47",
-                    "index": 2996
-                },
-                "since": "0"
-            }
-        ],
-        "outputs": [
-            {
-                "capacity": "1000",
-                "data": "0x",
-                "lock": {
-                    "args": [
-                        "0x79616e676279"
-                    ],
-                    "code_hash": "0x0000000000000000000000000000000000000000000000000000000000000001"
-                },
-                "type": null
-            }
-        ],
-        "version": 0,
-        "witnesses": []
+        "transaction" : {
+            "deps": [],
+            "hash": "0xa093b2e820f3f2202a6802314ece2eee3f863b177b3abe11bf16b1588152d31b",
+            "inputs": [
+                {
+                    "args": [],
+                    "previous_output": {
+                        "tx_hash": "0xeea31bfdcc4ac3bcb0204c450f08fb46c3840042b0a4e657edff3180cbb01c47",
+                        "index": 2996
+                    },
+                    "since": "0"
+                }
+            ],
+            "outputs": [
+                {
+                    "capacity": "1000",
+                    "data": "0x",
+                    "lock": {
+                        "args": [
+                            "0x79616e676279"
+                        ],
+                        "code_hash": "0x0000000000000000000000000000000000000000000000000000000000000001"
+                    },
+                    "type": null
+                }
+            ],
+            "version": 0,
+            "witnesses": []
+        },
+        "tx_status": {
+            "status": "committed",
+            "block_hash": "0xef285e5da29247ce39385cbd8dc36535f7ea1b5b0379db26e9d459a8b47d0d71"
+        }
     },
     "id": 2
 }
@@ -449,59 +455,6 @@ echo '{
 {
     "jsonrpc": "2.0",
     "result": "0xee577cd94b1f2f1667316ff3cb44810902fd35cf901db28cde955b82eea56725",
-    "id": 2
-}
-```
-
-### get_pool_transaction
-
-Returns the information about a transaction in the transaction pool requested by transaction hash.
-
-#### Parameters
-
-    hash - Hash of a transaction.
-
-#### Example
-
-```bash
-curl -H 'content-type:application/json' \
-    -d '{"id": 2, "jsonrpc": "2.0", "method": "get_pool_transaction", "params": ["0xced4b0ccaf0e09d5d38ab717fc60f96a6097182f4c1ae2522d0689618306a229"]}' \
-    http://localhost:8114'
-```
-
-
-```json
-{
-    "jsonrpc": "2.0",
-    "result": {
-        "deps": [],
-        "hash": "0xced4b0ccaf0e09d5d38ab717fc60f96a6097182f4c1ae2522d0689618306a229",
-        "inputs": [
-            {
-                "args": [],
-                "previous_output": {
-                    "tx_hash": "0xeea31bfdcc4ac3bcb0204c450f08fb46c3840042b0a4e657edff3180cbb01c47",
-                    "index": 2994
-                },
-                "since": "0"
-            }
-        ],
-        "outputs": [
-            {
-                "capacity": "1000",
-                "data": "0x",
-                "lock": {
-                    "args": [
-                        "0x79616e676279"
-                    ],
-                    "code_hash": "0x0000000000000000000000000000000000000000000000000000000000000001"
-                },
-                "type": null
-            }
-        ],
-        "version": 0,
-        "witnesses": []
-    },
     "id": 2
 }
 ```
