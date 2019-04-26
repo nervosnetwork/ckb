@@ -265,18 +265,16 @@ impl TransactionWithStatus {
     }
 }
 
-/// Can see the serialization results on the links: https://play.rust-lang.org/?version=stable&mode=debug&edition=2018&gist=475702fa87bc741e5d482fca52ba139f
+/// Can see the serialization results on the links: https://play.rust-lang.org/?version=stable&mode=debug&edition=2018&gist=c48782574d5ebe42dd24cd3650313cca
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 #[serde(tag = "status", content = "block_hash")]
+#[serde(rename_all = "lowercase")]
 pub enum TxStatus {
     /// Transaction on pool, not proposed
-    #[serde(rename = "pending")]
     Pending,
     /// Transaction on pool, proposed
-    #[serde(rename = "proposed")]
     Proposed,
     /// Transaction commit on block
-    #[serde(rename = "committed")]
     Committed(H256),
 }
 
