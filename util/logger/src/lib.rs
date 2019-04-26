@@ -1,4 +1,5 @@
 use ansi_term::Colour;
+use backtrace::Backtrace;
 use chrono::prelude::{DateTime, Local};
 use crossbeam_channel::unbounded;
 use env_logger::filter::{Builder, Filter};
@@ -10,7 +11,7 @@ use regex::Regex;
 use serde_derive::{Deserialize, Serialize};
 use std::io::Write;
 use std::path::PathBuf;
-use std::{fs, thread};
+use std::{fs, panic, thread};
 
 enum Message {
     Record(String),
@@ -166,6 +167,8 @@ impl Drop for LoggerInitGuard {
 }
 
 pub fn init(config: Config) -> Result<LoggerInitGuard, SetLoggerError> {
+    setup_panic_logger();
+
     let logger = Logger::new(config);
     log::set_max_level(logger.filter());
     log::set_boxed_logger(Box::new(logger)).map(|_| LoggerInitGuard)
@@ -173,4 +176,32 @@ pub fn init(config: Config) -> Result<LoggerInitGuard, SetLoggerError> {
 
 pub fn flush() {
     log::logger().flush()
+}
+
+// Replace the default panic hook with logger hook, which prints panic info into logfile.
+// This function will replace all hooks that was previously registered, so make sure involving
+// before other register operations.
+fn setup_panic_logger() {
+    let panic_logger = |info: &panic::PanicInfo| {
+        let backtrace = Backtrace::new();
+        let thread = thread::current();
+        let name = thread.name().unwrap_or("unnamed");
+        let location = info.location().unwrap(); // The current implementation always returns Some
+        let msg = match info.payload().downcast_ref::<&'static str>() {
+            Some(s) => *s,
+            None => match info.payload().downcast_ref::<String>() {
+                Some(s) => &**s,
+                None => "Box<Any>",
+            },
+        };
+        log::error!(
+            target: "panic", "thread '{}' panicked at '{}': {}:{}{:?}",
+            name,
+            msg,
+            location.file(),
+            location.line(),
+            backtrace,
+        );
+    };
+    panic::set_hook(Box::new(panic_logger));
 }
