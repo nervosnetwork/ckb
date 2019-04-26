@@ -6,7 +6,7 @@ use ckb_protocol::{CompactBlock as FbsCompactBlock, RelayMessage};
 use ckb_shared::shared::Shared;
 use ckb_shared::store::ChainStore;
 use ckb_traits::{BlockMedianTimeContext, ChainProvider};
-use ckb_verification::{HeaderResolverWrapper, HeaderVerifier, Verifier};
+use ckb_verification::{HeaderResolverWrapper, HeaderVerifier, Verifier, Error as VerifyError};
 use failure::Error as FailureError;
 use flatbuffers::FlatBufferBuilder;
 use fnv::FnvHashMap;
@@ -81,8 +81,16 @@ impl<'a, CS: ChainStore> CompactBlockProcess<'a, CS> {
                             }
                         }
                     }
+                    Err(VerifyError::UnknownParent(hash)) => {
+                        debug!(target: "relay", "UnknownParent: {}, send_getheaders_to_peer({})", hash, self.peer);
+                        self.relayer.send_getheaders_to_peer(
+                            self.nc,
+                            self.peer,
+                            self.relayer.shared.chain_state().lock().tip_header(),
+                        )
+                    }
                     Err(err) => {
-                        debug!(target: "relay", "header verify failed: {:?}", err);
+                        debug!(target: "relay", "unexpected header verify failed: {}", err);
                     }
                 }
             } else {

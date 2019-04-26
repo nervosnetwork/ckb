@@ -20,9 +20,11 @@ use ckb_chain::chain::ChainController;
 use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::transaction::{ProposalShortId, Transaction};
 use ckb_core::uncle::UncleBlock;
+use ckb_core::header::{BlockNumber, Header};
 use ckb_network::{CKBProtocolContext, CKBProtocolHandler, PeerIndex};
 use ckb_protocol::{
     cast, get_root, short_transaction_id, short_transaction_id_keys, RelayMessage, RelayPayload,
+    SyncMessage
 };
 use ckb_shared::chain_state::ChainState;
 use ckb_shared::shared::Shared;
@@ -308,6 +310,68 @@ impl<CS: ChainStore> Relayer<CS> {
 
     pub fn peers(&self) -> Arc<Peers> {
         Arc::clone(&self.peers)
+    }
+
+    pub fn get_ancestor(&self, base: &H256, number: BlockNumber) -> Option<Header> {
+        if let Some(header) = self.shared.block_header(base) {
+            let mut n_number = header.number();
+            let mut index_walk = header;
+            if number > n_number {
+                return None;
+            }
+
+            while n_number > number {
+                if let Some(header) = self.shared.block_header(&index_walk.parent_hash()) {
+                    index_walk = header;
+                    n_number -= 1;
+                } else {
+                    return None;
+                }
+            }
+            return Some(index_walk);
+        }
+        None
+    }
+
+    pub fn get_locator(&self, start: &Header) -> Vec<H256> {
+        let mut step = 1;
+        let mut locator = Vec::with_capacity(32);
+        let mut index = start.number();
+        let base = start.hash();
+        loop {
+            let header = self
+                .get_ancestor(&base, index)
+                .expect("index calculated in get_locator");
+            locator.push(header.hash().clone());
+
+            if locator.len() >= 10 {
+                step <<= 1;
+            }
+
+            if index < step {
+                // always include genesis hash
+                if index != 0 {
+                    locator.push(self.shared.genesis_hash().clone());
+                }
+                break;
+            }
+            index -= step;
+        }
+        locator
+    }
+
+    pub fn send_getheaders_to_peer(
+        &self,
+        nc: &CKBProtocolContext,
+        peer: PeerIndex,
+        header: &Header,
+    ) {
+        debug!(target: "sync", "send_getheaders_to_peer peer={}, hash={}", peer, header.hash());
+        let locator_hash = self.get_locator(header);
+        let fbb = &mut FlatBufferBuilder::new();
+        let message = SyncMessage::build_get_headers(fbb, &locator_hash);
+        fbb.finish(message, None);
+        nc.send_message_to(peer, fbb.finished_data().to_vec());
     }
 }
 
