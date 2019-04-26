@@ -1,11 +1,9 @@
 use crate::cell_set::{CellSet, CellSetDiff};
-use crate::{
-    shared::{Shared, SharedBuilder},
-    store::ChainKVStore,
-};
+use crate::shared::{Shared, SharedBuilder};
 use ckb_core::cell::{resolve_transaction, CellStatus, LiveCell};
 use ckb_core::transaction::Transaction;
 use ckb_db::memorydb::MemoryKeyValueDB;
+use ckb_store::ChainKVStore;
 use fnv::{FnvHashMap, FnvHashSet};
 use std::fs::File;
 use std::io::BufReader;

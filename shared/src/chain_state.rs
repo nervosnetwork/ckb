@@ -1,20 +1,20 @@
 use crate::cell_set::{CellSet, CellSetDiff, CellSetOverlay};
 use crate::error::SharedError;
-use crate::store::ChainStore;
 use crate::tx_pool::types::PoolEntry;
 use crate::tx_pool::{PoolError, TxPool, TxPoolConfig};
 use crate::tx_proposal_table::TxProposalTable;
 use ckb_chain_spec::consensus::{Consensus, ProposalWindow};
 use ckb_core::block::Block;
-#[allow(unused_imports)] // incorrect lint
-use ckb_core::cell::CellProvider;
 use ckb_core::cell::{
     resolve_transaction, CellStatus, LiveCell, OverlayCellProvider, ResolvedTransaction,
 };
+#[allow(unused_imports)] // incorrect lint
+use ckb_core::cell::{CellMeta, CellProvider};
 use ckb_core::header::{BlockNumber, Header};
 use ckb_core::transaction::CellOutput;
 use ckb_core::transaction::{OutPoint, ProposalShortId, Transaction};
 use ckb_core::Cycle;
+use ckb_store::ChainStore;
 use ckb_traits::BlockMedianTimeContext;
 use ckb_verification::{PoolTransactionVerifier, TransactionVerifier};
 use fnv::{FnvHashMap, FnvHashSet};
@@ -303,6 +303,7 @@ impl<CS: ChainStore> ChainState<CS> {
                 let max_cycles = self.consensus.max_block_cycles();
                 let cycles = TransactionVerifier::new(
                     &rtx,
+                    Arc::clone(&self.store),
                     &self,
                     self.tip_number(),
                     self.consensus().cellbase_maturity,
@@ -470,22 +471,18 @@ pub struct ChainCellSetOverlay<'a, CS> {
 }
 
 #[cfg(not(test))]
-impl<CS: ChainStore> CellProvider for ChainState<CS> {
+impl<CS: ChainStore + Sync> CellProvider for ChainState<CS> {
     fn cell(&self, out_point: &OutPoint) -> CellStatus {
         match self.cell_set().get(&out_point.tx_hash) {
             Some(tx_meta) => {
                 if tx_meta.is_dead(out_point.index as usize) {
                     CellStatus::Dead
                 } else {
-                    let (tx, _) = self
+                    let cell_meta = self
                         .store
-                        .get_transaction(&out_point.tx_hash)
+                        .get_cell_meta(&out_point.tx_hash, out_point.index)
                         .expect("store should be consistent with cell_set");
-                    CellStatus::live_output(
-                        tx.outputs()[out_point.index as usize].clone(),
-                        Some(tx_meta.block_number()),
-                        tx_meta.is_cellbase(),
-                    )
+                    CellStatus::live_cell(cell_meta)
                 }
             }
             None => CellStatus::Unknown,
@@ -501,22 +498,27 @@ impl<'a, CS: ChainStore> CellProvider for ChainCellSetOverlay<'a, CS> {
                 if tx_meta.is_dead(out_point.index as usize) {
                     CellStatus::Dead
                 } else {
-                    let output = self
+                    let cell_meta = self
                         .outputs
                         .get(&out_point.tx_hash)
-                        .map(|outputs| outputs[out_point.index as usize].clone())
+                        .map(|outputs| {
+                            let output = &outputs[out_point.index as usize];
+                            CellMeta {
+                                cell_output: Some(output.clone()),
+                                out_point: out_point.to_owned(),
+                                block_number: Some(tx_meta.block_number()),
+                                cellbase: tx_meta.is_cellbase(),
+                                capacity: output.capacity,
+                                data_hash: None,
+                            }
+                        })
                         .or_else(|| {
                             self.store
-                                .get_transaction(&out_point.tx_hash)
-                                .map(|(tx, _)| tx.outputs()[out_point.index as usize].clone())
+                                .get_cell_meta(&out_point.tx_hash, out_point.index)
                         })
                         .expect("store should be consistent with cell_set");
 
-                    CellStatus::live_output(
-                        output,
-                        Some(tx_meta.block_number()),
-                        tx_meta.is_cellbase(),
-                    )
+                    CellStatus::live_cell(cell_meta)
                 }
             }
             None => CellStatus::Unknown,

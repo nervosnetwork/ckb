@@ -6,7 +6,7 @@ use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::header::{HeaderBuilder, Seal};
 use ckb_core::script::Script;
 use ckb_core::transaction::{CellInput, CellOutput, OutPoint, Transaction, TransactionBuilder};
-use ckb_core::{capacity_bytes, BlockNumber, Capacity};
+use ckb_core::{capacity_bytes, BlockNumber, Bytes, Capacity};
 use jsonrpc_client_http::{HttpHandle, HttpTransport};
 use jsonrpc_types::{BlockTemplate, CellbaseTemplate};
 use log::info;
@@ -260,7 +260,7 @@ impl Node {
         TransactionBuilder::default()
             .output(CellOutput::new(
                 capacity_bytes!(50_000),
-                vec![],
+                Bytes::new(),
                 script.clone(),
                 None,
             ))

@@ -6,12 +6,12 @@ use ckb_core::script::Script;
 use ckb_core::transaction::{
     CellInput, CellOutput, OutPoint, ProposalShortId, Transaction, TransactionBuilder,
 };
-use ckb_core::{capacity_bytes, Capacity};
+use ckb_core::{capacity_bytes, Bytes, Capacity};
 use ckb_db::{CacheDB, DBConfig, RocksDB};
 use ckb_notify::NotifyService;
 use ckb_shared::shared::{Shared, SharedBuilder};
-use ckb_shared::store::ChainKVStore;
-use ckb_traits::ChainProvider;
+use ckb_store::ChainKVStore;
+use ckb_traits::chain_provider::ChainProvider;
 use criterion::{criterion_group, criterion_main, Criterion};
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
@@ -154,7 +154,7 @@ fn new_chain(
     let always_success = include_bytes!("../../resource/specs/cells/always_success");
     let cell_output = CellOutput::new(
         Capacity::bytes(always_success.len()).unwrap(),
-        always_success.to_vec(),
+        Bytes::from(always_success.to_vec()),
         Script::default(),
         None,
     );
@@ -174,7 +174,7 @@ fn new_chain(
                 .input(CellInput::new(OutPoint::null(), 0, vec![]))
                 .output(CellOutput::new(
                     capacity_bytes!(50_000),
-                    i.to_le_bytes().to_vec(),
+                    Bytes::from(i.to_le_bytes().to_vec()),
                     Script::new(Vec::new(), data_hash.clone()),
                     None,
                 ))
@@ -229,7 +229,7 @@ fn gen_block(
         .input(CellInput::new_cellbase_input(number))
         .output(CellOutput::new(
             Capacity::zero(),
-            vec![],
+            Bytes::default(),
             Script::default(),
             None,
         ))

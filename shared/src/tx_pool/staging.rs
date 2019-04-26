@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 use crate::tx_pool::types::PoolEntry;
-use ckb_core::cell::{CellProvider, CellStatus};
+use ckb_core::cell::{CellMeta, CellProvider, CellStatus};
 use ckb_core::transaction::{CellOutput, OutPoint, ProposalShortId, Transaction};
 use ckb_core::Cycle;
 use fnv::{FnvHashMap, FnvHashSet};
@@ -103,7 +103,15 @@ impl CellProvider for StagingPool {
             if x.is_some() {
                 CellStatus::Dead
             } else {
-                CellStatus::live_output(self.get_output(o).expect("output"), None, false)
+                let output = self.get_output(o).expect("output");
+                CellStatus::live_cell(CellMeta {
+                    cell_output: Some(output.clone()),
+                    out_point: o.to_owned(),
+                    block_number: None,
+                    cellbase: false,
+                    capacity: output.capacity,
+                    data_hash: None,
+                })
             }
         } else if self.edges.get_outer(o).is_some() {
             CellStatus::Dead
@@ -301,7 +309,7 @@ mod tests {
     use super::*;
     use ckb_core::script::Script;
     use ckb_core::transaction::{CellInput, CellOutput, Transaction, TransactionBuilder};
-    use ckb_core::Capacity;
+    use ckb_core::{Bytes, Capacity};
     use numext_fixed_hash::H256;
 
     fn build_tx(inputs: Vec<(H256, u32)>, outputs_len: usize) -> Transaction {
@@ -319,7 +327,7 @@ mod tests {
                     .map(|i| {
                         CellOutput::new(
                             Capacity::bytes(i + 1).unwrap(),
-                            Vec::new(),
+                            Bytes::default(),
                             Script::default(),
                             None,
                         )

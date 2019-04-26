@@ -1,13 +1,11 @@
 use crate::chain_state::{ChainCellSetOverlay, ChainState};
-use crate::{
-    shared::{Shared, SharedBuilder},
-    store::{ChainKVStore, ChainStore, StoreBatch},
-};
+use crate::shared::{Shared, SharedBuilder};
 use ckb_core::cell::CellProvider;
 use ckb_core::cell::CellStatus;
 use ckb_core::transaction::OutPoint;
 use ckb_core::{block::BlockBuilder, header::HeaderBuilder};
 use ckb_db::{KeyValueDB, MemoryKeyValueDB};
+use ckb_store::{ChainKVStore, ChainStore, StoreBatch};
 use ckb_traits::BlockMedianTimeContext;
 
 // Mock CellProvider

@@ -3,7 +3,7 @@ use ckb_chain::chain::ChainBuilder;
 use ckb_db::{CacheDB, DBConfig, RocksDB};
 use ckb_notify::NotifyService;
 use ckb_shared::shared::{Shared, SharedBuilder};
-use ckb_shared::store::ChainStore;
+use ckb_store::ChainStore;
 use log::info;
 use std::sync::Arc;
 

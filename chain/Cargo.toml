@@ -11,6 +11,7 @@ ckb-core = { path = "../core" }
 ckb-shared = { path = "../shared" }
 ckb-chain-spec = { path = "../spec" }
 ckb-db = { path = "../db" }
+ckb-store = { path = "../store" }
 ckb-notify = { path = "../notify" }
 ckb-verification = { path = "../verification" }
 faketime = "0.2.0"

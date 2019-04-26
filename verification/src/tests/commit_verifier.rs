@@ -9,11 +9,11 @@ use ckb_core::transaction::{
     CellInput, CellOutput, OutPoint, ProposalShortId, Transaction, TransactionBuilder,
 };
 use ckb_core::uncle::UncleBlock;
-use ckb_core::{capacity_bytes, BlockNumber, Capacity};
+use ckb_core::{capacity_bytes, BlockNumber, Bytes, Capacity};
 use ckb_db::memorydb::MemoryKeyValueDB;
 use ckb_notify::NotifyService;
 use ckb_shared::shared::{Shared, SharedBuilder};
-use ckb_shared::store::ChainKVStore;
+use ckb_store::ChainKVStore;
 use ckb_traits::ChainProvider;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
@@ -49,7 +49,7 @@ fn create_transaction(parent: &H256) -> Transaction {
     let capacity = 100_000_000 / 100 as usize;
     let output = CellOutput::new(
         Capacity::bytes(capacity).unwrap(),
-        Vec::new(),
+        Bytes::default(),
         Script::always_success(),
         Some(Script::always_success()),
     );
@@ -85,7 +85,7 @@ fn create_cellbase(number: BlockNumber) -> Transaction {
         .input(CellInput::new_cellbase_input(number))
         .outputs(vec![CellOutput::new(
             Capacity::zero(),
-            vec![],
+            Bytes::default(),
             Script::default(),
             None,
         )])
@@ -102,7 +102,7 @@ fn setup_env() -> (
         .outputs(vec![
             CellOutput::new(
                 capacity_bytes!(1_000_000),
-                Vec::new(),
+                Bytes::default(),
                 Script::always_success(),
                 Some(Script::always_success()),
             );

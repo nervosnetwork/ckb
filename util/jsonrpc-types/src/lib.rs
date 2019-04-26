@@ -17,7 +17,7 @@ pub use self::blockchain::{
     Block, CellInput, CellOutput, Header, OutPoint, Script, Seal, Transaction,
     TransactionWithStatus, TxStatus, UncleBlock, Witness,
 };
-pub use self::bytes::Bytes;
+pub use self::bytes::JsonBytes;
 pub use self::cell::{CellOutputWithOutPoint, CellWithStatus};
 pub use self::net::{Node, NodeAddress};
 pub use self::proposal_short_id::ProposalShortId;

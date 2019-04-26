@@ -2,7 +2,7 @@ use crate::relayer::Relayer;
 use ckb_core::transaction::ProposalShortId;
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::{GetRelayTransaction as FbsGetRelayTransaction, RelayMessage};
-use ckb_shared::store::ChainStore;
+use ckb_store::ChainStore;
 use failure::Error as FailureError;
 use flatbuffers::FlatBufferBuilder;
 use log::{debug, trace};

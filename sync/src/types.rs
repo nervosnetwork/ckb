@@ -8,7 +8,7 @@ use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::SyncMessage;
 use ckb_shared::chain_state::ChainState;
 use ckb_shared::shared::Shared;
-use ckb_shared::store::ChainStore;
+use ckb_store::ChainStore;
 use ckb_traits::ChainProvider;
 use ckb_util::Mutex;
 use ckb_util::RwLock;

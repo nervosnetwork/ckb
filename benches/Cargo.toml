@@ -14,6 +14,7 @@ ckb-pow = { path = "../pow" }
 ckb-chain = { path = "../chain" }
 ckb-core = { path = "../core" }
 ckb-shared = { path = "../shared" }
+ckb-store = { path = "../store" }
 ckb-chain-spec = { path = "../spec" }
 ckb-db = { path = "../db" }
 ckb-notify = { path = "../notify" }

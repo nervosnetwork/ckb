@@ -29,7 +29,7 @@ impl From<CellStatus> for CellWithStatus {
             CellStatus::Unknown => (None, "unknown"),
         };
         Self {
-            cell: cell.map(|cell| cell.cell_output.into()),
+            cell: cell.and_then(|cell| cell.cell_output).map(Into::into),
             status: status.to_string(),
         }
     }

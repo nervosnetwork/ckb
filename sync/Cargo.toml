@@ -8,6 +8,7 @@ edition = "2018"
 [dependencies]
 ckb-chain = { path = "../chain" }
 ckb-shared = { path = "../shared" }
+ckb-store = { path = "../store" }
 ckb-core = { path = "../core" }
 numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 numext-fixed-uint = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }

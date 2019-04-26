@@ -2,11 +2,11 @@ use crate::tests::util::{create_transaction, gen_block, start_chain};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::Block;
 use ckb_core::block::BlockBuilder;
-use ckb_core::cell::{CellProvider, CellStatus};
+use ckb_core::cell::{CellMeta, CellProvider, CellStatus};
 use ckb_core::header::HeaderBuilder;
 use ckb_core::script::Script;
 use ckb_core::transaction::{CellInput, CellOutput, OutPoint, TransactionBuilder};
-use ckb_core::{capacity_bytes, Capacity};
+use ckb_core::{capacity_bytes, Bytes, Capacity};
 use ckb_shared::error::SharedError;
 use ckb_traits::ChainProvider;
 use numext_fixed_uint::U256;
@@ -19,7 +19,7 @@ fn test_genesis_transaction_spend() {
         .outputs(vec![
             CellOutput::new(
                 capacity_bytes!(100_000_000),
-                vec![],
+                Bytes::default(),
                 Script::default(),
                 None
             );
@@ -173,8 +173,18 @@ fn test_transaction_spend_in_same_block() {
         shared
             .chain_state()
             .lock()
-            .get_cell_status(&OutPoint::new(tx2_hash, 0)),
-        CellStatus::live_output(tx2_output, Some(4), false)
+            .get_cell_status(&OutPoint::new(tx2_hash.clone(), 0)),
+        CellStatus::live_cell(CellMeta {
+            cell_output: None,
+            out_point: OutPoint {
+                tx_hash: tx2_hash,
+                index: 0
+            },
+            cellbase: false,
+            capacity: tx2_output.capacity,
+            data_hash: Some(tx2_output.data_hash()),
+            block_number: Some(4),
+        })
     );
 }
 
@@ -355,7 +365,7 @@ fn test_genesis_transaction_fetch() {
         .outputs(vec![
             CellOutput::new(
                 capacity_bytes!(100_000_000),
-                vec![],
+                Bytes::default(),
                 Script::default(),
                 None
             );

@@ -1,0 +1,18 @@
+[package]
+name = "ckb-store"
+version = "0.11.0-pre"
+authors = ["Nervos Core Dev <dev@nervos.org>"]
+edition = "2018"
+
+[dependencies]
+bincode = "1.1"
+serde = "1.0"
+serde_derive = "1.0"
+ckb-core = { path = "../core" }
+ckb-db = { path = "../db" }
+numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
+
+[dev-dependencies]
+tempfile = "3.0"
+ckb-chain-spec = { path = "../spec" }
+
