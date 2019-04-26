@@ -14,3 +14,4 @@ numext-fixed-uint = { version = "0.1", features = ["support_rand", "support_heap
 ckb-core = { path = "../core" }
 ckb-pow = { path = "../pow" }
 ckb-resource = { path = "../resource" }
+occupied-capacity = { path = "../util/occupied-capacity" }

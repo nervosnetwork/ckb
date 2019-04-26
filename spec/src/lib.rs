@@ -14,12 +14,13 @@ use ckb_core::block::Block;
 use ckb_core::block::BlockBuilder;
 use ckb_core::header::HeaderBuilder;
 use ckb_core::script::Script;
-use ckb_core::transaction::{CellOutput, Transaction, TransactionBuilder};
+use ckb_core::transaction::{CellOutput, Transaction, TransactionBuilder, CellInput};
 use ckb_core::{BlockNumber, Capacity, Cycle};
 use ckb_pow::{Pow, PowEngine};
 use ckb_resource::{Resource, ResourceLocator};
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
+use occupied_capacity::OccupiedCapacity;
 use serde_derive::{Deserialize, Serialize};
 use std::error::Error;
 use std::fmt;
@@ -168,19 +169,29 @@ impl ChainSpec {
                 c.get()
                     .map_err(|err| Box::new(err) as Box<Error>)
                     .and_then(|data| {
-                        let data = data.into_owned();
                         // TODO: we should provide a proper lock script here so system cells
                         // can be updated.
-                        Capacity::bytes(data.len())
-                            .map(|cap| CellOutput::new(cap, data, Script::default(), None))
-                            .map_err(|err| Box::new(err) as Box<Error>)
+                        let data = data.into_owned();
+                        let mut cell =
+                            CellOutput::new(Capacity::zero(), data, Script::default(), None);
+                        match cell.occupied_capacity() {
+                            Ok(capacity) => {
+                                cell.capacity = capacity;
+                                Ok(cell)
+                            }
+                            Err(err) => Err(Box::new(err) as Box<Error>),
+                        }
                     })
             })
             .collect();
 
         let outputs = outputs_result?;
-
-        Ok(TransactionBuilder::default().outputs(outputs).build())
+        Ok(
+            TransactionBuilder::default()
+                .outputs(outputs)
+                .input(CellInput::new_cellbase_input(0))
+                .build()
+        )
     }
 
     fn verify_genesis_hash(&self, genesis: &Block) -> Result<(), Box<Error>> {
