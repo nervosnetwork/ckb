@@ -156,6 +156,20 @@ pub enum TransactionError {
     CellbaseImmaturity,
 }
 
+impl TransactionError {
+    /// Transaction error may be caused by different tip between peers if this method return false,
+    /// Otherwise we consider the Bad Tx is constructed intendedly.
+    pub fn is_bad_tx(self) -> bool {
+        use TransactionError::*;
+        match self {
+            NullInput | NullDep | CapacityOverflow | DuplicateInputs | Empty
+            | OutputsSumOverflow | InvalidScript | ScriptFailure(_) | InvalidSignature
+            | InvalidValidSince => true,
+            _ => false,
+        }
+    }
+}
+
 impl From<occupied_capacity::Error> for TransactionError {
     fn from(error: occupied_capacity::Error) -> Self {
         match error {

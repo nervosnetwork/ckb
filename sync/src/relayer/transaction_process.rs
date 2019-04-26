@@ -4,8 +4,6 @@ use ckb_core::{transaction::Transaction, Cycle};
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::{RelayMessage, RelayTransaction as FbsRelayTransaction};
 use ckb_shared::store::ChainStore;
-use ckb_shared::tx_pool::types::PoolError;
-use ckb_verification::TransactionError;
 use failure::Error as FailureError;
 use flatbuffers::FlatBufferBuilder;
 use log::debug;
@@ -75,33 +73,28 @@ impl<'a, CS: ChainStore> TransactionProcess<'a, CS> {
                         .send_message_to(target_peer, fbb.finished_data().to_vec());
                 }
             }
-            Err(PoolError::InvalidTx(TransactionError::NullInput))
-            | Err(PoolError::InvalidTx(TransactionError::NullDep))
-            | Err(PoolError::InvalidTx(TransactionError::CapacityOverflow))
-            | Err(PoolError::InvalidTx(TransactionError::DuplicateInputs))
-            | Err(PoolError::InvalidTx(TransactionError::Empty))
-            | Err(PoolError::InvalidTx(TransactionError::OutputsSumOverflow))
-            | Err(PoolError::InvalidTx(TransactionError::InvalidScript))
-            | Err(PoolError::InvalidTx(TransactionError::ScriptFailure(_)))
-            | Err(PoolError::InvalidTx(TransactionError::InvalidSignature))
-            | Err(PoolError::InvalidTx(TransactionError::InvalidValidSince)) => {
-                debug!(target: "relay", "peer {} relay a invalid tx: {:?}", self.peer, tx);
-                // TODO use report score interface
-                self.nc.ban_peer(self.peer, DEFAULT_BAN_TIME);
-            }
             Ok(cycles) => {
                 debug!(
                     target: "relay",
                     "peer {} relay wrong cycles tx: {:?} real cycles {} wrong cycles {}",
                     self.peer, tx, cycles, relay_cycles,
                 );
-                // TODO use report score interface
                 self.nc.ban_peer(self.peer, DEFAULT_BAN_TIME);
             }
             Err(err) => {
-                // this error may occured when peer's tip is different with us,
-                // we can't proof peer is bad so just ignore this
-                debug!(target: "relay", "peer {} relay tx verify err: {:?}, error: {:?}", self.peer, tx, err);
+                if err.is_bad_tx() {
+                    debug!(target: "relay", "peer {} relay a invalid tx: {:?}, error: {:?}", self.peer, tx_hash, err);
+                    sentry::capture_message(
+                        &format!(
+                            "ban peer {} {:?}, reason: relay invalid tx: {:?}, error: {:?}",
+                            self.peer, DEFAULT_BAN_TIME, tx, err
+                        ),
+                        sentry::Level::Info,
+                    );
+                    self.nc.ban_peer(self.peer, DEFAULT_BAN_TIME);
+                } else {
+                    debug!(target: "relay", "peer {} relay a conflict or missing input tx: {:?}, error: {:?}", self.peer, tx_hash, err);
+                }
             }
         }
 
