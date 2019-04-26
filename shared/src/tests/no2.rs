@@ -28,7 +28,7 @@ fn cell_set() -> CellSet {
     serde_json::from_reader(reader).unwrap()
 }
 fn new_shared() -> Shared<ChainKVStore<MemoryKeyValueDB>> {
-    SharedBuilder::<MemoryKeyValueDB>::new().build()
+    SharedBuilder::<MemoryKeyValueDB>::new().build().unwrap()
 }
 
 #[test]

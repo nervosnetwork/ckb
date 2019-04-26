@@ -44,7 +44,7 @@ impl<'a, CS: ChainStore> CellProvider for ChainCellSetOverlay<'a, CS> {
 }
 
 fn new_shared() -> Shared<ChainKVStore<MemoryKeyValueDB>> {
-    SharedBuilder::<MemoryKeyValueDB>::new().build()
+    SharedBuilder::<MemoryKeyValueDB>::new().build().unwrap()
 }
 
 fn insert_block_timestamps<T>(store: &ChainKVStore<T>, timestamps: &[u64])

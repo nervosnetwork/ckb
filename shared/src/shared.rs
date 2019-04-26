@@ -1,4 +1,5 @@
 use crate::chain_state::ChainState;
+use crate::error::SharedError;
 use crate::store::ChainKVStore;
 use crate::store::ChainStore;
 use crate::tx_pool::TxPoolConfig;
@@ -35,20 +36,24 @@ impl<CS: ChainStore> ::std::clone::Clone for Shared<CS> {
 }
 
 impl<CS: ChainStore> Shared<CS> {
-    pub fn new(store: CS, consensus: Consensus, tx_pool_config: TxPoolConfig) -> Self {
+    pub fn init(
+        store: CS,
+        consensus: Consensus,
+        tx_pool_config: TxPoolConfig,
+    ) -> Result<Self, SharedError> {
         let store = Arc::new(store);
         let consensus = Arc::new(consensus);
-        let chain_state = Arc::new(Mutex::new(ChainState::new(
+        let chain_state = Arc::new(Mutex::new(ChainState::init(
             &store,
             Arc::clone(&consensus),
             tx_pool_config,
-        )));
+        )?));
 
-        Shared {
+        Ok(Shared {
             store,
             chain_state,
             consensus,
-        }
+        })
     }
 
     pub fn chain_state(&self) -> &Mutex<ChainState<CS>> {
@@ -246,10 +251,10 @@ impl<DB: KeyValueDB> SharedBuilder<DB> {
         self
     }
 
-    pub fn build(self) -> Shared<ChainKVStore<DB>> {
+    pub fn build(self) -> Result<Shared<ChainKVStore<DB>>, SharedError> {
         let store = ChainKVStore::new(self.db.unwrap());
         let consensus = self.consensus.unwrap_or_else(Consensus::default);
         let tx_pool_config = self.tx_pool_config.unwrap_or_else(Default::default);
-        Shared::new(store, consensus, tx_pool_config)
+        Shared::init(store, consensus, tx_pool_config)
     }
 }

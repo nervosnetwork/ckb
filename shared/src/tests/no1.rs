@@ -38,7 +38,7 @@ fn transcations() -> Vec<Transaction> {
 }
 
 fn new_shared() -> Shared<ChainKVStore<MemoryKeyValueDB>> {
-    SharedBuilder::<MemoryKeyValueDB>::new().build()
+    SharedBuilder::<MemoryKeyValueDB>::new().build().unwrap()
 }
 
 #[test]

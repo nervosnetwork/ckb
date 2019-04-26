@@ -9,7 +9,11 @@ pub fn import(args: ImportArgs) -> Result<(), ExitCode> {
     let shared = SharedBuilder::<CacheDB<RocksDB>>::default()
         .consensus(args.consensus)
         .db(&args.config.db)
-        .build();
+        .build()
+        .map_err(|err| {
+            eprintln!("Import error: {:?}", err);
+            ExitCode::Failure
+        })?;
 
     let notify = NotifyService::default().start::<&str>(None);
     let chain_service = ChainBuilder::new(shared.clone(), notify).build();

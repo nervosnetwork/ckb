@@ -1,4 +1,5 @@
 use crate::cell_set::{CellSet, CellSetDiff, CellSetOverlay};
+use crate::error::SharedError;
 use crate::store::ChainStore;
 use crate::tx_pool::types::PoolEntry;
 use crate::tx_pool::{PoolError, TxPool, TxPoolConfig};
@@ -36,20 +37,40 @@ pub struct ChainState<CS> {
 }
 
 impl<CS: ChainStore> ChainState<CS> {
-    pub fn new(store: &Arc<CS>, consensus: Arc<Consensus>, tx_pool_config: TxPoolConfig) -> Self {
+    pub fn init(
+        store: &Arc<CS>,
+        consensus: Arc<Consensus>,
+        tx_pool_config: TxPoolConfig,
+    ) -> Result<Self, SharedError> {
         // check head in store or save the genesis block as head
         let tip_header = {
             let genesis = consensus.genesis_block();
             match store.get_tip_header() {
-                Some(h) => h,
-                None => {
-                    store
-                        .init(&genesis)
-                        .expect("init genesis block should be ok");
-                    genesis.header().clone()
+                Some(tip_header) => {
+                    if let Some(genesis_hash) = store.get_block_hash(0) {
+                        let expect_genesis_hash = consensus.genesis_hash();
+                        if &genesis_hash == expect_genesis_hash {
+                            Ok(tip_header)
+                        } else {
+                            Err(SharedError::InvalidData(format!(
+                                "mismatch genesis hash, expect {:#x} but {:#x} in database",
+                                expect_genesis_hash, genesis_hash
+                            )))
+                        }
+                    } else {
+                        Err(SharedError::InvalidData(
+                            "the genesis hash was not found".to_owned(),
+                        ))
+                    }
                 }
+                None => store
+                    .init(&genesis)
+                    .map_err(|_| {
+                        SharedError::InvalidData("failed to init genesis block".to_owned())
+                    })
+                    .map(|_| genesis.header().clone()),
             }
-        };
+        }?;
 
         let tx_pool = TxPool::new(tx_pool_config);
 
@@ -61,9 +82,9 @@ impl<CS: ChainStore> ChainState<CS> {
 
         let total_difficulty = store
             .get_block_ext(&tip_header.hash())
-            .expect("block_ext stored")
+            .ok_or_else(|| SharedError::InvalidData("failed to get block_ext".to_owned()))?
             .total_difficulty;
-        ChainState {
+        Ok(ChainState {
             store: Arc::clone(store),
             tip_header,
             total_difficulty,
@@ -71,7 +92,7 @@ impl<CS: ChainStore> ChainState<CS> {
             proposal_ids,
             tx_pool: RefCell::new(tx_pool),
             consensus,
-        }
+        })
     }
 
     fn init_proposal_ids(

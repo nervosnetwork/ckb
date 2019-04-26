@@ -23,7 +23,8 @@ pub(crate) fn start_chain(
     let builder = SharedBuilder::<MemoryKeyValueDB>::new();
     let shared = builder
         .consensus(consensus.unwrap_or_else(|| Consensus::default().set_cellbase_maturity(0)))
-        .build();
+        .build()
+        .unwrap();
 
     let notify = NotifyService::default().start::<&str>(None);
     let chain_service = ChainBuilder::new(shared.clone(), notify)

@@ -20,7 +20,11 @@ pub fn run(args: RunArgs) -> Result<(), ExitCode> {
         .consensus(args.consensus)
         .db(&args.config.db)
         .tx_pool_config(args.config.tx_pool)
-        .build();
+        .build()
+        .map_err(|err| {
+            eprintln!("Run error: {:?}", err);
+            ExitCode::Failure
+        })?;
 
     let notify = NotifyService::default().start(Some("notify"));
 

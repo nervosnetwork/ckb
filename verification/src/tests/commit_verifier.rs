@@ -70,7 +70,7 @@ fn start_chain(
     if let Some(consensus) = consensus {
         builder = builder.consensus(consensus);
     }
-    let shared = builder.build();
+    let shared = builder.build().unwrap();
 
     let notify = NotifyService::default().start::<&str>(None);
     let chain_service = ChainBuilder::new(shared.clone(), notify)
