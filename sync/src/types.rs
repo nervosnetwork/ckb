@@ -11,7 +11,7 @@ use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 use std::collections::hash_map::Entry;
 
-const FILTER_SIZE: usize = 500;
+const FILTER_SIZE: usize = 20000;
 
 // State used to enforce CHAIN_SYNC_TIMEOUT
 // Only in effect for outbound, non-manual connections, with

@@ -42,7 +42,7 @@ use std::time::Duration;
 
 pub const TX_PROPOSAL_TOKEN: u64 = 0;
 pub const MAX_RELAY_PEERS: usize = 128;
-pub const TX_FILTER_SIZE: usize = 1000;
+pub const TX_FILTER_SIZE: usize = 50000;
 
 pub struct Relayer<CS> {
     chain: ChainController,
