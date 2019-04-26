@@ -83,8 +83,8 @@ pub enum CellbaseError {
 #[derive(Debug, PartialEq, Clone, Eq)]
 pub enum UnclesError {
     OverCount {
-        max: usize,
-        actual: usize,
+        max: u32,
+        actual: u32,
     },
     MissMatchCount {
         expected: u32,

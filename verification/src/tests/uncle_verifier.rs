@@ -297,8 +297,8 @@ fn test_uncle_verifier() {
     assert_eq!(
         verifier.verify(&block),
         Err(Error::Uncles(UnclesError::OverCount {
-            max: max_uncles_num,
-            actual: max_uncles_num + 1
+            max: max_uncles_num as u32,
+            actual: max_uncles_num as u32 + 1
         }))
     );
 }
