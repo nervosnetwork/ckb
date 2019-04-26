@@ -37,22 +37,37 @@ impl<T: KeyValueDB> ChainKVStore<T> {
     }
 }
 
+/// Store interface by chain
 pub trait ChainStore: Sync + Send {
+    /// Batch handle
     type Batch: StoreBatch;
+    /// New a store batch handle
     fn new_batch(&self) -> Result<Self::Batch, Error>;
 
+    /// Get block by block header hash
     fn get_block(&self, block_hash: &H256) -> Option<Block>;
+    /// Get header by block header hash
     fn get_header(&self, block_hash: &H256) -> Option<Header>;
+    /// Get block body by block header hash
     fn get_block_body(&self, block_hash: &H256) -> Option<Vec<Transaction>>;
+    /// Get proposal short id by block header hash
     fn get_block_proposal_txs_ids(&self, h: &H256) -> Option<Vec<ProposalShortId>>;
+    /// Get block uncles by block header hash
     fn get_block_uncles(&self, block_hash: &H256) -> Option<Vec<UncleBlock>>;
+    /// Get block ext by block header hash
     fn get_block_ext(&self, block_hash: &H256) -> Option<BlockExt>;
 
+    /// Init by genesis
     fn init(&self, genesis: &Block) -> Result<(), Error>;
+    /// Get block header hash by block number
     fn get_block_hash(&self, number: BlockNumber) -> Option<H256>;
+    /// Get block number by block header hash
     fn get_block_number(&self, hash: &H256) -> Option<BlockNumber>;
+    /// Get the tip(highest) header
     fn get_tip_header(&self) -> Option<Header>;
-    fn get_transaction(&self, h: &H256) -> Option<Transaction>;
+    /// Get commit transaction and block hash by it's hash
+    fn get_transaction(&self, h: &H256) -> Option<(Transaction, H256)>;
+    /// Get commit transaction address by it's hash
     fn get_transaction_address(&self, hash: &H256) -> Option<TransactionAddress>;
 }
 
@@ -185,18 +200,20 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
             .map(Into::into)
     }
 
-    fn get_transaction(&self, h: &H256) -> Option<Transaction> {
-        self.get_transaction_address(h)
-            .and_then(|d| {
-                self.partial_get(
-                    COLUMN_BLOCK_BODY,
-                    d.block_hash.as_bytes(),
-                    &(d.offset..(d.offset + d.length)),
+    fn get_transaction(&self, h: &H256) -> Option<(Transaction, H256)> {
+        self.get_transaction_address(h).and_then(|d| {
+            self.partial_get(
+                COLUMN_BLOCK_BODY,
+                d.block_hash.as_bytes(),
+                &(d.offset..(d.offset + d.length)),
+            )
+            .map(|ref serialized_transaction| {
+                (
+                    TransactionBuilder::new(serialized_transaction).build(),
+                    d.block_hash,
                 )
             })
-            .map(|ref serialized_transaction| {
-                TransactionBuilder::new(serialized_transaction).build()
-            })
+        })
     }
 
     fn get_transaction_address(&self, h: &H256) -> Option<TransactionAddress> {

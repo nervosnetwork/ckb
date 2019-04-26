@@ -1,10 +1,12 @@
 use ckb_core::cell::CellProvider;
-use ckb_core::BlockNumber;
+use ckb_core::{transaction::ProposalShortId, BlockNumber};
 use ckb_shared::{shared::Shared, store::ChainStore};
 use ckb_traits::ChainProvider;
 use jsonrpc_core::{Error, Result};
 use jsonrpc_derive::rpc;
-use jsonrpc_types::{Block, CellOutputWithOutPoint, CellWithStatus, Header, OutPoint, Transaction};
+use jsonrpc_types::{
+    Block, CellOutputWithOutPoint, CellWithStatus, Header, OutPoint, TransactionWithStatus,
+};
 use numext_fixed_hash::H256;
 use std::convert::TryInto;
 
@@ -14,7 +16,7 @@ pub trait ChainRpc {
     fn get_block(&self, _hash: H256) -> Result<Option<Block>>;
 
     #[rpc(name = "get_transaction")]
-    fn get_transaction(&self, _hash: H256) -> Result<Option<Transaction>>;
+    fn get_transaction(&self, _hash: H256) -> Result<Option<TransactionWithStatus>>;
 
     #[rpc(name = "get_block_hash")]
     fn get_block_hash(&self, _number: String) -> Result<Option<H256>>;
@@ -46,8 +48,24 @@ impl<CS: ChainStore + 'static> ChainRpc for ChainRpcImpl<CS> {
         Ok(self.shared.block(&hash).as_ref().map(Into::into))
     }
 
-    fn get_transaction(&self, hash: H256) -> Result<Option<Transaction>> {
-        Ok(self.shared.get_transaction(&hash).as_ref().map(Into::into))
+    fn get_transaction(&self, hash: H256) -> Result<Option<TransactionWithStatus>> {
+        let id = ProposalShortId::from_tx_hash(&hash);
+
+        let tx = {
+            let chan_state = self.shared.chain_state().lock();
+
+            let tx_pool = chan_state.tx_pool();
+            tx_pool
+                .get_tx_from_staging(&id)
+                .map(TransactionWithStatus::with_proposed)
+                .or_else(|| tx_pool.get_tx(&id).map(TransactionWithStatus::with_pending))
+        };
+
+        Ok(tx.or_else(|| {
+            self.shared
+                .get_transaction(&hash)
+                .map(|(tx, block_hash)| TransactionWithStatus::with_committed(tx, block_hash))
+        }))
     }
 
     fn get_block_hash(&self, number: String) -> Result<Option<H256>> {

@@ -77,7 +77,7 @@ impl<'a> FeeCalculator<'a> {
         self.txs_map
             .get(tx_hash)
             .map(|index| self.txs[*index].transaction.clone())
-            .or_else(|| self.provider.get_transaction(tx_hash))
+            .or_else(|| self.provider.get_transaction(tx_hash).map(|info| info.0))
     }
 
     fn calculate_transaction_fee(
