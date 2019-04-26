@@ -5,10 +5,9 @@ use crate::tx_pool::{PoolError, TxPool, TxPoolConfig};
 use crate::tx_proposal_table::TxProposalTable;
 use ckb_chain_spec::consensus::{Consensus, ProposalWindow};
 use ckb_core::block::Block;
-#[allow(unused_imports)] // incorrect lint
-use ckb_core::cell::CellProvider;
 use ckb_core::cell::{
-    resolve_transaction, CellStatus, LiveCell, OverlayCellProvider, ResolvedTransaction,
+    CellProvider, CellStatus, LiveCell, OverlayCellProvider, ResolvedTransaction,
+    TransactionCellProvider,
 };
 use ckb_core::header::{BlockNumber, Header};
 use ckb_core::transaction::CellOutput;
@@ -197,11 +196,13 @@ impl<CS: ChainStore> ChainState<CS> {
         tx: &Transaction,
         tx_pool: &TxPool,
     ) -> ResolvedTransaction {
+        let transaction_provider = TransactionCellProvider::new(tx);
         let staging_provider = OverlayCellProvider::new(&tx_pool.staging, self);
         let pending_and_staging_provider =
             OverlayCellProvider::new(&tx_pool.pending, &staging_provider);
-        let mut seen_inputs = FnvHashSet::default();
-        resolve_transaction(tx, &mut seen_inputs, &pending_and_staging_provider)
+        let cell_provider =
+            OverlayCellProvider::new(&transaction_provider, &pending_and_staging_provider);
+        cell_provider.resolve_transaction(tx)
     }
 
     pub fn resolve_tx_from_staging(
@@ -209,9 +210,10 @@ impl<CS: ChainStore> ChainState<CS> {
         tx: &Transaction,
         tx_pool: &TxPool,
     ) -> ResolvedTransaction {
-        let cell_provider = OverlayCellProvider::new(&tx_pool.staging, self);
-        let mut seen_inputs = FnvHashSet::default();
-        resolve_transaction(tx, &mut seen_inputs, &cell_provider)
+        let transaction_provider = TransactionCellProvider::new(tx);
+        let staging_provider = OverlayCellProvider::new(&tx_pool.staging, self);
+        let cell_provider = OverlayCellProvider::new(&transaction_provider, &staging_provider);
+        cell_provider.resolve_transaction(tx)
     }
 
     // FIXME: we may need redesign orphan pool, this is not short-circuiting

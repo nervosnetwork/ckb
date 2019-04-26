@@ -4,9 +4,8 @@ use crate::{
     store::ChainKVStore,
 };
 use ckb_core::block::Block;
-use ckb_core::cell::resolve_transaction;
+use ckb_core::cell::CellProvider;
 use ckb_db::memorydb::MemoryKeyValueDB;
-use fnv::FnvHashSet;
 use std::fs::File;
 use std::io::BufReader;
 use std::path::Path;
@@ -37,13 +36,12 @@ fn case_no2() {
     let shared = new_shared();
     let mut chain_state = shared.chain_state().lock();
     chain_state.cell_set = cell_set();
-    let mut seen_inputs = FnvHashSet::default();
 
     // dep status
     assert!(block
         .transactions()
         .iter()
-        .map(|tx| resolve_transaction(tx, &mut seen_inputs, &*chain_state).dep_cells)
+        .map(|tx| chain_state.resolve_transaction(tx).dep_cells)
         .flatten()
         .all(|status| status.is_live()));
 }
