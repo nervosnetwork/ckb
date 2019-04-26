@@ -1,7 +1,7 @@
 use crate::error::TransactionError;
 use ckb_core::transaction::{Capacity, OutPoint, Transaction, TX_VERSION};
 use ckb_core::{
-    cell::{CellMeta, LiveCell, ResolvedTransaction},
+    cell::{CellMeta, ResolvedTransaction},
     BlockNumber, Cycle,
 };
 use ckb_script::TransactionScriptsVerifier;
@@ -153,19 +153,13 @@ impl<'a> MaturityVerifier<'a> {
     }
 
     pub fn verify(&self) -> Result<(), TransactionError> {
-        let cellbase_immature = |live_cell: &LiveCell| -> bool {
-            match live_cell {
-                LiveCell::Output(ref meta)
-                    if meta.is_cellbase()
-                        && self.tip_number
-                            < meta.block_number.expect(
-                                "cell meta should have block number when transaction verify",
-                            ) + self.cellbase_maturity =>
-                {
-                    true
-                }
-                _ => false,
-            }
+        let cellbase_immature = |meta: &CellMeta| -> bool {
+            meta.is_cellbase()
+                && self.tip_number
+                    < meta
+                        .block_number
+                        .expect("cell meta should have block number when transaction verify")
+                        + self.cellbase_maturity
         };
 
         let input_immature_spend = || self.transaction.input_cells.iter().any(cellbase_immature);
@@ -221,9 +215,8 @@ impl<'a> CapacityVerifier<'a> {
             .resolved_transaction
             .input_cells
             .iter()
-            .filter_map(LiveCell::get_live_output)
-            .try_fold(Capacity::zero(), |acc, cell_output| {
-                acc.safe_add(cell_output.capacity)
+            .try_fold(Capacity::zero(), |acc, cell_meta| {
+                acc.safe_add(cell_meta.capacity())
             })?;
 
         let outputs_total = self
@@ -398,7 +391,7 @@ where
     }
 
     pub fn verify(&self) -> Result<(), TransactionError> {
-        for (live_cell, input) in self
+        for (cell_meta, input) in self
             .rtx
             .input_cells
             .iter()
@@ -416,11 +409,6 @@ where
 
             // verify time lock
             self.verify_absolute_lock(since)?;
-
-            let cell_meta = match live_cell {
-                LiveCell::Null => continue, // do not verify null in ValidSinceVerifier
-                LiveCell::Output(cell_meta) => cell_meta,
-            };
             self.verify_relative_lock(since, cell_meta)?;
         }
         Ok(())

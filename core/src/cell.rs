@@ -5,29 +5,6 @@ use fnv::FnvHashMap;
 use numext_fixed_hash::H256;
 
 #[derive(Clone, Eq, PartialEq, Debug)]
-pub enum LiveCell {
-    Null,
-    Output(CellMeta),
-}
-
-impl LiveCell {
-    pub fn get_live_output(&self) -> Option<&CellOutput> {
-        match self {
-            LiveCell::Output(cell_meta) => Some(&cell_meta.cell_output),
-            _ => None,
-        }
-    }
-
-    pub fn live_output(cell_output: CellOutput, block_number: Option<u64>, cellbase: bool) -> Self {
-        LiveCell::Output(CellMeta {
-            cell_output,
-            block_number,
-            cellbase,
-        })
-    }
-}
-
-#[derive(Clone, Eq, PartialEq, Debug)]
 pub struct CellMeta {
     pub cell_output: CellOutput,
     pub block_number: Option<u64>,
@@ -35,6 +12,14 @@ pub struct CellMeta {
 }
 
 impl CellMeta {
+    pub fn new(cell_output: CellOutput, block_number: Option<u64>, cellbase: bool) -> Self {
+        Self {
+            cell_output,
+            block_number,
+            cellbase,
+        }
+    }
+
     pub fn is_cellbase(&self) -> bool {
         self.cellbase
     }
@@ -42,12 +27,16 @@ impl CellMeta {
     pub fn capacity(&self) -> Capacity {
         self.cell_output.capacity
     }
+
+    pub fn cell_output(&self) -> &CellOutput {
+        &self.cell_output
+    }
 }
 
 #[derive(Clone, PartialEq, Debug)]
 pub enum CellStatus {
     /// Cell exists and has not been spent.
-    Live(LiveCell),
+    Live(CellMeta),
     /// Cell exists and has been spent.
     Dead,
     /// Cell does not exist.
@@ -55,20 +44,16 @@ pub enum CellStatus {
 }
 
 impl CellStatus {
-    pub fn live_null() -> CellStatus {
-        CellStatus::Live(LiveCell::Null)
-    }
-
     pub fn live_output(
         cell_output: CellOutput,
         block_number: Option<u64>,
         cellbase: bool,
     ) -> CellStatus {
-        CellStatus::Live(LiveCell::Output(CellMeta {
+        CellStatus::Live(CellMeta {
             cell_output,
             block_number,
             cellbase,
-        }))
+        })
     }
 
     pub fn is_live(&self) -> bool {
@@ -85,60 +70,43 @@ impl CellStatus {
     pub fn is_unknown(&self) -> bool {
         self == &CellStatus::Unknown
     }
-
-    pub fn get_live_output(&self) -> Option<&CellMeta> {
-        match *self {
-            CellStatus::Live(LiveCell::Output(ref output)) => Some(output),
-            _ => None,
-        }
-    }
-
-    pub fn take_live_output(self) -> Option<CellMeta> {
-        match self {
-            CellStatus::Live(LiveCell::Output(output)) => Some(output),
-            _ => None,
-        }
-    }
 }
 
 /// Transaction with resolved input cells.
 #[derive(Debug)]
 pub struct ResolvedTransaction {
     pub transaction: Transaction,
-    pub dep_cells: Vec<LiveCell>,
-    pub input_cells: Vec<LiveCell>,
+    pub dep_cells: Vec<CellMeta>,
+    pub input_cells: Vec<CellMeta>,
 }
 
 #[derive(Debug, PartialEq)]
 pub enum UnresolvableError {
-    Dead,
-    Unknown,
+    Dead(OutPoint),
+    Unknown(OutPoint),
 }
 
 pub trait CellProvider {
     fn cell(&self, out_point: &OutPoint) -> CellStatus;
 
-    fn get_cell_status(&self, out_point: &OutPoint) -> CellStatus {
-        if out_point.is_null() {
-            CellStatus::Live(LiveCell::Null)
-        } else {
-            self.cell(out_point)
-        }
-    }
-
     fn resolve_transaction(
         &self,
         transaction: &Transaction,
     ) -> Result<ResolvedTransaction, UnresolvableError> {
-        let input_cells: Result<Vec<_>, _> = transaction
-            .input_pts()
-            .iter()
-            .map(|input| match self.get_cell_status(input) {
-                CellStatus::Live(live_cell) => Ok(live_cell),
-                CellStatus::Dead => Err(UnresolvableError::Dead),
-                CellStatus::Unknown => Err(UnresolvableError::Unknown),
-            })
-            .collect();
+        // setup empty input cells for cellbase
+        let input_cells = if transaction.is_cellbase() {
+            Ok(Vec::new())
+        } else {
+            transaction
+                .input_pts()
+                .iter()
+                .map(|out_point| match self.cell(out_point) {
+                    CellStatus::Live(live_cell) => Ok(live_cell),
+                    CellStatus::Dead => Err(UnresolvableError::Dead(out_point.clone())),
+                    CellStatus::Unknown => Err(UnresolvableError::Unknown(out_point.clone())),
+                })
+                .collect()
+        };
 
         if input_cells.is_err() {
             return Err(input_cells.unwrap_err());
@@ -147,10 +115,10 @@ pub trait CellProvider {
         let dep_cells: Result<Vec<_>, _> = transaction
             .dep_pts()
             .iter()
-            .map(|dep| match self.get_cell_status(dep) {
+            .map(|out_point| match self.cell(out_point) {
                 CellStatus::Live(live_cell) => Ok(live_cell),
-                CellStatus::Dead => Err(UnresolvableError::Dead),
-                CellStatus::Unknown => Err(UnresolvableError::Unknown),
+                CellStatus::Dead => Err(UnresolvableError::Dead(out_point.clone())),
+                CellStatus::Unknown => Err(UnresolvableError::Unknown(out_point.clone())),
             })
             .collect();
 
@@ -182,10 +150,10 @@ impl<'a> OverlayCellProvider<'a> {
 
 impl<'a> CellProvider for OverlayCellProvider<'a> {
     fn cell(&self, out_point: &OutPoint) -> CellStatus {
-        match self.overlay.get_cell_status(out_point) {
+        match self.overlay.cell(out_point) {
             CellStatus::Live(co) => CellStatus::Live(co),
             CellStatus::Dead => CellStatus::Dead,
-            CellStatus::Unknown => self.cell_provider.get_cell_status(out_point),
+            CellStatus::Unknown => self.cell_provider.cell(out_point),
         }
     }
 }
@@ -282,6 +250,10 @@ impl<'a> CellProvider for TransactionCellProvider<'a> {
 }
 
 impl ResolvedTransaction {
+    pub fn is_cellbase(&self) -> bool {
+        self.input_cells.is_empty()
+    }
+
     pub fn fee(&self) -> ::occupied_capacity::Result<Capacity> {
         self.inputs_capacity().and_then(|x| {
             self.transaction.outputs_capacity().and_then(|y| {
@@ -297,13 +269,7 @@ impl ResolvedTransaction {
     pub fn inputs_capacity(&self) -> ::occupied_capacity::Result<Capacity> {
         self.input_cells
             .iter()
-            .filter_map(|live_cell| {
-                if let LiveCell::Output(cell_meta) = live_cell {
-                    Some(cell_meta.capacity())
-                } else {
-                    None
-                }
-            })
+            .map(CellMeta::capacity)
             .try_fold(Capacity::zero(), Capacity::safe_add)
     }
 }
@@ -322,7 +288,7 @@ mod tests {
     impl CellProvider for CellMemoryDb {
         fn cell(&self, o: &OutPoint) -> CellStatus {
             match self.cells.get(o) {
-                Some(&Some(ref cell_meta)) => CellStatus::Live(LiveCell::Output(cell_meta.clone())),
+                Some(&Some(ref cell_meta)) => CellStatus::Live(cell_meta.clone()),
                 Some(&None) => CellStatus::Dead,
                 None => CellStatus::Unknown,
             }
@@ -361,11 +327,8 @@ mod tests {
         db.cells.insert(p1.clone(), Some(o.clone()));
         db.cells.insert(p2.clone(), None);
 
-        assert_eq!(
-            CellStatus::Live(LiveCell::Output(o)),
-            db.get_cell_status(&p1)
-        );
-        assert_eq!(CellStatus::Dead, db.get_cell_status(&p2));
-        assert_eq!(CellStatus::Unknown, db.get_cell_status(&p3));
+        assert_eq!(CellStatus::Live(o), db.cell(&p1));
+        assert_eq!(CellStatus::Dead, db.cell(&p2));
+        assert_eq!(CellStatus::Unknown, db.cell(&p3));
     }
 }

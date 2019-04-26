@@ -3,7 +3,7 @@ use crate::{
     shared::{Shared, SharedBuilder},
     store::ChainKVStore,
 };
-use ckb_core::cell::{CellProvider, CellStatus, LiveCell, UnresolvableError};
+use ckb_core::cell::{CellProvider, CellStatus, UnresolvableError};
 use ckb_core::transaction::Transaction;
 use ckb_db::memorydb::MemoryKeyValueDB;
 use fnv::FnvHashMap;

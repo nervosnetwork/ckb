@@ -3,7 +3,7 @@ use crate::{
     syscalls::{build_tx, Debugger, LoadCell, LoadCellByField, LoadInputByField, LoadTx},
     ScriptError,
 };
-use ckb_core::cell::{LiveCell, ResolvedTransaction};
+use ckb_core::cell::{CellMeta, ResolvedTransaction};
 use ckb_core::script::{Script, ALWAYS_SUCCESS_HASH};
 use ckb_core::transaction::{CellInput, CellOutput};
 use ckb_core::Cycle;
@@ -29,16 +29,9 @@ pub struct TransactionScriptsVerifier<'a> {
 
 impl<'a> TransactionScriptsVerifier<'a> {
     pub fn new(rtx: &'a ResolvedTransaction) -> TransactionScriptsVerifier<'a> {
-        let dep_cells: Vec<&'a CellOutput> = rtx
-            .dep_cells
-            .iter()
-            .filter_map(LiveCell::get_live_output)
-            .collect();
-        let input_cells = rtx
-            .input_cells
-            .iter()
-            .filter_map(LiveCell::get_live_output)
-            .collect();
+        let dep_cells: Vec<&'a CellOutput> =
+            rtx.dep_cells.iter().map(CellMeta::cell_output).collect();
+        let input_cells = rtx.input_cells.iter().map(CellMeta::cell_output).collect();
         let inputs = rtx.transaction.inputs().iter().collect();
         let outputs = rtx.transaction.outputs().iter().collect();
         let witnesses: FnvHashMap<u32, &'a [Vec<u8>]> = rtx
@@ -191,7 +184,7 @@ impl<'a> TransactionScriptsVerifier<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ckb_core::cell::{CellMeta, LiveCell};
+    use ckb_core::cell::CellMeta;
     use ckb_core::script::Script;
     use ckb_core::transaction::{CellInput, CellOutput, OutPoint, TransactionBuilder};
     use ckb_core::{capacity_bytes, Capacity};
@@ -226,7 +219,7 @@ mod tests {
         let rtx = ResolvedTransaction {
             transaction,
             dep_cells: vec![],
-            input_cells: vec![LiveCell::Output(dummy_cell)],
+            input_cells: vec![dummy_cell],
         };
 
         let verifier = TransactionScriptsVerifier::new(&rtx);
@@ -293,8 +286,8 @@ mod tests {
 
         let rtx = ResolvedTransaction {
             transaction,
-            dep_cells: vec![LiveCell::Output(dep_cell)],
-            input_cells: vec![LiveCell::Output(dummy_cell)],
+            dep_cells: vec![dep_cell],
+            input_cells: vec![dummy_cell],
         };
 
         let verifier = TransactionScriptsVerifier::new(&rtx);
@@ -361,8 +354,8 @@ mod tests {
 
         let rtx = ResolvedTransaction {
             transaction,
-            dep_cells: vec![LiveCell::Output(dep_cell)],
-            input_cells: vec![LiveCell::Output(dummy_cell)],
+            dep_cells: vec![dep_cell],
+            input_cells: vec![dummy_cell],
         };
 
         let verifier = TransactionScriptsVerifier::new(&rtx);
@@ -431,8 +424,8 @@ mod tests {
 
         let rtx = ResolvedTransaction {
             transaction,
-            dep_cells: vec![LiveCell::Output(dep_cell)],
-            input_cells: vec![LiveCell::Output(dummy_cell)],
+            dep_cells: vec![dep_cell],
+            input_cells: vec![dummy_cell],
         };
 
         let verifier = TransactionScriptsVerifier::new(&rtx);
@@ -489,7 +482,7 @@ mod tests {
         let rtx = ResolvedTransaction {
             transaction,
             dep_cells: vec![],
-            input_cells: vec![LiveCell::Output(dummy_cell)],
+            input_cells: vec![dummy_cell],
         };
 
         let verifier = TransactionScriptsVerifier::new(&rtx);
@@ -565,8 +558,8 @@ mod tests {
 
         let rtx = ResolvedTransaction {
             transaction,
-            dep_cells: vec![LiveCell::Output(dep_cell)],
-            input_cells: vec![LiveCell::Output(dummy_cell)],
+            dep_cells: vec![dep_cell],
+            input_cells: vec![dummy_cell],
         };
 
         let verifier = TransactionScriptsVerifier::new(&rtx);
@@ -644,8 +637,8 @@ mod tests {
 
         let rtx = ResolvedTransaction {
             transaction,
-            dep_cells: vec![LiveCell::Output(dep_cell)],
-            input_cells: vec![LiveCell::Output(dummy_cell)],
+            dep_cells: vec![dep_cell],
+            input_cells: vec![dummy_cell],
         };
 
         let verifier = TransactionScriptsVerifier::new(&rtx);
