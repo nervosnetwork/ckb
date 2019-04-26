@@ -39,12 +39,7 @@
     },
     {
         "version": 0,
-        "deps": [
-            {
-                "tx_hash": "0x206925a8e9636a5546d554f1eb9d26c98bb2d99d4afb40cb761701bae102b96e",
-                "index": 0
-            }
-        ],
+        "deps": [],
         "inputs": [
             {
                 "previous_output": {

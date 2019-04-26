@@ -94,6 +94,12 @@ pub struct ResolvedTransaction {
     pub input_cells: Vec<CellStatus>,
 }
 
+#[derive(Debug, PartialEq)]
+pub enum UnresolvableError {
+    Dead,
+    Unknown,
+}
+
 pub trait CellProvider {
     fn cell(&self, out_point: &OutPoint) -> CellStatus;
 
@@ -105,24 +111,43 @@ pub trait CellProvider {
         }
     }
 
-    fn resolve_transaction(&self, transaction: &Transaction) -> ResolvedTransaction {
-        let input_cells = transaction
+    fn resolve_transaction(
+        &self,
+        transaction: &Transaction,
+    ) -> Result<ResolvedTransaction, UnresolvableError> {
+        let input_cells: Result<Vec<_>, _> = transaction
             .input_pts()
             .iter()
-            .map(|input| self.get_cell_status(input))
+            .map(|input| match self.get_cell_status(input) {
+                CellStatus::Live(live_cell) => Ok(CellStatus::Live(live_cell)),
+                CellStatus::Dead => Err(UnresolvableError::Dead),
+                CellStatus::Unknown => Err(UnresolvableError::Unknown),
+            })
             .collect();
 
-        let dep_cells = transaction
+        if input_cells.is_err() {
+            return Err(input_cells.unwrap_err());
+        }
+
+        let dep_cells: Result<Vec<_>, _> = transaction
             .dep_pts()
             .iter()
-            .map(|dep| self.get_cell_status(dep))
+            .map(|dep| match self.get_cell_status(dep) {
+                CellStatus::Live(live_cell) => Ok(CellStatus::Live(live_cell)),
+                CellStatus::Dead => Err(UnresolvableError::Dead),
+                CellStatus::Unknown => Err(UnresolvableError::Unknown),
+            })
             .collect();
 
-        ResolvedTransaction {
-            transaction: transaction.clone(),
-            input_cells,
-            dep_cells,
+        if dep_cells.is_err() {
+            return Err(dep_cells.unwrap_err());
         }
+
+        Ok(ResolvedTransaction {
+            transaction: transaction.clone(),
+            input_cells: input_cells.unwrap(),
+            dep_cells: dep_cells.unwrap(),
+        })
     }
 }
 

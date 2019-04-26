@@ -3,7 +3,7 @@ use crate::{
     shared::{Shared, SharedBuilder},
     store::ChainKVStore,
 };
-use ckb_core::cell::{CellProvider, CellStatus, LiveCell};
+use ckb_core::cell::{CellProvider, CellStatus, LiveCell, UnresolvableError};
 use ckb_core::transaction::Transaction;
 use ckb_db::memorydb::MemoryKeyValueDB;
 use fnv::FnvHashMap;
@@ -54,19 +54,34 @@ fn case_no1() {
     let transcations = transcations();
 
     //Outpoint::null should be live
-    let rtx0 = cell_set_overlay.resolve_transaction(&transcations[0]);
+    let rtx0 = cell_set_overlay
+        .resolve_transaction(&transcations[0])
+        .unwrap();
     assert_eq!(rtx0.input_cells[0], CellStatus::Live(LiveCell::Null));
 
     // cell A (0x8aa8799cd6ad56dd6929fd6ac05f5cab6a5339562297abb619839ab2da519f35, 0)
     // A is dead in old fork
     let rtx1 = chain_state.resolve_transaction(&transcations[1]);
-    assert_eq!(rtx1.input_cells[0], CellStatus::Dead);
+    assert_eq!(rtx1.unwrap_err(), UnresolvableError::Dead);
+    // assert_eq!(rtx1.input_cells[0], CellStatus::Dead);
 
     // A include in cell_set_diff old_inputs
     // A is live in cell_set_overlay
-    let rtx1_overlay = cell_set_overlay.resolve_transaction(&transcations[1]);
+    let rtx1_overlay = cell_set_overlay
+        .resolve_transaction(&transcations[1])
+        .unwrap();
     assert_eq!(
         rtx1_overlay.input_cells[0],
         CellStatus::Live(LiveCell::Null)
     );
+
+    // assert_eq!(
+    //     rtx1_overlay.input_cells[0],
+    //     CellStatus::Live(LiveCell::Null)
+    // );
+
+    // assert_eq!(
+    //     rtx1_overlay.dep_cells[0],
+    //     CellStatus::Unknown,
+    // );
 }

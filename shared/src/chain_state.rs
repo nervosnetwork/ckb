@@ -178,7 +178,7 @@ impl<CS: ChainStore> ChainState<CS> {
     pub fn add_tx_to_pool(&self, tx: Transaction) -> Result<Cycle, PoolError> {
         let mut tx_pool = self.tx_pool.borrow_mut();
         let short_id = tx.proposal_short_id();
-        let rtx = self.resolve_tx_from_pending_and_staging(&tx, &tx_pool);
+        let rtx = self.resolve_tx_from_pending_and_staging(&tx, &tx_pool)?;
 
         self.verify_rtx(&rtx, None).map(|cycles| {
             if self.contains_proposal_id(&short_id) {
@@ -191,29 +191,33 @@ impl<CS: ChainStore> ChainState<CS> {
         })
     }
 
-    pub fn resolve_tx_from_pending_and_staging(
+    fn resolve_tx_from_pending_and_staging(
         &self,
         tx: &Transaction,
         tx_pool: &TxPool,
-    ) -> ResolvedTransaction {
+    ) -> Result<ResolvedTransaction, PoolError> {
         let transaction_provider = TransactionCellProvider::new(tx);
         let staging_provider = OverlayCellProvider::new(&tx_pool.staging, self);
         let pending_and_staging_provider =
             OverlayCellProvider::new(&tx_pool.pending, &staging_provider);
         let cell_provider =
             OverlayCellProvider::new(&transaction_provider, &pending_and_staging_provider);
-        cell_provider.resolve_transaction(tx)
+        cell_provider
+            .resolve_transaction(tx)
+            .map_err(|_| PoolError::Conflict)
     }
 
-    pub fn resolve_tx_from_staging(
+    fn resolve_tx_from_staging(
         &self,
         tx: &Transaction,
         tx_pool: &TxPool,
-    ) -> ResolvedTransaction {
+    ) -> Result<ResolvedTransaction, PoolError> {
         let transaction_provider = TransactionCellProvider::new(tx);
         let staging_provider = OverlayCellProvider::new(&tx_pool.staging, self);
         let cell_provider = OverlayCellProvider::new(&transaction_provider, &staging_provider);
-        cell_provider.resolve_transaction(tx)
+        cell_provider
+            .resolve_transaction(tx)
+            .map_err(|_| PoolError::Conflict)
     }
 
     // FIXME: we may need redesign orphan pool, this is not short-circuiting
@@ -316,7 +320,7 @@ impl<CS: ChainStore> ChainState<CS> {
         let short_id = tx.proposal_short_id();
         let tx_hash = tx.hash();
 
-        let rtx = self.resolve_tx_from_staging(&tx, tx_pool);
+        let rtx = self.resolve_tx_from_staging(&tx, tx_pool)?;
 
         match self.verify_rtx(&rtx, cycles) {
             Err(PoolError::Conflict) => {

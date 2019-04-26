@@ -1,3 +1,4 @@
+use ckb_core::cell::UnresolvableError;
 use ckb_core::BlockNumber;
 use ckb_script::ScriptError;
 use numext_fixed_hash::H256;
@@ -13,6 +14,7 @@ use std::fmt;
 /// If the Rust community has better patterns in the future, then look back here
 #[derive(Debug, PartialEq)]
 pub enum Error {
+    Unresolvable(UnresolvableError),
     /// PoW proof is corrupt or does not meet the difficulty target.
     Pow(PowError),
     /// The field timestamp in block header is invalid.

@@ -41,7 +41,10 @@ fn case_no2() {
     assert!(block
         .transactions()
         .iter()
-        .map(|tx| chain_state.resolve_transaction(tx).dep_cells)
+        .map(|tx| chain_state
+            .resolve_transaction(tx)
+            .expect("resolve should be ok")
+            .dep_cells)
         .flatten()
         .all(|status| status.is_live()));
 }
