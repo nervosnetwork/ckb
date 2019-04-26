@@ -45,7 +45,7 @@ pub fn test_block_without_cellbase() {
     let block = BlockBuilder::default()
         .transaction(TransactionBuilder::default().build())
         .build();
-    let verifier = CellbaseVerifier::new(DummyChainProvider::default());
+    let verifier = CellbaseVerifier::new();
     assert_eq!(
         verifier.verify(&block),
         Err(VerifyError::Cellbase(CellbaseError::InvalidQuantity))
@@ -61,11 +61,7 @@ pub fn test_block_with_one_cellbase_at_first() {
         .transaction(transaction)
         .build();
 
-    let provider = DummyChainProvider {
-        block_reward: capacity_bytes!(100),
-    };
-
-    let verifier = CellbaseVerifier::new(provider);
+    let verifier = CellbaseVerifier::new();
     assert!(verifier.verify(&block).is_ok());
 }
 
@@ -76,7 +72,7 @@ pub fn test_block_with_one_cellbase_at_last() {
         .transaction(create_cellbase_transaction())
         .build();
 
-    let verifier = CellbaseVerifier::new(DummyChainProvider::default());
+    let verifier = CellbaseVerifier::new();
     assert_eq!(
         verifier.verify(&block),
         Err(VerifyError::Cellbase(CellbaseError::InvalidPosition))
@@ -90,7 +86,7 @@ pub fn test_block_with_two_cellbases() {
         .transaction(create_cellbase_transaction())
         .build();
 
-    let verifier = CellbaseVerifier::new(DummyChainProvider::default());
+    let verifier = CellbaseVerifier::new();
     assert_eq!(
         verifier.verify(&block),
         Err(VerifyError::Cellbase(CellbaseError::InvalidQuantity))
@@ -108,11 +104,7 @@ pub fn test_cellbase_with_less_reward() {
         .transaction(transaction)
         .build();
 
-    let provider = DummyChainProvider {
-        block_reward: capacity_bytes!(100),
-    };
-
-    let verifier = CellbaseVerifier::new(provider);
+    let verifier = CellbaseVerifier::new();
     assert!(verifier.verify(&block).is_ok());
 }
 
@@ -127,11 +119,7 @@ pub fn test_cellbase_with_fee() {
         .transaction(transaction)
         .build();
 
-    let provider = DummyChainProvider {
-        block_reward: capacity_bytes!(100),
-    };
-
-    let verifier = CellbaseVerifier::new(provider);
+    let verifier = CellbaseVerifier::new();
     assert!(verifier.verify(&block).is_ok());
 }
 

@@ -19,7 +19,7 @@ pub struct BlockVerifier<P> {
     // Verify if the committed and proposed transactions contains duplicate
     duplicate: DuplicateVerifier,
     // Verify the cellbase
-    cellbase: CellbaseVerifier<P>,
+    cellbase: CellbaseVerifier,
     // Verify the the committed and proposed transactions merkle root match header's announce
     merkle_root: MerkleRootVerifier,
     // Verify the the uncle
@@ -36,7 +36,7 @@ where
         BlockVerifier {
             // TODO change all new fn's chain to reference
             duplicate: DuplicateVerifier::new(),
-            cellbase: CellbaseVerifier::new(provider.clone()),
+            cellbase: CellbaseVerifier::new(),
             merkle_root: MerkleRootVerifier::new(),
             uncles: UnclesVerifier::new(provider.clone()),
             commit: CommitVerifier::new(provider),
@@ -57,13 +57,11 @@ impl<P: ChainProvider + Clone> Verifier for BlockVerifier<P> {
 }
 
 #[derive(Clone)]
-pub struct CellbaseVerifier<CP> {
-    provider: CP,
-}
+pub struct CellbaseVerifier {}
 
-impl<CP: ChainProvider + Clone> CellbaseVerifier<CP> {
-    pub fn new(provider: CP) -> Self {
-        CellbaseVerifier { provider }
+impl CellbaseVerifier {
+    pub fn new() -> Self {
+        CellbaseVerifier {}
     }
 
     pub fn verify(&self, block: &Block) -> Result<(), Error> {
@@ -78,11 +76,11 @@ impl<CP: ChainProvider + Clone> CellbaseVerifier<CP> {
             return Err(Error::Cellbase(CellbaseError::InvalidQuantity));
         }
 
-        if !block.transactions()[0].is_cellbase() {
+        let cellbase_transaction = &block.transactions()[0];
+        if !cellbase_transaction.is_cellbase() {
             return Err(Error::Cellbase(CellbaseError::InvalidPosition));
         }
 
-        let cellbase_transaction = &block.transactions()[0];
         let cellbase_input = &cellbase_transaction.inputs()[0];
         if cellbase_input != &CellInput::new_cellbase_input(block.header().number()) {
             return Err(Error::Cellbase(CellbaseError::InvalidInput));

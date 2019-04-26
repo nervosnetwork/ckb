@@ -201,7 +201,9 @@ impl Transaction {
     }
 
     pub fn is_cellbase(&self) -> bool {
-        self.inputs.len() == 1 && self.inputs[0].previous_output.is_null()
+        self.inputs.len() == 1
+            && self.inputs[0].previous_output.is_null()
+            && self.inputs[0].since == 0
     }
 
     pub fn hash(&self) -> H256 {
