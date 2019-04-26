@@ -217,7 +217,7 @@ mod tests {
         let transaction = TransactionBuilder::default().input(input.clone()).build();
 
         let rtx = ResolvedTransaction {
-            transaction,
+            transaction: &transaction,
             dep_cells: vec![],
             input_cells: vec![dummy_cell],
         };
@@ -285,7 +285,7 @@ mod tests {
         };
 
         let rtx = ResolvedTransaction {
-            transaction,
+            transaction: &transaction,
             dep_cells: vec![dep_cell],
             input_cells: vec![dummy_cell],
         };
@@ -353,7 +353,7 @@ mod tests {
         };
 
         let rtx = ResolvedTransaction {
-            transaction,
+            transaction: &transaction,
             dep_cells: vec![dep_cell],
             input_cells: vec![dummy_cell],
         };
@@ -423,7 +423,7 @@ mod tests {
         };
 
         let rtx = ResolvedTransaction {
-            transaction,
+            transaction: &transaction,
             dep_cells: vec![dep_cell],
             input_cells: vec![dummy_cell],
         };
@@ -480,7 +480,7 @@ mod tests {
         };
 
         let rtx = ResolvedTransaction {
-            transaction,
+            transaction: &transaction,
             dep_cells: vec![],
             input_cells: vec![dummy_cell],
         };
@@ -557,7 +557,7 @@ mod tests {
             .build();
 
         let rtx = ResolvedTransaction {
-            transaction,
+            transaction: &transaction,
             dep_cells: vec![dep_cell],
             input_cells: vec![dummy_cell],
         };
@@ -636,7 +636,7 @@ mod tests {
             .build();
 
         let rtx = ResolvedTransaction {
-            transaction,
+            transaction: &transaction,
             dep_cells: vec![dep_cell],
             input_cells: vec![dummy_cell],
         };

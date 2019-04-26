@@ -42,7 +42,7 @@ pub fn test_capacity_outofbound() {
         .build();
 
     let rtx = ResolvedTransaction {
-        transaction,
+        transaction: &transaction,
         dep_cells: Vec::new(),
         input_cells: vec![CellMeta::new(
             CellOutput::new(capacity_bytes!(50), Vec::new(), Script::default(), None),
@@ -70,7 +70,7 @@ pub fn test_cellbase_maturity() {
         .build();
 
     let rtx = ResolvedTransaction {
-        transaction,
+        transaction: &transaction,
         dep_cells: Vec::new(),
         input_cells: vec![CellMeta::new(
             CellOutput::new(capacity_bytes!(50), Vec::new(), Script::default(), None),
@@ -104,7 +104,7 @@ pub fn test_capacity_invalid() {
         .build();
 
     let rtx = ResolvedTransaction {
-        transaction,
+        transaction: &transaction,
         dep_cells: Vec::new(),
         input_cells: vec![
             CellMeta::new(
@@ -155,7 +155,7 @@ pub fn test_since() {
         .build();
 
     let rtx = ResolvedTransaction {
-        transaction,
+        transaction: &transaction,
         dep_cells: Vec::new(),
         input_cells: vec![CellMeta::new(
             CellOutput::new(capacity_bytes!(50), Vec::new(), Script::default(), None),
@@ -183,7 +183,7 @@ pub fn test_since() {
         .build();
 
     let rtx = ResolvedTransaction {
-        transaction,
+        transaction: &transaction,
         dep_cells: Vec::new(),
         input_cells: vec![CellMeta::new(
             CellOutput::new(capacity_bytes!(50), Vec::new(), Script::default(), None),
@@ -211,7 +211,7 @@ pub fn test_since() {
         .build();
 
     let rtx = ResolvedTransaction {
-        transaction,
+        transaction: &transaction,
         dep_cells: Vec::new(),
         input_cells: vec![CellMeta::new(
             CellOutput::new(capacity_bytes!(50), Vec::new(), Script::default(), None),
@@ -247,7 +247,7 @@ pub fn test_since() {
         .build();
 
     let rtx = ResolvedTransaction {
-        transaction,
+        transaction: &transaction,
         dep_cells: Vec::new(),
         input_cells: vec![CellMeta::new(
             CellOutput::new(capacity_bytes!(50), Vec::new(), Script::default(), None),

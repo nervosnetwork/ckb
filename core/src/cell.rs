@@ -74,8 +74,8 @@ impl CellStatus {
 
 /// Transaction with resolved input cells.
 #[derive(Debug)]
-pub struct ResolvedTransaction {
-    pub transaction: Transaction,
+pub struct ResolvedTransaction<'a> {
+    pub transaction: &'a Transaction,
     pub dep_cells: Vec<CellMeta>,
     pub input_cells: Vec<CellMeta>,
 }
@@ -89,10 +89,10 @@ pub enum UnresolvableError {
 pub trait CellProvider {
     fn cell(&self, out_point: &OutPoint) -> CellStatus;
 
-    fn resolve_transaction(
+    fn resolve_transaction<'a>(
         &self,
-        transaction: &Transaction,
-    ) -> Result<ResolvedTransaction, UnresolvableError> {
+        transaction: &'a Transaction,
+    ) -> Result<ResolvedTransaction<'a>, UnresolvableError> {
         // setup empty input cells for cellbase
         let input_cells = if transaction.is_cellbase() {
             Ok(Vec::new())
@@ -127,7 +127,7 @@ pub trait CellProvider {
         }
 
         Ok(ResolvedTransaction {
-            transaction: transaction.clone(),
+            transaction,
             input_cells: input_cells.unwrap(),
             dep_cells: dep_cells.unwrap(),
         })
@@ -249,7 +249,7 @@ impl<'a> CellProvider for TransactionCellProvider<'a> {
     }
 }
 
-impl ResolvedTransaction {
+impl<'a> ResolvedTransaction<'a> {
     pub fn is_cellbase(&self) -> bool {
         self.input_cells.is_empty()
     }

@@ -98,7 +98,7 @@ impl<'a> VersionVerifier<'a> {
 }
 
 pub struct ScriptVerifier<'a> {
-    resolved_transaction: &'a ResolvedTransaction,
+    resolved_transaction: &'a ResolvedTransaction<'a>,
 }
 
 impl<'a> ScriptVerifier<'a> {
@@ -134,14 +134,14 @@ impl<'a> EmptyVerifier<'a> {
 }
 
 pub struct MaturityVerifier<'a> {
-    transaction: &'a ResolvedTransaction,
+    transaction: &'a ResolvedTransaction<'a>,
     tip_number: BlockNumber,
     cellbase_maturity: BlockNumber,
 }
 
 impl<'a> MaturityVerifier<'a> {
     pub fn new(
-        transaction: &'a ResolvedTransaction,
+        transaction: &'a ResolvedTransaction<'a>,
         tip_number: BlockNumber,
         cellbase_maturity: BlockNumber,
     ) -> Self {
@@ -200,7 +200,7 @@ impl<'a> NullVerifier<'a> {
 }
 
 pub struct CapacityVerifier<'a> {
-    resolved_transaction: &'a ResolvedTransaction,
+    resolved_transaction: &'a ResolvedTransaction<'a>,
 }
 
 impl<'a> CapacityVerifier<'a> {
@@ -301,7 +301,7 @@ impl ValidSince {
 
 /// https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0017-tx-valid-since/0017-tx-valid-since.md#detailed-specification
 pub struct ValidSinceVerifier<'a, M> {
-    rtx: &'a ResolvedTransaction,
+    rtx: &'a ResolvedTransaction<'a>,
     block_median_time_context: &'a M,
     tip_number: BlockNumber,
     median_timestamps_cache: RefCell<LruCache<BlockNumber, Option<u64>>>,

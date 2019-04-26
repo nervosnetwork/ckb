@@ -190,11 +190,11 @@ impl<CS: ChainStore> ChainState<CS> {
         })
     }
 
-    fn resolve_tx_from_pending_and_staging(
+    fn resolve_tx_from_pending_and_staging<'a>(
         &self,
-        tx: &Transaction,
+        tx: &'a Transaction,
         tx_pool: &TxPool,
-    ) -> Result<ResolvedTransaction, PoolError> {
+    ) -> Result<ResolvedTransaction<'a>, PoolError> {
         let transaction_provider = TransactionCellProvider::new(tx);
         let staging_provider = OverlayCellProvider::new(&tx_pool.staging, self);
         let pending_and_staging_provider =
@@ -206,11 +206,11 @@ impl<CS: ChainStore> ChainState<CS> {
             .map_err(|_| PoolError::Conflict)
     }
 
-    fn resolve_tx_from_staging(
+    fn resolve_tx_from_staging<'a>(
         &self,
-        tx: &Transaction,
+        tx: &'a Transaction,
         tx_pool: &TxPool,
-    ) -> Result<ResolvedTransaction, PoolError> {
+    ) -> Result<ResolvedTransaction<'a>, PoolError> {
         let transaction_provider = TransactionCellProvider::new(tx);
         let staging_provider = OverlayCellProvider::new(&tx_pool.staging, self);
         let cell_provider = OverlayCellProvider::new(&transaction_provider, &staging_provider);
