@@ -263,6 +263,30 @@ impl TransactionWithStatus {
             transaction: (&tx).into(),
         }
     }
+
+    /// status is pending ?
+    pub fn is_pending(&self) -> bool {
+        match self.tx_status {
+            TxStatus::Pending => true,
+            _ => false,
+        }
+    }
+
+    /// status is proposed ?
+    pub fn is_proposed(&self) -> bool {
+        match self.tx_status {
+            TxStatus::Proposed => true,
+            _ => false,
+        }
+    }
+
+    /// status is committed ?
+    pub fn is_committed(&self) -> bool {
+        match self.tx_status {
+            TxStatus::Committed(_) => true,
+            _ => false,
+        }
+    }
 }
 
 /// Can see the serialization results on the links: https://play.rust-lang.org/?version=stable&mode=debug&edition=2018&gist=c48782574d5ebe42dd24cd3650313cca
