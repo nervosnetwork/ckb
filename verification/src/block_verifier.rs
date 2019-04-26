@@ -212,18 +212,26 @@ impl<CP: ChainProvider + Clone> UnclesVerifier<CP> {
                 actual: actual_uncles_hash,
             }));
         }
+
         // if block.uncles is empty, return
-        if block.uncles().is_empty() {
+        if uncles_count == 0 {
             return Ok(());
         }
 
-        // verify uncles lenght =< max_uncles_num
-        let uncles_num = block.uncles().len();
-        let max_uncles_num = self.provider.consensus().max_uncles_num();
-        if uncles_num > max_uncles_num {
+        // if block is genesis, which is expected with zero uncles, return error
+        if block.is_genesis() {
+            return Err(Error::Uncles(UnclesError::OverCount {
+                max: 0,
+                actual: uncles_count,
+            }));
+        }
+
+        // verify uncles length =< max_uncles_num
+        let max_uncles_num = self.provider.consensus().max_uncles_num() as u32;
+        if uncles_count > max_uncles_num {
             return Err(Error::Uncles(UnclesError::OverCount {
                 max: max_uncles_num,
-                actual: uncles_num,
+                actual: uncles_count,
             }));
         }
 
