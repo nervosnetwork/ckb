@@ -4,6 +4,7 @@ use crate::script::Script;
 pub use crate::Capacity;
 use crate::{BlockNumber, Version};
 use bincode::{deserialize, serialize};
+use bytes::Bytes;
 use faster_hex::hex_string;
 use hash::blake2b_256;
 use numext_fixed_hash::H256;
@@ -68,11 +69,11 @@ pub struct CellInput {
     pub since: u64,
     // Depends on whether the operation is Transform or Destroy, this is the proof to transform
     // lock or destroy lock.
-    pub args: Vec<Vec<u8>>,
+    pub args: Vec<Bytes>,
 }
 
 impl CellInput {
-    pub fn new(previous_output: OutPoint, since: u64, args: Vec<Vec<u8>>) -> Self {
+    pub fn new(previous_output: OutPoint, since: u64, args: Vec<Bytes>) -> Self {
         CellInput {
             previous_output,
             since,
@@ -84,11 +85,11 @@ impl CellInput {
         CellInput {
             previous_output: OutPoint::null(),
             since: 0,
-            args: vec![block_number.to_le_bytes().to_vec()],
+            args: vec![Bytes::from(block_number.to_le_bytes().to_vec())],
         }
     }
 
-    pub fn destruct(self) -> (OutPoint, u64, Vec<Vec<u8>>) {
+    pub fn destruct(self) -> (OutPoint, u64, Vec<Bytes>) {
         let CellInput {
             previous_output,
             since,
@@ -101,8 +102,7 @@ impl CellInput {
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, HasOccupiedCapacity)]
 pub struct CellOutput {
     pub capacity: Capacity,
-    #[serde(with = "serde_bytes")]
-    pub data: Vec<u8>,
+    pub data: Bytes,
     pub lock: Script,
     #[serde(rename = "type")]
     pub type_: Option<Script>,
@@ -123,7 +123,7 @@ impl fmt::Debug for CellOutput {
 }
 
 impl CellOutput {
-    pub fn new(capacity: Capacity, data: Vec<u8>, lock: Script, type_: Option<Script>) -> Self {
+    pub fn new(capacity: Capacity, data: Bytes, lock: Script, type_: Option<Script>) -> Self {
         CellOutput {
             capacity,
             data,
@@ -136,7 +136,7 @@ impl CellOutput {
         blake2b_256(&self.data).into()
     }
 
-    pub fn destruct(self) -> (Capacity, Vec<u8>, Script, Option<Script>) {
+    pub fn destruct(self) -> (Capacity, Bytes, Script, Option<Script>) {
         let CellOutput {
             capacity,
             data,
@@ -432,14 +432,14 @@ impl ProposalShortId {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::{capacity_bytes, Capacity};
+    use crate::{capacity_bytes, Bytes, Capacity};
 
     #[test]
     fn test_tx_hash() {
         let tx = TransactionBuilder::default()
             .output(CellOutput::new(
                 capacity_bytes!(5000),
-                vec![1, 2, 3],
+                Bytes::from(vec![1, 2, 3]),
                 Script::default(),
                 None,
             ))

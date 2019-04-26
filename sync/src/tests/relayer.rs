@@ -7,12 +7,12 @@ use ckb_core::block::BlockBuilder;
 use ckb_core::header::HeaderBuilder;
 use ckb_core::script::Script;
 use ckb_core::transaction::{CellInput, CellOutput, OutPoint, Transaction, TransactionBuilder};
-use ckb_core::{capacity_bytes, Capacity};
+use ckb_core::{capacity_bytes, Bytes, Capacity};
 use ckb_db::memorydb::MemoryKeyValueDB;
 use ckb_notify::NotifyService;
 use ckb_protocol::RelayMessage;
 use ckb_shared::shared::{Shared, SharedBuilder};
-use ckb_shared::store::ChainKVStore;
+use ckb_store::ChainKVStore;
 use ckb_traits::ChainProvider;
 use ckb_util::RwLock;
 use faketime::{self, unix_time_as_millis};
@@ -58,7 +58,7 @@ fn relay_compact_block_with_one_tx() {
                 ))
                 .output(CellOutput::new(
                     capacity_bytes!(50),
-                    Vec::new(),
+                    Bytes::default(),
                     Script::default(),
                     None,
                 ))
@@ -205,7 +205,7 @@ fn relay_compact_block_with_missing_indexs() {
                         ))
                         .output(CellOutput::new(
                             capacity_bytes!(50),
-                            vec![i],
+                            Bytes::from(vec![i]),
                             Script::default(),
                             None,
                         ))
@@ -353,7 +353,7 @@ fn setup_node(
             .map(|_| {
                 CellOutput::new(
                     capacity_bytes!(50),
-                    Vec::new(),
+                    Bytes::default(),
                     Script::always_success(),
                     None,
                 )

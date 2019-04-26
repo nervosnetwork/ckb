@@ -7,7 +7,7 @@ use ckb_chain::chain::ChainController;
 use ckb_miner::BlockAssemblerController;
 use ckb_network::NetworkController;
 use ckb_shared::shared::Shared;
-use ckb_shared::store::ChainStore;
+use ckb_store::ChainStore;
 use jsonrpc_core::IoHandler;
 use jsonrpc_http_server::{Server, ServerBuilder};
 use jsonrpc_server_utils::cors::AccessControlAllowOrigin;

@@ -5,10 +5,12 @@ use ckb_core::{
     BlockNumber, Cycle,
 };
 use ckb_script::TransactionScriptsVerifier;
+use ckb_store::ChainStore;
 use ckb_traits::BlockMedianTimeContext;
 use lru_cache::LruCache;
 use std::cell::RefCell;
 use std::collections::HashSet;
+use std::sync::Arc;
 
 pub struct PoolTransactionVerifier<'a, M> {
     pub maturity: MaturityVerifier<'a>,
@@ -37,7 +39,7 @@ where
     }
 }
 
-pub struct TransactionVerifier<'a, M> {
+pub struct TransactionVerifier<'a, M, CP> {
     pub version: VersionVerifier<'a>,
     pub null: NullVerifier<'a>,
     pub empty: EmptyVerifier<'a>,
@@ -46,16 +48,17 @@ pub struct TransactionVerifier<'a, M> {
     pub duplicate_inputs: DuplicateInputsVerifier<'a>,
     pub duplicate_deps: DuplicateDepsVerifier<'a>,
     pub inputs: InputVerifier<'a>,
-    pub script: ScriptVerifier<'a>,
+    pub script: ScriptVerifier<'a, CP>,
     pub since: ValidSinceVerifier<'a, M>,
 }
 
-impl<'a, M> TransactionVerifier<'a, M>
+impl<'a, M, CS: ChainStore> TransactionVerifier<'a, M, CS>
 where
     M: BlockMedianTimeContext,
 {
     pub fn new(
         rtx: &'a ResolvedTransaction,
+        store: Arc<CS>,
         median_time_context: &'a M,
         tip_number: BlockNumber,
         cellbase_maturity: BlockNumber,
@@ -67,7 +70,7 @@ where
             maturity: MaturityVerifier::new(&rtx, tip_number, cellbase_maturity),
             duplicate_inputs: DuplicateInputsVerifier::new(&rtx.transaction),
             duplicate_deps: DuplicateDepsVerifier::new(&rtx.transaction),
-            script: ScriptVerifier::new(rtx),
+            script: ScriptVerifier::new(rtx, Arc::clone(&store)),
             capacity: CapacityVerifier::new(rtx),
             inputs: InputVerifier::new(rtx),
             since: ValidSinceVerifier::new(rtx, median_time_context, tip_number),
@@ -137,19 +140,21 @@ impl<'a> InputVerifier<'a> {
     }
 }
 
-pub struct ScriptVerifier<'a> {
+pub struct ScriptVerifier<'a, CS> {
+    store: Arc<CS>,
     resolved_transaction: &'a ResolvedTransaction<'a>,
 }
 
-impl<'a> ScriptVerifier<'a> {
-    pub fn new(resolved_transaction: &'a ResolvedTransaction) -> Self {
+impl<'a, CS: ChainStore> ScriptVerifier<'a, CS> {
+    pub fn new(resolved_transaction: &'a ResolvedTransaction, store: Arc<CS>) -> Self {
         ScriptVerifier {
+            store,
             resolved_transaction,
         }
     }
 
     pub fn verify(&self, max_cycles: Cycle) -> Result<Cycle, TransactionError> {
-        TransactionScriptsVerifier::new(&self.resolved_transaction)
+        TransactionScriptsVerifier::new(&self.resolved_transaction, Arc::clone(&self.store))
             .verify(max_cycles)
             .map_err(TransactionError::ScriptFailure)
     }
@@ -194,7 +199,7 @@ impl<'a> MaturityVerifier<'a> {
 
     pub fn verify(&self) -> Result<(), TransactionError> {
         let cellbase_immature = |cell_status: &CellStatus| -> bool {
-            match cell_status.get_live_output() {
+            match cell_status.get_live_cell() {
                 Some(ref meta)
                     if meta.is_cellbase()
                         && self.tip_number
@@ -303,7 +308,7 @@ impl<'a> CapacityVerifier<'a> {
             .resolved_transaction
             .input_cells
             .iter()
-            .filter_map(CellStatus::get_live_output)
+            .filter_map(CellStatus::get_live_cell)
             .try_fold(Capacity::zero(), |acc, meta| acc.safe_add(meta.capacity()))?;
 
         let outputs_total = self

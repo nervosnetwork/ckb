@@ -13,13 +13,14 @@ use crate::consensus::Consensus;
 use ckb_core::block::Block;
 use ckb_core::block::BlockBuilder;
 use ckb_core::header::HeaderBuilder;
+use ckb_core::script::Script;
 use ckb_core::transaction::{CellInput, CellOutput, Transaction, TransactionBuilder};
+use ckb_core::Bytes;
 use ckb_core::{BlockNumber, Capacity, Cycle};
 use ckb_pow::{Pow, PowEngine};
 use ckb_resource::{Resource, ResourceLocator};
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
-use occupied_capacity::OccupiedCapacity;
 use serde_derive::{Deserialize, Serialize};
 use std::error::Error;
 use std::fmt;
@@ -170,10 +171,16 @@ impl ChainSpec {
                     .and_then(|data| {
                         // TODO: we should provide a proper lock script here so system cells
                         // can be updated.
-                        let mut cell = CellOutput::default();
-                        cell.data = data.into_owned();
-                        cell.capacity = cell.occupied_capacity()?;
-                        Ok(cell)
+                        Capacity::bytes(data.len())
+                            .map(|cap| {
+                                CellOutput::new(
+                                    cap,
+                                    Bytes::from(data.to_vec()),
+                                    Script::default(),
+                                    None,
+                                )
+                            })
+                            .map_err(|err| Box::new(err) as Box<Error>)
                     })
             })
             .collect();

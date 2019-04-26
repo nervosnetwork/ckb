@@ -3,20 +3,35 @@ use crate::transaction::{CellOutput, OutPoint, Transaction};
 use crate::Capacity;
 use fnv::{FnvHashMap, FnvHashSet};
 use numext_fixed_hash::H256;
+use serde_derive::{Deserialize, Serialize};
 use std::iter::Chain;
 use std::slice;
 
 #[derive(Clone, Eq, PartialEq, Debug)]
 pub enum LiveCell {
     Null,
-    Output(CellMeta),
+    Output(Box<CellMeta>),
 }
 
-#[derive(Clone, Eq, PartialEq, Debug)]
+#[derive(Clone, Eq, PartialEq, Debug, Default, Deserialize, Serialize)]
 pub struct CellMeta {
-    pub cell_output: CellOutput,
+    #[serde(skip)]
+    pub cell_output: Option<CellOutput>,
+    pub out_point: OutPoint,
     pub block_number: Option<u64>,
     pub cellbase: bool,
+    pub capacity: Capacity,
+    pub data_hash: Option<H256>,
+}
+
+impl From<&CellOutput> for CellMeta {
+    fn from(output: &CellOutput) -> Self {
+        CellMeta {
+            cell_output: Some(output.clone()),
+            capacity: output.capacity,
+            ..Default::default()
+        }
+    }
 }
 
 impl CellMeta {
@@ -25,7 +40,11 @@ impl CellMeta {
     }
 
     pub fn capacity(&self) -> Capacity {
-        self.cell_output.capacity
+        self.capacity
+    }
+
+    pub fn data_hash(&self) -> Option<&H256> {
+        self.data_hash.as_ref()
     }
 }
 
@@ -44,16 +63,8 @@ impl CellStatus {
         CellStatus::Live(LiveCell::Null)
     }
 
-    pub fn live_output(
-        cell_output: CellOutput,
-        block_number: Option<u64>,
-        cellbase: bool,
-    ) -> CellStatus {
-        CellStatus::Live(LiveCell::Output(CellMeta {
-            cell_output,
-            block_number,
-            cellbase,
-        }))
+    pub fn live_cell(cell_meta: CellMeta) -> CellStatus {
+        CellStatus::Live(LiveCell::Output(Box::new(cell_meta)))
     }
 
     pub fn is_live(&self) -> bool {
@@ -71,16 +82,16 @@ impl CellStatus {
         self == &CellStatus::Unknown
     }
 
-    pub fn get_live_output(&self) -> Option<&CellMeta> {
+    pub fn get_live_cell(&self) -> Option<&CellMeta> {
         match *self {
-            CellStatus::Live(LiveCell::Output(ref output)) => Some(output),
+            CellStatus::Live(LiveCell::Output(ref cell_meta)) => Some(cell_meta),
             _ => None,
         }
     }
 
-    pub fn take_live_output(self) -> Option<CellMeta> {
+    pub fn take_live_cell(self) -> Option<CellMeta> {
         match self {
-            CellStatus::Live(LiveCell::Output(output)) => Some(output),
+            CellStatus::Live(LiveCell::Output(cell_meta)) => Some(*cell_meta),
             _ => None,
         }
     }
@@ -152,18 +163,20 @@ impl<'a> BlockCellProvider<'a> {
 
 impl<'a> CellProvider for BlockCellProvider<'a> {
     fn cell(&self, out_point: &OutPoint) -> CellStatus {
-        if let Some(i) = self.output_indices.get(&out_point.tx_hash) {
-            match self.block.transactions()[*i]
+        match self.output_indices.get(&out_point.tx_hash).and_then(|i| {
+            self.block.transactions()[*i]
                 .outputs()
                 .get(out_point.index as usize)
-            {
-                Some(x) => {
-                    CellStatus::live_output(x.clone(), Some(self.block.header().number()), *i == 0)
-                }
-                None => CellStatus::Unknown,
-            }
-        } else {
-            CellStatus::Unknown
+        }) {
+            Some(output) => CellStatus::live_cell(CellMeta {
+                cell_output: Some(output.clone()),
+                out_point: out_point.to_owned(),
+                data_hash: None,
+                capacity: output.capacity,
+                block_number: Some(self.block.header().number()),
+                cellbase: out_point.index == 0,
+            }),
+            None => CellStatus::Unknown,
         }
     }
 }
@@ -257,7 +270,7 @@ impl<'a> ResolvedTransaction<'a> {
 mod tests {
     use super::super::script::Script;
     use super::*;
-    use crate::{capacity_bytes, Capacity};
+    use crate::{capacity_bytes, Bytes, Capacity};
     use numext_fixed_hash::H256;
     use std::collections::HashMap;
 
@@ -267,7 +280,9 @@ mod tests {
     impl CellProvider for CellMemoryDb {
         fn cell(&self, o: &OutPoint) -> CellStatus {
             match self.cells.get(o) {
-                Some(&Some(ref cell_meta)) => CellStatus::Live(LiveCell::Output(cell_meta.clone())),
+                Some(&Some(ref cell_meta)) => {
+                    CellStatus::Live(LiveCell::Output(Box::new(cell_meta.clone())))
+                }
                 Some(&None) => CellStatus::Dead,
                 None => CellStatus::Unknown,
             }
@@ -292,22 +307,31 @@ mod tests {
             tx_hash: H256::zero(),
             index: 3,
         };
-        let o = CellMeta {
-            block_number: Some(1),
-            cell_output: CellOutput {
+        let o = {
+            let cell_output = CellOutput {
                 capacity: capacity_bytes!(2),
-                data: vec![],
+                data: Bytes::default(),
                 lock: Script::default(),
                 type_: None,
-            },
-            cellbase: false,
+            };
+            CellMeta {
+                block_number: Some(1),
+                capacity: cell_output.capacity,
+                data_hash: Some(cell_output.data_hash()),
+                cell_output: Some(cell_output),
+                out_point: OutPoint {
+                    tx_hash: Default::default(),
+                    index: 0,
+                },
+                cellbase: false,
+            }
         };
 
         db.cells.insert(p1.clone(), Some(o.clone()));
         db.cells.insert(p2.clone(), None);
 
         assert_eq!(
-            CellStatus::Live(LiveCell::Output(o)),
+            CellStatus::Live(LiveCell::Output(Box::new(o))),
             db.get_cell_status(&p1)
         );
         assert_eq!(CellStatus::Dead, db.get_cell_status(&p2));

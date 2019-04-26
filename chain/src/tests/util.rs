@@ -6,12 +6,12 @@ use ckb_core::header::{Header, HeaderBuilder};
 use ckb_core::script::Script;
 use ckb_core::transaction::{CellInput, CellOutput, OutPoint, Transaction, TransactionBuilder};
 use ckb_core::uncle::UncleBlock;
-use ckb_core::{capacity_bytes, BlockNumber, Capacity};
+use ckb_core::{capacity_bytes, BlockNumber, Bytes, Capacity};
 use ckb_db::memorydb::MemoryKeyValueDB;
 use ckb_notify::NotifyService;
 use ckb_shared::shared::Shared;
 use ckb_shared::shared::SharedBuilder;
-use ckb_shared::store::ChainKVStore;
+use ckb_store::ChainKVStore;
 use faketime::unix_time_as_millis;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
@@ -39,7 +39,7 @@ fn create_cellbase(number: BlockNumber) -> Transaction {
         .input(CellInput::new_cellbase_input(number))
         .output(CellOutput::new(
             capacity_bytes!(5000),
-            vec![],
+            Bytes::default(),
             Script::always_success(),
             None,
         ))
@@ -78,7 +78,7 @@ pub(crate) fn create_transaction(parent: H256, unique_data: u8) -> Transaction {
     TransactionBuilder::default()
         .output(CellOutput::new(
             capacity_bytes!(5000),
-            vec![unique_data],
+            Bytes::from(vec![unique_data]),
             Script::always_success(),
             None,
         ))

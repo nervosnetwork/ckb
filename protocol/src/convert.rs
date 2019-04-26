@@ -274,7 +274,10 @@ impl<'a> TryFrom<ckb_protocol::Script<'a>> for ckb_core::script::Script {
         };
 
         Ok(ckb_core::script::Script {
-            args: cast!(args)?,
+            args: cast!(args)?
+                .into_iter()
+                .map(ckb_core::Bytes::from)
+                .collect(),
             code_hash: cast!(code_hash)?,
         })
     }
@@ -295,7 +298,10 @@ impl<'a> TryFrom<ckb_protocol::CellInput<'a>> for ckb_core::transaction::CellInp
                 index: cell_input.index(),
             },
             since: cell_input.since(),
-            args: cast!(args)?,
+            args: cast!(args)?
+                .into_iter()
+                .map(ckb_core::Bytes::from)
+                .collect(),
         })
     }
 }
@@ -312,7 +318,7 @@ impl<'a> TryFrom<ckb_protocol::CellOutput<'a>> for ckb_core::transaction::CellOu
 
         Ok(ckb_core::transaction::CellOutput {
             capacity: ckb_core::Capacity::shannons(cell_output.capacity()),
-            data: cast!(cell_output.data().and_then(|s| s.seq()))?.to_vec(),
+            data: ckb_core::Bytes::from(cast!(cell_output.data().and_then(|s| s.seq()))?),
             lock: TryInto::try_into(lock)?,
             type_,
         })

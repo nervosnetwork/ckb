@@ -1,9 +1,6 @@
 use crate::chain_state::ChainState;
 use crate::error::SharedError;
-use crate::store::ChainKVStore;
-use crate::store::ChainStore;
 use crate::tx_pool::TxPoolConfig;
-use crate::{COLUMNS, COLUMN_BLOCK_HEADER};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::Block;
 use ckb_core::extras::BlockExt;
@@ -11,6 +8,7 @@ use ckb_core::header::{BlockNumber, Header};
 use ckb_core::transaction::{Capacity, ProposalShortId, Transaction};
 use ckb_core::uncle::UncleBlock;
 use ckb_db::{CacheDB, DBConfig, KeyValueDB, MemoryKeyValueDB, RocksDB};
+use ckb_store::{ChainKVStore, ChainStore, COLUMNS, COLUMN_BLOCK_HEADER};
 use ckb_traits::ChainProvider;
 use ckb_util::Mutex;
 use numext_fixed_hash::H256;

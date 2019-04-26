@@ -8,9 +8,10 @@ use ckb_core::transaction::{
     Capacity, CellInput, CellOutput, OutPoint, Transaction, TransactionBuilder,
 };
 use ckb_core::uncle::UncleBlock;
-use ckb_core::{Cycle, Version};
+use ckb_core::{Bytes, Cycle, Version};
 use ckb_notify::NotifyController;
-use ckb_shared::{shared::Shared, store::ChainStore, tx_pool::PoolEntry};
+use ckb_shared::{shared::Shared, tx_pool::PoolEntry};
+use ckb_store::ChainStore;
 use ckb_traits::ChainProvider;
 use ckb_util::Mutex;
 use crossbeam_channel::{self, select, Receiver, Sender};
@@ -18,7 +19,9 @@ use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
 use fnv::FnvHashMap;
 use fnv::FnvHashSet;
-use jsonrpc_types::{BlockTemplate, Bytes, CellbaseTemplate, TransactionTemplate, UncleTemplate};
+use jsonrpc_types::{
+    BlockTemplate, CellbaseTemplate, JsonBytes, TransactionTemplate, UncleTemplate,
+};
 use log::error;
 use lru_cache::LruCache;
 use numext_fixed_hash::H256;
@@ -337,7 +340,8 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
             .args
             .iter()
             .cloned()
-            .map(Bytes::into_vec)
+            .map(JsonBytes::into_vec)
+            .map(Bytes::from)
             .collect();
 
         // dummy cellbase
@@ -398,7 +402,7 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
             fee = fee.safe_add(fee_calculator.calculate_transaction_fee(&pe.transaction)?)?;
         }
 
-        let output = CellOutput::new(block_reward.safe_add(fee)?, Vec::new(), lock, None);
+        let output = CellOutput::new(block_reward.safe_add(fee)?, Bytes::new(), lock, None);
 
         Ok(TransactionBuilder::default()
             .input(input)
@@ -496,13 +500,13 @@ mod tests {
     use ckb_core::transaction::{
         CellInput, CellOutput, ProposalShortId, Transaction, TransactionBuilder,
     };
-    use ckb_core::{BlockNumber, Capacity};
+    use ckb_core::{BlockNumber, Bytes, Capacity};
     use ckb_db::memorydb::MemoryKeyValueDB;
     use ckb_notify::{NotifyController, NotifyService};
     use ckb_pow::Pow;
     use ckb_shared::shared::Shared;
     use ckb_shared::shared::SharedBuilder;
-    use ckb_shared::store::{ChainKVStore, ChainStore};
+    use ckb_store::{ChainKVStore, ChainStore};
     use ckb_traits::ChainProvider;
     use ckb_verification::{BlockVerifier, HeaderResolverWrapper, HeaderVerifier, Verifier};
     use jsonrpc_types::{BlockTemplate, CellbaseTemplate};
@@ -642,7 +646,7 @@ mod tests {
             .input(CellInput::new_cellbase_input(number))
             .output(CellOutput::new(
                 Capacity::zero(),
-                vec![],
+                Bytes::new(),
                 Script::default(),
                 None,
             ))

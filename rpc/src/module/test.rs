@@ -1,7 +1,7 @@
 use ckb_core::transaction::Transaction as CoreTransaction;
 use ckb_network::NetworkController;
 use ckb_shared::shared::Shared;
-use ckb_shared::store::ChainStore;
+use ckb_store::ChainStore;
 use jsonrpc_core::{Error, Result};
 use jsonrpc_derive::rpc;
 use jsonrpc_types::Transaction;

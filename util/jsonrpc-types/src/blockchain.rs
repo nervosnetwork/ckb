@@ -1,4 +1,5 @@
-use crate::{BlockNumber, Bytes, Capacity, ProposalShortId};
+use crate::bytes::JsonBytes;
+use crate::{BlockNumber, Capacity, ProposalShortId};
 use ckb_core::block::{Block as CoreBlock, BlockBuilder};
 use ckb_core::header::{Header as CoreHeader, HeaderBuilder, Seal as CoreSeal};
 use ckb_core::script::Script as CoreScript;
@@ -7,6 +8,7 @@ use ckb_core::transaction::{
     Transaction as CoreTransaction, TransactionBuilder, Witness as CoreWitness,
 };
 use ckb_core::uncle::UncleBlock as CoreUncleBlock;
+use ckb_core::Bytes;
 use ckb_core::{BlockNumber as CoreBlockNumber, Capacity as CoreCapacity};
 use failure::Error as FailureError;
 use numext_fixed_hash::H256;
@@ -25,20 +27,14 @@ impl TryFrom<Script> for CoreScript {
 
     fn try_from(json: Script) -> Result<Self, Self::Error> {
         let Script { args, code_hash } = json;
-        Ok(CoreScript::new(
-            args.into_iter().map(Bytes::into_vec).collect(),
-            code_hash,
-        ))
+        Ok(CoreScript::new(args, code_hash))
     }
 }
 
 impl From<CoreScript> for Script {
     fn from(core: CoreScript) -> Script {
         let (args, code_hash) = core.destruct();
-        Script {
-            code_hash,
-            args: args.into_iter().map(Bytes::new).collect(),
-        }
+        Script { code_hash, args }
     }
 }
 
@@ -56,7 +52,7 @@ impl From<CoreCellOutput> for CellOutput {
         let (capacity, data, lock, type_) = core.destruct();
         CellOutput {
             capacity: capacity.to_string(),
-            data: Bytes::new(data),
+            data,
             lock: lock.into(),
             type_: type_.map(Into::into),
         }
@@ -81,7 +77,7 @@ impl TryFrom<CellOutput> for CoreCellOutput {
 
         Ok(CoreCellOutput::new(
             capacity.parse::<CoreCapacity>()?,
-            data.into_vec(),
+            data,
             lock.try_into()?,
             type_,
         ))
@@ -121,7 +117,7 @@ impl From<CoreCellInput> for CellInput {
         CellInput {
             previous_output: previous_output.into(),
             since: since.to_string(),
-            args: args.into_iter().map(Bytes::new).collect(),
+            args,
         }
     }
 }
@@ -138,20 +134,20 @@ impl TryFrom<CellInput> for CoreCellInput {
         Ok(CoreCellInput::new(
             previous_output.try_into()?,
             since.parse::<u64>()?,
-            args.into_iter().map(Bytes::into_vec).collect(),
+            args,
         ))
     }
 }
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct Witness {
-    data: Vec<Bytes>,
+    data: Vec<JsonBytes>,
 }
 
 impl<'a> From<&'a CoreWitness> for Witness {
     fn from(core: &CoreWitness) -> Witness {
         Witness {
-            data: core.iter().cloned().map(Bytes::new).collect(),
+            data: core.iter().cloned().map(JsonBytes::from_vec).collect(),
         }
     }
 }
@@ -160,7 +156,7 @@ impl TryFrom<Witness> for CoreWitness {
     type Error = FailureError;
 
     fn try_from(json: Witness) -> Result<Self, Self::Error> {
-        Ok(json.data.into_iter().map(Bytes::into_vec).collect())
+        Ok(json.data.into_iter().map(JsonBytes::into_vec).collect())
     }
 }
 
@@ -309,7 +305,7 @@ impl TxStatus {
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct Seal {
     pub nonce: String,
-    pub proof: Bytes,
+    pub proof: JsonBytes,
 }
 
 impl From<CoreSeal> for Seal {
@@ -317,7 +313,7 @@ impl From<CoreSeal> for Seal {
         let (nonce, proof) = core.destruct();
         Seal {
             nonce: nonce.to_string(),
-            proof: Bytes::new(proof),
+            proof: JsonBytes::from_vec(proof),
         }
     }
 }
@@ -490,14 +486,14 @@ impl TryFrom<Block> for CoreBlock {
 mod tests {
     use super::*;
     use ckb_core::transaction::ProposalShortId as CoreProposalShortId;
-    use ckb_core::Capacity;
+    use ckb_core::{Bytes, Capacity};
     use proptest::{collection::size_range, prelude::*};
 
-    fn mock_script(arg: Vec<u8>) -> CoreScript {
+    fn mock_script(arg: Bytes) -> CoreScript {
         CoreScript::new(vec![arg], H256::default())
     }
 
-    fn mock_cell_output(data: Vec<u8>, arg: Vec<u8>) -> CoreCellOutput {
+    fn mock_cell_output(data: Bytes, arg: Bytes) -> CoreCellOutput {
         CoreCellOutput::new(
             Capacity::zero(),
             data,
@@ -506,16 +502,16 @@ mod tests {
         )
     }
 
-    fn mock_cell_input(arg: Vec<u8>) -> CoreCellInput {
+    fn mock_cell_input(arg: Bytes) -> CoreCellInput {
         CoreCellInput::new(CoreOutPoint::default(), 0, vec![arg])
     }
 
-    fn mock_full_tx(data: Vec<u8>, arg: Vec<u8>) -> CoreTransaction {
+    fn mock_full_tx(data: Bytes, arg: Bytes) -> CoreTransaction {
         TransactionBuilder::default()
             .deps(vec![CoreOutPoint::default()])
             .inputs(vec![mock_cell_input(arg.clone())])
             .outputs(vec![mock_cell_output(data, arg.clone())])
-            .witness(vec![arg])
+            .witness(vec![arg.to_vec()])
             .build()
     }
 
@@ -526,7 +522,7 @@ mod tests {
         )
     }
 
-    fn mock_full_block(data: Vec<u8>, arg: Vec<u8>) -> CoreBlock {
+    fn mock_full_block(data: Bytes, arg: Bytes) -> CoreBlock {
         BlockBuilder::default()
             .transactions(vec![mock_full_tx(data, arg)])
             .uncles(vec![mock_uncle()])
@@ -534,7 +530,7 @@ mod tests {
             .build()
     }
 
-    fn _test_block_convert(data: Vec<u8>, arg: Vec<u8>) -> Result<(), TestCaseError> {
+    fn _test_block_convert(data: Bytes, arg: Bytes) -> Result<(), TestCaseError> {
         let block = mock_full_block(data, arg);
         let json_block: Block = (&block).into();
         let encoded = serde_json::to_string(&json_block).unwrap();
@@ -550,7 +546,7 @@ mod tests {
             data in any_with::<Vec<u8>>(size_range(80).lift()),
             arg in any_with::<Vec<u8>>(size_range(80).lift()),
         ) {
-            _test_block_convert(data, arg)?;
+            _test_block_convert(Bytes::from(data), Bytes::from(arg))?;
         }
     }
 }

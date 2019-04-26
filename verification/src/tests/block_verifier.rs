@@ -5,7 +5,7 @@ use crate::Verifier;
 use ckb_core::block::BlockBuilder;
 use ckb_core::script::Script;
 use ckb_core::transaction::{CellInput, CellOutput, OutPoint, Transaction, TransactionBuilder};
-use ckb_core::{capacity_bytes, Capacity};
+use ckb_core::{capacity_bytes, Bytes, Capacity};
 use numext_fixed_hash::H256;
 
 fn create_cellbase_transaction_with_capacity(capacity: Capacity) -> Transaction {
@@ -13,7 +13,7 @@ fn create_cellbase_transaction_with_capacity(capacity: Capacity) -> Transaction 
         .input(CellInput::new_cellbase_input(0))
         .output(CellOutput::new(
             capacity,
-            Vec::new(),
+            Bytes::default(),
             Script::default(),
             None,
         ))
@@ -33,7 +33,7 @@ fn create_normal_transaction() -> Transaction {
         ))
         .output(CellOutput::new(
             capacity_bytes!(100),
-            Vec::new(),
+            Bytes::default(),
             Script::default(),
             None,
         ))

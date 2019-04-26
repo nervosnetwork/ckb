@@ -10,7 +10,7 @@ use ckb_db::memorydb::MemoryKeyValueDB;
 use ckb_notify::NotifyService;
 use ckb_protocol::SyncMessage;
 use ckb_shared::shared::{Shared, SharedBuilder};
-use ckb_shared::store::ChainKVStore;
+use ckb_store::ChainKVStore;
 use ckb_traits::ChainProvider;
 use ckb_util::RwLock;
 use faketime::{self, unix_time_as_millis};

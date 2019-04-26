@@ -1,7 +1,7 @@
 use crate::relayer::Relayer;
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::RelayTransactionHash as FbsRelayTransactionHash;
-use ckb_shared::store::ChainStore;
+use ckb_store::ChainStore;
 use failure::Error as FailureError;
 use log::debug;
 use numext_fixed_hash::H256;

@@ -18,6 +18,7 @@ ckb-util = { path = "util" }
 ckb-core = { path = "core" }
 ckb-chain = { path = "chain" }
 ckb-shared = { path = "shared" }
+ckb-store = { path = "store" }
 ckb-chain-spec = {path = "spec"}
 ckb-notify = { path = "notify"}
 ckb-miner = { path = "miner" }
@@ -59,6 +60,7 @@ members = [
     "protocol",
     "sync",
     "core",
+    "store",
     "shared",
     "chain",
     "miner",
