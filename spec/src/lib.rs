@@ -232,7 +232,7 @@ pub mod test {
     #[test]
     fn test_chain_spec_load() {
         let locator = ResourceLocator::current_dir().unwrap();
-        let ckb = locator.ckb();
+        let ckb = Resource::Bundled("ckb.toml".to_string());
         let dev = ChainSpec::resolve_relative_to(&locator, PathBuf::from("specs/dev.toml"), &ckb);
         assert!(dev.is_ok(), format!("{:?}", dev));
     }
@@ -240,7 +240,7 @@ pub mod test {
     #[test]
     fn always_success_type_hash() {
         let locator = ResourceLocator::current_dir().unwrap();
-        let ckb = locator.ckb();
+        let ckb = Resource::Bundled("ckb.toml".to_string());
         let dev = ChainSpec::resolve_relative_to(&locator, PathBuf::from("specs/dev.toml"), &ckb);
         assert!(dev.is_ok(), format!("{:?}", dev));
 
@@ -274,7 +274,7 @@ pub mod test {
     #[test]
     fn test_testnet_chain_spec_load() {
         let locator = ResourceLocator::current_dir().unwrap();
-        let ckb = locator.ckb();
+        let ckb = Resource::Bundled("ckb.toml".to_string());
         let testnet =
             ChainSpec::resolve_relative_to(&locator, PathBuf::from("specs/testnet.toml"), &ckb);
         assert!(testnet.is_ok(), format!("{:?}", testnet));
