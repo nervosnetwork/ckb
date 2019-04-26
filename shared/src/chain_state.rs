@@ -6,8 +6,7 @@ use crate::tx_proposal_table::TxProposalTable;
 use ckb_chain_spec::consensus::{Consensus, ProposalWindow};
 use ckb_core::block::Block;
 use ckb_core::cell::{
-    CellProvider, CellStatus, LiveCell, OverlayCellProvider, ResolvedTransaction,
-    TransactionCellProvider,
+    CellProvider, CellStatus, OverlayCellProvider, ResolvedTransaction, TransactionCellProvider,
 };
 use ckb_core::header::{BlockNumber, Header};
 use ckb_core::transaction::CellOutput;
@@ -220,54 +219,11 @@ impl<CS: ChainStore> ChainState<CS> {
             .map_err(|_| PoolError::Conflict)
     }
 
-    // FIXME: we may need redesign orphan pool, this is not short-circuiting
-    fn verify_rtx_inputs(&self, rtx: &ResolvedTransaction) -> Result<(), PoolError> {
-        let mut unknowns = Vec::new();
-        let inputs = rtx.transaction.input_pts();
-        let deps = rtx.transaction.dep_pts();
-        for (cs, input) in rtx.input_cells.iter().zip(inputs.iter()) {
-            match cs {
-                CellStatus::Unknown => {
-                    unknowns.push(input.clone());
-                }
-                CellStatus::Dead => {
-                    return Err(PoolError::Conflict);
-                }
-                CellStatus::Live(LiveCell::Null) => {
-                    return Err(PoolError::NullInput);
-                }
-                _ => {}
-            }
-        }
-
-        for (cs, dep) in rtx.dep_cells.iter().zip(deps.iter()) {
-            match cs {
-                CellStatus::Unknown => {
-                    unknowns.push(dep.clone());
-                }
-                CellStatus::Dead => {
-                    return Err(PoolError::Conflict);
-                }
-                CellStatus::Live(LiveCell::Null) => {
-                    return Err(PoolError::NullInput);
-                }
-                _ => {}
-            }
-        }
-
-        if !unknowns.is_empty() {
-            return Err(PoolError::UnknownInputs(unknowns));
-        }
-        Ok(())
-    }
-
     pub(crate) fn verify_rtx(
         &self,
         rtx: &ResolvedTransaction,
         cycles: Option<Cycle>,
     ) -> Result<Cycle, PoolError> {
-        self.verify_rtx_inputs(rtx)?;
-
         match cycles {
             Some(cycles) => {
                 PoolTransactionVerifier::new(

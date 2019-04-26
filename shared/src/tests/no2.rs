@@ -41,10 +41,7 @@ fn case_no2() {
     assert!(block
         .transactions()
         .iter()
-        .map(|tx| chain_state
-            .resolve_transaction(tx)
-            .expect("resolve should be ok")
-            .dep_cells)
-        .flatten()
-        .all(|status| status.is_live()));
+        .map(|tx| chain_state.resolve_transaction(tx))
+        .collect::<Result<Vec<_>, _>>()
+        .is_ok());
 }

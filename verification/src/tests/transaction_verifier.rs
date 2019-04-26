@@ -1,10 +1,8 @@
 use super::super::transaction_verifier::{
-    CapacityVerifier, DuplicateInputsVerifier, EmptyVerifier, MaturityVerifier, NullVerifier,
-    ValidSinceVerifier,
+    CapacityVerifier, EmptyVerifier, MaturityVerifier, NullVerifier, ValidSinceVerifier,
 };
 use crate::error::TransactionError;
-use ckb_core::cell::CellStatus;
-use ckb_core::cell::ResolvedTransaction;
+use ckb_core::cell::{LiveCell, ResolvedTransaction};
 use ckb_core::script::Script;
 use ckb_core::transaction::{CellInput, CellOutput, OutPoint, TransactionBuilder};
 use ckb_core::{capacity_bytes, Capacity};
@@ -46,7 +44,7 @@ pub fn test_capacity_outofbound() {
     let rtx = ResolvedTransaction {
         transaction,
         dep_cells: Vec::new(),
-        input_cells: vec![CellStatus::live_output(
+        input_cells: vec![LiveCell::live_output(
             CellOutput::new(capacity_bytes!(50), Vec::new(), Script::default(), None),
             None,
             false,
@@ -74,7 +72,7 @@ pub fn test_cellbase_maturity() {
     let rtx = ResolvedTransaction {
         transaction,
         dep_cells: Vec::new(),
-        input_cells: vec![CellStatus::live_output(
+        input_cells: vec![LiveCell::live_output(
             CellOutput::new(capacity_bytes!(50), Vec::new(), Script::default(), None),
             Some(30),
             true,
@@ -109,12 +107,12 @@ pub fn test_capacity_invalid() {
         transaction,
         dep_cells: Vec::new(),
         input_cells: vec![
-            CellStatus::live_output(
+            LiveCell::live_output(
                 CellOutput::new(capacity_bytes!(49), Vec::new(), Script::default(), None),
                 None,
                 false,
             ),
-            CellStatus::live_output(
+            LiveCell::live_output(
                 CellOutput::new(capacity_bytes!(100), Vec::new(), Script::default(), None),
                 None,
                 false,
@@ -126,31 +124,6 @@ pub fn test_capacity_invalid() {
     assert_eq!(
         verifier.verify().err(),
         Some(TransactionError::OutputsSumOverflow)
-    );
-}
-
-#[test]
-pub fn test_duplicate_inputs() {
-    let transaction = TransactionBuilder::default()
-        .inputs(vec![
-            CellInput::new(
-                OutPoint::new(H256::from_trimmed_hex_str("1").unwrap(), 0),
-                0,
-                Default::default(),
-            ),
-            CellInput::new(
-                OutPoint::new(H256::from_trimmed_hex_str("1").unwrap(), 0),
-                0,
-                Default::default(),
-            ),
-        ])
-        .build();
-
-    let verifier = DuplicateInputsVerifier::new(&transaction);
-
-    assert_eq!(
-        verifier.verify().err(),
-        Some(TransactionError::DuplicateInputs)
     );
 }
 
@@ -184,7 +157,7 @@ pub fn test_since() {
     let rtx = ResolvedTransaction {
         transaction,
         dep_cells: Vec::new(),
-        input_cells: vec![CellStatus::live_output(
+        input_cells: vec![LiveCell::live_output(
             CellOutput::new(capacity_bytes!(50), Vec::new(), Script::default(), None),
             Some(1),
             false,
@@ -212,7 +185,7 @@ pub fn test_since() {
     let rtx = ResolvedTransaction {
         transaction,
         dep_cells: Vec::new(),
-        input_cells: vec![CellStatus::live_output(
+        input_cells: vec![LiveCell::live_output(
             CellOutput::new(capacity_bytes!(50), Vec::new(), Script::default(), None),
             Some(1),
             false,
@@ -240,7 +213,7 @@ pub fn test_since() {
     let rtx = ResolvedTransaction {
         transaction,
         dep_cells: Vec::new(),
-        input_cells: vec![CellStatus::live_output(
+        input_cells: vec![LiveCell::live_output(
             CellOutput::new(capacity_bytes!(50), Vec::new(), Script::default(), None),
             Some(1),
             false,
@@ -276,7 +249,7 @@ pub fn test_since() {
     let rtx = ResolvedTransaction {
         transaction,
         dep_cells: Vec::new(),
-        input_cells: vec![CellStatus::live_output(
+        input_cells: vec![LiveCell::live_output(
             CellOutput::new(capacity_bytes!(50), Vec::new(), Script::default(), None),
             Some(1),
             false,
@@ -308,7 +281,7 @@ pub fn test_since() {
     let rtx = ResolvedTransaction {
         transaction,
         dep_cells: Vec::new(),
-        input_cells: vec![CellStatus::live_null()],
+        input_cells: vec![LiveCell::Null],
     };
 
     let median_time_context = FakeMedianTime {
