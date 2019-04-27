@@ -507,7 +507,7 @@ impl<CS: ChainStore> SyncSharedState<CS> {
         nc.send_message(
             NetworkProtocol::SYNC.into(),
             peer,
-            fbb.finished_data().to_vec(),
+            fbb.finished_data().into(),
         );
     }
 }

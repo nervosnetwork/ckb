@@ -166,7 +166,7 @@ impl<CS: ChainStore> Relayer<CS> {
                 RelayMessage::build_get_block_proposal(fbb, block.header.number(), &unknown_ids);
             fbb.finish(message, None);
 
-            nc.send_message_to(peer, fbb.finished_data().to_vec());
+            nc.send_message_to(peer, fbb.finished_data().into());
         }
     }
 
@@ -192,7 +192,7 @@ impl<CS: ChainStore> Relayer<CS> {
 
             // TODO: use filter broadcast
             for target_peer in selected_peers {
-                nc.send_message_to(target_peer, fbb.finished_data().to_vec());
+                nc.send_message_to(target_peer, fbb.finished_data().into());
             }
         } else {
             debug!(target: "relay", "accept_block verify error {:?}", ret);
@@ -294,13 +294,12 @@ impl<CS: ChainStore> Relayer<CS> {
             pending_proposals_request.remove(&id);
         }
 
-        // TODO: use filter_broadcast
         for (peer_index, txs) in peer_txs {
             let fbb = &mut FlatBufferBuilder::new();
             let message =
                 RelayMessage::build_block_proposal(fbb, &txs.into_iter().collect::<Vec<_>>());
             fbb.finish(message, None);
-            nc.send_message_to(peer_index, fbb.finished_data().to_vec());
+            nc.send_message_to(peer_index, fbb.finished_data().into());
         }
     }
 

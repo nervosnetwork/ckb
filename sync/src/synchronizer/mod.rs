@@ -475,7 +475,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
         let fbb = &mut FlatBufferBuilder::new();
         let message = SyncMessage::build_get_blocks(fbb, v_fetch);
         fbb.finish(message, None);
-        nc.send_message_to(peer, fbb.finished_data().to_vec());
+        nc.send_message_to(peer, fbb.finished_data().into());
         trace!(target: "sync", "send_getblocks len={:?} to peer={}", v_fetch.len() , peer);
     }
 }
@@ -927,9 +927,10 @@ mod tests {
         fn set_notify(&self, _interval: Duration, _token: u64) {
             unimplemented!();
         }
-        fn send_message(&self, _proto_id: ProtocolId, _peer_index: PeerIndex, _data: Vec<u8>) {}
-        fn send_message_to(&self, _peer_index: PeerIndex, _data: Vec<u8>) {}
-        fn filter_broadcast(&self, _target: TargetSession, _data: Vec<u8>) {
+        fn send_message(&self, _proto_id: ProtocolId, _peer_index: PeerIndex, _data: bytes::Bytes) {
+        }
+        fn send_message_to(&self, _peer_index: PeerIndex, _data: bytes::Bytes) {}
+        fn filter_broadcast(&self, _target: TargetSession, _data: bytes::Bytes) {
             unimplemented!();
         }
         fn disconnect(&self, peer_index: PeerIndex) {

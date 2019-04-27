@@ -60,7 +60,7 @@ impl<'a, CS: ChainStore> GetBlockProposalProcess<'a, CS> {
         fbb.finish(message, None);
 
         self.nc
-            .send_message_to(self.peer, fbb.finished_data().to_vec());
+            .send_message_to(self.peer, fbb.finished_data().into());
         Ok(())
     }
 }

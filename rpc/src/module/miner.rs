@@ -83,7 +83,7 @@ impl<CS: ChainStore + 'static> MinerRpc for MinerRpcImpl<CS> {
                 let fbb = &mut FlatBufferBuilder::new();
                 let message = RelayMessage::build_compact_block(fbb, &block, &HashSet::new());
                 fbb.finish(message, None);
-                let data = fbb.finished_data().to_vec();
+                let data = fbb.finished_data().into();
                 self.network_controller
                     .broadcast(NetworkProtocol::RELAY.into(), data);
                 Ok(Some(block.header().hash().clone()))

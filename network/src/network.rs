@@ -22,6 +22,7 @@ use log::{debug, error, info, trace, warn};
 use lru_cache::LruCache;
 use p2p::{
     builder::{MetaBuilder, ServiceBuilder},
+    bytes::Bytes,
     context::{ServiceContext, SessionContext},
     error::Error as P2pError,
     multiaddr::{self, multihash::Multihash, Multiaddr},
@@ -874,7 +875,7 @@ impl NetworkController {
         })
     }
 
-    pub fn broadcast(&self, proto_id: ProtocolId, data: Vec<u8>) {
+    pub fn broadcast(&self, proto_id: ProtocolId, data: Bytes) {
         let session_ids = self.network_state.peer_registry.read().connected_peers();
         if let Err(err) =
             self.p2p_control
@@ -884,7 +885,7 @@ impl NetworkController {
         }
     }
 
-    pub fn send_message_to(&self, session_id: SessionId, proto_id: ProtocolId, data: Vec<u8>) {
+    pub fn send_message_to(&self, session_id: SessionId, proto_id: ProtocolId, data: Bytes) {
         if let Err(err) = self.p2p_control.send_message_to(session_id, proto_id, data) {
             warn!(target: "network", "send message to {} {} failed: {:?}", session_id, proto_id, err);
         }

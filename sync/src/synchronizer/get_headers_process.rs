@@ -79,7 +79,7 @@ where
             let message = SyncMessage::build_headers(fbb, &headers);
             fbb.finish(message, None);
             self.nc
-                .send_message_to(self.peer, fbb.finished_data().to_vec());
+                .send_message_to(self.peer, fbb.finished_data().into());
         } else {
             warn!(target: "sync", "\n\nunknown block headers from peer {} {:#?}\n\n", self.peer, block_locator_hashes);
             // Got 'headers' message without known blocks

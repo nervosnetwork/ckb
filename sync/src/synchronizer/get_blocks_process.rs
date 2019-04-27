@@ -44,7 +44,7 @@ where
                 let message = SyncMessage::build_block(fbb, &block);
                 fbb.finish(message, None);
                 self.nc
-                    .send_message_to(self.peer, fbb.finished_data().to_vec());
+                    .send_message_to(self.peer, fbb.finished_data().into());
             } else {
                 // TODO response not found
                 // TODO add timeout check in synchronizer

@@ -1,7 +1,7 @@
 use crate::relayer::Relayer;
 use crate::relayer::MAX_RELAY_PEERS;
 use ckb_core::{transaction::Transaction, Cycle};
-use ckb_network::{CKBProtocolContext, PeerIndex};
+use ckb_network::{CKBProtocolContext, PeerIndex, TargetSession};
 use ckb_protocol::{RelayMessage, RelayTransaction as FbsRelayTransaction};
 use ckb_shared::store::ChainStore;
 use failure::Error as FailureError;
@@ -51,11 +51,6 @@ impl<'a, CS: ChainStore> TransactionProcess<'a, CS> {
         // disconnect peer if cycles mismatch
         match tx_result {
             Ok(cycles) if cycles == relay_cycles => {
-                // broadcast tx
-                let fbb = &mut FlatBufferBuilder::new();
-                let message = RelayMessage::build_transaction(fbb, &tx, cycles);
-                fbb.finish(message, None);
-
                 let mut known_txs = self.relayer.peers.known_txs.lock();
                 let selected_peers: Vec<PeerIndex> = self
                     .nc
@@ -68,10 +63,12 @@ impl<'a, CS: ChainStore> TransactionProcess<'a, CS> {
                     .take(MAX_RELAY_PEERS)
                     .collect();
 
-                for target_peer in selected_peers {
-                    self.nc
-                        .send_message_to(target_peer, fbb.finished_data().to_vec());
-                }
+                let fbb = &mut FlatBufferBuilder::new();
+                let message = RelayMessage::build_transaction(fbb, &tx, cycles);
+                fbb.finish(message, None);
+                let data = fbb.finished_data().into();
+                self.nc
+                    .filter_broadcast(TargetSession::Multi(selected_peers), data);
             }
             Ok(cycles) => {
                 debug!(
