@@ -243,7 +243,7 @@ impl TransactionWithStatus {
     /// Build with pending status
     pub fn with_pending(tx: CoreTransaction) -> Self {
         Self {
-            tx_status: TxStatus::Pending,
+            tx_status: TxStatus::pending(),
             transaction: (&tx).into(),
         }
     }
@@ -251,7 +251,7 @@ impl TransactionWithStatus {
     /// Build with proposed status
     pub fn with_proposed(tx: CoreTransaction) -> Self {
         Self {
-            tx_status: TxStatus::Proposed,
+            tx_status: TxStatus::proposed(),
             transaction: (&tx).into(),
         }
     }
@@ -259,47 +259,51 @@ impl TransactionWithStatus {
     /// Build with committed status
     pub fn with_committed(tx: CoreTransaction, hash: H256) -> Self {
         Self {
-            tx_status: TxStatus::Committed(hash),
+            tx_status: TxStatus::committed(hash),
             transaction: (&tx).into(),
-        }
-    }
-
-    /// status is pending ?
-    pub fn is_pending(&self) -> bool {
-        match self.tx_status {
-            TxStatus::Pending => true,
-            _ => false,
-        }
-    }
-
-    /// status is proposed ?
-    pub fn is_proposed(&self) -> bool {
-        match self.tx_status {
-            TxStatus::Proposed => true,
-            _ => false,
-        }
-    }
-
-    /// status is committed ?
-    pub fn is_committed(&self) -> bool {
-        match self.tx_status {
-            TxStatus::Committed(_) => true,
-            _ => false,
         }
     }
 }
 
-/// Can see the serialization results on the links: https://play.rust-lang.org/?version=stable&mode=debug&edition=2018&gist=c48782574d5ebe42dd24cd3650313cca
+/// Status for transaction
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
-#[serde(tag = "status", content = "block_hash")]
 #[serde(rename_all = "lowercase")]
-pub enum TxStatus {
+pub enum Status {
     /// Transaction on pool, not proposed
     Pending,
     /// Transaction on pool, proposed
     Proposed,
     /// Transaction commit on block
-    Committed(H256),
+    Committed,
+}
+
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+pub struct TxStatus {
+    pub status: Status,
+    pub block_hash: Option<H256>,
+}
+
+impl TxStatus {
+    pub fn pending() -> Self {
+        Self {
+            status: Status::Pending,
+            block_hash: None,
+        }
+    }
+
+    pub fn proposed() -> Self {
+        Self {
+            status: Status::Proposed,
+            block_hash: None,
+        }
+    }
+
+    pub fn committed(hash: H256) -> Self {
+        Self {
+            status: Status::Committed,
+            block_hash: Some(hash),
+        }
+    }
 }
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
