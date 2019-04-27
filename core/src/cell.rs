@@ -88,8 +88,8 @@ impl CellStatus {
 
 /// Transaction with resolved input cells.
 #[derive(Debug)]
-pub struct ResolvedTransaction {
-    pub transaction: Transaction,
+pub struct ResolvedTransaction<'a> {
+    pub transaction: &'a Transaction,
     pub dep_cells: Vec<CellStatus>,
     pub input_cells: Vec<CellStatus>,
 }
@@ -168,11 +168,11 @@ impl<'a> CellProvider for BlockCellProvider<'a> {
     }
 }
 
-pub fn resolve_transaction<CP: CellProvider>(
-    transaction: &Transaction,
+pub fn resolve_transaction<'a, CP: CellProvider>(
+    transaction: &'a Transaction,
     seen_inputs: &mut FnvHashSet<OutPoint>,
     cell_provider: &CP,
-) -> ResolvedTransaction {
+) -> ResolvedTransaction<'a> {
     let input_cells = transaction
         .input_pts()
         .iter()
@@ -198,13 +198,13 @@ pub fn resolve_transaction<CP: CellProvider>(
         .collect();
 
     ResolvedTransaction {
-        transaction: transaction.clone(),
+        transaction,
         input_cells,
         dep_cells,
     }
 }
 
-impl ResolvedTransaction {
+impl<'a> ResolvedTransaction<'a> {
     pub fn cells_iter(&self) -> Chain<slice::Iter<CellStatus>, slice::Iter<CellStatus>> {
         self.dep_cells.iter().chain(&self.input_cells)
     }

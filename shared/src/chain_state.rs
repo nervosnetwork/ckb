@@ -213,11 +213,11 @@ impl<CS: ChainStore> ChainState<CS> {
         })
     }
 
-    pub fn resolve_tx_from_pending_and_staging(
+    pub fn resolve_tx_from_pending_and_staging<'a>(
         &self,
-        tx: &Transaction,
+        tx: &'a Transaction,
         tx_pool: &TxPool,
-    ) -> ResolvedTransaction {
+    ) -> ResolvedTransaction<'a> {
         let staging_provider = OverlayCellProvider::new(&tx_pool.staging, self);
         let pending_and_staging_provider =
             OverlayCellProvider::new(&tx_pool.pending, &staging_provider);
@@ -225,11 +225,11 @@ impl<CS: ChainStore> ChainState<CS> {
         resolve_transaction(tx, &mut seen_inputs, &pending_and_staging_provider)
     }
 
-    pub fn resolve_tx_from_staging(
+    pub fn resolve_tx_from_staging<'a>(
         &self,
-        tx: &Transaction,
+        tx: &'a Transaction,
         tx_pool: &TxPool,
-    ) -> ResolvedTransaction {
+    ) -> ResolvedTransaction<'a> {
         let cell_provider = OverlayCellProvider::new(&tx_pool.staging, self);
         let mut seen_inputs = FnvHashSet::default();
         resolve_transaction(tx, &mut seen_inputs, &cell_provider)
