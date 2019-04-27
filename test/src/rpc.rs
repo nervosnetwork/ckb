@@ -1,5 +1,7 @@
 use jsonrpc_client_core::{expand_params, jsonrpc_client};
-use jsonrpc_types::{Block, BlockTemplate, Header, Node, Transaction, TxTrace};
+use jsonrpc_types::{
+    Block, BlockTemplate, Header, Node, Transaction, TransactionWithStatus, TxTrace,
+};
 use numext_fixed_hash::H256;
 
 jsonrpc_client!(pub struct RpcClient {
@@ -14,10 +16,9 @@ jsonrpc_client!(pub struct RpcClient {
     pub fn send_transaction(&mut self, tx: Transaction) -> RpcRequest<H256>;
     pub fn trace_transaction(&mut self, tx: Transaction) -> RpcRequest<H256>;
     pub fn get_transaction_trace(&mut self, hash: H256) -> RpcRequest<Option<Vec<TxTrace>>>;
-    pub fn get_pool_transaction(&mut self, hash: H256) -> RpcRequest<Option<Transaction>>;
 
     pub fn get_block(&mut self, hash: H256) -> RpcRequest<Option<Block>>;
-    pub fn get_transaction(&mut self, hash: H256) -> RpcRequest<Option<Transaction>>;
+    pub fn get_transaction(&mut self, hash: H256) -> RpcRequest<Option<TransactionWithStatus>>;
     pub fn get_block_hash(&mut self, number: String) -> RpcRequest<Option<H256>>;
     pub fn get_tip_header(&mut self) -> RpcRequest<Header>;
     pub fn get_tip_block_number(&mut self) -> RpcRequest<String>;

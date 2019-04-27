@@ -24,10 +24,11 @@ impl Spec for PoolReconcile {
         info!("Pool should be empty");
         assert!(node0
             .rpc_client()
-            .get_pool_transaction(hash.clone())
+            .get_transaction(hash.clone())
             .call()
             .unwrap()
-            .is_none());
+            .unwrap()
+            .is_committed());
 
         info!("Generate 5 blocks on node1");
         (0..5).for_each(|_| {
@@ -41,12 +42,13 @@ impl Spec for PoolReconcile {
         sleep(10);
 
         info!("Tx should be re-added to node0's pool");
-        assert!(node0
+        assert!(!node0
             .rpc_client()
-            .get_pool_transaction(hash.clone())
+            .get_transaction(hash.clone())
             .call()
             .unwrap()
-            .is_some());
+            .unwrap()
+            .is_committed());
     }
 
     fn num_nodes(&self) -> usize {

@@ -215,6 +215,14 @@ curl -H 'content-type:application/json' \
 }
 ```
 
+#### `tx_status` Possible Values
+
+```
+tx_status: { status: "pending" }
+tx_status: { status: "proposed" }
+tx_status: { status: "committed", block_hash = "0xef285e5da29247ce39385cbd8dc36535f7ea1b5b0379db26e9d459a8b47d0d71" }
+```
+
 ### get_cells_by_lock_hash
 
 Returns the information about cells collection by the hash of lock script.
