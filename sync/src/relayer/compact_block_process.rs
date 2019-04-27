@@ -6,7 +6,7 @@ use ckb_protocol::{CompactBlock as FbsCompactBlock, RelayMessage};
 use ckb_shared::shared::Shared;
 use ckb_shared::store::ChainStore;
 use ckb_traits::{BlockMedianTimeContext, ChainProvider};
-use ckb_verification::{HeaderResolverWrapper, HeaderVerifier, Verifier, Error as VerifyError};
+use ckb_verification::{Error as VerifyError, HeaderResolverWrapper, HeaderVerifier, Verifier};
 use failure::Error as FailureError;
 use flatbuffers::FlatBufferBuilder;
 use fnv::FnvHashMap;

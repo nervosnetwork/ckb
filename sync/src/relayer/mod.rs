@@ -15,16 +15,17 @@ use self::get_block_transactions_process::GetBlockTransactionsProcess;
 use self::transaction_process::TransactionProcess;
 use crate::relayer::compact_block::ShortTransactionID;
 use crate::types::Peers;
+use crate::NetworkProtocol;
 use crate::BAD_MESSAGE_BAN_TIME;
 use ckb_chain::chain::ChainController;
 use ckb_core::block::{Block, BlockBuilder};
+use ckb_core::header::{BlockNumber, Header};
 use ckb_core::transaction::{ProposalShortId, Transaction};
 use ckb_core::uncle::UncleBlock;
-use ckb_core::header::{BlockNumber, Header};
 use ckb_network::{CKBProtocolContext, CKBProtocolHandler, PeerIndex};
 use ckb_protocol::{
     cast, get_root, short_transaction_id, short_transaction_id_keys, RelayMessage, RelayPayload,
-    SyncMessage
+    SyncMessage,
 };
 use ckb_shared::chain_state::ChainState;
 use ckb_shared::shared::Shared;
@@ -366,12 +367,16 @@ impl<CS: ChainStore> Relayer<CS> {
         peer: PeerIndex,
         header: &Header,
     ) {
-        debug!(target: "sync", "send_getheaders_to_peer peer={}, hash={}", peer, header.hash());
+        debug!(target: "relay", "send_getheaders_to_peer peer={}, hash={}", peer, header.hash());
         let locator_hash = self.get_locator(header);
         let fbb = &mut FlatBufferBuilder::new();
         let message = SyncMessage::build_get_headers(fbb, &locator_hash);
         fbb.finish(message, None);
-        nc.send_message_to(peer, fbb.finished_data().to_vec());
+        nc.send_message(
+            NetworkProtocol::SYNC.into(),
+            peer,
+            fbb.finished_data().to_vec(),
+        );
     }
 }
 
@@ -389,7 +394,7 @@ impl<CS: ChainStore> CKBProtocolHandler for Relayer<CS> {
         let msg = match get_root::<RelayMessage>(&data) {
             Ok(msg) => msg,
             _ => {
-                info!(target: "sync", "Peer {} sends us a malformed message", peer_index);
+                info!(target: "relay", "Peer {} sends us a malformed message", peer_index);
                 nc.ban_peer(peer_index, BAD_MESSAGE_BAN_TIME);
                 return;
             }
