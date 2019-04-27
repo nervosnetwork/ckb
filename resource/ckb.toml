@@ -28,8 +28,8 @@ log_to_stdout = true # {{
 
 [sentry]
 # set to blank to disable sentry error collection
-dsn = "https://48c6a88d92e246478e2d53b5917a887c@sentry.io/1422795" # {{
-# integration => dsn = ""
+dsn = "" # {{
+# testnet => dsn = "https://48c6a88d92e246478e2d53b5917a887c@sentry.io/1422795"
 # }}
 
 [network]
