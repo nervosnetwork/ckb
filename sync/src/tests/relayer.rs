@@ -335,7 +335,8 @@ fn setup_node(
 
     let shared = SharedBuilder::<MemoryKeyValueDB>::new()
         .consensus(consensus)
-        .build();
+        .build()
+        .unwrap();
 
     let notify = NotifyService::default().start(Some(thread_name));
 

@@ -20,7 +20,7 @@ use std::sync::Arc;
 #[test]
 fn test_find_fork_case1() {
     let builder = SharedBuilder::<MemoryKeyValueDB>::new();
-    let shared = builder.consensus(Consensus::default()).build();
+    let shared = builder.consensus(Consensus::default()).build().unwrap();
     let notify = NotifyService::default().start::<&str>(None);
     let mut chain_service = ChainBuilder::new(shared.clone(), notify)
         .verification(false)
@@ -92,7 +92,7 @@ fn test_find_fork_case1() {
 #[test]
 fn test_find_fork_case2() {
     let builder = SharedBuilder::<MemoryKeyValueDB>::new();
-    let shared = builder.consensus(Consensus::default()).build();
+    let shared = builder.consensus(Consensus::default()).build().unwrap();
     let notify = NotifyService::default().start::<&str>(None);
     let mut chain_service = ChainBuilder::new(shared.clone(), notify)
         .verification(false)
@@ -170,7 +170,7 @@ fn test_find_fork_case2() {
 #[test]
 fn test_find_fork_case3() {
     let builder = SharedBuilder::<MemoryKeyValueDB>::new();
-    let shared = builder.consensus(Consensus::default()).build();
+    let shared = builder.consensus(Consensus::default()).build().unwrap();
     let notify = NotifyService::default().start::<&str>(None);
     let mut chain_service = ChainBuilder::new(shared.clone(), notify)
         .verification(false)
@@ -242,7 +242,7 @@ fn test_find_fork_case3() {
 #[test]
 fn test_find_fork_case4() {
     let builder = SharedBuilder::<MemoryKeyValueDB>::new();
-    let shared = builder.consensus(Consensus::default()).build();
+    let shared = builder.consensus(Consensus::default()).build().unwrap();
     let notify = NotifyService::default().start::<&str>(None);
     let mut chain_service = ChainBuilder::new(shared.clone(), notify)
         .verification(false)

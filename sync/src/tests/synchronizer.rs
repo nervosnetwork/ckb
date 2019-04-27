@@ -76,7 +76,8 @@ fn setup_node(
     let consensus = Consensus::default().set_genesis_block(block.clone());
     let shared = SharedBuilder::<MemoryKeyValueDB>::new()
         .consensus(consensus)
-        .build();
+        .build()
+        .unwrap();
     let notify = NotifyService::default().start(Some(thread_name));
 
     let chain_service = ChainBuilder::new(shared.clone(), notify)

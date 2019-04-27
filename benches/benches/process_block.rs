@@ -198,7 +198,8 @@ fn new_chain(
             options: None,
         })
         .consensus(consensus)
-        .build();
+        .build()
+        .unwrap();
     let notify = NotifyService::default().start::<&str>(None);
     let chain_service = ChainBuilder::new(shared.clone(), notify).build();
     (

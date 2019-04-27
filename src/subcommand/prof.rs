@@ -12,7 +12,11 @@ pub fn profile(args: ProfArgs) -> Result<(), ExitCode> {
         .consensus(args.consensus.clone())
         .db(&args.config.db)
         .tx_pool_config(args.config.tx_pool.clone())
-        .build();
+        .build()
+        .map_err(|err| {
+            eprintln!("Prof error: {:?}", err);
+            ExitCode::Failure
+        })?;
 
     let tmp_dir = tempfile::Builder::new().tempdir().unwrap();
     let tmp_shared = SharedBuilder::<CacheDB<RocksDB>>::default()
@@ -22,7 +26,11 @@ pub fn profile(args: ProfArgs) -> Result<(), ExitCode> {
             options: None,
         })
         .tx_pool_config(args.config.tx_pool)
-        .build();
+        .build()
+        .map_err(|err| {
+            eprintln!("Prof error: {:?}", err);
+            ExitCode::Failure
+        })?;
 
     let from = std::cmp::max(1, args.from);
     let to = std::cmp::min(shared.chain_state().lock().tip_number(), args.to);

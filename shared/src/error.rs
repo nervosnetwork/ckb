@@ -7,6 +7,8 @@ pub enum SharedError {
     InvalidTransaction(String),
     #[fail(display = "InvalidParentBlock")]
     InvalidParentBlock,
+    #[fail(display = "InvalidData error: {}", _0)]
+    InvalidData(String),
     #[fail(display = "DB error: {}", _0)]
     DB(DBError),
 }
