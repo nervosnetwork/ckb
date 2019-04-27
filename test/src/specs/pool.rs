@@ -28,7 +28,9 @@ impl Spec for PoolReconcile {
             .call()
             .unwrap()
             .unwrap()
-            .is_committed());
+            .tx_status
+            .block_hash
+            .is_some());
 
         info!("Generate 5 blocks on node1");
         (0..5).for_each(|_| {
@@ -42,13 +44,15 @@ impl Spec for PoolReconcile {
         sleep(10);
 
         info!("Tx should be re-added to node0's pool");
-        assert!(!node0
+        assert!(node0
             .rpc_client()
             .get_transaction(hash.clone())
             .call()
             .unwrap()
             .unwrap()
-            .is_committed());
+            .tx_status
+            .block_hash
+            .is_none());
     }
 
     fn num_nodes(&self) -> usize {
