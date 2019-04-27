@@ -158,6 +158,11 @@ impl CKBProtocolContext for TestNetworkContext {
             });
         }
     }
+    fn send_message(&self, proto_id: ProtocolId, peer_index: PeerIndex, data: Vec<u8>) {
+        if let Some(sender) = self.msg_senders.get(&(proto_id, peer_index)) {
+            let _ = sender.send(data);
+        }
+    }
     fn send_message_to(&self, peer_index: PeerIndex, data: Vec<u8>) {
         if let Some(sender) = self.msg_senders.get(&(self.protocol, peer_index)) {
             let _ = sender.send(data);

@@ -14,23 +14,18 @@ use self::get_block_proposal_process::GetBlockProposalProcess;
 use self::get_block_transactions_process::GetBlockTransactionsProcess;
 use self::transaction_process::TransactionProcess;
 use crate::relayer::compact_block::ShortTransactionID;
-use crate::types::Peers;
-use crate::NetworkProtocol;
+use crate::types::{Peers, SyncSharedState};
 use crate::BAD_MESSAGE_BAN_TIME;
 use ckb_chain::chain::ChainController;
 use ckb_core::block::{Block, BlockBuilder};
-use ckb_core::header::{BlockNumber, Header};
 use ckb_core::transaction::{ProposalShortId, Transaction};
 use ckb_core::uncle::UncleBlock;
 use ckb_network::{CKBProtocolContext, CKBProtocolHandler, PeerIndex};
 use ckb_protocol::{
     cast, get_root, short_transaction_id, short_transaction_id_keys, RelayMessage, RelayPayload,
-    SyncMessage,
 };
 use ckb_shared::chain_state::ChainState;
-use ckb_shared::shared::Shared;
 use ckb_shared::store::ChainStore;
-use ckb_traits::ChainProvider;
 use ckb_util::Mutex;
 use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
@@ -49,7 +44,7 @@ pub const TX_FILTER_SIZE: usize = 50000;
 
 pub struct Relayer<CS> {
     chain: ChainController,
-    pub(crate) shared: Shared<CS>,
+    pub(crate) shared: Arc<SyncSharedState<CS>>,
     state: Arc<RelayState>,
     // TODO refactor shared Peers struct with Synchronizer
     peers: Arc<Peers>,
@@ -59,7 +54,7 @@ impl<CS: ChainStore> Clone for Relayer<CS> {
     fn clone(&self) -> Self {
         Relayer {
             chain: self.chain.clone(),
-            shared: self.shared.clone(),
+            shared: Arc::clone(&self.shared),
             state: Arc::clone(&self.state),
             peers: Arc::clone(&self.peers),
         }
@@ -67,7 +62,11 @@ impl<CS: ChainStore> Clone for Relayer<CS> {
 }
 
 impl<CS: ChainStore> Relayer<CS> {
-    pub fn new(chain: ChainController, shared: Shared<CS>, peers: Arc<Peers>) -> Self {
+    pub fn new(
+        chain: ChainController,
+        shared: Arc<SyncSharedState<CS>>,
+        peers: Arc<Peers>,
+    ) -> Self {
         Relayer {
             chain,
             shared,
@@ -305,78 +304,8 @@ impl<CS: ChainStore> Relayer<CS> {
         }
     }
 
-    pub fn get_block(&self, hash: &H256) -> Option<Block> {
-        self.shared.block(hash)
-    }
-
     pub fn peers(&self) -> Arc<Peers> {
         Arc::clone(&self.peers)
-    }
-
-    pub fn get_ancestor(&self, base: &H256, number: BlockNumber) -> Option<Header> {
-        if let Some(header) = self.shared.block_header(base) {
-            let mut n_number = header.number();
-            let mut index_walk = header;
-            if number > n_number {
-                return None;
-            }
-
-            while n_number > number {
-                if let Some(header) = self.shared.block_header(&index_walk.parent_hash()) {
-                    index_walk = header;
-                    n_number -= 1;
-                } else {
-                    return None;
-                }
-            }
-            return Some(index_walk);
-        }
-        None
-    }
-
-    pub fn get_locator(&self, start: &Header) -> Vec<H256> {
-        let mut step = 1;
-        let mut locator = Vec::with_capacity(32);
-        let mut index = start.number();
-        let base = start.hash();
-        loop {
-            let header = self
-                .get_ancestor(&base, index)
-                .expect("index calculated in get_locator");
-            locator.push(header.hash().clone());
-
-            if locator.len() >= 10 {
-                step <<= 1;
-            }
-
-            if index < step {
-                // always include genesis hash
-                if index != 0 {
-                    locator.push(self.shared.genesis_hash().clone());
-                }
-                break;
-            }
-            index -= step;
-        }
-        locator
-    }
-
-    pub fn send_getheaders_to_peer(
-        &self,
-        nc: &CKBProtocolContext,
-        peer: PeerIndex,
-        header: &Header,
-    ) {
-        debug!(target: "relay", "send_getheaders_to_peer peer={}, hash={}", peer, header.hash());
-        let locator_hash = self.get_locator(header);
-        let fbb = &mut FlatBufferBuilder::new();
-        let message = SyncMessage::build_get_headers(fbb, &locator_hash);
-        fbb.finish(message, None);
-        nc.send_message(
-            NetworkProtocol::SYNC.into(),
-            peer,
-            fbb.finished_data().to_vec(),
-        );
     }
 }
 

@@ -1,15 +1,26 @@
+use crate::NetworkProtocol;
+use crate::{MAX_HEADERS_LEN, MAX_TIP_AGE};
+use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::Block;
+use ckb_core::extras::BlockExt;
 use ckb_core::header::{BlockNumber, Header};
-use ckb_network::PeerIndex;
+use ckb_network::{CKBProtocolContext, PeerIndex};
+use ckb_protocol::SyncMessage;
+use ckb_shared::chain_state::ChainState;
+use ckb_shared::shared::Shared;
+use ckb_shared::store::ChainStore;
+use ckb_traits::ChainProvider;
 use ckb_util::Mutex;
 use ckb_util::RwLock;
 use faketime::unix_time_as_millis;
+use flatbuffers::FlatBufferBuilder;
 use fnv::{FnvHashMap, FnvHashSet};
 use log::debug;
 use lru_cache::LruCache;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
-use std::collections::hash_map::Entry;
+use std::cmp;
+use std::collections::hash_map::{Entry, HashMap};
 
 const FILTER_SIZE: usize = 20000;
 
@@ -250,5 +261,253 @@ impl HeaderView {
 
     pub fn into_inner(self) -> Header {
         self.inner
+    }
+}
+
+pub struct SyncSharedState<CS> {
+    shared: Shared<CS>,
+    header_map: RwLock<HashMap<H256, HeaderView>>,
+    best_known_header: RwLock<HeaderView>,
+}
+
+impl<CS: ChainStore> SyncSharedState<CS> {
+    pub fn new(shared: Shared<CS>) -> SyncSharedState<CS> {
+        let (total_difficulty, header, total_uncles_count) = {
+            let chain_state = shared.chain_state().lock();
+            let block_ext = shared
+                .block_ext(&chain_state.tip_hash())
+                .expect("tip block_ext must exist");
+            (
+                chain_state.total_difficulty().clone(),
+                chain_state.tip_header().clone(),
+                block_ext.total_uncles_count,
+            )
+        };
+        let best_known_header = RwLock::new(HeaderView::new(
+            header,
+            total_difficulty,
+            total_uncles_count,
+        ));
+        let header_map = RwLock::new(HashMap::new());
+        SyncSharedState {
+            shared,
+            header_map,
+            best_known_header,
+        }
+    }
+
+    pub fn shared(&self) -> &Shared<CS> {
+        &self.shared
+    }
+    pub fn chain_state(&self) -> &Mutex<ChainState<CS>> {
+        self.shared.chain_state()
+    }
+    pub fn block_header(&self, hash: &H256) -> Option<Header> {
+        self.shared.block_header(hash)
+    }
+    pub fn block_ext(&self, hash: &H256) -> Option<BlockExt> {
+        self.shared.block_ext(hash)
+    }
+    pub fn block_hash(&self, number: BlockNumber) -> Option<H256> {
+        self.shared.block_hash(number)
+    }
+    pub fn get_block(&self, hash: &H256) -> Option<Block> {
+        self.shared.block(hash)
+    }
+    pub fn tip_header(&self) -> Header {
+        self.shared.chain_state().lock().tip_header().clone()
+    }
+    pub fn consensus(&self) -> &Consensus {
+        self.shared.consensus()
+    }
+    pub fn is_initial_block_download(&self) -> bool {
+        unix_time_as_millis()
+            .saturating_sub(self.shared.chain_state().lock().tip_header().timestamp())
+            > MAX_TIP_AGE
+    }
+
+    pub fn best_known_header(&self) -> HeaderView {
+        self.best_known_header.read().clone()
+    }
+    pub fn set_best_known_header(&self, header: HeaderView) {
+        *self.best_known_header.write() = header;
+    }
+
+    pub fn insert_header(&self, hash: H256, header: HeaderView) {
+        self.header_map.write().insert(hash, header);
+    }
+    pub fn get_header(&self, hash: &H256) -> Option<Header> {
+        self.header_map
+            .read()
+            .get(hash)
+            .map(HeaderView::inner)
+            .cloned()
+            .or_else(|| self.shared.block_header(hash))
+    }
+
+    pub fn get_header_view(&self, hash: &H256) -> Option<HeaderView> {
+        self.header_map.read().get(hash).cloned().or_else(|| {
+            self.shared.block_header(hash).and_then(|header| {
+                self.shared.block_ext(&hash).map(|block_ext| {
+                    HeaderView::new(
+                        header,
+                        block_ext.total_difficulty,
+                        block_ext.total_uncles_count,
+                    )
+                })
+            })
+        })
+    }
+
+    pub fn get_ancestor(&self, base: &H256, number: BlockNumber) -> Option<Header> {
+        if let Some(header) = self.get_header(base) {
+            let mut n_number = header.number();
+            let mut index_walk = header;
+            if number > n_number {
+                return None;
+            }
+
+            while n_number > number {
+                if let Some(header) = self.get_header(&index_walk.parent_hash()) {
+                    index_walk = header;
+                    n_number -= 1;
+                } else {
+                    return None;
+                }
+            }
+            return Some(index_walk);
+        }
+        None
+    }
+
+    pub fn get_locator(&self, start: &Header) -> Vec<H256> {
+        let mut step = 1;
+        let mut locator = Vec::with_capacity(32);
+        let mut index = start.number();
+        let base = start.hash();
+        loop {
+            let header = self
+                .get_ancestor(&base, index)
+                .expect("index calculated in get_locator");
+            locator.push(header.hash().clone());
+
+            if locator.len() >= 10 {
+                step <<= 1;
+            }
+
+            if index < step {
+                // always include genesis hash
+                if index != 0 {
+                    locator.push(self.shared.genesis_hash().clone());
+                }
+                break;
+            }
+            index -= step;
+        }
+        locator
+    }
+
+    // If the peer reorganized, our previous last_common_header may not be an ancestor
+    // of its current best_known_header. Go back enough to fix that.
+    pub fn last_common_ancestor(
+        &self,
+        last_common_header: &Header,
+        best_known_header: &Header,
+    ) -> Option<Header> {
+        debug_assert!(best_known_header.number() >= last_common_header.number());
+
+        let mut m_right =
+            self.get_ancestor(&best_known_header.hash(), last_common_header.number())?;
+
+        if &m_right == last_common_header {
+            return Some(m_right);
+        }
+
+        let mut m_left = self.get_header(&last_common_header.hash())?;
+        debug_assert!(m_right.number() == m_left.number());
+
+        while m_left != m_right {
+            m_left = self.get_ancestor(&m_left.hash(), m_left.number() - 1)?;
+            m_right = self.get_ancestor(&m_right.hash(), m_right.number() - 1)?;
+        }
+        Some(m_left)
+    }
+
+    pub fn locate_latest_common_block(
+        &self,
+        _hash_stop: &H256,
+        locator: &[H256],
+    ) -> Option<BlockNumber> {
+        if locator.is_empty() {
+            return None;
+        }
+
+        if locator.last().expect("empty checked") != self.shared.genesis_hash() {
+            return None;
+        }
+
+        // iterator are lazy
+        let (index, latest_common) = locator
+            .iter()
+            .enumerate()
+            .map(|(index, hash)| (index, self.shared.block_number(hash)))
+            .find(|(_index, number)| number.is_some())
+            .expect("locator last checked");
+
+        if index == 0 || latest_common == Some(0) {
+            return latest_common;
+        }
+
+        if let Some(header) = locator
+            .get(index - 1)
+            .and_then(|hash| self.shared.block_header(hash))
+        {
+            let mut block_hash = header.parent_hash().clone();
+            loop {
+                let block_header = match self.shared.block_header(&block_hash) {
+                    None => break latest_common,
+                    Some(block_header) => block_header,
+                };
+
+                if let Some(block_number) = self.shared.block_number(&block_hash) {
+                    return Some(block_number);
+                }
+
+                block_hash = block_header.parent_hash().clone();
+            }
+        } else {
+            latest_common
+        }
+    }
+
+    pub fn get_locator_response(&self, block_number: BlockNumber, hash_stop: &H256) -> Vec<Header> {
+        let tip_number = self.tip_header().number();
+        let max_height = cmp::min(
+            block_number + 1 + MAX_HEADERS_LEN as BlockNumber,
+            tip_number + 1,
+        );
+        (block_number + 1..max_height)
+            .filter_map(|block_number| self.shared.block_hash(block_number))
+            .take_while(|block_hash| block_hash != hash_stop)
+            .filter_map(|block_hash| self.shared.block_header(&block_hash))
+            .collect()
+    }
+
+    pub fn send_getheaders_to_peer(
+        &self,
+        nc: &CKBProtocolContext,
+        peer: PeerIndex,
+        header: &Header,
+    ) {
+        debug!(target: "sync", "send_getheaders_to_peer peer={}, hash={}", peer, header.hash());
+        let locator_hash = self.get_locator(header);
+        let fbb = &mut FlatBufferBuilder::new();
+        let message = SyncMessage::build_get_headers(fbb, &locator_hash);
+        fbb.finish(message, None);
+        nc.send_message(
+            NetworkProtocol::SYNC.into(),
+            peer,
+            fbb.finished_data().to_vec(),
+        );
     }
 }

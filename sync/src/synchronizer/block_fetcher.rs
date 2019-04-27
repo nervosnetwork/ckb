@@ -7,7 +7,6 @@ use crate::{
 use ckb_core::header::Header;
 use ckb_network::PeerIndex;
 use ckb_shared::store::ChainStore;
-use ckb_traits::ChainProvider;
 use ckb_util::try_option;
 use faketime::unix_time_as_millis;
 use log::{debug, trace};
@@ -88,6 +87,7 @@ where
 
         let fixed_last_common_header = self
             .synchronizer
+            .shared
             .last_common_ancestor(&last_common_header, &best.inner())?;
 
         if fixed_last_common_header != last_common_header {
@@ -104,9 +104,10 @@ where
 
     // this peer's tip is wherethe the ancestor of global_best_known_header
     pub fn is_known_best(&self, header: &HeaderView) -> bool {
-        let global_best_known_header = { self.synchronizer.best_known_header.read().clone() };
+        let global_best_known_header = self.synchronizer.shared.best_known_header();
         if let Some(ancestor) = self
             .synchronizer
+            .shared
             .get_ancestor(&global_best_known_header.hash(), header.number())
         {
             if ancestor != header.inner().clone() {
@@ -183,9 +184,10 @@ where
 
             while n_height < max_height && v_fetch.len() < PER_FETCH_BLOCK_LIMIT {
                 n_height += 1;
-                let to_fetch = try_option!(self
+                let to_fetch = self
                     .synchronizer
-                    .get_ancestor(&best_known_header.hash(), n_height));
+                    .shared
+                    .get_ancestor(&best_known_header.hash(), n_height)?;
                 let to_fetch_hash = to_fetch.hash();
 
                 let block_status = self.synchronizer.get_block_status(&to_fetch_hash);

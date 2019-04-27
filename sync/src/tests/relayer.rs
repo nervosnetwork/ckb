@@ -1,6 +1,6 @@
 use crate::relayer::TX_PROPOSAL_TOKEN;
 use crate::tests::TestNode;
-use crate::{NetworkProtocol, Relayer};
+use crate::{NetworkProtocol, Relayer, SyncSharedState};
 use ckb_chain::chain::{ChainBuilder, ChainController};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::BlockBuilder;
@@ -378,9 +378,10 @@ fn setup_node(
             .expect("process block should be OK");
     }
 
+    let sync_shared_state = Arc::new(SyncSharedState::new(shared.clone()));
     let relayer = Relayer::new(
         chain_controller.clone(),
-        shared.clone(),
+        sync_shared_state,
         Arc::new(Default::default()),
     );
 

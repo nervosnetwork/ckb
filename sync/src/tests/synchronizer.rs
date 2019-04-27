@@ -1,6 +1,6 @@
 use crate::synchronizer::{BLOCK_FETCH_TOKEN, SEND_GET_HEADERS_TOKEN, TIMEOUT_EVICTION_TOKEN};
 use crate::tests::TestNode;
-use crate::{Config, NetworkProtocol, Synchronizer};
+use crate::{Config, NetworkProtocol, SyncSharedState, Synchronizer};
 use ckb_chain::chain::ChainBuilder;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::BlockBuilder;
@@ -108,7 +108,8 @@ fn setup_node(
             .expect("process block should be OK");
     }
 
-    let synchronizer = Synchronizer::new(chain_controller, shared.clone(), Config::default());
+    let sync_shared_state = Arc::new(SyncSharedState::new(shared.clone()));
+    let synchronizer = Synchronizer::new(chain_controller, sync_shared_state, Config::default());
     let mut node = TestNode::default();
     let protocol = Arc::new(RwLock::new(synchronizer)) as Arc<_>;
     node.add_protocol(

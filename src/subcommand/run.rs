@@ -8,7 +8,7 @@ use ckb_notify::{NotifyController, NotifyService};
 use ckb_rpc::RpcServer;
 use ckb_shared::shared::{Shared, SharedBuilder};
 use ckb_shared::store::ChainStore;
-use ckb_sync::{NetTimeProtocol, NetworkProtocol, Relayer, Synchronizer};
+use ckb_sync::{NetTimeProtocol, NetworkProtocol, Relayer, SyncSharedState, Synchronizer};
 use ckb_traits::chain_provider::ChainProvider;
 use log::info;
 use std::sync::Arc;
@@ -33,12 +33,16 @@ pub fn run(args: RunArgs) -> Result<(), ExitCode> {
     let network_state = Arc::new(
         NetworkState::from_config(args.config.network).expect("Init network state failed"),
     );
-    let synchronizer =
-        Synchronizer::new(chain_controller.clone(), shared.clone(), args.config.sync);
+    let sync_shared_state = Arc::new(SyncSharedState::new(shared.clone()));
+    let synchronizer = Synchronizer::new(
+        chain_controller.clone(),
+        Arc::clone(&sync_shared_state),
+        args.config.sync,
+    );
 
     let relayer = Relayer::new(
         chain_controller.clone(),
-        shared.clone(),
+        sync_shared_state,
         synchronizer.peers(),
     );
     let net_timer = NetTimeProtocol::default();
