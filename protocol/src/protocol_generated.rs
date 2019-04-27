@@ -1021,6 +1021,7 @@ impl<'a> Header<'a> {
         _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr>,
         args: &'args HeaderArgs<'args>) -> flatbuffers::WIPOffset<Header<'bldr>> {
       let mut builder = HeaderBuilder::new(_fbb);
+      builder.add_epoch(args.epoch);
       builder.add_nonce(args.nonce);
       builder.add_number(args.number);
       builder.add_timestamp(args.timestamp);
@@ -1048,6 +1049,7 @@ impl<'a> Header<'a> {
     pub const VT_PROOF: flatbuffers::VOffsetT = 22;
     pub const VT_UNCLES_HASH: flatbuffers::VOffsetT = 24;
     pub const VT_UNCLES_COUNT: flatbuffers::VOffsetT = 26;
+    pub const VT_EPOCH: flatbuffers::VOffsetT = 28;
 
   #[inline]
   pub fn version(&self) -> u32 {
@@ -1097,6 +1099,10 @@ impl<'a> Header<'a> {
   pub fn uncles_count(&self) -> u32 {
     self._tab.get::<u32>(Header::VT_UNCLES_COUNT, Some(0)).unwrap()
   }
+  #[inline]
+  pub fn epoch(&self) -> u64 {
+    self._tab.get::<u64>(Header::VT_EPOCH, Some(0)).unwrap()
+  }
 }
 
 pub struct HeaderArgs<'a> {
@@ -1112,6 +1118,7 @@ pub struct HeaderArgs<'a> {
     pub proof: Option<flatbuffers::WIPOffset<Bytes<'a >>>,
     pub uncles_hash: Option<&'a  H256>,
     pub uncles_count: u32,
+    pub epoch: u64,
 }
 impl<'a> Default for HeaderArgs<'a> {
     #[inline]
@@ -1129,6 +1136,7 @@ impl<'a> Default for HeaderArgs<'a> {
             proof: None,
             uncles_hash: None,
             uncles_count: 0,
+            epoch: 0,
         }
     }
 }
@@ -1184,6 +1192,10 @@ impl<'a: 'b, 'b> HeaderBuilder<'a, 'b> {
   #[inline]
   pub fn add_uncles_count(&mut self, uncles_count: u32) {
     self.fbb_.push_slot::<u32>(Header::VT_UNCLES_COUNT, uncles_count, 0);
+  }
+  #[inline]
+  pub fn add_epoch(&mut self, epoch: u64) {
+    self.fbb_.push_slot::<u64>(Header::VT_EPOCH, epoch, 0);
   }
   #[inline]
   pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>) -> HeaderBuilder<'a, 'b> {

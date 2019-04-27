@@ -24,7 +24,8 @@ pub struct TransactionAddress {
 pub struct EpochExt {
     pub(crate) number: u64,
     pub(crate) block_reward: Capacity,
-    pub(crate) start: BlockNumber,
+    pub(crate) last_epoch_end_hash: H256,
+    pub(crate) start_number: BlockNumber,
     pub(crate) length: BlockNumber,
     pub(crate) difficulty: U256,
     pub(crate) remainder_reward: Capacity,
@@ -39,8 +40,8 @@ impl EpochExt {
         self.block_reward
     }
 
-    pub fn start(&self) -> BlockNumber {
-        self.start
+    pub fn start_number(&self) -> BlockNumber {
+        self.start_number
     }
 
     pub fn length(&self) -> BlockNumber {
@@ -55,18 +56,24 @@ impl EpochExt {
         &self.remainder_reward
     }
 
+    pub fn last_epoch_end_hash(&self) -> &H256 {
+        &self.last_epoch_end_hash
+    }
+
     pub fn new(
         number: u64,
         block_reward: Capacity,
         remainder_reward: Capacity,
-        start: BlockNumber,
+        last_epoch_end_hash: H256,
+        start_number: BlockNumber,
         length: BlockNumber,
         difficulty: U256,
     ) -> EpochExt {
         EpochExt {
             number,
             block_reward,
-            start,
+            start_number,
+            last_epoch_end_hash,
             length,
             difficulty,
             remainder_reward,

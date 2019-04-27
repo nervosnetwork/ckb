@@ -163,11 +163,11 @@ impl<CS: ChainStore> ChainProvider for Shared<CS> {
     }
 
     fn is_epoch_end(&self, epoch: &EpochExt, number: BlockNumber) -> bool {
-        (epoch.start() + epoch.length() - 1) == number
+        (epoch.start_number() + epoch.length() - 1) == number
     }
 
     fn next_epoch_ext(&self, last_epoch: &EpochExt, header: &Header) -> Option<EpochExt> {
-        let start = last_epoch.start();
+        let start = last_epoch.start_number();
         let last_epoch_length = last_epoch.length();
 
         if !self.is_epoch_end(last_epoch, header.number()) {
@@ -219,6 +219,7 @@ impl<CS: ChainStore> ChainProvider for Shared<CS> {
                     last_epoch.number() + 1, // number
                     block_reward,
                     remainder_reward,        // remainder_reward
+                    header.hash(),           // last_epoch_end_hash
                     header.number() + 1,     // start
                     next_epoch_length,       // length
                     difficulty               // difficulty,
@@ -238,6 +239,7 @@ impl<CS: ChainStore> ChainProvider for Shared<CS> {
                     last_epoch.number() + 1, // number
                     block_reward,
                     remainder_reward,        // remainder_reward
+                    header.hash(),           // last_epoch_end_hash
                     header.number() + 1,     // start
                     next_epoch_length,       // length
                     difficulty               // difficulty,

@@ -1710,6 +1710,15 @@ pub mod ckb {
                     }
                 }
 
+                if Self::VT_EPOCH as usize + flatbuffers::SIZE_VOFFSET
+                    <= vtab_num_bytes
+                {
+                    let voffset = vtab.get(Self::VT_EPOCH) as usize;
+                    if voffset > 0 && object_inline_num_bytes - voffset < 8 {
+                        return Err(Error::OutOfBounds);
+                    }
+                }
+
                 Ok(())
             }
         }

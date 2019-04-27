@@ -46,6 +46,7 @@ table Header {
     proof:                  Bytes;
     uncles_hash:            H256;
     uncles_count:           uint32;
+    epoch:                  uint64;
 }
 
 table Block {

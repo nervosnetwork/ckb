@@ -209,7 +209,6 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
 
     pub(crate) fn insert_block(&self, block: Arc<Block>) -> Result<(), FailureError> {
         let mut new_best_block = false;
-        let mut new_epoch = None;
         let mut total_difficulty = U256::zero();
 
         let mut cell_set_diff = CellSetDiff::default();
@@ -245,6 +244,21 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
 
         let mut batch = self.shared.store().new_batch()?;
         batch.insert_block(&block)?;
+
+        let parent_header_epoch = self
+            .shared
+            .store()
+            .get_epoch_ext(&block.header().parent_hash())
+            .expect("parent epoch already store");
+
+        let epoch = self
+            .shared
+            .next_epoch_ext(&parent_header_epoch, block.header())
+            .unwrap_or(parent_header_epoch);
+
+        batch.insert_block_epoch_index(&block.header().hash(), epoch.last_epoch_end_hash());
+        batch.insert_epoch_ext(epoch.last_epoch_end_hash(), &epoch)?;
+
         if (cannon_total_difficulty > current_total_difficulty)
             || ((current_total_difficulty == cannon_total_difficulty)
                 && (block.header().hash() < tip_hash))
@@ -255,20 +269,13 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
                 block.header().number(), block.header().hash(),
                 &cannon_total_difficulty - &current_total_difficulty
             );
-            if let Some(epoch) = self
-                .shared
-                .next_epoch_ext(chain_state.current_epoch_ext(), block.header())
-            {
-                batch.insert_current_epoch_ext(&epoch)?;
-                batch.insert_epoch_ext(&epoch)?;
-                new_epoch = Some(epoch);
-            }
             self.find_fork(&mut fork, tip_number, &block, ext);
             self.update_index(&mut batch, &fork.detached_blocks, &fork.attached_blocks)?;
             // MUST update index before reconcile_main_chain
             cell_set_diff = self.reconcile_main_chain(&mut batch, &mut fork, &mut chain_state)?;
             self.update_proposal_ids(&mut chain_state, &fork);
             batch.insert_tip_header(&block.header())?;
+            batch.insert_current_epoch_ext(&epoch)?;
             new_best_block = true;
 
             total_difficulty = cannon_total_difficulty;
@@ -295,6 +302,7 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
             // then, update tx_pool
             let detached_proposal_id = chain_state.proposal_ids_finalize(tip_number);
             fork.detached_proposal_id = detached_proposal_id;
+            chain_state.update_current_epoch_ext(epoch);
             chain_state.update_tip(tip_header, total_difficulty, cell_set_diff);
             chain_state.update_tx_pool_for_reorg(
                 fork.detached_blocks().iter(),

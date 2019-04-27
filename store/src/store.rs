@@ -1,8 +1,8 @@
 use crate::flat_serializer::{serialize as flat_serialize, serialized_addresses, Address};
 use crate::{
-    COLUMN_BLOCK_BODY, COLUMN_BLOCK_HEADER, COLUMN_BLOCK_PROPOSAL_IDS,
-    COLUMN_BLOCK_TRANSACTION_ADDRESSES, COLUMN_BLOCK_UNCLE, COLUMN_CELL_META, COLUMN_EXT,
-    COLUMN_INDEX, COLUMN_META, COLUMN_TRANSACTION_ADDR,
+    COLUMN_BLOCK_BODY, COLUMN_BLOCK_EPOCH, COLUMN_BLOCK_HEADER, COLUMN_BLOCK_PROPOSAL_IDS,
+    COLUMN_BLOCK_TRANSACTION_ADDRESSES, COLUMN_BLOCK_UNCLE, COLUMN_CELL_META, COLUMN_EPOCH,
+    COLUMN_EXT, COLUMN_INDEX, COLUMN_META, COLUMN_TRANSACTION_ADDR,
 };
 use bincode::{deserialize, serialize};
 use ckb_chain_spec::consensus::Consensus;
@@ -82,8 +82,8 @@ pub trait ChainStore: Sync + Send {
     fn get_transaction_address(&self, hash: &H256) -> Option<TransactionAddress>;
     fn get_cell_meta(&self, tx_hash: &H256, index: u32) -> Option<CellMeta>;
     fn get_cell_output(&self, tx_hash: &H256, index: u32) -> Option<CellOutput>;
-    fn get_current_epoch_ext(&mut self) -> Option<EpochExt>;
-    fn get_epoch_ext(&mut self, number: u64) -> Option<EpochExt>;
+    fn get_current_epoch_ext(&self) -> Option<EpochExt>;
+    fn get_epoch_ext(&self, hash: &H256) -> Option<EpochExt>;
 }
 
 pub trait StoreBatch {
@@ -91,7 +91,12 @@ pub trait StoreBatch {
     fn insert_block_ext(&mut self, block_hash: &H256, ext: &BlockExt) -> Result<(), Error>;
     fn insert_tip_header(&mut self, header: &Header) -> Result<(), Error>;
     fn insert_current_epoch_ext(&mut self, epoch: &EpochExt) -> Result<(), Error>;
-    fn insert_epoch_ext(&mut self, epoch: &EpochExt) -> Result<(), Error>;
+    fn insert_block_epoch_index(
+        &mut self,
+        block_hash: &H256,
+        epoch_hash: &H256,
+    ) -> Result<(), Error>;
+    fn insert_epoch_ext(&mut self, hash: &H256, epoch: &EpochExt) -> Result<(), Error>;
 
     fn attach_block(&mut self, block: &Block) -> Result<(), Error>;
     fn detach_block(&mut self, block: &Block) -> Result<(), Error>;
@@ -200,7 +205,8 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
         batch.insert_block_ext(&genesis_hash, &ext)?;
         batch.insert_tip_header(&genesis.header())?;
         batch.insert_current_epoch_ext(epoch)?;
-        batch.insert_epoch_ext(epoch)?;
+        batch.insert_block_epoch_index(&genesis_hash, epoch.last_epoch_end_hash());
+        batch.insert_epoch_ext(epoch.last_epoch_end_hash(), &epoch)?;
         batch.attach_block(genesis)?;
         batch.commit()
     }
@@ -221,14 +227,14 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
             .map(Into::into)
     }
 
-    fn get_current_epoch_ext(&mut self) -> Option<EpochExt> {
+    fn get_current_epoch_ext(&self) -> Option<EpochExt> {
         self.get(COLUMN_META, META_CURRENT_EPOCH_KEY)
-            .and_then(|raw| self.get(COLUMN_EXT, &raw[..]))
             .map(|raw| deserialize(&raw[..]).expect("db safe access"))
     }
 
-    fn get_epoch_ext(&mut self, number: u64) -> Option<EpochExt> {
-        self.get(COLUMN_EXT, &number.to_le_bytes())
+    fn get_epoch_ext(&self, hash: &H256) -> Option<EpochExt> {
+        self.get(COLUMN_BLOCK_EPOCH, hash.as_bytes())
+            .map(|raw| self.get(COLUMN_EPOCH, &raw[..]).expect("db safe access"))
             .map(|raw| deserialize(&raw[..]).expect("db safe access"))
     }
 
@@ -366,8 +372,20 @@ impl<B: DbBatch> StoreBatch for DefaultStoreBatch<B> {
         self.insert_raw(COLUMN_META, META_TIP_HEADER_KEY, h.hash().as_bytes())
     }
 
-    fn insert_epoch_ext(&mut self, epoch: &EpochExt) -> Result<(), Error> {
-        self.insert_serialize(COLUMN_EXT, &epoch.number().to_le_bytes(), epoch)
+    fn insert_block_epoch_index(
+        &mut self,
+        block_hash: &H256,
+        epoch_hash: &H256,
+    ) -> Result<(), Error> {
+        self.insert_raw(
+            COLUMN_BLOCK_EPOCH,
+            block_hash.as_bytes(),
+            epoch_hash.as_bytes(),
+        )
+    }
+
+    fn insert_epoch_ext(&mut self, hash: &H256, epoch: &EpochExt) -> Result<(), Error> {
+        self.insert_serialize(COLUMN_EPOCH, hash.as_bytes(), epoch)
     }
 
     fn insert_current_epoch_ext(&mut self, epoch: &EpochExt) -> Result<(), Error> {

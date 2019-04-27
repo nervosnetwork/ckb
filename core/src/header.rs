@@ -263,6 +263,11 @@ impl HeaderBuilder {
         self
     }
 
+    pub fn epoch(mut self, number: EpochNumber) -> Self {
+        self.inner.raw.epoch = number;
+        self
+    }
+
     pub fn difficulty(mut self, difficulty: U256) -> Self {
         self.inner.raw.difficulty = difficulty;
         self

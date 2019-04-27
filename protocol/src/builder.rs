@@ -59,6 +59,7 @@ impl<'a> FbsHeader<'a> {
         builder.add_parent_hash(&parent_hash);
         builder.add_timestamp(header.timestamp());
         builder.add_number(header.number());
+        builder.add_epoch(header.epoch());
         builder.add_transactions_root(&transactions_root);
         builder.add_proposals_root(&proposals_root);
         builder.add_witnesses_root(&witnesses_root);

@@ -87,6 +87,7 @@ impl Default for Consensus {
             0, // number
             Capacity::shannons(GENESIS_EPOCH_REWARD), // block_reward
             Capacity::shannons(0), // remainder_reward
+            H256::zero(),
             0, // start
             1000, // length
             genesis_block.header().difficulty().clone() // difficulty,
