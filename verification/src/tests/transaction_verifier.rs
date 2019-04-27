@@ -1,6 +1,6 @@
 use super::super::transaction_verifier::{
-    CapacityVerifier, DuplicateInputsVerifier, EmptyVerifier, MaturityVerifier, NullVerifier,
-    ValidSinceVerifier,
+    CapacityVerifier, DuplicateDepsVerifier, DuplicateInputsVerifier, EmptyVerifier,
+    MaturityVerifier, NullVerifier, ValidSinceVerifier,
 };
 use crate::error::TransactionError;
 use ckb_core::cell::CellStatus;
@@ -151,6 +151,23 @@ pub fn test_duplicate_inputs() {
     assert_eq!(
         verifier.verify().err(),
         Some(TransactionError::DuplicateInputs)
+    );
+}
+
+#[test]
+pub fn test_duplicate_deps() {
+    let transaction = TransactionBuilder::default()
+        .deps(vec![
+            OutPoint::new(H256::from_trimmed_hex_str("1").unwrap(), 0),
+            OutPoint::new(H256::from_trimmed_hex_str("1").unwrap(), 0),
+        ])
+        .build();
+
+    let verifier = DuplicateDepsVerifier::new(&transaction);
+
+    assert_eq!(
+        verifier.verify().err(),
+        Some(TransactionError::DuplicateDeps)
     );
 }
 

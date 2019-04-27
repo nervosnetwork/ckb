@@ -140,6 +140,7 @@ pub enum TransactionError {
     /// Occur output's bytes_len exceed capacity
     CapacityOverflow,
     DuplicateInputs,
+    DuplicateDeps,
     Empty,
     /// Sum of all outputs capacity exceed sum of all inputs in the transaction
     OutputsSumOverflow,

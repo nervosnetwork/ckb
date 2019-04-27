@@ -45,6 +45,7 @@ pub struct TransactionVerifier<'a, M> {
     pub maturity: MaturityVerifier<'a>,
     pub capacity: CapacityVerifier<'a>,
     pub duplicate_inputs: DuplicateInputsVerifier<'a>,
+    pub duplicate_deps: DuplicateDepsVerifier<'a>,
     pub inputs: InputVerifier<'a>,
     pub script: ScriptVerifier<'a>,
     pub since: ValidSinceVerifier<'a, M>,
@@ -66,6 +67,7 @@ where
             empty: EmptyVerifier::new(&rtx.transaction),
             maturity: MaturityVerifier::new(&rtx, tip_number, cellbase_maturity),
             duplicate_inputs: DuplicateInputsVerifier::new(&rtx.transaction),
+            duplicate_deps: DuplicateDepsVerifier::new(&rtx.transaction),
             script: ScriptVerifier::new(rtx),
             capacity: CapacityVerifier::new(rtx),
             inputs: InputVerifier::new(rtx),
@@ -81,6 +83,7 @@ where
         self.inputs.verify()?;
         self.capacity.verify()?;
         self.duplicate_inputs.verify()?;
+        self.duplicate_deps.verify()?;
         self.since.verify()?;
         let cycles = self.script.verify(max_cycles)?;
         Ok(cycles)
@@ -234,6 +237,27 @@ impl<'a> DuplicateInputsVerifier<'a> {
             Ok(())
         } else {
             Err(TransactionError::DuplicateInputs)
+        }
+    }
+}
+
+pub struct DuplicateDepsVerifier<'a> {
+    transaction: &'a Transaction,
+}
+
+impl<'a> DuplicateDepsVerifier<'a> {
+    pub fn new(transaction: &'a Transaction) -> Self {
+        DuplicateDepsVerifier { transaction }
+    }
+
+    pub fn verify(&self) -> Result<(), TransactionError> {
+        let transaction = self.transaction;
+        let mut seen = HashSet::with_capacity(self.transaction.deps().len());
+
+        if transaction.deps().iter().all(|id| seen.insert(id)) {
+            Ok(())
+        } else {
+            Err(TransactionError::DuplicateDeps)
         }
     }
 }
