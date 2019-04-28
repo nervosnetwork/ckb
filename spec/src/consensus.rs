@@ -1,10 +1,12 @@
 use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::extras::EpochExt;
+use ckb_core::header::Header;
 use ckb_core::header::HeaderBuilder;
 use ckb_core::{BlockNumber, Capacity, Cycle, Version};
 use ckb_pow::{Pow, PowEngine};
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
+use std::cmp;
 use std::sync::Arc;
 
 pub(crate) const DEFAULT_EPOCH_REWARD: u64 = 5_000_000;
@@ -226,5 +228,114 @@ impl Consensus {
 
     pub fn tx_proposal_window(&self) -> ProposalWindow {
         self.tx_proposal_window
+    }
+
+    pub fn revision_epoch_length(&self, raw: BlockNumber) -> BlockNumber {
+        let max_length = self.max_epoch_length();
+        let min_length = self.min_epoch_length();
+        cmp::max(cmp::min(max_length, raw), min_length)
+    }
+
+    pub fn revision_epoch_difficulty(&self, last: U256, raw: U256) -> U256 {
+        let min_difficulty = cmp::max(self.min_difficulty().clone(), &last / 2u64);
+        let max_difficulty = last * 2u32;
+
+        if raw > max_difficulty {
+            return max_difficulty;
+        }
+
+        if raw < min_difficulty {
+            return min_difficulty.clone();
+        }
+        raw
+    }
+
+    pub fn next_epoch_ext<A, B>(
+        &self,
+        last_epoch: &EpochExt,
+        header: &Header,
+        get_ancestor: A,
+        total_uncles_count: B,
+    ) -> Option<EpochExt>
+    where
+        A: Fn(&H256, BlockNumber) -> Option<Header>,
+        B: Fn(&H256) -> Option<u64>,
+    {
+        let start = last_epoch.start_number();
+        let last_epoch_length = last_epoch.length();
+
+        if (last_epoch.start_number() + last_epoch.length() - 1) != header.number() {
+            return None;
+        }
+
+        let last_hash = header.hash();
+        let last_difficulty = header.difficulty();
+        let target_recip = self.orphan_rate_target_recip();
+        let epoch_duration = self.epoch_duration();
+
+        if let Some(start_header) = get_ancestor(&last_hash, start) {
+            let start_total_uncles_count =
+                total_uncles_count(&start_header.hash()).expect("block_ext exist");
+
+            let last_total_uncles_count = total_uncles_count(&last_hash).expect("block_ext exist");
+
+            let last_uncles_count = last_total_uncles_count - start_total_uncles_count;
+
+            let epoch_ext = if last_uncles_count > 0 {
+                let last_duration = header.timestamp().saturating_sub(start_header.timestamp());
+                if last_duration == 0 {
+                    return None;
+                }
+
+                let numerator =
+                    (last_uncles_count + last_epoch_length) * epoch_duration * last_epoch_length;
+                let denominator = (target_recip + 1) * last_uncles_count * last_duration;
+                let raw_next_epoch_length = numerator / denominator;
+                let next_epoch_length = self.revision_epoch_length(raw_next_epoch_length);
+
+                let raw_difficulty =
+                    last_difficulty * U256::from(last_uncles_count) * U256::from(target_recip)
+                        / U256::from(last_epoch_length);
+
+                let difficulty =
+                    self.revision_epoch_difficulty(last_difficulty.clone(), raw_difficulty);
+
+                let block_reward =
+                    Capacity::shannons(self.epoch_reward().as_u64() / next_epoch_length);
+                let remainder_reward =
+                    Capacity::shannons(self.epoch_reward().as_u64() / next_epoch_length);
+
+                EpochExt::new(
+                    last_epoch.number() + 1, // number
+                    block_reward,
+                    remainder_reward,        // remainder_reward
+                    header.hash(),           // last_epoch_end_hash
+                    header.number() + 1,     // start
+                    next_epoch_length,       // length
+                    difficulty               // difficulty,
+                )
+            } else {
+                let next_epoch_length = self.max_epoch_length();
+                let difficulty = cmp::max(self.min_difficulty().clone(), last_difficulty / 2u64);
+
+                let block_reward =
+                    Capacity::shannons(self.epoch_reward().as_u64() / next_epoch_length);
+                let remainder_reward =
+                    Capacity::shannons(self.epoch_reward().as_u64() / next_epoch_length);
+                EpochExt::new(
+                    last_epoch.number() + 1, // number
+                    block_reward,
+                    remainder_reward,        // remainder_reward
+                    header.hash(),           // last_epoch_end_hash
+                    header.number() + 1,     // start
+                    next_epoch_length,       // length
+                    difficulty               // difficulty,
+                )
+            };
+
+            Some(epoch_ext)
+        } else {
+            None
+        }
     }
 }

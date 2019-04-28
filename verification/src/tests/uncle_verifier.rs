@@ -74,12 +74,9 @@ fn test_uncle_verifier() {
     faketime::enable(&faketime_file);
 
     let mut consensus = Consensus::default();
-    consensus.pow_time_span = 10;
-    consensus.pow_spacing = 1;
 
     let (chain_controller, shared) = start_chain(Some(consensus));
 
-    assert_eq!(shared.consensus().difficulty_adjustment_interval(), 10);
     let number = 20;
     let mut chain1: Vec<Block> = Vec::new();
     let mut chain2: Vec<Block> = Vec::new();

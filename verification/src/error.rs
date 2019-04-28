@@ -20,7 +20,7 @@ pub enum Error {
     /// The field number in block header is invalid.
     Number(NumberError),
     /// The field difficulty in block header is invalid.
-    Difficulty(DifficultyError),
+    Epoch(EpochError),
     /// Committed transactions verification error. It contains error for the first transaction that
     /// fails the verification. The errors are stored as a tuple, where the first item is the
     /// transaction index in the block and the second item is the transaction verification error.
@@ -57,8 +57,6 @@ pub enum Error {
     Version,
     /// Overflow when do computation for capacity.
     CapacityOverflow,
-    /// Epoch infomation
-    Epoch,
 }
 
 impl StdError for Error {}
@@ -134,8 +132,9 @@ pub struct NumberError {
 }
 
 #[derive(Debug, PartialEq, Clone, Eq)]
-pub enum DifficultyError {
-    MixMismatch { expected: U256, actual: U256 },
+pub enum EpochError {
+    DifficultyMismatch { expected: U256, actual: U256 },
+    NumberMismatch { expected: u64, actual: u64 },
     AncestorNotFound,
 }
 

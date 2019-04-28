@@ -205,7 +205,7 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
         batch.insert_block_ext(&genesis_hash, &ext)?;
         batch.insert_tip_header(&genesis.header())?;
         batch.insert_current_epoch_ext(epoch)?;
-        batch.insert_block_epoch_index(&genesis_hash, epoch.last_epoch_end_hash());
+        batch.insert_block_epoch_index(&genesis_hash, epoch.last_epoch_end_hash())?;
         batch.insert_epoch_ext(epoch.last_epoch_end_hash(), &epoch)?;
         batch.attach_block(genesis)?;
         batch.commit()
@@ -487,7 +487,7 @@ mod tests {
         let consensus = Consensus::default();
         let block = consensus.genesis_block();
         let hash = block.header().hash();
-        store.init(&block).unwrap();
+        store.init(&consensus).unwrap();
         assert_eq!(&hash, &store.get_block_hash(0).unwrap());
 
         assert_eq!(

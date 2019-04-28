@@ -11,7 +11,6 @@ use ckb_store::ChainStore;
 use ckb_traits::{BlockMedianTimeContext, ChainProvider};
 use fnv::FnvHashSet;
 use log::error;
-use numext_fixed_uint::U256;
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -185,24 +184,40 @@ impl MerkleRootVerifier {
     }
 }
 
-pub struct HeaderResolverWrapper<'a, CP> {
-    provider: CP,
+pub struct HeaderResolverWrapper<'a> {
     header: &'a Header,
     parent: Option<Header>,
+    epoch: Option<EpochExt>,
 }
 
-impl<'a, CP: ChainProvider> HeaderResolverWrapper<'a, CP> {
-    pub fn new(header: &'a Header, provider: CP) -> Self {
+impl<'a> HeaderResolverWrapper<'a> {
+    pub fn new<CP>(header: &'a Header, provider: CP) -> Self
+    where
+        CP: ChainProvider,
+    {
         let parent = provider.block_header(&header.parent_hash());
+        let epoch = parent
+            .as_ref()
+            .and_then(|parent| {
+                provider
+                    .get_epoch_ext(&parent.hash())
+                    .map(|ext| (parent, ext))
+            })
+            .map(|(parent, last_epoch)| {
+                provider
+                    .next_epoch_ext(&last_epoch, parent)
+                    .unwrap_or(last_epoch)
+            });
+
         HeaderResolverWrapper {
             parent,
             header,
-            provider,
+            epoch,
         }
     }
 }
 
-impl<'a, CP: ChainProvider> HeaderResolver for HeaderResolverWrapper<'a, CP> {
+impl<'a> HeaderResolver for HeaderResolverWrapper<'a> {
     fn header(&self) -> &Header {
         self.header
     }
@@ -212,7 +227,7 @@ impl<'a, CP: ChainProvider> HeaderResolver for HeaderResolverWrapper<'a, CP> {
     }
 
     fn epoch(&self) -> Option<&EpochExt> {
-        unimplemented!();
+        self.epoch.as_ref()
     }
 }
 

@@ -349,7 +349,7 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
         // Release the lock as soon as possible, let other services do their work
         drop(chain_state);
 
-        let (uncles, bad_uncles) = self.prepare_uncles(&header, current_epoch);
+        let (uncles, bad_uncles) = self.prepare_uncles(&header, &current_epoch);
         if !bad_uncles.is_empty() {
             for bad in bad_uncles {
                 self.candidate_uncles.remove(&bad);

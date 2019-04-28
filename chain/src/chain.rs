@@ -247,16 +247,17 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
 
         let parent_header_epoch = self
             .shared
-            .store()
             .get_epoch_ext(&block.header().parent_hash())
             .expect("parent epoch already store");
 
-        let epoch = self
+        let next_epoch_ext = self
             .shared
-            .next_epoch_ext(&parent_header_epoch, block.header())
-            .unwrap_or(parent_header_epoch);
+            .next_epoch_ext(&parent_header_epoch, block.header());
+        let new_epoch = next_epoch_ext.is_some();
 
-        batch.insert_block_epoch_index(&block.header().hash(), epoch.last_epoch_end_hash());
+        let epoch = next_epoch_ext.unwrap_or(parent_header_epoch);
+
+        batch.insert_block_epoch_index(&block.header().hash(), epoch.last_epoch_end_hash())?;
         batch.insert_epoch_ext(epoch.last_epoch_end_hash(), &epoch)?;
 
         if (cannon_total_difficulty > current_total_difficulty)
@@ -275,7 +276,9 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
             cell_set_diff = self.reconcile_main_chain(&mut batch, &mut fork, &mut chain_state)?;
             self.update_proposal_ids(&mut chain_state, &fork);
             batch.insert_tip_header(&block.header())?;
-            batch.insert_current_epoch_ext(&epoch)?;
+            if new_epoch {
+                batch.insert_current_epoch_ext(&epoch)?;
+            }
             new_best_block = true;
 
             total_difficulty = cannon_total_difficulty;

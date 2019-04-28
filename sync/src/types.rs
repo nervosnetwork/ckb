@@ -3,6 +3,7 @@ use crate::{MAX_HEADERS_LEN, MAX_TIP_AGE};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::Block;
 use ckb_core::extras::BlockExt;
+use ckb_core::extras::EpochExt;
 use ckb_core::header::{BlockNumber, Header};
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::SyncMessage;
@@ -337,8 +338,29 @@ impl HeaderView {
     }
 }
 
+#[derive(Default)]
+pub struct EpochIndices {
+    epoch: HashMap<H256, EpochExt>,
+    indices: HashMap<H256, H256>,
+}
+
+impl EpochIndices {
+    pub fn get_epoch_ext(&self, hash: &H256) -> Option<&EpochExt> {
+        self.indices.get(hash).and_then(|h| self.epoch.get(h))
+    }
+
+    fn insert_index(&mut self, block_hash: H256, epoch_hash: H256) -> Option<H256> {
+        self.indices.insert(block_hash, epoch_hash)
+    }
+
+    fn insert_epoch(&mut self, hash: H256, epoch: EpochExt) -> Option<EpochExt> {
+        self.epoch.insert(hash, epoch)
+    }
+}
+
 pub struct SyncSharedState<CS> {
     shared: Shared<CS>,
+    epoch_map: RwLock<EpochIndices>,
     header_map: RwLock<HashMap<H256, HeaderView>>,
     best_known_header: RwLock<HeaderView>,
     get_headers_cache: RwLock<LruCache<(PeerIndex, H256), Instant>>,
@@ -364,9 +386,12 @@ impl<CS: ChainStore> SyncSharedState<CS> {
         ));
         let header_map = RwLock::new(HashMap::new());
         let get_headers_cache = RwLock::new(LruCache::new(GET_HEADERS_CACHE_SIZE));
+        let epoch_map = RwLock::new(EpochIndices::default());
+
         SyncSharedState {
             shared,
             header_map,
+            epoch_map,
             best_known_header,
             get_headers_cache,
         }
@@ -435,6 +460,33 @@ impl<CS: ChainStore> SyncSharedState<CS> {
             .map(HeaderView::inner)
             .cloned()
             .or_else(|| self.shared.block_header(hash))
+    }
+
+    pub fn get_epoch_ext(&self, hash: &H256) -> Option<EpochExt> {
+        self.epoch_map
+            .read()
+            .get_epoch_ext(hash)
+            .cloned()
+            .or_else(|| self.shared.get_epoch_ext(hash))
+    }
+
+    pub fn insert_epoch(&self, header: &Header, epoch: EpochExt) {
+        let mut epoch_map = self.epoch_map.write();
+        epoch_map.insert_index(header.hash(), epoch.last_epoch_end_hash().clone());
+        epoch_map.insert_epoch(epoch.last_epoch_end_hash().clone(), epoch);
+    }
+
+    pub fn next_epoch_ext(&self, last_epoch: &EpochExt, header: &Header) -> Option<EpochExt> {
+        let consensus = self.shared.consensus();
+        consensus.next_epoch_ext(
+            last_epoch,
+            header,
+            |hash, start| self.get_ancestor(hash, start),
+            |hash| {
+                self.get_header_view(hash)
+                    .map(|view| view.total_uncles_count())
+            },
+        )
     }
 
     pub fn get_ancestor(&self, base: &H256, number: BlockNumber) -> Option<Header> {
