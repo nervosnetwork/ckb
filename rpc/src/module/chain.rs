@@ -1,3 +1,4 @@
+use crate::error::RPCError;
 use ckb_core::cell::CellProvider;
 use ckb_core::BlockNumber;
 use ckb_shared::{shared::Shared, store::ChainStore};
@@ -7,6 +8,8 @@ use jsonrpc_derive::rpc;
 use jsonrpc_types::{Block, CellOutputWithOutPoint, CellWithStatus, Header, OutPoint, Transaction};
 use numext_fixed_hash::H256;
 use std::convert::TryInto;
+
+pub const PAGE_SIZE: u64 = 100;
 
 #[rpc]
 pub trait ChainRpc {
@@ -63,7 +66,6 @@ impl<CS: ChainStore + 'static> ChainRpc for ChainRpcImpl<CS> {
     }
 
     // TODO: we need to build a proper index instead of scanning every time
-    // TODO: limit page size
     fn get_cells_by_lock_hash(
         &self,
         lock_hash: H256,
@@ -78,6 +80,18 @@ impl<CS: ChainStore + 'static> ChainRpc for ChainRpcImpl<CS> {
         let to = to
             .parse::<BlockNumber>()
             .map_err(|_| Error::parse_error())?;
+        if from > to {
+            return Err(RPCError::custom(
+                RPCError::Invalid,
+                "from greater than to".to_owned(),
+            ));
+        } else if to - from > PAGE_SIZE {
+            return Err(RPCError::custom(
+                RPCError::Invalid,
+                "too large page size".to_owned(),
+            ));
+        }
+
         for block_number in from..=to {
             let block_hash = self.shared.block_hash(block_number);
             if block_hash.is_none() {
