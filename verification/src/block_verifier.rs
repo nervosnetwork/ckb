@@ -1,6 +1,7 @@
 use crate::error::{CellbaseError, CommitError, Error, UnclesError};
 use crate::header_verifier::HeaderResolver;
 use crate::{TransactionVerifier, Verifier};
+use crate::transaction_verifier::{VersionVerifier, CapacityVerifier};
 use ckb_core::cell::ResolvedTransaction;
 use ckb_core::header::Header;
 use ckb_core::transaction::{Capacity, CellInput, Transaction};
@@ -361,11 +362,9 @@ impl TransactionsVerifier {
             .try_fold(Capacity::zero(), |acc, rhs| {
                 rhs.and_then(|x| acc.safe_add(x))
             })?;
-
         if cellbase.transaction.outputs_capacity()? > block_reward.safe_add(fee)? {
             return Err(Error::Cellbase(CellbaseError::InvalidReward));
         }
-        // TODO use TransactionScriptsVerifier to verify cellbase script
 
         // make verifiers orthogonal
         let cycles_set = resolved

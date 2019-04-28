@@ -13,8 +13,7 @@ use crate::consensus::Consensus;
 use ckb_core::block::Block;
 use ckb_core::block::BlockBuilder;
 use ckb_core::header::HeaderBuilder;
-use ckb_core::script::Script;
-use ckb_core::transaction::{CellOutput, Transaction, TransactionBuilder, CellInput};
+use ckb_core::transaction::{CellInput, CellOutput, Transaction, TransactionBuilder};
 use ckb_core::{BlockNumber, Capacity, Cycle};
 use ckb_pow::{Pow, PowEngine};
 use ckb_resource::{Resource, ResourceLocator};
@@ -171,27 +170,19 @@ impl ChainSpec {
                     .and_then(|data| {
                         // TODO: we should provide a proper lock script here so system cells
                         // can be updated.
-                        let data = data.into_owned();
-                        let mut cell =
-                            CellOutput::new(Capacity::zero(), data, Script::default(), None);
-                        match cell.occupied_capacity() {
-                            Ok(capacity) => {
-                                cell.capacity = capacity;
-                                Ok(cell)
-                            }
-                            Err(err) => Err(Box::new(err) as Box<Error>),
-                        }
+                        let mut cell = CellOutput::default();
+                        cell.data = data.into_owned();
+                        cell.capacity = cell.occupied_capacity()?;
+                        Ok(cell)
                     })
             })
             .collect();
 
         let outputs = outputs_result?;
-        Ok(
-            TransactionBuilder::default()
-                .outputs(outputs)
-                .input(CellInput::new_cellbase_input(0))
-                .build()
-        )
+        Ok(TransactionBuilder::default()
+            .outputs(outputs)
+            .input(CellInput::new_cellbase_input(0))
+            .build())
     }
 
     fn verify_genesis_hash(&self, genesis: &Block) -> Result<(), Box<Error>> {
@@ -239,6 +230,7 @@ impl ChainSpec {
 #[cfg(test)]
 pub mod test {
     use super::*;
+    use ckb_core::script::Script;
 
     #[test]
     fn test_chain_spec_load() {
@@ -257,12 +249,6 @@ pub mod test {
 
         let chain_spec = dev.unwrap();
         let tx = chain_spec.build_system_cell_transaction().unwrap();
-
-        // Tx and Output hash will be used in some test cases directly, assert here for convenience
-        assert_eq!(
-            format!("{:x}", tx.hash()),
-            "48168c5b2460bfa698f60e67f08df5298b1d43b2da7939a219ffd863e1380d11"
-        );
 
         let reference = tx.outputs()[0].data_hash();
         assert_eq!(

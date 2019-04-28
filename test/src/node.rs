@@ -15,7 +15,7 @@ use rand;
 use std::convert::TryInto;
 use std::fs;
 use std::io::Error;
-use std::process::{Child, Command, Stdio};
+use std::process::{self, Child, Command, Stdio};
 
 pub struct Node {
     pub binary: String,
@@ -27,7 +27,7 @@ pub struct Node {
     guard: Option<ProcessGuard>,
 }
 
-struct ProcessGuard(Child);
+struct ProcessGuard(pub Child);
 
 impl Drop for ProcessGuard {
     fn drop(&mut self) {
@@ -59,6 +59,7 @@ impl Node {
 
     pub fn start(&mut self) {
         self.init_config_file().expect("failed to init config file");
+
         let child_process = Command::new(self.binary.to_owned())
             .args(&["-C", &self.dir, "run"])
             .stdin(Stdio::null())
@@ -75,8 +76,23 @@ impl Node {
                 info!("RPC service ready, {:?}", result);
                 self.node_id = Some(result.node_id);
                 break;
+            } else {
+                if let Some(ref mut child) = self.guard {
+                    match child.0.try_wait() {
+                        Ok(Some(exit)) => {
+                            eprintln!("Error: node crashed, {}", exit);
+                            process::exit(exit.code().unwrap());
+                        }
+                        Ok(None) => {
+                            sleep(1);
+                        }
+                        Err(error) => {
+                            eprintln!("Error: node crashed with reason: {}", error);
+                            process::exit(255);
+                        }
+                    }
+                }
             }
-            sleep(1);
         }
     }
 

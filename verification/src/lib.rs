@@ -8,7 +8,7 @@ mod transaction_verifier;
 mod tests;
 
 pub use crate::block_verifier::{
-    BlockVerifier, HeaderResolverWrapper, MerkleRootVerifier, TransactionsVerifier,
+    GenesisVerifier, BlockVerifier, HeaderResolverWrapper, TransactionsVerifier,
 };
 pub use crate::error::{Error, TransactionError};
 pub use crate::header_verifier::{HeaderResolver, HeaderVerifier};
