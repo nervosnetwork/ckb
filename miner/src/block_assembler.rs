@@ -4,7 +4,9 @@ use ckb_core::block::Block;
 use ckb_core::header::Header;
 use ckb_core::script::Script;
 use ckb_core::service::{Request, DEFAULT_CHANNEL_SIZE, SIGNAL_CHANNEL_SIZE};
-use ckb_core::transaction::{Capacity, CellInput, CellOutput, Transaction, TransactionBuilder};
+use ckb_core::transaction::{
+    Capacity, CellInput, CellOutput, OutPoint, Transaction, TransactionBuilder,
+};
 use ckb_core::uncle::UncleBlock;
 use ckb_core::{Cycle, Version};
 use ckb_notify::NotifyController;
@@ -73,11 +75,26 @@ impl<'a> FeeCalculator<'a> {
             txs_map,
         }
     }
-    fn get_transaction(&self, tx_hash: &H256) -> Option<Transaction> {
-        self.txs_map
-            .get(tx_hash)
-            .map(|index| self.txs[*index].transaction.clone())
-            .or_else(|| self.provider.get_transaction(tx_hash).map(|info| info.0))
+
+    fn get_capacity(&self, out_point: &OutPoint) -> Option<Capacity> {
+        self.txs_map.get(&out_point.tx_hash).map_or_else(
+            || {
+                self.provider
+                    .get_transaction(&out_point.tx_hash)
+                    .and_then(|(tx, _block_hash)| {
+                        tx.outputs()
+                            .get(out_point.index as usize)
+                            .map(|output| output.capacity)
+                    })
+            },
+            |index| {
+                self.txs[*index]
+                    .transaction
+                    .outputs()
+                    .get(out_point.index as usize)
+                    .map(|output| output.capacity)
+            },
+        )
     }
 
     fn calculate_transaction_fee(
@@ -86,17 +103,10 @@ impl<'a> FeeCalculator<'a> {
     ) -> Result<Capacity, FailureError> {
         let mut fee = Capacity::zero();
         for input in transaction.inputs() {
-            let previous_output = &input.previous_output;
-            match self.get_transaction(&previous_output.tx_hash) {
-                Some(previous_transaction) => {
-                    let index = previous_output.index as usize;
-                    if let Some(output) = previous_transaction.outputs().get(index) {
-                        fee = fee.safe_add(output.capacity)?;
-                    } else {
-                        Err(Error::InvalidInput)?;
-                    }
-                }
-                None => Err(Error::InvalidInput)?,
+            if let Some(capacity) = self.get_capacity(&input.previous_output) {
+                fee = fee.safe_add(capacity)?;
+            } else {
+                Err(Error::InvalidInput)?;
             }
         }
         let spent_capacity: Capacity = transaction
