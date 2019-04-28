@@ -10,6 +10,7 @@ use ckb_shared::shared::{Shared, SharedBuilder};
 use ckb_shared::store::ChainStore;
 use ckb_sync::{NetTimeProtocol, NetworkProtocol, Relayer, SyncSharedState, Synchronizer};
 use ckb_traits::chain_provider::ChainProvider;
+use ckb_verification::{BlockVerifier, Verifier};
 use log::info;
 use std::sync::Arc;
 
@@ -106,11 +107,9 @@ fn setup_chain<CS: ChainStore + 'static>(
     chain_service.start(Some("ChainService"))
 }
 
-fn verify_genesis<CS: ChainStore + 'static>(
-    shared: &Shared<CS>,
-) -> Result<(), ExitCode> {
+fn verify_genesis<CS: ChainStore + 'static>(shared: &Shared<CS>) -> Result<(), ExitCode> {
     let genesis = shared.consensus().genesis_block();
-    GenesisVerifier::new(shared.clone())
+    BlockVerifier::new(shared.clone())
         .verify(genesis)
         .map_err(|err| {
             eprintln!("genesis error: {}", err);

@@ -1,10 +1,9 @@
 use crate::error::{CellbaseError, CommitError, Error, UnclesError};
 use crate::header_verifier::HeaderResolver;
 use crate::{TransactionVerifier, Verifier};
-use crate::transaction_verifier::{VersionVerifier, CapacityVerifier};
 use ckb_core::cell::ResolvedTransaction;
 use ckb_core::header::Header;
-use ckb_core::transaction::{Capacity, CellInput, Transaction};
+use ckb_core::transaction::{Capacity, CellInput, CellOutput, Transaction};
 use ckb_core::Cycle;
 use ckb_core::{block::Block, BlockNumber};
 use ckb_traits::{BlockMedianTimeContext, ChainProvider};
@@ -95,6 +94,14 @@ impl CellbaseVerifier {
         {
             return Err(Error::Cellbase(CellbaseError::InvalidOutput));
         }
+
+        if cellbase_transaction
+            .outputs()
+            .iter()
+            .any(CellOutput::is_occupied_capacity_overflow)
+        {
+            return Err(Error::CapacityOverflow);
+        };
 
         Ok(())
     }
