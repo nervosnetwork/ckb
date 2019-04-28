@@ -225,10 +225,7 @@ impl CKBProtocolContext for DefaultCKBProtocolContext {
     }
     fn send_message(&self, proto_id: ProtocolId, peer_index: PeerIndex, data: Bytes) {
         trace!(target: "network", "[send message]: {}, to={}, length={}", proto_id, peer_index, data.len());
-        if let Err(err) = self
-            .p2p_control
-            .send_message_to(peer_index, self.proto_id, data)
-        {
+        if let Err(err) = self.p2p_control.send_message_to(peer_index, proto_id, data) {
             error!(target: "network", "send message to p2p service error: {:?}", err);
         }
     }
