@@ -333,18 +333,12 @@ impl<CS: ChainStore> SyncSharedState<CS> {
         *self.best_known_header.write() = header;
     }
 
-    pub fn insert_header(&self, hash: H256, header: HeaderView) {
+    pub fn insert_header_view(&self, hash: H256, header: HeaderView) {
         self.header_map.write().insert(hash, header);
     }
-    pub fn get_header(&self, hash: &H256) -> Option<Header> {
-        self.header_map
-            .read()
-            .get(hash)
-            .map(HeaderView::inner)
-            .cloned()
-            .or_else(|| self.shared.block_header(hash))
+    pub fn remove_header_view(&self, hash: &H256) {
+        self.header_map.write().remove(hash);
     }
-
     pub fn get_header_view(&self, hash: &H256) -> Option<HeaderView> {
         self.header_map.read().get(hash).cloned().or_else(|| {
             self.shared.block_header(hash).and_then(|header| {
@@ -357,6 +351,14 @@ impl<CS: ChainStore> SyncSharedState<CS> {
                 })
             })
         })
+    }
+    pub fn get_header(&self, hash: &H256) -> Option<Header> {
+        self.header_map
+            .read()
+            .get(hash)
+            .map(HeaderView::inner)
+            .cloned()
+            .or_else(|| self.shared.block_header(hash))
     }
 
     pub fn get_ancestor(&self, base: &H256, number: BlockNumber) -> Option<Header> {

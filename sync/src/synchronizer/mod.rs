@@ -206,7 +206,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
 
             self.peers.new_header_received(peer, &header_view);
             self.shared
-                .insert_header(header.hash().clone(), header_view);
+                .insert_header_view(header.hash().clone(), header_view);
         }
     }
 
@@ -229,6 +229,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
 
     fn accept_block(&self, peer: PeerIndex, block: &Arc<Block>) -> Result<(), FailureError> {
         self.chain.process_block(Arc::clone(&block))?;
+        self.shared.remove_header_view(&block.header().hash());
         self.mark_block_stored(block.header().hash().clone());
         self.peers.set_last_common_header(peer, &block.header());
         Ok(())

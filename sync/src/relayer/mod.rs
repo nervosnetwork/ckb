@@ -176,6 +176,7 @@ impl<CS: ChainStore> Relayer<CS> {
         if ret.is_ok() {
             debug!(target: "relay", "[block_relay] relayer accept_block {} {}", block.header().hash(), unix_time_as_millis());
             let block_hash = block.header().hash();
+            self.shared.remove_header_view(&block_hash);
             let fbb = &mut FlatBufferBuilder::new();
             let message = RelayMessage::build_compact_block(fbb, block, &HashSet::new());
             fbb.finish(message, None);
