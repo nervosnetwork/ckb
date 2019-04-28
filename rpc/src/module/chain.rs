@@ -63,6 +63,7 @@ impl<CS: ChainStore + 'static> ChainRpc for ChainRpcImpl<CS> {
     }
 
     // TODO: we need to build a proper index instead of scanning every time
+    // TODO: limit page size
     fn get_cells_by_lock_hash(
         &self,
         lock_hash: H256,
@@ -78,27 +79,31 @@ impl<CS: ChainStore + 'static> ChainRpc for ChainRpcImpl<CS> {
             .parse::<BlockNumber>()
             .map_err(|_| Error::parse_error())?;
         for block_number in from..=to {
-            if let Some(block_hash) = self.shared.block_hash(block_number) {
-                let block = self
-                    .shared
-                    .block(&block_hash)
+            let block_hash = self.shared.block_hash(block_number);
+            if block_hash.is_none() {
+                break;
+            }
+
+            let block_hash = block_hash.unwrap();
+            let block = self
+                .shared
+                .block(&block_hash)
+                .ok_or_else(Error::internal_error)?;
+            for transaction in block.transactions() {
+                let transaction_meta = chain_state
+                    .cell_set()
+                    .get(&transaction.hash())
                     .ok_or_else(Error::internal_error)?;
-                for transaction in block.transactions() {
-                    let transaction_meta = chain_state
-                        .cell_set()
-                        .get(&transaction.hash())
-                        .ok_or_else(Error::internal_error)?;
-                    for (i, output) in transaction.outputs().iter().enumerate() {
-                        if output.lock.hash() == lock_hash && (!transaction_meta.is_dead(i)) {
-                            result.push(CellOutputWithOutPoint {
-                                out_point: OutPoint {
-                                    tx_hash: transaction.hash().clone(),
-                                    index: i as u32,
-                                },
-                                capacity: output.capacity.to_string(),
-                                lock: output.lock.clone().into(),
-                            });
-                        }
+                for (i, output) in transaction.outputs().iter().enumerate() {
+                    if output.lock.hash() == lock_hash && (!transaction_meta.is_dead(i)) {
+                        result.push(CellOutputWithOutPoint {
+                            out_point: OutPoint {
+                                tx_hash: transaction.hash().clone(),
+                                index: i as u32,
+                            },
+                            capacity: output.capacity.to_string(),
+                            lock: output.lock.clone().into(),
+                        });
                     }
                 }
             }
