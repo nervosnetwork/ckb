@@ -38,13 +38,13 @@ where
         for fbs_h256 in block_hashes {
             let block_hash = fbs_h256.try_into()?;
             debug!(target: "sync", "get_blocks {:x}", block_hash);
-            if let Some(block) = self.synchronizer.get_block(&block_hash) {
+            if let Some(block) = self.synchronizer.shared.get_block(&block_hash) {
                 debug!(target: "sync", "respond_block {} {:x}", block.header().number(), block.header().hash());
                 let fbb = &mut FlatBufferBuilder::new();
                 let message = SyncMessage::build_block(fbb, &block);
                 fbb.finish(message, None);
                 self.nc
-                    .send_message_to(self.peer, fbb.finished_data().to_vec());
+                    .send_message_to(self.peer, fbb.finished_data().into());
             } else {
                 // TODO response not found
                 // TODO add timeout check in synchronizer

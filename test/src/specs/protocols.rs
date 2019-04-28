@@ -19,9 +19,17 @@ impl Spec for MalformedMessage {
         assert_eq!(SyncPayload::GetHeaders, msg.payload_type());
 
         info!("Send malformed message to node0 twice");
-        net.send(NetworkProtocol::SYNC.into(), peer_id, vec![0, 0, 0, 0]);
+        net.send(
+            NetworkProtocol::SYNC.into(),
+            peer_id,
+            vec![0, 0, 0, 0].into(),
+        );
         sleep(3);
-        net.send(NetworkProtocol::SYNC.into(), peer_id, vec![0, 1, 2, 3]);
+        net.send(
+            NetworkProtocol::SYNC.into(),
+            peer_id,
+            vec![0, 1, 2, 3].into(),
+        );
         sleep(3);
 
         info!("Node0 should disconnect test node");

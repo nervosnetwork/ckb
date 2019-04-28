@@ -38,7 +38,7 @@ impl<CS: ChainStore + 'static> PoolRpc for PoolRpcImpl<CS> {
                 let fbb = &mut FlatBufferBuilder::new();
                 let message = RelayMessage::build_transaction(fbb, &tx, cycles);
                 fbb.finish(message, None);
-                let data = fbb.finished_data().to_vec();
+                let data = fbb.finished_data().into();
                 self.network_controller
                     .broadcast(NetworkProtocol::RELAY.into(), data);
                 Ok(tx.hash())

@@ -14,7 +14,7 @@ use self::get_block_proposal_process::GetBlockProposalProcess;
 use self::get_block_transactions_process::GetBlockTransactionsProcess;
 use self::transaction_process::TransactionProcess;
 use crate::relayer::compact_block::ShortTransactionID;
-use crate::types::Peers;
+use crate::types::{Peers, SyncSharedState};
 use crate::BAD_MESSAGE_BAN_TIME;
 use ckb_chain::chain::ChainController;
 use ckb_core::block::{Block, BlockBuilder};
@@ -25,9 +25,7 @@ use ckb_protocol::{
     cast, get_root, short_transaction_id, short_transaction_id_keys, RelayMessage, RelayPayload,
 };
 use ckb_shared::chain_state::ChainState;
-use ckb_shared::shared::Shared;
 use ckb_shared::store::ChainStore;
-use ckb_traits::ChainProvider;
 use ckb_util::Mutex;
 use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
@@ -42,11 +40,11 @@ use std::time::Duration;
 
 pub const TX_PROPOSAL_TOKEN: u64 = 0;
 pub const MAX_RELAY_PEERS: usize = 128;
-pub const TX_FILTER_SIZE: usize = 1000;
+pub const TX_FILTER_SIZE: usize = 50000;
 
 pub struct Relayer<CS> {
     chain: ChainController,
-    pub(crate) shared: Shared<CS>,
+    pub(crate) shared: Arc<SyncSharedState<CS>>,
     state: Arc<RelayState>,
     // TODO refactor shared Peers struct with Synchronizer
     peers: Arc<Peers>,
@@ -56,7 +54,7 @@ impl<CS: ChainStore> Clone for Relayer<CS> {
     fn clone(&self) -> Self {
         Relayer {
             chain: self.chain.clone(),
-            shared: self.shared.clone(),
+            shared: Arc::clone(&self.shared),
             state: Arc::clone(&self.state),
             peers: Arc::clone(&self.peers),
         }
@@ -64,7 +62,11 @@ impl<CS: ChainStore> Clone for Relayer<CS> {
 }
 
 impl<CS: ChainStore> Relayer<CS> {
-    pub fn new(chain: ChainController, shared: Shared<CS>, peers: Arc<Peers>) -> Self {
+    pub fn new(
+        chain: ChainController,
+        shared: Arc<SyncSharedState<CS>>,
+        peers: Arc<Peers>,
+    ) -> Self {
         Relayer {
             chain,
             shared,
@@ -164,7 +166,7 @@ impl<CS: ChainStore> Relayer<CS> {
                 RelayMessage::build_get_block_proposal(fbb, block.header.number(), &unknown_ids);
             fbb.finish(message, None);
 
-            nc.send_message_to(peer, fbb.finished_data().to_vec());
+            nc.send_message_to(peer, fbb.finished_data().into());
         }
     }
 
@@ -174,6 +176,7 @@ impl<CS: ChainStore> Relayer<CS> {
         if ret.is_ok() {
             debug!(target: "relay", "[block_relay] relayer accept_block {} {}", block.header().hash(), unix_time_as_millis());
             let block_hash = block.header().hash();
+            self.shared.remove_header_view(&block_hash);
             let fbb = &mut FlatBufferBuilder::new();
             let message = RelayMessage::build_compact_block(fbb, block, &HashSet::new());
             fbb.finish(message, None);
@@ -190,7 +193,7 @@ impl<CS: ChainStore> Relayer<CS> {
 
             // TODO: use filter broadcast
             for target_peer in selected_peers {
-                nc.send_message_to(target_peer, fbb.finished_data().to_vec());
+                nc.send_message_to(target_peer, fbb.finished_data().into());
             }
         } else {
             debug!(target: "relay", "accept_block verify error {:?}", ret);
@@ -292,18 +295,13 @@ impl<CS: ChainStore> Relayer<CS> {
             pending_proposals_request.remove(&id);
         }
 
-        // TODO: use filter_broadcast
         for (peer_index, txs) in peer_txs {
             let fbb = &mut FlatBufferBuilder::new();
             let message =
                 RelayMessage::build_block_proposal(fbb, &txs.into_iter().collect::<Vec<_>>());
             fbb.finish(message, None);
-            nc.send_message_to(peer_index, fbb.finished_data().to_vec());
+            nc.send_message_to(peer_index, fbb.finished_data().into());
         }
-    }
-
-    pub fn get_block(&self, hash: &H256) -> Option<Block> {
-        self.shared.block(hash)
     }
 
     pub fn peers(&self) -> Arc<Peers> {
@@ -325,7 +323,7 @@ impl<CS: ChainStore> CKBProtocolHandler for Relayer<CS> {
         let msg = match get_root::<RelayMessage>(&data) {
             Ok(msg) => msg,
             _ => {
-                info!(target: "sync", "Peer {} sends us a malformed message", peer_index);
+                info!(target: "relay", "Peer {} sends us a malformed message", peer_index);
                 nc.ban_peer(peer_index, BAD_MESSAGE_BAN_TIME);
                 return;
             }

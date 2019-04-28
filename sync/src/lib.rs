@@ -16,6 +16,7 @@ pub use crate::config::Config;
 pub use crate::net_time_checker::NetTimeProtocol;
 pub use crate::relayer::Relayer;
 pub use crate::synchronizer::Synchronizer;
+pub use crate::types::SyncSharedState;
 use std::time::Duration;
 
 pub const MAX_HEADERS_LEN: usize = 2_000;

@@ -105,7 +105,7 @@ impl Net {
         );
     }
 
-    pub fn send(&self, protocol_id: ProtocolId, peer: PeerIndex, data: Vec<u8>) {
+    pub fn send(&self, protocol_id: ProtocolId, peer: PeerIndex, data: Bytes) {
         self.controller
             .as_ref()
             .unwrap()

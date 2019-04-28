@@ -5,7 +5,7 @@ use ckb_core::{header::Header, BlockNumber};
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::{cast, FlatbuffersVectorIterator, Headers};
 use ckb_shared::store::ChainStore;
-use ckb_traits::{BlockMedianTimeContext, ChainProvider};
+use ckb_traits::BlockMedianTimeContext;
 use ckb_verification::{Error as VerifyError, HeaderResolver, HeaderVerifier, Verifier};
 use failure::Error as FailureError;
 use log::{self, debug, log_enabled, warn};
@@ -71,7 +71,7 @@ impl<'a, CS: ChainStore + 'a> BlockMedianTimeContext for VerifierResolver<'a, CS
         let mut block_hash = parent.hash().to_owned();
         let mut timestamps: Vec<u64> = Vec::with_capacity(count as usize);
         for _ in 0..count {
-            let header = match self.synchronizer.get_header(&block_hash) {
+            let header = match self.synchronizer.shared.get_header(&block_hash) {
                 Some(h) => h,
                 None => break,
             };
@@ -99,6 +99,7 @@ impl<'a, CS: ChainStore> HeaderResolver for VerifierResolver<'a, CS> {
 
             let interval = self
                 .synchronizer
+                .shared
                 .consensus()
                 .difficulty_adjustment_interval();
 
@@ -108,25 +109,29 @@ impl<'a, CS: ChainStore> HeaderResolver for VerifierResolver<'a, CS> {
 
             let start = parent_number.saturating_sub(interval);
 
-            if let Some(start_header) = self.synchronizer.get_ancestor(&parent_hash, start) {
+            if let Some(start_header) = self.synchronizer.shared.get_ancestor(&parent_hash, start) {
                 let start_total_uncles_count = self
                     .synchronizer
+                    .shared
                     .get_header_view(&start_header.hash())
                     .expect("start header_view exist")
                     .total_uncles_count();
 
                 let last_total_uncles_count = self
                     .synchronizer
+                    .shared
                     .get_header_view(&parent_hash)
                     .expect("last header_view exist")
                     .total_uncles_count();
 
                 let difficulty = last_difficulty
                     * U256::from(last_total_uncles_count - start_total_uncles_count)
-                    * U256::from((1.0 / self.synchronizer.consensus().orphan_rate_target()) as u64)
+                    * U256::from(
+                        (1.0 / self.synchronizer.shared.consensus().orphan_rate_target()) as u64,
+                    )
                     / U256::from(interval);
 
-                let min_difficulty = self.synchronizer.consensus().min_difficulty();
+                let min_difficulty = self.synchronizer.shared.consensus().min_difficulty();
                 let max_difficulty = last_difficulty * 2u32;
                 if difficulty > max_difficulty {
                     return Some(max_difficulty);
@@ -183,7 +188,7 @@ where
     }
 
     pub fn accept_first(&self, first: &Header) -> ValidationResult {
-        let parent = self.synchronizer.get_header(&first.parent_hash());
+        let parent = self.synchronizer.shared.get_header(&first.parent_hash());
         let resolver = VerifierResolver::new(parent.as_ref(), &first, &self.synchronizer);
         let verifier = HeaderVerifier::new(
             resolver.clone(),
@@ -255,7 +260,7 @@ where
         }
 
         if log_enabled!(target: "sync", log::Level::Debug) {
-            let own = { self.synchronizer.best_known_header.read().clone() };
+            let own = self.synchronizer.shared.best_known_header();
             let chain_state = self.synchronizer.shared.chain_state().lock();
             let peer_state = self.synchronizer.peers.best_known_header(self.peer);
             debug!(
@@ -283,12 +288,16 @@ where
 
         // If we're in IBD, we want outbound peers that will serve us a useful
         // chain. Disconnect peers that are on chains with insufficient work.
-        if self.synchronizer.is_initial_block_download() && headers.len() != MAX_HEADERS_LEN {}
+        if self.synchronizer.shared.is_initial_block_download() && headers.len() != MAX_HEADERS_LEN
+        {
+            self.nc.disconnect(self.peer);
+        }
 
         // TODO: optimize: if last is an ancestor of BestKnownHeader, continue from there instead.
         if headers.len() == MAX_HEADERS_LEN {
             let start = headers.last().expect("empty checked");
             self.synchronizer
+                .shared
                 .send_getheaders_to_peer(self.nc, self.peer, start);
         }
         Ok(())

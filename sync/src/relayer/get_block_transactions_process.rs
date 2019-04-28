@@ -35,7 +35,7 @@ impl<'a, CS: ChainStore> GetBlockTransactionsProcess<'a, CS> {
 
         let indexes = cast!(self.message.indexes())?;
 
-        if let Some(block) = self.relayer.get_block(&block_hash) {
+        if let Some(block) = self.relayer.shared.get_block(&block_hash) {
             let transactions = indexes
                 .safe_slice()
                 .iter()
@@ -47,7 +47,7 @@ impl<'a, CS: ChainStore> GetBlockTransactionsProcess<'a, CS> {
             fbb.finish(message, None);
 
             self.nc
-                .send_message_to(self.peer, fbb.finished_data().to_vec());
+                .send_message_to(self.peer, fbb.finished_data().into());
         }
 
         Ok(())

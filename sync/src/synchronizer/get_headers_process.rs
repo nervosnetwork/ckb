@@ -36,7 +36,7 @@ where
     }
 
     pub fn execute(self) -> Result<(), FailureError> {
-        if self.synchronizer.is_initial_block_download() {
+        if self.synchronizer.shared.is_initial_block_download() {
             info!(target: "sync", "Ignoring getheaders from peer={} because node is in initial block download", self.peer);
             return Ok(());
         }
@@ -56,13 +56,20 @@ where
 
         if let Some(block_number) = self
             .synchronizer
+            .shared
             .locate_latest_common_block(&hash_stop, &block_locator_hashes[..])
         {
-            debug!(target: "sync", "\n\nheaders latest_common={} tip={} begin\n\n", block_number, {self.synchronizer.tip_header().number()});
+            debug!(
+                target: "sync",
+                "\n\nheaders latest_common={} tip={} begin\n\n",
+                block_number,
+                self.synchronizer.shared.tip_header().number(),
+            );
 
             self.synchronizer.peers.getheaders_received(self.peer);
             let headers: Vec<Header> = self
                 .synchronizer
+                .shared
                 .get_locator_response(block_number, &hash_stop);
             // response headers
 
@@ -72,7 +79,7 @@ where
             let message = SyncMessage::build_headers(fbb, &headers);
             fbb.finish(message, None);
             self.nc
-                .send_message_to(self.peer, fbb.finished_data().to_vec());
+                .send_message_to(self.peer, fbb.finished_data().into());
         } else {
             warn!(target: "sync", "\n\nunknown block headers from peer {} {:#?}\n\n", self.peer, block_locator_hashes);
             // Got 'headers' message without known blocks

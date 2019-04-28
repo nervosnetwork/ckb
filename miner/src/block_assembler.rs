@@ -299,7 +299,7 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
         let chain_state = self.shared.chain_state().lock();
         let last_txs_updated_at = chain_state.get_last_txs_updated_at();
 
-        let header = chain_state.tip_header();
+        let header = chain_state.tip_header().clone();
         let number = chain_state.tip_number() + 1;
         let current_time = cmp::max(unix_time_as_millis(), header.timestamp() + 1);
 
@@ -318,10 +318,12 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
 
         let difficulty = self
             .shared
-            .calculate_difficulty(header)
+            .calculate_difficulty(&header)
             .expect("get difficulty");
 
         let (proposals, transactions) = chain_state.get_proposal_and_staging_txs(10000, 10000);
+        // Release the lock as soon as possible, let other services do their work
+        drop(chain_state);
 
         let (uncles, bad_uncles) = self.prepare_uncles(&header, &difficulty);
         if !bad_uncles.is_empty() {
@@ -340,8 +342,10 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
 
         // dummy cellbase
         let cellbase_lock = Script::new(args, self.config.code_hash.clone());
-        let cellbase = self.create_cellbase_transaction(header, &transactions, cellbase_lock)?;
+        let cellbase = self.create_cellbase_transaction(&header, &transactions, cellbase_lock)?;
 
+        // Should recalculate current time after create cellbase (create cellbase may spend a lot of time)
+        let current_time = cmp::max(unix_time_as_millis(), header.timestamp() + 1);
         let template = BlockTemplate {
             version,
             difficulty,
