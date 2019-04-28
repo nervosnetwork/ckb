@@ -290,6 +290,7 @@ where
         // chain. Disconnect peers that are on chains with insufficient work.
         if self.synchronizer.shared.is_initial_block_download() && headers.len() != MAX_HEADERS_LEN
         {
+            self.nc.disconnect(self.peer);
         }
 
         // TODO: optimize: if last is an ancestor of BestKnownHeader, continue from there instead.
