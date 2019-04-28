@@ -76,20 +76,18 @@ impl Node {
                 info!("RPC service ready, {:?}", result);
                 self.node_id = Some(result.node_id);
                 break;
-            } else {
-                if let Some(ref mut child) = self.guard {
-                    match child.0.try_wait() {
-                        Ok(Some(exit)) => {
-                            eprintln!("Error: node crashed, {}", exit);
-                            process::exit(exit.code().unwrap());
-                        }
-                        Ok(None) => {
-                            sleep(1);
-                        }
-                        Err(error) => {
-                            eprintln!("Error: node crashed with reason: {}", error);
-                            process::exit(255);
-                        }
+            } else if let Some(ref mut child) = self.guard {
+                match child.0.try_wait() {
+                    Ok(Some(exit)) => {
+                        eprintln!("Error: node crashed, {}", exit);
+                        process::exit(exit.code().unwrap());
+                    }
+                    Ok(None) => {
+                        sleep(1);
+                    }
+                    Err(error) => {
+                        eprintln!("Error: node crashed with reason: {}", error);
+                        process::exit(255);
                     }
                 }
             }

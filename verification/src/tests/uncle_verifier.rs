@@ -8,6 +8,7 @@ use ckb_core::script::Script;
 use ckb_core::transaction::{
     CellInput, CellOutput, ProposalShortId, Transaction, TransactionBuilder,
 };
+use ckb_core::uncle::uncles_hash;
 use ckb_core::{BlockNumber, Capacity};
 use ckb_db::memorydb::MemoryKeyValueDB;
 use ckb_notify::NotifyService;
@@ -111,194 +112,244 @@ fn test_uncle_verifier() {
 
     let verifier = UnclesVerifier::new(shared.clone());
 
-    let block = BlockBuilder::default()
-        .block(chain1.last().cloned().unwrap())
-        .uncle(chain2.last().cloned().unwrap().into())
-        .build();
-
     // Uncles not match uncles_count
-    assert_eq!(
-        verifier.verify(&block),
-        Err(Error::Uncles(UnclesError::MissMatchCount {
-            expected: 0,
-            actual: 1
-        }))
-    );
+    {
+        let block = BlockBuilder::default()
+            .block(chain1.last().cloned().unwrap())
+            .uncle(chain2.last().cloned().unwrap().into())
+            .build();
 
-    let verifier = UnclesVerifier::new(shared.clone());
+        assert_eq!(
+            verifier.verify(&block),
+            Err(Error::Uncles(UnclesError::MissMatchCount {
+                expected: 0,
+                actual: 1
+            }))
+        );
+    }
 
-    let block = BlockBuilder::default()
-        .block(chain1.last().cloned().unwrap())
-        .header(HeaderBuilder::default().uncles_count(1).build())
-        .uncle(chain2.last().cloned().unwrap().into())
-        .build();
     // Uncles not match uncles_hash
-    assert_eq!(
-        verifier.verify(&block),
-        Err(Error::Uncles(UnclesError::InvalidHash {
-            expected: H256::zero(),
-            actual: block.cal_uncles_hash()
-        }))
-    );
-
-    let block = BlockBuilder::default()
-        .block(chain2.last().cloned().unwrap())
-        .uncle(chain1.last().cloned().unwrap().into())
-        .with_header_builder(
-            HeaderBuilder::default().header(chain2.last().unwrap().header().clone()),
+    {
+        // header has 1 uncle, but body has empty uncles
+        let block = BlockBuilder::default()
+            .block(chain1.last().cloned().unwrap())
+            .header(HeaderBuilder::default().uncles_count(1).build())
+            .uncle(chain2.last().cloned().unwrap().into())
+            .build();
+        assert_eq!(
+            verifier.verify(&block),
+            Err(Error::Uncles(UnclesError::InvalidHash {
+                expected: H256::zero(),
+                actual: block.cal_uncles_hash()
+            }))
         );
+
+        // header has empty uncles, but body has 1 uncle
+        let uncles_hash = uncles_hash(&[chain2.last().cloned().unwrap().into()]);
+        let block = BlockBuilder::default()
+            .block(chain1.last().cloned().unwrap())
+            .header(
+                HeaderBuilder::default()
+                    .header(chain1.last().cloned().unwrap().header().clone())
+                    .uncles_count(0)
+                    .uncles_hash(uncles_hash.clone())
+                    .build(),
+            )
+            .build();
+        assert_eq!(
+            verifier.verify(&block),
+            Err(Error::Uncles(UnclesError::InvalidHash {
+                expected: uncles_hash,
+                actual: H256::zero(),
+            }))
+        );
+    }
+
     // Uncle depth is invalid
-    assert_eq!(
-        verifier.verify(&block),
-        Err(Error::Uncles(UnclesError::InvalidDepth {
-            max: block.header().number() - 1,
-            min: block.header().number() - shared.consensus().max_uncles_age() as u64,
-            actual: 19
-        }))
-    );
-
-    let block = BlockBuilder::default()
-        .block(chain1[8].clone())
-        .uncle(chain2[6].clone().into())
-        .with_header_builder(
-            HeaderBuilder::default()
-                .header(chain1[8].header().clone())
-                .difficulty(U256::from(2u64)),
+    {
+        // uncle.number > block.number - 1
+        let block = BlockBuilder::default()
+            .block(chain2.last().cloned().unwrap())
+            .uncle(chain1.last().cloned().unwrap().into())
+            .with_header_builder(
+                HeaderBuilder::default().header(chain2.last().unwrap().header().clone()),
+            );
+        assert_eq!(
+            verifier.verify(&block),
+            Err(Error::Uncles(UnclesError::InvalidDepth {
+                max: block.header().number() - 1,
+                min: block.header().number() - shared.consensus().max_uncles_age() as u64,
+                actual: block.uncles()[0].header().number(),
+            }))
         );
-    assert_eq!(
-        verifier.verify(&block),
-        Err(Error::Uncles(UnclesError::InvalidDifficulty))
-    );
 
-    let block = BlockBuilder::default()
-        .block(chain1.get(9).cloned().unwrap())          // block.number 10 epoch 1
-        .uncle(chain2.get(6).cloned().unwrap().into())   // block.number 7 epoch 0
-        .with_header_builder(HeaderBuilder::default().header(
-            chain1[9].header().clone()
-        ));
-    assert_eq!(
-        verifier.verify(&block),
-        Err(Error::Uncles(UnclesError::InvalidDifficultyEpoch))
-    );
-
-    let uncle = BlockBuilder::default()
-        .block(chain2.get(6).cloned().unwrap())
-        .proposal(ProposalShortId::from_slice(&[1; 10]).unwrap())
-        .build();
-    let block = BlockBuilder::default()
-        .block(chain1.get(8).cloned().unwrap())
-        .uncle(uncle.into())
-        .with_header_builder(HeaderBuilder::default().header(chain1[8].header().clone()));
-    assert_eq!(
-        verifier.verify(&block),
-        Err(Error::Uncles(UnclesError::ProposalTransactionsRoot))
-    );
-
-    let uncle = BlockBuilder::default()
-        .block(chain2.get(6).cloned().unwrap())
-        .proposal(ProposalShortId::from_slice(&[1; 10]).unwrap())
-        .with_header_builder(HeaderBuilder::default().header(chain2[6].header().clone()));
-    let block = BlockBuilder::default()
-        .block(chain1.get(8).cloned().unwrap())
-        .uncle(uncle.into())
-        .with_header_builder(HeaderBuilder::default().header(chain1[8].header().clone()));
-    assert_eq!(
-        verifier.verify(&block),
-        Err(Error::Uncles(UnclesError::ProposalTransactionDuplicate))
-    );
-
-    let uncle = BlockBuilder::default()
-        .block(chain2.get(6).cloned().unwrap())
-        .with_header_builder(HeaderBuilder::default().header(chain2[6].header().clone()));
-    let block = BlockBuilder::default()
-        .block(chain1.get(8).cloned().unwrap())
-        .uncle(uncle.into())
-        .with_header_builder(HeaderBuilder::default().header(chain1[8].header().clone()));
-    assert_eq!(verifier.verify(&block), Ok(()));
-
-    let uncle = BlockBuilder::default()
-        .block(chain1.get(8).cloned().unwrap())
-        .with_header_builder(HeaderBuilder::default().header(chain1[8].header().clone()));
-    let block = BlockBuilder::default()
-        .block(chain2.get(8).cloned().unwrap())
-        .uncle(uncle.into())
-        .with_header_builder(HeaderBuilder::default().header(chain2[8].header().clone()));
-    let number = block.header().number();
-    assert_eq!(
-        verifier.verify(&block),
-        Err(Error::Uncles(UnclesError::InvalidDepth {
-            max: number - 1,
-            min: number - 6,
-            actual: number
-        }))
-    );
-
-    let uncle = BlockBuilder::default()
-        .block(chain1[10].clone())
-        .with_header_builder(HeaderBuilder::default().header(chain1[10].header().clone()));
-    let uncle_number = uncle.header().number();
-    let block = BlockBuilder::default()
-        .block(chain2.last().cloned().unwrap())
-        .uncle(uncle.into())
-        .with_header_builder(
-            HeaderBuilder::default().header(chain2.last().unwrap().header().clone()),
-        );
-    let number = block.header().number();
-    assert_eq!(
-        verifier.verify(&block),
-        Err(Error::Uncles(UnclesError::InvalidDepth {
-            max: number - 1,
-            min: number - 6,
-            actual: uncle_number
-        }))
-    );
-
-    let uncle = BlockBuilder::default()
-        .block(chain1[10].clone())
-        .with_header_builder(HeaderBuilder::default().header(chain1[10].header().clone()));
-    let block = BlockBuilder::default()
-        .block(chain2.get(12).cloned().unwrap())
-        .uncle(uncle.into())
-        .with_header_builder(HeaderBuilder::default().header(chain2[12].header().clone()));
-    assert_eq!(verifier.verify(&block), Ok(()));
-
-    let uncle1 = BlockBuilder::default()
-        .block(chain1.get(10).cloned().unwrap())
-        .with_header_builder(HeaderBuilder::default().header(chain1[10].header().clone()));
-    let uncle2 = BlockBuilder::default()
-        .block(chain1.get(10).cloned().unwrap())
-        .with_header_builder(HeaderBuilder::default().header(chain1[10].header().clone()));
-    let block = BlockBuilder::default()
-        .block(chain2.get(12).cloned().unwrap())
-        .uncle(uncle1.into())
-        .uncle(uncle2.into())
-        .with_header_builder(HeaderBuilder::default().header(chain2[12].header().clone()));
-    // uncle duplicate
-    assert_eq!(
-        verifier.verify(&block),
-        Err(Error::Uncles(UnclesError::Duplicate(
-            block.uncles()[1].header().hash().clone()
-        )))
-    );
-
-    let max_uncles_num = shared.consensus().max_uncles_num();
-    let mut uncles = Vec::new();
-    for _ in 0..=max_uncles_num {
+        // uncle.number < block.number - max_uncle_age
+        let block_number: usize = 15;
+        let uncle_number: usize = block_number - 1 - shared.consensus().max_uncles_age();
         let uncle = BlockBuilder::default()
+            .block(chain1.get(uncle_number - 1).cloned().unwrap())
+            .with_header_builder(
+                HeaderBuilder::default().header(chain1[uncle_number - 1].header().clone()),
+            );
+        let block = BlockBuilder::default()
+            .block(chain2.get(block_number - 1).cloned().unwrap())
+            .uncle(uncle.into())
+            .with_header_builder(
+                HeaderBuilder::default().header(chain2[block_number - 1].header().clone()),
+            );
+        assert_eq!(
+            verifier.verify(&block),
+            Err(Error::Uncles(UnclesError::InvalidDepth {
+                max: block_number as u64 - 1,
+                min: block_number as u64 - shared.consensus().max_uncles_age() as u64,
+                actual: uncle_number as u64
+            }))
+        );
+    }
+
+    // Uncle difficulty is invalid
+    {
+        let block = BlockBuilder::default()
+            .block(chain1[8].clone())
+            .uncle(chain2[6].clone().into())
+            .with_header_builder(
+                HeaderBuilder::default()
+                    .header(chain1[8].header().clone())
+                    .difficulty(U256::from(2u64)),
+            );
+        assert_eq!(
+            verifier.verify(&block),
+            Err(Error::Uncles(UnclesError::InvalidDifficulty))
+        );
+    }
+
+    // Uncle is ancestor block
+    {
+        let block_number = 7;
+        let uncle_number = block_number - shared.consensus().max_uncles_age;
+        let block = BlockBuilder::default()
+            .block(chain1.get(block_number).cloned().unwrap())          // block.number 10 epoch 1
+            .uncle(chain1.get(uncle_number).cloned().unwrap().into())   // block.number 7 epoch 0
+            .with_header_builder(HeaderBuilder::default().header(
+                chain1[7].header().clone()
+            ));
+        assert_eq!(
+            verifier.verify(&block),
+            Err(Error::Uncles(UnclesError::InvalidInclude(
+                block.uncles()[0].header().hash()
+            )))
+        );
+    }
+
+    // Uncle.epoch != block.epoch
+    {
+        let block_number = shared.consensus().difficulty_adjustment_interval() as usize + 2; // epoch = 1
+        let uncle_number = shared.consensus().difficulty_adjustment_interval() as usize - 2; // epoch = 0
+        let block = BlockBuilder::default()
+            .block(chain1.get(block_number).cloned().unwrap())          // epoch 1
+            .uncle(chain2.get(uncle_number).cloned().unwrap().into())   // epoch 0
+            .with_header_builder(HeaderBuilder::default().header(
+                chain1[block_number].header().clone()
+            ));
+        assert_eq!(
+            verifier.verify(&block),
+            Err(Error::Uncles(UnclesError::InvalidDifficultyEpoch))
+        );
+    }
+
+    // Uncle proposals_root is invalid
+    {
+        let uncle = BlockBuilder::default()
+            .block(chain2.get(6).cloned().unwrap())
+            .proposal(ProposalShortId::from_slice(&[1; 10]).unwrap())
+            .build();
+        let block = BlockBuilder::default()
+            .block(chain1.get(8).cloned().unwrap())
+            .uncle(uncle.into())
+            .with_header_builder(HeaderBuilder::default().header(chain1[8].header().clone()));
+        assert_eq!(
+            verifier.verify(&block),
+            Err(Error::Uncles(UnclesError::ProposalTransactionsRoot))
+        );
+    }
+
+    // Uncle contains duplicated proposals
+    {
+        let uncle = BlockBuilder::default()
+            .block(chain2.get(6).cloned().unwrap())
+            .proposal(ProposalShortId::from_slice(&[1; 10]).unwrap())
+            .with_header_builder(HeaderBuilder::default().header(chain2[6].header().clone()));
+        let block = BlockBuilder::default()
+            .block(chain1.get(8).cloned().unwrap())
+            .uncle(uncle.into())
+            .with_header_builder(HeaderBuilder::default().header(chain1[8].header().clone()));
+        assert_eq!(
+            verifier.verify(&block),
+            Err(Error::Uncles(UnclesError::ProposalTransactionDuplicate))
+        );
+    }
+
+    // Duplicated uncles
+    {
+        let uncle1 = BlockBuilder::default()
             .block(chain1.get(10).cloned().unwrap())
             .with_header_builder(HeaderBuilder::default().header(chain1[10].header().clone()));
-        uncles.push(uncle.into());
+        let uncle2 = BlockBuilder::default()
+            .block(chain1.get(10).cloned().unwrap())
+            .with_header_builder(HeaderBuilder::default().header(chain1[10].header().clone()));
+        let block = BlockBuilder::default()
+            .block(chain2.get(12).cloned().unwrap())
+            .uncle(uncle1.into())
+            .uncle(uncle2.into())
+            .with_header_builder(HeaderBuilder::default().header(chain2[12].header().clone()));
+        // uncle duplicate
+        assert_eq!(
+            verifier.verify(&block),
+            Err(Error::Uncles(UnclesError::Duplicate(
+                block.uncles()[1].header().hash().clone()
+            )))
+        );
     }
+
+    // Uncles count exceeds limit
+    {
+        let max_uncles_num = shared.consensus().max_uncles_num();
+        let mut uncles = Vec::new();
+        for _ in 0..=max_uncles_num {
+            let uncle = BlockBuilder::default()
+                .block(chain1.get(10).cloned().unwrap())
+                .with_header_builder(HeaderBuilder::default().header(chain1[10].header().clone()));
+            uncles.push(uncle.into());
+        }
+        let block = BlockBuilder::default()
+            .block(chain2.get(12).cloned().unwrap())
+            .uncles(uncles)
+            .with_header_builder(HeaderBuilder::default().header(chain2[12].header().clone()));
+        // uncle overcount
+        assert_eq!(
+            verifier.verify(&block),
+            Err(Error::Uncles(UnclesError::OverCount {
+                max: max_uncles_num as u32,
+                actual: max_uncles_num as u32 + 1
+            }))
+        );
+    }
+
+    let uncle = BlockBuilder::default()
+        .block(chain2.get(6).cloned().unwrap())
+        .with_header_builder(HeaderBuilder::default().header(chain2[6].header().clone()));
+    let block = BlockBuilder::default()
+        .block(chain1.get(8).cloned().unwrap())
+        .uncle(uncle.into())
+        .with_header_builder(HeaderBuilder::default().header(chain1[8].header().clone()));
+    assert_eq!(verifier.verify(&block), Ok(()));
+
+    let uncle = BlockBuilder::default()
+        .block(chain1[10].clone())
+        .with_header_builder(HeaderBuilder::default().header(chain1[10].header().clone()));
     let block = BlockBuilder::default()
         .block(chain2.get(12).cloned().unwrap())
-        .uncles(uncles)
+        .uncle(uncle.into())
         .with_header_builder(HeaderBuilder::default().header(chain2[12].header().clone()));
-    // uncle overlength
-    assert_eq!(
-        verifier.verify(&block),
-        Err(Error::Uncles(UnclesError::OverCount {
-            max: max_uncles_num as u32,
-            actual: max_uncles_num as u32 + 1
-        }))
-    );
+    assert_eq!(verifier.verify(&block), Ok(()));
 }
