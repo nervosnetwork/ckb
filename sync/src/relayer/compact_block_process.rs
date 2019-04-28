@@ -6,7 +6,7 @@ use ckb_protocol::{CompactBlock as FbsCompactBlock, RelayMessage};
 use ckb_shared::shared::Shared;
 use ckb_shared::store::ChainStore;
 use ckb_traits::{BlockMedianTimeContext, ChainProvider};
-use ckb_verification::{Error as VerifyError, HeaderResolverWrapper, HeaderVerifier, Verifier};
+use ckb_verification::{HeaderResolverWrapper, HeaderVerifier, Verifier};
 use failure::Error as FailureError;
 use flatbuffers::FlatBufferBuilder;
 use fnv::FnvHashMap;
@@ -40,18 +40,32 @@ impl<'a, CS: ChainStore> CompactBlockProcess<'a, CS> {
     pub fn execute(self) -> Result<(), FailureError> {
         let compact_block: CompactBlock = (*self.message).try_into()?;
         let block_hash = compact_block.header.hash();
-        if let Some(header_view) = self.relayer.shared.get_header_view(&block_hash) {
+        if let Some(parent_header_view) = self
+            .relayer
+            .shared
+            .get_header_view(&compact_block.header.parent_hash())
+        {
             let best_known_header = self.relayer.shared.best_known_header();
-            if header_view.total_difficulty() <= best_known_header.total_difficulty() {
+            let current_total_difficulty =
+                parent_header_view.total_difficulty() + compact_block.header.difficulty();
+            if current_total_difficulty <= *best_known_header.total_difficulty() {
                 debug!(
                     target: "relay",
-                    "Received a compact block({}), total difficulty {} <= {}",
+                    "Received a compact block({}), total difficulty {} <= {}, ignore it",
                     block_hash,
-                    header_view.total_difficulty(),
+                    current_total_difficulty,
                     best_known_header.total_difficulty(),
                 );
                 return Ok(());
             }
+        } else {
+            debug!(target: "relay", "UnknownParent: {}, send_getheaders_to_peer({})", block_hash, self.peer);
+            self.relayer.shared.send_getheaders_to_peer(
+                self.nc,
+                self.peer,
+                self.relayer.shared.chain_state().lock().tip_header(),
+            );
+            return Ok(());
         }
 
         let mut missing_indexes: Vec<usize> = Vec::new();
@@ -96,14 +110,6 @@ impl<'a, CS: ChainStore> CompactBlockProcess<'a, CS> {
                                     .insert(block_hash.clone(), compact_block.clone());
                             }
                         }
-                    }
-                    Err(VerifyError::UnknownParent(hash)) => {
-                        debug!(target: "relay", "UnknownParent: {}, send_getheaders_to_peer({})", hash, self.peer);
-                        self.relayer.shared.send_getheaders_to_peer(
-                            self.nc,
-                            self.peer,
-                            self.relayer.shared.chain_state().lock().tip_header(),
-                        )
                     }
                     Err(err) => {
                         debug!(target: "relay", "unexpected header verify failed: {}", err);
