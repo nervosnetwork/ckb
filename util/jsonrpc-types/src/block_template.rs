@@ -13,6 +13,7 @@ pub struct BlockTemplate {
     pub difficulty: U256,
     pub current_time: String,
     pub number: String,
+    pub epoch: String,
     pub parent_hash: H256,
     pub cycles_limit: String,
     pub bytes_limit: String,

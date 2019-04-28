@@ -8,7 +8,6 @@ use ckb_core::transaction::{Capacity, OutPoint, ProposalShortId, Transaction};
 use ckb_core::uncle::UncleBlock;
 use ckb_traits::ChainProvider;
 use numext_fixed_hash::H256;
-use numext_fixed_uint::U256;
 
 #[derive(Default, Clone)]
 pub struct DummyChainProvider {

@@ -18,33 +18,20 @@ use std::sync::Arc;
 //TODO: cellbase, witness
 #[derive(Clone)]
 pub struct BlockVerifier<P> {
-    // Verify if the committed and proposed transactions contains duplicate
-    duplicate: DuplicateVerifier,
-    // Verify the cellbase
-    cellbase: CellbaseVerifier,
-    // Verify the the committed and proposed transactions merkle root match header's announce
-    merkle_root: MerkleRootVerifier,
-    // Verify the the uncle
-    uncles: UnclesVerifier<P>,
-    // Verify the the propose-then-commit consensus rule
-    commit: CommitVerifier<P>,
-    // Verify the amount of proposals does not exceed the limit.
-    block_proposals_limit: BlockProposalsLimitVerifier,
-    // Verify the size of the block does not exceed the limit.
-    block_bytes: BlockBytesVerifier,
+    provider: P,
 }
 
-pub trait EpochProvider {
-    fn epoch(&self) -> &EpochExt;
-}
-
-#[derive(Clone)]
-pub struct EpochMock;
-
-impl EpochProvider for EpochMock {
-    fn epoch(&self) -> &EpochExt {
-        unimplemented!()
-    }
+fn prepare_epoch_ext<P: ChainProvider>(provider: &P, block: &Block) -> Result<EpochExt, Error> {
+    let parent_hash = block.header().parent_hash();
+    let parent_ext = provider
+        .get_epoch_ext(parent_hash)
+        .ok_or_else(|| Error::UnknownParent(parent_hash.clone()))?;
+    let parent = provider
+        .block_header(parent_hash)
+        .ok_or_else(|| Error::UnknownParent(parent_hash.clone()))?;
+    Ok(provider
+        .next_epoch_ext(&parent_ext, &parent)
+        .unwrap_or(parent_ext))
 }
 
 impl<P> BlockVerifier<P>
@@ -52,20 +39,7 @@ where
     P: ChainProvider + Clone,
 {
     pub fn new(provider: P) -> Self {
-        let proof_size = provider.consensus().pow_engine().proof_size();
-        let max_block_proposals_limit = provider.consensus().max_block_proposals_limit();
-        let max_block_bytes = provider.consensus().max_block_bytes();
-
-        BlockVerifier {
-            // TODO change all new fn's chain to reference
-            duplicate: DuplicateVerifier::new(),
-            cellbase: CellbaseVerifier::new(),
-            merkle_root: MerkleRootVerifier::new(),
-            uncles: UnclesVerifier::new(provider.clone(), mock),
-            commit: CommitVerifier::new(provider),
-            block_proposals_limit: BlockProposalsLimitVerifier::new(max_block_proposals_limit),
-            block_bytes: BlockBytesVerifier::new(max_block_bytes, proof_size),
-        }
+        BlockVerifier { provider }
     }
 }
 
@@ -76,13 +50,18 @@ where
     type Target = Block;
 
     fn verify(&self, target: &Block) -> Result<(), Error> {
-        self.block_proposals_limit.verify(target)?;
-        self.block_bytes.verify(target)?;
-        self.cellbase.verify(target)?;
-        self.duplicate.verify(target)?;
-        self.merkle_root.verify(target)?;
-        self.commit.verify(target)?;
-        self.uncles.verify(target)
+        let consensus = self.provider.consensus();
+        let proof_size = consensus.pow_engine().proof_size();
+        let max_block_proposals_limit = consensus.max_block_proposals_limit();
+        let max_block_bytes = consensus.max_block_bytes();
+        let epoch_ext = prepare_epoch_ext(&self.provider, target)?;
+        BlockProposalsLimitVerifier::new(max_block_proposals_limit).verify(target)?;
+        BlockBytesVerifier::new(max_block_bytes, proof_size).verify(target)?;
+        CellbaseVerifier::new(self.provider.clone()).verify(target)?;
+        DuplicateVerifier::new().verify(target)?;
+        MerkleRootVerifier::new().verify(target)?;
+        CommitVerifier::new(self.provider.clone()).verify(target)?;
+        UnclesVerifier::new(self.provider.clone(), &epoch_ext).verify(target)
     }
 }
 
@@ -233,16 +212,16 @@ impl<'a> HeaderResolver for HeaderResolverWrapper<'a> {
 
 // TODO redo uncle verifier, check uncle proposal duplicate
 #[derive(Clone)]
-pub struct UnclesVerifier<P> {
+pub struct UnclesVerifier<'a, P> {
     provider: P,
-    epoch: EpochMock,
+    epoch: &'a EpochExt,
 }
 
-impl<P> UnclesVerifier<P>
+impl<'a, P> UnclesVerifier<'a, P>
 where
     P: ChainProvider + Clone,
 {
-    pub fn new(provider: P, epoch: EpochMock) -> Self {
+    pub fn new(provider: P, epoch: &'a EpochExt) -> Self {
         UnclesVerifier { provider, epoch }
     }
 
@@ -337,14 +316,12 @@ where
             }
         }
 
-        let epoch = self.epoch.epoch();
-
         for uncle in block.uncles() {
-            if uncle.header().difficulty() != epoch.difficulty() {
+            if uncle.header().difficulty() != self.epoch.difficulty() {
                 return Err(Error::Uncles(UnclesError::InvalidDifficulty));
             }
 
-            if epoch.number() != uncle.header().epoch() {
+            if self.epoch.number() != uncle.header().epoch() {
                 return Err(Error::Uncles(UnclesError::InvalidDifficultyEpoch));
             }
 

@@ -21,8 +21,7 @@ use crate::{
 use bitflags::bitflags;
 use ckb_chain::chain::ChainController;
 use ckb_core::block::Block;
-use ckb_core::extras::EpochExt;
-use ckb_core::header::{BlockNumber, Header};
+use ckb_core::header::Header;
 use ckb_network::{CKBProtocolContext, CKBProtocolHandler, PeerIndex};
 use ckb_protocol::{cast, get_root, SyncMessage, SyncPayload};
 use ckb_store::ChainStore;
@@ -33,7 +32,6 @@ use flatbuffers::FlatBufferBuilder;
 use hashbrown::HashMap;
 use log::{debug, info, trace};
 use numext_fixed_hash::H256;
-use std::cmp;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;

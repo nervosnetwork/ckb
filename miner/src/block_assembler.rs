@@ -11,7 +11,6 @@ use ckb_core::transaction::{
 use ckb_core::uncle::UncleBlock;
 use ckb_core::{Bytes, Cycle, Version};
 use ckb_notify::NotifyController;
-use ckb_shared::chain_state::ChainState;
 use ckb_shared::{shared::Shared, store::ChainStore, tx_pool::PoolEntry};
 use ckb_traits::ChainProvider;
 use ckb_util::Mutex;
@@ -26,7 +25,6 @@ use jsonrpc_types::{
 use log::error;
 use lru_cache::LruCache;
 use numext_fixed_hash::H256;
-use numext_fixed_uint::U256;
 use std::cmp;
 use std::sync::{atomic::AtomicU64, atomic::AtomicUsize, atomic::Ordering, Arc};
 use std::thread;
@@ -374,7 +372,12 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
 
         // dummy cellbase
         let cellbase_lock = Script::new(args, self.config.code_hash.clone());
-        let cellbase = self.create_cellbase_transaction(&header, &transactions, cellbase_lock)?;
+        let cellbase = self.create_cellbase_transaction(
+            &header,
+            &current_epoch,
+            &transactions,
+            cellbase_lock,
+        )?;
 
         // Should recalculate current time after create cellbase (create cellbase may spend a lot of time)
         let current_time = cmp::max(unix_time_as_millis(), header.timestamp() + 1);
@@ -383,6 +386,7 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
             difficulty: current_epoch.difficulty().clone(),
             current_time: current_time.to_string(),
             number: number.to_string(),
+            epoch: current_epoch.number().to_string(),
             parent_hash: header.hash(),
             cycles_limit: cycles_limit.to_string(),
             bytes_limit: bytes_limit.to_string(),
@@ -412,19 +416,19 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
 
     fn create_cellbase_transaction(
         &self,
-        header: &Header,
+        tip: &Header,
+        current_epoch: &EpochExt,
         pes: &[PoolEntry],
         lock: Script,
     ) -> Result<Transaction, FailureError> {
         // NOTE: To generate different cellbase txid, we put header number in the input script
-        let input = CellInput::new_cellbase_input(header.number() + 1);
+        let input = CellInput::new_cellbase_input(tip.number() + 1);
         // NOTE: We could've just used byteorder to serialize u64 and hex string into bytes,
         // but the truth is we will modify this after we designed lock script anyway, so let's
         // stick to the simpler way and just convert everything to a single string, then to UTF8
         // bytes, they really serve the same purpose at the moment
 
-        //FIXME
-        let block_reward = Capacity::zero();
+        let block_reward = current_epoch.block_reward(tip.number() + 1)?;
         let mut fee = Capacity::zero();
         // depends cells may produced from previous tx
         let fee_calculator = FeeCalculator::new(&pes, &self.shared);

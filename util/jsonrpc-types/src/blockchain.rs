@@ -1,5 +1,5 @@
 use crate::bytes::JsonBytes;
-use crate::{BlockNumber, Capacity, ProposalShortId};
+use crate::{BlockNumber, Bytes, Capacity, EpochNumber, ProposalShortId};
 use ckb_core::block::{Block as CoreBlock, BlockBuilder};
 use ckb_core::header::{Header as CoreHeader, HeaderBuilder, Seal as CoreSeal};
 use ckb_core::script::Script as CoreScript;
@@ -8,7 +8,9 @@ use ckb_core::transaction::{
     Transaction as CoreTransaction, TransactionBuilder, Witness as CoreWitness,
 };
 use ckb_core::uncle::UncleBlock as CoreUncleBlock;
-use ckb_core::{BlockNumber as CoreBlockNumber, Capacity as CoreCapacity};
+use ckb_core::{
+    BlockNumber as CoreBlockNumber, Capacity as CoreCapacity, EpochNumber as CoreEpochNumber,
+};
 use failure::Error as FailureError;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
@@ -338,6 +340,7 @@ pub struct Header {
     pub parent_hash: H256,
     pub timestamp: String,
     pub number: BlockNumber,
+    pub epoch: EpochNumber,
     pub transactions_root: H256,
     pub proposals_root: H256,
     pub witnesses_root: H256,
@@ -356,6 +359,7 @@ impl<'a> From<&'a CoreHeader> for Header {
             parent_hash: core.parent_hash().to_owned(),
             timestamp: core.timestamp().to_string(),
             number: core.number().to_string(),
+            epoch: core.epoch().to_string(),
             transactions_root: core.transactions_root().to_owned(),
             proposals_root: core.proposals_root().to_owned(),
             witnesses_root: core.witnesses_root().to_owned(),
@@ -377,6 +381,7 @@ impl TryFrom<Header> for CoreHeader {
             parent_hash,
             timestamp,
             number,
+            epoch,
             transactions_root,
             proposals_root,
             witnesses_root,
@@ -392,6 +397,7 @@ impl TryFrom<Header> for CoreHeader {
             .parent_hash(parent_hash)
             .timestamp(timestamp.parse::<u64>()?)
             .number(number.parse::<CoreBlockNumber>()?)
+            .epoch(epoch.parse::<CoreEpochNumber>()?)
             .transactions_root(transactions_root)
             .proposals_root(proposals_root)
             .witnesses_root(witnesses_root)

@@ -511,12 +511,26 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
                         .collect::<Result<Vec<ResolvedTransaction>, _>>()
                     {
                         Ok(resolved) => {
-                            let cellbase_maturity = { self.shared.consensus().cellbase_maturity() };
+                            let cellbase_maturity = self.shared.consensus().cellbase_maturity();
+
+                            let parent_hash = b.header().parent_hash();
+                            let parent_ext = self
+                                .shared
+                                .get_epoch_ext(parent_hash)
+                                .expect("parent header verified");
+                            let parent = self
+                                .shared
+                                .block_header(parent_hash)
+                                .expect("parent header verified");
+                            let epoch = self
+                                .shared
+                                .next_epoch_ext(&parent_ext, &parent)
+                                .unwrap_or(parent_ext);
 
                             match txs_verifier.verify(
                                 &resolved,
                                 Arc::clone(self.shared.store()),
-                                chain_state.current_epoch_ext().block_reward().clone(),
+                                epoch.block_reward(b.header().number())?,
                                 ForkContext {
                                     fork_blocks: &fork.attached_blocks,
                                     store: Arc::clone(self.shared.store()),

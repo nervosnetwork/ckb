@@ -2,7 +2,7 @@ use crate::client::Client;
 use crate::Work;
 use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::header::{HeaderBuilder, RawHeader, Seal};
-use ckb_core::BlockNumber;
+use ckb_core::{BlockNumber, EpochNumber};
 use ckb_pow::PowEngine;
 use crossbeam_channel::Receiver;
 use failure::Error;
@@ -55,6 +55,7 @@ impl Miner {
                 difficulty,
                 current_time,
                 number,
+                epoch,
                 parent_hash,
                 uncles, // Vec<UncleTemplate>
                 transactions, // Vec<TransactionTemplate>
@@ -75,6 +76,7 @@ impl Miner {
             let header_builder = HeaderBuilder::default()
                 .version(version)
                 .number(number.parse::<BlockNumber>()?)
+                .epoch(epoch.parse::<EpochNumber>()?)
                 .difficulty(difficulty)
                 .timestamp(current_time.parse::<u64>()?)
                 .parent_hash(parent_hash);

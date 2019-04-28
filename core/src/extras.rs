@@ -1,4 +1,5 @@
 use crate::{BlockNumber, Capacity};
+use failure::Error as FailureError;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 use serde_derive::{Deserialize, Serialize};
@@ -36,8 +37,14 @@ impl EpochExt {
         self.number
     }
 
-    pub fn block_reward(&self) -> Capacity {
-        self.block_reward
+    pub fn block_reward(&self, number: BlockNumber) -> Result<Capacity, FailureError> {
+        if self.start_number() == (number + 1) {
+            self.block_reward
+                .safe_add(self.remainder_reward)
+                .map_err(Into::into)
+        } else {
+            Ok(self.block_reward)
+        }
     }
 
     pub fn start_number(&self) -> BlockNumber {
