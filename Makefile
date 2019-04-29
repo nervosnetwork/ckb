@@ -41,7 +41,7 @@ clippy:
 	cd test && cargo clippy ${VERBOSE} --all --all-targets --all-features -- -D warnings -D clippy::clone_on_ref_ptr -D clippy::enum_glob_use -D clippy::fallible_impl_from
 
 
-ci: fmt clippy test
+ci: fmt clippy security-audit test
 	git diff --exit-code Cargo.lock
 
 info:

@@ -23,6 +23,7 @@ if [ "$RUN_TEST" = true ]; then
   if [ "$CHECK" = true ]; then
     make check
     make clippy
+    make security-audit
   fi
   if [ "$TEST" = true ]; then
     make test
