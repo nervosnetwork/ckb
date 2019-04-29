@@ -8,7 +8,6 @@ use ckb_core::transaction::{
     Transaction as CoreTransaction, TransactionBuilder, Witness as CoreWitness,
 };
 use ckb_core::uncle::UncleBlock as CoreUncleBlock;
-use ckb_core::Bytes;
 use ckb_core::{BlockNumber as CoreBlockNumber, Capacity as CoreCapacity};
 use failure::Error as FailureError;
 use numext_fixed_hash::H256;
@@ -18,7 +17,7 @@ use std::convert::{TryFrom, TryInto};
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct Script {
-    pub args: Vec<Bytes>,
+    pub args: Vec<JsonBytes>,
     pub code_hash: H256,
 }
 
@@ -27,21 +26,27 @@ impl TryFrom<Script> for CoreScript {
 
     fn try_from(json: Script) -> Result<Self, Self::Error> {
         let Script { args, code_hash } = json;
-        Ok(CoreScript::new(args, code_hash))
+        Ok(CoreScript::new(
+            args.into_iter().map(JsonBytes::into_bytes).collect(),
+            code_hash,
+        ))
     }
 }
 
 impl From<CoreScript> for Script {
     fn from(core: CoreScript) -> Script {
         let (args, code_hash) = core.destruct();
-        Script { code_hash, args }
+        Script {
+            code_hash,
+            args: args.into_iter().map(JsonBytes::from_bytes).collect(),
+        }
     }
 }
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct CellOutput {
     pub capacity: Capacity,
-    pub data: Bytes,
+    pub data: JsonBytes,
     pub lock: Script,
     #[serde(rename = "type")]
     pub type_: Option<Script>,
@@ -52,7 +57,7 @@ impl From<CoreCellOutput> for CellOutput {
         let (capacity, data, lock, type_) = core.destruct();
         CellOutput {
             capacity: capacity.to_string(),
-            data,
+            data: JsonBytes::from_bytes(data),
             lock: lock.into(),
             type_: type_.map(Into::into),
         }
@@ -77,7 +82,7 @@ impl TryFrom<CellOutput> for CoreCellOutput {
 
         Ok(CoreCellOutput::new(
             capacity.parse::<CoreCapacity>()?,
-            data,
+            data.into_bytes(),
             lock.try_into()?,
             type_,
         ))
@@ -108,7 +113,7 @@ impl From<OutPoint> for CoreOutPoint {
 pub struct CellInput {
     pub previous_output: OutPoint,
     pub since: String,
-    pub args: Vec<Bytes>,
+    pub args: Vec<JsonBytes>,
 }
 
 impl From<CoreCellInput> for CellInput {
@@ -117,7 +122,7 @@ impl From<CoreCellInput> for CellInput {
         CellInput {
             previous_output: previous_output.into(),
             since: since.to_string(),
-            args,
+            args: args.into_iter().map(JsonBytes::from_bytes).collect(),
         }
     }
 }
@@ -134,7 +139,7 @@ impl TryFrom<CellInput> for CoreCellInput {
         Ok(CoreCellInput::new(
             previous_output.try_into()?,
             since.parse::<u64>()?,
-            args,
+            args.into_iter().map(JsonBytes::into_bytes).collect(),
         ))
     }
 }
