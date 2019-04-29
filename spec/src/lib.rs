@@ -9,9 +9,10 @@
 //! we must put nested config struct in the tail to make it serializable,
 //! details https://docs.rs/toml/0.5.0/toml/ser/index.html
 
-use crate::consensus::Consensus;
+use crate::consensus::{Consensus, GENESIS_EPOCH_LENGTH};
 use ckb_core::block::Block;
 use ckb_core::block::BlockBuilder;
+use ckb_core::extras::EpochExt;
 use ckb_core::header::HeaderBuilder;
 use ckb_core::transaction::{CellInput, CellOutput, Transaction, TransactionBuilder};
 use ckb_core::{BlockNumber, Capacity, Cycle};
@@ -215,8 +216,24 @@ impl ChainSpec {
 
         self.verify_genesis_hash(&genesis_block)?;
 
+        let block_reward =
+            Capacity::shannons(self.params.epoch_reward.as_u64() / GENESIS_EPOCH_LENGTH);
+        let remainder_reward =
+            Capacity::shannons(self.params.epoch_reward.as_u64() / GENESIS_EPOCH_LENGTH);
+
+        let genesis_epoch_ext = EpochExt::new(
+            0,                        // number
+            block_reward,             // block_reward
+            remainder_reward,         // remainder_reward
+            H256::zero(),             // last_epoch_end_hash
+            0,                        // start
+            GENESIS_EPOCH_LENGTH,     // length
+            genesis_block.header().difficulty().clone() // difficulty,
+        );
+
         let consensus = Consensus::default()
             .set_id(self.name.clone())
+            .set_genesis_epoch_ext(genesis_epoch_ext)
             .set_genesis_block(genesis_block)
             .set_cellbase_maturity(self.params.cellbase_maturity)
             .set_epoch_reward(self.params.epoch_reward)

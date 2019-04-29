@@ -1,6 +1,7 @@
 use crate::bytes::JsonBytes;
 use crate::{BlockNumber, Bytes, Capacity, EpochNumber, ProposalShortId};
 use ckb_core::block::{Block as CoreBlock, BlockBuilder};
+use ckb_core::extras::EpochExt as CoreEpochExt;
 use ckb_core::header::{Header as CoreHeader, HeaderBuilder, Seal as CoreSeal};
 use ckb_core::script::Script as CoreScript;
 use ckb_core::transaction::{
@@ -490,6 +491,67 @@ impl TryFrom<Block> for CoreBlock {
                     .collect::<Result<_, _>>()?,
             )
             .build())
+    }
+}
+
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+pub struct EpochExt {
+    pub number: String,
+    pub block_reward: String,
+    pub last_epoch_end_hash: H256,
+    pub start_number: BlockNumber,
+    pub length: BlockNumber,
+    pub difficulty: U256,
+    pub remainder_reward: String,
+}
+
+impl From<CoreEpochExt> for EpochExt {
+    fn from(core: CoreEpochExt) -> EpochExt {
+        let (
+            number,
+            block_reward,
+            remainder_reward,
+            last_epoch_end_hash,
+            start_number,
+            length,
+            difficulty,
+        ) = core.destruct();
+
+        EpochExt {
+            number: number.to_string(),
+            block_reward: block_reward.to_string(),
+            remainder_reward: remainder_reward.to_string(),
+            last_epoch_end_hash,
+            start_number: start_number.to_string(),
+            length: length.to_string(),
+            difficulty,
+        }
+    }
+}
+
+impl TryFrom<EpochExt> for CoreEpochExt {
+    type Error = FailureError;
+
+    fn try_from(json: EpochExt) -> Result<Self, Self::Error> {
+        let EpochExt {
+            number,
+            block_reward,
+            last_epoch_end_hash,
+            start_number,
+            length,
+            difficulty,
+            remainder_reward,
+        } = json;
+
+        Ok(CoreEpochExt::new(
+            number.parse::<u64>()?,
+            block_reward.parse::<CoreCapacity>()?,
+            remainder_reward.parse::<CoreCapacity>()?,
+            last_epoch_end_hash,
+            start_number.parse::<u64>()?,
+            length.parse::<u64>()?,
+            difficulty,
+        ))
     }
 }
 

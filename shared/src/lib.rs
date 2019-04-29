@@ -19,7 +19,7 @@ mod tests;
 
 use ckb_db::Col;
 
-pub const COLUMNS: u32 = 9;
+pub const COLUMNS: u32 = 11;
 pub const COLUMN_INDEX: Col = 0;
 pub const COLUMN_BLOCK_HEADER: Col = 1;
 pub const COLUMN_BLOCK_BODY: Col = 2;

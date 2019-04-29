@@ -389,11 +389,7 @@ impl<B: DbBatch> StoreBatch for DefaultStoreBatch<B> {
     }
 
     fn insert_current_epoch_ext(&mut self, epoch: &EpochExt) -> Result<(), Error> {
-        self.insert_raw(
-            COLUMN_META,
-            META_CURRENT_EPOCH_KEY,
-            &epoch.number().to_le_bytes(),
-        )
+        self.insert_serialize(COLUMN_META, META_CURRENT_EPOCH_KEY, epoch)
     }
 
     fn commit(self) -> Result<(), Error> {

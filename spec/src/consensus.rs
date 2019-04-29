@@ -9,9 +9,6 @@ use numext_fixed_uint::U256;
 use std::cmp;
 use std::sync::Arc;
 
-pub(crate) const DEFAULT_EPOCH_REWARD: u64 = 5_000_000;
-pub(crate) const GENESIS_EPOCH_LENGTH: u64 = 1_000;
-pub(crate) const GENESIS_EPOCH_REWARD: u64 = DEFAULT_EPOCH_REWARD / GENESIS_EPOCH_LENGTH;
 pub(crate) const MAX_UNCLE_NUM: usize = 2;
 pub(crate) const MAX_UNCLE_AGE: usize = 6;
 pub(crate) const TX_PROPOSAL_WINDOW: ProposalWindow = ProposalWindow(2, 10);
@@ -27,6 +24,9 @@ const MIN_BLOCK_INTERVAL: u64 = 5 * 1000; // 5s
 pub(crate) const EPOCH_DURATION: u64 = 2 * 60 * 60 * 1000; // 1hour
 pub(crate) const MAX_EPOCH_LENGTH: u64 = EPOCH_DURATION / MIN_BLOCK_INTERVAL; // 1440
 pub(crate) const MIN_EPOCH_LENGTH: u64 = EPOCH_DURATION / MAX_BLOCK_INTERVAL; // 48
+pub(crate) const GENESIS_EPOCH_LENGTH: u64 = 1_000;
+pub(crate) const DEFAULT_EPOCH_REWARD: u64 = 5_000_000;
+pub(crate) const GENESIS_EPOCH_REWARD: u64 = DEFAULT_EPOCH_REWARD / GENESIS_EPOCH_LENGTH;
 
 pub(crate) const MAX_BLOCK_CYCLES: Cycle = 20_000_000_000;
 pub(crate) const MAX_BLOCK_BYTES: u64 = 2_000_000; // 2mb
@@ -91,7 +91,7 @@ impl Default for Consensus {
             Capacity::shannons(0), // remainder_reward
             H256::zero(),
             0, // start
-            1000, // length
+            GENESIS_EPOCH_LENGTH, // length
             genesis_block.header().difficulty().clone() // difficulty,
         );
 
@@ -127,6 +127,11 @@ impl Consensus {
     pub fn set_genesis_block(mut self, genesis_block: Block) -> Self {
         self.genesis_hash = genesis_block.header().hash();
         self.genesis_block = genesis_block;
+        self
+    }
+
+    pub fn set_genesis_epoch_ext(mut self, genesis_epoch_ext: EpochExt) -> Self {
+        self.genesis_epoch_ext = genesis_epoch_ext;
         self
     }
 

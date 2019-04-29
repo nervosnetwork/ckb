@@ -65,8 +65,8 @@ impl<CS: ChainStore> ChainState<CS> {
                 }
                 None => store
                     .init(&consensus)
-                    .map_err(|_| {
-                        SharedError::InvalidData("failed to init genesis block".to_owned())
+                    .map_err(|e| {
+                        SharedError::InvalidData(format!("failed to init genesis block {:?}", e))
                     })
                     .map(|_| consensus.genesis_block().header().to_owned()),
             }

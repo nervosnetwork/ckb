@@ -59,6 +59,34 @@ curl -H 'content-type:application/json' \
 }
 ```
 
+### get_current_epoch
+
+Returns the information about the current epoch.
+
+#### Examples
+
+```bash
+curl -H 'content-type:application/json' \
+    -d '{"id": 2, "jsonrpc": "2.0", "method": "get_current_epoch", "params": []}' \
+    http://localhost:8114
+```
+
+```json
+{
+    "jsonrpc": "2.0",
+    "result": {
+        "block_reward": "5000000000000",
+        "difficulty": "0x100",
+        "last_epoch_end_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+        "length": "1000",
+        "number": "0",
+        "remainder_reward": "5000000000000",
+        "start_number": "0"
+    },
+    "id": 2
+}
+```
+
 ### get_block_hash
 
 Returns the hash of a block in the best-block-chain by block number; block of No.0 is the genesis block.
