@@ -175,19 +175,32 @@ pub struct Transaction {
     pub inputs: Vec<CellInput>,
     pub outputs: Vec<CellOutput>,
     pub witnesses: Vec<Witness>,
-    #[serde(skip_deserializing)]
+}
+
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+pub struct TransactionView {
+    #[serde(flatten)]
+    pub inner: Transaction,
     pub hash: H256,
 }
 
 impl<'a> From<&'a CoreTransaction> for Transaction {
-    fn from(core: &CoreTransaction) -> Transaction {
-        Transaction {
+    fn from(core: &CoreTransaction) -> Self {
+        Self {
             version: core.version(),
             deps: core.deps().iter().cloned().map(Into::into).collect(),
             inputs: core.inputs().iter().cloned().map(Into::into).collect(),
             outputs: core.outputs().iter().cloned().map(Into::into).collect(),
             witnesses: core.witnesses().iter().map(Into::into).collect(),
+        }
+    }
+}
+
+impl<'a> From<&'a CoreTransaction> for TransactionView {
+    fn from(core: &CoreTransaction) -> Self {
+        Self {
             hash: core.hash().to_owned(),
+            inner: core.into(),
         }
     }
 }
@@ -202,7 +215,6 @@ impl TryFrom<Transaction> for CoreTransaction {
             inputs,
             outputs,
             witnesses,
-            ..
         } = json;
 
         Ok(TransactionBuilder::default()
@@ -234,9 +246,17 @@ impl TryFrom<Transaction> for CoreTransaction {
     }
 }
 
+impl TryFrom<TransactionView> for CoreTransaction {
+    type Error = FailureError;
+
+    fn try_from(json: TransactionView) -> Result<Self, Self::Error> {
+        json.inner.try_into()
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct TransactionWithStatus {
-    pub transaction: Transaction,
+    pub transaction: TransactionView,
     /// Indicate the Transaction status
     pub tx_status: TxStatus,
 }
@@ -347,13 +367,18 @@ pub struct Header {
     pub uncles_hash: H256,
     pub uncles_count: u32,
     pub seal: Seal,
-    #[serde(skip_deserializing)]
+}
+
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+pub struct HeaderView {
+    #[serde(flatten)]
+    pub inner: Header,
     pub hash: H256,
 }
 
 impl<'a> From<&'a CoreHeader> for Header {
-    fn from(core: &CoreHeader) -> Header {
-        Header {
+    fn from(core: &CoreHeader) -> Self {
+        Self {
             version: core.version(),
             parent_hash: core.parent_hash().to_owned(),
             timestamp: core.timestamp().to_string(),
@@ -366,7 +391,15 @@ impl<'a> From<&'a CoreHeader> for Header {
             uncles_hash: core.uncles_hash().to_owned(),
             uncles_count: core.uncles_count(),
             seal: core.seal().to_owned().into(),
+        }
+    }
+}
+
+impl<'a> From<&'a CoreHeader> for HeaderView {
+    fn from(core: &CoreHeader) -> Self {
+        Self {
             hash: core.hash().to_owned(),
+            inner: core.into(),
         }
     }
 }
@@ -388,7 +421,6 @@ impl TryFrom<Header> for CoreHeader {
             uncles_hash,
             uncles_count,
             seal,
-            ..
         } = json;
 
         Ok(HeaderBuilder::default()
@@ -408,15 +440,38 @@ impl TryFrom<Header> for CoreHeader {
     }
 }
 
+impl TryFrom<HeaderView> for CoreHeader {
+    type Error = FailureError;
+
+    fn try_from(json: HeaderView) -> Result<Self, Self::Error> {
+        json.inner.try_into()
+    }
+}
+
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct UncleBlock {
     pub header: Header,
     pub proposals: Vec<ProposalShortId>,
 }
 
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+pub struct UncleBlockView {
+    pub header: HeaderView,
+    pub proposals: Vec<ProposalShortId>,
+}
+
 impl<'a> From<&'a CoreUncleBlock> for UncleBlock {
-    fn from(core: &CoreUncleBlock) -> UncleBlock {
-        UncleBlock {
+    fn from(core: &CoreUncleBlock) -> Self {
+        Self {
+            header: core.header().into(),
+            proposals: core.proposals().iter().cloned().map(Into::into).collect(),
+        }
+    }
+}
+
+impl<'a> From<&'a CoreUncleBlock> for UncleBlockView {
+    fn from(core: &CoreUncleBlock) -> Self {
+        Self {
             header: core.header().into(),
             proposals: core.proposals().iter().cloned().map(Into::into).collect(),
         }
@@ -438,6 +493,21 @@ impl TryFrom<UncleBlock> for CoreUncleBlock {
     }
 }
 
+impl TryFrom<UncleBlockView> for CoreUncleBlock {
+    type Error = FailureError;
+
+    fn try_from(json: UncleBlockView) -> Result<Self, Self::Error> {
+        let UncleBlockView { header, proposals } = json;
+        Ok(CoreUncleBlock::new(
+            header.try_into()?,
+            proposals
+                .into_iter()
+                .map(TryInto::try_into)
+                .collect::<Result<_, _>>()?,
+        ))
+    }
+}
+
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct Block {
     pub header: Header,
@@ -446,9 +516,28 @@ pub struct Block {
     pub proposals: Vec<ProposalShortId>,
 }
 
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+pub struct BlockView {
+    pub header: HeaderView,
+    pub uncles: Vec<UncleBlockView>,
+    pub transactions: Vec<TransactionView>,
+    pub proposals: Vec<ProposalShortId>,
+}
+
 impl<'a> From<&'a CoreBlock> for Block {
-    fn from(core: &CoreBlock) -> Block {
-        Block {
+    fn from(core: &CoreBlock) -> Self {
+        Self {
+            header: core.header().into(),
+            uncles: core.uncles().iter().map(Into::into).collect(),
+            transactions: core.transactions().iter().map(Into::into).collect(),
+            proposals: core.proposals().iter().cloned().map(Into::into).collect(),
+        }
+    }
+}
+
+impl<'a> From<&'a CoreBlock> for BlockView {
+    fn from(core: &CoreBlock) -> Self {
+        Self {
             header: core.header().into(),
             uncles: core.uncles().iter().map(Into::into).collect(),
             transactions: core.transactions().iter().map(Into::into).collect(),
@@ -462,6 +551,41 @@ impl TryFrom<Block> for CoreBlock {
 
     fn try_from(json: Block) -> Result<Self, Self::Error> {
         let Block {
+            header,
+            uncles,
+            transactions,
+            proposals,
+        } = json;
+
+        Ok(BlockBuilder::default()
+            .header(header.try_into()?)
+            .uncles(
+                uncles
+                    .into_iter()
+                    .map(TryInto::try_into)
+                    .collect::<Result<_, _>>()?,
+            )
+            .transactions(
+                transactions
+                    .into_iter()
+                    .map(TryInto::try_into)
+                    .collect::<Result<_, _>>()?,
+            )
+            .proposals(
+                proposals
+                    .into_iter()
+                    .map(TryInto::try_into)
+                    .collect::<Result<_, _>>()?,
+            )
+            .build())
+    }
+}
+
+impl TryFrom<BlockView> for CoreBlock {
+    type Error = FailureError;
+
+    fn try_from(json: BlockView) -> Result<Self, Self::Error> {
+        let BlockView {
             header,
             uncles,
             transactions,
