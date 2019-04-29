@@ -305,7 +305,7 @@ impl<B: DbBatch> StoreBatch for DefaultStoreBatch<B> {
             };
             let tx_hash = tx.hash();
             self.insert_serialize(COLUMN_TRANSACTION_ADDR, tx_hash.as_bytes(), &address)?;
-            let cellbase = tx.inputs().is_empty();
+            let cellbase = id == 0;
             for (index, output) in tx.outputs().iter().enumerate() {
                 let out_point = OutPoint {
                     tx_hash: tx_hash.clone(),
