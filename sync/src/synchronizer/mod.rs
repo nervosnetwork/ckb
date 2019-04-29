@@ -504,7 +504,7 @@ impl<CS: ChainStore> CKBProtocolHandler for Synchronizer<CS> {
             }
         };
 
-        debug!(target: "sync", "msg {:?}", msg.payload_type());
+        debug!(target: "sync", "received msg {:?} from {}", msg.payload_type(), peer_index);
         self.process(nc.as_ref(), peer_index, msg);
     }
 

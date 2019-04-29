@@ -286,13 +286,6 @@ where
             // update peer last_block_announcement
         }
 
-        // If we're in IBD, we want outbound peers that will serve us a useful
-        // chain. Disconnect peers that are on chains with insufficient work.
-        if self.synchronizer.shared.is_initial_block_download() && headers.len() != MAX_HEADERS_LEN
-        {
-            self.nc.disconnect(self.peer);
-        }
-
         // TODO: optimize: if last is an ancestor of BestKnownHeader, continue from there instead.
         if headers.len() == MAX_HEADERS_LEN {
             let start = headers.last().expect("empty checked");
@@ -300,6 +293,30 @@ where
                 .shared
                 .send_getheaders_to_peer(self.nc, self.peer, start);
         }
+
+        // If we're in IBD, we want outbound peers that will serve us a useful
+        // chain. Disconnect peers that are on chains with insufficient work.
+        let is_outbound = self
+            .nc
+            .get_peer(self.peer)
+            .map(|peer| peer.is_outbound())
+            .unwrap_or(false);
+        let is_protected = self
+            .synchronizer
+            .peers
+            .state
+            .read()
+            .get(&self.peer)
+            .map(|state| state.chain_sync.protect)
+            .unwrap_or(false);
+        if self.synchronizer.shared.is_initial_block_download()
+            && headers.len() != MAX_HEADERS_LEN
+            && (is_outbound && !is_protected)
+        {
+            debug!(target: "sync", "Disconnect peer({}) is unprotected outbound", self.peer);
+            self.nc.disconnect(self.peer);
+        }
+
         Ok(())
     }
 }
