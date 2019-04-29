@@ -329,7 +329,7 @@ impl<CS: ChainStore> CKBProtocolHandler for Relayer<CS> {
             }
         };
 
-        debug!(target: "relay", "msg {:?}", msg.payload_type());
+        debug!(target: "relay", "received msg {:?} from {}", msg.payload_type(), peer_index);
         self.process(nc.as_ref(), peer_index, msg);
     }
 
