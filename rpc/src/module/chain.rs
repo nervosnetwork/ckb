@@ -1,3 +1,4 @@
+use crate::error::RPCError;
 use ckb_core::cell::CellProvider;
 use ckb_core::{transaction::ProposalShortId, BlockNumber};
 use ckb_shared::{shared::Shared, store::ChainStore};
@@ -9,6 +10,8 @@ use jsonrpc_types::{
 };
 use numext_fixed_hash::H256;
 use std::convert::TryInto;
+
+pub const PAGE_SIZE: u64 = 100;
 
 #[rpc]
 pub trait ChainRpc {
@@ -95,28 +98,44 @@ impl<CS: ChainStore + 'static> ChainRpc for ChainRpcImpl<CS> {
         let to = to
             .parse::<BlockNumber>()
             .map_err(|_| Error::parse_error())?;
+        if from > to {
+            return Err(RPCError::custom(
+                RPCError::Invalid,
+                "from greater than to".to_owned(),
+            ));
+        } else if to - from > PAGE_SIZE {
+            return Err(RPCError::custom(
+                RPCError::Invalid,
+                "too large page size".to_owned(),
+            ));
+        }
+
         for block_number in from..=to {
-            if let Some(block_hash) = self.shared.block_hash(block_number) {
-                let block = self
-                    .shared
-                    .block(&block_hash)
+            let block_hash = self.shared.block_hash(block_number);
+            if block_hash.is_none() {
+                break;
+            }
+
+            let block_hash = block_hash.unwrap();
+            let block = self
+                .shared
+                .block(&block_hash)
+                .ok_or_else(Error::internal_error)?;
+            for transaction in block.transactions() {
+                let transaction_meta = chain_state
+                    .cell_set()
+                    .get(&transaction.hash())
                     .ok_or_else(Error::internal_error)?;
-                for transaction in block.transactions() {
-                    let transaction_meta = chain_state
-                        .cell_set()
-                        .get(&transaction.hash())
-                        .ok_or_else(Error::internal_error)?;
-                    for (i, output) in transaction.outputs().iter().enumerate() {
-                        if output.lock.hash() == lock_hash && (!transaction_meta.is_dead(i)) {
-                            result.push(CellOutputWithOutPoint {
-                                out_point: OutPoint {
-                                    tx_hash: transaction.hash().clone(),
-                                    index: i as u32,
-                                },
-                                capacity: output.capacity.to_string(),
-                                lock: output.lock.clone().into(),
-                            });
-                        }
+                for (i, output) in transaction.outputs().iter().enumerate() {
+                    if output.lock.hash() == lock_hash && (!transaction_meta.is_dead(i)) {
+                        result.push(CellOutputWithOutPoint {
+                            out_point: OutPoint {
+                                tx_hash: transaction.hash().clone(),
+                                index: i as u32,
+                            },
+                            capacity: output.capacity.to_string(),
+                            lock: output.lock.clone().into(),
+                        });
                     }
                 }
             }
