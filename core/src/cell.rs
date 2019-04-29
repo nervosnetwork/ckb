@@ -181,11 +181,25 @@ impl<'a> CellProvider for BlockCellProvider<'a> {
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum UnresolvableError {
+    Dead(Vec<OutPoint>),
+    Unknown(Vec<OutPoint>),
+}
+
+impl std::error::Error for UnresolvableError {}
+
+impl std::fmt::Display for UnresolvableError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        std::fmt::Debug::fmt(&self, f)
+    }
+}
+
 pub fn resolve_transaction<'a, CP: CellProvider>(
     transaction: &'a Transaction,
     seen_inputs: &mut FnvHashSet<OutPoint>,
     cell_provider: &CP,
-) -> ResolvedTransaction<'a> {
+) -> Result<ResolvedTransaction<'a>, UnresolvableError> {
     let input_cells = transaction
         .input_pts()
         .iter()
@@ -210,11 +224,11 @@ pub fn resolve_transaction<'a, CP: CellProvider>(
         })
         .collect();
 
-    ResolvedTransaction {
+    Ok(ResolvedTransaction {
         transaction,
         input_cells,
         dep_cells,
-    }
+    })
 }
 
 impl<'a> ResolvedTransaction<'a> {

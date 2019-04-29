@@ -7,6 +7,7 @@ use ckb_chain_spec::consensus::{Consensus, ProposalWindow};
 use ckb_core::block::Block;
 use ckb_core::cell::{
     resolve_transaction, CellStatus, LiveCell, OverlayCellProvider, ResolvedTransaction,
+    UnresolvableError,
 };
 #[allow(unused_imports)] // incorrect lint
 use ckb_core::cell::{CellMeta, CellProvider};
@@ -204,24 +205,27 @@ impl<CS: ChainStore> ChainState<CS> {
     pub fn add_tx_to_pool(&self, tx: Transaction) -> Result<Cycle, PoolError> {
         let mut tx_pool = self.tx_pool.borrow_mut();
         let short_id = tx.proposal_short_id();
-        let rtx = self.resolve_tx_from_pending_and_staging(&tx, &tx_pool);
-
-        self.verify_rtx(&rtx, None).map(|cycles| {
-            if self.contains_proposal_id(&short_id) {
-                // if tx is proposed, we resolve from staging, verify again
-                self.staging_tx_and_descendants(&mut tx_pool, Some(cycles), tx);
-            } else {
-                tx_pool.enqueue_tx(Some(cycles), tx);
+        match self.resolve_tx_from_pending_and_staging(&tx, &tx_pool) {
+            Ok(rtx) => {
+                self.verify_rtx(&rtx, None).map(|cycles| {
+                    if self.contains_proposal_id(&short_id) {
+                        // if tx is proposed, we resolve from staging, verify again
+                        self.staging_tx_and_descendants(&mut tx_pool, Some(cycles), tx);
+                    } else {
+                        tx_pool.enqueue_tx(Some(cycles), tx);
+                    }
+                    cycles
+                })
             }
-            cycles
-        })
+            Err(err) => Err(PoolError::UnresolvableTransaction(err)),
+        }
     }
 
     pub fn resolve_tx_from_pending_and_staging<'a>(
         &self,
         tx: &'a Transaction,
         tx_pool: &TxPool,
-    ) -> ResolvedTransaction<'a> {
+    ) -> Result<ResolvedTransaction<'a>, UnresolvableError> {
         let staging_provider = OverlayCellProvider::new(&tx_pool.staging, self);
         let pending_and_staging_provider =
             OverlayCellProvider::new(&tx_pool.pending, &staging_provider);
@@ -233,51 +237,10 @@ impl<CS: ChainStore> ChainState<CS> {
         &self,
         tx: &'a Transaction,
         tx_pool: &TxPool,
-    ) -> ResolvedTransaction<'a> {
+    ) -> Result<ResolvedTransaction<'a>, UnresolvableError> {
         let cell_provider = OverlayCellProvider::new(&tx_pool.staging, self);
         let mut seen_inputs = FnvHashSet::default();
         resolve_transaction(tx, &mut seen_inputs, &cell_provider)
-    }
-
-    // FIXME: we may need redesign orphan pool, this is not short-circuiting
-    fn verify_rtx_inputs(&self, rtx: &ResolvedTransaction) -> Result<(), PoolError> {
-        let mut unknowns = Vec::new();
-        let inputs = rtx.transaction.input_pts();
-        let deps = rtx.transaction.dep_pts();
-        for (cs, input) in rtx.input_cells.iter().zip(inputs.iter()) {
-            match cs {
-                CellStatus::Unknown => {
-                    unknowns.push(input.clone());
-                }
-                CellStatus::Dead => {
-                    return Err(PoolError::Conflict);
-                }
-                CellStatus::Live(LiveCell::Null) => {
-                    return Err(PoolError::NullInput);
-                }
-                _ => {}
-            }
-        }
-
-        for (cs, dep) in rtx.dep_cells.iter().zip(deps.iter()) {
-            match cs {
-                CellStatus::Unknown => {
-                    unknowns.push(dep.clone());
-                }
-                CellStatus::Dead => {
-                    return Err(PoolError::Conflict);
-                }
-                CellStatus::Live(LiveCell::Null) => {
-                    return Err(PoolError::NullInput);
-                }
-                _ => {}
-            }
-        }
-
-        if !unknowns.is_empty() {
-            return Err(PoolError::UnknownInputs(unknowns));
-        }
-        Ok(())
     }
 
     pub(crate) fn verify_rtx(
@@ -285,8 +248,6 @@ impl<CS: ChainStore> ChainState<CS> {
         rtx: &ResolvedTransaction,
         cycles: Option<Cycle>,
     ) -> Result<Cycle, PoolError> {
-        self.verify_rtx_inputs(rtx)?;
-
         match cycles {
             Some(cycles) => {
                 PoolTransactionVerifier::new(
@@ -340,26 +301,29 @@ impl<CS: ChainStore> ChainState<CS> {
         let short_id = tx.proposal_short_id();
         let tx_hash = tx.hash();
 
-        let rtx = self.resolve_tx_from_staging(&tx, tx_pool);
-
-        match self.verify_rtx(&rtx, cycles) {
-            Err(PoolError::Conflict) => {
-                tx_pool
-                    .conflict
-                    .insert(short_id, PoolEntry::new(tx, 0, cycles));
-                Err(PoolError::Conflict)
-            }
-            Err(PoolError::UnknownInputs(unknowns)) => {
-                tx_pool.add_orphan(cycles, tx, unknowns.clone());
-                Err(PoolError::UnknownInputs(unknowns))
-            }
-            Ok(cycles) => {
-                tx_pool.add_staging(cycles, tx);
-                Ok(cycles)
-            }
-            Err(e) => {
-                error!(target: "tx_pool", "Failed to staging tx {:}, reason: {:?}", tx_hash, e);
-                Err(e)
+        match self.resolve_tx_from_staging(&tx, tx_pool) {
+            Ok(rtx) => match self.verify_rtx(&rtx, cycles) {
+                Ok(cycles) => {
+                    tx_pool.add_staging(cycles, tx);
+                    Ok(cycles)
+                }
+                Err(e) => {
+                    error!(target: "tx_pool", "Failed to staging tx {:}, reason: {:?}", tx_hash, e);
+                    Err(e)
+                }
+            },
+            Err(err) => {
+                match &err {
+                    UnresolvableError::Dead(_) => {
+                        tx_pool
+                            .conflict
+                            .insert(short_id, PoolEntry::new(tx, 0, cycles));
+                    }
+                    UnresolvableError::Unknown(out_points) => {
+                        tx_pool.add_orphan(cycles, tx, out_points.clone());
+                    }
+                }
+                Err(PoolError::UnresolvableTransaction(err))
             }
         }
     }

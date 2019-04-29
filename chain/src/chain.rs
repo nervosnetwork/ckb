@@ -14,7 +14,7 @@ use ckb_shared::error::SharedError;
 use ckb_shared::shared::Shared;
 use ckb_store::{ChainStore, StoreBatch};
 use ckb_traits::{BlockMedianTimeContext, ChainProvider};
-use ckb_verification::{BlockVerifier, TransactionsVerifier, Verifier};
+use ckb_verification::{BlockVerifier, Error as VerificationError, TransactionsVerifier, Verifier};
 use crossbeam_channel::{self, select, Receiver, Sender};
 use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
@@ -469,37 +469,46 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
                     let block_cp = BlockCellProvider::new(b);
                     let cell_provider = OverlayCellProvider::new(&block_cp, &cell_set_overlay);
 
-                    let resolved: Vec<ResolvedTransaction> = b
+                    match b
                         .transactions()
                         .iter()
                         .map(|x| resolve_transaction(x, &mut seen_inputs, &cell_provider))
-                        .collect();
+                        .collect::<Result<Vec<ResolvedTransaction>, _>>()
+                    {
+                        Ok(resolved) => {
+                            let cellbase_maturity = { self.shared.consensus().cellbase_maturity() };
 
-                    let cellbase_maturity = { self.shared.consensus().cellbase_maturity() };
-
-                    match txs_verifier.verify(
-                        &resolved,
-                        Arc::clone(self.shared.store()),
-                        self.shared.block_reward(b.header().number()),
-                        ForkContext {
-                            fork_blocks: &fork.attached_blocks,
-                            store: Arc::clone(self.shared.store()),
-                            consensus: self.shared.consensus(),
-                        },
-                        b.header().number(),
-                        cellbase_maturity,
-                    ) {
-                        Ok(_) => {
-                            cell_set_diff.push_new(b);
-                            outputs.extend(
-                                b.transactions().iter().map(|tx| (tx.hash(), tx.outputs())),
-                            );
-                            ext.txs_verified = Some(true);
+                            match txs_verifier.verify(
+                                &resolved,
+                                Arc::clone(self.shared.store()),
+                                self.shared.block_reward(b.header().number()),
+                                ForkContext {
+                                    fork_blocks: &fork.attached_blocks,
+                                    store: Arc::clone(self.shared.store()),
+                                    consensus: self.shared.consensus(),
+                                },
+                                b.header().number(),
+                                cellbase_maturity,
+                            ) {
+                                Ok(_) => {
+                                    cell_set_diff.push_new(b);
+                                    outputs.extend(
+                                        b.transactions().iter().map(|tx| (tx.hash(), tx.outputs())),
+                                    );
+                                    ext.txs_verified = Some(true);
+                                }
+                                Err(err) => {
+                                    error!(target: "chain", "cell_set_diff {}", serde_json::to_string(&cell_set_diff).unwrap());
+                                    error!(target: "chain", "block {}", serde_json::to_string(b).unwrap());
+                                    found_error =
+                                        Some(SharedError::InvalidTransaction(err.to_string()));
+                                    ext.txs_verified = Some(false);
+                                }
+                            }
                         }
                         Err(err) => {
-                            error!(target: "chain", "cell_set_diff {}", serde_json::to_string(&cell_set_diff).unwrap());
-                            error!(target: "chain", "block {}", serde_json::to_string(b).unwrap());
-                            found_error = Some(err);
+                            found_error =
+                                Some(SharedError::UnresolvableTransaction(err.to_string()));
                             ext.txs_verified = Some(false);
                         }
                     }
@@ -530,7 +539,7 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
 
         if let Some(err) = found_error {
             error!(target: "chain", "fork {}", serde_json::to_string(&fork).unwrap());
-            Err(SharedError::InvalidTransaction(err.to_string()))?
+            Err(err)?
         } else {
             Ok(cell_set_diff)
         }
