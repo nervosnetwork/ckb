@@ -42,20 +42,24 @@ impl<T: DbBatch> CacheDBBatch<T> {
 impl<T: DbBatch> DbBatch for CacheDBBatch<T> {
     fn insert(&mut self, col: Col, key: &[u8], value: &[u8]) -> Result<()> {
         self.inner.insert(col, key, value)?;
-        self.operations.push(BatchOperation::Insert {
-            col,
-            key: key.to_vec(),
-            value: value.to_vec(),
-        });
+        if self.cache.lock().contains_key(&col) {
+            self.operations.push(BatchOperation::Insert {
+                col,
+                key: key.to_vec(),
+                value: value.to_vec(),
+            });
+        }
         Ok(())
     }
 
     fn delete(&mut self, col: Col, key: &[u8]) -> Result<()> {
         self.inner.delete(col, key)?;
-        self.operations.push(BatchOperation::Delete {
-            col,
-            key: key.to_vec(),
-        });
+        if self.cache.lock().contains_key(&col) {
+            self.operations.push(BatchOperation::Delete {
+                col,
+                key: key.to_vec(),
+            });
+        }
         Ok(())
     }
 
