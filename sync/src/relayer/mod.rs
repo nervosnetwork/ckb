@@ -4,6 +4,8 @@ pub mod compact_block;
 mod compact_block_process;
 mod get_block_proposal_process;
 mod get_block_transactions_process;
+mod get_transaction_process;
+mod transaction_hash_process;
 mod transaction_process;
 
 use self::block_proposal_process::BlockProposalProcess;
@@ -12,6 +14,8 @@ use self::compact_block::CompactBlock;
 use self::compact_block_process::CompactBlockProcess;
 use self::get_block_proposal_process::GetBlockProposalProcess;
 use self::get_block_transactions_process::GetBlockTransactionsProcess;
+use self::get_transaction_process::GetTransactionProcess;
+use self::transaction_hash_process::TransactionHashProcess;
 use self::transaction_process::TransactionProcess;
 use crate::relayer::compact_block::ShortTransactionID;
 use crate::types::{Peers, SyncSharedState};
@@ -41,6 +45,7 @@ use std::time::Duration;
 pub const TX_PROPOSAL_TOKEN: u64 = 0;
 pub const MAX_RELAY_PEERS: usize = 128;
 pub const TX_FILTER_SIZE: usize = 50000;
+pub const TX_ASKED_SIZE: usize = TX_FILTER_SIZE;
 
 pub struct Relayer<CS> {
     chain: ChainController,
@@ -94,6 +99,24 @@ impl<CS: ChainStore> Relayer<CS> {
             RelayPayload::RelayTransaction => {
                 TransactionProcess::new(
                     &cast!(message.payload_as_relay_transaction())?,
+                    self,
+                    nc,
+                    peer,
+                )
+                .execute()?;
+            }
+            RelayPayload::RelayTransactionHash => {
+                TransactionHashProcess::new(
+                    &cast!(message.payload_as_relay_transaction_hash())?,
+                    self,
+                    nc,
+                    peer,
+                )
+                .execute()?;
+            }
+            RelayPayload::GetRelayTransaction => {
+                GetTransactionProcess::new(
+                    &cast!(message.payload_as_get_relay_transaction())?,
                     self,
                     nc,
                     peer,
@@ -361,6 +384,7 @@ pub struct RelayState {
     pub inflight_proposals: Mutex<FnvHashSet<ProposalShortId>>,
     pub pending_proposals_request: Mutex<FnvHashMap<ProposalShortId, FnvHashSet<PeerIndex>>>,
     pub tx_filter: Mutex<LruCache<H256, ()>>,
+    pub tx_asked: Mutex<LruCache<H256, u8>>,
 }
 
 impl Default for RelayState {
@@ -370,6 +394,31 @@ impl Default for RelayState {
             inflight_proposals: Mutex::new(FnvHashSet::default()),
             pending_proposals_request: Mutex::new(FnvHashMap::default()),
             tx_filter: Mutex::new(LruCache::new(TX_FILTER_SIZE)),
+            tx_asked: Mutex::new(LruCache::new(TX_ASKED_SIZE)),
+        }
+    }
+}
+
+impl RelayState {
+    fn insert_tx(&self, hash: H256) {
+        self.tx_asked.lock().remove(&hash);
+        self.tx_filter.lock().insert(hash, ());
+    }
+
+    fn already_known(&self, hash: &H256) -> bool {
+        self.tx_filter.lock().contains_key(hash)
+    }
+
+    fn get_asked(&self, hash: &H256) -> u8 {
+        self.tx_asked.lock().get(hash).cloned().unwrap_or(0)
+    }
+
+    fn incr_asked(&self, hash: H256) {
+        let mut tx_asked = self.tx_asked.lock();
+        if let Some(count) = tx_asked.get_mut(&hash) {
+            *count += 1;
+        } else {
+            tx_asked.insert(hash, 1);
         }
     }
 }

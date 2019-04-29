@@ -197,6 +197,10 @@ impl<CS: ChainStore> ChainState<CS> {
         self.cell_set.update(txo_diff);
     }
 
+    pub fn get_entry_from_pool(&self, short_id: &ProposalShortId) -> Option<PoolEntry> {
+        self.tx_pool.borrow().get_entry(short_id).cloned()
+    }
+
     pub fn add_tx_to_pool(&self, tx: Transaction) -> Result<Cycle, PoolError> {
         let mut tx_pool = self.tx_pool.borrow_mut();
         let short_id = tx.proposal_short_id();

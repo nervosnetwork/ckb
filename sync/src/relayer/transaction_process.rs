@@ -7,7 +7,6 @@ use ckb_shared::store::ChainStore;
 use failure::Error as FailureError;
 use flatbuffers::FlatBufferBuilder;
 use log::debug;
-use numext_fixed_hash::H256;
 use std::convert::TryInto;
 use std::time::Duration;
 
@@ -39,10 +38,11 @@ impl<'a, CS: ChainStore> TransactionProcess<'a, CS> {
         let (tx, relay_cycles): (Transaction, Cycle) = (*self.message).try_into()?;
         let tx_hash = tx.hash();
 
-        if self.already_known(tx_hash.clone()) {
+        if self.relayer.state.already_known(&tx_hash) {
             debug!(target: "relay", "discarding already known transaction {:#x}", tx_hash);
             return Ok(());
         }
+        self.relayer.state.insert_tx(tx_hash.clone());
 
         let tx_result = {
             let chain_state = self.relayer.shared.chain_state().lock();
@@ -64,7 +64,7 @@ impl<'a, CS: ChainStore> TransactionProcess<'a, CS> {
                     .collect();
 
                 let fbb = &mut FlatBufferBuilder::new();
-                let message = RelayMessage::build_transaction(fbb, &tx, cycles);
+                let message = RelayMessage::build_transaction_hash(fbb, &tx_hash);
                 fbb.finish(message, None);
                 let data = fbb.finished_data().into();
                 self.nc
@@ -96,10 +96,5 @@ impl<'a, CS: ChainStore> TransactionProcess<'a, CS> {
         }
 
         Ok(())
-    }
-
-    fn already_known(&self, hash: H256) -> bool {
-        let mut tx_filter = self.relayer.state.tx_filter.lock();
-        tx_filter.insert(hash, ()).is_some()
     }
 }
