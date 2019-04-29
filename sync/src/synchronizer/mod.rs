@@ -477,7 +477,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
         let message = SyncMessage::build_get_blocks(fbb, v_fetch);
         fbb.finish(message, None);
         nc.send_message_to(peer, fbb.finished_data().into());
-        trace!(target: "sync", "send_getblocks len={:?} to peer={}", v_fetch.len() , peer);
+        debug!(target: "sync", "send_getblocks len={:?} to peer={}", v_fetch.len() , peer);
     }
 }
 
