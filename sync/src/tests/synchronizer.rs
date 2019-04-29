@@ -10,7 +10,7 @@ use ckb_db::memorydb::MemoryKeyValueDB;
 use ckb_notify::NotifyService;
 use ckb_protocol::SyncMessage;
 use ckb_shared::shared::{Shared, SharedBuilder};
-use ckb_store::ChainKVStore;
+use ckb_store::{CacheStore, ChainKVStore};
 use ckb_traits::ChainProvider;
 use ckb_util::RwLock;
 use faketime::{self, unix_time_as_millis};
@@ -66,7 +66,7 @@ fn basic_sync() {
 fn setup_node(
     thread_name: &str,
     height: u64,
-) -> (TestNode, Shared<ChainKVStore<MemoryKeyValueDB>>) {
+) -> (TestNode, Shared<CacheStore<ChainKVStore<MemoryKeyValueDB>>>) {
     let mut block = BlockBuilder::default().with_header_builder(
         HeaderBuilder::default()
             .timestamp(unix_time_as_millis())

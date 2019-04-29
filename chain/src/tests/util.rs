@@ -11,7 +11,7 @@ use ckb_db::memorydb::MemoryKeyValueDB;
 use ckb_notify::NotifyService;
 use ckb_shared::shared::Shared;
 use ckb_shared::shared::SharedBuilder;
-use ckb_store::ChainKVStore;
+use ckb_store::{CacheStore, ChainKVStore};
 use faketime::unix_time_as_millis;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
@@ -19,7 +19,10 @@ use numext_fixed_uint::U256;
 pub(crate) fn start_chain(
     consensus: Option<Consensus>,
     verification: bool,
-) -> (ChainController, Shared<ChainKVStore<MemoryKeyValueDB>>) {
+) -> (
+    ChainController,
+    Shared<CacheStore<ChainKVStore<MemoryKeyValueDB>>>,
+) {
     let builder = SharedBuilder::<MemoryKeyValueDB>::new();
     let shared = builder
         .consensus(consensus.unwrap_or_else(|| Consensus::default().set_cellbase_maturity(0)))

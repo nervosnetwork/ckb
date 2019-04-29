@@ -1,6 +1,8 @@
+mod cache_store;
 mod flat_serializer;
 mod store;
 
+pub use cache_store::CacheStore;
 pub use store::{ChainKVStore, ChainStore, StoreBatch};
 
 use ckb_db::Col;

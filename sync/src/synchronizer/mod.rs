@@ -571,7 +571,7 @@ mod tests {
     use ckb_protocol::{Block as FbsBlock, Headers as FbsHeaders};
     use ckb_shared::shared::Shared;
     use ckb_shared::shared::SharedBuilder;
-    use ckb_store::{ChainKVStore, ChainStore};
+    use ckb_store::{CacheStore, ChainKVStore, ChainStore};
     use ckb_traits::chain_provider::ChainProvider;
     use ckb_util::Mutex;
     #[cfg(not(disable_faketime))]
@@ -587,7 +587,7 @@ mod tests {
         notify: Option<NotifyController>,
     ) -> (
         ChainController,
-        Shared<ChainKVStore<MemoryKeyValueDB>>,
+        Shared<CacheStore<ChainKVStore<MemoryKeyValueDB>>>,
         NotifyController,
     ) {
         let mut builder = SharedBuilder::<MemoryKeyValueDB>::new();

@@ -3,7 +3,7 @@ use crate::shared::{Shared, SharedBuilder};
 use ckb_core::cell::{resolve_transaction, CellStatus, LiveCell};
 use ckb_core::transaction::Transaction;
 use ckb_db::memorydb::MemoryKeyValueDB;
-use ckb_store::ChainKVStore;
+use ckb_store::{CacheStore, ChainKVStore};
 use fnv::{FnvHashMap, FnvHashSet};
 use std::fs::File;
 use std::io::BufReader;
@@ -35,7 +35,7 @@ fn transcations() -> Vec<Transaction> {
     serde_json::from_reader(reader).unwrap()
 }
 
-fn new_shared() -> Shared<ChainKVStore<MemoryKeyValueDB>> {
+fn new_shared() -> Shared<CacheStore<ChainKVStore<MemoryKeyValueDB>>> {
     SharedBuilder::<MemoryKeyValueDB>::new().build().unwrap()
 }
 

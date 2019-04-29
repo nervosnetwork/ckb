@@ -13,7 +13,7 @@ use ckb_core::{capacity_bytes, BlockNumber, Bytes, Capacity};
 use ckb_db::memorydb::MemoryKeyValueDB;
 use ckb_notify::NotifyService;
 use ckb_shared::shared::{Shared, SharedBuilder};
-use ckb_store::ChainKVStore;
+use ckb_store::{CacheStore, ChainKVStore};
 use ckb_traits::ChainProvider;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
@@ -65,7 +65,10 @@ fn create_transaction(parent: &H256) -> Transaction {
 
 fn start_chain(
     consensus: Option<Consensus>,
-) -> (ChainController, Shared<ChainKVStore<MemoryKeyValueDB>>) {
+) -> (
+    ChainController,
+    Shared<CacheStore<ChainKVStore<MemoryKeyValueDB>>>,
+) {
     let mut builder = SharedBuilder::<MemoryKeyValueDB>::new();
     if let Some(consensus) = consensus {
         builder = builder.consensus(consensus);
@@ -94,7 +97,7 @@ fn create_cellbase(number: BlockNumber) -> Transaction {
 
 fn setup_env() -> (
     ChainController,
-    Shared<ChainKVStore<MemoryKeyValueDB>>,
+    Shared<CacheStore<ChainKVStore<MemoryKeyValueDB>>>,
     H256,
 ) {
     let tx = TransactionBuilder::default()

@@ -5,7 +5,7 @@ use ckb_core::cell::CellStatus;
 use ckb_core::transaction::OutPoint;
 use ckb_core::{block::BlockBuilder, header::HeaderBuilder};
 use ckb_db::{KeyValueDB, MemoryKeyValueDB};
-use ckb_store::{ChainKVStore, ChainStore, StoreBatch};
+use ckb_store::{CacheStore, ChainKVStore, ChainStore, StoreBatch};
 use ckb_traits::BlockMedianTimeContext;
 
 // Mock CellProvider
@@ -41,11 +41,11 @@ impl<'a, CS: ChainStore> CellProvider for ChainCellSetOverlay<'a, CS> {
     }
 }
 
-fn new_shared() -> Shared<ChainKVStore<MemoryKeyValueDB>> {
+fn new_shared() -> Shared<CacheStore<ChainKVStore<MemoryKeyValueDB>>> {
     SharedBuilder::<MemoryKeyValueDB>::new().build().unwrap()
 }
 
-fn insert_block_timestamps<T>(store: &ChainKVStore<T>, timestamps: &[u64])
+fn insert_block_timestamps<T>(store: &CacheStore<ChainKVStore<T>>, timestamps: &[u64])
 where
     T: KeyValueDB,
 {

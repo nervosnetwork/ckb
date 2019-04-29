@@ -12,7 +12,7 @@ use ckb_db::memorydb::MemoryKeyValueDB;
 use ckb_notify::NotifyService;
 use ckb_protocol::RelayMessage;
 use ckb_shared::shared::{Shared, SharedBuilder};
-use ckb_store::ChainKVStore;
+use ckb_store::{CacheStore, ChainKVStore};
 use ckb_traits::ChainProvider;
 use ckb_util::RwLock;
 use faketime::{self, unix_time_as_millis};
@@ -321,7 +321,7 @@ fn setup_node(
     height: u64,
 ) -> (
     TestNode,
-    Shared<ChainKVStore<MemoryKeyValueDB>>,
+    Shared<CacheStore<ChainKVStore<MemoryKeyValueDB>>>,
     ChainController,
 ) {
     let mut block = BlockBuilder::default().with_header_builder(

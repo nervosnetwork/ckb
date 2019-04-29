@@ -8,9 +8,10 @@ use ckb_core::header::{BlockNumber, Header};
 use ckb_core::transaction::{Capacity, ProposalShortId, Transaction};
 use ckb_core::uncle::UncleBlock;
 use ckb_db::{CacheDB, DBConfig, KeyValueDB, MemoryKeyValueDB, RocksDB};
-use ckb_store::{ChainKVStore, ChainStore, COLUMNS, COLUMN_BLOCK_HEADER};
+use ckb_store::{CacheStore, ChainKVStore, ChainStore, COLUMNS, COLUMN_BLOCK_HEADER};
 use ckb_traits::ChainProvider;
 use ckb_util::Mutex;
+use lru_cache::LruCache;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 use std::sync::Arc;
@@ -249,8 +250,9 @@ impl<DB: KeyValueDB> SharedBuilder<DB> {
         self
     }
 
-    pub fn build(self) -> Result<Shared<ChainKVStore<DB>>, SharedError> {
-        let store = ChainKVStore::new(self.db.unwrap());
+    pub fn build(self) -> Result<Shared<CacheStore<ChainKVStore<DB>>>, SharedError> {
+        let cell_output_cache = Mutex::new(LruCache::new(256));
+        let store = CacheStore::new(ChainKVStore::new(self.db.unwrap()), cell_output_cache);
         let consensus = self.consensus.unwrap_or_else(Consensus::default);
         let tx_pool_config = self.tx_pool_config.unwrap_or_else(Default::default);
         Shared::init(store, consensus, tx_pool_config)

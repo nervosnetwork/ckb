@@ -10,7 +10,7 @@ use ckb_core::{capacity_bytes, Bytes, Capacity};
 use ckb_db::{CacheDB, DBConfig, RocksDB};
 use ckb_notify::NotifyService;
 use ckb_shared::shared::{Shared, SharedBuilder};
-use ckb_store::ChainKVStore;
+use ckb_store::{CacheStore, ChainKVStore};
 use ckb_traits::chain_provider::ChainProvider;
 use criterion::{criterion_group, criterion_main, Criterion};
 use numext_fixed_hash::H256;
@@ -18,6 +18,8 @@ use numext_fixed_uint::U256;
 use rand::random;
 use std::sync::Arc;
 use tempfile::{tempdir, TempDir};
+
+type SharedDB = CacheStore<ChainKVStore<CacheDB<RocksDB>>>;
 
 fn bench(c: &mut Criterion) {
     let txs_sizes = vec![100usize, 200, 500, 1000];
@@ -142,15 +144,7 @@ criterion_group!(
 );
 criterion_main!(benches);
 
-fn new_chain(
-    txs_size: usize,
-) -> (
-    ChainController,
-    Shared<ChainKVStore<CacheDB<RocksDB>>>,
-    TempDir,
-    H256,
-    H256,
-) {
+fn new_chain(txs_size: usize) -> (ChainController, Shared<SharedDB>, TempDir, H256, H256) {
     let always_success = include_bytes!("../../resource/specs/cells/always_success");
     let cell_output = CellOutput::new(
         Capacity::bytes(always_success.len()).unwrap(),

@@ -506,7 +506,7 @@ mod tests {
     use ckb_pow::Pow;
     use ckb_shared::shared::Shared;
     use ckb_shared::shared::SharedBuilder;
-    use ckb_store::{ChainKVStore, ChainStore};
+    use ckb_store::{CacheStore, ChainKVStore, ChainStore};
     use ckb_traits::ChainProvider;
     use ckb_verification::{BlockVerifier, HeaderResolverWrapper, HeaderVerifier, Verifier};
     use jsonrpc_types::{BlockTemplate, CellbaseTemplate};
@@ -520,7 +520,7 @@ mod tests {
         notify: Option<NotifyController>,
     ) -> (
         ChainController,
-        Shared<ChainKVStore<MemoryKeyValueDB>>,
+        Shared<CacheStore<ChainKVStore<MemoryKeyValueDB>>>,
         NotifyController,
     ) {
         let mut builder = SharedBuilder::<MemoryKeyValueDB>::new();

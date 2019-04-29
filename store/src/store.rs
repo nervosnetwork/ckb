@@ -20,7 +20,7 @@ use std::ops::Range;
 
 const META_TIP_HEADER_KEY: &[u8] = b"TIP_HEADER";
 
-fn cell_store_key(tx_hash: &H256, index: u32) -> Vec<u8> {
+pub(crate) fn cell_store_key(tx_hash: &H256, index: u32) -> Vec<u8> {
     let mut key: [u8; 36] = [0; 36];
     key[..32].copy_from_slice(tx_hash.as_bytes());
     key[32..36].copy_from_slice(&index.to_be_bytes());

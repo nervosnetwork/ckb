@@ -10,6 +10,8 @@ serde = "1.0"
 serde_derive = "1.0"
 ckb-core = { path = "../core" }
 ckb-db = { path = "../db" }
+ckb-util = { path = "../util" }
+lru-cache = { git = "https://github.com/nervosnetwork/lru-cache" }
 numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 
 [dev-dependencies]

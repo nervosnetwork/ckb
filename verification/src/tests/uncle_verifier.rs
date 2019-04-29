@@ -13,7 +13,7 @@ use ckb_core::{BlockNumber, Bytes, Capacity};
 use ckb_db::memorydb::MemoryKeyValueDB;
 use ckb_notify::NotifyService;
 use ckb_shared::shared::{Shared, SharedBuilder};
-use ckb_store::ChainKVStore;
+use ckb_store::{CacheStore, ChainKVStore};
 use ckb_traits::ChainProvider;
 #[cfg(not(disable_faketime))]
 use faketime;
@@ -40,7 +40,10 @@ fn gen_block(parent_header: &Header, nonce: u64, difficulty: U256) -> Block {
 
 fn start_chain(
     consensus: Option<Consensus>,
-) -> (ChainController, Shared<ChainKVStore<MemoryKeyValueDB>>) {
+) -> (
+    ChainController,
+    Shared<CacheStore<ChainKVStore<MemoryKeyValueDB>>>,
+) {
     let mut builder = SharedBuilder::<MemoryKeyValueDB>::new();
     if let Some(consensus) = consensus {
         builder = builder.consensus(consensus);
