@@ -40,9 +40,11 @@ use lru_cache::LruCache;
 use numext_fixed_hash::H256;
 use std::collections::HashSet;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 pub const TX_PROPOSAL_TOKEN: u64 = 0;
+pub const ASK_FOR_TXS_TOKEN: u64 = 1;
+
 pub const MAX_RELAY_PEERS: usize = 128;
 pub const TX_FILTER_SIZE: usize = 50000;
 pub const TX_ASKED_SIZE: usize = TX_FILTER_SIZE;
@@ -327,6 +329,38 @@ impl<CS: ChainStore> Relayer<CS> {
         }
     }
 
+    pub fn ask_for_txs(&self, nc: &CKBProtocolContext) {
+        for (peer, peer_state) in self.peers.state.write().iter_mut() {
+            let tx_hashes = peer_state
+                .pop_ask_for_txs()
+                .into_iter()
+                .filter(|tx_hash| {
+                    let already_known = self.state.already_known(&tx_hash);
+                    if already_known {
+                        // Remove tx_hash from `tx_ask_for_set`
+                        peer_state.remove_ask_for_tx(&tx_hash);
+                    }
+                    !already_known
+                })
+                .collect::<Vec<_>>();
+            if !tx_hashes.is_empty() {
+                debug!(
+                    target: "relay",
+                    "Send get transaction ({} hashes) to {}",
+                    tx_hashes.len(),
+                    peer,
+                );
+            }
+            for tx_hash in tx_hashes {
+                let fbb = &mut FlatBufferBuilder::new();
+                let message = RelayMessage::build_get_transaction(fbb, &tx_hash);
+                fbb.finish(message, None);
+                let data = fbb.finished_data().into();
+                nc.send_message_to(*peer, data);
+            }
+        }
+    }
+
     pub fn peers(&self) -> Arc<Peers> {
         Arc::clone(&self.peers)
     }
@@ -335,6 +369,7 @@ impl<CS: ChainStore> Relayer<CS> {
 impl<CS: ChainStore> CKBProtocolHandler for Relayer<CS> {
     fn init(&mut self, nc: Box<dyn CKBProtocolContext>) {
         nc.set_notify(Duration::from_millis(100), TX_PROPOSAL_TOKEN);
+        nc.set_notify(Duration::from_millis(100), ASK_FOR_TXS_TOKEN);
     }
 
     fn received(
@@ -374,6 +409,7 @@ impl<CS: ChainStore> CKBProtocolHandler for Relayer<CS> {
     fn notify(&mut self, nc: Box<dyn CKBProtocolContext>, token: u64) {
         match token {
             TX_PROPOSAL_TOKEN => self.prune_tx_proposal_request(nc.as_ref()),
+            ASK_FOR_TXS_TOKEN => self.ask_for_txs(nc.as_ref()),
             _ => unreachable!(),
         }
     }
@@ -384,7 +420,7 @@ pub struct RelayState {
     pub inflight_proposals: Mutex<FnvHashSet<ProposalShortId>>,
     pub pending_proposals_request: Mutex<FnvHashMap<ProposalShortId, FnvHashSet<PeerIndex>>>,
     pub tx_filter: Mutex<LruCache<H256, ()>>,
-    pub tx_asked: Mutex<LruCache<H256, u8>>,
+    pub tx_already_asked: Mutex<LruCache<H256, Instant>>,
 }
 
 impl Default for RelayState {
@@ -394,31 +430,18 @@ impl Default for RelayState {
             inflight_proposals: Mutex::new(FnvHashSet::default()),
             pending_proposals_request: Mutex::new(FnvHashMap::default()),
             tx_filter: Mutex::new(LruCache::new(TX_FILTER_SIZE)),
-            tx_asked: Mutex::new(LruCache::new(TX_ASKED_SIZE)),
+            tx_already_asked: Mutex::new(LruCache::new(TX_ASKED_SIZE)),
         }
     }
 }
 
 impl RelayState {
     fn insert_tx(&self, hash: H256) {
-        self.tx_asked.lock().remove(&hash);
+        self.tx_already_asked.lock().remove(&hash);
         self.tx_filter.lock().insert(hash, ());
     }
 
     fn already_known(&self, hash: &H256) -> bool {
         self.tx_filter.lock().contains_key(hash)
-    }
-
-    fn get_asked(&self, hash: &H256) -> u8 {
-        self.tx_asked.lock().get(hash).cloned().unwrap_or(0)
-    }
-
-    fn incr_asked(&self, hash: H256) {
-        let mut tx_asked = self.tx_asked.lock();
-        if let Some(count) = tx_asked.get_mut(&hash) {
-            *count += 1;
-        } else {
-            tx_asked.insert(hash, 1);
-        }
     }
 }
