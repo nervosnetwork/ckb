@@ -26,7 +26,7 @@ fn gen_block(parent_header: &Header, nonce: u64, difficulty: U256) -> Block {
     let number = parent_header.number() + 1;
     let cellbase = create_cellbase(number);
     let header_builder = HeaderBuilder::default()
-        .parent_hash(parent_header.hash().clone())
+        .parent_hash(parent_header.hash())
         .timestamp(now)
         .number(number)
         .difficulty(difficulty)
@@ -306,7 +306,7 @@ fn test_uncle_verifier() {
         assert_eq!(
             verifier.verify(&block),
             Err(Error::Uncles(UnclesError::Duplicate(
-                block.uncles()[1].header().hash().clone()
+                block.uncles()[1].header().hash()
             )))
         );
     }

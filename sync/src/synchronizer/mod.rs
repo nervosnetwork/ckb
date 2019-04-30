@@ -205,8 +205,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
             };
 
             self.peers.new_header_received(peer, &header_view);
-            self.shared
-                .insert_header_view(header.hash().clone(), header_view);
+            self.shared.insert_header_view(header.hash(), header_view);
         }
     }
 
@@ -230,7 +229,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
     fn accept_block(&self, peer: PeerIndex, block: &Arc<Block>) -> Result<(), FailureError> {
         self.chain.process_block(Arc::clone(&block))?;
         self.shared.remove_header_view(&block.header().hash());
-        self.mark_block_stored(block.header().hash().clone());
+        self.mark_block_stored(block.header().hash());
         self.peers.set_last_common_header(peer, &block.header());
         Ok(())
     }
@@ -638,7 +637,7 @@ mod tests {
         let number = parent_header.number() + 1;
         let cellbase = create_cellbase(number);
         let header_builder = HeaderBuilder::default()
-            .parent_hash(parent_header.hash().clone())
+            .parent_hash(parent_header.hash())
             .timestamp(now)
             .number(number)
             .difficulty(difficulty)

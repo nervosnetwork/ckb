@@ -95,7 +95,7 @@ fn setup_node(
             .build();
 
         let header_builder = HeaderBuilder::default()
-            .parent_hash(block.header().hash().clone())
+            .parent_hash(block.header().hash())
             .number(number)
             .timestamp(timestamp)
             .difficulty(difficulty);

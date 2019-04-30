@@ -206,7 +206,7 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
                     }
                     recv(new_uncle_receiver) -> msg => match msg {
                         Ok(uncle_block) => {
-                            let hash = uncle_block.header().hash().clone();
+                            let hash = uncle_block.header().hash();
                             self.candidate_uncles.insert(hash, uncle_block);
                             self.last_uncles_updated_at
                                 .store(unix_time_as_millis(), Ordering::SeqCst);
@@ -427,13 +427,13 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
         // tip.p^4  -----------/  6
         // tip.p^5  -------------/
         // tip.p^6
-        let mut block_hash = tip.hash().clone();
+        let mut block_hash = tip.hash();
         excluded.insert(block_hash.clone());
         for _depth in 0..max_uncles_age {
             if let Some(block) = self.shared.block(&block_hash) {
                 excluded.insert(block.header().parent_hash().clone());
                 for uncle in block.uncles() {
-                    excluded.insert(uncle.header.hash().clone());
+                    excluded.insert(uncle.header.hash());
                 }
 
                 block_hash = block.header().parent_hash().clone();
@@ -627,7 +627,7 @@ mod tests {
         let number = parent_header.number() + 1;
         let cellbase = create_cellbase(number);
         let header = HeaderBuilder::default()
-            .parent_hash(parent_header.hash().clone())
+            .parent_hash(parent_header.hash())
             .timestamp(parent_header.timestamp() + 10)
             .number(number)
             .difficulty(difficulty)

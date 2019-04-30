@@ -307,7 +307,7 @@ impl<CP: ChainProvider + Clone> UnclesVerifier<CP> {
 
             let uncle_header = uncle.header.clone();
 
-            let uncle_hash = uncle_header.hash().clone();
+            let uncle_hash = uncle_header.hash();
             if included.contains(&uncle_hash) {
                 return Err(Error::Uncles(UnclesError::Duplicate(uncle_hash)));
             }

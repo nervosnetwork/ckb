@@ -152,13 +152,13 @@ mod tests {
         let mut pool = OrphanPool::new();
 
         let tx1 = build_tx(vec![(H256::zero(), 0)], 1);
-        let tx1_hash = tx1.hash().clone();
+        let tx1_hash = tx1.hash();
 
         let tx2 = build_tx(vec![(tx1_hash, 0)], 1);
-        let tx2_hash = tx2.hash().clone();
+        let tx2_hash = tx2.hash();
 
         let tx3 = build_tx(vec![(tx2_hash, 0)], 1);
-        let tx3_hash = tx3.hash().clone();
+        let tx3_hash = tx3.hash();
 
         let tx4 = build_tx(vec![(tx3_hash, 0)], 1);
 
@@ -184,13 +184,13 @@ mod tests {
         let mut pool = OrphanPool::new();
 
         let tx1 = build_tx(vec![(H256::zero(), 0)], 1);
-        let tx1_hash = tx1.hash().clone();
+        let tx1_hash = tx1.hash();
 
         let tx2 = build_tx(vec![(H256::zero(), 1)], 1);
-        let tx2_hash = tx2.hash().clone();
+        let tx2_hash = tx2.hash();
 
         let tx3 = build_tx(vec![(tx1_hash, 0), (tx2_hash, 1)], 1);
-        let tx3_hash = tx3.hash().clone();
+        let tx3_hash = tx3.hash();
 
         let tx4 = build_tx(vec![(tx3_hash, 0)], 1);
 
@@ -219,13 +219,13 @@ mod tests {
         let mut pool = OrphanPool::new();
 
         let tx1 = build_tx(vec![(H256::zero(), 0)], 1);
-        let tx1_hash = tx1.hash().clone();
+        let tx1_hash = tx1.hash();
 
         let tx2 = build_tx(vec![(tx1_hash, 0)], 1);
-        let tx2_hash = tx2.hash().clone();
+        let tx2_hash = tx2.hash();
 
         let tx3 = build_tx(vec![(tx2_hash, 0)], 1);
-        let tx3_hash = tx3.hash().clone();
+        let tx3_hash = tx3.hash();
 
         let tx4 = build_tx(vec![(tx3_hash, 0)], 1);
 

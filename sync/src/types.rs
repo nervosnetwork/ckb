@@ -461,7 +461,7 @@ impl<CS: ChainStore> SyncSharedState<CS> {
             let header = self
                 .get_ancestor(&base, index)
                 .expect("index calculated in get_locator");
-            locator.push(header.hash().clone());
+            locator.push(header.hash());
 
             if locator.len() >= 10 {
                 step <<= 1;

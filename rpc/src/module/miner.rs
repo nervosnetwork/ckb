@@ -87,7 +87,7 @@ impl<CS: ChainStore + 'static> MinerRpc for MinerRpcImpl<CS> {
                 let data = fbb.finished_data().into();
                 self.network_controller
                     .broadcast(NetworkProtocol::RELAY.into(), data);
-                Ok(Some(block.header().hash().clone()))
+                Ok(Some(block.header().hash()))
             } else {
                 let chain_state = self.shared.chain_state().lock();
                 error!(target: "rpc", "submit_block process_block {:?}", ret);

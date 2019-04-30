@@ -56,7 +56,7 @@ pub(crate) fn gen_block(
     let number = parent_header.number() + 1;
     let cellbase = create_cellbase(number);
     let header_builder = HeaderBuilder::default()
-        .parent_hash(parent_header.hash().clone())
+        .parent_hash(parent_header.hash())
         .timestamp(unix_time_as_millis())
         .number(number)
         .difficulty(difficulty);

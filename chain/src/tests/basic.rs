@@ -27,7 +27,7 @@ fn test_genesis_transaction_spend() {
         ])
         .build();
 
-    let mut root_hash = tx.hash().clone();
+    let mut root_hash = tx.hash();
 
     let genesis_tx_hash = root_hash.clone();
 
@@ -45,7 +45,7 @@ fn test_genesis_transaction_spend() {
     for i in 1..end {
         let difficulty = parent.difficulty().clone();
         let tx = create_transaction(root_hash, i as u8);
-        root_hash = tx.hash().clone();
+        root_hash = tx.hash();
         let new_block = gen_block(
             &parent,
             difficulty + U256::from(1u64),
@@ -91,11 +91,11 @@ fn test_transaction_spend_in_same_block() {
     }
 
     let last_cell_base = &chain.last().unwrap().transactions()[0];
-    let last_cell_base_hash = last_cell_base.hash().clone();
+    let last_cell_base_hash = last_cell_base.hash();
     let tx1 = create_transaction(last_cell_base_hash.clone(), 1);
-    let tx1_hash = tx1.hash().clone();
+    let tx1_hash = tx1.hash();
     let tx2 = create_transaction(tx1_hash.clone(), 2);
-    let tx2_hash = tx2.hash().clone();
+    let tx2_hash = tx2.hash();
     let tx2_output = tx2.outputs()[0].clone();
 
     let txs = vec![tx1, tx2];
@@ -373,7 +373,7 @@ fn test_genesis_transaction_fetch() {
         ])
         .build();
 
-    let root_hash = tx.hash().clone();
+    let root_hash = tx.hash();
 
     let genesis_block = BlockBuilder::default()
         .transaction(tx)

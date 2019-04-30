@@ -342,7 +342,7 @@ mod tests {
     #[test]
     fn test_add_entry() {
         let tx1 = build_tx(vec![(H256::zero(), 1), (H256::zero(), 2)], 1);
-        let tx1_hash = tx1.hash().clone();
+        let tx1_hash = tx1.hash();
         let tx2 = build_tx(vec![(tx1_hash, 0)], 1);
 
         let mut pool = StagingPool::new();
@@ -416,13 +416,13 @@ mod tests {
     fn test_add_no_roots() {
         let tx1 = build_tx(vec![(H256::zero(), 1)], 3);
         let tx2 = build_tx(vec![], 4);
-        let tx1_hash = tx1.hash().clone();
-        let tx2_hash = tx2.hash().clone();
+        let tx1_hash = tx1.hash();
+        let tx2_hash = tx2.hash();
 
         let tx3 = build_tx(vec![(tx1_hash.clone(), 0), (H256::zero(), 2)], 2);
         let tx4 = build_tx(vec![(tx1_hash.clone(), 1), (tx2_hash.clone(), 0)], 2);
 
-        let tx3_hash = tx3.hash().clone();
+        let tx3_hash = tx3.hash();
         let tx5 = build_tx(vec![(tx1_hash.clone(), 2), (tx3_hash.clone(), 0)], 2);
 
         let id1 = tx1.proposal_short_id();

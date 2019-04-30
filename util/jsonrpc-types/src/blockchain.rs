@@ -363,7 +363,7 @@ impl<'a> From<&'a CoreHeader> for Header {
             uncles_hash: core.uncles_hash().clone(),
             uncles_count: core.uncles_count(),
             seal: core.seal().clone().into(),
-            hash: core.hash().clone(),
+            hash: core.hash(),
         }
     }
 }
