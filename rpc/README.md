@@ -484,6 +484,32 @@ echo '{
 }
 ```
 
+### tx_pool_info
+
+Return the transaction pool information
+
+#### Examples
+
+``` bash
+curl -H 'content-type:application/json' \
+    -d '{"params": [], "method": "tx_pool_info", "jsonrpc": "2.0", "id": 2}' \
+    http://localhost:8114
+```
+
+``` json
+{
+    "jsonrpc": "2.0",
+    "id": 2,
+    "result": {
+        "pending": 34,
+        "staging": 22,
+        "orphan": 33,
+        "last_txs_updated_at": "1555507787683"
+    }
+}
+```
+
+
 ## Trace
 
 ### trace_transaction

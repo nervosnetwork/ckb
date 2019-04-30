@@ -75,6 +75,7 @@ impl Node {
             if let Ok(result) = client.local_node_info().call() {
                 info!("RPC service ready, {:?}", result);
                 self.node_id = Some(result.node_id);
+                assert!(client.tx_pool_info().call().is_ok());
                 break;
             } else if let Some(ref mut child) = self.guard {
                 match child.0.try_wait() {
@@ -100,6 +101,7 @@ impl Node {
             .local_node_info()
             .call()
             .expect("rpc call local_node_info failed");
+
         let node_id = node_info.node_id;
         self.rpc_client()
             .add_node(

@@ -3,6 +3,7 @@ mod blockchain;
 mod bytes;
 mod cell;
 mod net;
+mod pool;
 mod proposal_short_id;
 mod trace;
 
@@ -20,6 +21,7 @@ pub use self::blockchain::{
 pub use self::bytes::Bytes;
 pub use self::cell::{CellOutputWithOutPoint, CellWithStatus};
 pub use self::net::{Node, NodeAddress};
+pub use self::pool::TxPoolInfo;
 pub use self::proposal_short_id::ProposalShortId;
 pub use self::trace::{Action, TxTrace};
 pub use ckb_core::Version;
