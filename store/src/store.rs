@@ -1,14 +1,17 @@
 use crate::flat_serializer::{serialize as flat_serialize, serialized_addresses, Address};
 use crate::{
     COLUMN_BLOCK_BODY, COLUMN_BLOCK_HEADER, COLUMN_BLOCK_PROPOSAL_IDS,
-    COLUMN_BLOCK_TRANSACTION_ADDRESSES, COLUMN_BLOCK_UNCLE, COLUMN_EXT, COLUMN_INDEX, COLUMN_META,
-    COLUMN_TRANSACTION_ADDR,
+    COLUMN_BLOCK_TRANSACTION_ADDRESSES, COLUMN_BLOCK_UNCLE, COLUMN_CELL_META, COLUMN_EXT,
+    COLUMN_INDEX, COLUMN_META, COLUMN_TRANSACTION_ADDR,
 };
 use bincode::{deserialize, serialize};
 use ckb_core::block::{Block, BlockBuilder};
+use ckb_core::cell::CellMeta;
 use ckb_core::extras::{BlockExt, TransactionAddress};
 use ckb_core::header::{BlockNumber, Header, HeaderBuilder};
-use ckb_core::transaction::{ProposalShortId, Transaction, TransactionBuilder};
+use ckb_core::transaction::{
+    CellOutput, OutPoint, ProposalShortId, Transaction, TransactionBuilder,
+};
 use ckb_core::uncle::UncleBlock;
 use ckb_db::{Col, DbBatch, Error, KeyValueDB};
 use numext_fixed_hash::H256;
@@ -16,6 +19,13 @@ use serde::Serialize;
 use std::ops::Range;
 
 const META_TIP_HEADER_KEY: &[u8] = b"TIP_HEADER";
+
+fn cell_store_key(tx_hash: &H256, index: u32) -> Vec<u8> {
+    let mut key: [u8; 36] = [0; 36];
+    key[..32].copy_from_slice(tx_hash.as_bytes());
+    key[32..36].copy_from_slice(&index.to_be_bytes());
+    key.to_vec()
+}
 
 pub struct ChainKVStore<T> {
     db: T,
@@ -69,6 +79,8 @@ pub trait ChainStore: Sync + Send {
     fn get_transaction(&self, h: &H256) -> Option<(Transaction, H256)>;
     /// Get commit transaction address by it's hash
     fn get_transaction_address(&self, hash: &H256) -> Option<TransactionAddress>;
+    fn get_cell_meta(&self, tx_hash: &H256, index: u32) -> Option<CellMeta>;
+    fn get_cell_output(&self, tx_hash: &H256, index: u32) -> Option<CellOutput>;
 }
 
 pub trait StoreBatch {
@@ -220,6 +232,17 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
         self.get(COLUMN_TRANSACTION_ADDR, h.as_bytes())
             .map(|raw| deserialize(&raw[..]).unwrap())
     }
+
+    fn get_cell_meta(&self, tx_hash: &H256, index: u32) -> Option<CellMeta> {
+        self.get(COLUMN_CELL_META, &cell_store_key(tx_hash, index))
+            .map(|raw| deserialize(&raw[..]).unwrap())
+    }
+
+    // TODO build index for cell_output, avoid load the whole tx
+    fn get_cell_output(&self, tx_hash: &H256, index: u32) -> Option<CellOutput> {
+        self.get_transaction(tx_hash)
+            .and_then(|(tx, _)| tx.outputs().get(index as usize).map(ToOwned::to_owned))
+    }
 }
 
 pub struct DefaultStoreBatch<B> {
@@ -280,7 +303,25 @@ impl<B: DbBatch> StoreBatch for DefaultStoreBatch<B> {
                 offset: addresses[id].offset,
                 length: addresses[id].length,
             };
-            self.insert_serialize(COLUMN_TRANSACTION_ADDR, tx.hash().as_bytes(), &address)?;
+            let tx_hash = tx.hash();
+            self.insert_serialize(COLUMN_TRANSACTION_ADDR, tx_hash.as_bytes(), &address)?;
+            let cellbase = id == 0;
+            for (index, output) in tx.outputs().iter().enumerate() {
+                let out_point = OutPoint {
+                    tx_hash: tx_hash.clone(),
+                    index: index as u32,
+                };
+                let store_key = cell_store_key(&tx_hash, index as u32);
+                let cell_meta = CellMeta {
+                    cell_output: None,
+                    out_point,
+                    block_number: Some(block.header().number()),
+                    cellbase,
+                    capacity: output.capacity,
+                    data_hash: Some(output.data_hash()),
+                };
+                self.insert_serialize(COLUMN_CELL_META, &store_key, &cell_meta)?;
+            }
         }
 
         let number = block.header().number().to_le_bytes();
@@ -290,7 +331,12 @@ impl<B: DbBatch> StoreBatch for DefaultStoreBatch<B> {
 
     fn detach_block(&mut self, block: &Block) -> Result<(), Error> {
         for tx in block.transactions() {
-            self.delete(COLUMN_TRANSACTION_ADDR, tx.hash().as_bytes())?;
+            let tx_hash = tx.hash();
+            self.delete(COLUMN_TRANSACTION_ADDR, tx_hash.as_bytes())?;
+            for index in 0..tx.outputs().len() {
+                let store_key = cell_store_key(&tx_hash, index as u32);
+                self.delete(COLUMN_CELL_META, &store_key)?;
+            }
         }
         self.delete(COLUMN_INDEX, &block.header().number().to_le_bytes())?;
         self.delete(COLUMN_INDEX, block.header().hash().as_bytes())

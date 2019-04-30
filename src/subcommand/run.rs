@@ -7,7 +7,7 @@ use ckb_network::{CKBProtocol, NetworkService, NetworkState};
 use ckb_notify::{NotifyController, NotifyService};
 use ckb_rpc::RpcServer;
 use ckb_shared::shared::{Shared, SharedBuilder};
-use ckb_shared::store::ChainStore;
+use ckb_store::ChainStore;
 use ckb_sync::{NetTimeProtocol, NetworkProtocol, Relayer, SyncSharedState, Synchronizer};
 use ckb_traits::chain_provider::ChainProvider;
 use ckb_verification::{BlockVerifier, Verifier};

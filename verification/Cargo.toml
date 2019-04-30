@@ -7,6 +7,7 @@ edition = "2018"
 
 [dependencies]
 ckb-core = { path = "../core" }
+ckb-store = { path = "../store" }
 ckb-script = { path = "../script" }
 ckb-pow = { path = "../pow" }
 faketime = "0.2.0"

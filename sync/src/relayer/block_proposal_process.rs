@@ -1,6 +1,6 @@
 use crate::relayer::Relayer;
 use ckb_protocol::{cast, BlockProposal, FlatbuffersVectorIterator};
-use ckb_shared::store::ChainStore;
+use ckb_store::ChainStore;
 use failure::Error as FailureError;
 use log::warn;
 use std::convert::TryInto;

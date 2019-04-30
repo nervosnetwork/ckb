@@ -3,7 +3,7 @@ use crate::relayer::MAX_RELAY_PEERS;
 use ckb_core::{transaction::Transaction, Cycle};
 use ckb_network::{CKBProtocolContext, PeerIndex, TargetSession};
 use ckb_protocol::{RelayMessage, RelayTransaction as FbsRelayTransaction};
-use ckb_shared::store::ChainStore;
+use ckb_store::ChainStore;
 use failure::Error as FailureError;
 use flatbuffers::FlatBufferBuilder;
 use log::debug;

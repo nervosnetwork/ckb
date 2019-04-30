@@ -6,12 +6,14 @@ use ckb_core::header::Header;
 use ckb_core::transaction::{Capacity, CellInput, CellOutput, Transaction};
 use ckb_core::Cycle;
 use ckb_core::{block::Block, BlockNumber};
+use ckb_store::ChainStore;
 use ckb_traits::{BlockMedianTimeContext, ChainProvider};
 use fnv::FnvHashSet;
 use log::error;
 use numext_fixed_uint::U256;
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use std::collections::HashSet;
+use std::sync::Arc;
 
 //TODO: cellbase, witness
 #[derive(Clone)]
@@ -349,9 +351,10 @@ impl TransactionsVerifier {
         TransactionsVerifier { max_cycles }
     }
 
-    pub fn verify<M>(
+    pub fn verify<M, CS: ChainStore>(
         &self,
         resolved: &[ResolvedTransaction],
+        store: Arc<CS>,
         block_reward: Capacity,
         block_median_time_context: M,
         tip_number: BlockNumber,
@@ -381,6 +384,7 @@ impl TransactionsVerifier {
             .map(|(index, tx)| {
                 TransactionVerifier::new(
                     &tx,
+                    Arc::clone(&store),
                     &block_median_time_context,
                     tip_number,
                     cellbase_maturity,

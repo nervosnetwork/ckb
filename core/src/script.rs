@@ -1,3 +1,4 @@
+use bytes::Bytes;
 use faster_hex::hex_encode;
 use hash::blake2b_256;
 use numext_fixed_hash::{h256, H256};
@@ -12,7 +13,7 @@ pub const ALWAYS_SUCCESS_HASH: H256 = h256!("0x1");
 // implement proper From trait
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, HasOccupiedCapacity)]
 pub struct Script {
-    pub args: Vec<Vec<u8>>,
+    pub args: Vec<Bytes>,
     // Code hash here can be used to refer to the data in one of the dep
     // cells of current transaction. The hash here must match the hash of
     // cell data so as to reference a dep cell.
@@ -40,13 +41,13 @@ impl fmt::Debug for Script {
     }
 }
 
-type ScriptTuple = (Vec<Vec<u8>>, H256);
+type ScriptTuple = (Vec<Bytes>, H256);
 
 const VEC_WRITE_ALL_EXPECT: &str =
     "Essentially, Vec::write_all invoke extend_from_slice, should not fail";
 
 impl Script {
-    pub fn new(args: Vec<Vec<u8>>, code_hash: H256) -> Self {
+    pub fn new(args: Vec<Bytes>, code_hash: H256) -> Self {
         Script { args, code_hash }
     }
 
@@ -74,6 +75,7 @@ impl Script {
 #[cfg(test)]
 mod tests {
     use super::{h256, Script, H256};
+    use crate::Bytes;
     use hash::blake2b_256;
     use occupied_capacity::OccupiedCapacity;
 
@@ -118,7 +120,7 @@ mod tests {
 
     #[test]
     fn one_script_hash() {
-        let script = Script::new(vec![vec![1]], H256::zero());
+        let script = Script::new(vec![Bytes::from(vec![1])], H256::zero());
         let expect = h256!("0xdade0e507e27e2a5995cf39c8cf454b6e70fa80d03c1187db7a4cb2c9eab79da");
         assert_eq!(script.hash(), expect);
 

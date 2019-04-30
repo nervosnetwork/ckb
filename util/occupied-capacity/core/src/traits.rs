@@ -65,6 +65,12 @@ impl OccupiedCapacity for [u8] {
     }
 }
 
+impl OccupiedCapacity for bytes::Bytes {
+    fn occupied_capacity(&self) -> Result<Capacity> {
+        Capacity::bytes(self.len())
+    }
+}
+
 // conflicting implementation for `std::vec::Vec<u8>`
 // impl_mem_size_of!(u8);
 impl_mem_size_of!(u32);

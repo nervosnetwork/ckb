@@ -12,7 +12,7 @@ use ckb_shared::cell_set::CellSetDiff;
 use ckb_shared::chain_state::ChainState;
 use ckb_shared::error::SharedError;
 use ckb_shared::shared::Shared;
-use ckb_shared::store::{ChainStore, StoreBatch};
+use ckb_store::{ChainStore, StoreBatch};
 use ckb_traits::{BlockMedianTimeContext, ChainProvider};
 use ckb_verification::{BlockVerifier, TransactionsVerifier, Verifier};
 use crossbeam_channel::{self, select, Receiver, Sender};
@@ -479,6 +479,7 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
 
                     match txs_verifier.verify(
                         &resolved,
+                        Arc::clone(self.shared.store()),
                         self.shared.block_reward(b.header().number()),
                         ForkContext {
                             fork_blocks: &fork.attached_blocks,

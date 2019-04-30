@@ -171,7 +171,7 @@ impl ChainSpec {
                         // TODO: we should provide a proper lock script here so system cells
                         // can be updated.
                         let mut cell = CellOutput::default();
-                        cell.data = data.into_owned();
+                        cell.data = data.into_owned().into();
                         cell.capacity = cell.occupied_capacity()?;
                         Ok(cell)
                     })

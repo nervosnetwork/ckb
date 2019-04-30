@@ -1,7 +1,8 @@
 use crate::error::RPCError;
 use ckb_core::cell::CellProvider;
 use ckb_core::{transaction::ProposalShortId, BlockNumber};
-use ckb_shared::{shared::Shared, store::ChainStore};
+use ckb_shared::shared::Shared;
+use ckb_store::ChainStore;
 use ckb_traits::ChainProvider;
 use jsonrpc_core::{Error, Result};
 use jsonrpc_derive::rpc;

@@ -119,7 +119,7 @@ mod tests {
     use super::{OrphanPool, OutPoint};
     use ckb_core::script::Script;
     use ckb_core::transaction::{CellInput, CellOutput, Transaction, TransactionBuilder};
-    use ckb_core::Capacity;
+    use ckb_core::{Bytes, Capacity};
     use numext_fixed_hash::H256;
 
     fn build_tx(inputs: Vec<(H256, u32)>, outputs_len: usize) -> Transaction {
@@ -137,7 +137,7 @@ mod tests {
                     .map(|i| {
                         CellOutput::new(
                             Capacity::bytes(i + 1).unwrap(),
-                            Vec::new(),
+                            Bytes::default(),
                             Script::default(),
                             None,
                         )

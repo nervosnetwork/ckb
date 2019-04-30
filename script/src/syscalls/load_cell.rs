@@ -1,28 +1,33 @@
+use crate::common::{CurrentCell, LazyLoadCellOutput};
 use crate::syscalls::{Source, ITEM_MISSING, LOAD_CELL_SYSCALL_NUMBER, SUCCESS};
-use ckb_core::transaction::CellOutput;
+use ckb_core::cell::CellMeta;
 use ckb_protocol::CellOutput as FbsCellOutput;
+use ckb_store::ChainStore;
 use ckb_vm::{
     Error as VMError, Memory, Register, SupportMachine, Syscalls, A0, A1, A2, A3, A4, A7,
 };
 use flatbuffers::FlatBufferBuilder;
 use std::cmp;
+use std::sync::Arc;
 
-#[derive(Debug)]
-pub struct LoadCell<'a> {
-    outputs: &'a [&'a CellOutput],
-    input_cells: &'a [&'a CellOutput],
-    current: &'a CellOutput,
-    dep_cells: &'a [&'a CellOutput],
+pub struct LoadCell<'a, CS> {
+    store: Arc<CS>,
+    outputs: &'a [CellMeta],
+    input_cells: &'a [&'a CellMeta],
+    current: CurrentCell,
+    dep_cells: &'a [&'a CellMeta],
 }
 
-impl<'a> LoadCell<'a> {
+impl<'a, CS: ChainStore + 'a> LoadCell<'a, CS> {
     pub fn new(
-        outputs: &'a [&'a CellOutput],
-        input_cells: &'a [&'a CellOutput],
-        current: &'a CellOutput,
-        dep_cells: &'a [&'a CellOutput],
-    ) -> LoadCell<'a> {
+        store: Arc<CS>,
+        outputs: &'a [CellMeta],
+        input_cells: &'a [&'a CellMeta],
+        current: CurrentCell,
+        dep_cells: &'a [&'a CellMeta],
+    ) -> LoadCell<'a, CS> {
         LoadCell {
+            store,
             outputs,
             input_cells,
             current,
@@ -30,17 +35,20 @@ impl<'a> LoadCell<'a> {
         }
     }
 
-    fn fetch_cell(&self, source: Source, index: usize) -> Option<&CellOutput> {
+    fn fetch_cell(&self, source: Source, index: usize) -> Option<&'a CellMeta> {
         match source {
             Source::Input => self.input_cells.get(index).cloned(),
-            Source::Output => self.outputs.get(index).cloned(),
-            Source::Current => Some(self.current),
+            Source::Output => self.outputs.get(index),
+            Source::Current => match self.current {
+                CurrentCell::Input(index) => self.input_cells.get(index).cloned(),
+                CurrentCell::Output(index) => self.outputs.get(index),
+            },
             Source::Dep => self.dep_cells.get(index).cloned(),
         }
     }
 }
 
-impl<'a, Mac: SupportMachine> Syscalls<Mac> for LoadCell<'a> {
+impl<'a, Mac: SupportMachine, CS: ChainStore> Syscalls<Mac> for LoadCell<'a, CS> {
     fn initialize(&mut self, _machine: &mut Mac) -> Result<(), VMError> {
         Ok(())
     }
@@ -67,6 +75,7 @@ impl<'a, Mac: SupportMachine> Syscalls<Mac> for LoadCell<'a> {
             return Ok(true);
         }
         let cell = cell.unwrap();
+        let output = self.store.lazy_load_cell_output(&cell);
 
         // NOTE: this is a very expensive operation here since we need to copy
         // everything in a cell to a flatbuffer object, serialize the object
@@ -78,7 +87,7 @@ impl<'a, Mac: SupportMachine> Syscalls<Mac> for LoadCell<'a> {
         // subsequent calls even if we have cache implemented here.
         // TODO: find a way to cache this without consuming too much memory
         let mut builder = FlatBufferBuilder::new();
-        let offset = FbsCellOutput::build(&mut builder, cell);
+        let offset = FbsCellOutput::build(&mut builder, &output);
         builder.finish(offset, None);
         let data = builder.finished_data();
 

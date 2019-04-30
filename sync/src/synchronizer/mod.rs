@@ -24,7 +24,7 @@ use ckb_core::block::Block;
 use ckb_core::header::Header;
 use ckb_network::{CKBProtocolContext, CKBProtocolHandler, PeerIndex};
 use ckb_protocol::{cast, get_root, SyncMessage, SyncPayload};
-use ckb_shared::store::ChainStore;
+use ckb_store::ChainStore;
 use ckb_util::Mutex;
 use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
@@ -561,7 +561,7 @@ mod tests {
     use ckb_core::header::{Header, HeaderBuilder};
     use ckb_core::script::Script;
     use ckb_core::transaction::{CellInput, CellOutput, Transaction, TransactionBuilder};
-    use ckb_core::Capacity;
+    use ckb_core::{Bytes, Capacity};
     use ckb_db::memorydb::MemoryKeyValueDB;
     use ckb_network::{
         multiaddr::ToMultiaddr, Behaviour, CKBProtocolContext, Peer, PeerId, PeerIndex, ProtocolId,
@@ -571,7 +571,7 @@ mod tests {
     use ckb_protocol::{Block as FbsBlock, Headers as FbsHeaders};
     use ckb_shared::shared::Shared;
     use ckb_shared::shared::SharedBuilder;
-    use ckb_shared::store::{ChainKVStore, ChainStore};
+    use ckb_store::{ChainKVStore, ChainStore};
     use ckb_traits::chain_provider::ChainProvider;
     use ckb_util::Mutex;
     #[cfg(not(disable_faketime))]
@@ -626,7 +626,7 @@ mod tests {
             .input(CellInput::new_cellbase_input(number))
             .output(CellOutput::new(
                 Capacity::zero(),
-                vec![],
+                Bytes::default(),
                 Script::default(),
                 None,
             ))

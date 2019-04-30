@@ -9,11 +9,11 @@ use ckb_core::transaction::{
     CellInput, CellOutput, ProposalShortId, Transaction, TransactionBuilder,
 };
 use ckb_core::uncle::uncles_hash;
-use ckb_core::{BlockNumber, Capacity};
+use ckb_core::{BlockNumber, Bytes, Capacity};
 use ckb_db::memorydb::MemoryKeyValueDB;
 use ckb_notify::NotifyService;
 use ckb_shared::shared::{Shared, SharedBuilder};
-use ckb_shared::store::ChainKVStore;
+use ckb_store::ChainKVStore;
 use ckb_traits::ChainProvider;
 #[cfg(not(disable_faketime))]
 use faketime;
@@ -60,7 +60,7 @@ fn create_cellbase(number: BlockNumber) -> Transaction {
         .input(CellInput::new_cellbase_input(number))
         .output(CellOutput::new(
             Capacity::zero(),
-            vec![],
+            Bytes::default(),
             Script::default(),
             None,
         ))

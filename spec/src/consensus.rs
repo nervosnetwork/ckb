@@ -23,6 +23,8 @@ pub(crate) const MAX_BLOCK_CYCLES: Cycle = 100_000_000;
 pub(crate) const MAX_BLOCK_BYTES: u64 = 10_000_000; // 10mb
 pub(crate) const BLOCK_VERSION: u32 = 0;
 
+pub(crate) const MAX_TRANSACTION_MEMORY_BYTES: u64 = 10_000_000; // 10mb
+
 #[derive(Clone, PartialEq, Debug, Eq, Copy)]
 pub struct ProposalWindow(pub BlockNumber, pub BlockNumber);
 
@@ -59,6 +61,8 @@ pub struct Consensus {
     pub max_block_cycles: Cycle,
     // Maximum number of bytes to use for the entire block
     pub max_block_bytes: u64,
+    // Maximum number of memory bytes to verify a transaction
+    pub max_transaction_memory_bytes: u64,
     // block version number supported
     pub block_version: Version,
 }
@@ -85,6 +89,7 @@ impl Default for Consensus {
             median_time_block_count: MEDIAN_TIME_BLOCK_COUNT,
             max_block_cycles: MAX_BLOCK_CYCLES,
             max_block_bytes: MAX_BLOCK_BYTES,
+            max_transaction_memory_bytes: MAX_TRANSACTION_MEMORY_BYTES,
             block_version: BLOCK_VERSION,
         }
     }
@@ -172,6 +177,10 @@ impl Consensus {
 
     pub fn max_block_bytes(&self) -> u64 {
         self.max_block_bytes
+    }
+
+    pub fn max_transaction_memory_bytes(&self) -> u64 {
+        self.max_transaction_memory_bytes
     }
 
     pub fn block_version(&self) -> Version {

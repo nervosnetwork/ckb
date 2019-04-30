@@ -3,7 +3,7 @@ use ckb_core::transaction::Transaction as CoreTransaction;
 use ckb_network::NetworkController;
 use ckb_protocol::RelayMessage;
 use ckb_shared::shared::Shared;
-use ckb_shared::store::ChainStore;
+use ckb_store::ChainStore;
 use ckb_sync::NetworkProtocol;
 use flatbuffers::FlatBufferBuilder;
 use jsonrpc_core::{Error, Result};
