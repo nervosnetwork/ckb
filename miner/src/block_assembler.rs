@@ -431,12 +431,12 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
         excluded.insert(block_hash.clone());
         for _depth in 0..max_uncles_age {
             if let Some(block) = self.shared.block(&block_hash) {
-                excluded.insert(block.header().parent_hash().clone());
+                excluded.insert(block.header().parent_hash().to_owned());
                 for uncle in block.uncles() {
                     excluded.insert(uncle.header.hash());
                 }
 
-                block_hash = block.header().parent_hash().clone();
+                block_hash = block.header().parent_hash().to_owned();
             } else {
                 break;
             }

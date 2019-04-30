@@ -26,7 +26,7 @@ impl OrphanBlockPool {
     pub fn insert(&self, block: Block) {
         self.blocks
             .write()
-            .entry(block.header().parent_hash().clone())
+            .entry(block.header().parent_hash().to_owned())
             .or_insert_with(FnvHashSet::default)
             .insert(block);
     }

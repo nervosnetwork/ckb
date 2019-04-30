@@ -352,7 +352,7 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
                     .shared
                     .block(&index.hash)
                     .expect("block data stored before alignment_fork");
-                index.forward(new_block.header().parent_hash().clone());
+                index.forward(new_block.header().parent_hash().to_owned());
                 fork.attached_blocks.push(new_block);
             }
         }
@@ -392,7 +392,7 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
                 .shared
                 .block(&index.hash)
                 .expect("attached block stored before find_fork_until_latest_common");
-            index.forward(attached_block.header().parent_hash().clone());
+            index.forward(attached_block.header().parent_hash().to_owned());
             fork.attached_blocks.push(attached_block);
         }
     }
@@ -413,7 +413,7 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
 
         let mut index = GlobalIndex::new(
             new_tip_number - 1,
-            new_tip_block.header().parent_hash().clone(),
+            new_tip_block.header().parent_hash().to_owned(),
             true,
         );
 

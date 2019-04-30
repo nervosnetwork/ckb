@@ -690,7 +690,7 @@ mod tests {
             expect.push(shared.block_hash(*i).unwrap());
         }
         //genesis_hash must be the last one
-        expect.push(shared.genesis_hash().clone());
+        expect.push(shared.genesis_hash().to_owned());
 
         assert_eq!(expect, locator);
     }

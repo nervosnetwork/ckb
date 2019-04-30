@@ -353,14 +353,14 @@ impl<'a> From<&'a CoreHeader> for Header {
     fn from(core: &CoreHeader) -> Header {
         Header {
             version: core.version(),
-            parent_hash: core.parent_hash().clone(),
+            parent_hash: core.parent_hash().to_owned(),
             timestamp: core.timestamp().to_string(),
             number: core.number().to_string(),
             transactions_root: core.transactions_root().clone(),
             proposals_root: core.proposals_root().clone(),
             witnesses_root: core.witnesses_root().clone(),
             difficulty: core.difficulty().clone(),
-            uncles_hash: core.uncles_hash().clone(),
+            uncles_hash: core.uncles_hash().to_owned(),
             uncles_count: core.uncles_count(),
             seal: core.seal().clone().into(),
             hash: core.hash(),

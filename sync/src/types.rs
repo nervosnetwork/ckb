@@ -470,7 +470,7 @@ impl<CS: ChainStore> SyncSharedState<CS> {
             if index < step {
                 // always include genesis hash
                 if index != 0 {
-                    locator.push(self.shared.genesis_hash().clone());
+                    locator.push(self.shared.genesis_hash().to_owned());
                 }
                 break;
             }
@@ -534,7 +534,7 @@ impl<CS: ChainStore> SyncSharedState<CS> {
             .get(index - 1)
             .and_then(|hash| self.shared.block_header(hash))
         {
-            let mut block_hash = header.parent_hash().clone();
+            let mut block_hash = header.parent_hash().to_owned();
             loop {
                 let block_header = match self.shared.block_header(&block_hash) {
                     None => break latest_common,
@@ -545,7 +545,7 @@ impl<CS: ChainStore> SyncSharedState<CS> {
                     return Some(block_number);
                 }
 
-                block_hash = block_header.parent_hash().clone();
+                block_hash = block_header.parent_hash().to_owned();
             }
         } else {
             latest_common
