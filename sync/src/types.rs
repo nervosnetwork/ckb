@@ -386,7 +386,7 @@ impl<CS: ChainStore> SyncSharedState<CS> {
         let mut step = 1;
         let mut locator = Vec::with_capacity(32);
         let mut index = start.number();
-        let base = start.hash();
+        let mut base = start.hash();
         loop {
             let header = self
                 .get_ancestor(&base, index)
@@ -405,6 +405,7 @@ impl<CS: ChainStore> SyncSharedState<CS> {
                 break;
             }
             index -= step;
+            base = header.hash();
         }
         locator
     }
