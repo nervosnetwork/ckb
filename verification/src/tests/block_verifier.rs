@@ -129,7 +129,7 @@ pub fn test_cellbase_overflow_capacity() {
         .input(CellInput::new_cellbase_input(0))
         .output(CellOutput::new(
             capacity_bytes!(5),
-            vec![1, 2, 3, 4, 5, 6, 7, 8, 9],
+            vec![1, 2, 3, 4, 5, 6, 7, 8, 9].into(),
             Script::default(),
             None,
         ))
