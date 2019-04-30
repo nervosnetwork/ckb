@@ -49,6 +49,10 @@ pub enum Error {
     /// Cycles consumed by all scripts in all commit transactions of the block exceed
     /// the maximum allowed cycles in consensus rules
     ExceededMaximumCycles,
+    /// Number of proposals exceeded the limit.
+    ExceededMaximumProposalsLimit,
+    /// The size of the block exceeded the limit.
+    ExceededMaximumBlockBytes,
     /// The field version in block header is not allowed.
     Version,
     /// Overflow when do computation for capacity.

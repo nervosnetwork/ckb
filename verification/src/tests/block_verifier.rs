@@ -145,6 +145,7 @@ pub fn test_empty_transactions() {
 
     let provider = DummyChainProvider {
         block_reward: capacity_bytes!(150),
+        ..Default::default()
     };
 
     let full_verifier = BlockVerifier::new(provider);
