@@ -2,7 +2,7 @@ use crate::tests::util::{create_transaction, gen_block, start_chain};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::Block;
 use ckb_core::block::BlockBuilder;
-use ckb_core::cell::{CellProvider, CellStatus, UnresolvableError};
+use ckb_core::cell::{CellMeta, CellProvider, CellStatus, UnresolvableError};
 use ckb_core::header::HeaderBuilder;
 use ckb_core::script::Script;
 use ckb_core::transaction::{CellInput, CellOutput, OutPoint, TransactionBuilder};
@@ -173,8 +173,18 @@ fn test_transaction_spend_in_same_block() {
         shared
             .chain_state()
             .lock()
-            .cell(&OutPoint::new(tx2_hash, 0)),
-        CellStatus::live(tx2_output, Some(4), false)
+            .cell(&OutPoint::new(tx2_hash.clone(), 0)),
+        CellStatus::live_cell(CellMeta {
+            cell_output: None,
+            out_point: OutPoint {
+                tx_hash: tx2_hash,
+                index: 0
+            },
+            cellbase: false,
+            capacity: tx2_output.capacity,
+            data_hash: Some(tx2_output.data_hash()),
+            block_number: Some(4),
+        })
     );
 }
 

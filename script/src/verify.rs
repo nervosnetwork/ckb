@@ -34,22 +34,8 @@ pub struct TransactionScriptsVerifier<'a, CS> {
 impl<'a, CS: ChainStore> TransactionScriptsVerifier<'a, CS> {
     pub fn new(rtx: &'a ResolvedTransaction, store: Arc<CS>) -> TransactionScriptsVerifier<'a, CS> {
         let tx_hash = rtx.transaction.hash();
-        let dep_cells: Vec<&'a CellMeta> = rtx
-            .dep_cells
-            .iter()
-            .map(|cell| {
-                cell.get_live_cell()
-                    .expect("already verifies that all dep cells are valid")
-            })
-            .collect();
-        let input_cells = rtx
-            .input_cells
-            .iter()
-            .map(|cell| {
-                cell.get_live_cell()
-                    .expect("already verifies that all input cells are valid")
-            })
-            .collect();
+        let dep_cells: Vec<&'a CellMeta> = rtx.dep_cells.iter().collect();
+        let input_cells = rtx.input_cells.iter().collect();
         let inputs = rtx.transaction.inputs().iter().collect();
         let outputs = rtx
             .transaction

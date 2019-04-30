@@ -21,7 +21,7 @@ pub struct CellWithStatus {
 impl From<CellStatus> for CellWithStatus {
     fn from(status: CellStatus) -> Self {
         let (cell, status) = match status {
-            CellStatus::Live(cell_meta) => (Some(cell_meta.cell_output), "live"),
+            CellStatus::Live(cell_meta) => (cell_meta.cell_output, "live"),
             CellStatus::Dead => (None, "dead"),
             CellStatus::Unknown => (None, "unknown"),
         };

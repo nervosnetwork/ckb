@@ -1,5 +1,5 @@
 use crate::error::TransactionError;
-use ckb_core::transaction::{Capacity, CellOutput, OutPoint, Transaction, TX_VERSION};
+use ckb_core::transaction::{Capacity, CellOutput, Transaction, TX_VERSION};
 use ckb_core::{
     cell::{CellMeta, ResolvedTransaction},
     BlockNumber, Cycle,
@@ -39,13 +39,13 @@ where
     }
 }
 
-pub struct TransactionVerifier<'a, M, CP> {
+pub struct TransactionVerifier<'a, M, CS> {
     pub version: VersionVerifier<'a>,
     pub empty: EmptyVerifier<'a>,
     pub maturity: MaturityVerifier<'a>,
     pub capacity: CapacityVerifier<'a>,
     pub duplicate_deps: DuplicateDepsVerifier<'a>,
-    pub script: ScriptVerifier<'a, CP>,
+    pub script: ScriptVerifier<'a, CS>,
     pub since: ValidSinceVerifier<'a, M>,
 }
 
@@ -101,6 +101,7 @@ impl<'a> VersionVerifier<'a> {
 }
 
 pub struct ScriptVerifier<'a, CS> {
+    store: Arc<CS>,
     resolved_transaction: &'a ResolvedTransaction<'a>,
 }
 

@@ -6,7 +6,8 @@ use crate::tx_proposal_table::TxProposalTable;
 use ckb_chain_spec::consensus::{Consensus, ProposalWindow};
 use ckb_core::block::Block;
 use ckb_core::cell::{
-    CellProvider, resolve_transaction, CellStatus, OverlayCellProvider, ResolvedTransaction, UnresolvableError,
+    resolve_transaction, CellMeta, CellProvider, CellStatus, OverlayCellProvider,
+    ResolvedTransaction, UnresolvableError,
 };
 use ckb_core::header::{BlockNumber, Header};
 use ckb_core::transaction::CellOutput;
@@ -441,11 +442,7 @@ impl<CS: ChainStore> CellProvider for ChainState<CS> {
                         .store
                         .get_cell_meta(&out_point.tx_hash, out_point.index)
                         .expect("store should be consistent with cell_set");
-                    CellStatus::live(
-                        tx.outputs()[out_point.index as usize].clone(),
-                        Some(tx_meta.block_number()),
-                        tx_meta.is_cellbase(),
-                    )
+                    CellStatus::live_cell(cell_meta)
                 }
             }
             None => CellStatus::Unknown,
@@ -480,7 +477,7 @@ impl<'a, CS: ChainStore> CellProvider for ChainCellSetOverlay<'a, CS> {
                         })
                         .expect("store should be consistent with cell_set");
 
-                    CellStatus::live(output, Some(tx_meta.block_number()), tx_meta.is_cellbase())
+                    CellStatus::live_cell(cell_meta)
                 }
             }
             None => CellStatus::Unknown,

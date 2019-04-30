@@ -103,7 +103,15 @@ impl CellProvider for StagingPool {
             if x.is_some() {
                 CellStatus::Dead
             } else {
-                CellStatus::live(self.get_output(o).expect("output"), None, false)
+                let output = self.get_output(o).expect("output");
+                CellStatus::live_cell(CellMeta {
+                    cell_output: Some(output.clone()),
+                    out_point: o.to_owned(),
+                    block_number: None,
+                    cellbase: false,
+                    capacity: output.capacity,
+                    data_hash: None,
+                })
             }
         } else if self.edges.get_outer(o).is_some() {
             CellStatus::Dead

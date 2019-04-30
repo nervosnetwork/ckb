@@ -52,7 +52,14 @@ impl CellProvider for PendingQueue {
     fn cell(&self, o: &OutPoint) -> CellStatus {
         if let Some(x) = self.inner.get(&ProposalShortId::from_tx_hash(&o.tx_hash)) {
             match x.transaction.get_output(o.index as usize) {
-                Some(cell) => CellStatus::live(cell, None, false),
+                Some(output) => CellStatus::live_cell(CellMeta {
+                    cell_output: Some(output.clone()),
+                    cellbase: false,
+                    block_number: None,
+                    out_point: o.to_owned(),
+                    capacity: output.capacity,
+                    data_hash: None,
+                }),
                 None => CellStatus::Unknown,
             }
         } else {
