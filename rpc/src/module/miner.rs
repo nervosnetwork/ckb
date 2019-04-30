@@ -14,7 +14,7 @@ use flatbuffers::FlatBufferBuilder;
 use jsonrpc_core::{Error, Result};
 use jsonrpc_derive::rpc;
 use jsonrpc_types::{Block, BlockTemplate};
-use log::{debug, error};
+use log::{debug, error, info};
 use numext_fixed_hash::H256;
 use std::collections::HashSet;
 use std::convert::TryInto;
@@ -71,7 +71,14 @@ impl<CS: ChainStore + 'static> MinerRpc for MinerRpcImpl<CS> {
             .map_err(|_| Error::internal_error())
     }
 
-    fn submit_block(&self, _work_id: String, data: Block) -> Result<Option<H256>> {
+    fn submit_block(&self, work_id: String, data: Block) -> Result<Option<H256>> {
+        // TODO: this API is intended to be used in a trusted environment, thus it should pass the
+        // verifier. We use sentry to capture errors found here to discovery issues early, which
+        // should be removed later.
+        let _scope_guard = sentry::Hub::current().push_scope();
+        sentry::configure_scope(|scope| scope.set_extra("work_id", work_id.clone().into()));
+
+        info!(target: "rpc", "[{}] submit block", work_id);
         let block: Arc<CoreBlock> = Arc::new(data.try_into().map_err(|_| Error::parse_error())?);
         let resolver = HeaderResolverWrapper::new(block.header(), self.shared.clone());
         let header_verify_ret = {
@@ -97,12 +104,18 @@ impl<CS: ChainStore + 'static> MinerRpc for MinerRpcImpl<CS> {
                 Ok(Some(block.header().hash()))
             } else {
                 let chain_state = self.shared.chain_state().lock();
-                error!(target: "rpc", "submit_block process_block {:?}", ret);
-                error!(target: "rpc", "proposal table {}", serde_json::to_string(chain_state.proposal_ids().all()).unwrap());
+                error!(target: "rpc", "[{}] submit_block process_block {:?}", work_id, ret);
+                error!(target: "rpc", "[{}] proposal table {}", work_id, serde_json::to_string(chain_state.proposal_ids().all()).unwrap());
+
+                sentry::capture_event(sentry::protocol::Event {
+                    message: Some(format!("submit_block process_block {:?}", ret)),
+                    level: sentry::Level::Error,
+                    ..Default::default()
+                });
                 Ok(None)
             }
         } else {
-            debug!(target: "rpc", "submit_block header verifier {:?}", header_verify_ret);
+            debug!(target: "rpc", "[{}] submit_block header verifier {:?}", work_id, header_verify_ret);
             Ok(None)
         }
     }
