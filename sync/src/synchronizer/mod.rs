@@ -245,7 +245,7 @@ impl<CI: ChainIndex> Synchronizer<CI> {
         let mut step = 1;
         let mut locator = Vec::with_capacity(32);
         let mut index = start.number();
-        let base = start.hash();
+        let mut base = start.hash();
         loop {
             let header = self
                 .get_ancestor(&base, index)
@@ -264,6 +264,7 @@ impl<CI: ChainIndex> Synchronizer<CI> {
                 break;
             }
             index -= step;
+            base = header.hash();
         }
         locator
     }
