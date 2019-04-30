@@ -35,7 +35,7 @@ use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
 use flatbuffers::FlatBufferBuilder;
 use fnv::{FnvHashMap, FnvHashSet};
-use log::{debug, info};
+use log::{debug, info, trace};
 use lru_cache::LruCache;
 use numext_fixed_hash::H256;
 use std::collections::HashSet;
@@ -329,7 +329,13 @@ impl<CS: ChainStore> Relayer<CS> {
         }
     }
 
+    // Ask for relay transaction by hash from all peers
     pub fn ask_for_txs(&self, nc: &CKBProtocolContext) {
+        if self.shared.is_initial_block_download() {
+            trace!(target: "relay", "Do not ask for transactions when initial block download");
+            return;
+        }
+
         for (peer, peer_state) in self.peers.state.write().iter_mut() {
             let tx_hashes = peer_state
                 .pop_ask_for_txs()
