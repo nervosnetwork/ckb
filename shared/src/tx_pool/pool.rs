@@ -46,6 +46,16 @@ impl TxPool {
         }
     }
 
+    pub fn pending_size(&self) -> u32 {
+        self.pending.size() as u32
+    }
+    pub fn staging_size(&self) -> u32 {
+        self.staging.vertices.len() as u32
+    }
+    pub fn orphan_size(&self) -> u32 {
+        self.orphan.vertices.len() as u32
+    }
+
     // enqueue_tx inserts a new transaction into the non-verifiable transaction queue.
     pub fn enqueue_tx(&mut self, cycles: Option<Cycle>, tx: Transaction) -> bool {
         self.pending.add_tx(cycles, tx).is_none()
