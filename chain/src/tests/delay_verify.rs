@@ -16,7 +16,7 @@ fn test_dead_cell_in_same_block() {
 
     let mut parent = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
     for _ in 1..final_number {
-        let difficulty = parent.difficulty().clone();
+        let difficulty = parent.difficulty().to_owned();
         let new_block = gen_block(
             &parent,
             difficulty + U256::from(100u64),
@@ -25,12 +25,12 @@ fn test_dead_cell_in_same_block() {
             vec![],
         );
         chain1.push(new_block.clone());
-        parent = new_block.header().clone();
+        parent = new_block.header().to_owned();
     }
 
     parent = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
     for _ in 1..switch_fork_number {
-        let difficulty = parent.difficulty().clone();
+        let difficulty = parent.difficulty().to_owned();
         let new_block = gen_block(
             &parent,
             difficulty + U256::from(99u64),
@@ -39,7 +39,7 @@ fn test_dead_cell_in_same_block() {
             vec![],
         );
         chain2.push(new_block.clone());
-        parent = new_block.header().clone();
+        parent = new_block.header().to_owned();
     }
 
     let last_cell_base = &chain2.last().unwrap().transactions()[0];
@@ -48,7 +48,7 @@ fn test_dead_cell_in_same_block() {
     let tx3 = create_transaction(tx1.hash(), 3);
     let txs = vec![tx1, tx2, tx3];
     for i in switch_fork_number..final_number {
-        let difficulty = parent.difficulty().clone();
+        let difficulty = parent.difficulty().to_owned();
         let new_block = if i == switch_fork_number {
             gen_block(
                 &parent,
@@ -75,7 +75,7 @@ fn test_dead_cell_in_same_block() {
             )
         };
         chain2.push(new_block.clone());
-        parent = new_block.header().clone();
+        parent = new_block.header().to_owned();
     }
 
     for block in &chain1 {
@@ -114,7 +114,7 @@ fn test_dead_cell_in_different_block() {
 
     let mut parent = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
     for _ in 1..final_number {
-        let difficulty = parent.difficulty().clone();
+        let difficulty = parent.difficulty().to_owned();
         let new_block = gen_block(
             &parent,
             difficulty + U256::from(100u64),
@@ -123,12 +123,12 @@ fn test_dead_cell_in_different_block() {
             vec![],
         );
         chain1.push(new_block.clone());
-        parent = new_block.header().clone();
+        parent = new_block.header().to_owned();
     }
 
     parent = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
     for _ in 1..switch_fork_number {
-        let difficulty = parent.difficulty().clone();
+        let difficulty = parent.difficulty().to_owned();
         let new_block = gen_block(
             &parent,
             difficulty + U256::from(99u64),
@@ -137,7 +137,7 @@ fn test_dead_cell_in_different_block() {
             vec![],
         );
         chain2.push(new_block.clone());
-        parent = new_block.header().clone();
+        parent = new_block.header().to_owned();
     }
 
     let last_cell_base = &chain2.last().unwrap().transactions()[0];
@@ -145,7 +145,7 @@ fn test_dead_cell_in_different_block() {
     let tx2 = create_transaction(tx1.hash(), 2);
     let tx3 = create_transaction(tx1.hash(), 3);
     for i in switch_fork_number..final_number {
-        let difficulty = parent.difficulty().clone();
+        let difficulty = parent.difficulty().to_owned();
         let new_block = if i == switch_fork_number {
             gen_block(
                 &parent,
@@ -180,7 +180,7 @@ fn test_dead_cell_in_different_block() {
             )
         };
         chain2.push(new_block.clone());
-        parent = new_block.header().clone();
+        parent = new_block.header().to_owned();
     }
 
     for block in &chain1 {

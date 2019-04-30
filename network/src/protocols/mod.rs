@@ -148,7 +148,7 @@ impl ServiceProtocol for CKBHandler {
         let nc = DefaultCKBProtocolContext {
             proto_id: self.proto_id,
             network_state: Arc::clone(&self.network_state),
-            p2p_control: context.control().clone(),
+            p2p_control: context.control().to_owned(),
         };
         nc.set_notify(Duration::from_secs(6), std::u64::MAX);
         self.handler.init(Box::new(nc));
@@ -158,7 +158,7 @@ impl ServiceProtocol for CKBHandler {
         let nc = DefaultCKBProtocolContext {
             proto_id: self.proto_id,
             network_state: Arc::clone(&self.network_state),
-            p2p_control: context.control().clone(),
+            p2p_control: context.control().to_owned(),
         };
         let peer_index = context.session.id;
         self.handler.connected(Box::new(nc), peer_index, version);
@@ -168,7 +168,7 @@ impl ServiceProtocol for CKBHandler {
         let nc = DefaultCKBProtocolContext {
             proto_id: self.proto_id,
             network_state: Arc::clone(&self.network_state),
-            p2p_control: context.control().clone(),
+            p2p_control: context.control().to_owned(),
         };
         let peer_index = context.session.id;
         self.handler.disconnected(Box::new(nc), peer_index);
@@ -179,7 +179,7 @@ impl ServiceProtocol for CKBHandler {
         let nc = DefaultCKBProtocolContext {
             proto_id: self.proto_id,
             network_state: Arc::clone(&self.network_state),
-            p2p_control: context.control().clone(),
+            p2p_control: context.control().to_owned(),
         };
         let peer_index = context.session.id;
         self.handler.received(Box::new(nc), peer_index, data);
@@ -192,7 +192,7 @@ impl ServiceProtocol for CKBHandler {
             let nc = DefaultCKBProtocolContext {
                 proto_id: self.proto_id,
                 network_state: Arc::clone(&self.network_state),
-                p2p_control: context.control().clone(),
+                p2p_control: context.control().to_owned(),
             };
             self.handler.notify(Box::new(nc), token);
         }
@@ -202,7 +202,7 @@ impl ServiceProtocol for CKBHandler {
         let nc = DefaultCKBProtocolContext {
             proto_id: self.proto_id,
             network_state: Arc::clone(&self.network_state),
-            p2p_control: context.control().clone(),
+            p2p_control: context.control().to_owned(),
         };
         self.handler.poll(Box::new(nc));
     }

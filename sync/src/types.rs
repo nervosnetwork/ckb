@@ -348,8 +348,8 @@ impl<CS: ChainStore> SyncSharedState<CS> {
                 .block_ext(&chain_state.tip_hash())
                 .expect("tip block_ext must exist");
             (
-                chain_state.total_difficulty().clone(),
-                chain_state.tip_header().clone(),
+                chain_state.total_difficulty().to_owned(),
+                chain_state.tip_header().to_owned(),
                 block_ext.total_uncles_count,
             )
         };
@@ -385,7 +385,7 @@ impl<CS: ChainStore> SyncSharedState<CS> {
         self.shared.block(hash)
     }
     pub fn tip_header(&self) -> Header {
-        self.shared.chain_state().lock().tip_header().clone()
+        self.shared.chain_state().lock().tip_header().to_owned()
     }
     pub fn consensus(&self) -> &Consensus {
         self.shared.consensus()
@@ -397,7 +397,7 @@ impl<CS: ChainStore> SyncSharedState<CS> {
     }
 
     pub fn best_known_header(&self) -> HeaderView {
-        self.best_known_header.read().clone()
+        self.best_known_header.read().to_owned()
     }
     pub fn set_best_known_header(&self, header: HeaderView) {
         *self.best_known_header.write() = header;
@@ -461,7 +461,7 @@ impl<CS: ChainStore> SyncSharedState<CS> {
             let header = self
                 .get_ancestor(&base, index)
                 .expect("index calculated in get_locator");
-            locator.push(header.hash().clone());
+            locator.push(header.hash());
 
             if locator.len() >= 10 {
                 step <<= 1;
@@ -470,7 +470,7 @@ impl<CS: ChainStore> SyncSharedState<CS> {
             if index < step {
                 // always include genesis hash
                 if index != 0 {
-                    locator.push(self.shared.genesis_hash().clone());
+                    locator.push(self.shared.genesis_hash().to_owned());
                 }
                 break;
             }
@@ -534,7 +534,7 @@ impl<CS: ChainStore> SyncSharedState<CS> {
             .get(index - 1)
             .and_then(|hash| self.shared.block_header(hash))
         {
-            let mut block_hash = header.parent_hash().clone();
+            let mut block_hash = header.parent_hash().to_owned();
             loop {
                 let block_header = match self.shared.block_header(&block_hash) {
                     None => break latest_common,
@@ -545,7 +545,7 @@ impl<CS: ChainStore> SyncSharedState<CS> {
                     return Some(block_number);
                 }
 
-                block_hash = block_header.parent_hash().clone();
+                block_hash = block_header.parent_hash().to_owned();
             }
         } else {
             latest_common

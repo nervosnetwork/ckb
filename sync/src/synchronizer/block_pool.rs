@@ -26,7 +26,7 @@ impl OrphanBlockPool {
     pub fn insert(&self, block: Block) {
         self.blocks
             .write()
-            .entry(block.header().parent_hash().clone())
+            .entry(block.header().parent_hash().to_owned())
             .or_insert_with(FnvHashSet::default)
             .insert(block);
     }
@@ -40,7 +40,7 @@ impl OrphanBlockPool {
         while let Some(parent_hash) = queue.pop_front() {
             if let Entry::Occupied(entry) = guard.entry(parent_hash) {
                 let (_, orphaned) = entry.remove_entry();
-                queue.extend(orphaned.iter().map(|b| b.header().hash().clone()));
+                queue.extend(orphaned.iter().map(|b| b.header().hash()));
                 removed.extend(orphaned.into_iter());
             }
         }
@@ -74,7 +74,7 @@ mod tests {
 
     fn gen_block(parent_header: &Header) -> Block {
         let header = HeaderBuilder::default()
-            .parent_hash(parent_header.hash().clone())
+            .parent_hash(parent_header.hash())
             .timestamp(unix_time_as_millis())
             .number(parent_header.number() + 1)
             .nonce(parent_header.nonce() + 1)
@@ -88,13 +88,13 @@ mod tests {
         let consensus = Consensus::default();
         let block_number = 200;
         let mut blocks: Vec<Block> = Vec::new();
-        let mut parent = consensus.genesis_block().header().clone();
+        let mut parent = consensus.genesis_block().header().to_owned();
         let pool = OrphanBlockPool::with_capacity(200);
         for _ in 1..block_number {
             let new_block = gen_block(&parent);
             blocks.push(new_block.clone());
             pool.insert(new_block.clone());
-            parent = new_block.header().clone();
+            parent = new_block.header().to_owned();
         }
 
         let orphan = pool.remove_blocks_by_parent(&consensus.genesis_block().header().hash());

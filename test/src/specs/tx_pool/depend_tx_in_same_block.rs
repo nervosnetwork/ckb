@@ -1,4 +1,5 @@
 use crate::{sleep, Net, Spec};
+use ckb_core::transaction::Transaction;
 use log::info;
 
 pub struct DepentTxInSameBlock;
@@ -12,7 +13,7 @@ impl Spec for DepentTxInSameBlock {
         node0.generate_block();
         let tx_hash_0 = node0.generate_transaction();
         let tx = node0.new_transaction(tx_hash_0.clone());
-        let tx_hash_1 = tx.hash().clone();
+        let tx_hash_1 = tx.hash();
         node0.rpc_client().send_transaction((&tx).into());
 
         // mine 2 txs
@@ -30,7 +31,7 @@ impl Spec for DepentTxInSameBlock {
         let commit_txs_hash: Vec<_> = tip_block
             .transactions()
             .iter()
-            .map(|tx| tx.hash().clone())
+            .map(Transaction::hash)
             .collect();
 
         info!("2 txs should included in commit_transactions");

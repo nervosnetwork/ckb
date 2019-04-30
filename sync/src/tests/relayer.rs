@@ -52,7 +52,7 @@ fn relay_compact_block_with_one_tx() {
             // building tx and broadcast it
             let tx = TransactionBuilder::default()
                 .input(CellInput::new(
-                    OutPoint::new(last_cellbase.hash().clone(), 0),
+                    OutPoint::new(last_cellbase.hash(), 0),
                     0,
                     vec![],
                 ))
@@ -86,7 +86,7 @@ fn relay_compact_block_with_one_tx() {
                     .build();
 
                 let header_builder = HeaderBuilder::default()
-                    .parent_hash(last_block.header().hash().clone())
+                    .parent_hash(last_block.header().hash())
                     .number(number)
                     .timestamp(timestamp)
                     .difficulty(difficulty);
@@ -121,7 +121,7 @@ fn relay_compact_block_with_one_tx() {
                     .build();
 
                 let header_builder = HeaderBuilder::default()
-                    .parent_hash(last_block.header().hash().clone())
+                    .parent_hash(last_block.header().hash())
                     .number(number)
                     .timestamp(timestamp)
                     .difficulty(difficulty);
@@ -199,7 +199,7 @@ fn relay_compact_block_with_missing_indexs() {
                 .map(|i| {
                     TransactionBuilder::default()
                         .input(CellInput::new(
-                            OutPoint::new(last_cellbase.hash().clone(), u32::from(i)),
+                            OutPoint::new(last_cellbase.hash(), u32::from(i)),
                             0,
                             vec![],
                         ))
@@ -238,7 +238,7 @@ fn relay_compact_block_with_missing_indexs() {
                     .build();
 
                 let header_builder = HeaderBuilder::default()
-                    .parent_hash(last_block.header().hash().clone())
+                    .parent_hash(last_block.header().hash())
                     .number(number)
                     .timestamp(timestamp)
                     .difficulty(difficulty);
@@ -273,7 +273,7 @@ fn relay_compact_block_with_missing_indexs() {
                     .build();
 
                 let header_builder = HeaderBuilder::default()
-                    .parent_hash(last_block.header().hash().clone())
+                    .parent_hash(last_block.header().hash())
                     .number(number)
                     .timestamp(timestamp)
                     .difficulty(difficulty);
@@ -365,7 +365,7 @@ fn setup_node(
             .build();
 
         let header_builder = HeaderBuilder::default()
-            .parent_hash(block.header().hash().clone())
+            .parent_hash(block.header().hash())
             .number(number)
             .timestamp(timestamp)
             .difficulty(difficulty);

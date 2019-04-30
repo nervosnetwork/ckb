@@ -31,7 +31,7 @@ fn gen_block(
     let difficulty = parent_header.difficulty() + U256::from(1u64);
     let cellbase = create_cellbase(number);
     let header_builder = HeaderBuilder::default()
-        .parent_hash(parent_header.hash().clone())
+        .parent_hash(parent_header.hash())
         .timestamp(now)
         .number(number)
         .difficulty(difficulty)
@@ -124,7 +124,7 @@ fn test_proposal() {
     for _ in 0..20 {
         let tx = create_transaction(&prev_tx_hash);
         txs20.push(tx.clone());
-        prev_tx_hash = tx.hash().clone();
+        prev_tx_hash = tx.hash();
     }
 
     let proposal_window = shared.consensus().tx_proposal_window();
@@ -138,7 +138,7 @@ fn test_proposal() {
     chain_controller
         .process_block(Arc::new(block.clone()))
         .unwrap();
-    parent = block.header().clone();
+    parent = block.header().to_owned();
 
     //commit in proposal gap is invalid
     for _ in (proposed + 1)..(proposed + proposal_window.end()) {
@@ -154,7 +154,7 @@ fn test_proposal() {
         chain_controller
             .process_block(Arc::new(new_block.clone()))
             .unwrap();
-        parent = new_block.header().clone();
+        parent = new_block.header().to_owned();
     }
 
     //commit in proposal window
@@ -168,7 +168,7 @@ fn test_proposal() {
         chain_controller
             .process_block(Arc::new(new_block.clone()))
             .unwrap();
-        parent = new_block.header().clone();
+        parent = new_block.header().to_owned();
     }
 
     //proposal expired
@@ -185,7 +185,7 @@ fn test_uncle_proposal() {
     for _ in 0..20 {
         let tx = create_transaction(&prev_tx_hash);
         txs20.push(tx.clone());
-        prev_tx_hash = tx.hash().clone();
+        prev_tx_hash = tx.hash();
     }
 
     let proposal_window = shared.consensus().tx_proposal_window();
@@ -200,7 +200,7 @@ fn test_uncle_proposal() {
     chain_controller
         .process_block(Arc::new(block.clone()))
         .unwrap();
-    parent = block.header().clone();
+    parent = block.header().to_owned();
 
     //commit in proposal gap is invalid
     for _ in (proposed + 1)..(proposed + proposal_window.end()) {
@@ -216,7 +216,7 @@ fn test_uncle_proposal() {
         chain_controller
             .process_block(Arc::new(new_block.clone()))
             .unwrap();
-        parent = new_block.header().clone();
+        parent = new_block.header().to_owned();
     }
 
     //commit in proposal window
@@ -230,7 +230,7 @@ fn test_uncle_proposal() {
         chain_controller
             .process_block(Arc::new(new_block.clone()))
             .unwrap();
-        parent = new_block.header().clone();
+        parent = new_block.header().to_owned();
     }
 
     //proposal expired

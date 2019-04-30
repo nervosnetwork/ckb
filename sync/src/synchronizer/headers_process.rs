@@ -415,28 +415,28 @@ where
         if self.prev_block_check(&mut result).is_err() {
             debug!(target: "sync", "HeadersProcess accept {:?} prev_block", self.header.number());
             self.synchronizer
-                .insert_block_status(self.header.hash().clone(), BlockStatus::FAILED_MASK);
+                .insert_block_status(self.header.hash(), BlockStatus::FAILED_MASK);
             return result;
         }
 
         if self.non_contextual_check(&mut result).is_err() {
             debug!(target: "sync", "HeadersProcess accept {:?} non_contextual", self.header.number());
             self.synchronizer
-                .insert_block_status(self.header.hash().clone(), BlockStatus::FAILED_MASK);
+                .insert_block_status(self.header.hash(), BlockStatus::FAILED_MASK);
             return result;
         }
 
         if self.version_check(&mut result).is_err() {
             debug!(target: "sync", "HeadersProcess accept {:?} version", self.header.number());
             self.synchronizer
-                .insert_block_status(self.header.hash().clone(), BlockStatus::FAILED_MASK);
+                .insert_block_status(self.header.hash(), BlockStatus::FAILED_MASK);
             return result;
         }
 
         self.synchronizer
             .insert_header_view(&self.header, self.peer);
         self.synchronizer
-            .insert_block_status(self.header.hash().clone(), BlockStatus::VALID_MASK);
+            .insert_block_status(self.header.hash(), BlockStatus::VALID_MASK);
         result
     }
 }

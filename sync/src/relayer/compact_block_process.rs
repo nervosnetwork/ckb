@@ -80,7 +80,7 @@ impl<'a, CS: ChainStore> CompactBlockProcess<'a, CS> {
             {
                 let resolver = HeaderResolverWrapper::new(
                     &compact_block.header,
-                    self.relayer.shared.shared().clone(),
+                    self.relayer.shared.shared().to_owned(),
                 );
                 let header_verifier = HeaderVerifier::new(
                     CompactBlockMedianTimeView {

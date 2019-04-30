@@ -281,8 +281,7 @@ impl<'a> FbsUncleBlock<'a> {
         fbb: &mut FlatBufferBuilder<'b>,
         uncle_block: &UncleBlock,
     ) -> WIPOffset<FbsUncleBlock<'b>> {
-        // TODO how to avoid clone here?
-        let header = FbsHeader::build(fbb, &uncle_block.header().clone());
+        let header = FbsHeader::build(fbb, &uncle_block.header());
         let vec = uncle_block
             .proposals
             .iter()

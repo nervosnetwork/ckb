@@ -701,12 +701,12 @@ impl NetworkService {
         let disc_service = DiscoveryService::new(Arc::clone(&network_state), disc_receiver);
         let ping_service = PingService::new(
             Arc::clone(&network_state),
-            p2p_service.control().clone(),
+            p2p_service.control().to_owned(),
             ping_receiver,
         );
         let outbound_peer_service = OutboundPeerService::new(
             Arc::clone(&network_state),
-            p2p_service.control().clone(),
+            p2p_service.control().to_owned(),
             Duration::from_secs(config.connect_outbound_interval_secs),
         );
         let bg_services = vec![
@@ -769,7 +769,7 @@ impl NetworkService {
             self.network_state
                 .dial_all(self.p2p_service.control(), &peer_id, addr);
         }
-        let p2p_control = self.p2p_service.control().clone();
+        let p2p_control = self.p2p_service.control().to_owned();
         let network_state = Arc::clone(&self.network_state);
 
         // Mainly for test: give a empty thread_name
@@ -780,7 +780,7 @@ impl NetworkService {
         let (sender, receiver) = crossbeam_channel::bounded(1);
         let thread = thread_builder
             .spawn(move || {
-                let inner_p2p_control = self.p2p_service.control().clone();
+                let inner_p2p_control = self.p2p_service.control().to_owned();
                 let mut runtime = Runtime::new().expect("Network tokio runtime init failed");
                 runtime.spawn(self.p2p_service.for_each(|_| Ok(())));
 

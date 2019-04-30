@@ -218,7 +218,7 @@ impl<CP: ChainProvider + Clone> UnclesVerifier<CP> {
         let actual_uncles_hash = block.cal_uncles_hash();
         if &actual_uncles_hash != block.header().uncles_hash() {
             return Err(Error::Uncles(UnclesError::InvalidHash {
-                expected: block.header().uncles_hash().clone(),
+                expected: block.header().uncles_hash().to_owned(),
                 actual: actual_uncles_hash,
             }));
         }
@@ -273,11 +273,11 @@ impl<CP: ChainProvider + Clone> UnclesVerifier<CP> {
         let mut excluded = FnvHashSet::default();
         let mut included = FnvHashSet::default();
         excluded.insert(block.header().hash());
-        let mut block_hash = block.header().parent_hash().clone();
+        let mut block_hash = block.header().parent_hash().to_owned();
         excluded.insert(block_hash.clone());
         for _ in 0..max_uncles_age {
             if let Some(header) = self.provider.block_header(&block_hash) {
-                let parent_hash = header.parent_hash().clone();
+                let parent_hash = header.parent_hash().to_owned();
                 excluded.insert(parent_hash.clone());
                 if let Some(uncles) = self.provider.uncles(&block_hash) {
                     uncles.iter().for_each(|uncle| {
@@ -307,7 +307,7 @@ impl<CP: ChainProvider + Clone> UnclesVerifier<CP> {
 
             let uncle_header = uncle.header.clone();
 
-            let uncle_hash = uncle_header.hash().clone();
+            let uncle_hash = uncle_header.hash();
             if included.contains(&uncle_hash) {
                 return Err(Error::Uncles(UnclesError::Duplicate(uncle_hash)));
             }
@@ -450,7 +450,7 @@ impl<CP: ChainProvider + Clone> CommitVerifier<CP> {
                     .for_each(|uncle| proposal_txs_ids.extend(uncle.proposals()));
             }
 
-            block_hash = header.parent_hash().clone();
+            block_hash = header.parent_hash().to_owned();
             proposal_end -= 1;
         }
 

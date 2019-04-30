@@ -261,7 +261,7 @@ fn gen_block(
         .proposals(proposals)
         .with_header_builder(
             HeaderBuilder::default()
-                .parent_hash(p_block.header().hash().clone())
+                .parent_hash(p_block.header().hash())
                 .number(number)
                 .timestamp(timestamp)
                 .difficulty(difficulty)

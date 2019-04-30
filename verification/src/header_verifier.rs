@@ -42,7 +42,7 @@ impl<T: HeaderResolver, M: BlockMedianTimeContext> Verifier for HeaderVerifier<T
         PowVerifier::new(header, &self.pow).verify()?;
         let parent = target
             .parent()
-            .ok_or_else(|| Error::UnknownParent(header.parent_hash().clone()))?;
+            .ok_or_else(|| Error::UnknownParent(header.parent_hash().to_owned()))?;
         NumberVerifier::new(parent, header).verify()?;
         TimestampVerifier::new(&self.block_median_time_context, header).verify()?;
         DifficultyVerifier::verify(target)?;
@@ -94,7 +94,7 @@ impl<'a, M: BlockMedianTimeContext> TimestampVerifier<'a, M> {
             .and_then(|n| self.block_median_time_context.block_median_time(n))
         {
             Some(time) => time,
-            None => return Err(Error::UnknownParent(self.header.parent_hash().clone())),
+            None => return Err(Error::UnknownParent(self.header.parent_hash().to_owned())),
         };
         if self.header.timestamp() <= min {
             return Err(Error::Timestamp(TimestampError::BlockTimeTooOld {

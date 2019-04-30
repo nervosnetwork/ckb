@@ -205,8 +205,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
             };
 
             self.peers.new_header_received(peer, &header_view);
-            self.shared
-                .insert_header_view(header.hash().clone(), header_view);
+            self.shared.insert_header_view(header.hash(), header_view);
         }
     }
 
@@ -230,7 +229,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
     fn accept_block(&self, peer: PeerIndex, block: &Arc<Block>) -> Result<(), FailureError> {
         self.chain.process_block(Arc::clone(&block))?;
         self.shared.remove_header_view(&block.header().hash());
-        self.mark_block_stored(block.header().hash().clone());
+        self.mark_block_stored(block.header().hash());
         self.peers.set_last_common_header(peer, &block.header());
         Ok(())
     }
@@ -346,8 +345,8 @@ impl<CS: ChainStore> Synchronizer<CS> {
                     let (tip_header, local_total_difficulty) = {
                         let chain_state = self.shared.chain_state().lock();
                         (
-                            chain_state.tip_header().clone(),
-                            chain_state.total_difficulty().clone(),
+                            chain_state.tip_header().to_owned(),
+                            chain_state.total_difficulty().to_owned(),
                         )
                     };
                     if best_known_header.map(HeaderView::total_difficulty)
@@ -417,8 +416,8 @@ impl<CS: ChainStore> Synchronizer<CS> {
             let (header, total_difficulty) = {
                 let chain_state = self.shared.chain_state().lock();
                 (
-                    chain_state.tip_header().clone(),
-                    chain_state.total_difficulty().clone(),
+                    chain_state.tip_header().to_owned(),
+                    chain_state.total_difficulty().to_owned(),
                 )
             };
             let best_known = self.shared.best_known_header();
@@ -638,7 +637,7 @@ mod tests {
         let number = parent_header.number() + 1;
         let cellbase = create_cellbase(number);
         let header_builder = HeaderBuilder::default()
-            .parent_hash(parent_header.hash().clone())
+            .parent_hash(parent_header.hash())
             .timestamp(now)
             .number(number)
             .difficulty(difficulty)
@@ -691,7 +690,7 @@ mod tests {
             expect.push(shared.block_hash(*i).unwrap());
         }
         //genesis_hash must be the last one
-        expect.push(shared.genesis_hash().clone());
+        expect.push(shared.genesis_hash().to_owned());
 
         assert_eq!(expect, locator);
     }
@@ -748,7 +747,7 @@ mod tests {
         let block_number = 200;
 
         let mut blocks: Vec<Block> = Vec::new();
-        let mut parent = consensus.genesis_block().header().clone();
+        let mut parent = consensus.genesis_block().header().to_owned();
         for i in 1..block_number {
             let difficulty = shared1.calculate_difficulty(&parent).unwrap();
             let new_block = gen_block(&parent, difficulty, i);
@@ -760,10 +759,10 @@ mod tests {
             chain_controller2
                 .process_block(Arc::new(new_block.clone()))
                 .expect("process block ok");
-            parent = new_block.header().clone();
+            parent = new_block.header().to_owned();
         }
 
-        parent = blocks[150].header().clone();
+        parent = blocks[150].header().to_owned();
         let fork = parent.number();
         for i in 1..=block_number {
             let difficulty = shared2.calculate_difficulty(&parent).unwrap();
@@ -772,7 +771,7 @@ mod tests {
             chain_controller2
                 .process_block(Arc::new(new_block.clone()))
                 .expect("process block ok");
-            parent = new_block.header().clone();
+            parent = new_block.header().to_owned();
         }
 
         let synchronizer1 = gen_synchronizer(chain_controller1.clone(), shared1.clone());
@@ -823,7 +822,7 @@ mod tests {
         assert!(noop.is_none());
         assert_eq!(
             tip.unwrap(),
-            shared.chain_state().lock().tip_header().clone()
+            shared.chain_state().lock().tip_header().to_owned()
         );
         assert_eq!(
             header.unwrap(),
@@ -852,7 +851,7 @@ mod tests {
             chain_controller1
                 .process_block(Arc::new(new_block.clone()))
                 .expect("process block ok");
-            parent = new_block.header().clone();
+            parent = new_block.header().to_owned();
             blocks.push(new_block);
         }
         let synchronizer = gen_synchronizer(chain_controller2.clone(), shared2.clone());
@@ -882,7 +881,7 @@ mod tests {
             chain_controller
                 .process_block(Arc::new(new_block.clone()))
                 .expect("process block ok");
-            parent = new_block.header().clone();
+            parent = new_block.header().to_owned();
         }
 
         let synchronizer = gen_synchronizer(chain_controller.clone(), shared.clone());
@@ -1161,8 +1160,8 @@ mod tests {
             // Either way, set a new timeout based on current tip.
             let (tip, total_difficulty) = {
                 let chain_state = shared.chain_state().lock();
-                let header = chain_state.tip_header().clone();
-                let total_difficulty = chain_state.total_difficulty().clone();
+                let header = chain_state.tip_header().to_owned();
+                let total_difficulty = chain_state.total_difficulty().to_owned();
                 (header, total_difficulty)
             };
             assert_eq!(
