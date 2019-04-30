@@ -124,6 +124,14 @@ impl TxPool {
             || self.orphan.contains_key(id)
     }
 
+    pub fn get_entry(&self, id: &ProposalShortId) -> Option<&PoolEntry> {
+        self.pending
+            .get(id)
+            .or_else(|| self.staging.get(id))
+            .or_else(|| self.orphan.get(id))
+            .or_else(|| self.conflict.get(id))
+    }
+
     pub fn get_tx(&self, id: &ProposalShortId) -> Option<Transaction> {
         self.pending
             .get_tx(id)

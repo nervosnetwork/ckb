@@ -66,13 +66,13 @@ fn relay_compact_block_with_one_tx() {
 
             {
                 let chain_state = shared1.chain_state().lock();
-                let cycles = chain_state
+                let _cycles = chain_state
                     .add_tx_to_pool(tx.clone())
                     .expect("verify relay tx");
                 let fbb = &mut FlatBufferBuilder::new();
-                let message = RelayMessage::build_transaction(fbb, &tx, cycles);
+                let message = RelayMessage::build_transaction_hash(fbb, &tx.hash());
                 fbb.finish(message, None);
-                node1.broadcast(NetworkProtocol::RELAY.into(), &fbb.finished_data().to_vec());
+                node1.broadcast(NetworkProtocol::RELAY.into(), fbb.finished_data());
             }
 
             // building 1st compact block with tx proposal and broadcast it
@@ -105,7 +105,7 @@ fn relay_compact_block_with_one_tx() {
                 let fbb = &mut FlatBufferBuilder::new();
                 let message = RelayMessage::build_compact_block(fbb, &block, &HashSet::new());
                 fbb.finish(message, None);
-                node1.broadcast(NetworkProtocol::RELAY.into(), &fbb.finished_data().to_vec());
+                node1.broadcast(NetworkProtocol::RELAY.into(), fbb.finished_data());
             }
 
             // building 2nd compact block with tx and broadcast it
@@ -215,16 +215,16 @@ fn relay_compact_block_with_missing_indexs() {
 
             [3, 5].iter().for_each(|i| {
                 let tx = &txs[*i];
-                let cycles = {
+                let _cycles = {
                     let chain_state = shared1.chain_state().lock();
                     chain_state
                         .add_tx_to_pool(tx.clone())
                         .expect("verify relay tx")
                 };
                 let fbb = &mut FlatBufferBuilder::new();
-                let message = RelayMessage::build_transaction(fbb, tx, cycles);
+                let message = RelayMessage::build_transaction_hash(fbb, &tx.hash());
                 fbb.finish(message, None);
-                node1.broadcast(NetworkProtocol::RELAY.into(), &fbb.finished_data().to_vec());
+                node1.broadcast(NetworkProtocol::RELAY.into(), fbb.finished_data());
             });
 
             // building 1st compact block with tx proposal and broadcast it
