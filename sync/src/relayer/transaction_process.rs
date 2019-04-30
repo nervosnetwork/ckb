@@ -42,7 +42,14 @@ impl<'a, CS: ChainStore> TransactionProcess<'a, CS> {
             debug!(target: "relay", "discarding already known transaction {:#x}", tx_hash);
             return Ok(());
         }
+
+        // Insert tx_hash into `already_known`
+        // Remove tx_hash from `tx_already_asked`
         self.relayer.state.insert_tx(tx_hash.clone());
+        // Remove tx_hash from `tx_ask_for_set`
+        if let Some(peer_state) = self.relayer.peers.state.write().get_mut(&self.peer) {
+            peer_state.remove_ask_for_tx(&tx_hash);
+        }
 
         let tx_result = {
             let chain_state = self.relayer.shared.chain_state().lock();

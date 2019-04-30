@@ -20,9 +20,16 @@ use lru_cache::LruCache;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 use std::cmp;
-use std::collections::hash_map::{Entry, HashMap};
+use std::collections::{
+    hash_map::{Entry, HashMap},
+    hash_set::HashSet,
+    BTreeMap,
+};
+use std::time::{Duration, Instant};
 
 const FILTER_SIZE: usize = 20000;
+const MAX_ASK_MAP_SIZE: usize = 30000;
+const MAX_ASK_SET_SIZE: usize = MAX_ASK_MAP_SIZE * 2;
 
 // State used to enforce CHAIN_SYNC_TIMEOUT
 // Only in effect for outbound, non-manual connections, with
@@ -66,6 +73,75 @@ pub struct PeerState {
     pub headers_sync_timeout: Option<u64>,
     pub disconnect: bool,
     pub chain_sync: ChainSyncState,
+    // The key is a `timeout`, means do not ask the tx before `timeout`.
+    tx_ask_for_map: BTreeMap<Instant, Vec<H256>>,
+    tx_ask_for_set: HashSet<H256>,
+}
+
+impl PeerState {
+    pub fn new(headers_sync_timeout: Option<u64>, chain_sync: ChainSyncState) -> PeerState {
+        PeerState {
+            sync_started: false,
+            last_block_announcement: None,
+            headers_sync_timeout,
+            disconnect: false,
+            chain_sync,
+            tx_ask_for_map: BTreeMap::default(),
+            tx_ask_for_set: HashSet::default(),
+        }
+    }
+
+    pub fn add_ask_for_tx(
+        &mut self,
+        tx_hash: H256,
+        last_ask_timeout: Option<Instant>,
+    ) -> Option<Instant> {
+        if self.tx_ask_for_map.len() > MAX_ASK_MAP_SIZE {
+            debug!(target: "relay", "this peer tx_ask_for_map is full, ignore {:#x}", tx_hash);
+            return None;
+        }
+        if self.tx_ask_for_set.len() > MAX_ASK_SET_SIZE {
+            debug!(target: "relay", "this peer tx_ask_for_set is full, ignore {:#x}", tx_hash);
+            return None;
+        }
+        // This peer already register asked for this tx
+        if self.tx_ask_for_set.contains(&tx_hash) {
+            debug!(target: "relay", "this peer already register ask tx({:#x})", tx_hash);
+            return None;
+        }
+
+        // Retry ask tx 30 seconds later
+        let next_ask_timeout = last_ask_timeout
+            .map(|time| cmp::max(time + Duration::from_secs(30), Instant::now()))
+            .unwrap_or_else(Instant::now);
+        self.tx_ask_for_map
+            .entry(next_ask_timeout)
+            .or_default()
+            .push(tx_hash.clone());
+        self.tx_ask_for_set.insert(tx_hash);
+        Some(next_ask_timeout)
+    }
+
+    pub fn remove_ask_for_tx(&mut self, tx_hash: &H256) {
+        self.tx_ask_for_set.remove(tx_hash);
+    }
+
+    pub fn pop_ask_for_txs(&mut self) -> Vec<H256> {
+        let mut all_txs = Vec::new();
+        let mut timeouts = Vec::new();
+        let now = Instant::now();
+        for (timeout, txs) in &self.tx_ask_for_map {
+            if *timeout >= now {
+                break;
+            }
+            timeouts.push(timeout.clone());
+            all_txs.extend(txs.clone());
+        }
+        for timeout in timeouts {
+            self.tx_ask_for_map.remove(&timeout);
+        }
+        all_txs
+    }
 }
 
 #[derive(Clone, Default)]
@@ -165,13 +241,7 @@ impl Peers {
             .or_insert_with(|| {
                 let mut chain_sync = ChainSyncState::default();
                 chain_sync.protect = protect;
-                PeerState {
-                    sync_started: false,
-                    last_block_announcement: None,
-                    headers_sync_timeout: Some(predicted_headers_sync_time),
-                    disconnect: false,
-                    chain_sync,
-                }
+                PeerState::new(Some(predicted_headers_sync_time), chain_sync)
             });
     }
 

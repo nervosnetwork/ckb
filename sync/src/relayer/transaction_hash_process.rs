@@ -1,19 +1,16 @@
 use crate::relayer::Relayer;
 use ckb_network::{CKBProtocolContext, PeerIndex};
-use ckb_protocol::{RelayMessage, RelayTransactionHash as FbsRelayTransactionHash};
+use ckb_protocol::RelayTransactionHash as FbsRelayTransactionHash;
 use ckb_shared::store::ChainStore;
 use failure::Error as FailureError;
-use flatbuffers::FlatBufferBuilder;
 use log::debug;
 use numext_fixed_hash::H256;
 use std::convert::TryInto;
 
-const MAX_ASK_TX_TIME: u8 = 10;
-
 pub struct TransactionHashProcess<'a, CS> {
     message: &'a FbsRelayTransactionHash<'a>,
     relayer: &'a Relayer<CS>,
-    nc: &'a CKBProtocolContext,
+    _nc: &'a CKBProtocolContext,
     peer: PeerIndex,
 }
 
@@ -27,7 +24,7 @@ impl<'a, CS: ChainStore> TransactionHashProcess<'a, CS> {
         TransactionHashProcess {
             message,
             relayer,
-            nc,
+            _nc: nc,
             peer,
         }
     }
@@ -41,14 +38,6 @@ impl<'a, CS: ChainStore> TransactionHashProcess<'a, CS> {
                 tx_hash,
                 self.peer,
             );
-        } else if self.relayer.state.get_asked(&tx_hash) >= MAX_ASK_TX_TIME {
-            debug!(
-                target: "relay",
-                "transaction({:#x}) from {}, already asked {} time, give up",
-                tx_hash,
-                self.peer,
-                MAX_ASK_TX_TIME,
-            );
         } else {
             debug!(
                 target: "relay",
@@ -56,13 +45,27 @@ impl<'a, CS: ChainStore> TransactionHashProcess<'a, CS> {
                 tx_hash,
                 self.peer,
             );
-            self.relayer.state.incr_asked(tx_hash.clone());
-
-            let fbb = &mut FlatBufferBuilder::new();
-            let message = RelayMessage::build_get_transaction(fbb, &tx_hash);
-            fbb.finish(message, None);
-            let data = fbb.finished_data().into();
-            self.nc.send_message_to(self.peer, data);
+            let last_ask_timeout = self
+                .relayer
+                .state
+                .tx_already_asked
+                .lock()
+                .get(&tx_hash)
+                .cloned();
+            if let Some(next_ask_timeout) = self
+                .relayer
+                .peers
+                .state
+                .write()
+                .get_mut(&self.peer)
+                .and_then(|peer_state| peer_state.add_ask_for_tx(tx_hash.clone(), last_ask_timeout))
+            {
+                self.relayer
+                    .state
+                    .tx_already_asked
+                    .lock()
+                    .insert(tx_hash.clone(), next_ask_timeout);
+            }
         }
 
         Ok(())
