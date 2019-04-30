@@ -1,5 +1,5 @@
 use crate::error::TransactionError;
-use ckb_core::transaction::{Capacity, OutPoint, Transaction, TX_VERSION};
+use ckb_core::transaction::{Capacity, CellOutput, OutPoint, Transaction, TX_VERSION};
 use ckb_core::{
     cell::{CellMeta, CellStatus, LiveCell, ResolvedTransaction},
     BlockNumber, Cycle,
@@ -7,7 +7,6 @@ use ckb_core::{
 use ckb_script::TransactionScriptsVerifier;
 use ckb_traits::BlockMedianTimeContext;
 use lru_cache::LruCache;
-use occupied_capacity::OccupiedCapacity;
 use std::cell::RefCell;
 use std::collections::HashSet;
 
@@ -319,22 +318,17 @@ impl<'a> CapacityVerifier<'a> {
         if inputs_total < outputs_total {
             return Err(TransactionError::OutputsSumOverflow);
         }
-        let of = self
+        if self
             .resolved_transaction
             .transaction
             .outputs()
             .iter()
-            .any(|output| {
-                output
-                    .occupied_capacity()
-                    .map(|x| x > output.capacity)
-                    .unwrap_or(true)
-            });
-        if of {
-            Err(TransactionError::CapacityOverflow)
-        } else {
-            Ok(())
+            .any(CellOutput::is_occupied_capacity_overflow)
+        {
+            return Err(TransactionError::CapacityOverflow);
         }
+
+        Ok(())
     }
 }
 

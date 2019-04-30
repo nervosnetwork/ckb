@@ -7,7 +7,7 @@ use bincode::{deserialize, serialize};
 use faster_hex::hex_string;
 use hash::blake2b_256;
 use numext_fixed_hash::H256;
-use occupied_capacity::HasOccupiedCapacity;
+use occupied_capacity::{HasOccupiedCapacity, OccupiedCapacity};
 use serde_derive::{Deserialize, Serialize};
 use std::fmt;
 use std::hash::{Hash, Hasher};
@@ -145,6 +145,13 @@ impl CellOutput {
         } = self;
         (capacity, data, lock, type_)
     }
+
+    pub fn is_occupied_capacity_overflow(&self) -> bool {
+        if let Ok(cap) = self.occupied_capacity() {
+            return cap > self.capacity;
+        }
+        true
+    }
 }
 
 pub type Witness = Vec<Vec<u8>>;
@@ -201,7 +208,9 @@ impl Transaction {
     }
 
     pub fn is_cellbase(&self) -> bool {
-        self.inputs.len() == 1 && self.inputs[0].previous_output.is_null()
+        self.inputs.len() == 1
+            && self.inputs[0].previous_output.is_null()
+            && self.inputs[0].since == 0
     }
 
     pub fn hash(&self) -> H256 {

@@ -3,7 +3,7 @@ use crate::header_verifier::HeaderResolver;
 use crate::{TransactionVerifier, Verifier};
 use ckb_core::cell::ResolvedTransaction;
 use ckb_core::header::Header;
-use ckb_core::transaction::{Capacity, CellInput, Transaction};
+use ckb_core::transaction::{Capacity, CellInput, CellOutput, Transaction};
 use ckb_core::Cycle;
 use ckb_core::{block::Block, BlockNumber};
 use ckb_traits::{BlockMedianTimeContext, ChainProvider};
@@ -19,7 +19,7 @@ pub struct BlockVerifier<P> {
     // Verify if the committed and proposed transactions contains duplicate
     duplicate: DuplicateVerifier,
     // Verify the cellbase
-    cellbase: CellbaseVerifier<P>,
+    cellbase: CellbaseVerifier,
     // Verify the the committed and proposed transactions merkle root match header's announce
     merkle_root: MerkleRootVerifier,
     // Verify the the uncle
@@ -36,7 +36,7 @@ where
         BlockVerifier {
             // TODO change all new fn's chain to reference
             duplicate: DuplicateVerifier::new(),
-            cellbase: CellbaseVerifier::new(provider.clone()),
+            cellbase: CellbaseVerifier::new(),
             merkle_root: MerkleRootVerifier::new(),
             uncles: UnclesVerifier::new(provider.clone()),
             commit: CommitVerifier::new(provider),
@@ -57,13 +57,11 @@ impl<P: ChainProvider + Clone> Verifier for BlockVerifier<P> {
 }
 
 #[derive(Clone)]
-pub struct CellbaseVerifier<CP> {
-    provider: CP,
-}
+pub struct CellbaseVerifier {}
 
-impl<CP: ChainProvider + Clone> CellbaseVerifier<CP> {
-    pub fn new(provider: CP) -> Self {
-        CellbaseVerifier { provider }
+impl CellbaseVerifier {
+    pub fn new() -> Self {
+        CellbaseVerifier {}
     }
 
     pub fn verify(&self, block: &Block) -> Result<(), Error> {
@@ -78,11 +76,11 @@ impl<CP: ChainProvider + Clone> CellbaseVerifier<CP> {
             return Err(Error::Cellbase(CellbaseError::InvalidQuantity));
         }
 
-        if !block.transactions()[0].is_cellbase() {
+        let cellbase_transaction = &block.transactions()[0];
+        if !cellbase_transaction.is_cellbase() {
             return Err(Error::Cellbase(CellbaseError::InvalidPosition));
         }
 
-        let cellbase_transaction = &block.transactions()[0];
         let cellbase_input = &cellbase_transaction.inputs()[0];
         if cellbase_input != &CellInput::new_cellbase_input(block.header().number()) {
             return Err(Error::Cellbase(CellbaseError::InvalidInput));
@@ -96,6 +94,14 @@ impl<CP: ChainProvider + Clone> CellbaseVerifier<CP> {
         {
             return Err(Error::Cellbase(CellbaseError::InvalidOutput));
         }
+
+        if cellbase_transaction
+            .outputs()
+            .iter()
+            .any(CellOutput::is_occupied_capacity_overflow)
+        {
+            return Err(Error::CapacityOverflow);
+        };
 
         Ok(())
     }
@@ -214,18 +220,26 @@ impl<CP: ChainProvider + Clone> UnclesVerifier<CP> {
                 actual: actual_uncles_hash,
             }));
         }
+
         // if block.uncles is empty, return
-        if block.uncles().is_empty() {
+        if uncles_count == 0 {
             return Ok(());
         }
 
-        // verify uncles lenght =< max_uncles_num
-        let uncles_num = block.uncles().len();
-        let max_uncles_num = self.provider.consensus().max_uncles_num();
-        if uncles_num > max_uncles_num {
+        // if block is genesis, which is expected with zero uncles, return error
+        if block.is_genesis() {
+            return Err(Error::Uncles(UnclesError::OverCount {
+                max: 0,
+                actual: uncles_count,
+            }));
+        }
+
+        // verify uncles length =< max_uncles_num
+        let max_uncles_num = self.provider.consensus().max_uncles_num() as u32;
+        if uncles_count > max_uncles_num {
             return Err(Error::Uncles(UnclesError::OverCount {
                 max: max_uncles_num,
-                actual: uncles_num,
+                actual: uncles_count,
             }));
         }
 
@@ -355,11 +369,9 @@ impl TransactionsVerifier {
             .try_fold(Capacity::zero(), |acc, rhs| {
                 rhs.and_then(|x| acc.safe_add(x))
             })?;
-
         if cellbase.transaction.outputs_capacity()? > block_reward.safe_add(fee)? {
             return Err(Error::Cellbase(CellbaseError::InvalidReward));
         }
-        // TODO use TransactionScriptsVerifier to verify cellbase script
 
         // make verifiers orthogonal
         let cycles_set = resolved

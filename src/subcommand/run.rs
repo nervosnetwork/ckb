@@ -10,13 +10,14 @@ use ckb_shared::shared::{Shared, SharedBuilder};
 use ckb_shared::store::ChainStore;
 use ckb_sync::{NetTimeProtocol, NetworkProtocol, Relayer, SyncSharedState, Synchronizer};
 use ckb_traits::chain_provider::ChainProvider;
+use ckb_verification::{BlockVerifier, Verifier};
 use log::info;
 use std::sync::Arc;
 
 pub fn run(args: RunArgs) -> Result<(), ExitCode> {
     deadlock_detection();
 
-    let shared = SharedBuilder::<CacheDB<RocksDB>>::default()
+    let shared = SharedBuilder::<CacheDB<RocksDB>>::new()
         .consensus(args.consensus)
         .db(&args.config.db)
         .tx_pool_config(args.config.tx_pool)
@@ -25,6 +26,9 @@ pub fn run(args: RunArgs) -> Result<(), ExitCode> {
             eprintln!("Run error: {:?}", err);
             ExitCode::Failure
         })?;
+
+    // Verify genesis every time starting node
+    verify_genesis(&shared)?;
 
     let notify = NotifyService::default().start(Some("notify"));
 
@@ -101,4 +105,14 @@ fn setup_chain<CS: ChainStore + 'static>(
 ) -> ChainController {
     let chain_service = ChainBuilder::new(shared, notify).build();
     chain_service.start(Some("ChainService"))
+}
+
+fn verify_genesis<CS: ChainStore + 'static>(shared: &Shared<CS>) -> Result<(), ExitCode> {
+    let genesis = shared.consensus().genesis_block();
+    BlockVerifier::new(shared.clone())
+        .verify(genesis)
+        .map_err(|err| {
+            eprintln!("genesis error: {}", err);
+            ExitCode::Config
+        })
 }
