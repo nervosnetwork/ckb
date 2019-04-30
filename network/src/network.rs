@@ -26,7 +26,7 @@ use p2p::{
     context::{ServiceContext, SessionContext},
     error::Error as P2pError,
     multiaddr::{self, multihash::Multihash, Multiaddr},
-    secio::PeerId,
+    secio::{self, PeerId},
     service::{
         DialProtocol, ProtocolEvent, ProtocolHandle, Service, ServiceError, ServiceEvent,
         TargetSession,
@@ -37,7 +37,6 @@ use p2p::{
 };
 use p2p_identify::IdentifyProtocol;
 use p2p_ping::PingHandler;
-use secio;
 use std::boxed::Box;
 use std::cmp::max;
 use std::sync::Arc;

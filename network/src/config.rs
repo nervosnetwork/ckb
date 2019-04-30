@@ -1,10 +1,12 @@
 use crate::errors::{ConfigError, Error};
 use crate::PeerId;
 use log::info;
-use p2p::multiaddr::{Multiaddr, Protocol, ToMultiaddr};
+use p2p::{
+    multiaddr::{Multiaddr, Protocol, ToMultiaddr},
+    secio,
+};
 use rand;
 use rand::Rng;
-use secio;
 use serde_derive::{Deserialize, Serialize};
 use std::fs;
 use std::io::Read;

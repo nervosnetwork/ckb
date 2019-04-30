@@ -24,7 +24,6 @@ futures = "0.1"
 snap = "0.2"
 crossbeam-channel = "0.3"
 p2p = { version="0.2.0-alpha.6", package="tentacle" }
-secio = { version="0.1.1", package="tentacle-secio" }
 p2p-ping = { version="0.3.1", package="tentacle-ping" }
 p2p-discovery = { version="0.2.1", package="tentacle-discovery" }
 p2p-identify = { version="0.2.1", package="tentacle-identify" }
