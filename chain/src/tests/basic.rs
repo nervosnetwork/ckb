@@ -246,10 +246,10 @@ fn test_transaction_conflict_in_same_block() {
             .expect("process block ok");
     }
     assert_eq!(
-        SharedError::UnresolvableTransaction(UnresolvableError::Dead(vec![OutPoint {
+        SharedError::UnresolvableTransaction(UnresolvableError::Dead(OutPoint {
             tx_hash: tx1_hash,
             index: 0,
-        }])),
+        })),
         chain_controller
             .process_block(Arc::new(chain[3].clone()))
             .unwrap_err()
@@ -338,10 +338,10 @@ fn test_transaction_conflict_in_different_blocks() {
             .expect("process block ok");
     }
     assert_eq!(
-        SharedError::UnresolvableTransaction(UnresolvableError::Dead(vec![OutPoint {
+        SharedError::UnresolvableTransaction(UnresolvableError::Dead(OutPoint {
             tx_hash: tx1_hash,
             index: 0,
-        }])),
+        })),
         chain_controller
             .process_block(Arc::new(chain[4].clone()))
             .unwrap_err()

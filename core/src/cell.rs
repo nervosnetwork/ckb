@@ -156,7 +156,7 @@ impl<'a> CellProvider for BlockCellProvider<'a> {
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum UnresolvableError {
-    Dead(Vec<OutPoint>),
+    Dead(OutPoint),
     Unknown(Vec<OutPoint>),
 }
 
@@ -165,8 +165,7 @@ pub fn resolve_transaction<'a, CP: CellProvider>(
     seen_inputs: &mut FnvHashSet<OutPoint>,
     cell_provider: &CP,
 ) -> Result<ResolvedTransaction<'a>, UnresolvableError> {
-    let (mut dead_out_points, mut unknown_out_points, mut input_cells, mut dep_cells) = (
-        Vec::new(),
+    let (mut unknown_out_points, mut input_cells, mut dep_cells) = (
         Vec::new(),
         Vec::with_capacity(transaction.inputs().len()),
         Vec::with_capacity(transaction.deps().len()),
@@ -174,38 +173,48 @@ pub fn resolve_transaction<'a, CP: CellProvider>(
 
     // skip resolve input of cellbase
     if !transaction.is_cellbase() {
-        transaction.input_pts().iter().for_each(|out_point| {
+        for out_point in transaction.input_pts() {
             let cell_status = if seen_inputs.insert(out_point.clone()) {
-                cell_provider.cell(out_point)
+                cell_provider.cell(&out_point)
             } else {
                 CellStatus::Dead
             };
 
             match cell_status {
-                CellStatus::Dead => dead_out_points.push(out_point.clone()),
-                CellStatus::Unknown => unknown_out_points.push(out_point.clone()),
-                CellStatus::Live(cell_meta) => input_cells.push(cell_meta),
+                CellStatus::Dead => {
+                    return Err(UnresolvableError::Dead(out_point.clone()));
+                }
+                CellStatus::Unknown => {
+                    unknown_out_points.push(out_point.clone());
+                }
+                CellStatus::Live(cell_meta) => {
+                    input_cells.push(cell_meta);
+                }
             }
-        })
+        }
     }
 
-    transaction.dep_pts().iter().for_each(|out_point| {
-        let cell_status = if seen_inputs.contains(out_point) {
+    for out_point in transaction.dep_pts() {
+        let cell_status = if seen_inputs.contains(&out_point) {
             CellStatus::Dead
         } else {
-            cell_provider.cell(out_point)
+            cell_provider.cell(&out_point)
         };
 
         match cell_status {
-            CellStatus::Dead => dead_out_points.push(out_point.clone()),
-            CellStatus::Unknown => unknown_out_points.push(out_point.clone()),
-            CellStatus::Live(cell_meta) => dep_cells.push(cell_meta),
+            CellStatus::Dead => {
+                return Err(UnresolvableError::Dead(out_point.clone()));
+            }
+            CellStatus::Unknown => {
+                unknown_out_points.push(out_point.clone());
+            }
+            CellStatus::Live(cell_meta) => {
+                dep_cells.push(cell_meta);
+            }
         }
-    });
+    }
 
-    if !dead_out_points.is_empty() {
-        Err(UnresolvableError::Dead(dead_out_points))
-    } else if !unknown_out_points.is_empty() {
+    if !unknown_out_points.is_empty() {
         Err(UnresolvableError::Unknown(unknown_out_points))
     } else {
         Ok(ResolvedTransaction {

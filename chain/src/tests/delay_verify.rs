@@ -94,10 +94,10 @@ fn test_dead_cell_in_same_block() {
     }
 
     assert_eq!(
-        SharedError::UnresolvableTransaction(UnresolvableError::Dead(vec![OutPoint {
+        SharedError::UnresolvableTransaction(UnresolvableError::Dead(OutPoint {
             tx_hash: tx1_hash,
             index: 0,
-        }])),
+        })),
         chain_controller
             .process_block(Arc::new(chain2[switch_fork_number + 1].clone()))
             .unwrap_err()
@@ -200,10 +200,10 @@ fn test_dead_cell_in_different_block() {
     }
 
     assert_eq!(
-        SharedError::UnresolvableTransaction(UnresolvableError::Dead(vec![OutPoint {
+        SharedError::UnresolvableTransaction(UnresolvableError::Dead(OutPoint {
             tx_hash: tx1_hash,
             index: 0,
-        }])),
+        })),
         chain_controller
             .process_block(Arc::new(chain2[switch_fork_number + 2].clone()))
             .unwrap_err()
