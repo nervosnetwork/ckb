@@ -50,6 +50,7 @@ impl Net {
                     .expect("invalid address")],
                 public_addresses: vec![],
                 bootnodes: vec![],
+                dns_seeds: vec![],
                 reserved_peers: vec![],
                 reserved_only: false,
                 max_peers: 1,

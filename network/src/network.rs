@@ -90,8 +90,12 @@ impl NetworkState {
             .map(|addr| (addr.to_owned(), std::u8::MAX))
             .collect();
         let peer_store: Mutex<Box<dyn PeerStore>> = {
-            let peer_store =
+            let mut peer_store =
                 SqlitePeerStore::file(config.peer_store_path().to_string_lossy().to_string())?;
+            let bootnodes = config.bootnodes()?;
+            for (peer_id, addr) in bootnodes {
+                peer_store.add_bootnode(peer_id, addr);
+            }
             Mutex::new(Box::new(peer_store))
         };
 
@@ -707,7 +711,7 @@ impl NetworkService {
         );
         let dns_seeding_service = DnsSeedingService::new(
             Arc::clone(&network_state),
-            network_state.config.bootnodes.clone(),
+            network_state.config.dns_seeds.clone(),
         );
         let bg_services = vec![
             Box::new(ping_service.for_each(|_| Ok(()))) as Box<_>,

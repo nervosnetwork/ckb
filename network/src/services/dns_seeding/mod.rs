@@ -5,10 +5,7 @@ use std::time::{Duration, Instant};
 use faster_hex::hex_decode;
 use futures::{Async, Future, Poll, Stream};
 use log::{debug, error, info, trace, warn};
-use p2p::{
-    multiaddr::{Protocol, ToMultiaddr},
-    secio::PeerId,
-};
+use p2p::{multiaddr::Protocol, secio::PeerId};
 use resolve::record::Txt;
 use resolve::{DnsConfig, DnsResolver};
 use secp256k1::key::PublicKey;
@@ -98,12 +95,7 @@ impl DnsSeedingService {
                     }
                 }
                 Err(_) => {
-                    if let Ok(addr) = seed.to_multiaddr() {
-                        debug!(target: "network", "DNS query failed, {} is a multiaddr", addr);
-                        addrs.push(addr);
-                    } else {
-                        warn!(target: "network", "Invalid domain name or multiaddr: {}", seed);
-                    }
+                    warn!(target: "network", "Invalid domain name: {}", seed);
                 }
             }
         }
@@ -118,7 +110,7 @@ impl DnsSeedingService {
                         }
                     }
                     _ => {
-                        debug!(target: "network", "Got addr without peer_id: {}", addr);
+                        debug!(target: "network", "Got addr without peer_id: {}, ignore it", addr);
                     }
                 }
             }
