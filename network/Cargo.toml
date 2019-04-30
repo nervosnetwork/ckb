@@ -32,6 +32,11 @@ rusqlite = {version = "0.16.0", features = ["bundled"]}
 lazy_static = "1.3.0"
 generic-channel = { version = "0.2.0", features = ["all"] }
 sha2 = "0.8.0"
+bs58 = "0.2.0"
+faster-hex = "0.3"
+hash = {path = "../util/hash"}
+secp256k1 = {version = "0.12.2" }
+resolve = "0.2.0"
 
 [dev-dependencies]
 criterion = "0.2"

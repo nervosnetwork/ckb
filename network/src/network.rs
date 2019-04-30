@@ -5,9 +5,9 @@ use crate::protocols::feeler::Feeler;
 use crate::protocols::{
     discovery::{DiscoveryProtocol, DiscoveryService},
     identify::IdentifyCallback,
-    outbound_peer::OutboundPeerService,
     ping::PingService,
 };
+use crate::services::{dns_seeding::DnsSeedingService, outbound_peer::OutboundPeerService};
 use crate::Peer;
 use crate::{
     Behaviour, CKBProtocol, NetworkConfig, ProtocolId, ProtocolVersion, PublicKey, ServiceControl,
@@ -75,7 +75,7 @@ pub struct NetworkState {
     disconnecting_sessions: RwLock<FnvHashSet<SessionId>>,
     local_private_key: secio::SecioKeyPair,
     local_peer_id: PeerId,
-    config: NetworkConfig,
+    pub(crate) config: NetworkConfig,
 }
 
 impl NetworkState {
@@ -90,12 +90,8 @@ impl NetworkState {
             .map(|addr| (addr.to_owned(), std::u8::MAX))
             .collect();
         let peer_store: Mutex<Box<dyn PeerStore>> = {
-            let mut peer_store =
+            let peer_store =
                 SqlitePeerStore::file(config.peer_store_path().to_string_lossy().to_string())?;
-            let bootnodes = config.bootnodes()?;
-            for (peer_id, addr) in bootnodes {
-                peer_store.add_bootnode(peer_id, addr);
-            }
             Mutex::new(Box::new(peer_store))
         };
 
@@ -709,10 +705,15 @@ impl NetworkService {
             p2p_service.control().clone(),
             Duration::from_secs(config.connect_outbound_interval_secs),
         );
+        let dns_seeding_service = DnsSeedingService::new(
+            Arc::clone(&network_state),
+            network_state.config.bootnodes.clone(),
+        );
         let bg_services = vec![
             Box::new(ping_service.for_each(|_| Ok(()))) as Box<_>,
             Box::new(disc_service.for_each(|_| Ok(()))) as Box<_>,
             Box::new(outbound_peer_service.for_each(|_| Ok(()))) as Box<_>,
+            Box::new(dns_seeding_service) as Box<_>,
         ];
 
         NetworkService {
@@ -778,6 +779,7 @@ impl NetworkService {
             thread_builder = thread_builder.name(name.to_string());
         }
         let (sender, receiver) = crossbeam_channel::bounded(1);
+        // Main network thread
         let thread = thread_builder
             .spawn(move || {
                 let inner_p2p_control = self.p2p_service.control().clone();
