@@ -11,10 +11,10 @@ jsonrpc_client!(pub struct RpcClient {
     pub fn add_node(&mut self, peer_id: String, address: String) -> RpcRequest<()>;
 
     pub fn get_block_template(
-        &mut self, 
-        cycles_limit: Option<String>, 
-        bytes_limit: Option<String>, 
-        proposals_limit: Option<String>, 
+        &mut self,
+        cycles_limit: Option<String>,
+        bytes_limit: Option<String>,
+        proposals_limit: Option<String>,
         max_version: Option<u32>
     ) -> RpcRequest<BlockTemplate>;
 
