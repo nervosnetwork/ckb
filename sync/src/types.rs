@@ -348,8 +348,8 @@ impl<CS: ChainStore> SyncSharedState<CS> {
                 .block_ext(&chain_state.tip_hash())
                 .expect("tip block_ext must exist");
             (
-                chain_state.total_difficulty().clone(),
-                chain_state.tip_header().clone(),
+                chain_state.total_difficulty().to_owned(),
+                chain_state.tip_header().to_owned(),
                 block_ext.total_uncles_count,
             )
         };
@@ -385,7 +385,7 @@ impl<CS: ChainStore> SyncSharedState<CS> {
         self.shared.block(hash)
     }
     pub fn tip_header(&self) -> Header {
-        self.shared.chain_state().lock().tip_header().clone()
+        self.shared.chain_state().lock().tip_header().to_owned()
     }
     pub fn consensus(&self) -> &Consensus {
         self.shared.consensus()
@@ -397,7 +397,7 @@ impl<CS: ChainStore> SyncSharedState<CS> {
     }
 
     pub fn best_known_header(&self) -> HeaderView {
-        self.best_known_header.read().clone()
+        self.best_known_header.read().to_owned()
     }
     pub fn set_best_known_header(&self, header: HeaderView) {
         *self.best_known_header.write() = header;

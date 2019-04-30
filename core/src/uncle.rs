@@ -17,7 +17,7 @@ pub struct UncleBlock {
 impl From<Block> for UncleBlock {
     fn from(block: Block) -> Self {
         UncleBlock {
-            header: block.header().clone(),
+            header: block.header().to_owned(),
             proposals: block.proposals().to_vec(),
         }
     }

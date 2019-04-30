@@ -356,13 +356,13 @@ impl<'a> From<&'a CoreHeader> for Header {
             parent_hash: core.parent_hash().to_owned(),
             timestamp: core.timestamp().to_string(),
             number: core.number().to_string(),
-            transactions_root: core.transactions_root().clone(),
-            proposals_root: core.proposals_root().clone(),
-            witnesses_root: core.witnesses_root().clone(),
-            difficulty: core.difficulty().clone(),
+            transactions_root: core.transactions_root().to_owned(),
+            proposals_root: core.proposals_root().to_owned(),
+            witnesses_root: core.witnesses_root().to_owned(),
+            difficulty: core.difficulty().to_owned(),
             uncles_hash: core.uncles_hash().to_owned(),
             uncles_count: core.uncles_count(),
-            seal: core.seal().clone().into(),
+            seal: core.seal().to_owned().into(),
             hash: core.hash(),
         }
     }

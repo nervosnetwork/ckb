@@ -94,7 +94,7 @@ fn test_uncle_verifier() {
             .process_block(Arc::new(new_block.clone()))
             .expect("process block ok");
         chain1.push(new_block.clone());
-        parent = new_block.header().clone();
+        parent = new_block.header().to_owned();
     }
 
     parent = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
@@ -107,7 +107,7 @@ fn test_uncle_verifier() {
             .process_block(Arc::new(new_block.clone()))
             .expect("process block ok");
         chain2.push(new_block.clone());
-        parent = new_block.header().clone();
+        parent = new_block.header().to_owned();
     }
 
     let verifier = UnclesVerifier::new(shared.clone());
@@ -150,7 +150,7 @@ fn test_uncle_verifier() {
             .block(chain1.last().cloned().unwrap())
             .header(
                 HeaderBuilder::default()
-                    .header(chain1.last().cloned().unwrap().header().clone())
+                    .header(chain1.last().cloned().unwrap().header().to_owned())
                     .uncles_count(0)
                     .uncles_hash(uncles_hash.clone())
                     .build(),
@@ -172,7 +172,7 @@ fn test_uncle_verifier() {
             .block(chain2.last().cloned().unwrap())
             .uncle(chain1.last().cloned().unwrap().into())
             .with_header_builder(
-                HeaderBuilder::default().header(chain2.last().unwrap().header().clone()),
+                HeaderBuilder::default().header(chain2.last().unwrap().header().to_owned()),
             );
         assert_eq!(
             verifier.verify(&block),
@@ -189,13 +189,13 @@ fn test_uncle_verifier() {
         let uncle = BlockBuilder::default()
             .block(chain1.get(uncle_number - 1).cloned().unwrap())
             .with_header_builder(
-                HeaderBuilder::default().header(chain1[uncle_number - 1].header().clone()),
+                HeaderBuilder::default().header(chain1[uncle_number - 1].header().to_owned()),
             );
         let block = BlockBuilder::default()
             .block(chain2.get(block_number - 1).cloned().unwrap())
             .uncle(uncle.into())
             .with_header_builder(
-                HeaderBuilder::default().header(chain2[block_number - 1].header().clone()),
+                HeaderBuilder::default().header(chain2[block_number - 1].header().to_owned()),
             );
         assert_eq!(
             verifier.verify(&block),
@@ -214,7 +214,7 @@ fn test_uncle_verifier() {
             .uncle(chain2[6].clone().into())
             .with_header_builder(
                 HeaderBuilder::default()
-                    .header(chain1[8].header().clone())
+                    .header(chain1[8].header().to_owned())
                     .difficulty(U256::from(2u64)),
             );
         assert_eq!(
@@ -231,7 +231,7 @@ fn test_uncle_verifier() {
             .block(chain1.get(block_number).cloned().unwrap())          // block.number 10 epoch 1
             .uncle(chain1.get(uncle_number).cloned().unwrap().into())   // block.number 7 epoch 0
             .with_header_builder(HeaderBuilder::default().header(
-                chain1[7].header().clone()
+                chain1[7].header().to_owned()
             ));
         assert_eq!(
             verifier.verify(&block),
@@ -249,7 +249,7 @@ fn test_uncle_verifier() {
             .block(chain1.get(block_number).cloned().unwrap())          // epoch 1
             .uncle(chain2.get(uncle_number).cloned().unwrap().into())   // epoch 0
             .with_header_builder(HeaderBuilder::default().header(
-                chain1[block_number].header().clone()
+                chain1[block_number].header().to_owned()
             ));
         assert_eq!(
             verifier.verify(&block),
@@ -266,7 +266,7 @@ fn test_uncle_verifier() {
         let block = BlockBuilder::default()
             .block(chain1.get(8).cloned().unwrap())
             .uncle(uncle.into())
-            .with_header_builder(HeaderBuilder::default().header(chain1[8].header().clone()));
+            .with_header_builder(HeaderBuilder::default().header(chain1[8].header().to_owned()));
         assert_eq!(
             verifier.verify(&block),
             Err(Error::Uncles(UnclesError::ProposalTransactionsRoot))
@@ -278,11 +278,11 @@ fn test_uncle_verifier() {
         let uncle = BlockBuilder::default()
             .block(chain2.get(6).cloned().unwrap())
             .proposal(ProposalShortId::from_slice(&[1; 10]).unwrap())
-            .with_header_builder(HeaderBuilder::default().header(chain2[6].header().clone()));
+            .with_header_builder(HeaderBuilder::default().header(chain2[6].header().to_owned()));
         let block = BlockBuilder::default()
             .block(chain1.get(8).cloned().unwrap())
             .uncle(uncle.into())
-            .with_header_builder(HeaderBuilder::default().header(chain1[8].header().clone()));
+            .with_header_builder(HeaderBuilder::default().header(chain1[8].header().to_owned()));
         assert_eq!(
             verifier.verify(&block),
             Err(Error::Uncles(UnclesError::ProposalTransactionDuplicate))
@@ -293,15 +293,15 @@ fn test_uncle_verifier() {
     {
         let uncle1 = BlockBuilder::default()
             .block(chain1.get(10).cloned().unwrap())
-            .with_header_builder(HeaderBuilder::default().header(chain1[10].header().clone()));
+            .with_header_builder(HeaderBuilder::default().header(chain1[10].header().to_owned()));
         let uncle2 = BlockBuilder::default()
             .block(chain1.get(10).cloned().unwrap())
-            .with_header_builder(HeaderBuilder::default().header(chain1[10].header().clone()));
+            .with_header_builder(HeaderBuilder::default().header(chain1[10].header().to_owned()));
         let block = BlockBuilder::default()
             .block(chain2.get(12).cloned().unwrap())
             .uncle(uncle1.into())
             .uncle(uncle2.into())
-            .with_header_builder(HeaderBuilder::default().header(chain2[12].header().clone()));
+            .with_header_builder(HeaderBuilder::default().header(chain2[12].header().to_owned()));
         // uncle duplicate
         assert_eq!(
             verifier.verify(&block),
@@ -318,13 +318,15 @@ fn test_uncle_verifier() {
         for _ in 0..=max_uncles_num {
             let uncle = BlockBuilder::default()
                 .block(chain1.get(10).cloned().unwrap())
-                .with_header_builder(HeaderBuilder::default().header(chain1[10].header().clone()));
+                .with_header_builder(
+                    HeaderBuilder::default().header(chain1[10].header().to_owned()),
+                );
             uncles.push(uncle.into());
         }
         let block = BlockBuilder::default()
             .block(chain2.get(12).cloned().unwrap())
             .uncles(uncles)
-            .with_header_builder(HeaderBuilder::default().header(chain2[12].header().clone()));
+            .with_header_builder(HeaderBuilder::default().header(chain2[12].header().to_owned()));
         // uncle overcount
         assert_eq!(
             verifier.verify(&block),
@@ -337,19 +339,19 @@ fn test_uncle_verifier() {
 
     let uncle = BlockBuilder::default()
         .block(chain2.get(6).cloned().unwrap())
-        .with_header_builder(HeaderBuilder::default().header(chain2[6].header().clone()));
+        .with_header_builder(HeaderBuilder::default().header(chain2[6].header().to_owned()));
     let block = BlockBuilder::default()
         .block(chain1.get(8).cloned().unwrap())
         .uncle(uncle.into())
-        .with_header_builder(HeaderBuilder::default().header(chain1[8].header().clone()));
+        .with_header_builder(HeaderBuilder::default().header(chain1[8].header().to_owned()));
     assert_eq!(verifier.verify(&block), Ok(()));
 
     let uncle = BlockBuilder::default()
         .block(chain1[10].clone())
-        .with_header_builder(HeaderBuilder::default().header(chain1[10].header().clone()));
+        .with_header_builder(HeaderBuilder::default().header(chain1[10].header().to_owned()));
     let block = BlockBuilder::default()
         .block(chain2.get(12).cloned().unwrap())
         .uncle(uncle.into())
-        .with_header_builder(HeaderBuilder::default().header(chain2[12].header().clone()));
+        .with_header_builder(HeaderBuilder::default().header(chain2[12].header().to_owned()));
     assert_eq!(verifier.verify(&block), Ok(()));
 }

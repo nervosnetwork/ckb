@@ -68,7 +68,7 @@ impl<CS: ChainStore> ChainState<CS> {
                     .map_err(|_| {
                         SharedError::InvalidData("failed to init genesis block".to_owned())
                     })
-                    .map(|_| genesis.header().clone()),
+                    .map(|_| genesis.header().to_owned()),
             }
         }?;
 

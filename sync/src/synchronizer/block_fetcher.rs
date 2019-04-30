@@ -29,8 +29,8 @@ where
         let (tip_header, total_difficulty) = {
             let chain_state = synchronizer.shared.chain_state().lock();
             (
-                chain_state.tip_header().clone(),
-                chain_state.total_difficulty().clone(),
+                chain_state.tip_header().to_owned(),
+                chain_state.total_difficulty().to_owned(),
             )
         };
         BlockFetcher {
@@ -110,7 +110,7 @@ where
             .shared
             .get_ancestor(&global_best_known_header.hash(), header.number())
         {
-            if ancestor != header.inner().clone() {
+            if &ancestor != header.inner() {
                 debug!(
                     target: "sync",
                     "[block downloader] peer best_known_header is not ancestor of global_best_known_header"
@@ -158,7 +158,7 @@ where
         // of its current best_known_header. Go back enough to fix that.
         let fixed_last_common_header = try_option!(self.last_common_header(&best_known_header));
 
-        if fixed_last_common_header == best_known_header.inner().clone() {
+        if &fixed_last_common_header == best_known_header.inner() {
             debug!(target: "sync", "[block downloader] fixed_last_common_header == best_known_header");
             return None;
         }
@@ -191,15 +191,14 @@ where
                 let to_fetch_hash = to_fetch.hash();
 
                 let block_status = self.synchronizer.get_block_status(&to_fetch_hash);
-                if block_status == BlockStatus::VALID_MASK
-                    && inflight.insert(to_fetch_hash.clone().clone())
+                if block_status == BlockStatus::VALID_MASK && inflight.insert(to_fetch_hash.clone())
                 {
                     trace!(
                         target: "sync", "[Synchronizer] inflight insert {:?}------------{:x}",
                         to_fetch.number(),
                         to_fetch_hash
                     );
-                    v_fetch.push(to_fetch_hash.clone());
+                    v_fetch.push(to_fetch_hash);
                 }
             }
         }

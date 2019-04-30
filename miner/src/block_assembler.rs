@@ -302,7 +302,7 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
         let chain_state = self.shared.chain_state().lock();
         let last_txs_updated_at = chain_state.get_last_txs_updated_at();
 
-        let header = chain_state.tip_header().clone();
+        let header = chain_state.tip_header().to_owned();
         let number = chain_state.tip_number() + 1;
         let current_time = cmp::max(unix_time_as_millis(), header.timestamp() + 1);
 
@@ -476,7 +476,7 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
                 bad_uncles.push(hash.clone());
             } else {
                 let uncle = UncleBlock {
-                    header: block.header().clone(),
+                    header: block.header().to_owned(),
                     proposals: block.proposals().to_vec(),
                 };
                 uncles.push(uncle);
@@ -669,12 +669,12 @@ mod tests {
         let block_assembler_controller = block_assembler.start(Some("test"), &notify.clone());
 
         let genesis = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
-        let block0_0 = gen_block(&genesis, 10, genesis.difficulty().clone());
-        let block0_1 = gen_block(&genesis, 11, genesis.difficulty().clone());
+        let block0_0 = gen_block(&genesis, 10, genesis.difficulty().to_owned());
+        let block0_1 = gen_block(&genesis, 11, genesis.difficulty().to_owned());
         let block1_1 = gen_block(
             block0_1.header(),
             10,
-            block0_1.header().difficulty().clone(),
+            block0_1.header().difficulty().to_owned(),
         );
 
         chain_controller
@@ -697,7 +697,7 @@ mod tests {
         let block2_1 = gen_block(
             block1_1.header(),
             10,
-            block1_1.header().difficulty().clone(),
+            block1_1.header().difficulty().to_owned(),
         );
         chain_controller
             .process_block(Arc::new(block2_1.clone()))

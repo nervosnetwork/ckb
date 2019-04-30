@@ -88,13 +88,13 @@ mod tests {
         let consensus = Consensus::default();
         let block_number = 200;
         let mut blocks: Vec<Block> = Vec::new();
-        let mut parent = consensus.genesis_block().header().clone();
+        let mut parent = consensus.genesis_block().header().to_owned();
         let pool = OrphanBlockPool::with_capacity(200);
         for _ in 1..block_number {
             let new_block = gen_block(&parent);
             blocks.push(new_block.clone());
             pool.insert(new_block.clone());
-            parent = new_block.header().clone();
+            parent = new_block.header().to_owned();
         }
 
         let orphan = pool.remove_blocks_by_parent(&consensus.genesis_block().header().hash());

@@ -79,7 +79,7 @@ pub struct NetTimeProtocol {
 impl Clone for NetTimeProtocol {
     fn clone(&self) -> Self {
         NetTimeProtocol {
-            checker: RwLock::new(self.checker.read().clone()),
+            checker: RwLock::new(self.checker.read().to_owned()),
         }
     }
 }

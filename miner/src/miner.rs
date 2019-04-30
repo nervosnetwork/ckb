@@ -48,7 +48,7 @@ impl Miner {
     }
 
     fn mine(&self) -> Result<Option<(String, Block)>, Error> {
-        let current_work = { self.current_work.lock().clone() };
+        let current_work = { self.current_work.lock().to_owned() };
         if let Some(template) = current_work {
             let BlockTemplate {
                 version,
@@ -101,7 +101,7 @@ impl Miner {
                 )
                 .with_header_builder(header_builder);
 
-            let raw_header = block.header().raw().clone();
+            let raw_header = block.header().raw().to_owned();
 
             Ok(self
                 .mine_loop(&raw_header)

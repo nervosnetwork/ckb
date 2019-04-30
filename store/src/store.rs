@@ -171,7 +171,7 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
         let genesis_hash = genesis.header().hash();
         let ext = BlockExt {
             received_at: genesis.header().timestamp(),
-            total_difficulty: genesis.header().difficulty().clone(),
+            total_difficulty: genesis.header().difficulty().to_owned(),
             total_uncles_count: 0,
             txs_verified: Some(true),
         };
@@ -410,7 +410,7 @@ mod tests {
 
         let ext = BlockExt {
             received_at: block.header().timestamp(),
-            total_difficulty: block.header().difficulty().clone(),
+            total_difficulty: block.header().difficulty().to_owned(),
             total_uncles_count: block.uncles().len() as u64,
             txs_verified: Some(true),
         };
