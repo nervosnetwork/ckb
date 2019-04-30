@@ -142,7 +142,8 @@ impl<CS: ChainStore> Synchronizer<CS> {
     }
 
     fn process(&self, nc: &CKBProtocolContext, peer: PeerIndex, message: SyncMessage) {
-        if self.try_process(nc, peer, message).is_err() {
+        if let Err(err) = self.try_process(nc, peer, message) {
+            debug!(target: "sync", "try_process error: {}", err);
             nc.ban_peer(peer, BAD_MESSAGE_BAN_TIME);
         }
     }

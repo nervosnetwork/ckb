@@ -164,7 +164,8 @@ impl<CS: ChainStore> Relayer<CS> {
     }
 
     fn process(&self, nc: &CKBProtocolContext, peer: PeerIndex, message: RelayMessage) {
-        if self.try_process(nc, peer, message).is_err() {
+        if let Err(err) = self.try_process(nc, peer, message) {
+            debug!(target: "relay", "try_process error {}", err);
             nc.ban_peer(peer, BAD_MESSAGE_BAN_TIME);
         }
     }

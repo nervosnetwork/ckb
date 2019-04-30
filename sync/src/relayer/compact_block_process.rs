@@ -111,7 +111,7 @@ impl<'a, CS: ChainStore> CompactBlockProcess<'a, CS> {
                             Err(missing) => {
                                 missing_indexes = missing;
                                 pending_compact_blocks
-                                    .insert(block_hash.clone(), compact_block.clone());
+                                    .insert(block_hash.clone(), compact_block);
                             }
                         }
                     }
@@ -120,7 +120,7 @@ impl<'a, CS: ChainStore> CompactBlockProcess<'a, CS> {
                     }
                 }
             } else {
-                debug!(target: "relay", "Already processed compact block {}", block_hash);
+                debug!(target: "relay", "already processed compact block {}", block_hash);
             }
         }
         if !missing_indexes.is_empty() {

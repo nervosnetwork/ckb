@@ -38,15 +38,15 @@ impl<'a, CS: ChainStore> BlockTransactionsProcess<'a, CS> {
             .lock()
             .remove(&block_hash)
         {
-            let transactions: Result<Vec<Transaction>, FailureError> =
+            let transactions: Vec<Transaction> =
                 FlatbuffersVectorIterator::new(cast!(self.message.transactions())?)
                     .map(TryInto::try_into)
-                    .collect();
+                    .collect::<Result<_, FailureError>>()?;
 
             let ret = {
                 let chain_state = self.relayer.shared.chain_state().lock();
                 self.relayer
-                    .reconstruct_block(&chain_state, &compact_block, transactions?)
+                    .reconstruct_block(&chain_state, &compact_block, transactions)
             };
 
             if let Ok(block) = ret {
