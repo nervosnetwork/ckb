@@ -2,7 +2,7 @@
 //! and its top-level members.
 
 use ckb_core::cell::UnresolvableError;
-use ckb_core::transaction::{OutPoint, Transaction};
+use ckb_core::transaction::Transaction;
 use ckb_core::Cycle;
 use ckb_verification::TransactionError;
 use failure::Fail;
@@ -51,8 +51,6 @@ pub enum PoolError {
     InvalidTx(TransactionError),
     /// Transaction pool is over capacity, can't accept more transactions
     OverCapacity,
-    /// tx_pool don't accept cellbase-like tx
-    NullInput,
     /// TimeOut
     TimeOut,
     /// BlockNumber is not right
@@ -67,7 +65,6 @@ impl PoolError {
     pub fn is_bad_tx(&self) -> bool {
         match self {
             PoolError::InvalidTx(err) => err.is_bad_tx(),
-            PoolError::NullInput => true,
             _ => false,
         }
     }

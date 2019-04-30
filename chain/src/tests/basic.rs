@@ -2,7 +2,7 @@ use crate::tests::util::{create_transaction, gen_block, start_chain};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::Block;
 use ckb_core::block::BlockBuilder;
-use ckb_core::cell::{CellMeta, CellProvider, CellStatus};
+use ckb_core::cell::{CellProvider, CellStatus, UnresolvableError};
 use ckb_core::header::HeaderBuilder;
 use ckb_core::script::Script;
 use ckb_core::transaction::{CellInput, CellOutput, OutPoint, TransactionBuilder};
@@ -67,7 +67,7 @@ fn test_genesis_transaction_spend() {
         shared
             .chain_state()
             .lock()
-            .get_cell_status(&OutPoint::new(genesis_tx_hash, 0)),
+            .cell(&OutPoint::new(genesis_tx_hash, 0)),
         CellStatus::Dead
     );
 }
@@ -111,7 +111,7 @@ fn test_transaction_spend_in_same_block() {
             shared
                 .chain_state()
                 .lock()
-                .get_cell_status(&OutPoint::new(hash.clone(), 0)),
+                .cell(&OutPoint::new(hash.clone(), 0)),
             CellStatus::Unknown
         );
     }
@@ -164,7 +164,7 @@ fn test_transaction_spend_in_same_block() {
             shared
                 .chain_state()
                 .lock()
-                .get_cell_status(&OutPoint::new(hash.clone(), 0)),
+                .cell(&OutPoint::new(hash.clone(), 0)),
             CellStatus::Dead
         );
     }
@@ -173,18 +173,8 @@ fn test_transaction_spend_in_same_block() {
         shared
             .chain_state()
             .lock()
-            .get_cell_status(&OutPoint::new(tx2_hash.clone(), 0)),
-        CellStatus::live_cell(CellMeta {
-            cell_output: None,
-            out_point: OutPoint {
-                tx_hash: tx2_hash,
-                index: 0
-            },
-            cellbase: false,
-            capacity: tx2_output.capacity,
-            data_hash: Some(tx2_output.data_hash()),
-            block_number: Some(4),
-        })
+            .cell(&OutPoint::new(tx2_hash, 0)),
+        CellStatus::live(tx2_output, Some(4), false)
     );
 }
 
@@ -208,8 +198,9 @@ fn test_transaction_conflict_in_same_block() {
 
     let last_cell_base = &chain.last().unwrap().transactions()[0];
     let tx1 = create_transaction(last_cell_base.hash(), 1);
-    let tx2 = create_transaction(tx1.hash(), 2);
-    let tx3 = create_transaction(tx1.hash(), 3);
+    let tx1_hash = tx1.hash();
+    let tx2 = create_transaction(tx1_hash.clone(), 2);
+    let tx3 = create_transaction(tx1_hash.clone(), 3);
     let txs = vec![tx1, tx2, tx3];
     // proposal txs
     {
@@ -254,17 +245,17 @@ fn test_transaction_conflict_in_same_block() {
             .process_block(Arc::new(block.clone()))
             .expect("process block ok");
     }
-    let error = chain_controller
-        .process_block(Arc::new(chain[3].clone()))
-        .unwrap_err()
-        .downcast()
-        .unwrap();
-    if let SharedError::InvalidTransaction(errmsg) = error {
-        let re = regex::Regex::new(r#"Transactions\(\([0-9], Conflict\)\)"#).unwrap();
-        assert!(re.is_match(&errmsg));
-    } else {
-        panic!("should be the Conflict Transactions error");
-    }
+    assert_eq!(
+        SharedError::UnresolvableTransaction(UnresolvableError::Dead(vec![OutPoint {
+            tx_hash: tx1_hash,
+            index: 0,
+        }])),
+        chain_controller
+            .process_block(Arc::new(chain[3].clone()))
+            .unwrap_err()
+            .downcast()
+            .unwrap()
+    );
 }
 
 #[test]
@@ -287,8 +278,9 @@ fn test_transaction_conflict_in_different_blocks() {
 
     let last_cell_base = &chain.last().unwrap().transactions()[0];
     let tx1 = create_transaction(last_cell_base.hash(), 1);
-    let tx2 = create_transaction(tx1.hash(), 2);
-    let tx3 = create_transaction(tx1.hash(), 3);
+    let tx1_hash = tx1.hash();
+    let tx2 = create_transaction(tx1_hash.clone(), 2);
+    let tx3 = create_transaction(tx1_hash.clone(), 3);
     // proposal txs
     {
         let difficulty = parent.difficulty().to_owned();
@@ -345,17 +337,17 @@ fn test_transaction_conflict_in_different_blocks() {
             .process_block(Arc::new(block.clone()))
             .expect("process block ok");
     }
-    let error = chain_controller
-        .process_block(Arc::new(chain[4].clone()))
-        .unwrap_err()
-        .downcast()
-        .unwrap();
-    if let SharedError::InvalidTransaction(errmsg) = error {
-        let re = regex::Regex::new(r#"Transactions\(\([0-9], Conflict\)\)"#).unwrap();
-        assert!(re.is_match(&errmsg));
-    } else {
-        panic!("should be the Conflict Transactions error");
-    }
+    assert_eq!(
+        SharedError::UnresolvableTransaction(UnresolvableError::Dead(vec![OutPoint {
+            tx_hash: tx1_hash,
+            index: 0,
+        }])),
+        chain_controller
+            .process_block(Arc::new(chain[4].clone()))
+            .unwrap_err()
+            .downcast()
+            .unwrap()
+    );
 }
 
 #[test]
@@ -383,7 +375,7 @@ fn test_genesis_transaction_fetch() {
     let (_chain_controller, shared) = start_chain(Some(consensus), false);
 
     let out_point = OutPoint::new(root_hash, 0);
-    let state = shared.chain_state().lock().get_cell_status(&out_point);
+    let state = shared.chain_state().lock().cell(&out_point);
     assert!(state.is_live());
 }
 

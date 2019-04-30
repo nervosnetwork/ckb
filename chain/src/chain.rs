@@ -14,7 +14,7 @@ use ckb_shared::error::SharedError;
 use ckb_shared::shared::Shared;
 use ckb_store::{ChainStore, StoreBatch};
 use ckb_traits::{BlockMedianTimeContext, ChainProvider};
-use ckb_verification::{BlockVerifier, Error as VerificationError, TransactionsVerifier, Verifier};
+use ckb_verification::{BlockVerifier, TransactionsVerifier, Verifier};
 use crossbeam_channel::{self, select, Receiver, Sender};
 use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
@@ -507,8 +507,7 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
                             }
                         }
                         Err(err) => {
-                            found_error =
-                                Some(SharedError::UnresolvableTransaction(err.to_string()));
+                            found_error = Some(SharedError::UnresolvableTransaction(err));
                             ext.txs_verified = Some(false);
                         }
                     }

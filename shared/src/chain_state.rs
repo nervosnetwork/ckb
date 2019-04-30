@@ -6,11 +6,8 @@ use crate::tx_proposal_table::TxProposalTable;
 use ckb_chain_spec::consensus::{Consensus, ProposalWindow};
 use ckb_core::block::Block;
 use ckb_core::cell::{
-    resolve_transaction, CellStatus, LiveCell, OverlayCellProvider, ResolvedTransaction,
-    UnresolvableError,
+    CellProvider, resolve_transaction, CellStatus, OverlayCellProvider, ResolvedTransaction, UnresolvableError,
 };
-#[allow(unused_imports)] // incorrect lint
-use ckb_core::cell::{CellMeta, CellProvider};
 use ckb_core::header::{BlockNumber, Header};
 use ckb_core::transaction::CellOutput;
 use ckb_core::transaction::{OutPoint, ProposalShortId, Transaction};
@@ -427,15 +424,13 @@ impl<CS: ChainStore> ChainState<CS> {
     }
 }
 
-#[allow(dead_code)] // incorrect lint
 pub struct ChainCellSetOverlay<'a, CS> {
     pub(crate) overlay: CellSetOverlay<'a>,
     pub(crate) store: Arc<CS>,
     pub(crate) outputs: &'a FnvHashMap<H256, &'a [CellOutput]>,
 }
 
-#[cfg(not(test))]
-impl<CS: ChainStore + Sync> CellProvider for ChainState<CS> {
+impl<CS: ChainStore> CellProvider for ChainState<CS> {
     fn cell(&self, out_point: &OutPoint) -> CellStatus {
         match self.cell_set().get(&out_point.tx_hash) {
             Some(tx_meta) => {
@@ -446,7 +441,11 @@ impl<CS: ChainStore + Sync> CellProvider for ChainState<CS> {
                         .store
                         .get_cell_meta(&out_point.tx_hash, out_point.index)
                         .expect("store should be consistent with cell_set");
-                    CellStatus::live_cell(cell_meta)
+                    CellStatus::live(
+                        tx.outputs()[out_point.index as usize].clone(),
+                        Some(tx_meta.block_number()),
+                        tx_meta.is_cellbase(),
+                    )
                 }
             }
             None => CellStatus::Unknown,
@@ -454,7 +453,6 @@ impl<CS: ChainStore + Sync> CellProvider for ChainState<CS> {
     }
 }
 
-#[cfg(not(test))]
 impl<'a, CS: ChainStore> CellProvider for ChainCellSetOverlay<'a, CS> {
     fn cell(&self, out_point: &OutPoint) -> CellStatus {
         match self.overlay.get(&out_point.tx_hash) {
@@ -482,7 +480,7 @@ impl<'a, CS: ChainStore> CellProvider for ChainCellSetOverlay<'a, CS> {
                         })
                         .expect("store should be consistent with cell_set");
 
-                    CellStatus::live_cell(cell_meta)
+                    CellStatus::live(output, Some(tx_meta.block_number()), tx_meta.is_cellbase())
                 }
             }
             None => CellStatus::Unknown,
