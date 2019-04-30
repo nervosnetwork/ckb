@@ -12,6 +12,7 @@ use numext_fixed_uint::U256;
 #[derive(Default, Clone)]
 pub struct DummyChainProvider {
     pub block_reward: Capacity,
+    pub consensus: Consensus,
 }
 
 impl ChainProvider for DummyChainProvider {
@@ -72,7 +73,7 @@ impl ChainProvider for DummyChainProvider {
     }
 
     fn consensus(&self) -> &Consensus {
-        panic!("Not implemented!");
+        &self.consensus
     }
 }
 

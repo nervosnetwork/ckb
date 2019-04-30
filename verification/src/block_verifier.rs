@@ -28,6 +28,10 @@ pub struct BlockVerifier<P> {
     uncles: UnclesVerifier<P>,
     // Verify the the propose-then-commit consensus rule
     commit: CommitVerifier<P>,
+    // Verify the amount of proposals does not exceed the limit.
+    block_proposals_limit: BlockProposalsLimitVerifier,
+    // Verify the size of the block does not exceed the limit.
+    block_bytes: BlockBytesVerifier,
 }
 
 impl<P> BlockVerifier<P>
@@ -35,6 +39,10 @@ where
     P: ChainProvider + Clone,
 {
     pub fn new(provider: P) -> Self {
+        let proof_size = provider.consensus().pow_engine().proof_size();
+        let max_block_proposals_limit = provider.consensus().max_block_proposals_limit();
+        let max_block_bytes = provider.consensus().max_block_bytes();
+
         BlockVerifier {
             // TODO change all new fn's chain to reference
             duplicate: DuplicateVerifier::new(),
@@ -42,6 +50,8 @@ where
             merkle_root: MerkleRootVerifier::new(),
             uncles: UnclesVerifier::new(provider.clone()),
             commit: CommitVerifier::new(provider),
+            block_proposals_limit: BlockProposalsLimitVerifier::new(max_block_proposals_limit),
+            block_bytes: BlockBytesVerifier::new(max_block_bytes, proof_size),
         }
     }
 }
@@ -50,6 +60,8 @@ impl<P: ChainProvider + Clone> Verifier for BlockVerifier<P> {
     type Target = Block;
 
     fn verify(&self, target: &Block) -> Result<(), Error> {
+        self.block_proposals_limit.verify(target)?;
+        self.block_bytes.verify(target)?;
         self.cellbase.verify(target)?;
         self.duplicate.verify(target)?;
         self.merkle_root.verify(target)?;
@@ -471,5 +483,51 @@ impl<CP: ChainProvider + Clone> CommitVerifier<CP> {
             return Err(Error::Commit(CommitError::Invalid));
         }
         Ok(())
+    }
+}
+
+#[derive(Clone)]
+pub struct BlockProposalsLimitVerifier {
+    block_proposals_limit: u64,
+}
+
+impl BlockProposalsLimitVerifier {
+    pub fn new(block_proposals_limit: u64) -> Self {
+        BlockProposalsLimitVerifier {
+            block_proposals_limit,
+        }
+    }
+
+    pub fn verify(&self, block: &Block) -> Result<(), Error> {
+        let proposals_len = block.proposals().len() as u64;
+        if proposals_len <= self.block_proposals_limit {
+            Ok(())
+        } else {
+            Err(Error::ExceededMaximumProposalsLimit)
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct BlockBytesVerifier {
+    block_bytes_limit: u64,
+    proof_size: usize,
+}
+
+impl BlockBytesVerifier {
+    pub fn new(block_bytes_limit: u64, proof_size: usize) -> Self {
+        BlockBytesVerifier {
+            block_bytes_limit,
+            proof_size,
+        }
+    }
+
+    pub fn verify(&self, block: &Block) -> Result<(), Error> {
+        let block_bytes = block.serialized_size(self.proof_size) as u64;
+        if block_bytes <= self.block_bytes_limit {
+            Ok(())
+        } else {
+            Err(Error::ExceededMaximumBlockBytes)
+        }
     }
 }
