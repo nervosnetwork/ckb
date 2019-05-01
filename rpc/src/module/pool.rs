@@ -38,15 +38,14 @@ impl<CS: ChainStore + 'static> PoolRpc for PoolRpcImpl<CS> {
         };
 
         match result {
-            Ok(_) => {
-                let tx_hash = tx.hash();
+            Ok(cycles) => {
                 let fbb = &mut FlatBufferBuilder::new();
-                let message = RelayMessage::build_transaction_hash(fbb, &tx_hash);
+                let message = RelayMessage::build_transaction(fbb, &tx, cycles);
                 fbb.finish(message, None);
                 let data = fbb.finished_data().into();
                 self.network_controller
                     .broadcast(NetworkProtocol::RELAY.into(), data);
-                Ok(tx_hash)
+                Ok(tx.hash())
             }
             Err(e) => Err(RPCError::custom(RPCError::Invalid, e.to_string())),
         }
