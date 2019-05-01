@@ -20,6 +20,8 @@ pub struct NetworkConfig {
     pub max_outbound_peers: u32,
     #[serde(default)]
     pub path: PathBuf,
+    #[serde(default)]
+    pub dns_seeds: Vec<String>,
     pub ping_interval_secs: u64,
     pub ping_timeout_secs: u64,
     pub connect_outbound_interval_secs: u64,

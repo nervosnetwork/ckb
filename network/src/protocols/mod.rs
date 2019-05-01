@@ -1,7 +1,6 @@
 pub(crate) mod discovery;
 pub(crate) mod feeler;
 pub(crate) mod identify;
-pub(crate) mod outbound_peer;
 pub(crate) mod ping;
 
 use log::{error, trace};
