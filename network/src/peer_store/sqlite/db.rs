@@ -5,6 +5,7 @@ use crate::SessionType;
 use rusqlite::types::ToSql;
 use rusqlite::OptionalExtension;
 use rusqlite::{Connection, NO_PARAMS};
+use std::convert::TryFrom;
 use std::iter::FromIterator;
 use std::time::Duration;
 
@@ -71,7 +72,7 @@ impl PeerInfo {
                                     VALUES(:peer_id, :connected_addr, :score, :status, :endpoint, :last_connected_at, :network_group, 0)").expect("prepare");
         stmt.execute_named(&[
             (":peer_id", &peer_id.as_bytes()),
-            (":connected_addr", &connected_addr.to_bytes()),
+            (":connected_addr", &connected_addr.as_ref()),
             (":score", &score),
             (":status", &status_to_u8(Status::Unknown)),
             (":endpoint", &endpoint_to_bool(endpoint)),
@@ -111,7 +112,7 @@ impl PeerInfo {
                 )
             .expect("prepare");
         stmt.execute_named(&[
-            (":connected_addr", &connected_addr.to_bytes()),
+            (":connected_addr", &connected_addr.as_ref()),
             (":endpoint", &endpoint_to_bool(endpoint)),
             (":last_connected_at", &duration_to_secs(last_connected_at)),
             (":peer_id", &peer_id.as_bytes()),
@@ -128,7 +129,7 @@ impl PeerInfo {
         conn.query_row("SELECT id, peer_id, connected_addr, score, status, endpoint, ban_time, last_connected_at FROM peer_info WHERE peer_id=?1 LIMIT 1", &[&peer_id.as_bytes()], |row| PeerInfo {
             id: row.get(0),
             peer_id: PeerId::from_bytes(row.get(1)).expect("parse peer_id"),
-            connected_addr: Multiaddr::from_bytes(row.get(2)).expect("parse multiaddr"),
+            connected_addr: Multiaddr::try_from(row.get::<_, Vec<u8>>(2)).expect("parse multiaddr"),
             score: row.get(3),
             status: u8_to_status(row.get::<_, u8>(4)),
             endpoint: bool_to_endpoint(row.get::<_, bool>(5)),
@@ -165,7 +166,7 @@ impl PeerInfo {
         let rows = stmt.query_map_named(&[(":network_group", &network_group)], |row| PeerInfo {
             id: row.get(0),
             peer_id: PeerId::from_bytes(row.get(1)).expect("parse peer_id"),
-            connected_addr: Multiaddr::from_bytes(row.get(2)).expect("parse multiaddr"),
+            connected_addr: Multiaddr::try_from(row.get::<_, Vec<u8>>(2)).expect("parse multiaddr"),
             score: row.get(3),
             status: u8_to_status(row.get::<_, u8>(4)),
             endpoint: bool_to_endpoint(row.get::<_, bool>(5)),
@@ -196,7 +197,7 @@ impl PeerAddr {
         )?;
         stmt.execute_named(&[
             (":peer_info_id", &peer_info_id),
-            (":addr", &addr.to_bytes()),
+            (":addr", &addr.as_ref()),
             (":last_connected_at", &duration_to_secs(last_connected_at)),
         ])
         .map_err(Into::into)
@@ -214,7 +215,7 @@ impl PeerAddr {
         )?;
         stmt.execute_named(&[
             (":peer_info_id", &peer_info_id),
-            (":addr", &addr.to_bytes()),
+            (":addr", &addr.as_ref()),
             (":last_connected_at", &duration_to_secs(last_connected_at)),
         ])
         .map_err(Into::into)
@@ -226,7 +227,7 @@ impl PeerAddr {
                          ORDER BY last_connected_at DESC LIMIT :count",
         )?;
         let rows = stmt.query_map_named(&[(":id", &id), (":count", &count)], |row| {
-            Multiaddr::from_bytes(row.get(0)).expect("parse multiaddr")
+            Multiaddr::try_from(row.get::<_, Vec<u8>>(0)).expect("parse multiaddr")
         })?;
         Result::from_iter(rows).map_err(Into::into)
     }

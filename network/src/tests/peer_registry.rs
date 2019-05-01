@@ -1,6 +1,6 @@
 use crate::{
     errors::PeerError,
-    multiaddr::ToMultiaddr,
+    multiaddr::Multiaddr,
     peer_registry::{PeerRegistry, EVICTION_PROTECT_PEERS},
     peer_store::{PeerStore, SqlitePeerStore},
     Behaviour, PeerId, SessionType,
@@ -17,7 +17,7 @@ fn new_peer_store() -> Box<dyn PeerStore> {
 fn test_accept_inbound_peer_in_reserve_only_mode() {
     let mut peer_store = new_peer_store();
     let reserved_peer = PeerId::random();
-    let addr = "/ip4/127.0.0.1".to_multiaddr().unwrap();
+    let addr = "/ip4/127.0.0.1".parse::<Multiaddr>().unwrap();
     let session_id = 1.into();
 
     // reserved_only mode: only accept reserved_peer
@@ -47,7 +47,7 @@ fn test_accept_inbound_peer_in_reserve_only_mode() {
 fn test_accept_inbound_peer_until_full() {
     let mut peer_store = new_peer_store();
     let reserved_peer = PeerId::random();
-    let addr = "/ip4/127.0.0.1".to_multiaddr().unwrap();
+    let addr = "/ip4/127.0.0.1".parse::<Multiaddr>().unwrap();
     // accept node until inbound connections is full
     let mut peers = PeerRegistry::new(3, 3, false, vec![reserved_peer.clone()]);
     for session_id in 1..=3 {
@@ -121,8 +121,8 @@ fn test_accept_inbound_peer_eviction() {
     let reserved_peer = PeerId::random();
     let evict_target = PeerId::random();
     let lowest_score_peer = PeerId::random();
-    let addr1 = "/ip4/127.0.0.1".to_multiaddr().unwrap();
-    let addr2 = "/ip4/192.168.0.1".to_multiaddr().unwrap();
+    let addr1 = "/ip4/127.0.0.1".parse::<Multiaddr>().unwrap();
+    let addr2 = "/ip4/192.168.0.1".parse::<Multiaddr>().unwrap();
     // prepare protected peers
     let longest_connection_time_peers_count = 5;
     let protected_peers_count = 3 * EVICTION_PROTECT_PEERS + longest_connection_time_peers_count;

@@ -347,7 +347,7 @@ impl NetworkState {
         if !self.listened_addresses.read().contains_key(&addr) {
             match Multihash::from_bytes(peer_id.as_bytes().to_vec()) {
                 Ok(peer_id_hash) => {
-                    addr.append(multiaddr::Protocol::P2p(peer_id_hash));
+                    addr.push(multiaddr::Protocol::P2p(peer_id_hash));
                     debug!(target: "network", "dialing {} with {:?}", addr, target);
                     if let Err(err) = p2p_control.dial(addr.clone(), target) {
                         debug!(target: "network", "dial fialed: {:?}", err);

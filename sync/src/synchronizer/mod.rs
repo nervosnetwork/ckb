@@ -563,8 +563,8 @@ mod tests {
     use ckb_core::{Bytes, Capacity};
     use ckb_db::memorydb::MemoryKeyValueDB;
     use ckb_network::{
-        multiaddr::ToMultiaddr, Behaviour, CKBProtocolContext, Peer, PeerId, PeerIndex, ProtocolId,
-        SessionType, TargetSession,
+        Behaviour, CKBProtocolContext, Peer, PeerId, PeerIndex, ProtocolId, SessionType,
+        TargetSession,
     };
     use ckb_notify::{NotifyController, NotifyService};
     use ckb_protocol::{Block as FbsBlock, Headers as FbsHeaders};
@@ -909,7 +909,7 @@ mod tests {
             0.into(),
             SessionType::Outbound,
             PeerId::random(),
-            "/ip4/127.0.0.1".to_multiaddr().expect("parse multiaddr"),
+            "/ip4/127.0.0.1".parse().expect("parse multiaddr"),
             false,
         )
     }

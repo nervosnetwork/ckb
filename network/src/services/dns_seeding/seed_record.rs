@@ -6,9 +6,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use hash::sha3_256;
 use lazy_static::lazy_static;
 use p2p::{
-    multiaddr::{multihash::Multihash, Multiaddr, Protocol, ToMultiaddr},
+    multiaddr::{multihash::Multihash, Multiaddr, Protocol},
     secio::PeerId,
-    utils::is_reachable,
+    utils::{is_reachable, socketaddr_to_multiaddr},
 };
 use secp256k1::{key::PublicKey, Message, RecoverableSignature, RecoveryId};
 
@@ -132,12 +132,10 @@ impl SeedRecord {
 
     pub fn address(&self) -> Multiaddr {
         let socket_addr = SocketAddr::new(self.ip, self.port);
-        let mut multi_addr = socket_addr
-            .to_multiaddr()
-            .expect("SocketAddr convert to multiaddr failed");
+        let mut multi_addr = socketaddr_to_multiaddr(socket_addr);
         if let Some(peer_id) = self.peer_id.clone() {
             if let Ok(hash) = Multihash::from_bytes(peer_id.as_bytes().to_vec()) {
-                multi_addr.append(Protocol::P2p(hash));
+                multi_addr.push(Protocol::P2p(hash));
             }
         }
         multi_addr

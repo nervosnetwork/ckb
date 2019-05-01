@@ -4,7 +4,7 @@ extern crate ckb_network;
 extern crate ckb_util;
 
 use ckb_network::{
-    multiaddr::ToMultiaddr,
+    multiaddr::Multiaddr,
     peer_store::{PeerStore, SqlitePeerStore},
     PeerId, SessionType,
 };
@@ -15,7 +15,7 @@ fn insert_peer_info_benchmark(c: &mut Criterion) {
         b.iter({
             let mut peer_store = SqlitePeerStore::memory().expect("memory");
             let peer_ids = (0..100).map(|_| PeerId::random()).collect::<Vec<_>>();
-            let addr = "/ip4/127.0.0.1".to_multiaddr().unwrap();
+            let addr = "/ip4/127.0.0.1".parse::<Multiaddr>().unwrap();
             move || {
                 for peer_id in peer_ids.clone() {
                     peer_store.add_connected_peer(&peer_id, addr.clone(), SessionType::Outbound);
@@ -27,7 +27,7 @@ fn insert_peer_info_benchmark(c: &mut Criterion) {
         b.iter({
             let mut peer_store = SqlitePeerStore::memory().expect("memory");
             let peer_ids = (0..1000).map(|_| PeerId::random()).collect::<Vec<_>>();
-            let addr = "/ip4/127.0.0.1".to_multiaddr().unwrap();
+            let addr = "/ip4/127.0.0.1".parse::<Multiaddr>().unwrap();
             move || {
                 for peer_id in peer_ids.clone() {
                     peer_store.add_connected_peer(&peer_id, addr.clone(), SessionType::Outbound);
@@ -41,7 +41,7 @@ fn insert_peer_info_benchmark(c: &mut Criterion) {
         b.iter({
             let mut peer_store = SqlitePeerStore::temp().expect("temp");
             let peer_ids = (0..100).map(|_| PeerId::random()).collect::<Vec<_>>();
-            let addr = "/ip4/127.0.0.1".to_multiaddr().unwrap();
+            let addr = "/ip4/127.0.0.1".parse::<Multiaddr>().unwrap();
             move || {
                 for peer_id in peer_ids.clone() {
                     peer_store.add_connected_peer(&peer_id, addr.clone(), SessionType::Outbound);
@@ -54,7 +54,7 @@ fn insert_peer_info_benchmark(c: &mut Criterion) {
 fn random_order_benchmark(c: &mut Criterion) {
     {
         let mut peer_store = SqlitePeerStore::memory().expect("temp");
-        let addr = "/ip4/127.0.0.1".to_multiaddr().unwrap();
+        let addr = "/ip4/127.0.0.1".parse::<Multiaddr>().unwrap();
         {
             for _ in 0..8000 {
                 let peer_id = PeerId::random();
@@ -72,7 +72,7 @@ fn random_order_benchmark(c: &mut Criterion) {
         });
 
         let mut peer_store = SqlitePeerStore::memory().expect("temp");
-        let addr = "/ip4/127.0.0.1".to_multiaddr().unwrap();
+        let addr = "/ip4/127.0.0.1".parse::<Multiaddr>().unwrap();
         {
             for _ in 0..8000 {
                 let peer_id = PeerId::random();
@@ -96,7 +96,7 @@ fn random_order_benchmark(c: &mut Criterion) {
         move |b| {
             b.iter({
                 let mut peer_store = SqlitePeerStore::temp().expect("temp");
-                let addr = "/ip4/127.0.0.1".to_multiaddr().unwrap();
+                let addr = "/ip4/127.0.0.1".parse::<Multiaddr>().unwrap();
                 for _ in 0..8000 {
                     let peer_id = PeerId::random();
                     peer_store.add_connected_peer(&peer_id, addr.clone(), SessionType::Outbound);

@@ -220,7 +220,7 @@ impl Stream for DiscoveryService {
                         Multihash::from_bytes(peer_id.into_bytes())
                             .ok()
                             .map(move |peer_id_hash| {
-                                addr.append(Protocol::P2p(peer_id_hash));
+                                addr.push(Protocol::P2p(peer_id_hash));
                                 addr
                             })
                     })
