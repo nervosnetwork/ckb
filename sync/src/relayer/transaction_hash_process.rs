@@ -1,4 +1,5 @@
 use crate::relayer::Relayer;
+use ckb_core::transaction::ProposalShortId;
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::RelayTransactionHash as FbsRelayTransactionHash;
 use ckb_store::ChainStore;
@@ -31,17 +32,34 @@ impl<'a, CS: ChainStore> TransactionHashProcess<'a, CS> {
 
     pub fn execute(self) -> Result<(), FailureError> {
         let tx_hash: H256 = (*self.message).try_into()?;
+        let short_id = ProposalShortId::from_tx_hash(&tx_hash);
         if self.relayer.state.already_known(&tx_hash) {
             debug!(
                 target: "relay",
-                "transaction({:#x}) from {} already known, ignore it",
+                "transaction({}) from {} already known, ignore it",
                 tx_hash,
                 self.peer,
             );
+        } else if self
+            .relayer
+            .shared
+            .chain_state()
+            .lock()
+            .tx_pool()
+            .get_entry(&short_id)
+            .is_some()
+        {
+            debug!(
+                target: "relay",
+                "transaction({}) from {} already in transaction pool, ignore it",
+                tx_hash,
+                self.peer,
+            );
+            self.relayer.state.insert_tx(tx_hash.clone());
         } else {
             debug!(
                 target: "relay",
-                "transaction({:#x}) from {} not known, get it from the peer",
+                "transaction({}) from {} not known, get it from the peer",
                 tx_hash,
                 self.peer,
             );
