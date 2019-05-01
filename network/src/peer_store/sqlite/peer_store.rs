@@ -154,7 +154,7 @@ impl SqlitePeerStore {
     }
 
     fn fetch_peer_info(&self, peer_id: &PeerId) -> db::PeerInfo {
-        let blank_addr = &Multiaddr::from_bytes(Vec::new()).expect("null multiaddr");
+        let blank_addr = &Multiaddr::empty();
         db::PeerInfo::get_or_insert(
             &self.conn,
             peer_id,

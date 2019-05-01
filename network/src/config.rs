@@ -2,7 +2,7 @@ use crate::errors::{ConfigError, Error};
 use crate::PeerId;
 use log::info;
 use p2p::{
-    multiaddr::{Multiaddr, Protocol, ToMultiaddr},
+    multiaddr::{Multiaddr, Protocol},
     secio,
 };
 use rand;
@@ -108,9 +108,7 @@ impl NetworkConfig {
     pub fn reserved_peers(&self) -> Result<Vec<(PeerId, Multiaddr)>, Error> {
         let mut peers = Vec::with_capacity(self.reserved_peers.len());
         for addr_str in &self.reserved_peers {
-            let mut addr = addr_str
-                .to_multiaddr()
-                .map_err(|_| ConfigError::BadAddress)?;
+            let mut addr = addr_str.to_owned();
             let peer_id = match addr.pop() {
                 Some(Protocol::P2p(key)) => {
                     PeerId::from_bytes(key.into_bytes()).map_err(|_| ConfigError::BadAddress)?
@@ -125,9 +123,7 @@ impl NetworkConfig {
     pub fn bootnodes(&self) -> Result<Vec<(PeerId, Multiaddr)>, Error> {
         let mut peers = Vec::with_capacity(self.bootnodes.len());
         for addr_str in &self.bootnodes {
-            let mut addr = addr_str
-                .to_multiaddr()
-                .map_err(|_| ConfigError::BadAddress)?;
+            let mut addr = addr_str.to_owned();
             let peer_id = match addr.pop() {
                 Some(Protocol::P2p(key)) => {
                     PeerId::from_bytes(key.into_bytes()).map_err(|_| ConfigError::BadAddress)?
