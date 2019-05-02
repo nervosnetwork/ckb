@@ -4,14 +4,6 @@ use crate::Capacity;
 use fnv::{FnvHashMap, FnvHashSet};
 use numext_fixed_hash::H256;
 use serde_derive::{Deserialize, Serialize};
-use std::iter::Chain;
-use std::slice;
-
-#[derive(Clone, Eq, PartialEq, Debug)]
-pub enum LiveCell {
-    Null,
-    Output(Box<CellMeta>),
-}
 
 #[derive(Clone, Eq, PartialEq, Debug, Default, Deserialize, Serialize)]
 pub struct CellMeta {
@@ -48,10 +40,10 @@ impl CellMeta {
     }
 }
 
-#[derive(Clone, PartialEq, Debug)]
+#[derive(PartialEq, Debug)]
 pub enum CellStatus {
     /// Cell exists and has not been spent.
-    Live(LiveCell),
+    Live(Box<CellMeta>),
     /// Cell exists and has been spent.
     Dead,
     /// Cell does not exist.
@@ -59,12 +51,8 @@ pub enum CellStatus {
 }
 
 impl CellStatus {
-    pub fn live_null() -> CellStatus {
-        CellStatus::Live(LiveCell::Null)
-    }
-
     pub fn live_cell(cell_meta: CellMeta) -> CellStatus {
-        CellStatus::Live(LiveCell::Output(Box::new(cell_meta)))
+        CellStatus::Live(Box::new(cell_meta))
     }
 
     pub fn is_live(&self) -> bool {
@@ -81,40 +69,18 @@ impl CellStatus {
     pub fn is_unknown(&self) -> bool {
         self == &CellStatus::Unknown
     }
-
-    pub fn get_live_cell(&self) -> Option<&CellMeta> {
-        match *self {
-            CellStatus::Live(LiveCell::Output(ref cell_meta)) => Some(cell_meta),
-            _ => None,
-        }
-    }
-
-    pub fn take_live_cell(self) -> Option<CellMeta> {
-        match self {
-            CellStatus::Live(LiveCell::Output(cell_meta)) => Some(*cell_meta),
-            _ => None,
-        }
-    }
 }
 
 /// Transaction with resolved input cells.
 #[derive(Debug)]
 pub struct ResolvedTransaction<'a> {
     pub transaction: &'a Transaction,
-    pub dep_cells: Vec<CellStatus>,
-    pub input_cells: Vec<CellStatus>,
+    pub dep_cells: Vec<CellMeta>,
+    pub input_cells: Vec<CellMeta>,
 }
 
 pub trait CellProvider {
     fn cell(&self, out_point: &OutPoint) -> CellStatus;
-
-    fn get_cell_status(&self, out_point: &OutPoint) -> CellStatus {
-        if out_point.is_null() {
-            CellStatus::Live(LiveCell::Null)
-        } else {
-            self.cell(out_point)
-        }
-    }
 }
 
 pub struct OverlayCellProvider<'a> {
@@ -133,10 +99,10 @@ impl<'a> OverlayCellProvider<'a> {
 
 impl<'a> CellProvider for OverlayCellProvider<'a> {
     fn cell(&self, out_point: &OutPoint) -> CellStatus {
-        match self.overlay.get_cell_status(out_point) {
-            CellStatus::Live(co) => CellStatus::Live(co),
+        match self.overlay.cell(out_point) {
+            CellStatus::Live(cell_meta) => CellStatus::Live(cell_meta),
             CellStatus::Dead => CellStatus::Dead,
-            CellStatus::Unknown => self.cell_provider.get_cell_status(out_point),
+            CellStatus::Unknown => self.cell_provider.cell(out_point),
         }
     }
 }
@@ -181,65 +147,78 @@ impl<'a> CellProvider for BlockCellProvider<'a> {
     }
 }
 
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub enum UnresolvableError {
+    Dead(OutPoint),
+    Unknown(Vec<OutPoint>),
+}
+
 pub fn resolve_transaction<'a, CP: CellProvider>(
     transaction: &'a Transaction,
     seen_inputs: &mut FnvHashSet<OutPoint>,
     cell_provider: &CP,
-) -> ResolvedTransaction<'a> {
-    let input_cells = transaction
-        .input_pts()
-        .iter()
-        .map(|input| {
-            if seen_inputs.insert(input.clone()) {
-                cell_provider.get_cell_status(input)
+) -> Result<ResolvedTransaction<'a>, UnresolvableError> {
+    let (mut unknown_out_points, mut input_cells, mut dep_cells) = (
+        Vec::new(),
+        Vec::with_capacity(transaction.inputs().len()),
+        Vec::with_capacity(transaction.deps().len()),
+    );
+
+    // skip resolve input of cellbase
+    if !transaction.is_cellbase() {
+        for out_point in transaction.input_pts() {
+            let cell_status = if seen_inputs.insert(out_point.clone()) {
+                cell_provider.cell(&out_point)
             } else {
                 CellStatus::Dead
-            }
-        })
-        .collect();
+            };
 
-    let dep_cells = transaction
-        .dep_pts()
-        .iter()
-        .map(|dep| {
-            if seen_inputs.contains(dep) {
-                CellStatus::Dead
-            } else {
-                cell_provider.get_cell_status(dep)
+            match cell_status {
+                CellStatus::Dead => {
+                    return Err(UnresolvableError::Dead(out_point.clone()));
+                }
+                CellStatus::Unknown => {
+                    unknown_out_points.push(out_point.clone());
+                }
+                CellStatus::Live(cell_meta) => {
+                    input_cells.push(*cell_meta);
+                }
             }
-        })
-        .collect();
+        }
+    }
 
-    ResolvedTransaction {
-        transaction,
-        input_cells,
-        dep_cells,
+    for out_point in transaction.dep_pts() {
+        let cell_status = if seen_inputs.contains(&out_point) {
+            CellStatus::Dead
+        } else {
+            cell_provider.cell(&out_point)
+        };
+
+        match cell_status {
+            CellStatus::Dead => {
+                return Err(UnresolvableError::Dead(out_point.clone()));
+            }
+            CellStatus::Unknown => {
+                unknown_out_points.push(out_point.clone());
+            }
+            CellStatus::Live(cell_meta) => {
+                dep_cells.push(*cell_meta);
+            }
+        }
+    }
+
+    if !unknown_out_points.is_empty() {
+        Err(UnresolvableError::Unknown(unknown_out_points))
+    } else {
+        Ok(ResolvedTransaction {
+            transaction,
+            input_cells,
+            dep_cells,
+        })
     }
 }
 
 impl<'a> ResolvedTransaction<'a> {
-    pub fn cells_iter(&self) -> Chain<slice::Iter<CellStatus>, slice::Iter<CellStatus>> {
-        self.dep_cells.iter().chain(&self.input_cells)
-    }
-
-    pub fn cells_iter_mut(
-        &mut self,
-    ) -> Chain<slice::IterMut<CellStatus>, slice::IterMut<CellStatus>> {
-        self.dep_cells.iter_mut().chain(&mut self.input_cells)
-    }
-
-    pub fn is_double_spend(&self) -> bool {
-        self.cells_iter().any(CellStatus::is_dead)
-    }
-
-    pub fn is_orphan(&self) -> bool {
-        self.cells_iter().any(CellStatus::is_unknown)
-    }
-
-    pub fn is_fully_resolved(&self) -> bool {
-        self.cells_iter().all(CellStatus::is_live)
-    }
-
     pub fn fee(&self) -> ::occupied_capacity::Result<Capacity> {
         self.inputs_capacity().and_then(|x| {
             self.transaction.outputs_capacity().and_then(|y| {
@@ -255,13 +234,7 @@ impl<'a> ResolvedTransaction<'a> {
     pub fn inputs_capacity(&self) -> ::occupied_capacity::Result<Capacity> {
         self.input_cells
             .iter()
-            .filter_map(|cell_status| {
-                if let CellStatus::Live(LiveCell::Output(cell_meta)) = cell_status {
-                    Some(cell_meta.capacity())
-                } else {
-                    None
-                }
-            })
+            .map(CellMeta::capacity)
             .try_fold(Capacity::zero(), Capacity::safe_add)
     }
 }
@@ -280,9 +253,7 @@ mod tests {
     impl CellProvider for CellMemoryDb {
         fn cell(&self, o: &OutPoint) -> CellStatus {
             match self.cells.get(o) {
-                Some(&Some(ref cell_meta)) => {
-                    CellStatus::Live(LiveCell::Output(Box::new(cell_meta.clone())))
-                }
+                Some(&Some(ref cell_meta)) => CellStatus::live_cell(cell_meta.clone()),
                 Some(&None) => CellStatus::Dead,
                 None => CellStatus::Unknown,
             }
@@ -330,11 +301,8 @@ mod tests {
         db.cells.insert(p1.clone(), Some(o.clone()));
         db.cells.insert(p2.clone(), None);
 
-        assert_eq!(
-            CellStatus::Live(LiveCell::Output(Box::new(o))),
-            db.get_cell_status(&p1)
-        );
-        assert_eq!(CellStatus::Dead, db.get_cell_status(&p2));
-        assert_eq!(CellStatus::Unknown, db.get_cell_status(&p3));
+        assert_eq!(CellStatus::Live(Box::new(o)), db.cell(&p1));
+        assert_eq!(CellStatus::Dead, db.cell(&p2));
+        assert_eq!(CellStatus::Unknown, db.cell(&p3));
     }
 }

@@ -135,11 +135,8 @@ pub enum DifficultyError {
 
 #[derive(Debug, PartialEq, Clone, Copy, Eq)]
 pub enum TransactionError {
-    NullInput,
-    NullDep,
     /// Occur output's bytes_len exceed capacity
     CapacityOverflow,
-    DuplicateInputs,
     DuplicateDeps,
     Empty,
     /// Sum of all outputs capacity exceed sum of all inputs in the transaction
@@ -147,8 +144,6 @@ pub enum TransactionError {
     InvalidScript,
     ScriptFailure(ScriptError),
     InvalidSignature,
-    Conflict,
-    Unknown,
     Version,
     /// Tx not satisfied since condition
     Immature,
@@ -163,9 +158,8 @@ impl TransactionError {
     pub fn is_bad_tx(self) -> bool {
         use TransactionError::*;
         match self {
-            NullInput | NullDep | CapacityOverflow | DuplicateInputs | Empty
-            | OutputsSumOverflow | InvalidScript | ScriptFailure(_) | InvalidSignature
-            | InvalidValidSince => true,
+            CapacityOverflow | Empty | OutputsSumOverflow | InvalidScript | ScriptFailure(_)
+            | InvalidSignature | InvalidValidSince => true,
             _ => false,
         }
     }

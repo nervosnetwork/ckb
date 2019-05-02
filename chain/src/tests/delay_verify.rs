@@ -1,5 +1,7 @@
 use crate::tests::util::{create_transaction, gen_block, start_chain};
 use ckb_core::block::Block;
+use ckb_core::cell::UnresolvableError;
+use ckb_core::transaction::OutPoint;
 use ckb_shared::error::SharedError;
 use ckb_traits::ChainProvider;
 use numext_fixed_uint::U256;
@@ -44,8 +46,9 @@ fn test_dead_cell_in_same_block() {
 
     let last_cell_base = &chain2.last().unwrap().transactions()[0];
     let tx1 = create_transaction(last_cell_base.hash(), 1);
-    let tx2 = create_transaction(tx1.hash(), 2);
-    let tx3 = create_transaction(tx1.hash(), 3);
+    let tx1_hash = tx1.hash();
+    let tx2 = create_transaction(tx1_hash.clone(), 2);
+    let tx3 = create_transaction(tx1_hash.clone(), 3);
     let txs = vec![tx1, tx2, tx3];
     for i in switch_fork_number..final_number {
         let difficulty = parent.difficulty().to_owned();
@@ -90,17 +93,17 @@ fn test_dead_cell_in_same_block() {
             .expect("process block ok");
     }
 
-    let error = chain_controller
-        .process_block(Arc::new(chain2[switch_fork_number + 1].clone()))
-        .unwrap_err()
-        .downcast()
-        .unwrap();
-    if let SharedError::InvalidTransaction(errmsg) = error {
-        let re = regex::Regex::new(r#"Transactions\(\([0-9], Conflict\)\)"#).unwrap();
-        assert!(re.is_match(&errmsg));
-    } else {
-        panic!("should be the Conflict Transactions error");
-    }
+    assert_eq!(
+        SharedError::UnresolvableTransaction(UnresolvableError::Dead(OutPoint {
+            tx_hash: tx1_hash,
+            index: 0,
+        })),
+        chain_controller
+            .process_block(Arc::new(chain2[switch_fork_number + 1].clone()))
+            .unwrap_err()
+            .downcast()
+            .unwrap()
+    )
 }
 
 #[test]
@@ -142,8 +145,9 @@ fn test_dead_cell_in_different_block() {
 
     let last_cell_base = &chain2.last().unwrap().transactions()[0];
     let tx1 = create_transaction(last_cell_base.hash(), 1);
-    let tx2 = create_transaction(tx1.hash(), 2);
-    let tx3 = create_transaction(tx1.hash(), 3);
+    let tx1_hash = tx1.hash();
+    let tx2 = create_transaction(tx1_hash.clone(), 2);
+    let tx3 = create_transaction(tx1_hash.clone(), 3);
     for i in switch_fork_number..final_number {
         let difficulty = parent.difficulty().to_owned();
         let new_block = if i == switch_fork_number {
@@ -195,15 +199,15 @@ fn test_dead_cell_in_different_block() {
             .expect("process block ok");
     }
 
-    let error = chain_controller
-        .process_block(Arc::new(chain2[switch_fork_number + 2].clone()))
-        .unwrap_err()
-        .downcast()
-        .unwrap();
-    if let SharedError::InvalidTransaction(errmsg) = error {
-        let re = regex::Regex::new(r#"Transactions\(\([0-9], Conflict\)\)"#).unwrap();
-        assert!(re.is_match(&errmsg));
-    } else {
-        panic!("should be the Conflict Transactions error");
-    }
+    assert_eq!(
+        SharedError::UnresolvableTransaction(UnresolvableError::Dead(OutPoint {
+            tx_hash: tx1_hash,
+            index: 0,
+        })),
+        chain_controller
+            .process_block(Arc::new(chain2[switch_fork_number + 2].clone()))
+            .unwrap_err()
+            .downcast()
+            .unwrap()
+    );
 }

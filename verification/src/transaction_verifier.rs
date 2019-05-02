@@ -1,7 +1,7 @@
 use crate::error::TransactionError;
-use ckb_core::transaction::{Capacity, CellOutput, OutPoint, Transaction, TX_VERSION};
+use ckb_core::transaction::{Capacity, CellOutput, Transaction, TX_VERSION};
 use ckb_core::{
-    cell::{CellMeta, CellStatus, LiveCell, ResolvedTransaction},
+    cell::{CellMeta, ResolvedTransaction},
     BlockNumber, Cycle,
 };
 use ckb_script::TransactionScriptsVerifier;
@@ -39,16 +39,13 @@ where
     }
 }
 
-pub struct TransactionVerifier<'a, M, CP> {
+pub struct TransactionVerifier<'a, M, CS> {
     pub version: VersionVerifier<'a>,
-    pub null: NullVerifier<'a>,
     pub empty: EmptyVerifier<'a>,
     pub maturity: MaturityVerifier<'a>,
     pub capacity: CapacityVerifier<'a>,
-    pub duplicate_inputs: DuplicateInputsVerifier<'a>,
     pub duplicate_deps: DuplicateDepsVerifier<'a>,
-    pub inputs: InputVerifier<'a>,
-    pub script: ScriptVerifier<'a, CP>,
+    pub script: ScriptVerifier<'a, CS>,
     pub since: ValidSinceVerifier<'a, M>,
 }
 
@@ -65,14 +62,11 @@ where
     ) -> Self {
         TransactionVerifier {
             version: VersionVerifier::new(&rtx.transaction),
-            null: NullVerifier::new(&rtx.transaction),
             empty: EmptyVerifier::new(&rtx.transaction),
             maturity: MaturityVerifier::new(&rtx, tip_number, cellbase_maturity),
-            duplicate_inputs: DuplicateInputsVerifier::new(&rtx.transaction),
             duplicate_deps: DuplicateDepsVerifier::new(&rtx.transaction),
             script: ScriptVerifier::new(rtx, Arc::clone(&store)),
             capacity: CapacityVerifier::new(rtx),
-            inputs: InputVerifier::new(rtx),
             since: ValidSinceVerifier::new(rtx, median_time_context, tip_number),
         }
     }
@@ -80,11 +74,8 @@ where
     pub fn verify(&self, max_cycles: Cycle) -> Result<Cycle, TransactionError> {
         self.version.verify()?;
         self.empty.verify()?;
-        self.null.verify()?;
         self.maturity.verify()?;
-        self.inputs.verify()?;
         self.capacity.verify()?;
-        self.duplicate_inputs.verify()?;
         self.duplicate_deps.verify()?;
         self.since.verify()?;
         let cycles = self.script.verify(max_cycles)?;
@@ -104,37 +95,6 @@ impl<'a> VersionVerifier<'a> {
     pub fn verify(&self) -> Result<(), TransactionError> {
         if self.transaction.version() != TX_VERSION {
             return Err(TransactionError::Version);
-        }
-        Ok(())
-    }
-}
-
-pub struct InputVerifier<'a> {
-    resolved_transaction: &'a ResolvedTransaction<'a>,
-}
-
-impl<'a> InputVerifier<'a> {
-    pub fn new(resolved_transaction: &'a ResolvedTransaction) -> Self {
-        InputVerifier {
-            resolved_transaction,
-        }
-    }
-
-    pub fn verify(&self) -> Result<(), TransactionError> {
-        for cs in &self.resolved_transaction.input_cells {
-            if cs.is_dead() {
-                return Err(TransactionError::Conflict);
-            } else if cs.is_unknown() {
-                return Err(TransactionError::Unknown);
-            }
-        }
-
-        for cs in &self.resolved_transaction.dep_cells {
-            if cs.is_dead() {
-                return Err(TransactionError::Conflict);
-            } else if cs.is_unknown() {
-                return Err(TransactionError::Unknown);
-            }
         }
         Ok(())
     }
@@ -198,19 +158,13 @@ impl<'a> MaturityVerifier<'a> {
     }
 
     pub fn verify(&self) -> Result<(), TransactionError> {
-        let cellbase_immature = |cell_status: &CellStatus| -> bool {
-            match cell_status.get_live_cell() {
-                Some(ref meta)
-                    if meta.is_cellbase()
-                        && self.tip_number
-                            < meta.block_number.expect(
-                                "cell meta should have block number when transaction verify",
-                            ) + self.cellbase_maturity =>
-                {
-                    true
-                }
-                _ => false,
-            }
+        let cellbase_immature = |meta: &CellMeta| -> bool {
+            meta.is_cellbase()
+                && self.tip_number
+                    < meta
+                        .block_number
+                        .expect("cell meta should have block number when transaction verify")
+                        + self.cellbase_maturity
         };
 
         let input_immature_spend = || self.transaction.input_cells.iter().any(cellbase_immature);
@@ -220,27 +174,6 @@ impl<'a> MaturityVerifier<'a> {
             Err(TransactionError::CellbaseImmaturity)
         } else {
             Ok(())
-        }
-    }
-}
-
-pub struct DuplicateInputsVerifier<'a> {
-    transaction: &'a Transaction,
-}
-
-impl<'a> DuplicateInputsVerifier<'a> {
-    pub fn new(transaction: &'a Transaction) -> Self {
-        DuplicateInputsVerifier { transaction }
-    }
-
-    pub fn verify(&self) -> Result<(), TransactionError> {
-        let transaction = self.transaction;
-        let mut seen = HashSet::with_capacity(self.transaction.inputs().len());
-
-        if transaction.inputs().iter().all(|id| seen.insert(id)) {
-            Ok(())
-        } else {
-            Err(TransactionError::DuplicateInputs)
         }
     }
 }
@@ -266,32 +199,6 @@ impl<'a> DuplicateDepsVerifier<'a> {
     }
 }
 
-pub struct NullVerifier<'a> {
-    transaction: &'a Transaction,
-}
-
-impl<'a> NullVerifier<'a> {
-    pub fn new(transaction: &'a Transaction) -> Self {
-        NullVerifier { transaction }
-    }
-
-    pub fn verify(&self) -> Result<(), TransactionError> {
-        let transaction = self.transaction;
-        if transaction.deps().iter().any(OutPoint::is_null) {
-            return Err(TransactionError::NullDep);
-        }
-
-        if transaction
-            .inputs()
-            .iter()
-            .any(|input| input.previous_output.is_null())
-        {
-            return Err(TransactionError::NullInput);
-        }
-        Ok(())
-    }
-}
-
 pub struct CapacityVerifier<'a> {
     resolved_transaction: &'a ResolvedTransaction<'a>,
 }
@@ -308,8 +215,9 @@ impl<'a> CapacityVerifier<'a> {
             .resolved_transaction
             .input_cells
             .iter()
-            .filter_map(CellStatus::get_live_cell)
-            .try_fold(Capacity::zero(), |acc, meta| acc.safe_add(meta.capacity()))?;
+            .try_fold(Capacity::zero(), |acc, cell_meta| {
+                acc.safe_add(cell_meta.capacity())
+            })?;
 
         let outputs_total = self
             .resolved_transaction
@@ -478,7 +386,7 @@ where
     }
 
     pub fn verify(&self) -> Result<(), TransactionError> {
-        for (cell_status, input) in self
+        for (cell_meta, input) in self
             .rtx
             .input_cells
             .iter()
@@ -496,15 +404,7 @@ where
 
             // verify time lock
             self.verify_absolute_lock(since)?;
-
-            let cell = match cell_status {
-                CellStatus::Live(cell) => match cell {
-                    LiveCell::Null => continue, // do not verify null in ValidSinceVerifier
-                    LiveCell::Output(meta) => meta,
-                },
-                _ => return Err(TransactionError::Conflict),
-            };
-            self.verify_relative_lock(since, cell)?;
+            self.verify_relative_lock(since, cell_meta)?;
         }
         Ok(())
     }

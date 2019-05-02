@@ -1,7 +1,7 @@
 //! The primary module containing the implementations of the transaction pool
 //! and its top-level members.
 
-use ckb_core::transaction::OutPoint;
+use ckb_core::cell::UnresolvableError;
 use ckb_core::transaction::Transaction;
 use ckb_core::Cycle;
 use ckb_verification::TransactionError;
@@ -45,22 +45,18 @@ impl TxPoolConfig {
 /// Enum of errors
 #[derive(Debug, Clone, PartialEq, Fail)]
 pub enum PoolError {
+    /// Unresolvable CellStatus
+    UnresolvableTransaction(UnresolvableError),
     /// An invalid pool entry caused by underlying tx validation error
     InvalidTx(TransactionError),
-    /// CellStatus Conflict
-    Conflict,
     /// Transaction pool is over capacity, can't accept more transactions
     OverCapacity,
-    /// tx_pool don't accept cellbase-like tx
-    NullInput,
     /// TimeOut
     TimeOut,
     /// BlockNumber is not right
     InvalidBlockNumber,
     /// Duplicate tx
     Duplicate,
-    /// Tx contains unknown inputs
-    UnknownInputs(Vec<OutPoint>),
 }
 
 impl PoolError {
@@ -69,7 +65,6 @@ impl PoolError {
     pub fn is_bad_tx(&self) -> bool {
         match self {
             PoolError::InvalidTx(err) => err.is_bad_tx(),
-            PoolError::NullInput => true,
             _ => false,
         }
     }

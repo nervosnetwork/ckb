@@ -55,7 +55,10 @@ fn case_no1() {
     let mut seen = FnvHashSet::default();
     //Outpoint::null should be live
     let rtx0 = resolve_transaction(&transcations[0], &mut seen, &cell_set_overlay);
-    assert_eq!(rtx0.input_cells[0], CellStatus::Live(LiveCell::Null));
+    assert_eq!(
+        rtx0.unwrap().input_cells[0],
+        CellStatus::Live(LiveCell::Null)
+    );
 
     // let out_point = transcations[1].inputs()[0].previous_output.clone();
 
@@ -63,14 +66,14 @@ fn case_no1() {
     // A is dead in old fork
     let mut seen_inputs = seen.clone();
     let rtx1 = resolve_transaction(&transcations[1], &mut seen_inputs, &*chain_state);
-    assert_eq!(rtx1.input_cells[0], CellStatus::Dead);
+    assert_eq!(rtx1.unwrap().input_cells[0], CellStatus::Dead);
 
     // A include in cell_set_diff old_inputs
     // A is live in cell_set_overlay
     let mut seen_inputs = seen.clone();
     let rtx1_overlay = resolve_transaction(&transcations[1], &mut seen_inputs, &cell_set_overlay);
     assert_eq!(
-        rtx1_overlay.input_cells[0],
+        rtx1_overlay.unwrap().input_cells[0],
         CellStatus::Live(LiveCell::Null)
     );
 }

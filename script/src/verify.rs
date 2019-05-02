@@ -34,22 +34,8 @@ pub struct TransactionScriptsVerifier<'a, CS> {
 impl<'a, CS: ChainStore> TransactionScriptsVerifier<'a, CS> {
     pub fn new(rtx: &'a ResolvedTransaction, store: Arc<CS>) -> TransactionScriptsVerifier<'a, CS> {
         let tx_hash = rtx.transaction.hash();
-        let dep_cells: Vec<&'a CellMeta> = rtx
-            .dep_cells
-            .iter()
-            .map(|cell| {
-                cell.get_live_cell()
-                    .expect("already verifies that all dep cells are valid")
-            })
-            .collect();
-        let input_cells = rtx
-            .input_cells
-            .iter()
-            .map(|cell| {
-                cell.get_live_cell()
-                    .expect("already verifies that all input cells are valid")
-            })
-            .collect();
+        let dep_cells: Vec<&'a CellMeta> = rtx.dep_cells.iter().collect();
+        let input_cells = rtx.input_cells.iter().collect();
         let inputs = rtx.transaction.inputs().iter().collect();
         let outputs = rtx
             .transaction
@@ -259,7 +245,7 @@ impl<'a, CS: ChainStore> TransactionScriptsVerifier<'a, CS> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ckb_core::cell::{CellMeta, CellStatus, LiveCell};
+    use ckb_core::cell::CellMeta;
     use ckb_core::script::Script;
     use ckb_core::transaction::{CellInput, CellOutput, OutPoint, TransactionBuilder};
     use ckb_core::{capacity_bytes, Capacity};
@@ -304,7 +290,7 @@ mod tests {
         let rtx = ResolvedTransaction {
             transaction: &transaction,
             dep_cells: vec![],
-            input_cells: vec![CellStatus::Live(LiveCell::Output(Box::new(dummy_cell)))],
+            input_cells: vec![dummy_cell],
         };
 
         let store = Arc::new(new_memory_store());
@@ -379,8 +365,8 @@ mod tests {
 
         let rtx = ResolvedTransaction {
             transaction: &transaction,
-            dep_cells: vec![CellStatus::Live(LiveCell::Output(Box::new(dep_cell)))],
-            input_cells: vec![CellStatus::Live(LiveCell::Output(Box::new(dummy_cell)))],
+            dep_cells: vec![dep_cell],
+            input_cells: vec![dummy_cell],
         };
         let store = Arc::new(new_memory_store());
 
@@ -454,8 +440,8 @@ mod tests {
 
         let rtx = ResolvedTransaction {
             transaction: &transaction,
-            dep_cells: vec![CellStatus::Live(LiveCell::Output(Box::new(dep_cell)))],
-            input_cells: vec![CellStatus::Live(LiveCell::Output(Box::new(dummy_cell)))],
+            dep_cells: vec![dep_cell],
+            input_cells: vec![dummy_cell],
         };
 
         let store = Arc::new(new_memory_store());
@@ -531,8 +517,8 @@ mod tests {
 
         let rtx = ResolvedTransaction {
             transaction: &transaction,
-            dep_cells: vec![CellStatus::Live(LiveCell::Output(Box::new(dep_cell)))],
-            input_cells: vec![CellStatus::Live(LiveCell::Output(Box::new(dummy_cell)))],
+            dep_cells: vec![dep_cell],
+            input_cells: vec![dummy_cell],
         };
 
         let store = Arc::new(new_memory_store());
@@ -592,7 +578,7 @@ mod tests {
         let rtx = ResolvedTransaction {
             transaction: &transaction,
             dep_cells: vec![],
-            input_cells: vec![CellStatus::Live(LiveCell::Output(Box::new(dummy_cell)))],
+            input_cells: vec![dummy_cell],
         };
 
         let store = Arc::new(new_memory_store());
@@ -677,8 +663,8 @@ mod tests {
 
         let rtx = ResolvedTransaction {
             transaction: &transaction,
-            dep_cells: vec![CellStatus::Live(LiveCell::Output(Box::new(dep_cell)))],
-            input_cells: vec![CellStatus::Live(LiveCell::Output(Box::new(dummy_cell)))],
+            dep_cells: vec![dep_cell],
+            input_cells: vec![dummy_cell],
         };
 
         let store = Arc::new(new_memory_store());
@@ -763,8 +749,8 @@ mod tests {
 
         let rtx = ResolvedTransaction {
             transaction: &transaction,
-            dep_cells: vec![CellStatus::Live(LiveCell::Output(Box::new(dep_cell)))],
-            input_cells: vec![CellStatus::Live(LiveCell::Output(Box::new(dummy_cell)))],
+            dep_cells: vec![dep_cell],
+            input_cells: vec![dummy_cell],
         };
 
         let store = Arc::new(new_memory_store());
