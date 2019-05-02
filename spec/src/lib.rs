@@ -250,6 +250,12 @@ pub mod test {
         let chain_spec = dev.unwrap();
         let tx = chain_spec.build_system_cell_transaction().unwrap();
 
+        // Tx and Output hash will be used in some test cases directly, assert here for convenience
+        assert_eq!(
+            format!("{:x}", tx.hash()),
+            "013d8bd8c65e22655cc907c146c8ca8eaa2cfef46bf5b5f08dc145d72bf65a60"
+        );
+
         let reference = tx.outputs()[0].data_hash();
         assert_eq!(
             format!("{:x}", reference),
