@@ -1,5 +1,5 @@
-use crate::{sleep, Net, Spec};
-use ckb_core::transaction::Transaction;
+use crate::{Net, Spec};
+use ckb_core::transaction::{ProposalShortId, Transaction};
 use log::info;
 
 pub struct DepentTxInSameBlock;
@@ -14,19 +14,27 @@ impl Spec for DepentTxInSameBlock {
         let tx_hash_0 = node0.generate_transaction();
         let tx = node0.new_transaction(tx_hash_0.clone());
         let tx_hash_1 = tx.hash();
-        node0.rpc_client().send_transaction((&tx).into());
+        node0
+            .rpc_client()
+            .send_transaction((&tx).into())
+            .call()
+            .unwrap();
 
-        // mine 2 txs
-        info!("Mine 2 tx");
+        info!("Generated 2 tx should be included in the next block's proposals");
         node0.generate_block();
-        sleep(1);
-        node0.generate_block();
-        sleep(1);
-        // mine one block, 2 txs should be commit
-        info!("Waiting for mine");
-        node0.generate_block();
-        sleep(1);
+        let proposal_block = node0.get_tip_block();
+        let proposals_hash: Vec<_> = proposal_block
+            .proposals()
+            .iter()
+            .map(Clone::clone)
+            .collect();
+        assert!(proposals_hash.contains(&ProposalShortId::from_tx_hash(&tx_hash_0)));
+        assert!(proposals_hash.contains(&ProposalShortId::from_tx_hash(&tx_hash_1)));
 
+        node0.generate_block();
+
+        info!("Generated 2 tx should be included in the next + 2 block");
+        node0.generate_block();
         let tip_block = node0.get_tip_block();
         let commit_txs_hash: Vec<_> = tip_block
             .transactions()
@@ -34,7 +42,6 @@ impl Spec for DepentTxInSameBlock {
             .map(Transaction::hash)
             .collect();
 
-        info!("2 txs should included in commit_transactions");
         assert!(commit_txs_hash.contains(&tx_hash_0));
         assert!(commit_txs_hash.contains(&tx_hash_1));
     }
