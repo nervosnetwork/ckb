@@ -99,6 +99,9 @@ pub struct StagingPool {
 
 impl CellProvider for StagingPool {
     fn cell(&self, o: &OutPoint) -> CellStatus {
+        if o.cell.is_none() {
+            return CellStatus::Unspecified;
+        }
         if let Some(x) = self.edges.get_inner(o) {
             if x.is_some() {
                 CellStatus::Dead
@@ -106,7 +109,7 @@ impl CellProvider for StagingPool {
                 let output = self.get_output(o).expect("output");
                 CellStatus::live_cell(CellMeta {
                     cell_output: Some(output.clone()),
-                    out_point: o.to_owned(),
+                    out_point: o.cell.as_ref().unwrap().to_owned(),
                     block_number: None,
                     cellbase: false,
                     capacity: output.capacity,
@@ -143,9 +146,11 @@ impl StagingPool {
     }
 
     pub fn get_output(&self, o: &OutPoint) -> Option<CellOutput> {
-        self.vertices
-            .get(&ProposalShortId::from_tx_hash(&o.tx_hash))
-            .and_then(|x| x.transaction.get_output(o.index as usize))
+        o.cell.as_ref().and_then(|cell_out_point| {
+            self.vertices
+                .get(&ProposalShortId::from_tx_hash(&cell_out_point.tx_hash))
+                .and_then(|x| x.transaction.get_output(cell_out_point.index as usize))
+        })
     }
 
     pub fn remove_vertex(&mut self, id: &ProposalShortId, rtxs: &mut Vec<PoolEntry>) {
@@ -318,7 +323,11 @@ mod tests {
                 inputs
                     .into_iter()
                     .map(|(txid, index)| {
-                        CellInput::new(OutPoint::new(txid.to_owned(), index), 0, Default::default())
+                        CellInput::new(
+                            OutPoint::new_cell(txid.to_owned(), index),
+                            0,
+                            Default::default(),
+                        )
                     })
                     .collect(),
             )

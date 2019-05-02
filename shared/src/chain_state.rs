@@ -6,8 +6,8 @@ use crate::tx_proposal_table::TxProposalTable;
 use ckb_chain_spec::consensus::{Consensus, ProposalWindow};
 use ckb_core::block::Block;
 use ckb_core::cell::{
-    resolve_transaction, CellMeta, CellProvider, CellStatus, OverlayCellProvider,
-    ResolvedTransaction, UnresolvableError,
+    resolve_transaction, CellMeta, CellProvider, CellStatus, HeaderProvider, HeaderStatus,
+    OverlayCellProvider, ResolvedTransaction, UnresolvableError,
 };
 use ckb_core::extras::EpochExt;
 use ckb_core::header::{BlockNumber, Header};
@@ -240,7 +240,7 @@ impl<CS: ChainStore> ChainState<CS> {
         let pending_and_staging_provider =
             OverlayCellProvider::new(&tx_pool.pending, &staging_provider);
         let mut seen_inputs = FnvHashSet::default();
-        resolve_transaction(tx, &mut seen_inputs, &pending_and_staging_provider)
+        resolve_transaction(tx, &mut seen_inputs, &pending_and_staging_provider, self)
     }
 
     pub fn resolve_tx_from_staging<'a>(
@@ -250,7 +250,7 @@ impl<CS: ChainStore> ChainState<CS> {
     ) -> Result<ResolvedTransaction<'a>, UnresolvableError> {
         let cell_provider = OverlayCellProvider::new(&tx_pool.staging, self);
         let mut seen_inputs = FnvHashSet::default();
-        resolve_transaction(tx, &mut seen_inputs, &cell_provider)
+        resolve_transaction(tx, &mut seen_inputs, &cell_provider, self)
     }
 
     pub(crate) fn verify_rtx(
@@ -333,6 +333,12 @@ impl<CS: ChainStore> ChainState<CS> {
                     UnresolvableError::Unknown(out_points) => {
                         tx_pool.add_orphan(cycles, tx, out_points.clone());
                     }
+                    // The remaining errors are Empty, UnspecifiedInputCell and
+                    // InvalidHeader. They all represent invalid transactions
+                    // that should just be discarded.
+                    UnresolvableError::Empty => (),
+                    UnresolvableError::UnspecifiedInputCell(_) => (),
+                    UnresolvableError::InvalidHeader(_) => (),
                 }
                 Err(PoolError::UnresolvableTransaction(err))
             }
@@ -456,54 +462,89 @@ pub struct ChainCellSetOverlay<'a, CS> {
 
 impl<CS: ChainStore> CellProvider for ChainState<CS> {
     fn cell(&self, out_point: &OutPoint) -> CellStatus {
-        match self.cell_set().get(&out_point.tx_hash) {
-            Some(tx_meta) => {
-                if tx_meta.is_dead(out_point.index as usize) {
-                    CellStatus::Dead
-                } else {
-                    let cell_meta = self
-                        .store
-                        .get_cell_meta(&out_point.tx_hash, out_point.index)
-                        .expect("store should be consistent with cell_set");
-                    CellStatus::live_cell(cell_meta)
+        if let Some(cell_out_point) = &out_point.cell {
+            match self.cell_set().get(&cell_out_point.tx_hash) {
+                Some(tx_meta) => {
+                    if tx_meta.is_dead(cell_out_point.index as usize) {
+                        CellStatus::Dead
+                    } else {
+                        let cell_meta = self
+                            .store
+                            .get_cell_meta(&cell_out_point.tx_hash, cell_out_point.index)
+                            .expect("store should be consistent with cell_set");
+                        CellStatus::live_cell(cell_meta)
+                    }
                 }
+                None => CellStatus::Unknown,
             }
-            None => CellStatus::Unknown,
+        } else {
+            CellStatus::Unspecified
+        }
+    }
+}
+
+impl<CS: ChainStore> HeaderProvider for ChainState<CS> {
+    fn header(&self, out_point: &OutPoint) -> HeaderStatus {
+        if let Some(block_hash) = &out_point.block_hash {
+            match self.store.get_header(&block_hash) {
+                Some(header) => {
+                    if let Some(cell_out_point) = &out_point.cell {
+                        self.store
+                            .get_transaction_address(&cell_out_point.tx_hash)
+                            .map_or(HeaderStatus::InclusionFaliure, |address| {
+                                if address.block_hash == *block_hash {
+                                    HeaderStatus::live_header(header)
+                                } else {
+                                    HeaderStatus::InclusionFaliure
+                                }
+                            })
+                    } else {
+                        HeaderStatus::live_header(header)
+                    }
+                }
+                None => HeaderStatus::Unknown,
+            }
+        } else {
+            HeaderStatus::Unspecified
         }
     }
 }
 
 impl<'a, CS: ChainStore> CellProvider for ChainCellSetOverlay<'a, CS> {
     fn cell(&self, out_point: &OutPoint) -> CellStatus {
-        match self.overlay.get(&out_point.tx_hash) {
-            Some(tx_meta) => {
-                if tx_meta.is_dead(out_point.index as usize) {
-                    CellStatus::Dead
-                } else {
-                    let cell_meta = self
-                        .outputs
-                        .get(&out_point.tx_hash)
-                        .map(|outputs| {
-                            let output = &outputs[out_point.index as usize];
-                            CellMeta {
-                                cell_output: Some(output.clone()),
-                                out_point: out_point.to_owned(),
-                                block_number: Some(tx_meta.block_number()),
-                                cellbase: tx_meta.is_cellbase(),
-                                capacity: output.capacity,
-                                data_hash: None,
-                            }
-                        })
-                        .or_else(|| {
-                            self.store
-                                .get_cell_meta(&out_point.tx_hash, out_point.index)
-                        })
-                        .expect("store should be consistent with cell_set");
+        if let Some(cell_out_point) = &out_point.cell {
+            match self.overlay.get(&cell_out_point.tx_hash) {
+                Some(tx_meta) => {
+                    if tx_meta.is_dead(cell_out_point.index as usize) {
+                        CellStatus::Dead
+                    } else {
+                        let cell_meta = self
+                            .outputs
+                            .get(&cell_out_point.tx_hash)
+                            .map(|outputs| {
+                                let output = &outputs[cell_out_point.index as usize];
+                                CellMeta {
+                                    cell_output: Some(output.clone()),
+                                    out_point: cell_out_point.to_owned(),
+                                    block_number: Some(tx_meta.block_number()),
+                                    cellbase: tx_meta.is_cellbase(),
+                                    capacity: output.capacity,
+                                    data_hash: None,
+                                }
+                            })
+                            .or_else(|| {
+                                self.store
+                                    .get_cell_meta(&cell_out_point.tx_hash, cell_out_point.index)
+                            })
+                            .expect("store should be consistent with cell_set");
 
-                    CellStatus::live_cell(cell_meta)
+                        CellStatus::live_cell(cell_meta)
+                    }
                 }
+                None => CellStatus::Unknown,
             }
-            None => CellStatus::Unknown,
+        } else {
+            CellStatus::Unspecified
         }
     }
 }

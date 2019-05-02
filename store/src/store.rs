@@ -11,7 +11,7 @@ use ckb_core::cell::CellMeta;
 use ckb_core::extras::{BlockExt, EpochExt, TransactionAddress};
 use ckb_core::header::{BlockNumber, Header};
 use ckb_core::transaction::{
-    CellOutput, OutPoint, ProposalShortId, Transaction, TransactionBuilder,
+    CellOutPoint, CellOutput, ProposalShortId, Transaction, TransactionBuilder,
 };
 use ckb_core::uncle::UncleBlock;
 use ckb_db::{Col, DbBatch, Error, KeyValueDB};
@@ -333,7 +333,7 @@ impl<B: DbBatch> StoreBatch for DefaultStoreBatch<B> {
             self.insert_serialize(COLUMN_TRANSACTION_ADDR, tx_hash.as_bytes(), &address)?;
             let cellbase = id == 0;
             for (index, output) in tx.outputs().iter().enumerate() {
-                let out_point = OutPoint {
+                let out_point = CellOutPoint {
                     tx_hash: tx_hash.clone(),
                     index: index as u32,
                 };

@@ -1,6 +1,6 @@
 use crate::common::{CurrentCell, LazyLoadCellOutput};
 use crate::syscalls::{Source, ITEM_MISSING, LOAD_CELL_SYSCALL_NUMBER, SUCCESS};
-use ckb_core::cell::CellMeta;
+use ckb_core::cell::{CellMeta, ResolvedOutPoint};
 use ckb_protocol::CellOutput as FbsCellOutput;
 use ckb_vm::{
     registers::{A0, A1, A2, A3, A4, A7},
@@ -13,18 +13,18 @@ use std::sync::Arc;
 pub struct LoadCell<'a, CS> {
     store: Arc<CS>,
     outputs: &'a [CellMeta],
-    input_cells: &'a [&'a CellMeta],
+    input_cells: &'a [&'a ResolvedOutPoint],
     current: CurrentCell,
-    dep_cells: &'a [&'a CellMeta],
+    dep_cells: &'a [&'a ResolvedOutPoint],
 }
 
 impl<'a, CS: LazyLoadCellOutput + 'a> LoadCell<'a, CS> {
     pub fn new(
         store: Arc<CS>,
         outputs: &'a [CellMeta],
-        input_cells: &'a [&'a CellMeta],
+        input_cells: &'a [&'a ResolvedOutPoint],
         current: CurrentCell,
-        dep_cells: &'a [&'a CellMeta],
+        dep_cells: &'a [&'a ResolvedOutPoint],
     ) -> LoadCell<'a, CS> {
         LoadCell {
             store,
@@ -37,13 +37,13 @@ impl<'a, CS: LazyLoadCellOutput + 'a> LoadCell<'a, CS> {
 
     fn fetch_cell(&self, source: Source, index: usize) -> Option<&'a CellMeta> {
         match source {
-            Source::Input => self.input_cells.get(index).cloned(),
+            Source::Input => self.input_cells.get(index).and_then(|r| r.cell()),
             Source::Output => self.outputs.get(index),
             Source::Current => match self.current {
-                CurrentCell::Input(index) => self.input_cells.get(index).cloned(),
+                CurrentCell::Input(index) => self.input_cells.get(index).and_then(|r| r.cell()),
                 CurrentCell::Output(index) => self.outputs.get(index),
             },
-            Source::Dep => self.dep_cells.get(index).cloned(),
+            Source::Dep => self.dep_cells.get(index).and_then(|r| r.cell()),
         }
     }
 }

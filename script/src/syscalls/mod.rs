@@ -2,6 +2,7 @@ mod builder;
 mod debugger;
 mod load_cell;
 mod load_cell_by_field;
+mod load_header;
 mod load_input_by_field;
 mod load_tx;
 mod load_tx_hash;
@@ -11,6 +12,7 @@ pub use self::builder::build_tx;
 pub use self::debugger::Debugger;
 pub use self::load_cell::LoadCell;
 pub use self::load_cell_by_field::LoadCellByField;
+pub use self::load_header::LoadHeader;
 pub use self::load_input_by_field::LoadInputByField;
 pub use self::load_tx::LoadTx;
 pub use self::load_tx_hash::LoadTxHash;
@@ -25,6 +27,7 @@ pub const LOAD_CELL_SYSCALL_NUMBER: u64 = 2053;
 pub const LOAD_CELL_BY_FIELD_SYSCALL_NUMBER: u64 = 2054;
 pub const LOAD_INPUT_BY_FIELD_SYSCALL_NUMBER: u64 = 2055;
 pub const LOAD_TX_HASH_SYSCALL_NUMBER: u64 = 2057;
+pub const LOAD_HEADER_SYSCALL_NUMBER: u64 = 2056;
 pub const DEBUG_PRINT_SYSCALL_NUMBER: u64 = 2177;
 
 #[derive(Debug, PartialEq, Clone, Copy, Eq)]
@@ -94,9 +97,9 @@ mod tests {
     use super::*;
     use crate::common::CurrentCell;
     use byteorder::{LittleEndian, WriteBytesExt};
-    use ckb_core::cell::CellMeta;
+    use ckb_core::cell::{CellMeta, ResolvedOutPoint};
     use ckb_core::script::Script;
-    use ckb_core::transaction::{CellInput, CellOutput, OutPoint};
+    use ckb_core::transaction::{CellInput, CellOutPoint, CellOutput, OutPoint};
     use ckb_core::{capacity_bytes, Bytes, Capacity};
     use ckb_db::MemoryKeyValueDB;
     use ckb_protocol::{
@@ -122,7 +125,7 @@ mod tests {
         CellMeta {
             capacity: output.capacity,
             data_hash: None,
-            out_point: OutPoint {
+            out_point: CellOutPoint {
                 tx_hash: Default::default(),
                 index: 0,
             },
@@ -130,6 +133,10 @@ mod tests {
             cellbase: false,
             cell_output: Some(output),
         }
+    }
+
+    fn build_resolved_outpoint(output: CellOutput) -> ResolvedOutPoint {
+        ResolvedOutPoint::cell_only(build_cell_meta(output))
     }
 
     fn _test_load_tx_all(tx: &[u8]) -> Result<(), TestCaseError> {
@@ -267,7 +274,7 @@ mod tests {
             Script::default(),
             None,
         ));
-        let input_cell = build_cell_meta(CellOutput::new(
+        let input_cell = build_resolved_outpoint(CellOutput::new(
             capacity_bytes!(100),
             data.iter().rev().cloned().collect(),
             Script::default(),
@@ -315,7 +322,7 @@ mod tests {
             Script::default(),
             None,
         ));
-        let input_cell = build_cell_meta(CellOutput::new(
+        let input_cell = build_resolved_outpoint(CellOutput::new(
             capacity_bytes!(100),
             data.iter().rev().cloned().collect(),
             Script::default(),
@@ -334,8 +341,10 @@ mod tests {
         );
 
         let mut builder = FlatBufferBuilder::new();
-        let fbs_offset =
-            FbsCellOutput::build(&mut builder, input_cell.cell_output.as_ref().unwrap());
+        let fbs_offset = FbsCellOutput::build(
+            &mut builder,
+            input_cell.cell().unwrap().cell_output.as_ref().unwrap(),
+        );
         builder.finish(fbs_offset, None);
         let input_correct_data = builder.finished_data();
 
@@ -419,7 +428,7 @@ mod tests {
             Script::default(),
             None,
         ));
-        let input_cell = build_cell_meta(CellOutput::new(
+        let input_cell = build_resolved_outpoint(CellOutput::new(
             capacity_bytes!(100),
             data.iter().rev().cloned().collect(),
             Script::default(),
@@ -438,8 +447,10 @@ mod tests {
         );
 
         let mut builder = FlatBufferBuilder::new();
-        let fbs_offset =
-            FbsCellOutput::build(&mut builder, input_cell.cell_output.as_ref().unwrap());
+        let fbs_offset = FbsCellOutput::build(
+            &mut builder,
+            input_cell.cell().unwrap().cell_output.as_ref().unwrap(),
+        );
         builder.finish(fbs_offset, None);
         let input_correct_data = builder.finished_data();
 
@@ -481,7 +492,7 @@ mod tests {
             Script::default(),
             None,
         ));
-        let input_cell = build_cell_meta(CellOutput::new(
+        let input_cell = build_resolved_outpoint(CellOutput::new(
             capacity_bytes!(100),
             data.iter().rev().cloned().collect(),
             Script::default(),
@@ -500,8 +511,10 @@ mod tests {
         );
 
         let mut builder = FlatBufferBuilder::new();
-        let fbs_offset =
-            FbsCellOutput::build(&mut builder, input_cell.cell_output.as_ref().unwrap());
+        let fbs_offset = FbsCellOutput::build(
+            &mut builder,
+            input_cell.cell().unwrap().cell_output.as_ref().unwrap(),
+        );
         builder.finish(fbs_offset, None);
         let input_correct_data = builder.finished_data();
 
@@ -541,7 +554,7 @@ mod tests {
         machine.set_register(A4, Source::Current as u64); //source: 0 current
         machine.set_register(A7, LOAD_CELL_SYSCALL_NUMBER); // syscall number
 
-        let input_cell = CellMeta::from(&CellOutput::new(
+        let input_cell = build_resolved_outpoint(CellOutput::new(
             capacity_bytes!(100),
             data.iter().rev().cloned().collect(),
             Script::default(),
@@ -560,8 +573,10 @@ mod tests {
         );
 
         let mut builder = FlatBufferBuilder::new();
-        let fbs_offset =
-            FbsCellOutput::build(&mut builder, &input_cell.cell_output.as_ref().unwrap());
+        let fbs_offset = FbsCellOutput::build(
+            &mut builder,
+            &input_cell.cell().unwrap().cell_output.as_ref().unwrap(),
+        );
         builder.finish(fbs_offset, None);
         let input_correct_data = builder.finished_data();
 
@@ -608,7 +623,7 @@ mod tests {
         machine.set_register(A5, CellField::Capacity as u64); //field: 0 capacity
         machine.set_register(A7, LOAD_CELL_BY_FIELD_SYSCALL_NUMBER); // syscall number
 
-        let input_cell = build_cell_meta(CellOutput::new(
+        let input_cell = build_resolved_outpoint(CellOutput::new(
             capacity,
             Bytes::default(),
             Script::default(),
@@ -665,7 +680,7 @@ mod tests {
         let script = Script::new(vec![Bytes::from(data)], H256::zero());
         let h = script.hash();
         let hash = h.as_bytes();
-        let input_cell = build_cell_meta(CellOutput::new(
+        let input_cell = build_resolved_outpoint(CellOutput::new(
             capacity_bytes!(100),
             Bytes::default(),
             script,
@@ -892,7 +907,7 @@ mod tests {
         machine.set_register(A7, LOAD_INPUT_BY_FIELD_SYSCALL_NUMBER); // syscall number
 
         let blake2b_data = blake2b_256(data);
-        let out_point = OutPoint::new(H256::from_slice(&blake2b_data).unwrap(), 3);
+        let out_point = OutPoint::new_cell(H256::from_slice(&blake2b_data).unwrap(), 3);
         let mut builder = FlatBufferBuilder::new();
         let fbs_offset = FbsOutPoint::build(&mut builder, &out_point);
         builder.finish(fbs_offset, None);
@@ -973,13 +988,13 @@ mod tests {
         machine.set_register(A5, CellField::Data as u64); //field: 1 data
         machine.set_register(A7, LOAD_CELL_BY_FIELD_SYSCALL_NUMBER); // syscall number
 
-        let input_cell = build_cell_meta(CellOutput::new(
+        let input_cell = build_resolved_outpoint(CellOutput::new(
             capacity_bytes!(1000),
             Bytes::default(),
             Script::default(),
             None,
         ));
-        let dep_cell = build_cell_meta(CellOutput::new(
+        let dep_cell = build_resolved_outpoint(CellOutput::new(
             capacity_bytes!(1000),
             Bytes::from(data),
             Script::default(),
@@ -1036,13 +1051,13 @@ mod tests {
         machine.set_register(A5, CellField::DataHash as u64); //field: 2 data hash
         machine.set_register(A7, LOAD_CELL_BY_FIELD_SYSCALL_NUMBER); // syscall number
 
-        let input_cell = build_cell_meta(CellOutput::new(
+        let input_cell = build_resolved_outpoint(CellOutput::new(
             capacity_bytes!(1000),
             Bytes::default(),
             Script::default(),
             None,
         ));
-        let dep_cell = build_cell_meta(CellOutput::new(
+        let dep_cell = build_resolved_outpoint(CellOutput::new(
             capacity_bytes!(1000),
             Bytes::from(data),
             Script::default(),

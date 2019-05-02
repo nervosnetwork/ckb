@@ -87,20 +87,24 @@ impl CellSet {
         }
 
         for old_input in &diff.old_inputs {
-            if let Some(meta) = self.inner.get(&old_input.tx_hash) {
-                let meta = new
-                    .entry(old_input.tx_hash.clone())
-                    .or_insert_with(|| meta.clone());
-                meta.unset_dead(old_input.index as usize);
+            if let Some(cell_input) = &old_input.cell {
+                if let Some(meta) = self.inner.get(&cell_input.tx_hash) {
+                    let meta = new
+                        .entry(cell_input.tx_hash.clone())
+                        .or_insert_with(|| meta.clone());
+                    meta.unset_dead(cell_input.index as usize);
+                }
             }
         }
 
         for new_input in &diff.new_inputs {
-            if let Some(meta) = self.inner.get(&new_input.tx_hash) {
-                let meta = new
-                    .entry(new_input.tx_hash.clone())
-                    .or_insert_with(|| meta.clone());
-                meta.set_dead(new_input.index as usize);
+            if let Some(cell_input) = &new_input.cell {
+                if let Some(meta) = self.inner.get(&cell_input.tx_hash) {
+                    let meta = new
+                        .entry(cell_input.tx_hash.clone())
+                        .or_insert_with(|| meta.clone());
+                    meta.set_dead(cell_input.index as usize);
+                }
             }
         }
 
@@ -112,9 +116,11 @@ impl CellSet {
     }
 
     pub fn is_dead(&self, o: &OutPoint) -> Option<bool> {
-        self.inner
-            .get(&o.tx_hash)
-            .map(|x| x.is_dead(o.index as usize))
+        o.cell.as_ref().and_then(|cell| {
+            self.inner
+                .get(&cell.tx_hash)
+                .map(|x| x.is_dead(cell.index as usize))
+        })
     }
 
     pub fn get(&self, h: &H256) -> Option<&TransactionMeta> {
@@ -136,14 +142,18 @@ impl CellSet {
     }
 
     pub fn mark_dead(&mut self, o: &OutPoint) {
-        if let Some(meta) = self.inner.get_mut(&o.tx_hash) {
-            meta.set_dead(o.index as usize);
+        if let Some(cell) = &o.cell {
+            if let Some(meta) = self.inner.get_mut(&cell.tx_hash) {
+                meta.set_dead(cell.index as usize);
+            }
         }
     }
 
     fn mark_live(&mut self, o: &OutPoint) {
-        if let Some(meta) = self.inner.get_mut(&o.tx_hash) {
-            meta.unset_dead(o.index as usize);
+        if let Some(cell) = &o.cell {
+            if let Some(meta) = self.inner.get_mut(&cell.tx_hash) {
+                meta.unset_dead(cell.index as usize);
+            }
         }
     }
 

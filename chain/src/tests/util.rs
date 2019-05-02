@@ -83,7 +83,7 @@ pub(crate) fn create_transaction(parent: &H256, unique_data: u8) -> Transaction 
             None,
         ))
         .input(CellInput::new(
-            OutPoint::new(parent.to_owned(), 0),
+            OutPoint::new_cell(parent.to_owned(), 0),
             0,
             vec![],
         ))

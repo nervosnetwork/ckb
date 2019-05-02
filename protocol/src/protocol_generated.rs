@@ -1643,12 +1643,18 @@ impl<'a> OutPoint<'a> {
       let mut builder = OutPointBuilder::new(_fbb);
       builder.add_index(args.index);
       if let Some(x) = args.tx_hash { builder.add_tx_hash(x); }
+      if let Some(x) = args.block_hash { builder.add_block_hash(x); }
       builder.finish()
     }
 
-    pub const VT_TX_HASH: flatbuffers::VOffsetT = 4;
-    pub const VT_INDEX: flatbuffers::VOffsetT = 6;
+    pub const VT_BLOCK_HASH: flatbuffers::VOffsetT = 4;
+    pub const VT_TX_HASH: flatbuffers::VOffsetT = 6;
+    pub const VT_INDEX: flatbuffers::VOffsetT = 8;
 
+  #[inline]
+  pub fn block_hash(&self) -> Option<&'a H256> {
+    self._tab.get::<H256>(OutPoint::VT_BLOCK_HASH, None)
+  }
   #[inline]
   pub fn tx_hash(&self) -> Option<&'a H256> {
     self._tab.get::<H256>(OutPoint::VT_TX_HASH, None)
@@ -1660,6 +1666,7 @@ impl<'a> OutPoint<'a> {
 }
 
 pub struct OutPointArgs<'a> {
+    pub block_hash: Option<&'a  H256>,
     pub tx_hash: Option<&'a  H256>,
     pub index: u32,
 }
@@ -1667,6 +1674,7 @@ impl<'a> Default for OutPointArgs<'a> {
     #[inline]
     fn default() -> Self {
         OutPointArgs {
+            block_hash: None,
             tx_hash: None,
             index: 0,
         }
@@ -1677,6 +1685,10 @@ pub struct OutPointBuilder<'a: 'b, 'b> {
   start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
 }
 impl<'a: 'b, 'b> OutPointBuilder<'a, 'b> {
+  #[inline]
+  pub fn add_block_hash(&mut self, block_hash: &'b  H256) {
+    self.fbb_.push_slot_always::<&H256>(OutPoint::VT_BLOCK_HASH, block_hash);
+  }
   #[inline]
   pub fn add_tx_hash(&mut self, tx_hash: &'b  H256) {
     self.fbb_.push_slot_always::<&H256>(OutPoint::VT_TX_HASH, tx_hash);
@@ -1733,14 +1745,20 @@ impl<'a> CellInput<'a> {
       if let Some(x) = args.args { builder.add_args(x); }
       builder.add_index(args.index);
       if let Some(x) = args.tx_hash { builder.add_tx_hash(x); }
+      if let Some(x) = args.block_hash { builder.add_block_hash(x); }
       builder.finish()
     }
 
-    pub const VT_TX_HASH: flatbuffers::VOffsetT = 4;
-    pub const VT_INDEX: flatbuffers::VOffsetT = 6;
-    pub const VT_SINCE: flatbuffers::VOffsetT = 8;
-    pub const VT_ARGS: flatbuffers::VOffsetT = 10;
+    pub const VT_BLOCK_HASH: flatbuffers::VOffsetT = 4;
+    pub const VT_TX_HASH: flatbuffers::VOffsetT = 6;
+    pub const VT_INDEX: flatbuffers::VOffsetT = 8;
+    pub const VT_SINCE: flatbuffers::VOffsetT = 10;
+    pub const VT_ARGS: flatbuffers::VOffsetT = 12;
 
+  #[inline]
+  pub fn block_hash(&self) -> Option<&'a H256> {
+    self._tab.get::<H256>(CellInput::VT_BLOCK_HASH, None)
+  }
   #[inline]
   pub fn tx_hash(&self) -> Option<&'a H256> {
     self._tab.get::<H256>(CellInput::VT_TX_HASH, None)
@@ -1760,6 +1778,7 @@ impl<'a> CellInput<'a> {
 }
 
 pub struct CellInputArgs<'a> {
+    pub block_hash: Option<&'a  H256>,
     pub tx_hash: Option<&'a  H256>,
     pub index: u32,
     pub since: u64,
@@ -1769,6 +1788,7 @@ impl<'a> Default for CellInputArgs<'a> {
     #[inline]
     fn default() -> Self {
         CellInputArgs {
+            block_hash: None,
             tx_hash: None,
             index: 0,
             since: 0,
@@ -1781,6 +1801,10 @@ pub struct CellInputBuilder<'a: 'b, 'b> {
   start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
 }
 impl<'a: 'b, 'b> CellInputBuilder<'a, 'b> {
+  #[inline]
+  pub fn add_block_hash(&mut self, block_hash: &'b  H256) {
+    self.fbb_.push_slot_always::<&H256>(CellInput::VT_BLOCK_HASH, block_hash);
+  }
   #[inline]
   pub fn add_tx_hash(&mut self, tx_hash: &'b  H256) {
     self.fbb_.push_slot_always::<&H256>(CellInput::VT_TX_HASH, tx_hash);

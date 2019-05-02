@@ -283,10 +283,10 @@ fn create_transaction(
             None,
         ))
         .input(CellInput::new(
-            OutPoint::new(parent_hash.to_owned(), 0),
+            OutPoint::new_cell(parent_hash.to_owned(), 0),
             0,
             vec![],
         ))
-        .dep(OutPoint::new(system_cell_hash.to_owned(), 0))
+        .dep(OutPoint::new_cell(system_cell_hash.to_owned(), 0))
         .build()
 }

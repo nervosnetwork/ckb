@@ -258,8 +258,8 @@ impl Node {
 
     pub fn new_transaction(&self, hash: H256) -> Transaction {
         // OutPoint and Script reference hash values are from spec#always_success_type_hash test
-        let out_point = OutPoint::new(
-            H256::from_hex_str("013d8bd8c65e22655cc907c146c8ca8eaa2cfef46bf5b5f08dc145d72bf65a60")
+        let out_point = OutPoint::new_cell(
+            H256::from_hex_str("f8532f2ed92aad146878dca1d5ad9840e9c803ab85d1361652500eaee09c9038")
                 .unwrap(),
             0,
         );
@@ -277,7 +277,7 @@ impl Node {
                 script,
                 None,
             ))
-            .input(CellInput::new(OutPoint::new(hash, 0), 0, vec![]))
+            .input(CellInput::new(OutPoint::new_cell(hash, 0), 0, vec![]))
             .build()
     }
 

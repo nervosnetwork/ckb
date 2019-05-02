@@ -80,13 +80,14 @@ impl<'a> FeeCalculator<'a> {
     }
 
     fn get_capacity(&self, out_point: &OutPoint) -> Option<Capacity> {
-        self.txs_map.get(&out_point.tx_hash).map_or_else(
+        let cell_out_point = out_point.cell.as_ref()?;
+        self.txs_map.get(&cell_out_point.tx_hash).map_or_else(
             || {
                 self.provider
-                    .get_transaction(&out_point.tx_hash)
+                    .get_transaction(&cell_out_point.tx_hash)
                     .and_then(|(tx, _block_hash)| {
                         tx.outputs()
-                            .get(out_point.index as usize)
+                            .get(cell_out_point.index as usize)
                             .map(|output| output.capacity)
                     })
             },
@@ -94,7 +95,7 @@ impl<'a> FeeCalculator<'a> {
                 self.txs[*index]
                     .transaction
                     .outputs()
-                    .get(out_point.index as usize)
+                    .get(cell_out_point.index as usize)
                     .map(|output| output.capacity)
             },
         )

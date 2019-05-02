@@ -5,7 +5,7 @@ use ckb_core::block::BlockBuilder;
 use ckb_core::cell::{CellMeta, CellProvider, CellStatus, UnresolvableError};
 use ckb_core::header::HeaderBuilder;
 use ckb_core::script::Script;
-use ckb_core::transaction::{CellInput, CellOutput, OutPoint, TransactionBuilder};
+use ckb_core::transaction::{CellInput, CellOutPoint, CellOutput, OutPoint, TransactionBuilder};
 use ckb_core::{capacity_bytes, Bytes, Capacity};
 use ckb_shared::error::SharedError;
 use ckb_traits::ChainProvider;
@@ -68,7 +68,7 @@ fn test_genesis_transaction_spend() {
         shared
             .chain_state()
             .lock()
-            .cell(&OutPoint::new(genesis_tx_hash, 0)),
+            .cell(&OutPoint::new_cell(genesis_tx_hash, 0)),
         CellStatus::Dead
     );
 }
@@ -106,7 +106,7 @@ fn test_transaction_spend_in_same_block() {
             shared
                 .chain_state()
                 .lock()
-                .cell(&OutPoint::new(hash.to_owned().to_owned(), 0)),
+                .cell(&OutPoint::new_cell(hash.to_owned().to_owned(), 0)),
             CellStatus::Unknown
         );
     }
@@ -159,7 +159,7 @@ fn test_transaction_spend_in_same_block() {
             shared
                 .chain_state()
                 .lock()
-                .cell(&OutPoint::new(hash.to_owned().to_owned(), 0)),
+                .cell(&OutPoint::new_cell(hash.to_owned().to_owned(), 0)),
             CellStatus::Dead
         );
     }
@@ -168,10 +168,10 @@ fn test_transaction_spend_in_same_block() {
         shared
             .chain_state()
             .lock()
-            .cell(&OutPoint::new(tx2_hash.to_owned(), 0)),
+            .cell(&OutPoint::new_cell(tx2_hash.to_owned(), 0)),
         CellStatus::live_cell(CellMeta {
             cell_output: None,
-            out_point: OutPoint {
+            out_point: CellOutPoint {
                 tx_hash: tx2_hash.to_owned(),
                 index: 0
             },
@@ -251,10 +251,10 @@ fn test_transaction_conflict_in_same_block() {
             .expect("process block ok");
     }
     assert_eq!(
-        SharedError::UnresolvableTransaction(UnresolvableError::Dead(OutPoint {
-            tx_hash: tx1_hash.to_owned(),
-            index: 0,
-        })),
+        SharedError::UnresolvableTransaction(UnresolvableError::Dead(OutPoint::new_cell(
+            tx1_hash.to_owned(),
+            0
+        ))),
         chain_controller
             .process_block(Arc::new(chain[3].clone()))
             .unwrap_err()
@@ -343,10 +343,10 @@ fn test_transaction_conflict_in_different_blocks() {
             .expect("process block ok");
     }
     assert_eq!(
-        SharedError::UnresolvableTransaction(UnresolvableError::Dead(OutPoint {
-            tx_hash: tx1_hash.to_owned(),
-            index: 0,
-        })),
+        SharedError::UnresolvableTransaction(UnresolvableError::Dead(OutPoint::new_cell(
+            tx1_hash.to_owned(),
+            0
+        ))),
         chain_controller
             .process_block(Arc::new(chain[4].clone()))
             .unwrap_err()
@@ -380,7 +380,7 @@ fn test_genesis_transaction_fetch() {
     let consensus = Consensus::default().set_genesis_block(genesis_block);
     let (_chain_controller, shared) = start_chain(Some(consensus), false);
 
-    let out_point = OutPoint::new(root_hash, 0);
+    let out_point = OutPoint::new_cell(root_hash, 0);
     let state = shared.chain_state().lock().cell(&out_point);
     assert!(state.is_live());
 }

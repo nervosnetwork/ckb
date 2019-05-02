@@ -1,7 +1,8 @@
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::Block;
 use ckb_core::cell::{
-    resolve_transaction, BlockCellProvider, OverlayCellProvider, ResolvedTransaction,
+    resolve_transaction, BlockCellProvider, BlockHeadersProvider, OverlayCellProvider,
+    OverlayHeaderProvider, ResolvedTransaction,
 };
 use ckb_core::extras::BlockExt;
 use ckb_core::service::{Request, DEFAULT_CHANNEL_SIZE, SIGNAL_CHANNEL_SIZE};
@@ -485,6 +486,7 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
     ) -> Result<CellSetDiff, FailureError> {
         let mut cell_set_diff = CellSetDiff::default();
         let mut outputs: FnvHashMap<H256, &[CellOutput]> = FnvHashMap::default();
+        let mut block_headers_provider = BlockHeadersProvider::default();
 
         let mut dirty_exts = Vec::new();
         // cause we need borrow outputs from fork, swap `dirty_exts` out to evade from borrow check
@@ -497,6 +499,7 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
 
         for b in detached_blocks_iter {
             cell_set_diff.push_old(b);
+            block_headers_provider.push_detached(b);
         }
 
         for b in attached_blocks_iter.take(unverified_len) {
@@ -506,6 +509,7 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
                     .iter()
                     .map(|tx| (tx.hash().to_owned(), tx.outputs())),
             );
+            block_headers_provider.push_attached(b);
         }
 
         // The verify function
@@ -524,11 +528,21 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
                         chain_state.new_cell_set_overlay(&cell_set_diff, &outputs);
                     let block_cp = BlockCellProvider::new(b);
                     let cell_provider = OverlayCellProvider::new(&block_cp, &cell_set_overlay);
+                    block_headers_provider.push_attached(b);
+                    let header_provider =
+                        OverlayHeaderProvider::new(&block_headers_provider, &*chain_state);
 
                     match b
                         .transactions()
                         .iter()
-                        .map(|x| resolve_transaction(x, &mut seen_inputs, &cell_provider))
+                        .map(|x| {
+                            resolve_transaction(
+                                x,
+                                &mut seen_inputs,
+                                &cell_provider,
+                                &header_provider,
+                            )
+                        })
                         .collect::<Result<Vec<ResolvedTransaction>, _>>()
                     {
                         Ok(resolved) => {

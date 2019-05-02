@@ -2,7 +2,7 @@ use crate::error::TransactionError;
 use ckb_chain_spec::Vm;
 use ckb_core::transaction::{Capacity, CellOutput, Transaction, TX_VERSION};
 use ckb_core::{
-    cell::{CellMeta, ResolvedTransaction},
+    cell::{CellMeta, ResolvedOutPoint, ResolvedTransaction},
     BlockNumber, Cycle,
 };
 use ckb_script::TransactionScriptsVerifier;
@@ -175,8 +175,20 @@ impl<'a> MaturityVerifier<'a> {
                         + self.cellbase_maturity
         };
 
-        let input_immature_spend = || self.transaction.input_cells.iter().any(cellbase_immature);
-        let dep_immature_spend = || self.transaction.dep_cells.iter().any(cellbase_immature);
+        let input_immature_spend = || {
+            self.transaction
+                .input_cells
+                .iter()
+                .filter_map(ResolvedOutPoint::cell)
+                .any(cellbase_immature)
+        };
+        let dep_immature_spend = || {
+            self.transaction
+                .dep_cells
+                .iter()
+                .filter_map(ResolvedOutPoint::cell)
+                .any(cellbase_immature)
+        };
 
         if input_immature_spend() || dep_immature_spend() {
             Err(TransactionError::CellbaseImmaturity)
@@ -222,13 +234,16 @@ impl<'a> CapacityVerifier<'a> {
         // skip OutputsSumOverflow verification for resolved cellbase
         // cellbase's outputs are verified by TransactionsVerifier#InvalidReward
         if !self.resolved_transaction.is_cellbase() {
-            let inputs_total = self
-                .resolved_transaction
-                .input_cells
-                .iter()
-                .try_fold(Capacity::zero(), |acc, cell_meta| {
-                    acc.safe_add(cell_meta.capacity())
-                })?;
+            let inputs_total = self.resolved_transaction.input_cells.iter().try_fold(
+                Capacity::zero(),
+                |acc, resolved_out_point| {
+                    let capacity = resolved_out_point
+                        .cell()
+                        .map(|cell_meta| cell_meta.capacity)
+                        .unwrap_or(Capacity::zero());
+                    acc.safe_add(capacity)
+                },
+            )?;
 
             let outputs_total = self
                 .resolved_transaction
@@ -399,12 +414,16 @@ where
     }
 
     pub fn verify(&self) -> Result<(), TransactionError> {
-        for (cell_meta, input) in self
+        for (resolved_out_point, input) in self
             .rtx
             .input_cells
             .iter()
             .zip(self.rtx.transaction.inputs())
         {
+            if resolved_out_point.cell().is_none() {
+                continue;
+            }
+            let cell_meta = resolved_out_point.cell().unwrap();
             // ignore empty since
             if input.since == 0 {
                 continue;
