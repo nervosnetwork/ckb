@@ -7,7 +7,7 @@ use std::convert::{TryFrom, TryInto};
 
 pub type ShortTransactionID = [u8; 6];
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Default)]
 pub struct CompactBlock {
     pub header: Header,
     pub uncles: Vec<UncleBlock>,

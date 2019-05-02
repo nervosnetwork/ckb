@@ -1,11 +1,11 @@
 use crate::relayer::Relayer;
+use ckb_core::transaction::ProposalShortId;
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::{cast, GetBlockProposal, RelayMessage};
 use ckb_store::ChainStore;
 use failure::Error as FailureError;
 use flatbuffers::FlatBufferBuilder;
 use std::convert::TryInto;
-use ckb_core::transaction::ProposalShortId;
 
 pub struct GetBlockProposalProcess<'a, CS> {
     message: &'a GetBlockProposal<'a>,

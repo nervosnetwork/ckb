@@ -2,9 +2,13 @@ mod block_proposal_process;
 mod block_transactions_process;
 pub mod compact_block;
 mod compact_block_process;
+mod compact_block_verifier;
+mod error;
 mod get_block_proposal_process;
 mod get_block_transactions_process;
 mod get_transaction_process;
+#[cfg(test)]
+mod tests;
 mod transaction_hash_process;
 mod transaction_process;
 
@@ -12,6 +16,7 @@ use self::block_proposal_process::BlockProposalProcess;
 use self::block_transactions_process::BlockTransactionsProcess;
 use self::compact_block::CompactBlock;
 use self::compact_block_process::CompactBlockProcess;
+pub use self::error::Error;
 use self::get_block_proposal_process::GetBlockProposalProcess;
 use self::get_block_transactions_process::GetBlockTransactionsProcess;
 use self::get_transaction_process::GetTransactionProcess;
