@@ -1,5 +1,5 @@
 use crate::error::RPCError;
-use ckb_core::cell::CellProvider;
+use ckb_core::cell::{CellProvider, CellStatus};
 use ckb_core::{transaction::ProposalShortId, BlockNumber};
 use ckb_shared::shared::Shared;
 use ckb_store::ChainStore;
@@ -145,12 +145,23 @@ impl<CS: ChainStore + 'static> ChainRpc for ChainRpcImpl<CS> {
     }
 
     fn get_live_cell(&self, out_point: OutPoint) -> Result<CellWithStatus> {
-        Ok(self
-            .shared
-            .chain_state()
-            .lock()
-            .cell(&(out_point.try_into().map_err(|_| Error::parse_error())?))
-            .into())
+        let mut cell_status = self.shared.chain_state().lock().cell(
+            &(out_point
+                .clone()
+                .try_into()
+                .map_err(|_| Error::parse_error())?),
+        );
+        if let CellStatus::Live(ref mut cell_meta) = cell_status {
+            if cell_meta.cell_output.is_none() {
+                cell_meta.cell_output = Some(
+                    self.shared
+                        .store()
+                        .get_cell_output(&out_point.tx_hash, out_point.index)
+                        .expect("live cell must exists"),
+                );
+            }
+        }
+        Ok(cell_status.into())
     }
 
     fn get_tip_block_number(&self) -> Result<String> {
