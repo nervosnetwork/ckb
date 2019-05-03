@@ -1,0 +1,215 @@
+use crate::relayer::compact_block::CompactBlock;
+use crate::{Relayer, SyncSharedState};
+use ckb_chain::chain::ChainBuilder;
+use ckb_chain_spec::consensus::Consensus;
+use ckb_core::block::{Block, BlockBuilder};
+use ckb_core::header::HeaderBuilder;
+use ckb_core::script::Script;
+use ckb_core::transaction::{
+    CellInput, CellOutput, IndexTransaction, Transaction, TransactionBuilder,
+};
+use ckb_core::{capacity_bytes, BlockNumber, Bytes, Capacity};
+use ckb_db::memorydb::MemoryKeyValueDB;
+use ckb_notify::NotifyService;
+use ckb_protocol::{short_transaction_id, short_transaction_id_keys};
+use ckb_shared::shared::{Shared, SharedBuilder};
+use ckb_store::ChainKVStore;
+use ckb_traits::ChainProvider;
+use faketime::{self, unix_time_as_millis};
+use numext_fixed_uint::U256;
+use std::sync::Arc;
+
+fn new_header_builder(
+    shared: &Shared<ChainKVStore<MemoryKeyValueDB>>,
+    parent: &Block,
+) -> HeaderBuilder {
+    HeaderBuilder::default()
+        .parent_hash(parent.header().hash())
+        .number(parent.header().number() + 1)
+        .timestamp(parent.header().timestamp() + 1)
+        .difficulty(shared.calculate_difficulty(parent.header()).unwrap())
+}
+
+fn new_transaction(relayer: &Relayer<ChainKVStore<MemoryKeyValueDB>>, index: usize) -> Transaction {
+    let previous_output = {
+        let chain_state = relayer.shared.shared().chain_state().lock();
+        let tip_hash = chain_state.tip_hash();
+        let block = relayer
+            .shared
+            .shared()
+            .block(&tip_hash)
+            .expect("getting tip block");
+        let cellbase = block
+            .transactions()
+            .first()
+            .expect("getting cellbase from tip block");
+        cellbase.output_pts()[0].clone()
+    };
+
+    TransactionBuilder::default()
+        .input(CellInput::new(previous_output, 0, Default::default()))
+        .output(CellOutput::new(
+            Capacity::bytes(500 + index).unwrap(), // use capacity to identify transactions
+            Default::default(),
+            Default::default(),
+            None,
+        ))
+        .build()
+}
+
+fn build_chain(tip: BlockNumber) -> Relayer<ChainKVStore<MemoryKeyValueDB>> {
+    let shared = {
+        let genesis = BlockBuilder::default().with_header_builder(
+            HeaderBuilder::default()
+                .timestamp(unix_time_as_millis())
+                .difficulty(U256::from(1000u64)),
+        );
+        let consensus = Consensus::default()
+            .set_genesis_block(genesis)
+            .set_cellbase_maturity(0);
+        SharedBuilder::<MemoryKeyValueDB>::new()
+            .consensus(consensus)
+            .build()
+            .unwrap()
+    };
+    let chain_controller = {
+        let notify_controller = NotifyService::default().start::<&str>(None);
+        let chain_service = ChainBuilder::new(shared.clone(), notify_controller)
+            .verification(false)
+            .build();
+        chain_service.start::<&str>(None)
+    };
+
+    // Build 1 ~ (tip-1) heights
+    for i in 0..tip {
+        let parent = shared
+            .block_hash(i)
+            .and_then(|block_hash| shared.block(&block_hash))
+            .unwrap();
+        let cellbase = TransactionBuilder::default()
+            .input(CellInput::new_cellbase_input(parent.header().number() + 1))
+            .output(CellOutput::new(
+                capacity_bytes!(50000),
+                Bytes::default(),
+                Script::always_success(),
+                None,
+            ))
+            .build();
+        let block = BlockBuilder::default()
+            .transaction(cellbase)
+            .with_header_builder(new_header_builder(&shared, &parent));
+        chain_controller
+            .process_block(Arc::new(block))
+            .expect("processing block should be ok");
+    }
+
+    let sync_shared_state = Arc::new(SyncSharedState::new(shared));
+    Relayer::new(
+        chain_controller,
+        sync_shared_state,
+        Arc::new(Default::default()),
+    )
+}
+
+#[test]
+fn test_reconstruct_block() {
+    let relayer = build_chain(5);
+    let prepare: Vec<Transaction> = (0..20).map(|i| new_transaction(&relayer, i)).collect();
+    let chain_state = relayer.shared.chain_state().lock();
+
+    // Case: miss tx.0
+    {
+        let mut compact = CompactBlock {
+            nonce: 2,
+            ..Default::default()
+        };
+        let (key0, key1) = short_transaction_id_keys(compact.header.nonce(), compact.nonce);
+        let short_ids = prepare
+            .iter()
+            .map(|tx| short_transaction_id(key0, key1, &tx.witness_hash()))
+            .collect();
+        let transactions: Vec<Transaction> = prepare.iter().skip(1).map(Clone::clone).collect();
+        compact.short_ids = short_ids;
+        assert_eq!(
+            relayer.reconstruct_block(&chain_state, &compact, transactions),
+            Err(vec![0]),
+        );
+    }
+
+    // Case: miss multiple txs
+    {
+        let mut compact = CompactBlock {
+            nonce: 2,
+            ..Default::default()
+        };
+        let (key0, key1) = short_transaction_id_keys(compact.header.nonce(), compact.nonce);
+        let short_ids = prepare
+            .iter()
+            .map(|tx| short_transaction_id(key0, key1, &tx.witness_hash()))
+            .collect();
+        let transactions: Vec<Transaction> = prepare
+            .iter()
+            .skip(1)
+            .step_by(2)
+            .map(Clone::clone)
+            .collect();
+        let missing = prepare
+            .iter()
+            .enumerate()
+            .step_by(2)
+            .map(|(i, _)| i)
+            .collect();
+        compact.short_ids = short_ids;
+        assert_eq!(
+            relayer.reconstruct_block(&chain_state, &compact, transactions),
+            Err(missing),
+        );
+    }
+
+    // Case: short transactions lie on pool but not staging, cannot be used to reconstruct block
+    {
+        let mut compact = CompactBlock {
+            nonce: 3,
+            ..Default::default()
+        };
+        let (key0, key1) = short_transaction_id_keys(compact.header.nonce(), compact.nonce);
+        let (short_transactions, prefilled) = {
+            let short_transactions: Vec<Transaction> =
+                prepare.iter().step_by(2).map(Clone::clone).collect();
+            let prefilled: Vec<IndexTransaction> = prepare
+                .iter()
+                .enumerate()
+                .skip(1)
+                .step_by(2)
+                .map(|(i, tx)| IndexTransaction {
+                    index: i,
+                    transaction: tx.clone(),
+                })
+                .collect();
+            (short_transactions, prefilled)
+        };
+        let short_ids: Vec<[u8; 6]> = short_transactions
+            .iter()
+            .map(|tx| short_transaction_id(key0, key1, &tx.witness_hash()))
+            .collect();
+        compact.short_ids = short_ids;
+        compact.prefilled_transactions = prefilled;
+
+        // Split first 2 short transactions and move into pool. These pool transactions are not
+        // staging, so it will not be acquired inside `reconstruct_block`
+        let (pool_transactions, short_transactions) = short_transactions.split_at(2);
+        let short_transactions: Vec<Transaction> =
+            short_transactions.iter().map(Clone::clone).collect();
+        pool_transactions.iter().for_each(|tx| {
+            // `tx` is added into pool but not be staging, since `tx` has not been proposal yet
+            chain_state
+                .add_tx_to_pool(tx.clone())
+                .expect("adding transaction into pool");
+        });
+
+        assert_eq!(
+            relayer.reconstruct_block(&chain_state, &compact, short_transactions),
+            Err(vec![0, 2]),
+        );
+    }
+}
