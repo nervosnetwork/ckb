@@ -140,10 +140,6 @@ impl<CS: ChainStore> ChainProvider for Shared<CS> {
         None
     }
 
-    fn is_epoch_end(&self, epoch: &EpochExt, number: BlockNumber) -> bool {
-        (epoch.start_number() + epoch.length() - 1) == number
-    }
-
     fn get_epoch_ext(&self, hash: &H256) -> Option<EpochExt> {
         self.store().get_epoch_ext(hash)
     }

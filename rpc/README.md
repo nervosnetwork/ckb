@@ -77,7 +77,7 @@ curl -H 'content-type:application/json' \
     "result": {
         "block_reward": "5000000000000",
         "difficulty": "0x100",
-        "last_epoch_end_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+        "last_block_hash_in_previous_epoch": "0x0000000000000000000000000000000000000000000000000000000000000000",
         "length": "1000",
         "number": "0",
         "remainder_reward": "5000000000000",

@@ -47,7 +47,7 @@ pub struct RawHeader {
     parent_hash: H256,
     /// Block timestamp(ms).
     timestamp: u64,
-    /// Index of Block in epoch
+    /// Genesis number is 0, Child block number is parent block number + 1.
     number: BlockNumber,
     /// Transactions merkle root.
     transactions_root: H256,
@@ -135,7 +135,7 @@ impl fmt::Debug for Header {
                 &format_args!("{:#x}", self.raw.witnesses_root),
             )
             .field("difficulty", &format_args!("{:#x}", self.raw.difficulty))
-            .field("uncles_hash", &format_args!("{:#x}", self.raw.uncles_hash))
+            .field("uncles_count", &self.raw.uncles_count)
             .field("uncles_hash", &format_args!("{:#x}", self.raw.uncles_hash))
             .field("epoch", &self.raw.epoch)
             .field("seal", &self.seal)

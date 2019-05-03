@@ -2,7 +2,7 @@ use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::extras::EpochExt;
 use ckb_core::header::Header;
 use ckb_core::header::HeaderBuilder;
-use ckb_core::{BlockNumber, Capacity, Cycle, Version};
+use ckb_core::{capacity_bytes, BlockNumber, Capacity, Cycle, Version};
 use ckb_pow::{Pow, PowEngine};
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
@@ -17,16 +17,16 @@ pub(crate) const CELLBASE_MATURITY: BlockNumber = 100;
 pub(crate) const MEDIAN_TIME_BLOCK_COUNT: usize = 11;
 
 //TODO：find best ORPHAN_RATE_TARGET
-pub(crate) const ORPHAN_RATE_TARGET_RECIP: u64 = 10;
+pub(crate) const ORPHAN_RATE_TARGET_RECIP: u64 = 20;
 
-const MAX_BLOCK_INTERVAL: u64 = 25 * 6 * 1000; // 2.5min
+const MAX_BLOCK_INTERVAL: u64 = 60 * 1000; // 60s
 const MIN_BLOCK_INTERVAL: u64 = 5 * 1000; // 5s
-pub(crate) const EPOCH_DURATION: u64 = 2 * 60 * 60 * 1000; // 1hour
-pub(crate) const MAX_EPOCH_LENGTH: u64 = EPOCH_DURATION / MIN_BLOCK_INTERVAL; // 1440
-pub(crate) const MIN_EPOCH_LENGTH: u64 = EPOCH_DURATION / MAX_BLOCK_INTERVAL; // 48
+pub(crate) const EPOCH_DURATION_TARGET: u64 = 4 * 60 * 60 * 1000; // 4hours
+pub(crate) const MAX_EPOCH_LENGTH: u64 = EPOCH_DURATION_TARGET / MIN_BLOCK_INTERVAL; // 2880
+pub(crate) const MIN_EPOCH_LENGTH: u64 = EPOCH_DURATION_TARGET / MAX_BLOCK_INTERVAL; // 240
 pub(crate) const GENESIS_EPOCH_LENGTH: u64 = 1_000;
-pub(crate) const DEFAULT_EPOCH_REWARD: u64 = 5_000_000;
-pub(crate) const GENESIS_EPOCH_REWARD: u64 = DEFAULT_EPOCH_REWARD / GENESIS_EPOCH_LENGTH;
+pub(crate) const DEFAULT_EPOCH_REWARD: Capacity = capacity_bytes!(5_000_000);
+pub(crate) const GENESIS_EPOCH_BLOCK_REWARD: Capacity = capacity_bytes!(5_000);
 
 pub(crate) const MAX_BLOCK_CYCLES: Cycle = 20_000_000_000;
 pub(crate) const MAX_BLOCK_BYTES: u64 = 2_000_000; // 2mb
@@ -57,7 +57,7 @@ pub struct Consensus {
     pub max_uncles_age: usize,
     pub max_uncles_num: usize,
     pub orphan_rate_target_recip: u64,
-    pub epoch_duration: u64,
+    pub epoch_duration_target: u64,
     pub tx_proposal_window: ProposalWindow,
     pub pow: Pow,
     // For each input, if the referenced output transaction is cellbase,
@@ -87,7 +87,7 @@ impl Default for Consensus {
 
         let genesis_epoch_ext = EpochExt::new(
             0, // number
-            Capacity::shannons(GENESIS_EPOCH_REWARD), // block_reward
+            GENESIS_EPOCH_BLOCK_REWARD, // block_reward
             Capacity::shannons(0), // remainder_reward
             H256::zero(),
             0, // start
@@ -101,9 +101,9 @@ impl Default for Consensus {
             id: "main".to_owned(),
             max_uncles_age: MAX_UNCLE_AGE,
             max_uncles_num: MAX_UNCLE_NUM,
-            epoch_reward: Capacity::shannons(DEFAULT_EPOCH_REWARD),
+            epoch_reward: DEFAULT_EPOCH_REWARD,
             orphan_rate_target_recip: ORPHAN_RATE_TARGET_RECIP,
-            epoch_duration: EPOCH_DURATION,
+            epoch_duration_target: EPOCH_DURATION_TARGET,
             tx_proposal_window: TX_PROPOSAL_WINDOW,
             pow: Pow::Dummy(Default::default()),
             cellbase_maturity: CELLBASE_MATURITY,
@@ -125,6 +125,8 @@ impl Consensus {
     }
 
     pub fn set_genesis_block(mut self, genesis_block: Block) -> Self {
+        self.genesis_epoch_ext
+            .set_difficulty(genesis_block.header().difficulty().clone());
         self.genesis_hash = genesis_block.header().hash();
         self.genesis_block = genesis_block;
         self
@@ -179,8 +181,8 @@ impl Consensus {
         self.epoch_reward
     }
 
-    pub fn epoch_duration(&self) -> u64 {
-        self.epoch_duration
+    pub fn epoch_duration_target(&self) -> u64 {
+        self.epoch_duration_target
     }
 
     pub fn genesis_epoch_ext(&self) -> &EpochExt {
@@ -269,14 +271,14 @@ impl Consensus {
         let start = last_epoch.start_number();
         let last_epoch_length = last_epoch.length();
 
-        if (last_epoch.start_number() + last_epoch.length() - 1) != header.number() {
+        if header.number() != (last_epoch.start_number() + last_epoch.length() - 1) {
             return None;
         }
 
         let last_hash = header.hash();
         let last_difficulty = header.difficulty();
         let target_recip = self.orphan_rate_target_recip();
-        let epoch_duration = self.epoch_duration();
+        let epoch_duration_target = self.epoch_duration_target();
 
         if let Some(start_header) = get_ancestor(&last_hash, start) {
             let start_total_uncles_count =
@@ -292,8 +294,9 @@ impl Consensus {
                     return None;
                 }
 
-                let numerator =
-                    (last_uncles_count + last_epoch_length) * epoch_duration * last_epoch_length;
+                let numerator = (last_uncles_count + last_epoch_length)
+                    * epoch_duration_target
+                    * last_epoch_length;
                 let denominator = (target_recip + 1) * last_uncles_count * last_duration;
                 let raw_next_epoch_length = numerator / denominator;
                 let next_epoch_length = self.revision_epoch_length(raw_next_epoch_length);
@@ -308,13 +311,13 @@ impl Consensus {
                 let block_reward =
                     Capacity::shannons(self.epoch_reward().as_u64() / next_epoch_length);
                 let remainder_reward =
-                    Capacity::shannons(self.epoch_reward().as_u64() / next_epoch_length);
+                    Capacity::shannons(self.epoch_reward().as_u64() % next_epoch_length);
 
                 EpochExt::new(
                     last_epoch.number() + 1, // number
                     block_reward,
                     remainder_reward,        // remainder_reward
-                    header.hash(),           // last_epoch_end_hash
+                    header.hash(),           // last_block_hash_in_previous_epoch
                     header.number() + 1,     // start
                     next_epoch_length,       // length
                     difficulty               // difficulty,
@@ -326,12 +329,12 @@ impl Consensus {
                 let block_reward =
                     Capacity::shannons(self.epoch_reward().as_u64() / next_epoch_length);
                 let remainder_reward =
-                    Capacity::shannons(self.epoch_reward().as_u64() / next_epoch_length);
+                    Capacity::shannons(self.epoch_reward().as_u64() % next_epoch_length);
                 EpochExt::new(
                     last_epoch.number() + 1, // number
                     block_reward,
                     remainder_reward,        // remainder_reward
-                    header.hash(),           // last_epoch_end_hash
+                    header.hash(),           // last_block_hash_in_previous_epoch
                     header.number() + 1,     // start
                     next_epoch_length,       // length
                     difficulty               // difficulty,

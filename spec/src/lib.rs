@@ -225,7 +225,7 @@ impl ChainSpec {
             0,                        // number
             block_reward,             // block_reward
             remainder_reward,         // remainder_reward
-            H256::zero(),             // last_epoch_end_hash
+            H256::zero(),             // last_block_hash_in_previous_epoch
             0,                        // start
             GENESIS_EPOCH_LENGTH,     // length
             genesis_block.header().difficulty().clone() // difficulty,

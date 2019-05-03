@@ -22,6 +22,9 @@ pub struct BlockVerifier<P> {
 }
 
 fn prepare_epoch_ext<P: ChainProvider>(provider: &P, block: &Block) -> Result<EpochExt, Error> {
+    if block.is_genesis() {
+        return Ok(provider.consensus().genesis_epoch_ext().to_owned());
+    }
     let parent_hash = block.header().parent_hash();
     let parent_ext = provider
         .get_epoch_ext(parent_hash)
@@ -57,7 +60,7 @@ where
         let epoch_ext = prepare_epoch_ext(&self.provider, target)?;
         BlockProposalsLimitVerifier::new(max_block_proposals_limit).verify(target)?;
         BlockBytesVerifier::new(max_block_bytes, proof_size).verify(target)?;
-        CellbaseVerifier::new(self.provider.clone()).verify(target)?;
+        CellbaseVerifier::new().verify(target)?;
         DuplicateVerifier::new().verify(target)?;
         MerkleRootVerifier::new().verify(target)?;
         CommitVerifier::new(self.provider.clone()).verify(target)?;
@@ -337,12 +340,12 @@ where
             }
 
             if uncle_header.proposals_root() != &uncle.cal_proposals_root() {
-                return Err(Error::Uncles(UnclesError::ProposalTransactionsRoot));
+                return Err(Error::Uncles(UnclesError::ProposalsRoot));
             }
 
             let mut seen = HashSet::with_capacity(uncle.proposals().len());
             if !uncle.proposals().iter().all(|id| seen.insert(id)) {
-                return Err(Error::Uncles(UnclesError::ProposalTransactionDuplicate));
+                return Err(Error::Uncles(UnclesError::ProposalDuplicate));
             }
 
             if !self

@@ -88,7 +88,12 @@ fn setup_node(
     for _i in 0..height {
         let number = block.header().number() + 1;
         let timestamp = block.header().timestamp() + 1;
-        let difficulty = shared.calculate_difficulty(&block.header()).unwrap();
+
+        let last_epoch = shared.get_epoch_ext(&block.header().hash()).unwrap();
+        let epoch = shared
+            .next_epoch_ext(&last_epoch, block.header())
+            .unwrap_or(last_epoch);
+
         let cellbase = TransactionBuilder::default()
             .input(CellInput::new_cellbase_input(number))
             .output(CellOutput::default())
@@ -97,8 +102,9 @@ fn setup_node(
         let header_builder = HeaderBuilder::default()
             .parent_hash(block.header().hash())
             .number(number)
+            .epoch(epoch.number())
             .timestamp(timestamp)
-            .difficulty(difficulty);
+            .difficulty(epoch.difficulty().clone());
 
         block = BlockBuilder::default()
             .transaction(cellbase)

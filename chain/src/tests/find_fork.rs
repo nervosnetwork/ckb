@@ -207,8 +207,6 @@ fn test_find_fork_case3() {
 
     let tip_number = { shared.chain_state().lock().tip_number() };
 
-    println!("case3 tip{}", tip_number);
-
     let new_block = gen_block(&parent, U256::from(100u64), vec![], vec![], vec![]);
     fork2.push(new_block.clone());
 
@@ -278,8 +276,6 @@ fn test_find_fork_case4() {
     }
 
     let tip_number = { shared.chain_state().lock().tip_number() };
-
-    println!("case3 tip{}", tip_number);
 
     let new_block = gen_block(&parent, U256::from(100u64), vec![], vec![], vec![]);
     fork2.push(new_block.clone());

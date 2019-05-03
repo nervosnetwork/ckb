@@ -472,8 +472,11 @@ impl<CS: ChainStore> SyncSharedState<CS> {
 
     pub fn insert_epoch(&self, header: &Header, epoch: EpochExt) {
         let mut epoch_map = self.epoch_map.write();
-        epoch_map.insert_index(header.hash(), epoch.last_epoch_end_hash().clone());
-        epoch_map.insert_epoch(epoch.last_epoch_end_hash().clone(), epoch);
+        epoch_map.insert_index(
+            header.hash(),
+            epoch.last_block_hash_in_previous_epoch().clone(),
+        );
+        epoch_map.insert_epoch(epoch.last_block_hash_in_previous_epoch().clone(), epoch);
     }
 
     pub fn next_epoch_ext(&self, last_epoch: &EpochExt, header: &Header) -> Option<EpochExt> {

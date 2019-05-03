@@ -183,7 +183,7 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
         let genesis_hash = genesis.header().hash();
         let ext = BlockExt {
             received_at: genesis.header().timestamp(),
-            total_difficulty: genesis.header().difficulty().to_owned(),
+            total_difficulty: genesis.header().difficulty().clone(),
             total_uncles_count: 0,
             txs_verified: Some(true),
         };
@@ -205,8 +205,8 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
         batch.insert_block_ext(&genesis_hash, &ext)?;
         batch.insert_tip_header(&genesis.header())?;
         batch.insert_current_epoch_ext(epoch)?;
-        batch.insert_block_epoch_index(&genesis_hash, epoch.last_epoch_end_hash())?;
-        batch.insert_epoch_ext(epoch.last_epoch_end_hash(), &epoch)?;
+        batch.insert_block_epoch_index(&genesis_hash, epoch.last_block_hash_in_previous_epoch())?;
+        batch.insert_epoch_ext(epoch.last_block_hash_in_previous_epoch(), &epoch)?;
         batch.attach_block(genesis)?;
         batch.commit()
     }

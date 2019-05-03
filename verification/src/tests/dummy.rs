@@ -1,19 +1,15 @@
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::Block;
 use ckb_core::cell::{CellProvider, CellStatus};
-use ckb_core::extras::BlockExt;
-use ckb_core::extras::EpochExt;
+use ckb_core::extras::{BlockExt, EpochExt};
 use ckb_core::header::{BlockNumber, Header};
-use ckb_core::transaction::{Capacity, OutPoint, ProposalShortId, Transaction};
+use ckb_core::transaction::{OutPoint, ProposalShortId, Transaction};
 use ckb_core::uncle::UncleBlock;
 use ckb_traits::ChainProvider;
 use numext_fixed_hash::H256;
 
-#[derive(Default, Clone)]
-pub struct DummyChainProvider {
-    pub block_reward: Capacity,
-    pub consensus: Consensus,
-}
+#[derive(Clone)]
+pub struct DummyChainProvider {}
 
 impl ChainProvider for DummyChainProvider {
     fn block_ext(&self, _hash: &H256) -> Option<BlockExt> {
@@ -64,20 +60,16 @@ impl ChainProvider for DummyChainProvider {
         unimplemented!();
     }
 
-    fn get_epoch_ext(&self, hash: &H256) -> Option<EpochExt> {
+    fn get_epoch_ext(&self, _hash: &H256) -> Option<EpochExt> {
         unimplemented!();
     }
 
-    fn next_epoch_ext(&self, last_epoch: &EpochExt, header: &Header) -> Option<EpochExt> {
-        unimplemented!();
-    }
-
-    fn is_epoch_end(&self, epoch: &EpochExt, number: BlockNumber) -> bool {
+    fn next_epoch_ext(&self, _last_epoch: &EpochExt, _header: &Header) -> Option<EpochExt> {
         unimplemented!();
     }
 
     fn consensus(&self) -> &Consensus {
-        &self.consensus
+        unimplemented!();
     }
 }
 

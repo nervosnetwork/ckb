@@ -26,7 +26,7 @@ pub struct EpochExt {
     pub(crate) number: u64,
     pub(crate) block_reward: Capacity,
     pub(crate) remainder_reward: Capacity,
-    pub(crate) last_epoch_end_hash: H256,
+    pub(crate) last_block_hash_in_previous_epoch: H256,
     pub(crate) start_number: BlockNumber,
     pub(crate) length: BlockNumber,
     pub(crate) difficulty: U256,
@@ -38,7 +38,7 @@ impl EpochExt {
     }
 
     pub fn block_reward(&self, number: BlockNumber) -> Result<Capacity, FailureError> {
-        if self.start_number() == (number + 1) {
+        if self.start_number() == number {
             self.block_reward
                 .safe_add(self.remainder_reward)
                 .map_err(Into::into)
@@ -55,6 +55,14 @@ impl EpochExt {
         self.length
     }
 
+    pub fn set_length(&mut self, length: BlockNumber) {
+        self.length = length;
+    }
+
+    pub fn set_difficulty(&mut self, difficulty: U256) {
+        self.difficulty = difficulty;
+    }
+
     pub fn difficulty(&self) -> &U256 {
         &self.difficulty
     }
@@ -63,15 +71,15 @@ impl EpochExt {
         &self.remainder_reward
     }
 
-    pub fn last_epoch_end_hash(&self) -> &H256 {
-        &self.last_epoch_end_hash
+    pub fn last_block_hash_in_previous_epoch(&self) -> &H256 {
+        &self.last_block_hash_in_previous_epoch
     }
 
     pub fn new(
         number: u64,
         block_reward: Capacity,
         remainder_reward: Capacity,
-        last_epoch_end_hash: H256,
+        last_block_hash_in_previous_epoch: H256,
         start_number: BlockNumber,
         length: BlockNumber,
         difficulty: U256,
@@ -81,7 +89,7 @@ impl EpochExt {
             block_reward,
             remainder_reward,
             start_number,
-            last_epoch_end_hash,
+            last_block_hash_in_previous_epoch,
             length,
             difficulty,
         }
@@ -103,7 +111,7 @@ impl EpochExt {
             block_reward,
             remainder_reward,
             start_number,
-            last_epoch_end_hash,
+            last_block_hash_in_previous_epoch,
             length,
             difficulty,
         } = self;
@@ -111,7 +119,7 @@ impl EpochExt {
             number,
             block_reward,
             remainder_reward,
-            last_epoch_end_hash,
+            last_block_hash_in_previous_epoch,
             start_number,
             length,
             difficulty,

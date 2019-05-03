@@ -35,7 +35,5 @@ pub trait ChainProvider: Sync + Send {
 
     fn next_epoch_ext(&self, last_epoch: &EpochExt, header: &Header) -> Option<EpochExt>;
 
-    fn is_epoch_end(&self, epoch: &EpochExt, number: BlockNumber) -> bool;
-
     fn consensus(&self) -> &Consensus;
 }

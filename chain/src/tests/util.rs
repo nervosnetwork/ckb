@@ -12,7 +12,6 @@ use ckb_notify::NotifyService;
 use ckb_shared::shared::Shared;
 use ckb_shared::shared::SharedBuilder;
 use ckb_store::ChainKVStore;
-use faketime::unix_time_as_millis;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 
@@ -57,7 +56,7 @@ pub(crate) fn gen_block(
     let cellbase = create_cellbase(number);
     let header_builder = HeaderBuilder::default()
         .parent_hash(parent_header.hash())
-        .timestamp(unix_time_as_millis())
+        .timestamp(parent_header.timestamp() + 20_000)
         .number(number)
         .difficulty(difficulty);
 

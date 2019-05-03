@@ -1,5 +1,5 @@
 use crate::bytes::JsonBytes;
-use crate::{BlockNumber, Bytes, Capacity, EpochNumber, ProposalShortId};
+use crate::{BlockNumber, Capacity, EpochNumber, ProposalShortId};
 use ckb_core::block::{Block as CoreBlock, BlockBuilder};
 use ckb_core::extras::EpochExt as CoreEpochExt;
 use ckb_core::header::{Header as CoreHeader, HeaderBuilder, Seal as CoreSeal};
@@ -498,7 +498,7 @@ impl TryFrom<Block> for CoreBlock {
 pub struct EpochExt {
     pub number: String,
     pub block_reward: String,
-    pub last_epoch_end_hash: H256,
+    pub last_block_hash_in_previous_epoch: H256,
     pub start_number: BlockNumber,
     pub length: BlockNumber,
     pub difficulty: U256,
@@ -511,7 +511,7 @@ impl From<CoreEpochExt> for EpochExt {
             number,
             block_reward,
             remainder_reward,
-            last_epoch_end_hash,
+            last_block_hash_in_previous_epoch,
             start_number,
             length,
             difficulty,
@@ -521,7 +521,7 @@ impl From<CoreEpochExt> for EpochExt {
             number: number.to_string(),
             block_reward: block_reward.to_string(),
             remainder_reward: remainder_reward.to_string(),
-            last_epoch_end_hash,
+            last_block_hash_in_previous_epoch,
             start_number: start_number.to_string(),
             length: length.to_string(),
             difficulty,
@@ -536,7 +536,7 @@ impl TryFrom<EpochExt> for CoreEpochExt {
         let EpochExt {
             number,
             block_reward,
-            last_epoch_end_hash,
+            last_block_hash_in_previous_epoch,
             start_number,
             length,
             difficulty,
@@ -547,7 +547,7 @@ impl TryFrom<EpochExt> for CoreEpochExt {
             number.parse::<u64>()?,
             block_reward.parse::<CoreCapacity>()?,
             remainder_reward.parse::<CoreCapacity>()?,
-            last_epoch_end_hash,
+            last_block_hash_in_previous_epoch,
             start_number.parse::<u64>()?,
             length.parse::<u64>()?,
             difficulty,
