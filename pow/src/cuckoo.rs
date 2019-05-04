@@ -79,10 +79,14 @@ impl PowEngine for CuckooEngine {
     #[inline]
     fn solve(&self, _number: BlockNumber, message: &[u8]) -> Option<Vec<u8>> {
         self.cuckoo.solve(message).map(|proof| {
-            let mut proof_u8 = vec![0u8; self.cuckoo.cycle_length << 2];
+            let mut proof_u8 = vec![0u8; self.proof_size()];
             LittleEndian::write_u32_into(&proof, &mut proof_u8);
             proof_u8
         })
+    }
+
+    fn proof_size(&self) -> usize {
+        self.cuckoo.cycle_length << 2
     }
 }
 

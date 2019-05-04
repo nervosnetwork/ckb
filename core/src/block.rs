@@ -96,6 +96,21 @@ impl Block {
                 .collect::<Vec<_>>(),
         )
     }
+
+    pub fn serialized_size(&self, proof_size: usize) -> usize {
+        Header::serialized_size(proof_size)
+            + self
+                .uncles
+                .iter()
+                .map(|u| u.serialized_size(proof_size))
+                .sum::<usize>()
+            + self.proposals.len() * ProposalShortId::serialized_size()
+            + self
+                .transactions()
+                .iter()
+                .map(Transaction::serialized_size)
+                .sum::<usize>()
+    }
 }
 
 impl ::std::hash::Hash for Block {

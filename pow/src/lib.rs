@@ -74,6 +74,8 @@ pub trait PowEngine: Send + Sync {
     fn solve(&self, number: BlockNumber, message: &[u8]) -> Option<Vec<u8>>;
 
     fn verify(&self, number: BlockNumber, message: &[u8], proof: &[u8]) -> bool;
+
+    fn proof_size(&self) -> usize;
 }
 
 #[cfg(test)]

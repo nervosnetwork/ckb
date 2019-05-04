@@ -1,10 +1,14 @@
-use super::super::block_verifier::{BlockVerifier, CellbaseVerifier};
+use super::super::block_verifier::{
+    BlockBytesVerifier, BlockProposalsLimitVerifier, BlockVerifier, CellbaseVerifier,
+};
 use super::super::error::{CellbaseError, Error as VerifyError};
 use super::dummy::DummyChainProvider;
 use crate::Verifier;
 use ckb_core::block::BlockBuilder;
 use ckb_core::script::Script;
-use ckb_core::transaction::{CellInput, CellOutput, OutPoint, Transaction, TransactionBuilder};
+use ckb_core::transaction::{
+    CellInput, CellOutput, OutPoint, ProposalShortId, Transaction, TransactionBuilder,
+};
 use ckb_core::{capacity_bytes, Bytes, Capacity};
 use numext_fixed_hash::H256;
 
@@ -145,6 +149,7 @@ pub fn test_empty_transactions() {
 
     let provider = DummyChainProvider {
         block_reward: capacity_bytes!(150),
+        ..Default::default()
     };
 
     let full_verifier = BlockVerifier::new(provider);
@@ -153,4 +158,45 @@ pub fn test_empty_transactions() {
         full_verifier.verify(&block),
         Err(VerifyError::Cellbase(CellbaseError::InvalidQuantity))
     );
+}
+
+#[test]
+pub fn test_max_block_bytes_verifier() {
+    let block = BlockBuilder::default().build();
+    let proof_size = 0usize;
+
+    {
+        let verifier =
+            BlockBytesVerifier::new(block.serialized_size(proof_size) as u64, proof_size);
+        assert_eq!(verifier.verify(&block), Ok(()));
+    }
+
+    {
+        let verifier =
+            BlockBytesVerifier::new(block.serialized_size(proof_size) as u64 - 1, proof_size);
+        assert_eq!(
+            verifier.verify(&block),
+            Err(VerifyError::ExceededMaximumBlockBytes)
+        );
+    }
+}
+
+#[test]
+pub fn test_max_proposals_limit_verifier() {
+    let block = BlockBuilder::default()
+        .proposal(ProposalShortId::zero())
+        .build();
+
+    {
+        let verifier = BlockProposalsLimitVerifier::new(1);
+        assert_eq!(verifier.verify(&block), Ok(()));
+    }
+
+    {
+        let verifier = BlockProposalsLimitVerifier::new(0);
+        assert_eq!(
+            verifier.verify(&block),
+            Err(VerifyError::ExceededMaximumProposalsLimit)
+        );
+    }
 }

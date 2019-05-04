@@ -10,7 +10,14 @@ jsonrpc_client!(pub struct RpcClient {
 
     pub fn add_node(&mut self, peer_id: String, address: String) -> RpcRequest<()>;
 
-    pub fn get_block_template(&mut self, cycles_limit: Option<String>, bytes_limit: Option<String>, max_version: Option<u32>) -> RpcRequest<BlockTemplate>;
+    pub fn get_block_template(
+        &mut self,
+        cycles_limit: Option<String>,
+        bytes_limit: Option<String>,
+        proposals_limit: Option<String>,
+        max_version: Option<u32>
+    ) -> RpcRequest<BlockTemplate>;
+
     pub fn submit_block(&mut self, work_id: String, data: Block) -> RpcRequest<Option<H256>>;
 
     pub fn send_transaction(&mut self, tx: Transaction) -> RpcRequest<H256>;

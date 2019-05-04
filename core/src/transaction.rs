@@ -12,6 +12,7 @@ use occupied_capacity::{HasOccupiedCapacity, OccupiedCapacity};
 use serde_derive::{Deserialize, Serialize};
 use std::fmt;
 use std::hash::{Hash, Hasher};
+use std::mem;
 use std::ops::{Deref, DerefMut};
 
 pub const TX_VERSION: Version = 0;
@@ -53,6 +54,10 @@ impl OutPoint {
 
     pub fn is_null(&self) -> bool {
         self.tx_hash.is_zero() && self.index == u32::max_value()
+    }
+
+    pub const fn serialized_size() -> usize {
+        H256::size_of() + mem::size_of::<u32>()
     }
 
     pub fn destruct(self) -> (H256, u32) {
@@ -97,6 +102,12 @@ impl CellInput {
         } = self;
         (previous_output, since, args)
     }
+
+    pub fn serialized_size(&self) -> usize {
+        OutPoint::serialized_size()
+            + mem::size_of::<u64>()
+            + self.args.iter().map(Bytes::len).sum::<usize>()
+    }
 }
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, HasOccupiedCapacity)]
@@ -134,6 +145,17 @@ impl CellOutput {
 
     pub fn data_hash(&self) -> H256 {
         blake2b_256(&self.data).into()
+    }
+
+    pub fn serialized_size(&self) -> usize {
+        mem::size_of::<u64>()
+            + self.data.len()
+            + self.lock.serialized_size()
+            + self
+                .type_
+                .as_ref()
+                .map(Script::serialized_size)
+                .unwrap_or(0)
     }
 
     pub fn destruct(self) -> (Capacity, Bytes, Script, Option<Script>) {
@@ -271,6 +293,22 @@ impl Transaction {
             .iter()
             .map(|output| output.capacity)
             .try_fold(Capacity::zero(), Capacity::safe_add)
+    }
+
+    pub fn serialized_size(&self) -> usize {
+        mem::size_of::<Version>()
+            + self.deps.len() * OutPoint::serialized_size()
+            + self
+                .inputs
+                .iter()
+                .map(CellInput::serialized_size)
+                .sum::<usize>()
+            + self
+                .outputs
+                .iter()
+                .map(CellOutput::serialized_size)
+                .sum::<usize>()
+            + self.witnesses.iter().map(Vec::len).sum::<usize>()
     }
 }
 
@@ -426,6 +464,10 @@ impl ProposalShortId {
 
     pub fn into_inner(self) -> [u8; 10] {
         self.0
+    }
+
+    pub const fn serialized_size() -> usize {
+        mem::size_of::<[u8; 10]>()
     }
 }
 
