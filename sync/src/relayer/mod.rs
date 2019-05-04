@@ -239,28 +239,34 @@ impl<CS: ChainStore> Relayer<CS> {
     ) -> Result<Block, Vec<usize>> {
         let (key0, key1) =
             short_transaction_id_keys(compact_block.header.nonce(), compact_block.nonce);
+        let mut short_ids_set: HashSet<[u8; 6]> =
+            compact_block.short_ids.iter().map(Clone::clone).collect();
 
         let mut txs_map: FnvHashMap<ShortTransactionID, Transaction> = transactions
             .into_iter()
-            .map(|tx| {
+            .filter_map(|tx| {
                 let short_id = short_transaction_id(key0, key1, &tx.witness_hash());
-                (short_id, tx)
-            })
-            .collect();
-
-        {
-            let short_ids_set: HashSet<[u8; 6]> =
-                compact_block.short_ids.iter().map(Clone::clone).collect();
-            let tx_pool = chain_state.tx_pool();
-            let iter = tx_pool.staging_txs_iter().filter_map(|entry| {
-                let short_id = short_transaction_id(key0, key1, &entry.transaction.witness_hash());
-                if short_ids_set.contains(&short_id) {
-                    Some((short_id, entry.transaction.clone()))
+                if short_ids_set.remove(&short_id) {
+                    Some((short_id, tx))
                 } else {
                     None
                 }
-            });
-            txs_map.extend(iter);
+            })
+            .collect();
+
+        if short_ids_set.is_empty() {
+            let tx_pool = chain_state.tx_pool();
+            for entry in tx_pool.staging_txs_iter() {
+                let short_id = short_transaction_id(key0, key1, &entry.transaction.witness_hash());
+                if short_ids_set.remove(&short_id) {
+                    txs_map.insert(short_id, entry.transaction.clone());
+
+                    // Early exit here for performance
+                    if short_ids_set.is_empty() {
+                        break;
+                    }
+                }
+            }
         }
 
         let txs_len = compact_block.prefilled_transactions.len() + compact_block.short_ids.len();
