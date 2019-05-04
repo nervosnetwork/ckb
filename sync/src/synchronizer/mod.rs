@@ -35,11 +35,12 @@ use std::collections::HashMap;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 pub const SEND_GET_HEADERS_TOKEN: u64 = 0;
 pub const BLOCK_FETCH_TOKEN: u64 = 1;
 pub const TIMEOUT_EVICTION_TOKEN: u64 = 2;
+const SYNC_NOTIFY_INTERVAL: Duration = Duration::from_millis(200);
 
 bitflags! {
     pub struct BlockStatus: u32 {
@@ -72,6 +73,7 @@ pub struct Synchronizer<CS: ChainStore> {
     pub config: Arc<Config>,
     pub orphan_block_pool: Arc<OrphanBlockPool>,
     pub outbound_peers_with_protect: Arc<AtomicUsize>,
+    last_notify_time: Instant,
 }
 
 // https://github.com/rust-lang/rust/issues/40754
@@ -86,6 +88,7 @@ impl<CS: ChainStore> ::std::clone::Clone for Synchronizer<CS> {
             config: Arc::clone(&self.config),
             orphan_block_pool: Arc::clone(&self.orphan_block_pool),
             outbound_peers_with_protect: Arc::clone(&self.outbound_peers_with_protect),
+            last_notify_time: self.last_notify_time,
         }
     }
 }
@@ -106,6 +109,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
             status_map: Arc::new(Mutex::new(HashMap::new())),
             n_sync: Arc::new(AtomicUsize::new(0)),
             outbound_peers_with_protect: Arc::new(AtomicUsize::new(0)),
+            last_notify_time: Instant::now(),
         }
     }
 
@@ -483,9 +487,9 @@ impl<CS: ChainStore> Synchronizer<CS> {
 impl<CS: ChainStore> CKBProtocolHandler for Synchronizer<CS> {
     fn init(&mut self, nc: Box<dyn CKBProtocolContext>) {
         // NOTE: 100ms is what bitcoin use.
-        nc.set_notify(Duration::from_millis(1000), SEND_GET_HEADERS_TOKEN);
-        nc.set_notify(Duration::from_millis(1000), BLOCK_FETCH_TOKEN);
-        nc.set_notify(Duration::from_millis(1000), TIMEOUT_EVICTION_TOKEN);
+        nc.set_notify(SYNC_NOTIFY_INTERVAL, SEND_GET_HEADERS_TOKEN);
+        nc.set_notify(SYNC_NOTIFY_INTERVAL, BLOCK_FETCH_TOKEN);
+        nc.set_notify(SYNC_NOTIFY_INTERVAL, TIMEOUT_EVICTION_TOKEN);
     }
 
     fn received(
@@ -528,6 +532,13 @@ impl<CS: ChainStore> CKBProtocolHandler for Synchronizer<CS> {
     }
 
     fn notify(&mut self, nc: Box<dyn CKBProtocolContext>, token: u64) {
+        if self.last_notify_time + SYNC_NOTIFY_INTERVAL > Instant::now() {
+            trace!(target: "sync", "Last notify less than {:?} ago", SYNC_NOTIFY_INTERVAL);
+            return;
+        }
+
+        self.last_notify_time = Instant::now();
+
         if !self.peers.state.read().is_empty() {
             match token {
                 SEND_GET_HEADERS_TOKEN => {

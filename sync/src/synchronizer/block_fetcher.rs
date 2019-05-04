@@ -52,12 +52,7 @@ where
         }
 
         // current peer block blocks_inflight reach limit
-        if MAX_BLOCKS_IN_TRANSIT_PER_PEER.saturating_sub(inflight.len()) == 0 {
-            debug!(target: "sync", "[block downloader] inflight count reach limit");
-            true
-        } else {
-            false
-        }
+        inflight.len() >= MAX_BLOCKS_IN_TRANSIT_PER_PEER
     }
 
     pub fn is_better_chain(&self, header: &HeaderView) -> bool {
