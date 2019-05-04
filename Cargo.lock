@@ -556,7 +556,7 @@ dependencies = [
  "snap 0.2.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "stop-handler 0.11.0-pre",
  "tempfile 3.0.7 (registry+https://github.com/rust-lang/crates.io-index)",
- "tentacle 0.2.0-alpha.7 (registry+https://github.com/rust-lang/crates.io-index)",
+ "tentacle 0.2.0-alpha.8 (registry+https://github.com/rust-lang/crates.io-index)",
  "tentacle-discovery 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "tentacle-identify 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "tentacle-ping 0.3.2 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -2833,7 +2833,7 @@ dependencies = [
 
 [[package]]
 name = "tentacle"
-version = "0.2.0-alpha.7"
+version = "0.2.0-alpha.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "bytes 0.4.12 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -2861,7 +2861,7 @@ dependencies = [
  "futures 0.1.26 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "rand 0.6.5 (registry+https://github.com/rust-lang/crates.io-index)",
- "tentacle 0.2.0-alpha.7 (registry+https://github.com/rust-lang/crates.io-index)",
+ "tentacle 0.2.0-alpha.8 (registry+https://github.com/rust-lang/crates.io-index)",
  "tokio 0.1.18 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
@@ -2874,7 +2874,7 @@ dependencies = [
  "flatbuffers 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "flatbuffers-verifier 0.1.9 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
- "tentacle 0.2.0-alpha.7 (registry+https://github.com/rust-lang/crates.io-index)",
+ "tentacle 0.2.0-alpha.8 (registry+https://github.com/rust-lang/crates.io-index)",
  "tokio 0.1.18 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
@@ -2889,7 +2889,7 @@ dependencies = [
  "fnv 1.0.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "generic-channel 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
- "tentacle 0.2.0-alpha.7 (registry+https://github.com/rust-lang/crates.io-index)",
+ "tentacle 0.2.0-alpha.8 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -3691,7 +3691,7 @@ dependencies = [
 "checksum syn 0.15.29 (registry+https://github.com/rust-lang/crates.io-index)" = "1825685f977249735d510a242a6727b46efe914bb67e38d30c071b1b72b1d5c2"
 "checksum synstructure 0.10.1 (registry+https://github.com/rust-lang/crates.io-index)" = "73687139bf99285483c96ac0add482c3776528beac1d97d444f6e91f203a2015"
 "checksum tempfile 3.0.7 (registry+https://github.com/rust-lang/crates.io-index)" = "b86c784c88d98c801132806dadd3819ed29d8600836c4088e855cdf3e178ed8a"
-"checksum tentacle 0.2.0-alpha.7 (registry+https://github.com/rust-lang/crates.io-index)" = "9163f5abef2b5825e675dc7234ce2a02ea8f679d21ea78e4141a89bcfa2fa969"
+"checksum tentacle 0.2.0-alpha.8 (registry+https://github.com/rust-lang/crates.io-index)" = "65ef7195ccf5d838f2a35f8274515bfed8ca52bf07fb5daa8f50a32d043b0ced"
 "checksum tentacle-discovery 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)" = "02f1eaf588f208e5a3f97fcdc5a164c9f9ec7f683c208368aa0a18605b9d6ec4"
 "checksum tentacle-identify 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)" = "69e27611957cc0aac84e7024a084b7245825f9acaadee6a014b83cec54dc7c59"
 "checksum tentacle-ping 0.3.2 (registry+https://github.com/rust-lang/crates.io-index)" = "2734e94c8eb7a552889fbf870519d6a246098b9c478913d5da50c11bd04b71ec"
