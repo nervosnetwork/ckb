@@ -352,6 +352,7 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
 
         let proposals = chain_state.get_proposals(proposals_limit as usize);
         let txs_size_limit = self.calculate_txs_size_limit(bytes_limit, &uncles, &proposals);
+        // It is assumed that cellbase transaction consumes 0 cycles, so it is not excluded when getting transactions from pool.
         let transactions = chain_state.get_staging_txs(txs_size_limit, cycles_limit);
 
         // Release the lock as soon as possible, let other services do their work

@@ -126,22 +126,6 @@ pub fn test_cellbase_with_fee() {
 }
 
 #[test]
-pub fn test_cellbase_overflow_capacity() {
-    let cellbase = TransactionBuilder::default()
-        .input(CellInput::new_cellbase_input(0))
-        .output(CellOutput::new(
-            capacity_bytes!(5),
-            vec![1, 2, 3, 4, 5, 6, 7, 8, 9].into(),
-            Script::default(),
-            None,
-        ))
-        .build();
-    let block = BlockBuilder::default().transaction(cellbase).build();
-    let verifier = CellbaseVerifier::new();
-    assert_eq!(verifier.verify(&block), Err(VerifyError::CapacityOverflow),);
-}
-
-#[test]
 pub fn test_max_block_bytes_verifier() {
     let block = BlockBuilder::default().build();
     let proof_size = 0usize;

@@ -222,6 +222,11 @@ pub fn resolve_transaction<'a, CP: CellProvider>(
 }
 
 impl<'a> ResolvedTransaction<'a> {
+    // cellbase will be resolved with empty input cells, we can use low cost check here:
+    pub fn is_cellbase(&self) -> bool {
+        self.input_cells.is_empty()
+    }
+
     pub fn fee(&self) -> ::occupied_capacity::Result<Capacity> {
         self.inputs_capacity().and_then(|x| {
             self.transaction.outputs_capacity().and_then(|y| {
