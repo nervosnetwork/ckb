@@ -30,6 +30,9 @@ use std::time::{Duration, Instant};
 const FILTER_SIZE: usize = 20000;
 const MAX_ASK_MAP_SIZE: usize = 30000;
 const MAX_ASK_SET_SIZE: usize = MAX_ASK_MAP_SIZE * 2;
+const GET_HEADERS_CACHE_SIZE: usize = 10000;
+// TODO: Need discussed
+const GET_HEADERS_TIMEOUT: Duration = Duration::from_secs(15);
 
 // State used to enforce CHAIN_SYNC_TIMEOUT
 // Only in effect for outbound, non-manual connections, with
@@ -338,6 +341,7 @@ pub struct SyncSharedState<CS> {
     shared: Shared<CS>,
     header_map: RwLock<HashMap<H256, HeaderView>>,
     best_known_header: RwLock<HeaderView>,
+    get_headers_cache: RwLock<LruCache<(PeerIndex, H256), Instant>>,
 }
 
 impl<CS: ChainStore> SyncSharedState<CS> {
@@ -359,10 +363,12 @@ impl<CS: ChainStore> SyncSharedState<CS> {
             total_uncles_count,
         ));
         let header_map = RwLock::new(HashMap::new());
+        let get_headers_cache = RwLock::new(LruCache::new(GET_HEADERS_CACHE_SIZE));
         SyncSharedState {
             shared,
             header_map,
             best_known_header,
+            get_headers_cache,
         }
     }
 
@@ -575,6 +581,28 @@ impl<CS: ChainStore> SyncSharedState<CS> {
         peer: PeerIndex,
         header: &Header,
     ) {
+        if let Some(last_time) = self.get_headers_cache.read().get(&(peer, header.hash())) {
+            if Instant::now() < *last_time + GET_HEADERS_TIMEOUT {
+                debug!(
+                    target: "sync",
+                    "last send get headers from {} less than {:?} ago, ignore it",
+                    peer,
+                    GET_HEADERS_TIMEOUT,
+                );
+                return;
+            } else {
+                debug!(
+                    target: "sync",
+                    "Can not get headers from {} in {:?}, retry",
+                    peer,
+                    GET_HEADERS_TIMEOUT,
+                );
+            }
+        }
+        self.get_headers_cache
+            .write()
+            .insert((peer, header.hash()), Instant::now());
+
         debug!(target: "sync", "send_getheaders_to_peer peer={}, hash={}", peer, header.hash());
         let locator_hash = self.get_locator(header);
         let fbb = &mut FlatBufferBuilder::new();
