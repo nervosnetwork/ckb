@@ -35,11 +35,11 @@ impl Miner {
     }
     pub fn run(&self) {
         loop {
-            self.client.try_update_block_template();
             match self.mine() {
                 Ok(result) => {
                     if let Some((work_id, block)) = result {
                         self.client.submit_block(&work_id, &block);
+                        self.client.try_update_block_template();
                     }
                 }
                 Err(e) => error!(target: "miner", "mining error encountered: {:?}", e),
