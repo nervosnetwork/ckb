@@ -126,16 +126,16 @@ impl PeerInfo {
     }
 
     pub fn get_by_peer_id(conn: &Connection, peer_id: &PeerId) -> DBResult<Option<PeerInfo>> {
-        conn.query_row("SELECT id, peer_id, connected_addr, score, status, endpoint, ban_time, last_connected_at FROM peer_info WHERE peer_id=?1 LIMIT 1", &[&peer_id.as_bytes()], |row| PeerInfo {
-            id: row.get(0),
-            peer_id: PeerId::from_bytes(row.get(1)).expect("parse peer_id"),
-            connected_addr: Multiaddr::try_from(row.get::<_, Vec<u8>>(2)).expect("parse multiaddr"),
-            score: row.get(3),
-            status: u8_to_status(row.get::<_, u8>(4)),
-            endpoint: bool_to_endpoint(row.get::<_, bool>(5)),
-            ban_time: secs_to_duration(row.get(6)),
-            last_connected_at: secs_to_duration(row.get(7)),
-        }).optional().map_err(Into::into)
+        conn.query_row("SELECT id, peer_id, connected_addr, score, status, endpoint, ban_time, last_connected_at FROM peer_info WHERE peer_id=?1 LIMIT 1", &[&peer_id.as_bytes()], |row| Ok(PeerInfo {
+            id: row.get(0)?,
+            peer_id: PeerId::from_bytes(row.get(1)?).expect("parse peer_id"),
+            connected_addr: Multiaddr::try_from(row.get::<_, Vec<u8>>(2)?).expect("parse multiaddr"),
+            score: row.get(3)?,
+            status: u8_to_status(row.get::<_, u8>(4)?),
+            endpoint: bool_to_endpoint(row.get::<_, bool>(5)?),
+            ban_time: secs_to_duration(row.get(6)?),
+            last_connected_at: secs_to_duration(row.get(7)?),
+        })).optional().map_err(Into::into)
     }
 
     pub fn update_score(conn: &Connection, id: u32, score: Score) -> DBResult<usize> {
@@ -160,18 +160,21 @@ impl PeerInfo {
         let (network_group, _group_peers_count) = conn
             .query_row::<(Vec<u8>, u32), _, _>("SELECT network_group, COUNT(network_group) AS network_group_count FROM peer_info
                                                GROUP BY network_group ORDER BY network_group_count DESC LIMIT 1",
-                                               NO_PARAMS, |r| (r.get(0), r.get(1)))?;
+                                               NO_PARAMS, |r| Ok((r.get(0)?, r.get(1)?)))?;
         let mut stmt = conn.prepare("SELECT id, peer_id, connected_addr, score, status, endpoint, ban_time, last_connected_at FROM peer_info
                                     WHERE network_group=:network_group")?;
-        let rows = stmt.query_map_named(&[(":network_group", &network_group)], |row| PeerInfo {
-            id: row.get(0),
-            peer_id: PeerId::from_bytes(row.get(1)).expect("parse peer_id"),
-            connected_addr: Multiaddr::try_from(row.get::<_, Vec<u8>>(2)).expect("parse multiaddr"),
-            score: row.get(3),
-            status: u8_to_status(row.get::<_, u8>(4)),
-            endpoint: bool_to_endpoint(row.get::<_, bool>(5)),
-            ban_time: secs_to_duration(row.get(6)),
-            last_connected_at: secs_to_duration(row.get(7)),
+        let rows = stmt.query_map_named(&[(":network_group", &network_group)], |row| {
+            Ok(PeerInfo {
+                id: row.get(0)?,
+                peer_id: PeerId::from_bytes(row.get(1)?).expect("parse peer_id"),
+                connected_addr: Multiaddr::try_from(row.get::<_, Vec<u8>>(2)?)
+                    .expect("parse multiaddr"),
+                score: row.get(3)?,
+                status: u8_to_status(row.get::<_, u8>(4)?),
+                endpoint: bool_to_endpoint(row.get::<_, bool>(5)?),
+                ban_time: secs_to_duration(row.get(6)?),
+                last_connected_at: secs_to_duration(row.get(7)?),
+            })
         })?;
         Result::from_iter(rows).map_err(Into::into)
     }
@@ -227,7 +230,7 @@ impl PeerAddr {
                          ORDER BY last_connected_at DESC LIMIT :count",
         )?;
         let rows = stmt.query_map_named(&[(":id", &id), (":count", &count)], |row| {
-            Multiaddr::try_from(row.get::<_, Vec<u8>>(0)).expect("parse multiaddr")
+            Ok(Multiaddr::try_from(row.get::<_, Vec<u8>>(0)?).expect("parse multiaddr"))
         })?;
         Result::from_iter(rows).map_err(Into::into)
     }
@@ -253,10 +256,10 @@ pub fn get_random_peers(
     let rows = stmt.query_map_named(
         &[(":count", &count), (":time", &duration_to_secs(expired_at))],
         |row| {
-            (
-                row.get::<_, u32>(0),
-                PeerId::from_bytes(row.get(1)).expect("parse peer_id"),
-            )
+            Ok((
+                row.get::<_, u32>(0)?,
+                PeerId::from_bytes(row.get(1)?).expect("parse peer_id"),
+            ))
         },
     )?;
 
@@ -288,10 +291,10 @@ pub fn get_peers_to_attempt(conn: &Connection, count: u32) -> DBResult<Vec<(u32,
             (":count", &count),
         ],
         |row| {
-            (
-                row.get::<_, u32>(0),
-                PeerId::from_bytes(row.get(1)).expect("parse peer_id"),
-            )
+            Ok((
+                row.get::<_, u32>(0)?,
+                PeerId::from_bytes(row.get(1)?).expect("parse peer_id"),
+            ))
         },
     )?;
 
@@ -321,10 +324,10 @@ pub fn get_peers_to_feeler(
             (":count", &count),
         ],
         |row| {
-            (
-                row.get::<_, u32>(0),
-                PeerId::from_bytes(row.get(1)).expect("parse peer_id"),
-            )
+            Ok((
+                row.get::<_, u32>(0)?,
+                PeerId::from_bytes(row.get(1)?).expect("parse peer_id"),
+            ))
         },
     )?;
     rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
@@ -340,7 +343,7 @@ pub fn insert_ban_record(conn: &Connection, ip: &[u8], ban_time: Duration) -> DB
 pub fn get_ban_records(conn: &Connection, now: Duration) -> DBResult<Vec<(Vec<u8>, Duration)>> {
     let mut stmt = conn.prepare("SELECT ip, ban_time FROM ban_list WHERE ban_time > :now")?;
     let rows = stmt.query_map_named(&[(":now", &duration_to_secs(now))], |row| {
-        (row.get::<_, Vec<u8>>(0), secs_to_duration(row.get(1)))
+        Ok((row.get::<_, Vec<u8>>(0)?, secs_to_duration(row.get(1)?)))
     })?;
     Result::from_iter(rows).map_err(Into::into)
 }
