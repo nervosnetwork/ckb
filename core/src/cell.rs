@@ -129,21 +129,24 @@ impl<'a> BlockCellProvider<'a> {
 
 impl<'a> CellProvider for BlockCellProvider<'a> {
     fn cell(&self, out_point: &OutPoint) -> CellStatus {
-        match self.output_indices.get(&out_point.tx_hash).and_then(|i| {
-            self.block.transactions()[*i]
-                .outputs()
-                .get(out_point.index as usize)
-        }) {
-            Some(output) => CellStatus::live_cell(CellMeta {
-                cell_output: Some(output.clone()),
-                out_point: out_point.to_owned(),
-                data_hash: None,
-                capacity: output.capacity,
-                block_number: Some(self.block.header().number()),
-                cellbase: out_point.index == 0,
-            }),
-            None => CellStatus::Unknown,
-        }
+        self.output_indices
+            .get(&out_point.tx_hash)
+            .and_then(|i| {
+                self.block.transactions()[*i]
+                    .outputs()
+                    .get(out_point.index as usize)
+                    .map(|output| {
+                        CellStatus::live_cell(CellMeta {
+                            cell_output: Some(output.clone()),
+                            out_point: out_point.to_owned(),
+                            data_hash: None,
+                            capacity: output.capacity,
+                            block_number: Some(self.block.header().number()),
+                            cellbase: *i == 0,
+                        })
+                    })
+            })
+            .unwrap_or_else(|| CellStatus::Unknown)
     }
 }
 
