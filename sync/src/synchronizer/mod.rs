@@ -1037,16 +1037,33 @@ mod tests {
         fbb.finish(fbs_headers, None);
         let fbs_headers = get_root::<FbsHeaders>(fbb.finished_data());
 
-        let peer: PeerIndex = 1.into();
-        HeadersProcess::new(&fbs_headers, &synchronizer1, peer, &mock_network_context(0))
+        let mock_nc = mock_network_context(4);
+        let peer1: PeerIndex = 1.into();
+        let peer2: PeerIndex = 2.into();
+        synchronizer1.on_connected(&mock_nc, peer1);
+        synchronizer1.on_connected(&mock_nc, peer2);
+        HeadersProcess::new(&fbs_headers, &synchronizer1, peer1, &mock_nc)
             .execute()
-            .unwrap();
+            .expect("Process headers from peer1 failed");
 
-        let best_known_header = synchronizer1.peers.best_known_header(peer);
+        let fbb = &mut FlatBufferBuilder::new();
+        // empty headers message (means already synchronized)
+        let fbs_headers = FbsHeaders::build(fbb, &[]);
+        fbb.finish(fbs_headers, None);
+        let fbs_headers = get_root::<FbsHeaders>(fbb.finished_data());
+        HeadersProcess::new(&fbs_headers, &synchronizer1, peer2, &mock_nc)
+            .execute()
+            .expect("Process headers from peer2 failed");
+        assert_eq!(
+            synchronizer1.peers.best_known_header(peer1),
+            synchronizer1.peers.best_known_header(peer2)
+        );
+
+        let best_known_header = synchronizer1.peers.best_known_header(peer1);
 
         assert_eq!(best_known_header.unwrap().inner(), headers.last().unwrap());
 
-        let blocks_to_fetch = synchronizer1.get_blocks_to_fetch(peer).unwrap();
+        let blocks_to_fetch = synchronizer1.get_blocks_to_fetch(peer1).unwrap();
 
         assert_eq!(
             blocks_to_fetch.first().unwrap(),
@@ -1068,7 +1085,7 @@ mod tests {
             fbb.finish(fbs_block, None);
             let fbs_block = get_root::<FbsBlock>(fbb.finished_data());
 
-            BlockProcess::new(&fbs_block, &synchronizer1, peer, &mock_network_context(0))
+            BlockProcess::new(&fbs_block, &synchronizer1, peer1, &mock_nc)
                 .execute()
                 .unwrap();
         }
@@ -1078,7 +1095,7 @@ mod tests {
                 .peers
                 .last_common_headers
                 .read()
-                .get(&peer)
+                .get(&peer1)
                 .unwrap()
                 .hash(),
             blocks_to_fetch.last().unwrap()
