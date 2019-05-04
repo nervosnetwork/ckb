@@ -554,6 +554,9 @@ impl<CS: ChainStore> SyncSharedState<CS> {
     }
 
     pub fn get_locator_response(&self, block_number: BlockNumber, hash_stop: &H256) -> Vec<Header> {
+        // Should not change chain state when get headers from it
+        let _lock = self.shared.chain_state().lock();
+
         let tip_number = self.tip_header().number();
         let max_height = cmp::min(
             block_number + 1 + MAX_HEADERS_LEN as BlockNumber,
