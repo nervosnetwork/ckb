@@ -582,7 +582,11 @@ impl<CS: ChainStore> SyncSharedState<CS> {
         peer: PeerIndex,
         header: &Header,
     ) {
-        if let Some(last_time) = self.get_headers_cache.read().get(&(peer, header.hash())) {
+        if let Some(last_time) = self
+            .get_headers_cache
+            .write()
+            .get_refresh(&(peer, header.hash()))
+        {
             if Instant::now() < *last_time + GET_HEADERS_TIMEOUT {
                 debug!(
                     target: "sync",

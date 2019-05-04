@@ -73,7 +73,7 @@ pub struct Synchronizer<CS: ChainStore> {
     pub config: Arc<Config>,
     pub orphan_block_pool: Arc<OrphanBlockPool>,
     pub outbound_peers_with_protect: Arc<AtomicUsize>,
-    last_notify_time: Instant,
+    last_notify_times: HashMap<u64, Instant>,
 }
 
 // https://github.com/rust-lang/rust/issues/40754
@@ -88,7 +88,7 @@ impl<CS: ChainStore> ::std::clone::Clone for Synchronizer<CS> {
             config: Arc::clone(&self.config),
             orphan_block_pool: Arc::clone(&self.orphan_block_pool),
             outbound_peers_with_protect: Arc::clone(&self.outbound_peers_with_protect),
-            last_notify_time: self.last_notify_time,
+            last_notify_times: self.last_notify_times.clone(),
         }
     }
 }
@@ -109,7 +109,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
             status_map: Arc::new(Mutex::new(HashMap::new())),
             n_sync: Arc::new(AtomicUsize::new(0)),
             outbound_peers_with_protect: Arc::new(AtomicUsize::new(0)),
-            last_notify_time: Instant::now(),
+            last_notify_times: HashMap::default(),
         }
     }
 
@@ -532,14 +532,18 @@ impl<CS: ChainStore> CKBProtocolHandler for Synchronizer<CS> {
     }
 
     fn notify(&mut self, nc: Box<dyn CKBProtocolContext>, token: u64) {
-        if self.last_notify_time + SYNC_NOTIFY_INTERVAL > Instant::now() {
-            trace!(target: "sync", "Last notify less than {:?} ago", SYNC_NOTIFY_INTERVAL);
-            return;
-        }
-
-        self.last_notify_time = Instant::now();
-
         if !self.peers.state.read().is_empty() {
+            let last_notify_time = self
+                .last_notify_times
+                .entry(token)
+                .or_insert_with(Instant::now);
+            if *last_notify_time + SYNC_NOTIFY_INTERVAL > Instant::now() {
+                trace!(target: "sync", "Last notify less than {:?} ago", SYNC_NOTIFY_INTERVAL);
+                return;
+            }
+
+            *last_notify_time = Instant::now();
+
             match token {
                 SEND_GET_HEADERS_TOKEN => {
                     self.start_sync_headers(nc.as_ref());
@@ -1037,16 +1041,33 @@ mod tests {
         fbb.finish(fbs_headers, None);
         let fbs_headers = get_root::<FbsHeaders>(fbb.finished_data());
 
-        let peer: PeerIndex = 1.into();
-        HeadersProcess::new(&fbs_headers, &synchronizer1, peer, &mock_network_context(0))
+        let mock_nc = mock_network_context(4);
+        let peer1: PeerIndex = 1.into();
+        let peer2: PeerIndex = 2.into();
+        synchronizer1.on_connected(&mock_nc, peer1);
+        synchronizer1.on_connected(&mock_nc, peer2);
+        HeadersProcess::new(&fbs_headers, &synchronizer1, peer1, &mock_nc)
             .execute()
-            .unwrap();
+            .expect("Process headers from peer1 failed");
 
-        let best_known_header = synchronizer1.peers.best_known_header(peer);
+        let fbb = &mut FlatBufferBuilder::new();
+        // empty headers message (means already synchronized)
+        let fbs_headers = FbsHeaders::build(fbb, &[]);
+        fbb.finish(fbs_headers, None);
+        let fbs_headers = get_root::<FbsHeaders>(fbb.finished_data());
+        HeadersProcess::new(&fbs_headers, &synchronizer1, peer2, &mock_nc)
+            .execute()
+            .expect("Process headers from peer2 failed");
+        assert_eq!(
+            synchronizer1.peers.best_known_header(peer1),
+            synchronizer1.peers.best_known_header(peer2)
+        );
+
+        let best_known_header = synchronizer1.peers.best_known_header(peer1);
 
         assert_eq!(best_known_header.unwrap().inner(), headers.last().unwrap());
 
-        let blocks_to_fetch = synchronizer1.get_blocks_to_fetch(peer).unwrap();
+        let blocks_to_fetch = synchronizer1.get_blocks_to_fetch(peer1).unwrap();
 
         assert_eq!(
             blocks_to_fetch.first().unwrap(),
@@ -1068,7 +1089,7 @@ mod tests {
             fbb.finish(fbs_block, None);
             let fbs_block = get_root::<FbsBlock>(fbb.finished_data());
 
-            BlockProcess::new(&fbs_block, &synchronizer1, peer, &mock_network_context(0))
+            BlockProcess::new(&fbs_block, &synchronizer1, peer1, &mock_nc)
                 .execute()
                 .unwrap();
         }
@@ -1078,7 +1099,7 @@ mod tests {
                 .peers
                 .last_common_headers
                 .read()
-                .get(&peer)
+                .get(&peer1)
                 .unwrap()
                 .hash(),
             blocks_to_fetch.last().unwrap()

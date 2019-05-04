@@ -210,8 +210,23 @@ where
             return Ok(());
         }
 
+        let best_known_header = self.synchronizer.shared.best_known_header();
         if headers.len() == 0 {
-            debug!(target: "sync", "HeadersProcess is_empty");
+            // Update peer's best known header
+            self.synchronizer
+                .peers
+                .best_known_headers
+                .write()
+                .insert(self.peer, best_known_header);
+            // Reset headers sync timeout
+            self.synchronizer
+                .peers
+                .state
+                .write()
+                .get_mut(&self.peer)
+                .expect("Peer must exists")
+                .headers_sync_timeout = None;
+            debug!(target: "sync", "HeadersProcess is_empty (synchronized)");
             return Ok(());
         }
 
@@ -260,7 +275,6 @@ where
         }
 
         if log_enabled!(target: "sync", log::Level::Debug) {
-            let own = self.synchronizer.shared.best_known_header();
             let chain_state = self.synchronizer.shared.chain_state().lock();
             let peer_state = self.synchronizer.peers.best_known_header(self.peer);
             debug!(
@@ -272,9 +286,9 @@ where
                 ),
                 chain_state.total_difficulty(),
                 chain_state.tip_number(),
-                own.number(),
-                own.hash(),
-                own.total_difficulty(),
+                best_known_header.number(),
+                best_known_header.hash(),
+                best_known_header.total_difficulty(),
                 self.peer,
                 peer_state.as_ref().map(HeaderView::number),
                 peer_state.as_ref().map(|state| format!("{:x}", state.hash())),
