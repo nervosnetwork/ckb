@@ -249,10 +249,12 @@ impl<CS: ChainStore> Relayer<CS> {
             .collect();
 
         {
+            let short_ids_set: HashSet<[u8; 6]> =
+                compact_block.short_ids.iter().map(Clone::clone).collect();
             let tx_pool = chain_state.tx_pool();
             let iter = tx_pool.staging_txs_iter().filter_map(|entry| {
                 let short_id = short_transaction_id(key0, key1, &entry.transaction.witness_hash());
-                if compact_block.short_ids.contains(&short_id) {
+                if short_ids_set.contains(&short_id) {
                     Some((short_id, entry.transaction.clone()))
                 } else {
                     None
