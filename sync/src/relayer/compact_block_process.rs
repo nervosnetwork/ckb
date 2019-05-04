@@ -95,7 +95,10 @@ impl<'a, CS: ChainStore> CompactBlockProcess<'a, CS> {
                     Arc::clone(&self.relayer.shared.consensus().pow_engine()),
                 );
                 let compact_block_verifier = CompactBlockVerifier::new();
-                header_verifier.verify(&resolver)?;
+                if let Err(err) = header_verifier.verify(&resolver) {
+                    debug!(target: "relay", "unexpected header verify failed: {}", err);
+                    return Ok(());
+                }
                 compact_block_verifier.verify(&compact_block)?;
             }
 

@@ -1,4 +1,4 @@
-use crate::relayer::compact_block::CompactBlock;
+use crate::relayer::compact_block::{CompactBlock, ShortTransactionID};
 use crate::relayer::error::Error;
 use ckb_protocol::{short_transaction_id, short_transaction_id_keys};
 use std::collections::HashSet;
@@ -36,19 +36,18 @@ impl PrefilledVerifier {
         let txs_len = prefilled_transactions.len() + short_ids.len();
 
         // Check indices order of prefilled transactions
-        let mut prev = prefilled_transactions
-            .get(0)
-            .and_then(|it| Some(it.index))
-            .unwrap_or(0);
-        for index_transaction in prefilled_transactions.iter().skip(1) {
-            if prev >= index_transaction.index {
-                return Err(Error::UnorderedPrefilledTransactions);
-            }
-            prev = index_transaction.index;
+        let unordered = prefilled_transactions
+            .as_slice()
+            .windows(2)
+            .any(|pt| pt[0].index >= pt[1].index);
+        if unordered {
+            return Err(Error::UnorderedPrefilledTransactions);
         }
 
         // Check highest prefilled index is less then length of block transactions
-        if prev >= txs_len {
+        if !prefilled_transactions.is_empty()
+            && prefilled_transactions.last().unwrap().index >= txs_len
+        {
             return Err(Error::OverflowPrefilledTransactions);
         }
 
@@ -66,7 +65,7 @@ impl ShortIdsVerifier {
     pub(crate) fn verify(&self, block: &CompactBlock) -> Result<(), Error> {
         let prefilled_transactions = &block.prefilled_transactions;
         let short_ids = &block.short_ids;
-        let short_ids_set: HashSet<[u8; 6]> = short_ids.iter().map(Clone::clone).collect();
+        let short_ids_set: HashSet<&ShortTransactionID> = short_ids.iter().collect();
         let txs_len = prefilled_transactions.len() + short_ids.len();
 
         // Check empty transactions

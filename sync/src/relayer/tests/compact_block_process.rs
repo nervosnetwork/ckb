@@ -1,4 +1,4 @@
-use crate::relayer::compact_block::CompactBlock;
+use crate::relayer::compact_block::{CompactBlock, ShortTransactionID};
 use crate::{Relayer, SyncSharedState};
 use ckb_chain::chain::ChainBuilder;
 use ckb_chain_spec::consensus::Consensus;
@@ -128,7 +128,7 @@ fn test_reconstruct_block() {
             .iter()
             .map(|tx| short_transaction_id(key0, key1, &tx.witness_hash()))
             .collect();
-        let transactions: Vec<Transaction> = prepare.iter().skip(1).map(Clone::clone).collect();
+        let transactions: Vec<Transaction> = prepare.iter().skip(1).cloned().collect();
         compact.short_ids = short_ids;
         assert_eq!(
             relayer.reconstruct_block(&chain_state, &compact, transactions),
@@ -147,12 +147,7 @@ fn test_reconstruct_block() {
             .iter()
             .map(|tx| short_transaction_id(key0, key1, &tx.witness_hash()))
             .collect();
-        let transactions: Vec<Transaction> = prepare
-            .iter()
-            .skip(1)
-            .step_by(2)
-            .map(Clone::clone)
-            .collect();
+        let transactions: Vec<Transaction> = prepare.iter().skip(1).step_by(2).cloned().collect();
         let missing = prepare
             .iter()
             .enumerate()
@@ -174,8 +169,7 @@ fn test_reconstruct_block() {
         };
         let (key0, key1) = short_transaction_id_keys(compact.header.nonce(), compact.nonce);
         let (short_transactions, prefilled) = {
-            let short_transactions: Vec<Transaction> =
-                prepare.iter().step_by(2).map(Clone::clone).collect();
+            let short_transactions: Vec<Transaction> = prepare.iter().step_by(2).cloned().collect();
             let prefilled: Vec<IndexTransaction> = prepare
                 .iter()
                 .enumerate()
@@ -188,7 +182,7 @@ fn test_reconstruct_block() {
                 .collect();
             (short_transactions, prefilled)
         };
-        let short_ids: Vec<[u8; 6]> = short_transactions
+        let short_ids: Vec<ShortTransactionID> = short_transactions
             .iter()
             .map(|tx| short_transaction_id(key0, key1, &tx.witness_hash()))
             .collect();
@@ -198,8 +192,7 @@ fn test_reconstruct_block() {
         // Split first 2 short transactions and move into pool. These pool transactions are not
         // staging, so it will not be acquired inside `reconstruct_block`
         let (pool_transactions, short_transactions) = short_transactions.split_at(2);
-        let short_transactions: Vec<Transaction> =
-            short_transactions.iter().map(Clone::clone).collect();
+        let short_transactions: Vec<Transaction> = short_transactions.to_vec();
         pool_transactions.iter().for_each(|tx| {
             // `tx` is added into pool but not be staging, since `tx` has not been proposal yet
             chain_state

@@ -239,8 +239,8 @@ impl<CS: ChainStore> Relayer<CS> {
     ) -> Result<Block, Vec<usize>> {
         let (key0, key1) =
             short_transaction_id_keys(compact_block.header.nonce(), compact_block.nonce);
-        let mut short_ids_set: HashSet<[u8; 6]> =
-            compact_block.short_ids.iter().map(Clone::clone).collect();
+        let mut short_ids_set: HashSet<&ShortTransactionID> =
+            compact_block.short_ids.iter().collect();
 
         let mut txs_map: FnvHashMap<ShortTransactionID, Transaction> = transactions
             .into_iter()

@@ -1,4 +1,4 @@
-use crate::relayer::compact_block::CompactBlock;
+use crate::relayer::compact_block::{CompactBlock, ShortTransactionID};
 use crate::relayer::compact_block_verifier::{PrefilledVerifier, ShortIdsVerifier};
 use crate::relayer::error::Error;
 use ckb_core::transaction::{CellOutput, IndexTransaction, TransactionBuilder};
@@ -59,7 +59,7 @@ fn test_empty_transactions() {
 #[test]
 fn test_duplicated_short_ids() {
     let mut block = CompactBlock::default();
-    let mut short_ids: Vec<[u8; 6]> = (1..5)
+    let mut short_ids: Vec<ShortTransactionID> = (1..5)
         .map(new_index_transaction)
         .map(|tx| {
             let (key0, key1) = short_transaction_id_keys(block.header.nonce(), block.nonce);
@@ -78,7 +78,7 @@ fn test_duplicated_short_ids() {
 fn test_intersected_short_ids() {
     let mut block = CompactBlock::default();
     let prefilled: Vec<IndexTransaction> = (0..=5).map(new_index_transaction).collect();
-    let short_ids: Vec<[u8; 6]> = (5..9)
+    let short_ids: Vec<ShortTransactionID> = (5..9)
         .map(new_index_transaction)
         .map(|tx| {
             let (key0, key1) = short_transaction_id_keys(block.header.nonce(), block.nonce);
@@ -100,7 +100,7 @@ fn test_normal() {
         .into_iter()
         .map(new_index_transaction)
         .collect();
-    let short_ids: Vec<[u8; 6]> = vec![0, 3, 4]
+    let short_ids: Vec<ShortTransactionID> = vec![0, 3, 4]
         .into_iter()
         .map(new_index_transaction)
         .map(|tx| {
