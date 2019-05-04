@@ -52,7 +52,7 @@ pub const TX_ASKED_SIZE: usize = TX_FILTER_SIZE;
 pub struct Relayer<CS> {
     chain: ChainController,
     pub(crate) shared: Arc<SyncSharedState<CS>>,
-    state: Arc<RelayState>,
+    pub(crate) state: Arc<RelayState>,
     // TODO refactor shared Peers struct with Synchronizer
     peers: Arc<Peers>,
 }
