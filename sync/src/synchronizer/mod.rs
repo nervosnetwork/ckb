@@ -73,7 +73,7 @@ pub struct Synchronizer<CS: ChainStore> {
     pub config: Arc<Config>,
     pub orphan_block_pool: Arc<OrphanBlockPool>,
     pub outbound_peers_with_protect: Arc<AtomicUsize>,
-    last_notify_time: Instant,
+    last_notify_times: HashMap<u64, Instant>,
 }
 
 // https://github.com/rust-lang/rust/issues/40754
@@ -88,7 +88,7 @@ impl<CS: ChainStore> ::std::clone::Clone for Synchronizer<CS> {
             config: Arc::clone(&self.config),
             orphan_block_pool: Arc::clone(&self.orphan_block_pool),
             outbound_peers_with_protect: Arc::clone(&self.outbound_peers_with_protect),
-            last_notify_time: self.last_notify_time,
+            last_notify_times: self.last_notify_times.clone(),
         }
     }
 }
@@ -109,7 +109,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
             status_map: Arc::new(Mutex::new(HashMap::new())),
             n_sync: Arc::new(AtomicUsize::new(0)),
             outbound_peers_with_protect: Arc::new(AtomicUsize::new(0)),
-            last_notify_time: Instant::now(),
+            last_notify_times: HashMap::default(),
         }
     }
 
@@ -532,14 +532,18 @@ impl<CS: ChainStore> CKBProtocolHandler for Synchronizer<CS> {
     }
 
     fn notify(&mut self, nc: Box<dyn CKBProtocolContext>, token: u64) {
-        if self.last_notify_time + SYNC_NOTIFY_INTERVAL > Instant::now() {
-            trace!(target: "sync", "Last notify less than {:?} ago", SYNC_NOTIFY_INTERVAL);
-            return;
-        }
-
-        self.last_notify_time = Instant::now();
-
         if !self.peers.state.read().is_empty() {
+            let last_notify_time = self
+                .last_notify_times
+                .entry(token)
+                .or_insert_with(Instant::now);
+            if *last_notify_time + SYNC_NOTIFY_INTERVAL > Instant::now() {
+                trace!(target: "sync", "Last notify less than {:?} ago", SYNC_NOTIFY_INTERVAL);
+                return;
+            }
+
+            *last_notify_time = Instant::now();
+
             match token {
                 SEND_GET_HEADERS_TOKEN => {
                     self.start_sync_headers(nc.as_ref());
