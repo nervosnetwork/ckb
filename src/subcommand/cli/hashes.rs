@@ -81,7 +81,7 @@ pub fn hashes<'m>(locator: ResourceLocator, matches: &ArgMatches<'m>) -> Result<
         specs.insert(chain_spec.name.clone(), chain_spec.try_into()?);
     }
 
-    println!("{}", toml::to_string(&specs).unwrap());
+    print!("{}", toml::to_string(&specs).unwrap());
 
     Ok(())
 }

@@ -231,71 +231,71 @@ impl ChainSpec {
 pub mod test {
     use super::*;
     use ckb_core::script::Script;
+    use serde_derive::{Deserialize, Serialize};
+    use std::collections::HashMap;
 
-    #[test]
-    fn test_chain_spec_load() {
+    #[derive(Clone, Debug, Serialize, Deserialize)]
+    struct SystemCellHashes {
+        pub path: String,
+        pub code_hash: H256,
+        pub script_hash: H256,
+    }
+
+    #[derive(Clone, Debug, Serialize, Deserialize)]
+    struct SpecHashes {
+        pub genesis: H256,
+        pub system_cells_transaction: H256,
+        pub system_cells: Vec<SystemCellHashes>,
+    }
+
+    fn load_spec_by_name(name: &str) -> ChainSpec {
+        let spec_path = match name {
+            "ckb_dev" => PathBuf::from("specs/dev.toml"),
+            "ckb_testnet" => PathBuf::from("specs/testnet.toml"),
+            _ => panic!("Unknown spec name {}", name),
+        };
+
         let locator = ResourceLocator::current_dir().unwrap();
         let ckb = Resource::Bundled("ckb.toml".to_string());
-        let dev = ChainSpec::resolve_relative_to(&locator, PathBuf::from("specs/dev.toml"), &ckb);
-        assert!(dev.is_ok(), format!("{:?}", dev));
+        ChainSpec::resolve_relative_to(&locator, spec_path, &ckb).expect("load spec by name")
     }
 
     #[test]
-    fn always_success_type_hash() {
-        let locator = ResourceLocator::current_dir().unwrap();
-        let ckb = Resource::Bundled("ckb.toml".to_string());
-        let dev = ChainSpec::resolve_relative_to(&locator, PathBuf::from("specs/dev.toml"), &ckb);
-        assert!(dev.is_ok(), format!("{:?}", dev));
+    fn test_bundled_specs() {
+        let bundled_spec_err: &str = r#"
+            Unmatched Bundled Spec.
 
-        let chain_spec = dev.unwrap();
-        let tx = chain_spec.build_system_cells_transaction().unwrap();
+            Forget to generate docs/hashes.toml? Try to run;
 
-        // Tx and Output hash will be used in some test cases directly, assert here for convenience
-        assert_eq!(
-            format!("{:x}", tx.hash()),
-            "013d8bd8c65e22655cc907c146c8ca8eaa2cfef46bf5b5f08dc145d72bf65a60"
-        );
+                ckb cli hashes -b > docs/hashes.toml
+        "#;
 
-        let reference = tx.outputs()[0].data_hash();
-        assert_eq!(
-            format!("{:x}", reference),
-            "28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5"
-        );
+        let spec_hashes: HashMap<String, SpecHashes> =
+            toml::from_str(include_str!("../../docs/hashes.toml")).unwrap();
 
-        let script = Script::new(vec![], reference);
-        assert_eq!(
-            format!("{:x}", script.hash()),
-            "9a9a6bdbc38d4905eace1822f85237e3a1e238bb3f277aa7b7c8903441123510"
-        );
+        for (name, spec_hashes) in spec_hashes.iter() {
+            let spec = load_spec_by_name(name);
+            assert_eq!(name, &spec.name, "{}", bundled_spec_err);
+            if let Some(genesis_hash) = &spec.genesis.hash {
+                assert_eq!(genesis_hash, &spec_hashes.genesis, "{}", bundled_spec_err);
+            }
 
-        assert!(
-            chain_spec.to_consensus().is_ok(),
-            format!("{:?}", chain_spec.to_consensus())
-        );
-    }
+            let consensus = spec.to_consensus().expect("spec to consensus");
+            let block = consensus.genesis_block();
+            let cells_tx = &block.transactions()[0];
 
-    #[test]
-    fn test_testnet_chain_spec_load() {
-        let locator = ResourceLocator::current_dir().unwrap();
-        let ckb = Resource::Bundled("ckb.toml".to_string());
-        let testnet =
-            ChainSpec::resolve_relative_to(&locator, PathBuf::from("specs/testnet.toml"), &ckb);
-        assert!(testnet.is_ok(), format!("{:?}", testnet));
-        let chain_spec = testnet.unwrap();
+            assert_eq!(spec_hashes.system_cells_transaction, cells_tx.hash());
 
-        let result = chain_spec.build_system_cells_transaction();
-        assert!(result.is_ok(), format!("{:?}", result));
-        let tx = result.unwrap();
-
-        let data_hash = tx.outputs()[0].data_hash();
-        assert_eq!(
-            format!("{:x}", data_hash),
-            "55a809b92c5c404989bfe523639a741f4368ecaa3d4c42d1eb8854445b1b798b"
-        );
-
-        assert!(
-            chain_spec.to_consensus().is_ok(),
-            format!("{:?}", chain_spec.to_consensus())
-        );
+            for (output, cell_hashes) in cells_tx
+                .outputs()
+                .iter()
+                .zip(spec_hashes.system_cells.iter())
+            {
+                let code_hash = output.data_hash();
+                let script_hash = Script::new(vec![], code_hash.clone()).hash();
+                assert_eq!(cell_hashes.code_hash, code_hash, "{}", bundled_spec_err);
+                assert_eq!(cell_hashes.script_hash, script_hash, "{}", bundled_spec_err);
+            }
+        }
     }
 }
