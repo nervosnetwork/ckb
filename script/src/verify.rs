@@ -60,18 +60,16 @@ impl<'a, CS: ChainStore> TransactionScriptsVerifier<'a, CS> {
             .outputs()
             .iter()
             .enumerate()
-            .map({
-                |(index, output)| CellMeta {
-                    cell_output: Some(output.clone()),
-                    out_point: CellOutPoint {
-                        tx_hash: tx_hash.to_owned(),
-                        index: index as u32,
-                    },
-                    block_info: None,
-                    cellbase: false,
-                    capacity: output.capacity,
-                    data_hash: None,
-                }
+            .map(|(index, output)| CellMeta {
+                cell_output: Some(output.clone()),
+                out_point: CellOutPoint {
+                    tx_hash: tx_hash.to_owned(),
+                    index: index as u32,
+                },
+                block_info: None,
+                cellbase: false,
+                capacity: output.capacity,
+                data_hash: None,
             })
             .collect();
         let witnesses: FnvHashMap<u32, &'a [Bytes]> = rtx

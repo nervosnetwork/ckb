@@ -8,9 +8,9 @@ use ckb_core::header::{BlockNumber, Header};
 use ckb_core::transaction::{ProposalShortId, Transaction};
 use ckb_core::uncle::UncleBlock;
 use ckb_core::Cycle;
-use ckb_db::{CacheDB, DBConfig, KeyValueDB, MemoryKeyValueDB, RocksDB};
+use ckb_db::{DBConfig, KeyValueDB, MemoryKeyValueDB, RocksDB};
 use ckb_script::ScriptConfig;
-use ckb_store::{ChainKVStore, ChainStore, COLUMNS, COLUMN_BLOCK_HEADER};
+use ckb_store::{ChainKVStore, ChainStore, COLUMNS};
 use ckb_traits::ChainProvider;
 use ckb_util::{lock_or_panic, Mutex, MutexGuard};
 use lru_cache::LruCache;
@@ -209,16 +209,13 @@ impl SharedBuilder<MemoryKeyValueDB> {
     }
 }
 
-impl SharedBuilder<CacheDB<RocksDB>> {
+impl SharedBuilder<RocksDB> {
     pub fn new() -> Self {
         Default::default()
     }
 
     pub fn db(mut self, config: &DBConfig) -> Self {
-        self.db = Some(CacheDB::new(
-            RocksDB::open(config, COLUMNS),
-            &[(COLUMN_BLOCK_HEADER, 4096)],
-        ));
+        self.db = Some(RocksDB::open(config, COLUMNS));
         self
     }
 }
