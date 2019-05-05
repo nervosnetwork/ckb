@@ -1,7 +1,7 @@
 use ckb_app_config::{ExitCode, ProfArgs};
 use ckb_chain::chain::ChainController;
 use ckb_chain::chain::ChainService;
-use ckb_db::{CacheDB, DBConfig, RocksDB};
+use ckb_db::{DBConfig, RocksDB};
 use ckb_notify::NotifyService;
 use ckb_shared::shared::{Shared, SharedBuilder};
 use ckb_store::ChainStore;
@@ -10,7 +10,7 @@ use log::info;
 use std::sync::Arc;
 
 pub fn profile(args: ProfArgs) -> Result<(), ExitCode> {
-    let shared = SharedBuilder::<CacheDB<RocksDB>>::default()
+    let shared = SharedBuilder::<RocksDB>::default()
         .consensus(args.consensus.clone())
         .db(&args.config.db)
         .tx_pool_config(args.config.tx_pool.clone())
@@ -21,7 +21,7 @@ pub fn profile(args: ProfArgs) -> Result<(), ExitCode> {
         })?;
 
     let tmp_dir = tempfile::Builder::new().tempdir().unwrap();
-    let tmp_shared = SharedBuilder::<CacheDB<RocksDB>>::default()
+    let tmp_shared = SharedBuilder::<RocksDB>::default()
         .consensus(args.consensus)
         .db(&DBConfig {
             path: tmp_dir.as_ref().to_path_buf(),

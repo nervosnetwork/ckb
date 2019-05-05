@@ -19,9 +19,16 @@ use ckb_core::transaction::{CellOutPoint, CellOutput, ProposalShortId, Transacti
 use ckb_core::uncle::UncleBlock;
 use ckb_core::{Capacity, EpochNumber};
 use ckb_db::{Col, DbBatch, Error, KeyValueDB};
+use lazy_static::lazy_static;
+use lru_cache::LruCache;
 use numext_fixed_hash::H256;
 use serde::Serialize;
 use std::ops::Range;
+use std::sync::Mutex;
+
+lazy_static! {
+    static ref HEADER_CACHE: Mutex<LruCache<H256, Header>> = Mutex::new(LruCache::new(4096));
+}
 
 const META_TIP_HEADER_KEY: &[u8] = b"TIP_HEADER";
 const META_CURRENT_EPOCH_KEY: &[u8] = b"CURRENT_EPOCH";
@@ -142,9 +149,22 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
         })
     }
 
-    fn get_header(&self, h: &H256) -> Option<Header> {
-        self.get(COLUMN_BLOCK_HEADER, h.as_bytes())
-            .map(|ref raw| unsafe { Header::from_bytes_with_hash_unchecked(raw, h.to_owned()) })
+    fn get_header(&self, hash: &H256) -> Option<Header> {
+        let mut header_cache_unlocked = HEADER_CACHE.lock().expect("poisoned header cache lock");
+        if let Some(header) = header_cache_unlocked.get_refresh(hash) {
+            return Some(header.clone());
+        }
+        // release lock asap
+        drop(header_cache_unlocked);
+
+        self.get(COLUMN_BLOCK_HEADER, hash.as_bytes())
+            .map(|ref raw| unsafe { Header::from_bytes_with_hash_unchecked(raw, hash.to_owned()) })
+            .and_then(|header| {
+                let mut header_cache_unlocked =
+                    HEADER_CACHE.lock().expect("poisoned header cache lock");
+                header_cache_unlocked.insert(hash.clone(), header.clone());
+                Some(header)
+            })
     }
 
     fn get_block_uncles(&self, h: &H256) -> Option<Vec<UncleBlock>> {
