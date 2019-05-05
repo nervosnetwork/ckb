@@ -1,7 +1,9 @@
 use crate::{
     common::{CurrentCell, LazyLoadCellOutput},
     cost_model::instruction_cycles,
-    syscalls::{build_tx, Debugger, LoadCell, LoadCellByField, LoadInputByField, LoadTx},
+    syscalls::{
+        build_tx, Debugger, LoadCell, LoadCellByField, LoadInputByField, LoadTx, LoadTxHash,
+    },
     ScriptError,
 };
 use ckb_core::cell::{CellMeta, ResolvedTransaction};
@@ -104,6 +106,10 @@ impl<'a, CS: ChainStore> TransactionScriptsVerifier<'a, CS> {
         }
     }
 
+    fn build_load_tx_hash(&self) -> LoadTxHash {
+        LoadTxHash::new(&self.hash.as_bytes())
+    }
+
     fn build_load_tx(&self) -> LoadTx {
         LoadTx::new(self.tx_builder.finished_data())
     }
@@ -185,6 +191,7 @@ impl<'a, CS: ChainStore> TransactionScriptsVerifier<'a, CS> {
                     core_machine,
                 )
                 .instruction_cycle_func(Box::new(instruction_cycles))
+                .syscall(Box::new(self.build_load_tx_hash()))
                 .syscall(Box::new(self.build_load_tx()))
                 .syscall(Box::new(self.build_load_cell(current_cell)))
                 .syscall(Box::new(self.build_load_cell_by_field(current_cell)))
