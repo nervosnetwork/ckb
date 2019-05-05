@@ -7,7 +7,7 @@ use ckb_core::transaction::{
     CellInput, CellOutput, OutPoint, ProposalShortId, Transaction, TransactionBuilder,
 };
 use ckb_core::{capacity_bytes, Bytes, Capacity};
-use ckb_db::{CacheDB, DBConfig, RocksDB};
+use ckb_db::{DBConfig, RocksDB};
 use ckb_notify::NotifyService;
 use ckb_shared::shared::{Shared, SharedBuilder};
 use ckb_store::ChainKVStore;
@@ -147,7 +147,7 @@ fn new_chain(
     txs_size: usize,
 ) -> (
     ChainController,
-    Shared<ChainKVStore<CacheDB<RocksDB>>>,
+    Shared<ChainKVStore<RocksDB>>,
     TempDir,
     H256,
     H256,
@@ -192,7 +192,7 @@ fn new_chain(
     consensus.cellbase_maturity = 0;
 
     let db_dir = tempdir().unwrap();
-    let shared = SharedBuilder::<CacheDB<RocksDB>>::default()
+    let shared = SharedBuilder::<RocksDB>::default()
         .db(&DBConfig {
             path: db_dir.path().to_owned(),
             options: None,
