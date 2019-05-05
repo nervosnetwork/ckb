@@ -19,7 +19,7 @@ pub(crate) const ORPHAN_RATE_TARGET: f32 = 0.1;
 pub(crate) const POW_TIME_SPAN: u64 = 12 * 60 * 60 * 1000; // 12 hours
 pub(crate) const POW_SPACING: u64 = 15 * 1000; //15s
 
-pub(crate) const MAX_BLOCK_CYCLES: Cycle = 100_000_000;
+pub(crate) const MAX_BLOCK_CYCLES: Cycle = 20_000_000_000;
 pub(crate) const MAX_BLOCK_BYTES: u64 = 2_000_000; // 2mb
 pub(crate) const MAX_BLOCK_PROPOSALS_LIMIT: u64 = 6_000;
 pub(crate) const BLOCK_VERSION: u32 = 0;
