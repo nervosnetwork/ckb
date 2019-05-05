@@ -14,7 +14,7 @@ pub use p2p::{Disconnect, Discovery};
 pub use pool::{PoolReconcile, PoolTrace};
 pub use protocols::MalformedMessage;
 pub use transaction_relay::TransactionRelayBasic;
-pub use tx_pool::{CellbaseImmatureTx, DepentTxInSameBlock};
+pub use tx_pool::{CellbaseImmatureTx, DepentTxInSameBlock, DifferentTxsWithSameInput};
 
 use crate::Net;
 use ckb_core::BlockNumber;
