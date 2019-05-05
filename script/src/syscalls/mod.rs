@@ -4,6 +4,7 @@ mod load_cell;
 mod load_cell_by_field;
 mod load_input_by_field;
 mod load_tx;
+mod load_tx_hash;
 mod utils;
 
 pub use self::builder::build_tx;
@@ -12,6 +13,7 @@ pub use self::load_cell::LoadCell;
 pub use self::load_cell_by_field::LoadCellByField;
 pub use self::load_input_by_field::LoadInputByField;
 pub use self::load_tx::LoadTx;
+pub use self::load_tx_hash::LoadTxHash;
 
 use ckb_vm::Error;
 
@@ -22,6 +24,7 @@ pub const LOAD_TX_SYSCALL_NUMBER: u64 = 2049;
 pub const LOAD_CELL_SYSCALL_NUMBER: u64 = 2053;
 pub const LOAD_CELL_BY_FIELD_SYSCALL_NUMBER: u64 = 2054;
 pub const LOAD_INPUT_BY_FIELD_SYSCALL_NUMBER: u64 = 2055;
+pub const LOAD_TX_HASH_SYSCALL_NUMBER: u64 = 2057;
 pub const DEBUG_PRINT_SYSCALL_NUMBER: u64 = 2177;
 
 #[derive(Debug, PartialEq, Clone, Copy, Eq)]
@@ -1082,6 +1085,45 @@ mod tests {
         #[test]
         fn test_load_dep_cell_data_hash(ref data in any_with::<Vec<u8>>(size_range(1000).lift())) {
             _test_load_dep_cell_data_hash(data)?;
+        }
+    }
+
+    fn _test_load_tx_hash(data: &[u8]) -> Result<(), TestCaseError> {
+        let mut machine = DefaultCoreMachine::<u64, SparseMemory<u64>>::default();
+        let size_addr: u64 = 0;
+        let addr: u64 = 100;
+
+        machine.set_register(A0, addr); // addr
+        machine.set_register(A1, size_addr); // size_addr
+        machine.set_register(A2, 0); // offset
+        machine.set_register(A7, LOAD_TX_HASH_SYSCALL_NUMBER); // syscall number
+
+        let hash = blake2b_256(&data);
+        let mut load_tx_hash = LoadTxHash::new(&hash);
+
+        prop_assert!(machine
+            .memory_mut()
+            .store64(&size_addr, &(hash.len() as u64 + 20))
+            .is_ok());
+
+        prop_assert!(load_tx_hash.ecall(&mut machine).is_ok());
+        prop_assert_eq!(machine.registers()[A0], u64::from(SUCCESS));
+
+        prop_assert_eq!(
+            machine.memory_mut().load64(&size_addr),
+            Ok(hash.len() as u64)
+        );
+
+        for (i, addr) in (addr..addr + hash.len() as u64).enumerate() {
+            prop_assert_eq!(machine.memory_mut().load8(&addr), Ok(u64::from(hash[i])));
+        }
+        Ok(())
+    }
+
+    proptest! {
+        #[test]
+        fn test_load_tx_hash(ref data in any_with::<Vec<u8>>(size_range(1000).lift())) {
+            _test_load_tx_hash(data)?;
         }
     }
 }
