@@ -160,7 +160,7 @@ impl ChainSpec {
         self.pow.engine()
     }
 
-    fn build_system_cell_transaction(&self) -> Result<Transaction, Box<Error>> {
+    fn build_system_cells_transaction(&self) -> Result<Transaction, Box<Error>> {
         let outputs_result: Result<Vec<_>, _> = self
             .system_cells
             .iter()
@@ -210,7 +210,7 @@ impl ChainSpec {
             .uncles_hash(self.genesis.uncles_hash.clone());
 
         let genesis_block = BlockBuilder::default()
-            .transaction(self.build_system_cell_transaction()?)
+            .transaction(self.build_system_cells_transaction()?)
             .with_header_builder(header_builder);
 
         self.verify_genesis_hash(&genesis_block)?;
@@ -248,7 +248,7 @@ pub mod test {
         assert!(dev.is_ok(), format!("{:?}", dev));
 
         let chain_spec = dev.unwrap();
-        let tx = chain_spec.build_system_cell_transaction().unwrap();
+        let tx = chain_spec.build_system_cells_transaction().unwrap();
 
         // Tx and Output hash will be used in some test cases directly, assert here for convenience
         assert_eq!(
@@ -283,7 +283,7 @@ pub mod test {
         assert!(testnet.is_ok(), format!("{:?}", testnet));
         let chain_spec = testnet.unwrap();
 
-        let result = chain_spec.build_system_cell_transaction();
+        let result = chain_spec.build_system_cells_transaction();
         assert!(result.is_ok(), format!("{:?}", result));
         let tx = result.unwrap();
 
