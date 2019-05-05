@@ -103,10 +103,7 @@ impl<CS: ChainStore + 'static> MinerRpc for MinerRpcImpl<CS> {
                     .broadcast(NetworkProtocol::RELAY.into(), data);
                 Ok(Some(block.header().hash()))
             } else {
-                let chain_state = self.shared.chain_state().lock();
                 error!(target: "rpc", "[{}] submit_block process_block {:?}", work_id, ret);
-                error!(target: "rpc", "[{}] proposal table {}", work_id, serde_json::to_string(chain_state.proposal_ids().all()).unwrap());
-
                 sentry::capture_event(sentry::protocol::Event {
                     message: Some(format!("submit_block process_block {:?}", ret)),
                     level: sentry::Level::Error,

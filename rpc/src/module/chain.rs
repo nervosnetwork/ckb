@@ -80,8 +80,15 @@ impl<CS: ChainStore + 'static> ChainRpc for ChainRpcImpl<CS> {
         ))
     }
 
+    // get tip from store, avoid lock chain state
     fn get_tip_header(&self) -> Result<Header> {
-        Ok(self.shared.chain_state().lock().tip_header().into())
+        Ok(self
+            .shared
+            .store()
+            .get_tip_header()
+            .as_ref()
+            .map(Into::into)
+            .expect("tip header exists"))
     }
 
     // TODO: we need to build a proper index instead of scanning every time
@@ -165,6 +172,6 @@ impl<CS: ChainStore + 'static> ChainRpc for ChainRpcImpl<CS> {
     }
 
     fn get_tip_block_number(&self) -> Result<String> {
-        Ok(self.shared.chain_state().lock().tip_number().to_string())
+        self.get_tip_header().map(|h| h.number)
     }
 }

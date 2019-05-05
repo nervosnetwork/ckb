@@ -394,15 +394,17 @@ impl<CS: ChainStore> ChainState<CS> {
         tx_pool.pending.fetch(proposals_limit)
     }
 
-    pub fn get_staging_txs(&self, txs_size_limit: usize) -> Vec<PoolEntry> {
+    pub fn get_staging_txs(&self, txs_size_limit: usize, cycles_limit: Cycle) -> Vec<PoolEntry> {
         let mut size = 0;
+        let mut cycles = 0;
         let tx_pool = self.tx_pool.borrow();
         tx_pool
             .staging
             .txs_iter()
             .take_while(|tx| {
+                cycles += tx.cycles.expect("staging tx have cycles");
                 size += tx.transaction.serialized_size();
-                size < txs_size_limit
+                (size < txs_size_limit) && (cycles < cycles_limit)
             })
             .cloned()
             .collect()
