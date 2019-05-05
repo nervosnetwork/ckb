@@ -37,7 +37,7 @@ ckb-instrument = { path = "util/instrument", features = ["progress_bar"] }
 hash = { path = "util/hash"}
 build-info = { path = "util/build-info" }
 ckb-traits = { path = "traits" }
-sentry = "^0.15.2"
+sentry = "^0.15.4"
 ckb-verification = { path = "verification" }
 tempfile = "3.0"
 
