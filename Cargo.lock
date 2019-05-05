@@ -599,8 +599,8 @@ dependencies = [
  "ckb-merkle-tree 0.11.0-pre",
  "ckb-util 0.11.0-pre",
  "failure 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)",
- "flatbuffers 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "flatbuffers-verifier 0.1.9 (registry+https://github.com/rust-lang/crates.io-index)",
+ "flatbuffers 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "flatbuffers-verifier 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "hash 0.11.0-pre",
  "numext-fixed-hash 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "numext-fixed-uint 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -639,7 +639,7 @@ dependencies = [
  "ckb-verification 0.11.0-pre",
  "faketime 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "faster-hex 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "flatbuffers 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "flatbuffers 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "futures 0.1.26 (registry+https://github.com/rust-lang/crates.io-index)",
  "jsonrpc-core 10.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "jsonrpc-derive 10.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -668,7 +668,7 @@ dependencies = [
  "ckb-vm 0.1.0 (git+https://github.com/nervosnetwork/ckb-vm?rev=9a74ffe)",
  "crypto 0.11.0-pre",
  "faster-hex 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "flatbuffers 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "flatbuffers 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "fnv 1.0.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "hash 0.11.0-pre",
  "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -741,7 +741,7 @@ dependencies = [
  "env_logger 0.6.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "failure 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "faketime 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "flatbuffers 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "flatbuffers 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "fnv 1.0.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "hash 0.11.0-pre",
  "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1244,11 +1244,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "flatbuffers"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+dependencies = [
+ "smallvec 0.6.9 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
 name = "flatbuffers-verifier"
 version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "flatbuffers 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
+name = "flatbuffers-verifier"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+dependencies = [
+ "flatbuffers 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -3599,7 +3615,9 @@ dependencies = [
 "checksum faster-hex 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)" = "a5b8cccaafb5aae8c282692e5590f341925edea6c696e8715ff0d973320b2646"
 "checksum fixedbitset 0.1.9 (registry+https://github.com/rust-lang/crates.io-index)" = "86d4de0081402f5e88cdac65c8dcdcc73118c1a7a465e2a05f0da05843a8ea33"
 "checksum flatbuffers 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)" = "ea0c34f669be9911826facafe996adfda978aeee67285a13556869e2d8b8331f"
+"checksum flatbuffers 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)" = "2fc1af59fd8248b59beb048d614a869ce211315c195f5412334e47f5b7e22726"
 "checksum flatbuffers-verifier 0.1.9 (registry+https://github.com/rust-lang/crates.io-index)" = "228f0226833a59e66d5ba28d15fca4efce5d598314d56179b22b3d89fbb6bf10"
+"checksum flatbuffers-verifier 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)" = "fb67f9057183996c00b19cd934f9e79f09aecf7c29e4424cf262288f5a2a84ae"
 "checksum flate2 1.0.7 (registry+https://github.com/rust-lang/crates.io-index)" = "f87e68aa82b2de08a6e037f1385455759df6e445a8df5e005b4297191dbf18aa"
 "checksum fnv 1.0.6 (registry+https://github.com/rust-lang/crates.io-index)" = "2fad85553e09a6f881f739c29f0b00b0f01357c743266d478b68951ce23285f3"
 "checksum foreign-types 0.3.2 (registry+https://github.com/rust-lang/crates.io-index)" = "f6f339eb8adc052cd2ca78910fda869aefa38d22d5cb648e6485e4d3fc06f3b1"
