@@ -23,6 +23,7 @@ doc-deps:
 
 check:
 	cargo check ${VERBOSE} --all
+	cp -f Cargo.lock test/Cargo.lock
 	cd test && cargo check ${VERBOSE} --all
 
 build:
