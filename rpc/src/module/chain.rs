@@ -19,6 +19,9 @@ pub trait ChainRpc {
     #[rpc(name = "get_block")]
     fn get_block(&self, _hash: H256) -> Result<Option<Block>>;
 
+    #[rpc(name = "get_block_by_number")]
+    fn get_block_by_number(&self, _number: String) -> Result<Option<Block>>;
+
     #[rpc(name = "get_transaction")]
     fn get_transaction(&self, _hash: H256) -> Result<Option<TransactionWithStatus>>;
 
@@ -50,6 +53,17 @@ pub(crate) struct ChainRpcImpl<CS> {
 impl<CS: ChainStore + 'static> ChainRpc for ChainRpcImpl<CS> {
     fn get_block(&self, hash: H256) -> Result<Option<Block>> {
         Ok(self.shared.block(&hash).as_ref().map(Into::into))
+    }
+
+    fn get_block_by_number(&self, number: String) -> Result<Option<Block>> {
+        Ok(self
+            .shared
+            .block_hash(
+                number
+                    .parse::<BlockNumber>()
+                    .map_err(|_| Error::parse_error())?,
+            )
+            .and_then(|hash| self.shared.block(&hash).as_ref().map(Into::into)))
     }
 
     fn get_transaction(&self, hash: H256) -> Result<Option<TransactionWithStatus>> {
