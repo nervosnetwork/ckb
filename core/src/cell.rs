@@ -118,7 +118,7 @@ impl HeaderStatus {
 #[derive(Debug)]
 pub struct ResolvedOutPoint {
     pub cell: Option<CellMeta>,
-    pub header: Option<Header>,
+    pub header: Option<Box<Header>>,
 }
 
 impl ResolvedOutPoint {
@@ -132,14 +132,14 @@ impl ResolvedOutPoint {
     pub fn header_only(header: Header) -> ResolvedOutPoint {
         ResolvedOutPoint {
             cell: None,
-            header: Some(header),
+            header: Some(Box::new(header)),
         }
     }
 
     pub fn cell_and_header(cell: CellMeta, header: Header) -> ResolvedOutPoint {
         ResolvedOutPoint {
             cell: Some(cell),
-            header: Some(header),
+            header: Some(Box::new(header)),
         }
     }
 
@@ -148,7 +148,7 @@ impl ResolvedOutPoint {
     }
 
     pub fn header(&self) -> Option<&Header> {
-        self.header.as_ref()
+        self.header.as_ref().map(|h| &**h)
     }
 }
 
@@ -460,7 +460,11 @@ impl<'a> ResolvedTransaction<'a> {
     pub fn inputs_capacity(&self) -> ::occupied_capacity::Result<Capacity> {
         self.input_cells
             .iter()
-            .map(|o| o.cell.as_ref().map_or(Capacity::zero(), CellMeta::capacity))
+            .map(|o| {
+                o.cell
+                    .as_ref()
+                    .map_or_else(Capacity::zero, CellMeta::capacity)
+            })
             .try_fold(Capacity::zero(), Capacity::safe_add)
     }
 }
@@ -613,7 +617,7 @@ mod tests {
         .unwrap();
 
         assert!(result.dep_cells[0].cell.is_none());
-        assert_eq!(result.dep_cells[0].header, Some(header));
+        assert_eq!(result.dep_cells[0].header, Some(Box::new(header)));
     }
 
     #[test]
@@ -672,7 +676,7 @@ mod tests {
         .unwrap();
 
         assert!(result.dep_cells[0].cell.is_some());
-        assert_eq!(result.dep_cells[0].header, Some(header));
+        assert_eq!(result.dep_cells[0].header, Some(Box::new(header)));
     }
 
     #[test]
