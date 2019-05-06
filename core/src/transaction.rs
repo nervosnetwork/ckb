@@ -178,7 +178,7 @@ impl CellOutput {
 
 pub type Witness = Vec<Vec<u8>>;
 
-#[derive(Clone, Serialize, Deserialize, Eq, Debug, Default, HasOccupiedCapacity)]
+#[derive(Clone, Serialize, Eq, Debug, HasOccupiedCapacity)]
 pub struct Transaction {
     version: Version,
     deps: Vec<OutPoint>,
@@ -186,6 +186,116 @@ pub struct Transaction {
     outputs: Vec<CellOutput>,
     //Segregated Witness to provide protection from transaction malleability.
     witnesses: Vec<Witness>,
+    #[serde(skip)]
+    #[free_capacity]
+    hash: H256,
+    #[serde(skip)]
+    #[free_capacity]
+    witness_hash: H256,
+}
+
+impl<'de> serde::de::Deserialize<'de> for Transaction {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::de::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(field_identifier, rename_all = "lowercase")]
+        enum Field {
+            Version,
+            Deps,
+            Inputs,
+            Outputs,
+            Witnesses,
+        }
+
+        struct InnerVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for InnerVisitor {
+            type Value = Transaction;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("struct Transaction")
+            }
+
+            fn visit_seq<V>(self, mut seq: V) -> Result<Self::Value, V::Error>
+            where
+                V: serde::de::SeqAccess<'de>,
+            {
+                let version = seq
+                    .next_element()?
+                    .ok_or_else(|| serde::de::Error::invalid_length(0, &self))?;
+                let deps = seq
+                    .next_element()?
+                    .ok_or_else(|| serde::de::Error::invalid_length(1, &self))?;
+                let inputs = seq
+                    .next_element()?
+                    .ok_or_else(|| serde::de::Error::invalid_length(2, &self))?;
+                let outputs = seq
+                    .next_element()?
+                    .ok_or_else(|| serde::de::Error::invalid_length(3, &self))?;
+                let witnesses = seq
+                    .next_element()?
+                    .ok_or_else(|| serde::de::Error::invalid_length(4, &self))?;
+                Ok(Self::Value::new(version, deps, inputs, outputs, witnesses))
+            }
+
+            fn visit_map<V>(self, mut map: V) -> Result<Self::Value, V::Error>
+            where
+                V: serde::de::MapAccess<'de>,
+            {
+                let mut version = None;
+                let mut deps = None;
+                let mut inputs = None;
+                let mut outputs = None;
+                let mut witnesses = None;
+                while let Some(key) = map.next_key()? {
+                    match key {
+                        Field::Version => {
+                            if version.is_some() {
+                                return Err(serde::de::Error::duplicate_field("version"));
+                            }
+                            version = Some(map.next_value()?);
+                        }
+                        Field::Deps => {
+                            if deps.is_some() {
+                                return Err(serde::de::Error::duplicate_field("deps"));
+                            }
+                            deps = Some(map.next_value()?);
+                        }
+                        Field::Inputs => {
+                            if inputs.is_some() {
+                                return Err(serde::de::Error::duplicate_field("inputs"));
+                            }
+                            inputs = Some(map.next_value()?);
+                        }
+                        Field::Outputs => {
+                            if outputs.is_some() {
+                                return Err(serde::de::Error::duplicate_field("outputs"));
+                            }
+                            outputs = Some(map.next_value()?);
+                        }
+                        Field::Witnesses => {
+                            if witnesses.is_some() {
+                                return Err(serde::de::Error::duplicate_field("witnesses"));
+                            }
+                            witnesses = Some(map.next_value()?);
+                        }
+                    }
+                }
+                let version = version.ok_or_else(|| serde::de::Error::missing_field("version"))?;
+                let deps = deps.ok_or_else(|| serde::de::Error::missing_field("deps"))?;
+                let inputs = inputs.ok_or_else(|| serde::de::Error::missing_field("inputs"))?;
+                let outputs = outputs.ok_or_else(|| serde::de::Error::missing_field("outputs"))?;
+                let witnesses =
+                    witnesses.ok_or_else(|| serde::de::Error::missing_field("witnesses"))?;
+                Ok(Self::Value::new(version, deps, inputs, outputs, witnesses))
+            }
+        }
+
+        const FIELDS: &[&str] = &["version", "deps", "inputs", "outputs", "witnesses"];
+        deserializer.deserialize_struct("Transaction", FIELDS, InnerVisitor)
+    }
 }
 
 #[derive(Serialize)]
@@ -209,6 +319,36 @@ impl PartialEq for Transaction {
 }
 
 impl Transaction {
+    pub(crate) fn new(
+        version: Version,
+        deps: Vec<OutPoint>,
+        inputs: Vec<CellInput>,
+        outputs: Vec<CellOutput>,
+        witnesses: Vec<Witness>,
+    ) -> Self {
+        let raw = RawTransaction {
+            version,
+            deps: &deps,
+            inputs: &inputs,
+            outputs: &outputs,
+        };
+        let hash =
+            blake2b_256(serialize(&raw).expect("RawTransaction serialize should not fail")).into();
+        let mut tx = Self {
+            version,
+            deps,
+            inputs,
+            outputs,
+            witnesses,
+            hash,
+            witness_hash: H256::zero(),
+        };
+        let witness_hash =
+            blake2b_256(serialize(&tx).expect("Transaction serialize should not fail")).into();
+        tx.witness_hash = witness_hash;
+        tx
+    }
+
     pub fn version(&self) -> u32 {
         self.version
     }
@@ -236,17 +376,11 @@ impl Transaction {
     }
 
     pub fn hash(&self) -> H256 {
-        let raw = RawTransaction {
-            version: self.version,
-            deps: &self.deps,
-            inputs: &self.inputs,
-            outputs: &self.outputs,
-        };
-        blake2b_256(serialize(&raw).expect("Transaction serialize should not fail")).into()
+        self.hash.clone()
     }
 
     pub fn witness_hash(&self) -> H256 {
-        blake2b_256(serialize(&self).expect("Transaction serialize should not fail")).into()
+        self.witness_hash.clone()
     }
 
     pub fn out_points_iter(&self) -> impl Iterator<Item = &OutPoint> {
@@ -314,88 +448,124 @@ impl Transaction {
 
 #[derive(Default)]
 pub struct TransactionBuilder {
-    inner: Transaction,
+    version: Version,
+    deps: Vec<OutPoint>,
+    inputs: Vec<CellInput>,
+    outputs: Vec<CellOutput>,
+    witnesses: Vec<Witness>,
 }
 
 impl TransactionBuilder {
     pub fn new(bytes: &[u8]) -> Self {
-        TransactionBuilder {
-            inner: deserialize(bytes).expect("transaction deserializing should be ok"),
+        let Transaction {
+            version,
+            deps,
+            inputs,
+            outputs,
+            witnesses,
+            ..
+        } = deserialize(bytes).expect("transaction deserializing should be ok");
+        Self {
+            version,
+            deps,
+            inputs,
+            outputs,
+            witnesses,
         }
     }
 
-    pub fn transaction(mut self, transaction: Transaction) -> Self {
-        self.inner = transaction;
-        self
+    pub fn from_transaction(transaction: Transaction) -> Self {
+        let Transaction {
+            version,
+            deps,
+            inputs,
+            outputs,
+            witnesses,
+            ..
+        } = transaction;
+        Self {
+            version,
+            deps,
+            inputs,
+            outputs,
+            witnesses,
+        }
     }
 
     pub fn version(mut self, version: u32) -> Self {
-        self.inner.version = version;
+        self.version = version;
         self
     }
 
     pub fn dep(mut self, dep: OutPoint) -> Self {
-        self.inner.deps.push(dep);
+        self.deps.push(dep);
         self
     }
 
     pub fn deps(mut self, deps: Vec<OutPoint>) -> Self {
-        self.inner.deps.extend(deps);
+        self.deps.extend(deps);
         self
     }
 
     pub fn deps_clear(mut self) -> Self {
-        self.inner.deps.clear();
+        self.deps.clear();
         self
     }
 
     pub fn input(mut self, input: CellInput) -> Self {
-        self.inner.inputs.push(input);
+        self.inputs.push(input);
         self
     }
 
     pub fn inputs(mut self, inputs: Vec<CellInput>) -> Self {
-        self.inner.inputs.extend(inputs);
+        self.inputs.extend(inputs);
         self
     }
 
     pub fn inputs_clear(mut self) -> Self {
-        self.inner.inputs.clear();
+        self.inputs.clear();
         self
     }
 
     pub fn output(mut self, output: CellOutput) -> Self {
-        self.inner.outputs.push(output);
+        self.outputs.push(output);
         self
     }
 
     pub fn outputs(mut self, outputs: Vec<CellOutput>) -> Self {
-        self.inner.outputs.extend(outputs);
+        self.outputs.extend(outputs);
         self
     }
 
     pub fn outputs_clear(mut self) -> Self {
-        self.inner.outputs.clear();
+        self.outputs.clear();
         self
     }
 
     pub fn witness(mut self, witness: Witness) -> Self {
-        self.inner.witnesses.push(witness);
+        self.witnesses.push(witness);
         self
     }
 
     pub fn witnesses(mut self, witness: Vec<Witness>) -> Self {
-        self.inner.witnesses.extend(witness);
+        self.witnesses.extend(witness);
         self
     }
 
     pub fn witnesses_clear(mut self) -> Self {
-        self.inner.witnesses.clear();
+        self.witnesses.clear();
         self
     }
 
     pub fn build(self) -> Transaction {
-        self.inner
+        let Self {
+            version,
+            deps,
+            inputs,
+            outputs,
+            witnesses,
+        } = self;
+        Transaction::new(version, deps, inputs, outputs, witnesses)
     }
 }
 
