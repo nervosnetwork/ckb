@@ -5,7 +5,10 @@ use crate::syscalls::{
 use byteorder::{LittleEndian, WriteBytesExt};
 use ckb_core::cell::CellMeta;
 use ckb_protocol::Script as FbsScript;
-use ckb_vm::{Error as VMError, Register, SupportMachine, Syscalls, A0, A3, A4, A5, A7};
+use ckb_vm::{
+    registers::{A0, A3, A4, A5, A7},
+    Error as VMError, Register, SupportMachine, Syscalls,
+};
 use flatbuffers::FlatBufferBuilder;
 use std::sync::Arc;
 

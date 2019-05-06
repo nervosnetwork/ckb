@@ -104,7 +104,10 @@ mod tests {
     };
     use ckb_store::{ChainKVStore, COLUMNS};
     use ckb_vm::machine::DefaultCoreMachine;
-    use ckb_vm::{CoreMachine, Memory, SparseMemory, Syscalls, A0, A1, A2, A3, A4, A5, A7};
+    use ckb_vm::{
+        registers::{A0, A1, A2, A3, A4, A5, A7},
+        CoreMachine, Memory, SparseMemory, Syscalls,
+    };
     use flatbuffers::FlatBufferBuilder;
     use hash::blake2b_256;
     use numext_fixed_hash::H256;

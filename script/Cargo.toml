@@ -12,13 +12,13 @@ crypto = {path = "../util/crypto"}
 ckb-core = { path = "../core" }
 ckb-store = { path = "../store" }
 hash = {path = "../util/hash"}
-ckb-vm = { git = "https://github.com/nervosnetwork/ckb-vm", rev = "9a74ffe" }
+ckb-vm = { git = "https://github.com/nervosnetwork/ckb-vm", rev = "5c4fe34", features = ["asm"] }
 faster-hex = "0.3"
 fnv = "1.0.3"
 flatbuffers = "0.6.0"
 log = "0.4"
 ckb-protocol = { path = "../protocol" }
-
+ckb-chain-spec = { path = "../spec" }
 
 [dev-dependencies]
 proptest = "0.9"
