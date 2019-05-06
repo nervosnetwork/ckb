@@ -29,7 +29,7 @@ fn new_header_builder(
         .next_epoch_ext(&parent_epoch, parent.header())
         .unwrap_or(parent_epoch);
     HeaderBuilder::default()
-        .parent_hash(parent_hash)
+        .parent_hash(parent_hash.to_owned())
         .number(parent.header().number() + 1)
         .timestamp(parent.header().timestamp() + 1)
         .epoch(epoch.number())

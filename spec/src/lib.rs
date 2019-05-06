@@ -199,9 +199,9 @@ impl ChainSpec {
     fn verify_genesis_hash(&self, genesis: &Block) -> Result<(), Box<Error>> {
         if let Some(ref expect) = self.genesis.hash {
             let actual = genesis.header().hash();
-            if &actual != expect {
+            if actual != expect {
                 return Err(GenesisError {
-                    actual,
+                    actual: actual.clone(),
                     expect: expect.clone(),
                 }
                 .boxed());

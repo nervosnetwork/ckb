@@ -302,7 +302,7 @@ where
         // TODO: cache context
         let mut excluded = FnvHashSet::default();
         let mut included = FnvHashSet::default();
-        excluded.insert(block.header().hash());
+        excluded.insert(block.header().hash().to_owned());
         let mut block_hash = block.header().parent_hash().to_owned();
         excluded.insert(block_hash.clone());
         for _ in 0..max_uncles_age {
@@ -311,7 +311,7 @@ where
                 excluded.insert(parent_hash.clone());
                 if let Some(uncles) = self.provider.uncles(&block_hash) {
                     uncles.iter().for_each(|uncle| {
-                        excluded.insert(uncle.header.hash());
+                        excluded.insert(uncle.header.hash().to_owned());
                     });
                 };
                 block_hash = parent_hash;
@@ -331,13 +331,15 @@ where
 
             let uncle_header = uncle.header.clone();
 
-            let uncle_hash = uncle_header.hash();
+            let uncle_hash = uncle_header.hash().to_owned();
             if included.contains(&uncle_hash) {
-                return Err(Error::Uncles(UnclesError::Duplicate(uncle_hash)));
+                return Err(Error::Uncles(UnclesError::Duplicate(uncle_hash.clone())));
             }
 
             if excluded.contains(&uncle_hash) {
-                return Err(Error::Uncles(UnclesError::InvalidInclude(uncle_hash)));
+                return Err(Error::Uncles(UnclesError::InvalidInclude(
+                    uncle_hash.clone(),
+                )));
             }
 
             if uncle_header.proposals_root() != &uncle.cal_proposals_root() {
@@ -453,7 +455,7 @@ impl<CP: ChainProvider + Clone> CommitVerifier<CP> {
         let mut block_hash = self
             .provider
             .get_ancestor(&block.header().parent_hash(), proposal_end)
-            .map(|h| h.hash())
+            .map(|h| h.hash().to_owned())
             .ok_or_else(|| Error::Commit(CommitError::AncestorNotFound))?;
 
         let mut proposal_txs_ids = FnvHashSet::default();

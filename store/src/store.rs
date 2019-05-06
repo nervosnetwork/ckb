@@ -484,7 +484,7 @@ mod tests {
         let block = consensus.genesis_block();
         let hash = block.header().hash();
         store.init(&consensus).unwrap();
-        assert_eq!(&hash, &store.get_block_hash(0).unwrap());
+        assert_eq!(hash, &store.get_block_hash(0).unwrap());
 
         assert_eq!(
             block.header().difficulty(),

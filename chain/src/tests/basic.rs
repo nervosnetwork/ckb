@@ -441,7 +441,7 @@ fn test_chain_fork_by_total_difficulty() {
     }
     assert_eq!(
         shared.block_hash(8),
-        chain2.get(7).map(|b| b.header().hash())
+        chain2.get(7).map(|b| b.header().hash().to_owned())
     );
 }
 
@@ -506,10 +506,13 @@ fn test_chain_fork_by_hash() {
     } else {
         chain2
     };
-    assert_eq!(shared.block_hash(8), best.get(7).map(|b| b.header().hash()));
+    assert_eq!(
+        shared.block_hash(8),
+        best.get(7).map(|b| b.header().hash().to_owned())
+    );
     assert_eq!(
         shared.block_hash(19),
-        best.get(18).map(|b| b.header().hash())
+        best.get(18).map(|b| b.header().hash().to_owned())
     );
 }
 

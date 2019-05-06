@@ -210,7 +210,8 @@ impl<CS: ChainStore> Synchronizer<CS> {
             };
 
             self.peers.new_header_received(peer, &header_view);
-            self.shared.insert_header_view(header.hash(), header_view);
+            self.shared
+                .insert_header_view(header.hash().to_owned(), header_view);
         }
     }
 
@@ -233,8 +234,8 @@ impl<CS: ChainStore> Synchronizer<CS> {
 
     fn accept_block(&self, peer: PeerIndex, block: &Arc<Block>) -> Result<(), FailureError> {
         self.chain.process_block(Arc::clone(&block))?;
-        self.shared.remove_header_view(&block.header().hash());
-        self.mark_block_stored(block.header().hash());
+        self.shared.remove_header_view(block.header().hash());
+        self.mark_block_stored(block.header().hash().to_owned());
         self.peers.set_last_common_header(peer, &block.header());
         Ok(())
     }
@@ -654,7 +655,7 @@ mod tests {
         let number = parent_header.number() + 1;
         let cellbase = create_cellbase(number);
         let header_builder = HeaderBuilder::default()
-            .parent_hash(parent_header.hash())
+            .parent_hash(parent_header.hash().to_owned())
             .timestamp(now)
             .epoch(epoch.number())
             .number(number)
@@ -928,7 +929,7 @@ mod tests {
 
         for window in headers.windows(2) {
             if let [parent, header] = &window {
-                assert_eq!(header.parent_hash(), &parent.hash());
+                assert_eq!(header.parent_hash(), parent.hash());
             }
         }
     }
@@ -1035,11 +1036,11 @@ mod tests {
 
         assert_eq!(
             headers.first().unwrap().hash(),
-            shared2.block_hash(193).unwrap()
+            &shared2.block_hash(193).unwrap()
         );
         assert_eq!(
             headers.last().unwrap().hash(),
-            shared2.block_hash(200).unwrap()
+            &shared2.block_hash(200).unwrap()
         );
 
         // println!(
@@ -1115,7 +1116,7 @@ mod tests {
         }
 
         assert_eq!(
-            &synchronizer1
+            synchronizer1
                 .peers
                 .last_common_headers
                 .read()

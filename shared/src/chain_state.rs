@@ -149,7 +149,7 @@ impl<CS: ChainStore> ChainState<CS> {
         self.tip_header.number()
     }
 
-    pub fn tip_hash(&self) -> H256 {
+    pub fn tip_hash(&self) -> &H256 {
         self.tip_header.hash()
     }
 

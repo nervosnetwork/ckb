@@ -26,7 +26,7 @@ fn gen_block(parent_header: &Header, nonce: u64, epoch: &EpochExt) -> Block {
     let number = parent_header.number() + 1;
     let cellbase = create_cellbase(number);
     let header_builder = HeaderBuilder::default()
-        .parent_hash(parent_header.hash())
+        .parent_hash(parent_header.hash().to_owned())
         .timestamp(now)
         .epoch(epoch.number())
         .number(number)
@@ -263,7 +263,7 @@ from_block(chain1[block_number].to_owned())          // block.number 10 epoch 1
         assert_eq!(
             verifier.verify(&block),
             Err(Error::Uncles(UnclesError::InvalidInclude(
-                block.uncles()[0].header().hash()
+                block.uncles()[0].header().hash().to_owned()
             )))
         );
     }
@@ -359,7 +359,7 @@ from_block(chain1.get(block_number).cloned().unwrap())          // epoch 1
         assert_eq!(
             verifier.verify(&block),
             Err(Error::Uncles(UnclesError::Duplicate(
-                block.uncles()[1].header().hash()
+                block.uncles()[1].header().hash().to_owned()
             )))
         );
     }

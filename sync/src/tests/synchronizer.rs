@@ -102,7 +102,7 @@ fn setup_node(
             .build();
 
         let header_builder = HeaderBuilder::default()
-            .parent_hash(block.header().hash())
+            .parent_hash(block.header().hash().to_owned())
             .number(number)
             .epoch(epoch.number())
             .timestamp(timestamp)

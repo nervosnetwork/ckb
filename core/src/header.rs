@@ -258,8 +258,8 @@ impl Header {
         self.seal.nonce
     }
 
-    pub fn hash(&self) -> H256 {
-        self.hash.clone()
+    pub fn hash(&self) -> &H256 {
+        &self.hash
     }
 
     pub fn pow_hash(&self) -> H256 {

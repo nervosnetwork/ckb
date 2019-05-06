@@ -259,7 +259,7 @@ fn gen_block(
         .proposals(proposals)
         .header_builder(
             HeaderBuilder::default()
-                .parent_hash(p_block.header().hash())
+                .parent_hash(p_block.header().hash().to_owned())
                 .number(number)
                 .timestamp(timestamp)
                 .difficulty(difficulty)

@@ -91,7 +91,7 @@ fn relay_compact_block_with_one_tx() {
                     .build();
 
                 let header_builder = HeaderBuilder::default()
-                    .parent_hash(last_block.header().hash())
+                    .parent_hash(last_block.header().hash().to_owned())
                     .number(number)
                     .epoch(epoch.number())
                     .timestamp(timestamp)
@@ -133,7 +133,7 @@ fn relay_compact_block_with_one_tx() {
                     .build();
 
                 let header_builder = HeaderBuilder::default()
-                    .parent_hash(last_block.header().hash())
+                    .parent_hash(last_block.header().hash().to_owned())
                     .number(number)
                     .epoch(epoch.number())
                     .timestamp(timestamp)
@@ -257,7 +257,7 @@ fn relay_compact_block_with_missing_indexs() {
                     .build();
 
                 let header_builder = HeaderBuilder::default()
-                    .parent_hash(last_block.header().hash())
+                    .parent_hash(last_block.header().hash().to_owned())
                     .epoch(epoch.number())
                     .number(number)
                     .timestamp(timestamp)
@@ -299,7 +299,7 @@ fn relay_compact_block_with_missing_indexs() {
                     .build();
 
                 let header_builder = HeaderBuilder::default()
-                    .parent_hash(last_block.header().hash())
+                    .parent_hash(last_block.header().hash().to_owned())
                     .number(number)
                     .epoch(epoch.number())
                     .timestamp(timestamp)
@@ -400,7 +400,7 @@ fn setup_node(
             .build();
 
         let header_builder = HeaderBuilder::default()
-            .parent_hash(block.header().hash())
+            .parent_hash(block.header().hash().to_owned())
             .number(number)
             .epoch(epoch.number())
             .timestamp(timestamp)

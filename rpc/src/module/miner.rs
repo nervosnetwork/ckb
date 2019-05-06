@@ -94,7 +94,7 @@ impl<CS: ChainStore + 'static> MinerRpc for MinerRpcImpl<CS> {
                 let data = fbb.finished_data().into();
                 self.network_controller
                     .broadcast(NetworkProtocol::RELAY.into(), data);
-                Ok(Some(block.header().hash()))
+                Ok(Some(block.header().hash().to_owned()))
             } else {
                 error!(target: "rpc", "[{}] submit_block process_block {:?}", work_id, ret);
                 sentry::capture_event(sentry::protocol::Event {

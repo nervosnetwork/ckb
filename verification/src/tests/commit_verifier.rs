@@ -31,7 +31,7 @@ fn gen_block(
     let difficulty = parent_header.difficulty() + U256::from(1u64);
     let cellbase = create_cellbase(number);
     let header_builder = HeaderBuilder::default()
-        .parent_hash(parent_header.hash())
+        .parent_hash(parent_header.hash().to_owned())
         .timestamp(now)
         .number(number)
         .difficulty(difficulty)

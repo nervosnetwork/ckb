@@ -368,7 +368,7 @@ impl<'a> From<&'a CoreHeader> for Header {
             uncles_hash: core.uncles_hash().to_owned(),
             uncles_count: core.uncles_count(),
             seal: core.seal().to_owned().into(),
-            hash: core.hash(),
+            hash: core.hash().to_owned(),
         }
     }
 }

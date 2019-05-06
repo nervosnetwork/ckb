@@ -40,7 +40,7 @@ impl<'a, CS: ChainStore> CompactBlockProcess<'a, CS> {
 
     pub fn execute(self) -> Result<(), FailureError> {
         let compact_block: CompactBlock = (*self.message).try_into()?;
-        let block_hash = compact_block.header.hash();
+        let block_hash = compact_block.header.hash().to_owned();
         if let Some(parent_header_view) = self
             .relayer
             .shared
