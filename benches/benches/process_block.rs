@@ -15,6 +15,7 @@ use ckb_traits::chain_provider::ChainProvider;
 use criterion::{criterion_group, criterion_main, Criterion};
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
+use occupied_capacity::OccupiedCapacity;
 use rand::random;
 use std::sync::Arc;
 use tempfile::{tempdir, TempDir};
@@ -152,12 +153,10 @@ fn new_chain(
     H256,
 ) {
     let always_success = include_bytes!("../../resource/specs/cells/always_success");
-    let cell_output = CellOutput::new(
-        Capacity::bytes(always_success.len()).unwrap(),
-        Bytes::from(always_success.to_vec()),
-        Script::default(),
-        None,
-    );
+    let mut cell_output = CellOutput::default();
+    cell_output.data = Bytes::from(always_success.to_vec());
+    cell_output.capacity = cell_output.occupied_capacity().unwrap();
+
     let data_hash = cell_output.data_hash();
 
     let cellbase = TransactionBuilder::default()
@@ -225,14 +224,12 @@ fn gen_block(
         p_block.header().difficulty() + U256::from(1u64),
     );
 
+    let mut cell_output = CellOutput::default();
+    cell_output.capacity = cell_output.occupied_capacity().unwrap();
+
     let cellbase = TransactionBuilder::default()
         .input(CellInput::new_cellbase_input(number))
-        .output(CellOutput::new(
-            Capacity::zero(),
-            Bytes::default(),
-            Script::default(),
-            None,
-        ))
+        .output(cell_output)
         .build();
 
     // spent n-2 block's tx and proposal n-1 block's tx

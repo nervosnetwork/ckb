@@ -24,6 +24,7 @@ rand = "0.6"
 tempfile = "3.0"
 ckb-traits = { path = "../traits" }
 hash = {path = "../util/hash"}
+occupied-capacity = {path = "../util/occupied-capacity"}
 
 [[bench]]
 name = "cuckoo"
