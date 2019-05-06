@@ -67,11 +67,13 @@ fn setup_node(
     thread_name: &str,
     height: u64,
 ) -> (TestNode, Shared<ChainKVStore<MemoryKeyValueDB>>) {
-    let mut block = BlockBuilder::default().with_header_builder(
-        HeaderBuilder::default()
-            .timestamp(unix_time_as_millis())
-            .difficulty(U256::from(1000u64)),
-    );
+    let mut block = BlockBuilder::default()
+        .header_builder(
+            HeaderBuilder::default()
+                .timestamp(unix_time_as_millis())
+                .difficulty(U256::from(1000u64)),
+        )
+        .build();
 
     let consensus = Consensus::default().set_genesis_block(block.clone());
     let shared = SharedBuilder::<MemoryKeyValueDB>::new()
@@ -108,7 +110,8 @@ fn setup_node(
 
         block = BlockBuilder::default()
             .transaction(cellbase)
-            .with_header_builder(header_builder);
+            .header_builder(header_builder)
+            .build();
 
         chain_controller
             .process_block(Arc::new(block.clone()))

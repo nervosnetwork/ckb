@@ -100,7 +100,8 @@ fn relay_compact_block_with_one_tx() {
                 BlockBuilder::default()
                     .transaction(cellbase)
                     .proposal(tx.proposal_short_id())
-                    .with_header_builder(header_builder)
+                    .header_builder(header_builder)
+                    .build()
             };
 
             {
@@ -141,7 +142,8 @@ fn relay_compact_block_with_one_tx() {
                 BlockBuilder::default()
                     .transaction(cellbase)
                     .transaction(tx)
-                    .with_header_builder(header_builder)
+                    .header_builder(header_builder)
+                    .build()
             };
 
             {
@@ -264,7 +266,8 @@ fn relay_compact_block_with_missing_indexs() {
                 BlockBuilder::default()
                     .transaction(cellbase)
                     .proposals(txs.iter().map(Transaction::proposal_short_id).collect())
-                    .with_header_builder(header_builder)
+                    .header_builder(header_builder)
+                    .build()
             };
 
             {
@@ -305,7 +308,8 @@ fn relay_compact_block_with_missing_indexs() {
                 BlockBuilder::default()
                     .transaction(cellbase)
                     .transactions(txs)
-                    .with_header_builder(header_builder)
+                    .header_builder(header_builder)
+                    .build()
             };
 
             {
@@ -348,11 +352,13 @@ fn setup_node(
     Shared<ChainKVStore<MemoryKeyValueDB>>,
     ChainController,
 ) {
-    let mut block = BlockBuilder::default().with_header_builder(
-        HeaderBuilder::default()
-            .timestamp(unix_time_as_millis())
-            .difficulty(U256::from(1000u64)),
-    );
+    let mut block = BlockBuilder::default()
+        .header_builder(
+            HeaderBuilder::default()
+                .timestamp(unix_time_as_millis())
+                .difficulty(U256::from(1000u64)),
+        )
+        .build();
     let consensus = Consensus::default()
         .set_genesis_block(block.clone())
         .set_cellbase_maturity(0);
@@ -402,7 +408,8 @@ fn setup_node(
 
         block = BlockBuilder::default()
             .transaction(cellbase)
-            .with_header_builder(header_builder);
+            .header_builder(header_builder)
+            .build();
 
         chain_controller
             .process_block(Arc::new(block.clone()))

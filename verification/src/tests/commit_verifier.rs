@@ -42,7 +42,8 @@ fn gen_block(
         .transactions(transactions)
         .proposals(proposals)
         .uncles(uncles)
-        .with_header_builder(header_builder)
+        .header_builder(header_builder)
+        .build()
 }
 
 fn create_transaction(parent: &H256) -> Transaction {

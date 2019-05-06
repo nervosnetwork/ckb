@@ -197,6 +197,21 @@ impl BlockBuilder {
         self
     }
 
+    pub fn unsafe_build(self) -> Block {
+        let Self {
+            header_builder,
+            uncles,
+            transactions,
+            proposals,
+        } = self;
+        Block {
+            header: header_builder.build(),
+            uncles,
+            transactions,
+            proposals,
+        }
+    }
+
     pub fn build(self) -> Block {
         let Self {
             header_builder,

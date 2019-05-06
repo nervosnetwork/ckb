@@ -663,7 +663,8 @@ mod tests {
 
         BlockBuilder::default()
             .transaction(cellbase)
-            .with_header_builder(header_builder)
+            .header_builder(header_builder)
+            .build()
     }
 
     fn insert_block<CS: ChainStore>(

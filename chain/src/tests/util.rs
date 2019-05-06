@@ -70,7 +70,8 @@ pub(crate) fn gen_block(
                 .map(Transaction::proposal_short_id)
                 .collect(),
         )
-        .with_header_builder(header_builder)
+        .header_builder(header_builder)
+        .build()
 }
 
 pub(crate) fn create_transaction(parent: H256, unique_data: u8) -> Transaction {

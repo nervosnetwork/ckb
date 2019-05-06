@@ -252,7 +252,8 @@ impl Node {
                     .collect::<Result<_, _>>()
                     .expect("parse proposal transactions failed"),
             )
-            .with_header_builder(header_builder)
+            .header_builder(header_builder)
+            .build()
     }
 
     pub fn new_transaction(&self, hash: H256) -> Transaction {

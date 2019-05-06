@@ -637,7 +637,8 @@ mod tests {
                     .collect::<Result<_, _>>()
                     .unwrap(),
             )
-            .with_header_builder(header_builder);
+            .header_builder(header_builder)
+            .build();
 
         let resolver = HeaderResolverWrapper::new(block.header(), shared.clone());
         let header_verify_result = {
@@ -668,7 +669,7 @@ mod tests {
             .header(header)
             .transaction(cellbase)
             .proposal(ProposalShortId::from_slice(&[1; 10]).unwrap())
-            .build()
+            .unsafe_build()
     }
 
     fn create_cellbase(number: BlockNumber, epoch: &EpochExt) -> Transaction {

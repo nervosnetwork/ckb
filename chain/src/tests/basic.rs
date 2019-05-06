@@ -33,7 +33,8 @@ fn test_genesis_transaction_spend() {
 
     let genesis_block = BlockBuilder::default()
         .transaction(tx)
-        .with_header_builder(HeaderBuilder::default().difficulty(U256::from(1000u64)));
+        .header_builder(HeaderBuilder::default().difficulty(U256::from(1000u64)))
+        .build();
 
     let consensus = Consensus::default().set_genesis_block(genesis_block);
     let (chain_controller, shared) = start_chain(Some(consensus), false);
@@ -379,7 +380,8 @@ fn test_genesis_transaction_fetch() {
 
     let genesis_block = BlockBuilder::default()
         .transaction(tx)
-        .with_header_builder(HeaderBuilder::default().difficulty(U256::from(1000u64)));
+        .header_builder(HeaderBuilder::default().difficulty(U256::from(1000u64)))
+        .build();
 
     let consensus = Consensus::default().set_genesis_block(genesis_block);
     let (_chain_controller, shared) = start_chain(Some(consensus), false);
@@ -577,7 +579,8 @@ fn test_chain_get_ancestor() {
 #[test]
 fn test_next_epoch_ext() {
     let genesis_block = BlockBuilder::default()
-        .with_header_builder(HeaderBuilder::default().difficulty(U256::from(1000u64)));
+        .header_builder(HeaderBuilder::default().difficulty(U256::from(1000u64)))
+        .build();
     let mut consensus = Consensus::default().set_genesis_block(genesis_block);
     consensus.genesis_epoch_ext.set_length(400);
     let epoch = consensus.genesis_epoch_ext.clone();

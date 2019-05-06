@@ -184,7 +184,8 @@ fn new_chain(
     let genesis_block = BlockBuilder::default()
         .transaction(cellbase)
         .transactions(transactions)
-        .with_header_builder(HeaderBuilder::default().difficulty(U256::from(1000u64)));
+        .header_builder(HeaderBuilder::default().difficulty(U256::from(1000u64)))
+        .build();
 
     let mut consensus = Consensus::default().set_genesis_block(genesis_block);
     consensus.tx_proposal_window = ProposalWindow(1, 10);
@@ -256,14 +257,15 @@ fn gen_block(
         .transaction(cellbase)
         .transactions(transactions)
         .proposals(proposals)
-        .with_header_builder(
+        .header_builder(
             HeaderBuilder::default()
                 .parent_hash(p_block.header().hash())
                 .number(number)
                 .timestamp(timestamp)
                 .difficulty(difficulty)
                 .nonce(random()),
-        );
+        )
+        .build();
 
     blocks.push(block);
 }

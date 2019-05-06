@@ -65,11 +65,12 @@ fn new_transaction(relayer: &Relayer<ChainKVStore<MemoryKeyValueDB>>, index: usi
 
 fn build_chain(tip: BlockNumber) -> Relayer<ChainKVStore<MemoryKeyValueDB>> {
     let shared = {
-        let genesis = BlockBuilder::default().with_header_builder(
+        let genesis = BlockBuilder::from_header_builder(
             HeaderBuilder::default()
                 .timestamp(unix_time_as_millis())
                 .difficulty(U256::from(1000u64)),
-        );
+        )
+        .build();
         let consensus = Consensus::default()
             .set_genesis_block(genesis)
             .set_cellbase_maturity(0);
@@ -101,9 +102,9 @@ fn build_chain(tip: BlockNumber) -> Relayer<ChainKVStore<MemoryKeyValueDB>> {
                 None,
             ))
             .build();
-        let block = BlockBuilder::default()
+        let block = BlockBuilder::from_header_builder(new_header_builder(&shared, &parent))
             .transaction(cellbase)
-            .with_header_builder(new_header_builder(&shared, &parent));
+            .build();
         chain_controller
             .process_block(Arc::new(block))
             .expect("processing block should be ok");
