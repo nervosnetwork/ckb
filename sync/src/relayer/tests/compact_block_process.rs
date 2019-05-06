@@ -23,11 +23,16 @@ fn new_header_builder(
     shared: &Shared<ChainKVStore<MemoryKeyValueDB>>,
     parent: &Block,
 ) -> HeaderBuilder {
+    let parent_hash = parent.header().hash();
+    let parent_epoch = shared.get_epoch_ext(&parent_hash).unwrap();
+    let epoch = shared
+        .next_epoch_ext(&parent_epoch, parent.header())
+        .unwrap_or(parent_epoch);
     HeaderBuilder::default()
-        .parent_hash(parent.header().hash())
+        .parent_hash(parent_hash)
         .number(parent.header().number() + 1)
         .timestamp(parent.header().timestamp() + 1)
-        .difficulty(shared.calculate_difficulty(parent.header()).unwrap())
+        .difficulty(epoch.difficulty().to_owned())
 }
 
 fn new_transaction(relayer: &Relayer<ChainKVStore<MemoryKeyValueDB>>, index: usize) -> Transaction {
