@@ -25,15 +25,9 @@ pub(crate) const EPOCH_DURATION_TARGET: u64 = 4 * 60 * 60 * 1000; // 4hours
 pub(crate) const MAX_EPOCH_LENGTH: u64 = EPOCH_DURATION_TARGET / MIN_BLOCK_INTERVAL; // 2880
 pub(crate) const MIN_EPOCH_LENGTH: u64 = EPOCH_DURATION_TARGET / MAX_BLOCK_INTERVAL; // 240
 pub(crate) const GENESIS_EPOCH_LENGTH: u64 = 1_000;
-pub(crate) const DEFAULT_EPOCH_REWARD: Capacity = capacity_bytes!(5_000_000);
-pub(crate) const GENESIS_EPOCH_BLOCK_REWARD: Capacity = capacity_bytes!(5_000);
-
-pub(crate) const MAX_BLOCK_CYCLES: Cycle = 20_000_000_000;
 pub(crate) const MAX_BLOCK_BYTES: u64 = 2_000_000; // 2mb
 pub(crate) const MAX_BLOCK_PROPOSALS_LIMIT: u64 = 6_000;
 pub(crate) const BLOCK_VERSION: u32 = 0;
-
-pub(crate) const MAX_TRANSACTION_MEMORY_BYTES: u64 = 10_000_000; // 10mb
 
 #[derive(Clone, PartialEq, Debug, Eq, Copy)]
 pub struct ProposalWindow(pub BlockNumber, pub BlockNumber);
@@ -70,8 +64,6 @@ pub struct Consensus {
     pub max_block_cycles: Cycle,
     // Maximum number of bytes to use for the entire block
     pub max_block_bytes: u64,
-    // Maximum number of memory bytes to verify a transaction
-    pub max_transaction_memory_bytes: u64,
     // block version number supported
     pub block_version: Version,
     // block version number supported
@@ -87,7 +79,7 @@ impl Default for Consensus {
 
         let genesis_epoch_ext = EpochExt::new(
             0, // number
-            GENESIS_EPOCH_BLOCK_REWARD, // block_reward
+            capacity_bytes!(5_000), // block_reward
             Capacity::shannons(0), // remainder_reward
             H256::zero(),
             0, // start
@@ -101,16 +93,15 @@ impl Default for Consensus {
             id: "main".to_owned(),
             max_uncles_age: MAX_UNCLE_AGE,
             max_uncles_num: MAX_UNCLE_NUM,
-            epoch_reward: DEFAULT_EPOCH_REWARD,
+            epoch_reward: capacity_bytes!(5_000_000),
             orphan_rate_target_recip: ORPHAN_RATE_TARGET_RECIP,
             epoch_duration_target: EPOCH_DURATION_TARGET,
             tx_proposal_window: TX_PROPOSAL_WINDOW,
             pow: Pow::Dummy(Default::default()),
             cellbase_maturity: CELLBASE_MATURITY,
             median_time_block_count: MEDIAN_TIME_BLOCK_COUNT,
-            max_block_cycles: MAX_BLOCK_CYCLES,
+            max_block_cycles: 20_000_000_000,
             max_block_bytes: MAX_BLOCK_BYTES,
-            max_transaction_memory_bytes: MAX_TRANSACTION_MEMORY_BYTES,
             genesis_epoch_ext,
             block_version: BLOCK_VERSION,
             max_block_proposals_limit: MAX_BLOCK_PROPOSALS_LIMIT,
@@ -137,23 +128,26 @@ impl Consensus {
         self
     }
 
+    #[must_use]
     pub fn set_epoch_reward(mut self, epoch_reward: Capacity) -> Self {
         self.epoch_reward = epoch_reward;
         self
     }
 
-    pub fn set_pow(mut self, pow: Pow) -> Self {
-        self.pow = pow;
-        self
-    }
-
+    #[must_use]
     pub fn set_max_block_cycles(mut self, max_block_cycles: Cycle) -> Self {
         self.max_block_cycles = max_block_cycles;
         self
     }
 
+    #[must_use]
     pub fn set_cellbase_maturity(mut self, cellbase_maturity: BlockNumber) -> Self {
         self.cellbase_maturity = cellbase_maturity;
+        self
+    }
+
+    pub fn set_pow(mut self, pow: Pow) -> Self {
+        self.pow = pow;
         self
     }
 
@@ -223,10 +217,6 @@ impl Consensus {
 
     pub fn max_block_proposals_limit(&self) -> u64 {
         self.max_block_proposals_limit
-    }
-
-    pub fn max_transaction_memory_bytes(&self) -> u64 {
-        self.max_transaction_memory_bytes
     }
 
     pub fn block_version(&self) -> Version {

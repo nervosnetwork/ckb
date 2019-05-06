@@ -14,7 +14,7 @@ proof = [0]
 
 [params]
 epoch_reward = 5_000_000_000_000_000
-max_block_cycles = 100000000
+max_block_cycles = 20_000_000_000
 cellbase_maturity = 0
 
 [pow]
