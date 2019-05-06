@@ -191,7 +191,7 @@ impl Node {
     pub fn new_block(&self) -> Block {
         let template = self
             .rpc_client()
-            .get_block_template(None, None, None, None)
+            .get_block_template(None, None, None)
             .call()
             .expect("rpc call get_block_template failed");
 

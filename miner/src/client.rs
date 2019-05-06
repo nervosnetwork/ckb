@@ -183,13 +183,7 @@ impl Client {
 
     fn get_block_template(&self) -> impl Future<Item = BlockTemplate, Error = RpcError> {
         let method = "get_block_template".to_owned();
-        let proposal_limit: Option<String> = None;
-        let params = vec![
-            json!(self.config.cycles_limit.to_string()),
-            json!(self.config.bytes_limit.to_string()),
-            json!(proposal_limit),
-            json!(self.config.max_version),
-        ];
+        let params = vec![];
 
         self.rpc.request(method, params).and_then(parse_response)
     }

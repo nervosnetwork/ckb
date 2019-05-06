@@ -36,9 +36,6 @@ dsn = "" # {{
 rpc_url = "http://127.0.0.1:8114/" # {{
 # _ => rpc_url = "http://127.0.0.1:{rpc_port}/"
 # }}
-cycles_limit = 100000000
-bytes_limit = 10000000
-max_version = 0
 block_on_submit = true
 
 # block template polling interval in milliseconds

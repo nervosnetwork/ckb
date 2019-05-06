@@ -12,7 +12,6 @@ jsonrpc_client!(pub struct RpcClient {
 
     pub fn get_block_template(
         &mut self,
-        cycles_limit: Option<String>,
         bytes_limit: Option<String>,
         proposals_limit: Option<String>,
         max_version: Option<u32>
