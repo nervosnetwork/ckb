@@ -279,13 +279,18 @@ impl Peers {
         self.last_common_headers.write().remove(&peer);
     }
 
-    pub fn block_received(&self, peer: PeerIndex, block: &Block) {
+    // Return true when the block is that we have requested and received first time.
+    pub fn new_block_received(&self, peer: PeerIndex, block: &Block) -> bool {
         let mut blocks_inflight = self.blocks_inflight.write();
+        let mut is_new = false;
         debug!(target: "sync", "block_received from peer {} {} {:x}", peer, block.header().number(), block.header().hash());
         blocks_inflight.entry(peer).and_modify(|inflight| {
-            inflight.remove(&block.header().hash());
-            inflight.update_timestamp();
+            if inflight.remove(&block.header().hash()) {
+                is_new = true;
+                inflight.update_timestamp();
+            }
         });
+        is_new
     }
 
     pub fn set_last_common_header(&self, peer: PeerIndex, header: &Header) {
