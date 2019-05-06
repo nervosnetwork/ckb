@@ -32,7 +32,7 @@ use std::thread;
 use stop_handler::{SignalSender, StopHandler};
 
 const MAX_CANDIDATE_UNCLES: usize = 42;
-type BlockTemplateParams = (Option<Cycle>, Option<u64>, Option<u64>, Option<Version>);
+type BlockTemplateParams = (Option<u64>, Option<u64>, Option<Version>);
 type BlockTemplateResult = Result<BlockTemplate, FailureError>;
 const BLOCK_ASSEMBLER_SUBSCRIBER: &str = "block_assembler";
 const BLOCK_TEMPLATE_TIMEOUT: u64 = 3000;
@@ -144,14 +144,13 @@ struct BlockAssemblerReceivers {
 impl BlockAssemblerController {
     pub fn get_block_template(
         &self,
-        cycles_limit: Option<Cycle>,
         bytes_limit: Option<u64>,
         proposals_limit: Option<u64>,
         max_version: Option<Version>,
     ) -> BlockTemplateResult {
         Request::call(
             &self.get_block_template_sender,
-            (cycles_limit, bytes_limit, proposals_limit, max_version),
+            (bytes_limit, proposals_limit, max_version),
         )
         .expect("get_block_template() failed")
     }
@@ -220,8 +219,8 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
                         }
                     },
                     recv(receivers.get_block_template_receiver) -> msg => match msg {
-                        Ok(Request { responder, arguments: (cycles_limit, bytes_limit, proposals_limit,  max_version) }) => {
-                            let _ = responder.send(self.get_block_template(cycles_limit, bytes_limit, proposals_limit, max_version));
+                        Ok(Request { responder, arguments: (bytes_limit, proposals_limit,  max_version) }) => {
+                            let _ = responder.send(self.get_block_template(bytes_limit, proposals_limit, max_version));
                         },
                         _ => {
                             error!(target: "miner", "get_block_template_receiver closed");
@@ -240,15 +239,11 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
 
     fn transform_params(
         &self,
-        cycles_limit: Option<Cycle>,
         bytes_limit: Option<u64>,
         proposals_limit: Option<u64>,
         max_version: Option<Version>,
-    ) -> (Cycle, u64, u64, Version) {
+    ) -> (u64, u64, Version) {
         let consensus = self.shared.consensus();
-        let cycles_limit = cycles_limit
-            .min(Some(consensus.max_block_cycles()))
-            .unwrap_or_else(|| consensus.max_block_cycles());
         let bytes_limit = bytes_limit
             .min(Some(consensus.max_block_bytes()))
             .unwrap_or_else(|| consensus.max_block_bytes());
@@ -259,7 +254,7 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
             .min(Some(consensus.block_version()))
             .unwrap_or_else(|| consensus.block_version());
 
-        (cycles_limit, bytes_limit, proposals_limit, version)
+        (bytes_limit, proposals_limit, version)
     }
 
     fn transform_uncle(uncle: UncleBlock) -> UncleTemplate {
@@ -314,13 +309,13 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
 
     fn get_block_template(
         &mut self,
-        cycles_limit: Option<Cycle>,
         bytes_limit: Option<u64>,
         proposals_limit: Option<u64>,
         max_version: Option<Version>,
     ) -> Result<BlockTemplate, FailureError> {
-        let (cycles_limit, bytes_limit, proposals_limit, version) =
-            self.transform_params(cycles_limit, bytes_limit, proposals_limit, max_version);
+        let cycles_limit = self.shared.consensus().max_block_cycles();
+        let (bytes_limit, proposals_limit, version) =
+            self.transform_params(bytes_limit, proposals_limit, max_version);
         let uncles_count_limit = self.shared.consensus().max_uncles_num() as u32;
 
         let last_uncles_updated_at = self.last_uncles_updated_at.load(Ordering::SeqCst);
@@ -586,7 +581,7 @@ mod tests {
         let mut block_assembler = setup_block_assembler(shared.clone(), config);
 
         let block_template = block_assembler
-            .get_block_template(None, None, None, None)
+            .get_block_template(None, None, None)
             .unwrap();
 
         let BlockTemplate {
@@ -728,7 +723,7 @@ mod tests {
         // block number 3, epoch 0
         let _ = new_uncle_receiver.recv();
         let block_template = block_assembler_controller
-            .get_block_template(None, None, None, None)
+            .get_block_template(None, None, None)
             .unwrap();
         assert_eq!(block_template.uncles[0].hash, block0_0.header().hash());
 
@@ -743,7 +738,7 @@ mod tests {
             .unwrap();
 
         let block_template = block_assembler_controller
-            .get_block_template(None, None, None, None)
+            .get_block_template(None, None, None)
             .unwrap();
         // block number 4, epoch 1, block_template should not include last epoch uncles
         assert!(block_template.uncles.is_empty());
