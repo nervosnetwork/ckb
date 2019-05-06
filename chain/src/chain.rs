@@ -19,7 +19,7 @@ use crossbeam_channel::{self, select, Receiver, Sender};
 use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
 use fnv::{FnvHashMap, FnvHashSet};
-use log::{self, debug, error, log_enabled};
+use log::{self, debug, error, info, log_enabled};
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 use serde_derive::{Deserialize, Serialize};
@@ -269,13 +269,21 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
         }
         batch.commit()?;
 
+        let tip_header = block.header();
+        let tip_number = tip_header.number();
+        let tip_hash = tip_header.hash();
+        let txs_cnt = block.transactions().len();
+
         if new_best_block {
-            let tip_header = block.header().to_owned();
+            info!(
+                target: "chain",
+                "block: {}, hash: {:#x}, diff: {:#x}, txs: {}",
+                tip_number, tip_hash, total_difficulty, txs_cnt);
             // finalize proposal_id table change
             // then, update tx_pool
-            let detached_proposal_id = chain_state.proposal_ids_finalize(tip_header.number());
+            let detached_proposal_id = chain_state.proposal_ids_finalize(tip_number);
             fork.detached_proposal_id = detached_proposal_id;
-            chain_state.update_tip(tip_header, total_difficulty, cell_set_diff);
+            chain_state.update_tip(tip_header.to_owned(), total_difficulty, cell_set_diff);
             chain_state.update_tx_pool_for_reorg(
                 fork.detached_blocks().iter(),
                 fork.attached_blocks().iter(),
@@ -285,6 +293,10 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
                 self.print_chain(&chain_state, 10);
             }
         } else {
+            info!(
+                target: "chain",
+                "uncle: {}, hash: {:#x}, diff: {:#x}, txs: {}",
+                tip_number, tip_hash, total_difficulty, txs_cnt);
             self.notify.notify_new_uncle(block);
         }
 

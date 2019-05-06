@@ -14,7 +14,7 @@ use flatbuffers::FlatBufferBuilder;
 use jsonrpc_core::{Error, Result};
 use jsonrpc_derive::rpc;
 use jsonrpc_types::{Block, BlockTemplate};
-use log::{debug, error, info};
+use log::{debug, error};
 use numext_fixed_hash::H256;
 use std::collections::HashSet;
 use std::convert::TryInto;
@@ -78,7 +78,7 @@ impl<CS: ChainStore + 'static> MinerRpc for MinerRpcImpl<CS> {
         let _scope_guard = sentry::Hub::current().push_scope();
         sentry::configure_scope(|scope| scope.set_extra("work_id", work_id.clone().into()));
 
-        info!(target: "rpc", "[{}] submit block", work_id);
+        debug!(target: "rpc", "[{}] submit block", work_id);
         let block: Arc<CoreBlock> = Arc::new(data.try_into().map_err(|_| Error::parse_error())?);
         let resolver = HeaderResolverWrapper::new(block.header(), self.shared.clone());
         let header_verify_ret = {
