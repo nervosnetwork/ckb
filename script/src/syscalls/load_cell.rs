@@ -2,7 +2,6 @@ use crate::common::{CurrentCell, LazyLoadCellOutput};
 use crate::syscalls::{Source, ITEM_MISSING, LOAD_CELL_SYSCALL_NUMBER, SUCCESS};
 use ckb_core::cell::CellMeta;
 use ckb_protocol::CellOutput as FbsCellOutput;
-use ckb_store::ChainStore;
 use ckb_vm::{
     Error as VMError, Memory, Register, SupportMachine, Syscalls, A0, A1, A2, A3, A4, A7,
 };
@@ -18,7 +17,7 @@ pub struct LoadCell<'a, CS> {
     dep_cells: &'a [&'a CellMeta],
 }
 
-impl<'a, CS: ChainStore + 'a> LoadCell<'a, CS> {
+impl<'a, CS: LazyLoadCellOutput + 'a> LoadCell<'a, CS> {
     pub fn new(
         store: Arc<CS>,
         outputs: &'a [CellMeta],
@@ -48,7 +47,7 @@ impl<'a, CS: ChainStore + 'a> LoadCell<'a, CS> {
     }
 }
 
-impl<'a, Mac: SupportMachine, CS: ChainStore> Syscalls<Mac> for LoadCell<'a, CS> {
+impl<'a, Mac: SupportMachine, CS: LazyLoadCellOutput> Syscalls<Mac> for LoadCell<'a, CS> {
     fn initialize(&mut self, _machine: &mut Mac) -> Result<(), VMError> {
         Ok(())
     }
