@@ -1,6 +1,7 @@
 use crate::config::BlockAssemblerConfig;
 use crate::error::Error;
 use ckb_core::block::Block;
+use ckb_core::extras::EpochExt;
 use ckb_core::header::Header;
 use ckb_core::script::Script;
 use ckb_core::service::{Request, DEFAULT_CHANNEL_SIZE, SIGNAL_CHANNEL_SIZE};
@@ -25,7 +26,6 @@ use jsonrpc_types::{
 use log::error;
 use lru_cache::LruCache;
 use numext_fixed_hash::H256;
-use numext_fixed_uint::U256;
 use std::cmp;
 use std::sync::{atomic::AtomicU64, atomic::AtomicUsize, atomic::Ordering, Arc};
 use std::thread;
@@ -343,13 +343,12 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
                 return Ok(template_cache.template.clone());
             }
         }
+        let last_epoch = chain_state.current_epoch_ext().clone();
 
-        let difficulty = self
-            .shared
-            .calculate_difficulty(&header)
-            .expect("get difficulty");
+        let next_epoch_ext = self.shared.next_epoch_ext(&last_epoch, &header);
+        let current_epoch = next_epoch_ext.unwrap_or(last_epoch);
 
-        let (uncles, bad_uncles) = self.prepare_uncles(&header, &difficulty);
+        let (uncles, bad_uncles) = self.prepare_uncles(&header, &current_epoch);
         if !bad_uncles.is_empty() {
             for bad in bad_uncles {
                 self.candidate_uncles.remove(&bad);
@@ -374,15 +373,21 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
 
         // dummy cellbase
         let cellbase_lock = Script::new(args, self.config.code_hash.clone());
-        let cellbase = self.create_cellbase_transaction(&header, &transactions, cellbase_lock)?;
+        let cellbase = self.create_cellbase_transaction(
+            &header,
+            &current_epoch,
+            &transactions,
+            cellbase_lock,
+        )?;
 
         // Should recalculate current time after create cellbase (create cellbase may spend a lot of time)
         let current_time = cmp::max(unix_time_as_millis(), header.timestamp() + 1);
         let template = BlockTemplate {
             version,
-            difficulty,
+            difficulty: current_epoch.difficulty().clone(),
             current_time: current_time.to_string(),
             number: number.to_string(),
+            epoch: current_epoch.number().to_string(),
             parent_hash: header.hash(),
             cycles_limit: cycles_limit.to_string(),
             bytes_limit: bytes_limit.to_string(),
@@ -412,17 +417,19 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
 
     fn create_cellbase_transaction(
         &self,
-        header: &Header,
+        tip: &Header,
+        current_epoch: &EpochExt,
         pes: &[PoolEntry],
         lock: Script,
     ) -> Result<Transaction, FailureError> {
         // NOTE: To generate different cellbase txid, we put header number in the input script
-        let input = CellInput::new_cellbase_input(header.number() + 1);
+        let input = CellInput::new_cellbase_input(tip.number() + 1);
         // NOTE: We could've just used byteorder to serialize u64 and hex string into bytes,
         // but the truth is we will modify this after we designed lock script anyway, so let's
         // stick to the simpler way and just convert everything to a single string, then to UTF8
         // bytes, they really serve the same purpose at the moment
-        let block_reward = self.shared.block_reward(header.number() + 1);
+
+        let block_reward = current_epoch.block_reward(tip.number() + 1)?;
         let mut fee = Capacity::zero();
         // depends cells may produced from previous tx
         let fee_calculator = FeeCalculator::new(&pes, &self.shared);
@@ -441,7 +448,7 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
     fn prepare_uncles(
         &self,
         tip: &Header,
-        current_difficulty: &U256,
+        current_epoch_ext: &EpochExt,
     ) -> (Vec<UncleBlock>, Vec<H256>) {
         let max_uncles_age = self.shared.consensus().max_uncles_age();
         let mut excluded = FnvHashSet::default();
@@ -471,8 +478,6 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
         }
 
         let current_number = tip.number() + 1;
-        let current_difficulty_epoch =
-            current_number / self.shared.consensus().difficulty_adjustment_interval();
 
         let max_uncles_num = self.shared.consensus().max_uncles_num();
         let mut included = FnvHashSet::default();
@@ -484,12 +489,11 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
                 break;
             }
 
-            let block_difficulty_epoch =
-                block.header().number() / self.shared.consensus().difficulty_adjustment_interval();
+            let epoch_number = current_epoch_ext.number();
 
             // uncle must be same difficulty epoch with candidate
-            if block.header().difficulty() != current_difficulty
-                || block_difficulty_epoch != current_difficulty_epoch
+            if block.header().difficulty() != current_epoch_ext.difficulty()
+                || block.header().epoch() != epoch_number
             {
                 bad_uncles.push(hash.clone());
                 continue;
@@ -523,12 +527,13 @@ mod tests {
     use ckb_chain_spec::consensus::Consensus;
     use ckb_core::block::Block;
     use ckb_core::block::BlockBuilder;
+    use ckb_core::extras::EpochExt;
     use ckb_core::header::{Header, HeaderBuilder};
     use ckb_core::script::Script;
     use ckb_core::transaction::{
         CellInput, CellOutput, ProposalShortId, Transaction, TransactionBuilder,
     };
-    use ckb_core::{BlockNumber, Bytes, Capacity};
+    use ckb_core::{BlockNumber, Bytes, EpochNumber};
     use ckb_db::memorydb::MemoryKeyValueDB;
     use ckb_notify::{NotifyController, NotifyService};
     use ckb_pow::Pow;
@@ -539,7 +544,6 @@ mod tests {
     use ckb_verification::{BlockVerifier, HeaderResolverWrapper, HeaderVerifier, Verifier};
     use jsonrpc_types::{BlockTemplate, CellbaseTemplate};
     use numext_fixed_hash::H256;
-    use numext_fixed_uint::U256;
     use std::convert::TryInto;
     use std::sync::Arc;
 
@@ -590,6 +594,7 @@ mod tests {
             difficulty,
             current_time,
             number,
+            epoch,
             parent_hash,
             uncles, // Vec<UncleTemplate>
             transactions, // Vec<TransactionTemplate>
@@ -609,6 +614,7 @@ mod tests {
         let header_builder = HeaderBuilder::default()
             .version(version)
             .number(number.parse::<BlockNumber>().unwrap())
+            .epoch(epoch.parse::<EpochNumber>().unwrap())
             .difficulty(difficulty)
             .timestamp(current_time.parse::<u64>().unwrap())
             .parent_hash(parent_hash);
@@ -651,14 +657,15 @@ mod tests {
         assert!(block_verify.verify(&block).is_ok());
     }
 
-    fn gen_block(parent_header: &Header, nonce: u64, difficulty: U256) -> Block {
+    fn gen_block(parent_header: &Header, nonce: u64, epoch: &EpochExt) -> Block {
         let number = parent_header.number() + 1;
-        let cellbase = create_cellbase(number);
+        let cellbase = create_cellbase(number, epoch);
         let header = HeaderBuilder::default()
             .parent_hash(parent_header.hash())
             .timestamp(parent_header.timestamp() + 10)
             .number(number)
-            .difficulty(difficulty)
+            .epoch(epoch.number())
+            .difficulty(epoch.difficulty().clone())
             .nonce(nonce)
             .build();
 
@@ -669,11 +676,11 @@ mod tests {
             .build()
     }
 
-    fn create_cellbase(number: BlockNumber) -> Transaction {
+    fn create_cellbase(number: BlockNumber, epoch: &EpochExt) -> Transaction {
         TransactionBuilder::default()
             .input(CellInput::new_cellbase_input(number))
             .output(CellOutput::new(
-                Capacity::zero(),
+                epoch.block_reward(number).unwrap(),
                 Bytes::new(),
                 Script::default(),
                 None,
@@ -684,8 +691,8 @@ mod tests {
     #[test]
     fn test_prepare_uncles() {
         let mut consensus = Consensus::default();
-        consensus.pow_time_span = 4;
-        consensus.pow_spacing = 1;
+        consensus.genesis_epoch_ext.set_length(4);
+        let epoch = consensus.genesis_epoch_ext().clone();
 
         let (chain_controller, shared, notify) = start_chain(Some(consensus), None);
         let config = BlockAssemblerConfig {
@@ -697,13 +704,16 @@ mod tests {
         let block_assembler_controller = block_assembler.start(Some("test"), &notify.clone());
 
         let genesis = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
-        let block0_0 = gen_block(&genesis, 10, genesis.difficulty().to_owned());
-        let block0_1 = gen_block(&genesis, 11, genesis.difficulty().to_owned());
-        let block1_1 = gen_block(
-            block0_1.header(),
-            10,
-            block0_1.header().difficulty().to_owned(),
-        );
+
+        let block0_0 = gen_block(&genesis, 11, &epoch);
+        let block0_1 = gen_block(&genesis, 10, &epoch);
+
+        let last_epoch = epoch.clone();
+        let epoch = shared
+            .next_epoch_ext(&last_epoch, block0_1.header())
+            .unwrap_or(last_epoch);
+
+        let block1_1 = gen_block(block0_1.header(), 10, &epoch);
 
         chain_controller
             .process_block(Arc::new(block0_1.clone()))
@@ -722,11 +732,12 @@ mod tests {
             .unwrap();
         assert_eq!(block_template.uncles[0].hash, block0_0.header().hash());
 
-        let block2_1 = gen_block(
-            block1_1.header(),
-            10,
-            block1_1.header().difficulty().to_owned(),
-        );
+        let last_epoch = epoch.clone();
+        let epoch = shared
+            .next_epoch_ext(&last_epoch, block1_1.header())
+            .unwrap_or(last_epoch);
+
+        let block2_1 = gen_block(block1_1.header(), 10, &epoch);
         chain_controller
             .process_block(Arc::new(block2_1.clone()))
             .unwrap();

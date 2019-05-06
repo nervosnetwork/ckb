@@ -75,7 +75,6 @@ fn test_accept_inbound_peer_until_full() {
         PeerError::SessionExists(3.into()),
     );
 
-    println!("{:?}", peers.connection_status());
     // test evict a peer
     assert!(peers
         .accept_peer(

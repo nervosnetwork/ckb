@@ -1,12 +1,14 @@
 use ckb_core::block::{Block, BlockBuilder};
+use ckb_core::extras::EpochExt;
+use ckb_core::header::Header;
 use ckb_core::header::HeaderBuilder;
 use ckb_core::{capacity_bytes, BlockNumber, Capacity, Cycle, Version};
 use ckb_pow::{Pow, PowEngine};
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
+use std::cmp;
 use std::sync::Arc;
 
-pub(crate) const DEFAULT_BLOCK_REWARD: Capacity = capacity_bytes!(5_000);
 pub(crate) const MAX_UNCLE_NUM: usize = 2;
 pub(crate) const MAX_UNCLE_AGE: usize = 6;
 pub(crate) const TX_PROPOSAL_WINDOW: ProposalWindow = ProposalWindow(2, 10);
@@ -15,9 +17,16 @@ pub(crate) const CELLBASE_MATURITY: BlockNumber = 100;
 pub(crate) const MEDIAN_TIME_BLOCK_COUNT: usize = 11;
 
 //TODO：find best ORPHAN_RATE_TARGET
-pub(crate) const ORPHAN_RATE_TARGET: f32 = 0.1;
-pub(crate) const POW_TIME_SPAN: u64 = 12 * 60 * 60 * 1000; // 12 hours
-pub(crate) const POW_SPACING: u64 = 15 * 1000; //15s
+pub(crate) const ORPHAN_RATE_TARGET_RECIP: u64 = 20;
+
+const MAX_BLOCK_INTERVAL: u64 = 60 * 1000; // 60s
+const MIN_BLOCK_INTERVAL: u64 = 5 * 1000; // 5s
+pub(crate) const EPOCH_DURATION_TARGET: u64 = 4 * 60 * 60 * 1000; // 4hours
+pub(crate) const MAX_EPOCH_LENGTH: u64 = EPOCH_DURATION_TARGET / MIN_BLOCK_INTERVAL; // 2880
+pub(crate) const MIN_EPOCH_LENGTH: u64 = EPOCH_DURATION_TARGET / MAX_BLOCK_INTERVAL; // 240
+pub(crate) const GENESIS_EPOCH_LENGTH: u64 = 1_000;
+pub(crate) const DEFAULT_EPOCH_REWARD: Capacity = capacity_bytes!(5_000_000);
+pub(crate) const GENESIS_EPOCH_BLOCK_REWARD: Capacity = capacity_bytes!(5_000);
 
 pub(crate) const MAX_BLOCK_CYCLES: Cycle = 20_000_000_000;
 pub(crate) const MAX_BLOCK_BYTES: u64 = 2_000_000; // 2mb
@@ -44,12 +53,11 @@ pub struct Consensus {
     pub id: String,
     pub genesis_block: Block,
     pub genesis_hash: H256,
-    pub initial_block_reward: Capacity,
+    pub epoch_reward: Capacity,
     pub max_uncles_age: usize,
     pub max_uncles_num: usize,
-    pub orphan_rate_target: f32,
-    pub pow_time_span: u64,
-    pub pow_spacing: u64,
+    pub orphan_rate_target_recip: u64,
+    pub epoch_duration_target: u64,
     pub tx_proposal_window: ProposalWindow,
     pub pow: Pow,
     // For each input, if the referenced output transaction is cellbase,
@@ -68,6 +76,7 @@ pub struct Consensus {
     pub block_version: Version,
     // block version number supported
     pub max_block_proposals_limit: u64,
+    pub genesis_epoch_ext: EpochExt,
 }
 
 // genesis difficulty should not be zero
@@ -76,16 +85,25 @@ impl Default for Consensus {
         let genesis_block = BlockBuilder::default()
             .with_header_builder(HeaderBuilder::default().difficulty(U256::one()));
 
+        let genesis_epoch_ext = EpochExt::new(
+            0, // number
+            GENESIS_EPOCH_BLOCK_REWARD, // block_reward
+            Capacity::shannons(0), // remainder_reward
+            H256::zero(),
+            0, // start
+            GENESIS_EPOCH_LENGTH, // length
+            genesis_block.header().difficulty().clone() // difficulty,
+        );
+
         Consensus {
             genesis_hash: genesis_block.header().hash(),
             genesis_block,
             id: "main".to_owned(),
             max_uncles_age: MAX_UNCLE_AGE,
             max_uncles_num: MAX_UNCLE_NUM,
-            initial_block_reward: DEFAULT_BLOCK_REWARD,
-            orphan_rate_target: ORPHAN_RATE_TARGET,
-            pow_time_span: POW_TIME_SPAN,
-            pow_spacing: POW_SPACING,
+            epoch_reward: DEFAULT_EPOCH_REWARD,
+            orphan_rate_target_recip: ORPHAN_RATE_TARGET_RECIP,
+            epoch_duration_target: EPOCH_DURATION_TARGET,
             tx_proposal_window: TX_PROPOSAL_WINDOW,
             pow: Pow::Dummy(Default::default()),
             cellbase_maturity: CELLBASE_MATURITY,
@@ -93,6 +111,7 @@ impl Default for Consensus {
             max_block_cycles: MAX_BLOCK_CYCLES,
             max_block_bytes: MAX_BLOCK_BYTES,
             max_transaction_memory_bytes: MAX_TRANSACTION_MEMORY_BYTES,
+            genesis_epoch_ext,
             block_version: BLOCK_VERSION,
             max_block_proposals_limit: MAX_BLOCK_PROPOSALS_LIMIT,
         }
@@ -106,13 +125,20 @@ impl Consensus {
     }
 
     pub fn set_genesis_block(mut self, genesis_block: Block) -> Self {
+        self.genesis_epoch_ext
+            .set_difficulty(genesis_block.header().difficulty().clone());
         self.genesis_hash = genesis_block.header().hash();
         self.genesis_block = genesis_block;
         self
     }
 
-    pub fn set_initial_block_reward(mut self, initial_block_reward: Capacity) -> Self {
-        self.initial_block_reward = initial_block_reward;
+    pub fn set_genesis_epoch_ext(mut self, genesis_epoch_ext: EpochExt) -> Self {
+        self.genesis_epoch_ext = genesis_epoch_ext;
+        self
+    }
+
+    pub fn set_epoch_reward(mut self, epoch_reward: Capacity) -> Self {
+        self.epoch_reward = epoch_reward;
         self
     }
 
@@ -151,16 +177,28 @@ impl Consensus {
         self.genesis_block.header().difficulty()
     }
 
-    pub fn initial_block_reward(&self) -> Capacity {
-        self.initial_block_reward
+    pub fn epoch_reward(&self) -> Capacity {
+        self.epoch_reward
     }
 
-    pub fn difficulty_adjustment_interval(&self) -> BlockNumber {
-        self.pow_time_span / self.pow_spacing
+    pub fn epoch_duration_target(&self) -> u64 {
+        self.epoch_duration_target
     }
 
-    pub fn orphan_rate_target(&self) -> f32 {
-        self.orphan_rate_target
+    pub fn genesis_epoch_ext(&self) -> &EpochExt {
+        &self.genesis_epoch_ext
+    }
+
+    pub fn max_epoch_length(&self) -> BlockNumber {
+        MAX_EPOCH_LENGTH
+    }
+
+    pub fn min_epoch_length(&self) -> BlockNumber {
+        MIN_EPOCH_LENGTH
+    }
+
+    pub fn orphan_rate_target_recip(&self) -> u64 {
+        self.orphan_rate_target_recip
     }
 
     pub fn pow_engine(&self) -> Arc<dyn PowEngine> {
@@ -197,5 +235,115 @@ impl Consensus {
 
     pub fn tx_proposal_window(&self) -> ProposalWindow {
         self.tx_proposal_window
+    }
+
+    pub fn revision_epoch_length(&self, raw: BlockNumber) -> BlockNumber {
+        let max_length = self.max_epoch_length();
+        let min_length = self.min_epoch_length();
+        cmp::max(cmp::min(max_length, raw), min_length)
+    }
+
+    pub fn revision_epoch_difficulty(&self, last: U256, raw: U256) -> U256 {
+        let min_difficulty = cmp::max(self.min_difficulty().clone(), &last / 2u64);
+        let max_difficulty = last * 2u32;
+
+        if raw > max_difficulty {
+            return max_difficulty;
+        }
+
+        if raw < min_difficulty {
+            return min_difficulty.clone();
+        }
+        raw
+    }
+
+    pub fn next_epoch_ext<A, B>(
+        &self,
+        last_epoch: &EpochExt,
+        header: &Header,
+        get_ancestor: A,
+        total_uncles_count: B,
+    ) -> Option<EpochExt>
+    where
+        A: Fn(&H256, BlockNumber) -> Option<Header>,
+        B: Fn(&H256) -> Option<u64>,
+    {
+        let start = last_epoch.start_number();
+        let last_epoch_length = last_epoch.length();
+
+        if header.number() != (last_epoch.start_number() + last_epoch.length() - 1) {
+            return None;
+        }
+
+        let last_hash = header.hash();
+        let last_difficulty = header.difficulty();
+        let target_recip = self.orphan_rate_target_recip();
+        let epoch_duration_target = self.epoch_duration_target();
+
+        if let Some(start_header) = get_ancestor(&last_hash, start) {
+            let start_total_uncles_count =
+                total_uncles_count(&start_header.hash()).expect("block_ext exist");
+
+            let last_total_uncles_count = total_uncles_count(&last_hash).expect("block_ext exist");
+
+            let last_uncles_count = last_total_uncles_count - start_total_uncles_count;
+
+            let epoch_ext = if last_uncles_count > 0 {
+                let last_duration = header.timestamp().saturating_sub(start_header.timestamp());
+                if last_duration == 0 {
+                    return None;
+                }
+
+                let numerator = (last_uncles_count + last_epoch_length)
+                    * epoch_duration_target
+                    * last_epoch_length;
+                let denominator = (target_recip + 1) * last_uncles_count * last_duration;
+                let raw_next_epoch_length = numerator / denominator;
+                let next_epoch_length = self.revision_epoch_length(raw_next_epoch_length);
+
+                let raw_difficulty =
+                    last_difficulty * U256::from(last_uncles_count) * U256::from(target_recip)
+                        / U256::from(last_epoch_length);
+
+                let difficulty =
+                    self.revision_epoch_difficulty(last_difficulty.clone(), raw_difficulty);
+
+                let block_reward =
+                    Capacity::shannons(self.epoch_reward().as_u64() / next_epoch_length);
+                let remainder_reward =
+                    Capacity::shannons(self.epoch_reward().as_u64() % next_epoch_length);
+
+                EpochExt::new(
+                    last_epoch.number() + 1, // number
+                    block_reward,
+                    remainder_reward,        // remainder_reward
+                    header.hash(),           // last_block_hash_in_previous_epoch
+                    header.number() + 1,     // start
+                    next_epoch_length,       // length
+                    difficulty               // difficulty,
+                )
+            } else {
+                let next_epoch_length = self.max_epoch_length();
+                let difficulty = cmp::max(self.min_difficulty().clone(), last_difficulty / 2u64);
+
+                let block_reward =
+                    Capacity::shannons(self.epoch_reward().as_u64() / next_epoch_length);
+                let remainder_reward =
+                    Capacity::shannons(self.epoch_reward().as_u64() % next_epoch_length);
+                EpochExt::new(
+                    last_epoch.number() + 1, // number
+                    block_reward,
+                    remainder_reward,        // remainder_reward
+                    header.hash(),           // last_block_hash_in_previous_epoch
+                    header.number() + 1,     // start
+                    next_epoch_length,       // length
+                    difficulty               // difficulty,
+                )
+            };
+
+            Some(epoch_ext)
+        } else {
+            None
+        }
     }
 }

@@ -1,6 +1,7 @@
 use crate::bytes::JsonBytes;
-use crate::{BlockNumber, Capacity, ProposalShortId};
+use crate::{BlockNumber, Capacity, EpochNumber, ProposalShortId};
 use ckb_core::block::{Block as CoreBlock, BlockBuilder};
+use ckb_core::extras::EpochExt as CoreEpochExt;
 use ckb_core::header::{Header as CoreHeader, HeaderBuilder, Seal as CoreSeal};
 use ckb_core::script::Script as CoreScript;
 use ckb_core::transaction::{
@@ -8,7 +9,9 @@ use ckb_core::transaction::{
     Transaction as CoreTransaction, TransactionBuilder, Witness as CoreWitness,
 };
 use ckb_core::uncle::UncleBlock as CoreUncleBlock;
-use ckb_core::{BlockNumber as CoreBlockNumber, Capacity as CoreCapacity};
+use ckb_core::{
+    BlockNumber as CoreBlockNumber, Capacity as CoreCapacity, EpochNumber as CoreEpochNumber,
+};
 use failure::Error as FailureError;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
@@ -338,6 +341,7 @@ pub struct Header {
     pub parent_hash: H256,
     pub timestamp: String,
     pub number: BlockNumber,
+    pub epoch: EpochNumber,
     pub transactions_root: H256,
     pub proposals_root: H256,
     pub witnesses_root: H256,
@@ -356,6 +360,7 @@ impl<'a> From<&'a CoreHeader> for Header {
             parent_hash: core.parent_hash().to_owned(),
             timestamp: core.timestamp().to_string(),
             number: core.number().to_string(),
+            epoch: core.epoch().to_string(),
             transactions_root: core.transactions_root().to_owned(),
             proposals_root: core.proposals_root().to_owned(),
             witnesses_root: core.witnesses_root().to_owned(),
@@ -377,6 +382,7 @@ impl TryFrom<Header> for CoreHeader {
             parent_hash,
             timestamp,
             number,
+            epoch,
             transactions_root,
             proposals_root,
             witnesses_root,
@@ -392,6 +398,7 @@ impl TryFrom<Header> for CoreHeader {
             .parent_hash(parent_hash)
             .timestamp(timestamp.parse::<u64>()?)
             .number(number.parse::<CoreBlockNumber>()?)
+            .epoch(epoch.parse::<CoreEpochNumber>()?)
             .transactions_root(transactions_root)
             .proposals_root(proposals_root)
             .witnesses_root(witnesses_root)
@@ -484,6 +491,67 @@ impl TryFrom<Block> for CoreBlock {
                     .collect::<Result<_, _>>()?,
             )
             .build())
+    }
+}
+
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+pub struct EpochExt {
+    pub number: String,
+    pub block_reward: String,
+    pub last_block_hash_in_previous_epoch: H256,
+    pub start_number: BlockNumber,
+    pub length: BlockNumber,
+    pub difficulty: U256,
+    pub remainder_reward: String,
+}
+
+impl From<CoreEpochExt> for EpochExt {
+    fn from(core: CoreEpochExt) -> EpochExt {
+        let (
+            number,
+            block_reward,
+            remainder_reward,
+            last_block_hash_in_previous_epoch,
+            start_number,
+            length,
+            difficulty,
+        ) = core.destruct();
+
+        EpochExt {
+            number: number.to_string(),
+            block_reward: block_reward.to_string(),
+            remainder_reward: remainder_reward.to_string(),
+            last_block_hash_in_previous_epoch,
+            start_number: start_number.to_string(),
+            length: length.to_string(),
+            difficulty,
+        }
+    }
+}
+
+impl TryFrom<EpochExt> for CoreEpochExt {
+    type Error = FailureError;
+
+    fn try_from(json: EpochExt) -> Result<Self, Self::Error> {
+        let EpochExt {
+            number,
+            block_reward,
+            last_block_hash_in_previous_epoch,
+            start_number,
+            length,
+            difficulty,
+            remainder_reward,
+        } = json;
+
+        Ok(CoreEpochExt::new(
+            number.parse::<u64>()?,
+            block_reward.parse::<CoreCapacity>()?,
+            remainder_reward.parse::<CoreCapacity>()?,
+            last_block_hash_in_previous_epoch,
+            start_number.parse::<u64>()?,
+            length.parse::<u64>()?,
+            difficulty,
+        ))
     }
 }
 

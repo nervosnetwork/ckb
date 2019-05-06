@@ -9,6 +9,7 @@ use ckb_core::cell::{
     resolve_transaction, CellMeta, CellProvider, CellStatus, OverlayCellProvider,
     ResolvedTransaction, UnresolvableError,
 };
+use ckb_core::extras::EpochExt;
 use ckb_core::header::{BlockNumber, Header};
 use ckb_core::transaction::CellOutput;
 use ckb_core::transaction::{OutPoint, ProposalShortId, Transaction};
@@ -33,6 +34,7 @@ pub struct ChainState<CS> {
     // interior mutability for immutable borrow proposal_ids
     tx_pool: RefCell<TxPool>,
     consensus: Arc<Consensus>,
+    current_epoch_ext: EpochExt,
 }
 
 impl<CS: ChainStore> ChainState<CS> {
@@ -43,7 +45,6 @@ impl<CS: ChainStore> ChainState<CS> {
     ) -> Result<Self, SharedError> {
         // check head in store or save the genesis block as head
         let tip_header = {
-            let genesis = consensus.genesis_block();
             match store.get_tip_header() {
                 Some(tip_header) => {
                     if let Some(genesis_hash) = store.get_block_hash(0) {
@@ -63,13 +64,15 @@ impl<CS: ChainStore> ChainState<CS> {
                     }
                 }
                 None => store
-                    .init(&genesis)
-                    .map_err(|_| {
-                        SharedError::InvalidData("failed to init genesis block".to_owned())
+                    .init(&consensus)
+                    .map_err(|e| {
+                        SharedError::InvalidData(format!("failed to init genesis block {:?}", e))
                     })
-                    .map(|_| genesis.header().to_owned()),
+                    .map(|_| consensus.genesis_block().header().to_owned()),
             }
         }?;
+
+        let epoch_ext = consensus.genesis_epoch_ext().clone();
 
         let tx_pool = TxPool::new(tx_pool_config);
 
@@ -91,6 +94,7 @@ impl<CS: ChainStore> ChainState<CS> {
             proposal_ids,
             tx_pool: RefCell::new(tx_pool),
             consensus,
+            current_epoch_ext: epoch_ext,
         })
     }
 
@@ -149,6 +153,10 @@ impl<CS: ChainStore> ChainState<CS> {
         self.tip_header.hash()
     }
 
+    pub fn current_epoch_ext(&self) -> &EpochExt {
+        &self.current_epoch_ext
+    }
+
     pub fn total_difficulty(&self) -> &U256 {
         &self.total_difficulty
     }
@@ -188,6 +196,10 @@ impl<CS: ChainStore> ChainState<CS> {
 
     pub fn proposal_ids_finalize(&mut self, number: BlockNumber) -> FnvHashSet<ProposalShortId> {
         self.proposal_ids.finalize(number)
+    }
+
+    pub fn update_current_epoch_ext(&mut self, epoch_ext: EpochExt) {
+        self.current_epoch_ext = epoch_ext;
     }
 
     pub fn update_tip(&mut self, header: Header, total_difficulty: U256, txo_diff: CellSetDiff) {

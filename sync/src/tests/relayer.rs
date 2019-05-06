@@ -79,7 +79,12 @@ fn relay_compact_block_with_one_tx() {
             let block = {
                 let number = last_block.header().number() + 1;
                 let timestamp = last_block.header().timestamp() + 1;
-                let difficulty = shared1.calculate_difficulty(&last_block.header()).unwrap();
+
+                let last_epoch = shared1.get_epoch_ext(&last_block.header().hash()).unwrap();
+                let epoch = shared1
+                    .next_epoch_ext(&last_epoch, last_block.header())
+                    .unwrap_or(last_epoch);
+
                 let cellbase = TransactionBuilder::default()
                     .input(CellInput::new_cellbase_input(number))
                     .output(CellOutput::default())
@@ -88,8 +93,9 @@ fn relay_compact_block_with_one_tx() {
                 let header_builder = HeaderBuilder::default()
                     .parent_hash(last_block.header().hash())
                     .number(number)
+                    .epoch(epoch.number())
                     .timestamp(timestamp)
-                    .difficulty(difficulty);
+                    .difficulty(epoch.difficulty().clone());
 
                 BlockBuilder::default()
                     .transaction(cellbase)
@@ -114,7 +120,12 @@ fn relay_compact_block_with_one_tx() {
             let block = {
                 let number = last_block.header().number() + 1;
                 let timestamp = last_block.header().timestamp() + 1;
-                let difficulty = shared1.calculate_difficulty(&last_block.header()).unwrap();
+
+                let last_epoch = shared1.get_epoch_ext(&last_block.header().hash()).unwrap();
+                let epoch = shared1
+                    .next_epoch_ext(&last_epoch, last_block.header())
+                    .unwrap_or(last_epoch);
+
                 let cellbase = TransactionBuilder::default()
                     .input(CellInput::new_cellbase_input(number))
                     .output(CellOutput::default())
@@ -123,8 +134,9 @@ fn relay_compact_block_with_one_tx() {
                 let header_builder = HeaderBuilder::default()
                     .parent_hash(last_block.header().hash())
                     .number(number)
+                    .epoch(epoch.number())
                     .timestamp(timestamp)
-                    .difficulty(difficulty);
+                    .difficulty(epoch.difficulty().clone());
 
                 BlockBuilder::default()
                     .transaction(cellbase)
@@ -231,7 +243,12 @@ fn relay_compact_block_with_missing_indexs() {
             let block = {
                 let number = last_block.header().number() + 1;
                 let timestamp = last_block.header().timestamp() + 1;
-                let difficulty = shared1.calculate_difficulty(&last_block.header()).unwrap();
+
+                let last_epoch = shared1.get_epoch_ext(&last_block.header().hash()).unwrap();
+                let epoch = shared1
+                    .next_epoch_ext(&last_epoch, last_block.header())
+                    .unwrap_or(last_epoch);
+
                 let cellbase = TransactionBuilder::default()
                     .input(CellInput::new_cellbase_input(number))
                     .output(CellOutput::default())
@@ -239,9 +256,10 @@ fn relay_compact_block_with_missing_indexs() {
 
                 let header_builder = HeaderBuilder::default()
                     .parent_hash(last_block.header().hash())
+                    .epoch(epoch.number())
                     .number(number)
                     .timestamp(timestamp)
-                    .difficulty(difficulty);
+                    .difficulty(epoch.difficulty().clone());
 
                 BlockBuilder::default()
                     .transaction(cellbase)
@@ -266,7 +284,12 @@ fn relay_compact_block_with_missing_indexs() {
             let block = {
                 let number = last_block.header().number() + 1;
                 let timestamp = last_block.header().timestamp() + 1;
-                let difficulty = shared1.calculate_difficulty(&last_block.header()).unwrap();
+
+                let last_epoch = shared1.get_epoch_ext(&last_block.header().hash()).unwrap();
+                let epoch = shared1
+                    .next_epoch_ext(&last_epoch, last_block.header())
+                    .unwrap_or(last_epoch);
+
                 let cellbase = TransactionBuilder::default()
                     .input(CellInput::new_cellbase_input(number))
                     .output(CellOutput::default())
@@ -275,8 +298,9 @@ fn relay_compact_block_with_missing_indexs() {
                 let header_builder = HeaderBuilder::default()
                     .parent_hash(last_block.header().hash())
                     .number(number)
+                    .epoch(epoch.number())
                     .timestamp(timestamp)
-                    .difficulty(difficulty);
+                    .difficulty(epoch.difficulty().clone());
 
                 BlockBuilder::default()
                     .transaction(cellbase)
@@ -348,7 +372,12 @@ fn setup_node(
     for _i in 0..height {
         let number = block.header().number() + 1;
         let timestamp = block.header().timestamp() + 1;
-        let difficulty = shared.calculate_difficulty(&block.header()).unwrap();
+
+        let last_epoch = shared.get_epoch_ext(&block.header().hash()).unwrap();
+        let epoch = shared
+            .next_epoch_ext(&last_epoch, block.header())
+            .unwrap_or(last_epoch);
+
         let outputs = (0..20)
             .map(|_| {
                 CellOutput::new(
@@ -367,8 +396,9 @@ fn setup_node(
         let header_builder = HeaderBuilder::default()
             .parent_hash(block.header().hash())
             .number(number)
+            .epoch(epoch.number())
             .timestamp(timestamp)
-            .difficulty(difficulty);
+            .difficulty(epoch.difficulty().clone());
 
         block = BlockBuilder::default()
             .transaction(cellbase)

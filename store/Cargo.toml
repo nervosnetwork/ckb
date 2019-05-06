@@ -11,8 +11,7 @@ serde_derive = "1.0"
 ckb-core = { path = "../core" }
 ckb-db = { path = "../db" }
 numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
+ckb-chain-spec = { path = "../spec" }
 
 [dev-dependencies]
 tempfile = "3.0"
-ckb-chain-spec = { path = "../spec" }
-

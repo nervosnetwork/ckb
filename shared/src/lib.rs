@@ -14,8 +14,5 @@ pub mod shared;
 pub mod tx_pool;
 mod tx_proposal_table;
 
-// These tests are from testnet data dump, they are hard to maintenance.
-// Although they pass curruent unit tests, we still comment out here,
-// Keep the code for future unit test refactoring reference.
-// #[cfg(test)]
-// mod tests;
+#[cfg(test)]
+mod tests;

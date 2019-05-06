@@ -7,7 +7,8 @@ use ckb_traits::ChainProvider;
 use jsonrpc_core::{Error, Result};
 use jsonrpc_derive::rpc;
 use jsonrpc_types::{
-    Block, CellOutputWithOutPoint, CellWithStatus, Header, OutPoint, TransactionWithStatus,
+    Block, CellOutputWithOutPoint, CellWithStatus, EpochExt, Header, OutPoint,
+    TransactionWithStatus,
 };
 use numext_fixed_hash::H256;
 use std::convert::TryInto;
@@ -44,6 +45,9 @@ pub trait ChainRpc {
 
     #[rpc(name = "get_tip_block_number")]
     fn get_tip_block_number(&self) -> Result<String>;
+
+    #[rpc(name = "get_current_epoch")]
+    fn get_current_epoch(&self) -> Result<EpochExt>;
 }
 
 pub(crate) struct ChainRpcImpl<CS> {
@@ -103,6 +107,15 @@ impl<CS: ChainStore + 'static> ChainRpc for ChainRpcImpl<CS> {
             .as_ref()
             .map(Into::into)
             .expect("tip header exists"))
+    }
+
+    fn get_current_epoch(&self) -> Result<EpochExt> {
+        Ok(self
+            .shared
+            .store()
+            .get_current_epoch_ext()
+            .map(Into::into)
+            .expect("current_epoch exists"))
     }
 
     // TODO: we need to build a proper index instead of scanning every time

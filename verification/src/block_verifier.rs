@@ -2,6 +2,7 @@ use crate::error::{CellbaseError, CommitError, Error, UnclesError};
 use crate::header_verifier::HeaderResolver;
 use crate::{TransactionVerifier, Verifier};
 use ckb_core::cell::ResolvedTransaction;
+use ckb_core::extras::EpochExt;
 use ckb_core::header::Header;
 use ckb_core::transaction::{Capacity, CellInput, CellOutput, Transaction};
 use ckb_core::Cycle;
@@ -10,7 +11,6 @@ use ckb_store::ChainStore;
 use ckb_traits::{BlockMedianTimeContext, ChainProvider};
 use fnv::FnvHashSet;
 use log::error;
-use numext_fixed_uint::U256;
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -18,20 +18,23 @@ use std::sync::Arc;
 //TODO: cellbase, witness
 #[derive(Clone)]
 pub struct BlockVerifier<P> {
-    // Verify if the committed and proposed transactions contains duplicate
-    duplicate: DuplicateVerifier,
-    // Verify the cellbase
-    cellbase: CellbaseVerifier,
-    // Verify the the committed and proposed transactions merkle root match header's announce
-    merkle_root: MerkleRootVerifier,
-    // Verify the the uncle
-    uncles: UnclesVerifier<P>,
-    // Verify the the propose-then-commit consensus rule
-    commit: CommitVerifier<P>,
-    // Verify the amount of proposals does not exceed the limit.
-    block_proposals_limit: BlockProposalsLimitVerifier,
-    // Verify the size of the block does not exceed the limit.
-    block_bytes: BlockBytesVerifier,
+    provider: P,
+}
+
+fn prepare_epoch_ext<P: ChainProvider>(provider: &P, block: &Block) -> Result<EpochExt, Error> {
+    if block.is_genesis() {
+        return Ok(provider.consensus().genesis_epoch_ext().to_owned());
+    }
+    let parent_hash = block.header().parent_hash();
+    let parent_ext = provider
+        .get_epoch_ext(parent_hash)
+        .ok_or_else(|| Error::UnknownParent(parent_hash.clone()))?;
+    let parent = provider
+        .block_header(parent_hash)
+        .ok_or_else(|| Error::UnknownParent(parent_hash.clone()))?;
+    Ok(provider
+        .next_epoch_ext(&parent_ext, &parent)
+        .unwrap_or(parent_ext))
 }
 
 impl<P> BlockVerifier<P>
@@ -39,34 +42,29 @@ where
     P: ChainProvider + Clone,
 {
     pub fn new(provider: P) -> Self {
-        let proof_size = provider.consensus().pow_engine().proof_size();
-        let max_block_proposals_limit = provider.consensus().max_block_proposals_limit();
-        let max_block_bytes = provider.consensus().max_block_bytes();
-
-        BlockVerifier {
-            // TODO change all new fn's chain to reference
-            duplicate: DuplicateVerifier::new(),
-            cellbase: CellbaseVerifier::new(),
-            merkle_root: MerkleRootVerifier::new(),
-            uncles: UnclesVerifier::new(provider.clone()),
-            commit: CommitVerifier::new(provider),
-            block_proposals_limit: BlockProposalsLimitVerifier::new(max_block_proposals_limit),
-            block_bytes: BlockBytesVerifier::new(max_block_bytes, proof_size),
-        }
+        BlockVerifier { provider }
     }
 }
 
-impl<P: ChainProvider + Clone> Verifier for BlockVerifier<P> {
+impl<P> Verifier for BlockVerifier<P>
+where
+    P: ChainProvider + Clone,
+{
     type Target = Block;
 
     fn verify(&self, target: &Block) -> Result<(), Error> {
-        self.block_proposals_limit.verify(target)?;
-        self.block_bytes.verify(target)?;
-        self.cellbase.verify(target)?;
-        self.duplicate.verify(target)?;
-        self.merkle_root.verify(target)?;
-        self.commit.verify(target)?;
-        self.uncles.verify(target)
+        let consensus = self.provider.consensus();
+        let proof_size = consensus.pow_engine().proof_size();
+        let max_block_proposals_limit = consensus.max_block_proposals_limit();
+        let max_block_bytes = consensus.max_block_bytes();
+        let epoch_ext = prepare_epoch_ext(&self.provider, target)?;
+        BlockProposalsLimitVerifier::new(max_block_proposals_limit).verify(target)?;
+        BlockBytesVerifier::new(max_block_bytes, proof_size).verify(target)?;
+        CellbaseVerifier::new().verify(target)?;
+        DuplicateVerifier::new().verify(target)?;
+        MerkleRootVerifier::new().verify(target)?;
+        CommitVerifier::new(self.provider.clone()).verify(target)?;
+        UnclesVerifier::new(self.provider.clone(), &epoch_ext).verify(target)
     }
 }
 
@@ -168,24 +166,40 @@ impl MerkleRootVerifier {
     }
 }
 
-pub struct HeaderResolverWrapper<'a, CP> {
-    provider: CP,
+pub struct HeaderResolverWrapper<'a> {
     header: &'a Header,
     parent: Option<Header>,
+    epoch: Option<EpochExt>,
 }
 
-impl<'a, CP: ChainProvider> HeaderResolverWrapper<'a, CP> {
-    pub fn new(header: &'a Header, provider: CP) -> Self {
+impl<'a> HeaderResolverWrapper<'a> {
+    pub fn new<CP>(header: &'a Header, provider: CP) -> Self
+    where
+        CP: ChainProvider,
+    {
         let parent = provider.block_header(&header.parent_hash());
+        let epoch = parent
+            .as_ref()
+            .and_then(|parent| {
+                provider
+                    .get_epoch_ext(&parent.hash())
+                    .map(|ext| (parent, ext))
+            })
+            .map(|(parent, last_epoch)| {
+                provider
+                    .next_epoch_ext(&last_epoch, parent)
+                    .unwrap_or(last_epoch)
+            });
+
         HeaderResolverWrapper {
             parent,
             header,
-            provider,
+            epoch,
         }
     }
 }
 
-impl<'a, CP: ChainProvider> HeaderResolver for HeaderResolverWrapper<'a, CP> {
+impl<'a> HeaderResolver for HeaderResolverWrapper<'a> {
     fn header(&self) -> &Header {
         self.header
     }
@@ -194,21 +208,24 @@ impl<'a, CP: ChainProvider> HeaderResolver for HeaderResolverWrapper<'a, CP> {
         self.parent.as_ref()
     }
 
-    fn calculate_difficulty(&self) -> Option<U256> {
-        self.parent()
-            .and_then(|parent| self.provider.calculate_difficulty(parent))
+    fn epoch(&self) -> Option<&EpochExt> {
+        self.epoch.as_ref()
     }
 }
 
 // TODO redo uncle verifier, check uncle proposal duplicate
 #[derive(Clone)]
-pub struct UnclesVerifier<CP> {
-    provider: CP,
+pub struct UnclesVerifier<'a, P> {
+    provider: P,
+    epoch: &'a EpochExt,
 }
 
-impl<CP: ChainProvider + Clone> UnclesVerifier<CP> {
-    pub fn new(provider: CP) -> Self {
-        UnclesVerifier { provider }
+impl<'a, P> UnclesVerifier<'a, P>
+where
+    P: ChainProvider + Clone,
+{
+    pub fn new(provider: P, epoch: &'a EpochExt) -> Self {
+        UnclesVerifier { provider, epoch }
     }
 
     // -  uncles_hash
@@ -302,18 +319,12 @@ impl<CP: ChainProvider + Clone> UnclesVerifier<CP> {
             }
         }
 
-        let block_difficulty_epoch =
-            block.header().number() / self.provider.consensus().difficulty_adjustment_interval();
-
         for uncle in block.uncles() {
-            let uncle_difficulty_epoch = uncle.header().number()
-                / self.provider.consensus().difficulty_adjustment_interval();
-
-            if uncle.header().difficulty() != block.header().difficulty() {
+            if uncle.header().difficulty() != self.epoch.difficulty() {
                 return Err(Error::Uncles(UnclesError::InvalidDifficulty));
             }
 
-            if block_difficulty_epoch != uncle_difficulty_epoch {
+            if self.epoch.number() != uncle.header().epoch() {
                 return Err(Error::Uncles(UnclesError::InvalidDifficultyEpoch));
             }
 
@@ -329,12 +340,12 @@ impl<CP: ChainProvider + Clone> UnclesVerifier<CP> {
             }
 
             if uncle_header.proposals_root() != &uncle.cal_proposals_root() {
-                return Err(Error::Uncles(UnclesError::ProposalTransactionsRoot));
+                return Err(Error::Uncles(UnclesError::ProposalsRoot));
             }
 
             let mut seen = HashSet::with_capacity(uncle.proposals().len());
             if !uncle.proposals().iter().all(|id| seen.insert(id)) {
-                return Err(Error::Uncles(UnclesError::ProposalTransactionDuplicate));
+                return Err(Error::Uncles(UnclesError::ProposalDuplicate));
             }
 
             if !self

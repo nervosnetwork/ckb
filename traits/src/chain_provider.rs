@@ -1,11 +1,10 @@
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::Block;
-use ckb_core::extras::BlockExt;
+use ckb_core::extras::{BlockExt, EpochExt};
 use ckb_core::header::{BlockNumber, Header};
-use ckb_core::transaction::{Capacity, ProposalShortId, Transaction};
+use ckb_core::transaction::{ProposalShortId, Transaction};
 use ckb_core::uncle::UncleBlock;
 use numext_fixed_hash::H256;
-use numext_fixed_uint::U256;
 
 pub trait ChainProvider: Sync + Send {
     fn block_body(&self, hash: &H256) -> Option<Vec<Transaction>>;
@@ -30,11 +29,11 @@ pub trait ChainProvider: Sync + Send {
 
     fn contain_transaction(&self, hash: &H256) -> bool;
 
-    fn block_reward(&self, block_number: BlockNumber) -> Capacity;
-
     fn get_ancestor(&self, base: &H256, number: BlockNumber) -> Option<Header>;
 
-    fn calculate_difficulty(&self, last: &Header) -> Option<U256>;
+    fn get_epoch_ext(&self, hash: &H256) -> Option<EpochExt>;
+
+    fn next_epoch_ext(&self, last_epoch: &EpochExt, header: &Header) -> Option<EpochExt>;
 
     fn consensus(&self) -> &Consensus;
 }

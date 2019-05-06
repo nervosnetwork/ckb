@@ -29,9 +29,9 @@ use ckb_util::Mutex;
 use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
 use flatbuffers::FlatBufferBuilder;
+use hashbrown::HashMap;
 use log::{debug, info, trace};
 use numext_fixed_hash::H256;
-use std::collections::HashMap;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -571,6 +571,7 @@ mod tests {
     use ckb_chain::chain::ChainBuilder;
     use ckb_chain_spec::consensus::Consensus;
     use ckb_core::block::BlockBuilder;
+    use ckb_core::extras::EpochExt;
     use ckb_core::header::BlockNumber;
     use ckb_core::header::{Header, HeaderBuilder};
     use ckb_core::script::Script;
@@ -647,15 +648,16 @@ mod tests {
             .build()
     }
 
-    fn gen_block(parent_header: &Header, difficulty: U256, nonce: u64) -> Block {
+    fn gen_block(parent_header: &Header, epoch: &EpochExt, nonce: u64) -> Block {
         let now = 1 + parent_header.timestamp();
         let number = parent_header.number() + 1;
         let cellbase = create_cellbase(number);
         let header_builder = HeaderBuilder::default()
             .parent_hash(parent_header.hash())
             .timestamp(now)
+            .epoch(epoch.number())
             .number(number)
-            .difficulty(difficulty)
+            .difficulty(epoch.difficulty().clone())
             .nonce(nonce);
 
         BlockBuilder::default()
@@ -672,8 +674,12 @@ mod tests {
         let parent = shared
             .block_header(&shared.block_hash(number - 1).unwrap())
             .unwrap();
-        let difficulty = shared.calculate_difficulty(&parent).unwrap();
-        let block = gen_block(&parent, difficulty, nonce);
+        let parent_epoch = shared.get_epoch_ext(&parent.hash()).unwrap();
+        let epoch = shared
+            .next_epoch_ext(&parent_epoch, &parent)
+            .unwrap_or(parent_epoch);
+
+        let block = gen_block(&parent, &epoch, nonce);
 
         chain_controller
             .process_block(Arc::new(block))
@@ -764,8 +770,11 @@ mod tests {
         let mut blocks: Vec<Block> = Vec::new();
         let mut parent = consensus.genesis_block().header().to_owned();
         for i in 1..block_number {
-            let difficulty = shared1.calculate_difficulty(&parent).unwrap();
-            let new_block = gen_block(&parent, difficulty, i);
+            let parent_epoch = shared1.get_epoch_ext(&parent.hash()).unwrap();
+            let epoch = shared1
+                .next_epoch_ext(&parent_epoch, &parent)
+                .unwrap_or(parent_epoch);
+            let new_block = gen_block(&parent, &epoch, i);
             blocks.push(new_block.clone());
 
             chain_controller1
@@ -780,8 +789,11 @@ mod tests {
         parent = blocks[150].header().to_owned();
         let fork = parent.number();
         for i in 1..=block_number {
-            let difficulty = shared2.calculate_difficulty(&parent).unwrap();
-            let new_block = gen_block(&parent, difficulty, i + 100);
+            let parent_epoch = shared2.get_epoch_ext(&parent.hash()).unwrap();
+            let epoch = shared2
+                .next_epoch_ext(&parent_epoch, &parent)
+                .unwrap_or(parent_epoch);
+            let new_block = gen_block(&parent, &epoch, i + 100);
 
             chain_controller2
                 .process_block(Arc::new(new_block.clone()))
@@ -860,8 +872,11 @@ mod tests {
             .block_header(&shared1.block_hash(0).unwrap())
             .unwrap();
         for i in 1..block_number {
-            let difficulty = shared1.calculate_difficulty(&parent).unwrap();
-            let new_block = gen_block(&parent, difficulty, i + 100);
+            let parent_epoch = shared1.get_epoch_ext(&parent.hash()).unwrap();
+            let epoch = shared1
+                .next_epoch_ext(&parent_epoch, &parent)
+                .unwrap_or(parent_epoch);
+            let new_block = gen_block(&parent, &epoch, i + 100);
 
             chain_controller1
                 .process_block(Arc::new(new_block.clone()))
@@ -889,8 +904,11 @@ mod tests {
         let mut blocks: Vec<Block> = Vec::new();
         let mut parent = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
         for i in 1..=block_number {
-            let difficulty = shared.calculate_difficulty(&parent).unwrap();
-            let new_block = gen_block(&parent, difficulty, i + 100);
+            let parent_epoch = shared.get_epoch_ext(&parent.hash()).unwrap();
+            let epoch = shared
+                .next_epoch_ext(&parent_epoch, &parent)
+                .unwrap_or(parent_epoch);
+            let new_block = gen_block(&parent, &epoch, i + 100);
             blocks.push(new_block.clone());
 
             chain_controller
@@ -1022,19 +1040,19 @@ mod tests {
             shared2.block_hash(200).unwrap()
         );
 
-        println!(
-            "headers\n {:#?}",
-            headers
-                .iter()
-                .map(|h| format!(
-                    "{} hash({}) timestamp({}) parent({})",
-                    h.number(),
-                    h.hash(),
-                    h.timestamp(),
-                    h.parent_hash(),
-                ))
-                .collect::<Vec<_>>()
-        );
+        // println!(
+        //     "headers\n {:#?}",
+        //     headers
+        //         .iter()
+        //         .map(|h| format!(
+        //             "{} hash({}) timestamp({}) parent({})",
+        //             h.number(),
+        //             h.hash(),
+        //             h.timestamp(),
+        //             h.parent_hash(),
+        //         ))
+        //         .collect::<Vec<_>>()
+        // );
 
         let fbb = &mut FlatBufferBuilder::new();
         let fbs_headers = FbsHeaders::build(fbb, &headers);

@@ -1,9 +1,7 @@
 use super::super::block_verifier::{
-    BlockBytesVerifier, BlockProposalsLimitVerifier, BlockVerifier, CellbaseVerifier,
+    BlockBytesVerifier, BlockProposalsLimitVerifier, CellbaseVerifier,
 };
 use super::super::error::{CellbaseError, Error as VerifyError};
-use super::dummy::DummyChainProvider;
-use crate::Verifier;
 use ckb_core::block::BlockBuilder;
 use ckb_core::script::Script;
 use ckb_core::transaction::{
@@ -141,23 +139,6 @@ pub fn test_cellbase_overflow_capacity() {
     let block = BlockBuilder::default().transaction(cellbase).build();
     let verifier = CellbaseVerifier::new();
     assert_eq!(verifier.verify(&block), Err(VerifyError::CapacityOverflow),);
-}
-
-#[test]
-pub fn test_empty_transactions() {
-    let block = BlockBuilder::default().build();
-
-    let provider = DummyChainProvider {
-        block_reward: capacity_bytes!(150),
-        ..Default::default()
-    };
-
-    let full_verifier = BlockVerifier::new(provider);
-    // short-circuit, Empty check first
-    assert_eq!(
-        full_verifier.verify(&block),
-        Err(VerifyError::Cellbase(CellbaseError::InvalidQuantity))
-    );
 }
 
 #[test]

@@ -41,6 +41,7 @@ curl -H 'content-type:application/json' \
         "difficulty": "0x800",
         "hash": "0x80abcbd9395ba17ff9e677d373927adb8519a9fa7bc01d054f6d23584630fb9c",
         "number": "9145",
+        "epoch": "8",
         "parent_hash": "0xeda8f89d8be63ac9ab976f3eb3adf634c1d200e3d5ccb889071cbb1df83dcabc",
         "seal": {
             "nonce": "17882382774081951528",
@@ -53,6 +54,34 @@ curl -H 'content-type:application/json' \
         "uncles_hash": "0x8290616424ad001046d5c3f7c232ffc512dcd57d3420b1e968c3460a69524045",
         "version": 0,
         "witnesses_root": "0x0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    "id": 2
+}
+```
+
+### get_current_epoch
+
+Returns the information about the current epoch.
+
+#### Examples
+
+```bash
+curl -H 'content-type:application/json' \
+    -d '{"id": 2, "jsonrpc": "2.0", "method": "get_current_epoch", "params": []}' \
+    http://localhost:8114
+```
+
+```json
+{
+    "jsonrpc": "2.0",
+    "result": {
+        "block_reward": "5000000000000",
+        "difficulty": "0x100",
+        "last_block_hash_in_previous_epoch": "0x0000000000000000000000000000000000000000000000000000000000000000",
+        "length": "1000",
+        "number": "0",
+        "remainder_reward": "5000000000000",
+        "start_number": "0"
     },
     "id": 2
 }
@@ -137,6 +166,7 @@ curl -H 'content-type:application/json' \
             "difficulty": "0x100",
             "hash": "0xef285e5da29247ce39385cbd8dc36535f7ea1b5b0379db26e9d459a8b47d0d71",
             "number": "1",
+            "epoch": "0",
             "parent_hash": "0xf17b8bfe49aaa018610d20a19aa6a0639882a774c47bcb7623a085a59ee13d42",
             "seal": {
                 "nonce": "14785007515249450415",

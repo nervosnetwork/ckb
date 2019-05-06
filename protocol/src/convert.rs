@@ -155,6 +155,7 @@ impl<'a> TryFrom<ckb_protocol::Header<'a>> for ckb_core::header::Header {
             .parent_hash(TryInto::try_into(parent_hash)?)
             .timestamp(header.timestamp())
             .number(header.number())
+            .epoch(header.epoch())
             .transactions_root(TryInto::try_into(transactions_root)?)
             .proposals_root(TryInto::try_into(proposals_root)?)
             .witnesses_root(TryInto::try_into(witnesses_root)?)

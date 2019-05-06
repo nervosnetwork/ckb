@@ -19,7 +19,7 @@ use crossbeam_channel::{self, select, Receiver, Sender};
 use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
 use fnv::{FnvHashMap, FnvHashSet};
-use log::{self, debug, error, info, log_enabled};
+use log::{self, debug, error, info, log_enabled, warn};
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 use serde_derive::{Deserialize, Serialize};
@@ -74,6 +74,10 @@ impl ForkChanges {
 
     pub fn detached_proposal_id(&self) -> &FnvHashSet<ProposalShortId> {
         &self.detached_proposal_id
+    }
+
+    pub fn has_detached(&self) -> bool {
+        !self.detached_blocks.is_empty()
     }
 }
 
@@ -195,6 +199,9 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
     // but invoker should guarantee block header be verified
     pub(crate) fn process_block(&mut self, block: Arc<Block>) -> Result<(), FailureError> {
         debug!(target: "chain", "begin processing block: {}", block.header().hash());
+        if block.header().number() < 1 {
+            warn!(target: "chain", "receive 0 number block: {}-{:x}", block.header().number(), block.header().hash());
+        }
         if self.verification {
             let block_verifier = BlockVerifier::new(self.shared.clone());
             block_verifier.verify(&block).map_err(|e| {
@@ -221,6 +228,11 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
             .block_ext(&block.header().parent_hash())
             .expect("parent already store");
 
+        let parent_header = self
+            .shared
+            .block_header(&block.header().parent_hash())
+            .expect("parent already store");
+
         let cannon_total_difficulty = parent_ext.total_difficulty + block.header().difficulty();
         let current_total_difficulty = chain_state.total_difficulty().to_owned();
 
@@ -244,6 +256,25 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
 
         let mut batch = self.shared.store().new_batch()?;
         batch.insert_block(&block)?;
+
+        let parent_header_epoch = self
+            .shared
+            .get_epoch_ext(&parent_header.hash())
+            .expect("parent epoch already store");
+
+        let next_epoch_ext = self
+            .shared
+            .next_epoch_ext(&parent_header_epoch, &parent_header);
+        let new_epoch = next_epoch_ext.is_some();
+
+        let epoch = next_epoch_ext.unwrap_or(parent_header_epoch);
+
+        batch.insert_block_epoch_index(
+            &block.header().hash(),
+            epoch.last_block_hash_in_previous_epoch(),
+        )?;
+        batch.insert_epoch_ext(epoch.last_block_hash_in_previous_epoch(), &epoch)?;
+
         if (cannon_total_difficulty > current_total_difficulty)
             || ((current_total_difficulty == cannon_total_difficulty)
                 && (block.header().hash() < tip_hash))
@@ -254,13 +285,15 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
                 block.header().number(), block.header().hash(),
                 &cannon_total_difficulty - &current_total_difficulty
             );
-
             self.find_fork(&mut fork, tip_number, &block, ext);
             self.update_index(&mut batch, &fork.detached_blocks, &fork.attached_blocks)?;
             // MUST update index before reconcile_main_chain
             cell_set_diff = self.reconcile_main_chain(&mut batch, &mut fork, &mut chain_state)?;
             self.update_proposal_ids(&mut chain_state, &fork);
             batch.insert_tip_header(&block.header())?;
+            if new_epoch || fork.has_detached() {
+                batch.insert_current_epoch_ext(&epoch)?;
+            }
             new_best_block = true;
 
             total_difficulty = cannon_total_difficulty;
@@ -279,11 +312,15 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
                 target: "chain",
                 "block: {}, hash: {:#x}, diff: {:#x}, txs: {}",
                 tip_number, tip_hash, total_difficulty, txs_cnt);
+            let tip_header = block.header().to_owned();
             // finalize proposal_id table change
             // then, update tx_pool
             let detached_proposal_id = chain_state.proposal_ids_finalize(tip_number);
             fork.detached_proposal_id = detached_proposal_id;
-            chain_state.update_tip(tip_header.to_owned(), total_difficulty, cell_set_diff);
+            if new_epoch || fork.has_detached() {
+                chain_state.update_current_epoch_ext(epoch);
+            }
+            chain_state.update_tip(tip_header, total_difficulty, cell_set_diff);
             chain_state.update_tx_pool_for_reorg(
                 fork.detached_blocks().iter(),
                 fork.attached_blocks().iter(),
@@ -488,12 +525,26 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
                         .collect::<Result<Vec<ResolvedTransaction>, _>>()
                     {
                         Ok(resolved) => {
-                            let cellbase_maturity = { self.shared.consensus().cellbase_maturity() };
+                            let cellbase_maturity = self.shared.consensus().cellbase_maturity();
+
+                            let parent_hash = b.header().parent_hash();
+                            let parent_ext = self
+                                .shared
+                                .get_epoch_ext(parent_hash)
+                                .expect("parent header verified");
+                            let parent = self
+                                .shared
+                                .block_header(parent_hash)
+                                .expect("parent header verified");
+                            let epoch = self
+                                .shared
+                                .next_epoch_ext(&parent_ext, &parent)
+                                .unwrap_or(parent_ext);
 
                             match txs_verifier.verify(
                                 &resolved,
                                 Arc::clone(self.shared.store()),
-                                self.shared.block_reward(b.header().number()),
+                                epoch.block_reward(b.header().number())?,
                                 ForkContext {
                                     fork_blocks: &fork.attached_blocks,
                                     store: Arc::clone(self.shared.store()),

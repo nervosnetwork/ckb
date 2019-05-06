@@ -1,13 +1,14 @@
 use crate::flat_serializer::{serialize as flat_serialize, serialized_addresses, Address};
 use crate::{
-    COLUMN_BLOCK_BODY, COLUMN_BLOCK_HEADER, COLUMN_BLOCK_PROPOSAL_IDS,
-    COLUMN_BLOCK_TRANSACTION_ADDRESSES, COLUMN_BLOCK_UNCLE, COLUMN_CELL_META, COLUMN_EXT,
-    COLUMN_INDEX, COLUMN_META, COLUMN_TRANSACTION_ADDR,
+    COLUMN_BLOCK_BODY, COLUMN_BLOCK_EPOCH, COLUMN_BLOCK_HEADER, COLUMN_BLOCK_PROPOSAL_IDS,
+    COLUMN_BLOCK_TRANSACTION_ADDRESSES, COLUMN_BLOCK_UNCLE, COLUMN_CELL_META, COLUMN_EPOCH,
+    COLUMN_EXT, COLUMN_INDEX, COLUMN_META, COLUMN_TRANSACTION_ADDR,
 };
 use bincode::{deserialize, serialize};
+use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::cell::CellMeta;
-use ckb_core::extras::{BlockExt, TransactionAddress};
+use ckb_core::extras::{BlockExt, EpochExt, TransactionAddress};
 use ckb_core::header::{BlockNumber, Header, HeaderBuilder};
 use ckb_core::transaction::{
     CellOutput, OutPoint, ProposalShortId, Transaction, TransactionBuilder,
@@ -19,6 +20,7 @@ use serde::Serialize;
 use std::ops::Range;
 
 const META_TIP_HEADER_KEY: &[u8] = b"TIP_HEADER";
+const META_CURRENT_EPOCH_KEY: &[u8] = b"CURRENT_EPOCH";
 
 fn cell_store_key(tx_hash: &H256, index: u32) -> Vec<u8> {
     let mut key: [u8; 36] = [0; 36];
@@ -67,8 +69,7 @@ pub trait ChainStore: Sync + Send {
     /// Get block ext by block header hash
     fn get_block_ext(&self, block_hash: &H256) -> Option<BlockExt>;
 
-    /// Init by genesis
-    fn init(&self, genesis: &Block) -> Result<(), Error>;
+    fn init(&self, consensus: &Consensus) -> Result<(), Error>;
     /// Get block header hash by block number
     fn get_block_hash(&self, number: BlockNumber) -> Option<H256>;
     /// Get block number by block header hash
@@ -81,12 +82,21 @@ pub trait ChainStore: Sync + Send {
     fn get_transaction_address(&self, hash: &H256) -> Option<TransactionAddress>;
     fn get_cell_meta(&self, tx_hash: &H256, index: u32) -> Option<CellMeta>;
     fn get_cell_output(&self, tx_hash: &H256, index: u32) -> Option<CellOutput>;
+    fn get_current_epoch_ext(&self) -> Option<EpochExt>;
+    fn get_epoch_ext(&self, hash: &H256) -> Option<EpochExt>;
 }
 
 pub trait StoreBatch {
     fn insert_block(&mut self, block: &Block) -> Result<(), Error>;
     fn insert_block_ext(&mut self, block_hash: &H256, ext: &BlockExt) -> Result<(), Error>;
     fn insert_tip_header(&mut self, header: &Header) -> Result<(), Error>;
+    fn insert_current_epoch_ext(&mut self, epoch: &EpochExt) -> Result<(), Error>;
+    fn insert_block_epoch_index(
+        &mut self,
+        block_hash: &H256,
+        epoch_hash: &H256,
+    ) -> Result<(), Error>;
+    fn insert_epoch_ext(&mut self, hash: &H256, epoch: &EpochExt) -> Result<(), Error>;
 
     fn attach_block(&mut self, block: &Block) -> Result<(), Error>;
     fn detach_block(&mut self, block: &Block) -> Result<(), Error>;
@@ -166,12 +176,14 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
             .map(|raw| deserialize(&raw[..]).expect("deserialize block ext should be ok"))
     }
 
-    fn init(&self, genesis: &Block) -> Result<(), Error> {
+    fn init(&self, consensus: &Consensus) -> Result<(), Error> {
+        let genesis = consensus.genesis_block();
+        let epoch = consensus.genesis_epoch_ext();
         let mut batch = self.new_batch()?;
         let genesis_hash = genesis.header().hash();
         let ext = BlockExt {
             received_at: genesis.header().timestamp(),
-            total_difficulty: genesis.header().difficulty().to_owned(),
+            total_difficulty: genesis.header().difficulty().clone(),
             total_uncles_count: 0,
             txs_verified: Some(true),
         };
@@ -192,6 +204,9 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
         batch.insert_block(genesis)?;
         batch.insert_block_ext(&genesis_hash, &ext)?;
         batch.insert_tip_header(&genesis.header())?;
+        batch.insert_current_epoch_ext(epoch)?;
+        batch.insert_block_epoch_index(&genesis_hash, epoch.last_block_hash_in_previous_epoch())?;
+        batch.insert_epoch_ext(epoch.last_block_hash_in_previous_epoch(), &epoch)?;
         batch.attach_block(genesis)?;
         batch.commit()
     }
@@ -210,6 +225,17 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
         self.get(COLUMN_META, META_TIP_HEADER_KEY)
             .and_then(|raw| self.get_header(&H256::from_slice(&raw[..]).expect("db safe access")))
             .map(Into::into)
+    }
+
+    fn get_current_epoch_ext(&self) -> Option<EpochExt> {
+        self.get(COLUMN_META, META_CURRENT_EPOCH_KEY)
+            .map(|raw| deserialize(&raw[..]).expect("db safe access"))
+    }
+
+    fn get_epoch_ext(&self, hash: &H256) -> Option<EpochExt> {
+        self.get(COLUMN_BLOCK_EPOCH, hash.as_bytes())
+            .map(|raw| self.get(COLUMN_EPOCH, &raw[..]).expect("db safe access"))
+            .map(|raw| deserialize(&raw[..]).expect("db safe access"))
     }
 
     fn get_transaction(&self, h: &H256) -> Option<(Transaction, H256)> {
@@ -346,6 +372,26 @@ impl<B: DbBatch> StoreBatch for DefaultStoreBatch<B> {
         self.insert_raw(COLUMN_META, META_TIP_HEADER_KEY, h.hash().as_bytes())
     }
 
+    fn insert_block_epoch_index(
+        &mut self,
+        block_hash: &H256,
+        epoch_hash: &H256,
+    ) -> Result<(), Error> {
+        self.insert_raw(
+            COLUMN_BLOCK_EPOCH,
+            block_hash.as_bytes(),
+            epoch_hash.as_bytes(),
+        )
+    }
+
+    fn insert_epoch_ext(&mut self, hash: &H256, epoch: &EpochExt) -> Result<(), Error> {
+        self.insert_serialize(COLUMN_EPOCH, hash.as_bytes(), epoch)
+    }
+
+    fn insert_current_epoch_ext(&mut self, epoch: &EpochExt) -> Result<(), Error> {
+        self.insert_serialize(COLUMN_META, META_CURRENT_EPOCH_KEY, epoch)
+    }
+
     fn commit(self) -> Result<(), Error> {
         self.inner.commit()
     }
@@ -437,7 +483,7 @@ mod tests {
         let consensus = Consensus::default();
         let block = consensus.genesis_block();
         let hash = block.header().hash();
-        store.init(&block).unwrap();
+        store.init(&consensus).unwrap();
         assert_eq!(&hash, &store.get_block_hash(0).unwrap());
 
         assert_eq!(
