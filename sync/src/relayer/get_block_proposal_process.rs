@@ -1,4 +1,5 @@
 use crate::relayer::Relayer;
+use ckb_core::transaction::ProposalShortId;
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::{cast, GetBlockProposal, RelayMessage};
 use ckb_store::ChainStore;
@@ -36,12 +37,12 @@ impl<'a, CS: ChainStore> GetBlockProposalProcess<'a, CS> {
             let chain_state = self.relayer.shared.chain_state().lock();
             let tx_pool = chain_state.tx_pool();
 
-            let proposals = proposals
+            let proposals: Vec<ProposalShortId> = proposals
                 .iter()
                 .map(TryInto::try_into)
-                .collect::<Result<Vec<_>, FailureError>>();
+                .collect::<Result<_, FailureError>>()?;
 
-            proposals?
+            proposals
                 .into_iter()
                 .filter_map(|short_id| {
                     tx_pool.get_tx(&short_id).or({

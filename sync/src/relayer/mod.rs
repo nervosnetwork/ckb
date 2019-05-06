@@ -2,9 +2,13 @@ mod block_proposal_process;
 mod block_transactions_process;
 pub mod compact_block;
 mod compact_block_process;
+mod compact_block_verifier;
+mod error;
 mod get_block_proposal_process;
 mod get_block_transactions_process;
 mod get_transaction_process;
+#[cfg(test)]
+mod tests;
 mod transaction_hash_process;
 mod transaction_process;
 
@@ -12,6 +16,7 @@ use self::block_proposal_process::BlockProposalProcess;
 use self::block_transactions_process::BlockTransactionsProcess;
 use self::compact_block::CompactBlock;
 use self::compact_block_process::CompactBlockProcess;
+pub use self::error::Error;
 use self::get_block_proposal_process::GetBlockProposalProcess;
 use self::get_block_transactions_process::GetBlockTransactionsProcess;
 use self::get_transaction_process::GetTransactionProcess;
@@ -164,7 +169,8 @@ impl<CS: ChainStore> Relayer<CS> {
     }
 
     fn process(&self, nc: &CKBProtocolContext, peer: PeerIndex, message: RelayMessage) {
-        if self.try_process(nc, peer, message).is_err() {
+        if let Err(err) = self.try_process(nc, peer, message) {
+            debug!(target: "relay", "try_process error {}", err);
             nc.ban_peer(peer, BAD_MESSAGE_BAN_TIME);
         }
     }
@@ -233,26 +239,34 @@ impl<CS: ChainStore> Relayer<CS> {
     ) -> Result<Block, Vec<usize>> {
         let (key0, key1) =
             short_transaction_id_keys(compact_block.header.nonce(), compact_block.nonce);
+        let mut short_ids_set: HashSet<&ShortTransactionID> =
+            compact_block.short_ids.iter().collect();
 
         let mut txs_map: FnvHashMap<ShortTransactionID, Transaction> = transactions
             .into_iter()
-            .map(|tx| {
+            .filter_map(|tx| {
                 let short_id = short_transaction_id(key0, key1, &tx.witness_hash());
-                (short_id, tx)
-            })
-            .collect();
-
-        {
-            let tx_pool = chain_state.tx_pool();
-            let iter = tx_pool.staging_txs_iter().filter_map(|entry| {
-                let short_id = short_transaction_id(key0, key1, &entry.transaction.witness_hash());
-                if compact_block.short_ids.contains(&short_id) {
-                    Some((short_id, entry.transaction.clone()))
+                if short_ids_set.remove(&short_id) {
+                    Some((short_id, tx))
                 } else {
                     None
                 }
-            });
-            txs_map.extend(iter);
+            })
+            .collect();
+
+        if short_ids_set.is_empty() {
+            let tx_pool = chain_state.tx_pool();
+            for entry in tx_pool.staging_txs_iter() {
+                let short_id = short_transaction_id(key0, key1, &entry.transaction.witness_hash());
+                if short_ids_set.remove(&short_id) {
+                    txs_map.insert(short_id, entry.transaction.clone());
+
+                    // Early exit here for performance
+                    if short_ids_set.is_empty() {
+                        break;
+                    }
+                }
+            }
         }
 
         let txs_len = compact_block.prefilled_transactions.len() + compact_block.short_ids.len();
