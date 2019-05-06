@@ -81,7 +81,7 @@ impl Miner {
                 .timestamp(current_time.parse::<u64>()?)
                 .parent_hash(parent_hash);
 
-            let block = BlockBuilder::default()
+            let block = BlockBuilder::from_header_builder(header_builder)
                 .uncles(
                     uncles
                         .into_iter()
@@ -101,15 +101,14 @@ impl Miner {
                         .map(TryInto::try_into)
                         .collect::<Result<_, _>>()?,
                 )
-                .with_header_builder(header_builder);
+                .build();
 
             let raw_header = block.header().raw().to_owned();
 
             Ok(self
                 .mine_loop(&raw_header)
                 .map(|seal| {
-                    BlockBuilder::default()
-                        .block(block)
+                    BlockBuilder::from_block(block)
                         .header(raw_header.with_seal(seal))
                         .build()
                 })

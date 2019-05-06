@@ -76,8 +76,9 @@ pub struct Consensus {
 // genesis difficulty should not be zero
 impl Default for Consensus {
     fn default() -> Self {
-        let genesis_block = BlockBuilder::default()
-            .with_header_builder(HeaderBuilder::default().difficulty(U256::one()));
+        let genesis_block =
+            BlockBuilder::from_header_builder(HeaderBuilder::default().difficulty(U256::one()))
+                .build();
 
         let genesis_epoch_ext = EpochExt::new(
             0, // number

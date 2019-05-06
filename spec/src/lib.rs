@@ -220,9 +220,9 @@ impl ChainSpec {
             .proof(self.genesis.seal.proof.to_vec())
             .uncles_hash(self.genesis.uncles_hash.clone());
 
-        let genesis_block = BlockBuilder::default()
+        let genesis_block = BlockBuilder::from_header_builder(header_builder)
             .transaction(self.build_system_cells_transaction()?)
-            .with_header_builder(header_builder);
+            .build();
 
         self.verify_genesis_hash(&genesis_block)?;
 

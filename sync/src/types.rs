@@ -302,7 +302,7 @@ impl Peers {
     }
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HeaderView {
     inner: Header,
     total_difficulty: U256,

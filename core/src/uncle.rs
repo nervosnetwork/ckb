@@ -8,7 +8,7 @@ use hash::blake2b_256;
 use numext_fixed_hash::H256;
 use serde_derive::{Deserialize, Serialize};
 
-#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Default, Debug)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub struct UncleBlock {
     pub header: Header,
     pub proposals: Vec<ProposalShortId>,
