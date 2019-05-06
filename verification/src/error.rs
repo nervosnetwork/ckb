@@ -132,6 +132,7 @@ pub enum DifficultyError {
 #[derive(Debug, PartialEq, Clone, Copy, Eq)]
 pub enum TransactionError {
     NullInput,
+    NullDep,
     /// Occur output's bytes_len exceed capacity
     CapacityOverflow,
     DuplicateInputs,
@@ -142,6 +143,11 @@ pub enum TransactionError {
     ScriptFailure(ScriptError),
     InvalidSignature,
     Conflict,
-    UnknownInput,
+    Unknown,
     Version,
+    /// Tx not satisfied valid_since condition
+    Immature,
+    /// Invalid ValidSince flags
+    InvalidValidSince,
+    CellbaseImmaturity,
 }

@@ -2,10 +2,10 @@ use crate::cast;
 use crate::protocol_generated::ckb::protocol as ckb_protocol;
 use crate::FlatbuffersVectorIterator;
 use ckb_core;
-use ckb_util::{TryFrom, TryInto};
 use failure::Error as FailureError;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
+use std::convert::{TryFrom, TryInto};
 
 impl From<&H256> for ckb_protocol::H256 {
     fn from(h256: &H256) -> Self {
@@ -260,7 +260,6 @@ impl<'a> TryFrom<ckb_protocol::Script<'a>> for ckb_core::script::Script {
         };
 
         Ok(ckb_core::script::Script {
-            version: script.version(),
             args: cast!(args)?,
             binary_hash: cast!(binary_hash)?,
         })
@@ -281,6 +280,7 @@ impl<'a> TryFrom<ckb_protocol::CellInput<'a>> for ckb_core::transaction::CellInp
                 hash: TryInto::try_into(hash)?,
                 index: cell_input.index(),
             },
+            valid_since: cell_input.valid_since(),
             args: cast!(args)?,
         })
     }

@@ -1,6 +1,6 @@
 // use crate::peer_store::Behaviour;
 use crate::NetworkState;
-use log::{debug, trace, warn};
+use log::{debug, trace};
 use p2p::{
     multiaddr::{Multiaddr, Protocol},
     secio::PeerId,
@@ -56,12 +56,13 @@ impl Callback for IdentifyCallback {
         );
         self.remote_listen_addrs
             .insert(peer_id.clone(), addrs.clone());
-        let peer_store = self.network_state.peer_store();
-        for addr in addrs {
-            if !peer_store.add_discovered_addr(&peer_id, addr) {
-                warn!(target: "network", "add_discovered_addr failed {:?}", peer_id);
+        self.network_state.with_peer_store_mut(|peer_store| {
+            for addr in addrs {
+                if !peer_store.add_discovered_addr(&peer_id, addr) {
+                    trace!(target: "network", "add_discovered_addr failed {:?}", peer_id);
+                }
             }
-        }
+        })
     }
 
     fn add_observed_addr(
@@ -102,14 +103,11 @@ impl Callback for IdentifyCallback {
         {
             debug!(target: "network", "identify add transformed addr: {:?}", transformed_addr);
             let local_peer_id = self.network_state.local_peer_id();
-
-            if !self
-                .network_state
-                .peer_store()
-                .add_discovered_addr(local_peer_id, transformed_addr)
-            {
-                warn!(target: "network", "add_discovered_addr failed {:?}", local_peer_id);
-            }
+            self.network_state.with_peer_store_mut(|peer_store| {
+                if !peer_store.add_discovered_addr(local_peer_id, transformed_addr) {
+                    trace!(target: "network", "add_discovered_addr failed {:?}", local_peer_id);
+                }
+            });
         }
         // NOTE: for future usage
         MisbehaveResult::Continue

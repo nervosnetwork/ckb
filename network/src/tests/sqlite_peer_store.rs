@@ -1,4 +1,3 @@
-use crate::peer_store::sqlite::ConnectionPoolExt;
 use crate::{
     multiaddr::ToMultiaddr,
     peer_store::{
@@ -8,18 +7,15 @@ use crate::{
     },
     Behaviour, PeerId, SessionType,
 };
-use rand::Rng;
 use std::time::Duration;
 
 fn new_peer_store() -> SqlitePeerStore {
-    let mut rng = rand::thread_rng();
-    let db_number: u32 = rng.gen();
-    SqlitePeerStore::memory(format!("db{}", db_number).to_string()).expect("memory")
+    SqlitePeerStore::memory().expect("memory")
 }
 
 #[test]
 fn test_add_connected_peer() {
-    let peer_store: Box<dyn PeerStore> = Box::new(new_peer_store());
+    let mut peer_store: Box<dyn PeerStore> = Box::new(new_peer_store());
     let peer_id = PeerId::random();
     let addr = "/ip4/127.0.0.1".to_multiaddr().unwrap();
     peer_store.add_connected_peer(&peer_id, addr, SessionType::Outbound);
@@ -32,7 +28,7 @@ fn test_add_connected_peer() {
 
 #[test]
 fn test_add_discovered_addr() {
-    let peer_store: Box<dyn PeerStore> = Box::new(new_peer_store());
+    let mut peer_store: Box<dyn PeerStore> = Box::new(new_peer_store());
     let peer_id = PeerId::random();
     peer_store.add_discovered_addr(&peer_id, "/ip4/127.0.0.1".to_multiaddr().unwrap());
     assert_eq!(peer_store.peer_addrs(&peer_id, 2).unwrap().len(), 1);
@@ -40,7 +36,7 @@ fn test_add_discovered_addr() {
 
 #[test]
 fn test_report() {
-    let peer_store: Box<dyn PeerStore> = Box::new(new_peer_store());
+    let mut peer_store: Box<dyn PeerStore> = Box::new(new_peer_store());
     let peer_id = PeerId::random();
     assert!(peer_store.report(&peer_id, Behaviour::Ping).is_ok());
     assert!(
@@ -51,7 +47,7 @@ fn test_report() {
 
 #[test]
 fn test_update_status() {
-    let peer_store: Box<dyn PeerStore> = Box::new(new_peer_store());
+    let mut peer_store: Box<dyn PeerStore> = Box::new(new_peer_store());
     let peer_id = PeerId::random();
     peer_store.update_status(&peer_id, Status::Connected);
     assert_eq!(peer_store.peer_status(&peer_id), Status::Unknown);
@@ -63,31 +59,28 @@ fn test_update_status() {
 
 #[test]
 fn test_ban_peer() {
-    let peer_store: Box<dyn PeerStore> = Box::new(new_peer_store());
-    let peer_id = PeerId::random();
-    peer_store.ban_peer(&peer_id, Duration::from_secs(10));
-    assert!(!peer_store.is_banned(&peer_id));
+    let mut peer_store: Box<dyn PeerStore> = Box::new(new_peer_store());
     let addr = "/ip4/127.0.0.1".to_multiaddr().unwrap();
-    peer_store.add_connected_peer(&peer_id, addr, SessionType::Inbound);
-    peer_store.ban_peer(&peer_id, Duration::from_secs(10));
-    assert!(peer_store.is_banned(&peer_id));
+    assert!(!peer_store.is_banned(&addr));
+    peer_store.ban_addr(&addr, Duration::from_secs(10));
+    assert!(peer_store.is_banned(&addr));
 }
 
 #[test]
 fn test_attepmt_ban() {
-    let peer_store: Box<dyn PeerStore> = Box::new(new_peer_store());
+    let mut peer_store: Box<dyn PeerStore> = Box::new(new_peer_store());
     let peer_id = PeerId::random();
     let addr = "/ip4/127.0.0.1".to_multiaddr().unwrap();
     peer_store.add_connected_peer(&peer_id, addr.clone(), SessionType::Inbound);
     peer_store.add_discovered_addr(&peer_id, addr.clone());
     assert_eq!(peer_store.peers_to_attempt(2).len(), 1);
-    peer_store.ban_peer(&peer_id, Duration::from_secs(10));
+    peer_store.ban_addr(&addr, Duration::from_secs(10));
     assert_eq!(peer_store.peers_to_attempt(2).len(), 0);
 }
 
 #[test]
 fn test_bootnodes() {
-    let peer_store: Box<dyn PeerStore> = Box::new(new_peer_store());
+    let mut peer_store: Box<dyn PeerStore> = Box::new(new_peer_store());
     assert!(peer_store.bootnodes(1).is_empty());
     let peer_id = PeerId::random();
     let addr = "/ip4/127.0.0.1".to_multiaddr().unwrap();
@@ -103,7 +96,7 @@ fn test_bootnodes() {
 
 #[test]
 fn test_peers_to_attempt() {
-    let peer_store: Box<dyn PeerStore> = Box::new(new_peer_store());
+    let mut peer_store: Box<dyn PeerStore> = Box::new(new_peer_store());
     assert!(peer_store.peers_to_attempt(1).is_empty());
     let peer_id = PeerId::random();
     let addr = "/ip4/127.0.0.1".to_multiaddr().unwrap();
@@ -118,7 +111,7 @@ fn test_peers_to_attempt() {
 
 #[test]
 fn test_peers_to_feeler() {
-    let peer_store: Box<dyn PeerStore> = Box::new(new_peer_store());
+    let mut peer_store: Box<dyn PeerStore> = Box::new(new_peer_store());
     assert!(peer_store.peers_to_feeler(1).is_empty());
     let peer_id = PeerId::random();
     let addr = "/ip4/127.0.0.1".to_multiaddr().unwrap();
@@ -139,7 +132,7 @@ fn test_peers_to_feeler() {
 
 #[test]
 fn test_random_peers() {
-    let peer_store: Box<dyn PeerStore> = Box::new(new_peer_store());
+    let mut peer_store: Box<dyn PeerStore> = Box::new(new_peer_store());
     assert!(peer_store.random_peers(1).is_empty());
     let peer_id = PeerId::random();
     let addr = "/ip4/127.0.0.1".to_multiaddr().unwrap();
@@ -157,27 +150,22 @@ fn test_random_peers() {
 
 #[test]
 fn test_delete_peer_info() {
-    let peer_store = new_peer_store();
+    let mut peer_store = new_peer_store();
     let addr1 = "/ip4/127.0.0.1".to_multiaddr().unwrap();
     let addr2 = "/ip4/192.163.1.1".to_multiaddr().unwrap();
     let now = faketime::unix_time();
     // prepare peer_info records
-    peer_store
-        .pool
-        .fetch(|conn| {
-            for _ in 0..(PEER_STORE_LIMIT - 2) {
-                db::PeerInfo::insert(
-                    conn,
-                    &PeerId::random(),
-                    &addr1,
-                    SessionType::Inbound,
-                    peer_store.peer_score_config().default_score,
-                    now,
-                )?;
-            }
-            Ok(())
-        })
+    for _ in 0..(PEER_STORE_LIMIT - 2) {
+        db::PeerInfo::insert(
+            &peer_store.conn,
+            &PeerId::random(),
+            &addr1,
+            SessionType::Inbound,
+            peer_store.peer_score_config().default_score,
+            now,
+        )
         .expect("insert peer infos");
+    }
     let evict_target = PeerId::random();
     let fake_target = PeerId::random();
     {

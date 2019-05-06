@@ -6,7 +6,7 @@ use crate::{
 };
 use ckb_core::header::Header;
 use ckb_network::PeerIndex;
-use ckb_shared::index::ChainIndex;
+use ckb_shared::store::ChainStore;
 use ckb_traits::ChainProvider;
 use ckb_util::try_option;
 use faketime::unix_time_as_millis;
@@ -15,18 +15,18 @@ use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 use std::cmp;
 
-pub struct BlockFetcher<CI: ChainIndex> {
-    synchronizer: Synchronizer<CI>,
+pub struct BlockFetcher<CS: ChainStore> {
+    synchronizer: Synchronizer<CS>,
     peer: PeerIndex,
     tip_header: Header,
     total_difficulty: U256,
 }
 
-impl<CI> BlockFetcher<CI>
+impl<CS> BlockFetcher<CS>
 where
-    CI: ChainIndex,
+    CS: ChainStore,
 {
-    pub fn new(synchronizer: Synchronizer<CI>, peer: PeerIndex) -> Self {
+    pub fn new(synchronizer: Synchronizer<CS>, peer: PeerIndex) -> Self {
         let (tip_header, total_difficulty) = {
             let chain_state = synchronizer.shared.chain_state().lock();
             (
@@ -140,7 +140,7 @@ where
 
         // This peer has nothing interesting.
         if !self.is_better_chain(&best_known_header) {
-            debug!(
+            trace!(
                 target: "sync",
                 "[block downloader] best_known_header {} chain {}",
                 best_known_header.total_difficulty(),
@@ -192,7 +192,7 @@ where
                 if block_status == BlockStatus::VALID_MASK
                     && inflight.insert(to_fetch_hash.clone().clone())
                 {
-                    debug!(
+                    trace!(
                         target: "sync", "[Synchronizer] inflight insert {:?}------------{:x}",
                         to_fetch.number(),
                         to_fetch_hash

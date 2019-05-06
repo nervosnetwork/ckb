@@ -3,29 +3,29 @@ use crate::MAX_LOCATOR_SIZE;
 use ckb_core::header::Header;
 use ckb_network::{Behaviour, CKBProtocolContext, PeerIndex};
 use ckb_protocol::{cast, GetHeaders, SyncMessage};
-use ckb_shared::index::ChainIndex;
-use ckb_util::TryInto;
+use ckb_shared::store::ChainStore;
 use failure::Error as FailureError;
 use flatbuffers::FlatBufferBuilder;
 use log::{debug, info, warn};
 use numext_fixed_hash::H256;
+use std::convert::TryInto;
 
-pub struct GetHeadersProcess<'a, CI: ChainIndex + 'a> {
+pub struct GetHeadersProcess<'a, CS: ChainStore + 'a> {
     message: &'a GetHeaders<'a>,
-    synchronizer: &'a Synchronizer<CI>,
+    synchronizer: &'a Synchronizer<CS>,
     peer: PeerIndex,
-    nc: &'a mut CKBProtocolContext,
+    nc: &'a CKBProtocolContext,
 }
 
-impl<'a, CI> GetHeadersProcess<'a, CI>
+impl<'a, CS> GetHeadersProcess<'a, CS>
 where
-    CI: ChainIndex + 'a,
+    CS: ChainStore + 'a,
 {
     pub fn new(
         message: &'a GetHeaders,
-        synchronizer: &'a Synchronizer<CI>,
+        synchronizer: &'a Synchronizer<CS>,
         peer: PeerIndex,
-        nc: &'a mut CKBProtocolContext,
+        nc: &'a CKBProtocolContext,
     ) -> Self {
         GetHeadersProcess {
             message,
@@ -71,20 +71,13 @@ where
             let fbb = &mut FlatBufferBuilder::new();
             let message = SyncMessage::build_headers(fbb, &headers);
             fbb.finish(message, None);
-            let ret = self.nc.send(self.peer, fbb.finished_data().to_vec());
-
-            if ret.is_err() {
-                warn!(target: "sync", "response GetHeaders error {:?}", ret);
-            }
+            self.nc
+                .send_message_to(self.peer, fbb.finished_data().to_vec());
         } else {
             warn!(target: "sync", "\n\nunknown block headers from peer {} {:#?}\n\n", self.peer, block_locator_hashes);
             // Got 'headers' message without known blocks
             // ban or close peers
-            let report_ret = self.nc.report_peer(self.peer, Behaviour::SyncUseless);
-
-            if report_ret.is_err() {
-                warn!(target: "sync", "report behaviour SyncUseless error {:?}", report_ret);
-            }
+            self.nc.report_peer(self.peer, Behaviour::SyncUseless);
             // disconnect peer anyway
             self.nc.disconnect(self.peer);
         }

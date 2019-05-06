@@ -1,37 +1,30 @@
-use crate::cachedb::CacheDB;
-use crate::cell_set::CellSet;
 use crate::chain_state::ChainState;
-use crate::error::SharedError;
-use crate::index::ChainIndex;
 use crate::store::ChainKVStore;
-use crate::tx_pool::{TxPool, TxPoolConfig};
-use crate::tx_proposal_table::TxProposalTable;
+use crate::store::ChainStore;
+use crate::tx_pool::TxPoolConfig;
 use crate::{COLUMNS, COLUMN_BLOCK_HEADER};
-use ckb_chain_spec::consensus::{Consensus, ProposalWindow};
+use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::Block;
 use ckb_core::extras::BlockExt;
 use ckb_core::header::{BlockNumber, Header};
 use ckb_core::transaction::{Capacity, ProposalShortId, Transaction};
 use ckb_core::uncle::UncleBlock;
-use ckb_db::{DBConfig, KeyValueDB, MemoryKeyValueDB, RocksDB};
-use ckb_traits::{BlockMedianTimeContext, ChainProvider};
+use ckb_db::{CacheDB, DBConfig, KeyValueDB, MemoryKeyValueDB, RocksDB};
+use ckb_traits::ChainProvider;
 use ckb_util::Mutex;
-use failure::Error;
-use fnv::FnvHashSet;
-use lru_cache::LruCache;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 use std::sync::Arc;
 
 #[derive(Debug)]
-pub struct Shared<CI> {
-    store: Arc<CI>,
-    chain_state: Arc<Mutex<ChainState<CI>>>,
+pub struct Shared<CS> {
+    store: Arc<CS>,
+    chain_state: Arc<Mutex<ChainState<CS>>>,
     consensus: Arc<Consensus>,
 }
 
 // https://github.com/rust-lang/rust/issues/40754
-impl<CI: ChainIndex> ::std::clone::Clone for Shared<CI> {
+impl<CS: ChainStore> ::std::clone::Clone for Shared<CS> {
     fn clone(&self) -> Self {
         Shared {
             store: Arc::clone(&self.store),
@@ -41,110 +34,33 @@ impl<CI: ChainIndex> ::std::clone::Clone for Shared<CI> {
     }
 }
 
-impl<CI: ChainIndex> Shared<CI> {
-    pub fn new(store: CI, consensus: Consensus, tx_pool_config: TxPoolConfig) -> Self {
+impl<CS: ChainStore> Shared<CS> {
+    pub fn new(store: CS, consensus: Consensus, tx_pool_config: TxPoolConfig) -> Self {
         let store = Arc::new(store);
-        let chain_state = {
-            // check head in store or save the genesis block as head
-            let header = {
-                let genesis = consensus.genesis_block();
-                match store.get_tip_header() {
-                    Some(h) => h,
-                    None => {
-                        store.init(&genesis);
-                        genesis.header().clone()
-                    }
-                }
-            };
-
-            let tip_number = header.number();
-            let proposal_window = consensus.tx_proposal_window();
-            let proposal_ids = Self::init_proposal_ids(&store, proposal_window, tip_number);
-
-            let cell_set = Self::init_cell_set(&store, tip_number);
-
-            let total_difficulty = store
-                .get_block_ext(&header.hash())
-                .expect("block_ext stored")
-                .total_difficulty;
-
-            let txs_verify_cache_size = tx_pool_config.txs_verify_cache_size;
-            Arc::new(Mutex::new(ChainState::new(
-                &store,
-                header,
-                total_difficulty,
-                cell_set,
-                proposal_ids,
-                TxPool::new(tx_pool_config),
-                LruCache::new(txs_verify_cache_size),
-            )))
-        };
+        let consensus = Arc::new(consensus);
+        let chain_state = Arc::new(Mutex::new(ChainState::new(
+            &store,
+            Arc::clone(&consensus),
+            tx_pool_config,
+        )));
 
         Shared {
             store,
             chain_state,
-            consensus: Arc::new(consensus),
+            consensus,
         }
     }
 
-    pub fn chain_state(&self) -> &Mutex<ChainState<CI>> {
+    pub fn chain_state(&self) -> &Mutex<ChainState<CS>> {
         &self.chain_state
     }
 
-    pub fn store(&self) -> &Arc<CI> {
+    pub fn store(&self) -> &Arc<CS> {
         &self.store
-    }
-
-    pub fn init_proposal_ids(
-        store: &CI,
-        proposal_window: ProposalWindow,
-        tip_number: u64,
-    ) -> TxProposalTable {
-        let mut proposal_ids = TxProposalTable::new(proposal_window);
-        let proposal_start = tip_number.saturating_sub(proposal_window.start());
-        let proposal_end = tip_number.saturating_sub(proposal_window.end());
-        for bn in proposal_start..=proposal_end {
-            if let Some(hash) = store.get_block_hash(bn) {
-                let mut ids_set = FnvHashSet::default();
-                if let Some(ids) = store.get_block_proposal_txs_ids(&hash) {
-                    ids_set.extend(ids)
-                }
-
-                if let Some(us) = store.get_block_uncles(&hash) {
-                    for u in us {
-                        let ids = u.proposal_transactions;
-                        ids_set.extend(ids);
-                    }
-                }
-                proposal_ids.update_or_insert(bn, ids_set);
-            }
-        }
-        proposal_ids.finalize(tip_number);
-        proposal_ids
-    }
-
-    pub fn init_cell_set(store: &CI, number: u64) -> CellSet {
-        let mut cell_set = CellSet::new();
-
-        for n in 0..=number {
-            let hash = store.get_block_hash(n).unwrap();
-            for tx in store.get_block_body(&hash).unwrap() {
-                let inputs = tx.input_pts();
-                let output_len = tx.outputs().len();
-
-                for o in inputs {
-                    cell_set.mark_dead(&o);
-                }
-
-                cell_set.insert(tx.hash(), n, tx.is_cellbase(), output_len);
-            }
-        }
-
-        cell_set
     }
 }
 
-impl<CI: ChainIndex> ChainProvider for Shared<CI> {
+impl<CS: ChainStore> ChainProvider for Shared<CS> {
     fn block(&self, hash: &H256) -> Option<Block> {
         self.store.get_block(hash)
     }
@@ -227,40 +143,9 @@ impl<CI: ChainIndex> ChainProvider for Shared<CI> {
         None
     }
 
-    // TODO: find a way to write test for this once we can build a mock on
-    // ChainIndex
-    fn calculate_transaction_fee(&self, transaction: &Transaction) -> Result<Capacity, Error> {
-        let mut fee = 0;
-        for input in transaction.inputs() {
-            let previous_output = &input.previous_output;
-            match self.get_transaction(&previous_output.hash) {
-                Some(previous_transaction) => {
-                    let index = previous_output.index as usize;
-                    if let Some(output) = previous_transaction.outputs().get(index) {
-                        fee += output.capacity;
-                    } else {
-                        Err(SharedError::InvalidInput)?;
-                    }
-                }
-                None => Err(SharedError::InvalidInput)?,
-            }
-        }
-        let spent_capacity: Capacity = transaction
-            .outputs()
-            .iter()
-            .map(|output| output.capacity)
-            .sum();
-        if spent_capacity > fee {
-            Err(SharedError::InvalidOutput)?;
-        }
-        fee -= spent_capacity;
-        Ok(fee)
-    }
-
     // T_interval = L / C_m
     // HR_m = HR_last/ (1 + o)
     // Diff= HR_m * T_interval / H = Diff_last * o_last / o
-    #[allow(clippy::op_ref)]
     fn calculate_difficulty(&self, last: &Header) -> Option<U256> {
         let last_hash = last.hash();
         let last_number = last.number();
@@ -291,11 +176,11 @@ impl<CI: ChainIndex> ChainProvider for Shared<CI> {
 
             let min_difficulty = self.consensus.min_difficulty();
             let max_difficulty = last_difficulty * 2u32;
-            if &difficulty > &max_difficulty {
+            if difficulty > max_difficulty {
                 return Some(max_difficulty);
             }
 
-            if &difficulty < min_difficulty {
+            if difficulty.lt(min_difficulty) {
                 return Some(min_difficulty.clone());
             }
             return Some(difficulty);
@@ -305,19 +190,6 @@ impl<CI: ChainIndex> ChainProvider for Shared<CI> {
 
     fn consensus(&self) -> &Consensus {
         &*self.consensus
-    }
-}
-
-impl<CI: ChainIndex> BlockMedianTimeContext for Shared<CI> {
-    fn block_count(&self) -> u32 {
-        self.consensus.median_time_block_count() as u32
-    }
-    fn timestamp(&self, hash: &H256) -> Option<u64> {
-        self.block_header(hash).map(|header| header.timestamp())
-    }
-    fn parent_hash(&self, hash: &H256) -> Option<H256> {
-        self.block_header(hash)
-            .map(|header| header.parent_hash().to_owned())
     }
 }
 
@@ -355,7 +227,7 @@ impl SharedBuilder<CacheDB<RocksDB>> {
     pub fn db(mut self, config: &DBConfig) -> Self {
         self.db = Some(CacheDB::new(
             RocksDB::open(config, COLUMNS),
-            &[(COLUMN_BLOCK_HEADER.unwrap(), 4096)],
+            &[(COLUMN_BLOCK_HEADER, 4096)],
         ));
         self
     }
@@ -363,7 +235,7 @@ impl SharedBuilder<CacheDB<RocksDB>> {
 
 pub const MIN_TXS_VERIFY_CACHE_SIZE: Option<usize> = Some(100);
 
-impl<DB: 'static + KeyValueDB> SharedBuilder<DB> {
+impl<DB: KeyValueDB> SharedBuilder<DB> {
     pub fn consensus(mut self, value: Consensus) -> Self {
         self.consensus = Some(value);
         self

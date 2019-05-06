@@ -1,23 +1,23 @@
-#![allow(clippy::op_ref)]
-
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
+
+const ONE: U256 = U256::one();
 
 /// f(x) = 2^256 / x
 pub fn boundary_to_difficulty(boundary: &H256) -> U256 {
     let d: U256 = boundary.into();
-    if d <= U256::one() {
+    if d.le(&ONE) {
         U256::max_value()
     } else {
-        ((U256::one() << 255) / d) << 1
+        ((ONE << 255) / d) << 1
     }
 }
 
 pub fn difficulty_to_boundary(difficulty: &U256) -> H256 {
-    if difficulty <= &U256::one() {
+    if difficulty.le(&ONE) {
         U256::max_value().into()
     } else {
-        let t = U256::one() << 255;
+        let t = ONE << 255;
         let boundary = (&t / difficulty) << 1u8;
         boundary.into()
     }

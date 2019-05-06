@@ -1,5 +1,3 @@
-#![allow(clippy::needless_pass_by_value)]
-
 mod block_proposal_process;
 mod block_transactions_process;
 pub mod compact_block;
@@ -17,45 +15,55 @@ use self::get_block_transactions_process::GetBlockTransactionsProcess;
 use self::transaction_process::TransactionProcess;
 use crate::relayer::compact_block::ShortTransactionID;
 use crate::types::Peers;
-use bytes::Bytes;
 use ckb_chain::chain::ChainController;
 use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::transaction::{ProposalShortId, Transaction};
+use ckb_core::uncle::UncleBlock;
 use ckb_network::{Behaviour, CKBProtocolContext, CKBProtocolHandler, PeerIndex};
 use ckb_protocol::{
     cast, get_root, short_transaction_id, short_transaction_id_keys, RelayMessage, RelayPayload,
 };
 use ckb_shared::chain_state::ChainState;
-use ckb_shared::index::ChainIndex;
 use ckb_shared::shared::Shared;
+use ckb_shared::store::ChainStore;
 use ckb_traits::ChainProvider;
 use ckb_util::Mutex;
 use failure::Error as FailureError;
+use faketime::unix_time_as_millis;
 use flatbuffers::FlatBufferBuilder;
 use fnv::{FnvHashMap, FnvHashSet};
-use log::warn;
 use log::{debug, info};
+use lru_cache::LruCache;
 use numext_fixed_hash::H256;
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Duration;
 
 pub const TX_PROPOSAL_TOKEN: u64 = 0;
+pub const MAX_RELAY_PEERS: usize = 128;
+pub const TX_FILTER_SIZE: usize = 1000;
 
-#[derive(Clone)]
-pub struct Relayer<CI: ChainIndex> {
+pub struct Relayer<CS> {
     chain: ChainController,
-    pub(crate) shared: Shared<CI>,
+    pub(crate) shared: Shared<CS>,
     state: Arc<RelayState>,
     // TODO refactor shared Peers struct with Synchronizer
     peers: Arc<Peers>,
 }
 
-impl<CI> Relayer<CI>
-where
-    CI: ChainIndex + 'static,
-{
-    pub fn new(chain: ChainController, shared: Shared<CI>, peers: Arc<Peers>) -> Self {
+impl<CS: ChainStore> Clone for Relayer<CS> {
+    fn clone(&self) -> Self {
+        Relayer {
+            chain: self.chain.clone(),
+            shared: self.shared.clone(),
+            state: Arc::clone(&self.state),
+            peers: Arc::clone(&self.peers),
+        }
+    }
+}
+
+impl<CS: ChainStore> Relayer<CS> {
+    pub fn new(chain: ChainController, shared: Shared<CS>, peers: Arc<Peers>) -> Self {
         Relayer {
             chain,
             shared,
@@ -66,7 +74,7 @@ where
 
     fn try_process(
         &self,
-        nc: &mut CKBProtocolContext,
+        nc: &CKBProtocolContext,
         peer: PeerIndex,
         message: RelayMessage,
     ) -> Result<(), FailureError> {
@@ -75,8 +83,8 @@ where
                 CompactBlockProcess::new(
                     &cast!(message.payload_as_compact_block())?,
                     self,
-                    peer,
                     nc,
+                    peer,
                 )
                 .execute()?;
             }
@@ -84,8 +92,8 @@ where
                 TransactionProcess::new(
                     &cast!(message.payload_as_valid_transaction())?,
                     self,
-                    peer,
                     nc,
+                    peer,
                 )
                 .execute()?;
             }
@@ -93,8 +101,8 @@ where
                 GetBlockTransactionsProcess::new(
                     &cast!(message.payload_as_get_block_transactions())?,
                     self,
-                    peer,
                     nc,
+                    peer,
                 )
                 .execute()?;
             }
@@ -102,8 +110,8 @@ where
                 BlockTransactionsProcess::new(
                     &cast!(message.payload_as_block_transactions())?,
                     self,
-                    peer,
                     nc,
+                    peer,
                 )
                 .execute()?;
             }
@@ -111,8 +119,8 @@ where
                 GetBlockProposalProcess::new(
                     &cast!(message.payload_as_get_block_proposal())?,
                     self,
-                    peer,
                     nc,
+                    peer,
                 )
                 .execute()?;
             }
@@ -127,20 +135,16 @@ where
         Ok(())
     }
 
-    fn process(&self, nc: &mut CKBProtocolContext, peer: PeerIndex, message: RelayMessage) {
+    fn process(&self, nc: &CKBProtocolContext, peer: PeerIndex, message: RelayMessage) {
         if self.try_process(nc, peer, message).is_err() {
-            let ret = nc.report_peer(peer, Behaviour::UnexpectedMessage);
-
-            if ret.is_err() {
-                warn!(target: "network", "report_peer peer {:?} UnexpectedMessage error {:?}", peer, ret);
-            }
+            nc.report_peer(peer, Behaviour::UnexpectedMessage);
         }
     }
 
     pub fn request_proposal_txs(
         &self,
-        chain_state: &ChainState<CI>,
-        nc: &mut CKBProtocolContext,
+        chain_state: &ChainState<CS>,
+        nc: &CKBProtocolContext,
         peer: PeerIndex,
         block: &CompactBlock,
     ) {
@@ -152,37 +156,44 @@ where
                 block
                     .uncles
                     .iter()
-                    .flat_map(|uncle| uncle.proposal_transactions()),
+                    .flat_map(UncleBlock::proposal_transactions),
             )
             .filter(|x| !chain_state.contains_proposal_id(x) && inflight.insert(**x))
             .cloned()
             .collect::<Vec<_>>();
 
-        let fbb = &mut FlatBufferBuilder::new();
-        let message =
-            RelayMessage::build_get_block_proposal(fbb, block.header.number(), &unknown_ids);
-        fbb.finish(message, None);
+        if !unknown_ids.is_empty() {
+            let fbb = &mut FlatBufferBuilder::new();
+            let message =
+                RelayMessage::build_get_block_proposal(fbb, block.header.number(), &unknown_ids);
+            fbb.finish(message, None);
 
-        let ret = nc.send(peer, fbb.finished_data().to_vec());
-        if ret.is_err() {
-            warn!(target: "relay", "relay get_block_proposal error {:?}", ret);
+            nc.send_message_to(peer, fbb.finished_data().to_vec());
         }
     }
 
-    pub fn accept_block(&self, nc: &mut CKBProtocolContext, peer: PeerIndex, block: &Arc<Block>) {
+    pub fn accept_block(&self, nc: &CKBProtocolContext, peer: PeerIndex, block: &Arc<Block>) {
         let ret = self.chain.process_block(Arc::clone(&block));
+
         if ret.is_ok() {
+            debug!(target: "relay", "[block_relay] relayer accept_block {} {}", block.header().hash(), unix_time_as_millis());
+            let block_hash = block.header().hash();
             let fbb = &mut FlatBufferBuilder::new();
             let message = RelayMessage::build_compact_block(fbb, block, &HashSet::new());
             fbb.finish(message, None);
 
-            for peer_id in nc.connected_peers() {
-                if peer_id != peer {
-                    let ret = nc.send(peer_id, fbb.finished_data().to_vec());
-                    if ret.is_err() {
-                        warn!(target: "relay", "relay compact_block error {:?}", ret);
-                    }
-                }
+            let mut known_blocks = self.peers.known_blocks.lock();
+            let selected_peers: Vec<PeerIndex> = nc
+                .connected_peers()
+                .into_iter()
+                .filter(|target_peer| {
+                    known_blocks.insert(*target_peer, block_hash.clone()) && (peer != *target_peer)
+                })
+                .take(MAX_RELAY_PEERS)
+                .collect();
+
+            for target_peer in selected_peers {
+                nc.send_message_to(target_peer, fbb.finished_data().to_vec());
             }
         } else {
             debug!(target: "relay", "accept_block verify error {:?}", ret);
@@ -191,7 +202,7 @@ where
 
     pub fn reconstruct_block(
         &self,
-        chain_state: &ChainState<CI>,
+        chain_state: &ChainState<CS>,
         compact_block: &CompactBlock,
         transactions: Vec<Transaction>,
     ) -> Result<Block, Vec<usize>> {
@@ -237,7 +248,7 @@ where
         // append remain transactions
         short_ids_iter.for_each(|short_id| block_transactions.push(txs_map.remove(short_id)));
 
-        let missing = block_transactions.iter().any(|tx| tx.is_none());
+        let missing = block_transactions.iter().any(Option::is_none);
 
         if !missing {
             let txs = block_transactions
@@ -262,17 +273,17 @@ where
         }
     }
 
-    fn prune_tx_proposal_request(&self, nc: &mut CKBProtocolContext) {
+    fn prune_tx_proposal_request(&self, nc: &CKBProtocolContext) {
         let mut pending_proposals_request = self.state.pending_proposals_request.lock();
         let mut peer_txs = FnvHashMap::default();
         let mut remove_ids = Vec::new();
         {
             let chain_state = self.shared.chain_state().lock();
             let tx_pool = chain_state.tx_pool();
-            for (id, peers) in pending_proposals_request.iter() {
+            for (id, peer_indexs) in pending_proposals_request.iter() {
                 if let Some(tx) = tx_pool.get_tx(id) {
-                    for peer in peers {
-                        let tx_set = peer_txs.entry(*peer).or_insert_with(Vec::new);
+                    for peer_index in peer_indexs {
+                        let tx_set = peer_txs.entry(*peer_index).or_insert_with(Vec::new);
                         tx_set.push(tx.clone());
                     }
                 }
@@ -284,17 +295,12 @@ where
             pending_proposals_request.remove(&id);
         }
 
-        for (peer, txs) in peer_txs {
+        for (peer_index, txs) in peer_txs {
             let fbb = &mut FlatBufferBuilder::new();
             let message =
                 RelayMessage::build_block_proposal(fbb, &txs.into_iter().collect::<Vec<_>>());
             fbb.finish(message, None);
-
-            let ret = nc.send(peer, fbb.finished_data().to_vec());
-
-            if ret.is_err() {
-                warn!(target: "relay", "send block_proposal error {:?}", ret);
-            }
+            nc.send_message_to(peer_index, fbb.finished_data().to_vec());
         }
     }
 
@@ -307,52 +313,67 @@ where
     }
 }
 
-impl<CI> CKBProtocolHandler for Relayer<CI>
-where
-    CI: ChainIndex + 'static,
-{
-    fn initialize(&self, nc: Box<CKBProtocolContext>) {
-        nc.register_timer(Duration::from_millis(100), TX_PROPOSAL_TOKEN);
+impl<CS: ChainStore> CKBProtocolHandler for Relayer<CS> {
+    fn init(&mut self, nc: Box<dyn CKBProtocolContext>) {
+        nc.set_notify(Duration::from_millis(100), TX_PROPOSAL_TOKEN);
     }
 
-    fn received(&self, mut nc: Box<CKBProtocolContext>, peer: PeerIndex, data: Bytes) {
+    fn received(
+        &mut self,
+        nc: Box<dyn CKBProtocolContext>,
+        peer_index: PeerIndex,
+        data: bytes::Bytes,
+    ) {
         let msg = match get_root::<RelayMessage>(&data) {
             Ok(msg) => msg,
             _ => {
-                info!(target: "sync", "Peer {} sends us a malformed message", peer);
-                let ret = nc.report_peer(peer, Behaviour::UnexpectedMessage);
-                if ret.is_err() {
-                    warn!(target: "network", "report_peer peer {:?} UnexpectedMessage error  {:?}", peer, ret);
-                }
+                info!(target: "sync", "Peer {} sends us a malformed message", peer_index);
+                nc.report_peer(peer_index, Behaviour::UnexpectedMessage);
                 return;
             }
         };
 
         debug!(target: "relay", "msg {:?}", msg.payload_type());
-        self.process(nc.as_mut(), peer, msg);
+        self.process(nc.as_ref(), peer_index, msg);
     }
 
-    fn connected(&self, _nc: Box<CKBProtocolContext>, peer: PeerIndex) {
-        info!(target: "relay", "peer={} RelayProtocol.connected", peer);
+    fn connected(
+        &mut self,
+        _nc: Box<dyn CKBProtocolContext>,
+        peer_index: PeerIndex,
+        version: &str,
+    ) {
+        info!(target: "relay", "RelayProtocol({}).connected peer={}", version, peer_index);
         // do nothing
     }
 
-    fn disconnected(&self, _nc: Box<CKBProtocolContext>, peer: PeerIndex) {
-        info!(target: "relay", "peer={} RelayProtocol.disconnected", peer);
+    fn disconnected(&mut self, _nc: Box<dyn CKBProtocolContext>, peer_index: PeerIndex) {
+        info!(target: "relay", "RelayProtocol.disconnected peer={}", peer_index);
         // TODO
     }
 
-    fn timer_triggered(&self, mut nc: Box<CKBProtocolContext>, token: u64) {
+    fn notify(&mut self, nc: Box<dyn CKBProtocolContext>, token: u64) {
         match token {
-            TX_PROPOSAL_TOKEN => self.prune_tx_proposal_request(nc.as_mut()),
+            TX_PROPOSAL_TOKEN => self.prune_tx_proposal_request(nc.as_ref()),
             _ => unreachable!(),
         }
     }
 }
 
-#[derive(Default)]
 pub struct RelayState {
     pub pending_compact_blocks: Mutex<FnvHashMap<H256, CompactBlock>>,
     pub inflight_proposals: Mutex<FnvHashSet<ProposalShortId>>,
     pub pending_proposals_request: Mutex<FnvHashMap<ProposalShortId, FnvHashSet<PeerIndex>>>,
+    pub tx_filter: Mutex<LruCache<H256, ()>>,
+}
+
+impl Default for RelayState {
+    fn default() -> Self {
+        RelayState {
+            pending_compact_blocks: Mutex::new(FnvHashMap::default()),
+            inflight_proposals: Mutex::new(FnvHashSet::default()),
+            pending_proposals_request: Mutex::new(FnvHashMap::default()),
+            tx_filter: Mutex::new(LruCache::new(TX_FILTER_SIZE)),
+        }
+    }
 }

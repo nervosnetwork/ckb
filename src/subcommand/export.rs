@@ -1,7 +1,6 @@
 use crate::setup::{ExitCode, ExportArgs};
-use ckb_db::diskdb::RocksDB;
+use ckb_db::{CacheDB, RocksDB};
 use ckb_instrument::Export;
-use ckb_shared::cachedb::CacheDB;
 use ckb_shared::shared::SharedBuilder;
 
 pub fn export(args: ExportArgs) -> Result<(), ExitCode> {

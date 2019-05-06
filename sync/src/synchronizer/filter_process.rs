@@ -2,22 +2,22 @@ use crate::synchronizer::Synchronizer;
 use crate::types::TransactionFilter;
 use ckb_network::PeerIndex;
 use ckb_protocol::{cast, AddFilter, SetFilter};
-use ckb_shared::index::ChainIndex;
+use ckb_shared::store::ChainStore;
 use failure::Error as FailureError;
 
-pub struct SetFilterProcess<'a, CI: ChainIndex + 'a> {
+pub struct SetFilterProcess<'a, CS: ChainStore + 'a> {
     message: &'a SetFilter<'a>,
-    synchronizer: &'a Synchronizer<CI>,
+    synchronizer: &'a Synchronizer<CS>,
     peer: PeerIndex,
 }
 
-impl<'a, CI> SetFilterProcess<'a, CI>
+impl<'a, CS> SetFilterProcess<'a, CS>
 where
-    CI: ChainIndex + 'a,
+    CS: ChainStore + 'a,
 {
     pub fn new(
         message: &'a SetFilter,
-        synchronizer: &'a Synchronizer<CI>,
+        synchronizer: &'a Synchronizer<CS>,
         peer: PeerIndex,
     ) -> Self {
         Self {
@@ -42,19 +42,19 @@ where
     }
 }
 
-pub struct AddFilterProcess<'a, CI: ChainIndex + 'a> {
+pub struct AddFilterProcess<'a, CS: ChainStore + 'a> {
     message: &'a AddFilter<'a>,
-    synchronizer: &'a Synchronizer<CI>,
+    synchronizer: &'a Synchronizer<CS>,
     peer: PeerIndex,
 }
 
-impl<'a, CI> AddFilterProcess<'a, CI>
+impl<'a, CS> AddFilterProcess<'a, CS>
 where
-    CI: ChainIndex + 'a,
+    CS: ChainStore + 'a,
 {
     pub fn new(
         message: &'a AddFilter,
-        synchronizer: &'a Synchronizer<CI>,
+        synchronizer: &'a Synchronizer<CS>,
         peer: PeerIndex,
     ) -> Self {
         Self {
@@ -74,16 +74,16 @@ where
     }
 }
 
-pub struct ClearFilterProcess<'a, CI: ChainIndex + 'a> {
-    synchronizer: &'a Synchronizer<CI>,
+pub struct ClearFilterProcess<'a, CS: ChainStore + 'a> {
+    synchronizer: &'a Synchronizer<CS>,
     peer: PeerIndex,
 }
 
-impl<'a, CI> ClearFilterProcess<'a, CI>
+impl<'a, CS> ClearFilterProcess<'a, CS>
 where
-    CI: ChainIndex + 'a,
+    CS: ChainStore + 'a,
 {
-    pub fn new(synchronizer: &'a Synchronizer<CI>, peer: PeerIndex) -> Self {
+    pub fn new(synchronizer: &'a Synchronizer<CS>, peer: PeerIndex) -> Self {
         Self { peer, synchronizer }
     }
 

@@ -10,7 +10,7 @@ use ckb_core::block::BlockBuilder;
 use ckb_core::header::HeaderBuilder;
 use ckb_core::script::Script;
 use ckb_core::transaction::{CellOutput, Transaction, TransactionBuilder};
-use ckb_core::{Capacity, Cycle};
+use ckb_core::{BlockNumber, Capacity, Cycle};
 use ckb_pow::{Pow, PowEngine};
 use ckb_resource::{Resource, ResourceLocator};
 use numext_fixed_hash::H256;
@@ -46,6 +46,7 @@ struct ChainSpecConfig {
 pub struct Params {
     pub initial_block_reward: Capacity,
     pub max_block_cycles: Cycle,
+    pub cellbase_maturity: BlockNumber,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug, Deserialize)]
@@ -165,6 +166,7 @@ impl ChainSpec {
         let consensus = Consensus::default()
             .set_id(self.name.clone())
             .set_genesis_block(genesis_block)
+            .set_cellbase_maturity(self.params.cellbase_maturity)
             .set_initial_block_reward(self.params.initial_block_reward)
             .set_max_block_cycles(self.params.max_block_cycles)
             .set_pow(self.pow.clone());
@@ -196,7 +198,7 @@ pub mod test {
         // Tx and Output hash will be used in some test cases directly, assert here for convenience
         assert_eq!(
             format!("{:x}", tx.hash()),
-            "9c3c3cc1a11966ff78a739a1ddb5e4b94fdcaa4e63e3e341c6f8126de2dfa2ac"
+            "913a98b7a6521b879e60a02a2c38ea14355f3e98beb60215e67e2512b6e0a235"
         );
 
         let reference = tx.outputs()[0].data_hash();
@@ -205,7 +207,7 @@ pub mod test {
             "28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5"
         );
 
-        let script = Script::new(0, vec![], reference);
+        let script = Script::new(vec![], reference);
         assert_eq!(
             format!("{:x}", script.hash()),
             "9a9a6bdbc38d4905eace1822f85237e3a1e238bb3f277aa7b7c8903441123510"

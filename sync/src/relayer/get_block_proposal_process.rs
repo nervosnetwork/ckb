@@ -1,28 +1,24 @@
 use crate::relayer::Relayer;
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::{cast, GetBlockProposal, RelayMessage};
-use ckb_shared::index::ChainIndex;
-use ckb_util::TryInto;
+use ckb_shared::store::ChainStore;
 use failure::Error as FailureError;
 use flatbuffers::FlatBufferBuilder;
-use log::warn;
+use std::convert::TryInto;
 
-pub struct GetBlockProposalProcess<'a, CI: ChainIndex + 'a> {
+pub struct GetBlockProposalProcess<'a, CS> {
     message: &'a GetBlockProposal<'a>,
-    relayer: &'a Relayer<CI>,
+    relayer: &'a Relayer<CS>,
+    nc: &'a CKBProtocolContext,
     peer: PeerIndex,
-    nc: &'a mut CKBProtocolContext,
 }
 
-impl<'a, CI> GetBlockProposalProcess<'a, CI>
-where
-    CI: ChainIndex + 'static,
-{
+impl<'a, CS: ChainStore> GetBlockProposalProcess<'a, CS> {
     pub fn new(
         message: &'a GetBlockProposal,
-        relayer: &'a Relayer<CI>,
+        relayer: &'a Relayer<CS>,
+        nc: &'a CKBProtocolContext,
         peer: PeerIndex,
-        nc: &'a mut CKBProtocolContext,
     ) -> Self {
         GetBlockProposalProcess {
             message,
@@ -63,10 +59,8 @@ where
         let message = RelayMessage::build_block_proposal(fbb, &transactions);
         fbb.finish(message, None);
 
-        let ret = self.nc.send(self.peer, fbb.finished_data().to_vec());
-        if ret.is_err() {
-            warn!(target: "relay", "GetBlockProposalProcess response error {:?}", ret);
-        }
+        self.nc
+            .send_message_to(self.peer, fbb.finished_data().to_vec());
         Ok(())
     }
 }

@@ -22,7 +22,7 @@ pub(crate) fn start_chain(
 ) -> (ChainController, Shared<ChainKVStore<MemoryKeyValueDB>>) {
     let builder = SharedBuilder::<MemoryKeyValueDB>::new();
     let shared = builder
-        .consensus(consensus.unwrap_or_else(Default::default))
+        .consensus(consensus.unwrap_or_else(|| Consensus::default().set_cellbase_maturity(0)))
         .build();
 
     let notify = NotifyService::default().start::<&str>(None);
@@ -67,7 +67,7 @@ pub(crate) fn gen_block(
         .proposal_transactions(
             proposal_transactions
                 .iter()
-                .map(|tx| tx.proposal_short_id())
+                .map(Transaction::proposal_short_id)
                 .collect(),
         )
         .with_header_builder(header_builder)
@@ -81,6 +81,6 @@ pub(crate) fn create_transaction(parent: H256, unique_data: u8) -> Transaction {
             Script::always_success(),
             None,
         ))
-        .input(CellInput::new(OutPoint::new(parent, 0), vec![]))
+        .input(CellInput::new(OutPoint::new(parent, 0), 0, vec![]))
         .build()
 }

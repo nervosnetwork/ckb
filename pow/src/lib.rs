@@ -4,25 +4,35 @@ use ckb_core::header::{BlockNumber, Header, RawHeader, Seal};
 use hash::blake2b_256;
 use numext_fixed_hash::H256;
 use serde_derive::Deserialize;
+use std::fmt;
 use std::sync::Arc;
 
 mod cuckoo;
 mod dummy;
 
 pub use crate::cuckoo::{Cuckoo, CuckooEngine, CuckooParams};
-pub use crate::dummy::DummyPowEngine;
+pub use crate::dummy::{DummyPowEngine, DummyPowParams};
 
 #[derive(Clone, Deserialize, Eq, PartialEq, Hash, Debug)]
 #[serde(tag = "func", content = "params")]
 pub enum Pow {
-    Dummy,
+    Dummy(DummyPowParams),
     Cuckoo(CuckooParams),
+}
+
+impl fmt::Display for Pow {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Pow::Dummy(params) => write!(f, "Dummy{}", params),
+            Pow::Cuckoo(params) => write!(f, "Cuckoo{}", params),
+        }
+    }
 }
 
 impl Pow {
     pub fn engine(&self) -> Arc<dyn PowEngine> {
         match *self {
-            Pow::Dummy => Arc::new(DummyPowEngine::new()),
+            Pow::Dummy(params) => Arc::new(DummyPowEngine::new(params)),
             Pow::Cuckoo(params) => Arc::new(CuckooEngine::new(params)),
         }
     }
@@ -38,10 +48,9 @@ fn pow_message(pow_hash: &[u8], nonce: u64) -> [u8; 40] {
 pub trait PowEngine: Send + Sync {
     fn init(&self, number: BlockNumber);
 
-    #[allow(clippy::op_ref)]
     fn verify_header(&self, header: &Header) -> bool {
         let proof_hash: H256 = blake2b_256(&header.proof()).into();
-        if &boundary_to_difficulty(&proof_hash) < header.difficulty() {
+        if boundary_to_difficulty(&proof_hash).lt(header.difficulty()) {
             return false;
         }
 

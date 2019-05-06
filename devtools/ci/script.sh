@@ -34,18 +34,17 @@ fi
 # We'll create PR for develop and rc branches to trigger the integration test.
 if [ "$RUN_INTEGRATION" = true ]; then
   echo "Running integration test..."
-  cargo build --verbose
-  cd test && cargo run ../target/debug/ckb
+  make integration
 
   # Switch to release mode when the running time is much longer than the build time.
-  # cargo build --release
-  # cargo run --release -p ckb-test target/release/ckb
+  # make integration-release
 else
   echo "Skip integration test..."
 fi
 
 # Publish package for release
 if [ -n "$TRAVIS_TAG" -a -n "$GITHUB_TOKEN" -a -n "$REL_PKG" ]; then
+  git fetch --unshallow
   make build
   rm -rf releases
   mkdir releases

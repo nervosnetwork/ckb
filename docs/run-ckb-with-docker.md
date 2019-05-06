@@ -3,8 +3,18 @@
 Start latest CKB release with default configuration:
 
 ```bash
-docker run -it ckb:latest run
+docker run -it nervos/ckb:latest run
 ```
+
+See other
+[tags](https://cloud.docker.com/u/nervos/repository/docker/nervos/ckb/tags)
+listed in DockerHub.
+
+- Tag `latest` is always the latest release, which is built from the latest
+  master branch.
+- Tag `develop` is built from the latest develop branch.
+- Tags `vx.y.z` are history releases.
+- Tags `vx.y.z-rc` are the preview of the release candidates.
 
 It is recommended to mount a volume at `/var/lib/ckb` in the container.
 Following is an example to mount a volume, generate config files in the volume
@@ -21,7 +31,7 @@ Then init the directory with testnet chain spec.
 ```bash
 docker run --rm -it \
   -v "$(pwd)/ckb-testnet:/var/lib/ckb" \
-  ckb:latest init --spec testnet
+  nervos/ckb:latest init --spec testnet
 ```
 
 Check the directory `ckb-testnet`. It should contains two config files now:
@@ -32,7 +42,7 @@ Edit the files if you like, then start a node from the volume:
 ```bash
 docker run -it
   -v "$(pwd)/ckb-testnet:/var/lib/ckb" \
-  ckb:latest run
+  nervos/ckb:latest run
 ```
 
 You can also start a miner with the following command. But you have to publish
@@ -42,5 +52,5 @@ connect to the node.
 ```bash
 docker run -it
   -v "$(pwd)/ckb-testnet:/var/lib/ckb" \
-  ckb:latest miner
+  nervos/ckb:latest miner
 ```

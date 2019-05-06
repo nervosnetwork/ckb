@@ -28,6 +28,7 @@ fn main() {
             "discovery" => Box::new(Discovery),
             "disconnect" => Box::new(Disconnect),
             "malformed_message" => Box::new(MalformedMessage),
+            "depent_tx_in_same_block" => Box::new(DepentTxInSameBlock),
             _ => panic!("invalid spec"),
         };
         let net = spec.setup_net(&binary, start_port);
@@ -43,6 +44,7 @@ fn main() {
             Box::new(Discovery),
             Box::new(Disconnect),
             Box::new(MalformedMessage),
+            Box::new(DepentTxInSameBlock),
         ];
 
         specs.iter().for_each(|spec| {

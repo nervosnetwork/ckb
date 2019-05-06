@@ -1,12 +1,11 @@
 use ckb_core::block::Block;
-use ckb_core::cell::{CellProvider, CellStatus};
 use ckb_core::transaction::OutPoint;
 use ckb_core::transaction_meta::TransactionMeta;
 use fnv::{FnvHashMap, FnvHashSet};
 use numext_fixed_hash::H256;
 use serde_derive::{Deserialize, Serialize};
 
-#[derive(Default, Debug, Clone)]
+#[derive(Default, Clone, Deserialize, Serialize)]
 pub struct CellSetDiff {
     pub old_inputs: FnvHashSet<OutPoint>,
     pub old_outputs: FnvHashSet<H256>,
@@ -39,25 +38,76 @@ impl CellSetDiff {
     }
 }
 
-impl CellProvider for CellSetDiff {
-    fn cell(&self, out_point: &OutPoint) -> CellStatus {
-        if self.new_inputs.contains(out_point) {
-            CellStatus::Dead
-        } else {
-            CellStatus::Unknown
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct CellSetOverlay<'a> {
+    origin: &'a FnvHashMap<H256, TransactionMeta>,
+    new: FnvHashMap<H256, TransactionMeta>,
+    removed: FnvHashSet<H256>,
+}
+
+impl<'a> CellSetOverlay<'a> {
+    pub fn get(&self, hash: &H256) -> Option<&TransactionMeta> {
+        if self.removed.get(hash).is_some() {
+            return None;
         }
+
+        self.new.get(hash).or_else(|| self.origin.get(hash))
     }
 }
 
 #[derive(Default, Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub struct CellSet {
-    pub inner: FnvHashMap<H256, TransactionMeta>,
+    pub(crate) inner: FnvHashMap<H256, TransactionMeta>,
 }
 
 impl CellSet {
     pub fn new() -> Self {
         CellSet {
             inner: FnvHashMap::default(),
+        }
+    }
+
+    pub fn new_overlay<'a>(&'a self, diff: &CellSetDiff) -> CellSetOverlay<'a> {
+        let mut new = FnvHashMap::default();
+        let mut removed = FnvHashSet::default();
+
+        for hash in &diff.old_outputs {
+            if self.inner.get(&hash).is_some() {
+                removed.insert(hash.clone());
+            }
+        }
+
+        for (hash, (number, cellbase, len)) in diff.new_outputs.clone() {
+            removed.remove(&hash);
+            if cellbase {
+                new.insert(hash, TransactionMeta::new_cellbase(number, len));
+            } else {
+                new.insert(hash, TransactionMeta::new(number, len));
+            }
+        }
+
+        for old_input in &diff.old_inputs {
+            if let Some(meta) = self.inner.get(&old_input.hash) {
+                let meta = new
+                    .entry(old_input.hash.clone())
+                    .or_insert_with(|| meta.clone());
+                meta.unset_dead(old_input.index as usize);
+            }
+        }
+
+        for new_input in &diff.new_inputs {
+            if let Some(meta) = self.inner.get(&new_input.hash) {
+                let meta = new
+                    .entry(new_input.hash.clone())
+                    .or_insert_with(|| meta.clone());
+                meta.set_dead(new_input.index as usize);
+            }
+        }
+
+        CellSetOverlay {
+            new,
+            removed,
+            origin: &self.inner,
         }
     }
 
@@ -120,20 +170,5 @@ impl CellSet {
         new_inputs.iter().for_each(|o| {
             self.mark_dead(o);
         });
-    }
-}
-
-impl CellProvider for CellSet {
-    fn cell(&self, out_point: &OutPoint) -> CellStatus {
-        match self.get(&out_point.hash) {
-            Some(meta) => {
-                if meta.is_dead(out_point.index as usize) {
-                    CellStatus::Dead
-                } else {
-                    CellStatus::Unknown
-                }
-            }
-            None => CellStatus::Unknown,
-        }
     }
 }

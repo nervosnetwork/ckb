@@ -53,7 +53,7 @@ impl Block {
         uncles_hash(&self.uncles)
     }
 
-    pub fn union_proposal_ids(&self) -> Vec<ProposalShortId> {
+    pub fn union_proposal_ids(&self) -> FnvHashSet<ProposalShortId> {
         let mut ids = FnvHashSet::default();
 
         ids.extend(self.proposal_transactions());
@@ -62,7 +62,7 @@ impl Block {
             ids.extend(uc.proposal_transactions());
         }
 
-        ids.into_iter().collect()
+        ids
     }
 
     pub fn cal_witnesses_root(&self) -> H256 {
@@ -72,7 +72,7 @@ impl Block {
             self.commit_transactions()
                 .iter()
                 .skip(1)
-                .map(|tx| tx.witness_hash()),
+                .map(Transaction::witness_hash),
         );
         merkle_root(&witnesses[..])
     }
@@ -82,7 +82,7 @@ impl Block {
             &self
                 .commit_transactions
                 .iter()
-                .map(|t| t.hash())
+                .map(Transaction::hash)
                 .collect::<Vec<_>>(),
         )
     }
@@ -92,7 +92,7 @@ impl Block {
             &self
                 .proposal_transactions
                 .iter()
-                .map(|t| t.hash())
+                .map(ProposalShortId::hash)
                 .collect::<Vec<_>>(),
         )
     }

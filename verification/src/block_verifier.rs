@@ -1,14 +1,14 @@
 use crate::error::{CellbaseError, CommitError, Error, UnclesError};
 use crate::header_verifier::HeaderResolver;
 use crate::{InputVerifier, TransactionVerifier, Verifier};
-use ckb_core::block::Block;
 use ckb_core::cell::ResolvedTransaction;
 use ckb_core::header::Header;
-use ckb_core::transaction::{Capacity, CellInput};
+use ckb_core::transaction::{Capacity, CellInput, Transaction};
 use ckb_core::Cycle;
-use ckb_merkle_tree::merkle_root;
-use ckb_traits::ChainProvider;
+use ckb_core::{block::Block, BlockNumber};
+use ckb_traits::{BlockMedianTimeContext, ChainProvider};
 use fnv::FnvHashSet;
+use log::error;
 use lru_cache::LruCache;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
@@ -32,7 +32,7 @@ pub struct BlockVerifier<P> {
 
 impl<P> BlockVerifier<P>
 where
-    P: ChainProvider + Clone + 'static,
+    P: ChainProvider + Clone,
 {
     pub fn new(provider: P) -> Self {
         BlockVerifier {
@@ -85,9 +85,8 @@ impl<CP: ChainProvider + Clone> CellbaseVerifier<CP> {
         }
 
         let cellbase_transaction = &block.commit_transactions()[0];
-        if cellbase_transaction.inputs()[0]
-            != CellInput::new_cellbase_input(block.header().number())
-        {
+        let cellbase_input = &cellbase_transaction.inputs()[0];
+        if cellbase_input != &CellInput::new_cellbase_input(block.header().number()) {
             return Err(Error::Cellbase(CellbaseError::InvalidInput));
         }
 
@@ -309,13 +308,7 @@ impl<CP: ChainProvider + Clone> UnclesVerifier<CP> {
                 return Err(Error::Uncles(UnclesError::InvalidInclude(uncle_hash)));
             }
 
-            let proposals = uncle
-                .proposal_transactions()
-                .iter()
-                .map(|id| id.hash())
-                .collect::<Vec<_>>();
-
-            if uncle_header.txs_proposal() != &merkle_root(&proposals[..]) {
+            if uncle_header.txs_proposal() != &uncle.cal_txs_proposal_root() {
                 return Err(Error::Uncles(UnclesError::ProposalTransactionsRoot));
             }
 
@@ -354,15 +347,21 @@ impl TransactionsVerifier {
         TransactionsVerifier { max_cycles }
     }
 
-    pub fn verify(
+    pub fn verify<M>(
         &self,
         txs_verify_cache: &mut LruCache<H256, Cycle>,
         resolved: &[ResolvedTransaction],
         block_reward: Capacity,
-    ) -> Result<(), Error> {
+        block_median_time_context: M,
+        tip_number: BlockNumber,
+        cellbase_maturity: BlockNumber,
+    ) -> Result<(), Error>
+    where
+        M: BlockMedianTimeContext + Sync,
+    {
         // verify cellbase reward
         let cellbase = &resolved[0];
-        let fee: Capacity = resolved.iter().skip(1).map(|rt| rt.fee()).sum();
+        let fee: Capacity = resolved.iter().skip(1).map(ResolvedTransaction::fee).sum();
         if cellbase.transaction.outputs_capacity() > block_reward + fee {
             return Err(Error::Cellbase(CellbaseError::InvalidReward));
         }
@@ -380,10 +379,15 @@ impl TransactionsVerifier {
                         .map_err(|e| Error::Transactions((index, e)))
                         .map(|_| (None, *cycles))
                 } else {
-                    TransactionVerifier::new(&tx)
-                        .verify(self.max_cycles)
-                        .map_err(|e| Error::Transactions((index, e)))
-                        .map(|cycles| (Some(tx.transaction.hash()), cycles))
+                    TransactionVerifier::new(
+                        &tx,
+                        &block_median_time_context,
+                        tip_number,
+                        cellbase_maturity,
+                    )
+                    .verify(self.max_cycles)
+                    .map_err(|e| Error::Transactions((index, e)))
+                    .map(|cycles| (Some(tx.transaction.hash()), cycles))
                 }
             })
             .collect::<Result<Vec<_>, _>>()?;
@@ -449,12 +453,16 @@ impl<CP: ChainProvider + Clone> CommitVerifier<CP> {
             .commit_transactions()
             .par_iter()
             .skip(1)
-            .map(|tx| tx.proposal_short_id())
+            .map(Transaction::proposal_short_id)
             .collect();
 
         let difference: Vec<_> = committed_ids.difference(&proposal_txs_ids).collect();
 
         if !difference.is_empty() {
+            error!(target: "chain",  "Block {} {:x}", block.header().number(), block.header().hash());
+            error!(target: "chain",  "proposal_window proposal_start {}", proposal_start);
+            error!(target: "chain",  "committed_ids {} ", serde_json::to_string(&committed_ids).unwrap());
+            error!(target: "chain",  "proposal_txs_ids {} ", serde_json::to_string(&proposal_txs_ids).unwrap());
             return Err(Error::Commit(CommitError::Invalid));
         }
         Ok(())

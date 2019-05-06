@@ -1,6 +1,6 @@
 [package]
 name = "ckb-core"
-version = "0.9.0"
+version = "0.10.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -14,10 +14,12 @@ numext-fixed-uint = { version = "0.1", features = ["support_rand", "support_heap
 hash = {path = "../util/hash"}
 crypto = {path = "../util/crypto"}
 occupied-capacity = {path = "../util/occupied-capacity"}
+occupied-capacity-derive = {path = "../util/occupied-capacity-derive"}
 bit-vec = "0.5.1"
 crossbeam-channel = "0.3"
 ckb-util = { path = "../util" }
 fnv = "1.0.3"
 ckb-merkle-tree = {path = "../util/merkle-tree"}
 faster-hex = "0.3"
-serde_bytes = "0.10.5"
+serde_bytes = "0.11.1"
+log = "0.4"

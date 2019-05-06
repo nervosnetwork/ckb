@@ -583,6 +583,15 @@ pub mod ckb {
                     }
                 }
 
+                if Self::VT_VALID_SINCE as usize + flatbuffers::SIZE_VOFFSET
+                    <= vtab_num_bytes
+                {
+                    let voffset = vtab.get(Self::VT_VALID_SINCE) as usize;
+                    if voffset > 0 && object_inline_num_bytes - voffset < 8 {
+                        return Err(Error::OutOfBounds);
+                    }
+                }
+
                 if Self::VT_ARGS as usize + flatbuffers::SIZE_VOFFSET
                     <= vtab_num_bytes
                 {
@@ -2165,15 +2174,6 @@ pub mod ckb {
                     if (voffset > 0 && voffset < flatbuffers::SIZE_SOFFSET)
                         || voffset >= object_inline_num_bytes
                     {
-                        return Err(Error::OutOfBounds);
-                    }
-                }
-
-                if Self::VT_VERSION as usize + flatbuffers::SIZE_VOFFSET
-                    <= vtab_num_bytes
-                {
-                    let voffset = vtab.get(Self::VT_VERSION) as usize;
-                    if voffset > 0 && object_inline_num_bytes - voffset < 1 {
                         return Err(Error::OutOfBounds);
                     }
                 }

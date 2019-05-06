@@ -16,10 +16,10 @@ env:
 
 matrix:
   include:
-    - rust: 1.33.0
+    - rust: 1.34.0
       os: osx
       env: FMT=true CHECK=true TEST=true REL_PKG=darwin_amd64.zip
-    - rust: 1.33.0
+    - rust: 1.34.0
       os: linux
       env: TEST=true REL_PKG=linux_amd64.tar.gz
 
@@ -48,5 +48,6 @@ deploy:
     condition: '"$GITHUB_TOKEN" != "" && "$REL_PKG" != ""'
 
 before_cache:
+- rm -rf ./target/release
 - rm -rf ./target/debug/incremental/
 - cargo sweep -f

@@ -2,6 +2,7 @@ use crate::{Net, Spec};
 use ckb_core::block::Block;
 use ckb_core::transaction::ProposalShortId;
 use log::info;
+use std::convert::TryInto;
 
 pub struct MiningBasic;
 
@@ -25,14 +26,16 @@ impl Spec for MiningBasic {
             .call()
             .unwrap()
             .unwrap()
-            .into();
+            .try_into()
+            .unwrap();
         let block3: Block = node
             .rpc_client()
             .get_block(block3_hash)
             .call()
             .unwrap()
             .unwrap()
-            .into();
+            .try_into()
+            .unwrap();
 
         info!("Generated tx should be included in next block's proposal txs");
         assert!(block1

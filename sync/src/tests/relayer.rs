@@ -6,14 +6,14 @@ use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::BlockBuilder;
 use ckb_core::header::HeaderBuilder;
 use ckb_core::script::Script;
-use ckb_core::transaction::{CellInput, CellOutput, OutPoint, TransactionBuilder};
+use ckb_core::transaction::{CellInput, CellOutput, OutPoint, Transaction, TransactionBuilder};
 use ckb_db::memorydb::MemoryKeyValueDB;
-use ckb_network::ProtocolId;
 use ckb_notify::NotifyService;
 use ckb_protocol::RelayMessage;
 use ckb_shared::shared::{Shared, SharedBuilder};
 use ckb_shared::store::ChainKVStore;
 use ckb_traits::ChainProvider;
+use ckb_util::RwLock;
 use faketime::{self, unix_time_as_millis};
 use flatbuffers::get_root;
 use flatbuffers::FlatBufferBuilder;
@@ -36,7 +36,7 @@ fn relay_compact_block_with_one_tx() {
     let (mut node2, shared2, _chain_controller2) = setup_node(&thread_name, 3);
     let barrier = Arc::new(Barrier::new(2));
 
-    node1.connect(&mut node2, NetworkProtocol::RELAY as ProtocolId);
+    node1.connect(&mut node2, NetworkProtocol::RELAY.into());
 
     let (signal_tx1, _) = channel();
     let barrier1 = Arc::clone(&barrier);
@@ -52,6 +52,7 @@ fn relay_compact_block_with_one_tx() {
             let tx = TransactionBuilder::default()
                 .input(CellInput::new(
                     OutPoint::new(last_cellbase.hash().clone(), 0),
+                    0,
                     vec![],
                 ))
                 .output(CellOutput::new(50, Vec::new(), Script::default(), None))
@@ -60,16 +61,14 @@ fn relay_compact_block_with_one_tx() {
             {
                 let chain_state = shared1.chain_state().lock();
                 let rtx = chain_state.resolve_tx_from_pool(&tx, &chain_state.tx_pool());
+                println!("rtx {:?}", rtx);
                 let cycles = chain_state
                     .verify_rtx(&rtx, shared1.consensus().max_block_cycles())
                     .expect("verify relay tx");
                 let fbb = &mut FlatBufferBuilder::new();
                 let message = RelayMessage::build_transaction(fbb, &tx, cycles);
                 fbb.finish(message, None);
-                node1.broadcast(
-                    NetworkProtocol::RELAY as ProtocolId,
-                    &fbb.finished_data().to_vec(),
-                );
+                node1.broadcast(NetworkProtocol::RELAY.into(), &fbb.finished_data().to_vec());
             }
 
             // building 1st compact block with tx proposal and broadcast it
@@ -102,10 +101,7 @@ fn relay_compact_block_with_one_tx() {
                 let fbb = &mut FlatBufferBuilder::new();
                 let message = RelayMessage::build_compact_block(fbb, &block, &HashSet::new());
                 fbb.finish(message, None);
-                node1.broadcast(
-                    NetworkProtocol::RELAY as ProtocolId,
-                    &fbb.finished_data().to_vec(),
-                );
+                node1.broadcast(NetworkProtocol::RELAY.into(), &fbb.finished_data().to_vec());
             }
 
             // building 2nd compact block with tx and broadcast it
@@ -140,10 +136,7 @@ fn relay_compact_block_with_one_tx() {
                 let fbb = &mut FlatBufferBuilder::new();
                 let message = RelayMessage::build_compact_block(fbb, &block, &HashSet::new());
                 fbb.finish(message, None);
-                node1.broadcast(
-                    NetworkProtocol::RELAY as ProtocolId,
-                    &fbb.finished_data().to_vec(),
-                );
+                node1.broadcast(NetworkProtocol::RELAY.into(), &fbb.finished_data().to_vec());
             }
 
             node1.start(&signal_tx1, |_| false);
@@ -186,7 +179,7 @@ fn relay_compact_block_with_missing_indexs() {
     let (mut node1, shared1, chain_controller1) = setup_node(&thread_name, 3);
     let (mut node2, shared2, _chain_controller2) = setup_node(&thread_name, 3);
 
-    node1.connect(&mut node2, NetworkProtocol::RELAY as ProtocolId);
+    node1.connect(&mut node2, NetworkProtocol::RELAY.into());
 
     let (signal_tx1, _) = channel();
     thread::Builder::new()
@@ -203,6 +196,7 @@ fn relay_compact_block_with_missing_indexs() {
                     TransactionBuilder::default()
                         .input(CellInput::new(
                             OutPoint::new(last_cellbase.hash().clone(), u32::from(i)),
+                            0,
                             vec![],
                         ))
                         .output(CellOutput::new(50, vec![i], Script::default(), None))
@@ -222,10 +216,7 @@ fn relay_compact_block_with_missing_indexs() {
                 let fbb = &mut FlatBufferBuilder::new();
                 let message = RelayMessage::build_transaction(fbb, tx, cycles);
                 fbb.finish(message, None);
-                node1.broadcast(
-                    NetworkProtocol::RELAY as ProtocolId,
-                    &fbb.finished_data().to_vec(),
-                );
+                node1.broadcast(NetworkProtocol::RELAY.into(), &fbb.finished_data().to_vec());
             });
 
             // building 1st compact block with tx proposal and broadcast it
@@ -246,7 +237,7 @@ fn relay_compact_block_with_missing_indexs() {
 
                 BlockBuilder::default()
                     .commit_transaction(cellbase)
-                    .proposal_transactions(txs.iter().map(|tx| tx.proposal_short_id()).collect())
+                    .proposal_transactions(txs.iter().map(Transaction::proposal_short_id).collect())
                     .with_header_builder(header_builder)
             };
 
@@ -258,10 +249,7 @@ fn relay_compact_block_with_missing_indexs() {
                 let fbb = &mut FlatBufferBuilder::new();
                 let message = RelayMessage::build_compact_block(fbb, &block, &HashSet::new());
                 fbb.finish(message, None);
-                node1.broadcast(
-                    NetworkProtocol::RELAY as ProtocolId,
-                    &fbb.finished_data().to_vec(),
-                );
+                node1.broadcast(NetworkProtocol::RELAY.into(), &fbb.finished_data().to_vec());
             }
 
             // building 2nd compact block with txs and broadcast it
@@ -296,10 +284,7 @@ fn relay_compact_block_with_missing_indexs() {
                 let fbb = &mut FlatBufferBuilder::new();
                 let message = RelayMessage::build_compact_block(fbb, &block, &HashSet::new());
                 fbb.finish(message, None);
-                node1.broadcast(
-                    NetworkProtocol::RELAY as ProtocolId,
-                    &fbb.finished_data().to_vec(),
-                );
+                node1.broadcast(NetworkProtocol::RELAY.into(), &fbb.finished_data().to_vec());
             }
 
             node1.start(&signal_tx1, |_| false);
@@ -336,7 +321,9 @@ fn setup_node(
             .timestamp(unix_time_as_millis())
             .difficulty(U256::from(1000u64)),
     );
-    let consensus = Consensus::default().set_genesis_block(block.clone());
+    let consensus = Consensus::default()
+        .set_genesis_block(block.clone())
+        .set_cellbase_maturity(0);
 
     let shared = SharedBuilder::<MemoryKeyValueDB>::new()
         .consensus(consensus)
@@ -383,9 +370,9 @@ fn setup_node(
     );
 
     let mut node = TestNode::default();
-    let protocol = Arc::new(relayer) as Arc<_>;
+    let protocol = Arc::new(RwLock::new(relayer)) as Arc<_>;
     node.add_protocol(
-        NetworkProtocol::RELAY as ProtocolId,
+        NetworkProtocol::RELAY.into(),
         &protocol,
         &[TX_PROPOSAL_TOKEN],
     );

@@ -10,7 +10,7 @@ pub(crate) const DEFAULT_BLOCK_REWARD: Capacity = 5_000;
 pub(crate) const MAX_UNCLE_NUM: usize = 2;
 pub(crate) const MAX_UNCLE_AGE: usize = 6;
 pub(crate) const TX_PROPOSAL_WINDOW: ProposalWindow = ProposalWindow(2, 10);
-pub(crate) const CELLBASE_MATURITY: usize = 100;
+pub(crate) const CELLBASE_MATURITY: BlockNumber = 100;
 // TODO: should adjust this value based on CKB average block time
 pub(crate) const MEDIAN_TIME_BLOCK_COUNT: usize = 11;
 
@@ -51,7 +51,7 @@ pub struct Consensus {
     // For each input, if the referenced output transaction is cellbase,
     // it must have at least `cellbase_maturity` confirmations;
     // else reject this transaction.
-    pub cellbase_maturity: usize,
+    pub cellbase_maturity: BlockNumber,
     // This parameter indicates the count of past blocks used in the median time calculation
     pub median_time_block_count: usize,
     // Maximum cycles that all the scripts in all the commit transactions can take
@@ -78,7 +78,7 @@ impl Default for Consensus {
             pow_time_span: POW_TIME_SPAN,
             pow_spacing: POW_SPACING,
             tx_proposal_window: TX_PROPOSAL_WINDOW,
-            pow: Pow::Dummy,
+            pow: Pow::Dummy(Default::default()),
             cellbase_maturity: CELLBASE_MATURITY,
             median_time_block_count: MEDIAN_TIME_BLOCK_COUNT,
             max_block_cycles: MAX_BLOCK_CYCLES,
@@ -114,6 +114,11 @@ impl Consensus {
         self
     }
 
+    pub fn set_cellbase_maturity(mut self, cellbase_maturity: BlockNumber) -> Self {
+        self.cellbase_maturity = cellbase_maturity;
+        self
+    }
+
     pub fn genesis_block(&self) -> &Block {
         &self.genesis_block
     }
@@ -146,7 +151,7 @@ impl Consensus {
         self.pow.engine()
     }
 
-    pub fn cellbase_maturity(&self) -> usize {
+    pub fn cellbase_maturity(&self) -> BlockNumber {
         self.cellbase_maturity
     }
 

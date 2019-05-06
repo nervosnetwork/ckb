@@ -1,6 +1,6 @@
 [package]
 name = "ckb-sync"
-version = "0.9.0"
+version = "0.10.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -28,6 +28,7 @@ ckb-traits = { path = "../traits" }
 failure = "0.1.5"
 bytes = "0.4.12"
 hash = {path = "../util/hash"}
+lru-cache = { git = "https://github.com/nervosnetwork/lru-cache" }
 
 [dev-dependencies]
 ckb-notify = { path = "../notify" }

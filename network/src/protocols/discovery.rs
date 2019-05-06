@@ -3,7 +3,7 @@ use crate::NetworkState;
 use fnv::FnvHashMap;
 use futures::{sync::mpsc, sync::oneshot, try_ready, Async, Future, Stream};
 use log::{debug, trace, warn};
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use p2p::{
     context::{ProtocolContext, ProtocolContextMutRef},
@@ -29,7 +29,7 @@ impl DiscoveryProtocol {
         let addr_mgr = DiscoveryAddressManager {
             event_sender: event_sender.clone(),
         };
-        let discovery = Discovery::new(addr_mgr);
+        let discovery = Discovery::new(addr_mgr, Some(Duration::from_secs(7)));
         let discovery_handle = discovery.handle();
         DiscoveryProtocol {
             discovery: Some(discovery),
@@ -63,7 +63,7 @@ impl ServiceProtocol for DiscoveryProtocol {
         context.future_task(discovery_task);
     }
 
-    fn connected(&mut self, mut context: ProtocolContextMutRef, _: &str) {
+    fn connected(&mut self, context: ProtocolContextMutRef, _: &str) {
         let session = context.session;
         debug!(
             target: "network",
@@ -81,15 +81,7 @@ impl ServiceProtocol for DiscoveryProtocol {
 
         let (sender, receiver) = mpsc::channel(8);
         self.discovery_senders.insert(session.id, sender);
-        let substream = Substream::new(
-            session.address.clone(),
-            session.ty,
-            context.proto_id,
-            session.id,
-            receiver,
-            context.control().clone(),
-            context.listens(),
-        );
+        let substream = Substream::new(context, receiver);
         match self.discovery_handle.substream_sender.try_send(substream) {
             Ok(_) => {
                 debug!(target: "network", "Send substream success");
@@ -114,7 +106,7 @@ impl ServiceProtocol for DiscoveryProtocol {
 
     fn received(&mut self, context: ProtocolContextMutRef, data: bytes::Bytes) {
         let session = context.session;
-        debug!(target: "network", "[received message]: length={}", data.len());
+        trace!(target: "network", "[received message]: length={}", data.len());
 
         if let Some(ref mut sender) = self.discovery_senders.get_mut(&session.id) {
             // TODO: handle channel is full (wait for poll API?)
@@ -202,13 +194,11 @@ impl Stream for DiscoveryService {
                                 })
                                 .collect::<Multiaddr>();
 
-                            if !self
-                                .network_state
-                                .peer_store()
-                                .add_discovered_addr(&peer_id, addr)
-                            {
-                                warn!(target: "network", "add_discovered_addr failed {:?}", peer_id);
-                            }
+                            self.network_state.with_peer_store_mut(|peer_store| {
+                                if !peer_store.add_discovered_addr(&peer_id, addr) {
+                                    trace!(target: "network", "add_discovered_addr failed {:?}", peer_id);
+                                }
+                            });
                         }
                     }
                 }
@@ -221,10 +211,10 @@ impl Stream for DiscoveryService {
                 // FIXME:
             }
             Some(DiscoveryEvent::GetRandom { n, result }) => {
-                let addrs = self
+                let random_peers = self
                     .network_state
-                    .peer_store()
-                    .random_peers(n as u32)
+                    .with_peer_store(|peer_store| peer_store.random_peers(n as u32));
+                let addrs = random_peers
                     .into_iter()
                     .filter_map(|(peer_id, mut addr)| {
                         Multihash::from_bytes(peer_id.into_bytes())

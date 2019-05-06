@@ -2,11 +2,14 @@ use crate::client::Client;
 use crate::Work;
 use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::header::{HeaderBuilder, RawHeader, Seal};
+use ckb_core::BlockNumber;
 use ckb_pow::PowEngine;
 use crossbeam_channel::Receiver;
+use failure::Error;
 use jsonrpc_types::{BlockTemplate, CellbaseTemplate};
-use log::{debug, info};
+use log::{debug, error, info};
 use rand::{thread_rng, Rng};
+use std::convert::TryInto;
 use std::sync::Arc;
 
 pub struct Miner {
@@ -33,13 +36,18 @@ impl Miner {
     pub fn run(&self) {
         loop {
             self.client.try_update_block_template();
-            if let Some((work_id, block)) = self.mine() {
-                self.client.submit_block(&work_id, &block);
-            }
+            match self.mine() {
+                Ok(result) => {
+                    if let Some((work_id, block)) = result {
+                        self.client.submit_block(&work_id, &block);
+                    }
+                }
+                Err(e) => error!(target: "miner", "mining error encountered: {:?}", e),
+            };
         }
     }
 
-    fn mine(&self) -> Option<(String, Block)> {
+    fn mine(&self) -> Result<Option<(String, Block)>, Error> {
         if let Some(template) = { self.current_work.lock().clone() } {
             let BlockTemplate {
                 version,
@@ -65,30 +73,46 @@ impl Miner {
 
             let header_builder = HeaderBuilder::default()
                 .version(version)
-                .number(number)
+                .number(number.parse::<BlockNumber>()?)
                 .difficulty(difficulty)
-                .timestamp(current_time)
+                .timestamp(current_time.parse::<u64>()?)
                 .parent_hash(parent_hash);
 
             let block = BlockBuilder::default()
-                .uncles(uncles.into_iter().map(Into::into).collect())
-                .commit_transaction(cellbase.into())
-                .commit_transactions(commit_transactions.into_iter().map(Into::into).collect())
-                .proposal_transactions(proposal_transactions.into_iter().map(Into::into).collect())
+                .uncles(
+                    uncles
+                        .into_iter()
+                        .map(TryInto::try_into)
+                        .collect::<Result<_, _>>()?,
+                )
+                .commit_transaction(cellbase.try_into()?)
+                .commit_transactions(
+                    commit_transactions
+                        .into_iter()
+                        .map(TryInto::try_into)
+                        .collect::<Result<_, _>>()?,
+                )
+                .proposal_transactions(
+                    proposal_transactions
+                        .into_iter()
+                        .map(TryInto::try_into)
+                        .collect::<Result<_, _>>()?,
+                )
                 .with_header_builder(header_builder);
 
             let raw_header = block.header().raw().clone();
 
-            self.mine_loop(&raw_header)
+            Ok(self
+                .mine_loop(&raw_header)
                 .map(|seal| {
                     BlockBuilder::default()
                         .block(block)
                         .header(raw_header.with_seal(seal))
                         .build()
                 })
-                .map(|block| (work_id, block))
+                .map(|block| (work_id, block)))
         } else {
-            None
+            Ok(None)
         }
     }
 

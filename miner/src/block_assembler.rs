@@ -1,27 +1,28 @@
 use crate::config::BlockAssemblerConfig;
+use crate::error::Error;
 use ckb_core::block::Block;
 use ckb_core::header::Header;
 use ckb_core::script::Script;
 use ckb_core::service::{Request, DEFAULT_CHANNEL_SIZE, SIGNAL_CHANNEL_SIZE};
-use ckb_core::transaction::{CellInput, CellOutput, Transaction, TransactionBuilder};
+use ckb_core::transaction::{Capacity, CellInput, CellOutput, Transaction, TransactionBuilder};
 use ckb_core::uncle::UncleBlock;
-use ckb_core::BlockNumber;
 use ckb_core::{Cycle, Version};
 use ckb_notify::NotifyController;
-use ckb_shared::{index::ChainIndex, shared::Shared, tx_pool::PoolEntry};
+use ckb_shared::{shared::Shared, store::ChainStore, tx_pool::PoolEntry};
 use ckb_traits::ChainProvider;
 use ckb_util::Mutex;
 use crossbeam_channel::{self, select, Receiver, Sender};
 use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
+use fnv::FnvHashMap;
 use fnv::FnvHashSet;
-use jsonrpc_types::{BlockTemplate, CellbaseTemplate, TransactionTemplate, UncleTemplate};
+use jsonrpc_types::{BlockTemplate, Bytes, CellbaseTemplate, TransactionTemplate, UncleTemplate};
 use log::error;
 use lru_cache::LruCache;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 use std::cmp;
-use std::sync::{atomic::AtomicUsize, atomic::Ordering, Arc};
+use std::sync::{atomic::AtomicU64, atomic::AtomicUsize, atomic::Ordering, Arc};
 use std::thread;
 use stop_handler::{SignalSender, StopHandler};
 
@@ -45,12 +46,73 @@ impl TemplateCache {
         last_uncles_updated_at: u64,
         last_txs_updated_at: u64,
         current_time: u64,
-        number: BlockNumber,
+        number: String,
     ) -> bool {
         last_uncles_updated_at != self.uncles_updated_at
             || last_txs_updated_at != self.txs_updated_at
             || number != self.template.number
             || current_time.saturating_sub(self.time) > BLOCK_TEMPLATE_TIMEOUT
+    }
+}
+
+struct FeeCalculator<'a> {
+    txs: &'a [PoolEntry],
+    provider: &'a dyn ChainProvider,
+    txs_map: FnvHashMap<H256, usize>,
+}
+
+impl<'a> FeeCalculator<'a> {
+    fn new(txs: &'a [PoolEntry], provider: &'a dyn ChainProvider) -> Self {
+        let mut txs_map = FnvHashMap::with_capacity_and_hasher(txs.len(), Default::default());
+        for (index, tx) in txs.iter().enumerate() {
+            txs_map.insert(tx.transaction.hash(), index);
+        }
+        Self {
+            txs,
+            provider,
+            txs_map,
+        }
+    }
+    fn get_transaction(&self, tx_hash: &H256) -> Option<Transaction> {
+        // tx may depend on a tx which within the same block
+        match self.provider.get_transaction(tx_hash) {
+            Some(tx) => Some(tx),
+            None => self
+                .txs_map
+                .get(tx_hash)
+                .map(|index| self.txs[*index].transaction.clone()),
+        }
+    }
+
+    fn calculate_transaction_fee(
+        &self,
+        transaction: &Transaction,
+    ) -> Result<Capacity, FailureError> {
+        let mut fee = 0;
+        for input in transaction.inputs() {
+            let previous_output = &input.previous_output;
+            match self.get_transaction(&previous_output.hash) {
+                Some(previous_transaction) => {
+                    let index = previous_output.index as usize;
+                    if let Some(output) = previous_transaction.outputs().get(index) {
+                        fee += output.capacity;
+                    } else {
+                        Err(Error::InvalidInput)?;
+                    }
+                }
+                None => Err(Error::InvalidInput)?,
+            }
+        }
+        let spent_capacity: Capacity = transaction
+            .outputs()
+            .iter()
+            .map(|output| output.capacity)
+            .sum();
+        if spent_capacity > fee {
+            Err(Error::InvalidOutput)?;
+        }
+        fee -= spent_capacity;
+        Ok(fee)
     }
 }
 
@@ -85,23 +147,23 @@ impl BlockAssemblerController {
     }
 }
 
-pub struct BlockAssembler<CI> {
-    shared: Shared<CI>,
+pub struct BlockAssembler<CS> {
+    shared: Shared<CS>,
     candidate_uncles: LruCache<H256, Arc<Block>>,
     config: BlockAssemblerConfig,
     work_id: AtomicUsize,
-    last_uncles_updated_at: AtomicUsize,
+    last_uncles_updated_at: AtomicU64,
     template_caches: Mutex<LruCache<(Cycle, u64, Version), TemplateCache>>,
 }
 
-impl<CI: ChainIndex + 'static> BlockAssembler<CI> {
-    pub fn new(shared: Shared<CI>, config: BlockAssemblerConfig) -> Self {
+impl<CS: ChainStore + 'static> BlockAssembler<CS> {
+    pub fn new(shared: Shared<CS>, config: BlockAssemblerConfig) -> Self {
         Self {
             shared,
             config,
             candidate_uncles: LruCache::new(MAX_CANDIDATE_UNCLES),
             work_id: AtomicUsize::new(0),
-            last_uncles_updated_at: AtomicUsize::new(0),
+            last_uncles_updated_at: AtomicU64::new(0),
             template_caches: Mutex::new(LruCache::new(TEMPLATE_CACHE_SIZE)),
         }
     }
@@ -138,7 +200,7 @@ impl<CI: ChainIndex + 'static> BlockAssembler<CI> {
                             let hash = uncle_block.header().hash().clone();
                             self.candidate_uncles.insert(hash, uncle_block);
                             self.last_uncles_updated_at
-                                .store(unix_time_as_millis() as usize, Ordering::SeqCst);
+                                .store(unix_time_as_millis(), Ordering::SeqCst);
                         }
                         _ => {
                             error!(target: "miner", "new_uncle_receiver closed");
@@ -192,7 +254,7 @@ impl<CI: ChainIndex + 'static> BlockAssembler<CI> {
 
         UncleTemplate {
             hash: header.hash(),
-            required: false, //
+            required: false,
             proposal_transactions: proposal_transactions.into_iter().map(Into::into).collect(),
             header: (&header).into(),
         }
@@ -201,7 +263,7 @@ impl<CI: ChainIndex + 'static> BlockAssembler<CI> {
     fn transform_cellbase(tx: &Transaction, cycles: Option<Cycle>) -> CellbaseTemplate {
         CellbaseTemplate {
             hash: tx.hash(),
-            cycles,
+            cycles: cycles.map(|c| c.to_string()),
             data: tx.into(),
         }
     }
@@ -214,7 +276,7 @@ impl<CI: ChainIndex + 'static> BlockAssembler<CI> {
         TransactionTemplate {
             hash: tx.transaction.hash(),
             required,
-            cycles: tx.cycles,
+            cycles: tx.cycles.map(|c| c.to_string()),
             depends,
             data: (&tx.transaction).into(),
         }
@@ -230,7 +292,7 @@ impl<CI: ChainIndex + 'static> BlockAssembler<CI> {
             self.transform_params(cycles_limit, bytes_limit, max_version);
         let uncles_count_limit = self.shared.consensus().max_uncles_num() as u32;
 
-        let last_uncles_updated_at = self.last_uncles_updated_at.load(Ordering::SeqCst) as u64;
+        let last_uncles_updated_at = self.last_uncles_updated_at.load(Ordering::SeqCst);
         let chain_state = self.shared.chain_state().lock();
         let last_txs_updated_at = chain_state.get_last_txs_updated_at();
 
@@ -245,7 +307,7 @@ impl<CI: ChainIndex + 'static> BlockAssembler<CI> {
                 last_uncles_updated_at,
                 last_txs_updated_at,
                 current_time,
-                number,
+                number.to_string(),
             ) {
                 return Ok(template_cache.template.clone());
             }
@@ -266,20 +328,27 @@ impl<CI: ChainIndex + 'static> BlockAssembler<CI> {
             }
         }
 
+        let args = self
+            .config
+            .args
+            .iter()
+            .cloned()
+            .map(Bytes::into_vec)
+            .collect();
+
         // dummy cellbase
-        let cellbase_lock =
-            Script::new(0, self.config.args.clone(), self.config.binary_hash.clone());
+        let cellbase_lock = Script::new(args, self.config.binary_hash.clone());
         let cellbase =
             self.create_cellbase_transaction(header, &commit_transactions, cellbase_lock)?;
 
         let template = BlockTemplate {
             version,
             difficulty,
-            current_time,
-            number,
+            current_time: current_time.to_string(),
+            number: number.to_string(),
             parent_hash: header.hash(),
-            cycles_limit,
-            bytes_limit,
+            cycles_limit: cycles_limit.to_string(),
+            bytes_limit: bytes_limit.to_string(),
             uncles_count_limit,
             uncles: uncles.into_iter().map(Self::transform_uncle).collect(),
             commit_transactions: commit_transactions
@@ -318,8 +387,10 @@ impl<CI: ChainIndex + 'static> BlockAssembler<CI> {
         // bytes, they really serve the same purpose at the moment
         let block_reward = self.shared.block_reward(header.number() + 1);
         let mut fee = 0;
+        // depends cells may produced from previous tx
+        let fee_calculator = FeeCalculator::new(&pes, &self.shared);
         for pe in pes {
-            fee += self.shared.calculate_transaction_fee(&pe.transaction)?;
+            fee += fee_calculator.calculate_transaction_fee(&pe.transaction)?;
         }
 
         let output = CellOutput::new(block_reward + fee, Vec::new(), lock, None);
@@ -424,15 +495,15 @@ mod tests {
     use ckb_db::memorydb::MemoryKeyValueDB;
     use ckb_notify::{NotifyController, NotifyService};
     use ckb_pow::Pow;
-    use ckb_shared::index::ChainIndex;
     use ckb_shared::shared::Shared;
     use ckb_shared::shared::SharedBuilder;
-    use ckb_shared::store::ChainKVStore;
+    use ckb_shared::store::{ChainKVStore, ChainStore};
     use ckb_traits::ChainProvider;
     use ckb_verification::{BlockVerifier, HeaderResolverWrapper, HeaderVerifier, Verifier};
     use jsonrpc_types::{BlockTemplate, CellbaseTemplate};
     use numext_fixed_hash::H256;
     use numext_fixed_uint::U256;
+    use std::convert::TryInto;
     use std::sync::Arc;
 
     fn start_chain(
@@ -457,10 +528,10 @@ mod tests {
         (chain_controller, shared, notify)
     }
 
-    fn setup_block_assembler<CI: ChainIndex + 'static>(
-        shared: Shared<CI>,
+    fn setup_block_assembler<CS: ChainStore + 'static>(
+        shared: Shared<CS>,
         config: BlockAssemblerConfig,
-    ) -> BlockAssembler<CI> {
+    ) -> BlockAssembler<CS> {
         BlockAssembler::new(shared, config)
     }
 
@@ -500,21 +571,44 @@ mod tests {
 
         let header_builder = HeaderBuilder::default()
             .version(version)
-            .number(number)
+            .number(number.parse::<BlockNumber>().unwrap())
             .difficulty(difficulty)
-            .timestamp(current_time)
+            .timestamp(current_time.parse::<u64>().unwrap())
             .parent_hash(parent_hash);
 
         let block = BlockBuilder::default()
-            .uncles(uncles.into_iter().map(Into::into).collect())
-            .commit_transaction(cellbase.into())
-            .commit_transactions(commit_transactions.into_iter().map(Into::into).collect())
-            .proposal_transactions(proposal_transactions.into_iter().map(Into::into).collect())
+            .uncles(
+                uncles
+                    .into_iter()
+                    .map(TryInto::try_into)
+                    .collect::<Result<_, _>>()
+                    .unwrap(),
+            )
+            .commit_transaction(cellbase.try_into().unwrap())
+            .commit_transactions(
+                commit_transactions
+                    .into_iter()
+                    .map(TryInto::try_into)
+                    .collect::<Result<_, _>>()
+                    .unwrap(),
+            )
+            .proposal_transactions(
+                proposal_transactions
+                    .into_iter()
+                    .map(TryInto::try_into)
+                    .collect::<Result<_, _>>()
+                    .unwrap(),
+            )
             .with_header_builder(header_builder);
 
         let resolver = HeaderResolverWrapper::new(block.header(), shared.clone());
-        let header_verifier = HeaderVerifier::new(shared.clone(), Pow::Dummy.engine());
-        assert!(header_verifier.verify(&resolver).is_ok());
+        let header_verify_result = {
+            let chain_state = shared.chain_state().lock();
+            let header_verifier =
+                HeaderVerifier::new(&*chain_state, Pow::Dummy(Default::default()).engine());
+            header_verifier.verify(&resolver)
+        };
+        assert!(header_verify_result.is_ok());
 
         let block_verify = BlockVerifier::new(shared.clone());
         assert!(block_verify.verify(&block).is_ok());

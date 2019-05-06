@@ -33,16 +33,20 @@ impl<'a> TransactionScriptsVerifier<'a> {
             .dep_cells
             .iter()
             .map(|cell| {
-                cell.get_live()
+                &cell
+                    .get_live_output()
                     .expect("already verifies that all dep cells are valid")
+                    .cell_output
             })
             .collect();
         let input_cells = rtx
             .input_cells
             .iter()
             .map(|cell| {
-                cell.get_live()
+                &cell
+                    .get_live_output()
                     .expect("already verifies that all input cells are valid")
+                    .cell_output
             })
             .collect();
         let inputs = rtx.transaction.inputs().iter().collect();
@@ -119,7 +123,7 @@ impl<'a> TransactionScriptsVerifier<'a> {
         current_input: Option<&'a CellInput>,
         max_cycles: Cycle,
     ) -> Result<Cycle, ScriptError> {
-        if script.binary_hash.as_fixed_bytes() == &ALWAYS_SUCCESS_HASH {
+        if script.binary_hash == ALWAYS_SUCCESS_HASH {
             return Ok(0);
         }
         let mut args = vec![b"verify".to_vec()];
@@ -197,7 +201,7 @@ impl<'a> TransactionScriptsVerifier<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ckb_core::cell::CellStatus;
+    use ckb_core::cell::{CellMeta, CellStatus, LiveCell};
     use ckb_core::script::Script;
     use ckb_core::transaction::{CellInput, CellOutput, OutPoint, TransactionBuilder};
     use ckb_core::Capacity;
@@ -215,15 +219,19 @@ mod tests {
 
     #[test]
     fn check_always_success_hash() {
-        let dummy_cell = CellOutput::new(100, vec![], Script::always_success(), None);
-        let input = CellInput::new(OutPoint::null(), vec![]);
+        let dummy_cell = CellMeta {
+            cell_output: CellOutput::new(100, vec![], Script::always_success(), None),
+            block_number: Some(1),
+            cellbase: false,
+        };
+        let input = CellInput::new(OutPoint::null(), 0, vec![]);
 
         let transaction = TransactionBuilder::default().input(input.clone()).build();
 
         let rtx = ResolvedTransaction {
             transaction,
             dep_cells: vec![],
-            input_cells: vec![CellStatus::Live(dummy_cell)],
+            input_cells: vec![CellStatus::Live(LiveCell::Output(dummy_cell))],
         };
 
         let verifier = TransactionScriptsVerifier::new(&rtx);
@@ -262,10 +270,14 @@ mod tests {
 
         let binary_hash: H256 = (&blake2b_256(&buffer)).into();
         let dep_out_point = OutPoint::new(H256::from_trimmed_hex_str("123").unwrap(), 8);
-        let dep_cell = CellOutput::new(buffer.len() as Capacity, buffer, Script::default(), None);
+        let dep_cell = CellMeta {
+            cell_output: CellOutput::new(buffer.len() as Capacity, buffer, Script::default(), None),
+            block_number: Some(1),
+            cellbase: false,
+        };
 
-        let script = Script::new(0, args, binary_hash);
-        let input = CellInput::new(OutPoint::null(), vec![]);
+        let script = Script::new(args, binary_hash);
+        let input = CellInput::new(OutPoint::null(), 0, vec![]);
 
         let transaction = TransactionBuilder::default()
             .input(input.clone())
@@ -273,12 +285,16 @@ mod tests {
             .witness(witness_data)
             .build();
 
-        let dummy_cell = CellOutput::new(100, vec![], script, None);
+        let dummy_cell = CellMeta {
+            cell_output: CellOutput::new(100, vec![], script, None),
+            block_number: Some(1),
+            cellbase: false,
+        };
 
         let rtx = ResolvedTransaction {
             transaction,
-            dep_cells: vec![CellStatus::Live(dep_cell)],
-            input_cells: vec![CellStatus::Live(dummy_cell)],
+            dep_cells: vec![CellStatus::Live(LiveCell::Output(dep_cell))],
+            input_cells: vec![CellStatus::Live(LiveCell::Output(dummy_cell))],
         };
 
         let verifier = TransactionScriptsVerifier::new(&rtx);
@@ -317,10 +333,14 @@ mod tests {
 
         let binary_hash: H256 = (&blake2b_256(&buffer)).into();
         let dep_out_point = OutPoint::new(H256::from_trimmed_hex_str("123").unwrap(), 8);
-        let dep_cell = CellOutput::new(buffer.len() as Capacity, buffer, Script::default(), None);
+        let dep_cell = CellMeta {
+            cell_output: CellOutput::new(buffer.len() as Capacity, buffer, Script::default(), None),
+            block_number: Some(1),
+            cellbase: false,
+        };
 
-        let script = Script::new(0, args, binary_hash);
-        let input = CellInput::new(OutPoint::null(), vec![]);
+        let script = Script::new(args, binary_hash);
+        let input = CellInput::new(OutPoint::null(), 0, vec![]);
 
         let transaction = TransactionBuilder::default()
             .input(input.clone())
@@ -328,12 +348,16 @@ mod tests {
             .witness(witness_data)
             .build();
 
-        let dummy_cell = CellOutput::new(100, vec![], script, None);
+        let dummy_cell = CellMeta {
+            cell_output: CellOutput::new(100, vec![], script, None),
+            block_number: Some(1),
+            cellbase: false,
+        };
 
         let rtx = ResolvedTransaction {
             transaction,
-            dep_cells: vec![CellStatus::Live(dep_cell)],
-            input_cells: vec![CellStatus::Live(dummy_cell)],
+            dep_cells: vec![CellStatus::Live(LiveCell::Output(dep_cell))],
+            input_cells: vec![CellStatus::Live(LiveCell::Output(dummy_cell))],
         };
 
         let verifier = TransactionScriptsVerifier::new(&rtx);
@@ -374,10 +398,14 @@ mod tests {
 
         let binary_hash: H256 = (&blake2b_256(&buffer)).into();
         let dep_out_point = OutPoint::new(H256::from_trimmed_hex_str("123").unwrap(), 8);
-        let dep_cell = CellOutput::new(buffer.len() as Capacity, buffer, Script::default(), None);
+        let dep_cell = CellMeta {
+            cell_output: CellOutput::new(buffer.len() as Capacity, buffer, Script::default(), None),
+            block_number: Some(1),
+            cellbase: false,
+        };
 
-        let script = Script::new(0, args, binary_hash);
-        let input = CellInput::new(OutPoint::null(), vec![]);
+        let script = Script::new(args, binary_hash);
+        let input = CellInput::new(OutPoint::null(), 0, vec![]);
 
         let transaction = TransactionBuilder::default()
             .input(input.clone())
@@ -385,12 +413,16 @@ mod tests {
             .witness(witness_data)
             .build();
 
-        let dummy_cell = CellOutput::new(100, vec![], script, None);
+        let dummy_cell = CellMeta {
+            cell_output: CellOutput::new(100, vec![], script, None),
+            block_number: Some(1),
+            cellbase: false,
+        };
 
         let rtx = ResolvedTransaction {
             transaction,
-            dep_cells: vec![CellStatus::Live(dep_cell)],
-            input_cells: vec![CellStatus::Live(dummy_cell)],
+            dep_cells: vec![CellStatus::Live(LiveCell::Output(dep_cell))],
+            input_cells: vec![CellStatus::Live(LiveCell::Output(dummy_cell))],
         };
 
         let verifier = TransactionScriptsVerifier::new(&rtx);
@@ -429,8 +461,8 @@ mod tests {
         witness_data.insert(0, hex_pubkey);
 
         let binary_hash: H256 = (&blake2b_256(&buffer)).into();
-        let script = Script::new(0, args, binary_hash);
-        let input = CellInput::new(OutPoint::null(), vec![]);
+        let script = Script::new(args, binary_hash);
+        let input = CellInput::new(OutPoint::null(), 0, vec![]);
 
         let transaction = TransactionBuilder::default()
             .input(input.clone())
@@ -438,12 +470,16 @@ mod tests {
             .witness(witness_data)
             .build();
 
-        let dummy_cell = CellOutput::new(100, vec![], script, None);
+        let dummy_cell = CellMeta {
+            cell_output: CellOutput::new(100, vec![], script, None),
+            block_number: Some(1),
+            cellbase: false,
+        };
 
         let rtx = ResolvedTransaction {
             transaction,
             dep_cells: vec![],
-            input_cells: vec![CellStatus::Live(dummy_cell)],
+            input_cells: vec![CellStatus::Live(LiveCell::Output(dummy_cell))],
         };
 
         let verifier = TransactionScriptsVerifier::new(&rtx);
@@ -479,19 +515,27 @@ mod tests {
         hex_encode(&signature_der, &mut hex_signature).expect("hex privkey");
         args.push(hex_signature);
 
-        let input = CellInput::new(OutPoint::null(), vec![]);
-        let dummy_cell = CellOutput::new(100, vec![], Script::always_success(), None);
+        let input = CellInput::new(OutPoint::null(), 0, vec![]);
+        let dummy_cell = CellMeta {
+            cell_output: CellOutput::new(100, vec![], Script::always_success(), None),
+            block_number: Some(1),
+            cellbase: false,
+        };
 
-        let script = Script::new(0, args, (&blake2b_256(&buffer)).into());
+        let script = Script::new(args, (&blake2b_256(&buffer)).into());
         let output = CellOutput::new(
             0,
             Vec::new(),
-            Script::new(0, vec![], H256::zero()),
+            Script::new(vec![], H256::zero()),
             Some(script),
         );
 
         let dep_out_point = OutPoint::new(H256::from_trimmed_hex_str("123").unwrap(), 8);
-        let dep_cell = CellOutput::new(buffer.len() as Capacity, buffer, Script::default(), None);
+        let dep_cell = CellMeta {
+            cell_output: CellOutput::new(buffer.len() as Capacity, buffer, Script::default(), None),
+            block_number: Some(1),
+            cellbase: false,
+        };
 
         let transaction = TransactionBuilder::default()
             .input(input.clone())
@@ -501,8 +545,8 @@ mod tests {
 
         let rtx = ResolvedTransaction {
             transaction,
-            dep_cells: vec![CellStatus::Live(dep_cell)],
-            input_cells: vec![CellStatus::Live(dummy_cell)],
+            dep_cells: vec![CellStatus::Live(LiveCell::Output(dep_cell))],
+            input_cells: vec![CellStatus::Live(LiveCell::Output(dummy_cell))],
         };
 
         let verifier = TransactionScriptsVerifier::new(&rtx);
@@ -540,14 +584,22 @@ mod tests {
         hex_encode(&pubkey, &mut hex_pubkey).expect("hex pubkey");
         args.insert(0, hex_pubkey);
 
-        let input = CellInput::new(OutPoint::null(), vec![]);
-        let dummy_cell = CellOutput::new(100, vec![], Script::always_success(), None);
+        let input = CellInput::new(OutPoint::null(), 0, vec![]);
+        let dummy_cell = CellMeta {
+            cell_output: CellOutput::new(100, vec![], Script::always_success(), None),
+            block_number: Some(1),
+            cellbase: false,
+        };
 
-        let script = Script::new(0, args, (&blake2b_256(&buffer)).into());
+        let script = Script::new(args, (&blake2b_256(&buffer)).into());
         let output = CellOutput::new(0, Vec::new(), Script::default(), Some(script));
 
         let dep_out_point = OutPoint::new(H256::from_trimmed_hex_str("123").unwrap(), 8);
-        let dep_cell = CellOutput::new(buffer.len() as Capacity, buffer, Script::default(), None);
+        let dep_cell = CellMeta {
+            cell_output: CellOutput::new(buffer.len() as Capacity, buffer, Script::default(), None),
+            block_number: Some(1),
+            cellbase: false,
+        };
 
         let transaction = TransactionBuilder::default()
             .input(input.clone())
@@ -557,8 +609,8 @@ mod tests {
 
         let rtx = ResolvedTransaction {
             transaction,
-            dep_cells: vec![CellStatus::Live(dep_cell)],
-            input_cells: vec![CellStatus::Live(dummy_cell)],
+            dep_cells: vec![CellStatus::Live(LiveCell::Output(dep_cell))],
+            input_cells: vec![CellStatus::Live(LiveCell::Output(dummy_cell))],
         };
 
         let verifier = TransactionScriptsVerifier::new(&rtx);
