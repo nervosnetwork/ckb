@@ -13,6 +13,9 @@ fn run_app() -> Result<(), ExitCode> {
         (cli::CMD_CLI, Some(matches)) => {
             return match matches.subcommand() {
                 (cli::CMD_KEYGEN, _) => subcommand::cli::keygen(),
+                (cli::CMD_HASHES, Some(sub_matches)) => {
+                    subcommand::cli::hashes(Setup::locator_from_matches(&matches)?, sub_matches)
+                }
                 _ => unreachable!(),
             };
         }

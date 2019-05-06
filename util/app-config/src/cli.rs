@@ -7,9 +7,10 @@ pub const CMD_MINER: &str = "miner";
 pub const CMD_EXPORT: &str = "export";
 pub const CMD_IMPORT: &str = "import";
 pub const CMD_INIT: &str = "init";
+pub const CMD_PROF: &str = "prof";
 pub const CMD_CLI: &str = "cli";
 pub const CMD_KEYGEN: &str = "keygen";
-pub const CMD_PROF: &str = "prof";
+pub const CMD_HASHES: &str = "hashes";
 
 pub const ARG_CONFIG_DIR: &str = "config-dir";
 pub const ARG_FORMAT: &str = "format";
@@ -22,6 +23,7 @@ pub const ARG_P2P_PORT: &str = "p2p-port";
 pub const ARG_RPC_PORT: &str = "rpc-port";
 pub const ARG_FORCE: &str = "force";
 pub const ARG_LOG_TO: &str = "log-to";
+pub const ARG_BUNDLED: &str = "bundled";
 
 pub fn get_matches() -> ArgMatches<'static> {
     let version = get_version!();
@@ -126,6 +128,18 @@ fn cli() -> App<'static, 'static> {
         .about("CLI tools")
         .setting(AppSettings::SubcommandRequiredElseHelp)
         .subcommand(SubCommand::with_name(CMD_KEYGEN).about("Generate new key"))
+        .subcommand(
+            SubCommand::with_name(CMD_HASHES)
+                .about("List well known hashes")
+                .arg(
+                    Arg::with_name(ARG_BUNDLED)
+                        .short("b")
+                        .long(ARG_BUNDLED)
+                        .help(
+                            "List hashes of the bundled chain specs instead of the current effective one.",
+                        ),
+                ),
+        )
 }
 
 fn init() -> App<'static, 'static> {

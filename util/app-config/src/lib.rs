@@ -40,7 +40,7 @@ impl Setup {
             }
         };
 
-        let resource_locator = locator_from_matches(matches)?;
+        let resource_locator = Self::locator_from_matches(matches)?;
         let config = AppConfig::load_for_subcommand(&resource_locator, subcommand_name)?;
         if config.is_bundled() {
             eprintln!("Not a CKB directory, initialize one with `ckb init`.");
@@ -150,7 +150,7 @@ impl Setup {
     }
 
     pub fn init<'m>(matches: &ArgMatches<'m>) -> Result<InitArgs, ExitCode> {
-        let locator = locator_from_matches(matches)?;
+        let locator = Self::locator_from_matches(matches)?;
         let export_specs = matches.is_present(cli::ARG_EXPORT_SPECS);
         let list_specs = matches.is_present(cli::ARG_LIST_SPECS);
         let force = matches.is_present(cli::ARG_FORCE);
@@ -175,6 +175,14 @@ impl Setup {
             log_to_file,
             log_to_stdout,
         })
+    }
+
+    pub fn locator_from_matches<'m>(matches: &ArgMatches<'m>) -> Result<ResourceLocator, ExitCode> {
+        let config_dir = match matches.value_of(cli::ARG_CONFIG_DIR) {
+            Some(arg_config_dir) => PathBuf::from(arg_config_dir),
+            None => ::std::env::current_dir()?,
+        };
+        ResourceLocator::with_root_dir(config_dir).map_err(Into::into)
     }
 
     fn chain_spec(&self) -> Result<ChainSpec, ExitCode> {
@@ -219,12 +227,4 @@ fn consensus_from_spec(spec: &ChainSpec) -> Result<Consensus, ExitCode> {
         eprintln!("to_consensus error: {}", err);
         ExitCode::Config
     })
-}
-
-fn locator_from_matches<'m>(matches: &ArgMatches<'m>) -> Result<ResourceLocator, ExitCode> {
-    let config_dir = match matches.value_of(cli::ARG_CONFIG_DIR) {
-        Some(arg_config_dir) => PathBuf::from(arg_config_dir),
-        None => ::std::env::current_dir()?,
-    };
-    ResourceLocator::with_root_dir(config_dir).map_err(Into::into)
 }

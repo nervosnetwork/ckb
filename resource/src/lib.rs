@@ -10,6 +10,7 @@ pub use std::io::{Error, Result};
 
 use self::template::Template;
 use std::borrow::Cow;
+use std::fmt;
 use std::fs;
 use std::io::{self, BufReader, Read};
 use std::path::{Path, PathBuf};
@@ -25,6 +26,15 @@ pub const SPECS_RESOURCE_DIR_NAME: &str = "specs/";
 pub enum Resource {
     Bundled(String),
     FileSystem(PathBuf),
+}
+
+impl fmt::Display for Resource {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Resource::Bundled(key) => write!(f, "Bundled({})", key),
+            Resource::FileSystem(path) => write!(f, "FileSystem({})", path.display()),
+        }
+    }
 }
 
 impl Resource {
