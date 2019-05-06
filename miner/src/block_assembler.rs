@@ -54,9 +54,9 @@ impl TemplateCache {
         number: String,
     ) -> bool {
         last_uncles_updated_at != self.uncles_updated_at
-            || last_txs_updated_at != self.txs_updated_at
+            || (last_txs_updated_at != self.txs_updated_at
+                && current_time.saturating_sub(self.time) > BLOCK_TEMPLATE_TIMEOUT)
             || number != self.template.number
-            || current_time.saturating_sub(self.time) > BLOCK_TEMPLATE_TIMEOUT
     }
 }
 
