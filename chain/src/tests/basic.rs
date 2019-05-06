@@ -27,7 +27,7 @@ fn test_genesis_transaction_spend() {
         ])
         .build();
 
-    let mut root_hash = tx.hash();
+    let mut root_hash = tx.hash().to_owned();
 
     let genesis_tx_hash = root_hash.clone();
 
@@ -45,8 +45,8 @@ fn test_genesis_transaction_spend() {
     let mut parent = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
     for i in 1..end {
         let difficulty = parent.difficulty().to_owned();
-        let tx = create_transaction(root_hash, i as u8);
-        root_hash = tx.hash();
+        let tx = create_transaction(&root_hash, i as u8);
+        root_hash = tx.hash().to_owned();
         let new_block = gen_block(
             &parent,
             difficulty + U256::from(1u64),
@@ -92,27 +92,21 @@ fn test_transaction_spend_in_same_block() {
     }
 
     let last_cell_base = &chain.last().unwrap().transactions()[0];
-    let last_cell_base_hash = last_cell_base.hash();
-    let tx1 = create_transaction(last_cell_base_hash.clone(), 1);
-    let tx1_hash = tx1.hash();
-    let tx2 = create_transaction(tx1_hash.clone(), 2);
-    let tx2_hash = tx2.hash();
+    let last_cell_base_hash = last_cell_base.hash().to_owned();
+    let tx1 = create_transaction(&last_cell_base_hash, 1);
+    let tx1_hash = tx1.hash().to_owned();
+    let tx2 = create_transaction(&tx1_hash, 2);
+    let tx2_hash = tx2.hash().to_owned();
     let tx2_output = tx2.outputs()[0].clone();
 
     let txs = vec![tx1, tx2];
 
-    for hash in [
-        last_cell_base_hash.clone(),
-        tx1_hash.clone(),
-        tx2_hash.clone(),
-    ]
-    .iter()
-    {
+    for hash in [&last_cell_base_hash, &tx1_hash, &tx2_hash].iter() {
         assert_eq!(
             shared
                 .chain_state()
                 .lock()
-                .cell(&OutPoint::new(hash.clone(), 0)),
+                .cell(&OutPoint::new(hash.to_owned().to_owned(), 0)),
             CellStatus::Unknown
         );
     }
@@ -160,12 +154,12 @@ fn test_transaction_spend_in_same_block() {
             .expect("process block ok");
     }
 
-    for hash in [last_cell_base_hash, tx1_hash].iter() {
+    for hash in [&last_cell_base_hash, &tx1_hash].iter() {
         assert_eq!(
             shared
                 .chain_state()
                 .lock()
-                .cell(&OutPoint::new(hash.clone(), 0)),
+                .cell(&OutPoint::new(hash.to_owned().to_owned(), 0)),
             CellStatus::Dead
         );
     }
@@ -174,11 +168,11 @@ fn test_transaction_spend_in_same_block() {
         shared
             .chain_state()
             .lock()
-            .cell(&OutPoint::new(tx2_hash.clone(), 0)),
+            .cell(&OutPoint::new(tx2_hash.to_owned(), 0)),
         CellStatus::live_cell(CellMeta {
             cell_output: None,
             out_point: OutPoint {
-                tx_hash: tx2_hash,
+                tx_hash: tx2_hash.to_owned(),
                 index: 0
             },
             cellbase: false,
@@ -209,9 +203,9 @@ fn test_transaction_conflict_in_same_block() {
 
     let last_cell_base = &chain.last().unwrap().transactions()[0];
     let tx1 = create_transaction(last_cell_base.hash(), 1);
-    let tx1_hash = tx1.hash();
-    let tx2 = create_transaction(tx1_hash.clone(), 2);
-    let tx3 = create_transaction(tx1_hash.clone(), 3);
+    let tx1_hash = tx1.hash().to_owned();
+    let tx2 = create_transaction(&tx1_hash, 2);
+    let tx3 = create_transaction(&tx1_hash, 3);
     let txs = vec![tx1, tx2, tx3];
     // proposal txs
     {
@@ -258,7 +252,7 @@ fn test_transaction_conflict_in_same_block() {
     }
     assert_eq!(
         SharedError::UnresolvableTransaction(UnresolvableError::Dead(OutPoint {
-            tx_hash: tx1_hash,
+            tx_hash: tx1_hash.to_owned(),
             index: 0,
         })),
         chain_controller
@@ -290,8 +284,8 @@ fn test_transaction_conflict_in_different_blocks() {
     let last_cell_base = &chain.last().unwrap().transactions()[0];
     let tx1 = create_transaction(last_cell_base.hash(), 1);
     let tx1_hash = tx1.hash();
-    let tx2 = create_transaction(tx1_hash.clone(), 2);
-    let tx3 = create_transaction(tx1_hash.clone(), 3);
+    let tx2 = create_transaction(tx1_hash, 2);
+    let tx3 = create_transaction(tx1_hash, 3);
     // proposal txs
     {
         let difficulty = parent.difficulty().to_owned();
@@ -350,7 +344,7 @@ fn test_transaction_conflict_in_different_blocks() {
     }
     assert_eq!(
         SharedError::UnresolvableTransaction(UnresolvableError::Dead(OutPoint {
-            tx_hash: tx1_hash,
+            tx_hash: tx1_hash.to_owned(),
             index: 0,
         })),
         chain_controller
@@ -376,7 +370,7 @@ fn test_genesis_transaction_fetch() {
         ])
         .build();
 
-    let root_hash = tx.hash();
+    let root_hash = tx.hash().to_owned();
 
     let genesis_block = BlockBuilder::default()
         .transaction(tx)

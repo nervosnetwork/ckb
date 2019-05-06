@@ -164,7 +164,7 @@ fn new_chain(
         .output(cell_output)
         .build();
 
-    let system_cell_hash = cellbase.hash();
+    let system_cell_hash = cellbase.hash().to_owned();
 
     // create genesis block with N txs
     let transactions: Vec<Transaction> = (0..txs_size)
@@ -270,15 +270,23 @@ fn gen_block(
     blocks.push(block);
 }
 
-fn create_transaction(parent_hash: H256, system_cell_hash: &H256, data_hash: &H256) -> Transaction {
+fn create_transaction(
+    parent_hash: &H256,
+    system_cell_hash: &H256,
+    data_hash: &H256,
+) -> Transaction {
     TransactionBuilder::default()
         .output(CellOutput::new(
             capacity_bytes!(50_000),
             (0..255).collect(),
-            Script::new(vec![(0..255).collect()], data_hash.clone()),
+            Script::new(vec![(0..255).collect()], data_hash.to_owned()),
             None,
         ))
-        .input(CellInput::new(OutPoint::new(parent_hash, 0), 0, vec![]))
-        .dep(OutPoint::new(system_cell_hash.clone(), 0))
+        .input(CellInput::new(
+            OutPoint::new(parent_hash.to_owned(), 0),
+            0,
+            vec![],
+        ))
+        .dep(OutPoint::new(system_cell_hash.to_owned(), 0))
         .build()
 }

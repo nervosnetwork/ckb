@@ -56,7 +56,7 @@ impl<'a, CS: LazyLoadCellOutput> TransactionScriptsVerifier<'a, CS> {
                 |(index, output)| CellMeta {
                     cell_output: Some(output.clone()),
                     out_point: OutPoint {
-                        tx_hash: tx_hash.clone(),
+                        tx_hash: tx_hash.to_owned(),
                         index: index as u32,
                     },
                     block_number: None,
@@ -103,7 +103,7 @@ impl<'a, CS: LazyLoadCellOutput> TransactionScriptsVerifier<'a, CS> {
             dep_cells,
             witnesses,
             vm,
-            hash: tx_hash,
+            hash: tx_hash.to_owned(),
         }
     }
 

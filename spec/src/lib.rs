@@ -312,7 +312,7 @@ pub mod test {
             let block = consensus.genesis_block();
             let cells_tx = &block.transactions()[0];
 
-            assert_eq!(spec_hashes.system_cells_transaction, cells_tx.hash());
+            assert_eq!(&spec_hashes.system_cells_transaction, cells_tx.hash());
 
             for (output, cell_hashes) in cells_tx
                 .outputs()

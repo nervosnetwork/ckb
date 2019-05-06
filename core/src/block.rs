@@ -5,9 +5,15 @@ use ckb_merkle_tree::merkle_root;
 use fnv::FnvHashSet;
 use numext_fixed_hash::H256;
 use serde_derive::{Deserialize, Serialize};
+use std::borrow::ToOwned;
 
 fn cal_transactions_root(vec: &[Transaction]) -> H256 {
-    merkle_root(&vec.iter().map(Transaction::hash).collect::<Vec<_>>())
+    merkle_root(
+        &vec.iter()
+            .map(Transaction::hash)
+            .map(ToOwned::to_owned)
+            .collect::<Vec<_>>(),
+    )
 }
 
 fn cal_proposals_root(vec: &[ProposalShortId]) -> H256 {
@@ -17,7 +23,12 @@ fn cal_proposals_root(vec: &[ProposalShortId]) -> H256 {
 fn cal_witnesses_root(vec: &[Transaction]) -> H256 {
     // The witness hash of cellbase transaction is assumed to be zero 0x0000....0000
     let mut witnesses = vec![H256::zero()];
-    witnesses.extend(vec.iter().skip(1).map(Transaction::witness_hash));
+    witnesses.extend(
+        vec.iter()
+            .skip(1)
+            .map(Transaction::witness_hash)
+            .map(ToOwned::to_owned),
+    );
     merkle_root(&witnesses[..])
 }
 

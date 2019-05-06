@@ -30,7 +30,7 @@ impl<'a, CS: ChainStore> BlockProposalProcess<'a, CS> {
                 if self.relayer.state.already_known(&tx_hash) {
                     None
                 } else {
-                    Some((tx_hash, tx))
+                    Some((tx_hash.to_owned(), tx))
                 }
             })
             .collect();

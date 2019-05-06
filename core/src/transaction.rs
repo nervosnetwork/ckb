@@ -375,12 +375,12 @@ impl Transaction {
             && self.inputs[0].since == 0
     }
 
-    pub fn hash(&self) -> H256 {
-        self.hash.clone()
+    pub fn hash(&self) -> &H256 {
+        &self.hash
     }
 
-    pub fn witness_hash(&self) -> H256 {
-        self.witness_hash.clone()
+    pub fn witness_hash(&self) -> &H256 {
+        &self.witness_hash
     }
 
     pub fn out_points_iter(&self) -> impl Iterator<Item = &OutPoint> {

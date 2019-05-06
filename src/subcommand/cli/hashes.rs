@@ -37,7 +37,7 @@ impl TryFrom<ChainSpec> for SpecHashes {
             .zip(cells_tx.outputs())
             .map(|(resource, output)| {
                 let code_hash = output.data_hash();
-                let script_hash = Script::new(vec![], code_hash.clone()).hash();
+                let script_hash = Script::new(vec![], code_hash.to_owned()).hash();
                 SystemCellHashes {
                     path: format!("{}", resource),
                     code_hash,
@@ -47,8 +47,8 @@ impl TryFrom<ChainSpec> for SpecHashes {
             .collect();
 
         Ok(SpecHashes {
-            genesis: consensus.genesis_hash().clone(),
-            system_cells_transaction: cells_tx.hash(),
+            genesis: consensus.genesis_hash().to_owned(),
+            system_cells_transaction: cells_tx.hash().to_owned(),
             system_cells: cells_hashes,
         })
     }

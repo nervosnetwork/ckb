@@ -45,7 +45,7 @@ impl<CS: ChainStore + 'static> PoolRpc for PoolRpcImpl<CS> {
                 let data = fbb.finished_data().into();
                 self.network_controller
                     .broadcast(NetworkProtocol::RELAY.into(), data);
-                Ok(tx.hash())
+                Ok(tx.hash().to_owned())
             }
             Err(e) => Err(RPCError::custom(RPCError::Invalid, e.to_string())),
         }

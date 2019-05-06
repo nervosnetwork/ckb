@@ -63,7 +63,7 @@ impl TemplateCache {
 struct FeeCalculator<'a> {
     txs: &'a [PoolEntry],
     provider: &'a dyn ChainProvider,
-    txs_map: FnvHashMap<H256, usize>,
+    txs_map: FnvHashMap<&'a H256, usize>,
 }
 
 impl<'a> FeeCalculator<'a> {
@@ -270,7 +270,7 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
 
     fn transform_cellbase(tx: &Transaction, cycles: Option<Cycle>) -> CellbaseTemplate {
         CellbaseTemplate {
-            hash: tx.hash(),
+            hash: tx.hash().to_owned(),
             cycles: cycles.map(|c| c.to_string()),
             data: tx.into(),
         }
@@ -282,7 +282,7 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
         depends: Option<Vec<u32>>,
     ) -> TransactionTemplate {
         TransactionTemplate {
-            hash: tx.transaction.hash(),
+            hash: tx.transaction.hash().to_owned(),
             required,
             cycles: tx.cycles.map(|c| c.to_string()),
             depends,

@@ -25,7 +25,7 @@ pub(crate) struct TraceRpcImpl<CS> {
 impl<CS: ChainStore + 'static> TraceRpc for TraceRpcImpl<CS> {
     fn trace_transaction(&self, tx: Transaction) -> Result<H256> {
         let tx: CoreTransaction = tx.try_into().map_err(|_| Error::parse_error())?;
-        let tx_hash = tx.hash();
+        let tx_hash = tx.hash().to_owned();
         let mut chain_state = self.shared.chain_state().lock();
         chain_state.mut_tx_pool().trace_tx(tx);
         Ok(tx_hash)

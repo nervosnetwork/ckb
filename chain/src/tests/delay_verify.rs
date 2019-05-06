@@ -46,9 +46,9 @@ fn test_dead_cell_in_same_block() {
 
     let last_cell_base = &chain2.last().unwrap().transactions()[0];
     let tx1 = create_transaction(last_cell_base.hash(), 1);
-    let tx1_hash = tx1.hash();
-    let tx2 = create_transaction(tx1_hash.clone(), 2);
-    let tx3 = create_transaction(tx1_hash.clone(), 3);
+    let tx1_hash = tx1.hash().to_owned();
+    let tx2 = create_transaction(&tx1_hash, 2);
+    let tx3 = create_transaction(&tx1_hash, 3);
     let txs = vec![tx1, tx2, tx3];
     for i in switch_fork_number..final_number {
         let difficulty = parent.difficulty().to_owned();
@@ -146,8 +146,8 @@ fn test_dead_cell_in_different_block() {
     let last_cell_base = &chain2.last().unwrap().transactions()[0];
     let tx1 = create_transaction(last_cell_base.hash(), 1);
     let tx1_hash = tx1.hash();
-    let tx2 = create_transaction(tx1_hash.clone(), 2);
-    let tx3 = create_transaction(tx1_hash.clone(), 3);
+    let tx2 = create_transaction(tx1_hash, 2);
+    let tx3 = create_transaction(tx1_hash, 3);
     for i in switch_fork_number..final_number {
         let difficulty = parent.difficulty().to_owned();
         let new_block = if i == switch_fork_number {
@@ -201,7 +201,7 @@ fn test_dead_cell_in_different_block() {
 
     assert_eq!(
         SharedError::UnresolvableTransaction(UnresolvableError::Dead(OutPoint {
-            tx_hash: tx1_hash,
+            tx_hash: tx1_hash.to_owned(),
             index: 0,
         })),
         chain_controller

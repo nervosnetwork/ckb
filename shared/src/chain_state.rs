@@ -138,7 +138,7 @@ impl<CS: ChainStore> ChainState<CS> {
                     cell_set.mark_dead(&o);
                 }
 
-                cell_set.insert(tx.hash(), n, tx.is_cellbase(), output_len);
+                cell_set.insert(tx.hash().to_owned(), n, tx.is_cellbase(), output_len);
             }
         }
 
@@ -292,7 +292,7 @@ impl<CS: ChainStore> ChainState<CS> {
         let entries = tx_pool.orphan.remove_by_ancestor(tx);
         for entry in entries {
             if self.contains_proposal_id(&tx.proposal_short_id()) {
-                let tx_hash = entry.transaction.hash();
+                let tx_hash = entry.transaction.hash().to_owned();
                 let ret = self.staging_tx(tx_pool, entry.cycles, entry.transaction);
                 if ret.is_err() {
                     trace!(target: "tx_pool", "staging tx {:x} failed {:?}", tx_hash, ret);

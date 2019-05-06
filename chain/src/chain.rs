@@ -501,7 +501,11 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
 
         for b in attached_blocks_iter.take(unverified_len) {
             cell_set_diff.push_new(b);
-            outputs.extend(b.transactions().iter().map(|tx| (tx.hash(), tx.outputs())));
+            outputs.extend(
+                b.transactions()
+                    .iter()
+                    .map(|tx| (tx.hash().to_owned(), tx.outputs())),
+            );
         }
 
         // The verify function
@@ -559,7 +563,9 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
                                 Ok(_) => {
                                     cell_set_diff.push_new(b);
                                     outputs.extend(
-                                        b.transactions().iter().map(|tx| (tx.hash(), tx.outputs())),
+                                        b.transactions()
+                                            .iter()
+                                            .map(|tx| (tx.hash().to_owned(), tx.outputs())),
                                     );
                                     ext.txs_verified = Some(true);
                                 }
@@ -586,7 +592,11 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
                 }
             } else {
                 cell_set_diff.push_new(b);
-                outputs.extend(b.transactions().iter().map(|tx| (tx.hash(), tx.outputs())));
+                outputs.extend(
+                    b.transactions()
+                        .iter()
+                        .map(|tx| (tx.hash().to_owned(), tx.outputs())),
+                );
                 ext.txs_verified = Some(true);
             }
         }

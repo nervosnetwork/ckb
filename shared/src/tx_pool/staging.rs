@@ -310,15 +310,15 @@ mod tests {
     use ckb_core::script::Script;
     use ckb_core::transaction::{CellInput, CellOutput, Transaction, TransactionBuilder};
     use ckb_core::{Bytes, Capacity};
-    use numext_fixed_hash::H256;
+    use numext_fixed_hash::{h256, H256};
 
-    fn build_tx(inputs: Vec<(H256, u32)>, outputs_len: usize) -> Transaction {
+    fn build_tx(inputs: Vec<(&H256, u32)>, outputs_len: usize) -> Transaction {
         TransactionBuilder::default()
             .inputs(
                 inputs
                     .into_iter()
                     .map(|(txid, index)| {
-                        CellInput::new(OutPoint::new(txid, index), 0, Default::default())
+                        CellInput::new(OutPoint::new(txid.to_owned(), index), 0, Default::default())
                     })
                     .collect(),
             )
@@ -341,7 +341,7 @@ mod tests {
 
     #[test]
     fn test_add_entry() {
-        let tx1 = build_tx(vec![(H256::zero(), 1), (H256::zero(), 2)], 1);
+        let tx1 = build_tx(vec![(&H256::zero(), 1), (&H256::zero(), 2)], 1);
         let tx1_hash = tx1.hash();
         let tx2 = build_tx(vec![(tx1_hash, 0)], 1);
 
@@ -368,14 +368,8 @@ mod tests {
 
     #[test]
     fn test_add_roots() {
-        let tx1 = build_tx(vec![(H256::zero(), 1), (H256::zero(), 2)], 1);
-        let tx2 = build_tx(
-            vec![
-                (H256::from_trimmed_hex_str("2").unwrap(), 1),
-                (H256::from_trimmed_hex_str("3").unwrap(), 2),
-            ],
-            3,
-        );
+        let tx1 = build_tx(vec![(&H256::zero(), 1), (&H256::zero(), 2)], 1);
+        let tx2 = build_tx(vec![(&h256!("0x2"), 1), (&h256!("0x3"), 2)], 3);
 
         let mut pool = StagingPool::new();
 
@@ -414,16 +408,16 @@ mod tests {
     #[test]
     #[allow(clippy::cyclomatic_complexity)]
     fn test_add_no_roots() {
-        let tx1 = build_tx(vec![(H256::zero(), 1)], 3);
+        let tx1 = build_tx(vec![(&H256::zero(), 1)], 3);
         let tx2 = build_tx(vec![], 4);
         let tx1_hash = tx1.hash();
         let tx2_hash = tx2.hash();
 
-        let tx3 = build_tx(vec![(tx1_hash.clone(), 0), (H256::zero(), 2)], 2);
-        let tx4 = build_tx(vec![(tx1_hash.clone(), 1), (tx2_hash.clone(), 0)], 2);
+        let tx3 = build_tx(vec![(tx1_hash, 0), (&H256::zero(), 2)], 2);
+        let tx4 = build_tx(vec![(tx1_hash, 1), (tx2_hash, 0)], 2);
 
         let tx3_hash = tx3.hash();
-        let tx5 = build_tx(vec![(tx1_hash.clone(), 2), (tx3_hash.clone(), 0)], 2);
+        let tx5 = build_tx(vec![(tx1_hash, 2), (tx3_hash, 0)], 2);
 
         let id1 = tx1.proposal_short_id();
         let id3 = tx3.proposal_short_id();
