@@ -222,6 +222,17 @@ impl Header {
         header
     }
 
+    pub fn from_bytes_with_hash(bytes: &[u8], hash: H256) -> Self {
+        #[derive(Deserialize)]
+        struct HeaderKernel {
+            raw: RawHeader,
+            seal: Seal,
+        }
+        let HeaderKernel { raw, seal } =
+            deserialize(bytes).expect("header kernel deserializing should be ok");
+        Self { raw, seal, hash }
+    }
+
     pub fn serialized_size(proof_size: usize) -> usize {
         RawHeader::serialized_size() + proof_size + mem::size_of::<u64>()
     }
@@ -316,12 +327,6 @@ pub struct HeaderBuilder {
 }
 
 impl HeaderBuilder {
-    pub fn new(bytes: &[u8]) -> Self {
-        let Header { raw, seal, .. } =
-            deserialize(bytes).expect("header deserializing should be ok");
-        Self { raw, seal }
-    }
-
     pub fn from_header(header: Header) -> Self {
         let Header { raw, seal, .. } = header;
         Self { raw, seal }
