@@ -7,10 +7,12 @@ test:
 
 integration:
 	cargo build ${VERBOSE}
+	cp -f Cargo.lock test/Cargo.lock
 	cd test && cargo run ../target/debug/ckb
 
 integration-release:
 	cargo build ${VERBOSE} --release
+	cp -f Cargo.lock test/Cargo.lock
 	cd test && cargo run --release -- ../target/release/ckb
 
 doc:
@@ -21,6 +23,7 @@ doc-deps:
 
 check:
 	cargo check ${VERBOSE} --all
+	cp -f Cargo.lock test/Cargo.lock
 	cd test && cargo check ${VERBOSE} --all
 
 build:

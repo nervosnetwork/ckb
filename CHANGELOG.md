@@ -2,6 +2,61 @@ All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
 
+# [v0.10.0](https://github.com/nervosnetwork/ckb/compare/v0.9.0...v0.10.0) (2019-05-06)
+
+### Bug Fixes
+
+- #510: fix VM hang bug for certain invalid programs (@xxuejie)
+- #509: fix incorrect occupied capacity computation for `Script` (@yangby-cryptape)
+- #480: fix Transaction interface behavior inconsistency (@driftluo)
+- #497: correct `send_transaction` rpc error message for unknown input or dep (@quake)
+- #477: fix mining dependent txs in one block (@jjyr)
+- #474: `valid_since` uses String instead u64 in RPC (@jjyr)
+- #471: CuckooEngine verify invalid length proof should not panic (@quake)
+- #469: fix PeerStore unique constraint failures (@jjyr)
+- #455: fix Sqlite can not start (@TheWaWaR)
+- #439: fix mining bug caused by type changes in RPC (@xxuejie)
+- #437: RPC `local_node_info` returns duplicated addr (@rink1969)
+- #418: try to repair a corrupted rocksdb automatically (@yangby-cryptape)
+- #414: clear tx verfy cache when chain reorg (@zhangsoledad)
+
+
+### Features
+
+- #501: add parameters to control the block generation rate in dummy mode (@yangby-cryptape)
+- #503: rpc resolve tx from pending and staging (@driftluo)
+- #481: configurable cellbase maturity (@zhangsoledad)
+- #473: cellbase maturity verification (@u2)
+- #468: ckb must loads config files from file system. (@doitian)
+- #448: relay known filter (@zhangsoledad)
+- #372: tx valid since (@jjyr)
+- #441: use hex string represent lock args in config (@zhangsoledad)
+- #434: Change all u64 fields in RPC to String (@xxuejie)
+- #422: Remove version from Script (@xxuejie)
+
+### Improvements
+
+- #504: refactor: check peers is_banned without query db (@jjyr)
+- #476: modify jsonrpc types (@yangby-cryptape)
+
+    - chore: let all jsonrpc types be public (for client)
+    - feat: change all u64 fields in RPC to String and hide internal Script struct
+    - chore: replace unnecessary TryFrom by From
+    - docs: fix README.md for JSON-RPC protocols
+
+- #435: refactor store module (@quake)
+- #392: avoid recursive lock (@zhangsoledad)
+
+
+### BREAKING CHANGES
+
+- This release has changed the underlying database format, please delete the old data directory before running the new version.
+- RPC `get_live_cell` returns `(null, "unknown")` when looking up null out point before, while returns `(null, "live")` now.
+- RPC uses `string` to encode all 64bit integrers now.
+- The executble `ckb` requires config files now, use `ckb init` to export the default ones.
+- The new features tx valid sicne (#372) and removal of version from Script (#422) have changed the core data structure. They affect both RPC and the P2P messages flatbuffers schema.
+
+
 # [v0.9.0](https://github.com/nervosnetwork/ckb/compare/v0.8.0...v0.9.0) (2019-04-22)
 
 ### Bug Fixes
