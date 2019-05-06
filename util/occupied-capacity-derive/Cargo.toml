@@ -1,6 +1,6 @@
 [package]
 name = "occupied-capacity-derive"
-version = "0.10.0-pre"
+version = "0.10.0"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
 
