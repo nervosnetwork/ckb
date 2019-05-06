@@ -467,18 +467,25 @@ impl<'a> ResolvedTransaction<'a> {
 
 #[cfg(test)]
 mod tests {
+    use super::super::header::{Header, HeaderBuilder};
     use super::super::script::Script;
+    use super::super::transaction::{CellInput, CellOutPoint, OutPoint, TransactionBuilder};
     use super::*;
     use crate::{capacity_bytes, Bytes, Capacity};
-    use numext_fixed_hash::H256;
+    use numext_fixed_hash::{h256, H256};
     use std::collections::HashMap;
 
+    #[derive(Default)]
     struct CellMemoryDb {
-        cells: HashMap<OutPoint, Option<CellMeta>>,
+        cells: HashMap<CellOutPoint, Option<CellMeta>>,
     }
     impl CellProvider for CellMemoryDb {
         fn cell(&self, o: &OutPoint) -> CellStatus {
-            match self.cells.get(o) {
+            if o.cell.is_none() {
+                return CellStatus::Unspecified;
+            }
+
+            match self.cells.get(o.cell.as_ref().unwrap()) {
                 Some(&Some(ref cell_meta)) => CellStatus::live_cell(cell_meta.clone()),
                 Some(&None) => CellStatus::Dead,
                 None => CellStatus::Unknown,
@@ -486,11 +493,67 @@ mod tests {
         }
     }
 
+    #[derive(Default)]
+    struct HeaderMemoryDb {
+        headers: HashMap<H256, Header>,
+        tx_headers: HashMap<CellOutPoint, H256>,
+    }
+    impl HeaderMemoryDb {
+        fn insert_header(&mut self, header: Header) {
+            self.headers.insert(header.hash(), header);
+        }
+    }
+    impl HeaderProvider for HeaderMemoryDb {
+        fn header(&self, o: &OutPoint) -> HeaderStatus {
+            if o.block_hash.is_none() {
+                return HeaderStatus::Unspecified;
+            }
+
+            match self.headers.get(o.block_hash.as_ref().unwrap()) {
+                Some(header) => {
+                    if o.cell.is_some() {
+                        self.tx_headers.get(o.cell.as_ref().unwrap()).map_or(
+                            HeaderStatus::InclusionFaliure,
+                            |h| {
+                                if *h == header.hash() {
+                                    HeaderStatus::live_header(header.clone())
+                                } else {
+                                    HeaderStatus::InclusionFaliure
+                                }
+                            },
+                        )
+                    } else {
+                        HeaderStatus::live_header(header.clone())
+                    }
+                }
+                None => HeaderStatus::Unknown,
+            }
+        }
+    }
+
+    fn generate_dummy_cell_meta() -> CellMeta {
+        let cell_output = CellOutput {
+            capacity: capacity_bytes!(2),
+            data: Bytes::default(),
+            lock: Script::default(),
+            type_: None,
+        };
+        CellMeta {
+            block_number: Some(1),
+            capacity: cell_output.capacity,
+            data_hash: Some(cell_output.data_hash()),
+            cell_output: Some(cell_output),
+            out_point: CellOutPoint {
+                tx_hash: Default::default(),
+                index: 0,
+            },
+            cellbase: false,
+        }
+    }
+
     #[test]
     fn cell_provider_trait_works() {
-        let mut db = CellMemoryDb {
-            cells: HashMap::new(),
-        };
+        let mut db = CellMemoryDb::default();
 
         let p1 = OutPoint {
             block_hash: None,
@@ -513,31 +576,163 @@ mod tests {
                 index: 3,
             }),
         };
-        let o = {
-            let cell_output = CellOutput {
-                capacity: capacity_bytes!(2),
-                data: Bytes::default(),
-                lock: Script::default(),
-                type_: None,
-            };
-            CellMeta {
-                block_number: Some(1),
-                capacity: cell_output.capacity,
-                data_hash: Some(cell_output.data_hash()),
-                cell_output: Some(cell_output),
-                out_point: CellOutPoint {
-                    tx_hash: Default::default(),
-                    index: 0,
-                },
-                cellbase: false,
-            }
-        };
+        let o = generate_dummy_cell_meta();
 
-        db.cells.insert(p1.clone(), Some(o.clone()));
-        db.cells.insert(p2.clone(), None);
+        db.cells.insert(p1.cell.clone().unwrap(), Some(o.clone()));
+        db.cells.insert(p2.cell.clone().unwrap(), None);
 
         assert_eq!(CellStatus::Live(Box::new(o)), db.cell(&p1));
         assert_eq!(CellStatus::Dead, db.cell(&p2));
         assert_eq!(CellStatus::Unknown, db.cell(&p3));
+    }
+
+    fn generate_header(parent_hash: H256) -> Header {
+        HeaderBuilder::default().parent_hash(parent_hash).build()
+    }
+
+    #[test]
+    fn resolve_transaction_should_resolve_header_only_out_point() {
+        let cell_provider = CellMemoryDb::default();
+        let mut header_provider = HeaderMemoryDb::default();
+
+        let header = generate_header(h256!("0x1"));
+        let header_hash = header.hash();
+
+        header_provider.insert_header(header.clone());
+
+        let out_point = OutPoint::new_block_hash(header_hash);
+        let transaction = TransactionBuilder::default().dep(out_point).build();
+
+        let mut seen_inputs = FnvHashSet::default();
+        let result = resolve_transaction(
+            &transaction,
+            &mut seen_inputs,
+            &cell_provider,
+            &header_provider,
+        )
+        .unwrap();
+
+        assert!(result.dep_cells[0].cell.is_none());
+        assert_eq!(result.dep_cells[0].header, Some(header));
+    }
+
+    #[test]
+    fn resolve_transaction_should_reject_input_without_cells() {
+        let cell_provider = CellMemoryDb::default();
+        let mut header_provider = HeaderMemoryDb::default();
+
+        let header = generate_header(h256!("0x1"));
+        let header_hash = header.hash();
+
+        header_provider.insert_header(header.clone());
+
+        let out_point = OutPoint::new_block_hash(header_hash);
+        let transaction = TransactionBuilder::default()
+            .input(CellInput::new(out_point, 0, vec![]))
+            .build();
+
+        let mut seen_inputs = FnvHashSet::default();
+        let result = resolve_transaction(
+            &transaction,
+            &mut seen_inputs,
+            &cell_provider,
+            &header_provider,
+        );
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn resolve_transaction_should_resolve_both_header_and_cell() {
+        let mut cell_provider = CellMemoryDb::default();
+        let mut header_provider = HeaderMemoryDb::default();
+
+        let header = generate_header(h256!("0x1"));
+        let header_hash = header.hash();
+        let out_point = OutPoint::new(header_hash.clone(), h256!("0x2"), 3);
+
+        cell_provider.cells.insert(
+            out_point.cell.clone().unwrap(),
+            Some(generate_dummy_cell_meta()),
+        );
+        header_provider.insert_header(header.clone());
+        header_provider
+            .tx_headers
+            .insert(out_point.cell.clone().unwrap(), header_hash);
+
+        let transaction = TransactionBuilder::default().dep(out_point).build();
+
+        let mut seen_inputs = FnvHashSet::default();
+        let result = resolve_transaction(
+            &transaction,
+            &mut seen_inputs,
+            &cell_provider,
+            &header_provider,
+        )
+        .unwrap();
+
+        assert!(result.dep_cells[0].cell.is_some());
+        assert_eq!(result.dep_cells[0].header, Some(header));
+    }
+
+    #[test]
+    fn resolve_transaction_should_test_header_includes_cell() {
+        let mut cell_provider = CellMemoryDb::default();
+        let mut header_provider = HeaderMemoryDb::default();
+
+        let header = generate_header(h256!("0x1"));
+        let header_hash = header.hash();
+        let out_point = OutPoint::new(header_hash.clone(), h256!("0x2"), 3);
+
+        cell_provider.cells.insert(
+            out_point.cell.clone().unwrap(),
+            Some(generate_dummy_cell_meta()),
+        );
+        header_provider.insert_header(header.clone());
+
+        let transaction = TransactionBuilder::default().dep(out_point).build();
+
+        let mut seen_inputs = FnvHashSet::default();
+        let result = resolve_transaction(
+            &transaction,
+            &mut seen_inputs,
+            &cell_provider,
+            &header_provider,
+        );
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn resolve_transaction_should_reject_empty_out_point() {
+        let mut cell_provider = CellMemoryDb::default();
+        let mut header_provider = HeaderMemoryDb::default();
+
+        let header = generate_header(h256!("0x1"));
+        let header_hash = header.hash();
+        let out_point = OutPoint::new(header_hash.clone(), h256!("0x2"), 3);
+
+        cell_provider.cells.insert(
+            out_point.cell.clone().unwrap(),
+            Some(generate_dummy_cell_meta()),
+        );
+        header_provider.insert_header(header.clone());
+        header_provider
+            .tx_headers
+            .insert(out_point.cell.clone().unwrap(), header_hash);
+
+        let transaction = TransactionBuilder::default()
+            .dep(OutPoint::default())
+            .build();
+
+        let mut seen_inputs = FnvHashSet::default();
+        let result = resolve_transaction(
+            &transaction,
+            &mut seen_inputs,
+            &cell_provider,
+            &header_provider,
+        );
+
+        assert!(result.is_err());
     }
 }

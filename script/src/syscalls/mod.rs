@@ -98,12 +98,14 @@ mod tests {
     use crate::common::CurrentCell;
     use byteorder::{LittleEndian, WriteBytesExt};
     use ckb_core::cell::{CellMeta, ResolvedOutPoint};
+    use ckb_core::header::HeaderBuilder;
     use ckb_core::script::Script;
     use ckb_core::transaction::{CellInput, CellOutPoint, CellOutput, OutPoint};
     use ckb_core::{capacity_bytes, Bytes, Capacity};
     use ckb_db::MemoryKeyValueDB;
     use ckb_protocol::{
-        Bytes as FbsBytes, CellInputBuilder, CellOutput as FbsCellOutput, OutPoint as FbsOutPoint,
+        Bytes as FbsBytes, CellInputBuilder, CellOutput as FbsCellOutput, Header as FbsHeader,
+        OutPoint as FbsOutPoint,
     };
     use ckb_store::{ChainKVStore, COLUMNS};
     use ckb_vm::machine::DefaultCoreMachine;
@@ -1103,6 +1105,62 @@ mod tests {
         #[test]
         fn test_load_dep_cell_data_hash(ref data in any_with::<Vec<u8>>(size_range(1000).lift())) {
             _test_load_dep_cell_data_hash(data)?;
+        }
+    }
+
+    fn _test_load_header(data: &[u8]) -> Result<(), TestCaseError> {
+        let mut machine = DefaultCoreMachine::<u64, SparseMemory<u64>>::default();
+        let size_addr: u64 = 0;
+        let addr: u64 = 100;
+
+        machine.set_register(A0, addr); // addr
+        machine.set_register(A1, size_addr); // size_addr
+        machine.set_register(A2, 0); // offset
+        machine.set_register(A3, 0); //index
+        machine.set_register(A4, Source::Dep as u64); //source: 3 dep
+        machine.set_register(A7, LOAD_HEADER_SYSCALL_NUMBER); // syscall number
+
+        let data_hash = blake2b_256(&data);
+        let header = HeaderBuilder::default()
+            .transactions_root(data_hash.into())
+            .build();
+
+        let mut builder = FlatBufferBuilder::new();
+        let fbs_offset = FbsHeader::build(&mut builder, &header);
+        builder.finish(fbs_offset, None);
+        let header_correct_data = builder.finished_data();
+
+        let dep_cell = ResolvedOutPoint::header_only(header);
+        let input_cells = vec![];
+        let dep_cells = vec![&dep_cell];
+        let mut load_cell = LoadHeader::new(&input_cells, CurrentCell::Input(0), &dep_cells);
+
+        prop_assert!(machine
+            .memory_mut()
+            .store64(&size_addr, &(header_correct_data.len() as u64 + 20))
+            .is_ok());
+
+        prop_assert!(load_cell.ecall(&mut machine).is_ok());
+        prop_assert_eq!(machine.registers()[A0], u64::from(SUCCESS));
+
+        prop_assert_eq!(
+            machine.memory_mut().load64(&size_addr),
+            Ok(header_correct_data.len() as u64)
+        );
+
+        for (i, addr) in (addr..addr + header_correct_data.len() as u64).enumerate() {
+            prop_assert_eq!(
+                machine.memory_mut().load8(&addr),
+                Ok(u64::from(header_correct_data[i]))
+            );
+        }
+        Ok(())
+    }
+
+    proptest! {
+        #[test]
+        fn test_load_header(ref data in any_with::<Vec<u8>>(size_range(1000).lift())) {
+            _test_load_header(data)?;
         }
     }
 

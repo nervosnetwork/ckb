@@ -66,10 +66,24 @@ impl fmt::Debug for OutPoint {
 }
 
 impl OutPoint {
+    pub fn new(block_hash: H256, tx_hash: H256, index: u32) -> Self {
+        OutPoint {
+            block_hash: Some(block_hash),
+            cell: Some(CellOutPoint { tx_hash, index }),
+        }
+    }
+
     pub fn new_cell(tx_hash: H256, index: u32) -> Self {
         OutPoint {
             block_hash: None,
             cell: Some(CellOutPoint { tx_hash, index }),
+        }
+    }
+
+    pub fn new_block_hash(block_hash: H256) -> Self {
+        OutPoint {
+            block_hash: Some(block_hash),
+            cell: None,
         }
     }
 
