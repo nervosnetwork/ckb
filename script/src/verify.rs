@@ -10,7 +10,6 @@ use ckb_core::cell::{CellMeta, ResolvedTransaction};
 use ckb_core::script::{Script, ALWAYS_SUCCESS_HASH};
 use ckb_core::transaction::{CellInput, OutPoint};
 use ckb_core::{Bytes, Cycle};
-use ckb_store::ChainStore;
 use ckb_vm::{DefaultCoreMachine, DefaultMachineBuilder, SparseMemory, SupportMachine};
 use flatbuffers::FlatBufferBuilder;
 use fnv::FnvHashMap;
@@ -33,7 +32,7 @@ pub struct TransactionScriptsVerifier<'a, CS> {
     hash: H256,
 }
 
-impl<'a, CS: ChainStore> TransactionScriptsVerifier<'a, CS> {
+impl<'a, CS: LazyLoadCellOutput> TransactionScriptsVerifier<'a, CS> {
     pub fn new(rtx: &'a ResolvedTransaction, store: Arc<CS>) -> TransactionScriptsVerifier<'a, CS> {
         let tx_hash = rtx.transaction.hash();
         let dep_cells: Vec<&'a CellMeta> = rtx.dep_cells.iter().collect();
@@ -45,24 +44,16 @@ impl<'a, CS: ChainStore> TransactionScriptsVerifier<'a, CS> {
             .iter()
             .enumerate()
             .map({
-                |(index, output)| {
-                    store
-                        .get_cell_meta(&tx_hash, index as u32)
-                        .map(|mut cell_meta| {
-                            cell_meta.cell_output = Some(output.clone());
-                            cell_meta
-                        })
-                        .unwrap_or_else(|| CellMeta {
-                            cell_output: Some(output.clone()),
-                            out_point: OutPoint {
-                                tx_hash: tx_hash.clone(),
-                                index: index as u32,
-                            },
-                            block_number: None,
-                            cellbase: false,
-                            capacity: output.capacity,
-                            data_hash: None,
-                        })
+                |(index, output)| CellMeta {
+                    cell_output: Some(output.clone()),
+                    out_point: OutPoint {
+                        tx_hash: tx_hash.clone(),
+                        index: index as u32,
+                    },
+                    block_number: None,
+                    cellbase: false,
+                    capacity: output.capacity,
+                    data_hash: None,
                 }
             })
             .collect();
@@ -228,8 +219,8 @@ impl<'a, CS: ChainStore> TransactionScriptsVerifier<'a, CS> {
             }
             cycles = current_cycles;
         }
-        for (i, output) in self.outputs.iter().enumerate() {
-            let output = self.store.lazy_load_cell_output(output);
+        for (i, cell_meta) in self.outputs.iter().enumerate() {
+            let output = cell_meta.cell_output.as_ref().expect("output already set");
             if let Some(ref type_) = output.type_ {
                 let prefix = format!("Transaction {}, output {}", self.hash, i);
                 let cycle = self.verify_script(type_, &prefix, CurrentCell::Output(i), None, None, max_cycles - cycles).map_err(|e| {

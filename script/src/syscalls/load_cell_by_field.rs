@@ -5,7 +5,6 @@ use crate::syscalls::{
 use byteorder::{LittleEndian, WriteBytesExt};
 use ckb_core::cell::CellMeta;
 use ckb_protocol::Script as FbsScript;
-use ckb_store::ChainStore;
 use ckb_vm::{Error as VMError, Register, SupportMachine, Syscalls, A0, A3, A4, A5, A7};
 use flatbuffers::FlatBufferBuilder;
 use std::sync::Arc;
@@ -19,7 +18,7 @@ pub struct LoadCellByField<'a, CS> {
     dep_cells: &'a [&'a CellMeta],
 }
 
-impl<'a, CS: ChainStore> LoadCellByField<'a, CS> {
+impl<'a, CS: LazyLoadCellOutput> LoadCellByField<'a, CS> {
     pub fn new(
         store: Arc<CS>,
         outputs: &'a [CellMeta],
@@ -49,7 +48,7 @@ impl<'a, CS: ChainStore> LoadCellByField<'a, CS> {
     }
 }
 
-impl<'a, Mac: SupportMachine, CS: ChainStore> Syscalls<Mac> for LoadCellByField<'a, CS> {
+impl<'a, Mac: SupportMachine, CS: LazyLoadCellOutput> Syscalls<Mac> for LoadCellByField<'a, CS> {
     fn initialize(&mut self, _machine: &mut Mac) -> Result<(), VMError> {
         Ok(())
     }
