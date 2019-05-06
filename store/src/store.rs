@@ -28,6 +28,8 @@ use std::sync::Mutex;
 
 lazy_static! {
     static ref HEADER_CACHE: Mutex<LruCache<H256, Header>> = Mutex::new(LruCache::new(4096));
+    static ref CELL_OUTPUT_CACHE: Mutex<LruCache<(H256, u32), CellOutput>> =
+        Mutex::new(LruCache::new(128));
 }
 
 const META_TIP_HEADER_KEY: &[u8] = b"TIP_HEADER";
@@ -321,24 +323,39 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
     }
 
     fn get_cell_output(&self, tx_hash: &H256, index: u32) -> Option<CellOutput> {
+        let mut cell_output_cache_unlocked = CELL_OUTPUT_CACHE
+            .lock()
+            .expect("poisoned cell output cache lock");
+        if let Some(cell_output) = cell_output_cache_unlocked.get_refresh(&(tx_hash.clone(), index))
+        {
+            return Some(cell_output.clone());
+        }
+        // release lock asap
+        drop(cell_output_cache_unlocked);
+
         self.get(COLUMN_TRANSACTION_ADDR, tx_hash.as_bytes())
             .map(|raw| deserialize(&raw[..]).expect("deserialize tx address should be ok"))
             .and_then(|stored: TransactionAddressStored| {
-                let tx_offset = stored.inner.offset;
                 stored
                     .inner
                     .outputs_addresses
                     .get(index as usize)
                     .and_then(|addr| {
-                        let output_offset = tx_offset + addr.offset;
+                        let output_offset = stored.inner.offset + addr.offset;
                         self.partial_get(
                             COLUMN_BLOCK_BODY,
                             stored.block_hash.as_bytes(),
                             &(output_offset..(output_offset + addr.length)),
                         )
                         .map(|ref serialized_cell_output| {
-                            deserialize(serialized_cell_output)
-                                .expect("flat deserialize cell output should be ok")
+                            let cell_output: CellOutput = deserialize(serialized_cell_output)
+                                .expect("flat deserialize cell output should be ok");
+                            let mut cell_output_cache_unlocked = CELL_OUTPUT_CACHE
+                                .lock()
+                                .expect("poisoned cell output cache lock");
+                            cell_output_cache_unlocked
+                                .insert((tx_hash.clone(), index), cell_output.clone());
+                            cell_output.to_owned()
                         })
                     })
             })
