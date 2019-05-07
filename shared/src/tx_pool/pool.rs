@@ -151,6 +151,14 @@ impl TxPool {
             .cloned()
     }
 
+    pub fn get_tx_without_conflict(&self, id: &ProposalShortId) -> Option<Transaction> {
+        self.pending
+            .get_tx(id)
+            .or_else(|| self.staging.get_tx(id))
+            .or_else(|| self.orphan.get_tx(id))
+            .cloned()
+    }
+
     pub fn get_tx_from_staging(&self, id: &ProposalShortId) -> Option<Transaction> {
         self.staging.get_tx(id).cloned()
     }
