@@ -55,7 +55,7 @@ pub(crate) fn gen_block(
     let number = parent_header.number() + 1;
     let cellbase = create_cellbase(number);
     let header_builder = HeaderBuilder::default()
-        .parent_hash(parent_header.hash())
+        .parent_hash(parent_header.hash().to_owned())
         .timestamp(parent_header.timestamp() + 20_000)
         .number(number)
         .difficulty(difficulty);
@@ -70,10 +70,11 @@ pub(crate) fn gen_block(
                 .map(Transaction::proposal_short_id)
                 .collect(),
         )
-        .with_header_builder(header_builder)
+        .header_builder(header_builder)
+        .build()
 }
 
-pub(crate) fn create_transaction(parent: H256, unique_data: u8) -> Transaction {
+pub(crate) fn create_transaction(parent: &H256, unique_data: u8) -> Transaction {
     TransactionBuilder::default()
         .output(CellOutput::new(
             capacity_bytes!(5000),
@@ -81,6 +82,10 @@ pub(crate) fn create_transaction(parent: H256, unique_data: u8) -> Transaction {
             Script::always_success(),
             None,
         ))
-        .input(CellInput::new(OutPoint::new(parent, 0), 0, vec![]))
+        .input(CellInput::new(
+            OutPoint::new(parent.to_owned(), 0),
+            0,
+            vec![],
+        ))
         .build()
 }

@@ -63,7 +63,7 @@ impl TemplateCache {
 struct FeeCalculator<'a> {
     txs: &'a [PoolEntry],
     provider: &'a dyn ChainProvider,
-    txs_map: FnvHashMap<H256, usize>,
+    txs_map: FnvHashMap<&'a H256, usize>,
 }
 
 impl<'a> FeeCalculator<'a> {
@@ -209,7 +209,7 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
                     recv(new_uncle_receiver) -> msg => match msg {
                         Ok(uncle_block) => {
                             let hash = uncle_block.header().hash();
-                            self.candidate_uncles.insert(hash, uncle_block);
+                            self.candidate_uncles.insert(hash.to_owned(), uncle_block);
                             self.last_uncles_updated_at
                                 .store(unix_time_as_millis(), Ordering::SeqCst);
                         }
@@ -261,7 +261,7 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
         let UncleBlock { header, proposals } = uncle;
 
         UncleTemplate {
-            hash: header.hash(),
+            hash: header.hash().to_owned(),
             required: false,
             proposals: proposals.into_iter().map(Into::into).collect(),
             header: (&header).into(),
@@ -270,7 +270,7 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
 
     fn transform_cellbase(tx: &Transaction, cycles: Option<Cycle>) -> CellbaseTemplate {
         CellbaseTemplate {
-            hash: tx.hash(),
+            hash: tx.hash().to_owned(),
             cycles: cycles.map(|c| c.to_string()),
             data: tx.into(),
         }
@@ -282,7 +282,7 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
         depends: Option<Vec<u32>>,
     ) -> TransactionTemplate {
         TransactionTemplate {
-            hash: tx.transaction.hash(),
+            hash: tx.transaction.hash().to_owned(),
             required,
             cycles: tx.cycles.map(|c| c.to_string()),
             depends,
@@ -384,7 +384,7 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
             current_time: current_time.to_string(),
             number: number.to_string(),
             epoch: current_epoch.number().to_string(),
-            parent_hash: header.hash(),
+            parent_hash: header.hash().to_owned(),
             cycles_limit: cycles_limit.to_string(),
             bytes_limit: bytes_limit.to_string(),
             uncles_count_limit,
@@ -458,13 +458,13 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
         // tip.p^4  -----------/  6
         // tip.p^5  -------------/
         // tip.p^6
-        let mut block_hash = tip.hash();
+        let mut block_hash = tip.hash().to_owned();
         excluded.insert(block_hash.clone());
         for _depth in 0..max_uncles_age {
             if let Some(block) = self.shared.block(&block_hash) {
                 excluded.insert(block.header().parent_hash().to_owned());
                 for uncle in block.uncles() {
-                    excluded.insert(uncle.header.hash());
+                    excluded.insert(uncle.header.hash().to_owned());
                 }
 
                 block_hash = block.header().parent_hash().to_owned();
@@ -638,7 +638,8 @@ mod tests {
                     .collect::<Result<_, _>>()
                     .unwrap(),
             )
-            .with_header_builder(header_builder);
+            .header_builder(header_builder)
+            .build();
 
         let resolver = HeaderResolverWrapper::new(block.header(), shared.clone());
         let header_verify_result = {
@@ -657,7 +658,7 @@ mod tests {
         let number = parent_header.number() + 1;
         let cellbase = create_cellbase(number, epoch);
         let header = HeaderBuilder::default()
-            .parent_hash(parent_header.hash())
+            .parent_hash(parent_header.hash().to_owned())
             .timestamp(parent_header.timestamp() + 10)
             .number(number)
             .epoch(epoch.number())
@@ -669,7 +670,7 @@ mod tests {
             .header(header)
             .transaction(cellbase)
             .proposal(ProposalShortId::from_slice(&[1; 10]).unwrap())
-            .build()
+            .unsafe_build()
     }
 
     fn create_cellbase(number: BlockNumber, epoch: &EpochExt) -> Transaction {
@@ -726,7 +727,7 @@ mod tests {
         let block_template = block_assembler_controller
             .get_block_template(None, None, None)
             .unwrap();
-        assert_eq!(block_template.uncles[0].hash, block0_0.header().hash());
+        assert_eq!(&block_template.uncles[0].hash, block0_0.header().hash());
 
         let last_epoch = epoch.clone();
         let epoch = shared

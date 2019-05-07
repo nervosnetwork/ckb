@@ -9,7 +9,7 @@ use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::cell::CellMeta;
 use ckb_core::extras::{BlockExt, EpochExt, TransactionAddress};
-use ckb_core::header::{BlockNumber, Header, HeaderBuilder};
+use ckb_core::header::{BlockNumber, Header};
 use ckb_core::transaction::{
     CellOutput, OutPoint, ProposalShortId, Transaction, TransactionBuilder,
 };
@@ -135,7 +135,7 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
 
     fn get_header(&self, h: &H256) -> Option<Header> {
         self.get(COLUMN_BLOCK_HEADER, h.as_bytes())
-            .map(|ref raw| HeaderBuilder::new(raw).build())
+            .map(|ref raw| Header::from_bytes_with_hash(raw, h.to_owned()))
     }
 
     fn get_block_uncles(&self, h: &H256) -> Option<Vec<UncleBlock>> {
@@ -484,7 +484,7 @@ mod tests {
         let block = consensus.genesis_block();
         let hash = block.header().hash();
         store.init(&consensus).unwrap();
-        assert_eq!(&hash, &store.get_block_hash(0).unwrap());
+        assert_eq!(hash, &store.get_block_hash(0).unwrap());
 
         assert_eq!(
             block.header().difficulty(),

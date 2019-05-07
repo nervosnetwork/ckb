@@ -14,7 +14,7 @@ where
 {
     let mut blocks = Vec::with_capacity(timestamps.len());
     let tip_header = store.get_tip_header().expect("tip");
-    let mut parent_hash = tip_header.hash();
+    let mut parent_hash = tip_header.hash().to_owned();
     let mut parent_number = tip_header.number();
     for timestamp in timestamps {
         let header = HeaderBuilder::default()
@@ -22,7 +22,7 @@ where
             .parent_hash(parent_hash.clone())
             .number(parent_number + 1)
             .build();
-        parent_hash = header.hash();
+        parent_hash = header.hash().to_owned();
         parent_number += 1;
         blocks.push(BlockBuilder::default().header(header).build());
     }

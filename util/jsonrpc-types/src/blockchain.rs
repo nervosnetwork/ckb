@@ -181,15 +181,13 @@ pub struct Transaction {
 
 impl<'a> From<&'a CoreTransaction> for Transaction {
     fn from(core: &CoreTransaction) -> Transaction {
-        let hash = core.hash();
-
         Transaction {
             version: core.version(),
             deps: core.deps().iter().cloned().map(Into::into).collect(),
             inputs: core.inputs().iter().cloned().map(Into::into).collect(),
             outputs: core.outputs().iter().cloned().map(Into::into).collect(),
             witnesses: core.witnesses().iter().map(Into::into).collect(),
-            hash,
+            hash: core.hash().to_owned(),
         }
     }
 }
@@ -368,7 +366,7 @@ impl<'a> From<&'a CoreHeader> for Header {
             uncles_hash: core.uncles_hash().to_owned(),
             uncles_count: core.uncles_count(),
             seal: core.seal().to_owned().into(),
-            hash: core.hash(),
+            hash: core.hash().to_owned(),
         }
     }
 }

@@ -22,7 +22,7 @@ pub fn capacity_bytes(input: proc_macro::TokenStream) -> proc_macro::TokenStream
     expanded.into()
 }
 
-#[proc_macro_derive(HasOccupiedCapacity)]
+#[proc_macro_derive(HasOccupiedCapacity, attributes(free_capacity))]
 pub fn derive_occupied_capacity(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     // Parse the input tokens into a syntax tree.
     let input = parse_macro_input!(input as DeriveInput);
@@ -61,6 +61,20 @@ fn add_trait_bounds(mut generics: Generics) -> Generics {
     generics
 }
 
+fn has_free_capacity(attrs: &[syn::Attribute]) -> bool {
+    attrs.iter().any(|attr| {
+        attr.parse_meta()
+            .map(|meta| {
+                if let syn::Meta::Word(ident) = meta {
+                    ident == "free_capacity"
+                } else {
+                    false
+                }
+            })
+            .unwrap_or(false)
+    })
+}
+
 // Generate an expression to sum up the heap size of each field.
 fn occupied_capacity_sum(data: &Data) -> TokenStream {
     match *data {
@@ -83,7 +97,9 @@ fn occupied_capacity_sum(data: &Data) -> TokenStream {
                     // call. This way if one of the field types does not
                     // implement `OccupiedCapacity` then the compiler's error message
                     // underlines which field it is.
-                    let recurse = fields.named.iter().map(|f| {
+                    let recurse = fields.named.iter().filter(|f| {
+                        !has_free_capacity(&f.attrs[..])
+                    }).map(|f| {
                         let name = &f.ident;
                         quote_spanned! {f.span()=>
                             ::occupied_capacity::OccupiedCapacity::occupied_capacity(&self.#name)
@@ -108,7 +124,9 @@ fn occupied_capacity_sum(data: &Data) -> TokenStream {
                     //              self.1.occupied_capacity().and_then(|y| x.safe_add(y)))
                     //          ... ...
                     //
-                    let recurse = fields.unnamed.iter().enumerate().map(|(i, f)| {
+                    let recurse = fields.unnamed.iter().enumerate().filter(|(_,f)| {
+                        !has_free_capacity(&f.attrs[..])
+                    }).map(|(i, f)| {
                         let index = Index::from(i);
                         quote_spanned! {f.span()=>
                             ::occupied_capacity::OccupiedCapacity::occupied_capacity(&self.#index)

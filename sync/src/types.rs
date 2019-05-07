@@ -302,7 +302,7 @@ impl Peers {
     }
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HeaderView {
     inner: Header,
     total_difficulty: U256,
@@ -322,7 +322,7 @@ impl HeaderView {
         self.inner.number()
     }
 
-    pub fn hash(&self) -> H256 {
+    pub fn hash(&self) -> &H256 {
         self.inner.hash()
     }
 
@@ -478,7 +478,7 @@ impl<CS: ChainStore> SyncSharedState<CS> {
     pub fn insert_epoch(&self, header: &Header, epoch: EpochExt) {
         let mut epoch_map = self.epoch_map.write();
         epoch_map.insert_index(
-            header.hash(),
+            header.hash().to_owned(),
             epoch.last_block_hash_in_previous_epoch().clone(),
         );
         epoch_map.insert_epoch(epoch.last_block_hash_in_previous_epoch().clone(), epoch);
@@ -522,12 +522,12 @@ impl<CS: ChainStore> SyncSharedState<CS> {
         let mut step = 1;
         let mut locator = Vec::with_capacity(32);
         let mut index = start.number();
-        let mut base = start.hash();
+        let mut base = start.hash().to_owned();
         loop {
             let header = self
                 .get_ancestor(&base, index)
                 .expect("index calculated in get_locator");
-            locator.push(header.hash());
+            locator.push(header.hash().to_owned());
 
             if locator.len() >= 10 {
                 step <<= 1;
@@ -541,7 +541,7 @@ impl<CS: ChainStore> SyncSharedState<CS> {
                 break;
             }
             index -= step;
-            base = header.hash();
+            base = header.hash().to_owned();
         }
         locator
     }
@@ -645,7 +645,7 @@ impl<CS: ChainStore> SyncSharedState<CS> {
         if let Some(last_time) = self
             .get_headers_cache
             .write()
-            .get_refresh(&(peer, header.hash()))
+            .get_refresh(&(peer, header.hash().to_owned()))
         {
             if Instant::now() < *last_time + GET_HEADERS_TIMEOUT {
                 debug!(
@@ -666,7 +666,7 @@ impl<CS: ChainStore> SyncSharedState<CS> {
         }
         self.get_headers_cache
             .write()
-            .insert((peer, header.hash()), Instant::now());
+            .insert((peer, header.hash().to_owned()), Instant::now());
 
         debug!(target: "sync", "send_getheaders_to_peer peer={}, hash={}", peer, header.hash());
         let locator_hash = self.get_locator(header);

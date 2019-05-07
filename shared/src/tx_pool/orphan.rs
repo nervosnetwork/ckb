@@ -122,13 +122,13 @@ mod tests {
     use ckb_core::{Bytes, Capacity};
     use numext_fixed_hash::H256;
 
-    fn build_tx(inputs: Vec<(H256, u32)>, outputs_len: usize) -> Transaction {
+    fn build_tx(inputs: Vec<(&H256, u32)>, outputs_len: usize) -> Transaction {
         TransactionBuilder::default()
             .inputs(
                 inputs
                     .into_iter()
                     .map(|(txid, index)| {
-                        CellInput::new(OutPoint::new(txid, index), 0, Default::default())
+                        CellInput::new(OutPoint::new(txid.to_owned(), index), 0, Default::default())
                     })
                     .collect(),
             )
@@ -151,7 +151,7 @@ mod tests {
     fn test_orphan_pool_remove_by_ancestor1() {
         let mut pool = OrphanPool::new();
 
-        let tx1 = build_tx(vec![(H256::zero(), 0)], 1);
+        let tx1 = build_tx(vec![(&H256::zero(), 0)], 1);
         let tx1_hash = tx1.hash();
 
         let tx2 = build_tx(vec![(tx1_hash, 0)], 1);
@@ -183,10 +183,10 @@ mod tests {
     fn test_orphan_pool_remove_by_ancestor2() {
         let mut pool = OrphanPool::new();
 
-        let tx1 = build_tx(vec![(H256::zero(), 0)], 1);
+        let tx1 = build_tx(vec![(&H256::zero(), 0)], 1);
         let tx1_hash = tx1.hash();
 
-        let tx2 = build_tx(vec![(H256::zero(), 1)], 1);
+        let tx2 = build_tx(vec![(&H256::zero(), 1)], 1);
         let tx2_hash = tx2.hash();
 
         let tx3 = build_tx(vec![(tx1_hash, 0), (tx2_hash, 1)], 1);
@@ -218,7 +218,7 @@ mod tests {
     fn test_orphan_pool_recursion_remove() {
         let mut pool = OrphanPool::new();
 
-        let tx1 = build_tx(vec![(H256::zero(), 0)], 1);
+        let tx1 = build_tx(vec![(&H256::zero(), 0)], 1);
         let tx1_hash = tx1.hash();
 
         let tx2 = build_tx(vec![(tx1_hash, 0)], 1);

@@ -185,15 +185,16 @@ where
                     .get_ancestor(&best_known_header.hash(), n_height)?;
                 let to_fetch_hash = to_fetch.hash();
 
-                let block_status = self.synchronizer.get_block_status(&to_fetch_hash);
-                if block_status == BlockStatus::VALID_MASK && inflight.insert(to_fetch_hash.clone())
+                let block_status = self.synchronizer.get_block_status(to_fetch_hash);
+                if block_status == BlockStatus::VALID_MASK
+                    && inflight.insert(to_fetch_hash.to_owned())
                 {
                     trace!(
                         target: "sync", "[Synchronizer] inflight insert {:?}------------{:x}",
                         to_fetch.number(),
                         to_fetch_hash
                     );
-                    v_fetch.push(to_fetch_hash);
+                    v_fetch.push(to_fetch_hash.to_owned());
                 }
             }
         }

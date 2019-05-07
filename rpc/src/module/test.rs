@@ -35,7 +35,7 @@ impl<CS: ChainStore + 'static> IntegrationTestRpc for IntegrationTestRpcImpl<CS>
     fn enqueue_test_transaction(&self, tx: Transaction) -> Result<H256> {
         let tx: CoreTransaction = tx.try_into().map_err(|_| Error::parse_error())?;
         let mut chain_state = self.shared.chain_state().lock();
-        let tx_hash = tx.hash();
+        let tx_hash = tx.hash().to_owned();
         chain_state.mut_tx_pool().enqueue_tx(None, tx);
         Ok(tx_hash)
     }

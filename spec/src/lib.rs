@@ -199,9 +199,9 @@ impl ChainSpec {
     fn verify_genesis_hash(&self, genesis: &Block) -> Result<(), Box<Error>> {
         if let Some(ref expect) = self.genesis.hash {
             let actual = genesis.header().hash();
-            if &actual != expect {
+            if actual != expect {
                 return Err(GenesisError {
-                    actual,
+                    actual: actual.clone(),
                     expect: expect.clone(),
                 }
                 .boxed());
@@ -220,9 +220,9 @@ impl ChainSpec {
             .proof(self.genesis.seal.proof.to_vec())
             .uncles_hash(self.genesis.uncles_hash.clone());
 
-        let genesis_block = BlockBuilder::default()
+        let genesis_block = BlockBuilder::from_header_builder(header_builder)
             .transaction(self.build_system_cells_transaction()?)
-            .with_header_builder(header_builder);
+            .build();
 
         self.verify_genesis_hash(&genesis_block)?;
 
@@ -312,7 +312,7 @@ pub mod test {
             let block = consensus.genesis_block();
             let cells_tx = &block.transactions()[0];
 
-            assert_eq!(spec_hashes.system_cells_transaction, cells_tx.hash());
+            assert_eq!(&spec_hashes.system_cells_transaction, cells_tx.hash());
 
             for (output, cell_hashes) in cells_tx
                 .outputs()

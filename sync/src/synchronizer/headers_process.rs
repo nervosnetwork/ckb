@@ -134,7 +134,7 @@ where
     fn is_continuous(&self, headers: &[Header]) -> bool {
         for window in headers.windows(2) {
             if let [parent, header] = &window {
-                if header.parent_hash() != &parent.hash() {
+                if header.parent_hash() != parent.hash() {
                     debug!(
                         target: "sync",
                         "header.parent_hash {:?} parent.hash {:?}",
@@ -395,21 +395,21 @@ where
         if self.prev_block_check(&mut result).is_err() {
             debug!(target: "sync", "HeadersProcess accept {:?} prev_block", self.header.number());
             self.synchronizer
-                .insert_block_status(self.header.hash(), BlockStatus::FAILED_MASK);
+                .insert_block_status(self.header.hash().to_owned(), BlockStatus::FAILED_MASK);
             return result;
         }
 
         if self.non_contextual_check(&mut result).is_err() {
             debug!(target: "sync", "HeadersProcess accept {:?} non_contextual", self.header.number());
             self.synchronizer
-                .insert_block_status(self.header.hash(), BlockStatus::FAILED_MASK);
+                .insert_block_status(self.header.hash().to_owned(), BlockStatus::FAILED_MASK);
             return result;
         }
 
         if self.version_check(&mut result).is_err() {
             debug!(target: "sync", "HeadersProcess accept {:?} version", self.header.number());
             self.synchronizer
-                .insert_block_status(self.header.hash(), BlockStatus::FAILED_MASK);
+                .insert_block_status(self.header.hash().to_owned(), BlockStatus::FAILED_MASK);
             return result;
         }
 
@@ -423,7 +423,7 @@ where
                 .clone(),
         );
         self.synchronizer
-            .insert_block_status(self.header.hash(), BlockStatus::VALID_MASK);
+            .insert_block_status(self.header.hash().to_owned(), BlockStatus::VALID_MASK);
         result
     }
 }

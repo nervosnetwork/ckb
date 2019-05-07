@@ -5,8 +5,34 @@ use ckb_merkle_tree::merkle_root;
 use fnv::FnvHashSet;
 use numext_fixed_hash::H256;
 use serde_derive::{Deserialize, Serialize};
+use std::borrow::ToOwned;
 
-#[derive(Clone, Serialize, Deserialize, Eq, Default, Debug)]
+fn cal_transactions_root(vec: &[Transaction]) -> H256 {
+    merkle_root(
+        &vec.iter()
+            .map(Transaction::hash)
+            .map(ToOwned::to_owned)
+            .collect::<Vec<_>>(),
+    )
+}
+
+fn cal_proposals_root(vec: &[ProposalShortId]) -> H256 {
+    merkle_root(&vec.iter().map(ProposalShortId::hash).collect::<Vec<_>>())
+}
+
+fn cal_witnesses_root(vec: &[Transaction]) -> H256 {
+    // The witness hash of cellbase transaction is assumed to be zero 0x0000....0000
+    let mut witnesses = vec![H256::zero()];
+    witnesses.extend(
+        vec.iter()
+            .skip(1)
+            .map(Transaction::witness_hash)
+            .map(ToOwned::to_owned),
+    );
+    merkle_root(&witnesses[..])
+}
+
+#[derive(Clone, Serialize, Deserialize, Eq, Debug)]
 pub struct Block {
     header: Header,
     uncles: Vec<UncleBlock>,
@@ -66,35 +92,15 @@ impl Block {
     }
 
     pub fn cal_witnesses_root(&self) -> H256 {
-        // The witness hash of cellbase transaction is assumed to be zero 0x0000....0000
-        let mut witnesses = vec![H256::zero()];
-        witnesses.extend(
-            self.transactions()
-                .iter()
-                .skip(1)
-                .map(Transaction::witness_hash),
-        );
-        merkle_root(&witnesses[..])
+        cal_witnesses_root(self.transactions())
     }
 
     pub fn cal_transactions_root(&self) -> H256 {
-        merkle_root(
-            &self
-                .transactions
-                .iter()
-                .map(Transaction::hash)
-                .collect::<Vec<_>>(),
-        )
+        cal_transactions_root(self.transactions())
     }
 
     pub fn cal_proposals_root(&self) -> H256 {
-        merkle_root(
-            &self
-                .proposals
-                .iter()
-                .map(ProposalShortId::hash)
-                .collect::<Vec<_>>(),
-        )
+        cal_proposals_root(self.proposals())
     }
 
     pub fn serialized_size(&self, proof_size: usize) -> usize {
@@ -131,67 +137,115 @@ impl PartialEq for Block {
 
 #[derive(Default)]
 pub struct BlockBuilder {
-    inner: Block,
+    header_builder: HeaderBuilder,
+    uncles: Vec<UncleBlock>,
+    transactions: Vec<Transaction>,
+    proposals: Vec<ProposalShortId>,
 }
 
 impl BlockBuilder {
-    pub fn block(mut self, block: Block) -> Self {
-        self.inner = block;
+    pub fn from_block(block: Block) -> Self {
+        let Block {
+            header,
+            uncles,
+            transactions,
+            proposals,
+        } = block;
+        Self {
+            header_builder: HeaderBuilder::from_header(header),
+            uncles,
+            transactions,
+            proposals,
+        }
+    }
+
+    pub fn from_header_builder(header_builder: HeaderBuilder) -> Self {
+        Self {
+            header_builder,
+            uncles: Vec::new(),
+            transactions: Vec::new(),
+            proposals: Vec::new(),
+        }
+    }
+
+    pub fn header_builder(mut self, header_builder: HeaderBuilder) -> Self {
+        self.header_builder = header_builder;
         self
     }
 
     pub fn header(mut self, header: Header) -> Self {
-        self.inner.header = header;
+        self.header_builder = HeaderBuilder::from_header(header);
         self
     }
 
     pub fn uncle(mut self, uncle: UncleBlock) -> Self {
-        self.inner.uncles.push(uncle);
+        self.uncles.push(uncle);
         self
     }
 
     pub fn uncles(mut self, uncles: Vec<UncleBlock>) -> Self {
-        self.inner.uncles.extend(uncles);
+        self.uncles.extend(uncles);
         self
     }
 
     pub fn transaction(mut self, transaction: Transaction) -> Self {
-        self.inner.transactions.push(transaction);
+        self.transactions.push(transaction);
         self
     }
 
     pub fn transactions(mut self, transactions: Vec<Transaction>) -> Self {
-        self.inner.transactions.extend(transactions);
+        self.transactions.extend(transactions);
         self
     }
 
     pub fn proposal(mut self, proposal_short_id: ProposalShortId) -> Self {
-        self.inner.proposals.push(proposal_short_id);
+        self.proposals.push(proposal_short_id);
         self
     }
 
     pub fn proposals(mut self, proposal_short_ids: Vec<ProposalShortId>) -> Self {
-        self.inner.proposals.extend(proposal_short_ids);
+        self.proposals.extend(proposal_short_ids);
         self
     }
 
-    pub fn build(self) -> Block {
-        self.inner
+    pub fn unsafe_build(self) -> Block {
+        let Self {
+            header_builder,
+            uncles,
+            transactions,
+            proposals,
+        } = self;
+        Block {
+            header: header_builder.build(),
+            uncles,
+            transactions,
+            proposals,
+        }
     }
 
-    pub fn with_header_builder(mut self, header_builder: HeaderBuilder) -> Block {
-        let transactions_root = self.inner.cal_transactions_root();
-        let witnesses_root = self.inner.cal_witnesses_root();
-        let proposals_root = self.inner.cal_proposals_root();
-        let uncles_hash = self.inner.cal_uncles_hash();
-
-        self.inner.header = header_builder
+    pub fn build(self) -> Block {
+        let Self {
+            header_builder,
+            uncles,
+            transactions,
+            proposals,
+        } = self;
+        let transactions_root = cal_transactions_root(&transactions);
+        let witnesses_root = cal_witnesses_root(&transactions);
+        let proposals_root = cal_proposals_root(&proposals);
+        let uncles_hash = uncles_hash(&uncles);
+        let header = header_builder
             .transactions_root(transactions_root)
             .proposals_root(proposals_root)
             .witnesses_root(witnesses_root)
             .uncles_hash(uncles_hash)
-            .uncles_count(self.inner.uncles.len() as u32)
+            .uncles_count(uncles.len() as u32)
             .build();
-        self.inner
+        Block {
+            header,
+            uncles,
+            transactions,
+            proposals,
+        }
     }
 }

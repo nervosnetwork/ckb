@@ -21,7 +21,7 @@ impl CellSetDiff {
             let output_len = tx.outputs().len();
             self.new_inputs.extend(input_pts);
             self.new_outputs.insert(
-                tx_hash,
+                tx_hash.to_owned(),
                 (block.header().number(), tx.is_cellbase(), output_len),
             );
         }
@@ -33,7 +33,7 @@ impl CellSetDiff {
             let tx_hash = tx.hash();
 
             self.old_inputs.extend(input_pts);
-            self.old_outputs.insert(tx_hash);
+            self.old_outputs.insert(tx_hash.to_owned());
         }
     }
 }

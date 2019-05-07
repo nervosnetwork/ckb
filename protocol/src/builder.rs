@@ -27,6 +27,7 @@ use flatbuffers::{FlatBufferBuilder, WIPOffset};
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 use rand::{thread_rng, Rng};
+use std::borrow::ToOwned;
 use std::collections::HashSet;
 
 fn uint_to_bytes(uint: &U256) -> [u8; 32] {
@@ -439,6 +440,7 @@ impl<'a> FilteredBlock<'a> {
                     .transactions()
                     .iter()
                     .map(Transaction::hash)
+                    .map(ToOwned::to_owned)
                     .collect::<Vec<_>>(),
                 transactions_index,
             );

@@ -165,7 +165,7 @@ impl<CS: ChainStore + 'static> ChainRpc for ChainRpcImpl<CS> {
                     if output.lock.hash() == lock_hash && (!transaction_meta.is_dead(i)) {
                         result.push(CellOutputWithOutPoint {
                             out_point: OutPoint {
-                                tx_hash: transaction.hash(),
+                                tx_hash: transaction.hash().to_owned(),
                                 index: i as u32,
                             },
                             capacity: output.capacity.to_string(),

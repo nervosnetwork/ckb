@@ -76,8 +76,9 @@ pub struct Consensus {
 // genesis difficulty should not be zero
 impl Default for Consensus {
     fn default() -> Self {
-        let genesis_block = BlockBuilder::default()
-            .with_header_builder(HeaderBuilder::default().difficulty(U256::one()));
+        let genesis_block =
+            BlockBuilder::from_header_builder(HeaderBuilder::default().difficulty(U256::one()))
+                .build();
 
         let genesis_epoch_ext = EpochExt::new(
             0, // number
@@ -90,7 +91,7 @@ impl Default for Consensus {
         );
 
         Consensus {
-            genesis_hash: genesis_block.header().hash(),
+            genesis_hash: genesis_block.header().hash().to_owned(),
             genesis_block,
             id: "main".to_owned(),
             max_uncles_age: MAX_UNCLE_AGE,
@@ -121,7 +122,7 @@ impl Consensus {
     pub fn set_genesis_block(mut self, genesis_block: Block) -> Self {
         self.genesis_epoch_ext
             .set_difficulty(genesis_block.header().difficulty().clone());
-        self.genesis_hash = genesis_block.header().hash();
+        self.genesis_hash = genesis_block.header().hash().to_owned();
         self.genesis_block = genesis_block;
         self
     }
@@ -315,7 +316,7 @@ impl Consensus {
                     last_epoch.number() + 1, // number
                     block_reward,
                     remainder_reward,        // remainder_reward
-                    header.hash(),           // last_block_hash_in_previous_epoch
+                    header.hash().to_owned(),           // last_block_hash_in_previous_epoch
                     header.number() + 1,     // start
                     next_epoch_length,       // length
                     difficulty               // difficulty,
@@ -332,7 +333,7 @@ impl Consensus {
                     last_epoch.number() + 1, // number
                     block_reward,
                     remainder_reward,        // remainder_reward
-                    header.hash(),           // last_block_hash_in_previous_epoch
+                    header.hash().to_owned(),           // last_block_hash_in_previous_epoch
                     header.number() + 1,     // start
                     next_epoch_length,       // length
                     difficulty               // difficulty,

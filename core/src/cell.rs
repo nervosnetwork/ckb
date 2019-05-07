@@ -118,7 +118,7 @@ impl<'a> BlockCellProvider<'a> {
             .transactions()
             .iter()
             .enumerate()
-            .map(|(idx, tx)| (tx.hash(), idx))
+            .map(|(idx, tx)| (tx.hash().to_owned(), idx))
             .collect();
         Self {
             output_indices,

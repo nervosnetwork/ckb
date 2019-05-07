@@ -15,7 +15,7 @@ impl Spec for CellbaseImmatureTx {
 
         info!("Use generated block's cellbase as tx input");
         let tip_block = node.get_tip_block();
-        let tx = node.new_transaction(tip_block.transactions()[0].hash());
+        let tx = node.new_transaction(tip_block.transactions()[0].hash().to_owned());
         let transaction_hash = tx.hash();
         node.rpc_client()
             .enqueue_test_transaction((&tx).into())

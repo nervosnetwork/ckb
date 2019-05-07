@@ -164,7 +164,7 @@ fn new_chain(
         .output(cell_output)
         .build();
 
-    let system_cell_hash = cellbase.hash();
+    let system_cell_hash = cellbase.hash().to_owned();
 
     // create genesis block with N txs
     let transactions: Vec<Transaction> = (0..txs_size)
@@ -184,7 +184,8 @@ fn new_chain(
     let genesis_block = BlockBuilder::default()
         .transaction(cellbase)
         .transactions(transactions)
-        .with_header_builder(HeaderBuilder::default().difficulty(U256::from(1000u64)));
+        .header_builder(HeaderBuilder::default().difficulty(U256::from(1000u64)))
+        .build();
 
     let mut consensus = Consensus::default().set_genesis_block(genesis_block);
     consensus.tx_proposal_window = ProposalWindow(1, 10);
@@ -256,27 +257,36 @@ fn gen_block(
         .transaction(cellbase)
         .transactions(transactions)
         .proposals(proposals)
-        .with_header_builder(
+        .header_builder(
             HeaderBuilder::default()
-                .parent_hash(p_block.header().hash())
+                .parent_hash(p_block.header().hash().to_owned())
                 .number(number)
                 .timestamp(timestamp)
                 .difficulty(difficulty)
                 .nonce(random()),
-        );
+        )
+        .build();
 
     blocks.push(block);
 }
 
-fn create_transaction(parent_hash: H256, system_cell_hash: &H256, data_hash: &H256) -> Transaction {
+fn create_transaction(
+    parent_hash: &H256,
+    system_cell_hash: &H256,
+    data_hash: &H256,
+) -> Transaction {
     TransactionBuilder::default()
         .output(CellOutput::new(
             capacity_bytes!(50_000),
             (0..255).collect(),
-            Script::new(vec![(0..255).collect()], data_hash.clone()),
+            Script::new(vec![(0..255).collect()], data_hash.to_owned()),
             None,
         ))
-        .input(CellInput::new(OutPoint::new(parent_hash, 0), 0, vec![]))
-        .dep(OutPoint::new(system_cell_hash.clone(), 0))
+        .input(CellInput::new(
+            OutPoint::new(parent_hash.to_owned(), 0),
+            0,
+            vec![],
+        ))
+        .dep(OutPoint::new(system_cell_hash.to_owned(), 0))
         .build()
 }

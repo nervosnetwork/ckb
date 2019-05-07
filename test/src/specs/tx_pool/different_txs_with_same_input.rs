@@ -18,8 +18,7 @@ impl Spec for DifferentTxsWithSameInput {
         // Set tx2 fee to a higher value
         let mut output = tx2_temp.outputs()[0].clone();
         output.capacity = capacity_bytes!(40_000);
-        let tx2 = TransactionBuilder::default()
-            .transaction(tx2_temp)
+        let tx2 = TransactionBuilder::from_transaction(tx2_temp)
             .outputs_clear()
             .output(output)
             .build();

@@ -31,7 +31,7 @@ fn gen_block(
     let difficulty = parent_header.difficulty() + U256::from(1u64);
     let cellbase = create_cellbase(number);
     let header_builder = HeaderBuilder::default()
-        .parent_hash(parent_header.hash())
+        .parent_hash(parent_header.hash().to_owned())
         .timestamp(now)
         .number(number)
         .difficulty(difficulty)
@@ -42,7 +42,8 @@ fn gen_block(
         .transactions(transactions)
         .proposals(proposals)
         .uncles(uncles)
-        .with_header_builder(header_builder)
+        .header_builder(header_builder)
+        .build()
 }
 
 fn create_transaction(parent: &H256) -> Transaction {
@@ -109,7 +110,7 @@ fn setup_env() -> (
             100
         ])
         .build();
-    let tx_hash = tx.hash();
+    let tx_hash = tx.hash().to_owned();
     let genesis_block = BlockBuilder::default().transaction(tx).build();
     let consensus = Consensus::default().set_genesis_block(genesis_block);
     let (chain_controller, shared) = start_chain(Some(consensus));
@@ -124,7 +125,7 @@ fn test_proposal() {
     for _ in 0..20 {
         let tx = create_transaction(&prev_tx_hash);
         txs20.push(tx.clone());
-        prev_tx_hash = tx.hash();
+        prev_tx_hash = tx.hash().to_owned();
     }
 
     let proposal_window = shared.consensus().tx_proposal_window();
@@ -185,7 +186,7 @@ fn test_uncle_proposal() {
     for _ in 0..20 {
         let tx = create_transaction(&prev_tx_hash);
         txs20.push(tx.clone());
-        prev_tx_hash = tx.hash();
+        prev_tx_hash = tx.hash().to_owned();
     }
 
     let proposal_window = shared.consensus().tx_proposal_window();

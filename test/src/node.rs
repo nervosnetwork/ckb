@@ -152,7 +152,7 @@ impl Node {
             .try_into()
             .expect("parse cellbase transaction failed");
         let mut rpc = self.rpc_client();
-        rpc.send_transaction((&self.new_transaction(cellbase.hash())).into())
+        rpc.send_transaction((&self.new_transaction(cellbase.hash().to_owned())).into())
             .call()
             .expect("rpc call send_transaction failed")
     }
@@ -164,7 +164,7 @@ impl Node {
             .try_into()
             .expect("parse cellbase transaction failed");
         let mut rpc = self.rpc_client();
-        rpc.trace_transaction((&self.new_transaction(cellbase.hash())).into())
+        rpc.trace_transaction((&self.new_transaction(cellbase.hash().to_owned())).into())
             .call()
             .expect("rpc call send_transaction failed")
     }
@@ -252,7 +252,8 @@ impl Node {
                     .collect::<Result<_, _>>()
                     .expect("parse proposal transactions failed"),
             )
-            .with_header_builder(header_builder)
+            .header_builder(header_builder)
+            .build()
     }
 
     pub fn new_transaction(&self, hash: H256) -> Transaction {
