@@ -3,7 +3,8 @@ use crate::syscalls::{Source, ITEM_MISSING, LOAD_CELL_SYSCALL_NUMBER, SUCCESS};
 use ckb_core::cell::CellMeta;
 use ckb_protocol::CellOutput as FbsCellOutput;
 use ckb_vm::{
-    Error as VMError, Memory, Register, SupportMachine, Syscalls, A0, A1, A2, A3, A4, A7,
+    registers::{A0, A1, A2, A3, A4, A7},
+    Error as VMError, Memory, Register, SupportMachine, Syscalls,
 };
 use flatbuffers::FlatBufferBuilder;
 use std::cmp;

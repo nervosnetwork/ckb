@@ -4,7 +4,10 @@ use crate::syscalls::{
 };
 use ckb_core::transaction::CellInput;
 use ckb_protocol::{Bytes as FbsBytes, CellInputBuilder, OutPoint as FbsOutPoint};
-use ckb_vm::{Error as VMError, Register, SupportMachine, Syscalls, A0, A3, A4, A5, A7};
+use ckb_vm::{
+    registers::{A0, A3, A4, A5, A7},
+    Error as VMError, Register, SupportMachine, Syscalls,
+};
 use flatbuffers::FlatBufferBuilder;
 
 #[derive(Debug)]

@@ -1,4 +1,5 @@
 use crate::error::TransactionError;
+use ckb_chain_spec::Vm;
 use ckb_core::transaction::{Capacity, CellOutput, Transaction, TX_VERSION};
 use ckb_core::{
     cell::{CellMeta, ResolvedTransaction},
@@ -59,13 +60,14 @@ where
         median_time_context: &'a M,
         tip_number: BlockNumber,
         cellbase_maturity: BlockNumber,
+        vm: &'a Vm,
     ) -> Self {
         TransactionVerifier {
             version: VersionVerifier::new(&rtx.transaction),
             empty: EmptyVerifier::new(&rtx.transaction),
             maturity: MaturityVerifier::new(&rtx, tip_number, cellbase_maturity),
             duplicate_deps: DuplicateDepsVerifier::new(&rtx.transaction),
-            script: ScriptVerifier::new(rtx, Arc::clone(&store)),
+            script: ScriptVerifier::new(rtx, Arc::clone(&store), vm),
             capacity: CapacityVerifier::new(rtx),
             since: ValidSinceVerifier::new(rtx, median_time_context, tip_number),
         }
@@ -103,20 +105,26 @@ impl<'a> VersionVerifier<'a> {
 pub struct ScriptVerifier<'a, CS> {
     store: Arc<CS>,
     resolved_transaction: &'a ResolvedTransaction<'a>,
+    vm: &'a Vm,
 }
 
 impl<'a, CS: ChainStore> ScriptVerifier<'a, CS> {
-    pub fn new(resolved_transaction: &'a ResolvedTransaction, store: Arc<CS>) -> Self {
+    pub fn new(resolved_transaction: &'a ResolvedTransaction, store: Arc<CS>, vm: &'a Vm) -> Self {
         ScriptVerifier {
             store,
             resolved_transaction,
+            vm,
         }
     }
 
     pub fn verify(&self, max_cycles: Cycle) -> Result<Cycle, TransactionError> {
-        TransactionScriptsVerifier::new(&self.resolved_transaction, Arc::clone(&self.store))
-            .verify(max_cycles)
-            .map_err(TransactionError::ScriptFailure)
+        TransactionScriptsVerifier::new(
+            &self.resolved_transaction,
+            Arc::clone(&self.store),
+            &self.vm,
+        )
+        .verify(max_cycles)
+        .map_err(TransactionError::ScriptFailure)
     }
 }
 

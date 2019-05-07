@@ -1,5 +1,8 @@
 use crate::syscalls::{LOAD_TX_SYSCALL_NUMBER, SUCCESS};
-use ckb_vm::{Error as VMError, Memory, Register, SupportMachine, Syscalls, A0, A1, A2, A7};
+use ckb_vm::{
+    registers::{A0, A1, A2, A7},
+    Error as VMError, Memory, Register, SupportMachine, Syscalls,
+};
 use std::cmp;
 
 pub struct LoadTx<'a> {

@@ -278,6 +278,7 @@ impl<CS: ChainStore> ChainState<CS> {
                     &self,
                     self.tip_number(),
                     self.consensus().cellbase_maturity,
+                    self.consensus().vm(),
                 )
                 .verify(max_cycles)
                 .map_err(PoolError::InvalidTx)?;

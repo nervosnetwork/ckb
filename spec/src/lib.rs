@@ -37,6 +37,7 @@ pub struct ChainSpec {
     pub params: Params,
     pub system_cells: Vec<Resource>,
     pub pow: Pow,
+    pub vm: Vm,
 }
 
 // change the order will break integration test, see module doc.
@@ -47,6 +48,7 @@ pub struct ChainSpecConfig {
     pub params: Params,
     pub system_cells: Vec<SystemCell>,
     pub pow: Pow,
+    pub vm: Vm,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
@@ -76,6 +78,13 @@ pub struct Seal {
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct SystemCell {
     pub path: PathBuf,
+}
+
+#[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Hash, Debug)]
+#[serde(tag = "runner")]
+pub enum Vm {
+    Assembly,
+    Rust,
 }
 
 #[derive(Debug)]
@@ -154,6 +163,7 @@ impl ChainSpec {
             genesis: spec_config.genesis,
             params: spec_config.params,
             pow: spec_config.pow,
+            vm: spec_config.vm,
         })
     }
 
@@ -238,7 +248,8 @@ impl ChainSpec {
             .set_cellbase_maturity(self.params.cellbase_maturity)
             .set_epoch_reward(self.params.epoch_reward)
             .set_max_block_cycles(self.params.max_block_cycles)
-            .set_pow(self.pow.clone());
+            .set_pow(self.pow.clone())
+            .set_vm(self.vm.clone());
 
         Ok(consensus)
     }

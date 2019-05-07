@@ -6,11 +6,15 @@ use crate::{
     },
     ScriptError,
 };
+use ckb_chain_spec::Vm;
 use ckb_core::cell::{CellMeta, ResolvedTransaction};
 use ckb_core::script::{Script, ALWAYS_SUCCESS_HASH};
 use ckb_core::transaction::{CellInput, OutPoint};
 use ckb_core::{Bytes, Cycle};
-use ckb_vm::{DefaultCoreMachine, DefaultMachineBuilder, SparseMemory, SupportMachine};
+use ckb_vm::{
+    machine::asm::{AsmCoreMachine, AsmMachine},
+    DefaultCoreMachine, DefaultMachineBuilder, SparseMemory, SupportMachine, TraceMachine,
+};
 use flatbuffers::FlatBufferBuilder;
 use fnv::FnvHashMap;
 use log::info;
@@ -30,10 +34,15 @@ pub struct TransactionScriptsVerifier<'a, CS> {
     dep_cells: Vec<&'a CellMeta>,
     witnesses: FnvHashMap<u32, &'a [Vec<u8>]>,
     hash: H256,
+    vm: &'a Vm,
 }
 
 impl<'a, CS: LazyLoadCellOutput> TransactionScriptsVerifier<'a, CS> {
-    pub fn new(rtx: &'a ResolvedTransaction, store: Arc<CS>) -> TransactionScriptsVerifier<'a, CS> {
+    pub fn new(
+        rtx: &'a ResolvedTransaction,
+        store: Arc<CS>,
+        vm: &'a Vm,
+    ) -> TransactionScriptsVerifier<'a, CS> {
         let tx_hash = rtx.transaction.hash();
         let dep_cells: Vec<&'a CellMeta> = rtx.dep_cells.iter().collect();
         let input_cells = rtx.input_cells.iter().collect();
@@ -93,6 +102,7 @@ impl<'a, CS: LazyLoadCellOutput> TransactionScriptsVerifier<'a, CS> {
             input_cells,
             dep_cells,
             witnesses,
+            vm,
             hash: tx_hash,
         }
     }
@@ -175,28 +185,14 @@ impl<'a, CS: LazyLoadCellOutput> TransactionScriptsVerifier<'a, CS> {
                 args.extend_from_slice(&witness);
             }
 
-            let core_machine =
-                DefaultCoreMachine::<u64, SparseMemory<u64>>::new_with_max_cycles(max_cycles);
-            let mut machine =
-                DefaultMachineBuilder::<DefaultCoreMachine<u64, SparseMemory<u64>>>::new(
-                    core_machine,
-                )
-                .instruction_cycle_func(Box::new(instruction_cycles))
-                .syscall(Box::new(self.build_load_tx_hash()))
-                .syscall(Box::new(self.build_load_tx()))
-                .syscall(Box::new(self.build_load_cell(current_cell)))
-                .syscall(Box::new(self.build_load_cell_by_field(current_cell)))
-                .syscall(Box::new(self.build_load_input_by_field(current_input)))
-                .syscall(Box::new(Debugger::new(prefix)))
-                .build()
-                .load_program(&script_binary, &args)
-                .map_err(ScriptError::VMError)?;
-            let code = machine.interpret().map_err(ScriptError::VMError)?;
-            if code == 0 {
-                Ok(machine.cycles())
-            } else {
-                Err(ScriptError::ValidationFailure(code))
-            }
+            self.run(
+                &script_binary,
+                &args,
+                prefix,
+                current_cell,
+                current_input,
+                max_cycles,
+            )
         })
     }
 
@@ -237,6 +233,64 @@ impl<'a, CS: LazyLoadCellOutput> TransactionScriptsVerifier<'a, CS> {
             }
         }
         Ok(cycles)
+    }
+
+    fn run(
+        &self,
+        program: &[u8],
+        args: &[Vec<u8>],
+        prefix: &str,
+        current_cell: CurrentCell,
+        current_input: Option<&'a CellInput>,
+        max_cycles: Cycle,
+    ) -> Result<Cycle, ScriptError> {
+        let (code, cycles) = match self.vm {
+            Vm::Assembly => {
+                let core_machine = AsmCoreMachine::new_with_max_cycles(max_cycles);
+                let machine = DefaultMachineBuilder::<Box<AsmCoreMachine>>::new(core_machine)
+                    .instruction_cycle_func(Box::new(instruction_cycles))
+                    .syscall(Box::new(self.build_load_tx_hash()))
+                    .syscall(Box::new(self.build_load_tx()))
+                    .syscall(Box::new(self.build_load_cell(current_cell)))
+                    .syscall(Box::new(self.build_load_cell_by_field(current_cell)))
+                    .syscall(Box::new(self.build_load_input_by_field(current_input)))
+                    .syscall(Box::new(Debugger::new(prefix)))
+                    .build();
+                let mut machine = AsmMachine::new(machine);
+                machine
+                    .load_program(&program, &args)
+                    .map_err(ScriptError::VMError)?;
+                let code = machine.run().map_err(ScriptError::VMError)?;
+                (code, machine.machine.cycles())
+            }
+            Vm::Rust => {
+                let core_machine =
+                    DefaultCoreMachine::<u64, SparseMemory<u64>>::new_with_max_cycles(max_cycles);
+                let machine =
+                    DefaultMachineBuilder::<DefaultCoreMachine<u64, SparseMemory<u64>>>::new(
+                        core_machine,
+                    )
+                    .instruction_cycle_func(Box::new(instruction_cycles))
+                    .syscall(Box::new(self.build_load_tx_hash()))
+                    .syscall(Box::new(self.build_load_tx()))
+                    .syscall(Box::new(self.build_load_cell(current_cell)))
+                    .syscall(Box::new(self.build_load_cell_by_field(current_cell)))
+                    .syscall(Box::new(self.build_load_input_by_field(current_input)))
+                    .syscall(Box::new(Debugger::new(prefix)))
+                    .build();
+                let mut machine = TraceMachine::new(machine);
+                machine
+                    .load_program(&program, &args)
+                    .map_err(ScriptError::VMError)?;
+                let code = machine.run().map_err(ScriptError::VMError)?;
+                (code, machine.machine.cycles())
+            }
+        };
+        if code == 0 {
+            Ok(cycles)
+        } else {
+            Err(ScriptError::ValidationFailure(code))
+        }
     }
 }
 
@@ -293,7 +347,7 @@ mod tests {
 
         let store = Arc::new(new_memory_store());
 
-        let verifier = TransactionScriptsVerifier::new(&rtx, store);
+        let verifier = TransactionScriptsVerifier::new(&rtx, store, &Vm::Assembly);
 
         assert!(verifier.verify(0).is_ok());
     }
@@ -368,7 +422,82 @@ mod tests {
         };
         let store = Arc::new(new_memory_store());
 
-        let verifier = TransactionScriptsVerifier::new(&rtx, store);
+        let verifier = TransactionScriptsVerifier::new(&rtx, store, &Vm::Assembly);
+
+        assert!(verifier.verify(100_000_000).is_ok());
+    }
+
+    #[test]
+    fn check_signature_rust() {
+        let mut file = open_cell_verify();
+        let mut buffer = Vec::new();
+        file.read_to_end(&mut buffer).unwrap();
+
+        let gen = Generator::new();
+        let privkey = gen.random_privkey();
+        let args = vec![Bytes::from(b"foo".to_vec()), Bytes::from(b"bar".to_vec())];
+        let mut witness_data = vec![];
+
+        let mut bytes = vec![];
+        for argument in &args {
+            bytes.write_all(argument).unwrap();
+        }
+        let hash1 = sha3_256(&bytes);
+        let hash2 = sha3_256(hash1);
+        let signature = privkey.sign_recoverable(&hash2.into()).unwrap();
+
+        let signature_der = signature.serialize_der();
+        let mut hex_signature = vec![0; signature_der.len() * 2];
+        hex_encode(&signature_der, &mut hex_signature).expect("hex signature");
+        witness_data.insert(0, hex_signature);
+
+        let pubkey = privkey.pubkey().unwrap().serialize();
+        let mut hex_pubkey = vec![0; pubkey.len() * 2];
+        hex_encode(&pubkey, &mut hex_pubkey).expect("hex pubkey");
+        witness_data.insert(0, hex_pubkey);
+
+        let code_hash: H256 = (&blake2b_256(&buffer)).into();
+        let dep_out_point = OutPoint::new(H256::from_trimmed_hex_str("123").unwrap(), 8);
+        let output = CellOutput::new(
+            Capacity::bytes(buffer.len()).unwrap(),
+            Bytes::from(buffer),
+            Script::default(),
+            None,
+        );
+        let dep_cell = CellMeta {
+            block_number: Some(1),
+            cellbase: false,
+            capacity: output.capacity,
+            data_hash: Some(code_hash.clone()),
+            out_point: dep_out_point.clone(),
+            cell_output: Some(output),
+        };
+
+        let script = Script::new(args, code_hash);
+        let input = CellInput::new(OutPoint::null(), 0, vec![]);
+
+        let transaction = TransactionBuilder::default()
+            .input(input.clone())
+            .dep(dep_out_point)
+            .witness(witness_data)
+            .build();
+
+        let output = CellOutput::new(capacity_bytes!(100), Bytes::default(), script, None);
+        let dummy_cell = CellMeta {
+            cell_output: Some(output.clone()),
+            block_number: Some(1),
+            capacity: output.capacity,
+            ..Default::default()
+        };
+
+        let rtx = ResolvedTransaction {
+            transaction: &transaction,
+            dep_cells: vec![dep_cell],
+            input_cells: vec![dummy_cell],
+        };
+        let store = Arc::new(new_memory_store());
+
+        let verifier = TransactionScriptsVerifier::new(&rtx, store, &Vm::Rust);
 
         assert!(verifier.verify(100_000_000).is_ok());
     }
@@ -444,7 +573,7 @@ mod tests {
 
         let store = Arc::new(new_memory_store());
 
-        let verifier = TransactionScriptsVerifier::new(&rtx, store);
+        let verifier = TransactionScriptsVerifier::new(&rtx, store, &Vm::Assembly);
 
         assert!(verifier.verify(100).is_err());
     }
@@ -520,7 +649,7 @@ mod tests {
         };
 
         let store = Arc::new(new_memory_store());
-        let verifier = TransactionScriptsVerifier::new(&rtx, store);
+        let verifier = TransactionScriptsVerifier::new(&rtx, store, &Vm::Assembly);
 
         assert!(verifier.verify(100_000_000).is_err());
     }
@@ -580,7 +709,7 @@ mod tests {
         };
 
         let store = Arc::new(new_memory_store());
-        let verifier = TransactionScriptsVerifier::new(&rtx, store);
+        let verifier = TransactionScriptsVerifier::new(&rtx, store, &Vm::Assembly);
 
         assert!(verifier.verify(100_000_000).is_err());
     }
@@ -666,7 +795,7 @@ mod tests {
         };
 
         let store = Arc::new(new_memory_store());
-        let verifier = TransactionScriptsVerifier::new(&rtx, store);
+        let verifier = TransactionScriptsVerifier::new(&rtx, store, &Vm::Assembly);
 
         assert!(verifier.verify(100_000_000).is_ok());
     }
@@ -753,7 +882,7 @@ mod tests {
 
         let store = Arc::new(new_memory_store());
 
-        let verifier = TransactionScriptsVerifier::new(&rtx, store);
+        let verifier = TransactionScriptsVerifier::new(&rtx, store, &Vm::Assembly);
 
         assert!(verifier.verify(100_000_000).is_err());
     }
