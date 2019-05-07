@@ -4,8 +4,26 @@ mod syscalls;
 mod verify;
 
 use ckb_vm::Error as VMInternalError;
+use serde_derive::{Deserialize, Serialize};
 
 pub use crate::verify::TransactionScriptsVerifier;
+
+#[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Hash, Debug)]
+pub enum Runner {
+    Assembly,
+    Rust,
+}
+
+impl Default for Runner {
+    fn default() -> Runner {
+        Runner::Assembly
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Hash, Debug, Default)]
+pub struct ScriptConfig {
+    pub runner: Runner,
+}
 
 #[derive(Debug, PartialEq, Clone, Copy, Eq)]
 pub enum ScriptError {

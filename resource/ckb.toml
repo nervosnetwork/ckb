@@ -84,3 +84,6 @@ txs_verify_cache_size = 100000
 # value is set as always success binary hash
 code_hash = "0x0000000000000000000000000000000000000000000000000000000000000001"
 args = []
+
+[script]
+runner = "Assembly"

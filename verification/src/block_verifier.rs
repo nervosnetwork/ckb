@@ -1,13 +1,13 @@
 use crate::error::{CellbaseError, CommitError, Error, UnclesError};
 use crate::header_verifier::HeaderResolver;
 use crate::{TransactionVerifier, Verifier};
-use ckb_chain_spec::Vm;
 use ckb_core::cell::ResolvedTransaction;
 use ckb_core::extras::EpochExt;
 use ckb_core::header::Header;
 use ckb_core::transaction::{Capacity, CellInput, Transaction};
 use ckb_core::Cycle;
 use ckb_core::{block::Block, BlockNumber};
+use ckb_script::ScriptConfig;
 use ckb_store::ChainStore;
 use ckb_traits::{BlockMedianTimeContext, ChainProvider};
 use fnv::FnvHashSet;
@@ -353,12 +353,15 @@ where
 #[derive(Clone)]
 pub struct TransactionsVerifier<'a> {
     max_cycles: Cycle,
-    vm: &'a Vm,
+    script_config: &'a ScriptConfig,
 }
 
 impl<'a> TransactionsVerifier<'a> {
-    pub fn new(max_cycles: Cycle, vm: &'a Vm) -> Self {
-        TransactionsVerifier { max_cycles, vm }
+    pub fn new(max_cycles: Cycle, script_config: &'a ScriptConfig) -> Self {
+        TransactionsVerifier {
+            max_cycles,
+            script_config,
+        }
     }
 
     pub fn verify<M, CS: ChainStore>(
@@ -397,7 +400,7 @@ impl<'a> TransactionsVerifier<'a> {
                     &block_median_time_context,
                     tip_number,
                     cellbase_maturity,
-                    self.vm,
+                    &self.script_config,
                 )
                 .verify(self.max_cycles)
                 .map_err(|e| Error::Transactions((index, e)))

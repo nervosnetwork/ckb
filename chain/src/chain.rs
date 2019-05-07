@@ -515,7 +515,7 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
         // The verify function
         let txs_verifier = TransactionsVerifier::new(
             self.shared.consensus().max_block_cycles(),
-            self.shared.consensus().vm(),
+            self.shared.script_config(),
         );
 
         let mut found_error = None;
