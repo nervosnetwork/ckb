@@ -46,7 +46,7 @@ fi
 # Publish package for release
 if [ -n "$TRAVIS_TAG" -a -n "$GITHUB_TOKEN" -a -n "$REL_PKG" ]; then
   git fetch --unshallow
-  make build
+  make prod
   rm -rf releases
   mkdir releases
   PKG_NAME="ckb_${TRAVIS_TAG}_${REL_PKG%%.*}"
@@ -54,9 +54,8 @@ if [ -n "$TRAVIS_TAG" -a -n "$GITHUB_TOKEN" -a -n "$REL_PKG" ]; then
   mv target/release/ckb "releases/$PKG_NAME"
   cp README.md CHANGELOG.md COPYING "releases/$PKG_NAME"
   cp -R devtools/init "releases/$PKG_NAME"
-  if [ -d docs ]; then
-    cp -R docs "releases/$PKG_NAME"
-  fi
+  cp -R docs "releases/$PKG_NAME"
+  cp rpc/README.md "releases/$PKG_NAME/docs/rpc.md"
 
   pushd releases
   if [ "${REL_PKG#*.}" = "tar.gz" ]; then
