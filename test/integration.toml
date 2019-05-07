@@ -17,6 +17,9 @@ epoch_reward = 5_000_000_000_000_000
 max_block_cycles = 100000000
 cellbase_maturity = 0
 
+[vm]
+runner = "Assembly"
+
 [pow]
 func = "Dummy"
 
