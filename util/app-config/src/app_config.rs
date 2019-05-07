@@ -16,6 +16,7 @@ use ckb_miner::MinerConfig;
 use ckb_network::NetworkConfig;
 use ckb_resource::{Resource, ResourceLocator};
 use ckb_rpc::Config as RpcConfig;
+use ckb_script::ScriptConfig;
 use ckb_shared::tx_pool::TxPoolConfig;
 use ckb_sync::Config as SyncConfig;
 use logger::Config as LogConfig;
@@ -48,6 +49,7 @@ pub struct CKBAppConfig {
     pub rpc: RpcConfig,
     pub sync: SyncConfig,
     pub tx_pool: TxPoolConfig,
+    pub script: ScriptConfig,
 }
 
 // change the order of fields will break integration test, see module doc.

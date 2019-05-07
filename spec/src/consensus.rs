@@ -1,4 +1,3 @@
-use crate::Vm;
 use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::extras::EpochExt;
 use ckb_core::header::Header;
@@ -55,7 +54,6 @@ pub struct Consensus {
     pub epoch_duration_target: u64,
     pub tx_proposal_window: ProposalWindow,
     pub pow: Pow,
-    pub vm: Vm,
     // For each input, if the referenced output transaction is cellbase,
     // it must have at least `cellbase_maturity` confirmations;
     // else reject this transaction.
@@ -100,7 +98,6 @@ impl Default for Consensus {
             orphan_rate_target_recip: ORPHAN_RATE_TARGET_RECIP,
             epoch_duration_target: EPOCH_DURATION_TARGET,
             tx_proposal_window: TX_PROPOSAL_WINDOW,
-            vm: Vm::Assembly,
             pow: Pow::Dummy(Default::default()),
             cellbase_maturity: CELLBASE_MATURITY,
             median_time_block_count: MEDIAN_TIME_BLOCK_COUNT,
@@ -152,11 +149,6 @@ impl Consensus {
 
     pub fn set_pow(mut self, pow: Pow) -> Self {
         self.pow = pow;
-        self
-    }
-
-    pub fn set_vm(mut self, vm: Vm) -> Self {
-        self.vm = vm;
         self
     }
 
@@ -344,9 +336,5 @@ impl Consensus {
         } else {
             None
         }
-    }
-
-    pub fn vm(&self) -> &Vm {
-        &self.vm
     }
 }

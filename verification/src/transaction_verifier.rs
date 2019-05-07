@@ -1,11 +1,10 @@
 use crate::error::TransactionError;
-use ckb_chain_spec::Vm;
 use ckb_core::transaction::{Capacity, CellOutput, Transaction, TX_VERSION};
 use ckb_core::{
     cell::{CellMeta, ResolvedOutPoint, ResolvedTransaction},
     BlockNumber, Cycle,
 };
-use ckb_script::TransactionScriptsVerifier;
+use ckb_script::{ScriptConfig, TransactionScriptsVerifier};
 use ckb_store::ChainStore;
 use ckb_traits::BlockMedianTimeContext;
 use lru_cache::LruCache;
@@ -60,14 +59,14 @@ where
         median_time_context: &'a M,
         tip_number: BlockNumber,
         cellbase_maturity: BlockNumber,
-        vm: &'a Vm,
+        script_config: &'a ScriptConfig,
     ) -> Self {
         TransactionVerifier {
             version: VersionVerifier::new(&rtx.transaction),
             empty: EmptyVerifier::new(&rtx.transaction),
             maturity: MaturityVerifier::new(&rtx, tip_number, cellbase_maturity),
             duplicate_deps: DuplicateDepsVerifier::new(&rtx.transaction),
-            script: ScriptVerifier::new(rtx, Arc::clone(&store), vm),
+            script: ScriptVerifier::new(rtx, Arc::clone(&store), script_config),
             capacity: CapacityVerifier::new(rtx),
             since: ValidSinceVerifier::new(rtx, median_time_context, tip_number),
         }
@@ -105,15 +104,19 @@ impl<'a> VersionVerifier<'a> {
 pub struct ScriptVerifier<'a, CS> {
     store: Arc<CS>,
     resolved_transaction: &'a ResolvedTransaction<'a>,
-    vm: &'a Vm,
+    script_config: &'a ScriptConfig,
 }
 
 impl<'a, CS: ChainStore> ScriptVerifier<'a, CS> {
-    pub fn new(resolved_transaction: &'a ResolvedTransaction, store: Arc<CS>, vm: &'a Vm) -> Self {
+    pub fn new(
+        resolved_transaction: &'a ResolvedTransaction,
+        store: Arc<CS>,
+        script_config: &'a ScriptConfig,
+    ) -> Self {
         ScriptVerifier {
             store,
             resolved_transaction,
-            vm,
+            script_config,
         }
     }
 
@@ -121,7 +124,7 @@ impl<'a, CS: ChainStore> ScriptVerifier<'a, CS> {
         TransactionScriptsVerifier::new(
             &self.resolved_transaction,
             Arc::clone(&self.store),
-            &self.vm,
+            &self.script_config,
         )
         .verify(max_cycles)
         .map_err(TransactionError::ScriptFailure)

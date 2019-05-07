@@ -18,7 +18,8 @@ fnv = "1.0.3"
 flatbuffers = "0.6.0"
 log = "0.4"
 ckb-protocol = { path = "../protocol" }
-ckb-chain-spec = { path = "../spec" }
+serde = "1.0"
+serde_derive = "1.0"
 
 [dev-dependencies]
 proptest = "0.9"

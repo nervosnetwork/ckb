@@ -5,9 +5,8 @@ use crate::{
         build_tx, Debugger, LoadCell, LoadCellByField, LoadHeader, LoadInputByField, LoadTx,
         LoadTxHash,
     },
-    ScriptError,
+    Runner, ScriptConfig, ScriptError,
 };
-use ckb_chain_spec::Vm;
 use ckb_core::cell::{CellMeta, ResolvedOutPoint, ResolvedTransaction};
 use ckb_core::script::{Script, ALWAYS_SUCCESS_HASH};
 use ckb_core::transaction::{CellInput, CellOutPoint};
@@ -35,14 +34,14 @@ pub struct TransactionScriptsVerifier<'a, CS> {
     resolved_deps: Vec<&'a ResolvedOutPoint>,
     witnesses: FnvHashMap<u32, &'a [Vec<u8>]>,
     hash: H256,
-    vm: &'a Vm,
+    config: &'a ScriptConfig,
 }
 
 impl<'a, CS: LazyLoadCellOutput> TransactionScriptsVerifier<'a, CS> {
     pub fn new(
         rtx: &'a ResolvedTransaction,
         store: Arc<CS>,
-        vm: &'a Vm,
+        config: &'a ScriptConfig,
     ) -> TransactionScriptsVerifier<'a, CS> {
         let tx_hash = rtx.transaction.hash();
         let resolved_deps: Vec<&'a ResolvedOutPoint> = rtx.resolved_deps.iter().collect();
@@ -108,7 +107,7 @@ impl<'a, CS: LazyLoadCellOutput> TransactionScriptsVerifier<'a, CS> {
             resolved_inputs,
             resolved_deps,
             witnesses,
-            vm,
+            config,
             hash: tx_hash.to_owned(),
         }
     }
@@ -265,8 +264,8 @@ impl<'a, CS: LazyLoadCellOutput> TransactionScriptsVerifier<'a, CS> {
         current_input: Option<&'a CellInput>,
         max_cycles: Cycle,
     ) -> Result<Cycle, ScriptError> {
-        let (code, cycles) = match self.vm {
-            Vm::Assembly => {
+        let (code, cycles) = match self.config.runner {
+            Runner::Assembly => {
                 let core_machine = AsmCoreMachine::new_with_max_cycles(max_cycles);
                 let machine = DefaultMachineBuilder::<Box<AsmCoreMachine>>::new(core_machine)
                     .instruction_cycle_func(Box::new(instruction_cycles))
@@ -285,7 +284,7 @@ impl<'a, CS: LazyLoadCellOutput> TransactionScriptsVerifier<'a, CS> {
                 let code = machine.run().map_err(ScriptError::VMError)?;
                 (code, machine.machine.cycles())
             }
-            Vm::Rust => {
+            Runner::Rust => {
                 let core_machine =
                     DefaultCoreMachine::<u64, SparseMemory<u64>>::new_with_max_cycles(max_cycles);
                 let machine =
@@ -370,7 +369,13 @@ mod tests {
 
         let store = Arc::new(new_memory_store());
 
-        let verifier = TransactionScriptsVerifier::new(&rtx, store, &Vm::Assembly);
+        let verifier = TransactionScriptsVerifier::new(
+            &rtx,
+            store,
+            &ScriptConfig {
+                runner: Runner::Assembly,
+            },
+        );
 
         assert!(verifier.verify(0).is_ok());
     }
@@ -445,7 +450,13 @@ mod tests {
         };
         let store = Arc::new(new_memory_store());
 
-        let verifier = TransactionScriptsVerifier::new(&rtx, store, &Vm::Assembly);
+        let verifier = TransactionScriptsVerifier::new(
+            &rtx,
+            store,
+            &ScriptConfig {
+                runner: Runner::Assembly,
+            },
+        );
 
         assert!(verifier.verify(100_000_000).is_ok());
     }
@@ -520,7 +531,13 @@ mod tests {
         };
         let store = Arc::new(new_memory_store());
 
-        let verifier = TransactionScriptsVerifier::new(&rtx, store, &Vm::Rust);
+        let verifier = TransactionScriptsVerifier::new(
+            &rtx,
+            store,
+            &ScriptConfig {
+                runner: Runner::Rust,
+            },
+        );
 
         assert!(verifier.verify(100_000_000).is_ok());
     }
@@ -596,7 +613,13 @@ mod tests {
 
         let store = Arc::new(new_memory_store());
 
-        let verifier = TransactionScriptsVerifier::new(&rtx, store, &Vm::Assembly);
+        let verifier = TransactionScriptsVerifier::new(
+            &rtx,
+            store,
+            &ScriptConfig {
+                runner: Runner::Assembly,
+            },
+        );
 
         assert!(verifier.verify(100).is_err());
     }
@@ -672,7 +695,13 @@ mod tests {
         };
 
         let store = Arc::new(new_memory_store());
-        let verifier = TransactionScriptsVerifier::new(&rtx, store, &Vm::Assembly);
+        let verifier = TransactionScriptsVerifier::new(
+            &rtx,
+            store,
+            &ScriptConfig {
+                runner: Runner::Assembly,
+            },
+        );
 
         assert!(verifier.verify(100_000_000).is_err());
     }
@@ -732,7 +761,13 @@ mod tests {
         };
 
         let store = Arc::new(new_memory_store());
-        let verifier = TransactionScriptsVerifier::new(&rtx, store, &Vm::Assembly);
+        let verifier = TransactionScriptsVerifier::new(
+            &rtx,
+            store,
+            &ScriptConfig {
+                runner: Runner::Assembly,
+            },
+        );
 
         assert!(verifier.verify(100_000_000).is_err());
     }
@@ -818,7 +853,13 @@ mod tests {
         };
 
         let store = Arc::new(new_memory_store());
-        let verifier = TransactionScriptsVerifier::new(&rtx, store, &Vm::Assembly);
+        let verifier = TransactionScriptsVerifier::new(
+            &rtx,
+            store,
+            &ScriptConfig {
+                runner: Runner::Assembly,
+            },
+        );
 
         assert!(verifier.verify(100_000_000).is_ok());
     }
@@ -905,7 +946,13 @@ mod tests {
 
         let store = Arc::new(new_memory_store());
 
-        let verifier = TransactionScriptsVerifier::new(&rtx, store, &Vm::Assembly);
+        let verifier = TransactionScriptsVerifier::new(
+            &rtx,
+            store,
+            &ScriptConfig {
+                runner: Runner::Assembly,
+            },
+        );
 
         assert!(verifier.verify(100_000_000).is_err());
     }

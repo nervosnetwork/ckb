@@ -8,6 +8,7 @@ use ckb_core::header::{BlockNumber, Header};
 use ckb_core::transaction::{ProposalShortId, Transaction};
 use ckb_core::uncle::UncleBlock;
 use ckb_db::{CacheDB, DBConfig, KeyValueDB, MemoryKeyValueDB, RocksDB};
+use ckb_script::ScriptConfig;
 use ckb_store::{ChainKVStore, ChainStore, COLUMNS, COLUMN_BLOCK_HEADER};
 use ckb_traits::ChainProvider;
 use ckb_util::Mutex;
@@ -19,6 +20,7 @@ pub struct Shared<CS> {
     store: Arc<CS>,
     chain_state: Arc<Mutex<ChainState<CS>>>,
     consensus: Arc<Consensus>,
+    script_config: ScriptConfig,
 }
 
 // https://github.com/rust-lang/rust/issues/40754
@@ -28,6 +30,7 @@ impl<CS: ChainStore> ::std::clone::Clone for Shared<CS> {
             store: Arc::clone(&self.store),
             chain_state: Arc::clone(&self.chain_state),
             consensus: Arc::clone(&self.consensus),
+            script_config: self.script_config.clone(),
         }
     }
 }
@@ -37,6 +40,7 @@ impl<CS: ChainStore> Shared<CS> {
         store: CS,
         consensus: Consensus,
         tx_pool_config: TxPoolConfig,
+        script_config: ScriptConfig,
     ) -> Result<Self, SharedError> {
         let store = Arc::new(store);
         let consensus = Arc::new(consensus);
@@ -44,17 +48,23 @@ impl<CS: ChainStore> Shared<CS> {
             &store,
             Arc::clone(&consensus),
             tx_pool_config,
+            script_config.clone(),
         )?));
 
         Ok(Shared {
             store,
             chain_state,
             consensus,
+            script_config,
         })
     }
 
     pub fn chain_state(&self) -> &Mutex<ChainState<CS>> {
         &self.chain_state
+    }
+
+    pub fn script_config(&self) -> &ScriptConfig {
+        &self.script_config
     }
 
     pub fn store(&self) -> &Arc<CS> {
@@ -162,6 +172,7 @@ pub struct SharedBuilder<DB: KeyValueDB> {
     db: Option<DB>,
     consensus: Option<Consensus>,
     tx_pool_config: Option<TxPoolConfig>,
+    script_config: Option<ScriptConfig>,
 }
 
 impl<DB: KeyValueDB> Default for SharedBuilder<DB> {
@@ -170,6 +181,7 @@ impl<DB: KeyValueDB> Default for SharedBuilder<DB> {
             db: None,
             consensus: None,
             tx_pool_config: None,
+            script_config: None,
         }
     }
 }
@@ -180,6 +192,7 @@ impl SharedBuilder<MemoryKeyValueDB> {
             db: Some(MemoryKeyValueDB::open(COLUMNS as usize)),
             consensus: None,
             tx_pool_config: None,
+            script_config: None,
         }
     }
 }
@@ -211,10 +224,16 @@ impl<DB: KeyValueDB> SharedBuilder<DB> {
         self
     }
 
+    pub fn script_config(mut self, config: ScriptConfig) -> Self {
+        self.script_config = Some(config);
+        self
+    }
+
     pub fn build(self) -> Result<Shared<ChainKVStore<DB>>, SharedError> {
         let store = ChainKVStore::new(self.db.unwrap());
         let consensus = self.consensus.unwrap_or_else(Consensus::default);
         let tx_pool_config = self.tx_pool_config.unwrap_or_else(Default::default);
-        Shared::init(store, consensus, tx_pool_config)
+        let script_config = self.script_config.unwrap_or_else(Default::default);
+        Shared::init(store, consensus, tx_pool_config, script_config)
     }
 }

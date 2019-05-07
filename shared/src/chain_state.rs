@@ -14,6 +14,7 @@ use ckb_core::header::{BlockNumber, Header};
 use ckb_core::transaction::CellOutput;
 use ckb_core::transaction::{OutPoint, ProposalShortId, Transaction};
 use ckb_core::Cycle;
+use ckb_script::ScriptConfig;
 use ckb_store::ChainStore;
 use ckb_traits::BlockMedianTimeContext;
 use ckb_verification::{PoolTransactionVerifier, TransactionVerifier};
@@ -35,6 +36,7 @@ pub struct ChainState<CS> {
     tx_pool: RefCell<TxPool>,
     consensus: Arc<Consensus>,
     current_epoch_ext: EpochExt,
+    script_config: ScriptConfig,
 }
 
 impl<CS: ChainStore> ChainState<CS> {
@@ -42,6 +44,7 @@ impl<CS: ChainStore> ChainState<CS> {
         store: &Arc<CS>,
         consensus: Arc<Consensus>,
         tx_pool_config: TxPoolConfig,
+        script_config: ScriptConfig,
     ) -> Result<Self, SharedError> {
         // check head in store or save the genesis block as head
         let (tip_header, epoch_ext) = {
@@ -100,6 +103,7 @@ impl<CS: ChainStore> ChainState<CS> {
             tx_pool: RefCell::new(tx_pool),
             consensus,
             current_epoch_ext: epoch_ext,
+            script_config,
         })
     }
 
@@ -172,6 +176,10 @@ impl<CS: ChainStore> ChainState<CS> {
 
     pub fn cell_set(&self) -> &CellSet {
         &self.cell_set
+    }
+
+    pub fn script_config(&self) -> &ScriptConfig {
+        &self.script_config
     }
 
     pub fn is_dead_cell(&self, o: &OutPoint) -> Option<bool> {
@@ -283,7 +291,7 @@ impl<CS: ChainStore> ChainState<CS> {
                     &self,
                     self.tip_number(),
                     self.consensus().cellbase_maturity,
-                    self.consensus().vm(),
+                    &self.script_config,
                 )
                 .verify(max_cycles)
                 .map_err(PoolError::InvalidTx)?;
