@@ -31,7 +31,7 @@ pub trait ChainProvider: Sync + Send {
 
     fn get_ancestor(&self, base: &H256, number: BlockNumber) -> Option<Header>;
 
-    fn get_epoch_ext(&self, hash: &H256) -> Option<EpochExt>;
+    fn get_block_epoch(&self, hash: &H256) -> Option<EpochExt>;
 
     fn next_epoch_ext(&self, last_epoch: &EpochExt, header: &Header) -> Option<EpochExt>;
 

@@ -80,7 +80,9 @@ fn relay_compact_block_with_one_tx() {
                 let number = last_block.header().number() + 1;
                 let timestamp = last_block.header().timestamp() + 1;
 
-                let last_epoch = shared1.get_epoch_ext(&last_block.header().hash()).unwrap();
+                let last_epoch = shared1
+                    .get_block_epoch(&last_block.header().hash())
+                    .unwrap();
                 let epoch = shared1
                     .next_epoch_ext(&last_epoch, last_block.header())
                     .unwrap_or(last_epoch);
@@ -122,7 +124,9 @@ fn relay_compact_block_with_one_tx() {
                 let number = last_block.header().number() + 1;
                 let timestamp = last_block.header().timestamp() + 1;
 
-                let last_epoch = shared1.get_epoch_ext(&last_block.header().hash()).unwrap();
+                let last_epoch = shared1
+                    .get_block_epoch(&last_block.header().hash())
+                    .unwrap();
                 let epoch = shared1
                     .next_epoch_ext(&last_epoch, last_block.header())
                     .unwrap_or(last_epoch);
@@ -246,7 +250,9 @@ fn relay_compact_block_with_missing_indexs() {
                 let number = last_block.header().number() + 1;
                 let timestamp = last_block.header().timestamp() + 1;
 
-                let last_epoch = shared1.get_epoch_ext(&last_block.header().hash()).unwrap();
+                let last_epoch = shared1
+                    .get_block_epoch(&last_block.header().hash())
+                    .unwrap();
                 let epoch = shared1
                     .next_epoch_ext(&last_epoch, last_block.header())
                     .unwrap_or(last_epoch);
@@ -288,7 +294,9 @@ fn relay_compact_block_with_missing_indexs() {
                 let number = last_block.header().number() + 1;
                 let timestamp = last_block.header().timestamp() + 1;
 
-                let last_epoch = shared1.get_epoch_ext(&last_block.header().hash()).unwrap();
+                let last_epoch = shared1
+                    .get_block_epoch(&last_block.header().hash())
+                    .unwrap();
                 let epoch = shared1
                     .next_epoch_ext(&last_epoch, last_block.header())
                     .unwrap_or(last_epoch);
@@ -379,7 +387,7 @@ fn setup_node(
         let number = block.header().number() + 1;
         let timestamp = block.header().timestamp() + 1;
 
-        let last_epoch = shared.get_epoch_ext(&block.header().hash()).unwrap();
+        let last_epoch = shared.get_block_epoch(&block.header().hash()).unwrap();
         let epoch = shared
             .next_epoch_ext(&last_epoch, block.header())
             .unwrap_or(last_epoch);

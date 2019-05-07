@@ -88,7 +88,7 @@ fn test_uncle_verifier() {
 
     let mut parent = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
     for i in 1..number {
-        let parent_epoch = shared.get_epoch_ext(&parent.hash()).unwrap();
+        let parent_epoch = shared.get_block_epoch(&parent.hash()).unwrap();
         let epoch = shared
             .next_epoch_ext(&parent_epoch, &parent)
             .unwrap_or(parent_epoch);
@@ -104,7 +104,7 @@ fn test_uncle_verifier() {
 
     // if block_number < 11 { chain1 == chain2 } else { chain1 != chain2 }
     for i in 1..number {
-        let parent_epoch = shared.get_epoch_ext(&parent.hash()).unwrap();
+        let parent_epoch = shared.get_block_epoch(&parent.hash()).unwrap();
         let epoch = shared
             .next_epoch_ext(&parent_epoch, &parent)
             .unwrap_or(parent_epoch);
@@ -119,7 +119,7 @@ fn test_uncle_verifier() {
     // Uncles not match uncles_count
     {
         let parent_epoch = shared
-            .get_epoch_ext(&chain1[chain1.len() - 2].header().hash())
+            .get_block_epoch(&chain1[chain1.len() - 2].header().hash())
             .unwrap();
         let epoch = shared
             .next_epoch_ext(&parent_epoch, chain1[chain1.len() - 2].header())
@@ -142,7 +142,7 @@ fn test_uncle_verifier() {
     // Uncles not match uncles_hash
     {
         let parent_epoch = shared
-            .get_epoch_ext(&chain1[chain1.len() - 2].header().hash())
+            .get_block_epoch(&chain1[chain1.len() - 2].header().hash())
             .unwrap();
         let epoch = shared
             .next_epoch_ext(&parent_epoch, chain1[chain1.len() - 2].header())
@@ -183,7 +183,7 @@ fn test_uncle_verifier() {
     // Uncle depth is invalid
     {
         let parent_epoch = shared
-            .get_epoch_ext(&chain1[chain1.len() - 2].header().hash())
+            .get_block_epoch(&chain1[chain1.len() - 2].header().hash())
             .unwrap();
         let epoch = shared
             .next_epoch_ext(&parent_epoch, chain1[chain1.len() - 2].header())
@@ -213,7 +213,7 @@ fn test_uncle_verifier() {
         let uncle_number: usize = block_number - 1 - shared.consensus().max_uncles_age();
 
         let parent_epoch = shared
-            .get_epoch_ext(&chain2[block_number - 2].header().hash())
+            .get_block_epoch(&chain2[block_number - 2].header().hash())
             .unwrap();
         let epoch = shared
             .next_epoch_ext(&parent_epoch, chain2[block_number - 2].header())
@@ -247,7 +247,7 @@ fn test_uncle_verifier() {
         let uncle_number = block_number - shared.consensus().max_uncles_age;
 
         let parent_epoch = shared
-            .get_epoch_ext(&chain1[block_number - 1].header().hash())
+            .get_block_epoch(&chain1[block_number - 1].header().hash())
             .unwrap();
         let epoch = shared
             .next_epoch_ext(&parent_epoch, chain1[block_number - 1].header())
@@ -274,7 +274,7 @@ from_block(chain1[block_number].to_owned())          // block.number 10 epoch 1
         let uncle_number = shared.consensus().genesis_epoch_ext().length() as usize - 2; // epoch = 0
 
         let parent_epoch = shared
-            .get_epoch_ext(&chain1[block_number - 1].header().hash())
+            .get_block_epoch(&chain1[block_number - 1].header().hash())
             .unwrap();
         let epoch = shared
             .next_epoch_ext(&parent_epoch, chain1[block_number - 1].header())
@@ -295,7 +295,7 @@ from_block(chain1.get(block_number).cloned().unwrap())          // epoch 1
 
     // Uncle proposals_root is invalid
     {
-        let parent_epoch = shared.get_epoch_ext(&chain1[7].header().hash()).unwrap();
+        let parent_epoch = shared.get_block_epoch(&chain1[7].header().hash()).unwrap();
         let epoch = shared
             .next_epoch_ext(&parent_epoch, chain1[7].header())
             .unwrap_or(parent_epoch);
@@ -316,7 +316,7 @@ from_block(chain1.get(block_number).cloned().unwrap())          // epoch 1
 
     // Uncle contains duplicated proposals
     {
-        let parent_epoch = shared.get_epoch_ext(&chain1[7].header().hash()).unwrap();
+        let parent_epoch = shared.get_block_epoch(&chain1[7].header().hash()).unwrap();
         let epoch = shared
             .next_epoch_ext(&parent_epoch, chain1[7].header())
             .unwrap_or(parent_epoch);
@@ -338,7 +338,7 @@ from_block(chain1.get(block_number).cloned().unwrap())          // epoch 1
 
     // Duplicated uncles
     {
-        let parent_epoch = shared.get_epoch_ext(&chain1[11].header().hash()).unwrap();
+        let parent_epoch = shared.get_block_epoch(&chain1[11].header().hash()).unwrap();
         let epoch = shared
             .next_epoch_ext(&parent_epoch, chain1[11].header())
             .unwrap_or(parent_epoch);
@@ -366,7 +366,7 @@ from_block(chain1.get(block_number).cloned().unwrap())          // epoch 1
 
     // Uncles count exceeds limit
     {
-        let parent_epoch = shared.get_epoch_ext(&chain1[11].header().hash()).unwrap();
+        let parent_epoch = shared.get_block_epoch(&chain1[11].header().hash()).unwrap();
         let epoch = shared
             .next_epoch_ext(&parent_epoch, chain1[11].header())
             .unwrap_or(parent_epoch);
@@ -394,7 +394,7 @@ from_block(chain1.get(block_number).cloned().unwrap())          // epoch 1
         );
     }
 
-    let parent_epoch = shared.get_epoch_ext(&chain1[7].header().hash()).unwrap();
+    let parent_epoch = shared.get_block_epoch(&chain1[7].header().hash()).unwrap();
     let epoch = shared
         .next_epoch_ext(&parent_epoch, chain1[7].header())
         .unwrap_or(parent_epoch);
@@ -409,7 +409,7 @@ from_block(chain1.get(block_number).cloned().unwrap())          // epoch 1
         .build();
     assert_eq!(verifier.verify(&block), Ok(()));
 
-    let parent_epoch = shared.get_epoch_ext(&chain1[11].header().hash()).unwrap();
+    let parent_epoch = shared.get_block_epoch(&chain1[11].header().hash()).unwrap();
     let epoch = shared
         .next_epoch_ext(&parent_epoch, chain1[11].header())
         .unwrap_or(parent_epoch);

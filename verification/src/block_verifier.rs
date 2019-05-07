@@ -28,7 +28,7 @@ fn prepare_epoch_ext<P: ChainProvider>(provider: &P, block: &Block) -> Result<Ep
     }
     let parent_hash = block.header().parent_hash();
     let parent_ext = provider
-        .get_epoch_ext(parent_hash)
+        .get_block_epoch(parent_hash)
         .ok_or_else(|| Error::UnknownParent(parent_hash.clone()))?;
     let parent = provider
         .block_header(parent_hash)
@@ -166,7 +166,7 @@ impl<'a> HeaderResolverWrapper<'a> {
             .as_ref()
             .and_then(|parent| {
                 provider
-                    .get_epoch_ext(&parent.hash())
+                    .get_block_epoch(&parent.hash())
                     .map(|ext| (parent, ext))
             })
             .map(|(parent, last_epoch)| {

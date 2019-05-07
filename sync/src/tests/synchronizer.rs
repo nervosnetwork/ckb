@@ -91,7 +91,7 @@ fn setup_node(
         let number = block.header().number() + 1;
         let timestamp = block.header().timestamp() + 1;
 
-        let last_epoch = shared.get_epoch_ext(&block.header().hash()).unwrap();
+        let last_epoch = shared.get_block_epoch(&block.header().hash()).unwrap();
         let epoch = shared
             .next_epoch_ext(&last_epoch, block.header())
             .unwrap_or(last_epoch);
