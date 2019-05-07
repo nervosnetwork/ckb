@@ -44,13 +44,16 @@ impl<CS: ChainStore> ChainState<CS> {
         tx_pool_config: TxPoolConfig,
     ) -> Result<Self, SharedError> {
         // check head in store or save the genesis block as head
-        let tip_header = {
-            match store.get_tip_header() {
-                Some(tip_header) => {
+        let (tip_header, epoch_ext) = {
+            match store
+                .get_tip_header()
+                .and_then(|header| store.get_current_epoch_ext().map(|epoch| (header, epoch)))
+            {
+                Some((tip_header, epoch)) => {
                     if let Some(genesis_hash) = store.get_block_hash(0) {
                         let expect_genesis_hash = consensus.genesis_hash();
                         if &genesis_hash == expect_genesis_hash {
-                            Ok(tip_header)
+                            Ok((tip_header, epoch))
                         } else {
                             Err(SharedError::InvalidData(format!(
                                 "mismatch genesis hash, expect {:#x} but {:#x} in database",
@@ -68,14 +71,16 @@ impl<CS: ChainStore> ChainState<CS> {
                     .map_err(|e| {
                         SharedError::InvalidData(format!("failed to init genesis block {:?}", e))
                     })
-                    .map(|_| consensus.genesis_block().header().to_owned()),
+                    .map(|_| {
+                        (
+                            consensus.genesis_block().header().to_owned(),
+                            consensus.genesis_epoch_ext().to_owned(),
+                        )
+                    }),
             }
         }?;
 
-        let epoch_ext = consensus.genesis_epoch_ext().clone();
-
         let tx_pool = TxPool::new(tx_pool_config);
-
         let tip_number = tip_header.number();
         let proposal_window = consensus.tx_proposal_window();
         let proposal_ids = Self::init_proposal_ids(&store, proposal_window, tip_number);
