@@ -1,4 +1,3 @@
-use crate::common::CurrentCell;
 use crate::syscalls::{Source, ITEM_MISSING, LOAD_HEADER_SYSCALL_NUMBER, SUCCESS};
 use ckb_core::cell::ResolvedOutPoint;
 use ckb_core::header::Header;
@@ -13,19 +12,16 @@ use std::cmp;
 #[derive(Debug)]
 pub struct LoadHeader<'a> {
     resolved_inputs: &'a [&'a ResolvedOutPoint],
-    current: CurrentCell,
     resolved_deps: &'a [&'a ResolvedOutPoint],
 }
 
 impl<'a> LoadHeader<'a> {
     pub fn new(
         resolved_inputs: &'a [&'a ResolvedOutPoint],
-        current: CurrentCell,
         resolved_deps: &'a [&'a ResolvedOutPoint],
     ) -> LoadHeader<'a> {
         LoadHeader {
             resolved_inputs,
-            current,
             resolved_deps,
         }
     }
@@ -34,12 +30,6 @@ impl<'a> LoadHeader<'a> {
         match source {
             Source::Input => self.resolved_inputs.get(index).and_then(|r| r.header()),
             Source::Output => None,
-            Source::Current => match self.current {
-                CurrentCell::Input(index) => {
-                    self.resolved_inputs.get(index).and_then(|r| r.header())
-                }
-                CurrentCell::Output(_) => None,
-            },
             Source::Dep => self.resolved_deps.get(index).and_then(|r| r.header()),
         }
     }

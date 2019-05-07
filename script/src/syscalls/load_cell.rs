@@ -1,4 +1,4 @@
-use crate::common::{CurrentCell, LazyLoadCellOutput};
+use crate::common::LazyLoadCellOutput;
 use crate::syscalls::{Source, ITEM_MISSING, LOAD_CELL_SYSCALL_NUMBER, SUCCESS};
 use ckb_core::cell::{CellMeta, ResolvedOutPoint};
 use ckb_protocol::CellOutput as FbsCellOutput;
@@ -14,7 +14,6 @@ pub struct LoadCell<'a, CS> {
     store: Arc<CS>,
     outputs: &'a [CellMeta],
     resolved_inputs: &'a [&'a ResolvedOutPoint],
-    current: CurrentCell,
     resolved_deps: &'a [&'a ResolvedOutPoint],
 }
 
@@ -23,14 +22,12 @@ impl<'a, CS: LazyLoadCellOutput + 'a> LoadCell<'a, CS> {
         store: Arc<CS>,
         outputs: &'a [CellMeta],
         resolved_inputs: &'a [&'a ResolvedOutPoint],
-        current: CurrentCell,
         resolved_deps: &'a [&'a ResolvedOutPoint],
     ) -> LoadCell<'a, CS> {
         LoadCell {
             store,
             outputs,
             resolved_inputs,
-            current,
             resolved_deps,
         }
     }
@@ -39,10 +36,6 @@ impl<'a, CS: LazyLoadCellOutput + 'a> LoadCell<'a, CS> {
         match source {
             Source::Input => self.resolved_inputs.get(index).and_then(|r| r.cell()),
             Source::Output => self.outputs.get(index),
-            Source::Current => match self.current {
-                CurrentCell::Input(index) => self.resolved_inputs.get(index).and_then(|r| r.cell()),
-                CurrentCell::Output(index) => self.outputs.get(index),
-            },
             Source::Dep => self.resolved_deps.get(index).and_then(|r| r.cell()),
         }
     }

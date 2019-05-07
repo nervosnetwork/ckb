@@ -13,22 +13,17 @@ use flatbuffers::FlatBufferBuilder;
 #[derive(Debug)]
 pub struct LoadInputByField<'a> {
     inputs: &'a [&'a CellInput],
-    current: Option<&'a CellInput>,
 }
 
 impl<'a> LoadInputByField<'a> {
-    pub fn new(
-        inputs: &'a [&'a CellInput],
-        current: Option<&'a CellInput>,
-    ) -> LoadInputByField<'a> {
-        LoadInputByField { inputs, current }
+    pub fn new(inputs: &'a [&'a CellInput]) -> LoadInputByField<'a> {
+        LoadInputByField { inputs }
     }
 
     fn fetch_input(&self, source: Source, index: usize) -> Option<&CellInput> {
         match source {
             Source::Input => self.inputs.get(index).cloned(),
             Source::Output => None,
-            Source::Current => self.current,
             Source::Dep => None,
         }
     }

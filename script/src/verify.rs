@@ -1,9 +1,9 @@
 use crate::{
-    common::{CurrentCell, LazyLoadCellOutput},
+    common::LazyLoadCellOutput,
     cost_model::instruction_cycles,
     syscalls::{
-        build_tx, Debugger, LoadCell, LoadCellByField, LoadHeader, LoadInputByField, LoadTx,
-        LoadTxHash,
+        build_tx, Debugger, LoadCell, LoadCellByField, LoadHeader, LoadInputByField,
+        LoadScriptHash, LoadTx, LoadTxHash,
     },
     ScriptError,
 };
@@ -121,32 +121,34 @@ impl<'a, CS: LazyLoadCellOutput> TransactionScriptsVerifier<'a, CS> {
         LoadTx::new(self.tx_builder.finished_data())
     }
 
-    fn build_load_cell(&'a self, current_cell: CurrentCell) -> LoadCell<'a, CS> {
+    fn build_load_cell(&'a self) -> LoadCell<'a, CS> {
         LoadCell::new(
             Arc::clone(&self.store),
             &self.outputs,
             &self.resolved_inputs,
-            current_cell,
             &self.resolved_deps,
         )
     }
 
-    fn build_load_cell_by_field(&'a self, current_cell: CurrentCell) -> LoadCellByField<'a, CS> {
+    fn build_load_cell_by_field(&'a self) -> LoadCellByField<'a, CS> {
         LoadCellByField::new(
             Arc::clone(&self.store),
             &self.outputs,
             &self.resolved_inputs,
-            current_cell,
             &self.resolved_deps,
         )
     }
 
-    fn build_load_input_by_field(&self, current_input: Option<&'a CellInput>) -> LoadInputByField {
-        LoadInputByField::new(&self.inputs, current_input)
+    fn build_load_input_by_field(&self) -> LoadInputByField {
+        LoadInputByField::new(&self.inputs)
     }
 
-    fn build_load_header(&'a self, current_cell: CurrentCell) -> LoadHeader<'a> {
-        LoadHeader::new(&self.resolved_inputs, current_cell, &self.resolved_deps)
+    fn build_load_script_hash(&'a self, hash: &'a [u8]) -> LoadScriptHash<'a> {
+        LoadScriptHash::new(hash)
+    }
+
+    fn build_load_header(&'a self) -> LoadHeader<'a> {
+        LoadHeader::new(&self.resolved_inputs, &self.resolved_deps)
     }
 
     // Extracts actual script binary either in dep cells.
@@ -166,7 +168,6 @@ impl<'a, CS: LazyLoadCellOutput> TransactionScriptsVerifier<'a, CS> {
         &self,
         script: &Script,
         prefix: &str,
-        current_cell: CurrentCell,
         witness: Option<&&'a [Vec<u8>]>,
         current_input: Option<&'a CellInput>,
         max_cycles: Cycle,
@@ -183,26 +184,36 @@ impl<'a, CS: LazyLoadCellOutput> TransactionScriptsVerifier<'a, CS> {
                     .map(|b| b[..].to_vec())
                     .collect::<Vec<Vec<u8>>>(),
             );
+
+            let mut appended_arguments = vec![];
+            // TODO: change CKB VM to use Bytes in its API, then we can simplify the
+            // code here with less copying.
             if let Some(ref input) = current_input {
-                args.extend_from_slice(
-                    &input
-                        .args
-                        .iter()
-                        .map(|b| b[..].to_vec())
-                        .collect::<Vec<Vec<u8>>>(),
-                );
+                appended_arguments.extend_from_slice(&input.args);
             }
             if let Some(witness) = witness {
-                args.extend_from_slice(&witness);
+                appended_arguments.extend_from_slice(
+                    &witness
+                        .iter()
+                        .map(|w| w.to_vec().into())
+                        .collect::<Vec<Bytes>>(),
+                );
             }
+
+            let current_script_hash = script.hash_with_appended_arguments(&appended_arguments);
+            args.extend_from_slice(
+                &appended_arguments
+                    .iter()
+                    .map(|a| a[..].to_vec())
+                    .collect::<Vec<Vec<u8>>>(),
+            );
 
             self.run(
                 &script_binary,
                 &args,
                 prefix,
-                current_cell,
-                current_input,
                 max_cycles,
+                &current_script_hash.as_bytes(),
             )
         })
     }
@@ -224,7 +235,7 @@ impl<'a, CS: LazyLoadCellOutput> TransactionScriptsVerifier<'a, CS> {
             let prefix = format!("Transaction {}, input {}", self.hash, i);
             let witness = self.witnesses.get(&(i as u32));
             let output = self.store.lazy_load_cell_output(input_cell);
-            let cycle = self.verify_script(&output.lock, &prefix, CurrentCell::Input(i), witness, Some(input), max_cycles - cycles).map_err(|e| {
+            let cycle = self.verify_script(&output.lock, &prefix, witness, Some(input), max_cycles - cycles).map_err(|e| {
                 info!(target: "script", "Error validating input {} of transaction {}: {:?}", i, self.hash, e);
                 e
             })?;
@@ -240,7 +251,7 @@ impl<'a, CS: LazyLoadCellOutput> TransactionScriptsVerifier<'a, CS> {
             let output = cell_meta.cell_output.as_ref().expect("output already set");
             if let Some(ref type_) = output.type_ {
                 let prefix = format!("Transaction {}, output {}", self.hash, i);
-                let cycle = self.verify_script(type_, &prefix, CurrentCell::Output(i), None, None, max_cycles - cycles).map_err(|e| {
+                let cycle = self.verify_script(type_, &prefix, None, None, max_cycles - cycles).map_err(|e| {
                     info!(target: "script", "Error validating output {} of transaction {}: {:?}", i, self.hash, e);
                     e
                 })?;
@@ -261,21 +272,21 @@ impl<'a, CS: LazyLoadCellOutput> TransactionScriptsVerifier<'a, CS> {
         program: &[u8],
         args: &[Vec<u8>],
         prefix: &str,
-        current_cell: CurrentCell,
-        current_input: Option<&'a CellInput>,
         max_cycles: Cycle,
+        current_script_hash: &[u8],
     ) -> Result<Cycle, ScriptError> {
         let (code, cycles) = match self.vm {
             Vm::Assembly => {
                 let core_machine = AsmCoreMachine::new_with_max_cycles(max_cycles);
                 let machine = DefaultMachineBuilder::<Box<AsmCoreMachine>>::new(core_machine)
                     .instruction_cycle_func(Box::new(instruction_cycles))
+                    .syscall(Box::new(self.build_load_script_hash(current_script_hash)))
                     .syscall(Box::new(self.build_load_tx_hash()))
                     .syscall(Box::new(self.build_load_tx()))
-                    .syscall(Box::new(self.build_load_cell(current_cell)))
-                    .syscall(Box::new(self.build_load_cell_by_field(current_cell)))
-                    .syscall(Box::new(self.build_load_input_by_field(current_input)))
-                    .syscall(Box::new(self.build_load_header(current_cell)))
+                    .syscall(Box::new(self.build_load_cell()))
+                    .syscall(Box::new(self.build_load_cell_by_field()))
+                    .syscall(Box::new(self.build_load_input_by_field()))
+                    .syscall(Box::new(self.build_load_header()))
                     .syscall(Box::new(Debugger::new(prefix)))
                     .build();
                 let mut machine = AsmMachine::new(machine);
@@ -293,12 +304,13 @@ impl<'a, CS: LazyLoadCellOutput> TransactionScriptsVerifier<'a, CS> {
                         core_machine,
                     )
                     .instruction_cycle_func(Box::new(instruction_cycles))
+                    .syscall(Box::new(self.build_load_script_hash(current_script_hash)))
                     .syscall(Box::new(self.build_load_tx_hash()))
                     .syscall(Box::new(self.build_load_tx()))
-                    .syscall(Box::new(self.build_load_cell(current_cell)))
-                    .syscall(Box::new(self.build_load_cell_by_field(current_cell)))
-                    .syscall(Box::new(self.build_load_input_by_field(current_input)))
-                    .syscall(Box::new(self.build_load_header(current_cell)))
+                    .syscall(Box::new(self.build_load_cell()))
+                    .syscall(Box::new(self.build_load_cell_by_field()))
+                    .syscall(Box::new(self.build_load_input_by_field()))
+                    .syscall(Box::new(self.build_load_header()))
                     .syscall(Box::new(Debugger::new(prefix)))
                     .build();
                 let mut machine = TraceMachine::new(machine);
