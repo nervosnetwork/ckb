@@ -14,6 +14,7 @@ use ckb_core::transaction::{
     CellOutput, OutPoint, ProposalShortId, Transaction, TransactionBuilder,
 };
 use ckb_core::uncle::UncleBlock;
+use ckb_core::EpochNumber;
 use ckb_db::{Col, DbBatch, Error, KeyValueDB};
 use numext_fixed_hash::H256;
 use serde::Serialize;
@@ -82,8 +83,14 @@ pub trait ChainStore: Sync + Send {
     fn get_transaction_address(&self, hash: &H256) -> Option<TransactionAddress>;
     fn get_cell_meta(&self, tx_hash: &H256, index: u32) -> Option<CellMeta>;
     fn get_cell_output(&self, tx_hash: &H256, index: u32) -> Option<CellOutput>;
+    // Get current epoch ext
     fn get_current_epoch_ext(&self) -> Option<EpochExt>;
+    // Get epoch ext by epoch index
     fn get_epoch_ext(&self, hash: &H256) -> Option<EpochExt>;
+    // Get epoch index by epoch number
+    fn get_epoch_index(&self, number: EpochNumber) -> Option<H256>;
+    // Get epoch index by block hash
+    fn get_block_epoch_index(&self, h256: &H256) -> Option<H256>;
 }
 
 pub trait StoreBatch {
@@ -233,9 +240,18 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
     }
 
     fn get_epoch_ext(&self, hash: &H256) -> Option<EpochExt> {
-        self.get(COLUMN_BLOCK_EPOCH, hash.as_bytes())
-            .map(|raw| self.get(COLUMN_EPOCH, &raw[..]).expect("db safe access"))
+        self.get(COLUMN_EPOCH, hash.as_bytes())
             .map(|raw| deserialize(&raw[..]).expect("db safe access"))
+    }
+
+    fn get_epoch_index(&self, number: EpochNumber) -> Option<H256> {
+        self.get(COLUMN_EPOCH, &number.to_le_bytes())
+            .map(|raw| H256::from_slice(&raw[..]).expect("db safe access"))
+    }
+
+    fn get_block_epoch_index(&self, block_hash: &H256) -> Option<H256> {
+        self.get(COLUMN_BLOCK_EPOCH, block_hash.as_bytes())
+            .map(|raw| H256::from_slice(&raw[..]).expect("db safe access"))
     }
 
     fn get_transaction(&self, h: &H256) -> Option<(Transaction, H256)> {
@@ -385,7 +401,10 @@ impl<B: DbBatch> StoreBatch for DefaultStoreBatch<B> {
     }
 
     fn insert_epoch_ext(&mut self, hash: &H256, epoch: &EpochExt) -> Result<(), Error> {
-        self.insert_serialize(COLUMN_EPOCH, hash.as_bytes(), epoch)
+        let epoch_index = hash.as_bytes();
+        let epoch_number = epoch.number().to_le_bytes();
+        self.insert_serialize(COLUMN_EPOCH, epoch_index, epoch)?;
+        self.insert_raw(COLUMN_EPOCH, &epoch_number, epoch_index)
     }
 
     fn insert_current_epoch_ext(&mut self, epoch: &EpochExt) -> Result<(), Error> {

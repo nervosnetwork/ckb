@@ -140,8 +140,10 @@ impl<CS: ChainStore> ChainProvider for Shared<CS> {
         None
     }
 
-    fn get_epoch_ext(&self, hash: &H256) -> Option<EpochExt> {
-        self.store().get_epoch_ext(hash)
+    fn get_block_epoch(&self, hash: &H256) -> Option<EpochExt> {
+        self.store()
+            .get_block_epoch_index(hash)
+            .and_then(|index| self.store().get_epoch_ext(&index))
     }
 
     fn next_epoch_ext(&self, last_epoch: &EpochExt, header: &Header) -> Option<EpochExt> {
