@@ -91,12 +91,12 @@ impl<K: Hash + Eq, V: Copy + Eq + Hash> Edges<K, V> {
 }
 
 #[derive(Default, Debug, Clone)]
-pub struct StagingPool {
+pub struct ProposedPool {
     pub(crate) vertices: LinkedFnvHashMap<ProposalShortId, PoolEntry>,
     pub(crate) edges: Edges<OutPoint, ProposalShortId>,
 }
 
-impl CellProvider for StagingPool {
+impl CellProvider for ProposedPool {
     fn cell(&self, o: &OutPoint) -> CellStatus {
         if o.cell.is_none() {
             return CellStatus::Unspecified;
@@ -123,9 +123,9 @@ impl CellProvider for StagingPool {
     }
 }
 
-impl StagingPool {
+impl ProposedPool {
     pub fn new() -> Self {
-        StagingPool::default()
+        ProposedPool::default()
     }
 
     pub fn capacity(&self) -> usize {
@@ -353,7 +353,7 @@ mod tests {
         let tx1_hash = tx1.hash();
         let tx2 = build_tx(vec![(tx1_hash, 0)], 1);
 
-        let mut pool = StagingPool::new();
+        let mut pool = ProposedPool::new();
         let id1 = tx1.proposal_short_id();
         let id2 = tx2.proposal_short_id();
 
@@ -379,7 +379,7 @@ mod tests {
         let tx1 = build_tx(vec![(&H256::zero(), 1), (&H256::zero(), 2)], 1);
         let tx2 = build_tx(vec![(&h256!("0x2"), 1), (&h256!("0x3"), 2)], 3);
 
-        let mut pool = StagingPool::new();
+        let mut pool = ProposedPool::new();
 
         let id1 = tx1.proposal_short_id();
         let id2 = tx2.proposal_short_id();
@@ -431,7 +431,7 @@ mod tests {
         let id3 = tx3.proposal_short_id();
         let id5 = tx5.proposal_short_id();
 
-        let mut pool = StagingPool::new();
+        let mut pool = ProposedPool::new();
 
         pool.add_tx(MOCK_CYCLES, tx1.clone());
         pool.add_tx(MOCK_CYCLES, tx2.clone());

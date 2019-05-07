@@ -62,9 +62,9 @@ listen_address = "0.0.0.0:8114" # {{
 # Default is 10MiB = 10 * 1024 * 1024
 max_request_body_size = 10485760
 
-# List of API modules: ["Net", "Pool", "Miner", "Chain", "Stats", "Experiment", "Trace"]
+# List of API modules: ["Net", "Pool", "Miner", "Chain", "Stats", "Experiment"]
 modules = ["Net", "Pool", "Miner", "Chain", "Stats", "Experiment"] # {{
-# integration => modules = ["Net", "Pool", "Miner", "Chain", "Trace", "Experiment", "IntegrationTest"]
+# integration => modules = ["Net", "Pool", "Miner", "Chain", "Experiment", "IntegrationTest"]
 # }}
 
 [sync]
@@ -77,7 +77,6 @@ max_orphan_size = 10000
 max_proposal_size = 10000
 max_cache_size = 1000
 max_pending_size = 10000
-trace = 100
 txs_verify_cache_size = 100000
 
 [block_assembler]

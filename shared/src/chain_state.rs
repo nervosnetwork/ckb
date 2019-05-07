@@ -231,14 +231,14 @@ impl<CS: ChainStore> ChainState<CS> {
     // this method will handle fork related verifications to make sure we are safe during a fork
     pub fn add_tx_to_pool(&self, tx: Transaction, cycles: Cycle) -> Result<Cycle, PoolError> {
         let short_id = tx.proposal_short_id();
-        match self.resolve_tx_from_pending_and_staging(&tx) {
+        match self.resolve_tx_from_pending_and_proposed(&tx) {
             Ok(rtx) => {
                 self.verify_rtx(&rtx, Some(cycles)).map(|cycles| {
                     let mut tx_pool = self.tx_pool.borrow_mut();
                     if self.contains_proposal_id(&short_id) {
                         // if tx is proposed, we resolve from staging, verify again
-                        if let Err(e) = self.staging_tx_and_descendants(&mut tx_pool, Some(cycles), tx) {
-                            debug!(target: "tx_pool", "Failed to staging tx {:?}, reason: {:?}", short_id, e)
+                        if let Err(e) = self.proposed_tx_and_descendants(&mut tx_pool, Some(cycles), tx) {
+                            debug!(target: "tx_pool", "Failed to add proposed tx {:?}, reason: {:?}", short_id, e)
                         }
                     } else {
                         tx_pool.enqueue_tx(Some(cycles), tx);
@@ -250,24 +250,24 @@ impl<CS: ChainStore> ChainState<CS> {
         }
     }
 
-    pub fn resolve_tx_from_pending_and_staging<'a>(
+    pub fn resolve_tx_from_pending_and_proposed<'a>(
         &self,
         tx: &'a Transaction,
     ) -> Result<ResolvedTransaction<'a>, UnresolvableError> {
         let tx_pool = self.tx_pool.borrow_mut();
-        let staging_provider = OverlayCellProvider::new(&tx_pool.staging, self);
-        let pending_and_staging_provider =
-            OverlayCellProvider::new(&tx_pool.pending, &staging_provider);
+        let proposed_provider = OverlayCellProvider::new(&tx_pool.proposed, self);
+        let pending_and_proposed_provider =
+            OverlayCellProvider::new(&tx_pool.pending, &proposed_provider);
         let mut seen_inputs = FnvHashSet::default();
-        resolve_transaction(tx, &mut seen_inputs, &pending_and_staging_provider, self)
+        resolve_transaction(tx, &mut seen_inputs, &pending_and_proposed_provider, self)
     }
 
-    fn resolve_tx_from_staging<'a>(
+    pub fn resolve_tx_from_proposed<'a>(
         &self,
         tx: &'a Transaction,
         tx_pool: &TxPool,
     ) -> Result<ResolvedTransaction<'a>, UnresolvableError> {
-        let cell_provider = OverlayCellProvider::new(&tx_pool.staging, self);
+        let cell_provider = OverlayCellProvider::new(&tx_pool.proposed, self);
         let mut seen_inputs = FnvHashSet::default();
         resolve_transaction(tx, &mut seen_inputs, &cell_provider, self)
     }
@@ -307,14 +307,14 @@ impl<CS: ChainStore> ChainState<CS> {
     }
 
     // remove resolved tx from orphan pool
-    pub(crate) fn try_staging_orphan_by_ancestor(&self, tx_pool: &mut TxPool, tx: &Transaction) {
+    pub(crate) fn try_proposed_orphan_by_ancestor(&self, tx_pool: &mut TxPool, tx: &Transaction) {
         let entries = tx_pool.orphan.remove_by_ancestor(tx);
         for entry in entries {
             if self.contains_proposal_id(&tx.proposal_short_id()) {
                 let tx_hash = entry.transaction.hash().to_owned();
-                let ret = self.staging_tx(tx_pool, entry.cycles, entry.transaction);
+                let ret = self.proposed_tx(tx_pool, entry.cycles, entry.transaction);
                 if ret.is_err() {
-                    trace!(target: "tx_pool", "staging tx {:x} failed {:?}", tx_hash, ret);
+                    trace!(target: "tx_pool", "proposed tx {:x} failed {:?}", tx_hash, ret);
                 }
             } else {
                 tx_pool.enqueue_tx(entry.cycles, entry.transaction);
@@ -322,7 +322,7 @@ impl<CS: ChainStore> ChainState<CS> {
         }
     }
 
-    pub(crate) fn staging_tx(
+    pub(crate) fn proposed_tx(
         &self,
         tx_pool: &mut TxPool,
         cycles: Option<Cycle>,
@@ -331,14 +331,14 @@ impl<CS: ChainStore> ChainState<CS> {
         let short_id = tx.proposal_short_id();
         let tx_hash = tx.hash();
 
-        match self.resolve_tx_from_staging(&tx, tx_pool) {
+        match self.resolve_tx_from_proposed(&tx, tx_pool) {
             Ok(rtx) => match self.verify_rtx(&rtx, cycles) {
                 Ok(cycles) => {
-                    tx_pool.add_staging(cycles, tx);
+                    tx_pool.add_proposed(cycles, tx);
                     Ok(cycles)
                 }
                 Err(e) => {
-                    debug!(target: "tx_pool", "Failed to staging tx {:}, reason: {:?}", tx_hash, e);
+                    debug!(target: "tx_pool", "Failed to add proposed tx {:}, reason: {:?}", tx_hash, e);
                     Err(e)
                 }
             },
@@ -364,14 +364,14 @@ impl<CS: ChainStore> ChainState<CS> {
         }
     }
 
-    pub(crate) fn staging_tx_and_descendants(
+    pub(crate) fn proposed_tx_and_descendants(
         &self,
         tx_pool: &mut TxPool,
         cycles: Option<Cycle>,
         tx: Transaction,
     ) -> Result<Cycle, PoolError> {
-        self.staging_tx(tx_pool, cycles, tx.clone()).map(|cycles| {
-            self.try_staging_orphan_by_ancestor(tx_pool, &tx);
+        self.proposed_tx(tx_pool, cycles, tx.clone()).map(|cycles| {
+            self.try_proposed_orphan_by_ancestor(tx_pool, &tx);
             cycles
         })
     }
@@ -399,13 +399,14 @@ impl<CS: ChainStore> ChainState<CS> {
         let retain: Vec<Transaction> = detached.difference(&attached).cloned().collect();
 
         tx_pool.remove_expired(detached_proposal_id);
-        tx_pool.remove_committed_txs_from_staging(attached.iter());
+        tx_pool.remove_committed_txs_from_proposed(attached.iter());
 
         for tx in retain {
             let tx_hash = tx.hash().to_owned();
             let cached_cycles = txs_verify_cache.get(&tx_hash).cloned();
             if self.contains_proposal_id(&tx.proposal_short_id()) {
-                if let Ok(cycles) = self.staging_tx_and_descendants(&mut tx_pool, cached_cycles, tx)
+                if let Ok(cycles) =
+                    self.proposed_tx_and_descendants(&mut tx_pool, cached_cycles, tx)
                 {
                     if cached_cycles.is_none() {
                         txs_verify_cache.insert(tx_hash, cycles);
@@ -417,7 +418,7 @@ impl<CS: ChainStore> ChainState<CS> {
         }
 
         for tx in &attached {
-            self.try_staging_orphan_by_ancestor(&mut tx_pool, tx);
+            self.try_proposed_orphan_by_ancestor(&mut tx_pool, tx);
         }
 
         let mut entries = Vec::new();
@@ -436,9 +437,9 @@ impl<CS: ChainStore> ChainState<CS> {
         for entry in entries {
             let tx_hash = entry.transaction.hash().to_owned();
             if let Err(e) =
-                self.staging_tx_and_descendants(&mut tx_pool, entry.cycles, entry.transaction)
+                self.proposed_tx_and_descendants(&mut tx_pool, entry.cycles, entry.transaction)
             {
-                debug!(target: "tx_pool", "Failed to staging tx {:}, reason: {:?}", tx_hash, e);
+                debug!(target: "tx_pool", "Failed to add proposed tx {:}, reason: {:?}", tx_hash, e);
             }
         }
     }
@@ -452,15 +453,15 @@ impl<CS: ChainStore> ChainState<CS> {
         tx_pool.pending.fetch(proposals_limit)
     }
 
-    pub fn get_staging_txs(&self, txs_size_limit: usize, cycles_limit: Cycle) -> Vec<PoolEntry> {
+    pub fn get_proposed_txs(&self, txs_size_limit: usize, cycles_limit: Cycle) -> Vec<PoolEntry> {
         let mut size = 0;
         let mut cycles = 0;
         let tx_pool = self.tx_pool.borrow();
         tx_pool
-            .staging
+            .proposed
             .txs_iter()
             .take_while(|tx| {
-                cycles += tx.cycles.expect("staging tx have cycles");
+                cycles += tx.cycles.expect("proposed tx have cycles");
                 size += tx.transaction.serialized_size();
                 (size < txs_size_limit) && (cycles < cycles_limit)
             })

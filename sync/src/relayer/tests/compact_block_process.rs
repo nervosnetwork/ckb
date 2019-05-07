@@ -169,7 +169,7 @@ fn test_reconstruct_block() {
         );
     }
 
-    // Case: short transactions lie on pool but not staging, cannot be used to reconstruct block
+    // Case: short transactions lie on pool but not proposed, cannot be used to reconstruct block
     {
         let mut compact = CompactBlock {
             nonce: 3,
@@ -198,7 +198,7 @@ fn test_reconstruct_block() {
         compact.prefilled_transactions = prefilled;
 
         // Split first 2 short transactions and move into pool. These pool transactions are not
-        // staging, so it will not be acquired inside `reconstruct_block`
+        // proposed, so it will not be acquired inside `reconstruct_block`
         let (pool_transactions, short_transactions) = short_transactions.split_at(2);
         let short_transactions: Vec<Transaction> = short_transactions.to_vec();
         pool_transactions.iter().for_each(|tx| {

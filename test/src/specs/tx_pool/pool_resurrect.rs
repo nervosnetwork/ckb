@@ -56,9 +56,9 @@ impl Spec for PoolResurrect {
             .call()
             .expect("rpc call tx_pool_info failed");
         assert_eq!(tx_pool_info.pending, txs_hash.len() as u32);
-        assert_eq!(tx_pool_info.staging, 0);
+        assert_eq!(tx_pool_info.proposed, 0);
 
-        info!("Generate 2 blocks on node0, 6 txs should be added to staging pool");
+        info!("Generate 2 blocks on node0, 6 txs should be added to proposed pool");
         node0.generate_block();
         node0.generate_block();
         let tx_pool_info = node0
@@ -67,7 +67,7 @@ impl Spec for PoolResurrect {
             .call()
             .expect("rpc call tx_pool_info failed");
         assert_eq!(tx_pool_info.pending, 0);
-        assert_eq!(tx_pool_info.staging, txs_hash.len() as u32);
+        assert_eq!(tx_pool_info.proposed, txs_hash.len() as u32);
 
         info!("Generate 1 block on node0, 6 txs should be included in this block");
         node0.generate_block();
@@ -77,7 +77,7 @@ impl Spec for PoolResurrect {
             .call()
             .expect("rpc call tx_pool_info failed");
         assert_eq!(tx_pool_info.pending, 0);
-        assert_eq!(tx_pool_info.staging, 0);
+        assert_eq!(tx_pool_info.proposed, 0);
     }
 
     fn num_nodes(&self) -> usize {

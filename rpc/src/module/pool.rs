@@ -67,7 +67,7 @@ impl<CS: ChainStore + 'static> PoolRpc for PoolRpcImpl<CS> {
         let tx_pool = chain_state.tx_pool();
         Ok(TxPoolInfo {
             pending: tx_pool.pending_size(),
-            staging: tx_pool.staging_size(),
+            proposed: tx_pool.proposed_size(),
             orphan: tx_pool.orphan_size(),
             last_txs_updated_at: chain_state.get_last_txs_updated_at().to_string(),
         })

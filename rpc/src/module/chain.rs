@@ -81,7 +81,7 @@ impl<CS: ChainStore + 'static> ChainRpc for ChainRpcImpl<CS> {
 
             let tx_pool = chan_state.tx_pool();
             tx_pool
-                .get_tx_from_staging(&id)
+                .get_tx_from_proposed(&id)
                 .map(TransactionWithStatus::with_proposed)
                 .or_else(|| {
                     tx_pool

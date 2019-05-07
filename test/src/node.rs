@@ -157,18 +157,6 @@ impl Node {
             .expect("rpc call send_transaction failed")
     }
 
-    pub fn send_traced_transaction(&self) -> H256 {
-        let block = self.get_tip_block();
-        let cellbase: Transaction = block.transactions()[0]
-            .clone()
-            .try_into()
-            .expect("parse cellbase transaction failed");
-        let mut rpc = self.rpc_client();
-        rpc.trace_transaction((&self.new_transaction(cellbase.hash().to_owned())).into())
-            .call()
-            .expect("rpc call send_transaction failed")
-    }
-
     pub fn get_tip_block(&self) -> Block {
         let mut rpc = self.rpc_client();
         let tip_number = rpc

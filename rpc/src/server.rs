@@ -2,7 +2,7 @@ use crate::config::Config;
 use crate::module::{
     ChainRpc, ChainRpcImpl, ExperimentRpc, ExperimentRpcImpl, IntegrationTestRpc,
     IntegrationTestRpcImpl, MinerRpc, MinerRpcImpl, NetworkRpc, NetworkRpcImpl, PoolRpc,
-    PoolRpcImpl, StatsRpc, StatsRpcImpl, TraceRpc, TraceRpcImpl,
+    PoolRpcImpl, StatsRpc, StatsRpcImpl,
 };
 use ckb_chain::chain::ChainController;
 use ckb_miner::BlockAssemblerController;
@@ -74,16 +74,6 @@ impl RpcServer {
                 StatsRpcImpl {
                     shared: shared.clone(),
                     synchronizer: synchronizer.clone(),
-                }
-                .to_delegate(),
-            );
-        }
-
-        if config.trace_enable() {
-            io.extend_with(
-                TraceRpcImpl {
-                    network_controller: network_controller.clone(),
-                    shared: shared.clone(),
                 }
                 .to_delegate(),
             );
