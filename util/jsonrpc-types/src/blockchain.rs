@@ -645,7 +645,7 @@ impl TryFrom<BlockView> for CoreBlock {
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct EpochExt {
-    pub number: String,
+    pub number: EpochNumber,
     pub block_reward: String,
     pub last_block_hash_in_previous_epoch: H256,
     pub start_number: BlockNumber,

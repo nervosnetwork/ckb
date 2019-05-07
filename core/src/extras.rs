@@ -1,4 +1,4 @@
-use crate::{BlockNumber, Capacity};
+use crate::{BlockNumber, Capacity, EpochNumber};
 use failure::Error as FailureError;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
@@ -23,7 +23,7 @@ pub struct TransactionAddress {
 
 #[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Debug)]
 pub struct EpochExt {
-    pub(crate) number: u64,
+    pub(crate) number: EpochNumber,
     pub(crate) block_reward: Capacity,
     pub(crate) remainder_reward: Capacity,
     pub(crate) last_block_hash_in_previous_epoch: H256,
