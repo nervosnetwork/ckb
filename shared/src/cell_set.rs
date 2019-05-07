@@ -115,14 +115,6 @@ impl CellSet {
         }
     }
 
-    pub fn is_dead(&self, o: &OutPoint) -> Option<bool> {
-        o.cell.as_ref().and_then(|cell| {
-            self.inner
-                .get(&cell.tx_hash)
-                .map(|x| x.is_dead(cell.index as usize))
-        })
-    }
-
     pub fn get(&self, h: &H256) -> Option<&TransactionMeta> {
         self.inner.get(h)
     }

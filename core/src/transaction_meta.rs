@@ -6,11 +6,15 @@ use serde_derive::{Deserialize, Serialize};
 struct BitVecSerde {
     #[serde(getter = "BitVec::to_bytes")]
     bits: Vec<u8>,
+    #[serde(getter = "BitVec::len")]
+    len: usize,
 }
 
 impl From<BitVecSerde> for BitVec {
     fn from(bv: BitVecSerde) -> BitVec {
-        BitVec::from_bytes(&bv.bits)
+        let mut bit_vec = BitVec::from_bytes(&bv.bits);
+        bit_vec.truncate(bv.len);
+        bit_vec
     }
 }
 
@@ -63,8 +67,8 @@ impl TransactionMeta {
         self.dead_cell.all()
     }
 
-    pub fn is_dead(&self, index: usize) -> bool {
-        self.dead_cell.get(index + 1).unwrap_or(true)
+    pub fn is_dead(&self, index: usize) -> Option<bool> {
+        self.dead_cell.get(index + 1)
     }
 
     pub fn set_dead(&mut self, index: usize) {
@@ -90,9 +94,10 @@ mod tests {
         let decoded: TransactionMeta =
             bincode::deserialize(&(bincode::serialize(&original).unwrap())[..]).unwrap();
 
-        assert!(!decoded.is_dead(0));
-        assert!(decoded.is_dead(1));
-        assert!(!decoded.is_dead(2));
-        assert!(decoded.is_dead(3));
+        assert!(decoded.is_dead(0) == Some(false));
+        assert!(decoded.is_dead(1) == Some(true));
+        assert!(decoded.is_dead(2) == Some(false));
+        assert!(decoded.is_dead(3) == Some(true));
+        assert!(decoded.is_dead(4) == None);
     }
 }

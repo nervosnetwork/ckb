@@ -75,6 +75,13 @@ pub(crate) fn gen_block(
 }
 
 pub(crate) fn create_transaction(parent: &H256, unique_data: u8) -> Transaction {
+    create_transaction_with_out_point(OutPoint::new_cell(parent.to_owned(), 0), unique_data)
+}
+
+pub(crate) fn create_transaction_with_out_point(
+    out_point: OutPoint,
+    unique_data: u8,
+) -> Transaction {
     TransactionBuilder::default()
         .output(CellOutput::new(
             capacity_bytes!(5000),
@@ -82,10 +89,6 @@ pub(crate) fn create_transaction(parent: &H256, unique_data: u8) -> Transaction 
             Script::always_success(),
             None,
         ))
-        .input(CellInput::new(
-            OutPoint::new_cell(parent.to_owned(), 0),
-            0,
-            vec![],
-        ))
+        .input(CellInput::new(out_point, 0, vec![]))
         .build()
 }

@@ -182,10 +182,6 @@ impl<CS: ChainStore> ChainState<CS> {
         &self.script_config
     }
 
-    pub fn is_dead_cell(&self, o: &OutPoint) -> Option<bool> {
-        self.cell_set.is_dead(o)
-    }
-
     pub fn proposal_ids(&self) -> &TxProposalTable {
         &self.proposal_ids
     }
@@ -477,17 +473,17 @@ impl<CS: ChainStore> CellProvider for ChainState<CS> {
     fn cell(&self, out_point: &OutPoint) -> CellStatus {
         if let Some(cell_out_point) = &out_point.cell {
             match self.cell_set().get(&cell_out_point.tx_hash) {
-                Some(tx_meta) => {
-                    if tx_meta.is_dead(cell_out_point.index as usize) {
-                        CellStatus::Dead
-                    } else {
+                Some(tx_meta) => match tx_meta.is_dead(cell_out_point.index as usize) {
+                    Some(false) => {
                         let cell_meta = self
                             .store
                             .get_cell_meta(&cell_out_point.tx_hash, cell_out_point.index)
                             .expect("store should be consistent with cell_set");
                         CellStatus::live_cell(cell_meta)
                     }
-                }
+                    Some(true) => CellStatus::Dead,
+                    None => CellStatus::Unknown,
+                },
                 None => CellStatus::Unknown,
             }
         } else {
@@ -527,10 +523,8 @@ impl<'a, CS: ChainStore> CellProvider for ChainCellSetOverlay<'a, CS> {
     fn cell(&self, out_point: &OutPoint) -> CellStatus {
         if let Some(cell_out_point) = &out_point.cell {
             match self.overlay.get(&cell_out_point.tx_hash) {
-                Some(tx_meta) => {
-                    if tx_meta.is_dead(cell_out_point.index as usize) {
-                        CellStatus::Dead
-                    } else {
+                Some(tx_meta) => match tx_meta.is_dead(cell_out_point.index as usize) {
+                    Some(false) => {
                         let cell_meta = self
                             .outputs
                             .get(&cell_out_point.tx_hash)
@@ -553,7 +547,9 @@ impl<'a, CS: ChainStore> CellProvider for ChainCellSetOverlay<'a, CS> {
 
                         CellStatus::live_cell(cell_meta)
                     }
-                }
+                    Some(true) => CellStatus::Dead,
+                    None => CellStatus::Unknown,
+                },
                 None => CellStatus::Unknown,
             }
         } else {

@@ -161,7 +161,8 @@ impl<CS: ChainStore + 'static> ChainRpc for ChainRpcImpl<CS> {
                     .get(&transaction.hash())
                     .ok_or_else(Error::internal_error)?;
                 for (i, output) in transaction.outputs().iter().enumerate() {
-                    if output.lock.hash() == lock_hash && (!transaction_meta.is_dead(i)) {
+                    if output.lock.hash() == lock_hash && transaction_meta.is_dead(i) == Some(false)
+                    {
                         result.push(CellOutputWithOutPoint {
                             out_point: OutPoint {
                                 cell: Some(CellOutPoint {
