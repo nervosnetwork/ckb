@@ -504,7 +504,7 @@ mod tests {
     }
     impl HeaderMemoryDb {
         fn insert_header(&mut self, header: Header) {
-            self.headers.insert(header.hash(), header);
+            self.headers.insert(header.hash().clone(), header);
         }
     }
     impl HeaderProvider for HeaderMemoryDb {
@@ -519,7 +519,7 @@ mod tests {
                         self.tx_headers.get(o.cell.as_ref().unwrap()).map_or(
                             HeaderStatus::InclusionFaliure,
                             |h| {
-                                if *h == header.hash() {
+                                if h == header.hash() {
                                     HeaderStatus::live_header(header.clone())
                                 } else {
                                     HeaderStatus::InclusionFaliure
@@ -604,7 +604,7 @@ mod tests {
 
         header_provider.insert_header(header.clone());
 
-        let out_point = OutPoint::new_block_hash(header_hash);
+        let out_point = OutPoint::new_block_hash(header_hash.clone());
         let transaction = TransactionBuilder::default().dep(out_point).build();
 
         let mut seen_inputs = FnvHashSet::default();
@@ -630,7 +630,7 @@ mod tests {
 
         header_provider.insert_header(header.clone());
 
-        let out_point = OutPoint::new_block_hash(header_hash);
+        let out_point = OutPoint::new_block_hash(header_hash.clone());
         let transaction = TransactionBuilder::default()
             .input(CellInput::new(out_point, 0, vec![]))
             .build();
@@ -662,7 +662,7 @@ mod tests {
         header_provider.insert_header(header.clone());
         header_provider
             .tx_headers
-            .insert(out_point.cell.clone().unwrap(), header_hash);
+            .insert(out_point.cell.clone().unwrap(), header_hash.clone());
 
         let transaction = TransactionBuilder::default().dep(out_point).build();
 
@@ -723,7 +723,7 @@ mod tests {
         header_provider.insert_header(header.clone());
         header_provider
             .tx_headers
-            .insert(out_point.cell.clone().unwrap(), header_hash);
+            .insert(out_point.cell.clone().unwrap(), header_hash.clone());
 
         let transaction = TransactionBuilder::default()
             .dep(OutPoint::default())

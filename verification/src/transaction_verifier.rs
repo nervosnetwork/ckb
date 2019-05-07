@@ -240,7 +240,7 @@ impl<'a> CapacityVerifier<'a> {
                     let capacity = resolved_out_point
                         .cell()
                         .map(|cell_meta| cell_meta.capacity)
-                        .unwrap_or(Capacity::zero());
+                        .unwrap_or_else(Capacity::zero);
                     acc.safe_add(capacity)
                 },
             )?;
