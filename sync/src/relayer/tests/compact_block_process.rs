@@ -32,6 +32,7 @@ fn new_header_builder(
         .parent_hash(parent_hash)
         .number(parent.header().number() + 1)
         .timestamp(parent.header().timestamp() + 1)
+        .epoch(epoch.number())
         .difficulty(epoch.difficulty().to_owned())
 }
 
