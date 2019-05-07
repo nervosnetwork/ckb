@@ -62,9 +62,9 @@ listen_address = "0.0.0.0:8114" # {{
 # Default is 10MiB = 10 * 1024 * 1024
 max_request_body_size = 10485760
 
-# List of API modules: ["Net", "Pool", "Miner", "Chain", "Stats", "Trace"]
-modules = ["Net", "Pool", "Miner", "Chain", "Stats"] # {{
-# integration => modules = ["Net", "Pool", "Miner", "Chain", "Trace", "IntegrationTest"]
+# List of API modules: ["Net", "Pool", "Miner", "Chain", "Stats", "Experiment", "Trace"]
+modules = ["Net", "Pool", "Miner", "Chain", "Stats", "Experiment"] # {{
+# integration => modules = ["Net", "Pool", "Miner", "Chain", "Trace", "Experiment", "IntegrationTest"]
 # }}
 
 [sync]
