@@ -13,37 +13,37 @@ use std::sync::Arc;
 pub struct LoadCell<'a, CS> {
     store: Arc<CS>,
     outputs: &'a [CellMeta],
-    input_cells: &'a [&'a ResolvedOutPoint],
+    resolved_inputs: &'a [&'a ResolvedOutPoint],
     current: CurrentCell,
-    dep_cells: &'a [&'a ResolvedOutPoint],
+    resolved_deps: &'a [&'a ResolvedOutPoint],
 }
 
 impl<'a, CS: LazyLoadCellOutput + 'a> LoadCell<'a, CS> {
     pub fn new(
         store: Arc<CS>,
         outputs: &'a [CellMeta],
-        input_cells: &'a [&'a ResolvedOutPoint],
+        resolved_inputs: &'a [&'a ResolvedOutPoint],
         current: CurrentCell,
-        dep_cells: &'a [&'a ResolvedOutPoint],
+        resolved_deps: &'a [&'a ResolvedOutPoint],
     ) -> LoadCell<'a, CS> {
         LoadCell {
             store,
             outputs,
-            input_cells,
+            resolved_inputs,
             current,
-            dep_cells,
+            resolved_deps,
         }
     }
 
     fn fetch_cell(&self, source: Source, index: usize) -> Option<&'a CellMeta> {
         match source {
-            Source::Input => self.input_cells.get(index).and_then(|r| r.cell()),
+            Source::Input => self.resolved_inputs.get(index).and_then(|r| r.cell()),
             Source::Output => self.outputs.get(index),
             Source::Current => match self.current {
-                CurrentCell::Input(index) => self.input_cells.get(index).and_then(|r| r.cell()),
+                CurrentCell::Input(index) => self.resolved_inputs.get(index).and_then(|r| r.cell()),
                 CurrentCell::Output(index) => self.outputs.get(index),
             },
-            Source::Dep => self.dep_cells.get(index).and_then(|r| r.cell()),
+            Source::Dep => self.resolved_deps.get(index).and_then(|r| r.cell()),
         }
     }
 }

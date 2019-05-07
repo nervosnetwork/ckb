@@ -30,8 +30,8 @@ pub fn test_capacity_outofbound() {
 
     let rtx = ResolvedTransaction {
         transaction: &transaction,
-        dep_cells: Vec::new(),
-        input_cells: vec![ResolvedOutPoint::cell_only(CellMeta::from(
+        resolved_deps: Vec::new(),
+        resolved_inputs: vec![ResolvedOutPoint::cell_only(CellMeta::from(
             &CellOutput::new(capacity_bytes!(50), Bytes::new(), Script::default(), None),
         ))],
     };
@@ -56,8 +56,8 @@ pub fn test_cellbase_maturity() {
 
     let rtx = ResolvedTransaction {
         transaction: &transaction,
-        dep_cells: Vec::new(),
-        input_cells: vec![ResolvedOutPoint::cell_only(CellMeta {
+        resolved_deps: Vec::new(),
+        resolved_inputs: vec![ResolvedOutPoint::cell_only(CellMeta {
             block_number: Some(30),
             cellbase: true,
             ..CellMeta::from(&CellOutput::new(
@@ -105,8 +105,8 @@ pub fn test_capacity_invalid() {
 
     let rtx = ResolvedTransaction {
         transaction: &transaction,
-        dep_cells: Vec::new(),
-        input_cells: vec![
+        resolved_deps: Vec::new(),
+        resolved_inputs: vec![
             ResolvedOutPoint::cell_only(CellMeta::from(&CellOutput::new(
                 capacity_bytes!(49),
                 Bytes::default(),
@@ -175,8 +175,8 @@ pub fn test_since() {
 
     let rtx = ResolvedTransaction {
         transaction: &transaction,
-        dep_cells: Vec::new(),
-        input_cells: vec![ResolvedOutPoint::cell_only(CellMeta {
+        resolved_deps: Vec::new(),
+        resolved_inputs: vec![ResolvedOutPoint::cell_only(CellMeta {
             block_number: Some(1),
             ..CellMeta::from(&CellOutput::new(
                 capacity_bytes!(50),
@@ -207,8 +207,8 @@ pub fn test_since() {
 
     let rtx = ResolvedTransaction {
         transaction: &transaction,
-        dep_cells: Vec::new(),
-        input_cells: vec![ResolvedOutPoint::cell_only(CellMeta {
+        resolved_deps: Vec::new(),
+        resolved_inputs: vec![ResolvedOutPoint::cell_only(CellMeta {
             block_number: Some(1),
             ..CellMeta::from(&CellOutput::new(
                 capacity_bytes!(50),
@@ -239,8 +239,8 @@ pub fn test_since() {
 
     let rtx = ResolvedTransaction {
         transaction: &transaction,
-        dep_cells: Vec::new(),
-        input_cells: vec![ResolvedOutPoint::cell_only(CellMeta {
+        resolved_deps: Vec::new(),
+        resolved_inputs: vec![ResolvedOutPoint::cell_only(CellMeta {
             block_number: Some(1),
             ..CellMeta::from(&CellOutput::new(
                 capacity_bytes!(50),
@@ -279,8 +279,8 @@ pub fn test_since() {
 
     let rtx = ResolvedTransaction {
         transaction: &transaction,
-        dep_cells: Vec::new(),
-        input_cells: vec![ResolvedOutPoint::cell_only(CellMeta {
+        resolved_deps: Vec::new(),
+        resolved_inputs: vec![ResolvedOutPoint::cell_only(CellMeta {
             block_number: Some(1),
             ..CellMeta::from(&CellOutput::new(
                 capacity_bytes!(50),

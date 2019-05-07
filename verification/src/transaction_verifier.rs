@@ -177,14 +177,14 @@ impl<'a> MaturityVerifier<'a> {
 
         let input_immature_spend = || {
             self.transaction
-                .input_cells
+                .resolved_inputs
                 .iter()
                 .filter_map(ResolvedOutPoint::cell)
                 .any(cellbase_immature)
         };
         let dep_immature_spend = || {
             self.transaction
-                .dep_cells
+                .resolved_deps
                 .iter()
                 .filter_map(ResolvedOutPoint::cell)
                 .any(cellbase_immature)
@@ -234,7 +234,7 @@ impl<'a> CapacityVerifier<'a> {
         // skip OutputsSumOverflow verification for resolved cellbase
         // cellbase's outputs are verified by TransactionsVerifier#InvalidReward
         if !self.resolved_transaction.is_cellbase() {
-            let inputs_total = self.resolved_transaction.input_cells.iter().try_fold(
+            let inputs_total = self.resolved_transaction.resolved_inputs.iter().try_fold(
                 Capacity::zero(),
                 |acc, resolved_out_point| {
                     let capacity = resolved_out_point
@@ -339,7 +339,7 @@ where
         block_median_time_context: &'a M,
         tip_number: BlockNumber,
     ) -> Self {
-        let median_timestamps_cache = RefCell::new(LruCache::new(rtx.input_cells.len()));
+        let median_timestamps_cache = RefCell::new(LruCache::new(rtx.resolved_inputs.len()));
         ValidSinceVerifier {
             rtx,
             block_median_time_context,
@@ -416,7 +416,7 @@ where
     pub fn verify(&self) -> Result<(), TransactionError> {
         for (resolved_out_point, input) in self
             .rtx
-            .input_cells
+            .resolved_inputs
             .iter()
             .zip(self.rtx.transaction.inputs())
         {

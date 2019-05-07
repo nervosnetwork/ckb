@@ -156,8 +156,8 @@ impl ResolvedOutPoint {
 #[derive(Debug)]
 pub struct ResolvedTransaction<'a> {
     pub transaction: &'a Transaction,
-    pub dep_cells: Vec<ResolvedOutPoint>,
-    pub input_cells: Vec<ResolvedOutPoint>,
+    pub resolved_deps: Vec<ResolvedOutPoint>,
+    pub resolved_inputs: Vec<ResolvedOutPoint>,
 }
 
 pub trait CellProvider {
@@ -345,7 +345,7 @@ pub fn resolve_transaction<'a, CP: CellProvider, HP: HeaderProvider>(
     cell_provider: &CP,
     header_provider: &HP,
 ) -> Result<ResolvedTransaction<'a>, UnresolvableError> {
-    let (mut unknown_out_points, mut input_cells, mut dep_cells) = (
+    let (mut unknown_out_points, mut resolved_inputs, mut resolved_deps) = (
         Vec::new(),
         Vec::with_capacity(transaction.inputs().len()),
         Vec::with_capacity(transaction.deps().len()),
@@ -384,10 +384,10 @@ pub fn resolve_transaction<'a, CP: CellProvider, HP: HeaderProvider>(
                     return Err(UnresolvableError::InvalidHeader(out_point.clone()));
                 }
                 (CellStatus::Live(cell_meta), HeaderStatus::Live(header)) => {
-                    input_cells.push(ResolvedOutPoint::cell_and_header(*cell_meta, *header));
+                    resolved_inputs.push(ResolvedOutPoint::cell_and_header(*cell_meta, *header));
                 }
                 (CellStatus::Live(cell_meta), HeaderStatus::Unspecified) => {
-                    input_cells.push(ResolvedOutPoint::cell_only(*cell_meta));
+                    resolved_inputs.push(ResolvedOutPoint::cell_only(*cell_meta));
                 }
             }
         }
@@ -414,13 +414,13 @@ pub fn resolve_transaction<'a, CP: CellProvider, HP: HeaderProvider>(
                 return Err(UnresolvableError::InvalidHeader(out_point.clone()));
             }
             (CellStatus::Live(cell_meta), HeaderStatus::Live(header)) => {
-                dep_cells.push(ResolvedOutPoint::cell_and_header(*cell_meta, *header));
+                resolved_deps.push(ResolvedOutPoint::cell_and_header(*cell_meta, *header));
             }
             (CellStatus::Live(cell_meta), HeaderStatus::Unspecified) => {
-                dep_cells.push(ResolvedOutPoint::cell_only(*cell_meta));
+                resolved_deps.push(ResolvedOutPoint::cell_only(*cell_meta));
             }
             (CellStatus::Unspecified, HeaderStatus::Live(header)) => {
-                dep_cells.push(ResolvedOutPoint::header_only(*header));
+                resolved_deps.push(ResolvedOutPoint::header_only(*header));
             }
             (CellStatus::Unspecified, HeaderStatus::Unspecified) => {
                 return Err(UnresolvableError::Empty);
@@ -433,8 +433,8 @@ pub fn resolve_transaction<'a, CP: CellProvider, HP: HeaderProvider>(
     } else {
         Ok(ResolvedTransaction {
             transaction,
-            input_cells,
-            dep_cells,
+            resolved_inputs,
+            resolved_deps,
         })
     }
 }
@@ -442,7 +442,7 @@ pub fn resolve_transaction<'a, CP: CellProvider, HP: HeaderProvider>(
 impl<'a> ResolvedTransaction<'a> {
     // cellbase will be resolved with empty input cells, we can use low cost check here:
     pub fn is_cellbase(&self) -> bool {
-        self.input_cells.is_empty()
+        self.resolved_inputs.is_empty()
     }
 
     pub fn fee(&self) -> ::occupied_capacity::Result<Capacity> {
@@ -458,7 +458,7 @@ impl<'a> ResolvedTransaction<'a> {
     }
 
     pub fn inputs_capacity(&self) -> ::occupied_capacity::Result<Capacity> {
-        self.input_cells
+        self.resolved_inputs
             .iter()
             .map(|o| {
                 o.cell
@@ -616,8 +616,8 @@ mod tests {
         )
         .unwrap();
 
-        assert!(result.dep_cells[0].cell.is_none());
-        assert_eq!(result.dep_cells[0].header, Some(Box::new(header)));
+        assert!(result.resolved_deps[0].cell.is_none());
+        assert_eq!(result.resolved_deps[0].header, Some(Box::new(header)));
     }
 
     #[test]
@@ -675,8 +675,8 @@ mod tests {
         )
         .unwrap();
 
-        assert!(result.dep_cells[0].cell.is_some());
-        assert_eq!(result.dep_cells[0].header, Some(Box::new(header)));
+        assert!(result.resolved_deps[0].cell.is_some());
+        assert_eq!(result.resolved_deps[0].header, Some(Box::new(header)));
     }
 
     #[test]

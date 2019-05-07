@@ -26,8 +26,8 @@ pub const LOAD_TX_SYSCALL_NUMBER: u64 = 2049;
 pub const LOAD_CELL_SYSCALL_NUMBER: u64 = 2053;
 pub const LOAD_CELL_BY_FIELD_SYSCALL_NUMBER: u64 = 2054;
 pub const LOAD_INPUT_BY_FIELD_SYSCALL_NUMBER: u64 = 2055;
-pub const LOAD_TX_HASH_SYSCALL_NUMBER: u64 = 2057;
 pub const LOAD_HEADER_SYSCALL_NUMBER: u64 = 2056;
+pub const LOAD_TX_HASH_SYSCALL_NUMBER: u64 = 2057;
 pub const DEBUG_PRINT_SYSCALL_NUMBER: u64 = 2177;
 
 #[derive(Debug, PartialEq, Clone, Copy, Eq)]
@@ -284,14 +284,14 @@ mod tests {
         ));
         let store = Arc::new(new_memory_store());
         let outputs = vec![output];
-        let input_cells = vec![&input_cell];
-        let dep_cells = vec![];
+        let resolved_inputs = vec![&input_cell];
+        let resolved_deps = vec![];
         let mut load_cell = LoadCell::new(
             store,
             &outputs,
-            &input_cells,
+            &resolved_inputs,
             CurrentCell::Input(0),
-            &dep_cells,
+            &resolved_deps,
         );
 
         prop_assert!(load_cell.ecall(&mut machine).is_ok());
@@ -331,15 +331,15 @@ mod tests {
             None,
         ));
         let outputs = vec![output.clone()];
-        let input_cells = vec![&input_cell];
-        let dep_cells = vec![];
+        let resolved_inputs = vec![&input_cell];
+        let resolved_deps = vec![];
         let store = Arc::new(new_memory_store());
         let mut load_cell = LoadCell::new(
             store,
             &outputs,
-            &input_cells,
+            &resolved_inputs,
             CurrentCell::Input(0),
-            &dep_cells,
+            &resolved_deps,
         );
 
         let mut builder = FlatBufferBuilder::new();
@@ -437,15 +437,15 @@ mod tests {
             None,
         ));
         let outputs = vec![output];
-        let input_cells = vec![&input_cell];
-        let dep_cells = vec![];
+        let resolved_inputs = vec![&input_cell];
+        let resolved_deps = vec![];
         let store = Arc::new(new_memory_store());
         let mut load_cell = LoadCell::new(
             store,
             &outputs,
-            &input_cells,
+            &resolved_inputs,
             CurrentCell::Input(0),
-            &dep_cells,
+            &resolved_deps,
         );
 
         let mut builder = FlatBufferBuilder::new();
@@ -501,15 +501,15 @@ mod tests {
             None,
         ));
         let outputs = vec![output];
-        let input_cells = vec![&input_cell];
-        let dep_cells = vec![];
+        let resolved_inputs = vec![&input_cell];
+        let resolved_deps = vec![];
         let store = Arc::new(new_memory_store());
         let mut load_cell = LoadCell::new(
             store,
             &outputs,
-            &input_cells,
+            &resolved_inputs,
             CurrentCell::Input(0),
-            &dep_cells,
+            &resolved_deps,
         );
 
         let mut builder = FlatBufferBuilder::new();
@@ -563,15 +563,15 @@ mod tests {
             None,
         ));
         let outputs = vec![];
-        let input_cells = vec![&input_cell];
-        let dep_cells = vec![];
+        let resolved_inputs = vec![&input_cell];
+        let resolved_deps = vec![];
         let store = Arc::new(new_memory_store());
         let mut load_cell = LoadCell::new(
             store,
             &outputs,
-            &input_cells,
+            &resolved_inputs,
             CurrentCell::Input(0),
-            &dep_cells,
+            &resolved_deps,
         );
 
         let mut builder = FlatBufferBuilder::new();
@@ -632,15 +632,15 @@ mod tests {
             None,
         ));
         let outputs = vec![];
-        let input_cells = vec![&input_cell];
-        let dep_cells = vec![];
+        let resolved_inputs = vec![&input_cell];
+        let resolved_deps = vec![];
         let store = Arc::new(new_memory_store());
         let mut load_cell = LoadCellByField::new(
             store,
             &outputs,
-            &input_cells,
+            &resolved_inputs,
             CurrentCell::Input(0),
-            &dep_cells,
+            &resolved_deps,
         );
 
         prop_assert!(machine.memory_mut().store64(&size_addr, &16).is_ok());
@@ -689,15 +689,15 @@ mod tests {
             None,
         ));
         let outputs = vec![];
-        let input_cells = vec![&input_cell];
-        let dep_cells = vec![];
+        let resolved_inputs = vec![&input_cell];
+        let resolved_deps = vec![];
         let store = Arc::new(new_memory_store());
         let mut load_cell = LoadCellByField::new(
             store,
             &outputs,
-            &input_cells,
+            &resolved_inputs,
             CurrentCell::Input(0),
-            &dep_cells,
+            &resolved_deps,
         );
 
         prop_assert!(machine.memory_mut().store64(&size_addr, &64).is_ok());
@@ -755,15 +755,15 @@ mod tests {
             None,
         ));
         let outputs = vec![output_cell];
-        let input_cells = vec![];
-        let dep_cells = vec![];
+        let resolved_inputs = vec![];
+        let resolved_deps = vec![];
         let store = Arc::new(new_memory_store());
         let mut load_cell = LoadCellByField::new(
             store,
             &outputs,
-            &input_cells,
+            &resolved_inputs,
             CurrentCell::Output(0),
-            &dep_cells,
+            &resolved_deps,
         );
 
         assert!(machine.memory_mut().store64(&size_addr, &100).is_ok());
@@ -1003,15 +1003,15 @@ mod tests {
             None,
         ));
         let outputs = vec![];
-        let input_cells = vec![&input_cell];
-        let dep_cells = vec![&dep_cell];
+        let resolved_inputs = vec![&input_cell];
+        let resolved_deps = vec![&dep_cell];
         let store = Arc::new(new_memory_store());
         let mut load_cell = LoadCellByField::new(
             store,
             &outputs,
-            &input_cells,
+            &resolved_inputs,
             CurrentCell::Input(0),
-            &dep_cells,
+            &resolved_deps,
         );
 
         prop_assert!(machine
@@ -1066,15 +1066,15 @@ mod tests {
             None,
         ));
         let outputs = vec![];
-        let input_cells = vec![&input_cell];
-        let dep_cells = vec![&dep_cell];
+        let resolved_inputs = vec![&input_cell];
+        let resolved_deps = vec![&dep_cell];
         let store = Arc::new(new_memory_store());
         let mut load_cell = LoadCellByField::new(
             store,
             &outputs,
-            &input_cells,
+            &resolved_inputs,
             CurrentCell::Input(0),
-            &dep_cells,
+            &resolved_deps,
         );
 
         let data_hash = blake2b_256(&data);
@@ -1131,9 +1131,10 @@ mod tests {
         let header_correct_data = builder.finished_data();
 
         let dep_cell = ResolvedOutPoint::header_only(header);
-        let input_cells = vec![];
-        let dep_cells = vec![&dep_cell];
-        let mut load_cell = LoadHeader::new(&input_cells, CurrentCell::Input(0), &dep_cells);
+        let resolved_inputs = vec![];
+        let resolved_deps = vec![&dep_cell];
+        let mut load_cell =
+            LoadHeader::new(&resolved_inputs, CurrentCell::Input(0), &resolved_deps);
 
         prop_assert!(machine
             .memory_mut()

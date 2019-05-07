@@ -31,8 +31,8 @@ pub struct TransactionScriptsVerifier<'a, CS> {
     inputs: Vec<&'a CellInput>,
     outputs: Vec<CellMeta>,
     tx_builder: FlatBufferBuilder<'a>,
-    input_cells: Vec<&'a ResolvedOutPoint>,
-    dep_cells: Vec<&'a ResolvedOutPoint>,
+    resolved_inputs: Vec<&'a ResolvedOutPoint>,
+    resolved_deps: Vec<&'a ResolvedOutPoint>,
     witnesses: FnvHashMap<u32, &'a [Vec<u8>]>,
     hash: H256,
     vm: &'a Vm,
@@ -45,8 +45,8 @@ impl<'a, CS: LazyLoadCellOutput> TransactionScriptsVerifier<'a, CS> {
         vm: &'a Vm,
     ) -> TransactionScriptsVerifier<'a, CS> {
         let tx_hash = rtx.transaction.hash();
-        let dep_cells: Vec<&'a ResolvedOutPoint> = rtx.dep_cells.iter().collect();
-        let input_cells = rtx.input_cells.iter().collect();
+        let resolved_deps: Vec<&'a ResolvedOutPoint> = rtx.resolved_deps.iter().collect();
+        let resolved_inputs = rtx.resolved_inputs.iter().collect();
         let inputs = rtx.transaction.inputs().iter().collect();
         let outputs = rtx
             .transaction
@@ -75,7 +75,7 @@ impl<'a, CS: LazyLoadCellOutput> TransactionScriptsVerifier<'a, CS> {
             .map(|(idx, wit)| (idx as u32, &wit[..]))
             .collect();
 
-        let binary_index: FnvHashMap<H256, usize> = dep_cells
+        let binary_index: FnvHashMap<H256, usize> = resolved_deps
             .iter()
             .enumerate()
             .map(|(i, dep_cell)| {
@@ -105,8 +105,8 @@ impl<'a, CS: LazyLoadCellOutput> TransactionScriptsVerifier<'a, CS> {
             inputs,
             tx_builder,
             outputs,
-            input_cells,
-            dep_cells,
+            resolved_inputs,
+            resolved_deps,
             witnesses,
             vm,
             hash: tx_hash.to_owned(),
@@ -125,9 +125,9 @@ impl<'a, CS: LazyLoadCellOutput> TransactionScriptsVerifier<'a, CS> {
         LoadCell::new(
             Arc::clone(&self.store),
             &self.outputs,
-            &self.input_cells,
+            &self.resolved_inputs,
             current_cell,
-            &self.dep_cells,
+            &self.resolved_deps,
         )
     }
 
@@ -135,9 +135,9 @@ impl<'a, CS: LazyLoadCellOutput> TransactionScriptsVerifier<'a, CS> {
         LoadCellByField::new(
             Arc::clone(&self.store),
             &self.outputs,
-            &self.input_cells,
+            &self.resolved_inputs,
             current_cell,
-            &self.dep_cells,
+            &self.resolved_deps,
         )
     }
 
@@ -146,13 +146,13 @@ impl<'a, CS: LazyLoadCellOutput> TransactionScriptsVerifier<'a, CS> {
     }
 
     fn build_load_header(&'a self, current_cell: CurrentCell) -> LoadHeader<'a> {
-        LoadHeader::new(&self.input_cells, current_cell, &self.dep_cells)
+        LoadHeader::new(&self.resolved_inputs, current_cell, &self.resolved_deps)
     }
 
     // Extracts actual script binary either in dep cells.
     fn extract_script(&self, script: &'a Script) -> Result<Bytes, ScriptError> {
         match self.binary_index.get(&script.code_hash).and_then(|index| {
-            self.dep_cells[*index]
+            self.resolved_deps[*index]
                 .cell
                 .as_ref()
                 .map(|cell_meta| self.store.lazy_load_cell_output(&cell_meta))
@@ -209,7 +209,11 @@ impl<'a, CS: LazyLoadCellOutput> TransactionScriptsVerifier<'a, CS> {
 
     pub fn verify(&self, max_cycles: Cycle) -> Result<Cycle, ScriptError> {
         let mut cycles = 0;
-        for (i, (input, input_cell)) in self.inputs.iter().zip(self.input_cells.iter()).enumerate()
+        for (i, (input, input_cell)) in self
+            .inputs
+            .iter()
+            .zip(self.resolved_inputs.iter())
+            .enumerate()
         {
             let input_cell = match &input_cell.cell {
                 Some(cell) => cell,
@@ -360,8 +364,8 @@ mod tests {
 
         let rtx = ResolvedTransaction {
             transaction: &transaction,
-            dep_cells: vec![],
-            input_cells: vec![dummy_cell],
+            resolved_deps: vec![],
+            resolved_inputs: vec![dummy_cell],
         };
 
         let store = Arc::new(new_memory_store());
@@ -436,8 +440,8 @@ mod tests {
 
         let rtx = ResolvedTransaction {
             transaction: &transaction,
-            dep_cells: vec![dep_cell],
-            input_cells: vec![dummy_cell],
+            resolved_deps: vec![dep_cell],
+            resolved_inputs: vec![dummy_cell],
         };
         let store = Arc::new(new_memory_store());
 
@@ -511,8 +515,8 @@ mod tests {
 
         let rtx = ResolvedTransaction {
             transaction: &transaction,
-            dep_cells: vec![dep_cell],
-            input_cells: vec![dummy_cell],
+            resolved_deps: vec![dep_cell],
+            resolved_inputs: vec![dummy_cell],
         };
         let store = Arc::new(new_memory_store());
 
@@ -586,8 +590,8 @@ mod tests {
 
         let rtx = ResolvedTransaction {
             transaction: &transaction,
-            dep_cells: vec![dep_cell],
-            input_cells: vec![dummy_cell],
+            resolved_deps: vec![dep_cell],
+            resolved_inputs: vec![dummy_cell],
         };
 
         let store = Arc::new(new_memory_store());
@@ -663,8 +667,8 @@ mod tests {
 
         let rtx = ResolvedTransaction {
             transaction: &transaction,
-            dep_cells: vec![dep_cell],
-            input_cells: vec![dummy_cell],
+            resolved_deps: vec![dep_cell],
+            resolved_inputs: vec![dummy_cell],
         };
 
         let store = Arc::new(new_memory_store());
@@ -723,8 +727,8 @@ mod tests {
 
         let rtx = ResolvedTransaction {
             transaction: &transaction,
-            dep_cells: vec![],
-            input_cells: vec![dummy_cell],
+            resolved_deps: vec![],
+            resolved_inputs: vec![dummy_cell],
         };
 
         let store = Arc::new(new_memory_store());
@@ -809,8 +813,8 @@ mod tests {
 
         let rtx = ResolvedTransaction {
             transaction: &transaction,
-            dep_cells: vec![dep_cell],
-            input_cells: vec![dummy_cell],
+            resolved_deps: vec![dep_cell],
+            resolved_inputs: vec![dummy_cell],
         };
 
         let store = Arc::new(new_memory_store());
@@ -895,8 +899,8 @@ mod tests {
 
         let rtx = ResolvedTransaction {
             transaction: &transaction,
-            dep_cells: vec![dep_cell],
-            input_cells: vec![dummy_cell],
+            resolved_deps: vec![dep_cell],
+            resolved_inputs: vec![dummy_cell],
         };
 
         let store = Arc::new(new_memory_store());

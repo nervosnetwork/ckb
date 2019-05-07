@@ -12,33 +12,35 @@ use std::cmp;
 
 #[derive(Debug)]
 pub struct LoadHeader<'a> {
-    input_cells: &'a [&'a ResolvedOutPoint],
+    resolved_inputs: &'a [&'a ResolvedOutPoint],
     current: CurrentCell,
-    dep_cells: &'a [&'a ResolvedOutPoint],
+    resolved_deps: &'a [&'a ResolvedOutPoint],
 }
 
 impl<'a> LoadHeader<'a> {
     pub fn new(
-        input_cells: &'a [&'a ResolvedOutPoint],
+        resolved_inputs: &'a [&'a ResolvedOutPoint],
         current: CurrentCell,
-        dep_cells: &'a [&'a ResolvedOutPoint],
+        resolved_deps: &'a [&'a ResolvedOutPoint],
     ) -> LoadHeader<'a> {
         LoadHeader {
-            input_cells,
+            resolved_inputs,
             current,
-            dep_cells,
+            resolved_deps,
         }
     }
 
     fn fetch_header(&self, source: Source, index: usize) -> Option<&Header> {
         match source {
-            Source::Input => self.input_cells.get(index).and_then(|r| r.header()),
+            Source::Input => self.resolved_inputs.get(index).and_then(|r| r.header()),
             Source::Output => None,
             Source::Current => match self.current {
-                CurrentCell::Input(index) => self.input_cells.get(index).and_then(|r| r.header()),
+                CurrentCell::Input(index) => {
+                    self.resolved_inputs.get(index).and_then(|r| r.header())
+                }
                 CurrentCell::Output(_) => None,
             },
-            Source::Dep => self.dep_cells.get(index).and_then(|r| r.header()),
+            Source::Dep => self.resolved_deps.get(index).and_then(|r| r.header()),
         }
     }
 }
