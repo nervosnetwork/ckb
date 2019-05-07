@@ -8,13 +8,27 @@ RUN_TEST=false
 # Run integration only in master, develop and rc branches
 RUN_INTEGRATION=false
 if [ "$TRAVIS_PULL_REQUEST" != false ]; then
-  RUN_TEST=true
+  LAST_COMMIT_MSG="$(git log --max-count 1 --skip 1 --format="%s")"
+  echo "Last commit message is \"${LAST_COMMIT_MSG}\""
+  if [[ "${LAST_COMMIT_MSG}" =~ ^[a-z]+:\ \[skip\ tests\]\  ]]; then
+      :
+  elif [[ "${LAST_COMMIT_MSG}" =~ ^[a-z]+:\ \[only\ integration\]\  ]]; then
+    RUN_INTEGRATION=true
+  elif [[ "${LAST_COMMIT_MSG}" =~ ^[a-z]+:\ \[all\ tests\]\  ]]; then
+    RUN_TEST=true
+    RUN_INTEGRATION=true
+  else
+    RUN_TEST=true
+  fi
 else
   RUN_INTEGRATION=true
   if [ "$TRAVIS_BRANCH" = master ]; then
     RUN_TEST=true
   fi
 fi
+
+echo "\${RUN_TEST} = ${RUN_TEST}"
+echo "\${RUN_INTEGRATION} = ${RUN_INTEGRATION}"
 
 if [ "$RUN_TEST" = true ]; then
   if [ "$FMT" = true ]; then
