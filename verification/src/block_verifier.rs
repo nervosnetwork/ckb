@@ -1,6 +1,6 @@
 use crate::error::{CellbaseError, CommitError, Error, UnclesError};
 use crate::header_verifier::HeaderResolver;
-use crate::{TransactionVerifier, Verifier};
+use crate::{ContextualTransactionVerifier, TransactionVerifier, Verifier};
 use ckb_core::cell::ResolvedTransaction;
 use ckb_core::extras::EpochExt;
 use ckb_core::header::Header;
@@ -12,6 +12,8 @@ use ckb_store::ChainStore;
 use ckb_traits::{BlockMedianTimeContext, ChainProvider};
 use fnv::FnvHashSet;
 use log::error;
+use lru_cache::LruCache;
+use numext_fixed_hash::H256;
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -364,6 +366,7 @@ impl<'a> TransactionsVerifier<'a> {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn verify<M, CS: ChainStore>(
         &self,
         resolved: &[ResolvedTransaction],
@@ -372,6 +375,7 @@ impl<'a> TransactionsVerifier<'a> {
         block_median_time_context: M,
         tip_number: BlockNumber,
         cellbase_maturity: BlockNumber,
+        txs_verify_cache: &mut LruCache<H256, Cycle>,
     ) -> Result<(), Error>
     where
         M: BlockMedianTimeContext + Sync,
@@ -390,25 +394,42 @@ impl<'a> TransactionsVerifier<'a> {
         }
 
         // make verifiers orthogonal
-        let cycles_set = resolved
+        let ret_set = resolved
             .par_iter()
             .enumerate()
             .map(|(index, tx)| {
-                TransactionVerifier::new(
-                    &tx,
-                    Arc::clone(&store),
-                    &block_median_time_context,
-                    tip_number,
-                    cellbase_maturity,
-                    &self.script_config,
-                )
-                .verify(self.max_cycles)
-                .map_err(|e| Error::Transactions((index, e)))
-                .map(|cycles| cycles)
+                let tx_hash = tx.transaction.hash().to_owned();
+                if let Some(cycles) = txs_verify_cache.get(&tx_hash) {
+                    ContextualTransactionVerifier::new(
+                        &tx,
+                        &block_median_time_context,
+                        tip_number,
+                        cellbase_maturity,
+                    )
+                    .verify()
+                    .map_err(|e| Error::Transactions((index, e)))
+                    .map(|_| (tx_hash, *cycles))
+                } else {
+                    TransactionVerifier::new(
+                        &tx,
+                        Arc::clone(&store),
+                        &block_median_time_context,
+                        tip_number,
+                        cellbase_maturity,
+                        &self.script_config,
+                    )
+                    .verify(self.max_cycles)
+                    .map_err(|e| Error::Transactions((index, e)))
+                    .map(|cycles| (tx_hash, cycles))
+                }
             })
             .collect::<Result<Vec<_>, _>>()?;
 
-        let sum: Cycle = cycles_set.iter().sum();
+        let sum: Cycle = ret_set.iter().map(|(_, cycles)| cycles).sum();
+
+        for (hash, cycles) in ret_set {
+            txs_verify_cache.insert(hash, cycles);
+        }
 
         if sum > self.max_cycles {
             Err(Error::ExceededMaximumCycles)

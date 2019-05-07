@@ -37,14 +37,19 @@ impl<'a, CS: ChainStore> BlockProposalProcess<'a, CS> {
         if unknown_txs.is_empty() {
             return Ok(());
         }
+
         let chain_state = self.relayer.shared.chain_state().lock();
+        let mut txs_verify_cache = self.relayer.shared.txs_verify_cache().lock();
         let mut inflight = self.relayer.state.inflight_proposals.lock();
         for (tx_hash, tx) in unknown_txs {
             if inflight.remove(&ProposalShortId::from_tx_hash(&tx_hash)) {
-                self.relayer.state.insert_tx(tx_hash);
-                let ret = chain_state.add_tx_to_pool(tx);
-                if ret.is_err() {
-                    warn!(target: "relay", "BlockProposal add_tx_to_pool error {:?}", ret)
+                self.relayer.state.insert_tx(tx_hash.to_owned());
+                let ret = chain_state.add_tx_to_pool(tx, txs_verify_cache.get(&tx_hash).cloned());
+
+                if let Ok(cycles) = ret {
+                    txs_verify_cache.insert(tx_hash, cycles);
+                } else {
+                    warn!(target: "relay", "BlockProposal add_tx_to_pool error {:?}", ret);
                 }
             }
         }

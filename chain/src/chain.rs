@@ -7,7 +7,7 @@ use ckb_core::cell::{
 use ckb_core::extras::BlockExt;
 use ckb_core::service::{Request, DEFAULT_CHANNEL_SIZE, SIGNAL_CHANNEL_SIZE};
 use ckb_core::transaction::{CellOutput, ProposalShortId};
-use ckb_core::{header::Header, BlockNumber};
+use ckb_core::{header::Header, BlockNumber, Cycle};
 use ckb_notify::NotifyController;
 use ckb_shared::cell_set::CellSetDiff;
 use ckb_shared::chain_state::ChainState;
@@ -21,13 +21,12 @@ use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
 use fnv::{FnvHashMap, FnvHashSet};
 use log::{self, debug, error, info, log_enabled, warn};
+use lru_cache::LruCache;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 use serde_derive::{Deserialize, Serialize};
-use std::cmp;
-use std::mem;
 use std::sync::Arc;
-use std::thread;
+use std::{cmp, mem, thread};
 use stop_handler::{SignalSender, StopHandler};
 
 #[derive(Clone)]
@@ -222,6 +221,7 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
         let mut cell_set_diff = CellSetDiff::default();
         let mut fork = ForkChanges::default();
         let mut chain_state = self.shared.chain_state().lock();
+        let mut txs_verify_cache = self.shared.txs_verify_cache().lock();
         let tip_number = chain_state.tip_number();
         let tip_hash = chain_state.tip_hash();
         let parent_ext = self
@@ -289,7 +289,12 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
             self.find_fork(&mut fork, tip_number, &block, ext);
             self.update_index(&mut batch, &fork.detached_blocks, &fork.attached_blocks)?;
             // MUST update index before reconcile_main_chain
-            cell_set_diff = self.reconcile_main_chain(&mut batch, &mut fork, &mut chain_state)?;
+            cell_set_diff = self.reconcile_main_chain(
+                &mut batch,
+                &mut fork,
+                &mut chain_state,
+                &mut txs_verify_cache,
+            )?;
             self.update_proposal_ids(&mut chain_state, &fork);
             batch.insert_tip_header(&block.header())?;
             if new_epoch || fork.has_detached() {
@@ -326,6 +331,7 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
                 fork.detached_blocks().iter(),
                 fork.attached_blocks().iter(),
                 fork.detached_proposal_id().iter(),
+                &mut txs_verify_cache,
             );
             if log_enabled!(target: "chain", log::Level::Debug) {
                 self.print_chain(&chain_state, 10);
@@ -483,6 +489,7 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
         batch: &mut StoreBatch,
         fork: &mut ForkChanges,
         chain_state: &mut ChainState<CS>,
+        txs_verify_cache: &mut LruCache<H256, Cycle>,
     ) -> Result<CellSetDiff, FailureError> {
         let mut cell_set_diff = CellSetDiff::default();
         let mut outputs: FnvHashMap<H256, &[CellOutput]> = FnvHashMap::default();
@@ -573,6 +580,7 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
                                 },
                                 b.header().number(),
                                 cellbase_maturity,
+                                txs_verify_cache,
                             ) {
                                 Ok(_) => {
                                     cell_set_diff.push_new(b);

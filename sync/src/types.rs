@@ -5,6 +5,7 @@ use ckb_core::block::Block;
 use ckb_core::extras::BlockExt;
 use ckb_core::extras::EpochExt;
 use ckb_core::header::{BlockNumber, Header};
+use ckb_core::Cycle;
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::SyncMessage;
 use ckb_shared::chain_state::ChainState;
@@ -407,6 +408,9 @@ impl<CS: ChainStore> SyncSharedState<CS> {
     }
     pub fn chain_state(&self) -> &Mutex<ChainState<CS>> {
         self.shared.chain_state()
+    }
+    pub fn txs_verify_cache(&self) -> &Mutex<LruCache<H256, Cycle>> {
+        self.shared.txs_verify_cache()
     }
     pub fn block_header(&self, hash: &H256) -> Option<Header> {
         self.shared.block_header(hash)

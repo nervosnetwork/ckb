@@ -203,7 +203,7 @@ fn test_reconstruct_block() {
         pool_transactions.iter().for_each(|tx| {
             // `tx` is added into pool but not be staging, since `tx` has not been proposal yet
             chain_state
-                .add_tx_to_pool(tx.clone())
+                .add_tx_to_pool(tx.clone(), None)
                 .expect("adding transaction into pool");
         });
 

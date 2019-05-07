@@ -7,18 +7,23 @@ use ckb_core::extras::{BlockExt, EpochExt};
 use ckb_core::header::{BlockNumber, Header};
 use ckb_core::transaction::{ProposalShortId, Transaction};
 use ckb_core::uncle::UncleBlock;
+use ckb_core::Cycle;
 use ckb_db::{CacheDB, DBConfig, KeyValueDB, MemoryKeyValueDB, RocksDB};
 use ckb_script::ScriptConfig;
 use ckb_store::{ChainKVStore, ChainStore, COLUMNS, COLUMN_BLOCK_HEADER};
 use ckb_traits::ChainProvider;
 use ckb_util::Mutex;
+use lru_cache::LruCache;
 use numext_fixed_hash::H256;
 use std::sync::Arc;
+
+const TXS_VERIFY_CACHE_SIZE: usize = 10_000;
 
 #[derive(Debug)]
 pub struct Shared<CS> {
     store: Arc<CS>,
     chain_state: Arc<Mutex<ChainState<CS>>>,
+    txs_verify_cache: Arc<Mutex<LruCache<H256, Cycle>>>,
     consensus: Arc<Consensus>,
     script_config: ScriptConfig,
 }
@@ -31,6 +36,7 @@ impl<CS: ChainStore> ::std::clone::Clone for Shared<CS> {
             chain_state: Arc::clone(&self.chain_state),
             consensus: Arc::clone(&self.consensus),
             script_config: self.script_config.clone(),
+            txs_verify_cache: Arc::clone(&self.txs_verify_cache),
         }
     }
 }
@@ -44,6 +50,7 @@ impl<CS: ChainStore> Shared<CS> {
     ) -> Result<Self, SharedError> {
         let store = Arc::new(store);
         let consensus = Arc::new(consensus);
+        let txs_verify_cache = Arc::new(Mutex::new(LruCache::new(TXS_VERIFY_CACHE_SIZE)));
         let chain_state = Arc::new(Mutex::new(ChainState::init(
             &store,
             Arc::clone(&consensus),
@@ -56,6 +63,7 @@ impl<CS: ChainStore> Shared<CS> {
             chain_state,
             consensus,
             script_config,
+            txs_verify_cache,
         })
     }
 
@@ -65,6 +73,10 @@ impl<CS: ChainStore> Shared<CS> {
 
     pub fn script_config(&self) -> &ScriptConfig {
         &self.script_config
+    }
+
+    pub fn txs_verify_cache(&self) -> &Mutex<LruCache<H256, Cycle>> {
+        &self.txs_verify_cache
     }
 
     pub fn store(&self) -> &Arc<CS> {

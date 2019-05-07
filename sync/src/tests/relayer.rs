@@ -67,7 +67,7 @@ fn relay_compact_block_with_one_tx() {
             {
                 let chain_state = shared1.chain_state().lock();
                 let _cycles = chain_state
-                    .add_tx_to_pool(tx.clone())
+                    .add_tx_to_pool(tx.clone(), None)
                     .expect("verify relay tx");
                 let fbb = &mut FlatBufferBuilder::new();
                 let message = RelayMessage::build_transaction_hash(fbb, &tx.hash());
@@ -232,7 +232,7 @@ fn relay_compact_block_with_missing_indexs() {
                 let _cycles = {
                     let chain_state = shared1.chain_state().lock();
                     chain_state
-                        .add_tx_to_pool(tx.clone())
+                        .add_tx_to_pool(tx.clone(), None)
                         .expect("verify relay tx")
                 };
                 let fbb = &mut FlatBufferBuilder::new();
