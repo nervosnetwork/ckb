@@ -51,9 +51,28 @@ fn build_input<'b>(
     fbb: &mut FlatBufferBuilder<'b>,
     input: &CellInput,
 ) -> WIPOffset<FbsCellInput<'b>> {
-    let tx_hash = (&input.previous_output.tx_hash).into();
+    let tx_hash = input
+        .previous_output
+        .cell
+        .clone()
+        .map(|cell| (&cell.tx_hash).into());
+    let tx_index = input.previous_output.cell.as_ref().map(|cell| cell.index);
+    let block_hash = input
+        .previous_output
+        .block_hash
+        .clone()
+        .map(|hash| (&hash).into());
+
     let mut builder = CellInputBuilder::new(fbb);
-    builder.add_tx_hash(&tx_hash);
-    builder.add_index(input.previous_output.index);
+    if let Some(ref hash) = tx_hash {
+        builder.add_tx_hash(hash);
+    }
+    if let Some(index) = tx_index {
+        builder.add_index(index);
+    }
+    if let Some(ref hash) = block_hash {
+        builder.add_block_hash(hash);
+    }
+    builder.add_since(input.since);
     builder.finish()
 }

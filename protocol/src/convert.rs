@@ -253,11 +253,18 @@ impl<'a> TryFrom<ckb_protocol::OutPoint<'a>> for ckb_core::transaction::OutPoint
     type Error = FailureError;
 
     fn try_from(out_point: ckb_protocol::OutPoint<'a>) -> Result<Self, Self::Error> {
-        let tx_hash = cast!(out_point.tx_hash())?;
-        Ok(ckb_core::transaction::OutPoint {
-            tx_hash: TryInto::try_into(tx_hash)?,
-            index: out_point.index(),
-        })
+        let cell = match out_point.tx_hash() {
+            Some(tx_hash) => Some(ckb_core::transaction::CellOutPoint {
+                tx_hash: TryInto::try_into(tx_hash)?,
+                index: out_point.index(),
+            }),
+            _ => None,
+        };
+        let block_hash = match out_point.block_hash() {
+            Some(block_hash) => Some(TryInto::try_into(block_hash)?),
+            None => None,
+        };
+        Ok(ckb_core::transaction::OutPoint { block_hash, cell })
     }
 }
 
@@ -288,16 +295,25 @@ impl<'a> TryFrom<ckb_protocol::CellInput<'a>> for ckb_core::transaction::CellInp
     type Error = FailureError;
 
     fn try_from(cell_input: ckb_protocol::CellInput<'a>) -> Result<Self, Self::Error> {
-        let tx_hash = cast!(cell_input.tx_hash())?;
+        let cell = match cell_input.tx_hash() {
+            Some(tx_hash) => Some(ckb_core::transaction::CellOutPoint {
+                tx_hash: TryInto::try_into(tx_hash)?,
+                index: cell_input.index(),
+            }),
+            _ => None,
+        };
+        let block_hash = match cell_input.block_hash() {
+            Some(block_hash) => Some(TryInto::try_into(block_hash)?),
+            None => None,
+        };
+        let previous_output = ckb_core::transaction::OutPoint { block_hash, cell };
+
         let args: Option<Vec<Vec<u8>>> = FlatbuffersVectorIterator::new(cast!(cell_input.args())?)
             .map(|argument| argument.seq().map(|s| s.to_vec()))
             .collect();
 
         Ok(ckb_core::transaction::CellInput {
-            previous_output: ckb_core::transaction::OutPoint {
-                tx_hash: TryInto::try_into(tx_hash)?,
-                index: cell_input.index(),
-            },
+            previous_output,
             since: cell_input.since(),
             args: cast!(args)?
                 .into_iter()

@@ -18,34 +18,73 @@ use std::ops::{Deref, DerefMut};
 pub const TX_VERSION: Version = 0;
 
 #[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Hash, HasOccupiedCapacity)]
-pub struct OutPoint {
+pub struct CellOutPoint {
     // Hash of Transaction
     pub tx_hash: H256,
     // Index of output
     pub index: u32,
 }
 
-impl fmt::Debug for OutPoint {
+impl fmt::Debug for CellOutPoint {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.debug_struct("OutPoint")
+        f.debug_struct("CellOutPoint")
             .field("tx_hash", &format_args!("{:#x}", self.tx_hash))
             .field("index", &self.index)
             .finish()
     }
 }
 
-impl Default for OutPoint {
+impl Default for CellOutPoint {
     fn default() -> Self {
-        OutPoint {
+        CellOutPoint {
             tx_hash: H256::zero(),
             index: u32::max_value(),
         }
     }
 }
 
+impl CellOutPoint {
+    pub fn destruct(self) -> (H256, u32) {
+        let CellOutPoint { tx_hash, index } = self;
+        (tx_hash, index)
+    }
+}
+
+#[derive(Clone, Default, Serialize, Deserialize, Eq, PartialEq, Hash, HasOccupiedCapacity)]
+pub struct OutPoint {
+    pub cell: Option<CellOutPoint>,
+    pub block_hash: Option<H256>,
+}
+
+impl fmt::Debug for OutPoint {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("OutPoint")
+            .field("cell", &self.cell)
+            .field("block_hash", &self.block_hash)
+            .finish()
+    }
+}
+
 impl OutPoint {
-    pub fn new(tx_hash: H256, index: u32) -> Self {
-        OutPoint { tx_hash, index }
+    pub fn new(block_hash: H256, tx_hash: H256, index: u32) -> Self {
+        OutPoint {
+            block_hash: Some(block_hash),
+            cell: Some(CellOutPoint { tx_hash, index }),
+        }
+    }
+
+    pub fn new_cell(tx_hash: H256, index: u32) -> Self {
+        OutPoint {
+            block_hash: None,
+            cell: Some(CellOutPoint { tx_hash, index }),
+        }
+    }
+
+    pub fn new_block_hash(block_hash: H256) -> Self {
+        OutPoint {
+            block_hash: Some(block_hash),
+            cell: None,
+        }
     }
 
     pub fn null() -> Self {
@@ -53,16 +92,16 @@ impl OutPoint {
     }
 
     pub fn is_null(&self) -> bool {
-        self.tx_hash.is_zero() && self.index == u32::max_value()
+        self.cell.is_none() && self.block_hash.is_none()
     }
 
     pub const fn serialized_size() -> usize {
         H256::size_of() + mem::size_of::<u32>()
     }
 
-    pub fn destruct(self) -> (H256, u32) {
-        let OutPoint { tx_hash, index } = self;
-        (tx_hash, index)
+    pub fn destruct(self) -> (Option<H256>, Option<CellOutPoint>) {
+        let OutPoint { block_hash, cell } = self;
+        (block_hash, cell)
     }
 }
 
@@ -394,7 +433,7 @@ impl Transaction {
     pub fn output_pts(&self) -> Vec<OutPoint> {
         let h = self.hash();
         (0..self.outputs.len())
-            .map(|x| OutPoint::new(h.clone(), x as u32))
+            .map(|x| OutPoint::new_cell(h.clone(), x as u32))
             .collect()
     }
 
@@ -655,17 +694,21 @@ mod test {
                 Script::default(),
                 None,
             ))
-            .input(CellInput::new(OutPoint::new(H256::zero(), 0), 0, vec![]))
+            .input(CellInput::new(
+                OutPoint::new_cell(H256::zero(), 0),
+                0,
+                vec![],
+            ))
             .witness(vec![vec![7, 8, 9]])
             .build();
 
         assert_eq!(
             format!("{:x}", tx.hash()),
-            "a2cfcbc6b5f4d153ea90b6e203b14f7ab1ead6eab61450f88203e414a7e68c2c"
+            "d5af472fc9cae95c8c3fe440ad72b83ea3e1b1f150aaf5dd19742c0acebace89"
         );
         assert_eq!(
             format!("{:x}", tx.witness_hash()),
-            "4bb6ed9e544f5609749cfaa91f315adc7facecbe18b0d507330ed070fb2a4247"
+            "01da42e3575e48f2f40b63b598bd97ffcb3d089049308a676cad2cb791422f2c"
         );
     }
 }

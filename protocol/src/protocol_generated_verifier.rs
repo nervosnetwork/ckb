@@ -565,6 +565,15 @@ pub mod ckb {
                     }
                 }
 
+                if Self::VT_BLOCK_HASH as usize + flatbuffers::SIZE_VOFFSET
+                    <= vtab_num_bytes
+                {
+                    let voffset = vtab.get(Self::VT_BLOCK_HASH) as usize;
+                    if voffset > 0 && object_inline_num_bytes - voffset < 32 {
+                        return Err(Error::OutOfBounds);
+                    }
+                }
+
                 if Self::VT_TX_HASH as usize + flatbuffers::SIZE_VOFFSET
                     <= vtab_num_bytes
                 {
@@ -2059,6 +2068,15 @@ pub mod ckb {
                     if (voffset > 0 && voffset < flatbuffers::SIZE_SOFFSET)
                         || voffset >= object_inline_num_bytes
                     {
+                        return Err(Error::OutOfBounds);
+                    }
+                }
+
+                if Self::VT_BLOCK_HASH as usize + flatbuffers::SIZE_VOFFSET
+                    <= vtab_num_bytes
+                {
+                    let voffset = vtab.get(Self::VT_BLOCK_HASH) as usize;
+                    if voffset > 0 && object_inline_num_bytes - voffset < 32 {
                         return Err(Error::OutOfBounds);
                     }
                 }

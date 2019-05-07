@@ -52,7 +52,7 @@ fn relay_compact_block_with_one_tx() {
             // building tx and broadcast it
             let tx = TransactionBuilder::default()
                 .input(CellInput::new(
-                    OutPoint::new(last_cellbase.hash().to_owned(), 0),
+                    OutPoint::new_cell(last_cellbase.hash().to_owned(), 0),
                     0,
                     vec![],
                 ))
@@ -213,7 +213,7 @@ fn relay_compact_block_with_missing_indexs() {
                 .map(|i| {
                     TransactionBuilder::default()
                         .input(CellInput::new(
-                            OutPoint::new(last_cellbase.hash().to_owned(), u32::from(i)),
+                            OutPoint::new_cell(last_cellbase.hash().to_owned(), u32::from(i)),
                             0,
                             vec![],
                         ))

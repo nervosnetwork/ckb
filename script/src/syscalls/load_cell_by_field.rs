@@ -3,7 +3,7 @@ use crate::syscalls::{
     utils::store_data, CellField, Source, ITEM_MISSING, LOAD_CELL_BY_FIELD_SYSCALL_NUMBER, SUCCESS,
 };
 use byteorder::{LittleEndian, WriteBytesExt};
-use ckb_core::cell::CellMeta;
+use ckb_core::cell::{CellMeta, ResolvedOutPoint};
 use ckb_protocol::Script as FbsScript;
 use ckb_vm::{
     registers::{A0, A3, A4, A5, A7},
@@ -16,37 +16,37 @@ use std::sync::Arc;
 pub struct LoadCellByField<'a, CS> {
     store: Arc<CS>,
     outputs: &'a [CellMeta],
-    input_cells: &'a [&'a CellMeta],
+    resolved_inputs: &'a [&'a ResolvedOutPoint],
     current: CurrentCell,
-    dep_cells: &'a [&'a CellMeta],
+    resolved_deps: &'a [&'a ResolvedOutPoint],
 }
 
 impl<'a, CS: LazyLoadCellOutput> LoadCellByField<'a, CS> {
     pub fn new(
         store: Arc<CS>,
         outputs: &'a [CellMeta],
-        input_cells: &'a [&'a CellMeta],
+        resolved_inputs: &'a [&'a ResolvedOutPoint],
         current: CurrentCell,
-        dep_cells: &'a [&'a CellMeta],
+        resolved_deps: &'a [&'a ResolvedOutPoint],
     ) -> LoadCellByField<'a, CS> {
         LoadCellByField {
             store,
             outputs,
-            input_cells,
+            resolved_inputs,
             current,
-            dep_cells,
+            resolved_deps,
         }
     }
 
     fn fetch_cell(&self, source: Source, index: usize) -> Option<&'a CellMeta> {
         match source {
-            Source::Input => self.input_cells.get(index).cloned(),
+            Source::Input => self.resolved_inputs.get(index).and_then(|r| r.cell()),
             Source::Output => self.outputs.get(index),
             Source::Current => match self.current {
-                CurrentCell::Input(index) => self.input_cells.get(index).cloned(),
+                CurrentCell::Input(index) => self.resolved_inputs.get(index).and_then(|r| r.cell()),
                 CurrentCell::Output(index) => self.outputs.get(index),
             },
-            Source::Dep => self.dep_cells.get(index).cloned(),
+            Source::Dep => self.resolved_deps.get(index).and_then(|r| r.cell()),
         }
     }
 }

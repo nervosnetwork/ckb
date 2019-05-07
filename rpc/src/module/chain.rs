@@ -7,8 +7,8 @@ use ckb_traits::ChainProvider;
 use jsonrpc_core::{Error, Result};
 use jsonrpc_derive::rpc;
 use jsonrpc_types::{
-    BlockView, CellOutputWithOutPoint, CellWithStatus, EpochExt, HeaderView, OutPoint,
-    TransactionWithStatus,
+    BlockView, CellOutPoint, CellOutputWithOutPoint, CellWithStatus, EpochExt, HeaderView,
+    OutPoint, TransactionWithStatus,
 };
 use numext_fixed_hash::H256;
 use std::convert::TryInto;
@@ -164,8 +164,11 @@ impl<CS: ChainStore + 'static> ChainRpc for ChainRpcImpl<CS> {
                     if output.lock.hash() == lock_hash && (!transaction_meta.is_dead(i)) {
                         result.push(CellOutputWithOutPoint {
                             out_point: OutPoint {
-                                tx_hash: transaction.hash().to_owned(),
-                                index: i as u32,
+                                cell: Some(CellOutPoint {
+                                    tx_hash: transaction.hash().to_owned(),
+                                    index: i as u32,
+                                }),
+                                block_hash: None,
                             },
                             capacity: output.capacity.to_string(),
                             lock: output.lock.clone().into(),
@@ -189,7 +192,7 @@ impl<CS: ChainStore + 'static> ChainRpc for ChainRpcImpl<CS> {
                 cell_meta.cell_output = Some(
                     self.shared
                         .store()
-                        .get_cell_output(&out_point.tx_hash, out_point.index)
+                        .get_cell_output(&cell_meta.out_point.tx_hash, cell_meta.out_point.index)
                         .expect("live cell must exists"),
                 );
             }

@@ -5,8 +5,9 @@ use ckb_core::extras::EpochExt as CoreEpochExt;
 use ckb_core::header::{Header as CoreHeader, HeaderBuilder, Seal as CoreSeal};
 use ckb_core::script::Script as CoreScript;
 use ckb_core::transaction::{
-    CellInput as CoreCellInput, CellOutput as CoreCellOutput, OutPoint as CoreOutPoint,
-    Transaction as CoreTransaction, TransactionBuilder, Witness as CoreWitness,
+    CellInput as CoreCellInput, CellOutPoint as CoreCellOutPoint, CellOutput as CoreCellOutput,
+    OutPoint as CoreOutPoint, Transaction as CoreTransaction, TransactionBuilder,
+    Witness as CoreWitness,
 };
 use ckb_core::uncle::UncleBlock as CoreUncleBlock;
 use ckb_core::{
@@ -93,22 +94,48 @@ impl TryFrom<CellOutput> for CoreCellOutput {
 }
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
-pub struct OutPoint {
+pub struct CellOutPoint {
     pub tx_hash: H256,
     pub index: u32,
 }
 
+impl From<CoreCellOutPoint> for CellOutPoint {
+    fn from(core: CoreCellOutPoint) -> CellOutPoint {
+        let (tx_hash, index) = core.destruct();
+        CellOutPoint { tx_hash, index }
+    }
+}
+
+impl From<CellOutPoint> for CoreCellOutPoint {
+    fn from(json: CellOutPoint) -> Self {
+        let CellOutPoint { tx_hash, index } = json;
+        CoreCellOutPoint { tx_hash, index }
+    }
+}
+
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+pub struct OutPoint {
+    pub cell: Option<CellOutPoint>,
+    pub block_hash: Option<H256>,
+}
+
 impl From<CoreOutPoint> for OutPoint {
     fn from(core: CoreOutPoint) -> OutPoint {
-        let (tx_hash, index) = core.destruct();
-        OutPoint { tx_hash, index }
+        let (block_hash, cell) = core.destruct();
+        OutPoint {
+            cell: cell.map(Into::into),
+            block_hash: block_hash.map(Into::into),
+        }
     }
 }
 
 impl From<OutPoint> for CoreOutPoint {
     fn from(json: OutPoint) -> Self {
-        let OutPoint { tx_hash, index } = json;
-        CoreOutPoint::new(tx_hash, index)
+        let OutPoint { cell, block_hash } = json;
+        CoreOutPoint {
+            cell: cell.map(Into::into),
+            block_hash,
+        }
     }
 }
 

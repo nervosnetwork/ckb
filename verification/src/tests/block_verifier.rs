@@ -29,7 +29,7 @@ fn create_cellbase_transaction() -> Transaction {
 fn create_normal_transaction() -> Transaction {
     TransactionBuilder::default()
         .input(CellInput::new(
-            OutPoint::new(H256::from_trimmed_hex_str("1").unwrap(), 0),
+            OutPoint::new_cell(H256::from_trimmed_hex_str("1").unwrap(), 0),
             0,
             Default::default(),
         ))
