@@ -7,7 +7,7 @@ use ckb_traits::ChainProvider;
 use jsonrpc_core::{Error, Result};
 use jsonrpc_derive::rpc;
 use jsonrpc_types::{
-    Block, CellOutputWithOutPoint, CellWithStatus, EpochExt, Header, OutPoint,
+    BlockView, CellOutputWithOutPoint, CellWithStatus, EpochExt, HeaderView, OutPoint,
     TransactionWithStatus,
 };
 use numext_fixed_hash::H256;
@@ -18,10 +18,10 @@ pub const PAGE_SIZE: u64 = 100;
 #[rpc]
 pub trait ChainRpc {
     #[rpc(name = "get_block")]
-    fn get_block(&self, _hash: H256) -> Result<Option<Block>>;
+    fn get_block(&self, _hash: H256) -> Result<Option<BlockView>>;
 
     #[rpc(name = "get_block_by_number")]
-    fn get_block_by_number(&self, _number: String) -> Result<Option<Block>>;
+    fn get_block_by_number(&self, _number: String) -> Result<Option<BlockView>>;
 
     #[rpc(name = "get_transaction")]
     fn get_transaction(&self, _hash: H256) -> Result<Option<TransactionWithStatus>>;
@@ -30,7 +30,7 @@ pub trait ChainRpc {
     fn get_block_hash(&self, _number: String) -> Result<Option<H256>>;
 
     #[rpc(name = "get_tip_header")]
-    fn get_tip_header(&self) -> Result<Header>;
+    fn get_tip_header(&self) -> Result<HeaderView>;
 
     #[rpc(name = "get_cells_by_lock_hash")]
     fn get_cells_by_lock_hash(
@@ -55,11 +55,11 @@ pub(crate) struct ChainRpcImpl<CS> {
 }
 
 impl<CS: ChainStore + 'static> ChainRpc for ChainRpcImpl<CS> {
-    fn get_block(&self, hash: H256) -> Result<Option<Block>> {
+    fn get_block(&self, hash: H256) -> Result<Option<BlockView>> {
         Ok(self.shared.block(&hash).as_ref().map(Into::into))
     }
 
-    fn get_block_by_number(&self, number: String) -> Result<Option<Block>> {
+    fn get_block_by_number(&self, number: String) -> Result<Option<BlockView>> {
         Ok(self
             .shared
             .block_hash(
@@ -98,8 +98,7 @@ impl<CS: ChainStore + 'static> ChainRpc for ChainRpcImpl<CS> {
         ))
     }
 
-    // get tip from store, avoid lock chain state
-    fn get_tip_header(&self) -> Result<Header> {
+    fn get_tip_header(&self) -> Result<HeaderView> {
         Ok(self
             .shared
             .store()
@@ -199,6 +198,6 @@ impl<CS: ChainStore + 'static> ChainRpc for ChainRpcImpl<CS> {
     }
 
     fn get_tip_block_number(&self) -> Result<String> {
-        self.get_tip_header().map(|h| h.number)
+        self.get_tip_header().map(|h| h.inner.number)
     }
 }
