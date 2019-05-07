@@ -81,7 +81,6 @@ pub enum CellbaseError {
     InvalidReward,
     InvalidQuantity,
     InvalidPosition,
-    InvalidOutput,
 }
 
 #[derive(Debug, PartialEq, Clone, Eq)]

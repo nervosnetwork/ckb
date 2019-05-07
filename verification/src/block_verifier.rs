@@ -5,7 +5,7 @@ use ckb_chain_spec::Vm;
 use ckb_core::cell::ResolvedTransaction;
 use ckb_core::extras::EpochExt;
 use ckb_core::header::Header;
-use ckb_core::transaction::{Capacity, CellInput, CellOutput, Transaction};
+use ckb_core::transaction::{Capacity, CellInput, Transaction};
 use ckb_core::Cycle;
 use ckb_core::{block::Block, BlockNumber};
 use ckb_store::ChainStore;
@@ -98,23 +98,6 @@ impl CellbaseVerifier {
         if cellbase_input != &CellInput::new_cellbase_input(block.header().number()) {
             return Err(Error::Cellbase(CellbaseError::InvalidInput));
         }
-
-        // currently, we enforce`type` field of a cellbase output cell must be absent
-        if cellbase_transaction
-            .outputs()
-            .iter()
-            .any(|op| op.type_.is_some())
-        {
-            return Err(Error::Cellbase(CellbaseError::InvalidOutput));
-        }
-
-        if cellbase_transaction
-            .outputs()
-            .iter()
-            .any(CellOutput::is_occupied_capacity_overflow)
-        {
-            return Err(Error::CapacityOverflow);
-        };
 
         Ok(())
     }
@@ -404,7 +387,6 @@ impl<'a> TransactionsVerifier<'a> {
         // make verifiers orthogonal
         let cycles_set = resolved
             .par_iter()
-            .skip(1)
             .enumerate()
             .map(|(index, tx)| {
                 TransactionVerifier::new(

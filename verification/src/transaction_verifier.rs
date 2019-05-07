@@ -219,26 +219,31 @@ impl<'a> CapacityVerifier<'a> {
     }
 
     pub fn verify(&self) -> Result<(), TransactionError> {
-        let inputs_total = self
-            .resolved_transaction
-            .input_cells
-            .iter()
-            .try_fold(Capacity::zero(), |acc, cell_meta| {
-                acc.safe_add(cell_meta.capacity())
-            })?;
+        // skip OutputsSumOverflow verification for resolved cellbase
+        // cellbase's outputs are verified by TransactionsVerifier#InvalidReward
+        if !self.resolved_transaction.is_cellbase() {
+            let inputs_total = self
+                .resolved_transaction
+                .input_cells
+                .iter()
+                .try_fold(Capacity::zero(), |acc, cell_meta| {
+                    acc.safe_add(cell_meta.capacity())
+                })?;
 
-        let outputs_total = self
-            .resolved_transaction
-            .transaction
-            .outputs()
-            .iter()
-            .try_fold(Capacity::zero(), |acc, output| {
-                acc.safe_add(output.capacity)
-            })?;
+            let outputs_total = self
+                .resolved_transaction
+                .transaction
+                .outputs()
+                .iter()
+                .try_fold(Capacity::zero(), |acc, output| {
+                    acc.safe_add(output.capacity)
+                })?;
 
-        if inputs_total < outputs_total {
-            return Err(TransactionError::OutputsSumOverflow);
+            if inputs_total < outputs_total {
+                return Err(TransactionError::OutputsSumOverflow);
+            }
         }
+
         if self
             .resolved_transaction
             .transaction
