@@ -8,7 +8,6 @@ mod pool;
 mod proposal_short_id;
 mod string;
 mod sync;
-mod trace;
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct BlockNumber(#[serde(with = "string")] pub ckb_core::BlockNumber);
@@ -46,6 +45,5 @@ pub use self::net::{Node, NodeAddress};
 pub use self::pool::TxPoolInfo;
 pub use self::proposal_short_id::ProposalShortId;
 pub use self::sync::PeerState;
-pub use self::trace::{Action, TxTrace};
 pub use jsonrpc_core::types::{error, id, params, request, response, version};
 pub use serde_derive::{Deserialize, Serialize};

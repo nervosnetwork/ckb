@@ -45,7 +45,7 @@ impl Spec for ValidSince {
         node.assert_tx_pool_size(1, 0);
 
         info!(
-            "Tx will be added to staging pool in N + {} block",
+            "Tx will be added to proposed pool in N + {} block",
             relative_blocks
         );
         (0..DEFAULT_TX_PROPOSAL_WINDOW.0).for_each(|_| {
@@ -98,7 +98,7 @@ impl Spec for ValidSince {
         node.assert_tx_pool_size(1, 0);
 
         info!(
-            "Tx will be added to staging pool in {} block",
+            "Tx will be added to proposed pool in {} block",
             absolute_block
         );
         (0..DEFAULT_TX_PROPOSAL_WINDOW.0).for_each(|_| {

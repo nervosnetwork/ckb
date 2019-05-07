@@ -31,7 +31,7 @@ fn main() {
             "disconnect" => Box::new(Disconnect),
             "malformed_message" => Box::new(MalformedMessage),
             "depent_tx_in_same_block" => Box::new(DepentTxInSameBlock),
-            // TODO enable these after staging/pending pool tip verfiry logic changing
+            // TODO enable these after proposed/pending pool tip verfiry logic changing
             // "cellbase_maturity" => Box::new(CellbaseMaturity),
             // "valid_since" => Box::new(ValidSince),
             "different_txs_with_same_input" => Box::new(DifferentTxsWithSameInput),
@@ -55,7 +55,7 @@ fn main() {
             Box::new(Disconnect),
             Box::new(MalformedMessage),
             Box::new(DepentTxInSameBlock),
-            // TODO enable these after staging/pending pool tip verfiry logic changing
+            // TODO enable these after proposed/pending pool tip verfiry logic changing
             // Box::new(CellbaseMaturity),
             // Box::new(ValidSince),
             Box::new(DifferentTxsWithSameInput),

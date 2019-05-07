@@ -961,8 +961,7 @@ http://localhost:8114
         "last_txs_updated_at": "0",
         "orphan": "0",
         "pending": "1",
-        "staging": "0"
+        "proposed": "0"
     }
 }
 ```
-

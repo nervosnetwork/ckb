@@ -157,18 +157,6 @@ impl Node {
             .expect("rpc call send_transaction failed")
     }
 
-    pub fn send_traced_transaction(&self) -> H256 {
-        let block = self.get_tip_block();
-        let cellbase: Transaction = block.transactions()[0]
-            .clone()
-            .try_into()
-            .expect("parse cellbase transaction failed");
-        let mut rpc = self.rpc_client();
-        rpc.trace_transaction((&self.new_transaction(cellbase.hash().to_owned())).into())
-            .call()
-            .expect("rpc call send_transaction failed")
-    }
-
     pub fn get_tip_block(&self) -> Block {
         let mut rpc = self.rpc_client();
         let tip_number = rpc
@@ -349,13 +337,13 @@ impl Node {
         Ok(())
     }
 
-    pub fn assert_tx_pool_size(&self, pending_size: u64, staging_size: u64) {
+    pub fn assert_tx_pool_size(&self, pending_size: u64, proposed_size: u64) {
         let tx_pool_info = self
             .rpc_client()
             .tx_pool_info()
             .call()
             .expect("rpc call tx_pool_info failed");
         assert_eq!(tx_pool_info.pending.0, pending_size);
-        assert_eq!(tx_pool_info.staging.0, staging_size);
+        assert_eq!(tx_pool_info.proposed.0, proposed_size);
     }
 }

@@ -41,7 +41,10 @@ impl Spec for CellbaseMaturity {
         assert_eq!(tx_hash, tx.hash().to_owned());
         node.assert_tx_pool_size(1, 0);
 
-        info!("Tx will be added to staging pool in N + {} block", MATURITY);
+        info!(
+            "Tx will be added to proposed pool in N + {} block",
+            MATURITY
+        );
         (0..DEFAULT_TX_PROPOSAL_WINDOW.0).for_each(|_| {
             node.generate_block();
         });
