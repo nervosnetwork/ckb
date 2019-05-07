@@ -1,4 +1,4 @@
-use crate::{EpochNumber, BlockNumber, Capacity};
+use crate::{BlockNumber, Capacity, EpochNumber};
 use failure::Error as FailureError;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
