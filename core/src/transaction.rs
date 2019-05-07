@@ -663,10 +663,6 @@ impl ProposalShortId {
         ProposalShortId(inner)
     }
 
-    pub fn hash(&self) -> H256 {
-        blake2b_256(serialize(self).expect("ProposalShortId serialize should not fail")).into()
-    }
-
     pub fn zero() -> Self {
         ProposalShortId([0; 10])
     }

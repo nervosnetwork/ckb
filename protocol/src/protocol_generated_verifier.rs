@@ -1644,19 +1644,19 @@ pub mod ckb {
                     }
                 }
 
-                if Self::VT_PROPOSALS_ROOT as usize + flatbuffers::SIZE_VOFFSET
+                if Self::VT_WITNESSES_ROOT as usize + flatbuffers::SIZE_VOFFSET
                     <= vtab_num_bytes
                 {
-                    let voffset = vtab.get(Self::VT_PROPOSALS_ROOT) as usize;
+                    let voffset = vtab.get(Self::VT_WITNESSES_ROOT) as usize;
                     if voffset > 0 && object_inline_num_bytes - voffset < 32 {
                         return Err(Error::OutOfBounds);
                     }
                 }
 
-                if Self::VT_WITNESSES_ROOT as usize + flatbuffers::SIZE_VOFFSET
+                if Self::VT_PROPOSALS_HASH as usize + flatbuffers::SIZE_VOFFSET
                     <= vtab_num_bytes
                 {
-                    let voffset = vtab.get(Self::VT_WITNESSES_ROOT) as usize;
+                    let voffset = vtab.get(Self::VT_PROPOSALS_HASH) as usize;
                     if voffset > 0 && object_inline_num_bytes - voffset < 32 {
                         return Err(Error::OutOfBounds);
                     }

@@ -3,6 +3,7 @@ use crate::transaction::{ProposalShortId, Transaction};
 use crate::uncle::{uncles_hash, UncleBlock};
 use ckb_merkle_tree::merkle_root;
 use fnv::FnvHashSet;
+use hash::new_blake2b;
 use numext_fixed_hash::H256;
 use serde_derive::{Deserialize, Serialize};
 use std::borrow::ToOwned;
@@ -16,10 +17,6 @@ fn cal_transactions_root(vec: &[Transaction]) -> H256 {
     )
 }
 
-fn cal_proposals_root(vec: &[ProposalShortId]) -> H256 {
-    merkle_root(&vec.iter().map(ProposalShortId::hash).collect::<Vec<_>>())
-}
-
 fn cal_witnesses_root(vec: &[Transaction]) -> H256 {
     // The witness hash of cellbase transaction is assumed to be zero 0x0000....0000
     let mut witnesses = vec![H256::zero()];
@@ -30,6 +27,20 @@ fn cal_witnesses_root(vec: &[Transaction]) -> H256 {
             .map(ToOwned::to_owned),
     );
     merkle_root(&witnesses[..])
+}
+
+pub(crate) fn cal_proposals_hash(vec: &[ProposalShortId]) -> H256 {
+    if vec.is_empty() {
+        H256::zero()
+    } else {
+        let mut ret = [0u8; 32];
+        let mut blake2b = new_blake2b();
+        for id in vec.iter() {
+            blake2b.update(&(&id as &[u8; 10])[..]);
+        }
+        blake2b.finalize(&mut ret);
+        ret.into()
+    }
 }
 
 #[derive(Clone, Serialize, Deserialize, Eq, Debug)]
@@ -99,8 +110,8 @@ impl Block {
         cal_transactions_root(self.transactions())
     }
 
-    pub fn cal_proposals_root(&self) -> H256 {
-        cal_proposals_root(self.proposals())
+    pub fn cal_proposals_hash(&self) -> H256 {
+        cal_proposals_hash(self.proposals())
     }
 
     pub fn serialized_size(&self, proof_size: usize) -> usize {
@@ -232,12 +243,12 @@ impl BlockBuilder {
         } = self;
         let transactions_root = cal_transactions_root(&transactions);
         let witnesses_root = cal_witnesses_root(&transactions);
-        let proposals_root = cal_proposals_root(&proposals);
+        let proposals_hash = cal_proposals_hash(&proposals);
         let uncles_hash = uncles_hash(&uncles);
         let header = header_builder
             .transactions_root(transactions_root)
-            .proposals_root(proposals_root)
             .witnesses_root(witnesses_root)
+            .proposals_hash(proposals_hash)
             .uncles_hash(uncles_hash)
             .uncles_count(uncles.len() as u32)
             .build();

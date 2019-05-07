@@ -105,7 +105,7 @@ pub enum UnclesError {
     InvalidDifficulty,
     InvalidDifficultyEpoch,
     InvalidProof,
-    ProposalsRoot,
+    ProposalsHash,
     ProposalDuplicate,
     Duplicate(H256),
     InvalidInclude(H256),

@@ -142,7 +142,7 @@ impl MerkleRootVerifier {
             return Err(Error::WitnessesMerkleRoot);
         }
 
-        if block.header().proposals_root() != &block.cal_proposals_root() {
+        if block.header().proposals_hash() != &block.cal_proposals_hash() {
             return Err(Error::ProposalTransactionsRoot);
         }
 
@@ -325,8 +325,8 @@ where
                 )));
             }
 
-            if uncle_header.proposals_root() != &uncle.cal_proposals_root() {
-                return Err(Error::Uncles(UnclesError::ProposalsRoot));
+            if uncle_header.proposals_hash() != &uncle.cal_proposals_hash() {
+                return Err(Error::Uncles(UnclesError::ProposalsHash));
             }
 
             let mut seen = HashSet::with_capacity(uncle.proposals().len());

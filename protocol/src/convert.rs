@@ -146,8 +146,8 @@ impl<'a> TryFrom<ckb_protocol::Header<'a>> for ckb_core::header::Header {
     fn try_from(header: ckb_protocol::Header<'a>) -> Result<Self, Self::Error> {
         let parent_hash = cast!(header.parent_hash())?;
         let transactions_root = cast!(header.transactions_root())?;
-        let proposals_root = cast!(header.proposals_root())?;
         let witnesses_root = cast!(header.witnesses_root())?;
+        let proposals_hash = cast!(header.proposals_hash())?;
         let uncles_hash = cast!(header.uncles_hash())?;
 
         Ok(ckb_core::header::HeaderBuilder::default()
@@ -157,8 +157,8 @@ impl<'a> TryFrom<ckb_protocol::Header<'a>> for ckb_core::header::Header {
             .number(header.number())
             .epoch(header.epoch())
             .transactions_root(TryInto::try_into(transactions_root)?)
-            .proposals_root(TryInto::try_into(proposals_root)?)
             .witnesses_root(TryInto::try_into(witnesses_root)?)
+            .proposals_hash(TryInto::try_into(proposals_hash)?)
             .difficulty(U256::from_little_endian(cast!(header
                 .difficulty()
                 .and_then(|d| d.seq()))?)?)

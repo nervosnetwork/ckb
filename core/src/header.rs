@@ -51,8 +51,8 @@ pub struct RawHeader {
     number: BlockNumber,
     /// Transactions merkle root.
     transactions_root: H256,
-    /// Transactions proposal merkle root.
-    proposals_root: H256,
+    /// Transactions proposal hash.
+    proposals_hash: H256,
     /// Witness hash commitment.
     witnesses_root: H256,
     /// Block difficulty.
@@ -193,12 +193,12 @@ impl fmt::Debug for Header {
                 &format_args!("{:#x}", self.raw.transactions_root),
             )
             .field(
-                "proposals_root",
-                &format_args!("{:#x}", self.raw.proposals_root),
-            )
-            .field(
                 "witnesses_root",
                 &format_args!("{:#x}", self.raw.witnesses_root),
+            )
+            .field(
+                "proposals_hash",
+                &format_args!("{:#x}", self.raw.proposals_hash),
             )
             .field("difficulty", &format_args!("{:#x}", self.raw.difficulty))
             .field("uncles_count", &self.raw.uncles_count)
@@ -289,12 +289,12 @@ impl Header {
         &self.raw.transactions_root
     }
 
-    pub fn proposals_root(&self) -> &H256 {
-        &self.raw.proposals_root
-    }
-
     pub fn witnesses_root(&self) -> &H256 {
         &self.raw.witnesses_root
+    }
+
+    pub fn proposals_hash(&self) -> &H256 {
+        &self.raw.proposals_hash
     }
 
     pub fn uncles_hash(&self) -> &H256 {
@@ -382,13 +382,13 @@ impl HeaderBuilder {
         self
     }
 
-    pub fn proposals_root(mut self, hash: H256) -> Self {
-        self.raw.proposals_root = hash;
+    pub fn witnesses_root(mut self, hash: H256) -> Self {
+        self.raw.witnesses_root = hash;
         self
     }
 
-    pub fn witnesses_root(mut self, hash: H256) -> Self {
-        self.raw.witnesses_root = hash;
+    pub fn proposals_hash(mut self, hash: H256) -> Self {
+        self.raw.proposals_hash = hash;
         self
     }
 
