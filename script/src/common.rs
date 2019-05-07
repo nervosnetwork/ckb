@@ -1,12 +1,6 @@
 use ckb_core::{cell::CellMeta, transaction::CellOutput};
 use ckb_store::ChainStore;
 
-#[derive(Debug, Clone, Copy)]
-pub enum CurrentCell {
-    Input(usize),
-    Output(usize),
-}
-
 /// Extend ChainStore
 /// Lazy load cell output from chain store
 pub trait LazyLoadCellOutput {
