@@ -1176,7 +1176,10 @@ mod tests {
         let header = HeaderBuilder::default()
             .difficulty(U256::from(2u64))
             .build();
-        let block = BlockBuilder::default().header(header).build();
+        let block = BlockBuilder::default()
+            .transaction(create_cellbase(0))
+            .header(header)
+            .build();
         let consensus = consensus.set_genesis_block(block);
 
         let (chain_controller, shared, _notify) = start_chain(Some(consensus), None);

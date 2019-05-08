@@ -1,5 +1,5 @@
 use crate::tests::util::{
-    create_transaction, create_transaction_with_out_point, gen_block, start_chain,
+    create_cellbase, create_transaction, create_transaction_with_out_point, gen_block, start_chain,
 };
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::Block;
@@ -752,8 +752,10 @@ fn test_chain_get_ancestor() {
 
 #[test]
 fn test_next_epoch_ext() {
+    let cellbase = create_cellbase(0);
     let genesis_block = BlockBuilder::default()
         .header_builder(HeaderBuilder::default().difficulty(U256::from(1000u64)))
+        .transaction(cellbase)
         .build();
     let mut consensus = Consensus::default().set_genesis_block(genesis_block);
     consensus.genesis_epoch_ext.set_length(400);

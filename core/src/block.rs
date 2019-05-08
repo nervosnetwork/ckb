@@ -1,5 +1,6 @@
 use crate::header::{Header, HeaderBuilder};
 use crate::transaction::{ProposalShortId, Transaction, TransactionStored};
+use crate::script::Script;
 use crate::uncle::{uncles_hash, UncleBlock};
 use ckb_merkle_tree::merkle_root;
 use fnv::FnvHashSet;
@@ -64,6 +65,12 @@ impl Block {
             transactions,
             proposals,
         }
+    }
+
+    pub fn get_cellbase_lock(&self) -> Option<&Script> {
+        self.transactions
+            .get(0)
+            .and_then(|tx| tx.outputs().get(0).map(|o| &o.lock))
     }
 
     pub fn header(&self) -> &Header {

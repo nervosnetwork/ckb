@@ -6,4 +6,4 @@ mod pending;
 mod proposed;
 
 pub use self::pool::TxPool;
-pub use self::types::{PoolEntry, PoolError, TxPoolConfig};
+pub use self::types::{PoolEntry, PoolError, ProposedEntry, TxPoolConfig};

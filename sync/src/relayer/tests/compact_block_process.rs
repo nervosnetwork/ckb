@@ -63,6 +63,18 @@ fn new_transaction(relayer: &Relayer<ChainKVStore<MemoryKeyValueDB>>, index: usi
         .build()
 }
 
+fn create_cellbase(number: BlockNumber) -> Transaction {
+    TransactionBuilder::default()
+        .input(CellInput::new_cellbase_input(number))
+        .output(CellOutput::new(
+            capacity_bytes!(5000),
+            Bytes::default(),
+            Script::always_success(),
+            None,
+        ))
+        .build()
+}
+
 fn build_chain(tip: BlockNumber) -> Relayer<ChainKVStore<MemoryKeyValueDB>> {
     let shared = {
         let genesis = BlockBuilder::from_header_builder(
@@ -70,6 +82,7 @@ fn build_chain(tip: BlockNumber) -> Relayer<ChainKVStore<MemoryKeyValueDB>> {
                 .timestamp(unix_time_as_millis())
                 .difficulty(U256::from(1000u64)),
         )
+        .transaction(create_cellbase(0))
         .build();
         let consensus = Consensus::default()
             .set_genesis_block(genesis)

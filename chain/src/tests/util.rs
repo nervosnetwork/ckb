@@ -33,7 +33,7 @@ pub(crate) fn start_chain(
     (chain_controller, shared)
 }
 
-fn create_cellbase(number: BlockNumber) -> Transaction {
+pub(crate) fn create_cellbase(number: BlockNumber) -> Transaction {
     TransactionBuilder::default()
         .input(CellInput::new_cellbase_input(number))
         .output(CellOutput::new(

@@ -1,8 +1,9 @@
 use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::extras::EpochExt;
-use ckb_core::header::Header;
-use ckb_core::header::HeaderBuilder;
-use ckb_core::{capacity_bytes, BlockNumber, Capacity, Cycle, Version};
+use ckb_core::header::{Header, HeaderBuilder};
+use ckb_core::script::Script;
+use ckb_core::transaction::{CellInput, CellOutput, TransactionBuilder};
+use ckb_core::{capacity_bytes, BlockNumber, Bytes, Capacity, Cycle, Version};
 use ckb_pow::{Pow, PowEngine};
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
@@ -74,8 +75,18 @@ pub struct Consensus {
 // genesis difficulty should not be zero
 impl Default for Consensus {
     fn default() -> Self {
+        let cellbase = TransactionBuilder::default()
+            .input(CellInput::new_cellbase_input(0))
+            .output(CellOutput::new(
+                capacity_bytes!(5_000),
+                Bytes::default(),
+                Script::default(),
+                None,
+            ))
+            .build();
         let genesis_block =
             BlockBuilder::from_header_builder(HeaderBuilder::default().difficulty(U256::one()))
+                .transaction(cellbase)
                 .build();
 
         let genesis_epoch_ext = EpochExt::new(

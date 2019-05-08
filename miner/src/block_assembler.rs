@@ -1,24 +1,22 @@
 use crate::config::BlockAssemblerConfig;
-use crate::error::Error;
 use ckb_core::block::Block;
 use ckb_core::extras::EpochExt;
 use ckb_core::header::Header;
 use ckb_core::script::Script;
 use ckb_core::service::{Request, DEFAULT_CHANNEL_SIZE, SIGNAL_CHANNEL_SIZE};
 use ckb_core::transaction::{
-    Capacity, CellInput, CellOutput, OutPoint, ProposalShortId, Transaction, TransactionBuilder,
+    Capacity, CellInput, CellOutput, ProposalShortId, Transaction, TransactionBuilder,
 };
 use ckb_core::uncle::UncleBlock;
 use ckb_core::{Bytes, Cycle, Version};
 use ckb_notify::NotifyController;
-use ckb_shared::{shared::Shared, tx_pool::PoolEntry};
+use ckb_shared::{shared::Shared, tx_pool::ProposedEntry};
 use ckb_store::ChainStore;
 use ckb_traits::ChainProvider;
 use ckb_util::Mutex;
 use crossbeam_channel::{self, select, Receiver, Sender};
 use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
-use fnv::FnvHashMap;
 use fnv::FnvHashSet;
 use jsonrpc_types::{
     BlockTemplate, CellbaseTemplate, JsonBytes, TransactionTemplate, UncleTemplate,
@@ -57,72 +55,6 @@ impl TemplateCache {
             || (last_txs_updated_at != self.txs_updated_at
                 && current_time.saturating_sub(self.time) > BLOCK_TEMPLATE_TIMEOUT)
             || number != self.template.number
-    }
-}
-
-struct FeeCalculator<'a> {
-    txs: &'a [PoolEntry],
-    provider: &'a dyn ChainProvider,
-    txs_map: FnvHashMap<&'a H256, usize>,
-}
-
-impl<'a> FeeCalculator<'a> {
-    fn new(txs: &'a [PoolEntry], provider: &'a dyn ChainProvider) -> Self {
-        let mut txs_map = FnvHashMap::with_capacity_and_hasher(txs.len(), Default::default());
-        for (index, tx) in txs.iter().enumerate() {
-            txs_map.insert(tx.transaction.hash(), index);
-        }
-        Self {
-            txs,
-            provider,
-            txs_map,
-        }
-    }
-
-    fn get_capacity(&self, out_point: &OutPoint) -> Option<Capacity> {
-        let cell_out_point = out_point.cell.as_ref()?;
-        self.txs_map.get(&cell_out_point.tx_hash).map_or_else(
-            || {
-                self.provider
-                    .get_transaction(&cell_out_point.tx_hash)
-                    .and_then(|(tx, _block_hash)| {
-                        tx.outputs()
-                            .get(cell_out_point.index as usize)
-                            .map(|output| output.capacity)
-                    })
-            },
-            |index| {
-                self.txs[*index]
-                    .transaction
-                    .outputs()
-                    .get(cell_out_point.index as usize)
-                    .map(|output| output.capacity)
-            },
-        )
-    }
-
-    fn calculate_transaction_fee(
-        &self,
-        transaction: &Transaction,
-    ) -> Result<Capacity, FailureError> {
-        let mut fee = Capacity::zero();
-        for input in transaction.inputs() {
-            if let Some(capacity) = self.get_capacity(&input.previous_output) {
-                fee = fee.safe_add(capacity)?;
-            } else {
-                Err(Error::InvalidInput)?;
-            }
-        }
-        let spent_capacity: Capacity = transaction
-            .outputs()
-            .iter()
-            .map(|output| output.capacity)
-            .try_fold(Capacity::zero(), Capacity::safe_add)?;
-        if spent_capacity > fee {
-            Err(Error::InvalidOutput)?;
-        }
-        fee = fee.safe_sub(spent_capacity)?;
-        Ok(fee)
     }
 }
 
@@ -278,14 +210,14 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
     }
 
     fn transform_tx(
-        tx: &PoolEntry,
+        tx: &ProposedEntry,
         required: bool,
         depends: Option<Vec<u32>>,
     ) -> TransactionTemplate {
         TransactionTemplate {
             hash: tx.transaction.hash().to_owned(),
             required,
-            cycles: tx.cycles.map(|c| c.to_string()),
+            cycles: Some(tx.cycles.to_string()),
             depends,
             data: (&tx.transaction).into(),
         }
@@ -416,7 +348,7 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
         &self,
         tip: &Header,
         current_epoch: &EpochExt,
-        pes: &[PoolEntry],
+        pes: &[ProposedEntry],
         lock: Script,
     ) -> Result<Transaction, FailureError> {
         // NOTE: To generate different cellbase txid, we put header number in the input script
@@ -429,9 +361,8 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
         let block_reward = current_epoch.block_reward(tip.number() + 1)?;
         let mut fee = Capacity::zero();
         // depends cells may produced from previous tx
-        let fee_calculator = FeeCalculator::new(&pes, &self.shared);
         for pe in pes {
-            fee = fee.safe_add(fee_calculator.calculate_transaction_fee(&pe.transaction)?)?;
+            fee = fee.safe_add(pe.fee)?;
         }
 
         let output = CellOutput::new(block_reward.safe_add(fee)?, Bytes::new(), lock, None);

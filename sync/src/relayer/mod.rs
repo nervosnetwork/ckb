@@ -197,7 +197,7 @@ impl<CS: ChainStore + 'static> Relayer<CS> {
             .proposals
             .iter()
             .chain(block.uncles.iter().flat_map(UncleBlock::proposals))
-            .filter(|x| !chain_state.contains_proposal_id(x) && inflight.insert(**x))
+            .filter(|x| chain_state.get_proposer_by_id(x).is_none() && inflight.insert(**x))
             .cloned()
             .collect::<Vec<_>>();
 

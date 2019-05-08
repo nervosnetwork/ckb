@@ -2,7 +2,9 @@
 //! and its top-level members.
 
 use ckb_core::cell::UnresolvableError;
+use ckb_core::script::Script;
 use ckb_core::transaction::Transaction;
+use ckb_core::Capacity;
 use ckb_core::Cycle;
 use ckb_verification::TransactionError;
 use failure::Fail;
@@ -49,6 +51,8 @@ pub enum PoolError {
     InvalidBlockNumber,
     /// Duplicate tx
     Duplicate,
+    /// Duplicate tx
+    InvalidFee,
 }
 
 impl PoolError {
@@ -68,7 +72,6 @@ impl fmt::Display for PoolError {
     }
 }
 
-/// An entry in the transaction pool.
 #[derive(Debug, Clone)]
 pub struct PoolEntry {
     /// Transaction
@@ -98,6 +101,63 @@ impl Hash for PoolEntry {
 
 impl PartialEq for PoolEntry {
     fn eq(&self, other: &PoolEntry) -> bool {
+        self.transaction == other.transaction
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ProposedEntry {
+    /// Transaction
+    pub transaction: Transaction,
+    /// refs count
+    pub refs_count: usize,
+    /// Cycles
+    pub cycles: Cycle,
+    /// Tx fee
+    pub fee: Capacity,
+    /// Tx proposer
+    pub proposer: Script,
+}
+
+impl From<ProposedEntry> for PoolEntry {
+    fn from(entry: ProposedEntry) -> Self {
+        let ProposedEntry {
+            transaction,
+            cycles,
+            ..
+        } = entry;
+
+        PoolEntry::new(transaction, 0, Some(cycles))
+    }
+}
+
+impl ProposedEntry {
+    /// Create new transaction pool entry
+    pub fn new(
+        tx: Transaction,
+        count: usize,
+        cycles: Cycle,
+        fee: Capacity,
+        proposer: Script,
+    ) -> ProposedEntry {
+        ProposedEntry {
+            transaction: tx,
+            refs_count: count,
+            cycles,
+            fee,
+            proposer,
+        }
+    }
+}
+
+impl Hash for ProposedEntry {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        Hash::hash(&self.transaction, state);
+    }
+}
+
+impl PartialEq for ProposedEntry {
+    fn eq(&self, other: &ProposedEntry) -> bool {
         self.transaction == other.transaction
     }
 }

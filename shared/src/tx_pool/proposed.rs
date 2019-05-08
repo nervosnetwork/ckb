@@ -1,8 +1,10 @@
 #![allow(dead_code)]
 
-use crate::tx_pool::types::PoolEntry;
+use crate::tx_pool::types::ProposedEntry;
 use ckb_core::cell::{CellMeta, CellProvider, CellStatus};
+use ckb_core::script::Script;
 use ckb_core::transaction::{CellOutput, OutPoint, ProposalShortId, Transaction};
+use ckb_core::Capacity;
 use ckb_core::Cycle;
 use ckb_util::{FnvHashMap, FnvHashSet, LinkedFnvHashMap};
 use std::hash::Hash;
@@ -92,7 +94,7 @@ impl<K: Hash + Eq, V: Copy + Eq + Hash> Edges<K, V> {
 
 #[derive(Default, Debug, Clone)]
 pub struct ProposedPool {
-    pub(crate) vertices: LinkedFnvHashMap<ProposalShortId, PoolEntry>,
+    pub(crate) vertices: LinkedFnvHashMap<ProposalShortId, ProposedEntry>,
     pub(crate) edges: Edges<OutPoint, ProposalShortId>,
 }
 
@@ -136,7 +138,7 @@ impl ProposedPool {
         self.vertices.contains_key(id)
     }
 
-    pub fn get(&self, id: &ProposalShortId) -> Option<&PoolEntry> {
+    pub fn get(&self, id: &ProposalShortId) -> Option<&ProposedEntry> {
         self.vertices.get(id)
     }
 
@@ -152,7 +154,7 @@ impl ProposedPool {
         })
     }
 
-    pub fn remove_vertex(&mut self, id: &ProposalShortId, rtxs: &mut Vec<PoolEntry>) {
+    pub fn remove_vertex(&mut self, id: &ProposalShortId, rtxs: &mut Vec<ProposedEntry>) {
         if let Some(x) = self.vertices.remove(id) {
             let tx = &x.transaction;
             let inputs = tx.input_pts();
@@ -185,7 +187,7 @@ impl ProposedPool {
         }
     }
 
-    pub fn remove(&mut self, id: &ProposalShortId) -> Option<Vec<PoolEntry>> {
+    pub fn remove(&mut self, id: &ProposalShortId) -> Option<Vec<ProposedEntry>> {
         let mut rtxs = Vec::new();
 
         self.remove_vertex(id, &mut rtxs);
@@ -197,7 +199,7 @@ impl ProposedPool {
         }
     }
 
-    pub fn add_tx(&mut self, cycles: Cycle, tx: Transaction) {
+    pub fn add_tx(&mut self, cycles: Cycle, tx: Transaction, fee: Capacity, proposer: Script) {
         let inputs = tx.input_pts();
         let outputs = tx.output_pts();
         let deps = tx.dep_pts();
@@ -231,7 +233,7 @@ impl ProposedPool {
         }
 
         self.vertices
-            .insert(id, PoolEntry::new(tx, count, Some(cycles)));
+            .insert(id, ProposedEntry::new(tx, count, cycles, fee, proposer));
     }
 
     pub fn remove_committed_tx(&mut self, tx: &Transaction) {
@@ -283,7 +285,7 @@ impl ProposedPool {
     }
 
     /// Get n transactions in topology
-    pub fn get_txs(&self, n: usize) -> Vec<PoolEntry> {
+    pub fn get_txs(&self, n: usize) -> Vec<ProposedEntry> {
         self.vertices
             .front_n(n)
             .iter()
@@ -291,15 +293,9 @@ impl ProposedPool {
             .collect()
     }
 
-    pub fn txs_iter(&self) -> impl Iterator<Item = &PoolEntry> {
+    pub fn txs_iter(&self) -> impl Iterator<Item = &ProposedEntry> {
         self.vertices.values()
     }
-
-    // pub fn inc_ref(&mut self, id: &ProposalShortId) {
-    //     if let Some(x) = self.vertices.get_mut(&id) {
-    //         x.refs_count += 1;
-    //     }
-    // }
 
     pub fn dec_ref(&mut self, id: &ProposalShortId) {
         if let Some(x) = self.vertices.get_mut(&id) {
@@ -345,7 +341,8 @@ mod tests {
             .build()
     }
 
-    pub const MOCK_CYCLES: Cycle = 0;
+    const MOCK_CYCLES: Cycle = 0;
+    const MOCK_FEE: Capacity = Capacity::zero();
 
     #[test]
     fn test_add_entry() {
@@ -357,8 +354,8 @@ mod tests {
         let id1 = tx1.proposal_short_id();
         let id2 = tx2.proposal_short_id();
 
-        pool.add_tx(MOCK_CYCLES, tx1.clone());
-        pool.add_tx(MOCK_CYCLES, tx2.clone());
+        pool.add_tx(MOCK_CYCLES, tx1.clone(), MOCK_FEE, Script::default());
+        pool.add_tx(MOCK_CYCLES, tx2.clone(), MOCK_FEE, Script::default());
 
         assert_eq!(pool.vertices.len(), 2);
         assert_eq!(pool.edges.inner_len(), 2);
@@ -384,8 +381,8 @@ mod tests {
         let id1 = tx1.proposal_short_id();
         let id2 = tx2.proposal_short_id();
 
-        pool.add_tx(MOCK_CYCLES, tx1.clone());
-        pool.add_tx(MOCK_CYCLES, tx2.clone());
+        pool.add_tx(MOCK_CYCLES, tx1.clone(), MOCK_FEE, Script::default());
+        pool.add_tx(MOCK_CYCLES, tx2.clone(), MOCK_FEE, Script::default());
 
         assert_eq!(pool.get(&id1).unwrap().refs_count, 0);
         assert_eq!(pool.get(&id2).unwrap().refs_count, 0);
@@ -433,11 +430,11 @@ mod tests {
 
         let mut pool = ProposedPool::new();
 
-        pool.add_tx(MOCK_CYCLES, tx1.clone());
-        pool.add_tx(MOCK_CYCLES, tx2.clone());
-        pool.add_tx(MOCK_CYCLES, tx3.clone());
-        pool.add_tx(MOCK_CYCLES, tx4.clone());
-        pool.add_tx(MOCK_CYCLES, tx5.clone());
+        pool.add_tx(MOCK_CYCLES, tx1.clone(), MOCK_FEE, Script::default());
+        pool.add_tx(MOCK_CYCLES, tx2.clone(), MOCK_FEE, Script::default());
+        pool.add_tx(MOCK_CYCLES, tx3.clone(), MOCK_FEE, Script::default());
+        pool.add_tx(MOCK_CYCLES, tx4.clone(), MOCK_FEE, Script::default());
+        pool.add_tx(MOCK_CYCLES, tx5.clone(), MOCK_FEE, Script::default());
 
         assert_eq!(pool.get(&id1).unwrap().refs_count, 0);
         assert_eq!(pool.get(&id3).unwrap().refs_count, 1);
