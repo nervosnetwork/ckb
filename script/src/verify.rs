@@ -32,7 +32,7 @@ pub struct TransactionScriptsVerifier<'a, CS> {
     tx_builder: FlatBufferBuilder<'a>,
     resolved_inputs: Vec<&'a ResolvedOutPoint>,
     resolved_deps: Vec<&'a ResolvedOutPoint>,
-    witnesses: FnvHashMap<u32, &'a [Vec<u8>]>,
+    witnesses: FnvHashMap<u32, &'a [Bytes]>,
     hash: H256,
     config: &'a ScriptConfig,
 }
@@ -66,7 +66,7 @@ impl<'a, CS: LazyLoadCellOutput> TransactionScriptsVerifier<'a, CS> {
                 }
             })
             .collect();
-        let witnesses: FnvHashMap<u32, &'a [Vec<u8>]> = rtx
+        let witnesses: FnvHashMap<u32, &'a [Bytes]> = rtx
             .transaction
             .witnesses()
             .iter()
@@ -167,7 +167,7 @@ impl<'a, CS: LazyLoadCellOutput> TransactionScriptsVerifier<'a, CS> {
         &self,
         script: &Script,
         prefix: &str,
-        witness: Option<&&'a [Vec<u8>]>,
+        witness: Option<&&'a [Bytes]>,
         current_input: Option<&'a CellInput>,
         max_cycles: Cycle,
     ) -> Result<Cycle, ScriptError> {
@@ -185,12 +185,7 @@ impl<'a, CS: LazyLoadCellOutput> TransactionScriptsVerifier<'a, CS> {
                 appended_arguments.extend_from_slice(&input.args);
             }
             if let Some(witness) = witness {
-                appended_arguments.extend_from_slice(
-                    &witness
-                        .iter()
-                        .map(|w| w.to_vec().into())
-                        .collect::<Vec<Bytes>>(),
-                );
+                appended_arguments.extend(witness.iter().cloned());
             }
 
             let current_script_hash = script.hash_with_appended_arguments(&appended_arguments);
@@ -403,12 +398,12 @@ mod tests {
         let signature_der = signature.serialize_der();
         let mut hex_signature = vec![0; signature_der.len() * 2];
         hex_encode(&signature_der, &mut hex_signature).expect("hex signature");
-        witness_data.insert(0, hex_signature);
+        witness_data.insert(0, Bytes::from(hex_signature));
 
         let pubkey = privkey.pubkey().unwrap().serialize();
         let mut hex_pubkey = vec![0; pubkey.len() * 2];
         hex_encode(&pubkey, &mut hex_pubkey).expect("hex pubkey");
-        witness_data.insert(0, hex_pubkey);
+        witness_data.insert(0, Bytes::from(hex_pubkey));
 
         let code_hash: H256 = (&blake2b_256(&buffer)).into();
         let dep_out_point = OutPoint::new_cell(h256!("0x123"), 8);
@@ -484,12 +479,12 @@ mod tests {
         let signature_der = signature.serialize_der();
         let mut hex_signature = vec![0; signature_der.len() * 2];
         hex_encode(&signature_der, &mut hex_signature).expect("hex signature");
-        witness_data.insert(0, hex_signature);
+        witness_data.insert(0, Bytes::from(hex_signature));
 
         let pubkey = privkey.pubkey().unwrap().serialize();
         let mut hex_pubkey = vec![0; pubkey.len() * 2];
         hex_encode(&pubkey, &mut hex_pubkey).expect("hex pubkey");
-        witness_data.insert(0, hex_pubkey);
+        witness_data.insert(0, Bytes::from(hex_pubkey));
 
         let code_hash: H256 = (&blake2b_256(&buffer)).into();
         let dep_out_point = OutPoint::new_cell(h256!("0x123"), 8);
@@ -565,12 +560,12 @@ mod tests {
         let signature_der = signature.serialize_der();
         let mut hex_signature = vec![0; signature_der.len() * 2];
         hex_encode(&signature_der, &mut hex_signature).expect("hex privkey");
-        witness_data.insert(0, hex_signature);
+        witness_data.insert(0, Bytes::from(hex_signature));
 
         let pubkey = privkey.pubkey().unwrap().serialize();
         let mut hex_pubkey = vec![0; pubkey.len() * 2];
         hex_encode(&pubkey, &mut hex_pubkey).expect("hex pubkey");
-        witness_data.insert(0, hex_pubkey);
+        witness_data.insert(0, Bytes::from(hex_pubkey));
 
         let code_hash: H256 = (&blake2b_256(&buffer)).into();
         let dep_out_point = OutPoint::new_cell(h256!("0x123"), 8);
@@ -647,14 +642,14 @@ mod tests {
         let signature_der = signature.serialize_der();
         let mut hex_signature = vec![0; signature_der.len() * 2];
         hex_encode(&signature_der, &mut hex_signature).expect("hex privkey");
-        witness_data.insert(0, hex_signature);
+        witness_data.insert(0, Bytes::from(hex_signature));
         // This line makes the verification invalid
         args.push(Bytes::from(b"extrastring".to_vec()));
 
         let pubkey = privkey.pubkey().unwrap().serialize();
         let mut hex_pubkey = vec![0; pubkey.len() * 2];
         hex_encode(&pubkey, &mut hex_pubkey).expect("hex pubkey");
-        witness_data.insert(0, hex_pubkey);
+        witness_data.insert(0, Bytes::from(hex_pubkey));
 
         let code_hash: H256 = (&blake2b_256(&buffer)).into();
         let dep_out_point = OutPoint::new_cell(h256!("0x123"), 8);
@@ -728,14 +723,14 @@ mod tests {
         let signature_der = signature.serialize_der();
         let mut hex_signature = vec![0; signature_der.len() * 2];
         hex_encode(&signature_der, &mut hex_signature).expect("hex privkey");
-        witness_data.insert(0, hex_signature);
+        witness_data.insert(0, Bytes::from(hex_signature));
 
         let dep_out_point = OutPoint::new_cell(h256!("0x123"), 8);
 
         let pubkey = privkey.pubkey().unwrap().serialize();
         let mut hex_pubkey = vec![0; pubkey.len() * 2];
         hex_encode(&pubkey, &mut hex_pubkey).expect("hex pubkey");
-        witness_data.insert(0, hex_pubkey);
+        witness_data.insert(0, Bytes::from(hex_pubkey));
 
         let code_hash: H256 = (&blake2b_256(&buffer)).into();
         let script = Script::new(args, code_hash);

@@ -21,7 +21,7 @@ use ckb_core::header::{BlockNumber, Header};
 use ckb_core::script::Script;
 use ckb_core::transaction::{CellInput, CellOutput, OutPoint, ProposalShortId, Transaction};
 use ckb_core::uncle::UncleBlock;
-use ckb_core::Cycle;
+use ckb_core::{Bytes as CoreBytes, Cycle};
 use ckb_merkle_tree::build_merkle_proof;
 use flatbuffers::{FlatBufferBuilder, WIPOffset};
 use numext_fixed_hash::H256;
@@ -242,7 +242,7 @@ impl<'a> FbsScript<'a> {
 impl<'a> FbsWitness<'a> {
     pub fn build<'b>(
         fbb: &mut FlatBufferBuilder<'b>,
-        witness: &[Vec<u8>],
+        witness: &[CoreBytes],
     ) -> WIPOffset<FbsWitness<'b>> {
         let data = witness
             .iter()

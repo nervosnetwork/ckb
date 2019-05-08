@@ -6,15 +6,14 @@ use numext_fixed_uint::U256;
 use serde_derive::{Deserialize, Serialize};
 use std::{fmt, mem};
 
-pub use crate::{BlockNumber, EpochNumber, Version};
+pub use crate::{BlockNumber, Bytes, EpochNumber, Version};
 
 pub const HEADER_VERSION: Version = 0;
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct Seal {
     nonce: u64,
-    #[serde(with = "serde_bytes")]
-    proof: Vec<u8>,
+    proof: Bytes,
 }
 
 impl fmt::Debug for Seal {
@@ -30,11 +29,11 @@ impl fmt::Debug for Seal {
 }
 
 impl Seal {
-    pub fn new(nonce: u64, proof: Vec<u8>) -> Self {
+    pub fn new(nonce: u64, proof: Bytes) -> Self {
         Seal { nonce, proof }
     }
 
-    pub fn destruct(self) -> (u64, Vec<u8>) {
+    pub fn destruct(self) -> (u64, Bytes) {
         let Seal { nonce, proof } = self;
         (nonce, proof)
     }
@@ -369,7 +368,7 @@ impl HeaderBuilder {
         self
     }
 
-    pub fn proof(mut self, proof: Vec<u8>) -> Self {
+    pub fn proof(mut self, proof: Bytes) -> Self {
         self.seal.proof = proof;
         self
     }

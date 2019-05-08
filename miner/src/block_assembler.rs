@@ -296,8 +296,7 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
             .args
             .iter()
             .cloned()
-            .map(JsonBytes::into_vec)
-            .map(Bytes::from)
+            .map(JsonBytes::into_bytes)
             .collect();
 
         // dummy cellbase

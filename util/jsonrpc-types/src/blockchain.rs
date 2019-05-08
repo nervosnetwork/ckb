@@ -182,7 +182,7 @@ pub struct Witness {
 impl<'a> From<&'a CoreWitness> for Witness {
     fn from(core: &CoreWitness) -> Witness {
         Witness {
-            data: core.iter().cloned().map(JsonBytes::from_vec).collect(),
+            data: core.iter().cloned().map(JsonBytes::from_bytes).collect(),
         }
     }
 }
@@ -191,7 +191,7 @@ impl TryFrom<Witness> for CoreWitness {
     type Error = FailureError;
 
     fn try_from(json: Witness) -> Result<Self, Self::Error> {
-        Ok(json.data.into_iter().map(JsonBytes::into_vec).collect())
+        Ok(json.data.into_iter().map(JsonBytes::into_bytes).collect())
     }
 }
 
@@ -366,7 +366,7 @@ impl From<CoreSeal> for Seal {
         let (nonce, proof) = core.destruct();
         Seal {
             nonce: nonce.to_string(),
-            proof: JsonBytes::from_vec(proof),
+            proof: JsonBytes::from_bytes(proof),
         }
     }
 }
@@ -376,7 +376,7 @@ impl TryFrom<Seal> for CoreSeal {
 
     fn try_from(json: Seal) -> Result<Self, Self::Error> {
         let Seal { nonce, proof } = json;
-        Ok(CoreSeal::new(nonce.parse::<u64>()?, proof.into_vec()))
+        Ok(CoreSeal::new(nonce.parse::<u64>()?, proof.into_bytes()))
     }
 }
 
@@ -733,7 +733,7 @@ mod tests {
             .deps(vec![CoreOutPoint::default()])
             .inputs(vec![mock_cell_input(arg.clone())])
             .outputs(vec![mock_cell_output(data, arg.clone())])
-            .witness(vec![arg.to_vec()])
+            .witness(vec![arg])
             .build()
     }
 

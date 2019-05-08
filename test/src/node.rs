@@ -215,7 +215,7 @@ impl Node {
                     .expect("parse current time failed"),
             )
             .parent_hash(parent_hash)
-            .seal(Seal::new(rand::random(), Vec::new()));
+            .seal(Seal::new(rand::random(), Bytes::default()));
 
         BlockBuilder::default()
             .uncles(
