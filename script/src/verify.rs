@@ -340,7 +340,7 @@ mod tests {
     use crypto::secp::Generator;
     use faster_hex::hex_encode;
     use hash::{blake2b_256, sha3_256};
-    use numext_fixed_hash::H256;
+    use numext_fixed_hash::{h256, H256};
     use std::fs::File;
     use std::io::{Read, Write};
     use std::path::Path;
@@ -422,7 +422,7 @@ mod tests {
         witness_data.insert(0, hex_pubkey);
 
         let code_hash: H256 = (&blake2b_256(&buffer)).into();
-        let dep_out_point = OutPoint::new_cell(H256::from_trimmed_hex_str("123").unwrap(), 8);
+        let dep_out_point = OutPoint::new_cell(h256!("0x123"), 8);
         let output = CellOutput::new(
             Capacity::bytes(buffer.len()).unwrap(),
             Bytes::from(buffer),
@@ -503,7 +503,7 @@ mod tests {
         witness_data.insert(0, hex_pubkey);
 
         let code_hash: H256 = (&blake2b_256(&buffer)).into();
-        let dep_out_point = OutPoint::new_cell(H256::from_trimmed_hex_str("123").unwrap(), 8);
+        let dep_out_point = OutPoint::new_cell(h256!("0x123"), 8);
         let output = CellOutput::new(
             Capacity::bytes(buffer.len()).unwrap(),
             Bytes::from(buffer),
@@ -584,7 +584,7 @@ mod tests {
         witness_data.insert(0, hex_pubkey);
 
         let code_hash: H256 = (&blake2b_256(&buffer)).into();
-        let dep_out_point = OutPoint::new_cell(H256::from_trimmed_hex_str("123").unwrap(), 8);
+        let dep_out_point = OutPoint::new_cell(h256!("0x123"), 8);
         let output = CellOutput::new(
             Capacity::bytes(buffer.len()).unwrap(),
             Bytes::from(buffer),
@@ -668,7 +668,7 @@ mod tests {
         witness_data.insert(0, hex_pubkey);
 
         let code_hash: H256 = (&blake2b_256(&buffer)).into();
-        let dep_out_point = OutPoint::new_cell(H256::from_trimmed_hex_str("123").unwrap(), 8);
+        let dep_out_point = OutPoint::new_cell(h256!("0x123"), 8);
         let output = CellOutput::new(
             Capacity::bytes(buffer.len()).unwrap(),
             Bytes::from(buffer),
@@ -741,7 +741,7 @@ mod tests {
         hex_encode(&signature_der, &mut hex_signature).expect("hex privkey");
         witness_data.insert(0, hex_signature);
 
-        let dep_out_point = OutPoint::new_cell(H256::from_trimmed_hex_str("123").unwrap(), 8);
+        let dep_out_point = OutPoint::new_cell(h256!("0x123"), 8);
 
         let pubkey = privkey.pubkey().unwrap().serialize();
         let mut hex_pubkey = vec![0; pubkey.len() * 2];
@@ -834,7 +834,7 @@ mod tests {
             Some(script),
         );
 
-        let dep_out_point = OutPoint::new_cell(H256::from_trimmed_hex_str("123").unwrap(), 8);
+        let dep_out_point = OutPoint::new_cell(h256!("0x123"), 8);
         let dep_cell = {
             let output = CellOutput::new(
                 Capacity::bytes(buffer.len()).unwrap(),
@@ -928,7 +928,7 @@ mod tests {
             Some(script),
         );
 
-        let dep_out_point = OutPoint::new_cell(H256::from_trimmed_hex_str("123").unwrap(), 8);
+        let dep_out_point = OutPoint::new_cell(h256!("0x123"), 8);
         let dep_cell = {
             let output = CellOutput::new(
                 Capacity::bytes(buffer.len()).unwrap(),

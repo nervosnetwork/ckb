@@ -7,7 +7,7 @@ use ckb_core::script::Script;
 use ckb_core::transaction::{CellInput, CellOutput, OutPoint, TransactionBuilder};
 use ckb_core::{capacity_bytes, Bytes, Capacity};
 use ckb_traits::BlockMedianTimeContext;
-use numext_fixed_hash::H256;
+use numext_fixed_hash::{h256, H256};
 
 #[test]
 pub fn test_empty() {
@@ -133,8 +133,8 @@ pub fn test_capacity_invalid() {
 pub fn test_duplicate_deps() {
     let transaction = TransactionBuilder::default()
         .deps(vec![
-            OutPoint::new_cell(H256::from_trimmed_hex_str("1").unwrap(), 0),
-            OutPoint::new_cell(H256::from_trimmed_hex_str("1").unwrap(), 0),
+            OutPoint::new_cell(h256!("0x1"), 0),
+            OutPoint::new_cell(h256!("0x1"), 0),
         ])
         .build();
 
@@ -167,7 +167,7 @@ pub fn test_since() {
     // use remain flags
     let transaction = TransactionBuilder::default()
         .inputs(vec![CellInput::new(
-            OutPoint::new_cell(H256::from_trimmed_hex_str("1").unwrap(), 0),
+            OutPoint::new_cell(h256!("0x1"), 0),
             0x2000_0000_0000_0000,
             Default::default(),
         )])
@@ -199,7 +199,7 @@ pub fn test_since() {
     // absolute lock
     let transaction = TransactionBuilder::default()
         .inputs(vec![CellInput::new(
-            OutPoint::new_cell(H256::from_trimmed_hex_str("1").unwrap(), 0),
+            OutPoint::new_cell(h256!("0x1"), 0),
             0x0000_0000_0000_000a,
             Default::default(),
         )])
@@ -231,7 +231,7 @@ pub fn test_since() {
     // relative lock
     let transaction = TransactionBuilder::default()
         .inputs(vec![CellInput::new(
-            OutPoint::new_cell(H256::from_trimmed_hex_str("1").unwrap(), 0),
+            OutPoint::new_cell(h256!("0x1"), 0),
             0xc000_0000_0000_0002,
             Default::default(),
         )])
@@ -265,12 +265,12 @@ pub fn test_since() {
     let transaction = TransactionBuilder::default()
         .inputs(vec![
             CellInput::new(
-                OutPoint::new_cell(H256::from_trimmed_hex_str("1").unwrap(), 0),
+                OutPoint::new_cell(h256!("0x1"), 0),
                 0x0000_0000_0000_000a,
                 Default::default(),
             ),
             CellInput::new(
-                OutPoint::new_cell(H256::from_trimmed_hex_str("1").unwrap(), 0),
+                OutPoint::new_cell(h256!("0x1"), 0),
                 0xc000_0000_0000_0002,
                 Default::default(),
             ),

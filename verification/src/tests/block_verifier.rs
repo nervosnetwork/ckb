@@ -8,7 +8,7 @@ use ckb_core::transaction::{
     CellInput, CellOutput, OutPoint, ProposalShortId, Transaction, TransactionBuilder,
 };
 use ckb_core::{capacity_bytes, Bytes, Capacity};
-use numext_fixed_hash::H256;
+use numext_fixed_hash::{h256, H256};
 
 fn create_cellbase_transaction_with_capacity(capacity: Capacity) -> Transaction {
     TransactionBuilder::default()
@@ -29,7 +29,7 @@ fn create_cellbase_transaction() -> Transaction {
 fn create_normal_transaction() -> Transaction {
     TransactionBuilder::default()
         .input(CellInput::new(
-            OutPoint::new_cell(H256::from_trimmed_hex_str("1").unwrap(), 0),
+            OutPoint::new_cell(h256!("0x1"), 0),
             0,
             Default::default(),
         ))
