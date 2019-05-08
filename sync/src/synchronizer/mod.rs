@@ -15,7 +15,7 @@ use crate::config::Config;
 use crate::types::{HeaderView, Peers, SyncSharedState};
 use crate::{
     BAD_MESSAGE_BAN_TIME, CHAIN_SYNC_TIMEOUT, EVICTION_HEADERS_RESPONSE_TIME,
-    HEADERS_DOWNLOAD_TIMEOUT_BASE, HEADERS_DOWNLOAD_TIMEOUT_PER_HEADER,
+    HEADERS_DOWNLOAD_TIMEOUT_BASE, HEADERS_DOWNLOAD_TIMEOUT_PER_HEADER, MAX_HEADERS_LEN,
     MAX_OUTBOUND_PEERS_TO_PROTECT_FROM_DISCONNECT, POW_SPACE,
 };
 use bitflags::bitflags;
@@ -32,6 +32,7 @@ use flatbuffers::FlatBufferBuilder;
 use hashbrown::HashMap;
 use log::{debug, info, trace};
 use numext_fixed_hash::H256;
+use std::cmp::min;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -177,9 +178,11 @@ impl<CS: ChainStore> Synchronizer<CS> {
 
     pub fn predict_headers_sync_time(&self, header: &Header) -> u64 {
         let now = unix_time_as_millis();
-        now + HEADERS_DOWNLOAD_TIMEOUT_BASE
-            + HEADERS_DOWNLOAD_TIMEOUT_PER_HEADER
-                * (now.saturating_sub(header.timestamp()) / POW_SPACE)
+        let expected_headers = min(
+            MAX_HEADERS_LEN as u64,
+            now.saturating_sub(header.timestamp()) / POW_SPACE,
+        );
+        now + HEADERS_DOWNLOAD_TIMEOUT_BASE + HEADERS_DOWNLOAD_TIMEOUT_PER_HEADER * expected_headers
     }
 
     pub fn mark_block_stored(&self, hash: H256) {
