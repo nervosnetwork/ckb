@@ -27,8 +27,23 @@ else
   fi
 fi
 
+SUB_JOB_NUMBER="${TRAVIS_JOB_NUMBER##*.}"
+# Run fmt and check evenly between osx and linux
+if (( TRAVIS_BUILD_NUMBER % 2 == SUB_JOB_NUMBER - 1 )); then
+  FMT=true
+  CHECK=true
+  TEST=true
+else
+  FMT=false
+  CHECK=false
+  TEST=true
+fi
+
 echo "\${RUN_TEST} = ${RUN_TEST}"
 echo "\${RUN_INTEGRATION} = ${RUN_INTEGRATION}"
+echo "\${FMT} = ${FMT}"
+echo "\${CHECK} = ${CHECK}"
+echo "\${TEST} = ${TEST}"
 
 if [ "$RUN_TEST" = true ]; then
   if [ "$FMT" = true ]; then
