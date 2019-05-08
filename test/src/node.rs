@@ -134,8 +134,7 @@ impl Node {
         RpcClient::new(transport_handle)
     }
 
-    // workaround: submit_pow_solution rpc doesn't working since miner is running as a standalone process
-    // TODO: remove clicker pow engine and cleanup rpc
+    // generate a new block and submit it through rpc.
     pub fn generate_block(&self) -> H256 {
         let result = self
             .rpc_client()
@@ -145,6 +144,7 @@ impl Node {
         result.expect("submit_block result none")
     }
 
+    // generate a transaction which spend tip block's cellbase and send it to pool through rpc.
     pub fn generate_transaction(&self) -> H256 {
         let block = self.get_tip_block();
         let cellbase: Transaction = block.transactions()[0]
