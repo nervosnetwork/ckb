@@ -1,4 +1,6 @@
-use crate::tests::util::{create_transaction, gen_block, start_chain};
+use crate::tests::util::{
+    create_transaction, create_transaction_with_out_point, gen_block, start_chain,
+};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::Block;
 use ckb_core::block::BlockBuilder;
@@ -347,6 +349,181 @@ fn test_transaction_conflict_in_different_blocks() {
             tx1_hash.to_owned(),
             0
         ))),
+        chain_controller
+            .process_block(Arc::new(chain[4].clone()))
+            .unwrap_err()
+            .downcast()
+            .unwrap()
+    );
+}
+
+#[test]
+fn test_invalid_out_point_index_in_same_block() {
+    let (chain_controller, shared) = start_chain(None, true);
+    let mut chain: Vec<Block> = Vec::new();
+    let mut parent = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
+    {
+        let difficulty = parent.difficulty().to_owned();
+        let new_block = gen_block(
+            &parent,
+            difficulty + U256::from(100u64),
+            vec![],
+            vec![],
+            vec![],
+        );
+        parent = new_block.header().to_owned();
+        chain.push(new_block);
+    }
+
+    let last_cell_base = &chain.last().unwrap().transactions()[0];
+    let tx1 = create_transaction(last_cell_base.hash(), 1);
+    let tx1_hash = tx1.hash().to_owned();
+    let tx2 = create_transaction(&tx1_hash, 2);
+    // create an invalid OutPoint index
+    let tx3 = create_transaction_with_out_point(OutPoint::new_cell(tx1_hash.clone(), 1), 3);
+    let txs = vec![tx1, tx2, tx3];
+    // proposal txs
+    {
+        let difficulty = parent.difficulty().to_owned();
+        let new_block = gen_block(
+            &parent,
+            difficulty + U256::from(100u64),
+            vec![],
+            txs.clone(),
+            vec![],
+        );
+        parent = new_block.header().to_owned();
+        chain.push(new_block);
+    }
+    // empty N+1 block
+    {
+        let difficulty = parent.difficulty().to_owned();
+        let new_block = gen_block(
+            &parent,
+            difficulty + U256::from(100u64),
+            vec![],
+            vec![],
+            vec![],
+        );
+        parent = new_block.header().to_owned();
+        chain.push(new_block);
+    }
+    // commit txs in N+2 block
+    {
+        let difficulty = parent.difficulty().to_owned();
+        let new_block = gen_block(
+            &parent,
+            difficulty + U256::from(100u64),
+            txs.clone(),
+            vec![],
+            vec![],
+        );
+        chain.push(new_block);
+    }
+    for block in chain.iter().take(3) {
+        chain_controller
+            .process_block(Arc::new(block.clone()))
+            .expect("process block ok");
+    }
+    assert_eq!(
+        SharedError::UnresolvableTransaction(UnresolvableError::Unknown(vec![OutPoint::new_cell(
+            tx1_hash.to_owned(),
+            1,
+        )])),
+        chain_controller
+            .process_block(Arc::new(chain[3].clone()))
+            .unwrap_err()
+            .downcast()
+            .unwrap()
+    );
+}
+
+#[test]
+fn test_invalid_out_point_index_in_different_blocks() {
+    let (chain_controller, shared) = start_chain(None, true);
+    let mut chain: Vec<Block> = Vec::new();
+    let mut parent = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
+    {
+        let difficulty = parent.difficulty().to_owned();
+        let new_block = gen_block(
+            &parent,
+            difficulty + U256::from(100u64),
+            vec![],
+            vec![],
+            vec![],
+        );
+        parent = new_block.header().to_owned();
+        chain.push(new_block);
+    }
+
+    let last_cell_base = &chain.last().unwrap().transactions()[0];
+    let tx1 = create_transaction(last_cell_base.hash(), 1);
+    let tx1_hash = tx1.hash();
+    let tx2 = create_transaction(tx1_hash, 2);
+    // create an invalid OutPoint index
+    let tx3 = create_transaction_with_out_point(OutPoint::new_cell(tx1_hash.clone(), 1), 3);
+    // proposal txs
+    {
+        let difficulty = parent.difficulty().to_owned();
+        let new_block = gen_block(
+            &parent,
+            difficulty + U256::from(100u64),
+            vec![],
+            vec![tx1.clone(), tx2.clone(), tx3.clone()],
+            vec![],
+        );
+        parent = new_block.header().to_owned();
+        chain.push(new_block);
+    }
+    // empty N+1 block
+    {
+        let difficulty = parent.difficulty().to_owned();
+        let new_block = gen_block(
+            &parent,
+            difficulty + U256::from(100u64),
+            vec![],
+            vec![],
+            vec![],
+        );
+        parent = new_block.header().to_owned();
+        chain.push(new_block);
+    }
+    // commit tx1 and tx2 in N+2 block
+    {
+        let difficulty = parent.difficulty().to_owned();
+        let new_block = gen_block(
+            &parent,
+            difficulty + U256::from(100u64),
+            vec![tx1.clone(), tx2.clone()],
+            vec![],
+            vec![],
+        );
+        parent = new_block.header().to_owned();
+        chain.push(new_block);
+    }
+    // commit tx3 in N+3 block
+    {
+        let difficulty = parent.difficulty().to_owned();
+        let new_block = gen_block(
+            &parent,
+            difficulty + U256::from(100u64),
+            vec![tx3.clone()],
+            vec![],
+            vec![],
+        );
+        chain.push(new_block);
+    }
+    for block in chain.iter().take(4) {
+        chain_controller
+            .process_block(Arc::new(block.clone()))
+            .expect("process block ok");
+    }
+
+    assert_eq!(
+        SharedError::UnresolvableTransaction(UnresolvableError::Unknown(vec![OutPoint::new_cell(
+            tx1_hash.to_owned(),
+            1,
+        )])),
         chain_controller
             .process_block(Arc::new(chain[4].clone()))
             .unwrap_err()
