@@ -18,10 +18,10 @@ matrix:
   include:
     - rust: 1.34.1
       os: osx
-      env: FMT=true CHECK=true TEST=true REL_PKG=darwin_amd64.zip
+      env: REL_PKG=darwin_amd64.zip
     - rust: 1.34.1
       os: linux
-      env: TEST=true REL_PKG=linux_amd64.tar.gz
+      env: REL_PKG=linux_amd64.tar.gz
 
 addons:
   apt:
