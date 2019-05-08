@@ -1,5 +1,5 @@
 use crate::specs::TestProtocol;
-use crate::Node;
+use crate::{sleep, Node};
 use bytes::Bytes;
 use ckb_core::BlockNumber;
 use ckb_network::{
@@ -7,6 +7,7 @@ use ckb_network::{
     NetworkService, NetworkState, PeerIndex, ProtocolId,
 };
 use crossbeam_channel::{self, Receiver, Sender};
+use std::collections::HashSet;
 use std::sync::Arc;
 use tempfile::tempdir;
 
@@ -104,6 +105,26 @@ impl Net {
                 .parse()
                 .expect("invalid address"),
         );
+    }
+
+    pub fn waiting_for_sync(&self, timeout: u64) {
+        for _ in 0..timeout {
+            sleep(1);
+            let tip_numbers: HashSet<_> = self
+                .nodes
+                .iter()
+                .map(|node| {
+                    node.rpc_client()
+                        .get_tip_block_number()
+                        .call()
+                        .expect("rpc call get_tip_block_number failed")
+                })
+                .collect();
+            if tip_numbers.len() == 1 {
+                return;
+            }
+        }
+        panic!("Waiting for sync timeout");
     }
 
     pub fn send(&self, protocol_id: ProtocolId, peer: PeerIndex, data: Bytes) {

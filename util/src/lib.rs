@@ -1,3 +1,13 @@
+mod linked_hash_set;
+
+pub use fnv::{FnvBuildHasher, FnvHashMap, FnvHashSet};
+pub use linked_hash_map::{Entries as LinkedHashMapEntries, LinkedHashMap};
+pub use linked_hash_set::LinkedHashSet;
+
+pub type LinkedFnvHashMap<K, V> = LinkedHashMap<K, V, FnvBuildHasher>;
+pub type LinkedFnvHashMapEntries<'a, K, V> = LinkedHashMapEntries<'a, K, V, FnvBuildHasher>;
+pub type LinkedFnvHashSet<T> = LinkedHashSet<T, FnvBuildHasher>;
+
 pub use parking_lot::{
     self, Condvar, Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard,
 };

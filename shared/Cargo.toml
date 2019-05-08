@@ -15,14 +15,12 @@ ckb-db = { path = "../db" }
 jsonrpc-types = { path = "../util/jsonrpc-types" }
 numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 numext-fixed-uint = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
-lru-cache = { git = "https://github.com/nervosnetwork/lru-cache" }
-fnv = "1.0.3"
+lru-cache = { git = "https://github.com/nervosnetwork/lru-cache", rev = "b36a4d1" }
 faketime = "0.2"
 log = "0.4"
 ckb-traits = { path = "../traits" }
 failure = "0.1.5"
 ckb-verification = { path = "../verification" }
-linked-hash-map = { git = "https://github.com/nervosnetwork/linked-hash-map", rev = "df27f21" }
 ckb-protocol = { path = "../protocol" }
 flatbuffers = "0.5.0"
 ckb-script = { path = "../script" }

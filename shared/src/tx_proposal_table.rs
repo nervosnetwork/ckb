@@ -1,7 +1,7 @@
 use ckb_chain_spec::consensus::ProposalWindow;
 use ckb_core::header::BlockNumber;
 use ckb_core::transaction::ProposalShortId;
-use fnv::FnvHashSet;
+use ckb_util::FnvHashSet;
 use log::trace;
 use std::collections::BTreeMap;
 use std::ops::Bound;

@@ -3,7 +3,7 @@
 use crate::tx_pool::types::PoolEntry;
 use ckb_core::transaction::{OutPoint, ProposalShortId, Transaction};
 use ckb_core::Cycle;
-use fnv::FnvHashMap;
+use ckb_util::FnvHashMap;
 use std::collections::hash_map;
 use std::collections::VecDeque;
 use std::iter::ExactSizeIterator;
