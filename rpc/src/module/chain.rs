@@ -80,7 +80,11 @@ impl<CS: ChainStore + 'static> ChainRpc for ChainRpcImpl<CS> {
             tx_pool
                 .get_tx_from_staging(&id)
                 .map(TransactionWithStatus::with_proposed)
-                .or_else(|| tx_pool.get_tx(&id).map(TransactionWithStatus::with_pending))
+                .or_else(|| {
+                    tx_pool
+                        .get_tx_without_conflict(&id)
+                        .map(TransactionWithStatus::with_pending)
+                })
         };
 
         Ok(tx.or_else(|| {
