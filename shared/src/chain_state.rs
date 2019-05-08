@@ -285,7 +285,7 @@ impl<CS: ChainStore> ChainState<CS> {
                 ContextualTransactionVerifier::new(
                     &rtx,
                     &self,
-                    self.tip_number(),
+                    self.tip_number() + self.consensus().tx_proposal_window.end(),
                     self.consensus().cellbase_maturity,
                 )
                 .verify()
@@ -298,7 +298,7 @@ impl<CS: ChainStore> ChainState<CS> {
                     &rtx,
                     Arc::clone(&self.store),
                     &self,
-                    self.tip_number(),
+                    self.tip_number() + self.consensus().tx_proposal_window.end(),
                     self.consensus().cellbase_maturity,
                     &self.script_config,
                 )

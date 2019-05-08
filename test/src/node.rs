@@ -257,6 +257,10 @@ impl Node {
     }
 
     pub fn new_transaction(&self, hash: H256) -> Transaction {
+        self.new_transaction_with_since(hash, 0)
+    }
+
+    pub fn new_transaction_with_since(&self, hash: H256, since: u64) -> Transaction {
         // OutPoint and Script reference hash values are from spec#always_success_type_hash test
         let out_point = OutPoint::new_cell(
             h256!("0xf8532f2ed92aad146878dca1d5ad9840e9c803ab85d1361652500eaee09c9038"),
@@ -275,7 +279,7 @@ impl Node {
                 script,
                 None,
             ))
-            .input(CellInput::new(OutPoint::new_cell(hash, 0), 0, vec![]))
+            .input(CellInput::new(OutPoint::new_cell(hash, 0), since, vec![]))
             .build()
     }
 
