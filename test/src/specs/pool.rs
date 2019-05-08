@@ -1,4 +1,4 @@
-use crate::{sleep, Net, Spec};
+use crate::{Net, Spec};
 use jsonrpc_types::{Action, TxTrace};
 use log::info;
 
@@ -40,8 +40,7 @@ impl Spec for PoolReconcile {
         info!("Connect node0 to node1");
         node0.connect(node1);
 
-        info!("Waiting for sync");
-        sleep(10);
+        net.waiting_for_sync(10);
 
         info!("Tx should be re-added to node0's pool");
         assert!(node0

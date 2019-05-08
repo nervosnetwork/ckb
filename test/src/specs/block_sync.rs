@@ -1,4 +1,4 @@
-use crate::{sleep, Net, Spec};
+use crate::{Net, Spec};
 use log::info;
 
 pub struct BlockSyncBasic;
@@ -17,8 +17,7 @@ impl Spec for BlockSyncBasic {
         info!("Connect node0 to node1");
         node0.connect(node1);
 
-        info!("Waiting for sync");
-        sleep(5);
+        net.waiting_for_sync(10);
 
         info!("Node1 should be synced to same block number with node0");
         let number0 = node0.rpc_client().get_tip_block_number().call().unwrap();
