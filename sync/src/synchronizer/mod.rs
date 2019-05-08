@@ -490,7 +490,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
 }
 
 impl<CS: ChainStore> CKBProtocolHandler for Synchronizer<CS> {
-    fn init(&mut self, nc: Box<dyn CKBProtocolContext>) {
+    fn init(&mut self, nc: Arc<dyn CKBProtocolContext + Sync>) {
         // NOTE: 100ms is what bitcoin use.
         nc.set_notify(SYNC_NOTIFY_INTERVAL, SEND_GET_HEADERS_TOKEN);
         nc.set_notify(SYNC_NOTIFY_INTERVAL, BLOCK_FETCH_TOKEN);
@@ -499,7 +499,7 @@ impl<CS: ChainStore> CKBProtocolHandler for Synchronizer<CS> {
 
     fn received(
         &mut self,
-        nc: Box<dyn CKBProtocolContext>,
+        nc: Arc<dyn CKBProtocolContext + Sync>,
         peer_index: PeerIndex,
         data: bytes::Bytes,
     ) {
@@ -516,12 +516,17 @@ impl<CS: ChainStore> CKBProtocolHandler for Synchronizer<CS> {
         self.process(nc.as_ref(), peer_index, msg);
     }
 
-    fn connected(&mut self, nc: Box<CKBProtocolContext>, peer_index: PeerIndex, _version: &str) {
+    fn connected(
+        &mut self,
+        nc: Arc<CKBProtocolContext + Sync>,
+        peer_index: PeerIndex,
+        _version: &str,
+    ) {
         info!(target: "sync", "SyncProtocol.connected peer={}", peer_index);
         self.on_connected(nc.as_ref(), peer_index);
     }
 
-    fn disconnected(&mut self, _nc: Box<CKBProtocolContext>, peer_index: PeerIndex) {
+    fn disconnected(&mut self, _nc: Arc<CKBProtocolContext + Sync>, peer_index: PeerIndex) {
         info!(target: "sync", "SyncProtocol.disconnected peer={}", peer_index);
         let mut state = self.peers.state.write();
         if let Some(peer_state) = state.get(&peer_index) {
@@ -536,7 +541,7 @@ impl<CS: ChainStore> CKBProtocolHandler for Synchronizer<CS> {
         self.peers.disconnected(peer_index);
     }
 
-    fn notify(&mut self, nc: Box<dyn CKBProtocolContext>, token: u64) {
+    fn notify(&mut self, nc: Arc<dyn CKBProtocolContext + Sync>, token: u64) {
         if !self.peers.state.read().is_empty() {
             let last_notify_time = self
                 .last_notify_times

@@ -10,15 +10,15 @@ use std::sync::Arc;
 pub struct BlockTransactionsProcess<'a, CS> {
     message: &'a BlockTransactions<'a>,
     relayer: &'a Relayer<CS>,
-    nc: &'a CKBProtocolContext,
+    nc: Arc<dyn CKBProtocolContext>,
     peer: PeerIndex,
 }
 
-impl<'a, CS: ChainStore> BlockTransactionsProcess<'a, CS> {
+impl<'a, CS: ChainStore + 'static> BlockTransactionsProcess<'a, CS> {
     pub fn new(
         message: &'a BlockTransactions,
         relayer: &'a Relayer<CS>,
-        nc: &'a CKBProtocolContext,
+        nc: Arc<dyn CKBProtocolContext>,
         peer: PeerIndex,
     ) -> Self {
         BlockTransactionsProcess {
@@ -51,7 +51,7 @@ impl<'a, CS: ChainStore> BlockTransactionsProcess<'a, CS> {
 
             if let Ok(block) = ret {
                 self.relayer
-                    .accept_block(self.nc, self.peer, &Arc::new(block));
+                    .accept_block(self.nc.as_ref(), self.peer, &Arc::new(block));
             }
         }
         Ok(())

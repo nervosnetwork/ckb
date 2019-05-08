@@ -1,15 +1,12 @@
 use crate::shared::Shared;
 use crate::tx_pool::PoolError;
-use ckb_core::{
-    transaction::Transaction,
-    BlockNumber, Cycle,
-};
+use ckb_core::{transaction::Transaction, BlockNumber, Cycle};
 use ckb_store::ChainStore;
 use ckb_traits::BlockMedianTimeContext;
-use ckb_verification::{TransactionVerifier};
-use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
-use numext_fixed_hash::H256;
+use ckb_verification::TransactionVerifier;
 use fnv::FnvHashMap;
+use numext_fixed_hash::H256;
+use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use std::sync::Arc;
 
 struct StoreBlockMedianTimeContext<CS> {
@@ -34,7 +31,7 @@ impl<CS: ChainStore> BlockMedianTimeContext for StoreBlockMedianTimeContext<CS> 
 /// TxPoolExecutor
 /// execute txs in parallel then add them to tx_pool
 pub struct TxPoolExecutor<CS> {
-    shared: Shared<CS>
+    shared: Shared<CS>,
 }
 
 impl<CS: ChainStore> TxPoolExecutor<CS> {
@@ -43,12 +40,16 @@ impl<CS: ChainStore> TxPoolExecutor<CS> {
     }
 
     pub fn verify_and_add_tx_to_pool(&self, tx: Transaction) -> Result<Cycle, PoolError> {
-        self.verify_and_add_txs_to_pool(vec![tx]).map(|cycles_vec| *cycles_vec.get(0).expect("tx verified cycles"))
+        self.verify_and_add_txs_to_pool(vec![tx])
+            .map(|cycles_vec| *cycles_vec.get(0).expect("tx verified cycles"))
     }
 
-    pub fn verify_and_add_txs_to_pool(&self, txs: Vec<Transaction>) -> Result<Vec<Cycle>, PoolError> {
+    pub fn verify_and_add_txs_to_pool(
+        &self,
+        txs: Vec<Transaction>,
+    ) -> Result<Vec<Cycle>, PoolError> {
         if txs.is_empty() {
-            return Ok(Vec::new())
+            return Ok(Vec::new());
         }
         // resolve txs
         // early release the chain_state lock because tx verification is slow
@@ -69,14 +70,20 @@ impl<CS: ChainStore> TxPoolExecutor<CS> {
                     Err(err) => unresolvable_txs.push(err),
                 }
             }
-            (resolved_txs, cached_txs, unresolvable_txs, consensus, tip_number)
+            (
+                resolved_txs,
+                cached_txs,
+                unresolvable_txs,
+                consensus,
+                tip_number,
+            )
         };
 
         // immediately return if resolved_txs is empty
         if resolved_txs.is_empty() {
             match unresolvable_txs.get(0) {
                 Some(err) => return Err(PoolError::UnresolvableTransaction(err.to_owned())),
-                None => return Ok(Vec::new())
+                None => return Ok(Vec::new()),
             }
         }
 
@@ -103,38 +110,49 @@ impl<CS: ChainStore> TxPoolExecutor<CS> {
                 .map_err(PoolError::InvalidTx);
                 (tx_hash.to_owned(), verified_result)
             })
-        .collect::<Vec<_>>();
+            .collect::<Vec<_>>();
 
         // write cache
         let cycles_vec = {
             let mut txs_verify_cache = self.shared.txs_verify_cache().lock();
-            cycles_vec.into_iter().map(|(i, result)| {
-                let result = match result {
-                    Ok((rtx, cycles)) => {
-                        let tx_hash = rtx.transaction.hash().to_owned();
-                        txs_verify_cache.insert(tx_hash, cycles);
-                        Ok(cycles)
-                    }
-                    Err(err) => Err(err),
-                };
-                (i, result)
-            }).collect::<Vec<(H256, Result<Cycle, _>)>>()
+            cycles_vec
+                .into_iter()
+                .map(|(i, result)| {
+                    let result = match result {
+                        Ok((rtx, cycles)) => {
+                            let tx_hash = rtx.transaction.hash().to_owned();
+                            txs_verify_cache.insert(tx_hash, cycles);
+                            Ok(cycles)
+                        }
+                        Err(err) => Err(err),
+                    };
+                    (i, result)
+                })
+                .collect::<Vec<(H256, Result<Cycle, _>)>>()
         };
 
         // join verified result with cached_txs
         let cycles_vec = {
-            let mut cycles_vec = cycles_vec.into_iter().chain(cached_txs).collect::<FnvHashMap<H256, Result<Cycle, PoolError>>>();
-            txs.iter().filter_map(|tx|{
-                cycles_vec.remove(tx.hash()).map(|result| result.map(|cycles|(cycles, tx.to_owned())))
-            }).collect::<Vec<Result<(Cycle, Transaction), PoolError>>>()
+            let mut cycles_vec = cycles_vec
+                .into_iter()
+                .chain(cached_txs)
+                .collect::<FnvHashMap<H256, Result<Cycle, PoolError>>>();
+            txs.iter()
+                .filter_map(|tx| {
+                    cycles_vec
+                        .remove(tx.hash())
+                        .map(|result| result.map(|cycles| (cycles, tx.to_owned())))
+                })
+                .collect::<Vec<Result<(Cycle, Transaction), PoolError>>>()
         };
         // add verified txs to pool
         let chain_state = self.shared.chain_state().lock();
-        cycles_vec.into_iter().map(|result|{
-            match result {
+        cycles_vec
+            .into_iter()
+            .map(|result| match result {
                 Ok((cycles, tx)) => chain_state.add_tx_to_pool(tx, cycles),
                 Err(err) => Err(err),
-            }
-        }).collect()
+            })
+            .collect()
     }
 }

@@ -11,7 +11,10 @@ use ckb_core::{capacity_bytes, Bytes, Capacity};
 use ckb_db::memorydb::MemoryKeyValueDB;
 use ckb_notify::NotifyService;
 use ckb_protocol::RelayMessage;
-use ckb_shared::shared::{Shared, SharedBuilder};
+use ckb_shared::{
+    shared::{Shared, SharedBuilder},
+    tx_pool_executor::TxPoolExecutor,
+};
 use ckb_store::ChainKVStore;
 use ckb_traits::ChainProvider;
 use ckb_util::RwLock;
@@ -20,9 +23,11 @@ use flatbuffers::get_root;
 use flatbuffers::FlatBufferBuilder;
 use numext_fixed_uint::U256;
 use std::collections::HashSet;
-use std::sync::mpsc::channel;
+use std::sync::mpsc::sync_channel;
 use std::sync::{Arc, Barrier};
 use std::{thread, time};
+
+const DEFAULT_CHANNEL: usize = 128;
 
 #[test]
 fn relay_compact_block_with_one_tx() {
@@ -39,7 +44,7 @@ fn relay_compact_block_with_one_tx() {
 
     node1.connect(&mut node2, NetworkProtocol::RELAY.into());
 
-    let (signal_tx1, _) = channel();
+    let (signal_tx1, _) = sync_channel(DEFAULT_CHANNEL);
     let barrier1 = Arc::clone(&barrier);
     thread::Builder::new()
         .name(thread_name)
@@ -65,9 +70,9 @@ fn relay_compact_block_with_one_tx() {
                 .build();
 
             {
-                let chain_state = shared1.chain_state().lock();
-                let _cycles = chain_state
-                    .add_tx_to_pool(tx.clone(), None)
+                let tx_pool_executor = TxPoolExecutor::new(shared1.clone());
+                let _cycles = tx_pool_executor
+                    .verify_and_add_tx_to_pool(tx.clone())
                     .expect("verify relay tx");
                 let fbb = &mut FlatBufferBuilder::new();
                 let message = RelayMessage::build_transaction_hash(fbb, &tx.hash());
@@ -167,7 +172,7 @@ fn relay_compact_block_with_one_tx() {
         .expect("thread spawn");
 
     let barrier2 = Arc::clone(&barrier);
-    let (signal_tx2, signal_rx2) = channel();
+    let (signal_tx2, signal_rx2) = sync_channel(DEFAULT_CHANNEL);
     thread::spawn(move || {
         node2.start(&signal_tx2, |data| {
             let msg = get_root::<RelayMessage>(data);
@@ -203,7 +208,7 @@ fn relay_compact_block_with_missing_indexs() {
 
     node1.connect(&mut node2, NetworkProtocol::RELAY.into());
 
-    let (signal_tx1, _) = channel();
+    let (signal_tx1, _) = sync_channel(DEFAULT_CHANNEL);
     thread::Builder::new()
         .name(thread_name)
         .spawn(move || {
@@ -231,12 +236,13 @@ fn relay_compact_block_with_missing_indexs() {
                 })
                 .collect::<Vec<_>>();
 
+            let tx_pool_executor = TxPoolExecutor::new(shared1.clone());
+
             [3, 5].iter().for_each(|i| {
                 let tx = &txs[*i];
                 let _cycles = {
-                    let chain_state = shared1.chain_state().lock();
-                    chain_state
-                        .add_tx_to_pool(tx.clone(), None)
+                    tx_pool_executor
+                        .verify_and_add_tx_to_pool(tx.clone())
                         .expect("verify relay tx")
                 };
                 let fbb = &mut FlatBufferBuilder::new();
@@ -335,7 +341,7 @@ fn relay_compact_block_with_missing_indexs() {
         })
         .expect("thread spawn");
 
-    let (signal_tx2, signal_rx2) = channel();
+    let (signal_tx2, signal_rx2) = sync_channel(DEFAULT_CHANNEL);
     thread::spawn(move || {
         node2.start(&signal_tx2, |data| {
             let msg = get_root::<RelayMessage>(data);

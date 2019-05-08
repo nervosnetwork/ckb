@@ -145,11 +145,11 @@ pub struct DummyProtocolHandler {
 }
 
 impl CKBProtocolHandler for DummyProtocolHandler {
-    fn init(&mut self, _nc: Box<dyn CKBProtocolContext>) {}
+    fn init(&mut self, _nc: Arc<dyn CKBProtocolContext + Sync>) {}
 
     fn received(
         &mut self,
-        _nc: Box<dyn CKBProtocolContext>,
+        _nc: Arc<dyn CKBProtocolContext + Sync>,
         peer_index: PeerIndex,
         data: bytes::Bytes,
     ) {

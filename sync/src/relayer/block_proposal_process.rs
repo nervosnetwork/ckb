@@ -39,16 +39,22 @@ impl<'a, CS: ChainStore> BlockProposalProcess<'a, CS> {
         }
         let mut inflight = self.relayer.state.inflight_proposals.lock();
         // filter txs that we ask for download
-        let asked_txs = unknown_txs.into_iter().filter_map(|(tx_hash, tx)| {
-            if inflight.remove(&ProposalShortId::from_tx_hash(&tx_hash)) {
-                // mark as known
-                self.relayer.state.insert_tx(tx_hash);
-                Some(tx)
-            } else {
-                None
-            }
-        }).collect();
-        let ret = self.relayer.tx_pool_executor.verify_and_add_txs_to_pool(asked_txs);
+        let asked_txs = unknown_txs
+            .into_iter()
+            .filter_map(|(tx_hash, tx)| {
+                if inflight.remove(&ProposalShortId::from_tx_hash(&tx_hash)) {
+                    // mark as known
+                    self.relayer.state.insert_tx(tx_hash);
+                    Some(tx)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        let ret = self
+            .relayer
+            .tx_pool_executor
+            .verify_and_add_txs_to_pool(asked_txs);
         if ret.is_err() {
             warn!(target: "relay", "BlockProposal add_tx_to_pool error {:?}", ret)
         }
