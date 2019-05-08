@@ -1,11 +1,10 @@
 use bytes::Bytes;
 use faster_hex::hex_encode;
-use hash::blake2b_256;
+use hash::new_blake2b;
 use numext_fixed_hash::{h256, H256};
 use occupied_capacity::HasOccupiedCapacity;
 use serde_derive::{Deserialize, Serialize};
 use std::fmt;
-use std::io::Write;
 
 pub const ALWAYS_SUCCESS_HASH: H256 = h256!("0x1");
 
@@ -43,9 +42,6 @@ impl fmt::Debug for Script {
 
 type ScriptTuple = (Vec<Bytes>, H256);
 
-const VEC_WRITE_ALL_EXPECT: &str =
-    "Essentially, Vec::write_all invoke extend_from_slice, should not fail";
-
 impl Script {
     pub fn new(args: Vec<Bytes>, code_hash: H256) -> Self {
         Script { args, code_hash }
@@ -68,17 +64,17 @@ impl Script {
     // to the script's own argument list. This way we can calculate the
     // script hash on &Script struct without needing to clone it.
     pub fn hash_with_appended_arguments(&self, args: &[Bytes]) -> H256 {
-        let mut bytes = vec![];
-        bytes
-            .write_all(self.code_hash.as_bytes())
-            .expect(VEC_WRITE_ALL_EXPECT);
+        let mut ret = [0u8; 32];
+        let mut blake2b = new_blake2b();
+        blake2b.update(self.code_hash.as_bytes());
         for argument in &self.args {
-            bytes.write_all(argument).expect(VEC_WRITE_ALL_EXPECT);
+            blake2b.update(argument);
         }
         for argument in args {
-            bytes.write_all(argument).expect(VEC_WRITE_ALL_EXPECT);
+            blake2b.update(argument);
         }
-        blake2b_256(bytes).into()
+        blake2b.finalize(&mut ret);
+        ret.into()
     }
 
     pub fn serialized_size(&self) -> usize {

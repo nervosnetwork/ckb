@@ -388,8 +388,8 @@ pub struct Header {
     pub number: BlockNumber,
     pub epoch: EpochNumber,
     pub transactions_root: H256,
-    pub proposals_root: H256,
     pub witnesses_root: H256,
+    pub proposals_hash: H256,
     pub difficulty: U256,
     pub uncles_hash: H256,
     pub uncles_count: u32,
@@ -412,8 +412,8 @@ impl<'a> From<&'a CoreHeader> for Header {
             number: core.number().to_string(),
             epoch: core.epoch().to_string(),
             transactions_root: core.transactions_root().to_owned(),
-            proposals_root: core.proposals_root().to_owned(),
             witnesses_root: core.witnesses_root().to_owned(),
+            proposals_hash: core.proposals_hash().to_owned(),
             difficulty: core.difficulty().to_owned(),
             uncles_hash: core.uncles_hash().to_owned(),
             uncles_count: core.uncles_count(),
@@ -442,8 +442,8 @@ impl TryFrom<Header> for CoreHeader {
             number,
             epoch,
             transactions_root,
-            proposals_root,
             witnesses_root,
+            proposals_hash,
             difficulty,
             uncles_hash,
             uncles_count,
@@ -457,8 +457,8 @@ impl TryFrom<Header> for CoreHeader {
             .number(number.parse::<CoreBlockNumber>()?)
             .epoch(epoch.parse::<CoreEpochNumber>()?)
             .transactions_root(transactions_root)
-            .proposals_root(proposals_root)
             .witnesses_root(witnesses_root)
+            .proposals_hash(proposals_hash)
             .difficulty(difficulty)
             .uncles_hash(uncles_hash)
             .uncles_count(uncles_count)

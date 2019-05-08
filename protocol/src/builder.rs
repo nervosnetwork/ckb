@@ -50,8 +50,8 @@ impl<'a> FbsHeader<'a> {
     pub fn build<'b>(fbb: &mut FlatBufferBuilder<'b>, header: &Header) -> WIPOffset<FbsHeader<'b>> {
         let parent_hash = header.parent_hash().into();
         let transactions_root = header.transactions_root().into();
-        let proposals_root = header.proposals_root().into();
         let witnesses_root = header.witnesses_root().into();
+        let proposals_hash = header.proposals_hash().into();
         let difficulty = FbsBytes::build(fbb, &uint_to_bytes(header.difficulty()));
         let proof = FbsBytes::build(fbb, &header.proof());
         let uncles_hash = header.uncles_hash().into();
@@ -62,7 +62,7 @@ impl<'a> FbsHeader<'a> {
         builder.add_number(header.number());
         builder.add_epoch(header.epoch());
         builder.add_transactions_root(&transactions_root);
-        builder.add_proposals_root(&proposals_root);
+        builder.add_proposals_hash(&proposals_hash);
         builder.add_witnesses_root(&witnesses_root);
         builder.add_difficulty(difficulty);
         builder.add_nonce(header.nonce());

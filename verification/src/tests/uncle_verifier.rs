@@ -293,7 +293,7 @@ from_block(chain1.get(block_number).cloned().unwrap())          // epoch 1
         );
     }
 
-    // Uncle proposals_root is invalid
+    // Uncle proposals_hash is invalid
     {
         let parent_epoch = shared.get_epoch_ext(&chain1[7].header().hash()).unwrap();
         let epoch = shared
@@ -310,7 +310,7 @@ from_block(chain1.get(block_number).cloned().unwrap())          // epoch 1
             .build();
         assert_eq!(
             verifier.verify(&block),
-            Err(Error::Uncles(UnclesError::ProposalsRoot))
+            Err(Error::Uncles(UnclesError::ProposalsHash))
         );
     }
 
