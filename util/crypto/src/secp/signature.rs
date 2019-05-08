@@ -147,19 +147,3 @@ impl FromStr for Signature {
             .map_err(|_| Error::InvalidSignature)
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn test_n() {
-        let half: H256 =
-            H256::from_hex_str("7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF5D576E7357A4501DDFE92F46681B20A0")
-                .unwrap();
-        let n: H256 =
-            H256::from_hex_str("fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141")
-                .unwrap();
-        assert_eq!(half, HALF_N);
-        assert_eq!(n, N);
-    }
-}

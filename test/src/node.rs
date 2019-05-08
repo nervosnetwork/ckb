@@ -10,7 +10,7 @@ use ckb_core::{capacity_bytes, BlockNumber, Bytes, Capacity};
 use jsonrpc_client_http::{HttpHandle, HttpTransport};
 use jsonrpc_types::{BlockTemplate, CellbaseTemplate};
 use log::info;
-use numext_fixed_hash::H256;
+use numext_fixed_hash::{h256, H256};
 use rand;
 use std::convert::TryInto;
 use std::fs;
@@ -259,14 +259,12 @@ impl Node {
     pub fn new_transaction(&self, hash: H256) -> Transaction {
         // OutPoint and Script reference hash values are from spec#always_success_type_hash test
         let out_point = OutPoint::new_cell(
-            H256::from_hex_str("f8532f2ed92aad146878dca1d5ad9840e9c803ab85d1361652500eaee09c9038")
-                .unwrap(),
+            h256!("0xf8532f2ed92aad146878dca1d5ad9840e9c803ab85d1361652500eaee09c9038"),
             0,
         );
         let script = Script::new(
             vec![],
-            H256::from_hex_str("28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5")
-                .unwrap(),
+            h256!("0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5"),
         );
 
         TransactionBuilder::default()

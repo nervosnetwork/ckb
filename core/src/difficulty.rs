@@ -26,14 +26,14 @@ pub fn difficulty_to_boundary(difficulty: &U256) -> H256 {
 #[cfg(test)]
 mod tests {
     use super::boundary_to_difficulty;
-    use numext_fixed_hash::H256;
-    use numext_fixed_uint::U256;
+    use numext_fixed_hash::{h256, H256};
+    use numext_fixed_uint::{u256, U256};
 
     #[test]
     fn test_boundary_to_difficulty() {
-        let h1 = H256::from_trimmed_hex_str("1000").unwrap();
+        let h1 = h256!("0x1000");
         let h2: U256 = boundary_to_difficulty(&h1);
 
-        assert_eq!(boundary_to_difficulty(&h2.into()), U256::from(4096u64));
+        assert_eq!(boundary_to_difficulty(&h2.into()), u256!("4096"));
     }
 }
