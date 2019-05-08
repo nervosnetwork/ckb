@@ -3,45 +3,30 @@ use faster_hex::{hex_decode, hex_encode};
 use std::fmt;
 
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
-pub enum JsonBytes {
-    Vec(Vec<u8>),
-    Bytes(Bytes),
-}
+pub struct JsonBytes(Bytes);
 
 impl Default for JsonBytes {
     fn default() -> Self {
-        JsonBytes::Bytes(Bytes::default())
+        JsonBytes(Bytes::default())
     }
 }
 
 impl JsonBytes {
-    pub fn from_vec(bytes: Vec<u8>) -> Self {
-        JsonBytes::Vec(bytes)
-    }
-
     pub fn from_bytes(bytes: Bytes) -> Self {
-        JsonBytes::Bytes(bytes)
+        JsonBytes(bytes)
     }
 
-    pub fn into_vec(self) -> Vec<u8> {
-        match self {
-            JsonBytes::Vec(bytes) => bytes,
-            JsonBytes::Bytes(bytes) => bytes.to_vec(),
-        }
+    pub fn from_vec(vec: Vec<u8>) -> Self {
+        JsonBytes(Bytes::from(vec))
     }
 
     pub fn into_bytes(self) -> Bytes {
-        match self {
-            JsonBytes::Vec(bytes) => Bytes::from(bytes),
-            JsonBytes::Bytes(bytes) => bytes,
-        }
+        let JsonBytes(bytes) = self;
+        bytes
     }
 
     pub fn len(&self) -> usize {
-        match self {
-            JsonBytes::Vec(bytes) => bytes.len(),
-            JsonBytes::Bytes(bytes) => bytes.len(),
-        }
+        self.0.len()
     }
 
     pub fn is_empty(&self) -> bool {
@@ -49,10 +34,7 @@ impl JsonBytes {
     }
 
     pub fn as_bytes(&self) -> &[u8] {
-        match self {
-            JsonBytes::Vec(bytes) => bytes,
-            JsonBytes::Bytes(bytes) => bytes,
-        }
+        &self.0
     }
 }
 

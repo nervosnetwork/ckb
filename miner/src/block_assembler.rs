@@ -297,8 +297,7 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
             .args
             .iter()
             .cloned()
-            .map(JsonBytes::into_vec)
-            .map(Bytes::from)
+            .map(JsonBytes::into_bytes)
             .collect();
 
         let cellbase_lock = Script::new(cellbase_lock_args, self.config.code_hash.clone());

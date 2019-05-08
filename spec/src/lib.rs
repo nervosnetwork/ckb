@@ -15,7 +15,7 @@ use ckb_core::block::BlockBuilder;
 use ckb_core::extras::EpochExt;
 use ckb_core::header::HeaderBuilder;
 use ckb_core::transaction::{CellInput, CellOutput, Transaction, TransactionBuilder};
-use ckb_core::{BlockNumber, Capacity, Cycle};
+use ckb_core::{BlockNumber, Bytes, Capacity, Cycle};
 use ckb_pow::{Pow, PowEngine};
 use ckb_resource::{Resource, ResourceLocator};
 use numext_fixed_hash::H256;
@@ -71,7 +71,7 @@ pub struct Genesis {
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct Seal {
     pub nonce: u64,
-    pub proof: Vec<u8>,
+    pub proof: Bytes,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
@@ -208,7 +208,7 @@ impl ChainSpec {
             .timestamp(self.genesis.timestamp)
             .difficulty(self.genesis.difficulty.clone())
             .nonce(self.genesis.seal.nonce)
-            .proof(self.genesis.seal.proof.to_vec())
+            .proof(self.genesis.seal.proof.clone())
             .uncles_hash(self.genesis.uncles_hash.clone());
 
         let genesis_block = BlockBuilder::from_header_builder(header_builder)

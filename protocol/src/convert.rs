@@ -167,7 +167,7 @@ impl<'a> TryFrom<ckb_protocol::Header<'a>> for ckb_core::header::Header {
             .proof(cast!(header
                 .proof()
                 .and_then(|p| p.seq())
-                .map(|p| p.to_vec()))?)
+                .map(ckb_core::Bytes::from))?)
             .uncles_count(header.uncles_count())
             .build())
     }
@@ -241,8 +241,8 @@ impl<'a> TryFrom<ckb_protocol::Witness<'a>> for ckb_core::transaction::Witness {
     type Error = FailureError;
 
     fn try_from(wit: ckb_protocol::Witness<'a>) -> Result<Self, Self::Error> {
-        let data: Option<Vec<Vec<u8>>> = FlatbuffersVectorIterator::new(cast!(wit.data())?)
-            .map(|item| item.seq().map(|s| s.to_vec()))
+        let data: Option<Vec<ckb_core::Bytes>> = FlatbuffersVectorIterator::new(cast!(wit.data())?)
+            .map(|item| item.seq().map(ckb_core::Bytes::from))
             .collect();
 
         Ok(cast!(data)?)

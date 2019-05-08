@@ -230,7 +230,7 @@ impl Node {
             .difficulty(difficulty)
             .timestamp(current_time.0)
             .parent_hash(parent_hash)
-            .seal(Seal::new(rand::random(), Vec::new()));
+            .seal(Seal::new(rand::random(), Bytes::default()));
 
         BlockBuilder::default()
             .uncles(

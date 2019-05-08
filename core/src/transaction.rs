@@ -2,9 +2,8 @@
 //! It is similar to Bitcoin Tx <https://en.bitcoin.it/wiki/Protocol_documentation#tx/>
 use crate::script::Script;
 pub use crate::Capacity;
-use crate::{BlockNumber, Version};
+use crate::{BlockNumber, Bytes, Version};
 use bincode::{deserialize, serialize};
-use bytes::Bytes;
 use ckb_util::LowerHexOption;
 use faster_hex::hex_string;
 use hash::blake2b_256;
@@ -253,7 +252,7 @@ impl CellOutput {
     }
 }
 
-pub type Witness = Vec<Vec<u8>>;
+pub type Witness = Vec<Bytes>;
 
 #[derive(Clone, Serialize, Eq, Debug, HasOccupiedCapacity)]
 pub struct Transaction {
@@ -521,7 +520,7 @@ impl Transaction {
             + self
                 .witnesses
                 .iter()
-                .flat_map(|witness| witness.iter().map(Vec::len))
+                .flat_map(|witness| witness.iter().map(Bytes::len))
                 .sum::<usize>()
     }
 }
@@ -759,7 +758,7 @@ mod test {
                 0,
                 vec![],
             ))
-            .witness(vec![vec![7, 8, 9]])
+            .witness(vec![Bytes::from(vec![7, 8, 9])])
             .build();
 
         assert_eq!(

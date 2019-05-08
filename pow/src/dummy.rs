@@ -1,5 +1,6 @@
 use super::PowEngine;
 use ckb_core::header::{BlockNumber, Header, RawHeader, Seal};
+use ckb_core::Bytes;
 use rand::{
     distributions::{self as dist, Distribution as _},
     thread_rng,
@@ -103,7 +104,7 @@ impl PowEngine for DummyPowEngine {
     fn solve_header(&self, _header: &RawHeader, nonce: u64) -> Option<Seal> {
         // Sleep for some time before returning result to miner
         thread::sleep(self.delay.duration());
-        Some(Seal::new(nonce, vec![]))
+        Some(Seal::new(nonce, Bytes::from(vec![])))
     }
 
     fn verify(&self, _number: BlockNumber, _message: &[u8], _proof: &[u8]) -> bool {
