@@ -17,9 +17,10 @@ use ckb_core::Cycle;
 use ckb_script::ScriptConfig;
 use ckb_store::ChainStore;
 use ckb_traits::BlockMedianTimeContext;
-use ckb_verification::{PoolTransactionVerifier, TransactionVerifier};
+use ckb_verification::{ContextualTransactionVerifier, TransactionVerifier};
 use fnv::{FnvHashMap, FnvHashSet};
-use log::{error, trace};
+use log::{debug, trace};
+use lru_cache::LruCache;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 use std::cell::{Ref, RefCell};
@@ -225,15 +226,22 @@ impl<CS: ChainStore> ChainState<CS> {
         self.tx_pool.borrow().get_entry(short_id).cloned()
     }
 
-    pub fn add_tx_to_pool(&self, tx: Transaction) -> Result<Cycle, PoolError> {
+    pub fn add_tx_to_pool(
+        &self,
+        tx: Transaction,
+        cycles: Option<Cycle>,
+    ) -> Result<Cycle, PoolError> {
         let mut tx_pool = self.tx_pool.borrow_mut();
         let short_id = tx.proposal_short_id();
+        let tx_hash = tx.hash().to_owned();
         match self.resolve_tx_from_pending_and_staging(&tx, &tx_pool) {
             Ok(rtx) => {
-                self.verify_rtx(&rtx, None).map(|cycles| {
+                self.verify_rtx(&rtx, cycles).map(|cycles| {
                     if self.contains_proposal_id(&short_id) {
                         // if tx is proposed, we resolve from staging, verify again
-                        self.staging_tx_and_descendants(&mut tx_pool, Some(cycles), tx);
+                        if let Err(e) = self.staging_tx_and_descendants(&mut tx_pool, Some(cycles), tx) {
+                            debug!(target: "tx_pool", "Failed to staging tx {:}, reason: {:?}", tx_hash, e)
+                        }
                     } else {
                         tx_pool.enqueue_tx(Some(cycles), tx);
                     }
@@ -273,7 +281,7 @@ impl<CS: ChainStore> ChainState<CS> {
     ) -> Result<Cycle, PoolError> {
         match cycles {
             Some(cycles) => {
-                PoolTransactionVerifier::new(
+                ContextualTransactionVerifier::new(
                     &rtx,
                     &self,
                     self.tip_number(),
@@ -332,7 +340,7 @@ impl<CS: ChainStore> ChainState<CS> {
                     Ok(cycles)
                 }
                 Err(e) => {
-                    error!(target: "tx_pool", "Failed to staging tx {:}, reason: {:?}", tx_hash, e);
+                    debug!(target: "tx_pool", "Failed to staging tx {:}, reason: {:?}", tx_hash, e);
                     Err(e)
                 }
             },
@@ -363,15 +371,11 @@ impl<CS: ChainStore> ChainState<CS> {
         tx_pool: &mut TxPool,
         cycles: Option<Cycle>,
         tx: Transaction,
-    ) {
-        match self.staging_tx(tx_pool, cycles, tx.clone()) {
-            Ok(_) => {
-                self.try_staging_orphan_by_ancestor(tx_pool, &tx);
-            }
-            Err(e) => {
-                error!(target: "tx_pool", "Failed to staging tx {:}, reason: {:?}", tx.hash(), e);
-            }
-        }
+    ) -> Result<Cycle, PoolError> {
+        self.staging_tx(tx_pool, cycles, tx.clone()).map(|cycles| {
+            self.try_staging_orphan_by_ancestor(tx_pool, &tx);
+            cycles
+        })
     }
 
     pub fn update_tx_pool_for_reorg<'a>(
@@ -379,6 +383,7 @@ impl<CS: ChainStore> ChainState<CS> {
         detached_blocks: impl Iterator<Item = &'a Block>,
         attached_blocks: impl Iterator<Item = &'a Block>,
         detached_proposal_id: impl Iterator<Item = &'a ProposalShortId>,
+        txs_verify_cache: &mut LruCache<H256, Cycle>,
     ) {
         let mut tx_pool = self.tx_pool.borrow_mut();
 
@@ -399,10 +404,17 @@ impl<CS: ChainStore> ChainState<CS> {
         tx_pool.remove_committed_txs_from_staging(attached.iter());
 
         for tx in retain {
+            let tx_hash = tx.hash().to_owned();
+            let cached_cycles = txs_verify_cache.get(&tx_hash).cloned();
             if self.contains_proposal_id(&tx.proposal_short_id()) {
-                self.staging_tx_and_descendants(&mut tx_pool, None, tx);
+                if let Ok(cycles) = self.staging_tx_and_descendants(&mut tx_pool, cached_cycles, tx)
+                {
+                    if cached_cycles.is_none() {
+                        txs_verify_cache.insert(tx_hash, cycles);
+                    }
+                }
             } else {
-                tx_pool.enqueue_tx(None, tx);
+                tx_pool.enqueue_tx(cached_cycles, tx);
             }
         }
 
@@ -412,7 +424,12 @@ impl<CS: ChainStore> ChainState<CS> {
 
         for id in self.get_proposal_ids_iter() {
             if let Some(entry) = tx_pool.remove_pending_and_conflict(id) {
-                self.staging_tx_and_descendants(&mut tx_pool, entry.cycles, entry.transaction);
+                let tx_hash = entry.transaction.hash().to_owned();
+                if let Err(e) =
+                    self.staging_tx_and_descendants(&mut tx_pool, entry.cycles, entry.transaction)
+                {
+                    debug!(target: "tx_pool", "Failed to staging tx {:}, reason: {:?}", tx_hash, e)
+                }
             }
         }
     }

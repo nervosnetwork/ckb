@@ -9,7 +9,7 @@ mod tests;
 pub use crate::block_verifier::{BlockVerifier, HeaderResolverWrapper, TransactionsVerifier};
 pub use crate::error::{Error, TransactionError};
 pub use crate::header_verifier::{HeaderResolver, HeaderVerifier};
-pub use crate::transaction_verifier::{PoolTransactionVerifier, TransactionVerifier};
+pub use crate::transaction_verifier::{ContextualTransactionVerifier, TransactionVerifier};
 
 pub const ALLOWED_FUTURE_BLOCKTIME: u64 = 15 * 1000; // 15 Second
 

@@ -12,11 +12,11 @@ use std::cell::RefCell;
 use std::collections::HashSet;
 use std::sync::Arc;
 
-pub struct PoolTransactionVerifier<'a, M> {
+pub struct ContextualTransactionVerifier<'a, M> {
     pub maturity: MaturityVerifier<'a>,
     pub valid_since: ValidSinceVerifier<'a, M>,
 }
-impl<'a, M> PoolTransactionVerifier<'a, M>
+impl<'a, M> ContextualTransactionVerifier<'a, M>
 where
     M: BlockMedianTimeContext,
 {
@@ -26,7 +26,7 @@ where
         tip_number: BlockNumber,
         cellbase_maturity: BlockNumber,
     ) -> Self {
-        PoolTransactionVerifier {
+        ContextualTransactionVerifier {
             maturity: MaturityVerifier::new(&rtx, tip_number, cellbase_maturity),
             valid_since: ValidSinceVerifier::new(rtx, median_time_context, tip_number),
         }

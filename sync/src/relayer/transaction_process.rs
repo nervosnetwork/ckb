@@ -53,7 +53,13 @@ impl<'a, CS: ChainStore> TransactionProcess<'a, CS> {
 
         let tx_result = {
             let chain_state = self.relayer.shared.chain_state().lock();
-            chain_state.add_tx_to_pool(tx.clone())
+            let mut txs_verify_cache = self.relayer.shared.txs_verify_cache().lock();
+            let ret =
+                chain_state.add_tx_to_pool(tx.clone(), txs_verify_cache.get(tx.hash()).cloned());
+            if let Ok(cycles) = ret {
+                txs_verify_cache.insert(tx.hash().to_owned(), cycles);
+            }
+            ret
         };
         // disconnect peer if cycles mismatch
         match tx_result {
