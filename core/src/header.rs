@@ -113,13 +113,21 @@ pub struct Header {
     hash: H256,
 }
 
+// The order of fields should be same as Header deserialization
+#[derive(Deserialize)]
+struct HeaderKernel {
+    raw: RawHeader,
+    seal: Seal,
+}
+
+// The order of fields should be same as HeaderKernel deserialization
 impl<'de> serde::de::Deserialize<'de> for Header {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::de::Deserializer<'de>,
     {
         #[derive(Deserialize)]
-        #[serde(field_identifier, rename_all = "lowercase")]
+        #[serde(field_identifier, rename_all = "snake_case")]
         enum Field {
             Raw,
             Seal,
@@ -222,12 +230,11 @@ impl Header {
         header
     }
 
-    pub fn from_bytes_with_hash(bytes: &[u8], hash: H256) -> Self {
-        #[derive(Deserialize)]
-        struct HeaderKernel {
-            raw: RawHeader,
-            seal: Seal,
-        }
+    /// # Warning
+    ///
+    /// When using this method, the caller should ensure the input hash is right, or the caller
+    /// will get a incorrect Header.
+    pub unsafe fn from_bytes_with_hash_unchecked(bytes: &[u8], hash: H256) -> Self {
         let HeaderKernel { raw, seal } =
             deserialize(bytes).expect("header kernel deserializing should be ok");
         Self { raw, seal, hash }

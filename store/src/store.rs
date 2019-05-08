@@ -140,7 +140,7 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
 
     fn get_header(&self, h: &H256) -> Option<Header> {
         self.get(COLUMN_BLOCK_HEADER, h.as_bytes())
-            .map(|ref raw| Header::from_bytes_with_hash(raw, h.to_owned()))
+            .map(|ref raw| unsafe { Header::from_bytes_with_hash_unchecked(raw, h.to_owned()) })
     }
 
     fn get_block_uncles(&self, h: &H256) -> Option<Vec<UncleBlock>> {

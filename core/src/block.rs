@@ -226,7 +226,10 @@ impl BlockBuilder {
         self
     }
 
-    pub fn unsafe_build(self) -> Block {
+    /// # Warning
+    ///
+    /// For testing purpose only, this method is used to construct a incorrect Block.
+    pub unsafe fn build_unchecked(self) -> Block {
         let Self {
             header_builder,
             uncles,
