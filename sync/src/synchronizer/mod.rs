@@ -66,7 +66,7 @@ pub type BlockStatusMap = Arc<Mutex<HashMap<H256, BlockStatus>>>;
 
 pub struct Synchronizer<CS: ChainStore> {
     chain: ChainController,
-    shared: Arc<SyncSharedState<CS>>,
+    pub shared: Arc<SyncSharedState<CS>>,
     pub status_map: BlockStatusMap,
     pub n_sync: Arc<AtomicUsize>,
     pub peers: Arc<Peers>,

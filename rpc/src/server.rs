@@ -1,13 +1,15 @@
 use crate::config::Config;
 use crate::module::{
     ChainRpc, ChainRpcImpl, IntegrationTestRpc, IntegrationTestRpcImpl, MinerRpc, MinerRpcImpl,
-    NetworkRpc, NetworkRpcImpl, PoolRpc, PoolRpcImpl, TraceRpc, TraceRpcImpl,
+    NetworkRpc, NetworkRpcImpl, PoolRpc, PoolRpcImpl, StatsRpc, StatsRpcImpl, TraceRpc,
+    TraceRpcImpl,
 };
 use ckb_chain::chain::ChainController;
 use ckb_miner::BlockAssemblerController;
 use ckb_network::NetworkController;
 use ckb_shared::shared::Shared;
 use ckb_store::ChainStore;
+use ckb_sync::Synchronizer;
 use jsonrpc_core::IoHandler;
 use jsonrpc_http_server::{Server, ServerBuilder};
 use jsonrpc_server_utils::cors::AccessControlAllowOrigin;
@@ -22,6 +24,7 @@ impl RpcServer {
         config: Config,
         network_controller: NetworkController,
         shared: Shared<CS>,
+        synchronizer: Synchronizer<CS>,
         chain: ChainController,
         block_assembler: BlockAssemblerController,
     ) -> RpcServer
@@ -65,6 +68,16 @@ impl RpcServer {
             io.extend_with(
                 NetworkRpcImpl {
                     network_controller: network_controller.clone(),
+                }
+                .to_delegate(),
+            );
+        }
+
+        if config.stats_enable() {
+            io.extend_with(
+                StatsRpcImpl {
+                    shared: shared.clone(),
+                    synchronizer: synchronizer.clone(),
                 }
                 .to_delegate(),
             );

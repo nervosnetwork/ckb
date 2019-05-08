@@ -56,12 +56,13 @@ pub fn run(args: RunArgs) -> Result<(), ExitCode> {
     );
     let net_timer = NetTimeProtocol::default();
 
+    let synchronizer_clone = synchronizer.clone();
     let protocols = vec![
         CKBProtocol::new(
             "syn".to_string(),
             NetworkProtocol::SYNC.into(),
             &["1".to_string()][..],
-            move || Box::new(synchronizer.clone()),
+            move || Box::new(synchronizer_clone.clone()),
             Arc::clone(&network_state),
         ),
         CKBProtocol::new(
@@ -87,6 +88,7 @@ pub fn run(args: RunArgs) -> Result<(), ExitCode> {
         args.config.rpc,
         network_controller,
         shared,
+        synchronizer,
         chain_controller,
         block_assembler_controller,
     );
