@@ -25,6 +25,7 @@ ckb-protocol = { path = "../protocol" }
 flatbuffers = "0.5.0"
 ckb-script = { path = "../script" }
 rayon = "1.0"
+fnv = "1.0.3"
 
 [dev-dependencies]
 env_logger = "0.6"
