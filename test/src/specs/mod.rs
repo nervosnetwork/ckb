@@ -1,18 +1,14 @@
-mod block_relay;
-mod block_sync;
+mod relay;
 mod mining;
 mod p2p;
-mod protocols;
-mod transaction_relay;
 mod tx_pool;
+mod sync;
 
-pub use block_relay::BlockRelayBasic;
-pub use block_sync::BlockSyncBasic;
-pub use mining::*;
-pub use p2p::{Disconnect, Discovery};
-pub use protocols::MalformedMessage;
-pub use transaction_relay::TransactionRelayBasic;
+pub use mining::MiningBasic;
+pub use p2p::*;
 pub use tx_pool::*;
+pub use relay::*;
+pub use sync::*;
 
 use crate::Net;
 use ckb_core::BlockNumber;

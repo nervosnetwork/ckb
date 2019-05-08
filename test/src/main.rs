@@ -30,7 +30,8 @@ fn main() {
             "disconnect" => Box::new(Disconnect),
             "malformed_message" => Box::new(MalformedMessage),
             "depent_tx_in_same_block" => Box::new(DepentTxInSameBlock),
-            "cellbase_immature_tx" => Box::new(CellbaseImmatureTx),
+            "cellbase_maturity" => Box::new(CellbaseMaturity),
+            "valid_since" => Box::new(ValidSince),
             "different_txs_with_same_input" => Box::new(DifferentTxsWithSameInput),
             _ => panic!("invalid spec"),
         };
@@ -49,7 +50,8 @@ fn main() {
             Box::new(Disconnect),
             Box::new(MalformedMessage),
             Box::new(DepentTxInSameBlock),
-            Box::new(CellbaseImmatureTx),
+            Box::new(CellbaseMaturity),
+            Box::new(ValidSince),
             Box::new(DifferentTxsWithSameInput),
         ];
 

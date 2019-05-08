@@ -170,8 +170,8 @@ impl TransactionError {
     pub fn is_bad_tx(self) -> bool {
         use TransactionError::*;
         match self {
-            CapacityOverflow | Empty | OutputsSumOverflow | InvalidScript | ScriptFailure(_)
-            | InvalidSignature | InvalidValidSince => true,
+            CapacityOverflow | DuplicateDeps | Empty | OutputsSumOverflow | InvalidScript
+            | ScriptFailure(_) | InvalidSignature | InvalidValidSince => true,
             _ => false,
         }
     }
