@@ -64,10 +64,11 @@ impl<CS: ChainStore> TxPoolExecutor<CS> {
             for tx in &txs {
                 if let Some(cycles) = txs_verify_cache.get(tx.hash()) {
                     cached_txs.push((tx.hash().to_owned(), Ok(*cycles)));
-                }
-                match chain_state.resolve_tx_from_pending_and_staging(tx) {
-                    Ok(resolved_tx) => resolved_txs.push((tx.hash().to_owned(), resolved_tx)),
-                    Err(err) => unresolvable_txs.push(err),
+                } else {
+                    match chain_state.resolve_tx_from_pending_and_staging(tx) {
+                        Ok(resolved_tx) => resolved_txs.push((tx.hash().to_owned(), resolved_tx)),
+                        Err(err) => unresolvable_txs.push(err),
+                    }
                 }
             }
             (
