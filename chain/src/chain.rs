@@ -260,7 +260,7 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
 
         let parent_header_epoch = self
             .shared
-            .get_epoch_ext(&parent_header.hash())
+            .get_block_epoch(&parent_header.hash())
             .expect("parent epoch already store");
 
         let next_epoch_ext = self
@@ -551,7 +551,7 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
                             let parent_hash = b.header().parent_hash();
                             let parent_ext = self
                                 .shared
-                                .get_epoch_ext(parent_hash)
+                                .get_block_epoch(parent_hash)
                                 .expect("parent header verified");
                             let parent = self
                                 .shared

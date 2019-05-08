@@ -87,6 +87,38 @@ curl -H 'content-type:application/json' \
 }
 ```
 
+### get_epoch_by_number
+
+Return the information corresponding the given epoch number
+
+#### Parameters
+
+    epoch_number - Epoch number
+
+#### Examples
+
+```bash
+curl -H 'content-type:application/json' \
+    -d '{"id": 2, "jsonrpc": "2.0", "method":"get_epoch_by_number","params": ["1"]}' \
+    'http://localhost:8114'
+```
+
+```json
+{
+   "jsonrpc" : "2.0",
+   "id" : 2,
+   "result" : {
+      "last_block_hash_in_previous_epoch" : "0xc50844458e151d5934c99e2be6183f98573632821ae40e0ed87303e24816f3d3",
+      "block_reward" : "1736111111111",
+      "start_number" : "1000",
+      "length" : "2880",
+      "difficulty" : "0x100",
+      "remainder_reward" : "320",
+      "number" : "1"
+   }
+}
+```
+
 ### get_block_hash
 
 Returns the hash of a block in the best-block-chain by block number; block of No.0 is the genesis block.

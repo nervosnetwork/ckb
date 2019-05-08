@@ -1,6 +1,6 @@
 use crate::error::RPCError;
 use ckb_core::cell::{CellProvider, CellStatus};
-use ckb_core::{transaction::ProposalShortId, BlockNumber};
+use ckb_core::{transaction::ProposalShortId, BlockNumber, EpochNumber};
 use ckb_shared::shared::Shared;
 use ckb_store::ChainStore;
 use ckb_traits::ChainProvider;
@@ -48,6 +48,9 @@ pub trait ChainRpc {
 
     #[rpc(name = "get_current_epoch")]
     fn get_current_epoch(&self) -> Result<EpochExt>;
+
+    #[rpc(name = "get_epoch_by_number")]
+    fn get_epoch_by_number(&self, number: String) -> Result<Option<EpochExt>>;
 }
 
 pub(crate) struct ChainRpcImpl<CS> {
@@ -119,6 +122,18 @@ impl<CS: ChainStore + 'static> ChainRpc for ChainRpcImpl<CS> {
             .get_current_epoch_ext()
             .map(Into::into)
             .expect("current_epoch exists"))
+    }
+
+    fn get_epoch_by_number(&self, number: String) -> Result<Option<EpochExt>> {
+        Ok(self
+            .shared
+            .store()
+            .get_epoch_index(
+                number
+                    .parse::<EpochNumber>()
+                    .map_err(|_| Error::parse_error())?,
+            )
+            .and_then(|hash| self.shared.store().get_epoch_ext(&hash).map(Into::into)))
     }
 
     // TODO: we need to build a proper index instead of scanning every time

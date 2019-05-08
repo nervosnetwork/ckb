@@ -677,7 +677,7 @@ mod tests {
         let parent = shared
             .block_header(&shared.block_hash(number - 1).unwrap())
             .unwrap();
-        let parent_epoch = shared.get_epoch_ext(&parent.hash()).unwrap();
+        let parent_epoch = shared.get_block_epoch(&parent.hash()).unwrap();
         let epoch = shared
             .next_epoch_ext(&parent_epoch, &parent)
             .unwrap_or(parent_epoch);
@@ -773,7 +773,7 @@ mod tests {
         let mut blocks: Vec<Block> = Vec::new();
         let mut parent = consensus.genesis_block().header().to_owned();
         for i in 1..block_number {
-            let parent_epoch = shared1.get_epoch_ext(&parent.hash()).unwrap();
+            let parent_epoch = shared1.get_block_epoch(&parent.hash()).unwrap();
             let epoch = shared1
                 .next_epoch_ext(&parent_epoch, &parent)
                 .unwrap_or(parent_epoch);
@@ -792,7 +792,7 @@ mod tests {
         parent = blocks[150].header().to_owned();
         let fork = parent.number();
         for i in 1..=block_number {
-            let parent_epoch = shared2.get_epoch_ext(&parent.hash()).unwrap();
+            let parent_epoch = shared2.get_block_epoch(&parent.hash()).unwrap();
             let epoch = shared2
                 .next_epoch_ext(&parent_epoch, &parent)
                 .unwrap_or(parent_epoch);
@@ -875,7 +875,7 @@ mod tests {
             .block_header(&shared1.block_hash(0).unwrap())
             .unwrap();
         for i in 1..block_number {
-            let parent_epoch = shared1.get_epoch_ext(&parent.hash()).unwrap();
+            let parent_epoch = shared1.get_block_epoch(&parent.hash()).unwrap();
             let epoch = shared1
                 .next_epoch_ext(&parent_epoch, &parent)
                 .unwrap_or(parent_epoch);
@@ -907,7 +907,7 @@ mod tests {
         let mut blocks: Vec<Block> = Vec::new();
         let mut parent = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
         for i in 1..=block_number {
-            let parent_epoch = shared.get_epoch_ext(&parent.hash()).unwrap();
+            let parent_epoch = shared.get_block_epoch(&parent.hash()).unwrap();
             let epoch = shared
                 .next_epoch_ext(&parent_epoch, &parent)
                 .unwrap_or(parent_epoch);

@@ -472,7 +472,7 @@ impl<CS: ChainStore> SyncSharedState<CS> {
             .read()
             .get_epoch_ext(hash)
             .cloned()
-            .or_else(|| self.shared.get_epoch_ext(hash))
+            .or_else(|| self.shared.get_block_epoch(hash))
     }
 
     pub fn insert_epoch(&self, header: &Header, epoch: EpochExt) {

@@ -24,7 +24,7 @@ fn new_header_builder(
     parent: &Block,
 ) -> HeaderBuilder {
     let parent_hash = parent.header().hash();
-    let parent_epoch = shared.get_epoch_ext(&parent_hash).unwrap();
+    let parent_epoch = shared.get_block_epoch(&parent_hash).unwrap();
     let epoch = shared
         .next_epoch_ext(&parent_epoch, parent.header())
         .unwrap_or(parent_epoch);

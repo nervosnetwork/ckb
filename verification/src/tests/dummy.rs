@@ -60,7 +60,7 @@ impl ChainProvider for DummyChainProvider {
         unimplemented!();
     }
 
-    fn get_epoch_ext(&self, _hash: &H256) -> Option<EpochExt> {
+    fn get_block_epoch(&self, _hash: &H256) -> Option<EpochExt> {
         unimplemented!();
     }
 
