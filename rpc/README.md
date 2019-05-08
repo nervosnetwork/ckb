@@ -500,6 +500,7 @@ curl -H 'content-type:application/json' \
                 "score": 1
             }
         ],
+        "is_outbound": null,
         "node_id": "QmTRHCdrRtgUzYLNCin69zEvPvLYdxUZLLfLYyHVY3DZAS",
         "version": "0.9.0"
     },
@@ -530,6 +531,7 @@ curl -H 'content-type:application/json' \
                     "score": 1
                 }
             ],
+            "is_outbound": true,
             "node_id": "QmaaaLB4uPyDpZwTQGhV63zuYrKm4reyN2tF1j2ain4oE7",
             "version": "unknown"
         },
@@ -540,6 +542,7 @@ curl -H 'content-type:application/json' \
                     "score": 255
                 }
             ],
+            "is_outbound": false,
             "node_id": "QmRuGcpVC3vE7aEoB6fhUdq9uzdHbyweCnn1sDBSjfmcbM",
             "version": "unknown"
         },
