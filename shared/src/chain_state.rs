@@ -109,8 +109,8 @@ impl<CS: ChainStore> ChainState<CS> {
         })
     }
 
-    pub fn get_store(&self) -> Arc<CS> {
-        Arc::clone(&self.store)
+    pub fn store(&self) -> &Arc<CS> {
+        &self.store
     }
 
     fn init_proposal_ids(
@@ -293,7 +293,7 @@ impl<CS: ChainStore> ChainState<CS> {
                 let max_cycles = self.consensus.max_block_cycles();
                 let cycles = TransactionVerifier::new(
                     &rtx,
-                    self.get_store(),
+                    Arc::clone(self.store()),
                     &self,
                     self.tip_number(),
                     self.consensus().cellbase_maturity,
@@ -487,7 +487,7 @@ impl<CS: ChainStore> ChainState<CS> {
     ) -> ChainCellSetOverlay<'a, CS> {
         ChainCellSetOverlay {
             overlay: self.cell_set.new_overlay(diff),
-            store: self.get_store(),
+            store: Arc::clone(self.store()),
             outputs,
         }
     }

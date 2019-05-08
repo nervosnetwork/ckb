@@ -2,7 +2,7 @@ use crate::config::Config;
 use crate::module::{
     ChainRpc, ChainRpcImpl, ExperimentRpc, ExperimentRpcImpl, IntegrationTestRpc,
     IntegrationTestRpcImpl, MinerRpc, MinerRpcImpl, NetworkRpc, NetworkRpcImpl, PoolRpc,
-    PoolRpcImpl, TraceRpc, TraceRpcImpl,
+    PoolRpcImpl, StatsRpc, StatsRpcImpl, TraceRpc, TraceRpcImpl,
 };
 use ckb_chain::chain::ChainController;
 use ckb_miner::BlockAssemblerController;
