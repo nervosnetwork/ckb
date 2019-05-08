@@ -51,16 +51,7 @@ impl<'a, CS: ChainStore> TransactionProcess<'a, CS> {
             peer_state.remove_ask_for_tx(&tx_hash);
         }
 
-        let tx_result = {
-            let chain_state = self.relayer.shared.chain_state().lock();
-            let mut txs_verify_cache = self.relayer.shared.txs_verify_cache().lock();
-            let ret =
-                chain_state.add_tx_to_pool(tx.clone(), txs_verify_cache.get(tx.hash()).cloned());
-            if let Ok(cycles) = ret {
-                txs_verify_cache.insert(tx.hash().to_owned(), cycles);
-            }
-            ret
-        };
+        let tx_result = self.relayer.tx_pool_executor.verify_and_add_tx_to_pool(tx.to_owned());
         // disconnect peer if cycles mismatch
         match tx_result {
             Ok(cycles) if cycles == relay_cycles => {

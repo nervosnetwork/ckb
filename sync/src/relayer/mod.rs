@@ -33,7 +33,7 @@ use ckb_network::{CKBProtocolContext, CKBProtocolHandler, PeerIndex};
 use ckb_protocol::{
     cast, get_root, short_transaction_id, short_transaction_id_keys, RelayMessage, RelayPayload,
 };
-use ckb_shared::chain_state::ChainState;
+use ckb_shared::{chain_state::ChainState, tx_pool_executor::TxPoolExecutor};
 use ckb_store::ChainStore;
 use ckb_util::Mutex;
 use failure::Error as FailureError;
@@ -60,6 +60,7 @@ pub struct Relayer<CS> {
     pub(crate) state: Arc<RelayState>,
     // TODO refactor shared Peers struct with Synchronizer
     peers: Arc<Peers>,
+    tx_pool_executor: Arc<TxPoolExecutor<CS>>,
 }
 
 impl<CS: ChainStore> Clone for Relayer<CS> {
@@ -69,6 +70,7 @@ impl<CS: ChainStore> Clone for Relayer<CS> {
             shared: Arc::clone(&self.shared),
             state: Arc::clone(&self.state),
             peers: Arc::clone(&self.peers),
+            tx_pool_executor: Arc::clone(&self.tx_pool_executor),
         }
     }
 }
@@ -79,11 +81,13 @@ impl<CS: ChainStore> Relayer<CS> {
         shared: Arc<SyncSharedState<CS>>,
         peers: Arc<Peers>,
     ) -> Self {
+        let tx_pool_executor = Arc::new(TxPoolExecutor::new(shared.shared().clone()));
         Relayer {
             chain,
             shared,
             state: Arc::new(RelayState::default()),
             peers,
+            tx_pool_executor,
         }
     }
 
