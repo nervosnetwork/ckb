@@ -7,11 +7,12 @@ use failure::Error as FailureError;
 use flatbuffers::FlatBufferBuilder;
 use log::{debug, trace};
 use std::convert::TryInto;
+use std::sync::Arc;
 
 pub struct GetTransactionProcess<'a, CS> {
     message: &'a FbsGetRelayTransaction<'a>,
     relayer: &'a Relayer<CS>,
-    nc: &'a CKBProtocolContext,
+    nc: Arc<dyn CKBProtocolContext>,
     peer: PeerIndex,
 }
 
@@ -19,7 +20,7 @@ impl<'a, CS: ChainStore> GetTransactionProcess<'a, CS> {
     pub fn new(
         message: &'a FbsGetRelayTransaction,
         relayer: &'a Relayer<CS>,
-        nc: &'a CKBProtocolContext,
+        nc: Arc<dyn CKBProtocolContext>,
         peer: PeerIndex,
     ) -> Self {
         GetTransactionProcess {

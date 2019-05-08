@@ -19,15 +19,15 @@ use std::sync::Arc;
 pub struct CompactBlockProcess<'a, CS> {
     message: &'a FbsCompactBlock<'a>,
     relayer: &'a Relayer<CS>,
-    nc: &'a CKBProtocolContext,
+    nc: Arc<dyn CKBProtocolContext>,
     peer: PeerIndex,
 }
 
-impl<'a, CS: ChainStore> CompactBlockProcess<'a, CS> {
+impl<'a, CS: ChainStore + 'static> CompactBlockProcess<'a, CS> {
     pub fn new(
         message: &'a FbsCompactBlock,
         relayer: &'a Relayer<CS>,
-        nc: &'a CKBProtocolContext,
+        nc: Arc<dyn CKBProtocolContext>,
         peer: PeerIndex,
     ) -> Self {
         CompactBlockProcess {
@@ -65,7 +65,7 @@ impl<'a, CS: ChainStore> CompactBlockProcess<'a, CS> {
         } else {
             debug!(target: "relay", "UnknownParent: {}, send_getheaders_to_peer({})", block_hash, self.peer);
             self.relayer.shared.send_getheaders_to_peer(
-                self.nc,
+                self.nc.as_ref(),
                 self.peer,
                 self.relayer.shared.chain_state().lock().tip_header(),
             );
@@ -105,8 +105,12 @@ impl<'a, CS: ChainStore> CompactBlockProcess<'a, CS> {
             // Reconstruct block
             let ret = {
                 let chain_state = self.relayer.shared.chain_state().lock();
-                self.relayer
-                    .request_proposal_txs(&chain_state, self.nc, self.peer, &compact_block);
+                self.relayer.request_proposal_txs(
+                    &chain_state,
+                    self.nc.as_ref(),
+                    self.peer,
+                    &compact_block,
+                );
                 self.relayer
                     .reconstruct_block(&chain_state, &compact_block, Vec::new())
             };
@@ -115,9 +119,10 @@ impl<'a, CS: ChainStore> CompactBlockProcess<'a, CS> {
             // `relayer.accept_block` will make sure the validity of block before persisting
             // into database
             match ret {
-                Ok(block) => self
-                    .relayer
-                    .accept_block(self.nc, self.peer, &Arc::new(block)),
+                Ok(block) => {
+                    self.relayer
+                        .accept_block(self.nc.as_ref(), self.peer, &Arc::new(block))
+                }
                 Err(missing) => {
                     missing_indexes = missing;
                     pending_compact_blocks.insert(block_hash.clone(), compact_block);

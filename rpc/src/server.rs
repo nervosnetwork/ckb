@@ -41,11 +41,7 @@ impl RpcServer {
 
         if config.pool_enable() {
             io.extend_with(
-                PoolRpcImpl {
-                    network_controller: network_controller.clone(),
-                    shared: shared.clone(),
-                }
-                .to_delegate(),
+                PoolRpcImpl::new(shared.clone(), network_controller.clone()).to_delegate(),
             );
         }
 

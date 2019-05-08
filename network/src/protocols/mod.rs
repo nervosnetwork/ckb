@@ -38,29 +38,29 @@ pub trait CKBProtocolContext: Send {
 }
 
 pub trait CKBProtocolHandler: Sync + Send {
-    fn init(&mut self, nc: Box<dyn CKBProtocolContext>);
+    fn init(&mut self, nc: Arc<dyn CKBProtocolContext + Sync>);
     /// Called when opening protocol
     fn connected(
         &mut self,
-        _nc: Box<dyn CKBProtocolContext>,
+        _nc: Arc<dyn CKBProtocolContext + Sync>,
         _peer_index: PeerIndex,
         _version: &str,
     ) {
     }
     /// Called when closing protocol
-    fn disconnected(&mut self, _nc: Box<dyn CKBProtocolContext>, _peer_index: PeerIndex) {}
+    fn disconnected(&mut self, _nc: Arc<dyn CKBProtocolContext + Sync>, _peer_index: PeerIndex) {}
     /// Called when the corresponding protocol message is received
     fn received(
         &mut self,
-        _nc: Box<dyn CKBProtocolContext>,
+        _nc: Arc<dyn CKBProtocolContext + Sync>,
         _peer_index: PeerIndex,
         _data: bytes::Bytes,
     ) {
     }
     /// Called when the Service receives the notify task
-    fn notify(&mut self, _nc: Box<dyn CKBProtocolContext>, _token: u64) {}
+    fn notify(&mut self, _nc: Arc<dyn CKBProtocolContext + Sync>, _token: u64) {}
     /// Behave like `Stream::poll`, but nothing output
-    fn poll(&mut self, _nc: Box<dyn CKBProtocolContext>) {}
+    fn poll(&mut self, _nc: Arc<dyn CKBProtocolContext + Sync>) {}
 }
 
 pub struct CKBProtocol {
@@ -150,7 +150,7 @@ impl ServiceProtocol for CKBHandler {
             p2p_control: context.control().to_owned(),
         };
         nc.set_notify(Duration::from_secs(6), std::u64::MAX);
-        self.handler.init(Box::new(nc));
+        self.handler.init(Arc::new(nc));
     }
 
     fn connected(&mut self, context: ProtocolContextMutRef, version: &str) {
@@ -160,7 +160,7 @@ impl ServiceProtocol for CKBHandler {
             p2p_control: context.control().to_owned(),
         };
         let peer_index = context.session.id;
-        self.handler.connected(Box::new(nc), peer_index, version);
+        self.handler.connected(Arc::new(nc), peer_index, version);
     }
 
     fn disconnected(&mut self, context: ProtocolContextMutRef) {
@@ -170,7 +170,7 @@ impl ServiceProtocol for CKBHandler {
             p2p_control: context.control().to_owned(),
         };
         let peer_index = context.session.id;
-        self.handler.disconnected(Box::new(nc), peer_index);
+        self.handler.disconnected(Arc::new(nc), peer_index);
     }
 
     fn received(&mut self, context: ProtocolContextMutRef, data: bytes::Bytes) {
@@ -181,7 +181,7 @@ impl ServiceProtocol for CKBHandler {
             p2p_control: context.control().to_owned(),
         };
         let peer_index = context.session.id;
-        self.handler.received(Box::new(nc), peer_index, data);
+        self.handler.received(Arc::new(nc), peer_index, data);
     }
 
     fn notify(&mut self, context: &mut ProtocolContext, token: u64) {
@@ -193,7 +193,7 @@ impl ServiceProtocol for CKBHandler {
                 network_state: Arc::clone(&self.network_state),
                 p2p_control: context.control().to_owned(),
             };
-            self.handler.notify(Box::new(nc), token);
+            self.handler.notify(Arc::new(nc), token);
         }
     }
 
@@ -203,7 +203,7 @@ impl ServiceProtocol for CKBHandler {
             network_state: Arc::clone(&self.network_state),
             p2p_control: context.control().to_owned(),
         };
-        self.handler.poll(Box::new(nc));
+        self.handler.poll(Arc::new(nc));
     }
 }
 

@@ -223,21 +223,18 @@ impl<CS: ChainStore> ChainState<CS> {
         self.tx_pool.borrow().get_entry(short_id).cloned()
     }
 
-    pub fn add_tx_to_pool(
-        &self,
-        tx: Transaction,
-        cycles: Option<Cycle>,
-    ) -> Result<Cycle, PoolError> {
-        let mut tx_pool = self.tx_pool.borrow_mut();
+    // Add a verified tx into pool
+    // this method will handle fork related verifications to make sure we are safe during a fork
+    pub fn add_tx_to_pool(&self, tx: Transaction, cycles: Cycle) -> Result<Cycle, PoolError> {
         let short_id = tx.proposal_short_id();
-        let tx_hash = tx.hash().to_owned();
-        match self.resolve_tx_from_pending_and_staging(&tx, &tx_pool) {
+        match self.resolve_tx_from_pending_and_staging(&tx) {
             Ok(rtx) => {
-                self.verify_rtx(&rtx, cycles).map(|cycles| {
+                self.verify_rtx(&rtx, Some(cycles)).map(|cycles| {
+                    let mut tx_pool = self.tx_pool.borrow_mut();
                     if self.contains_proposal_id(&short_id) {
                         // if tx is proposed, we resolve from staging, verify again
                         if let Err(e) = self.staging_tx_and_descendants(&mut tx_pool, Some(cycles), tx) {
-                            debug!(target: "tx_pool", "Failed to staging tx {:}, reason: {:?}", tx_hash, e)
+                            debug!(target: "tx_pool", "Failed to staging tx {:?}, reason: {:?}", short_id, e)
                         }
                     } else {
                         tx_pool.enqueue_tx(Some(cycles), tx);
@@ -252,8 +249,8 @@ impl<CS: ChainStore> ChainState<CS> {
     pub fn resolve_tx_from_pending_and_staging<'a>(
         &self,
         tx: &'a Transaction,
-        tx_pool: &TxPool,
     ) -> Result<ResolvedTransaction<'a>, UnresolvableError> {
+        let tx_pool = self.tx_pool.borrow_mut();
         let staging_provider = OverlayCellProvider::new(&tx_pool.staging, self);
         let pending_and_staging_provider =
             OverlayCellProvider::new(&tx_pool.pending, &staging_provider);
@@ -261,7 +258,7 @@ impl<CS: ChainStore> ChainState<CS> {
         resolve_transaction(tx, &mut seen_inputs, &pending_and_staging_provider, self)
     }
 
-    pub fn resolve_tx_from_staging<'a>(
+    fn resolve_tx_from_staging<'a>(
         &self,
         tx: &'a Transaction,
         tx_pool: &TxPool,

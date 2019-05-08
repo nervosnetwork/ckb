@@ -16,9 +16,11 @@ use ckb_util::RwLock;
 use faketime::{self, unix_time_as_millis};
 use flatbuffers::get_root;
 use numext_fixed_uint::U256;
-use std::sync::mpsc::channel;
+use std::sync::mpsc::sync_channel;
 use std::sync::Arc;
 use std::thread;
+
+const DEFAULT_CHANNEL: usize = 128;
 
 #[test]
 fn basic_sync() {
@@ -31,7 +33,7 @@ fn basic_sync() {
 
     node1.connect(&mut node2, NetworkProtocol::SYNC.into());
 
-    let (signal_tx1, signal_rx1) = channel();
+    let (signal_tx1, signal_rx1) = sync_channel(DEFAULT_CHANNEL);
     thread::Builder::new()
         .name(thread_name.clone())
         .spawn(move || {
@@ -45,7 +47,7 @@ fn basic_sync() {
         })
         .expect("thread spawn");
 
-    let (signal_tx2, _) = channel();
+    let (signal_tx2, _) = sync_channel(DEFAULT_CHANNEL);
     thread::Builder::new()
         .name(thread_name)
         .spawn(move || {

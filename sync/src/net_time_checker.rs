@@ -5,6 +5,7 @@ use ckb_util::RwLock;
 use flatbuffers::FlatBufferBuilder;
 use log::{debug, info, warn};
 use std::collections::VecDeque;
+use std::sync::Arc;
 
 const TOLERANT_OFFSET: u64 = 7_200_000;
 const MIN_SAMPLES: usize = 5;
@@ -103,11 +104,11 @@ impl Default for NetTimeProtocol {
 }
 
 impl CKBProtocolHandler for NetTimeProtocol {
-    fn init(&mut self, _nc: Box<dyn CKBProtocolContext>) {}
+    fn init(&mut self, _nc: Arc<dyn CKBProtocolContext + Sync>) {}
 
     fn connected(
         &mut self,
-        nc: Box<dyn CKBProtocolContext>,
+        nc: Arc<dyn CKBProtocolContext + Sync>,
         peer_index: PeerIndex,
         _version: &str,
     ) {
@@ -123,7 +124,7 @@ impl CKBProtocolHandler for NetTimeProtocol {
 
     fn received(
         &mut self,
-        nc: Box<dyn CKBProtocolContext>,
+        nc: Arc<dyn CKBProtocolContext + Sync>,
         peer_index: PeerIndex,
         data: bytes::Bytes,
     ) {
