@@ -19,7 +19,10 @@ impl Spec for PoolResurrect {
 
         (0..5).for_each(|_| {
             let tx = node0.new_transaction(hash.clone());
-            hash = node0.rpc_client().send_transaction((&tx).into()).call()
+            hash = node0
+                .rpc_client()
+                .send_transaction((&tx).into())
+                .call()
                 .expect("rpc call send_transaction failed");
             txs_hash.push(hash.clone());
         });
@@ -30,7 +33,11 @@ impl Spec for PoolResurrect {
         node0.generate_block();
 
         info!("Pool should be empty");
-        let tx_pool_info = node0.rpc_client().tx_pool_info().call().expect("rpc call tx_pool_info failed");
+        let tx_pool_info = node0
+            .rpc_client()
+            .tx_pool_info()
+            .call()
+            .expect("rpc call tx_pool_info failed");
         assert!(tx_pool_info.pending == 0);
 
         info!("Generate 5 blocks on node1");
@@ -43,20 +50,32 @@ impl Spec for PoolResurrect {
         net.waiting_for_sync(10);
 
         info!("6 txs should be returned to node0 pending pool");
-        let tx_pool_info = node0.rpc_client().tx_pool_info().call().expect("rpc call tx_pool_info failed");
+        let tx_pool_info = node0
+            .rpc_client()
+            .tx_pool_info()
+            .call()
+            .expect("rpc call tx_pool_info failed");
         assert_eq!(tx_pool_info.pending, txs_hash.len() as u32);
         assert_eq!(tx_pool_info.staging, 0);
 
         info!("Generate 2 blocks on node0, 6 txs should be added to staging pool");
         node0.generate_block();
         node0.generate_block();
-        let tx_pool_info = node0.rpc_client().tx_pool_info().call().expect("rpc call tx_pool_info failed");
+        let tx_pool_info = node0
+            .rpc_client()
+            .tx_pool_info()
+            .call()
+            .expect("rpc call tx_pool_info failed");
         assert_eq!(tx_pool_info.pending, 0);
         assert_eq!(tx_pool_info.staging, txs_hash.len() as u32);
 
         info!("Generate 1 block on node0, 6 txs should be included in this block");
         node0.generate_block();
-        let tx_pool_info = node0.rpc_client().tx_pool_info().call().expect("rpc call tx_pool_info failed");
+        let tx_pool_info = node0
+            .rpc_client()
+            .tx_pool_info()
+            .call()
+            .expect("rpc call tx_pool_info failed");
         assert_eq!(tx_pool_info.pending, 0);
         assert_eq!(tx_pool_info.staging, 0);
     }

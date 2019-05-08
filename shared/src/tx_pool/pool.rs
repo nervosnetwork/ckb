@@ -99,22 +99,6 @@ impl TxPool {
         self.staging.add_tx(cycles, tx);
     }
 
-    pub(crate) fn remove_pending_and_conflict(
-        &mut self,
-        id: &ProposalShortId,
-    ) -> Option<PoolEntry> {
-        self.pending
-            .remove(id)
-            .or_else(|| self.conflict.remove(id))
-            .map(|entry| {
-                if self.config.trace_enable() {
-                    self.trace
-                        .proposed(&entry.transaction.hash(), format!("{:?} proposed", id));
-                }
-                entry
-            })
-    }
-
     pub(crate) fn capacity(&self) -> usize {
         self.staging.capacity() + self.orphan.capacity()
     }

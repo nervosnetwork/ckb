@@ -4,8 +4,7 @@ use crate::tx_pool::types::PoolEntry;
 use ckb_core::cell::{CellMeta, CellProvider, CellStatus};
 use ckb_core::transaction::{CellOutput, OutPoint, ProposalShortId, Transaction};
 use ckb_core::Cycle;
-use fnv::{FnvHashMap, FnvHashSet};
-use linked_hash_map::LinkedHashMap;
+use ckb_util::{FnvHashMap, FnvHashSet, LinkedFnvHashMap};
 use std::hash::Hash;
 
 #[derive(Default, Debug, Clone)]
@@ -93,7 +92,7 @@ impl<K: Hash + Eq, V: Copy + Eq + Hash> Edges<K, V> {
 
 #[derive(Default, Debug, Clone)]
 pub struct StagingPool {
-    pub(crate) vertices: LinkedHashMap<ProposalShortId, PoolEntry>,
+    pub(crate) vertices: LinkedFnvHashMap<ProposalShortId, PoolEntry>,
     pub(crate) edges: Edges<OutPoint, ProposalShortId>,
 }
 

@@ -4,17 +4,17 @@ use crate::tx_pool::types::PoolEntry;
 use ckb_core::cell::{CellMeta, CellProvider, CellStatus};
 use ckb_core::transaction::{OutPoint, ProposalShortId, Transaction};
 use ckb_core::Cycle;
-use fnv::FnvHashMap;
+use ckb_util::{LinkedFnvHashMap, LinkedFnvHashMapEntries};
 
 #[derive(Default, Debug, Clone)]
 pub(crate) struct PendingQueue {
-    pub(crate) inner: FnvHashMap<ProposalShortId, PoolEntry>,
+    pub(crate) inner: LinkedFnvHashMap<ProposalShortId, PoolEntry>,
 }
 
 impl PendingQueue {
     pub fn new() -> Self {
         PendingQueue {
-            inner: FnvHashMap::default(),
+            inner: LinkedFnvHashMap::default(),
         }
     }
 
@@ -45,6 +45,10 @@ impl PendingQueue {
 
     pub(crate) fn fetch(&self, n: usize) -> Vec<ProposalShortId> {
         self.inner.keys().take(n).cloned().collect()
+    }
+
+    pub(crate) fn entries(&mut self) -> LinkedFnvHashMapEntries<ProposalShortId, PoolEntry> {
+        self.inner.entries()
     }
 }
 

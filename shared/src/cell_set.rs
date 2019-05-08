@@ -1,7 +1,7 @@
 use ckb_core::block::Block;
 use ckb_core::transaction::OutPoint;
 use ckb_core::transaction_meta::TransactionMeta;
-use fnv::{FnvHashMap, FnvHashSet};
+use ckb_util::{FnvHashMap, FnvHashSet};
 use numext_fixed_hash::H256;
 use serde_derive::{Deserialize, Serialize};
 

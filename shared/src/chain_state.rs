@@ -17,8 +17,9 @@ use ckb_core::Cycle;
 use ckb_script::ScriptConfig;
 use ckb_store::ChainStore;
 use ckb_traits::BlockMedianTimeContext;
+use ckb_util::LinkedFnvHashSet;
+use ckb_util::{FnvHashMap, FnvHashSet};
 use ckb_verification::{ContextualTransactionVerifier, TransactionVerifier};
-use fnv::{FnvHashMap, FnvHashSet};
 use log::{debug, trace};
 use lru_cache::LruCache;
 use numext_fixed_hash::H256;
@@ -387,8 +388,8 @@ impl<CS: ChainStore> ChainState<CS> {
     ) {
         let mut tx_pool = self.tx_pool.borrow_mut();
 
-        let mut detached = FnvHashSet::default();
-        let mut attached = FnvHashSet::default();
+        let mut detached = LinkedFnvHashSet::default();
+        let mut attached = LinkedFnvHashSet::default();
 
         for blk in detached_blocks {
             detached.extend(blk.transactions().iter().skip(1).cloned())
@@ -422,14 +423,25 @@ impl<CS: ChainStore> ChainState<CS> {
             self.try_staging_orphan_by_ancestor(&mut tx_pool, tx);
         }
 
-        for id in self.get_proposal_ids_iter() {
-            if let Some(entry) = tx_pool.remove_pending_and_conflict(id) {
-                let tx_hash = entry.transaction.hash().to_owned();
-                if let Err(e) =
-                    self.staging_tx_and_descendants(&mut tx_pool, entry.cycles, entry.transaction)
-                {
-                    debug!(target: "tx_pool", "Failed to staging tx {:}, reason: {:?}", tx_hash, e)
-                }
+        let mut entries = Vec::new();
+        for entry in tx_pool.pending.entries() {
+            if self.contains_proposal_id(entry.key()) {
+                entries.push(entry.remove());
+            }
+        }
+
+        for entry in tx_pool.conflict.entries() {
+            if self.contains_proposal_id(entry.key()) {
+                entries.push(entry.remove());
+            }
+        }
+
+        for entry in entries {
+            let tx_hash = entry.transaction.hash().to_owned();
+            if let Err(e) =
+                self.staging_tx_and_descendants(&mut tx_pool, entry.cycles, entry.transaction)
+            {
+                debug!(target: "tx_pool", "Failed to staging tx {:}, reason: {:?}", tx_hash, e);
             }
         }
     }
