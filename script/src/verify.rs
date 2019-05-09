@@ -174,15 +174,9 @@ impl<'a, CS: LazyLoadCellOutput> TransactionScriptsVerifier<'a, CS> {
         if script.code_hash == ALWAYS_SUCCESS_HASH {
             return Ok(0);
         }
-        let mut args = vec![b"verify".to_vec()];
+        let mut args = vec!["verify".into()];
         self.extract_script(script).and_then(|script_binary| {
-            args.extend_from_slice(
-                &script
-                    .args
-                    .iter()
-                    .map(|b| b[..].to_vec())
-                    .collect::<Vec<Vec<u8>>>(),
-            );
+            args.extend_from_slice(&script.args);
 
             let mut appended_arguments = vec![];
             // TODO: change CKB VM to use Bytes in its API, then we can simplify the
@@ -200,12 +194,7 @@ impl<'a, CS: LazyLoadCellOutput> TransactionScriptsVerifier<'a, CS> {
             }
 
             let current_script_hash = script.hash_with_appended_arguments(&appended_arguments);
-            args.extend_from_slice(
-                &appended_arguments
-                    .iter()
-                    .map(|a| a[..].to_vec())
-                    .collect::<Vec<Vec<u8>>>(),
-            );
+            args.extend_from_slice(&appended_arguments);
 
             self.run(
                 &script_binary,
@@ -268,8 +257,8 @@ impl<'a, CS: LazyLoadCellOutput> TransactionScriptsVerifier<'a, CS> {
 
     fn run(
         &self,
-        program: &[u8],
-        args: &[Vec<u8>],
+        program: &Bytes,
+        args: &[Bytes],
         prefix: &str,
         max_cycles: Cycle,
         current_script_hash: &[u8],
