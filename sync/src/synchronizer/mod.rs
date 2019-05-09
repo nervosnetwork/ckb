@@ -14,9 +14,9 @@ use self::headers_process::HeadersProcess;
 use crate::config::Config;
 use crate::types::{HeaderView, Peers, SyncSharedState};
 use crate::{
-    BAD_MESSAGE_BAN_TIME, CHAIN_SYNC_TIMEOUT, EVICTION_HEADERS_RESPONSE_TIME,
+    BAD_MESSAGE_BAN_TIME, CHAIN_SYNC_TIMEOUT, EVICTION_HEADERS_RESPONSE_TIME, HEADERS_CAUGHT_UP,
     HEADERS_DOWNLOAD_TIMEOUT_BASE, HEADERS_DOWNLOAD_TIMEOUT_PER_HEADER, MAX_HEADERS_LEN,
-    MAX_OUTBOUND_PEERS_TO_PROTECT_FROM_DISCONNECT, POW_SPACE,
+    MAX_OUTBOUND_PEERS_TO_PROTECT_FROM_DISCONNECT, POW_SPACE, PROTECT_STOP_SYNC_TIME,
 };
 use bitflags::bitflags;
 use ckb_chain::chain::ChainController;
@@ -338,8 +338,8 @@ impl<CS: ChainStore> Synchronizer<CS> {
             if let Some(best_known_header) = best_known_headers.get(peer) {
                 // After we've caught up once(less than one day), reset the timeout so we can't trigger
                 // disconnect later.
-                if best_known_header.timestamp() > now - 24 * 60 * 60 * 1000 {
-                    state.caught_up_headers_sync();
+                if best_known_header.timestamp() > now - HEADERS_CAUGHT_UP {
+                    state.caught_up_sync();
                 }
             }
 
@@ -352,7 +352,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
                 }
             }
 
-            if !state.chain_sync.protect && state.is_outbound {
+            if state.is_outbound {
                 let best_known_header = best_known_headers.get(peer);
 
                 let (tip_header, local_total_difficulty) = {
@@ -389,8 +389,12 @@ impl<CS: ChainStore> Synchronizer<CS> {
                     // of our tip, when we first detected it was behind. Send a single getheaders
                     // message to give the peer a chance to update us.
                     if state.chain_sync.sent_getheaders {
-                        eviction.push(*peer);
-                        state.disconnect = true;
+                        if state.chain_sync.protect {
+                            state.stop_sync(now + PROTECT_STOP_SYNC_TIME);
+                        } else {
+                            eviction.push(*peer);
+                            state.disconnect = true;
+                        }
                     } else {
                         state.chain_sync.sent_getheaders = true;
                         state.chain_sync.timeout = now + EVICTION_HEADERS_RESPONSE_TIME;
@@ -414,12 +418,20 @@ impl<CS: ChainStore> Synchronizer<CS> {
     }
 
     fn start_sync_headers(&self, nc: &CKBProtocolContext) {
+        let now = unix_time_as_millis();
         let peers: Vec<PeerIndex> = self
             .peers
             .state
             .read()
             .iter()
-            .filter(|(_, state)| !state.sync_started)
+            .filter(|(_, state)| {
+                !state.sync_started
+                    && state
+                        .chain_sync
+                        .not_sync_until
+                        .map(|ts| ts < now)
+                        .unwrap_or(true)
+            })
             .map(|(peer_id, _)| peer_id)
             .cloned()
             .collect();
@@ -453,7 +465,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
                 if let Some(peer_state) = state.get_mut(&peer) {
                     if !peer_state.sync_started {
                         let headers_sync_timeout = self.predict_headers_sync_time(&tip);
-                        peer_state.start_headers_sync(headers_sync_timeout);
+                        peer_state.start_sync(headers_sync_timeout);
                         self.n_sync.fetch_add(1, Ordering::Release);
                     }
                 }

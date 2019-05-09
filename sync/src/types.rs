@@ -56,6 +56,7 @@ pub struct ChainSyncState {
     pub work_header: Option<Header>,
     pub total_difficulty: Option<U256>,
     pub sent_getheaders: bool,
+    pub not_sync_until: Option<u64>,
     pub protect: bool,
 }
 
@@ -66,6 +67,7 @@ impl Default for ChainSyncState {
             work_header: None,
             total_difficulty: None,
             sent_getheaders: false,
+            not_sync_until: None,
             protect: false,
         }
     }
@@ -98,17 +100,19 @@ impl PeerState {
         }
     }
 
-    pub fn start_headers_sync(&mut self, headers_sync_timeout: u64) {
+    pub fn start_sync(&mut self, headers_sync_timeout: u64) {
         self.sync_started = true;
+        self.chain_sync.not_sync_until = None;
         self.headers_sync_timeout = Some(headers_sync_timeout);
     }
 
-    pub fn stop_headers_sync(&mut self) {
+    pub fn stop_sync(&mut self, not_sync_until: u64) {
         self.sync_started = false;
+        self.chain_sync.not_sync_until = Some(not_sync_until);
         self.headers_sync_timeout = None;
     }
 
-    pub fn caught_up_headers_sync(&mut self) {
+    pub fn caught_up_sync(&mut self) {
         self.headers_sync_timeout = Some(std::u64::MAX);
     }
 
