@@ -765,3 +765,54 @@ curl -H 'content-type:application/json' \
     "id": 2
 }
 ```
+
+### get_blochchain_info
+
+Return state info of blockchain
+
+#### Examples
+
+```bash
+curl -H 'content-type:application/json' \
+    -d '{"id": 2, "jsonrpc": "2.0", "method": "get_blochchain_info", "params": []}' \
+    http://localhost:8114'
+```
+
+```json
+{
+   "result" : {
+      "is_initial_block_download" : false,
+      "epoch" : "0",
+      "difficulty" : "0x100",
+      "median_time" : "1557287480008",
+      "chain" : "ckb_dev",
+      "warnings" : ""
+   },
+   "id" : 2,
+   "jsonrpc" : "2.0"
+}
+```
+
+### get_peers_state
+
+Return state info of peers
+
+```bash
+curl -H 'content-type:application/json' \
+    -d '{"id": 2, "jsonrpc": "2.0", "method": "get_peers_state", "params": []}' \
+    http://localhost:8114'
+```
+
+```json
+{
+   "result" : [
+      {
+         "last_updated" : "1557289448237",
+         "blocks_in_flight" : "86",
+         "peer" : "1"
+      }
+   ],
+   "jsonrpc" : "2.0",
+   "id" : 2
+}
+```
