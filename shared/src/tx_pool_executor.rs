@@ -81,7 +81,7 @@ impl<CS: ChainStore> TxPoolExecutor<CS> {
         };
 
         // immediately return if resolved_txs is empty
-        if resolved_txs.is_empty() && cached_txs.is_empty() {
+        if resolved_txs.is_empty() {
             match unresolvable_txs.get(0) {
                 Some(err) => return Err(PoolError::UnresolvableTransaction(err.to_owned())),
                 None => return Ok(Vec::new()),
