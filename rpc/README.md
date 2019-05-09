@@ -766,7 +766,7 @@ curl -H 'content-type:application/json' \
 }
 ```
 
-### get_blochchain_info
+### get_blockchain_info
 
 Return state info of blockchain
 
@@ -774,7 +774,7 @@ Return state info of blockchain
 
 ```bash
 curl -H 'content-type:application/json' \
-    -d '{"id": 2, "jsonrpc": "2.0", "method": "get_blochchain_info", "params": []}' \
+    -d '{"id": 2, "jsonrpc": "2.0", "method": "get_blockchain_info", "params": []}' \
     http://localhost:8114'
 ```
 
