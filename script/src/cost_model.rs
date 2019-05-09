@@ -3,10 +3,8 @@ use ckb_vm::{
     Instruction,
 };
 
-// TODO: adjust the API in CKB VM repo, then fix this.
-#[allow(clippy::trivially_copy_pass_by_ref)]
-pub fn instruction_cycles(i: &Instruction) -> u64 {
-    match extract_opcode(*i) {
+pub fn instruction_cycles(i: Instruction) -> u64 {
+    match extract_opcode(i) {
         insts::OP_JALR => 3,
         insts::OP_LD => 2,
         insts::OP_LW => 3,

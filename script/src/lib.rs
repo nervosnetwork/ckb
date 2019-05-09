@@ -31,7 +31,7 @@ pub enum ScriptError {
     NoScript,
     InvalidReferenceIndex,
     ArgumentError,
-    ValidationFailure(u8),
+    ValidationFailure(i8),
     VMError(VMInternalError),
     ExceededMaximumCycles,
 }
