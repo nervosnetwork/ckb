@@ -7,12 +7,11 @@ use failure::Error as FailureError;
 use log::debug;
 use numext_fixed_hash::H256;
 use std::convert::TryInto;
-use std::sync::Arc;
 
 pub struct TransactionHashProcess<'a, CS> {
     message: &'a FbsRelayTransactionHash<'a>,
     relayer: &'a Relayer<CS>,
-    _nc: Arc<dyn CKBProtocolContext>,
+    _nc: &'a CKBProtocolContext,
     peer: PeerIndex,
 }
 
@@ -20,7 +19,7 @@ impl<'a, CS: ChainStore> TransactionHashProcess<'a, CS> {
     pub fn new(
         message: &'a FbsRelayTransactionHash,
         relayer: &'a Relayer<CS>,
-        nc: Arc<dyn CKBProtocolContext>,
+        nc: &'a CKBProtocolContext,
         peer: PeerIndex,
     ) -> Self {
         TransactionHashProcess {

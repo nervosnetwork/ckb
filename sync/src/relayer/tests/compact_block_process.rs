@@ -122,6 +122,7 @@ fn build_chain(tip: BlockNumber) -> Relayer<ChainKVStore<MemoryKeyValueDB>> {
 fn test_reconstruct_block() {
     let relayer = build_chain(5);
     let prepare: Vec<Transaction> = (0..20).map(|i| new_transaction(&relayer, i)).collect();
+    let chain_state = relayer.shared.chain_state().lock();
 
     // Case: miss tx.0
     {
@@ -136,7 +137,6 @@ fn test_reconstruct_block() {
             .collect();
         let transactions: Vec<Transaction> = prepare.iter().skip(1).cloned().collect();
         compact.short_ids = short_ids;
-        let chain_state = relayer.shared.chain_state().lock();
         assert_eq!(
             relayer.reconstruct_block(&chain_state, &compact, transactions),
             Err(vec![0]),
@@ -162,7 +162,6 @@ fn test_reconstruct_block() {
             .map(|(i, _)| i)
             .collect();
         compact.short_ids = short_ids;
-        let chain_state = relayer.shared.chain_state().lock();
         assert_eq!(
             relayer.reconstruct_block(&chain_state, &compact, transactions),
             Err(missing),
@@ -203,13 +202,11 @@ fn test_reconstruct_block() {
         let short_transactions: Vec<Transaction> = short_transactions.to_vec();
         pool_transactions.iter().for_each(|tx| {
             // `tx` is added into pool but not be staging, since `tx` has not been proposal yet
-            relayer
-                .tx_pool_executor
-                .verify_and_add_tx_to_pool(tx.clone())
+            chain_state
+                .add_tx_to_pool(tx.clone(), None)
                 .expect("adding transaction into pool");
         });
 
-        let chain_state = relayer.shared.chain_state().lock();
         assert_eq!(
             relayer.reconstruct_block(&chain_state, &compact, short_transactions),
             Err(vec![0, 2]),

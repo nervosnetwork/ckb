@@ -6,12 +6,11 @@ use ckb_store::ChainStore;
 use failure::Error as FailureError;
 use flatbuffers::FlatBufferBuilder;
 use std::convert::TryInto;
-use std::sync::Arc;
 
 pub struct GetBlockProposalProcess<'a, CS> {
     message: &'a GetBlockProposal<'a>,
     relayer: &'a Relayer<CS>,
-    nc: Arc<dyn CKBProtocolContext>,
+    nc: &'a CKBProtocolContext,
     peer: PeerIndex,
 }
 
@@ -19,7 +18,7 @@ impl<'a, CS: ChainStore> GetBlockProposalProcess<'a, CS> {
     pub fn new(
         message: &'a GetBlockProposal,
         relayer: &'a Relayer<CS>,
-        nc: Arc<dyn CKBProtocolContext>,
+        nc: &'a CKBProtocolContext,
         peer: PeerIndex,
     ) -> Self {
         GetBlockProposalProcess {

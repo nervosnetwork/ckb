@@ -4,7 +4,7 @@ use ckb_network::{
 };
 use ckb_util::RwLock;
 use std::collections::HashMap;
-use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
+use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
@@ -14,15 +14,13 @@ mod relayer;
 #[cfg(not(disable_faketime))]
 mod synchronizer;
 
-const DEFAULT_CHANNEL: usize = 128;
-
 #[derive(Default)]
 struct TestNode {
     pub peers: Vec<PeerIndex>,
     pub protocols: HashMap<ProtocolId, Arc<RwLock<CKBProtocolHandler + Send + Sync>>>,
-    pub msg_senders: HashMap<(ProtocolId, PeerIndex), SyncSender<Bytes>>,
+    pub msg_senders: HashMap<(ProtocolId, PeerIndex), Sender<Bytes>>,
     pub msg_receivers: HashMap<(ProtocolId, PeerIndex), Receiver<Bytes>>,
-    pub timer_senders: HashMap<(ProtocolId, u64), SyncSender<()>>,
+    pub timer_senders: HashMap<(ProtocolId, u64), Sender<()>>,
     pub timer_receivers: HashMap<(ProtocolId, u64), Receiver<()>>,
 }
 
@@ -35,13 +33,13 @@ impl TestNode {
     ) {
         self.protocols.insert(protocol, Arc::clone(handler));
         timers.iter().for_each(|timer| {
-            let (timer_sender, timer_receiver) = sync_channel(DEFAULT_CHANNEL);
+            let (timer_sender, timer_receiver) = channel();
             self.timer_senders.insert((protocol, *timer), timer_sender);
             self.timer_receivers
                 .insert((protocol, *timer), timer_receiver);
         });
 
-        handler.write().init(Arc::new(TestNetworkContext {
+        handler.write().init(Box::new(TestNetworkContext {
             protocol,
             msg_senders: self.msg_senders.clone(),
             timer_senders: self.timer_senders.clone(),
@@ -49,13 +47,13 @@ impl TestNode {
     }
 
     pub fn connect(&mut self, remote: &mut TestNode, protocol: ProtocolId) {
-        let (local_sender, local_receiver) = sync_channel(DEFAULT_CHANNEL);
+        let (local_sender, local_receiver) = channel();
         let local_index = self.peers.len();
         self.peers.insert(local_index, local_index.into());
         self.msg_senders
             .insert((protocol, local_index.into()), local_sender);
 
-        let (remote_sender, remote_receiver) = sync_channel(DEFAULT_CHANNEL);
+        let (remote_sender, remote_receiver) = channel();
         let remote_index = remote.peers.len();
         remote.peers.insert(remote_index, remote_index.into());
         remote
@@ -70,7 +68,7 @@ impl TestNode {
 
         if let Some(handler) = self.protocols.get(&protocol) {
             handler.write().connected(
-                Arc::new(TestNetworkContext {
+                Box::new(TestNetworkContext {
                     protocol,
                     msg_senders: self.msg_senders.clone(),
                     timer_senders: self.timer_senders.clone(),
@@ -82,7 +80,7 @@ impl TestNode {
 
         if let Some(handler) = remote.protocols.get(&protocol) {
             handler.write().connected(
-                Arc::new(TestNetworkContext {
+                Box::new(TestNetworkContext {
                     protocol,
                     msg_senders: remote.msg_senders.clone(),
                     timer_senders: remote.timer_senders.clone(),
@@ -93,13 +91,13 @@ impl TestNode {
         }
     }
 
-    pub fn start<F: Fn(&[u8]) -> bool>(&self, signal: &SyncSender<()>, pred: F) {
+    pub fn start<F: Fn(&[u8]) -> bool>(&self, signal: &Sender<()>, pred: F) {
         loop {
             for ((protocol, peer), receiver) in &self.msg_receivers {
                 let _ = receiver.try_recv().map(|payload| {
                     if let Some(handler) = self.protocols.get(protocol) {
                         handler.write().received(
-                            Arc::new(TestNetworkContext {
+                            Box::new(TestNetworkContext {
                                 protocol: *protocol,
                                 msg_senders: self.msg_senders.clone(),
                                 timer_senders: self.timer_senders.clone(),
@@ -119,7 +117,7 @@ impl TestNode {
                 let _ = receiver.try_recv().map(|_| {
                     if let Some(handler) = self.protocols.get(protocol) {
                         handler.write().notify(
-                            Arc::new(TestNetworkContext {
+                            Box::new(TestNetworkContext {
                                 protocol: *protocol,
                                 msg_senders: self.msg_senders.clone(),
                                 timer_senders: self.timer_senders.clone(),
@@ -145,8 +143,8 @@ impl TestNode {
 
 struct TestNetworkContext {
     protocol: ProtocolId,
-    msg_senders: HashMap<(ProtocolId, PeerIndex), SyncSender<bytes::Bytes>>,
-    timer_senders: HashMap<(ProtocolId, u64), SyncSender<()>>,
+    msg_senders: HashMap<(ProtocolId, PeerIndex), Sender<bytes::Bytes>>,
+    timer_senders: HashMap<(ProtocolId, u64), Sender<()>>,
 }
 
 impl CKBProtocolContext for TestNetworkContext {
