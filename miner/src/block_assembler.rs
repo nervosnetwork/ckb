@@ -5,19 +5,19 @@ use ckb_core::header::Header;
 use ckb_core::script::Script;
 use ckb_core::service::{Request, DEFAULT_CHANNEL_SIZE, SIGNAL_CHANNEL_SIZE};
 use ckb_core::transaction::{
-    Capacity, CellInput, CellOutput, ProposalShortId, Transaction, TransactionBuilder,
+    Capacity, CellInput, ProposalShortId, Transaction, TransactionBuilder,
 };
 use ckb_core::uncle::UncleBlock;
-use ckb_core::{Bytes, Cycle, Version};
+use ckb_core::{Cycle, Version};
 use ckb_notify::NotifyController;
 use ckb_shared::{shared::Shared, tx_pool::ProposedEntry};
 use ckb_store::ChainStore;
 use ckb_traits::ChainProvider;
 use ckb_util::Mutex;
+use ckb_util::{FnvHashMap, FnvHashSet};
 use crossbeam_channel::{self, select, Receiver, Sender};
 use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
-use fnv::FnvHashSet;
 use jsonrpc_types::{
     BlockTemplate, CellbaseTemplate, JsonBytes, TransactionTemplate, UncleTemplate,
 };
@@ -357,18 +357,37 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
         // stick to the simpler way and just convert everything to a single string, then to UTF8
         // bytes, they really serve the same purpose at the moment
 
+        let proposal_window = self.shared.consensus().tx_proposal_window();
+
+        let mut proposers_reward: FnvHashMap<Script, Capacity> =
+            FnvHashMap::with_capacity_and_hasher(
+                proposal_window.start() as usize,
+                Default::default(),
+            );
+
         let block_reward = current_epoch.block_reward(tip.number() + 1)?;
-        let mut fee = Capacity::zero();
+        let mut miner_fee = Capacity::zero();
         // depends cells may produced from previous tx
         for pe in pes {
-            fee = fee.safe_add(pe.fee)?;
+            let tx_fee = pe.fee;
+            let proposer_reward = proposers_reward
+                .entry(pe.proposer.clone())
+                .or_insert_with(Capacity::zero);
+            let proposer_fee = tx_fee.safe_mul_ratio(4, 10)?;
+            *proposer_reward = proposer_reward.safe_add(proposer_fee)?;
+            let surplus = tx_fee.safe_sub(proposer_fee)?;
+            miner_fee = miner_fee.safe_add(surplus)?;
         }
 
-        let output = CellOutput::new(block_reward.safe_add(fee)?, Bytes::new(), lock, None);
+        let outputs = self.shared.consensus().create_cellbase_output(
+            block_reward.safe_add(miner_fee)?,
+            lock,
+            proposers_reward.into_iter(),
+        );
 
         Ok(TransactionBuilder::default()
             .input(input)
-            .output(output)
+            .outputs(outputs)
             .build())
     }
 

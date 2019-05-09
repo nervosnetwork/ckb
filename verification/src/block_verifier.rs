@@ -18,7 +18,6 @@ use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIter
 use std::collections::HashSet;
 use std::sync::Arc;
 
-//TODO: cellbase, witness
 #[derive(Clone)]
 pub struct BlockVerifier<P> {
     provider: P,

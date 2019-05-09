@@ -348,4 +348,27 @@ impl Consensus {
             None
         }
     }
+
+    pub fn create_cellbase_output(
+        &self,
+        miner_reward: Capacity,
+        miner_lock: Script,
+        proposers_reward: impl Iterator<Item = (Script, Capacity)>,
+    ) -> Vec<CellOutput> {
+        let proposal_window = self.tx_proposal_window();
+        let mut outputs = Vec::with_capacity(proposal_window.start() as usize);
+
+        outputs.push(CellOutput::new(
+            miner_reward,
+            Bytes::new(),
+            miner_lock,
+            None,
+        ));
+
+        for (proposer, reward) in proposers_reward {
+            outputs.push(CellOutput::new(reward, Bytes::new(), proposer, None));
+        }
+
+        outputs
+    }
 }
