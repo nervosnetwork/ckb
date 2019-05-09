@@ -348,7 +348,7 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
         tip: &Header,
         current_epoch: &EpochExt,
         pes: &[ProposedEntry],
-        lock: Script,
+        miner_lock: Script,
     ) -> Result<Transaction, FailureError> {
         // NOTE: To generate different cellbase txid, we put header number in the input script
         let input = CellInput::new_cellbase_input(tip.number() + 1);
@@ -370,18 +370,22 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
         // depends cells may produced from previous tx
         for pe in pes {
             let tx_fee = pe.fee;
-            let proposer_reward = proposers_reward
-                .entry(pe.proposer.clone())
-                .or_insert_with(Capacity::zero);
-            let proposer_fee = tx_fee.safe_mul_ratio(4, 10)?;
-            *proposer_reward = proposer_reward.safe_add(proposer_fee)?;
-            let surplus = tx_fee.safe_sub(proposer_fee)?;
-            miner_fee = miner_fee.safe_add(surplus)?;
+            if pe.proposer.eq(&miner_lock) {
+                miner_fee = miner_fee.safe_add(tx_fee)?;
+            } else {
+                let proposer_reward = proposers_reward
+                    .entry(pe.proposer.clone())
+                    .or_insert_with(Capacity::zero);
+                let proposer_fee = tx_fee.safe_mul_ratio(4, 10)?;
+                *proposer_reward = proposer_reward.safe_add(proposer_fee)?;
+                let surplus = tx_fee.safe_sub(proposer_fee)?;
+                miner_fee = miner_fee.safe_add(surplus)?;
+            }
         }
 
         let outputs = self.shared.consensus().create_cellbase_output(
             block_reward.safe_add(miner_fee)?,
-            lock,
+            miner_lock,
             proposers_reward.into_iter(),
         );
 

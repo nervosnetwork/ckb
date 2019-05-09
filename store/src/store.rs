@@ -79,7 +79,9 @@ pub trait ChainStore: Sync + Send {
     fn get_transaction(&self, h: &H256) -> Option<(Transaction, H256)>;
     /// Get commit transaction address by it's hash
     fn get_transaction_address(&self, hash: &H256) -> Option<TransactionAddress>;
+    /// Get cell meta by outpoint
     fn get_cell_meta(&self, tx_hash: &H256, index: u32) -> Option<CellMeta>;
+    /// Get cell output by outpoint
     fn get_cell_output(&self, tx_hash: &H256, index: u32) -> Option<CellOutput>;
     // Get current epoch ext
     fn get_current_epoch_ext(&self) -> Option<EpochExt>;
@@ -89,6 +91,8 @@ pub trait ChainStore: Sync + Send {
     fn get_epoch_index(&self, number: EpochNumber) -> Option<H256>;
     // Get epoch index by block hash
     fn get_block_epoch_index(&self, h256: &H256) -> Option<H256>;
+    // Get cellbase by block hash
+    fn get_cellbase(&self, hash: &H256) -> Option<Transaction>;
 }
 
 pub trait StoreBatch {
@@ -251,6 +255,23 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
     fn get_block_epoch_index(&self, block_hash: &H256) -> Option<H256> {
         self.get(COLUMN_BLOCK_EPOCH, block_hash.as_bytes())
             .map(|raw| H256::from_slice(&raw[..]).expect("db safe access"))
+    }
+
+    fn get_cellbase(&self, h: &H256) -> Option<Transaction> {
+        self.get(COLUMN_BLOCK_TRANSACTION_ADDRESSES, h.as_bytes())
+            .and_then(|serialized_addresses| {
+                let addresses: Vec<Address> =
+                    deserialize(&serialized_addresses).expect("deserialize address should be ok");
+                let cellbase_address = addresses.get(0).expect("cellbase address should exist");
+                self.partial_get(
+                    COLUMN_BLOCK_BODY,
+                    h.as_bytes(),
+                    &(cellbase_address.offset..(cellbase_address.offset + cellbase_address.length)),
+                )
+                .map(|ref serialized_transaction| unsafe {
+                    Transaction::from_bytes_unchecked(serialized_transaction)
+                })
+            })
     }
 
     fn get_transaction(&self, h: &H256) -> Option<(Transaction, H256)> {

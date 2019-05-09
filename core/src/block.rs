@@ -1,6 +1,6 @@
 use crate::header::{Header, HeaderBuilder};
-use crate::transaction::{ProposalShortId, Transaction, TransactionStored};
 use crate::script::Script;
+use crate::transaction::{ProposalShortId, Transaction, TransactionStored};
 use crate::uncle::{uncles_hash, UncleBlock};
 use ckb_merkle_tree::merkle_root;
 use fnv::FnvHashSet;

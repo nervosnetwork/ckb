@@ -349,6 +349,7 @@ impl Consensus {
         }
     }
 
+    /// proposers_reward SHOULD NOT include miner
     pub fn create_cellbase_output(
         &self,
         miner_reward: Capacity,

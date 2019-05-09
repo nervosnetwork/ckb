@@ -2,6 +2,7 @@ use crate::shared::{Shared, SharedBuilder};
 use ckb_core::{block::BlockBuilder, header::HeaderBuilder};
 use ckb_db::{KeyValueDB, MemoryKeyValueDB};
 use ckb_store::{ChainKVStore, ChainStore, StoreBatch};
+use ckb_traits::chain_provider::ChainProvider;
 use ckb_traits::BlockMedianTimeContext;
 
 fn new_shared() -> Shared<ChainKVStore<MemoryKeyValueDB>> {

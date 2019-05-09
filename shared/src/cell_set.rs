@@ -14,7 +14,7 @@ pub struct CellSetDiff {
 }
 
 impl CellSetDiff {
-    pub fn push_new(&mut self, block: &Block) {
+    pub fn push_attached(&mut self, block: &Block) {
         for tx in block.transactions() {
             let input_pts = tx.input_pts();
             let tx_hash = tx.hash();
@@ -27,7 +27,7 @@ impl CellSetDiff {
         }
     }
 
-    pub fn push_old(&mut self, block: &Block) {
+    pub fn push_detached(&mut self, block: &Block) {
         for tx in block.transactions() {
             let input_pts = tx.input_pts();
             let tx_hash = tx.hash();

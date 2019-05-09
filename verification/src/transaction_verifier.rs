@@ -49,9 +49,10 @@ pub struct TransactionVerifier<'a, M, CS> {
     pub since: ValidSinceVerifier<'a, M>,
 }
 
-impl<'a, M, CS: ChainStore> TransactionVerifier<'a, M, CS>
+impl<'a, M, CS> TransactionVerifier<'a, M, CS>
 where
     M: BlockMedianTimeContext,
+    CS: ChainStore,
 {
     pub fn new(
         rtx: &'a ResolvedTransaction,

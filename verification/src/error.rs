@@ -78,6 +78,7 @@ pub enum CommitError {
 #[derive(Debug, PartialEq, Clone, Eq)]
 pub enum CellbaseError {
     InvalidInput,
+    InvalidOutput,
     InvalidReward,
     InvalidQuantity,
     InvalidPosition,

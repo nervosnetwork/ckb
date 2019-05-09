@@ -1,22 +1,13 @@
-use crate::error::{CellbaseError, CommitError, Error, UnclesError};
+use crate::error::{CellbaseError, Error, UnclesError};
 use crate::header_verifier::HeaderResolver;
-use crate::{ContextualTransactionVerifier, TransactionVerifier, Verifier};
-use ckb_core::cell::ResolvedTransaction;
+use crate::Verifier;
+use ckb_core::block::Block;
 use ckb_core::extras::EpochExt;
 use ckb_core::header::Header;
-use ckb_core::transaction::{Capacity, CellInput, Transaction};
-use ckb_core::Cycle;
-use ckb_core::{block::Block, BlockNumber};
-use ckb_script::ScriptConfig;
-use ckb_store::ChainStore;
-use ckb_traits::{BlockMedianTimeContext, ChainProvider};
+use ckb_core::transaction::CellInput;
+use ckb_traits::ChainProvider;
 use fnv::FnvHashSet;
-use log::error;
-use lru_cache::LruCache;
-use numext_fixed_hash::H256;
-use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use std::collections::HashSet;
-use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct BlockVerifier<P> {
@@ -65,7 +56,6 @@ where
         CellbaseVerifier::new().verify(target)?;
         DuplicateVerifier::new().verify(target)?;
         MerkleRootVerifier::new().verify(target)?;
-        CommitVerifier::new(self.provider.clone()).verify(target)?;
         UnclesVerifier::new(self.provider.clone(), &epoch_ext).verify(target)
     }
 }
@@ -88,6 +78,10 @@ impl CellbaseVerifier {
         // empty checked, block must contain cellbase
         if cellbase_len != 1 {
             return Err(Error::Cellbase(CellbaseError::InvalidQuantity));
+        }
+
+        if block.get_cellbase_lock().is_none() {
+            return Err(Error::Cellbase(CellbaseError::InvalidOutput));
         }
 
         let cellbase_transaction = &block.transactions()[0];
@@ -347,162 +341,6 @@ where
             included.insert(uncle_hash);
         }
 
-        Ok(())
-    }
-}
-
-#[derive(Clone)]
-pub struct TransactionsVerifier<'a> {
-    max_cycles: Cycle,
-    script_config: &'a ScriptConfig,
-}
-
-impl<'a> TransactionsVerifier<'a> {
-    pub fn new(max_cycles: Cycle, script_config: &'a ScriptConfig) -> Self {
-        TransactionsVerifier {
-            max_cycles,
-            script_config,
-        }
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    pub fn verify<M, CS: ChainStore>(
-        &self,
-        resolved: &[ResolvedTransaction],
-        store: Arc<CS>,
-        block_reward: Capacity,
-        block_median_time_context: M,
-        tip_number: BlockNumber,
-        cellbase_maturity: BlockNumber,
-        txs_verify_cache: &mut LruCache<H256, Cycle>,
-    ) -> Result<(), Error>
-    where
-        M: BlockMedianTimeContext + Sync,
-    {
-        // verify cellbase reward
-        let cellbase = &resolved[0];
-        let fee: Capacity = resolved
-            .iter()
-            .skip(1)
-            .map(ResolvedTransaction::fee)
-            .try_fold(Capacity::zero(), |acc, rhs| {
-                rhs.and_then(|x| acc.safe_add(x))
-            })?;
-        if cellbase.transaction.outputs_capacity()? > block_reward.safe_add(fee)? {
-            return Err(Error::Cellbase(CellbaseError::InvalidReward));
-        }
-
-        // make verifiers orthogonal
-        let ret_set = resolved
-            .par_iter()
-            .enumerate()
-            .map(|(index, tx)| {
-                let tx_hash = tx.transaction.hash().to_owned();
-                if let Some(cycles) = txs_verify_cache.get(&tx_hash) {
-                    ContextualTransactionVerifier::new(
-                        &tx,
-                        &block_median_time_context,
-                        tip_number,
-                        cellbase_maturity,
-                    )
-                    .verify()
-                    .map_err(|e| Error::Transactions((index, e)))
-                    .map(|_| (tx_hash, *cycles))
-                } else {
-                    TransactionVerifier::new(
-                        &tx,
-                        Arc::clone(&store),
-                        &block_median_time_context,
-                        tip_number,
-                        cellbase_maturity,
-                        &self.script_config,
-                    )
-                    .verify(self.max_cycles)
-                    .map_err(|e| Error::Transactions((index, e)))
-                    .map(|cycles| (tx_hash, cycles))
-                }
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-
-        let sum: Cycle = ret_set.iter().map(|(_, cycles)| cycles).sum();
-
-        for (hash, cycles) in ret_set {
-            txs_verify_cache.insert(hash, cycles);
-        }
-
-        if sum > self.max_cycles {
-            Err(Error::ExceededMaximumCycles)
-        } else {
-            Ok(())
-        }
-    }
-}
-
-#[derive(Clone)]
-pub struct CommitVerifier<CP> {
-    provider: CP,
-}
-
-impl<CP: ChainProvider + Clone> CommitVerifier<CP> {
-    pub fn new(provider: CP) -> Self {
-        CommitVerifier { provider }
-    }
-
-    pub fn verify(&self, block: &Block) -> Result<(), Error> {
-        if block.is_genesis() {
-            return Ok(());
-        }
-        let block_number = block.header().number();
-        let proposal_window = self.provider.consensus().tx_proposal_window();
-        let proposal_start = block_number.saturating_sub(proposal_window.start());
-        let mut proposal_end = block_number.saturating_sub(proposal_window.end());
-
-        let mut block_hash = self
-            .provider
-            .get_ancestor(&block.header().parent_hash(), proposal_end)
-            .map(|h| h.hash().to_owned())
-            .ok_or_else(|| Error::Commit(CommitError::AncestorNotFound))?;
-
-        let mut proposal_txs_ids = FnvHashSet::default();
-
-        while proposal_end >= proposal_start {
-            let header = self
-                .provider
-                .block_header(&block_hash)
-                .ok_or_else(|| Error::Commit(CommitError::AncestorNotFound))?;
-            if header.is_genesis() {
-                break;
-            }
-
-            if let Some(ids) = self.provider.block_proposal_txs_ids(&block_hash) {
-                proposal_txs_ids.extend(ids);
-            }
-            if let Some(uncles) = self.provider.uncles(&block_hash) {
-                uncles
-                    .iter()
-                    .for_each(|uncle| proposal_txs_ids.extend(uncle.proposals()));
-            }
-
-            block_hash = header.parent_hash().to_owned();
-            proposal_end -= 1;
-        }
-
-        let committed_ids: FnvHashSet<_> = block
-            .transactions()
-            .par_iter()
-            .skip(1)
-            .map(Transaction::proposal_short_id)
-            .collect();
-
-        let difference: Vec<_> = committed_ids.difference(&proposal_txs_ids).collect();
-
-        if !difference.is_empty() {
-            error!(target: "chain",  "Block {} {:x}", block.header().number(), block.header().hash());
-            error!(target: "chain",  "proposal_window proposal_start {}", proposal_start);
-            error!(target: "chain",  "committed_ids {} ", serde_json::to_string(&committed_ids).unwrap());
-            error!(target: "chain",  "proposal_txs_ids {} ", serde_json::to_string(&proposal_txs_ids).unwrap());
-            return Err(Error::Commit(CommitError::Invalid));
-        }
         Ok(())
     }
 }
