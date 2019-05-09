@@ -67,7 +67,10 @@ impl<CS: ChainStore> TxPoolExecutor<CS> {
                 } else {
                     match chain_state.resolve_tx_from_pending_and_staging(tx) {
                         Ok(resolved_tx) => resolved_txs.push((tx.hash().to_owned(), resolved_tx)),
-                        Err(err) => unresolvable_txs.push(err),
+                        Err(err) => unresolvable_txs.push((
+                            tx.hash().to_owned(),
+                            PoolError::UnresolvableTransaction(err),
+                        )),
                     }
                 }
             }
@@ -83,7 +86,7 @@ impl<CS: ChainStore> TxPoolExecutor<CS> {
         // immediately return if resolved_txs is empty
         if resolved_txs.is_empty() && cached_txs.is_empty() {
             match unresolvable_txs.get(0) {
-                Some(err) => return Err(PoolError::UnresolvableTransaction(err.to_owned())),
+                Some((_tx, err)) => return Err(err.to_owned()),
                 None => return Ok(Vec::new()),
             }
         }
@@ -132,17 +135,19 @@ impl<CS: ChainStore> TxPoolExecutor<CS> {
                 .collect::<Vec<(H256, Result<Cycle, _>)>>()
         };
 
-        // join verified result with cached_txs
+        // join all txs
         let cycles_vec = {
             let mut cycles_vec = cycles_vec
                 .into_iter()
                 .chain(cached_txs)
+                .chain(unresolvable_txs.into_iter().map(|(tx, err)| (tx, Err(err))))
                 .collect::<FnvHashMap<H256, Result<Cycle, PoolError>>>();
             txs.iter()
-                .filter_map(|tx| {
+                .map(|tx| {
                     cycles_vec
                         .remove(tx.hash())
-                        .map(|result| result.map(|cycles| (cycles, tx.to_owned())))
+                        .expect("verified tx should exists")
+                        .map(|cycles| (cycles, tx.to_owned()))
                 })
                 .collect::<Vec<Result<(Cycle, Transaction), PoolError>>>()
         };
