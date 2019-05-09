@@ -13,7 +13,7 @@ use tempfile::tempdir;
 
 pub struct Net {
     pub nodes: Vec<Node>,
-    pub controller: Option<(NetworkController, Receiver<(PeerIndex, Bytes)>)>,
+    pub controller: Option<(NetworkController, Receiver<(PeerIndex, ProtocolId, Bytes)>)>,
 }
 
 impl Net {
@@ -135,13 +135,13 @@ impl Net {
             .send_message_to(peer, protocol_id, data);
     }
 
-    pub fn receive(&self) -> (PeerIndex, Bytes) {
+    pub fn receive(&self) -> (PeerIndex, ProtocolId, Bytes) {
         self.controller.as_ref().unwrap().1.recv().unwrap()
     }
 }
 
 pub struct DummyProtocolHandler {
-    tx: Sender<(PeerIndex, Bytes)>,
+    tx: Sender<(PeerIndex, ProtocolId, Bytes)>,
 }
 
 impl CKBProtocolHandler for DummyProtocolHandler {
@@ -149,10 +149,10 @@ impl CKBProtocolHandler for DummyProtocolHandler {
 
     fn received(
         &mut self,
-        _nc: Arc<dyn CKBProtocolContext + Sync>,
+        nc: Arc<dyn CKBProtocolContext + Sync>,
         peer_index: PeerIndex,
         data: bytes::Bytes,
     ) {
-        let _ = self.tx.send((peer_index, data));
+        let _ = self.tx.send((peer_index, nc.protocol_id(), data));
     }
 }

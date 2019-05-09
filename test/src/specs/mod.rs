@@ -1,18 +1,19 @@
-mod relay;
 mod mining;
 mod p2p;
-mod tx_pool;
+mod relay;
 mod sync;
+mod tx_pool;
 
 pub use mining::MiningBasic;
 pub use p2p::*;
-pub use tx_pool::*;
 pub use relay::*;
 pub use sync::*;
+pub use tx_pool::*;
 
 use crate::Net;
 use ckb_core::BlockNumber;
 use ckb_network::{ProtocolId, ProtocolVersion};
+use ckb_sync::NetworkProtocol;
 
 pub trait Spec {
     fn run(&self, net: Net);
@@ -62,4 +63,22 @@ pub struct TestProtocol {
     pub id: ProtocolId,
     pub protocol_name: String,
     pub supported_versions: Vec<ProtocolVersion>,
+}
+
+impl TestProtocol {
+    pub fn sync() -> Self {
+        Self {
+            id: NetworkProtocol::SYNC.into(),
+            protocol_name: "syn".to_string(),
+            supported_versions: vec!["1".to_string()],
+        }
+    }
+
+    pub fn relay() -> Self {
+        Self {
+            id: NetworkProtocol::RELAY.into(),
+            protocol_name: "rel".to_string(),
+            supported_versions: vec!["1".to_string()],
+        }
+    }
 }

@@ -14,7 +14,7 @@ impl Spec for MalformedMessage {
         net.connect(node0);
 
         info!("Test node should receive GetHeaders message from node0");
-        let (peer_id, data) = net.receive();
+        let (peer_id, _, data) = net.receive();
         let msg = get_root::<SyncMessage>(&data).expect("parse message failed");
         assert_eq!(SyncPayload::GetHeaders, msg.payload_type());
 
@@ -58,10 +58,6 @@ impl Spec for MalformedMessage {
     }
 
     fn test_protocols(&self) -> Vec<TestProtocol> {
-        vec![TestProtocol {
-            id: NetworkProtocol::SYNC.into(),
-            protocol_name: "syn".to_string(),
-            supported_versions: vec!["1".to_string()],
-        }]
+        vec![TestProtocol::sync()]
     }
 }

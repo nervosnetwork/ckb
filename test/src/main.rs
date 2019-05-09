@@ -33,6 +33,7 @@ fn main() {
             "cellbase_maturity" => Box::new(CellbaseMaturity),
             "valid_since" => Box::new(ValidSince),
             "different_txs_with_same_input" => Box::new(DifferentTxsWithSameInput),
+            "compact_block_basic" => Box::new(CompactBlockBasic),
             _ => panic!("invalid spec"),
         };
         let net = spec.setup_net(&binary, start_port);
@@ -53,6 +54,7 @@ fn main() {
             Box::new(CellbaseMaturity),
             Box::new(ValidSince),
             Box::new(DifferentTxsWithSameInput),
+            Box::new(CompactBlockBasic),
         ];
 
         specs.iter().for_each(|spec| {
