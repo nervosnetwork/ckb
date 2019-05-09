@@ -33,8 +33,9 @@ use ckb_network::{CKBProtocolContext, CKBProtocolHandler, PeerIndex};
 use ckb_protocol::{
     cast, get_root, short_transaction_id, short_transaction_id_keys, RelayMessage, RelayPayload,
 };
-use ckb_shared::{chain_state::ChainState, tx_pool_executor::TxPoolExecutor};
+use ckb_shared::chain_state::ChainState;
 use ckb_store::ChainStore;
+use ckb_tx_pool_executor::TxPoolExecutor;
 use ckb_util::Mutex;
 use failure::Error as FailureError;
 use faketime::unix_time_as_millis;

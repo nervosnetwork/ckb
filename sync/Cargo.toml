@@ -10,6 +10,7 @@ ckb-chain = { path = "../chain" }
 ckb-shared = { path = "../shared" }
 ckb-store = { path = "../store" }
 ckb-core = { path = "../core" }
+ckb-tx-pool-executor = { path = "../shared/tx-pool-executor" }
 numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 numext-fixed-uint = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 ckb-network = { path = "../network" }

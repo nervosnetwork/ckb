@@ -55,7 +55,7 @@ members = [
     "util/occupied-capacity",
     "util/stop-handler",
     "util/app-config",
-    "shared/ckb-tx-pool-executor",
+    "shared/tx-pool-executor",
     "traits",
     "network",
     "protocol",
