@@ -281,10 +281,28 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
             .map(|raw| deserialize(&raw[..]).unwrap())
     }
 
-    // TODO build index for cell_output, avoid load the whole tx
     fn get_cell_output(&self, tx_hash: &H256, index: u32) -> Option<CellOutput> {
-        self.get_transaction(tx_hash)
-            .and_then(|(tx, _)| tx.outputs().get(index as usize).map(ToOwned::to_owned))
+        self.get(COLUMN_TRANSACTION_ADDR, tx_hash.as_bytes())
+            .map(|raw| deserialize(&raw[..]).expect("deserialize tx address should be ok"))
+            .and_then(|stored: TransactionAddressStored| {
+                let tx_offset = stored.inner.offset;
+                stored
+                    .inner
+                    .outputs_addresses
+                    .get(index as usize)
+                    .and_then(|addr| {
+                        let output_offset = tx_offset + addr.offset;
+                        self.partial_get(
+                            COLUMN_BLOCK_BODY,
+                            stored.block_hash.as_bytes(),
+                            &(output_offset..(output_offset + addr.length)),
+                        )
+                        .map(|ref serialized_cell_output| {
+                            deserialize(serialized_cell_output)
+                                .expect("flat deserialize cell output should be ok")
+                        })
+                    })
+            })
     }
 }
 
