@@ -233,13 +233,61 @@ pub struct Transaction {
     witness_hash: H256,
 }
 
+// The order of fields should be same as TransactionStoredOwned
+#[derive(Serialize)]
+pub struct TransactionStored<'a> {
+    version: Version,
+    deps: &'a [OutPoint],
+    inputs: &'a [CellInput],
+    outputs: &'a [CellOutput],
+    witnesses: &'a [Witness],
+    hash: &'a H256,
+    witness_hash: &'a H256,
+}
+
+// The order of fields should be same as TransactionStored
+#[derive(Deserialize)]
+struct TransactionStoredOwned {
+    version: Version,
+    deps: Vec<OutPoint>,
+    inputs: Vec<CellInput>,
+    outputs: Vec<CellOutput>,
+    witnesses: Vec<Witness>,
+    hash: H256,
+    witness_hash: H256,
+}
+
+impl From<TransactionStoredOwned> for Transaction {
+    #[inline]
+    fn from(tx: TransactionStoredOwned) -> Self {
+        let TransactionStoredOwned {
+            version,
+            deps,
+            inputs,
+            outputs,
+            witnesses,
+            hash,
+            witness_hash,
+        } = tx;
+        Self {
+            version,
+            deps,
+            inputs,
+            outputs,
+            witnesses,
+            hash,
+            witness_hash,
+        }
+    }
+}
+
 impl<'de> serde::de::Deserialize<'de> for Transaction {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::de::Deserializer<'de>,
     {
         #[derive(Deserialize)]
-        #[serde(field_identifier, rename_all = "lowercase")]
+        #[serde(field_identifier, rename_all = "snake_case")]
         enum Field {
             Version,
             Deps,
@@ -358,6 +406,16 @@ impl PartialEq for Transaction {
 }
 
 impl Transaction {
+    /// # Warning
+    ///
+    /// When using this method, the caller should ensure the input hashes is right, or the caller
+    /// will get a incorrect Transaction.
+    pub unsafe fn from_bytes_unchecked(bytes: &[u8]) -> Self {
+        let tx_stored: TransactionStoredOwned =
+            deserialize(bytes).expect("stored transaction deserializing should be ok");
+        tx_stored.into()
+    }
+
     pub(crate) fn new(
         version: Version,
         deps: Vec<OutPoint>,
@@ -482,6 +540,18 @@ impl Transaction {
                 .map(CellOutput::serialized_size)
                 .sum::<usize>()
             + self.witnesses.iter().map(Vec::len).sum::<usize>()
+    }
+
+    pub fn to_stored(&self) -> TransactionStored {
+        TransactionStored {
+            version: self.version,
+            deps: &self.deps[..],
+            inputs: &self.inputs[..],
+            outputs: &self.outputs[..],
+            witnesses: &self.witnesses[..],
+            hash: &self.hash,
+            witness_hash: &self.witness_hash,
+        }
     }
 }
 

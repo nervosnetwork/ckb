@@ -667,11 +667,13 @@ mod tests {
             .nonce(nonce)
             .build();
 
-        BlockBuilder::default()
-            .header(header)
-            .transaction(cellbase)
-            .proposal(ProposalShortId::from_slice(&[1; 10]).unwrap())
-            .unsafe_build()
+        unsafe {
+            BlockBuilder::default()
+                .header(header)
+                .transaction(cellbase)
+                .proposal(ProposalShortId::from_slice(&[1; 10]).unwrap())
+                .build_unchecked()
+        }
     }
 
     fn create_cellbase(number: BlockNumber, epoch: &EpochExt) -> Transaction {

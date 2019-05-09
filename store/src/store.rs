@@ -10,9 +10,7 @@ use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::cell::CellMeta;
 use ckb_core::extras::{BlockExt, EpochExt, TransactionAddress};
 use ckb_core::header::{BlockNumber, Header};
-use ckb_core::transaction::{
-    CellOutPoint, CellOutput, ProposalShortId, Transaction, TransactionBuilder,
-};
+use ckb_core::transaction::{CellOutPoint, CellOutput, ProposalShortId, Transaction};
 use ckb_core::uncle::UncleBlock;
 use ckb_core::EpochNumber;
 use ckb_db::{Col, DbBatch, Error, KeyValueDB};
@@ -142,7 +140,7 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
 
     fn get_header(&self, h: &H256) -> Option<Header> {
         self.get(COLUMN_BLOCK_HEADER, h.as_bytes())
-            .map(|ref raw| Header::from_bytes_with_hash(raw, h.to_owned()))
+            .map(|ref raw| unsafe { Header::from_bytes_with_hash_unchecked(raw, h.to_owned()) })
     }
 
     fn get_block_uncles(&self, h: &H256) -> Option<Vec<UncleBlock>> {
@@ -163,19 +161,20 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
                     deserialize(&serialized_addresses).expect("deserialize address should be ok");
                 self.get(COLUMN_BLOCK_BODY, h.as_bytes())
                     .map(|serialized_body| {
-                        let txs: Vec<TransactionBuilder> = addresses
+                        let txs: Vec<Transaction> = addresses
                             .iter()
                             .filter_map(|address| {
                                 serialized_body
                                     .get(address.offset..(address.offset + address.length))
-                                    .map(TransactionBuilder::new)
+                                    .map(|ref bytes| unsafe {
+                                        Transaction::from_bytes_unchecked(bytes)
+                                    })
                             })
                             .collect();
 
                         txs
                     })
             })
-            .map(|txs| txs.into_iter().map(TransactionBuilder::build).collect())
     }
 
     fn get_block_ext(&self, block_hash: &H256) -> Option<BlockExt> {
@@ -263,7 +262,7 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
             )
             .map(|ref serialized_transaction| {
                 (
-                    TransactionBuilder::new(serialized_transaction).build(),
+                    unsafe { Transaction::from_bytes_unchecked(serialized_transaction) },
                     d.block_hash,
                 )
             })
@@ -322,7 +321,7 @@ impl<B: DbBatch> StoreBatch for DefaultStoreBatch<B> {
         self.insert_serialize(COLUMN_BLOCK_UNCLE, hash.as_bytes(), b.uncles())?;
         self.insert_serialize(COLUMN_BLOCK_PROPOSAL_IDS, hash.as_bytes(), b.proposals())?;
         let (block_data, block_addresses) =
-            flat_serialize(b.transactions().iter()).expect("flat serialize should be ok");
+            flat_serialize(b.stored_transactions().iter()).expect("flat serialize should be ok");
         self.insert_raw(COLUMN_BLOCK_BODY, hash.as_bytes(), &block_data)?;
         self.insert_serialize(
             COLUMN_BLOCK_TRANSACTION_ADDRESSES,
@@ -337,11 +336,11 @@ impl<B: DbBatch> StoreBatch for DefaultStoreBatch<B> {
 
     fn attach_block(&mut self, block: &Block) -> Result<(), Error> {
         let hash = block.header().hash();
-        let addresses = serialized_addresses(block.transactions().iter())
+        let addresses = serialized_addresses(block.stored_transactions().iter())
             .expect("serialize addresses should be ok");
         for (id, tx) in block.transactions().iter().enumerate() {
             let address = TransactionAddress {
-                block_hash: hash.clone(),
+                block_hash: hash.to_owned(),
                 offset: addresses[id].offset,
                 length: addresses[id].length,
             };
@@ -350,7 +349,7 @@ impl<B: DbBatch> StoreBatch for DefaultStoreBatch<B> {
             let cellbase = id == 0;
             for (index, output) in tx.outputs().iter().enumerate() {
                 let out_point = CellOutPoint {
-                    tx_hash: tx_hash.clone(),
+                    tx_hash: tx_hash.to_owned(),
                     index: index as u32,
                 };
                 let store_key = cell_store_key(&tx_hash, index as u32);
@@ -422,6 +421,7 @@ mod tests {
     use super::*;
     use crate::store::StoreBatch;
     use ckb_chain_spec::consensus::Consensus;
+    use ckb_core::transaction::TransactionBuilder;
     use ckb_db::{DBConfig, RocksDB};
     use tempfile;
 
