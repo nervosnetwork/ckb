@@ -7,6 +7,7 @@ pub enum Module {
     Miner,
     Pool,
     Trace,
+    Experiment,
     Stats,
     IntegrationTest,
 }
@@ -38,6 +39,10 @@ impl Config {
 
     pub(crate) fn trace_enable(&self) -> bool {
         self.modules.contains(&Module::Trace)
+    }
+
+    pub(crate) fn experiment_enable(&self) -> bool {
+        self.modules.contains(&Module::Experiment)
     }
 
     pub(crate) fn stats_enable(&self) -> bool {

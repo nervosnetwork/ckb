@@ -766,6 +766,205 @@ curl -H 'content-type:application/json' \
 }
 ```
 
+### dry_run_transaction
+
+Dry run transaction and return the execution cycles.
+
+This method will not check the transaction validaty, but only run the lock script
+and type script and than return the execution cycles.
+
+#### Parameters
+
+transaction - The transaction object.
+
+    version - Transaction version.
+    deps - Dependent cells.
+    inputs - Transaction inputs.
+    outputs - Transaction outputs.
+    witnesses - Witnesses.
+
+#### Examples
+
+
+```bash
+echo '{
+   "id" : 2,
+   "method" : "dry_run_transaction",
+   "jsonrpc" : "2.0",
+   "params" : [
+      {
+         "deps" : [
+            {
+               "tx_hash" : "0x4974d7ab2d9c548447e12a5488965352bf3d72ef7e6b09445be228be40b73dfe",
+               "index" : 0
+            }
+         ],
+         "inputs" : [
+            {
+               "args" : [
+                  "0x303234613530316566643332386530363263383637356632333635393730373238633835396335393262656565666436626538656164336439303133333062633031",
+                  "0x33303435303232313030643066313935343561656635633463336565306564633066666439633635303165623864303363393831626236313235623335323130616533666134663635373032323034616331353230333134386364346438373566353436323134343661656437353164326466646339666536653464313431663164306231613763393630613337",
+                  "0x31"
+               ],
+               "since" : "0",
+               "previous_output" : {
+                  "index" : 1,
+                  "tx_hash" : "0x98427f95a11fe26b42e7e29ef9ac14b0b84b0a8359b05fd0824b84e09d41c9ea"
+               }
+            }
+         ],
+         "outputs" : [
+            {
+               "capacity" : "1000000000000",
+               "type" : {
+                  "args" : [
+                     "0x31202b202032202b2033202b20340a",
+                     "0x546f6b656e2031",
+                     "0x303234613530316566643332386530363263383637356632333635393730373238633835396335393262656565666436626538656164336439303133333062633031"
+                  ],
+                  "code_hash" : "0x8c3b24e83d111d3a8430416df6a16e33d729273be82cfe0fc994bf147cd8a4ee"
+               },
+               "data" : "0x80969800000000003044022052de9ce28c28c0c2f8b4819b30d8d936718998808e3d74aca73fdae7bd0904ed022024f9556fa1ea1e8921df0931daf2016f0fb75bbe8bcda5ef625ffb779ad2853c",
+               "lock" : {
+                  "args" : [
+                     "0x31202b202032202b2033202b20340a",
+                     "0x546f6b656e2031",
+                     "0x303234613530316566643332386530363263383637356632333635393730373238633835396335393262656565666436626538656164336439303133333062633031"
+                  ],
+                  "code_hash" : "0x8c3b24e83d111d3a8430416df6a16e33d729273be82cfe0fc994bf147cd8a4ee"
+               }
+            },
+            {
+               "capacity" : "28000000000000",
+               "type" : null,
+               "data" : "0x",
+               "lock" : {
+                  "code_hash" : "0x8c3b24e83d111d3a8430416df6a16e33d729273be82cfe0fc994bf147cd8a4ee",
+                  "args" : [
+                     "0x31202b2032202b2033202b20340a",
+                     "0x65646134626639666336373064656339636663663831333839393966613437353835313731633966636166313162336364616439363939656233633435343766"
+                  ]
+               }
+            }
+         ],
+         "witnesses" : [],
+         "version" : 0
+      }
+   ]
+}' \
+    | tr -d '\n' \
+    | curl -H 'content-type:application/json' -d @- \
+    http://localhost:8114
+```
+
+```json
+{
+   "jsonrpc" : "2.0",
+   "id" : 2,
+   "result" : {
+      "cycles" : "20650838"
+   }
+}
+```
+
+### _compute_transaction_id
+
+Return the transaction id
+
+**Deprecated**: will be removed in a later version
+
+#### Parameters
+
+transaction - The transaction object.
+
+    version - Transaction version.
+    deps - Dependent cells.
+    inputs - Transaction inputs.
+    outputs - Transaction outputs.
+    witnesses - Witnesses.
+
+#### Examples
+
+
+```bash
+echo '{
+   "id" : 2,
+   "method" : "_compute_transaction_id",
+   "jsonrpc" : "2.0",
+   "params" : [
+      {
+         "deps" : [
+            {
+               "tx_hash" : "0x4974d7ab2d9c548447e12a5488965352bf3d72ef7e6b09445be228be40b73dfe",
+               "index" : 0
+            }
+         ],
+         "inputs" : [
+            {
+               "args" : [
+                  "0x303234613530316566643332386530363263383637356632333635393730373238633835396335393262656565666436626538656164336439303133333062633031",
+                  "0x33303435303232313030643066313935343561656635633463336565306564633066666439633635303165623864303363393831626236313235623335323130616533666134663635373032323034616331353230333134386364346438373566353436323134343661656437353164326466646339666536653464313431663164306231613763393630613337",
+                  "0x31"
+               ],
+               "since" : "0",
+               "previous_output" : {
+                  "index" : 1,
+                  "tx_hash" : "0x98427f95a11fe26b42e7e29ef9ac14b0b84b0a8359b05fd0824b84e09d41c9ea"
+               }
+            }
+         ],
+         "outputs" : [
+            {
+               "capacity" : "1000000000000",
+               "type" : {
+                  "args" : [
+                     "0x31202b202032202b2033202b20340a",
+                     "0x546f6b656e2031",
+                     "0x303234613530316566643332386530363263383637356632333635393730373238633835396335393262656565666436626538656164336439303133333062633031"
+                  ],
+                  "code_hash" : "0x8c3b24e83d111d3a8430416df6a16e33d729273be82cfe0fc994bf147cd8a4ee"
+               },
+               "data" : "0x80969800000000003044022052de9ce28c28c0c2f8b4819b30d8d936718998808e3d74aca73fdae7bd0904ed022024f9556fa1ea1e8921df0931daf2016f0fb75bbe8bcda5ef625ffb779ad2853c",
+               "lock" : {
+                  "args" : [
+                     "0x31202b202032202b2033202b20340a",
+                     "0x546f6b656e2031",
+                     "0x303234613530316566643332386530363263383637356632333635393730373238633835396335393262656565666436626538656164336439303133333062633031"
+                  ],
+                  "code_hash" : "0x8c3b24e83d111d3a8430416df6a16e33d729273be82cfe0fc994bf147cd8a4ee"
+               }
+            },
+            {
+               "capacity" : "28000000000000",
+               "type" : null,
+               "data" : "0x",
+               "lock" : {
+                  "code_hash" : "0x8c3b24e83d111d3a8430416df6a16e33d729273be82cfe0fc994bf147cd8a4ee",
+                  "args" : [
+                     "0x31202b2032202b2033202b20340a",
+                     "0x65646134626639666336373064656339636663663831333839393966613437353835313731633966636166313162336364616439363939656233633435343766"
+                  ]
+               }
+            }
+         ],
+         "witnesses" : [],
+         "version" : 0
+      }
+   ]
+}' \
+    | tr -d '\n' \
+    | curl -H 'content-type:application/json' -d @- \
+    http://localhost:8114
+```
+
+```json
+{
+   "jsonrpc" : "2.0",
+   "result" : "0x943e5fe84a56fc8bf8f9deaf89d477fcf451e9752379cc9d6996f1fe938c95a7",
+   "id" : 2
+}
+```
+
 ### get_blockchain_info
 
 Return state info of blockchain
