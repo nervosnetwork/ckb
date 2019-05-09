@@ -276,19 +276,14 @@ where
 
         // If we're in IBD, we want outbound peers that will serve us a useful
         // chain. Disconnect peers that are on chains with insufficient work.
-        let is_outbound = self
-            .nc
-            .get_peer(self.peer)
-            .map(|peer| peer.is_outbound())
-            .unwrap_or(false);
-        let is_protected = self
+        let (is_outbound, is_protected) = self
             .synchronizer
             .peers
             .state
             .read()
             .get(&self.peer)
-            .map(|state| state.chain_sync.protect)
-            .unwrap_or(false);
+            .map(|state| (state.is_outbound, state.chain_sync.protect))
+            .unwrap_or((false, false));
         if self.synchronizer.shared.is_initial_block_download()
             && headers.len() != MAX_HEADERS_LEN
             && (is_outbound && !is_protected)

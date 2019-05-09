@@ -45,14 +45,14 @@ impl Into<ProtocolId> for NetworkProtocol {
 }
 
 //  Timeout = base + per_header * (expected number of headers)
-pub const HEADERS_DOWNLOAD_TIMEOUT_BASE: u64 = 15 * 60 * 1000; // 15 minutes
+pub const HEADERS_DOWNLOAD_TIMEOUT_BASE: u64 = 6 * 60 * 1000; // 6 minutes
 pub const HEADERS_DOWNLOAD_TIMEOUT_PER_HEADER: u64 = 1; // 1ms/header
 pub const POW_SPACE: u64 = 10_000; // 10s
 
 // Protect at least this many outbound peers from disconnection due to slow
 // behind headers chain.
 pub const MAX_OUTBOUND_PEERS_TO_PROTECT_FROM_DISCONNECT: usize = 4;
-pub const CHAIN_SYNC_TIMEOUT: u64 = 20 * 60 * 1000; // 20 minutes
+pub const CHAIN_SYNC_TIMEOUT: u64 = 12 * 60 * 1000; // 12 minutes
 pub const EVICTION_HEADERS_RESPONSE_TIME: u64 = 120 * 1000; // 2 minutes
 
 //The maximum number of entries in a locator
