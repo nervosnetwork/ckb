@@ -11,9 +11,11 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use tempfile::tempdir;
 
+pub type NetMessage = (PeerIndex, ProtocolId, Bytes);
+
 pub struct Net {
     pub nodes: Vec<Node>,
-    pub controller: Option<(NetworkController, Receiver<(PeerIndex, ProtocolId, Bytes)>)>,
+    pub controller: Option<(NetworkController, Receiver<NetMessage>)>,
 }
 
 impl Net {
@@ -135,13 +137,13 @@ impl Net {
             .send_message_to(peer, protocol_id, data);
     }
 
-    pub fn receive(&self) -> (PeerIndex, ProtocolId, Bytes) {
+    pub fn receive(&self) -> NetMessage {
         self.controller.as_ref().unwrap().1.recv().unwrap()
     }
 }
 
 pub struct DummyProtocolHandler {
-    tx: Sender<(PeerIndex, ProtocolId, Bytes)>,
+    tx: Sender<NetMessage>,
 }
 
 impl CKBProtocolHandler for DummyProtocolHandler {

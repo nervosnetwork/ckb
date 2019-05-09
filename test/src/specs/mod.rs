@@ -4,7 +4,7 @@ mod relay;
 mod sync;
 mod tx_pool;
 
-pub use mining::MiningBasic;
+pub use mining::*;
 pub use p2p::*;
 pub use relay::*;
 pub use sync::*;

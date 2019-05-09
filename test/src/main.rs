@@ -30,10 +30,12 @@ fn main() {
             "disconnect" => Box::new(Disconnect),
             "malformed_message" => Box::new(MalformedMessage),
             "depent_tx_in_same_block" => Box::new(DepentTxInSameBlock),
-            "cellbase_maturity" => Box::new(CellbaseMaturity),
-            "valid_since" => Box::new(ValidSince),
+            // TODO enable these after staging/pending pool tip verfiry logic changing
+            // "cellbase_maturity" => Box::new(CellbaseMaturity),
+            // "valid_since" => Box::new(ValidSince),
             "different_txs_with_same_input" => Box::new(DifferentTxsWithSameInput),
             "compact_block_basic" => Box::new(CompactBlockBasic),
+            "invalid_locator_size" => Box::new(InvalidLocatorSize),
             _ => panic!("invalid spec"),
         };
         let net = spec.setup_net(&binary, start_port);
@@ -51,10 +53,12 @@ fn main() {
             Box::new(Disconnect),
             Box::new(MalformedMessage),
             Box::new(DepentTxInSameBlock),
-            Box::new(CellbaseMaturity),
-            Box::new(ValidSince),
+            // TODO enable these after staging/pending pool tip verfiry logic changing
+            // Box::new(CellbaseMaturity),
+            // Box::new(ValidSince),
             Box::new(DifferentTxsWithSameInput),
             Box::new(CompactBlockBasic),
+            Box::new(InvalidLocatorSize),
         ];
 
         specs.iter().for_each(|spec| {

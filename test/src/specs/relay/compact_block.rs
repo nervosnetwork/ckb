@@ -40,7 +40,7 @@ impl Spec for CompactBlockBasic {
         assert_eq!(message.payload_type(), SyncPayload::GetHeaders);
 
         info!("Send valid compact block message to node0");
-        let block = node0.new_block();
+        let block = node0.new_block(None, None, None);
         net.send(
             NetworkProtocol::RELAY.into(),
             peer_id,
