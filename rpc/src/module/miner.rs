@@ -61,7 +61,10 @@ impl<CS: ChainStore + 'static> MinerRpc for MinerRpcImpl<CS> {
 
         self.block_assembler
             .get_block_template(bytes_limit, proposals_limit, max_version)
-            .map_err(|_| Error::internal_error())
+            .map_err(|err| {
+                error!(target: "rpc", "get_block_template error {}", err);
+                Error::internal_error()
+            })
     }
 
     fn submit_block(&self, work_id: String, data: Block) -> Result<Option<H256>> {
@@ -72,7 +75,10 @@ impl<CS: ChainStore + 'static> MinerRpc for MinerRpcImpl<CS> {
         sentry::configure_scope(|scope| scope.set_extra("work_id", work_id.clone().into()));
 
         debug!(target: "rpc", "[{}] submit block", work_id);
-        let block: Arc<CoreBlock> = Arc::new(data.try_into().map_err(|_| Error::parse_error())?);
+        let block: Arc<CoreBlock> = Arc::new(
+            data.try_into()
+                .map_err(|err| Error::invalid_params(format!("parse block error: {}", err)))?,
+        );
         let resolver = HeaderResolverWrapper::new(block.header(), self.shared.clone());
         let header_verify_ret = {
             let chain_state = self.shared.chain_state().lock();
@@ -105,7 +111,7 @@ impl<CS: ChainStore + 'static> MinerRpc for MinerRpcImpl<CS> {
                 Ok(None)
             }
         } else {
-            debug!(target: "rpc", "[{}] submit_block header verifier {:?}", work_id, header_verify_ret);
+            error!(target: "rpc", "[{}] submit_block header verifier {:?}", work_id, header_verify_ret);
             Ok(None)
         }
     }
