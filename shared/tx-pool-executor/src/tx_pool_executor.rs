@@ -116,6 +116,9 @@ impl<CS: ChainStore> TxPoolExecutor<CS> {
             })
             .collect::<Vec<_>>();
 
+        // Add verified txs to pool
+        // must lock chain_state before txs_verify_cache to avoid dead lock.
+        let chain_state = self.shared.chain_state().lock();
         // write cache
         let cycles_vec = {
             let mut txs_verify_cache = self.shared.txs_verify_cache().lock();
@@ -151,8 +154,6 @@ impl<CS: ChainStore> TxPoolExecutor<CS> {
                 })
                 .collect::<Vec<Result<(Cycle, Transaction), PoolError>>>()
         };
-        // add verified txs to pool
-        let chain_state = self.shared.chain_state().lock();
         cycles_vec
             .into_iter()
             .map(|result| match result {
