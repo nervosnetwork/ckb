@@ -13,7 +13,7 @@ use std::io::Read;
 use std::io::Write;
 use std::path::PathBuf;
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct NetworkConfig {
     pub reserved_only: bool,
     pub max_peers: u32,

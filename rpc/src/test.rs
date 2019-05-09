@@ -1,0 +1,298 @@
+use crate::module::{
+    ChainRpc, ChainRpcImpl, ExperimentRpc, ExperimentRpcImpl, NetworkRpc, NetworkRpcImpl, PoolRpc,
+    PoolRpcImpl, StatsRpc, StatsRpcImpl,
+};
+use crate::RpcServer;
+use ckb_chain::chain::{ChainBuilder, ChainController};
+use ckb_chain_spec::consensus::Consensus;
+use ckb_core::block::BlockBuilder;
+use ckb_core::header::HeaderBuilder;
+use ckb_core::script::Script;
+use ckb_core::transaction::{CellInput, CellOutput, Transaction, TransactionBuilder};
+use ckb_core::{capacity_bytes, BlockNumber, Bytes, Capacity};
+use ckb_db::MemoryKeyValueDB;
+use ckb_network::{NetworkConfig, NetworkService, NetworkState};
+use ckb_notify::NotifyService;
+use ckb_shared::shared::{Shared, SharedBuilder};
+use ckb_store::ChainKVStore;
+use ckb_sync::{Config as SyncConfig, SyncSharedState, Synchronizer};
+use ckb_traits::chain_provider::ChainProvider;
+use jsonrpc_core::IoHandler;
+use jsonrpc_http_server::ServerBuilder;
+use jsonrpc_server_utils::cors::AccessControlAllowOrigin;
+use jsonrpc_server_utils::hosts::DomainsValidation;
+use numext_fixed_uint::U256;
+use reqwest;
+use serde_derive::Deserialize;
+use serde_json::{from_reader, json, to_string_pretty, Map, Value};
+use std::env::temp_dir;
+use std::fs::File;
+use std::path::PathBuf;
+use std::sync::Arc;
+
+const GENESIS_TIMESTAMP: u64 = 1_557_310_743;
+const URI: &str = "http://127.0.0.1:8114/";
+
+#[derive(Debug, Deserialize)]
+pub struct JsonResponse {
+    pub jsonrpc: String,
+    pub id: usize,
+    pub result: Value,
+}
+
+fn new_cellbase(number: BlockNumber) -> Transaction {
+    let outputs = (0..1)
+        .map(|_| {
+            CellOutput::new(
+                capacity_bytes!(500000),
+                Bytes::default(),
+                Script::always_success(),
+                None,
+            )
+        })
+        .collect::<Vec<_>>();
+    TransactionBuilder::default()
+        .input(CellInput::new_cellbase_input(number))
+        .outputs(outputs)
+        .build()
+}
+
+fn setup_node(
+    height: u64,
+) -> (
+    Shared<ChainKVStore<MemoryKeyValueDB>>,
+    ChainController,
+    RpcServer,
+) {
+    let consensus = {
+        let genesis = BlockBuilder::default()
+            .header_builder(
+                HeaderBuilder::default()
+                    .timestamp(GENESIS_TIMESTAMP)
+                    .difficulty(U256::from(1000u64)),
+            )
+            .build();
+        Consensus::default()
+            .set_genesis_block(genesis)
+            .set_cellbase_maturity(0)
+    };
+    let shared = SharedBuilder::<MemoryKeyValueDB>::new()
+        .consensus(consensus)
+        .build()
+        .unwrap();
+    let chain_service = {
+        let notify = NotifyService::default().start::<&str>(None);
+        ChainBuilder::new(shared.clone(), notify)
+            .verification(false)
+            .build()
+    };
+    let chain_controller = chain_service.start::<&str>(None);
+    let mut parent = {
+        let consensus = shared.consensus();
+        consensus.genesis_block().clone()
+    };
+
+    // Build chain, insert [1, height) blocks
+    for _i in 0..height {
+        let epoch = {
+            let last_epoch = shared
+                .get_block_epoch(&parent.header().hash())
+                .expect("current epoch exists");
+            shared
+                .next_epoch_ext(&last_epoch, parent.header())
+                .unwrap_or(last_epoch)
+        };
+        let cellbase = new_cellbase(parent.header().number() + 1);
+        let block = BlockBuilder::default()
+            .transaction(cellbase)
+            .header_builder(
+                HeaderBuilder::default()
+                    .parent_hash(parent.header().hash().to_owned())
+                    .number(parent.header().number() + 1)
+                    .epoch(epoch.number())
+                    .timestamp(parent.header().timestamp() + 1)
+                    .difficulty(epoch.difficulty().clone()),
+            )
+            .build();
+        chain_controller
+            .process_block(Arc::new(block.clone()))
+            .expect("processing new block should be ok");
+        parent = block;
+    }
+
+    // Start network services
+    let mut dir = temp_dir();
+    let mut network_config = NetworkConfig::default();
+    network_config.path = dir.clone();
+    network_config.ping_interval_secs = 1;
+    network_config.ping_timeout_secs = 1;
+    network_config.connect_outbound_interval_secs = 1;
+
+    dir.push("network");
+    File::create(dir.clone()).expect("create network database");
+    let network_state =
+        Arc::new(NetworkState::from_config(network_config).expect("Init network state failed"));
+    let network_controller = NetworkService::new(Arc::clone(&network_state), Vec::new())
+        .start::<&str>(None)
+        .expect("Start network service failed");
+    let sync_shared_state = Arc::new(SyncSharedState::new(shared.clone()));
+    let synchronizer = Synchronizer::new(
+        chain_controller.clone(),
+        Arc::clone(&sync_shared_state),
+        SyncConfig::default(),
+    );
+
+    // Start rpc services
+    let mut io = IoHandler::new();
+    io.extend_with(
+        ChainRpcImpl {
+            shared: shared.clone(),
+        }
+        .to_delegate(),
+    );
+    io.extend_with(PoolRpcImpl::new(shared.clone(), network_controller.clone()).to_delegate());
+    io.extend_with(
+        NetworkRpcImpl {
+            network_controller: network_controller.clone(),
+        }
+        .to_delegate(),
+    );
+    io.extend_with(
+        StatsRpcImpl {
+            shared: shared.clone(),
+            synchronizer: synchronizer.clone(),
+        }
+        .to_delegate(),
+    );
+    io.extend_with(
+        ExperimentRpcImpl {
+            shared: shared.clone(),
+        }
+        .to_delegate(),
+    );
+    let server = ServerBuilder::new(io)
+        .cors(DomainsValidation::AllowOnly(vec![
+            AccessControlAllowOrigin::Null,
+            AccessControlAllowOrigin::Any,
+        ]))
+        .threads(1)
+        .max_request_body_size(20_000_000)
+        .start_http(&"127.0.0.1:8114".parse().unwrap())
+        .expect("JsonRpc initialize");
+    let rpc_server = RpcServer { server };
+
+    (shared, chain_controller, rpc_server)
+}
+
+#[test]
+fn test_rpc() {
+    // Set `print_mode = true` manually to print the result of rpc test cases.
+    // It is useful when we just want get the actual results.
+    let print_mode = false;
+
+    // Setup node
+    let height = 1024;
+    let (_shared, _chain_controller, _server) = setup_node(height);
+
+    // Load cases in json format and run
+    let mut cases: Value = {
+        let mut file_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        file_path.push("json/rpc.json");
+        let file = File::open(file_path).expect("opening test data json");
+        from_reader(file).expect("reading test data json")
+    };
+    let mut outputs: Vec<Value> = Vec::new();
+
+    // Run cases one by one
+    let client = reqwest::Client::new();
+    for case in cases
+        .as_array_mut()
+        .expect("test data is array format")
+        .iter_mut()
+    {
+        if let Some(skip) = case.get("skip") {
+            if skip.as_bool().unwrap_or(false) {
+                outputs.push(case.clone());
+                continue;
+            }
+        }
+
+        let case = case.as_object_mut().expect("case object should be map");
+        let method = case.get("method").expect("get case method");
+        let params = case.get("params").expect("get case params");
+        let request = {
+            let mut request = Map::new();
+            request.insert("id".to_owned(), json!(1));
+            request.insert("jsonrpc".to_owned(), json!("2.0"));
+            request.insert("method".to_owned(), method.clone());
+            request.insert("params".to_owned(), params.clone());
+            Value::Object(request)
+        };
+        // TODO handle error response
+        let response: JsonResponse = client
+            .post(URI)
+            .json(&json!(request))
+            .send()
+            .expect("send jsonrpc request")
+            .json()
+            .expect("transform jsonrpc response into json");
+        let actual = response.result.clone();
+        let expect = case.remove("result").expect("get case result");
+
+        // Print only at print_mode, otherwise do real testing asserts
+        if print_mode {
+            case.insert("result".to_owned(), actual.clone());
+            outputs.push(Value::Object(case.clone()));
+        } else {
+            assert!(
+                actual == expect,
+                "\nexpect result of {}: \n{}\nactual result of {}:\n {}",
+                case.get("method").expect("get jsonrpc method"),
+                to_string_pretty(&expect).expect("expect should be in json format"),
+                case.get("method").expect("get jsonrpc method"),
+                to_string_pretty(&actual).expect("actual should be in json format"),
+            );
+        }
+
+        //// Uncomment the code below if you wanna print request of `send_transaction`.
+        //// Print rpc request of `send_transaction` at print_mode.
+        //// It is just a convenient way to get the json of `send_transaction`
+        // if print_mode {
+        //     let tip_header = {
+        //         let chain_state = shared.chain_state().lock();
+        //         chain_state.tip_header().clone()
+        //     };
+        //     let cellbase = new_cellbase(tip_header.number());
+        //     let transaction = TransactionBuilder::default()
+        //         .input(CellInput::new(
+        //             ckb_core::transaction::OutPoint::new(tip_header.hash().clone(), cellbase.hash().clone(), 0),
+        //                 0,
+        //                 Vec::new(),
+        //         ))
+        //         .output(
+        //             CellOutput::new(capacity_bytes!(1000), Bytes::new(), Script::always_success(), None),
+        //         )
+        //         .build();
+        //     let json_transaction: jsonrpc_types::Transaction = (&transaction).into();
+        //     let mut object = Map::new();
+        //     object.insert("id".to_owned(), json!(1));
+        //     object.insert("jsonrpc".to_owned(), json!("2.0"));
+        //     object.insert("method".to_owned(), json!("send_transaction"));
+        //     object.insert("params".to_owned(), json!(vec![json_transaction]));
+        //     let response: JsonResponse = client.post(URI)
+        //         .json(&object)
+        //         .send()
+        //         .expect("send jsonrpc request")
+        //         .json()
+        //         .expect("transform send_transaction response into json");
+        //     object.insert("result".to_owned(), response.result.clone());
+        //     object.remove("id");
+        //     object.remove("jsonrpc");
+        //     println!("{}", to_string_pretty(&Value::Array(object)).unwrap());
+        // }
+    }
+
+    if print_mode {
+        println!("{}", to_string_pretty(&Value::Array(outputs)).unwrap());
+    }
+}
