@@ -1,5 +1,5 @@
 use crate::header::{Header, HeaderBuilder};
-use crate::transaction::{ProposalShortId, Transaction, TransactionStored};
+use crate::transaction::{ProposalShortId, Transaction};
 use crate::uncle::{uncles_hash, UncleBlock};
 use ckb_merkle_tree::merkle_root;
 use fnv::FnvHashSet;
@@ -76,13 +76,6 @@ impl Block {
 
     pub fn transactions(&self) -> &[Transaction] {
         &self.transactions
-    }
-
-    pub fn stored_transactions(&self) -> Vec<TransactionStored> {
-        self.transactions
-            .iter()
-            .map(Transaction::to_stored)
-            .collect::<Vec<_>>()
     }
 
     pub fn proposals(&self) -> &[ProposalShortId] {

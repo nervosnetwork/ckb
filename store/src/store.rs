@@ -1,4 +1,7 @@
-use crate::flat_serializer::{serialize as flat_serialize, serialized_addresses, Address};
+use crate::flat_block_body::{
+    deserialize_block_body, deserialize_transaction, serialize_block_body,
+    serialize_block_body_size, TransactionAddressInner, TransactionAddressStored,
+};
 use crate::{
     COLUMN_BLOCK_BODY, COLUMN_BLOCK_EPOCH, COLUMN_BLOCK_HEADER, COLUMN_BLOCK_PROPOSAL_IDS,
     COLUMN_BLOCK_TRANSACTION_ADDRESSES, COLUMN_BLOCK_UNCLE, COLUMN_CELL_META, COLUMN_EPOCH,
@@ -77,7 +80,6 @@ pub trait ChainStore: Sync + Send {
     fn get_tip_header(&self) -> Option<Header>;
     /// Get commit transaction and block hash by it's hash
     fn get_transaction(&self, h: &H256) -> Option<(Transaction, H256)>;
-    /// Get commit transaction address by it's hash
     fn get_transaction_address(&self, hash: &H256) -> Option<TransactionAddress>;
     fn get_cell_meta(&self, tx_hash: &H256, index: u32) -> Option<CellMeta>;
     fn get_cell_output(&self, tx_hash: &H256, index: u32) -> Option<CellOutput>;
@@ -157,22 +159,11 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
     fn get_block_body(&self, h: &H256) -> Option<Vec<Transaction>> {
         self.get(COLUMN_BLOCK_TRANSACTION_ADDRESSES, h.as_bytes())
             .and_then(|serialized_addresses| {
-                let addresses: Vec<Address> =
-                    deserialize(&serialized_addresses).expect("deserialize address should be ok");
+                let tx_addresses: Vec<TransactionAddressInner> = deserialize(&serialized_addresses)
+                    .expect("flat deserialize address should be ok");
                 self.get(COLUMN_BLOCK_BODY, h.as_bytes())
                     .map(|serialized_body| {
-                        let txs: Vec<Transaction> = addresses
-                            .iter()
-                            .filter_map(|address| {
-                                serialized_body
-                                    .get(address.offset..(address.offset + address.length))
-                                    .map(|ref bytes| unsafe {
-                                        Transaction::from_bytes_unchecked(bytes)
-                                    })
-                            })
-                            .collect();
-
-                        txs
+                        deserialize_block_body(&serialized_body, &tx_addresses[..])
                     })
             })
     }
@@ -254,24 +245,35 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
     }
 
     fn get_transaction(&self, h: &H256) -> Option<(Transaction, H256)> {
-        self.get_transaction_address(h).and_then(|d| {
-            self.partial_get(
-                COLUMN_BLOCK_BODY,
-                d.block_hash.as_bytes(),
-                &(d.offset..(d.offset + d.length)),
-            )
-            .map(|ref serialized_transaction| {
-                (
-                    unsafe { Transaction::from_bytes_unchecked(serialized_transaction) },
-                    d.block_hash,
+        self.get(COLUMN_TRANSACTION_ADDR, h.as_bytes())
+            .map(|raw| deserialize(&raw[..]).expect("deserialize tx address should be ok"))
+            .and_then(|addr: TransactionAddressStored| {
+                self.partial_get(
+                    COLUMN_BLOCK_BODY,
+                    addr.block_hash.as_bytes(),
+                    &(addr.inner.offset..(addr.inner.offset + addr.inner.length)),
                 )
+                .map(|ref serialized_transaction| {
+                    (
+                        deserialize_transaction(
+                            serialized_transaction,
+                            &addr.inner.outputs_addresses,
+                        )
+                        .expect("flat deserialize tx should be ok"),
+                        addr.block_hash,
+                    )
+                })
             })
-        })
     }
 
     fn get_transaction_address(&self, h: &H256) -> Option<TransactionAddress> {
         self.get(COLUMN_TRANSACTION_ADDR, h.as_bytes())
-            .map(|raw| deserialize(&raw[..]).unwrap())
+            .map(|raw| deserialize(&raw[..]).expect("deserialize tx address should be ok"))
+            .map(|stored: TransactionAddressStored| TransactionAddress {
+                block_hash: stored.block_hash,
+                offset: stored.inner.offset,
+                length: stored.inner.length,
+            })
     }
 
     fn get_cell_meta(&self, tx_hash: &H256, index: u32) -> Option<CellMeta> {
@@ -315,13 +317,17 @@ impl<B: DbBatch> DefaultStoreBatch<B> {
 }
 
 impl<B: DbBatch> StoreBatch for DefaultStoreBatch<B> {
-    fn insert_block(&mut self, b: &Block) -> Result<(), Error> {
-        let hash = b.header().hash();
-        self.insert_serialize(COLUMN_BLOCK_HEADER, hash.as_bytes(), b.header())?;
-        self.insert_serialize(COLUMN_BLOCK_UNCLE, hash.as_bytes(), b.uncles())?;
-        self.insert_serialize(COLUMN_BLOCK_PROPOSAL_IDS, hash.as_bytes(), b.proposals())?;
-        let (block_data, block_addresses) =
-            flat_serialize(b.stored_transactions().iter()).expect("flat serialize should be ok");
+    fn insert_block(&mut self, block: &Block) -> Result<(), Error> {
+        let hash = block.header().hash();
+        self.insert_serialize(COLUMN_BLOCK_HEADER, hash.as_bytes(), block.header())?;
+        self.insert_serialize(COLUMN_BLOCK_UNCLE, hash.as_bytes(), block.uncles())?;
+        self.insert_serialize(
+            COLUMN_BLOCK_PROPOSAL_IDS,
+            hash.as_bytes(),
+            block.proposals(),
+        )?;
+        let (block_data, block_addresses) = serialize_block_body(block.transactions())
+            .expect("flat serialize block body should be ok");
         self.insert_raw(COLUMN_BLOCK_BODY, hash.as_bytes(), &block_data)?;
         self.insert_serialize(
             COLUMN_BLOCK_TRANSACTION_ADDRESSES,
@@ -336,16 +342,20 @@ impl<B: DbBatch> StoreBatch for DefaultStoreBatch<B> {
 
     fn attach_block(&mut self, block: &Block) -> Result<(), Error> {
         let hash = block.header().hash();
-        let addresses = serialized_addresses(block.stored_transactions().iter())
-            .expect("serialize addresses should be ok");
-        for (id, tx) in block.transactions().iter().enumerate() {
-            let address = TransactionAddress {
-                block_hash: hash.to_owned(),
-                offset: addresses[id].offset,
-                length: addresses[id].length,
-            };
+        let (_, tx_addresses) = serialize_block_body_size(block.transactions())
+            .expect("flat serialize tx addresses should be ok");
+        for (id, (tx, addr)) in block
+            .transactions()
+            .iter()
+            .zip(tx_addresses.into_iter())
+            .enumerate()
+        {
             let tx_hash = tx.hash();
-            self.insert_serialize(COLUMN_TRANSACTION_ADDR, tx_hash.as_bytes(), &address)?;
+            self.insert_serialize(
+                COLUMN_TRANSACTION_ADDR,
+                tx_hash.as_bytes(),
+                &addr.into_stored(hash.to_owned()),
+            )?;
             let cellbase = id == 0;
             for (index, output) in tx.outputs().iter().enumerate() {
                 let out_point = CellOutPoint {
