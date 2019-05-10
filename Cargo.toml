@@ -55,6 +55,7 @@ members = [
     "util/occupied-capacity",
     "util/stop-handler",
     "util/app-config",
+    "shared/tx-pool-executor",
     "traits",
     "network",
     "protocol",

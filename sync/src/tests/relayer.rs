@@ -11,12 +11,10 @@ use ckb_core::{capacity_bytes, Bytes, Capacity};
 use ckb_db::memorydb::MemoryKeyValueDB;
 use ckb_notify::NotifyService;
 use ckb_protocol::RelayMessage;
-use ckb_shared::{
-    shared::{Shared, SharedBuilder},
-    tx_pool_executor::TxPoolExecutor,
-};
+use ckb_shared::shared::{Shared, SharedBuilder};
 use ckb_store::ChainKVStore;
 use ckb_traits::ChainProvider;
+use ckb_tx_pool_executor::TxPoolExecutor;
 use ckb_util::RwLock;
 use faketime::{self, unix_time_as_millis};
 use flatbuffers::get_root;

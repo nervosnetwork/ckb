@@ -1,7 +1,7 @@
 mod flat_serializer;
 mod store;
 
-pub use store::{ChainKVStore, ChainStore, StoreBatch};
+pub use store::{ChainKVStore, ChainStore, DefaultStoreBatch, StoreBatch};
 
 use ckb_db::Col;
 
