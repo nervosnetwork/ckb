@@ -31,7 +31,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 const GENESIS_TIMESTAMP: u64 = 1_557_310_743;
-const URI: &str = "http://127.0.0.1:8114/";
 
 #[derive(Debug, Deserialize)]
 pub struct JsonResponse {
@@ -177,7 +176,7 @@ fn setup_node(
         ]))
         .threads(1)
         .max_request_body_size(20_000_000)
-        .start_http(&"127.0.0.1:8114".parse().unwrap())
+        .start_http(&"127.0.0.1:0".parse().unwrap())
         .expect("JsonRpc initialize");
     let rpc_server = RpcServer { server };
 
@@ -192,7 +191,7 @@ fn test_rpc() {
 
     // Setup node
     let height = 1024;
-    let (_shared, _chain_controller, _server) = setup_node(height);
+    let (_shared, _chain_controller, server) = setup_node(height);
 
     // Load cases in json format and run
     let mut cases: Value = {
@@ -229,8 +228,13 @@ fn test_rpc() {
             Value::Object(request)
         };
         // TODO handle error response
+        let uri = format!(
+            "http://{}:{}/",
+            server.server.address().ip(),
+            server.server.address().port()
+        );
         let response: JsonResponse = client
-            .post(URI)
+            .post(&uri)
             .json(&json!(request))
             .send()
             .expect("send jsonrpc request")
@@ -279,7 +283,7 @@ fn test_rpc() {
         //     object.insert("jsonrpc".to_owned(), json!("2.0"));
         //     object.insert("method".to_owned(), json!("send_transaction"));
         //     object.insert("params".to_owned(), json!(vec![json_transaction]));
-        //     let response: JsonResponse = client.post(URI)
+        //     let response: JsonResponse = client.post(&uri)
         //         .json(&object)
         //         .send()
         //         .expect("send jsonrpc request")
