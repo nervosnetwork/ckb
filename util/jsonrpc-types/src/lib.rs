@@ -8,6 +8,7 @@ mod pool;
 mod proposal_short_id;
 mod sync;
 mod trace;
+mod string;
 
 pub type BlockNumber = String;
 pub type Capacity = String;
