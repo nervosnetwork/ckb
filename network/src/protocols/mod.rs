@@ -23,6 +23,9 @@ use crate::{Behaviour, NetworkState, Peer, PeerRegistry, ProtocolVersion, MAX_FR
 pub trait CKBProtocolContext: Send {
     // Interact with underlying p2p service
     fn set_notify(&self, interval: Duration, token: u64);
+    fn quick_send_message(&self, proto_id: ProtocolId, peer_index: PeerIndex, data: Bytes);
+    fn quick_send_message_to(&self, peer_index: PeerIndex, data: Bytes);
+    fn quick_filter_broadcast(&self, target: TargetSession, data: Bytes);
     fn send_message(&self, proto_id: ProtocolId, peer_index: PeerIndex, data: Bytes);
     fn send_message_to(&self, peer_index: PeerIndex, data: Bytes);
     // TODO allow broadcast to target ProtocolId
@@ -218,6 +221,32 @@ impl CKBProtocolContext for DefaultCKBProtocolContext {
         if let Err(err) = self
             .p2p_control
             .set_service_notify(self.proto_id, interval, token)
+        {
+            error!(target: "network", "send message to p2p service error: {:?}", err);
+        }
+    }
+    fn quick_send_message(&self, proto_id: ProtocolId, peer_index: PeerIndex, data: Bytes) {
+        trace!(target: "network", "[send message]: {}, to={}, length={}", proto_id, peer_index, data.len());
+        if let Err(err) = self
+            .p2p_control
+            .quick_send_message_to(peer_index, proto_id, data)
+        {
+            error!(target: "network", "send message to p2p service error: {:?}", err);
+        }
+    }
+    fn quick_send_message_to(&self, peer_index: PeerIndex, data: Bytes) {
+        trace!(target: "network", "[send message to]: {}, to={}, length={}", self.proto_id, peer_index, data.len());
+        if let Err(err) = self
+            .p2p_control
+            .quick_send_message_to(peer_index, self.proto_id, data)
+        {
+            error!(target: "network", "send message to p2p service error: {:?}", err);
+        }
+    }
+    fn quick_filter_broadcast(&self, target: TargetSession, data: Bytes) {
+        if let Err(err) = self
+            .p2p_control
+            .quick_filter_broadcast(target, self.proto_id, data)
         {
             error!(target: "network", "send message to p2p service error: {:?}", err);
         }

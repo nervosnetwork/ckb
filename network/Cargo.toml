@@ -25,7 +25,7 @@ snap = "0.2"
 crossbeam-channel = "0.3"
 p2p = { version="0.2.0-alpha.10", package="tentacle" }
 p2p-ping = { version="0.3.2", package="tentacle-ping" }
-p2p-discovery = { version="0.2.2", package="tentacle-discovery" }
+p2p-discovery = { version="0.2.3", package="tentacle-discovery" }
 p2p-identify = { version="0.2.2", package="tentacle-identify" }
 faketime = "0.2.0"
 rusqlite = {version = "0.18.0", features = ["bundled"]}

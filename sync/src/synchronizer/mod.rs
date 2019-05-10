@@ -971,6 +971,16 @@ mod tests {
         fn set_notify(&self, _interval: Duration, _token: u64) {
             unimplemented!();
         }
+
+        fn quick_send_message(&self, proto_id: ProtocolId, peer_index: PeerIndex, data: Bytes) {
+            self.send_message(proto_id, peer_index, data)
+        }
+        fn quick_send_message_to(&self, peer_index: PeerIndex, data: Bytes) {
+            self.send_message_to(peer_index, data)
+        }
+        fn quick_filter_broadcast(&self, target: TargetSession, data: Bytes) {
+            self.filter_broadcast(target, data)
+        }
         fn send_message(&self, _proto_id: ProtocolId, _peer_index: PeerIndex, _data: bytes::Bytes) {
         }
         fn send_message_to(&self, _peer_index: PeerIndex, _data: bytes::Bytes) {}
