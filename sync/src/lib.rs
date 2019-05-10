@@ -47,7 +47,6 @@ impl Into<ProtocolId> for NetworkProtocol {
 //  Timeout = base + per_header * (expected number of headers)
 pub const HEADERS_DOWNLOAD_TIMEOUT_BASE: u64 = 6 * 60 * 1000; // 6 minutes
 pub const HEADERS_DOWNLOAD_TIMEOUT_PER_HEADER: u64 = 1; // 1ms/header
-pub const HEADERS_CAUGHT_UP: u64 = 24 * 60 * 60 * 1000; // 1 day
 pub const POW_SPACE: u64 = 10_000; // 10s
 
 // Protect at least this many outbound peers from disconnection due to slow

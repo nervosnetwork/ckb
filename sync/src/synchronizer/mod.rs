@@ -14,7 +14,7 @@ use self::headers_process::HeadersProcess;
 use crate::config::Config;
 use crate::types::{HeaderView, Peers, SyncSharedState};
 use crate::{
-    BAD_MESSAGE_BAN_TIME, CHAIN_SYNC_TIMEOUT, EVICTION_HEADERS_RESPONSE_TIME, HEADERS_CAUGHT_UP,
+    BAD_MESSAGE_BAN_TIME, CHAIN_SYNC_TIMEOUT, EVICTION_HEADERS_RESPONSE_TIME,
     HEADERS_DOWNLOAD_TIMEOUT_BASE, HEADERS_DOWNLOAD_TIMEOUT_PER_HEADER, MAX_HEADERS_LEN,
     MAX_OUTBOUND_PEERS_TO_PROTECT_FROM_DISCONNECT, POW_SPACE, PROTECT_STOP_SYNC_TIME,
 };
@@ -316,7 +316,8 @@ impl<CS: ChainStore> Synchronizer<CS> {
                 .fetch_add(1, Ordering::Release);
         }
 
-        self.peers.on_connected(peer, is_outbound, protect_outbound);
+        self.peers
+            .on_connected(peer, None, protect_outbound, is_outbound);
     }
 
     //   - If at timeout their best known block now has more work than our tip
@@ -334,14 +335,6 @@ impl<CS: ChainStore> Synchronizer<CS> {
         let mut eviction = Vec::new();
         for (peer, state) in peer_state.iter_mut() {
             let now = unix_time_as_millis();
-
-            if let Some(best_known_header) = best_known_headers.get(peer) {
-                // After we've caught up once(less than one day), reset the timeout so we can't trigger
-                // disconnect later.
-                if best_known_header.timestamp() > now - HEADERS_CAUGHT_UP {
-                    state.caught_up_sync();
-                }
-            }
 
             // headers_sync_timeout
             if let Some(timeout) = state.headers_sync_timeout {
@@ -1168,9 +1161,9 @@ mod tests {
         assert!(synchronizer.shared.is_initial_block_download());
         let peers = synchronizer.peers();
         // protect should not effect headers_timeout
-        peers.on_connected(0.into(), 0, true);
-        peers.on_connected(1.into(), 0, false);
-        peers.on_connected(2.into(), MAX_TIP_AGE * 2, false);
+        peers.on_connected(0.into(), Some(0), true, true);
+        peers.on_connected(1.into(), Some(0), false, true);
+        peers.on_connected(2.into(), Some(MAX_TIP_AGE * 2), false, true);
         synchronizer.eviction(&network_context);
         let disconnected = network_context.disconnected.lock();
         assert_eq!(
@@ -1205,12 +1198,12 @@ mod tests {
         let network_context = mock_network_context(6);
         let peers = synchronizer.peers();
         //6 peers do not trigger header sync timeout
-        peers.on_connected(0.into(), MAX_TIP_AGE * 2, true);
-        peers.on_connected(1.into(), MAX_TIP_AGE * 2, true);
-        peers.on_connected(2.into(), MAX_TIP_AGE * 2, true);
-        peers.on_connected(3.into(), MAX_TIP_AGE * 2, false);
-        peers.on_connected(4.into(), MAX_TIP_AGE * 2, false);
-        peers.on_connected(5.into(), MAX_TIP_AGE * 2, false);
+        peers.on_connected(0.into(), Some(MAX_TIP_AGE * 2), true, true);
+        peers.on_connected(1.into(), Some(MAX_TIP_AGE * 2), true, true);
+        peers.on_connected(2.into(), Some(MAX_TIP_AGE * 2), true, true);
+        peers.on_connected(3.into(), Some(MAX_TIP_AGE * 2), false, true);
+        peers.on_connected(4.into(), Some(MAX_TIP_AGE * 2), false, true);
+        peers.on_connected(5.into(), Some(MAX_TIP_AGE * 2), false, true);
         peers.new_header_received(0.into(), &mock_header_view(1));
         peers.new_header_received(2.into(), &mock_header_view(3));
         peers.new_header_received(3.into(), &mock_header_view(1));
