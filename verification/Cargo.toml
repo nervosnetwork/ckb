@@ -28,3 +28,4 @@ ckb-notify = { path = "../notify" }
 ckb-chain = { path = "../chain" }
 hash = {path = "../util/hash"}
 ckb-shared = { path = "../shared" }
+test-chain-utils = { path = "../util/test-chain-utils" }

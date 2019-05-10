@@ -24,3 +24,4 @@ serde_derive = "1.0"
 [dev-dependencies]
 proptest = "0.9"
 ckb-db = { path = "../db" }
+test-chain-utils = { path = "../util/test-chain-utils" }

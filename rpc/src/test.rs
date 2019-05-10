@@ -8,7 +8,7 @@ use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::BlockBuilder;
 use ckb_core::header::HeaderBuilder;
 use ckb_core::script::Script;
-use ckb_core::transaction::{CellInput, CellOutput, Transaction, TransactionBuilder};
+use ckb_core::transaction::{CellInput, CellOutput, OutPoint, Transaction, TransactionBuilder};
 use ckb_core::{capacity_bytes, BlockNumber, Bytes, Capacity};
 use ckb_db::MemoryKeyValueDB;
 use ckb_network::{NetworkConfig, NetworkService, NetworkState};
@@ -29,6 +29,7 @@ use std::env::temp_dir;
 use std::fs::File;
 use std::path::PathBuf;
 use std::sync::Arc;
+use test_chain_utils::create_always_success_cell;
 
 const GENESIS_TIMESTAMP: u64 = 1_557_310_743;
 
@@ -36,16 +37,17 @@ const GENESIS_TIMESTAMP: u64 = 1_557_310_743;
 pub struct JsonResponse {
     pub jsonrpc: String,
     pub id: usize,
-    pub result: Value,
+    pub result: Option<Value>,
+    pub error: Option<Value>,
 }
 
-fn new_cellbase(number: BlockNumber) -> Transaction {
+fn new_cellbase(number: BlockNumber, always_success_script: &Script) -> Transaction {
     let outputs = (0..1)
         .map(|_| {
             CellOutput::new(
                 capacity_bytes!(500000),
                 Bytes::default(),
-                Script::always_success(),
+                always_success_script.to_owned(),
                 None,
             )
         })
@@ -63,6 +65,12 @@ fn setup_node(
     ChainController,
     RpcServer,
 ) {
+    let (always_success_cell, always_success_script) = create_always_success_cell();
+    let always_success_tx = TransactionBuilder::default()
+        .input(CellInput::new(OutPoint::null(), 0, Default::default()))
+        .output(always_success_cell)
+        .build();
+
     let consensus = {
         let genesis = BlockBuilder::default()
             .header_builder(
@@ -70,6 +78,7 @@ fn setup_node(
                     .timestamp(GENESIS_TIMESTAMP)
                     .difficulty(U256::from(1000u64)),
             )
+            .transaction(always_success_tx)
             .build();
         Consensus::default()
             .set_genesis_block(genesis)
@@ -101,7 +110,7 @@ fn setup_node(
                 .next_epoch_ext(&last_epoch, parent.header())
                 .unwrap_or(last_epoch)
         };
-        let cellbase = new_cellbase(parent.header().number() + 1);
+        let cellbase = new_cellbase(parent.header().number() + 1, &always_success_script);
         let block = BlockBuilder::default()
             .transaction(cellbase)
             .header_builder(
@@ -240,7 +249,10 @@ fn test_rpc() {
             .expect("send jsonrpc request")
             .json()
             .expect("transform jsonrpc response into json");
-        let actual = response.result.clone();
+        let actual = response
+            .result
+            .clone()
+            .expect("jsonrpc does not return result!");
         let expect = case.remove("result").expect("get case result");
 
         // Print only at print_mode, otherwise do real testing asserts

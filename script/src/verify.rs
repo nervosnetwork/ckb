@@ -8,7 +8,7 @@ use crate::{
     Runner, ScriptConfig, ScriptError,
 };
 use ckb_core::cell::{CellMeta, ResolvedOutPoint, ResolvedTransaction};
-use ckb_core::script::{Script, ALWAYS_SUCCESS_HASH};
+use ckb_core::script::Script;
 use ckb_core::transaction::{CellInput, CellOutPoint};
 use ckb_core::{Bytes, Cycle};
 use ckb_vm::{
@@ -171,9 +171,6 @@ impl<'a, CS: LazyLoadCellOutput> TransactionScriptsVerifier<'a, CS> {
         current_input: Option<&'a CellInput>,
         max_cycles: Cycle,
     ) -> Result<Cycle, ScriptError> {
-        if script.code_hash == ALWAYS_SUCCESS_HASH {
-            return Ok(0);
-        }
         let mut args = vec!["verify".into()];
         self.extract_script(script).and_then(|script_binary| {
             args.extend_from_slice(&script.args);
@@ -334,6 +331,7 @@ mod tests {
     use std::io::{Read, Write};
     use std::path::Path;
     use std::sync::Arc;
+    use test_chain_utils::create_always_success_cell;
 
     fn open_cell_verify() -> File {
         File::open(Path::new(env!("CARGO_MANIFEST_DIR")).join("../script/testdata/verify")).unwrap()
@@ -345,10 +343,11 @@ mod tests {
 
     #[test]
     fn check_always_success_hash() {
+        let (always_success_cell, always_success_script) = create_always_success_cell();
         let output = CellOutput::new(
             capacity_bytes!(100),
             Bytes::default(),
-            Script::always_success(),
+            always_success_script,
             None,
         );
         let input = CellInput::new(OutPoint::null(), 0, vec![]);
@@ -361,10 +360,16 @@ mod tests {
             block_number: Some(1),
             ..Default::default()
         });
+        let always_success_cell = ResolvedOutPoint::cell_only(CellMeta {
+            capacity: always_success_cell.capacity,
+            cell_output: Some(always_success_cell),
+            block_number: Some(1),
+            ..Default::default()
+        });
 
         let rtx = ResolvedTransaction {
             transaction: &transaction,
-            resolved_deps: vec![],
+            resolved_deps: vec![always_success_cell],
             resolved_inputs: vec![dummy_cell],
         };
 
@@ -378,7 +383,7 @@ mod tests {
             },
         );
 
-        assert!(verifier.verify(0).is_ok());
+        assert!(verifier.verify(100).is_ok());
     }
 
     #[test]
@@ -802,16 +807,23 @@ mod tests {
         args.push(Bytes::from(hex_signature));
 
         let input = CellInput::new(OutPoint::null(), 0, vec![]);
+        let (always_success_cell, always_success_script) = create_always_success_cell();
         let output = CellOutput::new(
             capacity_bytes!(100),
             Bytes::default(),
-            Script::always_success(),
+            always_success_script,
             None,
         );
         let dummy_cell = ResolvedOutPoint::cell_only(CellMeta {
             cell_output: Some(output.clone()),
             block_number: Some(1),
             capacity: output.capacity,
+            ..Default::default()
+        });
+        let always_success_cell = ResolvedOutPoint::cell_only(CellMeta {
+            capacity: always_success_cell.capacity,
+            cell_output: Some(always_success_cell),
+            block_number: Some(1),
             ..Default::default()
         });
 
@@ -849,7 +861,7 @@ mod tests {
 
         let rtx = ResolvedTransaction {
             transaction: &transaction,
-            resolved_deps: vec![dep_cell],
+            resolved_deps: vec![dep_cell, always_success_cell],
             resolved_inputs: vec![dummy_cell],
         };
 
@@ -896,16 +908,23 @@ mod tests {
         args.insert(0, Bytes::from(hex_pubkey));
 
         let input = CellInput::new(OutPoint::null(), 0, vec![]);
+        let (always_success_cell, always_success_script) = create_always_success_cell();
         let output = CellOutput::new(
             capacity_bytes!(100),
             Bytes::default(),
-            Script::always_success(),
+            always_success_script,
             None,
         );
         let dummy_cell = ResolvedOutPoint::cell_only(CellMeta {
             cell_output: Some(output.clone()),
             block_number: Some(1),
             capacity: output.capacity,
+            ..Default::default()
+        });
+        let always_success_cell = ResolvedOutPoint::cell_only(CellMeta {
+            capacity: always_success_cell.capacity,
+            cell_output: Some(always_success_cell),
+            block_number: Some(1),
             ..Default::default()
         });
 
@@ -941,7 +960,7 @@ mod tests {
 
         let rtx = ResolvedTransaction {
             transaction: &transaction,
-            resolved_deps: vec![dep_cell],
+            resolved_deps: vec![dep_cell, always_success_cell],
             resolved_inputs: vec![dummy_cell],
         };
 

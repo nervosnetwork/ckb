@@ -44,3 +44,4 @@ ckb-db = { path = "../db" }
 ckb-chain-spec = { path = "../spec" }
 ckb-notify = { path = "../notify" }
 reqwest = "0.9.16"
+test-chain-utils = { path = "../util/test-chain-utils" }
