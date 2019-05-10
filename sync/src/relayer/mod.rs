@@ -29,7 +29,7 @@ use ckb_chain::chain::ChainController;
 use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::transaction::{ProposalShortId, Transaction};
 use ckb_core::uncle::UncleBlock;
-use ckb_network::{CKBProtocolContext, CKBProtocolHandler, PeerIndex};
+use ckb_network::{CKBProtocolContext, CKBProtocolHandler, PeerIndex, TargetSession};
 use ckb_protocol::{
     cast, get_root, short_transaction_id, short_transaction_id_keys, RelayMessage, RelayPayload,
 };
@@ -221,6 +221,7 @@ impl<CS: ChainStore + 'static> Relayer<CS> {
             let fbb = &mut FlatBufferBuilder::new();
             let message = RelayMessage::build_compact_block(fbb, block, &HashSet::new());
             fbb.finish(message, None);
+            let data = fbb.finished_data().into();
 
             let mut known_blocks = self.peers.known_blocks.lock();
             let selected_peers: Vec<PeerIndex> = nc
@@ -231,11 +232,7 @@ impl<CS: ChainStore + 'static> Relayer<CS> {
                 })
                 .take(MAX_RELAY_PEERS)
                 .collect();
-
-            // TODO: use filter broadcast
-            for target_peer in selected_peers {
-                nc.send_message_to(target_peer, fbb.finished_data().into());
-            }
+            nc.quick_filter_broadcast(TargetSession::Multi(selected_peers), data);
         } else {
             debug!(target: "relay", "accept_block verify error {:?}", ret);
         }
