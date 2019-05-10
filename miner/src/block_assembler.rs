@@ -1,6 +1,7 @@
 use crate::config::BlockAssemblerConfig;
 use crate::error::Error;
 use ckb_core::block::Block;
+use ckb_core::cell::ResolvedTransaction;
 use ckb_core::extras::EpochExt;
 use ckb_core::header::Header;
 use ckb_core::script::Script;
@@ -15,6 +16,7 @@ use ckb_shared::{shared::Shared, tx_pool::PoolEntry};
 use ckb_store::ChainStore;
 use ckb_traits::ChainProvider;
 use ckb_util::Mutex;
+use ckb_verification::ScriptVerifier;
 use crossbeam_channel::{self, select, Receiver, Sender};
 use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
@@ -293,19 +295,23 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
 
     fn calculate_txs_size_limit(
         &self,
+        cellbase_size: usize,
         bytes_limit: u64,
         uncles: &[UncleBlock],
         proposals: &[ProposalShortId],
-    ) -> usize {
+    ) -> Result<usize, FailureError> {
         let occupied = Header::serialized_size(self.proof_size)
             + uncles
                 .iter()
                 .map(|u| u.serialized_size(self.proof_size))
                 .sum::<usize>()
-            + proposals.len() * ProposalShortId::serialized_size();
+            + proposals.len() * ProposalShortId::serialized_size()
+            + cellbase_size;
         let bytes_limit = bytes_limit as usize;
-        assert!(bytes_limit > occupied, "block size limit is too small");
-        bytes_limit - occupied
+
+        bytes_limit
+            .checked_sub(occupied)
+            .ok_or_else(|| Error::InvalidParams(format!("bytes_limit {}", bytes_limit)).into())
     }
 
     fn get_block_template(
@@ -351,15 +357,7 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
             }
         }
 
-        let proposals = chain_state.get_proposals(proposals_limit as usize);
-        let txs_size_limit = self.calculate_txs_size_limit(bytes_limit, &uncles, &proposals);
-        // It is assumed that cellbase transaction consumes 0 cycles, so it is not excluded when getting transactions from pool.
-        let transactions = chain_state.get_staging_txs(txs_size_limit, cycles_limit);
-
-        // Release the lock as soon as possible, let other services do their work
-        drop(chain_state);
-
-        let args = self
+        let cellbase_lock_args = self
             .config
             .args
             .iter()
@@ -368,14 +366,19 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
             .map(Bytes::from)
             .collect();
 
-        // dummy cellbase
-        let cellbase_lock = Script::new(args, self.config.code_hash.clone());
-        let cellbase = self.create_cellbase_transaction(
-            &header,
-            &current_epoch,
-            &transactions,
-            cellbase_lock,
-        )?;
+        let cellbase_lock = Script::new(cellbase_lock_args, self.config.code_hash.clone());
+        let (dummy_cellbase, cellbase_size, cellbase_cycle) =
+            self.dummy_cellbase_transaction(&header, cellbase_lock, None)?;
+
+        let proposals = chain_state.get_proposals(proposals_limit as usize);
+        let txs_size_limit =
+            self.calculate_txs_size_limit(cellbase_size, bytes_limit, &uncles, &proposals)?;
+        let txs_cycles_limit = cycles_limit - cellbase_cycle;
+        let entries = chain_state.get_staging_txs(txs_size_limit, txs_cycles_limit);
+        // Release the lock as soon as possible, let other services do their work
+        drop(chain_state);
+
+        let cellbase = self.rebuild_cellbase(&header, &dummy_cellbase, &current_epoch, &entries)?;
 
         // Should recalculate current time after create cellbase (create cellbase may spend a lot of time)
         let current_time = cmp::max(unix_time_as_millis(), header.timestamp() + 1);
@@ -390,9 +393,9 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
             bytes_limit: bytes_limit.to_string(),
             uncles_count_limit,
             uncles: uncles.into_iter().map(Self::transform_uncle).collect(),
-            transactions: transactions
+            transactions: entries
                 .iter()
-                .map(|tx| Self::transform_tx(tx, false, None))
+                .map(|entry| Self::transform_tx(entry, false, None))
                 .collect(),
             proposals: proposals.into_iter().map(Into::into).collect(),
             cellbase: Self::transform_cellbase(&cellbase, None),
@@ -412,13 +415,12 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
         Ok(template)
     }
 
-    fn create_cellbase_transaction(
+    fn dummy_cellbase_transaction(
         &self,
         tip: &Header,
-        current_epoch: &EpochExt,
-        pes: &[PoolEntry],
         lock: Script,
-    ) -> Result<Transaction, FailureError> {
+        type_: Option<Script>,
+    ) -> Result<(Transaction, usize, Cycle), FailureError> {
         // NOTE: To generate different cellbase txid, we put header number in the input script
         let input = CellInput::new_cellbase_input(tip.number() + 1);
         // NOTE: We could've just used byteorder to serialize u64 and hex string into bytes,
@@ -426,6 +428,36 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
         // stick to the simpler way and just convert everything to a single string, then to UTF8
         // bytes, they really serve the same purpose at the moment
 
+        let output = CellOutput::new(Capacity::zero(), Bytes::new(), lock, type_);
+
+        let tx = TransactionBuilder::default()
+            .input(input)
+            .output(output)
+            .build();
+
+        let rtx = ResolvedTransaction {
+            transaction: &tx,
+            resolved_deps: vec![],
+            resolved_inputs: vec![],
+        };
+
+        let script_verifier = ScriptVerifier::new(
+            &rtx,
+            Arc::clone(self.shared.store()),
+            self.shared.script_config(),
+        );
+        let cycle = script_verifier.verify(self.shared.consensus().max_block_cycles())?;
+        let serialized_size = tx.serialized_size();
+        Ok((tx, serialized_size, cycle))
+    }
+
+    fn rebuild_cellbase(
+        &self,
+        tip: &Header,
+        dummy_cellbase: &Transaction,
+        current_epoch: &EpochExt,
+        pes: &[PoolEntry],
+    ) -> Result<Transaction, FailureError> {
         let block_reward = current_epoch.block_reward(tip.number() + 1)?;
         let mut fee = Capacity::zero();
         // depends cells may produced from previous tx
@@ -433,8 +465,9 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
         for pe in pes {
             fee = fee.safe_add(fee_calculator.calculate_transaction_fee(&pe.transaction)?)?;
         }
-
-        let output = CellOutput::new(block_reward.safe_add(fee)?, Bytes::new(), lock, None);
+        let input = dummy_cellbase.inputs()[0].clone();
+        let mut output = dummy_cellbase.outputs()[0].clone();
+        output.capacity = block_reward.safe_add(fee)?;
 
         Ok(TransactionBuilder::default()
             .input(input)

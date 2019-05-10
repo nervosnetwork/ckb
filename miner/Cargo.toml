@@ -30,11 +30,11 @@ stop-handler = { path = "../util/stop-handler" }
 ckb-traits = { path = "../traits" }
 failure = "0.1.5"
 sentry = "^0.15.4"
+ckb-verification = { path = "../verification" }
 
 [dev-dependencies]
 proptest = "0.9"
 ckb-chain = { path = "../chain" }
 ckb-chain-spec = { path = "../spec" }
 ckb-db = { path = "../db" }
-ckb-verification = { path = "../verification" }
 ckb-pow = { path = "../pow" }
