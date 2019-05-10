@@ -8,7 +8,7 @@ mod tx_pool;
 
 pub use block_relay::BlockRelayBasic;
 pub use block_sync::BlockSyncBasic;
-pub use mining::MiningBasic;
+pub use mining::*;
 pub use p2p::{Disconnect, Discovery};
 pub use protocols::MalformedMessage;
 pub use transaction_relay::TransactionRelayBasic;

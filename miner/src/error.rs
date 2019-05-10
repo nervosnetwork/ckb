@@ -6,4 +6,6 @@ pub enum Error {
     InvalidInput,
     #[fail(display = "InvalidOutput")]
     InvalidOutput,
+    #[fail(display = "InvalidParams {}", _0)]
+    InvalidParams(String),
 }

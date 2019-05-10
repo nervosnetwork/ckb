@@ -138,7 +138,7 @@ impl Node {
     pub fn generate_block(&self) -> H256 {
         let result = self
             .rpc_client()
-            .submit_block("".to_owned(), (&self.new_block()).into())
+            .submit_block("".to_owned(), (&self.new_block(None, None, None)).into())
             .call()
             .expect("rpc call submit_block failed");
         result.expect("submit_block result none")
@@ -188,10 +188,15 @@ impl Node {
             .expect("block")
     }
 
-    pub fn new_block(&self) -> Block {
+    pub fn new_block(
+        &self,
+        bytes_limit: Option<String>,
+        proposals_limit: Option<String>,
+        max_version: Option<u32>,
+    ) -> Block {
         let template = self
             .rpc_client()
-            .get_block_template(None, None, None)
+            .get_block_template(bytes_limit, proposals_limit, max_version)
             .call()
             .expect("rpc call get_block_template failed");
 

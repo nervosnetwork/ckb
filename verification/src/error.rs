@@ -156,6 +156,14 @@ pub enum TransactionError {
     CellbaseImmaturity,
 }
 
+impl StdError for TransactionError {}
+
+impl fmt::Display for TransactionError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fmt::Debug::fmt(&self, f)
+    }
+}
+
 impl TransactionError {
     /// Transaction error may be caused by different tip between peers if this method return false,
     /// Otherwise we consider the Bad Tx is constructed intendedly.
