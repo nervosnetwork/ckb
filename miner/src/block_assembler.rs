@@ -10,7 +10,7 @@ use ckb_core::transaction::{
     Capacity, CellInput, CellOutput, OutPoint, ProposalShortId, Transaction, TransactionBuilder,
 };
 use ckb_core::uncle::UncleBlock;
-use ckb_core::{Bytes, Cycle, Version};
+use ckb_core::{BlockNumber, Bytes, Cycle, Version};
 use ckb_notify::NotifyController;
 use ckb_shared::{shared::Shared, tx_pool::PoolEntry};
 use ckb_store::ChainStore;
@@ -23,8 +23,9 @@ use faketime::unix_time_as_millis;
 use fnv::FnvHashMap;
 use fnv::FnvHashSet;
 use jsonrpc_types::{
-    BlockTemplate, CellbaseTemplate, JsonBytes, TransactionTemplate, UncleTemplate,
-    Cycle as JsonCycle, Version as JsonVersion,
+    BlockNumber as JsonBlockNumber, BlockTemplate, CellbaseTemplate, Cycle as JsonCycle,
+    EpochNumber as JsonEpochNumber, JsonBytes, Timestamp as JsonTimestamp, TransactionTemplate,
+    UncleTemplate, Unsigned, Version as JsonVersion,
 };
 use log::error;
 use lru_cache::LruCache;
@@ -54,12 +55,12 @@ impl TemplateCache {
         last_uncles_updated_at: u64,
         last_txs_updated_at: u64,
         current_time: u64,
-        number: String,
+        number: BlockNumber,
     ) -> bool {
         last_uncles_updated_at != self.uncles_updated_at
             || (last_txs_updated_at != self.txs_updated_at
                 && current_time.saturating_sub(self.time) > BLOCK_TEMPLATE_TIMEOUT)
-            || number != self.template.number
+            || number != self.template.number.0
     }
 }
 
@@ -275,7 +276,7 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
     fn transform_cellbase(tx: &Transaction, cycles: Option<Cycle>) -> CellbaseTemplate {
         CellbaseTemplate {
             hash: tx.hash().to_owned(),
-            cycles: cycles.map(|c| JsonCycle(c)),
+            cycles: cycles.map(JsonCycle),
             data: tx.into(),
         }
     }
@@ -289,7 +290,7 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
             hash: tx.transaction.hash().to_owned(),
             required,
             cycles: tx.cycles.map(JsonCycle),
-            depends,
+            depends: depends.map(|deps| deps.into_iter().map(|x| Unsigned(u64::from(x))).collect()),
             data: (&tx.transaction).into(),
         }
     }
@@ -341,7 +342,7 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
                 last_uncles_updated_at,
                 last_txs_updated_at,
                 current_time,
-                number.to_string(),
+                number,
             ) {
                 return Ok(template_cache.template.clone());
             }
@@ -386,13 +387,13 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
         let template = BlockTemplate {
             version: JsonVersion(version),
             difficulty: current_epoch.difficulty().clone(),
-            current_time: current_time.to_string(),
-            number: number.to_string(),
-            epoch: current_epoch.number().to_string(),
+            current_time: JsonTimestamp(current_time),
+            number: JsonBlockNumber(number),
+            epoch: JsonEpochNumber(current_epoch.number()),
             parent_hash: header.hash().to_owned(),
-            cycles_limit: cycles_limit.to_string(),
-            bytes_limit: bytes_limit.to_string(),
-            uncles_count_limit,
+            cycles_limit: JsonCycle(cycles_limit),
+            bytes_limit: Unsigned(bytes_limit),
+            uncles_count_limit: Unsigned(uncles_count_limit.into()),
             uncles: uncles.into_iter().map(Self::transform_uncle).collect(),
             transactions: entries
                 .iter()
@@ -400,7 +401,7 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
                 .collect(),
             proposals: proposals.into_iter().map(Into::into).collect(),
             cellbase: Self::transform_cellbase(&cellbase, None),
-            work_id: format!("{}", self.work_id.fetch_add(1, Ordering::SeqCst)),
+            work_id: Unsigned(self.work_id.fetch_add(1, Ordering::SeqCst) as u64),
         };
 
         template_caches.insert(
@@ -564,7 +565,7 @@ mod tests {
     use ckb_core::transaction::{
         CellInput, CellOutput, ProposalShortId, Transaction, TransactionBuilder,
     };
-    use ckb_core::{BlockNumber, Bytes, EpochNumber};
+    use ckb_core::{BlockNumber, Bytes};
     use ckb_db::memorydb::MemoryKeyValueDB;
     use ckb_notify::{NotifyController, NotifyService};
     use ckb_pow::Pow;
@@ -643,11 +644,11 @@ mod tests {
         };
 
         let header_builder = HeaderBuilder::default()
-            .version(version)
-            .number(number.parse::<BlockNumber>().unwrap())
-            .epoch(epoch.parse::<EpochNumber>().unwrap())
+            .version(version.0)
+            .number(number.0)
+            .epoch(epoch.0)
             .difficulty(difficulty)
-            .timestamp(current_time.parse::<u64>().unwrap())
+            .timestamp(current_time.0)
             .parent_hash(parent_hash);
 
         let block = BlockBuilder::default()

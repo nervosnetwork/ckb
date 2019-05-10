@@ -1,4 +1,7 @@
-use crate::{Cycle, Header, ProposalShortId, Transaction, Version};
+use crate::{
+    BlockNumber, Cycle, EpochNumber, Header, ProposalShortId, Timestamp, Transaction, Unsigned,
+    Version,
+};
 use ckb_core::transaction::Transaction as CoreTransaction;
 use ckb_core::uncle::UncleBlock as CoreUncleBlock;
 use failure::Error as FailureError;
@@ -11,18 +14,18 @@ use std::convert::{TryFrom, TryInto};
 pub struct BlockTemplate {
     pub version: Version,
     pub difficulty: U256,
-    pub current_time: String,
-    pub number: String,
-    pub epoch: String,
+    pub current_time: Timestamp,
+    pub number: BlockNumber,
+    pub epoch: EpochNumber,
     pub parent_hash: H256,
-    pub cycles_limit: String,
-    pub bytes_limit: String,
-    pub uncles_count_limit: u32,
+    pub cycles_limit: Cycle,
+    pub bytes_limit: Unsigned,
+    pub uncles_count_limit: Unsigned,
     pub uncles: Vec<UncleTemplate>,
     pub transactions: Vec<TransactionTemplate>,
     pub proposals: Vec<ProposalShortId>,
     pub cellbase: CellbaseTemplate,
-    pub work_id: String,
+    pub work_id: Unsigned,
 }
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
@@ -73,7 +76,7 @@ pub struct TransactionTemplate {
     pub hash: H256,
     pub required: bool,
     pub cycles: Option<Cycle>,
-    pub depends: Option<Vec<u32>>,
+    pub depends: Option<Vec<Unsigned>>,
     pub data: Transaction, // temporary
 }
 

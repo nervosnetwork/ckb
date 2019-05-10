@@ -9,7 +9,7 @@ use ckb_tx_pool_executor::TxPoolExecutor;
 use flatbuffers::FlatBufferBuilder;
 use jsonrpc_core::{Error, Result};
 use jsonrpc_derive::rpc;
-use jsonrpc_types::{Transaction, TxPoolInfo};
+use jsonrpc_types::{Timestamp, Transaction, TxPoolInfo, Unsigned};
 use numext_fixed_hash::H256;
 use std::convert::TryInto;
 use std::sync::Arc;
@@ -66,10 +66,10 @@ impl<CS: ChainStore + 'static> PoolRpc for PoolRpcImpl<CS> {
         let chain_state = self.shared.chain_state().lock();
         let tx_pool = chain_state.tx_pool();
         Ok(TxPoolInfo {
-            pending: tx_pool.pending_size(),
-            staging: tx_pool.staging_size(),
-            orphan: tx_pool.orphan_size(),
-            last_txs_updated_at: chain_state.get_last_txs_updated_at().to_string(),
+            pending: Unsigned(u64::from(tx_pool.pending_size())),
+            staging: Unsigned(u64::from(tx_pool.staging_size())),
+            orphan: Unsigned(u64::from(tx_pool.orphan_size())),
+            last_txs_updated_at: Timestamp(chain_state.get_last_txs_updated_at()),
         })
     }
 }

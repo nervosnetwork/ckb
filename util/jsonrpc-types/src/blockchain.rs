@@ -1,5 +1,5 @@
 use crate::bytes::JsonBytes;
-use crate::{BlockNumber, Capacity, EpochNumber, ProposalShortId};
+use crate::{BlockNumber, Capacity, EpochNumber, ProposalShortId, Timestamp, Unsigned, Version};
 use ckb_core::block::{Block as CoreBlock, BlockBuilder};
 use ckb_core::extras::EpochExt as CoreEpochExt;
 use ckb_core::header::{Header as CoreHeader, HeaderBuilder, Seal as CoreSeal};
@@ -10,9 +10,6 @@ use ckb_core::transaction::{
     Witness as CoreWitness,
 };
 use ckb_core::uncle::UncleBlock as CoreUncleBlock;
-use ckb_core::{
-    Capacity as CoreCapacity,
-};
 use failure::Error as FailureError;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
@@ -96,20 +93,26 @@ impl TryFrom<CellOutput> for CoreCellOutput {
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct CellOutPoint {
     pub tx_hash: H256,
-    pub index: u32,
+    pub index: Unsigned,
 }
 
 impl From<CoreCellOutPoint> for CellOutPoint {
     fn from(core: CoreCellOutPoint) -> CellOutPoint {
         let (tx_hash, index) = core.destruct();
-        CellOutPoint { tx_hash, index }
+        CellOutPoint {
+            tx_hash,
+            index: Unsigned(u64::from(index)),
+        }
     }
 }
 
 impl From<CellOutPoint> for CoreCellOutPoint {
     fn from(json: CellOutPoint) -> Self {
         let CellOutPoint { tx_hash, index } = json;
-        CoreCellOutPoint { tx_hash, index }
+        CoreCellOutPoint {
+            tx_hash,
+            index: index.0 as u32,
+        }
     }
 }
 
@@ -142,7 +145,7 @@ impl From<OutPoint> for CoreOutPoint {
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct CellInput {
     pub previous_output: OutPoint,
-    pub since: String,
+    pub since: Unsigned,
     pub args: Vec<JsonBytes>,
 }
 
@@ -151,7 +154,7 @@ impl From<CoreCellInput> for CellInput {
         let (previous_output, since, args) = core.destruct();
         CellInput {
             previous_output: previous_output.into(),
-            since: since.to_string(),
+            since: Unsigned(since),
             args: args.into_iter().map(JsonBytes::from_bytes).collect(),
         }
     }
@@ -168,7 +171,7 @@ impl TryFrom<CellInput> for CoreCellInput {
         } = json;
         Ok(CoreCellInput::new(
             previous_output.try_into()?,
-            since.parse::<u64>()?,
+            since.0,
             args.into_iter().map(JsonBytes::into_bytes).collect(),
         ))
     }
@@ -197,7 +200,7 @@ impl TryFrom<Witness> for CoreWitness {
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct Transaction {
-    pub version: u32,
+    pub version: Version,
     pub deps: Vec<OutPoint>,
     pub inputs: Vec<CellInput>,
     pub outputs: Vec<CellOutput>,
@@ -214,7 +217,7 @@ pub struct TransactionView {
 impl<'a> From<&'a CoreTransaction> for Transaction {
     fn from(core: &CoreTransaction) -> Self {
         Self {
-            version: core.version(),
+            version: Version(core.version()),
             deps: core.deps().iter().cloned().map(Into::into).collect(),
             inputs: core.inputs().iter().cloned().map(Into::into).collect(),
             outputs: core.outputs().iter().cloned().map(Into::into).collect(),
@@ -245,7 +248,7 @@ impl TryFrom<Transaction> for CoreTransaction {
         } = json;
 
         Ok(TransactionBuilder::default()
-            .version(version)
+            .version(version.0)
             .deps(
                 deps.into_iter()
                     .map(TryInto::try_into)
@@ -357,7 +360,7 @@ impl TxStatus {
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct Seal {
-    pub nonce: String,
+    pub nonce: Unsigned,
     pub proof: JsonBytes,
 }
 
@@ -365,7 +368,7 @@ impl From<CoreSeal> for Seal {
     fn from(core: CoreSeal) -> Seal {
         let (nonce, proof) = core.destruct();
         Seal {
-            nonce: nonce.to_string(),
+            nonce: Unsigned(nonce),
             proof: JsonBytes::from_vec(proof),
         }
     }
@@ -376,15 +379,15 @@ impl TryFrom<Seal> for CoreSeal {
 
     fn try_from(json: Seal) -> Result<Self, Self::Error> {
         let Seal { nonce, proof } = json;
-        Ok(CoreSeal::new(nonce.parse::<u64>()?, proof.into_vec()))
+        Ok(CoreSeal::new(nonce.0, proof.into_vec()))
     }
 }
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct Header {
-    pub version: u32,
+    pub version: Version,
     pub parent_hash: H256,
-    pub timestamp: String,
+    pub timestamp: Timestamp,
     pub number: BlockNumber,
     pub epoch: EpochNumber,
     pub transactions_root: H256,
@@ -392,7 +395,7 @@ pub struct Header {
     pub proposals_hash: H256,
     pub difficulty: U256,
     pub uncles_hash: H256,
-    pub uncles_count: u32,
+    pub uncles_count: Unsigned,
     pub seal: Seal,
 }
 
@@ -406,9 +409,9 @@ pub struct HeaderView {
 impl<'a> From<&'a CoreHeader> for Header {
     fn from(core: &CoreHeader) -> Self {
         Self {
-            version: core.version(),
+            version: Version(core.version()),
             parent_hash: core.parent_hash().to_owned(),
-            timestamp: core.timestamp().to_string(),
+            timestamp: Timestamp(core.timestamp()),
             number: BlockNumber(core.number()),
             epoch: EpochNumber(core.epoch()),
             transactions_root: core.transactions_root().to_owned(),
@@ -416,7 +419,7 @@ impl<'a> From<&'a CoreHeader> for Header {
             proposals_hash: core.proposals_hash().to_owned(),
             difficulty: core.difficulty().to_owned(),
             uncles_hash: core.uncles_hash().to_owned(),
-            uncles_count: core.uncles_count(),
+            uncles_count: Unsigned(u64::from(core.uncles_count())),
             seal: core.seal().to_owned().into(),
         }
     }
@@ -451,9 +454,9 @@ impl TryFrom<Header> for CoreHeader {
         } = json;
 
         Ok(HeaderBuilder::default()
-            .version(version)
+            .version(version.0)
             .parent_hash(parent_hash)
-            .timestamp(timestamp.parse::<u64>()?)
+            .timestamp(timestamp.0)
             .number(number.0)
             .epoch(epoch.0)
             .transactions_root(transactions_root)
@@ -461,7 +464,7 @@ impl TryFrom<Header> for CoreHeader {
             .proposals_hash(proposals_hash)
             .difficulty(difficulty)
             .uncles_hash(uncles_hash)
-            .uncles_count(uncles_count)
+            .uncles_count(uncles_count.0 as u32)
             .seal(seal.try_into()?)
             .build())
     }
@@ -646,12 +649,12 @@ impl TryFrom<BlockView> for CoreBlock {
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct EpochExt {
     pub number: EpochNumber,
-    pub block_reward: String,
+    pub block_reward: Capacity,
     pub last_block_hash_in_previous_epoch: H256,
     pub start_number: BlockNumber,
     pub length: BlockNumber,
     pub difficulty: U256,
-    pub remainder_reward: String,
+    pub remainder_reward: Capacity,
 }
 
 impl From<CoreEpochExt> for EpochExt {
@@ -668,8 +671,8 @@ impl From<CoreEpochExt> for EpochExt {
 
         EpochExt {
             number: EpochNumber(number),
-            block_reward: block_reward.to_string(),
-            remainder_reward: remainder_reward.to_string(),
+            block_reward: Capacity(block_reward),
+            remainder_reward: Capacity(remainder_reward),
             last_block_hash_in_previous_epoch,
             start_number: BlockNumber(start_number),
             length: BlockNumber(length),
@@ -694,8 +697,8 @@ impl TryFrom<EpochExt> for CoreEpochExt {
 
         Ok(CoreEpochExt::new(
             number.0,
-            block_reward.parse::<CoreCapacity>()?,
-            remainder_reward.parse::<CoreCapacity>()?,
+            block_reward.0,
+            remainder_reward.0,
             last_block_hash_in_previous_epoch,
             start_number.0,
             length.0,

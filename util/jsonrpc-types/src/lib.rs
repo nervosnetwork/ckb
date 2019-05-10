@@ -6,9 +6,9 @@ mod chain_info;
 mod net;
 mod pool;
 mod proposal_short_id;
+mod string;
 mod sync;
 mod trace;
-mod string;
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct BlockNumber(#[serde(with = "string")] pub ckb_core::BlockNumber);
@@ -24,6 +24,12 @@ pub struct EpochNumber(#[serde(with = "string")] pub ckb_core::EpochNumber);
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct Version(#[serde(with = "string")] pub ckb_core::Version);
+
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+pub struct Timestamp(#[serde(with = "string")] pub u64);
+
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+pub struct Unsigned(#[serde(with = "string")] pub u64);
 
 pub use self::block_template::{
     BlockTemplate, CellbaseTemplate, TransactionTemplate, UncleTemplate,

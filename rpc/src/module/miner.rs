@@ -12,7 +12,7 @@ use faketime::unix_time_as_millis;
 use flatbuffers::FlatBufferBuilder;
 use jsonrpc_core::{Error, Result};
 use jsonrpc_derive::rpc;
-use jsonrpc_types::{Block, BlockTemplate};
+use jsonrpc_types::{Block, BlockTemplate, Unsigned, Version};
 use log::{debug, error};
 use numext_fixed_hash::H256;
 use std::collections::HashSet;
@@ -25,9 +25,9 @@ pub trait MinerRpc {
     #[rpc(name = "get_block_template")]
     fn get_block_template(
         &self,
-        bytes_limit: Option<String>,
-        proposals_limit: Option<String>,
-        max_version: Option<u32>,
+        bytes_limit: Option<Unsigned>,
+        proposals_limit: Option<Unsigned>,
+        max_version: Option<Version>,
     ) -> Result<BlockTemplate>;
 
     // curl -d '{"id": 2, "jsonrpc": "2.0", "method":"submit_block","params": [{"header":{}, "uncles":[], "transactions":[], "proposals":[]}]}' -H 'content-type:application/json' 'http://localhost:8114'
@@ -45,22 +45,22 @@ pub(crate) struct MinerRpcImpl<CS> {
 impl<CS: ChainStore + 'static> MinerRpc for MinerRpcImpl<CS> {
     fn get_block_template(
         &self,
-        bytes_limit: Option<String>,
-        proposals_limit: Option<String>,
-        max_version: Option<u32>,
+        bytes_limit: Option<Unsigned>,
+        proposals_limit: Option<Unsigned>,
+        max_version: Option<Version>,
     ) -> Result<BlockTemplate> {
         let bytes_limit = match bytes_limit {
-            Some(b) => Some(b.parse::<u64>().map_err(|_| Error::parse_error())?),
+            Some(b) => Some(b.0),
             None => None,
         };
 
         let proposals_limit = match proposals_limit {
-            Some(b) => Some(b.parse::<u64>().map_err(|_| Error::parse_error())?),
+            Some(b) => Some(b.0),
             None => None,
         };
 
         self.block_assembler
-            .get_block_template(bytes_limit, proposals_limit, max_version)
+            .get_block_template(bytes_limit, proposals_limit, max_version.map(|v| v.0))
             .map_err(|err| {
                 error!(target: "rpc", "get_block_template error {}", err);
                 Error::internal_error()

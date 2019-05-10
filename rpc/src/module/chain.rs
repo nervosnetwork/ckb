@@ -1,12 +1,15 @@
 use crate::error::RPCError;
 use ckb_core::cell::{CellProvider, CellStatus};
-use ckb_core::{transaction::ProposalShortId};
+use ckb_core::transaction::ProposalShortId;
 use ckb_shared::shared::Shared;
 use ckb_store::ChainStore;
 use ckb_traits::ChainProvider;
 use jsonrpc_core::{Error, Result};
 use jsonrpc_derive::rpc;
-use jsonrpc_types::{BlockView, CellOutPoint, CellOutputWithOutPoint, CellWithStatus, EpochExt, HeaderView, OutPoint, TransactionWithStatus, Capacity, BlockNumber, EpochNumber};
+use jsonrpc_types::{
+    BlockNumber, BlockView, Capacity, CellOutPoint, CellOutputWithOutPoint, CellWithStatus,
+    EpochExt, EpochNumber, HeaderView, OutPoint, TransactionWithStatus, Unsigned,
+};
 use numext_fixed_hash::H256;
 use std::convert::TryInto;
 
@@ -167,7 +170,7 @@ impl<CS: ChainStore + 'static> ChainRpc for ChainRpcImpl<CS> {
                             out_point: OutPoint {
                                 cell: Some(CellOutPoint {
                                     tx_hash: transaction.hash().to_owned(),
-                                    index: i as u32,
+                                    index: Unsigned(i as u64),
                                 }),
                                 block_hash: None,
                             },

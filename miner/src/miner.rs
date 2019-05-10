@@ -2,7 +2,6 @@ use crate::client::Client;
 use crate::Work;
 use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::header::{HeaderBuilder, RawHeader, Seal};
-use ckb_core::{BlockNumber, EpochNumber};
 use ckb_pow::PowEngine;
 use crossbeam_channel::Receiver;
 use failure::Error;
@@ -75,10 +74,10 @@ impl Miner {
 
             let header_builder = HeaderBuilder::default()
                 .version(version.0)
-                .number(number.parse::<BlockNumber>()?)
-                .epoch(epoch.parse::<EpochNumber>()?)
+                .number(number.0)
+                .epoch(epoch.0)
                 .difficulty(difficulty)
-                .timestamp(current_time.parse::<u64>()?)
+                .timestamp(current_time.0)
                 .parent_hash(parent_hash);
 
             let block = BlockBuilder::from_header_builder(header_builder)
@@ -112,7 +111,7 @@ impl Miner {
                         .header(raw_header.with_seal(seal))
                         .build()
                 })
-                .map(|block| (work_id, block)))
+                .map(|block| (work_id.0.to_string(), block)))
         } else {
             Ok(None)
         }

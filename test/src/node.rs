@@ -219,18 +219,10 @@ impl Node {
         };
 
         let header_builder = HeaderBuilder::default()
-            .version(version)
-            .number(
-                number
-                    .parse::<BlockNumber>()
-                    .expect("parse block number failed"),
-            )
+            .version(version.0)
+            .number(number.0)
             .difficulty(difficulty)
-            .timestamp(
-                current_time
-                    .parse::<u64>()
-                    .expect("parse current time failed"),
-            )
+            .timestamp(current_time.0)
             .parent_hash(parent_hash)
             .seal(Seal::new(rand::random(), Vec::new()));
 
