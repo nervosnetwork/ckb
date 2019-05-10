@@ -56,6 +56,7 @@ pub struct ChainSyncState {
     pub work_header: Option<Header>,
     pub total_difficulty: Option<U256>,
     pub sent_getheaders: bool,
+    pub not_sync_until: Option<u64>,
     pub protect: bool,
 }
 
@@ -66,6 +67,7 @@ impl Default for ChainSyncState {
             work_header: None,
             total_difficulty: None,
             sent_getheaders: false,
+            not_sync_until: None,
             protect: false,
         }
     }
@@ -74,8 +76,9 @@ impl Default for ChainSyncState {
 #[derive(Clone, Default, Debug, PartialEq)]
 pub struct PeerState {
     pub sync_started: bool,
-    pub last_block_announcement: Option<u64>, //ms
     pub headers_sync_timeout: Option<u64>,
+    pub last_block_announcement: Option<u64>, //ms
+    pub is_outbound: bool,
     pub disconnect: bool,
     pub chain_sync: ChainSyncState,
     // The key is a `timeout`, means do not ask the tx before `timeout`.
@@ -84,16 +87,47 @@ pub struct PeerState {
 }
 
 impl PeerState {
-    pub fn new(headers_sync_timeout: Option<u64>, chain_sync: ChainSyncState) -> PeerState {
+    pub fn new(
+        is_outbound: bool,
+        chain_sync: ChainSyncState,
+        headers_sync_timeout: Option<u64>,
+    ) -> PeerState {
         PeerState {
             sync_started: false,
-            last_block_announcement: None,
             headers_sync_timeout,
+            last_block_announcement: None,
+            is_outbound,
             disconnect: false,
             chain_sync,
             tx_ask_for_map: BTreeMap::default(),
             tx_ask_for_set: HashSet::default(),
         }
+    }
+
+    pub fn can_sync(&self, now: u64) -> bool {
+        !self.sync_started
+            && self
+                .chain_sync
+                .not_sync_until
+                .map(|ts| ts < now)
+                .unwrap_or(true)
+    }
+
+    pub fn start_sync(&mut self, headers_sync_timeout: u64) {
+        self.sync_started = true;
+        self.chain_sync.not_sync_until = None;
+        self.headers_sync_timeout = Some(headers_sync_timeout);
+    }
+
+    pub fn stop_sync(&mut self, not_sync_until: u64) {
+        self.sync_started = false;
+        self.chain_sync.not_sync_until = Some(not_sync_until);
+        self.headers_sync_timeout = None;
+    }
+
+    // Not use yet
+    pub fn caught_up_sync(&mut self) {
+        self.headers_sync_timeout = Some(std::u64::MAX);
     }
 
     pub fn add_ask_for_tx(
@@ -235,18 +269,24 @@ impl Peers {
             .or_insert_with(|| score);
     }
 
-    pub fn on_connected(&self, peer: PeerIndex, predicted_headers_sync_time: u64, protect: bool) {
+    pub fn on_connected(
+        &self,
+        peer: PeerIndex,
+        headers_sync_timeout: Option<u64>,
+        protect: bool,
+        is_outbound: bool,
+    ) {
         self.state
             .write()
             .entry(peer)
             .and_modify(|state| {
-                state.headers_sync_timeout = Some(predicted_headers_sync_time);
+                state.headers_sync_timeout = headers_sync_timeout;
                 state.chain_sync.protect = protect;
             })
             .or_insert_with(|| {
                 let mut chain_sync = ChainSyncState::default();
                 chain_sync.protect = protect;
-                PeerState::new(Some(predicted_headers_sync_time), chain_sync)
+                PeerState::new(is_outbound, chain_sync, headers_sync_timeout)
             });
     }
 
@@ -325,6 +365,10 @@ impl HeaderView {
 
     pub fn hash(&self) -> &H256 {
         self.inner.hash()
+    }
+
+    pub fn timestamp(&self) -> u64 {
+        self.inner.timestamp()
     }
 
     pub fn total_uncles_count(&self) -> u64 {

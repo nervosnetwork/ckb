@@ -16,7 +16,7 @@ use crate::types::{HeaderView, Peers, SyncSharedState};
 use crate::{
     BAD_MESSAGE_BAN_TIME, CHAIN_SYNC_TIMEOUT, EVICTION_HEADERS_RESPONSE_TIME,
     HEADERS_DOWNLOAD_TIMEOUT_BASE, HEADERS_DOWNLOAD_TIMEOUT_PER_HEADER, MAX_HEADERS_LEN,
-    MAX_OUTBOUND_PEERS_TO_PROTECT_FROM_DISCONNECT, POW_SPACE,
+    MAX_OUTBOUND_PEERS_TO_PROTECT_FROM_DISCONNECT, POW_SPACE, PROTECT_STOP_SYNC_TIME,
 };
 use bitflags::bitflags;
 use ckb_chain::chain::ChainController;
@@ -303,9 +303,6 @@ impl<CS: ChainStore> Synchronizer<CS> {
     }
 
     fn on_connected(&self, nc: &CKBProtocolContext, peer: PeerIndex) {
-        let tip = self.shared.tip_header();
-        let predicted_headers_sync_time = self.predict_headers_sync_time(&tip);
-
         let is_outbound = nc
             .get_peer(peer)
             .map(|peer| peer.is_outbound())
@@ -320,7 +317,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
         }
 
         self.peers
-            .on_connected(peer, predicted_headers_sync_time, protect_outbound);
+            .on_connected(peer, None, protect_outbound, is_outbound);
     }
 
     //   - If at timeout their best known block now has more work than our tip
@@ -338,6 +335,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
         let mut eviction = Vec::new();
         for (peer, state) in peer_state.iter_mut() {
             let now = unix_time_as_millis();
+
             // headers_sync_timeout
             if let Some(timeout) = state.headers_sync_timeout {
                 if now > timeout && is_initial_block_download && !state.disconnect {
@@ -347,59 +345,61 @@ impl<CS: ChainStore> Synchronizer<CS> {
                 }
             }
 
-            if let Some(is_outbound) = nc.get_peer(*peer).map(|peer| peer.is_outbound()) {
-                if !state.chain_sync.protect && is_outbound {
-                    let best_known_header = best_known_headers.get(peer);
+            if state.is_outbound {
+                let best_known_header = best_known_headers.get(peer);
 
-                    let (tip_header, local_total_difficulty) = {
-                        let chain_state = self.shared.chain_state().lock();
-                        (
-                            chain_state.tip_header().to_owned(),
-                            chain_state.total_difficulty().to_owned(),
-                        )
-                    };
-                    if best_known_header.map(HeaderView::total_difficulty)
-                        >= Some(&local_total_difficulty)
-                    {
-                        if state.chain_sync.timeout != 0 {
-                            state.chain_sync.timeout = 0;
-                            state.chain_sync.work_header = None;
-                            state.chain_sync.total_difficulty = None;
-                            state.chain_sync.sent_getheaders = false;
-                        }
-                    } else if state.chain_sync.timeout == 0
-                        || (best_known_header.is_some()
-                            && best_known_header.map(HeaderView::total_difficulty)
-                                >= state.chain_sync.total_difficulty.as_ref())
-                    {
-                        // Our best block known by this peer is behind our tip, and we're either noticing
-                        // that for the first time, OR this peer was able to catch up to some earlier point
-                        // where we checked against our tip.
-                        // Either way, set a new timeout based on current tip.
-                        state.chain_sync.timeout = now + CHAIN_SYNC_TIMEOUT;
-                        state.chain_sync.work_header = Some(tip_header);
-                        state.chain_sync.total_difficulty = Some(local_total_difficulty);
+                let (tip_header, local_total_difficulty) = {
+                    let chain_state = self.shared.chain_state().lock();
+                    (
+                        chain_state.tip_header().to_owned(),
+                        chain_state.total_difficulty().to_owned(),
+                    )
+                };
+                if best_known_header.map(HeaderView::total_difficulty)
+                    >= Some(&local_total_difficulty)
+                {
+                    if state.chain_sync.timeout != 0 {
+                        state.chain_sync.timeout = 0;
+                        state.chain_sync.work_header = None;
+                        state.chain_sync.total_difficulty = None;
                         state.chain_sync.sent_getheaders = false;
-                    } else if state.chain_sync.timeout > 0 && now > state.chain_sync.timeout {
-                        // No evidence yet that our peer has synced to a chain with work equal to that
-                        // of our tip, when we first detected it was behind. Send a single getheaders
-                        // message to give the peer a chance to update us.
-                        if state.chain_sync.sent_getheaders {
+                    }
+                } else if state.chain_sync.timeout == 0
+                    || (best_known_header.is_some()
+                        && best_known_header.map(HeaderView::total_difficulty)
+                            >= state.chain_sync.total_difficulty.as_ref())
+                {
+                    // Our best block known by this peer is behind our tip, and we're either noticing
+                    // that for the first time, OR this peer was able to catch up to some earlier point
+                    // where we checked against our tip.
+                    // Either way, set a new timeout based on current tip.
+                    state.chain_sync.timeout = now + CHAIN_SYNC_TIMEOUT;
+                    state.chain_sync.work_header = Some(tip_header);
+                    state.chain_sync.total_difficulty = Some(local_total_difficulty);
+                    state.chain_sync.sent_getheaders = false;
+                } else if state.chain_sync.timeout > 0 && now > state.chain_sync.timeout {
+                    // No evidence yet that our peer has synced to a chain with work equal to that
+                    // of our tip, when we first detected it was behind. Send a single getheaders
+                    // message to give the peer a chance to update us.
+                    if state.chain_sync.sent_getheaders {
+                        if state.chain_sync.protect {
+                            state.stop_sync(now + PROTECT_STOP_SYNC_TIME);
+                        } else {
                             eviction.push(*peer);
                             state.disconnect = true;
-                        } else {
-                            state.chain_sync.sent_getheaders = true;
-                            state.chain_sync.timeout = now + EVICTION_HEADERS_RESPONSE_TIME;
-                            self.shared.send_getheaders_to_peer(
-                                nc,
-                                *peer,
-                                &state
-                                    .chain_sync
-                                    .work_header
-                                    .clone()
-                                    .expect("work_header be assigned"),
-                            );
                         }
+                    } else {
+                        state.chain_sync.sent_getheaders = true;
+                        state.chain_sync.timeout = now + EVICTION_HEADERS_RESPONSE_TIME;
+                        self.shared.send_getheaders_to_peer(
+                            nc,
+                            *peer,
+                            &state
+                                .chain_sync
+                                .work_header
+                                .clone()
+                                .expect("work_header be assigned"),
+                        );
                     }
                 }
             }
@@ -411,12 +411,13 @@ impl<CS: ChainStore> Synchronizer<CS> {
     }
 
     fn start_sync_headers(&self, nc: &CKBProtocolContext) {
+        let now = unix_time_as_millis();
         let peers: Vec<PeerIndex> = self
             .peers
             .state
             .read()
             .iter()
-            .filter(|(_, state)| !state.sync_started)
+            .filter(|(_, state)| state.can_sync(now))
             .map(|(peer_id, _)| peer_id)
             .cloned()
             .collect();
@@ -439,6 +440,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
                 best_known.into_inner()
             }
         };
+
         for peer in peers {
             // Only sync with 1 peer if we're in IBD
             if self.shared.is_initial_block_download() && self.n_sync.load(Ordering::Acquire) != 0 {
@@ -446,9 +448,10 @@ impl<CS: ChainStore> Synchronizer<CS> {
             }
             {
                 let mut state = self.peers.state.write();
-                if let Some(mut peer_state) = state.get_mut(&peer) {
+                if let Some(peer_state) = state.get_mut(&peer) {
                     if !peer_state.sync_started {
-                        peer_state.sync_started = true;
+                        let headers_sync_timeout = self.predict_headers_sync_time(&tip);
+                        peer_state.start_sync(headers_sync_timeout);
                         self.n_sync.fetch_add(1, Ordering::Release);
                     }
                 }
@@ -1151,9 +1154,9 @@ mod tests {
         assert!(synchronizer.shared.is_initial_block_download());
         let peers = synchronizer.peers();
         // protect should not effect headers_timeout
-        peers.on_connected(0.into(), 0, true);
-        peers.on_connected(1.into(), 0, false);
-        peers.on_connected(2.into(), MAX_TIP_AGE * 2, false);
+        peers.on_connected(0.into(), Some(0), true, true);
+        peers.on_connected(1.into(), Some(0), false, true);
+        peers.on_connected(2.into(), Some(MAX_TIP_AGE * 2), false, true);
         synchronizer.eviction(&network_context);
         let disconnected = network_context.disconnected.lock();
         assert_eq!(
@@ -1188,12 +1191,12 @@ mod tests {
         let network_context = mock_network_context(6);
         let peers = synchronizer.peers();
         //6 peers do not trigger header sync timeout
-        peers.on_connected(0.into(), MAX_TIP_AGE * 2, true);
-        peers.on_connected(1.into(), MAX_TIP_AGE * 2, true);
-        peers.on_connected(2.into(), MAX_TIP_AGE * 2, true);
-        peers.on_connected(3.into(), MAX_TIP_AGE * 2, false);
-        peers.on_connected(4.into(), MAX_TIP_AGE * 2, false);
-        peers.on_connected(5.into(), MAX_TIP_AGE * 2, false);
+        peers.on_connected(0.into(), Some(MAX_TIP_AGE * 2), true, true);
+        peers.on_connected(1.into(), Some(MAX_TIP_AGE * 2), true, true);
+        peers.on_connected(2.into(), Some(MAX_TIP_AGE * 2), true, true);
+        peers.on_connected(3.into(), Some(MAX_TIP_AGE * 2), false, true);
+        peers.on_connected(4.into(), Some(MAX_TIP_AGE * 2), false, true);
+        peers.on_connected(5.into(), Some(MAX_TIP_AGE * 2), false, true);
         peers.new_header_received(0.into(), &mock_header_view(1));
         peers.new_header_received(2.into(), &mock_header_view(3));
         peers.new_header_received(3.into(), &mock_header_view(1));

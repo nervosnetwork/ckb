@@ -4,7 +4,7 @@ use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::RelayTransactionHash as FbsRelayTransactionHash;
 use ckb_store::ChainStore;
 use failure::Error as FailureError;
-use log::debug;
+use log::{debug, trace};
 use numext_fixed_hash::H256;
 use std::convert::TryInto;
 use std::sync::Arc;
@@ -55,7 +55,7 @@ impl<'a, CS: ChainStore> TransactionHashProcess<'a, CS> {
             .get_entry(&short_id)
             .is_some()
         {
-            debug!(
+            trace!(
                 target: "relay",
                 "transaction({}) from {} already in transaction pool, ignore it",
                 tx_hash,
