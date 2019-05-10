@@ -85,10 +85,8 @@ impl<CS: ChainStore> TxPoolExecutor<CS> {
 
         // immediately return if resolved_txs is empty
         if resolved_txs.is_empty() && cached_txs.is_empty() {
-            match unresolvable_txs.get(0) {
-                Some((_tx, err)) => return Err(err.to_owned()),
-                None => return Ok(Vec::new()),
-            }
+            let (_tx, err) = unresolvable_txs.get(0).expect("unresolved tx exists");
+            return Err(err.to_owned());
         }
 
         let store = Arc::clone(&self.shared.store());
