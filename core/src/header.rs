@@ -99,7 +99,7 @@ impl RawHeader {
         mem::size_of::<Version>()
             + H256::size_of() * 5
             + U256::size_of()
-            + mem::size_of::<u64>() * 2
+            + mem::size_of::<u64>() * 3
             + mem::size_of::<u32>()
     }
 }

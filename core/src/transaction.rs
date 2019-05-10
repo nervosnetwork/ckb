@@ -539,7 +539,11 @@ impl Transaction {
                 .iter()
                 .map(CellOutput::serialized_size)
                 .sum::<usize>()
-            + self.witnesses.iter().map(Vec::len).sum::<usize>()
+            + self
+                .witnesses
+                .iter()
+                .flat_map(|witness| witness.iter().map(Vec::len))
+                .sum::<usize>()
     }
 
     pub fn to_stored(&self) -> TransactionStored {
