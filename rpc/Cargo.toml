@@ -41,3 +41,6 @@ sentry = "^0.15.4"
 
 [dev-dependencies]
 ckb-db = { path = "../db" }
+ckb-chain-spec = { path = "../spec" }
+ckb-notify = { path = "../notify" }
+reqwest = "0.9.16"

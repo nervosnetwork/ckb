@@ -16,7 +16,7 @@ use jsonrpc_server_utils::cors::AccessControlAllowOrigin;
 use jsonrpc_server_utils::hosts::DomainsValidation;
 
 pub struct RpcServer {
-    server: Server,
+    pub(crate) server: Server,
 }
 
 impl RpcServer {
