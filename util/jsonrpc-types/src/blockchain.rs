@@ -11,7 +11,7 @@ use ckb_core::transaction::{
 };
 use ckb_core::uncle::UncleBlock as CoreUncleBlock;
 use ckb_core::{
-    BlockNumber as CoreBlockNumber, Capacity as CoreCapacity, EpochNumber as CoreEpochNumber,
+    Capacity as CoreCapacity,
 };
 use failure::Error as FailureError;
 use numext_fixed_hash::H256;
@@ -60,7 +60,7 @@ impl From<CoreCellOutput> for CellOutput {
     fn from(core: CoreCellOutput) -> CellOutput {
         let (capacity, data, lock, type_) = core.destruct();
         CellOutput {
-            capacity: capacity.to_string(),
+            capacity: Capacity(capacity),
             data: JsonBytes::from_bytes(data),
             lock: lock.into(),
             type_: type_.map(Into::into),
@@ -85,7 +85,7 @@ impl TryFrom<CellOutput> for CoreCellOutput {
         };
 
         Ok(CoreCellOutput::new(
-            capacity.parse::<CoreCapacity>()?,
+            capacity.0,
             data.into_bytes(),
             lock.try_into()?,
             type_,
@@ -409,8 +409,8 @@ impl<'a> From<&'a CoreHeader> for Header {
             version: core.version(),
             parent_hash: core.parent_hash().to_owned(),
             timestamp: core.timestamp().to_string(),
-            number: core.number().to_string(),
-            epoch: core.epoch().to_string(),
+            number: BlockNumber(core.number()),
+            epoch: EpochNumber(core.epoch()),
             transactions_root: core.transactions_root().to_owned(),
             witnesses_root: core.witnesses_root().to_owned(),
             proposals_hash: core.proposals_hash().to_owned(),
@@ -454,8 +454,8 @@ impl TryFrom<Header> for CoreHeader {
             .version(version)
             .parent_hash(parent_hash)
             .timestamp(timestamp.parse::<u64>()?)
-            .number(number.parse::<CoreBlockNumber>()?)
-            .epoch(epoch.parse::<CoreEpochNumber>()?)
+            .number(number.0)
+            .epoch(epoch.0)
             .transactions_root(transactions_root)
             .witnesses_root(witnesses_root)
             .proposals_hash(proposals_hash)
@@ -667,12 +667,12 @@ impl From<CoreEpochExt> for EpochExt {
         ) = core.destruct();
 
         EpochExt {
-            number: number.to_string(),
+            number: EpochNumber(number),
             block_reward: block_reward.to_string(),
             remainder_reward: remainder_reward.to_string(),
             last_block_hash_in_previous_epoch,
-            start_number: start_number.to_string(),
-            length: length.to_string(),
+            start_number: BlockNumber(start_number),
+            length: BlockNumber(length),
             difficulty,
         }
     }
@@ -693,12 +693,12 @@ impl TryFrom<EpochExt> for CoreEpochExt {
         } = json;
 
         Ok(CoreEpochExt::new(
-            number.parse::<u64>()?,
+            number.0,
             block_reward.parse::<CoreCapacity>()?,
             remainder_reward.parse::<CoreCapacity>()?,
             last_block_hash_in_previous_epoch,
-            start_number.parse::<u64>()?,
-            length.parse::<u64>()?,
+            start_number.0,
+            length.0,
             difficulty,
         ))
     }

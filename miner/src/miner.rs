@@ -74,7 +74,7 @@ impl Miner {
             };
 
             let header_builder = HeaderBuilder::default()
-                .version(version)
+                .version(version.0)
                 .number(number.parse::<BlockNumber>()?)
                 .epoch(epoch.parse::<EpochNumber>()?)
                 .difficulty(difficulty)

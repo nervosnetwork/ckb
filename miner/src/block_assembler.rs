@@ -24,6 +24,7 @@ use fnv::FnvHashMap;
 use fnv::FnvHashSet;
 use jsonrpc_types::{
     BlockTemplate, CellbaseTemplate, JsonBytes, TransactionTemplate, UncleTemplate,
+    Cycle as JsonCycle, Version as JsonVersion,
 };
 use log::error;
 use lru_cache::LruCache;
@@ -274,7 +275,7 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
     fn transform_cellbase(tx: &Transaction, cycles: Option<Cycle>) -> CellbaseTemplate {
         CellbaseTemplate {
             hash: tx.hash().to_owned(),
-            cycles: cycles.map(|c| c.to_string()),
+            cycles: cycles.map(|c| JsonCycle(c)),
             data: tx.into(),
         }
     }
@@ -287,7 +288,7 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
         TransactionTemplate {
             hash: tx.transaction.hash().to_owned(),
             required,
-            cycles: tx.cycles.map(|c| c.to_string()),
+            cycles: tx.cycles.map(JsonCycle),
             depends,
             data: (&tx.transaction).into(),
         }
@@ -383,7 +384,7 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
         // Should recalculate current time after create cellbase (create cellbase may spend a lot of time)
         let current_time = cmp::max(unix_time_as_millis(), header.timestamp() + 1);
         let template = BlockTemplate {
-            version,
+            version: JsonVersion(version),
             difficulty: current_epoch.difficulty().clone(),
             current_time: current_time.to_string(),
             number: number.to_string(),
