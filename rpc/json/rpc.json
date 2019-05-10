@@ -22,9 +22,9 @@
       },
       "timestamp": "1557311767",
       "transactions_root": "0x1a98116f150c6f795bc02ebf65fd43ba6b3363c5ea9d2457791bcbc4baaae90b",
-      "uncles_count": 0,
+      "uncles_count": "0",
       "uncles_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
-      "version": 0,
+      "version": "0",
       "witnesses_root": "0x0000000000000000000000000000000000000000000000000000000000000000"
     }
   },
@@ -96,9 +96,9 @@
         },
         "timestamp": "1557310745",
         "transactions_root": "0x530204fd06dbe0c831bf1043a6ec758bb4b0db7eca6445793194ffb84ad29400",
-        "uncles_count": 0,
+        "uncles_count": "0",
         "uncles_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
-        "version": 0,
+        "version": "0",
         "witnesses_root": "0x0000000000000000000000000000000000000000000000000000000000000000"
       },
       "proposals": [],
@@ -129,7 +129,7 @@
               "type": null
             }
           ],
-          "version": 0,
+          "version": "0",
           "witnesses": []
         }
       ],
@@ -159,7 +159,7 @@
         "out_point": {
           "block_hash": null,
           "cell": {
-            "index": 0,
+            "index": "0",
             "tx_hash": "0x530204fd06dbe0c831bf1043a6ec758bb4b0db7eca6445793194ffb84ad29400"
           }
         }
@@ -173,7 +173,7 @@
         "out_point": {
           "block_hash": null,
           "cell": {
-            "index": 0,
+            "index": "0",
             "tx_hash": "0x5af3009f5e2be240ce95a2faedab1b144821a24703c026ab8f25328ac596f550"
           }
         }
@@ -187,7 +187,7 @@
         "out_point": {
           "block_hash": null,
           "cell": {
-            "index": 0,
+            "index": "0",
             "tx_hash": "0x53d13bbfee6b4a64763b7231b00e18c7db5379b58d74f9b0677be1394ea1ef85"
           }
         }
@@ -201,7 +201,7 @@
         "out_point": {
           "block_hash": null,
           "cell": {
-            "index": 0,
+            "index": "0",
             "tx_hash": "0x00e47be2eeac34a22c4d7573bf2a65e531a5b78427ef5808c1b4971cf73418ac"
           }
         }
@@ -226,7 +226,7 @@
       {
         "block_hash": null,
         "cell": {
-          "index": 0,
+          "index": "0",
           "tx_hash": "0x00e47be2eeac34a22c4d7573bf2a65e531a5b78427ef5808c1b4971cf73418ac"
         }
       }
@@ -257,11 +257,11 @@
       "addresses": [
         {
           "address": "/ip4/192.168.0.2/tcp/8112/p2p/QmTRHCdrRtgUzYLNCin69zEvPvLYdxUZLLfLYyHVY3DZAS",
-          "score": 255
+          "score": "255"
         },
         {
           "address": "/ip4/0.0.0.0/tcp/8112/p2p/QmTRHCdrRtgUzYLNCin69zEvPvLYdxUZLLfLYyHVY3DZAS",
-          "score": 1
+          "score": "1"
         }
       ],
       "is_outbound": null,
@@ -279,7 +279,7 @@
         "addresses": [
           {
             "address": "/ip4/192.168.0.3/tcp/8115",
-            "score": 1
+            "score": "1"
           }
         ],
         "is_outbound": true,
@@ -290,7 +290,7 @@
         "addresses": [
           {
             "address": "/ip4/192.168.0.4/tcp/8113",
-            "score": 255
+            "score": "255"
           }
         ],
         "is_outbound": false,
@@ -340,7 +340,7 @@
           {
             "cell": {
               "tx_hash": "0xde3f97f9bad32043a4c631d6cf2529f69e82575193208029e0f4bd77df83e4bc",
-              "index": 0
+              "index": "0"
             }
           }
         ],
@@ -350,7 +350,7 @@
             "previous_output": {
               "block_hash": "0xa8edcc07bda685c7d26fbcb9ea50791927941f908ea0d1a186ce77d36108bbbc",
               "cell": {
-                "index": 0,
+                "index": "0",
                 "tx_hash": "0x1a98116f150c6f795bc02ebf65fd43ba6b3363c5ea9d2457791bcbc4baaae90b"
               }
             },
@@ -368,7 +368,7 @@
             "type": null
           }
         ],
-        "version": 0,
+        "version": "0",
         "witnesses": []
       }
     ],
@@ -388,7 +388,7 @@
             "previous_output": {
               "block_hash": "0xa8edcc07bda685c7d26fbcb9ea50791927941f908ea0d1a186ce77d36108bbbc",
               "cell": {
-                "index": 0,
+                "index": "0",
                 "tx_hash": "0x1a98116f150c6f795bc02ebf65fd43ba6b3363c5ea9d2457791bcbc4baaae90b"
               }
             },
@@ -406,7 +406,7 @@
             "type": null
           }
         ],
-        "version": 0,
+        "version": "0",
         "witnesses": []
       }
     ],
@@ -441,7 +441,7 @@
           {
             "cell": {
               "tx_hash": "0xde3f97f9bad32043a4c631d6cf2529f69e82575193208029e0f4bd77df83e4bc",
-              "index": 0
+              "index": "0"
             }
           }
         ],
@@ -451,7 +451,7 @@
             "previous_output": {
               "block_hash": "0xa8edcc07bda685c7d26fbcb9ea50791927941f908ea0d1a186ce77d36108bbbc",
               "cell": {
-                "index": 0,
+                "index": "0",
                 "tx_hash": "0x1a98116f150c6f795bc02ebf65fd43ba6b3363c5ea9d2457791bcbc4baaae90b"
               }
             },
@@ -469,7 +469,7 @@
             "type": null
           }
         ],
-        "version": 0,
+        "version": "0",
         "witnesses": []
       }
     ],
@@ -508,7 +508,7 @@
             "block_hash": null,
             "cell": {
               "tx_hash": "0xde3f97f9bad32043a4c631d6cf2529f69e82575193208029e0f4bd77df83e4bc",
-              "index": 0
+              "index": "0"
             }
           }
         ],
@@ -519,7 +519,7 @@
             "previous_output": {
               "block_hash": "0xa8edcc07bda685c7d26fbcb9ea50791927941f908ea0d1a186ce77d36108bbbc",
               "cell": {
-                "index": 0,
+                "index": "0",
                 "tx_hash": "0x1a98116f150c6f795bc02ebf65fd43ba6b3363c5ea9d2457791bcbc4baaae90b"
               }
             },
@@ -537,7 +537,7 @@
             "type": null
           }
         ],
-        "version": 0,
+        "version": "0",
         "witnesses": []
       },
       "tx_status": {
@@ -557,9 +557,9 @@
     "params": [],
     "result": {
       "last_txs_updated_at": "0",
-      "orphan": 0,
-      "pending": 1,
-      "staging": 0
+      "orphan": "0",
+      "pending": "1",
+      "staging": "0"
     }
   },
   {
@@ -585,9 +585,9 @@
         },
         "timestamp": "1557311767",
         "transactions_root": "0x1a98116f150c6f795bc02ebf65fd43ba6b3363c5ea9d2457791bcbc4baaae90b",
-        "uncles_count": 0,
+        "uncles_count": "0",
         "uncles_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
-        "version": 0,
+        "version": "0",
         "witnesses_root": "0x0000000000000000000000000000000000000000000000000000000000000000"
       },
       "proposals": [],
@@ -618,7 +618,7 @@
               "type": null
             }
           ],
-          "version": 0,
+          "version": "0",
           "witnesses": []
         }
       ],

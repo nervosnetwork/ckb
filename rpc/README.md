@@ -53,7 +53,7 @@ echo '{
                     "previous_output": {
                         "block_hash": "0xca97a033aa9765914bc0b7887ff8723037614df11d06783555ff97e9a0e72b55",
                         "cell": {
-                            "index": 0,
+                            "index": "0",
                             "tx_hash": "0x602b713fac38c0224bc2e8ba0ec9c8363d7d1e508897b33c32f45d7554883c81"
                         }
                     },
@@ -71,7 +71,7 @@ echo '{
                     "type": null
                 }
             ],
-            "version": 0,
+            "version": "0",
             "witnesses": []
         }
     ]
@@ -113,7 +113,7 @@ echo '{
                     "previous_output": {
                         "block_hash": "0xca97a033aa9765914bc0b7887ff8723037614df11d06783555ff97e9a0e72b55",
                         "cell": {
-                            "index": 0,
+                            "index": "0",
                             "tx_hash": "0x602b713fac38c0224bc2e8ba0ec9c8363d7d1e508897b33c32f45d7554883c81"
                         }
                     },
@@ -131,7 +131,7 @@ echo '{
                     "type": null
                 }
             ],
-            "version": 0,
+            "version": "0",
             "witnesses": []
         }
     ]
@@ -193,9 +193,9 @@ http://localhost:8114
             },
             "timestamp": "1557310745",
             "transactions_root": "0x6dc4b2e7b2ddafa108cb38069e1b3a69aead9f27099e7fb50ed935009ec0d397",
-            "uncles_count": 0,
+            "uncles_count": "0",
             "uncles_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
-            "version": 0,
+            "version": "0",
             "witnesses_root": "0x0000000000000000000000000000000000000000000000000000000000000000"
         },
         "proposals": [],
@@ -226,7 +226,7 @@ http://localhost:8114
                         "type": null
                     }
                 ],
-                "version": 0,
+                "version": "0",
                 "witnesses": []
             }
         ],
@@ -277,9 +277,9 @@ http://localhost:8114
             },
             "timestamp": "1557311767",
             "transactions_root": "0x602b713fac38c0224bc2e8ba0ec9c8363d7d1e508897b33c32f45d7554883c81",
-            "uncles_count": 0,
+            "uncles_count": "0",
             "uncles_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
-            "version": 0,
+            "version": "0",
             "witnesses_root": "0x0000000000000000000000000000000000000000000000000000000000000000"
         },
         "proposals": [],
@@ -310,7 +310,7 @@ http://localhost:8114
                         "type": null
                     }
                 ],
-                "version": 0,
+                "version": "0",
                 "witnesses": []
             }
         ],
@@ -427,7 +427,7 @@ http://localhost:8114
             "out_point": {
                 "block_hash": null,
                 "cell": {
-                    "index": 0,
+                    "index": "0",
                     "tx_hash": "0x6dc4b2e7b2ddafa108cb38069e1b3a69aead9f27099e7fb50ed935009ec0d397"
                 }
             }
@@ -441,7 +441,7 @@ http://localhost:8114
             "out_point": {
                 "block_hash": null,
                 "cell": {
-                    "index": 0,
+                    "index": "0",
                     "tx_hash": "0xc7fb8d25f1f52f7cf359d3605e0bb2ceb4774b4062278a557bebdd3d4bbd89d1"
                 }
             }
@@ -455,7 +455,7 @@ http://localhost:8114
             "out_point": {
                 "block_hash": null,
                 "cell": {
-                    "index": 0,
+                    "index": "0",
                     "tx_hash": "0xff5a36107851d244e1543821f9f039c3d4eb69d9968750b0b0e82e78da86c987"
                 }
             }
@@ -469,7 +469,7 @@ http://localhost:8114
             "out_point": {
                 "block_hash": null,
                 "cell": {
-                    "index": 0,
+                    "index": "0",
                     "tx_hash": "0x6c59c9628bc8473a1fd61ebac23f061e298a766b407aa300a299c746bdce2f6d"
                 }
             }
@@ -572,7 +572,7 @@ echo '{
         {
             "block_hash": null,
             "cell": {
-                "index": 0,
+                "index": "0",
                 "tx_hash": "0xff5a36107851d244e1543821f9f039c3d4eb69d9968750b0b0e82e78da86c987"
             }
         }
@@ -630,7 +630,7 @@ http://localhost:8114
             "addresses": [
                 {
                     "address": "/ip4/192.168.0.3/tcp/8115",
-                    "score": 1
+                    "score": "1"
                 }
             ],
             "is_outbound": true,
@@ -641,7 +641,7 @@ http://localhost:8114
             "addresses": [
                 {
                     "address": "/ip4/192.168.0.4/tcp/8113",
-                    "score": 255
+                    "score": "255"
                 }
             ],
             "is_outbound": false,
@@ -753,9 +753,9 @@ http://localhost:8114
         },
         "timestamp": "1557311767",
         "transactions_root": "0x602b713fac38c0224bc2e8ba0ec9c8363d7d1e508897b33c32f45d7554883c81",
-        "uncles_count": 0,
+        "uncles_count": "0",
         "uncles_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
-        "version": 0,
+        "version": "0",
         "witnesses_root": "0x0000000000000000000000000000000000000000000000000000000000000000"
     }
 }
@@ -799,7 +799,7 @@ http://localhost:8114
                     "previous_output": {
                         "block_hash": "0xca97a033aa9765914bc0b7887ff8723037614df11d06783555ff97e9a0e72b55",
                         "cell": {
-                            "index": 0,
+                            "index": "0",
                             "tx_hash": "0x602b713fac38c0224bc2e8ba0ec9c8363d7d1e508897b33c32f45d7554883c81"
                         }
                     },
@@ -817,7 +817,7 @@ http://localhost:8114
                     "type": null
                 }
             ],
-            "version": 0,
+            "version": "0",
             "witnesses": []
         },
         "tx_status": {
@@ -855,11 +855,11 @@ http://localhost:8114
         "addresses": [
             {
                 "address": "/ip4/192.168.0.2/tcp/8112/p2p/QmTRHCdrRtgUzYLNCin69zEvPvLYdxUZLLfLYyHVY3DZAS",
-                "score": 255
+                "score": "255"
             },
             {
                 "address": "/ip4/0.0.0.0/tcp/8112/p2p/QmTRHCdrRtgUzYLNCin69zEvPvLYdxUZLLfLYyHVY3DZAS",
-                "score": 1
+                "score": "1"
             }
         ],
         "is_outbound": null,
@@ -898,7 +898,7 @@ echo '{
                     "previous_output": {
                         "block_hash": "0xca97a033aa9765914bc0b7887ff8723037614df11d06783555ff97e9a0e72b55",
                         "cell": {
-                            "index": 0,
+                            "index": "0",
                             "tx_hash": "0x602b713fac38c0224bc2e8ba0ec9c8363d7d1e508897b33c32f45d7554883c81"
                         }
                     },
@@ -916,7 +916,7 @@ echo '{
                     "type": null
                 }
             ],
-            "version": 0,
+            "version": "0",
             "witnesses": []
         }
     ]
@@ -959,9 +959,9 @@ http://localhost:8114
     "jsonrpc": "2.0",
     "result": {
         "last_txs_updated_at": "0",
-        "orphan": 0,
-        "pending": 1,
-        "staging": 0
+        "orphan": "0",
+        "pending": "1",
+        "staging": "0"
     }
 }
 ```
