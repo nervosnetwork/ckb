@@ -10,7 +10,7 @@ use ckb_core::uncle::UncleBlock;
 use ckb_core::Cycle;
 use ckb_db::{DBConfig, KeyValueDB, MemoryKeyValueDB, RocksDB};
 use ckb_script::ScriptConfig;
-use ckb_store::{ChainKVStore, ChainStore, COLUMNS};
+use ckb_store::{ChainKVStore, ChainStore, StoreConfig, COLUMNS};
 use ckb_traits::ChainProvider;
 use ckb_util::{lock_or_panic, Mutex, MutexGuard};
 use lru_cache::LruCache;
@@ -185,6 +185,7 @@ pub struct SharedBuilder<DB: KeyValueDB> {
     consensus: Option<Consensus>,
     tx_pool_config: Option<TxPoolConfig>,
     script_config: Option<ScriptConfig>,
+    store_config: Option<StoreConfig>,
 }
 
 impl<DB: KeyValueDB> Default for SharedBuilder<DB> {
@@ -194,6 +195,7 @@ impl<DB: KeyValueDB> Default for SharedBuilder<DB> {
             consensus: None,
             tx_pool_config: None,
             script_config: None,
+            store_config: None,
         }
     }
 }
@@ -205,6 +207,7 @@ impl SharedBuilder<MemoryKeyValueDB> {
             consensus: None,
             tx_pool_config: None,
             script_config: None,
+            store_config: None,
         }
     }
 }
@@ -238,8 +241,16 @@ impl<DB: KeyValueDB> SharedBuilder<DB> {
         self
     }
 
+    pub fn store_config(mut self, config: StoreConfig) -> Self {
+        self.store_config = Some(config);
+        self
+    }
+
     pub fn build(self) -> Result<Shared<ChainKVStore<DB>>, SharedError> {
-        let store = ChainKVStore::new(self.db.unwrap());
+        let store = ChainKVStore::with_config(
+            self.db.unwrap(),
+            self.store_config.unwrap_or_else(Default::default),
+        );
         let consensus = self.consensus.unwrap_or_else(Consensus::default);
         let tx_pool_config = self.tx_pool_config.unwrap_or_else(Default::default);
         let script_config = self.script_config.unwrap_or_else(Default::default);

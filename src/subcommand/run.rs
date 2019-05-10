@@ -23,6 +23,7 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
         .db(&args.config.db)
         .tx_pool_config(args.config.tx_pool)
         .script_config(args.config.script)
+        .store_config(args.config.store)
         .build()
         .map_err(|err| {
             eprintln!("Run error: {:?}", err);

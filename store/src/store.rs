@@ -19,18 +19,11 @@ use ckb_core::transaction::{CellOutPoint, CellOutput, ProposalShortId, Transacti
 use ckb_core::uncle::UncleBlock;
 use ckb_core::{Capacity, EpochNumber};
 use ckb_db::{Col, DbBatch, Error, KeyValueDB};
-use lazy_static::lazy_static;
 use lru_cache::LruCache;
 use numext_fixed_hash::H256;
-use serde::Serialize;
+use serde_derive::{Deserialize, Serialize};
 use std::ops::Range;
 use std::sync::Mutex;
-
-lazy_static! {
-    static ref HEADER_CACHE: Mutex<LruCache<H256, Header>> = Mutex::new(LruCache::new(4096));
-    static ref CELL_OUTPUT_CACHE: Mutex<LruCache<(H256, u32), CellOutput>> =
-        Mutex::new(LruCache::new(128));
-}
 
 const META_TIP_HEADER_KEY: &[u8] = b"TIP_HEADER";
 const META_CURRENT_EPOCH_KEY: &[u8] = b"CURRENT_EPOCH";
@@ -42,13 +35,38 @@ fn cell_store_key(tx_hash: &H256, index: u32) -> Vec<u8> {
     key.to_vec()
 }
 
+#[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Hash, Debug)]
+pub struct StoreConfig {
+    pub header_cache_size: usize,
+    pub cell_output_cache_size: usize,
+}
+
+impl Default for StoreConfig {
+    fn default() -> Self {
+        Self {
+            header_cache_size: 4096,
+            cell_output_cache_size: 128,
+        }
+    }
+}
+
 pub struct ChainKVStore<T> {
     db: T,
+    header_cache: Mutex<LruCache<H256, Header>>,
+    cell_output_cache: Mutex<LruCache<(H256, u32), CellOutput>>,
 }
 
 impl<T: KeyValueDB> ChainKVStore<T> {
     pub fn new(db: T) -> Self {
-        ChainKVStore { db }
+        Self::with_config(db, StoreConfig::default())
+    }
+
+    pub fn with_config(db: T, config: StoreConfig) -> Self {
+        ChainKVStore {
+            db,
+            header_cache: Mutex::new(LruCache::new(config.header_cache_size)),
+            cell_output_cache: Mutex::new(LruCache::new(config.cell_output_cache_size)),
+        }
     }
 
     pub fn get(&self, col: Col, key: &[u8]) -> Option<Vec<u8>> {
@@ -152,7 +170,10 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
     }
 
     fn get_header(&self, hash: &H256) -> Option<Header> {
-        let mut header_cache_unlocked = HEADER_CACHE.lock().expect("poisoned header cache lock");
+        let mut header_cache_unlocked = self
+            .header_cache
+            .lock()
+            .expect("poisoned header cache lock");
         if let Some(header) = header_cache_unlocked.get_refresh(hash) {
             return Some(header.clone());
         }
@@ -162,8 +183,10 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
         self.get(COLUMN_BLOCK_HEADER, hash.as_bytes())
             .map(|ref raw| unsafe { Header::from_bytes_with_hash_unchecked(raw, hash.to_owned()) })
             .and_then(|header| {
-                let mut header_cache_unlocked =
-                    HEADER_CACHE.lock().expect("poisoned header cache lock");
+                let mut header_cache_unlocked = self
+                    .header_cache
+                    .lock()
+                    .expect("poisoned header cache lock");
                 header_cache_unlocked.insert(hash.clone(), header.clone());
                 Some(header)
             })
@@ -323,7 +346,8 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
     }
 
     fn get_cell_output(&self, tx_hash: &H256, index: u32) -> Option<CellOutput> {
-        let mut cell_output_cache_unlocked = CELL_OUTPUT_CACHE
+        let mut cell_output_cache_unlocked = self
+            .cell_output_cache
             .lock()
             .expect("poisoned cell output cache lock");
         if let Some(cell_output) = cell_output_cache_unlocked.get_refresh(&(tx_hash.clone(), index))
@@ -350,7 +374,8 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
                         .map(|ref serialized_cell_output| {
                             let cell_output: CellOutput = deserialize(serialized_cell_output)
                                 .expect("flat deserialize cell output should be ok");
-                            let mut cell_output_cache_unlocked = CELL_OUTPUT_CACHE
+                            let mut cell_output_cache_unlocked = self
+                                .cell_output_cache
                                 .lock()
                                 .expect("poisoned cell output cache lock");
                             cell_output_cache_unlocked
@@ -372,7 +397,7 @@ impl<B: DbBatch> DefaultStoreBatch<B> {
         self.inner.insert(col, key, value)
     }
 
-    fn insert_serialize<T: Serialize + ?Sized>(
+    fn insert_serialize<T: serde::ser::Serialize + ?Sized>(
         &mut self,
         col: Col,
         key: &[u8],
