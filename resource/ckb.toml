@@ -87,3 +87,7 @@ args = ["0x7f52f0fccdd1d11391c441adfb174f87bca612b0"]
 
 [script]
 runner = "Assembly"
+
+[store]
+header_cache_size       = 4096
+cell_output_cache_size  = 128
