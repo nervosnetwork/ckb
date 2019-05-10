@@ -48,6 +48,10 @@ impl CellOutPoint {
         let CellOutPoint { tx_hash, index } = self;
         (tx_hash, index)
     }
+
+    pub const fn serialized_size() -> usize {
+        H256::size_of() + mem::size_of::<u32>()
+    }
 }
 
 #[derive(Clone, Default, Serialize, Deserialize, Eq, PartialEq, Hash, HasOccupiedCapacity)]
@@ -95,8 +99,16 @@ impl OutPoint {
         self.cell.is_none() && self.block_hash.is_none()
     }
 
-    pub const fn serialized_size() -> usize {
-        H256::size_of() + mem::size_of::<u32>()
+    pub fn serialized_size(&self) -> usize {
+        self.cell
+            .as_ref()
+            .map(|_| CellOutPoint::serialized_size())
+            .unwrap_or(0)
+            + self
+                .block_hash
+                .as_ref()
+                .map(|_| H256::size_of())
+                .unwrap_or(0)
     }
 
     pub fn destruct(self) -> (Option<H256>, Option<CellOutPoint>) {
@@ -143,7 +155,7 @@ impl CellInput {
     }
 
     pub fn serialized_size(&self) -> usize {
-        OutPoint::serialized_size()
+        self.previous_output.serialized_size()
             + mem::size_of::<u64>()
             + self.args.iter().map(Bytes::len).sum::<usize>()
     }
@@ -528,7 +540,11 @@ impl Transaction {
 
     pub fn serialized_size(&self) -> usize {
         mem::size_of::<Version>()
-            + self.deps.len() * OutPoint::serialized_size()
+            + self
+                .deps
+                .iter()
+                .map(OutPoint::serialized_size)
+                .sum::<usize>()
             + self
                 .inputs
                 .iter()
