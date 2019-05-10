@@ -104,6 +104,15 @@ impl PeerState {
         }
     }
 
+    pub fn can_sync(&self, now: u64) -> bool {
+        !self.sync_started
+            && self
+                .chain_sync
+                .not_sync_until
+                .map(|ts| ts < now)
+                .unwrap_or(true)
+    }
+
     pub fn start_sync(&mut self, headers_sync_timeout: u64) {
         self.sync_started = true;
         self.chain_sync.not_sync_until = None;

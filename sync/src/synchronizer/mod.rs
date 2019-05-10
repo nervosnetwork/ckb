@@ -417,14 +417,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
             .state
             .read()
             .iter()
-            .filter(|(_, state)| {
-                !state.sync_started
-                    && state
-                        .chain_sync
-                        .not_sync_until
-                        .map(|ts| ts < now)
-                        .unwrap_or(true)
-            })
+            .filter(|(_, state)| state.can_sync(now))
             .map(|(peer_id, _)| peer_id)
             .cloned()
             .collect();
