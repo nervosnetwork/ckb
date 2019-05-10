@@ -81,6 +81,7 @@ impl<'a, CS: ChainStore + 'static> CompactBlockProcess<'a, CS> {
                 || self.relayer.shared.get_block(&block_hash).is_some()
             {
                 debug!(target: "relay", "already processed compact block {}", block_hash);
+                return Ok(());
             } else {
                 let resolver = HeaderResolverWrapper::new(
                     &compact_block.header,
