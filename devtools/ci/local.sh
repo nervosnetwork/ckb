@@ -3,40 +3,17 @@
 # Run CI locally for current SHA and submit the result via GitHub statuses API.
 #
 # Usage:
-#   devtools/ci/local.sh [--integration] <pr_number>
-#
-# Dependencies: curl
+#   devtools/ci/local.sh [--integration]
 #
 # You have first checkout the PR locally first, for example, via GitHub cli:
 #
 #   hub pr checkout <pr_number>
 #
-# Generate a personal access token here
-#
-#   https://github.com/settings/tokens
-#
-# and export it via environment variable `GITHUB_ACCESS_TOKEN`.
-#
-# **Protect the access key carefully!**
+# When the script completes, please post the output to the PR as a comment manually.
 
 set -e
 set -u
 [ -n "${DEBUG:-}" ] && set -x || true
-
-if [ -z "${GITHUB_ACCESS_TOKEN:-}" ]; then
-  echo 'GITHUB_ACCESS_TOKEN not set' >&2
-  exit 1
-fi
-
-github_api() {
-  local path="$1"
-  shift
-  curl https://api.github.com"$path" \
-    --user ":$GITHUB_ACCESS_TOKEN" \
-    -H 'Content-Type: application/json' \
-    -H 'Accept: application/json' \
-    -i "$@"
-}
 
 main() {
   local ci_pass=false
@@ -45,16 +22,6 @@ main() {
     shift
     integration_pass=false
   fi
-  if [[ "$#" > 1 && "$2" == "--integration" ]]; then
-    integration_pass=false
-  fi
-
-  if [[ "$#" == 0 ]]; then
-    echo "usage: devtools/ci/local.sh [--integration] <pr_number>" >&2
-    exit 1
-  fi
-
-  local pr="$1"
 
   if make ci; then
     ci_pass=true
@@ -66,18 +33,20 @@ main() {
   fi
 
   local sha="$(git rev-parse HEAD)"
-  local body="@nervos-bot ci-status ${sha}\\n\\n"
+  echo "You can post the text below dash lines to PR as a comment"
+  echo "---------------------------------------------------------"
+  echo "@nervos-bot ci-status ${sha}"
+  echo
   if [ $ci_pass = true ]; then
-    body="${body}CI: success ✅\\n"
+    echo "CI: success ✅"
   else
-    body="${body}CI: failure ❌\\n"
+    echo "CI: failure ❌"
   fi
   if [ $integration_pass = true ]; then
-    body="${body}Integration: success ✅\\n"
+    echo "Integration: success ✅"
   elif [ "$integration_pass" = false ]; then
-    body="${body}Integration: failure ❌\\n"
+    echo "Integration: failure ❌"
   fi
-  github_api "/repos/nervosnetwork/ckb/issues/$pr/comments" -X POST -d'{"body":"'"$body"'"}'
 }
 
 main "$@"
