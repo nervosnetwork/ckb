@@ -200,7 +200,7 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
             let ins = if tx.is_cellbase() {
                 Vec::new()
             } else {
-                tx.input_pts()
+                tx.input_pts_iter().cloned().collect()
             };
             let outs = tx.output_pts();
 

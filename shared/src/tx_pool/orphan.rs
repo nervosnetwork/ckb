@@ -102,10 +102,10 @@ impl OrphanPool {
     }
 
     pub(crate) fn remove_conflict(&mut self, tx: &Transaction) {
-        let inputs = tx.input_pts();
+        let inputs = tx.input_pts_iter();
 
         for input in inputs {
-            if let Some(ids) = self.edges.remove(&input) {
+            if let Some(ids) = self.edges.remove(input) {
                 for cid in ids {
                     self.recursion_remove(&cid);
                 }

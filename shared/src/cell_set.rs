@@ -16,10 +16,10 @@ pub struct CellSetDiff {
 impl CellSetDiff {
     pub fn push_new(&mut self, block: &Block) {
         for tx in block.transactions() {
-            let input_pts = tx.input_pts();
+            let input_iter = tx.input_pts_iter();
             let tx_hash = tx.hash();
             let output_len = tx.outputs().len();
-            self.new_inputs.extend(input_pts);
+            self.new_inputs.extend(input_iter.cloned());
             self.new_outputs.insert(
                 tx_hash.to_owned(),
                 (block.header().number(), tx.is_cellbase(), output_len),
@@ -29,10 +29,10 @@ impl CellSetDiff {
 
     pub fn push_old(&mut self, block: &Block) {
         for tx in block.transactions() {
-            let input_pts = tx.input_pts();
+            let input_iter = tx.input_pts_iter();
             let tx_hash = tx.hash();
 
-            self.old_inputs.extend(input_pts);
+            self.old_inputs.extend(input_iter.cloned());
             self.old_outputs.insert(tx_hash.to_owned());
         }
     }

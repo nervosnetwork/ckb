@@ -1,5 +1,7 @@
 mod linked_hash_set;
 
+use std::fmt;
+
 pub use fnv::{FnvBuildHasher, FnvHashMap, FnvHashSet};
 pub use linked_hash_map::{Entries as LinkedHashMapEntries, LinkedHashMap};
 pub use linked_hash_set::LinkedHashSet;
@@ -43,4 +45,15 @@ macro_rules! try_option {
             ::std::option::Option::None => return $re,
         }
     };
+}
+
+pub struct LowerHexOption<T>(pub Option<T>);
+
+impl<T: fmt::LowerHex> fmt::LowerHex for LowerHexOption<T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self.0 {
+            Some(ref v) => write!(f, "Some({:x})", v),
+            None => write!(f, "None"),
+        }
+    }
 }

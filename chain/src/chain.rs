@@ -302,22 +302,21 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
             }
             new_best_block = true;
 
-            total_difficulty = cannon_total_difficulty;
+            total_difficulty = cannon_total_difficulty.clone();
         } else {
             batch.insert_block_ext(&block.header().hash(), &ext)?;
         }
         batch.commit()?;
 
-        let tip_header = block.header();
-        let tip_number = tip_header.number();
-        let tip_hash = tip_header.hash();
-        let txs_cnt = block.transactions().len();
-
         if new_best_block {
             info!(
                 target: "chain",
-                "block: {}, hash: {:#x}, diff: {:#x}, txs: {}",
-                tip_number, tip_hash, total_difficulty, txs_cnt);
+                "block: {}, hash: {:#x}, total_diff: {:#x}, txs: {}",
+                block.header().number(),
+                block.header().hash(),
+                total_difficulty,
+                block.transactions().len()
+            );
             let tip_header = block.header().to_owned();
             // finalize proposal_id table change
             // then, update tx_pool
@@ -339,8 +338,12 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
         } else {
             info!(
                 target: "chain",
-                "uncle: {}, hash: {:#x}, diff: {:#x}, txs: {}",
-                tip_number, tip_hash, total_difficulty, txs_cnt);
+                "uncle: {}, hash: {:#x}, total_diff: {:#x}, txs: {}",
+                block.header().number(),
+                block.header().hash(),
+                cannon_total_difficulty,
+                block.transactions().len()
+            );
             self.notify.notify_new_uncle(block);
         }
 

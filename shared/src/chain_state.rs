@@ -146,11 +146,11 @@ impl<CS: ChainStore> ChainState<CS> {
         for n in 0..=number {
             let hash = store.get_block_hash(n).unwrap();
             for tx in store.get_block_body(&hash).unwrap() {
-                let inputs = tx.input_pts();
+                let inputs = tx.input_pts_iter();
                 let output_len = tx.outputs().len();
 
                 for o in inputs {
-                    cell_set.mark_dead(&o);
+                    cell_set.mark_dead(o);
                 }
 
                 cell_set.insert(tx.hash().to_owned(), n, tx.is_cellbase(), output_len);
