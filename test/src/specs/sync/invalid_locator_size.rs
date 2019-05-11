@@ -1,37 +1,35 @@
 use crate::{sleep, Net, Spec, TestProtocol};
-use ckb_protocol::{get_root, SyncMessage, SyncPayload};
-use ckb_sync::NetworkProtocol;
+use ckb_protocol::SyncMessage;
+use ckb_sync::{NetworkProtocol, MAX_LOCATOR_SIZE};
+use flatbuffers::FlatBufferBuilder;
 use log::info;
+use numext_fixed_hash::{h256, H256};
 
-pub struct MalformedMessage;
+pub struct InvalidLocatorSize;
 
-impl Spec for MalformedMessage {
+impl Spec for InvalidLocatorSize {
     fn run(&self, net: Net) {
-        info!("Running MalformedMessage");
+        info!("Running InvalidLocatorSize");
 
         info!("Connect node0");
         let node0 = &net.nodes[0];
         net.connect(node0);
+        // get peer_id from GetHeaders message
+        let (peer_id, _, _) = net.receive();
+        // generate 1 block on node0, to exit IBD mode.
+        node0.generate_block();
 
-        info!("Test node should receive GetHeaders message from node0");
-        let (peer_id, data) = net.receive();
-        let msg = get_root::<SyncMessage>(&data).expect("parse message failed");
-        assert_eq!(SyncPayload::GetHeaders, msg.payload_type());
-
-        info!("Send malformed message to node0 twice");
+        let hashes: Vec<_> = (0..=MAX_LOCATOR_SIZE).map(|_| h256!("0x1")).collect();
+        let fbb = &mut FlatBufferBuilder::new();
+        let message = SyncMessage::build_get_headers(fbb, &hashes);
+        fbb.finish(message, None);
         net.send(
             NetworkProtocol::SYNC.into(),
             peer_id,
-            vec![0, 0, 0, 0].into(),
+            fbb.finished_data().into(),
         );
-        sleep(3);
-        net.send(
-            NetworkProtocol::SYNC.into(),
-            peer_id,
-            vec![0, 1, 2, 3].into(),
-        );
-        sleep(3);
 
+        sleep(3);
         info!("Node0 should disconnect test node");
         let peers = net.nodes[0]
             .rpc_client()
@@ -58,10 +56,6 @@ impl Spec for MalformedMessage {
     }
 
     fn test_protocols(&self) -> Vec<TestProtocol> {
-        vec![TestProtocol {
-            id: NetworkProtocol::SYNC.into(),
-            protocol_name: "syn".to_string(),
-            supported_versions: vec!["1".to_string()],
-        }]
+        vec![TestProtocol::sync()]
     }
 }
