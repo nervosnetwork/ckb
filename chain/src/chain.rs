@@ -549,7 +549,14 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
                     let mut seen_inputs = FnvHashSet::default();
                     let cell_set_overlay =
                         chain_state.new_cell_set_overlay(&cell_set_diff, &outputs);
-                    let block_cp = BlockCellProvider::new(b);
+                    let block_cp = match BlockCellProvider::new(b) {
+                        Ok(block_cp) => block_cp,
+                        Err(err) => {
+                            found_error = Some(SharedError::UnresolvableTransaction(err));
+                            continue;
+                        }
+                    };
+
                     let cell_provider = OverlayCellProvider::new(&block_cp, &cell_set_overlay);
                     block_headers_provider.push_attached(b);
                     let header_provider =

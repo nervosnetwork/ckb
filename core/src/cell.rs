@@ -238,22 +238,50 @@ impl<'a> CellProvider for OverlayCellProvider<'a> {
 }
 
 pub struct BlockCellProvider<'a> {
-    output_indices: FnvHashMap<H256, usize>,
+    output_indices: FnvHashMap<&'a H256, usize>,
     block: &'a Block,
 }
 
+// Transactions are expected to be sorted within a block,
+// Transactions have to appear after any transactions upon which they depend
 impl<'a> BlockCellProvider<'a> {
-    pub fn new(block: &'a Block) -> Self {
-        let output_indices = block
+    pub fn new(block: &'a Block) -> Result<Self, UnresolvableError> {
+        let output_indices: FnvHashMap<&'a H256, usize> = block
             .transactions()
             .iter()
             .enumerate()
-            .map(|(idx, tx)| (tx.hash().to_owned(), idx))
+            .map(|(idx, tx)| (tx.hash(), idx))
             .collect();
-        Self {
+
+        for (idx, tx) in block.transactions().iter().enumerate() {
+            for dep in tx.deps_iter() {
+                if let Some(output_idx) = dep
+                    .cell
+                    .as_ref()
+                    .and_then(|cell| output_indices.get(&cell.tx_hash))
+                {
+                    if *output_idx >= idx {
+                        return Err(UnresolvableError::OutOfOrder(dep.clone()));
+                    }
+                }
+            }
+            for input_pt in tx.input_pts_iter() {
+                if let Some(output_idx) = input_pt
+                    .cell
+                    .as_ref()
+                    .and_then(|cell| output_indices.get(&cell.tx_hash))
+                {
+                    if *output_idx >= idx {
+                        return Err(UnresolvableError::OutOfOrder(input_pt.clone()));
+                    }
+                }
+            }
+        }
+
+        Ok(Self {
             output_indices,
             block,
-        }
+        })
     }
 }
 
@@ -385,6 +413,7 @@ pub enum UnresolvableError {
     InvalidHeader(OutPoint),
     Dead(OutPoint),
     Unknown(Vec<OutPoint>),
+    OutOfOrder(OutPoint),
 }
 
 pub fn resolve_transaction<'a, CP: CellProvider, HP: HeaderProvider>(
@@ -469,6 +498,9 @@ pub fn resolve_transaction<'a, CP: CellProvider, HP: HeaderProvider>(
             (_, HeaderStatus::InclusionFaliure) => {
                 return Err(UnresolvableError::InvalidHeader(out_point.to_owned()));
             }
+            (CellStatus::Live(_), _) if seen_inputs.contains(&out_point) => {
+                return Err(UnresolvableError::Dead(out_point.clone()));
+            }
             (CellStatus::Live(cell_meta), HeaderStatus::Live(header)) => {
                 resolved_deps.push(ResolvedOutPoint::cell_and_header(*cell_meta, *header));
             }
@@ -515,6 +547,7 @@ impl<'a> ResolvedTransaction<'a> {
 
 #[cfg(test)]
 mod tests {
+    use super::super::block::{Block, BlockBuilder};
     use super::super::header::{Header, HeaderBuilder};
     use super::super::script::Script;
     use super::super::transaction::{CellInput, CellOutPoint, OutPoint, TransactionBuilder};
@@ -782,5 +815,157 @@ mod tests {
         );
 
         assert!(result.is_err());
+    }
+
+    fn generate_block(txs: Vec<Transaction>) -> Block {
+        BlockBuilder::default().transactions(txs).build()
+    }
+
+    #[test]
+    fn resolve_transaction_should_reject_incorrect_order_txs() {
+        let out_point = OutPoint::new_cell(h256!("0x2"), 3);
+
+        let tx1 = TransactionBuilder::default()
+            .input(CellInput::new(out_point.clone(), 0, vec![]))
+            .output(CellOutput::new(
+                capacity_bytes!(2),
+                Bytes::default(),
+                Script::default(),
+                None,
+            ))
+            .build();
+
+        let tx2 = TransactionBuilder::default()
+            .input(CellInput::new(
+                OutPoint::new_cell(tx1.hash().to_owned(), 0),
+                0,
+                vec![],
+            ))
+            .build();
+
+        let tx3 = TransactionBuilder::default()
+            .dep(OutPoint::new_cell(tx1.hash().to_owned(), 0))
+            .build();
+
+        // tx1 <- tx2
+        // ok
+        {
+            let block = generate_block(vec![tx1.clone(), tx2.clone()]);
+            let provider = BlockCellProvider::new(&block);
+            assert!(provider.is_ok());
+        }
+
+        // tx1 -> tx2
+        // resolve err
+        {
+            let block = generate_block(vec![tx2.clone(), tx1.clone()]);
+            let provider = BlockCellProvider::new(&block);
+
+            assert_eq!(
+                provider.err(),
+                Some(UnresolvableError::OutOfOrder(OutPoint::new_cell(
+                    tx1.hash().to_owned(),
+                    0
+                )))
+            );
+        }
+
+        // tx1 <- tx3
+        // ok
+        {
+            let block = generate_block(vec![tx1.clone(), tx3.clone()]);
+            let provider = BlockCellProvider::new(&block);
+
+            assert!(provider.is_ok());
+        }
+
+        // tx1 -> tx3
+        // resolve err
+        {
+            let block = generate_block(vec![tx3.clone(), tx1.clone()]);
+            let provider = BlockCellProvider::new(&block);
+
+            assert_eq!(
+                provider.err(),
+                Some(UnresolvableError::OutOfOrder(OutPoint::new_cell(
+                    tx1.hash().to_owned(),
+                    0
+                )))
+            );
+        }
+    }
+
+    #[test]
+    fn resolve_transaction_should_reject_dep_cell_consumed_by_previous_input() {
+        let mut cell_provider = CellMemoryDb::default();
+        let header_provider = HeaderMemoryDb::default();
+
+        let out_point = OutPoint::new_cell(h256!("0x2"), 3);
+
+        cell_provider.cells.insert(
+            out_point.cell.clone().unwrap(),
+            Some(generate_dummy_cell_meta()),
+        );
+
+        // dep's outpoint consumed by input
+        {
+            let tx = TransactionBuilder::default()
+                .input(CellInput::new(out_point.clone(), 0, vec![]))
+                .dep(out_point.clone())
+                .build();
+
+            let mut seen_inputs = FnvHashSet::default();
+            let result =
+                resolve_transaction(&tx, &mut seen_inputs, &cell_provider, &header_provider);
+
+            assert_eq!(
+                result.err(),
+                Some(UnresolvableError::Dead(out_point.clone()))
+            );
+        }
+
+        // tx1 dep
+        // tx2 input consumed
+        // ok
+        {
+            let tx1 = TransactionBuilder::default().dep(out_point.clone()).build();
+            let tx2 = TransactionBuilder::default()
+                .input(CellInput::new(out_point.clone(), 0, vec![]))
+                .build();
+
+            let mut seen_inputs = FnvHashSet::default();
+            let result1 =
+                resolve_transaction(&tx1, &mut seen_inputs, &cell_provider, &header_provider);
+            assert!(result1.is_ok());
+
+            let result2 =
+                resolve_transaction(&tx2, &mut seen_inputs, &cell_provider, &header_provider);
+            assert!(result2.is_ok());
+        }
+
+        // tx1 input consumed
+        // tx2 dep
+        // tx2 resolve err
+        {
+            let tx1 = TransactionBuilder::default()
+                .input(CellInput::new(out_point.clone(), 0, vec![]))
+                .build();
+
+            let tx2 = TransactionBuilder::default().dep(out_point.clone()).build();
+
+            let mut seen_inputs = FnvHashSet::default();
+            let result1 =
+                resolve_transaction(&tx1, &mut seen_inputs, &cell_provider, &header_provider);
+
+            assert!(result1.is_ok());
+
+            let result2 =
+                resolve_transaction(&tx2, &mut seen_inputs, &cell_provider, &header_provider);
+
+            assert_eq!(
+                result2.err(),
+                Some(UnresolvableError::Dead(out_point.clone()))
+            );
+        }
     }
 }
