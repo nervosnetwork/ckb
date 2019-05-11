@@ -32,7 +32,7 @@ impl<'a, CS: ChainStore> GetBlockTransactionsProcess<'a, CS> {
 
     pub fn execute(self) -> Result<(), FailureError> {
         let block_hash = cast!(self.message.block_hash())?.try_into()?;
-        debug!(target: "relay", "get_block_transactions {:?}", block_hash);
+        debug!(target: "relay", "get_block_transactions {:x}", block_hash);
 
         let indexes = cast!(self.message.indexes())?;
 

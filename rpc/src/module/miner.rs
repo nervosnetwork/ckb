@@ -91,7 +91,7 @@ impl<CS: ChainStore + 'static> MinerRpc for MinerRpcImpl<CS> {
         if header_verify_ret.is_ok() {
             let ret = self.chain.process_block(Arc::clone(&block));
             if ret.is_ok() {
-                debug!(target: "rpc", "[block_relay] announce new block {} {}", block.header().hash(), unix_time_as_millis());
+                debug!(target: "rpc", "[block_relay] announce new block {:x} {}", block.header().hash(), unix_time_as_millis());
                 // announce new block
 
                 let fbb = &mut FlatBufferBuilder::new();

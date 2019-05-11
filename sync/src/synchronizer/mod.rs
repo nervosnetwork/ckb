@@ -221,7 +221,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
     //TODO: process block which we don't request
     pub fn process_new_block(&self, peer: PeerIndex, block: Block) {
         if self.orphan_block_pool.contains(&block) {
-            debug!(target: "sync", "block {} already in orphan pool", block.header().hash());
+            debug!(target: "sync", "block {:x} already in orphan pool", block.header().hash());
             return;
         }
 
