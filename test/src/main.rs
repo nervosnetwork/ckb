@@ -21,6 +21,8 @@ fn main() {
         let spec: Box<Spec> = match &spec_name[..] {
             "block_relay_basic" => Box::new(BlockRelayBasic),
             "block_sync_basic" => Box::new(BlockSyncBasic),
+            "chain_fork_1" => Box::new(ChainFork1),
+            "chain_fork_2" => Box::new(ChainFork2),
             "mining_basic" => Box::new(MiningBasic),
             "mining_template_size_limit" => Box::new(TemplateSizeLimit),
             "pool_reconcile" => Box::new(PoolReconcile),
@@ -45,6 +47,8 @@ fn main() {
         let specs: Vec<Box<Spec>> = vec![
             Box::new(BlockRelayBasic),
             Box::new(BlockSyncBasic),
+            Box::new(ChainFork1),
+            Box::new(ChainFork2),
             Box::new(MiningBasic),
             Box::new(TemplateSizeLimit),
             Box::new(PoolReconcile),

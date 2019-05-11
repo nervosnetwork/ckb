@@ -1,4 +1,5 @@
 use crate::{assert_regex_match, Net, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
+use ckb_chain_spec::ChainSpecConfig;
 use ckb_core::BlockNumber;
 use log::info;
 
@@ -58,7 +59,9 @@ impl Spec for CellbaseMaturity {
         1
     }
 
-    fn cellbase_maturity(&self) -> Option<BlockNumber> {
-        Some(MATURITY as BlockNumber)
+    fn modify_chain_spec(&self) -> Box<dyn Fn(&mut ChainSpecConfig) -> ()> {
+        Box::new(|spec_config| {
+            spec_config.params.cellbase_maturity = MATURITY;
+        })
     }
 }

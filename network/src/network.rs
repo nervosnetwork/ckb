@@ -315,7 +315,6 @@ impl NetworkState {
             .collect()
     }
 
-    // TODO: A workaround method for `add_node` rpc call, need to re-write it after new p2p lib integration.
     pub(crate) fn add_node(
         &self,
         p2p_control: &ServiceControl,
@@ -323,9 +322,6 @@ impl NetworkState {
         address: Multiaddr,
     ) {
         self.dial_all(p2p_control, peer_id, address.clone());
-        if !self.peer_store.lock().add_discovered_addr(peer_id, address) {
-            warn!(target: "network", "add_node failed {:?}", peer_id);
-        }
     }
 
     fn to_external_url(&self, addr: &Multiaddr) -> String {
@@ -881,6 +877,19 @@ impl NetworkController {
     pub fn add_node(&self, peer_id: &PeerId, address: Multiaddr) {
         self.network_state
             .add_node(&self.p2p_control, peer_id, address)
+    }
+
+    pub fn remove_node(&self, peer_id: &PeerId) {
+        self.network_state.with_peer_registry_mut(|reg| {
+            if let Some(session_id) = reg.get_key_by_peer_id(peer_id) {
+                reg.remove_peer(session_id);
+                if let Err(err) = self.p2p_control.disconnect(session_id) {
+                    error!(target: "network", "Failed to disconnect peer, error: {:?}", err);
+                }
+            } else {
+                error!(target: "network", "Cannot find peer {:?}", peer_id);
+            }
+        })
     }
 
     pub fn connected_peers(&self) -> Vec<(PeerId, Peer, MultiaddrList)> {

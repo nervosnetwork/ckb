@@ -38,5 +38,5 @@ jsonrpc_client!(pub struct RpcClient {
     pub fn send_transaction(&mut self, tx: Transaction) -> RpcRequest<H256>;
     pub fn tx_pool_info(&mut self) -> RpcRequest<TxPoolInfo>;
     pub fn add_node(&mut self, peer_id: String, address: String) -> RpcRequest<()>;
-    pub fn enqueue_test_transaction(&mut self, tx: Transaction) -> RpcRequest<H256>;
+    pub fn remove_node(&mut self, peer_id: String) -> RpcRequest<()>;
 });
