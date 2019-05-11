@@ -2,11 +2,13 @@ use crate::block::Block;
 use crate::header::Header;
 use crate::transaction::{CellOutPoint, CellOutput, OutPoint, Transaction};
 use crate::Capacity;
+use ckb_util::LowerHexOption;
 use fnv::{FnvHashMap, FnvHashSet};
 use numext_fixed_hash::H256;
 use serde_derive::{Deserialize, Serialize};
+use std::fmt;
 
-#[derive(Clone, Eq, PartialEq, Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Eq, PartialEq, Default, Deserialize, Serialize)]
 pub struct CellMeta {
     #[serde(skip)]
     pub cell_output: Option<CellOutput>,
@@ -24,6 +26,22 @@ impl From<&CellOutput> for CellMeta {
             capacity: output.capacity,
             ..Default::default()
         }
+    }
+}
+
+impl fmt::Debug for CellMeta {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("CellMeta")
+            .field("cell_output", &self.cell_output)
+            .field("out_point", &self.out_point)
+            .field("block_number", &self.block_number)
+            .field("cellbase", &self.cellbase)
+            .field("capacity", &self.capacity)
+            .field(
+                "data_hash",
+                &format_args!("{:#x}", LowerHexOption(self.data_hash.as_ref())),
+            )
+            .finish()
     }
 }
 
@@ -353,11 +371,11 @@ pub fn resolve_transaction<'a, CP: CellProvider, HP: HeaderProvider>(
 
     // skip resolve input of cellbase
     if !transaction.is_cellbase() {
-        for out_point in transaction.input_pts() {
-            let (cell_status, header_status) = if seen_inputs.insert(out_point.clone()) {
+        for out_point in transaction.input_pts_iter() {
+            let (cell_status, header_status) = if seen_inputs.insert(out_point.to_owned()) {
                 (
-                    cell_provider.cell(&out_point),
-                    header_provider.header(&out_point),
+                    cell_provider.cell(out_point),
+                    header_provider.header(out_point),
                 )
             } else {
                 (CellStatus::Dead, HeaderStatus::Unknown)
@@ -365,24 +383,27 @@ pub fn resolve_transaction<'a, CP: CellProvider, HP: HeaderProvider>(
 
             match (cell_status, header_status) {
                 (CellStatus::Dead, _) => {
-                    return Err(UnresolvableError::Dead(out_point.clone()));
+                    return Err(UnresolvableError::Dead(out_point.to_owned()));
                 }
                 (CellStatus::Unknown, _) => {
-                    unknown_out_points.push(out_point.clone());
+                    unknown_out_points.push(out_point.to_owned());
                 }
                 // Input cell must exist
                 (CellStatus::Unspecified, _) => {
-                    return Err(UnresolvableError::UnspecifiedInputCell(out_point.clone()));
+                    return Err(UnresolvableError::UnspecifiedInputCell(
+                        out_point.to_owned(),
+                    ));
                 }
                 (_, HeaderStatus::Unknown) => {
                     // TODO: should we change transaction pool so transactions
                     // with unknown header can be included as orphans, waiting
                     // for the correct block header to enable it?
-                    return Err(UnresolvableError::InvalidHeader(out_point.clone()));
+                    return Err(UnresolvableError::InvalidHeader(out_point.to_owned()));
                 }
                 (_, HeaderStatus::InclusionFaliure) => {
-                    return Err(UnresolvableError::InvalidHeader(out_point.clone()));
+                    return Err(UnresolvableError::InvalidHeader(out_point.to_owned()));
                 }
+
                 (CellStatus::Live(cell_meta), HeaderStatus::Live(header)) => {
                     resolved_inputs.push(ResolvedOutPoint::cell_and_header(*cell_meta, *header));
                 }
@@ -393,25 +414,25 @@ pub fn resolve_transaction<'a, CP: CellProvider, HP: HeaderProvider>(
         }
     }
 
-    for out_point in transaction.dep_pts() {
-        let cell_status = cell_provider.cell(&out_point);
-        let header_status = header_provider.header(&out_point);
+    for out_point in transaction.deps_iter() {
+        let cell_status = cell_provider.cell(out_point);
+        let header_status = header_provider.header(out_point);
 
         match (cell_status, header_status) {
             (CellStatus::Dead, _) => {
-                return Err(UnresolvableError::Dead(out_point.clone()));
+                return Err(UnresolvableError::Dead(out_point.to_owned()));
             }
             (CellStatus::Unknown, _) => {
-                unknown_out_points.push(out_point.clone());
+                unknown_out_points.push(out_point.to_owned());
             }
             (_, HeaderStatus::Unknown) => {
                 // TODO: should we change transaction pool so transactions
                 // with unknown header can be included as orphans, waiting
                 // for the correct block header to enable it?
-                return Err(UnresolvableError::InvalidHeader(out_point.clone()));
+                return Err(UnresolvableError::InvalidHeader(out_point.to_owned()));
             }
             (_, HeaderStatus::InclusionFaliure) => {
-                return Err(UnresolvableError::InvalidHeader(out_point.clone()));
+                return Err(UnresolvableError::InvalidHeader(out_point.to_owned()));
             }
             (CellStatus::Live(cell_meta), HeaderStatus::Live(header)) => {
                 resolved_deps.push(ResolvedOutPoint::cell_and_header(*cell_meta, *header));

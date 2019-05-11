@@ -5,6 +5,7 @@ pub use crate::Capacity;
 use crate::{BlockNumber, Version};
 use bincode::{deserialize, serialize};
 use bytes::Bytes;
+use ckb_util::LowerHexOption;
 use faster_hex::hex_string;
 use hash::blake2b_256;
 use numext_fixed_hash::H256;
@@ -64,7 +65,10 @@ impl fmt::Debug for OutPoint {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_struct("OutPoint")
             .field("cell", &self.cell)
-            .field("block_hash", &self.block_hash)
+            .field(
+                "block_hash",
+                &format_args!("{:#x}", LowerHexOption(self.block_hash.as_ref())),
+            )
             .finish()
     }
 }
@@ -492,14 +496,6 @@ impl Transaction {
         &self.witness_hash
     }
 
-    pub fn out_points_iter(&self) -> impl Iterator<Item = &OutPoint> {
-        self.deps.iter().chain(
-            self.inputs
-                .iter()
-                .map(|input: &CellInput| &input.previous_output),
-        )
-    }
-
     pub fn output_pts(&self) -> Vec<OutPoint> {
         let h = self.hash();
         (0..self.outputs.len())
@@ -507,15 +503,12 @@ impl Transaction {
             .collect()
     }
 
-    pub fn input_pts(&self) -> Vec<OutPoint> {
-        self.inputs
-            .iter()
-            .map(|x| x.previous_output.clone())
-            .collect()
+    pub fn input_pts_iter(&self) -> impl Iterator<Item = &OutPoint> {
+        self.inputs.iter().map(|x| &x.previous_output)
     }
 
-    pub fn dep_pts(&self) -> Vec<OutPoint> {
-        self.deps.clone()
+    pub fn deps_iter(&self) -> impl Iterator<Item = &OutPoint> {
+        self.deps.iter()
     }
 
     pub fn is_empty(&self) -> bool {

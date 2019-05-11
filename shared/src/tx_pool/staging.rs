@@ -5,6 +5,7 @@ use ckb_core::cell::{CellMeta, CellProvider, CellStatus};
 use ckb_core::transaction::{CellOutput, OutPoint, ProposalShortId, Transaction};
 use ckb_core::Cycle;
 use ckb_util::{FnvHashMap, FnvHashSet, LinkedFnvHashMap};
+use std::collections::VecDeque;
 use std::hash::Hash;
 
 #[derive(Default, Debug, Clone)]
@@ -152,43 +153,48 @@ impl StagingPool {
         })
     }
 
-    pub fn remove_vertex(&mut self, id: &ProposalShortId, rtxs: &mut Vec<PoolEntry>) {
-        if let Some(x) = self.vertices.remove(id) {
-            let tx = &x.transaction;
-            let inputs = tx.input_pts();
-            let outputs = tx.output_pts();
-            let deps = tx.dep_pts();
+    pub fn remove_vertex(&mut self, id: &ProposalShortId) -> Vec<PoolEntry> {
+        let mut entries = Vec::new();
+        let mut queue = VecDeque::new();
 
-            rtxs.push(x);
+        queue.push_back(id.to_owned());
 
-            for i in inputs {
-                if self.edges.inner.remove(&i).is_none() {
-                    self.edges.outer.remove(&i);
-                }
-            }
-
-            for d in deps {
-                self.edges.delete_value_in_deps(&d, id);
-            }
-
-            for o in outputs {
-                if let Some(cid) = self.edges.remove_inner(&o) {
-                    self.remove_vertex(&cid, rtxs);
-                }
-
-                if let Some(ids) = self.edges.remove_deps(&o) {
-                    for cid in ids {
-                        self.remove_vertex(&cid, rtxs);
+        while let Some(id) = queue.pop_front() {
+            if let Some(entry) = self.vertices.remove(&id) {
+                let tx = &entry.transaction;
+                let inputs = tx.input_pts_iter();
+                let outputs = tx.output_pts();
+                let deps = tx.deps_iter();
+                for i in inputs {
+                    if self.edges.inner.remove(i).is_none() {
+                        self.edges.outer.remove(i);
                     }
                 }
+
+                for d in deps {
+                    self.edges.delete_value_in_deps(d, &id);
+                }
+
+                for o in outputs {
+                    if let Some(cid) = self.edges.remove_inner(&o) {
+                        queue.push_back(cid);
+                    }
+
+                    if let Some(ids) = self.edges.remove_deps(&o) {
+                        for cid in ids {
+                            queue.push_back(cid);
+                        }
+                    }
+                }
+
+                entries.push(entry);
             }
         }
+        entries
     }
 
     pub fn remove(&mut self, id: &ProposalShortId) -> Option<Vec<PoolEntry>> {
-        let mut rtxs = Vec::new();
-
-        self.remove_vertex(id, &mut rtxs);
+        let rtxs = self.remove_vertex(id);
 
         if rtxs.is_empty() {
             None
@@ -198,9 +204,9 @@ impl StagingPool {
     }
 
     pub fn add_tx(&mut self, cycles: Cycle, tx: Transaction) {
-        let inputs = tx.input_pts();
+        let inputs = tx.input_pts_iter();
         let outputs = tx.output_pts();
-        let deps = tx.dep_pts();
+        let deps = tx.deps_iter();
 
         let id = tx.proposal_short_id();
 
@@ -208,22 +214,22 @@ impl StagingPool {
 
         for i in inputs {
             let mut flag = true;
-            if let Some(x) = self.edges.get_inner_mut(&i) {
+            if let Some(x) = self.edges.get_inner_mut(i) {
                 *x = Some(id);
                 count += 1;
                 flag = false;
             }
 
             if flag {
-                self.edges.insert_outer(i, id);
+                self.edges.insert_outer(i.to_owned(), id);
             }
         }
 
         for d in deps {
-            if self.edges.contains_key(&d) {
+            if self.edges.contains_key(d) {
                 count += 1;
             }
-            self.edges.insert_deps(d, id);
+            self.edges.insert_deps(d.to_owned(), id);
         }
 
         for o in outputs {
@@ -236,8 +242,8 @@ impl StagingPool {
 
     pub fn remove_committed_tx(&mut self, tx: &Transaction) {
         let outputs = tx.output_pts();
-        let inputs = tx.input_pts();
-        let deps = tx.dep_pts();
+        let inputs = tx.input_pts_iter();
+        let deps = tx.deps_iter();
         let id = tx.proposal_short_id();
 
         if self.vertices.remove(&id).is_some() {
@@ -255,11 +261,11 @@ impl StagingPool {
             }
 
             for i in inputs {
-                self.edges.remove_outer(&i);
+                self.edges.remove_outer(i);
             }
 
             for d in deps {
-                self.edges.delete_value_in_deps(&d, &id)
+                self.edges.delete_value_in_deps(d, &id)
             }
         } else {
             self.resolve_conflict(tx);
@@ -267,10 +273,10 @@ impl StagingPool {
     }
 
     pub fn resolve_conflict(&mut self, tx: &Transaction) {
-        let inputs = tx.input_pts();
+        let inputs = tx.input_pts_iter();
 
         for i in inputs {
-            if let Some(id) = self.edges.remove_outer(&i) {
+            if let Some(id) = self.edges.remove_outer(i) {
                 self.remove(&id);
             }
 
@@ -294,12 +300,6 @@ impl StagingPool {
     pub fn txs_iter(&self) -> impl Iterator<Item = &PoolEntry> {
         self.vertices.values()
     }
-
-    // pub fn inc_ref(&mut self, id: &ProposalShortId) {
-    //     if let Some(x) = self.vertices.get_mut(&id) {
-    //         x.refs_count += 1;
-    //     }
-    // }
 
     pub fn dec_ref(&mut self, id: &ProposalShortId) {
         if let Some(x) = self.vertices.get_mut(&id) {
