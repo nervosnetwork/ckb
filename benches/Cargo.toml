@@ -33,3 +33,7 @@ harness = false
 [[bench]]
 name = "process_block"
 harness = false
+
+[[bench]]
+name = "fetch_cell_output"
+harness = false

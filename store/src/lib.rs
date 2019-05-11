@@ -1,4 +1,4 @@
-mod flat_serializer;
+mod flat_block_body;
 mod store;
 
 pub use store::{ChainKVStore, ChainStore, DefaultStoreBatch, StoreBatch};
