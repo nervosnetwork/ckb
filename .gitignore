@@ -11,6 +11,8 @@
 target/
 target-cache/
 */target/
+# target symlink in integration test folder
+test/target
 admintool/example/
 
 *.pyc
