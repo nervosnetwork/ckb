@@ -222,8 +222,7 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
         let mut fork = ForkChanges::default();
         let mut chain_state = self.shared.chain_state().lock();
         let mut txs_verify_cache = self.shared.txs_verify_cache().lock();
-        let tip_number = chain_state.tip_number();
-        let tip_hash = chain_state.tip_hash();
+
         let parent_ext = self
             .shared
             .block_ext(&block.header().parent_hash())
@@ -278,7 +277,7 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
 
         if (cannon_total_difficulty > current_total_difficulty)
             || ((current_total_difficulty == cannon_total_difficulty)
-                && (block.header().hash() < tip_hash))
+                && (block.header().hash() < chain_state.tip_hash()))
         {
             debug!(
                 target: "chain",
@@ -286,7 +285,7 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
                 block.header().number(), block.header().hash(),
                 &cannon_total_difficulty - &current_total_difficulty
             );
-            self.find_fork(&mut fork, tip_number, &block, ext);
+            self.find_fork(&mut fork, chain_state.tip_number(), &block, ext);
             self.update_index(&mut batch, &fork.detached_blocks, &fork.attached_blocks)?;
             // MUST update index before reconcile_main_chain
             cell_set_diff = self.reconcile_main_chain(
@@ -309,18 +308,18 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
         batch.commit()?;
 
         if new_best_block {
+            let tip_header = block.header().to_owned();
             info!(
                 target: "chain",
                 "block: {}, hash: {:#x}, total_diff: {:#x}, txs: {}",
-                block.header().number(),
-                block.header().hash(),
+                tip_header.number(),
+                tip_header.hash(),
                 total_difficulty,
                 block.transactions().len()
             );
-            let tip_header = block.header().to_owned();
             // finalize proposal_id table change
             // then, update tx_pool
-            let detached_proposal_id = chain_state.proposal_ids_finalize(tip_number);
+            let detached_proposal_id = chain_state.proposal_ids_finalize(tip_header.number());
             fork.detached_proposal_id = detached_proposal_id;
             if new_epoch || fork.has_detached() {
                 chain_state.update_current_epoch_ext(epoch);
