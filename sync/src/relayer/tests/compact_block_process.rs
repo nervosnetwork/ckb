@@ -4,9 +4,8 @@ use ckb_chain::chain::ChainBuilder;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::header::HeaderBuilder;
-use ckb_core::script::Script;
 use ckb_core::transaction::{
-    CellInput, CellOutput, IndexTransaction, Transaction, TransactionBuilder,
+    CellInput, CellOutput, IndexTransaction, OutPoint, Transaction, TransactionBuilder,
 };
 use ckb_core::{capacity_bytes, BlockNumber, Bytes, Capacity};
 use ckb_db::memorydb::MemoryKeyValueDB;
@@ -18,6 +17,7 @@ use ckb_traits::ChainProvider;
 use faketime::{self, unix_time_as_millis};
 use numext_fixed_uint::U256;
 use std::sync::Arc;
+use test_chain_utils::create_always_success_cell;
 
 fn new_header_builder(
     shared: &Shared<ChainKVStore<MemoryKeyValueDB>>,
@@ -36,7 +36,11 @@ fn new_header_builder(
         .difficulty(epoch.difficulty().to_owned())
 }
 
-fn new_transaction(relayer: &Relayer<ChainKVStore<MemoryKeyValueDB>>, index: usize) -> Transaction {
+fn new_transaction(
+    relayer: &Relayer<ChainKVStore<MemoryKeyValueDB>>,
+    index: usize,
+    always_success_out_point: &OutPoint,
+) -> Transaction {
     let previous_output = {
         let chain_state = relayer.shared.shared().chain_state().lock();
         let tip_hash = chain_state.tip_hash();
@@ -60,16 +64,25 @@ fn new_transaction(relayer: &Relayer<ChainKVStore<MemoryKeyValueDB>>, index: usi
             Default::default(),
             None,
         ))
+        .dep(always_success_out_point.to_owned())
         .build()
 }
 
-fn build_chain(tip: BlockNumber) -> Relayer<ChainKVStore<MemoryKeyValueDB>> {
+fn build_chain(tip: BlockNumber) -> (Relayer<ChainKVStore<MemoryKeyValueDB>>, OutPoint) {
+    let (always_success_cell, always_success_script) = create_always_success_cell();
+    let always_success_tx = TransactionBuilder::default()
+        .input(CellInput::new(OutPoint::null(), 0, Default::default()))
+        .output(always_success_cell)
+        .build();
+    let always_success_out_point = OutPoint::new_cell(always_success_tx.hash().to_owned(), 0);
+
     let shared = {
         let genesis = BlockBuilder::from_header_builder(
             HeaderBuilder::default()
                 .timestamp(unix_time_as_millis())
                 .difficulty(U256::from(1000u64)),
         )
+        .transaction(always_success_tx)
         .build();
         let consensus = Consensus::default()
             .set_genesis_block(genesis)
@@ -98,7 +111,7 @@ fn build_chain(tip: BlockNumber) -> Relayer<ChainKVStore<MemoryKeyValueDB>> {
             .output(CellOutput::new(
                 capacity_bytes!(50000),
                 Bytes::default(),
-                Script::always_success(),
+                always_success_script.to_owned(),
                 None,
             ))
             .build();
@@ -111,17 +124,22 @@ fn build_chain(tip: BlockNumber) -> Relayer<ChainKVStore<MemoryKeyValueDB>> {
     }
 
     let sync_shared_state = Arc::new(SyncSharedState::new(shared));
-    Relayer::new(
-        chain_controller,
-        sync_shared_state,
-        Arc::new(Default::default()),
+    (
+        Relayer::new(
+            chain_controller,
+            sync_shared_state,
+            Arc::new(Default::default()),
+        ),
+        always_success_out_point,
     )
 }
 
 #[test]
 fn test_reconstruct_block() {
-    let relayer = build_chain(5);
-    let prepare: Vec<Transaction> = (0..20).map(|i| new_transaction(&relayer, i)).collect();
+    let (relayer, always_success_out_point) = build_chain(5);
+    let prepare: Vec<Transaction> = (0..20)
+        .map(|i| new_transaction(&relayer, i, &always_success_out_point))
+        .collect();
 
     // Case: miss tx.0
     {

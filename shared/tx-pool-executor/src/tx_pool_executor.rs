@@ -180,14 +180,23 @@ mod tests {
     use ckb_traits::ChainProvider;
     use faketime::{self, unix_time_as_millis};
     use numext_fixed_uint::U256;
+    use test_chain_utils::create_always_success_cell;
 
-    fn setup(height: u64) -> Shared<ChainKVStore<MemoryKeyValueDB>> {
+    fn setup(height: u64) -> (Shared<ChainKVStore<MemoryKeyValueDB>>, OutPoint) {
+        let (always_success_cell, always_success_script) = create_always_success_cell();
+        let always_success_tx = TransactionBuilder::default()
+            .input(CellInput::new(OutPoint::null(), 0, Default::default()))
+            .output(always_success_cell)
+            .build();
+        let always_success_out_point = OutPoint::new_cell(always_success_tx.hash().to_owned(), 0);
+
         let mut block = BlockBuilder::default()
             .header_builder(
                 HeaderBuilder::default()
                     .timestamp(unix_time_as_millis())
                     .difficulty(U256::from(1000u64)),
             )
+            .transaction(always_success_tx)
             .build();
         let consensus = Consensus::default()
             .set_genesis_block(block.clone())
@@ -219,7 +228,7 @@ mod tests {
                     CellOutput::new(
                         capacity_bytes!(50),
                         Bytes::default(),
-                        Script::always_success(),
+                        always_success_script.to_owned(),
                         None,
                     )
                 })
@@ -240,9 +249,10 @@ mod tests {
                         .output(CellOutput::new(
                             capacity_bytes!(50),
                             Bytes::default(),
-                            Script::always_success(),
+                            always_success_script.to_owned(),
                             None,
                         ))
+                        .dep(always_success_out_point.to_owned())
                         .build()
                 })
                 .collect();
@@ -265,12 +275,12 @@ mod tests {
                 .expect("process block should be OK");
         }
 
-        shared
+        (shared, always_success_out_point)
     }
 
     #[test]
     fn test_verify_and_add_tx_to_pool() {
-        let shared = setup(10);
+        let (shared, always_success_out_point) = setup(10);
         let last_block = shared
             .block(&shared.chain_state().lock().tip_hash())
             .unwrap();
@@ -291,6 +301,7 @@ mod tests {
                         Script::default(),
                         None,
                     ))
+                    .dep(always_success_out_point.to_owned())
                     .build()
             })
             .collect::<Vec<_>>();
@@ -301,7 +312,7 @@ mod tests {
         let result = tx_pool_executor
             .verify_and_add_txs_to_pool(txs[1..=5].to_vec())
             .expect("verify relay tx");
-        assert_eq!(result, vec![0; 5]);
+        assert_eq!(result, vec![2; 5]);
         // spent conflict cell
         let result = tx_pool_executor.verify_and_add_txs_to_pool(txs[10..15].to_vec());
         assert_eq!(
@@ -322,7 +333,7 @@ mod tests {
         let result = tx_pool_executor
             .verify_and_add_tx_to_pool(txs[1].to_owned())
             .expect("verify relay tx");
-        assert_eq!(result, 0);
+        assert_eq!(result, 2);
         // spent one conflict cell
         let result = tx_pool_executor.verify_and_add_tx_to_pool(txs[13].to_owned());
         assert_eq!(

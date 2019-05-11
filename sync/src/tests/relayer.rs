@@ -24,6 +24,7 @@ use std::collections::HashSet;
 use std::sync::mpsc::sync_channel;
 use std::sync::{Arc, Barrier};
 use std::{thread, time};
+use test_chain_utils::create_always_success_cell;
 
 const DEFAULT_CHANNEL: usize = 128;
 
@@ -36,8 +37,10 @@ fn relay_compact_block_with_one_tx() {
     // Use the same thread name for all child threads, so the time is mocked in all these threads.
     // This is required because the test relies on the determined timestamp. Now all the threads
     // freeze the timestamp at UNIX EPOCH.
-    let (mut node1, shared1, chain_controller1) = setup_node(&thread_name, 3);
-    let (mut node2, shared2, _chain_controller2) = setup_node(&thread_name, 3);
+    let (mut node1, shared1, chain_controller1, always_success_out_point1) =
+        setup_node(&thread_name, 3);
+    let (mut node2, shared2, _chain_controller2, _always_success_out_point2) =
+        setup_node(&thread_name, 3);
     let barrier = Arc::new(Barrier::new(2));
 
     node1.connect(&mut node2, NetworkProtocol::RELAY.into());
@@ -65,6 +68,7 @@ fn relay_compact_block_with_one_tx() {
                     Script::default(),
                     None,
                 ))
+                .dep(always_success_out_point1)
                 .build();
 
             {
@@ -201,8 +205,10 @@ fn relay_compact_block_with_missing_indexs() {
     // Use the same thread name for all child threads, so the time is mocked in all these threads.
     // This is required because the test relies on the determined timestamp. Now all the threads
     // freeze the timestamp at UNIX EPOCH.
-    let (mut node1, shared1, chain_controller1) = setup_node(&thread_name, 3);
-    let (mut node2, shared2, _chain_controller2) = setup_node(&thread_name, 3);
+    let (mut node1, shared1, chain_controller1, always_success_out_point1) =
+        setup_node(&thread_name, 3);
+    let (mut node2, shared2, _chain_controller2, _always_success_out_point2) =
+        setup_node(&thread_name, 3);
 
     node1.connect(&mut node2, NetworkProtocol::RELAY.into());
 
@@ -230,6 +236,7 @@ fn relay_compact_block_with_missing_indexs() {
                             Script::default(),
                             None,
                         ))
+                        .dep(always_success_out_point1.to_owned())
                         .build()
                 })
                 .collect::<Vec<_>>();
@@ -363,13 +370,22 @@ fn setup_node(
     TestNode,
     Shared<ChainKVStore<MemoryKeyValueDB>>,
     ChainController,
+    OutPoint,
 ) {
+    let (always_success_cell, always_success_script) = create_always_success_cell();
+    let always_success_tx = TransactionBuilder::default()
+        .input(CellInput::new(OutPoint::null(), 0, Default::default()))
+        .output(always_success_cell)
+        .build();
+    let always_success_out_point = OutPoint::new_cell(always_success_tx.hash().to_owned(), 0);
+
     let mut block = BlockBuilder::default()
         .header_builder(
             HeaderBuilder::default()
                 .timestamp(unix_time_as_millis())
                 .difficulty(U256::from(1000u64)),
         )
+        .transaction(always_success_tx)
         .build();
     let consensus = Consensus::default()
         .set_genesis_block(block.clone())
@@ -401,7 +417,7 @@ fn setup_node(
                 CellOutput::new(
                     capacity_bytes!(50),
                     Bytes::default(),
-                    Script::always_success(),
+                    always_success_script.to_owned(),
                     None,
                 )
             })
@@ -442,5 +458,5 @@ fn setup_node(
         &protocol,
         &[TX_PROPOSAL_TOKEN],
     );
-    (node, shared, chain_controller)
+    (node, shared, chain_controller, always_success_out_point)
 }

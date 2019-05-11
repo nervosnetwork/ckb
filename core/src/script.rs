@@ -1,12 +1,10 @@
 use bytes::Bytes;
 use faster_hex::hex_encode;
 use hash::new_blake2b;
-use numext_fixed_hash::{h256, H256};
+use numext_fixed_hash::H256;
 use occupied_capacity::HasOccupiedCapacity;
 use serde_derive::{Deserialize, Serialize};
 use std::fmt;
-
-pub const ALWAYS_SUCCESS_HASH: H256 = h256!("0x1");
 
 // TODO: when flatbuffer work is done, remove Serialize/Deserialize here and
 // implement proper From trait
@@ -47,10 +45,6 @@ impl Script {
         Script { args, code_hash }
     }
 
-    pub fn always_success() -> Self {
-        Self::new(vec![], ALWAYS_SUCCESS_HASH)
-    }
-
     pub fn destruct(self) -> ScriptTuple {
         let Script { args, code_hash } = self;
         (args, code_hash)
@@ -84,9 +78,10 @@ impl Script {
 
 #[cfg(test)]
 mod tests {
-    use super::{h256, Script, H256};
+    use super::Script;
     use crate::Bytes;
     use hash::blake2b_256;
+    use numext_fixed_hash::{h256, H256};
     use occupied_capacity::OccupiedCapacity;
 
     #[test]

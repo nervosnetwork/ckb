@@ -18,6 +18,7 @@ use ckb_traits::ChainProvider;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 use std::sync::Arc;
+use test_chain_utils::create_always_success_cell;
 
 fn gen_block(
     parent_header: &Header,
@@ -46,13 +47,17 @@ fn gen_block(
         .build()
 }
 
-fn create_transaction(parent: &H256) -> Transaction {
+fn create_transaction(
+    parent: &H256,
+    always_success_script: &Script,
+    always_success_out_point: &OutPoint,
+) -> Transaction {
     let capacity = 100_000_000 / 100 as usize;
     let output = CellOutput::new(
         Capacity::bytes(capacity).unwrap(),
         Bytes::default(),
-        Script::always_success(),
-        Some(Script::always_success()),
+        always_success_script.to_owned(),
+        Some(always_success_script.to_owned()),
     );
     let inputs: Vec<CellInput> = (0..100)
         .map(|index| CellInput::new(OutPoint::new_cell(parent.clone(), index), 0, vec![]))
@@ -61,6 +66,7 @@ fn create_transaction(parent: &H256) -> Transaction {
     TransactionBuilder::default()
         .inputs(inputs)
         .outputs(vec![output; 100])
+        .dep(always_success_out_point.to_owned())
         .build()
 }
 
@@ -97,15 +103,19 @@ fn setup_env() -> (
     ChainController,
     Shared<ChainKVStore<MemoryKeyValueDB>>,
     H256,
+    Script,
+    OutPoint,
 ) {
+    let (always_success_cell, always_success_script) = create_always_success_cell();
     let tx = TransactionBuilder::default()
         .input(CellInput::new(OutPoint::null(), 0, Default::default()))
+        .output(always_success_cell)
         .outputs(vec![
             CellOutput::new(
                 capacity_bytes!(1_000_000),
                 Bytes::default(),
-                Script::always_success(),
-                Some(Script::always_success()),
+                always_success_script.clone(),
+                Some(always_success_script.clone()),
             );
             100
         ])
@@ -114,16 +124,32 @@ fn setup_env() -> (
     let genesis_block = BlockBuilder::default().transaction(tx).build();
     let consensus = Consensus::default().set_genesis_block(genesis_block);
     let (chain_controller, shared) = start_chain(Some(consensus));
-    (chain_controller, shared, tx_hash)
+    (
+        chain_controller,
+        shared,
+        tx_hash.to_owned(),
+        always_success_script,
+        OutPoint::new_cell(tx_hash, 0),
+    )
 }
 
 #[test]
 fn test_proposal() {
-    let (chain_controller, shared, mut prev_tx_hash) = setup_env();
+    let (
+        chain_controller,
+        shared,
+        mut prev_tx_hash,
+        always_success_script,
+        always_success_out_point,
+    ) = setup_env();
 
     let mut txs20 = Vec::new();
     for _ in 0..20 {
-        let tx = create_transaction(&prev_tx_hash);
+        let tx = create_transaction(
+            &prev_tx_hash,
+            &always_success_script,
+            &always_success_out_point,
+        );
         txs20.push(tx.clone());
         prev_tx_hash = tx.hash().to_owned();
     }
@@ -180,11 +206,21 @@ fn test_proposal() {
 
 #[test]
 fn test_uncle_proposal() {
-    let (chain_controller, shared, mut prev_tx_hash) = setup_env();
+    let (
+        chain_controller,
+        shared,
+        mut prev_tx_hash,
+        always_success_script,
+        always_success_out_point,
+    ) = setup_env();
 
     let mut txs20 = Vec::new();
     for _ in 0..20 {
-        let tx = create_transaction(&prev_tx_hash);
+        let tx = create_transaction(
+            &prev_tx_hash,
+            &always_success_script,
+            &always_success_out_point,
+        );
         txs20.push(tx.clone());
         prev_tx_hash = tx.hash().to_owned();
     }

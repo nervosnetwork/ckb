@@ -40,3 +40,4 @@ ckb-notify = { path = "../notify" }
 ckb-db = { path = "../db" }
 env_logger = "0.6"
 crossbeam-channel = "0.3"
+test-chain-utils = { path = "../util/test-chain-utils" }

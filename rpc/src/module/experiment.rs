@@ -52,7 +52,7 @@ pub(crate) struct DryRunner<'a, CS> {
 impl<'a, CS: ChainStore> CellProvider for DryRunner<'a, CS> {
     fn cell(&self, o: &OutPoint) -> CellStatus {
         if o.cell.is_none() {
-            return CellStatus::Unknown;
+            return CellStatus::Unspecified;
         }
         let co = o.cell.as_ref().expect("checked below");
         self
@@ -67,7 +67,7 @@ impl<'a, CS: ChainStore> CellProvider for DryRunner<'a, CS> {
 impl<'a, CS: ChainStore> HeaderProvider for DryRunner<'a, CS> {
     fn header(&self, o: &OutPoint) -> HeaderStatus {
         if o.block_hash.is_none() {
-            return HeaderStatus::Unknown;
+            return HeaderStatus::Unspecified;
         }
         let block_hash = o.block_hash.as_ref().expect("checked below");
         self.chain_state
