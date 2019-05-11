@@ -1,4 +1,4 @@
-use crate::EpochNumber;
+use crate::{EpochNumber, Timestamp};
 use numext_fixed_uint::U256;
 use serde_derive::{Deserialize, Serialize};
 
@@ -7,7 +7,7 @@ pub struct ChainInfo {
     // network name
     pub chain: String,
     // median time for the current tip block
-    pub median_time: String,
+    pub median_time: Timestamp,
     // the current epoch number
     pub epoch: EpochNumber,
     // the current difficulty

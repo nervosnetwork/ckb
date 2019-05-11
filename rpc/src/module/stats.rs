@@ -4,7 +4,7 @@ use ckb_sync::Synchronizer;
 use ckb_traits::BlockMedianTimeContext;
 use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
-use jsonrpc_types::{ChainInfo, PeerState};
+use jsonrpc_types::{ChainInfo, EpochNumber, PeerState, Timestamp};
 
 #[rpc]
 pub trait StatsRpc {
@@ -40,8 +40,8 @@ impl<CS: ChainStore + 'static> StatsRpc for StatsRpcImpl<CS> {
 
         Ok(ChainInfo {
             chain,
-            median_time: median_time.to_string(),
-            epoch: epoch.to_string(),
+            median_time: Timestamp(median_time),
+            epoch: EpochNumber(epoch),
             difficulty,
             is_initial_block_download,
             warnings: String::new(),
