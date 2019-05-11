@@ -4,4 +4,4 @@ mod transaction_relay;
 
 pub use block_relay::BlockRelayBasic;
 pub use compact_block::CompactBlockBasic;
-pub use transaction_relay::TransactionRelayBasic;
+pub use transaction_relay::{TransactionRelayBasic, TransactionRelayMultiple};
