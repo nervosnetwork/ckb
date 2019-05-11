@@ -103,7 +103,7 @@ impl Spec for TransactionRelayMultiple {
         node0.generate_block();
         node0.generate_block();
         node0.generate_block();
-        net.waiting_for_sync(10);
+        net.waiting_for_sync(30);
 
         info!("All transactions should be relayed and mined");
         node0.assert_tx_pool_size(0, 0);
