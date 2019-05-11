@@ -716,7 +716,7 @@ impl<CS: ChainStore> SyncSharedState<CS> {
             .write()
             .insert((peer, header.hash().to_owned()), Instant::now());
 
-        debug!(target: "sync", "send_getheaders_to_peer peer={}, hash={}", peer, header.hash());
+        debug!(target: "sync", "send_getheaders_to_peer peer={}, hash={:x}", peer, header.hash());
         let locator_hash = self.get_locator(header);
         let fbb = &mut FlatBufferBuilder::new();
         let message = SyncMessage::build_get_headers(fbb, &locator_hash);

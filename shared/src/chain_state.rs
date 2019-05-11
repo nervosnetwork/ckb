@@ -338,7 +338,7 @@ impl<CS: ChainStore> ChainState<CS> {
                     Ok(cycles)
                 }
                 Err(e) => {
-                    debug!(target: "tx_pool", "Failed to staging tx {:}, reason: {:?}", tx_hash, e);
+                    debug!(target: "tx_pool", "Failed to staging tx {:x}, reason: {:?}", tx_hash, e);
                     Err(e)
                 }
             },
@@ -438,7 +438,7 @@ impl<CS: ChainStore> ChainState<CS> {
             if let Err(e) =
                 self.staging_tx_and_descendants(&mut tx_pool, entry.cycles, entry.transaction)
             {
-                debug!(target: "tx_pool", "Failed to staging tx {:}, reason: {:?}", tx_hash, e);
+                debug!(target: "tx_pool", "Failed to staging tx {:x}, reason: {:?}", tx_hash, e);
             }
         }
     }

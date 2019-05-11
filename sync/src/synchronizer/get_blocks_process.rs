@@ -56,7 +56,7 @@ where
                 // We expect that `block_hashes` is sorted descending by height.
                 // So if we cannot find the current one from local, we cannot find
                 // the next either.
-                debug!(target: "sync", "getblocks stopping since {} is not found", block_hash);
+                debug!(target: "sync", "getblocks stopping since {:x} is not found", block_hash);
                 break;
             }
         }

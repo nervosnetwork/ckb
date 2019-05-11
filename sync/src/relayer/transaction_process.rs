@@ -94,7 +94,7 @@ impl<'a, CS: ChainStore + Sync + 'static> TransactionProcess<'a, CS> {
                     }
                     Err(err) => {
                         if err.is_bad_tx() {
-                            debug!(target: "relay", "peer {} relay a invalid tx: {:?}, error: {:?}", self_peer, tx_hash, err);
+                            debug!(target: "relay", "peer {} relay a invalid tx: {:x}, error: {:?}", self_peer, tx_hash, err);
                             sentry::capture_message(
                                 &format!(
                                     "ban peer {} {:?}, reason: relay invalid tx: {:?}, error: {:?}",
@@ -104,7 +104,7 @@ impl<'a, CS: ChainStore + Sync + 'static> TransactionProcess<'a, CS> {
                             );
                             nc.ban_peer(self_peer, DEFAULT_BAN_TIME);
                         } else {
-                            debug!(target: "relay", "peer {} relay a conflict or missing input tx: {:?}, error: {:?}", self_peer, tx_hash, err);
+                            debug!(target: "relay", "peer {} relay a conflict or missing input tx: {:x}, error: {:?}", self_peer, tx_hash, err);
                         }
                     }
                 }

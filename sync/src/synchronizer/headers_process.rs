@@ -137,7 +137,7 @@ where
                 if header.parent_hash() != parent.hash() {
                     debug!(
                         target: "sync",
-                        "header.parent_hash {:?} parent.hash {:?}",
+                        "header.parent_hash {:x} parent.hash {:x}",
                         header.parent_hash(),
                         parent.hash()
                     );

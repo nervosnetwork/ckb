@@ -63,7 +63,7 @@ impl<'a, CS: ChainStore + 'static> CompactBlockProcess<'a, CS> {
             // If self is in the IBD state, do nothing
             return Ok(());
         } else {
-            debug!(target: "relay", "UnknownParent: {}, send_getheaders_to_peer({})", block_hash, self.peer);
+            debug!(target: "relay", "UnknownParent: {:x}, send_getheaders_to_peer({})", block_hash, self.peer);
             self.relayer.shared.send_getheaders_to_peer(
                 self.nc.as_ref(),
                 self.peer,
@@ -80,7 +80,7 @@ impl<'a, CS: ChainStore + 'static> CompactBlockProcess<'a, CS> {
             if pending_compact_blocks.get(&block_hash).is_some()
                 || self.relayer.shared.get_block(&block_hash).is_some()
             {
-                debug!(target: "relay", "already processed compact block {}", block_hash);
+                debug!(target: "relay", "already processed compact block {:x}", block_hash);
                 return Ok(());
             } else {
                 let resolver = HeaderResolverWrapper::new(

@@ -217,11 +217,11 @@ impl<'a, CS: LazyLoadCellOutput> TransactionScriptsVerifier<'a, CS> {
                     return Err(ScriptError::NoScript);
                 }
             };
-            let prefix = format!("Transaction {}, input {}", self.hash, i);
+            let prefix = format!("Transaction {:x}, input {}", self.hash, i);
             let witness = self.witnesses.get(&(i as u32));
             let output = self.store.lazy_load_cell_output(input_cell);
             let cycle = self.verify_script(&output.lock, &prefix, witness, Some(input), max_cycles - cycles).map_err(|e| {
-                info!(target: "script", "Error validating input {} of transaction {}: {:?}", i, self.hash, e);
+                info!(target: "script", "Error validating input {} of transaction {:x}: {:?}", i, self.hash, e);
                 e
             })?;
             let current_cycles = cycles
@@ -235,9 +235,9 @@ impl<'a, CS: LazyLoadCellOutput> TransactionScriptsVerifier<'a, CS> {
         for (i, cell_meta) in self.outputs.iter().enumerate() {
             let output = cell_meta.cell_output.as_ref().expect("output already set");
             if let Some(ref type_) = output.type_ {
-                let prefix = format!("Transaction {}, output {}", self.hash, i);
+                let prefix = format!("Transaction {:x}, output {}", self.hash, i);
                 let cycle = self.verify_script(type_, &prefix, None, None, max_cycles - cycles).map_err(|e| {
-                    info!(target: "script", "Error validating output {} of transaction {}: {:?}", i, self.hash, e);
+                    info!(target: "script", "Error validating output {} of transaction {:x}: {:?}", i, self.hash, e);
                     e
                 })?;
                 let current_cycles = cycles

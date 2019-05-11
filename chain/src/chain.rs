@@ -198,7 +198,7 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
     // process_block will do block verify
     // but invoker should guarantee block header be verified
     pub(crate) fn process_block(&mut self, block: Arc<Block>) -> Result<(), FailureError> {
-        debug!(target: "chain", "begin processing block: {}", block.header().hash());
+        debug!(target: "chain", "begin processing block: {:x}", block.header().hash());
         if block.header().number() < 1 {
             warn!(target: "chain", "receive 0 number block: {}-{:x}", block.header().number(), block.header().hash());
         }
@@ -653,7 +653,7 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
             let hash = self.shared.block_hash(number).unwrap_or_else(|| {
                 panic!(format!("invaild block number({}), tip={}", number, tip))
             });
-            debug!(target: "chain", "   {} => {}", number, hash);
+            debug!(target: "chain", "   {} => {:x}", number, hash);
         }
 
         debug!(target: "chain", "}}");
