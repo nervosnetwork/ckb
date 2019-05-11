@@ -10,13 +10,11 @@ test: ## Run all tests.
 
 integration: ## Run integration tests in "test" dir.
 	cargo build ${VERBOSE}
-	cp -f Cargo.lock test/Cargo.lock
-	cd test && cargo run ../target/debug/ckb
+	cd test && cp ../Cargo.lock Cargo.lock && ln -sf ../target/ target && cargo run ../target/debug/ckb
 
 integration-release: ## Run integration tests in "test" dir with release build.
 	cargo build ${VERBOSE} --release
-	cp -f Cargo.lock test/Cargo.lock
-	cd test && cargo run --release -- ../target/release/ckb
+	cd test && cp ../Cargo.lock Cargo.lock && ln -sf ../target/ target && cargo run --release -- ../target/release/ckb
 
 ##@ Document
 doc: ## Build the documentation for the local package.
@@ -28,8 +26,7 @@ doc-deps: ## Build the documentation for the local package and all dependencies.
 ##@ Building
 check: ## Runs all of the compiler's checks.
 	cargo check ${VERBOSE} --all
-	cp -f Cargo.lock test/Cargo.lock
-	cd test && cargo check ${VERBOSE} --all
+	cd test && cp ../Cargo.lock Cargo.lock && ln -sf ../target/ target && cargo check ${VERBOSE} --all
 
 build: ## Build binary with release profile.
 	cargo build ${VERBOSE} --release
@@ -50,7 +47,7 @@ fmt: ## Check Rust source code format to keep to the same style.
 
 clippy: ## Run linter to examine Rust source codes.
 	cargo clippy ${VERBOSE} --all --all-targets --all-features -- -D warnings -D clippy::clone_on_ref_ptr -D clippy::enum_glob_use -D clippy::fallible_impl_from
-	cd test && cargo clippy ${VERBOSE} --all --all-targets --all-features -- -D warnings -D clippy::clone_on_ref_ptr -D clippy::enum_glob_use -D clippy::fallible_impl_from
+	cd test && cp ../Cargo.lock Cargo.lock && ln -sf ../target/ target && cargo clippy ${VERBOSE} --all --all-targets --all-features -- -D warnings -D clippy::clone_on_ref_ptr -D clippy::enum_glob_use -D clippy::fallible_impl_from
 
 security-audit: ## Use cargo-audit to audit Cargo.lock for crates with security vulnerabilities.
 	@cargo audit --version || cargo install cargo-audit
