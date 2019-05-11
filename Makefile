@@ -51,7 +51,7 @@ fmt: setup-ckb-test ## Check Rust source code format to keep to the same style.
 
 clippy: setup-ckb-test ## Run linter to examine Rust source codes.
 	cargo clippy ${VERBOSE} --all --all-targets --all-features -- -D warnings -D clippy::clone_on_ref_ptr -D clippy::enum_glob_use -D clippy::fallible_impl_from
-	cd test && cargo clippy ${VERBOSE} --all --all-targets --all-features -- -D warnings -D clippy::clone_on_ref_ptr -D clippy::enum_glob_use -D clippy::fallible_impl_from
+	cd test && cp ../Cargo.lock Cargo.lock && ln -sf ../target/ target && cargo clippy ${VERBOSE} --all --all-targets --all-features -- -D warnings -D clippy::clone_on_ref_ptr -D clippy::enum_glob_use -D clippy::fallible_impl_from
 
 security-audit: ## Use cargo-audit to audit Cargo.lock for crates with security vulnerabilities.
 	@cargo audit --version || cargo install cargo-audit
