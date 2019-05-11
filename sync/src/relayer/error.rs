@@ -2,8 +2,8 @@ use failure::Fail;
 
 #[derive(Debug, Fail, Eq, PartialEq)]
 pub enum Error {
-    #[fail(display = "CompactBlockError::EmptyTransactions")]
-    EmptyTransactions,
+    #[fail(display = "CompactBlockError::CellbaseNotPrefilled")]
+    CellbaseNotPrefilled,
     #[fail(display = "CompactBlockError::DuplicatedShortIds")]
     DuplicatedShortIds,
     #[fail(display = "CompactBlockError::UnorderedPrefilledTransactions")]
