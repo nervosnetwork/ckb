@@ -348,4 +348,14 @@ impl Node {
         self.rewrite_spec(&spec_config_path)?;
         Ok(())
     }
+
+    pub fn assert_tx_pool_size(&self, pending_size: u64, staging_size: u64) {
+        let tx_pool_info = self
+            .rpc_client()
+            .tx_pool_info()
+            .call()
+            .expect("rpc call tx_pool_info failed");
+        assert_eq!(tx_pool_info.pending.0, pending_size);
+        assert_eq!(tx_pool_info.staging.0, staging_size);
+    }
 }

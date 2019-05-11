@@ -106,13 +106,7 @@ impl Spec for TransactionRelayMultiple {
         net.waiting_for_sync(10);
 
         info!("All transactions should be relayed and mined");
-        let tx_pool_info = node0
-            .rpc_client()
-            .tx_pool_info()
-            .call()
-            .expect("rpc call tx_pool_info failed");
-        assert_eq!(tx_pool_info.staging, 0);
-        assert_eq!(tx_pool_info.staging, 0);
+        node0.assert_tx_pool_size(0, 0);
 
         net.nodes
             .iter()

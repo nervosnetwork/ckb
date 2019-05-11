@@ -50,34 +50,16 @@ impl Spec for PoolResurrect {
         net.waiting_for_sync(10);
 
         info!("6 txs should be returned to node0 pending pool");
-        let tx_pool_info = node0
-            .rpc_client()
-            .tx_pool_info()
-            .call()
-            .expect("rpc call tx_pool_info failed");
-        assert_eq!(tx_pool_info.pending.0, txs_hash.len() as u64);
-        assert_eq!(tx_pool_info.staging.0, 0);
+        node0.assert_tx_pool_size(txs_hash.len() as u64, 0);
 
         info!("Generate 2 blocks on node0, 6 txs should be added to staging pool");
         node0.generate_block();
         node0.generate_block();
-        let tx_pool_info = node0
-            .rpc_client()
-            .tx_pool_info()
-            .call()
-            .expect("rpc call tx_pool_info failed");
-        assert_eq!(tx_pool_info.pending.0, 0);
-        assert_eq!(tx_pool_info.staging.0, txs_hash.len() as u64);
+        node0.assert_tx_pool_size(0, txs_hash.len() as u64);
 
         info!("Generate 1 block on node0, 6 txs should be included in this block");
         node0.generate_block();
-        let tx_pool_info = node0
-            .rpc_client()
-            .tx_pool_info()
-            .call()
-            .expect("rpc call tx_pool_info failed");
-        assert_eq!(tx_pool_info.pending.0, 0);
-        assert_eq!(tx_pool_info.staging.0, 0);
+        node0.assert_tx_pool_size(0, 0);
     }
 
     fn num_nodes(&self) -> usize {

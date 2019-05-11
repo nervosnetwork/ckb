@@ -39,31 +39,16 @@ impl Spec for CellbaseMaturity {
             .call()
             .unwrap();
         assert_eq!(tx_hash, tx.hash().to_owned());
-        let tx_pool_info = node
-            .rpc_client()
-            .tx_pool_info()
-            .call()
-            .expect("rpc call tx_pool_info failed");
-        assert_eq!(tx_pool_info.pending, 1);
+        node.assert_tx_pool_size(1, 0);
 
         info!("Tx will be added to staging pool in N + {} block", MATURITY);
         (0..DEFAULT_TX_PROPOSAL_WINDOW.0).for_each(|_| {
             node.generate_block();
         });
-        let tx_pool_info = node
-            .rpc_client()
-            .tx_pool_info()
-            .call()
-            .expect("rpc call tx_pool_info failed");
-        assert_eq!(tx_pool_info.staging, 1);
 
+        node.assert_tx_pool_size(0, 1);
         node.generate_block();
-        let tx_pool_info = node
-            .rpc_client()
-            .tx_pool_info()
-            .call()
-            .expect("rpc call tx_pool_info failed");
-        assert_eq!(tx_pool_info.staging, 0);
+        node.assert_tx_pool_size(0, 0);
     }
 
     fn num_nodes(&self) -> usize {
