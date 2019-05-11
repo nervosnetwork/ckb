@@ -134,35 +134,65 @@ impl HeaderStatus {
 }
 
 #[derive(Debug)]
+pub enum ResolvedCell {
+    Cell(Box<CellMeta>),
+    IssuingDaoInput,
+    Null,
+}
+
+impl ResolvedCell {
+    pub fn cell_meta(&self) -> Option<&CellMeta> {
+        match self {
+            ResolvedCell::Cell(cell_meta) => Some(cell_meta),
+            _ => None,
+        }
+    }
+
+    pub fn is_issuing_dao_input(&self) -> bool {
+        match self {
+            ResolvedCell::IssuingDaoInput => true,
+            _ => false,
+        }
+    }
+}
+
+#[derive(Debug)]
 pub struct ResolvedOutPoint {
-    pub cell: Option<CellMeta>,
+    pub cell: ResolvedCell,
     pub header: Option<Box<Header>>,
 }
 
 impl ResolvedOutPoint {
+    pub fn issuing_dao() -> ResolvedOutPoint {
+        ResolvedOutPoint {
+            cell: ResolvedCell::IssuingDaoInput,
+            header: None,
+        }
+    }
+
     pub fn cell_only(cell: CellMeta) -> ResolvedOutPoint {
         ResolvedOutPoint {
-            cell: Some(cell),
+            cell: ResolvedCell::Cell(Box::new(cell)),
             header: None,
         }
     }
 
     pub fn header_only(header: Header) -> ResolvedOutPoint {
         ResolvedOutPoint {
-            cell: None,
+            cell: ResolvedCell::Null,
             header: Some(Box::new(header)),
         }
     }
 
     pub fn cell_and_header(cell: CellMeta, header: Header) -> ResolvedOutPoint {
         ResolvedOutPoint {
-            cell: Some(cell),
+            cell: ResolvedCell::Cell(Box::new(cell)),
             header: Some(Box::new(header)),
         }
     }
 
     pub fn cell(&self) -> Option<&CellMeta> {
-        self.cell.as_ref()
+        self.cell.cell_meta()
     }
 
     pub fn header(&self) -> Option<&Header> {
@@ -372,6 +402,11 @@ pub fn resolve_transaction<'a, CP: CellProvider, HP: HeaderProvider>(
     // skip resolve input of cellbase
     if !transaction.is_cellbase() {
         for out_point in transaction.input_pts_iter() {
+            if out_point.is_issuing_dao() {
+                resolved_inputs.push(ResolvedOutPoint::issuing_dao());
+                continue;
+            }
+
             let (cell_status, header_status) = if seen_inputs.insert(out_point.to_owned()) {
                 (
                     cell_provider.cell(out_point),
@@ -466,24 +501,12 @@ impl<'a> ResolvedTransaction<'a> {
         self.resolved_inputs.is_empty()
     }
 
-    pub fn fee(&self) -> ::occupied_capacity::Result<Capacity> {
-        self.inputs_capacity().and_then(|x| {
-            self.transaction.outputs_capacity().and_then(|y| {
-                if x > y {
-                    x.safe_sub(y)
-                } else {
-                    Ok(Capacity::zero())
-                }
-            })
-        })
-    }
-
     pub fn inputs_capacity(&self) -> ::occupied_capacity::Result<Capacity> {
         self.resolved_inputs
             .iter()
             .map(|o| {
                 o.cell
-                    .as_ref()
+                    .cell_meta()
                     .map_or_else(Capacity::zero, CellMeta::capacity)
             })
             .try_fold(Capacity::zero(), Capacity::safe_add)
@@ -637,7 +660,7 @@ mod tests {
         )
         .unwrap();
 
-        assert!(result.resolved_deps[0].cell.is_none());
+        assert!(result.resolved_deps[0].cell.cell_meta().is_none());
         assert_eq!(result.resolved_deps[0].header, Some(Box::new(header)));
     }
 
@@ -696,7 +719,7 @@ mod tests {
         )
         .unwrap();
 
-        assert!(result.resolved_deps[0].cell.is_some());
+        assert!(result.resolved_deps[0].cell.cell_meta().is_some());
         assert_eq!(result.resolved_deps[0].header, Some(Box::new(header)));
     }
 

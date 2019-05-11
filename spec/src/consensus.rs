@@ -9,6 +9,7 @@ use numext_fixed_uint::U256;
 use std::cmp;
 use std::sync::Arc;
 
+pub(crate) const DEFAULT_SECONDARY_EPOCH_REWARD: Capacity = capacity_bytes!(5);
 pub(crate) const MAX_UNCLE_NUM: usize = 2;
 pub(crate) const MAX_UNCLE_AGE: usize = 6;
 pub(crate) const TX_PROPOSAL_WINDOW: ProposalWindow = ProposalWindow(2, 10);
@@ -48,6 +49,7 @@ pub struct Consensus {
     pub genesis_block: Block,
     pub genesis_hash: H256,
     pub epoch_reward: Capacity,
+    pub secondary_epoch_reward: Capacity,
     pub max_uncles_age: usize,
     pub max_uncles_num: usize,
     pub orphan_rate_target_recip: u64,
@@ -97,6 +99,7 @@ impl Default for Consensus {
             epoch_reward: capacity_bytes!(5_000_000),
             orphan_rate_target_recip: ORPHAN_RATE_TARGET_RECIP,
             epoch_duration_target: EPOCH_DURATION_TARGET,
+            secondary_epoch_reward: DEFAULT_SECONDARY_EPOCH_REWARD,
             tx_proposal_window: TX_PROPOSAL_WINDOW,
             pow: Pow::Dummy(Default::default()),
             cellbase_maturity: CELLBASE_MATURITY,
@@ -132,6 +135,12 @@ impl Consensus {
     #[must_use]
     pub fn set_epoch_reward(mut self, epoch_reward: Capacity) -> Self {
         self.epoch_reward = epoch_reward;
+        self
+    }
+
+    #[must_use]
+    pub fn set_secondary_epoch_reward(mut self, secondary_epoch_reward: Capacity) -> Self {
+        self.secondary_epoch_reward = secondary_epoch_reward;
         self
     }
 
@@ -190,6 +199,10 @@ impl Consensus {
 
     pub fn min_epoch_length(&self) -> BlockNumber {
         MIN_EPOCH_LENGTH
+    }
+
+    pub fn secondary_epoch_reward(&self) -> Capacity {
+        self.secondary_epoch_reward
     }
 
     pub fn orphan_rate_target_recip(&self) -> u64 {

@@ -1,0 +1,12 @@
+[package]
+name = "dao-utils"
+version = "0.12.0-pre"
+license = "MIT"
+authors = ["Nervos Core Dev <dev@nervos.org>"]
+edition = "2018"
+
+[dependencies]
+ckb-core = { path = "../../../core" }
+ckb-store = { path = "../../../store" }
+dao = { path = ".." }
+numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }

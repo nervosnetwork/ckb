@@ -1,10 +1,10 @@
-use crate::common::LazyLoadCellOutput;
 use crate::syscalls::{
     utils::store_data, CellField, Source, ITEM_MISSING, LOAD_CELL_BY_FIELD_SYSCALL_NUMBER, SUCCESS,
 };
 use byteorder::{LittleEndian, WriteBytesExt};
 use ckb_core::cell::{CellMeta, ResolvedOutPoint};
 use ckb_protocol::Script as FbsScript;
+use ckb_store::LazyLoadCellOutput;
 use ckb_vm::{
     registers::{A0, A3, A4, A5, A7},
     Error as VMError, Register, SupportMachine, Syscalls,

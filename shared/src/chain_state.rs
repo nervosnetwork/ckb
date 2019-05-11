@@ -20,6 +20,7 @@ use ckb_traits::BlockMedianTimeContext;
 use ckb_util::LinkedFnvHashSet;
 use ckb_util::{FnvHashMap, FnvHashSet};
 use ckb_verification::{ContextualTransactionVerifier, TransactionVerifier};
+use dao_utils::calculate_transaction_fee;
 use log::{debug, trace};
 use lru_cache::LruCache;
 use numext_fixed_hash::H256;
@@ -337,7 +338,8 @@ impl<CS: ChainStore> ChainState<CS> {
         match self.resolve_tx_from_proposed(&tx, tx_pool) {
             Ok(rtx) => match self.verify_rtx(&rtx, cycles) {
                 Ok(cycles) => {
-                    let fee = rtx.fee().map_err(PoolError::TxFee)?;
+                    let fee = calculate_transaction_fee(Arc::clone(self.store()), &rtx)
+                        .ok_or(PoolError::TxFee)?;
                     tx_pool.add_proposed(cycles, fee, tx);
                     Ok(cycles)
                 }

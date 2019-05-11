@@ -25,6 +25,7 @@ ckb-verification = { path = "../verification" }
 ckb-protocol = { path = "../protocol" }
 ckb-script = { path = "../script" }
 occupied-capacity = { path = "../util/occupied-capacity" }
+dao-utils = { path = "../util/dao/utils" }
 
 [dev-dependencies]
 env_logger = "0.6"

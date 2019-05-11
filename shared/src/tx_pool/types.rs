@@ -7,7 +7,6 @@ use ckb_core::Capacity;
 use ckb_core::Cycle;
 use ckb_verification::TransactionError;
 use failure::Fail;
-use occupied_capacity;
 use serde_derive::{Deserialize, Serialize};
 use std::fmt;
 use std::hash::{Hash, Hasher};
@@ -52,7 +51,7 @@ pub enum PoolError {
     /// Duplicate tx
     Duplicate,
     /// tx fee
-    TxFee(occupied_capacity::Error),
+    TxFee,
 }
 
 impl PoolError {

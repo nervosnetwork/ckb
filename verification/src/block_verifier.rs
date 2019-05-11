@@ -10,6 +10,7 @@ use ckb_core::{block::Block, BlockNumber};
 use ckb_script::ScriptConfig;
 use ckb_store::ChainStore;
 use ckb_traits::{BlockMedianTimeContext, ChainProvider};
+use dao_utils::calculate_transaction_fee;
 use fnv::FnvHashSet;
 use log::error;
 use lru_cache::LruCache;
@@ -353,14 +354,16 @@ where
 }
 
 #[derive(Clone)]
-pub struct TransactionsVerifier<'a> {
+pub struct TransactionsVerifier<'a, CP> {
+    provider: CP,
     max_cycles: Cycle,
     script_config: &'a ScriptConfig,
 }
 
-impl<'a> TransactionsVerifier<'a> {
-    pub fn new(max_cycles: Cycle, script_config: &'a ScriptConfig) -> Self {
+impl<'a, CP: ChainProvider + Clone> TransactionsVerifier<'a, CP> {
+    pub fn new(provider: CP, max_cycles: Cycle, script_config: &'a ScriptConfig) -> Self {
         TransactionsVerifier {
+            provider,
             max_cycles,
             script_config,
         }
@@ -371,23 +374,28 @@ impl<'a> TransactionsVerifier<'a> {
         &self,
         resolved: &[ResolvedTransaction],
         store: Arc<CS>,
-        block_reward: Capacity,
+        epoch: &EpochExt,
         block_median_time_context: M,
-        tip_number: BlockNumber,
+        header: &Header,
         cellbase_maturity: BlockNumber,
         txs_verify_cache: &mut LruCache<H256, Cycle>,
     ) -> Result<(), Error>
     where
         M: BlockMedianTimeContext + Sync,
     {
-        // verify cellbase reward
+        let tip_number = header.number();
+        let block_reward = epoch
+            .block_reward(tip_number)
+            .map_err(|_| Error::CannotFetchBlockReward)?;
+        // Verify cellbase reward
         let cellbase = &resolved[0];
         let fee: Capacity = resolved
             .iter()
             .skip(1)
-            .map(ResolvedTransaction::fee)
-            .try_fold(Capacity::zero(), |acc, rhs| {
-                rhs.and_then(|x| acc.safe_add(x))
+            .try_fold(Capacity::zero(), |acc, tx| {
+                calculate_transaction_fee(Arc::clone(&store), &tx)
+                    .ok_or(Error::FeeCalculation)
+                    .and_then(|x| acc.safe_add(x).map_err(|_| Error::CapacityOverflow))
             })?;
         if cellbase.transaction.outputs_capacity()? > block_reward.safe_add(fee)? {
             return Err(Error::Cellbase(CellbaseError::InvalidReward));

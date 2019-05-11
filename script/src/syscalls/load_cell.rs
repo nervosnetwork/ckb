@@ -1,7 +1,7 @@
-use crate::common::LazyLoadCellOutput;
 use crate::syscalls::{Source, ITEM_MISSING, LOAD_CELL_SYSCALL_NUMBER, SUCCESS};
 use ckb_core::cell::{CellMeta, ResolvedOutPoint};
 use ckb_protocol::CellOutput as FbsCellOutput;
+use ckb_store::LazyLoadCellOutput;
 use ckb_vm::{
     registers::{A0, A1, A2, A3, A4, A7},
     Error as VMError, Memory, Register, SupportMachine, Syscalls,

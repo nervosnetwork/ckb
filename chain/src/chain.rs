@@ -17,6 +17,7 @@ use ckb_store::{ChainStore, StoreBatch};
 use ckb_traits::{BlockMedianTimeContext, ChainProvider};
 use ckb_verification::{BlockVerifier, TransactionsVerifier, Verifier};
 use crossbeam_channel::{self, select, Receiver, Sender};
+use dao::calculate_dao_data;
 use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
 use fnv::{FnvHashMap, FnvHashSet};
@@ -233,7 +234,8 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
             .block_header(&block.header().parent_hash())
             .expect("parent already store");
 
-        let cannon_total_difficulty = parent_ext.total_difficulty + block.header().difficulty();
+        let cannon_total_difficulty =
+            parent_ext.total_difficulty.to_owned() + block.header().difficulty();
         let current_total_difficulty = chain_state.total_difficulty().to_owned();
 
         debug!(
@@ -246,13 +248,6 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
         if parent_ext.txs_verified == Some(false) {
             Err(SharedError::InvalidParentBlock)?;
         }
-
-        let ext = BlockExt {
-            received_at: unix_time_as_millis(),
-            total_difficulty: cannon_total_difficulty.clone(),
-            total_uncles_count: parent_ext.total_uncles_count + block.uncles().len() as u64,
-            txs_verified: None,
-        };
 
         let mut batch = self.shared.store().new_batch()?;
         batch.insert_block(&block)?;
@@ -268,6 +263,22 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
         let new_epoch = next_epoch_ext.is_some();
 
         let epoch = next_epoch_ext.unwrap_or(parent_header_epoch);
+
+        let (ar, c) = calculate_dao_data(
+            block.header().number(),
+            &parent_ext,
+            &epoch,
+            self.shared.consensus().secondary_epoch_reward(),
+        )?;
+
+        let ext = BlockExt {
+            received_at: unix_time_as_millis(),
+            total_difficulty: cannon_total_difficulty.clone(),
+            total_uncles_count: parent_ext.total_uncles_count + block.uncles().len() as u64,
+            txs_verified: None,
+            accumulated_rate: ar,
+            accumulated_capacity: c.as_u64(),
+        };
 
         batch.insert_block_epoch_index(
             &block.header().hash(),
@@ -523,6 +534,7 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
 
         // The verify function
         let txs_verifier = TransactionsVerifier::new(
+            self.shared.clone(),
             self.shared.consensus().max_block_cycles(),
             self.shared.script_config(),
         );
@@ -574,13 +586,13 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
                             match txs_verifier.verify(
                                 &resolved,
                                 Arc::clone(self.shared.store()),
-                                epoch.block_reward(b.header().number())?,
+                                &epoch,
                                 ForkContext {
                                     fork_blocks: &fork.attached_blocks,
                                     store: Arc::clone(self.shared.store()),
                                     consensus: self.shared.consensus(),
                                 },
-                                b.header().number(),
+                                b.header(),
                                 cellbase_maturity,
                                 txs_verify_cache,
                             ) {

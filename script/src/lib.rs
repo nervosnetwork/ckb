@@ -1,4 +1,3 @@
-mod common;
 mod cost_model;
 mod syscalls;
 mod verify;
@@ -34,4 +33,15 @@ pub enum ScriptError {
     ValidationFailure(i8),
     VMError(VMInternalError),
     ExceededMaximumCycles,
+    InvalidIssuingDaoInput,
+    IOError,
+    InvalidDaoDepositHeader,
+    InvalidDaoWithdrawHeader,
+    CapacityOverflow,
+    InterestCalculation,
+    InvalidSince,
+    InvalidInterest,
+    InvalidPubkeyHash,
+    Secp,
+    ArgumentNumber,
 }

@@ -21,6 +21,7 @@ ckb-traits = { path = "../traits" }
 serde_json = "1.0"
 log = "0.4"
 ckb-chain-spec = { path = "../spec" }
+dao-utils = { path = "../util/dao/utils" }
 
 [dev-dependencies]
 ckb-db = { path = "../db" }

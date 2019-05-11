@@ -1,10 +1,14 @@
 use bytes::Bytes;
 use faster_hex::hex_encode;
 use hash::new_blake2b;
-use numext_fixed_hash::H256;
+use numext_fixed_hash::{h256, H256};
 use occupied_capacity::HasOccupiedCapacity;
 use serde_derive::{Deserialize, Serialize};
 use std::fmt;
+
+// This is the code hash for locking funds in NervosDAO. The hex used here
+// is actually "NERVOSDAOCODE0001" in hex mode.
+pub const DAO_CODE_HASH: H256 = h256!("0x4e4552564f5344414f434f444530303031");
 
 // TODO: when flatbuffer work is done, remove Serialize/Deserialize here and
 // implement proper From trait

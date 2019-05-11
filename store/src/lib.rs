@@ -1,6 +1,8 @@
 mod flat_block_body;
+mod lazy_load_cell_output;
 mod store;
 
+pub use lazy_load_cell_output::LazyLoadCellOutput;
 pub use store::{ChainKVStore, ChainStore, DefaultStoreBatch, StoreBatch};
 
 use ckb_db::Col;

@@ -234,9 +234,16 @@ impl<'a> CapacityVerifier<'a> {
     }
 
     pub fn verify(&self) -> Result<(), TransactionError> {
-        // skip OutputsSumOverflow verification for resolved cellbase
+        // skip OutputsSumOverflow verification for resolved cellbase and DAO
+        // withdraw transactions.
         // cellbase's outputs are verified by TransactionsVerifier#InvalidReward
-        if !self.resolved_transaction.is_cellbase() {
+        // DAO withdraw transaction is verified in TransactionScriptsVerifier
+        if !(self.resolved_transaction.is_cellbase()
+            || self
+                .resolved_transaction
+                .transaction
+                .is_withdrawing_from_dao())
+        {
             let inputs_total = self.resolved_transaction.resolved_inputs.iter().try_fold(
                 Capacity::zero(),
                 |acc, resolved_out_point| {

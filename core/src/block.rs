@@ -1,6 +1,7 @@
 use crate::header::{Header, HeaderBuilder};
 use crate::transaction::{ProposalShortId, Transaction};
 use crate::uncle::{uncles_hash, UncleBlock};
+use crate::Capacity;
 use ckb_merkle_tree::merkle_root;
 use fnv::FnvHashSet;
 use hash::new_blake2b;
@@ -127,6 +128,14 @@ impl Block {
                 .iter()
                 .map(Transaction::serialized_size)
                 .sum::<usize>()
+    }
+
+    pub fn outputs_capacity(&self) -> ::occupied_capacity::Result<Capacity> {
+        self.transactions
+            .iter()
+            .try_fold(Capacity::zero(), |capacity, tx| {
+                tx.outputs_capacity().and_then(|c| capacity.safe_add(c))
+            })
     }
 }
 
