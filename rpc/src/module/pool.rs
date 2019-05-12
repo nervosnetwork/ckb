@@ -67,7 +67,7 @@ impl<CS: ChainStore + 'static> PoolRpc for PoolRpcImpl<CS> {
         let tx_pool = chain_state.tx_pool();
         Ok(TxPoolInfo {
             pending: Unsigned(u64::from(tx_pool.pending_size())),
-            staging: Unsigned(u64::from(tx_pool.staging_size())),
+            proposed: Unsigned(u64::from(tx_pool.proposed_size())),
             orphan: Unsigned(u64::from(tx_pool.orphan_size())),
             last_txs_updated_at: Timestamp(chain_state.get_last_txs_updated_at()),
         })

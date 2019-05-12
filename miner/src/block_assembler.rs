@@ -376,7 +376,7 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
         let txs_size_limit =
             self.calculate_txs_size_limit(cellbase_size, bytes_limit, &uncles, &proposals)?;
         let txs_cycles_limit = cycles_limit - cellbase_cycle;
-        let entries = chain_state.get_staging_txs(txs_size_limit, txs_cycles_limit);
+        let entries = chain_state.get_proposed_txs(txs_size_limit, txs_cycles_limit);
         // Release the lock as soon as possible, let other services do their work
         drop(chain_state);
 

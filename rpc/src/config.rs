@@ -37,10 +37,6 @@ impl Config {
         self.modules.contains(&Module::Pool)
     }
 
-    pub(crate) fn trace_enable(&self) -> bool {
-        self.modules.contains(&Module::Trace)
-    }
-
     pub(crate) fn experiment_enable(&self) -> bool {
         self.modules.contains(&Module::Experiment)
     }

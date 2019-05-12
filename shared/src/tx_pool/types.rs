@@ -19,7 +19,6 @@ pub struct TxPoolConfig {
     pub max_proposal_size: usize,
     pub max_cache_size: usize,
     pub max_pending_size: usize,
-    pub trace: Option<usize>,
 }
 
 impl Default for TxPoolConfig {
@@ -30,14 +29,7 @@ impl Default for TxPoolConfig {
             max_proposal_size: 10000,
             max_cache_size: 1000,
             max_pending_size: 10000,
-            trace: Some(100),
         }
-    }
-}
-
-impl TxPoolConfig {
-    pub fn trace_enable(&self) -> bool {
-        self.trace.is_some()
     }
 }
 

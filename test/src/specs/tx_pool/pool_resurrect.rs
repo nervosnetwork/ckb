@@ -52,7 +52,7 @@ impl Spec for PoolResurrect {
         info!("6 txs should be returned to node0 pending pool");
         node0.assert_tx_pool_size(txs_hash.len() as u64, 0);
 
-        info!("Generate 2 blocks on node0, 6 txs should be added to staging pool");
+        info!("Generate 2 blocks on node0, 6 txs should be added to proposed pool");
         node0.generate_block();
         node0.generate_block();
         node0.assert_tx_pool_size(0, txs_hash.len() as u64);
