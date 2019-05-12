@@ -6,9 +6,10 @@ use ckb_network::{
     CKBProtocol, CKBProtocolContext, CKBProtocolHandler, NetworkConfig, NetworkController,
     NetworkService, NetworkState, PeerIndex, ProtocolId,
 };
-use crossbeam_channel::{self, Receiver, Sender};
+use crossbeam_channel::{self, Receiver, RecvTimeoutError, Sender};
 use std::collections::HashSet;
 use std::sync::Arc;
+use std::time::Duration;
 use tempfile::tempdir;
 
 pub type NetMessage = (PeerIndex, ProtocolId, Bytes);
@@ -56,8 +57,8 @@ impl Net {
                 dns_seeds: vec![],
                 reserved_peers: vec![],
                 reserved_only: false,
-                max_peers: 1,
-                max_outbound_peers: 1,
+                max_peers: num_nodes as u32,
+                max_outbound_peers: num_nodes as u32,
                 path: tempdir()
                     .expect("create tempdir failed")
                     .path()
@@ -139,6 +140,10 @@ impl Net {
 
     pub fn receive(&self) -> NetMessage {
         self.controller.as_ref().unwrap().1.recv().unwrap()
+    }
+
+    pub fn receive_timeout(&self, timeout: Duration) -> Result<NetMessage, RecvTimeoutError> {
+        self.controller.as_ref().unwrap().1.recv_timeout(timeout)
     }
 }
 
