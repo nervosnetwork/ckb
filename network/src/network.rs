@@ -851,6 +851,10 @@ impl NetworkController {
         self.network_state.external_urls(max_urls)
     }
 
+    pub fn node_version(&self) -> &Version {
+        &self.node_version
+    }
+
     pub fn node_id(&self) -> String {
         self.network_state.node_id()
     }

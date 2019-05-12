@@ -1,14 +1,14 @@
 mod helper;
 mod subcommand;
 
-use build_info::{get_version, Version};
+use build_info::Version;
 use ckb_app_config::{cli, ExitCode, Setup};
 
 fn run_app() -> Result<(), ExitCode> {
     // Always print backtrace on panic.
     ::std::env::set_var("RUST_BACKTRACE", "full");
 
-    let version = get_version!();
+    let version = get_version();
     let app_matches = cli::get_matches(&version);
     match app_matches.subcommand() {
         (cli::CMD_INIT, Some(matches)) => return subcommand::init(Setup::init(&matches)?),
@@ -42,5 +42,36 @@ fn run_app() -> Result<(), ExitCode> {
 fn main() {
     if let Some(exit_code) = run_app().err() {
         ::std::process::exit(exit_code.into());
+    }
+}
+
+fn get_version() -> Version {
+    let major = env!("CARGO_PKG_VERSION_MAJOR")
+        .parse::<u8>()
+        .expect("CARGO_PKG_VERSION_MAJOR parse success");
+    let minor = env!("CARGO_PKG_VERSION_MINOR")
+        .parse::<u8>()
+        .expect("CARGO_PKG_VERSION_MINOR parse success");
+    let patch = env!("CARGO_PKG_VERSION_PATCH")
+        .parse::<u16>()
+        .expect("CARGO_PKG_VERSION_PATCH parse success");
+    let dash_pre = {
+        let pre = env!("CARGO_PKG_VERSION_PRE");
+        if pre == "" {
+            pre.to_string()
+        } else {
+            "-".to_string() + pre
+        }
+    };
+
+    let commit_describe = option_env!("COMMIT_DESCRIBE").map(ToString::to_string);
+    let commit_date = option_env!("COMMIT_DATE").map(ToString::to_string);
+    Version {
+        major,
+        minor,
+        patch,
+        dash_pre,
+        commit_describe,
+        commit_date,
     }
 }
