@@ -165,7 +165,7 @@ impl<CS: ChainStore> TxPoolExecutor<CS> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ckb_chain::chain::ChainBuilder;
+    use ckb_chain::chain::{ChainBuilder, VerificationLevel};
     use ckb_chain_spec::consensus::Consensus;
     use ckb_core::block::BlockBuilder;
     use ckb_core::cell::UnresolvableError;
@@ -210,7 +210,7 @@ mod tests {
         let notify = NotifyService::default().start(Some("tx pool executor"));
 
         let chain_service = ChainBuilder::new(shared.clone(), notify)
-            .verification(false)
+            .verification_level(VerificationLevel::None)
             .build();
         let chain_controller = chain_service.start::<&str>(None);
 

@@ -581,7 +581,7 @@ mod tests {
     use self::headers_process::HeadersProcess;
     use super::*;
     use crate::{SyncSharedState, MAX_TIP_AGE};
-    use ckb_chain::chain::ChainBuilder;
+    use ckb_chain::chain::{ChainBuilder, VerificationLevel};
     use ckb_chain_spec::consensus::Consensus;
     use ckb_core::block::BlockBuilder;
     use ckb_core::extras::EpochExt;
@@ -626,7 +626,7 @@ mod tests {
 
         let notify = notify.unwrap_or_else(|| NotifyService::default().start::<&str>(None));
         let chain_service = ChainBuilder::new(shared.clone(), notify.clone())
-            .verification(false)
+            .verification_level(VerificationLevel::None)
             .build();
         let chain_controller = chain_service.start::<&str>(None);
 

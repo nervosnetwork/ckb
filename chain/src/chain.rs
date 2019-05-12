@@ -135,22 +135,48 @@ impl<'a, CS: ChainStore> BlockMedianTimeContext for ForkContext<'a, CS> {
     }
 }
 
+#[derive(Clone, Debug, Copy, Eq, PartialEq, Serialize, Deserialize)]
+pub enum VerificationLevel {
+    /// Default, full verification
+    Full,
+    /// Skip block transactions verification, may be used in light mode
+    Basic,
+    /// Skip all verification, used only in unit or integration tests
+    None,
+}
+
+impl VerificationLevel {
+    pub fn need_verify(&self) -> bool {
+        match self {
+            VerificationLevel::None => false,
+            _ => true,
+        }
+    }
+
+    pub fn need_verify_body(&self) -> bool {
+        match self {
+            VerificationLevel::Full => true,
+            _ => false,
+        }
+    }
+}
+
 pub struct ChainService<CS> {
     shared: Shared<CS>,
     notify: NotifyController,
-    verification: bool,
+    verification_level: VerificationLevel,
 }
 
 impl<CS: ChainStore + 'static> ChainService<CS> {
     pub fn new(
         shared: Shared<CS>,
         notify: NotifyController,
-        verification: bool,
+        verification_level: VerificationLevel,
     ) -> ChainService<CS> {
         ChainService {
             shared,
             notify,
-            verification,
+            verification_level,
         }
     }
 
@@ -202,7 +228,7 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
         if block.header().number() < 1 {
             warn!(target: "chain", "receive 0 number block: {}-{:x}", block.header().number(), block.header().hash());
         }
-        if self.verification {
+        if self.verification_level.need_verify() {
             let block_verifier = BlockVerifier::new(self.shared.clone());
             block_verifier.verify(&block).map_err(|e| {
                 debug!(target: "chain", "[process_block] verification error {:?}", e);
@@ -530,7 +556,7 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
         let mut found_error = None;
         // verify transaction
         for (ext, b) in dirty_exts.iter_mut().zip(fork.attached_blocks.iter()).rev() {
-            if self.verification {
+            if self.verification_level.need_verify_body() {
                 if found_error.is_none() {
                     let mut seen_inputs = FnvHashSet::default();
                     let cell_set_overlay =
@@ -665,7 +691,7 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
 pub struct ChainBuilder<CS> {
     shared: Shared<CS>,
     notify: NotifyController,
-    verification: bool,
+    verification_level: VerificationLevel,
 }
 
 impl<CS: ChainStore + 'static> ChainBuilder<CS> {
@@ -673,7 +699,7 @@ impl<CS: ChainStore + 'static> ChainBuilder<CS> {
         ChainBuilder {
             shared,
             notify,
-            verification: true,
+            verification_level: VerificationLevel::Full,
         }
     }
 
@@ -682,12 +708,12 @@ impl<CS: ChainStore + 'static> ChainBuilder<CS> {
         self
     }
 
-    pub fn verification(mut self, verification: bool) -> Self {
-        self.verification = verification;
+    pub fn verification_level(mut self, verification_level: VerificationLevel) -> Self {
+        self.verification_level = verification_level;
         self
     }
 
     pub fn build(self) -> ChainService<CS> {
-        ChainService::new(self.shared, self.notify, self.verification)
+        ChainService::new(self.shared, self.notify, self.verification_level)
     }
 }

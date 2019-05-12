@@ -1,6 +1,6 @@
 use super::super::block_verifier::UnclesVerifier;
 use super::super::error::{Error, UnclesError};
-use ckb_chain::chain::{ChainBuilder, ChainController};
+use ckb_chain::chain::{ChainBuilder, ChainController, VerificationLevel};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::extras::EpochExt;
@@ -51,7 +51,7 @@ fn start_chain(
 
     let notify = NotifyService::default().start::<&str>(None);
     let chain_service = ChainBuilder::new(shared.clone(), notify)
-        .verification(false)
+        .verification_level(VerificationLevel::None)
         .build();
     let chain_controller = chain_service.start::<&str>(None);
     (chain_controller, shared)

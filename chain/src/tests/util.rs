@@ -1,4 +1,4 @@
-use crate::chain::{ChainBuilder, ChainController};
+use crate::chain::{ChainBuilder, ChainController, VerificationLevel};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::Block;
 use ckb_core::block::BlockBuilder;
@@ -48,7 +48,11 @@ pub(crate) fn start_chain(
 
     let notify = NotifyService::default().start::<&str>(None);
     let chain_service = ChainBuilder::new(shared.clone(), notify)
-        .verification(verification)
+        .verification_level(if verification {
+            VerificationLevel::Full
+        } else {
+            VerificationLevel::None
+        })
         .build();
     let chain_controller = chain_service.start::<&str>(None);
     (chain_controller, shared)

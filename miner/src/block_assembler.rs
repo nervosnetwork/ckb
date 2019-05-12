@@ -485,8 +485,7 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
 #[cfg(test)]
 mod tests {
     use crate::{block_assembler::BlockAssembler, config::BlockAssemblerConfig};
-    use ckb_chain::chain::ChainBuilder;
-    use ckb_chain::chain::ChainController;
+    use ckb_chain::chain::{ChainBuilder, ChainController, VerificationLevel};
     use ckb_chain_spec::consensus::Consensus;
     use ckb_core::block::Block;
     use ckb_core::block::BlockBuilder;
@@ -526,7 +525,7 @@ mod tests {
 
         let notify = notify.unwrap_or_else(|| NotifyService::default().start::<&str>(None));
         let chain_service = ChainBuilder::new(shared.clone(), notify.clone())
-            .verification(false)
+            .verification_level(VerificationLevel::None)
             .build();
         let chain_controller = chain_service.start::<&str>(None);
         (chain_controller, shared, notify)

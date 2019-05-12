@@ -1,7 +1,7 @@
 use crate::relayer::TX_PROPOSAL_TOKEN;
 use crate::tests::TestNode;
 use crate::{NetworkProtocol, Relayer, SyncSharedState};
-use ckb_chain::chain::{ChainBuilder, ChainController};
+use ckb_chain::chain::{ChainBuilder, ChainController, VerificationLevel};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::BlockBuilder;
 use ckb_core::header::HeaderBuilder;
@@ -399,7 +399,7 @@ fn setup_node(
     let notify = NotifyService::default().start(Some(thread_name));
 
     let chain_service = ChainBuilder::new(shared.clone(), notify)
-        .verification(false)
+        .verification_level(VerificationLevel::None)
         .build();
     let chain_controller = chain_service.start::<&str>(None);
 

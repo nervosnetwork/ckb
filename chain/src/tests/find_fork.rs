@@ -1,4 +1,4 @@
-use crate::chain::{ChainBuilder, ForkChanges};
+use crate::chain::{ChainBuilder, ForkChanges, VerificationLevel};
 use crate::tests::util::gen_block;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::Block;
@@ -23,7 +23,7 @@ fn test_find_fork_case1() {
     let shared = builder.consensus(Consensus::default()).build().unwrap();
     let notify = NotifyService::default().start::<&str>(None);
     let mut chain_service = ChainBuilder::new(shared.clone(), notify)
-        .verification(false)
+        .verification_level(VerificationLevel::None)
         .build();
 
     let genesis = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
@@ -95,7 +95,7 @@ fn test_find_fork_case2() {
     let shared = builder.consensus(Consensus::default()).build().unwrap();
     let notify = NotifyService::default().start::<&str>(None);
     let mut chain_service = ChainBuilder::new(shared.clone(), notify)
-        .verification(false)
+        .verification_level(VerificationLevel::None)
         .build();
 
     let genesis = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
@@ -173,7 +173,7 @@ fn test_find_fork_case3() {
     let shared = builder.consensus(Consensus::default()).build().unwrap();
     let notify = NotifyService::default().start::<&str>(None);
     let mut chain_service = ChainBuilder::new(shared.clone(), notify)
-        .verification(false)
+        .verification_level(VerificationLevel::None)
         .build();
 
     let genesis = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
@@ -243,7 +243,7 @@ fn test_find_fork_case4() {
     let shared = builder.consensus(Consensus::default()).build().unwrap();
     let notify = NotifyService::default().start::<&str>(None);
     let mut chain_service = ChainBuilder::new(shared.clone(), notify)
-        .verification(false)
+        .verification_level(VerificationLevel::None)
         .build();
 
     let genesis = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();

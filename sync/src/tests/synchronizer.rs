@@ -1,7 +1,7 @@
 use crate::synchronizer::{BLOCK_FETCH_TOKEN, SEND_GET_HEADERS_TOKEN, TIMEOUT_EVICTION_TOKEN};
 use crate::tests::TestNode;
 use crate::{Config, NetworkProtocol, SyncSharedState, Synchronizer};
-use ckb_chain::chain::ChainBuilder;
+use ckb_chain::chain::{ChainBuilder, VerificationLevel};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::BlockBuilder;
 use ckb_core::header::HeaderBuilder;
@@ -85,7 +85,7 @@ fn setup_node(
     let notify = NotifyService::default().start(Some(thread_name));
 
     let chain_service = ChainBuilder::new(shared.clone(), notify)
-        .verification(false)
+        .verification_level(VerificationLevel::None)
         .build();
     let chain_controller = chain_service.start::<&str>(None);
 

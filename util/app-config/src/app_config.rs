@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 
 use serde_derive::{Deserialize, Serialize};
 
+use ckb_chain::chain::VerificationLevel;
 use ckb_chain_spec::ChainSpec;
 use ckb_db::DBConfig;
 use ckb_miner::BlockAssemblerConfig;
@@ -38,6 +39,7 @@ pub enum AppConfigContent {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CKBAppConfig {
     pub data_dir: PathBuf,
+    pub verification_level: Option<VerificationLevel>,
     pub logger: LogConfig,
     pub sentry: SentryConfig,
     pub chain: ChainConfig,

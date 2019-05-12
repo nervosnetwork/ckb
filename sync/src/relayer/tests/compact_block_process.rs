@@ -1,6 +1,6 @@
 use crate::relayer::compact_block::{CompactBlock, ShortTransactionID};
 use crate::{Relayer, SyncSharedState};
-use ckb_chain::chain::ChainBuilder;
+use ckb_chain::chain::{ChainBuilder, VerificationLevel};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::header::HeaderBuilder;
@@ -95,7 +95,7 @@ fn build_chain(tip: BlockNumber) -> (Relayer<ChainKVStore<MemoryKeyValueDB>>, Ou
     let chain_controller = {
         let notify_controller = NotifyService::default().start::<&str>(None);
         let chain_service = ChainBuilder::new(shared.clone(), notify_controller)
-            .verification(false)
+            .verification_level(VerificationLevel::None)
             .build();
         chain_service.start::<&str>(None)
     };

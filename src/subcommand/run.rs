@@ -1,7 +1,7 @@
 use crate::helper::{deadlock_detection, wait_for_exit};
 use build_info::Version;
 use ckb_app_config::{ExitCode, RunArgs};
-use ckb_chain::chain::{ChainBuilder, ChainController};
+use ckb_chain::chain::{ChainBuilder, ChainController, VerificationLevel};
 use ckb_db::{CacheDB, RocksDB};
 use ckb_miner::BlockAssembler;
 use ckb_network::{CKBProtocol, NetworkService, NetworkState};
@@ -34,7 +34,11 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
 
     let notify = NotifyService::default().start(Some("notify"));
 
-    let chain_controller = setup_chain(shared.clone(), notify.clone());
+    let chain_controller = setup_chain(
+        shared.clone(),
+        notify.clone(),
+        args.config.verification_level,
+    );
     info!(target: "main", "chain genesis hash: {:#x}", shared.genesis_hash());
 
     let block_assembler = BlockAssembler::new(shared.clone(), args.config.block_assembler);
@@ -106,8 +110,11 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
 fn setup_chain<CS: ChainStore + 'static>(
     shared: Shared<CS>,
     notify: NotifyController,
+    verification_level: Option<VerificationLevel>,
 ) -> ChainController {
-    let chain_service = ChainBuilder::new(shared, notify).build();
+    let chain_service = ChainBuilder::new(shared, notify)
+        .verification_level(verification_level.unwrap_or_else(|| VerificationLevel::Full))
+        .build();
     chain_service.start(Some("ChainService"))
 }
 
