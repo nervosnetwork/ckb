@@ -7,9 +7,8 @@ use ckb_store::ChainStore;
 use ckb_verification::ScriptVerifier;
 use jsonrpc_core::{Error, Result};
 use jsonrpc_derive::rpc;
-use jsonrpc_types::Transaction;
+use jsonrpc_types::{Cycle, DryRunResult, Transaction};
 use numext_fixed_hash::H256;
-use serde_derive::Serialize;
 use std::convert::TryInto;
 use std::sync::Arc;
 
@@ -37,11 +36,6 @@ impl<CS: ChainStore + 'static> ExperimentRpc for ExperimentRpcImpl<CS> {
         let chain_state = self.shared.chain_state().lock();
         DryRunner::new(&chain_state).run(tx)
     }
-}
-
-#[derive(Serialize)]
-pub struct DryRunResult {
-    pub cycles: String,
 }
 
 // DryRunner dry run given transaction, and return the result, including execution cycles.
@@ -94,7 +88,7 @@ impl<'a, CS: ChainStore> DryRunner<'a, CS> {
                     .verify(max_cycles)
                 {
                     Ok(cycles) => Ok(DryRunResult {
-                        cycles: cycles.to_string(),
+                        cycles: Cycle(cycles),
                     }),
                     Err(err) => Err(RPCError::custom(RPCError::Invalid, format!("{:?}", err))),
                 }
