@@ -36,7 +36,7 @@ use ckb_protocol::{
 use ckb_shared::chain_state::ChainState;
 use ckb_store::ChainStore;
 use ckb_tx_pool_executor::TxPoolExecutor;
-use ckb_util::Mutex;
+use ckb_util::{Mutex, RwLock};
 use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
 use flatbuffers::FlatBufferBuilder;
@@ -446,7 +446,7 @@ pub struct RelayState {
     pub pending_compact_blocks: Mutex<FnvHashMap<H256, CompactBlock>>,
     pub inflight_proposals: Mutex<FnvHashSet<ProposalShortId>>,
     pub pending_proposals_request: Mutex<FnvHashMap<ProposalShortId, FnvHashSet<PeerIndex>>>,
-    pub tx_filter: Mutex<LruCache<H256, ()>>,
+    pub tx_filter: RwLock<LruCache<H256, ()>>,
     pub tx_already_asked: Mutex<LruCache<H256, Instant>>,
 }
 
@@ -456,7 +456,7 @@ impl Default for RelayState {
             pending_compact_blocks: Mutex::new(FnvHashMap::default()),
             inflight_proposals: Mutex::new(FnvHashSet::default()),
             pending_proposals_request: Mutex::new(FnvHashMap::default()),
-            tx_filter: Mutex::new(LruCache::new(TX_FILTER_SIZE)),
+            tx_filter: RwLock::new(LruCache::new(TX_FILTER_SIZE)),
             tx_already_asked: Mutex::new(LruCache::new(TX_ASKED_SIZE)),
         }
     }
@@ -465,10 +465,10 @@ impl Default for RelayState {
 impl RelayState {
     fn insert_tx(&self, hash: H256) {
         self.tx_already_asked.lock().remove(&hash);
-        self.tx_filter.lock().insert(hash, ());
+        self.tx_filter.write().insert(hash, ());
     }
 
     fn already_known(&self, hash: &H256) -> bool {
-        self.tx_filter.lock().contains_key(hash)
+        self.tx_filter.read().contains_key(hash)
     }
 }
