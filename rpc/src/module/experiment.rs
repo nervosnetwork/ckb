@@ -103,8 +103,9 @@ impl<'a, CS: ChainStore> DaoWithdrawCalculator<'a, CS> {
             .ok_or(DaoWithdrawError::MissingHeader)?;
 
         let output = &tx.outputs()[cell_out_point.index as usize];
-        let withdraw_capacity = calculate_maximum_withdraw(&output, &deposit_ext, &withdraw_ext)
-            .map_err(|_| DaoWithdrawError::CalculationError)?;
+        let withdraw_capacity =
+            calculate_maximum_withdraw(&output, &deposit_ext.dao_stats, &withdraw_ext.dao_stats)
+                .map_err(|_| DaoWithdrawError::CalculationError)?;
 
         Ok(Capacity(withdraw_capacity))
     }

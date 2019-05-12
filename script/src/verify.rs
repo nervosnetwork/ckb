@@ -357,9 +357,12 @@ impl<'a, CS: ChainStore> TransactionScriptsVerifier<'a, CS> {
                 return Err(ScriptError::InvalidSince);
             }
 
-            let maximum_withdraw =
-                calculate_maximum_withdraw(&output, &deposit_block_ext, &withdraw_block_ext)
-                    .map_err(|_| ScriptError::InterestCalculation)?;
+            let maximum_withdraw = calculate_maximum_withdraw(
+                &output,
+                &deposit_block_ext.dao_stats,
+                &withdraw_block_ext.dao_stats,
+            )
+            .map_err(|_| ScriptError::InterestCalculation)?;
 
             maximum_output_capacities = maximum_output_capacities
                 .safe_add(maximum_withdraw)
@@ -484,6 +487,7 @@ mod tests {
     use super::*;
     use byteorder::{LittleEndian, WriteBytesExt};
     use ckb_core::cell::CellMeta;
+    use ckb_core::extras::DaoStats;
     use ckb_core::header::HeaderBuilder;
     use ckb_core::script::Script;
     use ckb_core::transaction::{CellInput, CellOutput, OutPoint, TransactionBuilder};
@@ -1238,11 +1242,17 @@ mod tests {
         let store = Arc::new(new_memory_store());
 
         let deposit_ext = BlockExt {
-            accumulated_rate: 10_000_000_000_123_456,
+            dao_stats: DaoStats {
+                accumulated_rate: 10_000_000_000_123_456,
+                ..Default::default()
+            },
             ..Default::default()
         };
         let withdraw_ext = BlockExt {
-            accumulated_rate: 10_000_000_001_123_456,
+            dao_stats: DaoStats {
+                accumulated_rate: 10_000_000_001_123_456,
+                ..Default::default()
+            },
             ..Default::default()
         };
 
@@ -1338,11 +1348,17 @@ mod tests {
         let store = Arc::new(new_memory_store());
 
         let deposit_ext = BlockExt {
-            accumulated_rate: 10_000_000_000_123_456,
+            dao_stats: DaoStats {
+                accumulated_rate: 10_000_000_000_123_456,
+                ..Default::default()
+            },
             ..Default::default()
         };
         let withdraw_ext = BlockExt {
-            accumulated_rate: 10_000_000_001_123_456,
+            dao_stats: DaoStats {
+                accumulated_rate: 10_000_000_001_123_456,
+                ..Default::default()
+            },
             ..Default::default()
         };
 
@@ -1430,11 +1446,17 @@ mod tests {
         let store = Arc::new(new_memory_store());
 
         let deposit_ext = BlockExt {
-            accumulated_rate: 10_000_000_000_123_456,
+            dao_stats: DaoStats {
+                accumulated_rate: 10_000_000_000_123_456,
+                ..Default::default()
+            },
             ..Default::default()
         };
         let withdraw_ext = BlockExt {
-            accumulated_rate: 10_000_000_001_123_456,
+            dao_stats: DaoStats {
+                accumulated_rate: 10_000_000_001_123_456,
+                ..Default::default()
+            },
             ..Default::default()
         };
 
@@ -1530,11 +1552,17 @@ mod tests {
         let store = Arc::new(new_memory_store());
 
         let deposit_ext = BlockExt {
-            accumulated_rate: 10_000_000_000_123_456,
+            dao_stats: DaoStats {
+                accumulated_rate: 10_000_000_000_123_456,
+                ..Default::default()
+            },
             ..Default::default()
         };
         let withdraw_ext = BlockExt {
-            accumulated_rate: 10_000_000_001_123_456,
+            dao_stats: DaoStats {
+                accumulated_rate: 10_000_000_001_123_456,
+                ..Default::default()
+            },
             ..Default::default()
         };
 
@@ -1628,7 +1656,10 @@ mod tests {
         let store = Arc::new(new_memory_store());
 
         let deposit_ext = BlockExt {
-            accumulated_rate: 10_000_000_000_123_456,
+            dao_stats: DaoStats {
+                accumulated_rate: 10_000_000_000_123_456,
+                ..Default::default()
+            },
             ..Default::default()
         };
 
@@ -1721,11 +1752,17 @@ mod tests {
         let store = Arc::new(new_memory_store());
 
         let deposit_ext = BlockExt {
-            accumulated_rate: 10_000_000_000_123_456,
+            dao_stats: DaoStats {
+                accumulated_rate: 10_000_000_000_123_456,
+                ..Default::default()
+            },
             ..Default::default()
         };
         let withdraw_ext = BlockExt {
-            accumulated_rate: 10_000_000_001_123_456,
+            dao_stats: DaoStats {
+                accumulated_rate: 10_000_000_001_123_456,
+                ..Default::default()
+            },
             ..Default::default()
         };
 
@@ -1821,11 +1858,17 @@ mod tests {
         let store = Arc::new(new_memory_store());
 
         let deposit_ext = BlockExt {
-            accumulated_rate: 10_000_000_000_123_456,
+            dao_stats: DaoStats {
+                accumulated_rate: 10_000_000_000_123_456,
+                ..Default::default()
+            },
             ..Default::default()
         };
         let withdraw_ext = BlockExt {
-            accumulated_rate: 10_000_000_001_123_456,
+            dao_stats: DaoStats {
+                accumulated_rate: 10_000_000_001_123_456,
+                ..Default::default()
+            },
             ..Default::default()
         };
 

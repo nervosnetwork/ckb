@@ -45,8 +45,12 @@ pub fn calculate_transaction_fee<CS: ChainStore>(
                             });
                             match (deposit_ext, withdraw_ext) {
                                 (Some(deposit_ext), Some(withdraw_ext)) => {
-                                    calculate_maximum_withdraw(&output, &deposit_ext, &withdraw_ext)
-                                        .ok()
+                                    calculate_maximum_withdraw(
+                                        &output,
+                                        &deposit_ext.dao_stats,
+                                        &withdraw_ext.dao_stats,
+                                    )
+                                    .ok()
                                 }
                                 _ => None,
                             }

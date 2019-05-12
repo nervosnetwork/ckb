@@ -12,6 +12,11 @@ pub struct BlockExt {
     pub total_difficulty: U256,
     pub total_uncles_count: u64,
     pub txs_verified: Option<bool>,
+    pub dao_stats: DaoStats,
+}
+
+#[derive(Clone, Serialize, Deserialize, PartialEq, Default, Debug)]
+pub struct DaoStats {
     // DAO related fields
     // accmulated rate is multiplied by 10**16 to keep as much decimals
     // as we can. In this case, we can still represent a maximum value

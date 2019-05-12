@@ -11,7 +11,9 @@ use bincode::{deserialize, serialize};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::cell::CellMeta;
-use ckb_core::extras::{BlockExt, EpochExt, TransactionAddress, DEFAULT_ACCUMULATED_RATE};
+use ckb_core::extras::{
+    BlockExt, DaoStats, EpochExt, TransactionAddress, DEFAULT_ACCUMULATED_RATE,
+};
 use ckb_core::header::{BlockNumber, Header};
 use ckb_core::transaction::{CellOutPoint, CellOutput, ProposalShortId, Transaction};
 use ckb_core::uncle::UncleBlock;
@@ -183,11 +185,13 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
             total_difficulty: genesis.header().difficulty().clone(),
             total_uncles_count: 0,
             txs_verified: Some(true),
-            accumulated_rate: DEFAULT_ACCUMULATED_RATE,
-            accumulated_capacity: genesis
-                .outputs_capacity()
-                .map_err(|e| Error::DBError(e.to_string()))?
-                .as_u64(),
+            dao_stats: DaoStats {
+                accumulated_rate: DEFAULT_ACCUMULATED_RATE,
+                accumulated_capacity: genesis
+                    .outputs_capacity()
+                    .map_err(|e| Error::DBError(e.to_string()))?
+                    .as_u64(),
+            },
         };
 
         let mut cells = Vec::with_capacity(genesis.transactions().len());
@@ -511,8 +515,10 @@ mod tests {
             total_difficulty: block.header().difficulty().to_owned(),
             total_uncles_count: block.uncles().len() as u64,
             txs_verified: Some(true),
-            accumulated_rate: DEFAULT_ACCUMULATED_RATE,
-            accumulated_capacity: block.outputs_capacity().unwrap().as_u64(),
+            dao_stats: DaoStats {
+                accumulated_rate: DEFAULT_ACCUMULATED_RATE,
+                accumulated_capacity: block.outputs_capacity().unwrap().as_u64(),
+            },
         };
 
         let hash = block.header().hash();

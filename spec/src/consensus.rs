@@ -9,6 +9,7 @@ use numext_fixed_uint::U256;
 use std::cmp;
 use std::sync::Arc;
 
+// TODO: add secondary reward for miner
 pub(crate) const DEFAULT_SECONDARY_EPOCH_REWARD: Capacity = capacity_bytes!(5);
 pub(crate) const MAX_UNCLE_NUM: usize = 2;
 pub(crate) const MAX_UNCLE_AGE: usize = 6;

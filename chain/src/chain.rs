@@ -4,7 +4,7 @@ use ckb_core::cell::{
     resolve_transaction, BlockCellProvider, BlockHeadersProvider, OverlayCellProvider,
     OverlayHeaderProvider, ResolvedTransaction,
 };
-use ckb_core::extras::BlockExt;
+use ckb_core::extras::{BlockExt, DaoStats};
 use ckb_core::service::{Request, DEFAULT_CHANNEL_SIZE, SIGNAL_CHANNEL_SIZE};
 use ckb_core::transaction::{CellOutput, ProposalShortId};
 use ckb_core::{header::Header, BlockNumber, Cycle};
@@ -266,7 +266,7 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
 
         let (ar, c) = calculate_dao_data(
             block.header().number(),
-            &parent_ext,
+            &parent_ext.dao_stats,
             &epoch,
             self.shared.consensus().secondary_epoch_reward(),
         )?;
@@ -276,8 +276,10 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
             total_difficulty: cannon_total_difficulty.clone(),
             total_uncles_count: parent_ext.total_uncles_count + block.uncles().len() as u64,
             txs_verified: None,
-            accumulated_rate: ar,
-            accumulated_capacity: c.as_u64(),
+            dao_stats: DaoStats {
+                accumulated_rate: ar,
+                accumulated_capacity: c.as_u64(),
+            },
         };
 
         batch.insert_block_epoch_index(
