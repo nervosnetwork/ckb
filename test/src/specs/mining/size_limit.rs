@@ -33,7 +33,7 @@ impl Spec for TemplateSizeLimit {
         assert_eq!(new_block.serialized_size(0), 1036);
         assert_eq!(new_block.transactions().len(), 7);
 
-        let new_block = node.new_block(Some("1000".to_string()), None, None);
+        let new_block = node.new_block(Some(1000), None, None);
         assert_eq!(new_block.transactions().len(), 6);
     }
 

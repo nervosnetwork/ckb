@@ -57,13 +57,7 @@ impl Spec for ValidSince {
         node.assert_tx_pool_size(0, 0);
 
         // test absolute block number since
-        let tip_number: BlockNumber = node
-            .rpc_client()
-            .get_tip_block_number()
-            .call()
-            .unwrap()
-            .parse()
-            .unwrap();
+        let tip_number: BlockNumber = node.rpc_client().get_tip_block_number().call().unwrap().0;
         info!(
             "Use tip block {} cellbase as tx input with an absolute block number since",
             tip_number

@@ -8,7 +8,7 @@ use ckb_core::script::Script;
 use ckb_core::transaction::{CellInput, CellOutput, OutPoint, Transaction, TransactionBuilder};
 use ckb_core::{capacity_bytes, BlockNumber, Bytes, Capacity};
 use jsonrpc_client_http::{HttpHandle, HttpTransport};
-use jsonrpc_types::{BlockTemplate, CellbaseTemplate};
+use jsonrpc_types::{BlockTemplate, CellbaseTemplate, Unsigned, Version};
 use log::info;
 use numext_fixed_hash::{h256, H256};
 use rand;
@@ -178,10 +178,13 @@ impl Node {
 
     pub fn new_block(
         &self,
-        bytes_limit: Option<String>,
-        proposals_limit: Option<String>,
+        bytes_limit: Option<u64>,
+        proposals_limit: Option<u64>,
         max_version: Option<u32>,
     ) -> Block {
+        let bytes_limit = bytes_limit.map(Unsigned);
+        let proposals_limit = proposals_limit.map(Unsigned);
+        let max_version = max_version.map(Version);
         let template = self
             .rpc_client()
             .get_block_template(bytes_limit, proposals_limit, max_version)

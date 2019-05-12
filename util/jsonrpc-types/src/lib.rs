@@ -3,6 +3,7 @@ mod blockchain;
 mod bytes;
 mod cell;
 mod chain_info;
+mod experiment;
 mod net;
 mod pool;
 mod proposal_short_id;
@@ -41,6 +42,7 @@ pub use self::blockchain::{
 pub use self::bytes::JsonBytes;
 pub use self::cell::{CellOutputWithOutPoint, CellWithStatus};
 pub use self::chain_info::ChainInfo;
+pub use self::experiment::DryRunResult;
 pub use self::net::{Node, NodeAddress};
 pub use self::pool::TxPoolInfo;
 pub use self::proposal_short_id::ProposalShortId;
