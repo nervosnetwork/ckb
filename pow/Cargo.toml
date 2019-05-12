@@ -3,7 +3,7 @@ name = "ckb-pow"
 version = "0.12.0-pre"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
-
+license = "MIT"
 
 [dependencies]
 numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }

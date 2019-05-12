@@ -3,6 +3,7 @@ name = "ckb-app-config"
 version = "0.12.0-pre"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
+license = "MIT"
 build = "build.rs"
 
 [dependencies]

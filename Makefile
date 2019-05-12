@@ -61,13 +61,16 @@ security-audit: ## Use cargo-audit to audit Cargo.lock for crates with security 
 ##@ Continuous Integration
 
 ci: ## Run recipes for CI.
-ci: fmt clippy security-audit test
+ci: cargo-license fmt clippy security-audit test
 	git diff --exit-code Cargo.lock
 
 info: ## Show environment info.
 	date
 	pwd
 	env
+
+cargo-license:
+	FILES="$$(find . -name Cargo.toml | xargs grep -L '^license')"; if [ -n "$$FILES" ]; then echo "Missing license in: $${FILES}"; false; fi
 
 ##@ Generates Files
 GEN_FILES := protocol/src/protocol_generated.rs protocol/src/protocol_generated_verifier.rs
