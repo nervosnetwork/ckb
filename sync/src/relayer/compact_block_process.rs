@@ -59,9 +59,6 @@ impl<'a, CS: ChainStore + 'static> CompactBlockProcess<'a, CS> {
                 );
                 return Ok(());
             }
-        } else if self.relayer.shared.is_initial_block_download() {
-            // If self is in the IBD state, do nothing
-            return Ok(());
         } else {
             debug!(target: "relay", "UnknownParent: {:x}, send_getheaders_to_peer({})", block_hash, self.peer);
             self.relayer.shared.send_getheaders_to_peer(

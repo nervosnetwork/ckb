@@ -32,11 +32,6 @@ impl<'a, CS: ChainStore> TransactionHashProcess<'a, CS> {
     }
 
     pub fn execute(self) -> Result<(), FailureError> {
-        if self.relayer.shared.is_initial_block_download() {
-            debug!(target: "relay", "Do not ask for transaction when initial block download");
-            return Ok(());
-        }
-
         let tx_hash: H256 = (*self.message).try_into()?;
         let short_id = ProposalShortId::from_tx_hash(&tx_hash);
         if self.relayer.state.already_known(&tx_hash) {

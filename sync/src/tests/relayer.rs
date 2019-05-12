@@ -48,7 +48,7 @@ fn relay_compact_block_with_one_tx() {
     let (signal_tx1, _) = sync_channel(DEFAULT_CHANNEL);
     let barrier1 = Arc::clone(&barrier);
     thread::Builder::new()
-        .name(thread_name)
+        .name(thread_name.clone())
         .spawn(move || {
             let last_block = shared1
                 .block(&shared1.chain_state().lock().tip_hash())
@@ -175,16 +175,19 @@ fn relay_compact_block_with_one_tx() {
 
     let barrier2 = Arc::clone(&barrier);
     let (signal_tx2, signal_rx2) = sync_channel(DEFAULT_CHANNEL);
-    thread::spawn(move || {
-        node2.start(&signal_tx2, |data| {
-            let msg = get_root::<RelayMessage>(data);
-            // terminate thread 2 compact block
-            msg.payload_as_compact_block()
-                .map(|block| block.header().unwrap().number() == 5)
-                .unwrap_or(false)
-        });
-        barrier2.wait();
-    });
+    thread::Builder::new()
+        .name(thread_name)
+        .spawn(move || {
+            node2.start(&signal_tx2, |data| {
+                let msg = get_root::<RelayMessage>(data);
+                // terminate thread 2 compact block
+                msg.payload_as_compact_block()
+                    .map(|block| block.header().unwrap().number() == 5)
+                    .unwrap_or(false)
+            });
+            barrier2.wait();
+        })
+        .expect("thread spawn");
 
     // Wait node2 receive transaction and block from node1
     let _ = signal_rx2.recv();
@@ -214,7 +217,7 @@ fn relay_compact_block_with_missing_indexs() {
 
     let (signal_tx1, _) = sync_channel(DEFAULT_CHANNEL);
     thread::Builder::new()
-        .name(thread_name)
+        .name(thread_name.clone())
         .spawn(move || {
             let last_block = shared1
                 .block(&shared1.chain_state().lock().tip_hash())
@@ -347,15 +350,18 @@ fn relay_compact_block_with_missing_indexs() {
         .expect("thread spawn");
 
     let (signal_tx2, signal_rx2) = sync_channel(DEFAULT_CHANNEL);
-    thread::spawn(move || {
-        node2.start(&signal_tx2, |data| {
-            let msg = get_root::<RelayMessage>(data);
-            // terminate thread after processing block transactions
-            msg.payload_as_block_transactions()
-                .map(|_| true)
-                .unwrap_or(false)
-        });
-    });
+    thread::Builder::new()
+        .name(thread_name)
+        .spawn(move || {
+            node2.start(&signal_tx2, |data| {
+                let msg = get_root::<RelayMessage>(data);
+                // terminate thread after processing block transactions
+                msg.payload_as_block_transactions()
+                    .map(|_| true)
+                    .unwrap_or(false)
+            });
+        })
+        .expect("thread spawn");
 
     // Wait node2 receive transaction and block from node1
     let _ = signal_rx2.recv();
@@ -401,7 +407,7 @@ fn setup_node(
     let chain_service = ChainBuilder::new(shared.clone(), notify)
         .verification(false)
         .build();
-    let chain_controller = chain_service.start::<&str>(None);
+    let chain_controller = chain_service.start(Some(thread_name));
 
     for _i in 0..height {
         let number = block.header().number() + 1;

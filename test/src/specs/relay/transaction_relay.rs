@@ -13,6 +13,11 @@ impl Spec for TransactionRelayBasic {
         let node0 = &net.nodes[0];
         let node1 = &net.nodes[1];
         let node2 = &net.nodes[2];
+        // generate 1 block to exit IBD mode.
+        let block = node0.new_block(None, None, None);
+        node0.submit_block(&block);
+        node1.submit_block(&block);
+        node2.submit_block(&block);
 
         info!("Generate new transaction on node1");
         node1.generate_block();
@@ -50,13 +55,14 @@ impl Spec for TransactionRelayMultiple {
         info!("Running TransactionRelayMultiple");
 
         let node0 = &net.nodes[0];
-        // generate 1 block on node0, to exit IBD mode.
-        node0.generate_block();
-        net.waiting_for_sync(10);
+        // generate 1 block to exit IBD mode.
+        let block = node0.new_block(None, None, None);
+        net.nodes.iter().for_each(|node| {
+            node.submit_block(&block);
+        });
 
         info!("Use generated block's cellbase as tx input");
-        let tip_block = node0.get_tip_block();
-        let parent_hash = tip_block.transactions()[0].hash().to_owned();
+        let parent_hash = block.transactions()[0].hash().to_owned();
         let temp_transaction = node0.new_transaction(parent_hash);
         let mut output = temp_transaction.outputs()[0].clone();
         output.capacity = Capacity::shannons(output.capacity.as_u64() / TXS_NUM as u64);
