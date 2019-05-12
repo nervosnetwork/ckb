@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use crate::tx_pool::types::PoolEntry;
+use crate::tx_pool::types::DefectEntry;
 use ckb_core::transaction::{OutPoint, ProposalShortId, Transaction};
 use ckb_core::Cycle;
 use ckb_util::FnvHashMap;
@@ -11,7 +11,7 @@ use std::iter::ExactSizeIterator;
 ///not verified, may contain conflict transactions
 #[derive(Default, Debug, Clone)]
 pub(crate) struct OrphanPool {
-    pub(crate) vertices: FnvHashMap<ProposalShortId, PoolEntry>,
+    pub(crate) vertices: FnvHashMap<ProposalShortId, DefectEntry>,
     pub(crate) edges: FnvHashMap<OutPoint, Vec<ProposalShortId>>,
 }
 
@@ -24,7 +24,7 @@ impl OrphanPool {
         self.vertices.len()
     }
 
-    pub(crate) fn get(&self, id: &ProposalShortId) -> Option<&PoolEntry> {
+    pub(crate) fn get(&self, id: &ProposalShortId) -> Option<&DefectEntry> {
         self.vertices.get(id)
     }
 
@@ -48,7 +48,7 @@ impl OrphanPool {
         unknown: impl ExactSizeIterator<Item = OutPoint>,
     ) {
         let short_id = tx.proposal_short_id();
-        let entry = PoolEntry::new(tx, unknown.len(), cycles);
+        let entry = DefectEntry::new(tx, unknown.len(), cycles);
         for out_point in unknown {
             let edge = self.edges.entry(out_point).or_insert_with(Vec::new);
             edge.push(short_id);
@@ -70,7 +70,7 @@ impl OrphanPool {
         }
     }
 
-    pub(crate) fn remove_by_ancestor(&mut self, tx: &Transaction) -> Vec<PoolEntry> {
+    pub(crate) fn remove_by_ancestor(&mut self, tx: &Transaction) -> Vec<DefectEntry> {
         let mut txs = Vec::new();
         let mut queue = VecDeque::new();
 

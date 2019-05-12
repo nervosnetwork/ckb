@@ -40,8 +40,8 @@ impl<'a, CS: ChainStore> GetTransactionProcess<'a, CS> {
                 .shared
                 .chain_state()
                 .lock()
-                .get_entry_from_pool(&short_id)
-                .and_then(|entry| entry.cycles.map(|cycles| (entry.transaction, cycles)))
+                .get_tx_with_cycles_from_pool(&short_id)
+                .and_then(|(tx, cycles)| cycles.map(|cycles| (tx, cycles)))
         };
         if let Some((tx, cycles)) = entry_opt {
             let fbb = &mut FlatBufferBuilder::new();

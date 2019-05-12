@@ -1,6 +1,6 @@
 use crate::cell_set::{CellSet, CellSetDiff, CellSetOverlay};
 use crate::error::SharedError;
-use crate::tx_pool::types::PoolEntry;
+use crate::tx_pool::types::{DefectEntry, ProposedEntry};
 use crate::tx_pool::{PoolError, TxPool, TxPoolConfig};
 use crate::tx_proposal_table::TxProposalTable;
 use ckb_chain_spec::consensus::{Consensus, ProposalWindow};
@@ -223,8 +223,11 @@ impl<CS: ChainStore> ChainState<CS> {
         self.cell_set.update(txo_diff);
     }
 
-    pub fn get_entry_from_pool(&self, short_id: &ProposalShortId) -> Option<PoolEntry> {
-        self.tx_pool.borrow().get_entry(short_id).cloned()
+    pub fn get_tx_with_cycles_from_pool(
+        &self,
+        short_id: &ProposalShortId,
+    ) -> Option<(Transaction, Option<Cycle>)> {
+        self.tx_pool.borrow().get_tx_with_cycles(short_id)
     }
 
     // Add a verified tx into pool
@@ -334,7 +337,8 @@ impl<CS: ChainStore> ChainState<CS> {
         match self.resolve_tx_from_proposed(&tx, tx_pool) {
             Ok(rtx) => match self.verify_rtx(&rtx, cycles) {
                 Ok(cycles) => {
-                    tx_pool.add_proposed(cycles, tx);
+                    let fee = rtx.fee().map_err(PoolError::TxFee)?;
+                    tx_pool.add_proposed(cycles, fee, tx);
                     Ok(cycles)
                 }
                 Err(e) => {
@@ -347,10 +351,10 @@ impl<CS: ChainStore> ChainState<CS> {
                     UnresolvableError::Dead(_) => {
                         tx_pool
                             .conflict
-                            .insert(short_id, PoolEntry::new(tx, 0, cycles));
+                            .insert(short_id, DefectEntry::new(tx, 0, cycles));
                     }
                     UnresolvableError::Unknown(out_points) => {
-                        tx_pool.add_orphan(cycles, tx, out_points.clone());
+                        tx_pool.add_orphan(cycles, tx, out_points.to_owned());
                     }
                     // The remaining errors are Empty, UnspecifiedInputCell and
                     // InvalidHeader. They all represent invalid transactions
@@ -424,21 +428,21 @@ impl<CS: ChainStore> ChainState<CS> {
         let mut entries = Vec::new();
         for entry in tx_pool.pending.entries() {
             if self.contains_proposal_id(entry.key()) {
-                entries.push(entry.remove());
+                let entry = entry.remove();
+                entries.push((entry.cycles, entry.transaction));
             }
         }
 
         for entry in tx_pool.conflict.entries() {
             if self.contains_proposal_id(entry.key()) {
-                entries.push(entry.remove());
+                let entry = entry.remove();
+                entries.push((entry.cycles, entry.transaction));
             }
         }
 
-        for entry in entries {
-            let tx_hash = entry.transaction.hash().to_owned();
-            if let Err(e) =
-                self.proposed_tx_and_descendants(&mut tx_pool, entry.cycles, entry.transaction)
-            {
+        for (cycles, tx) in entries {
+            let tx_hash = tx.hash().to_owned();
+            if let Err(e) = self.proposed_tx_and_descendants(&mut tx_pool, cycles, tx) {
                 debug!(target: "tx_pool", "Failed to add proposed tx {:x}, reason: {:?}", tx_hash, e);
             }
         }
@@ -453,7 +457,11 @@ impl<CS: ChainStore> ChainState<CS> {
         tx_pool.pending.fetch(proposals_limit)
     }
 
-    pub fn get_proposed_txs(&self, txs_size_limit: usize, cycles_limit: Cycle) -> Vec<PoolEntry> {
+    pub fn get_proposed_txs(
+        &self,
+        txs_size_limit: usize,
+        cycles_limit: Cycle,
+    ) -> Vec<ProposedEntry> {
         let mut size = 0;
         let mut cycles = 0;
         let tx_pool = self.tx_pool.borrow();
@@ -461,7 +469,7 @@ impl<CS: ChainStore> ChainState<CS> {
             .proposed
             .txs_iter()
             .take_while(|tx| {
-                cycles += tx.cycles.expect("proposed tx have cycles");
+                cycles += tx.cycles;
                 size += tx.transaction.serialized_size();
                 (size < txs_size_limit) && (cycles < cycles_limit)
             })

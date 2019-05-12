@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use crate::tx_pool::types::PoolEntry;
+use crate::tx_pool::types::PendingEntry;
 use ckb_core::cell::{CellMeta, CellProvider, CellStatus};
 use ckb_core::transaction::{OutPoint, ProposalShortId, Transaction};
 use ckb_core::Cycle;
@@ -8,7 +8,7 @@ use ckb_util::{LinkedFnvHashMap, LinkedFnvHashMapEntries};
 
 #[derive(Default, Debug, Clone)]
 pub(crate) struct PendingQueue {
-    pub(crate) inner: LinkedFnvHashMap<ProposalShortId, PoolEntry>,
+    pub(crate) inner: LinkedFnvHashMap<ProposalShortId, PendingEntry>,
 }
 
 impl PendingQueue {
@@ -22,16 +22,20 @@ impl PendingQueue {
         self.inner.len()
     }
 
-    pub(crate) fn add_tx(&mut self, cycles: Option<Cycle>, tx: Transaction) -> Option<PoolEntry> {
+    pub(crate) fn add_tx(
+        &mut self,
+        cycles: Option<Cycle>,
+        tx: Transaction,
+    ) -> Option<PendingEntry> {
         let short_id = tx.proposal_short_id();
-        self.inner.insert(short_id, PoolEntry::new(tx, 0, cycles))
+        self.inner.insert(short_id, PendingEntry::new(tx, cycles))
     }
 
     pub(crate) fn contains_key(&self, id: &ProposalShortId) -> bool {
         self.inner.contains_key(id)
     }
 
-    pub(crate) fn get(&self, id: &ProposalShortId) -> Option<&PoolEntry> {
+    pub(crate) fn get(&self, id: &ProposalShortId) -> Option<&PendingEntry> {
         self.inner.get(id)
     }
 
@@ -39,7 +43,7 @@ impl PendingQueue {
         self.get(id).map(|x| &x.transaction)
     }
 
-    pub(crate) fn remove(&mut self, id: &ProposalShortId) -> Option<PoolEntry> {
+    pub(crate) fn remove(&mut self, id: &ProposalShortId) -> Option<PendingEntry> {
         self.inner.remove(id)
     }
 
@@ -47,7 +51,7 @@ impl PendingQueue {
         self.inner.keys().take(n).cloned().collect()
     }
 
-    pub(crate) fn entries(&mut self) -> LinkedFnvHashMapEntries<ProposalShortId, PoolEntry> {
+    pub(crate) fn entries(&mut self) -> LinkedFnvHashMapEntries<ProposalShortId, PendingEntry> {
         self.inner.entries()
     }
 }
