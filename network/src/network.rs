@@ -44,7 +44,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 use std::usize;
 use stop_handler::{SignalSender, StopHandler};
-use tokio::runtime::Runtime;
+use tokio::runtime;
 
 const PING_PROTOCOL_ID: usize = 0;
 const DISCOVERY_PROTOCOL_ID: usize = 1;
@@ -787,7 +787,10 @@ impl NetworkService {
         let thread = thread_builder
             .spawn(move || {
                 let inner_p2p_control = self.p2p_service.control().to_owned();
-                let mut runtime = Runtime::new().expect("Network tokio runtime init failed");
+                let mut runtime = runtime::Builder::new()
+                    .core_threads(4)
+                    .build()
+                    .expect("Network tokio runtime init failed");
                 runtime.spawn(self.p2p_service.for_each(|_| Ok(())));
 
                 // NOTE: for ensure background task finished
