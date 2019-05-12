@@ -9,10 +9,10 @@ code_hash = "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5"
 script_hash = "0x9a9a6bdbc38d4905eace1822f85237e3a1e238bb3f277aa7b7c8903441123510"
 
 [ckb_testnet]
-genesis = "0x89c2752ee8583cfc7342e906e624c1fe15d74e9b5dfd587024302fc3fabfedd1"
-system_cells_transaction = "0x0891412f73832a34efa698176a2375bbf91d728ebe1c0bf4d8fca6b08205a19a"
+genesis = "0x04ea9c88cd357d35560791fea3558ed2845f0062144c59a6a088c3447b278c26"
+system_cells_transaction = "0x49aa62fdb23369cae283228887f54b24179094184227d8f6f1499a0b44ec719e"
 
 [[ckb_testnet.system_cells]]
 path = "Bundled(specs/cells/secp256k1_blake160_sighash_all)"
-code_hash = "0xa6c987e2fbf5ba00cd1a83edbb1a53db088c6d1869f866a5e758a0fb99ff53a1"
-script_hash = "0x31eabe144d0487285b74fb76bdfba73aa90ca4ab4e606a4d463884402bfd93f5"
+code_hash = "0x9e3b3557f11b2b3532ce352bfe8017e9fd11d154c4c7f9b7aaaa1e621b539a08"
+script_hash = "0xf7b950dde1e3c07f17b1609f5a06d92af81a514eabcb096a4dcecce627823ba4"
