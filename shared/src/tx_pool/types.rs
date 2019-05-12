@@ -3,9 +3,11 @@
 
 use ckb_core::cell::UnresolvableError;
 use ckb_core::transaction::Transaction;
+use ckb_core::Capacity;
 use ckb_core::Cycle;
 use ckb_verification::TransactionError;
 use failure::Fail;
+use occupied_capacity;
 use serde_derive::{Deserialize, Serialize};
 use std::fmt;
 use std::hash::{Hash, Hasher};
@@ -49,6 +51,8 @@ pub enum PoolError {
     InvalidBlockNumber,
     /// Duplicate tx
     Duplicate,
+    /// tx fee
+    TxFee(occupied_capacity::Error),
 }
 
 impl PoolError {
@@ -68,9 +72,9 @@ impl fmt::Display for PoolError {
     }
 }
 
-/// An entry in the transaction pool.
+/// An defect entry (conflict or orphan) in the transaction pool.
 #[derive(Debug, Clone)]
-pub struct PoolEntry {
+pub struct DefectEntry {
     /// Transaction
     pub transaction: Transaction,
     /// refs count
@@ -79,25 +83,69 @@ pub struct PoolEntry {
     pub cycles: Option<Cycle>,
 }
 
-impl PoolEntry {
+impl DefectEntry {
     /// Create new transaction pool entry
-    pub fn new(tx: Transaction, count: usize, cycles: Option<Cycle>) -> PoolEntry {
-        PoolEntry {
+    pub fn new(tx: Transaction, refs_count: usize, cycles: Option<Cycle>) -> DefectEntry {
+        DefectEntry {
             transaction: tx,
-            refs_count: count,
+            refs_count,
             cycles,
         }
     }
 }
 
-impl Hash for PoolEntry {
+/// An entry in the transaction pool.
+#[derive(Debug, Clone)]
+pub struct PendingEntry {
+    /// Transaction
+    pub transaction: Transaction,
+    /// Cycles
+    pub cycles: Option<Cycle>,
+}
+
+impl PendingEntry {
+    /// Create new transaction pool entry
+    pub fn new(tx: Transaction, cycles: Option<Cycle>) -> PendingEntry {
+        PendingEntry {
+            transaction: tx,
+            cycles,
+        }
+    }
+}
+
+/// An entry in the transaction pool.
+#[derive(Debug, Clone)]
+pub struct ProposedEntry {
+    /// Transaction
+    pub transaction: Transaction,
+    /// refs count
+    pub refs_count: usize,
+    /// Cycles
+    pub cycles: Cycle,
+    /// fee
+    pub fee: Capacity,
+}
+
+impl ProposedEntry {
+    /// Create new transaction pool entry
+    pub fn new(tx: Transaction, refs_count: usize, cycles: Cycle, fee: Capacity) -> ProposedEntry {
+        ProposedEntry {
+            transaction: tx,
+            refs_count,
+            cycles,
+            fee,
+        }
+    }
+}
+
+impl Hash for ProposedEntry {
     fn hash<H: Hasher>(&self, state: &mut H) {
         Hash::hash(&self.transaction, state);
     }
 }
 
-impl PartialEq for PoolEntry {
-    fn eq(&self, other: &PoolEntry) -> bool {
+impl PartialEq for ProposedEntry {
+    fn eq(&self, other: &ProposedEntry) -> bool {
         self.transaction == other.transaction
     }
 }

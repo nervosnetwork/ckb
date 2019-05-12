@@ -1,10 +1,10 @@
 //! Top-level Pool type, methods, and tests
-use super::types::{PoolEntry, TxPoolConfig};
+use super::types::{DefectEntry, ProposedEntry, TxPoolConfig};
 use crate::tx_pool::orphan::OrphanPool;
 use crate::tx_pool::pending::PendingQueue;
 use crate::tx_pool::proposed::ProposedPool;
 use ckb_core::transaction::{OutPoint, ProposalShortId, Transaction};
-use ckb_core::Cycle;
+use ckb_core::{Capacity, Cycle};
 use faketime::unix_time_as_millis;
 use log::trace;
 use lru_cache::LruCache;
@@ -19,7 +19,7 @@ pub struct TxPool {
     /// Orphans in the pool
     pub(crate) orphan: OrphanPool,
     /// cache for conflict transaction
-    pub(crate) conflict: LruCache<ProposalShortId, PoolEntry>,
+    pub(crate) conflict: LruCache<ProposalShortId, DefectEntry>,
     /// last txs updated timestamp
     pub(crate) last_txs_updated_at: u64,
 }
@@ -64,10 +64,10 @@ impl TxPool {
         self.orphan.add_tx(cycles, tx, unknowns.into_iter());
     }
 
-    pub(crate) fn add_proposed(&mut self, cycles: Cycle, tx: Transaction) {
+    pub(crate) fn add_proposed(&mut self, cycles: Cycle, fee: Capacity, tx: Transaction) {
         trace!(target: "tx_pool", "add_proposed {:#x}", tx.hash());
         self.touch_last_txs_updated_at();
-        self.proposed.add_tx(cycles, tx);
+        self.proposed.add_tx(cycles, fee, tx);
     }
 
     pub(crate) fn capacity(&self) -> usize {
@@ -78,7 +78,7 @@ impl TxPool {
         self.last_txs_updated_at = unix_time_as_millis();
     }
 
-    pub fn proposed_txs_iter(&self) -> impl Iterator<Item = &PoolEntry> {
+    pub fn proposed_txs_iter(&self) -> impl Iterator<Item = &ProposedEntry> {
         self.proposed.txs_iter()
     }
 
@@ -89,12 +89,29 @@ impl TxPool {
             || self.orphan.contains_key(id)
     }
 
-    pub fn get_entry(&self, id: &ProposalShortId) -> Option<&PoolEntry> {
+    pub fn get_tx_with_cycles(&self, id: &ProposalShortId) -> Option<(Transaction, Option<Cycle>)> {
         self.pending
             .get(id)
-            .or_else(|| self.proposed.get(id))
-            .or_else(|| self.orphan.get(id))
-            .or_else(|| self.conflict.get(id))
+            .cloned()
+            .map(|entry| (entry.transaction, entry.cycles))
+            .or_else(|| {
+                self.proposed
+                    .get(id)
+                    .cloned()
+                    .map(|entry| (entry.transaction, Some(entry.cycles)))
+            })
+            .or_else(|| {
+                self.orphan
+                    .get(id)
+                    .cloned()
+                    .map(|entry| (entry.transaction, entry.cycles))
+            })
+            .or_else(|| {
+                self.conflict
+                    .get(id)
+                    .cloned()
+                    .map(|entry| (entry.transaction, entry.cycles))
+            })
     }
 
     pub fn get_tx(&self, id: &ProposalShortId) -> Option<Transaction> {
@@ -138,7 +155,7 @@ impl TxPool {
         for id in ids {
             if let Some(entries) = self.proposed.remove(id) {
                 for entry in entries {
-                    self.enqueue_tx(entry.cycles, entry.transaction);
+                    self.enqueue_tx(Some(entry.cycles), entry.transaction);
                 }
             }
         }

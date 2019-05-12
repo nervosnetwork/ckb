@@ -1,9 +1,9 @@
 #![allow(dead_code)]
 
-use crate::tx_pool::types::PoolEntry;
+use crate::tx_pool::types::ProposedEntry;
 use ckb_core::cell::{CellMeta, CellProvider, CellStatus};
 use ckb_core::transaction::{CellOutput, OutPoint, ProposalShortId, Transaction};
-use ckb_core::Cycle;
+use ckb_core::{Capacity, Cycle};
 use ckb_util::{FnvHashMap, FnvHashSet, LinkedFnvHashMap};
 use std::collections::VecDeque;
 use std::hash::Hash;
@@ -93,7 +93,7 @@ impl<K: Hash + Eq, V: Copy + Eq + Hash> Edges<K, V> {
 
 #[derive(Default, Debug, Clone)]
 pub struct ProposedPool {
-    pub(crate) vertices: LinkedFnvHashMap<ProposalShortId, PoolEntry>,
+    pub(crate) vertices: LinkedFnvHashMap<ProposalShortId, ProposedEntry>,
     pub(crate) edges: Edges<OutPoint, ProposalShortId>,
 }
 
@@ -137,7 +137,7 @@ impl ProposedPool {
         self.vertices.contains_key(id)
     }
 
-    pub fn get(&self, id: &ProposalShortId) -> Option<&PoolEntry> {
+    pub fn get(&self, id: &ProposalShortId) -> Option<&ProposedEntry> {
         self.vertices.get(id)
     }
 
@@ -153,7 +153,7 @@ impl ProposedPool {
         })
     }
 
-    pub fn remove_vertex(&mut self, id: &ProposalShortId) -> Vec<PoolEntry> {
+    pub fn remove_vertex(&mut self, id: &ProposalShortId) -> Vec<ProposedEntry> {
         let mut entries = Vec::new();
         let mut queue = VecDeque::new();
 
@@ -193,7 +193,7 @@ impl ProposedPool {
         entries
     }
 
-    pub fn remove(&mut self, id: &ProposalShortId) -> Option<Vec<PoolEntry>> {
+    pub fn remove(&mut self, id: &ProposalShortId) -> Option<Vec<ProposedEntry>> {
         let rtxs = self.remove_vertex(id);
 
         if rtxs.is_empty() {
@@ -203,7 +203,7 @@ impl ProposedPool {
         }
     }
 
-    pub fn add_tx(&mut self, cycles: Cycle, tx: Transaction) {
+    pub fn add_tx(&mut self, cycles: Cycle, fee: Capacity, tx: Transaction) {
         let inputs = tx.input_pts_iter();
         let outputs = tx.output_pts();
         let deps = tx.deps_iter();
@@ -237,7 +237,7 @@ impl ProposedPool {
         }
 
         self.vertices
-            .insert(id, PoolEntry::new(tx, count, Some(cycles)));
+            .insert(id, ProposedEntry::new(tx, count, cycles, fee));
     }
 
     pub fn remove_committed_tx(&mut self, tx: &Transaction) {
@@ -289,7 +289,7 @@ impl ProposedPool {
     }
 
     /// Get n transactions in topology
-    pub fn get_txs(&self, n: usize) -> Vec<PoolEntry> {
+    pub fn get_txs(&self, n: usize) -> Vec<ProposedEntry> {
         self.vertices
             .front_n(n)
             .iter()
@@ -297,7 +297,7 @@ impl ProposedPool {
             .collect()
     }
 
-    pub fn txs_iter(&self) -> impl Iterator<Item = &PoolEntry> {
+    pub fn txs_iter(&self) -> impl Iterator<Item = &ProposedEntry> {
         self.vertices.values()
     }
 
@@ -346,6 +346,7 @@ mod tests {
     }
 
     pub const MOCK_CYCLES: Cycle = 0;
+    pub const MOCK_FEE: Capacity = Capacity::zero();
 
     #[test]
     fn test_add_entry() {
@@ -357,8 +358,8 @@ mod tests {
         let id1 = tx1.proposal_short_id();
         let id2 = tx2.proposal_short_id();
 
-        pool.add_tx(MOCK_CYCLES, tx1.clone());
-        pool.add_tx(MOCK_CYCLES, tx2.clone());
+        pool.add_tx(MOCK_CYCLES, MOCK_FEE, tx1.clone());
+        pool.add_tx(MOCK_CYCLES, MOCK_FEE, tx2.clone());
 
         assert_eq!(pool.vertices.len(), 2);
         assert_eq!(pool.edges.inner_len(), 2);
@@ -384,8 +385,8 @@ mod tests {
         let id1 = tx1.proposal_short_id();
         let id2 = tx2.proposal_short_id();
 
-        pool.add_tx(MOCK_CYCLES, tx1.clone());
-        pool.add_tx(MOCK_CYCLES, tx2.clone());
+        pool.add_tx(MOCK_CYCLES, MOCK_FEE, tx1.clone());
+        pool.add_tx(MOCK_CYCLES, MOCK_FEE, tx2.clone());
 
         assert_eq!(pool.get(&id1).unwrap().refs_count, 0);
         assert_eq!(pool.get(&id2).unwrap().refs_count, 0);
@@ -433,11 +434,11 @@ mod tests {
 
         let mut pool = ProposedPool::new();
 
-        pool.add_tx(MOCK_CYCLES, tx1.clone());
-        pool.add_tx(MOCK_CYCLES, tx2.clone());
-        pool.add_tx(MOCK_CYCLES, tx3.clone());
-        pool.add_tx(MOCK_CYCLES, tx4.clone());
-        pool.add_tx(MOCK_CYCLES, tx5.clone());
+        pool.add_tx(MOCK_CYCLES, MOCK_FEE, tx1.clone());
+        pool.add_tx(MOCK_CYCLES, MOCK_FEE, tx2.clone());
+        pool.add_tx(MOCK_CYCLES, MOCK_FEE, tx3.clone());
+        pool.add_tx(MOCK_CYCLES, MOCK_FEE, tx4.clone());
+        pool.add_tx(MOCK_CYCLES, MOCK_FEE, tx5.clone());
 
         assert_eq!(pool.get(&id1).unwrap().refs_count, 0);
         assert_eq!(pool.get(&id3).unwrap().refs_count, 1);

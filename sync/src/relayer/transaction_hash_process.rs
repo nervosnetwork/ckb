@@ -52,7 +52,7 @@ impl<'a, CS: ChainStore> TransactionHashProcess<'a, CS> {
             .chain_state()
             .lock()
             .tx_pool()
-            .get_entry(&short_id)
+            .get_tx_with_cycles(&short_id)
             .is_some()
         {
             trace!(
