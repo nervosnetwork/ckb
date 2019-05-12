@@ -60,7 +60,7 @@ fn main() {
             Box::new(CompactBlockBasic),
             Box::new(InvalidLocatorSize),
             Box::new(TransactionRelayBasic),
-            Box::new(TransactionRelayMultiple),
+            // Box::new(TransactionRelayMultiple),
         ];
 
         specs.iter().for_each(|spec| {
