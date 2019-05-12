@@ -3,7 +3,6 @@ mod node;
 mod rpc;
 pub mod specs;
 mod utils;
-mod utils;
 
 use ckb_core::BlockNumber;
 use regex::Regex;

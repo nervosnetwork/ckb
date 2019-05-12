@@ -193,8 +193,8 @@ impl Node {
 
     pub fn new_block_builder(
         &self,
-        bytes_limit: Option<String>,
-        proposals_limit: Option<String>,
+        bytes_limit: Option<u64>,
+        proposals_limit: Option<u64>,
         max_version: Option<u32>,
     ) -> BlockBuilder {
         let bytes_limit = bytes_limit.map(Unsigned);

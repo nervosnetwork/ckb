@@ -1,4 +1,5 @@
-use crate::{sleep, Net, Spec, TestProtocol};
+use crate::utils::wait_until;
+use crate::{Net, Spec, TestProtocol};
 use ckb_protocol::SyncMessage;
 use ckb_sync::{NetworkProtocol, MAX_LOCATOR_SIZE};
 use flatbuffers::FlatBufferBuilder;
@@ -29,26 +30,25 @@ impl Spec for InvalidLocatorSize {
             fbb.finished_data().into(),
         );
 
-        sleep(3);
-        info!("Node0 should disconnect test node");
-        let peers = net.nodes[0]
-            .rpc_client()
-            .get_peers()
-            .call()
-            .expect("rpc call get_peers failed");
+        let mut rpc_client = net.nodes[0].rpc_client();
+        let ret = wait_until(10, || {
+            rpc_client
+                .get_peers()
+                .call()
+                .expect("rpc call get_peers failed")
+                .is_empty()
+        });
+        assert!(ret, "Node0 should disconnect test node");
 
-        assert!(peers.is_empty());
-
-        info!("Node0 should ban test node");
         net.connect(node0);
-        sleep(3);
-        let peers = net.nodes[0]
-            .rpc_client()
-            .get_peers()
-            .call()
-            .expect("rpc call get_peers failed");
-
-        assert!(peers.is_empty());
+        let ret = wait_until(10, || {
+            !rpc_client
+                .get_peers()
+                .call()
+                .expect("rpc call get_peers failed")
+                .is_empty()
+        });
+        assert!(!ret, "Node0 should ban test node");
     }
 
     fn num_nodes(&self) -> usize {

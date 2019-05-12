@@ -1,4 +1,4 @@
-use crate::specs::utils::{build_compact_block, build_compact_block_with_prefilled, wait_until};
+use crate::utils::{build_compact_block, build_compact_block_with_prefilled, wait_until};
 use crate::{Net, Spec, TestProtocol};
 use ckb_core::header::HeaderBuilder;
 use ckb_core::BlockNumber;
@@ -32,7 +32,7 @@ impl CompactBlockBasic {
             peer_id0,
             build_compact_block(&parent_unknown_block),
         );
-        let ret = wait_until(5, move || node0.get_tip_block() != tip_block);
+        let ret = wait_until(10, move || node0.get_tip_block() != tip_block);
         assert!(!ret, "Node0 should reconstruct empty block failed");
 
         let (_, _, data) = net.receive();
@@ -59,7 +59,7 @@ impl CompactBlockBasic {
             peer_id0,
             build_compact_block(&new_empty_block),
         );
-        let ret = wait_until(5, move || node0.get_tip_block() == new_empty_block);
+        let ret = wait_until(10, move || node0.get_tip_block() == new_empty_block);
         assert!(ret, "Node0 should reconstruct empty block successfully");
 
         self.clear_messages(net);
@@ -96,7 +96,7 @@ impl CompactBlockBasic {
             peer_id0,
             build_compact_block_with_prefilled(&new_block, vec![1]),
         );
-        let ret = wait_until(5, move || node0.get_tip_block() == new_block);
+        let ret = wait_until(50, move || node0.get_tip_block() == new_block);
         assert!(
             ret,
             "Node0 should reconstruct all-prefilled block successfully"
@@ -138,7 +138,7 @@ impl CompactBlockBasic {
             peer_id0,
             build_compact_block(&new_block),
         );
-        let ret = wait_until(5, move || node0.get_tip_block() == new_block);
+        let ret = wait_until(10, move || node0.get_tip_block() == new_block);
         assert!(!ret, "Node0 should be unable to reconstruct the block");
 
         let (_, _, data) = net.receive();

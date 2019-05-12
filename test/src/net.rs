@@ -1,5 +1,6 @@
 use crate::specs::TestProtocol;
-use crate::{sleep, Node};
+use crate::utils::wait_until;
+use crate::Node;
 use bytes::Bytes;
 use ckb_core::BlockNumber;
 use ckb_network::{
@@ -111,23 +112,21 @@ impl Net {
     }
 
     pub fn waiting_for_sync(&self, timeout: u64) {
-        for _ in 0..timeout {
-            sleep(1);
-            let tip_numbers: HashSet<_> = self
-                .nodes
-                .iter()
-                .map(|node| {
-                    node.rpc_client()
+        let mut rpc_clients: Vec<_> = self.nodes.iter().map(Node::rpc_client).collect();
+        let ret = wait_until(timeout, || {
+            rpc_clients
+                .iter_mut()
+                .map(|rpc_client| {
+                    rpc_client
                         .get_tip_block_number()
                         .call()
                         .expect("rpc call get_tip_block_number failed")
                 })
-                .collect();
-            if tip_numbers.len() == 1 {
-                return;
-            }
-        }
-        panic!("Waiting for sync timeout");
+                .collect::<HashSet<_>>()
+                .len()
+                == 1
+        });
+        assert!(ret, "timeout to wait for sync");
     }
 
     pub fn send(&self, protocol_id: ProtocolId, peer: PeerIndex, data: Bytes) {
