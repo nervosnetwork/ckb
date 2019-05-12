@@ -49,8 +49,6 @@ fn main() {
             Box::new(TemplateSizeLimit),
             Box::new(PoolReconcile),
             Box::new(PoolResurrect),
-            Box::new(TransactionRelayBasic),
-            Box::new(TransactionRelayMultiple),
             Box::new(Discovery),
             Box::new(Disconnect),
             Box::new(MalformedMessage),
@@ -61,6 +59,8 @@ fn main() {
             Box::new(DifferentTxsWithSameInput),
             Box::new(CompactBlockBasic),
             Box::new(InvalidLocatorSize),
+            Box::new(TransactionRelayBasic),
+            Box::new(TransactionRelayMultiple),
         ];
 
         specs.iter().for_each(|spec| {

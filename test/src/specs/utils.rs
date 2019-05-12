@@ -33,7 +33,7 @@ where
         if f() {
             return true;
         }
-        sleep(Duration::new(0, 100));
+        sleep(Duration::new(1, 0));
     }
     false
 }
