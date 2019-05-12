@@ -35,6 +35,11 @@ impl PrefilledVerifier {
         let short_ids = &block.short_ids;
         let txs_len = prefilled_transactions.len() + short_ids.len();
 
+        // Check the prefilled_transactions appears to have included the cellbase
+        if prefilled_transactions.is_empty() || prefilled_transactions[0].index != 0 {
+            return Err(Error::CellbaseNotPrefilled);
+        }
+
         // Check indices order of prefilled transactions
         let unordered = prefilled_transactions
             .as_slice()
@@ -66,12 +71,6 @@ impl ShortIdsVerifier {
         let prefilled_transactions = &block.prefilled_transactions;
         let short_ids = &block.short_ids;
         let short_ids_set: HashSet<&ShortTransactionID> = short_ids.iter().collect();
-        let txs_len = prefilled_transactions.len() + short_ids.len();
-
-        // Check empty transactions
-        if txs_len == 0 {
-            return Err(Error::EmptyTransactions);
-        }
 
         // Check duplicated short ids
         if short_ids.len() != short_ids_set.len() {

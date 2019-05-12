@@ -1,4 +1,5 @@
-use crate::{sleep, Net, Spec, TestProtocol};
+use crate::utils::wait_until;
+use crate::{Net, Spec, TestProtocol};
 use ckb_protocol::{get_root, SyncMessage, SyncPayload};
 use ckb_sync::NetworkProtocol;
 use log::info;
@@ -24,33 +25,30 @@ impl Spec for MalformedMessage {
             peer_id,
             vec![0, 0, 0, 0].into(),
         );
-        sleep(3);
         net.send(
             NetworkProtocol::SYNC.into(),
             peer_id,
             vec![0, 1, 2, 3].into(),
         );
-        sleep(3);
+        let mut rpc_client = net.nodes[0].rpc_client();
+        let ret = wait_until(10, || {
+            rpc_client
+                .get_peers()
+                .call()
+                .expect("rpc call get_peers failed")
+                .is_empty()
+        });
+        assert!(ret, "Node0 should disconnect test node");
 
-        info!("Node0 should disconnect test node");
-        let peers = net.nodes[0]
-            .rpc_client()
-            .get_peers()
-            .call()
-            .expect("rpc call get_peers failed");
-
-        assert!(peers.is_empty());
-
-        info!("Node0 should ban test node");
         net.connect(node0);
-        sleep(3);
-        let peers = net.nodes[0]
-            .rpc_client()
-            .get_peers()
-            .call()
-            .expect("rpc call get_peers failed");
-
-        assert!(peers.is_empty());
+        let ret = wait_until(10, || {
+            !rpc_client
+                .get_peers()
+                .call()
+                .expect("rpc call get_peers failed")
+                .is_empty()
+        });
+        assert!(!ret, "Node0 should ban test node");
     }
 
     fn num_nodes(&self) -> usize {

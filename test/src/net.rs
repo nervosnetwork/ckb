@@ -1,14 +1,16 @@
 use crate::specs::TestProtocol;
-use crate::{sleep, Node};
+use crate::utils::wait_until;
+use crate::Node;
 use bytes::Bytes;
 use ckb_core::BlockNumber;
 use ckb_network::{
     CKBProtocol, CKBProtocolContext, CKBProtocolHandler, NetworkConfig, NetworkController,
     NetworkService, NetworkState, PeerIndex, ProtocolId,
 };
-use crossbeam_channel::{self, Receiver, Sender};
+use crossbeam_channel::{self, Receiver, RecvTimeoutError, Sender};
 use std::collections::HashSet;
 use std::sync::Arc;
+use std::time::Duration;
 use tempfile::tempdir;
 
 pub type NetMessage = (PeerIndex, ProtocolId, Bytes);
@@ -56,8 +58,8 @@ impl Net {
                 dns_seeds: vec![],
                 reserved_peers: vec![],
                 reserved_only: false,
-                max_peers: 1,
-                max_outbound_peers: 1,
+                max_peers: num_nodes as u32,
+                max_outbound_peers: num_nodes as u32,
                 path: tempdir()
                     .expect("create tempdir failed")
                     .path()
@@ -110,23 +112,21 @@ impl Net {
     }
 
     pub fn waiting_for_sync(&self, timeout: u64) {
-        for _ in 0..timeout {
-            sleep(1);
-            let tip_numbers: HashSet<_> = self
-                .nodes
-                .iter()
-                .map(|node| {
-                    node.rpc_client()
+        let mut rpc_clients: Vec<_> = self.nodes.iter().map(Node::rpc_client).collect();
+        let ret = wait_until(timeout, || {
+            rpc_clients
+                .iter_mut()
+                .map(|rpc_client| {
+                    rpc_client
                         .get_tip_block_number()
                         .call()
                         .expect("rpc call get_tip_block_number failed")
                 })
-                .collect();
-            if tip_numbers.len() == 1 {
-                return;
-            }
-        }
-        panic!("Waiting for sync timeout");
+                .collect::<HashSet<_>>()
+                .len()
+                == 1
+        });
+        assert!(ret, "timeout to wait for sync");
     }
 
     pub fn send(&self, protocol_id: ProtocolId, peer: PeerIndex, data: Bytes) {
@@ -139,6 +139,10 @@ impl Net {
 
     pub fn receive(&self) -> NetMessage {
         self.controller.as_ref().unwrap().1.recv().unwrap()
+    }
+
+    pub fn receive_timeout(&self, timeout: Duration) -> Result<NetMessage, RecvTimeoutError> {
+        self.controller.as_ref().unwrap().1.recv_timeout(timeout)
     }
 }
 

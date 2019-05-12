@@ -61,6 +61,7 @@ impl Node {
         self.init_config_file().expect("failed to init config file");
 
         let child_process = Command::new(self.binary.to_owned())
+            .env("RUST_BACKTRACE", "full")
             .args(&["-C", &self.dir, "run"])
             .stdin(Stdio::null())
             .stdout(Stdio::null())
@@ -134,14 +135,18 @@ impl Node {
         RpcClient::new(transport_handle)
     }
 
-    // generate a new block and submit it through rpc.
-    pub fn generate_block(&self) -> H256 {
+    pub fn submit_block(&self, block: &Block) -> H256 {
         let result = self
             .rpc_client()
-            .submit_block("".to_owned(), (&self.new_block(None, None, None)).into())
+            .submit_block("".to_owned(), block.into())
             .call()
             .expect("rpc call submit_block failed");
         result.expect("submit_block result none")
+    }
+
+    // generate a new block and submit it through rpc.
+    pub fn generate_block(&self) -> H256 {
+        self.submit_block(&self.new_block(None, None, None))
     }
 
     // generate a transaction which spend tip block's cellbase and send it to pool through rpc.
@@ -182,6 +187,16 @@ impl Node {
         proposals_limit: Option<u64>,
         max_version: Option<u32>,
     ) -> Block {
+        self.new_block_builder(bytes_limit, proposals_limit, max_version)
+            .build()
+    }
+
+    pub fn new_block_builder(
+        &self,
+        bytes_limit: Option<u64>,
+        proposals_limit: Option<u64>,
+        max_version: Option<u32>,
+    ) -> BlockBuilder {
         let bytes_limit = bytes_limit.map(Unsigned);
         let proposals_limit = proposals_limit.map(Unsigned);
         let max_version = max_version.map(Version);
@@ -241,7 +256,6 @@ impl Node {
                     .expect("parse proposal transactions failed"),
             )
             .header_builder(header_builder)
-            .build()
     }
 
     pub fn new_transaction(&self, hash: H256) -> Transaction {

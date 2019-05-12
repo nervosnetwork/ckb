@@ -1,4 +1,5 @@
-use crate::{sleep, Net, Spec};
+use crate::utils::wait_until;
+use crate::{Net, Spec};
 use log::info;
 
 pub struct Discovery;
@@ -8,16 +9,20 @@ impl Spec for Discovery {
         info!("Running Discovery");
         let node0_id = &net.nodes[0].node_id.clone().unwrap();
         let node2 = &net.nodes[2];
+        let mut rpc_client = node2.rpc_client();
 
         info!("Waiting for discovering");
-        sleep(10);
-
-        info!("The address of node0 should be discovered by node2 and connected");
-        let peers = node2
-            .rpc_client()
-            .get_peers()
-            .call()
-            .expect("rpc call get_peers failed");
-        assert!(peers.iter().any(|peer| &peer.node_id == node0_id));
+        let ret = wait_until(10, || {
+            rpc_client
+                .get_peers()
+                .call()
+                .expect("rpc call get_peers failed")
+                .iter()
+                .any(|peer| &peer.node_id == node0_id)
+        });
+        assert!(
+            ret,
+            "the address of node0 should be discovered by node2 and connected"
+        );
     }
 }

@@ -20,7 +20,10 @@ fn new_index_transaction(index: usize) -> IndexTransaction {
 #[test]
 fn test_unordered_prefilled() {
     let mut block = CompactBlock::default();
-    let prefilled: Vec<IndexTransaction> = (0..5).rev().map(new_index_transaction).collect();
+    let prefilled: Vec<IndexTransaction> = vec![0, 1, 2, 4, 3]
+        .into_iter()
+        .map(new_index_transaction)
+        .collect();
     block.prefilled_transactions = prefilled;
     assert_eq!(
         PrefilledVerifier::new().verify(&block),
@@ -39,7 +42,10 @@ fn test_ordered_prefilled() {
 #[test]
 fn test_overflow_prefilled() {
     let mut block = CompactBlock::default();
-    let prefilled: Vec<IndexTransaction> = (1..5).map(new_index_transaction).collect();
+    let prefilled: Vec<IndexTransaction> = vec![0, 1, 2, 5]
+        .into_iter()
+        .map(new_index_transaction)
+        .collect();
     block.prefilled_transactions = prefilled;
     assert_eq!(
         PrefilledVerifier::new().verify(&block),
@@ -48,11 +54,19 @@ fn test_overflow_prefilled() {
 }
 
 #[test]
-fn test_empty_transactions() {
+fn test_cellbase_not_prefilled() {
     let block = CompactBlock::default();
     assert_eq!(
-        ShortIdsVerifier::new().verify(&block),
-        Err(Error::EmptyTransactions)
+        PrefilledVerifier::new().verify(&block),
+        Err(Error::CellbaseNotPrefilled)
+    );
+
+    let mut block = CompactBlock::default();
+    let prefilled: Vec<IndexTransaction> = (1..5).map(new_index_transaction).collect();
+    block.prefilled_transactions = prefilled;
+    assert_eq!(
+        PrefilledVerifier::new().verify(&block),
+        Err(Error::CellbaseNotPrefilled),
     );
 }
 

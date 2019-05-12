@@ -1,4 +1,5 @@
-use crate::{sleep, Net, Spec};
+use crate::utils::wait_until;
+use crate::{Net, Spec};
 use ckb_core::transaction::{CellInput, OutPoint, TransactionBuilder};
 use ckb_core::Capacity;
 use log::info;
@@ -18,32 +19,29 @@ impl Spec for TransactionRelayBasic {
         let hash = node1.generate_transaction();
 
         info!("Waiting for relay");
-        sleep(3);
+        let mut rpc_client = node0.rpc_client();
+        let ret = wait_until(10, || {
+            if let Some(transaction) = rpc_client.get_transaction(hash.clone()).call().unwrap() {
+                transaction.tx_status.block_hash.is_none()
+            } else {
+                false
+            }
+        });
+        assert!(ret, "Transaction should be relayed to node0");
 
-        info!("Transaction should be relayed to node0 and node2");
-        assert!(node0
-            .rpc_client()
-            .get_transaction(hash.clone())
-            .call()
-            .unwrap()
-            .unwrap()
-            .tx_status
-            .block_hash
-            .is_none());
-
-        assert!(node2
-            .rpc_client()
-            .get_transaction(hash.clone())
-            .call()
-            .unwrap()
-            .unwrap()
-            .tx_status
-            .block_hash
-            .is_none());
+        let mut rpc_client = node2.rpc_client();
+        let ret = wait_until(10, || {
+            if let Some(transaction) = rpc_client.get_transaction(hash.clone()).call().unwrap() {
+                transaction.tx_status.block_hash.is_none()
+            } else {
+                false
+            }
+        });
+        assert!(ret, "Transaction should be relayed to node2");
     }
 }
 
-const TXS_NUM: usize = 1000;
+const TXS_NUM: usize = 500;
 
 pub struct TransactionRelayMultiple;
 

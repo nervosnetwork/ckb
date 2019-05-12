@@ -1,4 +1,5 @@
-use crate::{sleep, Net, Spec};
+use crate::utils::wait_until;
+use crate::{Net, Spec};
 use log::info;
 
 pub struct BlockRelayBasic;
@@ -13,22 +14,16 @@ impl Spec for BlockRelayBasic {
         info!("Generate new block on node1");
         let hash = node1.generate_block();
 
-        info!("Waiting for relay");
-        sleep(3);
+        let mut rpc_client = node0.rpc_client();
+        let ret = wait_until(10, || {
+            rpc_client.get_block(hash.clone()).call().unwrap().is_some()
+        });
+        assert!(ret, "Block should be relayed to node0");
 
-        info!("Block should be relayed to node0 and node2");
-        assert!(node0
-            .rpc_client()
-            .get_block(hash.clone())
-            .call()
-            .unwrap()
-            .is_some());
-
-        assert!(node2
-            .rpc_client()
-            .get_block(hash.clone())
-            .call()
-            .unwrap()
-            .is_some());
+        let mut rpc_client = node2.rpc_client();
+        let ret = wait_until(10, || {
+            rpc_client.get_block(hash.clone()).call().unwrap().is_some()
+        });
+        assert!(ret, "Block should be relayed to node2");
     }
 }
