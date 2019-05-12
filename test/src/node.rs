@@ -61,6 +61,7 @@ impl Node {
         self.init_config_file().expect("failed to init config file");
 
         let child_process = Command::new(self.binary.to_owned())
+            .env("RUST_BACKTRACE", "full")
             .args(&["-C", &self.dir, "run"])
             .stdin(Stdio::null())
             .stdout(Stdio::null())
