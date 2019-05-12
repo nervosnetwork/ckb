@@ -31,7 +31,6 @@ flatbuffers = "0.6.0"
 num_cpus = "1.10"
 faster-hex = "0.3"
 jsonrpc-types = { path = "../util/jsonrpc-types" }
-build-info = { path = "../util/build-info" }
 futures = "0.1"
 ckb-verification = { path = "../verification" }
 ckb-traits = { path = "../traits" }

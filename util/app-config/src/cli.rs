@@ -1,4 +1,4 @@
-use build_info::{get_version, Version};
+use build_info::Version;
 use ckb_resource::{DEFAULT_P2P_PORT, DEFAULT_RPC_PORT, DEFAULT_SPEC};
 use clap::{App, AppSettings, Arg, ArgMatches, SubCommand};
 
@@ -25,9 +25,7 @@ pub const ARG_FORCE: &str = "force";
 pub const ARG_LOG_TO: &str = "log-to";
 pub const ARG_BUNDLED: &str = "bundled";
 
-pub fn get_matches() -> ArgMatches<'static> {
-    let version = get_version!();
-
+pub fn get_matches(version: &Version) -> ArgMatches<'static> {
     App::new("ckb")
         .author("Nervos Core Dev <dev@nervos.org>")
         .about("Nervos CKB - The Common Knowledge Base")

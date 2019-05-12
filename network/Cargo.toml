@@ -37,6 +37,7 @@ faster-hex = "0.3"
 hash = {path = "../util/hash"}
 secp256k1 = {version = "0.12.2" }
 resolve = "0.2.0"
+build-info = {path = "../util/build-info"}
 
 [dev-dependencies]
 criterion = "0.2"

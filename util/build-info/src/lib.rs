@@ -37,7 +37,7 @@ macro_rules! get_version {
 }
 
 // some code taken and adapted from RLS and cargo
-#[derive(Debug)]
+#[derive(Debug, Default, Clone)]
 pub struct Version {
     pub major: u8,
     pub minor: u8,
@@ -83,8 +83,8 @@ impl std::fmt::Display for Version {
                 self.minor,
                 self.patch,
                 self.dash_pre,
-                self.commit_describe.clone().unwrap_or_default().trim(),
-                self.commit_date.clone().unwrap_or_default().trim(),
+                self.commit_describe.clone().unwrap_or_default(),
+                self.commit_date.clone().unwrap_or_default(),
             )?;
         } else {
             write!(f, "{}.{}.{}", self.major, self.minor, self.patch)?;
@@ -108,7 +108,11 @@ pub fn get_commit_describe() -> Option<String> {
         .args(&["describe", "--dirty"])
         .output()
         .ok()
-        .and_then(|r| String::from_utf8(r.stdout).ok())
+        .and_then(|r| {
+            String::from_utf8(r.stdout)
+                .ok()
+                .map(|s| s.trim().to_string())
+        })
 }
 
 pub fn get_commit_date() -> Option<String> {
@@ -116,5 +120,9 @@ pub fn get_commit_date() -> Option<String> {
         .args(&["log", "-1", "--date=short", "--pretty=format:%cd"])
         .output()
         .ok()
-        .and_then(|r| String::from_utf8(r.stdout).ok())
+        .and_then(|r| {
+            String::from_utf8(r.stdout)
+                .ok()
+                .map(|s| s.trim().to_string())
+        })
 }

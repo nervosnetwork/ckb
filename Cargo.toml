@@ -4,6 +4,10 @@ version = "0.12.0-pre"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
+build = "build.rs"
+
+[build-dependencies]
+build-info = { path = "util/build-info" }
 
 [dependencies]
 clap = { version = "2" }

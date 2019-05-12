@@ -141,7 +141,7 @@ fn setup_node(
     let network_state =
         Arc::new(NetworkState::from_config(network_config).expect("Init network state failed"));
     let network_controller = NetworkService::new(Arc::clone(&network_state), Vec::new())
-        .start::<&str>(None)
+        .start::<&str>(Default::default(), None)
         .expect("Start network service failed");
     let sync_shared_state = Arc::new(SyncSharedState::new(shared.clone()));
     let synchronizer = Synchronizer::new(

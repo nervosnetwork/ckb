@@ -12,6 +12,7 @@ use crate::Peer;
 use crate::{
     Behaviour, CKBProtocol, NetworkConfig, ProtocolId, ProtocolVersion, PublicKey, ServiceControl,
 };
+use build_info::Version;
 use ckb_util::{Mutex, RwLock};
 use fnv::{FnvHashMap, FnvHashSet};
 use futures::sync::mpsc::channel;
@@ -729,6 +730,7 @@ impl NetworkService {
 
     pub fn start<S: ToString>(
         mut self,
+        node_version: Version,
         thread_name: Option<S>,
     ) -> Result<NetworkController, Error> {
         let config = &self.network_state.config;
@@ -828,6 +830,7 @@ impl NetworkService {
             .expect("Start NetworkService fialed");
         let stop = StopHandler::new(SignalSender::Crossbeam(sender), thread);
         Ok(NetworkController {
+            node_version,
             network_state,
             p2p_control,
             stop,
@@ -837,6 +840,7 @@ impl NetworkService {
 
 #[derive(Clone)]
 pub struct NetworkController {
+    node_version: Version,
     network_state: Arc<NetworkState>,
     p2p_control: ServiceControl,
     stop: StopHandler<()>,

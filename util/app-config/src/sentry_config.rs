@@ -1,4 +1,4 @@
-use build_info::{get_version, Version};
+use build_info::Version;
 use serde_derive::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -7,8 +7,7 @@ pub struct SentryConfig {
 }
 
 impl SentryConfig {
-    pub fn init(&self) -> sentry::internals::ClientInitGuard {
-        let version = get_version!();
+    pub fn init(&self, version: &Version) -> sentry::internals::ClientInitGuard {
         let guard = sentry::init(self.build_sentry_client_options(&version));
         if guard.is_enabled() {
             sentry::configure_scope(|scope| {
