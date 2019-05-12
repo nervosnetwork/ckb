@@ -54,6 +54,7 @@ pub const ASK_FOR_TXS_TOKEN: u64 = 1;
 pub const MAX_RELAY_PEERS: usize = 128;
 pub const TX_FILTER_SIZE: usize = 50000;
 pub const TX_ASKED_SIZE: usize = TX_FILTER_SIZE;
+pub const COMPACT_BLOCK_FILTER_SIZE: usize = 8192;
 
 pub struct Relayer<CS> {
     chain: ChainController,
@@ -357,7 +358,7 @@ impl<CS: ChainStore + 'static> Relayer<CS> {
                 .pop_ask_for_txs()
                 .into_iter()
                 .filter(|tx_hash| {
-                    let already_known = self.state.already_known(&tx_hash);
+                    let already_known = self.state.already_known_tx(&tx_hash);
                     if already_known {
                         // Remove tx_hash from `tx_ask_for_set`
                         peer_state.remove_ask_for_tx(&tx_hash);
@@ -402,7 +403,7 @@ impl<CS: ChainStore + 'static> CKBProtocolHandler for Relayer<CS> {
     ) {
         // If self is in the IBD state, don't process any relayer message.
         if self.shared.is_initial_block_download() {
-            return ();
+            return;
         }
 
         let msg = match get_root::<RelayMessage>(&data) {
@@ -436,7 +437,7 @@ impl<CS: ChainStore + 'static> CKBProtocolHandler for Relayer<CS> {
     fn notify(&mut self, nc: Arc<dyn CKBProtocolContext + Sync>, token: u64) {
         // If self is in the IBD state, don't trigger any relayer notify.
         if self.shared.is_initial_block_download() {
-            return ();
+            return;
         }
         match token {
             TX_PROPOSAL_TOKEN => self.prune_tx_proposal_request(nc.as_ref()),
@@ -452,6 +453,7 @@ pub struct RelayState {
     pub pending_proposals_request: Mutex<FnvHashMap<ProposalShortId, FnvHashSet<PeerIndex>>>,
     pub tx_filter: Mutex<LruCache<H256, ()>>,
     pub tx_already_asked: Mutex<LruCache<H256, Instant>>,
+    pub compact_block_filter: Mutex<LruCache<H256, ()>>,
 }
 
 impl Default for RelayState {
@@ -462,17 +464,26 @@ impl Default for RelayState {
             pending_proposals_request: Mutex::new(FnvHashMap::default()),
             tx_filter: Mutex::new(LruCache::new(TX_FILTER_SIZE)),
             tx_already_asked: Mutex::new(LruCache::new(TX_ASKED_SIZE)),
+            compact_block_filter: Mutex::new(LruCache::new(COMPACT_BLOCK_FILTER_SIZE)),
         }
     }
 }
 
 impl RelayState {
-    fn insert_tx(&self, hash: H256) {
+    fn mark_as_known_tx(&self, hash: H256) {
         self.tx_already_asked.lock().remove(&hash);
         self.tx_filter.lock().insert(hash, ());
     }
 
-    fn already_known(&self, hash: &H256) -> bool {
+    fn already_known_tx(&self, hash: &H256) -> bool {
         self.tx_filter.lock().contains_key(hash)
+    }
+
+    fn already_known_compact_block(&self, hash: &H256) -> bool {
+        self.compact_block_filter.lock().contains_key(hash)
+    }
+
+    fn mark_as_known_compact_block(&self, hash: H256) {
+        self.compact_block_filter.lock().insert(hash, ());
     }
 }

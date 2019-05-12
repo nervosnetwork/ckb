@@ -34,7 +34,7 @@ impl<'a, CS: ChainStore> TransactionHashProcess<'a, CS> {
     pub fn execute(self) -> Result<(), FailureError> {
         let tx_hash: H256 = (*self.message).try_into()?;
         let short_id = ProposalShortId::from_tx_hash(&tx_hash);
-        if self.relayer.state.already_known(&tx_hash) {
+        if self.relayer.state.already_known_tx(&tx_hash) {
             debug!(
                 target: "relay",
                 "transaction({}) from {} already known, ignore it",
@@ -56,7 +56,7 @@ impl<'a, CS: ChainStore> TransactionHashProcess<'a, CS> {
                 tx_hash,
                 self.peer,
             );
-            self.relayer.state.insert_tx(tx_hash.clone());
+            self.relayer.state.mark_as_known_tx(tx_hash.clone());
         } else {
             debug!(
                 target: "relay",
