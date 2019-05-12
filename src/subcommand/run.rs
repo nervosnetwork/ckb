@@ -1,4 +1,5 @@
 use crate::helper::{deadlock_detection, wait_for_exit};
+use build_info::Version;
 use ckb_app_config::{ExitCode, RunArgs};
 use ckb_chain::chain::{ChainBuilder, ChainController};
 use ckb_db::{CacheDB, RocksDB};
@@ -14,7 +15,7 @@ use ckb_verification::{BlockVerifier, Verifier};
 use log::info;
 use std::sync::Arc;
 
-pub fn run(args: RunArgs) -> Result<(), ExitCode> {
+pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
     deadlock_detection();
 
     let shared = SharedBuilder::<CacheDB<RocksDB>>::new()
@@ -81,7 +82,7 @@ pub fn run(args: RunArgs) -> Result<(), ExitCode> {
         ),
     ];
     let network_controller = NetworkService::new(Arc::clone(&network_state), protocols)
-        .start(Some("NetworkService"))
+        .start(version, Some("NetworkService"))
         .expect("Start network service failed");
 
     let rpc_server = RpcServer::new(

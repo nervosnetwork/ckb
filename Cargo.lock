@@ -537,6 +537,7 @@ name = "ckb-network"
 version = "0.12.0-pre"
 dependencies = [
  "bs58 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "build-info 0.12.0-pre",
  "bytes 0.4.12 (registry+https://github.com/rust-lang/crates.io-index)",
  "ckb-util 0.12.0-pre",
  "criterion 0.2.11 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -627,7 +628,6 @@ dependencies = [
 name = "ckb-rpc"
 version = "0.12.0-pre"
 dependencies = [
- "build-info 0.12.0-pre",
  "ckb-chain 0.12.0-pre",
  "ckb-chain-spec 0.12.0-pre",
  "ckb-core 0.12.0-pre",

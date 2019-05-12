@@ -1,4 +1,3 @@
-use build_info::{get_version, Version};
 use ckb_network::NetworkController;
 use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
@@ -24,7 +23,7 @@ pub(crate) struct NetworkRpcImpl {
 impl NetworkRpc for NetworkRpcImpl {
     fn local_node_info(&self) -> Result<Node> {
         Ok(Node {
-            version: get_version!().to_string(),
+            version: self.network_controller.node_version().to_string(),
             is_outbound: None,
             node_id: self.network_controller.node_id(),
             addresses: self

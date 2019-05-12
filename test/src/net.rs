@@ -86,7 +86,7 @@ impl Net {
 
             Some((
                 NetworkService::new(Arc::clone(&network_state), protocols)
-                    .start(Some("NetworkService"))
+                    .start(Default::default(), Some("NetworkService"))
                     .expect("Start network service failed"),
                 rx,
             ))
