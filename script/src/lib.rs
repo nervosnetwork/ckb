@@ -5,7 +5,6 @@ mod verify;
 use ckb_vm::Error as VMInternalError;
 use serde_derive::{Deserialize, Serialize};
 
-pub use crate::syscalls::build_tx;
 pub use crate::verify::TransactionScriptsVerifier;
 
 #[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Hash, Debug)]

@@ -1,13 +1,17 @@
-use crate::syscalls::{Source, ITEM_MISSING, LOAD_CELL_SYSCALL_NUMBER, SUCCESS};
+use crate::syscalls::{
+    utils::store_data, CellField, Source, INDEX_OUT_OF_BOUND, ITEM_MISSING,
+    LOAD_CELL_BY_FIELD_SYSCALL_NUMBER, LOAD_CELL_SYSCALL_NUMBER, SUCCESS,
+};
+use byteorder::{LittleEndian, WriteBytesExt};
 use ckb_core::cell::{CellMeta, ResolvedOutPoint};
-use ckb_protocol::CellOutput as FbsCellOutput;
+use ckb_core::transaction::CellOutput;
+use ckb_protocol::{CellOutput as FbsCellOutput, Script as FbsScript};
 use ckb_store::LazyLoadCellOutput;
 use ckb_vm::{
-    registers::{A0, A1, A2, A3, A4, A7},
-    Error as VMError, Memory, Register, SupportMachine, Syscalls,
+    registers::{A0, A3, A4, A5, A7},
+    Error as VMError, Register, SupportMachine, Syscalls,
 };
 use flatbuffers::FlatBufferBuilder;
-use std::cmp;
 use std::sync::Arc;
 
 pub struct LoadCell<'a, CS> {
@@ -32,44 +36,27 @@ impl<'a, CS: LazyLoadCellOutput + 'a> LoadCell<'a, CS> {
         }
     }
 
-    fn fetch_cell(&self, source: Source, index: usize) -> Option<&'a CellMeta> {
+    fn fetch_cell(&self, source: Source, index: usize) -> Result<&'a CellMeta, u8> {
         match source {
-            Source::Input => self.resolved_inputs.get(index).and_then(|r| r.cell()),
-            Source::Output => self.outputs.get(index),
-            Source::Dep => self.resolved_deps.get(index).and_then(|r| r.cell()),
+            Source::Input => self
+                .resolved_inputs
+                .get(index)
+                .ok_or(INDEX_OUT_OF_BOUND)
+                .and_then(|r| r.cell().ok_or(ITEM_MISSING)),
+            Source::Output => self.outputs.get(index).ok_or(INDEX_OUT_OF_BOUND),
+            Source::Dep => self
+                .resolved_deps
+                .get(index)
+                .ok_or(INDEX_OUT_OF_BOUND)
+                .and_then(|r| r.cell().ok_or(ITEM_MISSING)),
         }
     }
-}
 
-impl<'a, Mac: SupportMachine, CS: LazyLoadCellOutput> Syscalls<Mac> for LoadCell<'a, CS> {
-    fn initialize(&mut self, _machine: &mut Mac) -> Result<(), VMError> {
-        Ok(())
-    }
-
-    fn ecall(&mut self, machine: &mut Mac) -> Result<bool, VMError> {
-        if machine.registers()[A7].to_u64() != LOAD_CELL_SYSCALL_NUMBER {
-            return Ok(false);
-        }
-        machine.add_cycles(100)?;
-
-        let addr = machine.registers()[A0].to_usize();
-        let size_addr = machine.registers()[A1].to_usize();
-        let size = machine
-            .memory_mut()
-            .load64(&Mac::REG::from_usize(size_addr))?
-            .to_usize();
-
-        let index = machine.registers()[A3].to_usize();
-        let source = Source::parse_from_u64(machine.registers()[A4].to_u64())?;
-
-        let cell = self.fetch_cell(source, index);
-        if cell.is_none() {
-            machine.set_register(A0, Mac::REG::from_u8(ITEM_MISSING));
-            return Ok(true);
-        }
-        let cell = cell.unwrap();
-        let output = self.store.lazy_load_cell_output(&cell);
-
+    fn load_full<Mac: SupportMachine>(
+        &self,
+        machine: &mut Mac,
+        output: &CellOutput,
+    ) -> Result<(u8, usize), VMError> {
         // NOTE: this is a very expensive operation here since we need to copy
         // everything in a cell to a flatbuffer object, serialize the object
         // into a buffer, and then copy requested data to VM memory space. So
@@ -84,18 +71,105 @@ impl<'a, Mac: SupportMachine, CS: LazyLoadCellOutput> Syscalls<Mac> for LoadCell
         builder.finish(offset, None);
         let data = builder.finished_data();
 
-        let offset = machine.registers()[A2].to_usize();
-        let full_size = data.len() - offset;
-        let real_size = cmp::min(size, full_size);
-        machine.memory_mut().store64(
-            &Mac::REG::from_usize(size_addr),
-            &Mac::REG::from_usize(full_size),
-        )?;
-        machine
-            .memory_mut()
-            .store_bytes(addr, &data[offset..offset + real_size])?;
-        machine.set_register(A0, Mac::REG::from_u8(SUCCESS));
-        machine.add_cycles(data.len() as u64 * 100)?;
+        store_data(machine, &data)?;
+        Ok((SUCCESS, data.len()))
+    }
+
+    fn load_by_field<Mac: SupportMachine>(
+        &self,
+        machine: &mut Mac,
+        output: &CellOutput,
+    ) -> Result<(u8, usize), VMError> {
+        let field = CellField::parse_from_u64(machine.registers()[A5].to_u64())?;
+
+        let result = match field {
+            CellField::Capacity => {
+                let mut buffer = vec![];
+                buffer.write_u64::<LittleEndian>(output.capacity.as_u64())?;
+                store_data(machine, &buffer)?;
+                (SUCCESS, buffer.len())
+            }
+            CellField::Data => {
+                store_data(machine, &output.data)?;
+                (SUCCESS, output.data.len())
+            }
+            CellField::DataHash => {
+                let hash = output.data_hash();
+                let bytes = hash.as_bytes();
+                store_data(machine, &bytes)?;
+                (SUCCESS, bytes.len())
+            }
+            CellField::Lock => {
+                let mut builder = FlatBufferBuilder::new();
+                let offset = FbsScript::build(&mut builder, &output.lock);
+                builder.finish(offset, None);
+                let data = builder.finished_data();
+                store_data(machine, data)?;
+                (SUCCESS, data.len())
+            }
+            CellField::LockHash => {
+                let hash = output.lock.hash();
+                let bytes = hash.as_bytes();
+                store_data(machine, &bytes)?;
+                (SUCCESS, bytes.len())
+            }
+            CellField::Type => match output.type_ {
+                Some(ref type_) => {
+                    let mut builder = FlatBufferBuilder::new();
+                    let offset = FbsScript::build(&mut builder, &type_);
+                    builder.finish(offset, None);
+                    let data = builder.finished_data();
+                    store_data(machine, data)?;
+                    (SUCCESS, data.len())
+                }
+                None => (ITEM_MISSING, 0),
+            },
+            CellField::TypeHash => match output.type_ {
+                Some(ref type_) => {
+                    let hash = type_.hash();
+                    let bytes = hash.as_bytes();
+                    store_data(machine, &bytes)?;
+                    (SUCCESS, bytes.len())
+                }
+                None => (ITEM_MISSING, 0),
+            },
+        };
+        Ok(result)
+    }
+}
+
+impl<'a, Mac: SupportMachine, CS: LazyLoadCellOutput> Syscalls<Mac> for LoadCell<'a, CS> {
+    fn initialize(&mut self, _machine: &mut Mac) -> Result<(), VMError> {
+        Ok(())
+    }
+
+    fn ecall(&mut self, machine: &mut Mac) -> Result<bool, VMError> {
+        let load_by_field = match machine.registers()[A7].to_u64() {
+            LOAD_CELL_SYSCALL_NUMBER => false,
+            LOAD_CELL_BY_FIELD_SYSCALL_NUMBER => true,
+            _ => return Ok(false),
+        };
+        machine.add_cycles(100)?;
+
+        let index = machine.registers()[A3].to_usize();
+        let source = Source::parse_from_u64(machine.registers()[A4].to_u64())?;
+
+        let cell = self.fetch_cell(source, index);
+        if cell.is_err() {
+            machine.set_register(A0, Mac::REG::from_u8(cell.unwrap_err()));
+            return Ok(true);
+        }
+        let cell = cell.unwrap();
+        let output = self.store.lazy_load_cell_output(&cell);
+
+        let (return_code, len) = if load_by_field {
+            self.load_by_field(machine, &output)?
+        } else {
+            self.load_full(machine, &output)?
+        };
+
+        machine.add_cycles(len as u64 * 100)?;
+        machine.set_register(A0, Mac::REG::from_u8(return_code));
         Ok(true)
     }
 }

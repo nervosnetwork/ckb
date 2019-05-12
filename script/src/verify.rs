@@ -1,9 +1,6 @@
 use crate::{
     cost_model::instruction_cycles,
-    syscalls::{
-        build_tx, Debugger, LoadCell, LoadCellByField, LoadHeader, LoadInputByField,
-        LoadScriptHash, LoadTx, LoadTxHash,
-    },
+    syscalls::{Debugger, LoadCell, LoadHeader, LoadInput, LoadScriptHash, LoadTxHash},
     Runner, ScriptConfig, ScriptError,
 };
 use ckb_core::cell::{CellMeta, ResolvedOutPoint, ResolvedTransaction};
@@ -19,7 +16,6 @@ use ckb_vm::{
     DefaultCoreMachine, DefaultMachineBuilder, SparseMemory, SupportMachine, TraceMachine,
 };
 use dao::calculate_maximum_withdraw;
-use flatbuffers::FlatBufferBuilder;
 use fnv::FnvHashMap;
 use log::info;
 use numext_fixed_hash::H256;
@@ -42,7 +38,6 @@ pub struct TransactionScriptsVerifier<'a, CS> {
     block_data: FnvHashMap<H256, (BlockNumber, BlockExt)>,
     inputs: Vec<&'a CellInput>,
     outputs: Vec<CellMeta>,
-    tx_builder: FlatBufferBuilder<'a>,
     resolved_inputs: Vec<&'a ResolvedOutPoint>,
     resolved_deps: Vec<&'a ResolvedOutPoint>,
     witnesses: FnvHashMap<u32, &'a [Vec<u8>]>,
@@ -123,16 +118,11 @@ impl<'a, CS: ChainStore> TransactionScriptsVerifier<'a, CS> {
             }
         }
 
-        let mut tx_builder = FlatBufferBuilder::new();
-        let tx_offset = build_tx(&mut tx_builder, &rtx.transaction);
-        tx_builder.finish(tx_offset, None);
-
         TransactionScriptsVerifier {
             store,
             binary_index,
             block_data,
             inputs,
-            tx_builder,
             outputs,
             resolved_inputs,
             resolved_deps,
@@ -146,10 +136,6 @@ impl<'a, CS: ChainStore> TransactionScriptsVerifier<'a, CS> {
         LoadTxHash::new(&self.hash.as_bytes())
     }
 
-    fn build_load_tx(&self) -> LoadTx {
-        LoadTx::new(self.tx_builder.finished_data())
-    }
-
     fn build_load_cell(&'a self) -> LoadCell<'a, CS> {
         LoadCell::new(
             Arc::clone(&self.store),
@@ -159,17 +145,8 @@ impl<'a, CS: ChainStore> TransactionScriptsVerifier<'a, CS> {
         )
     }
 
-    fn build_load_cell_by_field(&'a self) -> LoadCellByField<'a, CS> {
-        LoadCellByField::new(
-            Arc::clone(&self.store),
-            &self.outputs,
-            &self.resolved_inputs,
-            &self.resolved_deps,
-        )
-    }
-
-    fn build_load_input_by_field(&self) -> LoadInputByField {
-        LoadInputByField::new(&self.inputs)
+    fn build_load_input(&self) -> LoadInput {
+        LoadInput::new(&self.inputs)
     }
 
     fn build_load_script_hash(&'a self, hash: &'a [u8]) -> LoadScriptHash<'a> {
@@ -422,10 +399,8 @@ impl<'a, CS: ChainStore> TransactionScriptsVerifier<'a, CS> {
                     .instruction_cycle_func(Box::new(instruction_cycles))
                     .syscall(Box::new(self.build_load_script_hash(current_script_hash)))
                     .syscall(Box::new(self.build_load_tx_hash()))
-                    .syscall(Box::new(self.build_load_tx()))
                     .syscall(Box::new(self.build_load_cell()))
-                    .syscall(Box::new(self.build_load_cell_by_field()))
-                    .syscall(Box::new(self.build_load_input_by_field()))
+                    .syscall(Box::new(self.build_load_input()))
                     .syscall(Box::new(self.build_load_header()))
                     .syscall(Box::new(Debugger::new(prefix)))
                     .build();
@@ -446,10 +421,8 @@ impl<'a, CS: ChainStore> TransactionScriptsVerifier<'a, CS> {
                     .instruction_cycle_func(Box::new(instruction_cycles))
                     .syscall(Box::new(self.build_load_script_hash(current_script_hash)))
                     .syscall(Box::new(self.build_load_tx_hash()))
-                    .syscall(Box::new(self.build_load_tx()))
                     .syscall(Box::new(self.build_load_cell()))
-                    .syscall(Box::new(self.build_load_cell_by_field()))
-                    .syscall(Box::new(self.build_load_input_by_field()))
+                    .syscall(Box::new(self.build_load_input()))
                     .syscall(Box::new(self.build_load_header()))
                     .syscall(Box::new(Debugger::new(prefix)))
                     .build();
