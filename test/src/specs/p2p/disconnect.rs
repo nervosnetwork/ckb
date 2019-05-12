@@ -10,7 +10,7 @@ impl Spec for Disconnect {
         info!("Disconnect node1");
         let node1 = net.nodes.pop().unwrap();
         std::mem::drop(node1);
-        sleep(3);
+        sleep(10);
 
         info!("The address of node1 should be removed from node0's peers");
         let peers = net.nodes[0]
