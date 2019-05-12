@@ -51,6 +51,18 @@ sudo pacman -Sy git gcc pkgconf clang
 brew install autoconf libtool
 ```
 
+### Adding Environment Variables
+
+If your OS contains pre-compiled `rocksdb` or `snappy` libraries,
+you may setup `ROCKSDB_LIB_DIR` and/or `SNAPPY_LIB_DIR` environment variable
+to point to a directory with these libraries.
+This will significantly reduce compile time.
+
+```shell
+export ROCKSDB_LIB_DIR=/usr/local/lib
+export SNAPPY_LIB_DIR=/usr/local/lib
+```
+
 ### Build from source
 
 The `master` branch is regularly built and tested. It is always the latest released version. The default checked out branch `develop` is the latest version in development.
