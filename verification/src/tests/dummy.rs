@@ -5,13 +5,27 @@ use ckb_core::extras::{BlockExt, EpochExt};
 use ckb_core::header::{BlockNumber, Header};
 use ckb_core::transaction::{OutPoint, ProposalShortId, Transaction};
 use ckb_core::uncle::UncleBlock;
+use ckb_db::MemoryKeyValueDB;
+use ckb_script::ScriptConfig;
+use ckb_store::ChainKVStore;
 use ckb_traits::ChainProvider;
 use numext_fixed_hash::H256;
+use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct DummyChainProvider {}
 
 impl ChainProvider for DummyChainProvider {
+    type Store = ChainKVStore<MemoryKeyValueDB>;
+
+    fn store(&self) -> &Arc<ChainKVStore<MemoryKeyValueDB>> {
+        unimplemented!();
+    }
+
+    fn script_config(&self) -> &ScriptConfig {
+        unimplemented!();
+    }
+
     fn block_ext(&self, _hash: &H256) -> Option<BlockExt> {
         unimplemented!();
     }
@@ -53,10 +67,6 @@ impl ChainProvider for DummyChainProvider {
     }
 
     fn get_transaction(&self, _hash: &H256) -> Option<(Transaction, H256)> {
-        unimplemented!();
-    }
-
-    fn contain_transaction(&self, _hash: &H256) -> bool {
         unimplemented!();
     }
 

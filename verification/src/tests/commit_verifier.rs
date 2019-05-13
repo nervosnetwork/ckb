@@ -1,4 +1,4 @@
-use super::super::block_verifier::CommitVerifier;
+use super::super::contextual_block_verifier::CommitVerifier;
 use super::super::error::{CommitError, Error};
 use ckb_chain::chain::{ChainController, ChainService};
 use ckb_chain_spec::consensus::Consensus;
@@ -168,9 +168,8 @@ fn test_proposal() {
     //commit in proposal gap is invalid
     for _ in (proposed + 1)..(proposed + proposal_window.end()) {
         let block: Block = gen_block(&parent, txs20.clone(), vec![], vec![]);
-        let verifier = CommitVerifier::new(shared.clone());
         assert_eq!(
-            verifier.verify(&block),
+            CommitVerifier::new(shared.clone(), &block).verify(),
             Err(Error::Commit(CommitError::Invalid))
         );
 
@@ -185,8 +184,8 @@ fn test_proposal() {
     //commit in proposal window
     for _ in 0..(proposal_window.start() - proposal_window.end()) {
         let block: Block = gen_block(&parent, txs20.clone(), vec![], vec![]);
-        let verifier = CommitVerifier::new(shared.clone());
-        assert_eq!(verifier.verify(&block), Ok(()));
+        let verifier = CommitVerifier::new(shared.clone(), &block);
+        assert_eq!(verifier.verify(), Ok(()));
 
         //test chain forward
         let new_block: Block = gen_block(&parent, vec![], vec![], vec![]);
@@ -198,8 +197,8 @@ fn test_proposal() {
 
     //proposal expired
     let block: Block = gen_block(&parent, txs20.clone(), vec![], vec![]);
-    let verifier = CommitVerifier::new(shared.clone());
-    assert_eq!(verifier.verify(&block), Ok(()));
+    let verifier = CommitVerifier::new(shared.clone(), &block);
+    assert_eq!(verifier.verify(), Ok(()));
 }
 
 #[test]
@@ -240,11 +239,8 @@ fn test_uncle_proposal() {
     //commit in proposal gap is invalid
     for _ in (proposed + 1)..(proposed + proposal_window.end()) {
         let block: Block = gen_block(&parent, txs20.clone(), vec![], vec![]);
-        let verifier = CommitVerifier::new(shared.clone());
-        assert_eq!(
-            verifier.verify(&block),
-            Err(Error::Commit(CommitError::Invalid))
-        );
+        let verifier = CommitVerifier::new(shared.clone(), &block);
+        assert_eq!(verifier.verify(), Err(Error::Commit(CommitError::Invalid)));
 
         //test chain forward
         let new_block: Block = gen_block(&parent, vec![], vec![], vec![]);
@@ -257,8 +253,8 @@ fn test_uncle_proposal() {
     //commit in proposal window
     for _ in 0..(proposal_window.start() - proposal_window.end()) {
         let block: Block = gen_block(&parent, txs20.clone(), vec![], vec![]);
-        let verifier = CommitVerifier::new(shared.clone());
-        assert_eq!(verifier.verify(&block), Ok(()));
+        let verifier = CommitVerifier::new(shared.clone(), &block);
+        assert_eq!(verifier.verify(), Ok(()));
 
         //test chain forward
         let new_block: Block = gen_block(&parent, vec![], vec![], vec![]);
@@ -270,6 +266,6 @@ fn test_uncle_proposal() {
 
     //proposal expired
     let block: Block = gen_block(&parent, txs20.clone(), vec![], vec![]);
-    let verifier = CommitVerifier::new(shared.clone());
-    assert_eq!(verifier.verify(&block), Ok(()));
+    let verifier = CommitVerifier::new(shared.clone(), &block);
+    assert_eq!(verifier.verify(), Ok(()));
 }

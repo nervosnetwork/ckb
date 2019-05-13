@@ -71,20 +71,22 @@ impl<CS: ChainStore> Shared<CS> {
         lock_or_panic(&self.chain_state)
     }
 
-    pub fn script_config(&self) -> &ScriptConfig {
-        &self.script_config
-    }
-
     pub fn lock_txs_verify_cache(&self) -> MutexGuard<LruCache<H256, Cycle>> {
         lock_or_panic(&self.txs_verify_cache)
-    }
-
-    pub fn store(&self) -> &Arc<CS> {
-        &self.store
     }
 }
 
 impl<CS: ChainStore> ChainProvider for Shared<CS> {
+    type Store = CS;
+
+    fn store(&self) -> &Arc<CS> {
+        &self.store
+    }
+
+    fn script_config(&self) -> &ScriptConfig {
+        &self.script_config
+    }
+
     fn block(&self, hash: &H256) -> Option<Block> {
         self.store.get_block(hash)
     }
@@ -123,10 +125,6 @@ impl<CS: ChainStore> ChainProvider for Shared<CS> {
 
     fn get_transaction(&self, hash: &H256) -> Option<(Transaction, H256)> {
         self.store.get_transaction(hash)
-    }
-
-    fn contain_transaction(&self, hash: &H256) -> bool {
-        self.store.get_transaction_address(hash).is_some()
     }
 
     fn get_ancestor(&self, base: &H256, number: BlockNumber) -> Option<Header> {
