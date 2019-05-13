@@ -75,8 +75,8 @@ impl<CS: ChainStore> Shared<CS> {
         &self.script_config
     }
 
-    pub fn txs_verify_cache(&self) -> &Mutex<LruCache<H256, Cycle>> {
-        &self.txs_verify_cache
+    pub fn lock_txs_verify_cache(&self) -> MutexGuard<LruCache<H256, Cycle>> {
+        lock_or_panic(&self.txs_verify_cache)
     }
 
     pub fn store(&self) -> &Arc<CS> {

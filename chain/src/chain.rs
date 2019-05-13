@@ -221,7 +221,7 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
         let mut cell_set_diff = CellSetDiff::default();
         let mut fork = ForkChanges::default();
         let mut chain_state = self.shared.lock_chain_state();
-        let mut txs_verify_cache = self.shared.txs_verify_cache().lock();
+        let mut txs_verify_cache = self.shared.lock_txs_verify_cache();
 
         let parent_ext = self
             .shared

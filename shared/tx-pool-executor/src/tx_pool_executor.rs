@@ -55,7 +55,7 @@ impl<CS: ChainStore> TxPoolExecutor<CS> {
         // early release the chain_state lock because tx verification is slow
         let (resolved_txs, cached_txs, unresolvable_txs, consensus, tip_number) = {
             let chain_state = self.shared.lock_chain_state();
-            let txs_verify_cache = self.shared.txs_verify_cache().lock();
+            let txs_verify_cache = self.shared.lock_txs_verify_cache();
             let consensus = chain_state.consensus();
             let tip_number = chain_state.tip_number();
             let mut resolved_txs = Vec::with_capacity(txs.len());
@@ -119,7 +119,7 @@ impl<CS: ChainStore> TxPoolExecutor<CS> {
         let chain_state = self.shared.lock_chain_state();
         // write cache
         let cycles_vec = {
-            let mut txs_verify_cache = self.shared.txs_verify_cache().lock();
+            let mut txs_verify_cache = self.shared.lock_txs_verify_cache();
             cycles_vec
                 .into_iter()
                 .map(|(i, result)| {

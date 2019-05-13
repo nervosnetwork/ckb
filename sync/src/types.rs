@@ -453,8 +453,8 @@ impl<CS: ChainStore> SyncSharedState<CS> {
     pub fn lock_chain_state(&self) -> MutexGuard<ChainState<CS>> {
         self.shared.lock_chain_state()
     }
-    pub fn txs_verify_cache(&self) -> &Mutex<LruCache<H256, Cycle>> {
-        self.shared.txs_verify_cache()
+    pub fn lock_txs_verify_cache(&self) -> MutexGuard<LruCache<H256, Cycle>> {
+        self.shared.lock_txs_verify_cache()
     }
     pub fn block_header(&self, hash: &H256) -> Option<Header> {
         self.shared.block_header(hash)
