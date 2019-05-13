@@ -57,6 +57,10 @@ pub enum Error {
     Version,
     /// Overflow when do computation for capacity.
     CapacityOverflow,
+    /// Error fetching block reward,
+    CannotFetchBlockReward,
+    /// Fee calculation error
+    FeeCalculation,
 }
 
 impl StdError for Error {}

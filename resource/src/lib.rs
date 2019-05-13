@@ -207,7 +207,7 @@ fn file_system(path: PathBuf) -> Option<Resource> {
     path.canonicalize().ok().map(Resource::FileSystem)
 }
 
-fn bundled(path: PathBuf) -> Option<Resource> {
+pub fn bundled(path: PathBuf) -> Option<Resource> {
     let key = path_as_key(&path);
     if BUNDLED.is_available(&key) {
         Some(Resource::Bundled(key.into_owned()))

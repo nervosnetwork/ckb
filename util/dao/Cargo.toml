@@ -1,18 +1,15 @@
 [package]
-name = "ckb-chain-spec"
+name = "dao"
 version = "0.12.0-pre"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
 
 [dependencies]
-serde = "1.0"
-serde_derive = "1.0"
-toml = "0.5"
+ckb-core = { path = "../../core" }
+failure = "0.1.5"
+occupied-capacity = {path = "../occupied-capacity"}
+
+[dev-dependencies]
 numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 numext-fixed-uint = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
-ckb-core = { path = "../core" }
-ckb-pow = { path = "../pow" }
-ckb-resource = { path = "../resource" }
-occupied-capacity = { path = "../util/occupied-capacity" }
-dao = { path = "../util/dao" }

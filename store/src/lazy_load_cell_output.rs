@@ -1,5 +1,5 @@
+use crate::ChainStore;
 use ckb_core::{cell::CellMeta, transaction::CellOutput};
-use ckb_store::ChainStore;
 
 /// Extend ChainStore
 /// Lazy load cell output from chain store

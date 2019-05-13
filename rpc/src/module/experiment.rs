@@ -1,14 +1,17 @@
 use crate::error::RPCError;
 use ckb_core::cell::{resolve_transaction, CellProvider, CellStatus, HeaderProvider, HeaderStatus};
-use ckb_core::transaction::{OutPoint, Transaction as CoreTransaction};
+use ckb_core::transaction::{OutPoint as CoreOutPoint, Transaction as CoreTransaction};
 use ckb_shared::chain_state::ChainState;
 use ckb_shared::shared::Shared;
 use ckb_store::ChainStore;
 use ckb_verification::ScriptVerifier;
+use dao::calculate_maximum_withdraw;
 use jsonrpc_core::{Error, Result};
 use jsonrpc_derive::rpc;
-use jsonrpc_types::{Cycle, DryRunResult, Transaction};
+use jsonrpc_types::{Capacity, Cycle, DryRunResult, OutPoint, Transaction};
+use log::error;
 use numext_fixed_hash::H256;
+use serde_derive::Serialize;
 use std::convert::TryInto;
 use std::sync::Arc;
 
@@ -19,6 +22,12 @@ pub trait ExperimentRpc {
 
     #[rpc(name = "dry_run_transaction")]
     fn dry_run_transaction(&self, _tx: Transaction) -> Result<DryRunResult>;
+
+    // Calculate the maximum withdraw one can get, given a referenced DAO cell,
+    // and a withdraw block hash
+    #[rpc(name = "calculate_dao_maximum_withdraw")]
+    fn calculate_dao_maximum_withdraw(&self, _out_point: OutPoint, _hash: H256)
+        -> Result<Capacity>;
 }
 
 pub(crate) struct ExperimentRpcImpl<CS> {
@@ -36,6 +45,70 @@ impl<CS: ChainStore + 'static> ExperimentRpc for ExperimentRpcImpl<CS> {
         let chain_state = self.shared.chain_state().lock();
         DryRunner::new(&chain_state).run(tx)
     }
+
+    fn calculate_dao_maximum_withdraw(&self, out_point: OutPoint, hash: H256) -> Result<Capacity> {
+        let chain_state = self.shared.chain_state().lock();
+        match DaoWithdrawCalculator::new(&chain_state).calculate(
+            out_point
+                .clone()
+                .try_into()
+                .map_err(|_| Error::parse_error())?,
+            hash,
+        ) {
+            Ok(capacity) => Ok(capacity),
+            Err(err) => {
+                error!(target: "rpc", "calculate_dao_maximum_withdraw error {:?}", err);
+                Err(Error::internal_error())
+            }
+        }
+    }
+}
+
+#[derive(Serialize, Debug)]
+pub enum DaoWithdrawError {
+    MissingCell,
+    MissingHeader,
+    CalculationError,
+}
+
+pub(crate) struct DaoWithdrawCalculator<'a, CS> {
+    chain_state: &'a ChainState<CS>,
+}
+
+impl<'a, CS: ChainStore> DaoWithdrawCalculator<'a, CS> {
+    pub(crate) fn new(chain_state: &'a ChainState<CS>) -> Self {
+        Self { chain_state }
+    }
+
+    pub(crate) fn calculate(
+        &self,
+        out_point: CoreOutPoint,
+        withdraw_hash: H256,
+    ) -> ::std::result::Result<Capacity, DaoWithdrawError> {
+        let cell_out_point = out_point.cell.ok_or(DaoWithdrawError::MissingCell)?;
+        let (tx, block_hash) = self
+            .chain_state
+            .store()
+            .get_transaction(&cell_out_point.tx_hash)
+            .ok_or(DaoWithdrawError::MissingCell)?;
+        let deposit_ext = self
+            .chain_state
+            .store()
+            .get_block_ext(&block_hash)
+            .ok_or(DaoWithdrawError::MissingHeader)?;
+        let withdraw_ext = self
+            .chain_state
+            .store()
+            .get_block_ext(&withdraw_hash)
+            .ok_or(DaoWithdrawError::MissingHeader)?;
+
+        let output = &tx.outputs()[cell_out_point.index as usize];
+        let withdraw_capacity =
+            calculate_maximum_withdraw(&output, &deposit_ext.dao_stats, &withdraw_ext.dao_stats)
+                .map_err(|_| DaoWithdrawError::CalculationError)?;
+
+        Ok(Capacity(withdraw_capacity))
+    }
 }
 
 // DryRunner dry run given transaction, and return the result, including execution cycles.
@@ -44,7 +117,7 @@ pub(crate) struct DryRunner<'a, CS> {
 }
 
 impl<'a, CS: ChainStore> CellProvider for DryRunner<'a, CS> {
-    fn cell(&self, o: &OutPoint) -> CellStatus {
+    fn cell(&self, o: &CoreOutPoint) -> CellStatus {
         if o.cell.is_none() {
             return CellStatus::Unspecified;
         }
@@ -59,7 +132,7 @@ impl<'a, CS: ChainStore> CellProvider for DryRunner<'a, CS> {
 }
 
 impl<'a, CS: ChainStore> HeaderProvider for DryRunner<'a, CS> {
-    fn header(&self, o: &OutPoint) -> HeaderStatus {
+    fn header(&self, o: &CoreOutPoint) -> HeaderStatus {
         if o.block_hash.is_none() {
             return HeaderStatus::Unspecified;
         }

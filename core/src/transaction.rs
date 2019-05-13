@@ -8,7 +8,7 @@ use bytes::Bytes;
 use ckb_util::LowerHexOption;
 use faster_hex::hex_string;
 use hash::blake2b_256;
-use numext_fixed_hash::H256;
+use numext_fixed_hash::{h256, H256};
 use occupied_capacity::{HasOccupiedCapacity, OccupiedCapacity};
 use serde_derive::{Deserialize, Serialize};
 use std::fmt;
@@ -17,6 +17,15 @@ use std::mem;
 use std::ops::{Deref, DerefMut};
 
 pub const TX_VERSION: Version = 0;
+
+// This is the tx hash used to mark the input is actually a special input for
+// issuing DAO interests. When this is encountered, CKB will skip resolving and
+// script validation. All CKB does is to validate that the transaction has
+// another input referencing a DAO cell(determined by having DAO_CODE_HASH as
+// code hash of lock script). The actual DAO validation logic is left to the
+// unlocking process of the DAO cell. The hex used here is actually
+// "NERVOSDAOINPUT0001" in hex mode.
+pub const ISSUING_DAO_HASH: H256 = h256!("0x4e4552564f5344414f494e50555430303031");
 
 #[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Hash, HasOccupiedCapacity)]
 pub struct CellOutPoint {
@@ -95,6 +104,10 @@ impl OutPoint {
         }
     }
 
+    pub fn new_issuing_dao() -> Self {
+        OutPoint::new_cell(ISSUING_DAO_HASH, 0)
+    }
+
     pub fn null() -> Self {
         OutPoint::default()
     }
@@ -113,6 +126,15 @@ impl OutPoint {
                 .as_ref()
                 .map(|_| H256::size_of())
                 .unwrap_or(0)
+    }
+
+    pub fn is_issuing_dao(&self) -> bool {
+        self.block_hash.is_none()
+            && self
+                .cell
+                .as_ref()
+                .map(|cell| cell.tx_hash == ISSUING_DAO_HASH && cell.index == 0)
+                .unwrap_or(false)
     }
 
     pub fn destruct(self) -> (Option<H256>, Option<CellOutPoint>) {
@@ -428,6 +450,12 @@ impl Transaction {
         self.inputs.len() == 1
             && self.inputs[0].previous_output.is_null()
             && self.inputs[0].since == 0
+    }
+
+    pub fn is_withdrawing_from_dao(&self) -> bool {
+        self.inputs
+            .iter()
+            .any(|input| input.previous_output.is_issuing_dao())
     }
 
     pub fn hash(&self) -> &H256 {

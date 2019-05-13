@@ -44,6 +44,28 @@ pub fn test_capacity_outofbound() {
 }
 
 #[test]
+pub fn test_skip_dao_capacity_check() {
+    let transaction = TransactionBuilder::default()
+        .input(CellInput::new(OutPoint::new_issuing_dao(), 0, vec![]))
+        .output(CellOutput::new(
+            capacity_bytes!(500),
+            Bytes::from(vec![1; 10]),
+            Script::default(),
+            None,
+        ))
+        .build();
+
+    let rtx = ResolvedTransaction {
+        transaction: &transaction,
+        resolved_deps: Vec::new(),
+        resolved_inputs: vec![ResolvedOutPoint::issuing_dao()],
+    };
+    let verifier = CapacityVerifier::new(&rtx);
+
+    assert!(verifier.verify().is_ok());
+}
+
+#[test]
 pub fn test_cellbase_maturity() {
     let transaction = TransactionBuilder::default()
         .output(CellOutput::new(

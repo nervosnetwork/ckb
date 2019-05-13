@@ -4,12 +4,25 @@ use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 use serde_derive::{Deserialize, Serialize};
 
+pub const DEFAULT_ACCUMULATED_RATE: u64 = 10_000_000_000_000_000;
+
 #[derive(Clone, Serialize, Deserialize, PartialEq, Default, Debug)]
 pub struct BlockExt {
     pub received_at: u64,
     pub total_difficulty: U256,
     pub total_uncles_count: u64,
     pub txs_verified: Option<bool>,
+    pub dao_stats: DaoStats,
+}
+
+#[derive(Clone, Serialize, Deserialize, PartialEq, Default, Debug)]
+pub struct DaoStats {
+    // DAO related fields
+    // accmulated rate is multiplied by 10**16 to keep as much decimals
+    // as we can. In this case, we can still represent a maximum value
+    // of around 1844.6744073709551, which is good enough for our case.
+    pub accumulated_rate: u64,
+    pub accumulated_capacity: u64,
 }
 
 #[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Debug)]
