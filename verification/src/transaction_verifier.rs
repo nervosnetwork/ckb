@@ -2,7 +2,7 @@ use crate::error::TransactionError;
 use ckb_core::transaction::{Capacity, CellOutput, Transaction, TX_VERSION};
 use ckb_core::{
     cell::{CellMeta, ResolvedOutPoint, ResolvedTransaction},
-    BlockNumber, Cycle,
+    BlockNumber, Cycle, EpochNumber,
 };
 use ckb_script::{ScriptConfig, TransactionScriptsVerifier};
 use ckb_store::ChainStore;
@@ -292,6 +292,12 @@ const METRIC_TYPE_FLAG_MASK: u64 = 0x6000_0000_0000_0000;
 const VALUE_MASK: u64 = 0x00ff_ffff_ffff_ffff;
 const REMAIN_FLAGS_BITS: u64 = 0x1f00_0000_0000_0000;
 
+enum SinceMetric {
+    BlockNumber(u64),
+    EpochNumber(u64),
+    Timestamp(u64),
+}
+
 /// RFC 0017
 #[derive(Copy, Clone, Debug)]
 struct Since(u64);
@@ -311,39 +317,16 @@ impl Since {
             && ((self.0 & METRIC_TYPE_FLAG_MASK) != (0b0110_0000 << 56))
     }
 
-    fn metric_type_is_number(self) -> bool {
-        (self.0 & METRIC_TYPE_FLAG_MASK) == (0b0000_0000 << 56)
-    }
-
-    fn metric_type_is_epoch_number(self) -> bool {
-        (self.0 & METRIC_TYPE_FLAG_MASK) == (0b0010_0000 << 56)
-    }
-
-    fn metric_type_is_timestamp(self) -> bool {
-        (self.0 & METRIC_TYPE_FLAG_MASK) == (0b0100_0000 << 56)
-    }
-
-    pub fn block_timestamp(self) -> Option<u64> {
-        if self.metric_type_is_timestamp() {
-            Some((self.0 & VALUE_MASK) * 1000)
-        } else {
-            None
-        }
-    }
-
-    pub fn block_number(self) -> Option<u64> {
-        if self.metric_type_is_number() {
-            Some(self.0 & VALUE_MASK)
-        } else {
-            None
-        }
-    }
-
-    pub fn epoch_number(self) -> Option<u64> {
-        if self.metric_type_is_epoch_number() {
-            Some(self.0 & VALUE_MASK)
-        } else {
-            None
+    fn extract_metric(self) -> Option<SinceMetric> {
+        let value = self.0 & VALUE_MASK;
+        match self.0 & METRIC_TYPE_FLAG_MASK {
+            //0b0000_0000
+            0x0000_0000_0000_0000 => Some(SinceMetric::BlockNumber(value)),
+            //0b0010_0000
+            0x2000_0000_0000_0000 => Some(SinceMetric::EpochNumber(value)),
+            //0b0100_0000
+            0x4000_0000_0000_0000 => Some(SinceMetric::Timestamp(value * 1000)),
+            _ => None,
         }
     }
 }
@@ -353,7 +336,7 @@ pub struct SinceVerifier<'a, M> {
     rtx: &'a ResolvedTransaction<'a>,
     block_median_time_context: &'a M,
     tip_number: BlockNumber,
-    tip_epoch_number: BlockNumber,
+    tip_epoch_number: EpochNumber,
     median_timestamps_cache: RefCell<LruCache<BlockNumber, Option<u64>>>,
 }
 
@@ -393,24 +376,27 @@ where
 
     fn verify_absolute_lock(&self, since: Since) -> Result<(), TransactionError> {
         if since.is_absolute() {
-            if let Some(block_number) = since.block_number() {
-                if self.tip_number < block_number {
-                    return Err(TransactionError::Immature);
+            match since.extract_metric() {
+                Some(SinceMetric::BlockNumber(block_number)) => {
+                    if self.tip_number < block_number {
+                        return Err(TransactionError::Immature);
+                    }
                 }
-            }
-
-            if let Some(epoch_number) = since.epoch_number() {
-                if self.tip_epoch_number < epoch_number {
-                    return Err(TransactionError::Immature);
+                Some(SinceMetric::EpochNumber(epoch_number)) => {
+                    if self.tip_epoch_number < epoch_number {
+                        return Err(TransactionError::Immature);
+                    }
                 }
-            }
-
-            if let Some(block_timestamp) = since.block_timestamp() {
-                let tip_timestamp = self
-                    .block_median_time(self.tip_number.saturating_sub(1))
-                    .unwrap_or_else(|| 0);
-                if tip_timestamp < block_timestamp {
-                    return Err(TransactionError::Immature);
+                Some(SinceMetric::Timestamp(timestamp)) => {
+                    let tip_timestamp = self
+                        .block_median_time(self.tip_number.saturating_sub(1))
+                        .unwrap_or_else(|| 0);
+                    if tip_timestamp < timestamp {
+                        return Err(TransactionError::Immature);
+                    }
+                }
+                None => {
+                    return Err(TransactionError::InvalidSince);
                 }
             }
         }
@@ -428,27 +414,30 @@ where
                 Some(ref block_info) => (block_info.number, block_info.epoch),
                 None => return Err(TransactionError::Immature),
             };
-            if let Some(block_number) = since.block_number() {
-                if self.tip_number < cell_block_number + block_number {
-                    return Err(TransactionError::Immature);
+            match since.extract_metric() {
+                Some(SinceMetric::BlockNumber(block_number)) => {
+                    if self.tip_number < cell_block_number + block_number {
+                        return Err(TransactionError::Immature);
+                    }
                 }
-            }
-
-            if let Some(epoch_number) = since.epoch_number() {
-                if self.tip_epoch_number < cell_epoch_number + epoch_number {
-                    return Err(TransactionError::Immature);
+                Some(SinceMetric::EpochNumber(epoch_number)) => {
+                    if self.tip_epoch_number < cell_epoch_number + epoch_number {
+                        return Err(TransactionError::Immature);
+                    }
                 }
-            }
-
-            if let Some(block_timestamp) = since.block_timestamp() {
-                let tip_timestamp = self
-                    .block_median_time(self.tip_number.saturating_sub(1))
-                    .unwrap_or_else(|| 0);
-                let median_timestamp = self
-                    .block_median_time(cell_block_number.saturating_sub(1))
-                    .unwrap_or_else(|| 0);
-                if tip_timestamp < median_timestamp + block_timestamp {
-                    return Err(TransactionError::Immature);
+                Some(SinceMetric::Timestamp(timestamp)) => {
+                    let tip_timestamp = self
+                        .block_median_time(self.tip_number.saturating_sub(1))
+                        .unwrap_or_else(|| 0);
+                    let median_timestamp = self
+                        .block_median_time(cell_block_number.saturating_sub(1))
+                        .unwrap_or_else(|| 0);
+                    if tip_timestamp < median_timestamp + timestamp {
+                        return Err(TransactionError::Immature);
+                    }
+                }
+                None => {
+                    return Err(TransactionError::InvalidSince);
                 }
             }
         }
