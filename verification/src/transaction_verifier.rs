@@ -365,7 +365,7 @@ pub struct SinceVerifier<'a, M> {
     block_median_time_context: &'a M,
     tip_number: BlockNumber,
     tip_epoch_number: EpochNumber,
-    median_timestamps_cache: RefCell<LruCache<BlockNumber, Option<u64>>>,
+    median_timestamps_cache: RefCell<LruCache<BlockNumber, u64>>,
 }
 
 impl<'a, M> SinceVerifier<'a, M>
@@ -388,16 +388,23 @@ where
         }
     }
 
-    fn block_median_time(&self, n: BlockNumber) -> Option<u64> {
+    fn block_median_time(&self, n: BlockNumber) -> u64 {
         let result = self.median_timestamps_cache.borrow().get(&n).cloned();
         match result {
-            Some(r) => r,
+            Some(median_time) => median_time,
             None => {
-                let timestamp = self.block_median_time_context.block_median_time(n);
+                let median_time = self
+                    .block_median_time_context
+                    .get_block_hash(n)
+                    .map(|block_hash| {
+                        self.block_median_time_context
+                            .block_median_time(n, &block_hash)
+                    })
+                    .unwrap_or(0);
                 self.median_timestamps_cache
                     .borrow_mut()
-                    .insert(n, timestamp);
-                timestamp
+                    .insert(n, median_time);
+                median_time
             }
         }
     }
@@ -416,9 +423,7 @@ where
                     }
                 }
                 Some(SinceMetric::Timestamp(timestamp)) => {
-                    let tip_timestamp = self
-                        .block_median_time(self.tip_number.saturating_sub(1))
-                        .unwrap_or_else(|| 0);
+                    let tip_timestamp = self.block_median_time(self.tip_number.saturating_sub(1));
                     if tip_timestamp < timestamp {
                         return Err(TransactionError::Immature);
                     }
@@ -454,12 +459,9 @@ where
                     }
                 }
                 Some(SinceMetric::Timestamp(timestamp)) => {
-                    let tip_timestamp = self
-                        .block_median_time(self.tip_number.saturating_sub(1))
-                        .unwrap_or_else(|| 0);
-                    let median_timestamp = self
-                        .block_median_time(cell_block_number.saturating_sub(1))
-                        .unwrap_or_else(|| 0);
+                    let tip_timestamp = self.block_median_time(self.tip_number.saturating_sub(1));
+                    let median_timestamp =
+                        self.block_median_time(cell_block_number.saturating_sub(1));
                     if tip_timestamp < median_timestamp + timestamp {
                         return Err(TransactionError::Immature);
                     }

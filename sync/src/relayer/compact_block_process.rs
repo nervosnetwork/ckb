@@ -1,7 +1,7 @@
 use crate::relayer::compact_block::CompactBlock;
 use crate::relayer::compact_block_verifier::CompactBlockVerifier;
 use crate::relayer::Relayer;
-use ckb_core::{header::Header, BlockNumber};
+use ckb_core::header::Header;
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::{CompactBlock as FbsCompactBlock, RelayMessage};
 use ckb_shared::shared::Shared;
@@ -95,7 +95,6 @@ impl<'a, CS: ChainStore + 'static> CompactBlockProcess<'a, CS> {
                 );
                 let header_verifier = HeaderVerifier::new(
                     CompactBlockMedianTimeView {
-                        header: &compact_block.header,
                         pending_compact_blocks: &pending_compact_blocks,
                         shared: self.relayer.shared.shared(),
                     },
@@ -155,7 +154,6 @@ impl<'a, CS: ChainStore + 'static> CompactBlockProcess<'a, CS> {
 }
 
 struct CompactBlockMedianTimeView<'a, CS> {
-    header: &'a Header,
     pending_compact_blocks: &'a FnvHashMap<H256, CompactBlock>,
     shared: &'a Shared<CS>,
 }
@@ -180,25 +178,10 @@ where
         self.shared.consensus().median_time_block_count() as u64
     }
 
-    fn timestamp(&self, _n: BlockNumber) -> Option<u64> {
-        None
-    }
-
-    fn ancestor_timestamps(&self, block_number: BlockNumber) -> Vec<u64> {
-        if Some(block_number) != self.header.number().checked_sub(1) {
-            return Vec::new();
-        }
-        let count = std::cmp::min(self.median_block_count(), block_number + 1);
-        let mut block_hash = self.header.parent_hash().to_owned();
-        let mut timestamps: Vec<u64> = Vec::with_capacity(count as usize);
-        for _ in 0..count {
-            let header = match self.get_header(&block_hash) {
-                Some(h) => h,
-                None => break,
-            };
-            timestamps.push(header.timestamp());
-            block_hash = header.parent_hash().to_owned();
-        }
-        timestamps
+    fn timestamp_and_parent(&self, block_hash: &H256) -> (u64, H256) {
+        let header = self
+            .get_header(&block_hash)
+            .expect("[CompactBlockMedianTimeView] blocks used for median time exist");
+        (header.timestamp(), header.parent_hash().to_owned())
     }
 }
