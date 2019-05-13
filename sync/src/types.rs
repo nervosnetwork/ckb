@@ -254,6 +254,7 @@ impl BlocksInflight {
 
     pub fn clear(&mut self) {
         self.blocks.clear();
+        self.update_timestamp();
     }
 }
 
