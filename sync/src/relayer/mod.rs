@@ -164,7 +164,7 @@ impl<CS: ChainStore + 'static> Relayer<CS> {
                 .execute()?;
             }
             RelayPayload::BlockProposal => {
-                BlockProposalProcess::new(&cast!(message.payload_as_block_proposal())?, self)
+                BlockProposalProcess::new(&cast!(message.payload_as_block_proposal())?, self, nc)
                     .execute()?;
             }
             RelayPayload::NONE => {
