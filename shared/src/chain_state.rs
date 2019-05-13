@@ -364,6 +364,8 @@ impl<CS: ChainStore> ChainState<CS> {
                     UnresolvableError::Empty => (),
                     UnresolvableError::UnspecifiedInputCell(_) => (),
                     UnresolvableError::InvalidHeader(_) => (),
+                    // OutOfOrder should only appear in BlockCellProvider
+                    UnresolvableError::OutOfOrder(_) => (),
                 }
                 Err(PoolError::UnresolvableTransaction(err))
             }
