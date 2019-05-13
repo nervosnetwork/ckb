@@ -47,7 +47,11 @@ where
             .or_insert_with(Default::default);
 
         if inflight.timestamp < unix_time_as_millis().saturating_sub(BLOCK_DOWNLOAD_TIMEOUT) {
-            trace!(target: "sync", "[block downloader] inflight block download timeout");
+            debug!(
+                target: "sync", "[block downloader] inflight block download inflight.timestamp {} now {}",
+                inflight.timestamp,
+                unix_time_as_millis()
+            );
             inflight.clear();
         }
 
