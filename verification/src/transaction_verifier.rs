@@ -294,9 +294,9 @@ const REMAIN_FLAGS_BITS: u64 = 0x1f00_0000_0000_0000;
 
 /// RFC 0017
 #[derive(Copy, Clone, Debug)]
-struct ValidSince(u64);
+struct Since(u64);
 
-impl ValidSince {
+impl Since {
     pub fn is_absolute(self) -> bool {
         self.0 & LOCK_TYPE_FLAG == 0
     }
@@ -391,7 +391,7 @@ where
         }
     }
 
-    fn verify_absolute_lock(&self, since: ValidSince) -> Result<(), TransactionError> {
+    fn verify_absolute_lock(&self, since: Since) -> Result<(), TransactionError> {
         if since.is_absolute() {
             if let Some(block_number) = since.block_number() {
                 if self.tip_number < block_number {
@@ -419,7 +419,7 @@ where
 
     fn verify_relative_lock(
         &self,
-        since: ValidSince,
+        since: Since,
         cell_meta: &CellMeta,
     ) -> Result<(), TransactionError> {
         if since.is_relative() {
@@ -470,10 +470,10 @@ where
             if input.since == 0 {
                 continue;
             }
-            let since = ValidSince(input.since);
+            let since = Since(input.since);
             // check remain flags
             if !since.flags_is_valid() {
-                return Err(TransactionError::InvalidValidSince);
+                return Err(TransactionError::InvalidSince);
             }
 
             // verify time lock

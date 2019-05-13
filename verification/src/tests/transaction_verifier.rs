@@ -217,7 +217,7 @@ pub fn test_since() {
     let verifier = SinceVerifier::new(&rtx, &median_time_context, 5, 1);
     assert_eq!(
         verifier.verify().err(),
-        Some(TransactionError::InvalidValidSince)
+        Some(TransactionError::InvalidSince)
     );
 
     // absolute lock
@@ -388,6 +388,6 @@ pub fn test_since() {
     let verifier = SinceVerifier::new(&rtx, &median_time_context, 4, 2);
     assert_eq!(
         verifier.verify().err(),
-        Some(TransactionError::InvalidValidSince)
+        Some(TransactionError::InvalidSince)
     );
 }
