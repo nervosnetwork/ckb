@@ -19,27 +19,42 @@ struct SystemCellHashes {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct SpecHashes {
     pub genesis: H256,
-    pub system_cells_transaction: H256,
+    pub cellbase: H256,
     pub system_cells: Vec<SystemCellHashes>,
 }
 
 impl TryFrom<ChainSpec> for SpecHashes {
     type Error = ExitCode;
 
-    fn try_from(spec: ChainSpec) -> Result<Self, Self::Error> {
-        let consensus = spec.to_consensus().map_err(to_config_error)?;
-        let block = consensus.genesis_block();
-        let cells_tx = &block.transactions()[0];
+    fn try_from(mut spec: ChainSpec) -> Result<Self, Self::Error> {
+        let hash_option = spec.genesis.hash.take();
+        let consensus = spec.build_consensus().map_err(to_config_error)?;
+        if let Some(hash) = hash_option {
+            if hash != *consensus.genesis_hash() {
+                eprintln!(
+                    "Genesis hash unmatched in {} chainspec config file: in file {:#x}, actual {:#x}",
+                    spec.name,
+                    hash,
+                    consensus.genesis_hash()
+                );
+            }
+        }
 
+        let block = consensus.genesis_block();
+        let cellbase = &block.transactions()[0];
+
+        // Zip name with the transaction outputs. System cells start from 1 in the genesis cellbase outputs.
         let cells_hashes = spec
+            .genesis
             .system_cells
+            .resources
             .iter()
-            .zip(cells_tx.outputs())
+            .zip(cellbase.outputs().iter().skip(1))
             .map(|(resource, output)| {
                 let code_hash = output.data_hash();
                 let script_hash = Script::new(vec![], code_hash.to_owned()).hash();
                 SystemCellHashes {
-                    path: format!("{}", resource),
+                    path: resource.to_string(),
                     code_hash,
                     script_hash,
                 }
@@ -48,7 +63,7 @@ impl TryFrom<ChainSpec> for SpecHashes {
 
         Ok(SpecHashes {
             genesis: consensus.genesis_hash().to_owned(),
-            system_cells_transaction: cells_tx.hash().to_owned(),
+            cellbase: cellbase.hash().to_owned(),
             system_cells: cells_hashes,
         })
     }

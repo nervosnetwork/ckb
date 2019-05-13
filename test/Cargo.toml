@@ -16,6 +16,7 @@ ckb-sync = { path = "../sync" }
 ckb-protocol = { path = "../protocol"}
 ckb-util = { path = "../util" }
 ckb-chain-spec = { path = "../spec" }
+ckb-resource = { path = "../resource" }
 numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 tempfile = "3.0"
 jsonrpc-client-core = "0.5.0"
