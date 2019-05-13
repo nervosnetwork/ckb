@@ -1,8 +1,8 @@
 use crate::block::Block;
 use crate::header::Header;
 use crate::transaction::{CellOutPoint, CellOutput, OutPoint, Transaction};
-use crate::BlockNumber;
 use crate::Capacity;
+use crate::{BlockNumber, EpochNumber};
 use ckb_util::LowerHexOption;
 use fnv::{FnvHashMap, FnvHashSet};
 use numext_fixed_hash::H256;
@@ -12,7 +12,7 @@ use std::fmt;
 #[derive(Clone, Debug, Eq, PartialEq, Default, Deserialize, Serialize)]
 pub struct BlockInfo {
     pub number: BlockNumber,
-    pub epoch: BlockNumber,
+    pub epoch: EpochNumber,
 }
 
 #[derive(Clone, Eq, PartialEq, Default, Deserialize, Serialize)]
@@ -89,7 +89,7 @@ impl CellMetaBuilder {
         self
     }
 
-    pub fn epoch_number(mut self, epoch_number: BlockNumber) -> Self {
+    pub fn epoch_number(mut self, epoch_number: EpochNumber) -> Self {
         if let Some(ref mut block_info) = self.block_info {
             block_info.epoch = epoch_number;
         } else {
