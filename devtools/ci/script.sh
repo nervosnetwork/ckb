@@ -25,11 +25,13 @@ if [ "$TRAVIS_PULL_REQUEST" != false ]; then
   else
     RUN_TEST=true
   fi
-else
+elif [ "$TRAVIS_REPO_SLUG" = "nervosnetwork/ckb" ]; then
   RUN_INTEGRATION=true
   if [ "$TRAVIS_BRANCH" = master ]; then
     RUN_TEST=true
   fi
+else
+  RUN_TEST=true
 fi
 
 SUB_JOB_NUMBER="${TRAVIS_JOB_NUMBER##*.}"
