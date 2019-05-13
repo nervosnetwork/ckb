@@ -55,6 +55,8 @@ const FEELER_PROTOCOL_ID: usize = 3;
 
 const ADDR_LIMIT: u32 = 3;
 const FAILED_DIAL_CACHE_SIZE: usize = 100;
+const P2P_SEND_TIMEOUT: Duration = Duration::from_secs(6);
+const P2P_TRY_SEND_INTERVAL: Duration = Duration::from_millis(100);
 
 type MultiaddrList = Vec<(Multiaddr, u8)>;
 
@@ -920,11 +922,11 @@ impl NetworkController {
                     return Ok(());
                 }
                 Err(P2pError::IoError(ref err)) if err.kind() == io::ErrorKind::WouldBlock => {
-                    if now.elapsed() > Duration::from_secs(6) {
+                    if now.elapsed() > P2P_SEND_TIMEOUT {
                         warn!(target: "network", "broadcast message to {} timeout", proto_id);
                         return Err(P2pError::IoError(io::ErrorKind::TimedOut.into()));
                     }
-                    thread::sleep(Duration::from_millis(100));
+                    thread::sleep(P2P_TRY_SEND_INTERVAL);
                 }
                 Err(err) => {
                     warn!(target: "network", "broadcast message to {} failed: {:?}", proto_id, err);
