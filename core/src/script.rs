@@ -108,7 +108,7 @@ mod tests {
 
     #[test]
     fn always_success_script_hash() {
-        let always_success = include_bytes!("../../resource/specs/cells/always_success");
+        let always_success = include_bytes!("../../script/testdata/always_success");
         let always_success_hash: H256 = (&blake2b_256(&always_success[..])).into();
 
         let script = Script::new(vec![], always_success_hash);

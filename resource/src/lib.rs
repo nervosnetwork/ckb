@@ -279,7 +279,6 @@ mod tests {
     fn test_resource_locator_resolve_relative_to() {
         let dir = mkdir();
         let spec_dev_path = touch(dir.path().join("specs/dev.toml"));
-        let always_success_path = touch(dir.path().join("specs/cells/always_success"));
 
         let locator = ResourceLocator::with_root_dir(dir.path().to_path_buf())
             .expect("resource root dir exists");
@@ -298,6 +297,10 @@ mod tests {
             );
             assert_eq!(locator.resolve_relative_to("x".into(), &ckb), None);
             assert_eq!(
+                locator.resolve_relative_to("cells/always_success".into(), &ckb),
+                None,
+            );
+            assert_eq!(
                 locator.resolve_relative_to(spec_dev_path.clone(), &ckb),
                 None,
             );
@@ -308,10 +311,6 @@ mod tests {
             let ckb = Resource::Bundled("specs/dev.toml".into());
 
             assert_eq!(
-                locator.resolve_relative_to("cells/always_success".into(), &ckb),
-                Some(Resource::Bundled("specs/cells/always_success".into()))
-            );
-            assert_eq!(
                 locator.resolve_relative_to("cells/secp256k1_blake160_sighash_all".into(), &ckb),
                 Some(Resource::Bundled(
                     "specs/cells/secp256k1_blake160_sighash_all".into()
@@ -319,7 +318,7 @@ mod tests {
             );
             assert_eq!(locator.resolve_relative_to("x".into(), &ckb), None);
             assert_eq!(
-                locator.resolve_relative_to(always_success_path.clone(), &ckb),
+                locator.resolve_relative_to("cells/always_success".into(), &ckb),
                 None,
             );
         }
@@ -328,10 +327,6 @@ mod tests {
         {
             let spec_dev = Resource::FileSystem(spec_dev_path.clone());
 
-            assert_eq!(
-                locator.resolve_relative_to("cells/always_success".into(), &spec_dev),
-                Some(Resource::FileSystem(always_success_path.clone()))
-            );
             assert_eq!(
                 locator
                     .resolve_relative_to("cells/secp256k1_blake160_sighash_all".into(), &spec_dev),
@@ -342,8 +337,8 @@ mod tests {
             assert_eq!(locator.resolve_relative_to("x".into(), &spec_dev), None);
 
             assert_eq!(
-                locator.resolve_relative_to(always_success_path.clone(), &spec_dev),
-                Some(Resource::FileSystem(always_success_path.clone())),
+                locator.resolve_relative_to("cells/always_success".into(), &spec_dev),
+                None,
             );
             assert_eq!(
                 locator.resolve_relative_to(dir.path().join("ckb.toml"), &spec_dev),

@@ -6,7 +6,7 @@ parent_hash = "0x000000000000000000000000000000000000000000000000000000000000000
 timestamp = 0
 difficulty = "0x100"
 uncles_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
-hash = "0x4c2f8ba5f5a0104eaf84fcbb16af4b0e7ca2f2fdb076e748d54ef876d085d49e"
+hash = "0x88a30dd011f54972757d3122dbdbe626a27a6a52a65997829d60098446fb24e9"
 
 [genesis.seal]
 nonce = 0
@@ -33,4 +33,4 @@ cycle_length = 12
 # An array list paths to system cell files, which is absolute or relative to
 # the directory containing this config file.
 [[system_cells]]
-path = "cells/always_success"
+path = "cells/secp256k1_blake160_sighash_all"

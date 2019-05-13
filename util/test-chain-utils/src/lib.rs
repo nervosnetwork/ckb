@@ -8,7 +8,7 @@ use std::path::Path;
 
 pub fn create_always_success_cell() -> (CellOutput, Script) {
     let mut file = File::open(
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../resource/specs/cells/always_success"),
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../script/testdata/always_success"),
     )
     .unwrap();
     let mut buffer = Vec::new();

@@ -363,7 +363,7 @@ impl Node {
         modify_chain_spec: Box<dyn Fn(&mut ChainSpecConfig) -> ()>,
     ) -> Result<(), Error> {
         let integration_spec = include_bytes!("../integration.toml");
-        let always_success_cell = include_bytes!("../../resource/specs/cells/always_success");
+        let always_success_cell = include_bytes!("../../script/testdata/always_success");
         fs::create_dir_all(format!("{}/specs", self.dir))?;
         fs::create_dir_all(format!("{}/specs/cells", self.dir))?;
         fs::write(
