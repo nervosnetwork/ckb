@@ -90,7 +90,7 @@ fold_start "integration"
 # We'll create PR for develop and rc branches to trigger the integration test.
 if [ "$RUN_INTEGRATION" = true ]; then
   echo "Running integration test..."
-  fold integration make integration
+  make integration
 
   # Switch to release mode when the running time is much longer than the build time.
   # make integration-release
