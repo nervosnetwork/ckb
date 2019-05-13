@@ -1,7 +1,27 @@
 #!/bin/bash
-set -ev
+set -e
 
-cargo sweep -s
+CURRENT_FOLD=
+
+fold_start() {
+  CURRENT_FOLD="script.$1"
+  travis_fold start "$CURRENT_FOLD"
+  travis_time_start
+}
+
+fold_end() {
+  travis_time_finish
+  travis_fold end "$CURRENT_FOLD"
+}
+
+fold() {
+  local title="$1"
+  shift
+  fold_start "$title"
+  echo "\$ $*"
+  "$@"
+  fold_end
+}
 
 # Run test only in master branch and pull requests
 RUN_TEST=false
@@ -20,11 +40,13 @@ if [ "$TRAVIS_PULL_REQUEST" != false ]; then
   else
     RUN_TEST=true
   fi
-else
+elif [ "$TRAVIS_REPO_SLUG" = "nervosnetwork/ckb" ]; then
   RUN_INTEGRATION=true
   if [ "$TRAVIS_BRANCH" = master ]; then
     RUN_TEST=true
   fi
+else
+  RUN_TEST=true
 fi
 
 SUB_JOB_NUMBER="${TRAVIS_JOB_NUMBER##*.}"
@@ -45,35 +67,43 @@ echo "\${FMT} = ${FMT}"
 echo "\${CHECK} = ${CHECK}"
 echo "\${TEST} = ${TEST}"
 
+fold cargo-sweep cargo sweep -s
+
 if [ "$RUN_TEST" = true ]; then
   if [ "$FMT" = true ]; then
-    make fmt
+    fold fmt make fmt
   fi
   if [ "$CHECK" = true ]; then
-    make check
-    make clippy
-    make security-audit
+    fold license make cargo-license
+    fold check make check
+    fold clippy make clippy
+    fold security-audit make security-audit
   fi
   if [ "$TEST" = true ]; then
-    make test
+    fold test make test
   fi
 
   git diff --exit-code Cargo.lock
 fi
 
+fold_start "integration"
 # We'll create PR for develop and rc branches to trigger the integration test.
 if [ "$RUN_INTEGRATION" = true ]; then
   echo "Running integration test..."
-  make integration
+  fold integration make integration
 
   # Switch to release mode when the running time is much longer than the build time.
   # make integration-release
 else
   echo "Skip integration test..."
 fi
+fold_end
 
 # Publish package for release
 if [ -n "$TRAVIS_TAG" -a -n "$GITHUB_TOKEN" -a -n "$REL_PKG" ]; then
+  fold_start "package"
+  echo "Start packaging..."
+
   git fetch --unshallow
   make prod
   rm -rf releases
@@ -93,4 +123,6 @@ if [ -n "$TRAVIS_TAG" -a -n "$GITHUB_TOKEN" -a -n "$REL_PKG" ]; then
     zip -r $PKG_NAME.zip $PKG_NAME
   fi
   popd
+
+  fold_end
 fi
