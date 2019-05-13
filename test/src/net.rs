@@ -126,22 +126,26 @@ impl Net {
             });
     }
 
-    pub fn waiting_for_sync(&self, timeout: u64) {
+    pub fn waiting_for_sync(&self, timeout: u64) -> BlockNumber {
         let mut rpc_clients: Vec<_> = self.nodes.iter().map(Node::rpc_client).collect();
-        let ret = wait_until(timeout, || {
-            rpc_clients
+        let mut tip_numbers: HashSet<_> = HashSet::with_capacity(self.nodes.len());
+        if wait_until(timeout, || {
+            tip_numbers = rpc_clients
                 .iter_mut()
                 .map(|rpc_client| {
                     rpc_client
                         .get_tip_block_number()
                         .call()
                         .expect("rpc call get_tip_block_number failed")
+                        .0
                 })
-                .collect::<HashSet<_>>()
-                .len()
-                == 1
-        });
-        assert!(ret, "timeout to wait for sync");
+                .collect();
+            tip_numbers.len() == 1
+        }) {
+            tip_numbers.iter().next().cloned().unwrap()
+        } else {
+            panic!("timeout to wait for sync, tip_numbers: {:?}", tip_numbers);
+        }
     }
 
     pub fn send(&self, protocol_id: ProtocolId, peer: PeerIndex, data: Bytes) {

@@ -1,7 +1,7 @@
 use crate::utils::{build_compact_block, build_compact_block_with_prefilled, wait_until};
 use crate::{Net, Spec, TestProtocol};
+use ckb_chain_spec::ChainSpecConfig;
 use ckb_core::header::HeaderBuilder;
-use ckb_core::BlockNumber;
 use ckb_network::PeerIndex;
 use ckb_protocol::{get_root, RelayMessage, RelayPayload, SyncMessage, SyncPayload};
 use ckb_sync::NetworkProtocol;
@@ -188,7 +188,9 @@ impl Spec for CompactBlockBasic {
         false
     }
 
-    fn cellbase_maturity(&self) -> Option<BlockNumber> {
-        Some(0)
+    fn modify_chain_spec(&self) -> Box<dyn Fn(&mut ChainSpecConfig) -> ()> {
+        Box::new(|spec_config| {
+            spec_config.params.cellbase_maturity = 5;
+        })
     }
 }

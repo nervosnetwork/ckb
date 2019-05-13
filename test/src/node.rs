@@ -1,5 +1,5 @@
 use crate::rpc::RpcClient;
-use crate::sleep;
+use crate::utils::wait_until;
 use ckb_app_config::{CKBAppConfig, MinerAppConfig};
 use ckb_chain_spec::ChainSpecConfig;
 use ckb_core::block::{Block, BlockBuilder};
@@ -82,7 +82,7 @@ impl Node {
                         process::exit(exit.code().unwrap());
                     }
                     Ok(None) => {
-                        sleep(1);
+                        std::thread::sleep(std::time::Duration::from_secs(1));
                     }
                     Err(error) => {
                         eprintln!("Error: node crashed with reason: {}", error);
@@ -101,7 +101,8 @@ impl Node {
             .expect("rpc call local_node_info failed");
 
         let node_id = node_info.node_id;
-        self.rpc_client()
+        let mut rpc_client = self.rpc_client();
+        rpc_client
             .add_node(
                 node_id.clone(),
                 format!("/ip4/127.0.0.1/tcp/{}", node.p2p_port),
@@ -109,19 +110,15 @@ impl Node {
             .call()
             .expect("rpc call add_node failed");
 
-        for _ in 0..5 {
-            sleep(1);
-            let peers = self
-                .rpc_client()
+        if !wait_until(5, || {
+            let peers = rpc_client
                 .get_peers()
                 .call()
                 .expect("rpc call get_peers failed");
-            if peers.iter().any(|peer| peer.node_id == node_id) {
-                return;
-            }
+            peers.iter().any(|peer| peer.node_id == node_id)
+        }) {
+            panic!("Connect timeout, node {}", node_id);
         }
-
-        panic!("Connect timeout, node {}", node_id);
     }
 
     pub fn disconnect(&self, node: &Node) {
@@ -132,48 +129,48 @@ impl Node {
             .expect("rpc call local_node_info failed");
 
         let node_id = node_info.node_id;
-        self.rpc_client()
+        let mut rpc_client = self.rpc_client();
+        rpc_client
             .remove_node(node_id.clone())
             .call()
             .expect("rpc call add_node failed");
 
-        for _ in 0..5 {
-            sleep(1);
-            let peers = self
-                .rpc_client()
+        if !wait_until(5, || {
+            let peers = rpc_client
                 .get_peers()
                 .call()
                 .expect("rpc call get_peers failed");
-            if peers.iter().all(|peer| peer.node_id != node_id) {
-                return;
-            }
+            peers.iter().all(|peer| peer.node_id != node_id)
+        }) {
+            panic!("Disconnect timeout, node {}", node_id);
         }
-
-        panic!("Disconnect timeout, node {}", node_id);
     }
 
     pub fn waiting_for_sync(&self, node: &Node, timeout: u64) -> BlockNumber {
-        for _ in 0..timeout {
-            sleep(1);
-            let self_tip_number: BlockNumber = self
-                .rpc_client()
+        let mut self_rpc_client = self.rpc_client();
+        let mut node_rpc_client = node.rpc_client();
+        let (mut self_tip_number, mut node_tip_number) = (0, 0);
+
+        if wait_until(timeout, || {
+            self_tip_number = self_rpc_client
                 .get_tip_block_number()
                 .call()
                 .expect("rpc call get_tip_block_number failed")
-                .parse()
-                .unwrap();
-            let node_tip_number: BlockNumber = node
-                .rpc_client()
+                .0;
+            node_tip_number = node_rpc_client
                 .get_tip_block_number()
                 .call()
                 .expect("rpc call get_tip_block_number failed")
-                .parse()
-                .unwrap();
-            if self_tip_number == node_tip_number {
-                return self_tip_number;
-            }
+                .0;
+            self_tip_number == node_tip_number
+        }) {
+            self_tip_number
+        } else {
+            panic!(
+                "Waiting for sync timeout, self_tip_number: {}, node_tip_number: {}",
+                self_tip_number, node_tip_number
+            );
         }
-        panic!("Waiting for sync timeout");
     }
 
     pub fn rpc_client(&self) -> RpcClient<HttpHandle> {
