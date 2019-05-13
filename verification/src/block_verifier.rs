@@ -328,6 +328,12 @@ where
                 )));
             }
 
+            if uncle.proposals().len()
+                > self.provider.consensus().max_block_proposals_limit() as usize
+            {
+                return Err(Error::Uncles(UnclesError::ExceededMaximumProposalsLimit));
+            }
+
             if uncle_header.proposals_hash() != &uncle.cal_proposals_hash() {
                 return Err(Error::Uncles(UnclesError::ProposalsHash));
             }

@@ -114,6 +114,7 @@ pub enum UnclesError {
     Duplicate(H256),
     InvalidInclude(H256),
     InvalidCellbase,
+    ExceededMaximumProposalsLimit,
 }
 
 #[derive(Debug, PartialEq, Clone, Eq)]
