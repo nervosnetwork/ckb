@@ -201,7 +201,7 @@ fn new_chain(
         .build()
         .unwrap();
     let notify = NotifyService::default().start::<&str>(None);
-    let chain_service = ChainService::new(shared.clone(), notify).new();
+    let chain_service = ChainService::new(shared.clone(), notify);
     (
         chain_service.start::<&str>(None),
         shared,

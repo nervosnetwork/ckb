@@ -30,9 +30,11 @@ use std::sync::Arc;
 use std::{cmp, mem, thread};
 use stop_handler::{SignalSender, StopHandler};
 
+type ProcessBlockRequest = Request<(Arc<Block>, bool), Result<(), FailureError>>;
+
 #[derive(Clone)]
 pub struct ChainController {
-    process_block_sender: Sender<Request<(Arc<Block>, bool), Result<(), FailureError>>>,
+    process_block_sender: Sender<ProcessBlockRequest>,
     stop: StopHandler<()>,
 }
 
@@ -50,7 +52,7 @@ impl ChainController {
 }
 
 struct ChainReceivers {
-    process_block_receiver: Receiver<Request<(Arc<Block>, bool), Result<(), FailureError>>>,
+    process_block_receiver: Receiver<ProcessBlockRequest>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
