@@ -39,7 +39,7 @@ impl Spec for PoolReconcile {
         info!("Connect node0 to node1");
         node0.connect(node1);
 
-        net.waiting_for_sync(10);
+        net.waiting_for_sync(9, 10);
 
         info!("Tx should be re-added to node0's pool");
         assert!(node0

@@ -116,20 +116,19 @@ impl Net {
     }
 
     pub fn disconnect_all(&self) {
-        self.nodes
-            .iter()
-            .zip(self.nodes.iter())
-            .for_each(|(node_a, node_b)| {
+        self.nodes.iter().for_each(|node_a| {
+            self.nodes.iter().for_each(|node_b| {
                 if node_a.node_id != node_b.node_id {
                     node_a.disconnect(node_b)
                 }
-            });
+            })
+        });
     }
 
-    pub fn waiting_for_sync(&self, timeout: u64) -> BlockNumber {
+    pub fn waiting_for_sync(&self, target: BlockNumber, timeout: u64) {
         let mut rpc_clients: Vec<_> = self.nodes.iter().map(Node::rpc_client).collect();
-        let mut tip_numbers: HashSet<_> = HashSet::with_capacity(self.nodes.len());
-        if wait_until(timeout, || {
+        let mut tip_numbers: HashSet<BlockNumber> = HashSet::with_capacity(self.nodes.len());
+        if !wait_until(timeout, || {
             tip_numbers = rpc_clients
                 .iter_mut()
                 .map(|rpc_client| {
@@ -140,10 +139,8 @@ impl Net {
                         .0
                 })
                 .collect();
-            tip_numbers.len() == 1
+            tip_numbers.len() == 1 && tip_numbers.iter().next().cloned().unwrap() == target
         }) {
-            tip_numbers.iter().next().cloned().unwrap()
-        } else {
             panic!("timeout to wait for sync, tip_numbers: {:?}", tip_numbers);
         }
     }

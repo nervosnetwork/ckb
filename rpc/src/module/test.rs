@@ -1,8 +1,15 @@
+use ckb_chain::chain::ChainController;
+use ckb_core::block::Block as CoreBlock;
 use ckb_network::NetworkController;
 use ckb_shared::shared::Shared;
 use ckb_store::ChainStore;
-use jsonrpc_core::Result;
+use jsonrpc_core::{Error, Result};
 use jsonrpc_derive::rpc;
+use jsonrpc_types::Block;
+use log::error;
+use numext_fixed_hash::H256;
+use std::convert::TryInto;
+use std::sync::Arc;
 
 #[rpc]
 pub trait IntegrationTestRpc {
@@ -13,11 +20,15 @@ pub trait IntegrationTestRpc {
     // curl -d '{"id": 2, "jsonrpc": "2.0", "method":"remove_node","params": ["QmUsZHPbjjzU627UZFt4k8j6ycEcNvXRnVGxCPKqwbAfQS"]}' -H 'content-type:application/json' 'http://localhost:8114'
     #[rpc(name = "remove_node")]
     fn remove_node(&self, peer_id: String) -> Result<()>;
+
+    #[rpc(name = "process_block_without_verify")]
+    fn process_block_without_verify(&self, data: Block) -> Result<Option<H256>>;
 }
 
 pub(crate) struct IntegrationTestRpcImpl<CS> {
     pub network_controller: NetworkController,
     pub shared: Shared<CS>,
+    pub chain: ChainController,
 }
 
 impl<CS: ChainStore + 'static> IntegrationTestRpc for IntegrationTestRpcImpl<CS> {
@@ -33,5 +44,19 @@ impl<CS: ChainStore + 'static> IntegrationTestRpc for IntegrationTestRpcImpl<CS>
         self.network_controller
             .remove_node(&peer_id.parse().expect("invalid peer_id"));
         Ok(())
+    }
+
+    fn process_block_without_verify(&self, data: Block) -> Result<Option<H256>> {
+        let block: Arc<CoreBlock> = Arc::new(
+            data.try_into()
+                .map_err(|err| Error::invalid_params(format!("parse block error: {}", err)))?,
+        );
+        let ret = self.chain.process_block(Arc::clone(&block), false);
+        if ret.is_ok() {
+            Ok(Some(block.header().hash().to_owned()))
+        } else {
+            error!(target: "rpc", "process_block_without_verify error: {:?}", ret);
+            Ok(None)
+        }
     }
 }

@@ -146,12 +146,12 @@ impl Node {
         }
     }
 
-    pub fn waiting_for_sync(&self, node: &Node, timeout: u64) -> BlockNumber {
+    pub fn waiting_for_sync(&self, node: &Node, target: BlockNumber, timeout: u64) {
         let mut self_rpc_client = self.rpc_client();
         let mut node_rpc_client = node.rpc_client();
         let (mut self_tip_number, mut node_tip_number) = (0, 0);
 
-        if wait_until(timeout, || {
+        if !wait_until(timeout, || {
             self_tip_number = self_rpc_client
                 .get_tip_block_number()
                 .call()
@@ -162,10 +162,8 @@ impl Node {
                 .call()
                 .expect("rpc call get_tip_block_number failed")
                 .0;
-            self_tip_number == node_tip_number
+            self_tip_number == node_tip_number && target == self_tip_number
         }) {
-            self_tip_number
-        } else {
             panic!(
                 "Waiting for sync timeout, self_tip_number: {}, node_tip_number: {}",
                 self_tip_number, node_tip_number
@@ -188,6 +186,15 @@ impl Node {
             .call()
             .expect("rpc call submit_block failed");
         result.expect("submit_block result none")
+    }
+
+    pub fn process_block_without_verify(&self, block: &Block) -> H256 {
+        let result = self
+            .rpc_client()
+            .process_block_without_verify(block.into())
+            .call()
+            .expect("rpc call process_block_without_verify failed");
+        result.expect("process_block_without_verify result none")
     }
 
     pub fn generate_blocks(&self, blocks_num: usize) -> Vec<H256> {

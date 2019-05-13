@@ -47,7 +47,7 @@ impl Spec for PoolResurrect {
 
         info!("Connect node0 to node1, waiting for sync");
         node0.connect(node1);
-        net.waiting_for_sync(10);
+        net.waiting_for_sync(9, 10);
 
         info!("6 txs should be returned to node0 pending pool");
         node0.assert_tx_pool_size(txs_hash.len() as u64, 0);

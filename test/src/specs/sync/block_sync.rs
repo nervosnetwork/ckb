@@ -17,12 +17,8 @@ impl Spec for BlockSyncBasic {
         info!("Connect node0 to node1");
         node0.connect(node1);
 
-        net.waiting_for_sync(10);
-
-        info!("Node1 should be synced to same block number with node0");
-        let number0 = node0.rpc_client().get_tip_block_number().call().unwrap().0;
-        let number1 = node0.rpc_client().get_tip_block_number().call().unwrap().0;
-        assert_eq!(number0, number1);
+        info!("Node1 should be synced to same block number (3) with node0");
+        net.waiting_for_sync(3, 10);
     }
 
     fn num_nodes(&self) -> usize {
