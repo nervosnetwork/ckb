@@ -1194,9 +1194,7 @@ mod tests {
             .build()
             .hash()
             .to_owned();
-        let signature = privkey
-            .sign_recoverable(&blake2b_256(transaction_hash).into())
-            .unwrap();
+        let signature = privkey.sign_recoverable(&transaction_hash).unwrap();
         let signature_der = signature.serialize_der();
         let mut signature_size = vec![];
         signature_size
@@ -1300,9 +1298,7 @@ mod tests {
             .build()
             .hash()
             .to_owned();
-        let signature = privkey
-            .sign_recoverable(&blake2b_256(transaction_hash).into())
-            .unwrap();
+        let signature = privkey.sign_recoverable(&transaction_hash).unwrap();
         let signature_der = signature.serialize_der();
         let mut signature_size = vec![];
         signature_size
@@ -1504,9 +1500,7 @@ mod tests {
             .build()
             .hash()
             .to_owned();
-        let signature = privkey
-            .sign_recoverable(&blake2b_256(transaction_hash).into())
-            .unwrap();
+        let signature = privkey.sign_recoverable(&transaction_hash).unwrap();
         let signature_der = signature.serialize_der();
         let mut signature_size = vec![];
         signature_size
@@ -1609,9 +1603,7 @@ mod tests {
             .build()
             .hash()
             .to_owned();
-        let signature = privkey
-            .sign_recoverable(&blake2b_256(transaction_hash).into())
-            .unwrap();
+        let signature = privkey.sign_recoverable(&transaction_hash).unwrap();
         let signature_der = signature.serialize_der();
         let mut signature_size = vec![];
         signature_size
@@ -1704,9 +1696,7 @@ mod tests {
             .build()
             .hash()
             .to_owned();
-        let signature = privkey
-            .sign_recoverable(&blake2b_256(transaction_hash).into())
-            .unwrap();
+        let signature = privkey.sign_recoverable(&transaction_hash).unwrap();
         let signature_der = signature.serialize_der();
         let mut signature_size = vec![];
         signature_size
@@ -1810,9 +1800,7 @@ mod tests {
             .build()
             .hash()
             .to_owned();
-        let signature = privkey
-            .sign_recoverable(&blake2b_256(transaction_hash).into())
-            .unwrap();
+        let signature = privkey.sign_recoverable(&transaction_hash).unwrap();
         let signature_der = signature.serialize_der();
         let mut signature_size = vec![];
         signature_size
