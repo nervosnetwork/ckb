@@ -1,6 +1,7 @@
 mod linked_hash_set;
 
 use std::fmt;
+use std::time::Duration;
 
 pub use fnv::{FnvBuildHasher, FnvHashMap, FnvHashSet};
 pub use linked_hash_map::{Entries as LinkedHashMapEntries, LinkedHashMap};
@@ -13,6 +14,13 @@ pub type LinkedFnvHashSet<T> = LinkedHashSet<T, FnvBuildHasher>;
 pub use parking_lot::{
     self, Condvar, Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard,
 };
+
+const TRY_LOCK_TIMEOUT: Duration = Duration::from_secs(300);
+
+pub fn lock_or_panic<T>(data: &Mutex<T>) -> MutexGuard<T> {
+    data.try_lock_for(TRY_LOCK_TIMEOUT)
+        .expect("please check if reach a deadlock")
+}
 
 /// Helper macro for reducing boilerplate code for matching `Option` together
 /// with early return.

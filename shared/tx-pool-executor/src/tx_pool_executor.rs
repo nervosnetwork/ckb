@@ -54,8 +54,8 @@ impl<CS: ChainStore> TxPoolExecutor<CS> {
         // resolve txs
         // early release the chain_state lock because tx verification is slow
         let (resolved_txs, cached_txs, unresolvable_txs, consensus, tip_number) = {
-            let chain_state = self.shared.chain_state().lock();
-            let txs_verify_cache = self.shared.txs_verify_cache().lock();
+            let chain_state = self.shared.lock_chain_state();
+            let txs_verify_cache = self.shared.lock_txs_verify_cache();
             let consensus = chain_state.consensus();
             let tip_number = chain_state.tip_number();
             let mut resolved_txs = Vec::with_capacity(txs.len());
@@ -116,10 +116,10 @@ impl<CS: ChainStore> TxPoolExecutor<CS> {
 
         // Add verified txs to pool
         // must lock chain_state before txs_verify_cache to avoid dead lock.
-        let chain_state = self.shared.chain_state().lock();
+        let chain_state = self.shared.lock_chain_state();
         // write cache
         let cycles_vec = {
-            let mut txs_verify_cache = self.shared.txs_verify_cache().lock();
+            let mut txs_verify_cache = self.shared.lock_txs_verify_cache();
             cycles_vec
                 .into_iter()
                 .map(|(i, result)| {
@@ -279,9 +279,7 @@ mod tests {
     #[test]
     fn test_verify_and_add_tx_to_pool() {
         let (shared, always_success_out_point) = setup(10);
-        let last_block = shared
-            .block(&shared.chain_state().lock().tip_hash())
-            .unwrap();
+        let last_block = shared.block(&shared.lock_chain_state().tip_hash()).unwrap();
         let last_cellbase = last_block.transactions().first().unwrap();
 
         // building 10 txs and broadcast some

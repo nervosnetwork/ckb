@@ -27,7 +27,7 @@ where
 {
     pub fn new(synchronizer: Synchronizer<CS>, peer: PeerIndex) -> Self {
         let (tip_header, total_difficulty) = {
-            let chain_state = synchronizer.shared.chain_state().lock();
+            let chain_state = synchronizer.shared.lock_chain_state();
             (
                 chain_state.tip_header().to_owned(),
                 chain_state.total_difficulty().to_owned(),

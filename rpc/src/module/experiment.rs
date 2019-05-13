@@ -42,12 +42,12 @@ impl<CS: ChainStore + 'static> ExperimentRpc for ExperimentRpcImpl<CS> {
 
     fn dry_run_transaction(&self, tx: Transaction) -> Result<DryRunResult> {
         let tx: CoreTransaction = tx.try_into().map_err(|_| Error::parse_error())?;
-        let chain_state = self.shared.chain_state().lock();
+        let chain_state = self.shared.lock_chain_state();
         DryRunner::new(&chain_state).run(tx)
     }
 
     fn calculate_dao_maximum_withdraw(&self, out_point: OutPoint, hash: H256) -> Result<Capacity> {
-        let chain_state = self.shared.chain_state().lock();
+        let chain_state = self.shared.lock_chain_state();
         match DaoWithdrawCalculator::new(&chain_state).calculate(
             out_point
                 .clone()

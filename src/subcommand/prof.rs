@@ -33,7 +33,7 @@ pub fn profile(args: ProfArgs) -> Result<(), ExitCode> {
         })?;
 
     let from = std::cmp::max(1, args.from);
-    let to = std::cmp::min(shared.chain_state().lock().tip_number(), args.to);
+    let to = std::cmp::min(shared.lock_chain_state().tip_number(), args.to);
     info!("start profling, re-process blocks {}..{}:", from, to);
     let now = std::time::Instant::now();
     let tx_count = profile_block_process(shared, tmp_shared, from, to);

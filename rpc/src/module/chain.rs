@@ -73,7 +73,7 @@ impl<CS: ChainStore + 'static> ChainRpc for ChainRpcImpl<CS> {
         let id = ProposalShortId::from_tx_hash(&hash);
 
         let tx = {
-            let chan_state = self.shared.chain_state().lock();
+            let chan_state = self.shared.lock_chain_state();
 
             let tx_pool = chan_state.tx_pool();
             tx_pool
@@ -132,7 +132,7 @@ impl<CS: ChainStore + 'static> ChainRpc for ChainRpcImpl<CS> {
         to: BlockNumber,
     ) -> Result<Vec<CellOutputWithOutPoint>> {
         let mut result = Vec::new();
-        let chain_state = self.shared.chain_state().lock();
+        let chain_state = self.shared.lock_chain_state();
         let from = from.0;
         let to = to.0;
         if from > to {
@@ -185,7 +185,7 @@ impl<CS: ChainStore + 'static> ChainRpc for ChainRpcImpl<CS> {
     }
 
     fn get_live_cell(&self, out_point: OutPoint) -> Result<CellWithStatus> {
-        let mut cell_status = self.shared.chain_state().lock().cell(
+        let mut cell_status = self.shared.lock_chain_state().cell(
             &(out_point
                 .clone()
                 .try_into()

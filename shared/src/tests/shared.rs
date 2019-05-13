@@ -37,7 +37,7 @@ where
 #[test]
 fn test_block_median_time() {
     let shared = new_shared();
-    let chain_state = shared.chain_state().lock();
+    let chain_state = shared.lock_chain_state();
     assert_eq!((&*chain_state).block_median_time(0), Some(0));
     let now = faketime::unix_time_as_millis();
     insert_block_timestamps(shared.store(), &[now]);

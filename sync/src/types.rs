@@ -12,8 +12,8 @@ use ckb_shared::chain_state::ChainState;
 use ckb_shared::shared::Shared;
 use ckb_store::ChainStore;
 use ckb_traits::ChainProvider;
-use ckb_util::Mutex;
 use ckb_util::RwLock;
+use ckb_util::{Mutex, MutexGuard};
 use faketime::unix_time_as_millis;
 use flatbuffers::FlatBufferBuilder;
 use fnv::{FnvHashMap, FnvHashSet};
@@ -419,7 +419,7 @@ pub struct SyncSharedState<CS> {
 impl<CS: ChainStore> SyncSharedState<CS> {
     pub fn new(shared: Shared<CS>) -> SyncSharedState<CS> {
         let (total_difficulty, header, total_uncles_count) = {
-            let chain_state = shared.chain_state().lock();
+            let chain_state = shared.lock_chain_state();
             let block_ext = shared
                 .block_ext(&chain_state.tip_hash())
                 .expect("tip block_ext must exist");
@@ -450,11 +450,11 @@ impl<CS: ChainStore> SyncSharedState<CS> {
     pub fn shared(&self) -> &Shared<CS> {
         &self.shared
     }
-    pub fn chain_state(&self) -> &Mutex<ChainState<CS>> {
-        self.shared.chain_state()
+    pub fn lock_chain_state(&self) -> MutexGuard<ChainState<CS>> {
+        self.shared.lock_chain_state()
     }
-    pub fn txs_verify_cache(&self) -> &Mutex<LruCache<H256, Cycle>> {
-        self.shared.txs_verify_cache()
+    pub fn lock_txs_verify_cache(&self) -> MutexGuard<LruCache<H256, Cycle>> {
+        self.shared.lock_txs_verify_cache()
     }
     pub fn block_header(&self, hash: &H256) -> Option<Header> {
         self.shared.block_header(hash)
@@ -469,14 +469,14 @@ impl<CS: ChainStore> SyncSharedState<CS> {
         self.shared.block(hash)
     }
     pub fn tip_header(&self) -> Header {
-        self.shared.chain_state().lock().tip_header().to_owned()
+        self.shared.lock_chain_state().tip_header().to_owned()
     }
     pub fn consensus(&self) -> &Consensus {
         self.shared.consensus()
     }
     pub fn is_initial_block_download(&self) -> bool {
         unix_time_as_millis()
-            .saturating_sub(self.shared.chain_state().lock().tip_header().timestamp())
+            .saturating_sub(self.shared.lock_chain_state().tip_header().timestamp())
             > MAX_TIP_AGE
     }
 
@@ -669,7 +669,7 @@ impl<CS: ChainStore> SyncSharedState<CS> {
 
     pub fn get_locator_response(&self, block_number: BlockNumber, hash_stop: &H256) -> Vec<Header> {
         // Should not change chain state when get headers from it
-        let chain_state = self.shared.chain_state().lock();
+        let chain_state = self.shared.lock_chain_state();
 
         // NOTE: call `self.tip_header()` will cause deadlock
         let tip_number = chain_state.tip_header().number();

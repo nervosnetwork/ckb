@@ -38,8 +38,7 @@ impl<'a, CS: ChainStore> GetTransactionProcess<'a, CS> {
             let short_id = ProposalShortId::from_tx_hash(&tx_hash);
             self.relayer
                 .shared
-                .chain_state()
-                .lock()
+                .lock_chain_state()
                 .get_tx_with_cycles_from_pool(&short_id)
                 .and_then(|(tx, cycles)| cycles.map(|cycles| (tx, cycles)))
         };

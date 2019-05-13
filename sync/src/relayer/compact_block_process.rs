@@ -73,7 +73,7 @@ impl<'a, CS: ChainStore + 'static> CompactBlockProcess<'a, CS> {
             self.relayer.shared.send_getheaders_to_peer(
                 self.nc.as_ref(),
                 self.peer,
-                self.relayer.shared.chain_state().lock().tip_header(),
+                self.relayer.shared.lock_chain_state().tip_header(),
             );
             return Ok(());
         }
@@ -111,7 +111,7 @@ impl<'a, CS: ChainStore + 'static> CompactBlockProcess<'a, CS> {
 
             // Reconstruct block
             let ret = {
-                let chain_state = self.relayer.shared.chain_state().lock();
+                let chain_state = self.relayer.shared.lock_chain_state();
                 self.relayer.request_proposal_txs(
                     &chain_state,
                     self.nc.as_ref(),

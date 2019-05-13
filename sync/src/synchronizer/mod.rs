@@ -349,7 +349,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
                 let best_known_header = best_known_headers.get(peer);
 
                 let (tip_header, local_total_difficulty) = {
-                    let chain_state = self.shared.chain_state().lock();
+                    let chain_state = self.shared.lock_chain_state();
                     (
                         chain_state.tip_header().to_owned(),
                         chain_state.total_difficulty().to_owned(),
@@ -424,7 +424,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
 
         let tip = {
             let (header, total_difficulty) = {
-                let chain_state = self.shared.chain_state().lock();
+                let chain_state = self.shared.lock_chain_state();
                 (
                     chain_state.tip_header().to_owned(),
                     chain_state.total_difficulty().to_owned(),
@@ -716,7 +716,7 @@ mod tests {
 
         let locator = synchronizer
             .shared
-            .get_locator(shared.chain_state().lock().tip_header());
+            .get_locator(shared.lock_chain_state().tip_header());
 
         let mut expect = Vec::new();
 
@@ -750,7 +750,7 @@ mod tests {
 
         let locator1 = synchronizer1
             .shared
-            .get_locator(shared1.chain_state().lock().tip_header());
+            .get_locator(shared1.lock_chain_state().tip_header());
 
         let latest_common = synchronizer2
             .shared
@@ -818,7 +818,7 @@ mod tests {
         let synchronizer2 = gen_synchronizer(chain_controller2.clone(), shared2.clone());
         let locator1 = synchronizer1
             .shared
-            .get_locator(shared1.chain_state().lock().tip_header());
+            .get_locator(shared1.lock_chain_state().tip_header());
 
         let latest_common = synchronizer2
             .shared
@@ -850,19 +850,19 @@ mod tests {
 
         let header = synchronizer
             .shared
-            .get_ancestor(&shared.chain_state().lock().tip_hash(), 100);
+            .get_ancestor(&shared.lock_chain_state().tip_hash(), 100);
         let tip = synchronizer
             .shared
-            .get_ancestor(&shared.chain_state().lock().tip_hash(), 199);
+            .get_ancestor(&shared.lock_chain_state().tip_hash(), 199);
         let noop = synchronizer
             .shared
-            .get_ancestor(&shared.chain_state().lock().tip_hash(), 200);
+            .get_ancestor(&shared.lock_chain_state().tip_hash(), 200);
         assert!(tip.is_some());
         assert!(header.is_some());
         assert!(noop.is_none());
         assert_eq!(
             tip.unwrap(),
-            shared.chain_state().lock().tip_header().to_owned()
+            shared.lock_chain_state().tip_header().to_owned()
         );
         assert_eq!(
             header.unwrap(),
@@ -904,7 +904,7 @@ mod tests {
         });
         assert_eq!(
             chain1_last_block.header(),
-            shared2.chain_state().lock().tip_header()
+            shared2.lock_chain_state().tip_header()
         );
     }
 
@@ -1046,7 +1046,7 @@ mod tests {
 
         let locator1 = synchronizer1
             .shared
-            .get_locator(&shared1.chain_state().lock().tip_header());
+            .get_locator(&shared1.lock_chain_state().tip_header());
 
         for i in 1..=num {
             let j = if i > 192 { i + 1 } else { i };
@@ -1200,7 +1200,7 @@ mod tests {
         let (chain_controller, shared, _notify) = start_chain(Some(consensus), None);
 
         assert_eq!(
-            shared.chain_state().lock().total_difficulty(),
+            shared.lock_chain_state().total_difficulty(),
             &U256::from(2u64)
         );
 
@@ -1241,7 +1241,7 @@ mod tests {
             // where we checked against our tip.
             // Either way, set a new timeout based on current tip.
             let (tip, total_difficulty) = {
-                let chain_state = shared.chain_state().lock();
+                let chain_state = shared.lock_chain_state();
                 let header = chain_state.tip_header().to_owned();
                 let total_difficulty = chain_state.total_difficulty().to_owned();
                 (header, total_difficulty)

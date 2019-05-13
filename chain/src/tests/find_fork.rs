@@ -56,7 +56,7 @@ fn test_find_fork_case1() {
             .unwrap();
     }
 
-    let tip_number = { shared.chain_state().lock().tip_number() };
+    let tip_number = { shared.lock_chain_state().tip_number() };
 
     // fork2 total_difficulty 470
     let new_block = gen_block(&parent, U256::from(200u64), vec![], vec![], vec![]);
@@ -134,7 +134,7 @@ fn test_find_fork_case2() {
             .unwrap();
     }
 
-    let tip_number = { shared.chain_state().lock().tip_number() };
+    let tip_number = { shared.lock_chain_state().tip_number() };
 
     let difficulty = parent.difficulty().to_owned();
     let new_block = gen_block(
@@ -218,7 +218,7 @@ fn test_find_fork_case3() {
             .unwrap();
     }
 
-    let tip_number = { shared.chain_state().lock().tip_number() };
+    let tip_number = { shared.lock_chain_state().tip_number() };
 
     let new_block = gen_block(&parent, U256::from(100u64), vec![], vec![], vec![]);
     fork2.push(new_block.clone());
@@ -294,7 +294,7 @@ fn test_find_fork_case4() {
             .unwrap();
     }
 
-    let tip_number = { shared.chain_state().lock().tip_number() };
+    let tip_number = { shared.lock_chain_state().tip_number() };
 
     let new_block = gen_block(&parent, U256::from(100u64), vec![], vec![], vec![]);
     fork2.push(new_block.clone());
