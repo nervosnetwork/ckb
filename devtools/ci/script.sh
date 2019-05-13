@@ -1,7 +1,12 @@
 #!/bin/bash
-set -ev
+set -e
 
-cargo sweep -s
+run_task() {
+  echo "\$ $*"
+  time "$@"
+}
+
+run_task cargo sweep -s
 
 # Run test only in master branch and pull requests
 RUN_TEST=false
@@ -47,15 +52,15 @@ echo "\${TEST} = ${TEST}"
 
 if [ "$RUN_TEST" = true ]; then
   if [ "$FMT" = true ]; then
-    make fmt
+    run_task make fmt
   fi
   if [ "$CHECK" = true ]; then
-    make check
-    make clippy
-    make security-audit
+    run_task make check
+    run_task make clippy
+    run_task make security-audit
   fi
   if [ "$TEST" = true ]; then
-    make test
+    run_task make test
   fi
 
   git diff --exit-code Cargo.lock
@@ -64,7 +69,7 @@ fi
 # We'll create PR for develop and rc branches to trigger the integration test.
 if [ "$RUN_INTEGRATION" = true ]; then
   echo "Running integration test..."
-  make integration
+  run_task make integration
 
   # Switch to release mode when the running time is much longer than the build time.
   # make integration-release

@@ -1,5 +1,5 @@
 #!/bin/bash
-set -ev
+set -e
 
 cargo sweep --version || cargo install --git https://github.com/holmgr/cargo-sweep --rev 4770deda37a2203c783e301b8c0c895964e8971e
 
