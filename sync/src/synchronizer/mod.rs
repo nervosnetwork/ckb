@@ -41,7 +41,8 @@ use std::time::{Duration, Instant};
 pub const SEND_GET_HEADERS_TOKEN: u64 = 0;
 pub const BLOCK_FETCH_TOKEN: u64 = 1;
 pub const TIMEOUT_EVICTION_TOKEN: u64 = 2;
-const SYNC_NOTIFY_INTERVAL: Duration = Duration::from_millis(200);
+const SYNC_NOTIFY_INTERVAL: Duration = Duration::from_millis(1000);
+const SYNC_CHECK_INTERVAL: Duration = Duration::from_millis(2000);
 
 bitflags! {
     pub struct BlockStatus: u32 {
@@ -495,9 +496,9 @@ impl<CS: ChainStore> Synchronizer<CS> {
 impl<CS: ChainStore> CKBProtocolHandler for Synchronizer<CS> {
     fn init(&mut self, nc: Arc<dyn CKBProtocolContext + Sync>) {
         // NOTE: 100ms is what bitcoin use.
-        nc.set_notify(SYNC_NOTIFY_INTERVAL, SEND_GET_HEADERS_TOKEN);
+        nc.set_notify(SYNC_CHECK_INTERVAL, SEND_GET_HEADERS_TOKEN);
         nc.set_notify(SYNC_NOTIFY_INTERVAL, BLOCK_FETCH_TOKEN);
-        nc.set_notify(SYNC_NOTIFY_INTERVAL, TIMEOUT_EVICTION_TOKEN);
+        nc.set_notify(SYNC_CHECK_INTERVAL, TIMEOUT_EVICTION_TOKEN);
     }
 
     fn received(
