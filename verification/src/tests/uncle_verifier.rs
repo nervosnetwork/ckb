@@ -1,6 +1,6 @@
 use super::super::block_verifier::UnclesVerifier;
 use super::super::error::{Error, UnclesError};
-use ckb_chain::chain::{ChainBuilder, ChainController};
+use ckb_chain::chain::{ChainController, ChainService};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::extras::EpochExt;
@@ -50,9 +50,7 @@ fn start_chain(
     let shared = builder.build().unwrap();
 
     let notify = NotifyService::default().start::<&str>(None);
-    let chain_service = ChainBuilder::new(shared.clone(), notify)
-        .verification(false)
-        .build();
+    let chain_service = ChainService::new(shared.clone(), notify);
     let chain_controller = chain_service.start::<&str>(None);
     (chain_controller, shared)
 }
@@ -94,7 +92,7 @@ fn test_uncle_verifier() {
             .unwrap_or(parent_epoch);
         let new_block = gen_block(&parent, i, &epoch);
         chain_controller
-            .process_block(Arc::new(new_block.clone()))
+            .process_block(Arc::new(new_block.clone()), false)
             .expect("process block ok");
         chain1.push(new_block.clone());
         parent = new_block.header().to_owned();
@@ -110,7 +108,7 @@ fn test_uncle_verifier() {
             .unwrap_or(parent_epoch);
         let new_block = gen_block(&parent, i + 1000, &epoch);
         chain_controller
-            .process_block(Arc::new(new_block.clone()))
+            .process_block(Arc::new(new_block.clone()), false)
             .expect("process block ok");
         chain2.push(new_block.clone());
         parent = new_block.header().to_owned();

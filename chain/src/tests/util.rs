@@ -1,4 +1,4 @@
-use crate::chain::{ChainBuilder, ChainController};
+use crate::chain::{ChainController, ChainService};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::Block;
 use ckb_core::block::BlockBuilder;
@@ -31,7 +31,6 @@ fn create_always_success_out_point() -> OutPoint {
 
 pub(crate) fn start_chain(
     consensus: Option<Consensus>,
-    verification: bool,
 ) -> (ChainController, Shared<ChainKVStore<MemoryKeyValueDB>>) {
     let builder = SharedBuilder::<MemoryKeyValueDB>::new();
     let shared = builder
@@ -47,9 +46,7 @@ pub(crate) fn start_chain(
         .unwrap();
 
     let notify = NotifyService::default().start::<&str>(None);
-    let chain_service = ChainBuilder::new(shared.clone(), notify)
-        .verification(verification)
-        .build();
+    let chain_service = ChainService::new(shared.clone(), notify);
     let chain_controller = chain_service.start::<&str>(None);
     (chain_controller, shared)
 }

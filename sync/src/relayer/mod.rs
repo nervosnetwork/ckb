@@ -213,7 +213,7 @@ impl<CS: ChainStore + 'static> Relayer<CS> {
     }
 
     pub fn accept_block(&self, nc: &CKBProtocolContext, peer: PeerIndex, block: &Arc<Block>) {
-        let ret = self.chain.process_block(Arc::clone(&block));
+        let ret = self.chain.process_block(Arc::clone(&block), true);
 
         if ret.is_ok() {
             debug!(target: "relay", "[block_relay] relayer accept_block {:x} {}", block.header().hash(), unix_time_as_millis());

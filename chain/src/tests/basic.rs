@@ -39,7 +39,7 @@ fn test_genesis_transaction_spend() {
         .build();
 
     let consensus = Consensus::default().set_genesis_block(genesis_block);
-    let (chain_controller, shared) = start_chain(Some(consensus), false);
+    let (chain_controller, shared) = start_chain(Some(consensus));
 
     let end = 21;
 
@@ -62,7 +62,7 @@ fn test_genesis_transaction_spend() {
 
     for block in &blocks1[0..10] {
         assert!(chain_controller
-            .process_block(Arc::new(block.clone()))
+            .process_block(Arc::new(block.clone()), false)
             .is_ok());
     }
 
@@ -77,7 +77,7 @@ fn test_genesis_transaction_spend() {
 
 #[test]
 fn test_transaction_spend_in_same_block() {
-    let (chain_controller, shared) = start_chain(None, true);
+    let (chain_controller, shared) = start_chain(None);
     let mut chain: Vec<Block> = Vec::new();
     let mut parent = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
     {
@@ -152,7 +152,7 @@ fn test_transaction_spend_in_same_block() {
     }
     for block in &chain {
         chain_controller
-            .process_block(Arc::new(block.clone()))
+            .process_block(Arc::new(block.clone()), true)
             .expect("process block ok");
     }
 
@@ -187,7 +187,7 @@ fn test_transaction_spend_in_same_block() {
 
 #[test]
 fn test_transaction_conflict_in_same_block() {
-    let (chain_controller, shared) = start_chain(None, true);
+    let (chain_controller, shared) = start_chain(None);
     let mut chain: Vec<Block> = Vec::new();
     let mut parent = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
     {
@@ -249,7 +249,7 @@ fn test_transaction_conflict_in_same_block() {
     }
     for block in chain.iter().take(3) {
         chain_controller
-            .process_block(Arc::new(block.clone()))
+            .process_block(Arc::new(block.clone()), true)
             .expect("process block ok");
     }
     assert_eq!(
@@ -258,7 +258,7 @@ fn test_transaction_conflict_in_same_block() {
             0
         ))),
         chain_controller
-            .process_block(Arc::new(chain[3].clone()))
+            .process_block(Arc::new(chain[3].clone()), true)
             .unwrap_err()
             .downcast()
             .unwrap()
@@ -267,7 +267,7 @@ fn test_transaction_conflict_in_same_block() {
 
 #[test]
 fn test_transaction_conflict_in_different_blocks() {
-    let (chain_controller, shared) = start_chain(None, true);
+    let (chain_controller, shared) = start_chain(None);
     let mut chain: Vec<Block> = Vec::new();
     let mut parent = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
     {
@@ -341,7 +341,7 @@ fn test_transaction_conflict_in_different_blocks() {
     }
     for block in chain.iter().take(4) {
         chain_controller
-            .process_block(Arc::new(block.clone()))
+            .process_block(Arc::new(block.clone()), true)
             .expect("process block ok");
     }
     assert_eq!(
@@ -350,7 +350,7 @@ fn test_transaction_conflict_in_different_blocks() {
             0
         ))),
         chain_controller
-            .process_block(Arc::new(chain[4].clone()))
+            .process_block(Arc::new(chain[4].clone()), true)
             .unwrap_err()
             .downcast()
             .unwrap()
@@ -359,7 +359,7 @@ fn test_transaction_conflict_in_different_blocks() {
 
 #[test]
 fn test_invalid_out_point_index_in_same_block() {
-    let (chain_controller, shared) = start_chain(None, true);
+    let (chain_controller, shared) = start_chain(None);
     let mut chain: Vec<Block> = Vec::new();
     let mut parent = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
     {
@@ -422,7 +422,7 @@ fn test_invalid_out_point_index_in_same_block() {
     }
     for block in chain.iter().take(3) {
         chain_controller
-            .process_block(Arc::new(block.clone()))
+            .process_block(Arc::new(block.clone()), true)
             .expect("process block ok");
     }
     assert_eq!(
@@ -431,7 +431,7 @@ fn test_invalid_out_point_index_in_same_block() {
             1,
         )])),
         chain_controller
-            .process_block(Arc::new(chain[3].clone()))
+            .process_block(Arc::new(chain[3].clone()), true)
             .unwrap_err()
             .downcast()
             .unwrap()
@@ -440,7 +440,7 @@ fn test_invalid_out_point_index_in_same_block() {
 
 #[test]
 fn test_invalid_out_point_index_in_different_blocks() {
-    let (chain_controller, shared) = start_chain(None, true);
+    let (chain_controller, shared) = start_chain(None);
     let mut chain: Vec<Block> = Vec::new();
     let mut parent = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
     {
@@ -515,7 +515,7 @@ fn test_invalid_out_point_index_in_different_blocks() {
     }
     for block in chain.iter().take(4) {
         chain_controller
-            .process_block(Arc::new(block.clone()))
+            .process_block(Arc::new(block.clone()), true)
             .expect("process block ok");
     }
 
@@ -525,7 +525,7 @@ fn test_invalid_out_point_index_in_different_blocks() {
             1,
         )])),
         chain_controller
-            .process_block(Arc::new(chain[4].clone()))
+            .process_block(Arc::new(chain[4].clone()), true)
             .unwrap_err()
             .downcast()
             .unwrap()
@@ -555,7 +555,7 @@ fn test_genesis_transaction_fetch() {
         .build();
 
     let consensus = Consensus::default().set_genesis_block(genesis_block);
-    let (_chain_controller, shared) = start_chain(Some(consensus), false);
+    let (_chain_controller, shared) = start_chain(Some(consensus));
 
     let out_point = OutPoint::new_cell(root_hash, 0);
     let state = shared.chain_state().lock().cell(&out_point);
@@ -564,7 +564,7 @@ fn test_genesis_transaction_fetch() {
 
 #[test]
 fn test_chain_fork_by_total_difficulty() {
-    let (chain_controller, shared) = start_chain(None, false);
+    let (chain_controller, shared) = start_chain(None);
     let final_number = 20;
 
     let mut chain1: Vec<Block> = Vec::new();
@@ -601,13 +601,13 @@ fn test_chain_fork_by_total_difficulty() {
 
     for block in &chain1 {
         chain_controller
-            .process_block(Arc::new(block.clone()))
+            .process_block(Arc::new(block.clone()), false)
             .expect("process block ok");
     }
 
     for block in &chain2 {
         chain_controller
-            .process_block(Arc::new(block.clone()))
+            .process_block(Arc::new(block.clone()), false)
             .expect("process block ok");
     }
     assert_eq!(
@@ -618,7 +618,7 @@ fn test_chain_fork_by_total_difficulty() {
 
 #[test]
 fn test_chain_fork_by_hash() {
-    let (chain_controller, shared) = start_chain(None, false);
+    let (chain_controller, shared) = start_chain(None);
     let final_number = 20;
 
     let mut chain1: Vec<Block> = Vec::new();
@@ -654,13 +654,13 @@ fn test_chain_fork_by_hash() {
 
     for block in &chain1 {
         chain_controller
-            .process_block(Arc::new(block.clone()))
+            .process_block(Arc::new(block.clone()), false)
             .expect("process block ok");
     }
 
     for block in &chain2 {
         chain_controller
-            .process_block(Arc::new(block.clone()))
+            .process_block(Arc::new(block.clone()), false)
             .expect("process block ok");
     }
 
@@ -689,7 +689,7 @@ fn test_chain_fork_by_hash() {
 
 #[test]
 fn test_chain_get_ancestor() {
-    let (chain_controller, shared) = start_chain(None, false);
+    let (chain_controller, shared) = start_chain(None);
     let final_number = 20;
 
     let mut chain1: Vec<Block> = Vec::new();
@@ -725,13 +725,13 @@ fn test_chain_get_ancestor() {
 
     for block in &chain1 {
         chain_controller
-            .process_block(Arc::new(block.clone()))
+            .process_block(Arc::new(block.clone()), false)
             .expect("process block ok");
     }
 
     for block in &chain2 {
         chain_controller
-            .process_block(Arc::new(block.clone()))
+            .process_block(Arc::new(block.clone()), false)
             .expect("process block ok");
     }
 
@@ -759,7 +759,7 @@ fn test_next_epoch_ext() {
     consensus.genesis_epoch_ext.set_length(400);
     let epoch = consensus.genesis_epoch_ext.clone();
 
-    let (chain_controller, shared) = start_chain(Some(consensus.clone()), false);
+    let (chain_controller, shared) = start_chain(Some(consensus.clone()));
     let final_number = shared.consensus().genesis_epoch_ext().length();
 
     let mut chain1: Vec<Block> = Vec::new();
@@ -774,7 +774,7 @@ fn test_next_epoch_ext() {
             .unwrap_or(last_epoch);
         let new_block = gen_block(&parent, epoch.difficulty().clone(), vec![], vec![], vec![]);
         chain_controller
-            .process_block(Arc::new(new_block.clone()))
+            .process_block(Arc::new(new_block.clone()), false)
             .expect("process block ok");
         chain1.push(new_block.clone());
         parent = new_block.header().clone();
@@ -793,7 +793,7 @@ fn test_next_epoch_ext() {
         }
         let new_block = gen_block(&parent, epoch.difficulty().clone(), vec![], vec![], uncles);
         chain_controller
-            .process_block(Arc::new(new_block.clone()))
+            .process_block(Arc::new(new_block.clone()), false)
             .expect("process block ok");
         chain2.push(new_block.clone());
         parent = new_block.header().clone();
@@ -841,11 +841,11 @@ fn test_next_epoch_ext() {
         );
     }
 
-    let (chain_controller, shared) = start_chain(Some(consensus.clone()), false);
+    let (chain_controller, shared) = start_chain(Some(consensus.clone()));
     let mut chain2: Vec<Block> = Vec::new();
     for i in 1..final_number - 1 {
         chain_controller
-            .process_block(Arc::new(chain1[(i - 1) as usize].clone()))
+            .process_block(Arc::new(chain1[(i - 1) as usize].clone()), false)
             .expect("process block ok");
     }
 
@@ -860,7 +860,7 @@ fn test_next_epoch_ext() {
         }
         let new_block = gen_block(&parent, epoch.difficulty().clone(), vec![], vec![], uncles);
         chain_controller
-            .process_block(Arc::new(new_block.clone()))
+            .process_block(Arc::new(new_block.clone()), false)
             .expect("process block ok");
         chain2.push(new_block.clone());
         parent = new_block.header().clone();
@@ -880,11 +880,11 @@ fn test_next_epoch_ext() {
         assert_eq!(epoch.difficulty(), &U256::from(1000u64));
     }
 
-    let (chain_controller, shared) = start_chain(Some(consensus.clone()), false);
+    let (chain_controller, shared) = start_chain(Some(consensus.clone()));
     let mut chain2: Vec<Block> = Vec::new();
     for i in 1..final_number - 1 {
         chain_controller
-            .process_block(Arc::new(chain1[(i - 1) as usize].clone()))
+            .process_block(Arc::new(chain1[(i - 1) as usize].clone()), false)
             .expect("process block ok");
     }
 
@@ -900,7 +900,7 @@ fn test_next_epoch_ext() {
         }
         let new_block = gen_block(&parent, epoch.difficulty().clone(), vec![], vec![], uncles);
         chain_controller
-            .process_block(Arc::new(new_block.clone()))
+            .process_block(Arc::new(new_block.clone()), false)
             .expect("process block ok");
         chain2.push(new_block.clone());
         parent = new_block.header().clone();

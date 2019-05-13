@@ -1,5 +1,5 @@
 use ckb_app_config::{ExitCode, ProfArgs};
-use ckb_chain::chain::ChainBuilder;
+use ckb_chain::chain::ChainService;
 use ckb_db::{CacheDB, DBConfig, RocksDB};
 use ckb_notify::NotifyService;
 use ckb_shared::shared::{Shared, SharedBuilder};
@@ -54,7 +54,7 @@ fn profile_block_process<CS: ChainStore + 'static>(
     to: u64,
 ) -> usize {
     let notify = NotifyService::default().start::<&str>(Some("notify"));
-    let chain = ChainBuilder::new(tmp_shared, notify).build();
+    let chain = ChainService::new(tmp_shared, notify);
     let chain_controller = chain.start(Some("chain"));
     let mut tx_count = 0;
     for index in from..=to {
@@ -63,7 +63,9 @@ fn profile_block_process<CS: ChainStore + 'static>(
             shared.store().get_block(&block_hash).unwrap()
         };
         tx_count += block.transactions().len();
-        chain_controller.process_block(Arc::new(block)).unwrap();
+        chain_controller
+            .process_block(Arc::new(block), true)
+            .unwrap();
     }
     tx_count
 }

@@ -10,8 +10,6 @@ use std::thread;
 use std::time::Duration;
 
 #[cfg(not(disable_faketime))]
-mod relayer;
-#[cfg(not(disable_faketime))]
 mod synchronizer;
 
 const DEFAULT_CHANNEL: usize = 128;
@@ -130,16 +128,6 @@ impl TestNode {
                 });
             }
         }
-    }
-
-    pub fn broadcast(&self, protocol: ProtocolId, msg: &[u8]) {
-        self.msg_senders
-            .iter()
-            .for_each(|((protocol_id, _), sender)| {
-                if *protocol_id == protocol {
-                    let _ = sender.send(msg.into());
-                }
-            })
     }
 }
 
