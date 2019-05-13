@@ -2,7 +2,7 @@
 use crate::NetworkState;
 use fnv::FnvHashMap;
 use futures::{sync::mpsc, sync::oneshot, try_ready, Async, Future, Stream};
-use log::{debug, trace, warn};
+use log::{debug, error, trace, warn};
 use std::{sync::Arc, time::Duration};
 
 use p2p::{
@@ -60,7 +60,9 @@ impl ServiceProtocol for DiscoveryProtocol {
                     })
             })
             .expect("Discovery init only once");
-        context.future_task(discovery_task);
+        if let Err(err) = context.future_task(discovery_task) {
+            error!(target: "network", "Start discovery_task failed: {:?}", err);
+        }
     }
 
     fn connected(&mut self, context: ProtocolContextMutRef, _: &str) {

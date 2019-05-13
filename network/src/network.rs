@@ -40,6 +40,7 @@ use p2p_identify::IdentifyProtocol;
 use p2p_ping::PingHandler;
 use std::boxed::Box;
 use std::cmp::max;
+use std::io;
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -54,6 +55,8 @@ const FEELER_PROTOCOL_ID: usize = 3;
 
 const ADDR_LIMIT: u32 = 3;
 const FAILED_DIAL_CACHE_SIZE: usize = 100;
+const P2P_SEND_TIMEOUT: Duration = Duration::from_secs(6);
+const P2P_TRY_SEND_INTERVAL: Duration = Duration::from_millis(100);
 
 type MultiaddrList = Vec<(Multiaddr, u8)>;
 
@@ -420,7 +423,9 @@ impl ServiceHandle for EventHandler {
                 error,
             } => {
                 warn!(target: "network", "ProtocolError({}, {}) {}", id, proto_id, error);
-                context.disconnect(id);
+                if let Err(err) = context.disconnect(id) {
+                    warn!(target: "network", "Disconnect failed: {:?}", err);
+                }
             }
             ServiceError::SessionTimeout { session_context } => {
                 warn!(
@@ -441,7 +446,6 @@ impl ServiceHandle for EventHandler {
                     session_context.address,
                     error,
                 );
-                context.disconnect(session_context.id)
             }
             _ => {
                 warn!(target: "network", "p2p service error: {:?}", error);
@@ -483,7 +487,9 @@ impl ServiceHandle for EventHandler {
                                 evicted_peer.session_id,
                                 evicted_peer.address,
                             );
-                            context.disconnect(evicted_peer.session_id);
+                            if let Err(err) = context.disconnect(evicted_peer.session_id) {
+                                warn!(target: "network", "Disconnect failed: {:?}", err);
+                            }
                         }
                         Ok(None) => info!(
                             target: "network",
@@ -499,7 +505,9 @@ impl ServiceHandle for EventHandler {
                                 session_context.id,
                                 session_context.address,
                             );
-                            context.disconnect(session_context.id);
+                            if let Err(err) = context.disconnect(session_context.id) {
+                                warn!(target: "network", "Disconnect failed: {:?}", err);
+                            }
                         }
                     }
                 }
@@ -608,7 +616,9 @@ impl ServiceHandle for EventHandler {
                         .disconnecting_sessions
                         .write()
                         .insert(session_id);
-                    context.disconnect(session_id);
+                    if let Err(err) = context.disconnect(session_id) {
+                        warn!(target: "network", "Disconnect failed: {:?}", err);
+                    }
                 }
             }
             _ => {}
@@ -891,20 +901,61 @@ impl NetworkController {
         })
     }
 
-    pub fn broadcast(&self, proto_id: ProtocolId, data: Bytes) {
-        let session_ids = self.network_state.peer_registry.read().connected_peers();
-        if let Err(err) =
-            self.p2p_control
-                .filter_broadcast(TargetSession::Multi(session_ids), proto_id, data)
-        {
-            warn!(target: "network", "broadcast message to {} failed: {:?}", proto_id, err);
+    fn try_broadcast(
+        &self,
+        quick: bool,
+        target: TargetSession,
+        proto_id: ProtocolId,
+        data: Bytes,
+    ) -> Result<(), P2pError> {
+        let now = Instant::now();
+        loop {
+            let result = if quick {
+                self.p2p_control
+                    .quick_filter_broadcast(target.clone(), proto_id, data.clone())
+            } else {
+                self.p2p_control
+                    .filter_broadcast(target.clone(), proto_id, data.clone())
+            };
+            match result {
+                Ok(()) => {
+                    return Ok(());
+                }
+                Err(P2pError::IoError(ref err)) if err.kind() == io::ErrorKind::WouldBlock => {
+                    if now.elapsed() > P2P_SEND_TIMEOUT {
+                        warn!(target: "network", "broadcast message to {} timeout", proto_id);
+                        return Err(P2pError::IoError(io::ErrorKind::TimedOut.into()));
+                    }
+                    thread::sleep(P2P_TRY_SEND_INTERVAL);
+                }
+                Err(err) => {
+                    warn!(target: "network", "broadcast message to {} failed: {:?}", proto_id, err);
+                    return Err(err);
+                }
+            }
         }
     }
 
-    pub fn send_message_to(&self, session_id: SessionId, proto_id: ProtocolId, data: Bytes) {
-        if let Err(err) = self.p2p_control.send_message_to(session_id, proto_id, data) {
-            warn!(target: "network", "send message to {} {} failed: {:?}", session_id, proto_id, err);
-        }
+    pub fn broadcast(&self, proto_id: ProtocolId, data: Bytes) -> Result<(), P2pError> {
+        let session_ids = self.network_state.peer_registry.read().connected_peers();
+        let target = TargetSession::Multi(session_ids.clone());
+        self.try_broadcast(false, target, proto_id, data)
+    }
+
+    pub fn quick_broadcast(&self, proto_id: ProtocolId, data: Bytes) -> Result<(), P2pError> {
+        let session_ids = self.network_state.peer_registry.read().connected_peers();
+        let target = TargetSession::Multi(session_ids.clone());
+        self.try_broadcast(true, target, proto_id, data)
+    }
+
+    pub fn send_message_to(
+        &self,
+        session_id: SessionId,
+        proto_id: ProtocolId,
+        data: Bytes,
+    ) -> Result<(), P2pError> {
+        let target = TargetSession::Single(session_id);
+        self.try_broadcast(false, target, proto_id, data)
     }
 }
 

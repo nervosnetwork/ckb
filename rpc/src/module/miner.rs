@@ -98,8 +98,12 @@ impl<CS: ChainStore + 'static> MinerRpc for MinerRpcImpl<CS> {
                 let message = RelayMessage::build_compact_block(fbb, &block, &HashSet::new());
                 fbb.finish(message, None);
                 let data = fbb.finished_data().into();
-                self.network_controller
-                    .broadcast(NetworkProtocol::RELAY.into(), data);
+                if let Err(err) = self
+                    .network_controller
+                    .quick_broadcast(NetworkProtocol::RELAY.into(), data)
+                {
+                    error!(target: "rpc", "Broadcast block failed: {:?}", err);
+                }
                 Ok(Some(block.header().hash().to_owned()))
             } else {
                 error!(target: "rpc", "[{}] submit_block process_block {:?}", work_id, ret);

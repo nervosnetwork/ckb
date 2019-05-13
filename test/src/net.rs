@@ -134,7 +134,8 @@ impl Net {
             .as_ref()
             .unwrap()
             .0
-            .send_message_to(peer, protocol_id, data);
+            .send_message_to(peer, protocol_id, data)
+            .expect("Send message to p2p network failed");
     }
 
     pub fn receive(&self) -> NetMessage {
