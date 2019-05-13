@@ -1,12 +1,27 @@
 #!/bin/bash
 set -e
 
-run_task() {
-  echo "\$ $*"
-  time "$@"
+CURRENT_FOLD=
+
+fold_start() {
+  CURRENT_FOLD="script.$1"
+  travis_fold start "$CURRENT_FOLD"
+  travis_time_start
 }
 
-run_task cargo sweep -s
+fold_end() {
+  travis_time_finish
+  travis_fold end "$CURRENT_FOLD"
+}
+
+fold() {
+  local title="$1"
+  shift
+  fold_start "$title"
+  echo "\$ $*"
+  "$@"
+  fold_end
+}
 
 # Run test only in master branch and pull requests
 RUN_TEST=false
@@ -52,35 +67,43 @@ echo "\${FMT} = ${FMT}"
 echo "\${CHECK} = ${CHECK}"
 echo "\${TEST} = ${TEST}"
 
+fold cargo-sweep cargo sweep -s
+
 if [ "$RUN_TEST" = true ]; then
   if [ "$FMT" = true ]; then
-    run_task make fmt
+    fold fmt make fmt
   fi
   if [ "$CHECK" = true ]; then
-    run_task make check
-    run_task make clippy
-    run_task make security-audit
+    fold license make cargo-license
+    fold check make check
+    fold clippy make clippy
+    fold security-audit make security-audit
   fi
   if [ "$TEST" = true ]; then
-    run_task make test
+    fold test make test
   fi
 
   git diff --exit-code Cargo.lock
 fi
 
+fold_start "integration"
 # We'll create PR for develop and rc branches to trigger the integration test.
 if [ "$RUN_INTEGRATION" = true ]; then
   echo "Running integration test..."
-  run_task make integration
+  fold integration make integration
 
   # Switch to release mode when the running time is much longer than the build time.
   # make integration-release
 else
   echo "Skip integration test..."
 fi
+fold_end
 
 # Publish package for release
 if [ -n "$TRAVIS_TAG" -a -n "$GITHUB_TOKEN" -a -n "$REL_PKG" ]; then
+  fold_start "package"
+  echo "Start packaging..."
+
   git fetch --unshallow
   make prod
   rm -rf releases
@@ -100,4 +123,6 @@ if [ -n "$TRAVIS_TAG" -a -n "$GITHUB_TOKEN" -a -n "$REL_PKG" ]; then
     zip -r $PKG_NAME.zip $PKG_NAME
   fi
   popd
+
+  fold_end
 fi

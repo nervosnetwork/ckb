@@ -33,7 +33,12 @@ addons:
       - texinfo
       - libtool
 
-before_install: if [ "$TRAVIS_OS_NAME" = "osx" ]; then ulimit -n 8192; fi
+before_install:
+  - if [ "$TRAVIS_OS_NAME" = "osx" ]; then ulimit -n 8192; fi
+  - export -f travis_nanoseconds
+  - export -f travis_fold
+  - export -f travis_time_start
+  - export -f travis_time_finish
 install: ./devtools/ci/install.sh
 script: ./devtools/ci/script.sh
 
@@ -48,6 +53,6 @@ deploy:
     condition: '"$GITHUB_TOKEN" != "" && "$REL_PKG" != ""'
 
 before_cache:
-- rm -rf ./target/release
-- rm -rf ./target/debug/incremental/
-- cargo sweep -f
+  - rm -rf ./target/release
+  - rm -rf ./target/debug/incremental/
+  - cargo sweep -f
